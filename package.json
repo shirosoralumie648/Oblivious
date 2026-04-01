@@ -1,0 +1,11 @@
+{
+  "name": "oblivious",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.6.0",
+  "scripts": {
+    "dev": "bash ./scripts/dev.sh",
+    "test": "bash ./scripts/test.sh",
+    "check": "bash ./scripts/check.sh"
+  }
+}
