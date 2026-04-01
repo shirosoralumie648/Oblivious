@@ -21,7 +21,7 @@ const routes: RouteObject[] = [
 ];
 
 export function createAppRouter(initialEntries?: string[]) {
-  if (initialEntries) {
+  if (initialEntries && initialEntries.length > 0) {
     return createMemoryRouter(routes, { initialEntries });
   }
 
