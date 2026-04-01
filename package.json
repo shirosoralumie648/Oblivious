@@ -1,0 +1,16 @@
+{
+  "name": "oblivious",
+  "private": true,
+  "packageManager": "pnpm@10.0.0",
+  "scripts": {
+    "dev": "bash scripts/dev.sh",
+    "test": "bash scripts/test.sh",
+    "check": "bash scripts/check.sh",
+    "dev:web": "COREPACK_HOME=.tmp/corepack pnpm --dir src/web dev",
+    "test:web": "COREPACK_HOME=.tmp/corepack pnpm --dir src/web test",
+    "check:web": "COREPACK_HOME=.tmp/corepack pnpm --dir src/web check",
+    "dev:server": "if [ -d src/server/cmd/server ]; then go run ./src/server/cmd/server; elif [ -d src/server/cmd/api ]; then go run ./src/server/cmd/api; else echo '[dev:server] Skipping: src/server not present yet.'; fi",
+    "test:server": "if [ -d src/server ]; then cd src/server && go test ./...; else echo '[test:server] Skipping: src/server not present yet.'; fi",
+    "check:server": "if [ -d src/server ]; then cd src/server && go test ./...; else echo '[check:server] Skipping: src/server not present yet.'; fi"
+  }
+}
