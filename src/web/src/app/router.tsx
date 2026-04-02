@@ -13,18 +13,24 @@ import { BillingPage } from '../routes/console/BillingPage';
 import { ConsoleHomePage } from '../routes/console/ConsoleHomePage';
 import { ModelsPage } from '../routes/console/ModelsPage';
 import { UsagePage } from '../routes/console/UsagePage';
+import { DownloadPage } from '../routes/marketing/DownloadPage';
 import { HomePage } from '../routes/marketing/HomePage';
 import { LoginPage } from '../routes/marketing/LoginPage';
+import { PricingPage } from '../routes/marketing/PricingPage';
 import { RegisterPage } from '../routes/marketing/RegisterPage';
 import { ChatPage } from '../routes/workspace/ChatPage';
+import { KnowledgePage } from '../routes/workspace/KnowledgePage';
 import { OnboardingPage } from '../routes/workspace/OnboardingPage';
 import { SettingsPage } from '../routes/workspace/SettingsPage';
+import { SoloPage } from '../routes/workspace/SoloPage';
 
 const routes: RouteObject[] = [
   {
     element: <MarketingLayout />,
     children: [
       { path: '/', element: <HomePage /> },
+      { path: '/pricing', element: <PricingPage /> },
+      { path: '/download', element: <DownloadPage /> },
       { path: '/login', element: <LoginPage /> },
       { path: '/register', element: <RegisterPage /> }
     ]
@@ -38,6 +44,8 @@ const routes: RouteObject[] = [
           { path: '/onboarding', element: <OnboardingPage /> },
           { path: '/chat', element: <ChatPage /> },
           { path: '/chat/:conversationId', element: <ChatPage /> },
+          { path: '/solo', element: <SoloPage /> },
+          { path: '/knowledge', element: <KnowledgePage /> },
           { path: '/settings', element: <SettingsPage /> }
         ]
       }

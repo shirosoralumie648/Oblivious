@@ -23,6 +23,32 @@ describe('app router', () => {
     expect(screen.getByText('AI workspace framework')).toBeInTheDocument();
   });
 
+  it('renders pricing content on /pricing', () => {
+    const router = createAppRouter(['/pricing']);
+
+    render(
+      <AppProviders>
+        <RouterProvider router={router} />
+      </AppProviders>
+    );
+
+    expect(screen.getByText('Pricing')).toBeInTheDocument();
+    expect(screen.getByText('Choose a plan that matches your workload.')).toBeInTheDocument();
+  });
+
+  it('renders download content on /download', () => {
+    const router = createAppRouter(['/download']);
+
+    render(
+      <AppProviders>
+        <RouterProvider router={router} />
+      </AppProviders>
+    );
+
+    expect(screen.getByText('Download')).toBeInTheDocument();
+    expect(screen.getByText('Pick the client that fits your device and workflow.')).toBeInTheDocument();
+  });
+
   it('shows session loading for protected workspace routes', () => {
     const router = createAppRouter(['/chat']);
 
@@ -49,6 +75,30 @@ describe('app router', () => {
 
   it('renders onboarding route content', () => {
     const router = createAppRouter(['/onboarding']);
+
+    render(
+      <AppProviders>
+        <RouterProvider router={router} />
+      </AppProviders>
+    );
+
+    expect(screen.getByText('Loading session…')).toBeInTheDocument();
+  });
+
+  it('shows session loading for the protected solo route', () => {
+    const router = createAppRouter(['/solo']);
+
+    render(
+      <AppProviders>
+        <RouterProvider router={router} />
+      </AppProviders>
+    );
+
+    expect(screen.getByText('Loading session…')).toBeInTheDocument();
+  });
+
+  it('shows session loading for the protected knowledge route', () => {
+    const router = createAppRouter(['/knowledge']);
 
     render(
       <AppProviders>

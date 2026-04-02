@@ -3,7 +3,9 @@ package chat
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"oblivious/server/internal/auth"
 )
@@ -40,17 +42,33 @@ type Store interface {
 	) (ConversationConfig, error)
 }
 
+type UsageRecord struct {
+	ConversationID string
+	InputTokens    int
+	ModelID        string
+	OutputTokens   int
+	RequestCount   int
+	UserID         string
+	WorkspaceID    string
+}
+
+type UsageRecorder interface {
+	RecordChatUsage(ctx context.Context, record UsageRecord) error
+}
+
 type Service struct {
 	defaultModelID string
 	replyGenerator ReplyGenerator
 	store          Store
+	usageRecorder  UsageRecorder
 }
 
-func NewService(store Store, replyGenerator ReplyGenerator, defaultModelID string) *Service {
+func NewService(store Store, replyGenerator ReplyGenerator, defaultModelID string, usageRecorder UsageRecorder) *Service {
 	return &Service{
 		defaultModelID: defaultModelID,
 		replyGenerator: replyGenerator,
 		store:          store,
+		usageRecorder:  usageRecorder,
 	}
 }
 
@@ -177,7 +195,39 @@ func (s *Service) SendMessage(ctx context.Context, session auth.Session, convers
 		return nil, err
 	}
 
+	if s.usageRecorder != nil {
+		if err := s.usageRecorder.RecordChatUsage(ctx, UsageRecord{
+			ConversationID: conversationID,
+			InputTokens:    estimateTokens(content),
+			ModelID:        effectiveConfig.ModelID,
+			OutputTokens:   estimateTokens(reply),
+			RequestCount:   1,
+			UserID:         session.User.ID,
+			WorkspaceID:    session.WorkspaceID,
+		}); err != nil {
+			return nil, err
+		}
+	}
+
 	return s.store.ListMessages(ctx, conversationID, session.WorkspaceID)
+}
+
+func estimateTokens(text string) int {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return 0
+	}
+
+	runeCount := utf8.RuneCountInString(trimmed)
+	tokenCount := runeCount / 4
+	if runeCount%4 != 0 {
+		tokenCount++
+	}
+	if tokenCount < 1 {
+		return 1
+	}
+
+	return tokenCount
 }
 
 type SQLStore struct {

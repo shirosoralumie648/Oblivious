@@ -52,6 +52,7 @@ func testDatabase(t *testing.T) *sql.DB {
 		`CREATE TABLE messages (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE, role TEXT NOT NULL, content TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL)`,
 		`CREATE TABLE conversation_configs (conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE, model_id TEXT NOT NULL DEFAULT 'demo-reply', system_prompt_override TEXT NOT NULL DEFAULT '', temperature DOUBLE PRECISION NOT NULL DEFAULT 1, max_output_tokens INTEGER NOT NULL DEFAULT 1024, tools_enabled BOOLEAN NOT NULL DEFAULT FALSE, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE user_preferences (user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, onboarding_completed BOOLEAN NOT NULL DEFAULT FALSE, default_mode TEXT NOT NULL DEFAULT 'chat', model_strategy TEXT NOT NULL DEFAULT 'balanced', network_enabled_hint BOOLEAN NOT NULL DEFAULT FALSE, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE TABLE usage_records (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE, conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL, model_id TEXT NOT NULL, request_count INTEGER NOT NULL, input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 	}
 	for _, statement := range statements {
 		if _, err := database.Exec(statement); err != nil {
@@ -178,6 +179,73 @@ func TestConversationAndMessageFlow(t *testing.T) {
 	router.ServeHTTP(messagesRecorder, messagesRequest)
 	if messagesRecorder.Code != stdhttp.StatusOK {
 		t.Fatalf("list messages expected 200, got %d", messagesRecorder.Code)
+	}
+}
+
+func TestConsoleUsageReflectsRecordedChatRequests(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+
+	registerRecorder := httptest.NewRecorder()
+	registerRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/auth/register", strings.NewReader(`{"email":"usage@example.com","password":"secret"}`))
+	registerRequest.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(registerRecorder, registerRequest)
+	cookie := registerRecorder.Result().Cookies()[0]
+
+	createConversationRecorder := httptest.NewRecorder()
+	createConversationRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/conversations", strings.NewReader(`{"title":"Usage chat"}`))
+	createConversationRequest.Header.Set("Content-Type", "application/json")
+	createConversationRequest.AddCookie(cookie)
+	router.ServeHTTP(createConversationRecorder, createConversationRequest)
+
+	var createdConversation struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(createConversationRecorder.Body.Bytes(), &createdConversation); err != nil {
+		t.Fatalf("decode conversation response: %v", err)
+	}
+
+	sendRecorder := httptest.NewRecorder()
+	sendRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/conversations/"+createdConversation.Data.ID+"/messages", strings.NewReader(`{"content":"track this request"}`))
+	sendRequest.Header.Set("Content-Type", "application/json")
+	sendRequest.AddCookie(cookie)
+	router.ServeHTTP(sendRecorder, sendRequest)
+	if sendRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("send message expected 200, got %d", sendRecorder.Code)
+	}
+
+	var usageCount int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM usage_records`).Scan(&usageCount); err != nil {
+		t.Fatalf("count usage records: %v", err)
+	}
+	if usageCount != 1 {
+		t.Fatalf("expected 1 usage record, got %d", usageCount)
+	}
+
+	usageRecorder := httptest.NewRecorder()
+	usageRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/console/usage", nil)
+	usageRequest.AddCookie(cookie)
+	router.ServeHTTP(usageRecorder, usageRequest)
+	if usageRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("console usage expected 200, got %d with body %s", usageRecorder.Code, usageRecorder.Body.String())
+	}
+
+	var usageResponse struct {
+		Data struct {
+			Period   string `json:"period"`
+			Requests int    `json:"requests"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(usageRecorder.Body.Bytes(), &usageResponse); err != nil {
+		t.Fatalf("decode usage response: %v", err)
+	}
+	if usageResponse.Data.Period != "7d" {
+		t.Fatalf("expected period 7d, got %q", usageResponse.Data.Period)
+	}
+	if usageResponse.Data.Requests != 1 {
+		t.Fatalf("expected requests 1, got %d", usageResponse.Data.Requests)
 	}
 }
 

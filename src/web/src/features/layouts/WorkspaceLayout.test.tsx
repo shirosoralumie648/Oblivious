@@ -1,0 +1,51 @@
+import { render, screen } from '@testing-library/react';
+import { RouterProvider, createMemoryRouter } from 'react-router-dom';
+import { describe, expect, it, vi } from 'vitest';
+
+const appContext = vi.hoisted(() => ({
+  authState: {
+    preferences: {
+      defaultMode: 'chat',
+      modelStrategy: 'balanced',
+      networkEnabledHint: false,
+      onboardingCompleted: true
+    },
+    status: 'authenticated',
+    user: { email: 'user@example.com', id: 'u1' }
+  },
+  authStore: {
+    clearUser: vi.fn()
+  },
+  refreshAuthState: vi.fn()
+}));
+
+vi.mock('../../app/providers', () => ({
+  useAppContext: () => appContext
+}));
+
+import { WorkspaceLayout } from './WorkspaceLayout';
+
+describe('WorkspaceLayout', () => {
+  it('renders workspace navigation with a console entry', () => {
+    const router = createMemoryRouter(
+      [
+        {
+          path: '/',
+          element: <WorkspaceLayout />,
+          children: [{ index: true, element: <p>Workspace child</p> }]
+        }
+      ],
+      { initialEntries: ['/'] }
+    );
+
+    render(<RouterProvider router={router} />);
+
+    expect(screen.getByText('Workspace')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Chat' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'SOLO' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Knowledge' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Console' })).toBeInTheDocument();
+    expect(screen.getByText('Workspace child')).toBeInTheDocument();
+  });
+});

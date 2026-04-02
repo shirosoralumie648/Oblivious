@@ -34,7 +34,16 @@ export function WorkspaceLayout() {
                 <NavLink to="/chat">Chat</NavLink>
               </li>
               <li>
+                <NavLink to="/solo">SOLO</NavLink>
+              </li>
+              <li>
+                <NavLink to="/knowledge">Knowledge</NavLink>
+              </li>
+              <li>
                 <NavLink to="/settings">Settings</NavLink>
+              </li>
+              <li>
+                <NavLink to="/console">Console</NavLink>
               </li>
             </ul>
           </nav>

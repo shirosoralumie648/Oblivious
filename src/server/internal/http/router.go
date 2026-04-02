@@ -8,8 +8,11 @@ import (
 
 	"oblivious/server/internal/auth"
 	"oblivious/server/internal/chat"
+	"oblivious/server/internal/console"
 	"oblivious/server/internal/config"
+	"oblivious/server/internal/knowledge"
 	"oblivious/server/internal/userprefs"
+	"oblivious/server/internal/usage"
 )
 
 func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
@@ -25,10 +28,13 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 
 	authService := auth.NewService(auth.NewSQLStore(database))
 	authMiddleware := newAuthMiddleware(cfg, authService)
-	authHandler := newAuthHandler(authService, authMiddleware, userprefs.NewService(userprefs.NewSQLStore(database)))
+	preferencesService := userprefs.NewService(userprefs.NewSQLStore(database))
+	authHandler := newAuthHandler(authService, authMiddleware, preferencesService)
 	replyGenerator := chat.NewHTTPReplyGenerator(cfg.LLMBaseURL, cfg.LLMAPIKey, cfg.ModelDefaultName, time.Duration(cfg.LLMTimeoutMS)*time.Millisecond)
-	chatHandler := newChatHandler(chat.NewService(chat.NewSQLStore(database), replyGenerator, cfg.ModelDefaultName))
-	preferencesHandler := newPreferencesHandler(userprefs.NewService(userprefs.NewSQLStore(database)))
+	chatHandler := newChatHandler(chat.NewService(chat.NewSQLStore(database), replyGenerator, cfg.ModelDefaultName, usage.NewSQLRecorder(database)))
+	consoleHandler := newConsoleHandler(console.NewService(console.NewSQLStore(database)), preferencesService)
+	knowledgeHandler := newKnowledgeHandler(knowledge.NewService(knowledge.NewSQLStore(database)))
+	preferencesHandler := newPreferencesHandler(preferencesService)
 
 	mux.HandleFunc("/api/v1/auth/login", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		if r.Method != stdhttp.MethodPost {
@@ -116,6 +122,48 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 		default:
 			writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
 		}
+	})))
+	mux.Handle("/api/v1/app/knowledge-bases", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		switch r.Method {
+		case stdhttp.MethodGet:
+			knowledgeHandler.listKnowledgeBases(w, r)
+		case stdhttp.MethodPost:
+			knowledgeHandler.createKnowledgeBase(w, r)
+		default:
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		}
+	})))
+	mux.Handle("/api/v1/console/usage", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.Method != stdhttp.MethodGet {
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+
+		consoleHandler.getUsage(w, r)
+	})))
+	mux.Handle("/api/v1/console/access", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.Method != stdhttp.MethodGet {
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+
+		consoleHandler.getAccess(w, r)
+	})))
+	mux.Handle("/api/v1/console/models", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.Method != stdhttp.MethodGet {
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+
+		consoleHandler.getModels(w, r)
+	})))
+	mux.Handle("/api/v1/console/billing", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.Method != stdhttp.MethodGet {
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+
+		consoleHandler.getBilling(w, r)
 	})))
 
 	return applyMiddleware(mux, withRecover, withRequestID, withLogging)

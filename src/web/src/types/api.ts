@@ -89,6 +89,17 @@ export interface CreateConversationRequest {
   title?: string;
 }
 
+export interface KnowledgeBaseSummary {
+  documentCount: number;
+  id: string;
+  name: string;
+  updatedAt?: string;
+}
+
+export interface CreateKnowledgeBaseRequest {
+  name: string;
+}
+
 export interface MessageOverrides {
   maxOutputTokens?: number;
   modelId?: string;
@@ -105,4 +116,30 @@ export interface SendMessageRequest {
 export interface UsageSummary {
   period: string;
   requests: number;
+}
+
+export interface ConsoleModelSummary {
+  id: string;
+  label: string;
+  requests: number;
+}
+
+export interface BillingSummary {
+  period: string;
+  requests: number;
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCostUsd: number;
+}
+
+export interface ConsoleAccessSummary {
+  defaultMode: string;
+  modelStrategy: string;
+  networkEnabledHint: boolean;
+  onboardingCompleted: boolean;
+  sessionExpiresAt: string;
+  sessionId: string;
+  userEmail: string;
+  userId: string;
+  workspaceId: string;
 }
