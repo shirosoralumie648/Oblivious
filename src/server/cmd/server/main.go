@@ -11,6 +11,7 @@ import (
 	stdhttp "net/http"
 
 	"oblivious/server/internal/config"
+	"oblivious/server/internal/db"
 	serverhttp "oblivious/server/internal/http"
 )
 
@@ -20,7 +21,13 @@ func main() {
 		log.Fatalf("load config: %v", err)
 	}
 
-	server := serverhttp.NewServer(cfg)
+	database, err := db.Open(cfg.DatabaseURL)
+	if err != nil {
+		log.Fatalf("open database: %v", err)
+	}
+	defer database.Close()
+
+	server := serverhttp.NewServer(cfg, database)
 	serverErrors := make(chan error, 1)
 
 	go func() {

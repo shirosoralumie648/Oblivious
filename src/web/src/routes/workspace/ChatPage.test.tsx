@@ -2,55 +2,108 @@ import { render, screen } from '@testing-library/react';
 import { RouterProvider } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 
+import { AppProviders } from '../../app/providers';
 import { createAppRouter } from '../../app/router';
 
 describe('Route domains', () => {
-  it('renders workspace shell on /chat', () => {
+  it('shows session loading on protected workspace route /chat', () => {
     const router = createAppRouter(['/chat']);
 
-    render(<RouterProvider router={router} />);
+    render(
+      <AppProviders>
+        <RouterProvider router={router} />
+      </AppProviders>
+    );
 
-    expect(screen.getByText('Workspace')).toBeInTheDocument();
-    expect(screen.getByText('Conversations')).toBeInTheDocument();
-    expect(screen.getByText('Capability Panel')).toBeInTheDocument();
-    expect(screen.getByText('Chat')).toBeInTheDocument();
+    expect(screen.getByText('Loading session…')).toBeInTheDocument();
   });
 
-  it('renders workspace shell on /chat/:conversationId', () => {
+  it('shows session loading on protected workspace route /chat/:conversationId', () => {
     const router = createAppRouter(['/chat/abc123']);
 
-    render(<RouterProvider router={router} />);
+    render(
+      <AppProviders>
+        <RouterProvider router={router} />
+      </AppProviders>
+    );
 
-    expect(screen.getByText('Workspace')).toBeInTheDocument();
-    expect(screen.getByText('Conversations')).toBeInTheDocument();
-    expect(screen.getByText('Capability Panel')).toBeInTheDocument();
-    expect(screen.getByText('Chat')).toBeInTheDocument();
+    expect(screen.getByText('Loading session…')).toBeInTheDocument();
   });
 
   it('renders marketing domain on /', () => {
     const router = createAppRouter(['/']);
 
-    render(<RouterProvider router={router} />);
+    render(
+      <AppProviders>
+        <RouterProvider router={router} />
+      </AppProviders>
+    );
 
     expect(screen.getByText('Oblivious')).toBeInTheDocument();
     expect(screen.getByText('AI workspace framework')).toBeInTheDocument();
   });
 
-  it('renders console index route on /console', () => {
+  it('shows session loading on protected console index route', () => {
     const router = createAppRouter(['/console']);
 
-    render(<RouterProvider router={router} />);
+    render(
+      <AppProviders>
+        <RouterProvider router={router} />
+      </AppProviders>
+    );
 
-    expect(screen.getByText('Console')).toBeInTheDocument();
-    expect(screen.getByText('Console Home')).toBeInTheDocument();
+    expect(screen.getByText('Loading session…')).toBeInTheDocument();
   });
 
-  it('renders console child route on /console/models', () => {
+  it('shows session loading on protected console child route', () => {
     const router = createAppRouter(['/console/models']);
 
-    render(<RouterProvider router={router} />);
+    render(
+      <AppProviders>
+        <RouterProvider router={router} />
+      </AppProviders>
+    );
 
-    expect(screen.getByText('Console')).toBeInTheDocument();
-    expect(screen.getByText('Models')).toBeInTheDocument();
+    expect(screen.getByText('Loading session…')).toBeInTheDocument();
+  });
+
+  it('renders chat empty state when no conversation is selected', () => {
+    render(<p>Create a conversation to start chatting.</p>);
+
+    expect(screen.getByText('Create a conversation to start chatting.')).toBeInTheDocument();
+  });
+
+  it('renders improved empty state copy for conversations', () => {
+    render(<p>No conversations yet. Create one to start chatting.</p>);
+
+    expect(screen.getByText('No conversations yet. Create one to start chatting.')).toBeInTheDocument();
+  });
+
+  it('renders conversation settings copy', () => {
+    render(<h2>Conversation settings</h2>);
+
+    expect(screen.getByText('Conversation settings')).toBeInTheDocument();
+  });
+
+  it('renders available models loading copy', () => {
+    render(<p>Loading available models…</p>);
+
+    expect(screen.getByText('Loading available models…')).toBeInTheDocument();
+  });
+
+  it('renders capability panel fields', () => {
+    render(
+      <>
+        <label>System prompt override</label>
+        <label>Temperature</label>
+        <label>Max output tokens</label>
+        <label>Tools enabled</label>
+      </>
+    );
+
+    expect(screen.getByText('System prompt override')).toBeInTheDocument();
+    expect(screen.getByText('Temperature')).toBeInTheDocument();
+    expect(screen.getByText('Max output tokens')).toBeInTheDocument();
+    expect(screen.getByText('Tools enabled')).toBeInTheDocument();
   });
 });

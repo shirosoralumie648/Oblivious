@@ -1,15 +1,24 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { RouterProvider } from 'react-router-dom';
 
-import { AppProviders } from './providers';
+import { AppProviders, useAppContext } from './providers';
 import { createAppRouter } from './router';
 
-export function App() {
+function AppRouter() {
+  const { bootstrapAuth } = useAppContext();
   const router = useMemo(() => createAppRouter(), []);
 
+  useEffect(() => {
+    void bootstrapAuth();
+  }, [bootstrapAuth]);
+
+  return <RouterProvider router={router} />;
+}
+
+export function App() {
   return (
     <AppProviders>
-      <RouterProvider router={router} />
+      <AppRouter />
     </AppProviders>
   );
 }

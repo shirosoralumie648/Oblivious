@@ -1,6 +1,7 @@
 package http
 
 import (
+	"database/sql"
 	"fmt"
 	stdhttp "net/http"
 	"time"
@@ -8,10 +9,10 @@ import (
 	"oblivious/server/internal/config"
 )
 
-func NewServer(cfg config.Config) *stdhttp.Server {
+func NewServer(cfg config.Config, database *sql.DB) *stdhttp.Server {
 	return &stdhttp.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           NewRouter(),
+		Handler:           NewRouter(cfg, database),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 }
