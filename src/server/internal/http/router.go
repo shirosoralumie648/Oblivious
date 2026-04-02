@@ -133,6 +133,20 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		}
 	})))
+	mux.Handle("/api/v1/app/knowledge-bases/", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.Method != stdhttp.MethodGet {
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+
+		knowledgeBaseID := strings.TrimPrefix(r.URL.Path, "/api/v1/app/knowledge-bases/")
+		if knowledgeBaseID == "" || strings.Contains(knowledgeBaseID, "/") {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
+			return
+		}
+
+		knowledgeHandler.getKnowledgeBase(w, r, knowledgeBaseID)
+	})))
 	mux.Handle("/api/v1/console/usage", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		if r.Method != stdhttp.MethodGet {
 			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")

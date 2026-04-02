@@ -36,6 +36,22 @@ func (h knowledgeHandler) listKnowledgeBases(w stdhttp.ResponseWriter, r *stdhtt
 	writeSuccess(w, stdhttp.StatusOK, bases)
 }
 
+func (h knowledgeHandler) getKnowledgeBase(w stdhttp.ResponseWriter, r *stdhttp.Request, knowledgeBaseID string) {
+	session, ok := sessionFromContext(r)
+	if !ok {
+		writeError(w, stdhttp.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+
+	base, err := h.service.Get(r.Context(), session, knowledgeBaseID)
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "get knowledge base failed")
+		return
+	}
+
+	writeSuccess(w, stdhttp.StatusOK, base)
+}
+
 func (h knowledgeHandler) createKnowledgeBase(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	session, ok := sessionFromContext(r)
 	if !ok {

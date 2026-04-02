@@ -2,8 +2,12 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const createKnowledgeBase = vi.fn();
+const getKnowledgeBase = vi.fn();
 const listKnowledgeBases = vi.fn();
 const navigate = vi.fn();
+const routeState = vi.hoisted(() => ({
+  knowledgeBaseId: undefined as string | undefined
+}));
 
 const appContext = vi.hoisted(() => ({
   authState: {
@@ -23,7 +27,8 @@ vi.mock('react-router-dom', async () => {
 
   return {
     ...actual,
-    useNavigate: () => navigate
+    useNavigate: () => navigate,
+    useParams: () => ({ knowledgeBaseId: routeState.knowledgeBaseId })
   };
 });
 
@@ -34,6 +39,7 @@ vi.mock('../../app/providers', () => ({
 vi.mock('../../features/knowledge/api', () => ({
   createKnowledgeApi: () => ({
     createKnowledgeBase,
+    getKnowledgeBase,
     listKnowledgeBases
   })
 }));
@@ -49,8 +55,10 @@ describe('KnowledgePage', () => {
       onboardingCompleted: true
     };
     createKnowledgeBase.mockReset();
+    getKnowledgeBase.mockReset();
     listKnowledgeBases.mockReset();
     navigate.mockReset();
+    routeState.knowledgeBaseId = undefined;
   });
 
   it('loads and renders knowledge bases with workspace context', async () => {
@@ -108,5 +116,23 @@ describe('KnowledgePage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Review workspace settings' }));
 
     expect(navigate).toHaveBeenCalledWith('/settings');
+  });
+
+  it('renders a single knowledge-base detail view when the route includes an id', async () => {
+    routeState.knowledgeBaseId = 'kb_9';
+    getKnowledgeBase.mockResolvedValue({
+      documentCount: 9,
+      id: 'kb_9',
+      name: 'Architecture Notes',
+      updatedAt: '2026-04-03T11:30:00Z'
+    });
+
+    render(<KnowledgePage />);
+
+    expect(screen.getByText('Loading knowledge base…')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Architecture Notes' })).toBeInTheDocument();
+    expect(screen.getByText('Knowledge base ID: kb_9')).toBeInTheDocument();
+    expect(screen.getByText('Documents: 9')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Back to knowledge bases' })).toBeInTheDocument();
   });
 });

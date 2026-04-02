@@ -17,6 +17,7 @@ type KnowledgeBase struct {
 
 type Store interface {
 	CreateKnowledgeBase(ctx context.Context, workspaceID, name string) (KnowledgeBase, error)
+	GetKnowledgeBase(ctx context.Context, workspaceID, knowledgeBaseID string) (KnowledgeBase, error)
 	ListKnowledgeBases(ctx context.Context, workspaceID string) ([]KnowledgeBase, error)
 }
 
@@ -34,6 +35,10 @@ func (s *Service) List(ctx context.Context, session auth.Session) ([]KnowledgeBa
 
 func (s *Service) Create(ctx context.Context, session auth.Session, name string) (KnowledgeBase, error) {
 	return s.store.CreateKnowledgeBase(ctx, session.WorkspaceID, name)
+}
+
+func (s *Service) Get(ctx context.Context, session auth.Session, knowledgeBaseID string) (KnowledgeBase, error) {
+	return s.store.GetKnowledgeBase(ctx, session.WorkspaceID, knowledgeBaseID)
 }
 
 type SQLStore struct {

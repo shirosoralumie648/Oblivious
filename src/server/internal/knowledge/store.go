@@ -52,3 +52,17 @@ func (s *SQLStore) ListKnowledgeBases(ctx context.Context, workspaceID string) (
 
 	return bases, rows.Err()
 }
+
+func (s *SQLStore) GetKnowledgeBase(ctx context.Context, workspaceID, knowledgeBaseID string) (KnowledgeBase, error) {
+	var base KnowledgeBase
+
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT id, name, document_count, updated_at
+		FROM knowledge_bases
+		WHERE workspace_id = $1 AND id = $2
+	`, workspaceID, knowledgeBaseID).Scan(&base.ID, &base.Name, &base.DocumentCount, &base.UpdatedAt); err != nil {
+		return KnowledgeBase{}, err
+	}
+
+	return base, nil
+}

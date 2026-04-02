@@ -108,4 +108,16 @@ describe('app router', () => {
 
     expect(screen.getByText('Loading session…')).toBeInTheDocument();
   });
+
+  it('shows session loading for the protected knowledge detail route', () => {
+    const router = createAppRouter(['/knowledge/kb_1']);
+
+    render(
+      <AppProviders>
+        <RouterProvider router={router} />
+      </AppProviders>
+    );
+
+    expect(screen.getByText('Loading session…')).toBeInTheDocument();
+  });
 });

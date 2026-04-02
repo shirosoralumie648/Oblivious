@@ -11,7 +11,9 @@ import (
 type fakeStore struct {
 	createdName  string
 	createdBase  KnowledgeBase
+	detailBase   KnowledgeBase
 	listBases    []KnowledgeBase
+	requestedID  string
 	workspaceID  string
 }
 
@@ -24,6 +26,12 @@ func (f *fakeStore) CreateKnowledgeBase(ctx context.Context, workspaceID, name s
 func (f *fakeStore) ListKnowledgeBases(ctx context.Context, workspaceID string) ([]KnowledgeBase, error) {
 	f.workspaceID = workspaceID
 	return f.listBases, nil
+}
+
+func (f *fakeStore) GetKnowledgeBase(ctx context.Context, workspaceID, knowledgeBaseID string) (KnowledgeBase, error) {
+	f.workspaceID = workspaceID
+	f.requestedID = knowledgeBaseID
+	return f.detailBase, nil
 }
 
 func TestListReturnsWorkspaceKnowledgeBases(t *testing.T) {
@@ -79,5 +87,32 @@ func TestCreateCreatesKnowledgeBaseInWorkspace(t *testing.T) {
 	}
 	if base.ID != "kb_1" {
 		t.Fatalf("expected base id kb_1, got %s", base.ID)
+	}
+}
+
+func TestGetReturnsKnowledgeBaseFromWorkspace(t *testing.T) {
+	store := &fakeStore{
+		detailBase: KnowledgeBase{
+			DocumentCount: 7,
+			ID:            "kb_7",
+			Name:          "Customer Notes",
+			UpdatedAt:     time.Date(2026, time.April, 3, 11, 0, 0, 0, time.UTC),
+		},
+	}
+	service := NewService(store)
+
+	base, err := service.Get(context.Background(), auth.Session{WorkspaceID: "workspace_1"}, "kb_7")
+	if err != nil {
+		t.Fatalf("get knowledge base: %v", err)
+	}
+
+	if store.workspaceID != "workspace_1" {
+		t.Fatalf("expected workspace workspace_1, got %s", store.workspaceID)
+	}
+	if store.requestedID != "kb_7" {
+		t.Fatalf("expected requested id kb_7, got %s", store.requestedID)
+	}
+	if base.Name != "Customer Notes" {
+		t.Fatalf("expected Customer Notes, got %s", base.Name)
 	}
 }
