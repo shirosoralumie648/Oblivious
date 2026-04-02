@@ -119,7 +119,39 @@ func (s *Service) ListModels() []ModelOption {
 	}
 }
 
-func (s *Service) SendMessage(ctx context.Context, session auth.Session, conversationID, content string) ([]Message, error) {
+func mergeConversationConfig(base ConversationConfig, overrides *MessageOverrides, defaultModelID string) ConversationConfig {
+	effective := base
+	if effective.ModelID == "" {
+		effective.ModelID = defaultModelID
+	}
+	if effective.Temperature <= 0 {
+		effective.Temperature = 1
+	}
+	if effective.MaxOutputTokens <= 0 {
+		effective.MaxOutputTokens = 1024
+	}
+	if overrides == nil {
+		return effective
+	}
+	if overrides.ModelID != nil && *overrides.ModelID != "" {
+		effective.ModelID = *overrides.ModelID
+	}
+	if overrides.SystemPromptOverride != nil {
+		effective.SystemPromptOverride = *overrides.SystemPromptOverride
+	}
+	if overrides.Temperature != nil && *overrides.Temperature > 0 {
+		effective.Temperature = *overrides.Temperature
+	}
+	if overrides.MaxOutputTokens != nil && *overrides.MaxOutputTokens > 0 {
+		effective.MaxOutputTokens = *overrides.MaxOutputTokens
+	}
+	if overrides.ToolsEnabled != nil {
+		effective.ToolsEnabled = *overrides.ToolsEnabled
+	}
+	return effective
+}
+
+func (s *Service) SendMessage(ctx context.Context, session auth.Session, conversationID, content string, overrides *MessageOverrides) ([]Message, error) {
 	if _, err := s.store.CreateMessage(ctx, conversationID, "user", content); err != nil {
 		return nil, err
 	}
@@ -134,7 +166,9 @@ func (s *Service) SendMessage(ctx context.Context, session auth.Session, convers
 		return nil, err
 	}
 
-	reply, err := s.replyGenerator.GenerateReply(ctx, messages, conversationConfig)
+	effectiveConfig := mergeConversationConfig(conversationConfig, overrides, s.defaultModelID)
+
+	reply, err := s.replyGenerator.GenerateReply(ctx, messages, effectiveConfig)
 	if err != nil {
 		return nil, err
 	}

@@ -4,7 +4,15 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useAppContext } from '../../app/providers';
 import { createChatApi } from '../../features/chat/api';
 import { createHttpClient } from '../../services/http/client';
-import type { ChatMessage, ConversationConfig, ConversationSummary, ModelOption } from '../../types/api';
+import type { ChatMessage, ConversationConfig, ConversationSummary, MessageOverrides, ModelOption } from '../../types/api';
+
+const emptyMessageOverrides: MessageOverrides = {
+  maxOutputTokens: undefined,
+  modelId: undefined,
+  systemPromptOverride: undefined,
+  temperature: undefined,
+  toolsEnabled: undefined
+};
 
 export function ChatPage() {
   const { authState } = useAppContext();
@@ -24,7 +32,9 @@ export function ChatPage() {
   const [isSavingConfig, setIsSavingConfig] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [messageInput, setMessageInput] = useState('');
+  const [messageOverrides, setMessageOverrides] = useState<MessageOverrides>(emptyMessageOverrides);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [showMessageOverrides, setShowMessageOverrides] = useState(false);
 
   const currentConversationId = conversationId ?? null;
   const canSendMessage = !isSending && messageInput.trim() !== '' && currentConversationId !== null;
@@ -250,9 +260,17 @@ export function ChatPage() {
     setError(null);
 
     try {
-      const nextMessages = await chatApi.sendMessage(currentConversationId, { content: messageInput.trim() });
+      const overrides = Object.fromEntries(
+        Object.entries(messageOverrides).filter(([, value]) => value !== undefined && value !== '')
+      ) as MessageOverrides;
+      const nextMessages = await chatApi.sendMessage(currentConversationId, {
+        content: messageInput.trim(),
+        overrides: Object.keys(overrides).length > 0 ? overrides : undefined
+      });
       setMessages(nextMessages);
       setMessageInput('');
+      setMessageOverrides(emptyMessageOverrides);
+      setShowMessageOverrides(false);
     } catch {
       setError('Unable to send message.');
     } finally {
@@ -387,6 +405,69 @@ export function ChatPage() {
                     value={messageInput}
                   />
                 </label>
+                <button onClick={() => setShowMessageOverrides((current) => !current)} type="button">
+                  {showMessageOverrides ? 'Hide per-message overrides' : 'Use per-message overrides'}
+                </button>
+                {showMessageOverrides ? (
+                  <section>
+                    <h2>Message overrides</h2>
+                    <label>
+                      Model override
+                      <select
+                        onChange={(event) => setMessageOverrides((current) => ({ ...current, modelId: event.target.value || undefined }))}
+                        value={messageOverrides.modelId ?? ''}
+                      >
+                        <option value="">Use conversation default</option>
+                        {availableModels.map((model) => (
+                          <option key={model.id} value={model.id}>
+                            {model.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      System prompt override
+                      <textarea
+                        onChange={(event) => setMessageOverrides((current) => ({ ...current, systemPromptOverride: event.target.value || undefined }))}
+                        value={messageOverrides.systemPromptOverride ?? ''}
+                      />
+                    </label>
+                    <label>
+                      Temperature override
+                      <input
+                        max="2"
+                        min="0"
+                        onChange={(event) => setMessageOverrides((current) => ({
+                          ...current,
+                          temperature: event.target.value === '' ? undefined : Number(event.target.value)
+                        }))}
+                        step="0.1"
+                        type="number"
+                        value={messageOverrides.temperature ?? ''}
+                      />
+                    </label>
+                    <label>
+                      Max output tokens override
+                      <input
+                        min="1"
+                        onChange={(event) => setMessageOverrides((current) => ({
+                          ...current,
+                          maxOutputTokens: event.target.value === '' ? undefined : Number(event.target.value)
+                        }))}
+                        type="number"
+                        value={messageOverrides.maxOutputTokens ?? ''}
+                      />
+                    </label>
+                    <label>
+                      <input
+                        checked={messageOverrides.toolsEnabled ?? false}
+                        onChange={(event) => setMessageOverrides((current) => ({ ...current, toolsEnabled: event.target.checked }))}
+                        type="checkbox"
+                      />
+                      Tools enabled for this message
+                    </label>
+                  </section>
+                ) : null}
                 <button disabled={!canSendMessage} type="submit">
                   {isSending ? 'Sending…' : 'Send'}
                 </button>

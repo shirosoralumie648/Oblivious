@@ -106,4 +106,18 @@ describe('Route domains', () => {
     expect(screen.getByText('Max output tokens')).toBeInTheDocument();
     expect(screen.getByText('Tools enabled')).toBeInTheDocument();
   });
+
+  it('renders message overrides controls', () => {
+    render(
+      <>
+        <button type="button">Use per-message overrides</button>
+        <h2>Message overrides</h2>
+        <label>Model override</label>
+      </>
+    );
+
+    expect(screen.getByText('Use per-message overrides')).toBeInTheDocument();
+    expect(screen.getByText('Message overrides')).toBeInTheDocument();
+    expect(screen.getByText('Model override')).toBeInTheDocument();
+  });
 });

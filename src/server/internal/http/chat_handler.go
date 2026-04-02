@@ -16,8 +16,17 @@ type createConversationRequest struct {
 	Title string `json:"title"`
 }
 
+type sendMessageOverridesRequest struct {
+	ModelID              *string  `json:"modelId"`
+	SystemPromptOverride *string  `json:"systemPromptOverride"`
+	Temperature          *float64 `json:"temperature"`
+	MaxOutputTokens      *int     `json:"maxOutputTokens"`
+	ToolsEnabled         *bool    `json:"toolsEnabled"`
+}
+
 type sendMessageRequest struct {
-	Content string `json:"content"`
+	Content   string                       `json:"content"`
+	Overrides *sendMessageOverridesRequest `json:"overrides"`
 }
 
 type updateConversationConfigRequest struct {
@@ -154,11 +163,31 @@ func (h chatHandler) sendMessage(w stdhttp.ResponseWriter, r *stdhttp.Request, c
 		return
 	}
 
-	messages, err := h.service.SendMessage(r.Context(), session, conversationID, strings.TrimSpace(payload.Content))
+	messages, err := h.service.SendMessage(
+		r.Context(),
+		session,
+		conversationID,
+		strings.TrimSpace(payload.Content),
+		toMessageOverrides(payload.Overrides),
+	)
 	if err != nil {
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "send message failed")
 		return
 	}
 
 	writeSuccess(w, stdhttp.StatusOK, messages)
+}
+
+func toMessageOverrides(payload *sendMessageOverridesRequest) *chat.MessageOverrides {
+	if payload == nil {
+		return nil
+	}
+
+	return &chat.MessageOverrides{
+		ModelID:              payload.ModelID,
+		SystemPromptOverride: payload.SystemPromptOverride,
+		Temperature:          payload.Temperature,
+		MaxOutputTokens:      payload.MaxOutputTokens,
+		ToolsEnabled:         payload.ToolsEnabled,
+	}
 }

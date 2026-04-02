@@ -89,8 +89,17 @@ export interface CreateConversationRequest {
   title?: string;
 }
 
+export interface MessageOverrides {
+  maxOutputTokens?: number;
+  modelId?: string;
+  systemPromptOverride?: string;
+  temperature?: number;
+  toolsEnabled?: boolean;
+}
+
 export interface SendMessageRequest {
   content: string;
+  overrides?: MessageOverrides;
 }
 
 export interface UsageSummary {
