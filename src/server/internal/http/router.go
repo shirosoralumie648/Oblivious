@@ -143,12 +143,16 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 
 		knowledgeBaseID := parts[0]
 		if len(parts) == 1 {
-			if r.Method != stdhttp.MethodGet {
+			switch r.Method {
+			case stdhttp.MethodGet:
+				knowledgeHandler.getKnowledgeBase(w, r, knowledgeBaseID)
+			case stdhttp.MethodPut:
+				knowledgeHandler.updateKnowledgeBase(w, r, knowledgeBaseID)
+			case stdhttp.MethodDelete:
+				knowledgeHandler.deleteKnowledgeBase(w, r, knowledgeBaseID)
+			default:
 				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-				return
 			}
-
-			knowledgeHandler.getKnowledgeBase(w, r, knowledgeBaseID)
 			return
 		}
 
@@ -158,6 +162,19 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 				knowledgeHandler.listKnowledgeDocuments(w, r, knowledgeBaseID)
 			case stdhttp.MethodPost:
 				knowledgeHandler.createKnowledgeDocument(w, r, knowledgeBaseID)
+			default:
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
+
+		if len(parts) == 3 && parts[1] == "documents" && parts[2] != "" {
+			documentID := parts[2]
+			switch r.Method {
+			case stdhttp.MethodPut:
+				knowledgeHandler.updateKnowledgeDocument(w, r, knowledgeBaseID, documentID)
+			case stdhttp.MethodDelete:
+				knowledgeHandler.deleteKnowledgeDocument(w, r, knowledgeBaseID, documentID)
 			default:
 				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			}

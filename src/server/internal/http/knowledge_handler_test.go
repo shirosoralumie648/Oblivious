@@ -17,11 +17,15 @@ type knowledgeFakeStore struct {
 	createdName  string
 	createdBase  knowledge.KnowledgeBase
 	createdDoc   knowledge.KnowledgeDocument
+	deletedDocID string
+	deletedID    string
 	detailBase   knowledge.KnowledgeBase
 	documents    []knowledge.KnowledgeDocument
 	listBases    []knowledge.KnowledgeBase
 	requestedDoc knowledge.KnowledgeDocument
 	requestedID  string
+	updatedBase  knowledge.KnowledgeBase
+	updatedDoc   knowledge.KnowledgeDocument
 	workspaceID  string
 }
 
@@ -56,6 +60,37 @@ func (f *knowledgeFakeStore) CreateKnowledgeDocument(ctx context.Context, worksp
 		Content: content,
 	}
 	return f.createdDoc, nil
+}
+
+func (f *knowledgeFakeStore) UpdateKnowledgeBase(ctx context.Context, workspaceID, knowledgeBaseID, name string) (knowledge.KnowledgeBase, error) {
+	f.workspaceID = workspaceID
+	f.requestedID = knowledgeBaseID
+	f.createdName = name
+	return f.updatedBase, nil
+}
+
+func (f *knowledgeFakeStore) DeleteKnowledgeBase(ctx context.Context, workspaceID, knowledgeBaseID string) error {
+	f.workspaceID = workspaceID
+	f.deletedID = knowledgeBaseID
+	return nil
+}
+
+func (f *knowledgeFakeStore) UpdateKnowledgeDocument(ctx context.Context, workspaceID, knowledgeBaseID, documentID, title, content string) (knowledge.KnowledgeDocument, error) {
+	f.workspaceID = workspaceID
+	f.requestedID = knowledgeBaseID
+	f.deletedDocID = documentID
+	f.requestedDoc = knowledge.KnowledgeDocument{
+		Title:   title,
+		Content: content,
+	}
+	return f.updatedDoc, nil
+}
+
+func (f *knowledgeFakeStore) DeleteKnowledgeDocument(ctx context.Context, workspaceID, knowledgeBaseID, documentID string) error {
+	f.workspaceID = workspaceID
+	f.requestedID = knowledgeBaseID
+	f.deletedDocID = documentID
+	return nil
 }
 
 func TestKnowledgeHandlerListReturnsWorkspaceBases(t *testing.T) {
@@ -205,5 +240,105 @@ func TestKnowledgeHandlerCreateDocumentCreatesKnowledgeBaseDocument(t *testing.T
 	}
 	if store.requestedDoc.Title != "Plan" {
 		t.Fatalf("expected title Plan, got %s", store.requestedDoc.Title)
+	}
+}
+
+func TestKnowledgeHandlerUpdateKnowledgeBaseUpdatesKnowledgeBase(t *testing.T) {
+	store := &knowledgeFakeStore{
+		updatedBase: knowledge.KnowledgeBase{
+			DocumentCount: 2,
+			ID:            "kb_2",
+			Name:          "Updated Notes",
+			UpdatedAt:     time.Date(2026, time.April, 3, 13, 30, 0, 0, time.UTC),
+		},
+	}
+	handler := newKnowledgeHandler(knowledge.NewService(store))
+	request := httptest.NewRequest(stdhttp.MethodPut, "/api/v1/app/knowledge-bases/kb_2", strings.NewReader(`{"name":"Updated Notes"}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		WorkspaceID: "workspace_1",
+	}))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.updateKnowledgeBase(recorder, request, "kb_2")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+	if store.requestedID != "kb_2" {
+		t.Fatalf("expected requested id kb_2, got %s", store.requestedID)
+	}
+	if store.createdName != "Updated Notes" {
+		t.Fatalf("expected updated name Updated Notes, got %s", store.createdName)
+	}
+}
+
+func TestKnowledgeHandlerDeleteKnowledgeBaseDeletesKnowledgeBase(t *testing.T) {
+	store := &knowledgeFakeStore{}
+	handler := newKnowledgeHandler(knowledge.NewService(store))
+	request := httptest.NewRequest(stdhttp.MethodDelete, "/api/v1/app/knowledge-bases/kb_2", nil).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		WorkspaceID: "workspace_1",
+	}))
+	recorder := httptest.NewRecorder()
+
+	handler.deleteKnowledgeBase(recorder, request, "kb_2")
+
+	if recorder.Code != stdhttp.StatusNoContent {
+		t.Fatalf("expected 204, got %d", recorder.Code)
+	}
+	if store.deletedID != "kb_2" {
+		t.Fatalf("expected deleted id kb_2, got %s", store.deletedID)
+	}
+}
+
+func TestKnowledgeHandlerUpdateDocumentUpdatesKnowledgeBaseDocument(t *testing.T) {
+	store := &knowledgeFakeStore{
+		updatedDoc: knowledge.KnowledgeDocument{
+			Content:   "Updated plan",
+			ID:        "doc_2",
+			Title:     "Plan v2",
+			UpdatedAt: time.Date(2026, time.April, 3, 13, 45, 0, 0, time.UTC),
+		},
+	}
+	handler := newKnowledgeHandler(knowledge.NewService(store))
+	request := httptest.NewRequest(stdhttp.MethodPut, "/api/v1/app/knowledge-bases/kb_2/documents/doc_2", strings.NewReader(`{"title":"Plan v2","content":"Updated plan"}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		WorkspaceID: "workspace_1",
+	}))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.updateKnowledgeDocument(recorder, request, "kb_2", "doc_2")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+	if store.requestedID != "kb_2" {
+		t.Fatalf("expected knowledge base id kb_2, got %s", store.requestedID)
+	}
+	if store.deletedDocID != "doc_2" {
+		t.Fatalf("expected document id doc_2, got %s", store.deletedDocID)
+	}
+	if store.requestedDoc.Title != "Plan v2" {
+		t.Fatalf("expected title Plan v2, got %s", store.requestedDoc.Title)
+	}
+}
+
+func TestKnowledgeHandlerDeleteDocumentDeletesKnowledgeBaseDocument(t *testing.T) {
+	store := &knowledgeFakeStore{}
+	handler := newKnowledgeHandler(knowledge.NewService(store))
+	request := httptest.NewRequest(stdhttp.MethodDelete, "/api/v1/app/knowledge-bases/kb_2/documents/doc_2", nil).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		WorkspaceID: "workspace_1",
+	}))
+	recorder := httptest.NewRecorder()
+
+	handler.deleteKnowledgeDocument(recorder, request, "kb_2", "doc_2")
+
+	if recorder.Code != stdhttp.StatusNoContent {
+		t.Fatalf("expected 204, got %d", recorder.Code)
+	}
+	if store.requestedID != "kb_2" {
+		t.Fatalf("expected knowledge base id kb_2, got %s", store.requestedID)
+	}
+	if store.deletedDocID != "doc_2" {
+		t.Fatalf("expected document id doc_2, got %s", store.deletedDocID)
 	}
 }

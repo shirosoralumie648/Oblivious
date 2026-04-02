@@ -25,9 +25,13 @@ type KnowledgeDocument struct {
 type Store interface {
 	CreateKnowledgeBase(ctx context.Context, workspaceID, name string) (KnowledgeBase, error)
 	CreateKnowledgeDocument(ctx context.Context, workspaceID, knowledgeBaseID, title, content string) (KnowledgeDocument, error)
+	DeleteKnowledgeBase(ctx context.Context, workspaceID, knowledgeBaseID string) error
+	DeleteKnowledgeDocument(ctx context.Context, workspaceID, knowledgeBaseID, documentID string) error
 	GetKnowledgeBase(ctx context.Context, workspaceID, knowledgeBaseID string) (KnowledgeBase, error)
 	ListKnowledgeDocuments(ctx context.Context, workspaceID, knowledgeBaseID string) ([]KnowledgeDocument, error)
 	ListKnowledgeBases(ctx context.Context, workspaceID string) ([]KnowledgeBase, error)
+	UpdateKnowledgeBase(ctx context.Context, workspaceID, knowledgeBaseID, name string) (KnowledgeBase, error)
+	UpdateKnowledgeDocument(ctx context.Context, workspaceID, knowledgeBaseID, documentID, title, content string) (KnowledgeDocument, error)
 }
 
 type Service struct {
@@ -56,6 +60,22 @@ func (s *Service) ListDocuments(ctx context.Context, session auth.Session, knowl
 
 func (s *Service) CreateDocument(ctx context.Context, session auth.Session, knowledgeBaseID, title, content string) (KnowledgeDocument, error) {
 	return s.store.CreateKnowledgeDocument(ctx, session.WorkspaceID, knowledgeBaseID, title, content)
+}
+
+func (s *Service) Update(ctx context.Context, session auth.Session, knowledgeBaseID, name string) (KnowledgeBase, error) {
+	return s.store.UpdateKnowledgeBase(ctx, session.WorkspaceID, knowledgeBaseID, name)
+}
+
+func (s *Service) Delete(ctx context.Context, session auth.Session, knowledgeBaseID string) error {
+	return s.store.DeleteKnowledgeBase(ctx, session.WorkspaceID, knowledgeBaseID)
+}
+
+func (s *Service) UpdateDocument(ctx context.Context, session auth.Session, knowledgeBaseID, documentID, title, content string) (KnowledgeDocument, error) {
+	return s.store.UpdateKnowledgeDocument(ctx, session.WorkspaceID, knowledgeBaseID, documentID, title, content)
+}
+
+func (s *Service) DeleteDocument(ctx context.Context, session auth.Session, knowledgeBaseID, documentID string) error {
+	return s.store.DeleteKnowledgeDocument(ctx, session.WorkspaceID, knowledgeBaseID, documentID)
 }
 
 type SQLStore struct {

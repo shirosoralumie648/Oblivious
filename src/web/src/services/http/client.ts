@@ -3,6 +3,7 @@ import { HttpError } from './errors';
 import type { ApiEnvelope } from '../../types/api';
 
 export type HttpClient = {
+  delete: <T>(path: string, init?: RequestInit) => Promise<T>;
   get: <T>(path: string, init?: RequestInit) => Promise<T>;
   post: <T>(path: string, body?: unknown, init?: RequestInit) => Promise<T>;
   put: <T>(path: string, body?: unknown, init?: RequestInit) => Promise<T>;
@@ -46,6 +47,7 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
   };
 
   return {
+    delete: (path, init) => request(path, { ...init, method: 'DELETE' }),
     get: (path, init) => request(path, { ...init, method: 'GET' }),
     post: (path, body, init) =>
       request(path, {

@@ -12,11 +12,15 @@ type fakeStore struct {
 	createdName  string
 	createdBase  KnowledgeBase
 	createdDoc   KnowledgeDocument
+	deletedDocID string
+	deletedID    string
 	detailBase   KnowledgeBase
 	documents    []KnowledgeDocument
 	listBases    []KnowledgeBase
 	requestedDoc KnowledgeDocument
 	requestedID  string
+	updatedBase  KnowledgeBase
+	updatedDoc   KnowledgeDocument
 	workspaceID  string
 }
 
@@ -51,6 +55,37 @@ func (f *fakeStore) CreateKnowledgeDocument(ctx context.Context, workspaceID, kn
 		Content: content,
 	}
 	return f.createdDoc, nil
+}
+
+func (f *fakeStore) UpdateKnowledgeBase(ctx context.Context, workspaceID, knowledgeBaseID, name string) (KnowledgeBase, error) {
+	f.workspaceID = workspaceID
+	f.requestedID = knowledgeBaseID
+	f.createdName = name
+	return f.updatedBase, nil
+}
+
+func (f *fakeStore) DeleteKnowledgeBase(ctx context.Context, workspaceID, knowledgeBaseID string) error {
+	f.workspaceID = workspaceID
+	f.deletedID = knowledgeBaseID
+	return nil
+}
+
+func (f *fakeStore) UpdateKnowledgeDocument(ctx context.Context, workspaceID, knowledgeBaseID, documentID, title, content string) (KnowledgeDocument, error) {
+	f.workspaceID = workspaceID
+	f.requestedID = knowledgeBaseID
+	f.deletedDocID = documentID
+	f.requestedDoc = KnowledgeDocument{
+		Title:   title,
+		Content: content,
+	}
+	return f.updatedDoc, nil
+}
+
+func (f *fakeStore) DeleteKnowledgeDocument(ctx context.Context, workspaceID, knowledgeBaseID, documentID string) error {
+	f.workspaceID = workspaceID
+	f.requestedID = knowledgeBaseID
+	f.deletedDocID = documentID
+	return nil
 }
 
 func TestListReturnsWorkspaceKnowledgeBases(t *testing.T) {
@@ -192,5 +227,98 @@ func TestCreateDocumentCreatesDocumentInKnowledgeBase(t *testing.T) {
 	}
 	if document.ID != "doc_9" {
 		t.Fatalf("expected doc id doc_9, got %s", document.ID)
+	}
+}
+
+func TestUpdateUpdatesKnowledgeBaseInWorkspace(t *testing.T) {
+	store := &fakeStore{
+		updatedBase: KnowledgeBase{
+			DocumentCount: 1,
+			ID:            "kb_7",
+			Name:          "Architecture Decisions",
+			UpdatedAt:     time.Date(2026, time.April, 3, 13, 0, 0, 0, time.UTC),
+		},
+	}
+	service := NewService(store)
+
+	base, err := service.Update(context.Background(), auth.Session{WorkspaceID: "workspace_1"}, "kb_7", "Architecture Decisions")
+	if err != nil {
+		t.Fatalf("update knowledge base: %v", err)
+	}
+
+	if store.workspaceID != "workspace_1" {
+		t.Fatalf("expected workspace workspace_1, got %s", store.workspaceID)
+	}
+	if store.requestedID != "kb_7" {
+		t.Fatalf("expected requested id kb_7, got %s", store.requestedID)
+	}
+	if base.Name != "Architecture Decisions" {
+		t.Fatalf("expected Architecture Decisions, got %s", base.Name)
+	}
+}
+
+func TestDeleteDeletesKnowledgeBaseInWorkspace(t *testing.T) {
+	store := &fakeStore{}
+	service := NewService(store)
+
+	if err := service.Delete(context.Background(), auth.Session{WorkspaceID: "workspace_1"}, "kb_7"); err != nil {
+		t.Fatalf("delete knowledge base: %v", err)
+	}
+
+	if store.workspaceID != "workspace_1" {
+		t.Fatalf("expected workspace workspace_1, got %s", store.workspaceID)
+	}
+	if store.deletedID != "kb_7" {
+		t.Fatalf("expected deleted id kb_7, got %s", store.deletedID)
+	}
+}
+
+func TestUpdateDocumentUpdatesKnowledgeBaseDocument(t *testing.T) {
+	store := &fakeStore{
+		updatedDoc: KnowledgeDocument{
+			Content:   "Updated outline",
+			ID:        "doc_9",
+			Title:     "Architecture Draft v2",
+			UpdatedAt: time.Date(2026, time.April, 3, 13, 30, 0, 0, time.UTC),
+		},
+	}
+	service := NewService(store)
+
+	document, err := service.UpdateDocument(
+		context.Background(),
+		auth.Session{WorkspaceID: "workspace_1"},
+		"kb_7",
+		"doc_9",
+		"Architecture Draft v2",
+		"Updated outline",
+	)
+	if err != nil {
+		t.Fatalf("update knowledge document: %v", err)
+	}
+
+	if store.workspaceID != "workspace_1" {
+		t.Fatalf("expected workspace workspace_1, got %s", store.workspaceID)
+	}
+	if store.deletedDocID != "doc_9" {
+		t.Fatalf("expected requested doc id doc_9, got %s", store.deletedDocID)
+	}
+	if document.Title != "Architecture Draft v2" {
+		t.Fatalf("expected Architecture Draft v2, got %s", document.Title)
+	}
+}
+
+func TestDeleteDocumentDeletesKnowledgeBaseDocument(t *testing.T) {
+	store := &fakeStore{}
+	service := NewService(store)
+
+	if err := service.DeleteDocument(context.Background(), auth.Session{WorkspaceID: "workspace_1"}, "kb_7", "doc_9"); err != nil {
+		t.Fatalf("delete knowledge document: %v", err)
+	}
+
+	if store.workspaceID != "workspace_1" {
+		t.Fatalf("expected workspace workspace_1, got %s", store.workspaceID)
+	}
+	if store.deletedDocID != "doc_9" {
+		t.Fatalf("expected deleted doc id doc_9, got %s", store.deletedDocID)
 	}
 }

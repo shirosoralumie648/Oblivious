@@ -102,6 +102,10 @@ export interface CreateKnowledgeBaseRequest {
   name: string;
 }
 
+export interface UpdateKnowledgeBaseRequest {
+  name: string;
+}
+
 export interface KnowledgeDocumentSummary {
   content: string;
   id: string;
@@ -110,6 +114,11 @@ export interface KnowledgeDocumentSummary {
 }
 
 export interface CreateKnowledgeDocumentRequest {
+  content: string;
+  title: string;
+}
+
+export interface UpdateKnowledgeDocumentRequest {
   content: string;
   title: string;
 }

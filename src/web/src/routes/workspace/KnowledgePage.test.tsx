@@ -3,10 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const createKnowledgeBase = vi.fn();
 const createKnowledgeDocument = vi.fn();
+const deleteKnowledgeBase = vi.fn();
+const deleteKnowledgeDocument = vi.fn();
 const getKnowledgeBase = vi.fn();
 const listKnowledgeDocuments = vi.fn();
 const listKnowledgeBases = vi.fn();
 const navigate = vi.fn();
+const updateKnowledgeBase = vi.fn();
+const updateKnowledgeDocument = vi.fn();
 const routeState = vi.hoisted(() => ({
   knowledgeBaseId: undefined as string | undefined
 }));
@@ -42,9 +46,13 @@ vi.mock('../../features/knowledge/api', () => ({
   createKnowledgeApi: () => ({
     createKnowledgeBase,
     createKnowledgeDocument,
+    deleteKnowledgeBase,
+    deleteKnowledgeDocument,
     getKnowledgeBase,
     listKnowledgeDocuments,
-    listKnowledgeBases
+    listKnowledgeBases,
+    updateKnowledgeBase,
+    updateKnowledgeDocument
   })
 }));
 
@@ -60,11 +68,15 @@ describe('KnowledgePage', () => {
     };
     createKnowledgeBase.mockReset();
     createKnowledgeDocument.mockReset();
+    deleteKnowledgeBase.mockReset();
+    deleteKnowledgeDocument.mockReset();
     getKnowledgeBase.mockReset();
     listKnowledgeDocuments.mockReset();
     listKnowledgeBases.mockReset();
     navigate.mockReset();
     routeState.knowledgeBaseId = undefined;
+    updateKnowledgeBase.mockReset();
+    updateKnowledgeDocument.mockReset();
   });
 
   it('loads and renders knowledge bases with workspace context', async () => {
@@ -181,5 +193,103 @@ describe('KnowledgePage', () => {
       });
     });
     expect(screen.getByText('Draft')).toBeInTheDocument();
+  });
+
+  it('renames the selected knowledge base', async () => {
+    routeState.knowledgeBaseId = 'kb_9';
+    getKnowledgeBase.mockResolvedValue({
+      documentCount: 1,
+      id: 'kb_9',
+      name: 'Architecture Notes',
+      updatedAt: '2026-04-03T11:30:00Z'
+    });
+    listKnowledgeDocuments.mockResolvedValue([]);
+    updateKnowledgeBase.mockResolvedValue({
+      documentCount: 1,
+      id: 'kb_9',
+      name: 'Architecture Decisions',
+      updatedAt: '2026-04-03T12:30:00Z'
+    });
+
+    render(<KnowledgePage />);
+
+    await screen.findByRole('heading', { name: 'Architecture Notes' });
+    fireEvent.change(screen.getByLabelText('Knowledge base name'), { target: { value: 'Architecture Decisions' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save knowledge base' }));
+
+    await waitFor(() => {
+      expect(updateKnowledgeBase).toHaveBeenCalledWith('kb_9', { name: 'Architecture Decisions' });
+    });
+    expect(screen.getByRole('heading', { name: 'Architecture Decisions' })).toBeInTheDocument();
+  });
+
+  it('updates and deletes documents inside the selected knowledge base', async () => {
+    routeState.knowledgeBaseId = 'kb_9';
+    getKnowledgeBase.mockResolvedValue({
+      documentCount: 2,
+      id: 'kb_9',
+      name: 'Architecture Notes',
+      updatedAt: '2026-04-03T11:30:00Z'
+    });
+    listKnowledgeDocuments.mockResolvedValue([
+      {
+        content: 'System boundaries',
+        id: 'doc_1',
+        title: 'Overview',
+        updatedAt: '2026-04-03T11:45:00Z'
+      }
+    ]);
+    updateKnowledgeDocument.mockResolvedValue({
+      content: 'Updated boundaries',
+      id: 'doc_1',
+      title: 'Overview v2',
+      updatedAt: '2026-04-03T12:15:00Z'
+    });
+    deleteKnowledgeDocument.mockResolvedValue(undefined);
+
+    render(<KnowledgePage />);
+
+    await screen.findByText('Overview');
+    fireEvent.click(screen.getByRole('button', { name: 'Edit document Overview' }));
+    fireEvent.change(screen.getByLabelText('Document title'), { target: { value: 'Overview v2' } });
+    fireEvent.change(screen.getByLabelText('Document content'), { target: { value: 'Updated boundaries' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save document' }));
+
+    await waitFor(() => {
+      expect(updateKnowledgeDocument).toHaveBeenCalledWith('kb_9', 'doc_1', {
+        content: 'Updated boundaries',
+        title: 'Overview v2'
+      });
+    });
+    expect(screen.getByText('Overview v2')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete document Overview v2' }));
+
+    await waitFor(() => {
+      expect(deleteKnowledgeDocument).toHaveBeenCalledWith('kb_9', 'doc_1');
+    });
+    expect(screen.queryByText('Overview v2')).not.toBeInTheDocument();
+  });
+
+  it('deletes the selected knowledge base and returns to the list route', async () => {
+    routeState.knowledgeBaseId = 'kb_9';
+    getKnowledgeBase.mockResolvedValue({
+      documentCount: 1,
+      id: 'kb_9',
+      name: 'Architecture Notes',
+      updatedAt: '2026-04-03T11:30:00Z'
+    });
+    listKnowledgeDocuments.mockResolvedValue([]);
+    deleteKnowledgeBase.mockResolvedValue(undefined);
+
+    render(<KnowledgePage />);
+
+    await screen.findByRole('heading', { name: 'Architecture Notes' });
+    fireEvent.click(screen.getByRole('button', { name: 'Delete knowledge base' }));
+
+    await waitFor(() => {
+      expect(deleteKnowledgeBase).toHaveBeenCalledWith('kb_9');
+    });
+    expect(navigate).toHaveBeenCalledWith('/knowledge');
   });
 });

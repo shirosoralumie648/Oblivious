@@ -11,16 +11,26 @@ export function KnowledgePage() {
   const { knowledgeBaseId } = useParams<{ knowledgeBaseId?: string }>();
   const { authState } = useAppContext();
   const knowledgeApi = useMemo(() => createKnowledgeApi(createHttpClient()), []);
+  const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
-  const [isCreatingDocument, setIsCreatingDocument] = useState(false);
+  const [isDeletingKnowledgeBase, setIsDeletingKnowledgeBase] = useState(false);
+  const [isDeletingDocumentId, setIsDeletingDocumentId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSavingDocument, setIsSavingDocument] = useState(false);
+  const [isSavingKnowledgeBase, setIsSavingKnowledgeBase] = useState(false);
   const [knowledgeDocumentContent, setKnowledgeDocumentContent] = useState('');
   const [knowledgeDocumentTitle, setKnowledgeDocumentTitle] = useState('');
   const [knowledgeBaseName, setKnowledgeBaseName] = useState('');
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBaseSummary[]>([]);
   const [knowledgeDocuments, setKnowledgeDocuments] = useState<KnowledgeDocumentSummary[]>([]);
   const [selectedKnowledgeBase, setSelectedKnowledgeBase] = useState<KnowledgeBaseSummary | null>(null);
+
+  const resetDocumentEditor = () => {
+    setEditingDocumentId(null);
+    setKnowledgeDocumentTitle('');
+    setKnowledgeDocumentContent('');
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -37,8 +47,10 @@ export function KnowledgePage() {
           ]);
           if (!cancelled) {
             setSelectedKnowledgeBase(nextKnowledgeBase);
+            setKnowledgeBaseName(nextKnowledgeBase.name);
             setKnowledgeDocuments(nextKnowledgeDocuments);
             setKnowledgeBases([]);
+            resetDocumentEditor();
           }
         } else {
           const nextKnowledgeBases = await knowledgeApi.listKnowledgeBases();
@@ -46,6 +58,8 @@ export function KnowledgePage() {
             setKnowledgeBases(nextKnowledgeBases);
             setKnowledgeDocuments([]);
             setSelectedKnowledgeBase(null);
+            setKnowledgeBaseName('');
+            resetDocumentEditor();
           }
         }
       } catch {
@@ -53,6 +67,8 @@ export function KnowledgePage() {
           setKnowledgeBases([]);
           setKnowledgeDocuments([]);
           setSelectedKnowledgeBase(null);
+          setKnowledgeBaseName('');
+          resetDocumentEditor();
           setError('Unable to load knowledge bases.');
         }
       } finally {
@@ -89,7 +105,52 @@ export function KnowledgePage() {
     }
   };
 
-  const handleCreateKnowledgeDocument = async () => {
+  const handleSaveKnowledgeBase = async () => {
+    if (!knowledgeBaseId || !selectedKnowledgeBase) {
+      return;
+    }
+
+    const trimmedName = knowledgeBaseName.trim();
+    if (trimmedName === '') {
+      return;
+    }
+
+    setIsSavingKnowledgeBase(true);
+    setError(null);
+
+    try {
+      const updatedKnowledgeBase = await knowledgeApi.updateKnowledgeBase(knowledgeBaseId, { name: trimmedName });
+      setSelectedKnowledgeBase(updatedKnowledgeBase);
+      setKnowledgeBaseName(updatedKnowledgeBase.name);
+      setKnowledgeBases((current) =>
+        current.map((knowledgeBase) => (knowledgeBase.id === updatedKnowledgeBase.id ? updatedKnowledgeBase : knowledgeBase))
+      );
+    } catch {
+      setError('Unable to update knowledge base.');
+    } finally {
+      setIsSavingKnowledgeBase(false);
+    }
+  };
+
+  const handleDeleteKnowledgeBase = async () => {
+    if (!knowledgeBaseId) {
+      return;
+    }
+
+    setIsDeletingKnowledgeBase(true);
+    setError(null);
+
+    try {
+      await knowledgeApi.deleteKnowledgeBase(knowledgeBaseId);
+      navigate('/knowledge');
+    } catch {
+      setError('Unable to delete knowledge base.');
+    } finally {
+      setIsDeletingKnowledgeBase(false);
+    }
+  };
+
+  const handleSubmitKnowledgeDocument = async () => {
     if (!knowledgeBaseId) {
       return;
     }
@@ -100,30 +161,85 @@ export function KnowledgePage() {
       return;
     }
 
-    setIsCreatingDocument(true);
+    setIsSavingDocument(true);
     setError(null);
 
     try {
-      const createdDocument = await knowledgeApi.createKnowledgeDocument(knowledgeBaseId, {
-        content: trimmedContent,
-        title: trimmedTitle
-      });
-      setKnowledgeDocuments((current) => [createdDocument, ...current]);
-      setKnowledgeDocumentTitle('');
-      setKnowledgeDocumentContent('');
+      if (editingDocumentId) {
+        const updatedDocument = await knowledgeApi.updateKnowledgeDocument(knowledgeBaseId, editingDocumentId, {
+          content: trimmedContent,
+          title: trimmedTitle
+        });
+        setKnowledgeDocuments((current) =>
+          current.map((document) => (document.id === editingDocumentId ? updatedDocument : document))
+        );
+      } else {
+        const createdDocument = await knowledgeApi.createKnowledgeDocument(knowledgeBaseId, {
+          content: trimmedContent,
+          title: trimmedTitle
+        });
+        setKnowledgeDocuments((current) => [createdDocument, ...current]);
+        setSelectedKnowledgeBase((current) =>
+          current
+            ? {
+                ...current,
+                documentCount: current.documentCount + 1
+              }
+            : current
+        );
+      }
+
+      resetDocumentEditor();
     } catch {
-      setError('Unable to create knowledge document.');
+      setError(editingDocumentId ? 'Unable to update knowledge document.' : 'Unable to create knowledge document.');
     } finally {
-      setIsCreatingDocument(false);
+      setIsSavingDocument(false);
     }
   };
+
+  const handleEditKnowledgeDocument = (document: KnowledgeDocumentSummary) => {
+    setEditingDocumentId(document.id);
+    setKnowledgeDocumentTitle(document.title);
+    setKnowledgeDocumentContent(document.content);
+  };
+
+  const handleDeleteKnowledgeDocument = async (document: KnowledgeDocumentSummary) => {
+    if (!knowledgeBaseId) {
+      return;
+    }
+
+    setIsDeletingDocumentId(document.id);
+    setError(null);
+
+    try {
+      await knowledgeApi.deleteKnowledgeDocument(knowledgeBaseId, document.id);
+      setKnowledgeDocuments((current) => current.filter((currentDocument) => currentDocument.id !== document.id));
+      setSelectedKnowledgeBase((current) =>
+        current
+          ? {
+              ...current,
+              documentCount: Math.max(current.documentCount - 1, 0)
+            }
+          : current
+      );
+      if (editingDocumentId === document.id) {
+        resetDocumentEditor();
+      }
+    } catch {
+      setError('Unable to delete knowledge document.');
+    } finally {
+      setIsDeletingDocumentId(null);
+    }
+  };
+
+  const isEditingDocument = editingDocumentId !== null;
 
   return (
     <section>
       <h1>{selectedKnowledgeBase ? selectedKnowledgeBase.name : 'Knowledge'}</h1>
       <p>
         {selectedKnowledgeBase
-          ? 'Review the current knowledge-base shell while document ingestion is still pending.'
+          ? 'Manage reusable documents in this knowledge base while retrieval and indexing continue to mature.'
           : 'Organize reusable workspace context into knowledge bases before retrieval and document ingestion land.'}
       </p>
       {isLoading ? <p>{knowledgeBaseId ? 'Loading knowledge base…' : 'Loading knowledge bases…'}</p> : null}
@@ -137,6 +253,20 @@ export function KnowledgePage() {
       </p>
       {selectedKnowledgeBase ? (
         <>
+          <label>
+            Knowledge base name
+            <input onChange={(event) => setKnowledgeBaseName(event.target.value)} type="text" value={knowledgeBaseName} />
+          </label>
+          <button
+            disabled={isSavingKnowledgeBase || knowledgeBaseName.trim() === ''}
+            onClick={() => void handleSaveKnowledgeBase()}
+            type="button"
+          >
+            Save knowledge base
+          </button>
+          <button disabled={isDeletingKnowledgeBase} onClick={() => void handleDeleteKnowledgeBase()} type="button">
+            Delete knowledge base
+          </button>
           <p>Knowledge base ID: {selectedKnowledgeBase.id}</p>
           <p>Documents: {selectedKnowledgeBase.documentCount}</p>
           <label>
@@ -148,12 +278,17 @@ export function KnowledgePage() {
             <textarea onChange={(event) => setKnowledgeDocumentContent(event.target.value)} value={knowledgeDocumentContent} />
           </label>
           <button
-            disabled={isCreatingDocument || knowledgeDocumentTitle.trim() === ''}
-            onClick={() => void handleCreateKnowledgeDocument()}
+            disabled={isSavingDocument || knowledgeDocumentTitle.trim() === ''}
+            onClick={() => void handleSubmitKnowledgeDocument()}
             type="button"
           >
-            Create document
+            {isEditingDocument ? 'Save document' : 'Create document'}
           </button>
+          {isEditingDocument ? (
+            <button disabled={isSavingDocument} onClick={resetDocumentEditor} type="button">
+              Cancel document edit
+            </button>
+          ) : null}
           {knowledgeDocuments.length === 0 ? <p>No documents yet. Add one to seed this knowledge base.</p> : null}
           {knowledgeDocuments.length > 0 ? (
             <ul>
@@ -161,6 +296,16 @@ export function KnowledgePage() {
                 <li key={document.id}>
                   <strong>{document.title}</strong>
                   <p>{document.content}</p>
+                  <button onClick={() => handleEditKnowledgeDocument(document)} type="button">
+                    {`Edit document ${document.title}`}
+                  </button>
+                  <button
+                    disabled={isDeletingDocumentId === document.id}
+                    onClick={() => void handleDeleteKnowledgeDocument(document)}
+                    type="button"
+                  >
+                    {`Delete document ${document.title}`}
+                  </button>
                 </li>
               ))}
             </ul>

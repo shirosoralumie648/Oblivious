@@ -2,6 +2,7 @@ package knowledge
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	"oblivious/server/internal/auth"
@@ -27,6 +28,41 @@ func (s *SQLStore) CreateKnowledgeBase(ctx context.Context, workspaceID, name st
 		Name:          name,
 		UpdatedAt:     now,
 	}, nil
+}
+
+func (s *SQLStore) UpdateKnowledgeBase(ctx context.Context, workspaceID, knowledgeBaseID, name string) (KnowledgeBase, error) {
+	var base KnowledgeBase
+
+	if err := s.db.QueryRowContext(ctx, `
+		UPDATE knowledge_bases
+		SET name = $3, updated_at = $4
+		WHERE workspace_id = $1 AND id = $2
+		RETURNING id, name, document_count, updated_at
+	`, workspaceID, knowledgeBaseID, name, time.Now().UTC()).Scan(&base.ID, &base.Name, &base.DocumentCount, &base.UpdatedAt); err != nil {
+		return KnowledgeBase{}, err
+	}
+
+	return base, nil
+}
+
+func (s *SQLStore) DeleteKnowledgeBase(ctx context.Context, workspaceID, knowledgeBaseID string) error {
+	result, err := s.db.ExecContext(ctx, `
+		DELETE FROM knowledge_bases
+		WHERE workspace_id = $1 AND id = $2
+	`, workspaceID, knowledgeBaseID)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+
+	return nil
 }
 
 func (s *SQLStore) ListKnowledgeBases(ctx context.Context, workspaceID string) ([]KnowledgeBase, error) {
@@ -122,4 +158,60 @@ func (s *SQLStore) CreateKnowledgeDocument(ctx context.Context, workspaceID, kno
 		Title:     title,
 		UpdatedAt: now,
 	}, nil
+}
+
+func (s *SQLStore) UpdateKnowledgeDocument(ctx context.Context, workspaceID, knowledgeBaseID, documentID, title, content string) (KnowledgeDocument, error) {
+	var document KnowledgeDocument
+
+	if err := s.db.QueryRowContext(ctx, `
+		UPDATE knowledge_documents d
+		SET title = $4, content = $5, updated_at = $6
+		FROM knowledge_bases kb
+		WHERE d.knowledge_base_id = kb.id AND kb.workspace_id = $1 AND kb.id = $2 AND d.id = $3
+		RETURNING d.id, d.title, d.content, d.updated_at
+	`, workspaceID, knowledgeBaseID, documentID, title, content, time.Now().UTC()).Scan(
+		&document.ID,
+		&document.Title,
+		&document.Content,
+		&document.UpdatedAt,
+	); err != nil {
+		return KnowledgeDocument{}, err
+	}
+
+	return document, nil
+}
+
+func (s *SQLStore) DeleteKnowledgeDocument(ctx context.Context, workspaceID, knowledgeBaseID, documentID string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	result, err := tx.ExecContext(ctx, `
+		DELETE FROM knowledge_documents d
+		USING knowledge_bases kb
+		WHERE d.knowledge_base_id = kb.id AND kb.workspace_id = $1 AND kb.id = $2 AND d.id = $3
+	`, workspaceID, knowledgeBaseID, documentID)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE knowledge_bases
+		SET document_count = GREATEST(document_count - 1, 0), updated_at = $2
+		WHERE workspace_id = $1 AND id = $3
+	`, workspaceID, time.Now().UTC(), knowledgeBaseID); err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
