@@ -2,7 +2,9 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const createKnowledgeBase = vi.fn();
+const createKnowledgeDocument = vi.fn();
 const getKnowledgeBase = vi.fn();
+const listKnowledgeDocuments = vi.fn();
 const listKnowledgeBases = vi.fn();
 const navigate = vi.fn();
 const routeState = vi.hoisted(() => ({
@@ -39,7 +41,9 @@ vi.mock('../../app/providers', () => ({
 vi.mock('../../features/knowledge/api', () => ({
   createKnowledgeApi: () => ({
     createKnowledgeBase,
+    createKnowledgeDocument,
     getKnowledgeBase,
+    listKnowledgeDocuments,
     listKnowledgeBases
   })
 }));
@@ -55,7 +59,9 @@ describe('KnowledgePage', () => {
       onboardingCompleted: true
     };
     createKnowledgeBase.mockReset();
+    createKnowledgeDocument.mockReset();
     getKnowledgeBase.mockReset();
+    listKnowledgeDocuments.mockReset();
     listKnowledgeBases.mockReset();
     navigate.mockReset();
     routeState.knowledgeBaseId = undefined;
@@ -126,6 +132,14 @@ describe('KnowledgePage', () => {
       name: 'Architecture Notes',
       updatedAt: '2026-04-03T11:30:00Z'
     });
+    listKnowledgeDocuments.mockResolvedValue([
+      {
+        content: 'System boundaries',
+        id: 'doc_1',
+        title: 'Overview',
+        updatedAt: '2026-04-03T11:45:00Z'
+      }
+    ]);
 
     render(<KnowledgePage />);
 
@@ -133,6 +147,39 @@ describe('KnowledgePage', () => {
     expect(await screen.findByRole('heading', { name: 'Architecture Notes' })).toBeInTheDocument();
     expect(screen.getByText('Knowledge base ID: kb_9')).toBeInTheDocument();
     expect(screen.getByText('Documents: 9')).toBeInTheDocument();
+    expect(screen.getByText('Overview')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Back to knowledge bases' })).toBeInTheDocument();
+  });
+
+  it('creates a document inside the selected knowledge base', async () => {
+    routeState.knowledgeBaseId = 'kb_9';
+    getKnowledgeBase.mockResolvedValue({
+      documentCount: 1,
+      id: 'kb_9',
+      name: 'Architecture Notes',
+      updatedAt: '2026-04-03T11:30:00Z'
+    });
+    listKnowledgeDocuments.mockResolvedValue([]);
+    createKnowledgeDocument.mockResolvedValue({
+      content: 'Initial architecture draft',
+      id: 'doc_9',
+      title: 'Draft',
+      updatedAt: '2026-04-03T12:00:00Z'
+    });
+
+    render(<KnowledgePage />);
+
+    await screen.findByRole('heading', { name: 'Architecture Notes' });
+    fireEvent.change(screen.getByLabelText('Document title'), { target: { value: 'Draft' } });
+    fireEvent.change(screen.getByLabelText('Document content'), { target: { value: 'Initial architecture draft' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create document' }));
+
+    await waitFor(() => {
+      expect(createKnowledgeDocument).toHaveBeenCalledWith('kb_9', {
+        content: 'Initial architecture draft',
+        title: 'Draft'
+      });
+    });
+    expect(screen.getByText('Draft')).toBeInTheDocument();
   });
 });

@@ -11,8 +11,11 @@ import (
 type fakeStore struct {
 	createdName  string
 	createdBase  KnowledgeBase
+	createdDoc   KnowledgeDocument
 	detailBase   KnowledgeBase
+	documents    []KnowledgeDocument
 	listBases    []KnowledgeBase
+	requestedDoc KnowledgeDocument
 	requestedID  string
 	workspaceID  string
 }
@@ -32,6 +35,22 @@ func (f *fakeStore) GetKnowledgeBase(ctx context.Context, workspaceID, knowledge
 	f.workspaceID = workspaceID
 	f.requestedID = knowledgeBaseID
 	return f.detailBase, nil
+}
+
+func (f *fakeStore) ListKnowledgeDocuments(ctx context.Context, workspaceID, knowledgeBaseID string) ([]KnowledgeDocument, error) {
+	f.workspaceID = workspaceID
+	f.requestedID = knowledgeBaseID
+	return f.documents, nil
+}
+
+func (f *fakeStore) CreateKnowledgeDocument(ctx context.Context, workspaceID, knowledgeBaseID, title, content string) (KnowledgeDocument, error) {
+	f.workspaceID = workspaceID
+	f.requestedID = knowledgeBaseID
+	f.requestedDoc = KnowledgeDocument{
+		Title:   title,
+		Content: content,
+	}
+	return f.createdDoc, nil
 }
 
 func TestListReturnsWorkspaceKnowledgeBases(t *testing.T) {
@@ -114,5 +133,64 @@ func TestGetReturnsKnowledgeBaseFromWorkspace(t *testing.T) {
 	}
 	if base.Name != "Customer Notes" {
 		t.Fatalf("expected Customer Notes, got %s", base.Name)
+	}
+}
+
+func TestListDocumentsReturnsKnowledgeBaseDocuments(t *testing.T) {
+	store := &fakeStore{
+		documents: []KnowledgeDocument{
+			{
+				Content:   "Deployment notes",
+				ID:        "doc_1",
+				Title:     "Runbook",
+				UpdatedAt: time.Date(2026, time.April, 3, 12, 0, 0, 0, time.UTC),
+			},
+		},
+	}
+	service := NewService(store)
+
+	documents, err := service.ListDocuments(context.Background(), auth.Session{WorkspaceID: "workspace_1"}, "kb_7")
+	if err != nil {
+		t.Fatalf("list documents: %v", err)
+	}
+
+	if store.workspaceID != "workspace_1" {
+		t.Fatalf("expected workspace workspace_1, got %s", store.workspaceID)
+	}
+	if store.requestedID != "kb_7" {
+		t.Fatalf("expected requested id kb_7, got %s", store.requestedID)
+	}
+	if len(documents) != 1 {
+		t.Fatalf("expected 1 document, got %d", len(documents))
+	}
+}
+
+func TestCreateDocumentCreatesDocumentInKnowledgeBase(t *testing.T) {
+	store := &fakeStore{
+		createdDoc: KnowledgeDocument{
+			Content:   "Initial architecture outline",
+			ID:        "doc_9",
+			Title:     "Architecture Draft",
+			UpdatedAt: time.Date(2026, time.April, 3, 12, 30, 0, 0, time.UTC),
+		},
+	}
+	service := NewService(store)
+
+	document, err := service.CreateDocument(context.Background(), auth.Session{WorkspaceID: "workspace_1"}, "kb_7", "Architecture Draft", "Initial architecture outline")
+	if err != nil {
+		t.Fatalf("create document: %v", err)
+	}
+
+	if store.workspaceID != "workspace_1" {
+		t.Fatalf("expected workspace workspace_1, got %s", store.workspaceID)
+	}
+	if store.requestedID != "kb_7" {
+		t.Fatalf("expected requested id kb_7, got %s", store.requestedID)
+	}
+	if store.requestedDoc.Title != "Architecture Draft" {
+		t.Fatalf("expected title Architecture Draft, got %s", store.requestedDoc.Title)
+	}
+	if document.ID != "doc_9" {
+		t.Fatalf("expected doc id doc_9, got %s", document.ID)
 	}
 }

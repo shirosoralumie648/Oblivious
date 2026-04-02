@@ -100,6 +100,18 @@ export interface CreateKnowledgeBaseRequest {
   name: string;
 }
 
+export interface KnowledgeDocumentSummary {
+  content: string;
+  id: string;
+  title: string;
+  updatedAt?: string;
+}
+
+export interface CreateKnowledgeDocumentRequest {
+  content: string;
+  title: string;
+}
+
 export interface MessageOverrides {
   maxOutputTokens?: number;
   modelId?: string;

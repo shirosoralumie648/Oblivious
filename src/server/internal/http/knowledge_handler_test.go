@@ -14,12 +14,15 @@ import (
 )
 
 type knowledgeFakeStore struct {
-	createdName string
-	createdBase knowledge.KnowledgeBase
-	detailBase  knowledge.KnowledgeBase
-	listBases   []knowledge.KnowledgeBase
-	requestedID string
-	workspaceID string
+	createdName  string
+	createdBase  knowledge.KnowledgeBase
+	createdDoc   knowledge.KnowledgeDocument
+	detailBase   knowledge.KnowledgeBase
+	documents    []knowledge.KnowledgeDocument
+	listBases    []knowledge.KnowledgeBase
+	requestedDoc knowledge.KnowledgeDocument
+	requestedID  string
+	workspaceID  string
 }
 
 func (f *knowledgeFakeStore) CreateKnowledgeBase(ctx context.Context, workspaceID, name string) (knowledge.KnowledgeBase, error) {
@@ -37,6 +40,22 @@ func (f *knowledgeFakeStore) GetKnowledgeBase(ctx context.Context, workspaceID, 
 	f.workspaceID = workspaceID
 	f.requestedID = knowledgeBaseID
 	return f.detailBase, nil
+}
+
+func (f *knowledgeFakeStore) ListKnowledgeDocuments(ctx context.Context, workspaceID, knowledgeBaseID string) ([]knowledge.KnowledgeDocument, error) {
+	f.workspaceID = workspaceID
+	f.requestedID = knowledgeBaseID
+	return f.documents, nil
+}
+
+func (f *knowledgeFakeStore) CreateKnowledgeDocument(ctx context.Context, workspaceID, knowledgeBaseID, title, content string) (knowledge.KnowledgeDocument, error) {
+	f.workspaceID = workspaceID
+	f.requestedID = knowledgeBaseID
+	f.requestedDoc = knowledge.KnowledgeDocument{
+		Title:   title,
+		Content: content,
+	}
+	return f.createdDoc, nil
 }
 
 func TestKnowledgeHandlerListReturnsWorkspaceBases(t *testing.T) {
@@ -130,5 +149,61 @@ func TestKnowledgeHandlerGetReturnsKnowledgeBase(t *testing.T) {
 	}
 	if store.requestedID != "kb_2" {
 		t.Fatalf("expected requested id kb_2, got %s", store.requestedID)
+	}
+}
+
+func TestKnowledgeHandlerListDocumentsReturnsKnowledgeBaseDocuments(t *testing.T) {
+	store := &knowledgeFakeStore{
+		documents: []knowledge.KnowledgeDocument{
+			{
+				Content:   "Deploy checklist",
+				ID:        "doc_1",
+				Title:     "Runbook",
+				UpdatedAt: time.Date(2026, time.April, 3, 12, 45, 0, 0, time.UTC),
+			},
+		},
+	}
+	handler := newKnowledgeHandler(knowledge.NewService(store))
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/app/knowledge-bases/kb_2/documents", nil).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		WorkspaceID: "workspace_1",
+	}))
+	recorder := httptest.NewRecorder()
+
+	handler.listKnowledgeDocuments(recorder, request, "kb_2")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+	if store.requestedID != "kb_2" {
+		t.Fatalf("expected requested id kb_2, got %s", store.requestedID)
+	}
+}
+
+func TestKnowledgeHandlerCreateDocumentCreatesKnowledgeBaseDocument(t *testing.T) {
+	store := &knowledgeFakeStore{
+		createdDoc: knowledge.KnowledgeDocument{
+			Content:   "Initial plan",
+			ID:        "doc_2",
+			Title:     "Plan",
+			UpdatedAt: time.Date(2026, time.April, 3, 13, 0, 0, 0, time.UTC),
+		},
+	}
+	handler := newKnowledgeHandler(knowledge.NewService(store))
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_2/documents", strings.NewReader(`{"title":"Plan","content":"Initial plan"}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		WorkspaceID: "workspace_1",
+	}))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.createKnowledgeDocument(recorder, request, "kb_2")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+	if store.requestedID != "kb_2" {
+		t.Fatalf("expected requested id kb_2, got %s", store.requestedID)
+	}
+	if store.requestedDoc.Title != "Plan" {
+		t.Fatalf("expected title Plan, got %s", store.requestedDoc.Title)
 	}
 }

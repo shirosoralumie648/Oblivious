@@ -4,7 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useAppContext } from '../../app/providers';
 import { createKnowledgeApi } from '../../features/knowledge/api';
 import { createHttpClient } from '../../services/http/client';
-import type { KnowledgeBaseSummary } from '../../types/api';
+import type { KnowledgeBaseSummary, KnowledgeDocumentSummary } from '../../types/api';
 
 export function KnowledgePage() {
   const navigate = useNavigate();
@@ -13,9 +13,13 @@ export function KnowledgePage() {
   const knowledgeApi = useMemo(() => createKnowledgeApi(createHttpClient()), []);
   const [error, setError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [isCreatingDocument, setIsCreatingDocument] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [knowledgeDocumentContent, setKnowledgeDocumentContent] = useState('');
+  const [knowledgeDocumentTitle, setKnowledgeDocumentTitle] = useState('');
   const [knowledgeBaseName, setKnowledgeBaseName] = useState('');
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBaseSummary[]>([]);
+  const [knowledgeDocuments, setKnowledgeDocuments] = useState<KnowledgeDocumentSummary[]>([]);
   const [selectedKnowledgeBase, setSelectedKnowledgeBase] = useState<KnowledgeBaseSummary | null>(null);
 
   useEffect(() => {
@@ -27,21 +31,27 @@ export function KnowledgePage() {
 
       try {
         if (knowledgeBaseId) {
-          const nextKnowledgeBase = await knowledgeApi.getKnowledgeBase(knowledgeBaseId);
+          const [nextKnowledgeBase, nextKnowledgeDocuments] = await Promise.all([
+            knowledgeApi.getKnowledgeBase(knowledgeBaseId),
+            knowledgeApi.listKnowledgeDocuments(knowledgeBaseId)
+          ]);
           if (!cancelled) {
             setSelectedKnowledgeBase(nextKnowledgeBase);
+            setKnowledgeDocuments(nextKnowledgeDocuments);
             setKnowledgeBases([]);
           }
         } else {
           const nextKnowledgeBases = await knowledgeApi.listKnowledgeBases();
           if (!cancelled) {
             setKnowledgeBases(nextKnowledgeBases);
+            setKnowledgeDocuments([]);
             setSelectedKnowledgeBase(null);
           }
         }
       } catch {
         if (!cancelled) {
           setKnowledgeBases([]);
+          setKnowledgeDocuments([]);
           setSelectedKnowledgeBase(null);
           setError('Unable to load knowledge bases.');
         }
@@ -79,6 +89,35 @@ export function KnowledgePage() {
     }
   };
 
+  const handleCreateKnowledgeDocument = async () => {
+    if (!knowledgeBaseId) {
+      return;
+    }
+
+    const trimmedTitle = knowledgeDocumentTitle.trim();
+    const trimmedContent = knowledgeDocumentContent.trim();
+    if (trimmedTitle === '') {
+      return;
+    }
+
+    setIsCreatingDocument(true);
+    setError(null);
+
+    try {
+      const createdDocument = await knowledgeApi.createKnowledgeDocument(knowledgeBaseId, {
+        content: trimmedContent,
+        title: trimmedTitle
+      });
+      setKnowledgeDocuments((current) => [createdDocument, ...current]);
+      setKnowledgeDocumentTitle('');
+      setKnowledgeDocumentContent('');
+    } catch {
+      setError('Unable to create knowledge document.');
+    } finally {
+      setIsCreatingDocument(false);
+    }
+  };
+
   return (
     <section>
       <h1>{selectedKnowledgeBase ? selectedKnowledgeBase.name : 'Knowledge'}</h1>
@@ -100,6 +139,32 @@ export function KnowledgePage() {
         <>
           <p>Knowledge base ID: {selectedKnowledgeBase.id}</p>
           <p>Documents: {selectedKnowledgeBase.documentCount}</p>
+          <label>
+            Document title
+            <input onChange={(event) => setKnowledgeDocumentTitle(event.target.value)} type="text" value={knowledgeDocumentTitle} />
+          </label>
+          <label>
+            Document content
+            <textarea onChange={(event) => setKnowledgeDocumentContent(event.target.value)} value={knowledgeDocumentContent} />
+          </label>
+          <button
+            disabled={isCreatingDocument || knowledgeDocumentTitle.trim() === ''}
+            onClick={() => void handleCreateKnowledgeDocument()}
+            type="button"
+          >
+            Create document
+          </button>
+          {knowledgeDocuments.length === 0 ? <p>No documents yet. Add one to seed this knowledge base.</p> : null}
+          {knowledgeDocuments.length > 0 ? (
+            <ul>
+              {knowledgeDocuments.map((document) => (
+                <li key={document.id}>
+                  <strong>{document.title}</strong>
+                  <p>{document.content}</p>
+                </li>
+              ))}
+            </ul>
+          ) : null}
           <button onClick={() => navigate('/knowledge')} type="button">
             Back to knowledge bases
           </button>

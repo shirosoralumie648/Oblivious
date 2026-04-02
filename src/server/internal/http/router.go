@@ -8,11 +8,11 @@ import (
 
 	"oblivious/server/internal/auth"
 	"oblivious/server/internal/chat"
-	"oblivious/server/internal/console"
 	"oblivious/server/internal/config"
+	"oblivious/server/internal/console"
 	"oblivious/server/internal/knowledge"
-	"oblivious/server/internal/userprefs"
 	"oblivious/server/internal/usage"
+	"oblivious/server/internal/userprefs"
 )
 
 func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
@@ -134,18 +134,37 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 		}
 	})))
 	mux.Handle("/api/v1/app/knowledge-bases/", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
-		if r.Method != stdhttp.MethodGet {
-			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-			return
-		}
-
-		knowledgeBaseID := strings.TrimPrefix(r.URL.Path, "/api/v1/app/knowledge-bases/")
-		if knowledgeBaseID == "" || strings.Contains(knowledgeBaseID, "/") {
+		trimmedPath := strings.TrimPrefix(r.URL.Path, "/api/v1/app/knowledge-bases/")
+		parts := strings.Split(trimmedPath, "/")
+		if len(parts) == 0 || parts[0] == "" {
 			writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
 			return
 		}
 
-		knowledgeHandler.getKnowledgeBase(w, r, knowledgeBaseID)
+		knowledgeBaseID := parts[0]
+		if len(parts) == 1 {
+			if r.Method != stdhttp.MethodGet {
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+				return
+			}
+
+			knowledgeHandler.getKnowledgeBase(w, r, knowledgeBaseID)
+			return
+		}
+
+		if len(parts) == 2 && parts[1] == "documents" {
+			switch r.Method {
+			case stdhttp.MethodGet:
+				knowledgeHandler.listKnowledgeDocuments(w, r, knowledgeBaseID)
+			case stdhttp.MethodPost:
+				knowledgeHandler.createKnowledgeDocument(w, r, knowledgeBaseID)
+			default:
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
+
+		writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
 	})))
 	mux.Handle("/api/v1/console/usage", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		if r.Method != stdhttp.MethodGet {

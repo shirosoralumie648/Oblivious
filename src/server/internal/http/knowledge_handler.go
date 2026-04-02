@@ -16,6 +16,11 @@ type createKnowledgeBaseRequest struct {
 	Name string `json:"name"`
 }
 
+type createKnowledgeDocumentRequest struct {
+	Content string `json:"content"`
+	Title   string `json:"title"`
+}
+
 func newKnowledgeHandler(service *knowledge.Service) knowledgeHandler {
 	return knowledgeHandler{service: service}
 }
@@ -78,4 +83,49 @@ func (h knowledgeHandler) createKnowledgeBase(w stdhttp.ResponseWriter, r *stdht
 	}
 
 	writeSuccess(w, stdhttp.StatusOK, base)
+}
+
+func (h knowledgeHandler) listKnowledgeDocuments(w stdhttp.ResponseWriter, r *stdhttp.Request, knowledgeBaseID string) {
+	session, ok := sessionFromContext(r)
+	if !ok {
+		writeError(w, stdhttp.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+
+	documents, err := h.service.ListDocuments(r.Context(), session, knowledgeBaseID)
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "list knowledge documents failed")
+		return
+	}
+
+	writeSuccess(w, stdhttp.StatusOK, documents)
+}
+
+func (h knowledgeHandler) createKnowledgeDocument(w stdhttp.ResponseWriter, r *stdhttp.Request, knowledgeBaseID string) {
+	session, ok := sessionFromContext(r)
+	if !ok {
+		writeError(w, stdhttp.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+
+	var payload createKnowledgeDocumentRequest
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "invalid json body")
+		return
+	}
+
+	title := strings.TrimSpace(payload.Title)
+	content := strings.TrimSpace(payload.Content)
+	if title == "" {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "title is required")
+		return
+	}
+
+	document, err := h.service.CreateDocument(r.Context(), session, knowledgeBaseID, title, content)
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "create knowledge document failed")
+		return
+	}
+
+	writeSuccess(w, stdhttp.StatusOK, document)
 }
