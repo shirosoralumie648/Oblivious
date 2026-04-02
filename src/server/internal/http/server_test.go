@@ -466,8 +466,26 @@ func TestConversationConfigFlow(t *testing.T) {
 		t.Fatalf("get config expected 200, got %d with body %s", getConfigRecorder.Code, getConfigRecorder.Body.String())
 	}
 
+	createKnowledgeBaseRecorder := httptest.NewRecorder()
+	createKnowledgeBaseRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases", strings.NewReader(`{"name":"Reference Docs"}`))
+	createKnowledgeBaseRequest.Header.Set("Content-Type", "application/json")
+	createKnowledgeBaseRequest.AddCookie(cookie)
+	router.ServeHTTP(createKnowledgeBaseRecorder, createKnowledgeBaseRequest)
+	if createKnowledgeBaseRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("create knowledge base expected 200, got %d with body %s", createKnowledgeBaseRecorder.Code, createKnowledgeBaseRecorder.Body.String())
+	}
+
+	var knowledgeBase struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(createKnowledgeBaseRecorder.Body.Bytes(), &knowledgeBase); err != nil {
+		t.Fatalf("decode created knowledge base: %v", err)
+	}
+
 	updateConfigRecorder := httptest.NewRecorder()
-	updateConfigRequest := httptest.NewRequest(stdhttp.MethodPut, "/api/v1/app/conversations/"+created.Data.ID+"/config", strings.NewReader(`{"modelId":"quality-chat","systemPromptOverride":"Be concise","temperature":0.7,"maxOutputTokens":512,"toolsEnabled":true}`))
+	updateConfigRequest := httptest.NewRequest(stdhttp.MethodPut, "/api/v1/app/conversations/"+created.Data.ID+"/config", strings.NewReader(`{"modelId":"quality-chat","systemPromptOverride":"Be concise","temperature":0.7,"maxOutputTokens":512,"toolsEnabled":true,"knowledgeBaseIds":["`+knowledgeBase.Data.ID+`"]}`))
 	updateConfigRequest.Header.Set("Content-Type", "application/json")
 	updateConfigRequest.AddCookie(cookie)
 	router.ServeHTTP(updateConfigRecorder, updateConfigRequest)
@@ -477,11 +495,12 @@ func TestConversationConfigFlow(t *testing.T) {
 
 	var updated struct {
 		Data struct {
-			ModelID              string  `json:"modelId"`
-			SystemPromptOverride string  `json:"systemPromptOverride"`
-			Temperature          float64 `json:"temperature"`
-			MaxOutputTokens      int     `json:"maxOutputTokens"`
-			ToolsEnabled         bool    `json:"toolsEnabled"`
+			ModelID              string   `json:"modelId"`
+			SystemPromptOverride string   `json:"systemPromptOverride"`
+			Temperature          float64  `json:"temperature"`
+			MaxOutputTokens      int      `json:"maxOutputTokens"`
+			ToolsEnabled         bool     `json:"toolsEnabled"`
+			KnowledgeBaseIDs     []string `json:"knowledgeBaseIds"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(updateConfigRecorder.Body.Bytes(), &updated); err != nil {
@@ -489,6 +508,9 @@ func TestConversationConfigFlow(t *testing.T) {
 	}
 	if updated.Data.ModelID != "quality-chat" || updated.Data.SystemPromptOverride != "Be concise" || updated.Data.Temperature != 0.7 || updated.Data.MaxOutputTokens != 512 || !updated.Data.ToolsEnabled {
 		t.Fatalf("unexpected updated config: %+v", updated.Data)
+	}
+	if len(updated.Data.KnowledgeBaseIDs) != 1 || updated.Data.KnowledgeBaseIDs[0] != knowledgeBase.Data.ID {
+		t.Fatalf("expected knowledge bindings [%s], got %+v", knowledgeBase.Data.ID, updated.Data.KnowledgeBaseIDs)
 	}
 }
 

@@ -50,6 +50,7 @@ export interface RegisterRequest {
 
 export interface ConversationConfig {
   conversationId: string;
+  knowledgeBaseIds: string[];
   maxOutputTokens: number;
   modelId: string;
   systemPromptOverride?: string;
@@ -64,6 +65,7 @@ export interface ModelOption {
 }
 
 export interface UpdateConversationConfigRequest {
+  knowledgeBaseIds: string[];
   maxOutputTokens: number;
   modelId: string;
   systemPromptOverride: string;

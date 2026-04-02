@@ -4,6 +4,7 @@ import "time"
 
 type ConversationConfig struct {
 	ConversationID       string    `json:"conversationId"`
+	KnowledgeBaseIDs     []string  `json:"knowledgeBaseIds"`
 	ModelID              string    `json:"modelId"`
 	SystemPromptOverride string    `json:"systemPromptOverride,omitempty"`
 	Temperature          float64   `json:"temperature"`

@@ -39,6 +39,7 @@ type Store interface {
 		temperature float64,
 		maxOutputTokens int,
 		toolsEnabled bool,
+		knowledgeBaseIDs []string,
 	) (ConversationConfig, error)
 }
 
@@ -101,6 +102,7 @@ func (s *Service) UpdateConversationConfig(
 	temperature float64,
 	maxOutputTokens int,
 	toolsEnabled bool,
+	knowledgeBaseIDs []string,
 ) (ConversationConfig, error) {
 	if modelID == "" {
 		modelID = s.defaultModelID
@@ -111,6 +113,7 @@ func (s *Service) UpdateConversationConfig(
 	if maxOutputTokens <= 0 {
 		maxOutputTokens = 1024
 	}
+	knowledgeBaseIDs = normalizeKnowledgeBaseIDs(knowledgeBaseIDs)
 
 	return s.store.UpdateConversationConfig(
 		ctx,
@@ -121,6 +124,7 @@ func (s *Service) UpdateConversationConfig(
 		temperature,
 		maxOutputTokens,
 		toolsEnabled,
+		knowledgeBaseIDs,
 	)
 }
 
@@ -139,6 +143,9 @@ func (s *Service) ListModels() []ModelOption {
 
 func mergeConversationConfig(base ConversationConfig, overrides *MessageOverrides, defaultModelID string) ConversationConfig {
 	effective := base
+	if effective.KnowledgeBaseIDs == nil {
+		effective.KnowledgeBaseIDs = []string{}
+	}
 	if effective.ModelID == "" {
 		effective.ModelID = defaultModelID
 	}
@@ -167,6 +174,32 @@ func mergeConversationConfig(base ConversationConfig, overrides *MessageOverride
 		effective.ToolsEnabled = *overrides.ToolsEnabled
 	}
 	return effective
+}
+
+func normalizeKnowledgeBaseIDs(ids []string) []string {
+	if len(ids) == 0 {
+		return []string{}
+	}
+
+	normalized := make([]string, 0, len(ids))
+	seen := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		trimmed := strings.TrimSpace(id)
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := seen[trimmed]; exists {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		normalized = append(normalized, trimmed)
+	}
+
+	if len(normalized) == 0 {
+		return []string{}
+	}
+
+	return normalized
 }
 
 func (s *Service) SendMessage(ctx context.Context, session auth.Session, conversationID, content string, overrides *MessageOverrides) ([]Message, error) {

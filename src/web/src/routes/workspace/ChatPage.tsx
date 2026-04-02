@@ -3,8 +3,16 @@ import { useNavigate, useParams } from 'react-router-dom';
 
 import { useAppContext } from '../../app/providers';
 import { createChatApi } from '../../features/chat/api';
+import { createKnowledgeApi } from '../../features/knowledge/api';
 import { createHttpClient } from '../../services/http/client';
-import type { ChatMessage, ConversationConfig, ConversationSummary, MessageOverrides, ModelOption } from '../../types/api';
+import type {
+  ChatMessage,
+  ConversationConfig,
+  ConversationSummary,
+  KnowledgeBaseSummary,
+  MessageOverrides,
+  ModelOption
+} from '../../types/api';
 
 const emptyMessageOverrides: MessageOverrides = {
   maxOutputTokens: undefined,
@@ -19,7 +27,9 @@ export function ChatPage() {
   const { conversationId } = useParams<{ conversationId?: string }>();
   const navigate = useNavigate();
   const chatApi = useMemo(() => createChatApi(createHttpClient()), []);
+  const knowledgeApi = useMemo(() => createKnowledgeApi(createHttpClient()), []);
   const [availableModels, setAvailableModels] = useState<ModelOption[]>([]);
+  const [availableKnowledgeBases, setAvailableKnowledgeBases] = useState<KnowledgeBaseSummary[]>([]);
   const [configError, setConfigError] = useState<string | null>(null);
   const [conversationConfig, setConversationConfig] = useState<ConversationConfig | null>(null);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
@@ -29,6 +39,7 @@ export function ChatPage() {
   const [isLoadingConfig, setIsLoadingConfig] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
+  const [isLoadingKnowledgeBases, setIsLoadingKnowledgeBases] = useState(false);
   const [isSavingConfig, setIsSavingConfig] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [messageInput, setMessageInput] = useState('');
@@ -134,6 +145,41 @@ export function ChatPage() {
   useEffect(() => {
     let cancelled = false;
 
+    const loadKnowledgeBases = async () => {
+      if (authState.status !== 'authenticated') {
+        setAvailableKnowledgeBases([]);
+        return;
+      }
+
+      setIsLoadingKnowledgeBases(true);
+
+      try {
+        const nextKnowledgeBases = await knowledgeApi.listKnowledgeBases();
+        if (!cancelled) {
+          setAvailableKnowledgeBases(nextKnowledgeBases);
+        }
+      } catch {
+        if (!cancelled) {
+          setAvailableKnowledgeBases([]);
+          setConfigError('Unable to load knowledge bases.');
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingKnowledgeBases(false);
+        }
+      }
+    };
+
+    void loadKnowledgeBases();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authState.status, knowledgeApi]);
+
+  useEffect(() => {
+    let cancelled = false;
+
     const loadMessages = async () => {
       if (!currentConversationId) {
         setMessages([]);
@@ -183,7 +229,10 @@ export function ChatPage() {
       try {
         const nextConfig = await chatApi.getConversationConfig(currentConversationId);
         if (!cancelled) {
-          setConversationConfig(nextConfig);
+          setConversationConfig({
+            ...nextConfig,
+            knowledgeBaseIds: nextConfig.knowledgeBaseIds ?? []
+          });
         }
       } catch {
         if (!cancelled) {
@@ -235,13 +284,17 @@ export function ChatPage() {
 
     try {
       const savedConfig = await chatApi.updateConversationConfig(currentConversationId, {
+        knowledgeBaseIds: nextConfig.knowledgeBaseIds ?? [],
         maxOutputTokens: nextConfig.maxOutputTokens,
         modelId: nextConfig.modelId,
         systemPromptOverride: nextConfig.systemPromptOverride ?? '',
         temperature: nextConfig.temperature,
         toolsEnabled: nextConfig.toolsEnabled
       });
-      setConversationConfig(savedConfig);
+      setConversationConfig({
+        ...savedConfig,
+        knowledgeBaseIds: savedConfig.knowledgeBaseIds ?? []
+      });
     } catch {
       setConfigError('Unable to save conversation settings.');
     } finally {
@@ -327,6 +380,7 @@ export function ChatPage() {
                 <h2>Conversation settings</h2>
                 {isLoadingConfig ? <p>Loading conversation settings…</p> : null}
                 {isLoadingModels ? <p>Loading available models…</p> : null}
+                {isLoadingKnowledgeBases ? <p>Loading knowledge bases…</p> : null}
                 {configError ? <p>{configError}</p> : null}
                 <label>
                   Model
@@ -381,6 +435,36 @@ export function ChatPage() {
                   />
                   Tools enabled
                 </label>
+                <fieldset disabled={isLoadingConfig || isLoadingKnowledgeBases || isSavingConfig || conversationConfig === null}>
+                  <legend>Knowledge bases</legend>
+                  {availableKnowledgeBases.length === 0 ? (
+                    <p>No knowledge bases available yet.</p>
+                  ) : (
+                    availableKnowledgeBases.map((knowledgeBase) => {
+                      const checked = conversationConfig?.knowledgeBaseIds.includes(knowledgeBase.id) ?? false;
+
+                      return (
+                        <label key={knowledgeBase.id}>
+                          <input
+                            checked={checked}
+                            onChange={(event) => {
+                              const currentKnowledgeBaseIds = conversationConfig?.knowledgeBaseIds ?? [];
+                              const nextKnowledgeBaseIds = event.target.checked
+                                ? currentKnowledgeBaseIds.includes(knowledgeBase.id)
+                                  ? currentKnowledgeBaseIds
+                                  : [...currentKnowledgeBaseIds, knowledgeBase.id]
+                                : currentKnowledgeBaseIds.filter((currentKnowledgeBaseId) => currentKnowledgeBaseId !== knowledgeBase.id);
+
+                              void handleUpdateConfig({ knowledgeBaseIds: nextKnowledgeBaseIds });
+                            }}
+                            type="checkbox"
+                          />
+                          {`Use knowledge base ${knowledgeBase.name}`}
+                        </label>
+                      );
+                    })
+                  )}
+                </fieldset>
               </section>
               {isLoadingMessages ? (
                 <p>Loading messages…</p>

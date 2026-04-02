@@ -30,11 +30,12 @@ type sendMessageRequest struct {
 }
 
 type updateConversationConfigRequest struct {
-	ModelID              string  `json:"modelId"`
-	SystemPromptOverride string  `json:"systemPromptOverride"`
-	Temperature          float64 `json:"temperature"`
-	MaxOutputTokens      int     `json:"maxOutputTokens"`
-	ToolsEnabled         bool    `json:"toolsEnabled"`
+	ModelID              string   `json:"modelId"`
+	KnowledgeBaseIDs     []string `json:"knowledgeBaseIds"`
+	SystemPromptOverride string   `json:"systemPromptOverride"`
+	Temperature          float64  `json:"temperature"`
+	MaxOutputTokens      int      `json:"maxOutputTokens"`
+	ToolsEnabled         bool     `json:"toolsEnabled"`
 }
 
 func newChatHandler(service *chat.Service) chatHandler {
@@ -137,6 +138,7 @@ func (h chatHandler) updateConversationConfig(w stdhttp.ResponseWriter, r *stdht
 		payload.Temperature,
 		payload.MaxOutputTokens,
 		payload.ToolsEnabled,
+		payload.KnowledgeBaseIDs,
 	)
 	if err != nil {
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "update conversation config failed")

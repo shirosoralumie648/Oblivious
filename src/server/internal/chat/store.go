@@ -67,6 +67,7 @@ func (s *SQLStore) CreateMessage(ctx context.Context, conversationID, role, cont
 func (s *SQLStore) GetConversationConfig(ctx context.Context, conversationID, workspaceID, defaultModelID string) (ConversationConfig, error) {
 	config := ConversationConfig{
 		ConversationID:       conversationID,
+		KnowledgeBaseIDs:     []string{},
 		ModelID:              defaultModelID,
 		SystemPromptOverride: "",
 		Temperature:          1,
@@ -99,10 +100,21 @@ func (s *SQLStore) GetConversationConfig(ctx context.Context, conversationID, wo
 				return ConversationConfig{}, insertErr
 			}
 			config.UpdatedAt = now
+			knowledgeBaseIDs, knowledgeErr := s.listConversationKnowledgeBaseIDs(ctx, conversationID, workspaceID)
+			if knowledgeErr != nil {
+				return ConversationConfig{}, knowledgeErr
+			}
+			config.KnowledgeBaseIDs = knowledgeBaseIDs
 			return config, nil
 		}
 		return ConversationConfig{}, err
 	}
+
+	knowledgeBaseIDs, err := s.listConversationKnowledgeBaseIDs(ctx, conversationID, workspaceID)
+	if err != nil {
+		return ConversationConfig{}, err
+	}
+	config.KnowledgeBaseIDs = knowledgeBaseIDs
 
 	return config, nil
 }
@@ -165,9 +177,16 @@ func (s *SQLStore) UpdateConversationConfig(
 	temperature float64,
 	maxOutputTokens int,
 	toolsEnabled bool,
+	knowledgeBaseIDs []string,
 ) (ConversationConfig, error) {
 	updatedAt := time.Now().UTC()
-	result, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ConversationConfig{}, err
+	}
+	defer tx.Rollback()
+
+	result, err := tx.ExecContext(ctx, `
 		INSERT INTO conversation_configs (
 			conversation_id,
 			model_id,
@@ -200,8 +219,46 @@ func (s *SQLStore) UpdateConversationConfig(
 		return ConversationConfig{}, sql.ErrNoRows
 	}
 
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM conversation_knowledge_bindings
+		WHERE conversation_id = $1
+	`, conversationID); err != nil {
+		return ConversationConfig{}, err
+	}
+
+	for _, knowledgeBaseID := range knowledgeBaseIDs {
+		bindingID, err := auth.NewID("ckb")
+		if err != nil {
+			return ConversationConfig{}, err
+		}
+
+		result, err := tx.ExecContext(ctx, `
+			INSERT INTO conversation_knowledge_bindings (id, conversation_id, knowledge_base_id, created_at)
+			SELECT $1, c.id, kb.id, $4
+			FROM conversations c
+			JOIN knowledge_bases kb ON kb.workspace_id = c.workspace_id
+			WHERE c.id = $2 AND c.workspace_id = $3 AND kb.id = $5
+		`, bindingID, conversationID, workspaceID, updatedAt, knowledgeBaseID)
+		if err != nil {
+			return ConversationConfig{}, err
+		}
+
+		bindingRowsAffected, err := result.RowsAffected()
+		if err != nil {
+			return ConversationConfig{}, err
+		}
+		if bindingRowsAffected == 0 {
+			return ConversationConfig{}, sql.ErrNoRows
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return ConversationConfig{}, err
+	}
+
 	return ConversationConfig{
 		ConversationID:       conversationID,
+		KnowledgeBaseIDs:     append([]string(nil), knowledgeBaseIDs...),
 		ModelID:              modelID,
 		SystemPromptOverride: systemPromptOverride,
 		Temperature:          temperature,
@@ -209,4 +266,30 @@ func (s *SQLStore) UpdateConversationConfig(
 		ToolsEnabled:         toolsEnabled,
 		UpdatedAt:            updatedAt,
 	}, nil
+}
+
+func (s *SQLStore) listConversationKnowledgeBaseIDs(ctx context.Context, conversationID, workspaceID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT ckb.knowledge_base_id
+		FROM conversation_knowledge_bindings ckb
+		JOIN conversations c ON c.id = ckb.conversation_id
+		JOIN knowledge_bases kb ON kb.id = ckb.knowledge_base_id
+		WHERE ckb.conversation_id = $1 AND c.workspace_id = $2 AND kb.workspace_id = $2
+		ORDER BY ckb.created_at ASC, ckb.knowledge_base_id ASC
+	`, conversationID, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	knowledgeBaseIDs := []string{}
+	for rows.Next() {
+		var knowledgeBaseID string
+		if err := rows.Scan(&knowledgeBaseID); err != nil {
+			return nil, err
+		}
+		knowledgeBaseIDs = append(knowledgeBaseIDs, knowledgeBaseID)
+	}
+
+	return knowledgeBaseIDs, rows.Err()
 }

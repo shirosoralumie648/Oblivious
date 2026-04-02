@@ -27,7 +27,17 @@ func (f fakeStore) ListConversations(ctx context.Context, workspaceID string) ([
 func (f fakeStore) ListMessages(ctx context.Context, conversationID, workspaceID string) ([]Message, error) {
 	return nil, nil
 }
-func (f fakeStore) UpdateConversationConfig(ctx context.Context, conversationID, workspaceID, modelID, systemPromptOverride string, temperature float64, maxOutputTokens int, toolsEnabled bool) (ConversationConfig, error) {
+func (f fakeStore) UpdateConversationConfig(
+	ctx context.Context,
+	conversationID,
+	workspaceID,
+	modelID,
+	systemPromptOverride string,
+	temperature float64,
+	maxOutputTokens int,
+	toolsEnabled bool,
+	knowledgeBaseIDs []string,
+) (ConversationConfig, error) {
 	return ConversationConfig{}, sql.ErrNoRows
 }
 
@@ -49,8 +59,16 @@ func (f *fakeUsageRecorder) RecordChatUsage(ctx context.Context, record UsageRec
 }
 
 type recordingStore struct {
-	config   ConversationConfig
-	messages []Message
+	config                   ConversationConfig
+	lastConversationID       string
+	lastWorkspaceID          string
+	lastModelID              string
+	lastSystemPromptOverride string
+	lastTemperature          float64
+	lastMaxOutputTokens      int
+	lastToolsEnabled         bool
+	lastKnowledgeBaseIDs     []string
+	messages                 []Message
 }
 
 func (s *recordingStore) CreateConversation(ctx context.Context, workspaceID, title, defaultModelID string) (Conversation, error) {
@@ -79,8 +97,35 @@ func (s *recordingStore) ListMessages(ctx context.Context, conversationID, works
 	return append([]Message(nil), s.messages...), nil
 }
 
-func (s *recordingStore) UpdateConversationConfig(ctx context.Context, conversationID, workspaceID, modelID, systemPromptOverride string, temperature float64, maxOutputTokens int, toolsEnabled bool) (ConversationConfig, error) {
-	return ConversationConfig{}, nil
+func (s *recordingStore) UpdateConversationConfig(
+	ctx context.Context,
+	conversationID,
+	workspaceID,
+	modelID,
+	systemPromptOverride string,
+	temperature float64,
+	maxOutputTokens int,
+	toolsEnabled bool,
+	knowledgeBaseIDs []string,
+) (ConversationConfig, error) {
+	s.lastConversationID = conversationID
+	s.lastWorkspaceID = workspaceID
+	s.lastModelID = modelID
+	s.lastSystemPromptOverride = systemPromptOverride
+	s.lastTemperature = temperature
+	s.lastMaxOutputTokens = maxOutputTokens
+	s.lastToolsEnabled = toolsEnabled
+	s.lastKnowledgeBaseIDs = append([]string(nil), knowledgeBaseIDs...)
+
+	return ConversationConfig{
+		ConversationID:       conversationID,
+		ModelID:              modelID,
+		SystemPromptOverride: systemPromptOverride,
+		Temperature:          temperature,
+		MaxOutputTokens:      maxOutputTokens,
+		ToolsEnabled:         toolsEnabled,
+		KnowledgeBaseIDs:     append([]string(nil), knowledgeBaseIDs...),
+	}, nil
 }
 
 func TestMergeConversationConfigAppliesMessageOverrides(t *testing.T) {
@@ -96,6 +141,7 @@ func TestMergeConversationConfigAppliesMessageOverrides(t *testing.T) {
 		SystemPromptOverride: "Default prompt",
 		Temperature:          1,
 		MaxOutputTokens:      1024,
+		KnowledgeBaseIDs:     []string{"kb_1"},
 		ToolsEnabled:         false,
 	}
 
@@ -110,15 +156,19 @@ func TestMergeConversationConfigAppliesMessageOverrides(t *testing.T) {
 	if effective.ModelID != modelID || effective.SystemPromptOverride != systemPrompt || effective.Temperature != temperature || effective.MaxOutputTokens != maxTokens || !effective.ToolsEnabled {
 		t.Fatalf("unexpected effective config: %+v", effective)
 	}
+	if len(effective.KnowledgeBaseIDs) != 1 || effective.KnowledgeBaseIDs[0] != "kb_1" {
+		t.Fatalf("expected knowledge bindings to be preserved, got %+v", effective.KnowledgeBaseIDs)
+	}
 }
 
 func TestSendMessageRecordsUsage(t *testing.T) {
 	store := &recordingStore{
 		config: ConversationConfig{
-			ConversationID:  "conversation_1",
-			ModelID:         "quality-chat",
-			Temperature:     1,
-			MaxOutputTokens: 1024,
+			ConversationID:   "conversation_1",
+			ModelID:          "quality-chat",
+			Temperature:      1,
+			MaxOutputTokens:  1024,
+			KnowledgeBaseIDs: []string{"kb_7"},
 		},
 	}
 	recorder := &fakeUsageRecorder{}
@@ -159,5 +209,35 @@ func TestSendMessageRecordsUsage(t *testing.T) {
 	}
 	if record.RequestCount != 1 {
 		t.Fatalf("expected request count 1, got %d", record.RequestCount)
+	}
+}
+
+func TestUpdateConversationConfigPersistsKnowledgeBaseIDs(t *testing.T) {
+	store := &recordingStore{}
+	service := NewService(store, fakeGenerator{}, "demo-reply", nil)
+
+	config, err := service.UpdateConversationConfig(
+		context.Background(),
+		auth.Session{WorkspaceID: "workspace_1"},
+		"conversation_1",
+		"quality-chat",
+		"Use docs first",
+		0.4,
+		2048,
+		true,
+		[]string{"kb_2", "kb_5"},
+	)
+	if err != nil {
+		t.Fatalf("update config: %v", err)
+	}
+
+	if store.lastConversationID != "conversation_1" || store.lastWorkspaceID != "workspace_1" {
+		t.Fatalf("unexpected store target: conversation=%s workspace=%s", store.lastConversationID, store.lastWorkspaceID)
+	}
+	if len(store.lastKnowledgeBaseIDs) != 2 || store.lastKnowledgeBaseIDs[0] != "kb_2" || store.lastKnowledgeBaseIDs[1] != "kb_5" {
+		t.Fatalf("expected knowledge ids [kb_2 kb_5], got %+v", store.lastKnowledgeBaseIDs)
+	}
+	if len(config.KnowledgeBaseIDs) != 2 || config.KnowledgeBaseIDs[0] != "kb_2" || config.KnowledgeBaseIDs[1] != "kb_5" {
+		t.Fatalf("expected config knowledge ids [kb_2 kb_5], got %+v", config.KnowledgeBaseIDs)
 	}
 }
