@@ -45,6 +45,7 @@ const routes: RouteObject[] = [
           { path: '/chat', element: <ChatPage /> },
           { path: '/chat/:conversationId', element: <ChatPage /> },
           { path: '/solo', element: <SoloPage /> },
+          { path: '/solo/new', element: <SoloPage /> },
           { path: '/knowledge', element: <KnowledgePage /> },
           { path: '/knowledge/:knowledgeBaseId', element: <KnowledgePage /> },
           { path: '/settings', element: <SettingsPage /> }

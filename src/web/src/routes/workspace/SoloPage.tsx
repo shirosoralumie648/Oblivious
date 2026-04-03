@@ -56,6 +56,7 @@ function downloadTaskResult(task: TaskDetail, knowledgeBaseNames: string[]) {
 export function SoloPage() {
   const { authState } = useAppContext();
   const navigate = useNavigate();
+  const isTaskCreationView = window.location.pathname === '/solo/new';
   const httpClient = useMemo(() => createHttpClient(), []);
   const chatApi = useMemo(() => createChatApi(httpClient), [httpClient]);
   const knowledgeApi = useMemo(() => createKnowledgeApi(httpClient), [httpClient]);
@@ -190,6 +191,9 @@ export function SoloPage() {
       });
       const detail = await tasksApi.startTask(createdTask.id);
       applyTaskDetail(detail);
+      if (isTaskCreationView) {
+        navigate(`/solo?taskId=${detail.id}`);
+      }
     } catch {
       setError('Unable to start a solo run.');
     } finally {
@@ -375,13 +379,26 @@ export function SoloPage() {
 
   return (
     <section>
-      <h1>SOLO</h1>
-      <p>Launch a focused autonomous run with a clear goal, bounded execution mode, and selected workspace knowledge.</p>
+      <h1>{isTaskCreationView ? 'New SOLO task' : 'SOLO'}</h1>
+      <p>
+        {isTaskCreationView
+          ? 'Define the task boundary before handing execution over to SOLO.'
+          : 'Launch a focused autonomous run with a clear goal, bounded execution mode, and selected workspace knowledge.'}
+      </p>
       {isLoading ? <p>Loading solo workspace…</p> : null}
       {error ? <p>{error}</p> : null}
       <p>Default mode: {authState.preferences?.defaultMode ?? 'chat'}</p>
       <p>Model strategy: {authState.preferences?.modelStrategy ?? 'balanced'}</p>
       <p>Web suggestions: {authState.preferences?.networkEnabledHint ? 'Enabled' : 'Disabled'}</p>
+      {isTaskCreationView ? (
+        <button onClick={() => navigate('/solo')} type="button">
+          Back to tasks
+        </button>
+      ) : (
+        <button onClick={() => navigate('/solo/new')} type="button">
+          New task
+        </button>
+      )}
 
       <label>
         Task goal
@@ -430,9 +447,9 @@ export function SoloPage() {
         Start solo run
       </button>
 
-      {renderTaskGroup('Running tasks', runningTasks)}
-      {renderTaskGroup('Completed tasks', completedTasks)}
-      {renderTaskGroup('Stopped tasks', stoppedTasks)}
+      {!isTaskCreationView ? renderTaskGroup('Running tasks', runningTasks) : null}
+      {!isTaskCreationView ? renderTaskGroup('Completed tasks', completedTasks) : null}
+      {!isTaskCreationView ? renderTaskGroup('Stopped tasks', stoppedTasks) : null}
 
       {startedTask ? (
         <section>

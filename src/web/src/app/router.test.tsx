@@ -97,6 +97,18 @@ describe('app router', () => {
     expect(screen.getByText('Loading session…')).toBeInTheDocument();
   });
 
+  it('shows session loading for the protected solo task creation route', () => {
+    const router = createAppRouter(['/solo/new']);
+
+    render(
+      <AppProviders>
+        <RouterProvider router={router} />
+      </AppProviders>
+    );
+
+    expect(screen.getByText('Loading session…')).toBeInTheDocument();
+  });
+
   it('shows session loading for the protected knowledge route', () => {
     const router = createAppRouter(['/knowledge']);
 

@@ -151,6 +151,24 @@ describe('SoloPage', () => {
     expect(screen.getByRole('button', { name: 'Open task Abort risky task' })).toBeInTheDocument();
   });
 
+  it('renders a dedicated task creation view on /solo/new', async () => {
+    window.history.replaceState({}, '', '/solo/new');
+    listTasks.mockResolvedValue([
+      { authorizationScope: 'workspace_tools', budgetLimit: 8, executionMode: 'standard', goal: 'Review launch plan', id: 'task_2', status: 'running', title: 'Review launch plan' }
+    ]);
+    listKnowledgeBases.mockResolvedValue([]);
+
+    render(<SoloPage />);
+
+    expect(await screen.findByRole('heading', { name: 'New SOLO task' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Back to tasks' })).toBeInTheDocument();
+    expect(screen.queryByText('Running tasks')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to tasks' }));
+
+    expect(navigate).toHaveBeenCalledWith('/solo');
+  });
+
   it('creates and starts a solo task, then renders the live execution state', async () => {
     listTasks.mockResolvedValue([]);
     listKnowledgeBases.mockResolvedValue([
