@@ -9,6 +9,8 @@ import (
 )
 
 type fakeStore struct {
+	approvedTaskID       string
+	createdAuthorization string
 	cancelledTaskID      string
 	createdExecutionMode string
 	createdGoal          string
@@ -39,12 +41,14 @@ func (f *fakeStore) CreateTask(
 	title,
 	goal,
 	executionMode string,
+	authorizationScope string,
 	budgetLimit int,
 	knowledgeBaseIDs []string,
 ) (Task, error) {
 	f.workspaceID = workspaceID
 	f.createdGoal = goal
 	f.createdExecutionMode = executionMode
+	f.createdAuthorization = authorizationScope
 	f.createdKnowledgeIDs = append([]string(nil), knowledgeBaseIDs...)
 	return f.createdTask, nil
 }
@@ -52,6 +56,12 @@ func (f *fakeStore) CreateTask(
 func (f *fakeStore) StartTask(ctx context.Context, workspaceID, taskID string) (TaskDetail, error) {
 	f.workspaceID = workspaceID
 	f.requestedID = taskID
+	return f.detailTask, nil
+}
+
+func (f *fakeStore) ApproveTask(ctx context.Context, workspaceID, taskID string) (TaskDetail, error) {
+	f.workspaceID = workspaceID
+	f.approvedTaskID = taskID
 	return f.detailTask, nil
 }
 
@@ -119,6 +129,7 @@ func TestCreateNormalizesGoalAndKnowledgeBaseIDs(t *testing.T) {
 		"",
 		"  Summarize the roadmap  ",
 		"",
+		"",
 		0,
 		[]string{"kb_1", " ", "kb_1", "kb_2"},
 	)
@@ -131,6 +142,9 @@ func TestCreateNormalizesGoalAndKnowledgeBaseIDs(t *testing.T) {
 	}
 	if store.createdExecutionMode != "standard" {
 		t.Fatalf("expected default execution mode standard, got %q", store.createdExecutionMode)
+	}
+	if store.createdAuthorization != "workspace_tools" {
+		t.Fatalf("expected default authorization scope workspace_tools, got %q", store.createdAuthorization)
 	}
 	if len(store.createdKnowledgeIDs) != 2 || store.createdKnowledgeIDs[0] != "kb_1" || store.createdKnowledgeIDs[1] != "kb_2" {
 		t.Fatalf("expected normalized knowledge ids [kb_1 kb_2], got %+v", store.createdKnowledgeIDs)
@@ -145,13 +159,14 @@ func TestStartReturnsTaskDetailForWorkspace(t *testing.T) {
 	store := &fakeStore{
 		detailTask: TaskDetail{
 			Task: Task{
-				BudgetConsumed: 6,
-				ExecutionMode:  "safe",
-				Goal:           "Compile launch notes",
-				ID:             "task_9",
-				StartedAt:      &startedAt,
-				Status:         "running",
-				Title:          "Compile launch notes",
+				AuthorizationScope: "workspace_tools",
+				BudgetConsumed:     6,
+				ExecutionMode:      "safe",
+				Goal:               "Compile launch notes",
+				ID:                 "task_9",
+				StartedAt:          &startedAt,
+				Status:             "running",
+				Title:              "Compile launch notes",
 			},
 			KnowledgeBaseIDs: []string{"kb_1"},
 			Steps: []TaskStep{
@@ -179,6 +194,43 @@ func TestStartReturnsTaskDetailForWorkspace(t *testing.T) {
 	}
 	if task.BudgetConsumed != 6 || task.StartedAt == nil || !task.StartedAt.Equal(startedAt) {
 		t.Fatalf("expected budget/timing to be preserved, got %+v", task)
+	}
+}
+
+func TestApproveReturnsRunningTaskDetailForWorkspace(t *testing.T) {
+	startedAt := time.Date(2026, time.April, 3, 19, 0, 0, 0, time.UTC)
+	store := &fakeStore{
+		detailTask: TaskDetail{
+			Task: Task{
+				AuthorizationScope: "full_access",
+				BudgetConsumed:     6,
+				ExecutionMode:      "safe",
+				Goal:               "Compile vendor outreach plan",
+				ID:                 "task_9",
+				StartedAt:          &startedAt,
+				Status:             "running",
+				Title:              "Compile vendor outreach plan",
+			},
+			KnowledgeBaseIDs: []string{"kb_1"},
+			Steps: []TaskStep{
+				{ID: "step_1", Status: "completed", StepIndex: 1, Title: "Understand the goal"},
+				{ID: "step_2", Status: "completed", StepIndex: 2, Title: "Confirm execution boundary"},
+				{ID: "step_3", Status: "running", StepIndex: 3, Title: "Deliver starter result"},
+			},
+		},
+	}
+	service := NewService(store)
+
+	task, err := service.Approve(context.Background(), auth.Session{WorkspaceID: "workspace_1"}, "task_9")
+	if err != nil {
+		t.Fatalf("approve task: %v", err)
+	}
+
+	if store.approvedTaskID != "task_9" {
+		t.Fatalf("expected approved task id task_9, got %s", store.approvedTaskID)
+	}
+	if task.Status != "running" || task.AuthorizationScope != "full_access" {
+		t.Fatalf("unexpected approved task detail: %+v", task)
 	}
 }
 

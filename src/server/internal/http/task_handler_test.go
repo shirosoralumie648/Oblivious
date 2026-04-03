@@ -14,6 +14,8 @@ import (
 )
 
 type taskFakeStore struct {
+	approvedTaskID       string
+	createdAuthorization string
 	cancelledTaskID      string
 	createdBudgetLimit   int
 	createdExecutionMode string
@@ -45,12 +47,14 @@ func (f *taskFakeStore) CreateTask(
 	title,
 	goal,
 	executionMode string,
+	authorizationScope string,
 	budgetLimit int,
 	knowledgeBaseIDs []string,
 ) (task.Task, error) {
 	f.workspaceID = workspaceID
 	f.createdGoal = goal
 	f.createdExecutionMode = executionMode
+	f.createdAuthorization = authorizationScope
 	f.createdBudgetLimit = budgetLimit
 	f.createdKnowledgeIDs = append([]string(nil), knowledgeBaseIDs...)
 	return f.createdTask, nil
@@ -59,6 +63,12 @@ func (f *taskFakeStore) CreateTask(
 func (f *taskFakeStore) StartTask(ctx context.Context, workspaceID, taskID string) (task.TaskDetail, error) {
 	f.workspaceID = workspaceID
 	f.requestedID = taskID
+	return f.detailTask, nil
+}
+
+func (f *taskFakeStore) ApproveTask(ctx context.Context, workspaceID, taskID string) (task.TaskDetail, error) {
+	f.workspaceID = workspaceID
+	f.approvedTaskID = taskID
 	return f.detailTask, nil
 }
 
@@ -112,16 +122,17 @@ func TestTaskHandlerListReturnsWorkspaceTasks(t *testing.T) {
 func TestTaskHandlerCreateTaskAcceptsKnowledgeBaseIDs(t *testing.T) {
 	store := &taskFakeStore{
 		createdTask: task.Task{
-			BudgetLimit:   25,
-			ExecutionMode: "safe",
-			Goal:          "Draft onboarding checklist",
-			ID:            "task_1",
-			Status:        "draft",
-			Title:         "Draft onboarding checklist",
+			AuthorizationScope: "full_access",
+			BudgetLimit:        25,
+			ExecutionMode:      "safe",
+			Goal:               "Draft onboarding checklist",
+			ID:                 "task_1",
+			Status:             "draft",
+			Title:              "Draft onboarding checklist",
 		},
 	}
 	handler := newTaskHandler(task.NewService(store))
-	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/tasks", strings.NewReader(`{"goal":"Draft onboarding checklist","executionMode":"safe","budgetLimit":25,"knowledgeBaseIds":["kb_1","kb_3"]}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/tasks", strings.NewReader(`{"goal":"Draft onboarding checklist","executionMode":"safe","authorizationScope":"full_access","budgetLimit":25,"knowledgeBaseIds":["kb_1","kb_3"]}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
 		WorkspaceID: "workspace_1",
 	}))
 	request.Header.Set("Content-Type", "application/json")
@@ -135,6 +146,9 @@ func TestTaskHandlerCreateTaskAcceptsKnowledgeBaseIDs(t *testing.T) {
 	if store.createdExecutionMode != "safe" || store.createdBudgetLimit != 25 {
 		t.Fatalf("unexpected create args: mode=%s budget=%d", store.createdExecutionMode, store.createdBudgetLimit)
 	}
+	if store.createdAuthorization != "full_access" {
+		t.Fatalf("unexpected authorization scope: %s", store.createdAuthorization)
+	}
 	if len(store.createdKnowledgeIDs) != 2 || store.createdKnowledgeIDs[0] != "kb_1" || store.createdKnowledgeIDs[1] != "kb_3" {
 		t.Fatalf("unexpected knowledge ids: %+v", store.createdKnowledgeIDs)
 	}
@@ -146,16 +160,17 @@ func TestTaskHandlerGetTaskReturnsTaskDetail(t *testing.T) {
 	store := &taskFakeStore{
 		detailTask: task.TaskDetail{
 			Task: task.Task{
-				BudgetConsumed: 12,
-				BudgetLimit:    12,
-				ExecutionMode:  "standard",
-				FinishedAt:     &finishedAt,
-				Goal:           "Review launch plan",
-				ID:             "task_1",
-				ResultSummary:  "Completed a starter SOLO run for: Review launch plan",
-				StartedAt:      &startedAt,
-				Status:         "completed",
-				Title:          "Review launch plan",
+				AuthorizationScope: "workspace_tools",
+				BudgetConsumed:     12,
+				BudgetLimit:        12,
+				ExecutionMode:      "standard",
+				FinishedAt:         &finishedAt,
+				Goal:               "Review launch plan",
+				ID:                 "task_1",
+				ResultSummary:      "Completed a starter SOLO run for: Review launch plan",
+				StartedAt:          &startedAt,
+				Status:             "completed",
+				Title:              "Review launch plan",
 			},
 			KnowledgeBaseIDs: []string{"kb_2"},
 			Steps: []task.TaskStep{
@@ -196,11 +211,12 @@ func TestTaskHandlerStartReturnsTaskDetail(t *testing.T) {
 	store := &taskFakeStore{
 		detailTask: task.TaskDetail{
 			Task: task.Task{
-				ExecutionMode: "standard",
-				Goal:          "Review launch plan",
-				ID:            "task_1",
-				Status:        "running",
-				Title:         "Review launch plan",
+				AuthorizationScope: "workspace_tools",
+				ExecutionMode:      "standard",
+				Goal:               "Review launch plan",
+				ID:                 "task_1",
+				Status:             "running",
+				Title:              "Review launch plan",
 			},
 			KnowledgeBaseIDs: []string{"kb_2"},
 			Steps: []task.TaskStep{
@@ -232,6 +248,51 @@ func TestTaskHandlerStartReturnsTaskDetail(t *testing.T) {
 	}
 	if response.Data.Status != "running" || len(response.Data.Steps) != 2 {
 		t.Fatalf("unexpected task detail: %+v", response.Data)
+	}
+}
+
+func TestTaskHandlerApproveReturnsTaskDetail(t *testing.T) {
+	store := &taskFakeStore{
+		detailTask: task.TaskDetail{
+			Task: task.Task{
+				AuthorizationScope: "full_access",
+				ExecutionMode:      "safe",
+				Goal:               "Review launch plan",
+				ID:                 "task_1",
+				Status:             "running",
+				Title:              "Review launch plan",
+			},
+			KnowledgeBaseIDs: []string{"kb_2"},
+			Steps: []task.TaskStep{
+				{ID: "step_1", Status: "completed", StepIndex: 1, Title: "Understand the goal"},
+				{ID: "step_2", Status: "completed", StepIndex: 2, Title: "Confirm execution boundary"},
+				{ID: "step_3", Status: "running", StepIndex: 3, Title: "Deliver starter result"},
+			},
+		},
+	}
+	handler := newTaskHandler(task.NewService(store))
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/tasks/task_1/approve", nil).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		WorkspaceID: "workspace_1",
+	}))
+	recorder := httptest.NewRecorder()
+
+	handler.approveTask(recorder, request, "task_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+
+	var response struct {
+		Data task.TaskDetail `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if store.approvedTaskID != "task_1" {
+		t.Fatalf("expected task id task_1, got %s", store.approvedTaskID)
+	}
+	if response.Data.Status != "running" || response.Data.AuthorizationScope != "full_access" {
+		t.Fatalf("unexpected approved task detail: %+v", response.Data)
 	}
 }
 

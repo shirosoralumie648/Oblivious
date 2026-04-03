@@ -18,7 +18,7 @@ func NewSQLStore(db *sql.DB) *SQLStore {
 
 func (s *SQLStore) ListTasks(ctx context.Context, workspaceID string) ([]Task, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, title, goal, execution_mode, status, budget_limit, budget_consumed, result_summary, started_at, finished_at, created_at, updated_at
+		SELECT id, title, goal, execution_mode, authorization_scope, status, budget_limit, budget_consumed, result_summary, started_at, finished_at, created_at, updated_at
 		FROM tasks
 		WHERE workspace_id = $1
 		ORDER BY updated_at DESC, created_at DESC
@@ -36,6 +36,7 @@ func (s *SQLStore) ListTasks(ctx context.Context, workspaceID string) ([]Task, e
 			&current.Title,
 			&current.Goal,
 			&current.ExecutionMode,
+			&current.AuthorizationScope,
 			&current.Status,
 			&current.BudgetLimit,
 			&current.BudgetConsumed,
@@ -83,6 +84,7 @@ func (s *SQLStore) CreateTask(
 	title,
 	goal,
 	executionMode string,
+	authorizationScope string,
 	budgetLimit int,
 	knowledgeBaseIDs []string,
 ) (Task, error) {
@@ -107,6 +109,7 @@ func (s *SQLStore) CreateTask(
 			goal,
 			mode,
 			execution_mode,
+			authorization_scope,
 			status,
 			budget_limit,
 			budget_consumed,
@@ -114,10 +117,10 @@ func (s *SQLStore) CreateTask(
 			created_at,
 			updated_at
 		)
-		SELECT $1, w.id, w.user_id, $3, $4, 'solo', $5, 'draft', $6, 0, '', $7, $7
+		SELECT $1, w.id, w.user_id, $3, $4, 'solo', $5, $6, 'draft', $7, 0, '', $8, $8
 		FROM workspaces w
 		WHERE w.id = $2
-	`, taskID, workspaceID, title, goal, executionMode, budgetLimit, now)
+	`, taskID, workspaceID, title, goal, executionMode, authorizationScope, budgetLimit, now)
 	if err != nil {
 		return Task{}, err
 	}
@@ -161,15 +164,16 @@ func (s *SQLStore) CreateTask(
 	}
 
 	return Task{
-		BudgetConsumed: 0,
-		BudgetLimit:    budgetLimit,
-		CreatedAt:      now,
-		ExecutionMode:  executionMode,
-		Goal:           goal,
-		ID:             taskID,
-		Status:         "draft",
-		Title:          title,
-		UpdatedAt:      now,
+		AuthorizationScope: authorizationScope,
+		BudgetConsumed:     0,
+		BudgetLimit:        budgetLimit,
+		CreatedAt:          now,
+		ExecutionMode:      executionMode,
+		Goal:               goal,
+		ID:                 taskID,
+		Status:             "draft",
+		Title:              title,
+		UpdatedAt:          now,
 	}, nil
 }
 
@@ -181,10 +185,15 @@ func (s *SQLStore) StartTask(ctx context.Context, workspaceID, taskID string) (T
 	}
 	defer tx.Rollback()
 
-	result, err := tx.ExecContext(ctx, `
+	var executionMode string
+	err = tx.QueryRowContext(ctx, `
 		UPDATE tasks AS t
-		SET status = 'running',
+		SET status = CASE
+				WHEN t.execution_mode = 'safe' THEN 'awaiting_confirmation'
+				ELSE 'running'
+			END,
 			budget_consumed = CASE
+				WHEN t.execution_mode = 'safe' THEN 0
 				WHEN t.budget_limit > 0 THEN GREATEST(1, LEAST(t.budget_limit, (t.budget_limit + 3) / 4))
 				ELSE 0
 			END,
@@ -193,17 +202,10 @@ func (s *SQLStore) StartTask(ctx context.Context, workspaceID, taskID string) (T
 			result_summary = '',
 			updated_at = $3
 		WHERE t.workspace_id = $1 AND t.id = $2
-	`, workspaceID, taskID, now)
+		RETURNING t.execution_mode
+	`, workspaceID, taskID, now).Scan(&executionMode)
 	if err != nil {
 		return TaskDetail{}, err
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return TaskDetail{}, err
-	}
-	if rowsAffected == 0 {
-		return TaskDetail{}, sql.ErrNoRows
 	}
 
 	if _, err := tx.ExecContext(ctx, `
@@ -213,12 +215,7 @@ func (s *SQLStore) StartTask(ctx context.Context, workspaceID, taskID string) (T
 		return TaskDetail{}, err
 	}
 
-	stepTitles := []string{
-		"Understand the goal",
-		"Review workspace context",
-		"Deliver starter result",
-	}
-	stepStatuses := []string{"completed", "running", "pending"}
+	stepTitles, stepStatuses := starterPlanForMode(executionMode)
 	for index, title := range stepTitles {
 		stepID, err := auth.NewID("step")
 		if err != nil {
@@ -241,6 +238,71 @@ func (s *SQLStore) StartTask(ctx context.Context, workspaceID, taskID string) (T
 		`, stepID, taskID, index+1, title, stepStatuses[index], now, startedAtForStatus(stepStatuses[index], now), finishedAtForStatus(stepStatuses[index], now)); err != nil {
 			return TaskDetail{}, err
 		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return TaskDetail{}, err
+	}
+
+	return s.GetTask(ctx, workspaceID, taskID)
+}
+
+func (s *SQLStore) ApproveTask(ctx context.Context, workspaceID, taskID string) (TaskDetail, error) {
+	now := time.Now().UTC()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return TaskDetail{}, err
+	}
+	defer tx.Rollback()
+
+	result, err := tx.ExecContext(ctx, `
+		UPDATE tasks AS t
+		SET status = 'running',
+			budget_consumed = CASE
+				WHEN t.budget_limit > 0 THEN GREATEST(1, LEAST(t.budget_limit, (t.budget_limit + 3) / 4))
+				ELSE 0
+			END,
+			updated_at = $3
+		WHERE t.workspace_id = $1 AND t.id = $2 AND t.status = 'awaiting_confirmation'
+	`, workspaceID, taskID, now)
+	if err != nil {
+		return TaskDetail{}, err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return TaskDetail{}, err
+	}
+	if rowsAffected == 0 {
+		return TaskDetail{}, sql.ErrNoRows
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE task_steps
+		SET status = 'completed',
+			updated_at = $2,
+			started_at = COALESCE(started_at, $2),
+			finished_at = COALESCE(finished_at, $2)
+		WHERE task_id = $1 AND status = 'awaiting_confirmation'
+	`, taskID, now); err != nil {
+		return TaskDetail{}, err
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE task_steps
+		SET status = 'running',
+			updated_at = $2,
+			started_at = COALESCE(started_at, $2)
+		WHERE task_id = $1
+			AND step_index = (
+				SELECT step_index
+				FROM task_steps
+				WHERE task_id = $1 AND status = 'pending'
+				ORDER BY step_index ASC
+				LIMIT 1
+			)
+	`, taskID, now); err != nil {
+		return TaskDetail{}, err
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -334,7 +396,7 @@ func (s *SQLStore) CancelTask(ctx context.Context, workspaceID, taskID string) (
 		SET status = 'cancelled',
 			finished_at = $3,
 			updated_at = $3
-		WHERE workspace_id = $1 AND id = $2 AND status IN ('running', 'paused', 'draft')
+		WHERE workspace_id = $1 AND id = $2 AND status IN ('running', 'paused', 'draft', 'awaiting_confirmation')
 	`, workspaceID, taskID, now)
 	if err != nil {
 		return TaskDetail{}, err
@@ -353,7 +415,7 @@ func (s *SQLStore) CancelTask(ctx context.Context, workspaceID, taskID string) (
 		SET status = 'cancelled',
 			updated_at = $2,
 			finished_at = COALESCE(finished_at, $2)
-		WHERE task_id = $1 AND status IN ('running', 'pending')
+		WHERE task_id = $1 AND status IN ('running', 'pending', 'awaiting_confirmation')
 	`, taskID, now); err != nil {
 		return TaskDetail{}, err
 	}
@@ -368,7 +430,7 @@ func (s *SQLStore) CancelTask(ctx context.Context, workspaceID, taskID string) (
 func (s *SQLStore) getTaskRow(ctx context.Context, workspaceID, taskID string) (Task, error) {
 	var taskRow Task
 	if err := s.db.QueryRowContext(ctx, `
-		SELECT id, title, goal, execution_mode, status, budget_limit, budget_consumed, result_summary, started_at, finished_at, created_at, updated_at
+		SELECT id, title, goal, execution_mode, authorization_scope, status, budget_limit, budget_consumed, result_summary, started_at, finished_at, created_at, updated_at
 		FROM tasks
 		WHERE workspace_id = $1 AND id = $2
 	`, workspaceID, taskID).Scan(
@@ -376,6 +438,7 @@ func (s *SQLStore) getTaskRow(ctx context.Context, workspaceID, taskID string) (
 		&taskRow.Title,
 		&taskRow.Goal,
 		&taskRow.ExecutionMode,
+		&taskRow.AuthorizationScope,
 		&taskRow.Status,
 		&taskRow.BudgetLimit,
 		&taskRow.BudgetConsumed,
@@ -469,4 +532,20 @@ func finishedAtForStatus(status string, now time.Time) *time.Time {
 	}
 
 	return nil
+}
+
+func starterPlanForMode(executionMode string) ([]string, []string) {
+	if executionMode == "safe" {
+		return []string{
+			"Understand the goal",
+			"Confirm execution boundary",
+			"Deliver starter result",
+		}, []string{"completed", "awaiting_confirmation", "pending"}
+	}
+
+	return []string{
+		"Understand the goal",
+		"Review workspace context",
+		"Deliver starter result",
+	}, []string{"completed", "running", "pending"}
 }

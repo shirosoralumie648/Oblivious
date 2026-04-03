@@ -228,6 +228,7 @@ describe('ChatPage', () => {
 
     await waitFor(() => {
       expect(createTask).toHaveBeenCalledWith({
+        authorizationScope: 'workspace_tools',
         budgetLimit: 20,
         executionMode: 'standard',
         goal: 'Draft a launch checklist from this thread.',

@@ -231,6 +231,16 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 			return
 		}
 
+		if len(parts) == 2 && parts[1] == "approve" {
+			switch r.Method {
+			case stdhttp.MethodPost:
+				taskHandler.approveTask(w, r, taskID)
+			default:
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
+
 		if len(parts) == 2 && parts[1] == "pause" {
 			switch r.Method {
 			case stdhttp.MethodPost:

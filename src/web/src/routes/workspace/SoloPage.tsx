@@ -9,6 +9,7 @@ import { createHttpClient } from '../../services/http/client';
 import type { KnowledgeBaseSummary, TaskDetail, TaskSummary } from '../../types/api';
 
 const defaultBudgetLimit = '10';
+const defaultAuthorizationScope = 'workspace_tools';
 const defaultExecutionMode = 'standard';
 
 function taskIDFromSearch(search: string) {
@@ -28,6 +29,7 @@ function downloadTaskResult(task: TaskDetail, knowledgeBaseNames: string[]) {
     `- Goal: ${task.goal}`,
     `- Status: ${task.status}`,
     `- Execution mode: ${task.executionMode}`,
+    `- Authorization scope: ${task.authorizationScope}`,
     `- Budget consumed: ${task.budgetConsumed ?? 0} / ${task.budgetLimit}`,
     `- Started at: ${task.startedAt ?? 'N/A'}`,
     `- Finished at: ${task.finishedAt ?? 'N/A'}`,
@@ -59,6 +61,7 @@ export function SoloPage() {
   const knowledgeApi = useMemo(() => createKnowledgeApi(httpClient), [httpClient]);
   const tasksApi = useMemo(() => createTasksApi(httpClient), [httpClient]);
   const [budgetLimit, setBudgetLimit] = useState(defaultBudgetLimit);
+  const [authorizationScope, setAuthorizationScope] = useState(defaultAuthorizationScope);
   const [error, setError] = useState<string | null>(null);
   const [executionMode, setExecutionMode] = useState(defaultExecutionMode);
   const [goal, setGoal] = useState('');
@@ -156,9 +159,13 @@ export function SoloPage() {
       const matchedKnowledgeBase = knowledgeBases.find((knowledgeBase) => knowledgeBase.id === knowledgeBaseID);
       return matchedKnowledgeBase?.name ?? knowledgeBaseID;
     }) ?? [];
-  const runningTasks = recentTasks.filter((task) => task.status === 'running' || task.status === 'paused');
+  const runningTasks = recentTasks.filter(
+    (task) => task.status === 'running' || task.status === 'paused' || task.status === 'awaiting_confirmation'
+  );
   const completedTasks = recentTasks.filter((task) => task.status === 'completed');
-  const stoppedTasks = recentTasks.filter((task) => task.status !== 'running' && task.status !== 'paused' && task.status !== 'completed');
+  const stoppedTasks = recentTasks.filter(
+    (task) => task.status !== 'running' && task.status !== 'paused' && task.status !== 'awaiting_confirmation' && task.status !== 'completed'
+  );
 
   const handleStartSoloRun = async () => {
     const trimmedGoal = goal.trim();
@@ -173,6 +180,7 @@ export function SoloPage() {
     try {
       const parsedBudgetLimit = Number.parseInt(budgetLimit, 10);
       const createdTask = await tasksApi.createTask({
+        authorizationScope,
         budgetLimit: Number.isNaN(parsedBudgetLimit) ? 0 : parsedBudgetLimit,
         executionMode,
         goal: trimmedGoal,
@@ -212,6 +220,24 @@ export function SoloPage() {
       applyTaskDetail(detail);
     } catch {
       setError('Unable to pause task.');
+    }
+  };
+
+  const handleApproveTask = async () => {
+    if (!startedTask) {
+      return;
+    }
+
+    setIsLoadingTaskID(startedTask.id);
+    setError(null);
+
+    try {
+      const detail = await tasksApi.approveTask(startedTask.id);
+      applyTaskDetail(detail);
+    } catch {
+      setError('Unable to approve task plan.');
+    } finally {
+      setIsLoadingTaskID(null);
     }
   };
 
@@ -349,6 +375,15 @@ export function SoloPage() {
       </label>
 
       <label>
+        Authorization scope
+        <select onChange={(event) => setAuthorizationScope(event.target.value)} value={authorizationScope}>
+          <option value="knowledge_only">knowledge_only</option>
+          <option value="workspace_tools">workspace_tools</option>
+          <option value="full_access">full_access</option>
+        </select>
+      </label>
+
+      <label>
         Budget limit
         <input onChange={(event) => setBudgetLimit(event.target.value)} type="number" value={budgetLimit} />
       </label>
@@ -381,6 +416,7 @@ export function SoloPage() {
           <h2>{startedTask.status === 'completed' ? 'Latest result' : 'Execution view'}</h2>
           <p>{`Status: ${startedTask.status}`}</p>
           <p>{`Execution mode: ${startedTask.executionMode}`}</p>
+          <p>{`Authorization scope: ${startedTask.authorizationScope}`}</p>
           <p>{`Budget consumed: ${startedTask.budgetConsumed ?? 0} / ${startedTask.budgetLimit}`}</p>
           {startedTask.startedAt ? <p>{`Started at: ${startedTask.startedAt}`}</p> : null}
           {startedTask.finishedAt ? <p>{`Finished at: ${startedTask.finishedAt}`}</p> : null}
@@ -396,7 +432,13 @@ export function SoloPage() {
               </ul>
             )}
           </section>
-          {startedTask.resultSummary ? <p>{startedTask.resultSummary}</p> : <p>SOLO is still working through the current plan.</p>}
+          {startedTask.resultSummary ? (
+            <p>{startedTask.resultSummary}</p>
+          ) : startedTask.status === 'awaiting_confirmation' ? (
+            <p>SOLO is waiting for your approval before continuing beyond the current execution boundary.</p>
+          ) : (
+            <p>SOLO is still working through the current plan.</p>
+          )}
           <ol>
             {startedTask.steps.map((step) => (
               <li key={step.id}>
@@ -419,6 +461,16 @@ export function SoloPage() {
             <div>
               <button onClick={() => void handleResumeTask()} type="button">
                 Resume run
+              </button>
+              <button onClick={() => void handleCancelTask()} type="button">
+                Cancel run
+              </button>
+            </div>
+          ) : null}
+          {startedTask.status === 'awaiting_confirmation' ? (
+            <div>
+              <button disabled={isLoadingTaskID === startedTask.id} onClick={() => void handleApproveTask()} type="button">
+                Approve plan
               </button>
               <button onClick={() => void handleCancelTask()} type="button">
                 Cancel run

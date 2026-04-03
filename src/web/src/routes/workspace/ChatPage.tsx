@@ -384,6 +384,7 @@ export function ChatPage() {
     try {
       const parsedBudgetLimit = Number.parseInt(soloTaskBudgetLimit, 10);
       const createdTask = await tasksApi.createTask({
+        authorizationScope: 'workspace_tools',
         budgetLimit: Number.isNaN(parsedBudgetLimit) ? 0 : parsedBudgetLimit,
         executionMode: soloTaskExecutionMode,
         goal: trimmedGoal,

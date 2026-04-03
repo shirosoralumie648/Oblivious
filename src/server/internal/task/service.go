@@ -13,18 +13,19 @@ import (
 var ErrInvalidGoal = errors.New("goal is required")
 
 type Task struct {
-	BudgetConsumed int        `json:"budgetConsumed"`
-	BudgetLimit    int        `json:"budgetLimit"`
-	CreatedAt      time.Time  `json:"createdAt"`
-	ExecutionMode  string     `json:"executionMode"`
-	FinishedAt     *time.Time `json:"finishedAt,omitempty"`
-	Goal           string     `json:"goal"`
-	ID             string     `json:"id"`
-	ResultSummary  string     `json:"resultSummary,omitempty"`
-	StartedAt      *time.Time `json:"startedAt,omitempty"`
-	Status         string     `json:"status"`
-	Title          string     `json:"title"`
-	UpdatedAt      time.Time  `json:"updatedAt"`
+	AuthorizationScope string     `json:"authorizationScope"`
+	BudgetConsumed     int        `json:"budgetConsumed"`
+	BudgetLimit        int        `json:"budgetLimit"`
+	CreatedAt          time.Time  `json:"createdAt"`
+	ExecutionMode      string     `json:"executionMode"`
+	FinishedAt         *time.Time `json:"finishedAt,omitempty"`
+	Goal               string     `json:"goal"`
+	ID                 string     `json:"id"`
+	ResultSummary      string     `json:"resultSummary,omitempty"`
+	StartedAt          *time.Time `json:"startedAt,omitempty"`
+	Status             string     `json:"status"`
+	Title              string     `json:"title"`
+	UpdatedAt          time.Time  `json:"updatedAt"`
 }
 
 type TaskStep struct {
@@ -52,9 +53,11 @@ type Store interface {
 		title,
 		goal,
 		executionMode string,
+		authorizationScope string,
 		budgetLimit int,
 		knowledgeBaseIDs []string,
 	) (Task, error)
+	ApproveTask(ctx context.Context, workspaceID, taskID string) (TaskDetail, error)
 	GetTask(ctx context.Context, workspaceID, taskID string) (TaskDetail, error)
 	ListTasks(ctx context.Context, workspaceID string) ([]Task, error)
 	PauseTask(ctx context.Context, workspaceID, taskID string) (TaskDetail, error)
@@ -79,6 +82,10 @@ func (s *Service) List(ctx context.Context, session auth.Session) ([]Task, error
 		return []Task{}, nil
 	}
 
+	for index := range tasks {
+		tasks[index] = normalizeTask(tasks[index])
+	}
+
 	return tasks, nil
 }
 
@@ -97,6 +104,7 @@ func (s *Service) Create(
 	title,
 	goal,
 	executionMode string,
+	authorizationScope string,
 	budgetLimit int,
 	knowledgeBaseIDs []string,
 ) (Task, error) {
@@ -120,6 +128,7 @@ func (s *Service) Create(
 		normalizedTitle,
 		normalizedGoal,
 		normalizeExecutionMode(executionMode),
+		normalizeAuthorizationScope(authorizationScope),
 		budgetLimit,
 		normalizeKnowledgeBaseIDs(knowledgeBaseIDs),
 	)
@@ -132,6 +141,15 @@ func (s *Service) Start(ctx context.Context, session auth.Session, taskID string
 	}
 
 	detail, err := s.store.StartTask(ctx, session.WorkspaceID, trimmedTaskID)
+	if err != nil {
+		return TaskDetail{}, err
+	}
+
+	return normalizeTaskDetail(detail), nil
+}
+
+func (s *Service) Approve(ctx context.Context, session auth.Session, taskID string) (TaskDetail, error) {
+	detail, err := s.store.ApproveTask(ctx, session.WorkspaceID, strings.TrimSpace(taskID))
 	if err != nil {
 		return TaskDetail{}, err
 	}
@@ -204,7 +222,24 @@ func normalizeKnowledgeBaseIDs(ids []string) []string {
 	return normalized
 }
 
+func normalizeAuthorizationScope(scope string) string {
+	switch strings.TrimSpace(scope) {
+	case "knowledge_only":
+		return "knowledge_only"
+	case "full_access":
+		return "full_access"
+	default:
+		return "workspace_tools"
+	}
+}
+
+func normalizeTask(task Task) Task {
+	task.AuthorizationScope = normalizeAuthorizationScope(task.AuthorizationScope)
+	return task
+}
+
 func normalizeTaskDetail(detail TaskDetail) TaskDetail {
+	detail.Task = normalizeTask(detail.Task)
 	if detail.KnowledgeBaseIDs == nil {
 		detail.KnowledgeBaseIDs = []string{}
 	}

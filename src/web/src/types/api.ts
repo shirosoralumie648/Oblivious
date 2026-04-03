@@ -88,6 +88,7 @@ export interface ConversationTaskDraft {
 }
 
 export interface TaskSummary {
+  authorizationScope: string;
   budgetConsumed?: number;
   budgetLimit: number;
   createdAt?: string;
@@ -119,6 +120,7 @@ export interface TaskDetail extends TaskSummary {
 }
 
 export interface CreateTaskRequest {
+  authorizationScope: string;
   budgetLimit: number;
   executionMode: string;
   goal: string;

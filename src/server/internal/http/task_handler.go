@@ -13,11 +13,12 @@ type taskHandler struct {
 }
 
 type createTaskRequest struct {
-	BudgetLimit      int      `json:"budgetLimit"`
-	ExecutionMode    string   `json:"executionMode"`
-	Goal             string   `json:"goal"`
-	KnowledgeBaseIDs []string `json:"knowledgeBaseIds"`
-	Title            string   `json:"title"`
+	AuthorizationScope string   `json:"authorizationScope"`
+	BudgetLimit        int      `json:"budgetLimit"`
+	ExecutionMode      string   `json:"executionMode"`
+	Goal               string   `json:"goal"`
+	KnowledgeBaseIDs   []string `json:"knowledgeBaseIds"`
+	Title              string   `json:"title"`
 }
 
 func newTaskHandler(service *task.Service) taskHandler {
@@ -79,6 +80,7 @@ func (h taskHandler) createTask(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		strings.TrimSpace(payload.Title),
 		strings.TrimSpace(payload.Goal),
 		strings.TrimSpace(payload.ExecutionMode),
+		strings.TrimSpace(payload.AuthorizationScope),
 		payload.BudgetLimit,
 		payload.KnowledgeBaseIDs,
 	)
@@ -100,6 +102,22 @@ func (h taskHandler) startTask(w stdhttp.ResponseWriter, r *stdhttp.Request, tas
 	detail, err := h.service.Start(r.Context(), session, taskID)
 	if err != nil {
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "start task failed")
+		return
+	}
+
+	writeSuccess(w, stdhttp.StatusOK, detail)
+}
+
+func (h taskHandler) approveTask(w stdhttp.ResponseWriter, r *stdhttp.Request, taskID string) {
+	session, ok := sessionFromContext(r)
+	if !ok {
+		writeError(w, stdhttp.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+
+	detail, err := h.service.Approve(r.Context(), session, taskID)
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "approve task failed")
 		return
 	}
 

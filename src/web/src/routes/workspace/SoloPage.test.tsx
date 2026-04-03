@@ -11,6 +11,7 @@ const getTask = vi.fn();
 const listKnowledgeBases = vi.fn();
 const listTasks = vi.fn();
 const pauseTask = vi.fn();
+const approveTask = vi.fn();
 const cancelTask = vi.fn();
 const resumeTask = vi.fn();
 const startTask = vi.fn();
@@ -47,6 +48,7 @@ vi.mock('../../features/chat/api', () => ({
 
 vi.mock('../../features/tasks/api', () => ({
   createTasksApi: () => ({
+    approveTask,
     cancelTask,
     createTask,
     getTask,
@@ -83,6 +85,7 @@ describe('SoloPage', () => {
     listKnowledgeBases.mockReset();
     listTasks.mockReset();
     pauseTask.mockReset();
+    approveTask.mockReset();
     cancelTask.mockReset();
     resumeTask.mockReset();
     startTask.mockReset();
@@ -100,6 +103,7 @@ describe('SoloPage', () => {
     listKnowledgeBases.mockReset();
     listTasks.mockReset();
     pauseTask.mockReset();
+    approveTask.mockReset();
     cancelTask.mockReset();
     resumeTask.mockReset();
     startTask.mockReset();
@@ -191,6 +195,7 @@ describe('SoloPage', () => {
 
     await waitFor(() => {
       expect(createTask).toHaveBeenCalledWith({
+        authorizationScope: 'workspace_tools',
         budgetLimit: 20,
         executionMode: 'safe',
         goal: 'Draft launch checklist',
@@ -208,6 +213,88 @@ describe('SoloPage', () => {
     expect(screen.getByText('Understand the goal')).toBeInTheDocument();
     expect(screen.getByText('Review workspace context')).toBeInTheDocument();
     expect(screen.getByText('Deliver starter result')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Pause run' })).toBeInTheDocument();
+  });
+
+  it('waits for approval before continuing a safe solo task', async () => {
+    listTasks.mockResolvedValue([]);
+    listKnowledgeBases.mockResolvedValue([]);
+    createTask.mockResolvedValue({
+      authorizationScope: 'full_access',
+      budgetLimit: 20,
+      budgetConsumed: 0,
+      createdAt: '2026-04-03T10:00:00Z',
+      executionMode: 'safe',
+      goal: 'Draft vendor outreach plan',
+      id: 'task_safe',
+      status: 'draft',
+      title: 'Draft vendor outreach plan'
+    });
+    startTask.mockResolvedValue({
+      authorizationScope: 'full_access',
+      budgetLimit: 20,
+      budgetConsumed: 0,
+      createdAt: '2026-04-03T10:00:00Z',
+      executionMode: 'safe',
+      goal: 'Draft vendor outreach plan',
+      id: 'task_safe',
+      knowledgeBaseIds: [],
+      startedAt: '2026-04-03T10:01:00Z',
+      status: 'awaiting_confirmation',
+      steps: [
+        { id: 'step_1', status: 'completed', stepIndex: 1, title: 'Understand the goal' },
+        { id: 'step_2', status: 'awaiting_confirmation', stepIndex: 2, title: 'Confirm execution boundary' },
+        { id: 'step_3', status: 'pending', stepIndex: 3, title: 'Deliver starter result' }
+      ],
+      title: 'Draft vendor outreach plan'
+    });
+    approveTask.mockResolvedValue({
+      authorizationScope: 'full_access',
+      budgetLimit: 20,
+      budgetConsumed: 5,
+      createdAt: '2026-04-03T10:00:00Z',
+      executionMode: 'safe',
+      goal: 'Draft vendor outreach plan',
+      id: 'task_safe',
+      knowledgeBaseIds: [],
+      startedAt: '2026-04-03T10:01:00Z',
+      status: 'running',
+      steps: [
+        { id: 'step_1', status: 'completed', stepIndex: 1, title: 'Understand the goal' },
+        { id: 'step_2', status: 'completed', stepIndex: 2, title: 'Confirm execution boundary' },
+        { id: 'step_3', status: 'running', stepIndex: 3, title: 'Deliver starter result' }
+      ],
+      title: 'Draft vendor outreach plan'
+    });
+
+    render(<SoloPage />);
+
+    await screen.findByRole('button', { name: 'Start solo run' });
+    fireEvent.change(screen.getByLabelText('Task goal'), { target: { value: 'Draft vendor outreach plan' } });
+    fireEvent.change(screen.getByLabelText('Execution mode'), { target: { value: 'safe' } });
+    fireEvent.change(screen.getByLabelText('Authorization scope'), { target: { value: 'full_access' } });
+    fireEvent.change(screen.getByLabelText('Budget limit'), { target: { value: '20' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Start solo run' }));
+
+    await waitFor(() => {
+      expect(createTask).toHaveBeenCalledWith({
+        authorizationScope: 'full_access',
+        budgetLimit: 20,
+        executionMode: 'safe',
+        goal: 'Draft vendor outreach plan',
+        knowledgeBaseIds: []
+      });
+    });
+    await screen.findByText('Status: awaiting_confirmation');
+    expect(screen.getByText('Authorization scope: full_access')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Approve plan' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Approve plan' }));
+
+    await waitFor(() => {
+      expect(approveTask).toHaveBeenCalledWith('task_safe');
+    });
+    expect(screen.getByText('Status: running')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Pause run' })).toBeInTheDocument();
   });
 
