@@ -80,6 +80,13 @@ export interface ConversationSummary {
   updatedAt?: string;
 }
 
+export interface ConversationTaskDraft {
+  draftTaskGoal: string;
+  relatedKnowledgeBaseIds: string[];
+  suggestedBudget: number;
+  suggestedExecutionMode: string;
+}
+
 export interface TaskSummary {
   budgetLimit: number;
   createdAt?: string;

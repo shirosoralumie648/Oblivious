@@ -4,10 +4,12 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useAppContext } from '../../app/providers';
 import { createChatApi } from '../../features/chat/api';
 import { createKnowledgeApi } from '../../features/knowledge/api';
+import { createTasksApi } from '../../features/tasks/api';
 import { createHttpClient } from '../../services/http/client';
 import type {
   ChatMessage,
   ConversationConfig,
+  ConversationTaskDraft,
   ConversationSummary,
   KnowledgeBaseSummary,
   MessageOverrides,
@@ -28,6 +30,7 @@ export function ChatPage() {
   const navigate = useNavigate();
   const chatApi = useMemo(() => createChatApi(createHttpClient()), []);
   const knowledgeApi = useMemo(() => createKnowledgeApi(createHttpClient()), []);
+  const tasksApi = useMemo(() => createTasksApi(createHttpClient()), []);
   const [availableModels, setAvailableModels] = useState<ModelOption[]>([]);
   const [availableKnowledgeBases, setAvailableKnowledgeBases] = useState<KnowledgeBaseSummary[]>([]);
   const [configError, setConfigError] = useState<string | null>(null);
@@ -42,14 +45,29 @@ export function ChatPage() {
   const [isLoadingKnowledgeBases, setIsLoadingKnowledgeBases] = useState(false);
   const [isSavingConfig, setIsSavingConfig] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [isPreparingSoloTask, setIsPreparingSoloTask] = useState(false);
+  const [isStartingSoloTask, setIsStartingSoloTask] = useState(false);
   const [messageInput, setMessageInput] = useState('');
   const [messageOverrides, setMessageOverrides] = useState<MessageOverrides>(emptyMessageOverrides);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [soloTaskBudgetLimit, setSoloTaskBudgetLimit] = useState('20');
+  const [soloTaskDraft, setSoloTaskDraft] = useState<ConversationTaskDraft | null>(null);
+  const [soloTaskExecutionMode, setSoloTaskExecutionMode] = useState('standard');
+  const [soloTaskGoal, setSoloTaskGoal] = useState('');
+  const [soloTaskKnowledgeBaseIDs, setSoloTaskKnowledgeBaseIDs] = useState<string[]>([]);
   const [showMessageOverrides, setShowMessageOverrides] = useState(false);
 
   const currentConversationId = conversationId ?? null;
   const canSendMessage = !isSending && messageInput.trim() !== '' && currentConversationId !== null;
   const selectedConversation = conversations.find((conversation) => conversation.id === currentConversationId) ?? null;
+
+  useEffect(() => {
+    setSoloTaskBudgetLimit('20');
+    setSoloTaskDraft(null);
+    setSoloTaskExecutionMode('standard');
+    setSoloTaskGoal('');
+    setSoloTaskKnowledgeBaseIDs([]);
+  }, [currentConversationId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -331,6 +349,55 @@ export function ChatPage() {
     }
   };
 
+  const handlePrepareSoloTask = async () => {
+    if (!currentConversationId) {
+      return;
+    }
+
+    setIsPreparingSoloTask(true);
+    setError(null);
+
+    try {
+      const nextDraft = await chatApi.convertConversationToTask(currentConversationId);
+      setSoloTaskDraft(nextDraft);
+      setSoloTaskGoal(nextDraft.draftTaskGoal);
+      setSoloTaskExecutionMode(nextDraft.suggestedExecutionMode);
+      setSoloTaskBudgetLimit(String(nextDraft.suggestedBudget));
+      setSoloTaskKnowledgeBaseIDs(nextDraft.relatedKnowledgeBaseIds ?? []);
+    } catch {
+      setError('Unable to prepare a SOLO task from this conversation.');
+    } finally {
+      setIsPreparingSoloTask(false);
+    }
+  };
+
+  const handleStartSoloTask = async () => {
+    const trimmedGoal = soloTaskGoal.trim();
+    if (trimmedGoal === '') {
+      setError('SOLO task goal is required.');
+      return;
+    }
+
+    setIsStartingSoloTask(true);
+    setError(null);
+
+    try {
+      const parsedBudgetLimit = Number.parseInt(soloTaskBudgetLimit, 10);
+      const createdTask = await tasksApi.createTask({
+        budgetLimit: Number.isNaN(parsedBudgetLimit) ? 0 : parsedBudgetLimit,
+        executionMode: soloTaskExecutionMode,
+        goal: trimmedGoal,
+        knowledgeBaseIds: soloTaskKnowledgeBaseIDs
+      });
+      await tasksApi.startTask(createdTask.id);
+      navigate(`/solo?taskId=${createdTask.id}`);
+    } catch {
+      setError('Unable to start the SOLO task.');
+    } finally {
+      setIsStartingSoloTask(false);
+    }
+  };
+
   if (authState.status === 'loading' || isLoading) {
     return <p>Loading conversations…</p>;
   }
@@ -465,6 +532,72 @@ export function ChatPage() {
                     })
                   )}
                 </fieldset>
+              </section>
+              <section>
+                <h2>SOLO handoff</h2>
+                <button
+                  disabled={isPreparingSoloTask || isStartingSoloTask}
+                  onClick={() => void handlePrepareSoloTask()}
+                  type="button"
+                >
+                  {isPreparingSoloTask ? 'Preparing SOLO handoff…' : 'Hand off to SOLO'}
+                </button>
+                {soloTaskDraft ? (
+                  <section>
+                    <h3>Convert to SOLO task</h3>
+                    <label>
+                      SOLO task goal
+                      <textarea onChange={(event) => setSoloTaskGoal(event.target.value)} rows={4} value={soloTaskGoal} />
+                    </label>
+                    <label>
+                      Execution mode
+                      <select
+                        onChange={(event) => setSoloTaskExecutionMode(event.target.value)}
+                        value={soloTaskExecutionMode}
+                      >
+                        <option value="safe">safe</option>
+                        <option value="standard">standard</option>
+                        <option value="auto">auto</option>
+                      </select>
+                    </label>
+                    <fieldset>
+                      <legend>Knowledge sources for SOLO</legend>
+                      {availableKnowledgeBases.length === 0 ? (
+                        <p>No knowledge bases available yet.</p>
+                      ) : (
+                        availableKnowledgeBases.map((knowledgeBase) => (
+                          <label key={knowledgeBase.id}>
+                            <input
+                              checked={soloTaskKnowledgeBaseIDs.includes(knowledgeBase.id)}
+                              onChange={(event) => {
+                                setSoloTaskKnowledgeBaseIDs((current) =>
+                                  event.target.checked
+                                    ? current.includes(knowledgeBase.id)
+                                      ? current
+                                      : [...current, knowledgeBase.id]
+                                    : current.filter((currentKnowledgeBaseID) => currentKnowledgeBaseID !== knowledgeBase.id)
+                                );
+                              }}
+                              type="checkbox"
+                            />
+                            {`Use knowledge base ${knowledgeBase.name} in SOLO`}
+                          </label>
+                        ))
+                      )}
+                    </fieldset>
+                    <label>
+                      Budget limit
+                      <input
+                        onChange={(event) => setSoloTaskBudgetLimit(event.target.value)}
+                        type="number"
+                        value={soloTaskBudgetLimit}
+                      />
+                    </label>
+                    <button disabled={isStartingSoloTask} onClick={() => void handleStartSoloTask()} type="button">
+                      {isStartingSoloTask ? 'Starting SOLO…' : 'Start in SOLO'}
+                    </button>
+                  </section>
+                ) : null}
               </section>
               {isLoadingMessages ? (
                 <p>Loading messages…</p>

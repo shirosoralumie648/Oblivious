@@ -2,6 +2,7 @@ import type { HttpClient } from '../../services/http/client';
 import type {
   ChatMessage,
   ConversationConfig,
+  ConversationTaskDraft,
   ConversationSummary,
   CreateConversationRequest,
   ModelOption,
@@ -10,6 +11,7 @@ import type {
 } from '../../types/api';
 
 export interface ChatApi {
+  convertConversationToTask: (conversationId: string) => Promise<ConversationTaskDraft>;
   createConversation: (payload?: CreateConversationRequest) => Promise<ConversationSummary>;
   getConversationConfig: (conversationId: string) => Promise<ConversationConfig>;
   listConversations: () => Promise<ConversationSummary[]>;
@@ -21,6 +23,8 @@ export interface ChatApi {
 
 export function createChatApi(client: HttpClient): ChatApi {
   return {
+    convertConversationToTask: (conversationId) =>
+      client.post<ConversationTaskDraft>(`/api/v1/app/conversations/${conversationId}/convert-to-task`),
     createConversation: (payload) => client.post<ConversationSummary>('/api/v1/app/conversations', payload),
     getConversationConfig: (conversationId) => client.get<ConversationConfig>(`/api/v1/app/conversations/${conversationId}/config`),
     listConversations: () => client.get<ConversationSummary[]>('/api/v1/app/conversations'),

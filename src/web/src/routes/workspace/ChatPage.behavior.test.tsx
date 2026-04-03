@@ -2,10 +2,13 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const createConversation = vi.fn();
+const createTask = vi.fn();
+const convertConversationToTask = vi.fn();
 const getConversationConfig = vi.fn();
 const listConversations = vi.fn();
 const listMessages = vi.fn();
 const listModels = vi.fn();
+const startTask = vi.fn();
 const sendMessage = vi.fn();
 const updateConversationConfig = vi.fn();
 const listKnowledgeBases = vi.fn();
@@ -44,12 +47,20 @@ vi.mock('../../app/providers', () => ({
 vi.mock('../../features/chat/api', () => ({
   createChatApi: () => ({
     createConversation,
+    convertConversationToTask,
     getConversationConfig,
     listConversations,
     listMessages,
     listModels,
     sendMessage,
     updateConversationConfig
+  })
+}));
+
+vi.mock('../../features/tasks/api', () => ({
+  createTasksApi: () => ({
+    createTask,
+    startTask
   })
 }));
 
@@ -64,10 +75,13 @@ import { ChatPage } from './ChatPage';
 describe('ChatPage', () => {
   beforeEach(() => {
     createConversation.mockReset();
+    createTask.mockReset();
+    convertConversationToTask.mockReset();
     getConversationConfig.mockReset();
     listConversations.mockReset();
     listMessages.mockReset();
     listModels.mockReset();
+    startTask.mockReset();
     sendMessage.mockReset();
     updateConversationConfig.mockReset();
     listKnowledgeBases.mockReset();
@@ -136,5 +150,93 @@ describe('ChatPage', () => {
         toolsEnabled: false
       });
     });
+  });
+
+  it('converts the current conversation into a solo task and routes into the solo workspace', async () => {
+    routeState.conversationId = 'conversation_1';
+    listConversations.mockResolvedValue([
+      {
+        id: 'conversation_1',
+        title: 'Research thread'
+      }
+    ]);
+    listMessages.mockResolvedValue([
+      { content: 'Draft a launch checklist from this thread.', id: 'message_1', role: 'user' }
+    ]);
+    listModels.mockResolvedValue([{ id: 'balanced-chat', label: 'balanced-chat' }]);
+    getConversationConfig.mockResolvedValue({
+      conversationId: 'conversation_1',
+      knowledgeBaseIds: ['kb_1'],
+      maxOutputTokens: 1024,
+      modelId: 'balanced-chat',
+      systemPromptOverride: '',
+      temperature: 1,
+      toolsEnabled: false
+    });
+    listKnowledgeBases.mockResolvedValue([
+      {
+        documentCount: 3,
+        id: 'kb_1',
+        name: 'Architecture Notes'
+      },
+      {
+        documentCount: 2,
+        id: 'kb_2',
+        name: 'Runbooks'
+      }
+    ]);
+    convertConversationToTask.mockResolvedValue({
+      draftTaskGoal: 'Draft a launch checklist from this thread.',
+      relatedKnowledgeBaseIds: ['kb_1'],
+      suggestedBudget: 20,
+      suggestedExecutionMode: 'standard'
+    });
+    createTask.mockResolvedValue({
+      budgetLimit: 20,
+      executionMode: 'standard',
+      goal: 'Draft a launch checklist from this thread.',
+      id: 'task_1',
+      knowledgeBaseIds: ['kb_1'],
+      status: 'draft',
+      title: 'Draft a launch checklist from this thread.'
+    });
+    startTask.mockResolvedValue({
+      budgetLimit: 20,
+      executionMode: 'standard',
+      goal: 'Draft a launch checklist from this thread.',
+      id: 'task_1',
+      knowledgeBaseIds: ['kb_1'],
+      status: 'running',
+      steps: [
+        { id: 'step_1', status: 'completed', stepIndex: 1, title: 'Understand the goal' },
+        { id: 'step_2', status: 'running', stepIndex: 2, title: 'Review workspace context' }
+      ],
+      title: 'Draft a launch checklist from this thread.'
+    });
+
+    render(<ChatPage />);
+
+    await screen.findByRole('button', { name: 'Hand off to SOLO' });
+    fireEvent.click(screen.getByRole('button', { name: 'Hand off to SOLO' }));
+
+    expect(await screen.findByText('Convert to SOLO task')).toBeInTheDocument();
+    expect(screen.getByLabelText('SOLO task goal')).toHaveValue('Draft a launch checklist from this thread.');
+    expect(screen.getByLabelText('Use knowledge base Architecture Notes in SOLO')).toBeChecked();
+    expect(screen.getByLabelText('Use knowledge base Runbooks in SOLO')).not.toBeChecked();
+    fireEvent.click(screen.getByLabelText('Use knowledge base Runbooks in SOLO'));
+    fireEvent.click(screen.getByRole('button', { name: 'Start in SOLO' }));
+
+    await waitFor(() => {
+      expect(createTask).toHaveBeenCalledWith({
+        budgetLimit: 20,
+        executionMode: 'standard',
+        goal: 'Draft a launch checklist from this thread.',
+        knowledgeBaseIds: ['kb_1', 'kb_2']
+      });
+    });
+    await waitFor(() => {
+      expect(startTask).toHaveBeenCalledWith('task_1');
+    });
+    expect(navigate).toHaveBeenCalledWith('/solo?taskId=task_1');
   });
 });

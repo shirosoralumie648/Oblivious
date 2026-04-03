@@ -24,6 +24,13 @@ type Message struct {
 	Role      string    `json:"role"`
 }
 
+type TaskDraft struct {
+	DraftTaskGoal           string   `json:"draftTaskGoal"`
+	RelatedKnowledgeBaseIDs []string `json:"relatedKnowledgeBaseIds"`
+	SuggestedBudget         int      `json:"suggestedBudget"`
+	SuggestedExecutionMode  string   `json:"suggestedExecutionMode"`
+}
+
 type Store interface {
 	CreateConversation(ctx context.Context, workspaceID, title, defaultModelID string) (Conversation, error)
 	CreateMessage(ctx context.Context, conversationID, role, content string) (Message, error)
@@ -91,6 +98,25 @@ func (s *Service) ListConversations(ctx context.Context, session auth.Session) (
 
 func (s *Service) ListMessages(ctx context.Context, session auth.Session, conversationID string) ([]Message, error) {
 	return s.store.ListMessages(ctx, conversationID, session.WorkspaceID)
+}
+
+func (s *Service) ConvertConversationToTask(ctx context.Context, session auth.Session, conversationID string) (TaskDraft, error) {
+	config, err := s.store.GetConversationConfig(ctx, conversationID, session.WorkspaceID, s.defaultModelID)
+	if err != nil {
+		return TaskDraft{}, err
+	}
+
+	messages, err := s.store.ListMessages(ctx, conversationID, session.WorkspaceID)
+	if err != nil {
+		return TaskDraft{}, err
+	}
+
+	return TaskDraft{
+		DraftTaskGoal:           draftTaskGoalFromMessages(messages),
+		RelatedKnowledgeBaseIDs: normalizeKnowledgeBaseIDs(config.KnowledgeBaseIDs),
+		SuggestedBudget:         20,
+		SuggestedExecutionMode:  "standard",
+	}, nil
 }
 
 func (s *Service) UpdateConversationConfig(
@@ -200,6 +226,22 @@ func normalizeKnowledgeBaseIDs(ids []string) []string {
 	}
 
 	return normalized
+}
+
+func draftTaskGoalFromMessages(messages []Message) string {
+	for index := len(messages) - 1; index >= 0; index-- {
+		message := messages[index]
+		if message.Role != "user" {
+			continue
+		}
+
+		trimmedContent := strings.TrimSpace(message.Content)
+		if trimmedContent != "" {
+			return trimmedContent
+		}
+	}
+
+	return "Continue this conversation in SOLO."
 }
 
 func (s *Service) SendMessage(ctx context.Context, session auth.Session, conversationID, content string, overrides *MessageOverrides) ([]Message, error) {

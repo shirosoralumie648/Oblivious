@@ -10,6 +10,7 @@ import (
 
 type fakeStore struct {
 	config ConversationConfig
+	messages []Message
 }
 
 func (f fakeStore) CreateConversation(ctx context.Context, workspaceID, title, defaultModelID string) (Conversation, error) {
@@ -25,7 +26,7 @@ func (f fakeStore) ListConversations(ctx context.Context, workspaceID string) ([
 	return nil, nil
 }
 func (f fakeStore) ListMessages(ctx context.Context, conversationID, workspaceID string) ([]Message, error) {
-	return nil, nil
+	return append([]Message(nil), f.messages...), nil
 }
 func (f fakeStore) UpdateConversationConfig(
 	ctx context.Context,
@@ -239,5 +240,37 @@ func TestUpdateConversationConfigPersistsKnowledgeBaseIDs(t *testing.T) {
 	}
 	if len(config.KnowledgeBaseIDs) != 2 || config.KnowledgeBaseIDs[0] != "kb_2" || config.KnowledgeBaseIDs[1] != "kb_5" {
 		t.Fatalf("expected config knowledge ids [kb_2 kb_5], got %+v", config.KnowledgeBaseIDs)
+	}
+}
+
+func TestConvertConversationToTaskBuildsTaskDraftFromLatestUserMessage(t *testing.T) {
+	store := fakeStore{
+		config: ConversationConfig{
+			ConversationID:   "conversation_1",
+			KnowledgeBaseIDs: []string{"kb_2", "kb_5"},
+		},
+		messages: []Message{
+			{ID: "message_1", Role: "assistant", Content: "How can I help?"},
+			{ID: "message_2", Role: "user", Content: "  Draft a launch checklist from our current discussion.  "},
+		},
+	}
+	service := NewService(store, fakeGenerator{}, "demo-reply", nil)
+
+	draft, err := service.ConvertConversationToTask(context.Background(), auth.Session{WorkspaceID: "workspace_1"}, "conversation_1")
+	if err != nil {
+		t.Fatalf("convert conversation to task: %v", err)
+	}
+
+	if draft.DraftTaskGoal != "Draft a launch checklist from our current discussion." {
+		t.Fatalf("unexpected draft goal: %+v", draft)
+	}
+	if draft.SuggestedExecutionMode != "standard" {
+		t.Fatalf("expected standard execution mode, got %+v", draft)
+	}
+	if draft.SuggestedBudget != 20 {
+		t.Fatalf("expected suggested budget 20, got %+v", draft)
+	}
+	if len(draft.RelatedKnowledgeBaseIDs) != 2 || draft.RelatedKnowledgeBaseIDs[0] != "kb_2" || draft.RelatedKnowledgeBaseIDs[1] != "kb_5" {
+		t.Fatalf("unexpected related knowledge bases: %+v", draft.RelatedKnowledgeBaseIDs)
 	}
 }

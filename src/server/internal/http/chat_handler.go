@@ -148,6 +148,22 @@ func (h chatHandler) updateConversationConfig(w stdhttp.ResponseWriter, r *stdht
 	writeSuccess(w, stdhttp.StatusOK, config)
 }
 
+func (h chatHandler) convertConversationToTask(w stdhttp.ResponseWriter, r *stdhttp.Request, conversationID string) {
+	session, ok := sessionFromContext(r)
+	if !ok {
+		writeError(w, stdhttp.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+
+	draft, err := h.service.ConvertConversationToTask(r.Context(), session, conversationID)
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "convert conversation to task failed")
+		return
+	}
+
+	writeSuccess(w, stdhttp.StatusOK, draft)
+}
+
 func (h chatHandler) sendMessage(w stdhttp.ResponseWriter, r *stdhttp.Request, conversationID string) {
 	session, ok := sessionFromContext(r)
 	if !ok {

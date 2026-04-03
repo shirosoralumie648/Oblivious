@@ -121,6 +121,13 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 			default:
 				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			}
+		case "convert-to-task":
+			switch r.Method {
+			case stdhttp.MethodPost:
+				chatHandler.convertConversationToTask(w, r, conversationID)
+			default:
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
 		default:
 			writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
 		}

@@ -9,6 +9,15 @@ import type { KnowledgeBaseSummary, TaskDetail, TaskSummary } from '../../types/
 const defaultBudgetLimit = '10';
 const defaultExecutionMode = 'standard';
 
+function taskIDFromSearch(search: string) {
+  const taskID = new URLSearchParams(search).get('taskId');
+  if (taskID === null) {
+    return '';
+  }
+
+  return taskID.trim();
+}
+
 export function SoloPage() {
   const { authState } = useAppContext();
   const httpClient = useMemo(() => createHttpClient(), []);
@@ -25,6 +34,11 @@ export function SoloPage() {
   const [recentTasks, setRecentTasks] = useState<TaskSummary[]>([]);
   const [selectedKnowledgeBaseIDs, setSelectedKnowledgeBaseIDs] = useState<string[]>([]);
   const [startedTask, setStartedTask] = useState<TaskDetail | null>(null);
+
+  function applyTaskDetail(detail: TaskDetail) {
+    setStartedTask(detail);
+    setRecentTasks((current) => [detail, ...current.filter((task) => task.id !== detail.id)]);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -59,6 +73,41 @@ export function SoloPage() {
     };
   }, [knowledgeApi, tasksApi]);
 
+  useEffect(() => {
+    const taskID = taskIDFromSearch(window.location.search);
+    if (taskID === '') {
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadTaskFromQuery = async () => {
+      setIsLoadingTaskID(taskID);
+      setError(null);
+
+      try {
+        const detail = await tasksApi.getTask(taskID);
+        if (!cancelled) {
+          applyTaskDetail(detail);
+        }
+      } catch {
+        if (!cancelled) {
+          setError('Unable to load task detail.');
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingTaskID(null);
+        }
+      }
+    };
+
+    void loadTaskFromQuery();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [tasksApi]);
+
   const toggleKnowledgeBase = (knowledgeBaseID: string) => {
     setSelectedKnowledgeBaseIDs((current) =>
       current.includes(knowledgeBaseID)
@@ -67,10 +116,11 @@ export function SoloPage() {
     );
   };
 
-  const applyTaskDetail = (detail: TaskDetail) => {
-    setStartedTask(detail);
-    setRecentTasks((current) => [detail, ...current.filter((task) => task.id !== detail.id)]);
-  };
+  const taskKnowledgeBaseNames =
+    startedTask?.knowledgeBaseIds.map((knowledgeBaseID) => {
+      const matchedKnowledgeBase = knowledgeBases.find((knowledgeBase) => knowledgeBase.id === knowledgeBaseID);
+      return matchedKnowledgeBase?.name ?? knowledgeBaseID;
+    }) ?? [];
 
   const handleStartSoloRun = async () => {
     const trimmedGoal = goal.trim();
@@ -155,6 +205,24 @@ export function SoloPage() {
     }
   };
 
+  const handleRetryTask = async () => {
+    if (!startedTask) {
+      return;
+    }
+
+    setIsLoadingTaskID(startedTask.id);
+    setError(null);
+
+    try {
+      const detail = await tasksApi.startTask(startedTask.id);
+      applyTaskDetail(detail);
+    } catch {
+      setError('Unable to retry task.');
+    } finally {
+      setIsLoadingTaskID(null);
+    }
+  };
+
   return (
     <section>
       <h1>SOLO</h1>
@@ -225,6 +293,18 @@ export function SoloPage() {
           <h2>{startedTask.status === 'completed' ? 'Latest result' : 'Execution view'}</h2>
           <p>{`Status: ${startedTask.status}`}</p>
           <p>{`Execution mode: ${startedTask.executionMode}`}</p>
+          <section>
+            <h3>Current knowledge sources</h3>
+            {taskKnowledgeBaseNames.length === 0 ? (
+              <p>No knowledge sources enabled for this task.</p>
+            ) : (
+              <ul>
+                {taskKnowledgeBaseNames.map((knowledgeBaseName) => (
+                  <li key={knowledgeBaseName}>{knowledgeBaseName}</li>
+                ))}
+              </ul>
+            )}
+          </section>
           {startedTask.resultSummary ? <p>{startedTask.resultSummary}</p> : <p>SOLO is still working through the current plan.</p>}
           <ol>
             {startedTask.steps.map((step) => (
@@ -251,6 +331,13 @@ export function SoloPage() {
               </button>
               <button onClick={() => void handleCancelTask()} type="button">
                 Cancel run
+              </button>
+            </div>
+          ) : null}
+          {startedTask.status === 'completed' || startedTask.status === 'cancelled' ? (
+            <div>
+              <button disabled={isLoadingTaskID === startedTask.id} onClick={() => void handleRetryTask()} type="button">
+                Retry run
               </button>
             </div>
           ) : null}
