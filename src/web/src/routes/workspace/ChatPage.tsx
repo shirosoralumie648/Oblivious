@@ -23,6 +23,7 @@ const emptyMessageOverrides: MessageOverrides = {
   temperature: undefined,
   toolsEnabled: undefined
 };
+const defaultSoloAuthorizationScope = 'workspace_tools';
 
 export function ChatPage() {
   const { authState } = useAppContext();
@@ -52,6 +53,7 @@ export function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [soloTaskBudgetLimit, setSoloTaskBudgetLimit] = useState('20');
   const [soloTaskDraft, setSoloTaskDraft] = useState<ConversationTaskDraft | null>(null);
+  const [soloTaskAuthorizationScope, setSoloTaskAuthorizationScope] = useState(defaultSoloAuthorizationScope);
   const [soloTaskExecutionMode, setSoloTaskExecutionMode] = useState('standard');
   const [soloTaskGoal, setSoloTaskGoal] = useState('');
   const [soloTaskKnowledgeBaseIDs, setSoloTaskKnowledgeBaseIDs] = useState<string[]>([]);
@@ -64,6 +66,7 @@ export function ChatPage() {
   useEffect(() => {
     setSoloTaskBudgetLimit('20');
     setSoloTaskDraft(null);
+    setSoloTaskAuthorizationScope(defaultSoloAuthorizationScope);
     setSoloTaskExecutionMode('standard');
     setSoloTaskGoal('');
     setSoloTaskKnowledgeBaseIDs([]);
@@ -384,7 +387,7 @@ export function ChatPage() {
     try {
       const parsedBudgetLimit = Number.parseInt(soloTaskBudgetLimit, 10);
       const createdTask = await tasksApi.createTask({
-        authorizationScope: 'workspace_tools',
+        authorizationScope: soloTaskAuthorizationScope,
         budgetLimit: Number.isNaN(parsedBudgetLimit) ? 0 : parsedBudgetLimit,
         executionMode: soloTaskExecutionMode,
         goal: trimmedGoal,
@@ -559,6 +562,17 @@ export function ChatPage() {
                         <option value="safe">safe</option>
                         <option value="standard">standard</option>
                         <option value="auto">auto</option>
+                      </select>
+                    </label>
+                    <label>
+                      Authorization scope for SOLO
+                      <select
+                        onChange={(event) => setSoloTaskAuthorizationScope(event.target.value)}
+                        value={soloTaskAuthorizationScope}
+                      >
+                        <option value="knowledge_only">knowledge_only</option>
+                        <option value="workspace_tools">workspace_tools</option>
+                        <option value="full_access">full_access</option>
                       </select>
                     </label>
                     <fieldset>

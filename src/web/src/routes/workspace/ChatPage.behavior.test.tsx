@@ -221,14 +221,16 @@ describe('ChatPage', () => {
 
     expect(await screen.findByText('Convert to SOLO task')).toBeInTheDocument();
     expect(screen.getByLabelText('SOLO task goal')).toHaveValue('Draft a launch checklist from this thread.');
+    expect(screen.getByLabelText('Authorization scope for SOLO')).toHaveValue('workspace_tools');
     expect(screen.getByLabelText('Use knowledge base Architecture Notes in SOLO')).toBeChecked();
     expect(screen.getByLabelText('Use knowledge base Runbooks in SOLO')).not.toBeChecked();
+    fireEvent.change(screen.getByLabelText('Authorization scope for SOLO'), { target: { value: 'full_access' } });
     fireEvent.click(screen.getByLabelText('Use knowledge base Runbooks in SOLO'));
     fireEvent.click(screen.getByRole('button', { name: 'Start in SOLO' }));
 
     await waitFor(() => {
       expect(createTask).toHaveBeenCalledWith({
-        authorizationScope: 'workspace_tools',
+        authorizationScope: 'full_access',
         budgetLimit: 20,
         executionMode: 'standard',
         goal: 'Draft a launch checklist from this thread.',
