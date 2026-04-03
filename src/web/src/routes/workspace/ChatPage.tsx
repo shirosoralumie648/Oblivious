@@ -11,6 +11,7 @@ import type {
   ConversationConfig,
   ConversationTaskDraft,
   ConversationSummary,
+  CreateTaskRequest,
   KnowledgeBaseSummary,
   MessageOverrides,
   ModelOption
@@ -24,6 +25,27 @@ const emptyMessageOverrides: MessageOverrides = {
   toolsEnabled: undefined
 };
 const defaultSoloAuthorizationScope = 'workspace_tools';
+
+function parseToolList(value: string) {
+  if (value.trim() === '') {
+    return [];
+  }
+
+  const normalized: string[] = [];
+  const seen = new Set<string>();
+
+  value.split(',').forEach((toolName) => {
+    const trimmed = toolName.trim();
+    if (trimmed === '' || seen.has(trimmed)) {
+      return;
+    }
+
+    seen.add(trimmed);
+    normalized.push(trimmed);
+  });
+
+  return normalized;
+}
 
 export function ChatPage() {
   const { authState } = useAppContext();
@@ -57,6 +79,8 @@ export function ChatPage() {
   const [soloTaskExecutionMode, setSoloTaskExecutionMode] = useState('standard');
   const [soloTaskGoal, setSoloTaskGoal] = useState('');
   const [soloTaskKnowledgeBaseIDs, setSoloTaskKnowledgeBaseIDs] = useState<string[]>([]);
+  const [soloTaskToolAllowListInput, setSoloTaskToolAllowListInput] = useState('');
+  const [soloTaskToolDenyListInput, setSoloTaskToolDenyListInput] = useState('');
   const [showMessageOverrides, setShowMessageOverrides] = useState(false);
 
   const currentConversationId = conversationId ?? null;
@@ -70,6 +94,8 @@ export function ChatPage() {
     setSoloTaskExecutionMode('standard');
     setSoloTaskGoal('');
     setSoloTaskKnowledgeBaseIDs([]);
+    setSoloTaskToolAllowListInput('');
+    setSoloTaskToolDenyListInput('');
   }, [currentConversationId]);
 
   useEffect(() => {
@@ -386,13 +412,23 @@ export function ChatPage() {
 
     try {
       const parsedBudgetLimit = Number.parseInt(soloTaskBudgetLimit, 10);
-      const createdTask = await tasksApi.createTask({
+      const toolAllowList = parseToolList(soloTaskToolAllowListInput);
+      const toolDenyList = parseToolList(soloTaskToolDenyListInput);
+      const createTaskPayload: CreateTaskRequest = {
         authorizationScope: soloTaskAuthorizationScope,
         budgetLimit: Number.isNaN(parsedBudgetLimit) ? 0 : parsedBudgetLimit,
         executionMode: soloTaskExecutionMode,
         goal: trimmedGoal,
         knowledgeBaseIds: soloTaskKnowledgeBaseIDs
-      });
+      };
+      if (toolAllowList.length > 0) {
+        createTaskPayload.toolAllowList = toolAllowList;
+      }
+      if (toolDenyList.length > 0) {
+        createTaskPayload.toolDenyList = toolDenyList;
+      }
+
+      const createdTask = await tasksApi.createTask(createTaskPayload);
       await tasksApi.startTask(createdTask.id);
       navigate(`/solo?taskId=${createdTask.id}`);
     } catch {
@@ -574,6 +610,24 @@ export function ChatPage() {
                         <option value="workspace_tools">workspace_tools</option>
                         <option value="full_access">full_access</option>
                       </select>
+                    </label>
+                    <label>
+                      Allowed tools for SOLO
+                      <input
+                        onChange={(event) => setSoloTaskToolAllowListInput(event.target.value)}
+                        placeholder="browser, shell"
+                        type="text"
+                        value={soloTaskToolAllowListInput}
+                      />
+                    </label>
+                    <label>
+                      Blocked tools for SOLO
+                      <input
+                        onChange={(event) => setSoloTaskToolDenyListInput(event.target.value)}
+                        placeholder="email, file_delete"
+                        type="text"
+                        value={soloTaskToolDenyListInput}
+                      />
                     </label>
                     <fieldset>
                       <legend>Knowledge sources for SOLO</legend>

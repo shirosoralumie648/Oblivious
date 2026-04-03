@@ -225,6 +225,8 @@ describe('ChatPage', () => {
     expect(screen.getByLabelText('Use knowledge base Architecture Notes in SOLO')).toBeChecked();
     expect(screen.getByLabelText('Use knowledge base Runbooks in SOLO')).not.toBeChecked();
     fireEvent.change(screen.getByLabelText('Authorization scope for SOLO'), { target: { value: 'full_access' } });
+    fireEvent.change(screen.getByLabelText('Allowed tools for SOLO'), { target: { value: ' browser, shell ' } });
+    fireEvent.change(screen.getByLabelText('Blocked tools for SOLO'), { target: { value: ' email ' } });
     fireEvent.click(screen.getByLabelText('Use knowledge base Runbooks in SOLO'));
     fireEvent.click(screen.getByRole('button', { name: 'Start in SOLO' }));
 
@@ -234,7 +236,9 @@ describe('ChatPage', () => {
         budgetLimit: 20,
         executionMode: 'standard',
         goal: 'Draft a launch checklist from this thread.',
-        knowledgeBaseIds: ['kb_1', 'kb_2']
+        knowledgeBaseIds: ['kb_1', 'kb_2'],
+        toolAllowList: ['browser', 'shell'],
+        toolDenyList: ['email']
       });
     });
     await waitFor(() => {
