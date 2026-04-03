@@ -131,19 +131,27 @@ describe('SoloPage', () => {
     ]);
     createTask.mockResolvedValue({
       budgetLimit: 20,
+      budgetConsumed: 0,
+      createdAt: '2026-04-03T10:00:00Z',
       executionMode: 'safe',
+      finishedAt: undefined,
       goal: 'Draft launch checklist',
       id: 'task_new',
       knowledgeBaseIds: ['kb_1'],
+      startedAt: undefined,
       status: 'draft',
       title: 'Draft launch checklist'
     });
     startTask.mockResolvedValue({
       budgetLimit: 20,
+      budgetConsumed: 6,
+      createdAt: '2026-04-03T10:00:00Z',
       executionMode: 'safe',
+      finishedAt: undefined,
       goal: 'Draft launch checklist',
       id: 'task_new',
       knowledgeBaseIds: ['kb_1'],
+      startedAt: '2026-04-03T10:01:00Z',
       status: 'running',
       steps: [
         { id: 'step_1', status: 'completed', stepIndex: 1, title: 'Understand the goal' },
@@ -174,6 +182,8 @@ describe('SoloPage', () => {
       expect(startTask).toHaveBeenCalledWith('task_new');
     });
     expect(screen.getByText('Status: running')).toBeInTheDocument();
+    expect(screen.getByText('Budget consumed: 6 / 20')).toBeInTheDocument();
+    expect(screen.getByText('Started at: 2026-04-03T10:01:00Z')).toBeInTheDocument();
     expect(screen.getByText('Current knowledge sources')).toBeInTheDocument();
     expect(screen.getByText('Research Vault')).toBeInTheDocument();
     expect(screen.getByText('Understand the goal')).toBeInTheDocument();
@@ -444,5 +454,70 @@ describe('SoloPage', () => {
       );
     });
     expect(navigate).toHaveBeenCalledWith('/chat/conversation_2');
+  });
+
+  it('exports a completed solo result', async () => {
+    const createObjectURL = vi.fn(() => 'blob:solo-result');
+    const revokeObjectURL = vi.fn();
+    const originalCreateObjectURL = URL.createObjectURL;
+    const originalRevokeObjectURL = URL.revokeObjectURL;
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: createObjectURL
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      value: revokeObjectURL
+    });
+
+    listTasks.mockResolvedValue([
+      { budgetConsumed: 12, budgetLimit: 12, executionMode: 'standard', goal: 'Review launch plan', id: 'task_2', status: 'completed', title: 'Review launch plan' }
+    ]);
+    listKnowledgeBases.mockResolvedValue([]);
+    getTask.mockResolvedValue({
+      budgetConsumed: 12,
+      budgetLimit: 12,
+      executionMode: 'standard',
+      finishedAt: '2026-04-03T18:30:00Z',
+      goal: 'Review launch plan',
+      id: 'task_2',
+      knowledgeBaseIds: ['kb_2'],
+      resultSummary: 'Completed a starter SOLO run for: Review launch plan',
+      startedAt: '2026-04-03T18:00:00Z',
+      status: 'completed',
+      steps: [
+        { id: 'step_1', status: 'completed', stepIndex: 1, title: 'Understand the goal' }
+      ],
+      title: 'Review launch plan'
+    });
+
+    render(<SoloPage />);
+
+    await screen.findByText('Review launch plan');
+    fireEvent.click(screen.getByRole('button', { name: 'Open task Review launch plan' }));
+    await screen.findByText('Status: completed');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Export result' }));
+
+    await waitFor(() => {
+      expect(createObjectURL).toHaveBeenCalledTimes(1);
+    });
+    const exportCalls = createObjectURL.mock.calls as unknown[][];
+    const exportedBlob = exportCalls[0]?.[0];
+    expect(exportedBlob).toBeInstanceOf(Blob);
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:solo-result');
+
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: originalCreateObjectURL
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      value: originalRevokeObjectURL
+    });
+    clickSpy.mockRestore();
   });
 });

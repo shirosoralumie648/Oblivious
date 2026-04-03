@@ -14,7 +14,7 @@ import (
 )
 
 type taskFakeStore struct {
-	cancelledTaskID       string
+	cancelledTaskID      string
 	createdBudgetLimit   int
 	createdExecutionMode string
 	createdGoal          string
@@ -141,16 +141,21 @@ func TestTaskHandlerCreateTaskAcceptsKnowledgeBaseIDs(t *testing.T) {
 }
 
 func TestTaskHandlerGetTaskReturnsTaskDetail(t *testing.T) {
+	startedAt := time.Date(2026, time.April, 3, 18, 0, 0, 0, time.UTC)
+	finishedAt := time.Date(2026, time.April, 3, 18, 30, 0, 0, time.UTC)
 	store := &taskFakeStore{
 		detailTask: task.TaskDetail{
 			Task: task.Task{
-				BudgetLimit:   12,
-				ExecutionMode: "standard",
-				Goal:          "Review launch plan",
-				ID:            "task_1",
-				ResultSummary: "Completed a starter SOLO run for: Review launch plan",
-				Status:        "completed",
-				Title:         "Review launch plan",
+				BudgetConsumed: 12,
+				BudgetLimit:    12,
+				ExecutionMode:  "standard",
+				FinishedAt:     &finishedAt,
+				Goal:           "Review launch plan",
+				ID:             "task_1",
+				ResultSummary:  "Completed a starter SOLO run for: Review launch plan",
+				StartedAt:      &startedAt,
+				Status:         "completed",
+				Title:          "Review launch plan",
 			},
 			KnowledgeBaseIDs: []string{"kb_2"},
 			Steps: []task.TaskStep{
@@ -181,6 +186,9 @@ func TestTaskHandlerGetTaskReturnsTaskDetail(t *testing.T) {
 	}
 	if response.Data.Status != "completed" || len(response.Data.KnowledgeBaseIDs) != 1 {
 		t.Fatalf("unexpected task detail: %+v", response.Data)
+	}
+	if response.Data.BudgetConsumed != 12 || response.Data.StartedAt == nil || response.Data.FinishedAt == nil {
+		t.Fatalf("expected budget/timing fields in response, got %+v", response.Data)
 	}
 }
 

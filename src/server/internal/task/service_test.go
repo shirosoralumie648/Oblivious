@@ -9,7 +9,7 @@ import (
 )
 
 type fakeStore struct {
-	cancelledTaskID       string
+	cancelledTaskID      string
 	createdExecutionMode string
 	createdGoal          string
 	createdKnowledgeIDs  []string
@@ -141,14 +141,17 @@ func TestCreateNormalizesGoalAndKnowledgeBaseIDs(t *testing.T) {
 }
 
 func TestStartReturnsTaskDetailForWorkspace(t *testing.T) {
+	startedAt := time.Date(2026, time.April, 3, 19, 0, 0, 0, time.UTC)
 	store := &fakeStore{
 		detailTask: TaskDetail{
 			Task: Task{
-				ExecutionMode: "safe",
-				Goal:          "Compile launch notes",
-				ID:            "task_9",
-				Status:        "running",
-				Title:         "Compile launch notes",
+				BudgetConsumed: 6,
+				ExecutionMode:  "safe",
+				Goal:           "Compile launch notes",
+				ID:             "task_9",
+				StartedAt:      &startedAt,
+				Status:         "running",
+				Title:          "Compile launch notes",
 			},
 			KnowledgeBaseIDs: []string{"kb_1"},
 			Steps: []TaskStep{
@@ -173,6 +176,9 @@ func TestStartReturnsTaskDetailForWorkspace(t *testing.T) {
 	}
 	if task.Status != "running" || len(task.Steps) != 3 {
 		t.Fatalf("unexpected task detail: %+v", task)
+	}
+	if task.BudgetConsumed != 6 || task.StartedAt == nil || !task.StartedAt.Equal(startedAt) {
+		t.Fatalf("expected budget/timing to be preserved, got %+v", task)
 	}
 }
 
@@ -208,15 +214,20 @@ func TestPauseReturnsPausedTaskDetailForWorkspace(t *testing.T) {
 }
 
 func TestResumeReturnsCompletedTaskDetailForWorkspace(t *testing.T) {
+	startedAt := time.Date(2026, time.April, 3, 19, 0, 0, 0, time.UTC)
+	finishedAt := time.Date(2026, time.April, 3, 19, 12, 0, 0, time.UTC)
 	store := &fakeStore{
 		detailTask: TaskDetail{
 			Task: Task{
-				ExecutionMode: "standard",
-				Goal:          "Review launch plan",
-				ID:            "task_3",
-				ResultSummary: "Completed a starter SOLO run for: Review launch plan",
-				Status:        "completed",
-				Title:         "Review launch plan",
+				BudgetConsumed: 8,
+				ExecutionMode:  "standard",
+				FinishedAt:     &finishedAt,
+				Goal:           "Review launch plan",
+				ID:             "task_3",
+				ResultSummary:  "Completed a starter SOLO run for: Review launch plan",
+				StartedAt:      &startedAt,
+				Status:         "completed",
+				Title:          "Review launch plan",
 			},
 			Steps: []TaskStep{
 				{ID: "step_1", Status: "completed", StepIndex: 1, Title: "Understand the goal"},
@@ -237,6 +248,9 @@ func TestResumeReturnsCompletedTaskDetailForWorkspace(t *testing.T) {
 	}
 	if task.Status != "completed" || task.ResultSummary == "" {
 		t.Fatalf("unexpected resumed task detail: %+v", task)
+	}
+	if task.BudgetConsumed != 8 || task.FinishedAt == nil || !task.FinishedAt.Equal(finishedAt) {
+		t.Fatalf("expected budget/timing to be preserved, got %+v", task)
 	}
 }
 

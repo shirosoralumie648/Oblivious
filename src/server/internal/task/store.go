@@ -18,7 +18,7 @@ func NewSQLStore(db *sql.DB) *SQLStore {
 
 func (s *SQLStore) ListTasks(ctx context.Context, workspaceID string) ([]Task, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, title, goal, execution_mode, status, budget_limit, result_summary, created_at, updated_at
+		SELECT id, title, goal, execution_mode, status, budget_limit, budget_consumed, result_summary, started_at, finished_at, created_at, updated_at
 		FROM tasks
 		WHERE workspace_id = $1
 		ORDER BY updated_at DESC, created_at DESC
@@ -38,7 +38,10 @@ func (s *SQLStore) ListTasks(ctx context.Context, workspaceID string) ([]Task, e
 			&current.ExecutionMode,
 			&current.Status,
 			&current.BudgetLimit,
+			&current.BudgetConsumed,
 			&current.ResultSummary,
+			&current.StartedAt,
+			&current.FinishedAt,
 			&current.CreatedAt,
 			&current.UpdatedAt,
 		); err != nil {
@@ -158,14 +161,15 @@ func (s *SQLStore) CreateTask(
 	}
 
 	return Task{
-		BudgetLimit:   budgetLimit,
-		CreatedAt:     now,
-		ExecutionMode: executionMode,
-		Goal:          goal,
-		ID:            taskID,
-		Status:        "draft",
-		Title:         title,
-		UpdatedAt:     now,
+		BudgetConsumed: 0,
+		BudgetLimit:    budgetLimit,
+		CreatedAt:      now,
+		ExecutionMode:  executionMode,
+		Goal:           goal,
+		ID:             taskID,
+		Status:         "draft",
+		Title:          title,
+		UpdatedAt:      now,
 	}, nil
 }
 
@@ -180,6 +184,10 @@ func (s *SQLStore) StartTask(ctx context.Context, workspaceID, taskID string) (T
 	result, err := tx.ExecContext(ctx, `
 		UPDATE tasks AS t
 		SET status = 'running',
+			budget_consumed = CASE
+				WHEN t.budget_limit > 0 THEN GREATEST(1, LEAST(t.budget_limit, (t.budget_limit + 3) / 4))
+				ELSE 0
+			END,
 			started_at = COALESCE(t.started_at, $3),
 			finished_at = NULL,
 			result_summary = '',
@@ -274,6 +282,10 @@ func (s *SQLStore) ResumeTask(ctx context.Context, workspaceID, taskID string) (
 	result, err := tx.ExecContext(ctx, `
 		UPDATE tasks AS t
 		SET status = 'completed',
+			budget_consumed = CASE
+				WHEN t.budget_limit > 0 THEN t.budget_limit
+				ELSE t.budget_consumed
+			END,
 			finished_at = $3,
 			result_summary = CONCAT('Completed a starter SOLO run for: ', COALESCE(NULLIF(t.goal, ''), t.title)),
 			updated_at = $3
@@ -356,7 +368,7 @@ func (s *SQLStore) CancelTask(ctx context.Context, workspaceID, taskID string) (
 func (s *SQLStore) getTaskRow(ctx context.Context, workspaceID, taskID string) (Task, error) {
 	var taskRow Task
 	if err := s.db.QueryRowContext(ctx, `
-		SELECT id, title, goal, execution_mode, status, budget_limit, result_summary, created_at, updated_at
+		SELECT id, title, goal, execution_mode, status, budget_limit, budget_consumed, result_summary, started_at, finished_at, created_at, updated_at
 		FROM tasks
 		WHERE workspace_id = $1 AND id = $2
 	`, workspaceID, taskID).Scan(
@@ -366,7 +378,10 @@ func (s *SQLStore) getTaskRow(ctx context.Context, workspaceID, taskID string) (
 		&taskRow.ExecutionMode,
 		&taskRow.Status,
 		&taskRow.BudgetLimit,
+		&taskRow.BudgetConsumed,
 		&taskRow.ResultSummary,
+		&taskRow.StartedAt,
+		&taskRow.FinishedAt,
 		&taskRow.CreatedAt,
 		&taskRow.UpdatedAt,
 	); err != nil {

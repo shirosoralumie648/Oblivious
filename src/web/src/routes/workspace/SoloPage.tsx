@@ -20,6 +20,37 @@ function taskIDFromSearch(search: string) {
   return taskID.trim();
 }
 
+function downloadTaskResult(task: TaskDetail, knowledgeBaseNames: string[]) {
+  const fileName = `${task.title || task.id}`.trim().replace(/\s+/g, '-').toLowerCase() || task.id;
+  const content = [
+    `# ${task.title}`,
+    '',
+    `- Goal: ${task.goal}`,
+    `- Status: ${task.status}`,
+    `- Execution mode: ${task.executionMode}`,
+    `- Budget consumed: ${task.budgetConsumed ?? 0} / ${task.budgetLimit}`,
+    `- Started at: ${task.startedAt ?? 'N/A'}`,
+    `- Finished at: ${task.finishedAt ?? 'N/A'}`,
+    `- Knowledge sources: ${knowledgeBaseNames.length > 0 ? knowledgeBaseNames.join(', ') : 'None'}`,
+    '',
+    '## Result',
+    task.resultSummary || 'No result summary available.',
+    '',
+    '## Steps',
+    ...task.steps.map((step) => `- [${step.status}] ${step.title}`)
+  ].join('\n');
+
+  const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+  const downloadURL = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = downloadURL;
+  link.download = `${fileName || 'solo-result'}.md`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(downloadURL);
+}
+
 export function SoloPage() {
   const { authState } = useAppContext();
   const navigate = useNavigate();
@@ -259,6 +290,14 @@ export function SoloPage() {
     }
   };
 
+  const handleExportResult = () => {
+    if (!startedTask) {
+      return;
+    }
+
+    downloadTaskResult(startedTask, taskKnowledgeBaseNames);
+  };
+
   return (
     <section>
       <h1>SOLO</h1>
@@ -329,6 +368,9 @@ export function SoloPage() {
           <h2>{startedTask.status === 'completed' ? 'Latest result' : 'Execution view'}</h2>
           <p>{`Status: ${startedTask.status}`}</p>
           <p>{`Execution mode: ${startedTask.executionMode}`}</p>
+          <p>{`Budget consumed: ${startedTask.budgetConsumed ?? 0} / ${startedTask.budgetLimit}`}</p>
+          {startedTask.startedAt ? <p>{`Started at: ${startedTask.startedAt}`}</p> : null}
+          {startedTask.finishedAt ? <p>{`Finished at: ${startedTask.finishedAt}`}</p> : null}
           <section>
             <h3>Current knowledge sources</h3>
             {taskKnowledgeBaseNames.length === 0 ? (
@@ -377,6 +419,9 @@ export function SoloPage() {
               </button>
               <button disabled={isLoadingTaskID === startedTask.id} onClick={() => void handleContinueInChat()} type="button">
                 Continue in Chat
+              </button>
+              <button onClick={() => handleExportResult()} type="button">
+                Export result
               </button>
             </div>
           ) : null}

@@ -88,12 +88,15 @@ export interface ConversationTaskDraft {
 }
 
 export interface TaskSummary {
+  budgetConsumed?: number;
   budgetLimit: number;
   createdAt?: string;
   executionMode: string;
+  finishedAt?: string;
   goal: string;
   id: string;
   resultSummary?: string;
+  startedAt?: string;
   status: string;
   title: string;
   updatedAt?: string;

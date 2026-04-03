@@ -13,15 +13,18 @@ import (
 var ErrInvalidGoal = errors.New("goal is required")
 
 type Task struct {
-	BudgetLimit   int       `json:"budgetLimit"`
-	CreatedAt     time.Time `json:"createdAt"`
-	ExecutionMode string    `json:"executionMode"`
-	Goal          string    `json:"goal"`
-	ID            string    `json:"id"`
-	ResultSummary string    `json:"resultSummary,omitempty"`
-	Status        string    `json:"status"`
-	Title         string    `json:"title"`
-	UpdatedAt     time.Time `json:"updatedAt"`
+	BudgetConsumed int        `json:"budgetConsumed"`
+	BudgetLimit    int        `json:"budgetLimit"`
+	CreatedAt      time.Time  `json:"createdAt"`
+	ExecutionMode  string     `json:"executionMode"`
+	FinishedAt     *time.Time `json:"finishedAt,omitempty"`
+	Goal           string     `json:"goal"`
+	ID             string     `json:"id"`
+	ResultSummary  string     `json:"resultSummary,omitempty"`
+	StartedAt      *time.Time `json:"startedAt,omitempty"`
+	Status         string     `json:"status"`
+	Title          string     `json:"title"`
+	UpdatedAt      time.Time  `json:"updatedAt"`
 }
 
 type TaskStep struct {
