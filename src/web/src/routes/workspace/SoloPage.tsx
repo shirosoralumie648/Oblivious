@@ -156,6 +156,9 @@ export function SoloPage() {
       const matchedKnowledgeBase = knowledgeBases.find((knowledgeBase) => knowledgeBase.id === knowledgeBaseID);
       return matchedKnowledgeBase?.name ?? knowledgeBaseID;
     }) ?? [];
+  const runningTasks = recentTasks.filter((task) => task.status === 'running' || task.status === 'paused');
+  const completedTasks = recentTasks.filter((task) => task.status === 'completed');
+  const stoppedTasks = recentTasks.filter((task) => task.status !== 'running' && task.status !== 'paused' && task.status !== 'completed');
 
   const handleStartSoloRun = async () => {
     const trimmedGoal = goal.trim();
@@ -298,6 +301,29 @@ export function SoloPage() {
     downloadTaskResult(startedTask, taskKnowledgeBaseNames);
   };
 
+  const renderTaskGroup = (title: string, tasks: TaskSummary[]) => {
+    if (tasks.length === 0) {
+      return null;
+    }
+
+    return (
+      <section>
+        <h2>{title}</h2>
+        <ul>
+          {tasks.map((task) => (
+            <li key={task.id}>
+              <strong>{task.title}</strong>
+              <span>{task.status}</span>
+              <button disabled={isLoadingTaskID === task.id} onClick={() => void handleOpenTask(task.id)} type="button">
+                {`Open task ${task.title}`}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </section>
+    );
+  };
+
   return (
     <section>
       <h1>SOLO</h1>
@@ -346,22 +372,9 @@ export function SoloPage() {
         Start solo run
       </button>
 
-      {recentTasks.length > 0 ? (
-        <section>
-          <h2>Recent tasks</h2>
-          <ul>
-            {recentTasks.map((task) => (
-              <li key={task.id}>
-                <strong>{task.title}</strong>
-                <span>{task.status}</span>
-                <button disabled={isLoadingTaskID === task.id} onClick={() => void handleOpenTask(task.id)} type="button">
-                  {`Open task ${task.title}`}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
+      {renderTaskGroup('Running tasks', runningTasks)}
+      {renderTaskGroup('Completed tasks', completedTasks)}
+      {renderTaskGroup('Stopped tasks', stoppedTasks)}
 
       {startedTask ? (
         <section>

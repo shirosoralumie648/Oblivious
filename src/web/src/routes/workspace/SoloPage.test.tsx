@@ -124,6 +124,25 @@ describe('SoloPage', () => {
     expect(screen.getByLabelText('Use knowledge base Product Docs')).toBeInTheDocument();
   });
 
+  it('groups tasks by status on the solo home screen', async () => {
+    listTasks.mockResolvedValue([
+      { executionMode: 'standard', goal: 'Watch live rollout', id: 'task_running', status: 'running', title: 'Watch live rollout' },
+      { executionMode: 'standard', goal: 'Review launch plan', id: 'task_done', status: 'completed', title: 'Review launch plan' },
+      { executionMode: 'safe', goal: 'Abort risky task', id: 'task_cancelled', status: 'cancelled', title: 'Abort risky task' }
+    ]);
+    listKnowledgeBases.mockResolvedValue([]);
+
+    render(<SoloPage />);
+
+    expect(await screen.findByText('Running tasks')).toBeInTheDocument();
+    expect(screen.getByText('Completed tasks')).toBeInTheDocument();
+    expect(screen.getByText('Stopped tasks')).toBeInTheDocument();
+    expect(screen.queryByText('Recent tasks')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open task Watch live rollout' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open task Review launch plan' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open task Abort risky task' })).toBeInTheDocument();
+  });
+
   it('creates and starts a solo task, then renders the live execution state', async () => {
     listTasks.mockResolvedValue([]);
     listKnowledgeBases.mockResolvedValue([
