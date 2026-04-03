@@ -1,7 +1,12 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const createConversation = vi.fn();
 const createTask = vi.fn();
+const getConversationConfig = vi.fn();
+const navigate = vi.fn();
+const sendMessage = vi.fn();
+const updateConversationConfig = vi.fn();
 const getTask = vi.fn();
 const listKnowledgeBases = vi.fn();
 const listTasks = vi.fn();
@@ -25,6 +30,19 @@ const appContext = vi.hoisted(() => ({
 
 vi.mock('../../app/providers', () => ({
   useAppContext: () => appContext
+}));
+
+vi.mock('react-router-dom', () => ({
+  useNavigate: () => navigate
+}));
+
+vi.mock('../../features/chat/api', () => ({
+  createChatApi: () => ({
+    createConversation,
+    getConversationConfig,
+    sendMessage,
+    updateConversationConfig
+  })
 }));
 
 vi.mock('../../features/tasks/api', () => ({
@@ -55,7 +73,12 @@ describe('SoloPage', () => {
       networkEnabledHint: true,
       onboardingCompleted: true
     };
+    createConversation.mockReset();
     createTask.mockReset();
+    getConversationConfig.mockReset();
+    navigate.mockReset();
+    sendMessage.mockReset();
+    updateConversationConfig.mockReset();
     getTask.mockReset();
     listKnowledgeBases.mockReset();
     listTasks.mockReset();
@@ -67,7 +90,12 @@ describe('SoloPage', () => {
   });
 
   afterEach(() => {
+    createConversation.mockReset();
     createTask.mockReset();
+    getConversationConfig.mockReset();
+    navigate.mockReset();
+    sendMessage.mockReset();
+    updateConversationConfig.mockReset();
     getTask.mockReset();
     listKnowledgeBases.mockReset();
     listTasks.mockReset();
@@ -335,5 +363,86 @@ describe('SoloPage', () => {
     });
     expect(screen.getByText('Status: running')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Pause run' })).toBeInTheDocument();
+  });
+
+  it('continues a completed solo result in chat', async () => {
+    listTasks.mockResolvedValue([
+      { budgetLimit: 12, executionMode: 'standard', goal: 'Review launch plan', id: 'task_2', status: 'completed', title: 'Review launch plan' }
+    ]);
+    listKnowledgeBases.mockResolvedValue([]);
+    getTask.mockResolvedValue({
+      budgetLimit: 12,
+      executionMode: 'standard',
+      goal: 'Review launch plan',
+      id: 'task_2',
+      knowledgeBaseIds: ['kb_2'],
+      resultSummary: 'Completed a starter SOLO run for: Review launch plan',
+      status: 'completed',
+      steps: [
+        { id: 'step_1', status: 'completed', stepIndex: 1, title: 'Understand the goal' }
+      ],
+      title: 'Review launch plan'
+    });
+    createConversation.mockResolvedValue({
+      id: 'conversation_2',
+      title: 'Review launch plan'
+    });
+    getConversationConfig.mockResolvedValue({
+      conversationId: 'conversation_2',
+      knowledgeBaseIds: [],
+      maxOutputTokens: 1024,
+      modelId: 'balanced-chat',
+      systemPromptOverride: '',
+      temperature: 1,
+      toolsEnabled: false
+    });
+    updateConversationConfig.mockResolvedValue({
+      conversationId: 'conversation_2',
+      knowledgeBaseIds: ['kb_2'],
+      maxOutputTokens: 1024,
+      modelId: 'balanced-chat',
+      systemPromptOverride: '',
+      temperature: 1,
+      toolsEnabled: false
+    });
+    sendMessage.mockResolvedValue([
+      { content: 'Continue from this SOLO result.', id: 'message_1', role: 'user' },
+      { content: 'What should we do next?', id: 'message_2', role: 'assistant' }
+    ]);
+
+    render(<SoloPage />);
+
+    await screen.findByText('Review launch plan');
+    fireEvent.click(screen.getByRole('button', { name: 'Open task Review launch plan' }));
+    await screen.findByText('Status: completed');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue in Chat' }));
+
+    await waitFor(() => {
+      expect(createConversation).toHaveBeenCalledWith({ title: 'Review launch plan' });
+    });
+    await waitFor(() => {
+      expect(getConversationConfig).toHaveBeenCalledWith('conversation_2');
+    });
+    await waitFor(() => {
+      expect(updateConversationConfig).toHaveBeenCalledWith('conversation_2', {
+        knowledgeBaseIds: ['kb_2'],
+        maxOutputTokens: 1024,
+        modelId: 'balanced-chat',
+        systemPromptOverride: '',
+        temperature: 1,
+        toolsEnabled: false
+      });
+    });
+    await waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledWith(
+        'conversation_2',
+        {
+          content:
+            'Continue from this SOLO result.\nGoal: Review launch plan\nResult: Completed a starter SOLO run for: Review launch plan'
+        }
+      );
+    });
+    expect(navigate).toHaveBeenCalledWith('/chat/conversation_2');
   });
 });

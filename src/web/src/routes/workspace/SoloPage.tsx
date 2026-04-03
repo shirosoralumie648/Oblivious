@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import { useAppContext } from '../../app/providers';
+import { createChatApi } from '../../features/chat/api';
 import { createKnowledgeApi } from '../../features/knowledge/api';
 import { createTasksApi } from '../../features/tasks/api';
 import { createHttpClient } from '../../services/http/client';
@@ -20,7 +22,9 @@ function taskIDFromSearch(search: string) {
 
 export function SoloPage() {
   const { authState } = useAppContext();
+  const navigate = useNavigate();
   const httpClient = useMemo(() => createHttpClient(), []);
+  const chatApi = useMemo(() => createChatApi(httpClient), [httpClient]);
   const knowledgeApi = useMemo(() => createKnowledgeApi(httpClient), [httpClient]);
   const tasksApi = useMemo(() => createTasksApi(httpClient), [httpClient]);
   const [budgetLimit, setBudgetLimit] = useState(defaultBudgetLimit);
@@ -223,6 +227,38 @@ export function SoloPage() {
     }
   };
 
+  const handleContinueInChat = async () => {
+    if (!startedTask) {
+      return;
+    }
+
+    setIsLoadingTaskID(startedTask.id);
+    setError(null);
+
+    try {
+      const conversation = await chatApi.createConversation({ title: startedTask.title });
+      const conversationConfig = await chatApi.getConversationConfig(conversation.id);
+      await chatApi.updateConversationConfig(conversation.id, {
+        knowledgeBaseIds: startedTask.knowledgeBaseIds,
+        maxOutputTokens: conversationConfig.maxOutputTokens,
+        modelId: conversationConfig.modelId,
+        systemPromptOverride: conversationConfig.systemPromptOverride ?? '',
+        temperature: conversationConfig.temperature,
+        toolsEnabled: conversationConfig.toolsEnabled
+      });
+      await chatApi.sendMessage(conversation.id, {
+        content: `Continue from this SOLO result.\nGoal: ${startedTask.goal}\nResult: ${
+          startedTask.resultSummary || 'No result summary available.'
+        }`
+      });
+      navigate(`/chat/${conversation.id}`);
+    } catch {
+      setError('Unable to continue this task in chat.');
+    } finally {
+      setIsLoadingTaskID(null);
+    }
+  };
+
   return (
     <section>
       <h1>SOLO</h1>
@@ -338,6 +374,9 @@ export function SoloPage() {
             <div>
               <button disabled={isLoadingTaskID === startedTask.id} onClick={() => void handleRetryTask()} type="button">
                 Retry run
+              </button>
+              <button disabled={isLoadingTaskID === startedTask.id} onClick={() => void handleContinueInChat()} type="button">
+                Continue in Chat
               </button>
             </div>
           ) : null}
