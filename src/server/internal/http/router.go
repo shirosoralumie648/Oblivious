@@ -11,6 +11,7 @@ import (
 	"oblivious/server/internal/config"
 	"oblivious/server/internal/console"
 	"oblivious/server/internal/knowledge"
+	"oblivious/server/internal/task"
 	"oblivious/server/internal/usage"
 	"oblivious/server/internal/userprefs"
 )
@@ -35,6 +36,7 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 	consoleHandler := newConsoleHandler(console.NewService(console.NewSQLStore(database)), preferencesService)
 	knowledgeHandler := newKnowledgeHandler(knowledge.NewService(knowledge.NewSQLStore(database)))
 	preferencesHandler := newPreferencesHandler(preferencesService)
+	taskHandler := newTaskHandler(task.NewService(task.NewSQLStore(database)))
 
 	mux.HandleFunc("/api/v1/auth/login", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		if r.Method != stdhttp.MethodPost {
@@ -175,6 +177,77 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 				knowledgeHandler.updateKnowledgeDocument(w, r, knowledgeBaseID, documentID)
 			case stdhttp.MethodDelete:
 				knowledgeHandler.deleteKnowledgeDocument(w, r, knowledgeBaseID, documentID)
+			default:
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
+
+		writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
+	})))
+	mux.Handle("/api/v1/app/tasks", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		switch r.Method {
+		case stdhttp.MethodGet:
+			taskHandler.listTasks(w, r)
+		case stdhttp.MethodPost:
+			taskHandler.createTask(w, r)
+		default:
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		}
+	})))
+	mux.Handle("/api/v1/app/tasks/", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		trimmedPath := strings.TrimPrefix(r.URL.Path, "/api/v1/app/tasks/")
+		parts := strings.Split(trimmedPath, "/")
+		if len(parts) == 0 || parts[0] == "" {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
+			return
+		}
+
+		taskID := parts[0]
+		if len(parts) == 1 {
+			switch r.Method {
+			case stdhttp.MethodGet:
+				taskHandler.getTask(w, r, taskID)
+			default:
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
+
+		if len(parts) == 2 && parts[1] == "start" {
+			switch r.Method {
+			case stdhttp.MethodPost:
+				taskHandler.startTask(w, r, taskID)
+			default:
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
+
+		if len(parts) == 2 && parts[1] == "pause" {
+			switch r.Method {
+			case stdhttp.MethodPost:
+				taskHandler.pauseTask(w, r, taskID)
+			default:
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
+
+		if len(parts) == 2 && parts[1] == "resume" {
+			switch r.Method {
+			case stdhttp.MethodPost:
+				taskHandler.resumeTask(w, r, taskID)
+			default:
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
+
+		if len(parts) == 2 && parts[1] == "cancel" {
+			switch r.Method {
+			case stdhttp.MethodPost:
+				taskHandler.cancelTask(w, r, taskID)
 			default:
 				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			}

@@ -1,9 +1,14 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const navigate = vi.fn();
-const createConversation = vi.fn();
-const listConversations = vi.fn();
+const createTask = vi.fn();
+const getTask = vi.fn();
+const listKnowledgeBases = vi.fn();
+const listTasks = vi.fn();
+const pauseTask = vi.fn();
+const cancelTask = vi.fn();
+const resumeTask = vi.fn();
+const startTask = vi.fn();
 
 const appContext = vi.hoisted(() => ({
   authState: {
@@ -18,23 +23,25 @@ const appContext = vi.hoisted(() => ({
   }
 }));
 
-vi.mock('react-router-dom', async () => {
-  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
-
-  return {
-    ...actual,
-    useNavigate: () => navigate
-  };
-});
-
 vi.mock('../../app/providers', () => ({
   useAppContext: () => appContext
 }));
 
-vi.mock('../../features/chat/api', () => ({
-  createChatApi: () => ({
-    createConversation,
-    listConversations
+vi.mock('../../features/tasks/api', () => ({
+  createTasksApi: () => ({
+    cancelTask,
+    createTask,
+    getTask,
+    listTasks,
+    pauseTask,
+    resumeTask,
+    startTask
+  })
+}));
+
+vi.mock('../../features/knowledge/api', () => ({
+  createKnowledgeApi: () => ({
+    listKnowledgeBases
   })
 }));
 
@@ -48,21 +55,34 @@ describe('SoloPage', () => {
       networkEnabledHint: true,
       onboardingCompleted: true
     };
-    createConversation.mockReset();
-    listConversations.mockReset();
-    navigate.mockReset();
+    createTask.mockReset();
+    getTask.mockReset();
+    listKnowledgeBases.mockReset();
+    listTasks.mockReset();
+    pauseTask.mockReset();
+    cancelTask.mockReset();
+    resumeTask.mockReset();
+    startTask.mockReset();
   });
 
   afterEach(() => {
-    createConversation.mockReset();
-    listConversations.mockReset();
-    navigate.mockReset();
+    createTask.mockReset();
+    getTask.mockReset();
+    listKnowledgeBases.mockReset();
+    listTasks.mockReset();
+    pauseTask.mockReset();
+    cancelTask.mockReset();
+    resumeTask.mockReset();
+    startTask.mockReset();
   });
 
-  it('loads and renders the solo launch context', async () => {
-    listConversations.mockResolvedValue([
-      { id: 'conv_2', title: 'Research task' },
-      { id: 'conv_1', title: 'Daily planning' }
+  it('loads and renders the solo launch context with recent tasks', async () => {
+    listTasks.mockResolvedValue([
+      { executionMode: 'standard', goal: 'Review launch plan', id: 'task_2', status: 'completed', title: 'Review launch plan' },
+      { executionMode: 'safe', goal: 'Summarize notes', id: 'task_1', status: 'draft', title: 'Summarize notes' }
+    ]);
+    listKnowledgeBases.mockResolvedValue([
+      { documentCount: 3, id: 'kb_1', name: 'Product Docs' }
     ]);
 
     render(<SoloPage />);
@@ -70,22 +90,169 @@ describe('SoloPage', () => {
     expect(screen.getByText('Loading solo workspace…')).toBeInTheDocument();
     expect(await screen.findByText('Model strategy: quality')).toBeInTheDocument();
     expect(screen.getByText('Web suggestions: Enabled')).toBeInTheDocument();
-    expect(screen.getByText('Research task')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Continue latest thread' })).toBeInTheDocument();
+    expect(screen.getByText('Review launch plan')).toBeInTheDocument();
+    expect(screen.getByLabelText('Use knowledge base Product Docs')).toBeInTheDocument();
   });
 
-  it('creates a dedicated solo thread and routes into chat', async () => {
-    listConversations.mockResolvedValue([]);
-    createConversation.mockResolvedValue({ id: 'conv_new', title: 'SOLO run' });
+  it('creates and starts a solo task, then renders the live execution state', async () => {
+    listTasks.mockResolvedValue([]);
+    listKnowledgeBases.mockResolvedValue([
+      { documentCount: 4, id: 'kb_1', name: 'Research Vault' }
+    ]);
+    createTask.mockResolvedValue({
+      budgetLimit: 20,
+      executionMode: 'safe',
+      goal: 'Draft launch checklist',
+      id: 'task_new',
+      knowledgeBaseIds: ['kb_1'],
+      status: 'draft',
+      title: 'Draft launch checklist'
+    });
+    startTask.mockResolvedValue({
+      budgetLimit: 20,
+      executionMode: 'safe',
+      goal: 'Draft launch checklist',
+      id: 'task_new',
+      knowledgeBaseIds: ['kb_1'],
+      status: 'running',
+      steps: [
+        { id: 'step_1', status: 'completed', stepIndex: 1, title: 'Understand the goal' },
+        { id: 'step_2', status: 'running', stepIndex: 2, title: 'Review workspace context' },
+        { id: 'step_3', status: 'pending', stepIndex: 3, title: 'Deliver starter result' }
+      ],
+      title: 'Draft launch checklist'
+    });
 
     render(<SoloPage />);
 
     await screen.findByRole('button', { name: 'Start solo run' });
+    fireEvent.change(screen.getByLabelText('Task goal'), { target: { value: 'Draft launch checklist' } });
+    fireEvent.click(screen.getByLabelText('Use knowledge base Research Vault'));
+    fireEvent.change(screen.getByLabelText('Execution mode'), { target: { value: 'safe' } });
+    fireEvent.change(screen.getByLabelText('Budget limit'), { target: { value: '20' } });
     fireEvent.click(screen.getByRole('button', { name: 'Start solo run' }));
 
     await waitFor(() => {
-      expect(createConversation).toHaveBeenCalledWith({ title: 'SOLO run' });
+      expect(createTask).toHaveBeenCalledWith({
+        budgetLimit: 20,
+        executionMode: 'safe',
+        goal: 'Draft launch checklist',
+        knowledgeBaseIds: ['kb_1']
+      });
     });
-    expect(navigate).toHaveBeenCalledWith('/chat/conv_new');
+    await waitFor(() => {
+      expect(startTask).toHaveBeenCalledWith('task_new');
+    });
+    expect(screen.getByText('Status: running')).toBeInTheDocument();
+    expect(screen.getByText('Understand the goal')).toBeInTheDocument();
+    expect(screen.getByText('Review workspace context')).toBeInTheDocument();
+    expect(screen.getByText('Deliver starter result')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Pause run' })).toBeInTheDocument();
+  });
+
+  it('loads an existing recent task detail when selected', async () => {
+    listTasks.mockResolvedValue([
+      { budgetLimit: 12, executionMode: 'standard', goal: 'Review launch plan', id: 'task_2', status: 'completed', title: 'Review launch plan' }
+    ]);
+    listKnowledgeBases.mockResolvedValue([]);
+    getTask.mockResolvedValue({
+      budgetLimit: 12,
+      executionMode: 'standard',
+      goal: 'Review launch plan',
+      id: 'task_2',
+      knowledgeBaseIds: ['kb_2'],
+      resultSummary: 'Completed a starter SOLO run for: Review launch plan',
+      status: 'completed',
+      steps: [
+        { id: 'step_1', status: 'completed', stepIndex: 1, title: 'Understand the goal' }
+      ],
+      title: 'Review launch plan'
+    });
+
+    render(<SoloPage />);
+
+    await screen.findByText('Review launch plan');
+    fireEvent.click(screen.getByRole('button', { name: 'Open task Review launch plan' }));
+
+    await waitFor(() => {
+      expect(getTask).toHaveBeenCalledWith('task_2');
+    });
+    expect(screen.getByText('Completed a starter SOLO run for: Review launch plan')).toBeInTheDocument();
+    expect(screen.getByText('Understand the goal')).toBeInTheDocument();
+  });
+
+  it('pauses and resumes a running task from the execution view', async () => {
+    listTasks.mockResolvedValue([]);
+    listKnowledgeBases.mockResolvedValue([]);
+    startTask.mockResolvedValue({
+      budgetLimit: 8,
+      executionMode: 'standard',
+      goal: 'Review launch plan',
+      id: 'task_1',
+      knowledgeBaseIds: [],
+      status: 'running',
+      steps: [
+        { id: 'step_1', status: 'completed', stepIndex: 1, title: 'Understand the goal' },
+        { id: 'step_2', status: 'running', stepIndex: 2, title: 'Review workspace context' }
+      ],
+      title: 'Review launch plan'
+    });
+    createTask.mockResolvedValue({
+      budgetLimit: 8,
+      executionMode: 'standard',
+      goal: 'Review launch plan',
+      id: 'task_1',
+      knowledgeBaseIds: [],
+      status: 'draft',
+      title: 'Review launch plan'
+    });
+    pauseTask.mockResolvedValue({
+      budgetLimit: 8,
+      executionMode: 'standard',
+      goal: 'Review launch plan',
+      id: 'task_1',
+      knowledgeBaseIds: [],
+      status: 'paused',
+      steps: [
+        { id: 'step_1', status: 'completed', stepIndex: 1, title: 'Understand the goal' },
+        { id: 'step_2', status: 'running', stepIndex: 2, title: 'Review workspace context' }
+      ],
+      title: 'Review launch plan'
+    });
+    resumeTask.mockResolvedValue({
+      budgetLimit: 8,
+      executionMode: 'standard',
+      goal: 'Review launch plan',
+      id: 'task_1',
+      knowledgeBaseIds: [],
+      resultSummary: 'Completed a starter SOLO run for: Review launch plan',
+      status: 'completed',
+      steps: [
+        { id: 'step_1', status: 'completed', stepIndex: 1, title: 'Understand the goal' },
+        { id: 'step_2', status: 'completed', stepIndex: 2, title: 'Review workspace context' },
+        { id: 'step_3', status: 'completed', stepIndex: 3, title: 'Deliver starter result' }
+      ],
+      title: 'Review launch plan'
+    });
+
+    render(<SoloPage />);
+
+    await screen.findByRole('button', { name: 'Start solo run' });
+    fireEvent.change(screen.getByLabelText('Task goal'), { target: { value: 'Review launch plan' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Start solo run' }));
+    await screen.findByText('Status: running');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Pause run' }));
+    await waitFor(() => {
+      expect(pauseTask).toHaveBeenCalledWith('task_1');
+    });
+    expect(screen.getByText('Status: paused')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Resume run' }));
+    await waitFor(() => {
+      expect(resumeTask).toHaveBeenCalledWith('task_1');
+    });
+    expect(screen.getByText('Completed a starter SOLO run for: Review launch plan')).toBeInTheDocument();
+    expect(screen.getByText('Status: completed')).toBeInTheDocument();
   });
 });

@@ -80,6 +80,42 @@ export interface ConversationSummary {
   updatedAt?: string;
 }
 
+export interface TaskSummary {
+  budgetLimit: number;
+  createdAt?: string;
+  executionMode: string;
+  goal: string;
+  id: string;
+  resultSummary?: string;
+  status: string;
+  title: string;
+  updatedAt?: string;
+}
+
+export interface TaskStep {
+  createdAt?: string;
+  finishedAt?: string;
+  id: string;
+  startedAt?: string;
+  status: string;
+  stepIndex: number;
+  title: string;
+  updatedAt?: string;
+}
+
+export interface TaskDetail extends TaskSummary {
+  knowledgeBaseIds: string[];
+  steps: TaskStep[];
+}
+
+export interface CreateTaskRequest {
+  budgetLimit: number;
+  executionMode: string;
+  goal: string;
+  knowledgeBaseIds: string[];
+  title?: string;
+}
+
 export interface ChatMessage {
   content: string;
   createdAt?: string;
