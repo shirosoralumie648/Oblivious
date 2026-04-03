@@ -128,6 +128,10 @@ export interface CreateTaskRequest {
   title?: string;
 }
 
+export interface UpdateTaskBudgetRequest {
+  budgetLimit: number;
+}
+
 export interface ChatMessage {
   content: string;
   createdAt?: string;

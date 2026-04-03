@@ -271,6 +271,16 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 			return
 		}
 
+		if len(parts) == 2 && parts[1] == "budget" {
+			switch r.Method {
+			case stdhttp.MethodPost:
+				taskHandler.updateTaskBudget(w, r, taskID)
+			default:
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
+
 		writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
 	})))
 	mux.Handle("/api/v1/console/usage", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {

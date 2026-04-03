@@ -21,6 +21,10 @@ type createTaskRequest struct {
 	Title              string   `json:"title"`
 }
 
+type updateTaskBudgetRequest struct {
+	BudgetLimit int `json:"budgetLimit"`
+}
+
 func newTaskHandler(service *task.Service) taskHandler {
 	return taskHandler{service: service}
 }
@@ -166,6 +170,28 @@ func (h taskHandler) cancelTask(w stdhttp.ResponseWriter, r *stdhttp.Request, ta
 	detail, err := h.service.Cancel(r.Context(), session, taskID)
 	if err != nil {
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "cancel task failed")
+		return
+	}
+
+	writeSuccess(w, stdhttp.StatusOK, detail)
+}
+
+func (h taskHandler) updateTaskBudget(w stdhttp.ResponseWriter, r *stdhttp.Request, taskID string) {
+	session, ok := sessionFromContext(r)
+	if !ok {
+		writeError(w, stdhttp.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+
+	var payload updateTaskBudgetRequest
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "invalid json body")
+		return
+	}
+
+	detail, err := h.service.UpdateBudget(r.Context(), session, taskID, payload.BudgetLimit)
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "update budget failed")
 		return
 	}
 

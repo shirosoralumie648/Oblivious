@@ -72,9 +72,11 @@ export function SoloPage() {
   const [recentTasks, setRecentTasks] = useState<TaskSummary[]>([]);
   const [selectedKnowledgeBaseIDs, setSelectedKnowledgeBaseIDs] = useState<string[]>([]);
   const [startedTask, setStartedTask] = useState<TaskDetail | null>(null);
+  const [activeBudgetLimit, setActiveBudgetLimit] = useState('');
 
   function applyTaskDetail(detail: TaskDetail) {
     setStartedTask(detail);
+    setActiveBudgetLimit(String(detail.budgetLimit));
     setRecentTasks((current) => [detail, ...current.filter((task) => task.id !== detail.id)]);
   }
 
@@ -287,6 +289,27 @@ export function SoloPage() {
     }
   };
 
+  const handleUpdateBudget = async () => {
+    if (!startedTask) {
+      return;
+    }
+
+    setIsLoadingTaskID(startedTask.id);
+    setError(null);
+
+    try {
+      const parsedBudgetLimit = Number.parseInt(activeBudgetLimit, 10);
+      const detail = await tasksApi.updateTaskBudget(startedTask.id, {
+        budgetLimit: Number.isNaN(parsedBudgetLimit) ? 0 : parsedBudgetLimit
+      });
+      applyTaskDetail(detail);
+    } catch {
+      setError('Unable to update task budget.');
+    } finally {
+      setIsLoadingTaskID(null);
+    }
+  };
+
   const handleContinueInChat = async () => {
     if (!startedTask) {
       return;
@@ -418,6 +441,17 @@ export function SoloPage() {
           <p>{`Execution mode: ${startedTask.executionMode}`}</p>
           <p>{`Authorization scope: ${startedTask.authorizationScope}`}</p>
           <p>{`Budget consumed: ${startedTask.budgetConsumed ?? 0} / ${startedTask.budgetLimit}`}</p>
+          {startedTask.status !== 'completed' && startedTask.status !== 'cancelled' ? (
+            <div>
+              <label>
+                Active budget limit
+                <input onChange={(event) => setActiveBudgetLimit(event.target.value)} type="number" value={activeBudgetLimit} />
+              </label>
+              <button disabled={isLoadingTaskID === startedTask.id} onClick={() => void handleUpdateBudget()} type="button">
+                Update budget
+              </button>
+            </div>
+          ) : null}
           {startedTask.startedAt ? <p>{`Started at: ${startedTask.startedAt}`}</p> : null}
           {startedTask.finishedAt ? <p>{`Finished at: ${startedTask.finishedAt}`}</p> : null}
           <section>

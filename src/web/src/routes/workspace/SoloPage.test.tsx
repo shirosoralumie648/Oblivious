@@ -15,6 +15,7 @@ const approveTask = vi.fn();
 const cancelTask = vi.fn();
 const resumeTask = vi.fn();
 const startTask = vi.fn();
+const updateTaskBudget = vi.fn();
 
 const appContext = vi.hoisted(() => ({
   authState: {
@@ -55,7 +56,8 @@ vi.mock('../../features/tasks/api', () => ({
     listTasks,
     pauseTask,
     resumeTask,
-    startTask
+    startTask,
+    updateTaskBudget
   })
 }));
 
@@ -89,6 +91,7 @@ describe('SoloPage', () => {
     cancelTask.mockReset();
     resumeTask.mockReset();
     startTask.mockReset();
+    updateTaskBudget.mockReset();
     window.history.replaceState({}, '', '/solo');
   });
 
@@ -107,6 +110,7 @@ describe('SoloPage', () => {
     cancelTask.mockReset();
     resumeTask.mockReset();
     startTask.mockReset();
+    updateTaskBudget.mockReset();
     window.history.replaceState({}, '', '/solo');
   });
 
@@ -431,6 +435,57 @@ describe('SoloPage', () => {
     });
     expect(screen.getByText('Completed a starter SOLO run for: Review launch plan')).toBeInTheDocument();
     expect(screen.getByText('Status: completed')).toBeInTheDocument();
+  });
+
+  it('updates budget from the execution view', async () => {
+    listTasks.mockResolvedValue([
+      { authorizationScope: 'workspace_tools', budgetLimit: 8, executionMode: 'standard', goal: 'Review launch plan', id: 'task_2', status: 'running', title: 'Review launch plan' }
+    ]);
+    listKnowledgeBases.mockResolvedValue([]);
+    getTask.mockResolvedValue({
+      authorizationScope: 'workspace_tools',
+      budgetConsumed: 4,
+      budgetLimit: 8,
+      executionMode: 'standard',
+      goal: 'Review launch plan',
+      id: 'task_2',
+      knowledgeBaseIds: [],
+      status: 'running',
+      steps: [
+        { id: 'step_1', status: 'completed', stepIndex: 1, title: 'Understand the goal' },
+        { id: 'step_2', status: 'running', stepIndex: 2, title: 'Review workspace context' }
+      ],
+      title: 'Review launch plan'
+    });
+    updateTaskBudget.mockResolvedValue({
+      authorizationScope: 'workspace_tools',
+      budgetConsumed: 4,
+      budgetLimit: 15,
+      executionMode: 'standard',
+      goal: 'Review launch plan',
+      id: 'task_2',
+      knowledgeBaseIds: [],
+      status: 'running',
+      steps: [
+        { id: 'step_1', status: 'completed', stepIndex: 1, title: 'Understand the goal' },
+        { id: 'step_2', status: 'running', stepIndex: 2, title: 'Review workspace context' }
+      ],
+      title: 'Review launch plan'
+    });
+
+    render(<SoloPage />);
+
+    await screen.findByText('Review launch plan');
+    fireEvent.click(screen.getByRole('button', { name: 'Open task Review launch plan' }));
+    await screen.findByText('Status: running');
+
+    fireEvent.change(screen.getByLabelText('Active budget limit'), { target: { value: '15' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Update budget' }));
+
+    await waitFor(() => {
+      expect(updateTaskBudget).toHaveBeenCalledWith('task_2', { budgetLimit: 15 });
+    });
+    expect(screen.getByText('Budget consumed: 4 / 15')).toBeInTheDocument();
   });
 
   it('retries a completed task from the result view', async () => {

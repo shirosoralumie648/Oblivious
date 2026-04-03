@@ -427,6 +427,30 @@ func (s *SQLStore) CancelTask(ctx context.Context, workspaceID, taskID string) (
 	return s.GetTask(ctx, workspaceID, taskID)
 }
 
+func (s *SQLStore) UpdateTaskBudget(ctx context.Context, workspaceID, taskID string, budgetLimit int) (TaskDetail, error) {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE tasks
+		SET budget_limit = $3,
+			updated_at = $4
+		WHERE workspace_id = $1
+			AND id = $2
+			AND status IN ('draft', 'running', 'paused', 'awaiting_confirmation')
+	`, workspaceID, taskID, budgetLimit, time.Now().UTC())
+	if err != nil {
+		return TaskDetail{}, err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return TaskDetail{}, err
+	}
+	if rowsAffected == 0 {
+		return TaskDetail{}, sql.ErrNoRows
+	}
+
+	return s.GetTask(ctx, workspaceID, taskID)
+}
+
 func (s *SQLStore) getTaskRow(ctx context.Context, workspaceID, taskID string) (Task, error) {
 	var taskRow Task
 	if err := s.db.QueryRowContext(ctx, `

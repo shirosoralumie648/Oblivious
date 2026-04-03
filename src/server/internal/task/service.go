@@ -63,6 +63,7 @@ type Store interface {
 	PauseTask(ctx context.Context, workspaceID, taskID string) (TaskDetail, error)
 	ResumeTask(ctx context.Context, workspaceID, taskID string) (TaskDetail, error)
 	StartTask(ctx context.Context, workspaceID, taskID string) (TaskDetail, error)
+	UpdateTaskBudget(ctx context.Context, workspaceID, taskID string, budgetLimit int) (TaskDetail, error)
 }
 
 type Service struct {
@@ -177,6 +178,24 @@ func (s *Service) Resume(ctx context.Context, session auth.Session, taskID strin
 
 func (s *Service) Cancel(ctx context.Context, session auth.Session, taskID string) (TaskDetail, error) {
 	detail, err := s.store.CancelTask(ctx, session.WorkspaceID, strings.TrimSpace(taskID))
+	if err != nil {
+		return TaskDetail{}, err
+	}
+
+	return normalizeTaskDetail(detail), nil
+}
+
+func (s *Service) UpdateBudget(ctx context.Context, session auth.Session, taskID string, budgetLimit int) (TaskDetail, error) {
+	trimmedTaskID := strings.TrimSpace(taskID)
+	if trimmedTaskID == "" {
+		return TaskDetail{}, sql.ErrNoRows
+	}
+
+	if budgetLimit < 0 {
+		budgetLimit = 0
+	}
+
+	detail, err := s.store.UpdateTaskBudget(ctx, session.WorkspaceID, trimmedTaskID, budgetLimit)
 	if err != nil {
 		return TaskDetail{}, err
 	}

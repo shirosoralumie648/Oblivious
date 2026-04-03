@@ -27,6 +27,8 @@ type taskFakeStore struct {
 	pausedTaskID         string
 	requestedID          string
 	resumedTaskID        string
+	updatedBudgetLimit   int
+	updatedBudgetTaskID  string
 	workspaceID          string
 }
 
@@ -87,6 +89,13 @@ func (f *taskFakeStore) ResumeTask(ctx context.Context, workspaceID, taskID stri
 func (f *taskFakeStore) CancelTask(ctx context.Context, workspaceID, taskID string) (task.TaskDetail, error) {
 	f.workspaceID = workspaceID
 	f.cancelledTaskID = taskID
+	return f.detailTask, nil
+}
+
+func (f *taskFakeStore) UpdateTaskBudget(ctx context.Context, workspaceID, taskID string, budgetLimit int) (task.TaskDetail, error) {
+	f.workspaceID = workspaceID
+	f.updatedBudgetTaskID = taskID
+	f.updatedBudgetLimit = budgetLimit
 	return f.detailTask, nil
 }
 
@@ -321,6 +330,48 @@ func TestTaskHandlerPauseReturnsTaskDetail(t *testing.T) {
 	}
 	if store.pausedTaskID != "task_1" {
 		t.Fatalf("expected paused task id task_1, got %s", store.pausedTaskID)
+	}
+}
+
+func TestTaskHandlerUpdateBudgetReturnsTaskDetail(t *testing.T) {
+	store := &taskFakeStore{
+		detailTask: task.TaskDetail{
+			Task: task.Task{
+				AuthorizationScope: "workspace_tools",
+				BudgetConsumed:     4,
+				BudgetLimit:        30,
+				ExecutionMode:      "standard",
+				Goal:               "Review launch plan",
+				ID:                 "task_1",
+				Status:             "running",
+				Title:              "Review launch plan",
+			},
+		},
+	}
+	handler := newTaskHandler(task.NewService(store))
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/tasks/task_1/budget", strings.NewReader(`{"budgetLimit":30}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		WorkspaceID: "workspace_1",
+	}))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.updateTaskBudget(recorder, request, "task_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+
+	var response struct {
+		Data task.TaskDetail `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if store.updatedBudgetTaskID != "task_1" || store.updatedBudgetLimit != 30 {
+		t.Fatalf("unexpected budget update args: task=%s budget=%d", store.updatedBudgetTaskID, store.updatedBudgetLimit)
+	}
+	if response.Data.BudgetLimit != 30 || response.Data.Status != "running" {
+		t.Fatalf("unexpected updated task detail: %+v", response.Data)
 	}
 }
 

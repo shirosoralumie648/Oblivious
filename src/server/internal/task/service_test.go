@@ -21,6 +21,8 @@ type fakeStore struct {
 	pausedTaskID         string
 	requestedID          string
 	resumedTaskID        string
+	updatedBudgetLimit   int
+	updatedBudgetTaskID  string
 	workspaceID          string
 }
 
@@ -80,6 +82,13 @@ func (f *fakeStore) ResumeTask(ctx context.Context, workspaceID, taskID string) 
 func (f *fakeStore) CancelTask(ctx context.Context, workspaceID, taskID string) (TaskDetail, error) {
 	f.workspaceID = workspaceID
 	f.cancelledTaskID = taskID
+	return f.detailTask, nil
+}
+
+func (f *fakeStore) UpdateTaskBudget(ctx context.Context, workspaceID, taskID string, budgetLimit int) (TaskDetail, error) {
+	f.workspaceID = workspaceID
+	f.updatedBudgetTaskID = taskID
+	f.updatedBudgetLimit = budgetLimit
 	return f.detailTask, nil
 }
 
@@ -330,5 +339,38 @@ func TestCancelReturnsCancelledTaskDetailForWorkspace(t *testing.T) {
 	}
 	if task.Status != "cancelled" {
 		t.Fatalf("unexpected cancelled task detail: %+v", task)
+	}
+}
+
+func TestUpdateBudgetNormalizesLimitForWorkspace(t *testing.T) {
+	store := &fakeStore{
+		detailTask: TaskDetail{
+			Task: Task{
+				AuthorizationScope: "workspace_tools",
+				BudgetConsumed:     4,
+				BudgetLimit:        0,
+				ExecutionMode:      "standard",
+				Goal:               "Review launch plan",
+				ID:                 "task_3",
+				Status:             "running",
+				Title:              "Review launch plan",
+			},
+		},
+	}
+	service := NewService(store)
+
+	task, err := service.UpdateBudget(context.Background(), auth.Session{WorkspaceID: "workspace_1"}, "task_3", -5)
+	if err != nil {
+		t.Fatalf("update budget: %v", err)
+	}
+
+	if store.updatedBudgetTaskID != "task_3" {
+		t.Fatalf("expected updated task id task_3, got %s", store.updatedBudgetTaskID)
+	}
+	if store.updatedBudgetLimit != 0 {
+		t.Fatalf("expected normalized budget limit 0, got %d", store.updatedBudgetLimit)
+	}
+	if task.BudgetLimit != 0 || task.Status != "running" {
+		t.Fatalf("unexpected updated task detail: %+v", task)
 	}
 }

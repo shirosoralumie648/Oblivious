@@ -1,5 +1,5 @@
 import type { HttpClient } from '../../services/http/client';
-import type { CreateTaskRequest, TaskDetail, TaskSummary } from '../../types/api';
+import type { CreateTaskRequest, TaskDetail, TaskSummary, UpdateTaskBudgetRequest } from '../../types/api';
 
 export interface TasksApi {
   approveTask: (taskId: string) => Promise<TaskDetail>;
@@ -10,6 +10,7 @@ export interface TasksApi {
   pauseTask: (taskId: string) => Promise<TaskDetail>;
   resumeTask: (taskId: string) => Promise<TaskDetail>;
   startTask: (taskId: string) => Promise<TaskDetail>;
+  updateTaskBudget: (taskId: string, payload: UpdateTaskBudgetRequest) => Promise<TaskDetail>;
 }
 
 export function createTasksApi(client: HttpClient): TasksApi {
@@ -21,6 +22,7 @@ export function createTasksApi(client: HttpClient): TasksApi {
     listTasks: () => client.get<TaskSummary[]>('/api/v1/app/tasks'),
     pauseTask: (taskId) => client.post<TaskDetail>(`/api/v1/app/tasks/${taskId}/pause`),
     resumeTask: (taskId) => client.post<TaskDetail>(`/api/v1/app/tasks/${taskId}/resume`),
-    startTask: (taskId) => client.post<TaskDetail>(`/api/v1/app/tasks/${taskId}/start`)
+    startTask: (taskId) => client.post<TaskDetail>(`/api/v1/app/tasks/${taskId}/start`),
+    updateTaskBudget: (taskId, payload) => client.post<TaskDetail>(`/api/v1/app/tasks/${taskId}/budget`, payload)
   };
 }
