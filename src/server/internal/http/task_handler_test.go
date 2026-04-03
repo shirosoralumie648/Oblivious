@@ -21,6 +21,8 @@ type taskFakeStore struct {
 	createdExecutionMode string
 	createdGoal          string
 	createdKnowledgeIDs  []string
+	createdToolAllowList []string
+	createdToolDenyList  []string
 	createdTask          task.Task
 	detailTask           task.TaskDetail
 	listedTasks          []task.Task
@@ -52,6 +54,8 @@ func (f *taskFakeStore) CreateTask(
 	authorizationScope string,
 	budgetLimit int,
 	knowledgeBaseIDs []string,
+	toolAllowList []string,
+	toolDenyList []string,
 ) (task.Task, error) {
 	f.workspaceID = workspaceID
 	f.createdGoal = goal
@@ -59,6 +63,8 @@ func (f *taskFakeStore) CreateTask(
 	f.createdAuthorization = authorizationScope
 	f.createdBudgetLimit = budgetLimit
 	f.createdKnowledgeIDs = append([]string(nil), knowledgeBaseIDs...)
+	f.createdToolAllowList = append([]string(nil), toolAllowList...)
+	f.createdToolDenyList = append([]string(nil), toolDenyList...)
 	return f.createdTask, nil
 }
 
@@ -141,7 +147,7 @@ func TestTaskHandlerCreateTaskAcceptsKnowledgeBaseIDs(t *testing.T) {
 		},
 	}
 	handler := newTaskHandler(task.NewService(store))
-	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/tasks", strings.NewReader(`{"goal":"Draft onboarding checklist","executionMode":"safe","authorizationScope":"full_access","budgetLimit":25,"knowledgeBaseIds":["kb_1","kb_3"]}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/tasks", strings.NewReader(`{"goal":"Draft onboarding checklist","executionMode":"safe","authorizationScope":"full_access","budgetLimit":25,"knowledgeBaseIds":["kb_1","kb_3"],"toolAllowList":["browser","shell","browser"],"toolDenyList":["shell","email"]}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
 		WorkspaceID: "workspace_1",
 	}))
 	request.Header.Set("Content-Type", "application/json")
@@ -160,6 +166,12 @@ func TestTaskHandlerCreateTaskAcceptsKnowledgeBaseIDs(t *testing.T) {
 	}
 	if len(store.createdKnowledgeIDs) != 2 || store.createdKnowledgeIDs[0] != "kb_1" || store.createdKnowledgeIDs[1] != "kb_3" {
 		t.Fatalf("unexpected knowledge ids: %+v", store.createdKnowledgeIDs)
+	}
+	if len(store.createdToolAllowList) != 1 || store.createdToolAllowList[0] != "browser" {
+		t.Fatalf("unexpected tool allow list: %+v", store.createdToolAllowList)
+	}
+	if len(store.createdToolDenyList) != 2 || store.createdToolDenyList[0] != "shell" || store.createdToolDenyList[1] != "email" {
+		t.Fatalf("unexpected tool deny list: %+v", store.createdToolDenyList)
 	}
 }
 
@@ -213,6 +225,55 @@ func TestTaskHandlerGetTaskReturnsTaskDetail(t *testing.T) {
 	}
 	if response.Data.BudgetConsumed != 12 || response.Data.StartedAt == nil || response.Data.FinishedAt == nil {
 		t.Fatalf("expected budget/timing fields in response, got %+v", response.Data)
+	}
+}
+
+func TestTaskHandlerGetTaskIncludesEmptyToolRules(t *testing.T) {
+	store := &taskFakeStore{
+		detailTask: task.TaskDetail{
+			Task: task.Task{
+				AuthorizationScope: "workspace_tools",
+				BudgetLimit:        12,
+				ExecutionMode:      "standard",
+				Goal:               "Review launch plan",
+				ID:                 "task_1",
+				Status:             "completed",
+				Title:              "Review launch plan",
+			},
+			KnowledgeBaseIDs: []string{},
+			Steps:            []task.TaskStep{},
+		},
+	}
+	handler := newTaskHandler(task.NewService(store))
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/app/tasks/task_1", nil).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		WorkspaceID: "workspace_1",
+	}))
+	recorder := httptest.NewRecorder()
+
+	handler.getTask(recorder, request, "task_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+
+	var response map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	data, ok := response["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected response data object, got %+v", response["data"])
+	}
+
+	toolAllowList, ok := data["toolAllowList"].([]any)
+	if !ok || len(toolAllowList) != 0 {
+		t.Fatalf("expected empty toolAllowList, got %+v", data["toolAllowList"])
+	}
+
+	toolDenyList, ok := data["toolDenyList"].([]any)
+	if !ok || len(toolDenyList) != 0 {
+		t.Fatalf("expected empty toolDenyList, got %+v", data["toolDenyList"])
 	}
 }
 

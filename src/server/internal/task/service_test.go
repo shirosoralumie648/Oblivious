@@ -15,6 +15,8 @@ type fakeStore struct {
 	createdExecutionMode string
 	createdGoal          string
 	createdKnowledgeIDs  []string
+	createdToolAllowList []string
+	createdToolDenyList  []string
 	createdTask          Task
 	detailTask           TaskDetail
 	listedTasks          []Task
@@ -46,12 +48,16 @@ func (f *fakeStore) CreateTask(
 	authorizationScope string,
 	budgetLimit int,
 	knowledgeBaseIDs []string,
+	toolAllowList []string,
+	toolDenyList []string,
 ) (Task, error) {
 	f.workspaceID = workspaceID
 	f.createdGoal = goal
 	f.createdExecutionMode = executionMode
 	f.createdAuthorization = authorizationScope
 	f.createdKnowledgeIDs = append([]string(nil), knowledgeBaseIDs...)
+	f.createdToolAllowList = append([]string(nil), toolAllowList...)
+	f.createdToolDenyList = append([]string(nil), toolDenyList...)
 	return f.createdTask, nil
 }
 
@@ -120,7 +126,7 @@ func TestListReturnsWorkspaceTasks(t *testing.T) {
 	}
 }
 
-func TestCreateNormalizesGoalAndKnowledgeBaseIDs(t *testing.T) {
+func TestCreateNormalizesGoalKnowledgeBaseIDsAndToolRules(t *testing.T) {
 	store := &fakeStore{
 		createdTask: Task{
 			ExecutionMode: "standard",
@@ -141,6 +147,8 @@ func TestCreateNormalizesGoalAndKnowledgeBaseIDs(t *testing.T) {
 		"",
 		0,
 		[]string{"kb_1", " ", "kb_1", "kb_2"},
+		[]string{" browser ", "shell", "browser", "dangerous"},
+		[]string{"dangerous", " ", "email"},
 	)
 	if err != nil {
 		t.Fatalf("create task: %v", err)
@@ -157,6 +165,12 @@ func TestCreateNormalizesGoalAndKnowledgeBaseIDs(t *testing.T) {
 	}
 	if len(store.createdKnowledgeIDs) != 2 || store.createdKnowledgeIDs[0] != "kb_1" || store.createdKnowledgeIDs[1] != "kb_2" {
 		t.Fatalf("expected normalized knowledge ids [kb_1 kb_2], got %+v", store.createdKnowledgeIDs)
+	}
+	if len(store.createdToolAllowList) != 2 || store.createdToolAllowList[0] != "browser" || store.createdToolAllowList[1] != "shell" {
+		t.Fatalf("expected normalized tool allow list [browser shell], got %+v", store.createdToolAllowList)
+	}
+	if len(store.createdToolDenyList) != 2 || store.createdToolDenyList[0] != "dangerous" || store.createdToolDenyList[1] != "email" {
+		t.Fatalf("expected normalized tool deny list [dangerous email], got %+v", store.createdToolDenyList)
 	}
 	if task.Status != "draft" {
 		t.Fatalf("expected draft task, got %+v", task)

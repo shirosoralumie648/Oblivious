@@ -238,6 +238,66 @@ describe('SoloPage', () => {
     expect(screen.getByRole('button', { name: 'Pause run' })).toBeInTheDocument();
   });
 
+  it('creates a solo task with tool boundaries and shows enabled tools during execution', async () => {
+    listTasks.mockResolvedValue([]);
+    listKnowledgeBases.mockResolvedValue([]);
+    createTask.mockResolvedValue({
+      authorizationScope: 'workspace_tools',
+      budgetLimit: 12,
+      budgetConsumed: 0,
+      createdAt: '2026-04-03T10:00:00Z',
+      executionMode: 'standard',
+      goal: 'Investigate deployment blockers',
+      id: 'task_tools',
+      status: 'draft',
+      title: 'Investigate deployment blockers'
+    });
+    startTask.mockResolvedValue({
+      authorizationScope: 'workspace_tools',
+      budgetLimit: 12,
+      budgetConsumed: 3,
+      createdAt: '2026-04-03T10:00:00Z',
+      executionMode: 'standard',
+      goal: 'Investigate deployment blockers',
+      id: 'task_tools',
+      knowledgeBaseIds: [],
+      startedAt: '2026-04-03T10:01:00Z',
+      status: 'running',
+      steps: [
+        { id: 'step_1', status: 'completed', stepIndex: 1, title: 'Understand the goal' },
+        { id: 'step_2', status: 'running', stepIndex: 2, title: 'Review workspace context' }
+      ],
+      title: 'Investigate deployment blockers',
+      toolAllowList: ['browser', 'shell'],
+      toolDenyList: ['email']
+    });
+
+    render(<SoloPage />);
+
+    await screen.findByRole('button', { name: 'Start solo run' });
+    fireEvent.change(screen.getByLabelText('Task goal'), { target: { value: 'Investigate deployment blockers' } });
+    fireEvent.change(screen.getByLabelText('Allowed tools'), { target: { value: ' browser, shell, browser ' } });
+    fireEvent.change(screen.getByLabelText('Blocked tools'), { target: { value: ' email ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Start solo run' }));
+
+    await waitFor(() => {
+      expect(createTask).toHaveBeenCalledWith({
+        authorizationScope: 'workspace_tools',
+        budgetLimit: 10,
+        executionMode: 'standard',
+        goal: 'Investigate deployment blockers',
+        knowledgeBaseIds: [],
+        toolAllowList: ['browser', 'shell'],
+        toolDenyList: ['email']
+      });
+    });
+    expect(await screen.findByRole('heading', { name: 'Current enabled tools' })).toBeInTheDocument();
+    expect(screen.getByText('browser')).toBeInTheDocument();
+    expect(screen.getByText('shell')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Blocked tools' })).toBeInTheDocument();
+    expect(screen.getByText('email')).toBeInTheDocument();
+  });
+
   it('waits for approval before continuing a safe solo task', async () => {
     listTasks.mockResolvedValue([]);
     listKnowledgeBases.mockResolvedValue([]);

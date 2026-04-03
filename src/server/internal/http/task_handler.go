@@ -18,6 +18,8 @@ type createTaskRequest struct {
 	ExecutionMode      string   `json:"executionMode"`
 	Goal               string   `json:"goal"`
 	KnowledgeBaseIDs   []string `json:"knowledgeBaseIds"`
+	ToolAllowList      []string `json:"toolAllowList"`
+	ToolDenyList       []string `json:"toolDenyList"`
 	Title              string   `json:"title"`
 }
 
@@ -87,6 +89,8 @@ func (h taskHandler) createTask(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		strings.TrimSpace(payload.AuthorizationScope),
 		payload.BudgetLimit,
 		payload.KnowledgeBaseIDs,
+		payload.ToolAllowList,
+		payload.ToolDenyList,
 	)
 	if err != nil {
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "create task failed")

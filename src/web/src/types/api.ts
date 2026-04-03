@@ -117,6 +117,8 @@ export interface TaskStep {
 export interface TaskDetail extends TaskSummary {
   knowledgeBaseIds: string[];
   steps: TaskStep[];
+  toolAllowList?: string[];
+  toolDenyList?: string[];
 }
 
 export interface CreateTaskRequest {
@@ -125,6 +127,8 @@ export interface CreateTaskRequest {
   executionMode: string;
   goal: string;
   knowledgeBaseIds: string[];
+  toolAllowList?: string[];
+  toolDenyList?: string[];
   title?: string;
 }
 

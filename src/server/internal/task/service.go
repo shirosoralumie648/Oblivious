@@ -43,6 +43,8 @@ type TaskDetail struct {
 	Task
 	KnowledgeBaseIDs []string   `json:"knowledgeBaseIds"`
 	Steps            []TaskStep `json:"steps"`
+	ToolAllowList    []string   `json:"toolAllowList"`
+	ToolDenyList     []string   `json:"toolDenyList"`
 }
 
 type Store interface {
@@ -56,6 +58,8 @@ type Store interface {
 		authorizationScope string,
 		budgetLimit int,
 		knowledgeBaseIDs []string,
+		toolAllowList []string,
+		toolDenyList []string,
 	) (Task, error)
 	ApproveTask(ctx context.Context, workspaceID, taskID string) (TaskDetail, error)
 	GetTask(ctx context.Context, workspaceID, taskID string) (TaskDetail, error)
@@ -108,6 +112,8 @@ func (s *Service) Create(
 	authorizationScope string,
 	budgetLimit int,
 	knowledgeBaseIDs []string,
+	toolAllowList []string,
+	toolDenyList []string,
 ) (Task, error) {
 	normalizedGoal := strings.TrimSpace(goal)
 	if normalizedGoal == "" {
@@ -123,6 +129,8 @@ func (s *Service) Create(
 		budgetLimit = 0
 	}
 
+	normalizedToolAllowList, normalizedToolDenyList := normalizeToolRules(toolAllowList, toolDenyList)
+
 	return s.store.CreateTask(
 		ctx,
 		session.WorkspaceID,
@@ -132,6 +140,8 @@ func (s *Service) Create(
 		normalizeAuthorizationScope(authorizationScope),
 		budgetLimit,
 		normalizeKnowledgeBaseIDs(knowledgeBaseIDs),
+		normalizedToolAllowList,
+		normalizedToolDenyList,
 	)
 }
 
@@ -252,6 +262,60 @@ func normalizeAuthorizationScope(scope string) string {
 	}
 }
 
+func normalizeToolList(values []string) []string {
+	if len(values) == 0 {
+		return []string{}
+	}
+
+	normalized := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := seen[trimmed]; exists {
+			continue
+		}
+
+		seen[trimmed] = struct{}{}
+		normalized = append(normalized, trimmed)
+	}
+
+	if len(normalized) == 0 {
+		return []string{}
+	}
+
+	return normalized
+}
+
+func normalizeToolRules(toolAllowList []string, toolDenyList []string) ([]string, []string) {
+	normalizedToolDenyList := normalizeToolList(toolDenyList)
+	if len(normalizedToolDenyList) == 0 {
+		return normalizeToolList(toolAllowList), []string{}
+	}
+
+	blockedTools := make(map[string]struct{}, len(normalizedToolDenyList))
+	for _, toolName := range normalizedToolDenyList {
+		blockedTools[toolName] = struct{}{}
+	}
+
+	normalizedToolAllowList := make([]string, 0, len(toolAllowList))
+	for _, toolName := range normalizeToolList(toolAllowList) {
+		if _, blocked := blockedTools[toolName]; blocked {
+			continue
+		}
+
+		normalizedToolAllowList = append(normalizedToolAllowList, toolName)
+	}
+
+	if len(normalizedToolAllowList) == 0 {
+		normalizedToolAllowList = []string{}
+	}
+
+	return normalizedToolAllowList, normalizedToolDenyList
+}
+
 func normalizeTask(task Task) Task {
 	task.AuthorizationScope = normalizeAuthorizationScope(task.AuthorizationScope)
 	return task
@@ -262,8 +326,15 @@ func normalizeTaskDetail(detail TaskDetail) TaskDetail {
 	if detail.KnowledgeBaseIDs == nil {
 		detail.KnowledgeBaseIDs = []string{}
 	}
+	detail.ToolAllowList, detail.ToolDenyList = normalizeToolRules(detail.ToolAllowList, detail.ToolDenyList)
 	if detail.Steps == nil {
 		detail.Steps = []TaskStep{}
+	}
+	if detail.ToolAllowList == nil {
+		detail.ToolAllowList = []string{}
+	}
+	if detail.ToolDenyList == nil {
+		detail.ToolDenyList = []string{}
 	}
 
 	return detail

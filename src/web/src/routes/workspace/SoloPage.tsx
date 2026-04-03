@@ -6,11 +6,52 @@ import { createChatApi } from '../../features/chat/api';
 import { createKnowledgeApi } from '../../features/knowledge/api';
 import { createTasksApi } from '../../features/tasks/api';
 import { createHttpClient } from '../../services/http/client';
-import type { KnowledgeBaseSummary, TaskDetail, TaskSummary } from '../../types/api';
+import type { CreateTaskRequest, KnowledgeBaseSummary, TaskDetail, TaskSummary } from '../../types/api';
 
 const defaultBudgetLimit = '10';
 const defaultAuthorizationScope = 'workspace_tools';
 const defaultExecutionMode = 'standard';
+
+function normalizeToolList(values: string[]) {
+  if (values.length === 0) {
+    return [];
+  }
+
+  const normalized: string[] = [];
+  const seen = new Set<string>();
+
+  values.forEach((value) => {
+    const trimmed = value.trim();
+    if (trimmed === '' || seen.has(trimmed)) {
+      return;
+    }
+
+    seen.add(trimmed);
+    normalized.push(trimmed);
+  });
+
+  return normalized;
+}
+
+function parseToolList(value: string) {
+  return normalizeToolList(value.split(','));
+}
+
+function normalizeToolRules(toolAllowList?: string[], toolDenyList?: string[]) {
+  const normalizedToolDenyList = normalizeToolList(toolDenyList ?? []);
+  if (normalizedToolDenyList.length === 0) {
+    return {
+      toolAllowList: normalizeToolList(toolAllowList ?? []),
+      toolDenyList: []
+    };
+  }
+
+  const blockedTools = new Set(normalizedToolDenyList);
+  return {
+    toolAllowList: normalizeToolList(toolAllowList ?? []).filter((toolName) => !blockedTools.has(toolName)),
+    toolDenyList: normalizedToolDenyList
+  };
+}
 
 function taskIDFromSearch(search: string) {
   const taskID = new URLSearchParams(search).get('taskId');
@@ -22,6 +63,7 @@ function taskIDFromSearch(search: string) {
 }
 
 function downloadTaskResult(task: TaskDetail, knowledgeBaseNames: string[]) {
+  const toolRules = normalizeToolRules(task.toolAllowList, task.toolDenyList);
   const fileName = `${task.title || task.id}`.trim().replace(/\s+/g, '-').toLowerCase() || task.id;
   const content = [
     `# ${task.title}`,
@@ -34,6 +76,8 @@ function downloadTaskResult(task: TaskDetail, knowledgeBaseNames: string[]) {
     `- Started at: ${task.startedAt ?? 'N/A'}`,
     `- Finished at: ${task.finishedAt ?? 'N/A'}`,
     `- Knowledge sources: ${knowledgeBaseNames.length > 0 ? knowledgeBaseNames.join(', ') : 'None'}`,
+    `- Allowed tools: ${toolRules.toolAllowList.length > 0 ? toolRules.toolAllowList.join(', ') : 'Default scope access'}`,
+    `- Blocked tools: ${toolRules.toolDenyList.length > 0 ? toolRules.toolDenyList.join(', ') : 'None'}`,
     '',
     '## Result',
     task.resultSummary || 'No result summary available.',
@@ -74,9 +118,16 @@ export function SoloPage() {
   const [selectedKnowledgeBaseIDs, setSelectedKnowledgeBaseIDs] = useState<string[]>([]);
   const [startedTask, setStartedTask] = useState<TaskDetail | null>(null);
   const [activeBudgetLimit, setActiveBudgetLimit] = useState('');
+  const [toolAllowListInput, setToolAllowListInput] = useState('');
+  const [toolDenyListInput, setToolDenyListInput] = useState('');
 
   function applyTaskDetail(detail: TaskDetail) {
-    setStartedTask(detail);
+    const toolRules = normalizeToolRules(detail.toolAllowList, detail.toolDenyList);
+    setStartedTask({
+      ...detail,
+      toolAllowList: toolRules.toolAllowList,
+      toolDenyList: toolRules.toolDenyList
+    });
     setActiveBudgetLimit(String(detail.budgetLimit));
     setRecentTasks((current) => [detail, ...current.filter((task) => task.id !== detail.id)]);
   }
@@ -162,6 +213,7 @@ export function SoloPage() {
       const matchedKnowledgeBase = knowledgeBases.find((knowledgeBase) => knowledgeBase.id === knowledgeBaseID);
       return matchedKnowledgeBase?.name ?? knowledgeBaseID;
     }) ?? [];
+  const startedTaskToolRules = normalizeToolRules(startedTask?.toolAllowList, startedTask?.toolDenyList);
   const runningTasks = recentTasks.filter(
     (task) => task.status === 'running' || task.status === 'paused' || task.status === 'awaiting_confirmation'
   );
@@ -182,13 +234,23 @@ export function SoloPage() {
 
     try {
       const parsedBudgetLimit = Number.parseInt(budgetLimit, 10);
-      const createdTask = await tasksApi.createTask({
+      const toolAllowList = parseToolList(toolAllowListInput);
+      const toolDenyList = parseToolList(toolDenyListInput);
+      const createTaskPayload: CreateTaskRequest = {
         authorizationScope,
         budgetLimit: Number.isNaN(parsedBudgetLimit) ? 0 : parsedBudgetLimit,
         executionMode,
         goal: trimmedGoal,
         knowledgeBaseIds: selectedKnowledgeBaseIDs
-      });
+      };
+      if (toolAllowList.length > 0) {
+        createTaskPayload.toolAllowList = toolAllowList;
+      }
+      if (toolDenyList.length > 0) {
+        createTaskPayload.toolDenyList = toolDenyList;
+      }
+
+      const createdTask = await tasksApi.createTask(createTaskPayload);
       const detail = await tasksApi.startTask(createdTask.id);
       applyTaskDetail(detail);
       if (isTaskCreationView) {
@@ -428,6 +490,26 @@ export function SoloPage() {
         <input onChange={(event) => setBudgetLimit(event.target.value)} type="number" value={budgetLimit} />
       </label>
 
+      <label>
+        Allowed tools
+        <input
+          onChange={(event) => setToolAllowListInput(event.target.value)}
+          placeholder="browser, shell"
+          type="text"
+          value={toolAllowListInput}
+        />
+      </label>
+
+      <label>
+        Blocked tools
+        <input
+          onChange={(event) => setToolDenyListInput(event.target.value)}
+          placeholder="email, file_delete"
+          type="text"
+          value={toolDenyListInput}
+        />
+      </label>
+
       <section>
         <h2>Knowledge sources</h2>
         {knowledgeBases.length === 0 ? <p>No knowledge bases linked yet.</p> : null}
@@ -479,6 +561,34 @@ export function SoloPage() {
               <ul>
                 {taskKnowledgeBaseNames.map((knowledgeBaseName) => (
                   <li key={knowledgeBaseName}>{knowledgeBaseName}</li>
+                ))}
+              </ul>
+            )}
+          </section>
+          <section>
+            <h3>Current enabled tools</h3>
+            {startedTaskToolRules.toolAllowList.length === 0 ? (
+              <p>
+                {startedTask.authorizationScope === 'knowledge_only'
+                  ? 'No tools enabled for this task.'
+                  : 'Using the default tool access for this authorization scope.'}
+              </p>
+            ) : (
+              <ul>
+                {startedTaskToolRules.toolAllowList.map((toolName) => (
+                  <li key={toolName}>{toolName}</li>
+                ))}
+              </ul>
+            )}
+          </section>
+          <section>
+            <h3>Blocked tools</h3>
+            {startedTaskToolRules.toolDenyList.length === 0 ? (
+              <p>No blocked tools configured for this task.</p>
+            ) : (
+              <ul>
+                {startedTaskToolRules.toolDenyList.map((toolName) => (
+                  <li key={toolName}>{toolName}</li>
                 ))}
               </ul>
             )}

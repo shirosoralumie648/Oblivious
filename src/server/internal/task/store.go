@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/lib/pq"
+
 	"oblivious/server/internal/auth"
 )
 
@@ -56,7 +58,7 @@ func (s *SQLStore) ListTasks(ctx context.Context, workspaceID string) ([]Task, e
 }
 
 func (s *SQLStore) GetTask(ctx context.Context, workspaceID, taskID string) (TaskDetail, error) {
-	taskRow, err := s.getTaskRow(ctx, workspaceID, taskID)
+	taskRow, toolAllowList, toolDenyList, err := s.getTaskRow(ctx, workspaceID, taskID)
 	if err != nil {
 		return TaskDetail{}, err
 	}
@@ -75,6 +77,8 @@ func (s *SQLStore) GetTask(ctx context.Context, workspaceID, taskID string) (Tas
 		Task:             taskRow,
 		KnowledgeBaseIDs: knowledgeBaseIDs,
 		Steps:            steps,
+		ToolAllowList:    toolAllowList,
+		ToolDenyList:     toolDenyList,
 	}, nil
 }
 
@@ -87,6 +91,8 @@ func (s *SQLStore) CreateTask(
 	authorizationScope string,
 	budgetLimit int,
 	knowledgeBaseIDs []string,
+	toolAllowList []string,
+	toolDenyList []string,
 ) (Task, error) {
 	taskID, err := auth.NewID("task")
 	if err != nil {
@@ -110,6 +116,8 @@ func (s *SQLStore) CreateTask(
 			mode,
 			execution_mode,
 			authorization_scope,
+			tool_allow_list,
+			tool_deny_list,
 			status,
 			budget_limit,
 			budget_consumed,
@@ -117,10 +125,10 @@ func (s *SQLStore) CreateTask(
 			created_at,
 			updated_at
 		)
-		SELECT $1, w.id, w.user_id, $3, $4, 'solo', $5, $6, 'draft', $7, 0, '', $8, $8
+		SELECT $1, w.id, w.user_id, $3, $4, 'solo', $5, $6, $7, $8, 'draft', $9, 0, '', $10, $10
 		FROM workspaces w
 		WHERE w.id = $2
-	`, taskID, workspaceID, title, goal, executionMode, authorizationScope, budgetLimit, now)
+	`, taskID, workspaceID, title, goal, executionMode, authorizationScope, pq.Array(toolAllowList), pq.Array(toolDenyList), budgetLimit, now)
 	if err != nil {
 		return Task{}, err
 	}
@@ -451,10 +459,12 @@ func (s *SQLStore) UpdateTaskBudget(ctx context.Context, workspaceID, taskID str
 	return s.GetTask(ctx, workspaceID, taskID)
 }
 
-func (s *SQLStore) getTaskRow(ctx context.Context, workspaceID, taskID string) (Task, error) {
+func (s *SQLStore) getTaskRow(ctx context.Context, workspaceID, taskID string) (Task, []string, []string, error) {
 	var taskRow Task
+	toolAllowList := []string{}
+	toolDenyList := []string{}
 	if err := s.db.QueryRowContext(ctx, `
-		SELECT id, title, goal, execution_mode, authorization_scope, status, budget_limit, budget_consumed, result_summary, started_at, finished_at, created_at, updated_at
+		SELECT id, title, goal, execution_mode, authorization_scope, tool_allow_list, tool_deny_list, status, budget_limit, budget_consumed, result_summary, started_at, finished_at, created_at, updated_at
 		FROM tasks
 		WHERE workspace_id = $1 AND id = $2
 	`, workspaceID, taskID).Scan(
@@ -463,6 +473,8 @@ func (s *SQLStore) getTaskRow(ctx context.Context, workspaceID, taskID string) (
 		&taskRow.Goal,
 		&taskRow.ExecutionMode,
 		&taskRow.AuthorizationScope,
+		pq.Array(&toolAllowList),
+		pq.Array(&toolDenyList),
 		&taskRow.Status,
 		&taskRow.BudgetLimit,
 		&taskRow.BudgetConsumed,
@@ -472,10 +484,10 @@ func (s *SQLStore) getTaskRow(ctx context.Context, workspaceID, taskID string) (
 		&taskRow.CreatedAt,
 		&taskRow.UpdatedAt,
 	); err != nil {
-		return Task{}, err
+		return Task{}, nil, nil, err
 	}
 
-	return taskRow, nil
+	return taskRow, toolAllowList, toolDenyList, nil
 }
 
 func (s *SQLStore) listTaskKnowledgeBaseIDs(ctx context.Context, workspaceID, taskID string) ([]string, error) {
