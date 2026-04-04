@@ -1,59 +1,33 @@
-import type { ApiUser, UserPreferences } from '../../types/api';
+import type { ApiUser } from '../../types/api';
 
-export type AuthStatus = 'authenticated' | 'loading' | 'unauthenticated';
+export type AuthStatus = 'idle' | 'authenticated' | 'unauthenticated';
 
-export interface AuthState {
-  preferences: UserPreferences | null;
+export type AuthState = {
   status: AuthStatus;
   user: ApiUser | null;
-}
+};
 
-export interface AuthStore {
-  clearUser: () => void;
-  finishLoading: () => void;
+export type AuthStore = {
   getState: () => AuthState;
-  setAuthenticatedSession: (user: ApiUser, preferences: UserPreferences) => void;
-  startLoading: () => void;
-  updatePreferences: (preferences: UserPreferences) => void;
-}
+  setAuthenticatedUser: (user: ApiUser) => void;
+  clearUser: () => void;
+};
 
-export function createAuthStore(
-  initialState: AuthState = { preferences: null, status: 'loading', user: null }
-): AuthStore {
+export function createAuthStore(initialState: AuthState = { status: 'idle', user: null }): AuthStore {
   let state = initialState;
 
   return {
-    clearUser: () => {
-      state = {
-        preferences: null,
-        status: 'unauthenticated',
-        user: null
-      };
-    },
-    finishLoading: () => {
-      state = {
-        ...state,
-        status: state.user ? 'authenticated' : 'unauthenticated'
-      };
-    },
     getState: () => state,
-    setAuthenticatedSession: (user, preferences) => {
+    setAuthenticatedUser: (user) => {
       state = {
-        preferences,
         status: 'authenticated',
         user
       };
     },
-    startLoading: () => {
+    clearUser: () => {
       state = {
-        ...state,
-        status: 'loading'
-      };
-    },
-    updatePreferences: (preferences) => {
-      state = {
-        ...state,
-        preferences
+        status: 'unauthenticated',
+        user: null
       };
     }
   };
