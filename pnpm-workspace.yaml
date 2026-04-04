@@ -1,2 +1,4 @@
 packages:
   - src/web
+  - "lobehub"
+  - "new-api"
