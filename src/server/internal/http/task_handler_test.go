@@ -277,6 +277,55 @@ func TestTaskHandlerGetTaskIncludesEmptyToolRules(t *testing.T) {
 	}
 }
 
+func TestTaskHandlerGetTaskIncludesRuntimeMetadata(t *testing.T) {
+	startedAt := time.Date(2026, time.April, 4, 9, 0, 0, 0, time.UTC)
+	store := &taskFakeStore{
+		detailTask: task.TaskDetail{
+			Task: task.Task{
+				AuthorizationScope: "workspace_tools",
+				BudgetConsumed:     4,
+				BudgetLimit:        12,
+				ExecutionMode:      "standard",
+				Goal:               "Review launch plan",
+				ID:                 "task_runtime",
+				StartedAt:          &startedAt,
+				Status:             "running",
+				Title:              "Review launch plan",
+			},
+			KnowledgeBaseIDs: []string{"kb_2"},
+			Steps: []task.TaskStep{
+				{ID: "step_1", Status: "completed", StepIndex: 1, Title: "Understand the goal"},
+				{ID: "step_2", Status: "running", StepIndex: 2, Title: "Review workspace context"},
+				{ID: "step_3", Status: "pending", StepIndex: 3, Title: "Deliver runtime result"},
+			},
+		},
+	}
+	handler := newTaskHandler(task.NewService(store))
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/app/tasks/task_runtime", nil).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		WorkspaceID: "workspace_1",
+	}))
+	recorder := httptest.NewRecorder()
+
+	handler.getTask(recorder, request, "task_runtime")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+
+	var response struct {
+		Data task.TaskDetail `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Data.CurrentStep != "Review workspace context" {
+		t.Fatalf("expected current step in response, got %+v", response.Data)
+	}
+	if len(response.Data.Events) == 0 {
+		t.Fatalf("expected runtime events in response, got %+v", response.Data)
+	}
+}
+
 func TestTaskHandlerStartReturnsTaskDetail(t *testing.T) {
 	store := &taskFakeStore{
 		detailTask: task.TaskDetail{
@@ -443,9 +492,13 @@ func TestTaskHandlerResumeReturnsTaskDetail(t *testing.T) {
 				ExecutionMode: "standard",
 				Goal:          "Review launch plan",
 				ID:            "task_1",
-				ResultSummary: "Completed a starter SOLO run for: Review launch plan",
-				Status:        "completed",
+				Status:        "running",
 				Title:         "Review launch plan",
+			},
+			Steps: []task.TaskStep{
+				{ID: "step_1", Status: "completed", StepIndex: 1, Title: "Understand the goal"},
+				{ID: "step_2", Status: "running", StepIndex: 2, Title: "Review workspace context"},
+				{ID: "step_3", Status: "pending", StepIndex: 3, Title: "Deliver runtime result"},
 			},
 		},
 	}
@@ -462,6 +515,16 @@ func TestTaskHandlerResumeReturnsTaskDetail(t *testing.T) {
 	}
 	if store.resumedTaskID != "task_1" {
 		t.Fatalf("expected resumed task id task_1, got %s", store.resumedTaskID)
+	}
+
+	var response struct {
+		Data task.TaskDetail `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Data.Status != "running" || response.Data.ResultSummary != "" {
+		t.Fatalf("unexpected resumed task detail: %+v", response.Data)
 	}
 }
 

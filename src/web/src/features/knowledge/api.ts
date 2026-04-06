@@ -4,6 +4,8 @@ import type {
   CreateKnowledgeDocumentRequest,
   KnowledgeBaseSummary,
   KnowledgeDocumentSummary,
+  KnowledgeRetrievalResult,
+  RetrieveKnowledgeRequest,
   UpdateKnowledgeBaseRequest,
   UpdateKnowledgeDocumentRequest
 } from '../../types/api';
@@ -19,6 +21,7 @@ export interface KnowledgeApi {
   getKnowledgeBase: (knowledgeBaseId: string) => Promise<KnowledgeBaseSummary>;
   listKnowledgeDocuments: (knowledgeBaseId: string) => Promise<KnowledgeDocumentSummary[]>;
   listKnowledgeBases: () => Promise<KnowledgeBaseSummary[]>;
+  retrieveKnowledge: (knowledgeBaseId: string, payload: RetrieveKnowledgeRequest) => Promise<KnowledgeRetrievalResult[]>;
   updateKnowledgeBase: (knowledgeBaseId: string, payload: UpdateKnowledgeBaseRequest) => Promise<KnowledgeBaseSummary>;
   updateKnowledgeDocument: (
     knowledgeBaseId: string,
@@ -39,6 +42,8 @@ export function createKnowledgeApi(client: HttpClient): KnowledgeApi {
     listKnowledgeDocuments: (knowledgeBaseId) =>
       client.get<KnowledgeDocumentSummary[]>(`/api/v1/app/knowledge-bases/${knowledgeBaseId}/documents`),
     listKnowledgeBases: () => client.get<KnowledgeBaseSummary[]>('/api/v1/app/knowledge-bases'),
+    retrieveKnowledge: (knowledgeBaseId, payload) =>
+      client.post<KnowledgeRetrievalResult[]>(`/api/v1/app/knowledge-bases/${knowledgeBaseId}/retrieve`, payload),
     updateKnowledgeBase: (knowledgeBaseId, payload) =>
       client.put<KnowledgeBaseSummary>(`/api/v1/app/knowledge-bases/${knowledgeBaseId}`, payload),
     updateKnowledgeDocument: (knowledgeBaseId, documentId, payload) =>

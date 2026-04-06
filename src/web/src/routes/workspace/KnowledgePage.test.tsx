@@ -9,6 +9,7 @@ const getKnowledgeBase = vi.fn();
 const listKnowledgeDocuments = vi.fn();
 const listKnowledgeBases = vi.fn();
 const navigate = vi.fn();
+const retrieveKnowledge = vi.fn();
 const updateKnowledgeBase = vi.fn();
 const updateKnowledgeDocument = vi.fn();
 const routeState = vi.hoisted(() => ({
@@ -51,6 +52,7 @@ vi.mock('../../features/knowledge/api', () => ({
     getKnowledgeBase,
     listKnowledgeDocuments,
     listKnowledgeBases,
+    retrieveKnowledge,
     updateKnowledgeBase,
     updateKnowledgeDocument
   })
@@ -75,6 +77,7 @@ describe('KnowledgePage', () => {
     listKnowledgeBases.mockReset();
     navigate.mockReset();
     routeState.knowledgeBaseId = undefined;
+    retrieveKnowledge.mockReset();
     updateKnowledgeBase.mockReset();
     updateKnowledgeDocument.mockReset();
   });
@@ -291,5 +294,41 @@ describe('KnowledgePage', () => {
       expect(deleteKnowledgeBase).toHaveBeenCalledWith('kb_9');
     });
     expect(navigate).toHaveBeenCalledWith('/knowledge');
+  });
+
+  it('retrieves matching snippets inside the selected knowledge base', async () => {
+    routeState.knowledgeBaseId = 'kb_9';
+    getKnowledgeBase.mockResolvedValue({
+      documentCount: 2,
+      id: 'kb_9',
+      name: 'Architecture Notes',
+      updatedAt: '2026-04-03T11:30:00Z'
+    });
+    listKnowledgeDocuments.mockResolvedValue([
+      {
+        content: 'System boundaries',
+        id: 'doc_1',
+        title: 'Overview',
+        updatedAt: '2026-04-03T11:45:00Z'
+      }
+    ]);
+    retrieveKnowledge.mockResolvedValue([
+      {
+        documentId: 'doc_1',
+        documentTitle: 'Overview',
+        snippet: 'System boundaries include deployment controls.'
+      }
+    ]);
+
+    render(<KnowledgePage />);
+
+    await screen.findByRole('heading', { name: 'Architecture Notes' });
+    fireEvent.change(screen.getByLabelText('Retrieval query'), { target: { value: 'deployment' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search knowledge' }));
+
+    await waitFor(() => {
+      expect(retrieveKnowledge).toHaveBeenCalledWith('kb_9', { query: 'deployment' });
+    });
+    expect(screen.getByText('System boundaries include deployment controls.')).toBeInTheDocument();
   });
 });

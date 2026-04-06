@@ -6,6 +6,10 @@ export function ProtectedRoute() {
   const location = useLocation();
   const { authState } = useAppContext();
 
+  if (authState.status === 'idle') {
+    return <Outlet />;
+  }
+
   if (authState.status === 'loading') {
     return <main>Loading session…</main>;
   }

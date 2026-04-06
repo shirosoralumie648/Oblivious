@@ -1,12 +1,12 @@
 import type { HttpClient } from '../../services/http/client';
-import type { ApiUser } from '../../types/api';
+import type { SessionResponse } from '../../types/api';
 
 export type AuthApi = {
-  me: () => Promise<ApiUser>;
+  me: () => Promise<SessionResponse>;
 };
 
 export function createAuthApi(client: HttpClient): AuthApi {
   return {
-    me: () => client.get<ApiUser>('/api/v1/auth/me')
+    me: () => client.get<SessionResponse>('/api/v1/auth/me')
   };
 }

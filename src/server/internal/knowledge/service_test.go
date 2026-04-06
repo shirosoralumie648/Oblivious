@@ -17,6 +17,8 @@ type fakeStore struct {
 	detailBase   KnowledgeBase
 	documents    []KnowledgeDocument
 	listBases    []KnowledgeBase
+	retrievalQuery string
+	retrievalResults []KnowledgeRetrievalResult
 	requestedDoc KnowledgeDocument
 	requestedID  string
 	updatedBase  KnowledgeBase
@@ -86,6 +88,13 @@ func (f *fakeStore) DeleteKnowledgeDocument(ctx context.Context, workspaceID, kn
 	f.requestedID = knowledgeBaseID
 	f.deletedDocID = documentID
 	return nil
+}
+
+func (f *fakeStore) RetrieveKnowledge(ctx context.Context, workspaceID, knowledgeBaseID, query string) ([]KnowledgeRetrievalResult, error) {
+	f.workspaceID = workspaceID
+	f.requestedID = knowledgeBaseID
+	f.retrievalQuery = query
+	return f.retrievalResults, nil
 }
 
 func TestListReturnsWorkspaceKnowledgeBases(t *testing.T) {
@@ -227,6 +236,40 @@ func TestCreateDocumentCreatesDocumentInKnowledgeBase(t *testing.T) {
 	}
 	if document.ID != "doc_9" {
 		t.Fatalf("expected doc id doc_9, got %s", document.ID)
+	}
+}
+
+func TestRetrieveReturnsRelevantDocumentSnippets(t *testing.T) {
+	store := &fakeStore{
+		retrievalResults: []KnowledgeRetrievalResult{
+			{
+				DocumentID:    "doc_9",
+				DocumentTitle: "Architecture Draft",
+				Snippet:       "Initial architecture draft covers deployment boundaries.",
+			},
+		},
+	}
+	service := NewService(store)
+
+	results, err := service.Retrieve(context.Background(), auth.Session{WorkspaceID: "workspace_1"}, "kb_7", "deployment")
+	if err != nil {
+		t.Fatalf("retrieve knowledge: %v", err)
+	}
+
+	if store.workspaceID != "workspace_1" {
+		t.Fatalf("expected workspace workspace_1, got %s", store.workspaceID)
+	}
+	if store.requestedID != "kb_7" {
+		t.Fatalf("expected requested id kb_7, got %s", store.requestedID)
+	}
+	if store.retrievalQuery != "deployment" {
+		t.Fatalf("expected retrieval query deployment, got %s", store.retrievalQuery)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].Snippet != "Initial architecture draft covers deployment boundaries." {
+		t.Fatalf("unexpected snippet %q", results[0].Snippet)
 	}
 }
 

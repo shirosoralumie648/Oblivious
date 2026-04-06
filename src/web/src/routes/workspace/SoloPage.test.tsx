@@ -191,7 +191,12 @@ describe('SoloPage', () => {
       budgetLimit: 20,
       budgetConsumed: 6,
       createdAt: '2026-04-03T10:00:00Z',
+      currentStep: 'Review workspace context',
       executionMode: 'safe',
+      events: [
+        { createdAt: '2026-04-03T10:01:00Z', message: 'Task execution started', type: 'started' },
+        { createdAt: '2026-04-03T10:02:00Z', message: 'Executing Review workspace context', type: 'running' }
+      ],
       finishedAt: undefined,
       goal: 'Draft launch checklist',
       id: 'task_new',
@@ -232,6 +237,8 @@ describe('SoloPage', () => {
     expect(screen.getByText('Started at: 2026-04-03T10:01:00Z')).toBeInTheDocument();
     expect(screen.getByText('Current knowledge sources')).toBeInTheDocument();
     expect(screen.getByText('Research Vault')).toBeInTheDocument();
+    expect(screen.getByText('Current step: Review workspace context')).toBeInTheDocument();
+    expect(screen.getByText('Executing Review workspace context')).toBeInTheDocument();
     expect(screen.getByText('Understand the goal')).toBeInTheDocument();
     expect(screen.getByText('Review workspace context')).toBeInTheDocument();
     expect(screen.getByText('Deliver starter result')).toBeInTheDocument();
@@ -445,7 +452,11 @@ describe('SoloPage', () => {
     listKnowledgeBases.mockResolvedValue([]);
     startTask.mockResolvedValue({
       budgetLimit: 8,
+      currentStep: 'Review workspace context',
       executionMode: 'standard',
+      events: [
+        { createdAt: '2026-04-03T10:01:00Z', message: 'Executing Review workspace context', type: 'running' }
+      ],
       goal: 'Review launch plan',
       id: 'task_1',
       knowledgeBaseIds: [],
@@ -467,29 +478,38 @@ describe('SoloPage', () => {
     });
     pauseTask.mockResolvedValue({
       budgetLimit: 8,
+      currentStep: 'Review workspace context',
       executionMode: 'standard',
+      events: [
+        { createdAt: '2026-04-03T10:02:00Z', message: 'Execution paused at Review workspace context', type: 'paused' }
+      ],
       goal: 'Review launch plan',
       id: 'task_1',
       knowledgeBaseIds: [],
       status: 'paused',
       steps: [
         { id: 'step_1', status: 'completed', stepIndex: 1, title: 'Understand the goal' },
-        { id: 'step_2', status: 'running', stepIndex: 2, title: 'Review workspace context' }
+        { id: 'step_2', status: 'paused', stepIndex: 2, title: 'Review workspace context' },
+        { id: 'step_3', status: 'pending', stepIndex: 3, title: 'Deliver runtime result' }
       ],
       title: 'Review launch plan'
     });
     resumeTask.mockResolvedValue({
       budgetLimit: 8,
+      currentStep: 'Review workspace context',
       executionMode: 'standard',
+      events: [
+        { createdAt: '2026-04-03T10:03:00Z', message: 'Execution resumed', type: 'resumed' },
+        { createdAt: '2026-04-03T10:04:00Z', message: 'Executing Review workspace context', type: 'running' }
+      ],
       goal: 'Review launch plan',
       id: 'task_1',
       knowledgeBaseIds: [],
-      resultSummary: 'Completed a starter SOLO run for: Review launch plan',
-      status: 'completed',
+      status: 'running',
       steps: [
         { id: 'step_1', status: 'completed', stepIndex: 1, title: 'Understand the goal' },
-        { id: 'step_2', status: 'completed', stepIndex: 2, title: 'Review workspace context' },
-        { id: 'step_3', status: 'completed', stepIndex: 3, title: 'Deliver starter result' }
+        { id: 'step_2', status: 'running', stepIndex: 2, title: 'Review workspace context' },
+        { id: 'step_3', status: 'pending', stepIndex: 3, title: 'Deliver runtime result' }
       ],
       title: 'Review launch plan'
     });
@@ -511,8 +531,85 @@ describe('SoloPage', () => {
     await waitFor(() => {
       expect(resumeTask).toHaveBeenCalledWith('task_1');
     });
-    expect(screen.getByText('Completed a starter SOLO run for: Review launch plan')).toBeInTheDocument();
+    expect(screen.getByText('Status: running')).toBeInTheDocument();
+    expect(screen.getByText('Execution resumed')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Continue run' })).toBeInTheDocument();
+  });
+
+  it('continues a running task to a completed runtime result', async () => {
+    listTasks.mockResolvedValue([]);
+    listKnowledgeBases.mockResolvedValue([]);
+    createTask.mockResolvedValue({
+      budgetLimit: 12,
+      executionMode: 'standard',
+      goal: 'Review launch plan',
+      id: 'task_runtime',
+      knowledgeBaseIds: [],
+      status: 'draft',
+      title: 'Review launch plan'
+    });
+    startTask
+      .mockResolvedValueOnce({
+        budgetLimit: 12,
+        budgetConsumed: 8,
+        currentStep: 'Deliver runtime result',
+        executionMode: 'standard',
+        events: [
+          { createdAt: '2026-04-03T10:01:00Z', message: 'Executing Deliver runtime result', type: 'running' }
+        ],
+        goal: 'Review launch plan',
+        id: 'task_runtime',
+        knowledgeBaseIds: ['kb_2'],
+        status: 'running',
+        steps: [
+          { id: 'step_1', status: 'completed', stepIndex: 1, title: 'Understand the goal' },
+          { id: 'step_2', status: 'completed', stepIndex: 2, title: 'Review workspace context' },
+          { id: 'step_3', status: 'running', stepIndex: 3, title: 'Deliver runtime result' }
+        ],
+        title: 'Review launch plan'
+      })
+      .mockResolvedValueOnce({
+        budgetLimit: 12,
+        budgetConsumed: 12,
+        executionMode: 'standard',
+        events: [
+          { createdAt: '2026-04-03T10:05:00Z', message: 'Runtime execution completed', type: 'completed' }
+        ],
+        goal: 'Review launch plan',
+        id: 'task_runtime',
+        knowledgeBaseIds: ['kb_2'],
+        resultArtifacts: [
+          { label: 'Completed steps', value: '3 / 3' },
+          { label: 'Budget usage', value: '12 / 12' },
+          { label: 'Knowledge sources', value: '1' }
+        ],
+        resultSummary: 'Runtime result for "Review launch plan"\nCompleted steps: 3 / 3',
+        status: 'completed',
+        steps: [
+          { id: 'step_1', status: 'completed', stepIndex: 1, title: 'Understand the goal' },
+          { id: 'step_2', status: 'completed', stepIndex: 2, title: 'Review workspace context' },
+          { id: 'step_3', status: 'completed', stepIndex: 3, title: 'Deliver runtime result' }
+        ],
+        title: 'Review launch plan'
+      });
+
+    render(<SoloPage />);
+
+    await screen.findByRole('button', { name: 'Start solo run' });
+    fireEvent.change(screen.getByLabelText('Task goal'), { target: { value: 'Review launch plan' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Start solo run' }));
+
+    await screen.findByText('Status: running');
+    fireEvent.click(screen.getByRole('button', { name: 'Continue run' }));
+
+    await waitFor(() => {
+      expect(startTask).toHaveBeenNthCalledWith(2, 'task_runtime');
+    });
     expect(screen.getByText('Status: completed')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Result artifacts' })).toBeInTheDocument();
+    expect(screen.getByText('Completed steps')).toBeInTheDocument();
+    expect(screen.getByText('3 / 3')).toBeInTheDocument();
+    expect(screen.getByText('Runtime execution completed')).toBeInTheDocument();
   });
 
   it('updates budget from the execution view', async () => {

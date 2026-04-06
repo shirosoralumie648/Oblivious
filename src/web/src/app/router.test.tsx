@@ -13,4 +13,22 @@ describe('app router', () => {
     expect(screen.getByText('Oblivious')).toBeInTheDocument();
     expect(screen.getByText('AI workspace framework')).toBeInTheDocument();
   });
+
+  it('renders knowledge route inside the workspace shell', () => {
+    const router = createAppRouter(['/knowledge']);
+
+    render(<RouterProvider router={router} />);
+
+    expect(screen.getByText('Workspace')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Knowledge' })).toBeInTheDocument();
+  });
+
+  it('renders solo route inside the workspace shell', () => {
+    const router = createAppRouter(['/solo']);
+
+    render(<RouterProvider router={router} />);
+
+    expect(screen.getByText('Workspace')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'SOLO' })).toBeInTheDocument();
+  });
 });

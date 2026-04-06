@@ -2,7 +2,11 @@ package http
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
+	"strings"
 	"time"
 
 	"oblivious/server/internal/auth"
@@ -29,7 +33,12 @@ func (m authMiddleware) currentSession(r *http.Request) (auth.Session, bool) {
 		return auth.Session{}, false
 	}
 
-	session, err := m.service.Session(r.Context(), cookie.Value)
+	sessionID, ok := m.readSessionCookieValue(cookie.Value)
+	if !ok {
+		return auth.Session{}, false
+	}
+
+	session, err := m.service.Session(r.Context(), sessionID)
 	if err != nil {
 		return auth.Session{}, false
 	}
@@ -53,7 +62,7 @@ func (m authMiddleware) requireSession(next http.Handler) http.Handler {
 func (m authMiddleware) setSessionCookie(w http.ResponseWriter, session auth.Session) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     m.config.SessionCookieName,
-		Value:    session.ID,
+		Value:    m.writeSessionCookieValue(session.ID),
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   m.config.SessionCookieSecure,
@@ -73,4 +82,33 @@ func (m authMiddleware) clearSessionCookie(w http.ResponseWriter) {
 		Expires:  time.Unix(0, 0),
 		MaxAge:   -1,
 	})
+}
+
+func (m authMiddleware) writeSessionCookieValue(sessionID string) string {
+	mac := hmac.New(sha256.New, []byte(m.config.SessionSecret))
+	mac.Write([]byte(sessionID))
+
+	return sessionID + "." + hex.EncodeToString(mac.Sum(nil))
+}
+
+func (m authMiddleware) readSessionCookieValue(cookieValue string) (string, bool) {
+	sessionID, signature, found := strings.Cut(cookieValue, ".")
+	if !found || sessionID == "" || signature == "" {
+		return "", false
+	}
+
+	expectedMAC := hmac.New(sha256.New, []byte(m.config.SessionSecret))
+	expectedMAC.Write([]byte(sessionID))
+	expectedSignature := expectedMAC.Sum(nil)
+
+	providedSignature, err := hex.DecodeString(signature)
+	if err != nil {
+		return "", false
+	}
+
+	if !hmac.Equal(providedSignature, expectedSignature) {
+		return "", false
+	}
+
+	return sessionID, true
 }

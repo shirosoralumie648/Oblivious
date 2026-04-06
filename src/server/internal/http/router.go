@@ -177,6 +177,16 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 			return
 		}
 
+		if len(parts) == 2 && parts[1] == "retrieve" {
+			switch r.Method {
+			case stdhttp.MethodPost:
+				knowledgeHandler.retrieveKnowledge(w, r, knowledgeBaseID)
+			default:
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
+
 		if len(parts) == 3 && parts[1] == "documents" && parts[2] != "" {
 			documentID := parts[2]
 			switch r.Method {
@@ -316,5 +326,5 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 		consoleHandler.getBilling(w, r)
 	})))
 
-	return applyMiddleware(mux, withRecover, withRequestID, withLogging)
+	return applyMiddleware(mux, withRecover, withRequestID, withLogging, withCORS(cfg.CORSAllowedOrigins))
 }

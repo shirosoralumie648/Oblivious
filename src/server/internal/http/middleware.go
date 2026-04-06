@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	stdhttp "net/http"
+	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -67,4 +68,50 @@ func withLogging(next stdhttp.Handler) stdhttp.Handler {
 		requestID, _ := r.Context().Value(requestIDContextKey).(string)
 		log.Printf("method=%s path=%s status=%d duration=%s request_id=%s", r.Method, r.URL.Path, recorder.status, time.Since(startedAt), requestID)
 	})
+}
+
+func withCORS(allowedOrigins []string) func(stdhttp.Handler) stdhttp.Handler {
+	normalizedOrigins := map[string]struct{}{}
+	for _, origin := range allowedOrigins {
+		trimmedOrigin := strings.TrimSpace(origin)
+		if trimmedOrigin == "" {
+			continue
+		}
+
+		normalizedOrigins[trimmedOrigin] = struct{}{}
+	}
+
+	if len(normalizedOrigins) == 0 {
+		return func(next stdhttp.Handler) stdhttp.Handler {
+			return next
+		}
+	}
+
+	return func(next stdhttp.Handler) stdhttp.Handler {
+		return stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+			origin := strings.TrimSpace(r.Header.Get("Origin"))
+			_, originAllowed := normalizedOrigins[origin]
+
+			if originAllowed {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+				w.Header().Set("Vary", "Origin")
+
+				requestHeaders := strings.TrimSpace(r.Header.Get("Access-Control-Request-Headers"))
+				if requestHeaders != "" {
+					w.Header().Set("Access-Control-Allow-Headers", requestHeaders)
+				} else {
+					w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+				}
+			}
+
+			if r.Method == stdhttp.MethodOptions && originAllowed {
+				w.WriteHeader(stdhttp.StatusNoContent)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
 }

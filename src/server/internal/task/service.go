@@ -39,12 +39,26 @@ type TaskStep struct {
 	UpdatedAt  time.Time  `json:"updatedAt"`
 }
 
+type TaskEvent struct {
+	CreatedAt time.Time `json:"createdAt"`
+	Message   string    `json:"message"`
+	Type      string    `json:"type"`
+}
+
+type TaskResultArtifact struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
+}
+
 type TaskDetail struct {
 	Task
-	KnowledgeBaseIDs []string   `json:"knowledgeBaseIds"`
-	Steps            []TaskStep `json:"steps"`
-	ToolAllowList    []string   `json:"toolAllowList"`
-	ToolDenyList     []string   `json:"toolDenyList"`
+	KnowledgeBaseIDs []string             `json:"knowledgeBaseIds"`
+	CurrentStep      string               `json:"currentStep,omitempty"`
+	Events           []TaskEvent          `json:"events"`
+	ResultArtifacts  []TaskResultArtifact `json:"resultArtifacts"`
+	Steps            []TaskStep           `json:"steps"`
+	ToolAllowList    []string             `json:"toolAllowList"`
+	ToolDenyList     []string             `json:"toolDenyList"`
 }
 
 type Store interface {
@@ -335,6 +349,15 @@ func normalizeTaskDetail(detail TaskDetail) TaskDetail {
 	}
 	if detail.ToolDenyList == nil {
 		detail.ToolDenyList = []string{}
+	}
+	detail.CurrentStep = deriveCurrentStep(detail.Task, detail.Steps)
+	detail.Events = buildRuntimeEvents(detail)
+	detail.ResultArtifacts = buildTaskResultArtifacts(detail)
+	if detail.ResultArtifacts == nil {
+		detail.ResultArtifacts = []TaskResultArtifact{}
+	}
+	if strings.TrimSpace(detail.ResultSummary) == "" && detail.Status == "completed" {
+		detail.ResultSummary = buildRuntimeResultSummary(detail)
 	}
 
 	return detail

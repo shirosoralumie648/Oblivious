@@ -4,6 +4,7 @@ import {
   type RouteObject
 } from 'react-router-dom';
 
+import { ProtectedRoute } from '../features/auth/ProtectedRoute';
 import { ConsoleLayout } from '../features/layouts/ConsoleLayout';
 import { MarketingLayout } from '../features/layouts/MarketingLayout';
 import { WorkspaceLayout } from '../features/layouts/WorkspaceLayout';
@@ -16,8 +17,10 @@ import { HomePage } from '../routes/marketing/HomePage';
 import { LoginPage } from '../routes/marketing/LoginPage';
 import { RegisterPage } from '../routes/marketing/RegisterPage';
 import { ChatPage } from '../routes/workspace/ChatPage';
+import { KnowledgePage } from '../routes/workspace/KnowledgePage';
 import { OnboardingPage } from '../routes/workspace/OnboardingPage';
 import { SettingsPage } from '../routes/workspace/SettingsPage';
+import { SoloPage } from '../routes/workspace/SoloPage';
 
 const routes: RouteObject[] = [
   {
@@ -29,23 +32,32 @@ const routes: RouteObject[] = [
     ]
   },
   {
-    element: <WorkspaceLayout />,
+    element: <ProtectedRoute />,
     children: [
-      { path: '/onboarding', element: <OnboardingPage /> },
-      { path: '/chat', element: <ChatPage /> },
-      { path: '/chat/:conversationId', element: <ChatPage /> },
-      { path: '/settings', element: <SettingsPage /> }
-    ]
-  },
-  {
-    path: '/console',
-    element: <ConsoleLayout />,
-    children: [
-      { index: true, element: <ConsoleHomePage /> },
-      { path: 'models', element: <ModelsPage /> },
-      { path: 'usage', element: <UsagePage /> },
-      { path: 'billing', element: <BillingPage /> },
-      { path: 'access', element: <AccessPage /> }
+      {
+        element: <WorkspaceLayout />,
+        children: [
+          { path: '/onboarding', element: <OnboardingPage /> },
+          { path: '/chat', element: <ChatPage /> },
+          { path: '/chat/:conversationId', element: <ChatPage /> },
+          { path: '/knowledge', element: <KnowledgePage /> },
+          { path: '/knowledge/:knowledgeBaseId', element: <KnowledgePage /> },
+          { path: '/solo', element: <SoloPage /> },
+          { path: '/solo/new', element: <SoloPage /> },
+          { path: '/settings', element: <SettingsPage /> }
+        ]
+      },
+      {
+        path: '/console',
+        element: <ConsoleLayout />,
+        children: [
+          { index: true, element: <ConsoleHomePage /> },
+          { path: 'models', element: <ModelsPage /> },
+          { path: 'usage', element: <UsagePage /> },
+          { path: 'billing', element: <BillingPage /> },
+          { path: 'access', element: <AccessPage /> }
+        ]
+      }
     ]
   }
 ];

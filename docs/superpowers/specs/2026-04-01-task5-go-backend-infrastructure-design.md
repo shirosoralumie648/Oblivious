@@ -1,5 +1,23 @@
 # Task 5 Design — Go Backend Infrastructure (Auth Placeholder Included)
 
+## Historical Note
+
+This document reflects the original Task 5 scaffold target only.
+
+It is no longer the current execution baseline because the codebase has already moved beyond scaffold scope:
+
+- PostgreSQL runtime and migrations exist
+- real auth and session flows exist
+- user preferences exist
+- chat, knowledge, task, and console modules exist
+
+For current execution, use:
+
+- `docs/architecture/current-system-contracts.md`
+- `docs/reports/2026-04-06-execution-progress-review.md`
+
+Keep the remaining sections in this file as historical context for how Task 5 started.
+
 ## Context
 This design defines the backend foundation slice for Task 5 in the current phase: build a runnable and extensible server shell aligned with the approved monorepo framework. It includes auth route placeholders (no real auth logic yet).
 

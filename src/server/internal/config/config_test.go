@@ -13,8 +13,6 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("LLM_BASE_URL", "")
 	t.Setenv("LLM_API_KEY", "")
 	t.Setenv("LLM_TIMEOUT_MS", "")
-	t.Setenv("MODEL_BASE_URL", "")
-	t.Setenv("MODEL_API_KEY", "")
 	t.Setenv("MODEL_DEFAULT_NAME", "")
 
 	cfg, err := Load()

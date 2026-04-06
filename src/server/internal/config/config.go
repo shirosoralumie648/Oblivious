@@ -18,8 +18,6 @@ type Config struct {
 	LLMBaseURL          string
 	LLMAPIKey           string
 	LLMTimeoutMS        int
-	ModelBaseURL        string
-	ModelAPIKey         string
 	ModelDefaultName    string
 }
 
@@ -77,8 +75,6 @@ func Load() (Config, error) {
 		}
 		llmTimeoutMS = parsedTimeout
 	}
-	modelBaseURL := strings.TrimSpace(os.Getenv("MODEL_BASE_URL"))
-	modelAPIKey := strings.TrimSpace(os.Getenv("MODEL_API_KEY"))
 	modelDefaultName := strings.TrimSpace(os.Getenv("MODEL_DEFAULT_NAME"))
 	if modelDefaultName == "" {
 		modelDefaultName = "demo-reply"
@@ -95,8 +91,6 @@ func Load() (Config, error) {
 		LLMBaseURL:          llmBaseURL,
 		LLMAPIKey:           llmAPIKey,
 		LLMTimeoutMS:        llmTimeoutMS,
-		ModelBaseURL:        modelBaseURL,
-		ModelAPIKey:         modelAPIKey,
 		ModelDefaultName:    modelDefaultName,
 	}, nil
 }

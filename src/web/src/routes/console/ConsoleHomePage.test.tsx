@@ -58,4 +58,24 @@ describe('ConsoleHomePage', () => {
     expect(screen.getByText('Workspace: workspace_1')).toBeInTheDocument();
     expect(screen.getByText('User: user@example.com')).toBeInTheDocument();
   });
+
+  it('renders a fallback message when the dashboard fails to load', async () => {
+    getAccess.mockRejectedValue(new Error('network unavailable'));
+    getBilling.mockResolvedValue({
+      period: '30d',
+      requests: 5,
+      inputTokens: 120,
+      outputTokens: 80,
+      estimatedCostUsd: 0.0004
+    });
+    getModels.mockResolvedValue([
+      { id: 'balanced-chat', label: 'balanced-chat', requests: 2 }
+    ]);
+    getUsage.mockResolvedValue({ period: '7d', requests: 3 });
+
+    render(<ConsoleHomePage />);
+
+    expect(screen.getByText('Loading dashboard…')).toBeInTheDocument();
+    expect(await screen.findByText('Unable to load dashboard.')).toBeInTheDocument();
+  });
 });

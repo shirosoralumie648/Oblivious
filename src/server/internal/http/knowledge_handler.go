@@ -21,6 +21,10 @@ type createKnowledgeDocumentRequest struct {
 	Title   string `json:"title"`
 }
 
+type retrieveKnowledgeRequest struct {
+	Query string `json:"query"`
+}
+
 func newKnowledgeHandler(service *knowledge.Service) knowledgeHandler {
 	return knowledgeHandler{service: service}
 }
@@ -171,6 +175,34 @@ func (h knowledgeHandler) createKnowledgeDocument(w stdhttp.ResponseWriter, r *s
 	}
 
 	writeSuccess(w, stdhttp.StatusOK, document)
+}
+
+func (h knowledgeHandler) retrieveKnowledge(w stdhttp.ResponseWriter, r *stdhttp.Request, knowledgeBaseID string) {
+	session, ok := sessionFromContext(r)
+	if !ok {
+		writeError(w, stdhttp.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+
+	var payload retrieveKnowledgeRequest
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "invalid json body")
+		return
+	}
+
+	query := strings.TrimSpace(payload.Query)
+	if query == "" {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "query is required")
+		return
+	}
+
+	results, err := h.service.Retrieve(r.Context(), session, knowledgeBaseID, query)
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "retrieve knowledge failed")
+		return
+	}
+
+	writeSuccess(w, stdhttp.StatusOK, results)
 }
 
 func (h knowledgeHandler) updateKnowledgeDocument(w stdhttp.ResponseWriter, r *stdhttp.Request, knowledgeBaseID, documentID string) {

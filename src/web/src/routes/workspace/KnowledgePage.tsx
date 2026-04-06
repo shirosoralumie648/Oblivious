@@ -4,7 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useAppContext } from '../../app/providers';
 import { createKnowledgeApi } from '../../features/knowledge/api';
 import { createHttpClient } from '../../services/http/client';
-import type { KnowledgeBaseSummary, KnowledgeDocumentSummary } from '../../types/api';
+import type { KnowledgeBaseSummary, KnowledgeDocumentSummary, KnowledgeRetrievalResult } from '../../types/api';
 
 export function KnowledgePage() {
   const navigate = useNavigate();
@@ -13,10 +13,12 @@ export function KnowledgePage() {
   const knowledgeApi = useMemo(() => createKnowledgeApi(createHttpClient()), []);
   const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [hasRetrievedKnowledge, setHasRetrievedKnowledge] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [isDeletingKnowledgeBase, setIsDeletingKnowledgeBase] = useState(false);
   const [isDeletingDocumentId, setIsDeletingDocumentId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRetrievingKnowledge, setIsRetrievingKnowledge] = useState(false);
   const [isSavingDocument, setIsSavingDocument] = useState(false);
   const [isSavingKnowledgeBase, setIsSavingKnowledgeBase] = useState(false);
   const [knowledgeDocumentContent, setKnowledgeDocumentContent] = useState('');
@@ -24,12 +26,20 @@ export function KnowledgePage() {
   const [knowledgeBaseName, setKnowledgeBaseName] = useState('');
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBaseSummary[]>([]);
   const [knowledgeDocuments, setKnowledgeDocuments] = useState<KnowledgeDocumentSummary[]>([]);
+  const [retrievalQuery, setRetrievalQuery] = useState('');
+  const [retrievalResults, setRetrievalResults] = useState<KnowledgeRetrievalResult[]>([]);
   const [selectedKnowledgeBase, setSelectedKnowledgeBase] = useState<KnowledgeBaseSummary | null>(null);
 
   const resetDocumentEditor = () => {
     setEditingDocumentId(null);
     setKnowledgeDocumentTitle('');
     setKnowledgeDocumentContent('');
+  };
+
+  const resetKnowledgeRetrieval = () => {
+    setHasRetrievedKnowledge(false);
+    setRetrievalQuery('');
+    setRetrievalResults([]);
   };
 
   useEffect(() => {
@@ -51,6 +61,7 @@ export function KnowledgePage() {
             setKnowledgeDocuments(nextKnowledgeDocuments);
             setKnowledgeBases([]);
             resetDocumentEditor();
+            resetKnowledgeRetrieval();
           }
         } else {
           const nextKnowledgeBases = await knowledgeApi.listKnowledgeBases();
@@ -60,6 +71,7 @@ export function KnowledgePage() {
             setSelectedKnowledgeBase(null);
             setKnowledgeBaseName('');
             resetDocumentEditor();
+            resetKnowledgeRetrieval();
           }
         }
       } catch {
@@ -69,6 +81,7 @@ export function KnowledgePage() {
           setSelectedKnowledgeBase(null);
           setKnowledgeBaseName('');
           resetDocumentEditor();
+          resetKnowledgeRetrieval();
           setError('Unable to load knowledge bases.');
         }
       } finally {
@@ -147,6 +160,30 @@ export function KnowledgePage() {
       setError('Unable to delete knowledge base.');
     } finally {
       setIsDeletingKnowledgeBase(false);
+    }
+  };
+
+  const handleRetrieveKnowledge = async () => {
+    if (!knowledgeBaseId) {
+      return;
+    }
+
+    const trimmedQuery = retrievalQuery.trim();
+    if (trimmedQuery === '') {
+      return;
+    }
+
+    setIsRetrievingKnowledge(true);
+    setError(null);
+
+    try {
+      const nextResults = await knowledgeApi.retrieveKnowledge(knowledgeBaseId, { query: trimmedQuery });
+      setRetrievalResults(nextResults);
+      setHasRetrievedKnowledge(true);
+    } catch {
+      setError('Unable to retrieve knowledge.');
+    } finally {
+      setIsRetrievingKnowledge(false);
     }
   };
 
@@ -239,8 +276,8 @@ export function KnowledgePage() {
       <h1>{selectedKnowledgeBase ? selectedKnowledgeBase.name : 'Knowledge'}</h1>
       <p>
         {selectedKnowledgeBase
-          ? 'Manage reusable documents in this knowledge base while retrieval and indexing continue to mature.'
-          : 'Organize reusable workspace context into knowledge bases before retrieval and document ingestion land.'}
+          ? 'Manage reusable documents in this knowledge base and search indexed snippets for relevant context.'
+          : 'Organize reusable workspace context into knowledge bases and search them from each detail view.'}
       </p>
       {isLoading ? <p>{knowledgeBaseId ? 'Loading knowledge base…' : 'Loading knowledge bases…'}</p> : null}
       {error ? <p>{error}</p> : null}
@@ -248,8 +285,8 @@ export function KnowledgePage() {
       <p>Web suggestions: {authState.preferences?.networkEnabledHint ? 'Enabled' : 'Disabled'}</p>
       <p>
         {authState.preferences?.networkEnabledHint
-          ? 'Web suggestions are enabled for broader chat context while dedicated knowledge retrieval is still pending.'
-          : 'Enable web suggestions in settings if you want broader context before dedicated knowledge bases arrive.'}
+          ? 'Web suggestions are enabled for broader chat context alongside workspace knowledge retrieval.'
+          : 'Enable web suggestions in settings if you want broader context beyond your indexed knowledge base.'}
       </p>
       {selectedKnowledgeBase ? (
         <>
@@ -269,6 +306,28 @@ export function KnowledgePage() {
           </button>
           <p>Knowledge base ID: {selectedKnowledgeBase.id}</p>
           <p>Documents: {selectedKnowledgeBase.documentCount}</p>
+          <label>
+            Retrieval query
+            <input onChange={(event) => setRetrievalQuery(event.target.value)} type="text" value={retrievalQuery} />
+          </label>
+          <button
+            disabled={isRetrievingKnowledge || retrievalQuery.trim() === ''}
+            onClick={() => void handleRetrieveKnowledge()}
+            type="button"
+          >
+            Search knowledge
+          </button>
+          {hasRetrievedKnowledge && retrievalResults.length === 0 ? <p>No matching snippets found yet.</p> : null}
+          {retrievalResults.length > 0 ? (
+            <ul>
+              {retrievalResults.map((result) => (
+                <li key={`${result.documentId}-${result.snippet}`}>
+                  <strong>{result.documentTitle}</strong>
+                  <p>{result.snippet}</p>
+                </li>
+              ))}
+            </ul>
+          ) : null}
           <label>
             Document title
             <input onChange={(event) => setKnowledgeDocumentTitle(event.target.value)} type="text" value={knowledgeDocumentTitle} />

@@ -29,4 +29,13 @@ describe('ModelsPage', () => {
     expect(screen.getByText('Requests: 2')).toBeInTheDocument();
     expect(screen.getByText('quality-chat')).toBeInTheDocument();
   });
+
+  it('renders a fallback message when model summaries fail to load', async () => {
+    getModels.mockRejectedValue(new Error('network unavailable'));
+
+    render(<ModelsPage />);
+
+    expect(screen.getByText('Loading model summaries…')).toBeInTheDocument();
+    expect(await screen.findByText('Unable to load model summaries.')).toBeInTheDocument();
+  });
 });

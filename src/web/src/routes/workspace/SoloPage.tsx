@@ -125,6 +125,9 @@ export function SoloPage() {
     const toolRules = normalizeToolRules(detail.toolAllowList, detail.toolDenyList);
     setStartedTask({
       ...detail,
+      authorizationScope: detail.authorizationScope ?? defaultAuthorizationScope,
+      events: detail.events ?? [],
+      resultArtifacts: detail.resultArtifacts ?? [],
       toolAllowList: toolRules.toolAllowList,
       toolDenyList: toolRules.toolDenyList
     });
@@ -213,6 +216,8 @@ export function SoloPage() {
       const matchedKnowledgeBase = knowledgeBases.find((knowledgeBase) => knowledgeBase.id === knowledgeBaseID);
       return matchedKnowledgeBase?.name ?? knowledgeBaseID;
     }) ?? [];
+  const taskEvents = startedTask?.events ?? [];
+  const taskResultArtifacts = startedTask?.resultArtifacts ?? [];
   const startedTaskToolRules = normalizeToolRules(startedTask?.toolAllowList, startedTask?.toolDenyList);
   const runningTasks = recentTasks.filter(
     (task) => task.status === 'running' || task.status === 'paused' || task.status === 'awaiting_confirmation'
@@ -288,6 +293,24 @@ export function SoloPage() {
       applyTaskDetail(detail);
     } catch {
       setError('Unable to pause task.');
+    }
+  };
+
+  const handleContinueTask = async () => {
+    if (!startedTask) {
+      return;
+    }
+
+    setIsLoadingTaskID(startedTask.id);
+    setError(null);
+
+    try {
+      const detail = await tasksApi.startTask(startedTask.id);
+      applyTaskDetail(detail);
+    } catch {
+      setError('Unable to continue task.');
+    } finally {
+      setIsLoadingTaskID(null);
     }
   };
 
@@ -538,7 +561,7 @@ export function SoloPage() {
           <h2>{startedTask.status === 'completed' ? 'Latest result' : 'Execution view'}</h2>
           <p>{`Status: ${startedTask.status}`}</p>
           <p>{`Execution mode: ${startedTask.executionMode}`}</p>
-          <p>{`Authorization scope: ${startedTask.authorizationScope}`}</p>
+          <p>{`Authorization scope: ${startedTask.authorizationScope ?? defaultAuthorizationScope}`}</p>
           <p>{`Budget consumed: ${startedTask.budgetConsumed ?? 0} / ${startedTask.budgetLimit}`}</p>
           {startedTask.status !== 'completed' && startedTask.status !== 'cancelled' ? (
             <div>
@@ -553,6 +576,7 @@ export function SoloPage() {
           ) : null}
           {startedTask.startedAt ? <p>{`Started at: ${startedTask.startedAt}`}</p> : null}
           {startedTask.finishedAt ? <p>{`Finished at: ${startedTask.finishedAt}`}</p> : null}
+          {startedTask.currentStep ? <p>{`Current step: ${startedTask.currentStep}`}</p> : null}
           <section>
             <h3>Current knowledge sources</h3>
             {taskKnowledgeBaseNames.length === 0 ? (
@@ -593,6 +617,19 @@ export function SoloPage() {
               </ul>
             )}
           </section>
+          {taskEvents.length > 0 ? (
+            <section>
+              <h3>Execution timeline</h3>
+              <ul>
+                {taskEvents.map((event) => (
+                  <li key={`${event.type}-${event.createdAt ?? event.message}`}>
+                    <strong>{event.type}</strong>
+                    <span>{` ${event.message}`}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
           {startedTask.resultSummary ? (
             <p>{startedTask.resultSummary}</p>
           ) : startedTask.status === 'awaiting_confirmation' ? (
@@ -600,6 +637,19 @@ export function SoloPage() {
           ) : (
             <p>SOLO is still working through the current plan.</p>
           )}
+          {taskResultArtifacts.length > 0 ? (
+            <section>
+              <h3>Result artifacts</h3>
+              <ul>
+                {taskResultArtifacts.map((artifact) => (
+                  <li key={`${artifact.label}-${artifact.value}`}>
+                    <strong>{artifact.label}</strong>
+                    <span>{` ${artifact.value}`}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
           <ol>
             {startedTask.steps.map((step) => (
               <li key={step.id}>
@@ -610,6 +660,9 @@ export function SoloPage() {
           </ol>
           {startedTask.status === 'running' ? (
             <div>
+              <button disabled={isLoadingTaskID === startedTask.id} onClick={() => void handleContinueTask()} type="button">
+                Continue run
+              </button>
               <button onClick={() => void handlePauseTask()} type="button">
                 Pause run
               </button>

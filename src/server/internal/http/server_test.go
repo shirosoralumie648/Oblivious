@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	stdhttp "net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -14,9 +15,12 @@ import (
 	"oblivious/server/internal/config"
 )
 
+const testDatabaseURLEnvVar = "TEST_DATABASE_URL"
+
 func testConfig() config.Config {
 	return config.Config{
-		DatabaseURL:         "postgres://postgres:postgres@localhost:5432/oblivious?sslmode=disable",
+		CORSAllowedOrigins:  []string{"http://localhost:5173"},
+		DatabaseURL:         strings.TrimSpace(os.Getenv(testDatabaseURLEnvVar)),
 		Env:                 "test",
 		Port:                8080,
 		SessionCookieName:   "oblivious_session",
@@ -29,7 +33,12 @@ func testConfig() config.Config {
 func testDatabase(t *testing.T) *sql.DB {
 	t.Helper()
 
-	database, err := sql.Open("postgres", testConfig().DatabaseURL)
+	databaseURL := testConfig().DatabaseURL
+	if databaseURL == "" {
+		t.Skip(testDatabaseURLEnvVar + " is required for integration tests")
+	}
+
+	database, err := sql.Open("postgres", databaseURL)
 	if err != nil {
 		t.Fatalf("open database: %v", err)
 	}
@@ -109,6 +118,20 @@ func TestRegisterLoginMeLogoutFlow(t *testing.T) {
 	router.ServeHTTP(meRecorder, meRequest)
 	if meRecorder.Code != stdhttp.StatusOK {
 		t.Fatalf("me expected 200, got %d", meRecorder.Code)
+	}
+
+	var meResponse struct {
+		Data struct {
+			Session struct {
+				ID string `json:"id"`
+			} `json:"session"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(meRecorder.Body.Bytes(), &meResponse); err != nil {
+		t.Fatalf("decode me response: %v", err)
+	}
+	if cookie.Value == meResponse.Data.Session.ID {
+		t.Fatal("expected session cookie to be signed instead of exposing raw session id")
 	}
 
 	logoutRecorder := httptest.NewRecorder()

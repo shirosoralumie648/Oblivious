@@ -193,59 +193,26 @@ func (s *SQLStore) StartTask(ctx context.Context, workspaceID, taskID string) (T
 	}
 	defer tx.Rollback()
 
-	var executionMode string
-	err = tx.QueryRowContext(ctx, `
-		UPDATE tasks AS t
-		SET status = CASE
-				WHEN t.execution_mode = 'safe' THEN 'awaiting_confirmation'
-				ELSE 'running'
-			END,
-			budget_consumed = CASE
-				WHEN t.execution_mode = 'safe' THEN 0
-				WHEN t.budget_limit > 0 THEN GREATEST(1, LEAST(t.budget_limit, (t.budget_limit + 3) / 4))
-				ELSE 0
-			END,
-			started_at = COALESCE(t.started_at, $3),
-			finished_at = NULL,
-			result_summary = '',
-			updated_at = $3
-		WHERE t.workspace_id = $1 AND t.id = $2
-		RETURNING t.execution_mode
-	`, workspaceID, taskID, now).Scan(&executionMode)
+	current, err := s.getRuntimeTaskDetailTx(ctx, tx, workspaceID, taskID)
 	if err != nil {
 		return TaskDetail{}, err
 	}
 
-	if _, err := tx.ExecContext(ctx, `
-		DELETE FROM task_steps
-		WHERE task_id = $1
-	`, taskID); err != nil {
-		return TaskDetail{}, err
-	}
-
-	stepTitles, stepStatuses := starterPlanForMode(executionMode)
-	for index, title := range stepTitles {
-		stepID, err := auth.NewID("step")
+	switch current.Status {
+	case "draft", "completed", "cancelled":
+		if err := s.resetRuntimeTaskTx(ctx, tx, workspaceID, taskID, current, now); err != nil {
+			return TaskDetail{}, err
+		}
+	case "running":
+		next, err := continueRuntimeTask(current, now)
 		if err != nil {
 			return TaskDetail{}, err
 		}
-
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO task_steps (
-				id,
-				task_id,
-				step_index,
-				title,
-				status,
-				created_at,
-				updated_at,
-				started_at,
-				finished_at
-			)
-			VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8)
-		`, stepID, taskID, index+1, title, stepStatuses[index], now, startedAtForStatus(stepStatuses[index], now), finishedAtForStatus(stepStatuses[index], now)); err != nil {
+		if err := s.persistRuntimeTaskTx(ctx, tx, workspaceID, taskID, next); err != nil {
 			return TaskDetail{}, err
 		}
+	default:
+		return TaskDetail{}, sql.ErrNoRows
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -321,21 +288,32 @@ func (s *SQLStore) ApproveTask(ctx context.Context, workspaceID, taskID string) 
 }
 
 func (s *SQLStore) PauseTask(ctx context.Context, workspaceID, taskID string) (TaskDetail, error) {
-	result, err := s.db.ExecContext(ctx, `
-		UPDATE tasks
-		SET status = 'paused', updated_at = $3
-		WHERE workspace_id = $1 AND id = $2 AND status = 'running'
-	`, workspaceID, taskID, time.Now().UTC())
+	now := time.Now().UTC()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return TaskDetail{}, err
+	}
+	defer tx.Rollback()
+
+	current, err := s.getRuntimeTaskDetailTx(ctx, tx, workspaceID, taskID)
 	if err != nil {
 		return TaskDetail{}, err
 	}
 
-	rowsAffected, err := result.RowsAffected()
+	next, err := pauseRuntimeTask(current, now)
 	if err != nil {
+		if err == ErrInvalidTaskTransition {
+			return TaskDetail{}, sql.ErrNoRows
+		}
 		return TaskDetail{}, err
 	}
-	if rowsAffected == 0 {
-		return TaskDetail{}, sql.ErrNoRows
+
+	if err := s.persistRuntimeTaskTx(ctx, tx, workspaceID, taskID, next); err != nil {
+		return TaskDetail{}, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return TaskDetail{}, err
 	}
 
 	return s.GetTask(ctx, workspaceID, taskID)
@@ -349,38 +327,20 @@ func (s *SQLStore) ResumeTask(ctx context.Context, workspaceID, taskID string) (
 	}
 	defer tx.Rollback()
 
-	result, err := tx.ExecContext(ctx, `
-		UPDATE tasks AS t
-		SET status = 'completed',
-			budget_consumed = CASE
-				WHEN t.budget_limit > 0 THEN t.budget_limit
-				ELSE t.budget_consumed
-			END,
-			finished_at = $3,
-			result_summary = CONCAT('Completed a starter SOLO run for: ', COALESCE(NULLIF(t.goal, ''), t.title)),
-			updated_at = $3
-		WHERE t.workspace_id = $1 AND t.id = $2 AND t.status = 'paused'
-	`, workspaceID, taskID, now)
+	current, err := s.getRuntimeTaskDetailTx(ctx, tx, workspaceID, taskID)
 	if err != nil {
 		return TaskDetail{}, err
 	}
 
-	rowsAffected, err := result.RowsAffected()
+	next, err := resumeRuntimeTask(current, now)
 	if err != nil {
+		if err == ErrInvalidTaskTransition {
+			return TaskDetail{}, sql.ErrNoRows
+		}
 		return TaskDetail{}, err
 	}
-	if rowsAffected == 0 {
-		return TaskDetail{}, sql.ErrNoRows
-	}
 
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE task_steps
-		SET status = 'completed',
-			updated_at = $2,
-			started_at = COALESCE(started_at, $2),
-			finished_at = $2
-		WHERE task_id = $1 AND status IN ('running', 'pending')
-	`, taskID, now); err != nil {
+	if err := s.persistRuntimeTaskTx(ctx, tx, workspaceID, taskID, next); err != nil {
 		return TaskDetail{}, err
 	}
 
@@ -423,7 +383,7 @@ func (s *SQLStore) CancelTask(ctx context.Context, workspaceID, taskID string) (
 		SET status = 'cancelled',
 			updated_at = $2,
 			finished_at = COALESCE(finished_at, $2)
-		WHERE task_id = $1 AND status IN ('running', 'pending', 'awaiting_confirmation')
+		WHERE task_id = $1 AND status IN ('running', 'paused', 'pending', 'awaiting_confirmation')
 	`, taskID, now); err != nil {
 		return TaskDetail{}, err
 	}
@@ -457,6 +417,191 @@ func (s *SQLStore) UpdateTaskBudget(ctx context.Context, workspaceID, taskID str
 	}
 
 	return s.GetTask(ctx, workspaceID, taskID)
+}
+
+func (s *SQLStore) getRuntimeTaskDetailTx(ctx context.Context, tx *sql.Tx, workspaceID, taskID string) (TaskDetail, error) {
+	var taskRow Task
+	if err := tx.QueryRowContext(ctx, `
+		SELECT id, title, goal, execution_mode, authorization_scope, status, budget_limit, budget_consumed, result_summary, started_at, finished_at, created_at, updated_at
+		FROM tasks
+		WHERE workspace_id = $1 AND id = $2
+	`, workspaceID, taskID).Scan(
+		&taskRow.ID,
+		&taskRow.Title,
+		&taskRow.Goal,
+		&taskRow.ExecutionMode,
+		&taskRow.AuthorizationScope,
+		&taskRow.Status,
+		&taskRow.BudgetLimit,
+		&taskRow.BudgetConsumed,
+		&taskRow.ResultSummary,
+		&taskRow.StartedAt,
+		&taskRow.FinishedAt,
+		&taskRow.CreatedAt,
+		&taskRow.UpdatedAt,
+	); err != nil {
+		return TaskDetail{}, err
+	}
+
+	steps, err := s.listTaskStepsTx(ctx, tx, workspaceID, taskID)
+	if err != nil {
+		return TaskDetail{}, err
+	}
+
+	return TaskDetail{
+		Task:  taskRow,
+		Steps: steps,
+	}, nil
+}
+
+func (s *SQLStore) listTaskStepsTx(ctx context.Context, tx *sql.Tx, workspaceID, taskID string) ([]TaskStep, error) {
+	rows, err := tx.QueryContext(ctx, `
+		SELECT ts.id, ts.step_index, ts.title, ts.status, ts.created_at, ts.updated_at, ts.started_at, ts.finished_at
+		FROM task_steps ts
+		JOIN tasks t ON t.id = ts.task_id
+		WHERE ts.task_id = $1 AND t.workspace_id = $2
+		ORDER BY ts.step_index ASC, ts.created_at ASC
+	`, taskID, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	steps := []TaskStep{}
+	for rows.Next() {
+		var step TaskStep
+		if err := rows.Scan(
+			&step.ID,
+			&step.StepIndex,
+			&step.Title,
+			&step.Status,
+			&step.CreatedAt,
+			&step.UpdatedAt,
+			&step.StartedAt,
+			&step.FinishedAt,
+		); err != nil {
+			return nil, err
+		}
+
+		steps = append(steps, step)
+	}
+
+	return steps, rows.Err()
+}
+
+func (s *SQLStore) resetRuntimeTaskTx(ctx context.Context, tx *sql.Tx, workspaceID, taskID string, current TaskDetail, now time.Time) error {
+	initialStatus := "running"
+	initialBudget := 0
+	if current.ExecutionMode == "safe" {
+		initialStatus = "awaiting_confirmation"
+	} else {
+		initialBudget = nextRuntimeBudget(current.BudgetLimit, 0, false)
+	}
+
+	result, err := tx.ExecContext(ctx, `
+		UPDATE tasks
+		SET status = $3,
+			budget_consumed = $4,
+			started_at = $5,
+			finished_at = NULL,
+			result_summary = '',
+			updated_at = $5
+		WHERE workspace_id = $1 AND id = $2
+	`, workspaceID, taskID, initialStatus, initialBudget, now)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM task_steps
+		WHERE task_id = $1
+	`, taskID); err != nil {
+		return err
+	}
+
+	stepTitles, stepStatuses := runtimePlanForMode(current.ExecutionMode)
+	for index, title := range stepTitles {
+		stepID, err := auth.NewID("step")
+		if err != nil {
+			return err
+		}
+
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO task_steps (
+				id,
+				task_id,
+				step_index,
+				title,
+				status,
+				created_at,
+				updated_at,
+				started_at,
+				finished_at
+			)
+			VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8)
+		`, stepID, taskID, index+1, title, stepStatuses[index], now, startedAtForStatus(stepStatuses[index], now), finishedAtForStatus(stepStatuses[index], now)); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (s *SQLStore) persistRuntimeTaskTx(ctx context.Context, tx *sql.Tx, workspaceID, taskID string, detail TaskDetail) error {
+	result, err := tx.ExecContext(ctx, `
+		UPDATE tasks
+		SET status = $3,
+			budget_consumed = $4,
+			started_at = $5,
+			finished_at = $6,
+			result_summary = $7,
+			updated_at = $8
+		WHERE workspace_id = $1 AND id = $2
+	`, workspaceID, taskID, detail.Status, detail.BudgetConsumed, detail.StartedAt, detail.FinishedAt, detail.ResultSummary, detail.UpdatedAt)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+
+	for _, step := range detail.Steps {
+		result, err := tx.ExecContext(ctx, `
+			UPDATE task_steps
+			SET title = $2,
+				status = $3,
+				updated_at = $4,
+				started_at = $5,
+				finished_at = $6
+			WHERE id = $1
+		`, step.ID, step.Title, step.Status, step.UpdatedAt, step.StartedAt, step.FinishedAt)
+		if err != nil {
+			return err
+		}
+
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if rowsAffected == 0 {
+			return sql.ErrNoRows
+		}
+	}
+
+	return nil
 }
 
 func (s *SQLStore) getTaskRow(ctx context.Context, workspaceID, taskID string) (Task, []string, []string, error) {
@@ -570,18 +715,18 @@ func finishedAtForStatus(status string, now time.Time) *time.Time {
 	return nil
 }
 
-func starterPlanForMode(executionMode string) ([]string, []string) {
+func runtimePlanForMode(executionMode string) ([]string, []string) {
 	if executionMode == "safe" {
 		return []string{
 			"Understand the goal",
 			"Confirm execution boundary",
-			"Deliver starter result",
+			"Deliver runtime result",
 		}, []string{"completed", "awaiting_confirmation", "pending"}
 	}
 
 	return []string{
 		"Understand the goal",
 		"Review workspace context",
-		"Deliver starter result",
+		"Deliver runtime result",
 	}, []string{"completed", "running", "pending"}
 }

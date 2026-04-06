@@ -22,6 +22,12 @@ type KnowledgeDocument struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
+type KnowledgeRetrievalResult struct {
+	DocumentID    string `json:"documentId"`
+	DocumentTitle string `json:"documentTitle"`
+	Snippet       string `json:"snippet"`
+}
+
 type Store interface {
 	CreateKnowledgeBase(ctx context.Context, workspaceID, name string) (KnowledgeBase, error)
 	CreateKnowledgeDocument(ctx context.Context, workspaceID, knowledgeBaseID, title, content string) (KnowledgeDocument, error)
@@ -30,6 +36,7 @@ type Store interface {
 	GetKnowledgeBase(ctx context.Context, workspaceID, knowledgeBaseID string) (KnowledgeBase, error)
 	ListKnowledgeDocuments(ctx context.Context, workspaceID, knowledgeBaseID string) ([]KnowledgeDocument, error)
 	ListKnowledgeBases(ctx context.Context, workspaceID string) ([]KnowledgeBase, error)
+	RetrieveKnowledge(ctx context.Context, workspaceID, knowledgeBaseID, query string) ([]KnowledgeRetrievalResult, error)
 	UpdateKnowledgeBase(ctx context.Context, workspaceID, knowledgeBaseID, name string) (KnowledgeBase, error)
 	UpdateKnowledgeDocument(ctx context.Context, workspaceID, knowledgeBaseID, documentID, title, content string) (KnowledgeDocument, error)
 }
@@ -60,6 +67,10 @@ func (s *Service) ListDocuments(ctx context.Context, session auth.Session, knowl
 
 func (s *Service) CreateDocument(ctx context.Context, session auth.Session, knowledgeBaseID, title, content string) (KnowledgeDocument, error) {
 	return s.store.CreateKnowledgeDocument(ctx, session.WorkspaceID, knowledgeBaseID, title, content)
+}
+
+func (s *Service) Retrieve(ctx context.Context, session auth.Session, knowledgeBaseID, query string) ([]KnowledgeRetrievalResult, error) {
+	return s.store.RetrieveKnowledge(ctx, session.WorkspaceID, knowledgeBaseID, query)
 }
 
 func (s *Service) Update(ctx context.Context, session auth.Session, knowledgeBaseID, name string) (KnowledgeBase, error) {

@@ -22,6 +22,8 @@ type knowledgeFakeStore struct {
 	detailBase   knowledge.KnowledgeBase
 	documents    []knowledge.KnowledgeDocument
 	listBases    []knowledge.KnowledgeBase
+	retrievalQuery string
+	retrievalResults []knowledge.KnowledgeRetrievalResult
 	requestedDoc knowledge.KnowledgeDocument
 	requestedID  string
 	updatedBase  knowledge.KnowledgeBase
@@ -91,6 +93,13 @@ func (f *knowledgeFakeStore) DeleteKnowledgeDocument(ctx context.Context, worksp
 	f.requestedID = knowledgeBaseID
 	f.deletedDocID = documentID
 	return nil
+}
+
+func (f *knowledgeFakeStore) RetrieveKnowledge(ctx context.Context, workspaceID, knowledgeBaseID, query string) ([]knowledge.KnowledgeRetrievalResult, error) {
+	f.workspaceID = workspaceID
+	f.requestedID = knowledgeBaseID
+	f.retrievalQuery = query
+	return f.retrievalResults, nil
 }
 
 func TestKnowledgeHandlerListReturnsWorkspaceBases(t *testing.T) {
@@ -240,6 +249,52 @@ func TestKnowledgeHandlerCreateDocumentCreatesKnowledgeBaseDocument(t *testing.T
 	}
 	if store.requestedDoc.Title != "Plan" {
 		t.Fatalf("expected title Plan, got %s", store.requestedDoc.Title)
+	}
+}
+
+func TestKnowledgeHandlerRetrieveReturnsRelevantMatches(t *testing.T) {
+	store := &knowledgeFakeStore{
+		retrievalResults: []knowledge.KnowledgeRetrievalResult{
+			{
+				DocumentID:    "doc_2",
+				DocumentTitle: "Plan",
+				Snippet:       "Initial plan mentions deployment boundaries.",
+			},
+		},
+	}
+	handler := newKnowledgeHandler(knowledge.NewService(store))
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_2/retrieve", strings.NewReader(`{"query":"deployment"}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		WorkspaceID: "workspace_1",
+	}))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.retrieveKnowledge(recorder, request, "kb_2")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+	if store.workspaceID != "workspace_1" {
+		t.Fatalf("expected workspace workspace_1, got %s", store.workspaceID)
+	}
+	if store.requestedID != "kb_2" {
+		t.Fatalf("expected requested id kb_2, got %s", store.requestedID)
+	}
+	if store.retrievalQuery != "deployment" {
+		t.Fatalf("expected retrieval query deployment, got %s", store.retrievalQuery)
+	}
+
+	var response struct {
+		Data []knowledge.KnowledgeRetrievalResult `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(response.Data) != 1 {
+		t.Fatalf("expected 1 retrieval result, got %d", len(response.Data))
+	}
+	if response.Data[0].Snippet != "Initial plan mentions deployment boundaries." {
+		t.Fatalf("unexpected snippet %q", response.Data[0].Snippet)
 	}
 }
 

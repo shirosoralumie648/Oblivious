@@ -220,6 +220,47 @@ func TestStartReturnsTaskDetailForWorkspace(t *testing.T) {
 	}
 }
 
+func TestGetDerivesRuntimeMetadataFromSteps(t *testing.T) {
+	startedAt := time.Date(2026, time.April, 4, 9, 0, 0, 0, time.UTC)
+	store := &fakeStore{
+		detailTask: TaskDetail{
+			Task: Task{
+				AuthorizationScope: "workspace_tools",
+				BudgetConsumed:     4,
+				BudgetLimit:        12,
+				ExecutionMode:      "standard",
+				Goal:               "Review launch plan",
+				ID:                 "task_runtime",
+				StartedAt:          &startedAt,
+				Status:             "running",
+				Title:              "Review launch plan",
+			},
+			KnowledgeBaseIDs: []string{"kb_1"},
+			Steps: []TaskStep{
+				{ID: "step_1", Status: "completed", StepIndex: 1, Title: "Understand the goal"},
+				{ID: "step_2", Status: "running", StepIndex: 2, Title: "Review workspace context"},
+				{ID: "step_3", Status: "pending", StepIndex: 3, Title: "Deliver runtime result"},
+			},
+		},
+	}
+	service := NewService(store)
+
+	task, err := service.Get(context.Background(), auth.Session{WorkspaceID: "workspace_1"}, "task_runtime")
+	if err != nil {
+		t.Fatalf("get task: %v", err)
+	}
+
+	if task.CurrentStep != "Review workspace context" {
+		t.Fatalf("expected current step Review workspace context, got %q", task.CurrentStep)
+	}
+	if len(task.Events) == 0 {
+		t.Fatalf("expected runtime events, got %+v", task.Events)
+	}
+	if task.Events[len(task.Events)-1].Type != "running" {
+		t.Fatalf("expected latest event to describe running state, got %+v", task.Events)
+	}
+}
+
 func TestApproveReturnsRunningTaskDetailForWorkspace(t *testing.T) {
 	startedAt := time.Date(2026, time.April, 3, 19, 0, 0, 0, time.UTC)
 	store := &fakeStore{
@@ -288,26 +329,23 @@ func TestPauseReturnsPausedTaskDetailForWorkspace(t *testing.T) {
 	}
 }
 
-func TestResumeReturnsCompletedTaskDetailForWorkspace(t *testing.T) {
+func TestResumeReturnsRunningTaskDetailForWorkspace(t *testing.T) {
 	startedAt := time.Date(2026, time.April, 3, 19, 0, 0, 0, time.UTC)
-	finishedAt := time.Date(2026, time.April, 3, 19, 12, 0, 0, time.UTC)
 	store := &fakeStore{
 		detailTask: TaskDetail{
 			Task: Task{
 				BudgetConsumed: 8,
 				ExecutionMode:  "standard",
-				FinishedAt:     &finishedAt,
 				Goal:           "Review launch plan",
 				ID:             "task_3",
-				ResultSummary:  "Completed a starter SOLO run for: Review launch plan",
 				StartedAt:      &startedAt,
-				Status:         "completed",
+				Status:         "running",
 				Title:          "Review launch plan",
 			},
 			Steps: []TaskStep{
 				{ID: "step_1", Status: "completed", StepIndex: 1, Title: "Understand the goal"},
-				{ID: "step_2", Status: "completed", StepIndex: 2, Title: "Review workspace context"},
-				{ID: "step_3", Status: "completed", StepIndex: 3, Title: "Deliver starter result"},
+				{ID: "step_2", Status: "running", StepIndex: 2, Title: "Review workspace context"},
+				{ID: "step_3", Status: "pending", StepIndex: 3, Title: "Deliver runtime result"},
 			},
 		},
 	}
@@ -321,11 +359,52 @@ func TestResumeReturnsCompletedTaskDetailForWorkspace(t *testing.T) {
 	if store.resumedTaskID != "task_3" {
 		t.Fatalf("expected resumed task id task_3, got %s", store.resumedTaskID)
 	}
-	if task.Status != "completed" || task.ResultSummary == "" {
+	if task.Status != "running" || task.ResultSummary != "" {
 		t.Fatalf("unexpected resumed task detail: %+v", task)
 	}
-	if task.BudgetConsumed != 8 || task.FinishedAt == nil || !task.FinishedAt.Equal(finishedAt) {
+	if task.BudgetConsumed != 8 || task.FinishedAt != nil {
 		t.Fatalf("expected budget/timing to be preserved, got %+v", task)
+	}
+}
+
+func TestGetBuildsStructuredResultArtifactsForCompletedTask(t *testing.T) {
+	finishedAt := time.Date(2026, time.April, 4, 10, 0, 0, 0, time.UTC)
+	store := &fakeStore{
+		detailTask: TaskDetail{
+			Task: Task{
+				AuthorizationScope: "workspace_tools",
+				BudgetConsumed:     12,
+				BudgetLimit:        12,
+				ExecutionMode:      "standard",
+				FinishedAt:         &finishedAt,
+				Goal:               "Review launch plan",
+				ID:                 "task_done",
+				Status:             "completed",
+				Title:              "Review launch plan",
+			},
+			KnowledgeBaseIDs: []string{"kb_1", "kb_2"},
+			Steps: []TaskStep{
+				{ID: "step_1", Status: "completed", StepIndex: 1, Title: "Understand the goal"},
+				{ID: "step_2", Status: "completed", StepIndex: 2, Title: "Review workspace context"},
+				{ID: "step_3", Status: "completed", StepIndex: 3, Title: "Deliver runtime result"},
+			},
+		},
+	}
+	service := NewService(store)
+
+	task, err := service.Get(context.Background(), auth.Session{WorkspaceID: "workspace_1"}, "task_done")
+	if err != nil {
+		t.Fatalf("get completed task: %v", err)
+	}
+
+	if task.ResultSummary == "" {
+		t.Fatalf("expected synthesized result summary, got empty string")
+	}
+	if len(task.ResultArtifacts) < 3 {
+		t.Fatalf("expected structured result artifacts, got %+v", task.ResultArtifacts)
+	}
+	if task.ResultArtifacts[0].Label == "" || task.ResultArtifacts[0].Value == "" {
+		t.Fatalf("expected labeled result artifact, got %+v", task.ResultArtifacts[0])
 	}
 }
 

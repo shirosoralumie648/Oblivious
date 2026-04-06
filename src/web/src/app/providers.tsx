@@ -1,9 +1,13 @@
 import type { ReactNode } from 'react';
 
+import { AppContextProvider, useAppContext } from './appContext';
+
 type AppProvidersProps = {
   children: ReactNode;
 };
 
 export function AppProviders({ children }: AppProvidersProps) {
-  return <>{children}</>;
+  return <AppContextProvider>{children}</AppContextProvider>;
 }
+
+export { useAppContext };
