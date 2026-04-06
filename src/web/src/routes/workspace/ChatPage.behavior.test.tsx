@@ -74,6 +74,12 @@ import { ChatPage } from './ChatPage';
 
 describe('ChatPage', () => {
   beforeEach(() => {
+    appContext.authState.preferences = {
+      defaultMode: 'chat',
+      modelStrategy: 'balanced',
+      networkEnabledHint: false,
+      onboardingCompleted: true
+    };
     createConversation.mockReset();
     createTask.mockReset();
     convertConversationToTask.mockReset();
@@ -87,6 +93,109 @@ describe('ChatPage', () => {
     listKnowledgeBases.mockReset();
     navigate.mockReset();
     routeState.conversationId = undefined;
+  });
+
+  it('shows an empty state on /chat and creates the first conversation', async () => {
+    routeState.conversationId = undefined;
+    listConversations.mockResolvedValue([]);
+    listKnowledgeBases.mockResolvedValue([]);
+    listModels.mockResolvedValue([{ id: 'balanced-chat', label: 'balanced-chat' }]);
+    createConversation.mockResolvedValue({ id: 'conversation_1', title: 'New conversation' });
+
+    render(<ChatPage />);
+
+    expect(await screen.findByText('No conversations yet. Start a workspace thread to begin.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Create first conversation' }));
+
+    await waitFor(() => {
+      expect(createConversation).toHaveBeenCalledWith({ title: 'New conversation' });
+    });
+    expect(navigate).toHaveBeenCalledWith('/chat/conversation_1');
+  });
+
+  it('sends a message inside the active conversation', async () => {
+    routeState.conversationId = 'conversation_1';
+    listConversations.mockResolvedValue([{ id: 'conversation_1', title: 'Research thread' }]);
+    listKnowledgeBases.mockResolvedValue([]);
+    listMessages.mockResolvedValue([{ id: 'm1', role: 'assistant', content: 'Ready when you are.' }]);
+    listModels.mockResolvedValue([{ id: 'balanced-chat', label: 'balanced-chat' }]);
+    getConversationConfig.mockResolvedValue({
+      conversationId: 'conversation_1',
+      knowledgeBaseIds: [],
+      maxOutputTokens: 1024,
+      modelId: 'balanced-chat',
+      systemPromptOverride: '',
+      temperature: 1,
+      toolsEnabled: false
+    });
+    sendMessage.mockResolvedValue([
+      { id: 'm1', role: 'assistant', content: 'Ready when you are.' },
+      { id: 'm2', role: 'user', content: 'Draft a rollout summary.' }
+    ]);
+
+    render(<ChatPage />);
+
+    await screen.findByText('Ready when you are.');
+    fireEvent.change(screen.getByLabelText('Message draft'), { target: { value: 'Draft a rollout summary.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+
+    await waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledWith('conversation_1', { content: 'Draft a rollout summary.' });
+    });
+  });
+
+  it('shows a create-knowledge-base CTA when the active conversation has no knowledge bases available', async () => {
+    routeState.conversationId = 'conversation_1';
+    listConversations.mockResolvedValue([{ id: 'conversation_1', title: 'Research thread' }]);
+    listKnowledgeBases.mockResolvedValue([]);
+    listMessages.mockResolvedValue([]);
+    listModels.mockResolvedValue([{ id: 'balanced-chat', label: 'balanced-chat' }]);
+    getConversationConfig.mockResolvedValue({
+      conversationId: 'conversation_1',
+      knowledgeBaseIds: [],
+      maxOutputTokens: 1024,
+      modelId: 'balanced-chat',
+      systemPromptOverride: '',
+      temperature: 1,
+      toolsEnabled: false
+    });
+
+    render(<ChatPage />);
+
+    expect(await screen.findByRole('button', { name: 'Create knowledge base' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Create knowledge base' }));
+
+    expect(navigate).toHaveBeenCalledWith('/knowledge?returnTo=%2Fchat%2Fconversation_1');
+  });
+
+  it('shows a setup reminder for users who skipped onboarding', async () => {
+    appContext.authState.preferences = {
+      defaultMode: 'chat',
+      modelStrategy: 'balanced',
+      networkEnabledHint: false,
+      onboardingCompleted: false
+    };
+    routeState.conversationId = 'conversation_1';
+    listConversations.mockResolvedValue([{ id: 'conversation_1', title: 'Research thread' }]);
+    listKnowledgeBases.mockResolvedValue([]);
+    listMessages.mockResolvedValue([]);
+    listModels.mockResolvedValue([{ id: 'balanced-chat', label: 'balanced-chat' }]);
+    getConversationConfig.mockResolvedValue({
+      conversationId: 'conversation_1',
+      knowledgeBaseIds: [],
+      maxOutputTokens: 1024,
+      modelId: 'balanced-chat',
+      systemPromptOverride: '',
+      temperature: 1,
+      toolsEnabled: false
+    });
+
+    render(<ChatPage />);
+
+    expect(await screen.findByText('Finish setup to lock in your default workspace preferences.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Complete setup' }));
+
+    expect(navigate).toHaveBeenCalledWith('/onboarding');
   });
 
   it('loads knowledge base bindings in conversation settings and saves selected knowledge bases', async () => {
@@ -244,6 +353,6 @@ describe('ChatPage', () => {
     await waitFor(() => {
       expect(startTask).toHaveBeenCalledWith('task_1');
     });
-    expect(navigate).toHaveBeenCalledWith('/solo?taskId=task_1');
+    expect(navigate).toHaveBeenCalledWith('/solo?taskId=task_1&returnTo=%2Fchat%2Fconversation_1');
   });
 });
