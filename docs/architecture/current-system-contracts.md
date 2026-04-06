@@ -250,14 +250,14 @@ Browser
 | Marketing | `/` | 已接入 |
 | Marketing | `/login` | 已接入 |
 | Marketing | `/register` | 已接入 |
-| Workspace | `/onboarding` | 已接入，但页面为占位实现 |
-| Workspace | `/chat` | 已接入，但页面为占位实现 |
-| Workspace | `/chat/:conversationId` | 已接入，但页面为占位实现 |
-| Workspace | `/knowledge` | 已接入，知识库列表与创建可用 |
-| Workspace | `/knowledge/:knowledgeBaseId` | 已接入，文档 CRUD 与 retrieval MVP 可用 |
-| Workspace | `/solo` | 已接入，任务运行时 MVP 可用 |
-| Workspace | `/solo/new` | 已接入，任务创建视图可用 |
-| Workspace | `/settings` | 已接入，但页面为占位实现 |
+| Workspace | `/onboarding` | 已接入，允许跳过但仍作为首次引导页 |
+| Workspace | `/chat` | 已接入，作为默认主入口与会话空状态页 |
+| Workspace | `/chat/:conversationId` | 已接入，支持消息、知识库绑定与 SOLO handoff |
+| Workspace | `/knowledge` | 已接入，支持知识库列表、创建与从 Chat 的 `returnTo` 回跳 |
+| Workspace | `/knowledge/:knowledgeBaseId` | 已接入，支持文档 CRUD、retrieval 与回到 Chat |
+| Workspace | `/solo` | 已接入，支持 `taskId` 与 Chat-originated return flow |
+| Workspace | `/solo/new` | 已接入，支持任务创建视图与默认参数配置 |
+| Workspace | `/settings` | 已接入，作为长期偏好页并支持返回 Chat |
 | Console | `/console` | 已接入，但首页为占位实现 |
 | Console | `/console/models` | 已接入，但页面为占位实现 |
 | Console | `/console/usage` | 已接入，但页面为占位实现 |

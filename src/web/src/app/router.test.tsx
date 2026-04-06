@@ -23,6 +23,15 @@ describe('app router', () => {
     expect(screen.getByRole('heading', { name: 'Knowledge' })).toBeInTheDocument();
   });
 
+  it('renders onboarding inside the workspace shell', () => {
+    const router = createAppRouter(['/onboarding']);
+
+    render(<RouterProvider router={router} />);
+
+    expect(screen.getByText('Workspace')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Onboarding' })).toBeInTheDocument();
+  });
+
   it('renders solo route inside the workspace shell', () => {
     const router = createAppRouter(['/solo']);
 
