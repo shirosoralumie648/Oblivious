@@ -2,6 +2,8 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { UserPreferences } from '../../types/api';
+
 const appContext = vi.hoisted(() => ({
   authState: {
     preferences: {
@@ -9,7 +11,7 @@ const appContext = vi.hoisted(() => ({
       modelStrategy: 'balanced',
       networkEnabledHint: false,
       onboardingCompleted: false
-    },
+    } as UserPreferences,
     status: 'authenticated' as const,
     user: { email: 'user@example.com', id: 'u1' }
   }
@@ -28,7 +30,7 @@ describe('ProtectedRoute', () => {
       modelStrategy: 'balanced',
       networkEnabledHint: false,
       onboardingCompleted: false
-    };
+    } as UserPreferences;
   });
 
   it('allows authenticated users with incomplete onboarding to remain on /chat', () => {
@@ -52,7 +54,7 @@ describe('ProtectedRoute', () => {
       modelStrategy: 'quality',
       networkEnabledHint: true,
       onboardingCompleted: true
-    };
+    } as UserPreferences;
 
     render(
       <MemoryRouter initialEntries={['/onboarding']}>
