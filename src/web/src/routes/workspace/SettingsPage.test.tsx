@@ -1,8 +1,9 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { UserPreferences } from '../../types/api';
 
+const navigate = vi.fn();
 const appContext = vi.hoisted(() => ({
   authState: {
     preferences: {
@@ -17,6 +18,15 @@ const appContext = vi.hoisted(() => ({
   updatePreferences: vi.fn(async (preferences) => preferences)
 }));
 
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
+
+  return {
+    ...actual,
+    useNavigate: () => navigate
+  };
+});
+
 vi.mock('../../app/providers', () => ({
   useAppContext: () => appContext
 }));
@@ -25,6 +35,7 @@ import { SettingsPage } from './SettingsPage';
 
 describe('SettingsPage', () => {
   beforeEach(() => {
+    navigate.mockReset();
     appContext.authState.preferences = {
       defaultMode: 'chat',
       modelStrategy: 'balanced',
@@ -69,5 +80,11 @@ describe('SettingsPage', () => {
     });
 
     expect(screen.getByText('Preferences saved.')).toBeInTheDocument();
+  });
+
+  it('offers a return path back to chat', () => {
+    render(<SettingsPage />);
+
+    expect(screen.getByRole('button', { name: 'Return to chat' })).toBeInTheDocument();
   });
 });

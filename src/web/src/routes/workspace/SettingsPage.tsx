@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import { useAppContext } from '../../app/providers';
 
 export function SettingsPage() {
+  const navigate = useNavigate();
   const { authState, updatePreferences } = useAppContext();
   const preferences = authState.preferences ?? {
     defaultMode: 'chat' as const,
@@ -57,6 +59,9 @@ export function SettingsPage() {
       <p>{preferences.onboardingCompleted ? 'Onboarding complete' : 'Onboarding pending'}</p>
       <button onClick={() => void handleSave()} type="button">
         Save preferences
+      </button>
+      <button onClick={() => navigate('/chat')} type="button">
+        Return to chat
       </button>
       {savedMessage ? <p>{savedMessage}</p> : null}
     </section>

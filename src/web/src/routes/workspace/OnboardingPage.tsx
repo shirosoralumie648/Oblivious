@@ -1,8 +1,10 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import { useAppContext } from '../../app/providers';
 
 export function OnboardingPage() {
+  const navigate = useNavigate();
   const { updatePreferences } = useAppContext();
   const [defaultMode, setDefaultMode] = useState<'chat' | 'solo' | null>(null);
   const [modelStrategy, setModelStrategy] = useState('balanced');
@@ -18,6 +20,12 @@ export function OnboardingPage() {
       networkEnabledHint: false,
       onboardingCompleted: true
     });
+
+    navigate(defaultMode === 'solo' ? '/solo/new' : '/chat');
+  };
+
+  const handleSkip = () => {
+    navigate('/chat');
   };
 
   return (
@@ -30,7 +38,9 @@ export function OnboardingPage() {
       <button onClick={() => setDefaultMode('solo')} type="button">
         Start with SOLO
       </button>
-      <button type="button">Skip for now</button>
+      <button onClick={handleSkip} type="button">
+        Skip for now
+      </button>
       {defaultMode !== null ? (
         <div>
           <p>Default model strategy</p>
