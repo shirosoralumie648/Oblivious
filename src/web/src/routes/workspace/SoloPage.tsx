@@ -101,6 +101,7 @@ export function SoloPage() {
   const { authState } = useAppContext();
   const navigate = useNavigate();
   const isTaskCreationView = window.location.pathname === '/solo/new';
+  const returnTo = new URLSearchParams(window.location.search).get('returnTo');
   const httpClient = useMemo(() => createHttpClient(), []);
   const chatApi = useMemo(() => createChatApi(httpClient), [httpClient]);
   const knowledgeApi = useMemo(() => createKnowledgeApi(httpClient), [httpClient]);
@@ -484,6 +485,11 @@ export function SoloPage() {
           New task
         </button>
       )}
+      {returnTo ? (
+        <button onClick={() => navigate(returnTo)} type="button">
+          Back to chat
+        </button>
+      ) : null}
 
       <label>
         Task goal

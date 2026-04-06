@@ -10,6 +10,7 @@ export function KnowledgePage() {
   const navigate = useNavigate();
   const { knowledgeBaseId } = useParams<{ knowledgeBaseId?: string }>();
   const { authState } = useAppContext();
+  const returnTo = new URLSearchParams(window.location.search).get('returnTo');
   const knowledgeApi = useMemo(() => createKnowledgeApi(createHttpClient()), []);
   const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -372,6 +373,11 @@ export function KnowledgePage() {
           <button onClick={() => navigate('/knowledge')} type="button">
             Back to knowledge bases
           </button>
+          {returnTo ? (
+            <button onClick={() => navigate(returnTo)} type="button">
+              Back to chat
+            </button>
+          ) : null}
         </>
       ) : (
         <>

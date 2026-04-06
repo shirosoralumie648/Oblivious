@@ -447,6 +447,30 @@ describe('SoloPage', () => {
     expect(screen.getByText('Understand the goal')).toBeInTheDocument();
   });
 
+  it('shows a back-to-chat action when returnTo is present on the solo route', async () => {
+    window.history.replaceState({}, '', '/solo?taskId=task_1&returnTo=%2Fchat%2Fconversation_1');
+    listTasks.mockResolvedValue([]);
+    listKnowledgeBases.mockResolvedValue([]);
+    getTask.mockResolvedValue({
+      authorizationScope: 'workspace_tools',
+      budgetLimit: 12,
+      executionMode: 'standard',
+      goal: 'Investigate blockers',
+      id: 'task_1',
+      knowledgeBaseIds: [],
+      status: 'running',
+      steps: [{ id: 'step_1', status: 'running', stepIndex: 1, title: 'Review workspace context' }],
+      title: 'Investigate blockers'
+    });
+
+    render(<SoloPage />);
+
+    expect(await screen.findByRole('button', { name: 'Back to chat' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Back to chat' }));
+
+    expect(navigate).toHaveBeenCalledWith('/chat/conversation_1');
+  });
+
   it('pauses and resumes a running task from the execution view', async () => {
     listTasks.mockResolvedValue([]);
     listKnowledgeBases.mockResolvedValue([]);

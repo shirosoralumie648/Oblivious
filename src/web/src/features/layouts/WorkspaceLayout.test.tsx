@@ -48,4 +48,23 @@ describe('WorkspaceLayout', () => {
     expect(screen.getByRole('link', { name: 'Console' })).toBeInTheDocument();
     expect(screen.getByText('Workspace child')).toBeInTheDocument();
   });
+
+  it('renders workspace navigation in chat-first order', () => {
+    const router = createMemoryRouter(
+      [
+        {
+          path: '/',
+          element: <WorkspaceLayout />,
+          children: [{ index: true, element: <p>Workspace child</p> }]
+        }
+      ],
+      { initialEntries: ['/'] }
+    );
+
+    render(<RouterProvider router={router} />);
+
+    const links = screen.getAllByRole('link').map((link) => link.textContent);
+
+    expect(links).toEqual(['Chat', 'Knowledge', 'SOLO', 'Settings', 'Console']);
+  });
 });

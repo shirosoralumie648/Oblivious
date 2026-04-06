@@ -166,6 +166,25 @@ describe('KnowledgePage', () => {
     expect(screen.getByRole('button', { name: 'Back to knowledge bases' })).toBeInTheDocument();
   });
 
+  it('shows a back-to-chat action when returnTo is present on the knowledge route', async () => {
+    window.history.replaceState({}, '', '/knowledge/kb_9?returnTo=%2Fchat%2Fconversation_1');
+    routeState.knowledgeBaseId = 'kb_9';
+    getKnowledgeBase.mockResolvedValue({
+      documentCount: 1,
+      id: 'kb_9',
+      name: 'Architecture Notes',
+      updatedAt: '2026-04-03T11:30:00Z'
+    });
+    listKnowledgeDocuments.mockResolvedValue([]);
+
+    render(<KnowledgePage />);
+
+    expect(await screen.findByRole('button', { name: 'Back to chat' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Back to chat' }));
+
+    expect(navigate).toHaveBeenCalledWith('/chat/conversation_1');
+  });
+
   it('creates a document inside the selected knowledge base', async () => {
     routeState.knowledgeBaseId = 'kb_9';
     getKnowledgeBase.mockResolvedValue({
