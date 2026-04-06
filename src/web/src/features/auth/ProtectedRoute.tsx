@@ -1,6 +1,7 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 
 import { useAppContext } from '../../app/providers';
+import { resolveWorkspaceLandingPath } from './workspaceLanding';
 
 export function ProtectedRoute() {
   const location = useLocation();
@@ -20,12 +21,8 @@ export function ProtectedRoute() {
     return <Navigate replace state={{ from: redirectPath }} to="/login" />;
   }
 
-  if (!authState.preferences?.onboardingCompleted && location.pathname !== '/onboarding') {
-    return <Navigate replace to="/onboarding" />;
-  }
-
   if (authState.preferences?.onboardingCompleted && location.pathname === '/onboarding') {
-    return <Navigate replace to="/chat" />;
+    return <Navigate replace to={resolveWorkspaceLandingPath(authState.preferences)} />;
   }
 
   return <Outlet />;
