@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { routerFuture } from '../../app/routerFuture';
 import type { UserPreferences } from '../../types/api';
 
 const appContext = vi.hoisted(() => ({
@@ -35,7 +36,7 @@ describe('ProtectedRoute', () => {
 
   it('allows authenticated users with incomplete onboarding to remain on /chat', () => {
     render(
-      <MemoryRouter initialEntries={['/chat']}>
+      <MemoryRouter future={routerFuture} initialEntries={['/chat']}>
         <Routes>
           <Route element={<ProtectedRoute />}>
             <Route element={<div>chat shell</div>} path="/chat" />
@@ -57,7 +58,7 @@ describe('ProtectedRoute', () => {
     } as UserPreferences;
 
     render(
-      <MemoryRouter initialEntries={['/onboarding']}>
+      <MemoryRouter future={routerFuture} initialEntries={['/onboarding']}>
         <Routes>
           <Route element={<ProtectedRoute />}>
             <Route element={<div>solo shell</div>} path="/solo/new" />

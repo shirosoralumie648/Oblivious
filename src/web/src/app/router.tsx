@@ -4,6 +4,7 @@ import {
   type RouteObject
 } from 'react-router-dom';
 
+import { routerFuture } from './routerFuture';
 import { ProtectedRoute } from '../features/auth/ProtectedRoute';
 import { ConsoleLayout } from '../features/layouts/ConsoleLayout';
 import { MarketingLayout } from '../features/layouts/MarketingLayout';
@@ -64,8 +65,8 @@ const routes: RouteObject[] = [
 
 export function createAppRouter(initialEntries?: string[]) {
   if (initialEntries && initialEntries.length > 0) {
-    return createMemoryRouter(routes, { initialEntries });
+    return createMemoryRouter(routes, { initialEntries, future: routerFuture });
   }
 
-  return createBrowserRouter(routes);
+  return createBrowserRouter(routes, { future: routerFuture });
 }
