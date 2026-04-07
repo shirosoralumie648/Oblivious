@@ -3,6 +3,7 @@ package knowledge
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"time"
 
 	"oblivious/server/internal/auth"
@@ -49,6 +50,10 @@ func NewService(store Store) *Service {
 	return &Service{store: store}
 }
 
+func normalizeKnowledgeQuery(query string) string {
+	return strings.Join(strings.Fields(strings.TrimSpace(query)), " ")
+}
+
 func (s *Service) List(ctx context.Context, session auth.Session) ([]KnowledgeBase, error) {
 	return s.store.ListKnowledgeBases(ctx, session.WorkspaceID)
 }
@@ -70,7 +75,7 @@ func (s *Service) CreateDocument(ctx context.Context, session auth.Session, know
 }
 
 func (s *Service) Retrieve(ctx context.Context, session auth.Session, knowledgeBaseID, query string) ([]KnowledgeRetrievalResult, error) {
-	return s.store.RetrieveKnowledge(ctx, session.WorkspaceID, knowledgeBaseID, query)
+	return s.store.RetrieveKnowledge(ctx, session.WorkspaceID, knowledgeBaseID, normalizeKnowledgeQuery(query))
 }
 
 func (s *Service) Update(ctx context.Context, session auth.Session, knowledgeBaseID, name string) (KnowledgeBase, error) {

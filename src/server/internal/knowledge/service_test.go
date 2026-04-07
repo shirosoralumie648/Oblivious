@@ -9,21 +9,21 @@ import (
 )
 
 type fakeStore struct {
-	createdName  string
-	createdBase  KnowledgeBase
-	createdDoc   KnowledgeDocument
-	deletedDocID string
-	deletedID    string
-	detailBase   KnowledgeBase
-	documents    []KnowledgeDocument
-	listBases    []KnowledgeBase
-	retrievalQuery string
+	createdName      string
+	createdBase      KnowledgeBase
+	createdDoc       KnowledgeDocument
+	deletedDocID     string
+	deletedID        string
+	detailBase       KnowledgeBase
+	documents        []KnowledgeDocument
+	listBases        []KnowledgeBase
+	retrievalQuery   string
 	retrievalResults []KnowledgeRetrievalResult
-	requestedDoc KnowledgeDocument
-	requestedID  string
-	updatedBase  KnowledgeBase
-	updatedDoc   KnowledgeDocument
-	workspaceID  string
+	requestedDoc     KnowledgeDocument
+	requestedID      string
+	updatedBase      KnowledgeBase
+	updatedDoc       KnowledgeDocument
+	workspaceID      string
 }
 
 func (f *fakeStore) CreateKnowledgeBase(ctx context.Context, workspaceID, name string) (KnowledgeBase, error) {
@@ -270,6 +270,21 @@ func TestRetrieveReturnsRelevantDocumentSnippets(t *testing.T) {
 	}
 	if results[0].Snippet != "Initial architecture draft covers deployment boundaries." {
 		t.Fatalf("unexpected snippet %q", results[0].Snippet)
+	}
+}
+
+func TestRetrieveNormalizesKnowledgeQueryBeforeCallingStore(t *testing.T) {
+	store := &fakeStore{
+		retrievalResults: []KnowledgeRetrievalResult{},
+	}
+	service := NewService(store)
+
+	if _, err := service.Retrieve(context.Background(), auth.Session{WorkspaceID: "workspace_1"}, "kb_7", "  deployment   rollback  "); err != nil {
+		t.Fatalf("retrieve knowledge: %v", err)
+	}
+
+	if store.retrievalQuery != "deployment rollback" {
+		t.Fatalf("expected normalized query %q, got %q", "deployment rollback", store.retrievalQuery)
 	}
 }
 

@@ -3,6 +3,7 @@ package knowledge
 import (
 	"context"
 	"database/sql"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -15,6 +16,57 @@ const (
 	knowledgeRetrievalLimit    = 5
 	knowledgeSnippetSize       = 220
 )
+
+type knowledgeRetrievalCandidate struct {
+	documentID    string
+	documentTitle string
+	documentBody  string
+	chunkContent  sql.NullString
+	chunkIndex    int
+	updatedAt     time.Time
+}
+
+func buildKnowledgeQueryTerms(query string) []string {
+	normalized := normalizeKnowledgeQuery(query)
+	if normalized == "" {
+		return nil
+	}
+
+	return strings.Fields(strings.ToLower(normalized))
+}
+
+func countKnowledgeTermHits(content string, terms []string) int {
+	lowerContent := strings.ToLower(content)
+	hits := 0
+	for _, term := range terms {
+		if term != "" && strings.Contains(lowerContent, term) {
+			hits++
+		}
+	}
+	return hits
+}
+
+func scoreKnowledgeCandidate(title, body string, chunk sql.NullString, terms []string) int {
+	titleHits := countKnowledgeTermHits(title, terms)
+	bodyHits := countKnowledgeTermHits(body, terms)
+	chunkHits := 0
+	if chunk.Valid {
+		chunkHits = countKnowledgeTermHits(chunk.String, terms)
+	}
+
+	score := titleHits*100 + chunkHits*25 + bodyHits*10
+	if titleHits == len(terms) && len(terms) > 0 {
+		score += 50
+	}
+	return score
+}
+
+func chooseKnowledgeSnippetSource(body string, chunk sql.NullString, terms []string) string {
+	if chunk.Valid && countKnowledgeTermHits(chunk.String, terms) >= countKnowledgeTermHits(body, terms) {
+		return chunk.String
+	}
+	return body
+}
 
 func (s *SQLStore) CreateKnowledgeBase(ctx context.Context, workspaceID, name string) (KnowledgeBase, error) {
 	knowledgeBaseID, err := auth.NewID("kb")
@@ -263,14 +315,14 @@ func (s *SQLStore) DeleteKnowledgeDocument(ctx context.Context, workspaceID, kno
 }
 
 func (s *SQLStore) RetrieveKnowledge(ctx context.Context, workspaceID, knowledgeBaseID, query string) ([]KnowledgeRetrievalResult, error) {
-	trimmedQuery := strings.TrimSpace(query)
-	if trimmedQuery == "" {
+	normalizedQuery := normalizeKnowledgeQuery(query)
+	if normalizedQuery == "" {
 		return []KnowledgeRetrievalResult{}, nil
 	}
 
-	pattern := "%" + escapeLikePattern(trimmedQuery) + "%"
+	pattern := "%" + escapeLikePattern(normalizedQuery) + "%"
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT d.id, d.title, d.content, c.content
+		SELECT d.id, d.title, d.content, c.content, COALESCE(c.chunk_index, -1), d.updated_at
 		FROM knowledge_documents d
 		JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
 		LEFT JOIN knowledge_document_chunks c ON c.document_id = d.id
@@ -279,16 +331,7 @@ func (s *SQLStore) RetrieveKnowledge(ctx context.Context, workspaceID, knowledge
 			OR d.content ILIKE $3 ESCAPE '\'
 			OR c.content ILIKE $3 ESCAPE '\'
 		)
-		ORDER BY
-			CASE
-				WHEN d.title ILIKE $3 ESCAPE '\' THEN 3
-				WHEN c.content ILIKE $3 ESCAPE '\' THEN 2
-				WHEN d.content ILIKE $3 ESCAPE '\' THEN 1
-				ELSE 0
-			END DESC,
-			d.updated_at DESC,
-			d.title ASC,
-			COALESCE(c.chunk_index, -1) ASC
+		ORDER BY d.updated_at DESC, d.title ASC, COALESCE(c.chunk_index, -1) ASC
 		LIMIT 20
 	`, workspaceID, knowledgeBaseID, pattern)
 	if err != nil {
@@ -296,39 +339,72 @@ func (s *SQLStore) RetrieveKnowledge(ctx context.Context, workspaceID, knowledge
 	}
 	defer rows.Close()
 
-	results := make([]KnowledgeRetrievalResult, 0, knowledgeRetrievalLimit)
-	seen := map[string]struct{}{}
+	terms := buildKnowledgeQueryTerms(normalizedQuery)
+	candidates := []knowledgeRetrievalCandidate{}
 	for rows.Next() {
 		var (
 			documentID    string
 			documentTitle string
 			documentBody  string
 			chunkContent  sql.NullString
+			chunkIndex    int
+			updatedAt     time.Time
 		)
 
-		if err := rows.Scan(&documentID, &documentTitle, &documentBody, &chunkContent); err != nil {
+		if err := rows.Scan(&documentID, &documentTitle, &documentBody, &chunkContent, &chunkIndex, &updatedAt); err != nil {
 			return nil, err
 		}
 
-		source := documentBody
-		if chunkContent.Valid && strings.Contains(strings.ToLower(chunkContent.String), strings.ToLower(trimmedQuery)) {
-			source = chunkContent.String
-		}
+		candidates = append(candidates, knowledgeRetrievalCandidate{
+			documentID:    documentID,
+			documentTitle: documentTitle,
+			documentBody:  documentBody,
+			chunkContent:  chunkContent,
+			chunkIndex:    chunkIndex,
+			updatedAt:     updatedAt,
+		})
+	}
 
-		snippet := buildKnowledgeSnippet(source, trimmedQuery)
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	sort.SliceStable(candidates, func(i, j int) bool {
+		left := candidates[i]
+		right := candidates[j]
+
+		leftScore := scoreKnowledgeCandidate(left.documentTitle, left.documentBody, left.chunkContent, terms)
+		rightScore := scoreKnowledgeCandidate(right.documentTitle, right.documentBody, right.chunkContent, terms)
+		if leftScore != rightScore {
+			return leftScore > rightScore
+		}
+		if !left.updatedAt.Equal(right.updatedAt) {
+			return left.updatedAt.After(right.updatedAt)
+		}
+		if left.documentTitle != right.documentTitle {
+			return left.documentTitle < right.documentTitle
+		}
+		return left.chunkIndex < right.chunkIndex
+	})
+
+	results := make([]KnowledgeRetrievalResult, 0, knowledgeRetrievalLimit)
+	seen := map[string]struct{}{}
+	for _, candidate := range candidates {
+		source := chooseKnowledgeSnippetSource(candidate.documentBody, candidate.chunkContent, terms)
+		snippet := buildKnowledgeSnippet(source, normalizedQuery)
 		if snippet == "" {
 			continue
 		}
 
-		resultKey := documentID + "|" + snippet
+		resultKey := candidate.documentID + "|" + snippet
 		if _, exists := seen[resultKey]; exists {
 			continue
 		}
 		seen[resultKey] = struct{}{}
 
 		results = append(results, KnowledgeRetrievalResult{
-			DocumentID:    documentID,
-			DocumentTitle: documentTitle,
+			DocumentID:    candidate.documentID,
+			DocumentTitle: candidate.documentTitle,
 			Snippet:       snippet,
 		})
 		if len(results) == knowledgeRetrievalLimit {
@@ -336,7 +412,7 @@ func (s *SQLStore) RetrieveKnowledge(ctx context.Context, workspaceID, knowledge
 		}
 	}
 
-	return results, rows.Err()
+	return results, nil
 }
 
 func replaceKnowledgeDocumentChunks(ctx context.Context, tx *sql.Tx, documentID, content string, now time.Time) error {
@@ -437,32 +513,40 @@ func buildKnowledgeSnippet(content, query string) string {
 	}
 
 	contentRunes := []rune(normalized)
-	if len(contentRunes) <= knowledgeSnippetSize {
-		return normalized
-	}
-
 	lowerContent := strings.ToLower(normalized)
 	lowerQuery := strings.ToLower(strings.TrimSpace(query))
 	matchIndex := strings.Index(lowerContent, lowerQuery)
 	if matchIndex == -1 {
+		if len(contentRunes) <= knowledgeSnippetSize {
+			return normalized
+		}
 		return strings.TrimSpace(string(contentRunes[:knowledgeSnippetSize])) + "..."
+	}
+
+	windowSize := knowledgeSnippetSize
+	if len(contentRunes) <= knowledgeSnippetSize {
+		if len(contentRunes) > knowledgeSnippetSize/2 {
+			windowSize = knowledgeSnippetSize / 2
+		} else {
+			windowSize = len(contentRunes)
+		}
 	}
 
 	matchRunes := []rune(normalized[:matchIndex])
 	queryRunes := []rune(query)
-	start := len(matchRunes) - knowledgeSnippetSize/3
+	start := len(matchRunes) - windowSize/3
 	if start < 0 {
 		start = 0
 	}
-	end := start + knowledgeSnippetSize
+	end := start + windowSize
 	if end < len(matchRunes)+len(queryRunes) {
 		end = len(matchRunes) + len(queryRunes)
 	}
 	if end > len(contentRunes) {
 		end = len(contentRunes)
 	}
-	if end-start > knowledgeSnippetSize && end == len(contentRunes) {
-		start = max(0, end-knowledgeSnippetSize)
+	if end-start > windowSize && end == len(contentRunes) {
+		start = max(0, end-windowSize)
 	}
 
 	snippet := strings.TrimSpace(string(contentRunes[start:end]))
