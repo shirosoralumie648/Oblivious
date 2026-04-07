@@ -395,7 +395,7 @@
 - Chat 页面从占位升级为可用界面
 - Settings / Onboarding 实现测试目标中的交互
 - Console 首页、Usage、Models、Billing、Access 页面接入真实数据
-- Knowledge 页面完成列表/详情/文档 CRUD
+- Knowledge 页面完成列表/详情/文档 CRUD，并把当前 retrieval 一并收口到 Beta 可依赖状态
 - SOLO 页面完成创建、启动、暂停、恢复、预算更新、结果桥接聊天
 
 #### 技术方案
@@ -433,7 +433,7 @@
 
 - M2：工作区 Beta
 - Chat UI
-- Knowledge CRUD UI
+- Knowledge CRUD + retrieval Beta
 - SOLO starter UI
 - Settings / Onboarding
 - Console 页面
@@ -451,7 +451,7 @@
 
 #### 具体工作
 
-- Knowledge：ingestion、chunking、indexing、retrieval MVP
+- Knowledge：在现有 `/retrieve` 接口之外，才允许继续推进 ingestion、indexing 与更重的检索能力
 - Chat：streaming、provider abstraction、错误降级
 - SOLO：真实 runtime MVP、执行日志、审批点、结果结构化
 

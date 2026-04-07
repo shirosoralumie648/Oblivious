@@ -71,8 +71,8 @@
 | --- | --- | --- | ---: | --- |
 | M0 基线冻结 | 2026-04-10 | 已完成 | 100% | workspace、root 入口、契约文档与治理模板已冻结并合入主线 |
 | M1 主线可运行 | 2026-04-24 | 已完成 | 100% | `src/web build`、关键路由、root `check/test` 与前端 `0 warning` 验收已经闭环 |
-| M2 工作区 Beta | 2026-05-15 | 未开始 | 10% | Knowledge/SOLO 页面已有中间态代码，但不构成可交付 Beta |
-| M3 能力 Beta | 2026-06-05 | 未开始 | 5% | Knowledge retrieval、SOLO runtime、Chat streaming 均未进入真实实现 |
+| M2 工作区 Beta | 2026-05-15 | 进行中 | 25% | Knowledge 已完成首个 Beta 子项目收口，其余 Chat / SOLO / Console 闭环仍待推进 |
+| M3 能力 Beta | 2026-06-05 | 未开始 | 5% | advanced retrieval、SOLO runtime、Chat streaming 仍未展开 |
 | M4 RC 候选版 | 2026-06-19 | 未开始 | 0% | CI、质量门禁、安全基线、发布清单尚未建立 |
 
 说明：
@@ -100,11 +100,11 @@
 | Task 3 | Normalize HTTP Client And Frontend API Contracts | 已完成 | 90% | `HttpClient` 与前端类型已支撑当前主线接口 |
 | Task 4 | Wire Protected Workspace Routes And Layouts | 已完成 | 90% | 关键工作区路由与权限守卫已接通 |
 | Task 5 | Implement Workspace Chat / Onboarding / Settings | 已完成 | 80% | 已达到 `M1` 的可访问、可构建、可回归标准 |
-| Task 6 | Finish Knowledge Workspace CRUD Integration | 已完成 M1 范围 | 75% | Knowledge 页面已经进入主线可运行态，后续增强转入 `M2` |
+| Task 6 | Finish Knowledge Workspace CRUD Integration | 已完成 Beta 收口 | 100% | Knowledge CRUD、retrieval 结果质量、页面回归与文档说明已进入 Beta 可依赖状态 |
 | Task 7 | Finish SOLO Starter Workspace Integration | 已完成 M1 范围 | 75% | SOLO starter 已进入主线可运行态，后续 runtime 能力转入 `M2/M3` |
 | Task 8 | Implement Console Dashboard And Child Pages | 已完成 M1 范围 | 75% | Console 首页与子页已可访问、可测试、可验收 |
 | Task 9 | Harden Backend Runtime Configuration And Testability | 部分完成 | 60% | root 验证入口已稳定，后续重点是 `TEST_DATABASE_URL` 场景的环境复现 |
-| Task 10 | Deliver Knowledge Retrieval MVP | 未启动 | 0% | 仅有 CRUD，没有 retrieval |
+| Task 10 | Deliver Knowledge Retrieval MVP | 已完成 M2-A 范围 | 40% | 当前文本 retrieval 已稳定进入 Beta，但更重的 ingestion / indexing / M3 检索能力尚未展开 |
 | Task 11 | Replace SOLO Starter With Runtime MVP | 未启动 | 5% | 只有 starter 状态机原型 |
 | Task 12 | Add Quality Gates, CI, And Release Checks | 未启动 | 5% | 无 CI 基线，脚本契约仍错误 |
 

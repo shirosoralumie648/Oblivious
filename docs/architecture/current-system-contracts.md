@@ -211,7 +211,8 @@ Browser
 
 - 当前支持知识库/文档 CRUD
 - 当前在文档创建与更新时做最小 chunking
-- 当前提供基于 `ILIKE` 的 retrieval MVP，不包含向量检索
+- 当前 retrieval 已进入 Knowledge Beta：维持现有 `/retrieve` 接口 shape，但结果排序、snippet 质量、空结果反馈和页面回归均按 Beta 标准收口
+- 当前 retrieval 仍基于文本匹配，不包含向量检索、embedding 或异步 ingestion pipeline
 
 ### 6.6 SOLO Tasks
 
