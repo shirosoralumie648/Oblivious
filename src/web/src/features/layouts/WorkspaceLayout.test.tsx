@@ -2,6 +2,8 @@ import { render, screen } from '@testing-library/react';
 import { RouterProvider, createMemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 
+import { routerFuture } from '../../app/routerFuture';
+
 const appContext = vi.hoisted(() => ({
   authState: {
     preferences: {
@@ -26,7 +28,7 @@ vi.mock('../../app/providers', () => ({
 import { WorkspaceLayout } from './WorkspaceLayout';
 
 describe('WorkspaceLayout', () => {
-  it('renders workspace navigation with a console entry', () => {
+  it('renders workspace navigation with a console entry', async () => {
     const router = createMemoryRouter(
       [
         {
@@ -35,12 +37,12 @@ describe('WorkspaceLayout', () => {
           children: [{ index: true, element: <p>Workspace child</p> }]
         }
       ],
-      { initialEntries: ['/'] }
+      { future: routerFuture, initialEntries: ['/'] }
     );
 
-    render(<RouterProvider router={router} />);
+    render(<RouterProvider future={routerFuture} router={router} />);
 
-    expect(screen.getByText('Workspace')).toBeInTheDocument();
+    expect(await screen.findByText('Workspace')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Chat' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'SOLO' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Knowledge' })).toBeInTheDocument();
@@ -49,7 +51,7 @@ describe('WorkspaceLayout', () => {
     expect(screen.getByText('Workspace child')).toBeInTheDocument();
   });
 
-  it('renders workspace navigation in chat-first order', () => {
+  it('renders workspace navigation in chat-first order', async () => {
     const router = createMemoryRouter(
       [
         {
@@ -58,10 +60,12 @@ describe('WorkspaceLayout', () => {
           children: [{ index: true, element: <p>Workspace child</p> }]
         }
       ],
-      { initialEntries: ['/'] }
+      { future: routerFuture, initialEntries: ['/'] }
     );
 
-    render(<RouterProvider router={router} />);
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    await screen.findByText('Workspace');
 
     const links = screen.getAllByRole('link').map((link) => link.textContent);
 

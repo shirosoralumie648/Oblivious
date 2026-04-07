@@ -31,50 +31,51 @@ vi.mock('../features/console/api', () => ({
 }));
 
 import { createAppRouter } from './router';
+import { routerFuture } from './routerFuture';
 
 describe('app router', () => {
-  it('renders home content on /', () => {
+  it('renders home content on /', async () => {
     const router = createAppRouter(['/']);
 
-    render(<RouterProvider router={router} />);
+    render(<RouterProvider future={routerFuture} router={router} />);
 
-    expect(screen.getByText('Oblivious')).toBeInTheDocument();
-    expect(screen.getByText('AI workspace framework')).toBeInTheDocument();
+    expect(await screen.findByText('Oblivious')).toBeInTheDocument();
+    expect(await screen.findByText('AI workspace framework')).toBeInTheDocument();
   });
 
-  it('renders knowledge route inside the workspace shell', () => {
+  it('renders knowledge route inside the workspace shell', async () => {
     const router = createAppRouter(['/knowledge']);
 
-    render(<RouterProvider router={router} />);
+    render(<RouterProvider future={routerFuture} router={router} />);
 
-    expect(screen.getByText('Workspace')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Knowledge' })).toBeInTheDocument();
+    expect(await screen.findByText('Workspace')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Knowledge' })).toBeInTheDocument();
   });
 
-  it('renders onboarding inside the workspace shell', () => {
+  it('renders onboarding inside the workspace shell', async () => {
     const router = createAppRouter(['/onboarding']);
 
-    render(<RouterProvider router={router} />);
+    render(<RouterProvider future={routerFuture} router={router} />);
 
-    expect(screen.getByText('Workspace')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Onboarding' })).toBeInTheDocument();
+    expect(await screen.findByText('Workspace')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Onboarding' })).toBeInTheDocument();
   });
 
-  it('renders solo route inside the workspace shell', () => {
+  it('renders solo route inside the workspace shell', async () => {
     const router = createAppRouter(['/solo']);
 
-    render(<RouterProvider router={router} />);
+    render(<RouterProvider future={routerFuture} router={router} />);
 
-    expect(screen.getByText('Workspace')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'SOLO' })).toBeInTheDocument();
+    expect(await screen.findByText('Workspace')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'SOLO' })).toBeInTheDocument();
   });
 
-  it('renders billing route inside the console shell', () => {
+  it('renders billing route inside the console shell', async () => {
     const router = createAppRouter(['/console/billing']);
 
-    render(<RouterProvider router={router} />);
+    render(<RouterProvider future={routerFuture} router={router} />);
 
-    expect(screen.getByText('Console')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Billing' })).toBeInTheDocument();
+    expect(await screen.findByText('Console')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Billing' })).toBeInTheDocument();
   });
 });

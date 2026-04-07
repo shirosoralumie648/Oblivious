@@ -2,6 +2,8 @@ import { render, screen } from '@testing-library/react';
 import { RouterProvider, createMemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 
+import { routerFuture } from '../../app/routerFuture';
+
 const appContext = vi.hoisted(() => ({
   authState: {
     preferences: {
@@ -22,7 +24,7 @@ vi.mock('../../app/providers', () => ({
 import { ConsoleLayout } from './ConsoleLayout';
 
 describe('ConsoleLayout', () => {
-  it('renders an admin shell with scope messaging and workspace shortcuts', () => {
+  it('renders an admin shell with scope messaging and workspace shortcuts', async () => {
     const router = createMemoryRouter(
       [
         {
@@ -31,12 +33,12 @@ describe('ConsoleLayout', () => {
           children: [{ index: true, element: <p>Overview page</p> }]
         }
       ],
-      { initialEntries: ['/console'] }
+      { future: routerFuture, initialEntries: ['/console'] }
     );
 
-    render(<RouterProvider router={router} />);
+    render(<RouterProvider future={routerFuture} router={router} />);
 
-    expect(screen.getByRole('heading', { name: 'Console' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Console' })).toBeInTheDocument();
     expect(screen.getByText('Current workspace scope')).toBeInTheDocument();
     expect(screen.getByText('user@example.com')).toBeInTheDocument();
     expect(screen.getByText('Default mode: solo')).toBeInTheDocument();
@@ -45,7 +47,7 @@ describe('ConsoleLayout', () => {
     expect(screen.getByText('Overview page')).toBeInTheDocument();
   });
 
-  it('renders console navigation in overview-billing-usage-models-access order', () => {
+  it('renders console navigation in overview-billing-usage-models-access order', async () => {
     const router = createMemoryRouter(
       [
         {
@@ -54,10 +56,12 @@ describe('ConsoleLayout', () => {
           children: [{ index: true, element: <p>Overview page</p> }]
         }
       ],
-      { initialEntries: ['/console'] }
+      { future: routerFuture, initialEntries: ['/console'] }
     );
 
-    render(<RouterProvider router={router} />);
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    await screen.findByRole('heading', { name: 'Console' });
 
     const links = screen
       .getAllByRole('link')
