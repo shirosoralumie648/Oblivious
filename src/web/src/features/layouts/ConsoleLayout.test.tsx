@@ -39,12 +39,12 @@ describe('ConsoleLayout', () => {
     render(<RouterProvider future={routerFuture} router={router} />);
 
     expect(await screen.findByRole('heading', { name: 'Console' })).toBeInTheDocument();
-    expect(screen.getByText('Current workspace scope')).toBeInTheDocument();
-    expect(screen.getByText('user@example.com')).toBeInTheDocument();
-    expect(screen.getByText('Default mode: solo')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Workspace settings' })).toHaveAttribute('href', '/settings');
-    expect(screen.getByRole('link', { name: 'Return to workspace' })).toHaveAttribute('href', '/chat');
-    expect(screen.getByText('Overview page')).toBeInTheDocument();
+    expect(await screen.findByText('Current workspace scope')).toBeInTheDocument();
+    expect(await screen.findByText('user@example.com')).toBeInTheDocument();
+    expect(await screen.findByText('Default mode: solo')).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Workspace settings' })).toHaveAttribute('href', '/settings');
+    expect(await screen.findByRole('link', { name: 'Return to workspace' })).toHaveAttribute('href', '/chat');
+    expect(await screen.findByText('Overview page')).toBeInTheDocument();
   });
 
   it('renders console navigation in overview-billing-usage-models-access order', async () => {
@@ -63,8 +63,7 @@ describe('ConsoleLayout', () => {
 
     await screen.findByRole('heading', { name: 'Console' });
 
-    const links = screen
-      .getAllByRole('link')
+    const links = (await screen.findAllByRole('link'))
       .map((link) => link.textContent)
       .filter((text): text is string => text !== null);
 

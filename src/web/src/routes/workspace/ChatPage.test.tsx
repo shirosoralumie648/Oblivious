@@ -13,8 +13,8 @@ describe('Route domains', () => {
 
     expect(await screen.findByText('Workspace')).toBeInTheDocument();
     expect(await screen.findByText('Conversations')).toBeInTheDocument();
-    expect(screen.getByText('Capability Panel')).toBeInTheDocument();
-    expect(screen.getByText('Chat')).toBeInTheDocument();
+    expect(await screen.findByText('Capability Panel')).toBeInTheDocument();
+    expect(await screen.findByText('Chat')).toBeInTheDocument();
   });
 
   it('renders workspace shell on /chat/:conversationId', async () => {
@@ -24,8 +24,8 @@ describe('Route domains', () => {
 
     expect(await screen.findByText('Workspace')).toBeInTheDocument();
     expect(await screen.findByText('Conversations')).toBeInTheDocument();
-    expect(screen.getByText('Capability Panel')).toBeInTheDocument();
-    expect(screen.getByText('Chat')).toBeInTheDocument();
+    expect(await screen.findByText('Capability Panel')).toBeInTheDocument();
+    expect(await screen.findByText('Chat')).toBeInTheDocument();
   });
 
   it('renders marketing domain on /', async () => {
@@ -34,7 +34,7 @@ describe('Route domains', () => {
     render(<RouterProvider future={routerFuture} router={router} />);
 
     expect(await screen.findByText('Oblivious')).toBeInTheDocument();
-    expect(screen.getByText('AI workspace framework')).toBeInTheDocument();
+    expect(await screen.findByText('AI workspace framework')).toBeInTheDocument();
   });
 
   it('renders console index route on /console', async () => {

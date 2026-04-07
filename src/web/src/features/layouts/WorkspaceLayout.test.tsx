@@ -43,12 +43,12 @@ describe('WorkspaceLayout', () => {
     render(<RouterProvider future={routerFuture} router={router} />);
 
     expect(await screen.findByText('Workspace')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Chat' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'SOLO' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Knowledge' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Settings' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Console' })).toBeInTheDocument();
-    expect(screen.getByText('Workspace child')).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Chat' })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'SOLO' })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Knowledge' })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Settings' })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Console' })).toBeInTheDocument();
+    expect(await screen.findByText('Workspace child')).toBeInTheDocument();
   });
 
   it('renders workspace navigation in chat-first order', async () => {
@@ -67,7 +67,7 @@ describe('WorkspaceLayout', () => {
 
     await screen.findByText('Workspace');
 
-    const links = screen.getAllByRole('link').map((link) => link.textContent);
+    const links = (await screen.findAllByRole('link')).map((link) => link.textContent);
 
     expect(links).toEqual(['Chat', 'Knowledge', 'SOLO', 'Settings', 'Console']);
   });
