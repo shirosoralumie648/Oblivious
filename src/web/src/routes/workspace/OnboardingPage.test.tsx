@@ -2,6 +2,8 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { routerFuture } from '../../app/routerFuture';
+
 const navigate = vi.fn();
 const updatePreferences = vi.fn();
 
@@ -41,7 +43,7 @@ describe('OnboardingPage', () => {
 
   it('offers chat and solo choices for first-run mode selection', () => {
     render(
-      <MemoryRouter>
+      <MemoryRouter future={routerFuture}>
         <OnboardingPage />
       </MemoryRouter>
     );
@@ -52,7 +54,7 @@ describe('OnboardingPage', () => {
 
   it('lets users skip onboarding from the page shell', () => {
     render(
-      <MemoryRouter>
+      <MemoryRouter future={routerFuture}>
         <OnboardingPage />
       </MemoryRouter>
     );
@@ -62,7 +64,7 @@ describe('OnboardingPage', () => {
 
   it('shows preference options after choosing a mode', () => {
     render(
-      <MemoryRouter>
+      <MemoryRouter future={routerFuture}>
         <OnboardingPage />
       </MemoryRouter>
     );
@@ -75,7 +77,7 @@ describe('OnboardingPage', () => {
 
   it('saves preferences and routes to /chat after choosing chat', async () => {
     render(
-      <MemoryRouter>
+      <MemoryRouter future={routerFuture}>
         <OnboardingPage />
       </MemoryRouter>
     );
@@ -97,7 +99,7 @@ describe('OnboardingPage', () => {
 
   it('saves preferences and routes to /solo/new after choosing solo', async () => {
     render(
-      <MemoryRouter>
+      <MemoryRouter future={routerFuture}>
         <OnboardingPage />
       </MemoryRouter>
     );
@@ -119,7 +121,7 @@ describe('OnboardingPage', () => {
 
   it('routes to /chat without saving when the user skips onboarding', () => {
     render(
-      <MemoryRouter>
+      <MemoryRouter future={routerFuture}>
         <OnboardingPage />
       </MemoryRouter>
     );
