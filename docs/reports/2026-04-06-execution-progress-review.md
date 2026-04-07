@@ -6,9 +6,9 @@
 参考基线：
 
 - `docs/reports/2026-04-04-progress-plan.md`
-- `docs/superpowers/plans/2026-04-04-project-functional-completion.md`
-- `docs/reports/2026-04-05-technical-audit.md`
-- `docs/reports/2026-04-05-todo-tracker.md`
+- `docs/superpowers/specs/2026-04-06-m0-baseline-freeze-closeout-design.md`
+- `docs/superpowers/specs/2026-04-07-m1-mainline-runnable-closeout-design.md`
+- `docs/architecture/current-system-contracts.md`
 
 ## 0. 结论摘要
 
@@ -26,11 +26,11 @@
 - **可交付准备度**：约 `55%-60%`
 - **既定计划执行完成度**：约 `45%-50%`
 
-当前阶段的核心矛盾已经从“主线不可构建、不可交付”转变为：
+当前阶段的核心工作已经从“主线不可构建、不可交付”收敛为：
 
-- warning-free 测试输出尚未正式收口
-- 历史执行评估与路线图文档仍滞后于当前代码现实
-- `M1` 的正式验收结论尚未固化到项目文档
+- 固化 `M1` 验收证据
+- 把历史执行评估与路线图文档追平到当前代码现实
+- 为进入 `M2` 做范围与资源准备
 
 ## 1. 评估依据与校验结果
 
@@ -70,7 +70,7 @@
 | 里程碑 | 原计划日期 | 当前状态 | 完成度 | 判断 |
 | --- | --- | --- | ---: | --- |
 | M0 基线冻结 | 2026-04-10 | 已完成 | 100% | workspace、root 入口、契约文档与治理模板已冻结并合入主线 |
-| M1 主线可运行 | 2026-04-24 | 收口中 | 85% | `src/web build`、关键路由与 root `check/test` 已打通，剩余工作集中在 warning 清零与正式验收结论 |
+| M1 主线可运行 | 2026-04-24 | 已完成 | 100% | `src/web build`、关键路由、root `check/test` 与前端 `0 warning` 验收已经闭环 |
 | M2 工作区 Beta | 2026-05-15 | 未开始 | 10% | Knowledge/SOLO 页面已有中间态代码，但不构成可交付 Beta |
 | M3 能力 Beta | 2026-06-05 | 未开始 | 5% | Knowledge retrieval、SOLO runtime、Chat streaming 均未进入真实实现 |
 | M4 RC 候选版 | 2026-06-19 | 未开始 | 0% | CI、质量门禁、安全基线、发布清单尚未建立 |
@@ -85,25 +85,25 @@
 | 能力域 | 当前状态 | 估算完成度 | 说明 |
 | --- | --- | ---: | --- |
 | 后端核心业务壳 | 已实现 MVP | 70%-75% | auth、preferences、chat、knowledge CRUD、SOLO starter、console 已有真实代码 |
-| 前端基础契约 | 断裂 | 20%-25% | AppContext、auth bootstrap、API 类型、HTTP envelope 未闭环 |
-| 前端工作区页面 | 部分在研 | 25%-30% | Knowledge / SOLO 有较多代码，Chat / Settings / Onboarding 仍处占位或早期态 |
-| 前端控制台 | 早期占位 | 10%-15% | 路由存在，但页面和数据接入未形成真实 UI |
-| 文档与契约治理 | 已启动未冻结 | 30%-35% | 已有审计、todo、推进计划，但正式系统契约文档仍缺失 |
-| 测试、CI、工程门禁 | 基础薄弱 | 10%-15% | 前端失败、后端集成测试依赖本地 DB、root check 脚本失效 |
+| 前端基础契约 | 已收敛 | 90%-95% | AppContext、auth bootstrap、API 类型与 HTTP envelope 已对齐当前主线 |
+| 前端工作区页面 | 主线可运行 | 75%-80% | Chat / Knowledge / SOLO / Settings / Onboarding 已具备 M1 验收所需可访问与可回归能力 |
+| 前端控制台 | 主线可运行 | 70%-75% | Console 首页与子页已形成可验收 workbench 结构 |
+| 文档与契约治理 | 已冻结并收口 | 75%-80% | 系统契约、环境变量、M0/M1 进度文档已追平到当前现实 |
+| 测试、CI、工程门禁 | 基线可用 | 55%-60% | root `check/test` 稳定可跑，前端 warning 已清零，后续重点转向 M2/M4 工程加固 |
 
 ### 2.3 按实施计划 Task 评估
 
 | Task | 名称 | 状态 | 完成度 | 判断 |
 | --- | --- | --- | ---: | --- |
-| Task 1 | Freeze Contracts And Documentation | 部分启动 | 40% | 报告和 backlog 已有，但正式 contract matrix 与 env matrix 未交付 |
-| Task 2 | Rebuild Frontend App Context And Auth Bootstrap | 未完成 | 10% | 只有零散代码，核心接口与测试均失败 |
-| Task 3 | Normalize HTTP Client And Frontend API Contracts | 未完成 | 15% | `HttpClient` 只有 `get/post`，类型面明显不足 |
-| Task 4 | Wire Protected Workspace Routes And Layouts | 未完成 | 20% | layout 和部分路由在，但保护、知识库、SOLO 路由未接通 |
-| Task 5 | Implement Workspace Chat / Onboarding / Settings | 未完成 | 10% | 三个页面仍未进入可用态 |
-| Task 6 | Finish Knowledge Workspace CRUD Integration | 在研中段 | 55% | 页面与测试较完整，但受上游契约断裂影响无法形成 M1/M2 闭环 |
-| Task 7 | Finish SOLO Starter Workspace Integration | 在研中段 | 60% | 页面逻辑较多，但路由、类型与 Chat API 未收敛 |
-| Task 8 | Implement Console Dashboard And Child Pages | 未完成 | 10% | 页面仍是占位，测试失败 |
-| Task 9 | Harden Backend Runtime Configuration And Testability | 未完成 | 25% | 后端主包基本可测，但 `internal/http` 仍受本地 DB 绑定 |
+| Task 1 | Freeze Contracts And Documentation | 已完成 | 100% | 契约文档、环境变量文档、治理模板与 root 入口已冻结 |
+| Task 2 | Rebuild Frontend App Context And Auth Bootstrap | 已完成 | 95% | AppContext、auth bootstrap 与相关测试已进入稳定可回归状态 |
+| Task 3 | Normalize HTTP Client And Frontend API Contracts | 已完成 | 90% | `HttpClient` 与前端类型已支撑当前主线接口 |
+| Task 4 | Wire Protected Workspace Routes And Layouts | 已完成 | 90% | 关键工作区路由与权限守卫已接通 |
+| Task 5 | Implement Workspace Chat / Onboarding / Settings | 已完成 | 80% | 已达到 `M1` 的可访问、可构建、可回归标准 |
+| Task 6 | Finish Knowledge Workspace CRUD Integration | 已完成 M1 范围 | 75% | Knowledge 页面已经进入主线可运行态，后续增强转入 `M2` |
+| Task 7 | Finish SOLO Starter Workspace Integration | 已完成 M1 范围 | 75% | SOLO starter 已进入主线可运行态，后续 runtime 能力转入 `M2/M3` |
+| Task 8 | Implement Console Dashboard And Child Pages | 已完成 M1 范围 | 75% | Console 首页与子页已可访问、可测试、可验收 |
+| Task 9 | Harden Backend Runtime Configuration And Testability | 部分完成 | 60% | root 验证入口已稳定，后续重点是 `TEST_DATABASE_URL` 场景的环境复现 |
 | Task 10 | Deliver Knowledge Retrieval MVP | 未启动 | 0% | 仅有 CRUD，没有 retrieval |
 | Task 11 | Replace SOLO Starter With Runtime MVP | 未启动 | 5% | 只有 starter 状态机原型 |
 | Task 12 | Add Quality Gates, CI, And Release Checks | 未启动 | 5% | 无 CI 基线，脚本契约仍错误 |
@@ -112,27 +112,27 @@
 
 ### 3.1 阶段定义
 
-当前项目不应被定义为“开发中后期”或“Beta 阶段”，更准确的定义是：
+当前项目更准确的定义是：
 
-> **后端 MVP 已完成、前端主线未收敛、文档与测试基线待冻结的 Phase 0.5 阶段**
+> **`M0` 已完成、`M1 主线可运行` 已达成、正准备进入 `M2 工作区 Beta` 的 Phase 1.5 阶段**
 
-这是一个典型的“实现先于治理”的阶段，特征是：
+这一阶段的特征是：
 
-- 真实业务代码已经存在
-- 设计文档和执行文档明显落后于实现
-- 页面、测试、路由、API 契约不一致
-- 工程风险正在逐步超过新增功能本身
+- 主线路由、契约与 root 验证入口已经稳定
+- 前端测试已可在 warning-free 口径下回归
+- 工程与文档基线已足以支撑后续 `M2` 开发
+- 下一阶段重点从“基础收敛”切换到“用户流闭环”
 
 ### 3.2 阶段退出条件
 
-项目只有在以下条件同时满足时，才能视为正式进入 Phase 1：
+当前主线已经满足进入 `Phase 2 / M2` 的前置条件：
 
-1. `K-01`、`K-10`、`K-12`、`K-13` 完成
-2. `docs/architecture/current-system-contracts.md` 建立并冻结
-3. `src/web` 的状态层、API 层、路由层收敛方案被确认
-4. 里程碑 owner、周报机制、阻塞升级机制正式启用
+1. `M0` 的 workspace、contracts、governance 已冻结
+2. `src/web build` 与 root `check/test` 均通过
+3. 关键工作区与控制台路由可访问
+4. 前端测试在当前主线下已达到 `0 warning`
 
-在此之前，继续推进 Chat streaming、retrieval、runtime 等能力，只会进一步放大返工风险。
+因此，后续工作不应再回到 `M1` 基础收敛，而应转入 `M2` 的用户流闭环与 `M4` 之前的工程加固。
 
 ## 4. 当前偏差与关键阻塞
 

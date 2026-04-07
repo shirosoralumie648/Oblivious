@@ -11,8 +11,8 @@
 - 原始设计文档：`docs/superpowers/specs/2026-04-01-task5-go-backend-infrastructure-design.md`
 - 当前代码库主线实现：`src/server`、`src/web`
 - 前端测试中隐含的目标态行为
-- 已生成现状分析报告：`docs/reports/2026-04-04-codebase-analysis.md`
-- 已生成 backlog 跟踪表：`docs/reports/2026-04-04-todo-tracker.md`
+- 当前主线契约基线：`docs/architecture/current-system-contracts.md`
+- 最新 M1 收口设计：`docs/superpowers/specs/2026-04-07-m1-mainline-runnable-closeout-design.md`
 
 ### 1.2 原始设计与路线图重建
 
