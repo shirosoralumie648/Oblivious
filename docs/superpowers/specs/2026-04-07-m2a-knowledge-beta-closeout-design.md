@@ -72,6 +72,7 @@
 - 当前 Knowledge Beta 能力边界说明
 - 当前 retrieval 的真实定位说明
 - 与 `M3` 能力边界的清晰分隔
+- 与 Knowledge 相关的历史阶段判断追平到当前现实
 
 ## 5. Technical Decisions
 
@@ -151,6 +152,7 @@
 预计涉及：
 
 - `docs/architecture/current-system-contracts.md`
+- 与 Knowledge / `M2` / retrieval 边界直接相关的历史报告段落
 - 如有必要，一份单独的 Knowledge Beta 说明文档
 
 ## 7. Implementation Shape
@@ -207,6 +209,7 @@
 处理：
 
 - 把文档更新纳入完成条件，而不是作为后续补充项
+- 历史报告只更新与 Knowledge / `M2` / retrieval 边界直接相关的段落，不扩成整份重写
 
 ## 9. Verification Model
 
@@ -234,6 +237,14 @@
 - `bash scripts/check.sh`
 - `bash scripts/test.sh`
 
+### 9.4 Documentation Verification
+
+必须证明：
+
+- `current-system-contracts` 已记录当前 Knowledge Beta 能力边界
+- 历史进度文档中与 Knowledge / `M2` / `M3` 边界直接相关的判断已追平
+- 文档没有继续把当前 retrieval 描述成“未进入 Beta”或错误归入 `M3` 已完成能力
+
 ## 10. Completion Criteria
 
 当以下条件同时满足时，本子项目完成：
@@ -245,7 +256,8 @@
 5. 后端相关测试通过
 6. root `check/test` 继续通过
 7. 文档对当前 Knowledge Beta 现实有清晰说明
-8. 可以明确把 Knowledge 模块从“主线可运行”升级到“Beta 可依赖”
+8. 与 Knowledge / `M2` / `M3` 边界直接相关的历史报告判断已追平
+9. 可以明确把 Knowledge 模块从“主线可运行”升级到“Beta 可依赖”
 
 ## 11. Recommended Outputs
 
@@ -255,5 +267,6 @@
 2. Knowledge 页面 Beta 收口
 3. CRUD + retrieval 回归补齐
 4. Knowledge Beta 文档说明
+5. Knowledge 相关历史报告追平
 
 这样可以先把返回质量收稳，再把页面和文档收成真正可依赖的 Beta 状态。
