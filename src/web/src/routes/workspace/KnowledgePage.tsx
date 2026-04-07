@@ -27,6 +27,7 @@ export function KnowledgePage() {
   const [knowledgeBaseName, setKnowledgeBaseName] = useState('');
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBaseSummary[]>([]);
   const [knowledgeDocuments, setKnowledgeDocuments] = useState<KnowledgeDocumentSummary[]>([]);
+  const [lastRetrievedQuery, setLastRetrievedQuery] = useState('');
   const [retrievalQuery, setRetrievalQuery] = useState('');
   const [retrievalResults, setRetrievalResults] = useState<KnowledgeRetrievalResult[]>([]);
   const [selectedKnowledgeBase, setSelectedKnowledgeBase] = useState<KnowledgeBaseSummary | null>(null);
@@ -39,6 +40,7 @@ export function KnowledgePage() {
 
   const resetKnowledgeRetrieval = () => {
     setHasRetrievedKnowledge(false);
+    setLastRetrievedQuery('');
     setRetrievalQuery('');
     setRetrievalResults([]);
   };
@@ -179,6 +181,7 @@ export function KnowledgePage() {
 
     try {
       const nextResults = await knowledgeApi.retrieveKnowledge(knowledgeBaseId, { query: trimmedQuery });
+      setLastRetrievedQuery(trimmedQuery);
       setRetrievalResults(nextResults);
       setHasRetrievedKnowledge(true);
     } catch {
@@ -227,6 +230,7 @@ export function KnowledgePage() {
         );
       }
 
+      resetKnowledgeRetrieval();
       resetDocumentEditor();
     } catch {
       setError(editingDocumentId ? 'Unable to update knowledge document.' : 'Unable to create knowledge document.');
@@ -258,8 +262,9 @@ export function KnowledgePage() {
               ...current,
               documentCount: Math.max(current.documentCount - 1, 0)
             }
-          : current
+            : current
       );
+      resetKnowledgeRetrieval();
       if (editingDocumentId === document.id) {
         resetDocumentEditor();
       }
@@ -318,7 +323,10 @@ export function KnowledgePage() {
           >
             Search knowledge
           </button>
-          {hasRetrievedKnowledge && retrievalResults.length === 0 ? <p>No matching snippets found yet.</p> : null}
+          {hasRetrievedKnowledge ? <h2>Matched snippets</h2> : null}
+          {hasRetrievedKnowledge && retrievalResults.length === 0 ? (
+            <p>{`No matching snippets found for “${lastRetrievedQuery}”.`}</p>
+          ) : null}
           {retrievalResults.length > 0 ? (
             <ul>
               {retrievalResults.map((result) => (

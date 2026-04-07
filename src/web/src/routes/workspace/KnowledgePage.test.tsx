@@ -350,4 +350,76 @@ describe('KnowledgePage', () => {
     });
     expect(screen.getByText('System boundaries include deployment controls.')).toBeInTheDocument();
   });
+
+  it('shows query-specific empty feedback when retrieval returns no snippets', async () => {
+    routeState.knowledgeBaseId = 'kb_9';
+    getKnowledgeBase.mockResolvedValue({
+      documentCount: 1,
+      id: 'kb_9',
+      name: 'Architecture Notes',
+      updatedAt: '2026-04-03T11:30:00Z'
+    });
+    listKnowledgeDocuments.mockResolvedValue([]);
+    retrieveKnowledge.mockResolvedValue([]);
+
+    render(<KnowledgePage />);
+
+    await screen.findByRole('heading', { name: 'Architecture Notes' });
+    fireEvent.change(screen.getByLabelText('Retrieval query'), { target: { value: 'deployment rollback' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search knowledge' }));
+
+    expect(await screen.findByText('No matching snippets found for “deployment rollback”.')).toBeInTheDocument();
+  });
+
+  it('clears stale retrieval results after saving a document', async () => {
+    routeState.knowledgeBaseId = 'kb_9';
+    getKnowledgeBase.mockResolvedValue({
+      documentCount: 1,
+      id: 'kb_9',
+      name: 'Architecture Notes',
+      updatedAt: '2026-04-03T11:30:00Z'
+    });
+    listKnowledgeDocuments.mockResolvedValue([
+      {
+        content: 'System boundaries',
+        id: 'doc_1',
+        title: 'Overview',
+        updatedAt: '2026-04-03T11:45:00Z'
+      }
+    ]);
+    retrieveKnowledge.mockResolvedValue([
+      {
+        documentId: 'doc_1',
+        documentTitle: 'Overview',
+        snippet: 'System boundaries include deployment controls.'
+      }
+    ]);
+    updateKnowledgeDocument.mockResolvedValue({
+      content: 'Updated boundaries',
+      id: 'doc_1',
+      title: 'Overview v2',
+      updatedAt: '2026-04-03T12:15:00Z'
+    });
+
+    render(<KnowledgePage />);
+
+    await screen.findByRole('heading', { name: 'Architecture Notes' });
+    fireEvent.change(screen.getByLabelText('Retrieval query'), { target: { value: 'deployment' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search knowledge' }));
+    expect(await screen.findByText('System boundaries include deployment controls.')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit document Overview' }));
+    fireEvent.change(screen.getByLabelText('Document title'), { target: { value: 'Overview v2' } });
+    fireEvent.change(screen.getByLabelText('Document content'), { target: { value: 'Updated boundaries' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save document' }));
+
+    await waitFor(() => {
+      expect(updateKnowledgeDocument).toHaveBeenCalledWith('kb_9', 'doc_1', {
+        content: 'Updated boundaries',
+        title: 'Overview v2'
+      });
+    });
+
+    expect(screen.queryByText('System boundaries include deployment controls.')).not.toBeInTheDocument();
+  });
 });
