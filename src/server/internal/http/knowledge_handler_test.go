@@ -298,6 +298,55 @@ func TestKnowledgeHandlerRetrieveReturnsRelevantMatches(t *testing.T) {
 	}
 }
 
+func TestKnowledgeHandlerRetrieveTrimsAndNormalizesQuery(t *testing.T) {
+	store := &knowledgeFakeStore{
+		retrievalResults: []knowledge.KnowledgeRetrievalResult{},
+	}
+	handler := newKnowledgeHandler(knowledge.NewService(store))
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_2/retrieve", strings.NewReader(`{"query":"  deployment   rollback  "}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		WorkspaceID: "workspace_1",
+	}))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.retrieveKnowledge(recorder, request, "kb_2")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+	if store.retrievalQuery != "deployment rollback" {
+		t.Fatalf("expected normalized retrieval query, got %q", store.retrievalQuery)
+	}
+}
+
+func TestKnowledgeHandlerRetrieveReturnsEmptyListWhenNoMatchExists(t *testing.T) {
+	store := &knowledgeFakeStore{
+		retrievalResults: []knowledge.KnowledgeRetrievalResult{},
+	}
+	handler := newKnowledgeHandler(knowledge.NewService(store))
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_2/retrieve", strings.NewReader(`{"query":"deployment"}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		WorkspaceID: "workspace_1",
+	}))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.retrieveKnowledge(recorder, request, "kb_2")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+
+	var response struct {
+		Data []knowledge.KnowledgeRetrievalResult `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(response.Data) != 0 {
+		t.Fatalf("expected empty retrieval results, got %d", len(response.Data))
+	}
+}
+
 func TestKnowledgeHandlerUpdateKnowledgeBaseUpdatesKnowledgeBase(t *testing.T) {
 	store := &knowledgeFakeStore{
 		updatedBase: knowledge.KnowledgeBase{
