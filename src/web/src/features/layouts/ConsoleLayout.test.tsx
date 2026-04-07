@@ -22,31 +22,56 @@ vi.mock('../../app/providers', () => ({
 import { ConsoleLayout } from './ConsoleLayout';
 
 describe('ConsoleLayout', () => {
-  it('renders navigation, session context, and child routes', () => {
+  it('renders an admin shell with scope messaging and workspace shortcuts', () => {
     const router = createMemoryRouter(
       [
         {
           path: '/console',
           element: <ConsoleLayout />,
-          children: [
-            { index: true, element: <p>Overview page</p> },
-            { path: 'models', element: <p>Models page</p> }
-          ]
+          children: [{ index: true, element: <p>Overview page</p> }]
         }
       ],
-      { initialEntries: ['/console/models'] }
+      { initialEntries: ['/console'] }
     );
 
     render(<RouterProvider router={router} />);
 
     expect(screen.getByRole('heading', { name: 'Console' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Overview' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Models' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Usage' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Billing' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Access' })).toBeInTheDocument();
+    expect(screen.getByText('Current workspace scope')).toBeInTheDocument();
     expect(screen.getByText('user@example.com')).toBeInTheDocument();
     expect(screen.getByText('Default mode: solo')).toBeInTheDocument();
-    expect(screen.getByText('Models page')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Workspace settings' })).toHaveAttribute('href', '/settings');
+    expect(screen.getByRole('link', { name: 'Return to workspace' })).toHaveAttribute('href', '/chat');
+    expect(screen.getByText('Overview page')).toBeInTheDocument();
+  });
+
+  it('renders console navigation in overview-billing-usage-models-access order', () => {
+    const router = createMemoryRouter(
+      [
+        {
+          path: '/console',
+          element: <ConsoleLayout />,
+          children: [{ index: true, element: <p>Overview page</p> }]
+        }
+      ],
+      { initialEntries: ['/console'] }
+    );
+
+    render(<RouterProvider router={router} />);
+
+    const links = screen
+      .getAllByRole('link')
+      .map((link) => link.textContent)
+      .filter((text): text is string => text !== null);
+
+    expect(links).toEqual([
+      'Workspace settings',
+      'Return to workspace',
+      'Overview',
+      'Billing',
+      'Usage',
+      'Models',
+      'Access'
+    ]);
   });
 });

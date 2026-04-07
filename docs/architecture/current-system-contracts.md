@@ -33,7 +33,8 @@ Browser
 
 - `src/web` 是唯一主线前端。
 - `src/server` 是唯一主线后端。
-- `new-api` 与 `lobehub` 当前不属于 root 交付链路的一部分。
+- `config`、`scripts` 和 `.github/workflows` 属于主线执行基线。
+- `new-api` 与 `lobehub` 当前不属于 root workspace、root CI 或 root 交付链路的一部分。
 
 ## 3. HTTP Envelope
 
@@ -258,11 +259,11 @@ Browser
 | Workspace | `/solo` | 已接入，支持 `taskId` 与 Chat-originated return flow |
 | Workspace | `/solo/new` | 已接入，支持任务创建视图与默认参数配置 |
 | Workspace | `/settings` | 已接入，作为长期偏好页并支持返回 Chat |
-| Console | `/console` | 已接入，但首页为占位实现 |
-| Console | `/console/models` | 已接入，但页面为占位实现 |
-| Console | `/console/usage` | 已接入，但页面为占位实现 |
-| Console | `/console/billing` | 已接入，但页面为占位实现 |
-| Console | `/console/access` | 已接入，但页面为占位实现 |
+| Console | `/console` | 已接入，运营总览页可用 |
+| Console | `/console/models` | 已接入，supporting drill-down 可用 |
+| Console | `/console/usage` | 已接入，请求量 workbench drill-down 可用 |
+| Console | `/console/billing` | 已接入，成本 workbench drill-down 可用 |
+| Console | `/console/access` | 已接入，scope / session workbench drill-down 可用 |
 
 ### 7.2 已存在页面但尚未挂载的目标路由
 
@@ -276,6 +277,13 @@ Browser
 - `AppProviders` 当前提供真实 `AppContextProvider`
 - `useAppContext` 已存在，并在无 provider 场景返回测试安全的 fallback context
 - `types/api.ts` 已覆盖当前主线后端接口与 console/knowledge/task/chat 所需类型
+
+### 7.4 Root Verification Entry
+
+| Command | Scope | Notes |
+| --- | --- | --- |
+| `bash scripts/check.sh` | 主线 docs + web build + server unit checks | 作为 CI 与本地共同的静态门面 |
+| `bash scripts/test.sh` | 主线 web tests + server unit tests + optional integration tests | 当 `TEST_DATABASE_URL` 缺失时，server integration 会显式 skip |
 
 ## 8. Environment Variable Matrix
 

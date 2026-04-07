@@ -16,5 +16,5 @@ This checklist is the minimum release-candidate gate for the current Oblivious m
 
 - [ ] No P0/P1 defects open
 - [ ] Release notes summarize scope and known limitations
-- [ ] Environment variables match [`config/.env.example`](/home/shirosora/code_storage/Oblivious/.worktrees/phase0-task1-contracts/config/.env.example)
-- [ ] API contract changes are reflected in [`docs/architecture/current-system-contracts.md`](/home/shirosora/code_storage/Oblivious/.worktrees/phase0-task1-contracts/docs/architecture/current-system-contracts.md)
+- [ ] Environment variables match [`config/.env.example`](../../config/.env.example)
+- [ ] API contract changes are reflected in [`docs/architecture/current-system-contracts.md`](../architecture/current-system-contracts.md)

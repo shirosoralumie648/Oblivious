@@ -1,6 +1,18 @@
 # Oblivious
 
-Oblivious is a workspace-oriented application with a Go backend, a React frontend, and PostgreSQL as the system of record. The current mainline scope covers chat, knowledge base CRUD plus retrieval MVP, SOLO task runtime MVP, settings/preferences, and console summary pages.
+Oblivious is a workspace-oriented application with a Go backend, a React frontend, and PostgreSQL as the system of record. The current mainline scope covers chat, knowledge base CRUD, SOLO starter task flows, settings/preferences, and console overview pages.
+
+## Mainline Boundary
+
+The current mainline covers:
+
+- `src/server`
+- `src/web`
+- `config`
+- `scripts`
+- `.github/workflows`
+
+`lobehub` and `new-api` remain in the repository as reference directories only. They are not part of the root workspace, root CI, or release scope.
 
 ## Prerequisites
 
@@ -17,7 +29,7 @@ Oblivious is a workspace-oriented application with a Go backend, a React fronten
    pnpm install --frozen-lockfile
    ```
 
-2. Export runtime environment variables from [`config/.env.example`](/home/shirosora/code_storage/Oblivious/.worktrees/phase0-task1-contracts/config/.env.example).
+2. Export runtime environment variables from [`config/.env.example`](config/.env.example).
 
 3. Apply database migrations.
 
@@ -47,7 +59,9 @@ bash scripts/test.sh
 
 ## Repository Layout
 
-- [`src/server`](/home/shirosora/code_storage/Oblivious/.worktrees/phase0-task1-contracts/src/server): Go API, migrations, and domain services
-- [`src/web`](/home/shirosora/code_storage/Oblivious/.worktrees/phase0-task1-contracts/src/web): React workspace and console UI
-- [`docs/architecture/current-system-contracts.md`](/home/shirosora/code_storage/Oblivious/.worktrees/phase0-task1-contracts/docs/architecture/current-system-contracts.md): current API and runtime contract baseline
-- [`docs/release/rc-checklist.md`](/home/shirosora/code_storage/Oblivious/.worktrees/phase0-task1-contracts/docs/release/rc-checklist.md): RC readiness checklist
+- [`src/server`](src/server): Go API, migrations, and domain services
+- [`src/web`](src/web): React workspace and console UI
+- [`docs/architecture/current-system-contracts.md`](docs/architecture/current-system-contracts.md): current API and runtime contract baseline
+- [`docs/release/rc-checklist.md`](docs/release/rc-checklist.md): RC readiness checklist
+- `lobehub/`: repository-local reference code, excluded from mainline workspace and CI
+- `new-api/`: repository-local reference code, excluded from mainline workspace and CI

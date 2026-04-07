@@ -8,13 +8,18 @@ export function ConsoleLayout() {
   return (
     <div>
       <h1>Console</h1>
+      <p>Current workspace scope</p>
       <p>{authState.user?.email ?? 'anonymous'}</p>
       <p>{`Default mode: ${authState.preferences?.defaultMode ?? 'chat'}`}</p>
+      <nav aria-label="Console shortcuts">
+        <Link to="/settings">Workspace settings</Link>
+        <Link to="/chat">Return to workspace</Link>
+      </nav>
       <nav aria-label="Console navigation">
         <Link to="/console">Overview</Link>
-        <Link to="/console/models">Models</Link>
-        <Link to="/console/usage">Usage</Link>
         <Link to="/console/billing">Billing</Link>
+        <Link to="/console/usage">Usage</Link>
+        <Link to="/console/models">Models</Link>
         <Link to="/console/access">Access</Link>
       </nav>
       <Outlet />

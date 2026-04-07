@@ -51,6 +51,6 @@ describe('Route domains', () => {
     render(<RouterProvider router={router} />);
 
     expect(screen.getByText('Console')).toBeInTheDocument();
-    expect(screen.getByText('Models')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Models' })).toBeInTheDocument();
   });
 });
