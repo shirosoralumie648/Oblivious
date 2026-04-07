@@ -2,6 +2,8 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { routerFuture } from '../../app/routerFuture';
+
 const getAccess = vi.fn();
 const getBilling = vi.fn();
 
@@ -41,15 +43,15 @@ describe('BillingPage', () => {
     });
 
     render(
-      <MemoryRouter>
+      <MemoryRouter future={routerFuture}>
         <BillingPage />
       </MemoryRouter>
     );
 
     expect(await screen.findByText('Current workspace scope')).toBeInTheDocument();
-    expect(screen.getByText('Workspace: workspace_1')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Back to overview' })).toHaveAttribute('href', '/console');
-    expect(screen.getByRole('link', { name: 'Open usage' })).toHaveAttribute('href', '/console/usage');
-    expect(screen.getByText('Estimated cost: $0.0004')).toBeInTheDocument();
+    expect(await screen.findByText('Workspace: workspace_1')).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Back to overview' })).toHaveAttribute('href', '/console');
+    expect(await screen.findByRole('link', { name: 'Open usage' })).toHaveAttribute('href', '/console/usage');
+    expect(await screen.findByText('Estimated cost: $0.0004')).toBeInTheDocument();
   });
 });

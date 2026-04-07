@@ -2,6 +2,8 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { routerFuture } from '../../app/routerFuture';
+
 const getAccess = vi.fn();
 const getModels = vi.fn();
 
@@ -38,16 +40,16 @@ describe('ModelsPage', () => {
     ]);
 
     render(
-      <MemoryRouter>
+      <MemoryRouter future={routerFuture}>
         <ModelsPage />
       </MemoryRouter>
     );
 
     expect(await screen.findByText('Current workspace scope')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Back to overview' })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Back to overview' })).toBeInTheDocument();
     expect(await screen.findByText('balanced-chat')).toBeInTheDocument();
-    expect(screen.getByText('Requests: 2')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Open access' })).toHaveAttribute('href', '/console/access');
+    expect(await screen.findByText('Requests: 2')).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Open access' })).toHaveAttribute('href', '/console/access');
   });
 
   it('renders a fallback message when model summaries fail to load', async () => {
@@ -65,7 +67,7 @@ describe('ModelsPage', () => {
     getModels.mockRejectedValue(new Error('network unavailable'));
 
     render(
-      <MemoryRouter>
+      <MemoryRouter future={routerFuture}>
         <ModelsPage />
       </MemoryRouter>
     );

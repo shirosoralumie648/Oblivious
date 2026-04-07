@@ -2,6 +2,8 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { routerFuture } from '../../app/routerFuture';
+
 const getAccess = vi.fn();
 
 vi.mock('../../features/console/api', () => ({
@@ -31,13 +33,13 @@ describe('AccessPage', () => {
     });
 
     render(
-      <MemoryRouter>
+      <MemoryRouter future={routerFuture}>
         <AccessPage />
       </MemoryRouter>
     );
 
     expect(await screen.findByText('Current workspace scope')).toBeInTheDocument();
-    expect(screen.getByText('This console reflects the active workspace and current session.')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Workspace settings' })).toBeInTheDocument();
+    expect(await screen.findByText('This console reflects the active workspace and current session.')).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Workspace settings' })).toBeInTheDocument();
   });
 });

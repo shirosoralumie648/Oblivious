@@ -2,6 +2,8 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { routerFuture } from '../../app/routerFuture';
+
 const getAccess = vi.fn();
 const getBilling = vi.fn();
 const getModels = vi.fn();
@@ -51,16 +53,16 @@ describe('ConsoleHomePage', () => {
     ]);
 
     render(
-      <MemoryRouter>
+      <MemoryRouter future={routerFuture}>
         <ConsoleHomePage />
       </MemoryRouter>
     );
 
     expect(await screen.findByRole('link', { name: 'Estimated cost' })).toHaveAttribute('href', '/console/billing');
-    expect(screen.getByRole('link', { name: 'Requests' })).toHaveAttribute('href', '/console/usage');
-    expect(screen.getByRole('link', { name: 'Top model' })).toHaveAttribute('href', '/console/models');
-    expect(screen.getByRole('link', { name: 'Access posture' })).toHaveAttribute('href', '/console/access');
-    expect(screen.getByText('Current workspace scope: workspace_1')).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Requests' })).toHaveAttribute('href', '/console/usage');
+    expect(await screen.findByRole('link', { name: 'Top model' })).toHaveAttribute('href', '/console/models');
+    expect(await screen.findByRole('link', { name: 'Access posture' })).toHaveAttribute('href', '/console/access');
+    expect(await screen.findByText('Current workspace scope: workspace_1')).toBeInTheDocument();
   });
 
   it('keeps the dashboard available when one summary fails', async () => {
@@ -86,13 +88,13 @@ describe('ConsoleHomePage', () => {
     getUsage.mockResolvedValue({ period: '7d', requests: 3 });
 
     render(
-      <MemoryRouter>
+      <MemoryRouter future={routerFuture}>
         <ConsoleHomePage />
       </MemoryRouter>
     );
 
     expect(await screen.findByText('Estimated cost')).toBeInTheDocument();
-    expect(screen.getByText('Top model unavailable')).toBeInTheDocument();
+    expect(await screen.findByText('Top model unavailable')).toBeInTheDocument();
     expect(screen.queryByText('Unable to load dashboard.')).not.toBeInTheDocument();
   });
 
@@ -103,12 +105,12 @@ describe('ConsoleHomePage', () => {
     getUsage.mockRejectedValue(new Error('network unavailable'));
 
     render(
-      <MemoryRouter>
+      <MemoryRouter future={routerFuture}>
         <ConsoleHomePage />
       </MemoryRouter>
     );
 
-    expect(screen.getByText('Loading dashboard…')).toBeInTheDocument();
+    expect(await screen.findByText('Loading dashboard…')).toBeInTheDocument();
     expect(await screen.findByText('Unable to load dashboard.')).toBeInTheDocument();
   });
 });
