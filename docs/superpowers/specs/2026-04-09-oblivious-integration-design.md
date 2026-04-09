@@ -113,7 +113,7 @@ B 端体验（工作台）
 │  │                                                              │   │
 │  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐    │   │
 │  │  │OpenAI Handler│  │Anthropic     │  │ Gemini           │    │   │
-│  │  │(15 APIs)    │  │Handler(P2)   │  │Handler(P3)       │    │   │
+│  │  │(~35 routes) │  │Handler(P2)   │  │Handler(P3)       │    │   │
 │  │  └──────────────┘  └──────────────┘  └──────────────────┘    │   │
 │  │                                                              │   │
 │  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐    │   │
@@ -309,14 +309,18 @@ Memory Engine
 
 ```go
 type MemoryService interface {
-    // 记忆 CRUD
-    AddMemory(ctx context.Context, userID string, req *AddMemoryRequest) (*Memory, error)
-    GetMemory(ctx context.Context, id string) (*Memory, error)
-    ListMemories(ctx context.Context, userID string) ([]*Memory, error)
-    DeleteMemory(ctx context.Context, id string) error
+    // 文档级操作
+    AddDocument(ctx context.Context, userID string, req *AddDocumentRequest) (*MemoryDocument, error)
+    GetDocument(ctx context.Context, id string) (*MemoryDocument, error)
+    ListDocuments(ctx context.Context, userID string) ([]*MemoryDocument, error)
+    DeleteDocument(ctx context.Context, id string) error  // 级联删除 chunks
 
-    // RAG 检索
-    Search(ctx context.Context, userID string, query string, topK int) ([]*Memory, error)
+    // Chunk 级操作（自动处理 chunking + embedding）
+    AddChunks(ctx context.Context, documentID string, chunks []string) error
+    GetChunksByDocument(ctx context.Context, documentID string) ([]*MemoryChunk, error)
+
+    // RAG 检索（返回相关 chunks + 所属 document）
+    Search(ctx context.Context, userID string, query string, topK int) ([]*MemoryChunk, error)
 
     // 向量化（内部调用 Relay Embeddings）
     EmbedText(ctx context.Context, text string) ([]float32, error)
@@ -359,32 +363,47 @@ ChunkText（分块）→ ["chunk1", "chunk2", ..., "chunkN"]
 批量插入 pgvector（每个 chunk 一条记录，共享同一 parent_id）
 ```
 
-#### 3.3.4 数据模型
+#### 3.3.4 数据模型：Document + Chunk 两表设计
+
+**问题**：原设计把"记忆实体"和"向量 chunk"揉在同一张表里，没有 `document_id`、`chunk_index`，导致检索后无法聚合回原文档、无法支持重建/重嵌入。
+
+**解决**：拆成 `memory_documents` + `memory_chunks` 两表
 
 ```sql
--- Memory 表
-CREATE TABLE memories (
+-- Memory Document（记忆原文档）
+CREATE TABLE memory_documents (
     id UUID PRIMARY KEY,
-    user_id UUID NOT NULL,
-    content TEXT NOT NULL,
-    embedding vector(1536),  -- pgvector (对应 OpenAI text-embedding-3-small)
+    user_id UUID NOT NULL REFERENCES users(id),
+    title VARCHAR(255),
+    content TEXT NOT NULL,  -- 原始全文
+    source_type VARCHAR(20),  -- 'manual' | 'upload' | 'url'
+    source_url VARCHAR(500),
     metadata JSONB,
+    total_chunks INT DEFAULT 0,
+    is_complete BOOLEAN DEFAULT true,
     created_at TIMESTAMP,
     updated_at TIMESTAMP
 );
 
--- 向量索引（按用户隔离）
-CREATE INDEX idx_memories_user_id ON memories(user_id);
-CREATE INDEX idx_memories_embedding ON memories USING ivfflat(embedding cosine_ops) WITH (lists = 100);
--- GIN 索引（用于 metadata 检索）
-CREATE INDEX idx_memories_metadata ON memories USING GIN(metadata);
+CREATE INDEX idx_documents_user_id ON memory_documents(user_id);
+CREATE INDEX idx_documents_source ON memory_documents(source_type);
 
--- 搜索时加上 user_id 过滤
-SELECT * FROM memories
-WHERE user_id = $1
-AND embedding <=> $2  -- cosine distance
-ORDER BY embedding <=> $2
-LIMIT $3;
+-- Memory Chunk（向量切片，与 document 一对多）
+CREATE TABLE memory_chunks (
+    id UUID PRIMARY KEY,
+    document_id UUID NOT NULL REFERENCES memory_documents(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id),
+    content TEXT NOT NULL,
+    chunk_index INT NOT NULL,
+    embedding vector(1536),
+    metadata JSONB,
+    created_at TIMESTAMP
+);
+
+CREATE INDEX idx_chunks_user_id ON memory_chunks(user_id);
+CREATE INDEX idx_chunks_document_id ON memory_chunks(document_id);
+CREATE INDEX idx_chunks_embedding ON memory_chunks USING ivfflat(embedding cosine_ops) WITH (lists = 100);
+CREATE INDEX idx_chunks_metadata ON memory_chunks USING GIN(metadata);
 ```
 
 ### 3.4 Marketplace（Go 重写）
@@ -483,7 +502,7 @@ users ──1:N── quotas
   │
   └──1:N── agents ──N:N── tools
   │
-  └──1:N── memories (vectors)
+  └──1:N── memory_documents ──1:N── memory_chunks (vectors)
   │
   └──1:N── user_installs ──N:1── market_items
   │

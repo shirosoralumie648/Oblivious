@@ -159,8 +159,12 @@ const (
     APITypeResponses
     APITypeRealtime
     APITypeAssistants
+    APITypeThreads       // /v1/threads/*
+    APITypeRuns          // /v1/threads/*/runs/*
     APITypeBatch
+    APITypeBatchFiles    // /v1/batches/* (Batch 本身是 Job，文件走 /v1/files)
     APITypeFineTuning
+    APITypeFiles         // /v1/files (对象存储，Batch/Fine-tuning/Assistants 共用)
     APITypeEmbeddings
     APITypeImageGen
     APITypeImageEdit
@@ -176,24 +180,59 @@ const (
 
 ### 3.3 OpenAI Handler 路由表
 
-| Method | Path | APIType | 说明 |
-|--------|------|---------|------|
-| POST | `/v1/chat/completions` | `APITypeChat` | Streaming |
-| POST | `/v1/responses` | `APITypeResponses` | Streaming |
-| POST | `/v1/embeddings` | `APITypeEmbeddings` | 向量 |
-| POST | `/v1/images/generations` | `APITypeImageGen` | DALL-E |
-| POST | `/v1/images/edits` | `APITypeImageEdit` | 编辑 |
-| POST | `/v1/images/variations` | `APITypeImageVar` | 变体 |
-| POST | `/v1/videos` | `APITypeVideos` | 视频 |
-| POST | `/v1/audio/speech` | `APITypeAudioSpeech` | TTS，Streaming |
-| POST | `/v1/audio/transcriptions` | `APITypeAudioSTT` | Whisper |
-| POST | `/v1/audio/translations` | `APITypeAudioTranslate` | Whisper |
-| POST | `/v1/moderations` | `APITypeModeration` | 审核 |
-| POST | `/v1/completions` | `APITypeCompletions` | Legacy |
-| WS | `/v1/realtime` | `APITypeRealtime` | WebSocket |
-| POST | `/v1/batch` | `APITypeBatch` | 异步批处理 |
-| POST | `/v1/assistants` | `APITypeAssistants` | 透传 |
-| POST | `/v1/fine_tuning/*` | `APITypeFineTuning` | 透传 |
+OpenAI API 按"资源族"组织，分为三类处理策略：
+
+| 策略 | 说明 |
+|------|------|
+| **原生处理** | Adapter 解析请求、转换格式、计费、走 Router 选渠道 |
+| **透传** | 直接转发给 OpenAI，不走 Router 选渠道路由（因为是管理类接口） |
+| **文件代理** | 用户上传到本服务，再转发到 OpenAI；OpenAI 返回的 file_id 映射回本地 |
+
+**路由表：**
+
+| Method | Path | APIType | 策略 | 计费维度 | 重试 |
+|--------|------|---------|------|---------|------|
+| POST | `/v1/chat/completions` | `APITypeChat` | 原生处理 | `prompt_tokens + completion_tokens` | ✅ |
+| POST | `/v1/responses` | `APITypeResponses` | 原生处理 | `prompt_tokens + completion_tokens` | ✅ |
+| WS | `/v1/realtime` | `APITypeRealtime` | 原生处理 | 按 token 计费 | ✅（连接级） |
+| POST | `/v1/embeddings` | `APITypeEmbeddings` | 原生处理 | `total_tokens` | ✅ |
+| POST | `/v1/images/generations` | `APITypeImageGen` | 原生处理 | `image_count` | ❌（幂等） |
+| POST | `/v1/images/edits` | `APITypeImageEdit` | 原生处理 | `image_count` | ❌ |
+| POST | `/v1/images/variations` | `APITypeImageVar` | 原生处理 | `image_count` | ❌ |
+| POST | `/v1/videos` | `APITypeVideos` | 原生处理 | `video_count` | ❌ |
+| POST | `/v1/audio/speech` | `APITypeAudioSpeech` | 原生处理 | `audio_seconds` | ❌ |
+| POST | `/v1/audio/transcriptions` | `APITypeAudioSTT` | 原生处理 | `audio_seconds` | ❌ |
+| POST | `/v1/audio/translations` | `APITypeAudioTranslate` | 原生处理 | `audio_seconds` | ❌ |
+| POST | `/v1/moderations` | `APITypeModeration` | 原生处理 | `input_tokens` | ❌ |
+| POST | `/v1/completions` | `APITypeCompletions` | 原生处理 | `prompt_tokens + completion_tokens` | ✅ |
+| POST | `/v1/batch` | `APITypeBatch` | 原生处理 | Batch 完成前预付，成功后结算 | ✅（Job 级） |
+| GET | `/v1/batches` | `APITypeBatch` | 透传 | 无（只读） | ❌ |
+| GET | `/v1/batches/:id` | `APITypeBatch` | 透传 | 无（只读） | ❌ |
+| POST | `/v1/files` | `APITypeFiles` | 文件代理 | `storage_bytes` | ❌ |
+| GET | `/v1/files` | `APITypeFiles` | 文件代理 | 无 | ❌ |
+| GET | `/v1/files/:id` | `APITypeFiles` | 文件代理 | 无 | ❌ |
+| DELETE | `/v1/files/:id` | `APITypeFiles` | 文件代理 | 无 | ❌ |
+| GET | `/v1/files/:id/content` | `APITypeFiles` | 文件代理 | 无 | ❌ |
+| POST | `/v1/fine_tuning/jobs` | `APITypeFineTuning` | 透传 | 按训练 token 计费 | ❌ |
+| GET | `/v1/fine_tuning/jobs` | `APITypeFineTuning` | 透传 | 无 | ❌ |
+| GET | `/v1/fine_tuning/jobs/:id` | `APITypeFineTuning` | 透传 | 无 | ❌ |
+| POST | `/v1/fine_tuning/jobs/:id/cancel` | `APITypeFineTuning` | 透传 | 无 | ❌ |
+| GET | `/v1/fine_tuning/jobs/:id/events` | `APITypeFineTuning` | 透传 | 无 | ❌ |
+| POST | `/v1/assistants` | `APITypeAssistants` | 透传 | 按 token 计费 | ❌ |
+| GET | `/v1/assistants` | `APITypeAssistants` | 透传 | 无 | ❌ |
+| GET | `/v1/assistants/:id` | `APITypeAssistants` | 透传 | 无 | ❌ |
+| POST | `/v1/assistants/:id` | `APITypeAssistants` | 透传 | 按 token 计费 | ❌ |
+| DELETE | `/v1/assistants/:id` | `APITypeAssistants` | 透传 | 无 | ❌ |
+| POST | `/v1/threads` | `APITypeThreads` | 透传 | 按 token 计费 | ❌ |
+| GET | `/v1/threads/:id` | `APITypeThreads` | 透传 | 无 | ❌ |
+| POST | `/v1/threads/:id/runs` | `APITypeRuns` | 透传 | 按 token 计费 | ❌ |
+| GET | `/v1/threads/:id/runs/:rid` | `APITypeRuns` | 透传 | 无 | ❌ |
+| POST | `/v1/threads/:id/runs/:rid/submit` | `APITypeRuns` | 透传 | 无 | ❌ |
+
+**说明：**
+- **原生处理**：走 Router 选渠道 + 计费系统
+- **透传**：直接转发（因为是管理接口不走渠道路由）
+- **文件代理**：`/v1/files` 的文件内容先存本地 S3，再转发给 OpenAI；本服务存储 `storage_path` 与 `openai_file_id` 的映射
 
 ### 3.4 统一请求/响应格式
 
@@ -290,9 +329,15 @@ type ProviderResponse struct {
 }
 
 type Usage struct {
-    PromptTokens     int
-    CompletionTokens int
-    TotalTokens      int
+    PromptTokens     int     `json:"prompt_tokens"`
+    CompletionTokens int     `json:"completion_tokens"`
+    TotalTokens      int     `json:"total_tokens"`
+    // 非 token 维度
+    ImageCount       int     `json:"image_count"`
+    VideoCount       int     `json:"video_count"`
+    AudioSeconds     float64 `json:"audio_seconds"`
+    StorageBytes     int64   `json:"storage_bytes"`
+    TrainingTokens   int     `json:"training_tokens"`
 }
 ```
 
@@ -425,14 +470,17 @@ func (tb *TokenBucket) Allow(rpmTokens, tpmTokens int) bool {
 
 func (tb *TokenBucket) refill() {
     now := time.Now()
-    elapsed := now.Sub(tb.rpmLastRefill)
 
-    if elapsed >= time.Minute {
+    // RPM refill
+    rpmElapsed := now.Sub(tb.rpmLastRefill)
+    if rpmElapsed >= time.Minute {
         tb.rpmTokens = tb.rpmCapacity
         tb.rpmLastRefill = now
     }
 
-    if elapsed >= time.Minute {
+    // TPM refill（独立计算，不能复用 rpmElapsed）
+    tpmElapsed := now.Sub(tb.tpmLastRefill)
+    if tpmElapsed >= time.Minute {
         tb.tpmTokens = tb.tpmCapacity
         tb.tpmLastRefill = now
     }
@@ -490,93 +538,247 @@ type FallbackConfig struct {
 
 ## 6. 计费接入
 
-### 6.1 成本加成定价模型
+### 6.1 定价模型：按 APIType + UsageDimension 计费
 
-```
-用户账单 = 渠道实际成本 × 溢价系数 × 组折扣
-```
+**旧模型的问题**：单一 `base_cost × (prompt+completion)_tokens` 无法覆盖：
+- Images/Audio/Videos：按次数计费，不按 token
+- Files storage：按存储字节计费
+- Fine-tuning：按训练 token 计费
+- Prompt/Completion 价格通常不对称
 
-| 层级 | 含义 | 示例 |
-|------|------|------|
-| Base（渠道成本） | 上游实际花费 | OpenAI gpt-4o = $0.005/1K tokens |
-| Markup（溢价） | 平台服务费 | 1.5x |
-| Group Discount（组折扣） | 用户等级折扣 | VIP = 0.8x |
+**新模型：按资源族 + 使用量维度计费**
+
+```go
+// 定价维度枚举
+type UsageDimension string
+
+const (
+    DimPromptTokens     UsageDimension = "prompt_tokens"
+    DimCompletionTokens UsageDimension = "completion_tokens"
+    DimTotalTokens      UsageDimension = "total_tokens"
+    DimImageCount       UsageDimension = "image_count"
+    DimVideoCount       UsageDimension = "video_count"
+    DimAudioSeconds     UsageDimension = "audio_seconds"
+    DimStorageBytes     UsageDimension = "storage_bytes"
+    DimTrainingTokens   UsageDimension = "training_tokens"
+)
+
+// 定价表：APIType × Model × Dimension → 单价(USD)
+type PricingEntry struct {
+    APIType       APIType
+    Model         string  // "*" 表示该 APIType 下所有模型
+    Dimension     UsageDimension
+    UnitCost      float64 // USD per unit
+    Markup        float64 // 平台溢价系数
+}
+
+var defaultPricingTable = []PricingEntry{
+    // Chat / Responses / Completions：按 token 计费，prompt/completion 不对称
+    {APITypeChat, "gpt-4o", DimPromptTokens, 0.0000025, 1.5},      // $2.5/1M
+    {APITypeChat, "gpt-4o", DimCompletionTokens, 0.00001, 1.5},       // $10/1M
+    {APITypeChat, "gpt-4o-mini", DimPromptTokens, 0.000000075, 1.5},
+    {APITypeChat, "gpt-4o-mini", DimCompletionTokens, 0.0000003, 1.5},
+
+    // Embeddings
+    {APITypeEmbeddings, "*", DimTotalTokens, 0.0000001, 1.5},       // $0.1/1M
+
+    // Images（按张数，不按 token）
+    {APITypeImageGen, "dall-e-3", DimImageCount, 0.040, 1.5},       // $0.04/张
+    {APITypeImageEdit, "dall-e-3", DimImageCount, 0.080, 1.5},
+    {APITypeImageVar, "dall-e-3", DimImageCount, 0.080, 1.5},
+
+    // Videos（按生成秒数）
+    {APITypeVideos, "*", DimVideoCount, 0.050, 1.5},               // $0.05/秒
+
+    // Audio（按音频秒数）
+    {APITypeAudioSpeech, "*", DimAudioSeconds, 0.015, 1.5},        // TTS $15/1K 秒
+    {APITypeAudioSTT, "*", DimAudioSeconds, 0.00006, 1.5},         // Whisper $0.06/分钟
+    {APITypeAudioTranslate, "*", DimAudioSeconds, 0.00006, 1.5},
+
+    // Files storage（按存储字节·天）
+    {APITypeFiles, "*", DimStorageBytes, 0.0000001, 1.0},          // $0.1/1M bytes/day
+
+    // Fine-tuning training（按训练 token）
+    {APITypeFineTuning, "*", DimTrainingTokens, 0.008, 1.5},      // $8/1M
+}
+
+// 计算单次请求费用
+func CalculateCost(apiType APIType, model string, usage *Usage, groupDiscount float64) float64 {
+    entries := getPricingEntries(apiType, model)
+
+    var totalCost float64
+    for _, entry := range entries {
+        unit := getUsageUnit(usage, entry.Dimension)
+        cost := entry.UnitCost * unit * entry.Markup * groupDiscount
+        totalCost += cost
+    }
+    return totalCost
+}
+
+func getUsageUnit(usage *Usage, dim UsageDimension) float64 {
+    switch dim {
+    case DimPromptTokens:     return float64(usage.PromptTokens)
+    case DimCompletionTokens: return float64(usage.CompletionTokens)
+    case DimTotalTokens:      return float64(usage.TotalTokens)
+    case DimImageCount:       return float64(usage.ImageCount)
+    case DimVideoCount:       return float64(usage.VideoCount)
+    case DimAudioSeconds:     return float64(usage.AudioSeconds)
+    case DimStorageBytes:     return float64(usage.StorageBytes)
+    case DimTrainingTokens:   return float64(usage.TrainingTokens)
+    }
+    return 0
+}
+```
 
 ### 6.2 计费钩子
+
+```go
+type BillingSession struct {
+    ID                string    `json:"id"`           // UUID，幂等键
+    UserID            string    `json:"user_id"`
+    RequestID         string    `json:"request_id"`  // 来自 X-Request-ID header，幂等
+    IdempotencyKey    string    `json:"idempotency_key"` // 客户端传入的幂等键
+    ChannelID         string    `json:"channel_id"`
+    Model             string    `json:"model"`
+    APIType           APIType   `json:"api_type"`
+    PreAuthorizedAmt  float64   `json:"pre_authorized_amt"` // 预扣金额
+    SettledAmt        float64   `json:"settled_amt"`       // 结算金额
+    Status            string    `json:"status"`   // "preauthorized" | "settled" | "refunded"
+    AttemptNo         int       `json:"attempt_no"`        // 重试次数
+    CreatedAt         time.Time `json:"created_at"`
+}
+```
 
 #### PreBill（请求前）
 
 ```go
-func PreBill(ctx context.Context, req *ProviderRequest, channel *Channel) error {
-    // 1. 估算 Token 数量
-    estimatedTokens := channel.Adapter.EstimateTokens(req)
+func PreBill(ctx context.Context, req *ProviderRequest, channel *Channel, idempotencyKey string) (*BillingSession, error) {
+    // 1. 幂等检查：同一 IdempotencyKey 已存在，直接返回已有 session
+    existing := billingSessionStore.FindByIdempotencyKey(idempotencyKey)
+    if existing != nil {
+        return existing, nil
+    }
 
-    // 2. 计算预扣费用
-    cost := channel.BaseCost * estimatedTokens / 1000 * channel.Markup * user.GroupDiscount
+    // 2. 估算用量（使用 tiktoken-go）
+    estimatedUsage := channel.Adapter.EstimateUsage(req) // 返回 *Usage 估算
 
-    // 3. 预扣配额
+    // 3. 计算预扣金额
+    cost := CalculateCost(req.APIType, req.Model, estimatedUsage, user.GroupDiscount)
+
+    // 4. 预扣配额
     if err := quota.PreConsume(ctx, userID, cost); err != nil {
-        return ErrInsufficientQuota // 配额不足，拒绝
+        return nil, ErrInsufficientQuota
     }
 
-    // 4. 记录预扣会话
-    billingSession := &BillingSession{
-        UserID:    userID,
-        ChannelID: channel.ID,
-        Model:     req.Model,
-        PreQuota:  cost,
-        StartTime: time.Now(),
+    // 5. 创建会话（持久化！）
+    session := &BillingSession{
+        ID:               uuid.New().String(),
+        UserID:           userID,
+        RequestID:        req.RequestID,
+        IdempotencyKey:   idempotencyKey,
+        ChannelID:        channel.ID,
+        Model:            req.Model,
+        APIType:          req.APIType,
+        PreAuthorizedAmt: cost,
+        Status:           "preauthorized",
+        AttemptNo:        1,
+        CreatedAt:        time.Now(),
     }
-    billingSessionStore.Save(billingSession)
+    billingSessionStore.Save(session)
 
-    return nil
+    return session, nil
 }
 ```
 
 #### PostBill（请求后）
 
 ```go
-func PostBill(ctx context.Context, req *ProviderRequest, resp *ProviderResponse, channel *Channel) {
-    // 1. 计算实际费用
-    if resp.Usage != nil {
-        actualTokens := resp.Usage.TotalTokens
-        actualCost := channel.BaseCost * actualTokens / 1000 * channel.Markup * user.GroupDiscount
-        delta := actualCost - billingSession.PreQuota
-
-        // 2. 结算：多退少补
-        quota.Settle(ctx, userID, delta)
+func PostBill(ctx context.Context, session *BillingSession, resp *ProviderResponse, channel *Channel) {
+    if resp.Usage == nil {
+        // 无 usage 响应（某些接口如 Images/Videos 直接返回 URL）
+        // 按固定估算值结算
+        quota.Settle(ctx, session.UserID, 0) // 差额已在 PreBill 全额预扣
+        return
     }
+
+    // 计算实际费用
+    actualCost := CalculateCost(session.APIType, session.Model, resp.Usage, user.GroupDiscount)
+    delta := actualCost - session.PreAuthorizedAmt
+
+    session.SettledAmt = actualCost
+    session.Status = "settled"
+    billingSessionStore.Update(session)
+
+    quota.Settle(ctx, session.UserID, delta) // 多退少补
 }
 ```
 
 #### Refund（失败时）
 
 ```go
-func Refund(ctx context.Context, billingSessionID string) {
-    session := billingSessionStore.Get(billingSessionID)
-    quota.Refund(ctx, userID, session.PreQuota)
+func Refund(ctx context.Context, sessionID string) {
+    session := billingSessionStore.Get(sessionID)
+    if session == nil || session.Status == "refunded" {
+        return
+    }
+    quota.Refund(ctx, session.UserID, session.PreAuthorizedAmt)
+    session.Status = "refunded"
+    billingSessionStore.Update(session)
 }
 ```
 
-### 6.3 TPM 预扣保护
+### 6.3 账单幂等与重试语义
+
+**核心问题**：Router 支持渠道失败后切换下一渠道重试，这意味着同一请求可能到达多个渠道。需要明确：
+- 同一 `X-Request-ID` / `IdempotencyKey` 是否使用同一 `BillingSession`？
+- 重复请求是否会导致重复预扣？
+
+**策略：同一 IdempotencyKey 复用 BillingSession，AttemptNo 递增**
+
+```
+请求 1（X-Request-ID=req-1, IdempotencyKey=idem-1）
+    → BillingSession(attempt_no=1, status=preauthorized)
+    → 渠道 A 执行
+    → 失败（5xx）
+
+请求 1 重试（X-Request-ID=req-1, IdempotencyKey=idem-1）
+    → FindByIdempotencyKey("idem-1") → 找到已有 Session
+    → session.AttemptNo++ (变成 2)
+    → 复用已有 Session，不重复预扣
+    → 渠道 B 执行
+    → 成功 → PostBill(session)
+
+极端：渠道 A 预扣成功，渠道 B 也预扣成功（两次独立 PreBill）
+    → A 失败，Refund(A session)
+    → B 成功，PostBill(B session)
+    → 用户只被扣一次（第二次的 Refund 会被执行）
+```
+
+**幂等键优先级**：
+1. 客户端传入的 `X-Idempotency-Key` header（最高）
+2. `X-Request-ID` header
+3. 自动生成 UUID（仅用于内部追踪）
+
+### 6.4 TPM 预扣保护
 
 ```go
 func PreConsumeTPM(ctx context.Context, userID, channelID string, estimatedTokens int) error {
     channel := pool.GetChannel(channelID)
 
-    // 按最大上下文预扣，不按实际用量
-    maxContext := channel.MaxContext
-    if maxContext == 0 {
-        maxContext = 128000 // 默认最大值
+    // 使用 tiktoken 精确估算 prompt tokens
+    promptTokens := tiktoken.EstimatePromptTokens(req.InputText, req.Model)
+
+    // Completion tokens：按 max_tokens 或默认 2000（不是 maxContext）
+    completionTokens := req.MaxTokens
+    if completionTokens == 0 {
+        completionTokens = 2000
     }
 
-    tokensToCharge := min(estimatedTokens, maxContext)
+    totalTokens := promptTokens + completionTokens
 
-    // 检查 TPM 限流器
-    if !rateLimiter.Allow(userID, tokensToCharge) {
+    if !rateLimiter.AllowTPM(userID, totalTokens) {
         return ErrTPMLimitExceeded
     }
-
     return nil
 }
 ```
@@ -876,14 +1078,44 @@ func (hc *HealthChecker) HealthCheck(ctx context.Context, channel *Channel) erro
 **缓解措施**：
 
 ```go
-// HTTP Server 并发上限
+// HTTP Server 配置
 srv := &http.Server{
     Addr:         ":8080",
     Handler:      router,
     ReadTimeout:  120 * time.Second,  // 长时流式请求需要大 timeout
     WriteTimeout: 120 * time.Second,
-    MaxConnsPerIP: 100,                 // 单一 IP 最大连接数
-    // 注意：Go 1.19+ 支持 http.Server.SetMaxRequests()，可限制全局并发
+    // 注意：net/http.Server 没有 MaxConnsPerIP，需通过 middleware 实现
+}
+
+// IP 级连接限制（通过 Gin middleware）
+func IPConnLimiter(limit int) gin.HandlerFunc {
+    ips := make(map[string]int)
+    return func(c *gin.Context) {
+        ip := c.ClientIP()
+        ips[ip]++
+        if ips[ip] > limit {
+            c.AbortWithStatus(429)
+            return
+        }
+        c.Next()
+        ips[ip]--
+    }
+}
+
+// 全局并发限制（通过 semaphore）
+var globalLimiter = make(chan struct{}, 10000) // 全局最多 10000 并发
+
+func GlobalConcurrencyLimiter() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        select {
+        case globalLimiter <- struct{}{}:
+            defer func() { <-globalLimiter }()
+            c.Next()
+        default:
+            c.JSON(503, gin.H{"error": "too many requests"})
+            c.Header("Retry-After", "5")
+        }
+    }
 }
 
 // 结合 Retry-After Header，全挂时快速失败不积压
@@ -894,7 +1126,212 @@ if allChannelsFailed {
 }
 ```
 
-## 10. 未纳入第一期的功能
+## 11. Realtime WebSocket 设计
+
+### 11.1 架构问题
+
+当前 `ProviderAdapter` 接口设计是**单次 HTTP 请求-响应**模式：
+- `DoRequest()` 返回 `*http.Response`
+- 适合 Unary HTTP 和 SSE Streaming
+
+但 Realtime API 使用 **WebSocket 双向流**，与 HTTP 模式不兼容：
+- 连接建立：`GET /v1/realtime` → Upgrade to WebSocket
+- 双向消息：客户端发送 `session.update`、`conversation.item.create`；服务端推送 `session.created`、`response.done`
+- 连接生命周期：不是单次请求，而是长连接
+- Usage 回填：整个对话的 token 消耗在连接关闭时才知晓
+
+### 11.2 三类协议抽象
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    ProtocolHandler                           │
+│                                                              │
+│  ┌────────────┐  ┌────────────┐  ┌────────────────────────┐  │
+│  │ UnaryHTTP  │  │ SSEStream │  │ WebSocketTunnel        │  │
+│  │ Handler    │  │ Handler   │  │ Handler                │  │
+│  │            │  │           │  │                        │  │
+│  │ 单次请求   │  │ Server    │  │ 双向消息流              │  │
+│  │ 单次响应   │  │ Push +    │  │ 生命周期=连接时长       │  │
+│  │            │  │ Client Req│  │                        │  │
+│  └────────────┘  └────────────┘  └────────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 11.3 WebSocket Tunnel Handler 设计
+
+```go
+// RealtimeHandler 独立于 ProviderAdapter 之外
+type RealtimeHandler struct {
+    channelPool *Pool
+    billingHook BillingHook
+}
+
+func (h *RealtimeHandler) HandleWebSocket(c *gin.Context) error {
+    // 1. 鉴权：从 cookie/query param 取 token，验证用户
+    userID, err := auth(c)
+    if err != nil {
+        return err
+    }
+
+    // 2. 解析 model 参数
+    model := c.Query("model")
+    if model == "" {
+        return c.JSON(400, gin.H{"error": "model required"})
+    }
+
+    // 3. 幂等键（同一路由多次连接应有同一 session 语义）
+    // Realtime 不像 Unary HTTP 有 X-Request-ID，用 connection_id 代替
+    connectionID := c.GetHeader("OpenAI-Realtime-Connection-ID")
+    if connectionID == "" {
+        connectionID = uuid.New().String()
+    }
+
+    // 4. PreBill（按连接预扣，而不是按请求）
+    // Realtime 预估：按连接时长预扣 1 分钟，后续按 Usage 调整
+    estimatedCostPerMinute := getRealtimeEstimate(model)
+    if err := quota.PreConsumeMinute(c, userID, estimatedCostPerMinute); err != nil {
+        return c.JSON(403, gin.H{"error": "insufficient quota"})
+    }
+
+    // 5. 从 Pool 选择渠道（走 Router）
+    channel, err := h.channelPool.Select(model)
+    if err != nil {
+        return c.JSON(503, gin.H{"error": "no channel available"})
+    }
+
+    // 6. 建立到上游的 WebSocket 连接
+    upstreamURL := channel.BaseURL + "/v1/realtime?model=" + model
+    upstreamReq, _ := http.NewRequest("GET", upstreamURL, nil)
+    channel.Adapter.AddAuthHeader(upstreamReq, channel.APIKey)
+    // 注意：实际的 WebSocket 升级由 gorilla/websocket 处理
+
+    upstreamConn, resp, err := websocket.DefaultDialer.Dial(upstreamURL, upstreamReq.Header)
+    if err != nil {
+        billingHook.Refund(connectionID)
+        return c.JSON(502, gin.H{"error": "upstream connection failed"})
+    }
+
+    // 7. 代理双向消息
+    clientConn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+    if err != nil {
+        return err
+    }
+
+    // 8. 并发代理：client ↔ relay ↔ upstream
+    var wg sync.WaitGroup
+    var totalUsage atomic.Value // 累计 usage
+
+    // 8a. 客户端 → 上游
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        for {
+            _, msg, err := clientConn.ReadMessage()
+            if err != nil {
+                upstreamConn.Close()
+                break
+            }
+            // 记录客户端发送的 token（客户端消息）
+            // 可选：tiktoken 估算后计入 usage
+            if err := upstreamConn.WriteMessage websocket.TextMessage, msg); err != nil {
+                break
+            }
+        }
+    }()
+
+    // 8b. 上游 → 客户端
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        for {
+            _, msg, err := upstreamConn.ReadMessage()
+            if err != nil {
+                clientConn.Close()
+                break
+            }
+            // 解析 usage（OpenAI Realtime 在 response.done event 中发送 usage）
+            if parseAndAccumulateUsage(msg, totalUsage) {
+                // 收到 response.done，更新 usage
+            }
+            if err := clientConn.WriteMessage(websocket.TextMessage, msg); err != nil {
+                break
+            }
+        }
+    }()
+
+    wg.Wait()
+
+    // 9. 连接关闭后，按实际 Usage 结算
+    actualUsage := totalUsage.Load().(*Usage)
+    h.billingHook.SettleWebRTC(userID, connectionID, actualUsage)
+
+    return nil
+}
+```
+
+### 11.4 Realtime 计费
+
+```go
+// Realtime 的 Usage 来自 OpenAI 发送的 response.done event
+// OpenAI Realtime 协议中，usage 包含：
+// { "type": "response.done", "response": { "usage": { "totalTokens": 1234 } } }
+
+func parseAndAccumulateUsage(msg []byte, acc atomic.Value) bool {
+    var event map[string]any
+    if err := json.Unmarshal(msg, &event); err != nil {
+        return false
+    }
+    if event["type"] != "response.done" {
+        return false
+    }
+    resp := event["response"].(map[string]any)
+    usageMap := resp["usage"].(map[string]any)
+    acc.Store(&Usage{
+        TotalTokens: int(usageMap["totalTokens"].(float64)),
+    })
+    return true
+}
+
+// 连接关闭时结算（按实际 Usage，不按预扣）
+func (h *RealtimeHandler) SettleWebRTC(ctx context.Context, userID, connectionID string, usage *Usage) {
+    session := billingSessionStore.FindByConnectionID(connectionID)
+    if session == nil {
+        return
+    }
+
+    actualCost := CalculateCost(APITypeRealtime, session.Model, usage, user.GroupDiscount)
+    delta := actualCost - session.PreAuthorizedAmt
+    quota.Settle(ctx, userID, delta)
+    session.Status = "settled"
+    billingSessionStore.Update(session)
+}
+```
+
+### 11.5 断线重连与续活
+
+Realtime 连接断开后，客户端通常会尝试重连。需支持：
+
+```go
+// 同一 connection_id 的重连使用同一 BillingSession
+func (h *RealtimeHandler) HandleWebSocket(c *gin.Context) error {
+    connectionID := c.GetHeader("OpenAI-Realtime-Connection-ID")
+
+    // 查找已有 session
+    existingSession := billingSessionStore.FindByConnectionID(connectionID)
+    if existingSession != nil {
+        // 重连：复用已有 session，AttemptNo++，不重复预扣
+        existingSession.AttemptNo++
+        billingSessionStore.Update(existingSession)
+        // 继续代理...
+    } else {
+        // 新建连接
+        session, _ := h.PreBillRealtime(c, connectionID)
+        // ...
+    }
+}
+```
+
+## 12. 未纳入第一期的功能
 
 | 功能 | 原因 |
 |------|------|
