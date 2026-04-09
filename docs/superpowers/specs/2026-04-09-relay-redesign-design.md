@@ -771,6 +771,129 @@ type ChannelStats struct {
 
 （第二期跑稳后启动）
 
+## 10. 生产风险与缓解措施
+
+### 风险 1：预扣费与 TPM 限流的粗暴估算
+
+**问题**：若按 `maxContext`（128k）粗暴预扣，用户发起简单短对话（实际消耗 500 tokens），系统却按 128,000 预扣，配额或 TPM 限制会在几秒内被假性耗尽，导致后续请求全部被 `ErrTPMLimitExceeded` 拒绝。
+
+**缓解措施**：
+
+```go
+// 使用 tiktoken-go 进行精准 Token 估算
+import "github.com/pkoukk/tiktoken-go"
+
+func EstimateTokens(text string, model string) int {
+    encoding, _ := tiktoken.EncodingForModel(model)
+    tokens := encoding.Encode(text, nil, nil)
+    return len(tokens)
+}
+
+func PreBill(ctx context.Context, req *ProviderRequest, channel *Channel) error {
+    // 1. 精准估算 prompt tokens
+    promptText := extractPromptText(req)
+    promptTokens := EstimateTokens(promptText, req.Model)
+
+    // 2. Completion tokens：前端必须传 max_tokens，或系统给默认缓冲值
+    completionTokens := req.MaxTokens
+    if completionTokens == 0 {
+        completionTokens = 2000 // 默认缓冲，避免按 maxContext 全扣
+    }
+
+    totalTokens := promptTokens + completionTokens
+
+    // 3. 检查 TPM 限流器
+    if !rateLimiter.AllowTPM(channel.ID, totalTokens) {
+        return ErrTPMLimitExceeded
+    }
+
+    // 4. 预扣费（按估算值，不是 maxContext）
+    cost := calculateCost(totalTokens, channel)
+    return quota.PreConsume(ctx, userID, cost)
+}
+```
+
+### 风险 2：零成本健康检查的可靠性
+
+**问题**：`GET /v1/models` 在很多渠道中由 Nginx/Cloudflare 静态缓存，即使大模型推理集群全部宕机，`/models` 依然秒回 200，导致熔断器无法触发，引发大规模超时。
+
+**缓解措施**：
+
+```go
+type Channel struct {
+    // ... 原有字段 ...
+
+    // 健康检查策略配置
+    HealthCheckStrategy string `json:"health_check_strategy"`
+    // "models_api"     - 零成本，GET /v1/models（低权重备用渠道）
+    // "realtime_probe" - 真实推理探活（推荐高权重主渠道）
+    // "disabled"        - 不探活，纯被动（极少使用的渠道）
+
+    ProbeModel  string `json:"probe_model"`  // 探活用模型，默认 gpt-4o-mini
+    ProbePrompt string `json:"probe_prompt"` // 探活 prompt，默认 "hi"
+}
+
+func (hc *HealthChecker) HealthCheck(ctx context.Context, channel *Channel) error {
+    switch channel.HealthCheckStrategy {
+    case "disabled":
+        return nil // 不探活
+
+    case "models_api":
+        // 零成本，但可能被 CDN 缓存，有漏报风险
+        resp, err := http.Get(channel.BaseURL + "/v1/models")
+        return err
+
+    case "realtime_probe":
+        // 真实推理探活，推荐高权重渠道使用
+        body := map[string]any{
+            "model": channel.ProbeModel,
+            "max_tokens": 5,
+            "messages": []map[string]string{{
+                "role":    "user",
+                "content": channel.ProbePrompt,
+            }},
+        }
+        jsonBody, _ := json.Marshal(body)
+        req, _ := http.NewRequest("POST", channel.BaseURL+"/v1/chat/completions", bytes.NewBuffer(jsonBody))
+        req.Header.Set("Authorization", "Bearer "+channel.APIKey)
+        req.Header.Set("Content-Type", "application/json")
+
+        resp, err := http.DefaultClient.Do(req)
+        if err != nil {
+            hc.recordFailure(channel.ID)
+        } else {
+            hc.recordSuccess(channel.ID)
+        }
+        return err
+    }
+}
+```
+
+### 风险 3：HTTP Server 层雪崩
+
+**问题**：全渠道路由失败时，快速涌入的请求会在 Go HTTP Server 层积压，引发 OOM。
+
+**缓解措施**：
+
+```go
+// HTTP Server 并发上限
+srv := &http.Server{
+    Addr:         ":8080",
+    Handler:      router,
+    ReadTimeout:  120 * time.Second,  // 长时流式请求需要大 timeout
+    WriteTimeout: 120 * time.Second,
+    MaxConnsPerIP: 100,                 // 单一 IP 最大连接数
+    // 注意：Go 1.19+ 支持 http.Server.SetMaxRequests()，可限制全局并发
+}
+
+// 结合 Retry-After Header，全挂时快速失败不积压
+if allChannelsFailed {
+    c.JSON(503, gin.H{"error": "service temporarily unavailable"})
+    c.Header("Retry-After", "30")
+    return
+}
+```
+
 ## 10. 未纳入第一期的功能
 
 | 功能 | 原因 |

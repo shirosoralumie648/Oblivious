@@ -198,14 +198,37 @@ type AgentService interface {
 }
 
 type TaskService interface {
-    // Agent Task（SOLO 重构）
+    // Agent Task（SOLO 重构，异步化）
     CreateTask(ctx context.Context, req *CreateTaskRequest) (*Task, error)
     GetTask(ctx context.Context, id string) (*Task, error)
     ListTasks(ctx context.Context, userID string) ([]*Task, error)
-    ExecuteTask(ctx context.Context, id string) (*TaskResult, error)
+
+    // 提交异步执行（任务进入分布式队列，保证崩溃可恢复）
+    SubmitTask(ctx context.Context, taskID string) error
+
+    // Worker 消费（goroutine 或独立 worker 进程执行）
+    ExecuteTask(ctx context.Context, task *Task) error
+
     PauseTask(ctx context.Context, id string) error
     ResumeTask(ctx context.Context, id string) error
     CancelTask(ctx context.Context, id string) error
+}
+
+// 分布式任务队列（基于 Asynq + Redis）
+// 原因：长时 Agent 推理（如 multi-step 或复杂 MCP 工具调用）如果仅靠 Go 内存 Goroutine 执行，
+// 一旦后端节点重启/发布/崩溃，运行中任务状态丢失，任务永远卡在 running。
+// Asynq 提供：任务持久化（Redis）、失败重试、Worker 分布式的保证。
+var agentTaskQueue = asynq.NewClient(asynq.RedisClientOpt{Addr: redisAddr})
+
+func SubmitTask(ctx context.Context, taskID string) error {
+    task, _ := s.GetTask(ctx, taskID)
+    payload, _ := json.Marshal(map[string]string{"task_id": taskID})
+    _, err := agentTaskQueue.Enqueue(
+        asynq.NewTask("agent_task", payload),
+        asynq.MaxRetry(3),
+        asynq.Timeout(30*time.Minute), // 长时任务允许 30min
+    )
+    return err
 }
 ```
 
@@ -300,7 +323,43 @@ type MemoryService interface {
 }
 ```
 
-#### 3.3.3 数据模型
+#### 3.3.3 Chunking 策略
+
+长文本（如 PDF、文档、长篇记忆）需要分块（Chunking）后再 Embedding，否则会：
+1. 超出模型 max tokens 上限
+2. 丢失细节（整篇 embedding 无法捕捉局部信息）
+
+**分块策略**：滑动窗口 + 语义分段
+
+```go
+type ChunkingConfig struct {
+    ChunkSize     int    // 每块 token 数，默认 512
+    ChunkOverlap  int    // 块间重叠 token 数，默认 64
+    SplitBy       string // "sentence" | "paragraph" | "token"
+}
+
+func ChunkText(text string, cfg ChunkingConfig) []string {
+    // 1. 按段落分割
+    // 2. 按 ChunkSize + ChunkOverlap 滑动窗口
+    // 3. 返回 chunks
+}
+```
+
+**嵌入流程**：
+```
+用户上传/添加记忆
+    │
+    ▼
+ChunkText（分块）→ ["chunk1", "chunk2", ..., "chunkN"]
+    │
+    ▼
+并发调用 EmbedText → [vector1, vector2, ..., vectorN]
+    │
+    ▼
+批量插入 pgvector（每个 chunk 一条记录，共享同一 parent_id）
+```
+
+#### 3.3.4 数据模型
 
 ```sql
 -- Memory 表
@@ -308,7 +367,7 @@ CREATE TABLE memories (
     id UUID PRIMARY KEY,
     user_id UUID NOT NULL,
     content TEXT NOT NULL,
-    embedding vector(1536),  -- pgvector
+    embedding vector(1536),  -- pgvector (对应 OpenAI text-embedding-3-small)
     metadata JSONB,
     created_at TIMESTAMP,
     updated_at TIMESTAMP
@@ -317,6 +376,8 @@ CREATE TABLE memories (
 -- 向量索引（按用户隔离）
 CREATE INDEX idx_memories_user_id ON memories(user_id);
 CREATE INDEX idx_memories_embedding ON memories USING ivfflat(embedding cosine_ops) WITH (lists = 100);
+-- GIN 索引（用于 metadata 检索）
+CREATE INDEX idx_memories_metadata ON memories USING GIN(metadata);
 
 -- 搜索时加上 user_id 过滤
 SELECT * FROM memories
@@ -424,11 +485,13 @@ users ──1:N── quotas
   │
   └──1:N── memories (vectors)
   │
-  └──1:N── market_installs ──N:1── market_items
+  └──1:N── user_installs ──N:1── market_items
   │
   └──1:N── subscriptions ──N:1── packages
   │
   └──1:N── topup_orders
+  │
+  └──1:N── files
 ```
 
 ### 4.2 核心表
@@ -529,12 +592,16 @@ CREATE TABLE agents (
     description TEXT,
     model VARCHAR(100),
     system_prompt TEXT,
-    tools JSONB DEFAULT '[]',
+    tools JSONB DEFAULT '[]',  -- MCP 工具列表
     config JSONB DEFAULT '{}',
     is_public BOOLEAN DEFAULT false,
     created_at TIMESTAMP,
     updated_at TIMESTAMP
 );
+
+-- GIN 索引：支持按工具类型/标签检索 Agent
+CREATE INDEX idx_agents_tools ON agents USING GIN(tools);
+CREATE INDEX idx_agents_user_id ON agents(user_id);
 
 -- Memory 表
 CREATE TABLE memories (
@@ -565,7 +632,7 @@ CREATE TABLE market_items (
     name VARCHAR(255) NOT NULL,
     description TEXT,
     author_id UUID REFERENCES users(id),
-    manifest JSONB NOT NULL,
+    manifest JSONB NOT NULL,  -- 安装所需信息（工具列表、依赖等）
     thumbnail_url VARCHAR(500),
     install_count INT DEFAULT 0,
     rating FLOAT DEFAULT 0,
@@ -574,6 +641,30 @@ CREATE TABLE market_items (
     created_at TIMESTAMP,
     updated_at TIMESTAMP
 );
+
+-- GIN 索引：支持按工具类型/支持度检索 Marketplace Items
+CREATE INDEX idx_market_items_manifest ON market_items USING GIN(manifest);
+CREATE INDEX idx_market_items_tags ON market_items USING GIN(tags);
+
+-- Files 表（Batch / Fine-tuning 依赖 .jsonl 文件上传）
+-- 原因：OpenAI Batch API 和 Fine-tuning API 重度依赖文件上传（/v1/files），
+-- 需要对象存储（S3/MinIO/阿里云 OSS）支持。files 表管理用户上传文件和 OpenAI file_id 映射。
+CREATE TABLE files (
+    id UUID PRIMARY KEY,
+    user_id UUID REFERENCES users(id),
+    filename VARCHAR(255) NOT NULL,
+    mime_type VARCHAR(100),
+    size_bytes BIGINT,
+    storage_provider VARCHAR(20) DEFAULT 's3',  -- 's3' | 'minio' | 'oss'
+    storage_path VARCHAR(500) NOT NULL,  -- S3 key / OSS path
+    purpose VARCHAR(20),  -- 'batch_input' | 'fine_tune_train' | 'fine_tune_result'
+    openai_file_id VARCHAR(100),  -- 上传至 OpenAI 后的 file_id
+    status VARCHAR(20) DEFAULT 'pending',  -- 'pending' | 'uploaded' | 'processed'
+    created_at TIMESTAMP
+);
+
+CREATE INDEX idx_files_user_id ON files(user_id);
+CREATE INDEX idx_files_purpose ON files(purpose);
 
 -- 用户安装记录
 CREATE TABLE user_installs (
@@ -613,8 +704,10 @@ CREATE TABLE agent_tasks (
 | HTTP 框架 | Gin | 成熟稳定 |
 | 数据库 | PostgreSQL 14+ | 已有 pgvector 扩展 |
 | 向量 | pgvector | 用户隔离用 user_id namespace |
+| 对象存储 | S3 兼容（MinIO / AWS S3 / 阿里云 OSS） | Batch/Fine-tuning 文件存储 |
+| 任务队列 | Asynq + Redis | 分布式任务队列，保证 Agent Task 崩溃可恢复 |
 | ORM | GORM 或 sqlx | 待定 |
-| 缓存 | Redis | Session、Rate Limit |
+| 缓存 | Redis | Session、Rate Limit、Asynq 队列后端 |
 | 指标 | Prometheus + prometheus-client | 监控 |
 | 配置 | Viper | 环境变量 + 配置文件 |
 
@@ -639,7 +732,11 @@ require (
     github.com/jmoiron/sqlx
     github.com/spf13/viper
     github.com/golang-jwt/jwt/v5
-    golang.org/x/crypto  // bcrypt
+    github.com/redis/go-redis/v9
+    github.com/hibiken/asynq        // 分布式任务队列
+    github.com/pkoukk/tiktoken-go  // 精准 Token 估算
+    github.com/aws/aws-sdk-go-v2   // S3/OSS 对象存储
+    golang.org/x/crypto             // bcrypt
 )
 ```
 
