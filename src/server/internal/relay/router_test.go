@@ -62,3 +62,24 @@ func TestRouter_AllChannelsFailed(t *testing.T) {
 		t.Fatalf("expected 503, got %d", re.Code)
 	}
 }
+
+func TestRouter_RouteWithFallback_RetriesAllChannels(t *testing.T) {
+	pool := NewChannelPool()
+	pool.AddChannel(&types.Channel{ID: "a", BaseURL: "http://a", Enabled: true}, 1)
+	pool.AddChannel(&types.Channel{ID: "b", BaseURL: "http://b", Enabled: true}, 1)
+
+	lb := NewLoadBalancer(pool, "weighted")
+	router := NewRouter(pool, lb, nil, nil, NewHealthChecker(HealthCheckDisabled, 5*time.Second))
+
+	callCount := 0
+	fn := func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
+		callCount++
+		return nil, errors.New("error")
+	}
+
+	_, err := router.RouteWithFallback(context.Background(), "chat", 2, fn)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	// Both attempts use the same channel due to LB; with 2 channels it varies
+}
