@@ -108,3 +108,23 @@ func (p *ChannelPool) GetAllStats() map[string]*types.ChannelStats {
 	}
 	return result
 }
+
+// AddChannel 添加渠道路由（用于测试和动态注册）
+func (p *ChannelPool) AddChannel(ch *types.Channel, weight int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.channels[ch.ID] = ch
+	if p.stats[ch.ID] == nil {
+		p.stats[ch.ID] = &types.ChannelStats{ChannelID: ch.ID}
+	}
+	// 同时注册到 default 路由
+	if p.routes[""] == nil {
+		p.routes[""] = &types.ModelRoute{Model: "", Strategy: "weighted"}
+	}
+	p.routes[""].Channels = append(p.routes[""].Channels, types.RouteChannel{
+		Channel:    ch,
+		ChannelID: ch.ID,
+		Weight:    weight,
+		Healthy:   ch.Enabled,
+	})
+}
