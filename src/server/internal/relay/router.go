@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"oblivious/server/internal/relay/types"
 )
@@ -98,6 +99,40 @@ func (r *Router) RecordChannelFailure(channelID string) {
 	if cb, ok := r.circuitBreakers[channelID]; ok {
 		cb.RecordFailure()
 	}
+}
+
+func (r *Router) RouteWithFallback(
+	ctx context.Context,
+	apiType string,
+	attempts int,
+	fn func(ch *types.RouteChannel) (*types.ProviderResponse, error),
+) (*types.ProviderResponse, error) {
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		resp, err := r.Route(ctx, apiType, fn)
+		if err == nil && resp != nil {
+			return resp, nil
+		}
+		lastErr = err
+
+		if resp != nil && IsRetryable(resp.StatusCode) && attempt < attempts {
+			backoff := time.Duration(attempt*attempt) * 200 * time.Millisecond
+			if backoff > 5*time.Second {
+				backoff = 5 * time.Second
+			}
+			time.Sleep(backoff)
+		}
+	}
+
+	if lastErr == nil {
+		return nil, &RouterError{
+			Code:       http.StatusServiceUnavailable,
+			Message:    "all channels failed",
+			RetryAfter: 30,
+		}
+	}
+
+	return nil, lastErr
 }
 
 type RouterError struct {
