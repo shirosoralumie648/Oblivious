@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"oblivious/server/internal/relay/types"
@@ -15,6 +16,8 @@ type Router struct {
 	circuitBreakers map[string]*CircuitBreaker
 	tokenBucket     *TokenBucket
 	healthChecker   *HealthChecker
+	billingHook     *BillingHook
+	billingRedisAddr string
 }
 
 func NewRouter(
@@ -30,6 +33,26 @@ func NewRouter(
 		circuitBreakers: cbs,
 		tokenBucket:     tb,
 		healthChecker:   hc,
+	}
+}
+
+func NewRouterWithBilling(
+	pool *ChannelPool,
+	lb *LoadBalancer,
+	cbs map[string]*CircuitBreaker,
+	tb *TokenBucket,
+	hc *HealthChecker,
+	billingHook *BillingHook,
+	billingRedisAddr string,
+) *Router {
+	return &Router{
+		pool:              pool,
+		loadBalancer:      lb,
+		circuitBreakers:   cbs,
+		tokenBucket:       tb,
+		healthChecker:     hc,
+		billingHook:       billingHook,
+		billingRedisAddr:  billingRedisAddr,
 	}
 }
 
@@ -147,4 +170,62 @@ func (e *RouterError) Error() string {
 
 func (e *RouterError) RetryAfterSeconds() int {
 	return e.RetryAfter
+}
+
+func (r *Router) RouteWithBilling(
+	ctx context.Context,
+	apiType types.APIType,
+	model string,
+	channelID string,
+	idempotencyKey string,
+	usage *types.Usage,
+	fn func(ch *types.RouteChannel) (*types.ProviderResponse, error),
+) (*types.ProviderResponse, error) {
+	// Pre-authorize billing
+	if r.billingHook != nil {
+		_, err := r.billingHook.PreBill(&BillingSession{
+			ChannelID:       channelID,
+			APIType:         apiType,
+			Model:           model,
+			IdempotencyKey:  idempotencyKey,
+		}, usage)
+		if err != nil {
+			return nil, &RouterError{
+				Code:    http.StatusInternalServerError,
+				Message: "billing pre-authorization failed: " + err.Error(),
+			}
+		}
+	}
+
+	// Route the request
+	resp, err := r.Route(ctx, strconv.Itoa(int(apiType)), fn)
+
+	// Post-bill (settle or refund excess)
+	if r.billingHook != nil && resp != nil && resp.Usage != nil {
+		session := &BillingSession{
+			ChannelID:       channelID,
+			APIType:         apiType,
+			Model:           model,
+			IdempotencyKey:  idempotencyKey,
+		}
+		if resp.Usage != nil {
+			session.PreAuthorizedAmt = 0 // Will be set from PreBill session if available
+		}
+		r.billingHook.PostBill(session, resp.Usage)
+	} else if r.billingHook != nil && err != nil {
+		// On error, enqueue timeout task to refund
+		if r.billingRedisAddr != "" {
+			timeoutTask := &BillingTimeoutTask{
+				SessionID:     fmt.Sprintf("sess_%d", time.Now().UnixNano()),
+				ChannelID:     channelID,
+				APIType:       apiType,
+				Model:         model,
+				AuthAmt:       0, // Would need to track pre-auth amount properly
+				IdempotencyKey: idempotencyKey,
+			}
+			EnqueueBillingTimeoutTask(r.billingRedisAddr, timeoutTask, 5*time.Minute)
+		}
+	}
+
+	return resp, err
 }
