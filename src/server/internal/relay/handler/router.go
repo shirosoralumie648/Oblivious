@@ -7,6 +7,16 @@ import (
 	"oblivious/server/internal/relay/types"
 )
 
+var globalRouter types.RouterInterface
+
+func SetRouter(r types.RouterInterface) {
+	globalRouter = r
+}
+
+func GetRouter() types.RouterInterface {
+	return globalRouter
+}
+
 // Route 定义
 type Route struct {
 	Method    string

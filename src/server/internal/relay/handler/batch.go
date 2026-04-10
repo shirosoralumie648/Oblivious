@@ -2,13 +2,14 @@ package handler
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"oblivious/server/internal/relay/types"
 	"oblivious/server/internal/relay/channel"
+	"oblivious/server/internal/relay/types"
 )
 
 // BatchHandler Batch 处理（submit 原生 + status 透传）
@@ -127,5 +128,43 @@ func (h *BatchHandler) passthrough(c *gin.Context, method, path string, body []b
 }
 
 func (h *BatchHandler) executeRequest(c *gin.Context, req *channel.ProviderRequest, usage *types.Usage) (*types.ProviderResponse, error) {
-	return nil, types.ErrNoAvailableChannel
+	router := GetRouter()
+	if router == nil {
+		return nil, types.ErrNoAvailableChannel
+	}
+
+	idempotencyKey := c.GetHeader("X-Request-ID")
+	if idempotencyKey == "" {
+		idempotencyKey = fmt.Sprintf("batch_%d", time.Now().UnixNano())
+	}
+
+	return router.RouteWithBilling(
+		c.Request.Context(),
+		req.APIType,
+		req.Model,
+		"",
+		idempotencyKey,
+		usage,
+		func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
+			upstreamURL, _ := h.adapter.BuildURL(req.Model, req.APIType)
+			headers, _ := h.adapter.BuildHeaders(c.Request.Context(), req.Model, req.APIType)
+
+			upstreamReq, err := http.NewRequest("POST", upstreamURL, bytes.NewReader(req.Body))
+			if err != nil {
+				return nil, err
+			}
+			upstreamReq.Header = headers.Clone()
+			upstreamReq.Header.Set("Content-Type", "application/json")
+
+			client := &http.Client{Timeout: 60 * time.Second}
+			resp, err := client.Do(upstreamReq)
+			if err != nil {
+				return nil, err
+			}
+			defer resp.Body.Close()
+
+			bodyOut, _ := io.ReadAll(resp.Body)
+			return &types.ProviderResponse{StatusCode: resp.StatusCode, Content: bodyOut}, nil
+		},
+	)
 }

@@ -1,8 +1,12 @@
 package handler
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -38,23 +42,17 @@ func (h *ChatHandler) Handle(c *gin.Context) error {
 	}
 	stream, _ := rawReq["stream"].(bool)
 
-	url, _ := h.adapter.BuildURL(model, types.APITypeChat)
-	headers, _ := h.adapter.BuildHeaders(c.Request.Context(), model, types.APITypeChat)
-
 	// 构建 ProviderRequest
 	req := &channel.ProviderRequest{
 		APIType:   types.APITypeChat,
 		Model:     model,
-		URL:       url,
 		Stream:    stream,
 		Messages:  parseMessages(rawReq),
 		MaxTokens: parseInt(rawReq["max_tokens"]),
-		Headers:   headers,
 	}
 
 	// 估算用量
 	usage := h.adapter.EstimateUsage(req)
-	_ = usage
 
 	// 通过 executeRequest 路由
 	resp, err := h.executeRequest(c, req, usage)
@@ -93,7 +91,64 @@ func (h *ChatHandler) HandleStream(c *gin.Context) error {
 }
 
 func (h *ChatHandler) executeRequest(c *gin.Context, req *channel.ProviderRequest, usage *types.Usage) (*types.ProviderResponse, error) {
-	// TODO: 调用 Router.Execute(req) — Plan C 实现
-	// Plan C 之前返回错误以便编译通过
-	return nil, types.ErrNoAvailableChannel
+	router := GetRouter()
+	if router == nil {
+		return nil, types.ErrNoAvailableChannel
+	}
+
+	idempotencyKey := c.GetHeader("Idempotency-Key")
+	if idempotencyKey == "" {
+		idempotencyKey = fmt.Sprintf("chat_%d", time.Now().UnixNano())
+	}
+
+	return router.RouteWithBilling(
+		c.Request.Context(),
+		req.APIType,
+		req.Model,
+		"", // channel selected by router
+		idempotencyKey,
+		usage,
+		func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
+			upstreamURL, _ := h.adapter.BuildURL(req.Model, req.APIType)
+			headers, _ := h.adapter.BuildHeaders(c.Request.Context(), req.Model, req.APIType)
+
+			providerReq := &channel.ProviderRequest{
+				APIType:   req.APIType,
+				Model:     req.Model,
+				URL:       upstreamURL,
+				Stream:    req.Stream,
+				Messages:  req.Messages,
+				MaxTokens: req.MaxTokens,
+				Headers:   headers,
+			}
+
+			return h.doUpstreamRequest(providerReq)
+		},
+	)
+}
+
+func (h *ChatHandler) doUpstreamRequest(req *channel.ProviderRequest) (*types.ProviderResponse, error) {
+	body, err := marshalRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	upstreamReq, err := http.NewRequest("POST", req.URL, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	upstreamReq.Header = req.Headers.Clone()
+	upstreamReq.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Do(upstreamReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	bodyOut, _ := io.ReadAll(resp.Body)
+	return &types.ProviderResponse{
+		StatusCode: resp.StatusCode,
+		Content:    bodyOut,
+	}, nil
 }

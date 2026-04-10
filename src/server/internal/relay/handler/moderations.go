@@ -1,12 +1,16 @@
 package handler
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
-	"oblivious/server/internal/relay/types"
 	"oblivious/server/internal/relay/channel"
+	"oblivious/server/internal/relay/types"
 )
 
 // ModerationsHandler Moderations 处理
@@ -31,15 +35,10 @@ func (h *ModerationsHandler) Handle(c *gin.Context) error {
 		model = "omni-moderation-latest"
 	}
 
-	url, _ := h.adapter.BuildURL(model, types.APITypeModeration)
-	headers, _ := h.adapter.BuildHeaders(c.Request.Context(), model, types.APITypeModeration)
-
 	req := &channel.ProviderRequest{
 		APIType: types.APITypeModeration,
 		Model:   model,
-		URL:     url,
 		Input:   getString(rawReq, "input"),
-		Headers: headers,
 	}
 
 	resp, err := h.executeRequest(c, req, nil)
@@ -56,5 +55,59 @@ func (h *ModerationsHandler) HandleStream(c *gin.Context) error {
 }
 
 func (h *ModerationsHandler) executeRequest(c *gin.Context, req *channel.ProviderRequest, usage *types.Usage) (*types.ProviderResponse, error) {
-	return nil, types.ErrNoAvailableChannel
+	router := GetRouter()
+	if router == nil {
+		return nil, types.ErrNoAvailableChannel
+	}
+
+	idempotencyKey := c.GetHeader("Idempotency-Key")
+	if idempotencyKey == "" {
+		idempotencyKey = fmt.Sprintf("mod_%d", time.Now().UnixNano())
+	}
+
+	return router.RouteWithBilling(
+		c.Request.Context(),
+		req.APIType,
+		req.Model,
+		"",
+		idempotencyKey,
+		usage,
+		func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
+			upstreamURL, _ := h.adapter.BuildURL(req.Model, req.APIType)
+			headers, _ := h.adapter.BuildHeaders(c.Request.Context(), req.Model, req.APIType)
+
+			providerReq := &channel.ProviderRequest{
+				APIType: req.APIType,
+				Model:   req.Model,
+				URL:     upstreamURL,
+				Input:   req.Input,
+				Headers: headers,
+			}
+
+			return h.doUpstreamRequest(providerReq)
+		},
+	)
+}
+
+func (h *ModerationsHandler) doUpstreamRequest(req *channel.ProviderRequest) (*types.ProviderResponse, error) {
+	body, err := marshalRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	upstreamReq, err := http.NewRequest("POST", req.URL, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	upstreamReq.Header = req.Headers.Clone()
+	upstreamReq.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(upstreamReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	bodyOut, _ := io.ReadAll(resp.Body)
+	return &types.ProviderResponse{StatusCode: resp.StatusCode, Content: bodyOut}, nil
 }

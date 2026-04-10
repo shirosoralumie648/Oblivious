@@ -1,13 +1,16 @@
 package handler
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
-	"oblivious/server/internal/relay/types"
 	"oblivious/server/internal/relay/channel"
+	"oblivious/server/internal/relay/types"
 )
 
 // AudioHandler Audio 处理（speech TTS / transcriptions STT / translations）
@@ -52,16 +55,11 @@ func (h *AudioHandler) HandleSpeech(c *gin.Context) error {
 		model = "tts-1"
 	}
 
-	url, _ := h.adapter.BuildURL(model, types.APITypeAudioSpeech)
-	headers, _ := h.adapter.BuildHeaders(c.Request.Context(), model, types.APITypeAudioSpeech)
-
 	req := &channel.ProviderRequest{
 		APIType:     types.APITypeAudioSpeech,
 		Model:       model,
-		URL:         url,
 		Input:       getString(rawReq, "input"),
 		AudioFormat: getString(rawReq, "response_format"),
-		Headers:     headers,
 	}
 
 	resp, err := h.executeRequest(c, req, nil)
@@ -82,19 +80,14 @@ func (h *AudioHandler) HandleTranscriptions(c *gin.Context) error {
 		model = "whisper-1"
 	}
 
-	url, _ := h.adapter.BuildURL(model, types.APITypeAudioSTT)
-	headers, _ := h.adapter.BuildHeaders(c.Request.Context(), model, types.APITypeAudioSTT)
-
 	req := &channel.ProviderRequest{
 		APIType: types.APITypeAudioSTT,
 		Model:   model,
-		URL:     url,
-		Headers: headers,
 	}
 	body, _ := io.ReadAll(c.Request.Body)
 	req.Body = body
 
-	resp, err := h.executeRequest(c, req, nil)
+	resp, err := h.executeRequestRaw(c, req, "audio/mp3")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "relay_error", "message": err.Error()}})
 		return nil
@@ -110,19 +103,14 @@ func (h *AudioHandler) HandleTranslations(c *gin.Context) error {
 		model = "whisper-1"
 	}
 
-	url, _ := h.adapter.BuildURL(model, types.APITypeAudioTranslate)
-	headers, _ := h.adapter.BuildHeaders(c.Request.Context(), model, types.APITypeAudioTranslate)
-
 	req := &channel.ProviderRequest{
 		APIType: types.APITypeAudioTranslate,
 		Model:   model,
-		URL:     url,
-		Headers: headers,
 	}
 	body, _ := io.ReadAll(c.Request.Body)
 	req.Body = body
 
-	resp, err := h.executeRequest(c, req, nil)
+	resp, err := h.executeRequestRaw(c, req, "audio/mp3")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "relay_error", "message": err.Error()}})
 		return nil
@@ -132,5 +120,102 @@ func (h *AudioHandler) HandleTranslations(c *gin.Context) error {
 }
 
 func (h *AudioHandler) executeRequest(c *gin.Context, req *channel.ProviderRequest, usage *types.Usage) (*types.ProviderResponse, error) {
-	return nil, types.ErrNoAvailableChannel
+	router := GetRouter()
+	if router == nil {
+		return nil, types.ErrNoAvailableChannel
+	}
+
+	idempotencyKey := c.GetHeader("Idempotency-Key")
+	if idempotencyKey == "" {
+		idempotencyKey = fmt.Sprintf("audio_%d", time.Now().UnixNano())
+	}
+
+	return router.RouteWithBilling(
+		c.Request.Context(),
+		req.APIType,
+		req.Model,
+		"",
+		idempotencyKey,
+		usage,
+		func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
+			upstreamURL, _ := h.adapter.BuildURL(req.Model, req.APIType)
+			headers, _ := h.adapter.BuildHeaders(c.Request.Context(), req.Model, req.APIType)
+
+			providerReq := &channel.ProviderRequest{
+				APIType:     req.APIType,
+				Model:       req.Model,
+				URL:         upstreamURL,
+				Input:       req.Input,
+				AudioFormat: req.AudioFormat,
+				Headers:     headers,
+			}
+
+			return h.doUpstreamRequest(providerReq)
+		},
+	)
+}
+
+func (h *AudioHandler) executeRequestRaw(c *gin.Context, req *channel.ProviderRequest, contentType string) (*types.ProviderResponse, error) {
+	router := GetRouter()
+	if router == nil {
+		return nil, types.ErrNoAvailableChannel
+	}
+
+	idempotencyKey := c.GetHeader("Idempotency-Key")
+	if idempotencyKey == "" {
+		idempotencyKey = fmt.Sprintf("audio_%d", time.Now().UnixNano())
+	}
+
+	return router.RouteWithBilling(
+		c.Request.Context(),
+		req.APIType,
+		req.Model,
+		"",
+		idempotencyKey,
+		nil,
+		func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
+			upstreamURL, _ := h.adapter.BuildURL(req.Model, req.APIType)
+			headers, _ := h.adapter.BuildHeaders(c.Request.Context(), req.Model, req.APIType)
+
+			upstreamReq, err := http.NewRequest("POST", upstreamURL, bytes.NewReader(req.Body))
+			if err != nil {
+				return nil, err
+			}
+			upstreamReq.Header = headers.Clone()
+			upstreamReq.Header.Set("Content-Type", contentType)
+
+			client := &http.Client{Timeout: 60 * time.Second}
+			resp, err := client.Do(upstreamReq)
+			if err != nil {
+				return nil, err
+			}
+			defer resp.Body.Close()
+
+			bodyOut, _ := io.ReadAll(resp.Body)
+			return &types.ProviderResponse{StatusCode: resp.StatusCode, Content: bodyOut}, nil
+		},
+	)
+}
+
+func (h *AudioHandler) doUpstreamRequest(req *channel.ProviderRequest) (*types.ProviderResponse, error) {
+	body, err := marshalRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	upstreamReq, err := http.NewRequest("POST", req.URL, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	upstreamReq.Header = req.Headers.Clone()
+	upstreamReq.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Do(upstreamReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	bodyOut, _ := io.ReadAll(resp.Body)
+	return &types.ProviderResponse{StatusCode: resp.StatusCode, Content: bodyOut}, nil
 }

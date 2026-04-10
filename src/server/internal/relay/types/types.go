@@ -206,6 +206,15 @@ type ChannelPoolInterface interface {
 	GetAllStats() map[string]*ChannelStats
 }
 
+// RouterInterface is the minimal interface handlers need to route requests.
+// Defined in types package to avoid import cycles between relay and handler packages.
+type RouterInterface interface {
+	Route(ctx context.Context, apiType string, fn func(ch *RouteChannel) (*ProviderResponse, error)) (*ProviderResponse, error)
+	RouteWithBilling(ctx context.Context, apiType APIType, model, channelID, idempotencyKey string, usage *Usage, fn func(ch *RouteChannel) (*ProviderResponse, error)) (*ProviderResponse, error)
+	RecordChannelSuccess(channelID string)
+	RecordChannelFailure(channelID string)
+}
+
 // Message 内部标准消息格式
 type Message struct {
 	Role      string   `json:"role"`

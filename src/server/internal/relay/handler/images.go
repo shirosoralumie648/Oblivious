@@ -1,13 +1,16 @@
 package handler
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
-	"oblivious/server/internal/relay/types"
 	"oblivious/server/internal/relay/channel"
+	"oblivious/server/internal/relay/types"
 )
 
 // ImagesHandler Images 处理（generations/edits/variations）
@@ -52,21 +55,14 @@ func (h *ImagesHandler) HandleGenerations(c *gin.Context) error {
 		model = "dall-e-3"
 	}
 
-	url, _ := h.adapter.BuildURL(model, types.APITypeImageGen)
-	headers, _ := h.adapter.BuildHeaders(c.Request.Context(), model, types.APITypeImageGen)
-
-	// 透传整个 body
-	body, _ := io.ReadAll(c.Request.Body)
-
 	req := &channel.ProviderRequest{
 		APIType: types.APITypeImageGen,
 		Model:   model,
-		URL:     url,
-		Headers: headers,
-		Body:    body,
 	}
+	body, _ := io.ReadAll(c.Request.Body)
+	req.Body = body
 
-	resp, err := h.executeRequest(c, req, nil)
+	resp, err := h.executeRequestRaw(c, req, "application/json")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "relay_error", "message": err.Error()}})
 		return nil
@@ -81,19 +77,14 @@ func (h *ImagesHandler) HandleEdits(c *gin.Context) error {
 	if model == "" {
 		model = "dall-e-3"
 	}
-	url, _ := h.adapter.BuildURL(model, types.APITypeImageEdit)
-	headers, _ := h.adapter.BuildHeaders(c.Request.Context(), model, types.APITypeImageEdit)
-	body, _ := io.ReadAll(c.Request.Body)
-
 	req := &channel.ProviderRequest{
 		APIType: types.APITypeImageEdit,
 		Model:   model,
-		URL:     url,
-		Headers: headers,
-		Body:    body,
 	}
+	body, _ := io.ReadAll(c.Request.Body)
+	req.Body = body
 
-	resp, err := h.executeRequest(c, req, nil)
+	resp, err := h.executeRequestRaw(c, req, "application/json")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "relay_error", "message": err.Error()}})
 		return nil
@@ -105,19 +96,14 @@ func (h *ImagesHandler) HandleEdits(c *gin.Context) error {
 // /v1/images/variations
 func (h *ImagesHandler) HandleVariations(c *gin.Context) error {
 	model := "dall-e-3"
-	url, _ := h.adapter.BuildURL(model, types.APITypeImageVar)
-	headers, _ := h.adapter.BuildHeaders(c.Request.Context(), model, types.APITypeImageVar)
-	body, _ := io.ReadAll(c.Request.Body)
-
 	req := &channel.ProviderRequest{
 		APIType: types.APITypeImageVar,
 		Model:   model,
-		URL:     url,
-		Headers: headers,
-		Body:    body,
 	}
+	body, _ := io.ReadAll(c.Request.Body)
+	req.Body = body
 
-	resp, err := h.executeRequest(c, req, nil)
+	resp, err := h.executeRequestRaw(c, req, "application/json")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "relay_error", "message": err.Error()}})
 		return nil
@@ -127,5 +113,47 @@ func (h *ImagesHandler) HandleVariations(c *gin.Context) error {
 }
 
 func (h *ImagesHandler) executeRequest(c *gin.Context, req *channel.ProviderRequest, usage *types.Usage) (*types.ProviderResponse, error) {
-	return nil, types.ErrNoAvailableChannel
+	router := GetRouter()
+	if router == nil {
+		return nil, types.ErrNoAvailableChannel
+	}
+
+	idempotencyKey := c.GetHeader("Idempotency-Key")
+	if idempotencyKey == "" {
+		idempotencyKey = fmt.Sprintf("img_%d", time.Now().UnixNano())
+	}
+
+	return router.RouteWithBilling(
+		c.Request.Context(),
+		req.APIType,
+		req.Model,
+		"",
+		idempotencyKey,
+		usage,
+		func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
+			upstreamURL, _ := h.adapter.BuildURL(req.Model, req.APIType)
+			headers, _ := h.adapter.BuildHeaders(c.Request.Context(), req.Model, req.APIType)
+
+			upstreamReq, err := http.NewRequest("POST", upstreamURL, bytes.NewReader(req.Body))
+			if err != nil {
+				return nil, err
+			}
+			upstreamReq.Header = headers.Clone()
+			upstreamReq.Header.Set("Content-Type", "application/json")
+
+			client := &http.Client{Timeout: 60 * time.Second}
+			resp, err := client.Do(upstreamReq)
+			if err != nil {
+				return nil, err
+			}
+			defer resp.Body.Close()
+
+			bodyOut, _ := io.ReadAll(resp.Body)
+			return &types.ProviderResponse{StatusCode: resp.StatusCode, Content: bodyOut}, nil
+		},
+	)
+}
+
+func (h *ImagesHandler) executeRequestRaw(c *gin.Context, req *channel.ProviderRequest, contentType string) (*types.ProviderResponse, error) {
+	return h.executeRequest(c, req, nil)
 }
