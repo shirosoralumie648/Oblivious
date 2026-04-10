@@ -8,17 +8,17 @@ import (
 
 type Relay struct {
 	engine   *gin.Engine
-	pool     *ChannelPool
-	handlers map[types.APIType]handler.Handler
+	pool     types.ChannelPoolInterface
+	handlers map[types.APIType]types.Handler
 }
 
 type Config struct {
-	Pool *ChannelPool
+	Pool types.ChannelPoolInterface
 }
 
 func NewRelay(cfg *Config) (*Relay, error) {
 	r := &Relay{
-		handlers: make(map[types.APIType]handler.Handler),
+		handlers: make(map[types.APIType]types.Handler),
 	}
 	if cfg != nil && cfg.Pool != nil {
 		r.pool = cfg.Pool

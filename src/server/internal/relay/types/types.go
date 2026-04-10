@@ -1,5 +1,17 @@
 package types
 
+import (
+	"context"
+	"errors"
+	"net/http"
+	"time"
+
+	"github.com/gin-gonic/gin"
+)
+
+// ErrNoAvailableChannel 无可用渠道
+var ErrNoAvailableChannel = errors.New("relay: no available channel")
+
 // APIType 枚举（22 种 OpenAI API 类型）
 type APIType int
 
@@ -100,21 +112,12 @@ type ProviderResponse struct {
 
 // NewOKResponse 创建成功响应
 func NewOKResponse(content []byte, usage *Usage) *ProviderResponse {
-	return &ProviderResponse{
-		StatusCode: 200,
-		Content:    content,
-		Done:       true,
-		Usage:      usage,
-	}
+	return &ProviderResponse{StatusCode: 200, Content: content, Done: true, Usage: usage}
 }
 
 // NewErrorResponse 创建错误响应
 func NewErrorResponse(statusCode int, err *ProviderError) *ProviderResponse {
-	return &ProviderResponse{
-		StatusCode: statusCode,
-		Error:      err,
-		Done:       true,
-	}
+	return &ProviderResponse{StatusCode: statusCode, Error: err, Done: true}
 }
 
 // Route 定义（用于 Handler 路由注册）
@@ -123,4 +126,148 @@ type Route struct {
 	APIType   APIType
 	Strategy  HandlerStrategy
 	Retryable bool
+}
+
+// Handler 接口（由 handler 包实现）
+type Handler interface {
+	Handle(c *gin.Context) error
+	HandleStream(c *gin.Context) error
+}
+
+// Channel 渠道配置
+type Channel struct {
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	Provider  string   `json:"provider"` // "openai"
+	BaseURL   string   `json:"base_url"`
+	APIKey    string   `json:"-"` // 加密存储，不暴露
+	Models    []string `json:"models"`
+	RPMLimit  int      `json:"rpm_limit"`
+	TPMLimit  int      `json:"tpm_limit"`
+	CBThreshold int    `json:"cb_threshold"`
+	CBTimeout   int    `json:"cb_timeout"`
+	HealthCheckStrategy string `json:"health_check_strategy"`
+	ProbeModel  string `json:"probe_model"`
+	ProbePrompt string `json:"probe_prompt"`
+	Strategy   string `json:"strategy"`
+	Priority   int    `json:"priority"`
+	Enabled    bool    `json:"enabled"`
+}
+
+// ModelRoute 模型路由
+type ModelRoute struct {
+	ID       string `json:"id"`
+	Model    string `json:"model"`
+	Strategy string `json:"strategy"`
+	Channels []RouteChannel `json:"channels"`
+}
+
+// RouteChannel 模型-渠道关联
+type RouteChannel struct {
+	Channel           *Channel `json:"channel"`
+	ChannelID        string   `json:"channel_id"`
+	Weight           int      `json:"weight"`
+	Priority         int      `json:"priority"`
+	Enabled          bool     `json:"enabled"`
+	Healthy          bool     `json:"healthy"`
+	EstimatedCostPer1K float64 `json:"estimated_cost_per_1k"`
+}
+
+// ChannelStats 运行时状态（内存）
+type ChannelStats struct {
+	ChannelID     string    `json:"channel_id"`
+	CBState       string    `json:"cb_state"`
+	CBFailures    int       `json:"cb_failures"`
+	CBLastFailure time.Time `json:"cb_last_failure"`
+	CBProbeCount  int       `json:"cb_probe_count"`
+	CBHalfOpenReq int       `json:"cb_half_open_req"`
+	RPMCurrent    int       `json:"rpm_current"`
+	TPMCurrent    int       `json:"tpm_current"`
+	RPMLastReset  time.Time `json:"rpm_last_reset"`
+	TPMLastReset  time.Time `json:"tpm_last_reset"`
+	TotalRequests int64     `json:"total_requests"`
+	SuccessCount  int64     `json:"success_count"`
+	FailureCount  int64     `json:"failure_count"`
+	LatencySumUs  int64     `json:"latency_sum_us"`
+	LatencyCount  int64     `json:"latency_count"`
+	LastProbeSuccess time.Time `json:"last_probe_success"`
+	LastProbeTime    time.Time `json:"last_probe_time"`
+}
+
+// ChannelPoolInterface 渠道池接口（由 relay.ChannelPool 实现）
+type ChannelPoolInterface interface {
+	GetChannel(id string) (*Channel, bool)
+	GetChannelsByModel(model string) []*RouteChannel
+	GetStats(channelID string) (*ChannelStats, bool)
+	UpdateChannel(ch *Channel)
+	UpdateRoute(route *ModelRoute)
+	ListChannels() []*Channel
+	SetChannelHealthy(channelID string, healthy bool)
+	GetAllStats() map[string]*ChannelStats
+}
+
+// Message 内部标准消息格式
+type Message struct {
+	Role      string   `json:"role"`
+	Content   string   `json:"content"`
+	MediaURLs []string `json:"media_urls,omitempty"`
+}
+
+// ProviderRequest 内部标准请求格式
+type ProviderRequest struct {
+	APIType     APIType   `json:"api_type"`
+	Model       string    `json:"model"`
+	Headers     http.Header `json:"headers"`
+	URL         string    `json:"url"`
+	Stream      bool      `json:"stream"`
+	Messages    []Message `json:"messages,omitempty"`
+	MaxTokens   int       `json:"max_tokens,omitempty"`
+	Input       string    `json:"input,omitempty"`
+	AudioFormat string    `json:"audio_format,omitempty"`
+	AudioVoice  string    `json:"audio_voice,omitempty"`
+	ImageURL    string    `json:"image_url,omitempty"`
+	Prompt      string    `json:"prompt,omitempty"`
+	FileURL     string    `json:"file_url,omitempty"`
+	Body        []byte    `json:"body,omitempty"`
+	RequestID   string    `json:"request_id,omitempty"`
+}
+
+// Capabilities 能力声明
+type Capabilities struct {
+	SupportsChat        bool
+	SupportsStreaming   bool
+	SupportsEmbeddings  bool
+	SupportsImages      bool
+	SupportsAudio       bool
+	SupportsRealtime    bool
+	SupportsAssistants  bool
+}
+
+// ProviderAdapter Provider 适配器接口
+type ProviderAdapter interface {
+	// 元信息
+	Name() string
+	Provider() string
+	Capabilities() Capabilities
+
+	// 请求构建
+	BuildURL(model string, apiType APIType) (string, error)
+	BuildHeaders(ctx context.Context, model string, apiType APIType) (http.Header, error)
+
+	// 请求转换（外部格式 → 内部格式）
+	ConvertRequest(req *ProviderRequest) (*ProviderRequest, error)
+	// 响应转换（Provider 响应 → 内部格式）
+	ConvertResponse(resp []byte, isStream bool) (*ProviderResponse, error)
+
+	// HTTP 执行
+	DoRequest(ctx context.Context, req *ProviderRequest) (*http.Response, error)
+
+	// 健康检查
+	HealthCheck(ctx context.Context) error
+
+	// 错误映射
+	MapError(statusCode int, body []byte) *ProviderError
+
+	// 用量估算（用于 PreBill）
+	EstimateUsage(req *ProviderRequest) *Usage
 }

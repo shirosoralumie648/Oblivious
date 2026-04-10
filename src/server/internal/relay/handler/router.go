@@ -16,14 +16,8 @@ type Route struct {
 	Retryable bool
 }
 
-// Handler 接口
-type Handler interface {
-	Handle(c *gin.Context) error
-	HandleStream(c *gin.Context) error
-}
-
 // RegisterRoutes 注册全部 35 个 OpenAI 路由
-func RegisterRoutes(e *gin.Engine, handlers map[types.APIType]Handler) {
+func RegisterRoutes(e *gin.Engine, handlers map[types.APIType]types.Handler) {
 	routes := getOpenAIRoutes()
 
 	for _, r := range routes {
