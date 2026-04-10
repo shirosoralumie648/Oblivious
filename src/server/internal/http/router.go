@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
 	"oblivious/server/internal/auth"
 	"oblivious/server/internal/chat"
 	"oblivious/server/internal/config"
@@ -26,6 +28,7 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 
 		writeJSON(w, stdhttp.StatusOK, map[string]string{"status": "ok"})
 	})
+	mux.Handle("/metrics", promhttp.Handler())
 
 	authService := auth.NewService(auth.NewSQLStore(database))
 	authMiddleware := newAuthMiddleware(cfg, authService)
