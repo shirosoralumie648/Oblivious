@@ -181,13 +181,17 @@ func (r *Router) RouteWithBilling(
 	usage *types.Usage,
 	fn func(ch *types.RouteChannel) (*types.ProviderResponse, error),
 ) (*types.ProviderResponse, error) {
+	// Resolve trusted internal user identity for app-originated requests.
+	userID, _ := types.TrustedUserIDFromContext(ctx)
+
 	// Pre-authorize billing
 	if r.billingHook != nil {
 		_, err := r.billingHook.PreBill(&BillingSession{
-			ChannelID:       channelID,
-			APIType:         apiType,
-			Model:           model,
-			IdempotencyKey:  idempotencyKey,
+			ChannelID:      channelID,
+			APIType:        apiType,
+			Model:          model,
+			IdempotencyKey: idempotencyKey,
+			UserID:         userID,
 		}, usage)
 		if err != nil {
 			return nil, &RouterError{
@@ -203,10 +207,11 @@ func (r *Router) RouteWithBilling(
 	// Post-bill (settle or refund excess)
 	if r.billingHook != nil && resp != nil && resp.Usage != nil {
 		session := &BillingSession{
-			ChannelID:       channelID,
-			APIType:         apiType,
-			Model:           model,
-			IdempotencyKey:  idempotencyKey,
+			ChannelID:      channelID,
+			APIType:        apiType,
+			Model:          model,
+			IdempotencyKey: idempotencyKey,
+			UserID:         userID,
 		}
 		if resp.Usage != nil {
 			session.PreAuthorizedAmt = 0 // Will be set from PreBill session if available
@@ -216,11 +221,11 @@ func (r *Router) RouteWithBilling(
 		// On error, enqueue timeout task to refund
 		if r.billingRedisAddr != "" {
 			timeoutTask := &BillingTimeoutTask{
-				SessionID:     fmt.Sprintf("sess_%d", time.Now().UnixNano()),
-				ChannelID:     channelID,
-				APIType:       apiType,
-				Model:         model,
-				AuthAmt:       0, // Would need to track pre-auth amount properly
+				SessionID:      fmt.Sprintf("sess_%d", time.Now().UnixNano()),
+				ChannelID:      channelID,
+				APIType:        apiType,
+				Model:          model,
+				AuthAmt:        0, // Would need to track pre-auth amount properly
 				IdempotencyKey: idempotencyKey,
 			}
 			EnqueueBillingTimeoutTask(r.billingRedisAddr, timeoutTask, 5*time.Minute)
