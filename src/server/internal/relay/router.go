@@ -172,6 +172,12 @@ func (e *RouterError) RetryAfterSeconds() int {
 	return e.RetryAfter
 }
 
+func (r *Router) SetQuotaManager(manager QuotaManager) {
+	if r.billingHook != nil {
+		r.billingHook.SetQuotaManager(manager)
+	}
+}
+
 func (r *Router) RouteWithBilling(
 	ctx context.Context,
 	apiType types.APIType,
@@ -184,15 +190,19 @@ func (r *Router) RouteWithBilling(
 	// Resolve trusted internal user identity for app-originated requests.
 	userID, _ := types.TrustedUserIDFromContext(ctx)
 
+	// Create a single billing session carried through the full lifecycle:
+	// PreBill -> PostBill (on success) or Refund (on failure).
+	session := &BillingSession{
+		ChannelID:      channelID,
+		APIType:        apiType,
+		Model:          model,
+		IdempotencyKey: idempotencyKey,
+		UserID:         userID,
+	}
+
 	// Pre-authorize billing
 	if r.billingHook != nil {
-		_, err := r.billingHook.PreBill(&BillingSession{
-			ChannelID:      channelID,
-			APIType:        apiType,
-			Model:          model,
-			IdempotencyKey: idempotencyKey,
-			UserID:         userID,
-		}, usage)
+		_, err := r.billingHook.PreBill(session, usage)
 		if err != nil {
 			return nil, &RouterError{
 				Code:    http.StatusInternalServerError,
@@ -204,31 +214,29 @@ func (r *Router) RouteWithBilling(
 	// Route the request
 	resp, err := r.Route(ctx, strconv.Itoa(int(apiType)), fn)
 
-	// Post-bill (settle or refund excess)
-	if r.billingHook != nil && resp != nil && resp.Usage != nil {
-		session := &BillingSession{
-			ChannelID:      channelID,
-			APIType:        apiType,
-			Model:          model,
-			IdempotencyKey: idempotencyKey,
-			UserID:         userID,
-		}
-		if resp.Usage != nil {
-			session.PreAuthorizedAmt = 0 // Will be set from PreBill session if available
-		}
-		r.billingHook.PostBill(session, resp.Usage)
-	} else if r.billingHook != nil && err != nil {
-		// On error, enqueue timeout task to refund
-		if r.billingRedisAddr != "" {
-			timeoutTask := &BillingTimeoutTask{
-				SessionID:      fmt.Sprintf("sess_%d", time.Now().UnixNano()),
-				ChannelID:      channelID,
-				APIType:        apiType,
-				Model:          model,
-				AuthAmt:        0, // Would need to track pre-auth amount properly
-				IdempotencyKey: idempotencyKey,
+	// Post-bill (settle) on success, or refund on failure
+	if r.billingHook != nil {
+		if err == nil && resp != nil && resp.Usage != nil {
+			r.billingHook.PostBill(session, resp.Usage)
+		} else if err != nil {
+			// On error, refund the quota session.
+			r.billingHook.Refund(session)
+			// Also enqueue a timeout-based refund as a safety net for
+			// cases where the upstream may have consumed resources
+			// despite the client-side error.
+			if r.billingRedisAddr != "" {
+				timeoutTask := &BillingTimeoutTask{
+					SessionID:      session.ID,
+					ChannelID:      channelID,
+					APIType:        apiType,
+					Model:          model,
+					AuthAmt:        session.PreAuthorizedAmt,
+					IdempotencyKey: idempotencyKey,
+					QuotaSessionID: session.QuotaSessionID,
+					UserID:         userID,
+				}
+				EnqueueBillingTimeoutTask(r.billingRedisAddr, timeoutTask, 5*time.Minute)
 			}
-			EnqueueBillingTimeoutTask(r.billingRedisAddr, timeoutTask, 5*time.Minute)
 		}
 	}
 

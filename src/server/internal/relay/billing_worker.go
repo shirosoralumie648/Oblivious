@@ -19,12 +19,14 @@ const (
 )
 
 type BillingTimeoutTask struct {
-	SessionID     string
-	ChannelID     string
-	APIType       types.APIType
-	Model         string
-	AuthAmt       float64
-	IdempotencyKey string
+	SessionID       string
+	ChannelID       string
+	APIType         types.APIType
+	Model           string
+	AuthAmt         float64
+	IdempotencyKey  string
+	QuotaSessionID  string
+	UserID          string
 }
 
 type BillingPollingTask struct {
@@ -36,6 +38,8 @@ type BillingPollingTask struct {
 	IdempotencyKey   string
 	MaxAttempts      int
 	AttemptNo        int
+	QuotaSessionID   string
+	UserID           string
 }
 
 type BillingWorker struct {
@@ -109,14 +113,16 @@ func (w *BillingWorker) handleTimeout(ctx context.Context, t *asynq.Task) error 
 	if err := payloadToStruct(t.Payload(), &task); err != nil {
 		return err
 	}
-	session := w.billing.BuildBillingSession(task.ChannelID, task.Model, task.APIType, task.IdempotencyKey)
+	session := w.billing.BuildBillingSession(task.ChannelID, task.Model, task.APIType, task.IdempotencyKey, task.UserID)
 	session.PreAuthorizedAmt = task.AuthAmt
+	// Carry quota session context so the refund hits the correct session.
+	session.QuotaSessionID = task.QuotaSessionID
 	refund, err := w.billing.Refund(session)
 	if err != nil {
 		log.Printf("billing timeout refund error: %v", err)
 		return err
 	}
-	log.Printf("billing timeout: session=%s refunded=%.4f", task.SessionID, refund)
+	log.Printf("billing timeout: session=%s quota_session=%s refunded=%.4f", task.SessionID, task.QuotaSessionID, refund)
 	return nil
 }
 
@@ -125,9 +131,10 @@ func (w *BillingWorker) handlePolling(ctx context.Context, t *asynq.Task) error 
 	if err := payloadToStruct(t.Payload(), &task); err != nil {
 		return err
 	}
-	session := w.billing.BuildBillingSession(task.ChannelID, task.Model, task.APIType, task.IdempotencyKey)
+	session := w.billing.BuildBillingSession(task.ChannelID, task.Model, task.APIType, task.IdempotencyKey, task.UserID)
 	session.PreAuthorizedAmt = task.PreAuthorizedAmt
 	session.AttemptNo = task.AttemptNo
+	session.QuotaSessionID = task.QuotaSessionID
 	settled, err := w.billing.PostBill(session, &types.Usage{})
 	if err != nil {
 		if task.AttemptNo < task.MaxAttempts {
@@ -136,6 +143,6 @@ func (w *BillingWorker) handlePolling(ctx context.Context, t *asynq.Task) error 
 		}
 		return err
 	}
-	log.Printf("billing polling: session=%s settled=%.4f", task.SessionID, settled)
+	log.Printf("billing polling: session=%s quota_session=%s settled=%.4f", task.SessionID, task.QuotaSessionID, settled)
 	return nil
 }
