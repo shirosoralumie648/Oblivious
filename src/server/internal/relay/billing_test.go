@@ -196,6 +196,57 @@ func TestBillingHook_PreBillAndPostBill_UseQuotaLifecycle(t *testing.T) {
 	}
 }
 
+func TestBillingHook_PostBill_NoQuotaManagerFallsBack(t *testing.T) {
+	store := NewPricingStoreWithDefaults()
+	hook := NewBillingHook(store, nil)
+
+	session := &BillingSession{
+		ID:               "sess_noquota",
+		ChannelID:        "ch_1",
+		APIType:          types.APITypeChat,
+		Model:            "gpt-4o",
+		IdempotencyKey:  "idem_noquota",
+		PreAuthorizedAmt: 10.0,
+	}
+
+	settled, err := hook.PostBill(session, &types.Usage{PromptTokens: 500, CompletionTokens: 250})
+	if err != nil {
+		t.Fatalf("PostBill without QuotaManager should not error: %v", err)
+	}
+	if settled <= 0 {
+		t.Fatal("PostBill should compute actual cost even without QuotaManager")
+	}
+	if session.Status != BillingStatusSettled {
+		t.Fatalf("expected Settled status, got %s", session.Status)
+	}
+	if session.SettledAmt <= 0 {
+		t.Fatal("settled amount should be positive")
+	}
+}
+
+func TestBillingHook_Refund_NoQuotaManagerStillMarksRefunded(t *testing.T) {
+	store := NewPricingStoreWithDefaults()
+	hook := NewBillingHook(store, nil)
+
+	session := &BillingSession{
+		ID:               "sess_noquota_refund",
+		ChannelID:        "ch_1",
+		PreAuthorizedAmt: 10.0,
+		SettledAmt:       5.0,
+	}
+
+	refunded, err := hook.Refund(session)
+	if err != nil {
+		t.Fatalf("Refund without QuotaManager should not error: %v", err)
+	}
+	if refunded != 5.0 {
+		t.Fatalf("expected refund 5.0, got %f", refunded)
+	}
+	if session.Status != BillingStatusRefunded {
+		t.Fatalf("expected Refunded status, got %s", session.Status)
+	}
+}
+
 func TestBillingHook_PreBillAndRefund_UseQuotaLifecycle(t *testing.T) {
 	store := NewPricingStoreWithDefaults()
 	hook := NewBillingHook(store, nil)

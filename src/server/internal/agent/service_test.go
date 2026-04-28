@@ -329,6 +329,109 @@ func TestRunWithToolsFallbackStreaming(t *testing.T) {
 	}
 }
 
+// TestServiceSendMessagePlainPath verifies the non-tool plain chat path.
+func TestServiceSendMessagePlainPath(t *testing.T) {
+	store := &fakeStore{
+		agent: &Agent{
+			ID:     "agent_plain",
+			UserID: "user_1",
+			Model:  "gpt-4o-mini",
+			Tools:  nil, // No tools.
+		},
+		conversation: &Conversation{
+			ID:      "conv_plain",
+			AgentID: "agent_plain",
+			UserID:  "user_1",
+		},
+	}
+
+	gateway := &fakeGateway{
+		plainReply: "plain response with no tools",
+	}
+
+	service := NewService(store, gateway)
+	msg, err := service.SendMessage(context.Background(), auth.Session{
+		User: auth.User{ID: "user_1"},
+	}, "conv_plain", "hello")
+	if err != nil {
+		t.Fatalf("SendMessage plain path returned error: %v", err)
+	}
+	if msg.Content != "plain response with no tools" {
+		t.Fatalf("expected plain response, got %q", msg.Content)
+	}
+}
+
+// TestServiceSendMessageAllDisabledTools verifies that agents with all tools
+// disabled take the plain path.
+func TestServiceSendMessageAllDisabledTools(t *testing.T) {
+	store := &fakeStore{
+		agent: &Agent{
+			ID:     "agent_disabled",
+			UserID: "user_1",
+			Model:  "gpt-4o-mini",
+			Tools: []Tool{
+				{Name: "datetime", Type: "builtin", Enabled: false},
+				{Name: "web_search", Type: "builtin", Enabled: false},
+			},
+		},
+		conversation: &Conversation{
+			ID:      "conv_disabled",
+			AgentID: "agent_disabled",
+			UserID:  "user_1",
+		},
+	}
+
+	gateway := &fakeGateway{
+		plainReply: "plain path for disabled tools",
+	}
+
+	service := NewService(store, gateway)
+	msg, err := service.SendMessage(context.Background(), auth.Session{
+		User: auth.User{ID: "user_1"},
+	}, "conv_disabled", "test")
+	if err != nil {
+		t.Fatalf("SendMessage with disabled tools returned error: %v", err)
+	}
+	if msg.Content != "plain path for disabled tools" {
+		t.Fatalf("expected plain path reply, got %q", msg.Content)
+	}
+}
+
+// TestSendMessageStreamPlainPath verifies streaming for non-tool agents.
+func TestSendMessageStreamPlainPath(t *testing.T) {
+	store := &fakeStore{
+		agent: &Agent{
+			ID:     "agent_stream",
+			UserID: "user_1",
+			Model:  "gpt-4o-mini",
+		},
+		conversation: &Conversation{
+			ID:      "conv_stream",
+			AgentID: "agent_stream",
+			UserID:  "user_1",
+		},
+	}
+
+	gateway := &fakeGateway{
+		plainReply: "streaming plain reply",
+	}
+
+	service := NewService(store, gateway)
+	var chunks []string
+	err := service.SendMessageStream(context.Background(), auth.Session{
+		User: auth.User{ID: "user_1"},
+	}, "conv_stream", "hello", func(chunk string) error {
+		chunks = append(chunks, chunk)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("SendMessageStream plain path returned error: %v", err)
+	}
+	if len(chunks) == 0 || chunks[0] != "streaming plain reply" {
+		t.Fatalf("expected 'streaming plain reply' chunk, got %v", chunks)
+	}
+}
+
 // plainOnlyGateway implements ChatGateway but NOT StructuredReplyGenerator.
 type plainOnlyGateway struct {
 	reply string

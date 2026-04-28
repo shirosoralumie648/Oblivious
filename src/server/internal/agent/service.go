@@ -286,6 +286,9 @@ func (s *Service) ListMessages(ctx context.Context, session auth.Session, conver
 }
 
 func hasEnabledTools(agent *Agent) bool {
+	if agent == nil {
+		return false
+	}
 	for _, tool := range agent.Tools {
 		if tool.Enabled {
 			return true
