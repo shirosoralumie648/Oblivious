@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -42,13 +43,41 @@ func (h *ChatHandler) Handle(c *gin.Context) error {
 	}
 	stream, _ := rawReq["stream"].(bool)
 
+	// Parse tools array for tool-calling support.
+	var tools []map[string]any
+	if toolsRaw, ok := rawReq["tools"].([]any); ok {
+		tools = make([]map[string]any, 0, len(toolsRaw))
+		for _, t := range toolsRaw {
+			if tm, ok := t.(map[string]any); ok {
+				tools = append(tools, tm)
+			}
+		}
+	}
+
 	// 构建 ProviderRequest
 	req := &channel.ProviderRequest{
-		APIType:   types.APITypeChat,
-		Model:     model,
-		Stream:    stream,
-		Messages:  parseMessages(rawReq),
-		MaxTokens: parseInt(rawReq["max_tokens"]),
+		APIType:    types.APITypeChat,
+		Model:      model,
+		Stream:     stream,
+		Messages:   parseMessages(rawReq),
+		MaxTokens:  parseInt(rawReq["max_tokens"]),
+		Tools:      tools,
+		ToolChoice: rawReq["tool_choice"],
+	}
+
+	// Resolve trusted internal user identity for app-originated requests.
+	ctx := c.Request.Context()
+	if internalAuth := c.GetHeader(types.HeaderInternalAuth); internalAuth != "" {
+		expectedToken := os.Getenv("OBLIVIOUS_INTERNAL_AUTH_TOKEN")
+		if expectedToken == "" {
+			expectedToken = types.SharedInternalToken
+		}
+		if internalAuth == expectedToken {
+			if userID := c.GetHeader(types.HeaderInternalUserID); userID != "" {
+				ctx = types.WithTrustedUserID(ctx, userID)
+				c.Request = c.Request.WithContext(ctx)
+			}
+		}
 	}
 
 	// 估算用量

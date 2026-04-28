@@ -76,6 +76,33 @@ const (
 	DimTrainingTokens   UsageDimension = "training_tokens"
 )
 
+// Internal headers for trusted server-to-server traffic from the app gateway.
+const (
+	HeaderInternalUserID    = "X-Oblivious-Internal-User-ID"
+	HeaderInternalWorkspace = "X-Oblivious-Internal-Workspace-ID"
+	HeaderInternalAuth      = "X-Oblivious-Internal-Auth"
+	HeaderRequestID         = "X-Request-ID"
+)
+
+// SharedInternalToken is the shared secret that the app gateway sends in
+// X-Oblivious-Internal-Auth to prove the request is internal server traffic.
+// Override via OBLIVIOUS_INTERNAL_AUTH_TOKEN env var.
+// External clients MUST NOT be able to set this header.
+var SharedInternalToken = "oblivious-internal-v1"
+
+// ToolCall describes a tool invocation requested by the model.
+type ToolCall struct {
+	ID       string       `json:"id,omitempty"`
+	Type     string       `json:"type,omitempty"`
+	Function ToolFunction `json:"function,omitempty"`
+}
+
+// ToolFunction names the tool and carries its serialised arguments.
+type ToolFunction struct {
+	Name      string `json:"name,omitempty"`
+	Arguments string `json:"arguments,omitempty"`
+}
+
 // Usage 用量结构
 type Usage struct {
 	PromptTokens     int     `json:"prompt_tokens"`
@@ -217,28 +244,46 @@ type RouterInterface interface {
 
 // Message 内部标准消息格式
 type Message struct {
-	Role      string   `json:"role"`
-	Content   string   `json:"content"`
-	MediaURLs []string `json:"media_urls,omitempty"`
+	Role       string     `json:"role"`
+	Content    string     `json:"content"`
+	MediaURLs  []string   `json:"media_urls,omitempty"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
 }
 
 // ProviderRequest 内部标准请求格式
 type ProviderRequest struct {
-	APIType     APIType   `json:"api_type"`
-	Model       string    `json:"model"`
+	APIType     APIType     `json:"api_type"`
+	Model       string      `json:"model"`
 	Headers     http.Header `json:"headers"`
-	URL         string    `json:"url"`
-	Stream      bool      `json:"stream"`
-	Messages    []Message `json:"messages,omitempty"`
-	MaxTokens   int       `json:"max_tokens,omitempty"`
-	Input       string    `json:"input,omitempty"`
-	AudioFormat string    `json:"audio_format,omitempty"`
-	AudioVoice  string    `json:"audio_voice,omitempty"`
-	ImageURL    string    `json:"image_url,omitempty"`
-	Prompt      string    `json:"prompt,omitempty"`
-	FileURL     string    `json:"file_url,omitempty"`
-	Body        []byte    `json:"body,omitempty"`
-	RequestID   string    `json:"request_id,omitempty"`
+	URL         string      `json:"url"`
+	Stream      bool        `json:"stream"`
+	Messages    []Message   `json:"messages,omitempty"`
+	MaxTokens   int         `json:"max_tokens,omitempty"`
+	Input       string      `json:"input,omitempty"`
+	AudioFormat string      `json:"audio_format,omitempty"`
+	AudioVoice  string      `json:"audio_voice,omitempty"`
+	ImageURL    string      `json:"image_url,omitempty"`
+	Prompt      string      `json:"prompt,omitempty"`
+	FileURL     string      `json:"file_url,omitempty"`
+	Body        []byte      `json:"body,omitempty"`
+	RequestID   string      `json:"request_id,omitempty"`
+	Tools       []map[string]any `json:"tools,omitempty"`
+	ToolChoice  any         `json:"tool_choice,omitempty"`
+}
+
+// Trusted internal identity propagated via context from the handler
+// to the billing layer. Only set for internal server-to-server requests
+// that carry a valid X-Oblivious-Internal-Auth header.
+type trustedUserContextKey struct{}
+
+func WithTrustedUserID(ctx context.Context, userID string) context.Context {
+	return context.WithValue(ctx, trustedUserContextKey{}, userID)
+}
+
+func TrustedUserIDFromContext(ctx context.Context) (string, bool) {
+	userID, ok := ctx.Value(trustedUserContextKey{}).(string)
+	return userID, ok
 }
 
 // Capabilities 能力声明

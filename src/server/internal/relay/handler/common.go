@@ -24,10 +24,37 @@ func parseMessages(raw map[string]any) []channel.Message {
 		if !ok {
 			continue
 		}
-		messages = append(messages, channel.Message{
-			Role:    getString(mm, "role"),
-			Content: getString(mm, "content"),
-		})
+		msg := channel.Message{
+			Role:       getString(mm, "role"),
+			Content:    getString(mm, "content"),
+			ToolCallID: getString(mm, "tool_call_id"),
+		}
+
+		// Preserve tool_calls array from assistant messages.
+		if tcRaw, ok := mm["tool_calls"].([]any); ok {
+			toolCalls := make([]types.ToolCall, 0, len(tcRaw))
+			for _, tc := range tcRaw {
+				tcm, ok := tc.(map[string]any)
+				if !ok {
+					continue
+				}
+				var fn types.ToolFunction
+				if fnRaw, ok := tcm["function"].(map[string]any); ok {
+					fn = types.ToolFunction{
+						Name:      getString(fnRaw, "name"),
+						Arguments: getString(fnRaw, "arguments"),
+					}
+				}
+				toolCalls = append(toolCalls, types.ToolCall{
+					ID:       getString(tcm, "id"),
+					Type:     getString(tcm, "type"),
+					Function: fn,
+				})
+			}
+			msg.ToolCalls = toolCalls
+		}
+
+		messages = append(messages, msg)
 	}
 	return messages
 }
@@ -80,7 +107,28 @@ func marshalRequest(req *channel.ProviderRequest) ([]byte, error) {
 	if len(req.Messages) > 0 {
 		messages := make([]map[string]any, len(req.Messages))
 		for i, msg := range req.Messages {
-			messages[i] = map[string]any{"role": msg.Role, "content": msg.Content}
+			entry := map[string]any{
+				"role":    msg.Role,
+				"content": msg.Content,
+			}
+			if len(msg.ToolCalls) > 0 {
+				tcs := make([]map[string]any, len(msg.ToolCalls))
+				for j, tc := range msg.ToolCalls {
+					tcs[j] = map[string]any{
+						"id":   tc.ID,
+						"type": tc.Type,
+						"function": map[string]any{
+							"name":      tc.Function.Name,
+							"arguments": tc.Function.Arguments,
+						},
+					}
+				}
+				entry["tool_calls"] = tcs
+			}
+			if msg.ToolCallID != "" {
+				entry["tool_call_id"] = msg.ToolCallID
+			}
+			messages[i] = entry
 		}
 		m["messages"] = messages
 	}
@@ -89,6 +137,12 @@ func marshalRequest(req *channel.ProviderRequest) ([]byte, error) {
 	}
 	if req.Input != "" {
 		m["input"] = req.Input
+	}
+	if len(req.Tools) > 0 {
+		m["tools"] = req.Tools
+	}
+	if req.ToolChoice != nil {
+		m["tool_choice"] = req.ToolChoice
 	}
 	return json.Marshal(m)
 }
