@@ -6,9 +6,23 @@ See: .planning/PROJECT.md (updated 2026-04-27)
 
 **Core value:** 统一的多渠道 LLM 调用层 — 所有 AI 调用必须经过 Relay
 
-**Current focus:** Phase 2 Complete — 推进到 Phase 3
+**Current focus:** Phase 3 — Admin 与 Marketplace — Context 已捕获
 
 ## Current Phase
+
+**Phase 3: Admin 与 Marketplace — CONTEXT READY**
+
+| 领域 | 关键决策 |
+|------|----------|
+| Admin 架构 | 独立子系统, RBAC, 指标仪表板, 动态可搜索导航 |
+| 渠道管理 | 表格+行内操作, 状态轮询, 测试连接, 批量操作+审计 |
+| 套餐定价 | 混合模式(月费+按量), Admin表单管理, Stripe支付 |
+| 用户管理 | 完整生命周期, 用量双端可见, 公开自助升降级 |
+| Agent 发布 | 管理员审核, 丰富元数据, 审核式版本管理, 定价分成 |
+| Marketplace | 分类浏览+搜索, 5星评价, 算法推荐, 全文搜索+多维筛选 |
+
+**Context:** `.planning/phases/03-admin-marketplace/03-CONTEXT.md`
+**Discussion Log:** `.planning/phases/03-admin-marketplace/03-DISCUSSION-LOG.md`
 
 **Phase 2: Agent 与 Memory 增强 — COMPLETE ✅**
 
