@@ -1,113 +1,129 @@
 ---
-description: Technology stack inventory
-created: 2026-04-27
+last_mapped_commit: f4dc5e48826c9893706249151aa081638e295dc1
 ---
+
 # Technology Stack
 
-**Analysis Date:** 2026-04-27
+**Analysis Date:** 2026-04-28
 
-## Core Technologies
+## Languages
 
-| Component | Technology | Version | Purpose |
-|-----------|------------|---------|----------|
-| Backend Language | Go | 1.25.0 | API server, business logic |
-| Frontend Language | TypeScript | 5.6.3 | React application |
-| Frontend Framework | React | 18.3.1 | UI components |
-| Frontend Build | Vite | 5.4.10 | Dev server, bundling |
-| Routing | React Router | 6.28.0 | Client-side navigation |
-| Database | PostgreSQL | 14+ | Primary data store |
+**Primary:**
+- Go 1.25.0 - Backend server (`src/server/go.mod`), relay engine, all services
+- TypeScript 5.6.3 - Web frontend (`src/web/package.json`)
 
-## Backend Stack (Go)
+**Secondary:**
+- JavaScript (JSX/TSX) - React components in web frontend
 
-| Component | Technology | Version | Purpose |
-|-----------|------------|---------|----------|
-| HTTP Framework | Gin | v1.12.0 | HTTP routing, middleware |
-| Database Driver | lib/pq | v1.10.9 | PostgreSQL driver |
-| WebSocket | gorilla/websocket | v1.5.3 | Real-time chat |
-| UUID | google/uuid | v1.6.0 | ID generation |
-| Crypto | golang.org/x/crypto | v0.48.0 | Password hashing (bcrypt) |
-| Task Queue | asynq | v0.26.0 | Background job processing |
-| Redis Client | go-redis/v9 | v9.14.1 | Asynq backend |
-| Metrics | prometheus/client_golang | v1.23.2 | Metrics collection |
-| Tiktoken | tiktoken-go | v0.1.8 | Token counting for billing |
-| MongoDB | mongo-driver/v2 | v2.5.0 | Knowledge base storage |
-| YAML | go-yaml | v1.19.2 | Configuration parsing |
+## Runtime
 
-## Frontend Stack (React/TypeScript)
+**Environment:**
+- Go 1.25.0 (backend)
+- Node.js 20 (frontend, CI-enforced in `.github/workflows/ci.yml`)
 
-| Component | Technology | Version | Purpose |
-|-----------|------------|---------|----------|
-| Runtime | Node.js | 20+ | JavaScript runtime |
-| Package Manager | pnpm | 10.6.0 | Dependency management |
-| Build Tool | Vite | 5.4.10 | Development & production builds |
-| Type Checking | TypeScript | 5.6.3 | Static type checking |
-| Testing | Vitest | 2.1.4 | Unit testing framework |
-| DOM Testing | jsdom | 25.0.1 | DOM environment for tests |
-| React Testing | testing-library/react | 16.1.0 | React component testing |
-| Assertions | testing-library/jest-dom | 6.6.3 | Custom DOM matchers |
+**Package Manager:**
+- pnpm 10.6.0 (`package.json` root: `"packageManager": "pnpm@10.6.0"`)
+- Lockfile: `pnpm-lock.yaml` (present)
 
-## Build & Tooling
+## Frameworks
 
-| Tool | Purpose | Configuration File |
-|------|---------|-------------------|
-| pnpm | Package management, workspaces | `pnpm-workspace.yaml` |
-| Go Modules | Go dependency management | `src/server/go.mod` |
-| Vite | Frontend build & dev server | `src/web/vite.config.ts` |
-| TypeScript | Type checking | `src/web/tsconfig.json` |
-| Vitest | Frontend testing | Built into `package.json` scripts |
-| GitHub Actions | CI/CD | `.github/workflows/ci.yml` |
-| Shell Scripts | Dev automation | `scripts/dev.sh`, `scripts/test.sh`, `scripts/check.sh` |
+**Core:**
+- Gin (github.com/gin-gonic/gin v1.12.0) - HTTP framework for the main server via `src/server/internal/relay/relay.go` (Gin engine used for Relay /v1/* routes)
+- net/http (stdlib) - Primary HTTP router for the main server API routes (`src/server/internal/http/router.go`)
+- React 18.3.1 - Frontend UI library (`src/web/package.json`)
+- Vite 5.4.10 - Frontend build tool and dev server (`src/web/vite.config.ts`)
+- React Router DOM 6.28.0 - Client-side routing (`src/web/package.json`)
 
-## Key Dependencies Analysis
+**Testing:**
+- vitest 2.1.4 - Frontend unit tests (`src/web/package.json`)
+- @testing-library/react 16.1.0 - React component testing
+- @testing-library/jest-dom 6.6.3 - DOM assertion matchers
+- Go stdlib `testing` + test files co-located with source - Backend tests
 
-### Production-Critical Go Packages
+**Build/Dev:**
+- Vite 5.4.10 - Frontend build
+- @vitejs/plugin-react 4.3.4 - React JSX transform
+- tsc --noEmit - Frontend type checking
+- Go compiler (go build) - Backend build
+- pnpm scripts + shell scripts - Orchestration
 
-| Package | Purpose | Impact |
-|---------|---------|--------|
-| `github.com/gin-gonic/gin` | HTTP framework | Core API routing |
-| `github.com/lib/pq` | PostgreSQL driver | Database connectivity |
-| `github.com/gorilla/websocket` | WebSocket implementation | Real-time chat |
-| `github.com/hibiken/asynq` | Background task queue | Async job processing |
-| `github.com/redis/go-redis/v9` | Redis client | Asynq backend, caching |
-| `github.com/prometheus/client_golang` | Metrics | Observability |
-| `github.com/pkoukk/tiktoken-go` | Token counting | LLM billing |
-| `go.mongodb.org/mongo-driver/v2` | MongoDB driver | Knowledge base |
+## Key Dependencies
 
-### Production-Critical Node Packages
+### Backend (Go - src/server)
 
-| Package | Purpose | Impact |
-|---------|---------|--------|
-| `react` | UI library | Core frontend framework |
-| `react-dom` | DOM renderer | Component rendering |
-| `react-router-dom` | Client routing | Navigation |
-| `vite` | Build tool | Development & production |
+**Critical:**
+- `github.com/gin-gonic/gin` v1.12.0 - Web framework (used in relay engine)
+- `github.com/gorilla/websocket` v1.5.3 - WebSocket connections (real-time notifications, agent status, billing events)
+- `github.com/lib/pq` v1.10.9 - PostgreSQL driver (`src/server/internal/db/db.go`)
+- `golang.org/x/crypto` v0.48.0 - bcrypt password hashing (`src/server/internal/auth/service.go`)
+- `github.com/google/uuid` v1.6.0 - UUID generation
 
-## Summary Stats
+**Infrastructure:**
+- `github.com/prometheus/client_golang` v1.23.2 - Prometheus metrics (`/metrics` endpoint in `src/server/internal/metrics/prometheus.go`)
+- `github.com/redis/go-redis/v9` v9.14.1 - Redis client (indirect dependency; referenced in relay router for billing timeout tasks)
+- `github.com/hibiken/asynq` v0.26.0 - Task queue/worker framework (indirect dependency)
+- `github.com/pkoukk/tiktoken-go` v0.1.8 - Tokenizer library for token counting
 
-- **Languages**: Go (~60%), TypeScript (~35%), SQL (~5%)
-- **Go Dependencies**: 50+ direct and indirect packages
-- **Node Dependencies**: 20+ production, 15+ development
-- **Main Entry Points**:
-  - Backend: `src/server/cmd/server/main.go`
-  - Migration: `src/server/cmd/migrate/main.go`
-  - Frontend: `src/web/src/main.tsx` (inferred)
-- **Workspace Structure**: pnpm monorepo with Go submodule
+### Frontend (TypeScript - src/web)
+
+- `react` / `react-dom` 18.3.1 - UI framework
+- `react-router-dom` 6.28.0 - Routing
+- `vite` 5.4.10 - Build tool
+- `jsdom` 25.0.1 - DOM simulation for tests
+
+### Sub-project: new-api (separate Go project)
+
+Additional dependencies in `new-api/go.mod`:
+- `github.com/stripe/stripe-go/v81` v81.4.0 - Stripe payment integration
+- `github.com/go-redis/redis/v8` v8.11.5 - Redis caching and task queue
+- `github.com/aws/aws-sdk-go-v2` + bedrockruntime - AWS Bedrock model provider
+- `github.com/gorilla/websocket` v1.5.0 - WebSocket
+- `github.com/golang-jwt/jwt/v5` v5.3.0 - JWT auth
+- `gorm.io/gorm` v1.25.2 - ORM (with PostgreSQL and MySQL drivers)
+- `github.com/glebarez/sqlite` v1.9.0 - Embedded SQLite
+- `github.com/go-webauthn/webauthn` v0.14.0 - WebAuthn/Passkey support
+- `github.com/pquerna/otp` v1.5.0 - OTP/TOTP support
+- `github.com/gin-contrib/sessions` v0.0.5 - Session management
+- `github.com/grafana/pyroscope-go` v1.2.7 - Continuous profiling
+- `github.com/joho/godotenv` v1.5.1 - .env file loading
+
+## Configuration
+
+**Environment:**
+- Config loaded from environment variables via `src/server/internal/config/config.go` (Go `os.Getenv` with defaults)
+- `config/.env.example` present
+- No dotenv loading in the main server (uses system env vars directly)
+- new-api uses `github.com/joho/godotenv` for .env file loading
+
+**Key Configs Required (main server):**
+- `DATABASE_URL` - PostgreSQL connection string (required, validated at startup)
+- `SESSION_SECRET` - Session signing secret (required)
+- `SERVER_PORT` - Listen port (default: 8080)
+- `RELAY_ENABLED` - Enable/disable relay gateway (boolean, default: true)
+- `OPENAI_API_KEY` - OpenAI API key for default channel
+- `OPENAI_BASE_URL` - OpenAI API base URL (default: https://api.openai.com)
+- `LLM_BASE_URL` - LLM fallback endpoint
+- `LLM_API_KEY` - LLM fallback API key
+- `CORS_ALLOWED_ORIGINS` - Comma-separated CORS origins
+
+**Build:**
+- `src/web/tsconfig.json` - TypeScript config
+- `src/web/vite.config.ts` - Vite config (includes vitest config inline)
+- Go module: `src/server/go.mod`
 
 ## Platform Requirements
 
 **Development:**
-- Go 1.22+
+- Go 1.25.0+
 - Node.js 20+
 - pnpm 10.6.0
-- PostgreSQL 14+
-- Redis (for asynq background jobs)
+- PostgreSQL instance (connection string via `DATABASE_URL`)
 
 **Production:**
-- Containerized deployment (Docker-compatible)
-- PostgreSQL 14+
-- Redis for task queue
-- Prometheus scraping endpoint (`/metrics`)
+- GitHub Actions CI (`ci.yml`: Ubuntu latest, pnpm 10.6.0, Node 20, Go from go.mod)
+- PostgreSQL database
+- Environment variables configured via deployment platform
 
 ---
 
-*Stack analysis: 2026-04-27*
+*Stack analysis: 2026-04-28*
