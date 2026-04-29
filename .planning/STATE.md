@@ -6,13 +6,27 @@ See: .planning/PROJECT.md (updated 2026-04-27)
 
 **Core value:** 统一的多渠道 LLM 调用层 — 所有 AI 调用必须经过 Relay
 
-**Current focus:** Phase 3 — Admin 与 Marketplace — Context 已捕获
+**Current focus:** Phase 3 — Admin 与 Marketplace — 后端完成
 
 ## Current Phase
 
-**Phase 3: Admin 与 Marketplace — CONTEXT READY**
+**Phase 3a: Admin 与 Marketplace 后端 — COMPLETE ✅**
 
-| 领域 | 关键决策 |
+| 领域 | 状态 | 详情 |
+|------|------|------|
+| ADMIN-01 渠道管理 | Complete | Channel/Routes/Audit CRUD |
+| ADMIN-02 套餐管理 | Complete | Plan CRUD + Stripe checkout/webhook |
+| ADMIN-03 用户管理 | Complete | User list/detail/update/disable/audit |
+| MARKET-01 Marketplace | Complete | Publish/Review/Install/Search/Analytics |
+| ADMIN-04 Admin UI | Deferred | → Phase 3b |
+| MARKET-02 Marketplace UI | Deferred | → Phase 3b |
+
+**Summary:** `.planning/phases/03-admin-marketplace/03-SUMMARY.md`
+
+## 待办: Phase 3b (UI)
+
+12 页面合同已在 `03-UI-SPEC.md` 中定义。
+用 `/gsd-insert-phase` 创建 Phase 3b 执行前端 Admin UI + Marketplace UI。
 |------|----------|
 | Admin 架构 | 独立子系统, RBAC, 指标仪表板, 动态可搜索导航 |
 | 渠道管理 | 表格+行内操作, 状态轮询, 测试连接, 批量操作+审计 |
