@@ -51,13 +51,9 @@ func (h adminHandler) listUsers(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 }
 
 func (h adminHandler) getUser(w stdhttp.ResponseWriter, r *stdhttp.Request, userID string) {
-	user, err := h.service.GetUserByID(r.Context(), userID)
+	user, err := h.service.GetUserDetail(r.Context(), userID)
 	if err != nil {
-		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
-		return
-	}
-	if user == nil {
-		writeError(w, stdhttp.StatusNotFound, "not_found", "user not found")
+		writeError(w, stdhttp.StatusNotFound, "not_found", err.Error())
 		return
 	}
 	writeSuccess(w, stdhttp.StatusOK, user)
@@ -79,7 +75,7 @@ func (h adminHandler) updateUserQuota(w stdhttp.ResponseWriter, r *stdhttp.Reque
 		return
 	}
 
-	user, _ := h.service.GetUserByID(r.Context(), userID)
+	user, _ := h.service.GetUserDetail(r.Context(), userID)
 	writeSuccess(w, stdhttp.StatusOK, user)
 }
 

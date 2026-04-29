@@ -70,25 +70,7 @@ func (s *Service) GetSystemStats(ctx context.Context) (*SystemStats, error) {
 	return s.store.GetSystemStats(ctx)
 }
 
-// --- User Management ---
-
-func (s *Service) ListUsers(ctx context.Context, filter UserListFilter) ([]*UserDetail, int, error) {
-	if filter.Limit <= 0 {
-		filter.Limit = 20
-	}
-	if filter.Limit > 100 {
-		filter.Limit = 100
-	}
-	return s.store.ListUsers(ctx, filter)
-}
-
-func (s *Service) GetUserByID(ctx context.Context, id string) (*UserDetail, error) {
-	return s.store.GetUserByID(ctx, id)
-}
-
-func (s *Service) UpdateUser(ctx context.Context, id string, input UserUpdateRequest) (*UserDetail, error) {
-	return s.store.UpdateUser(ctx, id, input)
-}
+// --- User Management (quota/account — enhanced lifecycle methods in user_service.go) ---
 
 func (s *Service) UpdateUserQuota(ctx context.Context, userID string, balance float64) error {
 	return s.store.UpdateUserQuota(ctx, userID, balance)
@@ -96,14 +78,6 @@ func (s *Service) UpdateUserQuota(ctx context.Context, userID string, balance fl
 
 func (s *Service) DeleteUser(ctx context.Context, userID string) error {
 	return s.store.DeleteUser(ctx, userID)
-}
-
-func (s *Service) DisableUser(ctx context.Context, id string) error {
-	return s.store.DisableUser(ctx, id)
-}
-
-func (s *Service) EnableUser(ctx context.Context, id string) error {
-	return s.store.EnableUser(ctx, id)
 }
 
 // --- Review Queue ---
