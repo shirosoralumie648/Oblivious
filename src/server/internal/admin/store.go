@@ -11,6 +11,11 @@ import (
 // Store defines all admin CRUD operations for Phase 3 channel, route,
 // plan, user, audit, and review-queue management.
 type Store interface {
+	// Embedded sub-interfaces for channel, route, audit operations
+	ChannelStore
+	RouteStore
+	AuditStore
+
 	// System stats (D-07: admin dashboard)
 	GetSystemStats(ctx context.Context) (*SystemStats, error)
 
@@ -23,32 +28,12 @@ type Store interface {
 	DisableUser(ctx context.Context, id string) error
 	EnableUser(ctx context.Context, id string) error
 
-	// Channel CRUD (D-02, D-03)
-	ListChannels(ctx context.Context) ([]*ChannelInfo, error)
-	GetChannel(ctx context.Context, id string) (*ChannelInfo, error)
-	CreateChannel(ctx context.Context, input ChannelCreateRequest) (*ChannelInfo, error)
-	UpdateChannel(ctx context.Context, id string, input ChannelUpdateRequest) (*ChannelInfo, error)
-	DeleteChannel(ctx context.Context, id string) error
-	TestChannel(ctx context.Context, id string) (*ChannelTestResult, error)
-	BatchUpdateChannels(ctx context.Context, ids []string, action string) error
-
-	// Route CRUD (D-04)
-	ListRoutes(ctx context.Context) ([]*RouteInfo, error)
-	GetRoute(ctx context.Context, id string) (*RouteInfo, error)
-	CreateRoute(ctx context.Context, input RouteCreateRequest) (*RouteInfo, error)
-	UpdateRoute(ctx context.Context, id string, input RouteUpdateRequest) (*RouteInfo, error)
-	DeleteRoute(ctx context.Context, id string) error
-
 	// Plan CRUD (D-10, D-11)
 	ListPlans(ctx context.Context) ([]*PlanInfo, error)
 	GetPlan(ctx context.Context, id string) (*PlanInfo, error)
 	CreatePlan(ctx context.Context, input PlanCreateRequest) (*PlanInfo, error)
 	UpdatePlan(ctx context.Context, id string, input PlanUpdateRequest) (*PlanInfo, error)
 	DeactivatePlan(ctx context.Context, id string) error
-
-	// Audit log (D-08)
-	CreateAuditEntry(ctx context.Context, entry *AuditEntry) error
-	ListAuditEntries(ctx context.Context, filter AuditFilter) ([]*AuditEntry, error)
 
 	// Review queue (D-17)
 	ListPendingReviews(ctx context.Context) ([]*marketplace.PublishedAgent, error)
@@ -283,58 +268,6 @@ func (s *SQLStore) EnableUser(ctx context.Context, id string) error {
 	return err
 }
 
-// --- Channel CRUD (stubs — implemented in Plan 02) ---
-
-func (s *SQLStore) ListChannels(ctx context.Context) ([]*ChannelInfo, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (s *SQLStore) GetChannel(ctx context.Context, id string) (*ChannelInfo, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (s *SQLStore) CreateChannel(ctx context.Context, input ChannelCreateRequest) (*ChannelInfo, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (s *SQLStore) UpdateChannel(ctx context.Context, id string, input ChannelUpdateRequest) (*ChannelInfo, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (s *SQLStore) DeleteChannel(ctx context.Context, id string) error {
-	return fmt.Errorf("not implemented")
-}
-
-func (s *SQLStore) TestChannel(ctx context.Context, id string) (*ChannelTestResult, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (s *SQLStore) BatchUpdateChannels(ctx context.Context, ids []string, action string) error {
-	return fmt.Errorf("not implemented")
-}
-
-// --- Route CRUD (stubs — implemented in Plan 02) ---
-
-func (s *SQLStore) ListRoutes(ctx context.Context) ([]*RouteInfo, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (s *SQLStore) GetRoute(ctx context.Context, id string) (*RouteInfo, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (s *SQLStore) CreateRoute(ctx context.Context, input RouteCreateRequest) (*RouteInfo, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (s *SQLStore) UpdateRoute(ctx context.Context, id string, input RouteUpdateRequest) (*RouteInfo, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (s *SQLStore) DeleteRoute(ctx context.Context, id string) error {
-	return fmt.Errorf("not implemented")
-}
-
 // --- Plan CRUD (stubs — implemented in Plan 03) ---
 
 func (s *SQLStore) ListPlans(ctx context.Context) ([]*PlanInfo, error) {
@@ -355,16 +288,6 @@ func (s *SQLStore) UpdatePlan(ctx context.Context, id string, input PlanUpdateRe
 
 func (s *SQLStore) DeactivatePlan(ctx context.Context, id string) error {
 	return fmt.Errorf("not implemented")
-}
-
-// --- Audit Log (stubs — implemented in Plan 04) ---
-
-func (s *SQLStore) CreateAuditEntry(ctx context.Context, entry *AuditEntry) error {
-	return fmt.Errorf("not implemented")
-}
-
-func (s *SQLStore) ListAuditEntries(ctx context.Context, filter AuditFilter) ([]*AuditEntry, error) {
-	return nil, fmt.Errorf("not implemented")
 }
 
 // --- Review Queue (stubs — implemented in Plan 05) ---
