@@ -72,7 +72,7 @@ func (s *Service) GetSystemStats(ctx context.Context) (*SystemStats, error) {
 
 // --- User Management ---
 
-func (s *Service) ListUsers(ctx context.Context, filter UserListFilter) ([]*UserDetail, error) {
+func (s *Service) ListUsers(ctx context.Context, filter UserListFilter) ([]*UserDetail, int, error) {
 	if filter.Limit <= 0 {
 		filter.Limit = 20
 	}

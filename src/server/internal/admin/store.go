@@ -11,23 +11,19 @@ import (
 // Store defines all admin CRUD operations for Phase 3 channel, route,
 // plan, user, audit, and review-queue management.
 type Store interface {
-	// Embedded sub-interfaces for channel, route, audit, plan operations
+	// Embedded sub-interfaces for channel, route, audit, plan, user operations
 	ChannelStore
 	RouteStore
 	AuditStore
 	PlanStore
+	UserStore
 
 	// System stats (D-07: admin dashboard)
 	GetSystemStats(ctx context.Context) (*SystemStats, error)
 
-	// User management (D-12, D-13)
-	ListUsers(ctx context.Context, filter UserListFilter) ([]*UserDetail, error)
-	GetUserByID(ctx context.Context, id string) (*UserDetail, error)
-	UpdateUser(ctx context.Context, id string, input UserUpdateRequest) (*UserDetail, error)
+	// User management (admin quota/account operations not in UserStore)
 	UpdateUserQuota(ctx context.Context, userID string, balance float64) error
 	DeleteUser(ctx context.Context, userID string) error
-	DisableUser(ctx context.Context, id string) error
-	EnableUser(ctx context.Context, id string) error
 
 	// Review queue (D-17)
 	ListPendingReviews(ctx context.Context) ([]*marketplace.PublishedAgent, error)
@@ -133,110 +129,7 @@ func (s *SQLStore) GetSystemStats(ctx context.Context) (*SystemStats, error) {
 	return stats, nil
 }
 
-// --- User Management ---
-
-func (s *SQLStore) ListUsers(ctx context.Context, filter UserListFilter) ([]*UserDetail, error) {
-	limit := filter.Limit
-	if limit <= 0 {
-		limit = 20
-	}
-	if limit > 100 {
-		limit = 100
-	}
-
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT u.id, u.email, u.name, u.role, u.plan_id,
-		       COALESCE(p.name, ''),
-		       u.status, u.created_at, u.last_login_at,
-		       COALESCE(q.balance, 0), COALESCE(q.used, 0),
-		       (SELECT COUNT(*) FROM agents WHERE user_id = u.id),
-		       (SELECT COUNT(*) FROM tasks WHERE user_id = u.id)
-		FROM users u
-		LEFT JOIN quotas q ON u.id = q.user_id
-		LEFT JOIN packages p ON u.plan_id = p.id
-		ORDER BY u.created_at DESC
-		LIMIT $1 OFFSET $2
-	`, limit, filter.Offset)
-	if err != nil {
-		return nil, fmt.Errorf("list users: %w", err)
-	}
-	defer rows.Close()
-
-	var users []*UserDetail
-	for rows.Next() {
-		var u UserDetail
-		var planID, planName sql.NullString
-		var lastLogin sql.NullTime
-		var usage UserUsageStats
-		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.Role,
-			&planID, &planName,
-			&u.Status, &u.CreatedAt, &lastLogin,
-			&usage.TotalCost, &usage.TotalCost,
-			&usage.TotalAPICalls, &usage.TotalTokens); err != nil {
-			return nil, fmt.Errorf("scan user: %w", err)
-		}
-		if planID.Valid {
-			u.PlanID = &planID.String
-		}
-		if planName.Valid && planName.String != "" {
-			u.PlanName = &planName.String
-		}
-		if lastLogin.Valid {
-			u.LastLoginAt = &lastLogin.Time
-		}
-		ou := u
-		users = append(users, &ou)
-	}
-
-	return users, rows.Err()
-}
-
-func (s *SQLStore) GetUserByID(ctx context.Context, id string) (*UserDetail, error) {
-	var u UserDetail
-	var planID, planName sql.NullString
-	var lastLogin sql.NullTime
-	var usage UserUsageStats
-
-	err := s.db.QueryRowContext(ctx, `
-		SELECT u.id, u.email, u.name, u.role, u.plan_id,
-		       COALESCE(p.name, ''),
-		       u.status, u.created_at, u.last_login_at,
-		       COALESCE(q.balance, 0), COALESCE(q.used, 0),
-		       (SELECT COUNT(*) FROM agents WHERE user_id = u.id),
-		       (SELECT COUNT(*) FROM tasks WHERE user_id = u.id)
-		FROM users u
-		LEFT JOIN quotas q ON u.id = q.user_id
-		LEFT JOIN packages p ON u.plan_id = p.id
-		WHERE u.id = $1
-	`, id).Scan(&u.ID, &u.Email, &u.Name, &u.Role,
-		&planID, &planName,
-		&u.Status, &u.CreatedAt, &lastLogin,
-		&usage.TotalCost, &usage.TotalCost,
-		&usage.TotalAPICalls, &usage.TotalTokens)
-
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("get user: %w", err)
-	}
-
-	if planID.Valid {
-		u.PlanID = &planID.String
-	}
-	if planName.Valid && planName.String != "" {
-		u.PlanName = &planName.String
-	}
-	if lastLogin.Valid {
-		u.LastLoginAt = &lastLogin.Time
-	}
-
-	return &u, nil
-}
-
-func (s *SQLStore) UpdateUser(ctx context.Context, id string, input UserUpdateRequest) (*UserDetail, error) {
-	return nil, fmt.Errorf("not implemented")
-}
+// --- User Management (quota/account — UserStore methods in user_store.go) ---
 
 func (s *SQLStore) UpdateUserQuota(ctx context.Context, userID string, balance float64) error {
 	_, err := s.db.ExecContext(ctx, `
@@ -249,16 +142,6 @@ func (s *SQLStore) UpdateUserQuota(ctx context.Context, userID string, balance f
 
 func (s *SQLStore) DeleteUser(ctx context.Context, userID string) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM users WHERE id = $1`, userID)
-	return err
-}
-
-func (s *SQLStore) DisableUser(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE users SET status = 'disabled' WHERE id = $1`, id)
-	return err
-}
-
-func (s *SQLStore) EnableUser(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE users SET status = 'active' WHERE id = $1`, id)
 	return err
 }
 

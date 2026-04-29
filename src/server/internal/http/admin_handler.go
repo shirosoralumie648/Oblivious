@@ -39,12 +39,15 @@ func (h adminHandler) listUsers(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		Offset: offset,
 	}
 
-	users, err := h.service.ListUsers(r.Context(), filter)
+	users, total, err := h.service.ListUsers(r.Context(), filter)
 	if err != nil {
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
 		return
 	}
-	writeSuccess(w, stdhttp.StatusOK, users)
+	writeSuccess(w, stdhttp.StatusOK, map[string]interface{}{
+		"users": users,
+		"total": total,
+	})
 }
 
 func (h adminHandler) getUser(w stdhttp.ResponseWriter, r *stdhttp.Request, userID string) {
