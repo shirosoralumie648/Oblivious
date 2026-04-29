@@ -6,27 +6,20 @@ See: .planning/PROJECT.md (updated 2026-04-27)
 
 **Core value:** 统一的多渠道 LLM 调用层 — 所有 AI 调用必须经过 Relay
 
-**Current focus:** Phase 3 — Admin 与 Marketplace — 后端完成
+**Current focus:** Phase 3.1 — Admin 与 Marketplace UI (INSERTED)
 
 ## Current Phase
 
-**Phase 3a: Admin 与 Marketplace 后端 — COMPLETE ✅**
+**Phase 3.1: Admin 与 Marketplace UI — 待讨论**
 
-| 领域 | 状态 | 详情 |
-|------|------|------|
-| ADMIN-01 渠道管理 | Complete | Channel/Routes/Audit CRUD |
-| ADMIN-02 套餐管理 | Complete | Plan CRUD + Stripe checkout/webhook |
-| ADMIN-03 用户管理 | Complete | User list/detail/update/disable/audit |
-| MARKET-01 Marketplace | Complete | Publish/Review/Install/Search/Analytics |
-| ADMIN-04 Admin UI | Deferred | → Phase 3b |
-| MARKET-02 Marketplace UI | Deferred | → Phase 3b |
+| 需求 | 内容 |
+|------|------|
+| ADMIN-04 | Admin UI (Dashboard, Channels, Routes, Plans, Users, Audit, Reviews) |
+| MARKET-02 | Marketplace UI (Home, Agent Detail, Search, Publish, My Agents) |
 
-**Summary:** `.planning/phases/03-admin-marketplace/03-SUMMARY.md`
+12 页面合同已在 `03-UI-SPEC.md` 中定义。shadcn 设计系统已初始化。
 
-## 待办: Phase 3b (UI)
-
-12 页面合同已在 `03-UI-SPEC.md` 中定义。
-用 `/gsd-insert-phase` 创建 Phase 3b 执行前端 Admin UI + Marketplace UI。
+**下一步:** `/gsd-plan-phase 3.1` 或先 `/gsd-discuss-phase 3.1`
 |------|----------|
 | Admin 架构 | 独立子系统, RBAC, 指标仪表板, 动态可搜索导航 |
 | 渠道管理 | 表格+行内操作, 状态轮询, 测试连接, 批量操作+审计 |

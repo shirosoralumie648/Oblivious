@@ -142,6 +142,24 @@ bash scripts/test.sh all
 
 **Completed**: 2026-04-28 | **Tests**: 61 passing | **Commits**: 8 tasks + SUMMARY
 
+## 5.5. Phase 3a: Admin 与 Marketplace 后端 (Week 7-8)
+
+**Goal**: 实现渠道/套餐/用户管理 API + Marketplace Agent 发布/发现/安装后端
+
+**Requirements**: ADMIN-01 ~ ADMIN-03, MARKET-01
+
+**Completed**: 2026-04-29 | **Tests**: 3 passing | **Commits**: 12 tasks + SUMMARY
+
+## 5.6. Phase 3.1: Admin 与 Marketplace UI (INSERTED)
+
+**Goal**: 实现 Admin 管理面板 UI 和 Marketplace 前端页面（8 Admin + 4 Marketplace 页面合同）
+
+**Requirements**: ADMIN-04, MARKET-02
+
+**Status**: 待讨论
+
+**UI Design Contract**: `.planning/phases/03-admin-marketplace/03-UI-SPEC.md`
+
 ## 6. Backlog
 
 ### Phase 999.1: Follow-up — Phase 01 incomplete plan artifacts (BACKLOG)
