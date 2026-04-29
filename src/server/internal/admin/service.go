@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
+
 	"oblivious/server/internal/marketplace"
 )
 
@@ -25,16 +27,16 @@ type QuotaStats struct {
 
 // SystemStats is the admin dashboard overview (D-07).
 type SystemStats struct {
-	Users         UserStats  `json:"users"`
-	Quotas        QuotaStats `json:"quotas"`
-	Conversations int        `json:"conversations"`
-	Agents        int        `json:"agents"`
-	Tasks         int        `json:"tasks"`
-	MCPServers    int        `json:"mcpServers"`
-	ChannelsTotal int        `json:"channelsTotal"`
-	ChannelsOnline int       `json:"channelsOnline"`
-	ActiveAgents  int        `json:"activeAgents"`
-	APICalls24h   int        `json:"apiCalls24h"`
+	Users          UserStats  `json:"users"`
+	Quotas         QuotaStats `json:"quotas"`
+	Conversations  int        `json:"conversations"`
+	Agents         int        `json:"agents"`
+	Tasks          int        `json:"tasks"`
+	MCPServers     int        `json:"mcpServers"`
+	ChannelsTotal  int        `json:"channelsTotal"`
+	ChannelsOnline int        `json:"channelsOnline"`
+	ActiveAgents   int        `json:"activeAgents"`
+	APICalls24h    int        `json:"apiCalls24h"`
 }
 
 // UserInfo is the legacy user list item (pre-Phase 3).
@@ -103,58 +105,6 @@ func (s *Service) EnableUser(ctx context.Context, id string) error {
 	return s.store.EnableUser(ctx, id)
 }
 
-// --- Channel Management ---
-
-func (s *Service) ListChannels(ctx context.Context) ([]*ChannelInfo, error) {
-	return s.store.ListChannels(ctx)
-}
-
-func (s *Service) GetChannel(ctx context.Context, id string) (*ChannelInfo, error) {
-	return s.store.GetChannel(ctx, id)
-}
-
-func (s *Service) CreateChannel(ctx context.Context, input ChannelCreateRequest) (*ChannelInfo, error) {
-	return s.store.CreateChannel(ctx, input)
-}
-
-func (s *Service) UpdateChannel(ctx context.Context, id string, input ChannelUpdateRequest) (*ChannelInfo, error) {
-	return s.store.UpdateChannel(ctx, id, input)
-}
-
-func (s *Service) DeleteChannel(ctx context.Context, id string) error {
-	return s.store.DeleteChannel(ctx, id)
-}
-
-func (s *Service) TestChannel(ctx context.Context, id string) (*ChannelTestResult, error) {
-	return s.store.TestChannel(ctx, id)
-}
-
-func (s *Service) BatchUpdateChannels(ctx context.Context, ids []string, action string) error {
-	return s.store.BatchUpdateChannels(ctx, ids, action)
-}
-
-// --- Route Management ---
-
-func (s *Service) ListRoutes(ctx context.Context) ([]*RouteInfo, error) {
-	return s.store.ListRoutes(ctx)
-}
-
-func (s *Service) GetRoute(ctx context.Context, id string) (*RouteInfo, error) {
-	return s.store.GetRoute(ctx, id)
-}
-
-func (s *Service) CreateRoute(ctx context.Context, input RouteCreateRequest) (*RouteInfo, error) {
-	return s.store.CreateRoute(ctx, input)
-}
-
-func (s *Service) UpdateRoute(ctx context.Context, id string, input RouteUpdateRequest) (*RouteInfo, error) {
-	return s.store.UpdateRoute(ctx, id, input)
-}
-
-func (s *Service) DeleteRoute(ctx context.Context, id string) error {
-	return s.store.DeleteRoute(ctx, id)
-}
-
 // --- Plan Management ---
 
 func (s *Service) ListPlans(ctx context.Context) ([]*PlanInfo, error) {
@@ -177,16 +127,6 @@ func (s *Service) DeactivatePlan(ctx context.Context, id string) error {
 	return s.store.DeactivatePlan(ctx, id)
 }
 
-// --- Audit Log ---
-
-func (s *Service) CreateAuditEntry(ctx context.Context, entry *AuditEntry) error {
-	return s.store.CreateAuditEntry(ctx, entry)
-}
-
-func (s *Service) ListAuditEntries(ctx context.Context, filter AuditFilter) ([]*AuditEntry, error) {
-	return s.store.ListAuditEntries(ctx, filter)
-}
-
 // --- Review Queue ---
 
 func (s *Service) ListPendingReviews(ctx context.Context) ([]*marketplace.PublishedAgent, error) {
@@ -199,6 +139,22 @@ func (s *Service) ApproveAgent(ctx context.Context, id string) error {
 
 func (s *Service) RejectAgent(ctx context.Context, id string, reason string) error {
 	return s.store.RejectAgent(ctx, id, reason)
+}
+
+// LogAction creates an audit log entry for an admin operation.
+func (s *Service) LogAction(ctx context.Context, actorID, actorEmail, action, resourceType, resourceID, changes, ipAddress string) error {
+	entry := &AuditEntry{
+		ID:           uuid.New().String(),
+		ActorID:      actorID,
+		ActorEmail:   actorEmail,
+		Action:       action,
+		ResourceType: resourceType,
+		ResourceID:   resourceID,
+		Changes:      changes,
+		IPAddress:    ipAddress,
+		CreatedAt:    time.Now(),
+	}
+	return s.store.CreateAuditEntry(ctx, entry)
 }
 
 // Compile-time check: ensure Service satisfies the delegation pattern.
