@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -105,28 +106,6 @@ func (s *Service) EnableUser(ctx context.Context, id string) error {
 	return s.store.EnableUser(ctx, id)
 }
 
-// --- Plan Management ---
-
-func (s *Service) ListPlans(ctx context.Context) ([]*PlanInfo, error) {
-	return s.store.ListPlans(ctx)
-}
-
-func (s *Service) GetPlan(ctx context.Context, id string) (*PlanInfo, error) {
-	return s.store.GetPlan(ctx, id)
-}
-
-func (s *Service) CreatePlan(ctx context.Context, input PlanCreateRequest) (*PlanInfo, error) {
-	return s.store.CreatePlan(ctx, input)
-}
-
-func (s *Service) UpdatePlan(ctx context.Context, id string, input PlanUpdateRequest) (*PlanInfo, error) {
-	return s.store.UpdatePlan(ctx, id, input)
-}
-
-func (s *Service) DeactivatePlan(ctx context.Context, id string) error {
-	return s.store.DeactivatePlan(ctx, id)
-}
-
 // --- Review Queue ---
 
 func (s *Service) ListPendingReviews(ctx context.Context) ([]*marketplace.PublishedAgent, error) {
@@ -159,3 +138,9 @@ func (s *Service) LogAction(ctx context.Context, actorID, actorEmail, action, re
 
 // Compile-time check: ensure Service satisfies the delegation pattern.
 var _ = fmt.Sprintf("%v", (*Service)(nil))
+
+// toJSON marshals a value to JSON string for audit logging.
+func toJSON(v interface{}) string {
+	b, _ := json.Marshal(v)
+	return string(b)
+}

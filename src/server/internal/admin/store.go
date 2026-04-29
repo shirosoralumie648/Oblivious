@@ -11,10 +11,11 @@ import (
 // Store defines all admin CRUD operations for Phase 3 channel, route,
 // plan, user, audit, and review-queue management.
 type Store interface {
-	// Embedded sub-interfaces for channel, route, audit operations
+	// Embedded sub-interfaces for channel, route, audit, plan operations
 	ChannelStore
 	RouteStore
 	AuditStore
+	PlanStore
 
 	// System stats (D-07: admin dashboard)
 	GetSystemStats(ctx context.Context) (*SystemStats, error)
@@ -27,13 +28,6 @@ type Store interface {
 	DeleteUser(ctx context.Context, userID string) error
 	DisableUser(ctx context.Context, id string) error
 	EnableUser(ctx context.Context, id string) error
-
-	// Plan CRUD (D-10, D-11)
-	ListPlans(ctx context.Context) ([]*PlanInfo, error)
-	GetPlan(ctx context.Context, id string) (*PlanInfo, error)
-	CreatePlan(ctx context.Context, input PlanCreateRequest) (*PlanInfo, error)
-	UpdatePlan(ctx context.Context, id string, input PlanUpdateRequest) (*PlanInfo, error)
-	DeactivatePlan(ctx context.Context, id string) error
 
 	// Review queue (D-17)
 	ListPendingReviews(ctx context.Context) ([]*marketplace.PublishedAgent, error)
@@ -266,28 +260,6 @@ func (s *SQLStore) DisableUser(ctx context.Context, id string) error {
 func (s *SQLStore) EnableUser(ctx context.Context, id string) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE users SET status = 'active' WHERE id = $1`, id)
 	return err
-}
-
-// --- Plan CRUD (stubs — implemented in Plan 03) ---
-
-func (s *SQLStore) ListPlans(ctx context.Context) ([]*PlanInfo, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (s *SQLStore) GetPlan(ctx context.Context, id string) (*PlanInfo, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (s *SQLStore) CreatePlan(ctx context.Context, input PlanCreateRequest) (*PlanInfo, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (s *SQLStore) UpdatePlan(ctx context.Context, id string, input PlanUpdateRequest) (*PlanInfo, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (s *SQLStore) DeactivatePlan(ctx context.Context, id string) error {
-	return fmt.Errorf("not implemented")
 }
 
 // --- Review Queue (stubs — implemented in Plan 05) ---
