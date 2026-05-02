@@ -24,6 +24,10 @@ import { KnowledgePage } from '../routes/workspace/KnowledgePage';
 import { OnboardingPage } from '../routes/workspace/OnboardingPage';
 import { SettingsPage } from '../routes/workspace/SettingsPage';
 import { SoloPage } from '../routes/workspace/SoloPage';
+import { MarketplaceAgentDetailPage } from '../routes/marketplace/MarketplaceAgentDetailPage';
+import { MarketplaceHomePage } from '../routes/marketplace/MarketplaceHomePage';
+import { MarketplaceMyAgentsPage } from '../routes/marketplace/MarketplaceMyAgentsPage';
+import { MarketplacePublishPage } from '../routes/marketplace/MarketplacePublishPage';
 import { AdminHomePage } from '../routes/admin/AdminHomePage';
 import { AdminUsersPage } from '../routes/admin/AdminUsersPage';
 import { AdminChannelsPage } from '../routes/admin/AdminChannelsPage';
@@ -54,6 +58,10 @@ const routes: RouteObject[] = [
           { path: '/knowledge/:knowledgeBaseId', element: <KnowledgePage /> },
           { path: '/solo', element: <SoloPage /> },
           { path: '/solo/new', element: <SoloPage /> },
+          { path: '/marketplace', element: <MarketplaceHomePage /> },
+          { path: '/marketplace/agents/:agentId', element: <MarketplaceAgentDetailPage /> },
+          { path: '/marketplace/publish', element: <MarketplacePublishPage /> },
+          { path: '/marketplace/my-agents', element: <MarketplaceMyAgentsPage /> },
           { path: '/settings', element: <SettingsPage /> }
         ]
       },
