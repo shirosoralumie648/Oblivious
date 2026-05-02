@@ -50,13 +50,22 @@ type ChannelTestResult struct {
 	Error   string `json:"error,omitempty"`
 }
 
+// ChannelHealth is the lightweight health view for admin channel diagnostics.
+type ChannelHealth struct {
+	ID        string    `json:"id"`
+	Status    string    `json:"status"`
+	Latency   int64     `json:"latency"`
+	Error     string    `json:"error,omitempty"`
+	CheckedAt time.Time `json:"checkedAt"`
+}
+
 // RouteInfo represents a model route configuration (D-04).
 type RouteInfo struct {
-	ID        string        `json:"id"`
-	Model     string        `json:"model"`
-	Strategy  string        `json:"strategy"`
+	ID        string         `json:"id"`
+	Model     string         `json:"model"`
+	Strategy  string         `json:"strategy"`
 	Channels  []RouteChannel `json:"channels"`
-	CreatedAt time.Time     `json:"createdAt"`
+	CreatedAt time.Time      `json:"createdAt"`
 }
 
 // RouteChannel is a channel within a route with weight and priority.
@@ -70,8 +79,8 @@ type RouteChannel struct {
 
 // RouteCreateRequest is the input for creating a new model route.
 type RouteCreateRequest struct {
-	Model    string            `json:"model"`
-	Strategy string            `json:"strategy"`
+	Model    string              `json:"model"`
+	Strategy string              `json:"strategy"`
 	Channels []RouteChannelInput `json:"channels"`
 }
 
@@ -85,8 +94,8 @@ type RouteChannelInput struct {
 
 // RouteUpdateRequest is the input for updating a model route.
 type RouteUpdateRequest struct {
-	Model    *string            `json:"model,omitempty"`
-	Strategy *string            `json:"strategy,omitempty"`
+	Model    *string              `json:"model,omitempty"`
+	Strategy *string              `json:"strategy,omitempty"`
 	Channels *[]RouteChannelInput `json:"channels,omitempty"`
 }
 
@@ -110,16 +119,16 @@ type PlanInfo struct {
 
 // PlanCreateRequest is the input for creating a new plan.
 type PlanCreateRequest struct {
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	QuotaAmount float64  `json:"quotaAmount"`
-	TokenQuota  int      `json:"tokenQuota"`
-	Price       float64  `json:"price"`
-	ModelAccess []string `json:"modelAccess"`
-	AgentLimit  int      `json:"agentLimit"`
-	DurationDays *int    `json:"durationDays,omitempty"`
-	IsPublic    bool     `json:"isPublic"`
-	SortOrder   int      `json:"sortOrder"`
+	Name         string   `json:"name"`
+	Description  string   `json:"description"`
+	QuotaAmount  float64  `json:"quotaAmount"`
+	TokenQuota   int      `json:"tokenQuota"`
+	Price        float64  `json:"price"`
+	ModelAccess  []string `json:"modelAccess"`
+	AgentLimit   int      `json:"agentLimit"`
+	DurationDays *int     `json:"durationDays,omitempty"`
+	IsPublic     bool     `json:"isPublic"`
+	SortOrder    int      `json:"sortOrder"`
 }
 
 // PlanUpdateRequest is the input for updating an existing plan.
@@ -140,7 +149,7 @@ type UserDetail struct {
 	ID          string          `json:"id"`
 	Email       string          `json:"email"`
 	Name        string          `json:"name"`
-	Role        string          `json:"role"`   // "admin"|"moderator"|"user"
+	Role        string          `json:"role"` // "admin"|"moderator"|"user"
 	PlanID      *string         `json:"planID,omitempty"`
 	PlanName    *string         `json:"planName,omitempty"`
 	Status      string          `json:"status"` // "active"|"disabled"
@@ -192,6 +201,7 @@ type AuditFilter struct {
 	ActorID      string
 	Action       string
 	ResourceType string
+	ResourceID   string
 	DateFrom     string
 	DateTo       string
 	Limit        int

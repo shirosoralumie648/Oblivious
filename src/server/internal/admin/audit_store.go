@@ -71,6 +71,11 @@ func (s *SQLStore) ListAuditEntries(ctx context.Context, filter AuditFilter) ([]
 		args = append(args, filter.ResourceType)
 		argIdx++
 	}
+	if filter.ResourceID != "" {
+		conditions = append(conditions, fmt.Sprintf("resource_id = $%d", argIdx))
+		args = append(args, filter.ResourceID)
+		argIdx++
+	}
 	if filter.DateFrom != "" {
 		conditions = append(conditions, fmt.Sprintf("created_at >= $%d::timestamptz", argIdx))
 		args = append(args, filter.DateFrom)

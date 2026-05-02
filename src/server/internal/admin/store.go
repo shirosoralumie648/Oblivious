@@ -145,18 +145,18 @@ func (s *SQLStore) DeleteUser(ctx context.Context, userID string) error {
 	return err
 }
 
-// --- Review Queue (stubs — implemented in Plan 05) ---
+// --- Review Queue ---
 
 func (s *SQLStore) ListPendingReviews(ctx context.Context) ([]*marketplace.PublishedAgent, error) {
-	return nil, fmt.Errorf("not implemented")
+	return marketplace.NewSQLStore(s.db).ListPendingReviews(ctx, 20, 0)
 }
 
 func (s *SQLStore) ApproveAgent(ctx context.Context, id string) error {
-	return fmt.Errorf("not implemented")
+	return marketplace.NewSQLStore(s.db).ApproveAgent(ctx, id, "")
 }
 
 func (s *SQLStore) RejectAgent(ctx context.Context, id string, reason string) error {
-	return fmt.Errorf("not implemented")
+	return marketplace.NewSQLStore(s.db).RejectAgent(ctx, id, "", reason)
 }
 
 // Ensure SQLStore implements Store at compile time.

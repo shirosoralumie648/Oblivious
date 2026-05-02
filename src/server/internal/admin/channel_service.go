@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"oblivious/server/internal/auth"
 )
@@ -83,6 +84,27 @@ func (s *Service) DeleteChannel(ctx context.Context, actor auth.Session, id stri
 // TestChannel performs a connectivity test on the channel.
 func (s *Service) TestChannel(ctx context.Context, id string) (*ChannelTestResult, error) {
 	return s.store.TestChannel(ctx, id)
+}
+
+// GetChannelHealth returns a status-oriented health payload for one channel.
+func (s *Service) GetChannelHealth(ctx context.Context, id string) (*ChannelHealth, error) {
+	result, err := s.TestChannel(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	status := "offline"
+	if result.Success {
+		status = "online"
+	}
+
+	return &ChannelHealth{
+		ID:        id,
+		Status:    status,
+		Latency:   result.Latency,
+		Error:     result.Error,
+		CheckedAt: time.Now().UTC(),
+	}, nil
 }
 
 // BatchUpdateChannels enables or disables multiple channels and records an audit entry.
