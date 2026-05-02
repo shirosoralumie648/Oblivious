@@ -23,25 +23,27 @@ Oblivious 是一个多租户 AI 平台，整合 LobeHub（C端体验）和 New-A
 - ✓ 控制台使用量展示 — Console 模块 (72%)
 - ✓ Relay 独立模块 — Handler + Router + Billing + Metrics (70%)
 - ✓ 前端骨架 — 营销页、工作区、控制台页面 (80%)
+- ✓ Relay 挂载、Chat RelayGateway、Agent Runtime、MCP Client — Phase 1
+- ✓ Agent 工具循环、Memory HNSW、Quota-Billing 串联 — Phase 2
+- ✓ Admin 与 Marketplace 后端 API — Phase 3a
+- ✓ Admin 管理面板与 Agent Marketplace UI — v03.1
 
 ### Active
 
-<!-- Phase 1 需求：Relay 集成与基础能力 -->
+<!-- Phase 4 需求：质量与发布 -->
 
-- [ ] Relay 挂载到主应用 — `/v1/*` 路由走 Relay
-- [ ] Chat 通过 Relay 调用 LLM — 替换本地 ReplyGenerator
-- [ ] Agent Runtime 核心 — 创建、管理 Agent 并对话
-- [ ] MCP Client 骨架 — 工具发现和调用
+- [ ] 集成测试与端到端测试
+- [ ] API 文档与发布检查清单
+- [ ] Docker/Kubernetes 部署配置
+- [ ] 清理 v03.1 接受的非阻塞债务
 
 ### Out of Scope
 
-<!-- Phase 2-4 内容，本次不包含 -->
+<!-- 后续版本内容 -->
 
-- Memory/RAG 向量检索 (Phase 2)
-- Agent 工具执行与 MCP 串联 (Phase 2)
-- Admin API 与 UI (Phase 3)
-- Marketplace (Phase 3)
-- 端到端测试与发布 (Phase 4)
+- 多租户计费商业化细节 — 需要真实支付/运营策略确认
+- 大规模生产观测与告警 — 发布前单独规划
+- 移动端专项体验 — Web 优先
 
 ## Context
 
@@ -55,15 +57,14 @@ React Frontend
 Go Backend (Gin)
     ├── API Gateway (Auth/CORS/Recovery)
     ├── Service Layer (Auth/Chat/Agent/Knowledge/Task/Memory)
-    ├── Relay Layer (独立模块，未集成)
+    ├── Relay Layer (已挂载为统一 LLM 调用入口)
     └── Data Layer (PostgreSQL + MongoDB)
 ```
 
 **关键问题**:
-- Relay 模块已实现但未挂载到主应用
-- Chat 使用本地 ReplyGenerator，未走 Relay
-- 无 Agent Runtime，无法创建和管理 Agent
-- Knowledge 是基础存储，非向量 RAG
+- Phase 03.1 已交付可用 Admin UI 与 Marketplace UI
+- Phase 4 之前仍缺少完整 E2E、发布文档和部署验证
+- `src/web/src/routes/workspace/MarketplacePage.tsx` 是接受的 v03.1 清理债务：不再由 `/marketplace` 使用
 
 ## Constraints
 
@@ -76,10 +77,11 @@ Go Backend (Gin)
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Go 统一后端 | Agent Runtime、MCP Tools、Relay 全部 Go 重写 | — Pending |
-| Relay 作为统一入口 | 计费/限流/监控统一 | — Pending |
-| pgvector 向量检索 | PostgreSQL 原生支持，运维简单 | — Pending |
+| Go 统一后端 | Agent Runtime、MCP Tools、Relay 全部 Go 重写 | ✓ Good — Phase 1/2/3 APIs built on Go |
+| Relay 作为统一入口 | 计费/限流/监控统一 | ✓ Good — Chat/Agent/Quota paths route through Relay |
+| pgvector 向量检索 | PostgreSQL 原生支持，运维简单 | ✓ Good — HNSW migration shipped in Phase 2 |
+| Admin/Marketplace UI on shared primitives | Keep page work consistent and testable | ✓ Good — v03.1 closed with 12 focused Vitest files |
 
 ---
 
-*Last updated: 2026-04-27 after initialization*
+*Last updated: 2026-05-02 after v03.1 milestone*

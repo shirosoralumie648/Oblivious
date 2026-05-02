@@ -3,8 +3,8 @@
 ## 1. 路线图头信息
 
 - Plan Basis: `docs/superpowers/plans/2026-04-22-full-delivery-plan.md + .planning/codebase/`
-- 当前项目状态摘要: `Phase 1, 2 已完成；Agent 工具循环、Memory HNSW、Quota-Billing 全部实现`
-- 目标状态摘要: `Phase 3: Admin 管理面板与 Marketplace`
+- 当前项目状态摘要: `Phase 1, 2, 3a, 3.1 已完成；Relay、Agent 工具循环、Memory HNSW、Quota-Billing、Admin API/UI、Marketplace API/UI 全部实现`
+- 目标状态摘要: `Phase 4: 质量、E2E、文档与发布`
 - 关键风险: `前端 Admin UI 复杂度、Marketplace 发布/安装流程设计`
 - 总体推进策略: `按里程碑顺序执行，每个里程碑完成后验证`
 - Phase 列表: `M1.1 Relay 挂载; M1.2 Chat 走 Relay; M1.3 Agent Runtime; M1.4 MCP Client; Phase 2 Agent 与 Memory 增强`
@@ -156,9 +156,24 @@ bash scripts/test.sh all
 
 **Requirements**: ADMIN-04, MARKET-02
 
-**Status**: 待讨论
+**Status**: Completed 2026-05-02 | **Tests**: Go handler suite + 12 Vitest files / 32 tests + `tsc --noEmit` | **Audit**: `.planning/v03.1-MILESTONE-AUDIT.md`
 
 **UI Design Contract**: `.planning/phases/03-admin-marketplace/03-UI-SPEC.md`
+
+**Milestone Archive**: `.planning/milestones/v03.1-ROADMAP.md`
+
+**Delivered**:
+- Admin API/UI for dashboard, channels, routes, plans, users, audit log, and reviews.
+- Marketplace API/UI for browse/search, agent detail, install, reviews, publish, and my-agents.
+- UAT complete, security verified (`threats_open: 0`), Nyquist compliant, milestone audit complete.
+
+## 5.7. Phase 4: 质量与发布 (Planned)
+
+**Goal**: 补齐集成测试、E2E、API 文档和部署发布能力
+
+**Requirements**: TEST-01, TEST-02, DOC-01, DEPLOY-01
+
+**Status**: Not started
 
 ## 6. Backlog
 
@@ -172,6 +187,15 @@ bash scripts/test.sh all
 **Notes:**
 - [ ] Reconstruct a concise `SUMMARY.md` from `PLAN.md` + `VERIFICATION.md`
 - [ ] Confirm whether missing P0/P1 tests should be promoted into an active follow-up phase
+
+### Phase 999.2: Follow-up — Phase 03.1 accepted cleanup debt (BACKLOG)
+
+**Goal:** Clean up non-blocking debt accepted at v03.1 milestone close
+**Source phase:** `03.1-admin-marketplace-ui`
+**Deferred at:** `2026-05-02` during `$gsd-next` milestone completion
+**Items:**
+- [ ] Decide whether to delete, migrate, or document `src/web/src/routes/workspace/MarketplacePage.tsx`, which is no longer routed by `/marketplace`
+- [ ] Decide whether future milestone completion should reset `.planning/REQUIREMENTS.md` or keep it as cross-phase context in this repo
 
 ---
 *Roadmap created: 2026-04-27*

@@ -2,94 +2,76 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-04-27)
+See: `.planning/PROJECT.md` (updated 2026-05-02)
 
 **Core value:** 统一的多渠道 LLM 调用层 — 所有 AI 调用必须经过 Relay
 
-**Current focus:** Phase 3.1 — Admin 与 Marketplace UI (INSERTED)
+**Current focus:** Post-v03.1 milestone close; next milestone should target Phase 4 quality, E2E, docs, and deployment.
 
-## Current Phase
+## Current Status
 
-**Phase 3.1: Admin 与 Marketplace UI — 待讨论**
+**Milestone v03.1: Admin and Marketplace UI — COMPLETE**
 
-| 需求 | 内容 |
-|------|------|
-| ADMIN-04 | Admin UI (Dashboard, Channels, Routes, Plans, Users, Audit, Reviews) |
-| MARKET-02 | Marketplace UI (Home, Agent Detail, Search, Publish, My Agents) |
+| Area | Status | Evidence |
+|------|--------|----------|
+| Admin API/UI | Complete | `.planning/phases/03.1-admin-marketplace-ui/03.1-UAT.md` tests 1-6 |
+| Marketplace API/UI | Complete | `.planning/phases/03.1-admin-marketplace-ui/03.1-UAT.md` test 7 |
+| Security | Verified | `.planning/phases/03.1-admin-marketplace-ui/03.1-SECURITY.md` (`threats_open: 0`) |
+| Validation | Compliant | `.planning/phases/03.1-admin-marketplace-ui/03.1-VALIDATION.md` (`nyquist_compliant: true`) |
+| Milestone audit | Complete with tech debt | `.planning/v03.1-MILESTONE-AUDIT.md` |
 
-12 页面合同已在 `03-UI-SPEC.md` 中定义。shadcn 设计系统已初始化。
+## Verification Results
 
-**下一步:** `/gsd-plan-phase 3.1` 或先 `/gsd-discuss-phase 3.1`
-|------|----------|
-| Admin 架构 | 独立子系统, RBAC, 指标仪表板, 动态可搜索导航 |
-| 渠道管理 | 表格+行内操作, 状态轮询, 测试连接, 批量操作+审计 |
-| 套餐定价 | 混合模式(月费+按量), Admin表单管理, Stripe支付 |
-| 用户管理 | 完整生命周期, 用量双端可见, 公开自助升降级 |
-| Agent 发布 | 管理员审核, 丰富元数据, 审核式版本管理, 定价分成 |
-| Marketplace | 分类浏览+搜索, 5星评价, 算法推荐, 全文搜索+多维筛选 |
+Latest v03.1 gate:
 
-**Context:** `.planning/phases/03-admin-marketplace/03-CONTEXT.md`
-**Discussion Log:** `.planning/phases/03-admin-marketplace/03-DISCUSSION-LOG.md`
+```bash
+cd src/server && go test ./internal/http -count=1 -run 'Test(AdminHandlerExposesPhase31Operations|MarketplaceHandlerExposesPublicAndSessionOperations)'
+cd src/web && npx vitest run src/features/admin/api.test.ts src/features/marketplace/api.test.ts src/components/shared/shared-components.test.tsx src/features/layouts/AdminSidebar.test.tsx src/routes/admin/AdminHomePage.test.tsx src/routes/admin/AdminChannelsPage.test.tsx src/routes/admin/AdminRoutesPage.test.tsx src/routes/admin/AdminPlansPage.test.tsx src/routes/admin/AdminUsersPage.test.tsx src/routes/admin/AdminAuditLogPage.test.tsx src/routes/admin/AdminReviewsPage.test.tsx src/routes/marketplace/MarketplacePage.test.tsx
+cd src/web && npx tsc --noEmit
+```
 
-**Phase 2: Agent 与 Memory 增强 — COMPLETE ✅**
-
-| Milestone | Status | Details |
-|-----------|--------|---------|
-| MEM-01~03 Memory/RAG | Complete | HNSW migration, pgvector, TextChunker, RelayEmbedder |
-| EXEC-01~03 Agent工具循环 | Complete | Runner wired, auto tool loop, streaming strategy |
-| QUOTA-01 配额系统 | Complete | quota.Service integrated into Relay billing lifecycle |
-| Wave 1-4 全部任务 | Complete | 8 tasks, 8 commits, 61 tests passing |
-
-**Context:** `.planning/phases/02-agent-memory-enhancement/02-CONTEXT.md`
-**Plan:** `.planning/phases/02-agent-memory-enhancement/PLAN.md`
-**Summary:** `.planning/phases/02-agent-memory-enhancement/02-SUMMARY.md`
-
-## Active Work
-
-**Current Task**: Phase 2 Execution — COMPLETE ✅
-**Next Suggested Step**: `/gsd-discuss-phase 03` 或 `/gsd-plan-phase 03`
-
-**Verification Results**:
-- ✅ Go build: SUCCESS (Go 1.26.2)
-- ✅ Tests: 10 packages passing (chat, config, console, http, knowledge, metrics, notification, relay, task, ws)
-- ✅ Migrations: 0013_channels.sql, 0014_agents.sql, 0015_mcp_servers.sql
-- ✅ RELAY-01: `RelayEnabled` check at server.go:22, `combineHandlers` at line 79
-- ✅ CHAT-01: `ReplyGenerator` interface at gateway.go:16
-- ✅ AGENT-04: CRUD operations verified (CreateAgent, GetAgent, UpdateAgent, DeleteAgent)
-- ✅ MCP-02~04: Connect, ListTools, CallTool implemented
-
-**Missing Tests** (P1):
-- agent/service_test.go, agent/store_test.go
-- mcp/client_test.go, mcp/builtin_test.go
-- memory/embedder_test.go
-
-**Blocking Issues**: None
-**Workflow Notes**:
-- Phase 1 has verification output but no `SUMMARY.md`; deferred to `.planning/ROADMAP.md` backlog item `999.1`
+Result: Go handler suite passed; Vitest targeted suite passed (12 files, 32 tests); TypeScript compile passed.
 
 ## Completed Work
 
 | Milestone | Completed | Requirements |
 |-----------|-----------|--------------|
-| M1.1 Relay 挂载 | 2026-04-27 | 7/7 ✅ |
-| M1.2 Chat 走 Relay | 2026-04-27 | 5/5 ✅ |
-| M1.3 Agent Runtime | 2026-04-27 | 10/10 ✅ |
-| M1.4 MCP Client | 2026-04-27 | 7/7 ✅ |
+| Phase 1 Relay/Chat/Agent/MCP foundation | 2026-04-27 | RELAY-01~07, CHAT-01~05, AGENT-01~10, MCP-01~07 |
+| Phase 2 Agent 与 Memory 增强 | 2026-04-28 | EXEC-01~03, MEM-01~03, QUOTA-01 |
+| Phase 3a Admin 与 Marketplace 后端 | 2026-04-29 | ADMIN-01~03, MARKET-01 |
+| v03.1 Admin 与 Marketplace UI | 2026-05-02 | ADMIN-04, MARKET-02 |
+
+## Deferred Items
+
+Items acknowledged and deferred at v03.1 milestone close on 2026-05-02:
+
+| Category | Item | Status |
+|----------|------|--------|
+| planning | Phase 01 missing SUMMARY artifact | Backlog 999.1 |
+| cleanup | Legacy workspace MarketplacePage no longer routed by `/marketplace` | Backlog 999.2 |
+| workflow | Decide whether `.planning/REQUIREMENTS.md` should be reset on future milestone closes in this repo | Backlog 999.2 |
+
+## Next Suggested Step
+
+Run `$gsd-new-milestone` to define the next milestone, or `$gsd-plan-milestone-gaps` if you want to close accepted cleanup debt before Phase 4.
 
 ## Context Files
 
 - Project: `.planning/PROJECT.md`
 - Requirements: `.planning/REQUIREMENTS.md`
 - Roadmap: `.planning/ROADMAP.md`
+- Milestone archive: `.planning/milestones/v03.1-ROADMAP.md`
+- Requirements archive: `.planning/milestones/v03.1-REQUIREMENTS.md`
+- Milestone audit: `.planning/milestones/v03.1-MILESTONE-AUDIT.md`
 - Codebase Map: `.planning/codebase/`
-- Design Docs: `docs/superpowers/specs/2026-04-09-*.md`
-- Delivery Plan: `docs/superpowers/plans/2026-04-22-full-delivery-plan.md`
 
 ## Key Decisions Log
 
 | Date | Decision | Rationale |
 |------|----------|-----------|
 | 2026-04-27 | 从 Phase 1 开始执行 | Relay 集成是所有后续工作的基础 |
+| 2026-05-02 | 完成 v03.1 时保留 living REQUIREMENTS.md | 当前仓库仍依赖该文件承载跨阶段上下文，直接删除风险高 |
+| 2026-05-02 | 将 obsolete workspace MarketplacePage 作为 backlog 清理项 | 避免在脏工作树里删除可能仍被用户保留的旧入口 |
 
 ---
-*State initialized: 2026-04-27*
+*State updated: 2026-05-02 after v03.1 milestone*
