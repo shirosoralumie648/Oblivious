@@ -12,6 +12,7 @@ import (
 
 	"oblivious/server/internal/admin"
 	"oblivious/server/internal/auth"
+	"oblivious/server/internal/config"
 	"oblivious/server/internal/marketplace"
 )
 
@@ -63,6 +64,62 @@ func TestAdminHandlerExposesPhase31Operations(t *testing.T) {
 	}
 }
 
+func TestAdminRoutesRequireAdminRole(t *testing.T) {
+	handler := newAdminHandler(admin.NewService(&fakeAdminStore{}))
+
+	userSession := testAdminSession()
+	userSession.ID = "session_user"
+	userSession.User.Role = "user"
+	userMiddleware := newTestAuthMiddleware(userSession)
+	userRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/admin/channels", nil)
+	addSignedSessionCookie(t, userMiddleware, userRequest, userSession)
+	userRecorder := httptest.NewRecorder()
+	userMiddleware.requireAdmin(stdhttp.HandlerFunc(handler.listChannels)).ServeHTTP(userRecorder, userRequest)
+	if userRecorder.Code != stdhttp.StatusForbidden {
+		t.Fatalf("requireAdmin should reject non-admin sessions with 403, got %d: %s", userRecorder.Code, userRecorder.Body.String())
+	}
+
+	adminSession := testAdminSession()
+	adminMiddleware := newTestAuthMiddleware(adminSession)
+	adminRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/admin/channels", nil)
+	addSignedSessionCookie(t, adminMiddleware, adminRequest, adminSession)
+	adminRecorder := httptest.NewRecorder()
+	adminMiddleware.requireAdmin(stdhttp.HandlerFunc(handler.listChannels)).ServeHTTP(adminRecorder, adminRequest)
+	if adminRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("requireAdmin should accept admin sessions, got %d: %s", adminRecorder.Code, adminRecorder.Body.String())
+	}
+}
+
+func TestAdminHandlerCoversReleaseListSurfaces(t *testing.T) {
+	handler := newAdminHandler(admin.NewService(&fakeAdminStore{}))
+
+	tests := []struct {
+		name string
+		path string
+		call func(stdhttp.ResponseWriter, *stdhttp.Request)
+	}{
+		{name: "channels", path: "/api/v1/admin/channels", call: handler.listChannels},
+		{name: "routes", path: "/api/v1/admin/routes", call: handler.listRoutes},
+		{name: "plans", path: "/api/v1/admin/plans", call: handler.listPlans},
+		{name: "users", path: "/api/v1/admin/users", call: handler.listUsers},
+		{name: "audit logs", path: "/api/v1/admin/audit-logs", call: handler.listAuditLogs},
+		{name: "reviews", path: "/api/v1/admin/reviews", call: handler.listReviews},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			request := httptest.NewRequest(stdhttp.MethodGet, tt.path, nil)
+			recorder := httptest.NewRecorder()
+
+			tt.call(recorder, request)
+
+			if recorder.Code != stdhttp.StatusOK {
+				t.Fatalf("%s expected 200, got %d: %s", tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
 func TestMarketplaceHandlerExposesPublicAndSessionOperations(t *testing.T) {
 	store := &fakeMarketplaceStore{}
 	handler := newMarketplaceHandler(marketplace.NewService(store, nil), nil)
@@ -98,6 +155,115 @@ func TestMarketplaceHandlerExposesPublicAndSessionOperations(t *testing.T) {
 	if !envelope.OK {
 		t.Fatalf("expected ok envelope")
 	}
+}
+
+func TestMarketplaceHandlerPublicBrowseAndSessionGuards(t *testing.T) {
+	handler := newMarketplaceHandler(marketplace.NewService(&fakeMarketplaceStore{}, nil), nil)
+
+	publicCases := []struct {
+		name string
+		path string
+		call func(stdhttp.ResponseWriter, *stdhttp.Request)
+	}{
+		{
+			name: "featured",
+			path: "/api/v1/marketplace/featured",
+			call: handler.getFeaturedAgents,
+		},
+		{
+			name: "categories",
+			path: "/api/v1/marketplace/categories",
+			call: handler.listCategories,
+		},
+		{
+			name: "search",
+			path: "/api/v1/marketplace/search?query=agent",
+			call: handler.searchAgents,
+		},
+		{
+			name: "agents",
+			path: "/api/v1/marketplace/agents?query=agent",
+			call: handler.listAgents,
+		},
+	}
+
+	for _, tt := range publicCases {
+		t.Run(tt.name, func(t *testing.T) {
+			request := httptest.NewRequest(stdhttp.MethodGet, tt.path, nil)
+			recorder := httptest.NewRecorder()
+
+			tt.call(recorder, request)
+
+			if recorder.Code == stdhttp.StatusUnauthorized {
+				t.Fatalf("%s should not require a session, got 401: %s", tt.path, recorder.Body.String())
+			}
+		})
+	}
+
+	protectedCases := []struct {
+		name   string
+		method string
+		path   string
+		call   func(stdhttp.ResponseWriter, *stdhttp.Request)
+	}{
+		{
+			name:   "publish",
+			method: stdhttp.MethodPost,
+			path:   "/api/v1/marketplace/agents",
+			call:   handler.publishAgent,
+		},
+		{
+			name:   "my agents",
+			method: stdhttp.MethodGet,
+			path:   "/api/v1/marketplace/my-agents",
+			call:   handler.listMyAgents,
+		},
+		{
+			name:   "installs",
+			method: stdhttp.MethodGet,
+			path:   "/api/v1/marketplace/installs",
+			call:   handler.listInstalledAgents,
+		},
+		{
+			name:   "publisher stats",
+			method: stdhttp.MethodGet,
+			path:   "/api/v1/marketplace/publisher/stats",
+			call:   handler.getPublisherStats,
+		},
+	}
+
+	for _, tt := range protectedCases {
+		t.Run(tt.name, func(t *testing.T) {
+			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(`{}`))
+			recorder := httptest.NewRecorder()
+
+			tt.call(recorder, request)
+
+			if recorder.Code != stdhttp.StatusUnauthorized {
+				t.Fatalf("%s should reject unauthenticated requests with 401, got %d: %s", tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
+func newTestAuthMiddleware(session auth.Session) authMiddleware {
+	return newAuthMiddleware(config.Config{
+		SessionCookieName:   "oblivious_session",
+		SessionCookieSecure: false,
+		SessionSecret:       "test-secret",
+	}, auth.NewService(stubAuthStore{session: session}))
+}
+
+func addSignedSessionCookie(t *testing.T, middleware authMiddleware, request *stdhttp.Request, session auth.Session) {
+	t.Helper()
+
+	recorder := httptest.NewRecorder()
+	middleware.setSessionCookie(recorder, session)
+	cookies := recorder.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("expected one signed session cookie, got %d", len(cookies))
+	}
+	request.AddCookie(cookies[0])
 }
 
 func testAdminSession() auth.Session {
