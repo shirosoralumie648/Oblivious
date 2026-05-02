@@ -1,129 +1,116 @@
 ---
-last_mapped_commit: f4dc5e48826c9893706249151aa081638e295dc1
+last_mapped_commit: c0e55fdbb3aaed7da80a0f7f2399237aed13bca3
+mapped_dirty_worktree: true
 ---
 
 # Technology Stack
 
-**Analysis Date:** 2026-04-28
+**Analysis Date:** 2026-05-02
 
 ## Languages
 
 **Primary:**
-- Go 1.25.0 - Backend server (`src/server/go.mod`), relay engine, all services
-- TypeScript 5.6.3 - Web frontend (`src/web/package.json`)
+- Go 1.25.0 - backend API, Relay, Agent runtime, Memory/RAG, Admin, Marketplace, and migration tooling under `src/server/`.
+- TypeScript 5.6.3 - React SPA under `src/web/`.
 
 **Secondary:**
-- JavaScript (JSX/TSX) - React components in web frontend
+- SQL - PostgreSQL migrations under `src/server/migrations/` and relay-specific migration seed under `src/server/internal/relay/migrations/`.
+- Bash - repo automation in `scripts/check.sh`, `scripts/test.sh`, and `scripts/dev.sh`.
 
 ## Runtime
 
-**Environment:**
-- Go 1.25.0 (backend)
-- Node.js 20 (frontend, CI-enforced in `.github/workflows/ci.yml`)
+**Backend:**
+- Go module: `src/server/go.mod`.
+- Main server entrypoint: `src/server/cmd/server/main.go`.
+- Migration entrypoint: `src/server/cmd/migrate/main.go`.
+- Primary HTTP runtime: Go `net/http` via `src/server/internal/http/router.go`.
+- Relay runtime: Gin engine mounted under `/v1/*` by `src/server/internal/http/server.go`.
 
-**Package Manager:**
-- pnpm 10.6.0 (`package.json` root: `"packageManager": "pnpm@10.6.0"`)
-- Lockfile: `pnpm-lock.yaml` (present)
+**Frontend:**
+- Node.js 20 in CI (`.github/workflows/ci.yml`).
+- Vite 5.4.10 dev/build runtime (`src/web/vite.config.ts`).
+- React 18.3.1 SPA entrypoint at `src/web/src/main.tsx`.
+
+**Package Managers:**
+- pnpm 10.6.0 at the repo root (`package.json` and `pnpm-lock.yaml`).
+- Go modules for backend dependencies (`src/server/go.mod`, `src/server/go.sum`).
+- Workspace membership is intentionally narrow: `pnpm-workspace.yaml` includes only `src/web`.
 
 ## Frameworks
 
-**Core:**
-- Gin (github.com/gin-gonic/gin v1.12.0) - HTTP framework for the main server via `src/server/internal/relay/relay.go` (Gin engine used for Relay /v1/* routes)
-- net/http (stdlib) - Primary HTTP router for the main server API routes (`src/server/internal/http/router.go`)
-- React 18.3.1 - Frontend UI library (`src/web/package.json`)
-- Vite 5.4.10 - Frontend build tool and dev server (`src/web/vite.config.ts`)
-- React Router DOM 6.28.0 - Client-side routing (`src/web/package.json`)
+**Backend:**
+- `net/http` - main API router, middleware chain, auth routes, app routes, console routes, admin routes.
+- `github.com/gin-gonic/gin` v1.12.0 - Relay OpenAI-compatible API surface under `/v1/*`.
+- `github.com/gorilla/websocket` v1.5.3 - authenticated app WebSocket at `/api/v1/ws`.
+- `github.com/prometheus/client_golang` v1.23.2 - `/metrics` endpoint.
+- `github.com/lib/pq` v1.10.9 - PostgreSQL driver and array support.
+- `github.com/google/uuid` v1.6.0 - UUID generation in admin/relay defaults.
+- `golang.org/x/crypto` v0.48.0 - bcrypt password hashing.
+- `github.com/stripe/stripe-go/v83` v83.2.1 - Stripe webhook/service package exists under `src/server/internal/stripe/`.
+- `github.com/hibiken/asynq` v0.26.0 - relay billing timeout/polling worker support.
+- `github.com/pkoukk/tiktoken-go` v0.1.8 - token estimation/pricing support.
 
-**Testing:**
-- vitest 2.1.4 - Frontend unit tests (`src/web/package.json`)
-- @testing-library/react 16.1.0 - React component testing
-- @testing-library/jest-dom 6.6.3 - DOM assertion matchers
-- Go stdlib `testing` + test files co-located with source - Backend tests
+**Frontend:**
+- React 18.3.1 with React Router DOM 6.28.0 (`src/web/src/app/router.tsx`).
+- Vite 5.4.10 and `@vitejs/plugin-react`.
+- Tailwind CSS 3 plus shadcn/Radix styling assets (`src/web/tailwind.config.ts`, `src/web/src/theme/tokens.css`, `src/web/components.json`).
+- `@fontsource-variable/figtree` and `@fontsource-variable/geist-mono` for UI typography.
+- `@remixicon/react` is available for icons; use it where existing UI does.
 
-**Build/Dev:**
-- Vite 5.4.10 - Frontend build
-- @vitejs/plugin-react 4.3.4 - React JSX transform
-- tsc --noEmit - Frontend type checking
-- Go compiler (go build) - Backend build
-- pnpm scripts + shell scripts - Orchestration
+## Testing
 
-## Key Dependencies
+**Backend:**
+- Go standard `testing` package only. Tests live next to packages as `*_test.go`.
+- Current unit focus includes config, chat, knowledge, task, console, agent, memory, relay, quota, metrics, notification, and ws packages.
 
-### Backend (Go - src/server)
-
-**Critical:**
-- `github.com/gin-gonic/gin` v1.12.0 - Web framework (used in relay engine)
-- `github.com/gorilla/websocket` v1.5.3 - WebSocket connections (real-time notifications, agent status, billing events)
-- `github.com/lib/pq` v1.10.9 - PostgreSQL driver (`src/server/internal/db/db.go`)
-- `golang.org/x/crypto` v0.48.0 - bcrypt password hashing (`src/server/internal/auth/service.go`)
-- `github.com/google/uuid` v1.6.0 - UUID generation
-
-**Infrastructure:**
-- `github.com/prometheus/client_golang` v1.23.2 - Prometheus metrics (`/metrics` endpoint in `src/server/internal/metrics/prometheus.go`)
-- `github.com/redis/go-redis/v9` v9.14.1 - Redis client (indirect dependency; referenced in relay router for billing timeout tasks)
-- `github.com/hibiken/asynq` v0.26.0 - Task queue/worker framework (indirect dependency)
-- `github.com/pkoukk/tiktoken-go` v0.1.8 - Tokenizer library for token counting
-
-### Frontend (TypeScript - src/web)
-
-- `react` / `react-dom` 18.3.1 - UI framework
-- `react-router-dom` 6.28.0 - Routing
-- `vite` 5.4.10 - Build tool
-- `jsdom` 25.0.1 - DOM simulation for tests
-
-### Sub-project: new-api (separate Go project)
-
-Additional dependencies in `new-api/go.mod`:
-- `github.com/stripe/stripe-go/v81` v81.4.0 - Stripe payment integration
-- `github.com/go-redis/redis/v8` v8.11.5 - Redis caching and task queue
-- `github.com/aws/aws-sdk-go-v2` + bedrockruntime - AWS Bedrock model provider
-- `github.com/gorilla/websocket` v1.5.0 - WebSocket
-- `github.com/golang-jwt/jwt/v5` v5.3.0 - JWT auth
-- `gorm.io/gorm` v1.25.2 - ORM (with PostgreSQL and MySQL drivers)
-- `github.com/glebarez/sqlite` v1.9.0 - Embedded SQLite
-- `github.com/go-webauthn/webauthn` v0.14.0 - WebAuthn/Passkey support
-- `github.com/pquerna/otp` v1.5.0 - OTP/TOTP support
-- `github.com/gin-contrib/sessions` v0.0.5 - Session management
-- `github.com/grafana/pyroscope-go` v1.2.7 - Continuous profiling
-- `github.com/joho/godotenv` v1.5.1 - .env file loading
+**Frontend:**
+- Vitest 2.1.4 with jsdom from `src/web/vite.config.ts`.
+- Testing Library React and jest-dom configured through `src/web/src/test/setup.ts`.
 
 ## Configuration
 
-**Environment:**
-- Config loaded from environment variables via `src/server/internal/config/config.go` (Go `os.Getenv` with defaults)
-- `config/.env.example` present
-- No dotenv loading in the main server (uses system env vars directly)
-- new-api uses `github.com/joho/godotenv` for .env file loading
+**Backend environment:**
+- Required: `DATABASE_URL`, `SESSION_SECRET`.
+- Common runtime: `SERVER_PORT`, `APP_ENV`, `CORS_ALLOWED_ORIGINS`, `SESSION_COOKIE_NAME`, `SESSION_COOKIE_SECURE`.
+- LLM fallback: `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_TIMEOUT_MS`, `MODEL_DEFAULT_NAME`.
+- Relay: `RELAY_ENABLED`, `RELAY_DEFAULT_MODEL`, `OPENAI_API_KEY`, `OPENAI_BASE_URL`.
+- Example file: `config/.env.example`.
+- Loader: `src/server/internal/config/config.go`.
 
-**Key Configs Required (main server):**
-- `DATABASE_URL` - PostgreSQL connection string (required, validated at startup)
-- `SESSION_SECRET` - Session signing secret (required)
-- `SERVER_PORT` - Listen port (default: 8080)
-- `RELAY_ENABLED` - Enable/disable relay gateway (boolean, default: true)
-- `OPENAI_API_KEY` - OpenAI API key for default channel
-- `OPENAI_BASE_URL` - OpenAI API base URL (default: https://api.openai.com)
-- `LLM_BASE_URL` - LLM fallback endpoint
-- `LLM_API_KEY` - LLM fallback API key
-- `CORS_ALLOWED_ORIGINS` - Comma-separated CORS origins
+**Frontend environment:**
+- `WEB_PORT` and `WEB_API_BASE_URL` are documented in `config/.env.example` and checked by `scripts/check.sh docs`.
+- The current `createHttpClient` default uses relative paths; route code should prefer injected API clients over hardcoded global `fetch`.
 
-**Build:**
-- `src/web/tsconfig.json` - TypeScript config
-- `src/web/vite.config.ts` - Vite config (includes vitest config inline)
-- Go module: `src/server/go.mod`
+## Datastores
 
-## Platform Requirements
+**Primary database:**
+- PostgreSQL via `database/sql`.
+- App migrations: `src/server/migrations/0001_phase1_foundation.sql` through `src/server/migrations/0024_categories_tags.sql`.
+- Relay seed migration: `src/server/internal/relay/migrations/001_init_relay.sql`.
 
-**Development:**
-- Go 1.25.0+
-- Node.js 20+
-- pnpm 10.6.0
-- PostgreSQL instance (connection string via `DATABASE_URL`)
+**Vector search:**
+- pgvector table/index support in `src/server/migrations/0016_pgvector.sql`.
+- HNSW replacement index in `src/server/migrations/0020_memory_hnsw.sql`.
 
-**Production:**
-- GitHub Actions CI (`ci.yml`: Ubuntu latest, pnpm 10.6.0, Node 20, Go from go.mod)
-- PostgreSQL database
-- Environment variables configured via deployment platform
+**Reference trees:**
+- `lobehub/` and `new-api/` are imported/reference projects, not pnpm workspace members.
+- Do not add them to `pnpm-workspace.yaml` unless the project intentionally changes from reference-source integration to monorepo development.
 
----
+## Standard Commands
 
-*Stack analysis: 2026-04-28*
+```bash
+bash scripts/check.sh docs
+bash scripts/check.sh web
+bash scripts/check.sh server
+bash scripts/test.sh web
+bash scripts/test.sh server
+cd src/server && GOCACHE=../../.tmp/go-build GOMODCACHE=../../.tmp/go-mod go test ./...
+COREPACK_HOME=.tmp/corepack pnpm --dir src/web test
+```
+
+## Operational Notes
+
+- Use repo-local caches (`.tmp/corepack`, `.tmp/go-build`, `.tmp/go-mod`) as the scripts do.
+- Keep new backend code in `src/server/internal/<domain>/` with a service/store split.
+- Keep new frontend product surfaces under `src/web/src/routes/` and reusable request logic under `src/web/src/features/<domain>/api.ts`.
+- Keep migrations append-only; do not rewrite old applied migration files to change behavior.

@@ -1,442 +1,150 @@
 ---
-last_mapped_commit: f4dc5e48826c9893706249151aa081638e295dc1
+last_mapped_commit: c0e55fdbb3aaed7da80a0f7f2399237aed13bca3
+mapped_dirty_worktree: true
 ---
 
 # Testing Patterns
 
-**Analysis Date:** 2026-04-28
+**Analysis Date:** 2026-05-02
 
-## Test Frameworks
+## Test Entry Points
 
-### Frontend (TypeScript/React)
-
-**Runner:** Vitest 2.1.4
-**Config:** `src/web/vite.config.ts` (in `test` key)
-
-```typescript
-test: {
-  environment: 'jsdom',
-  globals: true,
-  setupFiles: ['./src/test/setup.ts']
-}
-```
-
-**Component Testing:** @testing-library/react 16.1.0 + @testing-library/jest-dom 6.6.3
-**Setup File:** `src/web/src/test/setup.ts` — imports jest-dom matchers, spies on console.warn/console.error
-
-**Run Commands:**
+**Root scripts:**
 ```bash
-pnpm --dir src/web test           # Vitest run (one-shot)
-bash scripts/test.sh              # Root-level wrapper (runs both web and server tests)
+bash scripts/check.sh docs
+bash scripts/check.sh web
+bash scripts/check.sh server
+bash scripts/check.sh all
+bash scripts/test.sh web
+bash scripts/test.sh server
+bash scripts/test.sh all
 ```
 
-### Backend (Go)
-
-**Runner:** Go standard `testing` package (no external test framework)
-**No testify, ginkgo, or other assertion libraries** — plain `t.Fatal`, `t.Fatalf`, `t.Errorf`
-
-**Run Commands:**
+**Backend direct:**
 ```bash
-cd src/server && go test ./...                         # Run all tests
-bash scripts/test.sh                                   # Root-level wrapper
+cd src/server && GOCACHE=../../.tmp/go-build GOMODCACHE=../../.tmp/go-mod go test ./...
 ```
 
-## Test File Organization
-
-### Location: Co-located
-
-**Frontend:**
-```
-src/web/src/
-├── features/auth/
-│   ├── store.ts
-│   ├── store.test.ts          # Co-located test
-│   ├── useAuthBootstrap.ts
-│   └── useAuthBootstrap.test.ts
-├── services/http/
-│   ├── client.ts
-│   └── client.test.ts         # Co-located test
-├── routes/console/
-│   ├── ConsoleHomePage.tsx
-│   └── ConsoleHomePage.test.tsx  # Co-located test
+**Frontend direct:**
+```bash
+COREPACK_HOME=.tmp/corepack pnpm --dir src/web test
+COREPACK_HOME=.tmp/corepack pnpm --dir src/web build
 ```
 
-**Backend:**
-```
-src/server/internal/
-├── chat/
-│   ├── service.go
-│   └── service_test.go        # Co-located test
-├── relay/
-│   ├── router.go
-│   └── router_test.go         # Co-located test
-├── config/
-│   ├── config.go
-│   └── config_test.go         # Co-located test
-```
+## CI
 
-### Naming Conventions
+`.github/workflows/ci.yml` defines three jobs:
 
-| Type | Pattern | Examples |
-|------|---------|----------|
-| Unit test (web) | `<Name>.test.ts` or `<Name>.test.tsx` | `store.test.ts`, `ConsoleHomePage.test.tsx` |
-| Behavior test (web) | `<Name>.behavior.test.tsx` | `ChatPage.behavior.test.tsx` |
-| Unit test (go) | `<name>_test.go` | `service_test.go`, `config_test.go` |
+- `release-gates` runs `bash scripts/check.sh docs`.
+- `web` installs pnpm dependencies, runs `bash scripts/check.sh web`, then `bash scripts/test.sh web`.
+- `server` runs `bash scripts/check.sh server`, then `bash scripts/test.sh server`.
 
-### Test Counts
+CI uses:
+- Node.js 20.
+- pnpm 10.6.0.
+- Go version from `src/server/go.mod`.
 
-- Frontend: 20 test files
-- Backend: 30 test files
+## Script Behavior
 
-## Test Structure
+**`scripts/check.sh`:**
+- Creates repo-local caches under `.tmp/`.
+- `docs` verifies release assets, env/docs consistency, and workspace boundaries.
+- `web` runs `pnpm --dir src/web build`.
+- `server` runs a focused package set: `./internal/config ./internal/chat ./internal/knowledge ./internal/task ./internal/console`.
 
-### Frontend (Vitest)
+**`scripts/test.sh`:**
+- `web` runs `pnpm --dir src/web test`.
+- `server` runs the same focused backend package set as `check.sh`.
+- `server` then runs `go test ./internal/http` only when `TEST_DATABASE_URL` is set.
 
-**Suite Organization:**
-```typescript
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+## Backend Tests
 
-describe('auth store', () => {
-  it('tracks loading and unauthenticated flows', () => {
-    const store = createAuthStore();
-    expect(store.getState()).toEqual({ status: 'idle', user: null, preferences: null });
-    store.startLoading();
-    expect(store.getState().status).toBe('loading');
-  });
+**Framework:**
+- Go standard `testing` package only.
+- No testify/ginkgo-style assertion library is used in active backend tests.
 
-  it('notifies subscribers when the state changes', () => {
-    const store = createAuthStore();
-    const listener = vi.fn();
-    store.subscribe(listener);
-    store.startLoading();
-    expect(listener).toHaveBeenCalledTimes(1);
-  });
-});
-```
+**Placement:**
+- Tests are co-located with packages as `*_test.go`.
+- Examples:
+  - `src/server/internal/chat/service_test.go`
+  - `src/server/internal/agent/service_test.go`
+  - `src/server/internal/memory/embedder_test.go`
+  - `src/server/internal/relay/billing_test.go`
+  - `src/server/internal/ws/hub_test.go`
 
 **Patterns:**
-- `describe` blocks group related tests by component/module name
-- `it` blocks describe behavior in present tense: "renders...", "throws...", "notifies..."
-- Tests are isolated — each `it` creates its own instances
-- `beforeEach`/`afterEach` used for mock cleanup
-- Static mock data defined within test blocks, not in shared fixtures
+- Use small fake stores/gateways for service tests.
+- Prefer table tests for validation/config behavior.
+- Use direct service calls for ownership and state-machine behavior.
+- Use `httptest` around handlers/router when testing HTTP behavior.
+- Use repo-local Go caches to avoid global cache permission issues.
 
-### Backend (Go)
+**Integration boundary:**
+- HTTP integration tests are gated behind `TEST_DATABASE_URL` in `scripts/test.sh`.
+- Keep tests that require PostgreSQL separate from pure unit tests.
+- When adding DB-backed tests, make setup/teardown explicit and avoid relying on a developer's local default database.
 
-**Suite Organization:**
-```go
-func TestRouter_SelectsHealthyChannel(t *testing.T) {
-    pool := NewChannelPool()
-    healthyCh := &types.Channel{ID: "healthy", BaseURL: "http://healthy", Enabled: true}
-    pool.AddChannel(healthyCh, 1)
+## Frontend Tests
 
-    router := NewRouter(pool, lb, cbs, tb, hc)
-    ch := router.SelectChannel(context.Background(), "chat")
+**Framework:**
+- Vitest 2.1.4 with jsdom.
+- Testing Library React.
+- jest-dom matchers loaded by `src/web/src/test/setup.ts`.
 
-    if ch == nil {
-        t.Fatal("should return a channel")
-    }
-}
-```
+**Placement:**
+- Co-locate tests beside route/component/store modules.
+- Examples:
+  - `src/web/src/app/router.test.tsx`
+  - `src/web/src/features/auth/store.test.ts`
+  - `src/web/src/features/layouts/WorkspaceLayout.test.tsx`
+  - `src/web/src/routes/workspace/ChatPage.behavior.test.tsx`
+  - `src/web/src/services/http/client.test.ts`
 
 **Patterns:**
-- Single test functions per scenario (no sub-tests with `t.Run`)
-- Setup done inline at the top of each test function
-- `t.Fatal`/`t.Fatalf` for hard failures, `t.Errorf` for soft failures
-- Test names: `Test<Type>_<Scenario>` or `Test<Function>`
-- No shared setup/teardown helpers — each test is self-contained
-- `t.Setenv()` used for environment-dependent config tests (`src/server/internal/config/config_test.go`)
+- Test route rendering with `createAppRouter(initialEntries)` from `src/web/src/app/router.tsx`.
+- Inject fake APIs or clients rather than mocking global state when possible.
+- Test HTTP envelope behavior through `src/web/src/services/http/client.test.ts`.
+- Behavior tests can use `.behavior.test.tsx` for richer user flows.
 
-### Console Spy Pattern (Frontend)
+## Coverage And Gaps
 
-The test setup in `src/web/src/test/setup.ts` spies on `console.warn` and `console.error` in `beforeEach`, then checks for unexpected calls in `afterEach`. Any unexpected console warning or error causes the test to fail:
-```typescript
-beforeEach(() => {
-  consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation((...args) => {
-    recordUnexpectedConsole('warn', args);
-  });
-});
-afterEach(() => {
-  if (recordedCalls.length) {
-    throwUnexpectedConsoleCalls(recordedCalls);
-  }
-});
-```
+**Well-covered areas:**
+- Auth bootstrap/store and route protection.
+- Workspace and console layout shells.
+- Chat, knowledge, task service behavior.
+- Relay primitives: billing, retry, circuit breaker, health checker, load balancer, token bucket, tokenizer.
+- Agent service and store helper behavior.
+- Memory embedder behavior.
+- WebSocket hub behavior.
 
-## Mocking
+**Known gaps to close before relying on Phase 3 surfaces:**
+- `src/web/src/routes/admin/AdminHomePage.tsx` and `src/web/src/routes/admin/AdminUsersPage.tsx` do not have route/page tests.
+- `src/web/src/routes/workspace/MarketplacePage.tsx` has no tests and currently uses a static catalog with direct `fetch`.
+- `src/server/internal/marketplace/` has no visible tests in the current file list.
+- Admin channel/route/plan/audit services exist but are not covered by the focused `scripts/check.sh server` package list.
+- `scripts/check.sh server` and `scripts/test.sh server` do not run `go test ./...`; use the broader command for shared backend or release-risk changes.
 
-### Frontend: vi.mock and vi.fn()
+## Recommended Test Additions
 
-**Module-level mocking (vi.mock hoisted):**
-```typescript
-const getAccess = vi.fn();
-const getBilling = vi.fn();
+**For Admin UI/API work:**
+- Add typed admin API client tests under `src/web/src/features/admin/`.
+- Add page behavior tests for `/admin` and `/admin/users`.
+- Add backend handler tests for all newly exposed admin routes.
+- Add service/store tests for channel, route, plan, audit, and review-queue paths.
 
-vi.mock('../../features/console/api', () => ({
-  createConsoleApi: () => ({
-    getAccess,
-    getBilling,
-    getModels,
-    getUsage
-  })
-}));
+**For Marketplace work:**
+- Add backend service/store tests in `src/server/internal/marketplace/`.
+- Add HTTP handler tests once marketplace routes are registered.
+- Add frontend tests for search/filter/install/review flows.
 
-// Then reset between tests:
-afterEach(() => {
-  getAccess.mockReset();
-  getBilling.mockReset();
-});
-```
+**For Relay changes:**
+- Keep unit tests close to the changed primitive.
+- Add handler-level tests for endpoint families when changing request/response mapping.
+- Include quota lifecycle assertions when changing billing paths.
 
-**vi.hoisted for module-scoped mock state:**
-```typescript
-const routeState = vi.hoisted(() => ({
-  conversationId: undefined as string | undefined
-}));
-```
+## Verification Rule Of Thumb
 
-**Partial mocking of react-router-dom:**
-```typescript
-vi.mock('react-router-dom', async () => {
-  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
-  return {
-    ...actual,
-    useNavigate: () => navigate,
-    useParams: () => ({ conversationId: routeState.conversationId })
-  };
-});
-```
-
-**Mocking app context:**
-```typescript
-vi.mock('../../app/providers', () => ({
-  useAppContext: () => appContext
-}));
-```
-
-**Function spies (vi.fn):**
-```typescript
-const fetchFn = vi.fn(async () =>
-  new Response(JSON.stringify({ ok: true, data: { requests: 3 }, error: null }), {
-    status: 200,
-    headers: { 'Content-Type': 'application/json' }
-  })
-);
-```
-
-**What to Mock:**
-- API modules (chat, console, tasks, knowledge APIs)
-- External modules (react-router-dom)
-- Context providers (app/providers)
-- HTTP fetch function
-- Console output (automatic via setup.ts)
-
-**What NOT to Mock:**
-- Components under test (rendered for real)
-- React core functionality
-- Assertion matchers
-
-### Backend: Inline Fake Structs
-
-Go uses hand-written fake structs defined directly in test files:
-
-```go
-// Fake store implementing the Store interface
-type fakeStore struct {
-    config   ConversationConfig
-    messages []Message
-}
-
-func (f fakeStore) CreateConversation(ctx context.Context, ...) (Conversation, error) {
-    return Conversation{}, nil
-}
-
-func (f fakeStore) GetConversationConfig(ctx context.Context, ...) (ConversationConfig, error) {
-    return f.config, nil
-}
-
-// Fake generator implementing ReplyGenerator interface
-type fakeGenerator struct {
-    reply string
-}
-
-func (f fakeGenerator) GenerateReply(ctx context.Context, ...) (string, error) {
-    return f.reply, nil
-}
-```
-
-**Recording fakes** capture state for assertions:
-```go
-type recordingStore struct {
-    lastModelID          string
-    lastTemperature      float64
-    messages             []Message
-}
-```
-
-**What to Mock:**
-- Store interfaces (database layer)
-- External service interfaces (ReplyGenerator, UsageRecorder, Embedder)
-- HTTP servers (`httptest.NewServer`) for relay tests
-
-**What NOT to Mock:**
-- Standard library
-- Config loading (tested via `t.Setenv`)
-
-## Fixtures and Factories
-
-**No shared fixture files or test data directories exist in either frontend or backend.**
-
-Test data is:
-- Defined inline within each test function
-- Often uses literal values: `{ id: 'u1', email: 'user@example.com' }`
-- For component tests, mock API responses provide complete fixture data inline
-
-**Frontend example:**
-```typescript
-getAccess.mockResolvedValue({
-  defaultMode: 'solo',
-  modelStrategy: 'balanced',
-  networkEnabledHint: true,
-  onboardingCompleted: true,
-  sessionExpiresAt: '2026-04-03T00:00:00Z',
-  sessionId: 'session_1',
-  userEmail: 'user@example.com',
-  userId: 'user_1',
-  workspaceId: 'workspace_1'
-});
-```
-
-**No factory functions, no `__fixtures__` directories, no shared test data files.**
-
-## Test Types
-
-### Unit Tests (Frontend)
-
-- **Scope:** Individual modules, stores, services
-- **Approach:** London School (mock-first) — dependencies are mocked, only the unit under test is real
-- **Coverage:** Each source module with logic has a corresponding test file
-- **Examples:** `store.test.ts`, `client.test.ts`, `useAuthBootstrap.test.ts`
-
-### Component Tests (Frontend)
-
-- **Scope:** Page-level components rendered with mocked dependencies
-- **Approach:** Render with `@testing-library/react`, assert against rendered output
-- **Router wrapping:** Components that depend on router context are wrapped in `<MemoryRouter>`
-  ```typescript
-  render(
-    <MemoryRouter future={routerFuture}>
-      <ConsoleHomePage />
-    </MemoryRouter>
-  );
-  ```
-- **Assertions:** `screen.findByRole`, `screen.findByText`, `.toHaveAttribute`, `.toBeInTheDocument`, `.not.toBeInTheDocument`
-- **Behavior tests:** `<Name>.behavior.test.tsx` for interaction flows (user input, navigation, state transitions)
-
-### Unit Tests (Backend)
-
-- **Scope:** Individual services, middleware, relay components
-- **Approach:** Fakes injected via constructors, standard `go test` assertions
-- **Coverage:** Nearly every internal package has a corresponding `*_test.go` file
-
-### Integration Tests (Backend)
-
-- **HTTP handler tests:** `*_handler_test.go` files in `src/server/internal/http/` test endpoints with real routing and fake services
-- **Relay integration tests:** `src/server/internal/relay/*_test.go` — some use `httptest.NewServer` for HTTP-level integration
-
-### E2E Tests
-
-**Not used.** No Playwright, Cypress, or Selenium configuration detected.
-
-## Coverage
-
-**No explicit coverage requirements enforced.** Neither `vitest` nor `go test` is configured with coverage thresholds in CI.
-
-**View Coverage:**
-```bash
-# Frontend
-cd src/web && npx vitest --coverage
-
-# Backend
-cd src/server && go test -cover ./...
-```
-
-## Common Patterns
-
-### Async Testing (Frontend)
-
-```typescript
-// Testing async component loading states
-expect(await screen.findByText('Loading dashboard…')).toBeInTheDocument();
-expect(await screen.findByText('Unable to load dashboard.')).toBeInTheDocument();
-
-// Testing that promises reject
-await expect(client.get('/api')).rejects.toBeInstanceOf(HttpError);
-```
-
-### Error Testing (Backend)
-
-```go
-// Testing that an error type is returned
-var re *RouterError
-if !errors.As(err, &re) {
-    t.Fatalf("expected RouterError, got %T", err)
-}
-if re.Code != http.StatusServiceUnavailable {
-    t.Fatalf("expected 503, got %d", re.Code)
-}
-
-// Testing that an error is expected
-_, err := Load()
-if err == nil {
-    t.Fatal("expected error for missing database url")
-}
-```
-
-### Component Error States (Frontend)
-
-```typescript
-// Test that component handles API failures gracefully
-getModels.mockRejectedValue(new Error('network unavailable'));
-render(<MemoryRouter future={routerFuture}><ConsoleHomePage /></MemoryRouter>);
-expect(await screen.findByText('Top model unavailable')).toBeInTheDocument();
-expect(screen.queryByText('Unable to load dashboard.')).not.toBeInTheDocument();
-```
-
-### Channel Testing (Backend)
-
-```go
-// Use httptest for upstream server simulation
-ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-    w.WriteHeader(http.StatusOK)
-}))
-defer ts.Close()
-healthyCh.BaseURL = ts.URL
-```
-
-## Test Data Patterns
-
-### User/Auth Test Data
-```typescript
-const user = { id: 'u1', email: 'user@example.com' };
-const preferences: UserPreferences = {
-  defaultMode: 'chat',
-  modelStrategy: 'balanced',
-  networkEnabledHint: false,
-  onboardingCompleted: true
-};
-```
-
-### Session Test Data (Go)
-```go
-auth.Session{
-    WorkspaceID: "workspace_1",
-    User: auth.User{
-        ID: "user_1",
-    },
-}
-```
-
----
-
-*Testing analysis: 2026-04-28*
+- Docs-only changes: run `bash scripts/check.sh docs` when the docs/env contracts are touched.
+- Frontend UI changes: run `pnpm --dir src/web test` and `pnpm --dir src/web build`.
+- Backend domain changes: run package tests for the touched domain plus `go test ./...` when shared interfaces, router wiring, migrations, or Relay are affected.
+- Database schema changes: run migration tooling against a disposable database and include rollback/re-run expectations in the phase UAT.
