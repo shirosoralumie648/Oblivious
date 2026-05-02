@@ -6,9 +6,11 @@ import {
 
 import { routerFuture } from './routerFuture';
 import { ProtectedRoute } from '../features/auth/ProtectedRoute';
+import { AdminRoute } from '../features/auth/AdminRoute';
 import { ConsoleLayout } from '../features/layouts/ConsoleLayout';
 import { MarketingLayout } from '../features/layouts/MarketingLayout';
 import { WorkspaceLayout } from '../features/layouts/WorkspaceLayout';
+import { AdminLayout } from '../features/layouts/AdminLayout';
 import { AccessPage } from '../routes/console/AccessPage';
 import { BillingPage } from '../routes/console/BillingPage';
 import { ConsoleHomePage } from '../routes/console/ConsoleHomePage';
@@ -22,6 +24,13 @@ import { KnowledgePage } from '../routes/workspace/KnowledgePage';
 import { OnboardingPage } from '../routes/workspace/OnboardingPage';
 import { SettingsPage } from '../routes/workspace/SettingsPage';
 import { SoloPage } from '../routes/workspace/SoloPage';
+import { AdminHomePage } from '../routes/admin/AdminHomePage';
+import { AdminUsersPage } from '../routes/admin/AdminUsersPage';
+import { AdminChannelsPage } from '../routes/admin/AdminChannelsPage';
+import { AdminRoutesPage } from '../routes/admin/AdminRoutesPage';
+import { AdminPlansPage } from '../routes/admin/AdminPlansPage';
+import { AdminAuditLogPage } from '../routes/admin/AdminAuditLogPage';
+import { AdminReviewsPage } from '../routes/admin/AdminReviewsPage';
 
 const routes: RouteObject[] = [
   {
@@ -57,6 +66,24 @@ const routes: RouteObject[] = [
           { path: 'usage', element: <UsagePage /> },
           { path: 'billing', element: <BillingPage /> },
           { path: 'access', element: <AccessPage /> }
+        ]
+      },
+      {
+        element: <AdminRoute />,
+        children: [
+          {
+            path: '/admin',
+            element: <AdminLayout />,
+            children: [
+              { index: true, element: <AdminHomePage /> },
+              { path: 'channels', element: <AdminChannelsPage /> },
+              { path: 'routes', element: <AdminRoutesPage /> },
+              { path: 'plans', element: <AdminPlansPage /> },
+              { path: 'users', element: <AdminUsersPage /> },
+              { path: 'audit-log', element: <AdminAuditLogPage /> },
+              { path: 'reviews', element: <AdminReviewsPage /> }
+            ]
+          }
         ]
       }
     ]
