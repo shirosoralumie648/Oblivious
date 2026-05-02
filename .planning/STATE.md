@@ -6,9 +6,32 @@ See: `.planning/PROJECT.md` (updated 2026-05-02)
 
 **Core value:** 统一的多渠道 LLM 调用层 — 所有 AI 调用必须经过 Relay
 
-**Current focus:** Post-v03.1 milestone close; next milestone should target Phase 4 quality, E2E, docs, and deployment.
+**Current focus:** Milestone v03.2 Quality and Release; start Phase 4 planning.
 
 ## Current Status
+
+**Milestone v03.2: Quality and Release — PLANNING**
+
+## Current Position
+
+| Field | Value |
+|-------|-------|
+| Phase | Phase 4: 质量与发布 |
+| Plan | — |
+| Status | Defining phase context |
+| Progress | 0/1 phases, 0/4 requirements complete |
+| Last activity | 2026-05-02 — `$gsd-next` started v03.2 from the v03.1 archive |
+
+## Current Scope
+
+| Requirement | Target |
+|-------------|--------|
+| TEST-01 | Integration tests for critical backend collaboration paths |
+| TEST-02 | E2E tests for Admin and Marketplace browser workflows |
+| DOC-01 | API documentation and release checklist |
+| DEPLOY-01 | Docker/Kubernetes startup and validation path |
+
+## Previous Milestone Baseline
 
 **Milestone v03.1: Admin and Marketplace UI — COMPLETE**
 
@@ -53,13 +76,14 @@ Items acknowledged and deferred at v03.1 milestone close on 2026-05-02:
 
 ## Next Suggested Step
 
-Run `$gsd-new-milestone` to define the next milestone, or `$gsd-plan-milestone-gaps` if you want to close accepted cleanup debt before Phase 4.
+Run `$gsd-discuss-phase 4` to gather Phase 4 context, then `$gsd-plan-phase 4`.
 
 ## Context Files
 
 - Project: `.planning/PROJECT.md`
 - Requirements: `.planning/REQUIREMENTS.md`
 - Roadmap: `.planning/ROADMAP.md`
+- Milestones: `.planning/MILESTONES.md`
 - Milestone archive: `.planning/milestones/v03.1-ROADMAP.md`
 - Requirements archive: `.planning/milestones/v03.1-REQUIREMENTS.md`
 - Milestone audit: `.planning/milestones/v03.1-MILESTONE-AUDIT.md`
@@ -72,6 +96,7 @@ Run `$gsd-new-milestone` to define the next milestone, or `$gsd-plan-milestone-g
 | 2026-04-27 | 从 Phase 1 开始执行 | Relay 集成是所有后续工作的基础 |
 | 2026-05-02 | 完成 v03.1 时保留 living REQUIREMENTS.md | 当前仓库仍依赖该文件承载跨阶段上下文，直接删除风险高 |
 | 2026-05-02 | 将 obsolete workspace MarketplacePage 作为 backlog 清理项 | 避免在脏工作树里删除可能仍被用户保留的旧入口 |
+| 2026-05-02 | v03.2 跳过新领域研究 | 质量/发布工作由已交付代码和既有 Phase 4 需求限定 |
 
 ---
-*State updated: 2026-05-02 after v03.1 milestone*
+*State updated: 2026-05-02 starting v03.2 milestone*

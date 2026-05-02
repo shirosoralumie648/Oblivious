@@ -1,7 +1,23 @@
-# Requirements: Oblivious Phase 1
+# Requirements: Oblivious v03.2 Quality and Release
 
 **Defined:** 2026-04-27
+**Current milestone:** v03.2 Quality and Release (started 2026-05-02)
 **Core Value:** 统一的多渠道 LLM 调用层 — 所有 AI 调用必须经过 Relay
+
+## Current Milestone Requirements
+
+### Testing
+
+- [ ] **TEST-01**: Maintainer can run integration tests that prove Admin, Marketplace, Relay, Agent, Memory, and Quota service boundaries work together without bypassing Relay.
+- [ ] **TEST-02**: Release owner can run E2E tests that cover the primary Admin and Marketplace user workflows from the browser surface.
+
+### Documentation
+
+- [ ] **DOC-01**: Developer or operator can use the API documentation and release checklist to validate the shipped HTTP surface and release candidate readiness.
+
+### Deployment
+
+- [ ] **DEPLOY-01**: Operator can start and validate the current service stack with Docker/Kubernetes configuration.
 
 ## v1 Requirements (Phase 1)
 
@@ -46,7 +62,7 @@
 - [x] **MCP-06**: 内置工具 - web_search, calculator, datetime, http_request
 - [x] **MCP-07**: MCP HTTP Handler - REST API
 
-## v2 Requirements (Phase 2-4)
+## v2 Requirements (Phase 2-4 Historical Context)
 
 ### Phase 2: Agent 与 Memory 增强
 
@@ -67,12 +83,12 @@
 - [x] **MARKET-01**: Agent 发布/发现/安装
 - [x] **MARKET-02**: Marketplace UI
 
-### Phase 4: 质量与发布
+### Phase 4: 质量与发布 (Current v03.2)
 
-- [ ] **TEST-01**: 集成测试
-- [ ] **TEST-02**: E2E 测试
-- [ ] **DOC-01**: API 文档
-- [ ] **DEPLOY-01**: Docker/Kubernetes 配置
+- [ ] **TEST-01**: 集成测试覆盖 Admin、Marketplace、Relay、Agent、Memory、Quota 的关键协作边界
+- [ ] **TEST-02**: E2E 测试覆盖 Admin 与 Marketplace 的核心浏览器工作流
+- [ ] **DOC-01**: API 文档和发布检查清单支持候选版本验收
+- [ ] **DEPLOY-01**: Docker/Kubernetes 配置可启动并验证当前服务栈
 
 ## Out of Scope
 
@@ -121,16 +137,16 @@
 | MARKET-01 | 03-admin-marketplace | Complete |
 | ADMIN-04 | 03.1-admin-marketplace-ui | Complete |
 | MARKET-02 | 03.1-admin-marketplace-ui | Complete |
-| TEST-01 | Phase 4 | Pending |
-| TEST-02 | Phase 4 | Pending |
-| DOC-01 | Phase 4 | Pending |
-| DEPLOY-01 | Phase 4 | Pending |
+| TEST-01 | Phase 4 / v03.2 | Planned |
+| TEST-02 | Phase 4 / v03.2 | Planned |
+| DOC-01 | Phase 4 / v03.2 | Planned |
+| DEPLOY-01 | Phase 4 / v03.2 | Planned |
 
 **Coverage:**
 - Completed requirements: 42
-- Pending requirements: 4
+- Planned requirements: 4
 - Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-04-27*
-*Last updated: 2026-05-02 after v03.1 milestone*
+*Last updated: 2026-05-02 starting v03.2 milestone*

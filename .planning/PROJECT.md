@@ -10,6 +10,16 @@ Oblivious 是一个多租户 AI 平台，整合 LobeHub（C端体验）和 New-A
 
 **统一的多渠道 LLM 调用层** — 所有 AI 调用必须经过 Relay，确保计费、限流、监控统一。
 
+## Current Milestone: v03.2 Quality and Release
+
+**Goal:** 把已交付的 Relay、Agent、Admin、Marketplace 能力收口到可验证、可文档化、可部署的发布候选状态。
+
+**Target features:**
+- 集成测试覆盖关键后端协作路径，尤其是 Admin/Marketplace API 与 Relay/Quota/Agent 交互。
+- E2E 测试覆盖前端主要工作流，证明用户可以完成管理、浏览、安装和发布路径。
+- API 文档与发布检查清单可以支持交接、验收和候选版本发布。
+- Docker/Kubernetes 配置可以启动并验证当前服务栈。
+
 ## Requirements
 
 ### Validated
@@ -30,12 +40,12 @@ Oblivious 是一个多租户 AI 平台，整合 LobeHub（C端体验）和 New-A
 
 ### Active
 
-<!-- Phase 4 需求：质量与发布 -->
+<!-- v03.2 / Phase 4 需求：质量与发布 -->
 
-- [ ] 集成测试与端到端测试
-- [ ] API 文档与发布检查清单
-- [ ] Docker/Kubernetes 部署配置
-- [ ] 清理 v03.1 接受的非阻塞债务
+- [ ] TEST-01: 集成测试覆盖关键后端协作路径
+- [ ] TEST-02: E2E 测试覆盖核心前端工作流
+- [ ] DOC-01: API 文档与发布检查清单可用于验收
+- [ ] DEPLOY-01: Docker/Kubernetes 配置可启动并验证当前服务栈
 
 ### Out of Scope
 
@@ -63,7 +73,7 @@ Go Backend (Gin)
 
 **关键问题**:
 - Phase 03.1 已交付可用 Admin UI 与 Marketplace UI
-- Phase 4 之前仍缺少完整 E2E、发布文档和部署验证
+- v03.2 之前仍缺少完整 E2E、发布文档和部署验证
 - `src/web/src/routes/workspace/MarketplacePage.tsx` 是接受的 v03.1 清理债务：不再由 `/marketplace` 使用
 
 ## Constraints
@@ -81,7 +91,8 @@ Go Backend (Gin)
 | Relay 作为统一入口 | 计费/限流/监控统一 | ✓ Good — Chat/Agent/Quota paths route through Relay |
 | pgvector 向量检索 | PostgreSQL 原生支持，运维简单 | ✓ Good — HNSW migration shipped in Phase 2 |
 | Admin/Marketplace UI on shared primitives | Keep page work consistent and testable | ✓ Good — v03.1 closed with 12 focused Vitest files |
+| v03.2 skips new domain research | Quality/release work is scoped by shipped code and existing Phase 4 requirements | Pending — validate through Phase 4 planning |
 
 ---
 
-*Last updated: 2026-05-02 after v03.1 milestone*
+*Last updated: 2026-05-02 starting v03.2 milestone*
