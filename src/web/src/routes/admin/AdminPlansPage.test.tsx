@@ -1,0 +1,95 @@
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const listPlans = vi.fn();
+const createPlan = vi.fn();
+const updatePlan = vi.fn();
+const deactivatePlan = vi.fn();
+
+vi.mock('../../features/admin/api', () => ({
+  createAdminApi: () => ({
+    listPlans,
+    createPlan,
+    updatePlan,
+    deactivatePlan,
+  }),
+}));
+
+import { AdminPlansPage } from './AdminPlansPage';
+
+describe('AdminPlansPage', () => {
+  beforeEach(() => {
+    listPlans.mockReset();
+    createPlan.mockReset();
+    updatePlan.mockReset();
+    deactivatePlan.mockReset();
+  });
+
+  it('renders plans with pricing, quota, and visibility status', async () => {
+    listPlans.mockResolvedValue([
+      {
+        id: 'plan_pro',
+        name: 'Pro',
+        description: 'Production plan',
+        quotaAmount: 500,
+        tokenQuota: 1000000,
+        price: 29,
+        modelAccess: ['gpt-4o', 'claude-3.5'],
+        agentLimit: 10,
+        durationDays: 30,
+        isActive: true,
+        isPublic: true,
+        sortOrder: 1,
+        subscriberCount: 42,
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+    ]);
+
+    render(<AdminPlansPage />);
+
+    expect(await screen.findByRole('heading', { name: 'Plans' })).toBeInTheDocument();
+    expect(await screen.findByText('Pro')).toBeInTheDocument();
+    expect(screen.getByText('$29.00')).toBeInTheDocument();
+    expect(screen.getByText('500 credits / 1,000,000 tokens')).toBeInTheDocument();
+    expect(screen.getByLabelText('Public')).toBeInTheDocument();
+  });
+
+  it('opens the add plan drawer', async () => {
+    listPlans.mockResolvedValue([]);
+
+    render(<AdminPlansPage />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add Plan' }));
+
+    expect(await screen.findByRole('heading', { name: 'Add Plan' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Name')).toBeInTheDocument();
+    expect(screen.getByLabelText('Model Access')).toBeInTheDocument();
+  });
+
+  it('confirms plan deactivation', async () => {
+    listPlans.mockResolvedValue([
+      {
+        id: 'plan_pro',
+        name: 'Pro',
+        description: 'Production plan',
+        quotaAmount: 500,
+        tokenQuota: 1000000,
+        price: 29,
+        modelAccess: ['gpt-4o'],
+        agentLimit: 10,
+        isActive: true,
+        isPublic: true,
+        sortOrder: 1,
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+    ]);
+    deactivatePlan.mockResolvedValue(undefined);
+
+    render(<AdminPlansPage />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Deactivate plan Pro' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Deactivate Plan' }));
+
+    await waitFor(() => expect(deactivatePlan).toHaveBeenCalledWith('plan_pro'));
+  });
+});
