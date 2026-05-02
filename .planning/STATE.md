@@ -6,7 +6,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-02)
 
 **Core value:** 统一的多渠道 LLM 调用层 — 所有 AI 调用必须经过 Relay
 
-**Current focus:** Milestone v03.2 Quality and Release; Phase 4 context captured and ready for planning.
+**Current focus:** Milestone v03.2 Quality and Release; Phase 4 plans created and ready for execution.
 
 ## Current Status
 
@@ -17,10 +17,10 @@ See: `.planning/PROJECT.md` (updated 2026-05-02)
 | Field | Value |
 |-------|-------|
 | Phase | Phase 4: 质量与发布 |
-| Plan | — |
-| Status | Context gathered; ready for phase planning |
+| Plan | 04-01 through 04-04 ready |
+| Status | Plans created; ready for execution |
 | Progress | 0/1 phases, 0/4 requirements complete |
-| Last activity | 2026-05-02 — `$gsd-next` captured Phase 4 context |
+| Last activity | 2026-05-02 — `$gsd-next` created Phase 4 plans |
 
 ## Current Scope
 
@@ -76,7 +76,7 @@ Items acknowledged and deferred at v03.1 milestone close on 2026-05-02:
 
 ## Next Suggested Step
 
-Run `$gsd-plan-phase 4` to turn the captured quality/release context into executable plans.
+Run `$gsd-execute-phase 4` to execute the quality/release plans.
 
 ## Context Files
 
@@ -84,6 +84,7 @@ Run `$gsd-plan-phase 4` to turn the captured quality/release context into execut
 - Requirements: `.planning/REQUIREMENTS.md`
 - Roadmap: `.planning/ROADMAP.md`
 - Phase 4 context: `.planning/phases/04-quality-release/04-CONTEXT.md`
+- Phase 4 plans: `.planning/phases/04-quality-release/04-01-PLAN.md` through `04-04-PLAN.md`
 - Milestones: `.planning/MILESTONES.md`
 - Milestone archive: `.planning/milestones/v03.1-ROADMAP.md`
 - Requirements archive: `.planning/milestones/v03.1-REQUIREMENTS.md`
@@ -99,6 +100,7 @@ Run `$gsd-plan-phase 4` to turn the captured quality/release context into execut
 | 2026-05-02 | 将 obsolete workspace MarketplacePage 作为 backlog 清理项 | 避免在脏工作树里删除可能仍被用户保留的旧入口 |
 | 2026-05-02 | v03.2 跳过新领域研究 | 质量/发布工作由已交付代码和既有 Phase 4 需求限定 |
 | 2026-05-02 | Phase 4 context 采用 auto 默认决策 | `$gsd-next` 零确认推进，质量/发布灰区可由现有代码和发布目标确定 |
+| 2026-05-02 | Phase 4 拆成四个执行计划 | TEST-01、TEST-02、DOC-01、DEPLOY-01 各自有明确执行和验收边界 |
 
 ---
 *State updated: 2026-05-02 starting v03.2 milestone*
