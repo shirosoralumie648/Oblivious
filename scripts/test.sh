@@ -38,7 +38,7 @@ run_server_tests() {
   fi
 
   echo "[test] Running server unit tests."
-  (cd "$server_dir" && go test ./internal/config ./internal/chat ./internal/knowledge ./internal/task ./internal/console)
+  (cd "$server_dir" && go test ./... -count=1)
 
   echo "[test] Running server integration tests."
   if [[ -z "${TEST_DATABASE_URL:-}" ]]; then

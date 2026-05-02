@@ -95,8 +95,8 @@ run_server_checks() {
     return
   fi
 
-  echo "[check] Running server unit checks."
-  (cd "$server_dir" && go test ./internal/config ./internal/chat ./internal/knowledge ./internal/task ./internal/console)
+  echo "[check] Running server release checks."
+  (cd "$server_dir" && go test ./... -count=1)
 }
 
 case "$target" in
