@@ -6,7 +6,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-02)
 
 **Core value:** 统一的多渠道 LLM 调用层 — 所有 AI 调用必须经过 Relay
 
-**Current focus:** Milestone v03.2 Quality and Release; start Phase 4 planning.
+**Current focus:** Milestone v03.2 Quality and Release; Phase 4 context captured and ready for planning.
 
 ## Current Status
 
@@ -18,9 +18,9 @@ See: `.planning/PROJECT.md` (updated 2026-05-02)
 |-------|-------|
 | Phase | Phase 4: 质量与发布 |
 | Plan | — |
-| Status | Defining phase context |
+| Status | Context gathered; ready for phase planning |
 | Progress | 0/1 phases, 0/4 requirements complete |
-| Last activity | 2026-05-02 — `$gsd-next` started v03.2 from the v03.1 archive |
+| Last activity | 2026-05-02 — `$gsd-next` captured Phase 4 context |
 
 ## Current Scope
 
@@ -76,13 +76,14 @@ Items acknowledged and deferred at v03.1 milestone close on 2026-05-02:
 
 ## Next Suggested Step
 
-Run `$gsd-discuss-phase 4` to gather Phase 4 context, then `$gsd-plan-phase 4`.
+Run `$gsd-plan-phase 4` to turn the captured quality/release context into executable plans.
 
 ## Context Files
 
 - Project: `.planning/PROJECT.md`
 - Requirements: `.planning/REQUIREMENTS.md`
 - Roadmap: `.planning/ROADMAP.md`
+- Phase 4 context: `.planning/phases/04-quality-release/04-CONTEXT.md`
 - Milestones: `.planning/MILESTONES.md`
 - Milestone archive: `.planning/milestones/v03.1-ROADMAP.md`
 - Requirements archive: `.planning/milestones/v03.1-REQUIREMENTS.md`
@@ -97,6 +98,7 @@ Run `$gsd-discuss-phase 4` to gather Phase 4 context, then `$gsd-plan-phase 4`.
 | 2026-05-02 | 完成 v03.1 时保留 living REQUIREMENTS.md | 当前仓库仍依赖该文件承载跨阶段上下文，直接删除风险高 |
 | 2026-05-02 | 将 obsolete workspace MarketplacePage 作为 backlog 清理项 | 避免在脏工作树里删除可能仍被用户保留的旧入口 |
 | 2026-05-02 | v03.2 跳过新领域研究 | 质量/发布工作由已交付代码和既有 Phase 4 需求限定 |
+| 2026-05-02 | Phase 4 context 采用 auto 默认决策 | `$gsd-next` 零确认推进，质量/发布灰区可由现有代码和发布目标确定 |
 
 ---
 *State updated: 2026-05-02 starting v03.2 milestone*
