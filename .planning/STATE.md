@@ -6,27 +6,27 @@ See: `.planning/PROJECT.md` (updated 2026-05-02)
 
 **Core value:** 统一的多渠道 LLM 调用层 — 所有 AI 调用必须经过 Relay
 
-**Current focus:** Milestone v03.2 Quality and Release; Phase 4 plans created and ready for execution.
+**Current focus:** Milestone v03.2 Quality and Release; Phase 4 execution in progress. Plan 04-01 backend release gate complete; 04-02 E2E next.
 
 ## Current Status
 
-**Milestone v03.2: Quality and Release — PLANNING**
+**Milestone v03.2: Quality and Release — IN PROGRESS**
 
 ## Current Position
 
 | Field | Value |
 |-------|-------|
 | Phase | Phase 4: 质量与发布 |
-| Plan | 04-01 through 04-04 ready |
-| Status | Plans created; ready for execution |
-| Progress | 0/1 phases, 0/4 requirements complete |
-| Last activity | 2026-05-02 — `$gsd-next` created Phase 4 plans |
+| Plan | 04-01 complete; 04-02 next |
+| Status | Executing quality/release plans |
+| Progress | 0/1 phases, 1/4 requirements complete |
+| Last activity | 2026-05-02 — `$gsd-next` completed 04-01 backend release gate |
 
 ## Current Scope
 
 | Requirement | Target |
 |-------------|--------|
-| TEST-01 | Integration tests for critical backend collaboration paths |
+| TEST-01 | Complete — broad backend release gate and boundary tests |
 | TEST-02 | E2E tests for Admin and Marketplace browser workflows |
 | DOC-01 | API documentation and release checklist |
 | DEPLOY-01 | Docker/Kubernetes startup and validation path |
@@ -44,6 +44,16 @@ See: `.planning/PROJECT.md` (updated 2026-05-02)
 | Milestone audit | Complete with tech debt | `.planning/v03.1-MILESTONE-AUDIT.md` |
 
 ## Verification Results
+
+Latest v03.2 TEST-01 gate:
+
+```bash
+bash scripts/check.sh server
+bash scripts/test.sh server
+cd src/server && go test ./internal/http ./internal/admin ./internal/marketplace ./internal/relay ./internal/agent ./internal/memory ./internal/quota -count=1
+```
+
+Result: all commands passed. `scripts/test.sh server` skipped DB-backed HTTP integration tests explicitly because `TEST_DATABASE_URL` was not set.
 
 Latest v03.1 gate:
 
@@ -76,7 +86,7 @@ Items acknowledged and deferred at v03.1 milestone close on 2026-05-02:
 
 ## Next Suggested Step
 
-Run `$gsd-execute-phase 4` to execute the quality/release plans.
+Run `$gsd-execute-phase 4` to continue with plan 04-02 E2E coverage.
 
 ## Context Files
 
@@ -101,6 +111,7 @@ Run `$gsd-execute-phase 4` to execute the quality/release plans.
 | 2026-05-02 | v03.2 跳过新领域研究 | 质量/发布工作由已交付代码和既有 Phase 4 需求限定 |
 | 2026-05-02 | Phase 4 context 采用 auto 默认决策 | `$gsd-next` 零确认推进，质量/发布灰区可由现有代码和发布目标确定 |
 | 2026-05-02 | Phase 4 拆成四个执行计划 | TEST-01、TEST-02、DOC-01、DEPLOY-01 各自有明确执行和验收边界 |
+| 2026-05-02 | 04-01 将 server release gate 扩展为 `go test ./... -count=1` | 避免窄包集合掩盖 Admin、Marketplace、Relay、Agent、Memory、Quota 回归风险 |
 
 ---
 *State updated: 2026-05-02 starting v03.2 milestone*

@@ -173,20 +173,22 @@ bash scripts/test.sh all
 
 **Requirements**: TEST-01, TEST-02, DOC-01, DEPLOY-01
 
-**Status**: Ready for discussion/planning
+**Status**: In Progress — 04-01 complete, 04-02 next
 
 **Tasks**:
-1. 集成测试收口 - 覆盖 Admin、Marketplace、Relay、Agent、Memory、Quota 的关键协作路径
+1. [x] 集成测试收口 - 覆盖 Admin、Marketplace、Relay、Agent、Memory、Quota 的关键协作路径
 2. E2E 测试收口 - 覆盖 Admin 与 Marketplace 的核心浏览器工作流
 3. API 文档与发布检查清单 - 记录 HTTP 表面、验收命令、发布候选判定
 4. 部署配置 - 补齐 Docker/Kubernetes 配置并定义可重复验证路径
 
 **Success Criteria**:
-- [ ] `go test ./... -count=1` 或明确的集成测试切片覆盖关键后端协作路径
+- [x] `go test ./... -count=1` 或明确的集成测试切片覆盖关键后端协作路径
 - [ ] 前端 E2E 命令可以验证 Admin 与 Marketplace 的核心工作流
 - [ ] API 文档覆盖当前发布候选需要暴露和验收的 HTTP surface
 - [ ] 发布检查清单列出必跑命令、环境前置条件和已知非阻塞债务
 - [ ] Docker/Kubernetes 配置可以启动并健康检查当前服务栈
+
+**Progress**: 1/4 requirements complete. TEST-01 completed by `.planning/phases/04-quality-release/04-01-SUMMARY.md`.
 
 ## 6. Backlog
 
