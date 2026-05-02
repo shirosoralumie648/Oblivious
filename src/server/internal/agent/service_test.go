@@ -11,20 +11,26 @@ import (
 )
 
 type fakeGateway struct {
-	plainReply  string
-	structured  []*chat.CompletionResponse
-	structIndex int
+	plainReply      string
+	structured      []*chat.CompletionResponse
+	plainCalls      int
+	streamCalls     int
+	structuredCalls int
+	structIndex     int
 }
 
 func (g *fakeGateway) GenerateReply(ctx context.Context, messages []chat.Message, config chat.ConversationConfig) (string, error) {
+	g.plainCalls++
 	return g.plainReply, nil
 }
 
 func (g *fakeGateway) GenerateReplyStream(ctx context.Context, messages []chat.Message, config chat.ConversationConfig, onChunk func(string) error) error {
+	g.streamCalls++
 	return onChunk(g.plainReply)
 }
 
 func (g *fakeGateway) GenerateStructuredReply(ctx context.Context, messages []chat.Message, config chat.ConversationConfig, tools []map[string]any) (*chat.CompletionResponse, error) {
+	g.structuredCalls++
 	if g.structIndex >= len(g.structured) {
 		return &chat.CompletionResponse{Content: g.plainReply}, nil
 	}
@@ -153,6 +159,12 @@ func TestServiceSendMessageUsesRunnerForToolEnabledAgents(t *testing.T) {
 
 	if msg.Content != "final answer after tool" {
 		t.Fatalf("expected final tool-assisted answer, got %q", msg.Content)
+	}
+	if gateway.structuredCalls != 2 {
+		t.Fatalf("expected tool path to use configured gateway twice, got %d calls", gateway.structuredCalls)
+	}
+	if gateway.plainCalls != 0 {
+		t.Fatalf("expected structured tool path not to bypass into plain gateway calls, got %d", gateway.plainCalls)
 	}
 
 	var sawToolMessage bool
@@ -358,6 +370,9 @@ func TestServiceSendMessagePlainPath(t *testing.T) {
 	}
 	if msg.Content != "plain response with no tools" {
 		t.Fatalf("expected plain response, got %q", msg.Content)
+	}
+	if gateway.plainCalls != 1 {
+		t.Fatalf("expected plain path to use configured Relay-compatible gateway once, got %d calls", gateway.plainCalls)
 	}
 }
 

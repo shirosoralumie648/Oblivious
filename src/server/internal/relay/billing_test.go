@@ -9,12 +9,12 @@ import (
 )
 
 type stubQuotaManager struct {
-	preconsumeCalls  int
-	settleCalls      int
-	refundCalls      int
-	lastUserID       string
-	lastSessionID    string
-	lastSettledAmt   float64
+	preconsumeCalls int
+	settleCalls     int
+	refundCalls     int
+	lastUserID      string
+	lastSessionID   string
+	lastSettledAmt  float64
 }
 
 func (s *stubQuotaManager) PreConsume(ctx context.Context, userID string, amount float64, idempotencyKey string, channelID, model, apiType string) (*quota.BillingSession, error) {
@@ -72,7 +72,7 @@ func TestBillingHook_PostBill_Settles(t *testing.T) {
 		ChannelID:        "ch_1",
 		APIType:          types.APITypeChat,
 		Model:            "gpt-4o",
-		IdempotencyKey:  "idem_123",
+		IdempotencyKey:   "idem_123",
 		PreAuthorizedAmt: 10.0,
 	}
 
@@ -130,6 +130,38 @@ func TestBillingHook_DuplicateIdempotency(t *testing.T) {
 	_, err = hook.PreBill(session, &types.Usage{PromptTokens: 1000})
 	if err != nil {
 		t.Fatalf("duplicate PreBill should not error: %v", err)
+	}
+}
+
+func TestBillingHook_DuplicateIdempotencyDoesNotPreConsumeTwice(t *testing.T) {
+	store := NewPricingStoreWithDefaults()
+	seen := make(map[string]bool)
+	hook := NewBillingHook(store, &seen)
+	quotaManager := &stubQuotaManager{}
+	hook.SetQuotaManager(quotaManager)
+
+	session := &BillingSession{
+		ID:             "sess_quota_dup",
+		UserID:         "user_1",
+		ChannelID:      "ch_1",
+		APIType:        types.APITypeChat,
+		Model:          "gpt-4o",
+		IdempotencyKey: "idem_quota_dup",
+	}
+
+	firstPreAuth, err := hook.PreBill(session, &types.Usage{PromptTokens: 1000})
+	if err != nil {
+		t.Fatalf("first PreBill failed: %v", err)
+	}
+	secondPreAuth, err := hook.PreBill(session, &types.Usage{PromptTokens: 1000})
+	if err != nil {
+		t.Fatalf("duplicate PreBill failed: %v", err)
+	}
+	if firstPreAuth != secondPreAuth {
+		t.Fatalf("expected duplicate PreBill to return cached amount, got %f vs %f", firstPreAuth, secondPreAuth)
+	}
+	if quotaManager.preconsumeCalls != 1 {
+		t.Fatalf("expected duplicate idempotency to call PreConsume once, got %d", quotaManager.preconsumeCalls)
 	}
 }
 
@@ -205,7 +237,7 @@ func TestBillingHook_PostBill_NoQuotaManagerFallsBack(t *testing.T) {
 		ChannelID:        "ch_1",
 		APIType:          types.APITypeChat,
 		Model:            "gpt-4o",
-		IdempotencyKey:  "idem_noquota",
+		IdempotencyKey:   "idem_noquota",
 		PreAuthorizedAmt: 10.0,
 	}
 
