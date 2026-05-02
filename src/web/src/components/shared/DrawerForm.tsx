@@ -35,7 +35,7 @@ export function DrawerForm({
       <SheetContent side="right" className="w-full rounded-none sm:max-w-lg">
         <SheetHeader>
           <SheetTitle className="text-xl font-semibold">{title}</SheetTitle>
-          {description ? <SheetDescription>{description}</SheetDescription> : null}
+          <SheetDescription>{description ?? 'Complete the form fields, then submit or cancel.'}</SheetDescription>
         </SheetHeader>
         <ScrollArea className="min-h-0 flex-1 px-6">
           <div className="space-y-4 pb-6">{children}</div>
