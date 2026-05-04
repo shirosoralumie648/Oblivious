@@ -2,34 +2,34 @@
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-05-02)
+See: `.planning/PROJECT.md` (updated 2026-05-04)
 
 **Core value:** 统一的多渠道 LLM 调用层 — 所有 AI 调用必须经过 Relay
 
-**Current focus:** Milestone v03.2 Quality and Release; Phase 4 execution in progress. Plan 04-01 backend release gate complete; 04-02 E2E next.
+**Current focus:** Milestone v03.2 Quality and Release is blocked on DEPLOY-01 runtime validation. TEST-01, TEST-02, and DOC-01 are complete; deployment config exists but real Docker/Kubernetes startup evidence is missing.
 
 ## Current Status
 
-**Milestone v03.2: Quality and Release — IN PROGRESS**
+**Milestone v03.2: Quality and Release — BLOCKED**
 
 ## Current Position
 
 | Field | Value |
 |-------|-------|
 | Phase | Phase 4: 质量与发布 |
-| Plan | 04-01 complete; 04-02 next |
-| Status | Executing quality/release plans |
-| Progress | 0/1 phases, 1/4 requirements complete |
-| Last activity | 2026-05-02 — `$gsd-next` completed 04-01 backend release gate |
+| Plan | 04-01 through 04-03 complete; 04-04 config complete but runtime validation blocked |
+| Status | Blocked on Docker daemon / kubectl availability |
+| Progress | 0/1 phases, 3/4 requirements complete, 1 blocked |
+| Last activity | 2026-05-04 — completion audit found DEPLOY-01 lacks real Docker/Kubernetes startup evidence |
 
 ## Current Scope
 
 | Requirement | Target |
 |-------------|--------|
 | TEST-01 | Complete — broad backend release gate and boundary tests |
-| TEST-02 | E2E tests for Admin and Marketplace browser workflows |
-| DOC-01 | API documentation and release checklist |
-| DEPLOY-01 | Docker/Kubernetes startup and validation path |
+| TEST-02 | Complete — E2E tests for Admin and Marketplace browser workflows |
+| DOC-01 | Complete — API documentation and release checklist |
+| DEPLOY-01 | Blocked — config and smoke path exist; real stack startup/healthcheck not verified |
 
 ## Previous Milestone Baseline
 
@@ -44,6 +44,49 @@ See: `.planning/PROJECT.md` (updated 2026-05-02)
 | Milestone audit | Complete with tech debt | `.planning/v03.1-MILESTONE-AUDIT.md` |
 
 ## Verification Results
+
+Latest v03.2 completion audit:
+
+```bash
+bash scripts/check.sh docs
+docker compose config
+bash scripts/check.sh all
+bash scripts/test.sh all
+BASE_URL=http://127.0.0.1:18080 bash scripts/deploy-smoke.sh
+COREPACK_HOME=.tmp/corepack pnpm --dir src/web test:e2e
+bash -n scripts/deploy-validate.sh
+bash scripts/deploy-validate.sh
+docker build -f Dockerfile.server -t oblivious-server:local .
+kubectl version --client
+```
+
+Result: docs quality gate passed; `docker compose config` passed; full check gate passed in the approved non-sandbox path; full test gate passed in the approved non-sandbox path with 32 web test files / 110 tests and server `go test ./... -count=1`; Admin/Marketplace Playwright E2E passed 3/3; DB-backed HTTP integration tests skipped explicitly because `TEST_DATABASE_URL` was not set; deployment smoke script passed against a temporary local `/healthz` stub; `scripts/deploy-validate.sh` passed shell syntax validation and fails clearly when Docker daemon access is unavailable.
+
+Blocked checks: Docker image builds could not run because the local Docker daemon socket denied access; starting a temporary `dockerd` failed because root privileges are required; Docker Desktop build socket/buildx also report permission errors; Kubernetes apply/dry-run could not run because `kubectl` is not installed. These are recorded in `.planning/phases/04-quality-release/04-COMPLETION-AUDIT.md`.
+
+Latest v03.2 TEST-02 gate:
+
+```bash
+COREPACK_HOME=.tmp/corepack pnpm --dir src/web install --frozen-lockfile
+COREPACK_HOME=.tmp/corepack pnpm --dir src/web exec playwright install chromium
+COREPACK_HOME=.tmp/corepack pnpm --dir src/web exec playwright test --list
+COREPACK_HOME=.tmp/corepack pnpm --dir src/web test:e2e
+COREPACK_HOME=.tmp/corepack pnpm --dir src/web test
+COREPACK_HOME=.tmp/corepack pnpm --dir src/web build
+```
+
+Result: all commands passed. Playwright listed 3 Admin/Marketplace tests; E2E passed 3/3; Web Vitest passed 32 files / 110 tests; Web build passed.
+
+Latest v03.2 DOC-01 gate:
+
+```bash
+rg -n "## Admin Endpoints|## Marketplace Endpoints|## Relay /v1 Endpoints" docs/API.md
+rg -n "/api/v1/admin/stats|/api/v1/marketplace/featured|/marketplace/my-agents|COREPACK_HOME=.tmp/corepack pnpm --dir src/web test:e2e|lobehub/|new-api/" docs/architecture/current-system-contracts.md
+rg -n "## Admin Endpoints|## Marketplace Endpoints|## Relay /v1 Endpoints|TEST_DATABASE_URL|pnpm --dir src/web test:e2e" scripts/verify-quality-gates.sh
+bash scripts/check.sh docs
+```
+
+Result: all commands passed. API docs, current system contracts, RC checklist, README release links, and docs quality-gate assertions are aligned for DOC-01.
 
 Latest v03.2 TEST-01 gate:
 
@@ -73,6 +116,7 @@ Result: Go handler suite passed; Vitest targeted suite passed (12 files, 32 test
 | Phase 2 Agent 与 Memory 增强 | 2026-04-28 | EXEC-01~03, MEM-01~03, QUOTA-01 |
 | Phase 3a Admin 与 Marketplace 后端 | 2026-04-29 | ADMIN-01~03, MARKET-01 |
 | v03.1 Admin 与 Marketplace UI | 2026-05-02 | ADMIN-04, MARKET-02 |
+| v03.2 Quality and Release | Blocked 2026-05-04 | TEST-01, TEST-02, DOC-01 complete; DEPLOY-01 runtime validation blocked |
 
 ## Deferred Items
 
@@ -86,7 +130,7 @@ Items acknowledged and deferred at v03.1 milestone close on 2026-05-02:
 
 ## Next Suggested Step
 
-Run `$gsd-execute-phase 4` to continue with plan 04-02 E2E coverage.
+Restore Docker daemon access or install/provide Kubernetes tooling, then run `bash scripts/deploy-validate.sh` or an equivalent real deployment smoke. Do not archive v03.2 until DEPLOY-01 has real stack startup evidence.
 
 ## Context Files
 
@@ -95,6 +139,8 @@ Run `$gsd-execute-phase 4` to continue with plan 04-02 E2E coverage.
 - Roadmap: `.planning/ROADMAP.md`
 - Phase 4 context: `.planning/phases/04-quality-release/04-CONTEXT.md`
 - Phase 4 plans: `.planning/phases/04-quality-release/04-01-PLAN.md` through `04-04-PLAN.md`
+- Phase 4 summaries: `.planning/phases/04-quality-release/04-01-SUMMARY.md` through `04-04-SUMMARY.md`
+- Phase 4 audit: `.planning/phases/04-quality-release/04-COMPLETION-AUDIT.md`
 - Milestones: `.planning/MILESTONES.md`
 - Milestone archive: `.planning/milestones/v03.1-ROADMAP.md`
 - Requirements archive: `.planning/milestones/v03.1-REQUIREMENTS.md`
@@ -112,6 +158,11 @@ Run `$gsd-execute-phase 4` to continue with plan 04-02 E2E coverage.
 | 2026-05-02 | Phase 4 context 采用 auto 默认决策 | `$gsd-next` 零确认推进，质量/发布灰区可由现有代码和发布目标确定 |
 | 2026-05-02 | Phase 4 拆成四个执行计划 | TEST-01、TEST-02、DOC-01、DEPLOY-01 各自有明确执行和验收边界 |
 | 2026-05-02 | 04-01 将 server release gate 扩展为 `go test ./... -count=1` | 避免窄包集合掩盖 Admin、Marketplace、Relay、Agent、Memory、Quota 回归风险 |
+| 2026-05-02 | 04-02 采用 Playwright + route fixtures | 浏览器 E2E 覆盖 Admin/Marketplace 真实路由，同时避免 live provider、Stripe 或外部服务依赖 |
+| 2026-05-04 | 04-03 将 `docs/API.md` 作为 canonical API index | 文件已覆盖当前 live route surface；质量门禁改为防漂移而非重复重写 |
+| 2026-05-04 | RC checklist 要求显式记录 `TEST_DATABASE_URL` skip | DB-backed integration tests 可以按脚本规则跳过，但 release evidence 必须说明原因 |
+| 2026-05-04 | Kubernetes Namespace 门禁检查 `metadata.name` 而不是 `namespace` 字段 | Namespace 资源不应要求无效的 namespace-scoped 字段 |
+| 2026-05-04 | Docker/kubectl 运行验证不能作为已完成项 | 当前 session 无 Docker daemon 权限且无 kubectl；compose parsing 与 stub smoke 不足以证明服务栈可启动 |
 
 ---
-*State updated: 2026-05-02 starting v03.2 milestone*
+*State updated: 2026-05-04 after completion audit*

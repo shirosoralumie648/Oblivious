@@ -1,5 +1,36 @@
 # Project Milestones: Oblivious
 
+## v03.2 Quality and Release (Blocked: 2026-05-04)
+
+**Delivered so far:** Release-candidate quality gates, documentation, and deployment configuration for the active `src/server` and `src/web` mainline.
+
+**Phase status:** 04-01, 04-02, and 04-03 complete; 04-04 configuration complete but DEPLOY-01 runtime validation blocked.
+
+**Key accomplishments:**
+- Broadened backend release checks to `go test ./... -count=1`.
+- Added Admin/Marketplace browser E2E with deterministic route fixtures.
+- Reconciled API documentation, system contracts, RC checklist, and quality-gate assertions.
+- Added Dockerfiles, Docker compose stack, Kubernetes manifests, env examples, and `/healthz` deployment smoke script.
+
+**Verification:**
+- `bash scripts/check.sh all` passed in the approved non-sandbox path.
+- `bash scripts/test.sh all` passed in the approved non-sandbox path: 32 web test files / 110 tests, server `go test ./... -count=1`, and explicit `TEST_DATABASE_URL` integration skip.
+- `docker compose config` passed.
+- `BASE_URL=http://127.0.0.1:18080 bash scripts/deploy-smoke.sh` passed against a temporary local `/healthz` stub.
+
+**Environment limitations recorded:**
+- Docker daemon access is blocked for the current user/session, so real image build and compose startup could not be executed locally.
+- `kubectl` is not installed, so Kubernetes apply/dry-run validation could not be executed locally.
+
+**Known deferred items at close:**
+- Phase 01 summary reconstruction remains in backlog 999.1.
+- Legacy `src/web/src/routes/workspace/MarketplacePage.tsx` cleanup remains in backlog 999.2.
+- Future milestone close policy for living `.planning/REQUIREMENTS.md` remains in backlog 999.2.
+
+**What's next:** Restore Docker daemon access or install/provide Kubernetes tooling, then run a real deployment smoke before shipping or archiving v03.2.
+
+---
+
 ## v03.1 Admin and Marketplace UI (Shipped: 2026-05-02)
 
 **Delivered:** A usable Admin management surface and Agent Marketplace frontend backed by the Phase 3 APIs.

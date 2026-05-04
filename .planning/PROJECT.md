@@ -37,15 +37,17 @@ Oblivious 是一个多租户 AI 平台，整合 LobeHub（C端体验）和 New-A
 - ✓ Agent 工具循环、Memory HNSW、Quota-Billing 串联 — Phase 2
 - ✓ Admin 与 Marketplace 后端 API — Phase 3a
 - ✓ Admin 管理面板与 Agent Marketplace UI — v03.1
+- ✓ Phase 4 release gates: backend integration tests, Admin/Marketplace browser E2E, API/RC docs, and deployment config
+- ⚠ Phase 4 deployment runtime validation remains blocked by Docker/kubectl availability
 
 ### Active
 
 <!-- v03.2 / Phase 4 需求：质量与发布 -->
 
-- [ ] TEST-01: 集成测试覆盖关键后端协作路径
-- [ ] TEST-02: E2E 测试覆盖核心前端工作流
-- [ ] DOC-01: API 文档与发布检查清单可用于验收
-- [ ] DEPLOY-01: Docker/Kubernetes 配置可启动并验证当前服务栈
+- [x] TEST-01: 集成测试覆盖关键后端协作路径
+- [x] TEST-02: E2E 测试覆盖核心前端工作流
+- [x] DOC-01: API 文档与发布检查清单可用于验收
+- [ ] DEPLOY-01: Docker/Kubernetes 配置可启动并验证当前服务栈（配置完成；真实运行时验证阻塞）
 
 ### Out of Scope
 
@@ -73,7 +75,8 @@ Go Backend (Gin)
 
 **关键问题**:
 - Phase 03.1 已交付可用 Admin UI 与 Marketplace UI
-- v03.2 之前仍缺少完整 E2E、发布文档和部署验证
+- v03.2 已完成质量、E2E、文档和部署配置收口
+- 当前本机 Docker daemon 权限与缺少 `kubectl` 阻止真实运行时 smoke，因此 DEPLOY-01 不能视为完全完成
 - `src/web/src/routes/workspace/MarketplacePage.tsx` 是接受的 v03.1 清理债务：不再由 `/marketplace` 使用
 
 ## Constraints
@@ -91,8 +94,8 @@ Go Backend (Gin)
 | Relay 作为统一入口 | 计费/限流/监控统一 | ✓ Good — Chat/Agent/Quota paths route through Relay |
 | pgvector 向量检索 | PostgreSQL 原生支持，运维简单 | ✓ Good — HNSW migration shipped in Phase 2 |
 | Admin/Marketplace UI on shared primitives | Keep page work consistent and testable | ✓ Good — v03.1 closed with 12 focused Vitest files |
-| v03.2 skips new domain research | Quality/release work is scoped by shipped code and existing Phase 4 requirements | Pending — validate through Phase 4 planning |
+| v03.2 skips new domain research | Quality/release work is scoped by shipped code and existing Phase 4 requirements | Partial — TEST-01/TEST-02/DOC-01 closed; DEPLOY-01 runtime validation blocked |
 
 ---
 
-*Last updated: 2026-05-02 starting v03.2 milestone*
+*Last updated: 2026-05-04 after completion audit*

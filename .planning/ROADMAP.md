@@ -3,8 +3,8 @@
 ## 1. 路线图头信息
 
 - Plan Basis: `docs/superpowers/plans/2026-04-22-full-delivery-plan.md + .planning/codebase/`
-- 当前项目状态摘要: `v03.1 已归档；Relay、Agent 工具循环、Memory HNSW、Quota-Billing、Admin API/UI、Marketplace API/UI 全部实现`
-- 目标状态摘要: `v03.2 / Phase 4: 质量、E2E、文档与发布候选`
+- 当前项目状态摘要: `Relay、Agent 工具循环、Memory HNSW、Quota-Billing、Admin API/UI、Marketplace API/UI、质量门禁、E2E、文档与部署配置已实现；DEPLOY-01 真实运行时验证阻塞`
+- 目标状态摘要: `v03.2 / Phase 4 仍需真实 Docker 或 Kubernetes smoke 才能收口为发布候选`
 - 关键风险: `测试矩阵膨胀、E2E 环境稳定性、部署配置与当前 dirty checkout 的漂移`
 - 总体推进策略: `先定义 Phase 4 验收面，再按测试、文档、部署顺序收口`
 - Phase 列表: `M1.1 Relay 挂载; M1.2 Chat 走 Relay; M1.3 Agent Runtime; M1.4 MCP Client; Phase 2 Agent 与 Memory 增强; Phase 3 Admin/Marketplace 后端; Phase 3.1 Admin/Marketplace UI; Phase 4 质量与发布`
@@ -173,22 +173,22 @@ bash scripts/test.sh all
 
 **Requirements**: TEST-01, TEST-02, DOC-01, DEPLOY-01
 
-**Status**: In Progress — 04-01 complete, 04-02 next
+**Status**: Blocked — DEPLOY-01 runtime validation unavailable in current environment
 
 **Tasks**:
 1. [x] 集成测试收口 - 覆盖 Admin、Marketplace、Relay、Agent、Memory、Quota 的关键协作路径
-2. E2E 测试收口 - 覆盖 Admin 与 Marketplace 的核心浏览器工作流
-3. API 文档与发布检查清单 - 记录 HTTP 表面、验收命令、发布候选判定
-4. 部署配置 - 补齐 Docker/Kubernetes 配置并定义可重复验证路径
+2. [x] E2E 测试收口 - 覆盖 Admin 与 Marketplace 的核心浏览器工作流
+3. [x] API 文档与发布检查清单 - 记录 HTTP 表面、验收命令、发布候选判定
+4. [ ] 部署配置 - 配置与验证脚本已补齐；真实 Docker/Kubernetes 启动验证被环境阻塞
 
 **Success Criteria**:
 - [x] `go test ./... -count=1` 或明确的集成测试切片覆盖关键后端协作路径
-- [ ] 前端 E2E 命令可以验证 Admin 与 Marketplace 的核心工作流
-- [ ] API 文档覆盖当前发布候选需要暴露和验收的 HTTP surface
-- [ ] 发布检查清单列出必跑命令、环境前置条件和已知非阻塞债务
+- [x] 前端 E2E 命令可以验证 Admin 与 Marketplace 的核心工作流
+- [x] API 文档覆盖当前发布候选需要暴露和验收的 HTTP surface
+- [x] 发布检查清单列出必跑命令、环境前置条件和已知非阻塞债务
 - [ ] Docker/Kubernetes 配置可以启动并健康检查当前服务栈
 
-**Progress**: 1/4 requirements complete. TEST-01 completed by `.planning/phases/04-quality-release/04-01-SUMMARY.md`.
+**Progress**: 3/4 requirements complete, 1/4 blocked. TEST-01 completed by `.planning/phases/04-quality-release/04-01-SUMMARY.md`; TEST-02 completed by `.planning/phases/04-quality-release/04-02-SUMMARY.md`; DOC-01 completed by `.planning/phases/04-quality-release/04-03-SUMMARY.md`; DEPLOY-01 configuration is documented by `.planning/phases/04-quality-release/04-04-SUMMARY.md` but runtime validation is blocked.
 
 ## 6. Backlog
 
@@ -213,4 +213,4 @@ bash scripts/test.sh all
 - [ ] Decide whether future milestone completion should reset `.planning/REQUIREMENTS.md` or keep it as cross-phase context in this repo
 
 ---
-*Roadmap created: 2026-04-27; updated 2026-05-02 for v03.2*
+*Roadmap created: 2026-04-27; updated 2026-05-04 after completion audit*

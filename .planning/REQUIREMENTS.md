@@ -1,7 +1,7 @@
 # Requirements: Oblivious v03.2 Quality and Release
 
 **Defined:** 2026-04-27
-**Current milestone:** v03.2 Quality and Release (started 2026-05-02)
+**Current milestone:** v03.2 Quality and Release (blocked on DEPLOY-01 runtime validation)
 **Core Value:** 统一的多渠道 LLM 调用层 — 所有 AI 调用必须经过 Relay
 
 ## Current Milestone Requirements
@@ -9,15 +9,15 @@
 ### Testing
 
 - [x] **TEST-01**: Maintainer can run integration tests that prove Admin, Marketplace, Relay, Agent, Memory, and Quota service boundaries work together without bypassing Relay.
-- [ ] **TEST-02**: Release owner can run E2E tests that cover the primary Admin and Marketplace user workflows from the browser surface.
+- [x] **TEST-02**: Release owner can run E2E tests that cover the primary Admin and Marketplace user workflows from the browser surface.
 
 ### Documentation
 
-- [ ] **DOC-01**: Developer or operator can use the API documentation and release checklist to validate the shipped HTTP surface and release candidate readiness.
+- [x] **DOC-01**: Developer or operator can use the API documentation and release checklist to validate the shipped HTTP surface and release candidate readiness.
 
 ### Deployment
 
-- [ ] **DEPLOY-01**: Operator can start and validate the current service stack with Docker/Kubernetes configuration.
+- [ ] **DEPLOY-01**: Operator can start and validate the current service stack with Docker/Kubernetes configuration. Configuration exists; real Docker/Kubernetes startup validation is blocked by local runtime availability.
 
 ## v1 Requirements (Phase 1)
 
@@ -86,9 +86,9 @@
 ### Phase 4: 质量与发布 (Current v03.2)
 
 - [x] **TEST-01**: 集成测试覆盖 Admin、Marketplace、Relay、Agent、Memory、Quota 的关键协作边界
-- [ ] **TEST-02**: E2E 测试覆盖 Admin 与 Marketplace 的核心浏览器工作流
-- [ ] **DOC-01**: API 文档和发布检查清单支持候选版本验收
-- [ ] **DEPLOY-01**: Docker/Kubernetes 配置可启动并验证当前服务栈
+- [x] **TEST-02**: E2E 测试覆盖 Admin 与 Marketplace 的核心浏览器工作流
+- [x] **DOC-01**: API 文档和发布检查清单支持候选版本验收
+- [ ] **DEPLOY-01**: Docker/Kubernetes 配置可启动并验证当前服务栈（配置已补齐；真实启动验证被 Docker/kubectl 环境阻塞）
 
 ## Out of Scope
 
@@ -138,15 +138,16 @@
 | ADMIN-04 | 03.1-admin-marketplace-ui | Complete |
 | MARKET-02 | 03.1-admin-marketplace-ui | Complete |
 | TEST-01 | Phase 4 / v03.2 | Complete |
-| TEST-02 | Phase 4 / v03.2 | Planned |
-| DOC-01 | Phase 4 / v03.2 | Planned |
-| DEPLOY-01 | Phase 4 / v03.2 | Planned |
+| TEST-02 | Phase 4 / v03.2 | Complete |
+| DOC-01 | Phase 4 / v03.2 | Complete |
+| DEPLOY-01 | Phase 4 / v03.2 | Blocked - runtime validation unavailable |
 
 **Coverage:**
-- Completed requirements: 43
-- Planned requirements: 3
+- Completed requirements: 45
+- Planned requirements: 0
+- Blocked requirements: 1
 - Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-04-27*
-*Last updated: 2026-05-02 completing TEST-01*
+*Last updated: 2026-05-04 after completion audit*

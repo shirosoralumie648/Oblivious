@@ -1,0 +1,31 @@
+# syntax=docker/dockerfile:1
+
+FROM golang:1.25-bookworm AS builder
+
+WORKDIR /workspace/src/server
+
+# Build active mainline entrypoints from src/server/cmd/server and src/server/cmd/migrate.
+COPY src/server/go.mod src/server/go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+
+COPY src/server/ ./
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/oblivious-server ./cmd/server
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/oblivious-migrate ./cmd/migrate
+
+FROM alpine:3.21 AS runtime
+
+RUN apk add --no-cache ca-certificates
+
+WORKDIR /app
+COPY --from=builder /out/oblivious-server /usr/local/bin/oblivious-server
+COPY --from=builder /out/oblivious-migrate /usr/local/bin/oblivious-migrate
+COPY src/server/migrations ./migrations
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:8080/healthz >/dev/null || exit 1
+
+CMD ["/usr/local/bin/oblivious-server"]
