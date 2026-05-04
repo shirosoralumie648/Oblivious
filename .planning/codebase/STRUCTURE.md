@@ -1,159 +1,117 @@
 ---
-last_mapped_commit: c0e55fdbb3aaed7da80a0f7f2399237aed13bca3
+last_mapped_commit: 98576468acf0d72bbca7e61317dc83cd5c6ad7a9
 mapped_dirty_worktree: true
+analysis_date: 2026-05-04
+mapper: sequential-fallback
 ---
 
 # Codebase Structure
 
-**Analysis Date:** 2026-05-02
-
 ## Top-Level Layout
 
-```text
-Oblivious/
-├── .github/workflows/        # CI release, web, and server jobs
-├── .planning/                # GSD state, roadmap, phases, and codebase map
-├── config/                   # Example runtime environment
-├── docs/                     # API, architecture, governance, release, reports, specs
-├── lobehub/                  # Imported/reference LobeHub source tree
-├── new-api/                  # Imported/reference new-api source tree
-├── scripts/                  # check/test/dev automation
-├── src/server/               # Active Go backend
-├── src/web/                  # Active React frontend
-├── package.json              # Root scripts and pnpm manager pin
-├── pnpm-workspace.yaml       # Active pnpm workspace membership: src/web only
-└── pnpm-lock.yaml
-```
+- `.planning/` - GSD project state, requirements, roadmap, phase artifacts, and codebase maps.
+- `.github/workflows/ci.yml` - CI release, web, E2E, and server jobs.
+- `src/server/` - active Go backend.
+- `src/web/` - active React/Vite frontend.
+- `scripts/` - development, test, release, and deployment validation entry points.
+- `config/.env.example` - env var contract.
+- `docs/` - API, architecture, governance, reports, release docs.
+- `deploy/kubernetes/` - Kubernetes manifests for release stack.
+- `Dockerfile.server`, `Dockerfile.web`, `docker-compose.yml` - container release path.
+- `lobehub/`, `new-api/` - imported/reference trees, not active workspace members.
 
-## Active Backend Structure
+## Planning Structure
 
-```text
-src/server/
-├── cmd/
-│   ├── migrate/              # migration runner
-│   └── server/               # production/dev server entrypoint
-├── internal/
-│   ├── admin/                # admin stats/users/channels/routes/plans/audit/reviews domain
-│   ├── agent/                # agent CRUD, conversations, runner, tool execution
-│   ├── auth/                 # users, sessions, password hashing, ID generation
-│   ├── chat/                 # conversations, message gateway, Relay gateway
-│   ├── config/               # env loader and config validation
-│   ├── console/              # usage/access/models/billing summaries
-│   ├── db/                   # database open helper
-│   ├── http/                 # router, middleware, handlers, response envelope
-│   ├── knowledge/            # knowledge bases/documents/retrieval
-│   ├── marketplace/          # published agents, installs, reviews, categories, search
-│   ├── mcp/                  # MCP client and builtin tools
-│   ├── memory/               # vector memory documents, chunking, embeddings
-│   ├── metrics/              # Prometheus metrics helpers
-│   ├── notification/         # notification service
-│   ├── quota/                # quotas, packages, topups, billing sessions
-│   ├── relay/                # provider relay engine and handlers
-│   ├── stripe/               # Stripe webhook package
-│   ├── task/                 # task CRUD/runtime state machine
-│   ├── usage/                # usage recorder
-│   ├── userprefs/            # user preferences
-│   └── ws/                   # WebSocket hub/handler
-└── migrations/               # app DB migrations 0001-0024
-```
+- `.planning/STATE.md` - current status. As of this map, v03.2 is blocked only on DEPLOY-01 runtime validation.
+- `.planning/REQUIREMENTS.md` - current and historical requirement checklist.
+- `.planning/ROADMAP.md` - phase roadmap and backlog.
+- `.planning/MILESTONES.md` - milestone archive/status.
+- `.planning/phases/04-quality-release/` - current quality/release plans, summaries, and completion audit.
+- `.planning/codebase/` - this map. Expected files:
+  - `STACK.md`
+  - `INTEGRATIONS.md`
+  - `ARCHITECTURE.md`
+  - `STRUCTURE.md`
+  - `CONVENTIONS.md`
+  - `TESTING.md`
+  - `CONCERNS.md`
 
-## Active Frontend Structure
+## Backend Directory Structure
 
-```text
-src/web/
-├── components.json           # shadcn configuration
-├── package.json              # frontend dependencies and scripts
-├── postcss.config.mjs
-├── tailwind.config.ts
-├── tsconfig.json
-├── vite.config.ts
-└── src/
-    ├── app/                  # router, providers, root context
-    ├── features/
-    │   ├── auth/             # auth API/store/bootstrap/protected routes
-    │   ├── chat/             # chat API wrapper
-    │   ├── console/          # console API and dashboard components
-    │   ├── knowledge/        # knowledge API wrapper
-    │   ├── layouts/          # marketing/workspace/console/admin layouts
-    │   └── tasks/            # task API wrapper
-    ├── lib/                  # frontend utilities
-    ├── routes/
-    │   ├── admin/            # AdminHomePage, AdminUsersPage
-    │   ├── console/          # console pages
-    │   ├── marketing/        # public marketing/auth pages
-    │   └── workspace/        # chat, knowledge, solo, settings, marketplace
-    ├── services/http/        # HTTP client, envelope, errors, stream/upload helpers
-    ├── store/                # app-level store helpers
-    ├── test/                 # Vitest setup
-    ├── theme/                # global CSS and design tokens
-    └── types/                # shared frontend API types
-```
+- `src/server/go.mod`, `src/server/go.sum` - Go module metadata.
+- `src/server/cmd/server/main.go` - HTTP server entry point.
+- `src/server/cmd/migrate/main.go` - migration entry point.
+- `src/server/migrations/` - app migrations `0001` through `0024`.
+- `src/server/internal/http/` - composition root, handlers, middleware, response envelopes, route tests.
+- `src/server/internal/config/` - env config loading and validation.
+- `src/server/internal/db/` - database open/helper code.
+- `src/server/internal/auth/` - session/auth service and store.
+- `src/server/internal/chat/` - chat service, SQL store, local generator, Relay gateway, composite gateway.
+- `src/server/internal/agent/` - agent service, runner, executor, SQL store.
+- `src/server/internal/memory/` - document chunking, embedding via Relay, memory service.
+- `src/server/internal/mcp/` - MCP client, built-in tools.
+- `src/server/internal/relay/` - relay engine, routing, channel adapters, billing, token/rate/health logic.
+- `src/server/internal/admin/` - channel/route/plan/user/audit/review services and stores.
+- `src/server/internal/marketplace/` - marketplace service, search, publisher analytics, store, types.
+- `src/server/internal/knowledge/` - knowledge base/document service and store.
+- `src/server/internal/task/` - task service/runtime/store.
+- `src/server/internal/console/` - console dashboards and access/model/usage data.
+- `src/server/internal/quota/` - quota package/top-up/preconsume/settlement service.
+- `src/server/internal/notification/` - notifications service/store.
+- `src/server/internal/usage/` - usage recorder/store.
+- `src/server/internal/userprefs/` - preferences service/store.
+- `src/server/internal/ws/` - WebSocket handler/hub.
+- `src/server/internal/stripe/` - checkout/webhook integration stubs.
 
-## Where To Add Code
+## Frontend Directory Structure
 
-**Backend HTTP endpoint:**
-- Add request/response handling to `src/server/internal/http/<domain>_handler.go`.
-- Register the route in `src/server/internal/http/router.go`.
-- Keep service logic in `src/server/internal/<domain>/service.go`.
-- Keep SQL in `src/server/internal/<domain>/store.go` or a focused `*_store.go`.
-- Add or update migrations under `src/server/migrations/` for schema changes.
-- Add tests next to the touched package as `*_test.go`.
+- `src/web/package.json` - web scripts and dependencies.
+- `src/web/vite.config.ts`, `tailwind.config.ts`, `postcss.config.mjs`, `tsconfig.json` - web toolchain.
+- `src/web/src/main.tsx` - application bootstrap.
+- `src/web/src/app/` - app root, providers, router, app context.
+- `src/web/src/features/auth/` - auth API, store, bootstrap, route guards.
+- `src/web/src/features/layouts/` - marketing, workspace, console, admin layouts.
+- `src/web/src/features/admin/api.ts` - typed Admin API client.
+- `src/web/src/features/marketplace/api.ts` - typed Marketplace API client.
+- `src/web/src/features/chat/api.ts`, `knowledge/api.ts`, `tasks/api.ts`, `console/api.ts` - feature API clients.
+- `src/web/src/routes/marketing/` - public marketing/auth pages.
+- `src/web/src/routes/workspace/` - chat, knowledge, solo, settings; includes legacy `MarketplacePage.tsx` debt.
+- `src/web/src/routes/marketplace/` - active marketplace home, detail, publish, my-agents routes.
+- `src/web/src/routes/admin/` - admin dashboard/pages.
+- `src/web/src/routes/console/` - console pages.
+- `src/web/src/components/ui/` - low-level UI primitives.
+- `src/web/src/components/shared/` - product-specific reusable widgets.
+- `src/web/src/services/http/` - HTTP client, envelope, errors, stream/upload helpers.
+- `src/web/e2e/` - Playwright Admin/Marketplace E2E specs and fixtures.
 
-**Backend domain behavior:**
-- Prefer adding methods to the existing domain `Store` interface and `Service` struct.
-- For admin subdomains, follow the existing split in `src/server/internal/admin/channel_*`, `route_*`, `plan_*`, `user_*`, and `audit_*`.
-- For marketplace, use `src/server/internal/marketplace/service.go`, `store.go`, `search.go`, and `types.go`.
+## Route Structure
 
-**Frontend page:**
-- Add route components under `src/web/src/routes/<area>/`.
-- Add reusable API calls under `src/web/src/features/<domain>/api.ts`.
-- Add shared domain types to `src/web/src/types/api.ts`.
-- Wire navigation in the relevant layout under `src/web/src/features/layouts/`.
-- Add route declarations to `src/web/src/app/router.tsx`.
+Frontend routes in `src/web/src/app/router.tsx`:
 
-**Frontend test:**
-- Co-locate tests next to the component/module: `Name.test.tsx` for components, `name.test.ts` for stores/helpers.
-- Use `createMemoryRouter` via `createAppRouter(initialEntries)` when testing routes.
+- Marketing: `/`, `/login`, `/register`
+- Workspace: `/onboarding`, `/chat`, `/chat/:conversationId`, `/knowledge`, `/knowledge/:knowledgeBaseId`, `/solo`, `/solo/new`, `/settings`
+- Marketplace: `/marketplace`, `/marketplace/agents/:agentId`, `/marketplace/publish`, `/marketplace/my-agents`
+- Console: `/console`, `/console/models`, `/console/usage`, `/console/billing`, `/console/access`
+- Admin: `/admin`, `/admin/channels`, `/admin/routes`, `/admin/plans`, `/admin/users`, `/admin/audit-log`, `/admin/reviews`
 
-## Naming Patterns
+Backend route groups are defined in `src/server/internal/http/router.go`; Relay-compatible `/v1/*` route definitions are in `src/server/internal/relay/handler/router.go`.
 
-**Go:**
-- Package names are short lowercase domain names: `auth`, `chat`, `relay`, `marketplace`.
-- Public service constructors use `NewService`, `NewSQLStore`, or focused names like `NewRelayGateway`.
-- Request DTOs use `CreateXRequest`, `UpdateXRequest`, or domain-specific names.
-- JSON fields are camelCase even when Go fields are PascalCase.
+## Release/Deployment Structure
 
-**TypeScript/React:**
-- Components/pages/layouts use `PascalCase.tsx`.
-- APIs, stores, hooks, and utilities use `camelCase.ts`.
-- API factories use `create<Name>Api`.
-- Test files use `.test.ts` or `.test.tsx`; behavior-level interaction tests may use `.behavior.test.tsx`.
+- `scripts/check.sh` - docs/web/server release checks.
+- `scripts/test.sh` - web/server tests and optional DB-backed HTTP integration tests.
+- `scripts/verify-quality-gates.sh` - fixed-string release asset assertions.
+- `scripts/deploy-smoke.sh` - `/healthz` polling smoke command.
+- `scripts/deploy-validate.sh` - real Docker compose build/up/smoke gate.
+- `docs/release/rc-checklist.md` - canonical RC command/evidence checklist.
+- `docs/release/deployment-runtime-remediation.md` - host remediation when Docker/kubectl are unavailable.
 
-## Planning And Docs
+## Generated/Build Output
 
-**GSD artifacts:**
-- Current state: `.planning/STATE.md`.
-- Project overview: `.planning/PROJECT.md`.
-- Roadmap: `.planning/ROADMAP.md`.
-- Codebase map: `.planning/codebase/`.
-- Phase artifacts: `.planning/phases/`.
+- `src/web/dist/` can exist after build and is ignored by `.dockerignore`.
+- `src/web/test-results/` can exist after Playwright runs.
+- `.tmp/`, `.tmp/corepack`, `.tmp/go-build`, `.tmp/go-mod` are repo-local caches used by scripts.
 
-**Product/design docs:**
-- API reference: `docs/API.md`.
-- Current contracts: `docs/architecture/current-system-contracts.md`.
-- Specs and plans: `docs/superpowers/specs/` and `docs/superpowers/plans/`.
+## Dirty Worktree Notes
 
-## Reference Trees
-
-- `lobehub/` and `new-api/` are large external references. Do not run normal repo-wide edits or package commands inside them unless the task explicitly targets those imports.
-- `.worktrees/` contains local worktree snapshots and should be ignored for mapping and default search.
-- Generated/dependency/cache directories such as `node_modules/`, `.git/`, `.tmp/`, and build outputs should stay out of codebase maps.
-
-## Files That Often Matter First
-
-- Backend wiring: `src/server/internal/http/router.go`, `src/server/internal/http/server.go`.
-- Backend config: `src/server/internal/config/config.go`, `config/.env.example`.
-- Backend migrations: `src/server/migrations/`.
-- Frontend routing: `src/web/src/app/router.tsx`.
-- Frontend HTTP: `src/web/src/services/http/client.ts`, `src/web/src/services/http/envelope.ts`.
-- Verification: `scripts/check.sh`, `scripts/test.sh`, `.github/workflows/ci.yml`.
+This map was produced with a dirty worktree. Known current changes include release/deployment assets, planning artifacts, scripts, and many pre-existing project modifications. Do not interpret this map as a clean-commit baseline.

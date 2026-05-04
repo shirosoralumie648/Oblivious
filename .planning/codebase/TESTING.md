@@ -1,15 +1,24 @@
 ---
-last_mapped_commit: c0e55fdbb3aaed7da80a0f7f2399237aed13bca3
+last_mapped_commit: 98576468acf0d72bbca7e61317dc83cd5c6ad7a9
 mapped_dirty_worktree: true
+analysis_date: 2026-05-04
+mapper: sequential-fallback
 ---
 
 # Testing Patterns
 
-**Analysis Date:** 2026-05-02
+## Test Inventory
 
-## Test Entry Points
+Approximate current test file counts:
 
-**Root scripts:**
+- Backend: 35 Go `*_test.go` files under `src/server/`.
+- Frontend/unit: 32 Vitest test files reported by `bash scripts/test.sh all`.
+- Frontend/E2E: `src/web/e2e/admin-marketplace.spec.ts` with 3 Playwright tests.
+
+## Primary Commands
+
+Use these commands for current release work:
+
 ```bash
 bash scripts/check.sh docs
 bash scripts/check.sh web
@@ -18,133 +27,123 @@ bash scripts/check.sh all
 bash scripts/test.sh web
 bash scripts/test.sh server
 bash scripts/test.sh all
+COREPACK_HOME=.tmp/corepack pnpm --dir src/web test:e2e
+bash scripts/deploy-validate.sh
 ```
 
-**Backend direct:**
+## Check Gate
+
+`scripts/check.sh` defines:
+
+- `docs`: runs `scripts/verify-quality-gates.sh`, verifies env vars in `config/.env.example`, `docs/architecture/current-system-contracts.md`, and `src/server/internal/config/config.go`, and checks workspace boundary.
+- `web`: runs `pnpm --dir src/web build`, which runs `tsc --noEmit && vite build`.
+- `server`: runs `go test ./... -count=1` in `src/server`.
+- `all`: docs, web, server in sequence.
+
+Known caveat: server tests using `httptest.NewServer` need local socket/listen ability. In this sandbox they required the approved non-sandbox path.
+
+## Test Gate
+
+`scripts/test.sh` defines:
+
+- `web`: `pnpm --dir src/web test`
+- `server`: `go test ./... -count=1`, then optional DB-backed `go test ./internal/http`
+- `all`: web then server
+
+`TEST_DATABASE_URL` behavior:
+
+- When unset, `scripts/test.sh server` prints `Skipping server integration tests: TEST_DATABASE_URL not set.`
+- Release evidence must record this as an explicit skip, not silently treat DB-backed coverage as run.
+- When set, the script runs `go test ./internal/http`.
+
+## Backend Test Patterns
+
+Backend tests are colocated and mostly standard-library based:
+
+- HTTP/middleware/router tests in `src/server/internal/http/*_test.go`.
+- Chat gateway/service tests in `src/server/internal/chat/*_test.go`.
+- Agent service/store tests in `src/server/internal/agent/*_test.go`.
+- Knowledge service/store tests in `src/server/internal/knowledge/*_test.go`.
+- Marketplace service tests in `src/server/internal/marketplace/service_test.go`.
+- Relay billing/routing/rate/health/pricing/token tests in `src/server/internal/relay/*_test.go`.
+- Quota, notification, metrics, task, console, WebSocket tests under their feature packages.
+
+Patterns:
+
+- Prefer fake stores and `httptest` for boundary behavior.
+- Use package-level unit tests for service/store behavior.
+- Use broad `go test ./... -count=1` as the server release gate.
+- Use DB-backed tests only with explicit `TEST_DATABASE_URL`.
+
+## Frontend Unit Test Patterns
+
+Vitest + Testing Library tests are colocated:
+
+- App/router/context tests under `src/web/src/app/`.
+- Auth tests under `src/web/src/features/auth/`.
+- API client tests under `src/web/src/features/admin/` and `src/web/src/features/marketplace/`.
+- Layout tests under `src/web/src/features/layouts/`.
+- Route tests under `src/web/src/routes/*/*.test.tsx`.
+- HTTP client tests under `src/web/src/services/http/`.
+
+The web package script is `pnpm --dir src/web test`, and CI runs it through `bash scripts/test.sh web`.
+
+## E2E Patterns
+
+- Playwright config: `src/web/playwright.config.ts`.
+- Main spec: `src/web/e2e/admin-marketplace.spec.ts`.
+- Fixtures: `src/web/e2e/fixtures/adminMarketplace.ts`.
+- Current E2E scope:
+  - Admin navigation exposes release management pages.
+  - Marketplace browse/detail/install workflow.
+  - Marketplace publish and my-agents workflow.
+- E2E avoids live providers, Stripe, and external LLM calls by route fixtures.
+- CI installs Chromium with `pnpm --dir src/web exec playwright install --with-deps chromium`.
+
+## Deployment Validation
+
+Deployment validation is not complete until a real runtime stack starts:
+
 ```bash
-cd src/server && GOCACHE=../../.tmp/go-build GOMODCACHE=../../.tmp/go-mod go test ./...
+bash scripts/deploy-validate.sh
 ```
 
-**Frontend direct:**
-```bash
-COREPACK_HOME=.tmp/corepack pnpm --dir src/web test
-COREPACK_HOME=.tmp/corepack pnpm --dir src/web build
-```
+That script:
 
-## CI
+1. Checks `docker` and `docker compose`.
+2. Checks `docker info`.
+3. Runs `docker compose config`.
+4. Runs `docker compose build`.
+5. Runs `docker compose up -d`.
+6. Runs `BASE_URL=... bash scripts/deploy-smoke.sh`.
 
-`.github/workflows/ci.yml` defines three jobs:
+Current host blocker:
 
-- `release-gates` runs `bash scripts/check.sh docs`.
-- `web` installs pnpm dependencies, runs `bash scripts/check.sh web`, then `bash scripts/test.sh web`.
-- `server` runs `bash scripts/check.sh server`, then `bash scripts/test.sh server`.
+- `docker info` fails with permission denied on `/var/run/docker.sock`.
+- `dockerd` requires root privileges.
+- Docker Desktop build socket/buildx also fails with permission errors.
+- `kubectl` is not installed.
 
-CI uses:
-- Node.js 20.
-- pnpm 10.6.0.
-- Go version from `src/server/go.mod`.
+Therefore DEPLOY-01 remains blocked despite configuration and script coverage.
 
-## Script Behavior
+## CI Coverage
 
-**`scripts/check.sh`:**
-- Creates repo-local caches under `.tmp/`.
-- `docs` verifies release assets, env/docs consistency, and workspace boundaries.
-- `web` runs `pnpm --dir src/web build`.
-- `server` runs a focused package set: `./internal/config ./internal/chat ./internal/knowledge ./internal/task ./internal/console`.
+`.github/workflows/ci.yml` includes jobs for:
 
-**`scripts/test.sh`:**
-- `web` runs `pnpm --dir src/web test`.
-- `server` runs the same focused backend package set as `check.sh`.
-- `server` then runs `go test ./internal/http` only when `TEST_DATABASE_URL` is set.
+- release docs/assets
+- web build/test
+- Playwright E2E
+- server check/test
 
-## Backend Tests
+CI does not currently prove Docker compose startup or Kubernetes apply. Those are release/operator gates in `docs/release/rc-checklist.md`.
 
-**Framework:**
-- Go standard `testing` package only.
-- No testify/ginkgo-style assertion library is used in active backend tests.
+## Verification Evidence Last Observed
 
-**Placement:**
-- Tests are co-located with packages as `*_test.go`.
-- Examples:
-  - `src/server/internal/chat/service_test.go`
-  - `src/server/internal/agent/service_test.go`
-  - `src/server/internal/memory/embedder_test.go`
-  - `src/server/internal/relay/billing_test.go`
-  - `src/server/internal/ws/hub_test.go`
+Current planning state records:
 
-**Patterns:**
-- Use small fake stores/gateways for service tests.
-- Prefer table tests for validation/config behavior.
-- Use direct service calls for ownership and state-machine behavior.
-- Use `httptest` around handlers/router when testing HTTP behavior.
-- Use repo-local Go caches to avoid global cache permission issues.
-
-**Integration boundary:**
-- HTTP integration tests are gated behind `TEST_DATABASE_URL` in `scripts/test.sh`.
-- Keep tests that require PostgreSQL separate from pure unit tests.
-- When adding DB-backed tests, make setup/teardown explicit and avoid relying on a developer's local default database.
-
-## Frontend Tests
-
-**Framework:**
-- Vitest 2.1.4 with jsdom.
-- Testing Library React.
-- jest-dom matchers loaded by `src/web/src/test/setup.ts`.
-
-**Placement:**
-- Co-locate tests beside route/component/store modules.
-- Examples:
-  - `src/web/src/app/router.test.tsx`
-  - `src/web/src/features/auth/store.test.ts`
-  - `src/web/src/features/layouts/WorkspaceLayout.test.tsx`
-  - `src/web/src/routes/workspace/ChatPage.behavior.test.tsx`
-  - `src/web/src/services/http/client.test.ts`
-
-**Patterns:**
-- Test route rendering with `createAppRouter(initialEntries)` from `src/web/src/app/router.tsx`.
-- Inject fake APIs or clients rather than mocking global state when possible.
-- Test HTTP envelope behavior through `src/web/src/services/http/client.test.ts`.
-- Behavior tests can use `.behavior.test.tsx` for richer user flows.
-
-## Coverage And Gaps
-
-**Well-covered areas:**
-- Auth bootstrap/store and route protection.
-- Workspace and console layout shells.
-- Chat, knowledge, task service behavior.
-- Relay primitives: billing, retry, circuit breaker, health checker, load balancer, token bucket, tokenizer.
-- Agent service and store helper behavior.
-- Memory embedder behavior.
-- WebSocket hub behavior.
-
-**Known gaps to close before relying on Phase 3 surfaces:**
-- `src/web/src/routes/admin/AdminHomePage.tsx` and `src/web/src/routes/admin/AdminUsersPage.tsx` do not have route/page tests.
-- `src/web/src/routes/workspace/MarketplacePage.tsx` has no tests and currently uses a static catalog with direct `fetch`.
-- `src/server/internal/marketplace/` has no visible tests in the current file list.
-- Admin channel/route/plan/audit services exist but are not covered by the focused `scripts/check.sh server` package list.
-- `scripts/check.sh server` and `scripts/test.sh server` do not run `go test ./...`; use the broader command for shared backend or release-risk changes.
-
-## Recommended Test Additions
-
-**For Admin UI/API work:**
-- Add typed admin API client tests under `src/web/src/features/admin/`.
-- Add page behavior tests for `/admin` and `/admin/users`.
-- Add backend handler tests for all newly exposed admin routes.
-- Add service/store tests for channel, route, plan, audit, and review-queue paths.
-
-**For Marketplace work:**
-- Add backend service/store tests in `src/server/internal/marketplace/`.
-- Add HTTP handler tests once marketplace routes are registered.
-- Add frontend tests for search/filter/install/review flows.
-
-**For Relay changes:**
-- Keep unit tests close to the changed primitive.
-- Add handler-level tests for endpoint families when changing request/response mapping.
-- Include quota lifecycle assertions when changing billing paths.
-
-## Verification Rule Of Thumb
-
-- Docs-only changes: run `bash scripts/check.sh docs` when the docs/env contracts are touched.
-- Frontend UI changes: run `pnpm --dir src/web test` and `pnpm --dir src/web build`.
-- Backend domain changes: run package tests for the touched domain plus `go test ./...` when shared interfaces, router wiring, migrations, or Relay are affected.
-- Database schema changes: run migration tooling against a disposable database and include rollback/re-run expectations in the phase UAT.
+- `bash scripts/check.sh all` passed.
+- `bash scripts/test.sh all` passed: Web 32 files / 110 tests, server `go test ./... -count=1`, explicit `TEST_DATABASE_URL` skip.
+- `COREPACK_HOME=.tmp/corepack pnpm --dir src/web test:e2e` passed 3/3.
+- `bash scripts/check.sh docs` passed.
+- `docker compose config` passed.
+- `bash scripts/deploy-validate.sh` fails early because Docker daemon is unreachable.

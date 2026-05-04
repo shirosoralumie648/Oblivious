@@ -1,116 +1,95 @@
 ---
-last_mapped_commit: c0e55fdbb3aaed7da80a0f7f2399237aed13bca3
+last_mapped_commit: 98576468acf0d72bbca7e61317dc83cd5c6ad7a9
 mapped_dirty_worktree: true
+analysis_date: 2026-05-04
+mapper: sequential-fallback
 ---
 
 # Technology Stack
 
-**Analysis Date:** 2026-05-02
+## Scope
 
-## Languages
+Active mainline:
 
-**Primary:**
-- Go 1.25.0 - backend API, Relay, Agent runtime, Memory/RAG, Admin, Marketplace, and migration tooling under `src/server/`.
-- TypeScript 5.6.3 - React SPA under `src/web/`.
+- `src/server/` - Go backend, HTTP API, Relay, Agent, Memory, Admin, Marketplace, migrations.
+- `src/web/` - React/Vite frontend, browser routes, Admin/Marketplace UI, tests and E2E.
+- `scripts/`, `config/`, `docs/`, `.github/workflows/`, `Dockerfile.*`, `docker-compose.yml`, `deploy/kubernetes/` - release and deployment surface.
 
-**Secondary:**
-- SQL - PostgreSQL migrations under `src/server/migrations/` and relay-specific migration seed under `src/server/internal/relay/migrations/`.
-- Bash - repo automation in `scripts/check.sh`, `scripts/test.sh`, and `scripts/dev.sh`.
+Reference/imported trees:
 
-## Runtime
+- `lobehub/` and `new-api/` exist in the checkout but are not active workspace members. `pnpm-workspace.yaml` and release docs keep active work scoped to `src/web` and `src/server`.
 
-**Backend:**
-- Go module: `src/server/go.mod`.
-- Main server entrypoint: `src/server/cmd/server/main.go`.
-- Migration entrypoint: `src/server/cmd/migrate/main.go`.
-- Primary HTTP runtime: Go `net/http` via `src/server/internal/http/router.go`.
-- Relay runtime: Gin engine mounted under `/v1/*` by `src/server/internal/http/server.go`.
+## Backend
 
-**Frontend:**
-- Node.js 20 in CI (`.github/workflows/ci.yml`).
-- Vite 5.4.10 dev/build runtime (`src/web/vite.config.ts`).
-- React 18.3.1 SPA entrypoint at `src/web/src/main.tsx`.
+- Language/runtime: Go module `oblivious/server` in `src/server/go.mod`.
+- Go version declared: `go 1.25.0`.
+- HTTP framework: mostly standard `net/http` in `src/server/internal/http/router.go`; Relay sub-router uses Gin in `src/server/internal/relay/handler/router.go`.
+- Database: PostgreSQL through `github.com/lib/pq`; migrations live in `src/server/migrations/0001_*.sql` through `0024_categories_tags.sql`.
+- Cache/queue dependencies: Redis client dependency `github.com/redis/go-redis/v9` and async queue dependency `github.com/hibiken/asynq`.
+- Metrics: Prometheus client in `src/server/internal/metrics/prometheus.go`; `/metrics` is mounted in `src/server/internal/http/router.go`.
+- WebSocket: Gorilla WebSocket in `src/server/internal/ws/`.
+- Payments/billing dependency: Stripe SDK `github.com/stripe/stripe-go/v83`, with local code in `src/server/internal/stripe/`.
+- Relay dependencies: `github.com/pkoukk/tiktoken-go` for token accounting, relay channel adapters under `src/server/internal/relay/channel/`.
+- Security/auth: password/session code under `src/server/internal/auth/`; crypto dependency `golang.org/x/crypto`.
+- IDs: `github.com/google/uuid` is a direct dependency.
 
-**Package Managers:**
-- pnpm 10.6.0 at the repo root (`package.json` and `pnpm-lock.yaml`).
-- Go modules for backend dependencies (`src/server/go.mod`, `src/server/go.sum`).
-- Workspace membership is intentionally narrow: `pnpm-workspace.yaml` includes only `src/web`.
+## Frontend
 
-## Frameworks
+- Package manager: pnpm `10.6.0`, declared in root `package.json`.
+- Workspace: root `pnpm-workspace.yaml` includes `src/web` only.
+- Runtime/build: Node 20 expected by CI and Dockerfile, Vite `^5.4.10`, TypeScript `^5.6.3`.
+- UI framework: React `^18.3.1`, React Router `^6.28.0`.
+- Styling: Tailwind CSS v3, project tokens in `src/web/src/theme/tokens.css` and global styles in `src/web/src/theme/global.css`.
+- UI primitives: local shadcn/radix-style components in `src/web/src/components/ui/`; shared product components in `src/web/src/components/shared/`.
+- Icons: `@remixicon/react`; typography uses `@fontsource-variable/figtree` and `@fontsource-variable/geist-mono`.
+- Tests: Vitest `^2.1.4`, Testing Library, jsdom, Playwright `^1.52.0`.
 
-**Backend:**
-- `net/http` - main API router, middleware chain, auth routes, app routes, console routes, admin routes.
-- `github.com/gin-gonic/gin` v1.12.0 - Relay OpenAI-compatible API surface under `/v1/*`.
-- `github.com/gorilla/websocket` v1.5.3 - authenticated app WebSocket at `/api/v1/ws`.
-- `github.com/prometheus/client_golang` v1.23.2 - `/metrics` endpoint.
-- `github.com/lib/pq` v1.10.9 - PostgreSQL driver and array support.
-- `github.com/google/uuid` v1.6.0 - UUID generation in admin/relay defaults.
-- `golang.org/x/crypto` v0.48.0 - bcrypt password hashing.
-- `github.com/stripe/stripe-go/v83` v83.2.1 - Stripe webhook/service package exists under `src/server/internal/stripe/`.
-- `github.com/hibiken/asynq` v0.26.0 - relay billing timeout/polling worker support.
-- `github.com/pkoukk/tiktoken-go` v0.1.8 - token estimation/pricing support.
+## Scripts And Gates
 
-**Frontend:**
-- React 18.3.1 with React Router DOM 6.28.0 (`src/web/src/app/router.tsx`).
-- Vite 5.4.10 and `@vitejs/plugin-react`.
-- Tailwind CSS 3 plus shadcn/Radix styling assets (`src/web/tailwind.config.ts`, `src/web/src/theme/tokens.css`, `src/web/components.json`).
-- `@fontsource-variable/figtree` and `@fontsource-variable/geist-mono` for UI typography.
-- `@remixicon/react` is available for icons; use it where existing UI does.
+- Root scripts in `package.json` call shell entry points:
+  - `bash scripts/dev.sh`
+  - `bash scripts/check.sh`
+  - `bash scripts/test.sh`
+- `scripts/check.sh`:
+  - `docs`: runs `scripts/verify-quality-gates.sh`, env/docs consistency checks, and workspace boundary checks.
+  - `web`: runs `pnpm --dir src/web build`.
+  - `server`: runs `go test ./... -count=1` in `src/server`.
+- `scripts/test.sh`:
+  - `web`: runs `pnpm --dir src/web test`.
+  - `server`: runs `go test ./... -count=1`; runs `go test ./internal/http` only when `TEST_DATABASE_URL` is set.
+- `scripts/deploy-smoke.sh` polls `/healthz`.
+- `scripts/deploy-validate.sh` is the real Docker compose gate: compose config, build, up, then `deploy-smoke`.
 
-## Testing
+## CI
 
-**Backend:**
-- Go standard `testing` package only. Tests live next to packages as `*_test.go`.
-- Current unit focus includes config, chat, knowledge, task, console, agent, memory, relay, quota, metrics, notification, and ws packages.
+`.github/workflows/ci.yml` defines:
 
-**Frontend:**
-- Vitest 2.1.4 with jsdom from `src/web/vite.config.ts`.
-- Testing Library React and jest-dom configured through `src/web/src/test/setup.ts`.
+- `release-gates`: `bash scripts/check.sh docs`
+- `web`: pnpm install, `bash scripts/check.sh web`, `bash scripts/test.sh web`
+- `e2e`: installs Chromium and runs `pnpm --dir src/web test:e2e`
+- `server`: setup Go from `src/server/go.mod`, `bash scripts/check.sh server`, `bash scripts/test.sh server`
 
-## Configuration
+## Deployment Stack
 
-**Backend environment:**
-- Required: `DATABASE_URL`, `SESSION_SECRET`.
-- Common runtime: `SERVER_PORT`, `APP_ENV`, `CORS_ALLOWED_ORIGINS`, `SESSION_COOKIE_NAME`, `SESSION_COOKIE_SECURE`.
-- LLM fallback: `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_TIMEOUT_MS`, `MODEL_DEFAULT_NAME`.
-- Relay: `RELAY_ENABLED`, `RELAY_DEFAULT_MODEL`, `OPENAI_API_KEY`, `OPENAI_BASE_URL`.
-- Example file: `config/.env.example`.
-- Loader: `src/server/internal/config/config.go`.
+- `Dockerfile.server`: Go builder image `golang:1.25-bookworm`; runtime `alpine:3.21`; builds `./cmd/server` and `./cmd/migrate`; exposes `8080`; healthchecks `/healthz`.
+- `Dockerfile.web`: Node 20/pnpm builder; nginx `1.27-alpine` runtime; proxies `/api/` and `/v1/` to `oblivious-server:8080`; healthchecks `/healthz`.
+- `docker-compose.yml`: `postgres:16`, `redis:7`, `oblivious-server`, `oblivious-web`.
+- `deploy/kubernetes/`: namespace, configmap, secret example, PostgreSQL, Redis, server, and web manifests.
 
-**Frontend environment:**
-- `WEB_PORT` and `WEB_API_BASE_URL` are documented in `config/.env.example` and checked by `scripts/check.sh docs`.
-- The current `createHttpClient` default uses relative paths; route code should prefer injected API clients over hardcoded global `fetch`.
+## Runtime Requirements
 
-## Datastores
+Required env vars for backend runtime are defined in `src/server/internal/config/config.go` and `config/.env.example`:
 
-**Primary database:**
-- PostgreSQL via `database/sql`.
-- App migrations: `src/server/migrations/0001_phase1_foundation.sql` through `src/server/migrations/0024_categories_tags.sql`.
-- Relay seed migration: `src/server/internal/relay/migrations/001_init_relay.sql`.
+- Required: `DATABASE_URL`, `SESSION_SECRET`
+- Defaults or optional: `SERVER_PORT`, `APP_ENV`, `CORS_ALLOWED_ORIGINS`, `SESSION_COOKIE_NAME`, `SESSION_COOKIE_SECURE`, `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_TIMEOUT_MS`, `MODEL_DEFAULT_NAME`, `RELAY_ENABLED`, `RELAY_DEFAULT_MODEL`, `OPENAI_API_KEY`, `OPENAI_BASE_URL`
 
-**Vector search:**
-- pgvector table/index support in `src/server/migrations/0016_pgvector.sql`.
-- HNSW replacement index in `src/server/migrations/0020_memory_hnsw.sql`.
+## Current Runtime Blocker
 
-**Reference trees:**
-- `lobehub/` and `new-api/` are imported/reference projects, not pnpm workspace members.
-- Do not add them to `pnpm-workspace.yaml` unless the project intentionally changes from reference-source integration to monorepo development.
+The codebase has deployment configuration and validation scripts, but DEPLOY-01 is not complete because the current host cannot run a real Docker/Kubernetes stack:
 
-## Standard Commands
+- Docker client is installed, but daemon access fails with permission denied on `/var/run/docker.sock`.
+- Starting `dockerd` requires root privileges.
+- Docker Desktop build socket/buildx also reports permission errors.
+- `kubectl` is not installed.
 
-```bash
-bash scripts/check.sh docs
-bash scripts/check.sh web
-bash scripts/check.sh server
-bash scripts/test.sh web
-bash scripts/test.sh server
-cd src/server && GOCACHE=../../.tmp/go-build GOMODCACHE=../../.tmp/go-mod go test ./...
-COREPACK_HOME=.tmp/corepack pnpm --dir src/web test
-```
-
-## Operational Notes
-
-- Use repo-local caches (`.tmp/corepack`, `.tmp/go-build`, `.tmp/go-mod`) as the scripts do.
-- Keep new backend code in `src/server/internal/<domain>/` with a service/store split.
-- Keep new frontend product surfaces under `src/web/src/routes/` and reusable request logic under `src/web/src/features/<domain>/api.ts`.
-- Keep migrations append-only; do not rewrite old applied migration files to change behavior.
+Remediation steps are in `docs/release/deployment-runtime-remediation.md`.

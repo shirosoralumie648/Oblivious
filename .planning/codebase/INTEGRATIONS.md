@@ -1,127 +1,158 @@
 ---
-last_mapped_commit: c0e55fdbb3aaed7da80a0f7f2399237aed13bca3
+last_mapped_commit: 98576468acf0d72bbca7e61317dc83cd5c6ad7a9
 mapped_dirty_worktree: true
+analysis_date: 2026-05-04
+mapper: sequential-fallback
 ---
 
-# External Integrations
+# Integrations
 
-**Analysis Date:** 2026-05-02
+## Internal Integration Map
 
-## AI Provider Relay
+The active app integrates several backend domains through `src/server/internal/http/router.go`:
 
-**OpenAI-compatible Relay:**
-- Public API surface is mounted at `/v1/*` when `RELAY_ENABLED=true` in `src/server/internal/http/server.go`.
-- Gin routes are registered by `src/server/internal/relay/handler/router.go`.
-- Channel selection, circuit breaking, rate limiting, retry/fallback, and quota billing live in `src/server/internal/relay/router.go`.
-- Provider adaptation currently centers on OpenAI-compatible upstreams through `src/server/internal/relay/channel/openai_adapter.go`.
-- Channel configuration is stored in PostgreSQL tables managed by `src/server/migrations/0013_channels.sql` and loaded through `src/server/internal/relay/store.go`.
+- Auth/session (`internal/auth`) protects app, console, marketplace private actions, and admin routes.
+- Chat (`internal/chat`) connects conversations to Relay or local generator behavior.
+- Agent (`internal/agent`) uses the configured chat gateway, Memory service, and MCP client.
+- Memory (`internal/memory`) embeds through local Relay `/v1` when Relay is enabled.
+- MCP (`internal/mcp`) provides server/tool discovery and built-in tools.
+- Relay (`internal/relay`) centralizes provider-compatible `/v1/*` behavior and billing hooks.
+- Quota (`internal/quota`) supports packages, top-up, preconsume/settle/refund behavior.
+- Admin (`internal/admin`) manages channels, routes, plans, users, audit logs, and reviews.
+- Marketplace (`internal/marketplace`) supports featured/curated/search/detail/install/publish/my-agents flows.
+- Notification, console, knowledge, task, usage, userprefs, metrics, and WebSocket modules are composed in the same router.
 
-**Default development channel:**
-- `src/server/internal/http/server.go` creates a default OpenAI channel when the channel pool is empty and `OPENAI_API_KEY` is configured.
-- Do not document real provider keys in planning docs. Use env var names only.
+## Database
 
-**App-originated LLM calls:**
-- Chat uses `chat.NewRelayGateway` when relay is enabled (`src/server/internal/http/router.go`).
-- The fallback direct generator is `chat.NewHTTPReplyGenerator` in `src/server/internal/chat/gateway.go`.
-- Agent runtime reuses the chat gateway via `src/server/internal/agent/service.go`.
+- PostgreSQL is required through `DATABASE_URL`.
+- SQL driver: `github.com/lib/pq`.
+- Migrations live in `src/server/migrations/`.
+- Docker compose uses `postgres:16`.
+- Kubernetes manifests include `deploy/kubernetes/postgres.yaml` with PVC, Deployment, Service, and readiness probe.
 
-## Memory And Embeddings
+Notable schema domains:
 
-**Vector memory path:**
-- Memory documents and chunks are handled by `src/server/internal/memory/service.go`.
-- Embeddings call Relay through `src/server/internal/memory/embedder.go`.
-- Text chunking is implemented in `src/server/internal/memory/chunker.go`.
-- pgvector schema starts in `src/server/migrations/0016_pgvector.sql`.
-- HNSW index replacement is append-only in `src/server/migrations/0020_memory_hnsw.sql`.
+- users/sessions/preferences
+- conversations/messages/config/capabilities/usage
+- knowledge bases/documents/chunks
+- tasks and authorization/tool boundaries
+- relay channels/model routes
+- agents/conversations/messages
+- MCP servers
+- pgvector/memory HNSW
+- quotas
+- admin role/plans/audit logs
+- marketplace/categories/tags
 
-**API surface:**
-- Memory endpoints are registered inline in `src/server/internal/http/router.go`.
-- Handler implementation is `src/server/internal/http/memory_handler.go`.
-- Search is per authenticated user through `memory.Search(ctx, session, request)`.
+## Redis / Queue
 
-## MCP Tools
+- Docker compose includes `redis:7`.
+- Kubernetes manifests include `deploy/kubernetes/redis.yaml`.
+- Go dependencies include `github.com/redis/go-redis/v9` and `github.com/hibiken/asynq`.
+- Redis is part of the release stack even though not every runtime path is proven in the current environment.
 
-**External MCP servers:**
-- MCP server records are stored by `src/server/internal/mcp/client.go` through `mcp_servers`.
-- HTTP JSON-RPC calls cover `initialize`, `tools/list`, and `tools/call`.
-- App endpoints are implemented in `src/server/internal/http/mcp_handler.go`.
-- Agent tool execution reaches MCP through `src/server/internal/agent/executor.go`.
+## Relay Provider Integration
 
-**Builtin tools:**
-- Builtins are defined in `src/server/internal/mcp/builtin.go`.
-- Available names are `web_search`, `calculator`, `datetime`, and `http_request`.
-- `web_search` and `calculator` are placeholder implementations; do not rely on them as real integrations until replaced.
+Provider/env vars:
 
-## PostgreSQL
+- `OPENAI_API_KEY`
+- `OPENAI_BASE_URL`
+- `RELAY_ENABLED`
+- `RELAY_DEFAULT_MODEL`
+- `LLM_BASE_URL`
+- `LLM_API_KEY`
+- `LLM_TIMEOUT_MS`
+- `MODEL_DEFAULT_NAME`
 
-**Primary database:**
-- The server opens a single `*sql.DB` from `DATABASE_URL` in `src/server/cmd/server/main.go`.
-- Stores are plain SQL implementations under domain packages, for example `src/server/internal/chat/store.go`, `src/server/internal/agent/store.go`, `src/server/internal/marketplace/store.go`, and `src/server/internal/admin/*_store.go`.
-- Migrations are sequential SQL files in `src/server/migrations/`.
+Relay-compatible endpoints in `src/server/internal/relay/handler/router.go` include:
 
-**Schema areas:**
-- Auth/workspaces/chat: `0001_phase1_foundation.sql`.
-- Preferences/conversation config/usage/tasks/knowledge: `0002` through `0012`.
-- Relay channels/routes/agents/MCP/quota/admin/marketplace: `0013` through `0024`.
+- `/v1/chat/completions`
+- `/v1/responses`
+- `/v1/realtime`
+- `/v1/embeddings`
+- `/v1/images/*`
+- `/v1/videos`
+- `/v1/audio/*`
+- `/v1/moderations`
+- `/v1/completions`
+- `/v1/batch` and `/v1/batches`
+- `/v1/files`
+- `/v1/fine_tuning/jobs`
+- `/v1/assistants`, `/v1/threads`, `/v1/threads/:id/runs`
 
-## Authentication And Sessions
+`Dockerfile.web` proxies `/v1/` to `http://oblivious-server:8080`.
 
-**Cookie sessions:**
-- Login/register/logout are handled by `src/server/internal/http/auth_handler.go`.
-- Session cookies are HMAC-signed using `SESSION_SECRET` in `src/server/internal/http/auth_middleware.go`.
-- Authenticated API routes use `authMiddleware.requireSession`.
-- Admin API routes use `authMiddleware.requireAdmin` and require `session.User.Role == "admin"`.
+## Stripe / Payments
 
-**Frontend auth bootstrap:**
-- `src/web/src/app/appContext.tsx` calls `createAuthApi(createHttpClient())`.
-- `src/web/src/features/auth/useAuthBootstrap.ts` controls the bootstrap flow.
-- Protected route shells are `src/web/src/features/auth/ProtectedRoute.tsx` and `src/web/src/features/auth/AdminRoute.tsx`.
+- Go dependency: `github.com/stripe/stripe-go/v83`.
+- Code paths: `src/server/internal/stripe/checkout.go`, `src/server/internal/stripe/webhook.go`.
+- Current Phase 4 release gates avoid live Stripe dependency.
+- Production payment/revenue share is out of scope in `.planning/REQUIREMENTS.md`.
 
-## Admin And Marketplace
+## Auth And Sessions
 
-**Admin backend:**
-- Admin service/store packages are under `src/server/internal/admin/`.
-- Channel, route, plan, user, and audit store/service files exist, but `src/server/internal/http/router.go` currently exposes only stats and user routes.
-- Admin review queue methods in `src/server/internal/admin/store.go` still return "not implemented".
+- Auth routes in `src/server/internal/http/router.go`:
+  - `/api/v1/auth/login`
+  - `/api/v1/auth/register`
+  - `/api/v1/auth/me`
+  - `/api/v1/auth/logout`
+- Config:
+  - `SESSION_SECRET`
+  - `SESSION_COOKIE_NAME`
+  - `SESSION_COOKIE_SECURE`
+- Admin routes use `requireAdmin`; app routes use `requireSession`.
 
-**Marketplace backend:**
-- Marketplace domain logic is under `src/server/internal/marketplace/`.
-- Database tables are created by `src/server/migrations/0023_marketplace.sql` and `src/server/migrations/0024_categories_tags.sql`.
-- No marketplace HTTP routes are currently registered in `src/server/internal/http/router.go`.
+## Frontend-Backend Integration
 
-**Marketplace frontend:**
-- `src/web/src/routes/workspace/MarketplacePage.tsx` is a static MCP server catalog that posts to `/api/v1/app/mcp-servers`.
-- It does not yet consume `src/server/internal/marketplace/` APIs because those APIs are not routed.
+API clients:
 
-## Billing, Quota, And Payments
+- `src/web/src/features/auth/api.ts`
+- `src/web/src/features/chat/api.ts`
+- `src/web/src/features/knowledge/api.ts`
+- `src/web/src/features/tasks/api.ts`
+- `src/web/src/features/console/api.ts`
+- `src/web/src/features/admin/api.ts`
+- `src/web/src/features/marketplace/api.ts`
+- HTTP core: `src/web/src/services/http/client.ts`, `envelope.ts`, `errors.ts`, `stream.ts`, `upload.ts`
 
-**Quota billing lifecycle:**
-- `src/server/internal/quota/service.go` manages balances, packages, subscriptions, topups, and billing sessions.
-- `src/server/internal/relay/billing.go` adapts relay usage to quota preconsume/settle/refund.
-- `src/server/internal/http/server.go` wires `quota.Service` into `relay.Router`.
+Frontend routes consume backend groups:
 
-**Stripe:**
-- `github.com/stripe/stripe-go/v83` is present.
-- `src/server/internal/stripe/webhook.go` exists, but no Stripe webhook route is visible in `src/server/internal/http/router.go`.
+- `/admin/*` -> `/api/v1/admin/*`
+- `/marketplace/*` -> `/api/v1/marketplace/*`
+- `/console/*` -> `/api/v1/console/*`
+- workspace routes -> `/api/v1/app/*`
 
-**Async billing worker:**
-- `src/server/internal/relay/billing_worker.go` uses Asynq for timeout/polling safety tasks.
-- The relay constructor passes an empty Redis address, so timeout queueing is disabled unless wiring is added.
+## Observability
 
-## Observability And Realtime
+- `/healthz` returns status from the main server.
+- `/metrics` exposes Prometheus metrics.
+- Docker and Kubernetes probes use `/healthz`.
+- `scripts/deploy-smoke.sh` polls `/healthz`.
 
-**Metrics:**
-- `/metrics` is registered in `src/server/internal/http/router.go`.
-- Prometheus helpers/tests live under `src/server/internal/metrics/`.
+## Deployment Integrations
 
-**WebSocket notifications:**
-- Authenticated app WebSocket route is `/api/v1/ws`.
-- Hub implementation is `src/server/internal/ws/hub.go`.
-- Upgrade handler is `src/server/internal/ws/handler.go`.
-- Current origin check returns true; tighten this before production exposure.
+- Docker compose stack:
+  - `postgres`
+  - `redis`
+  - `oblivious-server`
+  - `oblivious-web`
+- Kubernetes:
+  - `namespace.yaml`
+  - `configmap.yaml`
+  - `secret.example.yaml`
+  - `postgres.yaml`
+  - `redis.yaml`
+  - `server.yaml`
+  - `web.yaml`
+- Real cluster secrets must be created outside git from `deploy/kubernetes/secret.example.yaml`.
 
-## Reference Integrations
+## External Runtime Blockers
 
-- `new-api/` is a reference for relay/provider behavior and has its own `go.mod` and Docker setup.
-- `lobehub/` is a reference for frontend/product behavior and has its own pnpm/Bun ecosystem.
-- Treat these as upstream reference trees unless a task explicitly targets imported source synchronization.
+Current host integration blockers:
+
+- Docker daemon permission denied.
+- Docker Desktop build socket/buildx permission denied.
+- `dockerd` requires root.
+- `kubectl` missing.
+
+Until these are repaired, `scripts/deploy-validate.sh` and Kubernetes smoke cannot prove actual runtime integration.

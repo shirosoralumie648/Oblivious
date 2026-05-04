@@ -1,161 +1,145 @@
 ---
-last_mapped_commit: c0e55fdbb3aaed7da80a0f7f2399237aed13bca3
+last_mapped_commit: 98576468acf0d72bbca7e61317dc83cd5c6ad7a9
 mapped_dirty_worktree: true
+analysis_date: 2026-05-04
+mapper: sequential-fallback
 ---
 
 # Codebase Concerns
 
-**Analysis Date:** 2026-05-02
+## Current Blocking Concern
 
-## High Priority
+DEPLOY-01 runtime validation is blocked.
 
-### Admin/Marketplace Backend Is Richer Than Routed API
+Evidence:
 
-**What:** Phase 3 backend packages exist, but the active router exposes only a small admin subset and no marketplace routes.
+- `bash scripts/deploy-validate.sh` exits before stack mutation because Docker daemon is not reachable.
+- `docker info` reports permission denied on `/var/run/docker.sock`.
+- `dockerd` exists but requires root privileges.
+- Docker Desktop build socket/buildx reports permission errors.
+- `kubectl` is not installed.
 
-**Evidence:**
-- `src/server/internal/admin/channel_service.go`, `route_service.go`, `plan_service.go`, `audit_store.go`, and `user_service.go` implement admin domains.
-- `src/server/internal/marketplace/service.go`, `store.go`, `search.go`, and `publisher_analytics.go` implement marketplace behavior.
-- `src/server/internal/http/router.go` registers `/api/v1/admin/stats` and `/api/v1/admin/users*` only.
-- `src/server/internal/http/router.go` has no routes for `marketplace`, `published_agents`, `reviews`, `categories`, plans, routes, channels, or audit logs.
+Impact:
 
-**Impact:** Planning from service/store files alone overstates shipped API coverage. Frontend work cannot reach most backend Phase 3 capabilities without route handlers.
+- Dockerfiles, compose config, Kubernetes manifests, and smoke scripts exist.
+- `docker compose config` passes.
+- The actual service stack has not been built, started, and health-checked in this environment.
+- v03.2 must not be archived or marked shipped until a real Docker or Kubernetes runtime path passes.
 
-**Fix approach:** Add focused HTTP handlers and route registration for admin channels/routes/plans/audit/reviews and marketplace publish/search/install/review/category flows. Add handler tests as each route is exposed.
+Mitigation:
 
-### Review Queue Store Methods Are Stubs
+- Follow `docs/release/deployment-runtime-remediation.md`.
+- Then run `bash scripts/deploy-validate.sh` or a real Kubernetes equivalent.
 
-**What:** The admin review queue interface is present, but the SQLStore implementation returns "not implemented".
+## Dirty Worktree Risk
 
-**Evidence:**
-- `src/server/internal/admin/store.go` methods `ListPendingReviews`, `ApproveAgent`, and `RejectAgent` are stubs.
-- Marketplace review methods exist separately in `src/server/internal/marketplace/store.go`.
+The worktree is large and dirty. Current visible changed/untracked areas include:
 
-**Impact:** Admin review actions can compile through the interface but fail at runtime if exposed through HTTP.
+- `.planning/STATE.md`, roadmap/requirements/project/milestone files
+- release docs under `docs/release/`
+- scripts: `check.sh`, `test.sh`, `verify-quality-gates.sh`, `deploy-smoke.sh`, `deploy-validate.sh`
+- Docker/Kubernetes release assets
+- many pre-existing backend/frontend changes outside the codebase map
 
-**Fix approach:** Either delegate admin review methods to marketplace SQL operations or remove the duplicate admin review queue path and route reviews through a marketplace service owned by admin handlers.
+Impact:
 
-### Admin UI Contract Mismatches Current API Envelope
+- Mapping reflects current working tree, not a clean commit.
+- Git mode churn exists on mounted filesystem.
+- Avoid broad cleanup or reset commands.
 
-**What:** Admin pages use direct `fetch` and assume response shapes that do not match the backend envelope.
+Mitigation:
 
-**Evidence:**
-- `src/web/src/routes/admin/AdminUsersPage.tsx` expects `data.data` to be an array.
-- `src/server/internal/http/admin_handler.go` returns `data: { users, total }` for `listUsers`.
-- `src/web/src/routes/admin/AdminHomePage.tsx` and `AdminUsersPage.tsx` bypass `createHttpClient`.
+- Keep codebase-map refresh scoped to `.planning/codebase/*.md`.
+- Verify exact files before commit.
 
-**Impact:** `/admin/users` can render incorrectly even when the backend route works. Error handling and envelope parsing are inconsistent with the rest of the frontend.
+## Accepted Backlog Debt
 
-**Fix approach:** Add `src/web/src/features/admin/api.ts`, use `createHttpClient`, type `ListUsersResponse`, and update pages/tests around the actual `{ users, total }` payload.
+Tracked in `.planning/STATE.md` and `.planning/ROADMAP.md`:
 
-### Marketplace UI Installs MCP Servers Through The Wrong Contract
+- Backlog `999.1`: Phase 01 missing `SUMMARY.md` artifact.
+- Backlog `999.2`: legacy `src/web/src/routes/workspace/MarketplacePage.tsx` is no longer routed by `/marketplace`.
+- Backlog `999.2`: decide future policy for living `.planning/REQUIREMENTS.md` at milestone close.
 
-**What:** `MarketplacePage` is a static MCP catalog and posts command/args payloads to the MCP server endpoint, but the backend handler requires a URL-based MCP server request.
+Impact:
 
-**Evidence:**
-- `src/web/src/routes/workspace/MarketplacePage.tsx` sends `{ name, command, args, description }` to `/api/v1/app/mcp-servers`.
-- `src/server/internal/http/mcp_handler.go` decodes `AddServerRequest` with `Name`, `URL`, and optional `AuthToken`, then requires `URL`.
-- The actual marketplace backend under `src/server/internal/marketplace/` is not routed.
+- These are accepted non-blocking debts, but should not be confused with active v03.2 DEPLOY-01 blocker.
 
-**Impact:** Marketplace install actions fail or do not install what the UI implies. The UI is closer to an MCP catalog mock than the Phase 3 marketplace product.
+## Runtime/Test Environment Concerns
 
-**Fix approach:** Decide whether this page is an MCP server catalog or an agent marketplace. For MCP, align payload and UX with `AddServerRequest`. For agent marketplace, expose marketplace HTTP routes and replace static data with backend search/install APIs.
+- Server tests using `httptest.NewServer` can fail in sandboxed execution with local socket restrictions.
+- Verified server/web gates required approved non-sandbox execution.
+- DB-backed HTTP integration tests remain skipped unless `TEST_DATABASE_URL` is set.
 
-## Medium Priority
+Mitigation:
 
-### Router Composition Is Too Large
+- Preserve explicit skip semantics in `scripts/test.sh`.
+- Record whether `TEST_DATABASE_URL` was unset, local disposable Postgres, or CI service Postgres.
+- Do not treat unit test success as DB-backed integration success.
 
-**What:** `src/server/internal/http/router.go` is over 700 lines and constructs services, handlers, and route matching inline.
+## Deployment Security Concerns
 
-**Impact:** Route additions are easy to misplace, duplicate, or leave partially wired. Admin/marketplace gaps are harder to spot because service creation and route registration share one long function.
+- Committed compose uses placeholder credentials such as `SESSION_SECRET=change-me-in-production` and local Postgres password.
+- Kubernetes `secret.example.yaml` uses `REPLACE_ME` placeholders.
+- Provider key vars are present but empty in compose/config examples.
 
-**Fix approach:** Keep `NewRouter` as composition root, but split route registration into focused helpers such as `registerAgentRoutes`, `registerMemoryRoutes`, `registerAdminRoutes`, and `registerMarketplaceRoutes`.
+Mitigation:
 
-### Relay Realtime And Responses Streaming Are Incomplete
+- Keep real secrets out of git.
+- Copy and fill `deploy/kubernetes/secret.example.yaml` outside the repo for real clusters.
+- Check `docs/release/rc-checklist.md` before any release candidate evidence is recorded.
 
-**What:** Some Relay endpoint families still have explicit TODOs or incomplete streaming behavior.
+## Relay/LLM Boundary Risk
 
-**Evidence:**
-- `src/server/internal/relay/handler/responses.go` has a TODO for Responses SSE streaming.
-- `src/server/internal/relay/handler/realtime.go` has TODOs for auth, pre-billing, and close-time settlement.
+Core value: all LLM calls must go through Relay.
 
-**Impact:** `/v1/responses` streaming and realtime behavior can appear available while missing production-critical auth/billing semantics.
+Risk areas:
 
-**Fix approach:** Model Responses streaming after the chat handler path, and make realtime auth/billing explicit before advertising it as supported.
+- `src/server/internal/http/router.go` creates local Relay URLs using `localhost:<port>/v1`.
+- Chat, Agent, and Memory depend on correct Relay wiring when `RELAY_ENABLED` is true.
+- Any future direct provider call in Chat/Agent/Memory would bypass quota/billing/monitoring.
 
-### Relay URLs Are Hardcoded To Localhost In App-Originated Clients
+Mitigation:
 
-**What:** Chat and memory clients construct Relay URLs from `localhost:{port}`.
+- Keep `chat.NewRelayGateway`, `agent.Service` gateway injection, and `memory.NewRelayEmbedder` under test.
+- Include Relay/Quota/Agent/Memory packages in `go test ./... -count=1`.
 
-**Evidence:**
-- `src/server/internal/http/router.go` builds `http://localhost:{port}/v1` for chat, agent fallback gateway, and memory embedder.
-- `src/server/internal/chat/relay_gateway.go` and `src/server/internal/memory/embedder.go` also default to localhost.
+## API Surface Drift Risk
 
-**Impact:** Containerized or split-host deployments break unless the server can call itself through localhost. This also complicates tests that want an injected Relay URL.
+Route definitions are spread across:
 
-**Fix approach:** Add a `RELAY_URL` config field, document it in env/contracts, and inject it into chat/memory gateway constructors.
+- `src/server/internal/http/router.go`
+- `src/server/internal/relay/handler/router.go`
+- `src/web/src/app/router.tsx`
+- `docs/API.md`
+- `docs/architecture/current-system-contracts.md`
+- `docs/release/rc-checklist.md`
 
-### WebSocket Origin Check Is Open
+Mitigation:
 
-**What:** The WebSocket upgrader allows all origins.
+- `scripts/verify-quality-gates.sh` asserts key docs/API/checklist anchors.
+- Run `bash scripts/check.sh docs` after route or release command changes.
 
-**Evidence:**
-- `src/server/internal/ws/handler.go` has `CheckOrigin: func(r *http.Request) bool { return true }`.
+## Migration Risk
 
-**Impact:** Browser-origin protection depends entirely on session cookies and route auth. Cross-origin WebSocket attempts are not restricted by configured CORS origins.
+- Migrations are applied by reading and executing every `.sql` file in lexical order.
+- No explicit migration ledger is visible in `src/server/cmd/migrate/main.go`.
+- Old migrations should remain immutable; fixes should be append-only.
 
-**Fix approach:** Reuse `CORS_ALLOWED_ORIGINS` or an explicit WebSocket origin allowlist and add handler tests.
+Mitigation:
 
-## Lower Priority / Follow-Up
+- Review migration idempotency before using `cmd/migrate` against non-empty databases.
+- Continue append-only migration practice.
 
-### Test Scripts Do Not Cover All Active Backend Packages
+## Imported Tree Confusion
 
-**What:** Root server checks run a focused package list, not `go test ./...`.
+`lobehub/` and `new-api/` are present and large.
 
-**Evidence:**
-- `scripts/check.sh server` runs config/chat/knowledge/task/console only.
-- `scripts/test.sh server` runs the same list plus `./internal/http` only when `TEST_DATABASE_URL` exists.
+Risk:
 
-**Impact:** Admin, marketplace, agent, memory, relay, quota, metrics, notification, and ws regressions can be missed by default scripts.
+- Agents or developers may accidentally map/build/test imported reference trees.
 
-**Fix approach:** Keep focused scripts for speed, but add a release or pre-merge command that runs `go test ./...` with repo-local caches. Expand focused checks when a package becomes product-critical.
+Mitigation:
 
-### Builtin Tools Are Placeholder Implementations
-
-**What:** Some builtin MCP tools return placeholder text instead of real behavior.
-
-**Evidence:**
-- `src/server/internal/mcp/builtin.go` describes `web_search` and `calculator` as simplified placeholder implementations.
-
-**Impact:** Agent tool-loop demos can pass structurally while delivering non-real tool output.
-
-**Fix approach:** Either hide placeholders from production tool catalogs or replace them with real integrations and tests.
-
-### Global WebSocket Hub Makes Isolation Harder
-
-**What:** `ws.DefaultHub()` is a global singleton and `/api/v1/ws` always uses it.
-
-**Evidence:**
-- `src/server/internal/ws/hub.go` defines `defaultHub` and `DefaultHub`.
-- `src/server/internal/http/router.go` calls `ws.ServeWS(ws.DefaultHub(), ...)`.
-
-**Impact:** Tests and multi-instance deployments have less control over hub lifecycle and broadcast isolation.
-
-**Fix approach:** Inject a hub into router/server construction when WebSocket behavior becomes central to product flows.
-
-### Planning State Can Drift From Code
-
-**What:** `.planning/STATE.md` still labels Phase 3.1 as pending discussion, while code includes Phase 3 backend artifacts, Admin UI pages, Marketplace UI, and migrations through `0024`.
-
-**Impact:** Workflow routing can understate or overstate real implementation depending on which artifact is read first.
-
-**Fix approach:** For GSD routing, inspect `.planning/phases/`, route registration, migrations, and tests before trusting the headline in `.planning/STATE.md`.
-
-## Security Checklist For Next Phases
-
-- Do not store provider keys in docs or generated mapping files.
-- Keep `SESSION_SECRET` required and signed cookie verification intact.
-- Tighten WebSocket origin checks before production release.
-- Ensure every admin route uses `requireAdmin`.
-- Ensure every marketplace owner mutation validates ownership in service code.
-- Ensure every Relay endpoint that can consume quota goes through billing or is explicitly marked unsupported.
+- `pnpm-workspace.yaml` excludes them.
+- `.dockerignore` excludes `new-api` and node_modules under imported trees.
+- Release docs explicitly scope gates to `src/server`, `src/web`, `config`, `scripts`, `.github/workflows`, and release docs.

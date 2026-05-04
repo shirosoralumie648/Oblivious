@@ -1,143 +1,82 @@
 ---
-last_mapped_commit: c0e55fdbb3aaed7da80a0f7f2399237aed13bca3
+last_mapped_commit: 98576468acf0d72bbca7e61317dc83cd5c6ad7a9
 mapped_dirty_worktree: true
+analysis_date: 2026-05-04
+mapper: sequential-fallback
 ---
 
 # Coding Conventions
 
-**Analysis Date:** 2026-05-02
+## Repository Boundaries
 
-## General Rules
+- Active implementation lives in `src/server`, `src/web`, `scripts`, `config`, `docs`, `.github`, `deploy`, and root Docker/compose files.
+- `lobehub/` and `new-api/` are reference/imported trees. Do not add them back to `pnpm-workspace.yaml`; `scripts/check.sh docs` explicitly rejects workspace membership for those names.
+- Keep `.planning` updates scoped to the active GSD workflow artifacts.
 
-- Treat `src/server/` and `src/web/` as the active product code.
-- Treat `lobehub/` and `new-api/` as reference imports unless a task explicitly scopes work there.
-- Keep changes narrowly scoped. This checkout often has many unrelated local changes.
-- Use structured APIs and existing domain services before adding ad hoc parsing or cross-package SQL.
+## Backend Conventions
 
-## Go Backend
+- Packages are organized by feature under `src/server/internal/<domain>/`.
+- HTTP composition happens centrally in `src/server/internal/http/router.go`; feature handlers stay in `src/server/internal/http/*_handler.go`.
+- Services and stores are separated:
+  - service files: `service.go`, domain-specific `*_service.go`
+  - store files: `store.go`, domain-specific `*_store.go`
+  - shared types: `types.go`
+- Tests are colocated as `*_test.go`.
+- Route handlers should use the shared response helpers in `src/server/internal/http/response.go`.
+- Auth and admin protection should go through middleware in `src/server/internal/http/auth_middleware.go`.
+- Avoid bypassing Relay for LLM behavior. Chat/Agent/Memory integrations are wired through Relay gateways/embedders when `RELAY_ENABLED` is true.
+- Migrations are append-only under `src/server/migrations/`; do not mutate old migrations to repair already-mapped schema decisions.
+- Config should be read through `src/server/internal/config/config.go`, not directly scattered through business logic.
 
-### Package Structure
+## Frontend Conventions
 
-- Add backend code under `src/server/internal/<domain>/`.
-- Keep the HTTP layer in `src/server/internal/http/`.
-- Keep migrations append-only under `src/server/migrations/`.
-- Keep SQL implementation in a domain store, not in handlers.
+- Routes are declared in `src/web/src/app/router.tsx`.
+- Route components live under `src/web/src/routes/<area>/`.
+- Feature API clients live under `src/web/src/features/<feature>/api.ts`.
+- Auth and admin access wrappers live under `src/web/src/features/auth/`.
+- Layout components live under `src/web/src/features/layouts/`.
+- Shared product UI belongs in `src/web/src/components/shared/`; primitive UI belongs in `src/web/src/components/ui/`.
+- Tests are colocated with routes/features using `*.test.ts` or `*.test.tsx`.
+- E2E specs live in `src/web/e2e/` and use deterministic fixtures rather than live providers.
+- Use the app HTTP envelope helpers in `src/web/src/services/http/` for API calls.
 
-### Service/Store Pattern
+## Release Script Conventions
 
-Use the existing split:
-
-```go
-type Store interface {
-    // persistence methods
-}
-
-type Service struct {
-    store Store
-}
-
-func NewService(store Store) *Service {
-    return &Service{store: store}
-}
-```
-
-Examples:
-- `src/server/internal/chat/service.go` and `src/server/internal/chat/store.go`.
-- `src/server/internal/agent/service.go` and `src/server/internal/agent/store.go`.
-- `src/server/internal/memory/service.go` and `src/server/internal/memory/store.go`.
-- `src/server/internal/admin/*_service.go` and `src/server/internal/admin/*_store.go`.
-
-### Context And Auth
-
-- Put `context.Context` first in service/store methods.
-- Pass `auth.Session` to service methods that must enforce user ownership.
-- Validate resource ownership in services before store mutations, as in `src/server/internal/agent/service.go` and `src/server/internal/memory/service.go`.
-- Use `auth.NewID("<prefix>")` for app IDs when a package does not require UUIDs.
-
-### Errors
-
-- Wrap lower-level errors with operation context using `fmt.Errorf("operation: %w", err)`.
-- Return domain strings such as `"access denied"` and `"not found"` only where handlers already map those strings to status codes.
-- Prefer exported sentinel errors for new reusable conditions rather than matching error strings in new code.
-
-### HTTP Handlers
-
-- Decode JSON in handlers, trim/validate request fields, and delegate to services.
-- Use `writeSuccess` and `writeError` from `src/server/internal/http/response.go`.
-- Keep route-level method switching in `src/server/internal/http/router.go` or a focused route helper.
-- Use `sessionFromContext(r)` after `authMiddleware.requireSession`.
-- Use `authMiddleware.requireAdmin` for admin-only routes.
-
-### Config
-
-- Add new env vars to all relevant places:
-  - `src/server/internal/config/config.go`
-  - `config/.env.example`
-  - `docs/architecture/current-system-contracts.md`
-  - `scripts/check.sh` docs consistency checks when required
-
-### SQL And Migrations
-
-- Add schema changes as new numbered files in `src/server/migrations/`.
-- Do not edit old migrations to change already-recorded behavior; add a corrective migration instead.
-- Use PostgreSQL-native features already present in the repo: arrays with `pq.Array`, JSONB, filtered aggregates, and pgvector indexes.
-- Keep user isolation in SQL predicates where possible, especially for memory, knowledge, agents, MCP servers, and tasks.
-
-## Relay Conventions
-
-- Keep provider-agnostic routing in `src/server/internal/relay/router.go`.
-- Keep provider request translation in `src/server/internal/relay/channel/`.
-- Keep OpenAI-compatible endpoint handlers under `src/server/internal/relay/handler/`.
-- Use `RouteWithBilling` when provider traffic should affect quota.
-- Preserve trusted internal identity propagation through `src/server/internal/relay/types/` when app-originated calls enter Relay.
-
-## TypeScript Frontend
-
-### File Naming
-
-- Route/page components: `PascalCase.tsx`, for example `ChatPage.tsx` and `AdminUsersPage.tsx`.
-- Layout components: `PascalCase.tsx` under `src/web/src/features/layouts/`.
-- API modules and stores: `camelCase.ts`, for example `client.ts`, `store.ts`, `api.ts`.
-- Tests: co-located `.test.ts` or `.test.tsx`.
-
-### API Calls
-
-- Prefer typed API factories over direct `fetch`:
-  - `src/web/src/features/chat/api.ts`
-  - `src/web/src/features/knowledge/api.ts`
-  - `src/web/src/features/console/api.ts`
-  - `src/web/src/features/tasks/api.ts`
-- Use `createHttpClient` from `src/web/src/services/http/client.ts`.
-- Let `unwrapEnvelope` handle `{ ok, data, error }` responses.
-- New Admin and Marketplace frontend work should add typed API wrappers before adding more direct `fetch` calls.
-
-### React Patterns
-
-- Keep global app state small and centralized in `src/web/src/app/appContext.tsx`.
-- Use route layouts for shell/navigation concerns.
-- Keep page-local loading/error/UI state inside the page component unless multiple pages share it.
-- Prefer Testing Library tests for user-visible behavior.
-
-### Styling
-
-- Theme tokens and shadcn/Tailwind imports live in `src/web/src/theme/tokens.css`.
-- Global reset and legacy base styling live in `src/web/src/theme/global.css`.
-- New UI should use the existing shadcn/Tailwind setup, not a separate CSS framework.
-- Keep page-specific classes stable enough for tests and avoid coupling behavior tests to visual-only class names.
+- Prefer root scripts:
+  - `bash scripts/check.sh docs|web|server|all`
+  - `bash scripts/test.sh web|server|all`
+  - `COREPACK_HOME=.tmp/corepack pnpm --dir src/web test:e2e`
+  - `bash scripts/deploy-validate.sh`
+- Use repo-local caches for repeatability:
+  - `COREPACK_HOME=.tmp/corepack`
+  - `GOCACHE=.tmp/go-build`
+  - `GOMODCACHE=.tmp/go-mod`
+- `scripts/test.sh server` must explicitly print the `TEST_DATABASE_URL` skip when DB-backed HTTP integration tests are not run.
+- `scripts/verify-quality-gates.sh` is intentionally fixed-string based; when docs or release commands change, update the script and run `bash scripts/check.sh docs`.
 
 ## Documentation Conventions
 
-- Planning docs should cite real paths in backticks.
-- Keep status docs grounded in code/routes/tests when `.planning/STATE.md` drifts.
-- Record known gaps in `.planning/codebase/CONCERNS.md` rather than hiding them in optimistic roadmap language.
+- `docs/API.md` is the canonical API index.
+- `docs/architecture/current-system-contracts.md` is the behavior contract for current routes/env/test/release commands.
+- `docs/release/rc-checklist.md` is the release-candidate evidence checklist.
+- `docs/release/deployment-runtime-remediation.md` documents host-level remediation for Docker/kubectl blockers.
+- `.planning/phases/*/*-SUMMARY.md` files are evidence only when they contain concrete verification commands and observed results.
 
-## Verification Conventions
+## Deployment Conventions
 
-- Use repo scripts before ad hoc commands when they cover the task:
-  - `bash scripts/check.sh docs`
-  - `bash scripts/check.sh web`
-  - `bash scripts/check.sh server`
-  - `bash scripts/test.sh web`
-  - `bash scripts/test.sh server`
-- For broad backend changes, run `cd src/server && GOCACHE=../../.tmp/go-build GOMODCACHE=../../.tmp/go-mod go test ./...`.
-- For frontend changes, run `COREPACK_HOME=.tmp/corepack pnpm --dir src/web test` and `COREPACK_HOME=.tmp/corepack pnpm --dir src/web build`.
+- Committed config must use placeholders only. Do not commit provider keys, Stripe secrets, database passwords, kubeconfig material, or real session secrets.
+- Kubernetes real secrets should be copied from `deploy/kubernetes/secret.example.yaml` to an untracked location and filled outside git.
+- `Dockerfile.server` and `Dockerfile.web` must target `src/server` and `src/web`; do not build `lobehub/` or `new-api/`.
+- `scripts/deploy-validate.sh` is the local Docker proof. It should fail early if Docker daemon access is missing.
+
+## GSD Workflow Conventions
+
+- Treat `.planning/STATE.md`, `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, and phase artifacts as routing inputs, but verify against code/tests when docs drift.
+- When `gsd-sdk` is unavailable, route from local files and record exact blockers in planning artifacts.
+- Backlog items `999.1` and `999.2` are accepted debt; do not silently fold them into unrelated work.
+
+## Worktree Safety
+
+- The checkout is dirty and has large pre-existing changes.
+- Do not revert unrelated changes.
+- When updating generated maps, only edit `.planning/codebase/*.md` unless the current command explicitly requires other files.
