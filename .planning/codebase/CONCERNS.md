@@ -1,145 +1,193 @@
----
-last_mapped_commit: 98576468acf0d72bbca7e61317dc83cd5c6ad7a9
-mapped_dirty_worktree: true
-analysis_date: 2026-05-04
-mapper: sequential-fallback
----
-
 # Codebase Concerns
 
-## Current Blocking Concern
+**Analysis Date:** 2026-05-12
 
-DEPLOY-01 runtime validation is blocked.
+## Current Blocker
+
+DEPLOY-01 remains blocked on real runtime validation.
 
 Evidence:
-
-- `bash scripts/deploy-validate.sh` exits before stack mutation because Docker daemon is not reachable.
-- `docker info` reports permission denied on `/var/run/docker.sock`.
-- `dockerd` exists but requires root privileges.
-- Docker Desktop build socket/buildx reports permission errors.
-- `kubectl` is not installed.
+- `.planning/STATE.md` states that TEST-01, TEST-02, and DOC-01 are complete, while DEPLOY-01 lacks real Docker/Kubernetes startup evidence.
+- `scripts/deploy-validate.sh` requires Docker, Docker Compose, successful `docker info`, image builds, compose startup, and a `/healthz` smoke.
+- `docs/release/deployment-runtime-remediation.md` records the host-level blocker: Docker daemon access is unavailable and Kubernetes tooling is missing.
 
 Impact:
-
-- Dockerfiles, compose config, Kubernetes manifests, and smoke scripts exist.
-- `docker compose config` passes.
-- The actual service stack has not been built, started, and health-checked in this environment.
-- v03.2 must not be archived or marked shipped until a real Docker or Kubernetes runtime path passes.
+- Docker, compose, Kubernetes, smoke, and release checklist assets exist.
+- Configuration being present is not the same as the actual stack starting and passing health checks.
+- v03.2 should not be archived or called shipped until a real Docker or Kubernetes path passes.
 
 Mitigation:
-
-- Follow `docs/release/deployment-runtime-remediation.md`.
-- Then run `bash scripts/deploy-validate.sh` or a real Kubernetes equivalent.
+- Restore Docker daemon access or provide Kubernetes tooling.
+- Run `bash scripts/deploy-validate.sh` or an equivalent real Kubernetes deployment smoke.
+- Record the runtime evidence in the Phase 4 release artifacts before closing DEPLOY-01.
 
 ## Dirty Worktree Risk
 
-The worktree is large and dirty. Current visible changed/untracked areas include:
-
-- `.planning/STATE.md`, roadmap/requirements/project/milestone files
-- release docs under `docs/release/`
-- scripts: `check.sh`, `test.sh`, `verify-quality-gates.sh`, `deploy-smoke.sh`, `deploy-validate.sh`
-- Docker/Kubernetes release assets
-- many pre-existing backend/frontend changes outside the codebase map
+The repository is very dirty. Current changes span planning files, docs, scripts, backend packages, frontend routes, tests, CI, and untracked local agent/runtime directories.
 
 Impact:
-
-- Mapping reflects current working tree, not a clean commit.
-- Git mode churn exists on mounted filesystem.
-- Avoid broad cleanup or reset commands.
+- This map describes the working tree, not a clean commit.
+- Broad cleanup, reset, or generated-file churn could destroy unrelated user work.
+- Line-level claims can drift quickly while many source files remain modified.
 
 Mitigation:
+- Keep codebase map edits scoped to `.planning/codebase/*.md`.
+- Before any implementation phase, re-check `git status --short` and the specific files touched by that phase.
+- Avoid interpreting existing dirty changes as authored by the current agent.
 
-- Keep codebase-map refresh scoped to `.planning/codebase/*.md`.
-- Verify exact files before commit.
+## Router Composition Debt
 
-## Accepted Backlog Debt
+`src/server/internal/http/router.go` is still a very large composition root and route registry.
 
-Tracked in `.planning/STATE.md` and `.planning/ROADMAP.md`:
-
-- Backlog `999.1`: Phase 01 missing `SUMMARY.md` artifact.
-- Backlog `999.2`: legacy `src/web/src/routes/workspace/MarketplacePage.tsx` is no longer routed by `/marketplace`.
-- Backlog `999.2`: decide future policy for living `.planning/REQUIREMENTS.md` at milestone close.
+Evidence:
+- `router.go` directly registers auth, preferences, chat, knowledge, task, agent, memory, MCP, console, quota, notifications, WebSocket, admin, and marketplace routes.
+- `src/server/internal/http/routes_auth.go`, `routes_chat.go`, `routes_knowledge.go`, `routes_preferences.go`, `routes_task.go`, and `routes_console.go` define modular route registration functions.
+- `rg` shows these `register*Routes` functions are defined but not called by `NewRouter`.
 
 Impact:
-
-- These are accepted non-blocking debts, but should not be confused with active v03.2 DEPLOY-01 blocker.
-
-## Runtime/Test Environment Concerns
-
-- Server tests using `httptest.NewServer` can fail in sandboxed execution with local socket restrictions.
-- Verified server/web gates required approved non-sandbox execution.
-- DB-backed HTTP integration tests remain skipped unless `TEST_DATABASE_URL` is set.
+- Route ownership is split between an active monolithic file and inactive modular registration files.
+- Future changes can update the wrong file and silently leave runtime behavior unchanged.
+- Merge conflict and regression risk is high around `router.go`.
 
 Mitigation:
+- Either wire the modular `register*Routes` functions into `NewRouter` with tests, or remove the unused route modules.
+- Keep route contract checks in `docs/API.md`, `docs/architecture/current-system-contracts.md`, and handler tests synchronized.
 
-- Preserve explicit skip semantics in `scripts/test.sh`.
-- Record whether `TEST_DATABASE_URL` was unset, local disposable Postgres, or CI service Postgres.
-- Do not treat unit test success as DB-backed integration success.
+## Relay Handler Gaps
 
-## Deployment Security Concerns
+Several Relay handlers still contain TODO-level behavior.
 
-- Committed compose uses placeholder credentials such as `SESSION_SECRET=change-me-in-production` and local Postgres password.
-- Kubernetes `secret.example.yaml` uses `REPLACE_ME` placeholders.
-- Provider key vars are present but empty in compose/config examples.
+Evidence:
+- `src/server/internal/relay/handler/responses.go` notes Responses SSE streaming still needs implementation.
+- `src/server/internal/relay/handler/batch.go` notes pre-billing and async polling tasks are still pending.
+- `src/server/internal/relay/handler/files.go` notes file mapping persistence is still pending.
+- `src/server/internal/relay/handler/realtime.go` notes auth, pre-billing, and settlement are still pending.
 
-Mitigation:
-
-- Keep real secrets out of git.
-- Copy and fill `deploy/kubernetes/secret.example.yaml` outside the repo for real clusters.
-- Check `docs/release/rc-checklist.md` before any release candidate evidence is recorded.
-
-## Relay/LLM Boundary Risk
-
-Core value: all LLM calls must go through Relay.
-
-Risk areas:
-
-- `src/server/internal/http/router.go` creates local Relay URLs using `localhost:<port>/v1`.
-- Chat, Agent, and Memory depend on correct Relay wiring when `RELAY_ENABLED` is true.
-- Any future direct provider call in Chat/Agent/Memory would bypass quota/billing/monitoring.
+Impact:
+- The `/v1` route surface is broader than the fully implemented behavior.
+- Billing, quota, file lifecycle, realtime auth, and settlement can be incomplete for non-chat endpoints.
+- Documentation that says a route exists should not imply full production parity.
 
 Mitigation:
+- Classify Relay endpoints by native complete, passthrough, and stub/partial behavior.
+- Add endpoint-specific tests before advertising production support.
+- Keep quota and billing assertions close to Relay handler tests.
 
-- Keep `chat.NewRelayGateway`, `agent.Service` gateway injection, and `memory.NewRelayEmbedder` under test.
-- Include Relay/Quota/Agent/Memory packages in `go test ./... -count=1`.
+## Deployment Secret Placeholder Risk
 
-## API Surface Drift Risk
+Committed deployment examples intentionally use placeholder values.
 
-Route definitions are spread across:
+Evidence:
+- `docker-compose.yml` includes placeholder `SESSION_SECRET`, empty provider-key variables, and local service credentials.
+- `config/.env.example` contains local development placeholders.
+- `deploy/kubernetes/secret.example.yaml` is an example manifest, not a real secret.
 
-- `src/server/internal/http/router.go`
-- `src/server/internal/relay/handler/router.go`
-- `src/web/src/app/router.tsx`
-- `docs/API.md`
-- `docs/architecture/current-system-contracts.md`
-- `docs/release/rc-checklist.md`
-
-Mitigation:
-
-- `scripts/verify-quality-gates.sh` asserts key docs/API/checklist anchors.
-- Run `bash scripts/check.sh docs` after route or release command changes.
-
-## Migration Risk
-
-- Migrations are applied by reading and executing every `.sql` file in lexical order.
-- No explicit migration ledger is visible in `src/server/cmd/migrate/main.go`.
-- Old migrations should remain immutable; fixes should be append-only.
+Impact:
+- Copying examples directly to production would create weak sessions or missing provider integrations.
+- Provider calls may fall back to demo behavior or fail depending on env values.
 
 Mitigation:
+- Use committed files only as templates.
+- Store real secrets outside the repository or in the deployment platform secret store.
+- Check `docs/release/rc-checklist.md` before recording release evidence.
 
-- Review migration idempotency before using `cmd/migrate` against non-empty databases.
-- Continue append-only migration practice.
+## Integration Test Coverage Gap
 
-## Imported Tree Confusion
+DB-backed HTTP integration tests are optional and can be skipped.
 
-`lobehub/` and `new-api/` are present and large.
+Evidence:
+- `scripts/test.sh` runs server unit tests, then skips `go test ./internal/http` when `TEST_DATABASE_URL` is unset.
+- `docs/release/rc-checklist.md` requires explicit release evidence describing whether `TEST_DATABASE_URL` was set or skipped.
 
-Risk:
-
-- Agents or developers may accidentally map/build/test imported reference trees.
+Impact:
+- `bash scripts/test.sh server` can pass without proving the full HTTP persistence path.
+- Release evidence must distinguish unit coverage from DB-backed integration coverage.
 
 Mitigation:
+- Keep the explicit skip message intact.
+- For release candidates, run with a disposable Postgres `TEST_DATABASE_URL` when possible.
+- If skipped, record the skip reason in the release artifact rather than implying integration proof.
 
-- `pnpm-workspace.yaml` excludes them.
-- `.dockerignore` excludes `new-api` and node_modules under imported trees.
-- Release docs explicitly scope gates to `src/server`, `src/web`, `config`, `scripts`, `.github/workflows`, and release docs.
+## Reference Tree Confusion
+
+`lobehub/` and `new-api/` are large enough to distort searches, dependency analysis, and TODO counts.
+
+Evidence:
+- Root `pnpm-workspace.yaml` includes only `src/web`.
+- `scripts/check.sh` fails if `lobehub` or `new-api` appears as a root workspace member.
+- Repo searches find many TODOs and dependencies inside reference trees that do not belong to the active root product.
+
+Impact:
+- Agents can accidentally map or change reference code while intending to work on the active product.
+- Dependency and security analysis can over-report because it includes inactive reference projects.
+
+Mitigation:
+- Treat reference-tree findings as reference-only unless a phase explicitly scopes into those directories.
+- Use mainline filters for release work: `src/server`, `src/web`, `config`, `scripts`, `.github/workflows`, `docs`, and deployment files.
+
+## MCP Built-In Tool Placeholders
+
+The MCP built-in tool adapters include placeholder behavior.
+
+Evidence:
+- `src/server/internal/mcp/builtin.go` reports placeholder search results for `web_search`.
+- The calculator path reports placeholder expression handling instead of a robust expression parser.
+
+Impact:
+- Agent/tool-loop demos can appear functional while not providing real search or calculation semantics.
+- Product claims about built-in tools should stay narrow until these adapters are implemented or renamed as demos.
+
+Mitigation:
+- Label placeholder tools clearly in UI/API responses.
+- Replace placeholder adapters with real providers before making them default production tools.
+- Add tests that prove behavior beyond successful handler plumbing.
+
+## Stripe Wiring Ambiguity
+
+Stripe helper code exists, but active HTTP route registration was not found in the current router scan.
+
+Evidence:
+- `src/server/internal/stripe/checkout.go` and `src/server/internal/stripe/webhook.go` implement checkout/webhook helpers.
+- `src/server/internal/http/router.go` route scans did not show mounted Stripe webhook or checkout routes.
+
+Impact:
+- Billing UI or plan management may depend on code that is not reachable from the active app router.
+- Webhook idempotency and subscription updates cannot be proven from helper presence alone.
+
+Mitigation:
+- Add explicit route registration and route-level tests before relying on Stripe flows.
+- Document whether billing is placeholder, admin-managed, or live Stripe-backed in release notes.
+
+## Frontend Legacy Surface Debt
+
+There is a legacy workspace marketplace page alongside the active marketplace route set.
+
+Evidence:
+- Active routes in `src/web/src/app/router.tsx` use `src/web/src/routes/marketplace/*` for `/marketplace`.
+- `src/web/src/routes/workspace/MarketplacePage.tsx` still exists but is not the active route target.
+- `.planning/RETROSPECTIVE.md` records the legacy workspace marketplace page as obsolete debt.
+
+Impact:
+- Future edits can land in the obsolete page and have no user-visible effect.
+- Searches for marketplace logic return both active and legacy surfaces.
+
+Mitigation:
+- Remove the legacy page or rename it as archived/reference if no route depends on it.
+- Keep marketplace API and UI tests pointed at the active `src/web/src/routes/marketplace` tree.
+
+## Migration Execution Risk
+
+Migrations are applied by executing every SQL file in sorted order.
+
+Evidence:
+- `src/server/cmd/migrate/main.go` reads `src/server/migrations`, sorts `.sql` filenames, and executes each statement.
+- No explicit migration ledger or applied-version table is visible in the migration command.
+
+Impact:
+- Running migrations against a non-empty database depends on SQL idempotency.
+- Editing old migrations could break existing environments.
+
+Mitigation:
+- Keep old migrations immutable.
+- Apply fixes through new append-only migrations.
+- Test migration behavior against disposable databases before release validation.
