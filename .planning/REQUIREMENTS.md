@@ -1,7 +1,7 @@
 # Requirements: Oblivious v03.2 Quality and Release
 
 **Defined:** 2026-04-27
-**Current milestone:** v03.2 Quality and Release (blocked on DEPLOY-01 runtime validation)
+**Current milestone:** v03.2 Quality and Release (blocked on DEPLOY-01 runtime validation: Docker registry/proxy access and missing kubectl)
 **Core Value:** 统一的多渠道 LLM 调用层 — 所有 AI 调用必须经过 Relay
 
 ## Current Milestone Requirements
@@ -17,7 +17,7 @@
 
 ### Deployment
 
-- [ ] **DEPLOY-01**: Operator can start and validate the current service stack with Docker/Kubernetes configuration. Configuration exists; real Docker/Kubernetes startup validation is blocked by local runtime availability.
+- [ ] **DEPLOY-01**: Operator can start and validate the current service stack with Docker/Kubernetes configuration. Configuration exists; Docker daemon access works, but real startup validation is blocked by Docker registry/proxy access and missing Kubernetes tooling.
 
 ## v1 Requirements (Phase 1)
 
@@ -88,7 +88,7 @@
 - [x] **TEST-01**: 集成测试覆盖 Admin、Marketplace、Relay、Agent、Memory、Quota 的关键协作边界
 - [x] **TEST-02**: E2E 测试覆盖 Admin 与 Marketplace 的核心浏览器工作流
 - [x] **DOC-01**: API 文档和发布检查清单支持候选版本验收
-- [ ] **DEPLOY-01**: Docker/Kubernetes 配置可启动并验证当前服务栈（配置已补齐；真实启动验证被 Docker/kubectl 环境阻塞）
+- [ ] **DEPLOY-01**: Docker/Kubernetes 配置可启动并验证当前服务栈（配置已补齐；Docker daemon 权限已恢复，但真实启动验证仍被 Docker registry/proxy 与 kubectl 环境阻塞）
 
 ## Out of Scope
 
@@ -140,7 +140,7 @@
 | TEST-01 | Phase 4 / v03.2 | Complete |
 | TEST-02 | Phase 4 / v03.2 | Complete |
 | DOC-01 | Phase 4 / v03.2 | Complete |
-| DEPLOY-01 | Phase 4 / v03.2 | Blocked - runtime validation unavailable |
+| DEPLOY-01 | Phase 4 / v03.2 | Blocked - Docker registry/proxy access and Kubernetes tooling unavailable |
 
 **Coverage:**
 - Completed requirements: 45
@@ -150,4 +150,4 @@
 
 ---
 *Requirements defined: 2026-04-27*
-*Last updated: 2026-05-04 after completion audit*
+*Last updated: 2026-05-12 after DEPLOY-01 recheck*

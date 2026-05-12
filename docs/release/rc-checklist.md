@@ -15,7 +15,7 @@ No live provider keys required for docs checks, web tests, server tests, or Admi
 | Server unit and integration tests | `bash scripts/test.sh server` | `TEST_DATABASE_URL` optional for DB-backed integration tests | Command output, CI `server` URL, or explicit skip note |
 | Admin/Marketplace browser E2E | `COREPACK_HOME=.tmp/corepack pnpm --dir src/web test:e2e` | Playwright Chromium installed with `pnpm --dir src/web exec playwright install chromium` | Command output or CI `e2e` URL |
 | Full local gate | `bash scripts/check.sh all && bash scripts/test.sh all` | Same as component gates | Combined terminal log |
-| Docker compose smoke | `bash scripts/deploy-validate.sh` | Docker daemon access, compose, placeholder `DATABASE_URL`/`SESSION_SECRET` values from compose | Compose logs plus smoke output |
+| Docker compose smoke | `bash scripts/deploy-validate.sh` | Docker daemon access, registry/proxy access for base image pulls, compose, placeholder `DATABASE_URL`/`SESSION_SECRET` values from compose | Compose logs plus smoke output |
 | Kubernetes smoke | `kubectl apply -f deploy/kubernetes/namespace.yaml && kubectl apply -f deploy/kubernetes/` | Filled secret derived from `deploy/kubernetes/secret.example.yaml` outside git | Cluster rollout status and `/healthz` smoke output |
 
 ## Integration-Test Skip Semantics
@@ -38,7 +38,7 @@ When `TEST_DATABASE_URL` is set, the evidence must include the exact value class
 ## Deployment Preconditions
 
 - Use only environment variable names and placeholders in committed config.
-- If Docker or Kubernetes tooling is unavailable, follow [`deployment-runtime-remediation.md`](deployment-runtime-remediation.md) before recording DEPLOY-01 evidence.
+- If Docker daemon access, Docker registry/proxy access, or Kubernetes tooling is unavailable, follow [`deployment-runtime-remediation.md`](deployment-runtime-remediation.md) before recording DEPLOY-01 evidence.
 - Copy `deploy/kubernetes/secret.example.yaml` to an untracked secret manifest before real cluster use.
 - For local Docker smoke, run `bash scripts/deploy-validate.sh`. The script runs `docker compose config`, `docker compose build`, `docker compose up -d`, then `BASE_URL=http://127.0.0.1:8080 bash scripts/deploy-smoke.sh`. Set `KEEP_STACK=true` to leave the compose stack running after validation.
 - For Kubernetes smoke, build and load/push `oblivious-server:local` and `oblivious-web:local`, fill the secret from `deploy/kubernetes/secret.example.yaml`, then run `kubectl apply -f deploy/kubernetes/namespace.yaml` and `kubectl apply -f deploy/kubernetes/`.

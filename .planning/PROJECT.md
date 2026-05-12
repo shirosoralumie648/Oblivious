@@ -38,7 +38,7 @@ Oblivious 是一个多租户 AI 平台，整合 LobeHub（C端体验）和 New-A
 - ✓ Admin 与 Marketplace 后端 API — Phase 3a
 - ✓ Admin 管理面板与 Agent Marketplace UI — v03.1
 - ✓ Phase 4 release gates: backend integration tests, Admin/Marketplace browser E2E, API/RC docs, and deployment config
-- ⚠ Phase 4 deployment runtime validation remains blocked by Docker/kubectl availability
+- ⚠ Phase 4 deployment runtime validation remains blocked by Docker registry/proxy access and kubectl availability
 
 ### Active
 
@@ -76,7 +76,7 @@ Go Backend (Gin)
 **关键问题**:
 - Phase 03.1 已交付可用 Admin UI 与 Marketplace UI
 - v03.2 已完成质量、E2E、文档和部署配置收口
-- 当前本机 Docker daemon 权限与缺少 `kubectl` 阻止真实运行时 smoke，因此 DEPLOY-01 不能视为完全完成
+- 当前本机 Docker daemon 权限已经恢复，但 Docker image build 仍无法拉取 Docker Hub metadata；同时缺少 `kubectl`，因此 DEPLOY-01 不能视为完全完成
 - `src/web/src/routes/workspace/MarketplacePage.tsx` 是接受的 v03.1 清理债务：不再由 `/marketplace` 使用
 
 ## Constraints
@@ -98,4 +98,4 @@ Go Backend (Gin)
 
 ---
 
-*Last updated: 2026-05-04 after completion audit*
+*Last updated: 2026-05-12 after DEPLOY-01 recheck*

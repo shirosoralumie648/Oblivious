@@ -3,6 +3,7 @@ phase: 04-quality-release
 type: completion-audit
 status: blocked
 completed: 2026-05-04
+updated: 2026-05-12
 ---
 
 # Phase 04 Completion Audit
@@ -29,14 +30,47 @@ Concrete deliverables for this checkout:
 | Complete regular test suite | Web tests and server tests pass | `bash scripts/test.sh all` passed; Web Vitest 32 files / 110 tests; server `go test ./... -count=1` passed | Covered |
 | DB-backed integration tests | Either run with `TEST_DATABASE_URL` or record explicit skip | `bash scripts/test.sh all` printed `Skipping server integration tests: TEST_DATABASE_URL not set.` | Covered as explicit skip |
 | Compose config parses | Compose renders intended stack | `docker compose config` passed | Covered |
-| Docker image build | `docker build -f Dockerfile.server ...` and `docker build -f Dockerfile.web ...` execute successfully | `docker build -f Dockerfile.server -t oblivious-server:local .` fails before build because Docker daemon socket is inaccessible | Blocked |
-| Docker compose startup | `docker compose up -d` starts Postgres, Redis, server, web and healthchecks pass | Not run; requires Docker daemon | Blocked |
+| Docker image build | `docker build -f Dockerfile.server ...` and `docker build -f Dockerfile.web ...` execute successfully | 2026-05-12 recheck reaches build stage but fails resolving Docker Hub metadata for `docker/dockerfile:1`; daemon registry/proxy access is not configured | Blocked |
+| Docker compose startup | `docker compose up -d` starts Postgres, Redis, server, web and healthchecks pass | Not run; image build must succeed first | Blocked |
 | Real deployment smoke | `BASE_URL=http://127.0.0.1:8080 bash scripts/deploy-smoke.sh` checks the actual service stack | Smoke script passed only against a temporary `/healthz` stub; actual stack smoke not run | Blocked |
-| One-command deploy gate | `bash scripts/deploy-validate.sh` builds, starts, and smokes the compose stack | Script exists and passes `bash -n`; runtime execution exits early because Docker daemon is unreachable | Blocked |
+| One-command deploy gate | `bash scripts/deploy-validate.sh` builds, starts, and smokes the compose stack | Script exists and passes `bash -n`; runtime execution now reaches image build but fails on Docker Hub registry metadata access | Blocked |
 | Kubernetes validation | `kubectl apply --dry-run` or real apply validates manifests | `kubectl` is not installed | Blocked |
 | Alternative container runtime | Use Docker Desktop build socket, buildx, rootless Docker, buildctl, kind, minikube, or k3s if available | Docker Desktop build socket and buildx report permission errors; rootless/buildctl/kind/minikube/k3s are unavailable | Blocked |
 
 ## Fresh Verification Commands
+
+2026-05-12 DEPLOY-01 recheck:
+
+Passed:
+
+```bash
+id
+docker info
+docker compose config
+docker buildx ls
+curl -I --proxy http://127.0.0.1:7897 https://registry-1.docker.io/v2/
+```
+
+Failed / blocked:
+
+```bash
+bash scripts/deploy-validate.sh
+DOCKER_CONFIG="$(mktemp -d)" docker pull hello-world:latest
+kubectl version --client
+```
+
+Observed current blockers:
+
+```text
+failed to resolve source metadata for docker.io/docker/dockerfile:1
+Head "https://registry-1.docker.io/v2/docker/dockerfile/manifests/1": dial tcp ... connect: connection refused
+docker pull hello-world:latest: dial tcp ... i/o timeout
+/bin/bash: line 1: kubectl: command not found
+```
+
+Current interpretation: Docker daemon access is no longer the blocker. Docker Hub is reachable through the user-space proxy `http://127.0.0.1:7897` from `curl`, but Docker daemon pulls still go direct and fail. `~/.docker/config.json` also references `credsStore: desktop` while `docker-credential-desktop` is not available, which can break plain Docker client pulls before daemon registry access is addressed.
+
+Historical 2026-05-04 completion audit:
 
 Passed:
 
@@ -59,7 +93,7 @@ kubectl version --client
 DOCKER_HOST=unix:///home/shirosora/.docker/desktop/docker-desktop-build.sock docker buildx ls
 ```
 
-Observed blockers:
+Observed historical blockers:
 
 ```text
 dockerd needs to be started with root privileges.
@@ -73,11 +107,11 @@ Cannot load builder default: permission denied while trying to connect to the do
 
 The code, docs, normal test suite, E2E gate, compose parsing, and deployment asset checks are covered.
 
-The overall objective is not fully achieved yet because DEPLOY-01 requires evidence that the service stack can actually start and be health-checked. Current evidence only proves static compose parsing plus smoke-script behavior against a stub.
+The overall objective is not fully achieved yet because DEPLOY-01 requires evidence that the service stack can actually start and be health-checked. Current evidence proves static compose parsing and Docker daemon access, but image builds cannot complete until Docker daemon registry/proxy access is configured or an equivalent Kubernetes/image path is provided.
 
 ## Required Next Action
 
-Repair or provide a Docker/Kubernetes runtime, then run at least one real deployment validation path:
+Repair Docker registry access for the daemon or provide a Kubernetes runtime, then run at least one real deployment validation path:
 
 ```bash
 docker build -f Dockerfile.server -t oblivious-server:local .

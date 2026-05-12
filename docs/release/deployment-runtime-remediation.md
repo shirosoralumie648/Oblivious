@@ -1,21 +1,31 @@
 # Deployment Runtime Remediation
 
-This project cannot finish DEPLOY-01 until a real Docker or Kubernetes runtime is available.
+This project cannot finish DEPLOY-01 until a real Docker or Kubernetes runtime can build, start, and smoke the service stack.
 
 ## Current Blocker
 
-Observed in this checkout:
+Current 2026-05-12 observation in this checkout:
+
+```text
+docker info: passes
+docker compose config: passes
+bash scripts/deploy-validate.sh: reaches image build, then fails resolving Docker Hub metadata
+Docker Hub via user proxy: curl --proxy http://127.0.0.1:7897 https://registry-1.docker.io/v2/ reaches the registry
+Docker daemon pulls: still time out or refuse direct registry connections
+kubectl: command not found
+```
+
+Historical 2026-05-04 observation:
 
 ```text
 [deploy-validate] docker daemon is not reachable for the current user/session
 permission denied while trying to connect to the docker API at unix:///var/run/docker.sock
 dockerd needs to be started with root privileges.
-kubectl: command not found
 ```
 
-## Option A: Restore Docker Access
+## Option A: Restore Docker Daemon Access
 
-Use one of these host-level fixes:
+Use one of these host-level fixes if `docker info` fails:
 
 ```bash
 sudo systemctl start docker
@@ -38,7 +48,43 @@ docker info
 bash scripts/deploy-validate.sh
 ```
 
-## Option B: Validate With Kubernetes
+## Option B: Configure Docker Registry Access
+
+If `docker info` passes but builds fail while resolving `registry-1.docker.io`, configure Docker daemon proxy or registry access.
+
+First confirm the proxy itself reaches Docker Hub:
+
+```bash
+curl -I --proxy http://127.0.0.1:7897 https://registry-1.docker.io/v2/
+```
+
+If that works, configure the system Docker daemon to use the same proxy:
+
+```bash
+sudo mkdir -p /etc/systemd/system/docker.service.d
+sudo tee /etc/systemd/system/docker.service.d/http-proxy.conf >/dev/null <<'EOF'
+[Service]
+Environment="HTTP_PROXY=http://127.0.0.1:7897"
+Environment="HTTPS_PROXY=http://127.0.0.1:7897"
+Environment="NO_PROXY=localhost,127.0.0.1,::1"
+EOF
+sudo systemctl daemon-reload
+sudo systemctl restart docker
+docker info | grep -i proxy
+bash scripts/deploy-validate.sh
+```
+
+If plain `docker pull` fails with `docker-credential-desktop` missing while using the Linux engine, remove or replace the stale Desktop credential helper in `~/.docker/config.json`:
+
+```bash
+cp ~/.docker/config.json ~/.docker/config.json.bak
+# Remove the line containing: "credsStore": "desktop"
+docker pull hello-world:latest
+```
+
+Do not remove the Desktop credential helper if Docker Desktop is the intended active runtime and `docker-credential-desktop` is installed.
+
+## Option C: Validate With Kubernetes
 
 Install or provide `kubectl` plus a target cluster, then fill secrets outside git:
 

@@ -2,11 +2,11 @@
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-05-04)
+See: `.planning/PROJECT.md` (updated 2026-05-12)
 
 **Core value:** 统一的多渠道 LLM 调用层 — 所有 AI 调用必须经过 Relay
 
-**Current focus:** Milestone v03.2 Quality and Release is blocked on DEPLOY-01 runtime validation. TEST-01, TEST-02, and DOC-01 are complete; deployment config exists but real Docker/Kubernetes startup evidence is missing.
+**Current focus:** Milestone v03.2 Quality and Release is blocked on DEPLOY-01 runtime validation. TEST-01, TEST-02, and DOC-01 are complete; deployment config exists, Docker daemon access now works, but Docker image build is blocked by registry/proxy access and Kubernetes validation is still unavailable because `kubectl` is missing.
 
 ## Current Status
 
@@ -18,9 +18,9 @@ See: `.planning/PROJECT.md` (updated 2026-05-04)
 |-------|-------|
 | Phase | Phase 4: 质量与发布 |
 | Plan | 04-01 through 04-03 complete; 04-04 config complete but runtime validation blocked |
-| Status | Blocked on Docker daemon / kubectl availability |
+| Status | Blocked on Docker registry/proxy access and kubectl availability |
 | Progress | 0/1 phases, 3/4 requirements complete, 1 blocked |
-| Last activity | 2026-05-04 — completion audit found DEPLOY-01 lacks real Docker/Kubernetes startup evidence |
+| Last activity | 2026-05-12 — Docker daemon access recovered; DEPLOY-01 recheck now blocks on Docker Hub registry access/proxy and missing kubectl |
 
 ## Current Scope
 
@@ -45,6 +45,21 @@ See: `.planning/PROJECT.md` (updated 2026-05-04)
 
 ## Verification Results
 
+Latest DEPLOY-01 recheck on 2026-05-12:
+
+```bash
+id
+docker info
+docker compose config
+bash scripts/deploy-validate.sh
+curl -I --proxy http://127.0.0.1:7897 https://registry-1.docker.io/v2/
+DOCKER_CONFIG="$(mktemp -d)" docker pull hello-world:latest
+docker buildx ls
+kubectl version --client
+```
+
+Result: Docker daemon access is now available for user `shirosora`, `docker info` passes, `docker compose config` passes, and the default buildx builder is running. `bash scripts/deploy-validate.sh` reaches the Docker image build stage but fails while resolving Docker Hub metadata for `docker/dockerfile:1`; direct Docker Hub access from the daemon times out or is refused. A client-side curl through `http://127.0.0.1:7897` reaches `registry-1.docker.io`, so the remaining Docker blocker is daemon registry/proxy configuration, not project compose syntax. `~/.docker/config.json` also contains `credsStore: desktop` while `docker-credential-desktop` is not available, which can break plain `docker pull`. `kubectl` remains unavailable.
+
 Latest v03.2 completion audit:
 
 ```bash
@@ -60,9 +75,9 @@ docker build -f Dockerfile.server -t oblivious-server:local .
 kubectl version --client
 ```
 
-Result: docs quality gate passed; `docker compose config` passed; full check gate passed in the approved non-sandbox path; full test gate passed in the approved non-sandbox path with 32 web test files / 110 tests and server `go test ./... -count=1`; Admin/Marketplace Playwright E2E passed 3/3; DB-backed HTTP integration tests skipped explicitly because `TEST_DATABASE_URL` was not set; deployment smoke script passed against a temporary local `/healthz` stub; `scripts/deploy-validate.sh` passed shell syntax validation and fails clearly when Docker daemon access is unavailable.
+Result: docs quality gate passed; `docker compose config` passed; full check gate passed in the approved non-sandbox path; full test gate passed in the approved non-sandbox path with 32 web test files / 110 tests and server `go test ./... -count=1`; Admin/Marketplace Playwright E2E passed 3/3; DB-backed HTTP integration tests skipped explicitly because `TEST_DATABASE_URL` was not set; deployment smoke script passed against a temporary local `/healthz` stub; `scripts/deploy-validate.sh` passed shell syntax validation.
 
-Blocked checks: Docker image builds could not run because the local Docker daemon socket denied access; starting a temporary `dockerd` failed because root privileges are required; Docker Desktop build socket/buildx also report permission errors; Kubernetes apply/dry-run could not run because `kubectl` is not installed. These are recorded in `.planning/phases/04-quality-release/04-COMPLETION-AUDIT.md`.
+Historical blocker: Docker image builds could not run on 2026-05-04 because the local Docker daemon socket denied access, and Kubernetes apply/dry-run could not run because `kubectl` was not installed. Current blocker changed on 2026-05-12: daemon access works, but image build cannot pull Docker Hub metadata without daemon registry/proxy configuration, and `kubectl` is still not installed.
 
 Latest v03.2 TEST-02 gate:
 
@@ -116,7 +131,7 @@ Result: Go handler suite passed; Vitest targeted suite passed (12 files, 32 test
 | Phase 2 Agent 与 Memory 增强 | 2026-04-28 | EXEC-01~03, MEM-01~03, QUOTA-01 |
 | Phase 3a Admin 与 Marketplace 后端 | 2026-04-29 | ADMIN-01~03, MARKET-01 |
 | v03.1 Admin 与 Marketplace UI | 2026-05-02 | ADMIN-04, MARKET-02 |
-| v03.2 Quality and Release | Blocked 2026-05-04 | TEST-01, TEST-02, DOC-01 complete; DEPLOY-01 runtime validation blocked |
+| v03.2 Quality and Release | Blocked 2026-05-12 | TEST-01, TEST-02, DOC-01 complete; DEPLOY-01 runtime validation blocked by Docker registry/proxy access and missing kubectl |
 
 ## Deferred Items
 
@@ -130,7 +145,7 @@ Items acknowledged and deferred at v03.1 milestone close on 2026-05-02:
 
 ## Next Suggested Step
 
-Restore Docker daemon access or install/provide Kubernetes tooling, then run `bash scripts/deploy-validate.sh` or an equivalent real deployment smoke. Do not archive v03.2 until DEPLOY-01 has real stack startup evidence.
+Configure Docker daemon registry/proxy access, remove or replace the stale `docker-credential-desktop` credsStore entry if using the Linux engine, or install/provide Kubernetes tooling. Then run `bash scripts/deploy-validate.sh` or an equivalent real deployment smoke. Do not archive v03.2 until DEPLOY-01 has real stack startup evidence.
 
 ## Context Files
 
@@ -162,7 +177,8 @@ Restore Docker daemon access or install/provide Kubernetes tooling, then run `ba
 | 2026-05-04 | 04-03 将 `docs/API.md` 作为 canonical API index | 文件已覆盖当前 live route surface；质量门禁改为防漂移而非重复重写 |
 | 2026-05-04 | RC checklist 要求显式记录 `TEST_DATABASE_URL` skip | DB-backed integration tests 可以按脚本规则跳过，但 release evidence 必须说明原因 |
 | 2026-05-04 | Kubernetes Namespace 门禁检查 `metadata.name` 而不是 `namespace` 字段 | Namespace 资源不应要求无效的 namespace-scoped 字段 |
-| 2026-05-04 | Docker/kubectl 运行验证不能作为已完成项 | 当前 session 无 Docker daemon 权限且无 kubectl；compose parsing 与 stub smoke 不足以证明服务栈可启动 |
+| 2026-05-04 | Docker/kubectl 运行验证不能作为已完成项 | 当时 session 无 Docker daemon 权限且无 kubectl；compose parsing 与 stub smoke 不足以证明服务栈可启动 |
+| 2026-05-12 | Docker daemon 权限恢复但 DEPLOY-01 仍阻塞 | `docker info` 与 `docker compose config` 通过；`scripts/deploy-validate.sh` 在 Docker Hub metadata 拉取处失败；需要 Docker daemon registry/proxy 配置或 Kubernetes runtime |
 
 ---
-*State updated: 2026-05-04 after completion audit*
+*State updated: 2026-05-12 after DEPLOY-01 recheck*

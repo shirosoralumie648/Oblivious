@@ -43,7 +43,7 @@ key-files:
 
 key-decisions:
   - "Keep Kubernetes namespace manifests valid by asserting metadata.name instead of adding an invalid namespace field."
-  - "Treat Docker daemon and kubectl availability as operator environment prerequisites, not committed config requirements."
+  - "Treat Docker daemon registry/proxy access and kubectl availability as operator environment prerequisites, not committed config requirements."
   - "Use docker compose config and project release gates as local verification when daemon access is unavailable."
 
 patterns-established:
@@ -55,7 +55,7 @@ requirements-blocked: [DEPLOY-01]
 status: blocked
 
 duration: 35min
-updated: 2026-05-04
+updated: 2026-05-12
 ---
 
 # Phase 04 Plan 04: Deployment Configuration And Smoke Path Summary
@@ -73,6 +73,47 @@ updated: 2026-05-04
 - Corrected the namespace quality-gate assertion to validate `metadata.name: oblivious` instead of requiring an invalid `namespace` field on a Namespace resource.
 
 ## Verification
+
+2026-05-12 recheck:
+
+Passed:
+
+```bash
+id
+docker info
+docker compose config
+docker buildx ls
+curl -I --proxy http://127.0.0.1:7897 https://registry-1.docker.io/v2/
+```
+
+Observed results:
+
+- User `shirosora` is now in the `docker` group.
+- `docker info` passes and shows the default Linux engine is reachable.
+- `docker compose config` still renders the stack successfully.
+- The default buildx builder is running.
+- Docker Hub registry is reachable from the shell through the local proxy at `http://127.0.0.1:7897`.
+
+Blocked:
+
+```bash
+bash scripts/deploy-validate.sh
+DOCKER_CONFIG="$(mktemp -d)" docker pull hello-world:latest
+kubectl version --client
+```
+
+Observed blocker:
+
+```text
+failed to resolve source metadata for docker.io/docker/dockerfile:1
+Head "https://registry-1.docker.io/v2/docker/dockerfile/manifests/1": dial tcp ... connect: connection refused
+docker pull hello-world:latest: dial tcp ... i/o timeout
+/bin/bash: line 1: kubectl: command not found
+```
+
+Current interpretation: Docker daemon permission is fixed. DEPLOY-01 is still blocked because the daemon cannot reach Docker Hub registry metadata without proxy/registry configuration, and Kubernetes validation is still unavailable because `kubectl` is not installed. The local Docker client config also references `credsStore: desktop` while `docker-credential-desktop` is unavailable, which should be removed or replaced when using the Linux engine.
+
+Historical 2026-05-04 verification:
 
 Passed:
 
@@ -96,7 +137,7 @@ Observed results:
 - `scripts/deploy-smoke.sh` passed against a temporary local `/healthz` stub, proving the script success path.
 - `bash -n scripts/deploy-validate.sh` passed shell syntax validation.
 
-Environment-limited checks:
+Historical environment-limited checks:
 
 ```text
 docker build -f Dockerfile.server -t oblivious-server:local .
@@ -116,21 +157,22 @@ permission denied while trying to connect to the docker API at unix:///var/run/d
 [deploy-validate] docker daemon is not reachable for the current user/session
 ```
 
-Additional environment notes:
+Current environment notes:
 
-- `docker version` shows a Docker client is installed, but daemon access is blocked for the current session.
-- `kubectl` is not installed in this environment, so Kubernetes apply/dry-run validation could not be executed locally.
-- `docker compose config` does not require daemon access and passed.
+- Docker daemon access is now available.
+- Docker image builds still fail while pulling Docker Hub metadata.
+- `kubectl` is not installed in this environment, so Kubernetes apply/dry-run validation cannot be executed locally.
+- `docker compose config` passed.
 
 ## Deviations from Plan
 
-- Real Docker image build and real compose startup could not be completed in this session because Docker daemon access is blocked.
+- Real Docker image build and real compose startup could not be completed because Docker daemon registry/proxy access is blocked.
 - Kubernetes runtime validation could not be completed because `kubectl` is not installed.
 - No committed config gap remains for DEPLOY-01; the remaining runtime checks are operator environment prerequisites documented in the RC checklist.
 
 ## User Setup Required
 
-Before a real deployment smoke, ensure Docker daemon access and kubectl are available, then run:
+Before a real deployment smoke, configure Docker daemon registry/proxy access or provide Kubernetes tooling, then run:
 
 ```bash
 docker compose build
@@ -145,7 +187,7 @@ For Kubernetes, copy `deploy/kubernetes/secret.example.yaml` to an untracked sec
 - `04-04-SUMMARY.md` exists.
 - Requirement `DEPLOY-01` is not complete until a real Docker compose or Kubernetes startup path is health-checked.
 - No real provider keys or secrets were added.
-- Docker/kubectl runtime limitations are recorded as environment prerequisites.
+- Docker registry/proxy and kubectl runtime limitations are recorded as environment prerequisites.
 
 ## Phase Readiness
 
