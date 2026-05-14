@@ -9,9 +9,9 @@
 
 ## Current Status
 
-Milestone v03.3 is in planning. It should consolidate and verify the current mainline changes already present in the worktree before any new feature expansion.
+Milestone v03.3 is ready to execute Phase 5. It should consolidate and verify the current mainline changes already present in the worktree before any new feature expansion.
 
-**Next workflow step:** `$gsd:discuss-phase 5`
+**Next workflow step:** `$gsd:execute-phase 5`
 
 ## Current Milestone: v03.3 Mainline Consolidation
 
@@ -19,7 +19,7 @@ Milestone v03.3 is in planning. It should consolidate and verify the current mai
 
 | Phase | Name | Requirements | Status |
 |-------|------|--------------|--------|
-| Phase 5 | Dirty Worktree Triage and Commit Boundary | CONS-01 | Not started |
+| Phase 5 | Dirty Worktree Triage and Commit Boundary | CONS-01 | Planned |
 | Phase 6 | Backend Mainline Integration Hardening | ROUTE-01, CHAT-06, AUTH-01 | Not started |
 | Phase 7 | Frontend, E2E, and Deployment Gate Alignment | DEPLOY-02 | Not started |
 | Phase 8 | Contract Docs and Release Verification | DOC-02, VERIFY-01 | Not started |
