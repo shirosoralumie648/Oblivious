@@ -3,9 +3,12 @@
 node_modules/
 dist/
 coverage/
+playwright-report/
+test-results/
 .env
 .env.*
 !.env.example
+deploy/kubernetes/secret.yaml
 bin/
 .build/
 .tmp/

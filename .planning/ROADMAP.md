@@ -1,196 +1,78 @@
-# ROADMAP.md
+# Roadmap: Oblivious
 
-## 1. 路线图头信息
+## Milestones
 
-- Plan Basis: `docs/superpowers/plans/2026-04-22-full-delivery-plan.md + .planning/codebase/`
-- 当前项目状态摘要: `Relay、Agent 工具循环、Memory HNSW、Quota-Billing、Admin API/UI、Marketplace API/UI、质量门禁、E2E、文档与部署配置已实现；DEPLOY-01 真实运行时验证阻塞`
-- 目标状态摘要: `v03.2 / Phase 4 仍需真实 Docker 或 Kubernetes smoke 才能收口为发布候选`
-- 关键风险: `测试矩阵膨胀、E2E 环境稳定性、部署配置与当前 dirty checkout 的漂移`
-- 总体推进策略: `先定义 Phase 4 验收面，再按测试、文档、部署顺序收口`
-- Phase 列表: `M1.1 Relay 挂载; M1.2 Chat 走 Relay; M1.3 Agent Runtime; M1.4 MCP Client; Phase 2 Agent 与 Memory 增强; Phase 3 Admin/Marketplace 后端; Phase 3.1 Admin/Marketplace UI; Phase 4 质量与发布`
-- 最高优先级里程碑: `v03.2 Quality and Release`
-- 验收策略: `go test ./... + pnpm test + bash scripts/check.sh all`
+- ✅ **v03.2 Quality and Release** — Phase 4 (shipped 2026-05-14; Docker compose runtime validated 2026-05-12)
+- ✅ **v03.1 Admin and Marketplace UI** — Phase 03.1 (shipped 2026-05-02)
+- ✅ **Foundation through Admin/Marketplace Backend** — Phase 1, Phase 2, Phase 3a (completed 2026-04-27 through 2026-04-29)
 
-## 2. Phase 1: Relay 集成与基础能力 (4周)
+## Current Status
 
-### M1.1 Relay 挂载到主应用 (Week 1)
+Milestone v03.2 is archived. The next workflow step is `$gsd:new-milestone` to define the next version's goals, requirements, and roadmap.
 
-**Goal**: 将 Relay 模块挂载到主 HTTP server，使 `/v1/*` 路由走 Relay
+## Archived Milestone Details
 
-**Requirements**: RELAY-01 ~ RELAY-07
+<details>
+<summary>✅ v03.2 Quality and Release — SHIPPED 2026-05-14</summary>
 
-**Tasks**:
-1. 数据库迁移 - channels 和 model_routes 表
-2. 配置扩展 - Relay 配置项
-3. Relay Store - 数据库持久化
-4. 主应用集成 - server.go 修改
-5. 开发环境默认渠道
+**Goal:** 补齐集成测试、E2E、API 文档和部署发布能力。
 
-**Success Criteria**:
-- [ ] `GET /v1/models` 返回可用模型列表
-- [ ] `POST /v1/chat/completions` 通过 Relay 调用 OpenAI
-- [ ] 渠道配置可从数据库读取
-- [ ] 无渠道时返回友好错误
+**Requirements:** TEST-01, TEST-02, DOC-01, DEPLOY-01.
 
----
+**Plans:** 4/4 complete.
 
-### M1.2 Chat 走 Relay 调用 LLM (Week 1-2)
+- [x] 04-01: Backend release test gate — `go test ./... -count=1` covers Admin, Marketplace, Relay, Agent, Memory, and Quota boundaries.
+- [x] 04-02: Admin and Marketplace E2E gate — Playwright covers Admin navigation, Marketplace browse/detail/install, publish, and my-agents flows.
+- [x] 04-03: API documentation and RC checklist — API docs, system contracts, README links, and quality-gate assertions aligned.
+- [x] 04-04: Deployment configuration and smoke path — Docker compose build/start/smoke passed against the real `/healthz` endpoint with documented restricted-network overrides.
 
-**Goal**: 修改 Chat 模块，使其通过 Relay 调用 LLM
+**Primary verification:**
 
-**Requirements**: CHAT-01 ~ CHAT-05
+- `bash scripts/check.sh all`
+- `bash scripts/test.sh all`
+- `COREPACK_HOME=.tmp/corepack pnpm --dir src/web test:e2e`
+- `docker compose config`
+- `OBLIVIOUS_IMAGE_REGISTRY_PREFIX=docker.m.daocloud.io/library/ OBLIVIOUS_GOPROXY=https://mirrors.aliyun.com/goproxy/,direct OBLIVIOUS_GOSUMDB=sum.golang.google.cn bash scripts/deploy-validate.sh`
 
-**Tasks**:
-1. Chat Gateway 重构 - 接口化设计
-2. RelayGateway 实现 - OpenAI 格式请求
-3. 流式响应支持 - SSE 解析
-4. Token 使用量记录
-5. 配置切换机制
+**Archive:** `.planning/milestones/v03.2-ROADMAP.md`
 
-**Success Criteria**:
-- [ ] Chat 消息通过 Relay 发送到 OpenAI
-- [ ] 流式响应正常工作
-- [ ] Token 使用量正确记录
-- [ ] 原有测试不回归
+</details>
 
----
+<details>
+<summary>✅ v03.1 Admin and Marketplace UI — SHIPPED 2026-05-02</summary>
 
-### M1.3 Agent Runtime 核心 (Week 2-3)
+**Goal:** 实现 Admin 管理面板 UI 和 Marketplace 前端页面（8 Admin + 4 Marketplace 页面合同）。
 
-**Goal**: 建立 Agent 服务基础，支持创建、管理 Agent 并进行对话
+**Requirements:** ADMIN-04, MARKET-02.
 
-**Requirements**: AGENT-01 ~ AGENT-10
+**Plans:** 7/7 complete.
 
-**Tasks**:
-1. 数据库迁移 - agents, agent_conversations, agent_messages
-2. Agent Service - CRUD + 对话
-3. Agent HTTP Handler - REST API
-4. 前端 Agent 页面骨架
+**Verification:** Go handler suite, 12 focused Vitest files / 32 tests, and `tsc --noEmit` passed. UAT, security (`threats_open: 0`), Nyquist validation, and milestone audit are complete.
 
-**Success Criteria**:
-- [ ] Agent CRUD API 正常工作
-- [ ] Agent 对话通过 Relay 调用 LLM
-- [ ] 前端可创建和管理 Agent
-- [ ] 对话历史正确保存
+**Archive:** `.planning/milestones/v03.1-ROADMAP.md`
 
----
+</details>
 
-### M1.4 MCP Client 骨架 (Week 3-4)
+<details>
+<summary>✅ Foundation through Admin/Marketplace Backend — COMPLETED 2026-04-27 to 2026-04-29</summary>
 
-**Goal**: 实现 MCP 客户端，支持工具发现和调用
+- [x] Phase 1 Relay/Chat/Agent/MCP foundation — RELAY-01~07, CHAT-01~05, AGENT-01~10, MCP-01~07.
+- [x] Phase 2 Agent 与 Memory 增强 — EXEC-01~03, MEM-01~03, QUOTA-01.
+- [x] Phase 3a Admin 与 Marketplace 后端 — ADMIN-01~03, MARKET-01.
 
-**Requirements**: MCP-01 ~ MCP-07
+These phases remain available in `.planning/phases/` and the v03.2 roadmap archive for historical context.
 
-**Tasks**:
-1. 数据库迁移 - mcp_servers
-2. MCP Client - 连接管理
-3. MCP 协议消息
-4. 内置工具实现
-5. MCP HTTP Handler
+</details>
 
-**Success Criteria**:
-- [ ] 可连接外部 MCP Server
-- [ ] 可发现 MCP Server 提供的工具
-- [ ] 可调用 MCP 工具
-- [ ] 内置工具正常工作
+## Progress
 
----
+| Milestone | Scope | Plans | Requirements | Status | Completed |
+|-----------|-------|-------|--------------|--------|-----------|
+| v03.2 Quality and Release | Phase 4 | 4/4 | TEST-01, TEST-02, DOC-01, DEPLOY-01 | Shipped | 2026-05-14 |
+| v03.1 Admin and Marketplace UI | Phase 03.1 | 7/7 | ADMIN-04, MARKET-02 | Shipped | 2026-05-02 |
+| Foundation through Backend | Phases 1, 2, 3a | Historical | RELAY, CHAT, AGENT, MCP, MEM, EXEC, QUOTA, ADMIN, MARKET | Complete | 2026-04-29 |
 
-## 3. 里程碑依赖
-
-```
-M1.1 (Relay 挂载)
-    ↓
-M1.2 (Chat 走 Relay)
-    ↓
-M1.3 (Agent Runtime) ──→ M1.4 (MCP Client)
-```
-
-## 4. 验收命令
-
-每个里程碑完成后执行：
-
-```bash
-# 后端测试
-cd src/server && go test ./... -count=1
-
-# 前端测试
-cd src/web && pnpm test
-
-# 完整检查
-bash scripts/check.sh all
-bash scripts/test.sh all
-```
-
-## 5. Phase 2: Agent 与 Memory 增强 (Week 5-6)
-
-**Goal**: 完成 Agent 自动工具调用循环、Memory 向量检索加固，以及 Quota 与 Relay Billing 的真实集成
-
-**Requirements**: MEM-01 ~ MEM-03, EXEC-01 ~ EXEC-03, QUOTA-01
-
-**Tasks**:
-1. Chat/Relay 契约扩展 - 保留 tools/tool_calls/usage 等结构化字段，支持 Agent 工具调用
-2. Agent Runner 串联 - 让 `agent.Service` 走 `Runner` 自动循环并持久化工具结果
-3. Memory 加固 - HNSW 索引迁移、检索与嵌入路径验证、补充测试
-4. Quota-Billing 串联 - Relay Billing Hook 接入 `quota.Service`，补全预扣/结算/退款链路
-
-**Success Criteria**:
-- [x] Agent 可自动执行内置工具与 MCP 工具并继续对话
-- [x] 工具结果正确写入 `agent_messages`，最终回复可返回给前端
-- [x] Memory 向量搜索保持按用户隔离并通过测试验证
-- [x] Relay 请求可完成 Quota 预扣/结算/退款而不绕过 Relay
-
-**Completed**: 2026-04-28 | **Tests**: 61 passing | **Commits**: 8 tasks + SUMMARY
-
-## 5.5. Phase 3a: Admin 与 Marketplace 后端 (Week 7-8)
-
-**Goal**: 实现渠道/套餐/用户管理 API + Marketplace Agent 发布/发现/安装后端
-
-**Requirements**: ADMIN-01 ~ ADMIN-03, MARKET-01
-
-**Completed**: 2026-04-29 | **Tests**: 3 passing | **Commits**: 12 tasks + SUMMARY
-
-## 5.6. Phase 3.1: Admin 与 Marketplace UI (INSERTED)
-
-**Goal**: 实现 Admin 管理面板 UI 和 Marketplace 前端页面（8 Admin + 4 Marketplace 页面合同）
-
-**Requirements**: ADMIN-04, MARKET-02
-
-**Status**: Completed 2026-05-02 | **Tests**: Go handler suite + 12 Vitest files / 32 tests + `tsc --noEmit` | **Audit**: `.planning/v03.1-MILESTONE-AUDIT.md`
-
-**UI Design Contract**: `.planning/phases/03-admin-marketplace/03-UI-SPEC.md`
-
-**Milestone Archive**: `.planning/milestones/v03.1-ROADMAP.md`
-
-**Delivered**:
-- Admin API/UI for dashboard, channels, routes, plans, users, audit log, and reviews.
-- Marketplace API/UI for browse/search, agent detail, install, reviews, publish, and my-agents.
-- UAT complete, security verified (`threats_open: 0`), Nyquist compliant, milestone audit complete.
-
-## 5.7. Phase 4: 质量与发布 (v03.2)
-
-**Goal**: 补齐集成测试、E2E、API 文档和部署发布能力
-
-**Requirements**: TEST-01, TEST-02, DOC-01, DEPLOY-01
-
-**Status**: Blocked — DEPLOY-01 runtime validation unavailable in current environment
-
-**Tasks**:
-1. [x] 集成测试收口 - 覆盖 Admin、Marketplace、Relay、Agent、Memory、Quota 的关键协作路径
-2. [x] E2E 测试收口 - 覆盖 Admin 与 Marketplace 的核心浏览器工作流
-3. [x] API 文档与发布检查清单 - 记录 HTTP 表面、验收命令、发布候选判定
-4. [ ] 部署配置 - 配置与验证脚本已补齐；真实 Docker/Kubernetes 启动验证被环境阻塞
-
-**Success Criteria**:
-- [x] `go test ./... -count=1` 或明确的集成测试切片覆盖关键后端协作路径
-- [x] 前端 E2E 命令可以验证 Admin 与 Marketplace 的核心工作流
-- [x] API 文档覆盖当前发布候选需要暴露和验收的 HTTP surface
-- [x] 发布检查清单列出必跑命令、环境前置条件和已知非阻塞债务
-- [ ] Docker/Kubernetes 配置可以启动并健康检查当前服务栈
-
-**Progress**: 3/4 requirements complete, 1/4 blocked. TEST-01 completed by `.planning/phases/04-quality-release/04-01-SUMMARY.md`; TEST-02 completed by `.planning/phases/04-quality-release/04-02-SUMMARY.md`; DOC-01 completed by `.planning/phases/04-quality-release/04-03-SUMMARY.md`; DEPLOY-01 configuration is documented by `.planning/phases/04-quality-release/04-04-SUMMARY.md` but runtime validation is blocked.
-
-## 6. Backlog
+## Backlog
 
 ### Phase 999.1: Follow-up — Phase 01 incomplete plan artifacts (BACKLOG)
 
@@ -213,4 +95,4 @@ bash scripts/test.sh all
 - [ ] Decide whether future milestone completion should reset `.planning/REQUIREMENTS.md` or keep it as cross-phase context in this repo
 
 ---
-*Roadmap created: 2026-04-27; updated 2026-05-04 after completion audit*
+*Roadmap updated: 2026-05-14 after v03.2 milestone archive*

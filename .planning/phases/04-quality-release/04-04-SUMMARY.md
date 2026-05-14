@@ -37,22 +37,28 @@ key-files:
     - scripts/deploy-smoke.sh
     - scripts/deploy-validate.sh
   modified:
+    - Dockerfile.server
+    - Dockerfile.web
+    - docker-compose.yml
     - config/.env.example
     - docs/release/rc-checklist.md
+    - docs/release/deployment-runtime-remediation.md
+    - scripts/deploy-validate.sh
     - scripts/verify-quality-gates.sh
 
 key-decisions:
   - "Keep Kubernetes namespace manifests valid by asserting metadata.name instead of adding an invalid namespace field."
-  - "Treat Docker daemon registry/proxy access and kubectl availability as operator environment prerequisites, not committed config requirements."
-  - "Use docker compose config and project release gates as local verification when daemon access is unavailable."
+  - "Keep default Docker Hub and Go module behavior unchanged, but expose build-time registry and Go proxy overrides for restricted networks."
+  - "Treat Kubernetes validation as an alternate runtime path; Docker compose smoke is sufficient for DEPLOY-01 once the real stack starts and health-checks."
 
 patterns-established:
   - "RC checklist deployment gates name Docker and Kubernetes commands with explicit secret-copy instructions."
   - "Quality gates protect deploy asset presence, mainline path usage, /healthz probes, and placeholder-only secret examples."
+  - "Restricted-network Docker validation can set OBLIVIOUS_IMAGE_REGISTRY_PREFIX, OBLIVIOUS_GOPROXY, and OBLIVIOUS_GOSUMDB without changing committed defaults."
 
-requirements-completed: []
-requirements-blocked: [DEPLOY-01]
-status: blocked
+requirements-completed: [DEPLOY-01]
+requirements-blocked: []
+status: complete
 
 duration: 35min
 updated: 2026-05-12
@@ -60,7 +66,7 @@ updated: 2026-05-12
 
 # Phase 04 Plan 04: Deployment Configuration And Smoke Path Summary
 
-**The release candidate now has Docker and Kubernetes deployment assets for the active `src/server` + `src/web` stack, plus a repeatable `/healthz` smoke command. Real Docker/Kubernetes runtime validation is still blocked by the current environment.**
+**The release candidate now has Docker and Kubernetes deployment assets for the active `src/server` + `src/web` stack, plus a repeatable `/healthz` smoke command. Docker compose runtime validation passed on 2026-05-12.**
 
 ## Accomplishments
 
@@ -71,10 +77,33 @@ updated: 2026-05-12
 - Added `scripts/deploy-validate.sh` to run the full Docker compose validation path once daemon access is available.
 - Updated release quality gates so deployment assets are checked by `bash scripts/check.sh docs`.
 - Corrected the namespace quality-gate assertion to validate `metadata.name: oblivious` instead of requiring an invalid `namespace` field on a Namespace resource.
+- Added optional restricted-network overrides for Docker base image prefixes and Go module metadata downloads while preserving default Docker Hub behavior.
 
 ## Verification
 
-2026-05-12 recheck:
+2026-05-12 completion:
+
+Passed:
+
+```bash
+docker compose config
+OBLIVIOUS_IMAGE_REGISTRY_PREFIX=docker.m.daocloud.io/library/ \
+  OBLIVIOUS_GOPROXY=https://mirrors.aliyun.com/goproxy/,direct \
+  OBLIVIOUS_GOSUMDB=sum.golang.google.cn \
+  bash scripts/deploy-validate.sh
+```
+
+Observed results:
+
+- Compose rendered successfully with both default settings and restricted-network overrides.
+- `oblivious-oblivious-web` built successfully from `Dockerfile.web`.
+- `oblivious-oblivious-server` built successfully from `Dockerfile.server`.
+- Compose started PostgreSQL, Redis, `oblivious-server`, and `oblivious-web`.
+- PostgreSQL, Redis, and `oblivious-server` reached healthy status.
+- `scripts/deploy-smoke.sh` passed against `http://127.0.0.1:8080/healthz`.
+- `scripts/deploy-validate.sh` cleaned up the compose stack after the smoke passed.
+
+Earlier 2026-05-12 diagnostics:
 
 Passed:
 
@@ -84,34 +113,51 @@ docker info
 docker compose config
 docker buildx ls
 curl -I --proxy http://127.0.0.1:7897 https://registry-1.docker.io/v2/
+docker pull docker.m.daocloud.io/library/postgres:16
+docker pull docker.m.daocloud.io/library/redis:7
+docker pull docker.m.daocloud.io/library/node:20-bookworm-slim
+docker pull docker.m.daocloud.io/library/golang:1.25-bookworm
+docker pull docker.m.daocloud.io/library/nginx:1.27-alpine
+docker pull docker.m.daocloud.io/library/alpine:3.21
 ```
 
 Observed results:
 
 - User `shirosora` is now in the `docker` group.
 - `docker info` passes and shows the default Linux engine is reachable.
-- `docker compose config` still renders the stack successfully.
+- `docker compose config` renders the stack successfully.
 - The default buildx builder is running.
 - Docker Hub registry is reachable from the shell through the local proxy at `http://127.0.0.1:7897`.
+- Docker daemon direct pulls still time out against Docker Hub, but the Daocloud mirror pulled the required base images.
 
-Blocked:
+Failed / blocked diagnostics:
 
 ```bash
 bash scripts/deploy-validate.sh
+OBLIVIOUS_IMAGE_REGISTRY_PREFIX=docker.1ms.run/library/ bash scripts/deploy-validate.sh
+OBLIVIOUS_IMAGE_REGISTRY_PREFIX=docker.m.daocloud.io/library/ OBLIVIOUS_GOPROXY=https://goproxy.cn,direct OBLIVIOUS_GOSUMDB=sum.golang.google.cn bash scripts/deploy-validate.sh
+OBLIVIOUS_IMAGE_REGISTRY_PREFIX=docker.m.daocloud.io/library/ OBLIVIOUS_GOPROXY=https://goproxy.io,direct OBLIVIOUS_GOSUMDB=sum.golang.google.cn bash scripts/deploy-validate.sh
 DOCKER_CONFIG="$(mktemp -d)" docker pull hello-world:latest
+docker pull hello-world:latest
+HTTP_PROXY=http://127.0.0.1:7897 HTTPS_PROXY=http://127.0.0.1:7897 NO_PROXY=localhost,127.0.0.1,::1 docker pull hello-world:latest
 kubectl version --client
+sudo -n true
 ```
 
-Observed blocker:
+Observed diagnostic failures:
 
 ```text
 failed to resolve source metadata for docker.io/docker/dockerfile:1
-Head "https://registry-1.docker.io/v2/docker/dockerfile/manifests/1": dial tcp ... connect: connection refused
+Head "https://registry-1.docker.io/v2/docker/dockerfile/manifests/1": dial tcp ... i/o timeout
+docker.1ms.run/library/golang:1.25-bookworm: missing layer from remote: not found
+https://goproxy.cn/...: read: connection reset by peer
+https://github.com/twitchyliquid64/golang-asm/: Recv failure: Connection reset by peer
 docker pull hello-world:latest: dial tcp ... i/o timeout
 /bin/bash: line 1: kubectl: command not found
+sudo: 需要密码
 ```
 
-Current interpretation: Docker daemon permission is fixed. DEPLOY-01 is still blocked because the daemon cannot reach Docker Hub registry metadata without proxy/registry configuration, and Kubernetes validation is still unavailable because `kubectl` is not installed. The local Docker client config also references `credsStore: desktop` while `docker-credential-desktop` is unavailable, which should be removed or replaced when using the Linux engine.
+Current interpretation: Docker daemon permission is fixed and DEPLOY-01 is complete through the Docker compose path. Default Docker Hub and default Go module routes remain unreliable in this host environment, so restricted-network validation should use the documented image registry prefix and Aliyun Go proxy overrides. Kubernetes validation remains unavailable because `kubectl` is not installed, but it is now an optional alternate path rather than a DEPLOY-01 blocker.
 
 Historical 2026-05-04 verification:
 
@@ -160,39 +206,40 @@ permission denied while trying to connect to the docker API at unix:///var/run/d
 Current environment notes:
 
 - Docker daemon access is now available.
-- Docker image builds still fail while pulling Docker Hub metadata.
+- The stale Docker Desktop credential helper reference was removed from the user Docker config.
+- Docker image builds pass when restricted-network overrides are set.
 - `kubectl` is not installed in this environment, so Kubernetes apply/dry-run validation cannot be executed locally.
-- `docker compose config` passed.
+- `docker compose config` and `scripts/deploy-validate.sh` passed.
 
 ## Deviations from Plan
 
-- Real Docker image build and real compose startup could not be completed because Docker daemon registry/proxy access is blocked.
-- Kubernetes runtime validation could not be completed because `kubectl` is not installed.
-- No committed config gap remains for DEPLOY-01; the remaining runtime checks are operator environment prerequisites documented in the RC checklist.
+- Default Docker Hub and default Go proxy paths could not complete in this network; validation used explicit mirror/proxy environment overrides instead.
+- Kubernetes runtime validation could not be completed because `kubectl` is not installed. Docker compose validation satisfied DEPLOY-01.
 
-## User Setup Required
+## Restricted-Network Validation Command
 
-Before a real deployment smoke, configure Docker daemon registry/proxy access or provide Kubernetes tooling, then run:
+Use this command when Docker Hub or `proxy.golang.org` is unreliable:
 
 ```bash
-docker compose build
-docker compose up -d
-BASE_URL=http://127.0.0.1:8080 bash scripts/deploy-smoke.sh
+OBLIVIOUS_IMAGE_REGISTRY_PREFIX=docker.m.daocloud.io/library/ \
+  OBLIVIOUS_GOPROXY=https://mirrors.aliyun.com/goproxy/,direct \
+  OBLIVIOUS_GOSUMDB=sum.golang.google.cn \
+  bash scripts/deploy-validate.sh
 ```
 
 For Kubernetes, copy `deploy/kubernetes/secret.example.yaml` to an untracked secret manifest, fill placeholders outside git, then apply the manifests as documented in `docs/release/rc-checklist.md`.
 
-## Self-Check: BLOCKED
+## Self-Check: PASS
 
 - `04-04-SUMMARY.md` exists.
-- Requirement `DEPLOY-01` is not complete until a real Docker compose or Kubernetes startup path is health-checked.
+- Requirement `DEPLOY-01` is complete through a real Docker compose startup and health check.
 - No real provider keys or secrets were added.
-- Docker registry/proxy and kubectl runtime limitations are recorded as environment prerequisites.
+- Docker registry/proxy and `kubectl` limitations are recorded as environment notes and remediation guidance.
 
 ## Phase Readiness
 
-Phase 4 / v03.2 Quality and Release remains blocked on DEPLOY-01 runtime validation. TEST-01, TEST-02, and DOC-01 are closed; DEPLOY-01 has configuration and smoke tooling in place but lacks real startup evidence.
+Phase 4 / v03.2 Quality and Release is complete. TEST-01, TEST-02, DOC-01, and DEPLOY-01 are closed; the next workflow step is milestone completion.
 
 ---
 *Phase: 04-quality-release*
-*Audited: 2026-05-04*
+*Audited: 2026-05-12*

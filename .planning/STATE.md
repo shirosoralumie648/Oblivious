@@ -1,26 +1,37 @@
+---
+gsd_state_version: 1.0
+milestone: v03.2
+milestone_name: Quality and Release
+status: milestone_complete
+last_updated: "2026-05-14T05:03:06.121Z"
+last_activity: 2026-05-14 — Milestone v03.2 completed and archived
+progress:
+  total_phases: 1
+  completed_phases: 1
+  total_plans: 4
+  completed_plans: 4
+---
+
 # STATE.md
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-05-12)
+See: `.planning/PROJECT.md` (updated 2026-05-14)
 
 **Core value:** 统一的多渠道 LLM 调用层 — 所有 AI 调用必须经过 Relay
 
-**Current focus:** Milestone v03.2 Quality and Release is blocked on DEPLOY-01 runtime validation. TEST-01, TEST-02, and DOC-01 are complete; deployment config exists, Docker daemon access now works, but Docker image build is blocked by registry/proxy access and Kubernetes validation is still unavailable because `kubectl` is missing.
+**Current focus:** Milestone v03.2 Quality and Release is archived. The next workflow step is `$gsd:new-milestone`.
 
 ## Current Status
 
-**Milestone v03.2: Quality and Release — BLOCKED**
+**Milestone v03.2: Quality and Release — ARCHIVED / AWAITING NEXT MILESTONE**
 
 ## Current Position
 
-| Field | Value |
-|-------|-------|
-| Phase | Phase 4: 质量与发布 |
-| Plan | 04-01 through 04-03 complete; 04-04 config complete but runtime validation blocked |
-| Status | Blocked on Docker registry/proxy access and kubectl availability |
-| Progress | 0/1 phases, 3/4 requirements complete, 1 blocked |
-| Last activity | 2026-05-12 — Docker daemon access recovered; DEPLOY-01 recheck now blocks on Docker Hub registry access/proxy and missing kubectl |
+Phase: Milestone v03.2 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-05-14 — Milestone v03.2 completed and archived
 
 ## Current Scope
 
@@ -29,7 +40,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-12)
 | TEST-01 | Complete — broad backend release gate and boundary tests |
 | TEST-02 | Complete — E2E tests for Admin and Marketplace browser workflows |
 | DOC-01 | Complete — API documentation and release checklist |
-| DEPLOY-01 | Blocked — config and smoke path exist; real stack startup/healthcheck not verified |
+| DEPLOY-01 | Complete — Docker compose built images, started Postgres/Redis/server/web, and passed `/healthz` smoke |
 
 ## Previous Milestone Baseline
 
@@ -45,7 +56,19 @@ See: `.planning/PROJECT.md` (updated 2026-05-12)
 
 ## Verification Results
 
-Latest DEPLOY-01 recheck on 2026-05-12:
+Latest DEPLOY-01 completion on 2026-05-12:
+
+```bash
+docker compose config
+OBLIVIOUS_IMAGE_REGISTRY_PREFIX=docker.m.daocloud.io/library/ \
+  OBLIVIOUS_GOPROXY=https://mirrors.aliyun.com/goproxy/,direct \
+  OBLIVIOUS_GOSUMDB=sum.golang.google.cn \
+  bash scripts/deploy-validate.sh
+```
+
+Result: Docker compose rendered successfully, server and web images built successfully, compose started PostgreSQL, Redis, `oblivious-server`, and `oblivious-web`, `scripts/deploy-smoke.sh` passed against `http://127.0.0.1:8080/healthz`, and `scripts/deploy-validate.sh` cleaned up the stack. This satisfies DEPLOY-01 through the Docker runtime path. Direct Docker Hub access from the daemon still times out in this host environment, so the validated local path uses `OBLIVIOUS_IMAGE_REGISTRY_PREFIX=docker.m.daocloud.io/library/`. Go module downloads also needed `OBLIVIOUS_GOPROXY=https://mirrors.aliyun.com/goproxy/,direct` and `OBLIVIOUS_GOSUMDB=sum.golang.google.cn`. `kubectl` is still unavailable, so Kubernetes remains an unexecuted alternative deployment path, not a blocker for DEPLOY-01 after Docker validation passed.
+
+Earlier DEPLOY-01 diagnostics on 2026-05-12:
 
 ```bash
 id
@@ -54,11 +77,14 @@ docker compose config
 bash scripts/deploy-validate.sh
 curl -I --proxy http://127.0.0.1:7897 https://registry-1.docker.io/v2/
 DOCKER_CONFIG="$(mktemp -d)" docker pull hello-world:latest
+docker pull hello-world:latest
+HTTP_PROXY=http://127.0.0.1:7897 HTTPS_PROXY=http://127.0.0.1:7897 NO_PROXY=localhost,127.0.0.1,::1 docker pull hello-world:latest
 docker buildx ls
 kubectl version --client
+sudo -n true
 ```
 
-Result: Docker daemon access is now available for user `shirosora`, `docker info` passes, `docker compose config` passes, and the default buildx builder is running. `bash scripts/deploy-validate.sh` reaches the Docker image build stage but fails while resolving Docker Hub metadata for `docker/dockerfile:1`; direct Docker Hub access from the daemon times out or is refused. A client-side curl through `http://127.0.0.1:7897` reaches `registry-1.docker.io`, so the remaining Docker blocker is daemon registry/proxy configuration, not project compose syntax. `~/.docker/config.json` also contains `credsStore: desktop` while `docker-credential-desktop` is not available, which can break plain `docker pull`. `kubectl` remains unavailable.
+Result: Docker daemon access is now available for user `shirosora`, `docker info` passes, `docker compose config` passes, and the default buildx builder is running. The default `bash scripts/deploy-validate.sh` path reached the Docker image build stage but failed while resolving Docker Hub metadata for `docker/dockerfile:1`; direct Docker Hub access from the daemon timed out. A client-side curl through `http://127.0.0.1:7897` reached `registry-1.docker.io`, but Docker CLI proxy environment variables did not make the daemon pull through that proxy. The stale `~/.docker/config.json` `credsStore: desktop` entry was removed after backing up the file to `~/.docker/config.json.bak-20260512-0426`; plain `docker pull` then reached the daemon and failed only on registry network timeout. The current user cannot non-interactively configure the system Docker daemon proxy because `sudo -n true` requires a password. `kubectl` remains unavailable.
 
 Latest v03.2 completion audit:
 
@@ -77,7 +103,7 @@ kubectl version --client
 
 Result: docs quality gate passed; `docker compose config` passed; full check gate passed in the approved non-sandbox path; full test gate passed in the approved non-sandbox path with 32 web test files / 110 tests and server `go test ./... -count=1`; Admin/Marketplace Playwright E2E passed 3/3; DB-backed HTTP integration tests skipped explicitly because `TEST_DATABASE_URL` was not set; deployment smoke script passed against a temporary local `/healthz` stub; `scripts/deploy-validate.sh` passed shell syntax validation.
 
-Historical blocker: Docker image builds could not run on 2026-05-04 because the local Docker daemon socket denied access, and Kubernetes apply/dry-run could not run because `kubectl` was not installed. Current blocker changed on 2026-05-12: daemon access works, but image build cannot pull Docker Hub metadata without daemon registry/proxy configuration, and `kubectl` is still not installed.
+Historical blocker: Docker image builds could not run on 2026-05-04 because the local Docker daemon socket denied access, and Kubernetes apply/dry-run could not run because `kubectl` was not installed. On 2026-05-12, daemon access worked; default Docker Hub and default Go proxy paths remained unreliable, but the documented mirror/proxy overrides allowed the real Docker compose validation to pass.
 
 Latest v03.2 TEST-02 gate:
 
@@ -131,7 +157,7 @@ Result: Go handler suite passed; Vitest targeted suite passed (12 files, 32 test
 | Phase 2 Agent 与 Memory 增强 | 2026-04-28 | EXEC-01~03, MEM-01~03, QUOTA-01 |
 | Phase 3a Admin 与 Marketplace 后端 | 2026-04-29 | ADMIN-01~03, MARKET-01 |
 | v03.1 Admin 与 Marketplace UI | 2026-05-02 | ADMIN-04, MARKET-02 |
-| v03.2 Quality and Release | Blocked 2026-05-12 | TEST-01, TEST-02, DOC-01 complete; DEPLOY-01 runtime validation blocked by Docker registry/proxy access and missing kubectl |
+| v03.2 Quality and Release | 2026-05-12 | TEST-01, TEST-02, DOC-01, DEPLOY-01 |
 
 ## Deferred Items
 
@@ -145,7 +171,7 @@ Items acknowledged and deferred at v03.1 milestone close on 2026-05-02:
 
 ## Next Suggested Step
 
-Configure Docker daemon registry/proxy access, remove or replace the stale `docker-credential-desktop` credsStore entry if using the Linux engine, or install/provide Kubernetes tooling. Then run `bash scripts/deploy-validate.sh` or an equivalent real deployment smoke. Do not archive v03.2 until DEPLOY-01 has real stack startup evidence.
+Run `$gsd:new-milestone` to define the next milestone. If validating v03.2 again on a restricted network, use the documented Docker overrides from the latest DEPLOY-01 evidence.
 
 ## Context Files
 
@@ -157,9 +183,10 @@ Configure Docker daemon registry/proxy access, remove or replace the stale `dock
 - Phase 4 summaries: `.planning/phases/04-quality-release/04-01-SUMMARY.md` through `04-04-SUMMARY.md`
 - Phase 4 audit: `.planning/phases/04-quality-release/04-COMPLETION-AUDIT.md`
 - Milestones: `.planning/MILESTONES.md`
-- Milestone archive: `.planning/milestones/v03.1-ROADMAP.md`
-- Requirements archive: `.planning/milestones/v03.1-REQUIREMENTS.md`
-- Milestone audit: `.planning/milestones/v03.1-MILESTONE-AUDIT.md`
+- Milestone archive: `.planning/milestones/v03.2-ROADMAP.md`
+- Requirements archive: `.planning/milestones/v03.2-REQUIREMENTS.md`
+- Milestone audit: `.planning/milestones/v03.2-MILESTONE-AUDIT.md`
+- Previous milestone archive: `.planning/milestones/v03.1-ROADMAP.md`
 - Codebase Map: `.planning/codebase/`
 
 ## Key Decisions Log
@@ -178,7 +205,12 @@ Configure Docker daemon registry/proxy access, remove or replace the stale `dock
 | 2026-05-04 | RC checklist 要求显式记录 `TEST_DATABASE_URL` skip | DB-backed integration tests 可以按脚本规则跳过，但 release evidence 必须说明原因 |
 | 2026-05-04 | Kubernetes Namespace 门禁检查 `metadata.name` 而不是 `namespace` 字段 | Namespace 资源不应要求无效的 namespace-scoped 字段 |
 | 2026-05-04 | Docker/kubectl 运行验证不能作为已完成项 | 当时 session 无 Docker daemon 权限且无 kubectl；compose parsing 与 stub smoke 不足以证明服务栈可启动 |
-| 2026-05-12 | Docker daemon 权限恢复但 DEPLOY-01 仍阻塞 | `docker info` 与 `docker compose config` 通过；`scripts/deploy-validate.sh` 在 Docker Hub metadata 拉取处失败；需要 Docker daemon registry/proxy 配置或 Kubernetes runtime |
+| 2026-05-12 | Docker daemon 权限恢复但 DEPLOY-01 仍阻塞 | `docker info` 与 `docker compose config` 通过；已移除过期 Docker Desktop `credsStore`；`scripts/deploy-validate.sh` 仍在 Docker Hub metadata 拉取处失败；需要 sudo/root 配置 Docker daemon registry/proxy 或提供 Kubernetes runtime |
+| 2026-05-12 | DEPLOY-01 通过 Docker compose 真实运行验证 | 使用 `OBLIVIOUS_IMAGE_REGISTRY_PREFIX=docker.m.daocloud.io/library/`、`OBLIVIOUS_GOPROXY=https://mirrors.aliyun.com/goproxy/,direct`、`OBLIVIOUS_GOSUMDB=sum.golang.google.cn` 后，`scripts/deploy-validate.sh` 完成镜像构建、compose 启动和 `/healthz` smoke |
 
 ---
-*State updated: 2026-05-12 after DEPLOY-01 recheck*
+*State updated: 2026-05-14 after v03.2 milestone archive*
+
+## Operator Next Steps
+
+- Start the next milestone with `$gsd:new-milestone`

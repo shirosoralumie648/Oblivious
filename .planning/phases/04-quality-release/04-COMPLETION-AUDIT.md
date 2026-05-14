@@ -1,8 +1,8 @@
 ---
 phase: 04-quality-release
 type: completion-audit
-status: blocked
-completed: 2026-05-04
+status: complete
+completed: 2026-05-12
 updated: 2026-05-12
 ---
 
@@ -30,16 +30,16 @@ Concrete deliverables for this checkout:
 | Complete regular test suite | Web tests and server tests pass | `bash scripts/test.sh all` passed; Web Vitest 32 files / 110 tests; server `go test ./... -count=1` passed | Covered |
 | DB-backed integration tests | Either run with `TEST_DATABASE_URL` or record explicit skip | `bash scripts/test.sh all` printed `Skipping server integration tests: TEST_DATABASE_URL not set.` | Covered as explicit skip |
 | Compose config parses | Compose renders intended stack | `docker compose config` passed | Covered |
-| Docker image build | `docker build -f Dockerfile.server ...` and `docker build -f Dockerfile.web ...` execute successfully | 2026-05-12 recheck reaches build stage but fails resolving Docker Hub metadata for `docker/dockerfile:1`; daemon registry/proxy access is not configured | Blocked |
-| Docker compose startup | `docker compose up -d` starts Postgres, Redis, server, web and healthchecks pass | Not run; image build must succeed first | Blocked |
-| Real deployment smoke | `BASE_URL=http://127.0.0.1:8080 bash scripts/deploy-smoke.sh` checks the actual service stack | Smoke script passed only against a temporary `/healthz` stub; actual stack smoke not run | Blocked |
-| One-command deploy gate | `bash scripts/deploy-validate.sh` builds, starts, and smokes the compose stack | Script exists and passes `bash -n`; runtime execution now reaches image build but fails on Docker Hub registry metadata access | Blocked |
-| Kubernetes validation | `kubectl apply --dry-run` or real apply validates manifests | `kubectl` is not installed | Blocked |
-| Alternative container runtime | Use Docker Desktop build socket, buildx, rootless Docker, buildctl, kind, minikube, or k3s if available | Docker Desktop build socket and buildx report permission errors; rootless/buildctl/kind/minikube/k3s are unavailable | Blocked |
+| Docker image build | `docker build -f Dockerfile.server ...` and `docker build -f Dockerfile.web ...` execute successfully | `scripts/deploy-validate.sh` built `oblivious-oblivious-server` and `oblivious-oblivious-web` successfully with documented restricted-network overrides | Covered |
+| Docker compose startup | `docker compose up -d` starts Postgres, Redis, server, web and healthchecks pass | `scripts/deploy-validate.sh` started PostgreSQL, Redis, server, and web; data services and server reached healthy state | Covered |
+| Real deployment smoke | `BASE_URL=http://127.0.0.1:8080 bash scripts/deploy-smoke.sh` checks the actual service stack | `scripts/deploy-smoke.sh` passed against the compose-started server at `http://127.0.0.1:8080/healthz` | Covered |
+| One-command deploy gate | `bash scripts/deploy-validate.sh` builds, starts, and smokes the compose stack | Passed with `OBLIVIOUS_IMAGE_REGISTRY_PREFIX`, `OBLIVIOUS_GOPROXY`, and `OBLIVIOUS_GOSUMDB` overrides | Covered |
+| Kubernetes validation | `kubectl apply --dry-run` or real apply validates manifests | `kubectl` is not installed; Kubernetes remains an alternate path, not required after Docker runtime validation passed | Not run |
+| Alternative container runtime | Use Docker Desktop build socket, buildx, rootless Docker, buildctl, kind, minikube, or k3s if available | Not needed because the Linux Docker engine completed the compose validation | Not needed |
 
 ## Fresh Verification Commands
 
-2026-05-12 DEPLOY-01 recheck:
+2026-05-12 DEPLOY-01 completion:
 
 Passed:
 
@@ -49,26 +49,46 @@ docker info
 docker compose config
 docker buildx ls
 curl -I --proxy http://127.0.0.1:7897 https://registry-1.docker.io/v2/
+docker pull docker.m.daocloud.io/library/postgres:16
+docker pull docker.m.daocloud.io/library/redis:7
+docker pull docker.m.daocloud.io/library/node:20-bookworm-slim
+docker pull docker.m.daocloud.io/library/golang:1.25-bookworm
+docker pull docker.m.daocloud.io/library/nginx:1.27-alpine
+docker pull docker.m.daocloud.io/library/alpine:3.21
+OBLIVIOUS_IMAGE_REGISTRY_PREFIX=docker.m.daocloud.io/library/ \
+  OBLIVIOUS_GOPROXY=https://mirrors.aliyun.com/goproxy/,direct \
+  OBLIVIOUS_GOSUMDB=sum.golang.google.cn \
+  bash scripts/deploy-validate.sh
 ```
 
-Failed / blocked:
+Earlier failed / blocked diagnostics:
 
 ```bash
 bash scripts/deploy-validate.sh
+OBLIVIOUS_IMAGE_REGISTRY_PREFIX=docker.1ms.run/library/ bash scripts/deploy-validate.sh
+OBLIVIOUS_IMAGE_REGISTRY_PREFIX=docker.m.daocloud.io/library/ OBLIVIOUS_GOPROXY=https://goproxy.cn,direct OBLIVIOUS_GOSUMDB=sum.golang.google.cn bash scripts/deploy-validate.sh
+OBLIVIOUS_IMAGE_REGISTRY_PREFIX=docker.m.daocloud.io/library/ OBLIVIOUS_GOPROXY=https://goproxy.io,direct OBLIVIOUS_GOSUMDB=sum.golang.google.cn bash scripts/deploy-validate.sh
 DOCKER_CONFIG="$(mktemp -d)" docker pull hello-world:latest
+docker pull hello-world:latest
+HTTP_PROXY=http://127.0.0.1:7897 HTTPS_PROXY=http://127.0.0.1:7897 NO_PROXY=localhost,127.0.0.1,::1 docker pull hello-world:latest
 kubectl version --client
+sudo -n true
 ```
 
-Observed current blockers:
+Observed diagnostic failures:
 
 ```text
 failed to resolve source metadata for docker.io/docker/dockerfile:1
-Head "https://registry-1.docker.io/v2/docker/dockerfile/manifests/1": dial tcp ... connect: connection refused
+Head "https://registry-1.docker.io/v2/docker/dockerfile/manifests/1": dial tcp ... i/o timeout
+docker.1ms.run/library/golang:1.25-bookworm: missing layer from remote: not found
+https://goproxy.cn/...: read: connection reset by peer
+https://github.com/twitchyliquid64/golang-asm/: Recv failure: Connection reset by peer
 docker pull hello-world:latest: dial tcp ... i/o timeout
 /bin/bash: line 1: kubectl: command not found
+sudo: 需要密码
 ```
 
-Current interpretation: Docker daemon access is no longer the blocker. Docker Hub is reachable through the user-space proxy `http://127.0.0.1:7897` from `curl`, but Docker daemon pulls still go direct and fail. `~/.docker/config.json` also references `credsStore: desktop` while `docker-credential-desktop` is not available, which can break plain Docker client pulls before daemon registry access is addressed.
+Current interpretation: Docker daemon access is no longer the blocker, and DEPLOY-01 is complete through Docker compose. Docker Hub is reachable through the user-space proxy `http://127.0.0.1:7897` from `curl`, but Docker daemon pulls still go direct and fail by default; setting proxy variables on the Docker CLI does not fix daemon-side registry access. The validated path therefore uses an explicit image registry prefix plus Aliyun Go module proxy. The stale `~/.docker/config.json` `credsStore: desktop` entry was removed after backing up the file to `~/.docker/config.json.bak-20260512-0426`. The current user cannot non-interactively configure the system Docker daemon proxy because `sudo -n true` requires a password.
 
 Historical 2026-05-04 completion audit:
 
@@ -105,29 +125,25 @@ Cannot load builder default: permission denied while trying to connect to the do
 
 ## Audit Verdict
 
-The code, docs, normal test suite, E2E gate, compose parsing, and deployment asset checks are covered.
+The code, docs, normal test suite, E2E gate, compose parsing, deployment asset checks, Docker image builds, compose startup, and real `/healthz` deployment smoke are covered.
 
-The overall objective is not fully achieved yet because DEPLOY-01 requires evidence that the service stack can actually start and be health-checked. Current evidence proves static compose parsing and Docker daemon access, but image builds cannot complete until Docker daemon registry/proxy access is configured or an equivalent Kubernetes/image path is provided.
+The Phase 4 objective is achieved. DEPLOY-01 has real stack startup and health-check evidence through Docker compose. Kubernetes validation was not run because `kubectl` is not installed, but the requirement accepted one real Docker or Kubernetes runtime path.
 
 ## Required Next Action
 
-Repair Docker registry access for the daemon or provide a Kubernetes runtime, then run at least one real deployment validation path:
+Archive v03.2 and prepare the next milestone:
 
 ```bash
-docker build -f Dockerfile.server -t oblivious-server:local .
-docker build -f Dockerfile.web -t oblivious-web:local .
-docker compose up -d
-BASE_URL=http://127.0.0.1:8080 bash scripts/deploy-smoke.sh
+$gsd:complete-milestone
 ```
 
-Equivalent one-command gate:
+For restricted-network revalidation, use:
 
 ```bash
-bash scripts/deploy-validate.sh
+OBLIVIOUS_IMAGE_REGISTRY_PREFIX=docker.m.daocloud.io/library/ \
+  OBLIVIOUS_GOPROXY=https://mirrors.aliyun.com/goproxy/,direct \
+  OBLIVIOUS_GOSUMDB=sum.golang.google.cn \
+  bash scripts/deploy-validate.sh
 ```
-
-or validate Kubernetes with installed `kubectl` and a target cluster/dry-run environment.
 
 Operational remediation steps are documented in `docs/release/deployment-runtime-remediation.md`.
-
-Until one of those paths succeeds, do not mark the thread goal complete.

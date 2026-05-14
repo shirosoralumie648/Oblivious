@@ -38,10 +38,49 @@
 - When `gsd-sdk` is unavailable, a file-based fallback can still preserve the GSD gates if every generated artifact records concrete evidence.
 - Audit debt should be separated from functional blockers; Phase 03.1 was shippable even though metadata cleanup remained.
 
+## Milestone: v03.2 - Quality and Release
+
+**Shipped:** 2026-05-14
+**Phases:** 1 | **Plans:** 4
+
+### What Was Built
+
+- Backend release gate covering Admin, Marketplace, Relay, Agent, Memory, and Quota boundaries.
+- Playwright browser E2E for Admin and Marketplace release workflows.
+- API documentation, current system contracts, README release links, RC checklist, and docs quality-gate assertions.
+- Dockerfiles, Docker compose stack, Kubernetes manifests, env examples, deploy smoke script, and deploy validation script.
+- Restricted-network Docker compose validation path that built images, started the stack, and passed `/healthz`.
+
+### What Worked
+
+- Keeping DB-backed integration tests explicit behind `TEST_DATABASE_URL` allowed normal release gates to stay deterministic.
+- Playwright route fixtures covered browser workflows without live provider, payment, or database dependencies.
+- Release docs tied commands to concrete evidence, which made the final DEPLOY-01 closeout auditable.
+- Registry and Go proxy overrides let deployment validation succeed without changing committed defaults.
+
+### What Was Inefficient
+
+- Docker daemon access, Docker Hub routing, Go module access, and missing `kubectl` required several rounds of environment diagnosis.
+- `gsd-sdk roadmap.analyze` misread the collapsed roadmap/backlog shape during closeout, so milestone archive stats had to be corrected manually.
+- The worktree remains broadly dirty, which makes milestone commit/tag creation unsafe without a separate cleanup or staging pass.
+
+### Patterns Established
+
+- Deployment gates should distinguish default-path failures from documented restricted-network success paths.
+- DEPLOY-01 can be satisfied by one real runtime path; Kubernetes is an alternate path when Docker compose has already proven build/start/smoke.
+- Living `.planning/REQUIREMENTS.md` should not be deleted in this repo until the backlog item about reset policy is resolved.
+
+### Key Lessons
+
+- Do not mark deployment complete from compose parsing or stub smoke; require a real stack startup and health check.
+- Keep exact mirror/proxy env names in the runbook because they are part of the validated operator path.
+- GSD closeout automation needs a manual sanity check when roadmap parsing returns impossible stats like 0 phases and 0 plans.
+
 ## Cross-Milestone Trends
 
 | Theme | Observation |
 |-------|-------------|
-| State drift | Top-level planning files need explicit refresh after fast phase execution. |
-| Verification | Small targeted commands are more reliable than broad scripts in this environment. |
-| Dirty worktree handling | Workflow artifacts should be committed narrowly and unrelated changes left untouched. |
+| State drift | Top-level planning files need explicit refresh after fast phase execution and after environment-blocker resolution. |
+| Verification | Targeted commands plus one full release gate give better evidence than either narrow slices or broad scripts alone. |
+| Dirty worktree handling | Workflow artifacts should be edited narrowly and unrelated changes left untouched; commit/tag steps need a clean staging plan. |
+| Deployment | Runtime claims require real startup evidence; restricted-network overrides are valid only when recorded as exact commands. |
