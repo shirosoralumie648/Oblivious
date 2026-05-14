@@ -1,27 +1,37 @@
-# Requirements: Oblivious v03.2 Quality and Release
+# Requirements: Oblivious v03.3 Mainline Consolidation
 
-**Defined:** 2026-04-27
-**Current milestone:** v03.2 Quality and Release (shipped and archived; next milestone not defined)
+**Defined:** 2026-05-14
+**Current milestone:** v03.3 Mainline Consolidation
 **Core Value:** 统一的多渠道 LLM 调用层 — 所有 AI 调用必须经过 Relay
 
 ## Current Milestone Requirements
 
-### Testing
+### Mainline Consolidation
+
+- [ ] **CONS-01**: Maintainer can classify the current uncommitted source, documentation, deployment, and frontend test changes into coherent work slices before committing.
+
+### Backend Route and Service Integration
+
+- [ ] **ROUTE-01**: Backend maintainer can register Agent, Memory, MCP, Notification, Quota, and WebSocket routes/services with explicit auth/admin boundaries and targeted tests.
+- [ ] **CHAT-06**: Chat and Agent calls preserve the Relay-first contract, including structured tool calls, streaming behavior, request metadata, and usage accounting hooks.
+- [ ] **AUTH-01**: Admin and app clients can rely on user/session contracts that expose user name and role consistently while keeping admin-only operations enforceable.
+
+### Deployment, Documentation, and Verification
+
+- [ ] **DEPLOY-02**: Operator can use Docker, compose, CI, and Playwright changes without regressing the v03.2 restricted-network runtime validation path.
+- [ ] **DOC-02**: Developer can compare API, architecture, release, and README docs against live routes and commands for the consolidated mainline.
+- [ ] **VERIFY-01**: Maintainer can run a documented targeted verification suite before committing the consolidated work slices.
+
+## Historical Validated Requirements
+
+### v03.2 Quality and Release
 
 - [x] **TEST-01**: Maintainer can run integration tests that prove Admin, Marketplace, Relay, Agent, Memory, and Quota service boundaries work together without bypassing Relay.
 - [x] **TEST-02**: Release owner can run E2E tests that cover the primary Admin and Marketplace user workflows from the browser surface.
-
-### Documentation
-
 - [x] **DOC-01**: Developer or operator can use the API documentation and release checklist to validate the shipped HTTP surface and release candidate readiness.
-
-### Deployment
-
 - [x] **DEPLOY-01**: Operator can start and validate the current service stack with Docker/Kubernetes configuration. Docker compose build/start/smoke passed on 2026-05-12 with documented restricted-network overrides.
 
-## v1 Requirements (Phase 1)
-
-### M1.1 Relay 集成
+### Foundation through v03.1
 
 - [x] **RELAY-01**: Relay 模块挂载到主 HTTP server
 - [x] **RELAY-02**: `/v1/*` 路由走 Relay Engine
@@ -30,17 +40,11 @@
 - [x] **RELAY-05**: 开发环境默认渠道自动创建
 - [x] **RELAY-06**: `GET /v1/models` 返回可用模型列表
 - [x] **RELAY-07**: `POST /v1/chat/completions` 通过 Relay 调用 LLM
-
-### M1.2 Chat 走 Relay
-
 - [x] **CHAT-01**: Chat Gateway 重构为接口化设计
 - [x] **CHAT-02**: RelayGateway 实现 OpenAI 格式请求
 - [x] **CHAT-03**: 流式响应 (SSE) 支持
 - [x] **CHAT-04**: Token 使用量正确记录到 usage_records
 - [x] **CHAT-05**: 配置切换：Relay 模式 vs 本地模式
-
-### M1.3 Agent Runtime 核心
-
 - [x] **AGENT-01**: 数据库迁移 - agents 表
 - [x] **AGENT-02**: 数据库迁移 - agent_conversations 表
 - [x] **AGENT-03**: 数据库迁移 - agent_messages 表
@@ -51,9 +55,6 @@
 - [x] **AGENT-08**: Agent HTTP Handler - REST API
 - [x] **AGENT-09**: 前端 Agent 页面骨架
 - [x] **AGENT-10**: 对话历史正确保存
-
-### M1.4 MCP Client 骨架
-
 - [x] **MCP-01**: 数据库迁移 - mcp_servers 表
 - [x] **MCP-02**: MCP Client - 连接管理
 - [x] **MCP-03**: MCP Client - 工具发现 (ListTools)
@@ -61,11 +62,6 @@
 - [x] **MCP-05**: MCP 协议消息结构
 - [x] **MCP-06**: 内置工具 - web_search, calculator, datetime, http_request
 - [x] **MCP-07**: MCP HTTP Handler - REST API
-
-## v2 Requirements (Phase 2-4 Historical Context)
-
-### Phase 2: Agent 与 Memory 增强
-
 - [x] **MEM-01**: pgvector 扩展与向量索引
 - [x] **MEM-02**: Memory Service - 文档分块与嵌入
 - [x] **MEM-03**: Memory Service - 向量相似度搜索
@@ -73,9 +69,6 @@
 - [x] **EXEC-02**: Agent 执行循环 (多轮工具调用)
 - [x] **EXEC-03**: 记忆注入到 Agent 上下文
 - [x] **QUOTA-01**: 配额系统 - 预扣/结算/退款
-
-### Phase 3: Admin 与 Marketplace
-
 - [x] **ADMIN-01**: 渠道管理 API
 - [x] **ADMIN-02**: 套餐管理 API
 - [x] **ADMIN-03**: 用户管理 API
@@ -83,71 +76,39 @@
 - [x] **MARKET-01**: Agent 发布/发现/安装
 - [x] **MARKET-02**: Marketplace UI
 
-### Phase 4: 质量与发布 (Archived v03.2)
+## Future Requirements
 
-- [x] **TEST-01**: 集成测试覆盖 Admin、Marketplace、Relay、Agent、Memory、Quota 的关键协作边界
-- [x] **TEST-02**: E2E 测试覆盖 Admin 与 Marketplace 的核心浏览器工作流
-- [x] **DOC-01**: API 文档和发布检查清单支持候选版本验收
-- [x] **DEPLOY-01**: Docker/Kubernetes 配置可启动并验证当前服务栈（Docker compose 真实构建、启动和 `/healthz` smoke 已在 2026-05-12 通过；Kubernetes 仍是未执行的替代路径）
+- [ ] Production observability, alerting, and operational dashboards beyond the current release-candidate gates.
+- [ ] Kubernetes runtime proof once `kubectl` and a target cluster/context are available.
+- [ ] Commercial billing and revenue-share operations after product/business policy is defined.
+- [ ] Mobile-specific experience after the web control plane stabilizes.
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| 生产支付/分成结算 | 需要真实商业策略与 Stripe 生产配置 |
-| 移动端专项应用 | 当前 Web 优先 |
-| 大规模生产观测与告警 | Phase 4 之后单独规划 |
+| New product discovery | v03.3 consolidates current mainline work already present in the repo |
+| Payment provider production rollout | Requires real commercial policy and credentials |
+| Full Kubernetes validation | Local tooling is unavailable; Docker compose is the accepted proven runtime path |
+| Broad historical artifact rewrite | Existing phase archives remain reference material unless a phase directly needs them |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| RELAY-01 | M1.1 | Complete |
-| RELAY-02 | M1.1 | Complete |
-| RELAY-03 | M1.1 | Complete |
-| RELAY-04 | M1.1 | Complete |
-| RELAY-05 | M1.1 | Complete |
-| RELAY-06 | M1.1 | Complete |
-| RELAY-07 | M1.1 | Complete |
-| CHAT-01 | M1.2 | Complete |
-| CHAT-02 | M1.2 | Complete |
-| CHAT-03 | M1.2 | Complete |
-| CHAT-04 | M1.2 | Complete |
-| CHAT-05 | M1.2 | Complete |
-| AGENT-01 | M1.3 | Complete |
-| AGENT-02 | M1.3 | Complete |
-| AGENT-03 | M1.3 | Complete |
-| AGENT-04 | M1.3 | Complete |
-| AGENT-05 | M1.3 | Complete |
-| AGENT-06 | M1.3 | Complete |
-| AGENT-07 | M1.3 | Complete |
-| AGENT-08 | M1.3 | Complete |
-| AGENT-09 | M1.3 | Complete |
-| AGENT-10 | M1.3 | Complete |
-| MCP-01 | M1.4 | Complete |
-| MCP-02 | M1.4 | Complete |
-| MCP-03 | M1.4 | Complete |
-| MCP-04 | M1.4 | Complete |
-| MCP-05 | M1.4 | Complete |
-| MCP-06 | M1.4 | Complete |
-| MCP-07 | M1.4 | Complete |
-| ADMIN-01 | 03-admin-marketplace | Complete |
-| ADMIN-02 | 03-admin-marketplace | Complete |
-| ADMIN-03 | 03-admin-marketplace | Complete |
-| MARKET-01 | 03-admin-marketplace | Complete |
-| ADMIN-04 | 03.1-admin-marketplace-ui | Complete |
-| MARKET-02 | 03.1-admin-marketplace-ui | Complete |
-| TEST-01 | Phase 4 / v03.2 | Complete |
-| TEST-02 | Phase 4 / v03.2 | Complete |
-| DOC-01 | Phase 4 / v03.2 | Complete |
-| DEPLOY-01 | Phase 4 / v03.2 | Complete |
+| CONS-01 | Phase 5 — Dirty Worktree Triage and Commit Boundary | Planned |
+| ROUTE-01 | Phase 6 — Backend Mainline Integration Hardening | Planned |
+| CHAT-06 | Phase 6 — Backend Mainline Integration Hardening | Planned |
+| AUTH-01 | Phase 6 — Backend Mainline Integration Hardening | Planned |
+| DEPLOY-02 | Phase 7 — Frontend, E2E, and Deployment Gate Alignment | Planned |
+| DOC-02 | Phase 8 — Contract Docs and Release Verification | Planned |
+| VERIFY-01 | Phase 8 — Contract Docs and Release Verification | Planned |
 
 **Coverage:**
-- Completed requirements: 46
-- Planned requirements: 0
+- Completed historical requirements: 46
+- Planned v03.3 requirements: 7
 - Blocked requirements: 0
-- Unmapped: 0 ✓
+- Unmapped v03.3 requirements: 0 ✓
 
 ---
-*Requirements defined: 2026-04-27*
-*Last updated: 2026-05-14 after v03.2 milestone archive*
+*Requirements defined: 2026-05-14 for v03.3 Mainline Consolidation*

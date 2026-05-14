@@ -10,25 +10,25 @@ Oblivious 是一个多租户 AI 平台，整合 LobeHub（C端体验）和 New-A
 
 **统一的多渠道 LLM 调用层** — 所有 AI 调用必须经过 Relay，确保计费、限流、监控统一。
 
-## Current State: v03.2 Shipped
+## Current Milestone: v03.3 Mainline Consolidation
 
-Milestone v03.2 Quality and Release is archived. The project has a release-candidate baseline with backend release gates, browser E2E, API/release documentation, and a proven Docker compose startup smoke path.
+**Goal:** 将当前工作树里已经存在的主线改动整理成一致、可验证、可提交的版本，而不是扩张新的产品范围。
+
+**Target features:**
+- Route and service integration for Agent, Memory, MCP, Notification, Quota, WebSocket, and Relay-backed Chat/Agent paths.
+- Auth/session/user preference contract cleanup for user name, role, admin boundaries, and app preferences.
+- Deployment, CI, E2E, Playwright, and restricted-network Docker path stabilization.
+- Documentation, API/system-contract reconciliation, and commit-boundary cleanup for the current mainline work.
+
+## Current State: v03.3 Planning
+
+Milestone v03.2 Quality and Release is archived. The repository now contains substantial uncommitted source, documentation, deployment, and frontend test changes. v03.3 exists to triage that already-present work, verify the cross-cutting contracts, and split it into coherent commits without mixing unrelated cleanup into product integration.
 
 **Shipped in v03.2:**
 - 集成测试覆盖关键后端协作路径，尤其是 Admin/Marketplace API 与 Relay/Quota/Agent/Memory 交互。
 - E2E 测试覆盖 Admin 与 Marketplace 的核心浏览器工作流。
 - API 文档、系统契约和发布检查清单支持交接、验收和候选版本发布。
 - Docker compose 可以构建、启动并健康检查当前服务栈；受限网络环境下使用文档化的 registry / Go proxy overrides。
-
-## Next Milestone Goals
-
-Next milestone is not defined yet. Use `$gsd:new-milestone` to choose the next product direction and refresh active requirements.
-
-Likely candidate areas from current accepted debt:
-- Phase 01 summary reconstruction and planning artifact cleanup.
-- Legacy workspace Marketplace route cleanup.
-- Production operations hardening beyond the current release-candidate Docker validation.
-- Decide whether future milestone closes should reset `.planning/REQUIREMENTS.md` or preserve it as living cross-phase context.
 
 ## Requirements
 
@@ -50,13 +50,21 @@ Likely candidate areas from current accepted debt:
 
 ### Active
 
-- [ ] Define the next milestone with `$gsd:new-milestone`.
+- [ ] CONS-01: Maintainer can classify the current uncommitted source/docs into coherent work slices and avoid mixing unrelated changes.
+- [ ] ROUTE-01: Backend route/service additions for Agent, Memory, MCP, Notification, Quota, and WebSocket are registered with explicit auth boundaries and targeted tests.
+- [ ] CHAT-06: Chat and Agent calls preserve the Relay-first contract, including structured tool calls, streaming behavior, and usage metadata.
+- [ ] AUTH-01: User/session contracts expose name and role consistently while keeping admin boundaries enforceable.
+- [ ] DEPLOY-02: Docker, compose, CI, and Playwright changes remain aligned with the proven v03.2 restricted-network deployment path.
+- [ ] DOC-02: API, architecture, release, and README docs match the live routes, commands, and verification scope.
+- [ ] VERIFY-01: Maintainer can run a documented targeted verification suite before committing the mainline consolidation.
 
 ### Out of Scope
 
 - 多租户计费商业化细节 — 需要真实支付/运营策略确认
 - 大规模生产观测与告警 — 发布候选之后单独规划
 - 移动端专项体验 — Web 优先
+- New product discovery beyond the already-present mainline changes — v03.3 is consolidation, not feature ideation
+- Full Kubernetes runtime validation — Docker compose remains the proven runtime path unless Kubernetes tooling is installed later
 
 ## Context
 
@@ -77,6 +85,7 @@ Go Backend (Gin)
 **当前状态**:
 - v03.1 已交付可用 Admin UI 与 Marketplace UI。
 - v03.2 已完成质量、E2E、文档和 Docker 部署 smoke 收口。
+- v03.3 当前工作不是从空白开始：工作树已包含路由拆分、Agent/Memory/MCP/Notification/Quota/WebSocket、Relay Chat/Agent、Auth/UserPrefs、CI/E2E/部署和文档变更。
 - 直接 Docker Hub / 默认 Go module 路径在本机网络仍不稳定；受限网络验证命令已记录在 Phase 4 summary、completion audit 和 release docs 中。
 - `kubectl` 未安装，因此 Kubernetes 仍是未执行的替代路径，不影响已通过的 Docker runtime path。
 - `src/web/src/routes/workspace/MarketplacePage.tsx` 是接受的 v03.1 清理债务：不再由 `/marketplace` 使用。
@@ -87,6 +96,7 @@ Go Backend (Gin)
 - **架构**: Relay 必须作为所有 LLM 调用的统一入口
 - **计费**: Agent 消耗的 Token 计入用户配额
 - **隔离**: 向量检索按 user_id 隔离
+- **工作树安全**: 当前存在大量未提交源码/文档改动；v03.3 规划提交不得隐式带入这些源码改动
 
 ## Key Decisions
 
@@ -98,7 +108,26 @@ Go Backend (Gin)
 | Admin/Marketplace UI on shared primitives | Keep page work consistent and testable | ✓ Good — v03.1 closed with 12 focused Vitest files |
 | v03.2 skips new domain research | Quality/release work is scoped by shipped code and existing Phase 4 requirements | ✓ Good — TEST-01/TEST-02/DOC-01/DEPLOY-01 closed |
 | Docker compose runtime path satisfies DEPLOY-01 | Requirement accepted one real Docker or Kubernetes runtime path | ✓ Good — compose build/start/smoke passed; Kubernetes remains alternate path |
-| Preserve living REQUIREMENTS.md for now | This repo still uses it for cross-phase context and has an explicit backlog item to decide reset policy | — Pending — v03.2 archive was created, but living file remains |
+| Preserve living REQUIREMENTS.md for now | This repo still uses it for cross-phase context and has an explicit backlog item to decide reset policy | — Pending — living file remains, but v03.2 archive exists |
+| v03.3 consolidates current mainline changes | The worktree already contains broad integration changes; planning should make them coherent before more feature expansion | Active — requirements and roadmap focus on triage, hardening, docs, and verification |
+| v03.3 skips new research | Scope is bounded by local code/docs already present, not by a new domain or market question | Active — requirements derive from repo state |
+
+## Evolution
+
+This document evolves at phase transitions and milestone boundaries.
+
+**After each phase transition**:
+1. Requirements invalidated? Move to Out of Scope with reason.
+2. Requirements validated? Move to Validated with phase reference.
+3. New requirements emerged? Add to Active.
+4. Decisions to log? Add to Key Decisions.
+5. "What This Is" still accurate? Update if drifted.
+
+**After each milestone**:
+1. Full review of all sections.
+2. Core Value check — still the right priority?
+3. Audit Out of Scope — reasons still valid?
+4. Update Context with current state.
 
 ---
-*Last updated: 2026-05-14 after v03.2 milestone archive*
+*Last updated: 2026-05-14 after starting v03.3 Mainline Consolidation*

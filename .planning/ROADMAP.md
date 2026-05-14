@@ -2,13 +2,108 @@
 
 ## Milestones
 
+- 🚧 **v03.3 Mainline Consolidation** — Phase 5 through Phase 8 (planning started 2026-05-14)
 - ✅ **v03.2 Quality and Release** — Phase 4 (shipped 2026-05-14; Docker compose runtime validated 2026-05-12)
 - ✅ **v03.1 Admin and Marketplace UI** — Phase 03.1 (shipped 2026-05-02)
 - ✅ **Foundation through Admin/Marketplace Backend** — Phase 1, Phase 2, Phase 3a (completed 2026-04-27 through 2026-04-29)
 
 ## Current Status
 
-Milestone v03.2 is archived. The next workflow step is `$gsd:new-milestone` to define the next version's goals, requirements, and roadmap.
+Milestone v03.3 is in planning. It should consolidate and verify the current mainline changes already present in the worktree before any new feature expansion.
+
+**Next workflow step:** `$gsd:discuss-phase 5`
+
+## Current Milestone: v03.3 Mainline Consolidation
+
+**Goal:** Make the current uncommitted mainline work coherent, verified, documented, and ready for clean commits.
+
+| Phase | Name | Requirements | Status |
+|-------|------|--------------|--------|
+| Phase 5 | Dirty Worktree Triage and Commit Boundary | CONS-01 | Not started |
+| Phase 6 | Backend Mainline Integration Hardening | ROUTE-01, CHAT-06, AUTH-01 | Not started |
+| Phase 7 | Frontend, E2E, and Deployment Gate Alignment | DEPLOY-02 | Not started |
+| Phase 8 | Contract Docs and Release Verification | DOC-02, VERIFY-01 | Not started |
+
+### Phase 5: Dirty Worktree Triage and Commit Boundary
+
+**Goal:** Classify the existing uncommitted work into coherent slices before implementation or verification continues.
+
+**Requirements:** CONS-01
+
+**Success criteria:**
+1. Maintainer can see which changed files belong to backend integration, frontend/E2E, deployment/CI, documentation, or historical/reference material.
+2. Planning commits remain separate from source-code commits.
+3. Obvious generated/cache artifacts stay ignored or excluded without deleting user-owned source.
+4. Follow-up phase scopes can reference an explicit commit-boundary inventory.
+
+**Starting evidence:**
+- Current status includes tracked changes across CI, Docker, docs, server auth/chat/config/http/userprefs, web package/theme/types/tailwind/vite files.
+- Current status includes untracked route/service additions under `src/server/internal/*`, migrations `0013`-`0019`, Playwright files, and several web route pages.
+
+### Phase 6: Backend Mainline Integration Hardening
+
+**Goal:** Verify backend route registration, service boundaries, Relay-first Chat/Agent behavior, and auth/session contracts.
+
+**Requirements:** ROUTE-01, CHAT-06, AUTH-01
+
+**Success criteria:**
+1. Agent, Memory, MCP, Notification, Quota, and WebSocket routes are registered intentionally with the expected middleware/auth boundaries.
+2. Chat and Agent gateway paths preserve Relay metadata, structured tool call handling, streaming behavior, and usage accounting hooks.
+3. User/session data exposes name and role consistently across auth store/service/middleware without weakening admin checks.
+4. Targeted Go tests cover the changed route/service contracts and fail on route/auth regressions.
+
+**Likely verification:**
+- `cd src/server && go test ./internal/http ./internal/auth ./internal/chat ./internal/userprefs ./internal/relay ./internal/agent ./internal/memory ./internal/quota -count=1`
+- Broaden to `cd src/server && go test ./... -count=1` before closing the phase.
+
+### Phase 7: Frontend, E2E, and Deployment Gate Alignment
+
+**Goal:** Align frontend/API types, Playwright coverage, CI workflow, Dockerfiles, compose, and deployment validation with the consolidated backend surface.
+
+**Requirements:** DEPLOY-02
+
+**Success criteria:**
+1. Frontend API types and app pages match the backend contracts introduced or changed in Phase 6.
+2. Playwright configuration and E2E scripts are runnable without pulling generated reports or cache directories into Git.
+3. CI workflow and package-lock updates reflect the actual test/build commands.
+4. Dockerfiles, compose, env templates, and `scripts/deploy-validate.sh` preserve the v03.2 restricted-network override path.
+
+**Likely verification:**
+- `COREPACK_HOME=.tmp/corepack pnpm --dir src/web test`
+- `COREPACK_HOME=.tmp/corepack pnpm --dir src/web test:e2e`
+- `COREPACK_HOME=.tmp/corepack pnpm --dir src/web build`
+- `docker compose config`
+- `OBLIVIOUS_IMAGE_REGISTRY_PREFIX=docker.m.daocloud.io/library/ OBLIVIOUS_GOPROXY=https://mirrors.aliyun.com/goproxy/,direct OBLIVIOUS_GOSUMDB=sum.golang.google.cn bash scripts/deploy-validate.sh`
+
+### Phase 8: Contract Docs and Release Verification
+
+**Goal:** Reconcile docs with live routes and commands, then run the targeted release verification needed to commit the consolidated mainline safely.
+
+**Requirements:** DOC-02, VERIFY-01
+
+**Success criteria:**
+1. `docs/API.md`, current system contracts, release docs, README, and env examples describe the same route surface and commands as the code.
+2. Verification evidence identifies which checks passed, which were skipped, and why.
+3. The final worktree can be split into clear commits that do not mix planning docs, backend integration, frontend/deployment gates, and historical reference files.
+4. Remaining external prerequisites, if any, are recorded as blockers instead of being treated as passed gates.
+
+**Likely verification:**
+- `bash scripts/check.sh docs`
+- `bash scripts/check.sh all`
+- `bash scripts/test.sh all`
+- Targeted `rg` checks against docs for new route groups and restricted-network deployment commands.
+
+## Traceability
+
+| Requirement | Phase | Coverage |
+|-------------|-------|----------|
+| CONS-01 | Phase 5 | Dirty worktree inventory and commit-boundary plan |
+| ROUTE-01 | Phase 6 | Backend routes/services/auth boundaries |
+| CHAT-06 | Phase 6 | Relay-first Chat/Agent behavior |
+| AUTH-01 | Phase 6 | User/session role/name contract |
+| DEPLOY-02 | Phase 7 | Frontend/E2E/CI/Docker/deployment gates |
+| DOC-02 | Phase 8 | API, architecture, release, README reconciliation |
+| VERIFY-01 | Phase 8 | Targeted verification suite and commit-readiness evidence |
 
 ## Archived Milestone Details
 
@@ -68,6 +163,7 @@ These phases remain available in `.planning/phases/` and the v03.2 roadmap archi
 
 | Milestone | Scope | Plans | Requirements | Status | Completed |
 |-----------|-------|-------|--------------|--------|-----------|
+| v03.3 Mainline Consolidation | Phases 5-8 | 0/0 | CONS-01, ROUTE-01, CHAT-06, AUTH-01, DEPLOY-02, DOC-02, VERIFY-01 | Planning | — |
 | v03.2 Quality and Release | Phase 4 | 4/4 | TEST-01, TEST-02, DOC-01, DEPLOY-01 | Shipped | 2026-05-14 |
 | v03.1 Admin and Marketplace UI | Phase 03.1 | 7/7 | ADMIN-04, MARKET-02 | Shipped | 2026-05-02 |
 | Foundation through Backend | Phases 1, 2, 3a | Historical | RELAY, CHAT, AGENT, MCP, MEM, EXEC, QUOTA, ADMIN, MARKET | Complete | 2026-04-29 |
@@ -95,4 +191,4 @@ These phases remain available in `.planning/phases/` and the v03.2 roadmap archi
 - [ ] Decide whether future milestone completion should reset `.planning/REQUIREMENTS.md` or keep it as cross-phase context in this repo
 
 ---
-*Roadmap updated: 2026-05-14 after v03.2 milestone archive*
+*Roadmap updated: 2026-05-14 for v03.3 Mainline Consolidation*
