@@ -8,7 +8,7 @@
 
 ### Mainline Consolidation
 
-- [ ] **CONS-01**: Maintainer can classify the current uncommitted source, documentation, deployment, and frontend test changes into coherent work slices before committing.
+- [x] **CONS-01**: Maintainer can classify the current uncommitted source, documentation, deployment, and frontend test changes into coherent work slices before committing. Completed in Phase 5 with `05-WORKTREE-INVENTORY.md`, `05-COMMIT-BOUNDARIES.md`, and `05-VERIFICATION.md`.
 
 ### Backend Route and Service Integration
 
@@ -96,7 +96,7 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CONS-01 | Phase 5 — Dirty Worktree Triage and Commit Boundary | Planned |
+| CONS-01 | Phase 5 — Dirty Worktree Triage and Commit Boundary | Complete |
 | ROUTE-01 | Phase 6 — Backend Mainline Integration Hardening | Planned |
 | CHAT-06 | Phase 6 — Backend Mainline Integration Hardening | Planned |
 | AUTH-01 | Phase 6 — Backend Mainline Integration Hardening | Planned |

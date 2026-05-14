@@ -9,9 +9,9 @@
 
 ## Current Status
 
-Milestone v03.3 is ready to execute Phase 5. It should consolidate and verify the current mainline changes already present in the worktree before any new feature expansion.
+Milestone v03.3 is ready to discuss Phase 6. It should consolidate and verify the current mainline changes already present in the worktree before any new feature expansion.
 
-**Next workflow step:** `$gsd:execute-phase 5`
+**Next workflow step:** `$gsd:discuss-phase 6`
 
 ## Current Milestone: v03.3 Mainline Consolidation
 
@@ -19,7 +19,7 @@ Milestone v03.3 is ready to execute Phase 5. It should consolidate and verify th
 
 | Phase | Name | Requirements | Status |
 |-------|------|--------------|--------|
-| Phase 5 | Dirty Worktree Triage and Commit Boundary | CONS-01 | Planned |
+| Phase 5 | Dirty Worktree Triage and Commit Boundary | CONS-01 | Complete |
 | Phase 6 | Backend Mainline Integration Hardening | ROUTE-01, CHAT-06, AUTH-01 | Not started |
 | Phase 7 | Frontend, E2E, and Deployment Gate Alignment | DEPLOY-02 | Not started |
 | Phase 8 | Contract Docs and Release Verification | DOC-02, VERIFY-01 | Not started |
@@ -97,7 +97,7 @@ Milestone v03.3 is ready to execute Phase 5. It should consolidate and verify th
 
 | Requirement | Phase | Coverage |
 |-------------|-------|----------|
-| CONS-01 | Phase 5 | Dirty worktree inventory and commit-boundary plan |
+| CONS-01 | Phase 5 | Complete — dirty worktree inventory and commit-boundary artifacts |
 | ROUTE-01 | Phase 6 | Backend routes/services/auth boundaries |
 | CHAT-06 | Phase 6 | Relay-first Chat/Agent behavior |
 | AUTH-01 | Phase 6 | User/session role/name contract |
@@ -163,7 +163,7 @@ These phases remain available in `.planning/phases/` and the v03.2 roadmap archi
 
 | Milestone | Scope | Plans | Requirements | Status | Completed |
 |-----------|-------|-------|--------------|--------|-----------|
-| v03.3 Mainline Consolidation | Phases 5-8 | 0/0 | CONS-01, ROUTE-01, CHAT-06, AUTH-01, DEPLOY-02, DOC-02, VERIFY-01 | Planning | — |
+| v03.3 Mainline Consolidation | Phases 5-8 | 1/1 | CONS-01 complete; ROUTE-01, CHAT-06, AUTH-01, DEPLOY-02, DOC-02, VERIFY-01 pending | Phase 6 discussion ready | Phase 5 complete 2026-05-14 |
 | v03.2 Quality and Release | Phase 4 | 4/4 | TEST-01, TEST-02, DOC-01, DEPLOY-01 | Shipped | 2026-05-14 |
 | v03.1 Admin and Marketplace UI | Phase 03.1 | 7/7 | ADMIN-04, MARKET-02 | Shipped | 2026-05-02 |
 | Foundation through Backend | Phases 1, 2, 3a | Historical | RELAY, CHAT, AGENT, MCP, MEM, EXEC, QUOTA, ADMIN, MARKET | Complete | 2026-04-29 |

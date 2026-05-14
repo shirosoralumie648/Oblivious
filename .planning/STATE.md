@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v03.3
 milestone_name: Mainline Consolidation
-status: executing
-last_updated: "2026-05-14T06:17:16.661Z"
-last_activity: 2026-05-14 -- Phase 05 planning complete
+status: ready_to_discuss
+last_updated: "2026-05-14T06:55:00.000Z"
+last_activity: 2026-05-14 -- Phase 05 complete; Phase 06 ready for discussion
 progress:
   total_phases: 6
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 1
-  completed_plans: 0
-  percent: 0
+  completed_plans: 1
+  percent: 17
 ---
 
 # STATE.md
@@ -21,20 +21,20 @@ See: `.planning/PROJECT.md` (updated 2026-05-14)
 
 **Core value:** 统一的多渠道 LLM 调用层 — 所有 AI 调用必须经过 Relay
 
-**Current focus:** Milestone v03.3 Mainline Consolidation — consolidate and verify the current uncommitted mainline work.
+**Current focus:** Phase 06 — Backend Mainline Integration Hardening
 
 ## Current Status
 
-**Milestone v03.3: Mainline Consolidation — EXECUTING**
+**Milestone v03.3: Mainline Consolidation — PHASE 6 DISCUSSION READY**
 
 The repository has substantial uncommitted source, docs, deployment, and frontend test changes. v03.3 is scoped to classifying that work, hardening the backend/frontend/deployment contracts, reconciling docs, and producing clean commit boundaries.
 
 ## Current Position
 
-Phase: 5 — Dirty Worktree Triage and Commit Boundary
-Plan: 05-01
-Status: Ready to execute Phase 5
-Last activity: 2026-05-14 -- Phase 05 planning complete
+Phase: 6 — Backend Mainline Integration Hardening
+Plan: Not started
+Status: Ready to discuss Phase 6
+Last activity: 2026-05-14 -- Phase 05 complete; Phase 06 ready for discussion
 
 ## Current Scope
 
@@ -50,13 +50,14 @@ Last activity: 2026-05-14 -- Phase 05 planning complete
 
 ## Worktree Context
 
-Current mainline changes are already present before Phase 5 starts. Treat them as inputs to triage, not as already-accepted milestone output.
+Current mainline changes are already present before Phase 6 starts. Treat them as user-owned inputs to harden and verify through the explicit commit boundaries produced by Phase 5.
 
 Observed change areas:
 
 - Tracked CI, Docker, compose, env, release docs, server auth/chat/config/http/userprefs, and web package/theme/types/tailwind/vite changes.
 - Untracked backend route handlers and route split files for Agent, Memory, MCP, Notification, Quota, WebSocket, Relay store, migrations `0013`-`0019`, Playwright config/E2E files, and new workspace pages.
 - Root historical/reference docs such as `CURRENT_STATUS.md` and `ROADMAP.md` should not override `.planning` state unless deliberately incorporated.
+- Phase 5 inventory and commit-boundary artifacts complete; the worktree still intentionally contains user-owned input files for later phases.
 
 ## Previous Milestone Baseline
 
@@ -95,6 +96,7 @@ Environment notes:
 | Phase 3a Admin 与 Marketplace 后端 | 2026-04-29 | ADMIN-01~03, MARKET-01 |
 | v03.1 Admin 与 Marketplace UI | 2026-05-02 | ADMIN-04, MARKET-02 |
 | v03.2 Quality and Release | 2026-05-14 | TEST-01, TEST-02, DOC-01, DEPLOY-01 |
+| Phase 5 Dirty Worktree Triage and Commit Boundary | 2026-05-14 | CONS-01 |
 
 ## Deferred Items
 
@@ -108,7 +110,7 @@ Items acknowledged before v03.3:
 
 ## Next Suggested Step
 
-Run `$gsd:next` or `$gsd:execute-phase 5` to produce the Phase 5 worktree inventory and commit-boundary artifacts.
+Run `$gsd:next` or `$gsd:discuss-phase 6` to gather context for Backend Mainline Integration Hardening.
 
 ## Context Files
 
@@ -118,6 +120,10 @@ Run `$gsd:next` or `$gsd:execute-phase 5` to produce the Phase 5 worktree invent
 - Phase 5 context: `.planning/phases/05-dirty-worktree-triage-and-commit-boundary/05-CONTEXT.md`
 - Phase 5 patterns: `.planning/phases/05-dirty-worktree-triage-and-commit-boundary/05-PATTERNS.md`
 - Phase 5 plan: `.planning/phases/05-dirty-worktree-triage-and-commit-boundary/05-01-PLAN.md`
+- Phase 5 inventory: `.planning/phases/05-dirty-worktree-triage-and-commit-boundary/05-WORKTREE-INVENTORY.md`
+- Phase 5 commit boundaries: `.planning/phases/05-dirty-worktree-triage-and-commit-boundary/05-COMMIT-BOUNDARIES.md`
+- Phase 5 summary: `.planning/phases/05-dirty-worktree-triage-and-commit-boundary/05-01-SUMMARY.md`
+- Phase 5 verification: `.planning/phases/05-dirty-worktree-triage-and-commit-boundary/05-VERIFICATION.md`
 - Milestones: `.planning/MILESTONES.md`
 - Milestone archive: `.planning/milestones/v03.2-ROADMAP.md`
 - Requirements archive: `.planning/milestones/v03.2-REQUIREMENTS.md`
