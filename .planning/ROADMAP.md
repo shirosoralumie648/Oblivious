@@ -9,9 +9,9 @@
 
 ## Current Status
 
-Milestone v03.3 is ready to plan Phase 6. It should consolidate and verify the current mainline changes already present in the worktree before any new feature expansion.
+Milestone v03.3 is ready to execute Phase 6. It should consolidate and verify the current mainline changes already present in the worktree before any new feature expansion.
 
-**Next workflow step:** `$gsd:plan-phase 6`
+**Next workflow step:** `$gsd:execute-phase 6`
 
 ## Current Milestone: v03.3 Mainline Consolidation
 
@@ -20,7 +20,7 @@ Milestone v03.3 is ready to plan Phase 6. It should consolidate and verify the c
 | Phase | Name | Requirements | Status |
 |-------|------|--------------|--------|
 | Phase 5 | Dirty Worktree Triage and Commit Boundary | CONS-01 | Complete |
-| Phase 6 | Backend Mainline Integration Hardening | ROUTE-01, CHAT-06, AUTH-01 | Context gathered |
+| Phase 6 | Backend Mainline Integration Hardening | ROUTE-01, CHAT-06, AUTH-01 | Planned |
 | Phase 7 | Frontend, E2E, and Deployment Gate Alignment | DEPLOY-02 | Not started |
 | Phase 8 | Contract Docs and Release Verification | DOC-02, VERIFY-01 | Not started |
 
@@ -45,6 +45,20 @@ Milestone v03.3 is ready to plan Phase 6. It should consolidate and verify the c
 **Goal:** Verify backend route registration, service boundaries, Relay-first Chat/Agent behavior, and auth/session contracts.
 
 **Requirements:** ROUTE-01, CHAT-06, AUTH-01
+
+**Plans:** 4
+
+**Waves:**
+
+- Wave 1: Plans 01-02 — route surface / auth guard coverage and notification ownership hardening
+- Wave 2: Plan 03 — Relay metadata propagation, structured tool calls, and production fallback policy
+- Wave 3: Plan 04 — auth/session/userprefs response consistency and final verification
+
+**Cross-cutting constraints:**
+
+- Keep session gating and `requireAdmin` intact across route and notification work.
+- Preserve Relay metadata, structured tool-call handling, and usage recording separation in Chat/Agent flows.
+- Keep auth response shaping and user preference defaults deterministic across register, login, and `/api/v1/auth/me`.
 
 **Success criteria:**
 1. Agent, Memory, MCP, Notification, Quota, and WebSocket routes are registered intentionally with the expected middleware/auth boundaries.
@@ -163,7 +177,7 @@ These phases remain available in `.planning/phases/` and the v03.2 roadmap archi
 
 | Milestone | Scope | Plans | Requirements | Status | Completed |
 |-----------|-------|-------|--------------|--------|-----------|
-| v03.3 Mainline Consolidation | Phases 5-8 | 1/1 | CONS-01 complete; ROUTE-01, CHAT-06, AUTH-01, DEPLOY-02, DOC-02, VERIFY-01 pending | Phase 6 ready to plan | Phase 5 complete 2026-05-14 |
+| v03.3 Mainline Consolidation | Phases 5-8 | 1/5 | CONS-01 complete; ROUTE-01, CHAT-06, AUTH-01, DEPLOY-02, DOC-02, VERIFY-01 pending | Phase 6 ready to execute | Phase 5 complete 2026-05-14 |
 | v03.2 Quality and Release | Phase 4 | 4/4 | TEST-01, TEST-02, DOC-01, DEPLOY-01 | Shipped | 2026-05-14 |
 | v03.1 Admin and Marketplace UI | Phase 03.1 | 7/7 | ADMIN-04, MARKET-02 | Shipped | 2026-05-02 |
 | Foundation through Backend | Phases 1, 2, 3a | Historical | RELAY, CHAT, AGENT, MCP, MEM, EXEC, QUOTA, ADMIN, MARKET | Complete | 2026-04-29 |
@@ -191,4 +205,4 @@ These phases remain available in `.planning/phases/` and the v03.2 roadmap archi
 - [ ] Decide whether future milestone completion should reset `.planning/REQUIREMENTS.md` or keep it as cross-phase context in this repo
 
 ---
-*Roadmap updated: 2026-05-14 after Phase 6 context gathering*
+*Roadmap updated: 2026-05-14 after Phase 6 planning completion*

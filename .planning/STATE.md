@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v03.3
 milestone_name: Mainline Consolidation
-status: ready_to_plan
-last_updated: "2026-05-14T07:53:36.872Z"
-last_activity: 2026-05-14 -- Phase 06 context gathered; ready to plan
+status: ready_to_execute
+last_updated: "2026-05-14T08:39:24.671Z"
+last_activity: 2026-05-14 -- Phase 6 planning complete
 progress:
   total_phases: 6
   completed_phases: 1
-  total_plans: 1
+  total_plans: 5
   completed_plans: 1
-  percent: 17
+  percent: 20
 ---
 
 # STATE.md
@@ -25,16 +25,16 @@ See: `.planning/PROJECT.md` (updated 2026-05-14)
 
 ## Current Status
 
-**Milestone v03.3: Mainline Consolidation — PHASE 6 READY TO PLAN**
+**Milestone v03.3: Mainline Consolidation — PHASE 6 READY TO EXECUTE**
 
 The repository has substantial uncommitted source, docs, deployment, and frontend test changes. v03.3 is scoped to classifying that work, hardening the backend/frontend/deployment contracts, reconciling docs, and producing clean commit boundaries.
 
 ## Current Position
 
 Phase: 6 — Backend Mainline Integration Hardening
-Plan: Not started
-Status: Ready to plan Phase 6
-Last activity: 2026-05-14 -- Phase 06 context gathered; ready to plan
+Plan: 4 plans
+Status: Ready to execute
+Last activity: 2026-05-14 -- Phase 6 planning complete
 
 ## Current Scope
 
@@ -110,7 +110,7 @@ Items acknowledged before v03.3:
 
 ## Next Suggested Step
 
-Run `$gsd:next` or `$gsd:plan-phase 6` to plan Backend Mainline Integration Hardening.
+Run `$gsd:execute-phase 6` to start Backend Mainline Integration Hardening.
 
 ## Context Files
 
@@ -147,4 +147,4 @@ Run `$gsd:next` or `$gsd:plan-phase 6` to plan Backend Mainline Integration Hard
 | 2026-05-14 | Phase 6 自动上下文收集完成 | 当前会话无交互式问题工具，按既有 Relay-first 和 commit-boundary 决策保守锁定后端硬化上下文 |
 
 ---
-*State updated: 2026-05-14 after Phase 6 context gathering*
+*State updated: 2026-05-14 after Phase 6 planning completion*
