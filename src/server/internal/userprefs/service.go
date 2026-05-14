@@ -6,10 +6,13 @@ import (
 )
 
 type Preferences struct {
-	DefaultMode         string `json:"defaultMode"`
-	ModelStrategy       string `json:"modelStrategy"`
-	NetworkEnabledHint  bool   `json:"networkEnabledHint"`
-	OnboardingCompleted bool   `json:"onboardingCompleted"`
+	DefaultMode         string         `json:"defaultMode"`
+	ModelStrategy       string         `json:"modelStrategy"`
+	NetworkEnabledHint  bool           `json:"networkEnabledHint"`
+	OnboardingCompleted bool           `json:"onboardingCompleted"`
+	DefaultAgentModel   string         `json:"defaultAgentModel"`
+	SidebarCollapsed    bool           `json:"sidebarCollapsed"`
+	Notifications       map[string]any `json:"notifications"`
 }
 
 type Store interface {
@@ -35,6 +38,12 @@ func (s *Service) Update(ctx context.Context, userID string, preferences Prefere
 	}
 	if preferences.ModelStrategy == "" {
 		preferences.ModelStrategy = "balanced"
+	}
+	if preferences.DefaultAgentModel == "" {
+		preferences.DefaultAgentModel = "gpt-4o-mini"
+	}
+	if preferences.Notifications == nil {
+		preferences.Notifications = map[string]any{}
 	}
 
 	return s.store.UpsertByUserID(ctx, userID, preferences)

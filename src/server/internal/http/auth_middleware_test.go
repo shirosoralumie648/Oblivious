@@ -121,3 +121,39 @@ func TestCurrentSessionAcceptsSignedCookieValue(t *testing.T) {
 		t.Fatalf("expected session id %q, got %q", session.ID, currentSession.ID)
 	}
 }
+
+func TestRequireAdminRejectsNonAdminSession(t *testing.T) {
+	session := auth.Session{
+		ID:        "session_123",
+		ExpiresAt: time.Unix(1_700_000_000, 0).UTC(),
+		User: auth.User{
+			ID:   "user_1",
+			Role: "user",
+		},
+	}
+	middleware := newAuthMiddleware(config.Config{
+		SessionCookieName:   "oblivious_session",
+		SessionCookieSecure: false,
+		SessionSecret:       "test-secret",
+	}, auth.NewService(stubAuthStore{session: session}))
+	cookieRecorder := httptest.NewRecorder()
+	middleware.setSessionCookie(cookieRecorder, session)
+
+	handlerCalled := false
+	handler := middleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		handlerCalled = true
+		w.WriteHeader(stdhttp.StatusOK)
+	}))
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/admin/stats", nil)
+	request.AddCookie(cookieRecorder.Result().Cookies()[0])
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusForbidden {
+		t.Fatalf("expected 403, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if handlerCalled {
+		t.Fatal("expected requireAdmin to reject before calling handler")
+	}
+}

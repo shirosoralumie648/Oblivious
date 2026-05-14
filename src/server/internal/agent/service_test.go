@@ -13,24 +13,29 @@ import (
 type fakeGateway struct {
 	plainReply      string
 	structured      []*chat.CompletionResponse
+	lastMetadata    chat.RelayRequestMetadata
 	plainCalls      int
 	streamCalls     int
 	structuredCalls int
 	structIndex     int
+	sawMetadata     bool
 }
 
 func (g *fakeGateway) GenerateReply(ctx context.Context, messages []chat.Message, config chat.ConversationConfig) (string, error) {
 	g.plainCalls++
+	g.lastMetadata, g.sawMetadata = chat.RelayRequestMetadataFromContext(ctx)
 	return g.plainReply, nil
 }
 
 func (g *fakeGateway) GenerateReplyStream(ctx context.Context, messages []chat.Message, config chat.ConversationConfig, onChunk func(string) error) error {
 	g.streamCalls++
+	g.lastMetadata, g.sawMetadata = chat.RelayRequestMetadataFromContext(ctx)
 	return onChunk(g.plainReply)
 }
 
 func (g *fakeGateway) GenerateStructuredReply(ctx context.Context, messages []chat.Message, config chat.ConversationConfig, tools []map[string]any) (*chat.CompletionResponse, error) {
 	g.structuredCalls++
+	g.lastMetadata, g.sawMetadata = chat.RelayRequestMetadataFromContext(ctx)
 	if g.structIndex >= len(g.structured) {
 		return &chat.CompletionResponse{Content: g.plainReply}, nil
 	}
@@ -176,6 +181,64 @@ func TestServiceSendMessageUsesRunnerForToolEnabledAgents(t *testing.T) {
 	}
 	if !sawToolMessage {
 		t.Fatalf("expected tool result message to be persisted, got %+v", store.messages)
+	}
+}
+
+func TestServiceSendMessagePropagatesRelayMetadataThroughRunWithTools(t *testing.T) {
+	store := &fakeStore{
+		agent: &Agent{
+			ID:     "agent_1",
+			UserID: "user_1",
+			Model:  "gpt-4o-mini",
+			Tools: []Tool{
+				{Name: "datetime", Type: "builtin", Enabled: true},
+			},
+		},
+		conversation: &Conversation{
+			ID:      "conv_1",
+			AgentID: "agent_1",
+			UserID:  "user_1",
+		},
+	}
+	gateway := &fakeGateway{
+		structured: []*chat.CompletionResponse{
+			{
+				Content:      "metadata-aware answer",
+				FinishReason: "stop",
+			},
+		},
+	}
+	service := NewService(store, gateway)
+
+	msg, err := service.SendMessage(
+		chat.WithRelayRequestMetadata(context.Background(), chat.RelayRequestMetadata{RequestID: "req_456"}),
+		auth.Session{
+			WorkspaceID: "workspace_1",
+			User:        auth.User{ID: "user_1"},
+		},
+		"conv_1",
+		"Use metadata",
+	)
+	if err != nil {
+		t.Fatalf("SendMessage returned error: %v", err)
+	}
+	if msg.Content != "metadata-aware answer" {
+		t.Fatalf("expected metadata-aware answer, got %q", msg.Content)
+	}
+	if gateway.structuredCalls != 1 {
+		t.Fatalf("expected RunWithTools structured path, got %d calls", gateway.structuredCalls)
+	}
+	if !gateway.sawMetadata {
+		t.Fatal("expected RunWithTools gateway call to receive Relay metadata")
+	}
+	if gateway.lastMetadata.UserID != "user_1" {
+		t.Fatalf("expected user metadata user_1, got %q", gateway.lastMetadata.UserID)
+	}
+	if gateway.lastMetadata.WorkspaceID != "workspace_1" {
+		t.Fatalf("expected workspace metadata workspace_1, got %q", gateway.lastMetadata.WorkspaceID)
+	}
+	if gateway.lastMetadata.RequestID != "req_456" {
+		t.Fatalf("expected request id req_456, got %q", gateway.lastMetadata.RequestID)
 	}
 }
 

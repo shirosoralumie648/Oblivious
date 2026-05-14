@@ -19,6 +19,14 @@ type Config struct {
 	LLMAPIKey           string
 	LLMTimeoutMS        int
 	ModelDefaultName    string
+
+	// Relay configuration
+	RelayEnabled      bool
+	RelayDefaultModel string
+
+	// Default channel configuration (for development)
+	OpenAIAPIKey  string
+	OpenAIBaseURL string
 }
 
 func Load() (Config, error) {
@@ -80,6 +88,24 @@ func Load() (Config, error) {
 		modelDefaultName = "demo-reply"
 	}
 
+	// Relay configuration
+	relayEnabled := strings.EqualFold(strings.TrimSpace(os.Getenv("RELAY_ENABLED")), "true")
+	if relayEnabled && os.Getenv("RELAY_ENABLED") == "" {
+		relayEnabled = true // default enabled
+	}
+
+	relayDefaultModel := strings.TrimSpace(os.Getenv("RELAY_DEFAULT_MODEL"))
+	if relayDefaultModel == "" {
+		relayDefaultModel = "gpt-4o-mini"
+	}
+
+	// Default channel configuration (for development)
+	openaiAPIKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
+	openaiBaseURL := strings.TrimSpace(os.Getenv("OPENAI_BASE_URL"))
+	if openaiBaseURL == "" {
+		openaiBaseURL = "https://api.openai.com"
+	}
+
 	return Config{
 		Port:                port,
 		Env:                 env,
@@ -92,5 +118,9 @@ func Load() (Config, error) {
 		LLMAPIKey:           llmAPIKey,
 		LLMTimeoutMS:        llmTimeoutMS,
 		ModelDefaultName:    modelDefaultName,
+		RelayEnabled:        relayEnabled,
+		RelayDefaultModel:   relayDefaultModel,
+		OpenAIAPIKey:        openaiAPIKey,
+		OpenAIBaseURL:       openaiBaseURL,
 	}, nil
 }

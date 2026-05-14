@@ -50,3 +50,22 @@ func TestWithCORSHandlesPreflightRequest(t *testing.T) {
 		t.Fatal("expected allow methods header to be set")
 	}
 }
+
+func TestRequestIDFromContextReturnsRequestIDGeneratedByMiddleware(t *testing.T) {
+	var gotRequestID string
+	handler := withRequestID(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		gotRequestID = requestIDFromContext(r.Context())
+		w.WriteHeader(stdhttp.StatusNoContent)
+	}))
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(stdhttp.MethodGet, "/healthz", nil)
+
+	handler.ServeHTTP(recorder, request)
+
+	if gotRequestID == "" {
+		t.Fatal("expected requestIDFromContext to return a request ID")
+	}
+	if recorder.Header().Get(requestIDHeader) != gotRequestID {
+		t.Fatalf("expected response request id %q, got %q", gotRequestID, recorder.Header().Get(requestIDHeader))
+	}
+}

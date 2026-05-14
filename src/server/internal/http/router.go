@@ -2,6 +2,7 @@ package http
 
 import (
 	"database/sql"
+	"fmt"
 	stdhttp "net/http"
 	"strings"
 	"time"
@@ -9,15 +10,21 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"oblivious/server/internal/admin"
+	"oblivious/server/internal/agent"
 	"oblivious/server/internal/auth"
 	"oblivious/server/internal/chat"
 	"oblivious/server/internal/config"
 	"oblivious/server/internal/console"
 	"oblivious/server/internal/knowledge"
 	"oblivious/server/internal/marketplace"
+	"oblivious/server/internal/mcp"
+	"oblivious/server/internal/memory"
+	"oblivious/server/internal/notification"
+	"oblivious/server/internal/quota"
 	"oblivious/server/internal/task"
 	"oblivious/server/internal/usage"
 	"oblivious/server/internal/userprefs"
+	"oblivious/server/internal/ws"
 )
 
 func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
@@ -36,21 +43,83 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 	authMiddleware := newAuthMiddleware(cfg, authService)
 	preferencesService := userprefs.NewService(userprefs.NewSQLStore(database))
 	authHandler := newAuthHandler(authService, authMiddleware, preferencesService)
-	replyGenerator := chat.NewHTTPReplyGenerator(cfg.LLMBaseURL, cfg.LLMAPIKey, cfg.ModelDefaultName, time.Duration(cfg.LLMTimeoutMS)*time.Millisecond)
-	chatHandler := newChatHandler(chat.NewService(chat.NewSQLStore(database), replyGenerator, cfg.ModelDefaultName, usage.NewSQLRecorder(database)))
+
+	// Chat service with optional Relay gateway
+	var chatService *chat.Service
+	if cfg.RelayEnabled {
+		relayGateway := chat.NewRelayGateway(
+			chat.WithRelayURL("http://localhost:"+fmt.Sprintf("%d", cfg.Port)+"/v1"),
+			chat.WithDefaultModel(cfg.RelayDefaultModel),
+		)
+		var gateway chat.ChatGateway = relayGateway
+		if cfg.Env != "production" {
+			localGenerator := chat.NewHTTPReplyGenerator(cfg.LLMBaseURL, cfg.LLMAPIKey, cfg.ModelDefaultName, time.Duration(cfg.LLMTimeoutMS)*time.Millisecond)
+			gateway = chat.NewCompositeGateway(relayGateway, localGenerator)
+		}
+		chatService = chat.NewServiceWithGateway(chat.NewSQLStore(database), gateway, cfg.ModelDefaultName, usage.NewSQLRecorder(database))
+	} else {
+		replyGenerator := chat.NewHTTPReplyGenerator(cfg.LLMBaseURL, cfg.LLMAPIKey, cfg.ModelDefaultName, time.Duration(cfg.LLMTimeoutMS)*time.Millisecond)
+		chatService = chat.NewService(chat.NewSQLStore(database), replyGenerator, cfg.ModelDefaultName, usage.NewSQLRecorder(database))
+	}
+	chatHandler := newChatHandler(chatService)
 	consoleHandler := newConsoleHandler(console.NewService(console.NewSQLStore(database)), preferencesService)
 	knowledgeHandler := newKnowledgeHandler(knowledge.NewService(knowledge.NewSQLStore(database)))
 	preferencesHandler := newPreferencesHandler(preferencesService)
 	taskHandler := newTaskHandler(task.NewService(task.NewSQLStore(database)))
 
+	// Agent service with shared gateway
+	var agentService *agent.Service
+	if chatService.HasStreamSupport() {
+		agentService = agent.NewService(agent.NewSQLStore(database), chatService.ChatGateway())
+	} else {
+		relayGateway := chat.NewRelayGateway(
+			chat.WithRelayURL("http://localhost:"+fmt.Sprintf("%d", cfg.Port)+"/v1"),
+			chat.WithDefaultModel(cfg.RelayDefaultModel),
+		)
+		agentService = agent.NewService(agent.NewSQLStore(database), relayGateway)
+	}
+	agentHandler := newAgentHandler(agentService)
+
+	// Memory service with Relay embedder
+	var memoryService *memory.Service
+	if cfg.RelayEnabled {
+		embedder := memory.NewRelayEmbedder(
+			"http://localhost:"+fmt.Sprintf("%d", cfg.Port)+"/v1",
+			"text-embedding-3-small",
+		)
+		chunker := memory.DefaultChunker()
+		memoryService = memory.NewService(memory.NewSQLStore(database), embedder, chunker, "text-embedding-3-small")
+		// Inject memory into agent service
+		agentService.SetMemory(memoryService)
+	}
+	memoryHandler := newMemoryHandler(memoryService)
+
+	// MCP client
+	mcpClient := mcp.NewClient(mcp.NewSQLStore(database))
+	mcpHandler := newMCPHandler(mcpClient)
+
+	// Inject MCP client into agent service
+	agentService.SetMCPClient(mcpClient)
+
+	// Quota service
+	quotaService := quota.NewService(quota.NewSQLStore(database))
+	quotaHandler := newQuotaHandler(quotaService)
+
+	// Admin service
 	adminService := admin.NewService(admin.NewSQLStore(database))
 	adminHandler := newAdminHandler(adminService)
+
+	// Marketplace service
 	marketplaceStore := marketplace.NewSQLStore(database)
 	marketplaceHandler := newMarketplaceHandler(
 		marketplace.NewService(marketplaceStore, adminService),
 		marketplace.NewSearchService(database),
 	)
 
+	// Notification service
+	notificationHandler := newNotificationHandler(notification.NewService(notification.NewSQLStore(database)))
+
+	// Auth routes
 	mux.HandleFunc("/api/v1/auth/login", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		if r.Method != stdhttp.MethodPost {
 			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
@@ -79,6 +148,8 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 		}
 		authHandler.logout(w, r)
 	})))
+
+	// Preferences routes
 	mux.Handle("/api/v1/app/me/preferences", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		switch r.Method {
 		case stdhttp.MethodGet:
@@ -89,6 +160,8 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		}
 	})))
+
+	// Models route
 	mux.Handle("/api/v1/app/models", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		if r.Method != stdhttp.MethodGet {
 			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
@@ -96,6 +169,8 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 		}
 		chatHandler.listModels(w, r)
 	})))
+
+	// Chat routes
 	mux.Handle("/api/v1/app/conversations", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		switch r.Method {
 		case stdhttp.MethodGet:
@@ -135,16 +210,17 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			}
 		case "convert-to-task":
-			switch r.Method {
-			case stdhttp.MethodPost:
+			if r.Method == stdhttp.MethodPost {
 				chatHandler.convertConversationToTask(w, r, conversationID)
-			default:
+			} else {
 				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			}
 		default:
 			writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
 		}
 	})))
+
+	// Knowledge routes
 	mux.Handle("/api/v1/app/knowledge-bases", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		switch r.Method {
 		case stdhttp.MethodGet:
@@ -191,10 +267,9 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 		}
 
 		if len(parts) == 2 && parts[1] == "retrieve" {
-			switch r.Method {
-			case stdhttp.MethodPost:
+			if r.Method == stdhttp.MethodPost {
 				knowledgeHandler.retrieveKnowledge(w, r, knowledgeBaseID)
-			default:
+			} else {
 				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			}
 			return
@@ -215,6 +290,8 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 
 		writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
 	})))
+
+	// Task routes
 	mux.Handle("/api/v1/app/tasks", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		switch r.Method {
 		case stdhttp.MethodGet:
@@ -235,69 +312,151 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 
 		taskID := parts[0]
 		if len(parts) == 1 {
+			if r.Method == stdhttp.MethodGet {
+				taskHandler.getTask(w, r, taskID)
+			} else {
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
+
+		if len(parts) == 2 {
+			switch parts[1] {
+			case "start":
+				if r.Method == stdhttp.MethodPost {
+					taskHandler.startTask(w, r, taskID)
+				} else {
+					writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+				}
+			case "approve":
+				if r.Method == stdhttp.MethodPost {
+					taskHandler.approveTask(w, r, taskID)
+				} else {
+					writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+				}
+			case "pause":
+				if r.Method == stdhttp.MethodPost {
+					taskHandler.pauseTask(w, r, taskID)
+				} else {
+					writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+				}
+			case "resume":
+				if r.Method == stdhttp.MethodPost {
+					taskHandler.resumeTask(w, r, taskID)
+				} else {
+					writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+				}
+			case "cancel":
+				if r.Method == stdhttp.MethodPost {
+					taskHandler.cancelTask(w, r, taskID)
+				} else {
+					writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+				}
+			case "budget":
+				if r.Method == stdhttp.MethodPost {
+					taskHandler.updateTaskBudget(w, r, taskID)
+				} else {
+					writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+				}
+			default:
+				writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
+			}
+			return
+		}
+
+		writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
+	})))
+
+	// Agent routes
+	mux.Handle("/api/v1/app/agents", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		switch r.Method {
+		case stdhttp.MethodGet:
+			agentHandler.listAgents(w, r)
+		case stdhttp.MethodPost:
+			agentHandler.createAgent(w, r)
+		default:
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		}
+	})))
+	mux.Handle("/api/v1/app/agents/", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		trimmedPath := strings.TrimPrefix(r.URL.Path, "/api/v1/app/agents/")
+		parts := strings.Split(trimmedPath, "/")
+
+		if len(parts) == 0 || parts[0] == "" {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
+			return
+		}
+
+		agentID := parts[0]
+
+		if len(parts) == 1 {
 			switch r.Method {
 			case stdhttp.MethodGet:
-				taskHandler.getTask(w, r, taskID)
+				agentHandler.getAgent(w, r, agentID)
+			case stdhttp.MethodPut:
+				agentHandler.updateAgent(w, r, agentID)
+			case stdhttp.MethodDelete:
+				agentHandler.deleteAgent(w, r, agentID)
 			default:
 				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			}
 			return
 		}
 
-		if len(parts) == 2 && parts[1] == "start" {
+		if len(parts) == 2 && parts[1] == "conversations" {
 			switch r.Method {
+			case stdhttp.MethodGet:
+				agentHandler.listConversations(w, r, agentID)
 			case stdhttp.MethodPost:
-				taskHandler.startTask(w, r, taskID)
+				agentHandler.createConversation(w, r, agentID)
 			default:
 				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			}
 			return
 		}
 
-		if len(parts) == 2 && parts[1] == "approve" {
+		if len(parts) == 2 && parts[1] == "tools" {
+			if r.Method == stdhttp.MethodGet {
+				agentHandler.listAvailableTools(w, r, agentID)
+			} else {
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
+
+		writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
+	})))
+
+	// Agent conversation routes
+	mux.Handle("/api/v1/app/agents/conversations/", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		trimmedPath := strings.TrimPrefix(r.URL.Path, "/api/v1/app/agents/conversations/")
+		parts := strings.Split(trimmedPath, "/")
+
+		if len(parts) == 0 || parts[0] == "" {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
+			return
+		}
+
+		conversationID := parts[0]
+
+		if len(parts) == 1 {
 			switch r.Method {
-			case stdhttp.MethodPost:
-				taskHandler.approveTask(w, r, taskID)
+			case stdhttp.MethodGet:
+				agentHandler.getConversation(w, r, conversationID)
+			case stdhttp.MethodDelete:
+				agentHandler.deleteConversation(w, r, conversationID)
 			default:
 				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			}
 			return
 		}
 
-		if len(parts) == 2 && parts[1] == "pause" {
+		if len(parts) == 2 && parts[1] == "messages" {
 			switch r.Method {
+			case stdhttp.MethodGet:
+				agentHandler.listMessages(w, r, conversationID)
 			case stdhttp.MethodPost:
-				taskHandler.pauseTask(w, r, taskID)
-			default:
-				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-			}
-			return
-		}
-
-		if len(parts) == 2 && parts[1] == "resume" {
-			switch r.Method {
-			case stdhttp.MethodPost:
-				taskHandler.resumeTask(w, r, taskID)
-			default:
-				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-			}
-			return
-		}
-
-		if len(parts) == 2 && parts[1] == "cancel" {
-			switch r.Method {
-			case stdhttp.MethodPost:
-				taskHandler.cancelTask(w, r, taskID)
-			default:
-				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-			}
-			return
-		}
-
-		if len(parts) == 2 && parts[1] == "budget" {
-			switch r.Method {
-			case stdhttp.MethodPost:
-				taskHandler.updateTaskBudget(w, r, taskID)
+				agentHandler.sendMessage(w, r, conversationID)
 			default:
 				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			}
@@ -306,12 +465,143 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 
 		writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
 	})))
+
+	// Memory routes
+	mux.Handle("/api/v1/app/memory/documents", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		switch r.Method {
+		case stdhttp.MethodGet:
+			memoryHandler.listDocuments(w, r)
+		case stdhttp.MethodPost:
+			memoryHandler.addDocument(w, r)
+		default:
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		}
+	})))
+	mux.Handle("/api/v1/app/memory/documents/", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		trimmedPath := strings.TrimPrefix(r.URL.Path, "/api/v1/app/memory/documents/")
+		parts := strings.Split(trimmedPath, "/")
+
+		if len(parts) == 0 || parts[0] == "" {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
+			return
+		}
+
+		documentID := parts[0]
+
+		if len(parts) == 1 {
+			switch r.Method {
+			case stdhttp.MethodGet:
+				memoryHandler.getDocument(w, r, documentID)
+			case stdhttp.MethodPut:
+				memoryHandler.updateDocument(w, r, documentID)
+			case stdhttp.MethodDelete:
+				memoryHandler.deleteDocument(w, r, documentID)
+			default:
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
+
+		if len(parts) == 2 && parts[1] == "chunks" {
+			if r.Method == stdhttp.MethodGet {
+				memoryHandler.listChunks(w, r, documentID)
+			} else {
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
+
+		writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
+	})))
+	mux.Handle("/api/v1/app/memory/search", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.Method != stdhttp.MethodPost {
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		memoryHandler.search(w, r)
+	})))
+
+	// MCP Server routes
+	mux.Handle("/api/v1/app/mcp-servers", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		switch r.Method {
+		case stdhttp.MethodGet:
+			mcpHandler.listServers(w, r)
+		case stdhttp.MethodPost:
+			mcpHandler.addServer(w, r)
+		default:
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		}
+	})))
+	mux.Handle("/api/v1/app/mcp-servers/", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		trimmedPath := strings.TrimPrefix(r.URL.Path, "/api/v1/app/mcp-servers/")
+		parts := strings.Split(trimmedPath, "/")
+
+		if len(parts) == 0 || parts[0] == "" {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
+			return
+		}
+
+		serverID := parts[0]
+
+		if len(parts) == 1 {
+			switch r.Method {
+			case stdhttp.MethodGet:
+				mcpHandler.getServer(w, r, serverID)
+			case stdhttp.MethodDelete:
+				mcpHandler.deleteServer(w, r, serverID)
+			default:
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
+
+		if len(parts) == 2 {
+			switch parts[1] {
+			case "connect":
+				if r.Method == stdhttp.MethodPost {
+					mcpHandler.connectServer(w, r, serverID)
+				} else {
+					writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+				}
+			case "disconnect":
+				if r.Method == stdhttp.MethodPost {
+					mcpHandler.disconnectServer(w, r, serverID)
+				} else {
+					writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+				}
+			case "tools":
+				if r.Method == stdhttp.MethodGet {
+					mcpHandler.listServerTools(w, r, serverID)
+				} else {
+					writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+				}
+			case "status":
+				if r.Method == stdhttp.MethodGet {
+					mcpHandler.getServerStatus(w, r, serverID)
+				} else {
+					writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+				}
+			case "execute":
+				if r.Method == stdhttp.MethodPost {
+					mcpHandler.executeTool(w, r, serverID)
+				} else {
+					writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+				}
+			default:
+				writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
+			}
+			return
+		}
+
+		writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
+	})))
+
+	// Console routes
 	mux.Handle("/api/v1/console/usage", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		if r.Method != stdhttp.MethodGet {
 			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			return
 		}
-
 		consoleHandler.getUsage(w, r)
 	})))
 	mux.Handle("/api/v1/console/access", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -319,7 +609,6 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			return
 		}
-
 		consoleHandler.getAccess(w, r)
 	})))
 	mux.Handle("/api/v1/console/models", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -327,7 +616,6 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			return
 		}
-
 		consoleHandler.getModels(w, r)
 	})))
 	mux.Handle("/api/v1/console/billing", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -335,9 +623,86 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			return
 		}
-
 		consoleHandler.getBilling(w, r)
 	})))
+
+	// Quota routes
+	mux.Handle("/api/v1/app/quota", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.Method != stdhttp.MethodGet {
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		quotaHandler.getQuota(w, r)
+	})))
+	mux.Handle("/api/v1/app/packages", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.Method != stdhttp.MethodGet {
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		quotaHandler.listPackages(w, r)
+	})))
+	mux.Handle("/api/v1/app/quota/topup", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.Method != stdhttp.MethodPost {
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		quotaHandler.topup(w, r)
+	})))
+
+	// Notification routes
+	mux.Handle("/api/v1/app/notifications", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		switch r.Method {
+		case stdhttp.MethodGet:
+			notificationHandler.list(w, r)
+		case stdhttp.MethodPost:
+			notificationHandler.create(w, r)
+		default:
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		}
+	})))
+	mux.Handle("/api/v1/app/notifications/unread-count", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.Method != stdhttp.MethodGet {
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		notificationHandler.getUnreadCount(w, r)
+	})))
+	mux.Handle("/api/v1/app/notifications/mark-all-read", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.Method != stdhttp.MethodPost {
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		notificationHandler.markAllRead(w, r)
+	})))
+	mux.Handle("/api/v1/app/notifications/", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		id := strings.TrimPrefix(r.URL.Path, "/api/v1/app/notifications/")
+		if id == "" {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
+			return
+		}
+		switch r.Method {
+		case stdhttp.MethodPatch:
+			notificationHandler.markRead(w, r, id)
+		case stdhttp.MethodDelete:
+			notificationHandler.delete(w, r, id)
+		default:
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		}
+	})))
+
+	// WebSocket route
+	mux.HandleFunc("/api/v1/ws", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.Method != stdhttp.MethodGet {
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		session, ok := authMiddleware.currentSession(r)
+		if !ok {
+			writeError(w, stdhttp.StatusUnauthorized, "unauthorized", "authentication required")
+			return
+		}
+		ws.ServeWS(ws.DefaultHub(), w, r, session.User.ID)
+	})
 
 	// Admin routes (require admin role)
 	mux.Handle("/api/v1/admin/stats", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {

@@ -59,6 +59,24 @@ func (m authMiddleware) requireSession(next http.Handler) http.Handler {
 	})
 }
 
+func (m authMiddleware) requireAdmin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		session, ok := m.currentSession(r)
+		if !ok {
+			writeError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+			return
+		}
+
+		if session.User.Role != "admin" {
+			writeError(w, http.StatusForbidden, "forbidden", "admin access required")
+			return
+		}
+
+		ctx := context.WithValue(r.Context(), sessionContextKey, session)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
 func (m authMiddleware) setSessionCookie(w http.ResponseWriter, session auth.Session) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     m.config.SessionCookieName,

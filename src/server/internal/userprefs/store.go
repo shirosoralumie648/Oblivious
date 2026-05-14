@@ -3,49 +3,69 @@ package userprefs
 import (
 	"context"
 	"database/sql"
-	"errors"
+	"encoding/json"
+	"fmt"
 )
 
 func (s *SQLStore) GetByUserID(ctx context.Context, userID string) (Preferences, error) {
-	preferences := Preferences{
-		DefaultMode:         "chat",
-		ModelStrategy:       "balanced",
-		NetworkEnabledHint:  false,
-		OnboardingCompleted: false,
+	var prefs Preferences
+	var notificationsJSON []byte
+
+	err := s.db.QueryRowContext(ctx, `
+		SELECT default_mode, model_strategy, network_enabled_hint, onboarding_completed,
+		       COALESCE(default_agent_model, 'gpt-4o-mini'),
+		       COALESCE(sidebar_collapsed, false),
+		       COALESCE(notifications, '{}')
+		FROM user_preferences WHERE user_id = $1
+	`, userID).Scan(&prefs.DefaultMode, &prefs.ModelStrategy, &prefs.NetworkEnabledHint,
+		&prefs.OnboardingCompleted, &prefs.DefaultAgentModel, &prefs.SidebarCollapsed, &notificationsJSON)
+
+	if err == sql.ErrNoRows {
+		return Preferences{
+			DefaultMode:       "chat",
+			ModelStrategy:     "balanced",
+			DefaultAgentModel: "gpt-4o-mini",
+			SidebarCollapsed:  false,
+			Notifications:     map[string]any{},
+		}, nil
+	}
+	if err != nil {
+		return prefs, fmt.Errorf("get preferences: %w", err)
 	}
 
-	if err := s.db.QueryRowContext(ctx, `
-		SELECT onboarding_completed, default_mode, model_strategy, network_enabled_hint
-		FROM user_preferences
-		WHERE user_id = $1
-	`, userID).Scan(
-		&preferences.OnboardingCompleted,
-		&preferences.DefaultMode,
-		&preferences.ModelStrategy,
-		&preferences.NetworkEnabledHint,
-	); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return preferences, nil
-		}
-		return Preferences{}, err
+	if len(notificationsJSON) > 0 {
+		json.Unmarshal(notificationsJSON, &prefs.Notifications)
+	}
+	if prefs.Notifications == nil {
+		prefs.Notifications = map[string]any{}
 	}
 
-	return preferences, nil
+	return prefs, nil
 }
 
 func (s *SQLStore) UpsertByUserID(ctx context.Context, userID string, preferences Preferences) (Preferences, error) {
-	if _, err := s.db.ExecContext(ctx, `
-		INSERT INTO user_preferences (user_id, onboarding_completed, default_mode, model_strategy, network_enabled_hint)
-		VALUES ($1, $2, $3, $4, $5)
+	if preferences.Notifications == nil {
+		preferences.Notifications = map[string]any{}
+	}
+	notificationsJSON, _ := json.Marshal(preferences.Notifications)
+
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO user_preferences (user_id, default_mode, model_strategy, network_enabled_hint, onboarding_completed, default_agent_model, sidebar_collapsed, notifications)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (user_id) DO UPDATE SET
-			onboarding_completed = EXCLUDED.onboarding_completed,
 			default_mode = EXCLUDED.default_mode,
 			model_strategy = EXCLUDED.model_strategy,
 			network_enabled_hint = EXCLUDED.network_enabled_hint,
-			updated_at = NOW()
-	`, userID, preferences.OnboardingCompleted, preferences.DefaultMode, preferences.ModelStrategy, preferences.NetworkEnabledHint); err != nil {
-		return Preferences{}, err
+			onboarding_completed = EXCLUDED.onboarding_completed,
+			default_agent_model = EXCLUDED.default_agent_model,
+			sidebar_collapsed = EXCLUDED.sidebar_collapsed,
+			notifications = EXCLUDED.notifications
+	`, userID, preferences.DefaultMode, preferences.ModelStrategy, preferences.NetworkEnabledHint,
+		preferences.OnboardingCompleted, preferences.DefaultAgentModel, preferences.SidebarCollapsed, notificationsJSON)
+
+	if err != nil {
+		return preferences, fmt.Errorf("upsert preferences: %w", err)
 	}
 
-	return s.GetByUserID(ctx, userID)
+	return preferences, nil
 }

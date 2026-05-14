@@ -24,6 +24,8 @@ type credentialsRequest struct {
 type sessionUserPayload struct {
 	Email string `json:"email"`
 	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Role  string `json:"role"`
 }
 
 type sessionWorkspacePayload struct {
@@ -36,11 +38,11 @@ type sessionMetaPayload struct {
 }
 
 type sessionResponse struct {
-	OnboardingCompleted bool                        `json:"onboardingCompleted"`
-	Preferences         userprefs.Preferences       `json:"preferences"`
-	Session             sessionMetaPayload          `json:"session"`
-	User                sessionUserPayload          `json:"user"`
-	Workspace           sessionWorkspacePayload     `json:"workspace"`
+	OnboardingCompleted bool                    `json:"onboardingCompleted"`
+	Preferences         userprefs.Preferences   `json:"preferences"`
+	Session             sessionMetaPayload      `json:"session"`
+	User                sessionUserPayload      `json:"user"`
+	Workspace           sessionWorkspacePayload `json:"workspace"`
 }
 
 func newAuthHandler(service *auth.Service, middleware authMiddleware, preferencesService *userprefs.Service) authHandler {
@@ -127,7 +129,12 @@ func (h authHandler) writeSessionResponse(w http.ResponseWriter, r *http.Request
 			ExpiresAt: session.ExpiresAt.UTC().Format(time.RFC3339),
 			ID:        session.ID,
 		},
-		User: sessionUserPayload{Email: session.User.Email, ID: session.User.ID},
+		User: sessionUserPayload{
+			Email: session.User.Email,
+			ID:    session.User.ID,
+			Name:  session.User.Name,
+			Role:  session.User.Role,
+		},
 		Workspace: sessionWorkspacePayload{ID: session.WorkspaceID},
 	})
 }

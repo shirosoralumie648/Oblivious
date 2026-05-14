@@ -16,8 +16,10 @@ var ErrInvalidCredentials = errors.New("invalid credentials")
 var ErrSessionNotFound = errors.New("session not found")
 
 type User struct {
-	Email string
-	ID    string
+	ID    string `json:"id"`
+	Email string `json:"email"`
+	Name  string `json:"name"`
+	Role  string `json:"role"`
 }
 
 type Conversation struct {

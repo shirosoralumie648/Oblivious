@@ -159,7 +159,7 @@ type chatCompletionResponse struct {
 	Choices []struct {
 		Index        int           `json:"index"`
 		Message      openAIMessage `json:"message"`
-		FinishReason string `json:"finish_reason"`
+		FinishReason string        `json:"finish_reason"`
 		Delta        *struct {
 			Content string `json:"content"`
 		} `json:"delta,omitempty"`
@@ -344,7 +344,7 @@ func (g *CompositeGateway) LastError() error {
 }
 
 func applyRelayRequestMetadata(req *http.Request) {
-	metadata, ok := relayRequestMetadataFromContext(req.Context())
+	metadata, ok := RelayRequestMetadataFromContext(req.Context())
 	if !ok {
 		return
 	}

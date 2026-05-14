@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -30,7 +31,7 @@ func (s *SQLStore) CreateUserWithWorkspace(ctx context.Context, email, passwordH
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.ExecContext(ctx, `INSERT INTO users (id, email, password_hash) VALUES ($1, $2, $3)`, userID, email, passwordHash); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO users (id, email, password_hash, role, name) VALUES ($1, $2, $3, 'user', $2)`, userID, email, passwordHash); err != nil {
 		return Session{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO workspaces (id, user_id, name) VALUES ($1, $2, $3)`, workspaceID, userID, "Default Workspace"); err != nil {
@@ -49,6 +50,8 @@ func (s *SQLStore) CreateUserWithWorkspace(ctx context.Context, email, passwordH
 		User: User{
 			Email: email,
 			ID:    userID,
+			Name:  email,
+			Role:  "user",
 		},
 		WorkspaceID: workspaceID,
 	}, nil
@@ -57,8 +60,10 @@ func (s *SQLStore) CreateUserWithWorkspace(ctx context.Context, email, passwordH
 func (s *SQLStore) CreateSessionForUser(ctx context.Context, email, password string) (Session, error) {
 	var storedPassword string
 	var userID string
+	var userRole string
+	var userName sql.NullString
 
-	if err := s.db.QueryRowContext(ctx, `SELECT id, password_hash FROM users WHERE email = $1`, email).Scan(&userID, &storedPassword); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT id, password_hash, COALESCE(role, 'user'), name FROM users WHERE email = $1`, email).Scan(&userID, &storedPassword, &userRole, &userName); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Session{}, ErrInvalidCredentials
 		}
@@ -82,12 +87,19 @@ func (s *SQLStore) CreateSessionForUser(ctx context.Context, email, password str
 		return Session{}, err
 	}
 
+	// Update last_login_at
+	s.db.ExecContext(ctx, `UPDATE users SET last_login_at = NOW() WHERE id = $1`, userID)
+
+	name, role := normalizeUserFields(email, userName.String, userRole)
+
 	return Session{
 		ExpiresAt: expiresAt,
 		ID:        sessionID,
 		User: User{
 			Email: email,
 			ID:    userID,
+			Name:  name,
+			Role:  role,
 		},
 		WorkspaceID: workspaceID,
 	}, nil
@@ -154,17 +166,30 @@ func (s *SQLStore) GetConversationsByUser(ctx context.Context, userID string) ([
 
 func (s *SQLStore) GetSession(ctx context.Context, sessionID string) (Session, error) {
 	var session Session
+	var userName sql.NullString
+	var userRole sql.NullString
 	if err := s.db.QueryRowContext(ctx, `
-		SELECT s.id, s.workspace_id, s.expires_at, u.id, u.email
+		SELECT s.id, s.workspace_id, s.expires_at, u.id, u.email, u.name, COALESCE(u.role, 'user')
 		FROM sessions s
 		JOIN users u ON u.id = s.user_id
 		WHERE s.id = $1 AND s.expires_at > NOW()
-	`, sessionID).Scan(&session.ID, &session.WorkspaceID, &session.ExpiresAt, &session.User.ID, &session.User.Email); err != nil {
+	`, sessionID).Scan(&session.ID, &session.WorkspaceID, &session.ExpiresAt, &session.User.ID, &session.User.Email, &userName, &userRole); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Session{}, ErrSessionNotFound
 		}
 		return Session{}, err
 	}
+	session.User.Name, session.User.Role = normalizeUserFields(session.User.Email, userName.String, userRole.String)
 
 	return session, nil
+}
+
+func normalizeUserFields(email, name, role string) (string, string) {
+	if strings.TrimSpace(name) == "" {
+		name = email
+	}
+	if strings.TrimSpace(role) == "" {
+		role = "user"
+	}
+	return name, role
 }

@@ -9,7 +9,7 @@ import (
 )
 
 type fakeStore struct {
-	config ConversationConfig
+	config   ConversationConfig
 	messages []Message
 }
 
@@ -48,6 +48,17 @@ type fakeGenerator struct {
 
 func (f fakeGenerator) GenerateReply(ctx context.Context, messages []Message, config ConversationConfig) (string, error) {
 	return f.reply, nil
+}
+
+type metadataRecordingGenerator struct {
+	metadata RelayRequestMetadata
+	reply    string
+	seen     bool
+}
+
+func (g *metadataRecordingGenerator) GenerateReply(ctx context.Context, messages []Message, config ConversationConfig) (string, error) {
+	g.metadata, g.seen = RelayRequestMetadataFromContext(ctx)
+	return g.reply, nil
 }
 
 type fakeUsageRecorder struct {
@@ -210,6 +221,48 @@ func TestSendMessageRecordsUsage(t *testing.T) {
 	}
 	if record.RequestCount != 1 {
 		t.Fatalf("expected request count 1, got %d", record.RequestCount)
+	}
+}
+
+func TestSendMessagePropagatesRelayRequestMetadata(t *testing.T) {
+	store := &recordingStore{
+		config: ConversationConfig{
+			ConversationID:  "conversation_1",
+			ModelID:         "quality-chat",
+			Temperature:     1,
+			MaxOutputTokens: 1024,
+		},
+	}
+	generator := &metadataRecordingGenerator{reply: "assistant reply"}
+	service := NewService(store, generator, "demo-reply", nil)
+
+	_, err := service.SendMessage(
+		WithRelayRequestMetadata(context.Background(), RelayRequestMetadata{RequestID: "req_123"}),
+		auth.Session{
+			WorkspaceID: "workspace_1",
+			User: auth.User{
+				ID: "user_1",
+			},
+		},
+		"conversation_1",
+		"preserve metadata",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("send message: %v", err)
+	}
+
+	if !generator.seen {
+		t.Fatal("expected fake gateway to receive RelayRequestMetadata")
+	}
+	if generator.metadata.UserID != "user_1" {
+		t.Fatalf("expected user metadata user_1, got %q", generator.metadata.UserID)
+	}
+	if generator.metadata.WorkspaceID != "workspace_1" {
+		t.Fatalf("expected workspace metadata workspace_1, got %q", generator.metadata.WorkspaceID)
+	}
+	if generator.metadata.RequestID != "req_123" {
+		t.Fatalf("expected request id req_123 to be preserved, got %q", generator.metadata.RequestID)
 	}
 }
 

@@ -30,11 +30,11 @@ func DefaultRunnerConfig() RunnerConfig {
 
 // Runner Agent 执行器
 type Runner struct {
-	store     Store
-	gateway   chat.ChatGateway
-	executor  *ToolExecutor
-	memory    MemorySearcher
-	config    RunnerConfig
+	store    Store
+	gateway  chat.ChatGateway
+	executor *ToolExecutor
+	memory   MemorySearcher
+	config   RunnerConfig
 }
 
 // NewRunner 创建 Agent Runner
@@ -50,9 +50,9 @@ func NewRunner(store Store, gateway chat.ChatGateway, executor *ToolExecutor, me
 
 // RunResult 运行结果
 type RunResult struct {
-	Message     *Message `json:"message"`
-	ToolCalls   int      `json:"toolCalls"`
-	UsedMemory  bool     `json:"usedMemory"`
+	Message    *Message `json:"message"`
+	ToolCalls  int      `json:"toolCalls"`
+	UsedMemory bool     `json:"usedMemory"`
 }
 
 // Run 执行 Agent 对话（轻量路径，无工具调用支持）。
@@ -89,6 +89,7 @@ func (r *Runner) Run(ctx context.Context, session auth.Session, agent *Agent, co
 	if config.MaxOutputTokens == 0 {
 		config.MaxOutputTokens = 2048
 	}
+	ctx = withSessionRelayMetadata(ctx, session)
 
 	// 执行循环
 	iteration := 0
@@ -148,6 +149,7 @@ func (r *Runner) RunStream(ctx context.Context, session auth.Session, agent *Age
 	if config.MaxOutputTokens == 0 {
 		config.MaxOutputTokens = 2048
 	}
+	ctx = withSessionRelayMetadata(ctx, session)
 
 	// 流式生成
 	var replyContent string
@@ -301,6 +303,7 @@ func (r *Runner) RunWithTools(ctx context.Context, session auth.Session, agent *
 	if config.MaxOutputTokens == 0 {
 		config.MaxOutputTokens = 2048
 	}
+	ctx = withSessionRelayMetadata(ctx, session)
 
 	structuredGateway, ok := r.gateway.(chat.StructuredReplyGenerator)
 	if !ok {
@@ -397,6 +400,17 @@ func (r *Runner) RunWithTools(ctx context.Context, session auth.Session, agent *
 	}
 
 	return nil, fmt.Errorf("%w (%d)", ErrMaxIterationsExceeded, r.config.MaxIterations)
+}
+
+func withSessionRelayMetadata(ctx context.Context, session auth.Session) context.Context {
+	metadata, _ := chat.RelayRequestMetadataFromContext(ctx)
+	if strings.TrimSpace(metadata.UserID) == "" {
+		metadata.UserID = session.User.ID
+	}
+	if strings.TrimSpace(metadata.WorkspaceID) == "" {
+		metadata.WorkspaceID = session.WorkspaceID
+	}
+	return chat.WithRelayRequestMetadata(ctx, metadata)
 }
 
 // MarshalToolCalls 序列化工具调用

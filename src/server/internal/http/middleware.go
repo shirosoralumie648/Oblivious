@@ -58,6 +58,11 @@ func withRequestID(next stdhttp.Handler) stdhttp.Handler {
 	})
 }
 
+func requestIDFromContext(ctx context.Context) string {
+	requestID, _ := ctx.Value(requestIDContextKey).(string)
+	return requestID
+}
+
 func withLogging(next stdhttp.Handler) stdhttp.Handler {
 	return stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		startedAt := time.Now()
@@ -65,7 +70,7 @@ func withLogging(next stdhttp.Handler) stdhttp.Handler {
 
 		next.ServeHTTP(recorder, r)
 
-		requestID, _ := r.Context().Value(requestIDContextKey).(string)
+		requestID := requestIDFromContext(r.Context())
 		log.Printf("method=%s path=%s status=%d duration=%s request_id=%s", r.Method, r.URL.Path, recorder.status, time.Since(startedAt), requestID)
 	})
 }

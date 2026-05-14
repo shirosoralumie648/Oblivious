@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -18,10 +19,12 @@ type Conversation struct {
 }
 
 type Message struct {
-	Content   string    `json:"content"`
-	CreatedAt time.Time `json:"createdAt"`
-	ID        string    `json:"id"`
-	Role      string    `json:"role"`
+	Content    string     `json:"content"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	ID         string     `json:"id"`
+	Role       string     `json:"role"`
+	ToolCalls  []ToolCall `json:"toolCalls,omitempty"`
+	ToolCallID string     `json:"toolCallId,omitempty"`
 }
 
 type TaskDraft struct {
@@ -67,6 +70,7 @@ type UsageRecorder interface {
 type Service struct {
 	defaultModelID string
 	replyGenerator ReplyGenerator
+	chatGateway    ChatGateway // 新增：支持流式的 Gateway
 	store          Store
 	usageRecorder  UsageRecorder
 }
@@ -75,9 +79,37 @@ func NewService(store Store, replyGenerator ReplyGenerator, defaultModelID strin
 	return &Service{
 		defaultModelID: defaultModelID,
 		replyGenerator: replyGenerator,
+		chatGateway:    nil, // 可选，通过 SetChatGateway 设置
 		store:          store,
 		usageRecorder:  usageRecorder,
 	}
+}
+
+// NewServiceWithGateway 创建带 ChatGateway 的 Service
+func NewServiceWithGateway(store Store, gateway ChatGateway, defaultModelID string, usageRecorder UsageRecorder) *Service {
+	return &Service{
+		defaultModelID: defaultModelID,
+		replyGenerator: gateway, // ChatGateway 也实现了 ReplyGenerator
+		chatGateway:    gateway,
+		store:          store,
+		usageRecorder:  usageRecorder,
+	}
+}
+
+// SetChatGateway 设置 ChatGateway（用于依赖注入）
+func (s *Service) SetChatGateway(gateway ChatGateway) {
+	s.chatGateway = gateway
+	s.replyGenerator = gateway
+}
+
+// HasStreamSupport 检查是否支持流式
+func (s *Service) HasStreamSupport() bool {
+	return s.chatGateway != nil
+}
+
+// ChatGateway 返回 ChatGateway（用于 Agent 等共享）
+func (s *Service) ChatGateway() ChatGateway {
+	return s.chatGateway
 }
 
 func (s *Service) CreateConversation(ctx context.Context, session auth.Session, title string) (Conversation, error) {
@@ -260,6 +292,7 @@ func (s *Service) SendMessage(ctx context.Context, session auth.Session, convers
 	}
 
 	effectiveConfig := mergeConversationConfig(conversationConfig, overrides, s.defaultModelID)
+	ctx = withSessionRelayMetadata(ctx, session)
 
 	reply, err := s.replyGenerator.GenerateReply(ctx, messages, effectiveConfig)
 	if err != nil {
@@ -285,6 +318,71 @@ func (s *Service) SendMessage(ctx context.Context, session auth.Session, convers
 	}
 
 	return s.store.ListMessages(ctx, conversationID, session.WorkspaceID)
+}
+
+// SendMessageStream 流式发送消息
+func (s *Service) SendMessageStream(ctx context.Context, session auth.Session, conversationID, content string, overrides *MessageOverrides, onChunk func(string) error) error {
+	if s.chatGateway == nil {
+		return errors.New("stream not supported: chat gateway not configured")
+	}
+
+	if _, err := s.store.CreateMessage(ctx, conversationID, "user", content); err != nil {
+		return err
+	}
+
+	messages, err := s.store.ListMessages(ctx, conversationID, session.WorkspaceID)
+	if err != nil {
+		return err
+	}
+
+	conversationConfig, err := s.store.GetConversationConfig(ctx, conversationID, session.WorkspaceID, s.defaultModelID)
+	if err != nil {
+		return err
+	}
+
+	effectiveConfig := mergeConversationConfig(conversationConfig, overrides, s.defaultModelID)
+	ctx = withSessionRelayMetadata(ctx, session)
+
+	var replyBuilder strings.Builder
+	err = s.chatGateway.GenerateReplyStream(ctx, messages, effectiveConfig, func(chunk string) error {
+		replyBuilder.WriteString(chunk)
+		return onChunk(chunk)
+	})
+	if err != nil {
+		return err
+	}
+
+	reply := replyBuilder.String()
+	if _, err := s.store.CreateMessage(ctx, conversationID, "assistant", reply); err != nil {
+		return err
+	}
+
+	if s.usageRecorder != nil {
+		if err := s.usageRecorder.RecordChatUsage(ctx, UsageRecord{
+			ConversationID: conversationID,
+			InputTokens:    estimateTokens(content),
+			ModelID:        effectiveConfig.ModelID,
+			OutputTokens:   estimateTokens(reply),
+			RequestCount:   1,
+			UserID:         session.User.ID,
+			WorkspaceID:    session.WorkspaceID,
+		}); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func withSessionRelayMetadata(ctx context.Context, session auth.Session) context.Context {
+	metadata, _ := RelayRequestMetadataFromContext(ctx)
+	if strings.TrimSpace(metadata.UserID) == "" {
+		metadata.UserID = session.User.ID
+	}
+	if strings.TrimSpace(metadata.WorkspaceID) == "" {
+		metadata.WorkspaceID = session.WorkspaceID
+	}
+	return WithRelayRequestMetadata(ctx, metadata)
 }
 
 func estimateTokens(text string) int {

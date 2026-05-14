@@ -47,6 +47,12 @@ func testDatabase(t *testing.T) *sql.DB {
 	}
 
 	statements := []string{
+		`DROP TABLE IF EXISTS usage_records`,
+		`DROP TABLE IF EXISTS notifications`,
+		`DROP TABLE IF EXISTS knowledge_document_chunks`,
+		`DROP TABLE IF EXISTS knowledge_documents`,
+		`DROP TABLE IF EXISTS conversation_knowledge_bindings`,
+		`DROP TABLE IF EXISTS knowledge_bases`,
 		`DROP TABLE IF EXISTS conversation_configs`,
 		`DROP TABLE IF EXISTS user_preferences`,
 		`DROP TABLE IF EXISTS messages`,
@@ -54,13 +60,18 @@ func testDatabase(t *testing.T) *sql.DB {
 		`DROP TABLE IF EXISTS sessions`,
 		`DROP TABLE IF EXISTS workspaces`,
 		`DROP TABLE IF EXISTS users`,
-		`CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'user', name TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), last_login_at TIMESTAMPTZ)`,
 		`CREATE TABLE workspaces (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, name TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE sessions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), expires_at TIMESTAMPTZ NOT NULL)`,
 		`CREATE TABLE conversations (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE, title TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
 		`CREATE TABLE messages (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE, role TEXT NOT NULL, content TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL)`,
+		`CREATE TABLE knowledge_bases (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE, name TEXT NOT NULL, document_count INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE TABLE knowledge_documents (id TEXT PRIMARY KEY, knowledge_base_id TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE, title TEXT NOT NULL, content TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE TABLE knowledge_document_chunks (id TEXT PRIMARY KEY, document_id TEXT NOT NULL REFERENCES knowledge_documents(id) ON DELETE CASCADE, chunk_index INTEGER NOT NULL, content TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE (document_id, chunk_index))`,
+		`CREATE TABLE conversation_knowledge_bindings (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE, knowledge_base_id TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE (conversation_id, knowledge_base_id))`,
 		`CREATE TABLE conversation_configs (conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE, model_id TEXT NOT NULL DEFAULT 'demo-reply', system_prompt_override TEXT NOT NULL DEFAULT '', temperature DOUBLE PRECISION NOT NULL DEFAULT 1, max_output_tokens INTEGER NOT NULL DEFAULT 1024, tools_enabled BOOLEAN NOT NULL DEFAULT FALSE, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
-		`CREATE TABLE user_preferences (user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, onboarding_completed BOOLEAN NOT NULL DEFAULT FALSE, default_mode TEXT NOT NULL DEFAULT 'chat', model_strategy TEXT NOT NULL DEFAULT 'balanced', network_enabled_hint BOOLEAN NOT NULL DEFAULT FALSE, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE TABLE user_preferences (user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, onboarding_completed BOOLEAN NOT NULL DEFAULT FALSE, default_mode TEXT NOT NULL DEFAULT 'chat', model_strategy TEXT NOT NULL DEFAULT 'balanced', network_enabled_hint BOOLEAN NOT NULL DEFAULT FALSE, default_agent_model TEXT NOT NULL DEFAULT 'gpt-4o-mini', sidebar_collapsed BOOLEAN NOT NULL DEFAULT FALSE, notifications JSONB NOT NULL DEFAULT '{}', updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE TABLE notifications (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, type TEXT NOT NULL, category TEXT NOT NULL, title TEXT NOT NULL, message TEXT NOT NULL, is_read BOOLEAN NOT NULL DEFAULT FALSE, action_url TEXT, metadata JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), read_at TIMESTAMPTZ)`,
 		`CREATE TABLE usage_records (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE, conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL, model_id TEXT NOT NULL, request_count INTEGER NOT NULL, input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 	}
 	for _, statement := range statements {

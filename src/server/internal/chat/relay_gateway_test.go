@@ -45,7 +45,7 @@ func TestRelayGateway_GenerateReply(t *testing.T) {
 		{Role: "user", Content: "Hello"},
 	}
 	config := ConversationConfig{
-		ModelID:    "gpt-4o-mini",
+		ModelID:     "gpt-4o-mini",
 		Temperature: 1.0,
 	}
 
@@ -153,6 +153,30 @@ func TestCompositeGateway_Fallback(t *testing.T) {
 
 	if reply != "fallback reply" {
 		t.Errorf("expected fallback reply, got: %s", reply)
+	}
+}
+
+func TestCompositeGateway_NoFallbackReturnsPrimaryError(t *testing.T) {
+	failingServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer failingServer.Close()
+
+	primaryGateway := NewRelayGateway(
+		WithRelayURL(failingServer.URL+"/v1"),
+		WithDefaultModel("gpt-4o-mini"),
+	)
+	composite := NewCompositeGateway(primaryGateway, nil)
+
+	_, err := composite.GenerateReply(context.Background(), []Message{{Role: "user", Content: "Hello"}}, ConversationConfig{})
+	if err == nil {
+		t.Fatal("expected primary Relay failure to be returned when fallback is nil")
+	}
+	if !strings.Contains(err.Error(), "relay returned status") {
+		t.Fatalf("expected failing primary relay assertion, got %v", err)
+	}
+	if composite.LastError() == nil {
+		t.Fatal("expected last primary error to be recorded")
 	}
 }
 
