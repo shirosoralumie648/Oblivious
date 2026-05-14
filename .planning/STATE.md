@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v03.3
 milestone_name: Mainline Consolidation
-status: ready_to_discuss
-last_updated: "2026-05-14T06:55:00.000Z"
-last_activity: 2026-05-14 -- Phase 05 complete; Phase 06 ready for discussion
+status: ready_to_plan
+last_updated: "2026-05-14T07:53:36.872Z"
+last_activity: 2026-05-14 -- Phase 06 context gathered; ready to plan
 progress:
   total_phases: 6
   completed_phases: 1
@@ -25,7 +25,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-14)
 
 ## Current Status
 
-**Milestone v03.3: Mainline Consolidation — PHASE 6 DISCUSSION READY**
+**Milestone v03.3: Mainline Consolidation — PHASE 6 READY TO PLAN**
 
 The repository has substantial uncommitted source, docs, deployment, and frontend test changes. v03.3 is scoped to classifying that work, hardening the backend/frontend/deployment contracts, reconciling docs, and producing clean commit boundaries.
 
@@ -33,8 +33,8 @@ The repository has substantial uncommitted source, docs, deployment, and fronten
 
 Phase: 6 — Backend Mainline Integration Hardening
 Plan: Not started
-Status: Ready to discuss Phase 6
-Last activity: 2026-05-14 -- Phase 05 complete; Phase 06 ready for discussion
+Status: Ready to plan Phase 6
+Last activity: 2026-05-14 -- Phase 06 context gathered; ready to plan
 
 ## Current Scope
 
@@ -110,7 +110,7 @@ Items acknowledged before v03.3:
 
 ## Next Suggested Step
 
-Run `$gsd:next` or `$gsd:discuss-phase 6` to gather context for Backend Mainline Integration Hardening.
+Run `$gsd:next` or `$gsd:plan-phase 6` to plan Backend Mainline Integration Hardening.
 
 ## Context Files
 
@@ -124,6 +124,8 @@ Run `$gsd:next` or `$gsd:discuss-phase 6` to gather context for Backend Mainline
 - Phase 5 commit boundaries: `.planning/phases/05-dirty-worktree-triage-and-commit-boundary/05-COMMIT-BOUNDARIES.md`
 - Phase 5 summary: `.planning/phases/05-dirty-worktree-triage-and-commit-boundary/05-01-SUMMARY.md`
 - Phase 5 verification: `.planning/phases/05-dirty-worktree-triage-and-commit-boundary/05-VERIFICATION.md`
+- Phase 6 context: `.planning/phases/06-backend-mainline-integration-hardening/06-CONTEXT.md`
+- Phase 6 discussion log: `.planning/phases/06-backend-mainline-integration-hardening/06-DISCUSSION-LOG.md`
 - Milestones: `.planning/MILESTONES.md`
 - Milestone archive: `.planning/milestones/v03.2-ROADMAP.md`
 - Requirements archive: `.planning/milestones/v03.2-REQUIREMENTS.md`
@@ -142,6 +144,7 @@ Run `$gsd:next` or `$gsd:discuss-phase 6` to gather context for Backend Mainline
 | 2026-05-12 | DEPLOY-01 通过 Docker compose 真实运行验证 | 使用 documented registry / Go proxy overrides 后，`scripts/deploy-validate.sh` 完成镜像构建、compose 启动和 `/healthz` smoke |
 | 2026-05-14 | v03.3 聚焦 Mainline Consolidation | 工作树已有大批主线改动，下一步应先分类、验证、对齐文档和提交边界 |
 | 2026-05-14 | v03.3 跳过新研究 | 当前范围来自本地代码/文档状态，不是新产品方向探索 |
+| 2026-05-14 | Phase 6 自动上下文收集完成 | 当前会话无交互式问题工具，按既有 Relay-first 和 commit-boundary 决策保守锁定后端硬化上下文 |
 
 ---
-*State updated: 2026-05-14 after v03.3 milestone initialization*
+*State updated: 2026-05-14 after Phase 6 context gathering*
