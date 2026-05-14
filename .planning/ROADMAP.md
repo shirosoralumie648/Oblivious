@@ -9,9 +9,9 @@
 
 ## Current Status
 
-Milestone v03.3 is ready to execute Phase 6. It should consolidate and verify the current mainline changes already present in the worktree before any new feature expansion.
+Milestone v03.3 has completed Phase 6 backend hardening and is ready to plan Phase 7. Phase 7 should align frontend/API types, Playwright, CI, Docker, compose, and deployment validation with the verified backend surface before any new feature expansion.
 
-**Next workflow step:** `$gsd:execute-phase 6`
+**Next workflow step:** `$gsd:plan-phase 7`
 
 ## Current Milestone: v03.3 Mainline Consolidation
 
@@ -20,8 +20,8 @@ Milestone v03.3 is ready to execute Phase 6. It should consolidate and verify th
 | Phase | Name | Requirements | Status |
 |-------|------|--------------|--------|
 | Phase 5 | Dirty Worktree Triage and Commit Boundary | CONS-01 | Complete |
-| Phase 6 | Backend Mainline Integration Hardening | ROUTE-01, CHAT-06, AUTH-01 | Planned |
-| Phase 7 | Frontend, E2E, and Deployment Gate Alignment | DEPLOY-02 | Not started |
+| Phase 6 | Backend Mainline Integration Hardening | ROUTE-01, CHAT-06, AUTH-01 | Complete |
+| Phase 7 | Frontend, E2E, and Deployment Gate Alignment | DEPLOY-02 | Ready to plan |
 | Phase 8 | Contract Docs and Release Verification | DOC-02, VERIFY-01 | Not started |
 
 ### Phase 5: Dirty Worktree Triage and Commit Boundary
@@ -46,7 +46,7 @@ Milestone v03.3 is ready to execute Phase 6. It should consolidate and verify th
 
 **Requirements:** ROUTE-01, CHAT-06, AUTH-01
 
-**Plans:** 4
+**Plans:** 4/4 complete
 
 **Waves:**
 
@@ -69,6 +69,12 @@ Milestone v03.3 is ready to execute Phase 6. It should consolidate and verify th
 **Likely verification:**
 - `cd src/server && go test ./internal/http ./internal/auth ./internal/chat ./internal/userprefs ./internal/relay ./internal/agent ./internal/memory ./internal/quota -count=1`
 - Broaden to `cd src/server && go test ./... -count=1` before closing the phase.
+
+**Completion evidence:**
+- Backend implementation commit: `ef81374` (`feat(06): harden backend mainline integration`)
+- Phase summaries: `06-01-SUMMARY.md` through `06-04-SUMMARY.md`
+- Verification: `06-VERIFICATION.md`
+- Final DB-backed backend gate: `TEST_DATABASE_URL=postgres://oblivious:oblivious@127.0.0.1:32768/oblivious_test?sslmode=disable go test ./... -count=1`
 
 ### Phase 7: Frontend, E2E, and Deployment Gate Alignment
 
@@ -112,10 +118,10 @@ Milestone v03.3 is ready to execute Phase 6. It should consolidate and verify th
 | Requirement | Phase | Coverage |
 |-------------|-------|----------|
 | CONS-01 | Phase 5 | Complete — dirty worktree inventory and commit-boundary artifacts |
-| ROUTE-01 | Phase 6 | Backend routes/services/auth boundaries |
-| CHAT-06 | Phase 6 | Relay-first Chat/Agent behavior |
-| AUTH-01 | Phase 6 | User/session role/name contract |
-| DEPLOY-02 | Phase 7 | Frontend/E2E/CI/Docker/deployment gates |
+| ROUTE-01 | Phase 6 | Complete — backend routes/services/auth boundaries verified |
+| CHAT-06 | Phase 6 | Complete — Relay-first Chat/Agent behavior verified |
+| AUTH-01 | Phase 6 | Complete — user/session role/name contract verified |
+| DEPLOY-02 | Phase 7 | Active next — frontend/E2E/CI/Docker/deployment gates |
 | DOC-02 | Phase 8 | API, architecture, release, README reconciliation |
 | VERIFY-01 | Phase 8 | Targeted verification suite and commit-readiness evidence |
 
@@ -177,7 +183,7 @@ These phases remain available in `.planning/phases/` and the v03.2 roadmap archi
 
 | Milestone | Scope | Plans | Requirements | Status | Completed |
 |-----------|-------|-------|--------------|--------|-----------|
-| v03.3 Mainline Consolidation | Phases 5-8 | 1/5 | CONS-01 complete; ROUTE-01, CHAT-06, AUTH-01, DEPLOY-02, DOC-02, VERIFY-01 pending | Phase 6 ready to execute | Phase 5 complete 2026-05-14 |
+| v03.3 Mainline Consolidation | Phases 5-8 | 5/5 planned steps complete; Phase 7-8 unplanned | CONS-01, ROUTE-01, CHAT-06, AUTH-01 complete; DEPLOY-02, DOC-02, VERIFY-01 pending | Phase 7 ready to plan | Phase 5 and Phase 6 complete 2026-05-14 |
 | v03.2 Quality and Release | Phase 4 | 4/4 | TEST-01, TEST-02, DOC-01, DEPLOY-01 | Shipped | 2026-05-14 |
 | v03.1 Admin and Marketplace UI | Phase 03.1 | 7/7 | ADMIN-04, MARKET-02 | Shipped | 2026-05-02 |
 | Foundation through Backend | Phases 1, 2, 3a | Historical | RELAY, CHAT, AGENT, MCP, MEM, EXEC, QUOTA, ADMIN, MARKET | Complete | 2026-04-29 |
@@ -205,4 +211,4 @@ These phases remain available in `.planning/phases/` and the v03.2 roadmap archi
 - [ ] Decide whether future milestone completion should reset `.planning/REQUIREMENTS.md` or keep it as cross-phase context in this repo
 
 ---
-*Roadmap updated: 2026-05-14 after Phase 6 planning completion*
+*Roadmap updated: 2026-05-14 after Phase 6 completion*

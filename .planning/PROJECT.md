@@ -20,9 +20,9 @@ Oblivious 是一个多租户 AI 平台，整合 LobeHub（C端体验）和 New-A
 - Deployment, CI, E2E, Playwright, and restricted-network Docker path stabilization.
 - Documentation, API/system-contract reconciliation, and commit-boundary cleanup for the current mainline work.
 
-## Current State: v03.3 Phase 6 Planning
+## Current State: v03.3 Phase 7 Planning
 
-Milestone v03.2 Quality and Release is archived. The repository now contains substantial uncommitted source, documentation, deployment, and frontend test changes. v03.3 exists to triage that already-present work, verify the cross-cutting contracts, and split it into coherent commits without mixing unrelated cleanup into product integration.
+Milestone v03.2 Quality and Release is archived, and Phase 6 backend hardening is complete. The repository still contains substantial uncommitted frontend, deployment, documentation, and historical/reference changes. v03.3 exists to triage that already-present work, verify the cross-cutting contracts, and split it into coherent commits without mixing unrelated cleanup into product integration.
 
 **Shipped in v03.2:**
 - 集成测试覆盖关键后端协作路径，尤其是 Admin/Marketplace API 与 Relay/Quota/Agent/Memory 交互。
@@ -47,13 +47,14 @@ Milestone v03.2 Quality and Release is archived. The repository now contains sub
 - ✓ Admin 管理面板与 Agent Marketplace UI — v03.1
 - ✓ Phase 4 release gates: backend integration tests, Admin/Marketplace browser E2E, API/RC docs, and deployment config
 - ✓ Docker compose runtime validation — v03.2 DEPLOY-01 passed with real build/start/smoke evidence
+- ✓ Phase 6 backend mainline integration hardening — route/auth boundaries, notification ownership, Relay metadata/tool calls, auth/session payloads, and preference defaults
 
 ### Active
 
 - [x] CONS-01: Maintainer can classify the current uncommitted source/docs into coherent work slices and avoid mixing unrelated changes. Validated in Phase 5.
-- [ ] ROUTE-01: Backend route/service additions for Agent, Memory, MCP, Notification, Quota, and WebSocket are registered with explicit auth boundaries and targeted tests.
-- [ ] CHAT-06: Chat and Agent calls preserve the Relay-first contract, including structured tool calls, streaming behavior, and usage metadata.
-- [ ] AUTH-01: User/session contracts expose name and role consistently while keeping admin boundaries enforceable.
+- [x] ROUTE-01: Backend route/service additions for Agent, Memory, MCP, Notification, Quota, and WebSocket are registered with explicit auth boundaries and targeted tests. Validated in Phase 6.
+- [x] CHAT-06: Chat and Agent calls preserve the Relay-first contract, including structured tool calls, streaming behavior, and usage metadata. Validated in Phase 6.
+- [x] AUTH-01: User/session contracts expose name and role consistently while keeping admin boundaries enforceable. Validated in Phase 6.
 - [ ] DEPLOY-02: Docker, compose, CI, and Playwright changes remain aligned with the proven v03.2 restricted-network deployment path.
 - [ ] DOC-02: API, architecture, release, and README docs match the live routes, commands, and verification scope.
 - [ ] VERIFY-01: Maintainer can run a documented targeted verification suite before committing the mainline consolidation.
@@ -86,7 +87,9 @@ Go Backend (Gin)
 - v03.1 已交付可用 Admin UI 与 Marketplace UI。
 - v03.2 已完成质量、E2E、文档和 Docker 部署 smoke 收口。
 - v03.3 当前工作不是从空白开始：工作树已包含路由拆分、Agent/Memory/MCP/Notification/Quota/WebSocket、Relay Chat/Agent、Auth/UserPrefs、CI/E2E/部署和文档变更。
-- Phase 5 已完成当前脏工作树分类、commit-boundary 盘点和 CONS-01 verification；下一步是 Phase 6 Backend Mainline Integration Hardening。
+- Phase 5 已完成当前脏工作树分类、commit-boundary 盘点和 CONS-01 verification。
+- Phase 6 已完成后端主线硬化；backend commit `ef81374` 和 `06-VERIFICATION.md` 证明 ROUTE-01、CHAT-06、AUTH-01 通过 targeted 与 DB-backed Go verification。
+- 下一步是 Phase 7 Frontend, E2E, and Deployment Gate Alignment。
 - 直接 Docker Hub / 默认 Go module 路径在本机网络仍不稳定；受限网络验证命令已记录在 Phase 4 summary、completion audit 和 release docs 中。
 - `kubectl` 未安装，因此 Kubernetes 仍是未执行的替代路径，不影响已通过的 Docker runtime path。
 - `src/web/src/routes/workspace/MarketplacePage.tsx` 是接受的 v03.1 清理债务：不再由 `/marketplace` 使用。
@@ -110,8 +113,9 @@ Go Backend (Gin)
 | v03.2 skips new domain research | Quality/release work is scoped by shipped code and existing Phase 4 requirements | ✓ Good — TEST-01/TEST-02/DOC-01/DEPLOY-01 closed |
 | Docker compose runtime path satisfies DEPLOY-01 | Requirement accepted one real Docker or Kubernetes runtime path | ✓ Good — compose build/start/smoke passed; Kubernetes remains alternate path |
 | Preserve living REQUIREMENTS.md for now | This repo still uses it for cross-phase context and has an explicit backlog item to decide reset policy | — Pending — living file remains, but v03.2 archive exists |
-| v03.3 consolidates current mainline changes | The worktree already contains broad integration changes; planning should make them coherent before more feature expansion | Active — Phase 5 completed triage and commit-boundary inventory; Phase 6 starts backend hardening |
+| v03.3 consolidates current mainline changes | The worktree already contains broad integration changes; planning should make them coherent before more feature expansion | Active — Phase 5 completed triage and commit-boundary inventory; Phase 6 completed backend hardening and Phase 7 now handles frontend/deployment alignment |
 | v03.3 skips new research | Scope is bounded by local code/docs already present, not by a new domain or market question | Active — requirements derive from repo state |
+| Phase 6 backend contracts are now the frontend/deployment baseline | Route/auth, Relay metadata/tool calls, notification ownership, auth/session, and preference defaults passed backend verification | Active — Phase 7 should align frontend, E2E, CI, Docker, and deployment gates against this surface |
 
 ## Evolution
 
@@ -131,4 +135,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state.
 
 ---
-*Last updated: 2026-05-14 after completing Phase 5 and preparing Phase 6*
+*Last updated: 2026-05-14 after completing Phase 6 and preparing Phase 7*

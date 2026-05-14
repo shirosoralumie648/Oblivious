@@ -12,9 +12,9 @@
 
 ### Backend Route and Service Integration
 
-- [ ] **ROUTE-01**: Backend maintainer can register Agent, Memory, MCP, Notification, Quota, and WebSocket routes/services with explicit auth/admin boundaries and targeted tests.
-- [ ] **CHAT-06**: Chat and Agent calls preserve the Relay-first contract, including structured tool calls, streaming behavior, request metadata, and usage accounting hooks.
-- [ ] **AUTH-01**: Admin and app clients can rely on user/session contracts that expose user name and role consistently while keeping admin-only operations enforceable.
+- [x] **ROUTE-01**: Backend maintainer can register Agent, Memory, MCP, Notification, Quota, and WebSocket routes/services with explicit auth/admin boundaries and targeted tests. Completed in Phase 6 with route-surface, admin-boundary, and notification ownership regression tests.
+- [x] **CHAT-06**: Chat and Agent calls preserve the Relay-first contract, including structured tool calls, streaming behavior, request metadata, and usage accounting hooks. Completed in Phase 6 with Relay metadata propagation, production fail-closed, and structured tool-call tests.
+- [x] **AUTH-01**: Admin and app clients can rely on user/session contracts that expose user name and role consistently while keeping admin-only operations enforceable. Completed in Phase 6 with register/login/`/me` response tests and user preference default coverage.
 
 ### Deployment, Documentation, and Verification
 
@@ -97,18 +97,19 @@
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | CONS-01 | Phase 5 — Dirty Worktree Triage and Commit Boundary | Complete |
-| ROUTE-01 | Phase 6 — Backend Mainline Integration Hardening | Planned |
-| CHAT-06 | Phase 6 — Backend Mainline Integration Hardening | Planned |
-| AUTH-01 | Phase 6 — Backend Mainline Integration Hardening | Planned |
+| ROUTE-01 | Phase 6 — Backend Mainline Integration Hardening | Complete |
+| CHAT-06 | Phase 6 — Backend Mainline Integration Hardening | Complete |
+| AUTH-01 | Phase 6 — Backend Mainline Integration Hardening | Complete |
 | DEPLOY-02 | Phase 7 — Frontend, E2E, and Deployment Gate Alignment | Planned |
 | DOC-02 | Phase 8 — Contract Docs and Release Verification | Planned |
 | VERIFY-01 | Phase 8 — Contract Docs and Release Verification | Planned |
 
 **Coverage:**
 - Completed historical requirements: 46
-- Planned v03.3 requirements: 7
+- Completed v03.3 requirements: 4
+- Remaining v03.3 requirements: 3
 - Blocked requirements: 0
 - Unmapped v03.3 requirements: 0 ✓
 
 ---
-*Requirements defined: 2026-05-14 for v03.3 Mainline Consolidation*
+*Requirements updated: 2026-05-14 after Phase 6 completion*

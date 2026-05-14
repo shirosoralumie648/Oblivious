@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v03.3
 milestone_name: Mainline Consolidation
-status: ready_to_execute
-last_updated: "2026-05-14T08:39:24.671Z"
-last_activity: 2026-05-14 -- Phase 6 planning complete
+status: ready_to_plan
+last_updated: "2026-05-14T10:41:07Z"
+last_activity: 2026-05-14 -- Phase 6 complete; Phase 7 ready to plan
 progress:
-  total_phases: 6
-  completed_phases: 1
+  total_phases: 4
+  completed_phases: 2
   total_plans: 5
-  completed_plans: 1
-  percent: 20
+  completed_plans: 5
+  percent: 50
 ---
 
 # STATE.md
@@ -21,36 +21,36 @@ See: `.planning/PROJECT.md` (updated 2026-05-14)
 
 **Core value:** 统一的多渠道 LLM 调用层 — 所有 AI 调用必须经过 Relay
 
-**Current focus:** Phase 06 — Backend Mainline Integration Hardening
+**Current focus:** Phase 07 — Frontend, E2E, and Deployment Gate Alignment
 
 ## Current Status
 
-**Milestone v03.3: Mainline Consolidation — PHASE 6 READY TO EXECUTE**
+**Milestone v03.3: Mainline Consolidation — PHASE 7 READY TO PLAN**
 
-The repository has substantial uncommitted source, docs, deployment, and frontend test changes. v03.3 is scoped to classifying that work, hardening the backend/frontend/deployment contracts, reconciling docs, and producing clean commit boundaries.
+Phase 6 backend hardening is complete and verified in backend commit `ef81374`. The repository still has substantial uncommitted frontend, deployment, documentation, and historical/reference changes that must remain separated according to the Phase 5 commit boundaries.
 
 ## Current Position
 
-Phase: 6 — Backend Mainline Integration Hardening
-Plan: 4 plans
-Status: Ready to execute
-Last activity: 2026-05-14 -- Phase 6 planning complete
+Phase: 7 — Frontend, E2E, and Deployment Gate Alignment
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-05-14 -- Phase 6 backend verification passed
 
 ## Current Scope
 
-| Requirement | Target |
-|-------------|--------|
-| CONS-01 | Classify current uncommitted source/docs into coherent work slices |
-| ROUTE-01 | Register Agent, Memory, MCP, Notification, Quota, and WebSocket routes/services with explicit auth boundaries and tests |
-| CHAT-06 | Preserve Relay-first Chat/Agent structured tool calls, streaming behavior, metadata, and usage hooks |
-| AUTH-01 | Keep user name/role/session contracts consistent while preserving admin boundaries |
-| DEPLOY-02 | Align Docker, compose, CI, and Playwright with v03.2 restricted-network runtime proof |
-| DOC-02 | Reconcile API, architecture, release, README, and env docs against live routes and commands |
-| VERIFY-01 | Document and run targeted verification before committing consolidated work |
+| Requirement | Status | Target |
+|-------------|--------|--------|
+| CONS-01 | Complete | Classify current uncommitted source/docs into coherent work slices |
+| ROUTE-01 | Complete | Register Agent, Memory, MCP, Notification, Quota, and WebSocket routes/services with explicit auth boundaries and tests |
+| CHAT-06 | Complete | Preserve Relay-first Chat/Agent structured tool calls, streaming behavior, metadata, and usage hooks |
+| AUTH-01 | Complete | Keep user name/role/session contracts consistent while preserving admin boundaries |
+| DEPLOY-02 | Active next | Align Docker, compose, CI, and Playwright with v03.2 restricted-network runtime proof |
+| DOC-02 | Pending | Reconcile API, architecture, release, README, and env docs against live routes and commands |
+| VERIFY-01 | Pending | Document and run targeted verification before committing consolidated work |
 
 ## Worktree Context
 
-Current mainline changes are already present before Phase 6 starts. Treat them as user-owned inputs to harden and verify through the explicit commit boundaries produced by Phase 5.
+Current mainline changes are already present before Phase 7 starts. Treat them as user-owned inputs to align with the explicit commit boundaries produced by Phases 5 and 6.
 
 Observed change areas:
 
@@ -97,6 +97,7 @@ Environment notes:
 | v03.1 Admin 与 Marketplace UI | 2026-05-02 | ADMIN-04, MARKET-02 |
 | v03.2 Quality and Release | 2026-05-14 | TEST-01, TEST-02, DOC-01, DEPLOY-01 |
 | Phase 5 Dirty Worktree Triage and Commit Boundary | 2026-05-14 | CONS-01 |
+| Phase 6 Backend Mainline Integration Hardening | 2026-05-14 | ROUTE-01, CHAT-06, AUTH-01 |
 
 ## Deferred Items
 
@@ -110,7 +111,7 @@ Items acknowledged before v03.3:
 
 ## Next Suggested Step
 
-Run `$gsd:execute-phase 6` to start Backend Mainline Integration Hardening.
+Run `$gsd:plan-phase 7` to plan Frontend, E2E, and Deployment Gate Alignment.
 
 ## Context Files
 
@@ -126,6 +127,8 @@ Run `$gsd:execute-phase 6` to start Backend Mainline Integration Hardening.
 - Phase 5 verification: `.planning/phases/05-dirty-worktree-triage-and-commit-boundary/05-VERIFICATION.md`
 - Phase 6 context: `.planning/phases/06-backend-mainline-integration-hardening/06-CONTEXT.md`
 - Phase 6 discussion log: `.planning/phases/06-backend-mainline-integration-hardening/06-DISCUSSION-LOG.md`
+- Phase 6 summaries: `.planning/phases/06-backend-mainline-integration-hardening/06-01-SUMMARY.md` through `06-04-SUMMARY.md`
+- Phase 6 verification: `.planning/phases/06-backend-mainline-integration-hardening/06-VERIFICATION.md`
 - Milestones: `.planning/MILESTONES.md`
 - Milestone archive: `.planning/milestones/v03.2-ROADMAP.md`
 - Requirements archive: `.planning/milestones/v03.2-REQUIREMENTS.md`
@@ -145,6 +148,7 @@ Run `$gsd:execute-phase 6` to start Backend Mainline Integration Hardening.
 | 2026-05-14 | v03.3 聚焦 Mainline Consolidation | 工作树已有大批主线改动，下一步应先分类、验证、对齐文档和提交边界 |
 | 2026-05-14 | v03.3 跳过新研究 | 当前范围来自本地代码/文档状态，不是新产品方向探索 |
 | 2026-05-14 | Phase 6 自动上下文收集完成 | 当前会话无交互式问题工具，按既有 Relay-first 和 commit-boundary 决策保守锁定后端硬化上下文 |
+| 2026-05-14 | Phase 6 backend hardening complete | Backend routes, Relay metadata/tool calls, notification ownership, auth/session fields, and user preference defaults passed targeted and DB-backed Go verification |
 
 ---
-*State updated: 2026-05-14 after Phase 6 planning completion*
+*State updated: 2026-05-14 after Phase 6 completion*
