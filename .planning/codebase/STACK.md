@@ -1,142 +1,173 @@
 # Technology Stack
 
-**Analysis Date:** 2026-05-12
-
-## Scope
-
-**Active mainline:**
-- Root application code lives in `src/server`, `src/web`, `config`, `scripts`, and `.github/workflows`; `README.md` defines this boundary and `pnpm-workspace.yaml` includes only `src/web`.
-- `lobehub/` and `new-api/` are repository-local reference trees. Keep them out of root workspace changes unless a phase explicitly targets those directories.
-
-**Reference trees:**
-- `lobehub/` is an upstream-style TypeScript/Next.js/Bun/pnpm workspace with its own `lobehub/package.json`, `lobehub/pnpm-workspace.yaml`, and `lobehub/Dockerfile`.
-- `new-api/` is an upstream-style Go/Gin service with an embedded Vite/Bun frontend under `new-api/web`.
+**Analysis Date:** 2026-05-16
 
 ## Languages
 
 **Primary:**
-- Go `1.25.0` - active backend module in `src/server/go.mod`, entrypoints in `src/server/cmd/server/main.go` and `src/server/cmd/migrate/main.go`.
-- TypeScript `^5.6.3` - active React frontend in `src/web/src`, configured by `src/web/tsconfig.json`.
+- Go 1.25 — Backend API, relay/router, migrations (`src/server/`, declared in `src/server/go.mod`)
+- TypeScript 5.6 — Frontend web app (`src/web/src/`, declared in `src/web/tsconfig.json`)
 
 **Secondary:**
-- SQL - PostgreSQL migrations in `src/server/migrations` and relay migration reference in `src/server/internal/relay/migrations/001_init_relay.sql`.
-- Shell - root workflow commands in `scripts/check.sh`, `scripts/test.sh`, `scripts/dev.sh`, `scripts/deploy-validate.sh`, and `scripts/deploy-smoke.sh`.
-- YAML - GitHub Actions in `.github/workflows/ci.yml`, Docker Compose in `docker-compose.yml`, and Kubernetes manifests in `deploy/kubernetes`.
-- CSS/HTML - Vite entry assets in `src/web/index.html`, `src/web/src/theme/global.css`, and `src/web/src/theme/tokens.css`.
-- JSON - package/config metadata in `package.json`, `src/web/package.json`, `src/web/components.json`, and `.mcp.json`.
-
-**Reference-only:**
-- TypeScript `^5.9.3` and React `^19.2.3` in `lobehub/package.json`.
-- Go `1.25.1` in `new-api/go.mod`, with `new-api/Dockerfile` using a Go builder image separately.
-- TypeScript `4.4.2` and React `^18.2.0` in `new-api/web/package.json`.
+- SQL (PostgreSQL dialect) — Schema migrations in `src/server/migrations/0001_*.sql` through `0024_*.sql`
+- Bash — Build, test, deploy scripts (`scripts/dev.sh`, `scripts/check.sh`, `scripts/test.sh`, `scripts/deploy-validate.sh`, `scripts/deploy-smoke.sh`, `scripts/verify-quality-gates.sh`)
+- Dockerfile — Container builds (`Dockerfile.server`, `Dockerfile.web`)
 
 ## Runtime
 
 **Environment:**
-- Active backend uses Go modules from `src/server/go.mod`; CI reads this file through `actions/setup-go` in `.github/workflows/ci.yml`.
-- Active server container builds with `golang:1.25-bookworm` and runs on `alpine:3.21` in `Dockerfile.server`.
-- Active frontend builds with Node.js 20 and pnpm in `Dockerfile.web`; CI also uses Node.js 20 in `.github/workflows/ci.yml`.
-- Active web runtime is nginx `1.27-alpine` serving `src/web/dist` and proxying `/api/` and `/v1/` to `oblivious-server` in `Dockerfile.web`.
-- `README.md` lists Go `1.22` as a prerequisite, while `src/server/go.mod` and `Dockerfile.server` define the active build toolchain. Use the module and Dockerfile versions when running builds.
+- Go runtime: 1.25 (pinned in `src/server/go.mod` line 3 and `Dockerfile.server` `GO_IMAGE=golang:1.25-bookworm`)
+- Node.js: 20 (pinned in `.github/workflows/ci.yml` `node-version: 20` and `Dockerfile.web` `NODE_IMAGE=node:20-bookworm-slim`)
+- Alpine 3.21 — Server runtime base image (`Dockerfile.server` `ALPINE_IMAGE=alpine:3.21`)
+- Nginx 1.27 (alpine) — Web runtime base image, also serves as reverse proxy for `/api/*` and `/v1/*` (`Dockerfile.web` lines 26-53)
 
 **Package Manager:**
-- Root package manager: pnpm `10.6.0` from `package.json`.
-- Lockfile: `pnpm-lock.yaml` present at repo root.
-- Root workspace: `pnpm-workspace.yaml` includes only `src/web`.
-- Go dependencies use `src/server/go.mod` and `src/server/go.sum`.
-- Scripts pin repo-local caches through `COREPACK_HOME=.tmp/corepack`, `GOCACHE=.tmp/go-build`, and `GOMODCACHE=.tmp/go-mod` in `scripts/check.sh`, `scripts/test.sh`, and `scripts/dev.sh`.
-- Reference `lobehub/` declares pnpm `10.33.0` in `lobehub/package.json`.
-- Reference `new-api/web` uses Bun via `new-api/web/bun.lock` and `new-api/Dockerfile`.
+- pnpm 10.6.0 — JS/TS workspace (declared in root `package.json` `packageManager` field, activated via corepack)
+- Go modules — Server dependencies (`src/server/go.mod`, `src/server/go.sum`)
+- Lockfiles: `pnpm-lock.yaml` (244 KB, present), `src/server/go.sum` (present)
 
 ## Frameworks
 
-**Core:**
-- Go `net/http` - active app router and server in `src/server/internal/http/router.go` and `src/server/internal/http/server.go`.
-- Gin `v1.12.0` - OpenAI-compatible relay engine under `src/server/internal/relay` and dependency in `src/server/go.mod`.
-- React `^18.3.1` - active frontend UI in `src/web/src`.
-- Vite `^5.4.10` - active frontend dev/build runner in `src/web/vite.config.ts`.
-- React Router DOM `^6.28.0` - route tree in `src/web/src/app/router.tsx`.
-- Tailwind CSS `3` - design token integration in `src/web/tailwind.config.ts`, `src/web/postcss.config.mjs`, and `src/web/src/theme/tokens.css`.
-- shadcn/Radix UI - component setup in `src/web/components.json` and UI components in `src/web/src/components/ui`.
-- PostgreSQL - system of record via `DATABASE_URL`, `github.com/lib/pq`, and migrations in `src/server/migrations`.
+**Core (backend):**
+- `github.com/gin-gonic/gin v1.12.0` — HTTP router/middleware for the App API and Relay handlers (`src/server/internal/http/`, `src/server/internal/relay/handler/router.go`)
+- `github.com/gorilla/websocket v1.5.3` — WebSocket upgrade for chat streaming and Realtime API (`src/server/internal/relay/handler/chat.go`, `src/server/internal/relay/handler/realtime.go`, `src/server/internal/ws/`)
+- `github.com/hibiken/asynq v0.26.0` — Redis-backed async task queue for billing timeout/polling jobs (`src/server/internal/relay/billing_worker.go`)
+- `github.com/lib/pq v1.10.9` — PostgreSQL `database/sql` driver (used in `src/server/internal/db/`)
+
+**Core (frontend):**
+- React 18.3.1 + React DOM 18.3.1 (`src/web/package.json`)
+- React Router DOM 6.28.0 — Client routing (`src/web/src/routes/`)
+- Vite 5.4.10 — Dev server and production build (`src/web/vite.config.ts`)
+- TailwindCSS 3 + PostCSS 8.5 + Autoprefixer 10.5 (`src/web/tailwind.config.ts`, `src/web/postcss.config.mjs`)
+- shadcn 4.6.0 (config `src/web/components.json`, style `radix-maia`, icon library `remixicon`) layered on `radix-ui` 1.4.3
+- `next-themes` 0.4.6 — Dark/light theming
+- `class-variance-authority` 0.7.1, `clsx` 2.1.1, `tailwind-merge` 3.5.0 — Class composition
+- `cmdk` 1.1.1 — Command palette
+- `sonner` 2.0.7 — Toast notifications
+- `@remixicon/react` 4.9.0, `@fontsource-variable/figtree` 5.2.10, `@fontsource-variable/geist-mono` 5.2.7 — Icons and fonts
+- `tw-animate-css` 1.4.0 — Animation utilities
 
 **Testing:**
-- Go `go test` - backend unit and integration tests in `src/server/internal/**`.
-- Vitest `^2.1.4` with jsdom - frontend unit tests configured in `src/web/vite.config.ts`.
-- Testing Library - React tests through `@testing-library/react` and `@testing-library/jest-dom` in `src/web/package.json`.
-- Playwright `^1.52.0` - e2e tests in `src/web/e2e`, configured by `src/web/playwright.config.ts`.
+- Vitest 2.1.4 + jsdom 25.0.1 — Web unit tests (config in `src/web/vite.config.ts` `test:` block, setup file `src/web/src/test/setup.ts`)
+- `@testing-library/react` 16.1.0 + `@testing-library/jest-dom` 6.6.3 — DOM assertions
+- `@playwright/test` 1.52.0 — Browser E2E (`src/web/playwright.config.ts`, tests in `src/web/e2e/`)
+- Go `testing` stdlib + `httptest` — Server unit and HTTP integration tests (`*_test.go` files across `src/server/internal/`)
+- Integration tests gated by `TEST_DATABASE_URL` (`scripts/test.sh` lines 43-49, `src/server/internal/http/server_test.go:18`)
 
 **Build/Dev:**
-- `bash scripts/dev.sh` - starts active web and server together.
-- `bash scripts/check.sh` - verifies docs/env consistency, web build, and server checks.
-- `bash scripts/test.sh` - runs web tests, server tests, and optional DB-backed integration tests.
-- Docker Compose - active local stack in `docker-compose.yml` with Postgres, Redis, server, and web services.
-- Kubernetes manifests - deployment templates in `deploy/kubernetes`.
-- GitHub Actions - CI gates in `.github/workflows/ci.yml`.
+- `@vitejs/plugin-react` 4.3.4 — React Fast Refresh / JSX (`src/web/vite.config.ts`)
+- `tsc --noEmit` — Type-check gate before Vite build (`src/web/package.json` `build` script)
+- Corepack — Pinned pnpm activation (`Dockerfile.web` line 12)
+- BuildKit cache mounts — `--mount=type=cache` for Go module cache and pnpm store in Dockerfiles
+- Docker Compose v2 — Local stack orchestration (`docker-compose.yml`)
 
 ## Key Dependencies
 
-**Critical:**
-- `github.com/lib/pq v1.10.9` - PostgreSQL driver used by `src/server/internal/db/db.go`.
-- `github.com/gin-gonic/gin v1.12.0` - relay HTTP engine in `src/server/internal/relay`.
-- `github.com/gorilla/websocket v1.5.3` - app WebSocket endpoint in `src/server/internal/ws` and relay realtime handlers in `src/server/internal/relay/handler`.
-- `github.com/prometheus/client_golang v1.23.2` - `/metrics` handler in `src/server/internal/http/router.go` and custom relay metrics in `src/server/internal/metrics/prometheus.go`.
-- `github.com/stripe/stripe-go/v83 v83.2.1` - checkout and webhook package in `src/server/internal/stripe`.
-- `golang.org/x/crypto v0.48.0` - bcrypt auth hashing in `src/server/internal/auth`.
-- `github.com/pkoukk/tiktoken-go v0.1.8` - token accounting support in `src/server/internal/relay`.
-- `github.com/hibiken/asynq v0.26.0` - Redis-backed billing worker code in `src/server/internal/relay/billing_worker.go`.
-- `react ^18.3.1`, `react-dom ^18.3.1`, and `react-router-dom ^6.28.0` - active web app runtime in `src/web/package.json`.
+**Critical (server):**
+- `github.com/stripe/stripe-go/v83 v83.2.1` — Stripe Checkout sessions and webhook verification (`src/server/internal/stripe/checkout.go`, `src/server/internal/stripe/webhook.go`)
+- `github.com/prometheus/client_golang v1.23.2` — `/metrics` endpoint (`src/server/internal/metrics/prometheus.go`)
+- `github.com/pkoukk/tiktoken-go v0.1.8` — Token counting for relay billing (`src/server/internal/relay/tokenizer.go`)
+- `github.com/google/uuid v1.6.0` — UUID generation (`src/server/internal/http/server.go:8`, used across services)
+- `golang.org/x/crypto v0.48.0` — bcrypt password hashing (`src/server/internal/auth/service.go:12`, `src/server/internal/auth/store.go:10`)
+- `github.com/redis/go-redis/v9 v9.14.1` — Indirect via asynq (Redis broker)
+
+**Critical (web):**
+- `radix-ui` 1.4.3 + `shadcn` 4.6.0 — UI primitive layer (taupe base color, CSS variables, no prefix)
+- Tailwind theme reads from CSS custom properties defined in `src/web/src/theme/tokens.css`
 
 **Infrastructure:**
-- `@vitejs/plugin-react ^4.3.4` - Vite React integration in `src/web/vite.config.ts`.
-- `tailwindcss 3`, `autoprefixer ^10.5.0`, and `postcss ^8.5.12` - active CSS pipeline in `src/web/postcss.config.mjs`.
-- `radix-ui ^1.4.3`, `class-variance-authority ^0.7.1`, `clsx ^2.1.1`, and `tailwind-merge ^3.5.0` - UI component primitives and styling helpers in `src/web/package.json`.
-- `@remixicon/react ^4.9.0` - icon library configured by `src/web/components.json`.
-- `sonner ^2.0.7` and `next-themes ^0.4.6` - frontend notifications and theme state in `src/web/package.json`.
-
-**Reference-only:**
-- `lobehub/package.json` includes Next.js `^16.1.5`, React `^19.2.3`, Drizzle ORM `^0.45.1`, OpenAI `^4.104.0`, Anthropic SDK `^0.73.0`, AWS SDK, Vercel packages, Upstash packages, Stripe `^17.7.0`, and many LobeHub workspace packages.
-- `new-api/go.mod` includes Gin `v1.9.1`, GORM, SQLite/MySQL/Postgres drivers, Redis, Stripe `v81.4.0`, WebAuthn, JWT, AWS Bedrock, and Pyroscope.
-- `new-api/web/package.json` includes React `^18.2.0`, Vite `^5.2.0`, Semi UI, axios, Tailwind, i18next, and Bun-backed build scripts.
+- PostgreSQL 16 — Primary datastore (`docker-compose.yml` `postgres:16`)
+- Redis 7 with AOF — asynq broker for relay billing workers (`docker-compose.yml` `redis:7` with `--appendonly yes`)
+- pgvector — Vector similarity migration `src/server/migrations/0016_pgvector.sql`, HNSW index migration `0020_memory_hnsw.sql`
 
 ## Configuration
 
 **Environment:**
-- Active server configuration is loaded in `src/server/internal/config/config.go`.
-- Required backend env vars: `DATABASE_URL`, `SESSION_SECRET`.
-- Optional backend env vars: `SERVER_PORT`, `APP_ENV`, `CORS_ALLOWED_ORIGINS`, `SESSION_COOKIE_NAME`, `SESSION_COOKIE_SECURE`, `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_TIMEOUT_MS`, `MODEL_DEFAULT_NAME`, `RELAY_ENABLED`, `RELAY_DEFAULT_MODEL`, `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OBLIVIOUS_INTERNAL_AUTH_TOKEN`.
-- Stripe package env vars: `STRIPE_SECRET_KEY`, `STRIPE_SUCCESS_URL`, `STRIPE_CANCEL_URL`, `STRIPE_WEBHOOK_SECRET` in `src/server/internal/stripe/checkout.go`.
-- Test-only backend env var: `TEST_DATABASE_URL` in `scripts/test.sh` and `src/server/internal/http/server_test.go`.
-- Frontend runtime API calls use same-origin relative paths through `src/web/src/services/http/client.ts`; `WEB_API_BASE_URL` is checked by docs/env consistency scripts but is not consumed by active frontend source.
-- `.env`-style files are present as examples under `config/`, `lobehub/`, and `new-api/`; do not read secret-bearing env files when mapping or editing.
+- Source of truth: `config/.env.example` (referenced by `README.md` step 2 and verified by `scripts/check.sh` lines 35-62)
+- Required by server (validated in `src/server/internal/config/config.go`):
+  - `SERVER_PORT` (default 8080)
+  - `APP_ENV` (default `development`)
+  - `CORS_ALLOWED_ORIGINS` (comma-separated)
+  - `DATABASE_URL` (required, no default)
+  - `SESSION_SECRET` (required, no default)
+  - `SESSION_COOKIE_NAME` (default `oblivious_session`)
+  - `SESSION_COOKIE_SECURE` (boolean)
+  - `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_TIMEOUT_MS` (default 30000), `MODEL_DEFAULT_NAME` (default `demo-reply`)
+  - `RELAY_ENABLED` (default true), `RELAY_DEFAULT_MODEL` (default `gpt-4o-mini`)
+  - `OPENAI_API_KEY`, `OPENAI_BASE_URL` (default `https://api.openai.com`)
+- Stripe env vars consumed in `src/server/internal/stripe/checkout.go` lines 32-35: `STRIPE_SECRET_KEY`, `STRIPE_SUCCESS_URL`, `STRIPE_CANCEL_URL`, `STRIPE_WEBHOOK_SECRET`
+- Web env vars referenced by `scripts/check.sh`: `WEB_PORT`, `WEB_API_BASE_URL`
+- `.env` and `.env.*` files are gitignored (`.gitignore` lines for `.env`, `.env.*`) and dockerignored (`.dockerignore`)
 
 **Build:**
-- Root scripts: `package.json`.
-- Root workspace: `pnpm-workspace.yaml`.
-- Root lockfile: `pnpm-lock.yaml`.
-- Server module: `src/server/go.mod`, `src/server/go.sum`.
-- Web manifest: `src/web/package.json`.
-- Web build config: `src/web/vite.config.ts`, `src/web/tsconfig.json`, `src/web/tailwind.config.ts`, `src/web/postcss.config.mjs`.
-- Container config: `Dockerfile.server`, `Dockerfile.web`, `docker-compose.yml`.
-- Deployment config: `deploy/kubernetes/configmap.yaml`, `deploy/kubernetes/server.yaml`, `deploy/kubernetes/web.yaml`, `deploy/kubernetes/postgres.yaml`, `deploy/kubernetes/redis.yaml`, `deploy/kubernetes/secret.example.yaml`.
-- CI config: `.github/workflows/ci.yml`.
+- `src/web/vite.config.ts` — Vite + Vitest config, alias `@` → `./src`
+- `src/web/tsconfig.json` — TS strict mode, ES2020 target, JSX `react-jsx`, path alias `@/*`
+- `src/web/tailwind.config.ts` — Tailwind theme bound to CSS variables in `src/web/src/theme/tokens.css`
+- `src/web/postcss.config.mjs` — PostCSS pipeline (tailwindcss + autoprefixer)
+- `src/web/components.json` — shadcn registry config (style `radix-maia`, base color `taupe`)
+- `src/web/playwright.config.ts` — Playwright config (chromium only, base URL `http://127.0.0.1:4173`, webServer runs `pnpm build && pnpm preview`)
+- `pnpm-workspace.yaml` — Workspace packages: `src/web` only (mainline boundary; `lobehub/`, `new-api/` excluded)
 
 ## Platform Requirements
 
 **Development:**
-- Use Go from `src/server/go.mod`.
-- Use Node.js 20+ and pnpm `10.6.0` for the active root workspace.
-- Use PostgreSQL for normal server startup; migrations are applied by `cd src/server && go run ./cmd/migrate`.
-- Use `bash scripts/check.sh` and `bash scripts/test.sh` before handoff.
-- Provide `TEST_DATABASE_URL` only when running DB-backed HTTP integration tests; without it `scripts/test.sh` skips that step explicitly.
+- Go 1.22+ documented in `README.md` (actual `go.mod` declares 1.25)
+- Node.js 20+, pnpm 10.6.0, PostgreSQL 14+ (`README.md` Prerequisites)
+- Docker + Docker Compose v2 — Required by `scripts/deploy-validate.sh` lines 10-23
 
-**Production:**
-- Docker Compose target: `docker-compose.yml` with active services `postgres`, `redis`, `oblivious-server`, and `oblivious-web`.
-- Server image: `Dockerfile.server`, exposes `8080`, includes `/healthz`, and runs `/usr/local/bin/oblivious-server`.
-- Web image: `Dockerfile.web`, exposes `80`, serves static Vite output through nginx, and proxies `/api/` plus `/v1/`.
-- Kubernetes target: manifests in `deploy/kubernetes` for namespace, config map, server, web, Postgres, Redis, and example secrets.
-- Reference deployment surfaces in `lobehub/Dockerfile`, `lobehub/docker-compose`, `new-api/Dockerfile`, and `new-api/docker-compose.yml` are separate from the active root release path.
+**Production / Deployment:**
+- Multi-stage Docker images:
+  - `oblivious-server` — Go builder → Alpine runtime, port 8080, healthcheck `GET /healthz` (`Dockerfile.server`)
+  - `oblivious-web` — Node builder → Nginx runtime, port 80, proxies `/api/` and `/v1/` to `oblivious-server:8080` (`Dockerfile.web`)
+- Optional image-registry mirror prefix via `OBLIVIOUS_IMAGE_REGISTRY_PREFIX` (`docker-compose.yml`)
+- Optional Go module proxy override via `OBLIVIOUS_GOPROXY` / `OBLIVIOUS_GOSUMDB`
+- Persisted volumes: `oblivious-postgres-data`, `oblivious-redis-data` (`docker-compose.yml` lines 84-86)
+- Kubernetes deploy directory exists at `deploy/` (referenced by `.gitignore` rule `deploy/kubernetes/secret.yaml`)
+
+## Build / Test / Lint Commands
+
+```bash
+# Root orchestration (run from repo root)
+pnpm install --frozen-lockfile   # Install web workspace deps
+bash scripts/dev.sh              # Start web + server (auto-detects presence)
+bash scripts/check.sh            # docs + web build + server `go test ./... -count=1`
+bash scripts/check.sh docs       # Release-asset + env consistency checks (run by CI release-gates job)
+bash scripts/check.sh web        # `pnpm --dir src/web build`
+bash scripts/check.sh server     # `go test ./... -count=1` from src/server
+bash scripts/test.sh             # web Vitest + server unit + integration (if TEST_DATABASE_URL set)
+bash scripts/test.sh web         # `pnpm --dir src/web test` (vitest run)
+bash scripts/test.sh server      # `go test ./... -count=1` + integration package
+bash scripts/deploy-validate.sh  # Build images via docker compose, start stack, run smoke
+
+# Web (run from src/web)
+pnpm dev                         # Vite dev server
+pnpm build                       # tsc --noEmit && vite build
+pnpm test                        # vitest run (jsdom, globals)
+pnpm test:e2e                    # playwright test
+pnpm preview                     # Serve built dist
+
+# Server (run from src/server)
+go run ./cmd/server              # Start API on SERVER_PORT
+go run ./cmd/migrate             # Apply SQL migrations from src/server/migrations/
+go test ./... -count=1           # Unit + contract tests
+go test ./internal/http          # HTTP integration suite (requires TEST_DATABASE_URL)
+```
+
+No dedicated linter is wired into CI; quality gates are: type-check (`tsc --noEmit`), build success, and `go test`. There is no `eslint`, `prettier`, or `gofmt` step in `.github/workflows/ci.yml` or in `scripts/check.sh`.
+
+## CI Pipeline
+
+Defined in `.github/workflows/ci.yml`, four jobs run on `push` to `main`/`master` and on every PR:
+
+| Job | Steps | Source |
+|-----|-------|--------|
+| `release-gates` | `bash scripts/check.sh docs` | Lines 11-16 |
+| `web` | pnpm install, `bash scripts/check.sh web`, `bash scripts/test.sh web` | Lines 18-36 |
+| `e2e` | pnpm install, `playwright install --with-deps chromium`, `pnpm --dir src/web test:e2e` | Lines 38-56 |
+| `server` | `setup-go` from `src/server/go.mod`, `bash scripts/check.sh server`, `bash scripts/test.sh server` | Lines 58-68 |
+
+All jobs run on `ubuntu-latest`. The server job does not run integration tests (no `TEST_DATABASE_URL`).
 
 ---
 
-*Stack analysis: 2026-05-12*
+*Stack analysis: 2026-05-16*

@@ -1,214 +1,183 @@
 # External Integrations
 
-**Analysis Date:** 2026-05-12
-
-## Scope
-
-**Active mainline:**
-- Root release scope is `src/server`, `src/web`, `config`, `scripts`, and `.github/workflows`; `README.md` and `scripts/check.sh` exclude `lobehub/` and `new-api/` from root workspace and CI.
-- Treat `lobehub/` and `new-api/` integrations as reference-only unless a phase explicitly targets those subtrees.
+**Analysis Date:** 2026-05-16
 
 ## APIs & External Services
 
-**OpenAI-compatible model gateways:**
-- Direct chat-completions fallback - `src/server/internal/chat/gateway.go`
-  - SDK/Client: Go `net/http`
-  - Auth: `LLM_API_KEY`
-  - Base URL: `LLM_BASE_URL`
-  - Model default: `MODEL_DEFAULT_NAME`
-- Internal relay gateway - `src/server/internal/chat/relay_gateway.go`, `src/server/internal/http/router.go`, `src/server/internal/http/server.go`
-  - SDK/Client: Go `net/http` against local `/v1`
-  - Auth: `OBLIVIOUS_INTERNAL_AUTH_TOKEN` for trusted app-to-relay headers
-  - Control flags: `RELAY_ENABLED`, `RELAY_DEFAULT_MODEL`
-- Default OpenAI relay channel - `src/server/internal/http/server.go`
-  - SDK/Client: relay channel pool and `src/server/internal/relay/channel/openai_adapter.go`
-  - Auth: `OPENAI_API_KEY`
-  - Base URL: `OPENAI_BASE_URL`
-- Admin-configured relay channels - `src/server/internal/admin/channel_store.go`, `src/server/internal/relay/store.go`
-  - SDK/Client: Go `net/http`
-  - Auth: API keys submitted through admin channel APIs and stored in the `channels.api_key_encrypted` column created by `src/server/migrations/0013_channels.sql`
-  - Admin API: `/api/v1/admin/channels*` in `src/server/internal/http/router.go`
+**LLM Providers (Relay layer):**
+- **OpenAI** — Primary upstream provider for `/v1/*` relay endpoints.
+  - Adapter: `src/server/internal/relay/channel/openai_adapter.go` (`OpenAIAdapter`, provider key `"openai"`)
+  - Capabilities advertised: chat, streaming, embeddings, images, audio, realtime, assistants (`openai_adapter.go` lines 26-35)
+  - Default channel auto-provisioned at startup when `OPENAI_API_KEY` is set (`src/server/internal/http/server.go` lines 58-78, models `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`, `gpt-3.5-turbo`)
+  - Default relay model: `gpt-4o-mini` (`config.go` line 99)
+  - Auth: `OPENAI_API_KEY` env var → `Authorization: Bearer <key>` header set by adapter
+  - Base URL: `OPENAI_BASE_URL` env var, default `https://api.openai.com` (`config.go` lines 104-107)
+- **Generic LLM upstream** — Pre-relay legacy path used by `MODEL_DEFAULT_NAME=demo-reply` and embeddings.
+  - Configured via `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_TIMEOUT_MS` (`src/server/internal/config/config.go` lines 75-89)
+  - Used by `src/server/internal/memory/embedder.go` calling `POST {relayURL}/embeddings` for `text-embedding-3-small` (model wired in `src/server/internal/http/router.go:88`)
 
-**OpenAI-compatible relay surface:**
-- Routes are declared in `src/server/internal/relay/handler/router.go`.
-  - Chat/responses: `/v1/chat/completions`, `/v1/responses`
-  - Realtime: `/v1/realtime`
-  - Embeddings: `/v1/embeddings`
-  - Images/videos/audio/moderations/completions: `/v1/images/*`, `/v1/videos`, `/v1/audio/*`, `/v1/moderations`, `/v1/completions`
-  - Batch/files/fine-tuning/assistants/threads/runs: `/v1/batch`, `/v1/files*`, `/v1/fine_tuning/jobs*`, `/v1/assistants*`, `/v1/threads*`
-- The web container proxies `/v1/` to the server in `Dockerfile.web`.
-- Relay channel routing, circuit breaking, rate limiting, and billing hooks live under `src/server/internal/relay`.
+**OpenAI-Compatible Relay Surface (outbound, exposed by Oblivious itself):**
+The server publishes an OpenAI-compatible `/v1/*` API mounted from `src/server/internal/relay/handler/router.go`. Handlers cover the OpenAI API surface:
+- `/v1/chat/completions` (`handler/chat.go`)
+- `/v1/completions` (`handler/completions.go`)
+- `/v1/embeddings` (`handler/embeddings.go`)
+- `/v1/audio/*` (`handler/audio.go`)
+- `/v1/images/*` (`handler/images.go`)
+- `/v1/moderations` (`handler/moderations.go`)
+- `/v1/assistants/*` (`handler/assistants.go`)
+- `/v1/batches/*` (`handler/batch.go`)
+- `/v1/files/*` (`handler/files.go`)
+- `/v1/fine_tuning/*` (`handler/fine_tuning.go`)
+- `/v1/realtime` WebSocket bridge (`handler/realtime.go`)
+- `/v1/responses` (`handler/responses.go`)
 
-**MCP servers and tools:**
-- User-configured MCP servers are stored through `src/server/internal/mcp/client.go` and `src/server/migrations/0015_mcp_servers.sql`.
-  - SDK/Client: JSON-RPC over HTTP using Go `net/http`
-  - Auth: per-server bearer token stored as `auth_token_encrypted`
-  - API routes: `/api/v1/app/mcp-servers*` in `src/server/internal/http/router.go`
-- Built-in tool adapters exist in `src/server/internal/mcp/builtin.go`.
-  - `web_search` is a placeholder and does not call an external search API.
-  - `http_request` can make outbound HTTP requests to user-provided URLs.
-  - `calculator` and `datetime` are local helpers.
-- Repo MCP client configuration exists in `.mcp.json` for `@claude-flow/cli`; it is not part of the app runtime.
+Returns OpenAI-shaped responses; gated by `RELAY_ENABLED=true` (default true).
 
-**Stripe billing:**
-- Stripe checkout helper is implemented in `src/server/internal/stripe/checkout.go`.
-  - SDK/Client: `github.com/stripe/stripe-go/v83`
-  - Auth: `STRIPE_SECRET_KEY`
-  - Redirect config: `STRIPE_SUCCESS_URL`, `STRIPE_CANCEL_URL`
-- Stripe webhook handler is implemented in `src/server/internal/stripe/webhook.go`.
-  - SDK/Client: `github.com/stripe/stripe-go/v83/webhook`
-  - Auth: `STRIPE_WEBHOOK_SECRET`
-  - Events handled: `checkout.session.completed`, `invoice.payment_succeeded`, `customer.subscription.deleted`
-  - Idempotency storage: `audit_logs` table from `src/server/migrations/0022_audit_logs.sql`
-- No active Stripe route registration is present in `src/server/internal/http/router.go`; wire a route explicitly before relying on Stripe webhooks in the active app.
-
-**Prometheus metrics:**
-- `/metrics` is exposed through `promhttp.Handler()` in `src/server/internal/http/router.go`.
-  - SDK/Client: `github.com/prometheus/client_golang`
-  - Custom metrics: `src/server/internal/metrics/prometheus.go`
-  - Auth: None detected on the `/metrics` route.
-
-**Frontend-to-backend API:**
-- Active frontend uses same-origin relative API paths through `src/web/src/services/http/client.ts`.
-  - SDK/Client: browser `fetch`
-  - Auth: session cookie from backend auth middleware
-  - Routes: `/api/v1/*` and `/v1/*` proxied by `Dockerfile.web`
-
-**Reference-only integrations:**
-- `lobehub/package.json` includes OpenAI, Anthropic, Google GenAI, Hugging Face, Ollama, AWS Bedrock/S3, Azure AI, Vercel, Upstash QStash/Workflow, Stripe, Langfuse, PostHog, Resend, Nodemailer, Discord/Slack/Telegram adapters, and MCP SDK dependencies.
-- `lobehub/docker-compose/dev/docker-compose.yml` and `lobehub/docker-compose/deploy/docker-compose.yml` define PostgreSQL/ParadeDB, Redis, RustFS, MinIO client initialization, and SearXNG services for the reference app.
-- `new-api/go.mod` includes AWS Bedrock, Stripe, Redis, WebAuthn, JWT, GORM, SQLite/MySQL/Postgres drivers, Pyroscope, and OpenAI-compatible relay dependencies.
-- `new-api/web/package.json` includes axios, Turnstile UI package support, Telegram login UI, i18next, and Vite/Bun tooling.
+**Payments:**
+- **Stripe** — Checkout sessions + webhook receiver.
+  - SDK: `github.com/stripe/stripe-go/v83` v83.2.1 (`src/server/go.mod` line 13)
+  - Checkout: `src/server/internal/stripe/checkout.go` — `CreateCheckoutSession` supports both `payment` and `subscription` modes
+  - Webhook: `src/server/internal/stripe/webhook.go` — Handles `checkout.session.completed`, `invoice.paid`, `customer.subscription.deleted`; verifies signatures via `stripe/webhook` package; idempotency tracked through `audit_logs` table with `action='stripe.webhook'`
+  - Auth: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` env vars (`checkout.go` lines 32-35)
+  - Redirects: `STRIPE_SUCCESS_URL`, `STRIPE_CANCEL_URL`
 
 ## Data Storage
 
 **Databases:**
-- PostgreSQL - active system of record
-  - Connection: `DATABASE_URL`
-  - Client: `database/sql` with `github.com/lib/pq` in `src/server/internal/db/db.go`
-  - Migrations: `src/server/migrations`
-  - Docker service: `postgres` in `docker-compose.yml`
-  - Kubernetes manifests: `deploy/kubernetes/postgres.yaml` and `deploy/kubernetes/secret.example.yaml`
-- pgvector - active vector extension for memory/RAG data
-  - Migration: `src/server/migrations/0016_pgvector.sql`
-  - HNSW index migration: `src/server/migrations/0020_memory_hnsw.sql`
-  - Embedding dimension: `text-embedding-3-small`-sized vectors in `memory_chunks`
-- Relay/admin tables - active relay channel, model routing, quota, package, subscription, audit, marketplace, MCP, and memory tables
-  - Migrations: `src/server/migrations/0013_channels.sql` through `src/server/migrations/0024_categories_tags.sql`
-- Reference `lobehub/` PostgreSQL/Drizzle storage
-  - Connection: `DATABASE_URL`
-  - Client: Drizzle config in `lobehub/drizzle.config.ts`
-  - Migrations: `lobehub/packages/database/migrations`
-- Reference `new-api/` storage
-  - Clients: GORM with SQLite, MySQL, and PostgreSQL drivers in `new-api/go.mod`
-  - Runtime initialization: `new-api/main.go`
+- **PostgreSQL 16** — System of record (`docker-compose.yml` `postgres:16`)
+  - Connection: `DATABASE_URL` env var (required, format `postgres://...`)
+  - Test connection: `TEST_DATABASE_URL` env var (used by `src/server/internal/http/server_test.go:18` and `scripts/test.sh` lines 43-49)
+  - Driver: `github.com/lib/pq` v1.10.9 via `database/sql` (`src/server/internal/db/`)
+  - Migration runner: `src/server/cmd/migrate/main.go`, applies files from `src/server/migrations/0001_*.sql` … `0024_*.sql`
+  - Domain tables span: users, conversations, messages, knowledge bases + documents + chunks, tasks, channels, agents, MCP servers, quotas, audit logs, marketplace, categories/tags, plan extensions
+- **pgvector** — Vector storage extension enabled by migration `src/server/migrations/0016_pgvector.sql`; HNSW indexes added by `0020_memory_hnsw.sql`. Used by `src/server/internal/memory/` for embedding similarity search.
+
+**Caching / Queue Broker:**
+- **Redis 7** (AOF-persisted) — `docker-compose.yml` `redis:7` with `--appendonly yes`
+  - Used exclusively as the asynq broker for relay billing tasks
+  - Address configured per-call to `NewBillingWorker(redisAddr, …)` in `src/server/internal/relay/billing_worker.go:52`
+  - Test default address `localhost:6379` (`src/server/internal/relay/billing_worker_test.go:68`)
 
 **File Storage:**
-- Active mainline uses local filesystem only for relay file-proxy code in `src/server/internal/relay/handler/files.go`.
-  - Storage path is provided to `NewFilesHandler`; no top-level object storage service is configured in `docker-compose.yml`.
-  - File mapping persistence is a placeholder in `saveFileMapping`.
-- Reference `lobehub/` uses RustFS/S3-compatible storage in `lobehub/docker-compose/dev/docker-compose.yml`, `lobehub/docker-compose/deploy/docker-compose.yml`, and AWS S3 packages in `lobehub/package.json`.
-
-**Caching:**
-- Active Docker stack provisions Redis `7` in `docker-compose.yml`.
-- Active server code includes Redis-backed asynq billing worker support in `src/server/internal/relay/billing_worker.go`.
-- Active `src/server/internal/config/config.go` does not expose a Redis address env var, and `src/server/internal/relay/relay.go` constructs billing with an empty Redis address.
-- Reference `lobehub/` and `new-api/` both include Redis integrations in their own manifests and compose files.
+- Local filesystem only via `/v1/files/*` relay handler (`src/server/internal/relay/handler/files.go`); maps `local_id` → `openai_id` per upload (line 167). No cloud blob storage detected.
 
 ## Authentication & Identity
 
 **Auth Provider:**
-- Active app uses custom email/password auth.
-  - Implementation: `src/server/internal/auth/service.go`, `src/server/internal/auth/store.go`, `src/server/internal/http/auth_handler.go`, `src/server/internal/http/auth_middleware.go`
-  - Password hashing: bcrypt from `golang.org/x/crypto/bcrypt`
-  - Session persistence: `sessions` table from `src/server/migrations/0001_phase1_foundation.sql`
-  - Cookie auth: HMAC-signed HttpOnly cookie using `SESSION_SECRET`, `SESSION_COOKIE_NAME`, and `SESSION_COOKIE_SECURE`
-  - Admin authorization: `requireAdmin` in `src/server/internal/http/auth_middleware.go` checks `session.User.Role`
-- MCP server auth uses per-server bearer tokens stored by `src/server/internal/mcp/client.go`.
-- Relay internal auth uses `X-Oblivious-Internal-Auth` with `OBLIVIOUS_INTERNAL_AUTH_TOKEN` in `src/server/internal/chat/relay_gateway.go` and `src/server/internal/relay/handler/chat.go`.
-- Reference `new-api/` includes OAuth/WebAuthn/JWT dependencies in `new-api/go.mod`.
-- Reference `lobehub/` includes Better Auth/OIDC dependencies in `lobehub/package.json`.
+- **Custom session-cookie auth** — No external IdP.
+  - Implementation: `src/server/internal/auth/service.go`, `src/server/internal/auth/store.go`
+  - Password hashing: `golang.org/x/crypto/bcrypt` with `bcrypt.DefaultCost` (`auth/service.go:62`)
+  - Session cookie: name controlled by `SESSION_COOKIE_NAME` (default `oblivious_session`), `Secure` flag controlled by `SESSION_COOKIE_SECURE`, signed with `SESSION_SECRET` (required env var — server refuses to start without it, `config.go:64-67`)
+  - Admin role: enforced via session middleware; admin role added by migration `src/server/migrations/0019_admin_role.sql`
+- Public app endpoints: `POST /api/v1/auth/login`, `POST /api/v1/auth/register`, `GET /healthz`, `GET /metrics` (per `docs/API.md`)
+- Authenticated endpoint requires the session cookie; admin endpoints additionally require the admin role.
 
 ## Monitoring & Observability
 
+**Metrics:**
+- **Prometheus** — `github.com/prometheus/client_golang` v1.23.2
+  - Endpoint: `GET /metrics` (`docs/API.md` Base URLs table)
+  - Definitions: `src/server/internal/metrics/prometheus.go` — request counters/histograms, channel gauges, billing counters
+
 **Error Tracking:**
-- Active mainline: None detected.
-- Reference `lobehub/` includes Langfuse, PostHog, OpenTelemetry, Jaeger exporter, and Vercel analytics packages in `lobehub/package.json`.
-- Reference `new-api/` includes Pyroscope dependency and startup call in `new-api/main.go`.
+- None detected. No Sentry/Rollbar/Bugsnag SDK in `package.json`, `src/web/package.json`, or `src/server/go.mod`.
 
 **Logs:**
-- Active server logs through Go standard `log` in `src/server/cmd/server/main.go` and `src/server/internal/http/server.go`.
-- Active HTTP middleware includes request ID, logging, recovery, and CORS in `src/server/internal/http/middleware.go`.
-- Active audit logs are persisted in PostgreSQL through `src/server/internal/admin/audit_store.go` and `src/server/migrations/0022_audit_logs.sql`.
-- Active metrics are exported through `/metrics` and custom relay collectors in `src/server/internal/metrics/prometheus.go`.
+- Server uses stdlib `log` package (`src/server/cmd/server/main.go`, `src/server/internal/http/server.go`)
+- No structured logger (zap/zerolog/logrus) detected
+
+**Tracing:**
+- None detected. No OpenTelemetry SDK in dependency lists.
 
 ## CI/CD & Deployment
 
-**Hosting:**
-- Active local/container deployment: `docker-compose.yml`.
-- Active server image: `Dockerfile.server`.
-- Active web image: `Dockerfile.web`.
-- Active Kubernetes deployment templates: `deploy/kubernetes`.
-- Reference app deployment surfaces: `lobehub/Dockerfile`, `lobehub/docker-compose`, `new-api/Dockerfile`, and `new-api/docker-compose.yml`.
-
 **CI Pipeline:**
-- GitHub Actions in `.github/workflows/ci.yml`.
-  - `release-gates`: runs `bash scripts/check.sh docs`
-  - `web`: installs pnpm `10.6.0`, builds web, runs web tests
-  - `e2e`: installs Chromium and runs `pnpm --dir src/web test:e2e`
-  - `server`: uses `actions/setup-go` from `src/server/go.mod`, runs server checks and tests
+- GitHub Actions — `.github/workflows/ci.yml`
+- Jobs: `release-gates`, `web`, `e2e`, `server` (see STACK.md "CI Pipeline" section)
+- pnpm cache via `pnpm/action-setup@v4` and `actions/setup-node@v4` with `cache: pnpm`
+- Go cache via `actions/setup-go@v5` with `go-version-file: src/server/go.mod`
+- Playwright Chromium installed in the `e2e` job
+
+**Hosting / Deployment:**
+- Self-hosted via Docker Compose stack (`docker-compose.yml`) for local validation
+- Kubernetes manifests under `deploy/` (gitignored secret `deploy/kubernetes/secret.yaml`)
+- Smoke validation: `scripts/deploy-validate.sh` → `scripts/deploy-smoke.sh` against `BASE_URL` (default `http://127.0.0.1:8080`)
+- Optional registry mirror: `OBLIVIOUS_IMAGE_REGISTRY_PREFIX` rewrites pull paths in `docker-compose.yml`
+- Optional Go proxy: `OBLIVIOUS_GOPROXY` / `OBLIVIOUS_GOSUMDB` build args for `Dockerfile.server`
+
+**Reverse Proxy:**
+- Nginx 1.27 inside `oblivious-web` container proxies `/api/` and `/v1/` to `oblivious-server:8080`, serves SPA fallback to `/index.html` (`Dockerfile.web` lines 25-53). Single ingress at port 4173 on host.
 
 ## Environment Configuration
 
-**Required env vars:**
-- `DATABASE_URL` - required by `src/server/internal/config/config.go`
-- `SESSION_SECRET` - required by `src/server/internal/config/config.go`
+**Required server env vars (server refuses to start without these):**
+- `DATABASE_URL` (`config.go:60-62`)
+- `SESSION_SECRET` (`config.go:64-67`)
 
-**Optional app env vars:**
-- `SERVER_PORT`
-- `APP_ENV`
-- `CORS_ALLOWED_ORIGINS`
-- `SESSION_COOKIE_NAME`
-- `SESSION_COOKIE_SECURE`
-- `LLM_BASE_URL`
-- `LLM_API_KEY`
-- `LLM_TIMEOUT_MS`
-- `MODEL_DEFAULT_NAME`
-- `RELAY_ENABLED`
-- `RELAY_DEFAULT_MODEL`
-- `OPENAI_API_KEY`
-- `OPENAI_BASE_URL`
-- `OBLIVIOUS_INTERNAL_AUTH_TOKEN`
-- `TEST_DATABASE_URL`
+**Required server env vars (validated by `scripts/check.sh docs` for documentation consistency):**
+- Frontend: `WEB_PORT`, `WEB_API_BASE_URL`
+- Backend: `SERVER_PORT`, `APP_ENV`, `CORS_ALLOWED_ORIGINS`, `DATABASE_URL`, `SESSION_SECRET`, `SESSION_COOKIE_NAME`, `SESSION_COOKIE_SECURE`, `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_TIMEOUT_MS`, `MODEL_DEFAULT_NAME`
 
-**Optional Stripe env vars:**
-- `STRIPE_SECRET_KEY`
-- `STRIPE_SUCCESS_URL`
-- `STRIPE_CANCEL_URL`
-- `STRIPE_WEBHOOK_SECRET`
+**Optional / feature-flag env vars:**
+- `RELAY_ENABLED` (default `true`), `RELAY_DEFAULT_MODEL` (default `gpt-4o-mini`)
+- `OPENAI_API_KEY`, `OPENAI_BASE_URL` (default `https://api.openai.com`) — when set, auto-creates default OpenAI channel on first boot
+- `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_SUCCESS_URL`, `STRIPE_CANCEL_URL`
+- `TEST_DATABASE_URL` — enables HTTP integration suite
 
 **Secrets location:**
-- Local example env file exists at `config/.env.example`; note existence only and do not read secret-bearing env files.
-- Kubernetes example secret manifest exists at `deploy/kubernetes/secret.example.yaml`; note existence only and do not quote secret values.
-- Docker Compose environment is defined in `docker-compose.yml`; avoid copying inline placeholder credentials into committed docs.
-- GitHub Actions secrets are not explicitly declared in `.github/workflows/ci.yml`.
+- `.env`, `.env.*` files gitignored (`.gitignore`) and dockerignored (`.dockerignore`)
+- Reference template at `config/.env.example` (the only file inside `config/`)
+- `docker-compose.yml` inlines a placeholder `SESSION_SECRET=change-me-in-production` and empty `OPENAI_API_KEY=` / `LLM_API_KEY=` — these are development defaults only
 
 ## Webhooks & Callbacks
 
 **Incoming:**
-- Stripe webhook handler code exists in `src/server/internal/stripe/webhook.go`.
-  - Expected inbound signature header: `Stripe-Signature`
-  - Secret: `STRIPE_WEBHOOK_SECRET`
-  - Active HTTP route: Not detected in `src/server/internal/http/router.go`
-- No other incoming webhook endpoints detected in active `src/server/internal/http/router.go`.
+- **Stripe webhook** — Handled by `src/server/internal/stripe/webhook.go`
+  - Verifies signature with `STRIPE_WEBHOOK_SECRET` via `github.com/stripe/stripe-go/v83/webhook`
+  - Handled event types:
+    - `checkout.session.completed` (`webhook.go:83`)
+    - `invoice.paid` (`webhook.go:159`)
+    - `customer.subscription.deleted` (`webhook.go:166`)
+  - Idempotency: dedup against `audit_logs WHERE action='stripe.webhook' AND resource_id=$1` (`webhook.go:207-228`)
 
 **Outgoing:**
-- OpenAI-compatible model gateway calls from `src/server/internal/chat/gateway.go`, `src/server/internal/chat/relay_gateway.go`, and `src/server/internal/relay/handler`.
-- Admin channel health checks from `src/server/internal/admin/channel_store.go`.
-- MCP JSON-RPC requests from `src/server/internal/mcp/client.go`.
-- Built-in HTTP request tool calls from `src/server/internal/mcp/builtin.go`.
-- Stripe checkout session creation from `src/server/internal/stripe/checkout.go`.
+- HTTP requests to LLM providers via `OpenAIAdapter.DoRequest` (`src/server/internal/relay/channel/openai_adapter.go`) and `memory/embedder.go` for `/embeddings`
+- HTTP requests to user-configured MCP servers (see below)
+- Stripe API calls via `stripe-go` SDK
+
+## Message Queues
+
+- **asynq** (Redis-backed) — `github.com/hibiken/asynq` v0.26.0
+  - Worker: `src/server/internal/relay/billing_worker.go`
+  - Task types defined as constants `BillingTimeoutPayload`, `BillingTimeoutQueue` (referenced at `billing_worker.go:71-75`)
+  - Two task families:
+    - Billing timeout — `EnqueueBillingTimeoutTask(redisAddr, task, delay)` at `billing_worker.go:65`
+    - Billing polling — `EnqueueBillingPollingTask(redisAddr, task)` at `billing_worker.go:79`
+  - Purpose: ensure async settle/refund of relay billing when upstream completion is delayed
+
+## MCP Servers
+
+- **Model Context Protocol** integration is first-class but custom-built.
+  - User-managed external MCP servers: created/listed/managed via `src/server/internal/mcp/client.go` (`Server` struct with `URL`, `AuthToken`, `Status`)
+  - Persistence: migration `src/server/migrations/0015_mcp_servers.sql`
+  - Built-in MCP tools: `src/server/internal/mcp/builtin.go`
+  - Outgoing transport: HTTP via `http.Client` (`client.go` line 42)
+  - Tool execution surfaced through agent endpoints `GET /api/v1/app/agents/:agentId/tools` (`docs/API.md`)
+- **Repo-level developer MCP** (not part of the application, only for Claude tooling): `.mcp.json` declares `claude-flow` MCP server invoked via `npx -y @claude-flow/cli@latest mcp start`. This is editor-side tooling, not a runtime dependency.
+
+## Third-Party Services Summary
+
+| Service | Purpose | SDK / Client | Auth Env Var | Where |
+|---------|---------|--------------|--------------|-------|
+| OpenAI | LLM provider for relay | `OpenAIAdapter` (`src/server/internal/relay/channel/openai_adapter.go`) | `OPENAI_API_KEY` | `src/server/internal/relay/` |
+| OpenAI (embeddings) | `text-embedding-3-small` for memory/knowledge | stdlib `net/http` | `LLM_API_KEY` | `src/server/internal/memory/embedder.go` |
+| Stripe | Checkout + subscription billing | `stripe-go/v83` | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | `src/server/internal/stripe/` |
+| PostgreSQL | Primary datastore | `lib/pq` | `DATABASE_URL` | `src/server/internal/db/` |
+| Redis | asynq broker | `redis/go-redis/v9` (indirect via asynq) | none (URL passed to `NewBillingWorker`) | `src/server/internal/relay/billing_worker.go` |
+| User MCP servers | Tool execution for agents | stdlib `net/http` | per-server `AuthToken` | `src/server/internal/mcp/client.go` |
+
+No detected integrations with: AWS, GCP, Azure, Cloudflare, Anthropic, Google Gemini, Vercel, Supabase, Auth0, Clerk, Firebase, Twilio, SendGrid, Mailgun, Sentry, Datadog, New Relic, S3, GCS, or any object-storage SDK.
 
 ---
 
-*Integration audit: 2026-05-12*
+*Integration audit: 2026-05-16*

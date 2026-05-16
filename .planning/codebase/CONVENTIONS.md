@@ -1,119 +1,173 @@
 # Coding Conventions
 
-**Analysis Date:** 2026-05-12
+**Analysis Date:** 2026-05-16
+
+This codebase has two distinct conventions surfaces:
+- **Frontend (TypeScript / React):** `src/web/` — Vite + React 18 + Vitest
+- **Backend (Go):** `src/server/` — `net/http` + `database/sql`
+
+Both are exercised by the shared `scripts/check.sh` / `scripts/test.sh` entry points and gated by `.github/workflows/ci.yml`.
 
 ## Naming Patterns
 
-**Files:**
-- Use Go package/domain filenames under `src/server/internal/<domain>/`, with implementation files such as `src/server/internal/chat/service.go`, persistence files such as `src/server/internal/chat/store.go`, and co-located tests such as `src/server/internal/chat/service_test.go`.
-- Use Go command entrypoints under `src/server/cmd/<command>/main.go`, including `src/server/cmd/server/main.go` and `src/server/cmd/migrate/main.go`.
-- Use React route components as PascalCase `.tsx` files under `src/web/src/routes/`, such as `src/web/src/routes/workspace/ChatPage.tsx`, with tests beside them as `src/web/src/routes/workspace/ChatPage.test.tsx`.
-- Use React feature modules under `src/web/src/features/<domain>/` with compact role names such as `src/web/src/features/auth/store.ts`, `src/web/src/features/auth/api.ts`, and `src/web/src/features/auth/useAuthBootstrap.ts`.
-- Use shadcn-style lowercase UI component filenames under `src/web/src/components/ui/`, such as `src/web/src/components/ui/button.tsx` and `src/web/src/components/ui/dialog.tsx`.
-- Use shared application components as PascalCase filenames under `src/web/src/components/shared/`, such as `src/web/src/components/shared/DataTable.tsx`.
-- Keep E2E specs under `src/web/e2e/` with `.spec.ts` names, such as `src/web/e2e/admin-marketplace.spec.ts`.
-- Treat `lobehub/` as an upstream pnpm workspace with package-local conventions, including `lobehub/packages/*/src/**`, `lobehub/apps/desktop/src/main/**/__tests__/*.test.ts`, and root config files such as `lobehub/eslint.config.mjs`.
-- Treat `new-api/` as an upstream Go/React project with Go tests beside packages such as `new-api/service/error_test.go` and JS web code under `new-api/web/src/`.
+**Files (Frontend):**
+- React components and route views: `PascalCase.tsx` — e.g. `src/web/src/routes/admin/AdminUsersPage.tsx`, `src/web/src/components/shared/ConfirmDialog.tsx`
+- shadcn / `components/ui/` primitives: `kebab-case.tsx` (single-word lower-case files) — e.g. `src/web/src/components/ui/dropdown-menu.tsx`, `src/web/src/components/ui/sheet.tsx`
+- Non-component TypeScript modules: `camelCase.ts` — e.g. `src/web/src/app/appContext.tsx`, `src/web/src/app/routerFuture.ts`, `src/web/src/features/auth/useAuthBootstrap.ts`
+- Test files: co-located with the source under test using the suffix `.test.ts` / `.test.tsx` — e.g. `src/web/src/services/http/client.test.ts`
+- Behavior-flavored tests use `.behavior.test.tsx` — e.g. `src/web/src/routes/workspace/ChatPage.behavior.test.tsx`
+- Playwright E2E specs live in `src/web/e2e/` with the suffix `.spec.ts` — e.g. `src/web/e2e/admin-marketplace.spec.ts`
+- Test fixtures live under `src/web/e2e/fixtures/` with `camelCase.ts` — e.g. `src/web/e2e/fixtures/adminMarketplace.ts`
+
+**Files (Backend / Go):**
+- Standard Go `snake_case.go` — e.g. `src/server/internal/admin/channel_service.go`, `src/server/internal/http/auth_middleware_test.go`
+- Tests live next to the source with the `_test.go` suffix (Go convention) — e.g. `src/server/internal/agent/service_test.go`
+- Package directories use single lower-case words — e.g. `internal/admin`, `internal/relay/channel`
 
 **Functions:**
-- Use PascalCase for exported Go constructors, methods, and types in `src/server/internal/chat/service.go`, such as `NewService`, `CreateConversation`, `ListMessages`, and `Conversation`.
-- Use lowerCamelCase for unexported Go handlers and helpers in `src/server/internal/http/chat_handler.go`, such as `newChatHandler`, `sendMessage`, and `toMessageOverrides`.
-- Use `New<Type>` for Go dependency constructors in `src/server/internal/chat/gateway.go` and `src/server/internal/relay/router.go`.
-- Use `With...` and `...FromContext` for context helpers in `src/server/internal/chat/gateway.go`, such as `WithRelayRequestMetadata` and `relayRequestMetadataFromContext`.
-- Use `create...` factory functions in TypeScript service modules, such as `createHttpClient` in `src/web/src/services/http/client.ts`, `createChatApi` in `src/web/src/features/chat/api.ts`, and `createAuthStore` in `src/web/src/features/auth/store.ts`.
-- Use `use...` names for React hooks in `src/web/src/features/auth/useAuthBootstrap.ts` and `lobehub/src/hooks/useFetchTopics.test.ts`.
-- Use PascalCase for React component functions in `src/web/src/routes/workspace/ChatPage.tsx` and `src/web/src/features/layouts/WorkspaceLayout.tsx`.
+- TypeScript: `camelCase` (e.g. `createHttpClient`, `unwrapEnvelope`, `createAuthStore`, `useAppContext`, `formatConsoleArgs`)
+- React hooks: `useXxx` (e.g. `useAuthBootstrap`, `useAppContext`)
+- Factory functions: `createXxx` (e.g. `createHttpClient`, `createAuthStore`, `createAdminApi`, `createAuthBootstrapController`)
+- React components: `PascalCase` (e.g. `AdminUsersPage`, `ProtectedRoute`, `ConfirmDialog`)
+- Go: `PascalCase` for exported, `camelCase` for unexported (e.g. `NewService`, `Load`, `testConfig`, `testDatabase`)
 
 **Variables:**
-- Use Go `ctx` for `context.Context` parameters and pass it first, as in `src/server/internal/chat/service.go` and `src/server/internal/task/service.go`.
-- Preserve initialism casing in Go names: `ID`, `URL`, `API`, and `LLM` appear in `src/server/internal/config/config.go`, `src/server/internal/chat/gateway.go`, and `src/server/internal/relay/types/types.go`.
-- Use explicit `recorder` and `request` names in HTTP tests with `httptest`, as in `src/server/internal/http/chat_handler_test.go` and `src/server/internal/http/server_test.go`.
-- Use `is...`, `has...`, and `can...` boolean names in TypeScript and Go helpers, such as `hasEnabledTools` in `src/server/internal/agent/store_test.go` and `cancelled` in `src/web/src/routes/workspace/ChatPage.tsx`.
-- Use `next...` names for derived React state before assignment, as in `nextConversations`, `nextMessages`, and `nextConversationConfig` in `src/web/src/routes/workspace/ChatPage.tsx`.
+- TypeScript: `camelCase` — `consoleWarnSpy`, `unexpectedConsoleCalls`, `routeState`
+- Go: `camelCase` for locals (`databaseURL`, `originsRaw`, `recorder`, `request`); `PascalCase` for exported package-level names
+- React `useState`-style pairs: `[value, setValue]` (not enforced but consistent in admin pages)
 
 **Types:**
-- Use PascalCase Go structs and interfaces with JSON tags for API contracts in `src/server/internal/chat/service.go`, `src/server/internal/http/response.go`, and `src/server/internal/relay/api_types.go`.
-- Keep unexported Go request DTOs lowerCamelCase in handler packages, such as `sendMessageRequest` and `updateConversationConfigRequest` in `src/server/internal/http/chat_handler.go`.
-- Use PascalCase TypeScript `type` aliases for app contracts, such as `HttpClient`, `HttpClientOptions`, `AuthState`, and `AuthStore` in `src/web/src/services/http/client.ts` and `src/web/src/features/auth/store.ts`.
-- Use explicit union types for finite UI state, such as `AuthStatus` in `src/web/src/features/auth/store.ts`.
-- In `lobehub/`, use exported interfaces and TSDoc for package API boundaries, as shown by `SSRFOptions` in `lobehub/packages/ssrf-safe-fetch/index.ts`.
+- TypeScript: `PascalCase` for `type` aliases and interfaces — `HttpClient`, `HttpClientOptions`, `ApiUser`, `ApiEnvelope<T>`, `AuthState`, `AuthStatus`, `UserPreferences`
+- Prefer `type X = { ... }` over `interface X { ... }`. All public shapes in `src/web/src/types/api.ts` and `src/web/src/types/admin.ts` use `type` aliases.
+- Go: `PascalCase` structs (`Config`, `Service`, `Agent`, `MemorySearcher`)
+- API-facing TypeScript types are prefixed with `Api` (e.g. `ApiUser`, `ApiSession`, `ApiWorkspace`, `ApiEnvelope`, `ApiEnvelopeError`) — see `src/web/src/types/api.ts`
+
+**Constants / IDs in fixtures:**
+- Snake-case prefixed identifiers reflecting backend ID space: `user_admin`, `session_admin`, `channel_openai_primary`, `route_primary`, `agent_release_helper`, `kb_1`, `ch_1`, `rt_1` — see `src/web/e2e/fixtures/adminMarketplace.ts`
 
 ## Code Style
 
 **Formatting:**
-- Format Go with `gofmt`; existing files under `src/server/internal/` use tab-indented Go formatting and grouped imports.
-- Format mainline TypeScript with the style already present in `src/web/src/`: single quotes, semicolons, two-space indentation, and trailing commas only where TypeScript formatting already inserts them.
-- Use strict TypeScript settings from `src/web/tsconfig.json`: `strict: true`, `jsx: react-jsx`, `moduleResolution: Bundler`, and `@/*` path mapping.
-- Use LobeHub's shared formatter for `lobehub/`; `lobehub/prettier.config.mjs` exports `prettier` from `@lobehub/lint`.
-- Use New API's web formatter for `new-api/web/`; `new-api/web/.prettierrc.mjs` extends `@so1ve/prettier-config` and `new-api/web/package.json` sets single quotes for JS/JSX.
+- No project-level Prettier, Biome, ESLint, or `.editorconfig` is committed (verified by `find` on repo root and `src/web/`). Style is enforced by convention, by the TypeScript compiler (`tsc --noEmit` in `pnpm --dir src/web build`), and by `go test ./...`.
+- Indentation: 2 spaces in TypeScript / TSX; tabs in Go (Go default).
+- String quotes: single quotes in TypeScript (`'./types/api'`, `'authenticated'`); backticks for templates.
+- Trailing commas: present in object/array literals across `src/web/src/types/`, `src/web/src/features/admin/api.test.ts`, etc.
+- Semicolons: required (all `.ts` / `.tsx` source files terminate statements with `;`).
+- Line width: not enforced; most files stay <120 chars.
 
 **Linting:**
-- Use `bash scripts/check.sh` as the root release check entrypoint; it validates docs, workspace boundaries, `src/web` build, and `src/server` tests from `scripts/check.sh`.
-- Mainline `src/web/` does not define a standalone ESLint config; rely on `pnpm --dir src/web build` for TypeScript compile checks and `pnpm --dir src/web test` for behavior checks.
-- Use LobeHub's root lint stack in `lobehub/eslint.config.mjs`, `lobehub/stylelint.config.mjs`, and `lobehub/package.json`; it enforces type-import style, MDX rules, Stylelint, circular import checks, and no-console rules outside allowed areas.
-- Use New API's web lint stack in `new-api/web/.eslintrc.cjs`; it enforces AGPL header blocks and maximum one empty line for `new-api/web/**/*.js` and `new-api/web/**/*.jsx`.
+- TypeScript strict mode is the linter: `src/web/tsconfig.json` sets `"strict": true`, `"noEmit": true`, `"isolatedModules": true`, `"useDefineForClassFields": true`, `"jsx": "react-jsx"`, `"moduleResolution": "Bundler"`, `"types": ["vitest/globals"]`.
+- Path alias: `@/*` → `./src/*` (`src/web/tsconfig.json` and `src/web/vite.config.ts`).
+- Build (`pnpm --dir src/web build`) runs `tsc --noEmit && vite build` — typecheck failures break CI via `bash scripts/check.sh web` in `.github/workflows/ci.yml`.
+- Go: no `golangci-lint` config committed; correctness is gated by `go test ./... -count=1` invoked from `scripts/check.sh server` and `scripts/test.sh server`.
 
 ## Import Organization
 
-**Order:**
-1. Go standard library imports first, as in `src/server/internal/http/chat_handler.go`.
-2. Go third-party imports next, as in `src/server/internal/http/server_test.go`.
-3. Go local module imports last, using `oblivious/server/...` in `src/server/internal/chat/service_test.go`.
-4. TypeScript external imports first, then absolute aliases, then relative imports, as in `src/web/src/routes/workspace/ChatPage.tsx`.
-5. Type-only imports use `import type` in TypeScript, as in `src/web/src/features/auth/store.ts` and `lobehub/packages/ssrf-safe-fetch/index.ts`.
+**Order (observed in TypeScript):**
+1. External packages (`react`, `react-router-dom`, `@testing-library/react`, `vitest`, `@playwright/test`)
+2. Blank line
+3. Internal aliases / relative imports (`../../types/api`, `./errors`, `./envelope`, `../routes/...`)
+
+**`import type` usage:**
+- Type-only imports use `import type { ... }` consistently — e.g. `import type { ApiEnvelope } from '../../types/api';` in `src/web/src/services/http/envelope.ts`, `import type { Page, Route } from '@playwright/test';` in `src/web/e2e/fixtures/adminMarketplace.ts`.
 
 **Path Aliases:**
-- Use `@/*` for `src/web/src/*` imports in `src/web/vite.config.ts` and `src/web/tsconfig.json`.
-- Use LobeHub aliases from `lobehub/vitest.config.mts`, including `@/`, `~test-utils`, and package-specific replacements.
-- Use Go module paths `oblivious/server/...` for mainline backend imports from `src/server/go.mod`.
-- Use Go module paths `github.com/QuantumNous/new-api/...` inside `new-api/`, from `new-api/go.mod`.
+- `@/*` → `src/web/src/*` (declared in both `tsconfig.json` and `vite.config.ts`). In practice, source files usually use relative paths (`../../types/api`); the alias is reserved for shadcn-generated UI primitives under `src/web/src/components/ui/`.
+
+**Imports (Go):**
+- Standard library first, blank line, then external (`github.com/lib/pq`, `golang.org/x/crypto/bcrypt`), blank line, then internal (`oblivious/server/internal/...`). See `src/server/internal/http/server_test.go`.
+
+## API Typing Patterns
+
+**Envelope contract:**
+- All backend responses follow the `ApiEnvelope<T>` shape from `src/web/src/types/api.ts`:
+  ```ts
+  type ApiEnvelope<T> = {
+    ok: boolean;
+    data: T | null;
+    error: { code: string; message: string } | null;
+  };
+  ```
+- Unwrapping is centralized in `src/web/src/services/http/envelope.ts` (`unwrapEnvelope<T>`) and used by the only HTTP client factory (`src/web/src/services/http/client.ts`).
+- 204 responses return `undefined as T`; envelope `data: null` also returns `undefined`.
+
+**HTTP client:**
+- Single factory `createHttpClient(options: HttpClientOptions): HttpClient` in `src/web/src/services/http/client.ts` exposes `get<T> / post<T> / put<T> / delete<T>`.
+- Always accepts `Accept: application/json`; only sets `Content-Type: application/json` when a body is present.
+- `fetchFn` is injectable for tests — every `*.test.ts` against this client passes a `vi.fn()` cast to `typeof fetch`.
+
+**Feature API modules:**
+- Each feature defines a `createXxxApi(client: HttpClient)` factory returning a typed object — e.g. `createAdminApi` in `src/web/src/features/admin/api.ts`, `createChatApi`, `createTasksApi`, `createAuthApi`. This makes mocking trivial in component tests (see `src/web/src/routes/admin/AdminUsersPage.test.tsx`).
+- Server collection responses use varied keys (`channels`, `routes`, `entries`, `plans`, `data`); the API layer normalizes them — see the `ChannelListPayload` / `RouteListPayload` shapes in `src/web/src/features/admin/api.ts` and the normalization test in `src/web/src/features/admin/api.test.ts`.
 
 ## Error Handling
 
-**Patterns:**
-- Return Go errors instead of panicking in production code under `src/server/internal/`; `src/server/internal/config/config.go` validates env values with `fmt.Errorf`.
-- Convert HTTP handler failures into the shared envelope from `src/server/internal/http/response.go` using `writeError` with stable codes such as `invalid_request`, `unauthorized`, and `internal_error`.
-- Preserve wrapped backend context with `%w` where stores return lower-level failures, as in `src/server/internal/userprefs/store.go`.
-- In `src/web/src/services/http/client.ts`, throw `HttpError` for non-OK HTTP responses and unwrap successful backend envelopes with `unwrapEnvelope`.
-- In React route code such as `src/web/src/routes/workspace/ChatPage.tsx`, keep async load failures local to the view and reset visible state rather than leaking raw exceptions to the UI.
-- In `new-api/service/error.go`, use typed response wrappers and status mapping helpers such as `ResetStatusCode` for upstream-provider error normalization.
-- In `lobehub/packages/ssrf-safe-fetch/index.ts`, rethrow errors with a descriptive message and `cause` after logging SSRF-specific failures.
+**Frontend:**
+- Single error class: `HttpError` in `src/web/src/services/http/errors.ts` — carries `status: number` and message.
+- `src/web/src/services/http/client.ts` decodes JSON error bodies, prefers `payload.error.message` from the envelope, falls back to `response.statusText`. Non-JSON bodies are swallowed silently with a comment ("Keep the default message when the error body is not JSON.").
+- `unwrapEnvelope` throws `new HttpError(500, payload.error?.message ?? 'HTTP request failed')` when `ok: false`.
+- Streaming: `src/web/src/services/http/stream.ts` throws `new Error('Unable to open stream')` for missing response body.
+- Plain `throw new Error(...)` is rare; the only non-`HttpError` plain throws in production code live in `src/web/src/routes/workspace/MarketplacePage.tsx:138` and `src/web/src/services/http/stream.ts:9`.
+
+**Go (`src/server/`):**
+- Use `fmt.Errorf` with `%w` to wrap when forwarding store errors — e.g. `src/server/internal/admin/audit_store.go:24`: `return fmt.Errorf("generate audit id: %w", err)`.
+- Use plain `fmt.Errorf("…")` for validation (no wrapping). Example: `src/server/internal/admin/channel_service.go:29` `return nil, fmt.Errorf("channel id is required")`.
+- Error messages are lower-case, no trailing punctuation (idiomatic Go) — e.g. `"channel name is required"`, `"action must be 'enable' or 'disable'"`.
+- Sentinel errors via `errors.New` are present but rare; prefer `fmt.Errorf`.
 
 ## Logging
 
-**Framework:** console/log package per subtree
+**Frontend:**
+- No application logging framework — `console.warn` / `console.error` are **forbidden** in tests by `src/web/src/test/setup.ts` (any unexpected call throws and fails the test).
+- Production source must not call `console.log`/`warn`/`error`. A repo scan confirms: zero `console.*` calls in `src/web/src/**/*.ts` / `.tsx` outside tests.
+- User-visible feedback uses `sonner` toasts (`src/web/src/components/ui/sonner.tsx`).
 
-**Patterns:**
-- Mainline Go code uses minimal standard logging; `src/server/internal/ws/hub.go` logs hub initialization with `log.Println`.
-- Mainline web tests fail unexpected `console.warn` and `console.error` calls through `src/web/src/test/setup.ts`; explicitly mock or suppress expected console output in the test that needs it.
-- LobeHub's ESLint config in `lobehub/eslint.config.mjs` disables `no-console` only for `e2e/**/*`, `**/*.test.ts`, `**/*.test.tsx`, `packages/agent-tracing/**/*`, and `apps/cli/**/*`.
-- New API uses its project logger in service code such as `new-api/service/task_billing.go` and `new-api/service/text_quota.go`; keep context-aware logger calls instead of ad hoc prints in that subtree.
+**Backend (Go):**
+- Standard library `log` package (`log.Printf`, `log.Println`) — no structured logger.
+- Format: space-separated `key=value` pairs — e.g. `src/server/internal/http/middleware.go:74` `log.Printf("method=%s path=%s status=%d duration=%s request_id=%s", ...)`.
+- Warning prefix `"warning: ..."` for non-fatal startup issues — e.g. `src/server/internal/http/server.go:29`.
+- Component prefix in brackets for subsystems — e.g. `log.Println("[ws] hub initialized")` in `src/server/internal/ws/hub.go:199`.
+- Domain-specific prefixes: `billing timeout: ...`, `billing polling: ...` (see `src/server/internal/relay/billing_worker.go`).
 
 ## Comments
 
-**When to Comment:**
-- Prefer self-explanatory names in mainline Go and TypeScript; add comments only for non-obvious behavior such as the integration-test database setup in `src/server/internal/http/server_test.go`.
-- Use short comments to describe security-sensitive or environment-sensitive behavior, as in `lobehub/packages/ssrf-safe-fetch/index.ts`.
-- Keep generated or migration notes close to the code they explain, such as SQL migration filenames under `src/server/migrations/`.
+**TypeScript:**
+- Comments are sparse and surgical — used to explain non-obvious control flow (e.g. the swallowed JSON parse failure in `src/web/src/services/http/client.ts:42` "Keep the default message when the error body is not JSON.").
+- No JSDoc/TSDoc usage observed in `src/web/src/`.
+- Avoid comments for self-evident code.
 
-**JSDoc/TSDoc:**
-- Use TSDoc for exported package APIs in `lobehub/packages/*`, as shown by `SSRFOptions` and `ssrfSafeFetch` in `lobehub/packages/ssrf-safe-fetch/index.ts`.
-- Mainline `src/web/src/` uses TypeScript types rather than broad JSDoc; prefer explicit exported types in `src/web/src/types/api.ts` and API modules.
+**Go:**
+- Exported identifiers get a single-line doc comment beginning with the identifier name (Go convention) — see `src/server/internal/agent/service.go` (`// Service Agent 服务`, `// NewService 创建 Service`).
+- Comments are bilingual in places (Chinese descriptions of intent), but the code itself is English-only.
 
 ## Function Design
 
-**Size:** Keep service functions focused on one workflow step in `src/server/internal/<domain>/service.go`; move normalization and conversion helpers into private functions such as `normalizeKnowledgeBaseIDs` in `src/server/internal/chat/service.go`.
+**Size:** Most functions stay well under 50 lines. Service constructors (e.g. `NewServiceWithMCP`, `NewServiceWithMemory` in `src/server/internal/agent/service.go`) are intentionally tiny — they delegate to `initRunner`.
 
-**Parameters:** Pass dependencies through constructors or interfaces, not globals, in mainline backend code. `chat.NewService` in `src/server/internal/chat/service.go` accepts a `Store`, `ReplyGenerator`, default model, and usage recorder.
+**Parameters:**
+- Frontend: configuration via a single optional options object (e.g. `createHttpClient(options: HttpClientOptions = {})`) rather than positional booleans.
+- Go: explicit `context.Context` is the first parameter on every method that crosses I/O — `func (s *Service) CreateAgent(ctx context.Context, session auth.Session, req *CreateAgentRequest) (*Agent, error)`.
 
-**Return Values:** Return typed domain values plus `error` in Go, as in `src/server/internal/chat/service.go`. Return typed promises in TypeScript clients, as in `src/web/src/services/http/client.ts`.
+**Return Values:**
+- TypeScript: prefer narrow generics on the call site (`client.get<{ requests: number }>('/api/v1/console/usage')`).
+- Go: idiomatic `(value, error)` returns; never `panic` outside test fakes — `panic("not used")` in `fakeStore` is a deliberate "you wired the wrong fake" marker (see `src/server/internal/agent/service_test.go`).
 
 ## Module Design
 
-**Exports:** Use named exports in mainline TypeScript modules, such as `createHttpClient` in `src/web/src/services/http/client.ts` and `createAuthStore` in `src/web/src/features/auth/store.ts`.
+**Exports (TypeScript):**
+- Named exports only. No `default export` observed in `src/web/src/` except shadcn-generated files.
+- One factory per file in `services/http/` and `features/*/api.ts`.
 
-**Barrel Files:** Mainline `src/web/src/` does not use broad barrel files; import directly from the feature, service, or type module needed. LobeHub packages may expose package-level entrypoints such as `lobehub/packages/ssrf-safe-fetch/index.ts`.
+**Barrel Files:**
+- Not used. All imports reach the implementation file directly — keeps Vite's dev graph small and aids tree-shaking.
+
+**State management (frontend):**
+- Custom factory stores using closures + `Set<Listener>` (`createAuthStore` in `src/web/src/features/auth/store.ts`); no Redux/Zustand/Jotai.
+- React context for app-level wiring (`src/web/src/app/appContext.tsx`, consumed via `useAppContext`).
+
+**Routing:**
+- Centralized in `src/web/src/app/router.tsx`. Both `createBrowserRouter` and `createMemoryRouter` are exported so router tests in `src/web/src/app/router.test.tsx` can drive the same tree in-memory.
 
 ---
 
-*Convention analysis: 2026-05-12*
+*Convention analysis: 2026-05-16*

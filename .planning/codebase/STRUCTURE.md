@@ -1,151 +1,379 @@
 # Codebase Structure
 
-**Analysis Date:** 2026-05-12
+**Analysis Date:** 2026-05-16
 
-## Scope
+## Directory Layout
 
-This structure map describes the current working tree. The active product boundary is `src/server`, `src/web`, `config`, `scripts`, `.github/workflows`, `docs`, `deploy/kubernetes`, and the root Docker files. `lobehub/` and `new-api/` are reference trees and are not root workspace members.
+```
+Oblivious/
+├── src/                          # All mainline source code (server + web)
+│   ├── server/                   # Go backend (mainline)
+│   │   ├── cmd/                  # Process entrypoints (one main.go per binary)
+│   │   │   ├── server/main.go    # Application HTTP server binary
+│   │   │   └── migrate/main.go   # Migration runner binary
+│   │   ├── internal/             # Private application code, one dir per bounded context
+│   │   │   ├── admin/            # Admin domain (channels, plans, routes, users, audit)
+│   │   │   ├── agent/            # Agent domain (runner, executor, tool loop)
+│   │   │   ├── auth/             # Session + user auth
+│   │   │   ├── chat/             # Conversations, messages, RelayGateway
+│   │   │   ├── config/           # Env-loaded `Config` struct
+│   │   │   ├── console/          # Read-only operator console summaries
+│   │   │   ├── db/               # PostgreSQL pool open helper
+│   │   │   ├── http/             # HTTP transport (router, handlers, middleware)
+│   │   │   ├── knowledge/        # Knowledge bases + documents + retrieval
+│   │   │   ├── marketplace/      # Marketplace agents, installs, reviews, search
+│   │   │   ├── mcp/              # MCP client + built-in tools
+│   │   │   ├── memory/           # Memory documents + chunker + embedder (Relay client)
+│   │   │   ├── metrics/          # Prometheus metric definitions
+│   │   │   ├── notification/     # Persistent notifications
+│   │   │   ├── quota/            # Quota service injected into Relay billing
+│   │   │   ├── relay/            # Relay engine (gin) — the load-bearing boundary
+│   │   │   │   ├── channel/      # OpenAI adapter + channel-typed plumbing
+│   │   │   │   ├── handler/      # Per-API-type handlers + 35-route table
+│   │   │   │   ├── migrations/   # Relay-owned SQL (in addition to root migrations/)
+│   │   │   │   └── types/        # Channel, RouteChannel, APIType, headers, ctx keys
+│   │   │   ├── stripe/           # Checkout + webhook for quota top-up
+│   │   │   ├── task/             # SOLO bounded runtime (state machine MVP)
+│   │   │   ├── usage/            # Per-request usage recorder (Console source)
+│   │   │   ├── userprefs/        # User preferences (defaultMode, modelStrategy…)
+│   │   │   └── ws/               # WebSocket hub + handler
+│   │   ├── migrations/           # Numbered PostgreSQL SQL migrations (0001…0024+)
+│   │   ├── go.mod / go.sum       # Module: oblivious/server, Go 1.25
+│   │   └── src/                  # (legacy nested mirror; do not add code here)
+│   └── web/                      # React 18 + Vite SPA (mainline)
+│       ├── src/
+│       │   ├── main.tsx          # `ReactDOM.createRoot` mount
+│       │   ├── app/              # Composition root (App, router, providers, context)
+│       │   ├── routes/           # Page components grouped by area
+│       │   │   ├── marketing/    # Public marketing + login + register
+│       │   │   ├── workspace/    # Authenticated workspace (chat, knowledge, solo, marketplace, settings)
+│       │   │   ├── console/      # Console operator pages
+│       │   │   ├── marketplace/  # Marketplace browse / detail / publish
+│       │   │   └── admin/        # Admin pages (gated by AdminRoute)
+│       │   ├── features/         # Domain logic colocated with feature
+│       │   │   ├── auth/         # Store, ProtectedRoute, AdminRoute, bootstrap
+│       │   │   ├── chat/         # `api.ts`
+│       │   │   ├── knowledge/    # `api.ts`
+│       │   │   ├── tasks/        # `api.ts`
+│       │   │   ├── admin/        # `api.ts` + tests
+│       │   │   ├── marketplace/  # `api.ts` + tests
+│       │   │   ├── console/      # `api.ts` + `components/`
+│       │   │   └── layouts/      # Marketing / Workspace / Console / Admin layout shells
+│       │   ├── services/http/    # `createHttpClient`, envelope unwrap, errors, stream, upload
+│       │   ├── components/
+│       │   │   ├── ui/           # shadcn-style headless primitives (Radix-backed)
+│       │   │   └── shared/       # Cross-domain composites (DataTable, EmptyState, ...)
+│       │   ├── lib/utils.ts      # `cn` className helper
+│       │   ├── store/app.ts      # Cross-cutting client store
+│       │   ├── test/setup.ts     # Vitest + jest-dom bootstrap
+│       │   ├── theme/            # Design tokens + global CSS
+│       │   └── types/            # Backend contract types (api.ts, admin.ts)
+│       ├── e2e/                  # Playwright suites + fixtures
+│       │   ├── admin-marketplace.spec.ts
+│       │   └── fixtures/
+│       ├── index.html            # Vite entry HTML
+│       ├── vite.config.ts        # Vite + Vitest config
+│       ├── playwright.config.ts  # Playwright config
+│       ├── tailwind.config.ts    # Tailwind v3 config
+│       ├── postcss.config.mjs    # PostCSS
+│       ├── tsconfig.json         # TS config
+│       ├── components.json       # shadcn config
+│       └── package.json          # `oblivious-web` workspace
+├── config/                       # Mainline configuration (env contract lives here)
+│   └── .env.example              # Authoritative env contract (sync with config/config.go)
+├── deploy/                       # Deployment manifests
+│   └── kubernetes/               # configmap, namespace, postgres, redis, server, web, secret.example
+├── scripts/                      # Repo-wide automation entrypoints
+│   ├── check.sh                  # Docs + web build + server unit checks (CI gate)
+│   ├── test.sh                   # Web + server tests
+│   ├── dev.sh                    # Local dev helper
+│   ├── deploy-smoke.sh           # Post-deploy smoke
+│   ├── deploy-validate.sh        # Pre-deploy validation
+│   └── verify-quality-gates.sh   # Cross-cutting release gate
+├── docs/                         # Authoritative documentation
+│   ├── API.md                    # Canonical route index
+│   ├── architecture/             # Design contracts (current-system-contracts, solo-runtime-decision, knowledge-evolution-decision)
+│   ├── governance/               # Process docs
+│   ├── release/                  # Release runbooks (rc-checklist, deployment-runtime-remediation)
+│   ├── reports/                  # Time-stamped audits / progress reports
+│   └── superpowers/              # Plans and specs (specs/, plans/)
+├── .planning/                    # GSD planning artifacts
+│   ├── codebase/                 # This directory — STACK / ARCHITECTURE / STRUCTURE / ...
+│   ├── milestones/               # Milestone plans
+│   └── phases/                   # Phase plans + closeouts
+├── .github/workflows/            # CI definitions (single root pipeline)
+├── .claude/, .claude-flow/       # Local Claude agent + skills + helpers
+├── .worktrees/                   # Branch worktrees (non-mainline)
+├── lobehub/, new-api/            # Non-mainline reference checkouts (do not import)
+├── docker-compose.yml            # Local + CI integration stack (postgres, redis, server, web)
+├── Dockerfile.server             # Builds oblivious-server and oblivious-migrate
+├── Dockerfile.web                # Builds Vite SPA into nginx with /api + /v1 proxy
+├── package.json                  # Root pnpm workspace + `dev/test/check` script orchestration
+├── pnpm-workspace.yaml           # Lists `src/web` as the workspace package
+├── pnpm-lock.yaml                # Single lockfile for the root workspace
+├── README.md
+├── ROADMAP.md
+├── CURRENT_STATUS.md
+├── ARCHAEOLOGY_REPORT.md
+├── CLAUDE.md                     # Project behavioral + file-organization rules
+└── .gitignore / .dockerignore / .mcp.json / .codex
+```
 
-## Top-Level Layout
+## Directory Purposes
 
-- `.planning/` - GSD project state, requirements, roadmap, milestone artifacts, phase artifacts, and codebase maps.
-- `.github/workflows/ci.yml` - CI jobs for release docs, web build/tests, Playwright E2E, and server checks/tests.
-- `src/server/` - active Go backend module.
-- `src/web/` - active React/Vite frontend package and the only pnpm workspace member.
-- `config/.env.example` - local env contract and placeholder runtime values.
-- `scripts/` - local dev, test, check, deployment validation, and release assertions.
-- `docs/API.md` - current app and Relay API index.
-- `docs/architecture/` - current architecture contracts and decisions.
-- `docs/release/` - RC checklist and deployment runtime remediation.
-- `deploy/kubernetes/` - Kubernetes manifests for namespace, config, server, web, Postgres, Redis, and example secrets.
-- `Dockerfile.server`, `Dockerfile.web`, `docker-compose.yml` - container release path.
-- `lobehub/` - reference upstream-style app tree, excluded from root workspace.
-- `new-api/` - reference upstream-style Go/API tree, excluded from root workspace.
+**`src/server/`:**
+- Purpose: Mainline Go backend.
+- Contains: One binary per directory in `cmd/`, one bounded context per directory in `internal/`, SQL migrations under `migrations/`.
+- Key files: `cmd/server/main.go`, `cmd/migrate/main.go`, `internal/http/router.go`, `internal/http/server.go`, `internal/relay/relay.go`.
 
-## Planning Layout
+**`src/server/internal/`:**
+- Purpose: Private application packages (Go `internal/` convention).
+- Contains: Bounded contexts, each typically with `service.go` (use cases), `store.go` (SQL), `*_test.go`, and optional `types.go`.
+- Key files: `chat/service.go`, `chat/relay_gateway.go`, `agent/runner.go`, `task/runtime.go`, `relay/router.go`, `auth/service.go`.
 
-- `.planning/STATE.md` - current GSD status. As of this map, v03.2 is blocked on DEPLOY-01 runtime validation.
-- `.planning/PROJECT.md` - project scope, current milestone status, and release truth.
-- `.planning/REQUIREMENTS.md` - current milestone and backlog requirements.
-- `.planning/ROADMAP.md` - milestone/phase roadmap and current blocked state.
-- `.planning/MILESTONES.md` - milestone archive/status.
-- `.planning/phases/01-relay-integration/` - relay integration phase context and verification.
-- `.planning/phases/02-agent-memory-enhancement/` - agent/memory phase context, discussion, plan, and summary.
-- `.planning/phases/03-admin-marketplace/` - admin/marketplace backend and design phase artifacts.
-- `.planning/phases/03.1-admin-marketplace-ui/` - admin/marketplace UI plans, summaries, UAT, security, and validation.
-- `.planning/phases/04-quality-release/` - quality/release plans, summaries, completion audit, context, and discussion log.
-- `.planning/codebase/` - seven generated codebase map documents.
+**`src/server/internal/http/`:**
+- Purpose: HTTP transport layer — bridge between `net/http` and bounded-context services.
+- Contains: `server.go` (factory that mounts Relay), `router.go` (the full `/api/v1/*` route table), `middleware.go`, `auth_middleware.go`, `response.go`, one `<context>_handler.go` per domain, `routes_<area>.go` files for grouped route registrations, `route_surface_test.go` (route surface contract test).
 
-## Backend Structure
+**`src/server/internal/relay/`:**
+- Purpose: The relay boundary — every LLM call passes through here.
+- Contains: `relay.go` (gin engine assembly), `router.go` (routing + billing), `pool.go`, `loadbalancer.go`, `circuitbreaker.go`, `tokenbucket.go`, `healthchecker.go`, `billing.go`, `billing_worker.go`, `pricing.go`, `retry.go`, `tokenizer.go`, `store.go`, `errors.go`. Subdirectories: `handler/` (per-API-type), `channel/` (OpenAI adapter), `types/`, `migrations/`.
 
-- `src/server/go.mod`, `src/server/go.sum` - active Go module metadata.
-- `src/server/cmd/server/main.go` - HTTP server entry point.
-- `src/server/cmd/migrate/main.go` - SQL migration entry point.
-- `src/server/migrations/` - app migrations `0001` through `0024`.
-- `src/server/internal/config/` - env loading and validation.
-- `src/server/internal/db/` - PostgreSQL connection helper.
-- `src/server/internal/http/` - router, server wrapper, middleware, handlers, response envelopes, and HTTP tests.
-- `src/server/internal/auth/` - users, sessions, password hashing, workspace bootstrap, and session store.
-- `src/server/internal/userprefs/` - user preference service/store.
-- `src/server/internal/chat/` - conversations, messages, model gateway, Relay gateway, composite gateway, and usage recording hooks.
-- `src/server/internal/knowledge/` - knowledge base/document CRUD and retrieval.
-- `src/server/internal/task/` - SOLO task service, runtime, task state, budgets, approvals, tool allow/deny lists, and store.
-- `src/server/internal/agent/` - agent CRUD, conversations, runner, tool executor, and SQL store.
-- `src/server/internal/memory/` - memory documents, chunker, embedder, vector search service, and SQL store.
-- `src/server/internal/mcp/` - MCP server store, JSON-RPC client, and built-in tools.
-- `src/server/internal/relay/` - Relay engine, route manager, channels, billing, retry, token buckets, pricing, tokenizer, circuit breaker, health checker, load balancer, provider types, and handlers.
-- `src/server/internal/admin/` - admin dashboard, channels, routes, plans, users, audit logs, review queues, and stores.
-- `src/server/internal/marketplace/` - marketplace agents, installs, search, categories, tags, publisher stats, and review flow.
-- `src/server/internal/quota/` - package/quota/top-up/preconsume/settlement service.
-- `src/server/internal/notification/` - notification service and store.
-- `src/server/internal/console/` - console summaries for usage, access, models, and billing.
-- `src/server/internal/usage/` - usage recorder and store.
-- `src/server/internal/metrics/` - Prometheus relay metrics.
-- `src/server/internal/ws/` - WebSocket hub and handler.
-- `src/server/internal/stripe/` - Stripe checkout/webhook helper code; routes are not visibly mounted in the active router.
+**`src/server/migrations/`:**
+- Purpose: Numbered PostgreSQL migrations applied in order by `cmd/migrate`.
+- Contains: `0001_phase1_foundation.sql` through `0024_categories_tags.sql` (and growing). Each file is a single migration; never edit a committed file — write a new numbered one.
 
-## Backend Route Files
+**`src/web/src/app/`:**
+- Purpose: Composition root for the SPA.
+- Contains: `main.tsx` is mounted from outside; `App.tsx` is the React entry, `router.tsx` builds the data router, `providers.tsx` wraps the auth + preferences context, `appContext.tsx` defines the context and a test-safe fallback, `routerFuture.ts` enables future v6 router flags.
 
-The active app router is `src/server/internal/http/router.go`.
+**`src/web/src/routes/<area>/`:**
+- Purpose: Page-level components consumed directly by the router.
+- Contains: One `.tsx` per page + matching `*.test.tsx`. Workspace pages also have `*View.tsx` splits for complex pages (e.g., `SoloPage.tsx` + `SoloPageView.tsx`).
+- Key files: `workspace/ChatPage.tsx`, `workspace/SoloPage.tsx`, `workspace/KnowledgePage.tsx`, `console/UsagePage.tsx`, `admin/AdminChannelsPage.tsx`.
 
-Additional modular route files exist:
-- `src/server/internal/http/routes_auth.go`
-- `src/server/internal/http/routes_chat.go`
-- `src/server/internal/http/routes_console.go`
-- `src/server/internal/http/routes_knowledge.go`
-- `src/server/internal/http/routes_preferences.go`
-- `src/server/internal/http/routes_task.go`
+**`src/web/src/features/<domain>/`:**
+- Purpose: Domain logic and reusable widgets, colocated with the feature.
+- Contains: Always `api.ts` (typed HTTP client). Some have `store.ts`, hooks (e.g., `useAuthBootstrap.ts`), guards (`ProtectedRoute.tsx`, `AdminRoute.tsx`), layouts (`features/layouts/*Layout.tsx`), and tests (`*.test.ts(x)`).
+- Key files: `auth/store.ts`, `auth/ProtectedRoute.tsx`, `auth/AdminRoute.tsx`, `layouts/WorkspaceLayout.tsx`, `chat/api.ts`, `marketplace/api.ts`.
 
-These files define `register*Routes` functions, but `router.go` currently registers corresponding routes inline instead of calling them.
+**`src/web/src/services/http/`:**
+- Purpose: One envelope-aware HTTP client shared by every feature `api.ts`.
+- Contains: `client.ts` (createHttpClient), `envelope.ts` (unwrap), `errors.ts` (HttpError), `stream.ts`, `upload.ts`, plus tests.
 
-## Frontend Structure
+**`src/web/src/components/ui/`:**
+- Purpose: Headless primitives (shadcn-style on Radix). Reserved for low-level building blocks.
 
-- `src/web/package.json` - frontend package scripts and dependencies.
-- `src/web/vite.config.ts` - Vite/Vitest config and `@/*` path alias.
-- `src/web/tsconfig.json` - strict TypeScript configuration.
-- `src/web/tailwind.config.ts`, `src/web/postcss.config.mjs` - Tailwind and PostCSS config.
-- `src/web/components.json` - shadcn/Radix component config.
-- `src/web/index.html` - Vite HTML entry.
-- `src/web/src/main.tsx` - React mount point.
-- `src/web/src/app/` - app root, providers, router, route future flags, and app context.
-- `src/web/src/features/auth/` - auth API, store, bootstrap controller, `ProtectedRoute`, and `AdminRoute`.
-- `src/web/src/features/layouts/` - marketing, workspace, console, and admin layouts.
-- `src/web/src/features/chat/`, `knowledge/`, `tasks/`, `console/`, `admin/`, `marketplace/` - feature API clients and reusable feature components.
-- `src/web/src/routes/marketing/` - public home, login, register, pricing, and download surfaces.
-- `src/web/src/routes/workspace/` - chat, knowledge, SOLO, onboarding, settings, and legacy workspace marketplace file.
-- `src/web/src/routes/marketplace/` - active marketplace home, agent detail, publish, and my-agents pages.
-- `src/web/src/routes/console/` - console overview, usage, models, billing, and access pages.
-- `src/web/src/routes/admin/` - admin dashboard, channels, routes, plans, users, audit log, and reviews pages.
-- `src/web/src/components/ui/` - low-level UI primitives.
-- `src/web/src/components/shared/` - product-specific reusable widgets such as tables, search/filter, status badges, and empty states.
-- `src/web/src/services/http/` - fetch client, envelope handling, errors, streaming, and upload helpers.
-- `src/web/src/theme/` - global CSS and tokens.
-- `src/web/src/types/` - shared TypeScript API/admin contracts.
-- `src/web/e2e/` - Playwright E2E specs and fixtures.
+**`src/web/src/components/shared/`:**
+- Purpose: Cross-domain composites built from `ui/` primitives.
+- Contains: `DataTable.tsx`, `EmptyState.tsx`, `MetricCard.tsx`, `StatChart.tsx`, `Pagination.tsx`, `RatingStars.tsx`, `SearchBar.tsx`, `ConfirmDialog.tsx`, `DrawerForm.tsx`, `FilterPanel.tsx`, `StatusBadge.tsx`.
 
-## Frontend Route Tree
+**`src/web/src/types/`:**
+- Purpose: Backend contract types mirroring server JSON.
+- Contains: `api.ts` (auth, chat, knowledge, task, console, preferences), `admin.ts` (admin/marketplace).
 
-`src/web/src/app/router.tsx` organizes routes as:
+**`src/web/e2e/`:**
+- Purpose: Playwright suites against a running server + web stack.
+- Contains: `admin-marketplace.spec.ts`, `fixtures/`. Playwright config sits at `src/web/playwright.config.ts`.
 
-- Marketing layout: `/`, `/login`, `/register`
-- Protected workspace layout: `/onboarding`, `/chat`, `/chat/:conversationId`, `/knowledge`, `/knowledge/:knowledgeBaseId`, `/solo`, `/solo/new`, `/marketplace`, `/marketplace/agents/:agentId`, `/marketplace/publish`, `/marketplace/my-agents`, `/settings`
-- Console layout: `/console`, `/console/models`, `/console/usage`, `/console/billing`, `/console/access`
-- Admin layout under `AdminRoute`: `/admin`, `/admin/channels`, `/admin/routes`, `/admin/plans`, `/admin/users`, `/admin/audit-log`, `/admin/reviews`
+**`config/`:**
+- Purpose: Mainline configuration source-of-truth.
+- Contains: `.env.example` only. Per `docs/architecture/current-system-contracts.md` §9, any env-var change must update `config/.env.example`, `src/server/internal/config/config.go`, and `docs/architecture/current-system-contracts.md` together.
 
-## Script And CI Structure
+**`scripts/`:**
+- Purpose: Repo-wide automation, treated as the single root verification surface.
+- Contains: `check.sh` (docs + web build + server checks), `test.sh` (vitest + go test), `dev.sh`, `deploy-validate.sh`, `deploy-smoke.sh`, `verify-quality-gates.sh`.
 
-- `scripts/dev.sh` - starts local server and web processes using repo-local Go and Corepack caches.
-- `scripts/check.sh` - verifies release assets, docs/env consistency, workspace boundaries, web build, and server checks.
-- `scripts/test.sh` - runs web Vitest, server Go tests, and optional DB-backed HTTP integration tests.
-- `scripts/verify-quality-gates.sh` - fixed-string release asset and checklist assertions.
-- `scripts/deploy-smoke.sh` - polls `/healthz`.
-- `scripts/deploy-validate.sh` - checks Docker availability, renders compose config, builds images, starts the stack, and runs smoke.
-- `.github/workflows/ci.yml` - separates release-gates, web, e2e, and server jobs.
+**`docs/`:**
+- Purpose: Authoritative documentation. Mainline docs live here, NOT in the repo root.
+- Contains: `API.md` (route index), `architecture/` (contracts + decisions), `release/` (RC checklist + runbooks), `governance/`, `reports/` (timestamped audits), `superpowers/` (specs + plans).
 
-## Deployment Structure
+**`.planning/`:**
+- Purpose: GSD planning artifacts.
+- Contains: `codebase/` (these maps), `milestones/`, `phases/`. Generated by `/gsd:*` commands.
 
-- `docker-compose.yml` - Postgres, Redis, server, and web services for local/container validation.
-- `Dockerfile.server` - Go server build/runtime image.
-- `Dockerfile.web` - Vite build plus nginx runtime image.
-- `deploy/kubernetes/namespace.yaml` - namespace.
-- `deploy/kubernetes/configmap.yaml` - non-secret app config.
-- `deploy/kubernetes/secret.example.yaml` - example secret names and placeholders.
-- `deploy/kubernetes/server.yaml`, `web.yaml`, `postgres.yaml`, `redis.yaml` - workload and service manifests.
+**`deploy/kubernetes/`:**
+- Purpose: K8s manifests for staging/prod parity.
+- Contains: `namespace.yaml`, `configmap.yaml`, `secret.example.yaml`, `postgres.yaml`, `redis.yaml`, `server.yaml`, `web.yaml`.
 
-## Reference Tree Structure
+**`lobehub/`, `new-api/`:**
+- Purpose: Non-mainline reference checkouts only. They are NOT part of root workspace, CI, or release. Do not import from them; do not modify them in mainline commits.
 
-- `lobehub/` contains its own workspace, package graph, Next.js/desktop/server code, Docker files, tests, and docs. It is useful as a reference, not as an active root package.
-- `new-api/` contains a separate Go API and web frontend with its own module, Docker setup, router, relay code, i18n, and tests. It is useful as a reference, not as an active root package.
+## Key File Locations
 
-## Generated And Local Output
+**Entry Points:**
+- `src/server/cmd/server/main.go` — Backend process entry.
+- `src/server/cmd/migrate/main.go` — Migration runner entry.
+- `src/web/src/main.tsx` — SPA mount (ReactDOM root).
+- `src/web/src/app/App.tsx` — App component, builds router via `useMemo`.
+- `src/web/src/app/router.tsx` — Route tree (Marketing / Workspace / Console / Admin).
 
-- `.tmp/`, `.tmp/corepack`, `.tmp/go-build`, and `.tmp/go-mod` are repo-local caches used by scripts.
-- `src/web/test-results/` can exist after Playwright runs.
-- `src/web/dist/` can exist after frontend builds.
-- `.claude-flow/`, `.claude/`, and `.codex` are local agent/runtime artifacts.
+**Configuration:**
+- `config/.env.example` — Authoritative env contract.
+- `src/server/internal/config/config.go` — Env parsing into `Config` struct.
+- `src/web/vite.config.ts` — Vite + Vitest config.
+- `src/web/tailwind.config.ts` — Tailwind v3 setup.
+- `src/web/playwright.config.ts` — E2E config.
+- `package.json` (root) — pnpm workspace + script orchestration.
+- `pnpm-workspace.yaml` — Lists `src/web` only (server is not a workspace package).
+- `docker-compose.yml`, `Dockerfile.server`, `Dockerfile.web` — Containerization.
+- `.github/workflows/ci.yml` — CI definition.
 
-## Structural Notes
+**Core Logic:**
+- `src/server/internal/http/router.go` — All `/api/v1/*` route registrations.
+- `src/server/internal/http/server.go` — Mounts Relay under `/v1/*`, ensures default channel.
+- `src/server/internal/relay/relay.go` — Relay gin engine assembly.
+- `src/server/internal/relay/router.go` — `Router.Route` and `RouteWithBilling`.
+- `src/server/internal/relay/handler/router.go` — 35-route OpenAI-compatible table.
+- `src/server/internal/chat/relay_gateway.go` — Self-HTTP client into the Relay.
+- `src/server/internal/agent/runner.go` — Tool-calling loop.
+- `src/server/internal/task/runtime.go` — SOLO state machine.
+- `src/web/src/services/http/client.ts` — Envelope-aware HTTP client.
+- `src/web/src/features/auth/store.ts` — Auth state machine store.
 
-- The worktree is dirty and contains many modified/untracked source, docs, and planning files. Treat this map as a current working-tree map, not a clean commit baseline.
-- Empty nested directories under `src/server/src/` were visible in the directory tree but did not contain files in the checked depth. They should not be treated as active code unless files are added there.
-- Current mainline route and release structure is larger than the older README summary: Relay, Agent, Memory, MCP, Quota, Admin, Marketplace, WebSocket, and notifications are now present in the active tree.
+**Testing:**
+- Server unit tests: `*_test.go` colocated with each `*.go` (e.g., `chat/service_test.go`, `relay/router_test.go`).
+- Server integration: `internal/http/route_surface_test.go`, `internal/http/server_test.go` — gated by `TEST_DATABASE_URL`.
+- Web unit tests: `*.test.ts(x)` colocated with source (e.g., `routes/workspace/ChatPage.test.tsx`, `services/http/client.test.ts`).
+- Web E2E: `src/web/e2e/admin-marketplace.spec.ts` + `src/web/e2e/fixtures/`.
+
+**Documentation:**
+- `docs/architecture/current-system-contracts.md` — Authoritative contract baseline (HTTP envelope, routes, env, change rules).
+- `docs/architecture/solo-runtime-decision.md` — SOLO runtime scope boundary.
+- `docs/architecture/knowledge-evolution-decision.md` — Knowledge retrieval scope.
+- `docs/API.md` — Canonical route index.
+- `docs/release/rc-checklist.md` — Release gate.
+
+## Naming Conventions
+
+**Files (Go):**
+- `service.go` — Use-case orchestration for a bounded context.
+- `store.go` — SQL persistence; matching `*_test.go` runs unit + integration tests (integration is skipped without `TEST_DATABASE_URL`).
+- `<feature>_handler.go` — HTTP handler in `internal/http/` (e.g., `chat_handler.go`, `admin_handler.go`).
+- `routes_<feature>.go` — Optional supplementary route registration helpers in `internal/http/`.
+- `types.go` — Shared structs within a package.
+- `<concern>_test.go` — Tests live next to source.
+- Migrations: `NNNN_descriptive_snake_case.sql` (4-digit zero-padded, monotonically increasing).
+- Binaries: `cmd/<binary-name>/main.go`, one directory per binary.
+
+**Files (TypeScript / React):**
+- Page components: `PascalCasePage.tsx` (e.g., `ChatPage.tsx`, `AdminUsersPage.tsx`).
+- View splits for complex pages: `<Page>View.tsx` (e.g., `SoloPageView.tsx`, `KnowledgePageView.tsx`).
+- Layouts: `<Area>Layout.tsx` under `features/layouts/`.
+- UI primitives: `kebab-case.tsx` under `components/ui/` (shadcn convention: `button.tsx`, `dropdown-menu.tsx`).
+- Shared composites: `PascalCase.tsx` under `components/shared/` (`DataTable.tsx`, `EmptyState.tsx`).
+- Feature modules: lowercase domain dirs (`features/auth/`, `features/marketplace/`); files inside use `camelCase.ts` for utilities (`useAuthBootstrap.ts`, `store.ts`, `api.ts`) and `PascalCase.tsx` for components (`ProtectedRoute.tsx`, `AdminRoute.tsx`).
+- Tests: `<source>.test.ts(x)` colocated. Behavioral tests use `<source>.behavior.test.tsx` (e.g., `ChatPage.behavior.test.tsx`).
+- E2E specs: `*.spec.ts` under `src/web/e2e/`.
+
+**Directories:**
+- Go: lowercase, one word per bounded context (`auth`, `chat`, `knowledge`, `marketplace`, `relay/handler`).
+- TS: lowercase area names under `routes/` and `features/` (`workspace`, `console`, `admin`, `marketplace`); component baskets use `ui/` and `shared/`.
+
+**Go module / package:**
+- Module path: `oblivious/server` (set in `src/server/go.mod`).
+- Package name follows directory name; tests use `package <name>` (same package), not `_test` package, except where black-box testing is needed.
+
+## Where to Add New Code
+
+**New backend feature (new bounded context):**
+- Implementation: `src/server/internal/<feature>/service.go`, `store.go`, `types.go`, plus tests.
+- HTTP handler: `src/server/internal/http/<feature>_handler.go`. Define a constructor `new<Feature>Handler(...)` mirroring `newChatHandler`.
+- Route registration: edit `src/server/internal/http/router.go` and add `mux.Handle(...)` blocks under `authMiddleware.requireSession` (or `requireAdmin` for admin routes). Group related sub-paths into a single `mux.Handle("/api/v1/.../", ...)` with `strings.Split` dispatch, matching the chat/task/agent patterns.
+- DB schema: add the next-numbered file in `src/server/migrations/`. Do NOT edit existing migrations.
+- Tests: `service_test.go`, `store_test.go`, `<feature>_handler_test.go`. Update `route_surface_test.go` to cover the new surface.
+
+**New LLM-callable capability:**
+- Always go through `chat.ChatGateway` / `chat.RelayGateway` (HTTP self-call to `/v1`). Do not import `internal/relay` from outside `internal/http/server.go` and the Relay package itself.
+- If you need a new upstream API type, add it to `internal/relay/handler/router.go` route table, write the corresponding handler in `internal/relay/handler/`, and extend `internal/relay/channel/openai_adapter.go` if the request shape differs.
+
+**New `/api/v1/*` endpoint on an existing context:**
+- Method on the existing `<Feature>Service` in `internal/<feature>/service.go`.
+- Method on the existing `<feature>Handler` in `internal/http/<feature>_handler.go`.
+- Route line in `internal/http/router.go`. Always use `writeJSON` / `writeError` for responses.
+
+**New frontend page:**
+- File: `src/web/src/routes/<area>/<Name>Page.tsx` (+ optional `<Name>PageView.tsx` split for complex pages).
+- Wire-up: add the route in `src/web/src/app/router.tsx` under the correct layout. Auth-required pages must sit under `<ProtectedRoute>`; admin pages must additionally sit under `<AdminRoute>`.
+- API access: add or extend `src/web/src/features/<domain>/api.ts`; never call `fetch` directly from a page component.
+- Types: extend `src/web/src/types/api.ts` (or `types/admin.ts`) to match the backend response shape.
+- Tests: `<Name>Page.test.tsx` next to the page.
+
+**New shared UI primitive:**
+- shadcn-style headless primitive → `src/web/src/components/ui/<kebab-case>.tsx`.
+- Cross-domain composite built from primitives → `src/web/src/components/shared/<PascalCase>.tsx`.
+
+**New utility / hook:**
+- Cross-domain util → `src/web/src/lib/utils.ts` (extend) or a new file in `lib/`.
+- Domain-specific hook → `src/web/src/features/<domain>/use<Name>.ts`.
+
+**New environment variable:**
+- Add to `config/.env.example` with a description.
+- Parse in `src/server/internal/config/config.go` with sensible default.
+- Document in `docs/architecture/current-system-contracts.md` §8 (Environment Variable Matrix). All three must be updated in the same change.
+
+**New SQL migration:**
+- File: `src/server/migrations/NNNN_<snake_case>.sql` where NNNN is `(max existing + 1)`, zero-padded.
+- Never edit a previously committed migration; always add a new one.
+
+**New script / automation:**
+- `scripts/<name>.sh` — keep idempotent, prefer bash + `set -euo pipefail`.
+- Wire into `scripts/check.sh` or `scripts/test.sh` if it should be a default gate.
+
+**New documentation:**
+- Architecture decisions / contracts → `docs/architecture/<name>.md`.
+- Release runbooks → `docs/release/<name>.md`.
+- Time-stamped audits → `docs/reports/YYYY-MM-DD-<topic>.md`.
+- Roadmap-level plans → `docs/superpowers/plans/` or `docs/superpowers/specs/`.
+- Never create markdown in the repo root (per `CLAUDE.md`). The few root-level `*.md` files (`README.md`, `ROADMAP.md`, `CLAUDE.md`, `CURRENT_STATUS.md`, `ARCHAEOLOGY_REPORT.md`) are grandfathered; do not add more.
+
+## Special Directories
+
+**`lobehub/` and `new-api/`:**
+- Purpose: Non-mainline reference checkouts kept for design parity / migration research.
+- Generated: No (vendored).
+- Committed: Yes (but excluded from CI, `pnpm-workspace.yaml`, and release artifacts).
+- Rule: Do not import from these directories in `src/server` or `src/web`. Do not bundle them. Do not run their tests as part of mainline gates.
+
+**`.worktrees/`:**
+- Purpose: Git worktrees for parallel branches (`codex-integration-foundation`, `functional-completion`).
+- Generated: Yes (created by `git worktree add`).
+- Committed: No.
+
+**`.claude/`, `.claude-flow/`:**
+- Purpose: Local Claude agent configuration, skills, helpers, sessions, learning.
+- Generated: Partially (sessions/metrics/logs auto-populated).
+- Committed: Selectively (skills + commands committed; logs and sessions ignored).
+
+**`.planning/`:**
+- Purpose: GSD command artifacts (codebase maps, milestone plans, phase plans).
+- Generated: Yes (by `/gsd:*` commands).
+- Committed: Yes.
+
+**`src/server/src/server/`:**
+- Purpose: Legacy nested mirror created by an earlier scaffold; effectively dead but present on disk.
+- Generated: No (committed historical artifact).
+- Committed: Yes.
+- Rule: Do not add new code here. All new server code goes under `src/server/internal/<context>/` or `src/server/cmd/<binary>/`.
+
+**`.tmp/`:**
+- Purpose: Local-only Go build cache and corepack cache (referenced by `package.json` scripts via `GOCACHE=.tmp/go-build`, `GOMODCACHE=.tmp/go-mod`, `COREPACK_HOME=.tmp/corepack`).
+- Generated: Yes.
+- Committed: No (gitignored).
+
+## File Organization Rules (from `CLAUDE.md`)
+
+- **NEVER save working files, tests, or markdown to the repo root.** Use the subdirectories below.
+- Source code → `src/` (split into `src/server/` and `src/web/`).
+- Tests → colocated with source (`*_test.go` next to `*.go`; `*.test.ts(x)` next to source). E2E → `src/web/e2e/`.
+- Documentation → `docs/` (architecture / release / governance / reports / superpowers).
+- Configuration → `config/` (`.env.example` lives here as the single env contract).
+- Utility scripts → `scripts/`.
+- Examples → `/examples` (currently unused; create only if examples are needed).
+- **Files must stay under 500 lines.** `src/server/internal/http/router.go` is over budget and is a known split target.
+- Public APIs must use typed interfaces (Go: define an interface in the consumer package; TS: declare types in `src/web/src/types/` or alongside `api.ts`).
+- Never commit secrets, credentials, or `.env` files. `.env.example` only.
+
+---
+
+*Structure analysis: 2026-05-16*
