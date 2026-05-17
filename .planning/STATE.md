@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v03.3
 milestone_name: Mainline Consolidation
-status: ready_to_plan
-last_updated: "2026-05-14T10:41:07Z"
-last_activity: 2026-05-14 -- Phase 6 complete; Phase 7 ready to plan
+status: executing
+last_updated: "2026-05-17T01:23:56.283Z"
+last_activity: 2026-05-17 -- Phase 7 planning complete
 progress:
   total_phases: 4
   completed_phases: 2
-  total_plans: 5
+  total_plans: 8
   completed_plans: 5
   percent: 50
 ---
@@ -25,16 +25,16 @@ See: `.planning/PROJECT.md` (updated 2026-05-14)
 
 ## Current Status
 
-**Milestone v03.3: Mainline Consolidation — PHASE 7 READY TO PLAN**
+**Milestone v03.3: Mainline Consolidation — PHASE 7 READY TO EXECUTE**
 
-Phase 6 backend hardening is complete and verified in backend commit `ef81374`. The repository still has substantial uncommitted frontend, deployment, documentation, and historical/reference changes that must remain separated according to the Phase 5 commit boundaries.
+Phase 7 planning is complete with a UI design contract and three execution plans. The repository still has substantial uncommitted frontend, deployment, documentation, and historical/reference changes that must remain separated according to the Phase 5 commit boundaries.
 
 ## Current Position
 
 Phase: 7 — Frontend, E2E, and Deployment Gate Alignment
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-05-14 -- Phase 6 backend verification passed
+Plan: 3 plans ready across 2 waves
+Status: Ready to execute
+Last activity: 2026-05-17 -- Phase 7 planning complete
 
 ## Current Scope
 
@@ -111,7 +111,7 @@ Items acknowledged before v03.3:
 
 ## Next Suggested Step
 
-Run `$gsd:plan-phase 7` to plan Frontend, E2E, and Deployment Gate Alignment.
+Run `$gsd:execute-phase 7` to execute Frontend, E2E, and Deployment Gate Alignment.
 
 ## Context Files
 
@@ -129,6 +129,8 @@ Run `$gsd:plan-phase 7` to plan Frontend, E2E, and Deployment Gate Alignment.
 - Phase 6 discussion log: `.planning/phases/06-backend-mainline-integration-hardening/06-DISCUSSION-LOG.md`
 - Phase 6 summaries: `.planning/phases/06-backend-mainline-integration-hardening/06-01-SUMMARY.md` through `06-04-SUMMARY.md`
 - Phase 6 verification: `.planning/phases/06-backend-mainline-integration-hardening/06-VERIFICATION.md`
+- Phase 7 UI contract: `.planning/phases/07-frontend-e2e-and-deployment-gate-alignment/07-UI-SPEC.md`
+- Phase 7 plans: `.planning/phases/07-frontend-e2e-and-deployment-gate-alignment/07-01-PLAN.md` through `07-03-PLAN.md`
 - Milestones: `.planning/MILESTONES.md`
 - Milestone archive: `.planning/milestones/v03.2-ROADMAP.md`
 - Requirements archive: `.planning/milestones/v03.2-REQUIREMENTS.md`
@@ -149,6 +151,7 @@ Run `$gsd:plan-phase 7` to plan Frontend, E2E, and Deployment Gate Alignment.
 | 2026-05-14 | v03.3 跳过新研究 | 当前范围来自本地代码/文档状态，不是新产品方向探索 |
 | 2026-05-14 | Phase 6 自动上下文收集完成 | 当前会话无交互式问题工具，按既有 Relay-first 和 commit-boundary 决策保守锁定后端硬化上下文 |
 | 2026-05-14 | Phase 6 backend hardening complete | Backend routes, Relay metadata/tool calls, notification ownership, auth/session fields, and user preference defaults passed targeted and DB-backed Go verification |
+| 2026-05-17 | Phase 7 planning complete | Frontend/API alignment, Playwright/E2E, and CI/Docker/deployment work split into three plans with the v03.2 restricted-network validation command preserved |
 
 ---
-*State updated: 2026-05-14 after Phase 6 completion*
+*State updated: 2026-05-17 after Phase 7 planning*

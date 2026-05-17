@@ -20,9 +20,9 @@ Oblivious 是一个多租户 AI 平台，整合 LobeHub（C端体验）和 New-A
 - Deployment, CI, E2E, Playwright, and restricted-network Docker path stabilization.
 - Documentation, API/system-contract reconciliation, and commit-boundary cleanup for the current mainline work.
 
-## Current State: v03.3 Phase 7 Planning
+## Current State: v03.3 Phase 7 Execution
 
-Milestone v03.2 Quality and Release is archived, and Phase 6 backend hardening is complete. The repository still contains substantial uncommitted frontend, deployment, documentation, and historical/reference changes. v03.3 exists to triage that already-present work, verify the cross-cutting contracts, and split it into coherent commits without mixing unrelated cleanup into product integration.
+Milestone v03.2 Quality and Release is archived, Phase 6 backend hardening is complete, and Phase 7 has a UI contract plus three execution plans ready. The repository still contains substantial uncommitted frontend, deployment, documentation, and historical/reference changes. v03.3 exists to triage that already-present work, verify the cross-cutting contracts, and split it into coherent commits without mixing unrelated cleanup into product integration.
 
 **Shipped in v03.2:**
 - 集成测试覆盖关键后端协作路径，尤其是 Admin/Marketplace API 与 Relay/Quota/Agent/Memory 交互。
@@ -89,7 +89,7 @@ Go Backend (Gin)
 - v03.3 当前工作不是从空白开始：工作树已包含路由拆分、Agent/Memory/MCP/Notification/Quota/WebSocket、Relay Chat/Agent、Auth/UserPrefs、CI/E2E/部署和文档变更。
 - Phase 5 已完成当前脏工作树分类、commit-boundary 盘点和 CONS-01 verification。
 - Phase 6 已完成后端主线硬化；backend commit `ef81374` 和 `06-VERIFICATION.md` 证明 ROUTE-01、CHAT-06、AUTH-01 通过 targeted 与 DB-backed Go verification。
-- 下一步是 Phase 7 Frontend, E2E, and Deployment Gate Alignment。
+- 下一步是执行 Phase 7 Frontend, E2E, and Deployment Gate Alignment 的三个计划。
 - 直接 Docker Hub / 默认 Go module 路径在本机网络仍不稳定；受限网络验证命令已记录在 Phase 4 summary、completion audit 和 release docs 中。
 - `kubectl` 未安装，因此 Kubernetes 仍是未执行的替代路径，不影响已通过的 Docker runtime path。
 - `src/web/src/routes/workspace/MarketplacePage.tsx` 是接受的 v03.1 清理债务：不再由 `/marketplace` 使用。
@@ -113,9 +113,9 @@ Go Backend (Gin)
 | v03.2 skips new domain research | Quality/release work is scoped by shipped code and existing Phase 4 requirements | ✓ Good — TEST-01/TEST-02/DOC-01/DEPLOY-01 closed |
 | Docker compose runtime path satisfies DEPLOY-01 | Requirement accepted one real Docker or Kubernetes runtime path | ✓ Good — compose build/start/smoke passed; Kubernetes remains alternate path |
 | Preserve living REQUIREMENTS.md for now | This repo still uses it for cross-phase context and has an explicit backlog item to decide reset policy | — Pending — living file remains, but v03.2 archive exists |
-| v03.3 consolidates current mainline changes | The worktree already contains broad integration changes; planning should make them coherent before more feature expansion | Active — Phase 5 completed triage and commit-boundary inventory; Phase 6 completed backend hardening and Phase 7 now handles frontend/deployment alignment |
+| v03.3 consolidates current mainline changes | The worktree already contains broad integration changes; planning should make them coherent before more feature expansion | Active — Phase 5 completed triage and commit-boundary inventory; Phase 6 completed backend hardening; Phase 7 is planned and ready to execute frontend/deployment alignment |
 | v03.3 skips new research | Scope is bounded by local code/docs already present, not by a new domain or market question | Active — requirements derive from repo state |
-| Phase 6 backend contracts are now the frontend/deployment baseline | Route/auth, Relay metadata/tool calls, notification ownership, auth/session, and preference defaults passed backend verification | Active — Phase 7 should align frontend, E2E, CI, Docker, and deployment gates against this surface |
+| Phase 6 backend contracts are now the frontend/deployment baseline | Route/auth, Relay metadata/tool calls, notification ownership, auth/session, and preference defaults passed backend verification | Active — Phase 7 plans align frontend, E2E, CI, Docker, and deployment gates against this surface |
 
 ## Evolution
 
@@ -135,4 +135,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state.
 
 ---
-*Last updated: 2026-05-14 after completing Phase 6 and preparing Phase 7*
+*Last updated: 2026-05-17 after completing Phase 7 planning*
