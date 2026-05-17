@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v03.3
 milestone_name: Mainline Consolidation
-status: planning
-stopped_at: Phase 999.2 context gathered -- ready to plan Phase 999.2
-last_updated: "2026-05-17T15:58:55.264Z"
-last_activity: 2026-05-17 -- Phase 999.2 context gathered
+status: executing
+stopped_at: Phase 999.2 planning complete -- ready to execute Phase 999.2
+last_updated: "2026-05-17T16:21:08.409Z"
+last_activity: 2026-05-18 -- Phase 999.2 planning complete
 progress:
   total_phases: 6
   completed_phases: 5
-  total_plans: 11
+  total_plans: 12
   completed_plans: 11
   percent: 83
 ---
@@ -26,16 +26,16 @@ See: `.planning/PROJECT.md` (updated 2026-05-14)
 
 ## Current Status
 
-**Milestone v03.3: Mainline Consolidation - PHASE 999.2 READY TO PLAN**
+**Milestone v03.3: Mainline Consolidation - PHASE 999.2 READY TO EXECUTE**
 
-Phase 8 is complete. Phase 999.1 reconstructed the missing Phase 01 summary artifact from existing Phase 01 planning and verification evidence. Phase 999.2 context now captures the cleanup-policy decisions for the obsolete workspace MarketplacePage and living REQUIREMENTS.md closeout behavior.
+Phase 8 is complete. Phase 999.1 reconstructed the missing Phase 01 summary artifact from existing Phase 01 planning and verification evidence. Phase 999.2 now has one execution plan for the obsolete workspace MarketplacePage cleanup and living REQUIREMENTS.md closeout policy.
 
 ## Current Position
 
 Phase: 999.2
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-05-17 -- Phase 999.2 context gathered
+Plan: 1/1 planned
+Status: Ready to execute
+Last activity: 2026-05-18 -- Phase 999.2 planning complete
 
 ## Current Scope
 
@@ -108,17 +108,17 @@ Items acknowledged before v03.3:
 | Category | Item | Status |
 |----------|------|--------|
 | planning | Phase 01 missing SUMMARY artifact | Resolved in Phase 999.1 |
-| cleanup | Legacy workspace MarketplacePage no longer routed by `/marketplace` | Context gathered in Phase 999.2; ready for planning |
-| workflow | Decide whether `.planning/REQUIREMENTS.md` should be reset on future milestone closes in this repo | Context gathered in Phase 999.2; ready for planning |
+| cleanup | Legacy workspace MarketplacePage no longer routed by `/marketplace` | Planned in Phase 999.2; ready for execution |
+| workflow | Decide whether `.planning/REQUIREMENTS.md` should be reset on future milestone closes in this repo | Planned in Phase 999.2; ready for execution |
 
 ## Next Suggested Step
 
-Run `$gsd:plan-phase 999.2` to plan the accepted Phase 03.1 cleanup debt follow-up.
+Run `$gsd:execute-phase 999.2` to execute the accepted Phase 03.1 cleanup debt follow-up.
 
 ## Session
 
-Stopped At: Phase 999.2 context gathered -- ready to plan Phase 999.2
-Resume File: .planning/phases/999.2-follow-up-phase-03-1-accepted-cleanup-debt-backlog/999.2-CONTEXT.md
+Stopped At: Phase 999.2 planning complete -- ready to execute Phase 999.2
+Resume File: .planning/phases/999.2-follow-up-phase-03-1-accepted-cleanup-debt-backlog/999.2-01-PLAN.md
 
 ## Context Files
 
@@ -146,6 +146,7 @@ Resume File: .planning/phases/999.2-follow-up-phase-03-1-accepted-cleanup-debt-b
 - Phase 999.1 summary: `.planning/phases/999.1-follow-up-phase-01-incomplete-plan-artifacts-backlog/999.1-01-SUMMARY.md`
 - Phase 999.2 context: `.planning/phases/999.2-follow-up-phase-03-1-accepted-cleanup-debt-backlog/999.2-CONTEXT.md`
 - Phase 999.2 discussion log: `.planning/phases/999.2-follow-up-phase-03-1-accepted-cleanup-debt-backlog/999.2-DISCUSSION-LOG.md`
+- Phase 999.2 plan: `.planning/phases/999.2-follow-up-phase-03-1-accepted-cleanup-debt-backlog/999.2-01-PLAN.md`
 - Reconstructed Phase 01 summary: `.planning/phases/01-relay-integration/SUMMARY.md`
 - Milestones: `.planning/MILESTONES.md`
 - Milestone archive: `.planning/milestones/v03.2-ROADMAP.md`
@@ -173,6 +174,7 @@ Resume File: .planning/phases/999.2-follow-up-phase-03-1-accepted-cleanup-debt-b
 | 2026-05-17 | Backlog 999.1 becomes the next routing target | Phase 01 missing SUMMARY artifact remains the next follow-up after mainline closeout |
 | 2026-05-17 | Backlog 999.1 resolved | Phase 01 missing `SUMMARY.md` was reconstructed from `PLAN.md` and `VERIFICATION.md`; Phase 999.2 remains separate |
 | 2026-05-17 | Phase 999.2 context gathered | Cleanup defaults are locked: delete orphaned workspace MarketplacePage if safe, archive as fallback, keep living `.planning/REQUIREMENTS.md` with milestone snapshots |
+| 2026-05-18 | Phase 999.2 planning complete | One execution plan covers orphaned MarketplacePage cleanup, living requirements policy, and backlog traceability closeout |
 
 ---
-*State updated: 2026-05-17 after Phase 999.2 context gathering*
+*State updated: 2026-05-18 after Phase 999.2 planning*
