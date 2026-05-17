@@ -9,9 +9,9 @@
 
 ## Current Status
 
-Milestone v03.3 has completed Phase 8 contract-docs and release-verification alignment. Phase 999.1 context has been gathered for reconstructing the missing Phase 01 summary artifact.
+Milestone v03.3 has completed Phase 8 contract-docs and release-verification alignment. Phase 999.1 planning is complete for reconstructing the missing Phase 01 summary artifact.
 
-**Next workflow step:** `$gsd:plan-phase 999.1`
+**Next workflow step:** `$gsd:execute-phase 999.1`
 
 ## Current Milestone: v03.3 Mainline Consolidation
 
@@ -214,7 +214,7 @@ These phases remain available in `.planning/phases/` and the v03.2 roadmap archi
 
 | Milestone | Scope | Plans | Requirements | Status | Completed |
 |-----------|-------|-------|--------------|--------|-----------|
-| v03.3 Mainline Consolidation | Phases 5-8 | 10/10 planned steps complete | CONS-01, ROUTE-01, CHAT-06, AUTH-01, DEPLOY-02, DOC-02, VERIFY-01 complete | Phase 8 complete; backlog 999.1 next | Phase 5 and Phase 6 complete 2026-05-14; Phase 7 and Phase 8 complete 2026-05-17 |
+| v03.3 Mainline Consolidation | Phases 5-8 plus backlog 999.1 | 10/10 mainline steps complete; 1/1 backlog step planned | CONS-01, ROUTE-01, CHAT-06, AUTH-01, DEPLOY-02, DOC-02, VERIFY-01 complete | Phase 999.1 planned; ready to execute | Phase 5 and Phase 6 complete 2026-05-14; Phase 7 and Phase 8 complete 2026-05-17 |
 | v03.2 Quality and Release | Phase 4 | 4/4 | TEST-01, TEST-02, DOC-01, DEPLOY-01 | Shipped | 2026-05-14 |
 | v03.1 Admin and Marketplace UI | Phase 03.1 | 7/7 | ADMIN-04, MARKET-02 | Shipped | 2026-05-02 |
 | Foundation through Backend | Phases 1, 2, 3a | Historical | RELAY, CHAT, AGENT, MCP, MEM, EXEC, QUOTA, ADMIN, MARKET | Complete | 2026-04-29 |
@@ -227,6 +227,7 @@ These phases remain available in `.planning/phases/` and the v03.2 roadmap archi
 **Source phase:** `01-relay-integration`
 **Deferred at:** `2026-04-27` during `$gsd-next` advancement to `02-agent-memory-enhancement`
 **Plans:**
+- [ ] `999.1-01-PLAN.md` reconstructs `.planning/phases/01-relay-integration/SUMMARY.md` and closes traceability
 - [ ] `01-relay-integration/PLAN.md` ran to verification completion but has no matching `SUMMARY.md`
 **Notes:**
 - [ ] Reconstruct a concise `SUMMARY.md` from `PLAN.md` + `VERIFICATION.md`
@@ -243,4 +244,4 @@ These phases remain available in `.planning/phases/` and the v03.2 roadmap archi
 - [ ] Decide whether future milestone completion should reset `.planning/REQUIREMENTS.md` or keep it as cross-phase context in this repo
 
 ---
-*Roadmap updated: 2026-05-17 after Phase 8 verification and backlog closeout*
+*Roadmap updated: 2026-05-17 after Phase 999.1 planning*
