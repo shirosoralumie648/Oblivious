@@ -2,16 +2,15 @@
 gsd_state_version: 1.0
 milestone: v03.3
 milestone_name: Mainline Consolidation
-status: ready_to_plan
-last_updated: 2026-05-17T06:44:32.409Z
-last_activity: 2026-05-17 -- Phase 8 complete; backlog 999.1 ready to discuss
+status: planning
+last_updated: "2026-05-17T13:56:52.209Z"
+last_activity: 2026-05-17 -- Phase 999.1 context gathered
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 10
   completed_plans: 10
   percent: 67
-stopped_at: Phase 8 complete (2/2) — ready to discuss Phase 999.1
 ---
 
 # STATE.md
@@ -26,16 +25,16 @@ See: `.planning/PROJECT.md` (updated 2026-05-14)
 
 ## Current Status
 
-**Milestone v03.3: Mainline Consolidation — PHASE 8 COMPLETE; backlog follow-up next**
+**Milestone v03.3: Mainline Consolidation — PHASE 999.1 READY TO PLAN**
 
-Phase 7 execution and verification are complete. Phase 8 reconciled the API/architecture/release/README docs and recorded the targeted release-verification evidence for the consolidated mainline. The remaining backlog follow-up is Phase 999.1.
+Phase 8 is complete. Phase 999.1 context has been gathered for reconstructing the missing Phase 01 summary artifact from existing Phase 01 planning and verification evidence.
 
 ## Current Position
 
 Phase: 999.1
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-05-17 -- Phase 8 complete; backlog 999.1 ready to discuss
+Last activity: 2026-05-17 -- Phase 999.1 context gathered
 
 ## Current Scope
 
@@ -113,7 +112,7 @@ Items acknowledged before v03.3:
 
 ## Next Suggested Step
 
-Run `$gsd:discuss-phase 999.1` to review the Phase 01 backlog follow-up, or complete the milestone if backlog work stays intentionally deferred.
+Run `$gsd:plan-phase 999.1` to plan the Phase 01 summary reconstruction.
 
 ## Context Files
 
@@ -136,6 +135,8 @@ Run `$gsd:discuss-phase 999.1` to review the Phase 01 backlog follow-up, or comp
 - Phase 7 summaries: `.planning/phases/07-frontend-e2e-and-deployment-gate-alignment/07-01-SUMMARY.md` through `07-03-SUMMARY.md`
 - Phase 7 review: `.planning/phases/07-frontend-e2e-and-deployment-gate-alignment/07-REVIEW.md`
 - Phase 7 verification: `.planning/phases/07-frontend-e2e-and-deployment-gate-alignment/07-VERIFICATION.md`
+- Phase 8 verification: `.planning/phases/08-contract-docs-and-release-verification/08-VERIFICATION.md`
+- Phase 999.1 context: `.planning/phases/999.1-follow-up-phase-01-incomplete-plan-artifacts-backlog/999.1-CONTEXT.md`
 - Milestones: `.planning/MILESTONES.md`
 - Milestone archive: `.planning/milestones/v03.2-ROADMAP.md`
 - Requirements archive: `.planning/milestones/v03.2-REQUIREMENTS.md`

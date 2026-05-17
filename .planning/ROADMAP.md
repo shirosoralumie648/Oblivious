@@ -9,9 +9,9 @@
 
 ## Current Status
 
-Milestone v03.3 has completed Phase 8 contract-docs and release-verification alignment. API, architecture, release, README, env, and verification artifacts now match the live route and command surface. The next available follow-up is backlog Phase 999.1.
+Milestone v03.3 has completed Phase 8 contract-docs and release-verification alignment. Phase 999.1 context has been gathered for reconstructing the missing Phase 01 summary artifact.
 
-**Next workflow step:** `$gsd:discuss-phase 999.1`
+**Next workflow step:** `$gsd:plan-phase 999.1`
 
 ## Current Milestone: v03.3 Mainline Consolidation
 
@@ -231,6 +231,7 @@ These phases remain available in `.planning/phases/` and the v03.2 roadmap archi
 **Notes:**
 - [ ] Reconstruct a concise `SUMMARY.md` from `PLAN.md` + `VERIFICATION.md`
 - [ ] Confirm whether missing P0/P1 tests should be promoted into an active follow-up phase
+**Context:** `.planning/phases/999.1-follow-up-phase-01-incomplete-plan-artifacts-backlog/999.1-CONTEXT.md`
 
 ### Phase 999.2: Follow-up — Phase 03.1 accepted cleanup debt (BACKLOG)
 
