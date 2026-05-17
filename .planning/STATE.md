@@ -2,15 +2,16 @@
 gsd_state_version: 1.0
 milestone: v03.3
 milestone_name: Mainline Consolidation
-status: executing
-last_updated: "2026-05-17T14:46:22.706Z"
-last_activity: 2026-05-17 -- Phase 999.1 planning complete
+status: planning
+last_updated: "2026-05-17T15:30:33.696Z"
+last_activity: 2026-05-17 -- Phase 999.1 summary reconstruction complete
 progress:
   total_phases: 6
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 11
-  completed_plans: 10
-  percent: 67
+  completed_plans: 11
+  percent: 83
+stopped_at: Phase 999.1 complete (1/1) -- ready to discuss Phase 999.2
 ---
 
 # STATE.md
@@ -21,20 +22,20 @@ See: `.planning/PROJECT.md` (updated 2026-05-14)
 
 **Core value:** 统一的多渠道 LLM 调用层 — 所有 AI 调用必须经过 Relay
 
-**Current focus:** Phase 999.1 — follow up — phase 01 incomplete plan artifacts (backlog)
+**Current focus:** Phase 999.2 — follow up — phase 03.1 accepted cleanup debt (backlog)
 
 ## Current Status
 
-**Milestone v03.3: Mainline Consolidation — PHASE 999.1 READY TO EXECUTE**
+**Milestone v03.3: Mainline Consolidation — PHASE 999.2 READY TO DISCUSS**
 
-Phase 8 is complete. Phase 999.1 planning is complete for reconstructing the missing Phase 01 summary artifact from existing Phase 01 planning and verification evidence.
+Phase 8 is complete. Phase 999.1 reconstructed the missing Phase 01 summary artifact from existing Phase 01 planning and verification evidence. Phase 999.2 remains the next separate backlog follow-up.
 
 ## Current Position
 
-Phase: 999.1
-Plan: 999.1-01 planned
-Status: Ready to execute
-Last activity: 2026-05-17 -- Phase 999.1 planning complete
+Phase: 999.2
+Plan: Not started
+Status: Ready to discuss
+Last activity: 2026-05-17 -- Phase 999.1 summary reconstruction complete
 
 ## Current Scope
 
@@ -106,13 +107,13 @@ Items acknowledged before v03.3:
 
 | Category | Item | Status |
 |----------|------|--------|
-| planning | Phase 01 missing SUMMARY artifact | Backlog 999.1 |
+| planning | Phase 01 missing SUMMARY artifact | Resolved in Phase 999.1 |
 | cleanup | Legacy workspace MarketplacePage no longer routed by `/marketplace` | Backlog 999.2 |
 | workflow | Decide whether `.planning/REQUIREMENTS.md` should be reset on future milestone closes in this repo | Backlog 999.2 |
 
 ## Next Suggested Step
 
-Run `$gsd:execute-phase 999.1` to reconstruct the Phase 01 summary artifact and close the backlog item.
+Run `$gsd:discuss-phase 999.2` to gather context for the accepted Phase 03.1 cleanup debt follow-up.
 
 ## Context Files
 
@@ -137,6 +138,8 @@ Run `$gsd:execute-phase 999.1` to reconstruct the Phase 01 summary artifact and 
 - Phase 7 verification: `.planning/phases/07-frontend-e2e-and-deployment-gate-alignment/07-VERIFICATION.md`
 - Phase 8 verification: `.planning/phases/08-contract-docs-and-release-verification/08-VERIFICATION.md`
 - Phase 999.1 context: `.planning/phases/999.1-follow-up-phase-01-incomplete-plan-artifacts-backlog/999.1-CONTEXT.md`
+- Phase 999.1 summary: `.planning/phases/999.1-follow-up-phase-01-incomplete-plan-artifacts-backlog/999.1-01-SUMMARY.md`
+- Reconstructed Phase 01 summary: `.planning/phases/01-relay-integration/SUMMARY.md`
 - Milestones: `.planning/MILESTONES.md`
 - Milestone archive: `.planning/milestones/v03.2-ROADMAP.md`
 - Requirements archive: `.planning/milestones/v03.2-REQUIREMENTS.md`
@@ -161,6 +164,7 @@ Run `$gsd:execute-phase 999.1` to reconstruct the Phase 01 summary artifact and 
 | 2026-05-17 | Phase 7 execution and verification complete | Frontend contracts, Playwright E2E, CI wrappers, server wrappers, compose config, and restricted-network Docker smoke passed; DEPLOY-02 is complete |
 | 2026-05-17 | Phase 8 execution and verification complete | Contract docs reconciled to the live route surface, targeted verification passed, and DOC-02/VERIFY-01 are complete |
 | 2026-05-17 | Backlog 999.1 becomes the next routing target | Phase 01 missing SUMMARY artifact remains the next follow-up after mainline closeout |
+| 2026-05-17 | Backlog 999.1 resolved | Phase 01 missing `SUMMARY.md` was reconstructed from `PLAN.md` and `VERIFICATION.md`; Phase 999.2 remains separate |
 
 ---
-*State updated: 2026-05-17 after Phase 999.1 planning*
+*State updated: 2026-05-17 after Phase 999.1 execution*

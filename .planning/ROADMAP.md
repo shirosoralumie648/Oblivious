@@ -9,9 +9,9 @@
 
 ## Current Status
 
-Milestone v03.3 has completed Phase 8 contract-docs and release-verification alignment. Phase 999.1 planning is complete for reconstructing the missing Phase 01 summary artifact.
+Milestone v03.3 has completed Phase 8 contract-docs and release-verification alignment. Phase 999.1 has reconstructed the missing Phase 01 summary artifact.
 
-**Next workflow step:** `$gsd:execute-phase 999.1`
+**Next workflow step:** `$gsd:discuss-phase 999.2`
 
 ## Current Milestone: v03.3 Mainline Consolidation
 
@@ -214,25 +214,28 @@ These phases remain available in `.planning/phases/` and the v03.2 roadmap archi
 
 | Milestone | Scope | Plans | Requirements | Status | Completed |
 |-----------|-------|-------|--------------|--------|-----------|
-| v03.3 Mainline Consolidation | Phases 5-8 plus backlog 999.1 | 10/10 mainline steps complete; 1/1 backlog step planned | CONS-01, ROUTE-01, CHAT-06, AUTH-01, DEPLOY-02, DOC-02, VERIFY-01 complete | Phase 999.1 planned; ready to execute | Phase 5 and Phase 6 complete 2026-05-14; Phase 7 and Phase 8 complete 2026-05-17 |
+| v03.3 Mainline Consolidation | Phases 5-8 plus backlog 999.1 | 10/10 mainline steps complete; 1/1 backlog step complete | CONS-01, ROUTE-01, CHAT-06, AUTH-01, DEPLOY-02, DOC-02, VERIFY-01 complete | Phase 999.1 complete; backlog 999.2 next | Phase 5 and Phase 6 complete 2026-05-14; Phase 7, Phase 8, and Phase 999.1 complete 2026-05-17 |
 | v03.2 Quality and Release | Phase 4 | 4/4 | TEST-01, TEST-02, DOC-01, DEPLOY-01 | Shipped | 2026-05-14 |
 | v03.1 Admin and Marketplace UI | Phase 03.1 | 7/7 | ADMIN-04, MARKET-02 | Shipped | 2026-05-02 |
 | Foundation through Backend | Phases 1, 2, 3a | Historical | RELAY, CHAT, AGENT, MCP, MEM, EXEC, QUOTA, ADMIN, MARKET | Complete | 2026-04-29 |
 
 ## Backlog
 
-### Phase 999.1: Follow-up — Phase 01 incomplete plan artifacts (BACKLOG)
+### Phase 999.1: Follow-up — Phase 01 incomplete plan artifacts (RESOLVED)
 
 **Goal**: 补齐 Phase 01 缺失的执行总结工件，避免后续阶段缺少完成记录
 **Source phase:** `01-relay-integration`
 **Deferred at:** `2026-04-27` during `$gsd-next` advancement to `02-agent-memory-enhancement`
+**Resolved at:** `2026-05-17` during `$gsd:execute-phase 999.1`
 **Plans:**
-- [ ] `999.1-01-PLAN.md` reconstructs `.planning/phases/01-relay-integration/SUMMARY.md` and closes traceability
-- [ ] `01-relay-integration/PLAN.md` ran to verification completion but has no matching `SUMMARY.md`
+- [x] `999.1-01-PLAN.md` reconstructs `.planning/phases/01-relay-integration/SUMMARY.md` and closes traceability
+- [x] `01-relay-integration/PLAN.md` ran to verification completion but had no matching `SUMMARY.md`
 **Notes:**
-- [ ] Reconstruct a concise `SUMMARY.md` from `PLAN.md` + `VERIFICATION.md`
-- [ ] Confirm whether missing P0/P1 tests should be promoted into an active follow-up phase
+- [x] Reconstructed `.planning/phases/01-relay-integration/SUMMARY.md` from `PLAN.md` + `VERIFICATION.md`
+- [x] Preserved missing P0/P1 tests and E2E notes as residual gaps, not new Phase 999.1 implementation scope
 **Context:** `.planning/phases/999.1-follow-up-phase-01-incomplete-plan-artifacts-backlog/999.1-CONTEXT.md`
+**Summary:** `.planning/phases/999.1-follow-up-phase-01-incomplete-plan-artifacts-backlog/999.1-01-SUMMARY.md`
+**Artifact:** `.planning/phases/01-relay-integration/SUMMARY.md`
 
 ### Phase 999.2: Follow-up — Phase 03.1 accepted cleanup debt (BACKLOG)
 
@@ -244,4 +247,4 @@ These phases remain available in `.planning/phases/` and the v03.2 roadmap archi
 - [ ] Decide whether future milestone completion should reset `.planning/REQUIREMENTS.md` or keep it as cross-phase context in this repo
 
 ---
-*Roadmap updated: 2026-05-17 after Phase 999.1 planning*
+*Roadmap updated: 2026-05-17 after Phase 999.1 execution*
