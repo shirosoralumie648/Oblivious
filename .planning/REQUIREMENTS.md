@@ -19,8 +19,8 @@
 ### Deployment, Documentation, and Verification
 
 - [x] **DEPLOY-02**: Operator can use Docker, compose, CI, and Playwright changes without regressing the v03.2 restricted-network runtime validation path. Completed in Phase 7 with frontend/E2E gates, CI wrapper checks, Docker compose config, and restricted-network deployment smoke evidence.
-- [ ] **DOC-02**: Developer can compare API, architecture, release, and README docs against live routes and commands for the consolidated mainline.
-- [ ] **VERIFY-01**: Maintainer can run a documented targeted verification suite before committing the consolidated work slices.
+- [x] **DOC-02**: Developer can compare API, architecture, release, and README docs against live routes and commands for the consolidated mainline. Completed in Phase 8 with API, architecture, README, RC checklist, and deployment-remediation reconciliation against the live route surface.
+- [x] **VERIFY-01**: Maintainer can run a documented targeted verification suite before committing the consolidated work slices. Completed in Phase 8 with docs-first verification, an explicit `TEST_DATABASE_URL` integration skip, and the preserved Phase 7 deploy baseline.
 
 ## Historical Validated Requirements
 
@@ -101,15 +101,15 @@
 | CHAT-06 | Phase 6 — Backend Mainline Integration Hardening | Complete |
 | AUTH-01 | Phase 6 — Backend Mainline Integration Hardening | Complete |
 | DEPLOY-02 | Phase 7 — Frontend, E2E, and Deployment Gate Alignment | Complete |
-| DOC-02 | Phase 8 — Contract Docs and Release Verification | Planned |
-| VERIFY-01 | Phase 8 — Contract Docs and Release Verification | Planned |
+| DOC-02 | Phase 8 — Contract Docs and Release Verification | Complete |
+| VERIFY-01 | Phase 8 — Contract Docs and Release Verification | Complete |
 
 **Coverage:**
 - Completed historical requirements: 46
-- Completed v03.3 requirements: 5
-- Remaining v03.3 requirements: 2
+- Completed v03.3 requirements: 7
+- Remaining v03.3 requirements: 0
 - Blocked requirements: 0
 - Unmapped v03.3 requirements: 0 ✓
 
 ---
-*Requirements updated: 2026-05-17 after Phase 7 execution and verification*
+*Requirements updated: 2026-05-17 after Phase 8 verification and backlog closeout*

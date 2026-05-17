@@ -1,21 +1,21 @@
 # Current System Contracts
 
-日期：2026-04-06
+日期：2026-05-17
 
-本文件是当前主线系统 `src/server` + `src/web` 的执行基线。
+本文件是当前 v03.3 Mainline Consolidation 主线系统 `src/server` + `src/web` 的执行基线。
 
 - 主线交付范围：`src/server`、`src/web`
-- 非主线参考仓：`new-api`、`lobehub`
+- 非主线参考仓：`new-api/`、`lobehub/`
 - 历史设计参考：`docs/superpowers/specs/2026-04-01-task5-go-backend-infrastructure-design.md`
 - 当前执行评估：`docs/reports/2026-04-06-execution-progress-review.md`
 
 ## 1. Scope
 
-当前系统已经不再是 Task 5 中定义的 scaffold 阶段，而是：
+当前系统已经不再是 Task 5 中定义的 scaffold 阶段，而是 v03.3 主线整合基线：
 
-- 后端已有真实业务壳
-- 前端存在营销页、工作区页、控制台页骨架
-- 前后端契约和前端状态层仍未完全收敛
+- 后端已路由 Auth、Chat、Agent、Memory、MCP、Notification、Quota、Console、Admin、Marketplace 和 Relay `/v1/*` surface
+- 前端已挂载营销页、工作区页、控制台页、Admin 管理页和 Marketplace 页面
+- 发布候选以 `docs/API.md`、本文件、`docs/release/rc-checklist.md` 和脚本质量门禁作为证据链
 
 本文件只记录“当前代码已经实现或明确依赖”的契约，不描述未来能力设计。
 
@@ -34,7 +34,7 @@ Browser
 - `src/web` 是唯一主线前端。
 - `src/server` 是唯一主线后端。
 - `config`、`scripts` 和 `.github/workflows` 属于主线执行基线。
-- `new-api` 与 `lobehub` 当前不属于 root workspace、root CI 或 root 交付链路的一部分。
+- `new-api/` 与 `lobehub/` 当前不属于 root workspace、root CI 或 root 交付链路的一部分。
 
 ## 3. HTTP Envelope
 
@@ -243,6 +243,96 @@ Browser
 | `GET` | `/api/v1/console/models` | 模型摘要 |
 | `GET` | `/api/v1/console/billing` | 计费摘要 |
 
+### 6.8 Agent, Memory, MCP, Notification, And Quota
+
+| Area | Method | Path | Purpose |
+| --- | --- | --- | --- |
+| Agent | `GET/POST` | `/api/v1/app/agents` | 列出或创建 Agent |
+| Agent | `GET/PUT/DELETE` | `/api/v1/app/agents/{agentId}` | 读取、更新或删除 Agent |
+| Agent | `GET/POST` | `/api/v1/app/agents/{agentId}/conversations` | 列出或创建 Agent 会话 |
+| Agent | `GET` | `/api/v1/app/agents/{agentId}/tools` | 列出 Agent 可用工具 |
+| Agent | `GET/DELETE` | `/api/v1/app/agents/conversations/{conversationId}` | 读取或删除 Agent 会话 |
+| Agent | `GET/POST` | `/api/v1/app/agents/conversations/{conversationId}/messages` | 列出或发送 Agent 会话消息 |
+| Memory | `GET/POST` | `/api/v1/app/memory/documents` | 列出或添加 memory 文档 |
+| Memory | `GET/PUT/DELETE` | `/api/v1/app/memory/documents/{documentId}` | 读取、更新或删除 memory 文档 |
+| Memory | `GET` | `/api/v1/app/memory/documents/{documentId}/chunks` | 列出文档 chunks |
+| Memory | `POST` | `/api/v1/app/memory/search` | 用户隔离的 memory 搜索 |
+| MCP | `GET/POST` | `/api/v1/app/mcp-servers` | 列出或添加 MCP server |
+| MCP | `GET/DELETE` | `/api/v1/app/mcp-servers/{serverId}` | 读取或删除 MCP server |
+| MCP | `POST` | `/api/v1/app/mcp-servers/{serverId}/connect` | 连接 MCP server |
+| MCP | `POST` | `/api/v1/app/mcp-servers/{serverId}/disconnect` | 断开 MCP server |
+| MCP | `GET` | `/api/v1/app/mcp-servers/{serverId}/tools` | 列出 MCP tools |
+| MCP | `GET` | `/api/v1/app/mcp-servers/{serverId}/status` | 读取连接状态 |
+| MCP | `POST` | `/api/v1/app/mcp-servers/{serverId}/execute` | 执行 MCP tool |
+| Notification | `GET/POST` | `/api/v1/app/notifications` | 列出或创建通知 |
+| Notification | `GET` | `/api/v1/app/notifications/unread-count` | 未读通知计数 |
+| Notification | `POST` | `/api/v1/app/notifications/mark-all-read` | 全部标为已读 |
+| Notification | `PATCH/DELETE` | `/api/v1/app/notifications/{notificationId}` | 标记已读或删除通知 |
+| Quota | `GET` | `/api/v1/app/quota` | 当前 quota 余额和使用量 |
+| Quota | `GET` | `/api/v1/app/packages` | quota package 列表 |
+| Quota | `POST` | `/api/v1/app/quota/topup` | quota 充值 |
+
+### 6.9 Admin
+
+Admin API 均要求已认证 admin session。
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/v1/admin/stats` | 系统统计 |
+| `GET/POST` | `/api/v1/admin/channels` | 列出或创建渠道 |
+| `POST` | `/api/v1/admin/channels/batch` | 批量更新渠道 |
+| `GET/PUT/DELETE` | `/api/v1/admin/channels/{channelId}` | 读取、更新或删除渠道 |
+| `POST` | `/api/v1/admin/channels/{channelId}/test` | 测试渠道 |
+| `GET` | `/api/v1/admin/channels/{channelId}/health` | 读取渠道健康状态 |
+| `GET/POST` | `/api/v1/admin/routes` | 列出或创建模型路由 |
+| `GET/PUT/DELETE` | `/api/v1/admin/routes/{routeId}` | 读取、更新或删除模型路由 |
+| `GET/POST` | `/api/v1/admin/plans` | 列出或创建套餐 |
+| `GET/PUT/DELETE` | `/api/v1/admin/plans/{planId}` | 读取、更新或停用套餐 |
+| `GET` | `/api/v1/admin/users` | 列出用户 |
+| `GET/PUT/PATCH/DELETE` | `/api/v1/admin/users/{userId}` | 读取、更新、调整 quota 或删除用户 |
+| `POST` | `/api/v1/admin/users/{userId}/disable` | 禁用用户 |
+| `POST` | `/api/v1/admin/users/{userId}/enable` | 启用用户 |
+| `GET` | `/api/v1/admin/audit-logs` | 审计日志 |
+| `GET` | `/api/v1/admin/reviews` | 待审核 Marketplace agents |
+| `POST` | `/api/v1/admin/reviews/{agentId}/approve` | 审核通过 agent |
+| `POST` | `/api/v1/admin/reviews/{agentId}/reject` | 审核拒绝 agent |
+
+### 6.10 Marketplace
+
+Discovery endpoints 可公开访问；发布、安装、my-agents、review 提交和 publisher stats 要求 authenticated session。
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/v1/marketplace/featured` | 推荐 agents |
+| `GET` | `/api/v1/marketplace/curated` | 精选 section |
+| `GET` | `/api/v1/marketplace/categories` | 分类列表 |
+| `GET` | `/api/v1/marketplace/search` | 搜索 agents |
+| `GET/POST` | `/api/v1/marketplace/agents` | 列表或发布 agent |
+| `GET` | `/api/v1/marketplace/my-agents` | 当前用户发布的 agents |
+| `GET` | `/api/v1/marketplace/installs` | 当前用户已安装 agents |
+| `DELETE` | `/api/v1/marketplace/installs/{agentId}` | 卸载 agent |
+| `GET` | `/api/v1/marketplace/publisher/stats` | 发布者统计 |
+| `GET/PUT/DELETE` | `/api/v1/marketplace/agents/{agentId}` | 读取、更新或删除 agent |
+| `POST/DELETE` | `/api/v1/marketplace/agents/{agentId}/install` | 安装或卸载 agent |
+| `GET/POST` | `/api/v1/marketplace/agents/{agentId}/reviews` | 列出或提交 review |
+| `GET` | `/api/v1/marketplace/agents/{agentId}/versions` | agent 版本 |
+| `GET` | `/api/v1/marketplace/agents/{agentId}/stats` | agent 统计 |
+
+### 6.11 WebSocket And Relay
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/v1/ws` | 已认证用户的实时通知 WebSocket |
+| `POST` | `/v1/chat/completions` | Relay Chat Completions |
+| `POST` | `/v1/responses` | Relay Responses API |
+| `POST` | `/v1/embeddings` | Relay Embeddings |
+| `POST` | `/v1/images/generations` | Relay image generation |
+| `POST` | `/v1/audio/speech` | Relay audio speech |
+| `POST` | `/v1/moderations` | Relay moderation |
+| `POST` | `/v1/completions` | Relay legacy completions |
+
+Relay 还注册 files、fine-tuning、assistants、threads、runs、batch、audio transcription/translation、image edit/variation 和 realtime routes；完整 route index 以 `docs/API.md` 中的 `## Relay /v1 Endpoints` 为准。
+
 ## 7. Frontend Route Matrix
 
 ### 7.1 当前已注册路由
@@ -259,12 +349,23 @@ Browser
 | Workspace | `/knowledge/:knowledgeBaseId` | 已接入，支持文档 CRUD、retrieval 与回到 Chat |
 | Workspace | `/solo` | 已接入，支持 `taskId` 与 Chat-originated return flow |
 | Workspace | `/solo/new` | 已接入，支持任务创建视图与默认参数配置 |
+| Workspace | `/marketplace` | 已接入，Marketplace browse/search 入口 |
+| Workspace | `/marketplace/agents/:agentId` | 已接入，agent detail/install/review 入口 |
+| Workspace | `/marketplace/publish` | 已接入，agent 发布入口 |
+| Workspace | `/marketplace/my-agents` | 已接入，发布者 agents 管理入口 |
 | Workspace | `/settings` | 已接入，作为长期偏好页并支持返回 Chat |
 | Console | `/console` | 已接入，运营总览页可用 |
 | Console | `/console/models` | 已接入，supporting drill-down 可用 |
 | Console | `/console/usage` | 已接入，请求量 workbench drill-down 可用 |
 | Console | `/console/billing` | 已接入，成本 workbench drill-down 可用 |
 | Console | `/console/access` | 已接入，scope / session workbench drill-down 可用 |
+| Admin | `/admin` | 已接入，Admin dashboard |
+| Admin | `/admin/channels` | 已接入，渠道管理 |
+| Admin | `/admin/routes` | 已接入，模型路由管理 |
+| Admin | `/admin/plans` | 已接入，套餐管理 |
+| Admin | `/admin/users` | 已接入，用户管理 |
+| Admin | `/admin/audit-log` | 已接入，审计日志 |
+| Admin | `/admin/reviews` | 已接入，Marketplace 审核 |
 
 ### 7.2 已存在页面但尚未挂载的目标路由
 
@@ -285,6 +386,17 @@ Browser
 | --- | --- | --- |
 | `bash scripts/check.sh` | 主线 docs + web build + server unit checks | 作为 CI 与本地共同的静态门面 |
 | `bash scripts/test.sh` | 主线 web tests + server unit tests + optional integration tests | 当 `TEST_DATABASE_URL` 缺失时，server integration 会显式 skip |
+
+### 7.5 Release Gate Commands
+
+| Gate | Command | Notes |
+| --- | --- | --- |
+| Docs and release assets | `bash scripts/check.sh docs` | 验证 docs/API、系统契约、RC checklist、env contract 和 workspace 边界 |
+| Web build | `bash scripts/check.sh web` | 执行 `pnpm --dir src/web build` |
+| Server release checks | `bash scripts/check.sh server` | 执行 `go test ./... -count=1` |
+| Web tests | `bash scripts/test.sh web` | Vitest suite |
+| Server tests | `bash scripts/test.sh server` | Server unit tests；`TEST_DATABASE_URL` 缺失时 integration 组显式 skip |
+| Browser E2E | `COREPACK_HOME=.tmp/corepack pnpm --dir src/web test:e2e` | Admin 与 Marketplace Playwright gate |
 
 ## 8. Environment Variable Matrix
 
@@ -310,6 +422,10 @@ Browser
 | `LLM_API_KEY` | 否 | empty | 已消费 |
 | `LLM_TIMEOUT_MS` | 否 | `30000` | 已消费 |
 | `MODEL_DEFAULT_NAME` | 否 | `demo-reply` | 已消费 |
+| `RELAY_ENABLED` | 否 | `true` | 已消费，控制 Relay 层是否启用 |
+| `RELAY_DEFAULT_MODEL` | 否 | `gpt-4o-mini` | 已消费，Relay 默认模型 |
+| `OPENAI_API_KEY` | 否 | empty | 已消费，开发环境默认渠道 API Key |
+| `OPENAI_BASE_URL` | 否 | `https://api.openai.com` | 已消费，开发环境默认渠道 Base URL |
 
 ### 8.3 Backend Test Runtime
 

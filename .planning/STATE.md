@@ -2,15 +2,16 @@
 gsd_state_version: 1.0
 milestone: v03.3
 milestone_name: Mainline Consolidation
-status: planning
-last_updated: "2026-05-17T05:55:54.737Z"
-last_activity: 2026-05-17 -- Phase 8 context gathered
+status: ready_to_plan
+last_updated: 2026-05-17T06:44:32.409Z
+last_activity: 2026-05-17 -- Phase 8 complete; backlog 999.1 ready to discuss
 progress:
   total_phases: 6
-  completed_phases: 3
-  total_plans: 8
-  completed_plans: 8
-  percent: 50
+  completed_phases: 4
+  total_plans: 10
+  completed_plans: 10
+  percent: 67
+stopped_at: Phase 8 complete (2/2) — ready to discuss Phase 999.1
 ---
 
 # STATE.md
@@ -21,20 +22,20 @@ See: `.planning/PROJECT.md` (updated 2026-05-14)
 
 **Core value:** 统一的多渠道 LLM 调用层 — 所有 AI 调用必须经过 Relay
 
-**Current focus:** Phase 8 — Contract Docs and Release Verification
+**Current focus:** Phase 999.1 — follow up — phase 01 incomplete plan artifacts (backlog)
 
 ## Current Status
 
-**Milestone v03.3: Mainline Consolidation — PHASE 8 READY TO DISCUSS**
+**Milestone v03.3: Mainline Consolidation — PHASE 8 COMPLETE; backlog follow-up next**
 
-Phase 7 execution and verification are complete. Frontend/API contracts, Playwright E2E, CI wiring, Dockerfiles, compose, env templates, and restricted-network deployment validation passed with real runtime proof. Phase 8 should now reconcile API/architecture/release/README docs and produce final commit-readiness evidence for the consolidated mainline.
+Phase 7 execution and verification are complete. Phase 8 reconciled the API/architecture/release/README docs and recorded the targeted release-verification evidence for the consolidated mainline. The remaining backlog follow-up is Phase 999.1.
 
 ## Current Position
 
-Phase: 8 — Contract Docs and Release Verification
+Phase: 999.1
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-05-17 -- Phase 8 context gathered
+Last activity: 2026-05-17 -- Phase 8 complete; backlog 999.1 ready to discuss
 
 ## Current Scope
 
@@ -45,17 +46,16 @@ Last activity: 2026-05-17 -- Phase 8 context gathered
 | CHAT-06 | Complete | Preserve Relay-first Chat/Agent structured tool calls, streaming behavior, metadata, and usage hooks |
 | AUTH-01 | Complete | Keep user name/role/session contracts consistent while preserving admin boundaries |
 | DEPLOY-02 | Complete | Align Docker, compose, CI, and Playwright with v03.2 restricted-network runtime proof |
-| DOC-02 | Active next | Reconcile API, architecture, release, README, and env docs against live routes and commands |
-| VERIFY-01 | Pending | Document and run targeted verification before committing consolidated work |
+| DOC-02 | Complete | Reconcile API, architecture, release, README, and env docs against live routes and commands |
+| VERIFY-01 | Complete | Document and run targeted verification before committing consolidated work |
 
 ## Worktree Context
 
-Phase 7 committed the frontend/E2E and deployment/CI work slices according to the Phase 5 commit boundaries. Contract docs and historical/reference files remain intentionally separate for Phase 8 or later cleanup decisions.
+Phase 7 committed the frontend/E2E and deployment/CI work slices according to the Phase 5 commit boundaries. Phase 8 reconciled the contract docs and verification evidence; historical/reference files remain intentionally separate for backlog or later cleanup decisions.
 
 Observed change areas:
 
-- Contract docs remain modified or untracked: README, API docs, architecture docs, release docs, and env/release references that Phase 8 must reconcile against live code.
-- Historical/reference docs such as `CURRENT_STATUS.md`, `ROADMAP.md`, `ARCHAEOLOGY_REPORT.md`, and `docs/superpowers/*` remain out of implementation commits unless explicitly promoted.
+- Contract docs are now reconciled against the live route and command surface. Historical/reference docs such as `CURRENT_STATUS.md`, `ROADMAP.md`, `ARCHAEOLOGY_REPORT.md`, and `docs/superpowers/*` remain out of the mainline commit unless explicitly promoted.
 - Root historical/reference docs such as `CURRENT_STATUS.md` and `ROADMAP.md` should not override `.planning` state unless deliberately incorporated.
 - Phase 5 inventory and commit-boundary artifacts remain the source of truth for splitting any remaining work.
 
@@ -99,6 +99,7 @@ Environment notes:
 | Phase 5 Dirty Worktree Triage and Commit Boundary | 2026-05-14 | CONS-01 |
 | Phase 6 Backend Mainline Integration Hardening | 2026-05-14 | ROUTE-01, CHAT-06, AUTH-01 |
 | Phase 7 Frontend, E2E, and Deployment Gate Alignment | 2026-05-17 | DEPLOY-02 |
+| Phase 8 Contract Docs and Release Verification | 2026-05-17 | DOC-02, VERIFY-01 |
 
 ## Deferred Items
 
@@ -112,7 +113,7 @@ Items acknowledged before v03.3:
 
 ## Next Suggested Step
 
-Run `$gsd:discuss-phase 8` to start Contract Docs and Release Verification.
+Run `$gsd:discuss-phase 999.1` to review the Phase 01 backlog follow-up, or complete the milestone if backlog work stays intentionally deferred.
 
 ## Context Files
 
@@ -157,6 +158,8 @@ Run `$gsd:discuss-phase 8` to start Contract Docs and Release Verification.
 | 2026-05-14 | Phase 6 backend hardening complete | Backend routes, Relay metadata/tool calls, notification ownership, auth/session fields, and user preference defaults passed targeted and DB-backed Go verification |
 | 2026-05-17 | Phase 7 planning complete | Frontend/API alignment, Playwright/E2E, and CI/Docker/deployment work split into three plans with the v03.2 restricted-network validation command preserved |
 | 2026-05-17 | Phase 7 execution and verification complete | Frontend contracts, Playwright E2E, CI wrappers, server wrappers, compose config, and restricted-network Docker smoke passed; DEPLOY-02 is complete |
+| 2026-05-17 | Phase 8 execution and verification complete | Contract docs reconciled to the live route surface, targeted verification passed, and DOC-02/VERIFY-01 are complete |
+| 2026-05-17 | Backlog 999.1 becomes the next routing target | Phase 01 missing SUMMARY artifact remains the next follow-up after mainline closeout |
 
 ---
-*State updated: 2026-05-17 after Phase 7 execution and verification*
+*State updated: 2026-05-17 after Phase 8 verification and backlog closeout*

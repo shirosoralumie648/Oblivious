@@ -1,19 +1,32 @@
 # Deployment Runtime Remediation
 
-This project cannot finish DEPLOY-01 until a real Docker or Kubernetes runtime can build, start, and smoke the service stack.
+DEPLOY-01 is complete after a real Docker compose build/start/smoke passed on 2026-05-12. Keep this remediation note for hosts where the default Docker Hub or Go module paths are still blocked.
 
-## Current Blocker
+## Current Runtime Evidence
 
 Current 2026-05-12 observation in this checkout:
 
 ```text
 docker info: passes
 docker compose config: passes
-bash scripts/deploy-validate.sh: reaches image build, then fails resolving Docker Hub metadata
+bash scripts/deploy-validate.sh with restricted-network overrides: builds images, starts stack, and passes /healthz smoke
 Docker Hub via user proxy: curl --proxy http://127.0.0.1:7897 https://registry-1.docker.io/v2/ reaches the registry
-Docker daemon pulls: still time out or refuse direct registry connections
+Docker daemon pulls without overrides: still time out or refuse direct registry connections
+Docker client credsStore: stale "desktop" entry removed from ~/.docker/config.json; backup at ~/.docker/config.json.bak-20260512-0426
+Docker daemon proxy setup: requires sudo/root; current non-interactive sudo requires a password
 kubectl: command not found
 ```
+
+Verified restricted-network command:
+
+```bash
+OBLIVIOUS_IMAGE_REGISTRY_PREFIX=docker.m.daocloud.io/library/ \
+  OBLIVIOUS_GOPROXY=https://mirrors.aliyun.com/goproxy/,direct \
+  OBLIVIOUS_GOSUMDB=sum.golang.google.cn \
+  bash scripts/deploy-validate.sh
+```
+
+Observed result: `oblivious-oblivious-server` and `oblivious-oblivious-web` built, compose started PostgreSQL, Redis, server, and web, `scripts/deploy-smoke.sh` passed against `http://127.0.0.1:8080/healthz`, and the validation script removed the compose stack.
 
 Historical 2026-05-04 observation:
 
@@ -84,6 +97,23 @@ docker pull hello-world:latest
 
 Do not remove the Desktop credential helper if Docker Desktop is the intended active runtime and `docker-credential-desktop` is installed.
 
+In this checkout, the active runtime is the Linux engine at `/var/run/docker.sock`, `docker-credential-desktop` is not installed, and the stale `credsStore: desktop` entry has already been removed.
+
+If host-level daemon proxy changes are not available, use the validated image-prefix override:
+
+```bash
+OBLIVIOUS_IMAGE_REGISTRY_PREFIX=docker.m.daocloud.io/library/ bash scripts/deploy-validate.sh
+```
+
+If Go module downloads fail from inside `Dockerfile.server`, include the validated Go proxy overrides:
+
+```bash
+OBLIVIOUS_IMAGE_REGISTRY_PREFIX=docker.m.daocloud.io/library/ \
+  OBLIVIOUS_GOPROXY=https://mirrors.aliyun.com/goproxy/,direct \
+  OBLIVIOUS_GOSUMDB=sum.golang.google.cn \
+  bash scripts/deploy-validate.sh
+```
+
 ## Option C: Validate With Kubernetes
 
 Install or provide `kubectl` plus a target cluster, then fill secrets outside git:
@@ -111,4 +141,4 @@ BASE_URL=http://127.0.0.1:8080 bash scripts/deploy-smoke.sh
 
 ## Completion Rule
 
-DEPLOY-01 can be marked complete only after one real runtime path starts the actual stack and `scripts/deploy-smoke.sh` passes against that stack.
+DEPLOY-01 can be marked complete only after one real runtime path starts the actual stack and `scripts/deploy-smoke.sh` passes against that stack. This checkout met that rule through Docker compose on 2026-05-12.

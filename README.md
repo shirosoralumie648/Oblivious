@@ -57,10 +57,13 @@ bash scripts/test.sh
 
 `bash scripts/test.sh` runs the web Vitest suite, the server unit packages, and the HTTP integration package. If `TEST_DATABASE_URL` is not set, the integration step is skipped explicitly.
 
+For release-candidate evidence, use [`docs/release/rc-checklist.md`](docs/release/rc-checklist.md). The current routed HTTP surface is indexed in [`docs/API.md`](docs/API.md).
+
 ## Repository Layout
 
 - [`src/server`](src/server): Go API, migrations, and domain services
 - [`src/web`](src/web): React workspace and console UI
+- [`docs/API.md`](docs/API.md): current routed HTTP API index
 - [`docs/architecture/current-system-contracts.md`](docs/architecture/current-system-contracts.md): current API and runtime contract baseline
 - [`docs/release/rc-checklist.md`](docs/release/rc-checklist.md): RC readiness checklist
 - `lobehub/`: repository-local reference code, excluded from mainline workspace and CI

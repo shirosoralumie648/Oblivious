@@ -41,6 +41,7 @@ When `TEST_DATABASE_URL` is set, the evidence must include the exact value class
 - If Docker daemon access, Docker registry/proxy access, or Kubernetes tooling is unavailable, follow [`deployment-runtime-remediation.md`](deployment-runtime-remediation.md) before recording DEPLOY-01 evidence.
 - Copy `deploy/kubernetes/secret.example.yaml` to an untracked secret manifest before real cluster use.
 - For local Docker smoke, run `bash scripts/deploy-validate.sh`. The script runs `docker compose config`, `docker compose build`, `docker compose up -d`, then `BASE_URL=http://127.0.0.1:8080 bash scripts/deploy-smoke.sh`. Set `KEEP_STACK=true` to leave the compose stack running after validation.
+- If Docker Hub or `proxy.golang.org` is unreliable, use the validated restricted-network form: `OBLIVIOUS_IMAGE_REGISTRY_PREFIX=docker.m.daocloud.io/library/ OBLIVIOUS_GOPROXY=https://mirrors.aliyun.com/goproxy/,direct OBLIVIOUS_GOSUMDB=sum.golang.google.cn bash scripts/deploy-validate.sh`.
 - For Kubernetes smoke, build and load/push `oblivious-server:local` and `oblivious-web:local`, fill the secret from `deploy/kubernetes/secret.example.yaml`, then run `kubectl apply -f deploy/kubernetes/namespace.yaml` and `kubectl apply -f deploy/kubernetes/`.
 - Do not commit provider keys, Stripe secrets, database passwords, session secrets, or kubeconfig material.
 - The deployment smoke target must expose `/healthz` before the release can be called healthy.

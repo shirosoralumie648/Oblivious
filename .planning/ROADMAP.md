@@ -9,9 +9,9 @@
 
 ## Current Status
 
-Milestone v03.3 has completed Phase 7 frontend/E2E/deployment alignment. Frontend/API types, Playwright coverage, CI workflow, Dockerfiles, compose, env templates, and restricted-network deployment validation now have runtime-backed proof. Phase 8 is ready to discuss and should reconcile docs plus final release-verification evidence before the consolidated mainline is committed further.
+Milestone v03.3 has completed Phase 8 contract-docs and release-verification alignment. API, architecture, release, README, env, and verification artifacts now match the live route and command surface. The next available follow-up is backlog Phase 999.1.
 
-**Next workflow step:** `$gsd:discuss-phase 8`
+**Next workflow step:** `$gsd:discuss-phase 999.1`
 
 ## Current Milestone: v03.3 Mainline Consolidation
 
@@ -22,7 +22,7 @@ Milestone v03.3 has completed Phase 7 frontend/E2E/deployment alignment. Fronten
 | Phase 5 | Dirty Worktree Triage and Commit Boundary | CONS-01 | Complete |
 | Phase 6 | Backend Mainline Integration Hardening | ROUTE-01, CHAT-06, AUTH-01 | Complete |
 | Phase 7 | Frontend, E2E, and Deployment Gate Alignment | DEPLOY-02 | Complete |
-| Phase 8 | Contract Docs and Release Verification | DOC-02, VERIFY-01 | Ready to discuss |
+| Phase 8 | Contract Docs and Release Verification | DOC-02, VERIFY-01 | Complete |
 
 ### Phase 5: Dirty Worktree Triage and Commit Boundary
 
@@ -125,6 +125,8 @@ Milestone v03.3 has completed Phase 7 frontend/E2E/deployment alignment. Fronten
 
 **Requirements:** DOC-02, VERIFY-01
 
+**Plans:** 2/2 complete
+
 **Success criteria:**
 1. `docs/API.md`, current system contracts, release docs, README, and env examples describe the same route surface and commands as the code.
 2. Verification evidence identifies which checks passed, which were skipped, and why.
@@ -137,6 +139,11 @@ Milestone v03.3 has completed Phase 7 frontend/E2E/deployment alignment. Fronten
 - `bash scripts/test.sh all`
 - Targeted `rg` checks against docs for new route groups and restricted-network deployment commands.
 
+**Completion evidence:**
+- Phase summaries: `08-01-SUMMARY.md` and `08-02-SUMMARY.md`
+- Verification: `08-VERIFICATION.md`
+- Final docs-first gates: `bash scripts/check.sh docs`, `bash scripts/check.sh all`, and `bash scripts/test.sh all`
+
 ## Traceability
 
 | Requirement | Phase | Coverage |
@@ -146,8 +153,8 @@ Milestone v03.3 has completed Phase 7 frontend/E2E/deployment alignment. Fronten
 | CHAT-06 | Phase 6 | Complete — Relay-first Chat/Agent behavior verified |
 | AUTH-01 | Phase 6 | Complete — user/session role/name contract verified |
 | DEPLOY-02 | Phase 7 | Complete — frontend/E2E/CI/Docker/deployment gates verified with runtime smoke |
-| DOC-02 | Phase 8 | API, architecture, release, README reconciliation |
-| VERIFY-01 | Phase 8 | Targeted verification suite and commit-readiness evidence |
+| DOC-02 | Phase 8 | Complete — API, architecture, release, README reconciliation verified |
+| VERIFY-01 | Phase 8 | Complete — targeted verification suite and commit-readiness evidence recorded |
 
 ## Archived Milestone Details
 
@@ -207,7 +214,7 @@ These phases remain available in `.planning/phases/` and the v03.2 roadmap archi
 
 | Milestone | Scope | Plans | Requirements | Status | Completed |
 |-----------|-------|-------|--------------|--------|-----------|
-| v03.3 Mainline Consolidation | Phases 5-8 | 8/8 planned steps complete through Phase 7; Phase 8 unplanned | CONS-01, ROUTE-01, CHAT-06, AUTH-01, DEPLOY-02 complete; DOC-02, VERIFY-01 pending | Phase 8 ready to discuss | Phase 5 and Phase 6 complete 2026-05-14; Phase 7 complete 2026-05-17 |
+| v03.3 Mainline Consolidation | Phases 5-8 | 10/10 planned steps complete | CONS-01, ROUTE-01, CHAT-06, AUTH-01, DEPLOY-02, DOC-02, VERIFY-01 complete | Phase 8 complete; backlog 999.1 next | Phase 5 and Phase 6 complete 2026-05-14; Phase 7 and Phase 8 complete 2026-05-17 |
 | v03.2 Quality and Release | Phase 4 | 4/4 | TEST-01, TEST-02, DOC-01, DEPLOY-01 | Shipped | 2026-05-14 |
 | v03.1 Admin and Marketplace UI | Phase 03.1 | 7/7 | ADMIN-04, MARKET-02 | Shipped | 2026-05-02 |
 | Foundation through Backend | Phases 1, 2, 3a | Historical | RELAY, CHAT, AGENT, MCP, MEM, EXEC, QUOTA, ADMIN, MARKET | Complete | 2026-04-29 |
@@ -235,4 +242,4 @@ These phases remain available in `.planning/phases/` and the v03.2 roadmap archi
 - [ ] Decide whether future milestone completion should reset `.planning/REQUIREMENTS.md` or keep it as cross-phase context in this repo
 
 ---
-*Roadmap updated: 2026-05-17 after Phase 7 execution and verification*
+*Roadmap updated: 2026-05-17 after Phase 8 verification and backlog closeout*
