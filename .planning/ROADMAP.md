@@ -9,9 +9,9 @@
 
 ## Current Status
 
-Milestone v03.3 has completed Phase 6 backend hardening and Phase 7 planning. Phase 7 is ready to execute and should align frontend/API types, Playwright, CI, Docker, compose, and deployment validation with the verified backend surface before any new feature expansion.
+Milestone v03.3 has completed Phase 7 frontend/E2E/deployment alignment. Frontend/API types, Playwright coverage, CI workflow, Dockerfiles, compose, env templates, and restricted-network deployment validation now have runtime-backed proof. Phase 8 is ready to discuss and should reconcile docs plus final release-verification evidence before the consolidated mainline is committed further.
 
-**Next workflow step:** `$gsd:execute-phase 7`
+**Next workflow step:** `$gsd:discuss-phase 8`
 
 ## Current Milestone: v03.3 Mainline Consolidation
 
@@ -21,8 +21,8 @@ Milestone v03.3 has completed Phase 6 backend hardening and Phase 7 planning. Ph
 |-------|------|--------------|--------|
 | Phase 5 | Dirty Worktree Triage and Commit Boundary | CONS-01 | Complete |
 | Phase 6 | Backend Mainline Integration Hardening | ROUTE-01, CHAT-06, AUTH-01 | Complete |
-| Phase 7 | Frontend, E2E, and Deployment Gate Alignment | DEPLOY-02 | Ready to execute |
-| Phase 8 | Contract Docs and Release Verification | DOC-02, VERIFY-01 | Not started |
+| Phase 7 | Frontend, E2E, and Deployment Gate Alignment | DEPLOY-02 | Complete |
+| Phase 8 | Contract Docs and Release Verification | DOC-02, VERIFY-01 | Ready to discuss |
 
 ### Phase 5: Dirty Worktree Triage and Commit Boundary
 
@@ -82,7 +82,7 @@ Milestone v03.3 has completed Phase 6 backend hardening and Phase 7 planning. Ph
 
 **Requirements:** DEPLOY-02
 
-**Plans:** 3/3 ready
+**Plans:** 3/3 complete
 
 **Waves:**
 
@@ -110,6 +110,15 @@ Milestone v03.3 has completed Phase 6 backend hardening and Phase 7 planning. Ph
 - `docker compose config`
 - `OBLIVIOUS_IMAGE_REGISTRY_PREFIX=docker.m.daocloud.io/library/ OBLIVIOUS_GOPROXY=https://mirrors.aliyun.com/goproxy/,direct OBLIVIOUS_GOSUMDB=sum.golang.google.cn bash scripts/deploy-validate.sh`
 
+**Completion evidence:**
+- Frontend/workspace contract commit: `e6a2bf9` (`feat(07-01): align frontend workspace contracts`)
+- Web/E2E gate commit: `292bc1a` (`test(07-02): stabilize web e2e gates`)
+- CI/deployment gate commit: `e7fb740` (`chore(07-03): align ci and deployment gates`)
+- Phase summaries: `07-01-SUMMARY.md` through `07-03-SUMMARY.md`
+- Code review: `07-REVIEW.md`
+- Verification: `07-VERIFICATION.md`
+- Runtime proof: restricted-network `scripts/deploy-validate.sh` built images, started the compose stack, passed `/healthz`, and cleaned up.
+
 ### Phase 8: Contract Docs and Release Verification
 
 **Goal:** Reconcile docs with live routes and commands, then run the targeted release verification needed to commit the consolidated mainline safely.
@@ -136,7 +145,7 @@ Milestone v03.3 has completed Phase 6 backend hardening and Phase 7 planning. Ph
 | ROUTE-01 | Phase 6 | Complete — backend routes/services/auth boundaries verified |
 | CHAT-06 | Phase 6 | Complete — Relay-first Chat/Agent behavior verified |
 | AUTH-01 | Phase 6 | Complete — user/session role/name contract verified |
-| DEPLOY-02 | Phase 7 | Planned and ready to execute — frontend/E2E/CI/Docker/deployment gates |
+| DEPLOY-02 | Phase 7 | Complete — frontend/E2E/CI/Docker/deployment gates verified with runtime smoke |
 | DOC-02 | Phase 8 | API, architecture, release, README reconciliation |
 | VERIFY-01 | Phase 8 | Targeted verification suite and commit-readiness evidence |
 
@@ -198,7 +207,7 @@ These phases remain available in `.planning/phases/` and the v03.2 roadmap archi
 
 | Milestone | Scope | Plans | Requirements | Status | Completed |
 |-----------|-------|-------|--------------|--------|-----------|
-| v03.3 Mainline Consolidation | Phases 5-8 | 8/8 planned steps complete through Phase 7; Phase 8 unplanned | CONS-01, ROUTE-01, CHAT-06, AUTH-01 complete; DEPLOY-02 ready to execute; DOC-02, VERIFY-01 pending | Phase 7 ready to execute | Phase 5 and Phase 6 complete 2026-05-14; Phase 7 planned 2026-05-17 |
+| v03.3 Mainline Consolidation | Phases 5-8 | 8/8 planned steps complete through Phase 7; Phase 8 unplanned | CONS-01, ROUTE-01, CHAT-06, AUTH-01, DEPLOY-02 complete; DOC-02, VERIFY-01 pending | Phase 8 ready to discuss | Phase 5 and Phase 6 complete 2026-05-14; Phase 7 complete 2026-05-17 |
 | v03.2 Quality and Release | Phase 4 | 4/4 | TEST-01, TEST-02, DOC-01, DEPLOY-01 | Shipped | 2026-05-14 |
 | v03.1 Admin and Marketplace UI | Phase 03.1 | 7/7 | ADMIN-04, MARKET-02 | Shipped | 2026-05-02 |
 | Foundation through Backend | Phases 1, 2, 3a | Historical | RELAY, CHAT, AGENT, MCP, MEM, EXEC, QUOTA, ADMIN, MARKET | Complete | 2026-04-29 |
@@ -226,4 +235,4 @@ These phases remain available in `.planning/phases/` and the v03.2 roadmap archi
 - [ ] Decide whether future milestone completion should reset `.planning/REQUIREMENTS.md` or keep it as cross-phase context in this repo
 
 ---
-*Roadmap updated: 2026-05-17 after Phase 7 planning*
+*Roadmap updated: 2026-05-17 after Phase 7 execution and verification*

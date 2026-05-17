@@ -18,7 +18,7 @@
 
 ### Deployment, Documentation, and Verification
 
-- [ ] **DEPLOY-02**: Operator can use Docker, compose, CI, and Playwright changes without regressing the v03.2 restricted-network runtime validation path.
+- [x] **DEPLOY-02**: Operator can use Docker, compose, CI, and Playwright changes without regressing the v03.2 restricted-network runtime validation path. Completed in Phase 7 with frontend/E2E gates, CI wrapper checks, Docker compose config, and restricted-network deployment smoke evidence.
 - [ ] **DOC-02**: Developer can compare API, architecture, release, and README docs against live routes and commands for the consolidated mainline.
 - [ ] **VERIFY-01**: Maintainer can run a documented targeted verification suite before committing the consolidated work slices.
 
@@ -100,16 +100,16 @@
 | ROUTE-01 | Phase 6 — Backend Mainline Integration Hardening | Complete |
 | CHAT-06 | Phase 6 — Backend Mainline Integration Hardening | Complete |
 | AUTH-01 | Phase 6 — Backend Mainline Integration Hardening | Complete |
-| DEPLOY-02 | Phase 7 — Frontend, E2E, and Deployment Gate Alignment | Planned, ready to execute |
+| DEPLOY-02 | Phase 7 — Frontend, E2E, and Deployment Gate Alignment | Complete |
 | DOC-02 | Phase 8 — Contract Docs and Release Verification | Planned |
 | VERIFY-01 | Phase 8 — Contract Docs and Release Verification | Planned |
 
 **Coverage:**
 - Completed historical requirements: 46
-- Completed v03.3 requirements: 4
-- Remaining v03.3 requirements: 3
+- Completed v03.3 requirements: 5
+- Remaining v03.3 requirements: 2
 - Blocked requirements: 0
 - Unmapped v03.3 requirements: 0 ✓
 
 ---
-*Requirements updated: 2026-05-17 after Phase 7 planning*
+*Requirements updated: 2026-05-17 after Phase 7 execution and verification*

@@ -2,15 +2,16 @@
 gsd_state_version: 1.0
 milestone: v03.3
 milestone_name: Mainline Consolidation
-status: executing
-last_updated: "2026-05-17T01:23:56.283Z"
-last_activity: 2026-05-17 -- Phase 7 planning complete
+status: ready_to_discuss
+last_updated: 2026-05-17T05:05:00.000Z
+last_activity: 2026-05-17 -- Phase 7 execution and verification complete
 progress:
   total_phases: 4
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 8
-  completed_plans: 5
-  percent: 50
+  completed_plans: 8
+  percent: 75
+stopped_at: Phase 07 complete (3/3) — ready to discuss Phase 8
 ---
 
 # STATE.md
@@ -21,20 +22,20 @@ See: `.planning/PROJECT.md` (updated 2026-05-14)
 
 **Core value:** 统一的多渠道 LLM 调用层 — 所有 AI 调用必须经过 Relay
 
-**Current focus:** Phase 07 — Frontend, E2E, and Deployment Gate Alignment
+**Current focus:** Phase 8 — Contract Docs and Release Verification
 
 ## Current Status
 
-**Milestone v03.3: Mainline Consolidation — PHASE 7 READY TO EXECUTE**
+**Milestone v03.3: Mainline Consolidation — PHASE 8 READY TO DISCUSS**
 
-Phase 7 planning is complete with a UI design contract and three execution plans. The repository still has substantial uncommitted frontend, deployment, documentation, and historical/reference changes that must remain separated according to the Phase 5 commit boundaries.
+Phase 7 execution and verification are complete. Frontend/API contracts, Playwright E2E, CI wiring, Dockerfiles, compose, env templates, and restricted-network deployment validation passed with real runtime proof. Phase 8 should now reconcile API/architecture/release/README docs and produce final commit-readiness evidence for the consolidated mainline.
 
 ## Current Position
 
-Phase: 7 — Frontend, E2E, and Deployment Gate Alignment
-Plan: 3 plans ready across 2 waves
-Status: Ready to execute
-Last activity: 2026-05-17 -- Phase 7 planning complete
+Phase: 8 — Contract Docs and Release Verification
+Plan: Not started
+Status: Ready to discuss
+Last activity: 2026-05-17 -- Phase 7 execution and verification complete
 
 ## Current Scope
 
@@ -44,20 +45,20 @@ Last activity: 2026-05-17 -- Phase 7 planning complete
 | ROUTE-01 | Complete | Register Agent, Memory, MCP, Notification, Quota, and WebSocket routes/services with explicit auth boundaries and tests |
 | CHAT-06 | Complete | Preserve Relay-first Chat/Agent structured tool calls, streaming behavior, metadata, and usage hooks |
 | AUTH-01 | Complete | Keep user name/role/session contracts consistent while preserving admin boundaries |
-| DEPLOY-02 | Active next | Align Docker, compose, CI, and Playwright with v03.2 restricted-network runtime proof |
-| DOC-02 | Pending | Reconcile API, architecture, release, README, and env docs against live routes and commands |
+| DEPLOY-02 | Complete | Align Docker, compose, CI, and Playwright with v03.2 restricted-network runtime proof |
+| DOC-02 | Active next | Reconcile API, architecture, release, README, and env docs against live routes and commands |
 | VERIFY-01 | Pending | Document and run targeted verification before committing consolidated work |
 
 ## Worktree Context
 
-Current mainline changes are already present before Phase 7 starts. Treat them as user-owned inputs to align with the explicit commit boundaries produced by Phases 5 and 6.
+Phase 7 committed the frontend/E2E and deployment/CI work slices according to the Phase 5 commit boundaries. Contract docs and historical/reference files remain intentionally separate for Phase 8 or later cleanup decisions.
 
 Observed change areas:
 
-- Tracked CI, Docker, compose, env, release docs, server auth/chat/config/http/userprefs, and web package/theme/types/tailwind/vite changes.
-- Untracked backend route handlers and route split files for Agent, Memory, MCP, Notification, Quota, WebSocket, Relay store, migrations `0013`-`0019`, Playwright config/E2E files, and new workspace pages.
+- Contract docs remain modified or untracked: README, API docs, architecture docs, release docs, and env/release references that Phase 8 must reconcile against live code.
+- Historical/reference docs such as `CURRENT_STATUS.md`, `ROADMAP.md`, `ARCHAEOLOGY_REPORT.md`, and `docs/superpowers/*` remain out of implementation commits unless explicitly promoted.
 - Root historical/reference docs such as `CURRENT_STATUS.md` and `ROADMAP.md` should not override `.planning` state unless deliberately incorporated.
-- Phase 5 inventory and commit-boundary artifacts complete; the worktree still intentionally contains user-owned input files for later phases.
+- Phase 5 inventory and commit-boundary artifacts remain the source of truth for splitting any remaining work.
 
 ## Previous Milestone Baseline
 
@@ -98,6 +99,7 @@ Environment notes:
 | v03.2 Quality and Release | 2026-05-14 | TEST-01, TEST-02, DOC-01, DEPLOY-01 |
 | Phase 5 Dirty Worktree Triage and Commit Boundary | 2026-05-14 | CONS-01 |
 | Phase 6 Backend Mainline Integration Hardening | 2026-05-14 | ROUTE-01, CHAT-06, AUTH-01 |
+| Phase 7 Frontend, E2E, and Deployment Gate Alignment | 2026-05-17 | DEPLOY-02 |
 
 ## Deferred Items
 
@@ -111,7 +113,7 @@ Items acknowledged before v03.3:
 
 ## Next Suggested Step
 
-Run `$gsd:execute-phase 7` to execute Frontend, E2E, and Deployment Gate Alignment.
+Run `$gsd:discuss-phase 8` to start Contract Docs and Release Verification.
 
 ## Context Files
 
@@ -131,6 +133,9 @@ Run `$gsd:execute-phase 7` to execute Frontend, E2E, and Deployment Gate Alignme
 - Phase 6 verification: `.planning/phases/06-backend-mainline-integration-hardening/06-VERIFICATION.md`
 - Phase 7 UI contract: `.planning/phases/07-frontend-e2e-and-deployment-gate-alignment/07-UI-SPEC.md`
 - Phase 7 plans: `.planning/phases/07-frontend-e2e-and-deployment-gate-alignment/07-01-PLAN.md` through `07-03-PLAN.md`
+- Phase 7 summaries: `.planning/phases/07-frontend-e2e-and-deployment-gate-alignment/07-01-SUMMARY.md` through `07-03-SUMMARY.md`
+- Phase 7 review: `.planning/phases/07-frontend-e2e-and-deployment-gate-alignment/07-REVIEW.md`
+- Phase 7 verification: `.planning/phases/07-frontend-e2e-and-deployment-gate-alignment/07-VERIFICATION.md`
 - Milestones: `.planning/MILESTONES.md`
 - Milestone archive: `.planning/milestones/v03.2-ROADMAP.md`
 - Requirements archive: `.planning/milestones/v03.2-REQUIREMENTS.md`
@@ -152,6 +157,7 @@ Run `$gsd:execute-phase 7` to execute Frontend, E2E, and Deployment Gate Alignme
 | 2026-05-14 | Phase 6 自动上下文收集完成 | 当前会话无交互式问题工具，按既有 Relay-first 和 commit-boundary 决策保守锁定后端硬化上下文 |
 | 2026-05-14 | Phase 6 backend hardening complete | Backend routes, Relay metadata/tool calls, notification ownership, auth/session fields, and user preference defaults passed targeted and DB-backed Go verification |
 | 2026-05-17 | Phase 7 planning complete | Frontend/API alignment, Playwright/E2E, and CI/Docker/deployment work split into three plans with the v03.2 restricted-network validation command preserved |
+| 2026-05-17 | Phase 7 execution and verification complete | Frontend contracts, Playwright E2E, CI wrappers, server wrappers, compose config, and restricted-network Docker smoke passed; DEPLOY-02 is complete |
 
 ---
-*State updated: 2026-05-17 after Phase 7 planning*
+*State updated: 2026-05-17 after Phase 7 execution and verification*
