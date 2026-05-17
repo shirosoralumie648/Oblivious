@@ -1,6 +1,8 @@
 export type ApiUser = {
   id: string;
   email: string;
+  name?: string;
+  role?: string;
 };
 
 export type ApiEnvelopeError = {
@@ -246,4 +248,167 @@ export type AccessSummary = {
   userEmail: string;
   userId: string;
   workspaceId: string;
+};
+
+export type AgentTool = {
+  name: string;
+  description?: string;
+  type?: 'builtin' | 'mcp' | string;
+  serverId?: string;
+  enabled?: boolean;
+  inputSchema?: unknown;
+};
+
+export type AgentConfig = {
+  enableMemory?: boolean;
+  maxTokens?: number;
+  temperature?: number;
+  topP?: number;
+  knowledgeBaseIds?: string[];
+};
+
+export type AgentSummary = {
+  id: string;
+  userId: string;
+  name: string;
+  description?: string;
+  model: string;
+  systemPrompt?: string;
+  tools?: AgentTool[];
+  config?: AgentConfig;
+  isPublic: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AgentDetail = AgentSummary;
+
+export type AgentConversationSummary = {
+  id: string;
+  agentId: string;
+  userId: string;
+  title?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AgentToolCall = {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+};
+
+export type AgentMessage = {
+  id: string;
+  conversationId: string;
+  role: 'user' | 'assistant' | 'tool' | string;
+  content: string;
+  toolCalls?: AgentToolCall[];
+  toolCallId?: string;
+  createdAt: string;
+};
+
+export type MemoryDocumentSummary = {
+  id: string;
+  userId: string;
+  title?: string;
+  content: string;
+  sourceType: string;
+  sourceUrl?: string;
+  metadata?: Record<string, unknown>;
+  totalChunks: number;
+  embeddingModel: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type MemoryChunk = {
+  id: string;
+  documentId: string;
+  userId: string;
+  content: string;
+  chunkIndex: number;
+  embedding?: number[];
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+};
+
+export type MemorySearchRequest = {
+  query: string;
+  topK?: number;
+  minScore?: number;
+};
+
+export type MemorySearchResult = {
+  documentId: string;
+  documentTitle: string;
+  chunkContent: string;
+  chunkIndex: number;
+  score: number;
+};
+
+export type McpServer = {
+  id: string;
+  userId: string;
+  name: string;
+  url: string;
+  authToken?: string;
+  status: 'connected' | 'disconnected' | 'error' | string;
+  lastConnectedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type McpServerRequest = {
+  name: string;
+  url: string;
+  authToken?: string;
+  command?: string;
+  args?: string[];
+  description?: string;
+};
+
+export type McpTool = {
+  name: string;
+  description?: string;
+  inputSchema: unknown;
+};
+
+export type Notification = {
+  id: string;
+  userId: string;
+  type: 'info' | 'warning' | 'error' | 'success' | string;
+  category: 'billing' | 'agent' | 'system' | 'mcp' | string;
+  title: string;
+  message: string;
+  isRead: boolean;
+  actionUrl?: string;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+  readAt?: string;
+};
+
+export type QuotaSnapshot = {
+  id: string;
+  userId: string;
+  balance: number;
+  used: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PackageOption = {
+  id: string;
+  name: string;
+  description?: string;
+  quotaAmount: number;
+  price: number;
+  durationDays?: number;
+  isActive: boolean;
+  sortOrder: number;
+  createdAt: string;
+};
+
+export type QuotaTopupRequest = {
+  amount: number;
 };

@@ -153,7 +153,7 @@ export function SoloPage() {
         if (!cancelled) {
           setRecentTasks([]);
           setKnowledgeBases([]);
-          setError('Unable to load solo workspace.');
+          setError('Unable to load workspace data. Retry the request or check the backend session.');
         }
       } finally {
         if (!cancelled) {
@@ -188,7 +188,7 @@ export function SoloPage() {
         }
       } catch {
         if (!cancelled) {
-          setError('Unable to load task detail.');
+          setError('Unable to load task detail. Retry the request or check the backend session.');
         }
       } finally {
         if (!cancelled) {
@@ -263,7 +263,7 @@ export function SoloPage() {
         navigate(`/solo?taskId=${detail.id}`);
       }
     } catch {
-      setError('Unable to start a solo run.');
+      setError('Unable to start a solo run. Retry the request or check the backend session.');
     } finally {
       setIsStarting(false);
     }
@@ -277,7 +277,7 @@ export function SoloPage() {
       const detail = await tasksApi.getTask(taskID);
       applyTaskDetail(detail);
     } catch {
-      setError('Unable to load task detail.');
+      setError('Unable to load task detail. Retry the request or check the backend session.');
     } finally {
       setIsLoadingTaskID(null);
     }
@@ -293,7 +293,7 @@ export function SoloPage() {
       const detail = await tasksApi.pauseTask(startedTask.id);
       applyTaskDetail(detail);
     } catch {
-      setError('Unable to pause task.');
+      setError('Unable to pause task. Retry the request or check the backend session.');
     }
   };
 
@@ -309,7 +309,7 @@ export function SoloPage() {
       const detail = await tasksApi.startTask(startedTask.id);
       applyTaskDetail(detail);
     } catch {
-      setError('Unable to continue task.');
+      setError('Unable to continue task. Retry the request or check the backend session.');
     } finally {
       setIsLoadingTaskID(null);
     }
@@ -327,7 +327,7 @@ export function SoloPage() {
       const detail = await tasksApi.approveTask(startedTask.id);
       applyTaskDetail(detail);
     } catch {
-      setError('Unable to approve task plan.');
+      setError('Unable to approve task plan. Retry the request or check the backend session.');
     } finally {
       setIsLoadingTaskID(null);
     }
@@ -343,7 +343,7 @@ export function SoloPage() {
       const detail = await tasksApi.resumeTask(startedTask.id);
       applyTaskDetail(detail);
     } catch {
-      setError('Unable to resume task.');
+      setError('Unable to resume task. Retry the request or check the backend session.');
     }
   };
 
@@ -357,7 +357,7 @@ export function SoloPage() {
       const detail = await tasksApi.cancelTask(startedTask.id);
       applyTaskDetail(detail);
     } catch {
-      setError('Unable to cancel task.');
+      setError('Unable to cancel task. Retry the request or check the backend session.');
     }
   };
 
@@ -373,7 +373,7 @@ export function SoloPage() {
       const detail = await tasksApi.startTask(startedTask.id);
       applyTaskDetail(detail);
     } catch {
-      setError('Unable to retry task.');
+      setError('Unable to retry task. Retry the request or check the backend session.');
     } finally {
       setIsLoadingTaskID(null);
     }
@@ -394,7 +394,7 @@ export function SoloPage() {
       });
       applyTaskDetail(detail);
     } catch {
-      setError('Unable to update task budget.');
+      setError('Unable to update task budget. Retry the request or check the backend session.');
     } finally {
       setIsLoadingTaskID(null);
     }
@@ -426,7 +426,7 @@ export function SoloPage() {
       });
       navigate(`/chat/${conversation.id}`);
     } catch {
-      setError('Unable to continue this task in chat.');
+      setError('Unable to continue this task in chat. Retry the request or check the backend session.');
     } finally {
       setIsLoadingTaskID(null);
     }

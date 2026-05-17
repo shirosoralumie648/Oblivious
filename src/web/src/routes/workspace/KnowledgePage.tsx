@@ -85,7 +85,7 @@ export function KnowledgePage() {
           setKnowledgeBaseName('');
           resetDocumentEditor();
           resetKnowledgeRetrieval();
-          setError('Unable to load knowledge bases.');
+          setError('Unable to load workspace data. Retry the request or check the backend session.');
         }
       } finally {
         if (!cancelled) {
@@ -115,7 +115,7 @@ export function KnowledgePage() {
       setKnowledgeBases((current) => [createdKnowledgeBase, ...current]);
       setKnowledgeBaseName('');
     } catch {
-      setError('Unable to create knowledge base.');
+      setError('Unable to create knowledge base. Retry the request or check the backend session.');
     } finally {
       setIsCreating(false);
     }
@@ -142,7 +142,7 @@ export function KnowledgePage() {
         current.map((knowledgeBase) => (knowledgeBase.id === updatedKnowledgeBase.id ? updatedKnowledgeBase : knowledgeBase))
       );
     } catch {
-      setError('Unable to update knowledge base.');
+      setError('Unable to update knowledge base. Retry the request or check the backend session.');
     } finally {
       setIsSavingKnowledgeBase(false);
     }
@@ -160,7 +160,7 @@ export function KnowledgePage() {
       await knowledgeApi.deleteKnowledgeBase(knowledgeBaseId);
       navigate('/knowledge');
     } catch {
-      setError('Unable to delete knowledge base.');
+      setError('Unable to delete knowledge base. Retry the request or check the backend session.');
     } finally {
       setIsDeletingKnowledgeBase(false);
     }
@@ -185,7 +185,7 @@ export function KnowledgePage() {
       setRetrievalResults(nextResults);
       setHasRetrievedKnowledge(true);
     } catch {
-      setError('Unable to retrieve knowledge.');
+      setError('Unable to retrieve knowledge. Retry the request or check the backend session.');
     } finally {
       setIsRetrievingKnowledge(false);
     }
@@ -233,7 +233,11 @@ export function KnowledgePage() {
       resetKnowledgeRetrieval();
       resetDocumentEditor();
     } catch {
-      setError(editingDocumentId ? 'Unable to update knowledge document.' : 'Unable to create knowledge document.');
+      setError(
+        editingDocumentId
+          ? 'Unable to update knowledge document. Retry the request or check the backend session.'
+          : 'Unable to create knowledge document. Retry the request or check the backend session.'
+      );
     } finally {
       setIsSavingDocument(false);
     }
@@ -269,7 +273,7 @@ export function KnowledgePage() {
         resetDocumentEditor();
       }
     } catch {
-      setError('Unable to delete knowledge document.');
+      setError('Unable to delete knowledge document. Retry the request or check the backend session.');
     } finally {
       setIsDeletingDocumentId(null);
     }
