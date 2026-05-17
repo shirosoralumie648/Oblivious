@@ -1,6 +1,7 @@
-# syntax=docker/dockerfile:1
+ARG NODE_IMAGE=node:20-bookworm-slim
+ARG NGINX_IMAGE=nginx:1.27-alpine
 
-FROM node:20-bookworm-slim AS builder
+FROM ${NODE_IMAGE} AS builder
 
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
@@ -17,7 +18,7 @@ RUN --mount=type=cache,target=/pnpm/store pnpm install --frozen-lockfile
 COPY src/web ./src/web
 RUN pnpm --dir src/web build
 
-FROM nginx:1.27-alpine AS runtime
+FROM ${NGINX_IMAGE} AS runtime
 
 COPY --from=builder /workspace/src/web/dist /usr/share/nginx/html
 

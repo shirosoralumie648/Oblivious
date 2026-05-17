@@ -35,6 +35,26 @@ jobs:
       - name: Run web tests
         run: bash scripts/test.sh web
 
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.6.0
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install Chromium for Playwright
+        run: pnpm --dir src/web exec playwright install --with-deps chromium
+      - name: Run Admin and Marketplace E2E
+        run: pnpm --dir src/web test:e2e
+
   server:
     runs-on: ubuntu-latest
     steps:

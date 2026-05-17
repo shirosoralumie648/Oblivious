@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16
+    image: ${OBLIVIOUS_IMAGE_REGISTRY_PREFIX:-}postgres:16
     environment:
       POSTGRES_DB: oblivious
       POSTGRES_USER: oblivious
@@ -14,7 +14,7 @@ services:
       - oblivious-postgres-data:/var/lib/postgresql/data
 
   redis:
-    image: redis:7
+    image: ${OBLIVIOUS_IMAGE_REGISTRY_PREFIX:-}redis:7
     command: ["redis-server", "--appendonly", "yes"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -28,6 +28,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.server
+      args:
+        GO_IMAGE: ${OBLIVIOUS_IMAGE_REGISTRY_PREFIX:-}golang:1.25-bookworm
+        ALPINE_IMAGE: ${OBLIVIOUS_IMAGE_REGISTRY_PREFIX:-}alpine:3.21
+        GOPROXY: ${OBLIVIOUS_GOPROXY:-https://proxy.golang.org,direct}
+        GOSUMDB: ${OBLIVIOUS_GOSUMDB:-sum.golang.org}
     depends_on:
       postgres:
         condition: service_healthy
@@ -61,6 +66,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.web
+      args:
+        NODE_IMAGE: ${OBLIVIOUS_IMAGE_REGISTRY_PREFIX:-}node:20-bookworm-slim
+        NGINX_IMAGE: ${OBLIVIOUS_IMAGE_REGISTRY_PREFIX:-}nginx:1.27-alpine
     depends_on:
       oblivious-server:
         condition: service_healthy
