@@ -49,8 +49,8 @@ When `TEST_DATABASE_URL` is set, the evidence must include the exact value class
 ## Known accepted debt
 
 - Phase 01 has a missing `SUMMARY.md` artifact tracked as backlog 999.1.
-- Legacy `src/web/src/routes/workspace/MarketplacePage.tsx` cleanup is tracked as backlog 999.2 because `/marketplace` now routes through the active Marketplace route tree.
-- Future milestone close should decide whether `.planning/REQUIREMENTS.md` stays as cross-phase context or resets per milestone.
+- Legacy `src/web/src/routes/workspace/MarketplacePage.tsx` cleanup was resolved in Phase 999.2; `/marketplace` routes through the active Marketplace route tree.
+- Future milestone close policy is recorded in Phase 999.2: `.planning/REQUIREMENTS.md` stays as cross-phase context while milestone snapshots are archived separately.
 
 ## Manual Release Review
 

@@ -104,6 +104,13 @@
 | DOC-02 | Phase 8 — Contract Docs and Release Verification | Complete |
 | VERIFY-01 | Phase 8 — Contract Docs and Release Verification | Complete |
 
+### Living Close Policy
+
+- `.planning/REQUIREMENTS.md` remains the living cross-phase context file for this repository.
+- Milestone completion archives requirements snapshots under `.planning/milestones/`.
+- Future milestone completion must not reset or delete this living file unless a dedicated GSD policy migration explicitly owns that change.
+- Historical traceability cleanup should use additive rows or notes, not broad rewrites of completed requirements.
+
 **Coverage:**
 - Completed historical requirements: 46
 - Completed v03.3 requirements: 7
@@ -112,4 +119,4 @@
 - Unmapped v03.3 requirements: 0 ✓
 
 ---
-*Requirements updated: 2026-05-17 after Phase 8 verification and backlog closeout*
+*Requirements updated: 2026-05-18 after Phase 999.2 living close policy*

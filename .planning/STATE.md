@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v03.3
 milestone_name: Mainline Consolidation
-status: executing
-stopped_at: Phase 999.2 planning complete -- ready to execute Phase 999.2
-last_updated: "2026-05-17T16:21:08.409Z"
-last_activity: 2026-05-18 -- Phase 999.2 planning complete
+status: verifying
+stopped_at: Phase 999.2 execution complete -- ready to verify Phase 999.2
+last_updated: "2026-05-18T09:14:01+08:00"
+last_activity: 2026-05-18 -- Phase 999.2 execution complete
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 12
-  completed_plans: 11
-  percent: 83
+  completed_plans: 12
+  percent: 100
 ---
 
 # STATE.md
@@ -26,16 +26,16 @@ See: `.planning/PROJECT.md` (updated 2026-05-14)
 
 ## Current Status
 
-**Milestone v03.3: Mainline Consolidation - PHASE 999.2 READY TO EXECUTE**
+**Milestone v03.3: Mainline Consolidation - PHASE 999.2 READY TO VERIFY**
 
-Phase 8 is complete. Phase 999.1 reconstructed the missing Phase 01 summary artifact from existing Phase 01 planning and verification evidence. Phase 999.2 now has one execution plan for the obsolete workspace MarketplacePage cleanup and living REQUIREMENTS.md closeout policy.
+Phase 8 is complete. Phase 999.1 reconstructed the missing Phase 01 summary artifact from existing Phase 01 planning and verification evidence. Phase 999.2 executed the obsolete workspace MarketplacePage cleanup, recorded the living REQUIREMENTS.md closeout policy, and is ready for verification.
 
 ## Current Position
 
 Phase: 999.2
-Plan: 1/1 planned
-Status: Ready to execute
-Last activity: 2026-05-18 -- Phase 999.2 planning complete
+Plan: 1/1 executed
+Status: Ready to verify
+Last activity: 2026-05-18 -- Phase 999.2 execution complete
 
 ## Current Scope
 
@@ -108,17 +108,17 @@ Items acknowledged before v03.3:
 | Category | Item | Status |
 |----------|------|--------|
 | planning | Phase 01 missing SUMMARY artifact | Resolved in Phase 999.1 |
-| cleanup | Legacy workspace MarketplacePage no longer routed by `/marketplace` | Planned in Phase 999.2; ready for execution |
-| workflow | Decide whether `.planning/REQUIREMENTS.md` should be reset on future milestone closes in this repo | Planned in Phase 999.2; ready for execution |
+| cleanup | Legacy workspace MarketplacePage no longer routed by `/marketplace` | Resolved in Phase 999.2; orphaned workspace file deleted after reference audit |
+| workflow | Decide whether `.planning/REQUIREMENTS.md` should be reset on future milestone closes in this repo | Resolved in Phase 999.2; living cross-phase policy recorded in `.planning/REQUIREMENTS.md` |
 
 ## Next Suggested Step
 
-Run `$gsd:execute-phase 999.2` to execute the accepted Phase 03.1 cleanup debt follow-up.
+Run `$gsd:verify-work` to verify the Phase 999.2 cleanup-policy follow-up.
 
 ## Session
 
-Stopped At: Phase 999.2 planning complete -- ready to execute Phase 999.2
-Resume File: .planning/phases/999.2-follow-up-phase-03-1-accepted-cleanup-debt-backlog/999.2-01-PLAN.md
+Stopped At: Phase 999.2 execution complete -- ready to verify Phase 999.2
+Resume File: .planning/phases/999.2-follow-up-phase-03-1-accepted-cleanup-debt-backlog/999.2-01-SUMMARY.md
 
 ## Context Files
 
@@ -175,6 +175,7 @@ Resume File: .planning/phases/999.2-follow-up-phase-03-1-accepted-cleanup-debt-b
 | 2026-05-17 | Backlog 999.1 resolved | Phase 01 missing `SUMMARY.md` was reconstructed from `PLAN.md` and `VERIFICATION.md`; Phase 999.2 remains separate |
 | 2026-05-17 | Phase 999.2 context gathered | Cleanup defaults are locked: delete orphaned workspace MarketplacePage if safe, archive as fallback, keep living `.planning/REQUIREMENTS.md` with milestone snapshots |
 | 2026-05-18 | Phase 999.2 planning complete | One execution plan covers orphaned MarketplacePage cleanup, living requirements policy, and backlog traceability closeout |
+| 2026-05-18 | Phase 999.2 execution complete | Deleted orphaned workspace MarketplacePage, recorded living `.planning/REQUIREMENTS.md` policy, and routed next step to verification |
 
 ---
-*State updated: 2026-05-18 after Phase 999.2 planning*
+*State updated: 2026-05-18 after Phase 999.2 execution*
