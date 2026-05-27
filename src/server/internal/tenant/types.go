@@ -45,3 +45,74 @@ type OrganizationUpdate struct {
 	Status   *string
 	Metadata map[string]any
 }
+
+const (
+	RoleOwner  = "owner"
+	RoleAdmin  = "admin"
+	RoleMember = "member"
+
+	InvitationPending  = "pending"
+	InvitationAccepted = "accepted"
+	InvitationRevoked  = "revoked"
+	InvitationExpired  = "expired"
+)
+
+type Actor struct {
+	UserID    string
+	Email     string
+	IPAddress string
+}
+
+type Membership struct {
+	ID               string     `json:"id"`
+	OrganizationID   string     `json:"organizationID"`
+	OrganizationSlug string     `json:"organizationSlug,omitempty"`
+	OrganizationName string     `json:"organizationName,omitempty"`
+	UserID           string     `json:"userID"`
+	UserEmail        string     `json:"userEmail,omitempty"`
+	Role             string     `json:"role"`
+	CreatedByUserID  *string    `json:"createdByUserID,omitempty"`
+	CreatedAt        time.Time  `json:"createdAt"`
+	UpdatedAt        time.Time  `json:"updatedAt"`
+	RemovedAt        *time.Time `json:"removedAt,omitempty"`
+}
+
+type Invitation struct {
+	ID               string     `json:"id"`
+	OrganizationID   string     `json:"organizationID"`
+	Email            string     `json:"email"`
+	Role             string     `json:"role"`
+	Token            string     `json:"token,omitempty"`
+	TokenHash        string     `json:"-"`
+	Status           string     `json:"status"`
+	InvitedByUserID  string     `json:"invitedByUserID"`
+	AcceptedByUserID *string    `json:"acceptedByUserID,omitempty"`
+	ExpiresAt        time.Time  `json:"expiresAt"`
+	AcceptedAt       *time.Time `json:"acceptedAt,omitempty"`
+	RevokedAt        *time.Time `json:"revokedAt,omitempty"`
+	CreatedAt        time.Time  `json:"createdAt"`
+	UpdatedAt        time.Time  `json:"updatedAt"`
+}
+
+type InviteMemberRequest struct {
+	Email string `json:"email"`
+	Role  string `json:"role"`
+}
+
+type UpdateMemberRoleRequest struct {
+	Role string `json:"role"`
+}
+
+type TransferOwnershipRequest struct {
+	NewOwnerUserID string `json:"newOwnerUserID"`
+}
+
+type AuditRecord struct {
+	ActorID      string
+	ActorEmail   string
+	Action       string
+	ResourceType string
+	ResourceID   string
+	Changes      string
+	IPAddress    string
+}

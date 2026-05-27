@@ -243,6 +243,42 @@ func (s *fakeStore) ArchiveOrganization(ctx context.Context, id string) (*Organi
 	return nil, nil
 }
 
+func (s *fakeStore) ListMembershipsForUser(ctx context.Context, userID string) ([]*Membership, error) {
+	return nil, nil
+}
+
+func (s *fakeStore) ListOrganizationMembers(ctx context.Context, organizationID string) ([]*Membership, error) {
+	return nil, nil
+}
+
+func (s *fakeStore) GetActiveMembership(ctx context.Context, organizationID, userID string) (*Membership, error) {
+	return nil, nil
+}
+
+func (s *fakeStore) CreateInvitation(ctx context.Context, invitation *Invitation, audit AuditRecord) (*Invitation, error) {
+	return invitation, nil
+}
+
+func (s *fakeStore) GetInvitationByTokenHash(ctx context.Context, tokenHash string) (*Invitation, error) {
+	return nil, nil
+}
+
+func (s *fakeStore) AcceptInvitation(ctx context.Context, invitation *Invitation, userID string, audit AuditRecord) (*Membership, error) {
+	return nil, nil
+}
+
+func (s *fakeStore) UpdateMemberRole(ctx context.Context, organizationID, userID, role string, audit AuditRecord) (*Membership, error) {
+	return nil, nil
+}
+
+func (s *fakeStore) RemoveMember(ctx context.Context, organizationID, userID string, audit AuditRecord) error {
+	return nil
+}
+
+func (s *fakeStore) TransferOwnership(ctx context.Context, organizationID, currentOwnerUserID, newOwnerUserID string, audit AuditRecord) error {
+	return nil
+}
+
 func testTenantDatabase(t *testing.T) *sql.DB {
 	t.Helper()
 
@@ -261,8 +297,22 @@ func testTenantDatabase(t *testing.T) *sql.DB {
 	t.Cleanup(func() {
 		database.Close()
 	})
+	lockIntegrationTestDatabase(t, database)
 
 	return database
+}
+
+func lockIntegrationTestDatabase(t *testing.T, database *sql.DB) {
+	t.Helper()
+
+	if _, err := database.Exec(`SELECT pg_advisory_lock(104210)`); err != nil {
+		t.Fatalf("lock integration test database: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := database.Exec(`SELECT pg_advisory_unlock(104210)`); err != nil {
+			t.Fatalf("unlock integration test database: %v", err)
+		}
+	})
 }
 
 func resetTenantTestTables(t *testing.T, database *sql.DB) {
@@ -294,6 +344,10 @@ func resetTenantSecurityTestTables(t *testing.T, database *sql.DB) {
 	t.Helper()
 
 	statements := []string{
+		`DROP TABLE IF EXISTS password_reset_tokens`,
+		`DROP TABLE IF EXISTS auth_rate_limits`,
+		`DROP TABLE IF EXISTS sessions`,
+		`DROP TABLE IF EXISTS workspaces`,
 		`DROP TABLE IF EXISTS organization_invitations`,
 		`DROP TABLE IF EXISTS organization_memberships`,
 		`DROP TABLE IF EXISTS audit_logs`,

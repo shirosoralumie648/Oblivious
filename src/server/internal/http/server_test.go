@@ -45,8 +45,16 @@ func testDatabase(t *testing.T) *sql.DB {
 	if err := database.Ping(); err != nil {
 		t.Fatalf("ping database: %v", err)
 	}
+	t.Cleanup(func() {
+		database.Close()
+	})
+	lockIntegrationTestDatabase(t, database)
 
 	statements := []string{
+		`DROP TABLE IF EXISTS organization_invitations`,
+		`DROP TABLE IF EXISTS organization_memberships`,
+		`DROP TABLE IF EXISTS password_reset_tokens`,
+		`DROP TABLE IF EXISTS auth_rate_limits`,
 		`DROP TABLE IF EXISTS usage_records`,
 		`DROP TABLE IF EXISTS notifications`,
 		`DROP TABLE IF EXISTS knowledge_document_chunks`,
@@ -81,11 +89,20 @@ func testDatabase(t *testing.T) *sql.DB {
 		}
 	}
 
-	t.Cleanup(func() {
-		database.Close()
-	})
-
 	return database
+}
+
+func lockIntegrationTestDatabase(t *testing.T, database *sql.DB) {
+	t.Helper()
+
+	if _, err := database.Exec(`SELECT pg_advisory_lock(104210)`); err != nil {
+		t.Fatalf("lock integration test database: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := database.Exec(`SELECT pg_advisory_unlock(104210)`); err != nil {
+			t.Fatalf("unlock integration test database: %v", err)
+		}
+	})
 }
 
 func TestHealthz(t *testing.T) {

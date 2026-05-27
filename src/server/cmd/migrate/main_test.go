@@ -103,8 +103,22 @@ func testMigrationDatabase(t *testing.T) *sql.DB {
 	t.Cleanup(func() {
 		database.Close()
 	})
+	lockIntegrationTestDatabase(t, database)
 
 	return database
+}
+
+func lockIntegrationTestDatabase(t *testing.T, database *sql.DB) {
+	t.Helper()
+
+	if _, err := database.Exec(`SELECT pg_advisory_lock(104210)`); err != nil {
+		t.Fatalf("lock integration test database: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := database.Exec(`SELECT pg_advisory_unlock(104210)`); err != nil {
+			t.Fatalf("unlock integration test database: %v", err)
+		}
+	})
 }
 
 func resetMigrationTestTables(t *testing.T, database *sql.DB) {

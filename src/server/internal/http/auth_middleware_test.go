@@ -27,6 +27,10 @@ func (s stubAuthStore) CreateSessionForUser(context.Context, string, string) (au
 	panic("unexpected CreateSessionForUser call")
 }
 
+func (s stubAuthStore) CreatePasswordResetToken(context.Context, string, string, time.Time) (bool, error) {
+	panic("unexpected CreatePasswordResetToken call")
+}
+
 func (s stubAuthStore) DeleteSession(context.Context, string) error {
 	panic("unexpected DeleteSession call")
 }
@@ -41,6 +45,22 @@ func (s stubAuthStore) GetSession(_ context.Context, sessionID string) (auth.Ses
 	}
 
 	return s.session, nil
+}
+
+func (s stubAuthStore) ConfirmPasswordReset(context.Context, string, string) error {
+	panic("unexpected ConfirmPasswordReset call")
+}
+
+func (s stubAuthStore) UseRateLimit(context.Context, string, string, auth.RateLimitPolicy, time.Time) error {
+	panic("unexpected UseRateLimit call")
+}
+
+func (s stubAuthStore) RotateSession(context.Context, string) (auth.Session, error) {
+	panic("unexpected RotateSession call")
+}
+
+func (s stubAuthStore) RevokeUserSessions(context.Context, string, string) error {
+	panic("unexpected RevokeUserSessions call")
 }
 
 func TestSetSessionCookieSignsSessionID(t *testing.T) {

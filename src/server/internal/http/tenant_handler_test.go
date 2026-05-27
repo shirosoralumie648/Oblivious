@@ -148,3 +148,39 @@ func (s *fakeTenantStore) ArchiveOrganization(ctx context.Context, id string) (*
 	org.ArchivedAt = &now
 	return org, nil
 }
+
+func (s *fakeTenantStore) ListMembershipsForUser(ctx context.Context, userID string) ([]*tenant.Membership, error) {
+	return nil, nil
+}
+
+func (s *fakeTenantStore) ListOrganizationMembers(ctx context.Context, organizationID string) ([]*tenant.Membership, error) {
+	return nil, nil
+}
+
+func (s *fakeTenantStore) GetActiveMembership(ctx context.Context, organizationID, userID string) (*tenant.Membership, error) {
+	return nil, nil
+}
+
+func (s *fakeTenantStore) CreateInvitation(ctx context.Context, invitation *tenant.Invitation, audit tenant.AuditRecord) (*tenant.Invitation, error) {
+	return invitation, nil
+}
+
+func (s *fakeTenantStore) GetInvitationByTokenHash(ctx context.Context, tokenHash string) (*tenant.Invitation, error) {
+	return nil, nil
+}
+
+func (s *fakeTenantStore) AcceptInvitation(ctx context.Context, invitation *tenant.Invitation, userID string, audit tenant.AuditRecord) (*tenant.Membership, error) {
+	return nil, nil
+}
+
+func (s *fakeTenantStore) UpdateMemberRole(ctx context.Context, organizationID, userID, role string, audit tenant.AuditRecord) (*tenant.Membership, error) {
+	return nil, nil
+}
+
+func (s *fakeTenantStore) RemoveMember(ctx context.Context, organizationID, userID string, audit tenant.AuditRecord) error {
+	return nil
+}
+
+func (s *fakeTenantStore) TransferOwnership(ctx context.Context, organizationID, currentOwnerUserID, newOwnerUserID string, audit tenant.AuditRecord) error {
+	return nil
+}

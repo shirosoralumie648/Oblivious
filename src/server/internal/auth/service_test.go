@@ -103,14 +103,32 @@ func testAuthDatabase(t *testing.T) *sql.DB {
 	t.Cleanup(func() {
 		database.Close()
 	})
+	lockIntegrationTestDatabase(t, database)
 
 	return database
+}
+
+func lockIntegrationTestDatabase(t *testing.T, database *sql.DB) {
+	t.Helper()
+
+	if _, err := database.Exec(`SELECT pg_advisory_lock(104210)`); err != nil {
+		t.Fatalf("lock integration test database: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := database.Exec(`SELECT pg_advisory_unlock(104210)`); err != nil {
+			t.Fatalf("unlock integration test database: %v", err)
+		}
+	})
 }
 
 func resetAuthSecurityTestTables(t *testing.T, database *sql.DB) {
 	t.Helper()
 
 	statements := []string{
+		`DROP TABLE IF EXISTS organization_invitations`,
+		`DROP TABLE IF EXISTS organization_memberships`,
+		`DROP TABLE IF EXISTS audit_logs`,
+		`DROP TABLE IF EXISTS organizations`,
 		`DROP TABLE IF EXISTS password_reset_tokens`,
 		`DROP TABLE IF EXISTS auth_rate_limits`,
 		`DROP TABLE IF EXISTS sessions`,

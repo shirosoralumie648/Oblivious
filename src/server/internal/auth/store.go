@@ -11,6 +11,7 @@ import (
 )
 
 func (s *SQLStore) CreateUserWithWorkspace(ctx context.Context, email, passwordHash string) (Session, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
 	userID, err := NewID("user")
 	if err != nil {
 		return Session{}, err
@@ -58,6 +59,7 @@ func (s *SQLStore) CreateUserWithWorkspace(ctx context.Context, email, passwordH
 }
 
 func (s *SQLStore) CreateSessionForUser(ctx context.Context, email, password string) (Session, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
 	var storedPassword string
 	var userID string
 	var userRole string
@@ -182,6 +184,149 @@ func (s *SQLStore) GetSession(ctx context.Context, sessionID string) (Session, e
 	session.User.Name, session.User.Role = normalizeUserFields(session.User.Email, userName.String, userRole.String)
 
 	return session, nil
+}
+
+func (s *SQLStore) CreatePasswordResetToken(ctx context.Context, email, tokenHash string, expiresAt time.Time) (bool, error) {
+	var userID string
+	if err := s.db.QueryRowContext(ctx, `SELECT id FROM users WHERE email = $1`, email).Scan(&userID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	tokenID, err := NewID("reset")
+	if err != nil {
+		return false, err
+	}
+	if _, err := s.db.ExecContext(ctx, `
+		INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at)
+		VALUES ($1, $2, $3, $4)
+	`, tokenID, userID, tokenHash, expiresAt); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (s *SQLStore) ConfirmPasswordReset(ctx context.Context, tokenHash, passwordHash string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var userID string
+	if err := tx.QueryRowContext(ctx, `
+		SELECT user_id
+		FROM password_reset_tokens
+		WHERE token_hash = $1 AND used_at IS NULL AND expires_at > NOW()
+		FOR UPDATE
+	`, tokenHash).Scan(&userID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrInvalidResetToken
+		}
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE users SET password_hash = $2 WHERE id = $1`, userID, passwordHash); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE password_reset_tokens SET used_at = NOW() WHERE token_hash = $1`, tokenHash); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = $1`, userID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *SQLStore) UseRateLimit(ctx context.Context, scope, key string, policy RateLimitPolicy, now time.Time) error {
+	var windowStart time.Time
+	var attempts int
+	var blockedUntil sql.NullTime
+	err := s.db.QueryRowContext(ctx, `
+		SELECT window_start, attempts, blocked_until
+		FROM auth_rate_limits
+		WHERE scope = $1 AND key = $2
+	`, scope, key).Scan(&windowStart, &attempts, &blockedUntil)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if blockedUntil.Valid && blockedUntil.Time.After(now) {
+		return ErrRateLimited
+	}
+	if errors.Is(err, sql.ErrNoRows) || now.Sub(windowStart) >= policy.Window {
+		_, execErr := s.db.ExecContext(ctx, `
+			INSERT INTO auth_rate_limits (scope, key, window_start, attempts, blocked_until, updated_at)
+			VALUES ($1, $2, $3, 1, NULL, $3)
+			ON CONFLICT (scope, key) DO UPDATE SET
+				window_start = EXCLUDED.window_start,
+				attempts = 1,
+				blocked_until = NULL,
+				updated_at = EXCLUDED.updated_at
+		`, scope, key, now)
+		return execErr
+	}
+	attempts++
+	if attempts > policy.Limit {
+		_, execErr := s.db.ExecContext(ctx, `
+			UPDATE auth_rate_limits
+			SET attempts = $3, blocked_until = $4, updated_at = $5
+			WHERE scope = $1 AND key = $2
+		`, scope, key, attempts, now.Add(policy.BlockDuration), now)
+		if execErr != nil {
+			return execErr
+		}
+		return ErrRateLimited
+	}
+	_, err = s.db.ExecContext(ctx, `
+		UPDATE auth_rate_limits
+		SET attempts = $3, updated_at = $4
+		WHERE scope = $1 AND key = $2
+	`, scope, key, attempts, now)
+	return err
+}
+
+func (s *SQLStore) RotateSession(ctx context.Context, sessionID string) (Session, error) {
+	var userID string
+	var workspaceID string
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT user_id, workspace_id
+		FROM sessions
+		WHERE id = $1 AND expires_at > NOW()
+	`, sessionID).Scan(&userID, &workspaceID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Session{}, ErrSessionNotFound
+		}
+		return Session{}, err
+	}
+	newSessionID, err := NewID("session")
+	if err != nil {
+		return Session{}, err
+	}
+	expiresAt := time.Now().Add(24 * time.Hour)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Session{}, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE id = $1`, sessionID); err != nil {
+		return Session{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO sessions (id, user_id, workspace_id, expires_at) VALUES ($1, $2, $3, $4)`, newSessionID, userID, workspaceID, expiresAt); err != nil {
+		return Session{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Session{}, err
+	}
+	return s.GetSession(ctx, newSessionID)
+}
+
+func (s *SQLStore) RevokeUserSessions(ctx context.Context, userID, exceptSessionID string) error {
+	if exceptSessionID == "" {
+		_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = $1`, userID)
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = $1 AND id <> $2`, userID, exceptSessionID)
+	return err
 }
 
 func normalizeUserFields(email, name, role string) (string, string) {
