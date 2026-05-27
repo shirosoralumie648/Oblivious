@@ -21,11 +21,11 @@ Oblivious 是一个多租户 AI 平台，整合 LobeHub（C 端体验）和 New-
 - Append-only migration ledger and DB-backed CI integration guarantee.
 - Commercial gate documentation that prevents future milestones from claiming commercial readiness without evidence.
 
-## Current State: v04 Phase 12 Ready To Execute
+## Current State: v04 Commercial Foundation Complete
 
 Milestone v03.3 Mainline Consolidation is complete. Phase 8 reconciled contract docs and release verification, Phase 999.1 reconstructed the missing Phase 01 summary, and Phase 999.2 verified the obsolete workspace MarketplacePage cleanup plus the living requirements close policy.
 
-The commercial complete target is defined in `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`. That spec explicitly says the prior release-candidate state is not the final product. Phase 9 completed first-class organization tenants and the migration ledger. Phase 10 completed memberships, roles, invitations, revoke/accept flows, ownership transfer, CSRF, rate limits, password policy, and session rotation/revocation. Phase 11 completed tenant scope across core domains and DB-backed cross-tenant denial tests. Phase 12 now has an executable plan for reproducible CI and commercial gate evidence.
+The commercial complete target is defined in `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`. That spec explicitly says the prior release-candidate state is not the final product. v04 Commercial Foundation is complete: Phase 9 completed first-class organization tenants and the migration ledger, Phase 10 completed memberships/auth security, Phase 11 completed tenant scope across core domains, and Phase 12 completed reproducible DB-backed CI and commercial gate evidence. The next commercial-program milestone is v05 Relay Billing Completeness.
 
 ## Requirements
 
@@ -53,11 +53,12 @@ The commercial complete target is defined in `docs/superpowers/specs/2026-05-27-
 - ✓ SEC-01 — Cookie-authenticated mutating routes require CSRF protection
 - ✓ SEC-02 — Login, registration, password reset, and sensitive admin/organization actions are rate limited
 - ✓ SEC-03 — Password policy and session rotation are enforced
+- ✓ CI-01 — CI server job runs DB-backed HTTP integration tests instead of silently skipping persistence coverage
+- ✓ DOC-03 — Commercial gate documentation defines what must be true before any future milestone can claim commercial readiness
 
 ### Active
 
-- [ ] **CI-01**: CI server job runs DB-backed HTTP integration tests instead of silently skipping persistence coverage.
-- [ ] **DOC-03**: Commercial gate documentation defines what must be true before any future milestone can claim commercial readiness.
+No active v04 requirements remain. v05-v08 future requirements remain active for the full commercial-complete program.
 
 ### Out of Scope For v04
 
@@ -87,7 +88,7 @@ Go Backend (Gin)
 - v03.1 已交付可用 Admin UI 与 Marketplace UI。
 - v03.2 已完成质量、E2E、文档和 Docker 部署 smoke 收口。
 - v03.3 已完成主线整合、文档对齐、发布验证和两个历史 cleanup backlog。
-- v04 现在是活动里程碑；Phase 9 Tenant Model and Migration Ledger、Phase 10 Membership, Roles, and Auth Security、Phase 11 Tenant Scope Across Core Domains 已完成，下一步是执行 Phase 12 Commercial Gate CI and Evidence。
+- v04 Commercial Foundation 已完成；下一步是启动 v05 Relay Billing Completeness。
 - 直接 Docker Hub / 默认 Go module 路径在本机网络仍不稳定；受限网络验证命令继续作为部署 smoke 的已验证本地路径。
 - `kubectl` 未安装，因此 Kubernetes 仍属于后续 v07 Production Operations 的未验证范围。
 
@@ -111,11 +112,11 @@ Go Backend (Gin)
 | Docker compose runtime path satisfies DEPLOY-01 | Requirement accepted one real Docker or Kubernetes runtime path | ✓ Good — compose build/start/smoke passed; Kubernetes remains later |
 | Preserve living REQUIREMENTS.md | This repo uses it for cross-phase context and archives milestone snapshots separately | ✓ Good — Phase 999.2 recorded this policy |
 | Commercial target is a milestone program, not one giant phase | Tenant/security, Relay billing, money movement, operations, and product completeness have hard dependencies | Active — v04 through v08 decomposes the work |
-| v04 starts with tenant/security foundation | Billing, Marketplace payouts, and production ops need tenant identity and isolation first | Active — Phase 9 completed tenant model and migration ledger; Phase 10 completed membership/auth security |
+| v04 starts with tenant/security foundation | Billing, Marketplace payouts, and production ops need tenant identity and isolation first | ✓ Good — v04 completed tenant/security/migration/CI foundation |
 | v04 requirement `DOC-01` draft is recorded as `DOC-03` | Historical `DOC-01` and `DOC-02` already exist in living requirements | Active — avoids duplicate requirement IDs |
 | Phase 10 is the enforceable security boundary before tenant data scoping | Tenant-scoped data migration needs membership, roles, CSRF, rate limits, password policy, and session rotation first | ✓ Good — `.planning/phases/10-membership-roles-and-auth-security/10-01-SUMMARY.md` |
 | Phase 11 starts with session-derived active organization scope | Multi-organization users need a server-authoritative tenant before core data can be safely migrated | ✓ Good — `.planning/phases/11-tenant-scope-across-core-domains/11-01-SUMMARY.md` |
-| Phase 12 must preserve the commercial gate | v04 cannot claim commercial readiness just because tenant isolation now passes | Active — `.planning/phases/12-commercial-gate-ci-and-evidence/12-01-PLAN.md` |
+| Phase 12 must preserve the commercial gate | v04 cannot claim commercial readiness just because tenant isolation now passes | ✓ Good — `docs/release/commercial-gates.md` and `12-VERIFICATION.md` |
 
 ## Evolution
 
@@ -135,4 +136,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state.
 
 ---
-*Last updated: 2026-05-28 after planning Phase 12 Commercial Gate CI and Evidence*
+*Last updated: 2026-05-28 after completing v04 Commercial Foundation*

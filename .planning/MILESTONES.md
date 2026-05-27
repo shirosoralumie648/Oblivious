@@ -1,5 +1,46 @@
 # Project Milestones: Oblivious
 
+## v04 Commercial Foundation (Completed: 2026-05-28)
+
+**Delivered:** Tenant, identity, security, migration, CI, and evidence foundation for the commercial-complete program.
+
+**Phases completed:** Phase 9 through Phase 12.
+
+**Key accomplishments:**
+
+- Added first-class organization tenants and checksum-aware append-only migration ledger.
+- Added auditable memberships, roles, invitations, ownership transfer, CSRF, rate limits, password policy, and session rotation/revocation.
+- Applied organization tenant scope across Chat, Agent, Knowledge, Memory, MCP, Quota, Console, Admin audit data, and Marketplace publisher data.
+- Proved representative cross-tenant reads and writes fail under DB-backed HTTP integration tests.
+- Updated CI server tests to provision PostgreSQL and require DB-backed integration coverage.
+- Added commercial readiness gate documentation that prevents v04 from being mislabeled as final commercial completeness.
+
+**Verification:**
+
+- `if OBLIVIOUS_REQUIRE_TEST_DATABASE=true bash scripts/test.sh server; then echo "expected required-DB failure" >&2; exit 1; fi` passed as a required-DB negative smoke.
+- `bash scripts/test.sh server` passed with explicit local DB skip semantics.
+- `TEST_DATABASE_URL=... OBLIVIOUS_REQUIRE_TEST_DATABASE=true bash scripts/test.sh server` passed against local PostgreSQL.
+- `GOPROXY=... GOSUMDB=... TEST_DATABASE_URL=... bash scripts/test.sh all` passed: 32 web test files / 110 tests, server packages, and DB-backed HTTP integration.
+- `GOPROXY=... GOSUMDB=... TEST_DATABASE_URL=... bash scripts/check.sh all` passed: docs/assets, env consistency, workspace boundary, web build, and server release checks.
+
+**Known deferred items at close:**
+
+- v05 Relay Billing Completeness remains required.
+- v06 Billing And Marketplace Operations remains required.
+- v07 Production Operations remains required.
+- v08 Product Completeness remains required.
+- v04 completion is not final commercial readiness.
+
+**Archives:**
+
+- `.planning/milestones/v04-ROADMAP.md`
+- `.planning/milestones/v04-REQUIREMENTS.md`
+- `.planning/milestones/v04-STATE.md`
+
+**What's next:** Initialize v05 Relay Billing Completeness.
+
+---
+
 ## v03.3 Mainline Consolidation (Completed: 2026-05-27)
 
 **Delivered:** Mainline route/service/frontend/deployment/docs consolidation, release verification, and accepted cleanup debt closeout.
