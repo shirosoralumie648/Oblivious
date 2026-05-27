@@ -27,8 +27,10 @@ type Store interface {
 	ListOrganizationMembers(ctx context.Context, organizationID string) ([]*Membership, error)
 	GetActiveMembership(ctx context.Context, organizationID, userID string) (*Membership, error)
 	CreateInvitation(ctx context.Context, invitation *Invitation, audit AuditRecord) (*Invitation, error)
+	GetInvitation(ctx context.Context, organizationID, invitationID string) (*Invitation, error)
 	GetInvitationByTokenHash(ctx context.Context, tokenHash string) (*Invitation, error)
 	AcceptInvitation(ctx context.Context, invitation *Invitation, userID string, audit AuditRecord) (*Membership, error)
+	RevokeInvitation(ctx context.Context, organizationID, invitationID string, audit AuditRecord) (*Invitation, error)
 	UpdateMemberRole(ctx context.Context, organizationID, userID, role string, audit AuditRecord) (*Membership, error)
 	RemoveMember(ctx context.Context, organizationID, userID string, audit AuditRecord) error
 	TransferOwnership(ctx context.Context, organizationID, currentOwnerUserID, newOwnerUserID string, audit AuditRecord) error
@@ -203,6 +205,31 @@ func (s *Service) AcceptInvitation(ctx context.Context, actor Actor, rawToken st
 	return s.store.AcceptInvitation(ctx, invitation, actor.UserID, auditRecord(actor, "organization.member.accept", invitation.OrganizationID, map[string]any{
 		"email": invitation.Email,
 		"role":  invitation.Role,
+	}))
+}
+
+func (s *Service) RevokeInvitation(ctx context.Context, actor Actor, organizationID, invitationID string) (*Invitation, error) {
+	if err := s.requireOrganizationRole(ctx, organizationID, actor.UserID, RoleOwner, RoleAdmin); err != nil {
+		return nil, err
+	}
+	invitationID = strings.TrimSpace(invitationID)
+	if invitationID == "" {
+		return nil, errors.New("invitation id is required")
+	}
+	invitation, err := s.store.GetInvitation(ctx, organizationID, invitationID)
+	if err != nil {
+		return nil, err
+	}
+	if invitation == nil {
+		return nil, errors.New("invitation not found")
+	}
+	if invitation.Status != InvitationPending {
+		return nil, errors.New("invitation is not pending")
+	}
+	return s.store.RevokeInvitation(ctx, organizationID, invitationID, auditRecord(actor, "organization.member.invitation_revoke", organizationID, map[string]any{
+		"invitationID": invitationID,
+		"email":        invitation.Email,
+		"role":         invitation.Role,
 	}))
 }
 

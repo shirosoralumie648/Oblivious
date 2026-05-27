@@ -130,3 +130,24 @@ func (m authMiddleware) readSessionCookieValue(cookieValue string) (string, bool
 
 	return sessionID, true
 }
+
+func (m authMiddleware) csrfToken(sessionID string) string {
+	mac := hmac.New(sha256.New, []byte(m.config.SessionSecret))
+	mac.Write([]byte("csrf:" + sessionID))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func (m authMiddleware) validCSRFToken(sessionID, token string) bool {
+	if token == "" {
+		return false
+	}
+	expected, err := hex.DecodeString(m.csrfToken(sessionID))
+	if err != nil {
+		return false
+	}
+	provided, err := hex.DecodeString(token)
+	if err != nil {
+		return false
+	}
+	return hmac.Equal(provided, expected)
+}

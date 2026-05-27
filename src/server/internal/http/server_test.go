@@ -51,27 +51,36 @@ func testDatabase(t *testing.T) *sql.DB {
 	lockIntegrationTestDatabase(t, database)
 
 	statements := []string{
-		`DROP TABLE IF EXISTS organization_invitations`,
-		`DROP TABLE IF EXISTS organization_memberships`,
-		`DROP TABLE IF EXISTS password_reset_tokens`,
-		`DROP TABLE IF EXISTS auth_rate_limits`,
-		`DROP TABLE IF EXISTS usage_records`,
-		`DROP TABLE IF EXISTS notifications`,
-		`DROP TABLE IF EXISTS knowledge_document_chunks`,
-		`DROP TABLE IF EXISTS knowledge_documents`,
-		`DROP TABLE IF EXISTS conversation_knowledge_bindings`,
-		`DROP TABLE IF EXISTS knowledge_bases`,
-		`DROP TABLE IF EXISTS conversation_configs`,
-		`DROP TABLE IF EXISTS user_preferences`,
-		`DROP TABLE IF EXISTS messages`,
-		`DROP TABLE IF EXISTS conversations`,
-		`DROP TABLE IF EXISTS sessions`,
-		`DROP TABLE IF EXISTS workspaces`,
-		`DROP TABLE IF EXISTS organizations`,
-		`DROP TABLE IF EXISTS users`,
+		`DROP TABLE IF EXISTS organization_invitations CASCADE`,
+		`DROP TABLE IF EXISTS organization_memberships CASCADE`,
+		`DROP TABLE IF EXISTS password_reset_tokens CASCADE`,
+		`DROP TABLE IF EXISTS auth_rate_limits CASCADE`,
+		`DROP TABLE IF EXISTS audit_logs CASCADE`,
+		`DROP TABLE IF EXISTS usage_records CASCADE`,
+		`DROP TABLE IF EXISTS notifications CASCADE`,
+		`DROP TABLE IF EXISTS knowledge_document_chunks CASCADE`,
+		`DROP TABLE IF EXISTS knowledge_documents CASCADE`,
+		`DROP TABLE IF EXISTS conversation_knowledge_bindings CASCADE`,
+		`DROP TABLE IF EXISTS knowledge_bases CASCADE`,
+		`DROP TABLE IF EXISTS conversation_configs CASCADE`,
+		`DROP TABLE IF EXISTS user_preferences CASCADE`,
+		`DROP TABLE IF EXISTS messages CASCADE`,
+		`DROP TABLE IF EXISTS conversations CASCADE`,
+		`DROP TABLE IF EXISTS sessions CASCADE`,
+		`DROP TABLE IF EXISTS workspaces CASCADE`,
+		`DROP TABLE IF EXISTS organizations CASCADE`,
+		`DROP TABLE IF EXISTS users CASCADE`,
 		`CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'user', name TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), last_login_at TIMESTAMPTZ)`,
 		`CREATE TABLE workspaces (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, name TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE sessions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), expires_at TIMESTAMPTZ NOT NULL)`,
+		`CREATE TABLE auth_rate_limits (scope TEXT NOT NULL, key TEXT NOT NULL, window_start TIMESTAMPTZ NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, blocked_until TIMESTAMPTZ, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY (scope, key))`,
+		`CREATE TABLE password_reset_tokens (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, token_hash TEXT NOT NULL UNIQUE, expires_at TIMESTAMPTZ NOT NULL, used_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE TABLE audit_logs (id TEXT PRIMARY KEY, actor_id TEXT NOT NULL REFERENCES users(id), actor_email TEXT NOT NULL, action TEXT NOT NULL, resource_type TEXT NOT NULL, resource_id TEXT, changes JSONB, ip_address TEXT, user_agent TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE TABLE organizations (id TEXT PRIMARY KEY, slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', metadata JSONB NOT NULL DEFAULT '{}', created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), archived_at TIMESTAMPTZ, CHECK (status IN ('active', 'disabled', 'archived')))`,
+		`CREATE TABLE organization_memberships (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, role TEXT NOT NULL, created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), removed_at TIMESTAMPTZ, CHECK (role IN ('owner', 'admin', 'member')))`,
+		`CREATE UNIQUE INDEX idx_org_memberships_active_user_http_test ON organization_memberships(organization_id, user_id) WHERE removed_at IS NULL`,
+		`CREATE UNIQUE INDEX idx_org_memberships_single_owner_http_test ON organization_memberships(organization_id) WHERE role = 'owner' AND removed_at IS NULL`,
+		`CREATE TABLE organization_invitations (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, email TEXT NOT NULL, role TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE, status TEXT NOT NULL DEFAULT 'pending', invited_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, accepted_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL, expires_at TIMESTAMPTZ NOT NULL, accepted_at TIMESTAMPTZ, revoked_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), CHECK (role IN ('admin', 'member')), CHECK (status IN ('pending', 'accepted', 'revoked', 'expired')))`,
 		`CREATE TABLE conversations (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE, title TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
 		`CREATE TABLE messages (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE, role TEXT NOT NULL, content TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL)`,
 		`CREATE TABLE knowledge_bases (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE, name TEXT NOT NULL, document_count INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
@@ -124,6 +133,136 @@ func csrfTokenFromRecorder(t *testing.T, recorder *httptest.ResponseRecorder) st
 
 func addCSRF(request *stdhttp.Request, csrfToken string) {
 	request.Header.Set(csrfHeaderName, csrfToken)
+}
+
+func registerHTTPUser(t *testing.T, router stdhttp.Handler, email string) (*stdhttp.Cookie, string, string) {
+	t.Helper()
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/auth/register", strings.NewReader(`{"email":"`+email+`","password":"StrongerPass1!"}`))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("register %s expected 200, got %d with body %s", email, recorder.Code, recorder.Body.String())
+	}
+	cookie := firstCookieNamed(t, recorder, testConfig().SessionCookieName)
+	csrfToken := csrfTokenFromRecorder(t, recorder)
+
+	var response struct {
+		Data struct {
+			User struct {
+				ID string `json:"id"`
+			} `json:"user"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode register response: %v", err)
+	}
+	if response.Data.User.ID == "" {
+		t.Fatal("expected registered user id")
+	}
+	return cookie, csrfToken, response.Data.User.ID
+}
+
+func loginHTTPUser(t *testing.T, router stdhttp.Handler, email, password string) (*stdhttp.Cookie, string, string) {
+	t.Helper()
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"email":"`+email+`","password":"`+password+`"}`))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("login %s expected 200, got %d with body %s", email, recorder.Code, recorder.Body.String())
+	}
+	cookie := firstCookieNamed(t, recorder, testConfig().SessionCookieName)
+	csrfToken := csrfTokenFromRecorder(t, recorder)
+
+	var response struct {
+		Data struct {
+			User struct {
+				ID string `json:"id"`
+			} `json:"user"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode login response: %v", err)
+	}
+	return cookie, csrfToken, response.Data.User.ID
+}
+
+func firstCookieNamed(t *testing.T, recorder *httptest.ResponseRecorder, name string) *stdhttp.Cookie {
+	t.Helper()
+
+	for _, cookie := range recorder.Result().Cookies() {
+		if cookie.Name == name {
+			return cookie
+		}
+	}
+	t.Fatalf("expected cookie %s", name)
+	return nil
+}
+
+func promoteHTTPUserToAdmin(t *testing.T, database *sql.DB, userID string) {
+	t.Helper()
+
+	if _, err := database.Exec(`UPDATE users SET role = 'admin' WHERE id = $1`, userID); err != nil {
+		t.Fatalf("promote user to admin: %v", err)
+	}
+}
+
+func createHTTPOrganization(t *testing.T, router stdhttp.Handler, cookie *stdhttp.Cookie, csrfToken, name, slug string) string {
+	t.Helper()
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/admin/organizations", strings.NewReader(`{"name":"`+name+`","slug":"`+slug+`"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(cookie)
+	addCSRF(request, csrfToken)
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != stdhttp.StatusCreated {
+		t.Fatalf("create organization expected 201, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+
+	var response struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode organization response: %v", err)
+	}
+	if response.Data.ID == "" {
+		t.Fatal("expected organization id")
+	}
+	return response.Data.ID
+}
+
+func inviteHTTPMember(t *testing.T, router stdhttp.Handler, cookie *stdhttp.Cookie, csrfToken, organizationID, email string) (string, string) {
+	t.Helper()
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/organizations/"+organizationID+"/invitations", strings.NewReader(`{"email":"`+email+`","role":"member"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(cookie)
+	addCSRF(request, csrfToken)
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != stdhttp.StatusCreated {
+		t.Fatalf("invite member expected 201, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+
+	var response struct {
+		Data struct {
+			ID    string `json:"id"`
+			Token string `json:"token"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode invitation response: %v", err)
+	}
+	if response.Data.ID == "" || response.Data.Token == "" {
+		t.Fatalf("expected invitation id and token, got id=%q token=%q", response.Data.ID, response.Data.Token)
+	}
+	return response.Data.ID, response.Data.Token
 }
 
 func TestHealthz(t *testing.T) {
@@ -272,6 +411,137 @@ func TestPasswordResetRoutesConfirmAndRevokeSessions(t *testing.T) {
 	router.ServeHTTP(meRecorder, meRequest)
 	if meRecorder.Code != stdhttp.StatusUnauthorized {
 		t.Fatalf("expected old session to be revoked after reset, got %d with body %s", meRecorder.Code, meRecorder.Body.String())
+	}
+}
+
+func TestOrganizationInvitationRevokeRejectsAcceptance(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+
+	ownerCookie, ownerCSRF, ownerID := registerHTTPUser(t, router, "org-owner@example.com")
+	promoteHTTPUserToAdmin(t, database, ownerID)
+	organizationID := createHTTPOrganization(t, router, ownerCookie, ownerCSRF, "Acme", "acme")
+	targetCookie, targetCSRF, _ := registerHTTPUser(t, router, "revoked-target@example.com")
+
+	invitationID, token := inviteHTTPMember(t, router, ownerCookie, ownerCSRF, organizationID, "revoked-target@example.com")
+
+	revokeRecorder := httptest.NewRecorder()
+	revokeRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/organizations/"+organizationID+"/invitations/"+invitationID+"/revoke", nil)
+	revokeRequest.AddCookie(ownerCookie)
+	addCSRF(revokeRequest, ownerCSRF)
+	router.ServeHTTP(revokeRecorder, revokeRequest)
+	if revokeRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("revoke invitation expected 200, got %d with body %s", revokeRecorder.Code, revokeRecorder.Body.String())
+	}
+
+	var revokeResponse struct {
+		Data struct {
+			Status string `json:"status"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(revokeRecorder.Body.Bytes(), &revokeResponse); err != nil {
+		t.Fatalf("decode revoke response: %v", err)
+	}
+	if revokeResponse.Data.Status != "revoked" {
+		t.Fatalf("expected revoked invitation status, got %q", revokeResponse.Data.Status)
+	}
+
+	var revokeAuditCount int
+	if err := database.QueryRow(`
+		SELECT COUNT(*)
+		FROM audit_logs
+		WHERE resource_id = $1 AND action = 'organization.member.invitation_revoke'
+	`, organizationID).Scan(&revokeAuditCount); err != nil {
+		t.Fatalf("count revoke audit logs: %v", err)
+	}
+	if revokeAuditCount != 1 {
+		t.Fatalf("expected one revoke audit log, got %d", revokeAuditCount)
+	}
+
+	acceptRecorder := httptest.NewRecorder()
+	acceptRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/organization-invitations/"+token+"/accept", nil)
+	acceptRequest.AddCookie(targetCookie)
+	addCSRF(acceptRequest, targetCSRF)
+	router.ServeHTTP(acceptRecorder, acceptRequest)
+	if acceptRecorder.Code != stdhttp.StatusConflict {
+		t.Fatalf("expected revoked invitation accept to return 409, got %d with body %s", acceptRecorder.Code, acceptRecorder.Body.String())
+	}
+}
+
+func TestOrganizationSessionSecurityOnMembershipChanges(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+
+	ownerCookie, ownerCSRF, ownerID := registerHTTPUser(t, router, "session-owner@example.com")
+	promoteHTTPUserToAdmin(t, database, ownerID)
+	organizationID := createHTTPOrganization(t, router, ownerCookie, ownerCSRF, "Session Org", "session-org")
+	memberCookie, memberCSRF, memberID := registerHTTPUser(t, router, "session-member@example.com")
+	_, token := inviteHTTPMember(t, router, ownerCookie, ownerCSRF, organizationID, "session-member@example.com")
+
+	acceptRecorder := httptest.NewRecorder()
+	acceptRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/organization-invitations/"+token+"/accept", nil)
+	acceptRequest.AddCookie(memberCookie)
+	addCSRF(acceptRequest, memberCSRF)
+	router.ServeHTTP(acceptRecorder, acceptRequest)
+	if acceptRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("accept invitation expected 200, got %d with body %s", acceptRecorder.Code, acceptRecorder.Body.String())
+	}
+	rotatedCookie := firstCookieNamed(t, acceptRecorder, testConfig().SessionCookieName)
+
+	oldMeRecorder := httptest.NewRecorder()
+	oldMeRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/auth/me", nil)
+	oldMeRequest.AddCookie(memberCookie)
+	router.ServeHTTP(oldMeRecorder, oldMeRequest)
+	if oldMeRecorder.Code != stdhttp.StatusUnauthorized {
+		t.Fatalf("expected old accepted session to be rotated away, got %d with body %s", oldMeRecorder.Code, oldMeRecorder.Body.String())
+	}
+
+	secondMemberCookie, _, _ := loginHTTPUser(t, router, "session-member@example.com", "StrongerPass1!")
+
+	updateRecorder := httptest.NewRecorder()
+	updateRequest := httptest.NewRequest(stdhttp.MethodPut, "/api/v1/app/organizations/"+organizationID+"/members/"+memberID, strings.NewReader(`{"role":"admin"}`))
+	updateRequest.Header.Set("Content-Type", "application/json")
+	updateRequest.AddCookie(ownerCookie)
+	addCSRF(updateRequest, ownerCSRF)
+	router.ServeHTTP(updateRecorder, updateRequest)
+	if updateRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("update member role expected 200, got %d with body %s", updateRecorder.Code, updateRecorder.Body.String())
+	}
+
+	for name, cookie := range map[string]*stdhttp.Cookie{
+		"rotated": rotatedCookie,
+		"second":  secondMemberCookie,
+	} {
+		meRecorder := httptest.NewRecorder()
+		meRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/auth/me", nil)
+		meRequest.AddCookie(cookie)
+		router.ServeHTTP(meRecorder, meRequest)
+		if meRecorder.Code != stdhttp.StatusUnauthorized {
+			t.Fatalf("expected %s member session to be revoked after role update, got %d with body %s", name, meRecorder.Code, meRecorder.Body.String())
+		}
+	}
+}
+
+func TestSensitiveOrganizationActionsAreRateLimited(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+
+	adminCookie, adminCSRF, adminID := registerHTTPUser(t, router, "rate-admin@example.com")
+	promoteHTTPUserToAdmin(t, database, adminID)
+
+	var lastCode int
+	for i := 0; i < 6; i++ {
+		recorder := httptest.NewRecorder()
+		body := strings.NewReader(`{"name":"Rate Org ` + string(rune('A'+i)) + `","slug":"rate-org-` + string(rune('a'+i)) + `"}`)
+		request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/admin/organizations", body)
+		request.Header.Set("Content-Type", "application/json")
+		request.AddCookie(adminCookie)
+		addCSRF(request, adminCSRF)
+		router.ServeHTTP(recorder, request)
+		lastCode = recorder.Code
+	}
+	if lastCode != stdhttp.StatusTooManyRequests {
+		t.Fatalf("expected repeated sensitive organization writes to return 429, got %d", lastCode)
 	}
 }
 

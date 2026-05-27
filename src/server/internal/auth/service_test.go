@@ -125,15 +125,15 @@ func resetAuthSecurityTestTables(t *testing.T, database *sql.DB) {
 	t.Helper()
 
 	statements := []string{
-		`DROP TABLE IF EXISTS organization_invitations`,
-		`DROP TABLE IF EXISTS organization_memberships`,
-		`DROP TABLE IF EXISTS audit_logs`,
-		`DROP TABLE IF EXISTS organizations`,
-		`DROP TABLE IF EXISTS password_reset_tokens`,
-		`DROP TABLE IF EXISTS auth_rate_limits`,
-		`DROP TABLE IF EXISTS sessions`,
-		`DROP TABLE IF EXISTS workspaces`,
-		`DROP TABLE IF EXISTS users`,
+		`DROP TABLE IF EXISTS organization_invitations CASCADE`,
+		`DROP TABLE IF EXISTS organization_memberships CASCADE`,
+		`DROP TABLE IF EXISTS audit_logs CASCADE`,
+		`DROP TABLE IF EXISTS organizations CASCADE`,
+		`DROP TABLE IF EXISTS password_reset_tokens CASCADE`,
+		`DROP TABLE IF EXISTS auth_rate_limits CASCADE`,
+		`DROP TABLE IF EXISTS sessions CASCADE`,
+		`DROP TABLE IF EXISTS workspaces CASCADE`,
+		`DROP TABLE IF EXISTS users CASCADE`,
 		`CREATE TABLE users (
 			id TEXT PRIMARY KEY,
 			email TEXT NOT NULL UNIQUE,

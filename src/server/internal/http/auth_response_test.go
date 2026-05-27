@@ -26,13 +26,13 @@ func TestAuthResponsesExposeStableUserAndPreferenceContracts(t *testing.T) {
 	router := NewRouter(testConfig(), testDatabase(t))
 	email := "auth-contract@example.com"
 
-	registerResponse, cookie := authResponseRequest(t, router, stdhttp.MethodPost, "/api/v1/auth/register", `{"email":"`+email+`","password":"secret"}`, nil)
+	registerResponse, cookie := authResponseRequest(t, router, stdhttp.MethodPost, "/api/v1/auth/register", `{"email":"`+email+`","password":"StrongerPass1!"}`, nil)
 	assertAuthSessionPayload(t, registerResponse, email)
 
 	meResponse, _ := authResponseRequest(t, router, stdhttp.MethodGet, "/api/v1/auth/me", "", cookie)
 	assertAuthSessionPayload(t, meResponse, email)
 
-	loginResponse, _ := authResponseRequest(t, router, stdhttp.MethodPost, "/api/v1/auth/login", `{"email":"`+email+`","password":"secret"}`, nil)
+	loginResponse, _ := authResponseRequest(t, router, stdhttp.MethodPost, "/api/v1/auth/login", `{"email":"`+email+`","password":"StrongerPass1!"}`, nil)
 	assertAuthSessionPayload(t, loginResponse, email)
 }
 

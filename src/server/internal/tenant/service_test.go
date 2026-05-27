@@ -259,11 +259,19 @@ func (s *fakeStore) CreateInvitation(ctx context.Context, invitation *Invitation
 	return invitation, nil
 }
 
+func (s *fakeStore) GetInvitation(ctx context.Context, organizationID, invitationID string) (*Invitation, error) {
+	return nil, nil
+}
+
 func (s *fakeStore) GetInvitationByTokenHash(ctx context.Context, tokenHash string) (*Invitation, error) {
 	return nil, nil
 }
 
 func (s *fakeStore) AcceptInvitation(ctx context.Context, invitation *Invitation, userID string, audit AuditRecord) (*Membership, error) {
+	return nil, nil
+}
+
+func (s *fakeStore) RevokeInvitation(ctx context.Context, organizationID, invitationID string, audit AuditRecord) (*Invitation, error) {
 	return nil, nil
 }
 
@@ -319,7 +327,7 @@ func resetTenantTestTables(t *testing.T, database *sql.DB) {
 	t.Helper()
 
 	statements := []string{
-		`DROP TABLE IF EXISTS organizations`,
+		`DROP TABLE IF EXISTS organizations CASCADE`,
 		`CREATE TABLE organizations (
 			id TEXT PRIMARY KEY,
 			slug TEXT NOT NULL UNIQUE,
@@ -344,15 +352,15 @@ func resetTenantSecurityTestTables(t *testing.T, database *sql.DB) {
 	t.Helper()
 
 	statements := []string{
-		`DROP TABLE IF EXISTS password_reset_tokens`,
-		`DROP TABLE IF EXISTS auth_rate_limits`,
-		`DROP TABLE IF EXISTS sessions`,
-		`DROP TABLE IF EXISTS workspaces`,
-		`DROP TABLE IF EXISTS organization_invitations`,
-		`DROP TABLE IF EXISTS organization_memberships`,
-		`DROP TABLE IF EXISTS audit_logs`,
-		`DROP TABLE IF EXISTS organizations`,
-		`DROP TABLE IF EXISTS users`,
+		`DROP TABLE IF EXISTS password_reset_tokens CASCADE`,
+		`DROP TABLE IF EXISTS auth_rate_limits CASCADE`,
+		`DROP TABLE IF EXISTS sessions CASCADE`,
+		`DROP TABLE IF EXISTS workspaces CASCADE`,
+		`DROP TABLE IF EXISTS organization_invitations CASCADE`,
+		`DROP TABLE IF EXISTS organization_memberships CASCADE`,
+		`DROP TABLE IF EXISTS audit_logs CASCADE`,
+		`DROP TABLE IF EXISTS organizations CASCADE`,
+		`DROP TABLE IF EXISTS users CASCADE`,
 		`CREATE TABLE users (
 			id TEXT PRIMARY KEY,
 			email TEXT NOT NULL UNIQUE,

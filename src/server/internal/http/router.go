@@ -109,7 +109,8 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 	// Admin service
 	adminService := admin.NewService(admin.NewSQLStore(database))
 	adminHandler := newAdminHandler(adminService)
-	tenantHandler := newTenantHandler(tenant.NewService(tenant.NewSQLStore(database)))
+	tenantHandler := newTenantHandler(tenant.NewService(tenant.NewSQLStore(database)), authService, authMiddleware)
+	sensitiveActionRateLimit := auth.RateLimitPolicy{Limit: 5, Window: time.Minute, BlockDuration: 15 * time.Minute}
 
 	// Marketplace service
 	marketplaceStore := marketplace.NewSQLStore(database)
@@ -121,35 +122,7 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 	// Notification service
 	notificationHandler := newNotificationHandler(notification.NewService(notification.NewSQLStore(database)))
 
-	// Auth routes
-	mux.HandleFunc("/api/v1/auth/login", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
-		if r.Method != stdhttp.MethodPost {
-			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-			return
-		}
-		authHandler.login(w, r)
-	})
-	mux.HandleFunc("/api/v1/auth/register", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
-		if r.Method != stdhttp.MethodPost {
-			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-			return
-		}
-		authHandler.register(w, r)
-	})
-	mux.Handle("/api/v1/auth/me", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
-		if r.Method != stdhttp.MethodGet {
-			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-			return
-		}
-		authHandler.me(w, r)
-	})))
-	mux.Handle("/api/v1/auth/logout", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
-		if r.Method != stdhttp.MethodPost {
-			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-			return
-		}
-		authHandler.logout(w, r)
-	})))
+	registerAuthRoutes(mux, authMiddleware, authHandler)
 
 	// Preferences routes
 	mux.Handle("/api/v1/app/me/preferences", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -867,7 +840,7 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 		}
 		writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
 	})))
-	mux.Handle("/api/v1/admin/organizations", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	mux.Handle("/api/v1/admin/organizations", authMiddleware.requireAdmin(authMiddleware.rateLimit("sensitive.admin", sensitiveActionRateLimit, stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		switch r.Method {
 		case stdhttp.MethodGet:
 			tenantHandler.listOrganizations(w, r)
@@ -876,8 +849,8 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 		default:
 			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		}
-	})))
-	mux.Handle("/api/v1/admin/organizations/", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	}))))
+	mux.Handle("/api/v1/admin/organizations/", authMiddleware.requireAdmin(authMiddleware.rateLimit("sensitive.admin", sensitiveActionRateLimit, stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/admin/organizations/"), "/"), "/")
 		if len(parts) == 0 || parts[0] == "" {
 			writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
@@ -906,8 +879,91 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 			return
 		}
 
+		if len(parts) == 2 && parts[1] == "members" {
+			if r.Method == stdhttp.MethodGet {
+				tenantHandler.listOrganizationMembers(w, r, organizationID)
+			} else {
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
+
 		writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
+	}))))
+	mux.Handle("/api/v1/app/organizations", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		switch r.Method {
+		case stdhttp.MethodGet:
+			tenantHandler.listMyOrganizations(w, r)
+		default:
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		}
 	})))
+	mux.Handle("/api/v1/app/organizations/", authMiddleware.requireSession(authMiddleware.rateLimit("sensitive.organization", sensitiveActionRateLimit, stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/app/organizations/"), "/"), "/")
+		if len(parts) == 0 || parts[0] == "" {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
+			return
+		}
+
+		organizationID := parts[0]
+		if len(parts) == 2 && parts[1] == "members" {
+			if r.Method == stdhttp.MethodGet {
+				tenantHandler.listOrganizationMembers(w, r, organizationID)
+			} else {
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
+		if len(parts) == 2 && parts[1] == "invitations" {
+			if r.Method == stdhttp.MethodPost {
+				tenantHandler.inviteMember(w, r, organizationID)
+			} else {
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
+		if len(parts) == 4 && parts[1] == "invitations" && parts[3] == "revoke" {
+			if r.Method == stdhttp.MethodPost {
+				tenantHandler.revokeInvitation(w, r, organizationID, parts[2])
+			} else {
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
+		if len(parts) == 3 && parts[1] == "members" {
+			switch r.Method {
+			case stdhttp.MethodPut:
+				tenantHandler.updateMemberRole(w, r, organizationID, parts[2])
+			case stdhttp.MethodDelete:
+				tenantHandler.removeMember(w, r, organizationID, parts[2])
+			default:
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
+		if len(parts) == 2 && parts[1] == "ownership-transfer" {
+			if r.Method == stdhttp.MethodPost {
+				tenantHandler.transferOwnership(w, r, organizationID)
+			} else {
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
+
+		writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
+	}))))
+	mux.Handle("/api/v1/app/organization-invitations/", authMiddleware.requireSession(authMiddleware.rateLimit("sensitive.organization", sensitiveActionRateLimit, stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/app/organization-invitations/"), "/"), "/")
+		if len(parts) == 2 && parts[0] != "" && parts[1] == "accept" {
+			if r.Method == stdhttp.MethodPost {
+				tenantHandler.acceptInvitation(w, r, parts[0])
+			} else {
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
+		writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
+	}))))
 	mux.Handle("/api/v1/admin/audit-logs", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		if r.Method != stdhttp.MethodGet {
 			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
@@ -1092,5 +1148,5 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 		}
 	})
 
-	return applyMiddleware(mux, withRecover, withRequestID, withLogging, withCORS(cfg.CORSAllowedOrigins))
+	return applyMiddleware(authMiddleware.securityGuard(mux), withRecover, withRequestID, withLogging, withCORS(cfg.CORSAllowedOrigins))
 }

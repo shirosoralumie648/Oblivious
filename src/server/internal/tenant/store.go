@@ -298,6 +298,22 @@ WHERE token_hash = $1
 	return invitation, nil
 }
 
+func (s *SQLStore) GetInvitation(ctx context.Context, organizationID, invitationID string) (*Invitation, error) {
+	invitation, err := scanInvitation(s.db.QueryRowContext(ctx, `
+SELECT id, organization_id, email, role, token_hash, status, invited_by_user_id,
+       accepted_by_user_id, expires_at, accepted_at, revoked_at, created_at, updated_at
+FROM organization_invitations
+WHERE organization_id = $1 AND id = $2
+`, organizationID, invitationID))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get invitation: %w", err)
+	}
+	return invitation, nil
+}
+
 func (s *SQLStore) AcceptInvitation(ctx context.Context, invitation *Invitation, userID string, audit AuditRecord) (*Membership, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -329,6 +345,35 @@ RETURNING id, organization_id, '', '', user_id, '', role, created_by_user_id, cr
 		return nil, fmt.Errorf("commit accept invitation: %w", err)
 	}
 	return membership, nil
+}
+
+func (s *SQLStore) RevokeInvitation(ctx context.Context, organizationID, invitationID string, audit AuditRecord) (*Invitation, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin revoke invitation: %w", err)
+	}
+	defer tx.Rollback()
+
+	invitation, err := scanInvitation(tx.QueryRowContext(ctx, `
+UPDATE organization_invitations
+SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+WHERE organization_id = $1 AND id = $2 AND status = 'pending'
+RETURNING id, organization_id, email, role, token_hash, status, invited_by_user_id,
+          accepted_by_user_id, expires_at, accepted_at, revoked_at, created_at, updated_at
+`, organizationID, invitationID))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("revoke invitation: %w", err)
+	}
+	if err := insertAudit(ctx, tx, audit); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit revoke invitation: %w", err)
+	}
+	return invitation, nil
 }
 
 func (s *SQLStore) UpdateMemberRole(ctx context.Context, organizationID, userID, role string, audit AuditRecord) (*Membership, error) {

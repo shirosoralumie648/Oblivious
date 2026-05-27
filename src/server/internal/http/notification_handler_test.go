@@ -16,8 +16,8 @@ func TestNotificationMutationRoutesEnforceOwnership(t *testing.T) {
 	router := NewRouter(testConfig(), database)
 	service := notification.NewService(notification.NewSQLStore(database))
 
-	ownerID, ownerCookie := notificationRegisterUser(t, router, "notif-owner@example.com")
-	_, otherCookie := notificationRegisterUser(t, router, "notif-other@example.com")
+	ownerID, ownerCookie, ownerCSRF := notificationRegisterUser(t, router, "notif-owner@example.com")
+	_, otherCookie, otherCSRF := notificationRegisterUser(t, router, "notif-other@example.com")
 
 	notif, err := service.Create(context.Background(), ownerID, &notification.CreateNotificationRequest{
 		Title:   "Owned notice",
@@ -30,6 +30,7 @@ func TestNotificationMutationRoutesEnforceOwnership(t *testing.T) {
 	forbiddenPatch := httptest.NewRecorder()
 	forbiddenPatchRequest := httptest.NewRequest(stdhttp.MethodPatch, "/api/v1/app/notifications/"+notif.ID, nil)
 	forbiddenPatchRequest.AddCookie(otherCookie)
+	forbiddenPatchRequest.Header.Set(csrfHeaderName, otherCSRF)
 	router.ServeHTTP(forbiddenPatch, forbiddenPatchRequest)
 	if forbiddenPatch.Code != stdhttp.StatusForbidden {
 		t.Fatalf("expected non-owner PATCH to return 403, got %d with body %s", forbiddenPatch.Code, forbiddenPatch.Body.String())
@@ -45,6 +46,7 @@ func TestNotificationMutationRoutesEnforceOwnership(t *testing.T) {
 	ownerPatch := httptest.NewRecorder()
 	ownerPatchRequest := httptest.NewRequest(stdhttp.MethodPatch, "/api/v1/app/notifications/"+notif.ID, nil)
 	ownerPatchRequest.AddCookie(ownerCookie)
+	ownerPatchRequest.Header.Set(csrfHeaderName, ownerCSRF)
 	router.ServeHTTP(ownerPatch, ownerPatchRequest)
 	if ownerPatch.Code != stdhttp.StatusOK {
 		t.Fatalf("expected owner PATCH to return 200, got %d with body %s", ownerPatch.Code, ownerPatch.Body.String())
@@ -68,6 +70,7 @@ func TestNotificationMutationRoutesEnforceOwnership(t *testing.T) {
 	forbiddenDelete := httptest.NewRecorder()
 	forbiddenDeleteRequest := httptest.NewRequest(stdhttp.MethodDelete, "/api/v1/app/notifications/"+deleteTarget.ID, nil)
 	forbiddenDeleteRequest.AddCookie(otherCookie)
+	forbiddenDeleteRequest.Header.Set(csrfHeaderName, otherCSRF)
 	router.ServeHTTP(forbiddenDelete, forbiddenDeleteRequest)
 	if forbiddenDelete.Code != stdhttp.StatusForbidden {
 		t.Fatalf("expected non-owner DELETE to return 403, got %d with body %s", forbiddenDelete.Code, forbiddenDelete.Body.String())
@@ -83,6 +86,7 @@ func TestNotificationMutationRoutesEnforceOwnership(t *testing.T) {
 	ownerDelete := httptest.NewRecorder()
 	ownerDeleteRequest := httptest.NewRequest(stdhttp.MethodDelete, "/api/v1/app/notifications/"+deleteTarget.ID, nil)
 	ownerDeleteRequest.AddCookie(ownerCookie)
+	ownerDeleteRequest.Header.Set(csrfHeaderName, ownerCSRF)
 	router.ServeHTTP(ownerDelete, ownerDeleteRequest)
 	if ownerDelete.Code != stdhttp.StatusOK {
 		t.Fatalf("expected owner DELETE to return 200, got %d with body %s", ownerDelete.Code, ownerDelete.Body.String())
@@ -96,14 +100,14 @@ func TestNotificationMutationRoutesEnforceOwnership(t *testing.T) {
 	}
 }
 
-func notificationRegisterUser(t *testing.T, router stdhttp.Handler, email string) (string, *stdhttp.Cookie) {
+func notificationRegisterUser(t *testing.T, router stdhttp.Handler, email string) (string, *stdhttp.Cookie, string) {
 	t.Helper()
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(
 		stdhttp.MethodPost,
 		"/api/v1/auth/register",
-		strings.NewReader(`{"email":"`+email+`","password":"secret"}`),
+		strings.NewReader(`{"email":"`+email+`","password":"StrongerPass1!"}`),
 	)
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
@@ -116,6 +120,7 @@ func notificationRegisterUser(t *testing.T, router stdhttp.Handler, email string
 			User struct {
 				ID string `json:"id"`
 			} `json:"user"`
+			CSRFToken string `json:"csrfToken"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
@@ -125,5 +130,5 @@ func notificationRegisterUser(t *testing.T, router stdhttp.Handler, email string
 	if response.Data.User.ID == "" || len(cookies) == 0 {
 		t.Fatalf("expected user id and session cookie, got id=%q cookies=%d", response.Data.User.ID, len(cookies))
 	}
-	return response.Data.User.ID, cookies[0]
+	return response.Data.User.ID, cookies[0], response.Data.CSRFToken
 }

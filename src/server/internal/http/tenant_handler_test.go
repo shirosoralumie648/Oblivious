@@ -15,7 +15,7 @@ import (
 
 func TestTenantHandlerCreateListUpdateAndArchive(t *testing.T) {
 	store := newFakeTenantStore()
-	handler := newTenantHandler(tenant.NewService(store))
+	handler := newTenantHandler(tenant.NewService(store), nil, authMiddleware{})
 
 	createRequest := adminJSONRequest(stdhttp.MethodPost, "/api/v1/admin/organizations", `{"name":"Acme","slug":"acme"}`)
 	createRecorder := httptest.NewRecorder()
@@ -57,7 +57,7 @@ func TestTenantHandlerCreateListUpdateAndArchive(t *testing.T) {
 }
 
 func TestTenantHandlerRequiresSessionForCreate(t *testing.T) {
-	handler := newTenantHandler(tenant.NewService(newFakeTenantStore()))
+	handler := newTenantHandler(tenant.NewService(newFakeTenantStore()), nil, authMiddleware{})
 	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/admin/organizations", strings.NewReader(`{"name":"Acme","slug":"acme"}`))
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
@@ -165,11 +165,19 @@ func (s *fakeTenantStore) CreateInvitation(ctx context.Context, invitation *tena
 	return invitation, nil
 }
 
+func (s *fakeTenantStore) GetInvitation(ctx context.Context, organizationID, invitationID string) (*tenant.Invitation, error) {
+	return nil, nil
+}
+
 func (s *fakeTenantStore) GetInvitationByTokenHash(ctx context.Context, tokenHash string) (*tenant.Invitation, error) {
 	return nil, nil
 }
 
 func (s *fakeTenantStore) AcceptInvitation(ctx context.Context, invitation *tenant.Invitation, userID string, audit tenant.AuditRecord) (*tenant.Membership, error) {
+	return nil, nil
+}
+
+func (s *fakeTenantStore) RevokeInvitation(ctx context.Context, organizationID, invitationID string, audit tenant.AuditRecord) (*tenant.Invitation, error) {
 	return nil, nil
 }
 
