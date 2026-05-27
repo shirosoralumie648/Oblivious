@@ -14,7 +14,7 @@
 
 Milestone v06 has been initialized from `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`.
 
-**Next workflow step:** execute Phase 17 Stripe Payment Authority and Webhook Ledger with TDD.
+**Next workflow step:** execute Phase 18 Subscription Invoice Top-up Refund State Machine with TDD.
 
 ## Current Milestone: v06 Billing And Marketplace Operations — Active
 
@@ -23,7 +23,7 @@ Milestone v06 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 | Phase | Name | Requirements | Status |
 |-------|------|--------------|--------|
 | Phase 17 | Stripe Payment Authority and Webhook Ledger | PAY-01, PAY-02 | Complete |
-| Phase 18 | Subscription Invoice Top-up Refund State Machine | PAY-03 | Planned |
+| Phase 18 | Subscription Invoice Top-up Refund State Machine | PAY-03 | Ready to execute |
 | Phase 19 | Marketplace Settlement and Governance | MARKET-03, MARKET-04 | Planned |
 | Phase 20 | Billing Admin Evidence and v06 Closeout | ADMIN-BILL-01, DOC-05 | Planned |
 
@@ -57,6 +57,36 @@ Milestone v06 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 - Docs gate: `bash scripts/check.sh docs`
 - Broad quality gate: `GOPROXY=... GOSUMDB=... bash scripts/check.sh all`
 - Diff hygiene: `git diff --check`
+
+### Phase 18: Subscription Invoice Top-up Refund State Machine
+
+**Goal:** Apply verified Stripe events to subscription, invoice, top-up, failed-payment, plan-change, and refund state through an auditable, idempotent lifecycle service.
+
+**Requirements:** PAY-03
+
+**Success criteria:**
+1. `checkout.session.completed` for subscription checkout completes the local payment intent, creates or updates an organization-scoped subscription, updates user plan assignment, and records one lifecycle transition.
+2. `checkout.session.completed` for top-up checkout marks the top-up paid and credits tenant quota exactly once; no direct paid top-up flow can credit quota without verified payment evidence.
+3. `invoice.paid` and `invoice.payment_failed` upsert invoice state and update subscription active/past-due or failed-payment state through append-only transitions.
+4. `customer.subscription.updated` and `customer.subscription.deleted` preserve provider subscription IDs, period fields, cancel-at-period-end state, plan changes, and cancellation history.
+5. Refund events create refund records, update payment intent refund state, reverse paid top-up effects once where applicable, and leave Marketplace refund impact for Phase 19.
+
+**Likely verification:**
+- `cd src/server && go test ./internal/stripe -run 'Lifecycle|CheckoutCompleted|Topup|Invoice|Refund|Subscription' -count=1`
+- `cd src/server && TEST_DATABASE_URL=... OBLIVIOUS_REQUIRE_TEST_DATABASE=true go test ./internal/http -run 'Stripe|Billing|Checkout|Webhook|Topup|Invoice|Refund|Subscription' -count=1`
+- `cd src/server && TEST_DATABASE_URL=... OBLIVIOUS_REQUIRE_TEST_DATABASE=true go test ./internal/stripe ./internal/http ./internal/quota -count=1`
+- `bash scripts/check.sh docs`
+- `GOPROXY=... GOSUMDB=... bash scripts/check.sh all`
+- `git diff --check`
+
+**Planning evidence:**
+- Context: `.planning/phases/18-subscription-invoice-topup-refund-state-machine/18-CONTEXT.md`
+- Plan: `.planning/phases/18-subscription-invoice-topup-refund-state-machine/18-01-PLAN.md`
+
+**Boundaries:**
+- Marketplace settlement, platform fees, payout state, and refund impact remain Phase 19.
+- Admin billing inspection remains Phase 20.
+- v07 production operations and v08 product completeness remain required.
 
 ## Archived Milestone: v05 Relay Billing Completeness — Complete
 

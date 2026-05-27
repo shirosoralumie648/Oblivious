@@ -30,7 +30,7 @@ v04 Commercial Foundation is complete: Phase 9 completed first-class organizatio
 
 v05 Relay Billing Completeness is complete. Phase 13 completed Relay endpoint classification and production fail-closed behavior. Phase 14 completed provider-bypass CI checks, supported endpoint auth/tenant identity policy, rate-limit policy, route-decision audit semantics, and trusted Relay metadata for Chat, Agent, and Knowledge embedding paths. Phase 15 completed quota preauthorization, exactly-once settlement, refund behavior, provider usage parsing, explicit route billing policy, and streaming/async production-disablement evidence. Phase 16 completed Relay route-table evidence, commercial gate closeout, DB-backed verification, and v05 milestone snapshots.
 
-v06 Billing And Marketplace Operations is active. Phase 17 completed the first money-movement slice by replacing the existing unmounted/partial Stripe code with running route authority, tenant-aware checkout metadata, signature-verified webhooks, and an idempotent webhook ledger. The next slice is Phase 18 subscription, invoice, top-up, refund, failed-payment, and plan-change state transitions. The overall commercial-complete SaaS objective remains open until v06, v07, and v08 are also complete and verified.
+v06 Billing And Marketplace Operations is active. Phase 17 completed the first money-movement slice by replacing the existing unmounted/partial Stripe code with running route authority, tenant-aware checkout metadata, signature-verified webhooks, and an idempotent webhook ledger. Phase 18 now has an execution plan for subscription, invoice, top-up, refund, failed-payment, and plan-change state transitions. The overall commercial-complete SaaS objective remains open until v06, v07, and v08 are also complete and verified.
 
 ## Requirements
 
@@ -93,7 +93,7 @@ Go Backend (Gin)
 - v03.2 已完成质量、E2E、文档和 Docker 部署 smoke 收口。
 - v03.3 已完成主线整合、文档对齐、发布验证和两个历史 cleanup backlog。
 - v04 Commercial Foundation 已完成。
-- v05 Relay Billing Completeness 已完成；v06 Billing And Marketplace Operations 已初始化，Phase 17 已完成 Stripe route authority 和 webhook ledger，当前下一步是 Phase 18 支付生命周期状态机。
+- v05 Relay Billing Completeness 已完成；v06 Billing And Marketplace Operations 已初始化，Phase 17 已完成 Stripe route authority 和 webhook ledger，Phase 18 支付生命周期状态机已规划，当前下一步是执行 Phase 18。
 - 直接 Docker Hub / 默认 Go module 路径在本机网络仍不稳定；受限网络验证命令继续作为部署 smoke 的已验证本地路径。
 - `kubectl` 未安装，因此 Kubernetes 仍属于后续 v07 Production Operations 的未验证范围。
 
@@ -124,6 +124,7 @@ Go Backend (Gin)
 | Phase 15 makes settlement/refund explicit before v05 closeout | Relay Authority Gate cannot close while supported calls can strand quota or streaming/async flows bypass settlement | ✓ Good — `RouteWithBilling` lifecycle tests, `BillingPolicy` route coverage, provider usage parsing, and route-table evidence |
 | Phase 16 closes v05 with evidence rather than new runtime behavior | Relay behavior changed in Phases 13-15; v05 closeout needs reproducible proof and must not imply final commercial readiness | ✓ Good — `16-VERIFICATION.md`, route table/gate docs, docs gate assertions, DB-backed script verification, and milestone snapshots |
 | v06 starts with Stripe route authority and webhook ledger | Subscription and Marketplace settlement cannot be safe until payment provider events are signature-verified, idempotent, tenant-aware, and inspectable | ✓ Good — Phase 17 mounted checkout/webhook routes, `payment_intents`, `stripe_webhook_events`, and DB-backed route tests |
+| Phase 18 applies verified provider events through a lifecycle service | Commercial money movement needs subscriptions, invoices, top-ups, failed-payment state, plan changes, and refunds to be auditable and idempotent before Marketplace settlement | Active — `18-CONTEXT.md` and `18-01-PLAN.md` define the PAY-03 execution path |
 
 ## Evolution
 
@@ -143,4 +144,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state.
 
 ---
-*Last updated: 2026-05-28 after completing Phase 17 Stripe Payment Authority and Webhook Ledger*
+*Last updated: 2026-05-28 after planning Phase 18 Subscription Invoice Top-up Refund State Machine*
