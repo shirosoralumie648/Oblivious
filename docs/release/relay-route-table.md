@@ -2,6 +2,8 @@
 
 This table is the v05 Relay Authority Gate route policy ledger. It mirrors `src/server/internal/relay/handler/router.go` and `src/server/internal/relay/handler/policy.go`.
 
+Phase 16 closes the v05 route-table evidence by tying this ledger to `.planning/phases/16-relay-authority-evidence-and-v05-closeout/16-VERIFICATION.md`. v05 completion means the Relay Authority Gate is proven for route classification, production fail-closed behavior, provider-bypass checks, supported-route auth/rate-limit/audit, and settlement/refund policy. It does not complete v06 money movement, v07 production operations, or v08 product completeness.
+
 Class meanings:
 - `CommercialSupportedBilled`: production-callable commercial endpoint with Phase 15 billing/refund semantics.
 - `DisabledInProduction`: registered for compatibility, but production rejects the endpoint with `endpoint_disabled_in_production` before handler or provider execution.
@@ -20,19 +22,19 @@ Phase 15 billing policy meanings:
 
 | Method | Path | API type | Strategy | Commercial class | Production status | Auth policy | Tenant identity | Rate-limit policy | Audit policy | Billing policy | Disabled reason | Future owner |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `POST` | `/v1/chat/completions` | chat | Native | CommercialSupportedBilled | Enabled | trusted_internal_identity | Required | global_relay_token_bucket | relay_route_policy_decision | preauthorize_then_settle_usage | Chat streaming remains rejected until tested streaming settlement exists | Phase 16 evidence |
-| `POST` | `/v1/responses` | responses | Native | CommercialSupportedBilled | Enabled | trusted_internal_identity | Required | global_relay_token_bucket | relay_route_policy_decision | preauthorize_then_settle_usage | Responses streaming returns `streaming_settlement_not_supported` | Phase 16 evidence |
+| `POST` | `/v1/chat/completions` | chat | Native | CommercialSupportedBilled | Enabled | trusted_internal_identity | Required | global_relay_token_bucket | relay_route_policy_decision | preauthorize_then_settle_usage | Chat streaming remains rejected until tested streaming settlement exists | v08 streaming/product completeness |
+| `POST` | `/v1/responses` | responses | Native | CommercialSupportedBilled | Enabled | trusted_internal_identity | Required | global_relay_token_bucket | relay_route_policy_decision | preauthorize_then_settle_usage | Responses streaming returns `streaming_settlement_not_supported` | v08 streaming/product completeness |
 | `GET` | `/v1/realtime` | realtime | Native stream | DisabledInProduction | Disabled | not_applicable | Not required | not_applicable | relay_route_policy_decision | production_disabled | Realtime settlement and client-abort billing are not defined | Future commercial support |
-| `POST` | `/v1/embeddings` | embeddings | Native | CommercialSupportedBilled | Enabled | trusted_internal_identity | Required | global_relay_token_bucket | relay_route_policy_decision | preauthorize_then_settle_usage |  | Phase 16 evidence |
-| `POST` | `/v1/images/generations` | images_generations | Native | CommercialSupportedBilled | Enabled | trusted_internal_identity | Required | global_relay_token_bucket | relay_route_policy_decision | preauthorize_then_settle_estimate | Phase 15 settles the request estimate when provider usage is absent | Phase 16 evidence |
-| `POST` | `/v1/images/edits` | images_edits | Native | CommercialSupportedBilled | Enabled | trusted_internal_identity | Required | global_relay_token_bucket | relay_route_policy_decision | preauthorize_then_settle_estimate | Phase 15 settles the request estimate when provider usage is absent | Phase 16 evidence |
-| `POST` | `/v1/images/variations` | images_variations | Native | CommercialSupportedBilled | Enabled | trusted_internal_identity | Required | global_relay_token_bucket | relay_route_policy_decision | preauthorize_then_settle_estimate | Phase 15 settles the request estimate when provider usage is absent | Phase 16 evidence |
+| `POST` | `/v1/embeddings` | embeddings | Native | CommercialSupportedBilled | Enabled | trusted_internal_identity | Required | global_relay_token_bucket | relay_route_policy_decision | preauthorize_then_settle_usage |  | v05 closed |
+| `POST` | `/v1/images/generations` | images_generations | Native | CommercialSupportedBilled | Enabled | trusted_internal_identity | Required | global_relay_token_bucket | relay_route_policy_decision | preauthorize_then_settle_estimate | Phase 15 settles the request estimate when provider usage is absent | v05 closed |
+| `POST` | `/v1/images/edits` | images_edits | Native | CommercialSupportedBilled | Enabled | trusted_internal_identity | Required | global_relay_token_bucket | relay_route_policy_decision | preauthorize_then_settle_estimate | Phase 15 settles the request estimate when provider usage is absent | v05 closed |
+| `POST` | `/v1/images/variations` | images_variations | Native | CommercialSupportedBilled | Enabled | trusted_internal_identity | Required | global_relay_token_bucket | relay_route_policy_decision | preauthorize_then_settle_estimate | Phase 15 settles the request estimate when provider usage is absent | v05 closed |
 | `POST` | `/v1/videos` | videos | Native | DisabledInProduction | Disabled | not_applicable | Not required | not_applicable | relay_route_policy_decision | production_disabled | Video billing and provider behavior are not verified | Future commercial support |
-| `POST` | `/v1/audio/speech` | audio_speech | Native | CommercialSupportedBilled | Enabled | trusted_internal_identity | Required | global_relay_token_bucket | relay_route_policy_decision | preauthorize_then_settle_estimate | Phase 15 settles the request estimate when provider usage is absent | Phase 16 evidence |
-| `POST` | `/v1/audio/transcriptions` | audio_transcriptions | Native | CommercialSupportedBilled | Enabled | trusted_internal_identity | Required | global_relay_token_bucket | relay_route_policy_decision | preauthorize_then_settle_estimate | Phase 15 settles the request estimate when provider usage is absent | Phase 16 evidence |
-| `POST` | `/v1/audio/translations` | audio_translations | Native | CommercialSupportedBilled | Enabled | trusted_internal_identity | Required | global_relay_token_bucket | relay_route_policy_decision | preauthorize_then_settle_estimate | Phase 15 settles the request estimate when provider usage is absent | Phase 16 evidence |
-| `POST` | `/v1/moderations` | moderations | Native | CommercialSupportedBilled | Enabled | trusted_internal_identity | Required | global_relay_token_bucket | relay_route_policy_decision | preauthorize_then_settle_estimate | Phase 15 settles the request estimate when provider usage is absent | Phase 16 evidence |
-| `POST` | `/v1/completions` | completions | Native | CommercialSupportedBilled | Enabled | trusted_internal_identity | Required | global_relay_token_bucket | relay_route_policy_decision | preauthorize_then_settle_usage |  | Phase 16 evidence |
+| `POST` | `/v1/audio/speech` | audio_speech | Native | CommercialSupportedBilled | Enabled | trusted_internal_identity | Required | global_relay_token_bucket | relay_route_policy_decision | preauthorize_then_settle_estimate | Phase 15 settles the request estimate when provider usage is absent | v05 closed |
+| `POST` | `/v1/audio/transcriptions` | audio_transcriptions | Native | CommercialSupportedBilled | Enabled | trusted_internal_identity | Required | global_relay_token_bucket | relay_route_policy_decision | preauthorize_then_settle_estimate | Phase 15 settles the request estimate when provider usage is absent | v05 closed |
+| `POST` | `/v1/audio/translations` | audio_translations | Native | CommercialSupportedBilled | Enabled | trusted_internal_identity | Required | global_relay_token_bucket | relay_route_policy_decision | preauthorize_then_settle_estimate | Phase 15 settles the request estimate when provider usage is absent | v05 closed |
+| `POST` | `/v1/moderations` | moderations | Native | CommercialSupportedBilled | Enabled | trusted_internal_identity | Required | global_relay_token_bucket | relay_route_policy_decision | preauthorize_then_settle_estimate | Phase 15 settles the request estimate when provider usage is absent | v05 closed |
+| `POST` | `/v1/completions` | completions | Native | CommercialSupportedBilled | Enabled | trusted_internal_identity | Required | global_relay_token_bucket | relay_route_policy_decision | preauthorize_then_settle_usage |  | v05 closed |
 | `POST` | `/v1/batch` | batch | Native | DisabledInProduction | Disabled | not_applicable | Not required | not_applicable | relay_route_policy_decision | production_disabled | Async batch settlement and audit are not defined | Future commercial support |
 | `GET` | `/v1/batches` | batch | Passthrough | DisabledInProduction | Disabled | not_applicable | Not required | not_applicable | relay_route_policy_decision | production_disabled | Batch passthrough lacks commercial audit and settlement | Future commercial support |
 | `GET` | `/v1/batches/:id` | batch | Passthrough | DisabledInProduction | Disabled | not_applicable | Not required | not_applicable | relay_route_policy_decision | production_disabled | Batch passthrough lacks commercial audit and settlement | Future commercial support |
@@ -55,7 +57,7 @@ Phase 15 billing policy meanings:
 | `GET` | `/v1/threads/:id/runs/:rid` | runs | Passthrough | DisabledInProduction | Disabled | not_applicable | Not required | not_applicable | relay_route_policy_decision | production_disabled | Runs lifecycle billing and tool-call audit are not implemented | Future commercial support |
 | `POST` | `/v1/threads/:id/runs/:rid/submit` | runs | Passthrough | DisabledInProduction | Disabled | not_applicable | Not required | not_applicable | relay_route_policy_decision | production_disabled | Run submit-tool-output billing and audit are not implemented | Future commercial support |
 
-## Phase 13-14 Evidence Contract
+## Phase 13-16 Evidence Contract
 
 Phase 13 proves `RELAY-08` and `RELAY-09`:
 - all currently registered `/v1/*` routes have a commercial policy;
@@ -74,4 +76,6 @@ Phase 15 proves `BILL-01` and `BILL-02` at the billing lifecycle and route polic
 - provider errors, nil responses, missing required usage, and refund/settlement failures return explicit billing errors;
 - streaming/realtime, file, batch, and async endpoints are either explicitly rejected by the handler or production-disabled before provider dispatch.
 
-v05 Relay Authority Gate closeout evidence remains Phase 16 work.
+Phase 16 closes `DOC-04` with Relay Authority Gate closeout evidence:
+- `.planning/phases/16-relay-authority-evidence-and-v05-closeout/16-VERIFICATION.md` records exact commands, environment class, DB migration status, passed checks, skipped checks, and residual v06-v08 work;
+- `.planning/phases/16-relay-authority-evidence-and-v05-closeout/16-01-SUMMARY.md` records v05 closeout without claiming final commercial readiness.

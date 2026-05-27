@@ -1,11 +1,11 @@
 # Commercial Readiness Gates
 
-Oblivious is not commercial complete until every gate below is proven with current repository evidence, automated verification, and runtime smoke where applicable. v04 Commercial Foundation can close the tenant, security, migration, CI, and evidence foundation, but it is not final commercial readiness.
+Oblivious is not commercial complete until every gate below is proven with current repository evidence, automated verification, and runtime smoke where applicable. v04 Commercial Foundation closes the tenant, security, migration, CI, and evidence foundation. v05 Relay Billing Completeness closes the Relay Authority Gate evidence. Neither milestone is final commercial readiness.
 
 | Gate | Required evidence before commercial readiness | Current status | Owning milestone |
 | --- | --- | --- | --- |
 | Tenant And Identity Gate | Organizations are first-class tenants; users have audited memberships, roles, invitations, and ownership transfers; tenant-scoped reads and writes reject cross-tenant access. | Foundation evidence complete after Phases 9-11 and protected by Phase 12 CI evidence. | v04 |
-| Relay Authority Gate | Production cannot call upstream LLM providers outside Relay; every `/v1/*` endpoint is classified as supported, internal/admin-only, or disabled; unsupported endpoints fail closed; supported endpoints require tenant identity, rate-limit policy, audit semantics, and explicit billing settlement/refund policy. | Phase 13 completed route classification and production fail-closed behavior. Phase 14 adds `scripts/verify-relay-security.sh`, CI relay-security coverage, trusted internal identity enforcement, supported-route rate-limit policy, and route-decision audit events. Phase 15 adds preauthorization, exactly-once settlement, refund behavior, and explicit `preauthorize_then_settle_usage`, `preauthorize_then_settle_estimate`, or `production_disabled` route policies. Phase 16 closeout evidence remains required before this gate is complete. | v05 |
+| Relay Authority Gate | Production cannot call upstream LLM providers outside Relay; every `/v1/*` endpoint is classified as supported, internal/admin-only, or disabled; unsupported endpoints fail closed; supported endpoints require tenant identity, rate-limit policy, audit semantics, and explicit billing settlement/refund policy. | Complete for v05 after Phase 13 route classification/fail-closed evidence, Phase 14 provider-bypass/auth/rate-limit/audit evidence, Phase 15 settlement/refund evidence, and Phase 16 Relay Authority Gate closeout evidence. This does not complete v06 money movement, v07 production operations, or v08 customer-facing product completeness. | v05 |
 | Billing And Monetization Gate | Plans, quota, subscriptions, top-ups, refunds, invoices, Stripe checkout/webhooks, Marketplace settlement, platform fees, and payout state are implemented and auditable. | Future required work. v04 does not complete Stripe, paid Marketplace, or payout accounting. | v06 |
 | Product Completeness Gate | Chat, Agent, Knowledge, MCP, Admin, and Marketplace behavior matches customer-facing product copy; placeholder tools are disabled or replaced; full commercial journeys pass. | Future required work. v04 does not remove every MVP or placeholder product behavior. | v08 |
 | Security Gate | CSRF, rate limits, password policy, session rotation, tenant isolation, admin boundaries, webhook signatures, and Relay cost-abuse paths have current automated evidence. | Foundation evidence complete for CSRF, auth rate limits, password policy, session rotation, and tenant isolation. Phase 14 adds Relay provider-bypass and production identity guardrails; webhook security remains v06 work. | v04, v05, v06 |
@@ -18,7 +18,7 @@ Oblivious is not commercial complete until every gate below is proven with curre
 - v04 Commercial Foundation may claim tenant/security/migration/CI foundation completion after `CI-01` and `DOC-03` pass.
 - v04 must not claim final commercial readiness or commercial completeness.
 - v05, v06, v07, and v08 are required future milestones, not accepted debt.
-- v05 may not claim Relay Authority Gate completion until route classification, production fail-closed, provider-bypass checks, endpoint auth/rate-limit/audit, settlement/refund behavior, and v05 evidence closeout all pass.
+- v05 may claim Relay Authority Gate completion only after route classification, production fail-closed, provider-bypass checks, endpoint auth/rate-limit/audit, settlement/refund behavior, and v05 Relay Authority Gate closeout evidence all pass.
 - Any future readiness claim must link to exact files, commands, environment class, migration status, pass/fail result, skipped checks, and residual risk.
 
 ## v04 Evidence Baseline
@@ -34,9 +34,11 @@ DB-backed coverage is required in CI. Local runs may skip DB-backed integration 
 
 ## v05 Relay Evidence Baseline
 
-The v05 evidence chain starts with:
+The v05 evidence chain is complete for the Relay Authority Gate:
 
 - Phase 13: route policy registry, production fail-closed behavior, and `docs/release/relay-route-table.md`.
 - Phase 14: provider-bypass checks plus endpoint auth, rate-limit, and audit guardrails through `scripts/verify-relay-security.sh`, supported-route policy fields, trusted internal identity enforcement, and route-decision audit events.
 - Phase 15: `BILL-01` and `BILL-02` billing settlement, idempotency, refund, streaming/realtime, file, batch, and async endpoint policy evidence.
-- Phase 16: Relay Authority Gate closeout with exact commands and residual v06-v08 work.
+- Phase 16: Relay Authority Gate closeout evidence with exact commands, environment class, DB migration status, passed checks, skipped checks, and residual v06-v08 work.
+
+The v05 closeout does not satisfy the Billing And Monetization Gate, Operations Gate, Product Completeness Gate, webhook-signature security work, or final Verification Gate audit. Those remain required in v06, v07, and v08.
