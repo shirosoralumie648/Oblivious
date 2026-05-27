@@ -168,8 +168,7 @@ func resetTenantTestTables(t *testing.T, database *sql.DB) {
 
 	statements := []string{
 		`DROP TABLE IF EXISTS organizations`,
-		`DROP TABLE IF EXISTS users`,
-		`CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'user')`,
+		`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'user')`,
 		`CREATE TABLE organizations (
 			id TEXT PRIMARY KEY,
 			slug TEXT NOT NULL UNIQUE,
