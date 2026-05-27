@@ -21,13 +21,13 @@ Oblivious 是一个多租户 AI 平台，整合 LobeHub（C 端体验）和 New-
 - Per-endpoint auth, rate-limit, billing, refund, quota settlement, and audit policy.
 - v05 verification evidence that closes the Relay Authority Gate without claiming v06-v08 commercial completion.
 
-## Current State: v05 Phase 13 Ready To Execute
+## Current State: v05 Phase 14 Ready To Plan
 
 The commercial complete target is defined in `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`. That spec explicitly says the prior release-candidate state is not the final product.
 
 v04 Commercial Foundation is complete: Phase 9 completed first-class organization tenants and the migration ledger, Phase 10 completed memberships/auth security, Phase 11 completed tenant scope across core domains, and Phase 12 completed reproducible DB-backed CI and commercial gate evidence.
 
-v05 Relay Billing Completeness is now active. Phase 13 has context and an executable plan for Relay endpoint classification and production fail-closed behavior.
+v05 Relay Billing Completeness is active. Phase 13 completed Relay endpoint classification and production fail-closed behavior. The next step is Phase 14 planning for provider-bypass checks, endpoint auth/tenant identity policy, rate-limit guardrails, and Relay audit semantics.
 
 ## Requirements
 
@@ -47,11 +47,11 @@ v05 Relay Billing Completeness is now active. Phase 13 has context and an execut
 - ✓ v03.2 Quality and Release — backend integration, E2E, API/RC docs, and Docker compose runtime validation
 - ✓ v03.3 Mainline Consolidation — commit-boundary triage, backend hardening, frontend/E2E/deployment alignment, contract docs, release verification, and accepted cleanup debt closeout
 - ✓ v04 Commercial Foundation — tenant model, membership/auth security, tenant-scoped domains, DB-backed CI, and commercial gate evidence
+- ✓ RELAY-08 — Every registered `/v1/*` route is classified as commercial-supported and billed, internal/admin-only, or disabled in production
+- ✓ RELAY-09 — Unsupported or partially implemented `/v1/*` endpoints fail closed in production before any upstream provider call
 
 ### Active
 
-- [ ] **RELAY-08**: Every registered `/v1/*` route is classified as commercial-supported and billed, internal/admin-only, or disabled in production.
-- [ ] **RELAY-09**: Unsupported or partially implemented `/v1/*` endpoints fail closed in production before any upstream provider call.
 - [ ] **RELAY-10**: CI proves app services do not import provider SDKs or call direct provider URLs outside Relay/channel adapters.
 - [ ] **RELAY-11**: Supported Relay endpoints enforce tenant identity, auth policy, rate-limit policy, and audit semantics.
 - [ ] **BILL-01**: Supported Relay calls pre-authorize quota, settle exactly once per idempotency key, and refund failed or partial calls.
@@ -86,7 +86,7 @@ Go Backend (Gin)
 - v03.2 已完成质量、E2E、文档和 Docker 部署 smoke 收口。
 - v03.3 已完成主线整合、文档对齐、发布验证和两个历史 cleanup backlog。
 - v04 Commercial Foundation 已完成。
-- v05 Relay Billing Completeness 已初始化；下一步是执行 Phase 13 Relay Endpoint Authority and Production Fail-Closed。
+- v05 Relay Billing Completeness 进行中；Phase 13 已完成，下一步是规划 Phase 14 Relay Provider Bypass and Cost-Abuse Guardrails。
 - 直接 Docker Hub / 默认 Go module 路径在本机网络仍不稳定；受限网络验证命令继续作为部署 smoke 的已验证本地路径。
 - `kubectl` 未安装，因此 Kubernetes 仍属于后续 v07 Production Operations 的未验证范围。
 
@@ -112,6 +112,7 @@ Go Backend (Gin)
 | Commercial target is a milestone program, not one giant phase | Tenant/security, Relay billing, money movement, operations, and product completeness have hard dependencies | Active — v04 through v08 decomposes the work |
 | v04 starts with tenant/security foundation | Billing, Marketplace payouts, and production ops need tenant identity and isolation first | ✓ Good — v04 completed tenant/security/migration/CI foundation |
 | v05 starts with route policy and fail-closed enforcement | Billing semantics are unsafe until every `/v1/*` route has an explicit commercial class and production behavior | Active — `.planning/phases/13-relay-endpoint-authority-and-fail-closed/13-01-PLAN.md` |
+| Phase 13 disables partial Relay endpoints in production first | Passthrough/file/async endpoints must not reach providers before billing/audit/settlement semantics exist | ✓ Good — `3b9d4dd` and `docs/release/relay-route-table.md` |
 
 ## Evolution
 
@@ -131,4 +132,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state.
 
 ---
-*Last updated: 2026-05-28 after initializing v05 Relay Billing Completeness*
+*Last updated: 2026-05-28 after completing Phase 13 Relay endpoint authority*

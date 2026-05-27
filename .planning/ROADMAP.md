@@ -21,8 +21,8 @@ Milestone v05 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 
 | Phase | Name | Requirements | Status |
 |-------|------|--------------|--------|
-| Phase 13 | Relay Endpoint Authority and Production Fail-Closed | RELAY-08, RELAY-09 | Ready to execute |
-| Phase 14 | Relay Provider Bypass and Cost-Abuse Guardrails | RELAY-10, RELAY-11 | Planned |
+| Phase 13 | Relay Endpoint Authority and Production Fail-Closed | RELAY-08, RELAY-09 | Complete |
+| Phase 14 | Relay Provider Bypass and Cost-Abuse Guardrails | RELAY-10, RELAY-11 | Ready to plan |
 | Phase 15 | Relay Billing Settlement and Refund Semantics | BILL-01, BILL-02 | Planned |
 | Phase 16 | Relay Authority Evidence and v05 Closeout | DOC-04 | Planned |
 
@@ -39,10 +39,13 @@ Milestone v05 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 4. `docs/API.md` and `docs/release/commercial-gates.md` expose the route table and fail-closed contract.
 5. Local non-production behavior remains usable for implementation/testing where existing tests depend on route registration.
 
-**Likely verification:**
-- `cd src/server && go test ./internal/relay/handler -run 'RoutePolicy|FailClosed|RegisteredRoutes' -count=1`
-- `bash scripts/check.sh docs`
-- Targeted `rg` checks for all registered `/v1/*` route classes and production disabled reasons.
+**Completion evidence:**
+- Implementation commit: `3b9d4dd`
+- Summary: `.planning/phases/13-relay-endpoint-authority-and-fail-closed/13-01-SUMMARY.md`
+- Route table: `docs/release/relay-route-table.md`
+- Focused tests: `cd src/server && go test ./internal/relay/handler -count=1`
+- Broader package check: `cd src/server && go test ./internal/relay/... ./internal/http -count=1`
+- Docs gate: `bash scripts/check.sh docs`
 
 **Planning evidence:**
 - Context: `.planning/phases/13-relay-endpoint-authority-and-fail-closed/13-CONTEXT.md`
@@ -104,8 +107,8 @@ Milestone v05 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 
 | Requirement | Phase | Coverage |
 |-------------|-------|----------|
-| RELAY-08 | Phase 13 | Planned — route policy registry and complete `/v1/*` classification |
-| RELAY-09 | Phase 13 | Planned — production fail-closed behavior for disabled/partial endpoints |
+| RELAY-08 | Phase 13 | Complete — route policy registry and complete `/v1/*` classification |
+| RELAY-09 | Phase 13 | Complete — production fail-closed behavior for disabled/partial endpoints |
 | RELAY-10 | Phase 14 | Planned — provider-bypass CI checks |
 | RELAY-11 | Phase 14 | Planned — endpoint auth/rate-limit/audit semantics |
 | BILL-01 | Phase 15 | Planned — quota pre-authorization, exactly-once settlement, and refund behavior |
@@ -200,7 +203,7 @@ Milestone v05 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 
 | Milestone | Scope | Plans | Requirements | Status | Completed |
 |-----------|-------|-------|--------------|--------|-----------|
-| v05 Relay Billing Completeness | Phases 13-16 | 0/4 plans complete | 0/7 requirements complete | Active | In progress |
+| v05 Relay Billing Completeness | Phases 13-16 | 1/4 plans complete | 2/7 requirements complete | Active | Phase 13 complete 2026-05-28 |
 | v04 Commercial Foundation | Phases 9-12 | 4/4 plans complete | 11/11 requirements complete | Complete | 2026-05-28 |
 | v03.3 Mainline Consolidation | Phases 5-8 plus backlog 999.1 and 999.2 | 12/12 steps complete | 7/7 requirements complete | Complete | 2026-05-27 |
 | v03.2 Quality and Release | Phase 4 | 4/4 | TEST-01, TEST-02, DOC-01, DEPLOY-01 | Shipped | 2026-05-14 |
@@ -208,4 +211,4 @@ Milestone v05 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 | Foundation through Backend | Phases 1, 2, 3a | Historical | RELAY, CHAT, AGENT, MCP, MEM, EXEC, QUOTA, ADMIN, MARKET | Complete | 2026-04-29 |
 
 ---
-*Roadmap updated: 2026-05-28 after initializing v05 Relay Billing Completeness*
+*Roadmap updated: 2026-05-28 after completing Phase 13 Relay endpoint authority*
