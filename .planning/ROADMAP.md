@@ -9,9 +9,9 @@
 
 ## Current Status
 
-Milestone v03.3 has completed Phase 8 contract-docs and release-verification alignment. Phase 999.1 has reconstructed the missing Phase 01 summary artifact. Phase 999.2 has resolved the accepted v03.1 cleanup debt and is ready for verification.
+Milestone v03.3 has completed Phase 8 contract-docs and release-verification alignment. Phase 999.1 reconstructed the missing Phase 01 summary artifact. Phase 999.2 resolved and verified the accepted v03.1 cleanup debt.
 
-**Next workflow step:** `$gsd:verify-work`
+**Next workflow step:** initialize v04 Commercial Foundation from `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`
 
 ## Current Milestone: v03.3 Mainline Consolidation
 
@@ -214,7 +214,7 @@ These phases remain available in `.planning/phases/` and the v03.2 roadmap archi
 
 | Milestone | Scope | Plans | Requirements | Status | Completed |
 |-----------|-------|-------|--------------|--------|-----------|
-| v03.3 Mainline Consolidation | Phases 5-8 plus backlog 999.1 and 999.2 | 10/10 mainline steps complete; 2/2 backlog steps complete | CONS-01, ROUTE-01, CHAT-06, AUTH-01, DEPLOY-02, DOC-02, VERIFY-01 complete | Phase 999.2 executed; ready for verification | Phase 5 and Phase 6 complete 2026-05-14; Phase 7, Phase 8, and Phase 999.1 complete 2026-05-17; Phase 999.2 executed 2026-05-18 |
+| v03.3 Mainline Consolidation | Phases 5-8 plus backlog 999.1 and 999.2 | 10/10 mainline steps complete; 2/2 backlog steps complete | CONS-01, ROUTE-01, CHAT-06, AUTH-01, DEPLOY-02, DOC-02, VERIFY-01 complete | Complete | Phase 5 and Phase 6 complete 2026-05-14; Phase 7, Phase 8, and Phase 999.1 complete 2026-05-17; Phase 999.2 executed 2026-05-18 and verified 2026-05-27 |
 | v03.2 Quality and Release | Phase 4 | 4/4 | TEST-01, TEST-02, DOC-01, DEPLOY-01 | Shipped | 2026-05-14 |
 | v03.1 Admin and Marketplace UI | Phase 03.1 | 7/7 | ADMIN-04, MARKET-02 | Shipped | 2026-05-02 |
 | Foundation through Backend | Phases 1, 2, 3a | Historical | RELAY, CHAT, AGENT, MCP, MEM, EXEC, QUOTA, ADMIN, MARKET | Complete | 2026-04-29 |
@@ -250,6 +250,7 @@ These phases remain available in `.planning/phases/` and the v03.2 roadmap archi
 - [x] Legacy workspace MarketplacePage cleanup was resolved without migrating the static MCP catalog into Agent Marketplace
 - [x] Living `.planning/REQUIREMENTS.md` policy was recorded as additive traceability, not a broad requirements rewrite
 **Summary:** `.planning/phases/999.2-follow-up-phase-03-1-accepted-cleanup-debt-backlog/999.2-01-SUMMARY.md`
+**UAT:** `.planning/phases/999.2-follow-up-phase-03-1-accepted-cleanup-debt-backlog/999.2-UAT.md`
 
 ---
-*Roadmap updated: 2026-05-18 after Phase 999.2 execution*
+*Roadmap updated: 2026-05-27 after Phase 999.2 verify-work*
