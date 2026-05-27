@@ -17,6 +17,10 @@ func GetRouter() types.RouterInterface {
 	return globalRouter
 }
 
+type RouteRegistrationOptions struct {
+	Production bool
+}
+
 // Route 定义
 type Route struct {
 	Method    string
@@ -28,6 +32,10 @@ type Route struct {
 
 // RegisterRoutes 注册全部 35 个 OpenAI 路由
 func RegisterRoutes(e *gin.Engine, handlers map[types.APIType]types.Handler) {
+	RegisterRoutesWithOptions(e, handlers, RouteRegistrationOptions{})
+}
+
+func RegisterRoutesWithOptions(e *gin.Engine, handlers map[types.APIType]types.Handler, opts RouteRegistrationOptions) {
 	routes := getOpenAIRoutes()
 
 	for _, r := range routes {
@@ -39,19 +47,31 @@ func RegisterRoutes(e *gin.Engine, handlers map[types.APIType]types.Handler) {
 		switch r.Strategy {
 		case types.StrategyPassthrough:
 			e.Handle(r.Method, r.Path, func(c *gin.Context) {
+				if RejectIfProductionDisabled(c, r, opts.Production) {
+					return
+				}
 				h.Handle(c)
 			})
 		case types.StrategyFileProxy:
 			e.Handle(r.Method, r.Path, func(c *gin.Context) {
+				if RejectIfProductionDisabled(c, r, opts.Production) {
+					return
+				}
 				h.Handle(c)
 			})
 		default: // StrategyNative
 			if r.APIType == types.APITypeRealtime {
 				e.Handle(r.Method, r.Path, func(c *gin.Context) {
+					if RejectIfProductionDisabled(c, r, opts.Production) {
+						return
+					}
 					h.HandleStream(c)
 				})
 			} else {
 				e.Handle(r.Method, r.Path, func(c *gin.Context) {
+					if RejectIfProductionDisabled(c, r, opts.Production) {
+						return
+					}
 					h.Handle(c)
 				})
 			}

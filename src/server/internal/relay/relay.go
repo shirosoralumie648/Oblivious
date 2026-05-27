@@ -16,7 +16,8 @@ type Relay struct {
 }
 
 type Config struct {
-	Pool *ChannelPool
+	Pool       *ChannelPool
+	Production bool
 }
 
 func NewRelay(cfg *Config) (*Relay, error) {
@@ -57,13 +58,13 @@ func NewRelay(cfg *Config) (*Relay, error) {
 	// Register router with handlers
 	handler.SetRouter(r.router)
 
-	r.initRouter()
+	r.initRouter(cfg != nil && cfg.Production)
 	return r, nil
 }
 
-func (r *Relay) initRouter() {
+func (r *Relay) initRouter(production bool) {
 	r.engine = gin.New()
-	handler.RegisterRoutes(r.engine, r.handlers)
+	handler.RegisterRoutesWithOptions(r.engine, r.handlers, handler.RouteRegistrationOptions{Production: production})
 }
 
 func (r *Relay) Engine() *gin.Engine {

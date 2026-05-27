@@ -33,7 +33,7 @@ func NewServer(cfg config.Config, database *sql.DB) *stdhttp.Server {
 		ensureDefaultChannel(relayStore, pool, cfg)
 
 		// Create Relay instance
-		relayInstance, err := relay.NewRelay(&relay.Config{Pool: pool})
+		relayInstance, err := relay.NewRelay(&relay.Config{Pool: pool, Production: cfg.Env == "production"})
 		if err != nil {
 			log.Printf("warning: failed to create relay: %v", err)
 		} else {
@@ -60,17 +60,17 @@ func ensureDefaultChannel(store *relay.RelayStore, pool *relay.ChannelPool, cfg 
 	channels := pool.ListChannels()
 	if len(channels) == 0 && cfg.OpenAIAPIKey != "" {
 		defaultChannel := &types.Channel{
-			ID:        uuid.New().String(),
-			Name:      "Default OpenAI",
-			Provider:  "openai",
-			BaseURL:   cfg.OpenAIBaseURL,
-			APIKey:    cfg.OpenAIAPIKey,
-			Models:    []string{"gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"},
-			RPMLimit:  1000,
-			TPMLimit:  100000,
-			Enabled:   true,
-			Strategy:  "weighted",
-			Priority:  0,
+			ID:       uuid.New().String(),
+			Name:     "Default OpenAI",
+			Provider: "openai",
+			BaseURL:  cfg.OpenAIBaseURL,
+			APIKey:   cfg.OpenAIAPIKey,
+			Models:   []string{"gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"},
+			RPMLimit: 1000,
+			TPMLimit: 100000,
+			Enabled:  true,
+			Strategy: "weighted",
+			Priority: 0,
 		}
 
 		if err := store.CreateChannel(defaultChannel); err != nil {

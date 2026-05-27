@@ -259,6 +259,9 @@ Public discovery endpoints do not require a session. Publisher, install, review 
 ## Relay /v1 Endpoints
 
 These routes are registered by `src/server/internal/relay/handler/router.go` and mounted under `/v1/*` by `src/server/internal/http/server.go`.
+Commercial route classes, production status, disabled reasons, and owning future work are tracked in `docs/release/relay-route-table.md`.
+
+When `APP_ENV=production`, routes classified as `DisabledInProduction` fail closed with `endpoint_disabled_in_production` before handler, passthrough, file proxy, or provider execution. `CommercialSupportedBilled` routes remain callable and must receive final settlement/refund proof before v05 closes.
 
 | Method | Path | Strategy |
 | --- | --- | --- |
