@@ -1,6 +1,10 @@
 package main
 
 import (
+	"context"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"os"
@@ -24,9 +28,77 @@ func main() {
 	}
 	defer database.Close()
 
-	entries, err := os.ReadDir("migrations")
+	result, err := applyMigrations(context.Background(), database, "migrations")
 	if err != nil {
-		log.Fatalf("read migrations dir: %v", err)
+		log.Fatalf("apply migrations: %v", err)
+	}
+
+	fmt.Printf("migrations applied: %d, skipped: %d\n", result.Applied, result.Skipped)
+}
+
+type migrationResult struct {
+	Applied int
+	Skipped int
+}
+
+func applyMigrations(ctx context.Context, database *sql.DB, migrationsDir string) (migrationResult, error) {
+	if err := ensureMigrationLedger(ctx, database); err != nil {
+		return migrationResult{}, err
+	}
+
+	migrationPaths, err := loadMigrationFiles(migrationsDir)
+	if err != nil {
+		return migrationResult{}, err
+	}
+
+	result := migrationResult{}
+	for _, migrationPath := range migrationPaths {
+		version := filepath.Base(migrationPath)
+		statement, err := os.ReadFile(migrationPath)
+		if err != nil {
+			return result, fmt.Errorf("read migration %s: %w", migrationPath, err)
+		}
+		checksum := migrationChecksum(statement)
+
+		var existingChecksum string
+		err = database.QueryRowContext(ctx, `SELECT checksum FROM schema_migrations WHERE version = $1`, version).Scan(&existingChecksum)
+		switch {
+		case err == nil:
+			if existingChecksum != checksum {
+				return result, fmt.Errorf("migration %s checksum mismatch", version)
+			}
+			result.Skipped++
+			continue
+		case err != sql.ErrNoRows:
+			return result, fmt.Errorf("check migration %s: %w", version, err)
+		}
+
+		if err := applyMigration(ctx, database, version, checksum, string(statement)); err != nil {
+			return result, err
+		}
+		result.Applied++
+	}
+
+	return result, nil
+}
+
+func ensureMigrationLedger(ctx context.Context, database *sql.DB) error {
+	_, err := database.ExecContext(ctx, `
+CREATE TABLE IF NOT EXISTS schema_migrations (
+	version TEXT PRIMARY KEY,
+	checksum TEXT NOT NULL,
+	applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+)`)
+	if err != nil {
+		return fmt.Errorf("ensure schema_migrations: %w", err)
+	}
+	return nil
+}
+
+func loadMigrationFiles(migrationsDir string) ([]string, error) {
+	entries, err := os.ReadDir(migrationsDir)
+	if err != nil {
+		return nil, fmt.Errorf("read migrations dir: %w", err)
 	}
 
 	migrationPaths := make([]string, 0, len(entries))
@@ -34,20 +106,38 @@ func main() {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
 			continue
 		}
-		migrationPaths = append(migrationPaths, filepath.Join("migrations", entry.Name()))
+		migrationPaths = append(migrationPaths, filepath.Join(migrationsDir, entry.Name()))
 	}
 	sort.Strings(migrationPaths)
 
-	for _, migrationPath := range migrationPaths {
-		statement, err := os.ReadFile(migrationPath)
-		if err != nil {
-			log.Fatalf("read migration %s: %v", migrationPath, err)
-		}
+	return migrationPaths, nil
+}
 
-		if _, err := database.Exec(string(statement)); err != nil {
-			log.Fatalf("apply migration %s: %v", migrationPath, err)
-		}
+func migrationChecksum(statement []byte) string {
+	sum := sha256.Sum256(statement)
+	return hex.EncodeToString(sum[:])
+}
+
+func applyMigration(ctx context.Context, database *sql.DB, version, checksum, statement string) error {
+	tx, err := database.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin migration %s: %w", version, err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, statement); err != nil {
+		return fmt.Errorf("apply migration %s: %w", version, err)
 	}
 
-	fmt.Println("migrations applied")
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO schema_migrations (version, checksum)
+VALUES ($1, $2)
+`, version, checksum); err != nil {
+		return fmt.Errorf("record migration %s: %w", version, err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit migration %s: %w", version, err)
+	}
+	return nil
 }

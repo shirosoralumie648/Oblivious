@@ -22,6 +22,7 @@ import (
 	"oblivious/server/internal/notification"
 	"oblivious/server/internal/quota"
 	"oblivious/server/internal/task"
+	"oblivious/server/internal/tenant"
 	"oblivious/server/internal/usage"
 	"oblivious/server/internal/userprefs"
 	"oblivious/server/internal/ws"
@@ -108,6 +109,7 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 	// Admin service
 	adminService := admin.NewService(admin.NewSQLStore(database))
 	adminHandler := newAdminHandler(adminService)
+	tenantHandler := newTenantHandler(tenant.NewService(tenant.NewSQLStore(database)))
 
 	// Marketplace service
 	marketplaceStore := marketplace.NewSQLStore(database)
@@ -863,6 +865,47 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 				return
 			}
 		}
+		writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
+	})))
+	mux.Handle("/api/v1/admin/organizations", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		switch r.Method {
+		case stdhttp.MethodGet:
+			tenantHandler.listOrganizations(w, r)
+		case stdhttp.MethodPost:
+			tenantHandler.createOrganization(w, r)
+		default:
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		}
+	})))
+	mux.Handle("/api/v1/admin/organizations/", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/admin/organizations/"), "/"), "/")
+		if len(parts) == 0 || parts[0] == "" {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
+			return
+		}
+
+		organizationID := parts[0]
+		if len(parts) == 1 {
+			switch r.Method {
+			case stdhttp.MethodGet:
+				tenantHandler.getOrganization(w, r, organizationID)
+			case stdhttp.MethodPut:
+				tenantHandler.updateOrganization(w, r, organizationID)
+			default:
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
+
+		if len(parts) == 2 && parts[1] == "archive" {
+			if r.Method == stdhttp.MethodPost {
+				tenantHandler.archiveOrganization(w, r, organizationID)
+			} else {
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
+
 		writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
 	})))
 	mux.Handle("/api/v1/admin/audit-logs", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {

@@ -51,6 +51,7 @@ func TestRouteSurfaceAdminRoutesRequireAdmin(t *testing.T) {
 		"/api/v1/admin/routes",
 		"/api/v1/admin/plans",
 		"/api/v1/admin/users",
+		"/api/v1/admin/organizations",
 		"/api/v1/admin/audit-logs",
 		"/api/v1/admin/reviews",
 	}
