@@ -1,67 +1,71 @@
-# Requirements: Oblivious v04 Commercial Foundation
+# Requirements: Oblivious v05 Relay Billing Completeness
 
-**Defined:** 2026-05-27
-**Current milestone:** v04 Commercial Foundation
+**Defined:** 2026-05-28
+**Current milestone:** v05 Relay Billing Completeness
 **Source spec:** `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`
 **Core Value:** 统一的多渠道 LLM 调用层 — 所有 AI 调用必须经过 Relay
 
 ## Current Milestone Requirements
 
-### Tenant And Identity
+### Relay Authority
 
-- [x] **TENANT-01**: Admin can create and manage organizations as first-class tenants. Completed in Phase 9 with `organizations` schema, tenant service/store, admin routes, and DB-backed lifecycle tests.
-- [x] **TENANT-02**: User can belong to multiple organizations with member, admin, and owner roles. Completed in Phase 10 with `organization_memberships`, owner/admin/member roles, creator owner membership, list-membership APIs, and DB-backed lifecycle tests.
-- [x] **TENANT-03**: User can invite, accept, revoke, remove, and transfer organization ownership with audit events. Completed in Phase 10 with invitation token hashing, accept/revoke routes, role/removal/ownership flows, and audit-backed mutation tests.
-- [x] **TENANT-04**: Chat, Agent, Knowledge, Memory, MCP, Quota, Console, Admin, and Marketplace publisher data are scoped by tenant. Completed in Phase 11 with `organization_id` migration/backfill, session-derived active organization scope, tenant filters across core services, and tenant-aware Marketplace/Admin audit data.
-- [x] **TENANT-05**: Tests prove cross-tenant access is denied for representative read and write paths. Completed in Phase 11 with DB-backed HTTP tests across Chat, Knowledge, Console, Agent, Memory, MCP, Quota, Marketplace publisher data, and Admin audit organization visibility.
+- [ ] **RELAY-08**: Every registered `/v1/*` route is classified as commercial-supported and billed, internal/admin-only, or disabled in production.
+- [ ] **RELAY-09**: Unsupported or partially implemented `/v1/*` endpoints fail closed in production before any upstream provider call.
+- [ ] **RELAY-10**: CI proves app services do not import provider SDKs or call direct provider URLs outside Relay/channel adapters.
+- [ ] **RELAY-11**: Supported Relay endpoints enforce tenant identity, auth policy, rate-limit policy, and audit semantics.
 
-### Production Auth Security
+### Relay Billing
 
-- [x] **SEC-01**: Cookie-authenticated mutating routes require CSRF protection. Completed in Phase 10 with `security_middleware.go`, session CSRF tokens, and route-surface tests for missing-token rejection.
-- [x] **SEC-02**: Login, registration, password reset, and sensitive admin/organization actions are rate limited. Completed in Phase 10 with SQL-backed `auth_rate_limits` and 429 tests for auth and organization writes.
-- [x] **SEC-03**: Password policy and session rotation are enforced. Completed in Phase 10 with strong-password validation, password reset session revocation, invitation-accept session rotation, and membership-change session revocation tests.
+- [ ] **BILL-01**: Supported Relay calls pre-authorize quota, settle exactly once per idempotency key, and refund failed or partial calls.
+- [ ] **BILL-02**: Streaming/realtime, file, batch, and async flows have explicit settlement models or are production-disabled.
 
-### Migration And CI Evidence
+### Relay Evidence
 
-- [x] **MIGR-01**: Migration runner records applied migrations in `schema_migrations`. Completed in Phase 9 with checksum-aware ledgered migration execution and idempotency tests.
-- [x] **CI-01**: CI server job runs DB-backed HTTP integration tests instead of silently skipping persistence coverage. Completed in Phase 12 with PostgreSQL service wiring, `OBLIVIOUS_REQUIRE_TEST_DATABASE=true`, required-DB fail-fast script behavior, and DB-backed `scripts/test.sh all` evidence.
-- [x] **DOC-03**: Commercial gate documentation defines what must be true before any future milestone can claim commercial readiness. Completed in Phase 12 with `docs/release/commercial-gates.md`, updated README/release/system-contract docs, and docs quality-gate assertions.
+- [ ] **DOC-04**: Relay route table, endpoint policy, and v05 verification evidence document the commercial Relay Authority Gate.
 
 ## Future Requirements
 
-- [ ] v05 Relay Billing Completeness: classify all `/v1/*` routes, fail closed in production for unsupported endpoints, and prove auth/rate-limit/billing/audit behavior per endpoint class.
 - [ ] v06 Billing And Marketplace Operations: Stripe checkout/webhooks, subscription lifecycle, invoices, refunds, top-ups, Marketplace publisher settlement, platform fees, payout state, and moderation flows.
 - [ ] v07 Production Operations: Kubernetes or equivalent production orchestration proof, backup/restore smoke, structured logs, tracing, metrics, alerts, dashboards, and runbooks.
 - [ ] v08 Product Completeness: real or disabled built-in MCP tools, durable Agent workflows, Knowledge behavior matching product copy, commercial Admin/Marketplace UX, public docs, onboarding, pricing, and operator guides.
 
-## Out of Scope For v04
+## Out of Scope For v05
 
 | Feature | Reason |
 |---------|--------|
-| Full Stripe production rollout | Requires tenant foundation and billing policy; owned by v06 |
-| Marketplace payout accounting | Requires billing state and settlement model; owned by v06 |
-| All Relay endpoint billing completion | Requires endpoint classification and settlement model; owned by v05 |
-| Kubernetes runtime proof | Production orchestration belongs to v07 after SaaS foundation is stable |
+| Full Stripe production rollout | Payment lifecycle and webhook operations belong to v06 |
+| Marketplace payout accounting | Requires v06 settlement and payout model |
+| Kubernetes runtime proof | Production orchestration belongs to v07 |
 | RAG upgrade and Agent workflow expansion | Product completeness belongs to v08 |
-| Mobile-specific experience | Web control plane remains the commercial priority |
+| Final public pricing/onboarding/operator guides | Final product/documentation completion belongs to v08 |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| TENANT-01 | Phase 9 — Tenant Model and Migration Ledger | Complete |
-| MIGR-01 | Phase 9 — Tenant Model and Migration Ledger | Complete |
-| TENANT-02 | Phase 10 — Membership, Roles, and Auth Security | Complete |
-| TENANT-03 | Phase 10 — Membership, Roles, and Auth Security | Complete |
-| SEC-01 | Phase 10 — Membership, Roles, and Auth Security | Complete |
-| SEC-02 | Phase 10 — Membership, Roles, and Auth Security | Complete |
-| SEC-03 | Phase 10 — Membership, Roles, and Auth Security | Complete |
-| TENANT-04 | Phase 11 — Tenant Scope Across Core Domains | Complete |
-| TENANT-05 | Phase 11 — Tenant Scope Across Core Domains | Complete |
-| CI-01 | Phase 12 — Commercial Gate CI and Evidence | Complete |
-| DOC-03 | Phase 12 — Commercial Gate CI and Evidence | Complete |
+| RELAY-08 | Phase 13 — Relay Endpoint Authority and Production Fail-Closed | Planned |
+| RELAY-09 | Phase 13 — Relay Endpoint Authority and Production Fail-Closed | Planned |
+| RELAY-10 | Phase 14 — Relay Provider Bypass and Cost-Abuse Guardrails | Planned |
+| RELAY-11 | Phase 14 — Relay Provider Bypass and Cost-Abuse Guardrails | Planned |
+| BILL-01 | Phase 15 — Relay Billing Settlement and Refund Semantics | Planned |
+| BILL-02 | Phase 15 — Relay Billing Settlement and Refund Semantics | Planned |
+| DOC-04 | Phase 16 — Relay Authority Evidence and v05 Closeout | Planned |
 
 ## Historical Validated Requirements
+
+### v04 Commercial Foundation
+
+- [x] **TENANT-01**: Admin can create and manage organizations as first-class tenants.
+- [x] **TENANT-02**: User can belong to multiple organizations with member, admin, and owner roles.
+- [x] **TENANT-03**: User can invite, accept, revoke, remove, and transfer organization ownership with audit events.
+- [x] **TENANT-04**: Chat, Agent, Knowledge, Memory, MCP, Quota, Console, Admin, and Marketplace publisher data are scoped by tenant.
+- [x] **TENANT-05**: Tests prove cross-tenant access is denied for representative read and write paths.
+- [x] **SEC-01**: Cookie-authenticated mutating routes require CSRF protection.
+- [x] **SEC-02**: Login, registration, password reset, and sensitive admin/organization actions are rate limited.
+- [x] **SEC-03**: Password policy and session rotation are enforced.
+- [x] **MIGR-01**: Migration runner records applied migrations in `schema_migrations`.
+- [x] **CI-01**: CI server job runs DB-backed HTTP integration tests instead of silently skipping persistence coverage.
+- [x] **DOC-03**: Commercial gate documentation defines what must be true before any future milestone can claim commercial readiness.
 
 ### v03.3 Mainline Consolidation
 
@@ -133,12 +137,12 @@
 - Historical traceability cleanup should use additive rows or notes, not broad rewrites of completed requirements.
 
 **Coverage:**
-- Active v04 requirements: 0
-- Completed v04 requirements: 11
-- Planned v04 phase mappings: 11
-- Completed historical requirements: 57
+- Active v05 requirements: 7
+- Completed v05 requirements: 0
+- Planned v05 phase mappings: 7
+- Completed historical requirements: 68
 - Blocked requirements: 0
-- Unmapped v04 requirements: 0
+- Unmapped v05 requirements: 0
 
 ---
-*Requirements updated: 2026-05-28 after completing Phase 12 commercial gate CI and evidence*
+*Requirements updated: 2026-05-28 after initializing v05 Relay Billing Completeness*

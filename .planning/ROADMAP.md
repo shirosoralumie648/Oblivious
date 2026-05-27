@@ -2,6 +2,7 @@
 
 ## Milestones
 
+- 🚧 **v05 Relay Billing Completeness** — Phase 13 through Phase 16 (planning started 2026-05-28)
 - ✅ **v04 Commercial Foundation** — Phase 9 through Phase 12 (completed 2026-05-28)
 - ✅ **v03.3 Mainline Consolidation** — Phase 5 through Phase 8 plus 999.1/999.2 follow-ups (completed 2026-05-27)
 - ✅ **v03.2 Quality and Release** — Phase 4 (shipped 2026-05-14; Docker compose runtime validated 2026-05-12)
@@ -10,140 +11,128 @@
 
 ## Current Status
 
-Milestone v04 has been completed from `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`.
+Milestone v05 has been initialized from `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`.
 
-**Next workflow step:** initialize or plan v05 Relay Billing Completeness.
+**Next workflow step:** execute Phase 13 Relay Endpoint Authority and Production Fail-Closed Plan 01.
 
-## Current Milestone: v04 Commercial Foundation
+## Current Milestone: v05 Relay Billing Completeness
 
-**Goal:** Establish the SaaS tenant, security, migration, and CI foundation required before commercial Relay billing, Marketplace settlement, production operations, and final product completeness work.
+**Goal:** Make the Relay invariant true for every commercial AI surface: every `/v1/*` endpoint is classified, unsupported production behavior fails closed, supported behavior has auth/rate-limit/billing/audit semantics, and provider-bypass checks prove app services cannot call upstream LLM providers outside Relay.
 
 | Phase | Name | Requirements | Status |
 |-------|------|--------------|--------|
-| Phase 9 | Tenant Model and Migration Ledger | TENANT-01, MIGR-01 | Complete |
-| Phase 10 | Membership, Roles, and Auth Security | TENANT-02, TENANT-03, SEC-01, SEC-02, SEC-03 | Complete |
-| Phase 11 | Tenant Scope Across Core Domains | TENANT-04, TENANT-05 | Complete |
-| Phase 12 | Commercial Gate CI and Evidence | CI-01, DOC-03 | Complete |
+| Phase 13 | Relay Endpoint Authority and Production Fail-Closed | RELAY-08, RELAY-09 | Ready to execute |
+| Phase 14 | Relay Provider Bypass and Cost-Abuse Guardrails | RELAY-10, RELAY-11 | Planned |
+| Phase 15 | Relay Billing Settlement and Refund Semantics | BILL-01, BILL-02 | Planned |
+| Phase 16 | Relay Authority Evidence and v05 Closeout | DOC-04 | Planned |
 
-### Phase 9: Tenant Model and Migration Ledger
+### Phase 13: Relay Endpoint Authority and Production Fail-Closed
 
-**Goal:** Add first-class organization tenancy and an append-only migration ledger without changing later billing or product surfaces prematurely.
+**Goal:** Create the authoritative route policy registry for all registered `/v1/*` endpoints and enforce production fail-closed behavior for disabled or partial endpoints before any provider call.
 
-**Requirements:** TENANT-01, MIGR-01
+**Requirements:** RELAY-08, RELAY-09
 
 **Success criteria:**
-1. New migrations create `schema_migrations` or equivalent migration ledger tables and organization tenant tables.
-2. Migration execution records applied migration identity and is safe to rerun.
-3. Admin/server code can create, list, inspect, update, and deactivate organizations through explicit service boundaries.
-4. Organization identity is available to downstream handlers/services without relying on ad hoc user-only context.
-5. Targeted DB-backed tests prove ledger idempotency and organization CRUD behavior.
+1. Policy tests prove every route from `src/server/internal/relay/handler/router.go` has exactly one commercial class.
+2. Supported routes are explicitly marked as billed commercial surfaces; disabled routes list the reason and owning future work.
+3. Production mode rejects disabled or partial routes before invoking native, passthrough, or file-proxy handlers.
+4. `docs/API.md` and `docs/release/commercial-gates.md` expose the route table and fail-closed contract.
+5. Local non-production behavior remains usable for implementation/testing where existing tests depend on route registration.
 
 **Likely verification:**
-- `cd src/server && go test ./internal/... -run 'Migration|Organization|Tenant' -count=1`
-- `cd src/server && TEST_DATABASE_URL=<postgres test db> go test ./... -count=1`
-- `bash scripts/check.sh all`
-
-**Completion evidence:**
-- Implementation commits: `52b552f`, `25521ef`, `4293403`, `ef59081`, `b973106`
-- Summary: `.planning/phases/09-tenant-model-and-migration-ledger/09-01-SUMMARY.md`
-- DB-backed verification: migration ledger and organization lifecycle tests passed against PostgreSQL on `127.0.0.1:32768`
-- Broad gates: `bash scripts/test.sh all` and `bash scripts/check.sh all` passed with `TEST_DATABASE_URL` and restricted-network Go proxy overrides
-
-### Phase 10: Membership, Roles, and Auth Security
-
-**Goal:** Make organization membership and production auth controls enforceable before tenant-scoped domain data migration.
-
-**Requirements:** TENANT-02, TENANT-03, SEC-01, SEC-02, SEC-03
-
-**Success criteria:**
-1. Users can belong to multiple organizations with member/admin/owner roles.
-2. Invitation, acceptance, removal, ownership transfer, and role changes are audited.
-3. Cookie-authenticated mutating routes reject missing/invalid CSRF tokens.
-4. Login, registration, password reset, and sensitive admin actions have enforced rate limits.
-5. Password policy and session rotation are covered by targeted tests.
-
-**Completion evidence:**
-- Implementation commits: `991b17b`, `31dc646`, `79ad6cf`, `01e6e50`, `e1d6854`
-- Build-gate fix commit: `67c729a`
-- Summary: `.planning/phases/10-membership-roles-and-auth-security/10-01-SUMMARY.md`
-- DB-backed verification: membership, invitation revoke/accept, role/ownership, audit, CSRF, rate-limit, password reset, and session rotation/revocation tests passed against PostgreSQL on `127.0.0.1:32769`
-- Broad gates: `bash scripts/test.sh all` and `bash scripts/check.sh all` passed with `TEST_DATABASE_URL` and restricted-network Go proxy overrides
+- `cd src/server && go test ./internal/relay/handler -run 'RoutePolicy|FailClosed|RegisteredRoutes' -count=1`
+- `bash scripts/check.sh docs`
+- Targeted `rg` checks for all registered `/v1/*` route classes and production disabled reasons.
 
 **Planning evidence:**
-- Context: `.planning/phases/10-membership-roles-and-auth-security/10-CONTEXT.md`
-- Discussion log: `.planning/phases/10-membership-roles-and-auth-security/10-DISCUSSION-LOG.md`
-- Plan: `.planning/phases/10-membership-roles-and-auth-security/10-01-PLAN.md`
+- Context: `.planning/phases/13-relay-endpoint-authority-and-fail-closed/13-CONTEXT.md`
+- Plan: `.planning/phases/13-relay-endpoint-authority-and-fail-closed/13-01-PLAN.md`
 
-### Phase 11: Tenant Scope Across Core Domains
+### Phase 14: Relay Provider Bypass and Cost-Abuse Guardrails
 
-**Goal:** Apply tenant identity to core data domains and prove cross-tenant reads/writes fail.
+**Goal:** Prove production app services can only reach upstream LLM providers through Relay and attach auth, tenant, rate-limit, and audit policy to supported endpoint classes.
 
-**Requirements:** TENANT-04, TENANT-05
-
-**Success criteria:**
-1. Chat, Agent, Knowledge, Memory, MCP, Quota, Console, Admin, and Marketplace publisher data have tenant ownership semantics.
-2. Handlers and services derive tenant scope from authenticated context instead of client-controlled identifiers.
-3. Cross-tenant reads are denied for representative list/detail paths.
-4. Cross-tenant writes are denied for representative create/update/delete paths.
-5. Regression tests cover the representative core domains and fail if tenant filters are removed.
-
-**Completion evidence:**
-- Implementation commits: `6435e3e`, `75d104b`, `34dd33e`, `8d60ede`, `fd33cd3`, `4fba2d9`
-- Summary: `.planning/phases/11-tenant-scope-across-core-domains/11-01-SUMMARY.md`
-- DB-backed verification: cross-tenant HTTP tests passed for Chat, Knowledge, Console, Agent, Memory, MCP, Quota, Marketplace publisher data, and Admin audit organization visibility against PostgreSQL on `127.0.0.1:32770`
-- Broad gates: `bash scripts/test.sh all` and `bash scripts/check.sh all` passed with `TEST_DATABASE_URL` and restricted-network Go proxy overrides
-
-**Planning evidence:**
-- Context: `.planning/phases/11-tenant-scope-across-core-domains/11-CONTEXT.md`
-- Patterns: `.planning/phases/11-tenant-scope-across-core-domains/11-PATTERNS.md`
-- Plan: `.planning/phases/11-tenant-scope-across-core-domains/11-01-PLAN.md`
-
-### Phase 12: Commercial Gate CI and Evidence
-
-**Goal:** Make v04 evidence reproducible and define the commercial gate contract for later v05-v08 milestones.
-
-**Requirements:** CI-01, DOC-03
+**Requirements:** RELAY-10, RELAY-11
 
 **Success criteria:**
-1. CI server jobs run DB-backed HTTP integration tests and fail loudly when the database is unavailable.
-2. Commercial gate documentation maps tenant, Relay, billing, product, security, operations, and verification gates to required evidence.
-3. v04 verification records exact commands, environment class, DB migration status, passed checks, skipped checks, and accepted residual debt.
-4. `bash scripts/check.sh all` and `bash scripts/test.sh all` are documented as v04 release gates with DB-backed coverage expectations.
+1. CI bypass checks fail if non-Relay packages import provider SDKs, instantiate direct provider clients, or hard-code direct provider URLs for AI calls.
+2. Relay external/public entry points require an authenticated tenant/API identity appropriate to the endpoint class.
+3. Supported endpoint classes have rate-limit policies that prevent cost-abuse before provider calls.
+4. Relay audit events capture request identity, organization, endpoint class, policy result, channel, and failure reason.
+5. App-internal Chat, Agent, and Knowledge embedding paths keep using Relay metadata and trusted internal headers.
 
 **Likely verification:**
-- CI workflow dry checks or local equivalent showing DB-backed test commands are wired.
+- `bash scripts/check.sh relay-security`
+- `cd src/server && go test ./internal/relay ./internal/http -run 'Auth|RateLimit|Audit|Bypass' -count=1`
+- Targeted `rg` checks proving direct provider URLs are limited to Relay/channel adapters and docs/examples.
+
+### Phase 15: Relay Billing Settlement and Refund Semantics
+
+**Goal:** Make supported Relay calls charge quota exactly once and refund correctly across success, upstream failure, retry, streaming abort, and async/disabled endpoint behavior.
+
+**Requirements:** BILL-01, BILL-02
+
+**Success criteria:**
+1. Billing sessions are scoped by organization, user, endpoint/API type, model, channel, and idempotency key.
+2. Successful supported calls pre-authorize and settle exactly once per idempotency key.
+3. Upstream errors, client aborts, and unsupported production rejections refund or avoid charge consistently.
+4. Streaming/realtime, file, batch, and async flows either have tested settlement semantics or are production-disabled with documented reason.
+5. Regression tests cover native, passthrough/file-proxy-disabled, and streaming paths.
+
+**Likely verification:**
+- `cd src/server && go test ./internal/relay ./internal/quota -run 'Billing|Settlement|Refund|Idempotency|Streaming' -count=1`
+- DB-backed server integration tests for Relay billing and quota ledger behavior.
+
+### Phase 16: Relay Authority Evidence and v05 Closeout
+
+**Goal:** Close v05 with reproducible evidence while keeping v06-v08 visible as required future commercial work.
+
+**Requirements:** DOC-04
+
+**Success criteria:**
+1. `docs/release/relay-route-table.md` or equivalent documents every `/v1/*` route class, auth policy, rate-limit policy, billing policy, audit behavior, and production status.
+2. `docs/release/commercial-gates.md` marks the Relay Authority Gate evidence as complete only after Phase 13-15 verification passes.
+3. v05 verification records exact commands, environment class, DB migration status, passed checks, skipped checks, and residual v06-v08 work.
+4. `.planning/REQUIREMENTS.md`, `.planning/ROADMAP.md`, `.planning/STATE.md`, and `.planning/PROJECT.md` close v05 without claiming final commercial readiness.
+
+**Likely verification:**
 - `bash scripts/check.sh all`
-- `bash scripts/test.sh all`
-- Targeted `rg` checks proving commercial gate docs no longer describe v04 as MVP/RC-only.
-
-**Completion evidence:**
-- Implementation commit: `dc6f9be`
-- Summary: `.planning/phases/12-commercial-gate-ci-and-evidence/12-01-SUMMARY.md`
-- Verification: `.planning/phases/12-commercial-gate-ci-and-evidence/12-VERIFICATION.md`
-- DB-backed CI equivalent: `TEST_DATABASE_URL=... OBLIVIOUS_REQUIRE_TEST_DATABASE=true bash scripts/test.sh server` passed against PostgreSQL on `127.0.0.1:32770`
-- Broad gates: `bash scripts/test.sh all` and `bash scripts/check.sh all` passed with `TEST_DATABASE_URL` and restricted-network Go proxy overrides
-
-**Planning evidence:**
-- Context: `.planning/phases/12-commercial-gate-ci-and-evidence/12-CONTEXT.md`
-- Plan: `.planning/phases/12-commercial-gate-ci-and-evidence/12-01-PLAN.md`
+- `bash scripts/test.sh all` with DB-backed coverage enabled
+- Targeted `rg` checks for route table and commercial-gate references.
 
 ## Traceability
 
 | Requirement | Phase | Coverage |
 |-------------|-------|----------|
-| TENANT-01 | Phase 9 | Complete — organization tenant model and admin/service boundaries |
-| MIGR-01 | Phase 9 | Complete — append-only migration ledger |
-| TENANT-02 | Phase 10 | Complete — multi-organization membership and owner/admin/member roles |
-| TENANT-03 | Phase 10 | Complete — invitation create/accept/revoke, removal, ownership transfer, and audit |
-| SEC-01 | Phase 10 | Complete — CSRF protection for cookie-auth mutating routes |
-| SEC-02 | Phase 10 | Complete — rate limits for auth/admin/organization sensitive actions |
-| SEC-03 | Phase 10 | Complete — password policy and session rotation/revocation |
-| TENANT-04 | Phase 11 | Complete — tenant scope across core domains |
-| TENANT-05 | Phase 11 | Complete — cross-tenant denial tests |
-| CI-01 | Phase 12 | Complete — DB-backed CI integration guarantee |
-| DOC-03 | Phase 12 | Complete — commercial gate documentation |
+| RELAY-08 | Phase 13 | Planned — route policy registry and complete `/v1/*` classification |
+| RELAY-09 | Phase 13 | Planned — production fail-closed behavior for disabled/partial endpoints |
+| RELAY-10 | Phase 14 | Planned — provider-bypass CI checks |
+| RELAY-11 | Phase 14 | Planned — endpoint auth/rate-limit/audit semantics |
+| BILL-01 | Phase 15 | Planned — quota pre-authorization, exactly-once settlement, and refund behavior |
+| BILL-02 | Phase 15 | Planned — streaming/realtime/file/batch/async settlement or production disablement |
+| DOC-04 | Phase 16 | Planned — v05 route table, evidence, and closeout |
 
 ## Archived Milestone Details
+
+<details>
+<summary>✅ v04 Commercial Foundation — COMPLETE 2026-05-28</summary>
+
+**Goal:** Establish the SaaS tenant, security, migration, and CI foundation required before commercial Relay billing, Marketplace settlement, production operations, and final product completeness work.
+
+**Requirements:** TENANT-01, TENANT-02, TENANT-03, TENANT-04, TENANT-05, SEC-01, SEC-02, SEC-03, MIGR-01, CI-01, DOC-03.
+
+**Delivered:**
+- Phase 9 organization tenant model and append-only migration ledger.
+- Phase 10 auditable memberships, roles, invitations, ownership transfer, CSRF, rate limits, password policy, and session rotation.
+- Phase 11 tenant scope across Chat, Agent, Knowledge, Memory, MCP, Quota, Console, Admin, and Marketplace publisher data with DB-backed cross-tenant denial tests.
+- Phase 12 DB-backed CI required mode and commercial gate documentation.
+
+**Archive snapshots:**
+- `.planning/milestones/v04-ROADMAP.md`
+- `.planning/milestones/v04-REQUIREMENTS.md`
+- `.planning/milestones/v04-STATE.md`
+
+</details>
 
 <details>
 <summary>✅ v03.3 Mainline Consolidation — COMPLETE 2026-05-27</summary>
@@ -211,6 +200,7 @@ Milestone v04 has been completed from `docs/superpowers/specs/2026-05-27-commerc
 
 | Milestone | Scope | Plans | Requirements | Status | Completed |
 |-----------|-------|-------|--------------|--------|-----------|
+| v05 Relay Billing Completeness | Phases 13-16 | 0/4 plans complete | 0/7 requirements complete | Active | In progress |
 | v04 Commercial Foundation | Phases 9-12 | 4/4 plans complete | 11/11 requirements complete | Complete | 2026-05-28 |
 | v03.3 Mainline Consolidation | Phases 5-8 plus backlog 999.1 and 999.2 | 12/12 steps complete | 7/7 requirements complete | Complete | 2026-05-27 |
 | v03.2 Quality and Release | Phase 4 | 4/4 | TEST-01, TEST-02, DOC-01, DEPLOY-01 | Shipped | 2026-05-14 |
@@ -218,4 +208,4 @@ Milestone v04 has been completed from `docs/superpowers/specs/2026-05-27-commerc
 | Foundation through Backend | Phases 1, 2, 3a | Historical | RELAY, CHAT, AGENT, MCP, MEM, EXEC, QUOTA, ADMIN, MARKET | Complete | 2026-04-29 |
 
 ---
-*Roadmap updated: 2026-05-28 after completing v04 Commercial Foundation*
+*Roadmap updated: 2026-05-28 after initializing v05 Relay Billing Completeness*

@@ -10,22 +10,24 @@ Oblivious 是一个多租户 AI 平台，整合 LobeHub（C 端体验）和 New-
 
 **统一的多渠道 LLM 调用层** — 所有 AI 调用必须经过 Relay，确保计费、限流、监控统一。
 
-## Current Milestone: v04 Commercial Foundation
+## Current Milestone: v05 Relay Billing Completeness
 
-**Goal:** 建立商业 SaaS 完全体所需的租户、安全、迁移和 CI 地基，使后续 Relay 计费、Marketplace 结算、生产运维和产品完整性工作有可信边界。
+**Goal:** 让 Relay Authority Gate 变成可验证的生产边界：每个 `/v1/*` 路由都有商业分类，生产环境对未完成端点 fail closed，所有支持端点具备明确的认证、限流、计费、退款和审计语义。
 
 **Target features:**
-- Organization/tenant model with explicit membership, roles, invitations, ownership transfer, and audit events.
-- Tenant-scoped data contract for Chat, Agent, Knowledge, Memory, MCP, Quota, Console, Admin, and Marketplace publisher data.
-- Production auth hardening: CSRF protection, rate limits, password policy, and session rotation.
-- Append-only migration ledger and DB-backed CI integration guarantee.
-- Commercial gate documentation that prevents future milestones from claiming commercial readiness without evidence.
+- Route policy registry covering every registered `/v1/*` endpoint.
+- Production fail-closed behavior for disabled or partially implemented endpoints.
+- Direct-provider bypass checks proving non-Relay services cannot call upstream LLM providers.
+- Per-endpoint auth, rate-limit, billing, refund, quota settlement, and audit policy.
+- v05 verification evidence that closes the Relay Authority Gate without claiming v06-v08 commercial completion.
 
-## Current State: v04 Commercial Foundation Complete
+## Current State: v05 Phase 13 Ready To Execute
 
-Milestone v03.3 Mainline Consolidation is complete. Phase 8 reconciled contract docs and release verification, Phase 999.1 reconstructed the missing Phase 01 summary, and Phase 999.2 verified the obsolete workspace MarketplacePage cleanup plus the living requirements close policy.
+The commercial complete target is defined in `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`. That spec explicitly says the prior release-candidate state is not the final product.
 
-The commercial complete target is defined in `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`. That spec explicitly says the prior release-candidate state is not the final product. v04 Commercial Foundation is complete: Phase 9 completed first-class organization tenants and the migration ledger, Phase 10 completed memberships/auth security, Phase 11 completed tenant scope across core domains, and Phase 12 completed reproducible DB-backed CI and commercial gate evidence. The next commercial-program milestone is v05 Relay Billing Completeness.
+v04 Commercial Foundation is complete: Phase 9 completed first-class organization tenants and the migration ledger, Phase 10 completed memberships/auth security, Phase 11 completed tenant scope across core domains, and Phase 12 completed reproducible DB-backed CI and commercial gate evidence.
+
+v05 Relay Billing Completeness is now active. Phase 13 has context and an executable plan for Relay endpoint classification and production fail-closed behavior.
 
 ## Requirements
 
@@ -44,26 +46,21 @@ The commercial complete target is defined in `docs/superpowers/specs/2026-05-27-
 - ✓ Admin 管理面板与 Agent Marketplace UI — v03.1
 - ✓ v03.2 Quality and Release — backend integration, E2E, API/RC docs, and Docker compose runtime validation
 - ✓ v03.3 Mainline Consolidation — commit-boundary triage, backend hardening, frontend/E2E/deployment alignment, contract docs, release verification, and accepted cleanup debt closeout
-- ✓ TENANT-01 — Admin can create and manage organizations as first-class tenants
-- ✓ MIGR-01 — Migration runner records applied migrations in `schema_migrations`
-- ✓ TENANT-02 — User can belong to multiple organizations with member, admin, and owner roles
-- ✓ TENANT-03 — User can invite, accept, revoke, remove, and transfer organization ownership with audit events
-- ✓ TENANT-04 — Chat, Agent, Knowledge, Memory, MCP, Quota, Console, Admin, and Marketplace publisher data are scoped by tenant
-- ✓ TENANT-05 — Tests prove cross-tenant access is denied for representative read and write paths
-- ✓ SEC-01 — Cookie-authenticated mutating routes require CSRF protection
-- ✓ SEC-02 — Login, registration, password reset, and sensitive admin/organization actions are rate limited
-- ✓ SEC-03 — Password policy and session rotation are enforced
-- ✓ CI-01 — CI server job runs DB-backed HTTP integration tests instead of silently skipping persistence coverage
-- ✓ DOC-03 — Commercial gate documentation defines what must be true before any future milestone can claim commercial readiness
+- ✓ v04 Commercial Foundation — tenant model, membership/auth security, tenant-scoped domains, DB-backed CI, and commercial gate evidence
 
 ### Active
 
-No active v04 requirements remain. v05-v08 future requirements remain active for the full commercial-complete program.
+- [ ] **RELAY-08**: Every registered `/v1/*` route is classified as commercial-supported and billed, internal/admin-only, or disabled in production.
+- [ ] **RELAY-09**: Unsupported or partially implemented `/v1/*` endpoints fail closed in production before any upstream provider call.
+- [ ] **RELAY-10**: CI proves app services do not import provider SDKs or call direct provider URLs outside Relay/channel adapters.
+- [ ] **RELAY-11**: Supported Relay endpoints enforce tenant identity, auth policy, rate-limit policy, and audit semantics.
+- [ ] **BILL-01**: Supported Relay calls pre-authorize quota, settle exactly once per idempotency key, and refund failed or partial calls.
+- [ ] **BILL-02**: Streaming/realtime, file, batch, and async flows have explicit settlement models or are production-disabled.
+- [ ] **DOC-04**: Relay route table, endpoint policy, and v05 verification evidence document the commercial Relay Authority Gate.
 
-### Out of Scope For v04
+### Out of Scope For v05
 
 - Full Stripe production rollout, subscription billing, top-ups, refunds, invoices, and Marketplace payout accounting.
-- All Relay endpoint billing completion and production fail-closed endpoint classification.
 - Kubernetes or equivalent production orchestration proof.
 - Knowledge RAG upgrade and Agent workflow expansion.
 - Mobile-specific experience; web remains the primary control plane.
@@ -88,7 +85,8 @@ Go Backend (Gin)
 - v03.1 已交付可用 Admin UI 与 Marketplace UI。
 - v03.2 已完成质量、E2E、文档和 Docker 部署 smoke 收口。
 - v03.3 已完成主线整合、文档对齐、发布验证和两个历史 cleanup backlog。
-- v04 Commercial Foundation 已完成；下一步是启动 v05 Relay Billing Completeness。
+- v04 Commercial Foundation 已完成。
+- v05 Relay Billing Completeness 已初始化；下一步是执行 Phase 13 Relay Endpoint Authority and Production Fail-Closed。
 - 直接 Docker Hub / 默认 Go module 路径在本机网络仍不稳定；受限网络验证命令继续作为部署 smoke 的已验证本地路径。
 - `kubectl` 未安装，因此 Kubernetes 仍属于后续 v07 Production Operations 的未验证范围。
 
@@ -97,8 +95,8 @@ Go Backend (Gin)
 - **技术栈**: Go 1.22+, Node.js 20+, PostgreSQL 14+, Redis
 - **架构**: Relay 必须作为所有 LLM 调用的统一入口
 - **计费**: Chat/Agent/Relay 消耗必须最终进入统一 quota/billing 账本
-- **隔离**: v04 必须从 user/workspace 隔离升级到 organization/tenant 隔离
-- **工作树安全**: 当前存在 unrelated dirty/untracked 文件；商业规划和后续实现提交必须保持窄范围
+- **隔离**: 组织/租户隔离必须继续作为所有商业功能的安全边界
+- **工作树安全**: 当前根工作树存在 unrelated dirty/untracked 文件；商业规划和后续实现提交必须保持窄范围并继续在 active worktree 中推进
 - **商业完成定义**: 任何 milestone 只能在对应 gate 有当前仓库证据、自动化验证和必要 runtime smoke 后才可宣称完成
 
 ## Key Decisions
@@ -106,17 +104,14 @@ Go Backend (Gin)
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | Go 统一后端 | Agent Runtime、MCP Tools、Relay 全部 Go 重写 | ✓ Good — Phase 1/2/3 APIs built on Go |
-| Relay 作为统一入口 | 计费/限流/监控统一 | ✓ Good — Chat/Agent/Quota paths route through Relay |
+| Relay 作为统一入口 | 计费/限流/监控统一 | Active — v05 now proves this for every commercial AI surface |
 | pgvector 向量检索 | PostgreSQL 原生支持，运维简单 | ✓ Good — HNSW migration shipped in Phase 2 |
 | Admin/Marketplace UI on shared primitives | Keep page work consistent and testable | ✓ Good — v03.1 closed with focused Vitest coverage |
 | Docker compose runtime path satisfies DEPLOY-01 | Requirement accepted one real Docker or Kubernetes runtime path | ✓ Good — compose build/start/smoke passed; Kubernetes remains later |
 | Preserve living REQUIREMENTS.md | This repo uses it for cross-phase context and archives milestone snapshots separately | ✓ Good — Phase 999.2 recorded this policy |
 | Commercial target is a milestone program, not one giant phase | Tenant/security, Relay billing, money movement, operations, and product completeness have hard dependencies | Active — v04 through v08 decomposes the work |
 | v04 starts with tenant/security foundation | Billing, Marketplace payouts, and production ops need tenant identity and isolation first | ✓ Good — v04 completed tenant/security/migration/CI foundation |
-| v04 requirement `DOC-01` draft is recorded as `DOC-03` | Historical `DOC-01` and `DOC-02` already exist in living requirements | Active — avoids duplicate requirement IDs |
-| Phase 10 is the enforceable security boundary before tenant data scoping | Tenant-scoped data migration needs membership, roles, CSRF, rate limits, password policy, and session rotation first | ✓ Good — `.planning/phases/10-membership-roles-and-auth-security/10-01-SUMMARY.md` |
-| Phase 11 starts with session-derived active organization scope | Multi-organization users need a server-authoritative tenant before core data can be safely migrated | ✓ Good — `.planning/phases/11-tenant-scope-across-core-domains/11-01-SUMMARY.md` |
-| Phase 12 must preserve the commercial gate | v04 cannot claim commercial readiness just because tenant isolation now passes | ✓ Good — `docs/release/commercial-gates.md` and `12-VERIFICATION.md` |
+| v05 starts with route policy and fail-closed enforcement | Billing semantics are unsafe until every `/v1/*` route has an explicit commercial class and production behavior | Active — `.planning/phases/13-relay-endpoint-authority-and-fail-closed/13-01-PLAN.md` |
 
 ## Evolution
 
@@ -136,4 +131,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state.
 
 ---
-*Last updated: 2026-05-28 after completing v04 Commercial Foundation*
+*Last updated: 2026-05-28 after initializing v05 Relay Billing Completeness*
