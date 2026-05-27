@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v04
 milestone_name: Commercial Foundation
 status: planning
-stopped_at: Phase 11 ready to execute
-last_updated: "2026-05-28T02:05:00+08:00"
-last_activity: 2026-05-28 -- Phase 11 context, patterns, and execution plan created
+stopped_at: Phase 12 ready to plan
+last_updated: "2026-05-28T04:40:00+08:00"
+last_activity: 2026-05-28 -- Phase 11 tenant scope across core domains completed
 progress:
   total_phases: 4
-  completed_phases: 2
-  total_plans: 3
-  completed_plans: 2
-  percent: 50
+  completed_phases: 3
+  total_plans: 4
+  completed_plans: 3
+  percent: 75
 ---
 
 # STATE.md
@@ -22,20 +22,20 @@ See: `.planning/PROJECT.md` (updated 2026-05-28)
 
 **Core value:** 统一的多渠道 LLM 调用层 — 所有 AI 调用必须经过 Relay
 
-**Current focus:** Phase 11 execution
+**Current focus:** Phase 12 planning
 
 ## Current Status
 
 **Milestone v04: Commercial Foundation — ACTIVE**
 
-v03.3 Mainline Consolidation is complete and archived through snapshots under `.planning/milestones/`. Phase 9 completed the organization tenant foundation and ledgered migration runner. Phase 10 completed auditable memberships, roles, invitations, ownership transfer, CSRF, rate limits, password policy, and session rotation/revocation. Phase 11 now has context, code-pattern mapping, and an executable plan for tenant scope across core data domains.
+v03.3 Mainline Consolidation is complete and archived through snapshots under `.planning/milestones/`. Phase 9 completed the organization tenant foundation and ledgered migration runner. Phase 10 completed auditable memberships, roles, invitations, ownership transfer, CSRF, rate limits, password policy, and session rotation/revocation. Phase 11 completed tenant scope across core data domains and DB-backed cross-tenant denial tests. Phase 12 is next for CI and commercial gate evidence.
 
 ## Current Position
 
-Phase: 11 — Tenant Scope Across Core Domains
-Plan: 11-01-PLAN.md
-Status: Ready to execute
-Last activity: 2026-05-28 -- Phase 11 context, patterns, and execution plan created
+Phase: 12 — Commercial Gate CI and Evidence
+Plan: not yet written
+Status: Ready to plan
+Last activity: 2026-05-28 -- Phase 11 tenant scope across core domains completed
 
 ## Current Scope
 
@@ -44,8 +44,8 @@ Last activity: 2026-05-28 -- Phase 11 context, patterns, and execution plan crea
 | TENANT-01 | Complete | Admin can create and manage organizations as first-class tenants |
 | TENANT-02 | Complete | User can belong to multiple organizations with member, admin, and owner roles |
 | TENANT-03 | Complete | User can invite, accept, revoke, remove, and transfer organization ownership with audit events |
-| TENANT-04 | Ready to execute | Chat, Agent, Knowledge, Memory, MCP, Quota, Console, Admin, and Marketplace publisher data are scoped by tenant |
-| TENANT-05 | Ready to execute | Tests prove cross-tenant access is denied for representative read and write paths |
+| TENANT-04 | Complete | Chat, Agent, Knowledge, Memory, MCP, Quota, Console, Admin, and Marketplace publisher data are scoped by tenant |
+| TENANT-05 | Complete | Tests prove cross-tenant access is denied for representative read and write paths |
 | SEC-01 | Complete | Cookie-authenticated mutating routes require CSRF protection |
 | SEC-02 | Complete | Login, registration, password reset, and sensitive admin/organization actions are rate limited |
 | SEC-03 | Complete | Password policy and session rotation are enforced |
@@ -55,9 +55,9 @@ Last activity: 2026-05-28 -- Phase 11 context, patterns, and execution plan crea
 
 ## Next Suggested Step
 
-Run `$gsd:execute-phase 11` to implement Phase 11 Plan 01.
+Run `$gsd:plan-phase 12` to plan Commercial Gate CI and Evidence.
 
-Phase 11 Plan 01 applies organization tenant identity to Chat, Agent, Knowledge, Memory, MCP, Quota, Console, Admin tenant data, and Marketplace publisher data, then proves representative cross-tenant reads and writes fail with DB-backed HTTP tests.
+Phase 12 should make v04 evidence reproducible, wire DB-backed CI expectations, and define the commercial gate contract before any future milestone can claim commercial readiness.
 
 ## Worktree Context
 
@@ -75,6 +75,7 @@ Current dirty/untracked files outside `.planning` appear unrelated to v04 initia
 | v03.3 Mainline Consolidation | 2026-05-27 | CONS-01, ROUTE-01, CHAT-06, AUTH-01, DEPLOY-02, DOC-02, VERIFY-01 |
 | Phase 9 Tenant Model and Migration Ledger | 2026-05-27 | TENANT-01, MIGR-01 |
 | Phase 10 Membership, Roles, and Auth Security | 2026-05-28 | TENANT-02, TENANT-03, SEC-01, SEC-02, SEC-03 |
+| Phase 11 Tenant Scope Across Core Domains | 2026-05-28 | TENANT-04, TENANT-05 |
 
 ## Deferred Commercial Program Items
 
@@ -102,6 +103,7 @@ These are deliberately outside v04 and remain required for the final user goal:
 - Phase 11 context: `.planning/phases/11-tenant-scope-across-core-domains/11-CONTEXT.md`
 - Phase 11 patterns: `.planning/phases/11-tenant-scope-across-core-domains/11-PATTERNS.md`
 - Phase 11 plan: `.planning/phases/11-tenant-scope-across-core-domains/11-01-PLAN.md`
+- Phase 11 summary: `.planning/phases/11-tenant-scope-across-core-domains/11-01-SUMMARY.md`
 - Commercial complete spec: `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`
 - v03.3 roadmap archive: `.planning/milestones/v03.3-ROADMAP.md`
 - v03.3 requirements archive: `.planning/milestones/v03.3-REQUIREMENTS.md`
@@ -123,6 +125,7 @@ These are deliberately outside v04 and remain required for the final user goal:
 | 2026-05-28 | Phase 10 planned | Locked membership, invitation, ownership-transfer, CSRF, rate-limit, password-policy, and session-rotation requirements into an execution plan |
 | 2026-05-28 | Phase 10 completed | Membership/role/invitation/ownership flows, CSRF, SQL rate limits, password policy, session rotation/revocation, DB-backed package tests, `scripts/test.sh all`, and `scripts/check.sh all` passed |
 | 2026-05-28 | Phase 11 planned | Locked session-derived active organization scope, organization_id migration/backfill, core-domain tenant filters, and DB-backed cross-tenant denial tests into an execution plan |
+| 2026-05-28 | Phase 11 completed | Tenant scope across Chat, Agent, Knowledge, Memory, MCP, Quota, Console, Admin audit data, and Marketplace publisher data passed DB-backed cross-tenant denial tests plus script gates |
 
 ---
-*State updated: 2026-05-28 after planning Phase 11 tenant scope across core domains*
+*State updated: 2026-05-28 after completing Phase 11 tenant scope across core domains*

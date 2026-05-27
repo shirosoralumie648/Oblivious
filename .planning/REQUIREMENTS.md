@@ -12,8 +12,8 @@
 - [x] **TENANT-01**: Admin can create and manage organizations as first-class tenants. Completed in Phase 9 with `organizations` schema, tenant service/store, admin routes, and DB-backed lifecycle tests.
 - [x] **TENANT-02**: User can belong to multiple organizations with member, admin, and owner roles. Completed in Phase 10 with `organization_memberships`, owner/admin/member roles, creator owner membership, list-membership APIs, and DB-backed lifecycle tests.
 - [x] **TENANT-03**: User can invite, accept, revoke, remove, and transfer organization ownership with audit events. Completed in Phase 10 with invitation token hashing, accept/revoke routes, role/removal/ownership flows, and audit-backed mutation tests.
-- [ ] **TENANT-04**: Chat, Agent, Knowledge, Memory, MCP, Quota, Console, Admin, and Marketplace publisher data are scoped by tenant.
-- [ ] **TENANT-05**: Tests prove cross-tenant access is denied for representative read and write paths.
+- [x] **TENANT-04**: Chat, Agent, Knowledge, Memory, MCP, Quota, Console, Admin, and Marketplace publisher data are scoped by tenant. Completed in Phase 11 with `organization_id` migration/backfill, session-derived active organization scope, tenant filters across core services, and tenant-aware Marketplace/Admin audit data.
+- [x] **TENANT-05**: Tests prove cross-tenant access is denied for representative read and write paths. Completed in Phase 11 with DB-backed HTTP tests across Chat, Knowledge, Console, Agent, Memory, MCP, Quota, Marketplace publisher data, and Admin audit organization visibility.
 
 ### Production Auth Security
 
@@ -56,8 +56,8 @@
 | SEC-01 | Phase 10 — Membership, Roles, and Auth Security | Complete |
 | SEC-02 | Phase 10 — Membership, Roles, and Auth Security | Complete |
 | SEC-03 | Phase 10 — Membership, Roles, and Auth Security | Complete |
-| TENANT-04 | Phase 11 — Tenant Scope Across Core Domains | Ready to execute |
-| TENANT-05 | Phase 11 — Tenant Scope Across Core Domains | Ready to execute |
+| TENANT-04 | Phase 11 — Tenant Scope Across Core Domains | Complete |
+| TENANT-05 | Phase 11 — Tenant Scope Across Core Domains | Complete |
 | CI-01 | Phase 12 — Commercial Gate CI and Evidence | Planned |
 | DOC-03 | Phase 12 — Commercial Gate CI and Evidence | Planned |
 
@@ -133,12 +133,12 @@
 - Historical traceability cleanup should use additive rows or notes, not broad rewrites of completed requirements.
 
 **Coverage:**
-- Active v04 requirements: 9
-- Completed v04 requirements: 7
+- Active v04 requirements: 2
+- Completed v04 requirements: 9
 - Planned v04 phase mappings: 11
 - Completed historical requirements: 57
 - Blocked requirements: 0
 - Unmapped v04 requirements: 0
 
 ---
-*Requirements updated: 2026-05-28 after completing Phase 10 membership and auth security*
+*Requirements updated: 2026-05-28 after completing Phase 11 tenant scope across core domains*

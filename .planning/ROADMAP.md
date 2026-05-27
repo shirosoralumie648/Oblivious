@@ -12,7 +12,7 @@
 
 Milestone v04 has been initialized from `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`.
 
-**Next workflow step:** execute Phase 11 Tenant Scope Across Core Domains Plan 01.
+**Next workflow step:** plan Phase 12 Commercial Gate CI and Evidence.
 
 ## Current Milestone: v04 Commercial Foundation
 
@@ -22,8 +22,8 @@ Milestone v04 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 |-------|------|--------------|--------|
 | Phase 9 | Tenant Model and Migration Ledger | TENANT-01, MIGR-01 | Complete |
 | Phase 10 | Membership, Roles, and Auth Security | TENANT-02, TENANT-03, SEC-01, SEC-02, SEC-03 | Complete |
-| Phase 11 | Tenant Scope Across Core Domains | TENANT-04, TENANT-05 | Ready to execute |
-| Phase 12 | Commercial Gate CI and Evidence | CI-01, DOC-03 | Planned |
+| Phase 11 | Tenant Scope Across Core Domains | TENANT-04, TENANT-05 | Complete |
+| Phase 12 | Commercial Gate CI and Evidence | CI-01, DOC-03 | Ready to plan |
 
 ### Phase 9: Tenant Model and Migration Ledger
 
@@ -87,9 +87,11 @@ Milestone v04 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 4. Cross-tenant writes are denied for representative create/update/delete paths.
 5. Regression tests cover the representative core domains and fail if tenant filters are removed.
 
-**Likely verification:**
-- DB-backed cross-tenant HTTP integration tests across Chat, Agent, Knowledge, Memory, MCP, Quota, Console, Admin, and Marketplace.
-- `bash scripts/test.sh all` with persistence coverage enabled.
+**Completion evidence:**
+- Implementation commits: `6435e3e`, `75d104b`, `34dd33e`, `8d60ede`, `fd33cd3`, `4fba2d9`
+- Summary: `.planning/phases/11-tenant-scope-across-core-domains/11-01-SUMMARY.md`
+- DB-backed verification: cross-tenant HTTP tests passed for Chat, Knowledge, Console, Agent, Memory, MCP, Quota, Marketplace publisher data, and Admin audit organization visibility against PostgreSQL on `127.0.0.1:32770`
+- Broad gates: `bash scripts/test.sh all` and `bash scripts/check.sh all` passed with `TEST_DATABASE_URL` and restricted-network Go proxy overrides
 
 **Planning evidence:**
 - Context: `.planning/phases/11-tenant-scope-across-core-domains/11-CONTEXT.md`
@@ -125,10 +127,10 @@ Milestone v04 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 | SEC-01 | Phase 10 | Complete — CSRF protection for cookie-auth mutating routes |
 | SEC-02 | Phase 10 | Complete — rate limits for auth/admin/organization sensitive actions |
 | SEC-03 | Phase 10 | Complete — password policy and session rotation/revocation |
-| TENANT-04 | Phase 11 | Ready to execute — tenant scope across core domains |
-| TENANT-05 | Phase 11 | Ready to execute — cross-tenant denial tests |
-| CI-01 | Phase 12 | Planned — DB-backed CI integration guarantee |
-| DOC-03 | Phase 12 | Planned — commercial gate documentation |
+| TENANT-04 | Phase 11 | Complete — tenant scope across core domains |
+| TENANT-05 | Phase 11 | Complete — cross-tenant denial tests |
+| CI-01 | Phase 12 | Ready to plan — DB-backed CI integration guarantee |
+| DOC-03 | Phase 12 | Ready to plan — commercial gate documentation |
 
 ## Archived Milestone Details
 
@@ -205,4 +207,4 @@ Milestone v04 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 | Foundation through Backend | Phases 1, 2, 3a | Historical | RELAY, CHAT, AGENT, MCP, MEM, EXEC, QUOTA, ADMIN, MARKET | Complete | 2026-04-29 |
 
 ---
-*Roadmap updated: 2026-05-28 after planning Phase 11 tenant scope across core domains*
+*Roadmap updated: 2026-05-28 after completing Phase 11 tenant scope across core domains*
