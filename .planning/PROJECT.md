@@ -2,7 +2,7 @@
 
 ## What This Is
 
-Oblivious 是一个多租户 AI 平台，整合 LobeHub（C端体验）和 New-API（B端功能）。提供 Chat、Agent 编排、知识库、多渠道 LLM Relay、Admin 管理和 Agent Marketplace 等核心能力。
+Oblivious 是一个多租户 AI 平台，整合 LobeHub（C 端体验）和 New-API（B 端运营能力）。目标能力包括 Chat、Agent 编排、知识库、多渠道 LLM Relay、Admin 管理和 Agent Marketplace。
 
 **技术栈**: Go 后端 (Gin) + React 前端 (Vite) + PostgreSQL + Redis
 
@@ -10,25 +10,22 @@ Oblivious 是一个多租户 AI 平台，整合 LobeHub（C端体验）和 New-A
 
 **统一的多渠道 LLM 调用层** — 所有 AI 调用必须经过 Relay，确保计费、限流、监控统一。
 
-## Current Milestone: v03.3 Mainline Consolidation
+## Current Milestone: v04 Commercial Foundation
 
-**Goal:** 将当前工作树里已经存在的主线改动整理成一致、可验证、可提交的版本，而不是扩张新的产品范围。
+**Goal:** 建立商业 SaaS 完全体所需的租户、安全、迁移和 CI 地基，使后续 Relay 计费、Marketplace 结算、生产运维和产品完整性工作有可信边界。
 
 **Target features:**
-- Route and service integration for Agent, Memory, MCP, Notification, Quota, WebSocket, and Relay-backed Chat/Agent paths.
-- Auth/session/user preference contract cleanup for user name, role, admin boundaries, and app preferences.
-- Deployment, CI, E2E, Playwright, and restricted-network Docker path stabilization.
-- Documentation, API/system-contract reconciliation, and commit-boundary cleanup for the current mainline work.
+- Organization/tenant model with explicit membership, roles, invitations, ownership transfer, and audit events.
+- Tenant-scoped data contract for Chat, Agent, Knowledge, Memory, MCP, Quota, Console, Admin, and Marketplace publisher data.
+- Production auth hardening: CSRF protection, rate limits, password policy, and session rotation.
+- Append-only migration ledger and DB-backed CI integration guarantee.
+- Commercial gate documentation that prevents future milestones from claiming commercial readiness without evidence.
 
-## Current State: v03.3 Phase 8 Ready To Discuss
+## Current State: v04 Ready To Discuss Phase 9
 
-Milestone v03.2 Quality and Release is archived, Phase 6 backend hardening is complete, and Phase 7 frontend/E2E/deployment alignment is verified. The repository still contains contract documentation and historical/reference changes that must remain separate from the completed frontend/deployment work. v03.3 exists to triage that already-present work, verify the cross-cutting contracts, and split it into coherent commits without mixing unrelated cleanup into product integration.
+Milestone v03.3 Mainline Consolidation is complete. Phase 8 reconciled contract docs and release verification, Phase 999.1 reconstructed the missing Phase 01 summary, and Phase 999.2 verified the obsolete workspace MarketplacePage cleanup plus the living requirements close policy.
 
-**Shipped in v03.2:**
-- 集成测试覆盖关键后端协作路径，尤其是 Admin/Marketplace API 与 Relay/Quota/Agent/Memory 交互。
-- E2E 测试覆盖 Admin 与 Marketplace 的核心浏览器工作流。
-- API 文档、系统契约和发布检查清单支持交接、验收和候选版本发布。
-- Docker compose 可以构建、启动并健康检查当前服务栈；受限网络环境下使用文档化的 registry / Go proxy overrides。
+The commercial complete target is now defined in `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`. That spec explicitly says the prior release-candidate state is not the final product. v04 starts the commercial program by proving the SaaS foundation before Relay billing completion, Stripe rollout, Marketplace payouts, Kubernetes validation, RAG upgrade, or Agent workflow expansion.
 
 ## Requirements
 
@@ -45,32 +42,34 @@ Milestone v03.2 Quality and Release is archived, Phase 6 backend hardening is co
 - ✓ Agent 工具循环、Memory HNSW、Quota-Billing 串联 — Phase 2
 - ✓ Admin 与 Marketplace 后端 API — Phase 3a
 - ✓ Admin 管理面板与 Agent Marketplace UI — v03.1
-- ✓ Phase 4 release gates: backend integration tests, Admin/Marketplace browser E2E, API/RC docs, and deployment config
-- ✓ Docker compose runtime validation — v03.2 DEPLOY-01 passed with real build/start/smoke evidence
-- ✓ Phase 6 backend mainline integration hardening — route/auth boundaries, notification ownership, Relay metadata/tool calls, auth/session payloads, and preference defaults
-- ✓ Phase 7 frontend/E2E/deployment alignment — frontend contracts, Playwright E2E, CI wrappers, Docker compose config, and restricted-network deploy smoke
+- ✓ v03.2 Quality and Release — backend integration, E2E, API/RC docs, and Docker compose runtime validation
+- ✓ v03.3 Mainline Consolidation — commit-boundary triage, backend hardening, frontend/E2E/deployment alignment, contract docs, release verification, and accepted cleanup debt closeout
 
 ### Active
 
-- [x] CONS-01: Maintainer can classify the current uncommitted source/docs into coherent work slices and avoid mixing unrelated changes. Validated in Phase 5.
-- [x] ROUTE-01: Backend route/service additions for Agent, Memory, MCP, Notification, Quota, and WebSocket are registered with explicit auth boundaries and targeted tests. Validated in Phase 6.
-- [x] CHAT-06: Chat and Agent calls preserve the Relay-first contract, including structured tool calls, streaming behavior, and usage metadata. Validated in Phase 6.
-- [x] AUTH-01: User/session contracts expose name and role consistently while keeping admin boundaries enforceable. Validated in Phase 6.
-- [x] DEPLOY-02: Docker, compose, CI, and Playwright changes remain aligned with the proven v03.2 restricted-network deployment path. Validated in Phase 7.
-- [ ] DOC-02: API, architecture, release, and README docs match the live routes, commands, and verification scope.
-- [ ] VERIFY-01: Maintainer can run a documented targeted verification suite before committing the mainline consolidation.
+- [ ] **TENANT-01**: Admin can create and manage organizations as first-class tenants.
+- [ ] **TENANT-02**: User can belong to multiple organizations with member, admin, and owner roles.
+- [ ] **TENANT-03**: User can invite, accept, remove, and transfer organization ownership with audit events.
+- [ ] **TENANT-04**: Chat, Agent, Knowledge, Memory, MCP, Quota, Console, Admin, and Marketplace publisher data are scoped by tenant.
+- [ ] **TENANT-05**: Tests prove cross-tenant access is denied for representative read and write paths.
+- [ ] **SEC-01**: Cookie-authenticated mutating routes require CSRF protection.
+- [ ] **SEC-02**: Login, registration, password reset, and sensitive admin actions are rate limited.
+- [ ] **SEC-03**: Password policy and session rotation are enforced.
+- [ ] **MIGR-01**: Migration runner records applied migrations in `schema_migrations`.
+- [ ] **CI-01**: CI server job runs DB-backed HTTP integration tests instead of silently skipping persistence coverage.
+- [ ] **DOC-03**: Commercial gate documentation defines what must be true before any future milestone can claim commercial readiness.
 
-### Out of Scope
+### Out of Scope For v04
 
-- 多租户计费商业化细节 — 需要真实支付/运营策略确认
-- 大规模生产观测与告警 — 发布候选之后单独规划
-- 移动端专项体验 — Web 优先
-- New product discovery beyond the already-present mainline changes — v03.3 is consolidation, not feature ideation
-- Full Kubernetes runtime validation — Docker compose remains the proven runtime path unless Kubernetes tooling is installed later
+- Full Stripe production rollout, subscription billing, top-ups, refunds, invoices, and Marketplace payout accounting.
+- All Relay endpoint billing completion and production fail-closed endpoint classification.
+- Kubernetes or equivalent production orchestration proof.
+- Knowledge RAG upgrade and Agent workflow expansion.
+- Mobile-specific experience; web remains the primary control plane.
 
 ## Context
 
-**整合背景**: 项目是 LobeHub (B2C) + New-API (B2B) 整合的中间产物。
+**整合背景**: 项目是 LobeHub (B2C) + New-API (B2B) 整合到同一主线的中间产物。当前商业目标不是继续打磨 RC，而是把它推进到可直接部署商用的 SaaS 完全体。
 
 **当前架构**:
 ```
@@ -80,29 +79,26 @@ React Frontend
 Go Backend (Gin)
     ├── API Gateway (Auth/CORS/Recovery)
     ├── Service Layer (Auth/Chat/Agent/Knowledge/Task/Memory/Admin/Marketplace)
-    ├── Relay Layer (已挂载为统一 LLM 调用入口)
+    ├── Relay Layer (所有 AI 调用的统一入口)
     └── Data Layer (PostgreSQL + MongoDB)
 ```
 
 **当前状态**:
 - v03.1 已交付可用 Admin UI 与 Marketplace UI。
 - v03.2 已完成质量、E2E、文档和 Docker 部署 smoke 收口。
-- v03.3 当前工作不是从空白开始：工作树已包含路由拆分、Agent/Memory/MCP/Notification/Quota/WebSocket、Relay Chat/Agent、Auth/UserPrefs、CI/E2E/部署和文档变更。
-- Phase 5 已完成当前脏工作树分类、commit-boundary 盘点和 CONS-01 verification。
-- Phase 6 已完成后端主线硬化；backend commit `ef81374` 和 `06-VERIFICATION.md` 证明 ROUTE-01、CHAT-06、AUTH-01 通过 targeted 与 DB-backed Go verification。
-- Phase 7 已完成前端/API 合同、Playwright E2E、CI wrapper、Docker compose config 和受限网络 `deploy-validate` runtime smoke；`07-VERIFICATION.md` 证明 DEPLOY-02 完成。
-- 下一步是讨论 Phase 8 Contract Docs and Release Verification，收口 API/architecture/release/README 文档和最终提交就绪证据。
-- 直接 Docker Hub / 默认 Go module 路径在本机网络仍不稳定；受限网络验证命令已记录在 Phase 4 summary、completion audit 和 release docs 中。
-- `kubectl` 未安装，因此 Kubernetes 仍是未执行的替代路径，不影响已通过的 Docker runtime path。
-- `src/web/src/routes/workspace/MarketplacePage.tsx` 是接受的 v03.1 清理债务：不再由 `/marketplace` 使用。
+- v03.3 已完成主线整合、文档对齐、发布验证和两个历史 cleanup backlog。
+- v04 现在是活动里程碑，第一阶段应从 Phase 9 Tenant Model and Migration Ledger 开始。
+- 直接 Docker Hub / 默认 Go module 路径在本机网络仍不稳定；受限网络验证命令继续作为部署 smoke 的已验证本地路径。
+- `kubectl` 未安装，因此 Kubernetes 仍属于后续 v07 Production Operations 的未验证范围。
 
 ## Constraints
 
 - **技术栈**: Go 1.22+, Node.js 20+, PostgreSQL 14+, Redis
 - **架构**: Relay 必须作为所有 LLM 调用的统一入口
-- **计费**: Agent 消耗的 Token 计入用户配额
-- **隔离**: 向量检索按 user_id 隔离
-- **工作树安全**: 当前存在大量未提交源码/文档改动；v03.3 规划提交不得隐式带入这些源码改动
+- **计费**: Chat/Agent/Relay 消耗必须最终进入统一 quota/billing 账本
+- **隔离**: v04 必须从 user/workspace 隔离升级到 organization/tenant 隔离
+- **工作树安全**: 当前存在 unrelated dirty/untracked 文件；商业规划和后续实现提交必须保持窄范围
+- **商业完成定义**: 任何 milestone 只能在对应 gate 有当前仓库证据、自动化验证和必要 runtime smoke 后才可宣称完成
 
 ## Key Decisions
 
@@ -111,14 +107,12 @@ Go Backend (Gin)
 | Go 统一后端 | Agent Runtime、MCP Tools、Relay 全部 Go 重写 | ✓ Good — Phase 1/2/3 APIs built on Go |
 | Relay 作为统一入口 | 计费/限流/监控统一 | ✓ Good — Chat/Agent/Quota paths route through Relay |
 | pgvector 向量检索 | PostgreSQL 原生支持，运维简单 | ✓ Good — HNSW migration shipped in Phase 2 |
-| Admin/Marketplace UI on shared primitives | Keep page work consistent and testable | ✓ Good — v03.1 closed with 12 focused Vitest files |
-| v03.2 skips new domain research | Quality/release work is scoped by shipped code and existing Phase 4 requirements | ✓ Good — TEST-01/TEST-02/DOC-01/DEPLOY-01 closed |
-| Docker compose runtime path satisfies DEPLOY-01 | Requirement accepted one real Docker or Kubernetes runtime path | ✓ Good — compose build/start/smoke passed; Kubernetes remains alternate path |
-| Preserve living REQUIREMENTS.md for now | This repo still uses it for cross-phase context and has an explicit backlog item to decide reset policy | — Pending — living file remains, but v03.2 archive exists |
-| v03.3 consolidates current mainline changes | The worktree already contains broad integration changes; planning should make them coherent before more feature expansion | Active — Phase 5 completed triage and commit-boundary inventory; Phase 6 completed backend hardening; Phase 7 completed frontend/deployment alignment; Phase 8 owns docs and release verification |
-| v03.3 skips new research | Scope is bounded by local code/docs already present, not by a new domain or market question | Active — requirements derive from repo state |
-| Phase 6 backend contracts are now the frontend/deployment baseline | Route/auth, Relay metadata/tool calls, notification ownership, auth/session, and preference defaults passed backend verification | ✓ Good — Phase 7 aligned frontend, E2E, CI, Docker, and deployment gates against this surface |
-| Preserve v03.2 restricted-network deploy command in Phase 7 | Direct Docker Hub and default Go module paths remain unreliable on this host | ✓ Good — Phase 7 deploy smoke passed with `OBLIVIOUS_IMAGE_REGISTRY_PREFIX`, `OBLIVIOUS_GOPROXY`, and `OBLIVIOUS_GOSUMDB` overrides |
+| Admin/Marketplace UI on shared primitives | Keep page work consistent and testable | ✓ Good — v03.1 closed with focused Vitest coverage |
+| Docker compose runtime path satisfies DEPLOY-01 | Requirement accepted one real Docker or Kubernetes runtime path | ✓ Good — compose build/start/smoke passed; Kubernetes remains later |
+| Preserve living REQUIREMENTS.md | This repo uses it for cross-phase context and archives milestone snapshots separately | ✓ Good — Phase 999.2 recorded this policy |
+| Commercial target is a milestone program, not one giant phase | Tenant/security, Relay billing, money movement, operations, and product completeness have hard dependencies | Active — v04 through v08 decomposes the work |
+| v04 starts with tenant/security foundation | Billing, Marketplace payouts, and production ops need tenant identity and isolation first | Active — Phase 9 begins with tenant model and migration ledger |
+| v04 requirement `DOC-01` draft is recorded as `DOC-03` | Historical `DOC-01` and `DOC-02` already exist in living requirements | Active — avoids duplicate requirement IDs |
 
 ## Evolution
 
@@ -138,4 +132,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state.
 
 ---
-*Last updated: 2026-05-17 after completing Phase 7 execution and verification*
+*Last updated: 2026-05-27 after initializing v04 Commercial Foundation*

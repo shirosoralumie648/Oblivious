@@ -1,28 +1,77 @@
-# Requirements: Oblivious v03.3 Mainline Consolidation
+# Requirements: Oblivious v04 Commercial Foundation
 
-**Defined:** 2026-05-14
-**Current milestone:** v03.3 Mainline Consolidation
+**Defined:** 2026-05-27
+**Current milestone:** v04 Commercial Foundation
+**Source spec:** `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`
 **Core Value:** 统一的多渠道 LLM 调用层 — 所有 AI 调用必须经过 Relay
 
 ## Current Milestone Requirements
 
-### Mainline Consolidation
+### Tenant And Identity
 
-- [x] **CONS-01**: Maintainer can classify the current uncommitted source, documentation, deployment, and frontend test changes into coherent work slices before committing. Completed in Phase 5 with `05-WORKTREE-INVENTORY.md`, `05-COMMIT-BOUNDARIES.md`, and `05-VERIFICATION.md`.
+- [ ] **TENANT-01**: Admin can create and manage organizations as first-class tenants.
+- [ ] **TENANT-02**: User can belong to multiple organizations with member, admin, and owner roles.
+- [ ] **TENANT-03**: User can invite, accept, remove, and transfer organization ownership with audit events.
+- [ ] **TENANT-04**: Chat, Agent, Knowledge, Memory, MCP, Quota, Console, Admin, and Marketplace publisher data are scoped by tenant.
+- [ ] **TENANT-05**: Tests prove cross-tenant access is denied for representative read and write paths.
 
-### Backend Route and Service Integration
+### Production Auth Security
 
-- [x] **ROUTE-01**: Backend maintainer can register Agent, Memory, MCP, Notification, Quota, and WebSocket routes/services with explicit auth/admin boundaries and targeted tests. Completed in Phase 6 with route-surface, admin-boundary, and notification ownership regression tests.
-- [x] **CHAT-06**: Chat and Agent calls preserve the Relay-first contract, including structured tool calls, streaming behavior, request metadata, and usage accounting hooks. Completed in Phase 6 with Relay metadata propagation, production fail-closed, and structured tool-call tests.
-- [x] **AUTH-01**: Admin and app clients can rely on user/session contracts that expose user name and role consistently while keeping admin-only operations enforceable. Completed in Phase 6 with register/login/`/me` response tests and user preference default coverage.
+- [ ] **SEC-01**: Cookie-authenticated mutating routes require CSRF protection.
+- [ ] **SEC-02**: Login, registration, password reset, and sensitive admin actions are rate limited.
+- [ ] **SEC-03**: Password policy and session rotation are enforced.
 
-### Deployment, Documentation, and Verification
+### Migration And CI Evidence
 
-- [x] **DEPLOY-02**: Operator can use Docker, compose, CI, and Playwright changes without regressing the v03.2 restricted-network runtime validation path. Completed in Phase 7 with frontend/E2E gates, CI wrapper checks, Docker compose config, and restricted-network deployment smoke evidence.
-- [x] **DOC-02**: Developer can compare API, architecture, release, and README docs against live routes and commands for the consolidated mainline. Completed in Phase 8 with API, architecture, README, RC checklist, and deployment-remediation reconciliation against the live route surface.
-- [x] **VERIFY-01**: Maintainer can run a documented targeted verification suite before committing the consolidated work slices. Completed in Phase 8 with docs-first verification, an explicit `TEST_DATABASE_URL` integration skip, and the preserved Phase 7 deploy baseline.
+- [ ] **MIGR-01**: Migration runner records applied migrations in `schema_migrations`.
+- [ ] **CI-01**: CI server job runs DB-backed HTTP integration tests instead of silently skipping persistence coverage.
+- [ ] **DOC-03**: Commercial gate documentation defines what must be true before any future milestone can claim commercial readiness.
+
+## Future Requirements
+
+- [ ] v05 Relay Billing Completeness: classify all `/v1/*` routes, fail closed in production for unsupported endpoints, and prove auth/rate-limit/billing/audit behavior per endpoint class.
+- [ ] v06 Billing And Marketplace Operations: Stripe checkout/webhooks, subscription lifecycle, invoices, refunds, top-ups, Marketplace publisher settlement, platform fees, payout state, and moderation flows.
+- [ ] v07 Production Operations: Kubernetes or equivalent production orchestration proof, backup/restore smoke, structured logs, tracing, metrics, alerts, dashboards, and runbooks.
+- [ ] v08 Product Completeness: real or disabled built-in MCP tools, durable Agent workflows, Knowledge behavior matching product copy, commercial Admin/Marketplace UX, public docs, onboarding, pricing, and operator guides.
+
+## Out of Scope For v04
+
+| Feature | Reason |
+|---------|--------|
+| Full Stripe production rollout | Requires tenant foundation and billing policy; owned by v06 |
+| Marketplace payout accounting | Requires billing state and settlement model; owned by v06 |
+| All Relay endpoint billing completion | Requires endpoint classification and settlement model; owned by v05 |
+| Kubernetes runtime proof | Production orchestration belongs to v07 after SaaS foundation is stable |
+| RAG upgrade and Agent workflow expansion | Product completeness belongs to v08 |
+| Mobile-specific experience | Web control plane remains the commercial priority |
+
+## Traceability
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| TENANT-01 | Phase 9 — Tenant Model and Migration Ledger | Planned |
+| MIGR-01 | Phase 9 — Tenant Model and Migration Ledger | Planned |
+| TENANT-02 | Phase 10 — Membership, Roles, and Auth Security | Planned |
+| TENANT-03 | Phase 10 — Membership, Roles, and Auth Security | Planned |
+| SEC-01 | Phase 10 — Membership, Roles, and Auth Security | Planned |
+| SEC-02 | Phase 10 — Membership, Roles, and Auth Security | Planned |
+| SEC-03 | Phase 10 — Membership, Roles, and Auth Security | Planned |
+| TENANT-04 | Phase 11 — Tenant Scope Across Core Domains | Planned |
+| TENANT-05 | Phase 11 — Tenant Scope Across Core Domains | Planned |
+| CI-01 | Phase 12 — Commercial Gate CI and Evidence | Planned |
+| DOC-03 | Phase 12 — Commercial Gate CI and Evidence | Planned |
 
 ## Historical Validated Requirements
+
+### v03.3 Mainline Consolidation
+
+- [x] **CONS-01**: Maintainer can classify the current uncommitted source, documentation, deployment, and frontend test changes into coherent work slices before committing.
+- [x] **ROUTE-01**: Backend maintainer can register Agent, Memory, MCP, Notification, Quota, and WebSocket routes/services with explicit auth/admin boundaries and targeted tests.
+- [x] **CHAT-06**: Chat and Agent calls preserve the Relay-first contract, including structured tool calls, streaming behavior, request metadata, and usage accounting hooks.
+- [x] **AUTH-01**: Admin and app clients can rely on user/session contracts that expose user name and role consistently while keeping admin-only operations enforceable.
+- [x] **DEPLOY-02**: Operator can use Docker, compose, CI, and Playwright changes without regressing the v03.2 restricted-network runtime validation path.
+- [x] **DOC-02**: Developer can compare API, architecture, release, and README docs against live routes and commands for the consolidated mainline.
+- [x] **VERIFY-01**: Maintainer can run a documented targeted verification suite before committing the consolidated work slices.
 
 ### v03.2 Quality and Release
 
@@ -76,35 +125,7 @@
 - [x] **MARKET-01**: Agent 发布/发现/安装
 - [x] **MARKET-02**: Marketplace UI
 
-## Future Requirements
-
-- [ ] Production observability, alerting, and operational dashboards beyond the current release-candidate gates.
-- [ ] Kubernetes runtime proof once `kubectl` and a target cluster/context are available.
-- [ ] Commercial billing and revenue-share operations after product/business policy is defined.
-- [ ] Mobile-specific experience after the web control plane stabilizes.
-
-## Out of Scope
-
-| Feature | Reason |
-|---------|--------|
-| New product discovery | v03.3 consolidates current mainline work already present in the repo |
-| Payment provider production rollout | Requires real commercial policy and credentials |
-| Full Kubernetes validation | Local tooling is unavailable; Docker compose is the accepted proven runtime path |
-| Broad historical artifact rewrite | Existing phase archives remain reference material unless a phase directly needs them |
-
-## Traceability
-
-| Requirement | Phase | Status |
-|-------------|-------|--------|
-| CONS-01 | Phase 5 — Dirty Worktree Triage and Commit Boundary | Complete |
-| ROUTE-01 | Phase 6 — Backend Mainline Integration Hardening | Complete |
-| CHAT-06 | Phase 6 — Backend Mainline Integration Hardening | Complete |
-| AUTH-01 | Phase 6 — Backend Mainline Integration Hardening | Complete |
-| DEPLOY-02 | Phase 7 — Frontend, E2E, and Deployment Gate Alignment | Complete |
-| DOC-02 | Phase 8 — Contract Docs and Release Verification | Complete |
-| VERIFY-01 | Phase 8 — Contract Docs and Release Verification | Complete |
-
-### Living Close Policy
+## Living Close Policy
 
 - `.planning/REQUIREMENTS.md` remains the living cross-phase context file for this repository.
 - Milestone completion archives requirements snapshots under `.planning/milestones/`.
@@ -112,11 +133,11 @@
 - Historical traceability cleanup should use additive rows or notes, not broad rewrites of completed requirements.
 
 **Coverage:**
-- Completed historical requirements: 46
-- Completed v03.3 requirements: 7
-- Remaining v03.3 requirements: 0
+- Active v04 requirements: 11
+- Planned v04 phase mappings: 11
+- Completed historical requirements: 57
 - Blocked requirements: 0
-- Unmapped v03.3 requirements: 0 ✓
+- Unmapped v04 requirements: 0
 
 ---
-*Requirements updated: 2026-05-18 after Phase 999.2 living close policy*
+*Requirements updated: 2026-05-27 after initializing v04 Commercial Foundation*

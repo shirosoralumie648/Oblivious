@@ -2,161 +2,138 @@
 
 ## Milestones
 
-- 🚧 **v03.3 Mainline Consolidation** — Phase 5 through Phase 8 (planning started 2026-05-14)
+- 🚧 **v04 Commercial Foundation** — Phase 9 through Phase 12 (planning started 2026-05-27)
+- ✅ **v03.3 Mainline Consolidation** — Phase 5 through Phase 8 plus 999.1/999.2 follow-ups (completed 2026-05-27)
 - ✅ **v03.2 Quality and Release** — Phase 4 (shipped 2026-05-14; Docker compose runtime validated 2026-05-12)
 - ✅ **v03.1 Admin and Marketplace UI** — Phase 03.1 (shipped 2026-05-02)
 - ✅ **Foundation through Admin/Marketplace Backend** — Phase 1, Phase 2, Phase 3a (completed 2026-04-27 through 2026-04-29)
 
 ## Current Status
 
-Milestone v03.3 has completed Phase 8 contract-docs and release-verification alignment. Phase 999.1 reconstructed the missing Phase 01 summary artifact. Phase 999.2 resolved and verified the accepted v03.1 cleanup debt.
+Milestone v04 has been initialized from `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`.
 
-**Next workflow step:** initialize v04 Commercial Foundation from `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`
+**Next workflow step:** execute Phase 9 plan `09-01-PLAN.md`.
 
-## Current Milestone: v03.3 Mainline Consolidation
+## Current Milestone: v04 Commercial Foundation
 
-**Goal:** Make the current uncommitted mainline work coherent, verified, documented, and ready for clean commits.
+**Goal:** Establish the SaaS tenant, security, migration, and CI foundation required before commercial Relay billing, Marketplace settlement, production operations, and final product completeness work.
 
 | Phase | Name | Requirements | Status |
 |-------|------|--------------|--------|
-| Phase 5 | Dirty Worktree Triage and Commit Boundary | CONS-01 | Complete |
-| Phase 6 | Backend Mainline Integration Hardening | ROUTE-01, CHAT-06, AUTH-01 | Complete |
-| Phase 7 | Frontend, E2E, and Deployment Gate Alignment | DEPLOY-02 | Complete |
-| Phase 8 | Contract Docs and Release Verification | DOC-02, VERIFY-01 | Complete |
+| Phase 9 | Tenant Model and Migration Ledger | TENANT-01, MIGR-01 | Planned |
+| Phase 10 | Membership, Roles, and Auth Security | TENANT-02, TENANT-03, SEC-01, SEC-02, SEC-03 | Planned |
+| Phase 11 | Tenant Scope Across Core Domains | TENANT-04, TENANT-05 | Planned |
+| Phase 12 | Commercial Gate CI and Evidence | CI-01, DOC-03 | Planned |
 
-### Phase 5: Dirty Worktree Triage and Commit Boundary
+### Phase 9: Tenant Model and Migration Ledger
 
-**Goal:** Classify the existing uncommitted work into coherent slices before implementation or verification continues.
+**Goal:** Add first-class organization tenancy and an append-only migration ledger without changing later billing or product surfaces prematurely.
 
-**Requirements:** CONS-01
-
-**Success criteria:**
-1. Maintainer can see which changed files belong to backend integration, frontend/E2E, deployment/CI, documentation, or historical/reference material.
-2. Planning commits remain separate from source-code commits.
-3. Obvious generated/cache artifacts stay ignored or excluded without deleting user-owned source.
-4. Follow-up phase scopes can reference an explicit commit-boundary inventory.
-
-**Starting evidence:**
-- Current status includes tracked changes across CI, Docker, docs, server auth/chat/config/http/userprefs, web package/theme/types/tailwind/vite files.
-- Current status includes untracked route/service additions under `src/server/internal/*`, migrations `0013`-`0019`, Playwright files, and several web route pages.
-
-### Phase 6: Backend Mainline Integration Hardening
-
-**Goal:** Verify backend route registration, service boundaries, Relay-first Chat/Agent behavior, and auth/session contracts.
-
-**Requirements:** ROUTE-01, CHAT-06, AUTH-01
-
-**Plans:** 4/4 complete
-
-**Waves:**
-
-- Wave 1: Plans 01-02 — route surface / auth guard coverage and notification ownership hardening
-- Wave 2: Plan 03 — Relay metadata propagation, structured tool calls, and production fallback policy
-- Wave 3: Plan 04 — auth/session/userprefs response consistency and final verification
-
-**Cross-cutting constraints:**
-
-- Keep session gating and `requireAdmin` intact across route and notification work.
-- Preserve Relay metadata, structured tool-call handling, and usage recording separation in Chat/Agent flows.
-- Keep auth response shaping and user preference defaults deterministic across register, login, and `/api/v1/auth/me`.
+**Requirements:** TENANT-01, MIGR-01
 
 **Success criteria:**
-1. Agent, Memory, MCP, Notification, Quota, and WebSocket routes are registered intentionally with the expected middleware/auth boundaries.
-2. Chat and Agent gateway paths preserve Relay metadata, structured tool call handling, streaming behavior, and usage accounting hooks.
-3. User/session data exposes name and role consistently across auth store/service/middleware without weakening admin checks.
-4. Targeted Go tests cover the changed route/service contracts and fail on route/auth regressions.
+1. New migrations create `schema_migrations` or equivalent migration ledger tables and organization tenant tables.
+2. Migration execution records applied migration identity and is safe to rerun.
+3. Admin/server code can create, list, inspect, update, and deactivate organizations through explicit service boundaries.
+4. Organization identity is available to downstream handlers/services without relying on ad hoc user-only context.
+5. Targeted DB-backed tests prove ledger idempotency and organization CRUD behavior.
 
 **Likely verification:**
-- `cd src/server && go test ./internal/http ./internal/auth ./internal/chat ./internal/userprefs ./internal/relay ./internal/agent ./internal/memory ./internal/quota -count=1`
-- Broaden to `cd src/server && go test ./... -count=1` before closing the phase.
+- `cd src/server && go test ./internal/... -run 'Migration|Organization|Tenant' -count=1`
+- `cd src/server && TEST_DATABASE_URL=<postgres test db> go test ./... -count=1`
+- `bash scripts/check.sh all`
 
-**Completion evidence:**
-- Backend implementation commit: `ef81374` (`feat(06): harden backend mainline integration`)
-- Phase summaries: `06-01-SUMMARY.md` through `06-04-SUMMARY.md`
-- Verification: `06-VERIFICATION.md`
-- Final DB-backed backend gate: `TEST_DATABASE_URL=postgres://oblivious:oblivious@127.0.0.1:32768/oblivious_test?sslmode=disable go test ./... -count=1`
+### Phase 10: Membership, Roles, and Auth Security
 
-### Phase 7: Frontend, E2E, and Deployment Gate Alignment
+**Goal:** Make organization membership and production auth controls enforceable before tenant-scoped domain data migration.
 
-**Goal:** Align frontend/API types, Playwright coverage, CI workflow, Dockerfiles, compose, and deployment validation with the consolidated backend surface.
-
-**Requirements:** DEPLOY-02
-
-**Plans:** 3/3 complete
-
-**Waves:**
-
-- Wave 1: Plans 01-02 — frontend/API/workspace alignment and Playwright/E2E gate stabilization
-- Wave 2: Plan 03 — CI, Docker, compose, env, lockfile, and deployment validation alignment after web scripts/E2E are stable
-
-**Cross-cutting constraints:**
-
-- Preserve Phase 5 commit boundaries; do not stage frontend/deployment work with planning artifacts or Phase 8 contract docs.
-- Preserve the v03.2 restricted-network deployment command:
-  `OBLIVIOUS_IMAGE_REGISTRY_PREFIX=docker.m.daocloud.io/library/ OBLIVIOUS_GOPROXY=https://mirrors.aliyun.com/goproxy/,direct OBLIVIOUS_GOSUMDB=sum.golang.google.cn bash scripts/deploy-validate.sh`
-- Keep generated/cache artifacts such as `.tmp/`, `dist/`, `test-results/`, and `playwright-report/` out of Git.
-- Treat the Phase 6 backend route surface as the frontend/deployment baseline.
+**Requirements:** TENANT-02, TENANT-03, SEC-01, SEC-02, SEC-03
 
 **Success criteria:**
-1. Frontend API types and app pages match the backend contracts introduced or changed in Phase 6.
-2. Playwright configuration and E2E scripts are runnable without pulling generated reports or cache directories into Git.
-3. CI workflow and package-lock updates reflect the actual test/build commands.
-4. Dockerfiles, compose, env templates, and `scripts/deploy-validate.sh` preserve the v03.2 restricted-network override path.
+1. Users can belong to multiple organizations with member/admin/owner roles.
+2. Invitation, acceptance, removal, ownership transfer, and role changes are audited.
+3. Cookie-authenticated mutating routes reject missing/invalid CSRF tokens.
+4. Login, registration, password reset, and sensitive admin actions have enforced rate limits.
+5. Password policy and session rotation are covered by targeted tests.
 
 **Likely verification:**
-- `COREPACK_HOME=.tmp/corepack pnpm --dir src/web test`
-- `COREPACK_HOME=.tmp/corepack pnpm --dir src/web test:e2e`
-- `COREPACK_HOME=.tmp/corepack pnpm --dir src/web build`
-- `docker compose config`
-- `OBLIVIOUS_IMAGE_REGISTRY_PREFIX=docker.m.daocloud.io/library/ OBLIVIOUS_GOPROXY=https://mirrors.aliyun.com/goproxy/,direct OBLIVIOUS_GOSUMDB=sum.golang.google.cn bash scripts/deploy-validate.sh`
+- `cd src/server && go test ./internal/auth ./internal/http ./internal/admin -count=1`
+- DB-backed integration tests for membership, invitation, role, audit, CSRF, rate-limit, password, and session rotation behavior.
 
-**Completion evidence:**
-- Frontend/workspace contract commit: `e6a2bf9` (`feat(07-01): align frontend workspace contracts`)
-- Web/E2E gate commit: `292bc1a` (`test(07-02): stabilize web e2e gates`)
-- CI/deployment gate commit: `e7fb740` (`chore(07-03): align ci and deployment gates`)
-- Phase summaries: `07-01-SUMMARY.md` through `07-03-SUMMARY.md`
-- Code review: `07-REVIEW.md`
-- Verification: `07-VERIFICATION.md`
-- Runtime proof: restricted-network `scripts/deploy-validate.sh` built images, started the compose stack, passed `/healthz`, and cleaned up.
+### Phase 11: Tenant Scope Across Core Domains
 
-### Phase 8: Contract Docs and Release Verification
+**Goal:** Apply tenant identity to core data domains and prove cross-tenant reads/writes fail.
 
-**Goal:** Reconcile docs with live routes and commands, then run the targeted release verification needed to commit the consolidated mainline safely.
-
-**Requirements:** DOC-02, VERIFY-01
-
-**Plans:** 2/2 complete
+**Requirements:** TENANT-04, TENANT-05
 
 **Success criteria:**
-1. `docs/API.md`, current system contracts, release docs, README, and env examples describe the same route surface and commands as the code.
-2. Verification evidence identifies which checks passed, which were skipped, and why.
-3. The final worktree can be split into clear commits that do not mix planning docs, backend integration, frontend/deployment gates, and historical reference files.
-4. Remaining external prerequisites, if any, are recorded as blockers instead of being treated as passed gates.
+1. Chat, Agent, Knowledge, Memory, MCP, Quota, Console, Admin, and Marketplace publisher data have tenant ownership semantics.
+2. Handlers and services derive tenant scope from authenticated context instead of client-controlled identifiers.
+3. Cross-tenant reads are denied for representative list/detail paths.
+4. Cross-tenant writes are denied for representative create/update/delete paths.
+5. Regression tests cover the representative core domains and fail if tenant filters are removed.
 
 **Likely verification:**
-- `bash scripts/check.sh docs`
+- DB-backed cross-tenant HTTP integration tests across Chat, Agent, Knowledge, Memory, MCP, Quota, Console, Admin, and Marketplace.
+- `bash scripts/test.sh all` with persistence coverage enabled.
+
+### Phase 12: Commercial Gate CI and Evidence
+
+**Goal:** Make v04 evidence reproducible and define the commercial gate contract for later v05-v08 milestones.
+
+**Requirements:** CI-01, DOC-03
+
+**Success criteria:**
+1. CI server jobs run DB-backed HTTP integration tests and fail loudly when the database is unavailable.
+2. Commercial gate documentation maps tenant, Relay, billing, product, security, operations, and verification gates to required evidence.
+3. v04 verification records exact commands, environment class, DB migration status, passed checks, skipped checks, and accepted residual debt.
+4. `bash scripts/check.sh all` and `bash scripts/test.sh all` are documented as v04 release gates with DB-backed coverage expectations.
+
+**Likely verification:**
+- CI workflow dry checks or local equivalent showing DB-backed test commands are wired.
 - `bash scripts/check.sh all`
 - `bash scripts/test.sh all`
-- Targeted `rg` checks against docs for new route groups and restricted-network deployment commands.
-
-**Completion evidence:**
-- Phase summaries: `08-01-SUMMARY.md` and `08-02-SUMMARY.md`
-- Verification: `08-VERIFICATION.md`
-- Final docs-first gates: `bash scripts/check.sh docs`, `bash scripts/check.sh all`, and `bash scripts/test.sh all`
+- Targeted `rg` checks proving commercial gate docs no longer describe v04 as MVP/RC-only.
 
 ## Traceability
 
 | Requirement | Phase | Coverage |
 |-------------|-------|----------|
-| CONS-01 | Phase 5 | Complete — dirty worktree inventory and commit-boundary artifacts |
-| ROUTE-01 | Phase 6 | Complete — backend routes/services/auth boundaries verified |
-| CHAT-06 | Phase 6 | Complete — Relay-first Chat/Agent behavior verified |
-| AUTH-01 | Phase 6 | Complete — user/session role/name contract verified |
-| DEPLOY-02 | Phase 7 | Complete — frontend/E2E/CI/Docker/deployment gates verified with runtime smoke |
-| DOC-02 | Phase 8 | Complete — API, architecture, release, README reconciliation verified |
-| VERIFY-01 | Phase 8 | Complete — targeted verification suite and commit-readiness evidence recorded |
+| TENANT-01 | Phase 9 | Planned — organization tenant model and admin/service boundaries |
+| MIGR-01 | Phase 9 | Planned — append-only migration ledger |
+| TENANT-02 | Phase 10 | Planned — multi-organization membership and roles |
+| TENANT-03 | Phase 10 | Planned — invitation, removal, ownership transfer, and audit |
+| SEC-01 | Phase 10 | Planned — CSRF protection for cookie-auth mutating routes |
+| SEC-02 | Phase 10 | Planned — rate limits for auth/admin sensitive actions |
+| SEC-03 | Phase 10 | Planned — password policy and session rotation |
+| TENANT-04 | Phase 11 | Planned — tenant scope across core domains |
+| TENANT-05 | Phase 11 | Planned — cross-tenant denial tests |
+| CI-01 | Phase 12 | Planned — DB-backed CI integration guarantee |
+| DOC-03 | Phase 12 | Planned — commercial gate documentation |
 
 ## Archived Milestone Details
+
+<details>
+<summary>✅ v03.3 Mainline Consolidation — COMPLETE 2026-05-27</summary>
+
+**Goal:** Make the current uncommitted mainline work coherent, verified, documented, and ready for clean commits.
+
+**Requirements:** CONS-01, ROUTE-01, CHAT-06, AUTH-01, DEPLOY-02, DOC-02, VERIFY-01.
+
+**Delivered:**
+- Phase 5 dirty worktree triage and commit-boundary inventory.
+- Phase 6 backend route/service/auth/Relay hardening.
+- Phase 7 frontend, E2E, CI, Docker, and deployment gate alignment.
+- Phase 8 contract docs and release verification.
+- Phase 999.1 missing Phase 01 summary reconstruction.
+- Phase 999.2 obsolete workspace MarketplacePage cleanup and living requirements close policy verification.
+
+**Archive snapshots:**
+- `.planning/milestones/v03.3-ROADMAP.md`
+- `.planning/milestones/v03.3-REQUIREMENTS.md`
+- `.planning/milestones/v03.3-STATE.md`
+
+</details>
 
 <details>
 <summary>✅ v03.2 Quality and Release — SHIPPED 2026-05-14</summary>
@@ -165,15 +142,7 @@ Milestone v03.3 has completed Phase 8 contract-docs and release-verification ali
 
 **Requirements:** TEST-01, TEST-02, DOC-01, DEPLOY-01.
 
-**Plans:** 4/4 complete.
-
-- [x] 04-01: Backend release test gate — `go test ./... -count=1` covers Admin, Marketplace, Relay, Agent, Memory, and Quota boundaries.
-- [x] 04-02: Admin and Marketplace E2E gate — Playwright covers Admin navigation, Marketplace browse/detail/install, publish, and my-agents flows.
-- [x] 04-03: API documentation and RC checklist — API docs, system contracts, README links, and quality-gate assertions aligned.
-- [x] 04-04: Deployment configuration and smoke path — Docker compose build/start/smoke passed against the real `/healthz` endpoint with documented restricted-network overrides.
-
 **Primary verification:**
-
 - `bash scripts/check.sh all`
 - `bash scripts/test.sh all`
 - `COREPACK_HOME=.tmp/corepack pnpm --dir src/web test:e2e`
@@ -191,9 +160,7 @@ Milestone v03.3 has completed Phase 8 contract-docs and release-verification ali
 
 **Requirements:** ADMIN-04, MARKET-02.
 
-**Plans:** 7/7 complete.
-
-**Verification:** Go handler suite, 12 focused Vitest files / 32 tests, and `tsc --noEmit` passed. UAT, security (`threats_open: 0`), Nyquist validation, and milestone audit are complete.
+**Verification:** Go handler suite, 12 focused Vitest files / 32 tests, and `tsc --noEmit` passed.
 
 **Archive:** `.planning/milestones/v03.1-ROADMAP.md`
 
@@ -206,51 +173,17 @@ Milestone v03.3 has completed Phase 8 contract-docs and release-verification ali
 - [x] Phase 2 Agent 与 Memory 增强 — EXEC-01~03, MEM-01~03, QUOTA-01.
 - [x] Phase 3a Admin 与 Marketplace 后端 — ADMIN-01~03, MARKET-01.
 
-These phases remain available in `.planning/phases/` and the v03.2 roadmap archive for historical context.
-
 </details>
 
 ## Progress
 
 | Milestone | Scope | Plans | Requirements | Status | Completed |
 |-----------|-------|-------|--------------|--------|-----------|
-| v03.3 Mainline Consolidation | Phases 5-8 plus backlog 999.1 and 999.2 | 10/10 mainline steps complete; 2/2 backlog steps complete | CONS-01, ROUTE-01, CHAT-06, AUTH-01, DEPLOY-02, DOC-02, VERIFY-01 complete | Complete | Phase 5 and Phase 6 complete 2026-05-14; Phase 7, Phase 8, and Phase 999.1 complete 2026-05-17; Phase 999.2 executed 2026-05-18 and verified 2026-05-27 |
+| v04 Commercial Foundation | Phases 9-12 | 0/4 phases started | 11 active requirements | Active | — |
+| v03.3 Mainline Consolidation | Phases 5-8 plus backlog 999.1 and 999.2 | 12/12 steps complete | 7/7 requirements complete | Complete | 2026-05-27 |
 | v03.2 Quality and Release | Phase 4 | 4/4 | TEST-01, TEST-02, DOC-01, DEPLOY-01 | Shipped | 2026-05-14 |
 | v03.1 Admin and Marketplace UI | Phase 03.1 | 7/7 | ADMIN-04, MARKET-02 | Shipped | 2026-05-02 |
 | Foundation through Backend | Phases 1, 2, 3a | Historical | RELAY, CHAT, AGENT, MCP, MEM, EXEC, QUOTA, ADMIN, MARKET | Complete | 2026-04-29 |
 
-## Backlog
-
-### Phase 999.1: Follow-up — Phase 01 incomplete plan artifacts (RESOLVED)
-
-**Goal**: 补齐 Phase 01 缺失的执行总结工件，避免后续阶段缺少完成记录
-**Source phase:** `01-relay-integration`
-**Deferred at:** `2026-04-27` during `$gsd-next` advancement to `02-agent-memory-enhancement`
-**Resolved at:** `2026-05-17` during `$gsd:execute-phase 999.1`
-**Plans:**
-- [x] `999.1-01-PLAN.md` reconstructs `.planning/phases/01-relay-integration/SUMMARY.md` and closes traceability
-- [x] `01-relay-integration/PLAN.md` ran to verification completion but had no matching `SUMMARY.md`
-**Notes:**
-- [x] Reconstructed `.planning/phases/01-relay-integration/SUMMARY.md` from `PLAN.md` + `VERIFICATION.md`
-- [x] Preserved missing P0/P1 tests and E2E notes as residual gaps, not new Phase 999.1 implementation scope
-**Context:** `.planning/phases/999.1-follow-up-phase-01-incomplete-plan-artifacts-backlog/999.1-CONTEXT.md`
-**Summary:** `.planning/phases/999.1-follow-up-phase-01-incomplete-plan-artifacts-backlog/999.1-01-SUMMARY.md`
-**Artifact:** `.planning/phases/01-relay-integration/SUMMARY.md`
-
-### Phase 999.2: Follow-up — Phase 03.1 accepted cleanup debt (RESOLVED)
-
-**Goal:** Clean up non-blocking debt accepted at v03.1 milestone close
-**Source phase:** `03.1-admin-marketplace-ui`
-**Deferred at:** `2026-05-02` during `$gsd-next` milestone completion
-**Resolved at:** `2026-05-18` during `$gsd:execute-phase 999.2`
-**Items:**
-- [x] Deleted orphaned `src/web/src/routes/workspace/MarketplacePage.tsx`; `/marketplace` remains routed through `src/web/src/routes/marketplace/*`
-- [x] Recorded that `.planning/REQUIREMENTS.md` remains the living repository policy while milestone snapshots are archived under `.planning/milestones/`
-**Notes:**
-- [x] Legacy workspace MarketplacePage cleanup was resolved without migrating the static MCP catalog into Agent Marketplace
-- [x] Living `.planning/REQUIREMENTS.md` policy was recorded as additive traceability, not a broad requirements rewrite
-**Summary:** `.planning/phases/999.2-follow-up-phase-03-1-accepted-cleanup-debt-backlog/999.2-01-SUMMARY.md`
-**UAT:** `.planning/phases/999.2-follow-up-phase-03-1-accepted-cleanup-debt-backlog/999.2-UAT.md`
-
 ---
-*Roadmap updated: 2026-05-27 after Phase 999.2 verify-work*
+*Roadmap updated: 2026-05-27 after initializing v04 Commercial Foundation*

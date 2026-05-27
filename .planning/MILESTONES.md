@@ -1,5 +1,30 @@
 # Project Milestones: Oblivious
 
+## v03.3 Mainline Consolidation (Completed: 2026-05-27)
+
+**Delivered:** Mainline route/service/frontend/deployment/docs consolidation, release verification, and accepted cleanup debt closeout.
+
+**Phases completed:** Phase 5 through Phase 8, plus Phase 999.1 and Phase 999.2 follow-ups.
+
+**Key accomplishments:**
+
+- Classified the dirty worktree into coherent commit boundaries before broad mainline work continued.
+- Hardened backend route registration, service boundaries, Relay-first Chat/Agent behavior, and auth/session contracts.
+- Aligned frontend/API types, Playwright E2E, CI wrappers, Dockerfiles, compose, and restricted-network deployment validation.
+- Reconciled API, architecture, release, README, and env docs against the live route and command surface.
+- Reconstructed the missing Phase 01 summary artifact.
+- Verified and closed the obsolete workspace MarketplacePage cleanup and living `.planning/REQUIREMENTS.md` close policy.
+
+**Archives:**
+
+- `.planning/milestones/v03.3-ROADMAP.md`
+- `.planning/milestones/v03.3-REQUIREMENTS.md`
+- `.planning/milestones/v03.3-STATE.md`
+
+**What's next:** v04 Commercial Foundation establishes the tenant/security/migration/CI foundation for the commercial complete program.
+
+---
+
 ## v03.2 Quality and Release (Shipped: 2026-05-14)
 
 **Delivered:** Release-candidate quality gates, documentation, and Docker runtime validation for the active `src/server` and `src/web` mainline.
