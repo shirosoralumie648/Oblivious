@@ -1,11 +1,14 @@
 package http
 
 import (
+	"encoding/json"
 	stdhttp "net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+const routeSurfaceStrongPassword = "StrongerPass1!"
 
 func TestRouteSurfaceRequiresSessionForAppRoutes(t *testing.T) {
 	router := NewRouter(testConfig(), testDatabase(t))
@@ -24,6 +27,8 @@ func TestRouteSurfaceRequiresSessionForAppRoutes(t *testing.T) {
 		{"preferences", stdhttp.MethodGet, "/api/v1/app/me/preferences"},
 		{"knowledge bases", stdhttp.MethodGet, "/api/v1/app/knowledge-bases"},
 		{"tasks", stdhttp.MethodGet, "/api/v1/app/tasks"},
+		{"organizations", stdhttp.MethodGet, "/api/v1/app/organizations"},
+		{"organization members", stdhttp.MethodGet, "/api/v1/app/organizations/org_1/members"},
 		{"websocket", stdhttp.MethodGet, "/api/v1/ws"},
 	}
 
@@ -78,7 +83,7 @@ func TestRouteSurfaceKeepsAuthRoutesPublic(t *testing.T) {
 	registerRequest := httptest.NewRequest(
 		stdhttp.MethodPost,
 		"/api/v1/auth/register",
-		strings.NewReader(`{"email":"public-auth@example.com","password":"secret"}`),
+		strings.NewReader(`{"email":"public-auth@example.com","password":"`+routeSurfaceStrongPassword+`"}`),
 	)
 	registerRequest.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(registerRecorder, registerRequest)
@@ -90,7 +95,7 @@ func TestRouteSurfaceKeepsAuthRoutesPublic(t *testing.T) {
 	loginRequest := httptest.NewRequest(
 		stdhttp.MethodPost,
 		"/api/v1/auth/login",
-		strings.NewReader(`{"email":"public-auth@example.com","password":"secret"}`),
+		strings.NewReader(`{"email":"public-auth@example.com","password":"`+routeSurfaceStrongPassword+`"}`),
 	)
 	loginRequest.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(loginRecorder, loginRequest)
@@ -99,14 +104,35 @@ func TestRouteSurfaceKeepsAuthRoutesPublic(t *testing.T) {
 	}
 }
 
+func TestRouteSurfaceRejectsCookieMutationWithoutCSRF(t *testing.T) {
+	router := NewRouter(testConfig(), testDatabase(t))
+	cookie, _ := routeSurfaceRegisterUserWithCSRF(t, router, "csrf-user@example.com")
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/auth/logout", nil)
+	request.AddCookie(cookie)
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusForbidden {
+		t.Fatalf("expected missing csrf to be rejected with 403, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func routeSurfaceRegisterUser(t *testing.T, router stdhttp.Handler, email string) *stdhttp.Cookie {
+	t.Helper()
+
+	cookie, _ := routeSurfaceRegisterUserWithCSRF(t, router, email)
+	return cookie
+}
+
+func routeSurfaceRegisterUserWithCSRF(t *testing.T, router stdhttp.Handler, email string) (*stdhttp.Cookie, string) {
 	t.Helper()
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(
 		stdhttp.MethodPost,
 		"/api/v1/auth/register",
-		strings.NewReader(`{"email":"`+email+`","password":"secret"}`),
+		strings.NewReader(`{"email":"`+email+`","password":"`+routeSurfaceStrongPassword+`"}`),
 	)
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(recorder, request)
@@ -118,5 +144,11 @@ func routeSurfaceRegisterUser(t *testing.T, router stdhttp.Handler, email string
 	if len(cookies) == 0 {
 		t.Fatal("expected session cookie")
 	}
-	return cookies[0]
+	var response struct {
+		Data struct {
+			CSRFToken string `json:"csrfToken"`
+		} `json:"data"`
+	}
+	_ = json.Unmarshal(recorder.Body.Bytes(), &response)
+	return cookies[0], response.Data.CSRFToken
 }
