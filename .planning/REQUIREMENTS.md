@@ -10,16 +10,16 @@
 ### Tenant And Identity
 
 - [x] **TENANT-01**: Admin can create and manage organizations as first-class tenants. Completed in Phase 9 with `organizations` schema, tenant service/store, admin routes, and DB-backed lifecycle tests.
-- [ ] **TENANT-02**: User can belong to multiple organizations with member, admin, and owner roles.
-- [ ] **TENANT-03**: User can invite, accept, remove, and transfer organization ownership with audit events.
+- [x] **TENANT-02**: User can belong to multiple organizations with member, admin, and owner roles. Completed in Phase 10 with `organization_memberships`, owner/admin/member roles, creator owner membership, list-membership APIs, and DB-backed lifecycle tests.
+- [x] **TENANT-03**: User can invite, accept, revoke, remove, and transfer organization ownership with audit events. Completed in Phase 10 with invitation token hashing, accept/revoke routes, role/removal/ownership flows, and audit-backed mutation tests.
 - [ ] **TENANT-04**: Chat, Agent, Knowledge, Memory, MCP, Quota, Console, Admin, and Marketplace publisher data are scoped by tenant.
 - [ ] **TENANT-05**: Tests prove cross-tenant access is denied for representative read and write paths.
 
 ### Production Auth Security
 
-- [ ] **SEC-01**: Cookie-authenticated mutating routes require CSRF protection.
-- [ ] **SEC-02**: Login, registration, password reset, and sensitive admin actions are rate limited.
-- [ ] **SEC-03**: Password policy and session rotation are enforced.
+- [x] **SEC-01**: Cookie-authenticated mutating routes require CSRF protection. Completed in Phase 10 with `security_middleware.go`, session CSRF tokens, and route-surface tests for missing-token rejection.
+- [x] **SEC-02**: Login, registration, password reset, and sensitive admin/organization actions are rate limited. Completed in Phase 10 with SQL-backed `auth_rate_limits` and 429 tests for auth and organization writes.
+- [x] **SEC-03**: Password policy and session rotation are enforced. Completed in Phase 10 with strong-password validation, password reset session revocation, invitation-accept session rotation, and membership-change session revocation tests.
 
 ### Migration And CI Evidence
 
@@ -51,11 +51,11 @@
 |-------------|-------|--------|
 | TENANT-01 | Phase 9 — Tenant Model and Migration Ledger | Complete |
 | MIGR-01 | Phase 9 — Tenant Model and Migration Ledger | Complete |
-| TENANT-02 | Phase 10 — Membership, Roles, and Auth Security | Planned |
-| TENANT-03 | Phase 10 — Membership, Roles, and Auth Security | Planned |
-| SEC-01 | Phase 10 — Membership, Roles, and Auth Security | Planned |
-| SEC-02 | Phase 10 — Membership, Roles, and Auth Security | Planned |
-| SEC-03 | Phase 10 — Membership, Roles, and Auth Security | Planned |
+| TENANT-02 | Phase 10 — Membership, Roles, and Auth Security | Complete |
+| TENANT-03 | Phase 10 — Membership, Roles, and Auth Security | Complete |
+| SEC-01 | Phase 10 — Membership, Roles, and Auth Security | Complete |
+| SEC-02 | Phase 10 — Membership, Roles, and Auth Security | Complete |
+| SEC-03 | Phase 10 — Membership, Roles, and Auth Security | Complete |
 | TENANT-04 | Phase 11 — Tenant Scope Across Core Domains | Planned |
 | TENANT-05 | Phase 11 — Tenant Scope Across Core Domains | Planned |
 | CI-01 | Phase 12 — Commercial Gate CI and Evidence | Planned |
@@ -134,11 +134,11 @@
 
 **Coverage:**
 - Active v04 requirements: 9
-- Completed v04 requirements: 2
+- Completed v04 requirements: 7
 - Planned v04 phase mappings: 11
 - Completed historical requirements: 57
 - Blocked requirements: 0
 - Unmapped v04 requirements: 0
 
 ---
-*Requirements updated: 2026-05-27 after completing Phase 9 tenant foundation*
+*Requirements updated: 2026-05-28 after completing Phase 10 membership and auth security*

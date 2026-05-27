@@ -21,11 +21,11 @@ Oblivious 是一个多租户 AI 平台，整合 LobeHub（C 端体验）和 New-
 - Append-only migration ledger and DB-backed CI integration guarantee.
 - Commercial gate documentation that prevents future milestones from claiming commercial readiness without evidence.
 
-## Current State: v04 Phase 10 Ready To Execute
+## Current State: v04 Phase 11 Ready To Plan
 
 Milestone v03.3 Mainline Consolidation is complete. Phase 8 reconciled contract docs and release verification, Phase 999.1 reconstructed the missing Phase 01 summary, and Phase 999.2 verified the obsolete workspace MarketplacePage cleanup plus the living requirements close policy.
 
-The commercial complete target is defined in `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`. That spec explicitly says the prior release-candidate state is not the final product. Phase 9 completed first-class organization tenants and the migration ledger. Phase 10 now has context and an executable plan for memberships, roles, invitations, ownership transfer, CSRF, rate limits, password policy, and session rotation.
+The commercial complete target is defined in `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`. That spec explicitly says the prior release-candidate state is not the final product. Phase 9 completed first-class organization tenants and the migration ledger. Phase 10 completed memberships, roles, invitations, revoke/accept flows, ownership transfer, CSRF, rate limits, password policy, and session rotation/revocation. The next step is planning Phase 11 tenant scope across core domains.
 
 ## Requirements
 
@@ -46,16 +46,16 @@ The commercial complete target is defined in `docs/superpowers/specs/2026-05-27-
 - ✓ v03.3 Mainline Consolidation — commit-boundary triage, backend hardening, frontend/E2E/deployment alignment, contract docs, release verification, and accepted cleanup debt closeout
 - ✓ TENANT-01 — Admin can create and manage organizations as first-class tenants
 - ✓ MIGR-01 — Migration runner records applied migrations in `schema_migrations`
+- ✓ TENANT-02 — User can belong to multiple organizations with member, admin, and owner roles
+- ✓ TENANT-03 — User can invite, accept, revoke, remove, and transfer organization ownership with audit events
+- ✓ SEC-01 — Cookie-authenticated mutating routes require CSRF protection
+- ✓ SEC-02 — Login, registration, password reset, and sensitive admin/organization actions are rate limited
+- ✓ SEC-03 — Password policy and session rotation are enforced
 
 ### Active
 
-- [ ] **TENANT-02**: User can belong to multiple organizations with member, admin, and owner roles.
-- [ ] **TENANT-03**: User can invite, accept, remove, and transfer organization ownership with audit events.
 - [ ] **TENANT-04**: Chat, Agent, Knowledge, Memory, MCP, Quota, Console, Admin, and Marketplace publisher data are scoped by tenant.
 - [ ] **TENANT-05**: Tests prove cross-tenant access is denied for representative read and write paths.
-- [ ] **SEC-01**: Cookie-authenticated mutating routes require CSRF protection.
-- [ ] **SEC-02**: Login, registration, password reset, and sensitive admin actions are rate limited.
-- [ ] **SEC-03**: Password policy and session rotation are enforced.
 - [ ] **CI-01**: CI server job runs DB-backed HTTP integration tests instead of silently skipping persistence coverage.
 - [ ] **DOC-03**: Commercial gate documentation defines what must be true before any future milestone can claim commercial readiness.
 
@@ -87,7 +87,7 @@ Go Backend (Gin)
 - v03.1 已交付可用 Admin UI 与 Marketplace UI。
 - v03.2 已完成质量、E2E、文档和 Docker 部署 smoke 收口。
 - v03.3 已完成主线整合、文档对齐、发布验证和两个历史 cleanup backlog。
-- v04 现在是活动里程碑；Phase 9 Tenant Model and Migration Ledger 已完成，Phase 10 Membership, Roles, and Auth Security 已规划，下一步是执行 Phase 10。
+- v04 现在是活动里程碑；Phase 9 Tenant Model and Migration Ledger 与 Phase 10 Membership, Roles, and Auth Security 已完成，下一步是规划 Phase 11 Tenant Scope Across Core Domains。
 - 直接 Docker Hub / 默认 Go module 路径在本机网络仍不稳定；受限网络验证命令继续作为部署 smoke 的已验证本地路径。
 - `kubectl` 未安装，因此 Kubernetes 仍属于后续 v07 Production Operations 的未验证范围。
 
@@ -111,9 +111,9 @@ Go Backend (Gin)
 | Docker compose runtime path satisfies DEPLOY-01 | Requirement accepted one real Docker or Kubernetes runtime path | ✓ Good — compose build/start/smoke passed; Kubernetes remains later |
 | Preserve living REQUIREMENTS.md | This repo uses it for cross-phase context and archives milestone snapshots separately | ✓ Good — Phase 999.2 recorded this policy |
 | Commercial target is a milestone program, not one giant phase | Tenant/security, Relay billing, money movement, operations, and product completeness have hard dependencies | Active — v04 through v08 decomposes the work |
-| v04 starts with tenant/security foundation | Billing, Marketplace payouts, and production ops need tenant identity and isolation first | Active — Phase 9 completed tenant model and migration ledger; Phase 10 owns membership/auth security |
+| v04 starts with tenant/security foundation | Billing, Marketplace payouts, and production ops need tenant identity and isolation first | Active — Phase 9 completed tenant model and migration ledger; Phase 10 completed membership/auth security |
 | v04 requirement `DOC-01` draft is recorded as `DOC-03` | Historical `DOC-01` and `DOC-02` already exist in living requirements | Active — avoids duplicate requirement IDs |
-| Phase 10 is planned as the next enforceable security boundary | Tenant-scoped data migration needs membership, roles, CSRF, rate limits, password policy, and session rotation first | Active — `.planning/phases/10-membership-roles-and-auth-security/10-01-PLAN.md` |
+| Phase 10 is the enforceable security boundary before tenant data scoping | Tenant-scoped data migration needs membership, roles, CSRF, rate limits, password policy, and session rotation first | ✓ Good — `.planning/phases/10-membership-roles-and-auth-security/10-01-SUMMARY.md` |
 
 ## Evolution
 

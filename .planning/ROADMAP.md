@@ -12,7 +12,7 @@
 
 Milestone v04 has been initialized from `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`.
 
-**Next workflow step:** execute Phase 10 Membership, Roles, and Auth Security Plan 01.
+**Next workflow step:** plan Phase 11 Tenant Scope Across Core Domains.
 
 ## Current Milestone: v04 Commercial Foundation
 
@@ -21,7 +21,7 @@ Milestone v04 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 | Phase | Name | Requirements | Status |
 |-------|------|--------------|--------|
 | Phase 9 | Tenant Model and Migration Ledger | TENANT-01, MIGR-01 | Complete |
-| Phase 10 | Membership, Roles, and Auth Security | TENANT-02, TENANT-03, SEC-01, SEC-02, SEC-03 | Ready to execute |
+| Phase 10 | Membership, Roles, and Auth Security | TENANT-02, TENANT-03, SEC-01, SEC-02, SEC-03 | Complete |
 | Phase 11 | Tenant Scope Across Core Domains | TENANT-04, TENANT-05 | Planned |
 | Phase 12 | Commercial Gate CI and Evidence | CI-01, DOC-03 | Planned |
 
@@ -62,9 +62,12 @@ Milestone v04 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 4. Login, registration, password reset, and sensitive admin actions have enforced rate limits.
 5. Password policy and session rotation are covered by targeted tests.
 
-**Likely verification:**
-- `cd src/server && go test ./internal/auth ./internal/http ./internal/admin -count=1`
-- DB-backed integration tests for membership, invitation, role, audit, CSRF, rate-limit, password, and session rotation behavior.
+**Completion evidence:**
+- Implementation commits: `991b17b`, `31dc646`, `79ad6cf`, `01e6e50`, `e1d6854`
+- Build-gate fix commit: `67c729a`
+- Summary: `.planning/phases/10-membership-roles-and-auth-security/10-01-SUMMARY.md`
+- DB-backed verification: membership, invitation revoke/accept, role/ownership, audit, CSRF, rate-limit, password reset, and session rotation/revocation tests passed against PostgreSQL on `127.0.0.1:32769`
+- Broad gates: `bash scripts/test.sh all` and `bash scripts/check.sh all` passed with `TEST_DATABASE_URL` and restricted-network Go proxy overrides
 
 **Planning evidence:**
 - Context: `.planning/phases/10-membership-roles-and-auth-security/10-CONTEXT.md`
@@ -112,11 +115,11 @@ Milestone v04 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 |-------------|-------|----------|
 | TENANT-01 | Phase 9 | Complete — organization tenant model and admin/service boundaries |
 | MIGR-01 | Phase 9 | Complete — append-only migration ledger |
-| TENANT-02 | Phase 10 | Planned — multi-organization membership and roles |
-| TENANT-03 | Phase 10 | Planned — invitation, removal, ownership transfer, and audit |
-| SEC-01 | Phase 10 | Planned — CSRF protection for cookie-auth mutating routes |
-| SEC-02 | Phase 10 | Planned — rate limits for auth/admin sensitive actions |
-| SEC-03 | Phase 10 | Planned — password policy and session rotation |
+| TENANT-02 | Phase 10 | Complete — multi-organization membership and owner/admin/member roles |
+| TENANT-03 | Phase 10 | Complete — invitation create/accept/revoke, removal, ownership transfer, and audit |
+| SEC-01 | Phase 10 | Complete — CSRF protection for cookie-auth mutating routes |
+| SEC-02 | Phase 10 | Complete — rate limits for auth/admin/organization sensitive actions |
+| SEC-03 | Phase 10 | Complete — password policy and session rotation/revocation |
 | TENANT-04 | Phase 11 | Planned — tenant scope across core domains |
 | TENANT-05 | Phase 11 | Planned — cross-tenant denial tests |
 | CI-01 | Phase 12 | Planned — DB-backed CI integration guarantee |
