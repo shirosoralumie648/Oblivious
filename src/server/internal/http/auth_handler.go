@@ -41,18 +41,23 @@ type sessionWorkspacePayload struct {
 	ID string `json:"id"`
 }
 
+type sessionOrganizationPayload struct {
+	ID string `json:"id"`
+}
+
 type sessionMetaPayload struct {
 	ExpiresAt string `json:"expiresAt"`
 	ID        string `json:"id"`
 }
 
 type sessionResponse struct {
-	OnboardingCompleted bool                    `json:"onboardingCompleted"`
-	Preferences         userprefs.Preferences   `json:"preferences"`
-	CSRFToken           string                  `json:"csrfToken"`
-	Session             sessionMetaPayload      `json:"session"`
-	User                sessionUserPayload      `json:"user"`
-	Workspace           sessionWorkspacePayload `json:"workspace"`
+	OnboardingCompleted bool                       `json:"onboardingCompleted"`
+	Preferences         userprefs.Preferences      `json:"preferences"`
+	CSRFToken           string                     `json:"csrfToken"`
+	Session             sessionMetaPayload         `json:"session"`
+	User                sessionUserPayload         `json:"user"`
+	Workspace           sessionWorkspacePayload    `json:"workspace"`
+	Organization        sessionOrganizationPayload `json:"organization"`
 }
 
 func newAuthHandler(service *auth.Service, middleware authMiddleware, preferencesService *userprefs.Service) authHandler {
@@ -208,6 +213,9 @@ func (h authHandler) writeSessionResponse(w http.ResponseWriter, r *http.Request
 			Role:  session.User.Role,
 		},
 		Workspace: sessionWorkspacePayload{ID: session.WorkspaceID},
+		Organization: sessionOrganizationPayload{
+			ID: session.OrganizationID,
+		},
 	})
 }
 

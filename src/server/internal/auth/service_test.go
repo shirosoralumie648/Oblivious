@@ -143,9 +143,21 @@ func resetAuthSecurityTestTables(t *testing.T, database *sql.DB) {
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			last_login_at TIMESTAMPTZ
 		)`,
+		`CREATE TABLE organizations (
+			id TEXT PRIMARY KEY,
+			slug TEXT NOT NULL UNIQUE,
+			name TEXT NOT NULL,
+			status TEXT NOT NULL DEFAULT 'active',
+			metadata JSONB NOT NULL DEFAULT '{}',
+			created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			archived_at TIMESTAMPTZ
+		)`,
 		`CREATE TABLE workspaces (
 			id TEXT PRIMARY KEY,
 			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL,
 			name TEXT NOT NULL,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
@@ -153,9 +165,23 @@ func resetAuthSecurityTestTables(t *testing.T, database *sql.DB) {
 			id TEXT PRIMARY KEY,
 			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 			workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+			organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			expires_at TIMESTAMPTZ NOT NULL
 		)`,
+		`CREATE TABLE organization_memberships (
+			id TEXT PRIMARY KEY,
+			organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			role TEXT NOT NULL,
+			created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			removed_at TIMESTAMPTZ,
+			CHECK (role IN ('owner', 'admin', 'member'))
+		)`,
+		`CREATE UNIQUE INDEX idx_auth_org_memberships_active_user_test ON organization_memberships(organization_id, user_id) WHERE removed_at IS NULL`,
+		`CREATE UNIQUE INDEX idx_auth_org_memberships_single_owner_test ON organization_memberships(organization_id) WHERE role = 'owner' AND removed_at IS NULL`,
 		`CREATE TABLE auth_rate_limits (
 			scope TEXT NOT NULL,
 			key TEXT NOT NULL,

@@ -36,10 +36,11 @@ type Conversation struct {
 }
 
 type Session struct {
-	ExpiresAt   time.Time
-	ID          string
-	User        User
-	WorkspaceID string
+	ExpiresAt      time.Time
+	ID             string
+	OrganizationID string
+	User           User
+	WorkspaceID    string
 }
 
 type Store interface {
@@ -54,6 +55,7 @@ type Store interface {
 	UseRateLimit(ctx context.Context, scope, key string, policy RateLimitPolicy, now time.Time) error
 	RotateSession(ctx context.Context, sessionID string) (Session, error)
 	RevokeUserSessions(ctx context.Context, userID, exceptSessionID string) error
+	SetSessionOrganization(ctx context.Context, sessionID, organizationID string) (Session, error)
 }
 
 type Service struct {
@@ -157,6 +159,16 @@ func (s *Service) RevokeUserSessions(ctx context.Context, userID, exceptSessionI
 		return errors.New("user id is required")
 	}
 	return s.store.RevokeUserSessions(ctx, userID, exceptSessionID)
+}
+
+func (s *Service) SetSessionOrganization(ctx context.Context, sessionID, organizationID string) (Session, error) {
+	if strings.TrimSpace(sessionID) == "" {
+		return Session{}, errors.New("session id is required")
+	}
+	if strings.TrimSpace(organizationID) == "" {
+		return Session{}, errors.New("organization id is required")
+	}
+	return s.store.SetSessionOrganization(ctx, sessionID, organizationID)
 }
 
 func ValidatePasswordPolicy(password string) error {

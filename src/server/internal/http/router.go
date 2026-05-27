@@ -906,6 +906,14 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 		}
 
 		organizationID := parts[0]
+		if len(parts) == 2 && parts[1] == "select" {
+			if r.Method == stdhttp.MethodPost {
+				tenantHandler.selectOrganization(w, r, organizationID)
+			} else {
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
 		if len(parts) == 2 && parts[1] == "members" {
 			if r.Method == stdhttp.MethodGet {
 				tenantHandler.listOrganizationMembers(w, r, organizationID)

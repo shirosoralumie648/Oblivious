@@ -124,6 +124,32 @@ func (h tenantHandler) listMyOrganizations(w stdhttp.ResponseWriter, r *stdhttp.
 	writeSuccess(w, stdhttp.StatusOK, map[string]any{"memberships": memberships})
 }
 
+func (h tenantHandler) selectOrganization(w stdhttp.ResponseWriter, r *stdhttp.Request, organizationID string) {
+	session, ok := sessionOrUnauthorized(w, r)
+	if !ok {
+		return
+	}
+	scope, err := h.service.ResolveOrganizationScope(r.Context(), session.User.ID, organizationID)
+	if err != nil {
+		writeTenantError(w, err)
+		return
+	}
+	if h.authService == nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "auth service unavailable")
+		return
+	}
+	updated, err := h.authService.SetSessionOrganization(r.Context(), session.ID, scope.OrganizationID)
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "select organization failed")
+		return
+	}
+	h.authMiddleware.setSessionCookie(w, updated)
+	writeSuccess(w, stdhttp.StatusOK, map[string]any{
+		"organization": map[string]string{"id": scope.OrganizationID},
+		"session":      map[string]string{"id": updated.ID},
+	})
+}
+
 func (h tenantHandler) listOrganizationMembers(w stdhttp.ResponseWriter, r *stdhttp.Request, organizationID string) {
 	session, ok := sessionOrUnauthorized(w, r)
 	if !ok {

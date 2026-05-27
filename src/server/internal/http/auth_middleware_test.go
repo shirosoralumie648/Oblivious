@@ -63,6 +63,10 @@ func (s stubAuthStore) RevokeUserSessions(context.Context, string, string) error
 	panic("unexpected RevokeUserSessions call")
 }
 
+func (s stubAuthStore) SetSessionOrganization(context.Context, string, string) (auth.Session, error) {
+	panic("unexpected SetSessionOrganization call")
+}
+
 func TestSetSessionCookieSignsSessionID(t *testing.T) {
 	middleware := newAuthMiddleware(config.Config{
 		SessionCookieName:   "oblivious_session",

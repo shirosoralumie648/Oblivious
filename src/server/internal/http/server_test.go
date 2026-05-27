@@ -71,12 +71,12 @@ func testDatabase(t *testing.T) *sql.DB {
 		`DROP TABLE IF EXISTS organizations CASCADE`,
 		`DROP TABLE IF EXISTS users CASCADE`,
 		`CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'user', name TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), last_login_at TIMESTAMPTZ)`,
-		`CREATE TABLE workspaces (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, name TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
-		`CREATE TABLE sessions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), expires_at TIMESTAMPTZ NOT NULL)`,
+		`CREATE TABLE organizations (id TEXT PRIMARY KEY, slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', metadata JSONB NOT NULL DEFAULT '{}', created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), archived_at TIMESTAMPTZ, CHECK (status IN ('active', 'disabled', 'archived')))`,
+		`CREATE TABLE workspaces (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, name TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE TABLE sessions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), expires_at TIMESTAMPTZ NOT NULL)`,
 		`CREATE TABLE auth_rate_limits (scope TEXT NOT NULL, key TEXT NOT NULL, window_start TIMESTAMPTZ NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, blocked_until TIMESTAMPTZ, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY (scope, key))`,
 		`CREATE TABLE password_reset_tokens (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, token_hash TEXT NOT NULL UNIQUE, expires_at TIMESTAMPTZ NOT NULL, used_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE audit_logs (id TEXT PRIMARY KEY, actor_id TEXT NOT NULL REFERENCES users(id), actor_email TEXT NOT NULL, action TEXT NOT NULL, resource_type TEXT NOT NULL, resource_id TEXT, changes JSONB, ip_address TEXT, user_agent TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
-		`CREATE TABLE organizations (id TEXT PRIMARY KEY, slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', metadata JSONB NOT NULL DEFAULT '{}', created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), archived_at TIMESTAMPTZ, CHECK (status IN ('active', 'disabled', 'archived')))`,
 		`CREATE TABLE organization_memberships (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, role TEXT NOT NULL, created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), removed_at TIMESTAMPTZ, CHECK (role IN ('owner', 'admin', 'member')))`,
 		`CREATE UNIQUE INDEX idx_org_memberships_active_user_http_test ON organization_memberships(organization_id, user_id) WHERE removed_at IS NULL`,
 		`CREATE UNIQUE INDEX idx_org_memberships_single_owner_http_test ON organization_memberships(organization_id) WHERE role = 'owner' AND removed_at IS NULL`,
@@ -129,6 +129,19 @@ func csrfTokenFromRecorder(t *testing.T, recorder *httptest.ResponseRecorder) st
 		t.Fatal("expected csrf token in session response")
 	}
 	return response.Data.CSRFToken
+}
+
+func csrfTokenForCookie(t *testing.T, router stdhttp.Handler, cookie *stdhttp.Cookie) string {
+	t.Helper()
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/auth/me", nil)
+	request.AddCookie(cookie)
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("me for csrf expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	return csrfTokenFromRecorder(t, recorder)
 }
 
 func addCSRF(request *stdhttp.Request, csrfToken string) {
@@ -263,6 +276,180 @@ func inviteHTTPMember(t *testing.T, router stdhttp.Handler, cookie *stdhttp.Cook
 		t.Fatalf("expected invitation id and token, got id=%q token=%q", response.Data.ID, response.Data.Token)
 	}
 	return response.Data.ID, response.Data.Token
+}
+
+func acceptHTTPInvitation(t *testing.T, router stdhttp.Handler, cookie *stdhttp.Cookie, csrfToken, token string) *stdhttp.Cookie {
+	t.Helper()
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/organization-invitations/"+token+"/accept", nil)
+	request.AddCookie(cookie)
+	addCSRF(request, csrfToken)
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("accept invitation expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	return firstCookieNamed(t, recorder, testConfig().SessionCookieName)
+}
+
+func TestRegisterCreatesDefaultOrganizationAndSessionScope(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+
+	cookie, _, userID := registerHTTPUser(t, router, "tenant-default@example.com")
+
+	var workspaceOrganizationID sql.NullString
+	if err := database.QueryRow(`SELECT organization_id FROM workspaces WHERE user_id = $1`, userID).Scan(&workspaceOrganizationID); err != nil {
+		t.Fatalf("query workspace organization: %v", err)
+	}
+	if !workspaceOrganizationID.Valid || workspaceOrganizationID.String == "" {
+		t.Fatal("expected registration to assign workspace organization_id")
+	}
+
+	var sessionOrganizationID sql.NullString
+	if err := database.QueryRow(`SELECT organization_id FROM sessions WHERE user_id = $1`, userID).Scan(&sessionOrganizationID); err != nil {
+		t.Fatalf("query session organization: %v", err)
+	}
+	if !sessionOrganizationID.Valid || sessionOrganizationID.String != workspaceOrganizationID.String {
+		t.Fatalf("expected session organization %q, got %q", workspaceOrganizationID.String, sessionOrganizationID.String)
+	}
+
+	var role string
+	if err := database.QueryRow(`
+		SELECT role
+		FROM organization_memberships
+		WHERE organization_id = $1 AND user_id = $2 AND removed_at IS NULL
+	`, workspaceOrganizationID.String, userID).Scan(&role); err != nil {
+		t.Fatalf("query owner membership: %v", err)
+	}
+	if role != "owner" {
+		t.Fatalf("expected default organization owner role, got %q", role)
+	}
+
+	meRecorder := httptest.NewRecorder()
+	meRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/auth/me", nil)
+	meRequest.AddCookie(cookie)
+	router.ServeHTTP(meRecorder, meRequest)
+	if meRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("me expected 200, got %d with body %s", meRecorder.Code, meRecorder.Body.String())
+	}
+
+	var response struct {
+		Data struct {
+			Organization struct {
+				ID string `json:"id"`
+			} `json:"organization"`
+			Workspace struct {
+				ID string `json:"id"`
+			} `json:"workspace"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(meRecorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode me response: %v", err)
+	}
+	if response.Data.Workspace.ID == "" {
+		t.Fatal("expected existing workspace payload to remain present")
+	}
+	if response.Data.Organization.ID != workspaceOrganizationID.String {
+		t.Fatalf("expected me organization %q, got %q", workspaceOrganizationID.String, response.Data.Organization.ID)
+	}
+}
+
+func TestSelectOrganizationRequiresMembershipAndUpdatesSessionScope(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+
+	ownerCookie, ownerCSRF, ownerID := registerHTTPUser(t, router, "tenant-owner@example.com")
+	promoteHTTPUserToAdmin(t, database, ownerID)
+	organizationID := createHTTPOrganization(t, router, ownerCookie, ownerCSRF, "Tenant Scope Org", "tenant-scope-org")
+
+	otherCookie, otherCSRF, _ := registerHTTPUser(t, router, "tenant-other@example.com")
+	forbiddenRecorder := httptest.NewRecorder()
+	forbiddenRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/organizations/"+organizationID+"/select", nil)
+	forbiddenRequest.AddCookie(otherCookie)
+	addCSRF(forbiddenRequest, otherCSRF)
+	router.ServeHTTP(forbiddenRecorder, forbiddenRequest)
+	if forbiddenRecorder.Code != stdhttp.StatusForbidden {
+		t.Fatalf("expected non-member select to return 403, got %d with body %s", forbiddenRecorder.Code, forbiddenRecorder.Body.String())
+	}
+
+	memberCookie, memberCSRF, memberID := registerHTTPUser(t, router, "tenant-member@example.com")
+	_, token := inviteHTTPMember(t, router, ownerCookie, ownerCSRF, organizationID, "tenant-member@example.com")
+	memberCookie = acceptHTTPInvitation(t, router, memberCookie, memberCSRF, token)
+	memberCSRF = csrfTokenForCookie(t, router, memberCookie)
+
+	selectRecorder := httptest.NewRecorder()
+	selectRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/organizations/"+organizationID+"/select", nil)
+	selectRequest.AddCookie(memberCookie)
+	addCSRF(selectRequest, memberCSRF)
+	router.ServeHTTP(selectRecorder, selectRequest)
+	if selectRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected member select to return 200, got %d with body %s", selectRecorder.Code, selectRecorder.Body.String())
+	}
+
+	var sessionOrganizationID sql.NullString
+	if err := database.QueryRow(`SELECT organization_id FROM sessions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`, memberID).Scan(&sessionOrganizationID); err != nil {
+		t.Fatalf("query selected session organization: %v", err)
+	}
+	if !sessionOrganizationID.Valid || sessionOrganizationID.String != organizationID {
+		t.Fatalf("expected selected session organization %q, got %q", organizationID, sessionOrganizationID.String)
+	}
+}
+
+func TestLoginResolvesDefaultOrganizationForLegacyUser(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("StrongerPass1!"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	if _, err := database.Exec(`INSERT INTO users (id, email, password_hash, role, name) VALUES ($1, $2, $3, 'user', $4)`, "user_legacy", "legacy-scope@example.com", string(passwordHash), "Legacy Scope"); err != nil {
+		t.Fatalf("insert legacy user: %v", err)
+	}
+	if _, err := database.Exec(`INSERT INTO organizations (id, slug, name, status, created_by_user_id) VALUES ($1, $2, $3, 'active', $4)`, "org_legacy", "legacy-scope", "Legacy Scope", "user_legacy"); err != nil {
+		t.Fatalf("insert legacy organization: %v", err)
+	}
+	if _, err := database.Exec(`INSERT INTO workspaces (id, user_id, organization_id, name) VALUES ($1, $2, $3, $4)`, "workspace_legacy", "user_legacy", "org_legacy", "Legacy Workspace"); err != nil {
+		t.Fatalf("insert legacy workspace: %v", err)
+	}
+	if _, err := database.Exec(`INSERT INTO organization_memberships (id, organization_id, user_id, role, created_by_user_id) VALUES ($1, $2, $3, 'owner', $4)`, "membership_legacy", "org_legacy", "user_legacy", "user_legacy"); err != nil {
+		t.Fatalf("insert legacy membership: %v", err)
+	}
+
+	cookie, _, userID := loginHTTPUser(t, router, "legacy-scope@example.com", "StrongerPass1!")
+	if userID != "user_legacy" {
+		t.Fatalf("expected legacy user id, got %q", userID)
+	}
+
+	var sessionOrganizationID sql.NullString
+	if err := database.QueryRow(`SELECT organization_id FROM sessions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`, userID).Scan(&sessionOrganizationID); err != nil {
+		t.Fatalf("query legacy login session organization: %v", err)
+	}
+	if !sessionOrganizationID.Valid || sessionOrganizationID.String != "org_legacy" {
+		t.Fatalf("expected legacy login session organization org_legacy, got %q", sessionOrganizationID.String)
+	}
+
+	meRecorder := httptest.NewRecorder()
+	meRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/auth/me", nil)
+	meRequest.AddCookie(cookie)
+	router.ServeHTTP(meRecorder, meRequest)
+	if meRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("legacy me expected 200, got %d with body %s", meRecorder.Code, meRecorder.Body.String())
+	}
+	var response struct {
+		Data struct {
+			Organization struct {
+				ID string `json:"id"`
+			} `json:"organization"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(meRecorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode legacy me response: %v", err)
+	}
+	if response.Data.Organization.ID != "org_legacy" {
+		t.Fatalf("expected legacy me organization org_legacy, got %q", response.Data.Organization.ID)
+	}
 }
 
 func TestHealthz(t *testing.T) {
