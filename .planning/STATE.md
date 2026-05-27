@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v04
 milestone_name: Commercial Foundation
 status: planning
-stopped_at: Phase 9 planned and ready to execute
-last_updated: "2026-05-27T22:30:00+08:00"
-last_activity: 2026-05-27 -- v04 Commercial Foundation initialized
+stopped_at: Phase 10 ready to discuss
+last_updated: "2026-05-27T23:45:00+08:00"
+last_activity: 2026-05-27 -- Phase 9 tenant foundation completed
 progress:
   total_phases: 4
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 1
-  completed_plans: 0
-  percent: 0
+  completed_plans: 1
+  percent: 25
 ---
 
 # STATE.md
@@ -22,26 +22,26 @@ See: `.planning/PROJECT.md` (updated 2026-05-27)
 
 **Core value:** 统一的多渠道 LLM 调用层 — 所有 AI 调用必须经过 Relay
 
-**Current focus:** Phase 9 execution
+**Current focus:** Phase 10 planning
 
 ## Current Status
 
 **Milestone v04: Commercial Foundation — ACTIVE**
 
-v03.3 Mainline Consolidation is complete and archived through snapshots under `.planning/milestones/`. The commercial complete program is defined in `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`; v04 starts that program by establishing tenant identity, production auth hardening, migration ledger, DB-backed CI, and commercial gate documentation.
+v03.3 Mainline Consolidation is complete and archived through snapshots under `.planning/milestones/`. Phase 9 completed the organization tenant foundation and ledgered migration runner. v04 now moves to memberships, roles, invitations, ownership transfer, and production auth hardening.
 
 ## Current Position
 
-Phase: 9 — Tenant Model and Migration Ledger
-Plan: 09-01 planned
-Status: Ready to execute
-Last activity: 2026-05-27 -- v04 Commercial Foundation initialized
+Phase: 10 — Membership, Roles, and Auth Security
+Plan: Not started
+Status: Ready to discuss
+Last activity: 2026-05-27 -- Phase 9 tenant foundation completed
 
 ## Current Scope
 
 | Requirement | Status | Target |
 |-------------|--------|--------|
-| TENANT-01 | Planned | Admin can create and manage organizations as first-class tenants |
+| TENANT-01 | Complete | Admin can create and manage organizations as first-class tenants |
 | TENANT-02 | Planned | User can belong to multiple organizations with member, admin, and owner roles |
 | TENANT-03 | Planned | User can invite, accept, remove, and transfer organization ownership with audit events |
 | TENANT-04 | Planned | Chat, Agent, Knowledge, Memory, MCP, Quota, Console, Admin, and Marketplace publisher data are scoped by tenant |
@@ -49,20 +49,20 @@ Last activity: 2026-05-27 -- v04 Commercial Foundation initialized
 | SEC-01 | Planned | Cookie-authenticated mutating routes require CSRF protection |
 | SEC-02 | Planned | Login, registration, password reset, and sensitive admin actions are rate limited |
 | SEC-03 | Planned | Password policy and session rotation are enforced |
-| MIGR-01 | Planned | Migration runner records applied migrations in `schema_migrations` |
+| MIGR-01 | Complete | Migration runner records applied migrations in `schema_migrations` |
 | CI-01 | Planned | CI server job runs DB-backed HTTP integration tests instead of silently skipping persistence coverage |
 | DOC-03 | Planned | Commercial gate documentation defines what must be true before future milestones claim commercial readiness |
 
 ## Next Suggested Step
 
-Execute `.planning/phases/09-tenant-model-and-migration-ledger/09-01-PLAN.md`.
+Run `$gsd:discuss-phase 10` to lock membership, role, invitation, ownership-transfer, CSRF, rate-limit, password-policy, and session-rotation decisions.
 
-Recommended Phase 9 baseline:
-- Use `organizations` as the first-class tenant table.
-- Add `schema_migrations` as the append-only migration ledger.
-- Keep user-owned records backward-compatible until Phase 11 migrates core domains.
-- Expose tenant identity through authenticated request context, not client-controlled request bodies.
-- Prove idempotent migrations and organization CRUD through DB-backed tests.
+Recommended Phase 10 baseline:
+- Add organization memberships with owner/admin/member roles.
+- Keep role and ownership changes audited.
+- Keep cookie-auth mutating route CSRF design compatible with current session cookies.
+- Add rate limits before expanding sensitive auth/admin surfaces.
+- Rotate sessions on sensitive privilege changes.
 
 ## Worktree Context
 
@@ -78,6 +78,7 @@ Current dirty/untracked files outside `.planning` appear unrelated to v04 initia
 | v03.1 Admin 与 Marketplace UI | 2026-05-02 | ADMIN-04, MARKET-02 |
 | v03.2 Quality and Release | 2026-05-14 | TEST-01, TEST-02, DOC-01, DEPLOY-01 |
 | v03.3 Mainline Consolidation | 2026-05-27 | CONS-01, ROUTE-01, CHAT-06, AUTH-01, DEPLOY-02, DOC-02, VERIFY-01 |
+| Phase 9 Tenant Model and Migration Ledger | 2026-05-27 | TENANT-01, MIGR-01 |
 
 ## Deferred Commercial Program Items
 
@@ -97,6 +98,7 @@ These are deliberately outside v04 and remain required for the final user goal:
 - Roadmap: `.planning/ROADMAP.md`
 - Phase 9 context: `.planning/phases/09-tenant-model-and-migration-ledger/09-CONTEXT.md`
 - Phase 9 plan: `.planning/phases/09-tenant-model-and-migration-ledger/09-01-PLAN.md`
+- Phase 9 summary: `.planning/phases/09-tenant-model-and-migration-ledger/09-01-SUMMARY.md`
 - Commercial complete spec: `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`
 - v03.3 roadmap archive: `.planning/milestones/v03.3-ROADMAP.md`
 - v03.3 requirements archive: `.planning/milestones/v03.3-REQUIREMENTS.md`
@@ -114,6 +116,7 @@ These are deliberately outside v04 and remain required for the final user goal:
 | 2026-05-27 | Phase 999.2 verify-work passed | UAT verified MarketplacePage cleanup, living requirements policy, and debt traceability; milestone v03.3 is complete |
 | 2026-05-27 | v04 Commercial Foundation initialized manually | `gsd-sdk init.new-milestone` still points phase archive metadata at v03.2, so manual planning updates avoid unsafe phase directory movement |
 | 2026-05-27 | Phase 9 planned | Locked organization tenant model, migration ledger, admin organization routes, and DB-backed verification requirements |
+| 2026-05-27 | Phase 9 completed | Organization tenant foundation, schema migration ledger, admin routes, DB-backed tests, and broad script verification passed |
 
 ---
-*State updated: 2026-05-27 after initializing v04 Commercial Foundation*
+*State updated: 2026-05-27 after completing Phase 9 tenant foundation*

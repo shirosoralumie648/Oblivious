@@ -12,7 +12,7 @@
 
 Milestone v04 has been initialized from `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`.
 
-**Next workflow step:** execute Phase 9 plan `09-01-PLAN.md`.
+**Next workflow step:** discuss Phase 10 Membership, Roles, and Auth Security.
 
 ## Current Milestone: v04 Commercial Foundation
 
@@ -20,7 +20,7 @@ Milestone v04 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 
 | Phase | Name | Requirements | Status |
 |-------|------|--------------|--------|
-| Phase 9 | Tenant Model and Migration Ledger | TENANT-01, MIGR-01 | Planned |
+| Phase 9 | Tenant Model and Migration Ledger | TENANT-01, MIGR-01 | Complete |
 | Phase 10 | Membership, Roles, and Auth Security | TENANT-02, TENANT-03, SEC-01, SEC-02, SEC-03 | Planned |
 | Phase 11 | Tenant Scope Across Core Domains | TENANT-04, TENANT-05 | Planned |
 | Phase 12 | Commercial Gate CI and Evidence | CI-01, DOC-03 | Planned |
@@ -42,6 +42,12 @@ Milestone v04 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 - `cd src/server && go test ./internal/... -run 'Migration|Organization|Tenant' -count=1`
 - `cd src/server && TEST_DATABASE_URL=<postgres test db> go test ./... -count=1`
 - `bash scripts/check.sh all`
+
+**Completion evidence:**
+- Implementation commits: `52b552f`, `25521ef`, `4293403`, `ef59081`, `b973106`
+- Summary: `.planning/phases/09-tenant-model-and-migration-ledger/09-01-SUMMARY.md`
+- DB-backed verification: migration ledger and organization lifecycle tests passed against PostgreSQL on `127.0.0.1:32768`
+- Broad gates: `bash scripts/test.sh all` and `bash scripts/check.sh all` passed with `TEST_DATABASE_URL` and restricted-network Go proxy overrides
 
 ### Phase 10: Membership, Roles, and Auth Security
 
@@ -99,8 +105,8 @@ Milestone v04 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 
 | Requirement | Phase | Coverage |
 |-------------|-------|----------|
-| TENANT-01 | Phase 9 | Planned — organization tenant model and admin/service boundaries |
-| MIGR-01 | Phase 9 | Planned — append-only migration ledger |
+| TENANT-01 | Phase 9 | Complete — organization tenant model and admin/service boundaries |
+| MIGR-01 | Phase 9 | Complete — append-only migration ledger |
 | TENANT-02 | Phase 10 | Planned — multi-organization membership and roles |
 | TENANT-03 | Phase 10 | Planned — invitation, removal, ownership transfer, and audit |
 | SEC-01 | Phase 10 | Planned — CSRF protection for cookie-auth mutating routes |
@@ -179,11 +185,11 @@ Milestone v04 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 
 | Milestone | Scope | Plans | Requirements | Status | Completed |
 |-----------|-------|-------|--------------|--------|-----------|
-| v04 Commercial Foundation | Phases 9-12 | 0/4 phases started | 11 active requirements | Active | — |
+| v04 Commercial Foundation | Phases 9-12 | 1/4 phases complete | 2/11 requirements complete | Active | Phase 9 complete 2026-05-27 |
 | v03.3 Mainline Consolidation | Phases 5-8 plus backlog 999.1 and 999.2 | 12/12 steps complete | 7/7 requirements complete | Complete | 2026-05-27 |
 | v03.2 Quality and Release | Phase 4 | 4/4 | TEST-01, TEST-02, DOC-01, DEPLOY-01 | Shipped | 2026-05-14 |
 | v03.1 Admin and Marketplace UI | Phase 03.1 | 7/7 | ADMIN-04, MARKET-02 | Shipped | 2026-05-02 |
 | Foundation through Backend | Phases 1, 2, 3a | Historical | RELAY, CHAT, AGENT, MCP, MEM, EXEC, QUOTA, ADMIN, MARKET | Complete | 2026-04-29 |
 
 ---
-*Roadmap updated: 2026-05-27 after initializing v04 Commercial Foundation*
+*Roadmap updated: 2026-05-27 after completing Phase 9 tenant foundation*

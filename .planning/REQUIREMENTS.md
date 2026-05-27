@@ -9,7 +9,7 @@
 
 ### Tenant And Identity
 
-- [ ] **TENANT-01**: Admin can create and manage organizations as first-class tenants.
+- [x] **TENANT-01**: Admin can create and manage organizations as first-class tenants. Completed in Phase 9 with `organizations` schema, tenant service/store, admin routes, and DB-backed lifecycle tests.
 - [ ] **TENANT-02**: User can belong to multiple organizations with member, admin, and owner roles.
 - [ ] **TENANT-03**: User can invite, accept, remove, and transfer organization ownership with audit events.
 - [ ] **TENANT-04**: Chat, Agent, Knowledge, Memory, MCP, Quota, Console, Admin, and Marketplace publisher data are scoped by tenant.
@@ -23,7 +23,7 @@
 
 ### Migration And CI Evidence
 
-- [ ] **MIGR-01**: Migration runner records applied migrations in `schema_migrations`.
+- [x] **MIGR-01**: Migration runner records applied migrations in `schema_migrations`. Completed in Phase 9 with checksum-aware ledgered migration execution and idempotency tests.
 - [ ] **CI-01**: CI server job runs DB-backed HTTP integration tests instead of silently skipping persistence coverage.
 - [ ] **DOC-03**: Commercial gate documentation defines what must be true before any future milestone can claim commercial readiness.
 
@@ -49,8 +49,8 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| TENANT-01 | Phase 9 — Tenant Model and Migration Ledger | Planned |
-| MIGR-01 | Phase 9 — Tenant Model and Migration Ledger | Planned |
+| TENANT-01 | Phase 9 — Tenant Model and Migration Ledger | Complete |
+| MIGR-01 | Phase 9 — Tenant Model and Migration Ledger | Complete |
 | TENANT-02 | Phase 10 — Membership, Roles, and Auth Security | Planned |
 | TENANT-03 | Phase 10 — Membership, Roles, and Auth Security | Planned |
 | SEC-01 | Phase 10 — Membership, Roles, and Auth Security | Planned |
@@ -133,11 +133,12 @@
 - Historical traceability cleanup should use additive rows or notes, not broad rewrites of completed requirements.
 
 **Coverage:**
-- Active v04 requirements: 11
+- Active v04 requirements: 9
+- Completed v04 requirements: 2
 - Planned v04 phase mappings: 11
 - Completed historical requirements: 57
 - Blocked requirements: 0
 - Unmapped v04 requirements: 0
 
 ---
-*Requirements updated: 2026-05-27 after initializing v04 Commercial Foundation*
+*Requirements updated: 2026-05-27 after completing Phase 9 tenant foundation*
