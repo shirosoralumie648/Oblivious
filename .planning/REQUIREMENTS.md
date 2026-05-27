@@ -1,41 +1,42 @@
-# Requirements: Oblivious v05 Relay Billing Completeness
+# Requirements: Oblivious v06 Billing And Marketplace Operations
 
 **Defined:** 2026-05-28
-**Current milestone:** v05 Relay Billing Completeness
+**Current milestone:** v06 Billing And Marketplace Operations
 **Source spec:** `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`
 **Core Value:** 统一的多渠道 LLM 调用层 — 所有 AI 调用必须经过 Relay
 
 ## Current Milestone Requirements
 
-### Relay Authority
+### Payment Authority
 
-- [x] **RELAY-08**: Every registered `/v1/*` route is classified as commercial-supported and billed, internal/admin-only, or disabled in production. Completed in Phase 13 with `policy.go`, coverage tests, and `docs/release/relay-route-table.md`.
-- [x] **RELAY-09**: Unsupported or partially implemented `/v1/*` endpoints fail closed in production before any upstream provider call. Completed in Phase 13 with `RegisterRoutesWithOptions`, `RejectIfProductionDisabled`, and production-disabled route tests.
-- [x] **RELAY-10**: CI proves app services do not import provider SDKs or call direct provider URLs outside Relay/channel adapters. Completed in Phase 14 with `scripts/verify-relay-security.sh`, `bash scripts/check.sh relay-security`, and CI release-gate coverage.
-- [x] **RELAY-11**: Supported Relay endpoints enforce tenant identity, auth policy, rate-limit policy, and audit semantics. Completed in Phase 14 with supported-route policy fields, production trusted internal identity guard, route-decision audit sink, and Chat/Agent/Memory Relay metadata tests.
+- [x] **PAY-01**: Stripe checkout routes are mounted in the running server, require authenticated tenant context, persist payment intent metadata, and can be tested without live Stripe keys. Completed in Phase 17 with `POST /api/v1/billing/checkout`, fake checkout route tests, `payment_intents`, and Stripe metadata propagation.
+- [x] **PAY-02**: Stripe webhook route verifies signatures from the raw request body, records provider events idempotently, rejects invalid signatures, and preserves processing status/errors for admin inspection. Completed in Phase 17 with `POST /api/v1/billing/stripe/webhook`, `stripe_webhook_events`, and signed fixture/idempotency tests.
 
-### Relay Billing
+### Payment Lifecycle
 
-- [x] **BILL-01**: Supported Relay calls pre-authorize quota, settle exactly once per idempotency key, and refund failed or partial calls. Completed in Phase 15 with channel-scoped preauthorization, billing idempotency snapshots, provider usage parsing, settlement/refund error propagation, and router lifecycle tests.
-- [x] **BILL-02**: Streaming/realtime, file, batch, and async flows have explicit settlement models or are production-disabled. Completed in Phase 15 with route `BillingPolicy` coverage, Chat/Responses streaming rejection, production-disabled async/file route evidence, and route table/docs quality gates.
+- [ ] **PAY-03**: Subscription lifecycle, invoices, refunds, failed-payment states, plan changes, and top-ups are implemented as auditable state transitions. Target: Phase 18.
 
-### Relay Evidence
+### Marketplace Operations
 
-- [x] **DOC-04**: Relay route table, endpoint policy, and v05 verification evidence document the commercial Relay Authority Gate. Completed in Phase 16 with `16-VERIFICATION.md`, route table/gate docs, quality-gate assertions, DB-backed script verification, and v05 milestone snapshots.
+- [ ] **MARKET-03**: Marketplace publisher revenue, platform fee, payout state, and refund impact are modeled before paid Marketplace operation is enabled. Target: Phase 19.
+- [ ] **MARKET-04**: Marketplace moderation and abuse workflows cover publish, approve, reject, takedown, appeal, and audit paths. Target: Phase 19.
+
+### Billing Evidence
+
+- [ ] **ADMIN-BILL-01**: Admin can inspect billing sessions, webhook events, subscriptions, top-ups, invoices, refunds, settlements, and payout state. Target: Phase 20.
+- [ ] **DOC-05**: v06 evidence maps money-movement and Marketplace governance requirements to files, tests, runtime/database proof, and residual v07/v08 work. Target: Phase 20.
 
 ## Future Requirements
 
-- [ ] v06 Billing And Marketplace Operations: Stripe checkout/webhooks, subscription lifecycle, invoices, refunds, top-ups, Marketplace publisher settlement, platform fees, payout state, and moderation flows.
 - [ ] v07 Production Operations: Kubernetes or equivalent production orchestration proof, backup/restore smoke, structured logs, tracing, metrics, alerts, dashboards, and runbooks.
 - [ ] v08 Product Completeness: real or disabled built-in MCP tools, durable Agent workflows, Knowledge behavior matching product copy, commercial Admin/Marketplace UX, public docs, onboarding, pricing, and operator guides.
 
-## Out of Scope For v05
+## Out of Scope For v06
 
 | Feature | Reason |
 |---------|--------|
-| Full Stripe production rollout | Payment lifecycle and webhook operations belong to v06 |
-| Marketplace payout accounting | Requires v06 settlement and payout model |
 | Kubernetes runtime proof | Production orchestration belongs to v07 |
+| Backup/restore smoke and observability dashboards | Operations gate belongs to v07 |
 | RAG upgrade and Agent workflow expansion | Product completeness belongs to v08 |
 | Final public pricing/onboarding/operator guides | Final product/documentation completion belongs to v08 |
 
@@ -43,15 +44,25 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| RELAY-08 | Phase 13 — Relay Endpoint Authority and Production Fail-Closed | Complete |
-| RELAY-09 | Phase 13 — Relay Endpoint Authority and Production Fail-Closed | Complete |
-| RELAY-10 | Phase 14 — Relay Provider Bypass and Cost-Abuse Guardrails | Complete |
-| RELAY-11 | Phase 14 — Relay Provider Bypass and Cost-Abuse Guardrails | Complete |
-| BILL-01 | Phase 15 — Relay Billing Settlement and Refund Semantics | Complete |
-| BILL-02 | Phase 15 — Relay Billing Settlement and Refund Semantics | Complete |
-| DOC-04 | Phase 16 — Relay Authority Evidence and v05 Closeout | Complete |
+| PAY-01 | Phase 17 — Stripe Payment Authority and Webhook Ledger | Complete |
+| PAY-02 | Phase 17 — Stripe Payment Authority and Webhook Ledger | Complete |
+| PAY-03 | Phase 18 — Subscription Invoice Top-up Refund State Machine | Planned |
+| MARKET-03 | Phase 19 — Marketplace Settlement and Governance | Planned |
+| MARKET-04 | Phase 19 — Marketplace Settlement and Governance | Planned |
+| ADMIN-BILL-01 | Phase 20 — Billing Admin Evidence and v06 Closeout | Planned |
+| DOC-05 | Phase 20 — Billing Admin Evidence and v06 Closeout | Planned |
 
 ## Historical Validated Requirements
+
+### v05 Relay Billing Completeness
+
+- [x] **RELAY-08**: Every registered `/v1/*` route is classified as commercial-supported and billed, internal/admin-only, or disabled in production. Completed in Phase 13 with `policy.go`, coverage tests, and `docs/release/relay-route-table.md`.
+- [x] **RELAY-09**: Unsupported or partially implemented `/v1/*` endpoints fail closed in production before any upstream provider call. Completed in Phase 13 with `RegisterRoutesWithOptions`, `RejectIfProductionDisabled`, and production-disabled route tests.
+- [x] **RELAY-10**: CI proves app services do not import provider SDKs or call direct provider URLs outside Relay/channel adapters. Completed in Phase 14 with `scripts/verify-relay-security.sh`, `bash scripts/check.sh relay-security`, and CI release-gate coverage.
+- [x] **RELAY-11**: Supported Relay endpoints enforce tenant identity, auth policy, rate-limit policy, and audit semantics. Completed in Phase 14 with supported-route policy fields, production trusted internal identity guard, route-decision audit sink, and Chat/Agent/Memory Relay metadata tests.
+- [x] **BILL-01**: Supported Relay calls pre-authorize quota, settle exactly once per idempotency key, and refund failed or partial calls. Completed in Phase 15 with channel-scoped preauthorization, billing idempotency snapshots, provider usage parsing, settlement/refund error propagation, and router lifecycle tests.
+- [x] **BILL-02**: Streaming/realtime, file, batch, and async flows have explicit settlement models or are production-disabled. Completed in Phase 15 with route `BillingPolicy` coverage, Chat/Responses streaming rejection, production-disabled async/file route evidence, and route table/docs quality gates.
+- [x] **DOC-04**: Relay route table, endpoint policy, and v05 verification evidence document the commercial Relay Authority Gate. Completed in Phase 16 with `16-VERIFICATION.md`, route table/gate docs, quality-gate assertions, DB-backed script verification, and v05 milestone snapshots.
 
 ### v04 Commercial Foundation
 
@@ -137,12 +148,12 @@
 - Historical traceability cleanup should use additive rows or notes, not broad rewrites of completed requirements.
 
 **Coverage:**
-- Active v05 requirements: 0
-- Completed v05 requirements: 7
-- Planned v05 phase mappings: 7
+- Active v06 requirements: 5
+- Completed v06 requirements: 2
+- Planned v06 phase mappings: 7
 - Completed historical requirements: 68
 - Blocked requirements: 0
-- Unmapped v05 requirements: 0
+- Unmapped v06 requirements: 0
 
 ---
-*Requirements updated: 2026-05-28 after completing Phase 16 Relay Authority evidence and v05 closeout*
+*Requirements updated: 2026-05-28 after completing Phase 17 Stripe Payment Authority and Webhook Ledger*

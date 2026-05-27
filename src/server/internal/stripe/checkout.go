@@ -19,11 +19,25 @@ type CheckoutConfig struct {
 
 // CheckoutSessionRequest holds the data needed to create a checkout session.
 type CheckoutSessionRequest struct {
-	UserID       string // ID of the subscribing user
-	PlanID       string // ID of the plan being purchased
-	PlanName     string // Display name of the plan
-	PlanPrice    float64 // Plan price in USD (converted to cents)
-	DurationDays *int    // If set, creates a recurring subscription
+	OrganizationID  string  // ID of the tenant purchasing the plan
+	UserID          string  // ID of the subscribing user
+	PaymentIntentID string  // Internal payment intent ID for reconciliation
+	PlanID          string  // ID of the plan being purchased
+	PlanName        string  // Display name of the plan
+	PlanPrice       float64 // Plan price in USD (converted to cents)
+	Currency        string  // Stripe currency code
+	CheckoutKind    string  // subscription or topup
+	DurationDays    *int    // If set, creates a recurring subscription
+}
+
+type CheckoutCreator interface {
+	CreateCheckoutSession(ctx context.Context, cfg CheckoutConfig, req CheckoutSessionRequest) (*stripe.CheckoutSession, error)
+}
+
+type CheckoutCreatorFunc func(ctx context.Context, cfg CheckoutConfig, req CheckoutSessionRequest) (*stripe.CheckoutSession, error)
+
+func (f CheckoutCreatorFunc) CreateCheckoutSession(ctx context.Context, cfg CheckoutConfig, req CheckoutSessionRequest) (*stripe.CheckoutSession, error) {
+	return f(ctx, cfg, req)
 }
 
 // NewCheckoutConfigFromEnv creates a CheckoutConfig from environment variables.
@@ -44,6 +58,14 @@ func CreateCheckoutSession(ctx context.Context, cfg CheckoutConfig, req Checkout
 	stripe.Key = cfg.SecretKey
 
 	unitAmount := int64(req.PlanPrice * 100) // dollars to cents
+	currency := req.Currency
+	if currency == "" {
+		currency = "usd"
+	}
+	checkoutKind := req.CheckoutKind
+	if checkoutKind == "" {
+		checkoutKind = "subscription"
+	}
 
 	mode := stripe.CheckoutSessionModePayment
 	var recurring *stripe.CheckoutSessionLineItemPriceDataRecurringParams
@@ -63,7 +85,7 @@ func CreateCheckoutSession(ctx context.Context, cfg CheckoutConfig, req Checkout
 		LineItems: []*stripe.CheckoutSessionLineItemParams{
 			{
 				PriceData: &stripe.CheckoutSessionLineItemPriceDataParams{
-					Currency: stripe.String("usd"),
+					Currency: stripe.String(currency),
 					ProductData: &stripe.CheckoutSessionLineItemPriceDataProductDataParams{
 						Name: stripe.String(req.PlanName),
 					},
@@ -73,11 +95,15 @@ func CreateCheckoutSession(ctx context.Context, cfg CheckoutConfig, req Checkout
 				Quantity: stripe.Int64(1),
 			},
 		},
-		SuccessURL: stripe.String(cfg.SuccessURL + "?session_id={CHECKOUT_SESSION_ID}"),
-		CancelURL:  stripe.String(cfg.CancelURL),
+		SuccessURL:        stripe.String(cfg.SuccessURL + "?session_id={CHECKOUT_SESSION_ID}"),
+		CancelURL:         stripe.String(cfg.CancelURL),
+		ClientReferenceID: stripe.String(req.PaymentIntentID),
 		Metadata: map[string]string{
-			"user_id": req.UserID,
-			"plan_id": req.PlanID,
+			"organization_id":   req.OrganizationID,
+			"user_id":           req.UserID,
+			"payment_intent_id": req.PaymentIntentID,
+			"plan_id":           req.PlanID,
+			"checkout_kind":     checkoutKind,
 		},
 	}
 

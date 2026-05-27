@@ -21,6 +21,7 @@ import (
 	"oblivious/server/internal/memory"
 	"oblivious/server/internal/notification"
 	"oblivious/server/internal/quota"
+	stripebilling "oblivious/server/internal/stripe"
 	"oblivious/server/internal/task"
 	"oblivious/server/internal/tenant"
 	"oblivious/server/internal/usage"
@@ -29,6 +30,14 @@ import (
 )
 
 func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
+	return NewRouterWithOptions(cfg, database, RouterOptions{})
+}
+
+type RouterOptions struct {
+	CheckoutCreator stripebilling.CheckoutCreator
+}
+
+func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOptions) stdhttp.Handler {
 	mux := stdhttp.NewServeMux()
 	mux.HandleFunc("/healthz", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		if r.Method != stdhttp.MethodGet {
@@ -105,6 +114,17 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 	// Quota service
 	quotaService := quota.NewService(quota.NewSQLStore(database))
 	quotaHandler := newQuotaHandler(quotaService)
+	checkoutCreator := options.CheckoutCreator
+	if checkoutCreator == nil {
+		checkoutCreator = stripebilling.CheckoutCreatorFunc(stripebilling.CreateCheckoutSession)
+	}
+	billingHandler := newBillingHandler(checkoutCreator, stripebilling.CheckoutConfig{
+		SecretKey:     cfg.StripeSecretKey,
+		SuccessURL:    cfg.StripeSuccessURL,
+		CancelURL:     cfg.StripeCancelURL,
+		WebhookSecret: cfg.StripeWebhookSecret,
+	}, stripebilling.NewSQLPaymentIntentStore(database), quotaService)
+	stripeWebhookHandler := stripebilling.NewWebhookHandler(stripebilling.NewSQLWebhookLedger(database), cfg.StripeWebhookSecret)
 
 	// Admin service
 	adminService := admin.NewService(admin.NewSQLStore(database))
@@ -623,6 +643,20 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 		}
 		quotaHandler.topup(w, r)
 	})))
+	mux.Handle("/api/v1/billing/checkout", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.Method != stdhttp.MethodPost {
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		billingHandler.checkout(w, r)
+	})))
+	mux.HandleFunc("/api/v1/billing/stripe/webhook", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.Method != stdhttp.MethodPost {
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		stripeWebhookHandler.HandleWebhook(w, r)
+	})
 
 	// Notification routes
 	mux.Handle("/api/v1/app/notifications", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {

@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v05
-milestone_name: Relay Billing Completeness
-status: milestone_complete
-stopped_at: v06 ready to initialize
-last_updated: "2026-05-28T06:50:00+08:00"
-last_activity: 2026-05-28 -- Phase 16 Relay Authority evidence and v05 closeout completed
+milestone: v06
+milestone_name: Billing And Marketplace Operations
+status: active
+stopped_at: Phase 18 ready to plan
+last_updated: "2026-05-28T07:40:00+08:00"
+last_activity: 2026-05-28 -- Phase 17 Stripe Payment Authority and Webhook Ledger completed with DB-backed route tests and webhook ledger evidence
 progress:
   total_phases: 4
-  completed_phases: 4
+  completed_phases: 1
   total_plans: 4
-  completed_plans: 4
-  percent: 100
+  completed_plans: 1
+  percent: 25
 ---
 
 # STATE.md
@@ -22,46 +22,48 @@ See: `.planning/PROJECT.md` (updated 2026-05-28)
 
 **Core value:** 统一的多渠道 LLM 调用层 — 所有 AI 调用必须经过 Relay
 
-**Current focus:** v06 planning
+**Current focus:** Phase 18 Subscription Invoice Top-up Refund State Machine
 
 ## Current Status
 
-**Milestone v05: Relay Billing Completeness — COMPLETE**
+**Milestone v06: Billing And Marketplace Operations — ACTIVE**
 
 v04 Commercial Foundation is complete and archived through `.planning/milestones/v04-*`. v05 Relay Billing Completeness is complete and archived through `.planning/milestones/v05-*`.
 
-The overall commercial-complete objective remains open. v05 proves the Relay invariant across every commercial `/v1/*` surface, but v06 Billing And Marketplace Operations, v07 Production Operations, and v08 Product Completeness are still required before the final SaaS target can be claimed.
+The overall commercial-complete objective remains open. v06 now owns commercial money movement and Marketplace governance: Stripe checkout/webhooks, subscription lifecycle, top-ups, refunds, invoices, publisher settlement, platform fees, payout state, billing admin evidence, and moderation workflows.
+
+Phase 17 completed the first v06 slice by mounting Stripe payment routes in the running server, verifying webhook signatures from the raw body, writing a dedicated idempotent webhook ledger, and preserving tenant/user/plan metadata for later subscription and Marketplace settlement phases.
 
 ## Current Position
 
-Phase: v05 complete
-Plan: completed through 16-01-PLAN.md
-Status: v06 ready to initialize
-Last activity: 2026-05-28 -- Phase 16 completed Relay route table, endpoint policy, verification evidence, docs gate assertions, DB-backed script verification, and v05 milestone snapshots
+Phase: Phase 18 — Subscription Invoice Top-up Refund State Machine
+Plan: not yet created
+Status: ready to plan
+Last activity: 2026-05-28 -- Phase 17 completed Stripe checkout/webhook route authority, payment intent persistence, and webhook ledger idempotency evidence
 
 ## Current Scope
 
 | Requirement | Status | Target |
 |-------------|--------|--------|
-| RELAY-08 | Complete | Every registered `/v1/*` route is classified as commercial-supported and billed, internal/admin-only, or disabled in production |
-| RELAY-09 | Complete | Unsupported or partial `/v1/*` endpoints fail closed in production before provider calls |
-| RELAY-10 | Complete | CI proves app services do not import provider SDKs or call direct provider URLs outside Relay/channel adapters |
-| RELAY-11 | Complete | Supported Relay endpoints enforce tenant identity, auth policy, rate-limit policy, and audit semantics |
-| BILL-01 | Complete | Supported Relay calls pre-authorize quota, settle exactly once per idempotency key, and refund failed calls |
-| BILL-02 | Complete | Streaming/realtime, file, batch, and async flows have explicit settlement models or are production-disabled |
-| DOC-04 | Complete | Relay route table, endpoint policy, and v05 verification evidence document the commercial Relay Authority Gate |
+| PAY-01 | Complete | Stripe checkout routes are mounted, authenticated, tenant-aware, and testable without live Stripe keys |
+| PAY-02 | Complete | Stripe webhook route verifies raw-body signatures, records events idempotently, and rejects invalid signatures |
+| PAY-03 | Planned | Subscription, invoice, failed-payment, plan-change, top-up, and refund transitions are auditable |
+| MARKET-03 | Planned | Marketplace publisher revenue, platform fee, payout state, and refund impact are modeled before paid operation |
+| MARKET-04 | Planned | Marketplace moderation and abuse workflows govern publish, approve, reject, takedown, and appeal paths |
+| ADMIN-BILL-01 | Planned | Admin can inspect billing sessions, webhook events, subscriptions, top-ups, invoices, refunds, settlements, and payout state |
+| DOC-05 | Planned | v06 evidence maps money-movement requirements to code, tests, docs, and runtime/database verification |
 
 ## Next Suggested Step
 
-Initialize or plan v06 Billing And Marketplace Operations.
+Plan Phase 18 Subscription Invoice Top-up Refund State Machine.
 
-v06 should complete commercial money movement: Stripe checkout/webhooks, subscription lifecycle, top-ups, refunds, invoices, Marketplace publisher settlement, platform fees, payout state, billing admin evidence, and moderation workflows.
+Phase 18 should consume the Phase 17 payment authority foundation and implement auditable state transitions for checkout completion, subscription lifecycle, top-up fulfillment, invoice success/failure, plan changes, failed-payment state, and refunds without enabling Marketplace payout accounting yet.
 
 ## Worktree Context
 
-Continue in `.worktrees/phase-10-membership-auth-security` on branch `gsd/phase-10-membership-auth-security`. The root `main` worktree is behind this branch and has unrelated dirty/untracked files; do not use it for v05 implementation unless the branch is merged or the user directs a switch.
+Continue in `.worktrees/phase-10-membership-auth-security` on branch `gsd/phase-10-membership-auth-security`. The root `main` worktree is behind this branch and has unrelated dirty/untracked files; do not use it for v06 implementation unless the branch is merged or the user directs a switch.
 
-`gsd-sdk query init.new-milestone` still reports stale phase archive metadata under v03.2, so v05 planning is being maintained from local `.planning` truth rather than unsafe helper-driven movement.
+`gsd-sdk query init.new-milestone` still reports stale phase archive metadata under v03.2, so v06 planning is being maintained from local `.planning` truth rather than unsafe helper-driven movement.
 
 ## Completed Work
 
@@ -104,6 +106,9 @@ These remain required for the final user goal:
 - Phase 16 plan: `.planning/phases/16-relay-authority-evidence-and-v05-closeout/16-01-PLAN.md`
 - Phase 16 verification: `.planning/phases/16-relay-authority-evidence-and-v05-closeout/16-VERIFICATION.md`
 - Phase 16 summary: `.planning/phases/16-relay-authority-evidence-and-v05-closeout/16-01-SUMMARY.md`
+- Phase 17 context: `.planning/phases/17-stripe-payment-authority-and-webhook-ledger/17-CONTEXT.md`
+- Phase 17 plan: `.planning/phases/17-stripe-payment-authority-and-webhook-ledger/17-01-PLAN.md`
+- Phase 17 summary: `.planning/phases/17-stripe-payment-authority-and-webhook-ledger/17-01-SUMMARY.md`
 - Commercial gates: `docs/release/commercial-gates.md`
 - Commercial complete spec: `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`
 - v04 roadmap archive: `.planning/milestones/v04-ROADMAP.md`
@@ -127,6 +132,8 @@ These remain required for the final user goal:
 | 2026-05-28 | Phase 15 completed | Supported Relay billing now preauthorizes selected-channel quota, settles exactly once per idempotency key, refunds failed or partial calls, parses provider usage, declares route billing policies, and keeps streaming/async/file flows disabled or explicitly rejected until tested |
 | 2026-05-28 | Phase 16 completed | Relay route table, commercial gate docs, `16-VERIFICATION.md`, docs gate assertions, DB-backed `scripts/test.sh all`, broad `scripts/check.sh all`, and v05 milestone snapshots close `DOC-04` |
 | 2026-05-28 | v05 Relay Billing Completeness completed | Relay Authority Gate evidence is complete for v05; v06-v08 remain required for final commercial completeness |
+| 2026-05-28 | v06 Billing And Marketplace Operations initialized | The next commercial gate is money movement and Marketplace governance; Phase 17 starts with Stripe route authority and webhook ledger before subscription lifecycle and settlement work |
+| 2026-05-28 | Phase 17 completed | Stripe checkout and webhook routes are mounted; checkout persists tenant payment intents through a fake-testable creator; webhook signatures use raw body verification and record idempotent `stripe_webhook_events`; PAY-01 and PAY-02 are complete |
 
 ---
-*State updated: 2026-05-28 after completing Phase 16 Relay Authority evidence and v05 closeout*
+*State updated: 2026-05-28 after completing Phase 17 Stripe Payment Authority and Webhook Ledger*

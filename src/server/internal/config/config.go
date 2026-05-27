@@ -27,6 +27,12 @@ type Config struct {
 	// Default channel configuration (for development)
 	OpenAIAPIKey  string
 	OpenAIBaseURL string
+
+	// Stripe billing configuration
+	StripeSecretKey     string
+	StripeSuccessURL    string
+	StripeCancelURL     string
+	StripeWebhookSecret string
 }
 
 func Load() (Config, error) {
@@ -106,6 +112,11 @@ func Load() (Config, error) {
 		openaiBaseURL = "https://api.openai.com"
 	}
 
+	stripeSecretKey := strings.TrimSpace(os.Getenv("STRIPE_SECRET_KEY"))
+	stripeSuccessURL := strings.TrimSpace(os.Getenv("STRIPE_SUCCESS_URL"))
+	stripeCancelURL := strings.TrimSpace(os.Getenv("STRIPE_CANCEL_URL"))
+	stripeWebhookSecret := strings.TrimSpace(os.Getenv("STRIPE_WEBHOOK_SECRET"))
+
 	return Config{
 		Port:                port,
 		Env:                 env,
@@ -122,5 +133,9 @@ func Load() (Config, error) {
 		RelayDefaultModel:   relayDefaultModel,
 		OpenAIAPIKey:        openaiAPIKey,
 		OpenAIBaseURL:       openaiBaseURL,
+		StripeSecretKey:     stripeSecretKey,
+		StripeSuccessURL:    stripeSuccessURL,
+		StripeCancelURL:     stripeCancelURL,
+		StripeWebhookSecret: stripeWebhookSecret,
 	}, nil
 }

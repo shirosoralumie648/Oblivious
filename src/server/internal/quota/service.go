@@ -213,6 +213,10 @@ func (s *Service) ListPackages(ctx context.Context, activeOnly bool) ([]*Package
 	return s.store.ListPackages(ctx, activeOnly)
 }
 
+func (s *Service) GetPackage(ctx context.Context, id string) (*Package, error) {
+	return s.store.GetPackage(ctx, id)
+}
+
 // SQLStore SQL 实现
 type SQLStore struct {
 	db *sql.DB

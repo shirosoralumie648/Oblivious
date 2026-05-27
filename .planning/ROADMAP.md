@@ -2,6 +2,7 @@
 
 ## Milestones
 
+- 🚧 **v06 Billing And Marketplace Operations** — Phase 17 through Phase 20 (active)
 - ✅ **v05 Relay Billing Completeness** — Phase 13 through Phase 16 (completed 2026-05-28)
 - ✅ **v04 Commercial Foundation** — Phase 9 through Phase 12 (completed 2026-05-28)
 - ✅ **v03.3 Mainline Consolidation** — Phase 5 through Phase 8 plus 999.1/999.2 follow-ups (completed 2026-05-27)
@@ -11,11 +12,53 @@
 
 ## Current Status
 
-Milestone v05 has been completed from `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`.
+Milestone v06 has been initialized from `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`.
 
-**Next workflow step:** initialize or plan v06 Billing And Marketplace Operations.
+**Next workflow step:** execute Phase 17 Stripe Payment Authority and Webhook Ledger with TDD.
 
-## Current Milestone: v05 Relay Billing Completeness — Complete
+## Current Milestone: v06 Billing And Marketplace Operations — Active
+
+**Goal:** Complete commercial money movement and Marketplace governance: Stripe checkout/webhooks, subscription lifecycle, invoices, refunds, failed-payment states, plan changes, top-ups, billing admin evidence, publisher settlement, platform fees, payout state, refund impact, and moderation workflows.
+
+| Phase | Name | Requirements | Status |
+|-------|------|--------------|--------|
+| Phase 17 | Stripe Payment Authority and Webhook Ledger | PAY-01, PAY-02 | Complete |
+| Phase 18 | Subscription Invoice Top-up Refund State Machine | PAY-03 | Planned |
+| Phase 19 | Marketplace Settlement and Governance | MARKET-03, MARKET-04 | Planned |
+| Phase 20 | Billing Admin Evidence and v06 Closeout | ADMIN-BILL-01, DOC-05 | Planned |
+
+### Phase 17: Stripe Payment Authority and Webhook Ledger
+
+**Goal:** Mount Stripe checkout and webhook routes in the running server, make checkout tenant-aware and testable without live Stripe calls, and record webhook events in a dedicated idempotent ledger after raw-body signature verification.
+
+**Requirements:** PAY-01, PAY-02
+
+**Success criteria:**
+1. `POST /api/v1/billing/checkout` requires an authenticated tenant session and creates a payment intent/checkout record containing organization ID, user ID, package ID, checkout kind, amount, and provider checkout session ID.
+2. Checkout creation uses an interface so route tests can use a fake Stripe client; live Stripe API keys are not required for automated tests.
+3. `POST /api/v1/billing/stripe/webhook` is mounted as a public endpoint but rejects missing or invalid Stripe signatures before writing provider state.
+4. Signed webhook fixture tests prove Stripe event IDs are recorded exactly once in a provider webhook ledger with event type, processing status, tenant metadata, payload, and error details.
+5. Existing quota top-up and subscription mutation behavior is not silently marked paid before a verified payment event; full lifecycle application remains Phase 18.
+
+**Likely verification:**
+- `cd src/server && go test ./internal/stripe -run 'Webhook|Checkout|Ledger' -count=1`
+- `cd src/server && TEST_DATABASE_URL=... OBLIVIOUS_REQUIRE_TEST_DATABASE=true go test ./internal/http -run 'Stripe|Billing|Checkout|Webhook' -count=1`
+- `bash scripts/check.sh docs`
+
+**Planning evidence:**
+- Context: `.planning/phases/17-stripe-payment-authority-and-webhook-ledger/17-CONTEXT.md`
+- Plan: `.planning/phases/17-stripe-payment-authority-and-webhook-ledger/17-01-PLAN.md`
+
+**Completion evidence:**
+- Summary: `.planning/phases/17-stripe-payment-authority-and-webhook-ledger/17-01-SUMMARY.md`
+- Focused tests: `cd src/server && go test ./internal/stripe ./internal/config -count=1`
+- DB-backed route tests: `cd src/server && TEST_DATABASE_URL=... OBLIVIOUS_REQUIRE_TEST_DATABASE=true go test ./internal/http -run 'Stripe|Billing|Checkout|Webhook' -count=1`
+- Broader package check: `cd src/server && TEST_DATABASE_URL=... OBLIVIOUS_REQUIRE_TEST_DATABASE=true go test ./internal/stripe ./internal/http ./internal/config ./internal/quota -count=1`
+- Docs gate: `bash scripts/check.sh docs`
+- Broad quality gate: `GOPROXY=... GOSUMDB=... bash scripts/check.sh all`
+- Diff hygiene: `git diff --check`
+
+## Archived Milestone: v05 Relay Billing Completeness — Complete
 
 **Goal:** Make the Relay invariant true for every commercial AI surface: every `/v1/*` endpoint is classified, unsupported production behavior fails closed, supported behavior has auth/rate-limit/billing/audit semantics, and provider-bypass checks prove app services cannot call upstream LLM providers outside Relay.
 
@@ -233,6 +276,7 @@ Milestone v05 has been completed from `docs/superpowers/specs/2026-05-27-commerc
 
 | Milestone | Scope | Plans | Requirements | Status | Completed |
 |-----------|-------|-------|--------------|--------|-----------|
+| v06 Billing And Marketplace Operations | Phases 17-20 | 1/4 plans complete | 2/7 requirements complete | Active | — |
 | v05 Relay Billing Completeness | Phases 13-16 | 4/4 plans complete | 7/7 requirements complete | Complete | 2026-05-28 |
 | v04 Commercial Foundation | Phases 9-12 | 4/4 plans complete | 11/11 requirements complete | Complete | 2026-05-28 |
 | v03.3 Mainline Consolidation | Phases 5-8 plus backlog 999.1 and 999.2 | 12/12 steps complete | 7/7 requirements complete | Complete | 2026-05-27 |
@@ -241,4 +285,4 @@ Milestone v05 has been completed from `docs/superpowers/specs/2026-05-27-commerc
 | Foundation through Backend | Phases 1, 2, 3a | Historical | RELAY, CHAT, AGENT, MCP, MEM, EXEC, QUOTA, ADMIN, MARKET | Complete | 2026-04-29 |
 
 ---
-*Roadmap updated: 2026-05-28 after completing Phase 16 Relay Authority evidence and v05 closeout*
+*Roadmap updated: 2026-05-28 after completing Phase 17 Stripe Payment Authority and Webhook Ledger*

@@ -10,18 +10,19 @@ Oblivious 是一个多租户 AI 平台，整合 LobeHub（C 端体验）和 New-
 
 **统一的多渠道 LLM 调用层** — 所有 AI 调用必须经过 Relay，确保计费、限流、监控统一。
 
-## Current Milestone: v05 Relay Billing Completeness (Complete)
+## Current Milestone: v06 Billing And Marketplace Operations (Active)
 
-**Goal:** 让 Relay Authority Gate 变成可验证的生产边界：每个 `/v1/*` 路由都有商业分类，生产环境对未完成端点 fail closed，所有支持端点具备明确的认证、限流、计费、退款和审计语义。
+**Goal:** 完成商业 money movement 和 Marketplace governance：Stripe checkout/webhook 进入运行中的服务路由，订阅、top-up、发票、退款、失败支付、Marketplace 分账、平台费、payout 和审核治理都具备可审计状态。
 
 **Target features:**
-- Route policy registry covering every registered `/v1/*` endpoint.
-- Production fail-closed behavior for disabled or partially implemented endpoints.
-- Direct-provider bypass checks proving non-Relay services cannot call upstream LLM providers.
-- Per-endpoint auth, rate-limit, billing, refund, quota settlement, and audit policy.
-- v05 verification evidence that closes the Relay Authority Gate without claiming v06-v08 commercial completion.
+- Stripe checkout route mounted behind authenticated tenant sessions.
+- Stripe webhook route mounted as a public signature-verified endpoint using the raw request body.
+- Dedicated webhook ledger with provider event idempotency, processing status, payload retention, and error capture.
+- Subscription lifecycle, invoice, failed-payment, plan-change, top-up, and refund state transitions.
+- Marketplace publisher settlement model with platform fee, payout state, refund impact, and moderation/abuse workflows.
+- Admin billing evidence pages and APIs for sessions, webhook events, subscriptions, top-ups, invoices, refunds, settlements, and payout state.
 
-## Current State: v06 Ready To Initialize
+## Current State: v06 Active
 
 The commercial complete target is defined in `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`. That spec explicitly says the prior release-candidate state is not the final product.
 
@@ -29,7 +30,7 @@ v04 Commercial Foundation is complete: Phase 9 completed first-class organizatio
 
 v05 Relay Billing Completeness is complete. Phase 13 completed Relay endpoint classification and production fail-closed behavior. Phase 14 completed provider-bypass CI checks, supported endpoint auth/tenant identity policy, rate-limit policy, route-decision audit semantics, and trusted Relay metadata for Chat, Agent, and Knowledge embedding paths. Phase 15 completed quota preauthorization, exactly-once settlement, refund behavior, provider usage parsing, explicit route billing policy, and streaming/async production-disablement evidence. Phase 16 completed Relay route-table evidence, commercial gate closeout, DB-backed verification, and v05 milestone snapshots.
 
-The next commercial-program milestone is v06 Billing And Marketplace Operations. The overall commercial-complete SaaS objective remains open until v06, v07, and v08 are also complete and verified.
+v06 Billing And Marketplace Operations is active. Phase 17 completed the first money-movement slice by replacing the existing unmounted/partial Stripe code with running route authority, tenant-aware checkout metadata, signature-verified webhooks, and an idempotent webhook ledger. The next slice is Phase 18 subscription, invoice, top-up, refund, failed-payment, and plan-change state transitions. The overall commercial-complete SaaS objective remains open until v06, v07, and v08 are also complete and verified.
 
 ## Requirements
 
@@ -58,13 +59,17 @@ The next commercial-program milestone is v06 Billing And Marketplace Operations.
 
 ### Active
 
-- No active v05 requirements remain. v06 requirements should be initialized from `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`.
+- **PAY-03**: Subscription lifecycle, invoices, refunds, failed-payment states, plan changes, and top-ups are implemented as auditable state transitions.
+- **MARKET-03**: Marketplace publisher revenue, platform fee, payout state, and refund impact are modeled before paid Marketplace operation is enabled.
+- **MARKET-04**: Marketplace moderation and abuse workflows cover publish, approve, reject, takedown, appeal, and audit paths.
+- **ADMIN-BILL-01**: Admin can inspect billing sessions, webhook events, subscriptions, top-ups, invoices, refunds, settlements, and payout state.
+- **DOC-05**: v06 evidence maps money-movement and Marketplace governance requirements to files, tests, runtime/database proof, and residual v07/v08 work.
 
-### Out of Scope For v05
+### Out of Scope For v06
 
-- Full Stripe production rollout, subscription billing, top-ups, refunds, invoices, and Marketplace payout accounting.
 - Kubernetes or equivalent production orchestration proof.
-- Knowledge RAG upgrade and Agent workflow expansion.
+- Backup/restore smoke, production observability dashboards, alerting, and runbooks.
+- Knowledge RAG upgrade, Agent durable workflow expansion, and MCP commercial placeholder removal.
 - Mobile-specific experience; web remains the primary control plane.
 
 ## Context
@@ -88,7 +93,7 @@ Go Backend (Gin)
 - v03.2 已完成质量、E2E、文档和 Docker 部署 smoke 收口。
 - v03.3 已完成主线整合、文档对齐、发布验证和两个历史 cleanup backlog。
 - v04 Commercial Foundation 已完成。
-- v05 Relay Billing Completeness 已完成；下一步是初始化或规划 v06 Billing And Marketplace Operations。
+- v05 Relay Billing Completeness 已完成；v06 Billing And Marketplace Operations 已初始化，Phase 17 已完成 Stripe route authority 和 webhook ledger，当前下一步是 Phase 18 支付生命周期状态机。
 - 直接 Docker Hub / 默认 Go module 路径在本机网络仍不稳定；受限网络验证命令继续作为部署 smoke 的已验证本地路径。
 - `kubectl` 未安装，因此 Kubernetes 仍属于后续 v07 Production Operations 的未验证范围。
 
@@ -113,11 +118,12 @@ Go Backend (Gin)
 | Preserve living REQUIREMENTS.md | This repo uses it for cross-phase context and archives milestone snapshots separately | ✓ Good — Phase 999.2 recorded this policy |
 | Commercial target is a milestone program, not one giant phase | Tenant/security, Relay billing, money movement, operations, and product completeness have hard dependencies | Active — v04 through v08 decomposes the work |
 | v04 starts with tenant/security foundation | Billing, Marketplace payouts, and production ops need tenant identity and isolation first | ✓ Good — v04 completed tenant/security/migration/CI foundation |
-| v05 starts with route policy and fail-closed enforcement | Billing semantics are unsafe until every `/v1/*` route has an explicit commercial class and production behavior | Active — `.planning/phases/13-relay-endpoint-authority-and-fail-closed/13-01-PLAN.md` |
+| v05 starts with route policy and fail-closed enforcement | Billing semantics are unsafe until every `/v1/*` route has an explicit commercial class and production behavior | ✓ Good — Phase 13 through Phase 16 closed v05 Relay Billing Completeness |
 | Phase 13 disables partial Relay endpoints in production first | Passthrough/file/async endpoints must not reach providers before billing/audit/settlement semantics exist | ✓ Good — `3b9d4dd` and `docs/release/relay-route-table.md` |
 | Phase 14 makes provider bypass and supported-route identity testable before settlement | Billing cannot be trusted if app services can still bypass Relay or supported routes lack tenant identity/audit policy | ✓ Good — `scripts/verify-relay-security.sh`, trusted internal identity guard, route-decision audit sink, and Memory Relay metadata tests |
 | Phase 15 makes settlement/refund explicit before v05 closeout | Relay Authority Gate cannot close while supported calls can strand quota or streaming/async flows bypass settlement | ✓ Good — `RouteWithBilling` lifecycle tests, `BillingPolicy` route coverage, provider usage parsing, and route-table evidence |
 | Phase 16 closes v05 with evidence rather than new runtime behavior | Relay behavior changed in Phases 13-15; v05 closeout needs reproducible proof and must not imply final commercial readiness | ✓ Good — `16-VERIFICATION.md`, route table/gate docs, docs gate assertions, DB-backed script verification, and milestone snapshots |
+| v06 starts with Stripe route authority and webhook ledger | Subscription and Marketplace settlement cannot be safe until payment provider events are signature-verified, idempotent, tenant-aware, and inspectable | ✓ Good — Phase 17 mounted checkout/webhook routes, `payment_intents`, `stripe_webhook_events`, and DB-backed route tests |
 
 ## Evolution
 
@@ -137,4 +143,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state.
 
 ---
-*Last updated: 2026-05-28 after completing Phase 16 Relay Authority evidence and v05 closeout*
+*Last updated: 2026-05-28 after completing Phase 17 Stripe Payment Authority and Webhook Ledger*
