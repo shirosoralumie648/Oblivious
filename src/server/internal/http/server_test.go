@@ -105,6 +105,27 @@ func lockIntegrationTestDatabase(t *testing.T, database *sql.DB) {
 	})
 }
 
+func csrfTokenFromRecorder(t *testing.T, recorder *httptest.ResponseRecorder) string {
+	t.Helper()
+
+	var response struct {
+		Data struct {
+			CSRFToken string `json:"csrfToken"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode csrf token response: %v", err)
+	}
+	if response.Data.CSRFToken == "" {
+		t.Fatal("expected csrf token in session response")
+	}
+	return response.Data.CSRFToken
+}
+
+func addCSRF(request *stdhttp.Request, csrfToken string) {
+	request.Header.Set(csrfHeaderName, csrfToken)
+}
+
 func TestHealthz(t *testing.T) {
 	router := NewRouter(testConfig(), testDatabase(t))
 	recorder := httptest.NewRecorder()
@@ -129,7 +150,7 @@ func TestRegisterLoginMeLogoutFlow(t *testing.T) {
 	router := NewRouter(testConfig(), testDatabase(t))
 
 	registerRecorder := httptest.NewRecorder()
-	registerRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/auth/register", strings.NewReader(`{"email":"user@example.com","password":"secret"}`))
+	registerRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/auth/register", strings.NewReader(`{"email":"user@example.com","password":"StrongerPass1!"}`))
 	registerRequest.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(registerRecorder, registerRequest)
 
@@ -137,6 +158,7 @@ func TestRegisterLoginMeLogoutFlow(t *testing.T) {
 		t.Fatalf("register expected 200, got %d", registerRecorder.Code)
 	}
 	cookie := registerRecorder.Result().Cookies()[0]
+	csrfToken := csrfTokenFromRecorder(t, registerRecorder)
 	if cookie.Name != testConfig().SessionCookieName {
 		t.Fatalf("expected session cookie %s, got %s", testConfig().SessionCookieName, cookie.Name)
 	}
@@ -166,13 +188,14 @@ func TestRegisterLoginMeLogoutFlow(t *testing.T) {
 	logoutRecorder := httptest.NewRecorder()
 	logoutRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/auth/logout", nil)
 	logoutRequest.AddCookie(cookie)
+	addCSRF(logoutRequest, csrfToken)
 	router.ServeHTTP(logoutRecorder, logoutRequest)
 	if logoutRecorder.Code != stdhttp.StatusOK {
 		t.Fatalf("logout expected 200, got %d", logoutRecorder.Code)
 	}
 
 	loginRecorder := httptest.NewRecorder()
-	loginRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"email":"user@example.com","password":"secret"}`))
+	loginRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"email":"user@example.com","password":"StrongerPass1!"}`))
 	loginRequest.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(loginRecorder, loginRequest)
 	if loginRecorder.Code != stdhttp.StatusOK {
@@ -180,19 +203,93 @@ func TestRegisterLoginMeLogoutFlow(t *testing.T) {
 	}
 }
 
+func TestAuthRateLimitRejectsRepeatedFailedLogin(t *testing.T) {
+	router := NewRouter(testConfig(), testDatabase(t))
+
+	registerRecorder := httptest.NewRecorder()
+	registerRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/auth/register", strings.NewReader(`{"email":"limited@example.com","password":"StrongerPass1!"}`))
+	registerRequest.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(registerRecorder, registerRequest)
+	if registerRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("register expected 200, got %d with body %s", registerRecorder.Code, registerRecorder.Body.String())
+	}
+
+	var lastCode int
+	for i := 0; i < 6; i++ {
+		loginRecorder := httptest.NewRecorder()
+		loginRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"email":"limited@example.com","password":"WrongPass1!"}`))
+		loginRequest.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(loginRecorder, loginRequest)
+		lastCode = loginRecorder.Code
+	}
+	if lastCode != stdhttp.StatusTooManyRequests {
+		t.Fatalf("expected repeated failed login to return 429, got %d", lastCode)
+	}
+}
+
+func TestPasswordResetRoutesConfirmAndRevokeSessions(t *testing.T) {
+	router := NewRouter(testConfig(), testDatabase(t))
+
+	registerRecorder := httptest.NewRecorder()
+	registerRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/auth/register", strings.NewReader(`{"email":"reset@example.com","password":"StrongerPass1!"}`))
+	registerRequest.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(registerRecorder, registerRequest)
+	if registerRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("register expected 200, got %d with body %s", registerRecorder.Code, registerRecorder.Body.String())
+	}
+	oldCookie := registerRecorder.Result().Cookies()[0]
+
+	resetRecorder := httptest.NewRecorder()
+	resetRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/auth/password-reset/request", strings.NewReader(`{"email":"reset@example.com"}`))
+	resetRequest.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(resetRecorder, resetRequest)
+	if resetRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("password reset request expected 200, got %d with body %s", resetRecorder.Code, resetRecorder.Body.String())
+	}
+	var resetResponse struct {
+		Data struct {
+			Token string `json:"token"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(resetRecorder.Body.Bytes(), &resetResponse); err != nil {
+		t.Fatalf("decode password reset response: %v", err)
+	}
+	if resetResponse.Data.Token == "" {
+		t.Fatal("expected test password reset token")
+	}
+
+	confirmRecorder := httptest.NewRecorder()
+	confirmRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/auth/password-reset/confirm", strings.NewReader(`{"token":"`+resetResponse.Data.Token+`","password":"EvenStrongerPass2!"}`))
+	confirmRequest.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(confirmRecorder, confirmRequest)
+	if confirmRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("password reset confirm expected 200, got %d with body %s", confirmRecorder.Code, confirmRecorder.Body.String())
+	}
+
+	meRecorder := httptest.NewRecorder()
+	meRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/auth/me", nil)
+	meRequest.AddCookie(oldCookie)
+	router.ServeHTTP(meRecorder, meRequest)
+	if meRecorder.Code != stdhttp.StatusUnauthorized {
+		t.Fatalf("expected old session to be revoked after reset, got %d with body %s", meRecorder.Code, meRecorder.Body.String())
+	}
+}
+
 func TestConversationAndMessageFlow(t *testing.T) {
 	router := NewRouter(testConfig(), testDatabase(t))
 
 	registerRecorder := httptest.NewRecorder()
-	registerRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/auth/register", strings.NewReader(`{"email":"chat@example.com","password":"secret"}`))
+	registerRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/auth/register", strings.NewReader(`{"email":"chat@example.com","password":"StrongerPass1!"}`))
 	registerRequest.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(registerRecorder, registerRequest)
 	cookie := registerRecorder.Result().Cookies()[0]
+	csrfToken := csrfTokenFromRecorder(t, registerRecorder)
 
 	createConversationRecorder := httptest.NewRecorder()
 	createConversationRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/conversations", strings.NewReader(`{"title":"First chat"}`))
 	createConversationRequest.Header.Set("Content-Type", "application/json")
 	createConversationRequest.AddCookie(cookie)
+	addCSRF(createConversationRequest, csrfToken)
 	router.ServeHTTP(createConversationRecorder, createConversationRequest)
 	if createConversationRecorder.Code != stdhttp.StatusOK {
 		t.Fatalf("create conversation expected 200, got %d", createConversationRecorder.Code)
@@ -220,6 +317,7 @@ func TestConversationAndMessageFlow(t *testing.T) {
 	sendRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/conversations/"+conversationID+"/messages", strings.NewReader(`{"content":"hello"}`))
 	sendRequest.Header.Set("Content-Type", "application/json")
 	sendRequest.AddCookie(cookie)
+	addCSRF(sendRequest, csrfToken)
 	router.ServeHTTP(sendRecorder, sendRequest)
 	if sendRecorder.Code != stdhttp.StatusOK {
 		t.Fatalf("send message expected 200, got %d", sendRecorder.Code)
@@ -239,15 +337,17 @@ func TestConsoleUsageReflectsRecordedChatRequests(t *testing.T) {
 	router := NewRouter(testConfig(), database)
 
 	registerRecorder := httptest.NewRecorder()
-	registerRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/auth/register", strings.NewReader(`{"email":"usage@example.com","password":"secret"}`))
+	registerRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/auth/register", strings.NewReader(`{"email":"usage@example.com","password":"StrongerPass1!"}`))
 	registerRequest.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(registerRecorder, registerRequest)
 	cookie := registerRecorder.Result().Cookies()[0]
+	csrfToken := csrfTokenFromRecorder(t, registerRecorder)
 
 	createConversationRecorder := httptest.NewRecorder()
 	createConversationRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/conversations", strings.NewReader(`{"title":"Usage chat"}`))
 	createConversationRequest.Header.Set("Content-Type", "application/json")
 	createConversationRequest.AddCookie(cookie)
+	addCSRF(createConversationRequest, csrfToken)
 	router.ServeHTTP(createConversationRecorder, createConversationRequest)
 
 	var createdConversation struct {
@@ -263,6 +363,7 @@ func TestConsoleUsageReflectsRecordedChatRequests(t *testing.T) {
 	sendRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/conversations/"+createdConversation.Data.ID+"/messages", strings.NewReader(`{"content":"track this request"}`))
 	sendRequest.Header.Set("Content-Type", "application/json")
 	sendRequest.AddCookie(cookie)
+	addCSRF(sendRequest, csrfToken)
 	router.ServeHTTP(sendRecorder, sendRequest)
 	if sendRecorder.Code != stdhttp.StatusOK {
 		t.Fatalf("send message expected 200, got %d", sendRecorder.Code)
@@ -306,7 +407,7 @@ func TestRegisterStoresHashedPassword(t *testing.T) {
 	router := NewRouter(testConfig(), database)
 
 	registerRecorder := httptest.NewRecorder()
-	registerRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/auth/register", strings.NewReader(`{"email":"hash@example.com","password":"secret"}`))
+	registerRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/auth/register", strings.NewReader(`{"email":"hash@example.com","password":"StrongerPass1!"}`))
 	registerRequest.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(registerRecorder, registerRequest)
 
@@ -318,17 +419,17 @@ func TestRegisterStoresHashedPassword(t *testing.T) {
 	if err := database.QueryRow(`SELECT password_hash FROM users WHERE email = $1`, "hash@example.com").Scan(&storedPassword); err != nil {
 		t.Fatalf("query password hash: %v", err)
 	}
-	if storedPassword == "secret" {
+	if storedPassword == "StrongerPass1!" {
 		t.Fatalf("expected stored password hash to differ from raw password")
 	}
-	if err := bcrypt.CompareHashAndPassword([]byte(storedPassword), []byte("secret")); err != nil {
+	if err := bcrypt.CompareHashAndPassword([]byte(storedPassword), []byte("StrongerPass1!")); err != nil {
 		t.Fatalf("expected stored hash to match password: %v", err)
 	}
 }
 
 func TestLoginAcceptsRawPasswordAgainstStoredHash(t *testing.T) {
 	database := testDatabase(t)
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret"), bcrypt.DefaultCost)
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("StrongerPass1!"), bcrypt.DefaultCost)
 	if err != nil {
 		t.Fatalf("hash password: %v", err)
 	}
@@ -341,7 +442,7 @@ func TestLoginAcceptsRawPasswordAgainstStoredHash(t *testing.T) {
 
 	router := NewRouter(testConfig(), database)
 	loginRecorder := httptest.NewRecorder()
-	loginRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"email":"hashed@example.com","password":"secret"}`))
+	loginRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"email":"hashed@example.com","password":"StrongerPass1!"}`))
 	loginRequest.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(loginRecorder, loginRequest)
 
@@ -354,7 +455,7 @@ func TestMeReturnsExpandedSessionPayload(t *testing.T) {
 	router := NewRouter(testConfig(), testDatabase(t))
 
 	registerRecorder := httptest.NewRecorder()
-	registerRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/auth/register", strings.NewReader(`{"email":"state@example.com","password":"secret"}`))
+	registerRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/auth/register", strings.NewReader(`{"email":"state@example.com","password":"StrongerPass1!"}`))
 	registerRequest.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(registerRecorder, registerRequest)
 	cookie := registerRecorder.Result().Cookies()[0]
@@ -402,7 +503,7 @@ func TestGetPreferencesReturnsUserInitializationState(t *testing.T) {
 	router := NewRouter(testConfig(), testDatabase(t))
 
 	registerRecorder := httptest.NewRecorder()
-	registerRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/auth/register", strings.NewReader(`{"email":"prefs@example.com","password":"secret"}`))
+	registerRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/auth/register", strings.NewReader(`{"email":"prefs@example.com","password":"StrongerPass1!"}`))
 	registerRequest.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(registerRecorder, registerRequest)
 	cookie := registerRecorder.Result().Cookies()[0]
@@ -432,15 +533,17 @@ func TestUpdatePreferencesPersistsOnboardingState(t *testing.T) {
 	router := NewRouter(testConfig(), testDatabase(t))
 
 	registerRecorder := httptest.NewRecorder()
-	registerRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/auth/register", strings.NewReader(`{"email":"updateprefs@example.com","password":"secret"}`))
+	registerRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/auth/register", strings.NewReader(`{"email":"updateprefs@example.com","password":"StrongerPass1!"}`))
 	registerRequest.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(registerRecorder, registerRequest)
 	cookie := registerRecorder.Result().Cookies()[0]
+	csrfToken := csrfTokenFromRecorder(t, registerRecorder)
 
 	updateRecorder := httptest.NewRecorder()
 	updateRequest := httptest.NewRequest(stdhttp.MethodPut, "/api/v1/app/me/preferences", strings.NewReader(`{"onboardingCompleted":true,"defaultMode":"solo","modelStrategy":"high_quality","networkEnabledHint":true}`))
 	updateRequest.Header.Set("Content-Type", "application/json")
 	updateRequest.AddCookie(cookie)
+	addCSRF(updateRequest, csrfToken)
 	router.ServeHTTP(updateRecorder, updateRequest)
 	if updateRecorder.Code != stdhttp.StatusOK {
 		t.Fatalf("update preferences expected 200, got %d with body %s", updateRecorder.Code, updateRecorder.Body.String())
@@ -472,7 +575,7 @@ func TestListModelsReturnsAvailableOptions(t *testing.T) {
 	router := NewRouter(testConfig(), testDatabase(t))
 
 	registerRecorder := httptest.NewRecorder()
-	registerRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/auth/register", strings.NewReader(`{"email":"models@example.com","password":"secret"}`))
+	registerRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/auth/register", strings.NewReader(`{"email":"models@example.com","password":"StrongerPass1!"}`))
 	registerRequest.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(registerRecorder, registerRequest)
 	cookie := registerRecorder.Result().Cookies()[0]
@@ -490,15 +593,17 @@ func TestConversationConfigFlow(t *testing.T) {
 	router := NewRouter(testConfig(), testDatabase(t))
 
 	registerRecorder := httptest.NewRecorder()
-	registerRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/auth/register", strings.NewReader(`{"email":"config@example.com","password":"secret"}`))
+	registerRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/auth/register", strings.NewReader(`{"email":"config@example.com","password":"StrongerPass1!"}`))
 	registerRequest.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(registerRecorder, registerRequest)
 	cookie := registerRecorder.Result().Cookies()[0]
+	csrfToken := csrfTokenFromRecorder(t, registerRecorder)
 
 	createConversationRecorder := httptest.NewRecorder()
 	createConversationRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/conversations", strings.NewReader(`{"title":"Config chat"}`))
 	createConversationRequest.Header.Set("Content-Type", "application/json")
 	createConversationRequest.AddCookie(cookie)
+	addCSRF(createConversationRequest, csrfToken)
 	router.ServeHTTP(createConversationRecorder, createConversationRequest)
 
 	var created struct {
@@ -522,6 +627,7 @@ func TestConversationConfigFlow(t *testing.T) {
 	createKnowledgeBaseRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases", strings.NewReader(`{"name":"Reference Docs"}`))
 	createKnowledgeBaseRequest.Header.Set("Content-Type", "application/json")
 	createKnowledgeBaseRequest.AddCookie(cookie)
+	addCSRF(createKnowledgeBaseRequest, csrfToken)
 	router.ServeHTTP(createKnowledgeBaseRecorder, createKnowledgeBaseRequest)
 	if createKnowledgeBaseRecorder.Code != stdhttp.StatusOK {
 		t.Fatalf("create knowledge base expected 200, got %d with body %s", createKnowledgeBaseRecorder.Code, createKnowledgeBaseRecorder.Body.String())
@@ -540,6 +646,7 @@ func TestConversationConfigFlow(t *testing.T) {
 	updateConfigRequest := httptest.NewRequest(stdhttp.MethodPut, "/api/v1/app/conversations/"+created.Data.ID+"/config", strings.NewReader(`{"modelId":"quality-chat","systemPromptOverride":"Be concise","temperature":0.7,"maxOutputTokens":512,"toolsEnabled":true,"knowledgeBaseIds":["`+knowledgeBase.Data.ID+`"]}`))
 	updateConfigRequest.Header.Set("Content-Type", "application/json")
 	updateConfigRequest.AddCookie(cookie)
+	addCSRF(updateConfigRequest, csrfToken)
 	router.ServeHTTP(updateConfigRecorder, updateConfigRequest)
 	if updateConfigRecorder.Code != stdhttp.StatusOK {
 		t.Fatalf("update config expected 200, got %d with body %s", updateConfigRecorder.Code, updateConfigRecorder.Body.String())
