@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"oblivious/server/internal/relay/types"
 	"oblivious/server/internal/relay/channel"
+	"oblivious/server/internal/relay/types"
 )
 
 // parseMessages 从原始 JSON map 解析 Messages
@@ -145,6 +145,25 @@ func marshalRequest(req *channel.ProviderRequest) ([]byte, error) {
 		m["tool_choice"] = req.ToolChoice
 	}
 	return json.Marshal(m)
+}
+
+func providerResponseFromHTTP(statusCode int, body []byte) *types.ProviderResponse {
+	return &types.ProviderResponse{
+		StatusCode: statusCode,
+		Content:    body,
+		Done:       true,
+		Usage:      parseProviderUsage(body),
+	}
+}
+
+func parseProviderUsage(body []byte) *types.Usage {
+	var payload struct {
+		Usage *types.Usage `json:"usage"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil
+	}
+	return payload.Usage
 }
 
 // passthroughHelper 通用的透传函数

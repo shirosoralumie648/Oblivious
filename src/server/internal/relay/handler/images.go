@@ -149,7 +149,7 @@ func (h *ImagesHandler) executeRequest(c *gin.Context, req *channel.ProviderRequ
 			defer resp.Body.Close()
 
 			bodyOut, _ := io.ReadAll(resp.Body)
-			return &types.ProviderResponse{StatusCode: resp.StatusCode, Content: bodyOut}, nil
+			return providerResponseFromHTTP(resp.StatusCode, bodyOut), nil
 		},
 	)
 }

@@ -47,16 +47,22 @@ type QuotaManager interface {
 }
 
 type BillingHook struct {
-	pricing      *PricingStore
-	seenIdem     *map[string]bool
-	QuotaManager QuotaManager
-	mu           sync.Mutex
+	pricing           *PricingStore
+	seenIdem          *map[string]bool
+	QuotaManager      QuotaManager
+	mu                sync.Mutex
+	preauthSnapshots  map[string]billingSnapshot
+	settledSnapshots  map[string]billingSnapshot
+	refundedSnapshots map[string]float64
 }
 
 func NewBillingHook(pricing *PricingStore, seenIdem *map[string]bool) *BillingHook {
 	return &BillingHook{
-		pricing:  pricing,
-		seenIdem: seenIdem,
+		pricing:           pricing,
+		seenIdem:          seenIdem,
+		preauthSnapshots:  make(map[string]billingSnapshot),
+		settledSnapshots:  make(map[string]billingSnapshot),
+		refundedSnapshots: make(map[string]float64),
 	}
 }
 
@@ -66,17 +72,15 @@ func (h *BillingHook) SetQuotaManager(manager QuotaManager) {
 
 func (h *BillingHook) PreBill(session *BillingSession, usage *types.Usage) (float64, error) {
 	// Check idempotency
-	if h.seenIdem != nil {
-		idempotencyKey := scopedBillingIdempotencyKey(session, "")
-		if idempotencyKey != "" {
-			h.mu.Lock()
-			if (*h.seenIdem)[idempotencyKey] {
-				h.mu.Unlock()
-				return session.PreAuthorizedAmt, nil
-			}
-			(*h.seenIdem)[idempotencyKey] = true
+	idempotencyKey := scopedBillingIdempotencyKey(session, "")
+	if idempotencyKey != "" {
+		h.mu.Lock()
+		if snapshot, ok := h.preauthSnapshots[idempotencyKey]; ok {
+			applyBillingSnapshot(session, snapshot)
 			h.mu.Unlock()
+			return session.PreAuthorizedAmt, nil
 		}
+		h.mu.Unlock()
 	}
 
 	// Estimate cost
@@ -106,22 +110,29 @@ func (h *BillingHook) PreBill(session *BillingSession, usage *types.Usage) (floa
 	session.Status = BillingStatusAuthorized
 	session.CreatedAt = time.Now()
 
+	if idempotencyKey != "" {
+		h.mu.Lock()
+		if h.seenIdem != nil {
+			(*h.seenIdem)[idempotencyKey] = true
+		}
+		h.preauthSnapshots[idempotencyKey] = snapshotFromBillingSession(session)
+		h.mu.Unlock()
+	}
+
 	return session.PreAuthorizedAmt, nil
 }
 
 func (h *BillingHook) PostBill(session *BillingSession, usage *types.Usage) (float64, error) {
 	// Check idempotency
-	if h.seenIdem != nil {
-		key := scopedBillingIdempotencyKey(session, "settled")
-		if key != "" {
-			h.mu.Lock()
-			if (*h.seenIdem)[key] {
-				h.mu.Unlock()
-				return session.SettledAmt, nil
-			}
-			(*h.seenIdem)[key] = true
+	key := scopedBillingIdempotencyKey(session, "settled")
+	if key != "" {
+		h.mu.Lock()
+		if snapshot, ok := h.settledSnapshots[key]; ok {
+			applyBillingSnapshot(session, snapshot)
 			h.mu.Unlock()
+			return session.SettledAmt, nil
 		}
+		h.mu.Unlock()
 	}
 
 	actualCost := h.pricing.CalculateCost(session.Model, session.APIType, usage)
@@ -141,10 +152,30 @@ func (h *BillingHook) PostBill(session *BillingSession, usage *types.Usage) (flo
 	session.SettledAmt = actualCost
 	session.Status = BillingStatusSettled
 
+	if key != "" {
+		h.mu.Lock()
+		if h.seenIdem != nil {
+			(*h.seenIdem)[key] = true
+		}
+		h.settledSnapshots[key] = snapshotFromBillingSession(session)
+		h.mu.Unlock()
+	}
+
 	return actualCost, nil
 }
 
 func (h *BillingHook) Refund(session *BillingSession) (float64, error) {
+	key := scopedBillingIdempotencyKey(session, "refunded")
+	if key != "" {
+		h.mu.Lock()
+		if refund, ok := h.refundedSnapshots[key]; ok {
+			session.Status = BillingStatusRefunded
+			h.mu.Unlock()
+			return refund, nil
+		}
+		h.mu.Unlock()
+	}
+
 	refund := session.PreAuthorizedAmt - session.SettledAmt
 	if refund < 0 {
 		refund = 0
@@ -155,6 +186,14 @@ func (h *BillingHook) Refund(session *BillingSession) (float64, error) {
 		}
 	}
 	session.Status = BillingStatusRefunded
+	if key != "" {
+		h.mu.Lock()
+		if h.seenIdem != nil {
+			(*h.seenIdem)[key] = true
+		}
+		h.refundedSnapshots[key] = refund
+		h.mu.Unlock()
+	}
 	return refund, nil
 }
 
@@ -201,4 +240,48 @@ func scopedBillingIdempotencyKey(session *BillingSession, suffix string) string 
 		return scope + "|" + session.IdempotencyKey + ":" + suffix
 	}
 	return scope + "|" + session.IdempotencyKey
+}
+
+type billingSnapshot struct {
+	ChannelID        string
+	APIType          types.APIType
+	Model            string
+	IdempotencyKey   string
+	RequestID        string
+	AttemptNo        int
+	PreAuthorizedAmt float64
+	SettledAmt       float64
+	QuotaSessionID   string
+	Status           BillingStatus
+	CreatedAt        time.Time
+}
+
+func snapshotFromBillingSession(session *BillingSession) billingSnapshot {
+	return billingSnapshot{
+		ChannelID:        session.ChannelID,
+		APIType:          session.APIType,
+		Model:            session.Model,
+		IdempotencyKey:   session.IdempotencyKey,
+		RequestID:        session.RequestID,
+		AttemptNo:        session.AttemptNo,
+		PreAuthorizedAmt: session.PreAuthorizedAmt,
+		SettledAmt:       session.SettledAmt,
+		QuotaSessionID:   session.QuotaSessionID,
+		Status:           session.Status,
+		CreatedAt:        session.CreatedAt,
+	}
+}
+
+func applyBillingSnapshot(session *BillingSession, snapshot billingSnapshot) {
+	session.ChannelID = snapshot.ChannelID
+	session.APIType = snapshot.APIType
+	session.Model = snapshot.Model
+	session.IdempotencyKey = snapshot.IdempotencyKey
+	session.RequestID = snapshot.RequestID
+	session.AttemptNo = snapshot.AttemptNo
+	session.PreAuthorizedAmt = snapshot.PreAuthorizedAmt
+	session.SettledAmt = snapshot.SettledAmt
+	session.QuotaSessionID = snapshot.QuotaSessionID
+	session.Status = snapshot.Status
+	session.CreatedAt = snapshot.CreatedAt
 }

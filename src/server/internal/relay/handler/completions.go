@@ -108,5 +108,5 @@ func (h *LegacyCompletionsHandler) doUpstreamRequest(req *channel.ProviderReques
 	defer resp.Body.Close()
 
 	bodyOut, _ := io.ReadAll(resp.Body)
-	return &types.ProviderResponse{StatusCode: resp.StatusCode, Content: bodyOut}, nil
+	return providerResponseFromHTTP(resp.StatusCode, bodyOut), nil
 }

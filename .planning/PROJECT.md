@@ -21,13 +21,13 @@ Oblivious 是一个多租户 AI 平台，整合 LobeHub（C 端体验）和 New-
 - Per-endpoint auth, rate-limit, billing, refund, quota settlement, and audit policy.
 - v05 verification evidence that closes the Relay Authority Gate without claiming v06-v08 commercial completion.
 
-## Current State: v05 Phase 15 Ready To Plan
+## Current State: v05 Phase 16 Ready To Plan
 
 The commercial complete target is defined in `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`. That spec explicitly says the prior release-candidate state is not the final product.
 
 v04 Commercial Foundation is complete: Phase 9 completed first-class organization tenants and the migration ledger, Phase 10 completed memberships/auth security, Phase 11 completed tenant scope across core domains, and Phase 12 completed reproducible DB-backed CI and commercial gate evidence.
 
-v05 Relay Billing Completeness is active. Phase 13 completed Relay endpoint classification and production fail-closed behavior. Phase 14 completed provider-bypass CI checks, supported endpoint auth/tenant identity policy, rate-limit policy, route-decision audit semantics, and trusted Relay metadata for Chat, Agent, and Knowledge embedding paths. The next step is Phase 15 planning for quota preauthorization, exactly-once settlement, refund behavior, and streaming/async settlement or disablement evidence.
+v05 Relay Billing Completeness is active. Phase 13 completed Relay endpoint classification and production fail-closed behavior. Phase 14 completed provider-bypass CI checks, supported endpoint auth/tenant identity policy, rate-limit policy, route-decision audit semantics, and trusted Relay metadata for Chat, Agent, and Knowledge embedding paths. Phase 15 completed quota preauthorization, exactly-once settlement, refund behavior, provider usage parsing, explicit route billing policy, and streaming/async production-disablement evidence. The next step is Phase 16 planning for Relay Authority evidence and v05 closeout.
 
 ## Requirements
 
@@ -51,11 +51,11 @@ v05 Relay Billing Completeness is active. Phase 13 completed Relay endpoint clas
 - ✓ RELAY-09 — Unsupported or partially implemented `/v1/*` endpoints fail closed in production before any upstream provider call
 - ✓ RELAY-10 — CI proves app services do not import provider SDKs or call direct provider URLs outside Relay/channel adapters
 - ✓ RELAY-11 — Supported Relay endpoints enforce tenant identity, auth policy, rate-limit policy, and audit semantics
+- ✓ BILL-01 — Supported Relay calls pre-authorize quota, settle exactly once per idempotency key, and refund failed or partial calls
+- ✓ BILL-02 — Streaming/realtime, file, batch, and async flows have explicit settlement models or are production-disabled
 
 ### Active
 
-- [ ] **BILL-01**: Supported Relay calls pre-authorize quota, settle exactly once per idempotency key, and refund failed or partial calls.
-- [ ] **BILL-02**: Streaming/realtime, file, batch, and async flows have explicit settlement models or are production-disabled.
 - [ ] **DOC-04**: Relay route table, endpoint policy, and v05 verification evidence document the commercial Relay Authority Gate.
 
 ### Out of Scope For v05
@@ -86,7 +86,7 @@ Go Backend (Gin)
 - v03.2 已完成质量、E2E、文档和 Docker 部署 smoke 收口。
 - v03.3 已完成主线整合、文档对齐、发布验证和两个历史 cleanup backlog。
 - v04 Commercial Foundation 已完成。
-- v05 Relay Billing Completeness 进行中；Phase 13 和 Phase 14 已完成，下一步是规划 Phase 15 Relay Billing Settlement and Refund Semantics。
+- v05 Relay Billing Completeness 进行中；Phase 13、Phase 14 和 Phase 15 已完成，下一步是规划 Phase 16 Relay Authority Evidence and v05 Closeout。
 - 直接 Docker Hub / 默认 Go module 路径在本机网络仍不稳定；受限网络验证命令继续作为部署 smoke 的已验证本地路径。
 - `kubectl` 未安装，因此 Kubernetes 仍属于后续 v07 Production Operations 的未验证范围。
 
@@ -114,6 +114,7 @@ Go Backend (Gin)
 | v05 starts with route policy and fail-closed enforcement | Billing semantics are unsafe until every `/v1/*` route has an explicit commercial class and production behavior | Active — `.planning/phases/13-relay-endpoint-authority-and-fail-closed/13-01-PLAN.md` |
 | Phase 13 disables partial Relay endpoints in production first | Passthrough/file/async endpoints must not reach providers before billing/audit/settlement semantics exist | ✓ Good — `3b9d4dd` and `docs/release/relay-route-table.md` |
 | Phase 14 makes provider bypass and supported-route identity testable before settlement | Billing cannot be trusted if app services can still bypass Relay or supported routes lack tenant identity/audit policy | ✓ Good — `scripts/verify-relay-security.sh`, trusted internal identity guard, route-decision audit sink, and Memory Relay metadata tests |
+| Phase 15 makes settlement/refund explicit before v05 closeout | Relay Authority Gate cannot close while supported calls can strand quota or streaming/async flows bypass settlement | ✓ Good — `RouteWithBilling` lifecycle tests, `BillingPolicy` route coverage, provider usage parsing, and route-table evidence |
 
 ## Evolution
 

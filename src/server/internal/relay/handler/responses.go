@@ -43,11 +43,12 @@ func (h *ResponsesHandler) Handle(c *gin.Context) error {
 		MaxTokens: parseInt(rawReq["max_tokens"]),
 	}
 
-	usage := h.adapter.EstimateUsage(req)
-
 	if req.Stream {
-		return h.handleStream(c, req)
+		c.JSON(http.StatusNotImplemented, gin.H{"error": gin.H{"code": "streaming_settlement_not_supported", "message": "Responses streaming is disabled until tested billing settlement semantics exist"}})
+		return nil
 	}
+
+	usage := h.adapter.EstimateUsage(req)
 
 	resp, err := h.executeRequest(c, req, usage)
 	if err != nil {
@@ -128,5 +129,5 @@ func (h *ResponsesHandler) doUpstreamRequest(req *channel.ProviderRequest) (*typ
 	defer resp.Body.Close()
 
 	bodyOut, _ := io.ReadAll(resp.Body)
-	return &types.ProviderResponse{StatusCode: resp.StatusCode, Content: bodyOut}, nil
+	return providerResponseFromHTTP(resp.StatusCode, bodyOut), nil
 }

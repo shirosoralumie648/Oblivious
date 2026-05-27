@@ -153,6 +153,65 @@ func TestSupportedRoutePoliciesDeclareCostAbuseGuardrails(t *testing.T) {
 	}
 }
 
+func TestRoutePoliciesDeclareBillingSettlementPolicy(t *testing.T) {
+	for _, policy := range AllRoutePolicies() {
+		key := policy.Method + " " + policy.Path
+		if policy.BillingPolicy == "" {
+			t.Fatalf("%s missing billing policy", key)
+		}
+		switch policy.Class {
+		case CommercialSupportedBilled:
+			if policy.BillingPolicy != BillingPolicyUsageSettlement && policy.BillingPolicy != BillingPolicyEstimateSettlement {
+				t.Fatalf("%s billing policy = %s, want usage or estimate settlement", key, policy.BillingPolicy)
+			}
+		case DisabledInProduction:
+			if policy.BillingPolicy != BillingPolicyProductionDisabled {
+				t.Fatalf("%s billing policy = %s, want %s", key, policy.BillingPolicy, BillingPolicyProductionDisabled)
+			}
+		}
+	}
+}
+
+func TestInitialBillingSettlementPolicyClassifiesCurrentSurface(t *testing.T) {
+	usageSettled := []string{
+		"POST /v1/chat/completions",
+		"POST /v1/responses",
+		"POST /v1/embeddings",
+		"POST /v1/completions",
+	}
+	for _, key := range usageSettled {
+		policy := mustPolicy(t, key)
+		if policy.BillingPolicy != BillingPolicyUsageSettlement {
+			t.Fatalf("%s billing policy = %s, want %s", key, policy.BillingPolicy, BillingPolicyUsageSettlement)
+		}
+	}
+
+	estimateSettled := []string{
+		"POST /v1/images/generations",
+		"POST /v1/images/edits",
+		"POST /v1/images/variations",
+		"POST /v1/audio/speech",
+		"POST /v1/audio/transcriptions",
+		"POST /v1/audio/translations",
+		"POST /v1/moderations",
+	}
+	for _, key := range estimateSettled {
+		policy := mustPolicy(t, key)
+		if policy.BillingPolicy != BillingPolicyEstimateSettlement {
+			t.Fatalf("%s billing policy = %s, want %s", key, policy.BillingPolicy, BillingPolicyEstimateSettlement)
+		}
+	}
+
+	for _, policy := range AllRoutePolicies() {
+		if policy.Class != DisabledInProduction {
+			continue
+		}
+		if policy.BillingPolicy != BillingPolicyProductionDisabled {
+			t.Fatalf("%s %s billing policy = %s, want %s", policy.Method, policy.Path, policy.BillingPolicy, BillingPolicyProductionDisabled)
+		}
+	}
+}
+
 func mustPolicy(t *testing.T, routeKey string) RoutePolicy {
 	t.Helper()
 	method, path, ok := splitRouteKey(routeKey)

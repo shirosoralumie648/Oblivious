@@ -65,6 +65,11 @@ func (h *ChatHandler) Handle(c *gin.Context) error {
 		ToolChoice: rawReq["tool_choice"],
 	}
 
+	if stream {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": gin.H{"code": "streaming_settlement_not_supported", "message": "Chat streaming is disabled until tested billing settlement semantics exist"}})
+		return nil
+	}
+
 	// Resolve trusted internal user identity for app-originated requests.
 	ctx := c.Request.Context()
 	if internalAuth := c.GetHeader(types.HeaderInternalAuth); internalAuth != "" {
@@ -90,11 +95,6 @@ func (h *ChatHandler) Handle(c *gin.Context) error {
 	resp, err := h.executeRequest(c, req, usage)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "relay_error", "message": err.Error()}})
-		return nil
-	}
-
-	if stream {
-		h.handleStream(c, req, resp)
 		return nil
 	}
 
@@ -179,8 +179,5 @@ func (h *ChatHandler) doUpstreamRequest(req *channel.ProviderRequest) (*types.Pr
 	defer resp.Body.Close()
 
 	bodyOut, _ := io.ReadAll(resp.Body)
-	return &types.ProviderResponse{
-		StatusCode: resp.StatusCode,
-		Content:    bodyOut,
-	}, nil
+	return providerResponseFromHTTP(resp.StatusCode, bodyOut), nil
 }

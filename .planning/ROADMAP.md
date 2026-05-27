@@ -13,7 +13,7 @@
 
 Milestone v05 has been initialized from `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`.
 
-**Next workflow step:** plan Phase 15 Relay Billing Settlement and Refund Semantics.
+**Next workflow step:** plan Phase 16 Relay Authority Evidence and v05 Closeout.
 
 ## Current Milestone: v05 Relay Billing Completeness
 
@@ -23,7 +23,7 @@ Milestone v05 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 |-------|------|--------------|--------|
 | Phase 13 | Relay Endpoint Authority and Production Fail-Closed | RELAY-08, RELAY-09 | Complete |
 | Phase 14 | Relay Provider Bypass and Cost-Abuse Guardrails | RELAY-10, RELAY-11 | Complete |
-| Phase 15 | Relay Billing Settlement and Refund Semantics | BILL-01, BILL-02 | Planned |
+| Phase 15 | Relay Billing Settlement and Refund Semantics | BILL-01, BILL-02 | Complete |
 | Phase 16 | Relay Authority Evidence and v05 Closeout | DOC-04 | Planned |
 
 ### Phase 13: Relay Endpoint Authority and Production Fail-Closed
@@ -98,6 +98,13 @@ Milestone v05 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 - `cd src/server && go test ./internal/relay ./internal/quota -run 'Billing|Settlement|Refund|Idempotency|Streaming' -count=1`
 - DB-backed server integration tests for Relay billing and quota ledger behavior.
 
+**Completion evidence:**
+- Summary: `.planning/phases/15-relay-billing-settlement-and-refund-semantics/15-01-SUMMARY.md`
+- Focused billing lifecycle tests: `cd src/server && go test ./internal/relay -run 'DefaultPricingCovers|RouteWithBilling|BillingHook_Duplicate.*FreshSession' -count=1`
+- Provider usage and route policy tests: `cd src/server && go test ./internal/relay/channel -run 'EstimateUsage' -count=1` and `cd src/server && go test ./internal/relay/handler -run 'ProviderResponseFromHTTP|ResponsesStreaming|BillingSettlementPolicy|RoutePoliciesDeclareBilling' -count=1`
+- Broader relay/http check: `cd src/server && go test ./internal/relay/... ./internal/http -count=1`
+- Docs and Relay security gates: `bash scripts/check.sh docs` and `bash scripts/check.sh relay-security`
+
 ### Phase 16: Relay Authority Evidence and v05 Closeout
 
 **Goal:** Close v05 with reproducible evidence while keeping v06-v08 visible as required future commercial work.
@@ -123,8 +130,8 @@ Milestone v05 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 | RELAY-09 | Phase 13 | Complete — production fail-closed behavior for disabled/partial endpoints |
 | RELAY-10 | Phase 14 | Complete — provider-bypass CI checks |
 | RELAY-11 | Phase 14 | Complete — endpoint auth/rate-limit/audit semantics |
-| BILL-01 | Phase 15 | Planned — quota pre-authorization, exactly-once settlement, and refund behavior |
-| BILL-02 | Phase 15 | Planned — streaming/realtime/file/batch/async settlement or production disablement |
+| BILL-01 | Phase 15 | Complete — quota pre-authorization, exactly-once settlement, and refund behavior |
+| BILL-02 | Phase 15 | Complete — streaming/realtime/file/batch/async settlement or production disablement |
 | DOC-04 | Phase 16 | Planned — v05 route table, evidence, and closeout |
 
 ## Archived Milestone Details

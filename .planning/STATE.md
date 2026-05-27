@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v05
 milestone_name: Relay Billing Completeness
 status: planning
-stopped_at: Phase 15 ready to plan
-last_updated: "2026-05-28T07:30:00+08:00"
-last_activity: 2026-05-28 -- Phase 14 Relay provider bypass and cost-abuse guardrails completed
+stopped_at: Phase 16 ready to plan
+last_updated: "2026-05-28T09:10:00+08:00"
+last_activity: 2026-05-28 -- Phase 15 Relay billing settlement and refund semantics completed
 progress:
   total_phases: 4
-  completed_phases: 2
-  total_plans: 2
-  completed_plans: 2
-  percent: 50
+  completed_phases: 3
+  total_plans: 3
+  completed_plans: 3
+  percent: 75
 ---
 
 # STATE.md
@@ -22,7 +22,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-28)
 
 **Core value:** 统一的多渠道 LLM 调用层 — 所有 AI 调用必须经过 Relay
 
-**Current focus:** Phase 15 planning
+**Current focus:** Phase 16 planning
 
 ## Current Status
 
@@ -34,10 +34,10 @@ The overall commercial-complete objective remains open. v05 must prove the Relay
 
 ## Current Position
 
-Phase: 15 — Relay Billing Settlement and Refund Semantics
+Phase: 16 — Relay Authority Evidence and v05 Closeout
 Plan: not created
 Status: Ready to plan
-Last activity: 2026-05-28 -- Phase 14 completed with provider-bypass CI checks, production trusted identity guard, supported-route rate-limit/audit policy, and app Relay metadata coverage
+Last activity: 2026-05-28 -- Phase 15 completed with quota preauthorization, exactly-once settlement, refund behavior, provider usage parsing, route billing policy, and streaming/async production-disablement evidence
 
 ## Current Scope
 
@@ -47,15 +47,15 @@ Last activity: 2026-05-28 -- Phase 14 completed with provider-bypass CI checks, 
 | RELAY-09 | Complete | Unsupported or partial `/v1/*` endpoints fail closed in production before provider calls |
 | RELAY-10 | Complete | CI proves app services do not import provider SDKs or call direct provider URLs outside Relay/channel adapters |
 | RELAY-11 | Complete | Supported Relay endpoints enforce tenant identity, auth policy, rate-limit policy, and audit semantics |
-| BILL-01 | Planned | Supported Relay calls pre-authorize quota, settle exactly once per idempotency key, and refund failed calls |
-| BILL-02 | Planned | Streaming/realtime, file, batch, and async flows have explicit settlement models or are production-disabled |
+| BILL-01 | Complete | Supported Relay calls pre-authorize quota, settle exactly once per idempotency key, and refund failed calls |
+| BILL-02 | Complete | Streaming/realtime, file, batch, and async flows have explicit settlement models or are production-disabled |
 | DOC-04 | Planned | Relay route table, endpoint policy, and v05 verification evidence document the commercial Relay Authority Gate |
 
 ## Next Suggested Step
 
-Plan Phase 15 Relay Billing Settlement and Refund Semantics.
+Plan Phase 16 Relay Authority Evidence and v05 Closeout.
 
-Phase 15 should start from the Phase 13-14 route policy registry and implement quota preauthorization, exactly-once settlement, refund behavior, and explicit streaming/realtime/file/batch/async settlement or production-disablement evidence.
+Phase 16 should close v05 with reproducible route table, endpoint policy, billing, refund, and verification evidence while keeping v06 Billing And Marketplace Operations, v07 Production Operations, and v08 Product Completeness visible as required future work.
 
 ## Worktree Context
 
@@ -96,6 +96,9 @@ These remain required for the final user goal:
 - Phase 14 context: `.planning/phases/14-relay-provider-bypass-and-cost-abuse-guardrails/14-CONTEXT.md`
 - Phase 14 plan: `.planning/phases/14-relay-provider-bypass-and-cost-abuse-guardrails/14-01-PLAN.md`
 - Phase 14 summary: `.planning/phases/14-relay-provider-bypass-and-cost-abuse-guardrails/14-01-SUMMARY.md`
+- Phase 15 context: `.planning/phases/15-relay-billing-settlement-and-refund-semantics/15-CONTEXT.md`
+- Phase 15 plan: `.planning/phases/15-relay-billing-settlement-and-refund-semantics/15-01-PLAN.md`
+- Phase 15 summary: `.planning/phases/15-relay-billing-settlement-and-refund-semantics/15-01-SUMMARY.md`
 - Commercial gates: `docs/release/commercial-gates.md`
 - Commercial complete spec: `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`
 - v04 roadmap archive: `.planning/milestones/v04-ROADMAP.md`
@@ -113,6 +116,7 @@ These remain required for the final user goal:
 | 2026-05-28 | Phase 13 planned as the v05 first phase | `/v1/*` route classification and production fail-closed behavior are the safest first enforcement boundary before billing/audit expansion |
 | 2026-05-28 | Phase 13 completed | Route policy registry, production fail-closed behavior, route table docs, focused Relay handler tests, broader relay/http tests, docs gate, and diff check passed |
 | 2026-05-28 | Phase 14 completed | Provider-bypass CI checks, supported-route production identity guard, route-decision audit sink, route rate-limit policy, and Chat/Agent/Memory trusted Relay metadata are in place |
+| 2026-05-28 | Phase 15 completed | Supported Relay billing now preauthorizes selected-channel quota, settles exactly once per idempotency key, refunds failed or partial calls, parses provider usage, declares route billing policies, and keeps streaming/async/file flows disabled or explicitly rejected until tested |
 
 ---
-*State updated: 2026-05-28 after completing Phase 14 Relay provider guardrails*
+*State updated: 2026-05-28 after completing Phase 15 Relay billing settlement and refund semantics*

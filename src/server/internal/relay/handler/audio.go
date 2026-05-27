@@ -192,7 +192,7 @@ func (h *AudioHandler) executeRequestRaw(c *gin.Context, req *channel.ProviderRe
 			defer resp.Body.Close()
 
 			bodyOut, _ := io.ReadAll(resp.Body)
-			return &types.ProviderResponse{StatusCode: resp.StatusCode, Content: bodyOut}, nil
+			return providerResponseFromHTTP(resp.StatusCode, bodyOut), nil
 		},
 	)
 }
@@ -217,5 +217,5 @@ func (h *AudioHandler) doUpstreamRequest(req *channel.ProviderRequest) (*types.P
 	defer resp.Body.Close()
 
 	bodyOut, _ := io.ReadAll(resp.Body)
-	return &types.ProviderResponse{StatusCode: resp.StatusCode, Content: bodyOut}, nil
+	return providerResponseFromHTTP(resp.StatusCode, bodyOut), nil
 }

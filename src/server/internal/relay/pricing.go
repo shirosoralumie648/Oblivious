@@ -26,6 +26,10 @@ func NewPricingStoreWithDefaults() *PricingStore {
 			types.DimPromptTokens:     0.002,
 			types.DimCompletionTokens: 0.008,
 		},
+		types.APITypeResponses: {
+			types.DimPromptTokens:     0.002,
+			types.DimCompletionTokens: 0.008,
+		},
 		types.APITypeCompletions: {
 			types.DimPromptTokens:     0.002,
 			types.DimCompletionTokens: 0.008,
@@ -35,6 +39,24 @@ func NewPricingStoreWithDefaults() *PricingStore {
 		},
 		types.APITypeImageGen: {
 			types.DimImageCount: 0.004,
+		},
+		types.APITypeImageEdit: {
+			types.DimImageCount: 0.004,
+		},
+		types.APITypeImageVar: {
+			types.DimImageCount: 0.004,
+		},
+		types.APITypeAudioSpeech: {
+			types.DimAudioSeconds: 0.0001,
+		},
+		types.APITypeAudioSTT: {
+			types.DimAudioSeconds: 0.0001,
+		},
+		types.APITypeAudioTranslate: {
+			types.DimAudioSeconds: 0.0001,
+		},
+		types.APITypeModeration: {
+			types.DimPromptTokens: 0.0001,
 		},
 	}
 	for apiType, dims := range defaults {
@@ -69,6 +91,9 @@ func (s *PricingStore) GetPrice(model string, apiType types.APIType, dim types.U
 }
 
 func (s *PricingStore) CalculateCost(model string, apiType types.APIType, usage *types.Usage) float64 {
+	if usage == nil {
+		return 0
+	}
 	var total float64
 	if usage.PromptTokens > 0 {
 		if price, err := s.GetPrice(model, apiType, types.DimPromptTokens); err == nil {

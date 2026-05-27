@@ -16,8 +16,8 @@
 
 ### Relay Billing
 
-- [ ] **BILL-01**: Supported Relay calls pre-authorize quota, settle exactly once per idempotency key, and refund failed or partial calls.
-- [ ] **BILL-02**: Streaming/realtime, file, batch, and async flows have explicit settlement models or are production-disabled.
+- [x] **BILL-01**: Supported Relay calls pre-authorize quota, settle exactly once per idempotency key, and refund failed or partial calls. Completed in Phase 15 with channel-scoped preauthorization, billing idempotency snapshots, provider usage parsing, settlement/refund error propagation, and router lifecycle tests.
+- [x] **BILL-02**: Streaming/realtime, file, batch, and async flows have explicit settlement models or are production-disabled. Completed in Phase 15 with route `BillingPolicy` coverage, Chat/Responses streaming rejection, production-disabled async/file route evidence, and route table/docs quality gates.
 
 ### Relay Evidence
 
@@ -47,8 +47,8 @@
 | RELAY-09 | Phase 13 — Relay Endpoint Authority and Production Fail-Closed | Complete |
 | RELAY-10 | Phase 14 — Relay Provider Bypass and Cost-Abuse Guardrails | Complete |
 | RELAY-11 | Phase 14 — Relay Provider Bypass and Cost-Abuse Guardrails | Complete |
-| BILL-01 | Phase 15 — Relay Billing Settlement and Refund Semantics | Planned |
-| BILL-02 | Phase 15 — Relay Billing Settlement and Refund Semantics | Planned |
+| BILL-01 | Phase 15 — Relay Billing Settlement and Refund Semantics | Complete |
+| BILL-02 | Phase 15 — Relay Billing Settlement and Refund Semantics | Complete |
 | DOC-04 | Phase 16 — Relay Authority Evidence and v05 Closeout | Planned |
 
 ## Historical Validated Requirements

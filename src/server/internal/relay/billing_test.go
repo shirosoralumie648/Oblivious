@@ -2,6 +2,7 @@ package relay
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"oblivious/server/internal/quota"
@@ -14,18 +15,33 @@ type stubQuotaManager struct {
 	refundCalls        int
 	lastUserID         string
 	lastOrganizationID string
+	lastChannelID      string
+	lastModel          string
+	lastAPIType        string
+	lastIdempotencyKey string
 	lastSessionID      string
 	lastSettledAmt     float64
+	settleErr          error
+	refundErr          error
 }
 
 func (s *stubQuotaManager) PreConsume(ctx context.Context, userID, organizationID string, amount float64, idempotencyKey string, channelID, model, apiType string) (*quota.BillingSession, error) {
 	s.preconsumeCalls++
 	s.lastUserID = userID
 	s.lastOrganizationID = organizationID
+	s.lastChannelID = channelID
+	s.lastModel = model
+	s.lastAPIType = apiType
+	s.lastIdempotencyKey = idempotencyKey
+	sessionID := fmt.Sprintf("quota_session_%d", s.preconsumeCalls)
 	return &quota.BillingSession{
-		ID:               "quota_session_1",
+		ID:               sessionID,
 		OrganizationID:   organizationID,
 		UserID:           userID,
+		ChannelID:        channelID,
+		Model:            model,
+		APIType:          apiType,
+		IdempotencyKey:   idempotencyKey,
 		PreAuthorizedAmt: amount,
 	}, nil
 }
@@ -34,11 +50,18 @@ func (s *stubQuotaManager) Settle(ctx context.Context, sessionID string, actualA
 	s.settleCalls++
 	s.lastSessionID = sessionID
 	s.lastSettledAmt = actualAmount
+	if s.settleErr != nil {
+		return s.settleErr
+	}
 	return nil
 }
 
 func (s *stubQuotaManager) Refund(ctx context.Context, sessionID string) error {
 	s.refundCalls++
+	s.lastSessionID = sessionID
+	if s.refundErr != nil {
+		return s.refundErr
+	}
 	return nil
 }
 
@@ -365,5 +388,155 @@ func TestBillingHook_PreBillAndRefund_UseQuotaLifecycle(t *testing.T) {
 	}
 	if session.Status != BillingStatusRefunded {
 		t.Fatalf("expected status Refunded after refund, got %s", session.Status)
+	}
+}
+
+func TestBillingHook_DuplicatePreBillFreshSessionCopiesQuotaContext(t *testing.T) {
+	store := NewPricingStoreWithDefaults()
+	seen := make(map[string]bool)
+	hook := NewBillingHook(store, &seen)
+	quotaManager := &stubQuotaManager{}
+	hook.SetQuotaManager(quotaManager)
+
+	first := &BillingSession{
+		ID:             "sess_first",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		ChannelID:      "ch_1",
+		APIType:        types.APITypeChat,
+		Model:          "gpt-4o",
+		IdempotencyKey: "idem_fresh_dup",
+	}
+	firstAmount, err := hook.PreBill(first, &types.Usage{PromptTokens: 1000})
+	if err != nil {
+		t.Fatalf("first PreBill failed: %v", err)
+	}
+
+	duplicate := &BillingSession{
+		ID:             "sess_duplicate",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		ChannelID:      "ch_1",
+		APIType:        types.APITypeChat,
+		Model:          "gpt-4o",
+		IdempotencyKey: "idem_fresh_dup",
+	}
+	duplicateAmount, err := hook.PreBill(duplicate, &types.Usage{PromptTokens: 1000})
+	if err != nil {
+		t.Fatalf("duplicate PreBill failed: %v", err)
+	}
+
+	if quotaManager.preconsumeCalls != 1 {
+		t.Fatalf("expected duplicate PreBill to preconsume once, got %d", quotaManager.preconsumeCalls)
+	}
+	if duplicateAmount != firstAmount || duplicate.PreAuthorizedAmt != first.PreAuthorizedAmt {
+		t.Fatalf("duplicate preauth amount = %f/%f, want %f", duplicateAmount, duplicate.PreAuthorizedAmt, firstAmount)
+	}
+	if duplicate.QuotaSessionID != first.QuotaSessionID || duplicate.QuotaSessionID == "" {
+		t.Fatalf("duplicate quota session = %q, want original %q", duplicate.QuotaSessionID, first.QuotaSessionID)
+	}
+	if duplicate.Status != BillingStatusAuthorized {
+		t.Fatalf("duplicate status = %s, want %s", duplicate.Status, BillingStatusAuthorized)
+	}
+}
+
+func TestBillingHook_DuplicatePostBillFreshSessionReturnsPriorSettlement(t *testing.T) {
+	store := NewPricingStoreWithDefaults()
+	seen := make(map[string]bool)
+	hook := NewBillingHook(store, &seen)
+	quotaManager := &stubQuotaManager{}
+	hook.SetQuotaManager(quotaManager)
+
+	first := &BillingSession{
+		ID:               "sess_first",
+		OrganizationID:   "org_1",
+		UserID:           "user_1",
+		ChannelID:        "ch_1",
+		APIType:          types.APITypeChat,
+		Model:            "gpt-4o",
+		IdempotencyKey:   "idem_settle_dup",
+		QuotaSessionID:   "quota_session_1",
+		PreAuthorizedAmt: 10,
+		Status:           BillingStatusAuthorized,
+	}
+	firstSettled, err := hook.PostBill(first, &types.Usage{PromptTokens: 1000, CompletionTokens: 100})
+	if err != nil {
+		t.Fatalf("first PostBill failed: %v", err)
+	}
+
+	duplicate := &BillingSession{
+		ID:             "sess_duplicate",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		ChannelID:      "ch_1",
+		APIType:        types.APITypeChat,
+		Model:          "gpt-4o",
+		IdempotencyKey: "idem_settle_dup",
+		QuotaSessionID: "quota_session_1",
+	}
+	duplicateSettled, err := hook.PostBill(duplicate, &types.Usage{PromptTokens: 1000, CompletionTokens: 100})
+	if err != nil {
+		t.Fatalf("duplicate PostBill failed: %v", err)
+	}
+
+	if quotaManager.settleCalls != 1 {
+		t.Fatalf("expected duplicate PostBill to settle once, got %d", quotaManager.settleCalls)
+	}
+	if duplicateSettled != firstSettled || duplicate.SettledAmt != firstSettled {
+		t.Fatalf("duplicate settled amount = %f/%f, want %f", duplicateSettled, duplicate.SettledAmt, firstSettled)
+	}
+	if duplicate.Status != BillingStatusSettled {
+		t.Fatalf("duplicate status = %s, want %s", duplicate.Status, BillingStatusSettled)
+	}
+}
+
+func TestBillingHook_DuplicateRefundFreshSessionReturnsPriorRefund(t *testing.T) {
+	store := NewPricingStoreWithDefaults()
+	seen := make(map[string]bool)
+	hook := NewBillingHook(store, &seen)
+	quotaManager := &stubQuotaManager{}
+	hook.SetQuotaManager(quotaManager)
+
+	first := &BillingSession{
+		ID:               "sess_first",
+		OrganizationID:   "org_1",
+		UserID:           "user_1",
+		ChannelID:        "ch_1",
+		APIType:          types.APITypeChat,
+		Model:            "gpt-4o",
+		IdempotencyKey:   "idem_refund_dup",
+		QuotaSessionID:   "quota_session_1",
+		PreAuthorizedAmt: 10,
+		Status:           BillingStatusAuthorized,
+	}
+	firstRefund, err := hook.Refund(first)
+	if err != nil {
+		t.Fatalf("first Refund failed: %v", err)
+	}
+
+	duplicate := &BillingSession{
+		ID:               "sess_duplicate",
+		OrganizationID:   "org_1",
+		UserID:           "user_1",
+		ChannelID:        "ch_1",
+		APIType:          types.APITypeChat,
+		Model:            "gpt-4o",
+		IdempotencyKey:   "idem_refund_dup",
+		QuotaSessionID:   "quota_session_1",
+		PreAuthorizedAmt: 10,
+	}
+	duplicateRefund, err := hook.Refund(duplicate)
+	if err != nil {
+		t.Fatalf("duplicate Refund failed: %v", err)
+	}
+
+	if quotaManager.refundCalls != 1 {
+		t.Fatalf("expected duplicate Refund to refund once, got %d", quotaManager.refundCalls)
+	}
+	if duplicateRefund != firstRefund {
+		t.Fatalf("duplicate refund = %f, want %f", duplicateRefund, firstRefund)
+	}
+	if duplicate.Status != BillingStatusRefunded {
+		t.Fatalf("duplicate status = %s, want %s", duplicate.Status, BillingStatusRefunded)
 	}
 }

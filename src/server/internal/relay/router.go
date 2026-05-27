@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strconv"
 	"time"
 
 	"oblivious/server/internal/relay/types"
@@ -91,6 +90,10 @@ func (r *Router) Route(ctx context.Context, apiType string, fn func(ch *types.Ro
 		}
 	}
 
+	return r.executeOnChannel(ch, fn)
+}
+
+func (r *Router) executeOnChannel(ch *types.RouteChannel, fn func(ch *types.RouteChannel) (*types.ProviderResponse, error)) (*types.ProviderResponse, error) {
 	resp, err := fn(ch)
 	if err != nil {
 		if cb, ok := r.circuitBreakers[ch.Channel.ID]; ok {
@@ -190,16 +193,31 @@ func (r *Router) RouteWithBilling(
 	// Resolve trusted internal user identity for app-originated requests.
 	userID, _ := types.TrustedUserIDFromContext(ctx)
 	organizationID, _ := types.TrustedOrganizationIDFromContext(ctx)
+	requestID, _ := types.TrustedRequestIDFromContext(ctx)
+
+	ch := r.SelectChannel(ctx, apiType.String())
+	if ch == nil {
+		return nil, &RouterError{
+			Code:       http.StatusServiceUnavailable,
+			Message:    "no healthy channel available",
+			RetryAfter: 30,
+		}
+	}
+	selectedChannelID := routeChannelID(ch)
 
 	// Create a single billing session carried through the full lifecycle:
 	// PreBill -> PostBill (on success) or Refund (on failure).
 	session := &BillingSession{
-		ChannelID:      channelID,
+		ChannelID:      selectedChannelID,
 		APIType:        apiType,
 		Model:          model,
 		IdempotencyKey: idempotencyKey,
 		OrganizationID: organizationID,
 		UserID:         userID,
+		RequestID:      requestID,
+	}
+	if channelID != "" {
+		session.ChannelID = channelID
 	}
 
 	// Pre-authorize billing
@@ -214,22 +232,21 @@ func (r *Router) RouteWithBilling(
 	}
 
 	// Route the request
-	resp, err := r.Route(ctx, strconv.Itoa(int(apiType)), fn)
+	resp, err := r.executeOnChannel(ch, fn)
 
 	// Post-bill (settle) on success, or refund on failure
 	if r.billingHook != nil {
-		if err == nil && resp != nil && resp.Usage != nil {
-			r.billingHook.PostBill(session, resp.Usage)
-		} else if err != nil {
-			// On error, refund the quota session.
-			r.billingHook.Refund(session)
+		if err != nil {
+			if refundErr := r.refundBillingSession(session); refundErr != nil {
+				return nil, refundErr
+			}
 			// Also enqueue a timeout-based refund as a safety net for
 			// cases where the upstream may have consumed resources
 			// despite the client-side error.
 			if r.billingRedisAddr != "" {
 				timeoutTask := &BillingTimeoutTask{
 					SessionID:      session.ID,
-					ChannelID:      channelID,
+					ChannelID:      session.ChannelID,
 					APIType:        apiType,
 					Model:          model,
 					AuthAmt:        session.PreAuthorizedAmt,
@@ -240,8 +257,104 @@ func (r *Router) RouteWithBilling(
 				}
 				EnqueueBillingTimeoutTask(r.billingRedisAddr, timeoutTask, 5*time.Minute)
 			}
+			return resp, err
+		}
+
+		if resp == nil {
+			return nil, r.refundBillingFailure(session, "nil provider response", http.StatusBadGateway)
+		}
+
+		if resp.StatusCode >= http.StatusBadRequest {
+			return resp, r.refundBillingFailure(session, fmt.Sprintf("provider error response status %d", resp.StatusCode), resp.StatusCode)
+		}
+
+		settlementUsage, usageErr := settlementUsageForResponse(apiType, usage, resp)
+		if usageErr != nil {
+			return resp, r.refundBillingFailure(session, usageErr.Error(), http.StatusBadGateway)
+		}
+
+		if _, err := r.billingHook.PostBill(session, settlementUsage); err != nil {
+			return resp, &RouterError{
+				Code:    http.StatusInternalServerError,
+				Message: "billing settlement failed: " + err.Error(),
+			}
 		}
 	}
 
 	return resp, err
+}
+
+func (r *Router) refundBillingSession(session *BillingSession) error {
+	if _, err := r.billingHook.Refund(session); err != nil {
+		return &RouterError{
+			Code:    http.StatusInternalServerError,
+			Message: "billing refund failed: " + err.Error(),
+		}
+	}
+	return nil
+}
+
+func (r *Router) refundBillingFailure(session *BillingSession, reason string, statusCode int) error {
+	if err := r.refundBillingSession(session); err != nil {
+		return err
+	}
+	if statusCode < http.StatusBadRequest {
+		statusCode = http.StatusBadGateway
+	}
+	return &RouterError{
+		Code:    statusCode,
+		Message: "billing refund completed: " + reason,
+	}
+}
+
+func routeChannelID(ch *types.RouteChannel) string {
+	if ch == nil {
+		return ""
+	}
+	if ch.ChannelID != "" {
+		return ch.ChannelID
+	}
+	if ch.Channel != nil {
+		return ch.Channel.ID
+	}
+	return ""
+}
+
+type billingSettlementPolicy int
+
+const (
+	billingSettlementRequiresUsage billingSettlementPolicy = iota
+	billingSettlementAllowsEstimate
+	billingSettlementProductionDisabled
+)
+
+func settlementUsageForResponse(apiType types.APIType, estimate *types.Usage, resp *types.ProviderResponse) (*types.Usage, error) {
+	if resp != nil && resp.Usage != nil {
+		return resp.Usage, nil
+	}
+
+	switch settlementPolicyForAPIType(apiType) {
+	case billingSettlementAllowsEstimate:
+		if estimate != nil {
+			return estimate, nil
+		}
+		return nil, fmt.Errorf("missing settlement estimate")
+	case billingSettlementRequiresUsage:
+		return nil, fmt.Errorf("missing required usage")
+	default:
+		return nil, fmt.Errorf("billing settlement policy is production disabled")
+	}
+}
+
+func settlementPolicyForAPIType(apiType types.APIType) billingSettlementPolicy {
+	switch apiType {
+	case types.APITypeImageGen, types.APITypeImageEdit, types.APITypeImageVar,
+		types.APITypeAudioSpeech, types.APITypeAudioSTT, types.APITypeAudioTranslate,
+		types.APITypeModeration:
+		return billingSettlementAllowsEstimate
+	case types.APITypeChat, types.APITypeResponses, types.APITypeEmbeddings, types.APITypeCompletions:
+		return billingSettlementRequiresUsage
+	default:
+		return billingSettlementProductionDisabled
+	}
 }
