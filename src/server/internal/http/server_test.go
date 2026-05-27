@@ -59,6 +59,7 @@ func testDatabase(t *testing.T) *sql.DB {
 		`DROP TABLE IF EXISTS conversations`,
 		`DROP TABLE IF EXISTS sessions`,
 		`DROP TABLE IF EXISTS workspaces`,
+		`DROP TABLE IF EXISTS organizations`,
 		`DROP TABLE IF EXISTS users`,
 		`CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'user', name TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), last_login_at TIMESTAMPTZ)`,
 		`CREATE TABLE workspaces (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, name TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
