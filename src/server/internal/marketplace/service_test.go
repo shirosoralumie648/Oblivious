@@ -11,6 +11,7 @@ type marketplaceServiceStore struct {
 	installs       map[string]*AgentInstall
 	reviews        map[string]*AgentReview
 	lastOwnerID    string
+	lastOrgID      string
 	lastListLimit  int
 	lastListOffset int
 }
@@ -19,11 +20,12 @@ func newMarketplaceServiceStore() *marketplaceServiceStore {
 	return &marketplaceServiceStore{
 		agents: map[string]*PublishedAgent{
 			"agent_approved": {
-				ID:         "agent_approved",
-				OwnerID:    "owner_1",
-				Name:       "Approved Agent",
-				Status:     "approved",
-				Visibility: "public",
+				ID:             "agent_approved",
+				OrganizationID: "publisher_org",
+				OwnerID:        "owner_1",
+				Name:           "Approved Agent",
+				Status:         "approved",
+				Visibility:     "public",
 			},
 		},
 		installs: make(map[string]*AgentInstall),
@@ -31,17 +33,30 @@ func newMarketplaceServiceStore() *marketplaceServiceStore {
 	}
 }
 
-func (s *marketplaceServiceStore) CreateAgent(ctx context.Context, ownerID string, input AgentPublishRequest) (*PublishedAgent, error) {
+func marketplaceTenantKey(parts ...string) string {
+	key := ""
+	for _, part := range parts {
+		if key != "" {
+			key += ":"
+		}
+		key += part
+	}
+	return key
+}
+
+func (s *marketplaceServiceStore) CreateAgent(ctx context.Context, ownerID, organizationID string, input AgentPublishRequest) (*PublishedAgent, error) {
 	s.lastOwnerID = ownerID
+	s.lastOrgID = organizationID
 	agent := &PublishedAgent{
-		ID:          "agent_new",
-		OwnerID:     ownerID,
-		Name:        input.Name,
-		Description: input.Description,
-		Tools:       input.Tools,
-		Visibility:  input.Visibility,
-		Status:      "pending_review",
-		PricingType: input.PricingType,
+		ID:             "agent_new",
+		OrganizationID: organizationID,
+		OwnerID:        ownerID,
+		Name:           input.Name,
+		Description:    input.Description,
+		Tools:          input.Tools,
+		Visibility:     input.Visibility,
+		Status:         "pending_review",
+		PricingType:    input.PricingType,
 	}
 	s.agents[agent.ID] = agent
 	return agent, nil
@@ -51,9 +66,9 @@ func (s *marketplaceServiceStore) GetAgent(ctx context.Context, id string) (*Pub
 	return s.agents[id], nil
 }
 
-func (s *marketplaceServiceStore) UpdateAgent(ctx context.Context, id string, input AgentPublishRequest) (*PublishedAgent, error) {
+func (s *marketplaceServiceStore) UpdateAgent(ctx context.Context, id, organizationID string, input AgentPublishRequest) (*PublishedAgent, error) {
 	agent := s.agents[id]
-	if agent == nil {
+	if agent == nil || agent.OrganizationID != organizationID {
 		return nil, nil
 	}
 	agent.Name = input.Name
@@ -64,16 +79,19 @@ func (s *marketplaceServiceStore) UpdateAgent(ctx context.Context, id string, in
 	return agent, nil
 }
 
-func (s *marketplaceServiceStore) DeleteAgent(ctx context.Context, id string) error {
-	delete(s.agents, id)
+func (s *marketplaceServiceStore) DeleteAgent(ctx context.Context, id, organizationID string) error {
+	if agent := s.agents[id]; agent != nil && agent.OrganizationID == organizationID {
+		delete(s.agents, id)
+	}
 	return nil
 }
 
-func (s *marketplaceServiceStore) ListUserAgents(ctx context.Context, ownerID string, limit, offset int) ([]*PublishedAgent, error) {
+func (s *marketplaceServiceStore) ListUserAgents(ctx context.Context, ownerID, organizationID string, limit, offset int) ([]*PublishedAgent, error) {
 	s.lastOwnerID = ownerID
+	s.lastOrgID = organizationID
 	s.lastListLimit = limit
 	s.lastListOffset = offset
-	return []*PublishedAgent{{ID: "agent_owned", OwnerID: ownerID, Name: "Owned Agent"}}, nil
+	return []*PublishedAgent{{ID: "agent_owned", OrganizationID: organizationID, OwnerID: ownerID, Name: "Owned Agent"}}, nil
 }
 
 func (s *marketplaceServiceStore) ListPendingReviews(ctx context.Context, limit, offset int) ([]*PublishedAgent, error) {
@@ -95,8 +113,8 @@ func (s *marketplaceServiceStore) RejectAgent(ctx context.Context, id, reviewerI
 	return nil
 }
 
-func (s *marketplaceServiceStore) CreateVersion(ctx context.Context, agentID string, version, changelog string, metadata string) (*AgentVersion, error) {
-	return &AgentVersion{ID: "version_1", AgentID: agentID, Version: version, Changelog: changelog}, nil
+func (s *marketplaceServiceStore) CreateVersion(ctx context.Context, agentID, organizationID string, version, changelog string, metadata string) (*AgentVersion, error) {
+	return &AgentVersion{ID: "version_1", AgentID: agentID, OrganizationID: organizationID, Version: version, Changelog: changelog}, nil
 }
 
 func (s *marketplaceServiceStore) ListVersions(ctx context.Context, agentID string) ([]*AgentVersion, error) {
@@ -107,41 +125,41 @@ func (s *marketplaceServiceStore) GetVersion(ctx context.Context, agentID, versi
 	return &AgentVersion{ID: "version_1", AgentID: agentID, Version: version}, nil
 }
 
-func (s *marketplaceServiceStore) InstallAgent(ctx context.Context, agentID, userID, versionID string) (*AgentInstall, error) {
-	install := &AgentInstall{ID: "install_1", AgentID: agentID, UserID: userID}
-	s.installs[agentID+":"+userID] = install
+func (s *marketplaceServiceStore) InstallAgent(ctx context.Context, agentID, userID, organizationID, versionID string) (*AgentInstall, error) {
+	install := &AgentInstall{ID: "install_1", AgentID: agentID, OrganizationID: organizationID, UserID: userID}
+	s.installs[marketplaceTenantKey(organizationID, agentID, userID)] = install
 	return install, nil
 }
 
-func (s *marketplaceServiceStore) UninstallAgent(ctx context.Context, agentID, userID string) error {
-	delete(s.installs, agentID+":"+userID)
+func (s *marketplaceServiceStore) UninstallAgent(ctx context.Context, agentID, userID, organizationID string) error {
+	delete(s.installs, marketplaceTenantKey(organizationID, agentID, userID))
 	return nil
 }
 
-func (s *marketplaceServiceStore) ListUserInstalls(ctx context.Context, userID string) ([]*AgentInstall, error) {
+func (s *marketplaceServiceStore) ListUserInstalls(ctx context.Context, userID, organizationID string) ([]*AgentInstall, error) {
 	var installs []*AgentInstall
 	for _, install := range s.installs {
-		if install.UserID == userID {
+		if install.UserID == userID && install.OrganizationID == organizationID {
 			installs = append(installs, install)
 		}
 	}
 	return installs, nil
 }
 
-func (s *marketplaceServiceStore) IsInstalled(ctx context.Context, agentID, userID string) (bool, error) {
-	_, ok := s.installs[agentID+":"+userID]
+func (s *marketplaceServiceStore) IsInstalled(ctx context.Context, agentID, userID, organizationID string) (bool, error) {
+	_, ok := s.installs[marketplaceTenantKey(organizationID, agentID, userID)]
 	return ok, nil
 }
 
-func (s *marketplaceServiceStore) CreateReview(ctx context.Context, userID string, input ReviewInput) (*AgentReview, error) {
-	review := &AgentReview{ID: "review_1", AgentID: input.AgentID, UserID: userID, Rating: input.Rating, Body: input.Body}
-	s.reviews[input.AgentID+":"+userID] = review
+func (s *marketplaceServiceStore) CreateReview(ctx context.Context, userID, organizationID string, input ReviewInput) (*AgentReview, error) {
+	review := &AgentReview{ID: "review_1", AgentID: input.AgentID, OrganizationID: organizationID, UserID: userID, Rating: input.Rating, Body: input.Body}
+	s.reviews[marketplaceTenantKey(organizationID, input.AgentID, userID)] = review
 	return review, nil
 }
 
-func (s *marketplaceServiceStore) UpdateReview(ctx context.Context, userID string, input ReviewInput) (*AgentReview, error) {
-	review := &AgentReview{ID: "review_1", AgentID: input.AgentID, UserID: userID, Rating: input.Rating, Body: input.Body}
-	s.reviews[input.AgentID+":"+userID] = review
+func (s *marketplaceServiceStore) UpdateReview(ctx context.Context, userID, organizationID string, input ReviewInput) (*AgentReview, error) {
+	review := &AgentReview{ID: "review_1", AgentID: input.AgentID, OrganizationID: organizationID, UserID: userID, Rating: input.Rating, Body: input.Body}
+	s.reviews[marketplaceTenantKey(organizationID, input.AgentID, userID)] = review
 	return review, nil
 }
 
@@ -149,8 +167,8 @@ func (s *marketplaceServiceStore) ListReviews(ctx context.Context, agentID strin
 	return []*AgentReview{{ID: "review_1", AgentID: agentID, Rating: 5}}, nil
 }
 
-func (s *marketplaceServiceStore) GetUserReview(ctx context.Context, agentID, userID string) (*AgentReview, error) {
-	return s.reviews[agentID+":"+userID], nil
+func (s *marketplaceServiceStore) GetUserReview(ctx context.Context, agentID, userID, organizationID string) (*AgentReview, error) {
+	return s.reviews[marketplaceTenantKey(organizationID, agentID, userID)], nil
 }
 
 func (s *marketplaceServiceStore) ListCategories(ctx context.Context) ([]*Category, error) {
@@ -199,7 +217,7 @@ func TestServicePublishAgentCreatesPendingReviewAndAudit(t *testing.T) {
 	audit := &marketplaceAuditRecorder{}
 	service := NewService(store, audit)
 
-	agent, err := service.PublishAgent(context.Background(), "owner_1", "owner@example.com", validAgentPublishRequest(), "127.0.0.1")
+	agent, err := service.PublishAgent(context.Background(), "owner_1", "org_1", "owner@example.com", validAgentPublishRequest(), "127.0.0.1")
 	if err != nil {
 		t.Fatalf("PublishAgent returned error: %v", err)
 	}
@@ -208,6 +226,9 @@ func TestServicePublishAgentCreatesPendingReviewAndAudit(t *testing.T) {
 	}
 	if store.lastOwnerID != "owner_1" {
 		t.Fatalf("expected owner_1 to be passed to store, got %q", store.lastOwnerID)
+	}
+	if store.lastOrgID != "org_1" || agent.OrganizationID != "org_1" {
+		t.Fatalf("expected org_1 to be passed through, store=%q agent=%q", store.lastOrgID, agent.OrganizationID)
 	}
 	if len(audit.actions) != 1 || audit.actions[0] != "agent.publish" {
 		t.Fatalf("expected agent.publish audit action, got %v", audit.actions)
@@ -218,11 +239,11 @@ func TestServiceInstallAgentCreatesUserInstall(t *testing.T) {
 	store := newMarketplaceServiceStore()
 	service := NewService(store, nil)
 
-	install, err := service.InstallAgent(context.Background(), "user_1", "agent_approved", "version_1")
+	install, err := service.InstallAgent(context.Background(), "user_1", "org_1", "agent_approved", "version_1")
 	if err != nil {
 		t.Fatalf("InstallAgent returned error: %v", err)
 	}
-	if install.AgentID != "agent_approved" || install.UserID != "user_1" {
+	if install.AgentID != "agent_approved" || install.UserID != "user_1" || install.OrganizationID != "org_1" {
 		t.Fatalf("unexpected install: %#v", install)
 	}
 }
@@ -230,11 +251,11 @@ func TestServiceInstallAgentCreatesUserInstall(t *testing.T) {
 func TestServiceSubmitReviewCreatesAndUpdatesInstalledUserReview(t *testing.T) {
 	store := newMarketplaceServiceStore()
 	service := NewService(store, nil)
-	if _, err := service.InstallAgent(context.Background(), "user_1", "agent_approved", "version_1"); err != nil {
+	if _, err := service.InstallAgent(context.Background(), "user_1", "org_1", "agent_approved", "version_1"); err != nil {
 		t.Fatalf("InstallAgent returned error: %v", err)
 	}
 
-	review, err := service.SubmitReview(context.Background(), "user_1", "Reviewer", ReviewInput{
+	review, err := service.SubmitReview(context.Background(), "user_1", "org_1", "Reviewer", ReviewInput{
 		AgentID: "agent_approved",
 		Rating:  5,
 		Body:    "Excellent release assistant.",
@@ -246,7 +267,7 @@ func TestServiceSubmitReviewCreatesAndUpdatesInstalledUserReview(t *testing.T) {
 		t.Fatalf("expected initial rating 5, got %d", review.Rating)
 	}
 
-	updated, err := service.SubmitReview(context.Background(), "user_1", "Reviewer", ReviewInput{
+	updated, err := service.SubmitReview(context.Background(), "user_1", "org_1", "Reviewer", ReviewInput{
 		AgentID: "agent_approved",
 		Rating:  4,
 		Body:    "Still useful after another pass.",
@@ -263,7 +284,7 @@ func TestServiceListUserAgentsClampsMyAgentsPagination(t *testing.T) {
 	store := newMarketplaceServiceStore()
 	service := NewService(store, nil)
 
-	agents, err := service.ListUserAgents(context.Background(), "owner_1", 999, 7)
+	agents, err := service.ListUserAgents(context.Background(), "owner_1", "org_1", 999, 7)
 	if err != nil {
 		t.Fatalf("ListUserAgents returned error: %v", err)
 	}
@@ -272,5 +293,8 @@ func TestServiceListUserAgentsClampsMyAgentsPagination(t *testing.T) {
 	}
 	if store.lastListLimit != 20 || store.lastListOffset != 7 {
 		t.Fatalf("expected clamped limit=20 offset=7, got limit=%d offset=%d", store.lastListLimit, store.lastListOffset)
+	}
+	if store.lastOrgID != "org_1" || agents[0].OrganizationID != "org_1" {
+		t.Fatalf("expected org_1 to be used for my-agents, store=%q agent=%q", store.lastOrgID, agents[0].OrganizationID)
 	}
 }

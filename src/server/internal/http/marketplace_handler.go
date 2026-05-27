@@ -68,7 +68,7 @@ func (h marketplaceHandler) publishAgent(w stdhttp.ResponseWriter, r *stdhttp.Re
 		return
 	}
 
-	agent, err := h.service.PublishAgent(r.Context(), session.User.ID, session.User.Email, req, requestClientIP(r))
+	agent, err := h.service.PublishAgent(r.Context(), session.User.ID, session.OrganizationID, session.User.Email, req, requestClientIP(r))
 	if err != nil {
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
 		return
@@ -88,7 +88,7 @@ func (h marketplaceHandler) updateAgent(w stdhttp.ResponseWriter, r *stdhttp.Req
 		return
 	}
 
-	agent, err := h.service.UpdateAgent(r.Context(), session.User.ID, session.User.Email, agentID, req, requestClientIP(r))
+	agent, err := h.service.UpdateAgent(r.Context(), session.User.ID, session.OrganizationID, session.User.Email, agentID, req, requestClientIP(r))
 	if err != nil {
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
 		return
@@ -103,7 +103,7 @@ func (h marketplaceHandler) deleteAgent(w stdhttp.ResponseWriter, r *stdhttp.Req
 		return
 	}
 
-	if err := h.service.DeleteAgent(r.Context(), session.User.ID, agentID); err != nil {
+	if err := h.service.DeleteAgent(r.Context(), session.User.ID, session.OrganizationID, agentID); err != nil {
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
@@ -127,7 +127,7 @@ func (h marketplaceHandler) installAgent(w stdhttp.ResponseWriter, r *stdhttp.Re
 		}
 	}
 
-	install, err := h.service.InstallAgent(r.Context(), session.User.ID, agentID, versionID)
+	install, err := h.service.InstallAgent(r.Context(), session.User.ID, session.OrganizationID, agentID, versionID)
 	if err != nil {
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
 		return
@@ -142,7 +142,7 @@ func (h marketplaceHandler) uninstallAgent(w stdhttp.ResponseWriter, r *stdhttp.
 		return
 	}
 
-	if err := h.service.UninstallAgent(r.Context(), session.User.ID, agentID); err != nil {
+	if err := h.service.UninstallAgent(r.Context(), session.User.ID, session.OrganizationID, agentID); err != nil {
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
@@ -156,7 +156,7 @@ func (h marketplaceHandler) listInstalledAgents(w stdhttp.ResponseWriter, r *std
 		return
 	}
 
-	installs, err := h.service.ListUserInstalls(r.Context(), session.User.ID)
+	installs, err := h.service.ListUserInstalls(r.Context(), session.User.ID, session.OrganizationID)
 	if err != nil {
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
 		return
@@ -176,7 +176,7 @@ func (h marketplaceHandler) listMyAgents(w stdhttp.ResponseWriter, r *stdhttp.Re
 
 	limit := parseQueryInt(r, "limit", 20, 100)
 	offset := parseQueryInt(r, "offset", 0, 0)
-	agents, err := h.service.ListUserAgents(r.Context(), session.User.ID, limit, offset)
+	agents, err := h.service.ListUserAgents(r.Context(), session.User.ID, session.OrganizationID, limit, offset)
 	if err != nil {
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
 		return
@@ -276,7 +276,7 @@ func (h marketplaceHandler) submitReview(w stdhttp.ResponseWriter, r *stdhttp.Re
 	}
 	req.AgentID = agentID
 
-	review, err := h.service.SubmitReview(r.Context(), session.User.ID, session.User.Name, req)
+	review, err := h.service.SubmitReview(r.Context(), session.User.ID, session.OrganizationID, session.User.Name, req)
 	if err != nil {
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
 		return
@@ -304,7 +304,7 @@ func (h marketplaceHandler) getPublisherStats(w stdhttp.ResponseWriter, r *stdht
 		return
 	}
 
-	stats, err := h.service.GetPublisherStats(r.Context(), session.User.ID)
+	stats, err := h.service.GetPublisherStats(r.Context(), session.User.ID, session.OrganizationID)
 	if err != nil {
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
 		return
@@ -314,7 +314,12 @@ func (h marketplaceHandler) getPublisherStats(w stdhttp.ResponseWriter, r *stdht
 }
 
 func (h marketplaceHandler) getAgentStats(w stdhttp.ResponseWriter, r *stdhttp.Request, agentID string) {
-	stats, err := h.service.GetAgentStats(r.Context(), agentID)
+	session, ok := sessionOrUnauthorized(w, r)
+	if !ok {
+		return
+	}
+
+	stats, err := h.service.GetAgentStats(r.Context(), agentID, session.OrganizationID)
 	if err != nil {
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
 		return

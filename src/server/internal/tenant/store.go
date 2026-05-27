@@ -559,9 +559,9 @@ func insertAudit(ctx context.Context, tx execer, audit AuditRecord) error {
 		return errors.New("audit actor id is required")
 	}
 	_, err := tx.ExecContext(ctx, `
-INSERT INTO audit_logs (id, actor_id, actor_email, action, resource_type, resource_id, changes, ip_address, created_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-`, newID(), audit.ActorID, audit.ActorEmail, audit.Action, audit.ResourceType, audit.ResourceID, nullString(audit.Changes), nullString(audit.IPAddress))
+	INSERT INTO audit_logs (id, actor_id, actor_email, action, resource_type, resource_id, organization_id, changes, ip_address, created_at)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+	`, newID(), audit.ActorID, audit.ActorEmail, audit.Action, audit.ResourceType, audit.ResourceID, nullString(audit.OrganizationID), nullString(audit.Changes), nullString(audit.IPAddress))
 	if err != nil {
 		return fmt.Errorf("create audit entry: %w", err)
 	}

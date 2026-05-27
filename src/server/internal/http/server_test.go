@@ -56,6 +56,12 @@ func testDatabase(t *testing.T) *sql.DB {
 		`DROP TABLE IF EXISTS password_reset_tokens CASCADE`,
 		`DROP TABLE IF EXISTS auth_rate_limits CASCADE`,
 		`DROP TABLE IF EXISTS audit_logs CASCADE`,
+		`DROP TABLE IF EXISTS agent_tags CASCADE`,
+		`DROP TABLE IF EXISTS agent_reviews CASCADE`,
+		`DROP TABLE IF EXISTS agent_installs CASCADE`,
+		`DROP TABLE IF EXISTS agent_versions CASCADE`,
+		`DROP TABLE IF EXISTS published_agents CASCADE`,
+		`DROP TABLE IF EXISTS categories CASCADE`,
 		`DROP TABLE IF EXISTS usage_records CASCADE`,
 		`DROP TABLE IF EXISTS billing_sessions CASCADE`,
 		`DROP TABLE IF EXISTS topup_orders CASCADE`,
@@ -86,7 +92,7 @@ func testDatabase(t *testing.T) *sql.DB {
 		`CREATE TABLE sessions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), expires_at TIMESTAMPTZ NOT NULL)`,
 		`CREATE TABLE auth_rate_limits (scope TEXT NOT NULL, key TEXT NOT NULL, window_start TIMESTAMPTZ NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, blocked_until TIMESTAMPTZ, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY (scope, key))`,
 		`CREATE TABLE password_reset_tokens (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, token_hash TEXT NOT NULL UNIQUE, expires_at TIMESTAMPTZ NOT NULL, used_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
-		`CREATE TABLE audit_logs (id TEXT PRIMARY KEY, actor_id TEXT NOT NULL REFERENCES users(id), actor_email TEXT NOT NULL, action TEXT NOT NULL, resource_type TEXT NOT NULL, resource_id TEXT, changes JSONB, ip_address TEXT, user_agent TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE TABLE audit_logs (id TEXT PRIMARY KEY, actor_id TEXT NOT NULL REFERENCES users(id), actor_email TEXT NOT NULL, action TEXT NOT NULL, resource_type TEXT NOT NULL, resource_id TEXT, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, changes JSONB, ip_address TEXT, user_agent TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE organization_memberships (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, role TEXT NOT NULL, created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), removed_at TIMESTAMPTZ, CHECK (role IN ('owner', 'admin', 'member')))`,
 		`CREATE UNIQUE INDEX idx_org_memberships_active_user_http_test ON organization_memberships(organization_id, user_id) WHERE removed_at IS NULL`,
 		`CREATE UNIQUE INDEX idx_org_memberships_single_owner_http_test ON organization_memberships(organization_id) WHERE role = 'owner' AND removed_at IS NULL`,
@@ -112,6 +118,12 @@ func testDatabase(t *testing.T) *sql.DB {
 		`CREATE TABLE memory_documents (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, title TEXT, content TEXT NOT NULL, source_type TEXT DEFAULT 'manual', source_url TEXT, metadata JSONB DEFAULT '{}', total_chunks INTEGER DEFAULT 0, embedding_model TEXT DEFAULT 'text-embedding-3-small', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE memory_chunks (id TEXT PRIMARY KEY, document_id TEXT NOT NULL REFERENCES memory_documents(id) ON DELETE CASCADE, user_id TEXT NOT NULL, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, content TEXT NOT NULL, chunk_index INTEGER NOT NULL, embedding TEXT, metadata JSONB DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE (document_id, chunk_index))`,
 		`CREATE TABLE mcp_servers (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, name TEXT NOT NULL, url TEXT NOT NULL, auth_token_encrypted TEXT, status TEXT DEFAULT 'disconnected', last_connected_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE TABLE categories (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, slug TEXT NOT NULL UNIQUE, display_order INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE TABLE published_agents (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, name TEXT NOT NULL, description TEXT NOT NULL, icon_url TEXT, category_id TEXT REFERENCES categories(id), tags TEXT[] NOT NULL DEFAULT '{}', tools JSONB, example_conversations JSONB, system_prompt TEXT, visibility TEXT NOT NULL DEFAULT 'private', status TEXT NOT NULL DEFAULT 'draft', review_reason TEXT, pricing_type TEXT NOT NULL DEFAULT 'free', pricing_amount DECIMAL(10,2) DEFAULT 0, install_count INTEGER NOT NULL DEFAULT 0, rating_avg DECIMAL(3,2) DEFAULT 0, rating_count INTEGER NOT NULL DEFAULT 0, reviewed_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE TABLE agent_versions (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL REFERENCES published_agents(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, version TEXT NOT NULL, changelog TEXT, metadata JSONB, status TEXT NOT NULL DEFAULT 'pending_review', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE(agent_id, version))`,
+		`CREATE TABLE agent_installs (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL REFERENCES published_agents(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, version_id TEXT REFERENCES agent_versions(id), installed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE(organization_id, agent_id, user_id))`,
+		`CREATE TABLE agent_reviews (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL REFERENCES published_agents(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5), body TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE(organization_id, agent_id, user_id))`,
+		`CREATE TABLE agent_tags (agent_id TEXT NOT NULL REFERENCES published_agents(id) ON DELETE CASCADE, tag TEXT NOT NULL, PRIMARY KEY(agent_id, tag))`,
 	}
 	for _, statement := range statements {
 		if _, err := database.Exec(statement); err != nil {
@@ -1044,6 +1056,168 @@ func TestCrossTenantQuotaScopeUsesActiveOrganization(t *testing.T) {
 	}
 }
 
+func TestCrossTenantMarketplacePublisherScopeUsesActiveOrganization(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+
+	cookie, csrfToken, userID := registerHTTPUser(t, router, "cross-marketplace@example.com")
+	_, activeOrganizationID := queryHTTPUserScope(t, database, userID)
+	promoteHTTPUserToAdmin(t, database, userID)
+	otherOrganizationID := createHTTPOrganization(t, router, cookie, csrfToken, "Other Marketplace Org", "other-marketplace-org")
+
+	if _, err := database.Exec(`
+		INSERT INTO published_agents (id, owner_id, organization_id, name, description, tools, example_conversations, visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at)
+		VALUES
+			('agent_active_org', $1, $2, 'Active Org Agent', 'Agent owned by active organization.', '{"tools":[{"name":"active"}]}'::jsonb, '[]'::jsonb, 'public', 'approved', 'free', 0, 5, 0, 0, NOW(), NOW()),
+			('agent_other_org', $1, $3, 'Other Org Agent', 'Agent owned by another organization.', '{"tools":[{"name":"other"}]}'::jsonb, '[]'::jsonb, 'public', 'approved', 'free', 0, 7, 0, 0, NOW(), NOW())
+	`, userID, activeOrganizationID, otherOrganizationID); err != nil {
+		t.Fatalf("insert marketplace agents: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO agent_installs (id, agent_id, user_id, organization_id, installed_at)
+		VALUES ('install_other_org', 'agent_active_org', $1, $2, NOW())
+	`, userID, otherOrganizationID); err != nil {
+		t.Fatalf("insert other org install: %v", err)
+	}
+
+	myAgentsRecorder := httptest.NewRecorder()
+	myAgentsRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/marketplace/my-agents", nil)
+	myAgentsRequest.AddCookie(cookie)
+	router.ServeHTTP(myAgentsRecorder, myAgentsRequest)
+	if myAgentsRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("my-agents expected 200, got %d with body %s", myAgentsRecorder.Code, myAgentsRecorder.Body.String())
+	}
+	var myAgentsResponse struct {
+		Data struct {
+			Agents []struct {
+				ID             string `json:"id"`
+				OrganizationID string `json:"organizationId"`
+			} `json:"agents"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(myAgentsRecorder.Body.Bytes(), &myAgentsResponse); err != nil {
+		t.Fatalf("decode my-agents: %v", err)
+	}
+	if len(myAgentsResponse.Data.Agents) != 1 || myAgentsResponse.Data.Agents[0].ID != "agent_active_org" {
+		t.Fatalf("expected only active organization agent, got %+v", myAgentsResponse.Data.Agents)
+	}
+	if myAgentsResponse.Data.Agents[0].OrganizationID != activeOrganizationID {
+		t.Fatalf("expected active organization id on my-agent, got %q", myAgentsResponse.Data.Agents[0].OrganizationID)
+	}
+
+	updateBody := `{"name":"Other Org Updated","description":"This update must not cross tenant boundaries.","tools":"{\"tools\":[{\"name\":\"updated\"}]}","exampleConversations":"[]","visibility":"public","pricingType":"free","version":"1.0.1"}`
+	updateRecorder := httptest.NewRecorder()
+	updateRequest := httptest.NewRequest(stdhttp.MethodPut, "/api/v1/marketplace/agents/agent_other_org", strings.NewReader(updateBody))
+	updateRequest.Header.Set("Content-Type", "application/json")
+	updateRequest.AddCookie(cookie)
+	addCSRF(updateRequest, csrfToken)
+	router.ServeHTTP(updateRecorder, updateRequest)
+	if updateRecorder.Code == stdhttp.StatusOK {
+		t.Fatalf("cross-tenant update must be denied, got 200 with body %s", updateRecorder.Body.String())
+	}
+	var otherName string
+	if err := database.QueryRow(`SELECT name FROM published_agents WHERE id = 'agent_other_org'`).Scan(&otherName); err != nil {
+		t.Fatalf("query other agent name: %v", err)
+	}
+	if otherName != "Other Org Agent" {
+		t.Fatalf("cross-tenant update changed other organization agent to %q", otherName)
+	}
+
+	uninstallRecorder := httptest.NewRecorder()
+	uninstallRequest := httptest.NewRequest(stdhttp.MethodDelete, "/api/v1/marketplace/installs/agent_active_org", nil)
+	uninstallRequest.AddCookie(cookie)
+	addCSRF(uninstallRequest, csrfToken)
+	router.ServeHTTP(uninstallRecorder, uninstallRequest)
+	if uninstallRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("uninstall expected 200, got %d with body %s", uninstallRecorder.Code, uninstallRecorder.Body.String())
+	}
+	var otherInstallCount int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM agent_installs WHERE organization_id = $1`, otherOrganizationID).Scan(&otherInstallCount); err != nil {
+		t.Fatalf("count other org installs: %v", err)
+	}
+	if otherInstallCount != 1 {
+		t.Fatalf("cross-tenant uninstall removed other organization install, remaining=%d", otherInstallCount)
+	}
+
+	statsRecorder := httptest.NewRecorder()
+	statsRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/marketplace/publisher/stats", nil)
+	statsRequest.AddCookie(cookie)
+	router.ServeHTTP(statsRecorder, statsRequest)
+	if statsRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("publisher stats expected 200, got %d with body %s", statsRecorder.Code, statsRecorder.Body.String())
+	}
+	var statsResponse struct {
+		Data struct {
+			TotalAgents   int `json:"totalAgents"`
+			TotalInstalls int `json:"totalInstalls"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(statsRecorder.Body.Bytes(), &statsResponse); err != nil {
+		t.Fatalf("decode publisher stats: %v", err)
+	}
+	if statsResponse.Data.TotalAgents != 1 || statsResponse.Data.TotalInstalls != 5 {
+		t.Fatalf("expected active org stats agents=1 installs=5, got %+v", statsResponse.Data)
+	}
+}
+
+func TestMarketplaceAdminReviewAuditCarriesAgentOrganization(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+
+	cookie, csrfToken, userID := registerHTTPUser(t, router, "marketplace-review-admin@example.com")
+	_, organizationID := queryHTTPUserScope(t, database, userID)
+	promoteHTTPUserToAdmin(t, database, userID)
+
+	if _, err := database.Exec(`
+		INSERT INTO published_agents (id, owner_id, organization_id, name, description, tools, example_conversations, visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at)
+		VALUES ('agent_pending_review_org', $1, $2, 'Pending Review Org Agent', 'Agent waiting for tenant-aware review.', '{"tools":[{"name":"review"}]}'::jsonb, '[]'::jsonb, 'public', 'pending_review', 'free', 0, 0, 0, 0, NOW(), NOW())
+	`, userID, organizationID); err != nil {
+		t.Fatalf("insert pending marketplace agent: %v", err)
+	}
+
+	approveRecorder := httptest.NewRecorder()
+	approveRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/admin/reviews/agent_pending_review_org/approve", nil)
+	approveRequest.AddCookie(cookie)
+	addCSRF(approveRequest, csrfToken)
+	router.ServeHTTP(approveRecorder, approveRequest)
+	if approveRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("approve review expected 200, got %d with body %s", approveRecorder.Code, approveRecorder.Body.String())
+	}
+
+	var auditOrganizationID string
+	if err := database.QueryRow(`
+		SELECT organization_id
+		FROM audit_logs
+		WHERE action = 'agent.approve' AND resource_type = 'agent' AND resource_id = 'agent_pending_review_org'
+	`).Scan(&auditOrganizationID); err != nil {
+		t.Fatalf("query marketplace review audit organization: %v", err)
+	}
+	if auditOrganizationID != organizationID {
+		t.Fatalf("expected marketplace review audit organization %q, got %q", organizationID, auditOrganizationID)
+	}
+
+	auditRecorder := httptest.NewRecorder()
+	auditRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/admin/audit-logs?resourceType=agent&resourceID=agent_pending_review_org", nil)
+	auditRequest.AddCookie(cookie)
+	router.ServeHTTP(auditRecorder, auditRequest)
+	if auditRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("audit list expected 200, got %d with body %s", auditRecorder.Code, auditRecorder.Body.String())
+	}
+	var auditResponse struct {
+		Data struct {
+			Entries []struct {
+				OrganizationID string `json:"organizationId"`
+			} `json:"entries"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(auditRecorder.Body.Bytes(), &auditResponse); err != nil {
+		t.Fatalf("decode audit list: %v", err)
+	}
+	if len(auditResponse.Data.Entries) != 1 || auditResponse.Data.Entries[0].OrganizationID != organizationID {
+		t.Fatalf("expected audit list organization %q, got %+v", organizationID, auditResponse.Data.Entries)
+	}
+}
+
 func TestHealthz(t *testing.T) {
 	router := NewRouter(testConfig(), testDatabase(t))
 	recorder := httptest.NewRecorder()
@@ -1227,10 +1401,11 @@ func TestOrganizationInvitationRevokeRejectsAcceptance(t *testing.T) {
 
 	var revokeAuditCount int
 	if err := database.QueryRow(`
-		SELECT COUNT(*)
-		FROM audit_logs
-		WHERE resource_id = $1 AND action = 'organization.member.invitation_revoke'
-	`, organizationID).Scan(&revokeAuditCount); err != nil {
+			SELECT COUNT(*)
+			FROM audit_logs
+			WHERE resource_id = $1 AND action = 'organization.member.invitation_revoke'
+			  AND organization_id = $1
+		`, organizationID).Scan(&revokeAuditCount); err != nil {
 		t.Fatalf("count revoke audit logs: %v", err)
 	}
 	if revokeAuditCount != 1 {

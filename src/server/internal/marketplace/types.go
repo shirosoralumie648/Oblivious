@@ -5,6 +5,7 @@ import "time"
 // PublishedAgent represents an agent published to the marketplace (D-17, D-18).
 type PublishedAgent struct {
 	ID                   string    `json:"id"`
+	OrganizationID       string    `json:"organizationId"`
 	OwnerID              string    `json:"ownerID"`
 	OwnerName            string    `json:"ownerName,omitempty"`
 	Name                 string    `json:"name"`
@@ -55,32 +56,35 @@ type AgentReviewAction struct {
 
 // AgentVersion represents a versioned snapshot of a published agent (D-19).
 type AgentVersion struct {
-	ID        string    `json:"id"`
-	AgentID   string    `json:"agentID"`
-	Version   string    `json:"version"`
-	Changelog string    `json:"changelog,omitempty"`
-	Status    string    `json:"status"` // "pending_review"|"approved"|"rejected"
-	CreatedAt time.Time `json:"createdAt"`
+	ID             string    `json:"id"`
+	AgentID        string    `json:"agentID"`
+	OrganizationID string    `json:"organizationId"`
+	Version        string    `json:"version"`
+	Changelog      string    `json:"changelog,omitempty"`
+	Status         string    `json:"status"` // "pending_review"|"approved"|"rejected"
+	CreatedAt      time.Time `json:"createdAt"`
 }
 
 // AgentReview represents a user review and rating of a published agent (D-27).
 type AgentReview struct {
-	ID        string    `json:"id"`
-	AgentID   string    `json:"agentID"`
-	UserID    string    `json:"userID"`
-	UserName  string    `json:"userName,omitempty"`
-	Rating    int       `json:"rating"`
-	Body      string    `json:"body,omitempty"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	ID             string    `json:"id"`
+	AgentID        string    `json:"agentID"`
+	OrganizationID string    `json:"organizationId"`
+	UserID         string    `json:"userID"`
+	UserName       string    `json:"userName,omitempty"`
+	Rating         int       `json:"rating"`
+	Body           string    `json:"body,omitempty"`
+	CreatedAt      time.Time `json:"createdAt"`
+	UpdatedAt      time.Time `json:"updatedAt"`
 }
 
 // AgentInstall represents a user installing a published agent (D-20).
 type AgentInstall struct {
-	ID          string    `json:"id"`
-	AgentID     string    `json:"agentID"`
-	UserID      string    `json:"userID"`
-	InstalledAt time.Time `json:"installedAt"`
+	ID             string    `json:"id"`
+	AgentID        string    `json:"agentID"`
+	OrganizationID string    `json:"organizationId"`
+	UserID         string    `json:"userID"`
+	InstalledAt    time.Time `json:"installedAt"`
 }
 
 // ReviewInput is the input for a user submitting a review.

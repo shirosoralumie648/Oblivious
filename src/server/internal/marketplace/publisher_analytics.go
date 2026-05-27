@@ -24,22 +24,22 @@ type AgentStats struct {
 }
 
 // GetPublisherStats returns aggregate analytics for all agents owned by a publisher (D-23).
-func (s *Service) GetPublisherStats(ctx context.Context, ownerID string) (*PublisherStats, error) {
+func (s *Service) GetPublisherStats(ctx context.Context, ownerID, organizationID string) (*PublisherStats, error) {
 	db := s.store.GetDB()
 	stats := &PublisherStats{}
 
 	// Total agents
 	err := db.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM published_agents WHERE owner_id = $1
-	`, ownerID).Scan(&stats.TotalAgents)
+		SELECT COUNT(*) FROM published_agents WHERE owner_id = $1 AND organization_id = $2
+	`, ownerID, organizationID).Scan(&stats.TotalAgents)
 	if err != nil {
 		return nil, fmt.Errorf("get publisher stats: total agents: %w", err)
 	}
 
 	// Total installs
 	err = db.QueryRowContext(ctx, `
-		SELECT COALESCE(SUM(install_count), 0) FROM published_agents WHERE owner_id = $1
-	`, ownerID).Scan(&stats.TotalInstalls)
+		SELECT COALESCE(SUM(install_count), 0) FROM published_agents WHERE owner_id = $1 AND organization_id = $2
+	`, ownerID, organizationID).Scan(&stats.TotalInstalls)
 	if err != nil {
 		return nil, fmt.Errorf("get publisher stats: total installs: %w", err)
 	}
@@ -49,8 +49,8 @@ func (s *Service) GetPublisherStats(ctx context.Context, ownerID string) (*Publi
 		SELECT COUNT(DISTINCT ai.user_id)
 		FROM agent_installs ai
 		JOIN published_agents pa ON ai.agent_id = pa.id
-		WHERE pa.owner_id = $1
-	`, ownerID).Scan(&stats.ActiveUsers)
+		WHERE pa.owner_id = $1 AND pa.organization_id = $2
+	`, ownerID, organizationID).Scan(&stats.ActiveUsers)
 	if err != nil {
 		return nil, fmt.Errorf("get publisher stats: active users: %w", err)
 	}
@@ -66,9 +66,9 @@ func (s *Service) GetPublisherStats(ctx context.Context, ownerID string) (*Publi
 		        FROM agent_installs ai2
 		        WHERE ai2.agent_id = pa.id)
 		FROM published_agents pa
-		WHERE pa.owner_id = $1
+		WHERE pa.owner_id = $1 AND pa.organization_id = $2
 		ORDER BY pa.install_count DESC
-	`, ownerID)
+	`, ownerID, organizationID)
 	if err != nil {
 		return nil, fmt.Errorf("get publisher stats: per agent: %w", err)
 	}
@@ -96,7 +96,7 @@ func (s *Service) GetPublisherStats(ctx context.Context, ownerID string) (*Publi
 }
 
 // GetAgentStats returns analytics for a single agent (owner-gated at handler layer).
-func (s *Service) GetAgentStats(ctx context.Context, agentID string) (*AgentStats, error) {
+func (s *Service) GetAgentStats(ctx context.Context, agentID, organizationID string) (*AgentStats, error) {
 	db := s.store.GetDB()
 	var as AgentStats
 
@@ -106,8 +106,8 @@ func (s *Service) GetAgentStats(ctx context.Context, agentID string) (*AgentStat
 		        FROM agent_installs ai
 		        WHERE ai.agent_id = pa.id)
 		FROM published_agents pa
-		WHERE pa.id = $1
-	`, agentID).Scan(&as.AgentID, &as.AgentName, &as.InstallCount, &as.ActiveUsers)
+		WHERE pa.id = $1 AND pa.organization_id = $2
+	`, agentID, organizationID).Scan(&as.AgentID, &as.AgentName, &as.InstallCount, &as.ActiveUsers)
 	if err != nil {
 		return nil, fmt.Errorf("get agent stats: %w", err)
 	}

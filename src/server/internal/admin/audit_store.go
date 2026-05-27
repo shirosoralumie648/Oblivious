@@ -28,12 +28,19 @@ func (s *SQLStore) CreateAuditEntry(ctx context.Context, entry *AuditEntry) erro
 	if entry.CreatedAt.IsZero() {
 		entry.CreatedAt = time.Now()
 	}
+	if strings.TrimSpace(entry.OrganizationID) == "" {
+		organizationID, err := s.resolveAuditOrganizationID(ctx, entry.ResourceType, entry.ResourceID)
+		if err != nil {
+			return err
+		}
+		entry.OrganizationID = organizationID
+	}
 
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO audit_logs (id, actor_id, actor_email, action, resource_type, resource_id, changes, ip_address, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO audit_logs (id, actor_id, actor_email, action, resource_type, resource_id, organization_id, changes, ip_address, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`, entry.ID, entry.ActorID, entry.ActorEmail, entry.Action,
-		entry.ResourceType, nullIfEmpty(entry.ResourceID),
+		entry.ResourceType, nullIfEmpty(entry.ResourceID), nullIfEmpty(entry.OrganizationID),
 		nullIfEmpty(entry.Changes), nullIfEmpty(entry.IPAddress),
 		entry.CreatedAt)
 	if err != nil {
@@ -76,6 +83,11 @@ func (s *SQLStore) ListAuditEntries(ctx context.Context, filter AuditFilter) ([]
 		args = append(args, filter.ResourceID)
 		argIdx++
 	}
+	if filter.OrganizationID != "" {
+		conditions = append(conditions, fmt.Sprintf("organization_id = $%d", argIdx))
+		args = append(args, filter.OrganizationID)
+		argIdx++
+	}
 	if filter.DateFrom != "" {
 		conditions = append(conditions, fmt.Sprintf("created_at >= $%d::timestamptz", argIdx))
 		args = append(args, filter.DateFrom)
@@ -102,9 +114,9 @@ func (s *SQLStore) ListAuditEntries(ctx context.Context, filter AuditFilter) ([]
 
 	// Fetch page
 	dataQuery := fmt.Sprintf(`
-		SELECT id, actor_id, actor_email, action, resource_type,
-		       COALESCE(resource_id, ''), COALESCE(changes, ''),
-		       COALESCE(ip_address, ''), created_at
+			SELECT id, COALESCE(organization_id, ''), actor_id, actor_email, action, resource_type,
+			       COALESCE(resource_id, ''), COALESCE(changes::text, ''),
+			       COALESCE(ip_address, ''), created_at
 		FROM audit_logs
 		%s
 		ORDER BY created_at DESC
@@ -121,13 +133,37 @@ func (s *SQLStore) ListAuditEntries(ctx context.Context, filter AuditFilter) ([]
 	var entries []*AuditEntry
 	for rows.Next() {
 		var e AuditEntry
-		if err := rows.Scan(&e.ID, &e.ActorID, &e.ActorEmail, &e.Action,
+		if err := rows.Scan(&e.ID, &e.OrganizationID, &e.ActorID, &e.ActorEmail, &e.Action,
 			&e.ResourceType, &e.ResourceID, &e.Changes, &e.IPAddress, &e.CreatedAt); err != nil {
 			return nil, 0, fmt.Errorf("scan audit entry: %w", err)
 		}
 		entries = append(entries, &e)
 	}
 	return entries, total, rows.Err()
+}
+
+func (s *SQLStore) resolveAuditOrganizationID(ctx context.Context, resourceType, resourceID string) (string, error) {
+	resourceType = strings.TrimSpace(resourceType)
+	resourceID = strings.TrimSpace(resourceID)
+	if resourceID == "" {
+		return "", nil
+	}
+	if resourceType == "organization" {
+		return resourceID, nil
+	}
+	if resourceType != "agent" {
+		return "", nil
+	}
+
+	var organizationID string
+	err := s.db.QueryRowContext(ctx, `SELECT organization_id FROM published_agents WHERE id = $1`, resourceID).Scan(&organizationID)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("resolve audit organization: %w", err)
+	}
+	return organizationID, nil
 }
 
 // nullIfEmpty returns a sql.NullString that is NULL if the value is empty.

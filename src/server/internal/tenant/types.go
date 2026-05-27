@@ -108,11 +108,12 @@ type TransferOwnershipRequest struct {
 }
 
 type AuditRecord struct {
-	ActorID      string
-	ActorEmail   string
-	Action       string
-	ResourceType string
-	ResourceID   string
-	Changes      string
-	IPAddress    string
+	ActorID        string
+	ActorEmail     string
+	Action         string
+	OrganizationID string
+	ResourceType   string
+	ResourceID     string
+	Changes        string
+	IPAddress      string
 }

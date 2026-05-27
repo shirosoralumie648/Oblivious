@@ -185,27 +185,29 @@ type UserListFilter struct {
 
 // AuditEntry represents an audit log record (D-08).
 type AuditEntry struct {
-	ID           string    `json:"id"`
-	ActorID      string    `json:"actorID"`
-	ActorEmail   string    `json:"actorEmail"`
-	Action       string    `json:"action"`
-	ResourceType string    `json:"resourceType"`
-	ResourceID   string    `json:"resourceID,omitempty"`
-	Changes      string    `json:"changes,omitempty"` // JSON string
-	IPAddress    string    `json:"ipAddress,omitempty"`
-	CreatedAt    time.Time `json:"createdAt"`
+	ID             string    `json:"id"`
+	OrganizationID string    `json:"organizationId,omitempty"`
+	ActorID        string    `json:"actorID"`
+	ActorEmail     string    `json:"actorEmail"`
+	Action         string    `json:"action"`
+	ResourceType   string    `json:"resourceType"`
+	ResourceID     string    `json:"resourceID,omitempty"`
+	Changes        string    `json:"changes,omitempty"` // JSON string
+	IPAddress      string    `json:"ipAddress,omitempty"`
+	CreatedAt      time.Time `json:"createdAt"`
 }
 
 // AuditFilter contains filter parameters for listing audit entries.
 type AuditFilter struct {
-	ActorID      string
-	Action       string
-	ResourceType string
-	ResourceID   string
-	DateFrom     string
-	DateTo       string
-	Limit        int
-	Offset       int
+	ActorID        string
+	Action         string
+	OrganizationID string
+	ResourceType   string
+	ResourceID     string
+	DateFrom       string
+	DateTo         string
+	Limit          int
+	Offset         int
 }
 
 // BatchRequest is the input for batch operations (D-08).

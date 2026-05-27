@@ -460,14 +460,15 @@ func (h adminHandler) deleteUser(w stdhttp.ResponseWriter, r *stdhttp.Request, u
 
 func (h adminHandler) listAuditLogs(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	filter := admin.AuditFilter{
-		ActorID:      r.URL.Query().Get("actorID"),
-		Action:       r.URL.Query().Get("action"),
-		ResourceType: r.URL.Query().Get("resourceType"),
-		ResourceID:   r.URL.Query().Get("resourceID"),
-		DateFrom:     r.URL.Query().Get("startDate"),
-		DateTo:       r.URL.Query().Get("endDate"),
-		Limit:        parseQueryInt(r, "limit", 50, 100),
-		Offset:       parseQueryInt(r, "offset", 0, 0),
+		ActorID:        r.URL.Query().Get("actorID"),
+		Action:         r.URL.Query().Get("action"),
+		OrganizationID: firstNonEmpty(r.URL.Query().Get("organizationID"), r.URL.Query().Get("organizationId")),
+		ResourceType:   r.URL.Query().Get("resourceType"),
+		ResourceID:     r.URL.Query().Get("resourceID"),
+		DateFrom:       r.URL.Query().Get("startDate"),
+		DateTo:         r.URL.Query().Get("endDate"),
+		Limit:          parseQueryInt(r, "limit", 50, 100),
+		Offset:         parseQueryInt(r, "offset", 0, 0),
 	}
 
 	entries, total, err := h.service.ListAuditEntries(r.Context(), filter)

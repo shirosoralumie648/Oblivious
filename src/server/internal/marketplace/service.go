@@ -26,7 +26,7 @@ func NewService(store Store, audit AuditLogger) *Service {
 // --- Agent Publishing ---
 
 // PublishAgent validates and creates a new published agent (D-17, D-18).
-func (s *Service) PublishAgent(ctx context.Context, userID, userEmail string, input AgentPublishRequest, ip string) (*PublishedAgent, error) {
+func (s *Service) PublishAgent(ctx context.Context, userID, organizationID, userEmail string, input AgentPublishRequest, ip string) (*PublishedAgent, error) {
 	// Validate required fields
 	if err := validatePublishRequest(input); err != nil {
 		return nil, fmt.Errorf("publish agent: %w", err)
@@ -43,7 +43,7 @@ func (s *Service) PublishAgent(ctx context.Context, userID, userEmail string, in
 		}
 	}
 
-	agent, err := s.store.CreateAgent(ctx, userID, input)
+	agent, err := s.store.CreateAgent(ctx, userID, organizationID, input)
 	if err != nil {
 		return nil, fmt.Errorf("publish agent: %w", err)
 	}
@@ -111,7 +111,7 @@ func (s *Service) GetAgent(ctx context.Context, id string) (*PublishedAgent, err
 }
 
 // UpdateAgent updates an agent (owner only). Status resets to pending_review (D-19).
-func (s *Service) UpdateAgent(ctx context.Context, userID, userEmail, id string, input AgentPublishRequest, ip string) (*PublishedAgent, error) {
+func (s *Service) UpdateAgent(ctx context.Context, userID, organizationID, userEmail, id string, input AgentPublishRequest, ip string) (*PublishedAgent, error) {
 	if id == "" {
 		return nil, fmt.Errorf("update agent: id is required")
 	}
@@ -124,7 +124,7 @@ func (s *Service) UpdateAgent(ctx context.Context, userID, userEmail, id string,
 	if existing == nil {
 		return nil, fmt.Errorf("update agent: agent not found")
 	}
-	if existing.OwnerID != userID {
+	if existing.OwnerID != userID || existing.OrganizationID != organizationID {
 		return nil, fmt.Errorf("update agent: only the owner can update this agent")
 	}
 
@@ -135,7 +135,7 @@ func (s *Service) UpdateAgent(ctx context.Context, userID, userEmail, id string,
 		}
 	}
 
-	agent, err := s.store.UpdateAgent(ctx, id, input)
+	agent, err := s.store.UpdateAgent(ctx, id, organizationID, input)
 	if err != nil {
 		return nil, fmt.Errorf("update agent: %w", err)
 	}
@@ -151,7 +151,7 @@ func (s *Service) UpdateAgent(ctx context.Context, userID, userEmail, id string,
 }
 
 // DeleteAgent deletes an agent (owner only).
-func (s *Service) DeleteAgent(ctx context.Context, userID, id string) error {
+func (s *Service) DeleteAgent(ctx context.Context, userID, organizationID, id string) error {
 	// Verify ownership
 	existing, err := s.store.GetAgent(ctx, id)
 	if err != nil {
@@ -160,18 +160,18 @@ func (s *Service) DeleteAgent(ctx context.Context, userID, id string) error {
 	if existing == nil {
 		return fmt.Errorf("delete agent: agent not found")
 	}
-	if existing.OwnerID != userID {
+	if existing.OwnerID != userID || existing.OrganizationID != organizationID {
 		return fmt.Errorf("delete agent: only the owner can delete this agent")
 	}
-	return s.store.DeleteAgent(ctx, id)
+	return s.store.DeleteAgent(ctx, id, organizationID)
 }
 
 // ListUserAgents lists all agents owned by a user.
-func (s *Service) ListUserAgents(ctx context.Context, userID string, limit, offset int) ([]*PublishedAgent, error) {
+func (s *Service) ListUserAgents(ctx context.Context, userID, organizationID string, limit, offset int) ([]*PublishedAgent, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	return s.store.ListUserAgents(ctx, userID, limit, offset)
+	return s.store.ListUserAgents(ctx, userID, organizationID, limit, offset)
 }
 
 // --- Review Queue (D-17, D-24) ---
@@ -230,7 +230,7 @@ func (s *Service) RejectAgent(ctx context.Context, reviewerID, reviewerEmail, ag
 // --- Installs (D-20) ---
 
 // InstallAgent installs an approved, public agent for a user (idempotent, one-click).
-func (s *Service) InstallAgent(ctx context.Context, userID, agentID, versionID string) (*AgentInstall, error) {
+func (s *Service) InstallAgent(ctx context.Context, userID, organizationID, agentID, versionID string) (*AgentInstall, error) {
 	if agentID == "" {
 		return nil, fmt.Errorf("install agent: agentID is required")
 	}
@@ -250,23 +250,23 @@ func (s *Service) InstallAgent(ctx context.Context, userID, agentID, versionID s
 		return nil, fmt.Errorf("install agent: only public agents can be installed")
 	}
 
-	return s.store.InstallAgent(ctx, agentID, userID, versionID)
+	return s.store.InstallAgent(ctx, agentID, userID, organizationID, versionID)
 }
 
 // UninstallAgent removes an agent install.
-func (s *Service) UninstallAgent(ctx context.Context, userID, agentID string) error {
-	return s.store.UninstallAgent(ctx, agentID, userID)
+func (s *Service) UninstallAgent(ctx context.Context, userID, organizationID, agentID string) error {
+	return s.store.UninstallAgent(ctx, agentID, userID, organizationID)
 }
 
 // ListUserInstalls lists all agents installed by a user.
-func (s *Service) ListUserInstalls(ctx context.Context, userID string) ([]*AgentInstall, error) {
-	return s.store.ListUserInstalls(ctx, userID)
+func (s *Service) ListUserInstalls(ctx context.Context, userID, organizationID string) ([]*AgentInstall, error) {
+	return s.store.ListUserInstalls(ctx, userID, organizationID)
 }
 
 // --- Reviews (D-27) ---
 
 // SubmitReview submits or updates a review. Only users who installed the agent can review.
-func (s *Service) SubmitReview(ctx context.Context, userID, userName string, input ReviewInput) (*AgentReview, error) {
+func (s *Service) SubmitReview(ctx context.Context, userID, organizationID, userName string, input ReviewInput) (*AgentReview, error) {
 	if input.AgentID == "" {
 		return nil, fmt.Errorf("submit review: agentID is required")
 	}
@@ -287,7 +287,7 @@ func (s *Service) SubmitReview(ctx context.Context, userID, userName string, inp
 	}
 
 	// Verify user has installed this agent
-	installed, err := s.store.IsInstalled(ctx, input.AgentID, userID)
+	installed, err := s.store.IsInstalled(ctx, input.AgentID, userID, organizationID)
 	if err != nil {
 		return nil, fmt.Errorf("submit review: %w", err)
 	}
@@ -296,14 +296,14 @@ func (s *Service) SubmitReview(ctx context.Context, userID, userName string, inp
 	}
 
 	// Check for existing review (upsert)
-	existing, err := s.store.GetUserReview(ctx, input.AgentID, userID)
+	existing, err := s.store.GetUserReview(ctx, input.AgentID, userID, organizationID)
 	if err != nil {
 		return nil, fmt.Errorf("submit review: %w", err)
 	}
 	if existing != nil {
-		return s.store.UpdateReview(ctx, userID, input)
+		return s.store.UpdateReview(ctx, userID, organizationID, input)
 	}
-	return s.store.CreateReview(ctx, userID, input)
+	return s.store.CreateReview(ctx, userID, organizationID, input)
 }
 
 // ListReviews lists reviews for an agent.

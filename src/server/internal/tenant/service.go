@@ -431,12 +431,13 @@ func hashToken(raw string) string {
 func auditRecord(actor Actor, action, organizationID string, changes map[string]any) AuditRecord {
 	changesJSON, _ := json.Marshal(changes)
 	return AuditRecord{
-		ActorID:      actor.UserID,
-		ActorEmail:   actor.Email,
-		Action:       action,
-		ResourceType: "organization",
-		ResourceID:   organizationID,
-		Changes:      string(changesJSON),
-		IPAddress:    actor.IPAddress,
+		ActorID:        actor.UserID,
+		ActorEmail:     actor.Email,
+		Action:         action,
+		OrganizationID: organizationID,
+		ResourceType:   "organization",
+		ResourceID:     organizationID,
+		Changes:        string(changesJSON),
+		IPAddress:      actor.IPAddress,
 	}
 }

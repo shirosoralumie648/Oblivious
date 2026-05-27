@@ -13,11 +13,11 @@ import (
 // Store defines all marketplace data operations.
 type Store interface {
 	// Agent CRUD
-	CreateAgent(ctx context.Context, ownerID string, input AgentPublishRequest) (*PublishedAgent, error)
+	CreateAgent(ctx context.Context, ownerID, organizationID string, input AgentPublishRequest) (*PublishedAgent, error)
 	GetAgent(ctx context.Context, id string) (*PublishedAgent, error)
-	UpdateAgent(ctx context.Context, id string, input AgentPublishRequest) (*PublishedAgent, error)
-	DeleteAgent(ctx context.Context, id string) error
-	ListUserAgents(ctx context.Context, ownerID string, limit, offset int) ([]*PublishedAgent, error)
+	UpdateAgent(ctx context.Context, id, organizationID string, input AgentPublishRequest) (*PublishedAgent, error)
+	DeleteAgent(ctx context.Context, id, organizationID string) error
+	ListUserAgents(ctx context.Context, ownerID, organizationID string, limit, offset int) ([]*PublishedAgent, error)
 
 	// Review queue (D-17, D-24)
 	ListPendingReviews(ctx context.Context, limit, offset int) ([]*PublishedAgent, error)
@@ -25,21 +25,21 @@ type Store interface {
 	RejectAgent(ctx context.Context, id, reviewerID, reason string) error
 
 	// Version management (D-19)
-	CreateVersion(ctx context.Context, agentID string, version, changelog string, metadata string) (*AgentVersion, error)
+	CreateVersion(ctx context.Context, agentID, organizationID string, version, changelog string, metadata string) (*AgentVersion, error)
 	ListVersions(ctx context.Context, agentID string) ([]*AgentVersion, error)
 	GetVersion(ctx context.Context, agentID, version string) (*AgentVersion, error)
 
 	// Installs (D-20)
-	InstallAgent(ctx context.Context, agentID, userID, versionID string) (*AgentInstall, error)
-	UninstallAgent(ctx context.Context, agentID, userID string) error
-	ListUserInstalls(ctx context.Context, userID string) ([]*AgentInstall, error)
-	IsInstalled(ctx context.Context, agentID, userID string) (bool, error)
+	InstallAgent(ctx context.Context, agentID, userID, organizationID, versionID string) (*AgentInstall, error)
+	UninstallAgent(ctx context.Context, agentID, userID, organizationID string) error
+	ListUserInstalls(ctx context.Context, userID, organizationID string) ([]*AgentInstall, error)
+	IsInstalled(ctx context.Context, agentID, userID, organizationID string) (bool, error)
 
 	// Reviews (D-27)
-	CreateReview(ctx context.Context, userID string, input ReviewInput) (*AgentReview, error)
-	UpdateReview(ctx context.Context, userID string, input ReviewInput) (*AgentReview, error)
+	CreateReview(ctx context.Context, userID, organizationID string, input ReviewInput) (*AgentReview, error)
+	UpdateReview(ctx context.Context, userID, organizationID string, input ReviewInput) (*AgentReview, error)
 	ListReviews(ctx context.Context, agentID string, limit, offset int) ([]*AgentReview, error)
-	GetUserReview(ctx context.Context, agentID, userID string) (*AgentReview, error)
+	GetUserReview(ctx context.Context, agentID, userID, organizationID string) (*AgentReview, error)
 
 	// Categories (D-28)
 	ListCategories(ctx context.Context) ([]*Category, error)
@@ -66,7 +66,7 @@ func NewSQLStore(db *sql.DB) *SQLStore {
 func (s *SQLStore) GetDB() *sql.DB { return s.db }
 
 // selectAgentColumns returns the standard SELECT column list for published_agents with JOINs.
-const selectAgentColumns = `a.id, a.owner_id, COALESCE(u.name, ''), a.name, a.description,
+const selectAgentColumns = `a.id, a.organization_id, a.owner_id, COALESCE(u.name, ''), a.name, a.description,
 	a.icon_url, a.category_id, COALESCE(c.name, ''), a.tags, a.tools,
 	a.example_conversations, a.system_prompt, a.visibility, a.status,
 	a.review_reason, a.pricing_type, a.pricing_amount, a.install_count,
@@ -81,7 +81,7 @@ func scanAgent(scanner interface {
 	var reviewedAt sql.NullTime
 
 	if err := scanner.Scan(
-		&a.ID, &a.OwnerID, &a.OwnerName, &a.Name, &a.Description,
+		&a.ID, &a.OrganizationID, &a.OwnerID, &a.OwnerName, &a.Name, &a.Description,
 		&iconURL, &categoryID, &categoryName, pq.Array(&a.Tags), &a.Tools,
 		&a.ExampleConversations, &systemPrompt, &a.Visibility, &a.Status,
 		&reviewReason, &a.PricingType, &a.PricingAmount, &a.InstallCount,
@@ -117,16 +117,16 @@ func scanAgents(rows *sql.Rows) ([]*PublishedAgent, error) {
 }
 
 // insertVersion inserts a new agent version row.
-func (s *SQLStore) insertVersion(ctx context.Context, agentID, version, changelog, metadata string) error {
+func (s *SQLStore) insertVersion(ctx context.Context, agentID, organizationID, version, changelog, metadata string) error {
 	id := uuid.New().String()
 	metaVal := metadata
 	if metaVal == "" {
 		metaVal = "{}"
 	}
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO agent_versions (id, agent_id, version, changelog, metadata, status)
-		 VALUES ($1, $2, $3, $4, $5::jsonb, 'pending_review')`,
-		id, agentID, version, changelog, metaVal)
+		`INSERT INTO agent_versions (id, agent_id, organization_id, version, changelog, metadata, status)
+		 VALUES ($1, $2, $3, $4, $5, $6::jsonb, 'pending_review')`,
+		id, agentID, organizationID, version, changelog, metaVal)
 	return err
 }
 
@@ -161,7 +161,7 @@ func (s *SQLStore) syncAgentTags(ctx context.Context, agentID string, tags []str
 // --- Agent CRUD ---
 
 // CreateAgent creates a new published agent with pending_review status.
-func (s *SQLStore) CreateAgent(ctx context.Context, ownerID string, input AgentPublishRequest) (*PublishedAgent, error) {
+func (s *SQLStore) CreateAgent(ctx context.Context, ownerID, organizationID string, input AgentPublishRequest) (*PublishedAgent, error) {
 	id := uuid.New().String()
 	now := time.Now().UTC()
 
@@ -170,33 +170,27 @@ func (s *SQLStore) CreateAgent(ctx context.Context, ownerID string, input AgentP
 		visibility = "private"
 	}
 
-	err := s.db.QueryRowContext(ctx, `
+	agent, err := scanAgent(s.db.QueryRowContext(ctx, `
 		WITH inserted AS (
-			INSERT INTO published_agents (id, owner_id, name, description, icon_url,
+			INSERT INTO published_agents (id, organization_id, owner_id, name, description, icon_url,
 				category_id, tags, tools, example_conversations, system_prompt,
 				visibility, status, pricing_type, pricing_amount,
 				install_count, rating_avg, rating_count, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7::text[], $8, $9, $10,
-				$11, 'pending_review', $12, $13, 0, 0, 0, $14, $15)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text[], $9, $10, $11,
+				$12, 'pending_review', $13, $14, 0, 0, 0, $15, $16)
 			RETURNING *
 		)
 		SELECT `+selectAgentColumns+`
 		FROM inserted a
 		LEFT JOIN categories c ON a.category_id = c.id
 		LEFT JOIN users u ON a.owner_id = u.id
-	`, id, ownerID, input.Name, input.Description, nullIfEmpty(input.IconURL),
+	`, id, organizationID, ownerID, input.Name, input.Description, nullIfEmpty(input.IconURL),
 		nullIfEmpty(input.CategoryID), pq.Array(input.Tags), input.Tools,
 		input.ExampleConversations, nullIfEmpty(input.SystemPrompt),
 		visibility, input.PricingType, input.PricingAmount, now, now,
-	).Scan(
-		&id, &ownerID, nil, nil, nil, nil, nil, nil, nil, nil,
-		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
-	)
-
-	// Re-run the scan with proper scanAgent
-	agent, err := s.GetAgent(ctx, id)
+	))
 	if err != nil {
-		return nil, fmt.Errorf("create agent: fetch after insert: %w", err)
+		return nil, fmt.Errorf("create agent: %w", err)
 	}
 
 	// Sync tags to agent_tags junction table
@@ -210,7 +204,7 @@ func (s *SQLStore) CreateAgent(ctx context.Context, ownerID string, input AgentP
 	if input.Version != "" {
 		changelog := input.Changelog
 		metadata := "{}"
-		if err := s.insertVersion(ctx, id, input.Version, changelog, metadata); err != nil {
+		if err := s.insertVersion(ctx, id, organizationID, input.Version, changelog, metadata); err != nil {
 			return nil, fmt.Errorf("create agent: insert version: %w", err)
 		}
 	}
@@ -237,10 +231,10 @@ func (s *SQLStore) GetAgent(ctx context.Context, id string) (*PublishedAgent, er
 }
 
 // UpdateAgent updates an existing agent. Status resets to pending_review.
-func (s *SQLStore) UpdateAgent(ctx context.Context, id string, input AgentPublishRequest) (*PublishedAgent, error) {
+func (s *SQLStore) UpdateAgent(ctx context.Context, id, organizationID string, input AgentPublishRequest) (*PublishedAgent, error) {
 	now := time.Now().UTC()
 
-	_, err := s.db.ExecContext(ctx, `
+	result, err := s.db.ExecContext(ctx, `
 		UPDATE published_agents SET
 			name = COALESCE(NULLIF($1, ''), name),
 			description = COALESCE(NULLIF($2, ''), description),
@@ -255,13 +249,17 @@ func (s *SQLStore) UpdateAgent(ctx context.Context, id string, input AgentPublis
 			status = 'pending_review',
 			review_reason = NULL,
 			updated_at = $11
-		WHERE id = $12
+		WHERE id = $12 AND organization_id = $13
 	`, input.Name, input.Description, nullIfEmpty(input.IconURL),
 		nullIfEmpty(input.CategoryID), input.Tools, input.ExampleConversations,
 		nullIfEmpty(input.SystemPrompt), input.Visibility,
-		input.PricingType, input.PricingAmount, now, id)
+		input.PricingType, input.PricingAmount, now, id, organizationID)
 	if err != nil {
 		return nil, fmt.Errorf("update agent: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err == nil && rowsAffected == 0 {
+		return nil, fmt.Errorf("update agent: agent not found")
 	}
 
 	// Sync tags
@@ -270,7 +268,7 @@ func (s *SQLStore) UpdateAgent(ctx context.Context, id string, input AgentPublis
 			return nil, fmt.Errorf("update agent: tags: %w", err)
 		}
 		// Also update the tags array column
-		_, err = s.db.ExecContext(ctx, `UPDATE published_agents SET tags = $1::text[] WHERE id = $2`, pq.Array(input.Tags), id)
+		_, err = s.db.ExecContext(ctx, `UPDATE published_agents SET tags = $1::text[] WHERE id = $2 AND organization_id = $3`, pq.Array(input.Tags), id, organizationID)
 		if err != nil {
 			return nil, fmt.Errorf("update agent: tags array: %w", err)
 		}
@@ -279,7 +277,7 @@ func (s *SQLStore) UpdateAgent(ctx context.Context, id string, input AgentPublis
 	// Create new version if provided
 	if input.Version != "" {
 		changelog := input.Changelog
-		if err := s.insertVersion(ctx, id, input.Version, changelog, "{}"); err != nil {
+		if err := s.insertVersion(ctx, id, organizationID, input.Version, changelog, "{}"); err != nil {
 			return nil, fmt.Errorf("update agent: insert version: %w", err)
 		}
 	}
@@ -288,8 +286,8 @@ func (s *SQLStore) UpdateAgent(ctx context.Context, id string, input AgentPublis
 }
 
 // DeleteAgent deletes a published agent (CASCADE deletes versions, reviews, installs).
-func (s *SQLStore) DeleteAgent(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM published_agents WHERE id = $1`, id)
+func (s *SQLStore) DeleteAgent(ctx context.Context, id, organizationID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM published_agents WHERE id = $1 AND organization_id = $2`, id, organizationID)
 	if err != nil {
 		return fmt.Errorf("delete agent: %w", err)
 	}
@@ -297,16 +295,16 @@ func (s *SQLStore) DeleteAgent(ctx context.Context, id string) error {
 }
 
 // ListUserAgents lists all agents owned by a user.
-func (s *SQLStore) ListUserAgents(ctx context.Context, ownerID string, limit, offset int) ([]*PublishedAgent, error) {
+func (s *SQLStore) ListUserAgents(ctx context.Context, ownerID, organizationID string, limit, offset int) ([]*PublishedAgent, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+selectAgentColumns+`
 		FROM published_agents a
 		LEFT JOIN categories c ON a.category_id = c.id
 		LEFT JOIN users u ON a.owner_id = u.id
-		WHERE a.owner_id = $1
+		WHERE a.owner_id = $1 AND a.organization_id = $2
 		ORDER BY a.created_at DESC
-		LIMIT $2 OFFSET $3
-	`, ownerID, limit, offset)
+		LIMIT $3 OFFSET $4
+	`, ownerID, organizationID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("list user agents: %w", err)
 	}
@@ -392,7 +390,7 @@ func (s *SQLStore) RejectAgent(ctx context.Context, id, reviewerID, reason strin
 // --- Version Management ---
 
 // CreateVersion creates a new version for an agent.
-func (s *SQLStore) CreateVersion(ctx context.Context, agentID string, version, changelog, metadata string) (*AgentVersion, error) {
+func (s *SQLStore) CreateVersion(ctx context.Context, agentID, organizationID string, version, changelog, metadata string) (*AgentVersion, error) {
 	id := uuid.New().String()
 	now := time.Now().UTC()
 	metaVal := metadata
@@ -401,10 +399,10 @@ func (s *SQLStore) CreateVersion(ctx context.Context, agentID string, version, c
 	}
 
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO agent_versions (id, agent_id, version, changelog, metadata, status, created_at)
-		VALUES ($1, $2, $3, $4, $5::jsonb, 'pending_review', $6)
+		INSERT INTO agent_versions (id, agent_id, organization_id, version, changelog, metadata, status, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6::jsonb, 'pending_review', $7)
 		ON CONFLICT (agent_id, version) DO NOTHING
-	`, id, agentID, version, changelog, metaVal, now)
+	`, id, agentID, organizationID, version, changelog, metaVal, now)
 	if err != nil {
 		return nil, fmt.Errorf("create version: %w", err)
 	}
@@ -423,7 +421,7 @@ func (s *SQLStore) CreateVersion(ctx context.Context, agentID string, version, c
 // ListVersions lists all versions for an agent.
 func (s *SQLStore) ListVersions(ctx context.Context, agentID string) ([]*AgentVersion, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, agent_id, version, COALESCE(changelog, ''),
+		SELECT id, agent_id, organization_id, version, COALESCE(changelog, ''),
 		       status, created_at
 		FROM agent_versions
 		WHERE agent_id = $1
@@ -437,7 +435,7 @@ func (s *SQLStore) ListVersions(ctx context.Context, agentID string) ([]*AgentVe
 	var versions []*AgentVersion
 	for rows.Next() {
 		var v AgentVersion
-		if err := rows.Scan(&v.ID, &v.AgentID, &v.Version, &v.Changelog,
+		if err := rows.Scan(&v.ID, &v.AgentID, &v.OrganizationID, &v.Version, &v.Changelog,
 			&v.Status, &v.CreatedAt); err != nil {
 			return nil, fmt.Errorf("list versions: scan: %w", err)
 		}
@@ -450,11 +448,11 @@ func (s *SQLStore) ListVersions(ctx context.Context, agentID string) ([]*AgentVe
 func (s *SQLStore) GetVersion(ctx context.Context, agentID, version string) (*AgentVersion, error) {
 	var v AgentVersion
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, agent_id, version, COALESCE(changelog, ''),
+		SELECT id, agent_id, organization_id, version, COALESCE(changelog, ''),
 		       status, created_at
 		FROM agent_versions
 		WHERE agent_id = $1 AND version = $2
-	`, agentID, version).Scan(&v.ID, &v.AgentID, &v.Version, &v.Changelog,
+	`, agentID, version).Scan(&v.ID, &v.AgentID, &v.OrganizationID, &v.Version, &v.Changelog,
 		&v.Status, &v.CreatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -468,7 +466,7 @@ func (s *SQLStore) GetVersion(ctx context.Context, agentID, version string) (*Ag
 // --- Installs ---
 
 // InstallAgent installs an agent for a user (idempotent, one-click).
-func (s *SQLStore) InstallAgent(ctx context.Context, agentID, userID, versionID string) (*AgentInstall, error) {
+func (s *SQLStore) InstallAgent(ctx context.Context, agentID, userID, organizationID, versionID string) (*AgentInstall, error) {
 	id := uuid.New().String()
 	now := time.Now().UTC()
 
@@ -490,10 +488,10 @@ func (s *SQLStore) InstallAgent(ctx context.Context, agentID, userID, versionID 
 	}
 
 	result, err := s.db.ExecContext(ctx, `
-		INSERT INTO agent_installs (id, agent_id, user_id, version_id, installed_at)
-		VALUES ($1, $2, $3, NULLIF($4, ''), $5)
-		ON CONFLICT (agent_id, user_id) DO NOTHING
-	`, id, agentID, userID, verID, now)
+		INSERT INTO agent_installs (id, agent_id, user_id, organization_id, version_id, installed_at)
+		VALUES ($1, $2, $3, $4, NULLIF($5, ''), $6)
+		ON CONFLICT (organization_id, agent_id, user_id) DO NOTHING
+	`, id, agentID, userID, organizationID, verID, now)
 	if err != nil {
 		return nil, fmt.Errorf("install agent: %w", err)
 	}
@@ -513,10 +511,10 @@ func (s *SQLStore) InstallAgent(ctx context.Context, agentID, userID, versionID 
 	var inst AgentInstall
 	var instVersionID sql.NullString
 	err = s.db.QueryRowContext(ctx, `
-		SELECT id, agent_id, user_id, version_id, installed_at
+		SELECT id, agent_id, organization_id, user_id, version_id, installed_at
 		FROM agent_installs
-		WHERE agent_id = $1 AND user_id = $2
-	`, agentID, userID).Scan(&inst.ID, &inst.AgentID, &inst.UserID, &instVersionID, &inst.InstalledAt)
+		WHERE agent_id = $1 AND user_id = $2 AND organization_id = $3
+	`, agentID, userID, organizationID).Scan(&inst.ID, &inst.AgentID, &inst.OrganizationID, &inst.UserID, &instVersionID, &inst.InstalledAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("install agent: install not found after insert")
@@ -527,8 +525,8 @@ func (s *SQLStore) InstallAgent(ctx context.Context, agentID, userID, versionID 
 }
 
 // UninstallAgent removes an agent install and decrements install count.
-func (s *SQLStore) UninstallAgent(ctx context.Context, agentID, userID string) error {
-	result, err := s.db.ExecContext(ctx, `DELETE FROM agent_installs WHERE agent_id = $1 AND user_id = $2`, agentID, userID)
+func (s *SQLStore) UninstallAgent(ctx context.Context, agentID, userID, organizationID string) error {
+	result, err := s.db.ExecContext(ctx, `DELETE FROM agent_installs WHERE agent_id = $1 AND user_id = $2 AND organization_id = $3`, agentID, userID, organizationID)
 	if err != nil {
 		return fmt.Errorf("uninstall agent: %w", err)
 	}
@@ -545,13 +543,13 @@ func (s *SQLStore) UninstallAgent(ctx context.Context, agentID, userID string) e
 }
 
 // ListUserInstalls lists all agents installed by a user.
-func (s *SQLStore) ListUserInstalls(ctx context.Context, userID string) ([]*AgentInstall, error) {
+func (s *SQLStore) ListUserInstalls(ctx context.Context, userID, organizationID string) ([]*AgentInstall, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT ai.id, ai.agent_id, ai.user_id, ai.version_id, ai.installed_at
+		SELECT ai.id, ai.agent_id, ai.organization_id, ai.user_id, ai.version_id, ai.installed_at
 		FROM agent_installs ai
-		WHERE ai.user_id = $1
+		WHERE ai.user_id = $1 AND ai.organization_id = $2
 		ORDER BY ai.installed_at DESC
-	`, userID)
+	`, userID, organizationID)
 	if err != nil {
 		return nil, fmt.Errorf("list user installs: %w", err)
 	}
@@ -561,7 +559,7 @@ func (s *SQLStore) ListUserInstalls(ctx context.Context, userID string) ([]*Agen
 	for rows.Next() {
 		var inst AgentInstall
 		var versionID sql.NullString
-		if err := rows.Scan(&inst.ID, &inst.AgentID, &inst.UserID, &versionID, &inst.InstalledAt); err != nil {
+		if err := rows.Scan(&inst.ID, &inst.AgentID, &inst.OrganizationID, &inst.UserID, &versionID, &inst.InstalledAt); err != nil {
 			return nil, fmt.Errorf("list user installs: scan: %w", err)
 		}
 		installs = append(installs, &inst)
@@ -570,11 +568,11 @@ func (s *SQLStore) ListUserInstalls(ctx context.Context, userID string) ([]*Agen
 }
 
 // IsInstalled checks if a user has installed an agent.
-func (s *SQLStore) IsInstalled(ctx context.Context, agentID, userID string) (bool, error) {
+func (s *SQLStore) IsInstalled(ctx context.Context, agentID, userID, organizationID string) (bool, error) {
 	var exists bool
 	err := s.db.QueryRowContext(ctx, `
-		SELECT EXISTS(SELECT 1 FROM agent_installs WHERE agent_id = $1 AND user_id = $2)
-	`, agentID, userID).Scan(&exists)
+		SELECT EXISTS(SELECT 1 FROM agent_installs WHERE agent_id = $1 AND user_id = $2 AND organization_id = $3)
+	`, agentID, userID, organizationID).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("is installed: %w", err)
 	}
@@ -584,15 +582,15 @@ func (s *SQLStore) IsInstalled(ctx context.Context, agentID, userID string) (boo
 // --- Reviews ---
 
 // CreateReview creates a new review with rating_avg recalculation.
-func (s *SQLStore) CreateReview(ctx context.Context, userID string, input ReviewInput) (*AgentReview, error) {
+func (s *SQLStore) CreateReview(ctx context.Context, userID, organizationID string, input ReviewInput) (*AgentReview, error) {
 	id := uuid.New().String()
 	now := time.Now().UTC()
 
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO agent_reviews (id, agent_id, user_id, rating, body, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		ON CONFLICT (agent_id, user_id) DO NOTHING
-	`, id, input.AgentID, userID, input.Rating, input.Body, now, now)
+		INSERT INTO agent_reviews (id, agent_id, user_id, organization_id, rating, body, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		ON CONFLICT (organization_id, agent_id, user_id) DO NOTHING
+	`, id, input.AgentID, userID, organizationID, input.Rating, input.Body, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("create review: %w", err)
 	}
@@ -602,17 +600,17 @@ func (s *SQLStore) CreateReview(ctx context.Context, userID string, input Review
 		return nil, fmt.Errorf("create review: %w", err)
 	}
 
-	return s.GetUserReview(ctx, input.AgentID, userID)
+	return s.GetUserReview(ctx, input.AgentID, userID, organizationID)
 }
 
 // UpdateReview updates an existing review with rating_avg recalculation.
-func (s *SQLStore) UpdateReview(ctx context.Context, userID string, input ReviewInput) (*AgentReview, error) {
+func (s *SQLStore) UpdateReview(ctx context.Context, userID, organizationID string, input ReviewInput) (*AgentReview, error) {
 	now := time.Now().UTC()
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE agent_reviews
 		SET rating = $1, body = $2, updated_at = $3
-		WHERE agent_id = $4 AND user_id = $5
-	`, input.Rating, input.Body, now, input.AgentID, userID)
+		WHERE agent_id = $4 AND user_id = $5 AND organization_id = $6
+	`, input.Rating, input.Body, now, input.AgentID, userID, organizationID)
 	if err != nil {
 		return nil, fmt.Errorf("update review: %w", err)
 	}
@@ -622,7 +620,7 @@ func (s *SQLStore) UpdateReview(ctx context.Context, userID string, input Review
 		return nil, fmt.Errorf("update review: %w", err)
 	}
 
-	return s.GetUserReview(ctx, input.AgentID, userID)
+	return s.GetUserReview(ctx, input.AgentID, userID, organizationID)
 }
 
 // recalcRating recalculates rating_avg and rating_count on published_agents.
@@ -668,15 +666,15 @@ func (s *SQLStore) ListReviews(ctx context.Context, agentID string, limit, offse
 }
 
 // GetUserReview retrieves a user's review for an agent.
-func (s *SQLStore) GetUserReview(ctx context.Context, agentID, userID string) (*AgentReview, error) {
+func (s *SQLStore) GetUserReview(ctx context.Context, agentID, userID, organizationID string) (*AgentReview, error) {
 	var r AgentReview
 	err := s.db.QueryRowContext(ctx, `
-		SELECT r.id, r.agent_id, r.user_id, COALESCE(u.name, ''), r.rating,
+		SELECT r.id, r.agent_id, r.organization_id, r.user_id, COALESCE(u.name, ''), r.rating,
 		       COALESCE(r.body, ''), r.created_at, r.updated_at
 		FROM agent_reviews r
 		LEFT JOIN users u ON r.user_id = u.id
-		WHERE r.agent_id = $1 AND r.user_id = $2
-	`, agentID, userID).Scan(&r.ID, &r.AgentID, &r.UserID, &r.UserName,
+		WHERE r.agent_id = $1 AND r.user_id = $2 AND r.organization_id = $3
+	`, agentID, userID, organizationID).Scan(&r.ID, &r.AgentID, &r.OrganizationID, &r.UserID, &r.UserName,
 		&r.Rating, &r.Body, &r.CreatedAt, &r.UpdatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {

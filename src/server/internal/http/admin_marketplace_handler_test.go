@@ -421,28 +421,29 @@ func (s *fakeAdminStore) ListAuditEntries(ctx context.Context, filter admin.Audi
 
 type fakeMarketplaceStore struct {
 	installedAgentID   string
+	installedOrgID     string
 	installedUserID    string
 	installedVersionID string
 }
 
-func (s *fakeMarketplaceStore) CreateAgent(ctx context.Context, ownerID string, input marketplace.AgentPublishRequest) (*marketplace.PublishedAgent, error) {
-	return &marketplace.PublishedAgent{ID: "agent_1", OwnerID: ownerID, Name: input.Name, Status: "pending_review", Visibility: input.Visibility}, nil
+func (s *fakeMarketplaceStore) CreateAgent(ctx context.Context, ownerID, organizationID string, input marketplace.AgentPublishRequest) (*marketplace.PublishedAgent, error) {
+	return &marketplace.PublishedAgent{ID: "agent_1", OrganizationID: organizationID, OwnerID: ownerID, Name: input.Name, Status: "pending_review", Visibility: input.Visibility}, nil
 }
 
 func (s *fakeMarketplaceStore) GetAgent(ctx context.Context, id string) (*marketplace.PublishedAgent, error) {
-	return &marketplace.PublishedAgent{ID: id, OwnerID: "owner_1", Name: "Agent", Status: "approved", Visibility: "public"}, nil
+	return &marketplace.PublishedAgent{ID: id, OrganizationID: "org_1", OwnerID: "owner_1", Name: "Agent", Status: "approved", Visibility: "public"}, nil
 }
 
-func (s *fakeMarketplaceStore) UpdateAgent(ctx context.Context, id string, input marketplace.AgentPublishRequest) (*marketplace.PublishedAgent, error) {
-	return &marketplace.PublishedAgent{ID: id, OwnerID: "user_admin", Name: input.Name, Status: "pending_review", Visibility: input.Visibility}, nil
+func (s *fakeMarketplaceStore) UpdateAgent(ctx context.Context, id, organizationID string, input marketplace.AgentPublishRequest) (*marketplace.PublishedAgent, error) {
+	return &marketplace.PublishedAgent{ID: id, OrganizationID: organizationID, OwnerID: "user_admin", Name: input.Name, Status: "pending_review", Visibility: input.Visibility}, nil
 }
 
-func (s *fakeMarketplaceStore) DeleteAgent(ctx context.Context, id string) error {
+func (s *fakeMarketplaceStore) DeleteAgent(ctx context.Context, id, organizationID string) error {
 	return nil
 }
 
-func (s *fakeMarketplaceStore) ListUserAgents(ctx context.Context, ownerID string, limit, offset int) ([]*marketplace.PublishedAgent, error) {
-	return []*marketplace.PublishedAgent{{ID: "agent_1", OwnerID: ownerID, Name: "Agent"}}, nil
+func (s *fakeMarketplaceStore) ListUserAgents(ctx context.Context, ownerID, organizationID string, limit, offset int) ([]*marketplace.PublishedAgent, error) {
+	return []*marketplace.PublishedAgent{{ID: "agent_1", OrganizationID: organizationID, OwnerID: ownerID, Name: "Agent"}}, nil
 }
 
 func (s *fakeMarketplaceStore) ListPendingReviews(ctx context.Context, limit, offset int) ([]*marketplace.PublishedAgent, error) {
@@ -457,8 +458,8 @@ func (s *fakeMarketplaceStore) RejectAgent(ctx context.Context, id, reviewerID, 
 	return nil
 }
 
-func (s *fakeMarketplaceStore) CreateVersion(ctx context.Context, agentID string, version, changelog string, metadata string) (*marketplace.AgentVersion, error) {
-	return &marketplace.AgentVersion{ID: "ver_1", AgentID: agentID, Version: version}, nil
+func (s *fakeMarketplaceStore) CreateVersion(ctx context.Context, agentID, organizationID string, version, changelog string, metadata string) (*marketplace.AgentVersion, error) {
+	return &marketplace.AgentVersion{ID: "ver_1", AgentID: agentID, OrganizationID: organizationID, Version: version}, nil
 }
 
 func (s *fakeMarketplaceStore) ListVersions(ctx context.Context, agentID string) ([]*marketplace.AgentVersion, error) {
@@ -469,38 +470,39 @@ func (s *fakeMarketplaceStore) GetVersion(ctx context.Context, agentID, version 
 	return &marketplace.AgentVersion{ID: "ver_1", AgentID: agentID, Version: version}, nil
 }
 
-func (s *fakeMarketplaceStore) InstallAgent(ctx context.Context, agentID, userID, versionID string) (*marketplace.AgentInstall, error) {
+func (s *fakeMarketplaceStore) InstallAgent(ctx context.Context, agentID, userID, organizationID, versionID string) (*marketplace.AgentInstall, error) {
 	s.installedAgentID = agentID
+	s.installedOrgID = organizationID
 	s.installedUserID = userID
 	s.installedVersionID = versionID
-	return &marketplace.AgentInstall{ID: "install_1", AgentID: agentID, UserID: userID}, nil
+	return &marketplace.AgentInstall{ID: "install_1", AgentID: agentID, OrganizationID: organizationID, UserID: userID}, nil
 }
 
-func (s *fakeMarketplaceStore) UninstallAgent(ctx context.Context, agentID, userID string) error {
+func (s *fakeMarketplaceStore) UninstallAgent(ctx context.Context, agentID, userID, organizationID string) error {
 	return nil
 }
 
-func (s *fakeMarketplaceStore) ListUserInstalls(ctx context.Context, userID string) ([]*marketplace.AgentInstall, error) {
-	return []*marketplace.AgentInstall{{ID: "install_1", AgentID: "agent_1", UserID: userID}}, nil
+func (s *fakeMarketplaceStore) ListUserInstalls(ctx context.Context, userID, organizationID string) ([]*marketplace.AgentInstall, error) {
+	return []*marketplace.AgentInstall{{ID: "install_1", AgentID: "agent_1", OrganizationID: organizationID, UserID: userID}}, nil
 }
 
-func (s *fakeMarketplaceStore) IsInstalled(ctx context.Context, agentID, userID string) (bool, error) {
+func (s *fakeMarketplaceStore) IsInstalled(ctx context.Context, agentID, userID, organizationID string) (bool, error) {
 	return true, nil
 }
 
-func (s *fakeMarketplaceStore) CreateReview(ctx context.Context, userID string, input marketplace.ReviewInput) (*marketplace.AgentReview, error) {
-	return &marketplace.AgentReview{ID: "review_1", AgentID: input.AgentID, UserID: userID, Rating: input.Rating}, nil
+func (s *fakeMarketplaceStore) CreateReview(ctx context.Context, userID, organizationID string, input marketplace.ReviewInput) (*marketplace.AgentReview, error) {
+	return &marketplace.AgentReview{ID: "review_1", AgentID: input.AgentID, OrganizationID: organizationID, UserID: userID, Rating: input.Rating}, nil
 }
 
-func (s *fakeMarketplaceStore) UpdateReview(ctx context.Context, userID string, input marketplace.ReviewInput) (*marketplace.AgentReview, error) {
-	return &marketplace.AgentReview{ID: "review_1", AgentID: input.AgentID, UserID: userID, Rating: input.Rating}, nil
+func (s *fakeMarketplaceStore) UpdateReview(ctx context.Context, userID, organizationID string, input marketplace.ReviewInput) (*marketplace.AgentReview, error) {
+	return &marketplace.AgentReview{ID: "review_1", AgentID: input.AgentID, OrganizationID: organizationID, UserID: userID, Rating: input.Rating}, nil
 }
 
 func (s *fakeMarketplaceStore) ListReviews(ctx context.Context, agentID string, limit, offset int) ([]*marketplace.AgentReview, error) {
 	return []*marketplace.AgentReview{{ID: "review_1", AgentID: agentID, Rating: 5}}, nil
 }
 
-func (s *fakeMarketplaceStore) GetUserReview(ctx context.Context, agentID, userID string) (*marketplace.AgentReview, error) {
+func (s *fakeMarketplaceStore) GetUserReview(ctx context.Context, agentID, userID, organizationID string) (*marketplace.AgentReview, error) {
 	return nil, nil
 }
 
