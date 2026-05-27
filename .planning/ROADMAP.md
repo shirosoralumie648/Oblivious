@@ -12,7 +12,7 @@
 
 Milestone v04 has been initialized from `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`.
 
-**Next workflow step:** plan Phase 12 Commercial Gate CI and Evidence.
+**Next workflow step:** execute Phase 12 Commercial Gate CI and Evidence Plan 01.
 
 ## Current Milestone: v04 Commercial Foundation
 
@@ -23,7 +23,7 @@ Milestone v04 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 | Phase 9 | Tenant Model and Migration Ledger | TENANT-01, MIGR-01 | Complete |
 | Phase 10 | Membership, Roles, and Auth Security | TENANT-02, TENANT-03, SEC-01, SEC-02, SEC-03 | Complete |
 | Phase 11 | Tenant Scope Across Core Domains | TENANT-04, TENANT-05 | Complete |
-| Phase 12 | Commercial Gate CI and Evidence | CI-01, DOC-03 | Ready to plan |
+| Phase 12 | Commercial Gate CI and Evidence | CI-01, DOC-03 | Ready to execute |
 
 ### Phase 9: Tenant Model and Migration Ledger
 
@@ -116,6 +116,10 @@ Milestone v04 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 - `bash scripts/test.sh all`
 - Targeted `rg` checks proving commercial gate docs no longer describe v04 as MVP/RC-only.
 
+**Planning evidence:**
+- Context: `.planning/phases/12-commercial-gate-ci-and-evidence/12-CONTEXT.md`
+- Plan: `.planning/phases/12-commercial-gate-ci-and-evidence/12-01-PLAN.md`
+
 ## Traceability
 
 | Requirement | Phase | Coverage |
@@ -129,8 +133,8 @@ Milestone v04 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 | SEC-03 | Phase 10 | Complete — password policy and session rotation/revocation |
 | TENANT-04 | Phase 11 | Complete — tenant scope across core domains |
 | TENANT-05 | Phase 11 | Complete — cross-tenant denial tests |
-| CI-01 | Phase 12 | Ready to plan — DB-backed CI integration guarantee |
-| DOC-03 | Phase 12 | Ready to plan — commercial gate documentation |
+| CI-01 | Phase 12 | Ready to execute — DB-backed CI integration guarantee |
+| DOC-03 | Phase 12 | Ready to execute — commercial gate documentation |
 
 ## Archived Milestone Details
 
@@ -207,4 +211,4 @@ Milestone v04 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 | Foundation through Backend | Phases 1, 2, 3a | Historical | RELAY, CHAT, AGENT, MCP, MEM, EXEC, QUOTA, ADMIN, MARKET | Complete | 2026-04-29 |
 
 ---
-*Roadmap updated: 2026-05-28 after completing Phase 11 tenant scope across core domains*
+*Roadmap updated: 2026-05-28 after planning Phase 12 commercial gate CI and evidence*

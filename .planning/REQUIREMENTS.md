@@ -58,8 +58,8 @@
 | SEC-03 | Phase 10 — Membership, Roles, and Auth Security | Complete |
 | TENANT-04 | Phase 11 — Tenant Scope Across Core Domains | Complete |
 | TENANT-05 | Phase 11 — Tenant Scope Across Core Domains | Complete |
-| CI-01 | Phase 12 — Commercial Gate CI and Evidence | Planned |
-| DOC-03 | Phase 12 — Commercial Gate CI and Evidence | Planned |
+| CI-01 | Phase 12 — Commercial Gate CI and Evidence | Ready to execute |
+| DOC-03 | Phase 12 — Commercial Gate CI and Evidence | Ready to execute |
 
 ## Historical Validated Requirements
 
@@ -141,4 +141,4 @@
 - Unmapped v04 requirements: 0
 
 ---
-*Requirements updated: 2026-05-28 after completing Phase 11 tenant scope across core domains*
+*Requirements updated: 2026-05-28 after planning Phase 12 commercial gate CI and evidence*
