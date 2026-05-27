@@ -68,22 +68,10 @@ func TestSQLStoreOrganizationLifecycle(t *testing.T) {
 
 	store := NewSQLStore(database)
 	service := NewService(store)
-	creatorID := "user_admin"
-	if _, err := database.Exec(`
-INSERT INTO users (id, email, password_hash, role)
-VALUES ($1, $2, $3, $4)
-ON CONFLICT (id) DO UPDATE SET
-	email = EXCLUDED.email,
-	password_hash = EXCLUDED.password_hash,
-	role = EXCLUDED.role
-`, creatorID, "admin@example.com", "hash", "admin"); err != nil {
-		t.Fatalf("insert user: %v", err)
-	}
 
 	created, err := service.CreateOrganization(context.Background(), CreateOrganizationRequest{
-		Name:            "Acme",
-		Slug:            "acme",
-		CreatedByUserID: &creatorID,
+		Name: "Acme",
+		Slug: "acme",
 	})
 	if err != nil {
 		t.Fatalf("create organization: %v", err)
@@ -175,14 +163,13 @@ func resetTenantTestTables(t *testing.T, database *sql.DB) {
 
 	statements := []string{
 		`DROP TABLE IF EXISTS organizations`,
-		`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'user')`,
 		`CREATE TABLE organizations (
 			id TEXT PRIMARY KEY,
 			slug TEXT NOT NULL UNIQUE,
 			name TEXT NOT NULL,
 			status TEXT NOT NULL DEFAULT 'active',
 			metadata JSONB NOT NULL DEFAULT '{}',
-			created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+			created_by_user_id TEXT,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			archived_at TIMESTAMPTZ,
