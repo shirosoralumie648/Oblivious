@@ -78,10 +78,11 @@ const (
 
 // Internal headers for trusted server-to-server traffic from the app gateway.
 const (
-	HeaderInternalUserID    = "X-Oblivious-Internal-User-ID"
-	HeaderInternalWorkspace = "X-Oblivious-Internal-Workspace-ID"
-	HeaderInternalAuth      = "X-Oblivious-Internal-Auth"
-	HeaderRequestID         = "X-Request-ID"
+	HeaderInternalUserID       = "X-Oblivious-Internal-User-ID"
+	HeaderInternalWorkspace    = "X-Oblivious-Internal-Workspace-ID"
+	HeaderInternalOrganization = "X-Oblivious-Internal-Organization-ID"
+	HeaderInternalAuth         = "X-Oblivious-Internal-Auth"
+	HeaderRequestID            = "X-Request-ID"
 )
 
 // SharedInternalToken is the shared secret that the app gateway sends in
@@ -163,60 +164,60 @@ type Handler interface {
 
 // Channel 渠道配置
 type Channel struct {
-	ID        string   `json:"id"`
-	Name      string   `json:"name"`
-	Provider  string   `json:"provider"` // "openai"
-	BaseURL   string   `json:"base_url"`
-	APIKey    string   `json:"-"` // 加密存储，不暴露
-	Models    []string `json:"models"`
-	RPMLimit  int      `json:"rpm_limit"`
-	TPMLimit  int      `json:"tpm_limit"`
-	CBThreshold int    `json:"cb_threshold"`
-	CBTimeout   int    `json:"cb_timeout"`
-	HealthCheckStrategy string `json:"health_check_strategy"`
-	ProbeModel  string `json:"probe_model"`
-	ProbePrompt string `json:"probe_prompt"`
-	Strategy   string `json:"strategy"`
-	Priority   int    `json:"priority"`
-	Enabled    bool    `json:"enabled"`
+	ID                  string   `json:"id"`
+	Name                string   `json:"name"`
+	Provider            string   `json:"provider"` // "openai"
+	BaseURL             string   `json:"base_url"`
+	APIKey              string   `json:"-"` // 加密存储，不暴露
+	Models              []string `json:"models"`
+	RPMLimit            int      `json:"rpm_limit"`
+	TPMLimit            int      `json:"tpm_limit"`
+	CBThreshold         int      `json:"cb_threshold"`
+	CBTimeout           int      `json:"cb_timeout"`
+	HealthCheckStrategy string   `json:"health_check_strategy"`
+	ProbeModel          string   `json:"probe_model"`
+	ProbePrompt         string   `json:"probe_prompt"`
+	Strategy            string   `json:"strategy"`
+	Priority            int      `json:"priority"`
+	Enabled             bool     `json:"enabled"`
 }
 
 // ModelRoute 模型路由
 type ModelRoute struct {
-	ID       string `json:"id"`
-	Model    string `json:"model"`
-	Strategy string `json:"strategy"`
+	ID       string         `json:"id"`
+	Model    string         `json:"model"`
+	Strategy string         `json:"strategy"`
 	Channels []RouteChannel `json:"channels"`
 }
 
 // RouteChannel 模型-渠道关联
 type RouteChannel struct {
-	Channel           *Channel `json:"channel"`
-	ChannelID        string   `json:"channel_id"`
-	Weight           int      `json:"weight"`
-	Priority         int      `json:"priority"`
-	Enabled          bool     `json:"enabled"`
-	Healthy          bool     `json:"healthy"`
-	EstimatedCostPer1K float64 `json:"estimated_cost_per_1k"`
+	Channel            *Channel `json:"channel"`
+	ChannelID          string   `json:"channel_id"`
+	Weight             int      `json:"weight"`
+	Priority           int      `json:"priority"`
+	Enabled            bool     `json:"enabled"`
+	Healthy            bool     `json:"healthy"`
+	EstimatedCostPer1K float64  `json:"estimated_cost_per_1k"`
 }
 
 // ChannelStats 运行时状态（内存）
 type ChannelStats struct {
-	ChannelID     string    `json:"channel_id"`
-	CBState       string    `json:"cb_state"`
-	CBFailures    int       `json:"cb_failures"`
-	CBLastFailure time.Time `json:"cb_last_failure"`
-	CBProbeCount  int       `json:"cb_probe_count"`
-	CBHalfOpenReq int       `json:"cb_half_open_req"`
-	RPMCurrent    int       `json:"rpm_current"`
-	TPMCurrent    int       `json:"tpm_current"`
-	RPMLastReset  time.Time `json:"rpm_last_reset"`
-	TPMLastReset  time.Time `json:"tpm_last_reset"`
-	TotalRequests int64     `json:"total_requests"`
-	SuccessCount  int64     `json:"success_count"`
-	FailureCount  int64     `json:"failure_count"`
-	LatencySumUs  int64     `json:"latency_sum_us"`
-	LatencyCount  int64     `json:"latency_count"`
+	ChannelID        string    `json:"channel_id"`
+	CBState          string    `json:"cb_state"`
+	CBFailures       int       `json:"cb_failures"`
+	CBLastFailure    time.Time `json:"cb_last_failure"`
+	CBProbeCount     int       `json:"cb_probe_count"`
+	CBHalfOpenReq    int       `json:"cb_half_open_req"`
+	RPMCurrent       int       `json:"rpm_current"`
+	TPMCurrent       int       `json:"tpm_current"`
+	RPMLastReset     time.Time `json:"rpm_last_reset"`
+	TPMLastReset     time.Time `json:"tpm_last_reset"`
+	TotalRequests    int64     `json:"total_requests"`
+	SuccessCount     int64     `json:"success_count"`
+	FailureCount     int64     `json:"failure_count"`
+	LatencySumUs     int64     `json:"latency_sum_us"`
+	LatencyCount     int64     `json:"latency_count"`
 	LastProbeSuccess time.Time `json:"last_probe_success"`
 	LastProbeTime    time.Time `json:"last_probe_time"`
 }
@@ -253,29 +254,30 @@ type Message struct {
 
 // ProviderRequest 内部标准请求格式
 type ProviderRequest struct {
-	APIType     APIType     `json:"api_type"`
-	Model       string      `json:"model"`
-	Headers     http.Header `json:"headers"`
-	URL         string      `json:"url"`
-	Stream      bool        `json:"stream"`
-	Messages    []Message   `json:"messages,omitempty"`
-	MaxTokens   int         `json:"max_tokens,omitempty"`
-	Input       string      `json:"input,omitempty"`
-	AudioFormat string      `json:"audio_format,omitempty"`
-	AudioVoice  string      `json:"audio_voice,omitempty"`
-	ImageURL    string      `json:"image_url,omitempty"`
-	Prompt      string      `json:"prompt,omitempty"`
-	FileURL     string      `json:"file_url,omitempty"`
-	Body        []byte      `json:"body,omitempty"`
-	RequestID   string      `json:"request_id,omitempty"`
+	APIType     APIType          `json:"api_type"`
+	Model       string           `json:"model"`
+	Headers     http.Header      `json:"headers"`
+	URL         string           `json:"url"`
+	Stream      bool             `json:"stream"`
+	Messages    []Message        `json:"messages,omitempty"`
+	MaxTokens   int              `json:"max_tokens,omitempty"`
+	Input       string           `json:"input,omitempty"`
+	AudioFormat string           `json:"audio_format,omitempty"`
+	AudioVoice  string           `json:"audio_voice,omitempty"`
+	ImageURL    string           `json:"image_url,omitempty"`
+	Prompt      string           `json:"prompt,omitempty"`
+	FileURL     string           `json:"file_url,omitempty"`
+	Body        []byte           `json:"body,omitempty"`
+	RequestID   string           `json:"request_id,omitempty"`
 	Tools       []map[string]any `json:"tools,omitempty"`
-	ToolChoice  any         `json:"tool_choice,omitempty"`
+	ToolChoice  any              `json:"tool_choice,omitempty"`
 }
 
 // Trusted internal identity propagated via context from the handler
 // to the billing layer. Only set for internal server-to-server requests
 // that carry a valid X-Oblivious-Internal-Auth header.
 type trustedUserContextKey struct{}
+type trustedOrganizationContextKey struct{}
 
 func WithTrustedUserID(ctx context.Context, userID string) context.Context {
 	return context.WithValue(ctx, trustedUserContextKey{}, userID)
@@ -286,15 +288,24 @@ func TrustedUserIDFromContext(ctx context.Context) (string, bool) {
 	return userID, ok
 }
 
+func WithTrustedOrganizationID(ctx context.Context, organizationID string) context.Context {
+	return context.WithValue(ctx, trustedOrganizationContextKey{}, organizationID)
+}
+
+func TrustedOrganizationIDFromContext(ctx context.Context) (string, bool) {
+	organizationID, ok := ctx.Value(trustedOrganizationContextKey{}).(string)
+	return organizationID, ok
+}
+
 // Capabilities 能力声明
 type Capabilities struct {
-	SupportsChat        bool
-	SupportsStreaming   bool
-	SupportsEmbeddings  bool
-	SupportsImages      bool
-	SupportsAudio       bool
-	SupportsRealtime    bool
-	SupportsAssistants  bool
+	SupportsChat       bool
+	SupportsStreaming  bool
+	SupportsEmbeddings bool
+	SupportsImages     bool
+	SupportsAudio      bool
+	SupportsRealtime   bool
+	SupportsAssistants bool
 }
 
 // ProviderAdapter Provider 适配器接口

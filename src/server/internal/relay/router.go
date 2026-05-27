@@ -11,12 +11,12 @@ import (
 )
 
 type Router struct {
-	pool            *ChannelPool
-	loadBalancer    *LoadBalancer
-	circuitBreakers map[string]*CircuitBreaker
-	tokenBucket     *TokenBucket
-	healthChecker   *HealthChecker
-	billingHook     *BillingHook
+	pool             *ChannelPool
+	loadBalancer     *LoadBalancer
+	circuitBreakers  map[string]*CircuitBreaker
+	tokenBucket      *TokenBucket
+	healthChecker    *HealthChecker
+	billingHook      *BillingHook
 	billingRedisAddr string
 }
 
@@ -46,13 +46,13 @@ func NewRouterWithBilling(
 	billingRedisAddr string,
 ) *Router {
 	return &Router{
-		pool:              pool,
-		loadBalancer:      lb,
-		circuitBreakers:   cbs,
-		tokenBucket:       tb,
-		healthChecker:     hc,
-		billingHook:       billingHook,
-		billingRedisAddr:  billingRedisAddr,
+		pool:             pool,
+		loadBalancer:     lb,
+		circuitBreakers:  cbs,
+		tokenBucket:      tb,
+		healthChecker:    hc,
+		billingHook:      billingHook,
+		billingRedisAddr: billingRedisAddr,
 	}
 }
 
@@ -189,6 +189,7 @@ func (r *Router) RouteWithBilling(
 ) (*types.ProviderResponse, error) {
 	// Resolve trusted internal user identity for app-originated requests.
 	userID, _ := types.TrustedUserIDFromContext(ctx)
+	organizationID, _ := types.TrustedOrganizationIDFromContext(ctx)
 
 	// Create a single billing session carried through the full lifecycle:
 	// PreBill -> PostBill (on success) or Refund (on failure).
@@ -197,6 +198,7 @@ func (r *Router) RouteWithBilling(
 		APIType:        apiType,
 		Model:          model,
 		IdempotencyKey: idempotencyKey,
+		OrganizationID: organizationID,
 		UserID:         userID,
 	}
 
@@ -234,6 +236,7 @@ func (r *Router) RouteWithBilling(
 					IdempotencyKey: idempotencyKey,
 					QuotaSessionID: session.QuotaSessionID,
 					UserID:         userID,
+					OrganizationID: organizationID,
 				}
 				EnqueueBillingTimeoutTask(r.billingRedisAddr, timeoutTask, 5*time.Minute)
 			}

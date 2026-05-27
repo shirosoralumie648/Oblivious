@@ -57,6 +57,10 @@ func testDatabase(t *testing.T) *sql.DB {
 		`DROP TABLE IF EXISTS auth_rate_limits CASCADE`,
 		`DROP TABLE IF EXISTS audit_logs CASCADE`,
 		`DROP TABLE IF EXISTS usage_records CASCADE`,
+		`DROP TABLE IF EXISTS billing_sessions CASCADE`,
+		`DROP TABLE IF EXISTS topup_orders CASCADE`,
+		`DROP TABLE IF EXISTS subscriptions CASCADE`,
+		`DROP TABLE IF EXISTS quotas CASCADE`,
 		`DROP TABLE IF EXISTS notifications CASCADE`,
 		`DROP TABLE IF EXISTS agent_messages CASCADE`,
 		`DROP TABLE IF EXISTS agent_conversations CASCADE`,
@@ -97,6 +101,11 @@ func testDatabase(t *testing.T) *sql.DB {
 		`CREATE TABLE user_preferences (user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, onboarding_completed BOOLEAN NOT NULL DEFAULT FALSE, default_mode TEXT NOT NULL DEFAULT 'chat', model_strategy TEXT NOT NULL DEFAULT 'balanced', network_enabled_hint BOOLEAN NOT NULL DEFAULT FALSE, default_agent_model TEXT NOT NULL DEFAULT 'gpt-4o-mini', sidebar_collapsed BOOLEAN NOT NULL DEFAULT FALSE, notifications JSONB NOT NULL DEFAULT '{}', updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE notifications (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, type TEXT NOT NULL, category TEXT NOT NULL, title TEXT NOT NULL, message TEXT NOT NULL, is_read BOOLEAN NOT NULL DEFAULT FALSE, action_url TEXT, metadata JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), read_at TIMESTAMPTZ)`,
 		`CREATE TABLE usage_records (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL, model_id TEXT NOT NULL, request_count INTEGER NOT NULL, input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE TABLE quotas (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, balance DECIMAL(15,6) NOT NULL DEFAULT 0, used DECIMAL(15,6) NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE (organization_id))`,
+		`CREATE TABLE billing_sessions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, channel_id TEXT, model TEXT, api_type TEXT, idempotency_key TEXT NOT NULL, pre_authorized_amt DECIMAL(15,6) NOT NULL DEFAULT 0, settled_amt DECIMAL(15,6) NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'preauthorized', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), settled_at TIMESTAMPTZ)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_test_billing_sessions_unique_org_idempotency ON billing_sessions(organization_id, idempotency_key) WHERE idempotency_key <> ''`,
+		`CREATE TABLE subscriptions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, package_id TEXT NOT NULL, status TEXT DEFAULT 'active', started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), expires_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE TABLE topup_orders (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, amount DECIMAL(15,6) NOT NULL, money DECIMAL(10,2) NOT NULL, status TEXT DEFAULT 'pending', trade_no TEXT, paid_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE agents (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, name TEXT NOT NULL, description TEXT, model TEXT DEFAULT 'gpt-4o-mini', system_prompt TEXT, tools JSONB DEFAULT '[]', config JSONB DEFAULT '{}', is_public BOOLEAN DEFAULT FALSE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE agent_conversations (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, title TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE agent_messages (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES agent_conversations(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, role TEXT NOT NULL, content TEXT NOT NULL, tool_calls JSONB DEFAULT '[]', tool_call_id TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
@@ -967,6 +976,71 @@ func TestCrossTenantMCPScopeDeniesReadWriteAndConnect(t *testing.T) {
 	}
 	if serverCount != 1 {
 		t.Fatalf("expected denied delete to preserve other org MCP server, got count %d", serverCount)
+	}
+}
+
+func TestCrossTenantQuotaScopeUsesActiveOrganization(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+
+	cookie, csrfToken, userID := registerHTTPUser(t, router, "cross-quota@example.com")
+	_, activeOrganizationID := queryHTTPUserScope(t, database, userID)
+	promoteHTTPUserToAdmin(t, database, userID)
+	otherOrganizationID := createHTTPOrganization(t, router, cookie, csrfToken, "Other Quota Org", "other-quota-org")
+
+	if _, err := database.Exec(`
+		INSERT INTO quotas (id, user_id, organization_id, balance, used, created_at, updated_at)
+		VALUES ('quota_other_org', $1, $2, 123, 7, NOW(), NOW())
+	`, userID, otherOrganizationID); err != nil {
+		t.Fatalf("insert other org quota: %v", err)
+	}
+
+	getRecorder := httptest.NewRecorder()
+	getRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/app/quota", nil)
+	getRequest.AddCookie(cookie)
+	router.ServeHTTP(getRecorder, getRequest)
+	if getRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("get quota expected 200, got %d with body %s", getRecorder.Code, getRecorder.Body.String())
+	}
+	var getResponse struct {
+		Data struct {
+			OrganizationID string  `json:"organizationId"`
+			Balance        float64 `json:"balance"`
+			Used           float64 `json:"used"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(getRecorder.Body.Bytes(), &getResponse); err != nil {
+		t.Fatalf("decode quota: %v", err)
+	}
+	if getResponse.Data.OrganizationID != activeOrganizationID {
+		t.Fatalf("expected active organization quota %s, got %s", activeOrganizationID, getResponse.Data.OrganizationID)
+	}
+	if getResponse.Data.Balance != 0 || getResponse.Data.Used != 0 {
+		t.Fatalf("expected empty active org quota, got %+v", getResponse.Data)
+	}
+
+	topupRecorder := httptest.NewRecorder()
+	topupRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/quota/topup", strings.NewReader(`{"amount":5}`))
+	topupRequest.Header.Set("Content-Type", "application/json")
+	topupRequest.AddCookie(cookie)
+	addCSRF(topupRequest, csrfToken)
+	router.ServeHTTP(topupRecorder, topupRequest)
+	if topupRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("topup expected 200, got %d with body %s", topupRecorder.Code, topupRecorder.Body.String())
+	}
+
+	var activeBalance, otherBalance float64
+	if err := database.QueryRow(`SELECT balance FROM quotas WHERE organization_id = $1`, activeOrganizationID).Scan(&activeBalance); err != nil {
+		t.Fatalf("query active org quota: %v", err)
+	}
+	if err := database.QueryRow(`SELECT balance FROM quotas WHERE organization_id = $1`, otherOrganizationID).Scan(&otherBalance); err != nil {
+		t.Fatalf("query other org quota: %v", err)
+	}
+	if activeBalance != 5 {
+		t.Fatalf("expected active organization balance 5 after topup, got %.2f", activeBalance)
+	}
+	if otherBalance != 123 {
+		t.Fatalf("expected other organization balance unchanged at 123, got %.2f", otherBalance)
 	}
 }
 

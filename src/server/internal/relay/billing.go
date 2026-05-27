@@ -14,25 +14,26 @@ type BillingStatus string
 
 const (
 	BillingStatusAuthorized BillingStatus = "authorized"
-	BillingStatusSettled   BillingStatus = "settled"
-	BillingStatusRefunded  BillingStatus = "refunded"
-	BillingStatusFailed    BillingStatus = "failed"
+	BillingStatusSettled    BillingStatus = "settled"
+	BillingStatusRefunded   BillingStatus = "refunded"
+	BillingStatusFailed     BillingStatus = "failed"
 )
 
 type BillingSession struct {
 	ID               string
+	OrganizationID   string
 	UserID           string
 	ChannelID        string
-	APIType         types.APIType
-	Model           string
-	IdempotencyKey  string
-	RequestID       string
-	AttemptNo       int
+	APIType          types.APIType
+	Model            string
+	IdempotencyKey   string
+	RequestID        string
+	AttemptNo        int
 	PreAuthorizedAmt float64
-	SettledAmt      float64
-	QuotaSessionID  string
-	Status          BillingStatus
-	CreatedAt       time.Time
+	SettledAmt       float64
+	QuotaSessionID   string
+	Status           BillingStatus
+	CreatedAt        time.Time
 }
 
 // QuotaManager is the exportable billing adapter interface that matches
@@ -40,7 +41,7 @@ type BillingSession struct {
 // BillingHook so that successful Relay calls create preauthorized quota
 // sessions and settle them, while failed calls refund correctly.
 type QuotaManager interface {
-	PreConsume(ctx context.Context, userID string, amount float64, idempotencyKey string, channelID, model, apiType string) (*quota.BillingSession, error)
+	PreConsume(ctx context.Context, userID, organizationID string, amount float64, idempotencyKey string, channelID, model, apiType string) (*quota.BillingSession, error)
 	Settle(ctx context.Context, sessionID string, actualAmount float64) error
 	Refund(ctx context.Context, sessionID string) error
 }
@@ -66,13 +67,16 @@ func (h *BillingHook) SetQuotaManager(manager QuotaManager) {
 func (h *BillingHook) PreBill(session *BillingSession, usage *types.Usage) (float64, error) {
 	// Check idempotency
 	if h.seenIdem != nil {
-		h.mu.Lock()
-		if (*h.seenIdem)[session.IdempotencyKey] {
+		idempotencyKey := scopedBillingIdempotencyKey(session, "")
+		if idempotencyKey != "" {
+			h.mu.Lock()
+			if (*h.seenIdem)[idempotencyKey] {
+				h.mu.Unlock()
+				return session.PreAuthorizedAmt, nil
+			}
+			(*h.seenIdem)[idempotencyKey] = true
 			h.mu.Unlock()
-			return session.PreAuthorizedAmt, nil
 		}
-		(*h.seenIdem)[session.IdempotencyKey] = true
-		h.mu.Unlock()
 	}
 
 	// Estimate cost
@@ -80,10 +84,11 @@ func (h *BillingHook) PreBill(session *BillingSession, usage *types.Usage) (floa
 	// Add 20% buffer for safety
 	preAuth := cost * 1.2
 
-	if h.QuotaManager != nil && session.UserID != "" {
+	if h.QuotaManager != nil && session.UserID != "" && session.OrganizationID != "" {
 		quotaSession, err := h.QuotaManager.PreConsume(
 			context.Background(),
 			session.UserID,
+			session.OrganizationID,
 			preAuth,
 			session.IdempotencyKey,
 			session.ChannelID,
@@ -107,14 +112,16 @@ func (h *BillingHook) PreBill(session *BillingSession, usage *types.Usage) (floa
 func (h *BillingHook) PostBill(session *BillingSession, usage *types.Usage) (float64, error) {
 	// Check idempotency
 	if h.seenIdem != nil {
-		h.mu.Lock()
-		key := session.IdempotencyKey + ":settled"
-		if (*h.seenIdem)[key] {
+		key := scopedBillingIdempotencyKey(session, "settled")
+		if key != "" {
+			h.mu.Lock()
+			if (*h.seenIdem)[key] {
+				h.mu.Unlock()
+				return session.SettledAmt, nil
+			}
+			(*h.seenIdem)[key] = true
 			h.mu.Unlock()
-			return session.SettledAmt, nil
 		}
-		(*h.seenIdem)[key] = true
-		h.mu.Unlock()
 	}
 
 	actualCost := h.pricing.CalculateCost(session.Model, session.APIType, usage)
@@ -165,10 +172,11 @@ func (h *BillingHook) IncrementAttempt(session *BillingSession) {
 	session.AttemptNo++
 }
 
-func (h *BillingHook) BuildBillingSession(channelID, model string, apiType types.APIType, idempotencyKey, userID string) *BillingSession {
+func (h *BillingHook) BuildBillingSession(channelID, model string, apiType types.APIType, idempotencyKey, userID, organizationID string) *BillingSession {
 	now := time.Now()
 	return &BillingSession{
 		ID:               fmt.Sprintf("sess_%d", now.UnixNano()),
+		OrganizationID:   organizationID,
 		ChannelID:        channelID,
 		APIType:          apiType,
 		Model:            model,
@@ -179,4 +187,18 @@ func (h *BillingHook) BuildBillingSession(channelID, model string, apiType types
 		Status:           BillingStatusAuthorized,
 		CreatedAt:        now,
 	}
+}
+
+func scopedBillingIdempotencyKey(session *BillingSession, suffix string) string {
+	if session == nil || session.IdempotencyKey == "" {
+		return ""
+	}
+	scope := session.OrganizationID
+	if scope == "" {
+		scope = "global"
+	}
+	if suffix != "" {
+		return scope + "|" + session.IdempotencyKey + ":" + suffix
+	}
+	return scope + "|" + session.IdempotencyKey
 }

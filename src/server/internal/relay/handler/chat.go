@@ -75,8 +75,11 @@ func (h *ChatHandler) Handle(c *gin.Context) error {
 		if internalAuth == expectedToken {
 			if userID := c.GetHeader(types.HeaderInternalUserID); userID != "" {
 				ctx = types.WithTrustedUserID(ctx, userID)
-				c.Request = c.Request.WithContext(ctx)
 			}
+			if organizationID := c.GetHeader(types.HeaderInternalOrganization); organizationID != "" {
+				ctx = types.WithTrustedOrganizationID(ctx, organizationID)
+			}
+			c.Request = c.Request.WithContext(ctx)
 		}
 	}
 

@@ -231,6 +231,32 @@ SET organization_id = (
 )
 WHERE q.organization_id IS NULL;
 
+WITH quota_totals AS (
+    SELECT
+        organization_id,
+        MIN(id) AS keep_id,
+        SUM(balance) AS total_balance,
+        SUM(used) AS total_used,
+        MAX(updated_at) AS newest_updated_at
+    FROM quotas
+    WHERE organization_id IS NOT NULL
+    GROUP BY organization_id
+),
+updated AS (
+    UPDATE quotas q
+    SET
+        balance = qt.total_balance,
+        used = qt.total_used,
+        updated_at = GREATEST(q.updated_at, qt.newest_updated_at)
+    FROM quota_totals qt
+    WHERE q.id = qt.keep_id
+    RETURNING q.id
+)
+DELETE FROM quotas q
+USING quota_totals qt
+WHERE q.organization_id = qt.organization_id
+  AND q.id <> qt.keep_id;
+
 UPDATE billing_sessions bs
 SET organization_id = (
     SELECT m.organization_id
@@ -339,6 +365,9 @@ ALTER TABLE IF EXISTS agent_installs ALTER COLUMN organization_id SET NOT NULL;
 ALTER TABLE IF EXISTS agent_reviews ALTER COLUMN organization_id SET NOT NULL;
 ALTER TABLE IF EXISTS audit_logs ALTER COLUMN organization_id SET NOT NULL;
 
+ALTER TABLE IF EXISTS quotas DROP CONSTRAINT IF EXISTS quotas_user_id_key;
+ALTER TABLE IF EXISTS billing_sessions DROP CONSTRAINT IF EXISTS billing_sessions_idempotency_key_key;
+
 CREATE INDEX IF NOT EXISTS idx_workspaces_organization_id ON workspaces(organization_id, id);
 CREATE INDEX IF NOT EXISTS idx_workspaces_organization_user ON workspaces(organization_id, user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_organization_id ON sessions(organization_id, id);
@@ -366,7 +395,9 @@ CREATE INDEX IF NOT EXISTS idx_mcp_servers_organization_id ON mcp_servers(organi
 CREATE INDEX IF NOT EXISTS idx_mcp_servers_organization_user ON mcp_servers(organization_id, user_id);
 CREATE INDEX IF NOT EXISTS idx_usage_records_organization_created ON usage_records(organization_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_usage_records_organization_user ON usage_records(organization_id, user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_quotas_unique_organization ON quotas(organization_id);
 CREATE INDEX IF NOT EXISTS idx_quotas_organization_user ON quotas(organization_id, user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_billing_sessions_unique_org_idempotency ON billing_sessions(organization_id, idempotency_key) WHERE idempotency_key <> '';
 CREATE INDEX IF NOT EXISTS idx_billing_sessions_organization_user ON billing_sessions(organization_id, user_id);
 CREATE INDEX IF NOT EXISTS idx_billing_sessions_organization_created ON billing_sessions(organization_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_organization_user ON subscriptions(organization_id, user_id);

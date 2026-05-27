@@ -11,17 +11,19 @@ import (
 
 // Quota 用户配额
 type Quota struct {
-	ID        string    `json:"id"`
-	UserID    string    `json:"userId"`
-	Balance   float64   `json:"balance"` // 余额 (USD)
-	Used      float64   `json:"used"`    // 已使用 (USD)
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	ID             string    `json:"id"`
+	OrganizationID string    `json:"organizationId"`
+	UserID         string    `json:"userId"`
+	Balance        float64   `json:"balance"` // 余额 (USD)
+	Used           float64   `json:"used"`    // 已使用 (USD)
+	CreatedAt      time.Time `json:"createdAt"`
+	UpdatedAt      time.Time `json:"updatedAt"`
 }
 
 // BillingSession 计费会话
 type BillingSession struct {
 	ID               string     `json:"id"`
+	OrganizationID   string     `json:"organizationId"`
 	UserID           string     `json:"userId"`
 	ChannelID        string     `json:"channelId,omitempty"`
 	Model            string     `json:"model,omitempty"`
@@ -49,36 +51,38 @@ type Package struct {
 
 // Subscription 订阅
 type Subscription struct {
-	ID        string     `json:"id"`
-	UserID    string     `json:"userId"`
-	PackageID string     `json:"packageId"`
-	Status    string     `json:"status"`
-	StartedAt time.Time  `json:"startedAt"`
-	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
-	CreatedAt time.Time  `json:"createdAt"`
+	ID             string     `json:"id"`
+	OrganizationID string     `json:"organizationId"`
+	UserID         string     `json:"userId"`
+	PackageID      string     `json:"packageId"`
+	Status         string     `json:"status"`
+	StartedAt      time.Time  `json:"startedAt"`
+	ExpiresAt      *time.Time `json:"expiresAt,omitempty"`
+	CreatedAt      time.Time  `json:"createdAt"`
 }
 
 // TopupOrder 充值订单
 type TopupOrder struct {
-	ID        string     `json:"id"`
-	UserID    string     `json:"userId"`
-	Amount    float64    `json:"amount"`
-	Money     float64    `json:"money"`
-	Status    string     `json:"status"`
-	TradeNo   string     `json:"tradeNo,omitempty"`
-	PaidAt    *time.Time `json:"paidAt,omitempty"`
-	CreatedAt time.Time  `json:"createdAt"`
+	ID             string     `json:"id"`
+	OrganizationID string     `json:"organizationId"`
+	UserID         string     `json:"userId"`
+	Amount         float64    `json:"amount"`
+	Money          float64    `json:"money"`
+	Status         string     `json:"status"`
+	TradeNo        string     `json:"tradeNo,omitempty"`
+	PaidAt         *time.Time `json:"paidAt,omitempty"`
+	CreatedAt      time.Time  `json:"createdAt"`
 }
 
 // Store 存储接口
 type Store interface {
 	// Quota
-	GetOrCreateQuota(ctx context.Context, userID string) (*Quota, error)
-	UpdateQuotaBalance(ctx context.Context, userID string, delta float64) error
+	GetOrCreateQuota(ctx context.Context, userID, organizationID string) (*Quota, error)
+	UpdateQuotaBalance(ctx context.Context, userID, organizationID string, delta float64) error
 
 	// Billing Session
 	CreateBillingSession(ctx context.Context, session *BillingSession) (*BillingSession, error)
-	GetBillingSessionByIdempotencyKey(ctx context.Context, key string) (*BillingSession, error)
+	GetBillingSessionByIdempotencyKey(ctx context.Context, key, organizationID string) (*BillingSession, error)
 	SettleBillingSession(ctx context.Context, id string, settledAmt float64) error
 	RefundBillingSession(ctx context.Context, id string) error
 
@@ -88,7 +92,7 @@ type Store interface {
 
 	// Subscription
 	CreateSubscription(ctx context.Context, sub *Subscription) (*Subscription, error)
-	ListActiveSubscriptions(ctx context.Context, userID string) ([]*Subscription, error)
+	ListActiveSubscriptions(ctx context.Context, userID, organizationID string) ([]*Subscription, error)
 
 	// Topup
 	CreateTopupOrder(ctx context.Context, order *TopupOrder) (*TopupOrder, error)
@@ -106,16 +110,20 @@ func NewService(store Store) *Service {
 }
 
 // GetBalance 获取用户余额
-func (s *Service) GetBalance(ctx context.Context, userID string) (*Quota, error) {
-	return s.store.GetOrCreateQuota(ctx, userID)
+func (s *Service) GetBalance(ctx context.Context, userID, organizationID string) (*Quota, error) {
+	return s.store.GetOrCreateQuota(ctx, userID, organizationID)
 }
 
 // PreConsume 预扣配额
 // 返回 billing session ID 用于后续结算
-func (s *Service) PreConsume(ctx context.Context, userID string, amount float64, idempotencyKey string, channelID, model, apiType string) (*BillingSession, error) {
+func (s *Service) PreConsume(ctx context.Context, userID, organizationID string, amount float64, idempotencyKey string, channelID, model, apiType string) (*BillingSession, error) {
+	if organizationID == "" {
+		return nil, fmt.Errorf("organization_id is required")
+	}
+
 	// 检查幂等性
 	if idempotencyKey != "" {
-		existing, err := s.store.GetBillingSessionByIdempotencyKey(ctx, idempotencyKey)
+		existing, err := s.store.GetBillingSessionByIdempotencyKey(ctx, idempotencyKey, organizationID)
 		if err != nil {
 			return nil, err
 		}
@@ -126,7 +134,7 @@ func (s *Service) PreConsume(ctx context.Context, userID string, amount float64,
 	}
 
 	// 获取配额
-	quota, err := s.store.GetOrCreateQuota(ctx, userID)
+	quota, err := s.store.GetOrCreateQuota(ctx, userID, organizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -137,7 +145,7 @@ func (s *Service) PreConsume(ctx context.Context, userID string, amount float64,
 	}
 
 	// 预扣
-	if err := s.store.UpdateQuotaBalance(ctx, userID, -amount); err != nil {
+	if err := s.store.UpdateQuotaBalance(ctx, userID, organizationID, -amount); err != nil {
 		return nil, fmt.Errorf("pre-consume failed: %w", err)
 	}
 
@@ -145,12 +153,13 @@ func (s *Service) PreConsume(ctx context.Context, userID string, amount float64,
 	sessionID, err := auth.NewID("bill")
 	if err != nil {
 		// 回滚
-		s.store.UpdateQuotaBalance(ctx, userID, amount)
+		s.store.UpdateQuotaBalance(ctx, userID, organizationID, amount)
 		return nil, err
 	}
 
 	session := &BillingSession{
 		ID:               sessionID,
+		OrganizationID:   organizationID,
 		UserID:           userID,
 		ChannelID:        channelID,
 		Model:            model,
@@ -164,7 +173,7 @@ func (s *Service) PreConsume(ctx context.Context, userID string, amount float64,
 	created, err := s.store.CreateBillingSession(ctx, session)
 	if err != nil {
 		// 回滚
-		s.store.UpdateQuotaBalance(ctx, userID, amount)
+		s.store.UpdateQuotaBalance(ctx, userID, organizationID, amount)
 		return nil, fmt.Errorf("create billing session: %w", err)
 	}
 
@@ -189,8 +198,14 @@ func (s *Service) Refund(ctx context.Context, sessionID string) error {
 }
 
 // Topup 充值
-func (s *Service) Topup(ctx context.Context, userID string, amount float64) error {
-	return s.store.UpdateQuotaBalance(ctx, userID, amount)
+func (s *Service) Topup(ctx context.Context, userID, organizationID string, amount float64) error {
+	if organizationID == "" {
+		return fmt.Errorf("organization_id is required")
+	}
+	if _, err := s.store.GetOrCreateQuota(ctx, userID, organizationID); err != nil {
+		return err
+	}
+	return s.store.UpdateQuotaBalance(ctx, userID, organizationID, amount)
 }
 
 // ListPackages 列出套餐
@@ -209,13 +224,13 @@ func NewSQLStore(db *sql.DB) *SQLStore {
 }
 
 // GetOrCreateQuota 获取或创建配额
-func (s *SQLStore) GetOrCreateQuota(ctx context.Context, userID string) (*Quota, error) {
+func (s *SQLStore) GetOrCreateQuota(ctx context.Context, userID, organizationID string) (*Quota, error) {
 	// 尝试获取
 	var quota Quota
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, user_id, balance, used, created_at, updated_at
-		FROM quotas WHERE user_id = $1
-	`, userID).Scan(&quota.ID, &quota.UserID, &quota.Balance, &quota.Used, &quota.CreatedAt, &quota.UpdatedAt)
+		SELECT id, organization_id, user_id, balance, used, created_at, updated_at
+		FROM quotas WHERE organization_id = $1
+	`, organizationID).Scan(&quota.ID, &quota.OrganizationID, &quota.UserID, &quota.Balance, &quota.Used, &quota.CreatedAt, &quota.UpdatedAt)
 
 	if err == nil {
 		return &quota, nil
@@ -233,48 +248,48 @@ func (s *SQLStore) GetOrCreateQuota(ctx context.Context, userID string) (*Quota,
 
 	now := time.Now().UTC()
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO quotas (id, user_id, balance, used, created_at, updated_at)
-		VALUES ($1, $2, 0, 0, $3, $3)
-	`, id, userID, now)
+		INSERT INTO quotas (id, organization_id, user_id, balance, used, created_at, updated_at)
+		VALUES ($1, $2, $3, 0, 0, $4, $4)
+		ON CONFLICT (organization_id) DO NOTHING
+	`, id, organizationID, userID, now)
 	if err != nil {
 		return nil, fmt.Errorf("create quota: %w", err)
 	}
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT id, organization_id, user_id, balance, used, created_at, updated_at
+		FROM quotas WHERE organization_id = $1
+	`, organizationID).Scan(&quota.ID, &quota.OrganizationID, &quota.UserID, &quota.Balance, &quota.Used, &quota.CreatedAt, &quota.UpdatedAt); err != nil {
+		return nil, fmt.Errorf("get created quota: %w", err)
+	}
 
-	return &Quota{
-		ID:        id,
-		UserID:    userID,
-		Balance:   0,
-		Used:      0,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}, nil
+	return &quota, nil
 }
 
 // UpdateQuotaBalance 更新配额余额
-func (s *SQLStore) UpdateQuotaBalance(ctx context.Context, userID string, delta float64) error {
+func (s *SQLStore) UpdateQuotaBalance(ctx context.Context, userID, organizationID string, delta float64) error {
 	now := time.Now().UTC()
 
 	if delta > 0 {
 		// 充值
 		_, err := s.db.ExecContext(ctx, `
-			UPDATE quotas SET balance = balance + $2, updated_at = $3 WHERE user_id = $1
-		`, userID, delta, now)
+			UPDATE quotas SET balance = balance + $2, updated_at = $3 WHERE organization_id = $1
+		`, organizationID, delta, now)
 		return err
 	}
 
 	// 消费
 	_, err := s.db.ExecContext(ctx, `
-		UPDATE quotas SET balance = balance + $2, used = used - $2, updated_at = $3 WHERE user_id = $1
-	`, userID, delta, now)
+		UPDATE quotas SET balance = balance + $2, used = used - $2, updated_at = $3 WHERE organization_id = $1
+	`, organizationID, delta, now)
 	return err
 }
 
 // CreateBillingSession 创建计费会话
 func (s *SQLStore) CreateBillingSession(ctx context.Context, session *BillingSession) (*BillingSession, error) {
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO billing_sessions (id, user_id, channel_id, model, api_type, idempotency_key, pre_authorized_amt, status, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-	`, session.ID, session.UserID, session.ChannelID, session.Model, session.APIType, session.IdempotencyKey, session.PreAuthorizedAmt, session.Status, session.CreatedAt)
+		INSERT INTO billing_sessions (id, organization_id, user_id, channel_id, model, api_type, idempotency_key, pre_authorized_amt, status, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+	`, session.ID, session.OrganizationID, session.UserID, session.ChannelID, session.Model, session.APIType, session.IdempotencyKey, session.PreAuthorizedAmt, session.Status, session.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert billing session: %w", err)
 	}
@@ -282,14 +297,14 @@ func (s *SQLStore) CreateBillingSession(ctx context.Context, session *BillingSes
 }
 
 // GetBillingSessionByIdempotencyKey 通过幂等键获取会话
-func (s *SQLStore) GetBillingSessionByIdempotencyKey(ctx context.Context, key string) (*BillingSession, error) {
+func (s *SQLStore) GetBillingSessionByIdempotencyKey(ctx context.Context, key, organizationID string) (*BillingSession, error) {
 	var session BillingSession
 	var settledAt sql.NullTime
 
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, user_id, channel_id, model, api_type, idempotency_key, pre_authorized_amt, settled_amt, status, created_at, settled_at
-		FROM billing_sessions WHERE idempotency_key = $1
-	`, key).Scan(&session.ID, &session.UserID, &session.ChannelID, &session.Model, &session.APIType,
+		SELECT id, organization_id, user_id, channel_id, model, api_type, idempotency_key, pre_authorized_amt, settled_amt, status, created_at, settled_at
+		FROM billing_sessions WHERE idempotency_key = $1 AND organization_id = $2
+	`, key, organizationID).Scan(&session.ID, &session.OrganizationID, &session.UserID, &session.ChannelID, &session.Model, &session.APIType,
 		&session.IdempotencyKey, &session.PreAuthorizedAmt, &session.SettledAmt, &session.Status, &session.CreatedAt, &settledAt)
 
 	if err == sql.ErrNoRows {
@@ -313,8 +328,8 @@ func (s *SQLStore) SettleBillingSession(ctx context.Context, id string, settledA
 	// 获取会话信息
 	var session BillingSession
 	err := s.db.QueryRowContext(ctx, `
-		SELECT user_id, pre_authorized_amt, status FROM billing_sessions WHERE id = $1
-	`, id).Scan(&session.UserID, &session.PreAuthorizedAmt, &session.Status)
+		SELECT user_id, organization_id, pre_authorized_amt, status FROM billing_sessions WHERE id = $1
+	`, id).Scan(&session.UserID, &session.OrganizationID, &session.PreAuthorizedAmt, &session.Status)
 
 	if err != nil {
 		return fmt.Errorf("get session: %w", err)
@@ -337,7 +352,7 @@ func (s *SQLStore) SettleBillingSession(ctx context.Context, id string, settledA
 
 	// 如果有差额，退还
 	if refundAmt > 0 {
-		if err := s.UpdateQuotaBalance(ctx, session.UserID, refundAmt); err != nil {
+		if err := s.UpdateQuotaBalance(ctx, session.UserID, session.OrganizationID, refundAmt); err != nil {
 			return fmt.Errorf("refund difference: %w", err)
 		}
 	}
@@ -352,8 +367,8 @@ func (s *SQLStore) RefundBillingSession(ctx context.Context, id string) error {
 	// 获取会话信息
 	var session BillingSession
 	err := s.db.QueryRowContext(ctx, `
-		SELECT user_id, pre_authorized_amt, status FROM billing_sessions WHERE id = $1
-	`, id).Scan(&session.UserID, &session.PreAuthorizedAmt, &session.Status)
+		SELECT user_id, organization_id, pre_authorized_amt, status FROM billing_sessions WHERE id = $1
+	`, id).Scan(&session.UserID, &session.OrganizationID, &session.PreAuthorizedAmt, &session.Status)
 
 	if err != nil {
 		return fmt.Errorf("get session: %w", err)
@@ -372,7 +387,7 @@ func (s *SQLStore) RefundBillingSession(ctx context.Context, id string) error {
 	}
 
 	// 退还全额
-	if err := s.UpdateQuotaBalance(ctx, session.UserID, session.PreAuthorizedAmt); err != nil {
+	if err := s.UpdateQuotaBalance(ctx, session.UserID, session.OrganizationID, session.PreAuthorizedAmt); err != nil {
 		return fmt.Errorf("refund: %w", err)
 	}
 
@@ -444,9 +459,9 @@ func (s *SQLStore) GetPackage(ctx context.Context, id string) (*Package, error) 
 // CreateSubscription 创建订阅
 func (s *SQLStore) CreateSubscription(ctx context.Context, sub *Subscription) (*Subscription, error) {
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO subscriptions (id, user_id, package_id, status, started_at, expires_at, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, sub.ID, sub.UserID, sub.PackageID, sub.Status, sub.StartedAt, sub.ExpiresAt, sub.CreatedAt)
+		INSERT INTO subscriptions (id, organization_id, user_id, package_id, status, started_at, expires_at, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`, sub.ID, sub.OrganizationID, sub.UserID, sub.PackageID, sub.Status, sub.StartedAt, sub.ExpiresAt, sub.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert subscription: %w", err)
 	}
@@ -454,12 +469,12 @@ func (s *SQLStore) CreateSubscription(ctx context.Context, sub *Subscription) (*
 }
 
 // ListActiveSubscriptions 列出活跃订阅
-func (s *SQLStore) ListActiveSubscriptions(ctx context.Context, userID string) ([]*Subscription, error) {
+func (s *SQLStore) ListActiveSubscriptions(ctx context.Context, userID, organizationID string) ([]*Subscription, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, user_id, package_id, status, started_at, expires_at, created_at
-		FROM subscriptions WHERE user_id = $1 AND status = 'active'
+		SELECT id, organization_id, user_id, package_id, status, started_at, expires_at, created_at
+		FROM subscriptions WHERE user_id = $1 AND organization_id = $2 AND status = 'active'
 		ORDER BY created_at DESC
-	`, userID)
+	`, userID, organizationID)
 	if err != nil {
 		return nil, fmt.Errorf("list subscriptions: %w", err)
 	}
@@ -470,7 +485,7 @@ func (s *SQLStore) ListActiveSubscriptions(ctx context.Context, userID string) (
 		var sub Subscription
 		var expiresAt sql.NullTime
 
-		if err := rows.Scan(&sub.ID, &sub.UserID, &sub.PackageID, &sub.Status, &sub.StartedAt, &expiresAt, &sub.CreatedAt); err != nil {
+		if err := rows.Scan(&sub.ID, &sub.OrganizationID, &sub.UserID, &sub.PackageID, &sub.Status, &sub.StartedAt, &expiresAt, &sub.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan subscription: %w", err)
 		}
 
@@ -486,9 +501,9 @@ func (s *SQLStore) ListActiveSubscriptions(ctx context.Context, userID string) (
 // CreateTopupOrder 创建充值订单
 func (s *SQLStore) CreateTopupOrder(ctx context.Context, order *TopupOrder) (*TopupOrder, error) {
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO topup_orders (id, user_id, amount, money, status, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
-	`, order.ID, order.UserID, order.Amount, order.Money, order.Status, order.CreatedAt)
+		INSERT INTO topup_orders (id, organization_id, user_id, amount, money, status, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`, order.ID, order.OrganizationID, order.UserID, order.Amount, order.Money, order.Status, order.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert topup order: %w", err)
 	}

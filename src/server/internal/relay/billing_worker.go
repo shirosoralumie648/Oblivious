@@ -12,21 +12,22 @@ import (
 )
 
 const (
-	BillingTimeoutQueue    = "billing_timeout"
-	BillingPollingQueue    = "billing_polling"
-	BillingTimeoutPayload  = "billing_timeout_payload"
+	BillingTimeoutQueue   = "billing_timeout"
+	BillingPollingQueue   = "billing_polling"
+	BillingTimeoutPayload = "billing_timeout_payload"
 	BillingPollingPayload = "billing_polling_payload"
 )
 
 type BillingTimeoutTask struct {
-	SessionID       string
-	ChannelID       string
-	APIType         types.APIType
-	Model           string
-	AuthAmt         float64
-	IdempotencyKey  string
-	QuotaSessionID  string
-	UserID          string
+	SessionID      string
+	ChannelID      string
+	APIType        types.APIType
+	Model          string
+	AuthAmt        float64
+	IdempotencyKey string
+	QuotaSessionID string
+	UserID         string
+	OrganizationID string
 }
 
 type BillingPollingTask struct {
@@ -40,6 +41,7 @@ type BillingPollingTask struct {
 	AttemptNo        int
 	QuotaSessionID   string
 	UserID           string
+	OrganizationID   string
 }
 
 type BillingWorker struct {
@@ -113,7 +115,7 @@ func (w *BillingWorker) handleTimeout(ctx context.Context, t *asynq.Task) error 
 	if err := payloadToStruct(t.Payload(), &task); err != nil {
 		return err
 	}
-	session := w.billing.BuildBillingSession(task.ChannelID, task.Model, task.APIType, task.IdempotencyKey, task.UserID)
+	session := w.billing.BuildBillingSession(task.ChannelID, task.Model, task.APIType, task.IdempotencyKey, task.UserID, task.OrganizationID)
 	session.PreAuthorizedAmt = task.AuthAmt
 	// Carry quota session context so the refund hits the correct session.
 	session.QuotaSessionID = task.QuotaSessionID
@@ -131,7 +133,7 @@ func (w *BillingWorker) handlePolling(ctx context.Context, t *asynq.Task) error 
 	if err := payloadToStruct(t.Payload(), &task); err != nil {
 		return err
 	}
-	session := w.billing.BuildBillingSession(task.ChannelID, task.Model, task.APIType, task.IdempotencyKey, task.UserID)
+	session := w.billing.BuildBillingSession(task.ChannelID, task.Model, task.APIType, task.IdempotencyKey, task.UserID, task.OrganizationID)
 	session.PreAuthorizedAmt = task.PreAuthorizedAmt
 	session.AttemptNo = task.AttemptNo
 	session.QuotaSessionID = task.QuotaSessionID

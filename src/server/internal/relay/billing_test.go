@@ -9,19 +9,22 @@ import (
 )
 
 type stubQuotaManager struct {
-	preconsumeCalls int
-	settleCalls     int
-	refundCalls     int
-	lastUserID      string
-	lastSessionID   string
-	lastSettledAmt  float64
+	preconsumeCalls    int
+	settleCalls        int
+	refundCalls        int
+	lastUserID         string
+	lastOrganizationID string
+	lastSessionID      string
+	lastSettledAmt     float64
 }
 
-func (s *stubQuotaManager) PreConsume(ctx context.Context, userID string, amount float64, idempotencyKey string, channelID, model, apiType string) (*quota.BillingSession, error) {
+func (s *stubQuotaManager) PreConsume(ctx context.Context, userID, organizationID string, amount float64, idempotencyKey string, channelID, model, apiType string) (*quota.BillingSession, error) {
 	s.preconsumeCalls++
 	s.lastUserID = userID
+	s.lastOrganizationID = organizationID
 	return &quota.BillingSession{
 		ID:               "quota_session_1",
+		OrganizationID:   organizationID,
 		UserID:           userID,
 		PreAuthorizedAmt: amount,
 	}, nil
@@ -142,6 +145,7 @@ func TestBillingHook_DuplicateIdempotencyDoesNotPreConsumeTwice(t *testing.T) {
 
 	session := &BillingSession{
 		ID:             "sess_quota_dup",
+		OrganizationID: "org_1",
 		UserID:         "user_1",
 		ChannelID:      "ch_1",
 		APIType:        types.APITypeChat,
@@ -165,13 +169,53 @@ func TestBillingHook_DuplicateIdempotencyDoesNotPreConsumeTwice(t *testing.T) {
 	}
 }
 
+func TestBillingHook_DuplicateIdempotencyIsScopedByOrganization(t *testing.T) {
+	store := NewPricingStoreWithDefaults()
+	seen := make(map[string]bool)
+	hook := NewBillingHook(store, &seen)
+	quotaManager := &stubQuotaManager{}
+	hook.SetQuotaManager(quotaManager)
+
+	session1 := &BillingSession{
+		ID:             "sess_org_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		ChannelID:      "ch_1",
+		APIType:        types.APITypeChat,
+		Model:          "gpt-4o",
+		IdempotencyKey: "idem_shared",
+	}
+	session2 := &BillingSession{
+		ID:             "sess_org_2",
+		OrganizationID: "org_2",
+		UserID:         "user_1",
+		ChannelID:      "ch_1",
+		APIType:        types.APITypeChat,
+		Model:          "gpt-4o",
+		IdempotencyKey: "idem_shared",
+	}
+
+	if _, err := hook.PreBill(session1, &types.Usage{PromptTokens: 1000}); err != nil {
+		t.Fatalf("first PreBill failed: %v", err)
+	}
+	if _, err := hook.PreBill(session2, &types.Usage{PromptTokens: 1000}); err != nil {
+		t.Fatalf("second organization PreBill failed: %v", err)
+	}
+	if quotaManager.preconsumeCalls != 2 {
+		t.Fatalf("expected idempotency to be scoped per organization with 2 PreConsume calls, got %d", quotaManager.preconsumeCalls)
+	}
+}
+
 func TestBillingHook_BuildBillingSession(t *testing.T) {
 	store := NewPricingStoreWithDefaults()
 	hook := NewBillingHook(store, nil)
 
-	session := hook.BuildBillingSession("ch_1", "gpt-4o", types.APITypeChat, "idem_123", "")
+	session := hook.BuildBillingSession("ch_1", "gpt-4o", types.APITypeChat, "idem_123", "user_1", "org_1")
 	if session.ChannelID != "ch_1" {
 		t.Fatalf("expected ch_1, got %s", session.ChannelID)
+	}
+	if session.OrganizationID != "org_1" {
+		t.Fatalf("expected org_1, got %s", session.OrganizationID)
 	}
 	if session.Model != "gpt-4o" {
 		t.Fatalf("expected gpt-4o, got %s", session.Model)
@@ -192,6 +236,7 @@ func TestBillingHook_PreBillAndPostBill_UseQuotaLifecycle(t *testing.T) {
 
 	session := &BillingSession{
 		ID:             "sess_123",
+		OrganizationID: "org_1",
 		UserID:         "user_1",
 		ChannelID:      "ch_1",
 		APIType:        types.APITypeChat,
@@ -208,6 +253,9 @@ func TestBillingHook_PreBillAndPostBill_UseQuotaLifecycle(t *testing.T) {
 	}
 	if quotaManager.preconsumeCalls != 1 {
 		t.Fatalf("expected 1 preconsume call, got %d", quotaManager.preconsumeCalls)
+	}
+	if quotaManager.lastOrganizationID != "org_1" {
+		t.Fatalf("expected quota preconsume organization org_1, got %q", quotaManager.lastOrganizationID)
 	}
 	if session.QuotaSessionID != "quota_session_1" {
 		t.Fatalf("expected quota session to be stored, got %q", session.QuotaSessionID)
@@ -289,6 +337,7 @@ func TestBillingHook_PreBillAndRefund_UseQuotaLifecycle(t *testing.T) {
 	// that the Refund call reaches the correct quota session.
 	session := &BillingSession{
 		ID:             "sess_123",
+		OrganizationID: "org_1",
 		UserID:         "user_1",
 		ChannelID:      "ch_1",
 		APIType:        types.APITypeChat,

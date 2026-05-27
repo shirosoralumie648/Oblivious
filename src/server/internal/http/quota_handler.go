@@ -23,7 +23,7 @@ func (h quotaHandler) getQuota(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		return
 	}
 
-	quota, err := h.service.GetBalance(r.Context(), session.User.ID)
+	quota, err := h.service.GetBalance(r.Context(), session.User.ID, session.OrganizationID)
 	if err != nil {
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
 		return
@@ -66,11 +66,11 @@ func (h quotaHandler) topup(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		return
 	}
 
-	if err := h.service.Topup(r.Context(), session.User.ID, req.Amount); err != nil {
+	if err := h.service.Topup(r.Context(), session.User.ID, session.OrganizationID, req.Amount); err != nil {
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
 		return
 	}
 
-	quota, _ := h.service.GetBalance(r.Context(), session.User.ID)
+	quota, _ := h.service.GetBalance(r.Context(), session.User.ID, session.OrganizationID)
 	writeSuccess(w, stdhttp.StatusOK, quota)
 }
