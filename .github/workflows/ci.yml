@@ -57,6 +57,23 @@ jobs:
 
   server:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: oblivious
+          POSTGRES_PASSWORD: oblivious
+          POSTGRES_DB: oblivious_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U oblivious -d oblivious_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      TEST_DATABASE_URL: postgres://oblivious:oblivious@127.0.0.1:5432/oblivious_test?sslmode=disable
+      OBLIVIOUS_REQUIRE_TEST_DATABASE: "true"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

@@ -2,6 +2,8 @@
 
 This checklist is the minimum release-candidate gate for the current Oblivious mainline. It covers only `src/server`, `src/web`, `config`, `scripts`, `.github/workflows`, and release docs. `lobehub/` and `new-api/` remain reference trees.
 
+Commercial readiness is a stricter gate than RC readiness. Use [`commercial-gates.md`](commercial-gates.md) before claiming commercial readiness or commercial completeness.
+
 No live provider keys required for docs checks, web tests, server tests, or Admin/Marketplace E2E. Use placeholder environment values unless a deployment smoke target explicitly needs real infrastructure.
 
 ## Automated Gates
@@ -12,7 +14,7 @@ No live provider keys required for docs checks, web tests, server tests, or Admi
 | Web production build | `bash scripts/check.sh web` | `COREPACK_HOME=.tmp/corepack` optional | Command output or CI `web` URL |
 | Server release checks | `bash scripts/check.sh server` | `GOCACHE=.tmp/go-build` and `GOMODCACHE=.tmp/go-mod` optional | Command output or CI `server` URL |
 | Web Vitest suite | `bash scripts/test.sh web` | `COREPACK_HOME=.tmp/corepack` optional | Command output or CI `web` URL |
-| Server unit and integration tests | `bash scripts/test.sh server` | `TEST_DATABASE_URL` optional for DB-backed integration tests | Command output, CI `server` URL, or explicit skip note |
+| Server unit and integration tests | `bash scripts/test.sh server` | CI requires `TEST_DATABASE_URL` and `OBLIVIOUS_REQUIRE_TEST_DATABASE=true`; local runs may omit `TEST_DATABASE_URL` only with an explicit skip note | Command output, CI `server` URL, or explicit local skip note |
 | Admin/Marketplace browser E2E | `COREPACK_HOME=.tmp/corepack pnpm --dir src/web test:e2e` | Playwright Chromium installed with `pnpm --dir src/web exec playwright install chromium` | Command output or CI `e2e` URL |
 | Full local gate | `bash scripts/check.sh all && bash scripts/test.sh all` | Same as component gates | Combined terminal log |
 | Docker compose smoke | `bash scripts/deploy-validate.sh` | Docker daemon access, registry/proxy access for base image pulls, compose, placeholder `DATABASE_URL`/`SESSION_SECRET` values from compose | Compose logs plus smoke output |
@@ -20,13 +22,15 @@ No live provider keys required for docs checks, web tests, server tests, or Admi
 
 ## Integration-Test Skip Semantics
 
-`TEST_DATABASE_URL` is optional for local and CI server gates. When it is unset, `bash scripts/test.sh server` must print `Skipping server integration tests: TEST_DATABASE_URL not set.` and the release evidence must record that DB-backed HTTP integration tests were skipped intentionally.
+`TEST_DATABASE_URL` is optional only for local server gates. When it is unset locally, `bash scripts/test.sh server` must print `Skipping server integration tests: TEST_DATABASE_URL not set.` and the release evidence must record that DB-backed HTTP integration tests were skipped intentionally.
+
+CI server gates set `OBLIVIOUS_REQUIRE_TEST_DATABASE=true`. With that flag, missing `TEST_DATABASE_URL` is a failure and must print `TEST_DATABASE_URL is required when OBLIVIOUS_REQUIRE_TEST_DATABASE=true.`
 
 When `TEST_DATABASE_URL` is set, the evidence must include the exact value class, not the secret value. Acceptable examples:
 
 - `TEST_DATABASE_URL` pointed at disposable local Postgres.
 - `TEST_DATABASE_URL` pointed at CI service Postgres.
-- `TEST_DATABASE_URL` omitted; integration tests skipped by explicit rule.
+- `TEST_DATABASE_URL` omitted in a local run; integration tests skipped by explicit rule.
 
 ## Documentation Evidence
 

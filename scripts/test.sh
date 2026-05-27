@@ -8,6 +8,7 @@ corepack_home="${COREPACK_HOME:-$repo_root/.tmp/corepack}"
 go_cache="${GOCACHE:-$repo_root/.tmp/go-build}"
 go_mod_cache="${GOMODCACHE:-$repo_root/.tmp/go-mod}"
 target="${1:-all}"
+require_test_database="${OBLIVIOUS_REQUIRE_TEST_DATABASE:-false}"
 
 usage() {
   cat <<'EOF'
@@ -42,6 +43,11 @@ run_server_tests() {
 
   echo "[test] Running server integration tests."
   if [[ -z "${TEST_DATABASE_URL:-}" ]]; then
+    if [[ "$require_test_database" == "true" ]]; then
+      echo "[test] TEST_DATABASE_URL is required when OBLIVIOUS_REQUIRE_TEST_DATABASE=true." >&2
+      exit 1
+    fi
+
     echo "[test] Skipping server integration tests: TEST_DATABASE_URL not set."
     return
   fi

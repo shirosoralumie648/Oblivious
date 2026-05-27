@@ -55,9 +55,9 @@ bash scripts/test.sh
 
 `bash scripts/check.sh` verifies release assets, docs and environment consistency, the web production build, and the server unit/contract packages.
 
-`bash scripts/test.sh` runs the web Vitest suite, the server unit packages, and the HTTP integration package. If `TEST_DATABASE_URL` is not set, the integration step is skipped explicitly.
+`bash scripts/test.sh` runs the web Vitest suite, the server unit packages, and the HTTP integration package. Local runs skip DB-backed integration tests explicitly when `TEST_DATABASE_URL` is unset. CI sets `OBLIVIOUS_REQUIRE_TEST_DATABASE=true` with `TEST_DATABASE_URL`, so server integration coverage must run instead of silently skipping.
 
-For release-candidate evidence, use [`docs/release/rc-checklist.md`](docs/release/rc-checklist.md). The current routed HTTP surface is indexed in [`docs/API.md`](docs/API.md).
+For release-candidate evidence, use [`docs/release/rc-checklist.md`](docs/release/rc-checklist.md). Commercial-readiness gates are defined in [`docs/release/commercial-gates.md`](docs/release/commercial-gates.md). The current routed HTTP surface is indexed in [`docs/API.md`](docs/API.md).
 
 ## Repository Layout
 
@@ -66,5 +66,6 @@ For release-candidate evidence, use [`docs/release/rc-checklist.md`](docs/releas
 - [`docs/API.md`](docs/API.md): current routed HTTP API index
 - [`docs/architecture/current-system-contracts.md`](docs/architecture/current-system-contracts.md): current API and runtime contract baseline
 - [`docs/release/rc-checklist.md`](docs/release/rc-checklist.md): RC readiness checklist
+- [`docs/release/commercial-gates.md`](docs/release/commercial-gates.md): commercial-readiness gate contract
 - `lobehub/`: repository-local reference code, excluded from mainline workspace and CI
 - `new-api/`: repository-local reference code, excluded from mainline workspace and CI

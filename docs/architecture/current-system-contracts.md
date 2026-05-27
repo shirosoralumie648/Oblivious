@@ -385,7 +385,7 @@ Relay 还注册 files、fine-tuning、assistants、threads、runs、batch、audi
 | Command | Scope | Notes |
 | --- | --- | --- |
 | `bash scripts/check.sh` | 主线 docs + web build + server unit checks | 作为 CI 与本地共同的静态门面 |
-| `bash scripts/test.sh` | 主线 web tests + server unit tests + optional integration tests | 当 `TEST_DATABASE_URL` 缺失时，server integration 会显式 skip |
+| `bash scripts/test.sh` | 主线 web tests + server unit tests + DB-backed integration tests | 本地缺少 `TEST_DATABASE_URL` 时 integration 会显式 skip；CI 设置 `OBLIVIOUS_REQUIRE_TEST_DATABASE=true` 后缺少 DB 会失败 |
 
 ### 7.5 Release Gate Commands
 
@@ -395,7 +395,7 @@ Relay 还注册 files、fine-tuning、assistants、threads、runs、batch、audi
 | Web build | `bash scripts/check.sh web` | 执行 `pnpm --dir src/web build` |
 | Server release checks | `bash scripts/check.sh server` | 执行 `go test ./... -count=1` |
 | Web tests | `bash scripts/test.sh web` | Vitest suite |
-| Server tests | `bash scripts/test.sh server` | Server unit tests；`TEST_DATABASE_URL` 缺失时 integration 组显式 skip |
+| Server tests | `bash scripts/test.sh server` | Server unit tests；本地缺少 `TEST_DATABASE_URL` 时 integration 组显式 skip；CI 使用 PostgreSQL service 和 required-DB 模式 |
 | Browser E2E | `COREPACK_HOME=.tmp/corepack pnpm --dir src/web test:e2e` | Admin 与 Marketplace Playwright gate |
 
 ## 8. Environment Variable Matrix
@@ -431,7 +431,8 @@ Relay 还注册 files、fine-tuning、assistants、threads、runs、batch、audi
 
 | Name | Required | Default | Status |
 | --- | --- | --- | --- |
-| `TEST_DATABASE_URL` | 否 | empty | `internal/http` 集成测试显式读取；缺失时跳过 integration 组而不是硬连本地固定 Postgres |
+| `TEST_DATABASE_URL` | CI 是；本地否 | empty | `internal/http` 集成测试显式读取；本地缺失时跳过 integration 组而不是硬连本地固定 Postgres |
+| `OBLIVIOUS_REQUIRE_TEST_DATABASE` | CI 是；本地否 | `false` | 为 `true` 时，缺少 `TEST_DATABASE_URL` 会使 `scripts/test.sh server` 失败，防止 CI 静默跳过 DB-backed coverage |
 
 ## 9. Change Control Rules
 
