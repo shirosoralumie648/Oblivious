@@ -13,25 +13,25 @@ type fakeStore struct {
 	messages []Message
 }
 
-func (f fakeStore) CreateConversation(ctx context.Context, workspaceID, title, defaultModelID string) (Conversation, error) {
+func (f fakeStore) CreateConversation(ctx context.Context, workspaceID, organizationID, title, defaultModelID string) (Conversation, error) {
 	return Conversation{}, nil
 }
-func (f fakeStore) CreateMessage(ctx context.Context, conversationID, role, content string) (Message, error) {
+func (f fakeStore) CreateMessage(ctx context.Context, conversationID, organizationID, role, content string) (Message, error) {
 	return Message{}, nil
 }
-func (f fakeStore) GetConversationConfig(ctx context.Context, conversationID, workspaceID, defaultModelID string) (ConversationConfig, error) {
+func (f fakeStore) GetConversationConfig(ctx context.Context, conversationID, organizationID, defaultModelID string) (ConversationConfig, error) {
 	return f.config, nil
 }
-func (f fakeStore) ListConversations(ctx context.Context, workspaceID string) ([]Conversation, error) {
+func (f fakeStore) ListConversations(ctx context.Context, organizationID string) ([]Conversation, error) {
 	return nil, nil
 }
-func (f fakeStore) ListMessages(ctx context.Context, conversationID, workspaceID string) ([]Message, error) {
+func (f fakeStore) ListMessages(ctx context.Context, conversationID, organizationID string) ([]Message, error) {
 	return append([]Message(nil), f.messages...), nil
 }
 func (f fakeStore) UpdateConversationConfig(
 	ctx context.Context,
 	conversationID,
-	workspaceID,
+	organizationID,
 	modelID,
 	systemPromptOverride string,
 	temperature float64,
@@ -73,6 +73,7 @@ func (f *fakeUsageRecorder) RecordChatUsage(ctx context.Context, record UsageRec
 type recordingStore struct {
 	config                   ConversationConfig
 	lastConversationID       string
+	lastOrganizationID       string
 	lastWorkspaceID          string
 	lastModelID              string
 	lastSystemPromptOverride string
@@ -83,11 +84,11 @@ type recordingStore struct {
 	messages                 []Message
 }
 
-func (s *recordingStore) CreateConversation(ctx context.Context, workspaceID, title, defaultModelID string) (Conversation, error) {
+func (s *recordingStore) CreateConversation(ctx context.Context, workspaceID, organizationID, title, defaultModelID string) (Conversation, error) {
 	return Conversation{}, nil
 }
 
-func (s *recordingStore) CreateMessage(ctx context.Context, conversationID, role, content string) (Message, error) {
+func (s *recordingStore) CreateMessage(ctx context.Context, conversationID, organizationID, role, content string) (Message, error) {
 	message := Message{
 		Content: content,
 		ID:      role + "-message",
@@ -97,22 +98,22 @@ func (s *recordingStore) CreateMessage(ctx context.Context, conversationID, role
 	return message, nil
 }
 
-func (s *recordingStore) GetConversationConfig(ctx context.Context, conversationID, workspaceID, defaultModelID string) (ConversationConfig, error) {
+func (s *recordingStore) GetConversationConfig(ctx context.Context, conversationID, organizationID, defaultModelID string) (ConversationConfig, error) {
 	return s.config, nil
 }
 
-func (s *recordingStore) ListConversations(ctx context.Context, workspaceID string) ([]Conversation, error) {
+func (s *recordingStore) ListConversations(ctx context.Context, organizationID string) ([]Conversation, error) {
 	return nil, nil
 }
 
-func (s *recordingStore) ListMessages(ctx context.Context, conversationID, workspaceID string) ([]Message, error) {
+func (s *recordingStore) ListMessages(ctx context.Context, conversationID, organizationID string) ([]Message, error) {
 	return append([]Message(nil), s.messages...), nil
 }
 
 func (s *recordingStore) UpdateConversationConfig(
 	ctx context.Context,
 	conversationID,
-	workspaceID,
+	organizationID,
 	modelID,
 	systemPromptOverride string,
 	temperature float64,
@@ -121,7 +122,7 @@ func (s *recordingStore) UpdateConversationConfig(
 	knowledgeBaseIDs []string,
 ) (ConversationConfig, error) {
 	s.lastConversationID = conversationID
-	s.lastWorkspaceID = workspaceID
+	s.lastOrganizationID = organizationID
 	s.lastModelID = modelID
 	s.lastSystemPromptOverride = systemPromptOverride
 	s.lastTemperature = temperature
@@ -189,7 +190,8 @@ func TestSendMessageRecordsUsage(t *testing.T) {
 	_, err := service.SendMessage(
 		context.Background(),
 		auth.Session{
-			WorkspaceID: "workspace_1",
+			OrganizationID: "org_1",
+			WorkspaceID:    "workspace_1",
 			User: auth.User{
 				ID: "user_1",
 			},
@@ -212,6 +214,9 @@ func TestSendMessageRecordsUsage(t *testing.T) {
 	}
 	if record.WorkspaceID != "workspace_1" {
 		t.Fatalf("expected workspace id workspace_1, got %s", record.WorkspaceID)
+	}
+	if record.OrganizationID != "org_1" {
+		t.Fatalf("expected organization id org_1, got %s", record.OrganizationID)
 	}
 	if record.ConversationID != "conversation_1" {
 		t.Fatalf("expected conversation id conversation_1, got %s", record.ConversationID)
@@ -239,7 +244,8 @@ func TestSendMessagePropagatesRelayRequestMetadata(t *testing.T) {
 	_, err := service.SendMessage(
 		WithRelayRequestMetadata(context.Background(), RelayRequestMetadata{RequestID: "req_123"}),
 		auth.Session{
-			WorkspaceID: "workspace_1",
+			OrganizationID: "org_1",
+			WorkspaceID:    "workspace_1",
 			User: auth.User{
 				ID: "user_1",
 			},
@@ -261,6 +267,9 @@ func TestSendMessagePropagatesRelayRequestMetadata(t *testing.T) {
 	if generator.metadata.WorkspaceID != "workspace_1" {
 		t.Fatalf("expected workspace metadata workspace_1, got %q", generator.metadata.WorkspaceID)
 	}
+	if generator.metadata.OrganizationID != "org_1" {
+		t.Fatalf("expected organization metadata org_1, got %q", generator.metadata.OrganizationID)
+	}
 	if generator.metadata.RequestID != "req_123" {
 		t.Fatalf("expected request id req_123 to be preserved, got %q", generator.metadata.RequestID)
 	}
@@ -272,7 +281,7 @@ func TestUpdateConversationConfigPersistsKnowledgeBaseIDs(t *testing.T) {
 
 	config, err := service.UpdateConversationConfig(
 		context.Background(),
-		auth.Session{WorkspaceID: "workspace_1"},
+		auth.Session{OrganizationID: "org_1", WorkspaceID: "workspace_1"},
 		"conversation_1",
 		"quality-chat",
 		"Use docs first",
@@ -285,8 +294,8 @@ func TestUpdateConversationConfigPersistsKnowledgeBaseIDs(t *testing.T) {
 		t.Fatalf("update config: %v", err)
 	}
 
-	if store.lastConversationID != "conversation_1" || store.lastWorkspaceID != "workspace_1" {
-		t.Fatalf("unexpected store target: conversation=%s workspace=%s", store.lastConversationID, store.lastWorkspaceID)
+	if store.lastConversationID != "conversation_1" || store.lastOrganizationID != "org_1" {
+		t.Fatalf("unexpected store target: conversation=%s organization=%s", store.lastConversationID, store.lastOrganizationID)
 	}
 	if len(store.lastKnowledgeBaseIDs) != 2 || store.lastKnowledgeBaseIDs[0] != "kb_2" || store.lastKnowledgeBaseIDs[1] != "kb_5" {
 		t.Fatalf("expected knowledge ids [kb_2 kb_5], got %+v", store.lastKnowledgeBaseIDs)
@@ -309,7 +318,7 @@ func TestConvertConversationToTaskBuildsTaskDraftFromLatestUserMessage(t *testin
 	}
 	service := NewService(store, fakeGenerator{}, "demo-reply", nil)
 
-	draft, err := service.ConvertConversationToTask(context.Background(), auth.Session{WorkspaceID: "workspace_1"}, "conversation_1")
+	draft, err := service.ConvertConversationToTask(context.Background(), auth.Session{OrganizationID: "org_1", WorkspaceID: "workspace_1"}, "conversation_1")
 	if err != nil {
 		t.Fatalf("convert conversation to task: %v", err)
 	}

@@ -68,7 +68,7 @@ func chooseKnowledgeSnippetSource(body string, chunk sql.NullString, terms []str
 	return body
 }
 
-func (s *SQLStore) CreateKnowledgeBase(ctx context.Context, workspaceID, name string) (KnowledgeBase, error) {
+func (s *SQLStore) CreateKnowledgeBase(ctx context.Context, workspaceID, organizationID, name string) (KnowledgeBase, error) {
 	knowledgeBaseID, err := auth.NewID("kb")
 	if err != nil {
 		return KnowledgeBase{}, err
@@ -76,9 +76,9 @@ func (s *SQLStore) CreateKnowledgeBase(ctx context.Context, workspaceID, name st
 
 	now := time.Now().UTC()
 	if _, err := s.db.ExecContext(ctx, `
-		INSERT INTO knowledge_bases (id, workspace_id, name, document_count, created_at, updated_at)
-		VALUES ($1, $2, $3, 0, $4, $4)
-	`, knowledgeBaseID, workspaceID, name, now); err != nil {
+		INSERT INTO knowledge_bases (id, workspace_id, organization_id, name, document_count, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, 0, $5, $5)
+	`, knowledgeBaseID, workspaceID, organizationID, name, now); err != nil {
 		return KnowledgeBase{}, err
 	}
 
@@ -90,26 +90,26 @@ func (s *SQLStore) CreateKnowledgeBase(ctx context.Context, workspaceID, name st
 	}, nil
 }
 
-func (s *SQLStore) UpdateKnowledgeBase(ctx context.Context, workspaceID, knowledgeBaseID, name string) (KnowledgeBase, error) {
+func (s *SQLStore) UpdateKnowledgeBase(ctx context.Context, organizationID, knowledgeBaseID, name string) (KnowledgeBase, error) {
 	var base KnowledgeBase
 
 	if err := s.db.QueryRowContext(ctx, `
 		UPDATE knowledge_bases
 		SET name = $3, updated_at = $4
-		WHERE workspace_id = $1 AND id = $2
+		WHERE organization_id = $1 AND id = $2
 		RETURNING id, name, document_count, updated_at
-	`, workspaceID, knowledgeBaseID, name, time.Now().UTC()).Scan(&base.ID, &base.Name, &base.DocumentCount, &base.UpdatedAt); err != nil {
+	`, organizationID, knowledgeBaseID, name, time.Now().UTC()).Scan(&base.ID, &base.Name, &base.DocumentCount, &base.UpdatedAt); err != nil {
 		return KnowledgeBase{}, err
 	}
 
 	return base, nil
 }
 
-func (s *SQLStore) DeleteKnowledgeBase(ctx context.Context, workspaceID, knowledgeBaseID string) error {
+func (s *SQLStore) DeleteKnowledgeBase(ctx context.Context, organizationID, knowledgeBaseID string) error {
 	result, err := s.db.ExecContext(ctx, `
 		DELETE FROM knowledge_bases
-		WHERE workspace_id = $1 AND id = $2
-	`, workspaceID, knowledgeBaseID)
+		WHERE organization_id = $1 AND id = $2
+	`, organizationID, knowledgeBaseID)
 	if err != nil {
 		return err
 	}
@@ -125,13 +125,13 @@ func (s *SQLStore) DeleteKnowledgeBase(ctx context.Context, workspaceID, knowled
 	return nil
 }
 
-func (s *SQLStore) ListKnowledgeBases(ctx context.Context, workspaceID string) ([]KnowledgeBase, error) {
+func (s *SQLStore) ListKnowledgeBases(ctx context.Context, organizationID string) ([]KnowledgeBase, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, name, document_count, updated_at
 		FROM knowledge_bases
-		WHERE workspace_id = $1
+		WHERE organization_id = $1
 		ORDER BY updated_at DESC, name ASC
-	`, workspaceID)
+	`, organizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -149,28 +149,28 @@ func (s *SQLStore) ListKnowledgeBases(ctx context.Context, workspaceID string) (
 	return bases, rows.Err()
 }
 
-func (s *SQLStore) GetKnowledgeBase(ctx context.Context, workspaceID, knowledgeBaseID string) (KnowledgeBase, error) {
+func (s *SQLStore) GetKnowledgeBase(ctx context.Context, organizationID, knowledgeBaseID string) (KnowledgeBase, error) {
 	var base KnowledgeBase
 
 	if err := s.db.QueryRowContext(ctx, `
 		SELECT id, name, document_count, updated_at
 		FROM knowledge_bases
-		WHERE workspace_id = $1 AND id = $2
-	`, workspaceID, knowledgeBaseID).Scan(&base.ID, &base.Name, &base.DocumentCount, &base.UpdatedAt); err != nil {
+		WHERE organization_id = $1 AND id = $2
+	`, organizationID, knowledgeBaseID).Scan(&base.ID, &base.Name, &base.DocumentCount, &base.UpdatedAt); err != nil {
 		return KnowledgeBase{}, err
 	}
 
 	return base, nil
 }
 
-func (s *SQLStore) ListKnowledgeDocuments(ctx context.Context, workspaceID, knowledgeBaseID string) ([]KnowledgeDocument, error) {
+func (s *SQLStore) ListKnowledgeDocuments(ctx context.Context, organizationID, knowledgeBaseID string) ([]KnowledgeDocument, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT d.id, d.title, d.content, d.updated_at
 		FROM knowledge_documents d
 		JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
-		WHERE kb.workspace_id = $1 AND d.knowledge_base_id = $2
+		WHERE kb.organization_id = $1 AND d.organization_id = $1 AND d.knowledge_base_id = $2
 		ORDER BY d.updated_at DESC, d.title ASC
-	`, workspaceID, knowledgeBaseID)
+	`, organizationID, knowledgeBaseID)
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +188,7 @@ func (s *SQLStore) ListKnowledgeDocuments(ctx context.Context, workspaceID, know
 	return documents, rows.Err()
 }
 
-func (s *SQLStore) CreateKnowledgeDocument(ctx context.Context, workspaceID, knowledgeBaseID, title, content string) (KnowledgeDocument, error) {
+func (s *SQLStore) CreateKnowledgeDocument(ctx context.Context, organizationID, knowledgeBaseID, title, content string) (KnowledgeDocument, error) {
 	documentID, err := auth.NewID("doc")
 	if err != nil {
 		return KnowledgeDocument{}, err
@@ -202,11 +202,11 @@ func (s *SQLStore) CreateKnowledgeDocument(ctx context.Context, workspaceID, kno
 	defer tx.Rollback()
 
 	result, err := tx.ExecContext(ctx, `
-		INSERT INTO knowledge_documents (id, knowledge_base_id, title, content, created_at, updated_at)
-		SELECT $1, kb.id, $3, $4, $5, $5
+		INSERT INTO knowledge_documents (id, knowledge_base_id, organization_id, title, content, created_at, updated_at)
+		SELECT $1, kb.id, kb.organization_id, $3, $4, $5, $5
 		FROM knowledge_bases kb
-		WHERE kb.workspace_id = $2 AND kb.id = $6
-	`, documentID, workspaceID, title, content, now, knowledgeBaseID)
+		WHERE kb.organization_id = $2 AND kb.id = $6
+	`, documentID, organizationID, title, content, now, knowledgeBaseID)
 	if err != nil {
 		return KnowledgeDocument{}, err
 	}
@@ -219,15 +219,15 @@ func (s *SQLStore) CreateKnowledgeDocument(ctx context.Context, workspaceID, kno
 		return KnowledgeDocument{}, sql.ErrNoRows
 	}
 
-	if err := replaceKnowledgeDocumentChunks(ctx, tx, documentID, content, now); err != nil {
+	if err := replaceKnowledgeDocumentChunks(ctx, tx, documentID, organizationID, content, now); err != nil {
 		return KnowledgeDocument{}, err
 	}
 
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE knowledge_bases
 		SET document_count = document_count + 1, updated_at = $2
-		WHERE workspace_id = $1 AND id = $3
-	`, workspaceID, now, knowledgeBaseID); err != nil {
+		WHERE organization_id = $1 AND id = $3
+	`, organizationID, now, knowledgeBaseID); err != nil {
 		return KnowledgeDocument{}, err
 	}
 
@@ -243,7 +243,7 @@ func (s *SQLStore) CreateKnowledgeDocument(ctx context.Context, workspaceID, kno
 	}, nil
 }
 
-func (s *SQLStore) UpdateKnowledgeDocument(ctx context.Context, workspaceID, knowledgeBaseID, documentID, title, content string) (KnowledgeDocument, error) {
+func (s *SQLStore) UpdateKnowledgeDocument(ctx context.Context, organizationID, knowledgeBaseID, documentID, title, content string) (KnowledgeDocument, error) {
 	var document KnowledgeDocument
 	now := time.Now().UTC()
 
@@ -257,9 +257,9 @@ func (s *SQLStore) UpdateKnowledgeDocument(ctx context.Context, workspaceID, kno
 		UPDATE knowledge_documents d
 		SET title = $4, content = $5, updated_at = $6
 		FROM knowledge_bases kb
-		WHERE d.knowledge_base_id = kb.id AND kb.workspace_id = $1 AND kb.id = $2 AND d.id = $3
+		WHERE d.knowledge_base_id = kb.id AND kb.organization_id = $1 AND d.organization_id = $1 AND kb.id = $2 AND d.id = $3
 		RETURNING d.id, d.title, d.content, d.updated_at
-	`, workspaceID, knowledgeBaseID, documentID, title, content, now).Scan(
+	`, organizationID, knowledgeBaseID, documentID, title, content, now).Scan(
 		&document.ID,
 		&document.Title,
 		&document.Content,
@@ -268,7 +268,7 @@ func (s *SQLStore) UpdateKnowledgeDocument(ctx context.Context, workspaceID, kno
 		return KnowledgeDocument{}, err
 	}
 
-	if err := replaceKnowledgeDocumentChunks(ctx, tx, document.ID, content, now); err != nil {
+	if err := replaceKnowledgeDocumentChunks(ctx, tx, document.ID, organizationID, content, now); err != nil {
 		return KnowledgeDocument{}, err
 	}
 
@@ -279,7 +279,7 @@ func (s *SQLStore) UpdateKnowledgeDocument(ctx context.Context, workspaceID, kno
 	return document, nil
 }
 
-func (s *SQLStore) DeleteKnowledgeDocument(ctx context.Context, workspaceID, knowledgeBaseID, documentID string) error {
+func (s *SQLStore) DeleteKnowledgeDocument(ctx context.Context, organizationID, knowledgeBaseID, documentID string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -289,8 +289,8 @@ func (s *SQLStore) DeleteKnowledgeDocument(ctx context.Context, workspaceID, kno
 	result, err := tx.ExecContext(ctx, `
 		DELETE FROM knowledge_documents d
 		USING knowledge_bases kb
-		WHERE d.knowledge_base_id = kb.id AND kb.workspace_id = $1 AND kb.id = $2 AND d.id = $3
-	`, workspaceID, knowledgeBaseID, documentID)
+		WHERE d.knowledge_base_id = kb.id AND kb.organization_id = $1 AND d.organization_id = $1 AND kb.id = $2 AND d.id = $3
+	`, organizationID, knowledgeBaseID, documentID)
 	if err != nil {
 		return err
 	}
@@ -306,15 +306,15 @@ func (s *SQLStore) DeleteKnowledgeDocument(ctx context.Context, workspaceID, kno
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE knowledge_bases
 		SET document_count = GREATEST(document_count - 1, 0), updated_at = $2
-		WHERE workspace_id = $1 AND id = $3
-	`, workspaceID, time.Now().UTC(), knowledgeBaseID); err != nil {
+		WHERE organization_id = $1 AND id = $3
+	`, organizationID, time.Now().UTC(), knowledgeBaseID); err != nil {
 		return err
 	}
 
 	return tx.Commit()
 }
 
-func (s *SQLStore) RetrieveKnowledge(ctx context.Context, workspaceID, knowledgeBaseID, query string) ([]KnowledgeRetrievalResult, error) {
+func (s *SQLStore) RetrieveKnowledge(ctx context.Context, organizationID, knowledgeBaseID, query string) ([]KnowledgeRetrievalResult, error) {
 	normalizedQuery := normalizeKnowledgeQuery(query)
 	if normalizedQuery == "" {
 		return []KnowledgeRetrievalResult{}, nil
@@ -325,15 +325,15 @@ func (s *SQLStore) RetrieveKnowledge(ctx context.Context, workspaceID, knowledge
 		SELECT d.id, d.title, d.content, c.content, COALESCE(c.chunk_index, -1), d.updated_at
 		FROM knowledge_documents d
 		JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
-		LEFT JOIN knowledge_document_chunks c ON c.document_id = d.id
-		WHERE kb.workspace_id = $1 AND d.knowledge_base_id = $2 AND (
+		LEFT JOIN knowledge_document_chunks c ON c.document_id = d.id AND c.organization_id = d.organization_id
+		WHERE kb.organization_id = $1 AND d.organization_id = $1 AND d.knowledge_base_id = $2 AND (
 			d.title ILIKE $3 ESCAPE '\'
 			OR d.content ILIKE $3 ESCAPE '\'
 			OR c.content ILIKE $3 ESCAPE '\'
 		)
 		ORDER BY d.updated_at DESC, d.title ASC, COALESCE(c.chunk_index, -1) ASC
 		LIMIT 20
-	`, workspaceID, knowledgeBaseID, pattern)
+	`, organizationID, knowledgeBaseID, pattern)
 	if err != nil {
 		return nil, err
 	}
@@ -415,11 +415,11 @@ func (s *SQLStore) RetrieveKnowledge(ctx context.Context, workspaceID, knowledge
 	return results, nil
 }
 
-func replaceKnowledgeDocumentChunks(ctx context.Context, tx *sql.Tx, documentID, content string, now time.Time) error {
+func replaceKnowledgeDocumentChunks(ctx context.Context, tx *sql.Tx, documentID, organizationID, content string, now time.Time) error {
 	if _, err := tx.ExecContext(ctx, `
 		DELETE FROM knowledge_document_chunks
-		WHERE document_id = $1
-	`, documentID); err != nil {
+		WHERE document_id = $1 AND organization_id = $2
+	`, documentID, organizationID); err != nil {
 		return err
 	}
 
@@ -431,9 +431,9 @@ func replaceKnowledgeDocumentChunks(ctx context.Context, tx *sql.Tx, documentID,
 		}
 
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO knowledge_document_chunks (id, document_id, chunk_index, content, created_at)
-			VALUES ($1, $2, $3, $4, $5)
-		`, chunkID, documentID, index, chunk, now); err != nil {
+			INSERT INTO knowledge_document_chunks (id, document_id, organization_id, chunk_index, content, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6)
+		`, chunkID, documentID, organizationID, index, chunk, now); err != nil {
 			return err
 		}
 	}

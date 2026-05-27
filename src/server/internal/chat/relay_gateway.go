@@ -354,6 +354,9 @@ func applyRelayRequestMetadata(req *http.Request) {
 	if metadata.WorkspaceID != "" {
 		req.Header.Set("X-Oblivious-Internal-Workspace-ID", metadata.WorkspaceID)
 	}
+	if metadata.OrganizationID != "" {
+		req.Header.Set("X-Oblivious-Internal-Organization-ID", metadata.OrganizationID)
+	}
 	if metadata.RequestID != "" {
 		req.Header.Set("X-Request-ID", metadata.RequestID)
 	}

@@ -27,14 +27,15 @@ func (r *SQLRecorder) RecordChatUsage(ctx context.Context, record chat.UsageReco
 			id,
 			user_id,
 			workspace_id,
+			organization_id,
 			conversation_id,
 			model_id,
 			request_count,
 			input_tokens,
 			output_tokens
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`, usageID, record.UserID, record.WorkspaceID, record.ConversationID, record.ModelID, record.RequestCount, record.InputTokens, record.OutputTokens)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`, usageID, record.UserID, record.WorkspaceID, record.OrganizationID, record.ConversationID, record.ModelID, record.RequestCount, record.InputTokens, record.OutputTokens)
 
 	return err
 }

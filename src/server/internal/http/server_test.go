@@ -81,16 +81,16 @@ func testDatabase(t *testing.T) *sql.DB {
 		`CREATE UNIQUE INDEX idx_org_memberships_active_user_http_test ON organization_memberships(organization_id, user_id) WHERE removed_at IS NULL`,
 		`CREATE UNIQUE INDEX idx_org_memberships_single_owner_http_test ON organization_memberships(organization_id) WHERE role = 'owner' AND removed_at IS NULL`,
 		`CREATE TABLE organization_invitations (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, email TEXT NOT NULL, role TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE, status TEXT NOT NULL DEFAULT 'pending', invited_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, accepted_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL, expires_at TIMESTAMPTZ NOT NULL, accepted_at TIMESTAMPTZ, revoked_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), CHECK (role IN ('admin', 'member')), CHECK (status IN ('pending', 'accepted', 'revoked', 'expired')))`,
-		`CREATE TABLE conversations (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE, title TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
-		`CREATE TABLE messages (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE, role TEXT NOT NULL, content TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL)`,
-		`CREATE TABLE knowledge_bases (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE, name TEXT NOT NULL, document_count INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
-		`CREATE TABLE knowledge_documents (id TEXT PRIMARY KEY, knowledge_base_id TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE, title TEXT NOT NULL, content TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
-		`CREATE TABLE knowledge_document_chunks (id TEXT PRIMARY KEY, document_id TEXT NOT NULL REFERENCES knowledge_documents(id) ON DELETE CASCADE, chunk_index INTEGER NOT NULL, content TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE (document_id, chunk_index))`,
-		`CREATE TABLE conversation_knowledge_bindings (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE, knowledge_base_id TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE (conversation_id, knowledge_base_id))`,
-		`CREATE TABLE conversation_configs (conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE, model_id TEXT NOT NULL DEFAULT 'demo-reply', system_prompt_override TEXT NOT NULL DEFAULT '', temperature DOUBLE PRECISION NOT NULL DEFAULT 1, max_output_tokens INTEGER NOT NULL DEFAULT 1024, tools_enabled BOOLEAN NOT NULL DEFAULT FALSE, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE TABLE conversations (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, title TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
+		`CREATE TABLE messages (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, role TEXT NOT NULL, content TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL)`,
+		`CREATE TABLE knowledge_bases (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, name TEXT NOT NULL, document_count INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE TABLE knowledge_documents (id TEXT PRIMARY KEY, knowledge_base_id TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, title TEXT NOT NULL, content TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE TABLE knowledge_document_chunks (id TEXT PRIMARY KEY, document_id TEXT NOT NULL REFERENCES knowledge_documents(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, chunk_index INTEGER NOT NULL, content TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE (document_id, chunk_index))`,
+		`CREATE TABLE conversation_knowledge_bindings (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE, knowledge_base_id TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE (conversation_id, knowledge_base_id))`,
+		`CREATE TABLE conversation_configs (conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, model_id TEXT NOT NULL DEFAULT 'demo-reply', system_prompt_override TEXT NOT NULL DEFAULT '', temperature DOUBLE PRECISION NOT NULL DEFAULT 1, max_output_tokens INTEGER NOT NULL DEFAULT 1024, tools_enabled BOOLEAN NOT NULL DEFAULT FALSE, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE user_preferences (user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, onboarding_completed BOOLEAN NOT NULL DEFAULT FALSE, default_mode TEXT NOT NULL DEFAULT 'chat', model_strategy TEXT NOT NULL DEFAULT 'balanced', network_enabled_hint BOOLEAN NOT NULL DEFAULT FALSE, default_agent_model TEXT NOT NULL DEFAULT 'gpt-4o-mini', sidebar_collapsed BOOLEAN NOT NULL DEFAULT FALSE, notifications JSONB NOT NULL DEFAULT '{}', updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE notifications (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, type TEXT NOT NULL, category TEXT NOT NULL, title TEXT NOT NULL, message TEXT NOT NULL, is_read BOOLEAN NOT NULL DEFAULT FALSE, action_url TEXT, metadata JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), read_at TIMESTAMPTZ)`,
-		`CREATE TABLE usage_records (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE, conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL, model_id TEXT NOT NULL, request_count INTEGER NOT NULL, input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE TABLE usage_records (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL, model_id TEXT NOT NULL, request_count INTEGER NOT NULL, input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 	}
 	for _, statement := range statements {
 		if _, err := database.Exec(statement); err != nil {
@@ -248,6 +248,20 @@ func createHTTPOrganization(t *testing.T, router stdhttp.Handler, cookie *stdhtt
 		t.Fatal("expected organization id")
 	}
 	return response.Data.ID
+}
+
+func queryHTTPUserScope(t *testing.T, database *sql.DB, userID string) (string, string) {
+	t.Helper()
+
+	var workspaceID string
+	var organizationID string
+	if err := database.QueryRow(`SELECT id, organization_id FROM workspaces WHERE user_id = $1 ORDER BY created_at ASC LIMIT 1`, userID).Scan(&workspaceID, &organizationID); err != nil {
+		t.Fatalf("query user workspace scope: %v", err)
+	}
+	if workspaceID == "" || organizationID == "" {
+		t.Fatalf("expected user workspace and organization, got workspace=%q organization=%q", workspaceID, organizationID)
+	}
+	return workspaceID, organizationID
 }
 
 func inviteHTTPMember(t *testing.T, router stdhttp.Handler, cookie *stdhttp.Cookie, csrfToken, organizationID, email string) (string, string) {
@@ -449,6 +463,255 @@ func TestLoginResolvesDefaultOrganizationForLegacyUser(t *testing.T) {
 	}
 	if response.Data.Organization.ID != "org_legacy" {
 		t.Fatalf("expected legacy me organization org_legacy, got %q", response.Data.Organization.ID)
+	}
+}
+
+func TestCrossTenantChatScopeUsesActiveOrganization(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+
+	cookie, csrfToken, userID := registerHTTPUser(t, router, "cross-chat@example.com")
+	workspaceID, activeOrganizationID := queryHTTPUserScope(t, database, userID)
+	promoteHTTPUserToAdmin(t, database, userID)
+	otherOrganizationID := createHTTPOrganization(t, router, cookie, csrfToken, "Other Chat Org", "other-chat-org")
+
+	if _, err := database.Exec(`
+		INSERT INTO conversations (id, workspace_id, organization_id, title, created_at, updated_at)
+		VALUES ('conversation_other_org', $1, $2, 'Other org conversation', NOW(), NOW())
+	`, workspaceID, otherOrganizationID); err != nil {
+		t.Fatalf("insert other org conversation: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO messages (id, conversation_id, organization_id, role, content, created_at)
+		VALUES ('message_other_org', 'conversation_other_org', $1, 'user', 'secret from other org', NOW())
+	`, otherOrganizationID); err != nil {
+		t.Fatalf("insert other org message: %v", err)
+	}
+
+	listRecorder := httptest.NewRecorder()
+	listRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/app/conversations", nil)
+	listRequest.AddCookie(cookie)
+	router.ServeHTTP(listRecorder, listRequest)
+	if listRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("list conversations expected 200, got %d with body %s", listRecorder.Code, listRecorder.Body.String())
+	}
+	var listResponse struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(listRecorder.Body.Bytes(), &listResponse); err != nil {
+		t.Fatalf("decode conversation list: %v", err)
+	}
+	for _, conversation := range listResponse.Data {
+		if conversation.ID == "conversation_other_org" {
+			t.Fatalf("active organization %s must not list conversation from organization %s", activeOrganizationID, otherOrganizationID)
+		}
+	}
+
+	messagesRecorder := httptest.NewRecorder()
+	messagesRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/app/conversations/conversation_other_org/messages", nil)
+	messagesRequest.AddCookie(cookie)
+	router.ServeHTTP(messagesRecorder, messagesRequest)
+	if messagesRecorder.Code != stdhttp.StatusNotFound {
+		t.Fatalf("expected cross-tenant message read to return 404, got %d with body %s", messagesRecorder.Code, messagesRecorder.Body.String())
+	}
+
+	sendRecorder := httptest.NewRecorder()
+	sendRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/conversations/conversation_other_org/messages", strings.NewReader(`{"content":"mutate other tenant"}`))
+	sendRequest.Header.Set("Content-Type", "application/json")
+	sendRequest.AddCookie(cookie)
+	addCSRF(sendRequest, csrfToken)
+	router.ServeHTTP(sendRecorder, sendRequest)
+	if sendRecorder.Code != stdhttp.StatusNotFound {
+		t.Fatalf("expected cross-tenant message write to return 404, got %d with body %s", sendRecorder.Code, sendRecorder.Body.String())
+	}
+
+	var messageCount int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM messages WHERE conversation_id = 'conversation_other_org'`).Scan(&messageCount); err != nil {
+		t.Fatalf("count other org messages: %v", err)
+	}
+	if messageCount != 1 {
+		t.Fatalf("expected denied write to leave other org message count at 1, got %d", messageCount)
+	}
+}
+
+func TestCrossTenantKnowledgeScopeDeniesReadWriteAndAttach(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+
+	cookie, csrfToken, userID := registerHTTPUser(t, router, "cross-knowledge@example.com")
+	workspaceID, _ := queryHTTPUserScope(t, database, userID)
+	promoteHTTPUserToAdmin(t, database, userID)
+	otherOrganizationID := createHTTPOrganization(t, router, cookie, csrfToken, "Other Knowledge Org", "other-knowledge-org")
+
+	if _, err := database.Exec(`
+		INSERT INTO knowledge_bases (id, workspace_id, organization_id, name, document_count, created_at, updated_at)
+		VALUES ('kb_other_org', $1, $2, 'Other org knowledge', 1, NOW(), NOW())
+	`, workspaceID, otherOrganizationID); err != nil {
+		t.Fatalf("insert other org knowledge base: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO knowledge_documents (id, knowledge_base_id, organization_id, title, content, created_at, updated_at)
+		VALUES ('doc_other_org', 'kb_other_org', $1, 'Other org doc', 'tenant-only knowledge', NOW(), NOW())
+	`, otherOrganizationID); err != nil {
+		t.Fatalf("insert other org knowledge document: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO knowledge_document_chunks (id, document_id, organization_id, chunk_index, content, created_at)
+		VALUES ('chunk_other_org', 'doc_other_org', $1, 0, 'tenant-only knowledge', NOW())
+	`, otherOrganizationID); err != nil {
+		t.Fatalf("insert other org knowledge chunk: %v", err)
+	}
+
+	getRecorder := httptest.NewRecorder()
+	getRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/app/knowledge-bases/kb_other_org", nil)
+	getRequest.AddCookie(cookie)
+	router.ServeHTTP(getRecorder, getRequest)
+	if getRecorder.Code != stdhttp.StatusNotFound {
+		t.Fatalf("expected cross-tenant knowledge read to return 404, got %d with body %s", getRecorder.Code, getRecorder.Body.String())
+	}
+
+	updateRecorder := httptest.NewRecorder()
+	updateRequest := httptest.NewRequest(stdhttp.MethodPut, "/api/v1/app/knowledge-bases/kb_other_org", strings.NewReader(`{"name":"Mutated"}`))
+	updateRequest.Header.Set("Content-Type", "application/json")
+	updateRequest.AddCookie(cookie)
+	addCSRF(updateRequest, csrfToken)
+	router.ServeHTTP(updateRecorder, updateRequest)
+	if updateRecorder.Code != stdhttp.StatusNotFound {
+		t.Fatalf("expected cross-tenant knowledge update to return 404, got %d with body %s", updateRecorder.Code, updateRecorder.Body.String())
+	}
+
+	deleteDocumentRecorder := httptest.NewRecorder()
+	deleteDocumentRequest := httptest.NewRequest(stdhttp.MethodDelete, "/api/v1/app/knowledge-bases/kb_other_org/documents/doc_other_org", nil)
+	deleteDocumentRequest.AddCookie(cookie)
+	addCSRF(deleteDocumentRequest, csrfToken)
+	router.ServeHTTP(deleteDocumentRecorder, deleteDocumentRequest)
+	if deleteDocumentRecorder.Code != stdhttp.StatusNotFound {
+		t.Fatalf("expected cross-tenant document delete to return 404, got %d with body %s", deleteDocumentRecorder.Code, deleteDocumentRecorder.Body.String())
+	}
+
+	createConversationRecorder := httptest.NewRecorder()
+	createConversationRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/conversations", strings.NewReader(`{"title":"Tenant config"}`))
+	createConversationRequest.Header.Set("Content-Type", "application/json")
+	createConversationRequest.AddCookie(cookie)
+	addCSRF(createConversationRequest, csrfToken)
+	router.ServeHTTP(createConversationRecorder, createConversationRequest)
+	if createConversationRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("create conversation expected 200, got %d with body %s", createConversationRecorder.Code, createConversationRecorder.Body.String())
+	}
+	var conversationResponse struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(createConversationRecorder.Body.Bytes(), &conversationResponse); err != nil {
+		t.Fatalf("decode created conversation: %v", err)
+	}
+
+	updateConfigRecorder := httptest.NewRecorder()
+	updateConfigRequest := httptest.NewRequest(stdhttp.MethodPut, "/api/v1/app/conversations/"+conversationResponse.Data.ID+"/config", strings.NewReader(`{"knowledgeBaseIds":["kb_other_org"]}`))
+	updateConfigRequest.Header.Set("Content-Type", "application/json")
+	updateConfigRequest.AddCookie(cookie)
+	addCSRF(updateConfigRequest, csrfToken)
+	router.ServeHTTP(updateConfigRecorder, updateConfigRequest)
+	if updateConfigRecorder.Code != stdhttp.StatusNotFound {
+		t.Fatalf("expected cross-tenant knowledge attach to return 404, got %d with body %s", updateConfigRecorder.Code, updateConfigRecorder.Body.String())
+	}
+
+	var bindingCount int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM conversation_knowledge_bindings WHERE knowledge_base_id = 'kb_other_org'`).Scan(&bindingCount); err != nil {
+		t.Fatalf("count cross-tenant bindings: %v", err)
+	}
+	if bindingCount != 0 {
+		t.Fatalf("expected denied attach to create zero bindings, got %d", bindingCount)
+	}
+
+	var knowledgeName string
+	if err := database.QueryRow(`SELECT name FROM knowledge_bases WHERE id = 'kb_other_org'`).Scan(&knowledgeName); err != nil {
+		t.Fatalf("query knowledge name after denied update: %v", err)
+	}
+	if knowledgeName != "Other org knowledge" {
+		t.Fatalf("expected denied update to preserve knowledge name, got %q", knowledgeName)
+	}
+}
+
+func TestCrossTenantConsoleUsageUsesActiveOrganization(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+
+	cookie, _, userID := registerHTTPUser(t, router, "cross-console@example.com")
+	workspaceID, activeOrganizationID := queryHTTPUserScope(t, database, userID)
+	promoteHTTPUserToAdmin(t, database, userID)
+	otherOrganizationID := createHTTPOrganization(t, router, cookie, csrfTokenForCookie(t, router, cookie), "Other Console Org", "other-console-org")
+
+	if _, err := database.Exec(`
+		INSERT INTO usage_records (id, user_id, workspace_id, organization_id, model_id, request_count, input_tokens, output_tokens, created_at)
+		VALUES
+			('usage_active_org', $1, $2, $3, 'balanced-chat', 2, 10, 20, NOW()),
+			('usage_other_org', $1, $2, $4, 'quality-chat', 5, 100, 200, NOW())
+	`, userID, workspaceID, activeOrganizationID, otherOrganizationID); err != nil {
+		t.Fatalf("insert tenant usage records: %v", err)
+	}
+
+	usageRecorder := httptest.NewRecorder()
+	usageRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/console/usage", nil)
+	usageRequest.AddCookie(cookie)
+	router.ServeHTTP(usageRecorder, usageRequest)
+	if usageRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("console usage expected 200, got %d with body %s", usageRecorder.Code, usageRecorder.Body.String())
+	}
+	var usageResponse struct {
+		Data struct {
+			Requests int `json:"requests"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(usageRecorder.Body.Bytes(), &usageResponse); err != nil {
+		t.Fatalf("decode console usage: %v", err)
+	}
+	if usageResponse.Data.Requests != 2 {
+		t.Fatalf("expected active organization requests 2, got %d", usageResponse.Data.Requests)
+	}
+
+	billingRecorder := httptest.NewRecorder()
+	billingRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/console/billing", nil)
+	billingRequest.AddCookie(cookie)
+	router.ServeHTTP(billingRecorder, billingRequest)
+	if billingRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("console billing expected 200, got %d with body %s", billingRecorder.Code, billingRecorder.Body.String())
+	}
+	var billingResponse struct {
+		Data struct {
+			InputTokens  int `json:"inputTokens"`
+			OutputTokens int `json:"outputTokens"`
+			Requests     int `json:"requests"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(billingRecorder.Body.Bytes(), &billingResponse); err != nil {
+		t.Fatalf("decode console billing: %v", err)
+	}
+	if billingResponse.Data.Requests != 2 || billingResponse.Data.InputTokens != 10 || billingResponse.Data.OutputTokens != 20 {
+		t.Fatalf("expected active organization billing requests=2 input=10 output=20, got %+v", billingResponse.Data)
+	}
+
+	modelsRecorder := httptest.NewRecorder()
+	modelsRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/console/models", nil)
+	modelsRequest.AddCookie(cookie)
+	router.ServeHTTP(modelsRecorder, modelsRequest)
+	if modelsRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("console models expected 200, got %d with body %s", modelsRecorder.Code, modelsRecorder.Body.String())
+	}
+	var modelsResponse struct {
+		Data []struct {
+			ID       string `json:"id"`
+			Requests int    `json:"requests"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(modelsRecorder.Body.Bytes(), &modelsResponse); err != nil {
+		t.Fatalf("decode console models: %v", err)
+	}
+	if len(modelsResponse.Data) != 1 || modelsResponse.Data[0].ID != "balanced-chat" || modelsResponse.Data[0].Requests != 2 {
+		t.Fatalf("expected only active organization model summary, got %+v", modelsResponse.Data)
 	}
 }
 

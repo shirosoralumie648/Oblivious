@@ -8,7 +8,7 @@ import (
 	"oblivious/server/internal/auth"
 )
 
-func (s *SQLStore) CreateConversation(ctx context.Context, workspaceID, title, defaultModelID string) (Conversation, error) {
+func (s *SQLStore) CreateConversation(ctx context.Context, workspaceID, organizationID, title, defaultModelID string) (Conversation, error) {
 	conversationID, err := auth.NewID("conversation")
 	if err != nil {
 		return Conversation{}, err
@@ -16,15 +16,15 @@ func (s *SQLStore) CreateConversation(ctx context.Context, workspaceID, title, d
 
 	createdAt := time.Now().UTC()
 	if _, err := s.db.ExecContext(ctx, `
-		INSERT INTO conversations (id, workspace_id, title, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5)
-	`, conversationID, workspaceID, title, createdAt, createdAt); err != nil {
+		INSERT INTO conversations (id, workspace_id, organization_id, title, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $5)
+	`, conversationID, workspaceID, organizationID, title, createdAt); err != nil {
 		return Conversation{}, err
 	}
 	if _, err := s.db.ExecContext(ctx, `
-		INSERT INTO conversation_configs (conversation_id, model_id, system_prompt_override, temperature, max_output_tokens, tools_enabled, updated_at)
-		VALUES ($1, $2, '', 1, 1024, FALSE, $3)
-	`, conversationID, defaultModelID, createdAt); err != nil {
+		INSERT INTO conversation_configs (conversation_id, organization_id, model_id, system_prompt_override, temperature, max_output_tokens, tools_enabled, updated_at)
+		VALUES ($1, $2, $3, '', 1, 1024, FALSE, $4)
+	`, conversationID, organizationID, defaultModelID, createdAt); err != nil {
 		return Conversation{}, err
 	}
 
@@ -36,23 +36,33 @@ func (s *SQLStore) CreateConversation(ctx context.Context, workspaceID, title, d
 	}, nil
 }
 
-func (s *SQLStore) CreateMessage(ctx context.Context, conversationID, role, content string) (Message, error) {
+func (s *SQLStore) CreateMessage(ctx context.Context, conversationID, organizationID, role, content string) (Message, error) {
 	messageID, err := auth.NewID("message")
 	if err != nil {
 		return Message{}, err
 	}
 
 	createdAt := time.Now().UTC()
-	if _, err := s.db.ExecContext(ctx, `
-		INSERT INTO messages (id, conversation_id, role, content, created_at)
-		VALUES ($1, $2, $3, $4, $5)
-	`, messageID, conversationID, role, content, createdAt); err != nil {
+	result, err := s.db.ExecContext(ctx, `
+		INSERT INTO messages (id, conversation_id, organization_id, role, content, created_at)
+		SELECT $1, c.id, c.organization_id, $3, $4, $5
+		FROM conversations c
+		WHERE c.id = $2 AND c.organization_id = $6
+	`, messageID, conversationID, role, content, createdAt, organizationID)
+	if err != nil {
 		return Message{}, err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return Message{}, err
+	}
+	if rowsAffected == 0 {
+		return Message{}, sql.ErrNoRows
 	}
 
 	if _, err := s.db.ExecContext(ctx, `
-		UPDATE conversations SET updated_at = $2 WHERE id = $1
-	`, conversationID, createdAt); err != nil {
+		UPDATE conversations SET updated_at = $3 WHERE id = $1 AND organization_id = $2
+	`, conversationID, organizationID, createdAt); err != nil {
 		return Message{}, err
 	}
 
@@ -64,7 +74,7 @@ func (s *SQLStore) CreateMessage(ctx context.Context, conversationID, role, cont
 	}, nil
 }
 
-func (s *SQLStore) GetConversationConfig(ctx context.Context, conversationID, workspaceID, defaultModelID string) (ConversationConfig, error) {
+func (s *SQLStore) GetConversationConfig(ctx context.Context, conversationID, organizationID, defaultModelID string) (ConversationConfig, error) {
 	config := ConversationConfig{
 		ConversationID:       conversationID,
 		KnowledgeBaseIDs:     []string{},
@@ -79,8 +89,8 @@ func (s *SQLStore) GetConversationConfig(ctx context.Context, conversationID, wo
 		SELECT cc.model_id, cc.system_prompt_override, cc.temperature, cc.max_output_tokens, cc.tools_enabled, cc.updated_at
 		FROM conversation_configs cc
 		JOIN conversations c ON c.id = cc.conversation_id
-		WHERE cc.conversation_id = $1 AND c.workspace_id = $2
-	`, conversationID, workspaceID).Scan(
+		WHERE cc.conversation_id = $1 AND c.organization_id = $2 AND cc.organization_id = $2
+	`, conversationID, organizationID).Scan(
 		&config.ModelID,
 		&config.SystemPromptOverride,
 		&config.Temperature,
@@ -90,17 +100,25 @@ func (s *SQLStore) GetConversationConfig(ctx context.Context, conversationID, wo
 	); err != nil {
 		if err == sql.ErrNoRows {
 			now := time.Now().UTC()
-			if _, insertErr := s.db.ExecContext(ctx, `
-				INSERT INTO conversation_configs (conversation_id, model_id, system_prompt_override, temperature, max_output_tokens, tools_enabled, updated_at)
-				SELECT c.id, $3, '', 1, 1024, FALSE, $4
+			result, insertErr := s.db.ExecContext(ctx, `
+				INSERT INTO conversation_configs (conversation_id, organization_id, model_id, system_prompt_override, temperature, max_output_tokens, tools_enabled, updated_at)
+				SELECT c.id, c.organization_id, $3, '', 1, 1024, FALSE, $4
 				FROM conversations c
-				WHERE c.id = $1 AND c.workspace_id = $2
+				WHERE c.id = $1 AND c.organization_id = $2
 				ON CONFLICT (conversation_id) DO NOTHING
-			`, conversationID, workspaceID, defaultModelID, now); insertErr != nil {
+			`, conversationID, organizationID, defaultModelID, now)
+			if insertErr != nil {
 				return ConversationConfig{}, insertErr
 			}
+			rowsAffected, rowsErr := result.RowsAffected()
+			if rowsErr != nil {
+				return ConversationConfig{}, rowsErr
+			}
+			if rowsAffected == 0 {
+				return ConversationConfig{}, sql.ErrNoRows
+			}
 			config.UpdatedAt = now
-			knowledgeBaseIDs, knowledgeErr := s.listConversationKnowledgeBaseIDs(ctx, conversationID, workspaceID)
+			knowledgeBaseIDs, knowledgeErr := s.listConversationKnowledgeBaseIDs(ctx, conversationID, organizationID)
 			if knowledgeErr != nil {
 				return ConversationConfig{}, knowledgeErr
 			}
@@ -110,7 +128,7 @@ func (s *SQLStore) GetConversationConfig(ctx context.Context, conversationID, wo
 		return ConversationConfig{}, err
 	}
 
-	knowledgeBaseIDs, err := s.listConversationKnowledgeBaseIDs(ctx, conversationID, workspaceID)
+	knowledgeBaseIDs, err := s.listConversationKnowledgeBaseIDs(ctx, conversationID, organizationID)
 	if err != nil {
 		return ConversationConfig{}, err
 	}
@@ -119,13 +137,13 @@ func (s *SQLStore) GetConversationConfig(ctx context.Context, conversationID, wo
 	return config, nil
 }
 
-func (s *SQLStore) ListConversations(ctx context.Context, workspaceID string) ([]Conversation, error) {
+func (s *SQLStore) ListConversations(ctx context.Context, organizationID string) ([]Conversation, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, title, created_at, updated_at
 		FROM conversations
-		WHERE workspace_id = $1
+		WHERE organization_id = $1
 		ORDER BY updated_at DESC, created_at DESC
-	`, workspaceID)
+	`, organizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -143,14 +161,22 @@ func (s *SQLStore) ListConversations(ctx context.Context, workspaceID string) ([
 	return conversations, rows.Err()
 }
 
-func (s *SQLStore) ListMessages(ctx context.Context, conversationID, workspaceID string) ([]Message, error) {
+func (s *SQLStore) ListMessages(ctx context.Context, conversationID, organizationID string) ([]Message, error) {
+	var exists int
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT 1
+		FROM conversations
+		WHERE id = $1 AND organization_id = $2
+	`, conversationID, organizationID).Scan(&exists); err != nil {
+		return nil, err
+	}
+
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT m.id, m.role, m.content, m.created_at
 		FROM messages m
-		JOIN conversations c ON c.id = m.conversation_id
-		WHERE m.conversation_id = $1 AND c.workspace_id = $2
+		WHERE m.conversation_id = $1 AND m.organization_id = $2
 		ORDER BY m.created_at ASC
-	`, conversationID, workspaceID)
+	`, conversationID, organizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -171,7 +197,7 @@ func (s *SQLStore) ListMessages(ctx context.Context, conversationID, workspaceID
 func (s *SQLStore) UpdateConversationConfig(
 	ctx context.Context,
 	conversationID,
-	workspaceID,
+	organizationID,
 	modelID,
 	systemPromptOverride string,
 	temperature float64,
@@ -189,6 +215,7 @@ func (s *SQLStore) UpdateConversationConfig(
 	result, err := tx.ExecContext(ctx, `
 		INSERT INTO conversation_configs (
 			conversation_id,
+			organization_id,
 			model_id,
 			system_prompt_override,
 			temperature,
@@ -196,17 +223,18 @@ func (s *SQLStore) UpdateConversationConfig(
 			tools_enabled,
 			updated_at
 		)
-		SELECT c.id, $3, $4, $5, $6, $7, $8
+		SELECT c.id, c.organization_id, $3, $4, $5, $6, $7, $8
 		FROM conversations c
-		WHERE c.id = $1 AND c.workspace_id = $2
+		WHERE c.id = $1 AND c.organization_id = $2
 		ON CONFLICT (conversation_id) DO UPDATE SET
+			organization_id = EXCLUDED.organization_id,
 			model_id = EXCLUDED.model_id,
 			system_prompt_override = EXCLUDED.system_prompt_override,
 			temperature = EXCLUDED.temperature,
 			max_output_tokens = EXCLUDED.max_output_tokens,
 			tools_enabled = EXCLUDED.tools_enabled,
 			updated_at = EXCLUDED.updated_at
-	`, conversationID, workspaceID, modelID, systemPromptOverride, temperature, maxOutputTokens, toolsEnabled, updatedAt)
+	`, conversationID, organizationID, modelID, systemPromptOverride, temperature, maxOutputTokens, toolsEnabled, updatedAt)
 	if err != nil {
 		return ConversationConfig{}, err
 	}
@@ -221,8 +249,8 @@ func (s *SQLStore) UpdateConversationConfig(
 
 	if _, err := tx.ExecContext(ctx, `
 		DELETE FROM conversation_knowledge_bindings
-		WHERE conversation_id = $1
-	`, conversationID); err != nil {
+		WHERE conversation_id = $1 AND organization_id = $2
+	`, conversationID, organizationID); err != nil {
 		return ConversationConfig{}, err
 	}
 
@@ -233,12 +261,12 @@ func (s *SQLStore) UpdateConversationConfig(
 		}
 
 		result, err := tx.ExecContext(ctx, `
-			INSERT INTO conversation_knowledge_bindings (id, conversation_id, knowledge_base_id, created_at)
-			SELECT $1, c.id, kb.id, $4
+			INSERT INTO conversation_knowledge_bindings (id, conversation_id, knowledge_base_id, organization_id, created_at)
+			SELECT $1, c.id, kb.id, c.organization_id, $4
 			FROM conversations c
-			JOIN knowledge_bases kb ON kb.workspace_id = c.workspace_id
-			WHERE c.id = $2 AND c.workspace_id = $3 AND kb.id = $5
-		`, bindingID, conversationID, workspaceID, updatedAt, knowledgeBaseID)
+			JOIN knowledge_bases kb ON kb.organization_id = c.organization_id
+			WHERE c.id = $2 AND c.organization_id = $3 AND kb.id = $5
+		`, bindingID, conversationID, organizationID, updatedAt, knowledgeBaseID)
 		if err != nil {
 			return ConversationConfig{}, err
 		}
@@ -268,15 +296,18 @@ func (s *SQLStore) UpdateConversationConfig(
 	}, nil
 }
 
-func (s *SQLStore) listConversationKnowledgeBaseIDs(ctx context.Context, conversationID, workspaceID string) ([]string, error) {
+func (s *SQLStore) listConversationKnowledgeBaseIDs(ctx context.Context, conversationID, organizationID string) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT ckb.knowledge_base_id
 		FROM conversation_knowledge_bindings ckb
 		JOIN conversations c ON c.id = ckb.conversation_id
 		JOIN knowledge_bases kb ON kb.id = ckb.knowledge_base_id
-		WHERE ckb.conversation_id = $1 AND c.workspace_id = $2 AND kb.workspace_id = $2
+		WHERE ckb.conversation_id = $1
+		  AND c.organization_id = $2
+		  AND ckb.organization_id = $2
+		  AND kb.organization_id = $2
 		ORDER BY ckb.created_at ASC, ckb.knowledge_base_id ASC
-	`, conversationID, workspaceID)
+	`, conversationID, organizationID)
 	if err != nil {
 		return nil, err
 	}

@@ -17,38 +17,38 @@ type chatFakeStore struct {
 	config               chat.ConversationConfig
 	lastConversationID   string
 	messages             []chat.Message
-	lastWorkspaceID      string
+	lastOrganizationID   string
 	lastKnowledgeBaseIDs []string
 }
 
-func (f *chatFakeStore) CreateConversation(ctx context.Context, workspaceID, title, defaultModelID string) (chat.Conversation, error) {
+func (f *chatFakeStore) CreateConversation(ctx context.Context, workspaceID, organizationID, title, defaultModelID string) (chat.Conversation, error) {
 	return chat.Conversation{}, nil
 }
 
-func (f *chatFakeStore) CreateMessage(ctx context.Context, conversationID, role, content string) (chat.Message, error) {
+func (f *chatFakeStore) CreateMessage(ctx context.Context, conversationID, organizationID, role, content string) (chat.Message, error) {
 	return chat.Message{}, nil
 }
 
-func (f *chatFakeStore) GetConversationConfig(ctx context.Context, conversationID, workspaceID, defaultModelID string) (chat.ConversationConfig, error) {
+func (f *chatFakeStore) GetConversationConfig(ctx context.Context, conversationID, organizationID, defaultModelID string) (chat.ConversationConfig, error) {
 	f.lastConversationID = conversationID
-	f.lastWorkspaceID = workspaceID
+	f.lastOrganizationID = organizationID
 	return f.config, nil
 }
 
-func (f *chatFakeStore) ListConversations(ctx context.Context, workspaceID string) ([]chat.Conversation, error) {
+func (f *chatFakeStore) ListConversations(ctx context.Context, organizationID string) ([]chat.Conversation, error) {
 	return nil, nil
 }
 
-func (f *chatFakeStore) ListMessages(ctx context.Context, conversationID, workspaceID string) ([]chat.Message, error) {
+func (f *chatFakeStore) ListMessages(ctx context.Context, conversationID, organizationID string) ([]chat.Message, error) {
 	f.lastConversationID = conversationID
-	f.lastWorkspaceID = workspaceID
+	f.lastOrganizationID = organizationID
 	return append([]chat.Message(nil), f.messages...), nil
 }
 
 func (f *chatFakeStore) UpdateConversationConfig(
 	ctx context.Context,
 	conversationID,
-	workspaceID,
+	organizationID,
 	modelID,
 	systemPromptOverride string,
 	temperature float64,
@@ -57,7 +57,7 @@ func (f *chatFakeStore) UpdateConversationConfig(
 	knowledgeBaseIDs []string,
 ) (chat.ConversationConfig, error) {
 	f.lastConversationID = conversationID
-	f.lastWorkspaceID = workspaceID
+	f.lastOrganizationID = organizationID
 	f.lastKnowledgeBaseIDs = append([]string(nil), knowledgeBaseIDs...)
 
 	return chat.ConversationConfig{
@@ -93,7 +93,8 @@ func TestChatHandlerGetConversationConfigReturnsKnowledgeBaseIDs(t *testing.T) {
 	}
 	handler := newChatHandler(chat.NewService(store, noopReplyGenerator{}, "demo-reply", nil))
 	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/app/conversations/conversation_1/config", nil).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
-		WorkspaceID: "workspace_1",
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
 	}))
 	recorder := httptest.NewRecorder()
 
@@ -102,8 +103,8 @@ func TestChatHandlerGetConversationConfigReturnsKnowledgeBaseIDs(t *testing.T) {
 	if recorder.Code != stdhttp.StatusOK {
 		t.Fatalf("expected 200, got %d", recorder.Code)
 	}
-	if store.lastConversationID != "conversation_1" || store.lastWorkspaceID != "workspace_1" {
-		t.Fatalf("unexpected lookup target: conversation=%s workspace=%s", store.lastConversationID, store.lastWorkspaceID)
+	if store.lastConversationID != "conversation_1" || store.lastOrganizationID != "org_1" {
+		t.Fatalf("unexpected lookup target: conversation=%s organization=%s", store.lastConversationID, store.lastOrganizationID)
 	}
 
 	var response struct {
@@ -125,7 +126,8 @@ func TestChatHandlerUpdateConversationConfigAcceptsKnowledgeBaseIDs(t *testing.T
 		"/api/v1/app/conversations/conversation_1/config",
 		strings.NewReader(`{"modelId":"quality-chat","systemPromptOverride":"Use docs","temperature":0.7,"maxOutputTokens":1024,"toolsEnabled":true,"knowledgeBaseIds":["kb_2","kb_4"]}`),
 	).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
-		WorkspaceID: "workspace_1",
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
 	}))
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
@@ -163,7 +165,8 @@ func TestChatHandlerConvertConversationToTaskReturnsDraft(t *testing.T) {
 	}
 	handler := newChatHandler(chat.NewService(store, noopReplyGenerator{}, "demo-reply", nil))
 	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/conversations/conversation_1/convert-to-task", nil).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
-		WorkspaceID: "workspace_1",
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
 	}))
 	recorder := httptest.NewRecorder()
 

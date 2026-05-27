@@ -35,15 +35,15 @@ type TaskDraft struct {
 }
 
 type Store interface {
-	CreateConversation(ctx context.Context, workspaceID, title, defaultModelID string) (Conversation, error)
-	CreateMessage(ctx context.Context, conversationID, role, content string) (Message, error)
-	GetConversationConfig(ctx context.Context, conversationID, workspaceID, defaultModelID string) (ConversationConfig, error)
-	ListConversations(ctx context.Context, workspaceID string) ([]Conversation, error)
-	ListMessages(ctx context.Context, conversationID, workspaceID string) ([]Message, error)
+	CreateConversation(ctx context.Context, workspaceID, organizationID, title, defaultModelID string) (Conversation, error)
+	CreateMessage(ctx context.Context, conversationID, organizationID, role, content string) (Message, error)
+	GetConversationConfig(ctx context.Context, conversationID, organizationID, defaultModelID string) (ConversationConfig, error)
+	ListConversations(ctx context.Context, organizationID string) ([]Conversation, error)
+	ListMessages(ctx context.Context, conversationID, organizationID string) ([]Message, error)
 	UpdateConversationConfig(
 		ctx context.Context,
 		conversationID,
-		workspaceID,
+		organizationID,
 		modelID,
 		systemPromptOverride string,
 		temperature float64,
@@ -57,6 +57,7 @@ type UsageRecord struct {
 	ConversationID string
 	InputTokens    int
 	ModelID        string
+	OrganizationID string
 	OutputTokens   int
 	RequestCount   int
 	UserID         string
@@ -117,28 +118,28 @@ func (s *Service) CreateConversation(ctx context.Context, session auth.Session, 
 		title = "New conversation"
 	}
 
-	return s.store.CreateConversation(ctx, session.WorkspaceID, title, s.defaultModelID)
+	return s.store.CreateConversation(ctx, session.WorkspaceID, session.OrganizationID, title, s.defaultModelID)
 }
 
 func (s *Service) GetConversationConfig(ctx context.Context, session auth.Session, conversationID string) (ConversationConfig, error) {
-	return s.store.GetConversationConfig(ctx, conversationID, session.WorkspaceID, s.defaultModelID)
+	return s.store.GetConversationConfig(ctx, conversationID, session.OrganizationID, s.defaultModelID)
 }
 
 func (s *Service) ListConversations(ctx context.Context, session auth.Session) ([]Conversation, error) {
-	return s.store.ListConversations(ctx, session.WorkspaceID)
+	return s.store.ListConversations(ctx, session.OrganizationID)
 }
 
 func (s *Service) ListMessages(ctx context.Context, session auth.Session, conversationID string) ([]Message, error) {
-	return s.store.ListMessages(ctx, conversationID, session.WorkspaceID)
+	return s.store.ListMessages(ctx, conversationID, session.OrganizationID)
 }
 
 func (s *Service) ConvertConversationToTask(ctx context.Context, session auth.Session, conversationID string) (TaskDraft, error) {
-	config, err := s.store.GetConversationConfig(ctx, conversationID, session.WorkspaceID, s.defaultModelID)
+	config, err := s.store.GetConversationConfig(ctx, conversationID, session.OrganizationID, s.defaultModelID)
 	if err != nil {
 		return TaskDraft{}, err
 	}
 
-	messages, err := s.store.ListMessages(ctx, conversationID, session.WorkspaceID)
+	messages, err := s.store.ListMessages(ctx, conversationID, session.OrganizationID)
 	if err != nil {
 		return TaskDraft{}, err
 	}
@@ -176,7 +177,7 @@ func (s *Service) UpdateConversationConfig(
 	return s.store.UpdateConversationConfig(
 		ctx,
 		conversationID,
-		session.WorkspaceID,
+		session.OrganizationID,
 		modelID,
 		systemPromptOverride,
 		temperature,
@@ -277,16 +278,16 @@ func draftTaskGoalFromMessages(messages []Message) string {
 }
 
 func (s *Service) SendMessage(ctx context.Context, session auth.Session, conversationID, content string, overrides *MessageOverrides) ([]Message, error) {
-	if _, err := s.store.CreateMessage(ctx, conversationID, "user", content); err != nil {
+	if _, err := s.store.CreateMessage(ctx, conversationID, session.OrganizationID, "user", content); err != nil {
 		return nil, err
 	}
 
-	messages, err := s.store.ListMessages(ctx, conversationID, session.WorkspaceID)
+	messages, err := s.store.ListMessages(ctx, conversationID, session.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
 
-	conversationConfig, err := s.store.GetConversationConfig(ctx, conversationID, session.WorkspaceID, s.defaultModelID)
+	conversationConfig, err := s.store.GetConversationConfig(ctx, conversationID, session.OrganizationID, s.defaultModelID)
 	if err != nil {
 		return nil, err
 	}
@@ -299,7 +300,7 @@ func (s *Service) SendMessage(ctx context.Context, session auth.Session, convers
 		return nil, err
 	}
 
-	if _, err := s.store.CreateMessage(ctx, conversationID, "assistant", reply); err != nil {
+	if _, err := s.store.CreateMessage(ctx, conversationID, session.OrganizationID, "assistant", reply); err != nil {
 		return nil, err
 	}
 
@@ -308,6 +309,7 @@ func (s *Service) SendMessage(ctx context.Context, session auth.Session, convers
 			ConversationID: conversationID,
 			InputTokens:    estimateTokens(content),
 			ModelID:        effectiveConfig.ModelID,
+			OrganizationID: session.OrganizationID,
 			OutputTokens:   estimateTokens(reply),
 			RequestCount:   1,
 			UserID:         session.User.ID,
@@ -317,7 +319,7 @@ func (s *Service) SendMessage(ctx context.Context, session auth.Session, convers
 		}
 	}
 
-	return s.store.ListMessages(ctx, conversationID, session.WorkspaceID)
+	return s.store.ListMessages(ctx, conversationID, session.OrganizationID)
 }
 
 // SendMessageStream 流式发送消息
@@ -326,16 +328,16 @@ func (s *Service) SendMessageStream(ctx context.Context, session auth.Session, c
 		return errors.New("stream not supported: chat gateway not configured")
 	}
 
-	if _, err := s.store.CreateMessage(ctx, conversationID, "user", content); err != nil {
+	if _, err := s.store.CreateMessage(ctx, conversationID, session.OrganizationID, "user", content); err != nil {
 		return err
 	}
 
-	messages, err := s.store.ListMessages(ctx, conversationID, session.WorkspaceID)
+	messages, err := s.store.ListMessages(ctx, conversationID, session.OrganizationID)
 	if err != nil {
 		return err
 	}
 
-	conversationConfig, err := s.store.GetConversationConfig(ctx, conversationID, session.WorkspaceID, s.defaultModelID)
+	conversationConfig, err := s.store.GetConversationConfig(ctx, conversationID, session.OrganizationID, s.defaultModelID)
 	if err != nil {
 		return err
 	}
@@ -353,7 +355,7 @@ func (s *Service) SendMessageStream(ctx context.Context, session auth.Session, c
 	}
 
 	reply := replyBuilder.String()
-	if _, err := s.store.CreateMessage(ctx, conversationID, "assistant", reply); err != nil {
+	if _, err := s.store.CreateMessage(ctx, conversationID, session.OrganizationID, "assistant", reply); err != nil {
 		return err
 	}
 
@@ -362,6 +364,7 @@ func (s *Service) SendMessageStream(ctx context.Context, session auth.Session, c
 			ConversationID: conversationID,
 			InputTokens:    estimateTokens(content),
 			ModelID:        effectiveConfig.ModelID,
+			OrganizationID: session.OrganizationID,
 			OutputTokens:   estimateTokens(reply),
 			RequestCount:   1,
 			UserID:         session.User.ID,
@@ -381,6 +384,9 @@ func withSessionRelayMetadata(ctx context.Context, session auth.Session) context
 	}
 	if strings.TrimSpace(metadata.WorkspaceID) == "" {
 		metadata.WorkspaceID = session.WorkspaceID
+	}
+	if strings.TrimSpace(metadata.OrganizationID) == "" {
+		metadata.OrganizationID = session.OrganizationID
 	}
 	return WithRelayRequestMetadata(ctx, metadata)
 }

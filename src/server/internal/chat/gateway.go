@@ -75,9 +75,10 @@ type CompletionResponse struct {
 }
 
 type RelayRequestMetadata struct {
-	UserID      string
-	WorkspaceID string
-	RequestID   string
+	OrganizationID string
+	UserID         string
+	WorkspaceID    string
+	RequestID      string
 }
 
 func WithRelayRequestMetadata(ctx context.Context, metadata RelayRequestMetadata) context.Context {

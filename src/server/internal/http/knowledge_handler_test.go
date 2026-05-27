@@ -14,48 +14,48 @@ import (
 )
 
 type knowledgeFakeStore struct {
-	createdName  string
-	createdBase  knowledge.KnowledgeBase
-	createdDoc   knowledge.KnowledgeDocument
-	deletedDocID string
-	deletedID    string
-	detailBase   knowledge.KnowledgeBase
-	documents    []knowledge.KnowledgeDocument
-	listBases    []knowledge.KnowledgeBase
-	retrievalQuery string
+	createdName      string
+	createdBase      knowledge.KnowledgeBase
+	createdDoc       knowledge.KnowledgeDocument
+	deletedDocID     string
+	deletedID        string
+	detailBase       knowledge.KnowledgeBase
+	documents        []knowledge.KnowledgeDocument
+	listBases        []knowledge.KnowledgeBase
+	organizationID   string
+	retrievalQuery   string
 	retrievalResults []knowledge.KnowledgeRetrievalResult
-	requestedDoc knowledge.KnowledgeDocument
-	requestedID  string
-	updatedBase  knowledge.KnowledgeBase
-	updatedDoc   knowledge.KnowledgeDocument
-	workspaceID  string
+	requestedDoc     knowledge.KnowledgeDocument
+	requestedID      string
+	updatedBase      knowledge.KnowledgeBase
+	updatedDoc       knowledge.KnowledgeDocument
 }
 
-func (f *knowledgeFakeStore) CreateKnowledgeBase(ctx context.Context, workspaceID, name string) (knowledge.KnowledgeBase, error) {
-	f.workspaceID = workspaceID
+func (f *knowledgeFakeStore) CreateKnowledgeBase(ctx context.Context, workspaceID, organizationID, name string) (knowledge.KnowledgeBase, error) {
+	f.organizationID = organizationID
 	f.createdName = name
 	return f.createdBase, nil
 }
 
-func (f *knowledgeFakeStore) ListKnowledgeBases(ctx context.Context, workspaceID string) ([]knowledge.KnowledgeBase, error) {
-	f.workspaceID = workspaceID
+func (f *knowledgeFakeStore) ListKnowledgeBases(ctx context.Context, organizationID string) ([]knowledge.KnowledgeBase, error) {
+	f.organizationID = organizationID
 	return f.listBases, nil
 }
 
-func (f *knowledgeFakeStore) GetKnowledgeBase(ctx context.Context, workspaceID, knowledgeBaseID string) (knowledge.KnowledgeBase, error) {
-	f.workspaceID = workspaceID
+func (f *knowledgeFakeStore) GetKnowledgeBase(ctx context.Context, organizationID, knowledgeBaseID string) (knowledge.KnowledgeBase, error) {
+	f.organizationID = organizationID
 	f.requestedID = knowledgeBaseID
 	return f.detailBase, nil
 }
 
-func (f *knowledgeFakeStore) ListKnowledgeDocuments(ctx context.Context, workspaceID, knowledgeBaseID string) ([]knowledge.KnowledgeDocument, error) {
-	f.workspaceID = workspaceID
+func (f *knowledgeFakeStore) ListKnowledgeDocuments(ctx context.Context, organizationID, knowledgeBaseID string) ([]knowledge.KnowledgeDocument, error) {
+	f.organizationID = organizationID
 	f.requestedID = knowledgeBaseID
 	return f.documents, nil
 }
 
-func (f *knowledgeFakeStore) CreateKnowledgeDocument(ctx context.Context, workspaceID, knowledgeBaseID, title, content string) (knowledge.KnowledgeDocument, error) {
-	f.workspaceID = workspaceID
+func (f *knowledgeFakeStore) CreateKnowledgeDocument(ctx context.Context, organizationID, knowledgeBaseID, title, content string) (knowledge.KnowledgeDocument, error) {
+	f.organizationID = organizationID
 	f.requestedID = knowledgeBaseID
 	f.requestedDoc = knowledge.KnowledgeDocument{
 		Title:   title,
@@ -64,21 +64,21 @@ func (f *knowledgeFakeStore) CreateKnowledgeDocument(ctx context.Context, worksp
 	return f.createdDoc, nil
 }
 
-func (f *knowledgeFakeStore) UpdateKnowledgeBase(ctx context.Context, workspaceID, knowledgeBaseID, name string) (knowledge.KnowledgeBase, error) {
-	f.workspaceID = workspaceID
+func (f *knowledgeFakeStore) UpdateKnowledgeBase(ctx context.Context, organizationID, knowledgeBaseID, name string) (knowledge.KnowledgeBase, error) {
+	f.organizationID = organizationID
 	f.requestedID = knowledgeBaseID
 	f.createdName = name
 	return f.updatedBase, nil
 }
 
-func (f *knowledgeFakeStore) DeleteKnowledgeBase(ctx context.Context, workspaceID, knowledgeBaseID string) error {
-	f.workspaceID = workspaceID
+func (f *knowledgeFakeStore) DeleteKnowledgeBase(ctx context.Context, organizationID, knowledgeBaseID string) error {
+	f.organizationID = organizationID
 	f.deletedID = knowledgeBaseID
 	return nil
 }
 
-func (f *knowledgeFakeStore) UpdateKnowledgeDocument(ctx context.Context, workspaceID, knowledgeBaseID, documentID, title, content string) (knowledge.KnowledgeDocument, error) {
-	f.workspaceID = workspaceID
+func (f *knowledgeFakeStore) UpdateKnowledgeDocument(ctx context.Context, organizationID, knowledgeBaseID, documentID, title, content string) (knowledge.KnowledgeDocument, error) {
+	f.organizationID = organizationID
 	f.requestedID = knowledgeBaseID
 	f.deletedDocID = documentID
 	f.requestedDoc = knowledge.KnowledgeDocument{
@@ -88,15 +88,15 @@ func (f *knowledgeFakeStore) UpdateKnowledgeDocument(ctx context.Context, worksp
 	return f.updatedDoc, nil
 }
 
-func (f *knowledgeFakeStore) DeleteKnowledgeDocument(ctx context.Context, workspaceID, knowledgeBaseID, documentID string) error {
-	f.workspaceID = workspaceID
+func (f *knowledgeFakeStore) DeleteKnowledgeDocument(ctx context.Context, organizationID, knowledgeBaseID, documentID string) error {
+	f.organizationID = organizationID
 	f.requestedID = knowledgeBaseID
 	f.deletedDocID = documentID
 	return nil
 }
 
-func (f *knowledgeFakeStore) RetrieveKnowledge(ctx context.Context, workspaceID, knowledgeBaseID, query string) ([]knowledge.KnowledgeRetrievalResult, error) {
-	f.workspaceID = workspaceID
+func (f *knowledgeFakeStore) RetrieveKnowledge(ctx context.Context, organizationID, knowledgeBaseID, query string) ([]knowledge.KnowledgeRetrievalResult, error) {
+	f.organizationID = organizationID
 	f.requestedID = knowledgeBaseID
 	f.retrievalQuery = query
 	return f.retrievalResults, nil
@@ -115,7 +115,8 @@ func TestKnowledgeHandlerListReturnsWorkspaceBases(t *testing.T) {
 	}
 	handler := newKnowledgeHandler(knowledge.NewService(store))
 	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/app/knowledge-bases", nil).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
-		WorkspaceID: "workspace_1",
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
 	}))
 	recorder := httptest.NewRecorder()
 
@@ -124,8 +125,8 @@ func TestKnowledgeHandlerListReturnsWorkspaceBases(t *testing.T) {
 	if recorder.Code != stdhttp.StatusOK {
 		t.Fatalf("expected 200, got %d", recorder.Code)
 	}
-	if store.workspaceID != "workspace_1" {
-		t.Fatalf("expected workspace workspace_1, got %s", store.workspaceID)
+	if store.organizationID != "org_1" {
+		t.Fatalf("expected organization org_1, got %s", store.organizationID)
 	}
 
 	var response struct {
@@ -150,7 +151,8 @@ func TestKnowledgeHandlerCreateCreatesKnowledgeBase(t *testing.T) {
 	}
 	handler := newKnowledgeHandler(knowledge.NewService(store))
 	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases", strings.NewReader(`{"name":"Roadmap Notes"}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
-		WorkspaceID: "workspace_1",
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
 	}))
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
@@ -160,8 +162,8 @@ func TestKnowledgeHandlerCreateCreatesKnowledgeBase(t *testing.T) {
 	if recorder.Code != stdhttp.StatusOK {
 		t.Fatalf("expected 200, got %d", recorder.Code)
 	}
-	if store.workspaceID != "workspace_1" {
-		t.Fatalf("expected workspace workspace_1, got %s", store.workspaceID)
+	if store.organizationID != "org_1" {
+		t.Fatalf("expected organization org_1, got %s", store.organizationID)
 	}
 	if store.createdName != "Roadmap Notes" {
 		t.Fatalf("expected created name Roadmap Notes, got %s", store.createdName)
@@ -179,7 +181,8 @@ func TestKnowledgeHandlerGetReturnsKnowledgeBase(t *testing.T) {
 	}
 	handler := newKnowledgeHandler(knowledge.NewService(store))
 	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/app/knowledge-bases/kb_2", nil).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
-		WorkspaceID: "workspace_1",
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
 	}))
 	recorder := httptest.NewRecorder()
 
@@ -188,8 +191,8 @@ func TestKnowledgeHandlerGetReturnsKnowledgeBase(t *testing.T) {
 	if recorder.Code != stdhttp.StatusOK {
 		t.Fatalf("expected 200, got %d", recorder.Code)
 	}
-	if store.workspaceID != "workspace_1" {
-		t.Fatalf("expected workspace workspace_1, got %s", store.workspaceID)
+	if store.organizationID != "org_1" {
+		t.Fatalf("expected organization org_1, got %s", store.organizationID)
 	}
 	if store.requestedID != "kb_2" {
 		t.Fatalf("expected requested id kb_2, got %s", store.requestedID)
@@ -209,7 +212,8 @@ func TestKnowledgeHandlerListDocumentsReturnsKnowledgeBaseDocuments(t *testing.T
 	}
 	handler := newKnowledgeHandler(knowledge.NewService(store))
 	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/app/knowledge-bases/kb_2/documents", nil).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
-		WorkspaceID: "workspace_1",
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
 	}))
 	recorder := httptest.NewRecorder()
 
@@ -234,7 +238,8 @@ func TestKnowledgeHandlerCreateDocumentCreatesKnowledgeBaseDocument(t *testing.T
 	}
 	handler := newKnowledgeHandler(knowledge.NewService(store))
 	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_2/documents", strings.NewReader(`{"title":"Plan","content":"Initial plan"}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
-		WorkspaceID: "workspace_1",
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
 	}))
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
@@ -264,7 +269,8 @@ func TestKnowledgeHandlerRetrieveReturnsRelevantMatches(t *testing.T) {
 	}
 	handler := newKnowledgeHandler(knowledge.NewService(store))
 	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_2/retrieve", strings.NewReader(`{"query":"deployment"}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
-		WorkspaceID: "workspace_1",
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
 	}))
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
@@ -274,8 +280,8 @@ func TestKnowledgeHandlerRetrieveReturnsRelevantMatches(t *testing.T) {
 	if recorder.Code != stdhttp.StatusOK {
 		t.Fatalf("expected 200, got %d", recorder.Code)
 	}
-	if store.workspaceID != "workspace_1" {
-		t.Fatalf("expected workspace workspace_1, got %s", store.workspaceID)
+	if store.organizationID != "org_1" {
+		t.Fatalf("expected organization org_1, got %s", store.organizationID)
 	}
 	if store.requestedID != "kb_2" {
 		t.Fatalf("expected requested id kb_2, got %s", store.requestedID)
@@ -304,7 +310,8 @@ func TestKnowledgeHandlerRetrieveTrimsAndNormalizesQuery(t *testing.T) {
 	}
 	handler := newKnowledgeHandler(knowledge.NewService(store))
 	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_2/retrieve", strings.NewReader(`{"query":"  deployment   rollback  "}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
-		WorkspaceID: "workspace_1",
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
 	}))
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
@@ -325,7 +332,8 @@ func TestKnowledgeHandlerRetrieveReturnsEmptyListWhenNoMatchExists(t *testing.T)
 	}
 	handler := newKnowledgeHandler(knowledge.NewService(store))
 	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_2/retrieve", strings.NewReader(`{"query":"deployment"}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
-		WorkspaceID: "workspace_1",
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
 	}))
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
@@ -358,7 +366,8 @@ func TestKnowledgeHandlerUpdateKnowledgeBaseUpdatesKnowledgeBase(t *testing.T) {
 	}
 	handler := newKnowledgeHandler(knowledge.NewService(store))
 	request := httptest.NewRequest(stdhttp.MethodPut, "/api/v1/app/knowledge-bases/kb_2", strings.NewReader(`{"name":"Updated Notes"}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
-		WorkspaceID: "workspace_1",
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
 	}))
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
@@ -380,7 +389,8 @@ func TestKnowledgeHandlerDeleteKnowledgeBaseDeletesKnowledgeBase(t *testing.T) {
 	store := &knowledgeFakeStore{}
 	handler := newKnowledgeHandler(knowledge.NewService(store))
 	request := httptest.NewRequest(stdhttp.MethodDelete, "/api/v1/app/knowledge-bases/kb_2", nil).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
-		WorkspaceID: "workspace_1",
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
 	}))
 	recorder := httptest.NewRecorder()
 
@@ -405,7 +415,8 @@ func TestKnowledgeHandlerUpdateDocumentUpdatesKnowledgeBaseDocument(t *testing.T
 	}
 	handler := newKnowledgeHandler(knowledge.NewService(store))
 	request := httptest.NewRequest(stdhttp.MethodPut, "/api/v1/app/knowledge-bases/kb_2/documents/doc_2", strings.NewReader(`{"title":"Plan v2","content":"Updated plan"}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
-		WorkspaceID: "workspace_1",
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
 	}))
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
@@ -430,7 +441,8 @@ func TestKnowledgeHandlerDeleteDocumentDeletesKnowledgeBaseDocument(t *testing.T
 	store := &knowledgeFakeStore{}
 	handler := newKnowledgeHandler(knowledge.NewService(store))
 	request := httptest.NewRequest(stdhttp.MethodDelete, "/api/v1/app/knowledge-bases/kb_2/documents/doc_2", nil).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
-		WorkspaceID: "workspace_1",
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
 	}))
 	recorder := httptest.NewRecorder()
 

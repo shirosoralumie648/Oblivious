@@ -93,6 +93,10 @@ func (h chatHandler) listMessages(w stdhttp.ResponseWriter, r *stdhttp.Request, 
 
 	messages, err := h.service.ListMessages(r.Context(), session, conversationID)
 	if err != nil {
+		if isNotFoundError(err) {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "conversation not found")
+			return
+		}
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "list messages failed")
 		return
 	}
@@ -109,6 +113,10 @@ func (h chatHandler) getConversationConfig(w stdhttp.ResponseWriter, r *stdhttp.
 
 	config, err := h.service.GetConversationConfig(r.Context(), session, conversationID)
 	if err != nil {
+		if isNotFoundError(err) {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "conversation not found")
+			return
+		}
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "get conversation config failed")
 		return
 	}
@@ -141,6 +149,10 @@ func (h chatHandler) updateConversationConfig(w stdhttp.ResponseWriter, r *stdht
 		payload.KnowledgeBaseIDs,
 	)
 	if err != nil {
+		if isNotFoundError(err) {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "conversation not found")
+			return
+		}
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "update conversation config failed")
 		return
 	}
@@ -157,6 +169,10 @@ func (h chatHandler) convertConversationToTask(w stdhttp.ResponseWriter, r *stdh
 
 	draft, err := h.service.ConvertConversationToTask(r.Context(), session, conversationID)
 	if err != nil {
+		if isNotFoundError(err) {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "conversation not found")
+			return
+		}
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "convert conversation to task failed")
 		return
 	}
@@ -183,9 +199,10 @@ func (h chatHandler) sendMessage(w stdhttp.ResponseWriter, r *stdhttp.Request, c
 
 	messages, err := h.service.SendMessage(
 		chat.WithRelayRequestMetadata(r.Context(), chat.RelayRequestMetadata{
-			UserID:      session.User.ID,
-			WorkspaceID: session.WorkspaceID,
-			RequestID:   requestIDFromContext(r.Context()),
+			OrganizationID: session.OrganizationID,
+			UserID:         session.User.ID,
+			WorkspaceID:    session.WorkspaceID,
+			RequestID:      requestIDFromContext(r.Context()),
 		}),
 		session,
 		conversationID,
@@ -193,6 +210,10 @@ func (h chatHandler) sendMessage(w stdhttp.ResponseWriter, r *stdhttp.Request, c
 		toMessageOverrides(payload.Overrides),
 	)
 	if err != nil {
+		if isNotFoundError(err) {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "conversation not found")
+			return
+		}
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "send message failed")
 		return
 	}

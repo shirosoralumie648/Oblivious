@@ -10,28 +10,28 @@ import (
 )
 
 type fakeStore struct {
-	billing     BillingSummary
-	models      []ModelSummary
-	summary     UsageSummary
-	workspaceID string
+	billing        BillingSummary
+	models         []ModelSummary
+	organizationID string
+	summary        UsageSummary
 }
 
-func (f *fakeStore) GetUsageSummary(ctx context.Context, workspaceID string) (UsageSummary, error) {
-	f.workspaceID = workspaceID
+func (f *fakeStore) GetUsageSummary(ctx context.Context, organizationID string) (UsageSummary, error) {
+	f.organizationID = organizationID
 	return f.summary, nil
 }
 
-func (f *fakeStore) GetModelSummaries(ctx context.Context, workspaceID string) ([]ModelSummary, error) {
-	f.workspaceID = workspaceID
+func (f *fakeStore) GetModelSummaries(ctx context.Context, organizationID string) ([]ModelSummary, error) {
+	f.organizationID = organizationID
 	return f.models, nil
 }
 
-func (f *fakeStore) GetBillingSummary(ctx context.Context, workspaceID string) (BillingSummary, error) {
-	f.workspaceID = workspaceID
+func (f *fakeStore) GetBillingSummary(ctx context.Context, organizationID string) (BillingSummary, error) {
+	f.organizationID = organizationID
 	return f.billing, nil
 }
 
-func TestGetUsageReturnsWorkspaceSummary(t *testing.T) {
+func TestGetUsageReturnsOrganizationSummary(t *testing.T) {
 	store := &fakeStore{
 		summary: UsageSummary{
 			Period:   "7d",
@@ -40,13 +40,13 @@ func TestGetUsageReturnsWorkspaceSummary(t *testing.T) {
 	}
 	service := NewService(store)
 
-	summary, err := service.GetUsage(context.Background(), auth.Session{WorkspaceID: "workspace_1"})
+	summary, err := service.GetUsage(context.Background(), auth.Session{OrganizationID: "org_1", WorkspaceID: "workspace_1"})
 	if err != nil {
 		t.Fatalf("get usage: %v", err)
 	}
 
-	if store.workspaceID != "workspace_1" {
-		t.Fatalf("expected workspace id workspace_1, got %s", store.workspaceID)
+	if store.organizationID != "org_1" {
+		t.Fatalf("expected organization id org_1, got %s", store.organizationID)
 	}
 	if summary.Period != "7d" {
 		t.Fatalf("expected period 7d, got %s", summary.Period)
@@ -56,7 +56,7 @@ func TestGetUsageReturnsWorkspaceSummary(t *testing.T) {
 	}
 }
 
-func TestGetModelsReturnsWorkspaceModelSummaries(t *testing.T) {
+func TestGetModelsReturnsOrganizationModelSummaries(t *testing.T) {
 	store := &fakeStore{
 		models: []ModelSummary{
 			{ID: "balanced-chat", Label: "balanced-chat", Requests: 2},
@@ -65,13 +65,13 @@ func TestGetModelsReturnsWorkspaceModelSummaries(t *testing.T) {
 	}
 	service := NewService(store)
 
-	models, err := service.GetModels(context.Background(), auth.Session{WorkspaceID: "workspace_1"})
+	models, err := service.GetModels(context.Background(), auth.Session{OrganizationID: "org_1", WorkspaceID: "workspace_1"})
 	if err != nil {
 		t.Fatalf("get models: %v", err)
 	}
 
-	if store.workspaceID != "workspace_1" {
-		t.Fatalf("expected workspace id workspace_1, got %s", store.workspaceID)
+	if store.organizationID != "org_1" {
+		t.Fatalf("expected organization id org_1, got %s", store.organizationID)
 	}
 	if len(models) != 2 {
 		t.Fatalf("expected 2 model summaries, got %d", len(models))
@@ -81,7 +81,7 @@ func TestGetModelsReturnsWorkspaceModelSummaries(t *testing.T) {
 	}
 }
 
-func TestGetBillingReturnsWorkspaceSummary(t *testing.T) {
+func TestGetBillingReturnsOrganizationSummary(t *testing.T) {
 	store := &fakeStore{
 		billing: BillingSummary{
 			Period:           "30d",
@@ -93,13 +93,13 @@ func TestGetBillingReturnsWorkspaceSummary(t *testing.T) {
 	}
 	service := NewService(store)
 
-	summary, err := service.GetBilling(context.Background(), auth.Session{WorkspaceID: "workspace_1"})
+	summary, err := service.GetBilling(context.Background(), auth.Session{OrganizationID: "org_1", WorkspaceID: "workspace_1"})
 	if err != nil {
 		t.Fatalf("get billing: %v", err)
 	}
 
-	if store.workspaceID != "workspace_1" {
-		t.Fatalf("expected workspace id workspace_1, got %s", store.workspaceID)
+	if store.organizationID != "org_1" {
+		t.Fatalf("expected organization id org_1, got %s", store.organizationID)
 	}
 	if summary.Requests != 5 {
 		t.Fatalf("expected requests 5, got %d", summary.Requests)

@@ -1,7 +1,9 @@
 package http
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	stdhttp "net/http"
 )
 
@@ -39,4 +41,8 @@ func writeError(w stdhttp.ResponseWriter, status int, code, message string) {
 			Message: message,
 		},
 	})
+}
+
+func isNotFoundError(err error) bool {
+	return errors.Is(err, sql.ErrNoRows)
 }

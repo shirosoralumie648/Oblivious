@@ -41,9 +41,9 @@ type AccessSummary struct {
 }
 
 type Store interface {
-	GetBillingSummary(ctx context.Context, workspaceID string) (BillingSummary, error)
-	GetModelSummaries(ctx context.Context, workspaceID string) ([]ModelSummary, error)
-	GetUsageSummary(ctx context.Context, workspaceID string) (UsageSummary, error)
+	GetBillingSummary(ctx context.Context, organizationID string) (BillingSummary, error)
+	GetModelSummaries(ctx context.Context, organizationID string) ([]ModelSummary, error)
+	GetUsageSummary(ctx context.Context, organizationID string) (UsageSummary, error)
 }
 
 type Service struct {
@@ -55,15 +55,15 @@ func NewService(store Store) *Service {
 }
 
 func (s *Service) GetUsage(ctx context.Context, session auth.Session) (UsageSummary, error) {
-	return s.store.GetUsageSummary(ctx, session.WorkspaceID)
+	return s.store.GetUsageSummary(ctx, session.OrganizationID)
 }
 
 func (s *Service) GetModels(ctx context.Context, session auth.Session) ([]ModelSummary, error) {
-	return s.store.GetModelSummaries(ctx, session.WorkspaceID)
+	return s.store.GetModelSummaries(ctx, session.OrganizationID)
 }
 
 func (s *Service) GetBilling(ctx context.Context, session auth.Session) (BillingSummary, error) {
-	return s.store.GetBillingSummary(ctx, session.WorkspaceID)
+	return s.store.GetBillingSummary(ctx, session.OrganizationID)
 }
 
 func (s *Service) GetAccess(session auth.Session, preferences userprefs.Preferences) AccessSummary {

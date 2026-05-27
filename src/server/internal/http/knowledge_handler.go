@@ -54,6 +54,10 @@ func (h knowledgeHandler) getKnowledgeBase(w stdhttp.ResponseWriter, r *stdhttp.
 
 	base, err := h.service.Get(r.Context(), session, knowledgeBaseID)
 	if err != nil {
+		if isNotFoundError(err) {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "knowledge base not found")
+			return
+		}
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "get knowledge base failed")
 		return
 	}
@@ -110,6 +114,10 @@ func (h knowledgeHandler) updateKnowledgeBase(w stdhttp.ResponseWriter, r *stdht
 
 	base, err := h.service.Update(r.Context(), session, knowledgeBaseID, name)
 	if err != nil {
+		if isNotFoundError(err) {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "knowledge base not found")
+			return
+		}
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "update knowledge base failed")
 		return
 	}
@@ -125,6 +133,10 @@ func (h knowledgeHandler) deleteKnowledgeBase(w stdhttp.ResponseWriter, r *stdht
 	}
 
 	if err := h.service.Delete(r.Context(), session, knowledgeBaseID); err != nil {
+		if isNotFoundError(err) {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "knowledge base not found")
+			return
+		}
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "delete knowledge base failed")
 		return
 	}
@@ -170,6 +182,10 @@ func (h knowledgeHandler) createKnowledgeDocument(w stdhttp.ResponseWriter, r *s
 
 	document, err := h.service.CreateDocument(r.Context(), session, knowledgeBaseID, title, content)
 	if err != nil {
+		if isNotFoundError(err) {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "knowledge base not found")
+			return
+		}
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "create knowledge document failed")
 		return
 	}
@@ -227,6 +243,10 @@ func (h knowledgeHandler) updateKnowledgeDocument(w stdhttp.ResponseWriter, r *s
 
 	document, err := h.service.UpdateDocument(r.Context(), session, knowledgeBaseID, documentID, title, content)
 	if err != nil {
+		if isNotFoundError(err) {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "knowledge document not found")
+			return
+		}
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "update knowledge document failed")
 		return
 	}
@@ -242,6 +262,10 @@ func (h knowledgeHandler) deleteKnowledgeDocument(w stdhttp.ResponseWriter, r *s
 	}
 
 	if err := h.service.DeleteDocument(r.Context(), session, knowledgeBaseID, documentID); err != nil {
+		if isNotFoundError(err) {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "knowledge document not found")
+			return
+		}
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "delete knowledge document failed")
 		return
 	}
