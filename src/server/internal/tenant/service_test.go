@@ -69,7 +69,14 @@ func TestSQLStoreOrganizationLifecycle(t *testing.T) {
 	store := NewSQLStore(database)
 	service := NewService(store)
 	creatorID := "user_admin"
-	if _, err := database.Exec(`INSERT INTO users (id, email, password_hash, role) VALUES ($1, $2, $3, $4)`, creatorID, "admin@example.com", "hash", "admin"); err != nil {
+	if _, err := database.Exec(`
+INSERT INTO users (id, email, password_hash, role)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (id) DO UPDATE SET
+	email = EXCLUDED.email,
+	password_hash = EXCLUDED.password_hash,
+	role = EXCLUDED.role
+`, creatorID, "admin@example.com", "hash", "admin"); err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
 
