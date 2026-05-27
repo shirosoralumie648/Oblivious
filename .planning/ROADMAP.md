@@ -12,7 +12,7 @@
 
 Milestone v04 has been initialized from `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`.
 
-**Next workflow step:** discuss Phase 10 Membership, Roles, and Auth Security.
+**Next workflow step:** execute Phase 10 Membership, Roles, and Auth Security Plan 01.
 
 ## Current Milestone: v04 Commercial Foundation
 
@@ -21,7 +21,7 @@ Milestone v04 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 | Phase | Name | Requirements | Status |
 |-------|------|--------------|--------|
 | Phase 9 | Tenant Model and Migration Ledger | TENANT-01, MIGR-01 | Complete |
-| Phase 10 | Membership, Roles, and Auth Security | TENANT-02, TENANT-03, SEC-01, SEC-02, SEC-03 | Planned |
+| Phase 10 | Membership, Roles, and Auth Security | TENANT-02, TENANT-03, SEC-01, SEC-02, SEC-03 | Ready to execute |
 | Phase 11 | Tenant Scope Across Core Domains | TENANT-04, TENANT-05 | Planned |
 | Phase 12 | Commercial Gate CI and Evidence | CI-01, DOC-03 | Planned |
 
@@ -65,6 +65,11 @@ Milestone v04 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 **Likely verification:**
 - `cd src/server && go test ./internal/auth ./internal/http ./internal/admin -count=1`
 - DB-backed integration tests for membership, invitation, role, audit, CSRF, rate-limit, password, and session rotation behavior.
+
+**Planning evidence:**
+- Context: `.planning/phases/10-membership-roles-and-auth-security/10-CONTEXT.md`
+- Discussion log: `.planning/phases/10-membership-roles-and-auth-security/10-DISCUSSION-LOG.md`
+- Plan: `.planning/phases/10-membership-roles-and-auth-security/10-01-PLAN.md`
 
 ### Phase 11: Tenant Scope Across Core Domains
 
@@ -192,4 +197,4 @@ Milestone v04 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 | Foundation through Backend | Phases 1, 2, 3a | Historical | RELAY, CHAT, AGENT, MCP, MEM, EXEC, QUOTA, ADMIN, MARKET | Complete | 2026-04-29 |
 
 ---
-*Roadmap updated: 2026-05-27 after completing Phase 9 tenant foundation*
+*Roadmap updated: 2026-05-28 after planning Phase 10 membership and auth security*

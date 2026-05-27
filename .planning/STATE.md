@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v04
 milestone_name: Commercial Foundation
 status: planning
-stopped_at: Phase 10 ready to discuss
-last_updated: "2026-05-27T23:45:00+08:00"
-last_activity: 2026-05-27 -- Phase 9 tenant foundation completed
+stopped_at: Phase 10 ready to execute
+last_updated: "2026-05-28T00:08:42+08:00"
+last_activity: 2026-05-28 -- Phase 10 context and execution plan created
 progress:
   total_phases: 4
   completed_phases: 1
-  total_plans: 1
+  total_plans: 2
   completed_plans: 1
   percent: 25
 ---
@@ -18,24 +18,24 @@ progress:
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-05-27)
+See: `.planning/PROJECT.md` (updated 2026-05-28)
 
 **Core value:** 统一的多渠道 LLM 调用层 — 所有 AI 调用必须经过 Relay
 
-**Current focus:** Phase 10 planning
+**Current focus:** Phase 10 execution
 
 ## Current Status
 
 **Milestone v04: Commercial Foundation — ACTIVE**
 
-v03.3 Mainline Consolidation is complete and archived through snapshots under `.planning/milestones/`. Phase 9 completed the organization tenant foundation and ledgered migration runner. v04 now moves to memberships, roles, invitations, ownership transfer, and production auth hardening.
+v03.3 Mainline Consolidation is complete and archived through snapshots under `.planning/milestones/`. Phase 9 completed the organization tenant foundation and ledgered migration runner. Phase 10 now has context and an execution plan for memberships, roles, invitations, ownership transfer, and production auth hardening.
 
 ## Current Position
 
 Phase: 10 — Membership, Roles, and Auth Security
-Plan: Not started
-Status: Ready to discuss
-Last activity: 2026-05-27 -- Phase 9 tenant foundation completed
+Plan: 10-01-PLAN.md
+Status: Ready to execute
+Last activity: 2026-05-28 -- Phase 10 context and execution plan created
 
 ## Current Scope
 
@@ -55,14 +55,14 @@ Last activity: 2026-05-27 -- Phase 9 tenant foundation completed
 
 ## Next Suggested Step
 
-Run `$gsd:discuss-phase 10` to lock membership, role, invitation, ownership-transfer, CSRF, rate-limit, password-policy, and session-rotation decisions.
+Run `$gsd:execute-phase 10` to implement Phase 10 Plan 01.
 
-Recommended Phase 10 baseline:
-- Add organization memberships with owner/admin/member roles.
-- Keep role and ownership changes audited.
-- Keep cookie-auth mutating route CSRF design compatible with current session cookies.
-- Add rate limits before expanding sensitive auth/admin surfaces.
-- Rotate sessions on sensitive privilege changes.
+Phase 10 Plan 01 covers:
+- Organization memberships with owner/admin/member roles.
+- Invitation, acceptance, removal, role update, ownership transfer, and audit events.
+- CSRF protection for cookie-authenticated mutating routes.
+- SQL-backed rate limits for login, registration, password reset, and sensitive admin/organization actions.
+- Password policy plus session rotation/revocation on sensitive privilege changes.
 
 ## Worktree Context
 
@@ -99,6 +99,9 @@ These are deliberately outside v04 and remain required for the final user goal:
 - Phase 9 context: `.planning/phases/09-tenant-model-and-migration-ledger/09-CONTEXT.md`
 - Phase 9 plan: `.planning/phases/09-tenant-model-and-migration-ledger/09-01-PLAN.md`
 - Phase 9 summary: `.planning/phases/09-tenant-model-and-migration-ledger/09-01-SUMMARY.md`
+- Phase 10 context: `.planning/phases/10-membership-roles-and-auth-security/10-CONTEXT.md`
+- Phase 10 discussion log: `.planning/phases/10-membership-roles-and-auth-security/10-DISCUSSION-LOG.md`
+- Phase 10 plan: `.planning/phases/10-membership-roles-and-auth-security/10-01-PLAN.md`
 - Commercial complete spec: `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`
 - v03.3 roadmap archive: `.planning/milestones/v03.3-ROADMAP.md`
 - v03.3 requirements archive: `.planning/milestones/v03.3-REQUIREMENTS.md`
@@ -117,6 +120,7 @@ These are deliberately outside v04 and remain required for the final user goal:
 | 2026-05-27 | v04 Commercial Foundation initialized manually | `gsd-sdk init.new-milestone` still points phase archive metadata at v03.2, so manual planning updates avoid unsafe phase directory movement |
 | 2026-05-27 | Phase 9 planned | Locked organization tenant model, migration ledger, admin organization routes, and DB-backed verification requirements |
 | 2026-05-27 | Phase 9 completed | Organization tenant foundation, schema migration ledger, admin routes, DB-backed tests, and broad script verification passed |
+| 2026-05-28 | Phase 10 planned | Locked membership, invitation, ownership-transfer, CSRF, rate-limit, password-policy, and session-rotation requirements into an execution plan |
 
 ---
-*State updated: 2026-05-27 after completing Phase 9 tenant foundation*
+*State updated: 2026-05-28 after planning Phase 10 membership and auth security*
