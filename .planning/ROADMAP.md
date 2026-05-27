@@ -13,7 +13,7 @@
 
 Milestone v05 has been initialized from `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`.
 
-**Next workflow step:** execute Phase 13 Relay Endpoint Authority and Production Fail-Closed Plan 01.
+**Next workflow step:** plan Phase 15 Relay Billing Settlement and Refund Semantics.
 
 ## Current Milestone: v05 Relay Billing Completeness
 
@@ -22,7 +22,7 @@ Milestone v05 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 | Phase | Name | Requirements | Status |
 |-------|------|--------------|--------|
 | Phase 13 | Relay Endpoint Authority and Production Fail-Closed | RELAY-08, RELAY-09 | Complete |
-| Phase 14 | Relay Provider Bypass and Cost-Abuse Guardrails | RELAY-10, RELAY-11 | Ready to plan |
+| Phase 14 | Relay Provider Bypass and Cost-Abuse Guardrails | RELAY-10, RELAY-11 | Complete |
 | Phase 15 | Relay Billing Settlement and Refund Semantics | BILL-01, BILL-02 | Planned |
 | Phase 16 | Relay Authority Evidence and v05 Closeout | DOC-04 | Planned |
 
@@ -69,6 +69,18 @@ Milestone v05 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 - `cd src/server && go test ./internal/relay ./internal/http -run 'Auth|RateLimit|Audit|Bypass' -count=1`
 - Targeted `rg` checks proving direct provider URLs are limited to Relay/channel adapters and docs/examples.
 
+**Completion evidence:**
+- Summary: `.planning/phases/14-relay-provider-bypass-and-cost-abuse-guardrails/14-01-SUMMARY.md`
+- Relay security gate: `bash scripts/check.sh relay-security`
+- Focused policy tests: `cd src/server && go test ./internal/relay/handler -run 'SupportedRoutePolicies|ProductionSupportedRoutesRequireTrustedIdentity|ProductionSupportedRoutesAttachTrustedIdentityAndAudit|FailClosed|RoutePolicy' -count=1`
+- App metadata tests: `cd src/server && go test ./internal/chat ./internal/memory -run 'HTTPReplyGenerator|RelayEmbedder|RelayIdentity' -count=1`
+- Broader relay/http check: `cd src/server && go test ./internal/relay/... ./internal/http -count=1`
+- Docs gate: `bash scripts/check.sh docs`
+
+**Planning evidence:**
+- Context: `.planning/phases/14-relay-provider-bypass-and-cost-abuse-guardrails/14-CONTEXT.md`
+- Plan: `.planning/phases/14-relay-provider-bypass-and-cost-abuse-guardrails/14-01-PLAN.md`
+
 ### Phase 15: Relay Billing Settlement and Refund Semantics
 
 **Goal:** Make supported Relay calls charge quota exactly once and refund correctly across success, upstream failure, retry, streaming abort, and async/disabled endpoint behavior.
@@ -109,8 +121,8 @@ Milestone v05 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 |-------------|-------|----------|
 | RELAY-08 | Phase 13 | Complete — route policy registry and complete `/v1/*` classification |
 | RELAY-09 | Phase 13 | Complete — production fail-closed behavior for disabled/partial endpoints |
-| RELAY-10 | Phase 14 | Planned — provider-bypass CI checks |
-| RELAY-11 | Phase 14 | Planned — endpoint auth/rate-limit/audit semantics |
+| RELAY-10 | Phase 14 | Complete — provider-bypass CI checks |
+| RELAY-11 | Phase 14 | Complete — endpoint auth/rate-limit/audit semantics |
 | BILL-01 | Phase 15 | Planned — quota pre-authorization, exactly-once settlement, and refund behavior |
 | BILL-02 | Phase 15 | Planned — streaming/realtime/file/batch/async settlement or production disablement |
 | DOC-04 | Phase 16 | Planned — v05 route table, evidence, and closeout |

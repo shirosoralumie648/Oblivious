@@ -1,7 +1,11 @@
 package handler
 
 import (
+	"context"
 	"net/http"
+	"os"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"oblivious/server/internal/relay/types"
@@ -15,6 +19,33 @@ const (
 	DisabledInProduction      CommercialClass = "disabled_in_production"
 )
 
+type AuthPolicy string
+
+const (
+	AuthPolicyTrustedInternalIdentity AuthPolicy = "trusted_internal_identity"
+	AuthPolicyNotApplicable           AuthPolicy = "not_applicable"
+)
+
+type RateLimitPolicy string
+
+const (
+	RateLimitPolicyGlobalTokenBucket RateLimitPolicy = "global_relay_token_bucket"
+	RateLimitPolicyNotApplicable     RateLimitPolicy = "not_applicable"
+)
+
+type AuditPolicy string
+
+const (
+	AuditPolicyRouteDecision AuditPolicy = "relay_route_policy_decision"
+)
+
+type RouteAuditResult string
+
+const (
+	RouteAuditResultAllowed  RouteAuditResult = "allowed"
+	RouteAuditResultRejected RouteAuditResult = "rejected"
+)
+
 type RoutePolicy struct {
 	Method            string
 	Path              string
@@ -24,6 +55,29 @@ type RoutePolicy struct {
 	ProductionEnabled bool
 	DisabledReason    string
 	FutureOwner       string
+
+	AuthPolicy             AuthPolicy
+	TenantIdentityRequired bool
+	RateLimitPolicy        RateLimitPolicy
+	AuditPolicy            AuditPolicy
+}
+
+type RouteAuditEvent struct {
+	Method         string
+	Path           string
+	APIType        types.APIType
+	Class          CommercialClass
+	Result         RouteAuditResult
+	UserID         string
+	OrganizationID string
+	RequestID      string
+	ChannelID      string
+	FailureReason  string
+	CreatedAt      time.Time
+}
+
+type RouteAuditSink interface {
+	RecordRelayRouteDecision(ctx context.Context, event RouteAuditEvent)
 }
 
 func AllRoutePolicies() []RoutePolicy {
@@ -41,11 +95,54 @@ func PolicyForRoute(method, path string) (RoutePolicy, bool) {
 	return RoutePolicy{}, false
 }
 
-func RejectIfProductionDisabled(c *gin.Context, route Route, production bool) bool {
-	if !production {
-		return false
+func EnforceRoutePolicy(c *gin.Context, route Route, opts RouteRegistrationOptions) bool {
+	policy, ok := PolicyForRoute(route.Method, route.Path)
+	if !ok {
+		recordRouteAudit(c, opts.AuditSink, RoutePolicy{
+			Method:  route.Method,
+			Path:    route.Path,
+			APIType: route.APIType,
+		}, RouteAuditResultRejected, "", "", "", "endpoint_policy_missing")
+		c.JSON(http.StatusNotImplemented, gin.H{
+			"error": gin.H{
+				"code":    "endpoint_policy_missing",
+				"message": "relay endpoint is missing commercial policy: " + route.Method + " " + route.Path,
+			},
+		})
+		return true
 	}
 
+	if rejectIfProductionDisabled(c, route, policy, opts) {
+		return true
+	}
+
+	if opts.Production && policy.Class == CommercialSupportedBilled {
+		userID, organizationID, requestID, ok := trustedIdentityFromHeaders(c)
+		if !ok {
+			recordRouteAudit(c, opts.AuditSink, policy, RouteAuditResultRejected, "", "", requestID, "relay_identity_required")
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"error": gin.H{
+					"code":    "relay_identity_required",
+					"message": "production relay endpoint requires trusted internal user and organization identity",
+				},
+			})
+			return true
+		}
+
+		ctx := c.Request.Context()
+		ctx = types.WithTrustedUserID(ctx, userID)
+		ctx = types.WithTrustedOrganizationID(ctx, organizationID)
+		if requestID != "" {
+			ctx = types.WithTrustedRequestID(ctx, requestID)
+		}
+		c.Request = c.Request.WithContext(ctx)
+		recordRouteAudit(c, opts.AuditSink, policy, RouteAuditResultAllowed, userID, organizationID, requestID, "")
+	}
+
+	return false
+}
+
+func RejectIfProductionDisabled(c *gin.Context, route Route, production bool) bool {
 	policy, ok := PolicyForRoute(route.Method, route.Path)
 	if !ok {
 		c.JSON(http.StatusNotImplemented, gin.H{
@@ -55,6 +152,14 @@ func RejectIfProductionDisabled(c *gin.Context, route Route, production bool) bo
 			},
 		})
 		return true
+	}
+	return rejectIfProductionDisabled(c, route, policy, RouteRegistrationOptions{Production: production})
+}
+
+func rejectIfProductionDisabled(c *gin.Context, route Route, policy RoutePolicy, opts RouteRegistrationOptions) bool {
+	production := opts.Production
+	if !production {
+		return false
 	}
 
 	if policy.ProductionEnabled && policy.Class != DisabledInProduction {
@@ -71,7 +176,46 @@ func RejectIfProductionDisabled(c *gin.Context, route Route, production bool) bo
 			"message": message,
 		},
 	})
+	recordRouteAudit(c, opts.AuditSink, policy, RouteAuditResultRejected, "", "", c.GetHeader(types.HeaderRequestID), "endpoint_disabled_in_production")
 	return true
+}
+
+func trustedIdentityFromHeaders(c *gin.Context) (string, string, string, bool) {
+	expectedToken := os.Getenv("OBLIVIOUS_INTERNAL_AUTH_TOKEN")
+	if expectedToken == "" {
+		expectedToken = types.SharedInternalToken
+	}
+
+	internalAuth := strings.TrimSpace(c.GetHeader(types.HeaderInternalAuth))
+	userID := strings.TrimSpace(c.GetHeader(types.HeaderInternalUserID))
+	organizationID := strings.TrimSpace(c.GetHeader(types.HeaderInternalOrganization))
+	requestID := strings.TrimSpace(c.GetHeader(types.HeaderRequestID))
+
+	if internalAuth != expectedToken || userID == "" || organizationID == "" {
+		return "", "", requestID, false
+	}
+	return userID, organizationID, requestID, true
+}
+
+func recordRouteAudit(c *gin.Context, sink RouteAuditSink, policy RoutePolicy, result RouteAuditResult, userID, organizationID, requestID, failureReason string) {
+	if sink == nil {
+		return
+	}
+	if requestID == "" {
+		requestID = c.GetHeader(types.HeaderRequestID)
+	}
+	sink.RecordRelayRouteDecision(c.Request.Context(), RouteAuditEvent{
+		Method:         policy.Method,
+		Path:           policy.Path,
+		APIType:        policy.APIType,
+		Class:          policy.Class,
+		Result:         result,
+		UserID:         userID,
+		OrganizationID: organizationID,
+		RequestID:      requestID,
+		FailureReason:  failureReason,
+		CreatedAt:      time.Now().UTC(),
+	})
 }
 
 var routePolicies = []RoutePolicy{
@@ -113,24 +257,32 @@ var routePolicies = []RoutePolicy{
 
 func supported(method, path string, apiType types.APIType, strategy types.HandlerStrategy) RoutePolicy {
 	return RoutePolicy{
-		Method:            method,
-		Path:              path,
-		APIType:           apiType,
-		Strategy:          strategy,
-		Class:             CommercialSupportedBilled,
-		ProductionEnabled: true,
+		Method:                 method,
+		Path:                   path,
+		APIType:                apiType,
+		Strategy:               strategy,
+		Class:                  CommercialSupportedBilled,
+		ProductionEnabled:      true,
+		AuthPolicy:             AuthPolicyTrustedInternalIdentity,
+		TenantIdentityRequired: true,
+		RateLimitPolicy:        RateLimitPolicyGlobalTokenBucket,
+		AuditPolicy:            AuditPolicyRouteDecision,
 	}
 }
 
 func disabled(method, path string, apiType types.APIType, strategy types.HandlerStrategy, reason, futureOwner string) RoutePolicy {
 	return RoutePolicy{
-		Method:            method,
-		Path:              path,
-		APIType:           apiType,
-		Strategy:          strategy,
-		Class:             DisabledInProduction,
-		ProductionEnabled: false,
-		DisabledReason:    reason,
-		FutureOwner:       futureOwner,
+		Method:                 method,
+		Path:                   path,
+		APIType:                apiType,
+		Strategy:               strategy,
+		Class:                  DisabledInProduction,
+		ProductionEnabled:      false,
+		DisabledReason:         reason,
+		FutureOwner:            futureOwner,
+		AuthPolicy:             AuthPolicyNotApplicable,
+		TenantIdentityRequired: false,
+		RateLimitPolicy:        RateLimitPolicyNotApplicable,
+		AuditPolicy:            AuditPolicyRouteDecision,
 	}
 }

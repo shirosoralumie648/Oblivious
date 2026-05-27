@@ -11,8 +11,8 @@
 
 - [x] **RELAY-08**: Every registered `/v1/*` route is classified as commercial-supported and billed, internal/admin-only, or disabled in production. Completed in Phase 13 with `policy.go`, coverage tests, and `docs/release/relay-route-table.md`.
 - [x] **RELAY-09**: Unsupported or partially implemented `/v1/*` endpoints fail closed in production before any upstream provider call. Completed in Phase 13 with `RegisterRoutesWithOptions`, `RejectIfProductionDisabled`, and production-disabled route tests.
-- [ ] **RELAY-10**: CI proves app services do not import provider SDKs or call direct provider URLs outside Relay/channel adapters.
-- [ ] **RELAY-11**: Supported Relay endpoints enforce tenant identity, auth policy, rate-limit policy, and audit semantics.
+- [x] **RELAY-10**: CI proves app services do not import provider SDKs or call direct provider URLs outside Relay/channel adapters. Completed in Phase 14 with `scripts/verify-relay-security.sh`, `bash scripts/check.sh relay-security`, and CI release-gate coverage.
+- [x] **RELAY-11**: Supported Relay endpoints enforce tenant identity, auth policy, rate-limit policy, and audit semantics. Completed in Phase 14 with supported-route policy fields, production trusted internal identity guard, route-decision audit sink, and Chat/Agent/Memory Relay metadata tests.
 
 ### Relay Billing
 
@@ -45,8 +45,8 @@
 |-------------|-------|--------|
 | RELAY-08 | Phase 13 — Relay Endpoint Authority and Production Fail-Closed | Complete |
 | RELAY-09 | Phase 13 — Relay Endpoint Authority and Production Fail-Closed | Complete |
-| RELAY-10 | Phase 14 — Relay Provider Bypass and Cost-Abuse Guardrails | Planned |
-| RELAY-11 | Phase 14 — Relay Provider Bypass and Cost-Abuse Guardrails | Planned |
+| RELAY-10 | Phase 14 — Relay Provider Bypass and Cost-Abuse Guardrails | Complete |
+| RELAY-11 | Phase 14 — Relay Provider Bypass and Cost-Abuse Guardrails | Complete |
 | BILL-01 | Phase 15 — Relay Billing Settlement and Refund Semantics | Planned |
 | BILL-02 | Phase 15 — Relay Billing Settlement and Refund Semantics | Planned |
 | DOC-04 | Phase 16 — Relay Authority Evidence and v05 Closeout | Planned |

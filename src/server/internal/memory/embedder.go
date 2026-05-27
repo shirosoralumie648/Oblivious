@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
+
+	"oblivious/server/internal/relay/types"
 )
 
 // RelayEmbedder 通过 Relay 调用嵌入 API
@@ -115,6 +118,7 @@ func (e *RelayEmbedder) embedBatch(ctx context.Context, texts []string) ([][]flo
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	applyTrustedRelayHeaders(ctx, httpReq)
 
 	resp, err := e.client.Do(httpReq)
 	if err != nil {
@@ -149,6 +153,29 @@ func (e *RelayEmbedder) embedBatch(ctx context.Context, texts []string) ([][]flo
 	}
 
 	return embeddings, nil
+}
+
+func applyTrustedRelayHeaders(ctx context.Context, req *http.Request) {
+	userID, hasUser := types.TrustedUserIDFromContext(ctx)
+	organizationID, hasOrganization := types.TrustedOrganizationIDFromContext(ctx)
+	if !hasUser && !hasOrganization {
+		return
+	}
+	if strings.TrimSpace(userID) != "" {
+		req.Header.Set(types.HeaderInternalUserID, userID)
+	}
+	if strings.TrimSpace(organizationID) != "" {
+		req.Header.Set(types.HeaderInternalOrganization, organizationID)
+	}
+	if requestID, ok := types.TrustedRequestIDFromContext(ctx); ok && strings.TrimSpace(requestID) != "" {
+		req.Header.Set(types.HeaderRequestID, requestID)
+	}
+
+	internalAuth := os.Getenv("OBLIVIOUS_INTERNAL_AUTH_TOKEN")
+	if internalAuth == "" {
+		internalAuth = types.SharedInternalToken
+	}
+	req.Header.Set(types.HeaderInternalAuth, internalAuth)
 }
 
 // SetClient 设置自定义 HTTP 客户端

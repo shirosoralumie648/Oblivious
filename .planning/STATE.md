@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v05
 milestone_name: Relay Billing Completeness
 status: planning
-stopped_at: Phase 14 ready to plan
-last_updated: "2026-05-28T06:20:00+08:00"
-last_activity: 2026-05-28 -- Phase 13 Relay endpoint authority completed
+stopped_at: Phase 15 ready to plan
+last_updated: "2026-05-28T07:30:00+08:00"
+last_activity: 2026-05-28 -- Phase 14 Relay provider bypass and cost-abuse guardrails completed
 progress:
   total_phases: 4
-  completed_phases: 1
-  total_plans: 1
-  completed_plans: 1
-  percent: 25
+  completed_phases: 2
+  total_plans: 2
+  completed_plans: 2
+  percent: 50
 ---
 
 # STATE.md
@@ -22,7 +22,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-28)
 
 **Core value:** 统一的多渠道 LLM 调用层 — 所有 AI 调用必须经过 Relay
 
-**Current focus:** Phase 14 planning
+**Current focus:** Phase 15 planning
 
 ## Current Status
 
@@ -34,10 +34,10 @@ The overall commercial-complete objective remains open. v05 must prove the Relay
 
 ## Current Position
 
-Phase: 14 — Relay Provider Bypass and Cost-Abuse Guardrails
+Phase: 15 — Relay Billing Settlement and Refund Semantics
 Plan: not created
 Status: Ready to plan
-Last activity: 2026-05-28 -- Phase 13 completed with route policy registry and production fail-closed behavior
+Last activity: 2026-05-28 -- Phase 14 completed with provider-bypass CI checks, production trusted identity guard, supported-route rate-limit/audit policy, and app Relay metadata coverage
 
 ## Current Scope
 
@@ -45,17 +45,17 @@ Last activity: 2026-05-28 -- Phase 13 completed with route policy registry and p
 |-------------|--------|--------|
 | RELAY-08 | Complete | Every registered `/v1/*` route is classified as commercial-supported and billed, internal/admin-only, or disabled in production |
 | RELAY-09 | Complete | Unsupported or partial `/v1/*` endpoints fail closed in production before provider calls |
-| RELAY-10 | Planned | CI proves app services do not import provider SDKs or call direct provider URLs outside Relay/channel adapters |
-| RELAY-11 | Planned | Supported Relay endpoints enforce tenant identity, auth policy, rate-limit policy, and audit semantics |
+| RELAY-10 | Complete | CI proves app services do not import provider SDKs or call direct provider URLs outside Relay/channel adapters |
+| RELAY-11 | Complete | Supported Relay endpoints enforce tenant identity, auth policy, rate-limit policy, and audit semantics |
 | BILL-01 | Planned | Supported Relay calls pre-authorize quota, settle exactly once per idempotency key, and refund failed calls |
 | BILL-02 | Planned | Streaming/realtime, file, batch, and async flows have explicit settlement models or are production-disabled |
 | DOC-04 | Planned | Relay route table, endpoint policy, and v05 verification evidence document the commercial Relay Authority Gate |
 
 ## Next Suggested Step
 
-Plan Phase 14 Relay Provider Bypass and Cost-Abuse Guardrails.
+Plan Phase 15 Relay Billing Settlement and Refund Semantics.
 
-Phase 14 should start from the Phase 13 route policy registry and add provider-bypass checks, endpoint auth/tenant identity policy, rate-limit guardrails, and Relay audit semantics.
+Phase 15 should start from the Phase 13-14 route policy registry and implement quota preauthorization, exactly-once settlement, refund behavior, and explicit streaming/realtime/file/batch/async settlement or production-disablement evidence.
 
 ## Worktree Context
 
@@ -93,6 +93,9 @@ These remain required for the final user goal:
 - Phase 13 context: `.planning/phases/13-relay-endpoint-authority-and-fail-closed/13-CONTEXT.md`
 - Phase 13 plan: `.planning/phases/13-relay-endpoint-authority-and-fail-closed/13-01-PLAN.md`
 - Phase 13 summary: `.planning/phases/13-relay-endpoint-authority-and-fail-closed/13-01-SUMMARY.md`
+- Phase 14 context: `.planning/phases/14-relay-provider-bypass-and-cost-abuse-guardrails/14-CONTEXT.md`
+- Phase 14 plan: `.planning/phases/14-relay-provider-bypass-and-cost-abuse-guardrails/14-01-PLAN.md`
+- Phase 14 summary: `.planning/phases/14-relay-provider-bypass-and-cost-abuse-guardrails/14-01-SUMMARY.md`
 - Commercial gates: `docs/release/commercial-gates.md`
 - Commercial complete spec: `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`
 - v04 roadmap archive: `.planning/milestones/v04-ROADMAP.md`
@@ -109,6 +112,7 @@ These remain required for the final user goal:
 | 2026-05-28 | v05 Relay Billing Completeness initialized manually | Helper metadata is still stale; current `.planning` artifacts and branch state are authoritative |
 | 2026-05-28 | Phase 13 planned as the v05 first phase | `/v1/*` route classification and production fail-closed behavior are the safest first enforcement boundary before billing/audit expansion |
 | 2026-05-28 | Phase 13 completed | Route policy registry, production fail-closed behavior, route table docs, focused Relay handler tests, broader relay/http tests, docs gate, and diff check passed |
+| 2026-05-28 | Phase 14 completed | Provider-bypass CI checks, supported-route production identity guard, route-decision audit sink, route rate-limit policy, and Chat/Agent/Memory trusted Relay metadata are in place |
 
 ---
-*State updated: 2026-05-28 after completing Phase 13 Relay endpoint authority*
+*State updated: 2026-05-28 after completing Phase 14 Relay provider guardrails*

@@ -278,6 +278,7 @@ type ProviderRequest struct {
 // that carry a valid X-Oblivious-Internal-Auth header.
 type trustedUserContextKey struct{}
 type trustedOrganizationContextKey struct{}
+type trustedRequestContextKey struct{}
 
 func WithTrustedUserID(ctx context.Context, userID string) context.Context {
 	return context.WithValue(ctx, trustedUserContextKey{}, userID)
@@ -295,6 +296,15 @@ func WithTrustedOrganizationID(ctx context.Context, organizationID string) conte
 func TrustedOrganizationIDFromContext(ctx context.Context) (string, bool) {
 	organizationID, ok := ctx.Value(trustedOrganizationContextKey{}).(string)
 	return organizationID, ok
+}
+
+func WithTrustedRequestID(ctx context.Context, requestID string) context.Context {
+	return context.WithValue(ctx, trustedRequestContextKey{}, requestID)
+}
+
+func TrustedRequestIDFromContext(ctx context.Context) (string, bool) {
+	requestID, ok := ctx.Value(trustedRequestContextKey{}).(string)
+	return requestID, ok
 }
 
 // Capabilities 能力声明

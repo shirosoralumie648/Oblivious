@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"oblivious/server/internal/relay/types"
 )
 
 func TestRelayEmbedder_Embed(t *testing.T) {
@@ -49,6 +51,42 @@ func TestRelayEmbedder_Embed(t *testing.T) {
 	}
 	if embedding[0] != 0.1 || embedding[1] != 0.2 || embedding[2] != 0.3 {
 		t.Fatalf("unexpected embedding values: %v", embedding)
+	}
+}
+
+func TestRelayEmbedder_ForwardsTrustedRelayIdentityHeaders(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get(types.HeaderInternalAuth); got != types.SharedInternalToken {
+			t.Fatalf("expected internal auth header, got %q", got)
+		}
+		if got := r.Header.Get(types.HeaderInternalUserID); got != "user_1" {
+			t.Fatalf("expected user header user_1, got %q", got)
+		}
+		if got := r.Header.Get(types.HeaderInternalOrganization); got != "org_1" {
+			t.Fatalf("expected organization header org_1, got %q", got)
+		}
+		if got := r.Header.Get(types.HeaderRequestID); got != "req_1" {
+			t.Fatalf("expected request id req_1, got %q", got)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"object": "list",
+			"data": []map[string]any{
+				{"object": "embedding", "index": 0, "embedding": []float32{0.1}},
+			},
+		})
+	}))
+	defer server.Close()
+
+	ctx := context.Background()
+	ctx = types.WithTrustedUserID(ctx, "user_1")
+	ctx = types.WithTrustedOrganizationID(ctx, "org_1")
+	ctx = types.WithTrustedRequestID(ctx, "req_1")
+
+	embedder := NewRelayEmbedder(server.URL, "text-embedding-3-small")
+	if _, err := embedder.Embed(ctx, "hello world"); err != nil {
+		t.Fatalf("Embed failed: %v", err)
 	}
 }
 

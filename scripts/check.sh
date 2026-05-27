@@ -12,7 +12,7 @@ target="${1:-all}"
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/check.sh [all|docs|web|server]
+Usage: bash scripts/check.sh [all|docs|web|server|relay-security]
 EOF
 }
 
@@ -99,14 +99,23 @@ run_server_checks() {
   (cd "$server_dir" && go test ./... -count=1)
 }
 
+run_relay_security_checks() {
+  echo "[check] Verifying Relay security boundary."
+  bash "$repo_root/scripts/verify-relay-security.sh"
+}
+
 case "$target" in
   all)
     run_docs_checks
+    run_relay_security_checks
     run_web_checks
     run_server_checks
     ;;
   docs)
     run_docs_checks
+    ;;
+  relay-security)
+    run_relay_security_checks
     ;;
   web)
     run_web_checks

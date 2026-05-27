@@ -54,12 +54,12 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 		)
 		var gateway chat.ChatGateway = relayGateway
 		if cfg.Env != "production" {
-			localGenerator := chat.NewHTTPReplyGenerator(cfg.LLMBaseURL, cfg.LLMAPIKey, cfg.ModelDefaultName, time.Duration(cfg.LLMTimeoutMS)*time.Millisecond)
+			localGenerator := chat.NewHTTPReplyGenerator("", "", cfg.ModelDefaultName, time.Duration(cfg.LLMTimeoutMS)*time.Millisecond)
 			gateway = chat.NewCompositeGateway(relayGateway, localGenerator)
 		}
 		chatService = chat.NewServiceWithGateway(chat.NewSQLStore(database), gateway, cfg.ModelDefaultName, usage.NewSQLRecorder(database))
 	} else {
-		replyGenerator := chat.NewHTTPReplyGenerator(cfg.LLMBaseURL, cfg.LLMAPIKey, cfg.ModelDefaultName, time.Duration(cfg.LLMTimeoutMS)*time.Millisecond)
+		replyGenerator := chat.NewHTTPReplyGenerator("", "", cfg.ModelDefaultName, time.Duration(cfg.LLMTimeoutMS)*time.Millisecond)
 		chatService = chat.NewService(chat.NewSQLStore(database), replyGenerator, cfg.ModelDefaultName, usage.NewSQLRecorder(database))
 	}
 	chatHandler := newChatHandler(chatService)

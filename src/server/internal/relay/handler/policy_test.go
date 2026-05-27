@@ -132,6 +132,27 @@ func TestInitialCommercialPolicyClassifiesCurrentSurface(t *testing.T) {
 	}
 }
 
+func TestSupportedRoutePoliciesDeclareCostAbuseGuardrails(t *testing.T) {
+	for _, policy := range AllRoutePolicies() {
+		if policy.Class != CommercialSupportedBilled {
+			continue
+		}
+		key := policy.Method + " " + policy.Path
+		if policy.AuthPolicy == "" {
+			t.Fatalf("%s missing auth policy", key)
+		}
+		if !policy.TenantIdentityRequired {
+			t.Fatalf("%s must require tenant identity", key)
+		}
+		if policy.RateLimitPolicy == "" {
+			t.Fatalf("%s missing rate-limit policy", key)
+		}
+		if policy.AuditPolicy == "" {
+			t.Fatalf("%s missing audit policy", key)
+		}
+	}
+}
+
 func mustPolicy(t *testing.T, routeKey string) RoutePolicy {
 	t.Helper()
 	method, path, ok := splitRouteKey(routeKey)

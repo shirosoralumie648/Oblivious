@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"oblivious/server/internal/auth"
+	"oblivious/server/internal/relay/types"
 )
 
 // Document 内存文档
@@ -157,6 +158,7 @@ func (s *Service) AddDocument(ctx context.Context, session auth.Session, req *Ad
 	}
 
 	// 批量嵌入
+	ctx = withSessionRelayIdentity(ctx, session)
 	embeddings, err := s.embedder.EmbedBatch(ctx, chunks)
 	if err != nil {
 		// 嵌入失败，删除文档
@@ -259,6 +261,7 @@ func (s *Service) UpdateDocument(ctx context.Context, session auth.Session, id s
 		}
 
 		// 嵌入
+		ctx = withSessionRelayIdentity(ctx, session)
 		embeddings, err := s.embedder.EmbedBatch(ctx, chunks)
 		if err != nil {
 			return nil, fmt.Errorf("embed chunks: %w", err)
@@ -338,6 +341,7 @@ func (s *Service) Search(ctx context.Context, session auth.Session, req *SearchR
 	}
 
 	// 嵌入查询
+	ctx = withSessionRelayIdentity(ctx, session)
 	queryEmbedding, err := s.embedder.Embed(ctx, req.Query)
 	if err != nil {
 		return nil, fmt.Errorf("embed query: %w", err)
@@ -362,6 +366,16 @@ func (s *Service) ListChunks(ctx context.Context, session auth.Session, document
 	}
 
 	return s.store.ListChunks(ctx, documentID, session.OrganizationID)
+}
+
+func withSessionRelayIdentity(ctx context.Context, session auth.Session) context.Context {
+	if session.User.ID != "" {
+		ctx = types.WithTrustedUserID(ctx, session.User.ID)
+	}
+	if session.OrganizationID != "" {
+		ctx = types.WithTrustedOrganizationID(ctx, session.OrganizationID)
+	}
+	return ctx
 }
 
 // SQLStore SQL 实现

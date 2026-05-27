@@ -19,6 +19,7 @@ func GetRouter() types.RouterInterface {
 
 type RouteRegistrationOptions struct {
 	Production bool
+	AuditSink  RouteAuditSink
 }
 
 // Route 定义
@@ -47,14 +48,14 @@ func RegisterRoutesWithOptions(e *gin.Engine, handlers map[types.APIType]types.H
 		switch r.Strategy {
 		case types.StrategyPassthrough:
 			e.Handle(r.Method, r.Path, func(c *gin.Context) {
-				if RejectIfProductionDisabled(c, r, opts.Production) {
+				if EnforceRoutePolicy(c, r, opts) {
 					return
 				}
 				h.Handle(c)
 			})
 		case types.StrategyFileProxy:
 			e.Handle(r.Method, r.Path, func(c *gin.Context) {
-				if RejectIfProductionDisabled(c, r, opts.Production) {
+				if EnforceRoutePolicy(c, r, opts) {
 					return
 				}
 				h.Handle(c)
@@ -62,14 +63,14 @@ func RegisterRoutesWithOptions(e *gin.Engine, handlers map[types.APIType]types.H
 		default: // StrategyNative
 			if r.APIType == types.APITypeRealtime {
 				e.Handle(r.Method, r.Path, func(c *gin.Context) {
-					if RejectIfProductionDisabled(c, r, opts.Production) {
+					if EnforceRoutePolicy(c, r, opts) {
 						return
 					}
 					h.HandleStream(c)
 				})
 			} else {
 				e.Handle(r.Method, r.Path, func(c *gin.Context) {
-					if RejectIfProductionDisabled(c, r, opts.Production) {
+					if EnforceRoutePolicy(c, r, opts) {
 						return
 					}
 					h.Handle(c)
