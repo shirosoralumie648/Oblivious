@@ -21,11 +21,11 @@ Oblivious 是一个多租户 AI 平台，整合 LobeHub（C 端体验）和 New-
 - Append-only migration ledger and DB-backed CI integration guarantee.
 - Commercial gate documentation that prevents future milestones from claiming commercial readiness without evidence.
 
-## Current State: v04 Phase 11 Ready To Plan
+## Current State: v04 Phase 11 Ready To Execute
 
 Milestone v03.3 Mainline Consolidation is complete. Phase 8 reconciled contract docs and release verification, Phase 999.1 reconstructed the missing Phase 01 summary, and Phase 999.2 verified the obsolete workspace MarketplacePage cleanup plus the living requirements close policy.
 
-The commercial complete target is defined in `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`. That spec explicitly says the prior release-candidate state is not the final product. Phase 9 completed first-class organization tenants and the migration ledger. Phase 10 completed memberships, roles, invitations, revoke/accept flows, ownership transfer, CSRF, rate limits, password policy, and session rotation/revocation. The next step is planning Phase 11 tenant scope across core domains.
+The commercial complete target is defined in `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`. That spec explicitly says the prior release-candidate state is not the final product. Phase 9 completed first-class organization tenants and the migration ledger. Phase 10 completed memberships, roles, invitations, revoke/accept flows, ownership transfer, CSRF, rate limits, password policy, and session rotation/revocation. Phase 11 now has an executable plan for tenant scope across core domains.
 
 ## Requirements
 
@@ -87,7 +87,7 @@ Go Backend (Gin)
 - v03.1 已交付可用 Admin UI 与 Marketplace UI。
 - v03.2 已完成质量、E2E、文档和 Docker 部署 smoke 收口。
 - v03.3 已完成主线整合、文档对齐、发布验证和两个历史 cleanup backlog。
-- v04 现在是活动里程碑；Phase 9 Tenant Model and Migration Ledger 与 Phase 10 Membership, Roles, and Auth Security 已完成，下一步是规划 Phase 11 Tenant Scope Across Core Domains。
+- v04 现在是活动里程碑；Phase 9 Tenant Model and Migration Ledger 与 Phase 10 Membership, Roles, and Auth Security 已完成，下一步是执行 Phase 11 Tenant Scope Across Core Domains。
 - 直接 Docker Hub / 默认 Go module 路径在本机网络仍不稳定；受限网络验证命令继续作为部署 smoke 的已验证本地路径。
 - `kubectl` 未安装，因此 Kubernetes 仍属于后续 v07 Production Operations 的未验证范围。
 
@@ -114,6 +114,7 @@ Go Backend (Gin)
 | v04 starts with tenant/security foundation | Billing, Marketplace payouts, and production ops need tenant identity and isolation first | Active — Phase 9 completed tenant model and migration ledger; Phase 10 completed membership/auth security |
 | v04 requirement `DOC-01` draft is recorded as `DOC-03` | Historical `DOC-01` and `DOC-02` already exist in living requirements | Active — avoids duplicate requirement IDs |
 | Phase 10 is the enforceable security boundary before tenant data scoping | Tenant-scoped data migration needs membership, roles, CSRF, rate limits, password policy, and session rotation first | ✓ Good — `.planning/phases/10-membership-roles-and-auth-security/10-01-SUMMARY.md` |
+| Phase 11 starts with session-derived active organization scope | Multi-organization users need a server-authoritative tenant before core data can be safely migrated | Active — `.planning/phases/11-tenant-scope-across-core-domains/11-01-PLAN.md` |
 
 ## Evolution
 
@@ -133,4 +134,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state.
 
 ---
-*Last updated: 2026-05-28 after planning Phase 10 Membership, Roles, and Auth Security*
+*Last updated: 2026-05-28 after planning Phase 11 Tenant Scope Across Core Domains*

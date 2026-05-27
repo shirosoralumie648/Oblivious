@@ -12,7 +12,7 @@
 
 Milestone v04 has been initialized from `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`.
 
-**Next workflow step:** plan Phase 11 Tenant Scope Across Core Domains.
+**Next workflow step:** execute Phase 11 Tenant Scope Across Core Domains Plan 01.
 
 ## Current Milestone: v04 Commercial Foundation
 
@@ -22,7 +22,7 @@ Milestone v04 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 |-------|------|--------------|--------|
 | Phase 9 | Tenant Model and Migration Ledger | TENANT-01, MIGR-01 | Complete |
 | Phase 10 | Membership, Roles, and Auth Security | TENANT-02, TENANT-03, SEC-01, SEC-02, SEC-03 | Complete |
-| Phase 11 | Tenant Scope Across Core Domains | TENANT-04, TENANT-05 | Planned |
+| Phase 11 | Tenant Scope Across Core Domains | TENANT-04, TENANT-05 | Ready to execute |
 | Phase 12 | Commercial Gate CI and Evidence | CI-01, DOC-03 | Planned |
 
 ### Phase 9: Tenant Model and Migration Ledger
@@ -91,6 +91,11 @@ Milestone v04 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 - DB-backed cross-tenant HTTP integration tests across Chat, Agent, Knowledge, Memory, MCP, Quota, Console, Admin, and Marketplace.
 - `bash scripts/test.sh all` with persistence coverage enabled.
 
+**Planning evidence:**
+- Context: `.planning/phases/11-tenant-scope-across-core-domains/11-CONTEXT.md`
+- Patterns: `.planning/phases/11-tenant-scope-across-core-domains/11-PATTERNS.md`
+- Plan: `.planning/phases/11-tenant-scope-across-core-domains/11-01-PLAN.md`
+
 ### Phase 12: Commercial Gate CI and Evidence
 
 **Goal:** Make v04 evidence reproducible and define the commercial gate contract for later v05-v08 milestones.
@@ -120,8 +125,8 @@ Milestone v04 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 | SEC-01 | Phase 10 | Complete — CSRF protection for cookie-auth mutating routes |
 | SEC-02 | Phase 10 | Complete — rate limits for auth/admin/organization sensitive actions |
 | SEC-03 | Phase 10 | Complete — password policy and session rotation/revocation |
-| TENANT-04 | Phase 11 | Planned — tenant scope across core domains |
-| TENANT-05 | Phase 11 | Planned — cross-tenant denial tests |
+| TENANT-04 | Phase 11 | Ready to execute — tenant scope across core domains |
+| TENANT-05 | Phase 11 | Ready to execute — cross-tenant denial tests |
 | CI-01 | Phase 12 | Planned — DB-backed CI integration guarantee |
 | DOC-03 | Phase 12 | Planned — commercial gate documentation |
 
@@ -193,11 +198,11 @@ Milestone v04 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 
 | Milestone | Scope | Plans | Requirements | Status | Completed |
 |-----------|-------|-------|--------------|--------|-----------|
-| v04 Commercial Foundation | Phases 9-12 | 1/4 phases complete | 2/11 requirements complete | Active | Phase 9 complete 2026-05-27 |
+| v04 Commercial Foundation | Phases 9-12 | 3/4 phases planned, 2/4 complete | 7/11 requirements complete | Active | Phase 10 complete 2026-05-28 |
 | v03.3 Mainline Consolidation | Phases 5-8 plus backlog 999.1 and 999.2 | 12/12 steps complete | 7/7 requirements complete | Complete | 2026-05-27 |
 | v03.2 Quality and Release | Phase 4 | 4/4 | TEST-01, TEST-02, DOC-01, DEPLOY-01 | Shipped | 2026-05-14 |
 | v03.1 Admin and Marketplace UI | Phase 03.1 | 7/7 | ADMIN-04, MARKET-02 | Shipped | 2026-05-02 |
 | Foundation through Backend | Phases 1, 2, 3a | Historical | RELAY, CHAT, AGENT, MCP, MEM, EXEC, QUOTA, ADMIN, MARKET | Complete | 2026-04-29 |
 
 ---
-*Roadmap updated: 2026-05-28 after planning Phase 10 membership and auth security*
+*Roadmap updated: 2026-05-28 after planning Phase 11 tenant scope across core domains*

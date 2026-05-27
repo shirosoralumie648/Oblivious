@@ -56,8 +56,8 @@
 | SEC-01 | Phase 10 — Membership, Roles, and Auth Security | Complete |
 | SEC-02 | Phase 10 — Membership, Roles, and Auth Security | Complete |
 | SEC-03 | Phase 10 — Membership, Roles, and Auth Security | Complete |
-| TENANT-04 | Phase 11 — Tenant Scope Across Core Domains | Planned |
-| TENANT-05 | Phase 11 — Tenant Scope Across Core Domains | Planned |
+| TENANT-04 | Phase 11 — Tenant Scope Across Core Domains | Ready to execute |
+| TENANT-05 | Phase 11 — Tenant Scope Across Core Domains | Ready to execute |
 | CI-01 | Phase 12 — Commercial Gate CI and Evidence | Planned |
 | DOC-03 | Phase 12 — Commercial Gate CI and Evidence | Planned |
 
