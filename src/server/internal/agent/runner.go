@@ -61,13 +61,13 @@ func (r *Runner) Run(ctx context.Context, session auth.Session, agent *Agent, co
 	result := &RunResult{}
 
 	// 保存用户消息
-	_, err := r.store.CreateMessage(ctx, conversationID, "user", userContent, nil, "")
+	_, err := r.store.CreateMessage(ctx, conversationID, session.OrganizationID, "user", userContent, nil, "")
 	if err != nil {
 		return nil, fmt.Errorf("save user message: %w", err)
 	}
 
 	// 获取历史消息
-	messages, err := r.store.ListMessages(ctx, conversationID)
+	messages, err := r.store.ListMessages(ctx, conversationID, session.OrganizationID)
 	if err != nil {
 		return nil, fmt.Errorf("get messages: %w", err)
 	}
@@ -104,7 +104,7 @@ func (r *Runner) Run(ctx context.Context, session auth.Session, agent *Agent, co
 
 		// 检查是否有工具调用（简化版：暂不支持自动工具调用）
 		// 实际实现需要 LLM 返回 tool_calls，这里先保存普通回复
-		assistantMsg, err := r.store.CreateMessage(ctx, conversationID, "assistant", reply, nil, "")
+		assistantMsg, err := r.store.CreateMessage(ctx, conversationID, session.OrganizationID, "assistant", reply, nil, "")
 		if err != nil {
 			return nil, fmt.Errorf("save assistant message: %w", err)
 		}
@@ -121,13 +121,13 @@ func (r *Runner) RunStream(ctx context.Context, session auth.Session, agent *Age
 	result := &RunResult{}
 
 	// 保存用户消息
-	_, err := r.store.CreateMessage(ctx, conversationID, "user", userContent, nil, "")
+	_, err := r.store.CreateMessage(ctx, conversationID, session.OrganizationID, "user", userContent, nil, "")
 	if err != nil {
 		return nil, fmt.Errorf("save user message: %w", err)
 	}
 
 	// 获取历史消息
-	messages, err := r.store.ListMessages(ctx, conversationID)
+	messages, err := r.store.ListMessages(ctx, conversationID, session.OrganizationID)
 	if err != nil {
 		return nil, fmt.Errorf("get messages: %w", err)
 	}
@@ -162,7 +162,7 @@ func (r *Runner) RunStream(ctx context.Context, session auth.Session, agent *Age
 	}
 
 	// 保存完整回复
-	assistantMsg, err := r.store.CreateMessage(ctx, conversationID, "assistant", replyContent, nil, "")
+	assistantMsg, err := r.store.CreateMessage(ctx, conversationID, session.OrganizationID, "assistant", replyContent, nil, "")
 	if err != nil {
 		return nil, fmt.Errorf("save assistant message: %w", err)
 	}
@@ -274,13 +274,13 @@ func (r *Runner) RunWithTools(ctx context.Context, session auth.Session, agent *
 	result := &RunResult{}
 
 	// 保存用户消息
-	_, err := r.store.CreateMessage(ctx, conversationID, "user", userContent, nil, "")
+	_, err := r.store.CreateMessage(ctx, conversationID, session.OrganizationID, "user", userContent, nil, "")
 	if err != nil {
 		return nil, fmt.Errorf("save user message: %w", err)
 	}
 
 	// 获取历史消息
-	messages, err := r.store.ListMessages(ctx, conversationID)
+	messages, err := r.store.ListMessages(ctx, conversationID, session.OrganizationID)
 	if err != nil {
 		return nil, fmt.Errorf("get messages: %w", err)
 	}
@@ -319,7 +319,7 @@ func (r *Runner) RunWithTools(ctx context.Context, session auth.Session, agent *
 				return nil, err
 			}
 		}
-		assistantMsg, err := r.store.CreateMessage(ctx, conversationID, "assistant", reply, nil, "")
+		assistantMsg, err := r.store.CreateMessage(ctx, conversationID, session.OrganizationID, "assistant", reply, nil, "")
 		if err != nil {
 			return nil, fmt.Errorf("save assistant message: %w", err)
 		}
@@ -349,7 +349,7 @@ func (r *Runner) RunWithTools(ctx context.Context, session auth.Session, agent *
 		toolCalls := chatToolCallsToAgent(reply.ToolCalls)
 		if len(toolCalls) > 0 {
 			// Save the assistant message that requested tool calls.
-			_, err = r.store.CreateMessage(ctx, conversationID, "assistant", reply.Content, toolCalls, "")
+			_, err = r.store.CreateMessage(ctx, conversationID, session.OrganizationID, "assistant", reply.Content, toolCalls, "")
 			if err != nil {
 				return nil, fmt.Errorf("save assistant tool call message: %w", err)
 			}
@@ -362,7 +362,7 @@ func (r *Runner) RunWithTools(ctx context.Context, session auth.Session, agent *
 				if err != nil {
 					return nil, fmt.Errorf("execute tool %s: %w", toolCall.Name, err)
 				}
-				if _, err := r.store.CreateMessage(ctx, conversationID, "tool", execResult.Content, nil, toolCall.ID); err != nil {
+				if _, err := r.store.CreateMessage(ctx, conversationID, session.OrganizationID, "tool", execResult.Content, nil, toolCall.ID); err != nil {
 					return nil, fmt.Errorf("save tool message: %w", err)
 				}
 			}
@@ -371,7 +371,7 @@ func (r *Runner) RunWithTools(ctx context.Context, session auth.Session, agent *
 
 			// Refresh the message view so the next iteration includes
 			// the tool-call and tool-result messages.
-			messages, err = r.store.ListMessages(ctx, conversationID)
+			messages, err = r.store.ListMessages(ctx, conversationID, session.OrganizationID)
 			if err != nil {
 				return nil, fmt.Errorf("refresh messages: %w", err)
 			}
@@ -380,7 +380,7 @@ func (r *Runner) RunWithTools(ctx context.Context, session auth.Session, agent *
 		}
 
 		// No tool calls — this is the final assistant answer.
-		assistantMsg, err := r.store.CreateMessage(ctx, conversationID, "assistant", reply.Content, nil, "")
+		assistantMsg, err := r.store.CreateMessage(ctx, conversationID, session.OrganizationID, "assistant", reply.Content, nil, "")
 		if err != nil {
 			return nil, fmt.Errorf("save assistant message: %w", err)
 		}
@@ -409,6 +409,9 @@ func withSessionRelayMetadata(ctx context.Context, session auth.Session) context
 	}
 	if strings.TrimSpace(metadata.WorkspaceID) == "" {
 		metadata.WorkspaceID = session.WorkspaceID
+	}
+	if strings.TrimSpace(metadata.OrganizationID) == "" {
+		metadata.OrganizationID = session.OrganizationID
 	}
 	return chat.WithRelayRequestMetadata(ctx, metadata)
 }

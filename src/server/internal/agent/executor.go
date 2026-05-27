@@ -47,7 +47,7 @@ func (e *ToolExecutor) Execute(ctx context.Context, agent *Agent, toolCall *Tool
 	case "builtin":
 		return e.executeBuiltin(ctx, toolCall)
 	case "mcp":
-		return e.executeMCP(ctx, targetTool.ServerID, toolCall)
+		return e.executeMCP(ctx, agent.OrganizationID, targetTool.ServerID, toolCall)
 	default:
 		return nil, fmt.Errorf("unknown tool type: %s", targetTool.Type)
 	}
@@ -75,7 +75,7 @@ func (e *ToolExecutor) executeBuiltin(ctx context.Context, toolCall *ToolCall) (
 }
 
 // executeMCP 执行 MCP 工具
-func (e *ToolExecutor) executeMCP(ctx context.Context, serverID string, toolCall *ToolCall) (*ExecuteResult, error) {
+func (e *ToolExecutor) executeMCP(ctx context.Context, organizationID, serverID string, toolCall *ToolCall) (*ExecuteResult, error) {
 	if e.mcpClient == nil {
 		return nil, fmt.Errorf("MCP client not configured")
 	}
@@ -83,7 +83,7 @@ func (e *ToolExecutor) executeMCP(ctx context.Context, serverID string, toolCall
 		return nil, fmt.Errorf("MCP server not specified")
 	}
 
-	result, err := e.mcpClient.CallTool(ctx, serverID, toolCall.Name, toolCall.Arguments)
+	result, err := e.mcpClient.CallTool(ctx, serverID, organizationID, toolCall.Name, toolCall.Arguments)
 	if err != nil {
 		return &ExecuteResult{
 			Content: err.Error(),
@@ -122,7 +122,7 @@ func (e *ToolExecutor) GetToolDefinitions(ctx context.Context, agent *Agent) ([]
 			}
 		case "mcp":
 			if e.mcpClient != nil && t.ServerID != "" {
-				mcpTools, err := e.mcpClient.ListTools(t.ServerID)
+				mcpTools, err := e.mcpClient.ListTools(t.ServerID, agent.OrganizationID)
 				if err == nil {
 					for _, mt := range mcpTools {
 						if mt.Name == t.Name {
@@ -196,8 +196,8 @@ func ParseToolCallsFromResponse(response map[string]any) ([]ToolCall, error) {
 		}
 
 		toolCalls = append(toolCalls, ToolCall{
-			ID:       id,
-			Name:     name,
+			ID:        id,
+			Name:      name,
 			Arguments: arguments,
 		})
 	}

@@ -50,52 +50,53 @@ type fakeStore struct {
 	messages     []*Message
 }
 
-func (s *fakeStore) CreateAgent(ctx context.Context, userID string, req *CreateAgentRequest) (*Agent, error) {
+func (s *fakeStore) CreateAgent(ctx context.Context, userID, organizationID string, req *CreateAgentRequest) (*Agent, error) {
 	panic("not used")
 }
 
-func (s *fakeStore) GetAgent(ctx context.Context, id string) (*Agent, error) {
-	if s.agent != nil && s.agent.ID == id {
+func (s *fakeStore) GetAgent(ctx context.Context, id, organizationID string) (*Agent, error) {
+	if s.agent != nil && s.agent.ID == id && (organizationID == "" || s.agent.OrganizationID == "" || s.agent.OrganizationID == organizationID) {
 		return s.agent, nil
 	}
 	return nil, nil
 }
 
-func (s *fakeStore) ListAgents(ctx context.Context, userID string) ([]*Agent, error) {
+func (s *fakeStore) ListAgents(ctx context.Context, userID, organizationID string) ([]*Agent, error) {
 	panic("not used")
 }
 
-func (s *fakeStore) UpdateAgent(ctx context.Context, id string, req *UpdateAgentRequest) (*Agent, error) {
+func (s *fakeStore) UpdateAgent(ctx context.Context, id, organizationID string, req *UpdateAgentRequest) (*Agent, error) {
 	panic("not used")
 }
 
-func (s *fakeStore) DeleteAgent(ctx context.Context, id string) error {
+func (s *fakeStore) DeleteAgent(ctx context.Context, id, organizationID string) error {
 	panic("not used")
 }
 
-func (s *fakeStore) CreateConversation(ctx context.Context, agentID, userID string, title string) (*Conversation, error) {
+func (s *fakeStore) CreateConversation(ctx context.Context, agentID, userID, organizationID string, title string) (*Conversation, error) {
 	panic("not used")
 }
 
-func (s *fakeStore) GetConversation(ctx context.Context, id string) (*Conversation, error) {
-	if s.conversation != nil && s.conversation.ID == id {
+func (s *fakeStore) GetConversation(ctx context.Context, id, organizationID string) (*Conversation, error) {
+	if s.conversation != nil && s.conversation.ID == id && (organizationID == "" || s.conversation.OrganizationID == "" || s.conversation.OrganizationID == organizationID) {
 		return s.conversation, nil
 	}
 	return nil, nil
 }
 
-func (s *fakeStore) ListConversations(ctx context.Context, agentID, userID string) ([]*Conversation, error) {
+func (s *fakeStore) ListConversations(ctx context.Context, agentID, userID, organizationID string) ([]*Conversation, error) {
 	panic("not used")
 }
 
-func (s *fakeStore) DeleteConversation(ctx context.Context, id string) error {
+func (s *fakeStore) DeleteConversation(ctx context.Context, id, organizationID string) error {
 	panic("not used")
 }
 
-func (s *fakeStore) CreateMessage(ctx context.Context, conversationID, role, content string, toolCalls []ToolCall, toolCallID string) (*Message, error) {
+func (s *fakeStore) CreateMessage(ctx context.Context, conversationID, organizationID, role, content string, toolCalls []ToolCall, toolCallID string) (*Message, error) {
 	msg := &Message{
 		ID:             role + "-" + time.Now().UTC().Format("150405.000000"),
 		ConversationID: conversationID,
+		OrganizationID: organizationID,
 		Role:           role,
 		Content:        content,
 		ToolCalls:      append([]ToolCall(nil), toolCalls...),
@@ -106,7 +107,7 @@ func (s *fakeStore) CreateMessage(ctx context.Context, conversationID, role, con
 	return msg, nil
 }
 
-func (s *fakeStore) ListMessages(ctx context.Context, conversationID string) ([]*Message, error) {
+func (s *fakeStore) ListMessages(ctx context.Context, conversationID, organizationID string) ([]*Message, error) {
 	result := make([]*Message, len(s.messages))
 	copy(result, s.messages)
 	return result, nil
@@ -115,17 +116,19 @@ func (s *fakeStore) ListMessages(ctx context.Context, conversationID string) ([]
 func TestServiceSendMessageUsesRunnerForToolEnabledAgents(t *testing.T) {
 	store := &fakeStore{
 		agent: &Agent{
-			ID:     "agent_1",
-			UserID: "user_1",
-			Model:  "gpt-4o-mini",
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
 			Tools: []Tool{
 				{Name: "datetime", Type: "builtin", Enabled: true},
 			},
 		},
 		conversation: &Conversation{
-			ID:      "conv_1",
-			AgentID: "agent_1",
-			UserID:  "user_1",
+			ID:             "conv_1",
+			AgentID:        "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
 		},
 	}
 
@@ -187,17 +190,19 @@ func TestServiceSendMessageUsesRunnerForToolEnabledAgents(t *testing.T) {
 func TestServiceSendMessagePropagatesRelayMetadataThroughRunWithTools(t *testing.T) {
 	store := &fakeStore{
 		agent: &Agent{
-			ID:     "agent_1",
-			UserID: "user_1",
-			Model:  "gpt-4o-mini",
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
 			Tools: []Tool{
 				{Name: "datetime", Type: "builtin", Enabled: true},
 			},
 		},
 		conversation: &Conversation{
-			ID:      "conv_1",
-			AgentID: "agent_1",
-			UserID:  "user_1",
+			ID:             "conv_1",
+			AgentID:        "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
 		},
 	}
 	gateway := &fakeGateway{
@@ -213,8 +218,9 @@ func TestServiceSendMessagePropagatesRelayMetadataThroughRunWithTools(t *testing
 	msg, err := service.SendMessage(
 		chat.WithRelayRequestMetadata(context.Background(), chat.RelayRequestMetadata{RequestID: "req_456"}),
 		auth.Session{
-			WorkspaceID: "workspace_1",
-			User:        auth.User{ID: "user_1"},
+			OrganizationID: "org_1",
+			WorkspaceID:    "workspace_1",
+			User:           auth.User{ID: "user_1"},
 		},
 		"conv_1",
 		"Use metadata",
@@ -236,6 +242,9 @@ func TestServiceSendMessagePropagatesRelayMetadataThroughRunWithTools(t *testing
 	}
 	if gateway.lastMetadata.WorkspaceID != "workspace_1" {
 		t.Fatalf("expected workspace metadata workspace_1, got %q", gateway.lastMetadata.WorkspaceID)
+	}
+	if gateway.lastMetadata.OrganizationID != "org_1" {
+		t.Fatalf("expected organization metadata org_1, got %q", gateway.lastMetadata.OrganizationID)
 	}
 	if gateway.lastMetadata.RequestID != "req_456" {
 		t.Fatalf("expected request id req_456, got %q", gateway.lastMetadata.RequestID)

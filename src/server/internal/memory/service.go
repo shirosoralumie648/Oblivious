@@ -13,6 +13,7 @@ import (
 // Document 内存文档
 type Document struct {
 	ID             string         `json:"id"`
+	OrganizationID string         `json:"organizationId"`
 	UserID         string         `json:"userId"`
 	Title          string         `json:"title,omitempty"`
 	Content        string         `json:"content"`
@@ -27,14 +28,15 @@ type Document struct {
 
 // Chunk 文档分块
 type Chunk struct {
-	ID         string         `json:"id"`
-	DocumentID string         `json:"documentId"`
-	UserID     string         `json:"userId"`
-	Content    string         `json:"content"`
-	ChunkIndex int            `json:"chunkIndex"`
-	Embedding  []float32      `json:"embedding,omitempty"`
-	Metadata   map[string]any `json:"metadata,omitempty"`
-	CreatedAt  time.Time      `json:"createdAt"`
+	ID             string         `json:"id"`
+	DocumentID     string         `json:"documentId"`
+	OrganizationID string         `json:"organizationId"`
+	UserID         string         `json:"userId"`
+	Content        string         `json:"content"`
+	ChunkIndex     int            `json:"chunkIndex"`
+	Embedding      []float32      `json:"embedding,omitempty"`
+	Metadata       map[string]any `json:"metadata,omitempty"`
+	CreatedAt      time.Time      `json:"createdAt"`
 }
 
 // SearchResult 搜索结果
@@ -65,17 +67,17 @@ type SearchRequest struct {
 // Store 存储接口
 type Store interface {
 	CreateDocument(ctx context.Context, doc *Document) (*Document, error)
-	GetDocument(ctx context.Context, id string) (*Document, error)
-	ListDocuments(ctx context.Context, userID string, limit, offset int) ([]*Document, error)
-	UpdateDocument(ctx context.Context, id string, title, content string) (*Document, error)
-	DeleteDocument(ctx context.Context, id string) error
+	GetDocument(ctx context.Context, id, organizationID string) (*Document, error)
+	ListDocuments(ctx context.Context, userID, organizationID string, limit, offset int) ([]*Document, error)
+	UpdateDocument(ctx context.Context, id, organizationID string, title, content string) (*Document, error)
+	DeleteDocument(ctx context.Context, id, organizationID string) error
 
 	CreateChunk(ctx context.Context, chunk *Chunk) (*Chunk, error)
 	CreateChunks(ctx context.Context, chunks []*Chunk) error
-	ListChunks(ctx context.Context, documentID string) ([]*Chunk, error)
-	DeleteChunks(ctx context.Context, documentID string) error
+	ListChunks(ctx context.Context, documentID, organizationID string) ([]*Chunk, error)
+	DeleteChunks(ctx context.Context, documentID, organizationID string) error
 
-	SearchSimilar(ctx context.Context, userID string, embedding []float32, topK int, minScore float64) ([]*SearchResult, error)
+	SearchSimilar(ctx context.Context, userID, organizationID string, embedding []float32, topK int, minScore float64) ([]*SearchResult, error)
 }
 
 // Embedder 嵌入接口
@@ -129,6 +131,7 @@ func (s *Service) AddDocument(ctx context.Context, session auth.Session, req *Ad
 
 	doc := &Document{
 		ID:             docID,
+		OrganizationID: session.OrganizationID,
 		UserID:         session.User.ID,
 		Title:          req.Title,
 		Content:        req.Content,
@@ -157,7 +160,7 @@ func (s *Service) AddDocument(ctx context.Context, session auth.Session, req *Ad
 	embeddings, err := s.embedder.EmbedBatch(ctx, chunks)
 	if err != nil {
 		// 嵌入失败，删除文档
-		s.store.DeleteDocument(ctx, docID)
+		s.store.DeleteDocument(ctx, docID, session.OrganizationID)
 		return nil, fmt.Errorf("embed chunks: %w", err)
 	}
 
@@ -175,19 +178,20 @@ func (s *Service) AddDocument(ctx context.Context, session auth.Session, req *Ad
 		}
 
 		chunkRecords[i] = &Chunk{
-			ID:         chunkID,
-			DocumentID: docID,
-			UserID:     session.User.ID,
-			Content:    content,
-			ChunkIndex: i,
-			Embedding:  embedding,
-			Metadata:   map[string]any{},
-			CreatedAt:  now,
+			ID:             chunkID,
+			DocumentID:     docID,
+			OrganizationID: session.OrganizationID,
+			UserID:         session.User.ID,
+			Content:        content,
+			ChunkIndex:     i,
+			Embedding:      embedding,
+			Metadata:       map[string]any{},
+			CreatedAt:      now,
 		}
 	}
 
 	if err := s.store.CreateChunks(ctx, chunkRecords); err != nil {
-		s.store.DeleteDocument(ctx, docID)
+		s.store.DeleteDocument(ctx, docID, session.OrganizationID)
 		return nil, fmt.Errorf("save chunks: %w", err)
 	}
 
@@ -197,7 +201,7 @@ func (s *Service) AddDocument(ctx context.Context, session auth.Session, req *Ad
 
 // GetDocument 获取文档
 func (s *Service) GetDocument(ctx context.Context, session auth.Session, id string) (*Document, error) {
-	doc, err := s.store.GetDocument(ctx, id)
+	doc, err := s.store.GetDocument(ctx, id, session.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -218,13 +222,13 @@ func (s *Service) ListDocuments(ctx context.Context, session auth.Session, limit
 	if limit > 100 {
 		limit = 100
 	}
-	return s.store.ListDocuments(ctx, session.User.ID, limit, offset)
+	return s.store.ListDocuments(ctx, session.User.ID, session.OrganizationID, limit, offset)
 }
 
 // UpdateDocument 更新文档
 func (s *Service) UpdateDocument(ctx context.Context, session auth.Session, id string, title, content string) (*Document, error) {
 	// 验证所有权
-	doc, err := s.store.GetDocument(ctx, id)
+	doc, err := s.store.GetDocument(ctx, id, session.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -236,7 +240,7 @@ func (s *Service) UpdateDocument(ctx context.Context, session auth.Session, id s
 	}
 
 	// 更新文档
-	updated, err := s.store.UpdateDocument(ctx, id, title, content)
+	updated, err := s.store.UpdateDocument(ctx, id, session.OrganizationID, title, content)
 	if err != nil {
 		return nil, err
 	}
@@ -244,7 +248,7 @@ func (s *Service) UpdateDocument(ctx context.Context, session auth.Session, id s
 	// 如果内容变化，重新分块和嵌入
 	if content != doc.Content {
 		// 删除旧 chunks
-		if err := s.store.DeleteChunks(ctx, id); err != nil {
+		if err := s.store.DeleteChunks(ctx, id, session.OrganizationID); err != nil {
 			return nil, fmt.Errorf("delete old chunks: %w", err)
 		}
 
@@ -275,14 +279,15 @@ func (s *Service) UpdateDocument(ctx context.Context, session auth.Session, id s
 			}
 
 			chunkRecords[i] = &Chunk{
-				ID:         chunkID,
-				DocumentID: id,
-				UserID:     session.User.ID,
-				Content:    chunkContent,
-				ChunkIndex: i,
-				Embedding:  embedding,
-				Metadata:   map[string]any{},
-				CreatedAt:  now,
+				ID:             chunkID,
+				DocumentID:     id,
+				OrganizationID: session.OrganizationID,
+				UserID:         session.User.ID,
+				Content:        chunkContent,
+				ChunkIndex:     i,
+				Embedding:      embedding,
+				Metadata:       map[string]any{},
+				CreatedAt:      now,
 			}
 		}
 
@@ -299,7 +304,7 @@ func (s *Service) UpdateDocument(ctx context.Context, session auth.Session, id s
 // DeleteDocument 删除文档
 func (s *Service) DeleteDocument(ctx context.Context, session auth.Session, id string) error {
 	// 验证所有权
-	doc, err := s.store.GetDocument(ctx, id)
+	doc, err := s.store.GetDocument(ctx, id, session.OrganizationID)
 	if err != nil {
 		return err
 	}
@@ -310,7 +315,7 @@ func (s *Service) DeleteDocument(ctx context.Context, session auth.Session, id s
 		return fmt.Errorf("access denied")
 	}
 
-	return s.store.DeleteDocument(ctx, id)
+	return s.store.DeleteDocument(ctx, id, session.OrganizationID)
 }
 
 // Search 搜索相似内容
@@ -339,13 +344,13 @@ func (s *Service) Search(ctx context.Context, session auth.Session, req *SearchR
 	}
 
 	// 向量搜索
-	return s.store.SearchSimilar(ctx, session.User.ID, queryEmbedding, topK, minScore)
+	return s.store.SearchSimilar(ctx, session.User.ID, session.OrganizationID, queryEmbedding, topK, minScore)
 }
 
 // ListChunks 列出文档的分块
 func (s *Service) ListChunks(ctx context.Context, session auth.Session, documentID string) ([]*Chunk, error) {
 	// 验证所有权
-	doc, err := s.store.GetDocument(ctx, documentID)
+	doc, err := s.store.GetDocument(ctx, documentID, session.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -356,7 +361,7 @@ func (s *Service) ListChunks(ctx context.Context, session auth.Session, document
 		return nil, fmt.Errorf("access denied")
 	}
 
-	return s.store.ListChunks(ctx, documentID)
+	return s.store.ListChunks(ctx, documentID, session.OrganizationID)
 }
 
 // SQLStore SQL 实现
@@ -374,9 +379,9 @@ func (s *SQLStore) CreateDocument(ctx context.Context, doc *Document) (*Document
 	metadataJSON, _ := json.Marshal(doc.Metadata)
 
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO memory_documents (id, user_id, title, content, source_type, source_url, metadata, total_chunks, embedding_model, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-	`, doc.ID, doc.UserID, doc.Title, doc.Content, doc.SourceType, doc.SourceURL, metadataJSON, doc.TotalChunks, doc.EmbeddingModel, doc.CreatedAt, doc.UpdatedAt)
+		INSERT INTO memory_documents (id, user_id, organization_id, title, content, source_type, source_url, metadata, total_chunks, embedding_model, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+	`, doc.ID, doc.UserID, doc.OrganizationID, doc.Title, doc.Content, doc.SourceType, doc.SourceURL, metadataJSON, doc.TotalChunks, doc.EmbeddingModel, doc.CreatedAt, doc.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert document: %w", err)
 	}
@@ -385,15 +390,15 @@ func (s *SQLStore) CreateDocument(ctx context.Context, doc *Document) (*Document
 }
 
 // GetDocument 获取文档
-func (s *SQLStore) GetDocument(ctx context.Context, id string) (*Document, error) {
+func (s *SQLStore) GetDocument(ctx context.Context, id, organizationID string) (*Document, error) {
 	var doc Document
 	var metadataJSON []byte
 	var title, sourceURL sql.NullString
 
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, user_id, title, content, source_type, source_url, metadata, total_chunks, embedding_model, created_at, updated_at
-		FROM memory_documents WHERE id = $1
-	`, id).Scan(&doc.ID, &doc.UserID, &title, &doc.Content, &doc.SourceType, &sourceURL, &metadataJSON, &doc.TotalChunks, &doc.EmbeddingModel, &doc.CreatedAt, &doc.UpdatedAt)
+		SELECT id, organization_id, user_id, title, content, source_type, source_url, metadata, total_chunks, embedding_model, created_at, updated_at
+		FROM memory_documents WHERE id = $1 AND organization_id = $2
+	`, id, organizationID).Scan(&doc.ID, &doc.OrganizationID, &doc.UserID, &title, &doc.Content, &doc.SourceType, &sourceURL, &metadataJSON, &doc.TotalChunks, &doc.EmbeddingModel, &doc.CreatedAt, &doc.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -411,13 +416,13 @@ func (s *SQLStore) GetDocument(ctx context.Context, id string) (*Document, error
 }
 
 // ListDocuments 列出文档
-func (s *SQLStore) ListDocuments(ctx context.Context, userID string, limit, offset int) ([]*Document, error) {
+func (s *SQLStore) ListDocuments(ctx context.Context, userID, organizationID string, limit, offset int) ([]*Document, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, user_id, title, content, source_type, source_url, metadata, total_chunks, embedding_model, created_at, updated_at
-		FROM memory_documents WHERE user_id = $1
+		SELECT id, organization_id, user_id, title, content, source_type, source_url, metadata, total_chunks, embedding_model, created_at, updated_at
+		FROM memory_documents WHERE user_id = $1 AND organization_id = $2
 		ORDER BY created_at DESC
-		LIMIT $2 OFFSET $3
-	`, userID, limit, offset)
+		LIMIT $3 OFFSET $4
+	`, userID, organizationID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("list documents: %w", err)
 	}
@@ -429,7 +434,7 @@ func (s *SQLStore) ListDocuments(ctx context.Context, userID string, limit, offs
 		var metadataJSON []byte
 		var title, sourceURL sql.NullString
 
-		if err := rows.Scan(&doc.ID, &doc.UserID, &title, &doc.Content, &doc.SourceType, &sourceURL, &metadataJSON, &doc.TotalChunks, &doc.EmbeddingModel, &doc.CreatedAt, &doc.UpdatedAt); err != nil {
+		if err := rows.Scan(&doc.ID, &doc.OrganizationID, &doc.UserID, &title, &doc.Content, &doc.SourceType, &sourceURL, &metadataJSON, &doc.TotalChunks, &doc.EmbeddingModel, &doc.CreatedAt, &doc.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan document: %w", err)
 		}
 
@@ -445,7 +450,7 @@ func (s *SQLStore) ListDocuments(ctx context.Context, userID string, limit, offs
 }
 
 // UpdateDocument 更新文档
-func (s *SQLStore) UpdateDocument(ctx context.Context, id string, title, content string) (*Document, error) {
+func (s *SQLStore) UpdateDocument(ctx context.Context, id, organizationID string, title, content string) (*Document, error) {
 	now := time.Now().UTC()
 
 	var doc Document
@@ -455,9 +460,12 @@ func (s *SQLStore) UpdateDocument(ctx context.Context, id string, title, content
 	err := s.db.QueryRowContext(ctx, `
 		UPDATE memory_documents
 		SET title = $2, content = $3, updated_at = $4
-		WHERE id = $1
-		RETURNING id, user_id, title, content, source_type, source_url, metadata, total_chunks, embedding_model, created_at, updated_at
-	`, id, title, content, now).Scan(&doc.ID, &doc.UserID, &nullTitle, &doc.Content, &doc.SourceType, &sourceURL, &metadataJSON, &doc.TotalChunks, &doc.EmbeddingModel, &doc.CreatedAt, &doc.UpdatedAt)
+		WHERE id = $1 AND organization_id = $5
+		RETURNING id, organization_id, user_id, title, content, source_type, source_url, metadata, total_chunks, embedding_model, created_at, updated_at
+	`, id, title, content, now, organizationID).Scan(&doc.ID, &doc.OrganizationID, &doc.UserID, &nullTitle, &doc.Content, &doc.SourceType, &sourceURL, &metadataJSON, &doc.TotalChunks, &doc.EmbeddingModel, &doc.CreatedAt, &doc.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("document not found")
+	}
 	if err != nil {
 		return nil, fmt.Errorf("update document: %w", err)
 	}
@@ -472,8 +480,8 @@ func (s *SQLStore) UpdateDocument(ctx context.Context, id string, title, content
 }
 
 // DeleteDocument 删除文档
-func (s *SQLStore) DeleteDocument(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM memory_documents WHERE id = $1`, id)
+func (s *SQLStore) DeleteDocument(ctx context.Context, id, organizationID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM memory_documents WHERE id = $1 AND organization_id = $2`, id, organizationID)
 	return err
 }
 
@@ -485,9 +493,9 @@ func (s *SQLStore) CreateChunk(ctx context.Context, chunk *Chunk) (*Chunk, error
 	embeddingStr := embeddingToVector(chunk.Embedding)
 
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO memory_chunks (id, document_id, user_id, content, chunk_index, embedding, metadata, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`, chunk.ID, chunk.DocumentID, chunk.UserID, chunk.Content, chunk.ChunkIndex, embeddingStr, metadataJSON, chunk.CreatedAt)
+		INSERT INTO memory_chunks (id, document_id, user_id, organization_id, content, chunk_index, embedding, metadata, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`, chunk.ID, chunk.DocumentID, chunk.UserID, chunk.OrganizationID, chunk.Content, chunk.ChunkIndex, embeddingStr, metadataJSON, chunk.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert chunk: %w", err)
 	}
@@ -508,9 +516,9 @@ func (s *SQLStore) CreateChunks(ctx context.Context, chunks []*Chunk) error {
 		embeddingStr := embeddingToVector(chunk.Embedding)
 
 		_, err := tx.ExecContext(ctx, `
-			INSERT INTO memory_chunks (id, document_id, user_id, content, chunk_index, embedding, metadata, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		`, chunk.ID, chunk.DocumentID, chunk.UserID, chunk.Content, chunk.ChunkIndex, embeddingStr, metadataJSON, chunk.CreatedAt)
+			INSERT INTO memory_chunks (id, document_id, user_id, organization_id, content, chunk_index, embedding, metadata, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		`, chunk.ID, chunk.DocumentID, chunk.UserID, chunk.OrganizationID, chunk.Content, chunk.ChunkIndex, embeddingStr, metadataJSON, chunk.CreatedAt)
 		if err != nil {
 			return fmt.Errorf("insert chunk %d: %w", chunk.ChunkIndex, err)
 		}
@@ -519,8 +527,8 @@ func (s *SQLStore) CreateChunks(ctx context.Context, chunks []*Chunk) error {
 	// 更新文档的 total_chunks
 	if len(chunks) > 0 {
 		_, err := tx.ExecContext(ctx, `
-			UPDATE memory_documents SET total_chunks = $2, updated_at = $3 WHERE id = $1
-		`, chunks[0].DocumentID, len(chunks), time.Now().UTC())
+			UPDATE memory_documents SET total_chunks = $2, updated_at = $3 WHERE id = $1 AND organization_id = $4
+		`, chunks[0].DocumentID, len(chunks), time.Now().UTC(), chunks[0].OrganizationID)
 		if err != nil {
 			return fmt.Errorf("update document chunks count: %w", err)
 		}
@@ -530,12 +538,12 @@ func (s *SQLStore) CreateChunks(ctx context.Context, chunks []*Chunk) error {
 }
 
 // ListChunks 列出分块
-func (s *SQLStore) ListChunks(ctx context.Context, documentID string) ([]*Chunk, error) {
+func (s *SQLStore) ListChunks(ctx context.Context, documentID, organizationID string) ([]*Chunk, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, document_id, user_id, content, chunk_index, embedding, metadata, created_at
-		FROM memory_chunks WHERE document_id = $1
+		SELECT id, document_id, organization_id, user_id, content, chunk_index, embedding, metadata, created_at
+		FROM memory_chunks WHERE document_id = $1 AND organization_id = $2
 		ORDER BY chunk_index ASC
-	`, documentID)
+	`, documentID, organizationID)
 	if err != nil {
 		return nil, fmt.Errorf("list chunks: %w", err)
 	}
@@ -547,7 +555,7 @@ func (s *SQLStore) ListChunks(ctx context.Context, documentID string) ([]*Chunk,
 		var metadataJSON []byte
 		var embeddingStr sql.NullString
 
-		if err := rows.Scan(&chunk.ID, &chunk.DocumentID, &chunk.UserID, &chunk.Content, &chunk.ChunkIndex, &embeddingStr, &metadataJSON, &chunk.CreatedAt); err != nil {
+		if err := rows.Scan(&chunk.ID, &chunk.DocumentID, &chunk.OrganizationID, &chunk.UserID, &chunk.Content, &chunk.ChunkIndex, &embeddingStr, &metadataJSON, &chunk.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan chunk: %w", err)
 		}
 
@@ -564,13 +572,13 @@ func (s *SQLStore) ListChunks(ctx context.Context, documentID string) ([]*Chunk,
 }
 
 // DeleteChunks 删除分块
-func (s *SQLStore) DeleteChunks(ctx context.Context, documentID string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM memory_chunks WHERE document_id = $1`, documentID)
+func (s *SQLStore) DeleteChunks(ctx context.Context, documentID, organizationID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM memory_chunks WHERE document_id = $1 AND organization_id = $2`, documentID, organizationID)
 	return err
 }
 
 // SearchSimilar 向量相似度搜索
-func (s *SQLStore) SearchSimilar(ctx context.Context, userID string, embedding []float32, topK int, minScore float64) ([]*SearchResult, error) {
+func (s *SQLStore) SearchSimilar(ctx context.Context, userID, organizationID string, embedding []float32, topK int, minScore float64) ([]*SearchResult, error) {
 	embeddingStr := embeddingToVector(embedding)
 
 	// 使用余弦距离搜索
@@ -582,13 +590,13 @@ func (s *SQLStore) SearchSimilar(ctx context.Context, userID string, embedding [
 			COALESCE(md.title, ''),
 			mc.content,
 			mc.chunk_index,
-			1 - (mc.embedding <=> $2::vector) AS similarity
+			1 - (mc.embedding <=> $3::vector) AS similarity
 		FROM memory_chunks mc
 		JOIN memory_documents md ON md.id = mc.document_id
-		WHERE mc.user_id = $1
-		ORDER BY mc.embedding <=> $2::vector
-		LIMIT $3
-	`, userID, embeddingStr, topK)
+		WHERE mc.user_id = $1 AND mc.organization_id = $2
+		ORDER BY mc.embedding <=> $3::vector
+		LIMIT $4
+	`, userID, organizationID, embeddingStr, topK)
 	if err != nil {
 		return nil, fmt.Errorf("search similar: %w", err)
 	}

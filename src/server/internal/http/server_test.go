@@ -58,6 +58,12 @@ func testDatabase(t *testing.T) *sql.DB {
 		`DROP TABLE IF EXISTS audit_logs CASCADE`,
 		`DROP TABLE IF EXISTS usage_records CASCADE`,
 		`DROP TABLE IF EXISTS notifications CASCADE`,
+		`DROP TABLE IF EXISTS agent_messages CASCADE`,
+		`DROP TABLE IF EXISTS agent_conversations CASCADE`,
+		`DROP TABLE IF EXISTS agents CASCADE`,
+		`DROP TABLE IF EXISTS memory_chunks CASCADE`,
+		`DROP TABLE IF EXISTS memory_documents CASCADE`,
+		`DROP TABLE IF EXISTS mcp_servers CASCADE`,
 		`DROP TABLE IF EXISTS knowledge_document_chunks CASCADE`,
 		`DROP TABLE IF EXISTS knowledge_documents CASCADE`,
 		`DROP TABLE IF EXISTS conversation_knowledge_bindings CASCADE`,
@@ -91,6 +97,12 @@ func testDatabase(t *testing.T) *sql.DB {
 		`CREATE TABLE user_preferences (user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, onboarding_completed BOOLEAN NOT NULL DEFAULT FALSE, default_mode TEXT NOT NULL DEFAULT 'chat', model_strategy TEXT NOT NULL DEFAULT 'balanced', network_enabled_hint BOOLEAN NOT NULL DEFAULT FALSE, default_agent_model TEXT NOT NULL DEFAULT 'gpt-4o-mini', sidebar_collapsed BOOLEAN NOT NULL DEFAULT FALSE, notifications JSONB NOT NULL DEFAULT '{}', updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE notifications (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, type TEXT NOT NULL, category TEXT NOT NULL, title TEXT NOT NULL, message TEXT NOT NULL, is_read BOOLEAN NOT NULL DEFAULT FALSE, action_url TEXT, metadata JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), read_at TIMESTAMPTZ)`,
 		`CREATE TABLE usage_records (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL, model_id TEXT NOT NULL, request_count INTEGER NOT NULL, input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE TABLE agents (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, name TEXT NOT NULL, description TEXT, model TEXT DEFAULT 'gpt-4o-mini', system_prompt TEXT, tools JSONB DEFAULT '[]', config JSONB DEFAULT '{}', is_public BOOLEAN DEFAULT FALSE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE TABLE agent_conversations (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, title TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE TABLE agent_messages (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES agent_conversations(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, role TEXT NOT NULL, content TEXT NOT NULL, tool_calls JSONB DEFAULT '[]', tool_call_id TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE TABLE memory_documents (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, title TEXT, content TEXT NOT NULL, source_type TEXT DEFAULT 'manual', source_url TEXT, metadata JSONB DEFAULT '{}', total_chunks INTEGER DEFAULT 0, embedding_model TEXT DEFAULT 'text-embedding-3-small', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE TABLE memory_chunks (id TEXT PRIMARY KEY, document_id TEXT NOT NULL REFERENCES memory_documents(id) ON DELETE CASCADE, user_id TEXT NOT NULL, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, content TEXT NOT NULL, chunk_index INTEGER NOT NULL, embedding TEXT, metadata JSONB DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE (document_id, chunk_index))`,
+		`CREATE TABLE mcp_servers (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, name TEXT NOT NULL, url TEXT NOT NULL, auth_token_encrypted TEXT, status TEXT DEFAULT 'disconnected', last_connected_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 	}
 	for _, statement := range statements {
 		if _, err := database.Exec(statement); err != nil {
@@ -712,6 +724,249 @@ func TestCrossTenantConsoleUsageUsesActiveOrganization(t *testing.T) {
 	}
 	if len(modelsResponse.Data) != 1 || modelsResponse.Data[0].ID != "balanced-chat" || modelsResponse.Data[0].Requests != 2 {
 		t.Fatalf("expected only active organization model summary, got %+v", modelsResponse.Data)
+	}
+}
+
+func TestCrossTenantAgentScopeDeniesReadWriteAndConversation(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+
+	cookie, csrfToken, userID := registerHTTPUser(t, router, "cross-agent@example.com")
+	_, activeOrganizationID := queryHTTPUserScope(t, database, userID)
+	promoteHTTPUserToAdmin(t, database, userID)
+	otherOrganizationID := createHTTPOrganization(t, router, cookie, csrfToken, "Other Agent Org", "other-agent-org")
+
+	if _, err := database.Exec(`
+		INSERT INTO agents (id, user_id, organization_id, name, description, model, system_prompt, tools, config, is_public, created_at, updated_at)
+		VALUES ('agent_other_org', $1, $2, 'Other org agent', '', 'demo-reply', '', '[]', '{}', FALSE, NOW(), NOW())
+	`, userID, otherOrganizationID); err != nil {
+		t.Fatalf("insert other org agent: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO agent_conversations (id, agent_id, user_id, organization_id, title, created_at, updated_at)
+		VALUES ('agent_conversation_other_org', 'agent_other_org', $1, $2, 'Other org conversation', NOW(), NOW())
+	`, userID, otherOrganizationID); err != nil {
+		t.Fatalf("insert other org agent conversation: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO agent_messages (id, conversation_id, organization_id, role, content, tool_calls, created_at)
+		VALUES ('agent_message_other_org', 'agent_conversation_other_org', $1, 'user', 'tenant-only agent message', '[]', NOW())
+	`, otherOrganizationID); err != nil {
+		t.Fatalf("insert other org agent message: %v", err)
+	}
+
+	listRecorder := httptest.NewRecorder()
+	listRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/app/agents", nil)
+	listRequest.AddCookie(cookie)
+	router.ServeHTTP(listRecorder, listRequest)
+	if listRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("list agents expected 200, got %d with body %s", listRecorder.Code, listRecorder.Body.String())
+	}
+	var listResponse struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(listRecorder.Body.Bytes(), &listResponse); err != nil {
+		t.Fatalf("decode agent list: %v", err)
+	}
+	for _, agent := range listResponse.Data {
+		if agent.ID == "agent_other_org" {
+			t.Fatalf("active organization %s must not list agent from organization %s", activeOrganizationID, otherOrganizationID)
+		}
+	}
+
+	for _, requestCase := range []struct {
+		name   string
+		method string
+		path   string
+		body   string
+	}{
+		{name: "get agent", method: stdhttp.MethodGet, path: "/api/v1/app/agents/agent_other_org"},
+		{name: "update agent", method: stdhttp.MethodPut, path: "/api/v1/app/agents/agent_other_org", body: `{"name":"Mutated"}`},
+		{name: "delete agent", method: stdhttp.MethodDelete, path: "/api/v1/app/agents/agent_other_org"},
+		{name: "create conversation", method: stdhttp.MethodPost, path: "/api/v1/app/agents/agent_other_org/conversations"},
+		{name: "list conversations", method: stdhttp.MethodGet, path: "/api/v1/app/agents/agent_other_org/conversations"},
+		{name: "get conversation", method: stdhttp.MethodGet, path: "/api/v1/app/agents/conversations/agent_conversation_other_org"},
+		{name: "delete conversation", method: stdhttp.MethodDelete, path: "/api/v1/app/agents/conversations/agent_conversation_other_org"},
+		{name: "send message", method: stdhttp.MethodPost, path: "/api/v1/app/agents/conversations/agent_conversation_other_org/messages", body: `{"content":"mutate other org"}`},
+	} {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(requestCase.method, requestCase.path, strings.NewReader(requestCase.body))
+		if requestCase.body != "" {
+			request.Header.Set("Content-Type", "application/json")
+		}
+		request.AddCookie(cookie)
+		if requestCase.method != stdhttp.MethodGet {
+			addCSRF(request, csrfToken)
+		}
+		router.ServeHTTP(recorder, request)
+		if recorder.Code != stdhttp.StatusNotFound {
+			t.Fatalf("%s expected 404, got %d with body %s", requestCase.name, recorder.Code, recorder.Body.String())
+		}
+	}
+
+	var agentName string
+	if err := database.QueryRow(`SELECT name FROM agents WHERE id = 'agent_other_org'`).Scan(&agentName); err != nil {
+		t.Fatalf("query other org agent: %v", err)
+	}
+	if agentName != "Other org agent" {
+		t.Fatalf("expected denied update to preserve agent name, got %q", agentName)
+	}
+	var messageCount int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM agent_messages WHERE conversation_id = 'agent_conversation_other_org'`).Scan(&messageCount); err != nil {
+		t.Fatalf("count other org agent messages: %v", err)
+	}
+	if messageCount != 1 {
+		t.Fatalf("expected denied send to leave other org agent message count at 1, got %d", messageCount)
+	}
+}
+
+func TestCrossTenantMemoryScopeDeniesReadWrite(t *testing.T) {
+	database := testDatabase(t)
+	cfg := testConfig()
+	cfg.RelayEnabled = true
+	router := NewRouter(cfg, database)
+
+	cookie, csrfToken, userID := registerHTTPUser(t, router, "cross-memory@example.com")
+	_, activeOrganizationID := queryHTTPUserScope(t, database, userID)
+	promoteHTTPUserToAdmin(t, database, userID)
+	otherOrganizationID := createHTTPOrganization(t, router, cookie, csrfToken, "Other Memory Org", "other-memory-org")
+
+	if _, err := database.Exec(`
+		INSERT INTO memory_documents (id, user_id, organization_id, title, content, source_type, metadata, total_chunks, embedding_model, created_at, updated_at)
+		VALUES ('memory_doc_other_org', $1, $2, 'Other org memory', 'tenant-only memory', 'manual', '{}', 1, 'text-embedding-3-small', NOW(), NOW())
+	`, userID, otherOrganizationID); err != nil {
+		t.Fatalf("insert other org memory document: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO memory_chunks (id, document_id, user_id, organization_id, content, chunk_index, embedding, metadata, created_at)
+		VALUES ('memory_chunk_other_org', 'memory_doc_other_org', $1, $2, 'tenant-only memory', 0, '[0.1,0.2]', '{}', NOW())
+	`, userID, otherOrganizationID); err != nil {
+		t.Fatalf("insert other org memory chunk: %v", err)
+	}
+
+	listRecorder := httptest.NewRecorder()
+	listRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/app/memory/documents", nil)
+	listRequest.AddCookie(cookie)
+	router.ServeHTTP(listRecorder, listRequest)
+	if listRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("list memory expected 200, got %d with body %s", listRecorder.Code, listRecorder.Body.String())
+	}
+	var listResponse struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(listRecorder.Body.Bytes(), &listResponse); err != nil {
+		t.Fatalf("decode memory list: %v", err)
+	}
+	for _, document := range listResponse.Data {
+		if document.ID == "memory_doc_other_org" {
+			t.Fatalf("active organization %s must not list memory document from organization %s", activeOrganizationID, otherOrganizationID)
+		}
+	}
+
+	for _, requestCase := range []struct {
+		name   string
+		method string
+		path   string
+		body   string
+	}{
+		{name: "get memory", method: stdhttp.MethodGet, path: "/api/v1/app/memory/documents/memory_doc_other_org"},
+		{name: "update memory", method: stdhttp.MethodPut, path: "/api/v1/app/memory/documents/memory_doc_other_org", body: `{"title":"Mutated","content":"tenant-only memory"}`},
+		{name: "list chunks", method: stdhttp.MethodGet, path: "/api/v1/app/memory/documents/memory_doc_other_org/chunks"},
+		{name: "delete memory", method: stdhttp.MethodDelete, path: "/api/v1/app/memory/documents/memory_doc_other_org"},
+	} {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(requestCase.method, requestCase.path, strings.NewReader(requestCase.body))
+		if requestCase.body != "" {
+			request.Header.Set("Content-Type", "application/json")
+		}
+		request.AddCookie(cookie)
+		if requestCase.method != stdhttp.MethodGet {
+			addCSRF(request, csrfToken)
+		}
+		router.ServeHTTP(recorder, request)
+		if recorder.Code != stdhttp.StatusNotFound {
+			t.Fatalf("%s expected 404, got %d with body %s", requestCase.name, recorder.Code, recorder.Body.String())
+		}
+	}
+
+	var memoryTitle string
+	if err := database.QueryRow(`SELECT title FROM memory_documents WHERE id = 'memory_doc_other_org'`).Scan(&memoryTitle); err != nil {
+		t.Fatalf("query other org memory title: %v", err)
+	}
+	if memoryTitle != "Other org memory" {
+		t.Fatalf("expected denied update to preserve memory title, got %q", memoryTitle)
+	}
+}
+
+func TestCrossTenantMCPScopeDeniesReadWriteAndConnect(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+
+	cookie, csrfToken, userID := registerHTTPUser(t, router, "cross-mcp@example.com")
+	_, activeOrganizationID := queryHTTPUserScope(t, database, userID)
+	promoteHTTPUserToAdmin(t, database, userID)
+	otherOrganizationID := createHTTPOrganization(t, router, cookie, csrfToken, "Other MCP Org", "other-mcp-org")
+
+	if _, err := database.Exec(`
+		INSERT INTO mcp_servers (id, user_id, organization_id, name, url, auth_token_encrypted, status, created_at, updated_at)
+		VALUES ('mcp_other_org', $1, $2, 'Other org MCP', 'http://127.0.0.1:1', '', 'disconnected', NOW(), NOW())
+	`, userID, otherOrganizationID); err != nil {
+		t.Fatalf("insert other org MCP server: %v", err)
+	}
+
+	listRecorder := httptest.NewRecorder()
+	listRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/app/mcp-servers", nil)
+	listRequest.AddCookie(cookie)
+	router.ServeHTTP(listRecorder, listRequest)
+	if listRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("list MCP expected 200, got %d with body %s", listRecorder.Code, listRecorder.Body.String())
+	}
+	var listResponse struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(listRecorder.Body.Bytes(), &listResponse); err != nil {
+		t.Fatalf("decode MCP list: %v", err)
+	}
+	for _, server := range listResponse.Data {
+		if server.ID == "mcp_other_org" {
+			t.Fatalf("active organization %s must not list MCP server from organization %s", activeOrganizationID, otherOrganizationID)
+		}
+	}
+
+	for _, requestCase := range []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{name: "get MCP", method: stdhttp.MethodGet, path: "/api/v1/app/mcp-servers/mcp_other_org"},
+		{name: "connect MCP", method: stdhttp.MethodPost, path: "/api/v1/app/mcp-servers/mcp_other_org/connect"},
+		{name: "list MCP tools", method: stdhttp.MethodGet, path: "/api/v1/app/mcp-servers/mcp_other_org/tools"},
+		{name: "delete MCP", method: stdhttp.MethodDelete, path: "/api/v1/app/mcp-servers/mcp_other_org"},
+	} {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(requestCase.method, requestCase.path, nil)
+		request.AddCookie(cookie)
+		if requestCase.method != stdhttp.MethodGet {
+			addCSRF(request, csrfToken)
+		}
+		router.ServeHTTP(recorder, request)
+		if recorder.Code != stdhttp.StatusNotFound {
+			t.Fatalf("%s expected 404, got %d with body %s", requestCase.name, recorder.Code, recorder.Body.String())
+		}
+	}
+
+	var serverCount int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM mcp_servers WHERE id = 'mcp_other_org'`).Scan(&serverCount); err != nil {
+		t.Fatalf("count other org MCP server: %v", err)
+	}
+	if serverCount != 1 {
+		t.Fatalf("expected denied delete to preserve other org MCP server, got count %d", serverCount)
 	}
 }
 

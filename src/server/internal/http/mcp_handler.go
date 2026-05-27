@@ -50,12 +50,13 @@ func (h mcpHandler) addServer(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	}
 
 	server := &mcp.Server{
-		Name:      req.Name,
-		URL:       req.URL,
-		AuthToken: req.AuthToken,
+		OrganizationID: session.OrganizationID,
+		Name:           req.Name,
+		URL:            req.URL,
+		AuthToken:      req.AuthToken,
 	}
 
-	created, err := h.client.AddServer(r.Context(), session.User.ID, server)
+	created, err := h.client.AddServer(r.Context(), session.User.ID, session.OrganizationID, server)
 	if err != nil {
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
 		return
@@ -72,7 +73,7 @@ func (h mcpHandler) listServers(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		return
 	}
 
-	servers, err := h.client.ListServers(r.Context(), session.User.ID)
+	servers, err := h.client.ListServers(r.Context(), session.User.ID, session.OrganizationID)
 	if err != nil {
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
 		return
@@ -89,7 +90,7 @@ func (h mcpHandler) getServer(w stdhttp.ResponseWriter, r *stdhttp.Request, id s
 		return
 	}
 
-	server, err := h.client.GetServer(r.Context(), id)
+	server, err := h.client.GetServer(r.Context(), id, session.OrganizationID)
 	if err != nil {
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
 		return
@@ -115,7 +116,7 @@ func (h mcpHandler) deleteServer(w stdhttp.ResponseWriter, r *stdhttp.Request, i
 	}
 
 	// 验证所有权
-	server, err := h.client.GetServer(r.Context(), id)
+	server, err := h.client.GetServer(r.Context(), id, session.OrganizationID)
 	if err != nil {
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
 		return
@@ -129,7 +130,7 @@ func (h mcpHandler) deleteServer(w stdhttp.ResponseWriter, r *stdhttp.Request, i
 		return
 	}
 
-	if err := h.client.RemoveServer(r.Context(), id); err != nil {
+	if err := h.client.RemoveServer(r.Context(), id, session.OrganizationID); err != nil {
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
 		return
 	}
@@ -146,7 +147,7 @@ func (h mcpHandler) connectServer(w stdhttp.ResponseWriter, r *stdhttp.Request, 
 	}
 
 	// 验证所有权
-	server, err := h.client.GetServer(r.Context(), id)
+	server, err := h.client.GetServer(r.Context(), id, session.OrganizationID)
 	if err != nil {
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
 		return
@@ -160,13 +161,13 @@ func (h mcpHandler) connectServer(w stdhttp.ResponseWriter, r *stdhttp.Request, 
 		return
 	}
 
-	if err := h.client.Connect(r.Context(), id); err != nil {
+	if err := h.client.Connect(r.Context(), id, session.OrganizationID); err != nil {
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
 		return
 	}
 
 	// 返回更新后的服务器状态
-	updated, _ := h.client.GetServer(r.Context(), id)
+	updated, _ := h.client.GetServer(r.Context(), id, session.OrganizationID)
 	writeSuccess(w, stdhttp.StatusOK, updated)
 }
 
@@ -179,7 +180,7 @@ func (h mcpHandler) disconnectServer(w stdhttp.ResponseWriter, r *stdhttp.Reques
 	}
 
 	// 验证所有权
-	server, err := h.client.GetServer(r.Context(), id)
+	server, err := h.client.GetServer(r.Context(), id, session.OrganizationID)
 	if err != nil {
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
 		return
@@ -193,7 +194,7 @@ func (h mcpHandler) disconnectServer(w stdhttp.ResponseWriter, r *stdhttp.Reques
 		return
 	}
 
-	if err := h.client.Disconnect(id); err != nil {
+	if err := h.client.Disconnect(id, session.OrganizationID); err != nil {
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
 		return
 	}
@@ -210,7 +211,7 @@ func (h mcpHandler) listServerTools(w stdhttp.ResponseWriter, r *stdhttp.Request
 	}
 
 	// 验证所有权
-	server, err := h.client.GetServer(r.Context(), id)
+	server, err := h.client.GetServer(r.Context(), id, session.OrganizationID)
 	if err != nil {
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
 		return
@@ -224,7 +225,7 @@ func (h mcpHandler) listServerTools(w stdhttp.ResponseWriter, r *stdhttp.Request
 		return
 	}
 
-	tools, err := h.client.ListTools(id)
+	tools, err := h.client.ListTools(id, session.OrganizationID)
 	if err != nil {
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
 		return
@@ -242,7 +243,7 @@ func (h mcpHandler) getServerStatus(w stdhttp.ResponseWriter, r *stdhttp.Request
 	}
 
 	// 验证所有权
-	server, err := h.client.GetServer(r.Context(), id)
+	server, err := h.client.GetServer(r.Context(), id, session.OrganizationID)
 	if err != nil {
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
 		return
@@ -256,7 +257,7 @@ func (h mcpHandler) getServerStatus(w stdhttp.ResponseWriter, r *stdhttp.Request
 		return
 	}
 
-	status := h.client.GetServerStatus(id)
+	status := h.client.GetServerStatus(id, session.OrganizationID)
 	writeSuccess(w, stdhttp.StatusOK, map[string]string{"status": status})
 }
 
@@ -274,7 +275,7 @@ func (h mcpHandler) executeTool(w stdhttp.ResponseWriter, r *stdhttp.Request, se
 	}
 
 	// 验证所有权
-	server, err := h.client.GetServer(r.Context(), serverID)
+	server, err := h.client.GetServer(r.Context(), serverID, session.OrganizationID)
 	if err != nil {
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
 		return
@@ -299,7 +300,7 @@ func (h mcpHandler) executeTool(w stdhttp.ResponseWriter, r *stdhttp.Request, se
 		return
 	}
 
-	result, err := h.client.CallTool(r.Context(), serverID, req.ToolName, req.Args)
+	result, err := h.client.CallTool(r.Context(), serverID, session.OrganizationID, req.ToolName, req.Args)
 	if err != nil {
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
 		return

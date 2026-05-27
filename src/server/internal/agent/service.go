@@ -81,12 +81,12 @@ func (s *Service) CreateAgent(ctx context.Context, session auth.Session, req *Cr
 		return nil, fmt.Errorf("name is required")
 	}
 
-	return s.store.CreateAgent(ctx, session.User.ID, req)
+	return s.store.CreateAgent(ctx, session.User.ID, session.OrganizationID, req)
 }
 
 // GetAgent 获取 Agent
 func (s *Service) GetAgent(ctx context.Context, session auth.Session, id string) (*Agent, error) {
-	agent, err := s.store.GetAgent(ctx, id)
+	agent, err := s.store.GetAgent(ctx, id, session.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -104,13 +104,13 @@ func (s *Service) GetAgent(ctx context.Context, session auth.Session, id string)
 
 // ListAgents 列出用户的 Agent
 func (s *Service) ListAgents(ctx context.Context, session auth.Session) ([]*Agent, error) {
-	return s.store.ListAgents(ctx, session.User.ID)
+	return s.store.ListAgents(ctx, session.User.ID, session.OrganizationID)
 }
 
 // UpdateAgent 更新 Agent
 func (s *Service) UpdateAgent(ctx context.Context, session auth.Session, id string, req *UpdateAgentRequest) (*Agent, error) {
 	// 验证所有权
-	agent, err := s.store.GetAgent(ctx, id)
+	agent, err := s.store.GetAgent(ctx, id, session.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -121,13 +121,13 @@ func (s *Service) UpdateAgent(ctx context.Context, session auth.Session, id stri
 		return nil, fmt.Errorf("access denied")
 	}
 
-	return s.store.UpdateAgent(ctx, id, req)
+	return s.store.UpdateAgent(ctx, id, session.OrganizationID, req)
 }
 
 // DeleteAgent 删除 Agent
 func (s *Service) DeleteAgent(ctx context.Context, session auth.Session, id string) error {
 	// 验证所有权
-	agent, err := s.store.GetAgent(ctx, id)
+	agent, err := s.store.GetAgent(ctx, id, session.OrganizationID)
 	if err != nil {
 		return err
 	}
@@ -138,13 +138,13 @@ func (s *Service) DeleteAgent(ctx context.Context, session auth.Session, id stri
 		return fmt.Errorf("access denied")
 	}
 
-	return s.store.DeleteAgent(ctx, id)
+	return s.store.DeleteAgent(ctx, id, session.OrganizationID)
 }
 
 // CreateConversation 创建对话
 func (s *Service) CreateConversation(ctx context.Context, session auth.Session, agentID string) (*Conversation, error) {
 	// 验证 Agent 存在且可访问
-	agent, err := s.store.GetAgent(ctx, agentID)
+	agent, err := s.store.GetAgent(ctx, agentID, session.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -155,12 +155,12 @@ func (s *Service) CreateConversation(ctx context.Context, session auth.Session, 
 		return nil, fmt.Errorf("access denied")
 	}
 
-	return s.store.CreateConversation(ctx, agentID, session.User.ID, "")
+	return s.store.CreateConversation(ctx, agentID, session.User.ID, session.OrganizationID, "")
 }
 
 // GetConversation 获取对话
 func (s *Service) GetConversation(ctx context.Context, session auth.Session, id string) (*Conversation, error) {
-	conv, err := s.store.GetConversation(ctx, id)
+	conv, err := s.store.GetConversation(ctx, id, session.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -178,12 +178,23 @@ func (s *Service) GetConversation(ctx context.Context, session auth.Session, id 
 
 // ListConversations 列出对话
 func (s *Service) ListConversations(ctx context.Context, session auth.Session, agentID string) ([]*Conversation, error) {
-	return s.store.ListConversations(ctx, agentID, session.User.ID)
+	agent, err := s.store.GetAgent(ctx, agentID, session.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	if agent == nil {
+		return nil, fmt.Errorf("agent not found")
+	}
+	if agent.UserID != session.User.ID && !agent.IsPublic {
+		return nil, fmt.Errorf("access denied")
+	}
+
+	return s.store.ListConversations(ctx, agentID, session.User.ID, session.OrganizationID)
 }
 
 // DeleteConversation 删除对话
 func (s *Service) DeleteConversation(ctx context.Context, session auth.Session, id string) error {
-	conv, err := s.store.GetConversation(ctx, id)
+	conv, err := s.store.GetConversation(ctx, id, session.OrganizationID)
 	if err != nil {
 		return err
 	}
@@ -194,13 +205,13 @@ func (s *Service) DeleteConversation(ctx context.Context, session auth.Session, 
 		return fmt.Errorf("access denied")
 	}
 
-	return s.store.DeleteConversation(ctx, id)
+	return s.store.DeleteConversation(ctx, id, session.OrganizationID)
 }
 
 // SendMessage 发送消息
 func (s *Service) SendMessage(ctx context.Context, session auth.Session, conversationID string, content string) (*Message, error) {
 	// 获取对话
-	conv, err := s.store.GetConversation(ctx, conversationID)
+	conv, err := s.store.GetConversation(ctx, conversationID, session.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -212,7 +223,7 @@ func (s *Service) SendMessage(ctx context.Context, session auth.Session, convers
 	}
 
 	// 获取 Agent
-	agent, err := s.store.GetAgent(ctx, conv.AgentID)
+	agent, err := s.store.GetAgent(ctx, conv.AgentID, session.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -239,7 +250,7 @@ func (s *Service) SendMessage(ctx context.Context, session auth.Session, convers
 // SendMessageStream 流式发送消息
 func (s *Service) SendMessageStream(ctx context.Context, session auth.Session, conversationID string, content string, onChunk func(string) error) error {
 	// 获取对话
-	conv, err := s.store.GetConversation(ctx, conversationID)
+	conv, err := s.store.GetConversation(ctx, conversationID, session.OrganizationID)
 	if err != nil {
 		return err
 	}
@@ -251,7 +262,7 @@ func (s *Service) SendMessageStream(ctx context.Context, session auth.Session, c
 	}
 
 	// 获取 Agent
-	agent, err := s.store.GetAgent(ctx, conv.AgentID)
+	agent, err := s.store.GetAgent(ctx, conv.AgentID, session.OrganizationID)
 	if err != nil {
 		return err
 	}
@@ -271,7 +282,7 @@ func (s *Service) SendMessageStream(ctx context.Context, session auth.Session, c
 // ListMessages 列出消息
 func (s *Service) ListMessages(ctx context.Context, session auth.Session, conversationID string) ([]*Message, error) {
 	// 验证对话所有权
-	conv, err := s.store.GetConversation(ctx, conversationID)
+	conv, err := s.store.GetConversation(ctx, conversationID, session.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -282,7 +293,7 @@ func (s *Service) ListMessages(ctx context.Context, session auth.Session, conver
 		return nil, fmt.Errorf("access denied")
 	}
 
-	return s.store.ListMessages(ctx, conversationID)
+	return s.store.ListMessages(ctx, conversationID, session.OrganizationID)
 }
 
 func hasEnabledTools(agent *Agent) bool {
@@ -300,7 +311,7 @@ func hasEnabledTools(agent *Agent) bool {
 // ExecuteTool 执行工具
 func (s *Service) ExecuteTool(ctx context.Context, session auth.Session, agentID string, toolName string, args map[string]any) (*mcp.ToolResult, error) {
 	// 验证 Agent 存在且可访问
-	agent, err := s.store.GetAgent(ctx, agentID)
+	agent, err := s.store.GetAgent(ctx, agentID, session.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -341,7 +352,7 @@ func (s *Service) ExecuteTool(ctx context.Context, session auth.Session, agentID
 		if targetTool.ServerID == "" {
 			return nil, fmt.Errorf("MCP server not specified")
 		}
-		return s.mcpClient.CallTool(ctx, targetTool.ServerID, toolName, args)
+		return s.mcpClient.CallTool(ctx, targetTool.ServerID, session.OrganizationID, toolName, args)
 
 	default:
 		return nil, fmt.Errorf("unknown tool type: %s", targetTool.Type)
@@ -351,7 +362,7 @@ func (s *Service) ExecuteTool(ctx context.Context, session auth.Session, agentID
 // ListAvailableTools 列出 Agent 可用的工具
 func (s *Service) ListAvailableTools(ctx context.Context, session auth.Session, agentID string) ([]ToolDefinition, error) {
 	// 验证 Agent 存在且可访问
-	agent, err := s.store.GetAgent(ctx, agentID)
+	agent, err := s.store.GetAgent(ctx, agentID, session.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -384,7 +395,7 @@ func (s *Service) ListAvailableTools(ctx context.Context, session auth.Session, 
 				}
 			}
 		} else if t.Type == "mcp" && s.mcpClient != nil && t.ServerID != "" {
-			mcpTools, err := s.mcpClient.ListTools(t.ServerID)
+			mcpTools, err := s.mcpClient.ListTools(t.ServerID, session.OrganizationID)
 			if err == nil {
 				for _, mt := range mcpTools {
 					if mt.Name == t.Name {

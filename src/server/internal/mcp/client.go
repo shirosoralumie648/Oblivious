@@ -15,6 +15,7 @@ import (
 // Server 表示一个 MCP Server 配置
 type Server struct {
 	ID              string    `json:"id"`
+	OrganizationID  string    `json:"organizationId"`
 	UserID          string    `json:"userId"`
 	Name            string    `json:"name"`
 	URL             string    `json:"url"`
@@ -54,11 +55,11 @@ type serverConnection struct {
 
 // Store MCP Server 存储接口
 type Store interface {
-	CreateServer(ctx context.Context, userID string, server *Server) (*Server, error)
-	GetServer(ctx context.Context, id string) (*Server, error)
-	ListServers(ctx context.Context, userID string) ([]*Server, error)
-	UpdateServerStatus(ctx context.Context, id string, status string) error
-	DeleteServer(ctx context.Context, id string) error
+	CreateServer(ctx context.Context, userID, organizationID string, server *Server) (*Server, error)
+	GetServer(ctx context.Context, id, organizationID string) (*Server, error)
+	ListServers(ctx context.Context, userID, organizationID string) ([]*Server, error)
+	UpdateServerStatus(ctx context.Context, id, organizationID string, status string) error
+	DeleteServer(ctx context.Context, id, organizationID string) error
 }
 
 // NewClient 创建 MCP 客户端
@@ -71,7 +72,7 @@ func NewClient(store Store) *Client {
 }
 
 // AddServer 添加 MCP Server
-func (c *Client) AddServer(ctx context.Context, userID string, server *Server) (*Server, error) {
+func (c *Client) AddServer(ctx context.Context, userID, organizationID string, server *Server) (*Server, error) {
 	if server.Name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
@@ -79,7 +80,7 @@ func (c *Client) AddServer(ctx context.Context, userID string, server *Server) (
 		return nil, fmt.Errorf("url is required")
 	}
 
-	created, err := c.store.CreateServer(ctx, userID, server)
+	created, err := c.store.CreateServer(ctx, userID, organizationID, server)
 	if err != nil {
 		return nil, err
 	}
@@ -95,31 +96,33 @@ func (c *Client) AddServer(ctx context.Context, userID string, server *Server) (
 }
 
 // GetServer 获取 MCP Server
-func (c *Client) GetServer(ctx context.Context, id string) (*Server, error) {
-	return c.store.GetServer(ctx, id)
+func (c *Client) GetServer(ctx context.Context, id, organizationID string) (*Server, error) {
+	return c.store.GetServer(ctx, id, organizationID)
 }
 
 // ListServers 列出用户的 MCP Server
-func (c *Client) ListServers(ctx context.Context, userID string) ([]*Server, error) {
-	return c.store.ListServers(ctx, userID)
+func (c *Client) ListServers(ctx context.Context, userID, organizationID string) ([]*Server, error) {
+	return c.store.ListServers(ctx, userID, organizationID)
 }
 
 // RemoveServer 移除 MCP Server
-func (c *Client) RemoveServer(ctx context.Context, id string) error {
+func (c *Client) RemoveServer(ctx context.Context, id, organizationID string) error {
 	c.mu.Lock()
-	delete(c.servers, id)
+	if conn, ok := c.servers[id]; ok && conn.server.OrganizationID == organizationID {
+		delete(c.servers, id)
+	}
 	c.mu.Unlock()
 
-	return c.store.DeleteServer(ctx, id)
+	return c.store.DeleteServer(ctx, id, organizationID)
 }
 
 // Connect 连接到 MCP Server
-func (c *Client) Connect(ctx context.Context, serverID string) error {
+func (c *Client) Connect(ctx context.Context, serverID, organizationID string) error {
 	c.mu.RLock()
 	conn, ok := c.servers[serverID]
 	c.mu.RUnlock()
 
-	if !ok {
+	if !ok || conn.server.OrganizationID != organizationID {
 		return fmt.Errorf("server not found: %s", serverID)
 	}
 
@@ -142,7 +145,7 @@ func (c *Client) Connect(ctx context.Context, serverID string) error {
 		c.mu.Lock()
 		conn.status = "error"
 		c.mu.Unlock()
-		c.store.UpdateServerStatus(ctx, serverID, "error")
+		c.store.UpdateServerStatus(ctx, serverID, organizationID, "error")
 		return fmt.Errorf("connect failed: %w", err)
 	}
 
@@ -176,18 +179,18 @@ func (c *Client) Connect(ctx context.Context, serverID string) error {
 	conn.tools = tools
 	c.mu.Unlock()
 
-	c.store.UpdateServerStatus(ctx, serverID, "connected")
+	c.store.UpdateServerStatus(ctx, serverID, organizationID, "connected")
 
 	return nil
 }
 
 // Disconnect 断开连接
-func (c *Client) Disconnect(serverID string) error {
+func (c *Client) Disconnect(serverID, organizationID string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	conn, ok := c.servers[serverID]
-	if !ok {
+	if !ok || conn.server.OrganizationID != organizationID {
 		return nil
 	}
 
@@ -196,12 +199,12 @@ func (c *Client) Disconnect(serverID string) error {
 }
 
 // ListTools 列出 MCP Server 的工具
-func (c *Client) ListTools(serverID string) ([]ToolDefinition, error) {
+func (c *Client) ListTools(serverID, organizationID string) ([]ToolDefinition, error) {
 	c.mu.RLock()
 	conn, ok := c.servers[serverID]
 	c.mu.RUnlock()
 
-	if !ok {
+	if !ok || conn.server.OrganizationID != organizationID {
 		return nil, fmt.Errorf("server not found: %s", serverID)
 	}
 
@@ -213,12 +216,12 @@ func (c *Client) ListTools(serverID string) ([]ToolDefinition, error) {
 }
 
 // CallTool 调用 MCP 工具
-func (c *Client) CallTool(ctx context.Context, serverID, toolName string, args map[string]any) (*ToolResult, error) {
+func (c *Client) CallTool(ctx context.Context, serverID, organizationID, toolName string, args map[string]any) (*ToolResult, error) {
 	c.mu.RLock()
 	conn, ok := c.servers[serverID]
 	c.mu.RUnlock()
 
-	if !ok {
+	if !ok || conn.server.OrganizationID != organizationID {
 		return nil, fmt.Errorf("server not found: %s", serverID)
 	}
 
@@ -333,11 +336,11 @@ func (c *Client) sendRequest(ctx context.Context, server *Server, req any) ([]by
 }
 
 // GetServerStatus 获取服务器状态
-func (c *Client) GetServerStatus(serverID string) string {
+func (c *Client) GetServerStatus(serverID, organizationID string) string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if conn, ok := c.servers[serverID]; ok {
+	if conn, ok := c.servers[serverID]; ok && conn.server.OrganizationID == organizationID {
 		return conn.status
 	}
 	return "unknown"
@@ -354,40 +357,41 @@ func NewSQLStore(db *sql.DB) *SQLStore {
 }
 
 // CreateServer 创建 Server
-func (s *SQLStore) CreateServer(ctx context.Context, userID string, server *Server) (*Server, error) {
+func (s *SQLStore) CreateServer(ctx context.Context, userID, organizationID string, server *Server) (*Server, error) {
 	id := fmt.Sprintf("mcp_%d", time.Now().UnixNano())
 	now := time.Now()
 
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO mcp_servers (id, user_id, name, url, auth_token_encrypted, status, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`, id, userID, server.Name, server.URL, server.AuthToken, "disconnected", now, now)
+		INSERT INTO mcp_servers (id, user_id, organization_id, name, url, auth_token_encrypted, status, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`, id, userID, organizationID, server.Name, server.URL, server.AuthToken, "disconnected", now, now)
 	if err != nil {
 		return nil, fmt.Errorf("insert server: %w", err)
 	}
 
 	return &Server{
-		ID:        id,
-		UserID:    userID,
-		Name:      server.Name,
-		URL:       server.URL,
-		AuthToken: server.AuthToken,
-		Status:    "disconnected",
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:             id,
+		OrganizationID: organizationID,
+		UserID:         userID,
+		Name:           server.Name,
+		URL:            server.URL,
+		AuthToken:      server.AuthToken,
+		Status:         "disconnected",
+		CreatedAt:      now,
+		UpdatedAt:      now,
 	}, nil
 }
 
 // GetServer 获取 Server
-func (s *SQLStore) GetServer(ctx context.Context, id string) (*Server, error) {
+func (s *SQLStore) GetServer(ctx context.Context, id, organizationID string) (*Server, error) {
 	var server Server
 	var authToken sql.NullString
 	var lastConnected sql.NullTime
 
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, user_id, name, url, auth_token_encrypted, status, last_connected_at, created_at, updated_at
-		FROM mcp_servers WHERE id = $1
-	`, id).Scan(&server.ID, &server.UserID, &server.Name, &server.URL, &authToken, &server.Status, &lastConnected, &server.CreatedAt, &server.UpdatedAt)
+		SELECT id, organization_id, user_id, name, url, auth_token_encrypted, status, last_connected_at, created_at, updated_at
+		FROM mcp_servers WHERE id = $1 AND organization_id = $2
+	`, id, organizationID).Scan(&server.ID, &server.OrganizationID, &server.UserID, &server.Name, &server.URL, &authToken, &server.Status, &lastConnected, &server.CreatedAt, &server.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -404,11 +408,11 @@ func (s *SQLStore) GetServer(ctx context.Context, id string) (*Server, error) {
 }
 
 // ListServers 列出用户的 Server
-func (s *SQLStore) ListServers(ctx context.Context, userID string) ([]*Server, error) {
+func (s *SQLStore) ListServers(ctx context.Context, userID, organizationID string) ([]*Server, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, user_id, name, url, auth_token_encrypted, status, last_connected_at, created_at, updated_at
-		FROM mcp_servers WHERE user_id = $1 ORDER BY created_at DESC
-	`, userID)
+		SELECT id, organization_id, user_id, name, url, auth_token_encrypted, status, last_connected_at, created_at, updated_at
+		FROM mcp_servers WHERE user_id = $1 AND organization_id = $2 ORDER BY created_at DESC
+	`, userID, organizationID)
 	if err != nil {
 		return nil, fmt.Errorf("list servers: %w", err)
 	}
@@ -420,7 +424,7 @@ func (s *SQLStore) ListServers(ctx context.Context, userID string) ([]*Server, e
 		var authToken sql.NullString
 		var lastConnected sql.NullTime
 
-		err := rows.Scan(&server.ID, &server.UserID, &server.Name, &server.URL, &authToken, &server.Status, &lastConnected, &server.CreatedAt, &server.UpdatedAt)
+		err := rows.Scan(&server.ID, &server.OrganizationID, &server.UserID, &server.Name, &server.URL, &authToken, &server.Status, &lastConnected, &server.CreatedAt, &server.UpdatedAt)
 		if err != nil {
 			return nil, fmt.Errorf("scan server: %w", err)
 		}
@@ -436,7 +440,7 @@ func (s *SQLStore) ListServers(ctx context.Context, userID string) ([]*Server, e
 }
 
 // UpdateServerStatus 更新服务器状态
-func (s *SQLStore) UpdateServerStatus(ctx context.Context, id string, status string) error {
+func (s *SQLStore) UpdateServerStatus(ctx context.Context, id, organizationID string, status string) error {
 	now := time.Now()
 	var lastConnected interface{}
 	if status == "connected" {
@@ -444,13 +448,13 @@ func (s *SQLStore) UpdateServerStatus(ctx context.Context, id string, status str
 	}
 
 	_, err := s.db.ExecContext(ctx, `
-		UPDATE mcp_servers SET status = $2, last_connected_at = $3, updated_at = $4 WHERE id = $1
-	`, id, status, lastConnected, now)
+		UPDATE mcp_servers SET status = $2, last_connected_at = $3, updated_at = $4 WHERE id = $1 AND organization_id = $5
+	`, id, status, lastConnected, now, organizationID)
 	return err
 }
 
 // DeleteServer 删除 Server
-func (s *SQLStore) DeleteServer(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM mcp_servers WHERE id = $1`, id)
+func (s *SQLStore) DeleteServer(ctx context.Context, id, organizationID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM mcp_servers WHERE id = $1 AND organization_id = $2`, id, organizationID)
 	return err
 }

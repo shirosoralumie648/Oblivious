@@ -179,6 +179,14 @@ func (h agentHandler) listConversations(w stdhttp.ResponseWriter, r *stdhttp.Req
 
 	convs, err := h.service.ListConversations(r.Context(), session, agentID)
 	if err != nil {
+		if err.Error() == "agent not found" {
+			writeError(w, stdhttp.StatusNotFound, "not_found", err.Error())
+			return
+		}
+		if err.Error() == "access denied" {
+			writeError(w, stdhttp.StatusForbidden, "forbidden", err.Error())
+			return
+		}
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
 		return
 	}
@@ -261,9 +269,10 @@ func (h agentHandler) sendMessage(w stdhttp.ResponseWriter, r *stdhttp.Request, 
 	}
 
 	msg, err := h.service.SendMessage(chat.WithRelayRequestMetadata(r.Context(), chat.RelayRequestMetadata{
-		UserID:      session.User.ID,
-		WorkspaceID: session.WorkspaceID,
-		RequestID:   requestIDFromContext(r.Context()),
+		OrganizationID: session.OrganizationID,
+		UserID:         session.User.ID,
+		WorkspaceID:    session.WorkspaceID,
+		RequestID:      requestIDFromContext(r.Context()),
 	}), session, conversationID, content)
 	if err != nil {
 		if err.Error() == "conversation not found" || err.Error() == "agent not found" {
