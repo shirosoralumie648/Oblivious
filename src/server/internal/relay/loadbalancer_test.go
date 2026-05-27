@@ -1,12 +1,15 @@
 package relay
 
 import (
+	"math/rand"
 	"testing"
 
 	"oblivious/server/internal/relay/types"
 )
 
 func TestLoadBalancer_Weighted(t *testing.T) {
+	rand.Seed(1)
+
 	pool := NewChannelPool()
 	pool.AddChannel(&types.Channel{ID: "a", BaseURL: "http://a", Enabled: true}, 3)
 	pool.AddChannel(&types.Channel{ID: "b", BaseURL: "http://b", Enabled: true}, 1)
@@ -14,19 +17,20 @@ func TestLoadBalancer_Weighted(t *testing.T) {
 	lb := NewLoadBalancer(pool, "weighted")
 
 	counts := map[string]int{"a": 0, "b": 0}
-	for i := 0; i < 40; i++ {
+	for i := 0; i < 400; i++ {
 		ch := lb.Select("chat")
 		if ch != nil {
 			counts[ch.Channel.ID]++
 		}
 	}
 
-	// a should appear ~3x more than b
-	if counts["a"] < 20 || counts["a"] > 35 {
-		t.Fatalf("expected ~30 selections for a, got %d", counts["a"])
+	// a should appear roughly 3x more often than b without relying on a
+	// tiny random sample that flakes under normal test runs.
+	if counts["a"] < 250 || counts["a"] > 350 {
+		t.Fatalf("expected ~300 selections for a, got %d", counts["a"])
 	}
-	if counts["b"] < 5 || counts["b"] > 15 {
-		t.Fatalf("expected ~10 selections for b, got %d", counts["b"])
+	if counts["b"] < 50 || counts["b"] > 150 {
+		t.Fatalf("expected ~100 selections for b, got %d", counts["b"])
 	}
 }
 
