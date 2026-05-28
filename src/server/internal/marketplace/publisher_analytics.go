@@ -7,11 +7,19 @@ import (
 
 // PublisherStats holds aggregate statistics for a publisher's agents (D-23).
 type PublisherStats struct {
-	TotalAgents   int          `json:"totalAgents"`
-	TotalInstalls int          `json:"totalInstalls"`
-	ActiveUsers   int          `json:"activeUsers"`
-	TotalAPICalls int          `json:"totalAPICalls"`
-	PerAgentStats []AgentStats `json:"perAgentStats"`
+	TotalAgents             int          `json:"totalAgents"`
+	TotalInstalls           int          `json:"totalInstalls"`
+	ActiveUsers             int          `json:"activeUsers"`
+	TotalAPICalls           int          `json:"totalAPICalls"`
+	GrossRevenue            float64      `json:"grossRevenue"`
+	PlatformFees            float64      `json:"platformFees"`
+	NetRevenue              float64      `json:"netRevenue"`
+	RefundedAmount          float64      `json:"refundedAmount"`
+	PendingSettlementAmount float64      `json:"pendingSettlementAmount"`
+	AvailableAmount         float64      `json:"availableAmount"`
+	PayoutPendingAmount     float64      `json:"payoutPendingAmount"`
+	PaidOutAmount           float64      `json:"paidOutAmount"`
+	PerAgentStats           []AgentStats `json:"perAgentStats"`
 }
 
 // AgentStats holds per-agent statistics for a publisher (D-23).
@@ -58,6 +66,24 @@ func (s *Service) GetPublisherStats(ctx context.Context, ownerID, organizationID
 	// Total API calls: requires schema extension (usage_records.agent_id column).
 	// For now, default to 0. See deferred items.
 	stats.TotalAPICalls = 0
+
+	if err := db.QueryRowContext(ctx, `
+		SELECT
+			COALESCE(SUM(gross_amount), 0),
+			COALESCE(SUM(platform_fee_amount), 0),
+			COALESCE(SUM(publisher_net_amount), 0),
+			COALESCE(SUM(refunded_amount), 0),
+			COALESCE(SUM(CASE WHEN status = 'pending' THEN publisher_net_amount - refunded_amount ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN status = 'available' THEN publisher_net_amount - refunded_amount ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN status = 'payout_pending' THEN publisher_net_amount - refunded_amount ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN status = 'paid_out' THEN publisher_net_amount - refunded_amount ELSE 0 END), 0)
+		FROM marketplace_settlements
+		WHERE publisher_user_id = $1 AND publisher_organization_id = $2
+	`, ownerID, organizationID).Scan(&stats.GrossRevenue, &stats.PlatformFees, &stats.NetRevenue,
+		&stats.RefundedAmount, &stats.PendingSettlementAmount, &stats.AvailableAmount,
+		&stats.PayoutPendingAmount, &stats.PaidOutAmount); err != nil {
+		return nil, fmt.Errorf("get publisher stats: settlement amounts: %w", err)
+	}
 
 	// Per-agent stats
 	rows, err := db.QueryContext(ctx, `

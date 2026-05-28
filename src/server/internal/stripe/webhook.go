@@ -108,7 +108,8 @@ func enrichCheckoutCompletedRecord(record *WebhookEvent, event stripeapi.Event) 
 
 	checkoutKind := session.Metadata["checkout_kind"]
 	planID := session.Metadata["plan_id"]
-	if record.OrganizationID == "" || record.UserID == "" || (checkoutKind != "topup" && planID == "") {
+	planRequired := checkoutKind != "topup" && checkoutKind != "marketplace_install"
+	if record.OrganizationID == "" || record.UserID == "" || (planRequired && planID == "") {
 		record.Status = "failed"
 		record.Error = fmt.Sprintf("checkout.session.completed: missing organization_id, user_id, or plan_id (organization_id=%q, user_id=%q, plan_id=%q)", record.OrganizationID, record.UserID, planID)
 	}

@@ -6,15 +6,33 @@ import (
 	"strings"
 
 	"oblivious/server/internal/marketplace"
+	stripebilling "oblivious/server/internal/stripe"
 )
 
 type marketplaceHandler struct {
-	service       *marketplace.Service
-	searchService *marketplace.SearchService
+	service           *marketplace.Service
+	searchService     *marketplace.SearchService
+	settlementService *marketplace.SettlementService
+	checkoutCreator   stripebilling.CheckoutCreator
+	checkoutConfig    stripebilling.CheckoutConfig
 }
 
-func newMarketplaceHandler(service *marketplace.Service, searchService *marketplace.SearchService) marketplaceHandler {
-	return marketplaceHandler{service: service, searchService: searchService}
+type marketplaceHandlerOption func(*marketplaceHandler)
+
+func newMarketplaceHandler(service *marketplace.Service, searchService *marketplace.SearchService, options ...marketplaceHandlerOption) marketplaceHandler {
+	handler := marketplaceHandler{service: service, searchService: searchService}
+	for _, option := range options {
+		option(&handler)
+	}
+	return handler
+}
+
+func withMarketplaceCheckout(settlementService *marketplace.SettlementService, checkoutCreator stripebilling.CheckoutCreator, checkoutConfig stripebilling.CheckoutConfig) marketplaceHandlerOption {
+	return func(handler *marketplaceHandler) {
+		handler.settlementService = settlementService
+		handler.checkoutCreator = checkoutCreator
+		handler.checkoutConfig = checkoutConfig
+	}
 }
 
 func (h marketplaceHandler) listAgents(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -127,6 +145,20 @@ func (h marketplaceHandler) installAgent(w stdhttp.ResponseWriter, r *stdhttp.Re
 		}
 	}
 
+	agent, err := h.service.GetAgent(r.Context(), agentID)
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+	if agent == nil {
+		writeError(w, stdhttp.StatusNotFound, "not_found", "agent not found")
+		return
+	}
+	if agent.PricingType != "free" && agent.PricingAmount > 0 {
+		h.createPaidInstallCheckout(w, r, session.User.ID, session.OrganizationID, agent, versionID)
+		return
+	}
+
 	install, err := h.service.InstallAgent(r.Context(), session.User.ID, session.OrganizationID, agentID, versionID)
 	if err != nil {
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
@@ -134,6 +166,52 @@ func (h marketplaceHandler) installAgent(w stdhttp.ResponseWriter, r *stdhttp.Re
 	}
 
 	writeSuccess(w, stdhttp.StatusCreated, install)
+}
+
+func (h marketplaceHandler) createPaidInstallCheckout(w stdhttp.ResponseWriter, r *stdhttp.Request, userID string, organizationID string, agent *marketplace.PublishedAgent, versionID string) {
+	if h.settlementService == nil || h.checkoutCreator == nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "marketplace paid checkout is not configured")
+		return
+	}
+	order, err := h.settlementService.CreatePaidInstallCheckout(r.Context(), marketplace.PaidInstallCheckoutRequest{
+		BuyerOrganizationID: organizationID,
+		BuyerUserID:         userID,
+		AgentID:             agent.ID,
+		VersionID:           versionID,
+	})
+	if err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+
+	checkoutSession, err := h.checkoutCreator.CreateCheckoutSession(r.Context(), h.checkoutConfig, stripebilling.CheckoutSessionRequest{
+		OrganizationID:          organizationID,
+		UserID:                  userID,
+		PaymentIntentID:         order.PaymentIntentID,
+		PlanID:                  agent.ID,
+		PlanName:                agent.Name,
+		PlanPrice:               order.GrossAmount,
+		Currency:                order.Currency,
+		CheckoutKind:            "marketplace_install",
+		MarketplaceOrderID:      order.ID,
+		AgentID:                 order.AgentID,
+		VersionID:               order.VersionID,
+		PublisherUserID:         order.PublisherUserID,
+		PublisherOrganizationID: order.PublisherOrganizationID,
+	})
+	if err != nil {
+		writeError(w, stdhttp.StatusBadGateway, "checkout_create_failed", "create checkout session failed")
+		return
+	}
+	if err := h.settlementService.SetPaidInstallCheckoutSession(r.Context(), order.ID, order.PaymentIntentID, checkoutSession.ID); err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "record marketplace checkout session failed")
+		return
+	}
+
+	writeSuccess(w, stdhttp.StatusCreated, billingCheckoutResponse{
+		CheckoutSessionID: checkoutSession.ID,
+		URL:               checkoutSession.URL,
+	})
 }
 
 func (h marketplaceHandler) uninstallAgent(w stdhttp.ResponseWriter, r *stdhttp.Request, agentID string) {

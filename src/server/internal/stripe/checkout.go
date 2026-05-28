@@ -19,15 +19,20 @@ type CheckoutConfig struct {
 
 // CheckoutSessionRequest holds the data needed to create a checkout session.
 type CheckoutSessionRequest struct {
-	OrganizationID  string  // ID of the tenant purchasing the plan
-	UserID          string  // ID of the subscribing user
-	PaymentIntentID string  // Internal payment intent ID for reconciliation
-	PlanID          string  // ID of the plan being purchased
-	PlanName        string  // Display name of the plan
-	PlanPrice       float64 // Plan price in USD (converted to cents)
-	Currency        string  // Stripe currency code
-	CheckoutKind    string  // subscription or topup
-	DurationDays    *int    // If set, creates a recurring subscription
+	OrganizationID          string  // ID of the tenant purchasing the plan
+	UserID                  string  // ID of the subscribing user
+	PaymentIntentID         string  // Internal payment intent ID for reconciliation
+	PlanID                  string  // ID of the plan being purchased
+	PlanName                string  // Display name of the plan
+	PlanPrice               float64 // Plan price in USD (converted to cents)
+	Currency                string  // Stripe currency code
+	CheckoutKind            string  // subscription, topup, or marketplace_install
+	DurationDays            *int    // If set, creates a recurring subscription
+	MarketplaceOrderID      string  // Marketplace order ID for paid installs
+	AgentID                 string  // Marketplace agent ID for paid installs
+	VersionID               string  // Marketplace agent version ID for paid installs
+	PublisherUserID         string  // Marketplace publisher user ID for paid installs
+	PublisherOrganizationID string  // Marketplace publisher organization ID for paid installs
 }
 
 type CheckoutCreator interface {
@@ -77,6 +82,29 @@ func CreateCheckoutSession(ctx context.Context, cfg CheckoutConfig, req Checkout
 		}
 	}
 
+	metadata := map[string]string{
+		"organization_id":   req.OrganizationID,
+		"user_id":           req.UserID,
+		"payment_intent_id": req.PaymentIntentID,
+		"plan_id":           req.PlanID,
+		"checkout_kind":     checkoutKind,
+	}
+	if req.MarketplaceOrderID != "" {
+		metadata["marketplace_order_id"] = req.MarketplaceOrderID
+	}
+	if req.AgentID != "" {
+		metadata["agent_id"] = req.AgentID
+	}
+	if req.VersionID != "" {
+		metadata["version_id"] = req.VersionID
+	}
+	if req.PublisherUserID != "" {
+		metadata["publisher_user_id"] = req.PublisherUserID
+	}
+	if req.PublisherOrganizationID != "" {
+		metadata["publisher_organization_id"] = req.PublisherOrganizationID
+	}
+
 	params := &stripe.CheckoutSessionParams{
 		PaymentMethodTypes: []*string{
 			stripe.String("card"),
@@ -98,13 +126,7 @@ func CreateCheckoutSession(ctx context.Context, cfg CheckoutConfig, req Checkout
 		SuccessURL:        stripe.String(cfg.SuccessURL + "?session_id={CHECKOUT_SESSION_ID}"),
 		CancelURL:         stripe.String(cfg.CancelURL),
 		ClientReferenceID: stripe.String(req.PaymentIntentID),
-		Metadata: map[string]string{
-			"organization_id":   req.OrganizationID,
-			"user_id":           req.UserID,
-			"payment_intent_id": req.PaymentIntentID,
-			"plan_id":           req.PlanID,
-			"checkout_kind":     checkoutKind,
-		},
+		Metadata:          metadata,
 	}
 
 	sess, err := session.New(params)

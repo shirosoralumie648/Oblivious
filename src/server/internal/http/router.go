@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	stdhttp "net/http"
@@ -35,6 +36,21 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 
 type RouterOptions struct {
 	CheckoutCreator stripebilling.CheckoutCreator
+}
+
+type stripeMarketplaceSettlementAdapter struct {
+	service *marketplace.SettlementService
+}
+
+func (a stripeMarketplaceSettlementAdapter) ApplyPaidInstallCheckoutCompleted(ctx context.Context, input stripebilling.MarketplaceCheckoutCompleted) error {
+	_, err := a.service.ApplyPaidInstallCheckoutCompleted(ctx, marketplace.PaidInstallCheckoutCompleted{
+		EventID:                   input.EventID,
+		OrderID:                   input.OrderID,
+		PaymentIntentID:           input.PaymentIntentID,
+		ProviderCheckoutSessionID: input.ProviderCheckoutSessionID,
+		ProviderPaymentIntentID:   input.ProviderPaymentIntentID,
+	})
+	return err
 }
 
 func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOptions) stdhttp.Handler {
@@ -114,6 +130,8 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	// Quota service
 	quotaService := quota.NewService(quota.NewSQLStore(database))
 	quotaHandler := newQuotaHandler(quotaService)
+	marketplaceStore := marketplace.NewSQLStore(database)
+	marketplaceSettlementService := marketplace.NewSettlementService(marketplaceStore)
 	checkoutCreator := options.CheckoutCreator
 	if checkoutCreator == nil {
 		checkoutCreator = stripebilling.CheckoutCreatorFunc(stripebilling.CreateCheckoutSession)
@@ -127,7 +145,10 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	stripeWebhookHandler := stripebilling.NewWebhookHandler(
 		stripebilling.NewSQLWebhookLedger(database),
 		cfg.StripeWebhookSecret,
-		stripebilling.NewLifecycleService(stripebilling.NewSQLLifecycleStore(database)),
+		stripebilling.NewLifecycleService(
+			stripebilling.NewSQLLifecycleStore(database),
+			stripebilling.WithMarketplaceSettlementApplier(stripeMarketplaceSettlementAdapter{service: marketplaceSettlementService}),
+		),
 	)
 
 	// Admin service
@@ -137,10 +158,15 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	sensitiveActionRateLimit := auth.RateLimitPolicy{Limit: 5, Window: time.Minute, BlockDuration: 15 * time.Minute}
 
 	// Marketplace service
-	marketplaceStore := marketplace.NewSQLStore(database)
 	marketplaceHandler := newMarketplaceHandler(
 		marketplace.NewService(marketplaceStore, adminService),
 		marketplace.NewSearchService(database),
+		withMarketplaceCheckout(marketplaceSettlementService, checkoutCreator, stripebilling.CheckoutConfig{
+			SecretKey:     cfg.StripeSecretKey,
+			SuccessURL:    cfg.StripeSuccessURL,
+			CancelURL:     cfg.StripeCancelURL,
+			WebhookSecret: cfg.StripeWebhookSecret,
+		}),
 	)
 
 	// Notification service

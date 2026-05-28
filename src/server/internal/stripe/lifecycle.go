@@ -13,7 +13,22 @@ import (
 
 // LifecycleService applies verified provider events to local billing state.
 type LifecycleService struct {
-	store LifecycleStore
+	store              LifecycleStore
+	marketplaceApplier MarketplaceSettlementApplier
+}
+
+type LifecycleOption func(*LifecycleService)
+
+type MarketplaceSettlementApplier interface {
+	ApplyPaidInstallCheckoutCompleted(ctx context.Context, input MarketplaceCheckoutCompleted) error
+}
+
+type MarketplaceCheckoutCompleted struct {
+	EventID                   string
+	OrderID                   string
+	PaymentIntentID           string
+	ProviderCheckoutSessionID string
+	ProviderPaymentIntentID   string
 }
 
 // LifecycleStore persists idempotent billing lifecycle transitions.
@@ -26,8 +41,18 @@ type LifecycleStore interface {
 	ApplyRefund(ctx context.Context, eventID string, input refundLifecycle, payload []byte) error
 }
 
-func NewLifecycleService(store LifecycleStore) *LifecycleService {
-	return &LifecycleService{store: store}
+func WithMarketplaceSettlementApplier(applier MarketplaceSettlementApplier) LifecycleOption {
+	return func(service *LifecycleService) {
+		service.marketplaceApplier = applier
+	}
+}
+
+func NewLifecycleService(store LifecycleStore, options ...LifecycleOption) *LifecycleService {
+	service := &LifecycleService{store: store}
+	for _, option := range options {
+		option(service)
+	}
+	return service
 }
 
 func (s *LifecycleService) ApplyStripeEvent(ctx context.Context, event stripeapi.Event, payload []byte) error {
@@ -39,6 +64,18 @@ func (s *LifecycleService) ApplyStripeEvent(ctx context.Context, event stripeapi
 		input, err := parseCheckoutCompleted(event)
 		if err != nil {
 			return err
+		}
+		if input.Kind == "marketplace_install" {
+			if s.marketplaceApplier == nil {
+				return fmt.Errorf("checkout.session.completed: marketplace settlement applier is not configured")
+			}
+			return s.marketplaceApplier.ApplyPaidInstallCheckoutCompleted(ctx, MarketplaceCheckoutCompleted{
+				EventID:                   event.ID,
+				OrderID:                   input.MarketplaceOrderID,
+				PaymentIntentID:           input.PaymentIntentID,
+				ProviderCheckoutSessionID: input.ProviderCheckoutSessionID,
+				ProviderPaymentIntentID:   input.ProviderPaymentIntentID,
+			})
 		}
 		return s.store.ApplyCheckoutCompleted(ctx, event.ID, input, payload)
 	case "invoice.paid":
@@ -87,6 +124,11 @@ type checkoutCompletedLifecycle struct {
 	ProviderSubscriptionID    string
 	ProviderCustomerID        string
 	ProviderCheckoutSessionID string
+	MarketplaceOrderID        string
+	AgentID                   string
+	VersionID                 string
+	PublisherUserID           string
+	PublisherOrganizationID   string
 	Amount                    float64
 	Currency                  string
 }
@@ -147,6 +189,11 @@ func parseCheckoutCompleted(event stripeapi.Event) (checkoutCompletedLifecycle, 
 		ProviderSubscriptionID:    string(session.Subscription),
 		ProviderCustomerID:        string(session.Customer),
 		ProviderCheckoutSessionID: session.ID,
+		MarketplaceOrderID:        metadata["marketplace_order_id"],
+		AgentID:                   metadata["agent_id"],
+		VersionID:                 metadata["version_id"],
+		PublisherUserID:           metadata["publisher_user_id"],
+		PublisherOrganizationID:   metadata["publisher_organization_id"],
 		Amount:                    float64(session.AmountTotal) / 100,
 		Currency:                  session.Currency,
 	}
@@ -164,6 +211,9 @@ func parseCheckoutCompleted(event stripeapi.Event) (checkoutCompletedLifecycle, 
 	}
 	if input.Kind == "subscription" && input.PackageID == "" {
 		return checkoutCompletedLifecycle{}, fmt.Errorf("checkout.session.completed: missing plan_id for subscription checkout")
+	}
+	if input.Kind == "marketplace_install" && input.MarketplaceOrderID == "" {
+		return checkoutCompletedLifecycle{}, fmt.Errorf("checkout.session.completed: missing marketplace_order_id for marketplace install checkout")
 	}
 	return input, nil
 }

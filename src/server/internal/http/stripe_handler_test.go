@@ -150,6 +150,41 @@ func signedHTTPCheckoutCompletedPayload(secret string, eventID string, organizat
 	})
 }
 
+func signedHTTPMarketplaceCheckoutCompletedPayload(secret string, eventID string, metadata map[string]string, fields map[string]string) *webhook.SignedPayload {
+	payload := []byte(`{
+		"id": "` + eventID + `",
+		"object": "event",
+		"api_version": "` + stripeapi.APIVersion + `",
+		"type": "checkout.session.completed",
+		"data": {
+			"object": {
+				"id": "` + fields["id"] + `",
+				"object": "checkout.session",
+				"client_reference_id": "` + metadata["payment_intent_id"] + `",
+				"payment_intent": "` + fields["payment_intent"] + `",
+				"amount_total": ` + fields["amount_total"] + `,
+				"currency": "` + fields["currency"] + `",
+				"metadata": {
+					"organization_id": "` + metadata["organization_id"] + `",
+					"user_id": "` + metadata["user_id"] + `",
+					"payment_intent_id": "` + metadata["payment_intent_id"] + `",
+					"checkout_kind": "` + metadata["checkout_kind"] + `",
+					"marketplace_order_id": "` + metadata["marketplace_order_id"] + `",
+					"agent_id": "` + metadata["agent_id"] + `",
+					"version_id": "` + metadata["version_id"] + `",
+					"publisher_user_id": "` + metadata["publisher_user_id"] + `",
+					"publisher_organization_id": "` + metadata["publisher_organization_id"] + `"
+				}
+			}
+		}
+	}`)
+
+	return webhook.GenerateTestSignedPayload(&webhook.UnsignedPayload{
+		Payload: payload,
+		Secret:  secret,
+	})
+}
+
 func TestBillingCheckoutPersistsTenantPaymentIntent(t *testing.T) {
 	database := testDatabase(t)
 	fakeCreator := &fakeCheckoutCreator{database: database}
@@ -216,6 +251,156 @@ func TestBillingCheckoutPersistsTenantPaymentIntent(t *testing.T) {
 	}
 	if providerSessionID != "cs_test_phase17" || amount != 29 || status != "pending" {
 		t.Fatalf("stored wrong checkout state: session=%s amount=%.2f status=%s", providerSessionID, amount, status)
+	}
+}
+
+func TestMarketplacePaidInstallDoesNotInstallBeforeWebhook(t *testing.T) {
+	database := testDatabase(t)
+	fakeCreator := &fakeCheckoutCreator{database: database}
+	cfg := testConfig()
+	cfg.StripeSuccessURL = "https://app.oblivious.test/marketplace/success"
+	cfg.StripeCancelURL = "https://app.oblivious.test/marketplace/cancel"
+	router := NewRouterWithOptions(cfg, database, RouterOptions{CheckoutCreator: fakeCreator})
+
+	cookie, csrfToken, buyerUserID := registerHTTPUser(t, router, "marketplace-paid-buyer@example.com")
+	_, buyerOrganizationID := queryHTTPUserScope(t, database, buyerUserID)
+	publisherCookie, publisherCSRF, publisherUserID := registerHTTPUser(t, router, "marketplace-paid-publisher@example.com")
+	_, publisherOrganizationID := queryHTTPUserScope(t, database, publisherUserID)
+	_ = publisherCookie
+	_ = publisherCSRF
+
+	if _, err := database.Exec(`
+		INSERT INTO published_agents (
+			id, owner_id, organization_id, name, description, tools, example_conversations,
+			visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at
+		)
+		VALUES ('agent_paid_http', $1, $2, 'Paid HTTP Agent', 'Paid marketplace route test agent.',
+		        '{"tools":[{"name":"paid"}]}'::jsonb, '[]'::jsonb, 'public', 'approved',
+		        'one_time', 50, 0, 0, 0, NOW(), NOW())
+	`, publisherUserID, publisherOrganizationID); err != nil {
+		t.Fatalf("insert paid marketplace agent: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO agent_versions (id, agent_id, organization_id, version, changelog, metadata, status, created_at)
+		VALUES ('version_agent_paid_http', 'agent_paid_http', $1, '1.0.0', 'initial', '{}', 'approved', NOW())
+	`, publisherOrganizationID); err != nil {
+		t.Fatalf("insert paid marketplace version: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/marketplace/agents/agent_paid_http/install?versionID=version_agent_paid_http", nil)
+	request.AddCookie(cookie)
+	addCSRF(request, csrfToken)
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("paid install expected checkout 201, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if fakeCreator.request.CheckoutKind != "marketplace_install" || fakeCreator.request.AgentID != "agent_paid_http" || fakeCreator.request.MarketplaceOrderID == "" {
+		t.Fatalf("checkout creator saw wrong marketplace metadata: %+v", fakeCreator.request)
+	}
+	if fakeCreator.request.OrganizationID != buyerOrganizationID || fakeCreator.request.UserID != buyerUserID || fakeCreator.request.PlanPrice != 50 {
+		t.Fatalf("checkout creator saw wrong buyer/amount: %+v buyerOrg=%s buyerUser=%s", fakeCreator.request, buyerOrganizationID, buyerUserID)
+	}
+
+	var installCount, orderCount, intentCount int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM agent_installs WHERE agent_id = 'agent_paid_http'`).Scan(&installCount); err != nil {
+		t.Fatalf("count paid installs: %v", err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM marketplace_orders WHERE agent_id = 'agent_paid_http' AND status = 'pending_payment'`).Scan(&orderCount); err != nil {
+		t.Fatalf("count marketplace orders: %v", err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM payment_intents WHERE kind = 'marketplace_install' AND organization_id = $1`, buyerOrganizationID).Scan(&intentCount); err != nil {
+		t.Fatalf("count marketplace payment intents: %v", err)
+	}
+	if installCount != 0 || orderCount != 1 || intentCount != 1 {
+		t.Fatalf("expected no install and one pending order/intent, got installs=%d orders=%d intents=%d", installCount, orderCount, intentCount)
+	}
+}
+
+func TestStripeWebhookRouteAppliesMarketplaceInstallSettlementOnce(t *testing.T) {
+	database := testDatabase(t)
+	fakeCreator := &fakeCheckoutCreator{database: database}
+	cfg := testConfig()
+	cfg.StripeWebhookSecret = "whsec_marketplace"
+	cfg.StripeSuccessURL = "https://app.oblivious.test/marketplace/success"
+	cfg.StripeCancelURL = "https://app.oblivious.test/marketplace/cancel"
+	router := NewRouterWithOptions(cfg, database, RouterOptions{CheckoutCreator: fakeCreator})
+
+	cookie, csrfToken, buyerUserID := registerHTTPUser(t, router, "marketplace-webhook-buyer@example.com")
+	_, buyerOrganizationID := queryHTTPUserScope(t, database, buyerUserID)
+	_, _, publisherUserID := registerHTTPUser(t, router, "marketplace-webhook-publisher@example.com")
+	_, publisherOrganizationID := queryHTTPUserScope(t, database, publisherUserID)
+
+	if _, err := database.Exec(`
+		INSERT INTO published_agents (
+			id, owner_id, organization_id, name, description, tools, example_conversations,
+			visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at
+		)
+		VALUES ('agent_paid_webhook', $1, $2, 'Paid Webhook Agent', 'Paid marketplace webhook test agent.',
+		        '{"tools":[{"name":"paid"}]}'::jsonb, '[]'::jsonb, 'public', 'approved',
+		        'one_time', 50, 0, 0, 0, NOW(), NOW())
+	`, publisherUserID, publisherOrganizationID); err != nil {
+		t.Fatalf("insert paid webhook agent: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO agent_versions (id, agent_id, organization_id, version, changelog, metadata, status, created_at)
+		VALUES ('version_agent_paid_webhook', 'agent_paid_webhook', $1, '1.0.0', 'initial', '{}', 'approved', NOW())
+	`, publisherOrganizationID); err != nil {
+		t.Fatalf("insert paid webhook version: %v", err)
+	}
+
+	installRecorder := httptest.NewRecorder()
+	installRequest := httptest.NewRequest(http.MethodPost, "/api/v1/marketplace/agents/agent_paid_webhook/install?versionID=version_agent_paid_webhook", nil)
+	installRequest.AddCookie(cookie)
+	addCSRF(installRequest, csrfToken)
+	router.ServeHTTP(installRecorder, installRequest)
+	if installRecorder.Code != http.StatusCreated {
+		t.Fatalf("paid install checkout expected 201, got %d with body %s", installRecorder.Code, installRecorder.Body.String())
+	}
+
+	signed := signedHTTPMarketplaceCheckoutCompletedPayload(cfg.StripeWebhookSecret, "evt_marketplace_install", map[string]string{
+		"organization_id":           buyerOrganizationID,
+		"user_id":                   buyerUserID,
+		"payment_intent_id":         fakeCreator.request.PaymentIntentID,
+		"checkout_kind":             "marketplace_install",
+		"marketplace_order_id":      fakeCreator.request.MarketplaceOrderID,
+		"agent_id":                  fakeCreator.request.AgentID,
+		"version_id":                fakeCreator.request.VersionID,
+		"publisher_user_id":         publisherUserID,
+		"publisher_organization_id": publisherOrganizationID,
+	}, map[string]string{
+		"id":             "cs_marketplace_install",
+		"payment_intent": "pi_marketplace_install",
+		"amount_total":   "5000",
+		"currency":       "usd",
+	})
+	for i := 0; i < 2; i++ {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/billing/stripe/webhook", strings.NewReader(string(signed.Payload)))
+		request.Header.Set("Stripe-Signature", signed.Header)
+		router.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("attempt %d expected 200, got %d with body %s", i+1, recorder.Code, recorder.Body.String())
+		}
+	}
+
+	var orderStatus string
+	var installCount, settlementCount, transitionCount int
+	if err := database.QueryRow(`SELECT status FROM marketplace_orders WHERE id = $1`, fakeCreator.request.MarketplaceOrderID).Scan(&orderStatus); err != nil {
+		t.Fatalf("query marketplace order: %v", err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM agent_installs WHERE agent_id = 'agent_paid_webhook' AND organization_id = $1`, buyerOrganizationID).Scan(&installCount); err != nil {
+		t.Fatalf("count marketplace install: %v", err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM marketplace_settlements WHERE order_id = $1`, fakeCreator.request.MarketplaceOrderID).Scan(&settlementCount); err != nil {
+		t.Fatalf("count marketplace settlements: %v", err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM billing_lifecycle_events WHERE provider_event_id = 'evt_marketplace_install'`).Scan(&transitionCount); err != nil {
+		t.Fatalf("count marketplace lifecycle transitions: %v", err)
+	}
+	if orderStatus != "paid" || installCount != 1 || settlementCount != 1 || transitionCount != 1 {
+		t.Fatalf("expected paid order, one install, one settlement, one transition; got status=%s installs=%d settlements=%d transitions=%d", orderStatus, installCount, settlementCount, transitionCount)
 	}
 }
 
