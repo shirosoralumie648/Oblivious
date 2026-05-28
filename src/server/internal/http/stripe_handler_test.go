@@ -185,6 +185,38 @@ func signedHTTPMarketplaceCheckoutCompletedPayload(secret string, eventID string
 	})
 }
 
+func signedHTTPMarketplaceRefundPayload(secret string, eventID string, metadata map[string]string, fields map[string]string) *webhook.SignedPayload {
+	payload := []byte(`{
+		"id": "` + eventID + `",
+		"object": "event",
+		"api_version": "` + stripeapi.APIVersion + `",
+		"type": "refund.created",
+		"data": {
+			"object": {
+				"id": "` + fields["id"] + `",
+				"object": "refund",
+				"payment_intent": "` + fields["payment_intent"] + `",
+				"charge": "` + fields["charge"] + `",
+				"amount": ` + fields["amount"] + `,
+				"currency": "` + fields["currency"] + `",
+				"status": "` + fields["status"] + `",
+				"reason": "` + fields["reason"] + `",
+				"metadata": {
+					"organization_id": "` + metadata["organization_id"] + `",
+					"user_id": "` + metadata["user_id"] + `",
+					"payment_intent_id": "` + metadata["payment_intent_id"] + `",
+					"checkout_kind": "` + metadata["checkout_kind"] + `"
+				}
+			}
+		}
+	}`)
+
+	return webhook.GenerateTestSignedPayload(&webhook.UnsignedPayload{
+		Payload: payload,
+		Secret:  secret,
+	})
+}
+
 func TestBillingCheckoutPersistsTenantPaymentIntent(t *testing.T) {
 	database := testDatabase(t)
 	fakeCreator := &fakeCheckoutCreator{database: database}
@@ -401,6 +433,116 @@ func TestStripeWebhookRouteAppliesMarketplaceInstallSettlementOnce(t *testing.T)
 	}
 	if orderStatus != "paid" || installCount != 1 || settlementCount != 1 || transitionCount != 1 {
 		t.Fatalf("expected paid order, one install, one settlement, one transition; got status=%s installs=%d settlements=%d transitions=%d", orderStatus, installCount, settlementCount, transitionCount)
+	}
+}
+
+func TestStripeRefundUpdatesMarketplaceSettlementOnce(t *testing.T) {
+	database := testDatabase(t)
+	fakeCreator := &fakeCheckoutCreator{database: database}
+	cfg := testConfig()
+	cfg.StripeWebhookSecret = "whsec_marketplace_refund"
+	cfg.StripeSuccessURL = "https://app.oblivious.test/marketplace/success"
+	cfg.StripeCancelURL = "https://app.oblivious.test/marketplace/cancel"
+	router := NewRouterWithOptions(cfg, database, RouterOptions{CheckoutCreator: fakeCreator})
+
+	cookie, csrfToken, buyerUserID := registerHTTPUser(t, router, "marketplace-refund-buyer@example.com")
+	_, buyerOrganizationID := queryHTTPUserScope(t, database, buyerUserID)
+	_, _, publisherUserID := registerHTTPUser(t, router, "marketplace-refund-publisher@example.com")
+	_, publisherOrganizationID := queryHTTPUserScope(t, database, publisherUserID)
+
+	if _, err := database.Exec(`
+		INSERT INTO published_agents (
+			id, owner_id, organization_id, name, description, tools, example_conversations,
+			visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at
+		)
+		VALUES ('agent_paid_refund', $1, $2, 'Paid Refund Agent', 'Paid marketplace refund test agent.',
+		        '{"tools":[{"name":"paid"}]}'::jsonb, '[]'::jsonb, 'public', 'approved',
+		        'one_time', 50, 0, 0, 0, NOW(), NOW())
+	`, publisherUserID, publisherOrganizationID); err != nil {
+		t.Fatalf("insert paid refund agent: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO agent_versions (id, agent_id, organization_id, version, changelog, metadata, status, created_at)
+		VALUES ('version_agent_paid_refund', 'agent_paid_refund', $1, '1.0.0', 'initial', '{}', 'approved', NOW())
+	`, publisherOrganizationID); err != nil {
+		t.Fatalf("insert paid refund version: %v", err)
+	}
+
+	installRecorder := httptest.NewRecorder()
+	installRequest := httptest.NewRequest(http.MethodPost, "/api/v1/marketplace/agents/agent_paid_refund/install?versionID=version_agent_paid_refund", nil)
+	installRequest.AddCookie(cookie)
+	addCSRF(installRequest, csrfToken)
+	router.ServeHTTP(installRecorder, installRequest)
+	if installRecorder.Code != http.StatusCreated {
+		t.Fatalf("paid install checkout expected 201, got %d with body %s", installRecorder.Code, installRecorder.Body.String())
+	}
+
+	checkout := signedHTTPMarketplaceCheckoutCompletedPayload(cfg.StripeWebhookSecret, "evt_marketplace_refund_checkout", map[string]string{
+		"organization_id":           buyerOrganizationID,
+		"user_id":                   buyerUserID,
+		"payment_intent_id":         fakeCreator.request.PaymentIntentID,
+		"checkout_kind":             "marketplace_install",
+		"marketplace_order_id":      fakeCreator.request.MarketplaceOrderID,
+		"agent_id":                  fakeCreator.request.AgentID,
+		"version_id":                fakeCreator.request.VersionID,
+		"publisher_user_id":         publisherUserID,
+		"publisher_organization_id": publisherOrganizationID,
+	}, map[string]string{
+		"id":             "cs_marketplace_refund",
+		"payment_intent": "pi_marketplace_refund",
+		"amount_total":   "5000",
+		"currency":       "usd",
+	})
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/billing/stripe/webhook", strings.NewReader(string(checkout.Payload)))
+	request.Header.Set("Stripe-Signature", checkout.Header)
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("checkout webhook expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+
+	refund := signedHTTPMarketplaceRefundPayload(cfg.StripeWebhookSecret, "evt_marketplace_refund", map[string]string{
+		"organization_id":   buyerOrganizationID,
+		"user_id":           buyerUserID,
+		"payment_intent_id": fakeCreator.request.PaymentIntentID,
+		"checkout_kind":     "marketplace_install",
+	}, map[string]string{
+		"id":             "re_marketplace_refund",
+		"payment_intent": "pi_marketplace_refund",
+		"charge":         "ch_marketplace_refund",
+		"amount":         "1000",
+		"currency":       "usd",
+		"status":         "succeeded",
+		"reason":         "requested_by_customer",
+	})
+	for i := 0; i < 2; i++ {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/billing/stripe/webhook", strings.NewReader(string(refund.Payload)))
+		request.Header.Set("Stripe-Signature", refund.Header)
+		router.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("refund attempt %d expected 200, got %d with body %s", i+1, recorder.Code, recorder.Body.String())
+		}
+	}
+
+	var orderStatus, settlementStatus string
+	var orderRefunded, settlementRefunded float64
+	var refundCount int
+	if err := database.QueryRow(`
+		SELECT status, refunded_amount FROM marketplace_orders WHERE id = $1
+	`, fakeCreator.request.MarketplaceOrderID).Scan(&orderStatus, &orderRefunded); err != nil {
+		t.Fatalf("query refunded marketplace order: %v", err)
+	}
+	if err := database.QueryRow(`
+		SELECT status, refunded_amount FROM marketplace_settlements WHERE order_id = $1
+	`, fakeCreator.request.MarketplaceOrderID).Scan(&settlementStatus, &settlementRefunded); err != nil {
+		t.Fatalf("query refunded marketplace settlement: %v", err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM billing_refunds WHERE provider_refund_id = 're_marketplace_refund'`).Scan(&refundCount); err != nil {
+		t.Fatalf("query marketplace billing refunds: %v", err)
+	}
+	if orderStatus != "partially_refunded" || settlementStatus != "partially_refunded" || orderRefunded != 10 || settlementRefunded != 10 || refundCount != 1 {
+		t.Fatalf("expected one partial marketplace refund, got order=%s %.2f settlement=%s %.2f refunds=%d", orderStatus, orderRefunded, settlementStatus, settlementRefunded, refundCount)
 	}
 }
 

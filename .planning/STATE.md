@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v06
 milestone_name: Billing And Marketplace Operations
 status: active
-stopped_at: Phase 19 ready to execute
-last_updated: "2026-05-28T08:35:03+08:00"
-last_activity: 2026-05-28 -- Phase 19 context and execution plan created for Marketplace settlement and governance
+stopped_at: Phase 20 ready to plan
+last_updated: "2026-05-28T09:24:55+08:00"
+last_activity: 2026-05-28 -- Phase 19 Marketplace settlement and governance completed
 progress:
   total_phases: 4
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 4
-  completed_plans: 2
-  percent: 50
+  completed_plans: 3
+  percent: 75
 ---
 
 # STATE.md
@@ -22,7 +22,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-28)
 
 **Core value:** 统一的多渠道 LLM 调用层 — 所有 AI 调用必须经过 Relay
 
-**Current focus:** Phase 19 execution
+**Current focus:** Phase 20 planning
 
 ## Current Status
 
@@ -32,14 +32,14 @@ v04 Commercial Foundation is complete and archived through `.planning/milestones
 
 The overall commercial-complete objective remains open. v06 now owns commercial money movement and Marketplace governance: Stripe checkout/webhooks, subscription lifecycle, top-ups, refunds, invoices, publisher settlement, platform fees, payout state, billing admin evidence, and moderation workflows.
 
-Phase 17 completed the first v06 slice by mounting Stripe payment routes in the running server, verifying webhook signatures from the raw body, writing a dedicated idempotent webhook ledger, and preserving tenant/user/plan metadata for later subscription and Marketplace settlement phases. Phase 18 completed `PAY-03` by applying verified provider events to subscription, invoice, top-up, failed-payment, plan-change, and refund state through append-only lifecycle transitions. Phase 19 now has context and an execution plan for Marketplace settlement, platform fees, payout-state modeling, refund impact, takedown, appeal, abuse reports, and governance events.
+Phase 17 completed the first v06 slice by mounting Stripe payment routes in the running server, verifying webhook signatures from the raw body, writing a dedicated idempotent webhook ledger, and preserving tenant/user/plan metadata for later subscription and Marketplace settlement phases. Phase 18 completed `PAY-03` by applying verified provider events to subscription, invoice, top-up, failed-payment, plan-change, and refund state through append-only lifecycle transitions. Phase 19 completed `MARKET-03` and `MARKET-04` with Marketplace paid install orders, settlement/platform-fee/payout-state modeling, refund impact, takedown, appeal, reinstate, abuse reports, governance events, and publisher financial stats.
 
 ## Current Position
 
-Phase: Phase 19 — Marketplace Settlement and Governance
-Plan: 19-01-PLAN.md
-Status: ready to execute
-Last activity: 2026-05-28 -- Phase 19 context and execution plan created
+Phase: Phase 20 — Billing Admin Evidence and v06 Closeout
+Plan: not planned yet
+Status: ready to plan
+Last activity: 2026-05-28 -- Phase 19 completed
 
 ## Current Scope
 
@@ -48,16 +48,16 @@ Last activity: 2026-05-28 -- Phase 19 context and execution plan created
 | PAY-01 | Complete | Stripe checkout routes are mounted, authenticated, tenant-aware, and testable without live Stripe keys |
 | PAY-02 | Complete | Stripe webhook route verifies raw-body signatures, records events idempotently, and rejects invalid signatures |
 | PAY-03 | Complete | Subscription, invoice, failed-payment, plan-change, top-up, and refund transitions are auditable |
-| MARKET-03 | Planned | Marketplace publisher revenue, platform fee, payout state, and refund impact are modeled before paid operation |
-| MARKET-04 | Planned | Marketplace moderation and abuse workflows govern publish, approve, reject, takedown, and appeal paths |
+| MARKET-03 | Complete | Marketplace publisher revenue, platform fee, payout state, and refund impact are modeled before paid operation |
+| MARKET-04 | Complete | Marketplace moderation and abuse workflows govern publish, approve, reject, takedown, and appeal paths |
 | ADMIN-BILL-01 | Planned | Admin can inspect billing sessions, webhook events, subscriptions, top-ups, invoices, refunds, settlements, and payout state |
 | DOC-05 | Planned | v06 evidence maps money-movement requirements to code, tests, docs, and runtime/database verification |
 
 ## Next Suggested Step
 
-Run `$gsd:execute-phase 19` to implement Phase 19 Plan 01.
+Run `$gsd:plan-phase 20` to plan Phase 20 Billing Admin Evidence and v06 Closeout.
 
-Phase 19 Plan 01 consumes the Phase 18 billing lifecycle foundation and implements Marketplace publisher revenue, platform fee, payout state, refund impact, moderation, and abuse workflows without claiming v06 closeout or v07/v08 readiness prematurely.
+Phase 20 should add admin billing inspection for sessions, webhook events, subscriptions, top-ups, invoices, refunds, settlements, and payout state, then produce v06 closeout evidence. It must not claim v07 operations, v08 product completeness, or final commercial readiness.
 
 ## Worktree Context
 
@@ -78,6 +78,7 @@ Continue in `.worktrees/phase-10-membership-auth-security` on branch `gsd/phase-
 | v04 Commercial Foundation | 2026-05-28 | TENANT-01~05, SEC-01~03, MIGR-01, CI-01, DOC-03 |
 | v05 Relay Billing Completeness | 2026-05-28 | RELAY-08~11, BILL-01~02, DOC-04 |
 | Phase 18 Subscription Invoice Top-up Refund State Machine | 2026-05-28 | PAY-03 |
+| Phase 19 Marketplace Settlement and Governance | 2026-05-28 | MARKET-03, MARKET-04 |
 
 ## Deferred Commercial Program Items
 
@@ -85,7 +86,7 @@ These remain required for the final user goal:
 
 | Milestone | Item |
 |-----------|------|
-| v06 Billing And Marketplace Operations | Marketplace settlement, payouts, moderation, admin billing inspection, and v06 closeout evidence |
+| v06 Billing And Marketplace Operations | Admin billing inspection and v06 closeout evidence |
 | v07 Production Operations | Kubernetes/equivalent orchestration proof, backup/restore smoke, logs, metrics, tracing, alerts, dashboards, runbooks, release/rollback |
 | v08 Product Completeness | Real or disabled built-in MCP tools, durable Agent workflows, Knowledge behavior matching product copy, commercial UX, docs, onboarding, pricing |
 
@@ -115,6 +116,7 @@ These remain required for the final user goal:
 - Phase 18 summary: `.planning/phases/18-subscription-invoice-topup-refund-state-machine/18-01-SUMMARY.md`
 - Phase 19 context: `.planning/phases/19-marketplace-settlement-and-governance/19-CONTEXT.md`
 - Phase 19 plan: `.planning/phases/19-marketplace-settlement-and-governance/19-01-PLAN.md`
+- Phase 19 summary: `.planning/phases/19-marketplace-settlement-and-governance/19-01-SUMMARY.md`
 - Commercial gates: `docs/release/commercial-gates.md`
 - Commercial complete spec: `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`
 - v04 roadmap archive: `.planning/milestones/v04-ROADMAP.md`
@@ -143,6 +145,7 @@ These remain required for the final user goal:
 | 2026-05-28 | Phase 18 planned | PAY-03 is decomposed into lifecycle schema, Stripe event application service, payment-backed top-up checkout, invoice/refund/subscription transitions, DB-backed route tests, and evidence updates |
 | 2026-05-28 | Phase 18 completed | Verified Stripe events now apply subscription, invoice, failed-payment, plan-change, top-up, and refund state through `billing_lifecycle_events`; duplicate webhook deliveries can retry lifecycle application safely through transition-key idempotency |
 | 2026-05-28 | Phase 19 planned | MARKET-03 and MARKET-04 are decomposed into settlement schema, paid install checkout, Marketplace refund impact, local payout-state modeling, takedown/appeal/reinstate/abuse workflows, publisher financial stats, DB-backed route tests, and evidence updates |
+| 2026-05-28 | Phase 19 completed | Paid Marketplace orders, settlements, platform fees, local payout state, refund impact, governance routes/events, abuse reports, publisher financial stats, DB-backed package tests, docs gate, broad checks, and diff hygiene close MARKET-03/MARKET-04 |
 
 ---
-*State updated: 2026-05-28 after planning Phase 19 Marketplace Settlement and Governance*
+*State updated: 2026-05-28 after completing Phase 19 Marketplace Settlement and Governance*

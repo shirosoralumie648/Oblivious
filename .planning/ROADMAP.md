@@ -14,7 +14,7 @@
 
 Milestone v06 has been initialized from `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`.
 
-**Next workflow step:** execute Phase 19 Marketplace Settlement and Governance Plan 01.
+**Next workflow step:** plan Phase 20 Billing Admin Evidence and v06 Closeout.
 
 ## Current Milestone: v06 Billing And Marketplace Operations — Active
 
@@ -24,7 +24,7 @@ Milestone v06 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 |-------|------|--------------|--------|
 | Phase 17 | Stripe Payment Authority and Webhook Ledger | PAY-01, PAY-02 | Complete |
 | Phase 18 | Subscription Invoice Top-up Refund State Machine | PAY-03 | Complete |
-| Phase 19 | Marketplace Settlement and Governance | MARKET-03, MARKET-04 | Ready to execute |
+| Phase 19 | Marketplace Settlement and Governance | MARKET-03, MARKET-04 | Complete |
 | Phase 20 | Billing Admin Evidence and v06 Closeout | ADMIN-BILL-01, DOC-05 | Planned |
 
 ### Phase 17: Stripe Payment Authority and Webhook Ledger
@@ -93,7 +93,7 @@ Milestone v06 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 - Diff hygiene: `git diff --check`
 
 **Boundaries:**
-- Marketplace settlement, platform fees, payout state, and refund impact remain Phase 19.
+- Marketplace settlement, platform fees, payout state, and refund impact were left to Phase 19 and are now complete.
 - Admin billing inspection remains Phase 20.
 - v07 production operations and v08 product completeness remain required.
 
@@ -126,6 +126,15 @@ Milestone v06 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 - Admin billing inspection remains Phase 20.
 - External payout provider execution is not enabled in Phase 19.
 - v07 production operations and v08 product completeness remain required.
+
+**Completion evidence:**
+- Summary: `.planning/phases/19-marketplace-settlement-and-governance/19-01-SUMMARY.md`
+- RED route tests: `cd src/server && TEST_DATABASE_URL=... OBLIVIOUS_REQUIRE_TEST_DATABASE=true go test ./internal/http -run 'Marketplace.*(Takedown|Appeal|Abuse|PublisherStats)|StripeRefundUpdatesMarketplaceSettlementOnce' -count=1` failed on missing governance routes and missing Marketplace settlement refund impact before implementation.
+- Focused DB-backed verification: `cd src/server && TEST_DATABASE_URL=... OBLIVIOUS_REQUIRE_TEST_DATABASE=true go test -p 1 ./internal/marketplace ./internal/http -run 'Settlement|Governance|Abuse|Payout|PublisherStats|Marketplace.*(Paid|Settlement|Refund|Takedown|Appeal|Abuse|PublisherStats)|Stripe.*Marketplace' -count=1`
+- Broader DB-backed package check: `cd src/server && TEST_DATABASE_URL=... OBLIVIOUS_REQUIRE_TEST_DATABASE=true go test -p 1 ./internal/marketplace ./internal/stripe ./internal/http -count=1`
+- Docs gate: `bash scripts/check.sh docs`
+- Broad quality gate: `GOPROXY=... GOSUMDB=... bash scripts/check.sh all`
+- Diff hygiene: `git diff --check`
 
 ## Archived Milestone: v05 Relay Billing Completeness — Complete
 
@@ -256,6 +265,13 @@ Milestone v06 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 | BILL-01 | Phase 15 | Complete — quota pre-authorization, exactly-once settlement, and refund behavior |
 | BILL-02 | Phase 15 | Complete — streaming/realtime/file/batch/async settlement or production disablement |
 | DOC-04 | Phase 16 | Complete — v05 route table, evidence, and closeout |
+| PAY-01 | Phase 17 | Complete — Stripe checkout route authority and tenant-aware payment intents |
+| PAY-02 | Phase 17 | Complete — Stripe webhook signature verification and idempotent webhook ledger |
+| PAY-03 | Phase 18 | Complete — subscription, invoice, failed-payment, plan-change, top-up, and refund lifecycle transitions |
+| MARKET-03 | Phase 19 | Complete — publisher revenue, platform fee, payout state, and refund impact |
+| MARKET-04 | Phase 19 | Complete — moderation and abuse workflows |
+| ADMIN-BILL-01 | Phase 20 | Planned — admin inspection for billing and settlement evidence |
+| DOC-05 | Phase 20 | Planned — v06 verification and closeout evidence |
 
 ## Archived Milestone Details
 
@@ -354,4 +370,4 @@ Milestone v06 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 | Foundation through Backend | Phases 1, 2, 3a | Historical | RELAY, CHAT, AGENT, MCP, MEM, EXEC, QUOTA, ADMIN, MARKET | Complete | 2026-04-29 |
 
 ---
-*Roadmap updated: 2026-05-28 after planning Phase 19 Marketplace Settlement and Governance*
+*Roadmap updated: 2026-05-28 after completing Phase 19 Marketplace Settlement and Governance*

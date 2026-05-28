@@ -21,6 +21,7 @@ type LifecycleOption func(*LifecycleService)
 
 type MarketplaceSettlementApplier interface {
 	ApplyPaidInstallCheckoutCompleted(ctx context.Context, input MarketplaceCheckoutCompleted) error
+	ApplyMarketplaceRefund(ctx context.Context, input MarketplaceRefund) error
 }
 
 type MarketplaceCheckoutCompleted struct {
@@ -29,6 +30,16 @@ type MarketplaceCheckoutCompleted struct {
 	PaymentIntentID           string
 	ProviderCheckoutSessionID string
 	ProviderPaymentIntentID   string
+}
+
+type MarketplaceRefund struct {
+	EventID                 string
+	ProviderRefundID        string
+	PaymentIntentID         string
+	ProviderPaymentIntentID string
+	Amount                  float64
+	Currency                string
+	Reason                  string
 }
 
 // LifecycleStore persists idempotent billing lifecycle transitions.
@@ -106,6 +117,23 @@ func (s *LifecycleService) ApplyStripeEvent(ctx context.Context, event stripeapi
 		input, err := parseRefundLifecycle(event)
 		if err != nil {
 			return err
+		}
+		if input.Kind == "marketplace_install" {
+			if s.marketplaceApplier == nil {
+				return fmt.Errorf("%s: marketplace settlement applier is not configured", event.Type)
+			}
+			if err := s.store.ApplyRefund(ctx, event.ID, input, payload); err != nil {
+				return err
+			}
+			return s.marketplaceApplier.ApplyMarketplaceRefund(ctx, MarketplaceRefund{
+				EventID:                 event.ID,
+				ProviderRefundID:        input.ProviderRefundID,
+				PaymentIntentID:         input.PaymentIntentID,
+				ProviderPaymentIntentID: input.ProviderPaymentIntentID,
+				Amount:                  input.Amount,
+				Currency:                input.Currency,
+				Reason:                  input.Reason,
+			})
 		}
 		return s.store.ApplyRefund(ctx, event.ID, input, payload)
 	default:
@@ -344,6 +372,7 @@ type refundLifecycle struct {
 	OrganizationID          string
 	UserID                  string
 	PaymentIntentID         string
+	Kind                    string
 	Amount                  float64
 	Currency                string
 	Status                  string
@@ -384,6 +413,7 @@ func parseRefundLifecycle(event stripeapi.Event) (refundLifecycle, error) {
 		OrganizationID:          metadata["organization_id"],
 		UserID:                  metadata["user_id"],
 		PaymentIntentID:         metadata["payment_intent_id"],
+		Kind:                    metadata["checkout_kind"],
 		Amount:                  centsToAmount(refund.Amount),
 		Currency:                refund.Currency,
 		Status:                  status,

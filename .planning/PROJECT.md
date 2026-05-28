@@ -30,7 +30,7 @@ v04 Commercial Foundation is complete: Phase 9 completed first-class organizatio
 
 v05 Relay Billing Completeness is complete. Phase 13 completed Relay endpoint classification and production fail-closed behavior. Phase 14 completed provider-bypass CI checks, supported endpoint auth/tenant identity policy, rate-limit policy, route-decision audit semantics, and trusted Relay metadata for Chat, Agent, and Knowledge embedding paths. Phase 15 completed quota preauthorization, exactly-once settlement, refund behavior, provider usage parsing, explicit route billing policy, and streaming/async production-disablement evidence. Phase 16 completed Relay route-table evidence, commercial gate closeout, DB-backed verification, and v05 milestone snapshots.
 
-v06 Billing And Marketplace Operations is active. Phase 17 completed the first money-movement slice by replacing the existing unmounted/partial Stripe code with running route authority, tenant-aware checkout metadata, signature-verified webhooks, and an idempotent webhook ledger. Phase 18 completed subscription, invoice, top-up, refund, failed-payment, and plan-change state transitions through an auditable lifecycle service. Phase 19 now has a context and execution plan for Marketplace settlement and governance. The overall commercial-complete SaaS objective remains open until Phase 19, Phase 20, v07, and v08 are also complete and verified.
+v06 Billing And Marketplace Operations is active. Phase 17 completed the first money-movement slice by replacing the existing unmounted/partial Stripe code with running route authority, tenant-aware checkout metadata, signature-verified webhooks, and an idempotent webhook ledger. Phase 18 completed subscription, invoice, top-up, refund, failed-payment, and plan-change state transitions through an auditable lifecycle service. Phase 19 completed Marketplace settlement, payout-state modeling, refund impact, takedown, appeal, abuse reporting, and governance event evidence. Phase 20 admin billing inspection and v06 closeout remain next. The overall commercial-complete SaaS objective remains open until Phase 20, v07, and v08 are also complete and verified.
 
 ## Requirements
 
@@ -59,11 +59,11 @@ v06 Billing And Marketplace Operations is active. Phase 17 completed the first m
 - ✓ PAY-01 — Stripe checkout routes are mounted, authenticated, tenant-aware, and testable without live Stripe keys
 - ✓ PAY-02 — Stripe webhook route verifies raw-body signatures, records provider events idempotently, and rejects invalid signatures
 - ✓ PAY-03 — Subscription lifecycle, invoices, refunds, failed-payment states, plan changes, and top-ups are auditable/idempotent lifecycle transitions
+- ✓ MARKET-03 — Marketplace publisher revenue, platform fee, payout state, and refund impact are modeled before paid operation
+- ✓ MARKET-04 — Marketplace moderation and abuse workflows cover takedown, appeal, reinstate, abuse, and audit paths
 
 ### Active
 
-- **MARKET-03**: Marketplace publisher revenue, platform fee, payout state, and refund impact are modeled before paid Marketplace operation is enabled.
-- **MARKET-04**: Marketplace moderation and abuse workflows cover publish, approve, reject, takedown, appeal, and audit paths.
 - **ADMIN-BILL-01**: Admin can inspect billing sessions, webhook events, subscriptions, top-ups, invoices, refunds, settlements, and payout state.
 - **DOC-05**: v06 evidence maps money-movement and Marketplace governance requirements to files, tests, runtime/database proof, and residual v07/v08 work.
 
@@ -95,7 +95,7 @@ Go Backend (Gin)
 - v03.2 已完成质量、E2E、文档和 Docker 部署 smoke 收口。
 - v03.3 已完成主线整合、文档对齐、发布验证和两个历史 cleanup backlog。
 - v04 Commercial Foundation 已完成。
-- v05 Relay Billing Completeness 已完成；v06 Billing And Marketplace Operations 已初始化，Phase 17 已完成 Stripe route authority 和 webhook ledger，Phase 18 已完成支付生命周期状态机，Phase 19 Marketplace settlement and governance 已规划，当前下一步是执行 Phase 19。
+- v05 Relay Billing Completeness 已完成；v06 Billing And Marketplace Operations 已初始化，Phase 17 已完成 Stripe route authority 和 webhook ledger，Phase 18 已完成支付生命周期状态机，Phase 19 已完成 Marketplace settlement and governance，当前下一步是规划 Phase 20 Billing Admin Evidence and v06 Closeout。
 - 直接 Docker Hub / 默认 Go module 路径在本机网络仍不稳定；受限网络验证命令继续作为部署 smoke 的已验证本地路径。
 - `kubectl` 未安装，因此 Kubernetes 仍属于后续 v07 Production Operations 的未验证范围。
 
@@ -127,7 +127,7 @@ Go Backend (Gin)
 | Phase 16 closes v05 with evidence rather than new runtime behavior | Relay behavior changed in Phases 13-15; v05 closeout needs reproducible proof and must not imply final commercial readiness | ✓ Good — `16-VERIFICATION.md`, route table/gate docs, docs gate assertions, DB-backed script verification, and milestone snapshots |
 | v06 starts with Stripe route authority and webhook ledger | Subscription and Marketplace settlement cannot be safe until payment provider events are signature-verified, idempotent, tenant-aware, and inspectable | ✓ Good — Phase 17 mounted checkout/webhook routes, `payment_intents`, `stripe_webhook_events`, and DB-backed route tests |
 | Phase 18 applies verified provider events through a lifecycle service | Commercial money movement needs subscriptions, invoices, top-ups, failed-payment state, plan changes, and refunds to be auditable and idempotent before Marketplace settlement | ✓ Good — `billing_lifecycle_events`, `billing_invoices`, `billing_refunds`, lifecycle retry/idempotency tests, and DB-backed route tests close PAY-03 |
-| Phase 19 starts from paid-install settlement rather than admin UI | Marketplace paid operation is unsafe until orders, settlements, fees, payout state, refund impact, and governance trails exist | Active — `19-CONTEXT.md` and `19-01-PLAN.md` define the MARKET-03/MARKET-04 execution path |
+| Phase 19 starts from paid-install settlement rather than admin UI | Marketplace paid operation is unsafe until orders, settlements, fees, payout state, refund impact, and governance trails exist | ✓ Good — orders, settlements, payout-state modeling, refund impact, governance routes/events, abuse workflow, publisher financial stats, and DB-backed route tests close MARKET-03/MARKET-04 |
 
 ## Evolution
 
@@ -147,4 +147,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state.
 
 ---
-*Last updated: 2026-05-28 after planning Phase 19 Marketplace Settlement and Governance*
+*Last updated: 2026-05-28 after completing Phase 19 Marketplace Settlement and Governance*

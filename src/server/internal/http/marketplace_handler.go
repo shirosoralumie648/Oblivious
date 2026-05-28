@@ -13,6 +13,7 @@ type marketplaceHandler struct {
 	service           *marketplace.Service
 	searchService     *marketplace.SearchService
 	settlementService *marketplace.SettlementService
+	governanceService *marketplace.GovernanceService
 	checkoutCreator   stripebilling.CheckoutCreator
 	checkoutConfig    stripebilling.CheckoutConfig
 }
@@ -32,6 +33,12 @@ func withMarketplaceCheckout(settlementService *marketplace.SettlementService, c
 		handler.settlementService = settlementService
 		handler.checkoutCreator = checkoutCreator
 		handler.checkoutConfig = checkoutConfig
+	}
+}
+
+func withMarketplaceGovernance(governanceService *marketplace.GovernanceService) marketplaceHandlerOption {
+	return func(handler *marketplaceHandler) {
+		handler.governanceService = governanceService
 	}
 }
 
@@ -361,6 +368,144 @@ func (h marketplaceHandler) submitReview(w stdhttp.ResponseWriter, r *stdhttp.Re
 	}
 
 	writeSuccess(w, stdhttp.StatusCreated, review)
+}
+
+func (h marketplaceHandler) takedownAgent(w stdhttp.ResponseWriter, r *stdhttp.Request, agentID string) {
+	session, ok := sessionOrUnauthorized(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	if !decodeRequestJSON(w, r, &req) {
+		return
+	}
+	if h.governanceService == nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "marketplace governance is not configured")
+		return
+	}
+	if err := h.governanceService.TakedownAgent(r.Context(), marketplace.GovernanceAction{
+		ActorUserID:         session.User.ID,
+		ActorOrganizationID: session.OrganizationID,
+		AgentID:             agentID,
+		Reason:              req.Reason,
+	}); err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, map[string]string{"status": "takedown"})
+}
+
+func (h marketplaceHandler) appealAgent(w stdhttp.ResponseWriter, r *stdhttp.Request, agentID string) {
+	session, ok := sessionOrUnauthorized(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	if !decodeRequestJSON(w, r, &req) {
+		return
+	}
+	if h.governanceService == nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "marketplace governance is not configured")
+		return
+	}
+	if err := h.governanceService.AppealAgent(r.Context(), marketplace.GovernanceAction{
+		ActorUserID:         session.User.ID,
+		ActorOrganizationID: session.OrganizationID,
+		AgentID:             agentID,
+		Reason:              req.Reason,
+	}); err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, map[string]string{"status": "appealed"})
+}
+
+func (h marketplaceHandler) reinstateAgent(w stdhttp.ResponseWriter, r *stdhttp.Request, agentID string) {
+	session, ok := sessionOrUnauthorized(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	if !decodeRequestJSON(w, r, &req) {
+		return
+	}
+	if h.governanceService == nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "marketplace governance is not configured")
+		return
+	}
+	if err := h.governanceService.ReinstateAgent(r.Context(), marketplace.GovernanceAction{
+		ActorUserID:         session.User.ID,
+		ActorOrganizationID: session.OrganizationID,
+		AgentID:             agentID,
+		Reason:              req.Reason,
+	}); err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, map[string]string{"status": "approved"})
+}
+
+func (h marketplaceHandler) reportAbuse(w stdhttp.ResponseWriter, r *stdhttp.Request, agentID string) {
+	session, ok := sessionOrUnauthorized(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Reason  string `json:"reason"`
+		Details string `json:"details"`
+	}
+	if !decodeRequestJSON(w, r, &req) {
+		return
+	}
+	if h.governanceService == nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "marketplace governance is not configured")
+		return
+	}
+	report, err := h.governanceService.ReportAbuse(r.Context(), marketplace.AbuseReportRequest{
+		ReporterOrganizationID: session.OrganizationID,
+		ReporterUserID:         session.User.ID,
+		AgentID:                agentID,
+		Reason:                 req.Reason,
+		Details:                req.Details,
+	})
+	if err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	writeSuccess(w, stdhttp.StatusCreated, report)
+}
+
+func (h marketplaceHandler) resolveAbuseReport(w stdhttp.ResponseWriter, r *stdhttp.Request, reportID string, status string) {
+	session, ok := sessionOrUnauthorized(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Resolution string `json:"resolution"`
+	}
+	if !decodeRequestJSON(w, r, &req) {
+		return
+	}
+	if h.governanceService == nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "marketplace governance is not configured")
+		return
+	}
+	if err := h.governanceService.ResolveAbuseReport(r.Context(), marketplace.AbuseResolution{
+		ReportID:       reportID,
+		ReviewerUserID: session.User.ID,
+		Status:         status,
+		Resolution:     req.Resolution,
+	}); err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, map[string]string{"status": status})
 }
 
 func (h marketplaceHandler) getAgentVersions(w stdhttp.ResponseWriter, r *stdhttp.Request, agentID string) {

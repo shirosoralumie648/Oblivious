@@ -246,6 +246,237 @@ func TestMarketplaceHandlerPublicBrowseAndSessionGuards(t *testing.T) {
 	}
 }
 
+func TestMarketplaceGovernanceTakedownAppealAndReinstate(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+
+	adminCookie, adminCSRF, adminUserID := registerHTTPUser(t, router, "marketplace-governance-admin@example.com")
+	if _, err := database.Exec(`UPDATE users SET role = 'admin' WHERE id = $1`, adminUserID); err != nil {
+		t.Fatalf("mark admin user: %v", err)
+	}
+	publisherCookie, publisherCSRF, publisherUserID := registerHTTPUser(t, router, "marketplace-governance-publisher@example.com")
+	_, publisherOrganizationID := queryHTTPUserScope(t, database, publisherUserID)
+	buyerCookie, buyerCSRF, buyerUserID := registerHTTPUser(t, router, "marketplace-governance-buyer@example.com")
+	_, buyerOrganizationID := queryHTTPUserScope(t, database, buyerUserID)
+
+	insertHTTPMarketplaceAgent(t, database, "agent_governance_http", publisherUserID, publisherOrganizationID, "free", 0)
+
+	installRecorder := httptest.NewRecorder()
+	installRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/marketplace/agents/agent_governance_http/install?versionID=version_agent_governance_http", nil)
+	installRequest.AddCookie(buyerCookie)
+	addCSRF(installRequest, buyerCSRF)
+	router.ServeHTTP(installRecorder, installRequest)
+	if installRecorder.Code != stdhttp.StatusCreated {
+		t.Fatalf("pre-takedown install expected 201, got %d with body %s", installRecorder.Code, installRecorder.Body.String())
+	}
+
+	takedownRecorder := httptest.NewRecorder()
+	takedownRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/admin/marketplace/agents/agent_governance_http/takedown", strings.NewReader(`{"reason":"policy violation"}`))
+	takedownRequest.Header.Set("Content-Type", "application/json")
+	takedownRequest.AddCookie(adminCookie)
+	addCSRF(takedownRequest, adminCSRF)
+	router.ServeHTTP(takedownRecorder, takedownRequest)
+	if takedownRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("takedown expected 200, got %d with body %s", takedownRecorder.Code, takedownRecorder.Body.String())
+	}
+
+	blockedRecorder := httptest.NewRecorder()
+	blockedRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/marketplace/agents/agent_governance_http/install?versionID=version_agent_governance_http", nil)
+	blockedRequest.AddCookie(buyerCookie)
+	addCSRF(blockedRequest, buyerCSRF)
+	router.ServeHTTP(blockedRecorder, blockedRequest)
+	if blockedRecorder.Code != stdhttp.StatusBadRequest {
+		t.Fatalf("post-takedown install expected 400, got %d with body %s", blockedRecorder.Code, blockedRecorder.Body.String())
+	}
+
+	appealRecorder := httptest.NewRecorder()
+	appealRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/marketplace/agents/agent_governance_http/appeal", strings.NewReader(`{"reason":"fixed the issue"}`))
+	appealRequest.Header.Set("Content-Type", "application/json")
+	appealRequest.AddCookie(publisherCookie)
+	addCSRF(appealRequest, publisherCSRF)
+	router.ServeHTTP(appealRecorder, appealRequest)
+	if appealRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("appeal expected 200, got %d with body %s", appealRecorder.Code, appealRecorder.Body.String())
+	}
+
+	reinstateRecorder := httptest.NewRecorder()
+	reinstateRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/admin/marketplace/agents/agent_governance_http/reinstate", strings.NewReader(`{"reason":"appeal accepted"}`))
+	reinstateRequest.Header.Set("Content-Type", "application/json")
+	reinstateRequest.AddCookie(adminCookie)
+	addCSRF(reinstateRequest, adminCSRF)
+	router.ServeHTTP(reinstateRecorder, reinstateRequest)
+	if reinstateRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("reinstate expected 200, got %d with body %s", reinstateRecorder.Code, reinstateRecorder.Body.String())
+	}
+
+	var status string
+	var installCount, takedownCount, appealCount, reinstateCount int
+	if err := database.QueryRow(`SELECT status FROM published_agents WHERE id = 'agent_governance_http'`).Scan(&status); err != nil {
+		t.Fatalf("query governance agent status: %v", err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM agent_installs WHERE agent_id = 'agent_governance_http' AND organization_id = $1`, buyerOrganizationID).Scan(&installCount); err != nil {
+		t.Fatalf("count preserved installs: %v", err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM marketplace_governance_events WHERE agent_id = 'agent_governance_http' AND action = 'takedown'`).Scan(&takedownCount); err != nil {
+		t.Fatalf("count takedown events: %v", err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM marketplace_governance_events WHERE agent_id = 'agent_governance_http' AND action = 'appeal'`).Scan(&appealCount); err != nil {
+		t.Fatalf("count appeal events: %v", err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM marketplace_governance_events WHERE agent_id = 'agent_governance_http' AND action = 'reinstate'`).Scan(&reinstateCount); err != nil {
+		t.Fatalf("count reinstate events: %v", err)
+	}
+	if status != "approved" || installCount != 1 || takedownCount != 1 || appealCount != 1 || reinstateCount != 1 {
+		t.Fatalf("expected approved agent with preserved install and governance events, got status=%s installs=%d takedown=%d appeal=%d reinstate=%d", status, installCount, takedownCount, appealCount, reinstateCount)
+	}
+}
+
+func TestMarketplaceAbuseReportLifecycle(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+
+	adminCookie, adminCSRF, adminUserID := registerHTTPUser(t, router, "marketplace-abuse-admin@example.com")
+	if _, err := database.Exec(`UPDATE users SET role = 'admin' WHERE id = $1`, adminUserID); err != nil {
+		t.Fatalf("mark admin user: %v", err)
+	}
+	reporterCookie, reporterCSRF, _ := registerHTTPUser(t, router, "marketplace-abuse-reporter@example.com")
+	_, _, publisherUserID := registerHTTPUser(t, router, "marketplace-abuse-publisher@example.com")
+	_, publisherOrganizationID := queryHTTPUserScope(t, database, publisherUserID)
+
+	insertHTTPMarketplaceAgent(t, database, "agent_abuse_http", publisherUserID, publisherOrganizationID, "free", 0)
+
+	reportRecorder := httptest.NewRecorder()
+	reportRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/marketplace/agents/agent_abuse_http/abuse-reports", strings.NewReader(`{"reason":"malware","details":"attempted credential exfiltration"}`))
+	reportRequest.Header.Set("Content-Type", "application/json")
+	reportRequest.AddCookie(reporterCookie)
+	addCSRF(reportRequest, reporterCSRF)
+	router.ServeHTTP(reportRecorder, reportRequest)
+	if reportRecorder.Code != stdhttp.StatusCreated {
+		t.Fatalf("abuse report expected 201, got %d with body %s", reportRecorder.Code, reportRecorder.Body.String())
+	}
+	var reportResponse struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(reportRecorder.Body.Bytes(), &reportResponse); err != nil {
+		t.Fatalf("decode report response: %v", err)
+	}
+	if reportResponse.Data.ID == "" {
+		t.Fatal("expected abuse report id")
+	}
+
+	resolveRecorder := httptest.NewRecorder()
+	resolveRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/admin/marketplace/abuse-reports/"+reportResponse.Data.ID+"/resolve", strings.NewReader(`{"resolution":"agent removed"}`))
+	resolveRequest.Header.Set("Content-Type", "application/json")
+	resolveRequest.AddCookie(adminCookie)
+	addCSRF(resolveRequest, adminCSRF)
+	router.ServeHTTP(resolveRecorder, resolveRequest)
+	if resolveRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("resolve abuse report expected 200, got %d with body %s", resolveRecorder.Code, resolveRecorder.Body.String())
+	}
+
+	var status, resolution string
+	var reportEvents, resolveEvents int
+	if err := database.QueryRow(`SELECT status, COALESCE(resolution, '') FROM marketplace_abuse_reports WHERE id = $1`, reportResponse.Data.ID).Scan(&status, &resolution); err != nil {
+		t.Fatalf("query abuse report: %v", err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM marketplace_governance_events WHERE agent_id = 'agent_abuse_http' AND action = 'abuse_report'`).Scan(&reportEvents); err != nil {
+		t.Fatalf("count abuse report events: %v", err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM marketplace_governance_events WHERE agent_id = 'agent_abuse_http' AND action = 'abuse_resolve'`).Scan(&resolveEvents); err != nil {
+		t.Fatalf("count abuse resolve events: %v", err)
+	}
+	if status != "resolved" || resolution != "agent removed" || reportEvents != 1 || resolveEvents != 1 {
+		t.Fatalf("expected resolved abuse report with events, got status=%s resolution=%q reportEvents=%d resolveEvents=%d", status, resolution, reportEvents, resolveEvents)
+	}
+}
+
+func TestMarketplacePublisherStatsIncludesSettlementAmounts(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+
+	publisherCookie, _, publisherUserID := registerHTTPUser(t, router, "marketplace-stats-publisher@example.com")
+	_, publisherOrganizationID := queryHTTPUserScope(t, database, publisherUserID)
+	_, _, buyerUserID := registerHTTPUser(t, router, "marketplace-stats-buyer@example.com")
+	_, buyerOrganizationID := queryHTTPUserScope(t, database, buyerUserID)
+
+	insertHTTPMarketplaceAgent(t, database, "agent_stats_http", publisherUserID, publisherOrganizationID, "one_time", 100)
+	if _, err := database.Exec(`
+		INSERT INTO payment_intents (id, provider, organization_id, user_id, kind, amount, currency, status, metadata, created_at, updated_at)
+		VALUES ('pi_stats_http', 'stripe', $1, $2, 'marketplace_install', 100, 'usd', 'completed', '{}', NOW(), NOW())
+	`, buyerOrganizationID, buyerUserID); err != nil {
+		t.Fatalf("insert stats payment intent: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO marketplace_orders (
+			id, buyer_organization_id, buyer_user_id, publisher_organization_id, publisher_user_id,
+			agent_id, version_id, payment_intent_id, gross_amount, platform_fee_amount,
+			publisher_net_amount, refunded_amount, currency, status, created_at, updated_at, paid_at
+		)
+		VALUES ('order_stats_http', $1, $2, $3, $4, 'agent_stats_http', 'version_agent_stats_http',
+		        'pi_stats_http', 100, 20, 80, 10, 'usd', 'partially_refunded', NOW(), NOW(), NOW())
+	`, buyerOrganizationID, buyerUserID, publisherOrganizationID, publisherUserID); err != nil {
+		t.Fatalf("insert stats marketplace order: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO marketplace_settlements (
+			id, order_id, publisher_organization_id, publisher_user_id, agent_id,
+			gross_amount, platform_fee_amount, publisher_net_amount, refunded_amount,
+			status, hold_until, created_at, updated_at
+		)
+		VALUES ('settlement_stats_http', 'order_stats_http', $1, $2, 'agent_stats_http',
+		        100, 20, 80, 10, 'available', NOW(), NOW(), NOW())
+	`, publisherOrganizationID, publisherUserID); err != nil {
+		t.Fatalf("insert stats marketplace settlement: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/marketplace/publisher/stats", nil)
+	request.AddCookie(publisherCookie)
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("publisher stats expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Data struct {
+			GrossRevenue            float64 `json:"grossRevenue"`
+			PlatformFees            float64 `json:"platformFees"`
+			NetRevenue              float64 `json:"netRevenue"`
+			RefundedAmount          float64 `json:"refundedAmount"`
+			AvailableAmount         float64 `json:"availableAmount"`
+			PendingSettlementAmount float64 `json:"pendingSettlementAmount"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode publisher stats: %v", err)
+	}
+	if response.Data.GrossRevenue != 100 || response.Data.PlatformFees != 20 || response.Data.NetRevenue != 80 || response.Data.RefundedAmount != 10 || response.Data.AvailableAmount != 70 || response.Data.PendingSettlementAmount != 0 {
+		t.Fatalf("unexpected settlement-backed stats: %+v", response.Data)
+	}
+}
+
+func insertHTTPMarketplaceAgent(t *testing.T, database *sql.DB, agentID, publisherUserID, publisherOrganizationID, pricingType string, pricingAmount float64) {
+	t.Helper()
+	if _, err := database.Exec(`
+		INSERT INTO published_agents (
+			id, owner_id, organization_id, name, description, tools, example_conversations,
+			visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at
+		)
+		VALUES ($1, $2, $3, $4, 'Phase 19 HTTP test agent.',
+		        '{"tools":[{"name":"governance"}]}'::jsonb, '[]'::jsonb, 'public', 'approved',
+		        $5, $6, 0, 0, 0, NOW(), NOW())
+	`, agentID, publisherUserID, publisherOrganizationID, agentID, pricingType, pricingAmount); err != nil {
+		t.Fatalf("insert marketplace agent %s: %v", agentID, err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO agent_versions (id, agent_id, organization_id, version, changelog, metadata, status, created_at)
+		VALUES ($1, $2, $3, '1.0.0', 'initial', '{}', 'approved', NOW())
+	`, "version_"+agentID, agentID, publisherOrganizationID); err != nil {
+		t.Fatalf("insert marketplace version for %s: %v", agentID, err)
+	}
+}
+
 func newTestAuthMiddleware(session auth.Session) authMiddleware {
 	return newAuthMiddleware(config.Config{
 		SessionCookieName:   "oblivious_session",

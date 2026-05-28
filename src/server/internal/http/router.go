@@ -53,6 +53,18 @@ func (a stripeMarketplaceSettlementAdapter) ApplyPaidInstallCheckoutCompleted(ct
 	return err
 }
 
+func (a stripeMarketplaceSettlementAdapter) ApplyMarketplaceRefund(ctx context.Context, input stripebilling.MarketplaceRefund) error {
+	return a.service.ApplyMarketplaceRefund(ctx, marketplace.MarketplaceRefund{
+		EventID:                 input.EventID,
+		ProviderRefundID:        input.ProviderRefundID,
+		PaymentIntentID:         input.PaymentIntentID,
+		ProviderPaymentIntentID: input.ProviderPaymentIntentID,
+		Amount:                  input.Amount,
+		Currency:                input.Currency,
+		Reason:                  input.Reason,
+	})
+}
+
 func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOptions) stdhttp.Handler {
 	mux := stdhttp.NewServeMux()
 	mux.HandleFunc("/healthz", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -158,6 +170,7 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	sensitiveActionRateLimit := auth.RateLimitPolicy{Limit: 5, Window: time.Minute, BlockDuration: 15 * time.Minute}
 
 	// Marketplace service
+	marketplaceGovernanceService := marketplace.NewGovernanceService(marketplaceStore)
 	marketplaceHandler := newMarketplaceHandler(
 		marketplace.NewService(marketplaceStore, adminService),
 		marketplace.NewSearchService(database),
@@ -167,6 +180,7 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 			CancelURL:     cfg.StripeCancelURL,
 			WebhookSecret: cfg.StripeWebhookSecret,
 		}),
+		withMarketplaceGovernance(marketplaceGovernanceService),
 	)
 
 	// Notification service
@@ -1071,6 +1085,46 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 		}
 		writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
 	})))
+	mux.Handle("/api/v1/admin/marketplace/agents/", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/admin/marketplace/agents/"), "/"), "/")
+		if len(parts) != 2 || parts[0] == "" {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
+			return
+		}
+		switch parts[1] {
+		case "takedown":
+			if r.Method == stdhttp.MethodPost {
+				marketplaceHandler.takedownAgent(w, r, parts[0])
+				return
+			}
+		case "reinstate":
+			if r.Method == stdhttp.MethodPost {
+				marketplaceHandler.reinstateAgent(w, r, parts[0])
+				return
+			}
+		}
+		writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
+	})))
+	mux.Handle("/api/v1/admin/marketplace/abuse-reports/", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/admin/marketplace/abuse-reports/"), "/"), "/")
+		if len(parts) != 2 || parts[0] == "" {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
+			return
+		}
+		switch parts[1] {
+		case "resolve":
+			if r.Method == stdhttp.MethodPost {
+				marketplaceHandler.resolveAbuseReport(w, r, parts[0], "resolved")
+				return
+			}
+		case "dismiss":
+			if r.Method == stdhttp.MethodPost {
+				marketplaceHandler.resolveAbuseReport(w, r, parts[0], "dismissed")
+				return
+			}
+		}
+		writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
+	})))
 
 	serveWithSession := func(w stdhttp.ResponseWriter, r *stdhttp.Request, handler stdhttp.HandlerFunc) {
 		authMiddleware.requireSession(handler).ServeHTTP(w, r)
@@ -1201,6 +1255,22 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 			default:
 				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			}
+		case "appeal":
+			if r.Method != stdhttp.MethodPost {
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+				return
+			}
+			serveWithSession(w, r, func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+				marketplaceHandler.appealAgent(w, r, agentID)
+			})
+		case "abuse-reports":
+			if r.Method != stdhttp.MethodPost {
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+				return
+			}
+			serveWithSession(w, r, func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+				marketplaceHandler.reportAbuse(w, r, agentID)
+			})
 		case "versions":
 			if r.Method != stdhttp.MethodGet {
 				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")

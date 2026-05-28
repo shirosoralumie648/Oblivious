@@ -18,8 +18,8 @@
 
 ### Marketplace Operations
 
-- [ ] **MARKET-03**: Marketplace publisher revenue, platform fee, payout state, and refund impact are modeled before paid Marketplace operation is enabled. Target: Phase 19.
-- [ ] **MARKET-04**: Marketplace moderation and abuse workflows cover publish, approve, reject, takedown, appeal, and audit paths. Target: Phase 19.
+- [x] **MARKET-03**: Marketplace publisher revenue, platform fee, payout state, and refund impact are modeled before paid Marketplace operation is enabled. Completed in Phase 19 with `marketplace_orders`, `marketplace_settlements`, `marketplace_payouts`, paid install checkout/webhook application, refund settlement impact, and settlement-backed publisher stats.
+- [x] **MARKET-04**: Marketplace moderation and abuse workflows cover publish, approve, reject, takedown, appeal, and audit paths. Completed in Phase 19 with takedown, appeal, reinstate, abuse report, resolve/dismiss routes, and append-only governance events.
 
 ### Billing Evidence
 
@@ -47,8 +47,8 @@
 | PAY-01 | Phase 17 — Stripe Payment Authority and Webhook Ledger | Complete |
 | PAY-02 | Phase 17 — Stripe Payment Authority and Webhook Ledger | Complete |
 | PAY-03 | Phase 18 — Subscription Invoice Top-up Refund State Machine | Complete |
-| MARKET-03 | Phase 19 — Marketplace Settlement and Governance | Planned |
-| MARKET-04 | Phase 19 — Marketplace Settlement and Governance | Planned |
+| MARKET-03 | Phase 19 — Marketplace Settlement and Governance | Complete |
+| MARKET-04 | Phase 19 — Marketplace Settlement and Governance | Complete |
 | ADMIN-BILL-01 | Phase 20 — Billing Admin Evidence and v06 Closeout | Planned |
 | DOC-05 | Phase 20 — Billing Admin Evidence and v06 Closeout | Planned |
 
@@ -148,12 +148,12 @@
 - Historical traceability cleanup should use additive rows or notes, not broad rewrites of completed requirements.
 
 **Coverage:**
-- Active v06 requirements: 4
-- Completed v06 requirements: 3
+- Active v06 requirements: 2
+- Completed v06 requirements: 5
 - Planned v06 phase mappings: 7
 - Completed historical requirements: 68
 - Blocked requirements: 0
 - Unmapped v06 requirements: 0
 
 ---
-*Requirements updated: 2026-05-28 after completing Phase 18 Subscription Invoice Top-up Refund State Machine*
+*Requirements updated: 2026-05-28 after completing Phase 19 Marketplace Settlement and Governance*
