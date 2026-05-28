@@ -14,7 +14,7 @@
 
 Milestone v06 has been initialized from `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`.
 
-**Next workflow step:** plan Phase 19 Marketplace Settlement and Governance.
+**Next workflow step:** execute Phase 19 Marketplace Settlement and Governance Plan 01.
 
 ## Current Milestone: v06 Billing And Marketplace Operations — Active
 
@@ -24,7 +24,7 @@ Milestone v06 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 |-------|------|--------------|--------|
 | Phase 17 | Stripe Payment Authority and Webhook Ledger | PAY-01, PAY-02 | Complete |
 | Phase 18 | Subscription Invoice Top-up Refund State Machine | PAY-03 | Complete |
-| Phase 19 | Marketplace Settlement and Governance | MARKET-03, MARKET-04 | Ready to plan |
+| Phase 19 | Marketplace Settlement and Governance | MARKET-03, MARKET-04 | Ready to execute |
 | Phase 20 | Billing Admin Evidence and v06 Closeout | ADMIN-BILL-01, DOC-05 | Planned |
 
 ### Phase 17: Stripe Payment Authority and Webhook Ledger
@@ -95,6 +95,36 @@ Milestone v06 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 **Boundaries:**
 - Marketplace settlement, platform fees, payout state, and refund impact remain Phase 19.
 - Admin billing inspection remains Phase 20.
+- v07 production operations and v08 product completeness remain required.
+
+### Phase 19: Marketplace Settlement and Governance
+
+**Goal:** Model paid Marketplace order/settlement/payout state and add moderation/abuse governance before paid Marketplace operation is enabled.
+
+**Requirements:** MARKET-03, MARKET-04
+
+**Success criteria:**
+1. Paid Marketplace installs create pending orders and checkout/payment intent state without installing the agent before verified payment evidence.
+2. Verified `checkout.session.completed` events for Marketplace installs create one install, one paid order, and one settlement with gross amount, platform fee, publisher net, payout state, and append-only lifecycle/governance evidence.
+3. Refund events update Marketplace order refund state and adjust/reverse settlement state exactly once.
+4. Admin takedown, publisher appeal, admin reinstate, abuse report, and abuse resolution/dismissal workflows are recorded as governance events.
+5. Publisher stats expose settlement-backed gross, platform fee, net, refund, pending, available, payout-pending, and paid-out amounts.
+
+**Likely verification:**
+- `cd src/server && TEST_DATABASE_URL=... OBLIVIOUS_REQUIRE_TEST_DATABASE=true go test ./internal/marketplace -run 'Settlement|Governance|Abuse|Payout|PublisherStats' -count=1`
+- `cd src/server && TEST_DATABASE_URL=... OBLIVIOUS_REQUIRE_TEST_DATABASE=true go test ./internal/http -run 'Marketplace.*(Paid|Settlement|Refund|Takedown|Appeal|Abuse|PublisherStats)|Stripe.*Marketplace' -count=1`
+- `cd src/server && TEST_DATABASE_URL=... OBLIVIOUS_REQUIRE_TEST_DATABASE=true go test ./internal/marketplace ./internal/stripe ./internal/http -count=1`
+- `bash scripts/check.sh docs`
+- `GOPROXY=... GOSUMDB=... bash scripts/check.sh all`
+- `git diff --check`
+
+**Planning evidence:**
+- Context: `.planning/phases/19-marketplace-settlement-and-governance/19-CONTEXT.md`
+- Plan: `.planning/phases/19-marketplace-settlement-and-governance/19-01-PLAN.md`
+
+**Boundaries:**
+- Admin billing inspection remains Phase 20.
+- External payout provider execution is not enabled in Phase 19.
 - v07 production operations and v08 product completeness remain required.
 
 ## Archived Milestone: v05 Relay Billing Completeness — Complete
@@ -315,7 +345,7 @@ Milestone v06 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 
 | Milestone | Scope | Plans | Requirements | Status | Completed |
 |-----------|-------|-------|--------------|--------|-----------|
-| v06 Billing And Marketplace Operations | Phases 17-20 | 2/4 plans complete | 3/7 requirements complete | Active | — |
+| v06 Billing And Marketplace Operations | Phases 17-20 | 2/4 plans complete, Phase 19 planned | 3/7 requirements complete | Active | — |
 | v05 Relay Billing Completeness | Phases 13-16 | 4/4 plans complete | 7/7 requirements complete | Complete | 2026-05-28 |
 | v04 Commercial Foundation | Phases 9-12 | 4/4 plans complete | 11/11 requirements complete | Complete | 2026-05-28 |
 | v03.3 Mainline Consolidation | Phases 5-8 plus backlog 999.1 and 999.2 | 12/12 steps complete | 7/7 requirements complete | Complete | 2026-05-27 |
@@ -324,4 +354,4 @@ Milestone v06 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 | Foundation through Backend | Phases 1, 2, 3a | Historical | RELAY, CHAT, AGENT, MCP, MEM, EXEC, QUOTA, ADMIN, MARKET | Complete | 2026-04-29 |
 
 ---
-*Roadmap updated: 2026-05-28 after completing Phase 18 Subscription Invoice Top-up Refund State Machine*
+*Roadmap updated: 2026-05-28 after planning Phase 19 Marketplace Settlement and Governance*
