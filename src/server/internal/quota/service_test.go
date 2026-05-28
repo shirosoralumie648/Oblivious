@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/prometheus/client_golang/prometheus/testutil"
+	"oblivious/server/internal/metrics"
 )
 
 // fakeStore implements Store for testing quota.Service.
@@ -314,6 +317,21 @@ func TestRefund_AlreadySettledSession(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "already settled or refunded") {
 		t.Fatalf("expected already settled error, got: %v", err)
+	}
+}
+
+func TestQuotaObservabilityRecordsSettlementFailure(t *testing.T) {
+	store := newFakeStore()
+	svc := NewService(store)
+
+	before := testutil.ToFloat64(metrics.QuotaSettlementFailuresTotal.WithLabelValues("settlement"))
+	err := svc.Settle(context.Background(), "missing_session", 10)
+	if err == nil {
+		t.Fatal("expected missing session settlement error")
+	}
+	after := testutil.ToFloat64(metrics.QuotaSettlementFailuresTotal.WithLabelValues("settlement"))
+	if after != before+1 {
+		t.Fatalf("expected settlement failure metric increment, before=%v after=%v", before, after)
 	}
 }
 

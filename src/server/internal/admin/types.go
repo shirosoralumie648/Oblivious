@@ -215,3 +215,202 @@ type BatchRequest struct {
 	IDs    []string `json:"ids"`
 	Action string   `json:"action"` // "enable"|"disable"
 }
+
+// BillingInspectionFilter contains shared filters for read-only Admin billing inspection.
+type BillingInspectionFilter struct {
+	OrganizationID string
+	UserID         string
+	Status         string
+	Kind           string
+	Provider       string
+	Limit          int
+	Offset         int
+}
+
+// BillingAmountSummary holds count and amount totals for a billing surface.
+type BillingAmountSummary struct {
+	Count               int     `json:"count"`
+	TotalAmount         float64 `json:"totalAmount,omitempty"`
+	PreAuthorizedAmount float64 `json:"preAuthorizedAmount,omitempty"`
+	SettledAmount       float64 `json:"settledAmount,omitempty"`
+	RefundedAmount      float64 `json:"refundedAmount,omitempty"`
+	PaidAmount          float64 `json:"paidAmount,omitempty"`
+	AmountDue           float64 `json:"amountDue,omitempty"`
+	AmountPaid          float64 `json:"amountPaid,omitempty"`
+	GrossAmount         float64 `json:"grossAmount,omitempty"`
+	PlatformFeeAmount   float64 `json:"platformFeeAmount,omitempty"`
+	PublisherNetAmount  float64 `json:"publisherNetAmount,omitempty"`
+	FailedCount         int     `json:"failedCount,omitempty"`
+	ActiveCount         int     `json:"activeCount,omitempty"`
+}
+
+// BillingInspectionSummary aggregates all v06 money-movement inspection surfaces.
+type BillingInspectionSummary struct {
+	BillingSessions BillingAmountSummary `json:"billingSessions"`
+	PaymentIntents  BillingAmountSummary `json:"paymentIntents"`
+	WebhookEvents   BillingAmountSummary `json:"webhookEvents"`
+	Subscriptions   BillingAmountSummary `json:"subscriptions"`
+	Topups          BillingAmountSummary `json:"topups"`
+	Invoices        BillingAmountSummary `json:"invoices"`
+	Refunds         BillingAmountSummary `json:"refunds"`
+	Settlements     BillingAmountSummary `json:"settlements"`
+	Payouts         BillingAmountSummary `json:"payouts"`
+}
+
+// BillingSessionInspection is a read-only Relay billing session row.
+type BillingSessionInspection struct {
+	ID                  string     `json:"id"`
+	OrganizationID      string     `json:"organizationId"`
+	UserID              string     `json:"userId"`
+	ChannelID           string     `json:"channelId,omitempty"`
+	Model               string     `json:"model,omitempty"`
+	APIType             string     `json:"apiType,omitempty"`
+	IdempotencyKey      string     `json:"idempotencyKey"`
+	PreAuthorizedAmount float64    `json:"preAuthorizedAmount"`
+	SettledAmount       float64    `json:"settledAmount"`
+	Status              string     `json:"status"`
+	CreatedAt           time.Time  `json:"createdAt"`
+	SettledAt           *time.Time `json:"settledAt,omitempty"`
+}
+
+// PaymentIntentInspection is a read-only commercial checkout intent row.
+type PaymentIntentInspection struct {
+	ID                        string    `json:"id"`
+	Provider                  string    `json:"provider"`
+	ProviderCheckoutSessionID string    `json:"providerCheckoutSessionId,omitempty"`
+	ProviderPaymentIntentID   string    `json:"providerPaymentIntentId,omitempty"`
+	OrganizationID            string    `json:"organizationId"`
+	UserID                    string    `json:"userId"`
+	PackageID                 string    `json:"packageId,omitempty"`
+	Kind                      string    `json:"kind"`
+	Amount                    float64   `json:"amount"`
+	Currency                  string    `json:"currency"`
+	Status                    string    `json:"status"`
+	RefundedAmount            float64   `json:"refundedAmount"`
+	CreatedAt                 time.Time `json:"createdAt"`
+	UpdatedAt                 time.Time `json:"updatedAt"`
+}
+
+// WebhookEventInspection is a read-only provider webhook ledger row.
+type WebhookEventInspection struct {
+	ID              string     `json:"id"`
+	Provider        string     `json:"provider"`
+	EventID         string     `json:"eventId"`
+	EventType       string     `json:"eventType"`
+	Status          string     `json:"status"`
+	OrganizationID  string     `json:"organizationId,omitempty"`
+	UserID          string     `json:"userId,omitempty"`
+	PaymentIntentID string     `json:"paymentIntentId,omitempty"`
+	Error           string     `json:"error,omitempty"`
+	ReceivedAt      time.Time  `json:"receivedAt"`
+	ProcessedAt     *time.Time `json:"processedAt,omitempty"`
+}
+
+// SubscriptionInspection is a read-only subscription lifecycle row.
+type SubscriptionInspection struct {
+	ID                        string     `json:"id"`
+	OrganizationID            string     `json:"organizationId"`
+	UserID                    string     `json:"userId"`
+	PackageID                 string     `json:"packageId"`
+	Status                    string     `json:"status"`
+	ProviderSubscriptionID    string     `json:"providerSubscriptionId,omitempty"`
+	ProviderCustomerID        string     `json:"providerCustomerId,omitempty"`
+	ProviderCheckoutSessionID string     `json:"providerCheckoutSessionId,omitempty"`
+	ProviderLatestInvoiceID   string     `json:"providerLatestInvoiceId,omitempty"`
+	CurrentPeriodStart        time.Time  `json:"currentPeriodStart"`
+	CurrentPeriodEnd          *time.Time `json:"currentPeriodEnd,omitempty"`
+	CancelAtPeriodEnd         bool       `json:"cancelAtPeriodEnd"`
+	FailedPaymentAt           *time.Time `json:"failedPaymentAt,omitempty"`
+	CreatedAt                 time.Time  `json:"createdAt"`
+	UpdatedAt                 time.Time  `json:"updatedAt"`
+}
+
+// TopupInspection is a read-only top-up order row.
+type TopupInspection struct {
+	ID                        string     `json:"id"`
+	OrganizationID            string     `json:"organizationId"`
+	UserID                    string     `json:"userId"`
+	PaymentIntentID           string     `json:"paymentIntentId,omitempty"`
+	ProviderCheckoutSessionID string     `json:"providerCheckoutSessionId,omitempty"`
+	Amount                    float64    `json:"amount"`
+	Money                     float64    `json:"money"`
+	Status                    string     `json:"status"`
+	TradeNo                   string     `json:"tradeNo,omitempty"`
+	RefundedAmount            float64    `json:"refundedAmount"`
+	PaidAt                    *time.Time `json:"paidAt,omitempty"`
+	CreatedAt                 time.Time  `json:"createdAt"`
+}
+
+// InvoiceInspection is a read-only billing invoice row.
+type InvoiceInspection struct {
+	ID                      string     `json:"id"`
+	Provider                string     `json:"provider"`
+	ProviderInvoiceID       string     `json:"providerInvoiceId"`
+	ProviderSubscriptionID  string     `json:"providerSubscriptionId,omitempty"`
+	ProviderPaymentIntentID string     `json:"providerPaymentIntentId,omitempty"`
+	OrganizationID          string     `json:"organizationId"`
+	UserID                  string     `json:"userId"`
+	SubscriptionID          string     `json:"subscriptionId,omitempty"`
+	PaymentIntentID         string     `json:"paymentIntentId,omitempty"`
+	Status                  string     `json:"status"`
+	AmountDue               float64    `json:"amountDue"`
+	AmountPaid              float64    `json:"amountPaid"`
+	Currency                string     `json:"currency"`
+	HostedInvoiceURL        string     `json:"hostedInvoiceUrl,omitempty"`
+	InvoicePDF              string     `json:"invoicePdf,omitempty"`
+	PeriodStart             *time.Time `json:"periodStart,omitempty"`
+	PeriodEnd               *time.Time `json:"periodEnd,omitempty"`
+	CreatedAt               time.Time  `json:"createdAt"`
+	UpdatedAt               time.Time  `json:"updatedAt"`
+}
+
+// RefundInspection is a read-only refund row.
+type RefundInspection struct {
+	ID                      string    `json:"id"`
+	Provider                string    `json:"provider"`
+	ProviderRefundID        string    `json:"providerRefundId"`
+	ProviderChargeID        string    `json:"providerChargeId,omitempty"`
+	ProviderPaymentIntentID string    `json:"providerPaymentIntentId,omitempty"`
+	OrganizationID          string    `json:"organizationId"`
+	UserID                  string    `json:"userId"`
+	PaymentIntentID         string    `json:"paymentIntentId,omitempty"`
+	TopupOrderID            string    `json:"topupOrderId,omitempty"`
+	Amount                  float64   `json:"amount"`
+	Currency                string    `json:"currency"`
+	Status                  string    `json:"status"`
+	Reason                  string    `json:"reason,omitempty"`
+	CreatedAt               time.Time `json:"createdAt"`
+	UpdatedAt               time.Time `json:"updatedAt"`
+}
+
+// MarketplaceSettlementInspection is a read-only Marketplace settlement row.
+type MarketplaceSettlementInspection struct {
+	ID                      string     `json:"id"`
+	OrderID                 string     `json:"orderId"`
+	PublisherOrganizationID string     `json:"publisherOrganizationId"`
+	PublisherUserID         string     `json:"publisherUserId"`
+	AgentID                 string     `json:"agentId"`
+	GrossAmount             float64    `json:"grossAmount"`
+	PlatformFeeAmount       float64    `json:"platformFeeAmount"`
+	PublisherNetAmount      float64    `json:"publisherNetAmount"`
+	RefundedAmount          float64    `json:"refundedAmount"`
+	PayoutID                string     `json:"payoutId,omitempty"`
+	Status                  string     `json:"status"`
+	HoldUntil               *time.Time `json:"holdUntil,omitempty"`
+	CreatedAt               time.Time  `json:"createdAt"`
+	UpdatedAt               time.Time  `json:"updatedAt"`
+}
+
+// MarketplacePayoutInspection is a read-only Marketplace payout-state row.
+type MarketplacePayoutInspection struct {
+	ID                      string    `json:"id"`
+	PublisherOrganizationID string    `json:"publisherOrganizationId"`
+	PublisherUserID         string    `json:"publisherUserId"`
+	Amount                  float64   `json:"amount"`
+	Currency                string    `json:"currency"`
+	Provider                string    `json:"provider"`
+	ProviderPayoutID        string    `json:"providerPayoutId,omitempty"`
+	Status                  string    `json:"status"`
+	CreatedAt               time.Time `json:"createdAt"`
+	UpdatedAt               time.Time `json:"updatedAt"`
+}

@@ -1,0 +1,74 @@
+groups:
+  - name: oblivious-production-operations
+    rules:
+      - alert: RelayOutage
+        expr: sum(rate(relay_route_decisions_total{result="allowed"}[5m])) == 0
+        for: 10m
+        labels:
+          severity: critical
+          owner: platform-ops
+          slo: relay-availability
+          runbook: docs/release/observability-slos.md#relay-outage
+        annotations:
+          summary: Relay allowed route decisions dropped to zero
+          description: Relay is not accepting supported production traffic or traffic is not reaching Relay.
+
+      - alert: QuotaSettlementFailure
+        expr: sum(rate(quota_settlement_failures_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: critical
+          owner: billing-ops
+          slo: quota-settlement-correctness
+          runbook: docs/release/observability-slos.md#quota-settlement-failure
+        annotations:
+          summary: Quota settlement failures detected
+          description: Quota preauthorization, settlement, or refund failures are being recorded.
+
+      - alert: StripeWebhookFailure
+        expr: sum(rate(stripe_webhook_failures_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: critical
+          owner: billing-ops
+          slo: webhook-processing
+          runbook: docs/release/observability-slos.md#webhook-failure
+        annotations:
+          summary: Stripe webhook failures detected
+          description: Stripe webhook signature, ledger, or lifecycle failures are being recorded.
+
+      - alert: MigrationFailure
+        expr: increase(migration_runs_total{status="failure"}[30m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          owner: platform-ops
+          slo: migration-safety
+          runbook: docs/release/observability-slos.md#migration-failure
+        annotations:
+          summary: Database migration failure detected
+          description: Migration execution failed and must be investigated before release continues.
+
+      - alert: HighProviderErrorRate
+        expr: sum(rate(provider_failures_total[5m])) / clamp_min(sum(rate(provider_request_duration_seconds_count[5m])), 1) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          owner: relay-ops
+          slo: provider-error-rate
+          runbook: docs/release/observability-slos.md#high-provider-error-rate
+        annotations:
+          summary: Provider failure rate is above 5 percent
+          description: Upstream provider request errors or provider 5xx responses exceed the SLO threshold.
+
+      - alert: TenantIsolationIncident
+        expr: sum(rate(http_requests_total{status_class="4xx"}[5m])) > 20
+        for: 10m
+        labels:
+          severity: critical
+          owner: security-ops
+          slo: tenant-isolation
+          runbook: docs/release/observability-slos.md#tenant-isolation-incident
+        annotations:
+          summary: Potential tenant isolation incident signal
+          description: HTTP 4xx denial volume is elevated. Correlate with tenant-isolation security logs and cross-tenant test evidence.

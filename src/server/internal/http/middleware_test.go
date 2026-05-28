@@ -1,9 +1,15 @@
 package http
 
 import (
+	"bytes"
+	"encoding/json"
 	stdhttp "net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"oblivious/server/internal/auth"
+	"oblivious/server/internal/observability"
 )
 
 func TestWithCORSAllowsConfiguredOrigin(t *testing.T) {
@@ -67,5 +73,61 @@ func TestRequestIDFromContextReturnsRequestIDGeneratedByMiddleware(t *testing.T)
 	}
 	if recorder.Header().Get(requestIDHeader) != gotRequestID {
 		t.Fatalf("expected response request id %q, got %q", gotRequestID, recorder.Header().Get(requestIDHeader))
+	}
+}
+
+func TestWithLoggingWritesStructuredRequestEvent(t *testing.T) {
+	var output bytes.Buffer
+	restoreLogger := setObservabilityLoggerForTest(observability.NewJSONLogger(&output))
+	defer restoreLogger()
+
+	handler := withRequestID(withLogging(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		attachSessionToObservabilityScope(r, auth.Session{
+			OrganizationID: "org_123",
+			User:           auth.User{ID: "user_123"},
+		})
+		w.WriteHeader(stdhttp.StatusCreated)
+		_, _ = w.Write([]byte("ok"))
+	})))
+
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/agents/agent_123?api_key=sk-secret", strings.NewReader(`{"prompt":"secret"}`))
+	request.Header.Set("Authorization", "Bearer sk-secret")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	var record map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(output.Bytes()), &record); err != nil {
+		t.Fatalf("expected structured JSON log, got error: %v\n%s", err, output.String())
+	}
+	if record["event"] != "http.request" {
+		t.Fatalf("expected http.request event, got %#v", record["event"])
+	}
+	if record["component"] != "http" {
+		t.Fatalf("expected http component, got %#v", record["component"])
+	}
+	if record["request_id"] == "" {
+		t.Fatalf("expected request_id in log: %#v", record)
+	}
+	if record["organization_id"] != "org_123" {
+		t.Fatalf("expected organization scope, got %#v", record["organization_id"])
+	}
+	if record["user_id"] != "user_123" {
+		t.Fatalf("expected user scope, got %#v", record["user_id"])
+	}
+	if record["route"] != "/api/v1/app/agents/:id" {
+		t.Fatalf("expected normalized route, got %#v", record["route"])
+	}
+	if record["status"] != float64(stdhttp.StatusCreated) {
+		t.Fatalf("expected status 201, got %#v", record["status"])
+	}
+	if _, ok := record["latency_ms"]; !ok {
+		t.Fatalf("expected latency_ms in log: %#v", record)
+	}
+	forbiddenText := output.String()
+	for _, forbidden := range []string{"sk-secret", "secret", "Authorization", "api_key"} {
+		if strings.Contains(forbiddenText, forbidden) {
+			t.Fatalf("log leaked forbidden value %q: %s", forbidden, forbiddenText)
+		}
 	}
 }

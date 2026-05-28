@@ -17,6 +17,7 @@ type Store interface {
 	AuditStore
 	PlanStore
 	UserStore
+	BillingInspectionStore
 
 	// System stats (D-07: admin dashboard)
 	GetSystemStats(ctx context.Context) (*SystemStats, error)

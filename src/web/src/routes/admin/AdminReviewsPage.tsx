@@ -93,6 +93,15 @@ function ratingLabel(agent: PublishedAgent) {
   return `${rating.toFixed(1)} (${agent.ratingCount})`;
 }
 
+function money(value?: number) {
+  return `$${(value ?? 0).toFixed(2)}`;
+}
+
+function pricingLabel(agent: PublishedAgent) {
+  const pricingType = agent.pricingType ?? (agent.pricingAmount && agent.pricingAmount > 0 ? 'one_time' : 'free');
+  return `Pricing: ${pricingType} ${money(agent.pricingAmount)}`;
+}
+
 function updatedAt(agent: PublishedAgent) {
   return new Date(agent.updatedAt ?? agent.createdAt).toLocaleDateString();
 }
@@ -159,6 +168,17 @@ export function AdminReviewsPage() {
         const mappedStatus = agentStatus(agent);
         return <StatusBadge status={mappedStatus.status} label={mappedStatus.label} />;
       },
+    },
+    {
+      key: 'commercialContext',
+      header: 'Commercial Context',
+      render: (agent) => (
+        <div className="min-w-56 space-y-1 text-xs text-muted-foreground">
+          <div>{pricingLabel(agent)}</div>
+          <div>{`Visibility: ${agent.visibility}`}</div>
+          <div>{`Governance status: ${agent.status}`}</div>
+        </div>
+      ),
     },
     { key: 'ratingAvg', header: 'Rating', render: ratingLabel },
     { key: 'installCount', header: 'Installs', render: (agent) => agent.installCount.toLocaleString() },

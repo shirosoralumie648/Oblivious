@@ -6,12 +6,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
-	"oblivious/server/internal/relay/types"
 	"oblivious/server/internal/relay/channel"
+	"oblivious/server/internal/relay/types"
 )
 
 var wsUpgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
+	CheckOrigin:     func(r *http.Request) bool { return true },
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 }
@@ -25,6 +25,10 @@ type RealtimeHandler struct {
 
 func NewRealtimeHandler(p *types.ChannelPoolInterface, a *channel.OpenAIAdapter) *RealtimeHandler {
 	return &RealtimeHandler{pool: p, adapter: a}
+}
+
+func (h *RealtimeHandler) Handle(c *gin.Context) error {
+	return h.HandleStream(c)
 }
 
 // HandleStream WebSocket 连接入口

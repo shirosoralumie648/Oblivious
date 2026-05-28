@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"oblivious/server/internal/relay/channel"
 	"oblivious/server/internal/relay/handler"
 	"oblivious/server/internal/relay/types"
 )
@@ -57,9 +58,41 @@ func NewRelay(cfg *Config) (*Relay, error) {
 
 	// Register router with handlers
 	handler.SetRouter(r.router)
+	r.registerHandlers()
 
 	r.initRouter(cfg != nil && cfg.Production)
 	return r, nil
+}
+
+func (r *Relay) registerHandlers() {
+	var pool types.ChannelPoolInterface = r.pool
+	adapter := &channel.OpenAIAdapter{}
+	imageHandler := handler.NewImagesHandler(&pool, adapter)
+	audioHandler := handler.NewAudioHandler(&pool, adapter)
+	batchHandler := handler.NewBatchHandler(&pool, adapter)
+	filesHandler := handler.NewFilesHandler(&pool, adapter, "/tmp/oblivious-relay-files")
+	assistantsHandler := handler.NewAssistantsHandler(adapter)
+
+	r.handlers = map[types.APIType]types.Handler{
+		types.APITypeChat:           handler.NewChatHandler(&pool, adapter),
+		types.APITypeResponses:      handler.NewResponsesHandler(&pool, adapter),
+		types.APITypeRealtime:       handler.NewRealtimeHandler(&pool, adapter),
+		types.APITypeEmbeddings:     handler.NewEmbeddingsHandler(&pool, adapter),
+		types.APITypeImageGen:       imageHandler,
+		types.APITypeImageEdit:      imageHandler,
+		types.APITypeImageVar:       imageHandler,
+		types.APITypeAudioSpeech:    audioHandler,
+		types.APITypeAudioSTT:       audioHandler,
+		types.APITypeAudioTranslate: audioHandler,
+		types.APITypeModeration:     handler.NewModerationsHandler(&pool, adapter),
+		types.APITypeCompletions:    handler.NewLegacyCompletionsHandler(&pool, adapter),
+		types.APITypeBatch:          batchHandler,
+		types.APITypeFiles:          filesHandler,
+		types.APITypeFineTuning:     handler.NewFineTuningHandler(adapter),
+		types.APITypeAssistants:     assistantsHandler,
+		types.APITypeThreads:        assistantsHandler,
+		types.APITypeRuns:           assistantsHandler,
+	}
 }
 
 func (r *Relay) initRouter(production bool) {

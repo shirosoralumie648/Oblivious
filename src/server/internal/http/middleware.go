@@ -3,24 +3,40 @@ package http
 import (
 	"context"
 	"fmt"
-	"log"
 	stdhttp "net/http"
+	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
+
+	"oblivious/server/internal/auth"
+	"oblivious/server/internal/metrics"
+	"oblivious/server/internal/observability"
 )
 
 const requestIDHeader = "X-Request-Id"
 
 type contextKey string
 
-const requestIDContextKey contextKey = "request-id"
+const (
+	requestIDContextKey          contextKey = "request-id"
+	observabilityScopeContextKey contextKey = "observability-scope"
+)
 
 var requestCounter uint64
+var observabilityLogger = observability.NewJSONLogger(os.Stdout)
+var observabilityLoggerMu sync.RWMutex
 
 type statusRecorder struct {
 	stdhttp.ResponseWriter
 	status int
+}
+
+type observabilityScope struct {
+	mu             sync.RWMutex
+	organizationID string
+	userID         string
 }
 
 func (r *statusRecorder) WriteHeader(status int) {
@@ -67,12 +83,120 @@ func withLogging(next stdhttp.Handler) stdhttp.Handler {
 	return stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		startedAt := time.Now()
 		recorder := &statusRecorder{ResponseWriter: w, status: stdhttp.StatusOK}
+		scope := &observabilityScope{}
+		ctx := context.WithValue(r.Context(), observabilityScopeContextKey, scope)
+		route := normalizeRoute(r.URL.Path)
+		ctx, span := observability.StartSpan(
+			ctx,
+			"http.request",
+			observability.String("http.method", r.Method),
+			observability.String("http.route", route),
+		)
+		defer span.End()
 
-		next.ServeHTTP(recorder, r)
+		next.ServeHTTP(recorder, r.WithContext(ctx))
 
 		requestID := requestIDFromContext(r.Context())
-		log.Printf("method=%s path=%s status=%d duration=%s request_id=%s", r.Method, r.URL.Path, recorder.status, time.Since(startedAt), requestID)
+		duration := time.Since(startedAt)
+		organizationID, userID := scope.snapshot()
+		metrics.RecordHTTPRequest(r.Method, route, recorder.status)
+		metrics.ObserveHTTPRequestDuration(r.Method, route, duration.Seconds())
+		currentObservabilityLogger().Log(ctx, observability.Event{
+			Component:      "http",
+			Event:          "http.request",
+			RequestID:      requestID,
+			OrganizationID: organizationID,
+			UserID:         userID,
+			Method:         r.Method,
+			Route:          route,
+			Status:         recorder.status,
+			Latency:        duration,
+		})
 	})
+}
+
+func attachSessionToObservabilityScope(r *stdhttp.Request, session auth.Session) {
+	scope, ok := r.Context().Value(observabilityScopeContextKey).(*observabilityScope)
+	if !ok || scope == nil {
+		return
+	}
+	scope.set(session.OrganizationID, session.User.ID)
+}
+
+func (s *observabilityScope) set(organizationID, userID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.organizationID = organizationID
+	s.userID = userID
+}
+
+func (s *observabilityScope) snapshot() (string, string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.organizationID, s.userID
+}
+
+func currentObservabilityLogger() *observability.Logger {
+	observabilityLoggerMu.RLock()
+	defer observabilityLoggerMu.RUnlock()
+	return observabilityLogger
+}
+
+func setObservabilityLoggerForTest(logger *observability.Logger) func() {
+	observabilityLoggerMu.Lock()
+	previous := observabilityLogger
+	observabilityLogger = logger
+	observabilityLoggerMu.Unlock()
+
+	return func() {
+		observabilityLoggerMu.Lock()
+		observabilityLogger = previous
+		observabilityLoggerMu.Unlock()
+	}
+}
+
+func normalizeRoute(path string) string {
+	if path == "" {
+		return "/"
+	}
+	if path == "/healthz" || path == "/metrics" {
+		return path
+	}
+
+	segments := strings.Split(strings.Trim(path, "/"), "/")
+	dynamicParents := map[string]struct{}{
+		"agents":                   {},
+		"conversations":            {},
+		"knowledge-bases":          {},
+		"documents":                {},
+		"tasks":                    {},
+		"mcp-servers":              {},
+		"notifications":            {},
+		"organizations":            {},
+		"organization-invitations": {},
+		"users":                    {},
+		"plans":                    {},
+		"reviews":                  {},
+		"channels":                 {},
+		"routes":                   {},
+		"packages":                 {},
+		"installs":                 {},
+		"payouts":                  {},
+		"settlements":              {},
+		"refunds":                  {},
+		"subscriptions":            {},
+		"topups":                   {},
+		"invoices":                 {},
+	}
+	for index := range segments {
+		if index == 0 {
+			continue
+		}
+		if _, ok := dynamicParents[segments[index-1]]; ok {
+			segments[index] = ":id"
+		}
+	}
+	return "/" + strings.Join(segments, "/")
 }
 
 func withCORS(allowedOrigins []string) func(stdhttp.Handler) stdhttp.Handler {

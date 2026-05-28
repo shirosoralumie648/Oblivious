@@ -4,7 +4,11 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
+	"unicode"
 )
 
 // BuiltinTool 内置工具接口
@@ -21,6 +25,26 @@ var BuiltinTools = map[string]BuiltinTool{
 	"calculator":   &CalculatorTool{},
 	"datetime":     &DatetimeTool{},
 	"http_request": &HTTPRequestTool{},
+}
+
+var defaultCommercialBuiltinEnabled = map[string]bool{
+	"calculator":   true,
+	"datetime":     true,
+	"web_search":   false,
+	"http_request": false,
+}
+
+// IsDefaultCommercialBuiltin reports whether a builtin is safe and real enough
+// to expose by default in commercial Agent tool definitions.
+func IsDefaultCommercialBuiltin(name string) bool {
+	return defaultCommercialBuiltinEnabled[name]
+}
+
+func disabledBuiltinResult(name, reason string) *ToolResult {
+	return &ToolResult{
+		Content: fmt.Sprintf("%s is disabled for default commercial use: %s", name, reason),
+		IsError: true,
+	}
 }
 
 // WebSearchTool 网页搜索工具
@@ -52,12 +76,11 @@ func (t *WebSearchTool) Execute(ctx context.Context, args map[string]any) (*Tool
 	if !ok {
 		return nil, fmt.Errorf("query is required")
 	}
+	if strings.TrimSpace(query) == "" {
+		return nil, fmt.Errorf("query is required")
+	}
 
-	// 简化实现：返回占位结果
-	// 实际实现需要集成搜索 API
-	return &ToolResult{
-		Content: fmt.Sprintf("Search results for: %s (placeholder - integrate with search API)", query),
-	}, nil
+	return disabledBuiltinResult("web_search", "no search provider is configured"), nil
 }
 
 // CalculatorTool 计算器工具
@@ -89,11 +112,17 @@ func (t *CalculatorTool) Execute(ctx context.Context, args map[string]any) (*Too
 	if !ok {
 		return nil, fmt.Errorf("expression is required")
 	}
+	expression = strings.TrimSpace(expression)
+	if expression == "" {
+		return nil, fmt.Errorf("expression is required")
+	}
 
-	// 简化实现：仅支持基本运算
-	// 实际实现应使用表达式解析库
-	result := fmt.Sprintf("Result of '%s' = (placeholder - implement expression parser)", expression)
-	return &ToolResult{Content: result}, nil
+	value, err := evaluateArithmetic(expression)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ToolResult{Content: "Result: " + strconv.FormatFloat(value, 'f', -1, 64)}, nil
 }
 
 // DatetimeTool 日期时间工具
@@ -163,6 +192,7 @@ func (t *HTTPRequestTool) InputSchema() any {
 func (t *HTTPRequestTool) Execute(ctx context.Context, args map[string]any) (*ToolResult, error) {
 	method, _ := args["method"].(string)
 	url, _ := args["url"].(string)
+	_ = ctx
 
 	if method == "" {
 		method = "GET"
@@ -171,33 +201,7 @@ func (t *HTTPRequestTool) Execute(ctx context.Context, args map[string]any) (*To
 		return nil, fmt.Errorf("url is required")
 	}
 
-	if t.client == nil {
-		t.client = &http.Client{Timeout: 30 * time.Second}
-	}
-
-	req, err := http.NewRequestWithContext(ctx, method, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-
-	// 添加 headers
-	if headers, ok := args["headers"].(map[string]any); ok {
-		for k, v := range headers {
-			if vs, ok := v.(string); ok {
-				req.Header.Set(k, vs)
-			}
-		}
-	}
-
-	resp, err := t.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	return &ToolResult{
-		Content: fmt.Sprintf("HTTP %s %s -> Status: %d", method, url, resp.StatusCode),
-	}, nil
+	return disabledBuiltinResult("http_request", "tenant-safe outbound HTTP policy is not configured"), nil
 }
 
 // GetBuiltinTool 获取内置工具
@@ -209,7 +213,13 @@ func GetBuiltinTool(name string) (BuiltinTool, bool) {
 // ListBuiltinTools 列出所有内置工具
 func ListBuiltinTools() []ToolDefinition {
 	tools := make([]ToolDefinition, 0, len(BuiltinTools))
-	for _, tool := range BuiltinTools {
+	names := make([]string, 0, len(BuiltinTools))
+	for name := range BuiltinTools {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		tool := BuiltinTools[name]
 		tools = append(tools, ToolDefinition{
 			Name:        tool.Name(),
 			Description: tool.Description(),
@@ -217,4 +227,178 @@ func ListBuiltinTools() []ToolDefinition {
 		})
 	}
 	return tools
+}
+
+// ListDefaultCommercialBuiltinTools returns only builtins that may be exposed
+// to commercial Agents without extra provider or outbound-network policy.
+func ListDefaultCommercialBuiltinTools() []ToolDefinition {
+	tools := make([]ToolDefinition, 0, len(BuiltinTools))
+	names := make([]string, 0, len(BuiltinTools))
+	for name := range BuiltinTools {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if !IsDefaultCommercialBuiltin(name) {
+			continue
+		}
+		tool := BuiltinTools[name]
+		tools = append(tools, ToolDefinition{
+			Name:        tool.Name(),
+			Description: tool.Description(),
+			InputSchema: tool.InputSchema(),
+		})
+	}
+	return tools
+}
+
+type arithmeticParser struct {
+	input string
+	pos   int
+}
+
+func evaluateArithmetic(input string) (float64, error) {
+	p := &arithmeticParser{input: input}
+	value, err := p.parseExpression()
+	if err != nil {
+		return 0, err
+	}
+	p.skipSpaces()
+	if p.pos != len(p.input) {
+		return 0, fmt.Errorf("invalid expression: unexpected token %q", p.input[p.pos:])
+	}
+	return value, nil
+}
+
+func (p *arithmeticParser) parseExpression() (float64, error) {
+	value, err := p.parseTerm()
+	if err != nil {
+		return 0, err
+	}
+	for {
+		p.skipSpaces()
+		if p.match('+') {
+			next, err := p.parseTerm()
+			if err != nil {
+				return 0, err
+			}
+			value += next
+			continue
+		}
+		if p.match('-') {
+			next, err := p.parseTerm()
+			if err != nil {
+				return 0, err
+			}
+			value -= next
+			continue
+		}
+		return value, nil
+	}
+}
+
+func (p *arithmeticParser) parseTerm() (float64, error) {
+	value, err := p.parseUnary()
+	if err != nil {
+		return 0, err
+	}
+	for {
+		p.skipSpaces()
+		if p.match('*') {
+			next, err := p.parseUnary()
+			if err != nil {
+				return 0, err
+			}
+			value *= next
+			continue
+		}
+		if p.match('/') {
+			next, err := p.parseUnary()
+			if err != nil {
+				return 0, err
+			}
+			if next == 0 {
+				return 0, fmt.Errorf("invalid expression: division by zero")
+			}
+			value /= next
+			continue
+		}
+		return value, nil
+	}
+}
+
+func (p *arithmeticParser) parseUnary() (float64, error) {
+	p.skipSpaces()
+	if p.match('+') {
+		return p.parseUnary()
+	}
+	if p.match('-') {
+		value, err := p.parseUnary()
+		if err != nil {
+			return 0, err
+		}
+		return -value, nil
+	}
+	return p.parsePrimary()
+}
+
+func (p *arithmeticParser) parsePrimary() (float64, error) {
+	p.skipSpaces()
+	if p.match('(') {
+		value, err := p.parseExpression()
+		if err != nil {
+			return 0, err
+		}
+		p.skipSpaces()
+		if !p.match(')') {
+			return 0, fmt.Errorf("invalid expression: missing closing parenthesis")
+		}
+		return value, nil
+	}
+	return p.parseNumber()
+}
+
+func (p *arithmeticParser) parseNumber() (float64, error) {
+	p.skipSpaces()
+	start := p.pos
+	sawDigit := false
+	sawDot := false
+
+	for p.pos < len(p.input) {
+		r := rune(p.input[p.pos])
+		switch {
+		case unicode.IsDigit(r):
+			sawDigit = true
+			p.pos++
+		case r == '.' && !sawDot:
+			sawDot = true
+			p.pos++
+		default:
+			goto done
+		}
+	}
+
+done:
+	if !sawDigit {
+		return 0, fmt.Errorf("invalid expression: expected number at %q", p.input[start:])
+	}
+	value, err := strconv.ParseFloat(p.input[start:p.pos], 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid expression: %w", err)
+	}
+	return value, nil
+}
+
+func (p *arithmeticParser) skipSpaces() {
+	for p.pos < len(p.input) && unicode.IsSpace(rune(p.input[p.pos])) {
+		p.pos++
+	}
+}
+
+func (p *arithmeticParser) match(ch byte) bool {
+	if p.pos >= len(p.input) || p.input[p.pos] != ch {
+		return false
+	}
+	p.pos++
+	return true
 }

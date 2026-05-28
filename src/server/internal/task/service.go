@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"oblivious/server/internal/auth"
+	"oblivious/server/internal/metrics"
+	"oblivious/server/internal/observability"
 )
 
 var ErrInvalidGoal = errors.New("goal is required")
@@ -129,8 +131,12 @@ func (s *Service) Create(
 	toolAllowList []string,
 	toolDenyList []string,
 ) (Task, error) {
+	ctx, span := observability.StartSpan(ctx, "job.task_create", observability.String("job.kind", "task.create"))
+	defer span.End()
+
 	normalizedGoal := strings.TrimSpace(goal)
 	if normalizedGoal == "" {
+		metrics.RecordJobEvent("task.create", "failed")
 		return Task{}, ErrInvalidGoal
 	}
 
@@ -145,7 +151,7 @@ func (s *Service) Create(
 
 	normalizedToolAllowList, normalizedToolDenyList := normalizeToolRules(toolAllowList, toolDenyList)
 
-	return s.store.CreateTask(
+	task, err := s.store.CreateTask(
 		ctx,
 		session.WorkspaceID,
 		normalizedTitle,
@@ -157,61 +163,102 @@ func (s *Service) Create(
 		normalizedToolAllowList,
 		normalizedToolDenyList,
 	)
+	if err != nil {
+		metrics.RecordJobEvent("task.create", "failed")
+		return Task{}, err
+	}
+	metrics.RecordJobEvent("task.create", task.Status)
+	return task, nil
 }
 
 func (s *Service) Start(ctx context.Context, session auth.Session, taskID string) (TaskDetail, error) {
+	ctx, span := observability.StartSpan(ctx, "job.task_start", observability.String("job.kind", "task.start"))
+	defer span.End()
+
 	trimmedTaskID := strings.TrimSpace(taskID)
 	if trimmedTaskID == "" {
+		metrics.RecordJobEvent("task.start", "failed")
 		return TaskDetail{}, sql.ErrNoRows
 	}
 
 	detail, err := s.store.StartTask(ctx, session.WorkspaceID, trimmedTaskID)
 	if err != nil {
+		metrics.RecordJobEvent("task.start", "failed")
 		return TaskDetail{}, err
 	}
 
-	return normalizeTaskDetail(detail), nil
+	normalized := normalizeTaskDetail(detail)
+	metrics.RecordJobEvent("task.start", normalized.Status)
+	return normalized, nil
 }
 
 func (s *Service) Approve(ctx context.Context, session auth.Session, taskID string) (TaskDetail, error) {
+	ctx, span := observability.StartSpan(ctx, "job.task_approve", observability.String("job.kind", "task.approve"))
+	defer span.End()
+
 	detail, err := s.store.ApproveTask(ctx, session.WorkspaceID, strings.TrimSpace(taskID))
 	if err != nil {
+		metrics.RecordJobEvent("task.approve", "failed")
 		return TaskDetail{}, err
 	}
 
-	return normalizeTaskDetail(detail), nil
+	normalized := normalizeTaskDetail(detail)
+	metrics.RecordJobEvent("task.approve", normalized.Status)
+	return normalized, nil
 }
 
 func (s *Service) Pause(ctx context.Context, session auth.Session, taskID string) (TaskDetail, error) {
+	ctx, span := observability.StartSpan(ctx, "job.task_pause", observability.String("job.kind", "task.pause"))
+	defer span.End()
+
 	detail, err := s.store.PauseTask(ctx, session.WorkspaceID, strings.TrimSpace(taskID))
 	if err != nil {
+		metrics.RecordJobEvent("task.pause", "failed")
 		return TaskDetail{}, err
 	}
 
-	return normalizeTaskDetail(detail), nil
+	normalized := normalizeTaskDetail(detail)
+	metrics.RecordJobEvent("task.pause", normalized.Status)
+	return normalized, nil
 }
 
 func (s *Service) Resume(ctx context.Context, session auth.Session, taskID string) (TaskDetail, error) {
+	ctx, span := observability.StartSpan(ctx, "job.task_resume", observability.String("job.kind", "task.resume"))
+	defer span.End()
+
 	detail, err := s.store.ResumeTask(ctx, session.WorkspaceID, strings.TrimSpace(taskID))
 	if err != nil {
+		metrics.RecordJobEvent("task.resume", "failed")
 		return TaskDetail{}, err
 	}
 
-	return normalizeTaskDetail(detail), nil
+	normalized := normalizeTaskDetail(detail)
+	metrics.RecordJobEvent("task.resume", normalized.Status)
+	return normalized, nil
 }
 
 func (s *Service) Cancel(ctx context.Context, session auth.Session, taskID string) (TaskDetail, error) {
+	ctx, span := observability.StartSpan(ctx, "job.task_cancel", observability.String("job.kind", "task.cancel"))
+	defer span.End()
+
 	detail, err := s.store.CancelTask(ctx, session.WorkspaceID, strings.TrimSpace(taskID))
 	if err != nil {
+		metrics.RecordJobEvent("task.cancel", "failed")
 		return TaskDetail{}, err
 	}
 
-	return normalizeTaskDetail(detail), nil
+	normalized := normalizeTaskDetail(detail)
+	metrics.RecordJobEvent("task.cancel", normalized.Status)
+	return normalized, nil
 }
 
 func (s *Service) UpdateBudget(ctx context.Context, session auth.Session, taskID string, budgetLimit int) (TaskDetail, error) {
+	ctx, span := observability.StartSpan(ctx, "job.task_update_budget", observability.String("job.kind", "task.update_budget"))
+	defer span.End()
+
 	trimmedTaskID := strings.TrimSpace(taskID)
 	if trimmedTaskID == "" {
+		metrics.RecordJobEvent("task.update_budget", "failed")
 		return TaskDetail{}, sql.ErrNoRows
 	}
 
@@ -221,10 +268,13 @@ func (s *Service) UpdateBudget(ctx context.Context, session auth.Session, taskID
 
 	detail, err := s.store.UpdateTaskBudget(ctx, session.WorkspaceID, trimmedTaskID, budgetLimit)
 	if err != nil {
+		metrics.RecordJobEvent("task.update_budget", "failed")
 		return TaskDetail{}, err
 	}
 
-	return normalizeTaskDetail(detail), nil
+	normalized := normalizeTaskDetail(detail)
+	metrics.RecordJobEvent("task.update_budget", normalized.Status)
+	return normalized, nil
 }
 
 func normalizeExecutionMode(executionMode string) string {

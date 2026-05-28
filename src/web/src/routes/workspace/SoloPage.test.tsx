@@ -305,6 +305,173 @@ describe('SoloPage', () => {
     expect(screen.getByText('email')).toBeInTheDocument();
   });
 
+  it('renders commercial run readiness with budget, authorization, tools, and knowledge scope', async () => {
+    listTasks.mockResolvedValue([]);
+    listKnowledgeBases.mockResolvedValue([
+      { documentCount: 4, id: 'kb_1', name: 'Research Vault' }
+    ]);
+    createTask.mockResolvedValue({
+      authorizationScope: 'workspace_tools',
+      budgetLimit: 20,
+      budgetConsumed: 0,
+      createdAt: '2026-04-03T10:00:00Z',
+      executionMode: 'safe',
+      goal: 'Draft launch checklist',
+      id: 'task_ready',
+      knowledgeBaseIds: ['kb_1'],
+      status: 'draft',
+      title: 'Draft launch checklist'
+    });
+    startTask.mockResolvedValue({
+      authorizationScope: 'workspace_tools',
+      budgetLimit: 20,
+      budgetConsumed: 6,
+      createdAt: '2026-04-03T10:00:00Z',
+      executionMode: 'safe',
+      goal: 'Draft launch checklist',
+      id: 'task_ready',
+      knowledgeBaseIds: ['kb_1'],
+      startedAt: '2026-04-03T10:01:00Z',
+      status: 'running',
+      steps: [
+        { id: 'step_1', status: 'completed', stepIndex: 1, title: 'Understand the goal' },
+        { id: 'step_2', status: 'running', stepIndex: 2, title: 'Review workspace context' }
+      ],
+      title: 'Draft launch checklist',
+      toolAllowList: ['browser', 'shell'],
+      toolDenyList: ['email']
+    });
+
+    render(<SoloPage />);
+
+    await screen.findByRole('button', { name: 'Start solo run' });
+    fireEvent.change(screen.getByLabelText('Task goal'), { target: { value: 'Draft launch checklist' } });
+    fireEvent.click(screen.getByLabelText('Use knowledge base Research Vault'));
+    fireEvent.change(screen.getByLabelText('Execution mode'), { target: { value: 'safe' } });
+    fireEvent.change(screen.getByLabelText('Budget limit'), { target: { value: '20' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Start solo run' }));
+
+    expect(await screen.findByRole('heading', { name: 'Commercial run readiness' })).toBeInTheDocument();
+    expect(screen.getByText('Budget consumed: 6 / 20')).toBeInTheDocument();
+    expect(screen.getByText('Authorization scope: workspace_tools')).toBeInTheDocument();
+    expect(screen.getByText('Current enabled tools')).toBeInTheDocument();
+    expect(screen.getByText('Research Vault')).toBeInTheDocument();
+  });
+
+  it('surfaces start failures without clearing the task form', async () => {
+    listTasks.mockResolvedValue([]);
+    listKnowledgeBases.mockResolvedValue([]);
+    createTask.mockResolvedValue({
+      authorizationScope: 'workspace_tools',
+      budgetLimit: 10,
+      budgetConsumed: 0,
+      createdAt: '2026-04-03T10:00:00Z',
+      executionMode: 'standard',
+      goal: 'Draft launch checklist',
+      id: 'task_rejected',
+      knowledgeBaseIds: [],
+      status: 'draft',
+      title: 'Draft launch checklist'
+    });
+    startTask.mockRejectedValue(new Error('quota budget exceeded'));
+
+    render(<SoloPage />);
+
+    await screen.findByRole('button', { name: 'Start solo run' });
+    fireEvent.change(screen.getByLabelText('Task goal'), { target: { value: 'Draft launch checklist' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Start solo run' }));
+
+    expect(await screen.findByText('Unable to start a solo run.')).toBeInTheDocument();
+    expect(screen.getByText('quota budget exceeded')).toBeInTheDocument();
+    expect(screen.getByLabelText('Task goal')).toHaveValue('Draft launch checklist');
+  });
+
+  it('surfaces budget update failures while keeping active run visible', async () => {
+    listTasks.mockResolvedValue([
+      { authorizationScope: 'workspace_tools', budgetLimit: 8, executionMode: 'standard', goal: 'Review launch plan', id: 'task_2', status: 'running', title: 'Review launch plan' }
+    ]);
+    listKnowledgeBases.mockResolvedValue([]);
+    getTask.mockResolvedValue({
+      authorizationScope: 'workspace_tools',
+      budgetConsumed: 4,
+      budgetLimit: 8,
+      executionMode: 'standard',
+      goal: 'Review launch plan',
+      id: 'task_2',
+      knowledgeBaseIds: [],
+      status: 'running',
+      steps: [
+        { id: 'step_1', status: 'completed', stepIndex: 1, title: 'Understand the goal' },
+        { id: 'step_2', status: 'running', stepIndex: 2, title: 'Review workspace context' }
+      ],
+      title: 'Review launch plan'
+    });
+    updateTaskBudget.mockRejectedValue(new Error('quota service unavailable'));
+
+    render(<SoloPage />);
+
+    await screen.findByText('Review launch plan');
+    fireEvent.click(screen.getByRole('button', { name: 'Open task Review launch plan' }));
+    await screen.findByText('Status: running');
+
+    fireEvent.change(screen.getByLabelText('Active budget limit'), { target: { value: '15' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Update budget' }));
+
+    expect(await screen.findByText('Unable to update task budget.')).toBeInTheDocument();
+    expect(screen.getByText('quota service unavailable')).toBeInTheDocument();
+    expect(screen.getByText('Status: running')).toBeInTheDocument();
+  });
+
+  it('shows approval and retry recovery actions for awaiting and failed states', async () => {
+    listTasks.mockResolvedValue([
+      { authorizationScope: 'full_access', budgetLimit: 20, executionMode: 'safe', goal: 'Draft vendor outreach plan', id: 'task_safe', status: 'awaiting_confirmation', title: 'Draft vendor outreach plan' },
+      { authorizationScope: 'workspace_tools', budgetLimit: 12, executionMode: 'standard', goal: 'Review launch plan', id: 'task_failed', status: 'failed', title: 'Review launch plan' }
+    ]);
+    listKnowledgeBases.mockResolvedValue([]);
+    getTask
+      .mockResolvedValueOnce({
+        authorizationScope: 'full_access',
+        budgetConsumed: 0,
+        budgetLimit: 20,
+        executionMode: 'safe',
+        goal: 'Draft vendor outreach plan',
+        id: 'task_safe',
+        knowledgeBaseIds: [],
+        status: 'awaiting_confirmation',
+        steps: [
+          { id: 'step_1', status: 'completed', stepIndex: 1, title: 'Understand the goal' },
+          { id: 'step_2', status: 'awaiting_confirmation', stepIndex: 2, title: 'Confirm execution boundary' }
+        ],
+        title: 'Draft vendor outreach plan'
+      })
+      .mockResolvedValueOnce({
+        authorizationScope: 'workspace_tools',
+        budgetConsumed: 6,
+        budgetLimit: 12,
+        executionMode: 'standard',
+        goal: 'Review launch plan',
+        id: 'task_failed',
+        knowledgeBaseIds: [],
+        status: 'failed',
+        steps: [
+          { id: 'step_1', status: 'completed', stepIndex: 1, title: 'Understand the goal' },
+          { id: 'step_2', status: 'failed', stepIndex: 2, title: 'Review workspace context' }
+        ],
+        title: 'Review launch plan'
+      });
+
+    render(<SoloPage />);
+
+    await screen.findByText('Draft vendor outreach plan');
+    fireEvent.click(screen.getByRole('button', { name: 'Open task Draft vendor outreach plan' }));
+    expect(await screen.findByText('Approval boundary: SOLO will not continue until an authorized user approves this run.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Approve plan' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open task Review launch plan' }));
+    expect(await screen.findByText('Retry recovery: failed runs can be restarted without losing the current task context.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry run' })).toBeInTheDocument();
+  });
+
   it('waits for approval before continuing a safe solo task', async () => {
     listTasks.mockResolvedValue([]);
     listKnowledgeBases.mockResolvedValue([]);

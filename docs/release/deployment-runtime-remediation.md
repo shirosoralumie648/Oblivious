@@ -1,6 +1,6 @@
 # Deployment Runtime Remediation
 
-DEPLOY-01 is complete after a real Docker compose build/start/smoke passed on 2026-05-12. Keep this remediation note for hosts where the default Docker Hub or Go module paths are still blocked.
+DEPLOY-01 is complete after a real Docker compose build/start/smoke passed on 2026-05-12. Phase 21 extends this release-candidate proof into v07 Production Operations by requiring migration-aware deployment validation, shared app/Relay smoke probes, and executable Kubernetes validation where cluster tooling exists. Keep this remediation note for hosts where the default Docker Hub or Go module paths are still blocked.
 
 ## Current Runtime Evidence
 
@@ -21,12 +21,50 @@ Verified restricted-network command:
 
 ```bash
 OBLIVIOUS_IMAGE_REGISTRY_PREFIX=docker.m.daocloud.io/library/ \
+  OBLIVIOUS_POSTGRES_IMAGE=docker.m.daocloud.io/pgvector/pgvector:pg16 \
   OBLIVIOUS_GOPROXY=https://mirrors.aliyun.com/goproxy/,direct \
   OBLIVIOUS_GOSUMDB=sum.golang.google.cn \
   bash scripts/deploy-validate.sh
 ```
 
-Observed result: `oblivious-oblivious-server` and `oblivious-oblivious-web` built, compose started PostgreSQL, Redis, server, and web, `scripts/deploy-smoke.sh` passed against `http://127.0.0.1:8080/healthz`, and the validation script removed the compose stack.
+Observed result: `oblivious-oblivious-server` and `oblivious-oblivious-web` built, compose started PostgreSQL, Redis, server, and web, the historical `scripts/deploy-smoke.sh` passed against `http://127.0.0.1:8080/healthz`, and the validation script removed the compose stack.
+
+## Phase 21 Runtime Validation Contract
+
+Phase 21 validation is stricter than the historical DEPLOY-01 check:
+
+- `scripts/deploy-validate.sh` must start PostgreSQL and Redis, run `/usr/local/bin/oblivious-migrate` from the server image, then start server/web and run shared smoke.
+- PostgreSQL runtime images must provide the `vector` extension required by `src/server/migrations/0016_pgvector.sql`; compose defaults to `pgvector/pgvector:pg16`, and restricted-network runs should set `OBLIVIOUS_POSTGRES_IMAGE=docker.m.daocloud.io/pgvector/pgvector:pg16`.
+- `docker compose up` calls are bounded by `DEPLOY_VALIDATE_DOCKER_UP_TIMEOUT_SECONDS` (default `600`) so image-pull stalls fail with registry/pre-pull remediation instead of hanging without diagnostics.
+- Host ports default to `8080` for the server and `4173` for the web app. If a local process already owns those ports, set `OBLIVIOUS_SERVER_HOST_PORT` and `OBLIVIOUS_WEB_HOST_PORT`; `scripts/deploy-validate.sh` derives `BASE_URL` from `OBLIVIOUS_SERVER_HOST_PORT` unless `BASE_URL` is explicitly set.
+- `scripts/deploy-smoke.sh` must prove `/healthz`, `/metrics`, `/api/v1/auth/me`, and `/v1/chat/completions`.
+- The app and Relay smoke probes do not require live provider credentials; they prove routes are mounted and handled locally by auth or policy rather than returning `404` or provider-network errors.
+- `scripts/k8s-validate.sh` is the Kubernetes entrypoint for a real or local cluster. It requires `kubectl`, a reachable context, and `OBLIVIOUS_K8S_SECRET_FILE` pointing at a filled secret manifest outside git.
+- Missing `kubectl`, missing cluster access, or a placeholder secret is recorded as non-success evidence. It must not be counted as Kubernetes proof.
+
+Normal-network compose validation:
+
+```bash
+bash scripts/deploy-validate.sh
+```
+
+Restricted-network compose validation:
+
+```bash
+OBLIVIOUS_IMAGE_REGISTRY_PREFIX=docker.m.daocloud.io/library/ \
+  OBLIVIOUS_POSTGRES_IMAGE=docker.m.daocloud.io/pgvector/pgvector:pg16 \
+  OBLIVIOUS_GOPROXY=https://mirrors.aliyun.com/goproxy/,direct \
+  OBLIVIOUS_GOSUMDB=sum.golang.google.cn \
+  bash scripts/deploy-validate.sh
+```
+
+Kubernetes validation when cluster tooling is available:
+
+```bash
+cp deploy/kubernetes/secret.example.yaml /tmp/oblivious-secret.yaml
+# edit /tmp/oblivious-secret.yaml outside git and replace every placeholder
+OBLIVIOUS_K8S_SECRET_FILE=/tmp/oblivious-secret.yaml bash scripts/k8s-validate.sh
+```
 
 Historical 2026-05-04 observation:
 
@@ -102,38 +140,72 @@ In this checkout, the active runtime is the Linux engine at `/var/run/docker.soc
 If host-level daemon proxy changes are not available, use the validated image-prefix override:
 
 ```bash
-OBLIVIOUS_IMAGE_REGISTRY_PREFIX=docker.m.daocloud.io/library/ bash scripts/deploy-validate.sh
+OBLIVIOUS_IMAGE_REGISTRY_PREFIX=docker.m.daocloud.io/library/ \
+  OBLIVIOUS_POSTGRES_IMAGE=docker.m.daocloud.io/pgvector/pgvector:pg16 \
+  bash scripts/deploy-validate.sh
 ```
 
 If Go module downloads fail from inside `Dockerfile.server`, include the validated Go proxy overrides:
 
 ```bash
 OBLIVIOUS_IMAGE_REGISTRY_PREFIX=docker.m.daocloud.io/library/ \
+  OBLIVIOUS_POSTGRES_IMAGE=docker.m.daocloud.io/pgvector/pgvector:pg16 \
   OBLIVIOUS_GOPROXY=https://mirrors.aliyun.com/goproxy/,direct \
   OBLIVIOUS_GOSUMDB=sum.golang.google.cn \
   bash scripts/deploy-validate.sh
 ```
 
+If `docker compose up` times out while starting PostgreSQL, Redis, server, or web, first pre-pull the images named by `docker compose config --images`, or increase the bounded wait only for a slow but progressing mirror:
+
+```bash
+DEPLOY_VALIDATE_DOCKER_UP_TIMEOUT_SECONDS=1200 \
+  OBLIVIOUS_IMAGE_REGISTRY_PREFIX=docker.m.daocloud.io/library/ \
+  OBLIVIOUS_POSTGRES_IMAGE=docker.m.daocloud.io/pgvector/pgvector:pg16 \
+  OBLIVIOUS_GOPROXY=https://mirrors.aliyun.com/goproxy/,direct \
+  OBLIVIOUS_GOSUMDB=sum.golang.google.cn \
+  bash scripts/deploy-validate.sh
+```
+
+If the pgvector runtime image itself is blocked but GitHub and `apt.postgresql.org` are reachable, build the local fallback image from `Dockerfile.postgres-pgvector` and use it for compose proof:
+
+```bash
+docker build -f Dockerfile.postgres-pgvector -t oblivious-postgres-pgvector:pg16 .
+OBLIVIOUS_SERVER_HOST_PORT=18080 \
+  OBLIVIOUS_WEB_HOST_PORT=14173 \
+  OBLIVIOUS_IMAGE_REGISTRY_PREFIX=docker.m.daocloud.io/library/ \
+  OBLIVIOUS_POSTGRES_IMAGE=oblivious-postgres-pgvector:pg16 \
+  OBLIVIOUS_GOPROXY=https://mirrors.aliyun.com/goproxy/,direct \
+  OBLIVIOUS_GOSUMDB=sum.golang.google.cn \
+  bash scripts/deploy-validate.sh
+```
+
+The 2026-05-28 Phase 21 fallback proof used this local pgvector image path and alternate host ports because port `8080` was already owned by a local Python process.
+
 ## Option C: Validate With Kubernetes
 
-Install or provide `kubectl` plus a target cluster, then fill secrets outside git:
+Install or provide `kubectl` plus a target cluster, then fill secrets outside git. Prefer the scripted validator because it applies manifests in order, waits for rollouts, port-forwards the server service, and runs the same shared smoke contract as compose:
 
 ```bash
 cp deploy/kubernetes/secret.example.yaml /tmp/oblivious-secret.yaml
 # edit /tmp/oblivious-secret.yaml with real values outside git
-kubectl apply -f deploy/kubernetes/namespace.yaml
-kubectl apply -f /tmp/oblivious-secret.yaml
-kubectl apply -f deploy/kubernetes/
+OBLIVIOUS_K8S_SECRET_FILE=/tmp/oblivious-secret.yaml bash scripts/k8s-validate.sh
 ```
 
-Confirm rollout and smoke:
+For manual debugging, the equivalent high-level sequence is:
 
 ```bash
+kubectl apply -f deploy/kubernetes/namespace.yaml
+kubectl apply -f /tmp/oblivious-secret.yaml
+kubectl apply -f deploy/kubernetes/configmap.yaml
+kubectl apply -f deploy/kubernetes/postgres.yaml
+kubectl apply -f deploy/kubernetes/redis.yaml
+kubectl apply -f deploy/kubernetes/server.yaml
+kubectl apply -f deploy/kubernetes/web.yaml
 kubectl -n oblivious rollout status deployment/oblivious-server
 kubectl -n oblivious rollout status deployment/oblivious-web
 ```
 
-Expose the server service as appropriate for the cluster, then run:
+Then expose the server service as appropriate for the cluster and run:
 
 ```bash
 BASE_URL=http://127.0.0.1:8080 bash scripts/deploy-smoke.sh
@@ -142,3 +214,5 @@ BASE_URL=http://127.0.0.1:8080 bash scripts/deploy-smoke.sh
 ## Completion Rule
 
 DEPLOY-01 can be marked complete only after one real runtime path starts the actual stack and `scripts/deploy-smoke.sh` passes against that stack. This checkout met that rule through Docker compose on 2026-05-12.
+
+For v07 `OPS-01`, the evidence bar is higher: the runtime path must also run migrations through `oblivious-migrate`, prove `/metrics`, prove one app API path, and prove one Relay path. Kubernetes proof requires `scripts/k8s-validate.sh` to pass against a real or local cluster; missing cluster tooling is useful environment evidence but not a successful Kubernetes validation.

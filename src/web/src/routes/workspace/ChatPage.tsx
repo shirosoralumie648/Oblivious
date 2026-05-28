@@ -23,6 +23,29 @@ function parseToolList(value: string) {
     .filter((entry, index, values) => entry !== '' && values.indexOf(entry) === index);
 }
 
+type ActionError = {
+  message?: string;
+  title: string;
+};
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim() !== '') {
+    return error.message;
+  }
+  if (typeof error === 'string' && error.trim() !== '') {
+    return error;
+  }
+
+  return fallback;
+}
+
+function toActionError(title: string, error: unknown): ActionError {
+  return {
+    message: getErrorMessage(error, 'The action failed. Try again or contact support if the issue continues.'),
+    title
+  };
+}
+
 export function ChatPage() {
   const { conversationId } = useParams<{ conversationId?: string }>();
   const navigate = useNavigate();
@@ -40,6 +63,15 @@ export function ChatPage() {
   const [authorizationScope, setAuthorizationScope] = useState('workspace_tools');
   const [allowedTools, setAllowedTools] = useState('');
   const [blockedTools, setBlockedTools] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<ActionError | null>(null);
+  const [isCreatingConversation, setIsCreatingConversation] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isPreparingHandoff, setIsPreparingHandoff] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const [isStartingSolo, setIsStartingSolo] = useState(false);
+  const [isUpdatingKnowledgeBinding, setIsUpdatingKnowledgeBinding] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
   const [selectedKnowledgeBaseIds, setSelectedKnowledgeBaseIds] = useState<string[]>([]);
   const chatReturnPath = conversationId ? `/chat/${conversationId}` : '/chat';
 
@@ -47,6 +79,8 @@ export function ChatPage() {
     let cancelled = false;
 
     const loadChatWorkspace = async () => {
+      setIsLoading(true);
+      setError(null);
       try {
         if (conversationId) {
           const [nextConversations, , nextKnowledgeBases, nextMessages, nextConversationConfig] = await Promise.all([
@@ -68,6 +102,7 @@ export function ChatPage() {
           setMessages(nextMessages);
           setMessageDraft('');
           setSelectedKnowledgeBaseIds(nextConversationConfig.knowledgeBaseIds);
+          setError(null);
           return;
         }
 
@@ -87,7 +122,8 @@ export function ChatPage() {
         setMessages([]);
         setMessageDraft('');
         setSelectedKnowledgeBaseIds([]);
-      } catch {
+        setError(null);
+      } catch (caughtError) {
         if (!cancelled) {
           setConversations([]);
           setConversationConfig(null);
@@ -96,6 +132,11 @@ export function ChatPage() {
           setMessages([]);
           setMessageDraft('');
           setSelectedKnowledgeBaseIds([]);
+          setError(getErrorMessage(caughtError, 'The chat workspace could not be loaded.'));
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
         }
       }
     };
@@ -105,12 +146,20 @@ export function ChatPage() {
     return () => {
       cancelled = true;
     };
-  }, [chatApi, conversationId, knowledgeApi]);
+  }, [chatApi, conversationId, knowledgeApi, reloadToken]);
 
   const handleCreateConversation = async () => {
-    const conversation = await chatApi.createConversation({ title: 'New conversation' });
-    setConversations((current) => [conversation, ...current]);
-    navigate(`/chat/${conversation.id}`);
+    setActionError(null);
+    setIsCreatingConversation(true);
+    try {
+      const conversation = await chatApi.createConversation({ title: 'New conversation' });
+      setConversations((current) => [conversation, ...current]);
+      navigate(`/chat/${conversation.id}`);
+    } catch (caughtError) {
+      setActionError(toActionError('Unable to create conversation.', caughtError));
+    } finally {
+      setIsCreatingConversation(false);
+    }
   };
 
   const updateKnowledgeBinding = async (knowledgeBaseId: string) => {
@@ -129,10 +178,18 @@ export function ChatPage() {
       temperature: conversationConfig.temperature,
       toolsEnabled: conversationConfig.toolsEnabled
     };
-    const savedConfig = await chatApi.updateConversationConfig(conversationId, nextConfig);
+    setActionError(null);
+    setIsUpdatingKnowledgeBinding(true);
+    try {
+      const savedConfig = await chatApi.updateConversationConfig(conversationId, nextConfig);
 
-    setConversationConfig(savedConfig);
-    setSelectedKnowledgeBaseIds(savedConfig.knowledgeBaseIds);
+      setConversationConfig(savedConfig);
+      setSelectedKnowledgeBaseIds(savedConfig.knowledgeBaseIds);
+    } catch (caughtError) {
+      setActionError(toActionError('Unable to update knowledge binding.', caughtError));
+    } finally {
+      setIsUpdatingKnowledgeBinding(false);
+    }
   };
 
   const openSoloHandoff = async () => {
@@ -140,12 +197,21 @@ export function ChatPage() {
       return;
     }
 
-    const draft = await chatApi.convertConversationToTask(conversationId);
-    setAuthorizationScope('workspace_tools');
-    setAllowedTools('');
-    setBlockedTools('');
-    setSelectedKnowledgeBaseIds(draft.relatedKnowledgeBaseIds);
-    setHandoffDraft(draft);
+    setActionError(null);
+    setIsPreparingHandoff(true);
+    try {
+      const draft = await chatApi.convertConversationToTask(conversationId);
+      setAuthorizationScope('workspace_tools');
+      setAllowedTools('');
+      setBlockedTools('');
+      setSelectedKnowledgeBaseIds(draft.relatedKnowledgeBaseIds);
+      setHandoffDraft(draft);
+    } catch (caughtError) {
+      setHandoffDraft(null);
+      setActionError(toActionError('Unable to prepare SOLO handoff.', caughtError));
+    } finally {
+      setIsPreparingHandoff(false);
+    }
   };
 
   const startInSolo = async () => {
@@ -170,9 +236,17 @@ export function ChatPage() {
       createTaskPayload.toolDenyList = toolDenyList;
     }
 
-    const createdTask: TaskSummary = await tasksApi.createTask(createTaskPayload);
-    await tasksApi.startTask(createdTask.id);
-    navigate(`/solo?taskId=${createdTask.id}&returnTo=${encodeURIComponent(chatReturnPath)}`);
+    setActionError(null);
+    setIsStartingSolo(true);
+    try {
+      const createdTask: TaskSummary = await tasksApi.createTask(createTaskPayload);
+      await tasksApi.startTask(createdTask.id);
+      navigate(`/solo?taskId=${createdTask.id}&returnTo=${encodeURIComponent(chatReturnPath)}`);
+    } catch (caughtError) {
+      setActionError(toActionError('Unable to start SOLO task.', caughtError));
+    } finally {
+      setIsStartingSolo(false);
+    }
   };
 
   const toggleSoloKnowledgeBase = (knowledgeBaseId: string) => {
@@ -190,19 +264,49 @@ export function ChatPage() {
       return;
     }
 
-    const nextMessages = await chatApi.sendMessage(conversationId, { content: trimmedContent });
-    setMessages(nextMessages);
-    setMessageDraft('');
+    setActionError(null);
+    setIsSending(true);
+    try {
+      const nextMessages = await chatApi.sendMessage(conversationId, { content: trimmedContent });
+      setMessages(nextMessages);
+      setMessageDraft('');
+    } catch (caughtError) {
+      setActionError(toActionError('Unable to send message.', caughtError));
+    } finally {
+      setIsSending(false);
+    }
   };
+
+  const workspaceStatus = (
+    <>
+      {isLoading ? <p role="status">Loading chat workspace...</p> : null}
+      {error !== null ? (
+        <section aria-label="Chat workspace error" role="alert">
+          <p>Unable to load chat workspace.</p>
+          <p>{error}</p>
+          <button disabled={isLoading} onClick={() => setReloadToken((current) => current + 1)} type="button">
+            Retry chat workspace
+          </button>
+        </section>
+      ) : null}
+      {actionError !== null ? (
+        <section aria-label="Chat action error" role="alert">
+          <p>{actionError.title}</p>
+          {actionError.message ? <p>{actionError.message}</p> : null}
+        </section>
+      ) : null}
+    </>
+  );
 
   if (!conversationId) {
     return (
       <section>
         <h1>Chat workspace</h1>
+        {workspaceStatus}
         {conversations.length === 0 ? (
           <>
             <p>No conversations yet. Start a workspace thread to begin.</p>
-            <button onClick={() => void handleCreateConversation()} type="button">
+            <button disabled={isCreatingConversation} onClick={() => void handleCreateConversation()} type="button">
               Create first conversation
             </button>
           </>
@@ -223,6 +327,7 @@ export function ChatPage() {
   return (
     <section>
       <h1>Chat workspace</h1>
+      {workspaceStatus}
       {!authState.preferences?.onboardingCompleted ? (
         <section>
           <p>Finish setup to lock in your default workspace preferences.</p>
@@ -247,7 +352,7 @@ export function ChatPage() {
         Message draft
         <textarea onChange={(event) => setMessageDraft(event.target.value)} value={messageDraft} />
       </label>
-      <button onClick={() => void handleSendMessage()} type="button">
+      <button disabled={isSending} onClick={() => void handleSendMessage()} type="button">
         Send message
       </button>
       {conversationConfig !== null ? (
@@ -257,6 +362,7 @@ export function ChatPage() {
             <label key={knowledgeBase.id}>
               <input
                 checked={conversationConfig.knowledgeBaseIds.includes(knowledgeBase.id)}
+                disabled={isUpdatingKnowledgeBinding}
                 onChange={() => void updateKnowledgeBinding(knowledgeBase.id)}
                 type="checkbox"
               />
@@ -271,7 +377,7 @@ export function ChatPage() {
         </button>
       ) : null}
       {conversationId ? (
-        <button onClick={() => void openSoloHandoff()} type="button">
+        <button disabled={isPreparingHandoff} onClick={() => void openSoloHandoff()} type="button">
           Hand off to SOLO
         </button>
       ) : null}
@@ -308,7 +414,7 @@ export function ChatPage() {
               {`Use knowledge base ${knowledgeBase.name} in SOLO`}
             </label>
           ))}
-          <button onClick={() => void startInSolo()} type="button">
+          <button disabled={isStartingSolo} onClick={() => void startInSolo()} type="button">
             Start in SOLO
           </button>
         </section>

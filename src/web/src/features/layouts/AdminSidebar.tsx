@@ -49,6 +49,10 @@ const sidebarGroups: SidebarGroup[] = [
     items: [{ label: 'Plans', path: '/admin/plans', icon: <RiMoneyDollarCircleLine />, keywords: ['pricing', 'subscription', 'tier'] }],
   },
   {
+    label: 'Billing',
+    items: [{ label: 'Billing', path: '/admin/billing', icon: <RiMoneyDollarCircleLine />, keywords: ['billing', 'payment', 'invoice', 'refund', 'stripe', 'settlement', 'payout'] }],
+  },
+  {
     label: 'Users',
     items: [{ label: 'Users', path: '/admin/users', icon: <RiUserLine />, keywords: ['member', 'account'] }],
   },

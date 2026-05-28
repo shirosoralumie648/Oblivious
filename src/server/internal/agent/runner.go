@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"oblivious/server/internal/auth"
 	"oblivious/server/internal/chat"
@@ -15,6 +16,10 @@ import (
 // ErrMaxIterationsExceeded is returned when the tool-calling loop exhausts its
 // iteration budget without the model producing a final non-tool response.
 var ErrMaxIterationsExceeded = errors.New("tool loop exceeded max iterations")
+
+// ErrToolApprovalRequired is returned when a tool call has been persisted and
+// the workflow is waiting for explicit approval before execution.
+var ErrToolApprovalRequired = errors.New("tool execution requires approval")
 
 // RunnerConfig Agent 运行配置
 type RunnerConfig struct {
@@ -55,6 +60,12 @@ type RunResult struct {
 	UsedMemory bool     `json:"usedMemory"`
 }
 
+type memoryEvidence struct {
+	enabled     bool
+	searched    bool
+	resultCount int
+}
+
 // Run 执行 Agent 对话（轻量路径，无工具调用支持）。
 // 始终通过 Runner 路由以确保消息持久化发生在正确的位置且仅发生一次。
 func (r *Runner) Run(ctx context.Context, session auth.Session, agent *Agent, conversationID string, userContent string) (*RunResult, error) {
@@ -72,9 +83,11 @@ func (r *Runner) Run(ctx context.Context, session auth.Session, agent *Agent, co
 		return nil, fmt.Errorf("get messages: %w", err)
 	}
 
+	ctx = withSessionRelayMetadata(ctx, session)
+
 	// 构建对话上下文
-	chatMessages := r.buildChatMessages(ctx, session, agent, messages, userContent)
-	result.UsedMemory = agent.Config.EnableMemory && r.memory != nil
+	chatMessages, evidence := r.buildChatMessagesWithEvidence(ctx, session, agent, messages, userContent)
+	result.UsedMemory = evidence.enabled
 
 	// 构建 config
 	config := chat.ConversationConfig{
@@ -132,9 +145,11 @@ func (r *Runner) RunStream(ctx context.Context, session auth.Session, agent *Age
 		return nil, fmt.Errorf("get messages: %w", err)
 	}
 
+	ctx = withSessionRelayMetadata(ctx, session)
+
 	// 构建对话上下文
-	chatMessages := r.buildChatMessages(ctx, session, agent, messages, userContent)
-	result.UsedMemory = agent.Config.EnableMemory && r.memory != nil
+	chatMessages, evidence := r.buildChatMessagesWithEvidence(ctx, session, agent, messages, userContent)
+	result.UsedMemory = evidence.enabled
 
 	// 构建 config
 	config := chat.ConversationConfig{
@@ -173,6 +188,11 @@ func (r *Runner) RunStream(ctx context.Context, session auth.Session, agent *Age
 
 // buildChatMessages 构建对话消息列表
 func (r *Runner) buildChatMessages(ctx context.Context, session auth.Session, agent *Agent, messages []*Message, userContent string) []chat.Message {
+	chatMessages, _ := r.buildChatMessagesWithEvidence(ctx, session, agent, messages, userContent)
+	return chatMessages
+}
+
+func (r *Runner) buildChatMessagesWithEvidence(ctx context.Context, session auth.Session, agent *Agent, messages []*Message, userContent string) ([]chat.Message, memoryEvidence) {
 	// 转换为 chat.Message 格式
 	chatMessages := make([]chat.Message, len(messages))
 	for i, m := range messages {
@@ -184,25 +204,35 @@ func (r *Runner) buildChatMessages(ctx context.Context, session auth.Session, ag
 		}
 	}
 
+	evidence := memoryEvidence{enabled: agent.Config.EnableMemory && r.memory != nil}
+
 	// 如果启用 Memory，注入相关记忆
-	if agent.Config.EnableMemory && r.memory != nil {
-		chatMessages = r.injectMemory(ctx, session, userContent, chatMessages)
+	if evidence.enabled {
+		results, searched := r.searchMemory(ctx, session, userContent)
+		evidence.searched = searched
+		evidence.resultCount = len(results)
+		if len(results) > 0 {
+			chatMessages = injectMemoryResults(results, chatMessages)
+		}
 	}
 
-	return chatMessages
+	return chatMessages, evidence
 }
 
-// injectMemory 注入相关记忆到消息上下文
-func (r *Runner) injectMemory(ctx context.Context, session auth.Session, query string, messages []chat.Message) []chat.Message {
+func (r *Runner) searchMemory(ctx context.Context, session auth.Session, query string) ([]*memory.SearchResult, bool) {
 	results, err := r.memory.Search(ctx, session, &memory.SearchRequest{
 		Query:    query,
 		TopK:     5,
 		MinScore: 0.5,
 	})
-	if err != nil || len(results) == 0 {
-		return messages
+	if err != nil {
+		return nil, true
 	}
+	return results, true
+}
 
+// injectMemoryResults 注入相关记忆到消息上下文
+func injectMemoryResults(results []*memory.SearchResult, messages []chat.Message) []chat.Message {
 	// 构建记忆上下文
 	var memoryBuilder strings.Builder
 	memoryBuilder.WriteString("Relevant information from memory:\n\n")
@@ -285,9 +315,11 @@ func (r *Runner) RunWithTools(ctx context.Context, session auth.Session, agent *
 		return nil, fmt.Errorf("get messages: %w", err)
 	}
 
+	ctx = withSessionRelayMetadata(ctx, session)
+
 	// 构建对话上下文
-	chatMessages := r.buildChatMessages(ctx, session, agent, messages, userContent)
-	result.UsedMemory = agent.Config.EnableMemory && r.memory != nil
+	chatMessages, evidence := r.buildChatMessagesWithEvidence(ctx, session, agent, messages, userContent)
+	result.UsedMemory = evidence.enabled
 
 	// 构建 config
 	config := chat.ConversationConfig{
@@ -303,7 +335,25 @@ func (r *Runner) RunWithTools(ctx context.Context, session auth.Session, agent *
 	if config.MaxOutputTokens == 0 {
 		config.MaxOutputTokens = 2048
 	}
-	ctx = withSessionRelayMetadata(ctx, session)
+
+	metadata, _ := chat.RelayRequestMetadataFromContext(ctx)
+	run, err := r.store.CreateRun(ctx, &CreateRunRequest{
+		OrganizationID:    session.OrganizationID,
+		ConversationID:    conversationID,
+		AgentID:           agent.ID,
+		UserID:            session.User.ID,
+		RequestID:         metadata.RequestID,
+		Status:            RunStatusRunning,
+		MemoryEnabled:     evidence.enabled,
+		MemorySearched:    evidence.searched,
+		MemoryResultCount: evidence.resultCount,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create agent run: %w", err)
+	}
+	if run == nil {
+		return nil, fmt.Errorf("create agent run: no row created")
+	}
 
 	structuredGateway, ok := r.gateway.(chat.StructuredReplyGenerator)
 	if !ok {
@@ -312,16 +362,22 @@ func (r *Runner) RunWithTools(ctx context.Context, session auth.Session, agent *
 		// callback so SendMessageStream consumers are not starved.
 		reply, err := r.gateway.GenerateReply(ctx, chatMessages, config)
 		if err != nil {
+			_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), 1, result.ToolCalls)
 			return nil, fmt.Errorf("generate reply: %w", err)
 		}
 		if onChunk != nil {
 			if err := onChunk(reply); err != nil {
+				_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), 1, result.ToolCalls)
 				return nil, err
 			}
 		}
 		assistantMsg, err := r.store.CreateMessage(ctx, conversationID, session.OrganizationID, "assistant", reply, nil, "")
 		if err != nil {
+			_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), 1, result.ToolCalls)
 			return nil, fmt.Errorf("save assistant message: %w", err)
+		}
+		if err := r.completeRun(ctx, session.OrganizationID, run.ID, 1, result.ToolCalls, assistantMsg.ID); err != nil {
+			return nil, err
 		}
 		result.Message = assistantMsg
 		return result, nil
@@ -329,6 +385,7 @@ func (r *Runner) RunWithTools(ctx context.Context, session auth.Session, agent *
 
 	tools, err := r.BuildOpenAITools(ctx, agent)
 	if err != nil {
+		_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), 0, result.ToolCalls)
 		return nil, fmt.Errorf("build tools: %w", err)
 	}
 
@@ -343,6 +400,7 @@ func (r *Runner) RunWithTools(ctx context.Context, session auth.Session, agent *
 	for iteration := 0; iteration < r.config.MaxIterations; iteration++ {
 		reply, err := structuredGateway.GenerateStructuredReply(ctx, chatMessages, config, tools)
 		if err != nil {
+			_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), iteration+1, result.ToolCalls)
 			return nil, fmt.Errorf("generate structured reply: %w", err)
 		}
 
@@ -358,12 +416,85 @@ func (r *Runner) RunWithTools(ctx context.Context, session auth.Session, agent *
 			// role=tool message linked by tool_call_id so the model can
 			// correlate results to requests on the next iteration.
 			for _, toolCall := range toolCalls {
+				targetTool := findEnabledTool(agent, toolCall.Name)
+				toolType := ""
+				serverID := ""
+				requiresApproval := false
+				if targetTool != nil {
+					toolType = targetTool.Type
+					serverID = targetTool.ServerID
+					requiresApproval = targetTool.RequiresApproval
+				}
+				status := ToolRunStatusRunning
+				approvalStatus := ApprovalStatusNotRequired
+				attemptCount := 1
+				var startedAt *time.Time
+				if requiresApproval {
+					status = ToolRunStatusPendingApproval
+					approvalStatus = ApprovalStatusPending
+					attemptCount = 0
+				} else {
+					now := time.Now().UTC()
+					startedAt = &now
+				}
+				toolRun, err := r.store.CreateToolRun(ctx, &CreateToolRunRequest{
+					OrganizationID: session.OrganizationID,
+					RunID:          run.ID,
+					ConversationID: conversationID,
+					AgentID:        agent.ID,
+					ToolCallID:     toolCall.ID,
+					ToolName:       toolCall.Name,
+					ToolType:       toolType,
+					ServerID:       serverID,
+					Arguments:      toolCall.Arguments,
+					Status:         status,
+					ApprovalStatus: approvalStatus,
+					AttemptCount:   attemptCount,
+					StartedAt:      startedAt,
+				})
+				if err != nil {
+					_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), iteration+1, result.ToolCalls)
+					return nil, fmt.Errorf("create tool run %s: %w", toolCall.Name, err)
+				}
+				if requiresApproval {
+					_, _ = r.store.UpdateRun(ctx, session.OrganizationID, run.ID, UpdateRunRequest{
+						Status:         stringPointer(RunStatusPendingApproval),
+						IterationCount: intPointer(iteration + 1),
+						ToolCallCount:  intPointer(result.ToolCalls + len(toolCalls)),
+					})
+					return nil, ErrToolApprovalRequired
+				}
 				execResult, err := r.ExecuteTool(ctx, agent, &toolCall)
 				if err != nil {
+					_ = r.failToolRun(ctx, session.OrganizationID, toolRun.ID, err.Error(), attemptCount)
+					_ = r.failRun(ctx, session.OrganizationID, run.ID, fmt.Sprintf("execute tool %s: %s", toolCall.Name, err.Error()), iteration+1, result.ToolCalls)
 					return nil, fmt.Errorf("execute tool %s: %w", toolCall.Name, err)
 				}
+				if execResult == nil {
+					toolErr := fmt.Sprintf("tool %s returned no result", toolCall.Name)
+					_ = r.failToolRun(ctx, session.OrganizationID, toolRun.ID, toolErr, attemptCount)
+					_ = r.failRun(ctx, session.OrganizationID, run.ID, toolErr, iteration+1, result.ToolCalls)
+					return nil, fmt.Errorf("%s", toolErr)
+				}
+				if execResult.IsError {
+					_ = r.failToolRun(ctx, session.OrganizationID, toolRun.ID, execResult.Content, attemptCount)
+					_ = r.failRun(ctx, session.OrganizationID, run.ID, fmt.Sprintf("tool %s failed: %s", toolCall.Name, execResult.Content), iteration+1, result.ToolCalls)
+					return nil, fmt.Errorf("tool %s failed: %s", toolCall.Name, execResult.Content)
+				}
 				if _, err := r.store.CreateMessage(ctx, conversationID, session.OrganizationID, "tool", execResult.Content, nil, toolCall.ID); err != nil {
+					_ = r.failToolRun(ctx, session.OrganizationID, toolRun.ID, err.Error(), attemptCount)
+					_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), iteration+1, result.ToolCalls)
 					return nil, fmt.Errorf("save tool message: %w", err)
+				}
+				completedAt := time.Now().UTC()
+				if _, err := r.store.UpdateToolRun(ctx, session.OrganizationID, toolRun.ID, UpdateToolRunRequest{
+					Status:        stringPointer(ToolRunStatusCompleted),
+					ResultContent: stringPointer(execResult.Content),
+					AttemptCount:  intPointer(attemptCount),
+					CompletedAt:   &completedAt,
+				}); err != nil {
+					_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), iteration+1, result.ToolCalls)
+					return nil, fmt.Errorf("complete tool run %s: %w", toolCall.Name, err)
 				}
 			}
 
@@ -373,6 +504,7 @@ func (r *Runner) RunWithTools(ctx context.Context, session auth.Session, agent *
 			// the tool-call and tool-result messages.
 			messages, err = r.store.ListMessages(ctx, conversationID, session.OrganizationID)
 			if err != nil {
+				_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), iteration+1, result.ToolCalls)
 				return nil, fmt.Errorf("refresh messages: %w", err)
 			}
 			chatMessages = r.buildChatMessages(ctx, session, agent, messages, userContent)
@@ -382,9 +514,13 @@ func (r *Runner) RunWithTools(ctx context.Context, session auth.Session, agent *
 		// No tool calls — this is the final assistant answer.
 		assistantMsg, err := r.store.CreateMessage(ctx, conversationID, session.OrganizationID, "assistant", reply.Content, nil, "")
 		if err != nil {
+			_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), iteration+1, result.ToolCalls)
 			return nil, fmt.Errorf("save assistant message: %w", err)
 		}
 		result.Message = assistantMsg
+		if err := r.completeRun(ctx, session.OrganizationID, run.ID, iteration+1, result.ToolCalls, assistantMsg.ID); err != nil {
+			return nil, err
+		}
 
 		// Stream the final answer in word-level chunks when the caller
 		// provided a streaming callback.  We already have the full
@@ -393,13 +529,73 @@ func (r *Runner) RunWithTools(ctx context.Context, session auth.Session, agent *
 		// streaming UX.
 		if onChunk != nil && reply.Content != "" {
 			if err := streamContent(reply.Content, onChunk); err != nil {
+				_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), iteration+1, result.ToolCalls)
 				return nil, err
 			}
 		}
 		return result, nil
 	}
 
+	_ = r.failRun(ctx, session.OrganizationID, run.ID, ErrMaxIterationsExceeded.Error(), r.config.MaxIterations, result.ToolCalls)
 	return nil, fmt.Errorf("%w (%d)", ErrMaxIterationsExceeded, r.config.MaxIterations)
+}
+
+func (r *Runner) completeRun(ctx context.Context, organizationID, runID string, iterationCount, toolCallCount int, finalMessageID string) error {
+	completedAt := time.Now().UTC()
+	_, err := r.store.UpdateRun(ctx, organizationID, runID, UpdateRunRequest{
+		Status:         stringPointer(RunStatusCompleted),
+		IterationCount: intPointer(iterationCount),
+		ToolCallCount:  intPointer(toolCallCount),
+		FinalMessageID: stringPointer(finalMessageID),
+		CompletedAt:    &completedAt,
+	})
+	if err != nil {
+		return fmt.Errorf("complete agent run: %w", err)
+	}
+	return nil
+}
+
+func (r *Runner) failRun(ctx context.Context, organizationID, runID, message string, iterationCount, toolCallCount int) error {
+	completedAt := time.Now().UTC()
+	_, err := r.store.UpdateRun(ctx, organizationID, runID, UpdateRunRequest{
+		Status:         stringPointer(RunStatusFailed),
+		IterationCount: intPointer(iterationCount),
+		ToolCallCount:  intPointer(toolCallCount),
+		Error:          stringPointer(message),
+		CompletedAt:    &completedAt,
+	})
+	return err
+}
+
+func (r *Runner) failToolRun(ctx context.Context, organizationID, toolRunID, message string, attemptCount int) error {
+	completedAt := time.Now().UTC()
+	_, err := r.store.UpdateToolRun(ctx, organizationID, toolRunID, UpdateToolRunRequest{
+		Status:       stringPointer(ToolRunStatusFailed),
+		Error:        stringPointer(message),
+		AttemptCount: intPointer(attemptCount),
+		CompletedAt:  &completedAt,
+	})
+	return err
+}
+
+func findEnabledTool(agent *Agent, name string) *Tool {
+	if agent == nil {
+		return nil
+	}
+	for i := range agent.Tools {
+		if agent.Tools[i].Name == name && agent.Tools[i].Enabled {
+			return &agent.Tools[i]
+		}
+	}
+	return nil
+}
+
+func stringPointer(value string) *string {
+	return &value
+}
+
+func intPointer(value int) *int {
+	return &value
 }
 
 func withSessionRelayMetadata(ctx context.Context, session auth.Session) context.Context {

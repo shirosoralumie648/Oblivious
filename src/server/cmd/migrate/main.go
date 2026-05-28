@@ -14,6 +14,8 @@ import (
 
 	"oblivious/server/internal/config"
 	"oblivious/server/internal/db"
+	"oblivious/server/internal/metrics"
+	"oblivious/server/internal/observability"
 )
 
 func main() {
@@ -41,7 +43,17 @@ type migrationResult struct {
 	Skipped int
 }
 
-func applyMigrations(ctx context.Context, database *sql.DB, migrationsDir string) (migrationResult, error) {
+func applyMigrations(ctx context.Context, database *sql.DB, migrationsDir string) (result migrationResult, err error) {
+	ctx, span := observability.StartSpan(ctx, "migration.apply")
+	defer span.End()
+	defer func() {
+		if err != nil {
+			metrics.RecordMigrationRun("failure")
+			return
+		}
+		metrics.RecordMigrationRun("success")
+	}()
+
 	if err := ensureMigrationLedger(ctx, database); err != nil {
 		return migrationResult{}, err
 	}
@@ -51,7 +63,6 @@ func applyMigrations(ctx context.Context, database *sql.DB, migrationsDir string
 		return migrationResult{}, err
 	}
 
-	result := migrationResult{}
 	for _, migrationPath := range migrationPaths {
 		version := filepath.Base(migrationPath)
 		statement, err := os.ReadFile(migrationPath)

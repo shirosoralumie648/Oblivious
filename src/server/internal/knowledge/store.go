@@ -3,7 +3,7 @@ package knowledge
 import (
 	"context"
 	"database/sql"
-	"sort"
+	"fmt"
 	"strings"
 	"time"
 	"unicode"
@@ -188,7 +188,7 @@ func (s *SQLStore) ListKnowledgeDocuments(ctx context.Context, organizationID, k
 	return documents, rows.Err()
 }
 
-func (s *SQLStore) CreateKnowledgeDocument(ctx context.Context, organizationID, knowledgeBaseID, title, content string) (KnowledgeDocument, error) {
+func (s *SQLStore) CreateKnowledgeDocument(ctx context.Context, organizationID, knowledgeBaseID, title, content string, chunks []KnowledgeDocumentChunk) (KnowledgeDocument, error) {
 	documentID, err := auth.NewID("doc")
 	if err != nil {
 		return KnowledgeDocument{}, err
@@ -219,7 +219,7 @@ func (s *SQLStore) CreateKnowledgeDocument(ctx context.Context, organizationID, 
 		return KnowledgeDocument{}, sql.ErrNoRows
 	}
 
-	if err := replaceKnowledgeDocumentChunks(ctx, tx, documentID, organizationID, content, now); err != nil {
+	if err := replaceKnowledgeDocumentChunks(ctx, tx, documentID, organizationID, chunks, now); err != nil {
 		return KnowledgeDocument{}, err
 	}
 
@@ -243,7 +243,7 @@ func (s *SQLStore) CreateKnowledgeDocument(ctx context.Context, organizationID, 
 	}, nil
 }
 
-func (s *SQLStore) UpdateKnowledgeDocument(ctx context.Context, organizationID, knowledgeBaseID, documentID, title, content string) (KnowledgeDocument, error) {
+func (s *SQLStore) UpdateKnowledgeDocument(ctx context.Context, organizationID, knowledgeBaseID, documentID, title, content string, chunks []KnowledgeDocumentChunk) (KnowledgeDocument, error) {
 	var document KnowledgeDocument
 	now := time.Now().UTC()
 
@@ -268,7 +268,7 @@ func (s *SQLStore) UpdateKnowledgeDocument(ctx context.Context, organizationID, 
 		return KnowledgeDocument{}, err
 	}
 
-	if err := replaceKnowledgeDocumentChunks(ctx, tx, document.ID, organizationID, content, now); err != nil {
+	if err := replaceKnowledgeDocumentChunks(ctx, tx, document.ID, organizationID, chunks, now); err != nil {
 		return KnowledgeDocument{}, err
 	}
 
@@ -314,54 +314,69 @@ func (s *SQLStore) DeleteKnowledgeDocument(ctx context.Context, organizationID, 
 	return tx.Commit()
 }
 
-func (s *SQLStore) RetrieveKnowledge(ctx context.Context, organizationID, knowledgeBaseID, query string) ([]KnowledgeRetrievalResult, error) {
-	normalizedQuery := normalizeKnowledgeQuery(query)
-	if normalizedQuery == "" {
+func (s *SQLStore) RetrieveKnowledge(ctx context.Context, organizationID, knowledgeBaseID string, queryEmbedding []float32, limit int, minScore float64) ([]KnowledgeRetrievalResult, error) {
+	if len(queryEmbedding) == 0 {
 		return []KnowledgeRetrievalResult{}, nil
 	}
+	if limit <= 0 {
+		limit = knowledgeRetrievalLimit
+	}
 
-	pattern := "%" + escapeLikePattern(normalizedQuery) + "%"
+	embeddingVector := knowledgeEmbeddingToVector(queryEmbedding)
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT d.id, d.title, d.content, c.content, COALESCE(c.chunk_index, -1), d.updated_at
-		FROM knowledge_documents d
+		SELECT
+			d.id,
+			d.title,
+			c.id,
+			c.chunk_index,
+			c.content,
+			1 - (c.embedding <=> $3::vector) AS similarity
+		FROM knowledge_document_chunks c
+		JOIN knowledge_documents d ON d.id = c.document_id
 		JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
-		LEFT JOIN knowledge_document_chunks c ON c.document_id = d.id AND c.organization_id = d.organization_id
-		WHERE kb.organization_id = $1 AND d.organization_id = $1 AND d.knowledge_base_id = $2 AND (
-			d.title ILIKE $3 ESCAPE '\'
-			OR d.content ILIKE $3 ESCAPE '\'
-			OR c.content ILIKE $3 ESCAPE '\'
-		)
-		ORDER BY d.updated_at DESC, d.title ASC, COALESCE(c.chunk_index, -1) ASC
-		LIMIT 20
-	`, organizationID, knowledgeBaseID, pattern)
+		WHERE kb.organization_id = $1
+		  AND d.organization_id = $1
+		  AND c.organization_id = $1
+		  AND d.knowledge_base_id = $2
+		  AND c.embedding IS NOT NULL
+		  AND (1 - (c.embedding <=> $3::vector)) >= $5
+		ORDER BY c.embedding <=> $3::vector, d.updated_at DESC, d.title ASC, c.chunk_index ASC
+		LIMIT $4
+	`, organizationID, knowledgeBaseID, embeddingVector, limit, minScore)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	terms := buildKnowledgeQueryTerms(normalizedQuery)
-	candidates := []knowledgeRetrievalCandidate{}
+	results := make([]KnowledgeRetrievalResult, 0, limit)
 	for rows.Next() {
 		var (
 			documentID    string
 			documentTitle string
-			documentBody  string
-			chunkContent  sql.NullString
+			chunkID       string
 			chunkIndex    int
-			updatedAt     time.Time
+			chunkContent  string
+			similarity    float64
 		)
 
-		if err := rows.Scan(&documentID, &documentTitle, &documentBody, &chunkContent, &chunkIndex, &updatedAt); err != nil {
+		if err := rows.Scan(&documentID, &documentTitle, &chunkID, &chunkIndex, &chunkContent, &similarity); err != nil {
 			return nil, err
 		}
 
-		candidates = append(candidates, knowledgeRetrievalCandidate{
-			documentID:    documentID,
-			documentTitle: documentTitle,
-			documentBody:  documentBody,
-			chunkContent:  chunkContent,
-			chunkIndex:    chunkIndex,
-			updatedAt:     updatedAt,
+		results = append(results, KnowledgeRetrievalResult{
+			DocumentID:      documentID,
+			DocumentTitle:   documentTitle,
+			ChunkID:         chunkID,
+			ChunkIndex:      chunkIndex,
+			RetrievalMethod: knowledgeRAGRetrievalMethod,
+			Similarity:      similarity,
+			Snippet:         buildKnowledgeSnippet(chunkContent, ""),
+			Source: KnowledgeCitation{
+				DocumentID:    documentID,
+				DocumentTitle: documentTitle,
+				ChunkID:       chunkID,
+				ChunkIndex:    chunkIndex,
+			},
 		})
 	}
 
@@ -369,53 +384,10 @@ func (s *SQLStore) RetrieveKnowledge(ctx context.Context, organizationID, knowle
 		return nil, err
 	}
 
-	sort.SliceStable(candidates, func(i, j int) bool {
-		left := candidates[i]
-		right := candidates[j]
-
-		leftScore := scoreKnowledgeCandidate(left.documentTitle, left.documentBody, left.chunkContent, terms)
-		rightScore := scoreKnowledgeCandidate(right.documentTitle, right.documentBody, right.chunkContent, terms)
-		if leftScore != rightScore {
-			return leftScore > rightScore
-		}
-		if !left.updatedAt.Equal(right.updatedAt) {
-			return left.updatedAt.After(right.updatedAt)
-		}
-		if left.documentTitle != right.documentTitle {
-			return left.documentTitle < right.documentTitle
-		}
-		return left.chunkIndex < right.chunkIndex
-	})
-
-	results := make([]KnowledgeRetrievalResult, 0, knowledgeRetrievalLimit)
-	seen := map[string]struct{}{}
-	for _, candidate := range candidates {
-		source := chooseKnowledgeSnippetSource(candidate.documentBody, candidate.chunkContent, terms)
-		snippet := buildKnowledgeSnippet(source, normalizedQuery)
-		if snippet == "" {
-			continue
-		}
-
-		resultKey := candidate.documentID + "|" + snippet
-		if _, exists := seen[resultKey]; exists {
-			continue
-		}
-		seen[resultKey] = struct{}{}
-
-		results = append(results, KnowledgeRetrievalResult{
-			DocumentID:    candidate.documentID,
-			DocumentTitle: candidate.documentTitle,
-			Snippet:       snippet,
-		})
-		if len(results) == knowledgeRetrievalLimit {
-			break
-		}
-	}
-
 	return results, nil
 }
 
-func replaceKnowledgeDocumentChunks(ctx context.Context, tx *sql.Tx, documentID, organizationID, content string, now time.Time) error {
+func replaceKnowledgeDocumentChunks(ctx context.Context, tx *sql.Tx, documentID, organizationID string, chunks []KnowledgeDocumentChunk, now time.Time) error {
 	if _, err := tx.ExecContext(ctx, `
 		DELETE FROM knowledge_document_chunks
 		WHERE document_id = $1 AND organization_id = $2
@@ -423,22 +395,45 @@ func replaceKnowledgeDocumentChunks(ctx context.Context, tx *sql.Tx, documentID,
 		return err
 	}
 
-	chunks := buildKnowledgeDocumentChunks(content)
 	for index, chunk := range chunks {
 		chunkID, err := auth.NewID("kdc")
 		if err != nil {
 			return err
 		}
+		if strings.TrimSpace(chunk.ID) != "" {
+			chunkID = chunk.ID
+		}
+		indexedAt := chunk.IndexedAt
+		if indexedAt.IsZero() {
+			indexedAt = now
+		}
 
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO knowledge_document_chunks (id, document_id, organization_id, chunk_index, content, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6)
-		`, chunkID, documentID, organizationID, index, chunk, now); err != nil {
+			INSERT INTO knowledge_document_chunks (id, document_id, organization_id, chunk_index, content, embedding, embedding_model, indexed_at, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6::vector, $7, $8, $9)
+		`, chunkID, documentID, organizationID, index, chunk.Content, knowledgeEmbeddingToVector(chunk.Embedding), chunk.EmbeddingModel, indexedAt, now); err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+func knowledgeEmbeddingToVector(embedding []float32) string {
+	if len(embedding) == 0 {
+		return "[]"
+	}
+
+	result := make([]byte, 0, len(embedding)*12)
+	result = append(result, '[')
+	for i, value := range embedding {
+		if i > 0 {
+			result = append(result, ',')
+		}
+		result = append(result, fmt.Sprintf("%f", value)...)
+	}
+	result = append(result, ']')
+	return string(result)
 }
 
 func buildKnowledgeDocumentChunks(content string) []string {

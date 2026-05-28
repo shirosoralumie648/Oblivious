@@ -200,6 +200,8 @@ export type PublishedAgent = {
   reviewReason?: string;
   rejectionReason?: string | null;
   visibility: 'public' | 'private' | 'unlisted';
+  pricingType?: 'free' | 'one_time' | 'subscription';
+  pricingAmount?: number;
   categoryID?: string;
   categoryId?: string;
   categoryName?: string;
@@ -215,4 +217,96 @@ export type PublishedAgent = {
 export type PaginatedResponse<T> = {
   data: T[];
   total: number;
+};
+
+export type BillingSummaryMetric = {
+  count: number;
+  totalAmount?: number;
+  preAuthorizedAmount?: number;
+  settledAmount?: number;
+  refundedAmount?: number;
+  paidAmount?: number;
+  amountDue?: number;
+  amountPaid?: number;
+  grossAmount?: number;
+  platformFeeAmount?: number;
+  publisherNetAmount?: number;
+  failedCount?: number;
+  activeCount?: number;
+};
+
+export type BillingSummary = {
+  billingSessions?: BillingSummaryMetric;
+  paymentIntents?: BillingSummaryMetric;
+  webhookEvents?: BillingSummaryMetric;
+  subscriptions?: BillingSummaryMetric;
+  topups?: BillingSummaryMetric;
+  invoices?: BillingSummaryMetric;
+  refunds?: BillingSummaryMetric;
+  settlements?: BillingSummaryMetric;
+  payouts?: BillingSummaryMetric;
+};
+
+export type BillingSurface =
+  | 'sessions'
+  | 'paymentIntents'
+  | 'webhookEvents'
+  | 'subscriptions'
+  | 'topups'
+  | 'invoices'
+  | 'refunds'
+  | 'settlements'
+  | 'payouts';
+
+export type BillingFilter = {
+  organizationID?: string;
+  organizationId?: string;
+  userID?: string;
+  userId?: string;
+  status?: string;
+  kind?: string;
+  provider?: string;
+  limit?: number;
+  offset?: number;
+};
+
+export type BillingInspectionRecord = {
+  id: string;
+  organizationId?: string;
+  userId?: string;
+  publisherOrganizationId?: string;
+  publisherUserId?: string;
+  provider?: string;
+  kind?: string;
+  status?: string;
+  model?: string;
+  apiType?: string;
+  eventId?: string;
+  eventType?: string;
+  packageId?: string;
+  paymentIntentId?: string;
+  providerPaymentIntentId?: string;
+  providerCheckoutSessionId?: string;
+  providerSubscriptionId?: string;
+  providerInvoiceId?: string;
+  providerRefundId?: string;
+  providerPayoutId?: string;
+  agentId?: string;
+  amount?: number;
+  money?: number;
+  totalAmount?: number;
+  preAuthorizedAmount?: number;
+  settledAmount?: number;
+  refundedAmount?: number;
+  amountDue?: number;
+  amountPaid?: number;
+  grossAmount?: number;
+  platformFeeAmount?: number;
+  publisherNetAmount?: number;
+  currency?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  receivedAt?: string;
+  processedAt?: string | null;
+  error?: string;
 };

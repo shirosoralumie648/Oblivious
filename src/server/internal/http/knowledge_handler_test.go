@@ -23,12 +23,35 @@ type knowledgeFakeStore struct {
 	documents        []knowledge.KnowledgeDocument
 	listBases        []knowledge.KnowledgeBase
 	organizationID   string
-	retrievalQuery   string
+	queryEmbedding   []float32
 	retrievalResults []knowledge.KnowledgeRetrievalResult
 	requestedDoc     knowledge.KnowledgeDocument
 	requestedID      string
 	updatedBase      knowledge.KnowledgeBase
 	updatedDoc       knowledge.KnowledgeDocument
+}
+
+type knowledgeFakeEmbedder struct {
+	batchInputs [][]string
+	embedInputs []string
+}
+
+func (e *knowledgeFakeEmbedder) Embed(ctx context.Context, text string) ([]float32, error) {
+	e.embedInputs = append(e.embedInputs, text)
+	return []float32{0.7, 0.2, 0.1}, nil
+}
+
+func (e *knowledgeFakeEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
+	e.batchInputs = append(e.batchInputs, append([]string(nil), texts...))
+	embeddings := make([][]float32, len(texts))
+	for i := range texts {
+		embeddings[i] = []float32{float32(i + 1), 0, 0}
+	}
+	return embeddings, nil
+}
+
+func newKnowledgeTestHandler(store *knowledgeFakeStore) knowledgeHandler {
+	return newKnowledgeHandler(knowledge.NewServiceWithEmbedder(store, &knowledgeFakeEmbedder{}, "text-embedding-3-small"))
 }
 
 func (f *knowledgeFakeStore) CreateKnowledgeBase(ctx context.Context, workspaceID, organizationID, name string) (knowledge.KnowledgeBase, error) {
@@ -54,7 +77,7 @@ func (f *knowledgeFakeStore) ListKnowledgeDocuments(ctx context.Context, organiz
 	return f.documents, nil
 }
 
-func (f *knowledgeFakeStore) CreateKnowledgeDocument(ctx context.Context, organizationID, knowledgeBaseID, title, content string) (knowledge.KnowledgeDocument, error) {
+func (f *knowledgeFakeStore) CreateKnowledgeDocument(ctx context.Context, organizationID, knowledgeBaseID, title, content string, chunks []knowledge.KnowledgeDocumentChunk) (knowledge.KnowledgeDocument, error) {
 	f.organizationID = organizationID
 	f.requestedID = knowledgeBaseID
 	f.requestedDoc = knowledge.KnowledgeDocument{
@@ -77,7 +100,7 @@ func (f *knowledgeFakeStore) DeleteKnowledgeBase(ctx context.Context, organizati
 	return nil
 }
 
-func (f *knowledgeFakeStore) UpdateKnowledgeDocument(ctx context.Context, organizationID, knowledgeBaseID, documentID, title, content string) (knowledge.KnowledgeDocument, error) {
+func (f *knowledgeFakeStore) UpdateKnowledgeDocument(ctx context.Context, organizationID, knowledgeBaseID, documentID, title, content string, chunks []knowledge.KnowledgeDocumentChunk) (knowledge.KnowledgeDocument, error) {
 	f.organizationID = organizationID
 	f.requestedID = knowledgeBaseID
 	f.deletedDocID = documentID
@@ -95,10 +118,10 @@ func (f *knowledgeFakeStore) DeleteKnowledgeDocument(ctx context.Context, organi
 	return nil
 }
 
-func (f *knowledgeFakeStore) RetrieveKnowledge(ctx context.Context, organizationID, knowledgeBaseID, query string) ([]knowledge.KnowledgeRetrievalResult, error) {
+func (f *knowledgeFakeStore) RetrieveKnowledge(ctx context.Context, organizationID, knowledgeBaseID string, queryEmbedding []float32, limit int, minScore float64) ([]knowledge.KnowledgeRetrievalResult, error) {
 	f.organizationID = organizationID
 	f.requestedID = knowledgeBaseID
-	f.retrievalQuery = query
+	f.queryEmbedding = append([]float32(nil), queryEmbedding...)
 	return f.retrievalResults, nil
 }
 
@@ -113,7 +136,7 @@ func TestKnowledgeHandlerListReturnsWorkspaceBases(t *testing.T) {
 			},
 		},
 	}
-	handler := newKnowledgeHandler(knowledge.NewService(store))
+	handler := newKnowledgeTestHandler(store)
 	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/app/knowledge-bases", nil).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
 		OrganizationID: "org_1",
 		WorkspaceID:    "workspace_1",
@@ -149,7 +172,7 @@ func TestKnowledgeHandlerCreateCreatesKnowledgeBase(t *testing.T) {
 			UpdatedAt:     time.Date(2026, time.April, 3, 9, 30, 0, 0, time.UTC),
 		},
 	}
-	handler := newKnowledgeHandler(knowledge.NewService(store))
+	handler := newKnowledgeTestHandler(store)
 	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases", strings.NewReader(`{"name":"Roadmap Notes"}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
 		OrganizationID: "org_1",
 		WorkspaceID:    "workspace_1",
@@ -179,7 +202,7 @@ func TestKnowledgeHandlerGetReturnsKnowledgeBase(t *testing.T) {
 			UpdatedAt:     time.Date(2026, time.April, 3, 11, 30, 0, 0, time.UTC),
 		},
 	}
-	handler := newKnowledgeHandler(knowledge.NewService(store))
+	handler := newKnowledgeTestHandler(store)
 	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/app/knowledge-bases/kb_2", nil).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
 		OrganizationID: "org_1",
 		WorkspaceID:    "workspace_1",
@@ -210,7 +233,7 @@ func TestKnowledgeHandlerListDocumentsReturnsKnowledgeBaseDocuments(t *testing.T
 			},
 		},
 	}
-	handler := newKnowledgeHandler(knowledge.NewService(store))
+	handler := newKnowledgeTestHandler(store)
 	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/app/knowledge-bases/kb_2/documents", nil).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
 		OrganizationID: "org_1",
 		WorkspaceID:    "workspace_1",
@@ -236,7 +259,7 @@ func TestKnowledgeHandlerCreateDocumentCreatesKnowledgeBaseDocument(t *testing.T
 			UpdatedAt: time.Date(2026, time.April, 3, 13, 0, 0, 0, time.UTC),
 		},
 	}
-	handler := newKnowledgeHandler(knowledge.NewService(store))
+	handler := newKnowledgeTestHandler(store)
 	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_2/documents", strings.NewReader(`{"title":"Plan","content":"Initial plan"}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
 		OrganizationID: "org_1",
 		WorkspaceID:    "workspace_1",
@@ -261,13 +284,23 @@ func TestKnowledgeHandlerRetrieveReturnsRelevantMatches(t *testing.T) {
 	store := &knowledgeFakeStore{
 		retrievalResults: []knowledge.KnowledgeRetrievalResult{
 			{
-				DocumentID:    "doc_2",
-				DocumentTitle: "Plan",
-				Snippet:       "Initial plan mentions deployment boundaries.",
+				DocumentID:      "doc_2",
+				DocumentTitle:   "Plan",
+				ChunkID:         "kdc_2",
+				ChunkIndex:      1,
+				RetrievalMethod: "embedding_rag",
+				Similarity:      0.92,
+				Snippet:         "Initial plan mentions deployment boundaries.",
+				Source: knowledge.KnowledgeCitation{
+					DocumentID:    "doc_2",
+					DocumentTitle: "Plan",
+					ChunkID:       "kdc_2",
+					ChunkIndex:    1,
+				},
 			},
 		},
 	}
-	handler := newKnowledgeHandler(knowledge.NewService(store))
+	handler := newKnowledgeTestHandler(store)
 	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_2/retrieve", strings.NewReader(`{"query":"deployment"}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
 		OrganizationID: "org_1",
 		WorkspaceID:    "workspace_1",
@@ -286,8 +319,8 @@ func TestKnowledgeHandlerRetrieveReturnsRelevantMatches(t *testing.T) {
 	if store.requestedID != "kb_2" {
 		t.Fatalf("expected requested id kb_2, got %s", store.requestedID)
 	}
-	if store.retrievalQuery != "deployment" {
-		t.Fatalf("expected retrieval query deployment, got %s", store.retrievalQuery)
+	if len(store.queryEmbedding) == 0 {
+		t.Fatalf("expected query embedding to reach store")
 	}
 
 	var response struct {
@@ -299,8 +332,20 @@ func TestKnowledgeHandlerRetrieveReturnsRelevantMatches(t *testing.T) {
 	if len(response.Data) != 1 {
 		t.Fatalf("expected 1 retrieval result, got %d", len(response.Data))
 	}
+	rawResponse := recorder.Body.String()
+	for _, field := range []string{`"chunkId"`, `"chunkIndex"`, `"retrievalMethod"`, `"similarity"`, `"source"`} {
+		if !strings.Contains(rawResponse, field) {
+			t.Fatalf("expected response to include %s, got %s", field, rawResponse)
+		}
+	}
 	if response.Data[0].Snippet != "Initial plan mentions deployment boundaries." {
 		t.Fatalf("unexpected snippet %q", response.Data[0].Snippet)
+	}
+	if response.Data[0].ChunkID != "kdc_2" || response.Data[0].ChunkIndex != 1 {
+		t.Fatalf("expected citation chunk fields, got %+v", response.Data[0])
+	}
+	if response.Data[0].RetrievalMethod != "embedding_rag" || response.Data[0].Source.DocumentTitle != "Plan" {
+		t.Fatalf("expected embedding RAG source citation, got %+v", response.Data[0])
 	}
 }
 
@@ -308,7 +353,8 @@ func TestKnowledgeHandlerRetrieveTrimsAndNormalizesQuery(t *testing.T) {
 	store := &knowledgeFakeStore{
 		retrievalResults: []knowledge.KnowledgeRetrievalResult{},
 	}
-	handler := newKnowledgeHandler(knowledge.NewService(store))
+	embedder := &knowledgeFakeEmbedder{}
+	handler := newKnowledgeHandler(knowledge.NewServiceWithEmbedder(store, embedder, "text-embedding-3-small"))
 	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_2/retrieve", strings.NewReader(`{"query":"  deployment   rollback  "}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
 		OrganizationID: "org_1",
 		WorkspaceID:    "workspace_1",
@@ -321,8 +367,8 @@ func TestKnowledgeHandlerRetrieveTrimsAndNormalizesQuery(t *testing.T) {
 	if recorder.Code != stdhttp.StatusOK {
 		t.Fatalf("expected 200, got %d", recorder.Code)
 	}
-	if store.retrievalQuery != "deployment rollback" {
-		t.Fatalf("expected normalized retrieval query, got %q", store.retrievalQuery)
+	if len(embedder.embedInputs) != 1 || embedder.embedInputs[0] != "deployment rollback" {
+		t.Fatalf("expected normalized retrieval query, got %+v", embedder.embedInputs)
 	}
 }
 
@@ -330,7 +376,7 @@ func TestKnowledgeHandlerRetrieveReturnsEmptyListWhenNoMatchExists(t *testing.T)
 	store := &knowledgeFakeStore{
 		retrievalResults: []knowledge.KnowledgeRetrievalResult{},
 	}
-	handler := newKnowledgeHandler(knowledge.NewService(store))
+	handler := newKnowledgeTestHandler(store)
 	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_2/retrieve", strings.NewReader(`{"query":"deployment"}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
 		OrganizationID: "org_1",
 		WorkspaceID:    "workspace_1",
@@ -364,7 +410,7 @@ func TestKnowledgeHandlerUpdateKnowledgeBaseUpdatesKnowledgeBase(t *testing.T) {
 			UpdatedAt:     time.Date(2026, time.April, 3, 13, 30, 0, 0, time.UTC),
 		},
 	}
-	handler := newKnowledgeHandler(knowledge.NewService(store))
+	handler := newKnowledgeTestHandler(store)
 	request := httptest.NewRequest(stdhttp.MethodPut, "/api/v1/app/knowledge-bases/kb_2", strings.NewReader(`{"name":"Updated Notes"}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
 		OrganizationID: "org_1",
 		WorkspaceID:    "workspace_1",
@@ -387,7 +433,7 @@ func TestKnowledgeHandlerUpdateKnowledgeBaseUpdatesKnowledgeBase(t *testing.T) {
 
 func TestKnowledgeHandlerDeleteKnowledgeBaseDeletesKnowledgeBase(t *testing.T) {
 	store := &knowledgeFakeStore{}
-	handler := newKnowledgeHandler(knowledge.NewService(store))
+	handler := newKnowledgeTestHandler(store)
 	request := httptest.NewRequest(stdhttp.MethodDelete, "/api/v1/app/knowledge-bases/kb_2", nil).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
 		OrganizationID: "org_1",
 		WorkspaceID:    "workspace_1",
@@ -413,7 +459,7 @@ func TestKnowledgeHandlerUpdateDocumentUpdatesKnowledgeBaseDocument(t *testing.T
 			UpdatedAt: time.Date(2026, time.April, 3, 13, 45, 0, 0, time.UTC),
 		},
 	}
-	handler := newKnowledgeHandler(knowledge.NewService(store))
+	handler := newKnowledgeTestHandler(store)
 	request := httptest.NewRequest(stdhttp.MethodPut, "/api/v1/app/knowledge-bases/kb_2/documents/doc_2", strings.NewReader(`{"title":"Plan v2","content":"Updated plan"}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
 		OrganizationID: "org_1",
 		WorkspaceID:    "workspace_1",
@@ -439,7 +485,7 @@ func TestKnowledgeHandlerUpdateDocumentUpdatesKnowledgeBaseDocument(t *testing.T
 
 func TestKnowledgeHandlerDeleteDocumentDeletesKnowledgeBaseDocument(t *testing.T) {
 	store := &knowledgeFakeStore{}
-	handler := newKnowledgeHandler(knowledge.NewService(store))
+	handler := newKnowledgeTestHandler(store)
 	request := httptest.NewRequest(stdhttp.MethodDelete, "/api/v1/app/knowledge-bases/kb_2/documents/doc_2", nil).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
 		OrganizationID: "org_1",
 		WorkspaceID:    "workspace_1",

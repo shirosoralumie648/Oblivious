@@ -1,0 +1,43 @@
+# Commercial Completion Audit
+
+This audit is the Phase 30 `AUDIT-01` map for the full Oblivious commercial-complete objective. Final readiness is claimed only together with `.planning/phases/30-end-to-end-commercial-journey-and-final-audit/30-VERIFICATION.md`, which records a strict `bash scripts/verify-commercial-completion.sh` run with no environment skips.
+
+## Audit Rule
+
+Oblivious is commercial complete only when current repository evidence proves tenant isolation, Relay authority, money movement, product completeness, security, operations, and verification as one deployable system. Any future skipped deploy, backup/restore, DB-backed journey, or browser journey check must keep a new readiness claim open until strict evidence is restored.
+
+## Commercial Gate Matrix
+
+| Gate | Evidence files | Commands | Environment class | Latest result | Skipped checks | Residual risk | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Tenant And Identity Gate | `.planning/milestones/v04-REQUIREMENTS.md`, `.planning/phases/09-tenant-model-and-migration-ledger/`, `.planning/phases/10-membership-roles-and-auth-security/`, `src/server/internal/http/commercial_journey_test.go` | `bash scripts/check.sh docs`; backend commercial journey command in verifier | Local repository plus DB-backed HTTP integration | Strict verifier passed 2026-05-29 | None | Tenant evidence must stay tied to active organization IDs in every future journey | PASS |
+| Relay Authority Gate | `docs/release/commercial-gates.md`, `scripts/verify-relay-security.sh`, `src/server/internal/relay/`, `src/server/internal/http/commercial_journey_test.go` | `bash scripts/check.sh relay-security`; backend commercial journey command in verifier | Local static boundary check plus fake Relay HTTP server | Strict verifier passed 2026-05-29 | None | New AI surfaces must remain classified and Relay-only | PASS |
+| Billing And Monetization Gate | `src/server/internal/http/commercial_journey_test.go`, `src/server/internal/admin/billing_*`, `src/server/internal/stripe/`, `src/server/internal/marketplace/settlement.go`, `src/web/e2e/commercial-journey.spec.ts` | backend commercial journey command; browser commercial journey command | DB-backed HTTP integration plus mocked browser API journey | Strict verifier passed 2026-05-29 | None | Live Stripe keys are deployment-specific; signed fixtures prove route behavior and local settlement state | PASS |
+| Product Completeness Gate | `src/web/e2e/commercial-journey.spec.ts`, `src/web/e2e/fixtures/commercialJourney.ts`, `docs/product/`, `docs/architecture/current-system-contracts.md` | targeted Vitest command; Playwright commercial journey command | Local browser build, mocked API journey, focused component tests | Strict verifier passed 2026-05-29 | None | Fixture-backed browser proof is paired with DB-backed backend proof | PASS |
+| Security Gate | `.planning/milestones/v04-*`, `src/server/internal/http/auth_middleware.go`, `src/server/internal/http/middleware.go`, `src/server/internal/http/commercial_journey_test.go`, `scripts/verify-relay-security.sh` | `bash scripts/check.sh relay-security`; backend HTTP journey command | Local security/static check plus DB-backed HTTP routes | Strict verifier passed 2026-05-29 | None | Security coverage depends on keeping CSRF/rate-limit tests in normal server suites | PASS |
+| Operations Gate | `scripts/deploy-validate.sh`, `scripts/backup-restore-smoke.sh`, `docs/release/v07-operations-evidence.md`, `docs/release/backup-restore-runbook.md`, `docs/release/release-rollback-runbook.md` | `bash scripts/deploy-validate.sh`; `bash scripts/backup-restore-smoke.sh`; full verifier script | Docker/compose runtime plus disposable pgvector PostgreSQL restore target | Strict verifier passed 2026-05-29 | None | Docker daemon, image cache, and external registry access remain host-specific for future reruns | PASS |
+| Verification Gate | `scripts/verify-commercial-completion.sh`, `.planning/phases/30-end-to-end-commercial-journey-and-final-audit/30-VERIFICATION.md`, `.planning/phases/30-end-to-end-commercial-journey-and-final-audit/30-01-SUMMARY.md` | `bash scripts/verify-commercial-completion.sh`; `bash scripts/check.sh docs`; `git diff --check` | Full local verifier with DB, browser, deploy, and backup/restore | Strict verifier passed 2026-05-29 with no skipped checks | None | A future run with `COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS=true` is partial evidence only | PASS |
+
+## User Objective Matrix
+
+| Objective item | Evidence | Completion rule |
+| --- | --- | --- |
+| Multi-tenant AI platform | v04 tenant/security artifacts, `commercial_journey_test.go`, admin billing and Marketplace records | Journey records must share organization IDs and reject bypass evidence |
+| LobeHub-style C-end Chat experience | `ChatPage` focused tests and browser commercial journey | Chat must send, render, retain knowledge context, and surface Relay/quota language |
+| New-API-style B-end operations | Admin channels/routes/plans/billing/reviews pages and Phase 30 browser journey | Admin must inspect provider, billing, webhook, settlement, and payout surfaces |
+| Chat | `src/server/internal/http/commercial_journey_test.go`, `src/web/e2e/commercial-journey.spec.ts` | Chat must run through Relay and create usage/billing evidence |
+| Agent orchestration | Phase 26 durable Agent artifacts, SOLO browser journey approval/retry checks | Agent/SOLO must expose durable state, approval boundary, budget, tools, memory/knowledge, and retry context |
+| Knowledge | Phase 27 RAG artifacts, Knowledge browser journey, backend journey | Knowledge must retrieve `embedding_rag` source citations through Relay embeddings |
+| Multi-channel LLM Relay | Relay route/security docs, `scripts/verify-relay-security.sh`, backend fake Relay recorder | AI journey evidence must preserve Relay-only provider access |
+| Admin management | Admin UI/API tests, browser Admin dashboard/billing/reviews journey | Admin must inspect operational and commercial money-movement surfaces |
+| Agent Marketplace | Marketplace settlement/governance backend journey and browser paid publish/install journey | Marketplace must show publish, review, install, settlement, refund, and payout boundaries |
+| Unified billing, rate-limit, monitoring | Relay billing, quota, metrics, admin billing, observability docs | Usage must settle once through quota/billing and be inspectable by Admin |
+| Direct commercial deployability | `scripts/deploy-validate.sh`, `scripts/backup-restore-smoke.sh`, v07 runbooks, final verifier | Strict final verifier must run deploy and backup/restore without environment skips |
+
+## Final Readiness Boundary
+
+`scripts/verify-commercial-completion.sh` is the only Phase 30 orchestration command allowed to support final commercial readiness. It runs docs, Relay security, focused frontend tests, browser commercial journey, DB-backed backend commercial journey, deployment validation, and backup/restore smoke.
+
+The strict 2026-05-29 run passed with `COMMERCIAL_COMPLETION_RUN_DEPLOY=true`, `COMMERCIAL_COMPLETION_RUN_BACKUP_RESTORE=true`, and no skipped checks. This closes `PROD-06`, `AUDIT-01`, the Product Completeness Gate, and the repository-local commercial-complete objective.
+
+If `COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS=true` is used in a future run, that result is local partial evidence only and cannot support a renewed readiness claim.

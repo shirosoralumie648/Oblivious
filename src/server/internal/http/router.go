@@ -101,7 +101,19 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	}
 	chatHandler := newChatHandler(chatService)
 	consoleHandler := newConsoleHandler(console.NewService(console.NewSQLStore(database)), preferencesService)
-	knowledgeHandler := newKnowledgeHandler(knowledge.NewService(knowledge.NewSQLStore(database)))
+	knowledgeStore := knowledge.NewSQLStore(database)
+	knowledgeService := knowledge.NewService(knowledgeStore)
+	if cfg.RelayEnabled {
+		knowledgeService = knowledge.NewServiceWithEmbedder(
+			knowledgeStore,
+			memory.NewRelayEmbedder(
+				"http://localhost:"+fmt.Sprintf("%d", cfg.Port)+"/v1",
+				"text-embedding-3-small",
+			),
+			"text-embedding-3-small",
+		)
+	}
+	knowledgeHandler := newKnowledgeHandler(knowledgeService)
 	preferencesHandler := newPreferencesHandler(preferencesService)
 	taskHandler := newTaskHandler(task.NewService(task.NewSQLStore(database)))
 
@@ -426,6 +438,41 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 			return
 		}
 
+		if parts[0] == "runs" && len(parts) == 2 && parts[1] != "" {
+			if r.Method == stdhttp.MethodGet {
+				agentHandler.getRun(w, r, parts[1])
+			} else {
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
+
+		if parts[0] == "tool-runs" && len(parts) == 3 && parts[1] != "" {
+			switch parts[2] {
+			case "approve":
+				if r.Method == stdhttp.MethodPost {
+					agentHandler.approveToolRun(w, r, parts[1])
+				} else {
+					writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+				}
+			case "reject":
+				if r.Method == stdhttp.MethodPost {
+					agentHandler.rejectToolRun(w, r, parts[1])
+				} else {
+					writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+				}
+			case "retry":
+				if r.Method == stdhttp.MethodPost {
+					agentHandler.retryToolRun(w, r, parts[1])
+				} else {
+					writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+				}
+			default:
+				writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
+			}
+			return
+		}
+
 		agentID := parts[0]
 
 		if len(parts) == 1 {
@@ -497,6 +544,15 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 			case stdhttp.MethodPost:
 				agentHandler.sendMessage(w, r, conversationID)
 			default:
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
+
+		if len(parts) == 2 && parts[1] == "runs" {
+			if r.Method == stdhttp.MethodGet {
+				agentHandler.listRuns(w, r, conversationID)
+			} else {
 				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			}
 			return
@@ -764,6 +820,42 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 			return
 		}
 		adminHandler.getStats(w, r)
+	})))
+	mux.Handle("/api/v1/admin/billing/summary", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.Method != stdhttp.MethodGet {
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		adminHandler.getBillingSummary(w, r)
+	})))
+	mux.Handle("/api/v1/admin/billing/", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.Method != stdhttp.MethodGet {
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		surface := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/admin/billing/"), "/")
+		switch surface {
+		case "sessions":
+			adminHandler.listBillingSessions(w, r)
+		case "payment-intents":
+			adminHandler.listPaymentIntents(w, r)
+		case "webhook-events":
+			adminHandler.listWebhookEvents(w, r)
+		case "subscriptions":
+			adminHandler.listSubscriptions(w, r)
+		case "topups":
+			adminHandler.listTopups(w, r)
+		case "invoices":
+			adminHandler.listInvoices(w, r)
+		case "refunds":
+			adminHandler.listRefunds(w, r)
+		case "settlements":
+			adminHandler.listMarketplaceSettlements(w, r)
+		case "payouts":
+			adminHandler.listMarketplacePayouts(w, r)
+		default:
+			writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
+		}
 	})))
 	mux.Handle("/api/v1/admin/channels", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		switch r.Method {

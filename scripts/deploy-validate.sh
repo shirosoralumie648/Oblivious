@@ -2,8 +2,10 @@
 set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-base_url="${BASE_URL:-http://127.0.0.1:8080}"
+server_host_port="${OBLIVIOUS_SERVER_HOST_PORT:-8080}"
+base_url="${BASE_URL:-http://127.0.0.1:${server_host_port}}"
 keep_stack="${KEEP_STACK:-false}"
+docker_up_timeout_seconds="${DEPLOY_VALIDATE_DOCKER_UP_TIMEOUT_SECONDS:-600}"
 
 cd "$repo_root"
 
@@ -33,6 +35,57 @@ cleanup() {
 }
 trap cleanup EXIT
 
+wait_for_compose_dependencies() {
+  local attempt
+  local attempts="${DEPLOY_VALIDATE_DEP_ATTEMPTS:-30}"
+  local sleep_seconds="${DEPLOY_VALIDATE_DEP_SLEEP_SECONDS:-2}"
+
+  for attempt in $(seq 1 "$attempts"); do
+    if docker compose exec -T postgres pg_isready -U oblivious -d oblivious >/dev/null 2>&1 &&
+      [[ "$(docker compose exec -T redis redis-cli ping 2>/dev/null | tr -d '\r')" == "PONG" ]]; then
+      echo "[deploy-validate] compose dependencies ready"
+      return
+    fi
+
+    if [[ "$attempt" -lt "$attempts" ]]; then
+      echo "[deploy-validate] waiting for compose dependencies ($attempt/$attempts)"
+      sleep "$sleep_seconds"
+    fi
+  done
+
+  echo "[deploy-validate] compose dependencies did not become healthy" >&2
+  docker compose ps >&2 || true
+  exit 4
+}
+
+run_compose_up() {
+  local status
+  local services=("$@")
+
+  set +e
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$docker_up_timeout_seconds" docker compose up -d "${services[@]}"
+    status=$?
+  else
+    docker compose up -d "${services[@]}"
+    status=$?
+  fi
+  set -e
+
+  if [[ "$status" -eq 124 ]]; then
+    echo "[deploy-validate] docker compose up timed out after ${docker_up_timeout_seconds} while starting: ${services[*]}" >&2
+    echo "[deploy-validate] pre-pull required images or configure registry access; set OBLIVIOUS_IMAGE_REGISTRY_PREFIX/OBLIVIOUS_POSTGRES_IMAGE for restricted networks" >&2
+    echo "[deploy-validate] see docs/release/deployment-runtime-remediation.md" >&2
+    exit 5
+  fi
+
+  if [[ "$status" -ne 0 ]]; then
+    echo "[deploy-validate] docker compose up failed while starting: ${services[*]}" >&2
+    echo "[deploy-validate] see docs/release/deployment-runtime-remediation.md" >&2
+    exit "$status"
+  fi
+}
+
 echo "[deploy-validate] rendering compose config"
 docker compose config >/dev/null
 
@@ -41,7 +94,7 @@ build_log=$(mktemp)
 if ! docker compose build 2>&1 | tee "$build_log"; then
   if grep -qiE 'registry-1\.docker\.io|failed to resolve source metadata|proxy\.golang\.org|sum\.golang\.org|goproxy\.cn|goproxy\.io|mirrors\.aliyun\.com|github\.com/|i/o timeout|connection refused|connection reset by peer|TLS handshake timeout|connect: network is unreachable' "$build_log"; then
     echo "[deploy-validate] Docker image build could not reach required registry or module metadata" >&2
-    echo "[deploy-validate] configure Docker daemon registry/proxy access or set OBLIVIOUS_IMAGE_REGISTRY_PREFIX/OBLIVIOUS_GOPROXY, then rerun this script" >&2
+    echo "[deploy-validate] configure Docker daemon registry/proxy access or set OBLIVIOUS_IMAGE_REGISTRY_PREFIX/OBLIVIOUS_POSTGRES_IMAGE/OBLIVIOUS_GOPROXY, then rerun this script" >&2
     echo "[deploy-validate] see docs/release/deployment-runtime-remediation.md" >&2
   fi
 
@@ -55,8 +108,15 @@ if ! docker compose build 2>&1 | tee "$build_log"; then
 fi
 rm -f "$build_log"
 
-echo "[deploy-validate] starting stack"
-docker compose up -d
+echo "[deploy-validate] starting data services"
+run_compose_up postgres redis
+wait_for_compose_dependencies
+
+echo "[deploy-validate] applying migrations"
+docker compose run --rm --no-deps oblivious-server /usr/local/bin/oblivious-migrate
+
+echo "[deploy-validate] starting application stack"
+run_compose_up oblivious-server oblivious-web
 
 echo "[deploy-validate] running smoke against $base_url"
 BASE_URL="$base_url" bash scripts/deploy-smoke.sh

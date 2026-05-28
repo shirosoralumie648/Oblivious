@@ -333,8 +333,18 @@ describe('KnowledgePage', () => {
     ]);
     retrieveKnowledge.mockResolvedValue([
       {
+        chunkId: 'kdc_1',
+        chunkIndex: 2,
         documentId: 'doc_1',
         documentTitle: 'Overview',
+        retrievalMethod: 'embedding_rag',
+        similarity: 0.93,
+        source: {
+          chunkId: 'kdc_1',
+          chunkIndex: 2,
+          documentId: 'doc_1',
+          documentTitle: 'Overview'
+        },
         snippet: 'System boundaries include deployment controls.'
       }
     ]);
@@ -349,6 +359,7 @@ describe('KnowledgePage', () => {
       expect(retrieveKnowledge).toHaveBeenCalledWith('kb_9', { query: 'deployment' });
     });
     expect(screen.getByText('System boundaries include deployment controls.')).toBeInTheDocument();
+    expect(screen.getByText('Source: Overview · chunk 3 · embedding_rag · 93%')).toBeInTheDocument();
   });
 
   it('shows query-specific empty feedback when retrieval returns no snippets', async () => {
@@ -389,8 +400,18 @@ describe('KnowledgePage', () => {
     ]);
     retrieveKnowledge.mockResolvedValue([
       {
+        chunkId: 'kdc_1',
+        chunkIndex: 0,
         documentId: 'doc_1',
         documentTitle: 'Overview',
+        retrievalMethod: 'embedding_rag',
+        similarity: 0.88,
+        source: {
+          chunkId: 'kdc_1',
+          chunkIndex: 0,
+          documentId: 'doc_1',
+          documentTitle: 'Overview'
+        },
         snippet: 'System boundaries include deployment controls.'
       }
     ]);

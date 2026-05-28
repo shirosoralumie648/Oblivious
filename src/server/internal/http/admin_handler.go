@@ -542,6 +542,108 @@ func (h adminHandler) rejectAgent(w stdhttp.ResponseWriter, r *stdhttp.Request, 
 	writeSuccess(w, stdhttp.StatusOK, map[string]string{"status": "rejected"})
 }
 
+func (h adminHandler) billingFilter(r *stdhttp.Request) admin.BillingInspectionFilter {
+	return admin.BillingInspectionFilter{
+		OrganizationID: firstNonEmpty(r.URL.Query().Get("organizationID"), r.URL.Query().Get("organizationId")),
+		UserID:         firstNonEmpty(r.URL.Query().Get("userID"), r.URL.Query().Get("userId")),
+		Status:         r.URL.Query().Get("status"),
+		Kind:           r.URL.Query().Get("kind"),
+		Provider:       r.URL.Query().Get("provider"),
+		Limit:          parseQueryInt(r, "limit", 50, 100),
+		Offset:         parseQueryInt(r, "offset", 0, 0),
+	}
+}
+
+func (h adminHandler) getBillingSummary(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	summary, err := h.service.GetBillingInspectionSummary(r.Context(), h.billingFilter(r))
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, summary)
+}
+
+func (h adminHandler) listBillingSessions(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	items, total, err := h.service.ListBillingSessions(r.Context(), h.billingFilter(r))
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, map[string]any{"sessions": items, "total": total})
+}
+
+func (h adminHandler) listPaymentIntents(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	items, total, err := h.service.ListPaymentIntents(r.Context(), h.billingFilter(r))
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, map[string]any{"paymentIntents": items, "total": total})
+}
+
+func (h adminHandler) listWebhookEvents(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	items, total, err := h.service.ListWebhookEvents(r.Context(), h.billingFilter(r))
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, map[string]any{"webhookEvents": items, "total": total})
+}
+
+func (h adminHandler) listSubscriptions(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	items, total, err := h.service.ListSubscriptions(r.Context(), h.billingFilter(r))
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, map[string]any{"subscriptions": items, "total": total})
+}
+
+func (h adminHandler) listTopups(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	items, total, err := h.service.ListTopups(r.Context(), h.billingFilter(r))
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, map[string]any{"topups": items, "total": total})
+}
+
+func (h adminHandler) listInvoices(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	items, total, err := h.service.ListInvoices(r.Context(), h.billingFilter(r))
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, map[string]any{"invoices": items, "total": total})
+}
+
+func (h adminHandler) listRefunds(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	items, total, err := h.service.ListRefunds(r.Context(), h.billingFilter(r))
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, map[string]any{"refunds": items, "total": total})
+}
+
+func (h adminHandler) listMarketplaceSettlements(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	items, total, err := h.service.ListMarketplaceSettlements(r.Context(), h.billingFilter(r))
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, map[string]any{"settlements": items, "total": total})
+}
+
+func (h adminHandler) listMarketplacePayouts(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	items, total, err := h.service.ListMarketplacePayouts(r.Context(), h.billingFilter(r))
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, map[string]any{"payouts": items, "total": total})
+}
+
 func decodeRequestJSON(w stdhttp.ResponseWriter, r *stdhttp.Request, dst any) bool {
 	if err := json.NewDecoder(r.Body).Decode(dst); err != nil {
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "invalid json body")

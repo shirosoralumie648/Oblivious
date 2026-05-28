@@ -1,6 +1,6 @@
 # Oblivious API Documentation
 
-This document lists the current routed HTTP surface for the v03.3 consolidated mainline.
+This document lists the current routed HTTP surface for the v08 commercial product completeness mainline.
 Routes are reconciled against `src/server/internal/http/router.go`, `src/server/internal/http/server.go`, and `src/server/internal/relay/handler/router.go`.
 
 ## Base URLs
@@ -96,6 +96,15 @@ Public app routes:
 | `DELETE` | `/api/v1/app/agents/conversations/:conversationId` | Delete an agent conversation |
 | `GET` | `/api/v1/app/agents/conversations/:conversationId/messages` | List agent conversation messages |
 | `POST` | `/api/v1/app/agents/conversations/:conversationId/messages` | Send an agent conversation message |
+| `GET` | `/api/v1/app/agents/conversations/:conversationId/runs` | List durable Agent workflow runs for a conversation |
+| `GET` | `/api/v1/app/agents/runs/:runId` | Get durable run detail with tool-run state |
+| `POST` | `/api/v1/app/agents/tool-runs/:toolRunId/approve` | Approve a pending approval-required tool run |
+| `POST` | `/api/v1/app/agents/tool-runs/:toolRunId/reject` | Reject a pending approval-required tool run with a reason |
+| `POST` | `/api/v1/app/agents/tool-runs/:toolRunId/retry` | Retry a failed tool run by recording a new attempt state |
+
+Durable Agent workflow state is organization-scoped. `agent_runs` records preserve request ID, run status, memory search evidence, iteration count, tool-call count, final message ID, and terminal error state. `agent_tool_runs` records preserve tool call ID, tool name/type, arguments, approval status, acting approver/rejector, attempt count, result content, error text, and timestamps. Cross-tenant run and tool-run reads or writes return not found or forbidden and do not expose payloads.
+
+Tools can set `requiresApproval` in Agent tool configuration. Approval-required tool calls create a `pending_approval` tool-run record before execution and pause the workflow; the executor is not called until an explicit approval transition is recorded. Rejection records a rejected state and reason. Retry is restricted to failed tool runs and increments attempt evidence without duplicating already completed tool results.
 
 ## Memory Endpoints
 
@@ -122,6 +131,19 @@ Public app routes:
 | `GET` | `/api/v1/app/mcp-servers/:serverId/tools` | List tools exposed by an MCP server |
 | `GET` | `/api/v1/app/mcp-servers/:serverId/status` | Read MCP server connection status |
 | `POST` | `/api/v1/app/mcp-servers/:serverId/execute` | Execute an MCP tool |
+
+### Built-In Agent Tools
+
+Default commercial Agent tool exposure is policy-gated:
+
+| Tool | Default commercial behavior |
+| --- | --- |
+| `calculator` | Enabled. Evaluates a bounded arithmetic grammar with numbers, parentheses, unary signs, `+`, `-`, `*`, and `/`. Invalid expressions and division by zero return explicit errors. |
+| `datetime` | Enabled. Returns current time in RFC3339 format. |
+| `web_search` | Disabled by default until a real search provider is configured. It must not return fake search results. |
+| `http_request` | Disabled by default until a tenant-safe outbound HTTP policy is configured. The disabled default path must not perform network I/O. |
+
+Agent tool-definition APIs filter disabled built-ins, and direct execution rejects disabled built-ins even if an older Agent configuration still marks them enabled.
 
 ## Notification Endpoints
 
@@ -187,6 +209,24 @@ Public app routes:
 | `DELETE` | `/api/v1/app/knowledge-bases/:knowledgeBaseId/documents/:documentId` | Delete a knowledge document |
 | `POST` | `/api/v1/app/knowledge-bases/:knowledgeBaseId/retrieve` | Retrieve relevant document chunks |
 
+Knowledge document create and update paths index document chunks with the configured Relay embedding model. Retrieval embeds the query through Relay `/v1/embeddings`, searches `knowledge_document_chunks.embedding` with pgvector under organization scope, and returns source-cited RAG results. The service does not fall back to text search while customer-facing copy claims RAG.
+
+`POST /api/v1/app/knowledge-bases/:knowledgeBaseId/retrieve` response items include:
+
+| Field | Description |
+| --- | --- |
+| `documentId` | Matched source document ID |
+| `documentTitle` | Matched source document title |
+| `chunkId` | Matched chunk ID from `knowledge_document_chunks` |
+| `chunkIndex` | Zero-based source chunk index |
+| `retrievalMethod` | Retrieval method, currently `embedding_rag` |
+| `similarity` | pgvector similarity score used for ranking |
+| `snippet` | Bounded snippet from the matched chunk |
+| `source.documentId` | Citation source document ID |
+| `source.documentTitle` | Citation source document title |
+| `source.chunkId` | Citation source chunk ID |
+| `source.chunkIndex` | Citation source chunk index |
+
 ## WebSocket Endpoint
 
 | Method | Path | Purpose |
@@ -218,6 +258,16 @@ All admin endpoints require an authenticated admin session.
 | `GET` | `/api/v1/admin/plans/:planId` | Get a quota plan |
 | `PUT` | `/api/v1/admin/plans/:planId` | Update a quota plan |
 | `DELETE` | `/api/v1/admin/plans/:planId` | Deactivate a quota plan |
+| `GET` | `/api/v1/admin/billing/summary` | Read-only billing, payment, webhook, settlement, and payout summary |
+| `GET` | `/api/v1/admin/billing/sessions` | List Relay billing sessions |
+| `GET` | `/api/v1/admin/billing/payment-intents` | List Stripe/payment intent records |
+| `GET` | `/api/v1/admin/billing/webhook-events` | List Stripe webhook ledger events |
+| `GET` | `/api/v1/admin/billing/subscriptions` | List subscription lifecycle state |
+| `GET` | `/api/v1/admin/billing/topups` | List top-up order state |
+| `GET` | `/api/v1/admin/billing/invoices` | List invoice state |
+| `GET` | `/api/v1/admin/billing/refunds` | List refund state |
+| `GET` | `/api/v1/admin/billing/settlements` | List Marketplace settlement and platform-fee state |
+| `GET` | `/api/v1/admin/billing/payouts` | List Marketplace payout state |
 | `GET` | `/api/v1/admin/users` | List users |
 | `GET` | `/api/v1/admin/users/:userId` | Get a user |
 | `PUT` | `/api/v1/admin/users/:userId` | Update a user |
@@ -261,7 +311,7 @@ Public discovery endpoints do not require a session. Publisher, install, review 
 These routes are registered by `src/server/internal/relay/handler/router.go` and mounted under `/v1/*` by `src/server/internal/http/server.go`.
 Commercial route classes, production status, disabled reasons, and owning future work are tracked in `docs/release/relay-route-table.md`.
 
-When `APP_ENV=production`, routes classified as `DisabledInProduction` fail closed with `endpoint_disabled_in_production` before handler, passthrough, file proxy, or provider execution. `CommercialSupportedBilled` routes remain callable and must receive final settlement/refund proof before v05 closes.
+When `APP_ENV=production`, routes classified as `DisabledInProduction` fail closed with `endpoint_disabled_in_production` before handler, passthrough, file proxy, or provider execution. `CommercialSupportedBilled` routes remain callable only through Relay policy, identity, rate-limit, audit, quota preauthorization, settlement, and refund semantics proven by the completed v05 Relay Billing Completeness evidence.
 
 | Method | Path | Strategy |
 | --- | --- | --- |
@@ -300,6 +350,6 @@ When `APP_ENV=production`, routes classified as `DisabledInProduction` fail clos
 | `GET` | `/v1/threads/:id/runs/:rid` | Passthrough |
 | `POST` | `/v1/threads/:id/runs/:rid/submit` | Passthrough |
 
-## Not Routed In This Release Candidate
+## Not Routed In The Current Commercial Surface
 
 `GET /v1/models` is used by the relay health checker against upstream providers, but it is not registered as an inbound Oblivious Relay endpoint in `src/server/internal/relay/handler/router.go`.

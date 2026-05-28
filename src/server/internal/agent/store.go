@@ -26,19 +26,20 @@ type Agent struct {
 
 // Tool 表示 Agent 可用的工具
 type Tool struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	Type        string `json:"type"` // "builtin" | "mcp"
-	ServerID    string `json:"serverId,omitempty"` // MCP server ID
-	Enabled     bool   `json:"enabled"`
+	Name             string `json:"name"`
+	Description      string `json:"description,omitempty"`
+	Type             string `json:"type"`               // "builtin" | "mcp"
+	ServerID         string `json:"serverId,omitempty"` // MCP server ID
+	Enabled          bool   `json:"enabled"`
+	RequiresApproval bool   `json:"requiresApproval,omitempty"`
 }
 
 // Config 表示 Agent 配置
 type Config struct {
-	EnableMemory     bool    `json:"enableMemory,omitempty"`
-	MaxTokens        int     `json:"maxTokens,omitempty"`
-	Temperature      float64 `json:"temperature,omitempty"`
-	TopP             float64 `json:"topP,omitempty"`
+	EnableMemory     bool     `json:"enableMemory,omitempty"`
+	MaxTokens        int      `json:"maxTokens,omitempty"`
+	Temperature      float64  `json:"temperature,omitempty"`
+	TopP             float64  `json:"topP,omitempty"`
 	KnowledgeBaseIDs []string `json:"knowledgeBaseIds,omitempty"`
 }
 
@@ -55,43 +56,172 @@ type Conversation struct {
 
 // Message 表示 Agent 消息
 type Message struct {
-	ID             string      `json:"id"`
-	ConversationID string      `json:"conversationId"`
-	OrganizationID string      `json:"organizationId"`
-	Role           string      `json:"role"` // "user" | "assistant" | "tool"
-	Content        string      `json:"content"`
-	ToolCalls      []ToolCall  `json:"toolCalls,omitempty"`
-	ToolCallID     string      `json:"toolCallId,omitempty"`
-	CreatedAt      time.Time   `json:"createdAt"`
+	ID             string     `json:"id"`
+	ConversationID string     `json:"conversationId"`
+	OrganizationID string     `json:"organizationId"`
+	Role           string     `json:"role"` // "user" | "assistant" | "tool"
+	Content        string     `json:"content"`
+	ToolCalls      []ToolCall `json:"toolCalls,omitempty"`
+	ToolCallID     string     `json:"toolCallId,omitempty"`
+	CreatedAt      time.Time  `json:"createdAt"`
 }
 
 // ToolCall 表示工具调用
 type ToolCall struct {
-	ID       string         `json:"id"`
-	Name     string         `json:"name"`
+	ID        string         `json:"id"`
+	Name      string         `json:"name"`
 	Arguments map[string]any `json:"arguments"`
+}
+
+const (
+	RunStatusRunning         = "running"
+	RunStatusPendingApproval = "pending_approval"
+	RunStatusCompleted       = "completed"
+	RunStatusFailed          = "failed"
+
+	ToolRunStatusPendingApproval = "pending_approval"
+	ToolRunStatusRunning         = "running"
+	ToolRunStatusCompleted       = "completed"
+	ToolRunStatusFailed          = "failed"
+	ToolRunStatusRejected        = "rejected"
+
+	ApprovalStatusNotRequired = "not_required"
+	ApprovalStatusPending     = "pending"
+	ApprovalStatusApproved    = "approved"
+	ApprovalStatusRejected    = "rejected"
+)
+
+// Run is durable Agent workflow state for one user request.
+type Run struct {
+	ID                string     `json:"id"`
+	OrganizationID    string     `json:"organizationId"`
+	ConversationID    string     `json:"conversationId"`
+	AgentID           string     `json:"agentId"`
+	UserID            string     `json:"userId"`
+	RequestID         string     `json:"requestId,omitempty"`
+	Status            string     `json:"status"`
+	MemoryEnabled     bool       `json:"memoryEnabled"`
+	MemorySearched    bool       `json:"memorySearched"`
+	MemoryResultCount int        `json:"memoryResultCount"`
+	IterationCount    int        `json:"iterationCount"`
+	ToolCallCount     int        `json:"toolCallCount"`
+	FinalMessageID    string     `json:"finalMessageId,omitempty"`
+	Error             string     `json:"error,omitempty"`
+	StartedAt         time.Time  `json:"startedAt"`
+	CompletedAt       *time.Time `json:"completedAt,omitempty"`
+	CreatedAt         time.Time  `json:"createdAt"`
+	UpdatedAt         time.Time  `json:"updatedAt"`
+}
+
+// ToolRun is durable state for one model-requested tool call.
+type ToolRun struct {
+	ID                     string         `json:"id"`
+	OrganizationID         string         `json:"organizationId"`
+	RunID                  string         `json:"runId"`
+	ConversationID         string         `json:"conversationId"`
+	AgentID                string         `json:"agentId"`
+	ToolCallID             string         `json:"toolCallId"`
+	ToolName               string         `json:"toolName"`
+	ToolType               string         `json:"toolType"`
+	ServerID               string         `json:"serverId,omitempty"`
+	Arguments              map[string]any `json:"arguments"`
+	Status                 string         `json:"status"`
+	ApprovalStatus         string         `json:"approvalStatus"`
+	ApprovedByUserID       string         `json:"approvedByUserId,omitempty"`
+	ApprovalDecisionReason string         `json:"approvalDecisionReason,omitempty"`
+	AttemptCount           int            `json:"attemptCount"`
+	ResultContent          string         `json:"resultContent,omitempty"`
+	Error                  string         `json:"error,omitempty"`
+	StartedAt              *time.Time     `json:"startedAt,omitempty"`
+	CompletedAt            *time.Time     `json:"completedAt,omitempty"`
+	CreatedAt              time.Time      `json:"createdAt"`
+	UpdatedAt              time.Time      `json:"updatedAt"`
+}
+
+type RunDetail struct {
+	Run      *Run       `json:"run"`
+	ToolRuns []*ToolRun `json:"toolRuns"`
+}
+
+type CreateRunRequest struct {
+	OrganizationID    string
+	ConversationID    string
+	AgentID           string
+	UserID            string
+	RequestID         string
+	Status            string
+	MemoryEnabled     bool
+	MemorySearched    bool
+	MemoryResultCount int
+	StartedAt         time.Time
+}
+
+type UpdateRunRequest struct {
+	Status            *string
+	MemoryEnabled     *bool
+	MemorySearched    *bool
+	MemoryResultCount *int
+	IterationCount    *int
+	ToolCallCount     *int
+	FinalMessageID    *string
+	Error             *string
+	CompletedAt       *time.Time
+}
+
+type CreateToolRunRequest struct {
+	OrganizationID         string
+	RunID                  string
+	ConversationID         string
+	AgentID                string
+	ToolCallID             string
+	ToolName               string
+	ToolType               string
+	ServerID               string
+	Arguments              map[string]any
+	Status                 string
+	ApprovalStatus         string
+	ApprovedByUserID       string
+	ApprovalDecisionReason string
+	AttemptCount           int
+	ResultContent          string
+	Error                  string
+	StartedAt              *time.Time
+	CompletedAt            *time.Time
+}
+
+type UpdateToolRunRequest struct {
+	Status                 *string
+	ApprovalStatus         *string
+	ApprovedByUserID       *string
+	ApprovalDecisionReason *string
+	AttemptCount           *int
+	ResultContent          *string
+	Error                  *string
+	StartedAt              *time.Time
+	CompletedAt            *time.Time
+	ClearCompletedAt       bool
 }
 
 // CreateAgentRequest 创建 Agent 请求
 type CreateAgentRequest struct {
-	Name         string  `json:"name"`
-	Description  string  `json:"description,omitempty"`
-	Model        string  `json:"model,omitempty"`
-	SystemPrompt string  `json:"systemPrompt,omitempty"`
-	Tools        []Tool  `json:"tools,omitempty"`
-	Config       Config  `json:"config,omitempty"`
-	IsPublic     bool    `json:"isPublic,omitempty"`
+	Name         string `json:"name"`
+	Description  string `json:"description,omitempty"`
+	Model        string `json:"model,omitempty"`
+	SystemPrompt string `json:"systemPrompt,omitempty"`
+	Tools        []Tool `json:"tools,omitempty"`
+	Config       Config `json:"config,omitempty"`
+	IsPublic     bool   `json:"isPublic,omitempty"`
 }
 
 // UpdateAgentRequest 更新 Agent 请求
 type UpdateAgentRequest struct {
-	Name         *string  `json:"name,omitempty"`
-	Description  *string  `json:"description,omitempty"`
-	Model        *string  `json:"model,omitempty"`
-	SystemPrompt *string  `json:"systemPrompt,omitempty"`
-	Tools        []Tool   `json:"tools,omitempty"`
-	Config       *Config  `json:"config,omitempty"`
-	IsPublic     *bool    `json:"isPublic,omitempty"`
+	Name         *string `json:"name,omitempty"`
+	Description  *string `json:"description,omitempty"`
+	Model        *string `json:"model,omitempty"`
+	SystemPrompt *string `json:"systemPrompt,omitempty"`
+	Tools        []Tool  `json:"tools,omitempty"`
+	Config       *Config `json:"config,omitempty"`
+	IsPublic     *bool   `json:"isPublic,omitempty"`
 }
 
 // Store 接口
@@ -112,6 +242,16 @@ type Store interface {
 	// Messages
 	CreateMessage(ctx context.Context, conversationID, organizationID, role, content string, toolCalls []ToolCall, toolCallID string) (*Message, error)
 	ListMessages(ctx context.Context, conversationID, organizationID string) ([]*Message, error)
+
+	// Durable Agent runs
+	CreateRun(ctx context.Context, req *CreateRunRequest) (*Run, error)
+	GetRun(ctx context.Context, organizationID, id string) (*Run, error)
+	ListRuns(ctx context.Context, organizationID, conversationID string) ([]*Run, error)
+	UpdateRun(ctx context.Context, organizationID, id string, req UpdateRunRequest) (*Run, error)
+	CreateToolRun(ctx context.Context, req *CreateToolRunRequest) (*ToolRun, error)
+	GetToolRun(ctx context.Context, organizationID, id string) (*ToolRun, error)
+	ListToolRuns(ctx context.Context, organizationID, runID string) ([]*ToolRun, error)
+	UpdateToolRun(ctx context.Context, organizationID, id string, req UpdateToolRunRequest) (*ToolRun, error)
 }
 
 // SQLStore SQL 实现
@@ -413,6 +553,381 @@ func (s *SQLStore) ListMessages(ctx context.Context, conversationID, organizatio
 	}
 
 	return messages, rows.Err()
+}
+
+func (s *SQLStore) CreateRun(ctx context.Context, req *CreateRunRequest) (*Run, error) {
+	id := generateID()
+	now := time.Now()
+	startedAt := req.StartedAt
+	if startedAt.IsZero() {
+		startedAt = now
+	}
+	status := req.Status
+	if status == "" {
+		status = RunStatusRunning
+	}
+
+	result, err := s.db.ExecContext(ctx, `
+		INSERT INTO agent_runs (
+			id, organization_id, conversation_id, agent_id, user_id, request_id, status,
+			memory_enabled, memory_searched, memory_result_count, started_at, created_at, updated_at
+		)
+		SELECT $1, c.organization_id, c.id, c.agent_id, $5, $6, $7, $8, $9, $10, $11, $12, $12
+		FROM agent_conversations c
+		WHERE c.id = $2 AND c.organization_id = $3 AND c.agent_id = $4
+	`, id, req.ConversationID, req.OrganizationID, req.AgentID, req.UserID, req.RequestID, status,
+		req.MemoryEnabled, req.MemorySearched, req.MemoryResultCount, startedAt, now)
+	if err != nil {
+		return nil, fmt.Errorf("insert agent run: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("insert agent run rows: %w", err)
+	}
+	if rowsAffected == 0 {
+		return nil, fmt.Errorf("conversation not found")
+	}
+
+	return s.GetRun(ctx, req.OrganizationID, id)
+}
+
+func (s *SQLStore) GetRun(ctx context.Context, organizationID, id string) (*Run, error) {
+	run, err := scanRun(s.db.QueryRowContext(ctx, `
+		SELECT id, organization_id, conversation_id, agent_id, user_id, request_id, status,
+			memory_enabled, memory_searched, memory_result_count, iteration_count, tool_call_count,
+			final_message_id, error, started_at, completed_at, created_at, updated_at
+		FROM agent_runs
+		WHERE id = $1 AND organization_id = $2
+	`, id, organizationID))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get agent run: %w", err)
+	}
+	return run, nil
+}
+
+func (s *SQLStore) ListRuns(ctx context.Context, organizationID, conversationID string) ([]*Run, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, organization_id, conversation_id, agent_id, user_id, request_id, status,
+			memory_enabled, memory_searched, memory_result_count, iteration_count, tool_call_count,
+			final_message_id, error, started_at, completed_at, created_at, updated_at
+		FROM agent_runs
+		WHERE organization_id = $1 AND conversation_id = $2
+		ORDER BY created_at DESC
+	`, organizationID, conversationID)
+	if err != nil {
+		return nil, fmt.Errorf("list agent runs: %w", err)
+	}
+	defer rows.Close()
+
+	var runs []*Run
+	for rows.Next() {
+		run, err := scanRun(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan agent run: %w", err)
+		}
+		runs = append(runs, run)
+	}
+	return runs, rows.Err()
+}
+
+func (s *SQLStore) UpdateRun(ctx context.Context, organizationID, id string, req UpdateRunRequest) (*Run, error) {
+	run, err := s.GetRun(ctx, organizationID, id)
+	if err != nil {
+		return nil, err
+	}
+	if run == nil {
+		return nil, fmt.Errorf("agent run not found")
+	}
+
+	if req.Status != nil {
+		run.Status = *req.Status
+	}
+	if req.MemoryEnabled != nil {
+		run.MemoryEnabled = *req.MemoryEnabled
+	}
+	if req.MemorySearched != nil {
+		run.MemorySearched = *req.MemorySearched
+	}
+	if req.MemoryResultCount != nil {
+		run.MemoryResultCount = *req.MemoryResultCount
+	}
+	if req.IterationCount != nil {
+		run.IterationCount = *req.IterationCount
+	}
+	if req.ToolCallCount != nil {
+		run.ToolCallCount = *req.ToolCallCount
+	}
+	if req.FinalMessageID != nil {
+		run.FinalMessageID = *req.FinalMessageID
+	}
+	if req.Error != nil {
+		run.Error = *req.Error
+	}
+	if req.CompletedAt != nil {
+		run.CompletedAt = req.CompletedAt
+	}
+
+	_, err = s.db.ExecContext(ctx, `
+		UPDATE agent_runs
+		SET status = $3,
+			memory_enabled = $4,
+			memory_searched = $5,
+			memory_result_count = $6,
+			iteration_count = $7,
+			tool_call_count = $8,
+			final_message_id = NULLIF($9, ''),
+			error = $10,
+			completed_at = $11,
+			updated_at = $12
+		WHERE id = $1 AND organization_id = $2
+	`, id, organizationID, run.Status, run.MemoryEnabled, run.MemorySearched, run.MemoryResultCount,
+		run.IterationCount, run.ToolCallCount, run.FinalMessageID, run.Error, run.CompletedAt, time.Now())
+	if err != nil {
+		return nil, fmt.Errorf("update agent run: %w", err)
+	}
+	return s.GetRun(ctx, organizationID, id)
+}
+
+func (s *SQLStore) CreateToolRun(ctx context.Context, req *CreateToolRunRequest) (*ToolRun, error) {
+	id := generateID()
+	now := time.Now()
+	status := req.Status
+	if status == "" {
+		status = ToolRunStatusRunning
+	}
+	approvalStatus := req.ApprovalStatus
+	if approvalStatus == "" {
+		approvalStatus = ApprovalStatusNotRequired
+	}
+	arguments := req.Arguments
+	if arguments == nil {
+		arguments = map[string]any{}
+	}
+	argumentsJSON, err := json.Marshal(arguments)
+	if err != nil {
+		return nil, fmt.Errorf("marshal tool run arguments: %w", err)
+	}
+
+	result, err := s.db.ExecContext(ctx, `
+		INSERT INTO agent_tool_runs (
+			id, organization_id, run_id, conversation_id, agent_id, tool_call_id, tool_name,
+			tool_type, server_id, arguments, status, approval_status, approved_by_user_id,
+			approval_decision_reason, attempt_count, result_content, error, started_at,
+			completed_at, created_at, updated_at
+		)
+		SELECT $1, r.organization_id, r.id, r.conversation_id, r.agent_id, $5, $6,
+			$7, $8, $9, $10, $11, NULLIF($12, ''), $13, $14, $15, $16, $17, $18, $19, $19
+		FROM agent_runs r
+		WHERE r.id = $2 AND r.organization_id = $3 AND r.conversation_id = $4
+	`, id, req.RunID, req.OrganizationID, req.ConversationID, req.ToolCallID, req.ToolName,
+		req.ToolType, req.ServerID, argumentsJSON, status, approvalStatus, req.ApprovedByUserID,
+		req.ApprovalDecisionReason, req.AttemptCount, req.ResultContent, req.Error,
+		req.StartedAt, req.CompletedAt, now)
+	if err != nil {
+		return nil, fmt.Errorf("insert agent tool run: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("insert agent tool run rows: %w", err)
+	}
+	if rowsAffected == 0 {
+		return nil, fmt.Errorf("agent run not found")
+	}
+	return s.GetToolRun(ctx, req.OrganizationID, id)
+}
+
+func (s *SQLStore) GetToolRun(ctx context.Context, organizationID, id string) (*ToolRun, error) {
+	toolRun, err := scanToolRun(s.db.QueryRowContext(ctx, `
+		SELECT id, organization_id, run_id, conversation_id, agent_id, tool_call_id, tool_name,
+			tool_type, server_id, arguments, status, approval_status, approved_by_user_id,
+			approval_decision_reason, attempt_count, result_content, error, started_at,
+			completed_at, created_at, updated_at
+		FROM agent_tool_runs
+		WHERE id = $1 AND organization_id = $2
+	`, id, organizationID))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get agent tool run: %w", err)
+	}
+	return toolRun, nil
+}
+
+func (s *SQLStore) ListToolRuns(ctx context.Context, organizationID, runID string) ([]*ToolRun, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, organization_id, run_id, conversation_id, agent_id, tool_call_id, tool_name,
+			tool_type, server_id, arguments, status, approval_status, approved_by_user_id,
+			approval_decision_reason, attempt_count, result_content, error, started_at,
+			completed_at, created_at, updated_at
+		FROM agent_tool_runs
+		WHERE organization_id = $1 AND run_id = $2
+		ORDER BY created_at ASC
+	`, organizationID, runID)
+	if err != nil {
+		return nil, fmt.Errorf("list agent tool runs: %w", err)
+	}
+	defer rows.Close()
+
+	var toolRuns []*ToolRun
+	for rows.Next() {
+		toolRun, err := scanToolRun(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan agent tool run: %w", err)
+		}
+		toolRuns = append(toolRuns, toolRun)
+	}
+	return toolRuns, rows.Err()
+}
+
+func (s *SQLStore) UpdateToolRun(ctx context.Context, organizationID, id string, req UpdateToolRunRequest) (*ToolRun, error) {
+	toolRun, err := s.GetToolRun(ctx, organizationID, id)
+	if err != nil {
+		return nil, err
+	}
+	if toolRun == nil {
+		return nil, fmt.Errorf("agent tool run not found")
+	}
+
+	if req.Status != nil {
+		toolRun.Status = *req.Status
+	}
+	if req.ApprovalStatus != nil {
+		toolRun.ApprovalStatus = *req.ApprovalStatus
+	}
+	if req.ApprovedByUserID != nil {
+		toolRun.ApprovedByUserID = *req.ApprovedByUserID
+	}
+	if req.ApprovalDecisionReason != nil {
+		toolRun.ApprovalDecisionReason = *req.ApprovalDecisionReason
+	}
+	if req.AttemptCount != nil {
+		toolRun.AttemptCount = *req.AttemptCount
+	}
+	if req.ResultContent != nil {
+		toolRun.ResultContent = *req.ResultContent
+	}
+	if req.Error != nil {
+		toolRun.Error = *req.Error
+	}
+	if req.StartedAt != nil {
+		toolRun.StartedAt = req.StartedAt
+	}
+	if req.ClearCompletedAt {
+		toolRun.CompletedAt = nil
+	} else if req.CompletedAt != nil {
+		toolRun.CompletedAt = req.CompletedAt
+	}
+
+	_, err = s.db.ExecContext(ctx, `
+		UPDATE agent_tool_runs
+		SET status = $3,
+			approval_status = $4,
+			approved_by_user_id = NULLIF($5, ''),
+			approval_decision_reason = $6,
+			attempt_count = $7,
+			result_content = $8,
+			error = $9,
+			started_at = $10,
+			completed_at = CASE WHEN $11 THEN NULL::timestamptz ELSE $12::timestamptz END,
+			updated_at = $13
+		WHERE id = $1 AND organization_id = $2
+	`, id, organizationID, toolRun.Status, toolRun.ApprovalStatus, toolRun.ApprovedByUserID,
+		toolRun.ApprovalDecisionReason, toolRun.AttemptCount, toolRun.ResultContent, toolRun.Error,
+		toolRun.StartedAt, req.ClearCompletedAt, toolRun.CompletedAt, time.Now())
+	if err != nil {
+		return nil, fmt.Errorf("update agent tool run: %w", err)
+	}
+	return s.GetToolRun(ctx, organizationID, id)
+}
+
+type scanner interface {
+	Scan(dest ...any) error
+}
+
+func scanRun(row scanner) (*Run, error) {
+	var run Run
+	var finalMessageID sql.NullString
+	var completedAt sql.NullTime
+	err := row.Scan(
+		&run.ID,
+		&run.OrganizationID,
+		&run.ConversationID,
+		&run.AgentID,
+		&run.UserID,
+		&run.RequestID,
+		&run.Status,
+		&run.MemoryEnabled,
+		&run.MemorySearched,
+		&run.MemoryResultCount,
+		&run.IterationCount,
+		&run.ToolCallCount,
+		&finalMessageID,
+		&run.Error,
+		&run.StartedAt,
+		&completedAt,
+		&run.CreatedAt,
+		&run.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	run.FinalMessageID = finalMessageID.String
+	if completedAt.Valid {
+		run.CompletedAt = &completedAt.Time
+	}
+	return &run, nil
+}
+
+func scanToolRun(row scanner) (*ToolRun, error) {
+	var toolRun ToolRun
+	var argumentsJSON []byte
+	var approvedByUserID sql.NullString
+	var startedAt sql.NullTime
+	var completedAt sql.NullTime
+	err := row.Scan(
+		&toolRun.ID,
+		&toolRun.OrganizationID,
+		&toolRun.RunID,
+		&toolRun.ConversationID,
+		&toolRun.AgentID,
+		&toolRun.ToolCallID,
+		&toolRun.ToolName,
+		&toolRun.ToolType,
+		&toolRun.ServerID,
+		&argumentsJSON,
+		&toolRun.Status,
+		&toolRun.ApprovalStatus,
+		&approvedByUserID,
+		&toolRun.ApprovalDecisionReason,
+		&toolRun.AttemptCount,
+		&toolRun.ResultContent,
+		&toolRun.Error,
+		&startedAt,
+		&completedAt,
+		&toolRun.CreatedAt,
+		&toolRun.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	toolRun.ApprovedByUserID = approvedByUserID.String
+	if len(argumentsJSON) > 0 {
+		_ = json.Unmarshal(argumentsJSON, &toolRun.Arguments)
+	}
+	if toolRun.Arguments == nil {
+		toolRun.Arguments = map[string]any{}
+	}
+	if startedAt.Valid {
+		toolRun.StartedAt = &startedAt.Time
+	}
+	if completedAt.Valid {
+		toolRun.CompletedAt = &completedAt.Time
+	}
+	return &toolRun, nil
 }
 
 func generateID() string {

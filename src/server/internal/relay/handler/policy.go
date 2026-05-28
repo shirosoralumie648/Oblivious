@@ -5,9 +5,12 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"oblivious/server/internal/metrics"
+	"oblivious/server/internal/observability"
 	"oblivious/server/internal/relay/types"
 )
 
@@ -88,6 +91,9 @@ type RouteAuditEvent struct {
 type RouteAuditSink interface {
 	RecordRelayRouteDecision(ctx context.Context, event RouteAuditEvent)
 }
+
+var routeObservabilityLogger = observability.NewJSONLogger(os.Stdout)
+var routeObservabilityLoggerMu sync.RWMutex
 
 func AllRoutePolicies() []RoutePolicy {
 	policies := make([]RoutePolicy, len(routePolicies))
@@ -207,13 +213,37 @@ func trustedIdentityFromHeaders(c *gin.Context) (string, string, string, bool) {
 }
 
 func recordRouteAudit(c *gin.Context, sink RouteAuditSink, policy RoutePolicy, result RouteAuditResult, userID, organizationID, requestID, failureReason string) {
-	if sink == nil {
-		return
-	}
 	if requestID == "" {
 		requestID = c.GetHeader(types.HeaderRequestID)
 	}
-	sink.RecordRelayRouteDecision(c.Request.Context(), RouteAuditEvent{
+	ctx, span := observability.StartSpan(
+		c.Request.Context(),
+		"relay.route_policy",
+		observability.String("relay.route_class", string(policy.Class)),
+		observability.String("relay.api_type", policy.APIType.String()),
+		observability.String("relay.result", string(result)),
+	)
+	defer span.End()
+
+	metrics.RecordRelayRouteDecision(string(policy.Class), policy.APIType.String(), string(result), failureReason)
+	currentObservabilityLogger().Log(ctx, observability.Event{
+		Component:       "relay",
+		Event:           "relay.route_decision",
+		RequestID:       requestID,
+		OrganizationID:  organizationID,
+		UserID:          userID,
+		Method:          policy.Method,
+		Route:           policy.Path,
+		RelayRouteClass: string(policy.Class),
+		RelayAPIType:    policy.APIType.String(),
+		BillingPolicy:   string(policy.BillingPolicy),
+		FailureReason:   failureReason,
+	})
+
+	if sink == nil {
+		return
+	}
+	sink.RecordRelayRouteDecision(ctx, RouteAuditEvent{
 		Method:         policy.Method,
 		Path:           policy.Path,
 		APIType:        policy.APIType,
@@ -225,6 +255,25 @@ func recordRouteAudit(c *gin.Context, sink RouteAuditSink, policy RoutePolicy, r
 		FailureReason:  failureReason,
 		CreatedAt:      time.Now().UTC(),
 	})
+}
+
+func currentObservabilityLogger() *observability.Logger {
+	routeObservabilityLoggerMu.RLock()
+	defer routeObservabilityLoggerMu.RUnlock()
+	return routeObservabilityLogger
+}
+
+func setObservabilityLoggerForTest(logger *observability.Logger) func() {
+	routeObservabilityLoggerMu.Lock()
+	previous := routeObservabilityLogger
+	routeObservabilityLogger = logger
+	routeObservabilityLoggerMu.Unlock()
+
+	return func() {
+		routeObservabilityLoggerMu.Lock()
+		routeObservabilityLogger = previous
+		routeObservabilityLoggerMu.Unlock()
+	}
 }
 
 var routePolicies = []RoutePolicy{

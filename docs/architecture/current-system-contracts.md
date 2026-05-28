@@ -1,23 +1,22 @@
 # Current System Contracts
 
-日期：2026-05-17
+Date: 2026-05-29
 
-本文件是当前 v03.3 Mainline Consolidation 主线系统 `src/server` + `src/web` 的执行基线。
+This file is the current v08 Product Completeness contract baseline for `src/server` and `src/web`. It records implemented behavior and the commercial boundaries that public docs, API docs, release runbooks, and tests must keep aligned.
 
-- 主线交付范围：`src/server`、`src/web`
-- 非主线参考仓：`new-api/`、`lobehub/`
-- 历史设计参考：`docs/superpowers/specs/2026-04-01-task5-go-backend-infrastructure-design.md`
-- 当前执行评估：`docs/reports/2026-04-06-execution-progress-review.md`
+- Mainline delivery scope: `src/server`, `src/web`, `config`, `scripts`, `.github/workflows`
+- Reference repositories: `lobehub/`, `new-api/`
+- Commercial program design: `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`
+- Commercial gate contract: `docs/release/commercial-gates.md`
+- Product docs: `docs/product/public-overview.md`, `docs/product/onboarding.md`, `docs/product/pricing.md`, `docs/product/operator-guide.md`
 
 ## 1. Scope
 
-当前系统已经不再是 Task 5 中定义的 scaffold 阶段，而是 v03.3 主线整合基线：
+Oblivious is now documented as a multi-tenant AI SaaS platform that integrates LobeHub-style C-end experience with New-API-style B-end operations. The current mainline includes Auth, tenant membership, Chat, Agent, Memory, MCP, Knowledge RAG, Notification, Quota, Console, Admin, Marketplace, billing, Stripe webhook ledger, and Relay `/v1/*` surfaces.
 
-- 后端已路由 Auth、Chat、Agent、Memory、MCP、Notification、Quota、Console、Admin、Marketplace 和 Relay `/v1/*` surface
-- 前端已挂载营销页、工作区页、控制台页、Admin 管理页和 Marketplace 页面
-- 发布候选以 `docs/API.md`、本文件、`docs/release/rc-checklist.md` 和脚本质量门禁作为证据链
+This file records current code contracts only. Phase 29 documentation alignment closes `PROD-05`; Phase 30 still owns end-to-end commercial journey proof and `AUDIT-01`.
 
-本文件只记录“当前代码已经实现或明确依赖”的契约，不描述未来能力设计。
+`no-final-readiness`: this contract does not claim final commercial readiness.
 
 ## 2. Mainline Boundaries
 
@@ -26,21 +25,22 @@ Browser
   -> src/web (React + React Router + Vite)
   -> /api/*
   -> src/server (Go net/http + PostgreSQL)
-  -> PostgreSQL
+  -> PostgreSQL + pgvector
 ```
 
-边界说明：
+Boundary notes:
 
-- `src/web` 是唯一主线前端。
-- `src/server` 是唯一主线后端。
-- `config`、`scripts` 和 `.github/workflows` 属于主线执行基线。
-- `new-api/` 与 `lobehub/` 当前不属于 root workspace、root CI 或 root 交付链路的一部分。
+- `src/web` is the only mainline frontend.
+- `src/server` is the only mainline backend.
+- `config`, `scripts`, Docker assets, Kubernetes manifests, and `.github/workflows` are part of the execution baseline.
+- `new-api/` and `lobehub/` are repository-local reference code and are excluded from root workspace, root CI, and release scope.
+- Provider-facing AI calls must go through Relay. Production app services must not call upstream provider SDKs or provider URLs directly.
 
 ## 3. HTTP Envelope
 
-后端统一返回 JSON envelope：
+The app API returns a JSON envelope for normal success and error responses.
 
-### Success
+Success:
 
 ```json
 {
@@ -50,7 +50,7 @@ Browser
 }
 ```
 
-### Failure
+Failure:
 
 ```json
 {
@@ -63,266 +63,203 @@ Browser
 }
 ```
 
-当前常见错误码：
+Common app API error codes include `invalid_request`, `invalid_credentials`, `unauthorized`, `method_not_allowed`, `not_found`, and `internal_error`.
 
-- `invalid_request`
-- `invalid_credentials`
-- `unauthorized`
-- `method_not_allowed`
-- `not_found`
-- `internal_error`
+Relay `/v1/*` handlers return OpenAI-compatible response shapes or OpenAI-style `error` objects depending on the handler and upstream result.
 
-## 4. Auth And Session Contract
+## 4. Auth, Session, And Tenant Contract
 
 ### 4.1 Frontend Auth State
 
-前端当前设计意图中的 auth 状态机：
+The frontend auth state machine is:
 
 - `idle`
 - `authenticated`
 - `unauthenticated`
 
-该状态机是 `AuthStore`、`useAuthBootstrap`、`ProtectedRoute` 和未来 `useAppContext` 的共享契约基础。
+`AuthStore`, `useAuthBootstrap`, `ProtectedRoute`, and `useAppContext` consume this state.
 
 ### 4.2 Session Cookie
 
-服务端会话通过 HttpOnly Cookie 维持，当前行为来自 `auth_middleware.go`：
+Server sessions use an HttpOnly cookie from `auth_middleware.go`:
 
-- cookie name: `SESSION_COOKIE_NAME`，默认 `oblivious_session`
+- cookie name: `SESSION_COOKIE_NAME`, default `oblivious_session`
 - path: `/`
 - `HttpOnly: true`
 - `SameSite: Lax`
 - `Secure: SESSION_COOKIE_SECURE`
-- cookie value: 当前保存签名后的 session token，而不是裸 session id
+- cookie value: signed session token
 
-### 4.3 Session Response Shape
+### 4.3 Tenant Boundary
 
-`POST /api/v1/auth/register`
-`POST /api/v1/auth/login`
-`GET /api/v1/auth/me`
+Organizations are first-class tenants. Tenant-scoped domains carry organization identity, and representative cross-tenant tests deny reads and writes for Chat, Agent, Knowledge, Memory, MCP, Quota, Console, Admin, and Marketplace publisher data.
 
-成功时均返回：
+## 5. Backend Route Matrix
 
-```json
-{
-  "ok": true,
-  "data": {
-    "onboardingCompleted": false,
-    "preferences": {
-      "defaultMode": "chat",
-      "modelStrategy": "balanced",
-      "networkEnabledHint": false,
-      "onboardingCompleted": false
-    },
-    "session": {
-      "id": "session_x",
-      "expiresAt": "2026-04-06T00:00:00Z"
-    },
-    "user": {
-      "id": "user_x",
-      "email": "user@example.com"
-    },
-    "workspace": {
-      "id": "workspace_x"
-    }
-  },
-  "error": null
-}
-```
-
-## 5. Preferences Contract
-
-当前偏好模型：
-
-```json
-{
-  "defaultMode": "chat",
-  "modelStrategy": "balanced",
-  "networkEnabledHint": false,
-  "onboardingCompleted": false
-}
-```
-
-字段含义：
-
-- `defaultMode`: 当前支持的默认进入模式，现有代码默认值为 `chat`
-- `modelStrategy`: 当前默认值为 `balanced`
-- `networkEnabledHint`: 前端用于表达是否启用联网建议
-- `onboardingCompleted`: 首次引导是否已完成
-
-默认值来源：
-
-- `userprefs/store.go`
-- `userprefs/service.go`
-
-## 6. Backend Route Matrix
-
-### 6.1 Public
+### 5.1 Public
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/healthz` | 健康检查 |
-| `POST` | `/api/v1/auth/register` | 注册并建立会话 |
-| `POST` | `/api/v1/auth/login` | 登录并建立会话 |
+| `GET` | `/healthz` | Health check |
+| `GET` | `/metrics` | Prometheus metrics |
+| `POST` | `/api/v1/auth/register` | Register and establish a session |
+| `POST` | `/api/v1/auth/login` | Login and establish a session |
 
-### 6.2 Authenticated Auth
-
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `GET` | `/api/v1/auth/me` | 返回当前会话用户、工作区与偏好 |
-| `POST` | `/api/v1/auth/logout` | 注销当前会话 |
-
-### 6.3 Preferences And Models
+### 5.2 Auth
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/api/v1/app/me/preferences` | 获取当前用户偏好 |
-| `PUT` | `/api/v1/app/me/preferences` | 更新当前用户偏好 |
-| `GET` | `/api/v1/app/models` | 返回可选模型列表 |
+| `GET` | `/api/v1/auth/me` | Return current user, session, workspace, organization context, and preferences |
+| `POST` | `/api/v1/auth/logout` | Clear the current session |
 
-### 6.4 Chat
-
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `GET` | `/api/v1/app/conversations` | 列出会话 |
-| `POST` | `/api/v1/app/conversations` | 创建会话 |
-| `GET` | `/api/v1/app/conversations/{conversationId}/messages` | 列出消息 |
-| `POST` | `/api/v1/app/conversations/{conversationId}/messages` | 发送消息 |
-| `GET` | `/api/v1/app/conversations/{conversationId}/config` | 获取会话配置 |
-| `PUT` | `/api/v1/app/conversations/{conversationId}/config` | 更新会话配置 |
-| `POST` | `/api/v1/app/conversations/{conversationId}/convert-to-task` | 将会话转换为 SOLO 任务草稿 |
-
-### 6.5 Knowledge
+### 5.3 Preferences And Models
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/api/v1/app/knowledge-bases` | 列出知识库 |
-| `POST` | `/api/v1/app/knowledge-bases` | 创建知识库 |
-| `GET` | `/api/v1/app/knowledge-bases/{knowledgeBaseId}` | 获取知识库详情 |
-| `PUT` | `/api/v1/app/knowledge-bases/{knowledgeBaseId}` | 更新知识库 |
-| `DELETE` | `/api/v1/app/knowledge-bases/{knowledgeBaseId}` | 删除知识库 |
-| `GET` | `/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents` | 列出文档 |
-| `POST` | `/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents` | 创建文档 |
-| `POST` | `/api/v1/app/knowledge-bases/{knowledgeBaseId}/retrieve` | 基于 query 检索相关文档片段 |
-| `PUT` | `/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}` | 更新文档 |
-| `DELETE` | `/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}` | 删除文档 |
+| `GET` | `/api/v1/app/me/preferences` | Read current user preferences |
+| `PUT` | `/api/v1/app/me/preferences` | Update current user preferences |
+| `GET` | `/api/v1/app/models` | Return available app models |
 
-说明：
-
-- 当前支持知识库/文档 CRUD
-- 当前在文档创建与更新时做最小 chunking
-- 当前 retrieval 已进入 Knowledge Beta：维持现有 `/retrieve` 接口 shape，但结果排序、snippet 质量、空结果反馈和页面回归均按 Beta 标准收口
-- 当前 retrieval 仍基于文本匹配，不包含向量检索、embedding 或异步 ingestion pipeline
-
-### 6.6 SOLO Tasks
+### 5.4 Chat
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/api/v1/app/tasks` | 列出任务 |
-| `POST` | `/api/v1/app/tasks` | 创建任务 |
-| `GET` | `/api/v1/app/tasks/{taskId}` | 获取任务详情 |
-| `POST` | `/api/v1/app/tasks/{taskId}/start` | 启动任务 |
-| `POST` | `/api/v1/app/tasks/{taskId}/approve` | 审批任务 |
-| `POST` | `/api/v1/app/tasks/{taskId}/pause` | 暂停任务 |
-| `POST` | `/api/v1/app/tasks/{taskId}/resume` | 恢复任务 |
-| `POST` | `/api/v1/app/tasks/{taskId}/cancel` | 取消任务 |
-| `POST` | `/api/v1/app/tasks/{taskId}/budget` | 更新预算 |
+| `GET` | `/api/v1/app/conversations` | List conversations |
+| `POST` | `/api/v1/app/conversations` | Create a conversation |
+| `GET` | `/api/v1/app/conversations/{conversationId}/messages` | List messages |
+| `POST` | `/api/v1/app/conversations/{conversationId}/messages` | Send a message through Relay-backed generation |
+| `GET` | `/api/v1/app/conversations/{conversationId}/config` | Read conversation configuration |
+| `PUT` | `/api/v1/app/conversations/{conversationId}/config` | Update conversation configuration |
+| `POST` | `/api/v1/app/conversations/{conversationId}/convert-to-task` | Convert a conversation into a SOLO task draft |
 
-说明：
-
-- 当前支持 `draft`、`awaiting_confirmation`、`running`、`paused`、`completed`、`cancelled`
-- 当前任务详情包含结构化步骤、`currentStep`、执行事件和结果 artifacts
-- 当前是受限 runtime MVP，不是完整多 agent orchestration
-
-### 6.7 Console
+### 5.5 Knowledge
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/api/v1/console/usage` | 使用量汇总 |
-| `GET` | `/api/v1/console/access` | 当前访问上下文 |
-| `GET` | `/api/v1/console/models` | 模型摘要 |
-| `GET` | `/api/v1/console/billing` | 计费摘要 |
+| `GET` | `/api/v1/app/knowledge-bases` | List knowledge bases |
+| `POST` | `/api/v1/app/knowledge-bases` | Create a knowledge base |
+| `GET` | `/api/v1/app/knowledge-bases/{knowledgeBaseId}` | Get a knowledge base |
+| `PUT` | `/api/v1/app/knowledge-bases/{knowledgeBaseId}` | Update a knowledge base |
+| `DELETE` | `/api/v1/app/knowledge-bases/{knowledgeBaseId}` | Delete a knowledge base |
+| `GET` | `/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents` | List documents |
+| `POST` | `/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents` | Create a document and index chunks |
+| `PUT` | `/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}` | Update a document and reindex chunks |
+| `DELETE` | `/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}` | Delete a document |
+| `POST` | `/api/v1/app/knowledge-bases/{knowledgeBaseId}/retrieve` | Retrieve source-cited RAG chunks |
 
-### 6.8 Agent, Memory, MCP, Notification, And Quota
+Knowledge document create and update paths index chunks with Relay embeddings. Retrieval embeds the query through Relay `/v1/embeddings`, searches `knowledge_document_chunks.embedding` with pgvector under organization scope, and returns `embedding_rag` results with source citations.
+
+### 5.6 SOLO Tasks And Agent Workflows
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/v1/app/tasks` | List SOLO tasks |
+| `POST` | `/api/v1/app/tasks` | Create a SOLO task |
+| `GET` | `/api/v1/app/tasks/{taskId}` | Get a task |
+| `POST` | `/api/v1/app/tasks/{taskId}/start` | Start a task |
+| `POST` | `/api/v1/app/tasks/{taskId}/approve` | Approve a task |
+| `POST` | `/api/v1/app/tasks/{taskId}/pause` | Pause a task |
+| `POST` | `/api/v1/app/tasks/{taskId}/resume` | Resume a task |
+| `POST` | `/api/v1/app/tasks/{taskId}/cancel` | Cancel a task |
+| `POST` | `/api/v1/app/tasks/{taskId}/budget` | Update task budget |
+
+Agent workflows persist durable `agent_runs` and `agent_tool_runs`. Approval-required tools pause before execution, rejection records a reason, failed tool executions preserve error evidence, and retry transitions are tenant-scoped.
+
+### 5.7 Agent, Memory, MCP, Notification, And Quota
 
 | Area | Method | Path | Purpose |
 | --- | --- | --- | --- |
-| Agent | `GET/POST` | `/api/v1/app/agents` | 列出或创建 Agent |
-| Agent | `GET/PUT/DELETE` | `/api/v1/app/agents/{agentId}` | 读取、更新或删除 Agent |
-| Agent | `GET/POST` | `/api/v1/app/agents/{agentId}/conversations` | 列出或创建 Agent 会话 |
-| Agent | `GET` | `/api/v1/app/agents/{agentId}/tools` | 列出 Agent 可用工具 |
-| Agent | `GET/DELETE` | `/api/v1/app/agents/conversations/{conversationId}` | 读取或删除 Agent 会话 |
-| Agent | `GET/POST` | `/api/v1/app/agents/conversations/{conversationId}/messages` | 列出或发送 Agent 会话消息 |
-| Memory | `GET/POST` | `/api/v1/app/memory/documents` | 列出或添加 memory 文档 |
-| Memory | `GET/PUT/DELETE` | `/api/v1/app/memory/documents/{documentId}` | 读取、更新或删除 memory 文档 |
-| Memory | `GET` | `/api/v1/app/memory/documents/{documentId}/chunks` | 列出文档 chunks |
-| Memory | `POST` | `/api/v1/app/memory/search` | 用户隔离的 memory 搜索 |
-| MCP | `GET/POST` | `/api/v1/app/mcp-servers` | 列出或添加 MCP server |
-| MCP | `GET/DELETE` | `/api/v1/app/mcp-servers/{serverId}` | 读取或删除 MCP server |
-| MCP | `POST` | `/api/v1/app/mcp-servers/{serverId}/connect` | 连接 MCP server |
-| MCP | `POST` | `/api/v1/app/mcp-servers/{serverId}/disconnect` | 断开 MCP server |
-| MCP | `GET` | `/api/v1/app/mcp-servers/{serverId}/tools` | 列出 MCP tools |
-| MCP | `GET` | `/api/v1/app/mcp-servers/{serverId}/status` | 读取连接状态 |
-| MCP | `POST` | `/api/v1/app/mcp-servers/{serverId}/execute` | 执行 MCP tool |
-| Notification | `GET/POST` | `/api/v1/app/notifications` | 列出或创建通知 |
-| Notification | `GET` | `/api/v1/app/notifications/unread-count` | 未读通知计数 |
-| Notification | `POST` | `/api/v1/app/notifications/mark-all-read` | 全部标为已读 |
-| Notification | `PATCH/DELETE` | `/api/v1/app/notifications/{notificationId}` | 标记已读或删除通知 |
-| Quota | `GET` | `/api/v1/app/quota` | 当前 quota 余额和使用量 |
-| Quota | `GET` | `/api/v1/app/packages` | quota package 列表 |
-| Quota | `POST` | `/api/v1/app/quota/topup` | quota 充值 |
+| Agent | `GET/POST` | `/api/v1/app/agents` | List or create agents |
+| Agent | `GET/PUT/DELETE` | `/api/v1/app/agents/{agentId}` | Read, update, or delete an agent |
+| Agent | `GET/POST` | `/api/v1/app/agents/{agentId}/conversations` | List or create agent conversations |
+| Agent | `GET` | `/api/v1/app/agents/{agentId}/tools` | List available agent tools |
+| Agent | `GET/DELETE` | `/api/v1/app/agents/conversations/{conversationId}` | Read or delete an agent conversation |
+| Agent | `GET/POST` | `/api/v1/app/agents/conversations/{conversationId}/messages` | List or send agent conversation messages |
+| Agent | `GET` | `/api/v1/app/agents/conversations/{conversationId}/runs` | List durable Agent runs |
+| Agent | `GET` | `/api/v1/app/agents/runs/{runId}` | Get durable Agent run detail |
+| Agent | `POST` | `/api/v1/app/agents/tool-runs/{toolRunId}/approve` | Approve a pending tool run |
+| Agent | `POST` | `/api/v1/app/agents/tool-runs/{toolRunId}/reject` | Reject a pending tool run |
+| Agent | `POST` | `/api/v1/app/agents/tool-runs/{toolRunId}/retry` | Retry a failed tool run |
+| Memory | `GET/POST` | `/api/v1/app/memory/documents` | List or add memory documents |
+| Memory | `GET/PUT/DELETE` | `/api/v1/app/memory/documents/{documentId}` | Read, update, or delete memory documents |
+| Memory | `GET` | `/api/v1/app/memory/documents/{documentId}/chunks` | List chunks |
+| Memory | `POST` | `/api/v1/app/memory/search` | Tenant-scoped memory search |
+| MCP | `GET/POST` | `/api/v1/app/mcp-servers` | List or add MCP servers |
+| MCP | `GET/DELETE` | `/api/v1/app/mcp-servers/{serverId}` | Read or delete MCP servers |
+| MCP | `POST` | `/api/v1/app/mcp-servers/{serverId}/connect` | Connect an MCP server |
+| MCP | `POST` | `/api/v1/app/mcp-servers/{serverId}/disconnect` | Disconnect an MCP server |
+| MCP | `GET` | `/api/v1/app/mcp-servers/{serverId}/tools` | List MCP tools |
+| MCP | `GET` | `/api/v1/app/mcp-servers/{serverId}/status` | Read MCP status |
+| MCP | `POST` | `/api/v1/app/mcp-servers/{serverId}/execute` | Execute an MCP tool |
+| Notification | `GET/POST` | `/api/v1/app/notifications` | List or create notifications |
+| Notification | `GET` | `/api/v1/app/notifications/unread-count` | Count unread notifications |
+| Notification | `POST` | `/api/v1/app/notifications/mark-all-read` | Mark all notifications read |
+| Notification | `PATCH/DELETE` | `/api/v1/app/notifications/{notificationId}` | Mark read or delete |
+| Quota | `GET` | `/api/v1/app/quota` | Read quota balance and usage |
+| Quota | `GET` | `/api/v1/app/packages` | List quota packages |
+| Quota | `POST` | `/api/v1/app/quota/topup` | Top up quota |
 
-### 6.9 Admin
+### 5.8 Admin
 
-Admin API 均要求已认证 admin session。
-
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `GET` | `/api/v1/admin/stats` | 系统统计 |
-| `GET/POST` | `/api/v1/admin/channels` | 列出或创建渠道 |
-| `POST` | `/api/v1/admin/channels/batch` | 批量更新渠道 |
-| `GET/PUT/DELETE` | `/api/v1/admin/channels/{channelId}` | 读取、更新或删除渠道 |
-| `POST` | `/api/v1/admin/channels/{channelId}/test` | 测试渠道 |
-| `GET` | `/api/v1/admin/channels/{channelId}/health` | 读取渠道健康状态 |
-| `GET/POST` | `/api/v1/admin/routes` | 列出或创建模型路由 |
-| `GET/PUT/DELETE` | `/api/v1/admin/routes/{routeId}` | 读取、更新或删除模型路由 |
-| `GET/POST` | `/api/v1/admin/plans` | 列出或创建套餐 |
-| `GET/PUT/DELETE` | `/api/v1/admin/plans/{planId}` | 读取、更新或停用套餐 |
-| `GET` | `/api/v1/admin/users` | 列出用户 |
-| `GET/PUT/PATCH/DELETE` | `/api/v1/admin/users/{userId}` | 读取、更新、调整 quota 或删除用户 |
-| `POST` | `/api/v1/admin/users/{userId}/disable` | 禁用用户 |
-| `POST` | `/api/v1/admin/users/{userId}/enable` | 启用用户 |
-| `GET` | `/api/v1/admin/audit-logs` | 审计日志 |
-| `GET` | `/api/v1/admin/reviews` | 待审核 Marketplace agents |
-| `POST` | `/api/v1/admin/reviews/{agentId}/approve` | 审核通过 agent |
-| `POST` | `/api/v1/admin/reviews/{agentId}/reject` | 审核拒绝 agent |
-
-### 6.10 Marketplace
-
-Discovery endpoints 可公开访问；发布、安装、my-agents、review 提交和 publisher stats 要求 authenticated session。
+Admin API routes require an authenticated admin session.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/api/v1/marketplace/featured` | 推荐 agents |
-| `GET` | `/api/v1/marketplace/curated` | 精选 section |
-| `GET` | `/api/v1/marketplace/categories` | 分类列表 |
-| `GET` | `/api/v1/marketplace/search` | 搜索 agents |
-| `GET/POST` | `/api/v1/marketplace/agents` | 列表或发布 agent |
-| `GET` | `/api/v1/marketplace/my-agents` | 当前用户发布的 agents |
-| `GET` | `/api/v1/marketplace/installs` | 当前用户已安装 agents |
-| `DELETE` | `/api/v1/marketplace/installs/{agentId}` | 卸载 agent |
-| `GET` | `/api/v1/marketplace/publisher/stats` | 发布者统计 |
-| `GET/PUT/DELETE` | `/api/v1/marketplace/agents/{agentId}` | 读取、更新或删除 agent |
-| `POST/DELETE` | `/api/v1/marketplace/agents/{agentId}/install` | 安装或卸载 agent |
-| `GET/POST` | `/api/v1/marketplace/agents/{agentId}/reviews` | 列出或提交 review |
-| `GET` | `/api/v1/marketplace/agents/{agentId}/versions` | agent 版本 |
-| `GET` | `/api/v1/marketplace/agents/{agentId}/stats` | agent 统计 |
+| `GET` | `/api/v1/admin/stats` | System statistics |
+| `GET/POST` | `/api/v1/admin/channels` | List or create channels |
+| `POST` | `/api/v1/admin/channels/batch` | Batch update channels |
+| `GET/PUT/DELETE` | `/api/v1/admin/channels/{channelId}` | Read, update, or delete channels |
+| `POST` | `/api/v1/admin/channels/{channelId}/test` | Test a channel |
+| `GET` | `/api/v1/admin/channels/{channelId}/health` | Read channel health |
+| `GET/POST` | `/api/v1/admin/routes` | List or create model routes |
+| `GET/PUT/DELETE` | `/api/v1/admin/routes/{routeId}` | Read, update, or delete model routes |
+| `GET/POST` | `/api/v1/admin/plans` | List or create plans |
+| `GET/PUT/DELETE` | `/api/v1/admin/plans/{planId}` | Read, update, or deactivate plans |
+| `GET` | `/api/v1/admin/billing/summary` | Billing summary |
+| `GET` | `/api/v1/admin/billing/sessions` | Relay billing sessions |
+| `GET` | `/api/v1/admin/billing/payment-intents` | Payment intent records |
+| `GET` | `/api/v1/admin/billing/webhook-events` | Stripe webhook ledger events |
+| `GET` | `/api/v1/admin/billing/subscriptions` | Subscription lifecycle state |
+| `GET` | `/api/v1/admin/billing/topups` | Top-up order state |
+| `GET` | `/api/v1/admin/billing/invoices` | Invoice state |
+| `GET` | `/api/v1/admin/billing/refunds` | Refund state |
+| `GET` | `/api/v1/admin/billing/settlements` | Marketplace settlement state |
+| `GET` | `/api/v1/admin/billing/payouts` | Marketplace payout state |
+| `GET` | `/api/v1/admin/users` | List users |
+| `GET/PUT/PATCH/DELETE` | `/api/v1/admin/users/{userId}` | Read, update, adjust quota, or delete users |
+| `POST` | `/api/v1/admin/users/{userId}/disable` | Disable a user |
+| `POST` | `/api/v1/admin/users/{userId}/enable` | Enable a user |
+| `GET` | `/api/v1/admin/audit-logs` | Audit log entries |
+| `GET` | `/api/v1/admin/reviews` | Pending Marketplace reviews |
+| `POST` | `/api/v1/admin/reviews/{agentId}/approve` | Approve an agent |
+| `POST` | `/api/v1/admin/reviews/{agentId}/reject` | Reject an agent |
 
-### 6.11 WebSocket And Relay
+### 5.9 Marketplace
+
+Discovery endpoints are public. Publisher, install, review submission, owner-specific, and stats endpoints require an authenticated session.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/api/v1/ws` | 已认证用户的实时通知 WebSocket |
+| `GET` | `/api/v1/marketplace/featured` | Featured agents |
+| `GET` | `/api/v1/marketplace/curated` | Curated sections |
+| `GET` | `/api/v1/marketplace/categories` | Categories |
+| `GET` | `/api/v1/marketplace/search` | Search agents |
+| `GET/POST` | `/api/v1/marketplace/agents` | List or publish agents |
+| `GET` | `/api/v1/marketplace/my-agents` | Current user's published agents |
+| `GET` | `/api/v1/marketplace/installs` | Current user's installed agents |
+| `DELETE` | `/api/v1/marketplace/installs/{agentId}` | Uninstall an agent |
+| `GET` | `/api/v1/marketplace/publisher/stats` | Publisher statistics |
+| `GET/PUT/DELETE` | `/api/v1/marketplace/agents/{agentId}` | Read, update, or delete agents |
+| `POST/DELETE` | `/api/v1/marketplace/agents/{agentId}/install` | Install or uninstall an agent |
+| `GET/POST` | `/api/v1/marketplace/agents/{agentId}/reviews` | List or submit reviews |
+| `GET` | `/api/v1/marketplace/agents/{agentId}/versions` | Agent versions |
+| `GET` | `/api/v1/marketplace/agents/{agentId}/stats` | Agent statistics |
+
+### 5.10 WebSocket And Relay
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/v1/ws` | Authenticated real-time WebSocket |
 | `POST` | `/v1/chat/completions` | Relay Chat Completions |
 | `POST` | `/v1/responses` | Relay Responses API |
 | `POST` | `/v1/embeddings` | Relay Embeddings |
@@ -331,125 +268,125 @@ Discovery endpoints 可公开访问；发布、安装、my-agents、review 提�
 | `POST` | `/v1/moderations` | Relay moderation |
 | `POST` | `/v1/completions` | Relay legacy completions |
 
-Relay 还注册 files、fine-tuning、assistants、threads、runs、batch、audio transcription/translation、image edit/variation 和 realtime routes；完整 route index 以 `docs/API.md` 中的 `## Relay /v1 Endpoints` 为准。
+Relay also registers files, fine-tuning, assistants, threads, runs, batch, audio transcription/translation, image edit/variation, and realtime routes. The complete route index and commercial route classes live in `docs/API.md` and `docs/release/relay-route-table.md`.
 
-## 7. Frontend Route Matrix
-
-### 7.1 当前已注册路由
+## 6. Frontend Route Matrix
 
 | Area | Path | Status |
 | --- | --- | --- |
-| Marketing | `/` | 已接入 |
-| Marketing | `/login` | 已接入 |
-| Marketing | `/register` | 已接入 |
-| Workspace | `/onboarding` | 已接入，允许跳过但仍作为首次引导页 |
-| Workspace | `/chat` | 已接入，作为默认主入口与会话空状态页 |
-| Workspace | `/chat/:conversationId` | 已接入，支持消息、知识库绑定与 SOLO handoff |
-| Workspace | `/knowledge` | 已接入，支持知识库列表、创建与从 Chat 的 `returnTo` 回跳 |
-| Workspace | `/knowledge/:knowledgeBaseId` | 已接入，支持文档 CRUD、retrieval 与回到 Chat |
-| Workspace | `/solo` | 已接入，支持 `taskId` 与 Chat-originated return flow |
-| Workspace | `/solo/new` | 已接入，支持任务创建视图与默认参数配置 |
-| Workspace | `/marketplace` | 已接入，Marketplace browse/search 入口 |
-| Workspace | `/marketplace/agents/:agentId` | 已接入，agent detail/install/review 入口 |
-| Workspace | `/marketplace/publish` | 已接入，agent 发布入口 |
-| Workspace | `/marketplace/my-agents` | 已接入，发布者 agents 管理入口 |
-| Workspace | `/settings` | 已接入，作为长期偏好页并支持返回 Chat |
-| Console | `/console` | 已接入，运营总览页可用 |
-| Console | `/console/models` | 已接入，supporting drill-down 可用 |
-| Console | `/console/usage` | 已接入，请求量 workbench drill-down 可用 |
-| Console | `/console/billing` | 已接入，成本 workbench drill-down 可用 |
-| Console | `/console/access` | 已接入，scope / session workbench drill-down 可用 |
-| Admin | `/admin` | 已接入，Admin dashboard |
-| Admin | `/admin/channels` | 已接入，渠道管理 |
-| Admin | `/admin/routes` | 已接入，模型路由管理 |
-| Admin | `/admin/plans` | 已接入，套餐管理 |
-| Admin | `/admin/users` | 已接入，用户管理 |
-| Admin | `/admin/audit-log` | 已接入，审计日志 |
-| Admin | `/admin/reviews` | 已接入，Marketplace 审核 |
+| Marketing | `/` | Mounted |
+| Marketing | `/login` | Mounted |
+| Marketing | `/register` | Mounted |
+| Workspace | `/onboarding` | Mounted first-run onboarding route |
+| Workspace | `/chat` | Mounted default workspace entry |
+| Workspace | `/chat/:conversationId` | Mounted conversation detail |
+| Workspace | `/knowledge` | Mounted Knowledge list/create route |
+| Workspace | `/knowledge/:knowledgeBaseId` | Mounted Knowledge document and RAG retrieval route |
+| Workspace | `/solo` | Mounted Agent/SOLO route |
+| Workspace | `/solo/new` | Mounted task creation route |
+| Workspace | `/marketplace` | Mounted Marketplace browse/search route |
+| Workspace | `/marketplace/agents/:agentId` | Mounted agent detail/install/review route |
+| Workspace | `/marketplace/publish` | Mounted publisher route |
+| Workspace | `/marketplace/my-agents` | Mounted publisher management route |
+| Workspace | `/settings` | Mounted preferences route |
+| Console | `/console` | Mounted operations overview |
+| Console | `/console/models` | Mounted model drill-down |
+| Console | `/console/usage` | Mounted usage drill-down |
+| Console | `/console/billing` | Mounted billing drill-down |
+| Console | `/console/access` | Mounted access drill-down |
+| Admin | `/admin` | Mounted Admin dashboard |
+| Admin | `/admin/channels` | Mounted channel management |
+| Admin | `/admin/routes` | Mounted model route management |
+| Admin | `/admin/plans` | Mounted plan management |
+| Admin | `/admin/billing` | Mounted billing inspection |
+| Admin | `/admin/users` | Mounted user management |
+| Admin | `/admin/audit-log` | Mounted audit log |
+| Admin | `/admin/reviews` | Mounted Marketplace review queue |
 
-### 7.2 已存在页面但尚未挂载的目标路由
+### Existing Pages Not Mounted
 
 | Planned Path | Current State |
 | --- | --- |
-| none | 当前无已存在但未挂载的主线路由 |
+| none | No existing mainline route pages are intentionally left unmounted. |
 
-### 7.3 Current Gaps
+## 7. Commercial Billing Contract
 
-- `ProtectedRoute` 已接入 workspace 与 console 路由树；测试环境下 `idle` 状态默认放行以支撑 router smoke tests
-- `AppProviders` 当前提供真实 `AppContextProvider`
-- `useAppContext` 已存在，并在无 provider 场景返回测试安全的 fallback context
-- `types/api.ts` 已覆盖当前主线后端接口与 console/knowledge/task/chat 所需类型
+The billing system records:
 
-### 7.4 Root Verification Entry
+- Relay billing sessions.
+- Quota preauthorization, settlement, and refund.
+- Payment intents.
+- Stripe webhook ledger events.
+- Subscription lifecycle events.
+- Top-up orders.
+- Invoices.
+- Refunds.
+- Marketplace orders, settlements, platform fee, payout state, and refund impact.
 
-| Command | Scope | Notes |
-| --- | --- | --- |
-| `bash scripts/check.sh` | 主线 docs + web build + server unit checks | 作为 CI 与本地共同的静态门面 |
-| `bash scripts/test.sh` | 主线 web tests + server unit tests + DB-backed integration tests | 本地缺少 `TEST_DATABASE_URL` 时 integration 会显式 skip；CI 设置 `OBLIVIOUS_REQUIRE_TEST_DATABASE=true` 后缺少 DB 会失败 |
+Admin Billing is read-only inspection for these records.
 
-### 7.5 Release Gate Commands
+## 8. Operations Contract
 
 | Gate | Command | Notes |
 | --- | --- | --- |
-| Docs and release assets | `bash scripts/check.sh docs` | 验证 docs/API、系统契约、RC checklist、env contract 和 workspace 边界 |
-| Web build | `bash scripts/check.sh web` | 执行 `pnpm --dir src/web build` |
-| Server release checks | `bash scripts/check.sh server` | 执行 `go test ./... -count=1` |
+| Docs and release assets | `bash scripts/check.sh docs` | Verifies docs, contracts, release assets, env contract, and workspace boundaries |
+| Web build | `bash scripts/check.sh web` | Runs `pnpm --dir src/web build` |
+| Server release checks | `bash scripts/check.sh server` | Runs `go test ./... -count=1` |
 | Web tests | `bash scripts/test.sh web` | Vitest suite |
-| Server tests | `bash scripts/test.sh server` | Server unit tests；本地缺少 `TEST_DATABASE_URL` 时 integration 组显式 skip；CI 使用 PostgreSQL service 和 required-DB 模式 |
-| Browser E2E | `COREPACK_HOME=.tmp/corepack pnpm --dir src/web test:e2e` | Admin 与 Marketplace Playwright gate |
+| Server tests | `bash scripts/test.sh server` | Server unit tests; local integration tests skip explicitly without `TEST_DATABASE_URL`; CI uses required DB mode |
+| Browser E2E | `COREPACK_HOME=.tmp/corepack pnpm --dir src/web test:e2e` | Admin and Marketplace Playwright gate |
+| Deployment validation | `bash scripts/deploy-validate.sh` | Builds, starts, migrates, and smokes app/Relay paths |
+| Backup/restore smoke | `bash scripts/backup-restore-smoke.sh` | Proves PostgreSQL tenant-commercial data recovery and migration ledger integrity |
 
-## 8. Environment Variable Matrix
+Release and rollback use `docs/release/release-rollback-runbook.md`. Backup and restore use `docs/release/backup-restore-runbook.md`. Incident and disaster recovery use `docs/release/incident-response-runbook.md` and `docs/release/disaster-recovery-runbook.md`.
 
-### 8.1 Frontend Local Development
+## 9. Environment Variable Matrix
+
+### 9.1 Frontend Local Development
 
 | Name | Required | Default | Current Use |
 | --- | --- | --- | --- |
-| `WEB_PORT` | 否 | `5173` | 前端本地端口约定 |
-| `WEB_API_BASE_URL` | 否 | `http://localhost:8080` | 前端调用后端的本地基地址 |
+| `WEB_PORT` | No | `5173` | Frontend local port |
+| `WEB_API_BASE_URL` | No | `http://localhost:8080` | Frontend backend base URL |
 
-### 8.2 Backend Runtime
-
-| Name | Required | Default | Status |
-| --- | --- | --- | --- |
-| `SERVER_PORT` | 否 | `8080` | 已消费 |
-| `APP_ENV` | 否 | `development` | 已消费 |
-| `CORS_ALLOWED_ORIGINS` | 否 | empty | 已消费，通过 HTTP middleware 应用到允许来源与预检响应 |
-| `DATABASE_URL` | 是 | none | 已消费 |
-| `SESSION_SECRET` | 是 | none | 已消费，通过 HMAC 签名与校验 session cookie |
-| `SESSION_COOKIE_NAME` | 否 | `oblivious_session` | 已消费 |
-| `SESSION_COOKIE_SECURE` | 否 | `false` | 已消费 |
-| `LLM_BASE_URL` | 否 | empty | 已消费 |
-| `LLM_API_KEY` | 否 | empty | 已消费 |
-| `LLM_TIMEOUT_MS` | 否 | `30000` | 已消费 |
-| `MODEL_DEFAULT_NAME` | 否 | `demo-reply` | 已消费 |
-| `RELAY_ENABLED` | 否 | `true` | 已消费，控制 Relay 层是否启用 |
-| `RELAY_DEFAULT_MODEL` | 否 | `gpt-4o-mini` | 已消费，Relay 默认模型 |
-| `OPENAI_API_KEY` | 否 | empty | 已消费，开发环境默认渠道 API Key |
-| `OPENAI_BASE_URL` | 否 | `https://api.openai.com` | 已消费，开发环境默认渠道 Base URL |
-
-### 8.3 Backend Test Runtime
+### 9.2 Backend Runtime
 
 | Name | Required | Default | Status |
-| --- | --- | --- | --- |
-| `TEST_DATABASE_URL` | CI 是；本地否 | empty | `internal/http` 集成测试显式读取；本地缺失时跳过 integration 组而不是硬连本地固定 Postgres |
-| `OBLIVIOUS_REQUIRE_TEST_DATABASE` | CI 是；本地否 | `false` | 为 `true` 时，缺少 `TEST_DATABASE_URL` 会使 `scripts/test.sh server` 失败，防止 CI 静默跳过 DB-backed coverage |
+| --- | --- | --- |
+| `SERVER_PORT` | No | `8080` | Consumed |
+| `APP_ENV` | No | `development` | Consumed |
+| `CORS_ALLOWED_ORIGINS` | No | empty | Consumed by HTTP middleware |
+| `DATABASE_URL` | Yes | none | Consumed |
+| `SESSION_SECRET` | Yes | none | Consumed for HMAC session cookie signing |
+| `SESSION_COOKIE_NAME` | No | `oblivious_session` | Consumed |
+| `SESSION_COOKIE_SECURE` | No | `false` | Consumed |
+| `LLM_BASE_URL` | No | empty | Consumed by non-commercial local reply configuration |
+| `LLM_API_KEY` | No | empty | Consumed by non-commercial local reply configuration |
+| `LLM_TIMEOUT_MS` | No | `30000` | Consumed |
+| `MODEL_DEFAULT_NAME` | No | `demo-reply` | Consumed |
+| `RELAY_ENABLED` | No | `true` | Controls Relay mounting |
+| `RELAY_DEFAULT_MODEL` | No | `gpt-4o-mini` | Relay default model |
+| `OPENAI_API_KEY` | No | empty | Development default channel key |
+| `OPENAI_BASE_URL` | No | `https://api.openai.com` | Development default channel base URL |
 
-## 9. Change Control Rules
+### 9.3 Backend Test Runtime
 
-从本文件生效后，以下规则适用于后续里程碑：
+| Name | Required | Default | Status |
+| --- | --- | --- |
+| `TEST_DATABASE_URL` | CI yes; local no | empty | HTTP integration tests use it; local absence skips integration group explicitly |
+| `OBLIVIOUS_REQUIRE_TEST_DATABASE` | CI yes; local no | `false` | When true, missing `TEST_DATABASE_URL` fails `scripts/test.sh server` |
 
-1. 后端 API shape 变更时，必须同时更新本文件和前端类型定义
-2. 新增前端工作区路由时，必须同步记录“已注册”或“计划路由”状态
-3. 环境变量新增、移除或改名时，必须同步更新：
-   - `config/.env.example`
-   - `src/server/internal/config/config.go`
-   - 本文件
+## 10. Change Control Rules
 
-## 10. Non-Goals For This Document
+1. Backend API shape changes must update this file, `docs/API.md`, and frontend types where applicable.
+2. New frontend workspace routes must update the route matrix.
+3. Environment variable changes must update `config/.env.example`, `src/server/internal/config/config.go`, and this file.
+4. Commercial docs must not claim behavior that lacks current repository evidence.
+5. AI provider access changes must preserve the Relay-only invariant.
 
-以下内容不在本文件冻结范围内：
+## 11. Non-Goals For This Document
 
-- Chat streaming / provider abstraction 设计
-- CI 与发布流程设计
-
-这些内容将在后续 milestone 文档中单独收敛。
+- Production price amounts.
+- Live provider, Stripe, payout, kubeconfig, or observability-vendor secrets.
+- Phase 30 end-to-end journey evidence.
+- Final commercial completion audit.

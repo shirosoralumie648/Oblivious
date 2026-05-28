@@ -10,6 +10,8 @@ import (
 
 	stripeapi "github.com/stripe/stripe-go/v83"
 	"github.com/stripe/stripe-go/v83/webhook"
+	"oblivious/server/internal/metrics"
+	"oblivious/server/internal/observability"
 )
 
 // WebhookHandler verifies Stripe webhook signatures and records provider events
@@ -39,33 +41,43 @@ func NewWebhookHandler(ledger WebhookLedger, webhookSecret string, lifecycle ...
 // HandleWebhook processes an incoming Stripe webhook request.
 // It must verify the Stripe signature against the raw request body before parsing.
 func (h *WebhookHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
+	ctx, span := observability.StartSpan(r.Context(), "stripe.webhook")
+	defer span.End()
+
 	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 
 	payload, err := io.ReadAll(r.Body)
 	if err != nil {
+		metrics.RecordStripeWebhookFailure("invalid_payload")
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid payload"})
 		return
 	}
 
 	event, err := webhook.ConstructEvent(payload, r.Header.Get("Stripe-Signature"), h.secret)
 	if err != nil {
+		metrics.RecordStripeWebhookFailure("invalid_signature")
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid signature"})
 		return
 	}
 
 	record := webhookEventRecord(event, payload)
-	_, err = h.ledger.RecordWebhookEvent(r.Context(), record)
+	_, err = h.ledger.RecordWebhookEvent(ctx, record)
 	if err != nil {
+		metrics.RecordStripeWebhookEvent(string(event.Type), "record_failed")
+		metrics.RecordStripeWebhookFailure("ledger_record_failed")
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "record webhook event failed"})
 		return
 	}
 	if h.lifecycle != nil {
-		if err := h.lifecycle.ApplyStripeEvent(r.Context(), event, payload); err != nil {
+		if err := h.lifecycle.ApplyStripeEvent(ctx, event, payload); err != nil {
+			metrics.RecordStripeWebhookEvent(string(event.Type), "lifecycle_failed")
+			metrics.RecordStripeWebhookFailure("lifecycle_apply_failed")
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "apply webhook lifecycle failed"})
 			return
 		}
 	}
 
+	metrics.RecordStripeWebhookEvent(string(event.Type), record.Status)
 	writeJSON(w, http.StatusOK, map[string]bool{"received": true})
 }
 

@@ -1,58 +1,82 @@
-# Requirements: Oblivious v06 Billing And Marketplace Operations
+# Requirements: Oblivious v08 Product Completeness
 
 **Defined:** 2026-05-28
-**Current milestone:** v06 Billing And Marketplace Operations
+**Current milestone:** v08 Product Completeness — complete
 **Source spec:** `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`
 **Core Value:** 统一的多渠道 LLM 调用层 — 所有 AI 调用必须经过 Relay
 
 ## Current Milestone Requirements
 
-### Payment Authority
+### Product Completeness
 
-- [x] **PAY-01**: Stripe checkout routes are mounted in the running server, require authenticated tenant context, persist payment intent metadata, and can be tested without live Stripe keys. Completed in Phase 17 with `POST /api/v1/billing/checkout`, fake checkout route tests, `payment_intents`, and Stripe metadata propagation.
-- [x] **PAY-02**: Stripe webhook route verifies signatures from the raw request body, records provider events idempotently, rejects invalid signatures, and preserves processing status/errors for admin inspection. Completed in Phase 17 with `POST /api/v1/billing/stripe/webhook`, `stripe_webhook_events`, and signed fixture/idempotency tests.
+- [x] **PROD-01**: Built-in MCP tools such as `web_search`, `calculator`, `datetime`, and `http_request` either use real providers/parsers with tenant-safe configuration and tests, or are disabled from default commercial use with product copy that reflects the disabled state. Completed in Phase 25 with default commercial builtin policy, real calculator parser, real datetime output, default-disabled `web_search`/`http_request`, Agent executor/listing enforcement, focused tests, API docs, and quality gates.
+- [x] **PROD-02**: Agent workflows are durable and observable, with persisted tool runs, human approval points where needed, memory injection, execution state, and failure/retry evidence rather than placeholder tool output. Completed in Phase 26 with `agent_runs`, `agent_tool_runs`, approval/reject/retry APIs, memory evidence, failure evidence, tenant-scoped status APIs, DB-backed Agent/HTTP tests, API docs, and quality gates.
+- [x] **PROD-03**: Knowledge behavior matches customer-facing product copy. If marketed as RAG, ingestion, embedding-backed retrieval, indexing, and source citation must be implemented and verified; otherwise copy must explicitly describe text retrieval. Completed in Phase 27 with Relay embedding-backed Knowledge indexing/retrieval, pgvector chunk search, `embedding_rag` metadata, source citations, UI citation rendering, focused backend/frontend tests, API docs, commercial gate docs, and quality gates.
+- [x] **PROD-04**: Chat, Agent, Knowledge, Admin, and Marketplace customer journeys are production-ready with quota enforcement, clear error states, and no enabled placeholder pages or fake commercial behavior. Completed in Phase 28 with focused Chat, SOLO/Agent, Knowledge, Marketplace, and Admin frontend tests, commercial action/empty/error states, review and settlement boundary copy, docs gates, and `28-VERIFICATION.md`.
+- [x] **PROD-05**: Public docs, onboarding, pricing, and operator guides align with implemented tenant, Relay, billing, Marketplace, operations, and product behavior. Completed in Phase 29 with README commercial framing, `docs/product/` public overview/onboarding/pricing/operator guide, updated API and architecture contracts, commercial gate docs, quality gates, stale-doc scans, and `29-VERIFICATION.md`.
+- [x] **PROD-06**: End-to-end commercial journeys pass: signup, create organization, configure provider/channel, subscribe/top up, chat, create agent, use knowledge, publish agent, install agent, bill usage, inspect admin dashboards, deploy, backup, and restore. Completed in Phase 30 with DB-backed backend journey, browser journey, strict commercial verifier, deploy validation, backup/restore smoke, and no skipped checks.
+- [x] **AUDIT-01**: Final commercial completion audit maps every commercial gate to files, tests, runtime evidence, skipped checks, and accepted residual risk before final readiness can be claimed. Completed in Phase 30 with `docs/release/commercial-completion-audit.md`, strict `30-VERIFICATION.md` evidence, and `30-01-SUMMARY.md`.
 
-### Payment Lifecycle
+## Historical v07 Requirements
 
-- [x] **PAY-03**: Subscription lifecycle, invoices, refunds, failed-payment states, plan changes, and top-ups are implemented as auditable state transitions. Completed in Phase 18 with `billing_lifecycle_events`, `billing_invoices`, `billing_refunds`, `LifecycleService`, payment-backed top-up fulfillment, refund quota reversal, duplicate webhook lifecycle retry, and DB-backed lifecycle/route tests.
+### Production Orchestration
 
-### Marketplace Operations
+- [x] **OPS-01**: Kubernetes or equivalent production orchestration validation starts the actual stack, applies migrations, proves `/healthz`, and proves app and Relay paths without live provider secrets. Completed in Phase 21 with migration-aware Docker compose proof using a local pgvector fallback image, configurable host ports, and `/healthz`/`/metrics`/app/Relay smoke.
+- [x] **OPS-02**: Runtime smoke covers both normal network and restricted-network deployment paths, including documented proxy/registry overrides and explicit evidence when cluster tooling is unavailable. Completed in Phase 24 with restricted-network/fallback smoke plus bare default `scripts/deploy-validate.sh` runtime smoke after default image tags were locally available and `Dockerfile.server` reused the `/go/pkg/mod` cache during `go build`. Fresh Docker Hub daemon pulls remain environment-specific on this host and are not hidden as proof. Missing `kubectl` evidence is recorded as non-success Kubernetes proof.
 
-- [x] **MARKET-03**: Marketplace publisher revenue, platform fee, payout state, and refund impact are modeled before paid Marketplace operation is enabled. Completed in Phase 19 with `marketplace_orders`, `marketplace_settlements`, `marketplace_payouts`, paid install checkout/webhook application, refund settlement impact, and settlement-backed publisher stats.
-- [x] **MARKET-04**: Marketplace moderation and abuse workflows cover publish, approve, reject, takedown, appeal, and audit paths. Completed in Phase 19 with takedown, appeal, reinstate, abuse report, resolve/dismiss routes, and append-only governance events.
+### Backup And Recovery
 
-### Billing Evidence
+- [x] **OPS-03**: Backup and restore runbooks plus automated smoke prove PostgreSQL tenant data can be backed up and restored into a fresh database with migration ledger integrity. Completed in Phase 22 with `backup-postgres.sh`, `restore-postgres.sh`, `backup-restore-smoke.sh`, `backup-restore-runbook.md`, disposable pgvector PostgreSQL smoke, and 30-row migration ledger checksum verification.
 
-- [ ] **ADMIN-BILL-01**: Admin can inspect billing sessions, webhook events, subscriptions, top-ups, invoices, refunds, settlements, and payout state. Target: Phase 20.
-- [ ] **DOC-05**: v06 evidence maps money-movement and Marketplace governance requirements to files, tests, runtime/database proof, and residual v07/v08 work. Target: Phase 20.
+### Observability
 
-## Future Requirements
+- [x] **OPS-04**: Structured logs, Prometheus metrics, OpenTelemetry tracing hooks, and error-tracking integration points cover HTTP, Relay, billing, jobs, and provider failures. Completed in Phase 23 with shared observability primitives, HTTP/Relay/provider structured events, Prometheus metrics, span hooks, and focused package tests.
+- [x] **OPS-05**: Alert rules, dashboards, and SLO definitions exist for Relay outage, quota settlement failure, webhook failure, migration failure, high provider error rate, and tenant isolation incidents. Completed in Phase 23 with `deploy/observability/prometheus-alerts.yaml`, `deploy/observability/grafana-dashboard.json`, `docs/release/observability-slos.md`, and docs quality-gate coverage.
 
-- [ ] v07 Production Operations: Kubernetes or equivalent production orchestration proof, backup/restore smoke, structured logs, tracing, metrics, alerts, dashboards, and runbooks.
-- [ ] v08 Product Completeness: real or disabled built-in MCP tools, durable Agent workflows, Knowledge behavior matching product copy, commercial Admin/Marketplace UX, public docs, onboarding, pricing, and operator guides.
+### Runbooks And Evidence
 
-## Out of Scope For v06
+- [x] **OPS-06**: Release, rollback, incident response, and disaster recovery runbooks are documented and verified against the deployment, restore, alert, and evidence commands. Completed in Phase 24 with the three runbooks, docs gate coverage, release-path evidence, and the no-final-readiness boundary.
+- [x] **DOC-06**: v07 evidence maps production-operations requirements to scripts, manifests, runbooks, smoke output, skipped checks, residual v08 work, and a no-final-readiness boundary. Completed in Phase 24 with `docs/release/v07-operations-evidence.md`, `24-VERIFICATION.md`, `24-01-SUMMARY.md`, and `.planning/milestones/v07-*`.
+
+## Out of Scope For v07
 
 | Feature | Reason |
 |---------|--------|
-| Kubernetes runtime proof | Production orchestration belongs to v07 |
-| Backup/restore smoke and observability dashboards | Operations gate belongs to v07 |
 | RAG upgrade and Agent workflow expansion | Product completeness belongs to v08 |
 | Final public pricing/onboarding/operator guides | Final product/documentation completion belongs to v08 |
+| Customer-facing placeholder removal | Product completeness belongs to v08 |
+| External managed observability account provisioning | v07 must define integration points, config, and verifiable local artifacts; live vendor onboarding can be deployment-specific |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PAY-01 | Phase 17 — Stripe Payment Authority and Webhook Ledger | Complete |
-| PAY-02 | Phase 17 — Stripe Payment Authority and Webhook Ledger | Complete |
-| PAY-03 | Phase 18 — Subscription Invoice Top-up Refund State Machine | Complete |
-| MARKET-03 | Phase 19 — Marketplace Settlement and Governance | Complete |
-| MARKET-04 | Phase 19 — Marketplace Settlement and Governance | Complete |
-| ADMIN-BILL-01 | Phase 20 — Billing Admin Evidence and v06 Closeout | Planned |
-| DOC-05 | Phase 20 — Billing Admin Evidence and v06 Closeout | Planned |
+| OPS-01 | Phase 21 — Production Orchestration Runtime Proof | Complete |
+| OPS-02 | Phase 21 — Production Orchestration Runtime Proof; Phase 24 — Release Rollback Incident DR and v07 Closeout | Complete — restricted/fallback smoke and bare default-command smoke passed; fresh Docker Hub daemon pull remains environment-specific |
+| OPS-03 | Phase 22 — Backup Restore and Migration Recovery | Complete |
+| OPS-04 | Phase 23 — Observability Alerts Dashboards and SLOs | Complete |
+| OPS-05 | Phase 23 — Observability Alerts Dashboards and SLOs | Complete |
+| OPS-06 | Phase 24 — Release Rollback Incident DR and v07 Closeout | Complete |
+| DOC-06 | Phase 24 — Release Rollback Incident DR and v07 Closeout | Complete |
+| PROD-01 | Phase 25 — MCP Tool Commercial Behavior | Complete |
+| PROD-02 | Phase 26 — Durable Agent Workflows | Complete |
+| PROD-03 | Phase 27 — Knowledge Product Promise Alignment | Complete |
+| PROD-04 | Phase 28 — Commercial UX and Journey Hardening | Complete |
+| PROD-05 | Phase 29 — Public Docs Onboarding Pricing and Operator Guides | Complete |
+| PROD-06 | Phase 30 — End-to-End Commercial Journey and Final Audit | Complete |
+| AUDIT-01 | Phase 30 — End-to-End Commercial Journey and Final Audit | Complete |
 
 ## Historical Validated Requirements
+
+### v06 Billing And Marketplace Operations
+
+- [x] **PAY-01**: Stripe checkout routes are mounted in the running server, require authenticated tenant context, persist payment intent metadata, and can be tested without live Stripe keys. Completed in Phase 17 with `POST /api/v1/billing/checkout`, fake checkout route tests, `payment_intents`, and Stripe metadata propagation.
+- [x] **PAY-02**: Stripe webhook route verifies signatures from the raw request body, records provider events idempotently, rejects invalid signatures, and preserves processing status/errors for admin inspection. Completed in Phase 17 with `POST /api/v1/billing/stripe/webhook`, `stripe_webhook_events`, and signed fixture/idempotency tests.
+- [x] **PAY-03**: Subscription lifecycle, invoices, refunds, failed-payment states, plan changes, and top-ups are implemented as auditable state transitions. Completed in Phase 18 with `billing_lifecycle_events`, `billing_invoices`, `billing_refunds`, `LifecycleService`, payment-backed top-up fulfillment, refund quota reversal, duplicate webhook lifecycle retry, and DB-backed lifecycle/route tests.
+- [x] **MARKET-03**: Marketplace publisher revenue, platform fee, payout state, and refund impact are modeled before paid Marketplace operation is enabled. Completed in Phase 19 with `marketplace_orders`, `marketplace_settlements`, `marketplace_payouts`, paid install checkout/webhook application, refund settlement impact, and settlement-backed publisher stats.
+- [x] **MARKET-04**: Marketplace moderation and abuse workflows cover publish, approve, reject, takedown, appeal, and audit paths. Completed in Phase 19 with takedown, appeal, reinstate, abuse report, resolve/dismiss routes, and append-only governance events.
+- [x] **ADMIN-BILL-01**: Admin can inspect billing sessions, webhook events, subscriptions, top-ups, invoices, refunds, settlements, and payout state. Completed in Phase 20 with read-only `/api/v1/admin/billing/*` routes, `BillingInspectionStore`, Admin Billing UI, DB-backed route tests, and focused Vitest coverage.
+- [x] **DOC-05**: v06 evidence maps money-movement and Marketplace governance requirements to files, tests, runtime/database proof, and residual v07/v08 work. Completed in Phase 20 with `20-VERIFICATION.md`, `20-01-SUMMARY.md`, API docs, commercial-gate docs, and v06 milestone snapshots.
 
 ### v05 Relay Billing Completeness
 
@@ -148,12 +172,13 @@
 - Historical traceability cleanup should use additive rows or notes, not broad rewrites of completed requirements.
 
 **Coverage:**
-- Active v06 requirements: 2
-- Completed v06 requirements: 5
-- Planned v06 phase mappings: 7
-- Completed historical requirements: 68
+- Active v08 requirements: 0
+- Completed v08 requirements: 7
+- Completed v07 requirements: 7
+- Planned v08 phase mappings: 7
+- Completed historical requirements: 78
 - Blocked requirements: 0
-- Unmapped v06 requirements: 0
+- Unmapped v08 requirements: 0
 
 ---
-*Requirements updated: 2026-05-28 after completing Phase 19 Marketplace Settlement and Governance*
+*Requirements updated: 2026-05-29 after completing Phase 30 End-to-End Commercial Journey and Final Audit*

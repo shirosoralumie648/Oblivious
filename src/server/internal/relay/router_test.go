@@ -1,7 +1,9 @@
 package relay
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
+	"oblivious/server/internal/metrics"
+	"oblivious/server/internal/observability"
 	"oblivious/server/internal/relay/types"
 )
 
@@ -227,9 +232,65 @@ func TestRouteWithBilling_RecordsSelectedChannel(t *testing.T) {
 	}
 }
 
+func TestRouteObservabilityRecordsProviderFailure(t *testing.T) {
+	router := newBillingTestRouter(&stubQuotaManager{})
+	ctx := trustedBillingContext()
+
+	before := testutil.ToFloat64(metrics.ProviderFailuresTotal.WithLabelValues("openai", "ch_1", types.APITypeChat.String(), "request_error"))
+	_, err := router.Route(ctx, types.APITypeChat.String(), func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
+		return nil, errors.New("upstream timeout with https://provider.example.com/v1/chat/completions")
+	})
+	if err == nil {
+		t.Fatal("expected provider error")
+	}
+	after := testutil.ToFloat64(metrics.ProviderFailuresTotal.WithLabelValues("openai", "ch_1", types.APITypeChat.String(), "request_error"))
+	if after != before+1 {
+		t.Fatalf("expected provider failure metric increment, before=%v after=%v", before, after)
+	}
+}
+
+func TestRouteObservabilityWritesStructuredProviderFailureEvent(t *testing.T) {
+	var output bytes.Buffer
+	restoreLogger := setObservabilityLoggerForTest(observability.NewJSONLogger(&output))
+	defer restoreLogger()
+
+	router := newBillingTestRouter(&stubQuotaManager{})
+	ctx := trustedBillingContext()
+
+	_, err := router.Route(ctx, types.APITypeChat.String(), func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
+		return nil, errors.New("upstream timeout with sk-secret")
+	})
+	if err == nil {
+		t.Fatal("expected provider error")
+	}
+
+	var record map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(output.Bytes()), &record); err != nil {
+		t.Fatalf("expected structured provider JSON log, got error: %v\n%s", err, output.String())
+	}
+	if record["event"] != "relay.provider_failure" {
+		t.Fatalf("expected relay.provider_failure event, got %#v", record["event"])
+	}
+	if record["request_id"] != "req_1" {
+		t.Fatalf("expected request id req_1, got %#v", record["request_id"])
+	}
+	if record["organization_id"] != "org_1" || record["user_id"] != "user_1" {
+		t.Fatalf("expected trusted identity in provider event, got %#v", record)
+	}
+	if record["provider"] != "openai" || record["channel_id"] != "ch_1" {
+		t.Fatalf("expected provider/channel labels, got %#v", record)
+	}
+	if record["failure_reason"] != "request_error" {
+		t.Fatalf("expected low-cardinality failure reason, got %#v", record["failure_reason"])
+	}
+	if strings.Contains(output.String(), "sk-secret") {
+		t.Fatalf("provider event leaked raw error text: %s", output.String())
+	}
+}
+
 func newBillingTestRouter(quotaManager *stubQuotaManager) *Router {
 	pool := NewChannelPool()
-	pool.AddChannel(&types.Channel{ID: "ch_1", BaseURL: "http://provider", Enabled: true}, 1)
+	pool.AddChannel(&types.Channel{ID: "ch_1", Provider: "openai", BaseURL: "http://provider", Enabled: true}, 1)
 	lb := NewLoadBalancer(pool, "weighted")
 	hook := NewBillingHook(NewPricingStoreWithDefaults(), &map[string]bool{})
 	hook.SetQuotaManager(quotaManager)

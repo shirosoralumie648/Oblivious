@@ -33,6 +33,7 @@ import { AdminUsersPage } from '../routes/admin/AdminUsersPage';
 import { AdminChannelsPage } from '../routes/admin/AdminChannelsPage';
 import { AdminRoutesPage } from '../routes/admin/AdminRoutesPage';
 import { AdminPlansPage } from '../routes/admin/AdminPlansPage';
+import { AdminBillingPage } from '../routes/admin/AdminBillingPage';
 import { AdminAuditLogPage } from '../routes/admin/AdminAuditLogPage';
 import { AdminReviewsPage } from '../routes/admin/AdminReviewsPage';
 
@@ -87,6 +88,7 @@ const routes: RouteObject[] = [
               { path: 'channels', element: <AdminChannelsPage /> },
               { path: 'routes', element: <AdminRoutesPage /> },
               { path: 'plans', element: <AdminPlansPage /> },
+              { path: 'billing', element: <AdminBillingPage /> },
               { path: 'users', element: <AdminUsersPage /> },
               { path: 'audit-log', element: <AdminAuditLogPage /> },
               { path: 'reviews', element: <AdminReviewsPage /> }

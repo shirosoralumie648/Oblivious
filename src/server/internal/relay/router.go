@@ -4,8 +4,12 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"sync"
 	"time"
 
+	"oblivious/server/internal/metrics"
+	"oblivious/server/internal/observability"
 	"oblivious/server/internal/relay/types"
 )
 
@@ -18,6 +22,9 @@ type Router struct {
 	billingHook      *BillingHook
 	billingRedisAddr string
 }
+
+var relayObservabilityLogger = observability.NewJSONLogger(os.Stdout)
+var relayObservabilityLoggerMu sync.RWMutex
 
 func NewRouter(
 	pool *ChannelPool,
@@ -81,6 +88,9 @@ func (r *Router) SelectChannel(ctx context.Context, apiType string) *types.Route
 }
 
 func (r *Router) Route(ctx context.Context, apiType string, fn func(ch *types.RouteChannel) (*types.ProviderResponse, error)) (*types.ProviderResponse, error) {
+	ctx, span := observability.StartSpan(ctx, "relay.route", observability.String("relay.api_type", apiType))
+	defer span.End()
+
 	ch := r.SelectChannel(ctx, apiType)
 	if ch == nil {
 		return nil, &RouterError{
@@ -90,15 +100,31 @@ func (r *Router) Route(ctx context.Context, apiType string, fn func(ch *types.Ro
 		}
 	}
 
-	return r.executeOnChannel(ch, fn)
+	return r.executeOnChannel(ctx, ch, apiType, fn)
 }
 
-func (r *Router) executeOnChannel(ch *types.RouteChannel, fn func(ch *types.RouteChannel) (*types.ProviderResponse, error)) (*types.ProviderResponse, error) {
+func (r *Router) executeOnChannel(ctx context.Context, ch *types.RouteChannel, apiType string, fn func(ch *types.RouteChannel) (*types.ProviderResponse, error)) (*types.ProviderResponse, error) {
+	provider := providerForRouteChannel(ch)
+	channelID := routeChannelID(ch)
+	ctx, span := observability.StartSpan(
+		ctx,
+		"relay.provider_call",
+		observability.String("provider", provider),
+		observability.String("channel_id", channelID),
+		observability.String("relay.api_type", apiType),
+	)
+	defer span.End()
+
+	startedAt := time.Now()
 	resp, err := fn(ch)
+	duration := time.Since(startedAt)
+	metrics.ObserveProviderRequestDuration(provider, channelID, apiType, duration.Seconds())
 	if err != nil {
 		if cb, ok := r.circuitBreakers[ch.Channel.ID]; ok {
 			cb.RecordFailure()
 		}
+		metrics.RecordProviderFailure(provider, channelID, apiType, "request_error")
+		logProviderFailure(ctx, provider, channelID, apiType, "request_error", duration)
 		return nil, err
 	}
 
@@ -106,6 +132,8 @@ func (r *Router) executeOnChannel(ch *types.RouteChannel, fn func(ch *types.Rout
 		if cb, ok := r.circuitBreakers[ch.Channel.ID]; ok {
 			cb.RecordFailure()
 		}
+		metrics.RecordProviderFailure(provider, channelID, apiType, "provider_5xx")
+		logProviderFailure(ctx, provider, channelID, apiType, "provider_5xx", duration)
 	} else if resp != nil && resp.StatusCode < 500 {
 		if cb, ok := r.circuitBreakers[ch.Channel.ID]; ok {
 			cb.RecordSuccess()
@@ -232,7 +260,7 @@ func (r *Router) RouteWithBilling(
 	}
 
 	// Route the request
-	resp, err := r.executeOnChannel(ch, fn)
+	resp, err := r.executeOnChannel(ctx, ch, apiType.String(), fn)
 
 	// Post-bill (settle) on success, or refund on failure
 	if r.billingHook != nil {
@@ -318,6 +346,50 @@ func routeChannelID(ch *types.RouteChannel) string {
 		return ch.Channel.ID
 	}
 	return ""
+}
+
+func providerForRouteChannel(ch *types.RouteChannel) string {
+	if ch == nil || ch.Channel == nil || ch.Channel.Provider == "" {
+		return "unknown"
+	}
+	return ch.Channel.Provider
+}
+
+func logProviderFailure(ctx context.Context, provider, channelID, apiType, reason string, latency time.Duration) {
+	userID, _ := types.TrustedUserIDFromContext(ctx)
+	organizationID, _ := types.TrustedOrganizationIDFromContext(ctx)
+	requestID, _ := types.TrustedRequestIDFromContext(ctx)
+	currentObservabilityLogger().Log(ctx, observability.Event{
+		Component:      "relay",
+		Event:          "relay.provider_failure",
+		RequestID:      requestID,
+		OrganizationID: organizationID,
+		UserID:         userID,
+		RelayAPIType:   apiType,
+		ChannelID:      channelID,
+		Provider:       provider,
+		FailureReason:  reason,
+		Latency:        latency,
+	})
+}
+
+func currentObservabilityLogger() *observability.Logger {
+	relayObservabilityLoggerMu.RLock()
+	defer relayObservabilityLoggerMu.RUnlock()
+	return relayObservabilityLogger
+}
+
+func setObservabilityLoggerForTest(logger *observability.Logger) func() {
+	relayObservabilityLoggerMu.Lock()
+	previous := relayObservabilityLogger
+	relayObservabilityLogger = logger
+	relayObservabilityLoggerMu.Unlock()
+
+	return func() {
+		relayObservabilityLoggerMu.Lock()
+		relayObservabilityLogger = previous
+		relayObservabilityLoggerMu.Unlock()
+	}
 }
 
 type billingSettlementPolicy int

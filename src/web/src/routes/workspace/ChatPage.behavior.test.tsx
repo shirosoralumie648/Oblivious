@@ -72,6 +72,29 @@ vi.mock('../../features/knowledge/api', () => ({
 
 import { ChatPage } from './ChatPage';
 
+function mockActiveConversation() {
+  routeState.conversationId = 'conversation_1';
+  listConversations.mockResolvedValue([{ id: 'conversation_1', title: 'Research thread' }]);
+  listKnowledgeBases.mockResolvedValue([
+    {
+      documentCount: 3,
+      id: 'kb_1',
+      name: 'Architecture Notes'
+    }
+  ]);
+  listMessages.mockResolvedValue([{ id: 'm1', role: 'assistant', content: 'Ready when you are.' }]);
+  listModels.mockResolvedValue([{ id: 'balanced-chat', label: 'balanced-chat' }]);
+  getConversationConfig.mockResolvedValue({
+    conversationId: 'conversation_1',
+    knowledgeBaseIds: ['kb_1'],
+    maxOutputTokens: 1024,
+    modelId: 'balanced-chat',
+    systemPromptOverride: '',
+    temperature: 1,
+    toolsEnabled: false
+  });
+}
+
 describe('ChatPage', () => {
   beforeEach(() => {
     appContext.authState.preferences = {
@@ -142,6 +165,76 @@ describe('ChatPage', () => {
     await waitFor(() => {
       expect(sendMessage).toHaveBeenCalledWith('conversation_1', { content: 'Draft a rollout summary.' });
     });
+  });
+
+  it('shows a retryable chat workspace error when initial loading fails', async () => {
+    routeState.conversationId = 'conversation_1';
+    listConversations.mockRejectedValue(new Error('tenant quota ledger unavailable'));
+    listKnowledgeBases.mockResolvedValue([]);
+    listMessages.mockResolvedValue([]);
+    listModels.mockResolvedValue([{ id: 'balanced-chat', label: 'balanced-chat' }]);
+    getConversationConfig.mockResolvedValue({
+      conversationId: 'conversation_1',
+      knowledgeBaseIds: [],
+      maxOutputTokens: 1024,
+      modelId: 'balanced-chat',
+      systemPromptOverride: '',
+      temperature: 1,
+      toolsEnabled: false
+    });
+
+    render(<ChatPage />);
+
+    expect(await screen.findByText('Unable to load chat workspace.')).toBeInTheDocument();
+    expect(screen.getByText('tenant quota ledger unavailable')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry chat workspace' })).toBeInTheDocument();
+  });
+
+  it('shows quota and Relay errors when message send fails', async () => {
+    mockActiveConversation();
+    sendMessage.mockRejectedValue(new Error('quota preauthorization failed through Relay'));
+
+    render(<ChatPage />);
+
+    await screen.findByText('Ready when you are.');
+    fireEvent.change(screen.getByLabelText('Message draft'), { target: { value: 'Draft a rollout summary.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+
+    expect(await screen.findByText('Unable to send message.')).toBeInTheDocument();
+    expect(await screen.findByText('quota preauthorization failed through Relay')).toBeInTheDocument();
+    expect(screen.getByLabelText('Message draft')).toHaveValue('Draft a rollout summary.');
+  });
+
+  it('shows SOLO handoff errors without opening a fake handoff', async () => {
+    mockActiveConversation();
+    convertConversationToTask.mockRejectedValue(new Error('conversation cannot be converted under current Relay policy'));
+
+    render(<ChatPage />);
+
+    await screen.findByRole('button', { name: 'Hand off to SOLO' });
+    fireEvent.click(screen.getByRole('button', { name: 'Hand off to SOLO' }));
+
+    expect(await screen.findByText('Unable to prepare SOLO handoff.')).toBeInTheDocument();
+    expect(screen.getByText('conversation cannot be converted under current Relay policy')).toBeInTheDocument();
+    expect(screen.queryByLabelText('SOLO task goal')).not.toBeInTheDocument();
+  });
+
+  it('renders one Convert to SOLO task heading', async () => {
+    mockActiveConversation();
+    convertConversationToTask.mockResolvedValue({
+      draftTaskGoal: 'Draft a launch checklist from this thread.',
+      relatedKnowledgeBaseIds: ['kb_1'],
+      suggestedBudget: 20,
+      suggestedExecutionMode: 'standard'
+    });
+
+    render(<ChatPage />);
+
+    await screen.findByRole('button', { name: 'Hand off to SOLO' });
+    fireEvent.click(screen.getByRole('button', { name: 'Hand off to SOLO' }));
+
+    await screen.findByLabelText('SOLO task goal');
+    expect(screen.getAllByRole('heading', { name: 'Convert to SOLO task' })).toHaveLength(1);
   });
 
   it('shows a create-knowledge-base CTA when the active conversation has no knowledge bases available', async () => {

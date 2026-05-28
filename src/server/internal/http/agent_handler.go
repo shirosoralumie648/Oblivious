@@ -315,6 +315,116 @@ func (h agentHandler) listMessages(w stdhttp.ResponseWriter, r *stdhttp.Request,
 	writeSuccess(w, stdhttp.StatusOK, messages)
 }
 
+// GET /api/v1/app/agents/conversations/:id/runs
+func (h agentHandler) listRuns(w stdhttp.ResponseWriter, r *stdhttp.Request, conversationID string) {
+	session, ok := sessionFromContext(r)
+	if !ok {
+		writeError(w, stdhttp.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+
+	runs, err := h.service.ListRuns(r.Context(), session, conversationID)
+	if err != nil {
+		writeAgentWorkflowError(w, err)
+		return
+	}
+
+	writeSuccess(w, stdhttp.StatusOK, runs)
+}
+
+// GET /api/v1/app/agents/runs/:id
+func (h agentHandler) getRun(w stdhttp.ResponseWriter, r *stdhttp.Request, runID string) {
+	session, ok := sessionFromContext(r)
+	if !ok {
+		writeError(w, stdhttp.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+
+	detail, err := h.service.GetRunDetail(r.Context(), session, runID)
+	if err != nil {
+		writeAgentWorkflowError(w, err)
+		return
+	}
+
+	writeSuccess(w, stdhttp.StatusOK, detail)
+}
+
+type agentToolRunDecisionRequest struct {
+	Reason string `json:"reason,omitempty"`
+}
+
+// POST /api/v1/app/agents/tool-runs/:id/approve
+func (h agentHandler) approveToolRun(w stdhttp.ResponseWriter, r *stdhttp.Request, toolRunID string) {
+	session, ok := sessionFromContext(r)
+	if !ok {
+		writeError(w, stdhttp.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+
+	var req agentToolRunDecisionRequest
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	toolRun, err := h.service.ApproveToolRun(r.Context(), session, toolRunID, strings.TrimSpace(req.Reason))
+	if err != nil {
+		writeAgentWorkflowError(w, err)
+		return
+	}
+
+	writeSuccess(w, stdhttp.StatusOK, toolRun)
+}
+
+// POST /api/v1/app/agents/tool-runs/:id/reject
+func (h agentHandler) rejectToolRun(w stdhttp.ResponseWriter, r *stdhttp.Request, toolRunID string) {
+	session, ok := sessionFromContext(r)
+	if !ok {
+		writeError(w, stdhttp.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+
+	var req agentToolRunDecisionRequest
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	toolRun, err := h.service.RejectToolRun(r.Context(), session, toolRunID, strings.TrimSpace(req.Reason))
+	if err != nil {
+		writeAgentWorkflowError(w, err)
+		return
+	}
+
+	writeSuccess(w, stdhttp.StatusOK, toolRun)
+}
+
+// POST /api/v1/app/agents/tool-runs/:id/retry
+func (h agentHandler) retryToolRun(w stdhttp.ResponseWriter, r *stdhttp.Request, toolRunID string) {
+	session, ok := sessionFromContext(r)
+	if !ok {
+		writeError(w, stdhttp.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+
+	toolRun, err := h.service.RetryToolRun(r.Context(), session, toolRunID)
+	if err != nil {
+		writeAgentWorkflowError(w, err)
+		return
+	}
+
+	writeSuccess(w, stdhttp.StatusOK, toolRun)
+}
+
+func writeAgentWorkflowError(w stdhttp.ResponseWriter, err error) {
+	switch err.Error() {
+	case "conversation not found", "run not found", "tool run not found":
+		writeError(w, stdhttp.StatusNotFound, "not_found", err.Error())
+	case "access denied":
+		writeError(w, stdhttp.StatusForbidden, "forbidden", err.Error())
+	case "tool run is not failed", "tool run is not pending approval":
+		writeError(w, stdhttp.StatusConflict, "invalid_state", err.Error())
+	default:
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
+	}
+}
+
 // GET /api/v1/app/agents/:id/tools
 func (h agentHandler) listAvailableTools(w stdhttp.ResponseWriter, r *stdhttp.Request, agentID string) {
 	session, ok := sessionFromContext(r)

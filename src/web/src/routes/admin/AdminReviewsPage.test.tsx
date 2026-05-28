@@ -23,6 +23,8 @@ const pendingAgent = {
   ownerName: 'Publisher',
   status: 'pending_review' as const,
   visibility: 'public' as const,
+  pricingType: 'one_time' as const,
+  pricingAmount: 19,
   categoryID: 'cat_1',
   categoryName: 'Productivity',
   tags: ['research'],
@@ -50,6 +52,16 @@ describe('AdminReviewsPage', () => {
     expect(screen.getByText('Publisher')).toBeInTheDocument();
     expect(screen.getByText('Productivity')).toBeInTheDocument();
     expect(screen.getByLabelText('Pending Review')).toBeInTheDocument();
+  });
+
+  it('renders pricing and governance context before approval or rejection', async () => {
+    listReviews.mockResolvedValue({ data: [pendingAgent], total: 1 });
+
+    render(<AdminReviewsPage />);
+
+    expect(await screen.findByText('Pricing: one_time $19.00')).toBeInTheDocument();
+    expect(screen.getByText('Visibility: public')).toBeInTheDocument();
+    expect(screen.getByText('Governance status: pending_review')).toBeInTheDocument();
   });
 
   it('approves agents through confirmation', async () => {

@@ -102,7 +102,13 @@ export function MarketplacePublishPage() {
     dispatch({ type: 'SUBMIT_START' });
     try {
       await api.publishAgent(payload);
-      dispatch({ type: 'SUBMIT_SUCCESS', message: 'Agent submitted for review.' });
+      dispatch({
+        type: 'SUBMIT_SUCCESS',
+        message:
+          payload.pricingType === 'free'
+            ? 'Agent submitted for review.'
+            : 'Agent submitted for review. Paid installs remain checkout-backed until approval and settlement evidence exist.',
+      });
     } catch (error) {
       dispatch({ type: 'SUBMIT_ERROR', error: error instanceof Error ? error.message : 'Unable to publish agent.' });
     }
@@ -113,6 +119,9 @@ export function MarketplacePublishPage() {
       <div>
         <h1 className="font-heading text-2xl font-semibold text-foreground">Publish Agent</h1>
         <p className="text-sm text-muted-foreground">Submit an agent for marketplace review.</p>
+        <p className="text-sm text-muted-foreground">
+          Public and paid submissions enter review before paid operation; paid installs stay checkout-backed until approval and settlement evidence exist.
+        </p>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">

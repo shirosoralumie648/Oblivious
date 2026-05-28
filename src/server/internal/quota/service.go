@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"oblivious/server/internal/auth"
+	"oblivious/server/internal/metrics"
+	"oblivious/server/internal/observability"
 )
 
 // Quota 用户配额
@@ -121,7 +123,11 @@ func (s *Service) GetBalance(ctx context.Context, userID, organizationID string)
 // PreConsume 预扣配额
 // 返回 billing session ID 用于后续结算
 func (s *Service) PreConsume(ctx context.Context, userID, organizationID string, amount float64, idempotencyKey string, channelID, model, apiType string) (*BillingSession, error) {
+	ctx, span := observability.StartSpan(ctx, "quota.preconsume", observability.String("quota.stage", "preauthorization"))
+	defer span.End()
+
 	if organizationID == "" {
+		metrics.RecordQuotaSettlementFailure("preauthorization")
 		return nil, fmt.Errorf("organization_id is required")
 	}
 
@@ -129,6 +135,7 @@ func (s *Service) PreConsume(ctx context.Context, userID, organizationID string,
 	if idempotencyKey != "" {
 		existing, err := s.store.GetBillingSessionByIdempotencyKey(ctx, idempotencyKey, organizationID)
 		if err != nil {
+			metrics.RecordQuotaSettlementFailure("preauthorization")
 			return nil, err
 		}
 		if existing != nil {
@@ -140,16 +147,19 @@ func (s *Service) PreConsume(ctx context.Context, userID, organizationID string,
 	// 获取配额
 	quota, err := s.store.GetOrCreateQuota(ctx, userID, organizationID)
 	if err != nil {
+		metrics.RecordQuotaSettlementFailure("preauthorization")
 		return nil, err
 	}
 
 	// 检查余额
 	if quota.Balance < amount {
+		metrics.RecordQuotaSettlementFailure("preauthorization")
 		return nil, fmt.Errorf("insufficient balance: have %.6f, need %.6f", quota.Balance, amount)
 	}
 
 	// 预扣
 	if err := s.store.UpdateQuotaBalance(ctx, userID, organizationID, -amount); err != nil {
+		metrics.RecordQuotaSettlementFailure("preauthorization")
 		return nil, fmt.Errorf("pre-consume failed: %w", err)
 	}
 
@@ -158,6 +168,7 @@ func (s *Service) PreConsume(ctx context.Context, userID, organizationID string,
 	if err != nil {
 		// 回滚
 		s.store.UpdateQuotaBalance(ctx, userID, organizationID, amount)
+		metrics.RecordQuotaSettlementFailure("preauthorization")
 		return nil, err
 	}
 
@@ -178,27 +189,42 @@ func (s *Service) PreConsume(ctx context.Context, userID, organizationID string,
 	if err != nil {
 		// 回滚
 		s.store.UpdateQuotaBalance(ctx, userID, organizationID, amount)
+		metrics.RecordQuotaSettlementFailure("preauthorization")
 		return nil, fmt.Errorf("create billing session: %w", err)
 	}
 
+	metrics.RecordBillingLifecycleEvent("quota_preauthorization", "preauthorized")
 	return created, nil
 }
 
 // Settle 结算计费
 // actualAmount 是实际消费金额，差额会退还
 func (s *Service) Settle(ctx context.Context, sessionID string, actualAmount float64) error {
+	ctx, span := observability.StartSpan(ctx, "quota.settlement", observability.String("quota.stage", "settlement"))
+	defer span.End()
+
 	// 结算 billing session
 	if err := s.store.SettleBillingSession(ctx, sessionID, actualAmount); err != nil {
+		metrics.RecordQuotaSettlementFailure("settlement")
 		return err
 	}
 
+	metrics.RecordBillingLifecycleEvent("quota_settlement", "settled")
 	return nil
 }
 
 // Refund 退款
 // 全额退还预扣金额
 func (s *Service) Refund(ctx context.Context, sessionID string) error {
-	return s.store.RefundBillingSession(ctx, sessionID)
+	ctx, span := observability.StartSpan(ctx, "quota.refund", observability.String("quota.stage", "refund"))
+	defer span.End()
+
+	if err := s.store.RefundBillingSession(ctx, sessionID); err != nil {
+		metrics.RecordQuotaSettlementFailure("refund")
+		return err
+	}
+	metrics.RecordBillingLifecycleEvent("quota_refund", "refunded")
+	return nil
 }
 
 // Topup 充值

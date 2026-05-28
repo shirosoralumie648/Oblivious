@@ -21,6 +21,9 @@ type DetailState = {
   reviewRating: number;
   reviewText: string;
   actionMessage: string | null;
+  actionError: { title: string; message?: string } | null;
+  installing: boolean;
+  submittingReview: boolean;
 };
 
 type Action =
@@ -30,7 +33,10 @@ type Action =
   | { type: 'SET_VERSION'; value: string }
   | { type: 'SET_RATING'; value: number }
   | { type: 'SET_REVIEW'; value: string }
-  | { type: 'SET_MESSAGE'; value: string | null };
+  | { type: 'SET_MESSAGE'; value: string | null }
+  | { type: 'SET_ACTION_ERROR'; title: string; message?: string }
+  | { type: 'SET_INSTALLING'; value: boolean }
+  | { type: 'SET_SUBMITTING_REVIEW'; value: boolean };
 
 const initialState: DetailState = {
   agent: null,
@@ -42,6 +48,9 @@ const initialState: DetailState = {
   reviewRating: 5,
   reviewText: '',
   actionMessage: null,
+  actionError: null,
+  installing: false,
+  submittingReview: false,
 };
 
 function reducer(state: DetailState, action: Action): DetailState {
@@ -67,10 +76,27 @@ function reducer(state: DetailState, action: Action): DetailState {
     case 'SET_REVIEW':
       return { ...state, reviewText: action.value };
     case 'SET_MESSAGE':
-      return { ...state, actionMessage: action.value };
+      return { ...state, actionError: null, actionMessage: action.value };
+    case 'SET_ACTION_ERROR':
+      return { ...state, actionError: { title: action.title, message: action.message }, actionMessage: null };
+    case 'SET_INSTALLING':
+      return { ...state, installing: action.value };
+    case 'SET_SUBMITTING_REVIEW':
+      return { ...state, submittingReview: action.value };
     default:
       return state;
   }
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim() !== '') {
+    return error.message;
+  }
+  if (typeof error === 'string' && error.trim() !== '') {
+    return error;
+  }
+
+  return fallback;
 }
 
 function priceLabel(agent: MarketplaceAgent) {
@@ -108,18 +134,42 @@ export function MarketplaceAgentDetailPage() {
     if (!agentId) {
       return;
     }
-    await api.installAgent(agentId, state.selectedVersion || undefined);
-    dispatch({ type: 'SET_MESSAGE', value: 'Agent installed.' });
+    dispatch({ type: 'SET_INSTALLING', value: true });
+    dispatch({ type: 'SET_MESSAGE', value: null });
+    try {
+      await api.installAgent(agentId, state.selectedVersion || undefined);
+      dispatch({ type: 'SET_MESSAGE', value: 'Agent installed.' });
+    } catch (error) {
+      dispatch({
+        type: 'SET_ACTION_ERROR',
+        title: 'Unable to install agent.',
+        message: getErrorMessage(error, 'Retry the install after checkout or workspace state is ready.'),
+      });
+    } finally {
+      dispatch({ type: 'SET_INSTALLING', value: false });
+    }
   };
 
   const handleReview = async () => {
     if (!agentId) {
       return;
     }
-    await api.submitReview(agentId, { rating: state.reviewRating, body: state.reviewText });
-    dispatch({ type: 'SET_REVIEW', value: '' });
-    dispatch({ type: 'SET_MESSAGE', value: 'Review submitted.' });
-    await loadAgent();
+    dispatch({ type: 'SET_SUBMITTING_REVIEW', value: true });
+    dispatch({ type: 'SET_MESSAGE', value: null });
+    try {
+      await api.submitReview(agentId, { rating: state.reviewRating, body: state.reviewText });
+      dispatch({ type: 'SET_REVIEW', value: '' });
+      dispatch({ type: 'SET_MESSAGE', value: 'Review submitted.' });
+      await loadAgent();
+    } catch (error) {
+      dispatch({
+        type: 'SET_ACTION_ERROR',
+        title: 'Unable to submit review.',
+        message: getErrorMessage(error, 'Retry after the review queue is available.'),
+      });
+    } finally {
+      dispatch({ type: 'SET_SUBMITTING_REVIEW', value: false });
+    }
   };
 
   if (state.loading) {
@@ -158,6 +208,11 @@ export function MarketplaceAgentDetailPage() {
             </div>
             <RatingStars value={agent.ratingAvg ?? agent.rating ?? 0} count={agent.ratingCount} readonly showValue />
             <p className="text-sm text-muted-foreground">{agent.installCount.toLocaleString()} installs</p>
+            <p className="text-sm text-muted-foreground">
+              {agent.pricingType === 'free'
+                ? 'Free agents install directly into the workspace after version selection.'
+                : 'Paid installs create a checkout-backed marketplace order before workspace installation.'}
+            </p>
             {state.versions.length > 0 ? (
               <select
                 aria-label="Agent version"
@@ -172,10 +227,16 @@ export function MarketplaceAgentDetailPage() {
                 ))}
               </select>
             ) : null}
-            <Button type="button" className="min-h-[44px] w-full" onClick={() => void handleInstall()}>
+            <Button type="button" className="min-h-[44px] w-full" disabled={state.installing} onClick={() => void handleInstall()}>
               Install Agent
             </Button>
             {state.actionMessage ? <p className="text-sm text-muted-foreground">{state.actionMessage}</p> : null}
+            {state.actionError ? (
+              <div role="alert" className="rounded-lg border border-destructive/30 p-3 text-sm text-destructive">
+                <p>{state.actionError.title}</p>
+                {state.actionError.message ? <p>{state.actionError.message}</p> : null}
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       </div>
@@ -204,7 +265,7 @@ export function MarketplaceAgentDetailPage() {
                 onChange={(event) => dispatch({ type: 'SET_REVIEW', value: event.target.value })}
                 placeholder="Share your experience with this agent."
               />
-              <Button type="button" className="min-h-[44px]" onClick={() => void handleReview()}>
+              <Button type="button" className="min-h-[44px]" disabled={state.submittingReview} onClick={() => void handleReview()}>
                 Submit Review
               </Button>
             </div>

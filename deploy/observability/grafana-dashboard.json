@@ -1,0 +1,142 @@
+{
+  "title": "Oblivious Production Operations",
+  "tags": ["oblivious", "v07", "OPS-04", "OPS-05"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "HTTP error rate",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{status_class=~\"4xx|5xx\"}[5m])) by (status_class)",
+          "legendFormat": "{{status_class}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "HTTP latency p95",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, route, method))",
+          "legendFormat": "{{method}} {{route}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Relay route decisions",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum(rate(relay_route_decisions_total[5m])) by (class, api_type, result, failure_reason)",
+          "legendFormat": "{{class}} {{api_type}} {{result}} {{failure_reason}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Provider failures",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum(rate(provider_failures_total[5m])) by (provider, channel_id, api_type, reason)",
+          "legendFormat": "{{provider}} {{channel_id}} {{api_type}} {{reason}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Provider latency p95",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(provider_request_duration_seconds_bucket[5m])) by (le, provider, channel_id, api_type))",
+          "legendFormat": "{{provider}} {{channel_id}} {{api_type}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Billing lifecycle",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum(rate(billing_lifecycle_events_total[5m])) by (kind, status)",
+          "legendFormat": "{{kind}} {{status}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Stripe webhook failures",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum(rate(stripe_webhook_failures_total[5m])) by (reason)",
+          "legendFormat": "{{reason}}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Quota settlement failures",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum(rate(quota_settlement_failures_total[5m])) by (stage)",
+          "legendFormat": "{{stage}}"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Marketplace settlement",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum(rate(marketplace_settlement_events_total[5m])) by (event, status)",
+          "legendFormat": "{{event}} {{status}}"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Migration runs",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum(increase(migration_runs_total[30m])) by (status)",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "Task and job events",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum(rate(job_events_total[5m])) by (kind, status)",
+          "legendFormat": "{{kind}} {{status}}"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "Tenant isolation incident signal",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{status_class=\"4xx\"}[5m])) by (route)",
+          "legendFormat": "{{route}}"
+        }
+      ]
+    }
+  ]
+}

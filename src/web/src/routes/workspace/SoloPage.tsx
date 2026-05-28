@@ -62,6 +62,34 @@ function taskIDFromSearch(search: string) {
   return taskID.trim();
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim() !== '') {
+    return error.message;
+  }
+  if (typeof error === 'string' && error.trim() !== '') {
+    return error;
+  }
+
+  return fallback;
+}
+
+function recoveryStateForStatus(status: string) {
+  if (status === 'awaiting_confirmation') {
+    return 'Approval required before execution continues';
+  }
+  if (status === 'failed' || status === 'stopped') {
+    return 'Retry available from the existing task context';
+  }
+  if (status === 'completed' || status === 'cancelled') {
+    return 'Result can be retried or continued in Chat';
+  }
+  if (status === 'paused') {
+    return 'Resume or cancel available';
+  }
+
+  return 'Live run controls available';
+}
+
 function downloadTaskResult(task: TaskDetail, knowledgeBaseNames: string[]) {
   const toolRules = normalizeToolRules(task.toolAllowList, task.toolDenyList);
   const fileName = `${task.title || task.id}`.trim().replace(/\s+/g, '-').toLowerCase() || task.id;
@@ -109,6 +137,7 @@ export function SoloPage() {
   const [budgetLimit, setBudgetLimit] = useState(defaultBudgetLimit);
   const [authorizationScope, setAuthorizationScope] = useState(defaultAuthorizationScope);
   const [error, setError] = useState<string | null>(null);
+  const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const [executionMode, setExecutionMode] = useState(defaultExecutionMode);
   const [goal, setGoal] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -142,6 +171,7 @@ export function SoloPage() {
     const loadSoloContext = async () => {
       setIsLoading(true);
       setError(null);
+      setErrorDetail(null);
 
       try {
         const [tasks, bases] = await Promise.all([tasksApi.listTasks(), knowledgeApi.listKnowledgeBases()]);
@@ -149,11 +179,12 @@ export function SoloPage() {
           setRecentTasks(tasks);
           setKnowledgeBases(bases);
         }
-      } catch {
+      } catch (caughtError) {
         if (!cancelled) {
           setRecentTasks([]);
           setKnowledgeBases([]);
-          setError('Unable to load workspace data. Retry the request or check the backend session.');
+          setError('Unable to load workspace data.');
+          setErrorDetail(getErrorMessage(caughtError, 'Retry the request or check the backend session.'));
         }
       } finally {
         if (!cancelled) {
@@ -180,15 +211,17 @@ export function SoloPage() {
     const loadTaskFromQuery = async () => {
       setIsLoadingTaskID(taskID);
       setError(null);
+      setErrorDetail(null);
 
       try {
         const detail = await tasksApi.getTask(taskID);
         if (!cancelled) {
           applyTaskDetail(detail);
         }
-      } catch {
+      } catch (caughtError) {
         if (!cancelled) {
-          setError('Unable to load task detail. Retry the request or check the backend session.');
+          setError('Unable to load task detail.');
+          setErrorDetail(getErrorMessage(caughtError, 'Retry the request or check the backend session.'));
         }
       } finally {
         if (!cancelled) {
@@ -227,16 +260,21 @@ export function SoloPage() {
   const stoppedTasks = recentTasks.filter(
     (task) => task.status !== 'running' && task.status !== 'paused' && task.status !== 'awaiting_confirmation' && task.status !== 'completed'
   );
+  const canRetryStartedTask =
+    startedTask !== null && ['completed', 'cancelled', 'failed', 'stopped'].includes(startedTask.status);
+  const canContinueCompletedTask = startedTask !== null && ['completed', 'cancelled'].includes(startedTask.status);
 
   const handleStartSoloRun = async () => {
     const trimmedGoal = goal.trim();
     if (trimmedGoal === '') {
       setError('Task goal is required.');
+      setErrorDetail(null);
       return;
     }
 
     setIsStarting(true);
     setError(null);
+    setErrorDetail(null);
 
     try {
       const parsedBudgetLimit = Number.parseInt(budgetLimit, 10);
@@ -262,8 +300,9 @@ export function SoloPage() {
       if (isTaskCreationView) {
         navigate(`/solo?taskId=${detail.id}`);
       }
-    } catch {
-      setError('Unable to start a solo run. Retry the request or check the backend session.');
+    } catch (caughtError) {
+      setError('Unable to start a solo run.');
+      setErrorDetail(getErrorMessage(caughtError, 'Retry the request or check the backend session.'));
     } finally {
       setIsStarting(false);
     }
@@ -272,12 +311,14 @@ export function SoloPage() {
   const handleOpenTask = async (taskID: string) => {
     setIsLoadingTaskID(taskID);
     setError(null);
+    setErrorDetail(null);
 
     try {
       const detail = await tasksApi.getTask(taskID);
       applyTaskDetail(detail);
-    } catch {
-      setError('Unable to load task detail. Retry the request or check the backend session.');
+    } catch (caughtError) {
+      setError('Unable to load task detail.');
+      setErrorDetail(getErrorMessage(caughtError, 'Retry the request or check the backend session.'));
     } finally {
       setIsLoadingTaskID(null);
     }
@@ -289,11 +330,13 @@ export function SoloPage() {
     }
 
     setError(null);
+    setErrorDetail(null);
     try {
       const detail = await tasksApi.pauseTask(startedTask.id);
       applyTaskDetail(detail);
-    } catch {
-      setError('Unable to pause task. Retry the request or check the backend session.');
+    } catch (caughtError) {
+      setError('Unable to pause task.');
+      setErrorDetail(getErrorMessage(caughtError, 'Retry the request or check the backend session.'));
     }
   };
 
@@ -304,12 +347,14 @@ export function SoloPage() {
 
     setIsLoadingTaskID(startedTask.id);
     setError(null);
+    setErrorDetail(null);
 
     try {
       const detail = await tasksApi.startTask(startedTask.id);
       applyTaskDetail(detail);
-    } catch {
-      setError('Unable to continue task. Retry the request or check the backend session.');
+    } catch (caughtError) {
+      setError('Unable to continue task.');
+      setErrorDetail(getErrorMessage(caughtError, 'Retry the request or check the backend session.'));
     } finally {
       setIsLoadingTaskID(null);
     }
@@ -322,12 +367,14 @@ export function SoloPage() {
 
     setIsLoadingTaskID(startedTask.id);
     setError(null);
+    setErrorDetail(null);
 
     try {
       const detail = await tasksApi.approveTask(startedTask.id);
       applyTaskDetail(detail);
-    } catch {
-      setError('Unable to approve task plan. Retry the request or check the backend session.');
+    } catch (caughtError) {
+      setError('Unable to approve task plan.');
+      setErrorDetail(getErrorMessage(caughtError, 'Retry the request or check the backend session.'));
     } finally {
       setIsLoadingTaskID(null);
     }
@@ -339,11 +386,13 @@ export function SoloPage() {
     }
 
     setError(null);
+    setErrorDetail(null);
     try {
       const detail = await tasksApi.resumeTask(startedTask.id);
       applyTaskDetail(detail);
-    } catch {
-      setError('Unable to resume task. Retry the request or check the backend session.');
+    } catch (caughtError) {
+      setError('Unable to resume task.');
+      setErrorDetail(getErrorMessage(caughtError, 'Retry the request or check the backend session.'));
     }
   };
 
@@ -353,11 +402,13 @@ export function SoloPage() {
     }
 
     setError(null);
+    setErrorDetail(null);
     try {
       const detail = await tasksApi.cancelTask(startedTask.id);
       applyTaskDetail(detail);
-    } catch {
-      setError('Unable to cancel task. Retry the request or check the backend session.');
+    } catch (caughtError) {
+      setError('Unable to cancel task.');
+      setErrorDetail(getErrorMessage(caughtError, 'Retry the request or check the backend session.'));
     }
   };
 
@@ -368,12 +419,14 @@ export function SoloPage() {
 
     setIsLoadingTaskID(startedTask.id);
     setError(null);
+    setErrorDetail(null);
 
     try {
       const detail = await tasksApi.startTask(startedTask.id);
       applyTaskDetail(detail);
-    } catch {
-      setError('Unable to retry task. Retry the request or check the backend session.');
+    } catch (caughtError) {
+      setError('Unable to retry task.');
+      setErrorDetail(getErrorMessage(caughtError, 'Retry the request or check the backend session.'));
     } finally {
       setIsLoadingTaskID(null);
     }
@@ -386,6 +439,7 @@ export function SoloPage() {
 
     setIsLoadingTaskID(startedTask.id);
     setError(null);
+    setErrorDetail(null);
 
     try {
       const parsedBudgetLimit = Number.parseInt(activeBudgetLimit, 10);
@@ -393,8 +447,9 @@ export function SoloPage() {
         budgetLimit: Number.isNaN(parsedBudgetLimit) ? 0 : parsedBudgetLimit
       });
       applyTaskDetail(detail);
-    } catch {
-      setError('Unable to update task budget. Retry the request or check the backend session.');
+    } catch (caughtError) {
+      setError('Unable to update task budget.');
+      setErrorDetail(getErrorMessage(caughtError, 'Retry the request or check the backend session.'));
     } finally {
       setIsLoadingTaskID(null);
     }
@@ -407,6 +462,7 @@ export function SoloPage() {
 
     setIsLoadingTaskID(startedTask.id);
     setError(null);
+    setErrorDetail(null);
 
     try {
       const conversation = await chatApi.createConversation({ title: startedTask.title });
@@ -425,8 +481,9 @@ export function SoloPage() {
         }`
       });
       navigate(`/chat/${conversation.id}`);
-    } catch {
-      setError('Unable to continue this task in chat. Retry the request or check the backend session.');
+    } catch (caughtError) {
+      setError('Unable to continue this task in chat.');
+      setErrorDetail(getErrorMessage(caughtError, 'Retry the request or check the backend session.'));
     } finally {
       setIsLoadingTaskID(null);
     }
@@ -472,7 +529,12 @@ export function SoloPage() {
           : 'Launch a focused autonomous run with a clear goal, bounded execution mode, and selected workspace knowledge.'}
       </p>
       {isLoading ? <p>Loading solo workspace…</p> : null}
-      {error ? <p>{error}</p> : null}
+      {error ? (
+        <section aria-label="SOLO action error" role="alert">
+          <p>{error}</p>
+          {errorDetail ? <p>{errorDetail}</p> : null}
+        </section>
+      ) : null}
       <p>Default mode: {authState.preferences?.defaultMode ?? 'chat'}</p>
       <p>Model strategy: {authState.preferences?.modelStrategy ?? 'balanced'}</p>
       <p>Web suggestions: {authState.preferences?.networkEnabledHint ? 'Enabled' : 'Disabled'}</p>
@@ -565,10 +627,25 @@ export function SoloPage() {
       {startedTask ? (
         <section>
           <h2>{startedTask.status === 'completed' ? 'Latest result' : 'Execution view'}</h2>
-          <p>{`Status: ${startedTask.status}`}</p>
-          <p>{`Execution mode: ${startedTask.executionMode}`}</p>
-          <p>{`Authorization scope: ${startedTask.authorizationScope ?? defaultAuthorizationScope}`}</p>
-          <p>{`Budget consumed: ${startedTask.budgetConsumed ?? 0} / ${startedTask.budgetLimit}`}</p>
+          <section>
+            <h3>Commercial run readiness</h3>
+            <p>{`Status: ${startedTask.status}`}</p>
+            <p>{`Execution mode: ${startedTask.executionMode}`}</p>
+            <p>{`Authorization scope: ${startedTask.authorizationScope ?? defaultAuthorizationScope}`}</p>
+            <p>{`Budget consumed: ${startedTask.budgetConsumed ?? 0} / ${startedTask.budgetLimit}`}</p>
+            <p>{`Knowledge scope: ${taskKnowledgeBaseNames.length} source${
+              taskKnowledgeBaseNames.length === 1 ? '' : 's'
+            } selected`}</p>
+            <p>{`Allowed tool boundary: ${
+              startedTaskToolRules.toolAllowList.length > 0
+                ? startedTaskToolRules.toolAllowList.join(', ')
+                : 'default authorization scope'
+            }`}</p>
+            <p>{`Blocked tool boundary: ${
+              startedTaskToolRules.toolDenyList.length > 0 ? startedTaskToolRules.toolDenyList.join(', ') : 'none'
+            }`}</p>
+            <p>{`Recovery state: ${recoveryStateForStatus(startedTask.status)}`}</p>
+          </section>
           {startedTask.status !== 'completed' && startedTask.status !== 'cancelled' ? (
             <div>
               <label>
@@ -639,7 +716,9 @@ export function SoloPage() {
           {startedTask.resultSummary ? (
             <p>{startedTask.resultSummary}</p>
           ) : startedTask.status === 'awaiting_confirmation' ? (
-            <p>SOLO is waiting for your approval before continuing beyond the current execution boundary.</p>
+            <p>Approval boundary: SOLO will not continue until an authorized user approves this run.</p>
+          ) : startedTask.status === 'failed' || startedTask.status === 'stopped' ? (
+            <p>Retry recovery: failed runs can be restarted without losing the current task context.</p>
           ) : (
             <p>SOLO is still working through the current plan.</p>
           )}
@@ -697,17 +776,21 @@ export function SoloPage() {
               </button>
             </div>
           ) : null}
-          {startedTask.status === 'completed' || startedTask.status === 'cancelled' ? (
+          {canRetryStartedTask ? (
             <div>
               <button disabled={isLoadingTaskID === startedTask.id} onClick={() => void handleRetryTask()} type="button">
                 Retry run
               </button>
-              <button disabled={isLoadingTaskID === startedTask.id} onClick={() => void handleContinueInChat()} type="button">
-                Continue in Chat
-              </button>
-              <button onClick={() => handleExportResult()} type="button">
-                Export result
-              </button>
+              {canContinueCompletedTask ? (
+                <>
+                  <button disabled={isLoadingTaskID === startedTask.id} onClick={() => void handleContinueInChat()} type="button">
+                    Continue in Chat
+                  </button>
+                  <button onClick={() => handleExportResult()} type="button">
+                    Export result
+                  </button>
+                </>
+              ) : null}
             </div>
           ) : null}
         </section>

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"oblivious/server/internal/auth"
 	"oblivious/server/internal/chat"
@@ -296,6 +297,133 @@ func (s *Service) ListMessages(ctx context.Context, session auth.Session, conver
 	return s.store.ListMessages(ctx, conversationID, session.OrganizationID)
 }
 
+func (s *Service) ListRuns(ctx context.Context, session auth.Session, conversationID string) ([]*Run, error) {
+	conv, err := s.store.GetConversation(ctx, conversationID, session.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	if conv == nil {
+		return nil, fmt.Errorf("conversation not found")
+	}
+	if conv.UserID != session.User.ID {
+		return nil, fmt.Errorf("access denied")
+	}
+	return s.store.ListRuns(ctx, session.OrganizationID, conversationID)
+}
+
+func (s *Service) GetRunDetail(ctx context.Context, session auth.Session, runID string) (*RunDetail, error) {
+	run, err := s.getRunForSession(ctx, session, runID)
+	if err != nil {
+		return nil, err
+	}
+	toolRuns, err := s.store.ListToolRuns(ctx, session.OrganizationID, run.ID)
+	if err != nil {
+		return nil, err
+	}
+	return &RunDetail{Run: run, ToolRuns: toolRuns}, nil
+}
+
+func (s *Service) ApproveToolRun(ctx context.Context, session auth.Session, toolRunID, reason string) (*ToolRun, error) {
+	toolRun, err := s.getToolRunForSession(ctx, session, toolRunID)
+	if err != nil {
+		return nil, err
+	}
+	if toolRun.ApprovalStatus != ApprovalStatusPending || toolRun.Status != ToolRunStatusPendingApproval {
+		return nil, fmt.Errorf("tool run is not pending approval")
+	}
+	now := time.Now().UTC()
+	return s.store.UpdateToolRun(ctx, session.OrganizationID, toolRunID, UpdateToolRunRequest{
+		Status:                 stringPointer(ToolRunStatusRunning),
+		ApprovalStatus:         stringPointer(ApprovalStatusApproved),
+		ApprovedByUserID:       stringPointer(session.User.ID),
+		ApprovalDecisionReason: stringPointer(reason),
+		AttemptCount:           intPointer(toolRun.AttemptCount + 1),
+		StartedAt:              &now,
+		ClearCompletedAt:       true,
+	})
+}
+
+func (s *Service) RejectToolRun(ctx context.Context, session auth.Session, toolRunID, reason string) (*ToolRun, error) {
+	toolRun, err := s.getToolRunForSession(ctx, session, toolRunID)
+	if err != nil {
+		return nil, err
+	}
+	if toolRun.ApprovalStatus != ApprovalStatusPending || toolRun.Status != ToolRunStatusPendingApproval {
+		return nil, fmt.Errorf("tool run is not pending approval")
+	}
+	completedAt := time.Now().UTC()
+	updated, err := s.store.UpdateToolRun(ctx, session.OrganizationID, toolRunID, UpdateToolRunRequest{
+		Status:                 stringPointer(ToolRunStatusRejected),
+		ApprovalStatus:         stringPointer(ApprovalStatusRejected),
+		ApprovedByUserID:       stringPointer(session.User.ID),
+		ApprovalDecisionReason: stringPointer(reason),
+		Error:                  stringPointer("tool run rejected: " + reason),
+		CompletedAt:            &completedAt,
+	})
+	if err != nil {
+		return nil, err
+	}
+	_, _ = s.store.UpdateRun(ctx, session.OrganizationID, toolRun.RunID, UpdateRunRequest{
+		Status:      stringPointer(RunStatusFailed),
+		Error:       stringPointer("tool run rejected: " + reason),
+		CompletedAt: &completedAt,
+	})
+	return updated, nil
+}
+
+func (s *Service) RetryToolRun(ctx context.Context, session auth.Session, toolRunID string) (*ToolRun, error) {
+	toolRun, err := s.getToolRunForSession(ctx, session, toolRunID)
+	if err != nil {
+		return nil, err
+	}
+	if toolRun.Status != ToolRunStatusFailed {
+		return nil, fmt.Errorf("tool run is not failed")
+	}
+	now := time.Now().UTC()
+	empty := ""
+	return s.store.UpdateToolRun(ctx, session.OrganizationID, toolRunID, UpdateToolRunRequest{
+		Status:           stringPointer(ToolRunStatusRunning),
+		ApprovalStatus:   stringPointer(toolRun.ApprovalStatus),
+		AttemptCount:     intPointer(toolRun.AttemptCount + 1),
+		ResultContent:    &empty,
+		Error:            &empty,
+		StartedAt:        &now,
+		ClearCompletedAt: true,
+	})
+}
+
+func (s *Service) getToolRunForSession(ctx context.Context, session auth.Session, toolRunID string) (*ToolRun, error) {
+	toolRun, err := s.store.GetToolRun(ctx, session.OrganizationID, toolRunID)
+	if err != nil {
+		return nil, err
+	}
+	if toolRun == nil {
+		return nil, fmt.Errorf("tool run not found")
+	}
+	run, err := s.getRunForSession(ctx, session, toolRun.RunID)
+	if err != nil {
+		return nil, err
+	}
+	if run.ID != toolRun.RunID {
+		return nil, fmt.Errorf("tool run not found")
+	}
+	return toolRun, nil
+}
+
+func (s *Service) getRunForSession(ctx context.Context, session auth.Session, runID string) (*Run, error) {
+	run, err := s.store.GetRun(ctx, session.OrganizationID, runID)
+	if err != nil {
+		return nil, err
+	}
+	if run == nil {
+		return nil, fmt.Errorf("run not found")
+	}
+	if run.UserID != session.User.ID {
+		return nil, fmt.Errorf("access denied")
+	}
+	return run, nil
+}
+
 func hasEnabledTools(agent *Agent) bool {
 	if agent == nil {
 		return false
@@ -337,6 +465,12 @@ func (s *Service) ExecuteTool(ctx context.Context, session auth.Session, agentID
 	// 根据工具类型执行
 	switch targetTool.Type {
 	case "builtin":
+		if !mcp.IsDefaultCommercialBuiltin(toolName) {
+			return &mcp.ToolResult{
+				Content: fmt.Sprintf("builtin tool %s is disabled for default commercial use", toolName),
+				IsError: true,
+			}, nil
+		}
 		// 内置工具
 		tool, ok := mcp.GetBuiltinTool(toolName)
 		if !ok {
@@ -388,6 +522,9 @@ func (s *Service) ListAvailableTools(ctx context.Context, session auth.Session, 
 
 		// 获取 InputSchema
 		if t.Type == "builtin" {
+			if !mcp.IsDefaultCommercialBuiltin(t.Name) {
+				continue
+			}
 			if builtin, ok := mcp.GetBuiltinTool(t.Name); ok {
 				def.InputSchema = builtin.InputSchema()
 				if def.Description == "" {

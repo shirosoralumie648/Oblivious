@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: ${OBLIVIOUS_IMAGE_REGISTRY_PREFIX:-}postgres:16
+    image: ${OBLIVIOUS_POSTGRES_IMAGE:-pgvector/pgvector:pg16}
     environment:
       POSTGRES_DB: oblivious
       POSTGRES_USER: oblivious
@@ -45,7 +45,7 @@ services:
       - SESSION_SECRET=change-me-in-production
       - SESSION_COOKIE_NAME=oblivious_session
       - SESSION_COOKIE_SECURE=false
-      - CORS_ALLOWED_ORIGINS=http://localhost:4173,http://localhost:8080
+      - CORS_ALLOWED_ORIGINS=http://localhost:${OBLIVIOUS_WEB_HOST_PORT:-4173},http://localhost:${OBLIVIOUS_SERVER_HOST_PORT:-8080}
       - LLM_BASE_URL=
       - LLM_API_KEY=
       - LLM_TIMEOUT_MS=30000
@@ -55,7 +55,7 @@ services:
       - OPENAI_API_KEY=
       - OPENAI_BASE_URL=https://api.openai.com
     ports:
-      - "8080:8080"
+      - "${OBLIVIOUS_SERVER_HOST_PORT:-8080}:8080"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
       interval: 10s
@@ -73,7 +73,7 @@ services:
       oblivious-server:
         condition: service_healthy
     ports:
-      - "4173:80"
+      - "${OBLIVIOUS_WEB_HOST_PORT:-4173}:80"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
       interval: 10s

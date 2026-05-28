@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +11,9 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/testutil"
+	"oblivious/server/internal/metrics"
+	"oblivious/server/internal/observability"
 	"oblivious/server/internal/relay/types"
 )
 
@@ -157,6 +162,126 @@ func TestProductionSupportedRoutesAttachTrustedIdentityAndAudit(t *testing.T) {
 	event := audit.events[0]
 	if event.Result != RouteAuditResultAllowed || event.UserID != "user_1" || event.OrganizationID != "org_1" || event.RequestID != "req_123" {
 		t.Fatalf("unexpected audit event: %+v", event)
+	}
+}
+
+func TestRoutePolicyObservabilityRecordsAllowedAndRejectedDecisions(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	chatHandler := &countingHandler{}
+	filesHandler := &countingHandler{}
+	engine := gin.New()
+	RegisterRoutesWithOptions(engine, map[types.APIType]types.Handler{
+		types.APITypeChat:  chatHandler,
+		types.APITypeFiles: filesHandler,
+	}, RouteRegistrationOptions{Production: true})
+
+	rejectedBefore := testutil.ToFloat64(metrics.RelayRouteDecisionsTotal.WithLabelValues(
+		string(CommercialSupportedBilled),
+		types.APITypeChat.String(),
+		string(RouteAuditResultRejected),
+		"relay_identity_required",
+	))
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{}`))
+	rec := httptest.NewRecorder()
+	engine.ServeHTTP(rec, req)
+	rejectedAfter := testutil.ToFloat64(metrics.RelayRouteDecisionsTotal.WithLabelValues(
+		string(CommercialSupportedBilled),
+		types.APITypeChat.String(),
+		string(RouteAuditResultRejected),
+		"relay_identity_required",
+	))
+	if rejectedAfter != rejectedBefore+1 {
+		t.Fatalf("expected rejected route decision metric increment, before=%v after=%v", rejectedBefore, rejectedAfter)
+	}
+
+	allowedBefore := testutil.ToFloat64(metrics.RelayRouteDecisionsTotal.WithLabelValues(
+		string(CommercialSupportedBilled),
+		types.APITypeChat.String(),
+		string(RouteAuditResultAllowed),
+		"none",
+	))
+	req = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{}`))
+	addTrustedRelayHeaders(req)
+	rec = httptest.NewRecorder()
+	engine.ServeHTTP(rec, req)
+	allowedAfter := testutil.ToFloat64(metrics.RelayRouteDecisionsTotal.WithLabelValues(
+		string(CommercialSupportedBilled),
+		types.APITypeChat.String(),
+		string(RouteAuditResultAllowed),
+		"none",
+	))
+	if allowedAfter != allowedBefore+1 {
+		t.Fatalf("expected allowed route decision metric increment, before=%v after=%v", allowedBefore, allowedAfter)
+	}
+
+	disabledBefore := testutil.ToFloat64(metrics.RelayRouteDecisionsTotal.WithLabelValues(
+		string(DisabledInProduction),
+		types.APITypeFiles.String(),
+		string(RouteAuditResultRejected),
+		"endpoint_disabled_in_production",
+	))
+	req = httptest.NewRequest(http.MethodPost, "/v1/files", strings.NewReader(`{}`))
+	rec = httptest.NewRecorder()
+	engine.ServeHTTP(rec, req)
+	disabledAfter := testutil.ToFloat64(metrics.RelayRouteDecisionsTotal.WithLabelValues(
+		string(DisabledInProduction),
+		types.APITypeFiles.String(),
+		string(RouteAuditResultRejected),
+		"endpoint_disabled_in_production",
+	))
+	if disabledAfter != disabledBefore+1 {
+		t.Fatalf("expected disabled route decision metric increment, before=%v after=%v", disabledBefore, disabledAfter)
+	}
+}
+
+func TestRoutePolicyObservabilityWritesStructuredDecisionEvent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var output bytes.Buffer
+	restoreLogger := setObservabilityLoggerForTest(observability.NewJSONLogger(&output))
+	defer restoreLogger()
+
+	chatHandler := &countingHandler{}
+	engine := gin.New()
+	RegisterRoutesWithOptions(engine, map[types.APIType]types.Handler{
+		types.APITypeChat: chatHandler,
+	}, RouteRegistrationOptions{Production: true})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions?api_key=sk-secret", strings.NewReader(`{"prompt":"secret"}`))
+	addTrustedRelayHeaders(req)
+	req.Header.Set(types.HeaderRequestID, "req_obs_1")
+	rec := httptest.NewRecorder()
+
+	engine.ServeHTTP(rec, req)
+
+	var record map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(output.Bytes()), &record); err != nil {
+		t.Fatalf("expected structured relay JSON log, got error: %v\n%s", err, output.String())
+	}
+	if record["event"] != "relay.route_decision" {
+		t.Fatalf("expected relay.route_decision event, got %#v", record["event"])
+	}
+	if record["request_id"] != "req_obs_1" {
+		t.Fatalf("expected request id req_obs_1, got %#v", record["request_id"])
+	}
+	if record["organization_id"] != "org_1" || record["user_id"] != "user_1" {
+		t.Fatalf("expected trusted identity in relay event, got %#v", record)
+	}
+	if record["relay_route_class"] != string(CommercialSupportedBilled) {
+		t.Fatalf("expected relay route class, got %#v", record["relay_route_class"])
+	}
+	if record["relay_api_type"] != types.APITypeChat.String() {
+		t.Fatalf("expected relay api type, got %#v", record["relay_api_type"])
+	}
+	if record["billing_policy"] != string(BillingPolicyUsageSettlement) {
+		t.Fatalf("expected billing policy, got %#v", record["billing_policy"])
+	}
+	forbiddenText := output.String()
+	for _, forbidden := range []string{"sk-secret", "secret", "api_key", "prompt"} {
+		if strings.Contains(forbiddenText, forbidden) {
+			t.Fatalf("relay event leaked forbidden text %q: %s", forbidden, forbiddenText)
+		}
 	}
 }
 

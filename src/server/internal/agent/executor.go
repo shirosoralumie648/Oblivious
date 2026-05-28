@@ -59,6 +59,12 @@ func (e *ToolExecutor) executeBuiltin(ctx context.Context, toolCall *ToolCall) (
 	if !ok {
 		return nil, fmt.Errorf("builtin tool not found: %s", toolCall.Name)
 	}
+	if !mcp.IsDefaultCommercialBuiltin(toolCall.Name) {
+		return &ExecuteResult{
+			Content: fmt.Sprintf("builtin tool %s is disabled for default commercial use", toolCall.Name),
+			IsError: true,
+		}, nil
+	}
 
 	result, err := tool.Execute(ctx, toolCall.Arguments)
 	if err != nil {
@@ -114,6 +120,9 @@ func (e *ToolExecutor) GetToolDefinitions(ctx context.Context, agent *Agent) ([]
 		// 获取 InputSchema
 		switch t.Type {
 		case "builtin":
+			if !mcp.IsDefaultCommercialBuiltin(t.Name) {
+				continue
+			}
 			if builtin, ok := e.builtinTools[t.Name]; ok {
 				def.InputSchema = builtin.InputSchema()
 				if def.Description == "" {

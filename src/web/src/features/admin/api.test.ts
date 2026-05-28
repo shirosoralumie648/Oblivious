@@ -52,4 +52,29 @@ describe('createAdminApi', () => {
       action: 'disable',
     });
   });
+
+  it('exposes admin billing summary and list surfaces', async () => {
+    const get = vi
+      .fn()
+      .mockResolvedValueOnce({ billingSessions: { count: 1, settledAmount: 4.5 } })
+      .mockResolvedValueOnce({ sessions: [{ id: 'bs_1', status: 'settled' }], total: 1 })
+      .mockResolvedValueOnce({ paymentIntents: [{ id: 'pi_1', kind: 'subscription' }], total: 1 });
+    const api = createAdminApi(createClient({ get }));
+
+    await expect(api.getBillingSummary({ organizationID: 'org_1' })).resolves.toEqual({
+      billingSessions: { count: 1, settledAmount: 4.5 },
+    });
+    await expect(api.listBillingSurface('sessions', { status: 'settled', limit: 10 })).resolves.toEqual({
+      data: [{ id: 'bs_1', status: 'settled' }],
+      total: 1,
+    });
+    await expect(api.listBillingSurface('paymentIntents', { kind: 'subscription' })).resolves.toEqual({
+      data: [{ id: 'pi_1', kind: 'subscription' }],
+      total: 1,
+    });
+
+    expect(get).toHaveBeenNthCalledWith(1, '/api/v1/admin/billing/summary?organizationID=org_1');
+    expect(get).toHaveBeenNthCalledWith(2, '/api/v1/admin/billing/sessions?status=settled&limit=10');
+    expect(get).toHaveBeenNthCalledWith(3, '/api/v1/admin/billing/payment-intents?kind=subscription');
+  });
 });

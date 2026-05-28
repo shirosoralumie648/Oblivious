@@ -16,31 +16,52 @@ type MyAgentsState = {
   installs: AgentInstall[];
   loading: boolean;
   error: string | null;
+  actionError: { title: string; message?: string } | null;
+  uninstallingID: string | null;
 };
 
 type Action =
   | { type: 'LOAD_START' }
   | { type: 'LOAD_SUCCESS'; myAgents: MarketplaceAgent[]; installs: AgentInstall[] }
-  | { type: 'LOAD_ERROR'; error: string };
+  | { type: 'LOAD_ERROR'; error: string }
+  | { type: 'SET_ACTION_ERROR'; title: string; message?: string }
+  | { type: 'SET_UNINSTALLING'; installID: string | null };
 
 const initialState: MyAgentsState = {
   myAgents: [],
   installs: [],
   loading: true,
   error: null,
+  actionError: null,
+  uninstallingID: null,
 };
 
 function reducer(state: MyAgentsState, action: Action): MyAgentsState {
   switch (action.type) {
     case 'LOAD_START':
-      return { ...state, loading: true, error: null };
+      return { ...state, loading: true, error: null, actionError: null };
     case 'LOAD_SUCCESS':
-      return { ...state, loading: false, error: null, myAgents: action.myAgents, installs: action.installs };
+      return { ...state, actionError: null, loading: false, error: null, myAgents: action.myAgents, installs: action.installs };
     case 'LOAD_ERROR':
       return { ...state, loading: false, error: action.error };
+    case 'SET_ACTION_ERROR':
+      return { ...state, actionError: { title: action.title, message: action.message } };
+    case 'SET_UNINSTALLING':
+      return { ...state, actionError: action.installID ? null : state.actionError, uninstallingID: action.installID };
     default:
       return state;
   }
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim() !== '') {
+    return error.message;
+  }
+  if (typeof error === 'string' && error.trim() !== '') {
+    return error;
+  }
+
+  return fallback;
 }
 
 function publishedStatus(agent: MarketplaceAgent): { status: StatusBadgeStatus; label?: string } {
@@ -75,8 +96,19 @@ export function MarketplaceMyAgentsPage() {
   }, [loadAgents]);
 
   const handleUninstall = async (install: AgentInstall) => {
-    await api.uninstallAgent(install.id);
-    await loadAgents();
+    dispatch({ type: 'SET_UNINSTALLING', installID: install.id });
+    try {
+      await api.uninstallAgent(install.id);
+      await loadAgents();
+    } catch (error) {
+      dispatch({
+        type: 'SET_ACTION_ERROR',
+        title: 'Unable to uninstall agent.',
+        message: getErrorMessage(error, 'Retry after pending marketplace settlement state clears.'),
+      });
+    } finally {
+      dispatch({ type: 'SET_UNINSTALLING', installID: null });
+    }
   };
 
   const publishedColumns: DataTableColumn<MarketplaceAgent>[] = [
@@ -112,6 +144,12 @@ export function MarketplaceMyAgentsPage() {
       </div>
 
       {state.error ? <div role="alert" className="rounded-lg border border-destructive/30 bg-card p-6 text-sm text-destructive">{state.error}</div> : null}
+      {state.actionError ? (
+        <div role="alert" className="rounded-lg border border-destructive/30 bg-card p-6 text-sm text-destructive">
+          <p>{state.actionError.title}</p>
+          {state.actionError.message ? <p>{state.actionError.message}</p> : null}
+        </div>
+      ) : null}
 
       <section className="space-y-4">
         <h2 className="font-heading text-xl font-semibold text-foreground">Published Agents</h2>
@@ -140,7 +178,14 @@ export function MarketplaceMyAgentsPage() {
           error={null}
           emptyMessage="No installed agents -- Install agents from the marketplace to use them in your workspace."
           renderActions={(install) => (
-            <Button type="button" variant="ghost" size="icon" aria-label={`Uninstall ${install.agentName ?? install.agentID ?? install.id}`} onClick={() => void handleUninstall(install)}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label={`Uninstall ${install.agentName ?? install.agentID ?? install.id}`}
+              disabled={state.uninstallingID === install.id}
+              onClick={() => void handleUninstall(install)}
+            >
               <RiDeleteBinLine className="size-4" aria-hidden="true" />
             </Button>
           )}

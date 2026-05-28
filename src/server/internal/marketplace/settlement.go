@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"oblivious/server/internal/metrics"
+	"oblivious/server/internal/observability"
 )
 
 const (
@@ -24,15 +26,21 @@ func NewSettlementService(store *SQLStore) *SettlementService {
 }
 
 func (s *SettlementService) CreatePaidInstallCheckout(ctx context.Context, input PaidInstallCheckoutRequest) (*MarketplaceOrder, error) {
+	ctx, span := observability.StartSpan(ctx, "marketplace.paid_install_checkout")
+	defer span.End()
+
 	if s == nil || s.store == nil || s.store.db == nil {
+		metrics.RecordMarketplaceSettlementEvent("paid_install_checkout", "failed")
 		return nil, fmt.Errorf("create paid install checkout: store is required")
 	}
 	if input.BuyerOrganizationID == "" || input.BuyerUserID == "" || input.AgentID == "" {
+		metrics.RecordMarketplaceSettlementEvent("paid_install_checkout", "failed")
 		return nil, fmt.Errorf("create paid install checkout: buyer organization, buyer user, and agent are required")
 	}
 
 	tx, err := s.store.db.BeginTx(ctx, nil)
 	if err != nil {
+		metrics.RecordMarketplaceSettlementEvent("paid_install_checkout", "failed")
 		return nil, fmt.Errorf("create paid install checkout: begin tx: %w", err)
 	}
 	defer tx.Rollback()
@@ -56,14 +64,18 @@ func (s *SettlementService) CreatePaidInstallCheckout(ctx context.Context, input
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
+			metrics.RecordMarketplaceSettlementEvent("paid_install_checkout", "failed")
 			return nil, fmt.Errorf("create paid install checkout: agent not found")
 		}
+		metrics.RecordMarketplaceSettlementEvent("paid_install_checkout", "failed")
 		return nil, fmt.Errorf("create paid install checkout: load agent: %w", err)
 	}
 	if agent.Status != "approved" || agent.Visibility != "public" {
+		metrics.RecordMarketplaceSettlementEvent("paid_install_checkout", "failed")
 		return nil, fmt.Errorf("create paid install checkout: only approved public agents can be installed")
 	}
 	if agent.PricingType == "free" || agent.PricingAmount <= 0 {
+		metrics.RecordMarketplaceSettlementEvent("paid_install_checkout", "failed")
 		return nil, fmt.Errorf("create paid install checkout: agent is not paid")
 	}
 
@@ -88,6 +100,7 @@ func (s *SettlementService) CreatePaidInstallCheckout(ctx context.Context, input
 	}
 	encodedMetadata, err := json.Marshal(metadata)
 	if err != nil {
+		metrics.RecordMarketplaceSettlementEvent("paid_install_checkout", "failed")
 		return nil, fmt.Errorf("create paid install checkout: marshal metadata: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
@@ -97,6 +110,7 @@ func (s *SettlementService) CreatePaidInstallCheckout(ctx context.Context, input
 		)
 		VALUES ($1, 'stripe', $2, $3, NULL, 'marketplace_install', $4, 'usd', 'pending', $5, $6, $6)
 	`, paymentIntentID, input.BuyerOrganizationID, input.BuyerUserID, gross, encodedMetadata, now); err != nil {
+		metrics.RecordMarketplaceSettlementEvent("paid_install_checkout", "failed")
 		return nil, fmt.Errorf("create paid install checkout: insert payment intent: %w", err)
 	}
 
@@ -110,38 +124,50 @@ func (s *SettlementService) CreatePaidInstallCheckout(ctx context.Context, input
 	`, orderID, input.BuyerOrganizationID, input.BuyerUserID, agent.OrganizationID, agent.OwnerID,
 		agent.ID, orderVersionID, paymentIntentID, gross, platformFee, publisherNet, now)
 	if err != nil {
+		metrics.RecordMarketplaceSettlementEvent("paid_install_checkout", "failed")
 		return nil, fmt.Errorf("create paid install checkout: insert order: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
+		metrics.RecordMarketplaceSettlementEvent("paid_install_checkout", "failed")
 		return nil, fmt.Errorf("create paid install checkout: commit: %w", err)
 	}
+	metrics.RecordMarketplaceSettlementEvent("paid_install_checkout", "pending_payment")
 	return s.loadOrder(ctx, orderID)
 }
 
 func (s *SettlementService) ApplyPaidInstallCheckoutCompleted(ctx context.Context, input PaidInstallCheckoutCompleted) (*MarketplaceSettlement, error) {
+	ctx, span := observability.StartSpan(ctx, "marketplace.paid_install_completed")
+	defer span.End()
+
 	if input.EventID == "" || input.PaymentIntentID == "" {
+		metrics.RecordMarketplaceSettlementEvent("paid_install", "failed")
 		return nil, fmt.Errorf("apply paid install checkout: event id and payment intent id are required")
 	}
 	tx, err := s.store.db.BeginTx(ctx, nil)
 	if err != nil {
+		metrics.RecordMarketplaceSettlementEvent("paid_install", "failed")
 		return nil, fmt.Errorf("apply paid install checkout: begin tx: %w", err)
 	}
 	defer tx.Rollback()
 
 	order, err := s.loadOrderForUpdate(ctx, tx, input.OrderID, input.PaymentIntentID)
 	if err != nil {
+		metrics.RecordMarketplaceSettlementEvent("paid_install", "failed")
 		return nil, err
 	}
 	transitionKey := fmt.Sprintf("stripe:%s:marketplace_checkout:%s", input.EventID, order.PaymentIntentID)
 	inserted, err := insertMarketplaceLifecycleTransition(ctx, tx, transitionKey, input.EventID, "checkout.session.completed", order.BuyerOrganizationID, order.BuyerUserID, order.PaymentIntentID, "marketplace_order", order.ID, "paid")
 	if err != nil {
+		metrics.RecordMarketplaceSettlementEvent("paid_install", "failed")
 		return nil, err
 	}
 	if !inserted {
 		if err := tx.Commit(); err != nil {
+			metrics.RecordMarketplaceSettlementEvent("paid_install", "failed")
 			return nil, fmt.Errorf("apply paid install checkout: commit duplicate: %w", err)
 		}
+		metrics.RecordMarketplaceSettlementEvent("paid_install", "duplicate")
 		return s.loadSettlementByOrder(ctx, order.ID)
 	}
 
@@ -154,6 +180,7 @@ func (s *SettlementService) ApplyPaidInstallCheckoutCompleted(ctx context.Contex
 		    updated_at = $4
 		WHERE id = $1
 	`, order.PaymentIntentID, input.ProviderCheckoutSessionID, input.ProviderPaymentIntentID, now); err != nil {
+		metrics.RecordMarketplaceSettlementEvent("paid_install", "failed")
 		return nil, fmt.Errorf("apply paid install checkout: complete payment intent: %w", err)
 	}
 
@@ -164,10 +191,12 @@ func (s *SettlementService) ApplyPaidInstallCheckoutCompleted(ctx context.Contex
 		ON CONFLICT (organization_id, agent_id, user_id) DO NOTHING
 	`, installID, order.AgentID, order.BuyerUserID, order.BuyerOrganizationID, order.VersionID, now)
 	if err != nil {
+		metrics.RecordMarketplaceSettlementEvent("paid_install", "failed")
 		return nil, fmt.Errorf("apply paid install checkout: insert install: %w", err)
 	}
 	rows, err := result.RowsAffected()
 	if err != nil {
+		metrics.RecordMarketplaceSettlementEvent("paid_install", "failed")
 		return nil, fmt.Errorf("apply paid install checkout: install rows affected: %w", err)
 	}
 	if rows == 0 {
@@ -175,9 +204,11 @@ func (s *SettlementService) ApplyPaidInstallCheckoutCompleted(ctx context.Contex
 			SELECT id FROM agent_installs
 			WHERE organization_id = $1 AND agent_id = $2 AND user_id = $3
 		`, order.BuyerOrganizationID, order.AgentID, order.BuyerUserID).Scan(&installID); err != nil {
+			metrics.RecordMarketplaceSettlementEvent("paid_install", "failed")
 			return nil, fmt.Errorf("apply paid install checkout: find existing install: %w", err)
 		}
 	} else if _, err := tx.ExecContext(ctx, `UPDATE published_agents SET install_count = install_count + 1 WHERE id = $1`, order.AgentID); err != nil {
+		metrics.RecordMarketplaceSettlementEvent("paid_install", "failed")
 		return nil, fmt.Errorf("apply paid install checkout: update install count: %w", err)
 	}
 
@@ -191,6 +222,7 @@ func (s *SettlementService) ApplyPaidInstallCheckoutCompleted(ctx context.Contex
 		    updated_at = $5
 		WHERE id = $1
 	`, order.ID, input.ProviderCheckoutSessionID, input.ProviderPaymentIntentID, installID, now); err != nil {
+		metrics.RecordMarketplaceSettlementEvent("paid_install", "failed")
 		return nil, fmt.Errorf("apply paid install checkout: mark order paid: %w", err)
 	}
 
@@ -205,34 +237,45 @@ func (s *SettlementService) ApplyPaidInstallCheckoutCompleted(ctx context.Contex
 		ON CONFLICT (order_id) DO NOTHING
 	`, settlementID, order.ID, order.PublisherOrganizationID, order.PublisherUserID, order.AgentID,
 		order.GrossAmount, order.PlatformFeeAmount, order.PublisherNetAmount, now.Add(7*24*time.Hour), now); err != nil {
+		metrics.RecordMarketplaceSettlementEvent("paid_install", "failed")
 		return nil, fmt.Errorf("apply paid install checkout: insert settlement: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
+		metrics.RecordMarketplaceSettlementEvent("paid_install", "failed")
 		return nil, fmt.Errorf("apply paid install checkout: commit: %w", err)
 	}
+	metrics.RecordMarketplaceSettlementEvent("paid_install", "paid")
 	return s.loadSettlementByOrder(ctx, order.ID)
 }
 
 func (s *SettlementService) ApplyMarketplaceRefund(ctx context.Context, input MarketplaceRefund) error {
+	ctx, span := observability.StartSpan(ctx, "marketplace.refund")
+	defer span.End()
+
 	if input.EventID == "" || input.ProviderRefundID == "" || input.Amount <= 0 {
+		metrics.RecordMarketplaceSettlementEvent("refund", "failed")
 		return fmt.Errorf("apply marketplace refund: event id, refund id, and positive amount are required")
 	}
 	tx, err := s.store.db.BeginTx(ctx, nil)
 	if err != nil {
+		metrics.RecordMarketplaceSettlementEvent("refund", "failed")
 		return fmt.Errorf("apply marketplace refund: begin tx: %w", err)
 	}
 	defer tx.Rollback()
 
 	order, err := s.loadOrderForRefund(ctx, tx, input.PaymentIntentID, input.ProviderPaymentIntentID)
 	if err != nil {
+		metrics.RecordMarketplaceSettlementEvent("refund", "failed")
 		return err
 	}
 	transitionKey := fmt.Sprintf("stripe:%s:marketplace_refund:%s", input.EventID, input.ProviderRefundID)
 	inserted, err := insertMarketplaceLifecycleTransition(ctx, tx, transitionKey, input.EventID, "refund.created", order.BuyerOrganizationID, order.BuyerUserID, order.PaymentIntentID, "marketplace_refund", input.ProviderRefundID, "succeeded")
 	if err != nil {
+		metrics.RecordMarketplaceSettlementEvent("refund", "failed")
 		return err
 	}
 	if !inserted {
+		metrics.RecordMarketplaceSettlementEvent("refund", "duplicate")
 		return tx.Commit()
 	}
 
@@ -252,6 +295,7 @@ func (s *SettlementService) ApplyMarketplaceRefund(ctx context.Context, input Ma
 		SET status = $2, refunded_amount = $3, updated_at = $4
 		WHERE id = $1
 	`, order.PaymentIntentID, orderStatus, refundedTotal, now); err != nil {
+		metrics.RecordMarketplaceSettlementEvent("refund", "failed")
 		return fmt.Errorf("apply marketplace refund: update payment intent: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
@@ -259,6 +303,7 @@ func (s *SettlementService) ApplyMarketplaceRefund(ctx context.Context, input Ma
 		SET status = $2, refunded_amount = $3, updated_at = $4
 		WHERE id = $1
 	`, order.ID, orderStatus, refundedTotal, now); err != nil {
+		metrics.RecordMarketplaceSettlementEvent("refund", "failed")
 		return fmt.Errorf("apply marketplace refund: update order: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
@@ -266,17 +311,28 @@ func (s *SettlementService) ApplyMarketplaceRefund(ctx context.Context, input Ma
 		SET status = $2, refunded_amount = $3, updated_at = $4
 		WHERE order_id = $1
 	`, order.ID, settlementStatus, refundedTotal, now); err != nil {
+		metrics.RecordMarketplaceSettlementEvent("refund", "failed")
 		return fmt.Errorf("apply marketplace refund: update settlement: %w", err)
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		metrics.RecordMarketplaceSettlementEvent("refund", "failed")
+		return err
+	}
+	metrics.RecordMarketplaceSettlementEvent("refund", settlementStatus)
+	return nil
 }
 
 func (s *SettlementService) MarkSettlementPayoutPending(ctx context.Context, settlementID string, providerPayoutID string) (*MarketplacePayout, error) {
+	ctx, span := observability.StartSpan(ctx, "marketplace.payout_pending")
+	defer span.End()
+
 	if settlementID == "" {
+		metrics.RecordMarketplaceSettlementEvent("payout", "failed")
 		return nil, fmt.Errorf("mark payout pending: settlement id is required")
 	}
 	tx, err := s.store.db.BeginTx(ctx, nil)
 	if err != nil {
+		metrics.RecordMarketplaceSettlementEvent("payout", "failed")
 		return nil, fmt.Errorf("mark payout pending: begin tx: %w", err)
 	}
 	defer tx.Rollback()
@@ -292,6 +348,7 @@ func (s *SettlementService) MarkSettlementPayoutPending(ctx context.Context, set
 	`, settlementID).Scan(&settlement.ID, &settlement.OrderID, &settlement.PublisherOrganizationID, &settlement.PublisherUserID,
 		&settlement.AgentID, &settlement.GrossAmount, &settlement.PlatformFeeAmount, &settlement.PublisherNetAmount,
 		&settlement.RefundedAmount, &settlement.PayoutID, &settlement.Status, &settlement.CreatedAt, &settlement.UpdatedAt); err != nil {
+		metrics.RecordMarketplaceSettlementEvent("payout", "failed")
 		return nil, fmt.Errorf("mark payout pending: load settlement: %w", err)
 	}
 
@@ -308,6 +365,7 @@ func (s *SettlementService) MarkSettlementPayoutPending(ctx context.Context, set
 		)
 		VALUES ($1, $2, $3, $4, 'usd', 'local', NULLIF($5, ''), 'payout_pending', '{}', $6, $6)
 	`, payoutID, settlement.PublisherOrganizationID, settlement.PublisherUserID, amount, providerPayoutID, now); err != nil {
+		metrics.RecordMarketplaceSettlementEvent("payout", "failed")
 		return nil, fmt.Errorf("mark payout pending: insert payout: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
@@ -315,11 +373,14 @@ func (s *SettlementService) MarkSettlementPayoutPending(ctx context.Context, set
 		SET payout_id = $2, status = 'payout_pending', updated_at = $3
 		WHERE id = $1
 	`, settlement.ID, payoutID, now); err != nil {
+		metrics.RecordMarketplaceSettlementEvent("payout", "failed")
 		return nil, fmt.Errorf("mark payout pending: update settlement: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
+		metrics.RecordMarketplaceSettlementEvent("payout", "failed")
 		return nil, fmt.Errorf("mark payout pending: commit: %w", err)
 	}
+	metrics.RecordMarketplaceSettlementEvent("payout", "payout_pending")
 	return s.loadPayout(ctx, payoutID)
 }
 

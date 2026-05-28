@@ -62,6 +62,14 @@ const agent = {
   updatedAt: '2026-01-02T00:00:00Z',
 };
 
+const paidAgent = {
+  ...agent,
+  id: 'agent_paid',
+  name: 'Paid Research Agent',
+  pricingType: 'one_time' as const,
+  pricingAmount: 19,
+};
+
 function resetMarketplaceMocks() {
   searchAgents.mockReset();
   getCategories.mockReset();
@@ -118,6 +126,42 @@ describe('Marketplace pages', () => {
     await waitFor(() => expect(installAgent).toHaveBeenCalledWith('agent_1', 'ver_1'));
   });
 
+  it('describes paid install settlement boundaries on the detail page', async () => {
+    getAgent.mockResolvedValue(paidAgent);
+
+    renderRoute(<MarketplaceAgentDetailPage />, '/marketplace/agents/:agentId', '/marketplace/agents/agent_paid');
+
+    expect(await screen.findByRole('heading', { name: 'Paid Research Agent' })).toBeInTheDocument();
+    expect(screen.getByText('Paid installs create a checkout-backed marketplace order before workspace installation.')).toBeInTheDocument();
+  });
+
+  it('surfaces install failures without showing installed success', async () => {
+    installAgent.mockRejectedValue(new Error('checkout session rejected'));
+
+    renderRoute(<MarketplaceAgentDetailPage />, '/marketplace/agents/:agentId', '/marketplace/agents/agent_1');
+
+    expect(await screen.findByRole('heading', { name: 'Research Agent' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Install Agent' }));
+
+    expect(await screen.findByText('Unable to install agent.')).toBeInTheDocument();
+    expect(screen.getByText('checkout session rejected')).toBeInTheDocument();
+    expect(screen.queryByText('Agent installed.')).not.toBeInTheDocument();
+  });
+
+  it('surfaces review failures and keeps review text', async () => {
+    submitReview.mockRejectedValue(new Error('review moderation queue unavailable'));
+
+    renderRoute(<MarketplaceAgentDetailPage />, '/marketplace/agents/:agentId', '/marketplace/agents/agent_1');
+
+    expect(await screen.findByRole('heading', { name: 'Research Agent' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Review text'), { target: { value: 'Useful for launch research.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Submit Review' }));
+
+    expect(await screen.findByText('Unable to submit review.')).toBeInTheDocument();
+    expect(screen.getByText('review moderation queue unavailable')).toBeInTheDocument();
+    expect(screen.getByLabelText('Review text')).toHaveValue('Useful for launch research.');
+  });
+
   it('submits a publish payload', async () => {
     const router = createMemoryRouter(
       [
@@ -137,6 +181,22 @@ describe('Marketplace pages', () => {
     await waitFor(() => expect(publishAgent).toHaveBeenCalledWith(expect.objectContaining({ name: 'Research Agent', version: '1.0.0' })));
   });
 
+  it('describes review and settlement boundaries for paid publisher submissions', async () => {
+    renderRoute(<MarketplacePublishPage />);
+
+    fireEvent.change(await screen.findByLabelText('Name'), { target: { value: 'Paid Research Agent' } });
+    fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Helps with paid research workflows' } });
+    fireEvent.change(screen.getByLabelText('Tools'), { target: { value: '[{"name":"search"}]' } });
+    fireEvent.change(screen.getByLabelText('Example Conversations'), { target: { value: 'Example' } });
+    fireEvent.change(screen.getByLabelText('Pricing'), { target: { value: 'one_time' } });
+    fireEvent.change(screen.getByLabelText('Price'), { target: { value: '19' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Publish Agent' }));
+
+    expect(
+      await screen.findByText('Agent submitted for review. Paid installs remain checkout-backed until approval and settlement evidence exist.')
+    ).toBeInTheDocument();
+  });
+
   it('renders my agents and uninstalls installed agents', async () => {
     renderRoute(<MarketplaceMyAgentsPage />);
 
@@ -145,5 +205,19 @@ describe('Marketplace pages', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Uninstall Research Agent' }));
 
     await waitFor(() => expect(uninstallAgent).toHaveBeenCalledWith('install_1'));
+  });
+
+  it('surfaces uninstall failures on my agents', async () => {
+    uninstallAgent.mockRejectedValue(new Error('install settlement still pending'));
+
+    renderRoute(<MarketplaceMyAgentsPage />);
+
+    expect(await screen.findByRole('heading', { name: 'My Agents' })).toBeInTheDocument();
+    expect(await screen.findAllByText('Research Agent')).toHaveLength(2);
+    fireEvent.click(screen.getByRole('button', { name: 'Uninstall Research Agent' }));
+
+    expect(await screen.findByText('Unable to uninstall agent.')).toBeInTheDocument();
+    expect(screen.getByText('install settlement still pending')).toBeInTheDocument();
+    expect(screen.getAllByText('Research Agent')).toHaveLength(2);
   });
 });

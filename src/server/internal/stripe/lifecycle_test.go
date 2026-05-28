@@ -9,8 +9,58 @@ import (
 	"testing"
 
 	_ "github.com/lib/pq"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	stripeapi "github.com/stripe/stripe-go/v83"
+	"oblivious/server/internal/metrics"
 )
+
+type fakeLifecycleStore struct{}
+
+func (fakeLifecycleStore) ApplyCheckoutCompleted(context.Context, string, checkoutCompletedLifecycle, []byte) error {
+	return nil
+}
+func (fakeLifecycleStore) ApplyInvoicePaid(context.Context, string, invoiceLifecycle, []byte) error {
+	return nil
+}
+func (fakeLifecycleStore) ApplyInvoicePaymentFailed(context.Context, string, invoiceLifecycle, []byte) error {
+	return nil
+}
+func (fakeLifecycleStore) ApplySubscriptionUpdated(context.Context, string, subscriptionLifecycle, []byte) error {
+	return nil
+}
+func (fakeLifecycleStore) ApplySubscriptionDeleted(context.Context, string, subscriptionLifecycle, []byte) error {
+	return nil
+}
+func (fakeLifecycleStore) ApplyRefund(context.Context, string, refundLifecycle, []byte) error {
+	return nil
+}
+
+func TestLifecycleObservabilityRecordsCheckoutCompleted(t *testing.T) {
+	service := NewLifecycleService(fakeLifecycleStore{})
+	event := lifecycleCheckoutCompletedEvent("evt_obs_checkout", map[string]string{
+		"organization_id":   "org_obs",
+		"user_id":           "user_obs",
+		"payment_intent_id": "pi_obs",
+		"plan_id":           "pkg_obs",
+		"checkout_kind":     "subscription",
+	}, map[string]string{
+		"id":             "cs_obs",
+		"payment_intent": "pi_provider_obs",
+		"subscription":   "sub_provider_obs",
+		"customer":       "cus_obs",
+		"amount_total":   "2900",
+		"currency":       "usd",
+	})
+
+	before := testutil.ToFloat64(metrics.BillingLifecycleEventsTotal.WithLabelValues("checkout", "completed"))
+	if err := service.ApplyStripeEvent(context.Background(), event, []byte(`{"id":"evt_obs_checkout","api_key":"sk-secret"}`)); err != nil {
+		t.Fatalf("ApplyStripeEvent returned error: %v", err)
+	}
+	after := testutil.ToFloat64(metrics.BillingLifecycleEventsTotal.WithLabelValues("checkout", "completed"))
+	if after != before+1 {
+		t.Fatalf("expected checkout lifecycle metric increment, before=%v after=%v", before, after)
+	}
+}
 
 func TestLifecycleApplyCheckoutSessionCompletedCreatesSubscriptionOnce(t *testing.T) {
 	database := lifecycleTestDB(t)

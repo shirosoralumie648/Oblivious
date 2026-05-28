@@ -1,5 +1,14 @@
-import { useCallback, useEffect, useMemo, useReducer } from 'react';
-import { RiBarChartLine, RiRobot2Line, RiRouterLine, RiUserLine } from '@remixicon/react';
+import { useCallback, useEffect, useMemo, useReducer, type ReactNode } from 'react';
+import {
+  RiBarChartLine,
+  RiFileListLine,
+  RiGitBranchLine,
+  RiMoneyDollarCircleLine,
+  RiRobot2Line,
+  RiRouterLine,
+  RiShieldCheckLine,
+  RiUserLine,
+} from '@remixicon/react';
 
 import { createAdminApi } from '../../features/admin/api';
 import { EmptyState } from '../../components/shared/EmptyState';
@@ -11,6 +20,13 @@ import type { AdminStats } from '../../types/admin';
 type ChartPoint = {
   label: string;
   value: number;
+};
+
+type CommercialOperation = {
+  label: string;
+  href: string;
+  description: string;
+  icon: ReactNode;
 };
 
 type State = {
@@ -33,6 +49,51 @@ const initialState: State = {
   loading: true,
   error: null,
 };
+
+const commercialOperations: CommercialOperation[] = [
+  {
+    label: 'Channels',
+    href: '/admin/channels',
+    description: 'Relay provider health and failover inputs.',
+    icon: <RiRouterLine className="size-4" aria-hidden="true" />,
+  },
+  {
+    label: 'Routes',
+    href: '/admin/routes',
+    description: 'Model routing policy and channel weights.',
+    icon: <RiGitBranchLine className="size-4" aria-hidden="true" />,
+  },
+  {
+    label: 'Plans',
+    href: '/admin/plans',
+    description: 'Commercial package, quota, and access rules.',
+    icon: <RiMoneyDollarCircleLine className="size-4" aria-hidden="true" />,
+  },
+  {
+    label: 'Billing',
+    href: '/admin/billing',
+    description: 'Sessions, payments, invoices, refunds, settlements, and payouts.',
+    icon: <RiMoneyDollarCircleLine className="size-4" aria-hidden="true" />,
+  },
+  {
+    label: 'Users',
+    href: '/admin/users',
+    description: 'Accounts, roles, status, and package assignment.',
+    icon: <RiUserLine className="size-4" aria-hidden="true" />,
+  },
+  {
+    label: 'Audit Log',
+    href: '/admin/audit-log',
+    description: 'Administrative and commercial governance events.',
+    icon: <RiFileListLine className="size-4" aria-hidden="true" />,
+  },
+  {
+    label: 'Review Queue',
+    href: '/admin/reviews',
+    description: 'Marketplace approval, rejection, and governance workflow.',
+    icon: <RiShieldCheckLine className="size-4" aria-hidden="true" />,
+  },
+];
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
@@ -176,6 +237,28 @@ export function AdminHomePage() {
         <StatChart title="API Call Volume (7 days)" data={state.apiCallsData} type="bar" />
         <StatChart title="Channel Uptime" data={state.uptimeData} type="bar" />
       </div>
+
+      <section className="space-y-4" aria-labelledby="commercial-operations-heading">
+        <div className="space-y-1">
+          <h2 id="commercial-operations-heading" className="font-heading text-xl font-semibold text-foreground">Commercial operations</h2>
+          <p className="text-sm text-muted-foreground">Routed modules required to operate Relay, billing, users, audit, and Marketplace review.</p>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {commercialOperations.map((operation) => (
+            <a
+              key={operation.href}
+              href={operation.href}
+              className="flex min-h-[92px] gap-3 rounded-lg border border-border bg-card p-4 text-left transition-colors hover:border-primary/50 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">{operation.icon}</span>
+              <span className="min-w-0 space-y-1">
+                <span className="block text-sm font-medium text-foreground">{operation.label}</span>
+                <span className="block text-xs leading-5 text-muted-foreground">{operation.description}</span>
+              </span>
+            </a>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }

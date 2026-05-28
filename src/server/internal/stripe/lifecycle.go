@@ -9,6 +9,8 @@ import (
 
 	"github.com/google/uuid"
 	stripeapi "github.com/stripe/stripe-go/v83"
+	"oblivious/server/internal/metrics"
+	"oblivious/server/internal/observability"
 )
 
 // LifecycleService applies verified provider events to local billing state.
@@ -67,6 +69,9 @@ func NewLifecycleService(store LifecycleStore, options ...LifecycleOption) *Life
 }
 
 func (s *LifecycleService) ApplyStripeEvent(ctx context.Context, event stripeapi.Event, payload []byte) error {
+	ctx, span := observability.StartSpan(ctx, "billing.lifecycle", observability.String("stripe.event_type", string(event.Type)))
+	defer span.End()
+
 	if s == nil || s.store == nil {
 		return nil
 	}
@@ -78,41 +83,72 @@ func (s *LifecycleService) ApplyStripeEvent(ctx context.Context, event stripeapi
 		}
 		if input.Kind == "marketplace_install" {
 			if s.marketplaceApplier == nil {
+				metrics.RecordBillingLifecycleEvent("checkout", "failed")
 				return fmt.Errorf("checkout.session.completed: marketplace settlement applier is not configured")
 			}
-			return s.marketplaceApplier.ApplyPaidInstallCheckoutCompleted(ctx, MarketplaceCheckoutCompleted{
+			if err := s.marketplaceApplier.ApplyPaidInstallCheckoutCompleted(ctx, MarketplaceCheckoutCompleted{
 				EventID:                   event.ID,
 				OrderID:                   input.MarketplaceOrderID,
 				PaymentIntentID:           input.PaymentIntentID,
 				ProviderCheckoutSessionID: input.ProviderCheckoutSessionID,
 				ProviderPaymentIntentID:   input.ProviderPaymentIntentID,
-			})
+			}); err != nil {
+				metrics.RecordBillingLifecycleEvent("checkout", "failed")
+				return err
+			}
+			metrics.RecordBillingLifecycleEvent("checkout", "completed")
+			return nil
 		}
-		return s.store.ApplyCheckoutCompleted(ctx, event.ID, input, payload)
+		if err := s.store.ApplyCheckoutCompleted(ctx, event.ID, input, payload); err != nil {
+			metrics.RecordBillingLifecycleEvent("checkout", "failed")
+			return err
+		}
+		metrics.RecordBillingLifecycleEvent("checkout", "completed")
+		return nil
 	case "invoice.paid":
 		input, err := parseInvoiceLifecycle(event)
 		if err != nil {
 			return err
 		}
-		return s.store.ApplyInvoicePaid(ctx, event.ID, input, payload)
+		if err := s.store.ApplyInvoicePaid(ctx, event.ID, input, payload); err != nil {
+			metrics.RecordBillingLifecycleEvent("invoice", "failed")
+			return err
+		}
+		metrics.RecordBillingLifecycleEvent("invoice", "paid")
+		return nil
 	case "invoice.payment_failed":
 		input, err := parseInvoiceLifecycle(event)
 		if err != nil {
 			return err
 		}
-		return s.store.ApplyInvoicePaymentFailed(ctx, event.ID, input, payload)
+		if err := s.store.ApplyInvoicePaymentFailed(ctx, event.ID, input, payload); err != nil {
+			metrics.RecordBillingLifecycleEvent("invoice", "failed")
+			return err
+		}
+		metrics.RecordBillingLifecycleEvent("invoice", "payment_failed")
+		return nil
 	case "customer.subscription.updated":
 		input, err := parseSubscriptionLifecycle(event)
 		if err != nil {
 			return err
 		}
-		return s.store.ApplySubscriptionUpdated(ctx, event.ID, input, payload)
+		if err := s.store.ApplySubscriptionUpdated(ctx, event.ID, input, payload); err != nil {
+			metrics.RecordBillingLifecycleEvent("subscription", "failed")
+			return err
+		}
+		metrics.RecordBillingLifecycleEvent("subscription", "updated")
+		return nil
 	case "customer.subscription.deleted":
 		input, err := parseSubscriptionLifecycle(event)
 		if err != nil {
 			return err
 		}
-		return s.store.ApplySubscriptionDeleted(ctx, event.ID, input, payload)
+		if err := s.store.ApplySubscriptionDeleted(ctx, event.ID, input, payload); err != nil {
+			metrics.RecordBillingLifecycleEvent("subscription", "failed")
+			return err
+		}
+		metrics.RecordBillingLifecycleEvent("subscription", "deleted")
+		return nil
 	case "refund.created", "charge.refunded":
 		input, err := parseRefundLifecycle(event)
 		if err != nil {
@@ -120,12 +156,14 @@ func (s *LifecycleService) ApplyStripeEvent(ctx context.Context, event stripeapi
 		}
 		if input.Kind == "marketplace_install" {
 			if s.marketplaceApplier == nil {
+				metrics.RecordBillingLifecycleEvent("refund", "failed")
 				return fmt.Errorf("%s: marketplace settlement applier is not configured", event.Type)
 			}
 			if err := s.store.ApplyRefund(ctx, event.ID, input, payload); err != nil {
+				metrics.RecordBillingLifecycleEvent("refund", "failed")
 				return err
 			}
-			return s.marketplaceApplier.ApplyMarketplaceRefund(ctx, MarketplaceRefund{
+			if err := s.marketplaceApplier.ApplyMarketplaceRefund(ctx, MarketplaceRefund{
 				EventID:                 event.ID,
 				ProviderRefundID:        input.ProviderRefundID,
 				PaymentIntentID:         input.PaymentIntentID,
@@ -133,9 +171,19 @@ func (s *LifecycleService) ApplyStripeEvent(ctx context.Context, event stripeapi
 				Amount:                  input.Amount,
 				Currency:                input.Currency,
 				Reason:                  input.Reason,
-			})
+			}); err != nil {
+				metrics.RecordBillingLifecycleEvent("refund", "failed")
+				return err
+			}
+			metrics.RecordBillingLifecycleEvent("refund", "created")
+			return nil
 		}
-		return s.store.ApplyRefund(ctx, event.ID, input, payload)
+		if err := s.store.ApplyRefund(ctx, event.ID, input, payload); err != nil {
+			metrics.RecordBillingLifecycleEvent("refund", "failed")
+			return err
+		}
+		metrics.RecordBillingLifecycleEvent("refund", "created")
+		return nil
 	default:
 		return nil
 	}

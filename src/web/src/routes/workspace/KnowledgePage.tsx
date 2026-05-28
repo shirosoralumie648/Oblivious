@@ -6,6 +6,23 @@ import { createKnowledgeApi } from '../../features/knowledge/api';
 import { createHttpClient } from '../../services/http/client';
 import type { KnowledgeBaseSummary, KnowledgeDocumentSummary, KnowledgeRetrievalResult } from '../../types/api';
 
+function formatRetrievalSimilarity(similarity: number) {
+  if (!Number.isFinite(similarity)) {
+    return '0%';
+  }
+  return `${Math.round(similarity * 100)}%`;
+}
+
+function formatRetrievalSource(result: KnowledgeRetrievalResult) {
+  const source = result.source ?? {
+    chunkIndex: result.chunkIndex,
+    documentTitle: result.documentTitle
+  };
+  return `Source: ${source.documentTitle} · chunk ${source.chunkIndex + 1} · ${result.retrievalMethod} · ${formatRetrievalSimilarity(
+    result.similarity
+  )}`;
+}
+
 export function KnowledgePage() {
   const navigate = useNavigate();
   const { knowledgeBaseId } = useParams<{ knowledgeBaseId?: string }>();
@@ -286,8 +303,8 @@ export function KnowledgePage() {
       <h1>{selectedKnowledgeBase ? selectedKnowledgeBase.name : 'Knowledge'}</h1>
       <p>
         {selectedKnowledgeBase
-          ? 'Manage reusable documents in this knowledge base and search indexed snippets for relevant context.'
-          : 'Organize reusable workspace context into knowledge bases and search them from each detail view.'}
+          ? 'Manage reusable documents in this knowledge base and retrieve embedding-backed RAG citations for relevant context.'
+          : 'Organize reusable workspace context into knowledge bases and retrieve source-cited RAG context from each detail view.'}
       </p>
       {isLoading ? <p>{knowledgeBaseId ? 'Loading knowledge base…' : 'Loading knowledge bases…'}</p> : null}
       {error ? <p>{error}</p> : null}
@@ -327,7 +344,7 @@ export function KnowledgePage() {
           >
             Search knowledge
           </button>
-          {hasRetrievedKnowledge ? <h2>Matched snippets</h2> : null}
+          {hasRetrievedKnowledge ? <h2>RAG citations</h2> : null}
           {hasRetrievedKnowledge && retrievalResults.length === 0 ? (
             <p>{`No matching snippets found for “${lastRetrievedQuery}”.`}</p>
           ) : null}
@@ -337,6 +354,7 @@ export function KnowledgePage() {
                 <li key={`${result.documentId}-${result.snippet}`}>
                   <strong>{result.documentTitle}</strong>
                   <p>{result.snippet}</p>
+                  <p>{formatRetrievalSource(result)}</p>
                 </li>
               ))}
             </ul>

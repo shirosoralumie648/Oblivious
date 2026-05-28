@@ -15,6 +15,7 @@ describe('AdminSidebar', () => {
 
     expect(screen.getByRole('complementary', { name: 'Admin navigation' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Channels/ })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: /Billing/ })).toHaveAttribute('href', '/admin/billing');
     expect(screen.getByRole('link', { name: /Review Queue/ })).toHaveAttribute('href', '/admin/reviews');
   });
 
@@ -25,9 +26,9 @@ describe('AdminSidebar', () => {
       </MemoryRouter>
     );
 
-    fireEvent.change(screen.getByPlaceholderText('Search modules...'), { target: { value: 'pricing' } });
+    fireEvent.change(screen.getByPlaceholderText('Search modules...'), { target: { value: 'payment' } });
 
-    expect(screen.getByRole('link', { name: /Plans/ })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Billing/ })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Users/ })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Collapse admin sidebar' }));

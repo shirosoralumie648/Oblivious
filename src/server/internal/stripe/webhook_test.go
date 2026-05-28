@@ -8,8 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	stripeapi "github.com/stripe/stripe-go/v83"
 	"github.com/stripe/stripe-go/v83/webhook"
+	"oblivious/server/internal/metrics"
 )
 
 type memoryWebhookLedger struct {
@@ -43,6 +45,23 @@ func TestWebhookRejectsInvalidSignature(t *testing.T) {
 	}
 	if len(ledger.events) != 0 {
 		t.Fatalf("invalid signature should not record webhook events, got %d", len(ledger.events))
+	}
+}
+
+func TestWebhookObservabilityRecordsInvalidSignatureFailure(t *testing.T) {
+	ledger := newMemoryWebhookLedger()
+	handler := NewWebhookHandler(ledger, "whsec_phase17")
+
+	before := testutil.ToFloat64(metrics.StripeWebhookFailuresTotal.WithLabelValues("invalid_signature"))
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/billing/stripe/webhook", strings.NewReader(`{"id":"evt_bad","api_key":"sk-secret"}`))
+	request.Header.Set("Stripe-Signature", "bad-signature")
+
+	handler.HandleWebhook(recorder, request)
+
+	after := testutil.ToFloat64(metrics.StripeWebhookFailuresTotal.WithLabelValues("invalid_signature"))
+	if after != before+1 {
+		t.Fatalf("expected invalid signature metric increment, before=%v after=%v", before, after)
 	}
 }
 

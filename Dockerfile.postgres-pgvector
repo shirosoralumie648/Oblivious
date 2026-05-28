@@ -1,0 +1,52 @@
+ARG POSTGRES_IMAGE=postgres:16
+ARG BUILDER_IMAGE=docker.m.daocloud.io/library/golang:1.25-bookworm
+
+FROM ${POSTGRES_IMAGE} AS pgbase
+
+FROM ${BUILDER_IMAGE} AS builder
+ARG PGVECTOR_VERSION=v0.8.2
+ARG PG_SERVER_DEV_DEB_URL=https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-16/postgresql-server-dev-16_16.13-1.pgdg13+1_amd64.deb
+
+COPY --from=pgbase /usr/lib/postgresql /usr/lib/postgresql
+COPY --from=pgbase /usr/share/postgresql /usr/share/postgresql
+
+RUN curl -fsSL "$PG_SERVER_DEV_DEB_URL" -o /tmp/postgresql-server-dev.deb \
+    && dpkg-deb -x /tmp/postgresql-server-dev.deb / \
+    && rm /tmp/postgresql-server-dev.deb \
+    && test -f /usr/lib/postgresql/16/lib/pgxs/src/makefiles/pgxs.mk \
+    && test -f /usr/include/postgresql/16/server/pg_config.h
+
+RUN printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'case "$1" in' \
+    '  --pgxs) echo /usr/lib/postgresql/16/lib/pgxs/src/makefiles/pgxs.mk ;;' \
+    '  --includedir-server) echo /usr/include/postgresql/16/server ;;' \
+    '  --sharedir) echo /usr/share/postgresql/16 ;;' \
+    '  --pkglibdir) echo /usr/lib/postgresql/16/lib ;;' \
+    '  --includedir) echo /usr/include/postgresql ;;' \
+    '  --pkgincludedir) echo /usr/include/postgresql ;;' \
+    '  --libdir) echo /usr/lib/postgresql/16/lib ;;' \
+    '  --bindir) echo /usr/lib/postgresql/16/bin ;;' \
+    '  --sysconfdir) echo /etc/postgresql-common ;;' \
+    '  --mandir) echo /usr/share/postgresql/16/man ;;' \
+    '  --docdir) echo /usr/share/doc/postgresql-doc-16 ;;' \
+    '  --localedir) echo /usr/share/locale ;;' \
+    '  --version) echo "PostgreSQL 16.13" ;;' \
+    '  --configure) echo "" ;;' \
+    '  *) echo "unsupported pg_config arg: $1" >&2; exit 1 ;;' \
+    'esac' > /usr/local/bin/pg_config \
+    && chmod +x /usr/local/bin/pg_config
+
+WORKDIR /build
+RUN curl -fsSL "https://github.com/pgvector/pgvector/archive/refs/tags/${PGVECTOR_VERSION}.tar.gz" -o /tmp/pgvector.tar.gz \
+    && tar -xzf /tmp/pgvector.tar.gz --strip-components=1 \
+    && rm /tmp/pgvector.tar.gz
+
+RUN make clean \
+    && make OPTFLAGS="" PG_CONFIG=/usr/local/bin/pg_config with_llvm=no \
+    && make install PG_CONFIG=/usr/local/bin/pg_config with_llvm=no
+
+FROM ${POSTGRES_IMAGE}
+COPY --from=builder /usr/lib/postgresql/16/lib/vector.so /usr/lib/postgresql/16/lib/vector.so
+COPY --from=builder /usr/share/postgresql/16/extension/vector* /usr/share/postgresql/16/extension/
+COPY --from=builder /usr/include/postgresql/16/server/extension/vector /usr/include/postgresql/16/server/extension/vector

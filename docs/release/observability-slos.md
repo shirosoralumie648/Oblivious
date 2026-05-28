@@ -1,0 +1,97 @@
+# Observability SLOs
+
+Phase 23 closes `OPS-04` and `OPS-05` by adding structured logs, Prometheus metrics, OpenTelemetry span hooks, repository-local alert rules, a Grafana dashboard artifact, and SLO definitions for Relay outage, quota settlement failure, webhook failure, migration failure, provider failure, and tenant isolation signals. Phase 24 closes the v07 runbook/evidence layer through release, rollback, incident, disaster recovery, and v07 closeout verification. This is not final commercial readiness; v08 Product Completeness remains required.
+
+## Evidence Commands
+
+- `cd src/server && go test ./internal/observability -count=1`
+- `cd src/server && go test ./internal/http ./internal/metrics -run 'Observability|Logging|Metrics|Request' -count=1`
+- `cd src/server && go test ./internal/relay ./internal/relay/handler -run 'Observability|RouteDecision|ProviderFailure' -count=1`
+- `cd src/server && go test ./internal/stripe ./internal/quota ./internal/marketplace ./internal/task ./cmd/migrate -run 'Observability|Metrics|Failure|Webhook|Settlement|Migration' -count=1`
+- `bash scripts/check.sh docs`
+
+## Signal Map
+
+| Area | OPS | Metrics | Structured event or span | Dashboard panel | Owner |
+| --- | --- | --- | --- | --- | --- |
+| HTTP requests | OPS-04 | `http_requests_total`, `http_request_duration_seconds` | `http.request`, span `http.request` | HTTP error rate, HTTP latency p95 | platform-ops |
+| Relay decisions | OPS-04 | `relay_route_decisions_total` | `relay.route_decision`, span `relay.route_policy` | Relay route decisions | relay-ops |
+| Provider failures | OPS-04 | `provider_failures_total`, `provider_request_duration_seconds` | `relay.provider_failure`, span `relay.provider_call` | Provider failures, Provider latency p95 | relay-ops |
+| Billing lifecycle | OPS-04 | `billing_lifecycle_events_total` | span `billing.lifecycle` | Billing lifecycle | billing-ops |
+| Quota settlement | OPS-04 | `quota_settlement_failures_total` | spans `quota.preconsume`, `quota.settlement`, `quota.refund` | Quota settlement failures | billing-ops |
+| Stripe webhooks | OPS-04 | `stripe_webhook_events_total`, `stripe_webhook_failures_total` | span `stripe.webhook` | Stripe webhook failures | billing-ops |
+| Marketplace settlement | OPS-04 | `marketplace_settlement_events_total` | spans `marketplace.paid_install_completed`, `marketplace.refund`, `marketplace.payout_pending` | Marketplace settlement | marketplace-ops |
+| Jobs/tasks | OPS-04 | `job_events_total` | spans `job.task_start`, `job.task_approve`, `job.task_pause`, `job.task_resume`, `job.task_cancel` | Task and job events | platform-ops |
+| Migrations | OPS-04 | `migration_runs_total` | span `migration.apply` | Migration runs | platform-ops |
+| Tenant isolation | OPS-05 | `http_requests_total{status_class="4xx"}` plus tenant-isolation test evidence | `http.request` with `organization_id` and `user_id` when known | Tenant isolation incident signal | security-ops |
+
+## Alert Definitions
+
+### Relay Outage
+
+- Alert: `RelayOutage`
+- Metric: `relay_route_decisions_total`
+- Threshold: allowed route decisions remain at zero for 10 minutes.
+- Severity: critical
+- Owner: platform-ops
+- Runbook: `docs/release/incident-response-runbook.md` for Relay outage triage and `docs/release/release-rollback-runbook.md` for rollback decision.
+
+### Quota Settlement Failure
+
+- Alert: `QuotaSettlementFailure`
+- Metric: `quota_settlement_failures_total`
+- Threshold: any preauthorization, settlement, or refund failure for 5 minutes.
+- Severity: critical
+- Owner: billing-ops
+- Runbook: `docs/release/incident-response-runbook.md` for quota ledger reconciliation, idempotency check, failed-session remediation, and rollback trigger.
+
+### Webhook Failure
+
+- Alert: `StripeWebhookFailure`
+- Metrics: `stripe_webhook_failures_total`, `stripe_webhook_events_total`
+- Threshold: any invalid signature, ledger write, or lifecycle apply failure for 5 minutes.
+- Severity: critical
+- Owner: billing-ops
+- Runbook: `docs/release/incident-response-runbook.md` for Stripe signing secret check, raw body handling, and idempotency ledger replay.
+
+### Migration Failure
+
+- Alert: `MigrationFailure`
+- Metric: `migration_runs_total`
+- Threshold: any migration failure within 30 minutes.
+- Severity: critical
+- Owner: platform-ops
+- Runbook: `docs/release/release-rollback-runbook.md` for release stop/rollback and `docs/release/disaster-recovery-runbook.md` for restore when data recovery is required.
+
+### High Provider Error Rate
+
+- Alert: `HighProviderErrorRate`
+- Metrics: `provider_failures_total`, `provider_request_duration_seconds_count`
+- Threshold: provider failure rate above 5 percent for 10 minutes.
+- Severity: warning
+- Owner: relay-ops
+- Runbook: `docs/release/incident-response-runbook.md` for provider/channel mitigation and Relay-only provider access checks.
+
+### Tenant Isolation Incident
+
+- Alert: `TenantIsolationIncident`
+- Metric: `http_requests_total{status_class="4xx"}`
+- Threshold: elevated 4xx denial volume for 10 minutes.
+- Severity: critical
+- Owner: security-ops
+- Runbook: `docs/release/incident-response-runbook.md` for tenant/user request inspection, cross-tenant denial tests, and access freeze handling.
+
+## Artifact Map
+
+- Alert rules: `deploy/observability/prometheus-alerts.yaml`
+- Grafana dashboard: `deploy/observability/grafana-dashboard.json`
+- Release and rollback runbook: `docs/release/release-rollback-runbook.md`
+- Incident response runbook: `docs/release/incident-response-runbook.md`
+- Disaster recovery runbook: `docs/release/disaster-recovery-runbook.md`
+- Quality gate: `scripts/verify-quality-gates.sh`
+- Commercial gate boundary: `docs/release/commercial-gates.md`
+- Release checklist reference: `docs/release/rc-checklist.md`
+
+## Boundary
+
+`OPS-04` and `OPS-05` are repository-local evidence gates. They do not prove that a Prometheus server, Grafana instance, OpenTelemetry collector, or external error-tracking vendor is deployed. Phase 24 runbook and release/rollback evidence closes the v07 Operations Gate while still recording those external runtime integrations as deployment-specific checks when unavailable.

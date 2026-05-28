@@ -54,6 +54,7 @@ func (m authMiddleware) requireSession(next http.Handler) http.Handler {
 			return
 		}
 
+		attachSessionToObservabilityScope(r, session)
 		ctx := context.WithValue(r.Context(), sessionContextKey, session)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
@@ -72,6 +73,7 @@ func (m authMiddleware) requireAdmin(next http.Handler) http.Handler {
 			return
 		}
 
+		attachSessionToObservabilityScope(r, session)
 		ctx := context.WithValue(r.Context(), sessionContextKey, session)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

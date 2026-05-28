@@ -1,0 +1,170 @@
+package mcp
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"strings"
+	"testing"
+	"time"
+)
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func TestBuiltinToolsCommercialDefaults(t *testing.T) {
+	tools := ListDefaultCommercialBuiltinTools()
+	names := make(map[string]bool, len(tools))
+	for _, tool := range tools {
+		names[tool.Name] = true
+	}
+
+	for _, name := range []string{"calculator", "datetime"} {
+		if !names[name] {
+			t.Fatalf("expected %s to be default commercial enabled, got names=%v", name, names)
+		}
+	}
+	for _, name := range []string{"web_search", "http_request"} {
+		if names[name] {
+			t.Fatalf("expected %s to be disabled by default commercial policy, got names=%v", name, names)
+		}
+	}
+}
+
+func TestCalculatorEvaluatesArithmetic(t *testing.T) {
+	tool, ok := GetBuiltinTool("calculator")
+	if !ok {
+		t.Fatal("calculator builtin not found")
+	}
+
+	cases := map[string]string{
+		"1 + 2 * 3":    "Result: 7",
+		"(10 - 4) / 3": "Result: 2",
+		"-2 * (3 + 4)": "Result: -14",
+	}
+
+	for expression, want := range cases {
+		result, err := tool.Execute(context.Background(), map[string]any{"expression": expression})
+		if err != nil {
+			t.Fatalf("calculator returned error for %q: %v", expression, err)
+		}
+		if result.Content != want {
+			t.Fatalf("calculator(%q) content = %q, want %q", expression, result.Content, want)
+		}
+	}
+}
+
+func TestCalculatorRejectsInvalidExpression(t *testing.T) {
+	tool, ok := GetBuiltinTool("calculator")
+	if !ok {
+		t.Fatal("calculator builtin not found")
+	}
+
+	for _, expression := range []string{"", "2 + * 3", "10 / 0", "1 + Math.random()"} {
+		result, err := tool.Execute(context.Background(), map[string]any{"expression": expression})
+		if err == nil && (result == nil || !result.IsError) {
+			t.Fatalf("calculator(%q) succeeded with result=%+v, want explicit error", expression, result)
+		}
+
+		message := ""
+		if err != nil {
+			message = err.Error()
+		} else {
+			message = result.Content
+		}
+		if strings.Contains(strings.ToLower(message), "placeholder") {
+			t.Fatalf("calculator(%q) returned placeholder error text: %q", expression, message)
+		}
+	}
+}
+
+func TestDatetimeReturnsRFC3339(t *testing.T) {
+	tool, ok := GetBuiltinTool("datetime")
+	if !ok {
+		t.Fatal("datetime builtin not found")
+	}
+
+	result, err := tool.Execute(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("datetime returned error: %v", err)
+	}
+
+	const prefix = "Current date and time: "
+	if !strings.HasPrefix(result.Content, prefix) {
+		t.Fatalf("datetime content = %q, want prefix %q", result.Content, prefix)
+	}
+	if _, err := time.Parse(time.RFC3339, strings.TrimPrefix(result.Content, prefix)); err != nil {
+		t.Fatalf("datetime returned non-RFC3339 content %q: %v", result.Content, err)
+	}
+}
+
+func TestDisabledBuiltinsReturnExplicitErrorWithoutPlaceholder(t *testing.T) {
+	webSearch, ok := GetBuiltinTool("web_search")
+	if !ok {
+		t.Fatal("web_search builtin not found")
+	}
+	assertDisabledBuiltin(t, "web_search", webSearch, map[string]any{"query": "commercial readiness"})
+
+	var outboundAttempted bool
+	httpTool := &HTTPRequestTool{
+		client: &http.Client{
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				outboundAttempted = true
+				return nil, errors.New("unexpected outbound request")
+			}),
+		},
+	}
+	assertDisabledBuiltin(t, "http_request", httpTool, map[string]any{"method": "GET", "url": "https://example.invalid"})
+	if outboundAttempted {
+		t.Fatal("http_request attempted outbound network I/O while disabled by default")
+	}
+}
+
+func TestDefaultEnabledBuiltinsDoNotReturnPlaceholderOutput(t *testing.T) {
+	inputs := map[string]map[string]any{
+		"calculator": {"expression": "40 + 2"},
+		"datetime":   {},
+	}
+
+	for _, definition := range ListDefaultCommercialBuiltinTools() {
+		tool, ok := GetBuiltinTool(definition.Name)
+		if !ok {
+			t.Fatalf("default commercial builtin %s missing from registry", definition.Name)
+		}
+		result, err := tool.Execute(context.Background(), inputs[definition.Name])
+		if err != nil {
+			t.Fatalf("%s returned error: %v", definition.Name, err)
+		}
+		if strings.Contains(strings.ToLower(result.Content), "placeholder") {
+			t.Fatalf("%s returned placeholder output: %q", definition.Name, result.Content)
+		}
+	}
+}
+
+func assertDisabledBuiltin(t *testing.T, name string, tool BuiltinTool, args map[string]any) {
+	t.Helper()
+
+	result, err := tool.Execute(context.Background(), args)
+	if err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "disabled") {
+			t.Fatalf("%s returned error %q, want disabled error", name, err.Error())
+		}
+		return
+	}
+	if result == nil {
+		t.Fatalf("%s returned nil result and nil error", name)
+	}
+	if !result.IsError {
+		t.Fatalf("%s result IsError = false, want true", name)
+	}
+	lowerContent := strings.ToLower(result.Content)
+	if !strings.Contains(lowerContent, "disabled") {
+		t.Fatalf("%s content = %q, want disabled message", name, result.Content)
+	}
+	if strings.Contains(lowerContent, "placeholder") {
+		t.Fatalf("%s returned placeholder text while disabled: %q", name, result.Content)
+	}
+}

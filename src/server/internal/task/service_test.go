@@ -5,7 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"oblivious/server/internal/auth"
+	"oblivious/server/internal/metrics"
 )
 
 type fakeStore struct {
@@ -217,6 +219,30 @@ func TestStartReturnsTaskDetailForWorkspace(t *testing.T) {
 	}
 	if task.BudgetConsumed != 6 || task.StartedAt == nil || !task.StartedAt.Equal(startedAt) {
 		t.Fatalf("expected budget/timing to be preserved, got %+v", task)
+	}
+}
+
+func TestTaskObservabilityRecordsStartEvent(t *testing.T) {
+	store := &fakeStore{
+		detailTask: TaskDetail{
+			Task: Task{
+				ExecutionMode: "standard",
+				Goal:          "Observe job lifecycle",
+				ID:            "task_obs",
+				Status:        "running",
+				Title:         "Observe job lifecycle",
+			},
+		},
+	}
+	service := NewService(store)
+
+	before := testutil.ToFloat64(metrics.JobEventsTotal.WithLabelValues("task.start", "running"))
+	if _, err := service.Start(context.Background(), auth.Session{WorkspaceID: "workspace_1"}, "task_obs"); err != nil {
+		t.Fatalf("start task: %v", err)
+	}
+	after := testutil.ToFloat64(metrics.JobEventsTotal.WithLabelValues("task.start", "running"))
+	if after != before+1 {
+		t.Fatalf("expected job event metric increment, before=%v after=%v", before, after)
 	}
 }
 

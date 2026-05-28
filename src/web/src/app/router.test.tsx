@@ -30,6 +30,32 @@ vi.mock('../features/console/api', () => ({
   })
 }));
 
+vi.mock('../app/providers', () => ({
+  useAppContext: () => ({
+    authState: {
+      status: 'authenticated',
+      user: { id: 'admin_1', email: 'admin@example.com', role: 'admin' },
+      preferences: { onboardingCompleted: false }
+    },
+    bootstrapAuth: () => Promise.resolve(),
+    updatePreferences: (preferences: unknown) => Promise.resolve(preferences)
+  })
+}));
+
+vi.mock('../features/admin/api', () => ({
+  createAdminApi: () => ({
+    getBillingSummary: () =>
+      Promise.resolve({
+        billingSessions: { count: 1, settledAmount: 4.5 },
+        paymentIntents: { count: 1, totalAmount: 29 },
+        webhookEvents: { count: 1 },
+        settlements: { count: 1, grossAmount: 50 },
+        payouts: { count: 1, totalAmount: 40 }
+      }),
+    listBillingSurface: () => Promise.resolve({ data: [], total: 0 })
+  })
+}));
+
 import { createAppRouter } from './router';
 import { routerFuture } from './routerFuture';
 
@@ -76,6 +102,15 @@ describe('app router', () => {
     render(<RouterProvider future={routerFuture} router={router} />);
 
     expect(await screen.findByText('Console')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Billing' })).toBeInTheDocument();
+  });
+
+  it('renders admin billing route inside the admin shell', async () => {
+    const router = createAppRouter(['/admin/billing']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    expect(await screen.findByRole('complementary', { name: 'Admin navigation' })).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Billing' })).toBeInTheDocument();
   });
 });

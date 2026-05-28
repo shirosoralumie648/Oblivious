@@ -116,9 +116,21 @@ export type KnowledgeDocumentSummary = {
 };
 
 export type KnowledgeRetrievalResult = {
+  chunkId: string;
+  chunkIndex: number;
   documentId: string;
   documentTitle: string;
+  retrievalMethod: string;
+  similarity: number;
   snippet: string;
+  source: KnowledgeRetrievalSource;
+};
+
+export type KnowledgeRetrievalSource = {
+  chunkId: string;
+  chunkIndex: number;
+  documentId: string;
+  documentTitle: string;
 };
 
 export type CreateKnowledgeBaseRequest = {
@@ -149,7 +161,9 @@ export type TaskStatus =
   | 'paused'
   | 'completed'
   | 'cancelled'
-  | 'awaiting_confirmation';
+  | 'awaiting_confirmation'
+  | 'failed'
+  | 'stopped';
 
 export type ExecutionMode = 'safe' | 'standard' | 'auto';
 

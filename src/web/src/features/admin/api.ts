@@ -2,6 +2,10 @@ import type { HttpClient } from '../../services/http/client';
 import type {
   AdminStats,
   AuditEntry,
+  BillingFilter,
+  BillingInspectionRecord,
+  BillingSummary,
+  BillingSurface,
   ChannelCreateRequest,
   ChannelHealth,
   ChannelInfo,
@@ -56,6 +60,46 @@ type ReviewListPayload = {
   reviews?: PublishedAgent[];
   data?: PublishedAgent[];
   total?: number;
+};
+
+type BillingListPayload = {
+  sessions?: BillingInspectionRecord[];
+  paymentIntents?: BillingInspectionRecord[];
+  webhookEvents?: BillingInspectionRecord[];
+  subscriptions?: BillingInspectionRecord[];
+  topups?: BillingInspectionRecord[];
+  invoices?: BillingInspectionRecord[];
+  refunds?: BillingInspectionRecord[];
+  settlements?: BillingInspectionRecord[];
+  payouts?: BillingInspectionRecord[];
+  data?: BillingInspectionRecord[];
+  total?: number;
+};
+
+type BillingListCollectionKey = Exclude<keyof BillingListPayload, 'total'>;
+
+const billingSurfacePaths: Record<BillingSurface, string> = {
+  sessions: 'sessions',
+  paymentIntents: 'payment-intents',
+  webhookEvents: 'webhook-events',
+  subscriptions: 'subscriptions',
+  topups: 'topups',
+  invoices: 'invoices',
+  refunds: 'refunds',
+  settlements: 'settlements',
+  payouts: 'payouts',
+};
+
+const billingSurfaceKeys: Record<BillingSurface, BillingListCollectionKey> = {
+  sessions: 'sessions',
+  paymentIntents: 'paymentIntents',
+  webhookEvents: 'webhookEvents',
+  subscriptions: 'subscriptions',
+  topups: 'topups',
+  invoices: 'invoices',
+  refunds: 'refunds',
+  settlements: 'settlements',
+  payouts: 'payouts',
 };
 
 export type AdminApi = {
@@ -114,6 +158,8 @@ export type AdminApi = {
   listReviews: (params?: { status?: string; limit?: number; offset?: number }) => Promise<PaginatedResponse<PublishedAgent>>;
   approveAgent: (id: string) => Promise<void>;
   rejectAgent: (id: string, reason: string) => Promise<void>;
+  getBillingSummary: (params?: BillingFilter) => Promise<BillingSummary>;
+  listBillingSurface: (surface: BillingSurface, params?: BillingFilter) => Promise<PaginatedResponse<BillingInspectionRecord>>;
 };
 
 function buildQuery(params?: Record<string, QueryValue>) {
@@ -227,6 +273,28 @@ export function createAdminApi(client: HttpClient): AdminApi {
     },
     rejectAgent: async (id, reason) => {
       await client.post<{ status: string }>(`${apiPrefix}/reviews/${id}/reject`, { reason });
+    },
+
+    getBillingSummary: (params) => {
+      const queryParams = {
+        ...params,
+        organizationID: params?.organizationID ?? params?.organizationId,
+        userID: params?.userID ?? params?.userId,
+      };
+      delete queryParams.organizationId;
+      delete queryParams.userId;
+      return client.get<BillingSummary>(`${apiPrefix}/billing/summary${buildQuery(queryParams)}`);
+    },
+    listBillingSurface: async (surface, params) => {
+      const queryParams = {
+        ...params,
+        organizationID: params?.organizationID ?? params?.organizationId,
+        userID: params?.userID ?? params?.userId,
+      };
+      delete queryParams.organizationId;
+      delete queryParams.userId;
+      const payload = await client.get<BillingListPayload>(`${apiPrefix}/billing/${billingSurfacePaths[surface]}${buildQuery(queryParams)}`);
+      return collection(payload[billingSurfaceKeys[surface]] ?? payload.data, payload.total);
     },
   };
 }
