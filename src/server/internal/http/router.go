@@ -124,7 +124,11 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 		CancelURL:     cfg.StripeCancelURL,
 		WebhookSecret: cfg.StripeWebhookSecret,
 	}, stripebilling.NewSQLPaymentIntentStore(database), quotaService)
-	stripeWebhookHandler := stripebilling.NewWebhookHandler(stripebilling.NewSQLWebhookLedger(database), cfg.StripeWebhookSecret)
+	stripeWebhookHandler := stripebilling.NewWebhookHandler(
+		stripebilling.NewSQLWebhookLedger(database),
+		cfg.StripeWebhookSecret,
+		stripebilling.NewLifecycleService(stripebilling.NewSQLLifecycleStore(database)),
+	)
 
 	// Admin service
 	adminService := admin.NewService(admin.NewSQLStore(database))

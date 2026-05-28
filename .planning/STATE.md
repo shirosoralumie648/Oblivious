@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v06
 milestone_name: Billing And Marketplace Operations
 status: active
-stopped_at: Phase 18 ready to execute
-last_updated: "2026-05-28T08:12:00+08:00"
-last_activity: 2026-05-28 -- Phase 18 context and execution plan created for PAY-03 billing lifecycle state machine
+stopped_at: Phase 19 ready to plan
+last_updated: "2026-05-28T08:23:22+08:00"
+last_activity: 2026-05-28 -- Phase 18 completed PAY-03 billing lifecycle state machine
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 4
-  completed_plans: 1
-  percent: 25
+  completed_plans: 2
+  percent: 50
 ---
 
 # STATE.md
@@ -22,7 +22,7 @@ See: `.planning/PROJECT.md` (updated 2026-05-28)
 
 **Core value:** 统一的多渠道 LLM 调用层 — 所有 AI 调用必须经过 Relay
 
-**Current focus:** Phase 18 execution
+**Current focus:** Phase 19 planning
 
 ## Current Status
 
@@ -32,14 +32,14 @@ v04 Commercial Foundation is complete and archived through `.planning/milestones
 
 The overall commercial-complete objective remains open. v06 now owns commercial money movement and Marketplace governance: Stripe checkout/webhooks, subscription lifecycle, top-ups, refunds, invoices, publisher settlement, platform fees, payout state, billing admin evidence, and moderation workflows.
 
-Phase 17 completed the first v06 slice by mounting Stripe payment routes in the running server, verifying webhook signatures from the raw body, writing a dedicated idempotent webhook ledger, and preserving tenant/user/plan metadata for later subscription and Marketplace settlement phases. Phase 18 now has context and an execution plan for applying verified provider events to subscription, invoice, top-up, failed-payment, plan-change, and refund state.
+Phase 17 completed the first v06 slice by mounting Stripe payment routes in the running server, verifying webhook signatures from the raw body, writing a dedicated idempotent webhook ledger, and preserving tenant/user/plan metadata for later subscription and Marketplace settlement phases. Phase 18 completed `PAY-03` by applying verified provider events to subscription, invoice, top-up, failed-payment, plan-change, and refund state through append-only lifecycle transitions.
 
 ## Current Position
 
-Phase: Phase 18 — Subscription Invoice Top-up Refund State Machine
-Plan: 18-01-PLAN.md
-Status: ready to execute
-Last activity: 2026-05-28 -- Phase 18 context and execution plan created for PAY-03
+Phase: Phase 19 — Marketplace Settlement and Governance
+Plan: not created yet
+Status: ready to plan
+Last activity: 2026-05-28 -- Phase 18 completed PAY-03 billing lifecycle state machine
 
 ## Current Scope
 
@@ -47,7 +47,7 @@ Last activity: 2026-05-28 -- Phase 18 context and execution plan created for PAY
 |-------------|--------|--------|
 | PAY-01 | Complete | Stripe checkout routes are mounted, authenticated, tenant-aware, and testable without live Stripe keys |
 | PAY-02 | Complete | Stripe webhook route verifies raw-body signatures, records events idempotently, and rejects invalid signatures |
-| PAY-03 | Planned | Subscription, invoice, failed-payment, plan-change, top-up, and refund transitions are auditable |
+| PAY-03 | Complete | Subscription, invoice, failed-payment, plan-change, top-up, and refund transitions are auditable |
 | MARKET-03 | Planned | Marketplace publisher revenue, platform fee, payout state, and refund impact are modeled before paid operation |
 | MARKET-04 | Planned | Marketplace moderation and abuse workflows govern publish, approve, reject, takedown, and appeal paths |
 | ADMIN-BILL-01 | Planned | Admin can inspect billing sessions, webhook events, subscriptions, top-ups, invoices, refunds, settlements, and payout state |
@@ -55,9 +55,9 @@ Last activity: 2026-05-28 -- Phase 18 context and execution plan created for PAY
 
 ## Next Suggested Step
 
-Run `$gsd:execute-phase 18` to implement Phase 18 Plan 01.
+Run `$gsd:plan-phase 19` to plan Marketplace Settlement and Governance.
 
-Phase 18 Plan 01 consumes the Phase 17 payment authority foundation and implements auditable state transitions for checkout completion, subscription lifecycle, top-up fulfillment, invoice success/failure, plan changes, failed-payment state, and refunds without enabling Marketplace payout accounting yet.
+Phase 19 should consume the Phase 18 billing lifecycle foundation and model Marketplace publisher revenue, platform fee, payout state, refund impact, moderation, and abuse workflows without claiming v06 closeout or v07/v08 readiness prematurely.
 
 ## Worktree Context
 
@@ -77,6 +77,7 @@ Continue in `.worktrees/phase-10-membership-auth-security` on branch `gsd/phase-
 | v03.3 Mainline Consolidation | 2026-05-27 | CONS-01, ROUTE-01, CHAT-06, AUTH-01, DEPLOY-02, DOC-02, VERIFY-01 |
 | v04 Commercial Foundation | 2026-05-28 | TENANT-01~05, SEC-01~03, MIGR-01, CI-01, DOC-03 |
 | v05 Relay Billing Completeness | 2026-05-28 | RELAY-08~11, BILL-01~02, DOC-04 |
+| Phase 18 Subscription Invoice Top-up Refund State Machine | 2026-05-28 | PAY-03 |
 
 ## Deferred Commercial Program Items
 
@@ -84,7 +85,7 @@ These remain required for the final user goal:
 
 | Milestone | Item |
 |-----------|------|
-| v06 Billing And Marketplace Operations | Stripe production routes/webhooks, subscription lifecycle, top-ups, refunds, invoices, Marketplace settlement, payouts, and moderation |
+| v06 Billing And Marketplace Operations | Marketplace settlement, payouts, moderation, admin billing inspection, and v06 closeout evidence |
 | v07 Production Operations | Kubernetes/equivalent orchestration proof, backup/restore smoke, logs, metrics, tracing, alerts, dashboards, runbooks, release/rollback |
 | v08 Product Completeness | Real or disabled built-in MCP tools, durable Agent workflows, Knowledge behavior matching product copy, commercial UX, docs, onboarding, pricing |
 
@@ -111,6 +112,7 @@ These remain required for the final user goal:
 - Phase 17 summary: `.planning/phases/17-stripe-payment-authority-and-webhook-ledger/17-01-SUMMARY.md`
 - Phase 18 context: `.planning/phases/18-subscription-invoice-topup-refund-state-machine/18-CONTEXT.md`
 - Phase 18 plan: `.planning/phases/18-subscription-invoice-topup-refund-state-machine/18-01-PLAN.md`
+- Phase 18 summary: `.planning/phases/18-subscription-invoice-topup-refund-state-machine/18-01-SUMMARY.md`
 - Commercial gates: `docs/release/commercial-gates.md`
 - Commercial complete spec: `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`
 - v04 roadmap archive: `.planning/milestones/v04-ROADMAP.md`
@@ -137,6 +139,7 @@ These remain required for the final user goal:
 | 2026-05-28 | v06 Billing And Marketplace Operations initialized | The next commercial gate is money movement and Marketplace governance; Phase 17 starts with Stripe route authority and webhook ledger before subscription lifecycle and settlement work |
 | 2026-05-28 | Phase 17 completed | Stripe checkout and webhook routes are mounted; checkout persists tenant payment intents through a fake-testable creator; webhook signatures use raw body verification and record idempotent `stripe_webhook_events`; PAY-01 and PAY-02 are complete |
 | 2026-05-28 | Phase 18 planned | PAY-03 is decomposed into lifecycle schema, Stripe event application service, payment-backed top-up checkout, invoice/refund/subscription transitions, DB-backed route tests, and evidence updates |
+| 2026-05-28 | Phase 18 completed | Verified Stripe events now apply subscription, invoice, failed-payment, plan-change, top-up, and refund state through `billing_lifecycle_events`; duplicate webhook deliveries can retry lifecycle application safely through transition-key idempotency |
 
 ---
-*State updated: 2026-05-28 after planning Phase 18 Subscription Invoice Top-up Refund State Machine*
+*State updated: 2026-05-28 after completing Phase 18 Subscription Invoice Top-up Refund State Machine*

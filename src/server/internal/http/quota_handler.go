@@ -49,7 +49,7 @@ type topupRequest struct {
 }
 
 func (h quotaHandler) topup(w stdhttp.ResponseWriter, r *stdhttp.Request) {
-	session, ok := sessionFromContext(r)
+	_, ok := sessionFromContext(r)
 	if !ok {
 		writeError(w, stdhttp.StatusUnauthorized, "unauthorized", "authentication required")
 		return
@@ -66,11 +66,5 @@ func (h quotaHandler) topup(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		return
 	}
 
-	if err := h.service.Topup(r.Context(), session.User.ID, session.OrganizationID, req.Amount); err != nil {
-		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
-		return
-	}
-
-	quota, _ := h.service.GetBalance(r.Context(), session.User.ID, session.OrganizationID)
-	writeSuccess(w, stdhttp.StatusOK, quota)
+	writeError(w, stdhttp.StatusPaymentRequired, "payment_required", "use /api/v1/billing/checkout with kind=topup")
 }

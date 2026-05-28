@@ -63,6 +63,9 @@ func testDatabase(t *testing.T) *sql.DB {
 		`DROP TABLE IF EXISTS published_agents CASCADE`,
 		`DROP TABLE IF EXISTS categories CASCADE`,
 		`DROP TABLE IF EXISTS usage_records CASCADE`,
+		`DROP TABLE IF EXISTS billing_refunds CASCADE`,
+		`DROP TABLE IF EXISTS billing_invoices CASCADE`,
+		`DROP TABLE IF EXISTS billing_lifecycle_events CASCADE`,
 		`DROP TABLE IF EXISTS stripe_webhook_events CASCADE`,
 		`DROP TABLE IF EXISTS payment_intents CASCADE`,
 		`DROP TABLE IF EXISTS billing_sessions CASCADE`,
@@ -89,7 +92,7 @@ func testDatabase(t *testing.T) *sql.DB {
 		`DROP TABLE IF EXISTS workspaces CASCADE`,
 		`DROP TABLE IF EXISTS organizations CASCADE`,
 		`DROP TABLE IF EXISTS users CASCADE`,
-		`CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'user', name TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), last_login_at TIMESTAMPTZ)`,
+		`CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'user', name TEXT, plan_id TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), last_login_at TIMESTAMPTZ)`,
 		`CREATE TABLE organizations (id TEXT PRIMARY KEY, slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', metadata JSONB NOT NULL DEFAULT '{}', created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), archived_at TIMESTAMPTZ, CHECK (status IN ('active', 'disabled', 'archived')))`,
 		`CREATE TABLE workspaces (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, name TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE sessions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), expires_at TIMESTAMPTZ NOT NULL)`,
@@ -114,10 +117,13 @@ func testDatabase(t *testing.T) *sql.DB {
 		`CREATE TABLE billing_sessions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, channel_id TEXT, model TEXT, api_type TEXT, idempotency_key TEXT NOT NULL, pre_authorized_amt DECIMAL(15,6) NOT NULL DEFAULT 0, settled_amt DECIMAL(15,6) NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'preauthorized', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), settled_at TIMESTAMPTZ)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_test_billing_sessions_unique_org_idempotency ON billing_sessions(organization_id, idempotency_key) WHERE idempotency_key <> ''`,
 		`CREATE TABLE packages (id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT, quota_amount DECIMAL(15,6) NOT NULL, price DECIMAL(10,2) NOT NULL, duration_days INT, is_active BOOLEAN DEFAULT true, sort_order INT DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
-		`CREATE TABLE subscriptions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, package_id TEXT NOT NULL REFERENCES packages(id), status TEXT DEFAULT 'active', started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), expires_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
-		`CREATE TABLE topup_orders (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, amount DECIMAL(15,6) NOT NULL, money DECIMAL(10,2) NOT NULL, status TEXT DEFAULT 'pending', trade_no TEXT, paid_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
-		`CREATE TABLE payment_intents (id TEXT PRIMARY KEY, provider TEXT NOT NULL, provider_checkout_session_id TEXT UNIQUE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, package_id TEXT REFERENCES packages(id), kind TEXT NOT NULL, amount DECIMAL(15,6) NOT NULL, currency TEXT NOT NULL DEFAULT 'usd', status TEXT NOT NULL DEFAULT 'pending', metadata JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE TABLE subscriptions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, package_id TEXT NOT NULL REFERENCES packages(id), status TEXT DEFAULT 'active', started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), expires_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), current_period_start TIMESTAMPTZ NOT NULL DEFAULT NOW(), current_period_end TIMESTAMPTZ, next_plan_id TEXT, provider_subscription_id TEXT, provider_customer_id TEXT, provider_checkout_session_id TEXT, provider_latest_invoice_id TEXT, failed_payment_at TIMESTAMPTZ, cancel_at_period_end BOOLEAN NOT NULL DEFAULT false, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE TABLE topup_orders (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, amount DECIMAL(15,6) NOT NULL, money DECIMAL(10,2) NOT NULL, status TEXT DEFAULT 'pending', trade_no TEXT, paid_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), payment_intent_id TEXT, provider_checkout_session_id TEXT, refunded_amount DECIMAL(15,6) NOT NULL DEFAULT 0)`,
+		`CREATE TABLE payment_intents (id TEXT PRIMARY KEY, provider TEXT NOT NULL, provider_checkout_session_id TEXT UNIQUE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, package_id TEXT REFERENCES packages(id), kind TEXT NOT NULL, amount DECIMAL(15,6) NOT NULL, currency TEXT NOT NULL DEFAULT 'usd', status TEXT NOT NULL DEFAULT 'pending', metadata JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), provider_payment_intent_id TEXT, provider_subscription_id TEXT, provider_invoice_id TEXT, refunded_amount DECIMAL(15,6) NOT NULL DEFAULT 0)`,
 		`CREATE TABLE stripe_webhook_events (id TEXT PRIMARY KEY, provider TEXT NOT NULL DEFAULT 'stripe', event_id TEXT NOT NULL UNIQUE, event_type TEXT NOT NULL, status TEXT NOT NULL, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, user_id TEXT REFERENCES users(id) ON DELETE SET NULL, payment_intent_id TEXT REFERENCES payment_intents(id) ON DELETE SET NULL, payload JSONB NOT NULL, error TEXT, received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), processed_at TIMESTAMPTZ)`,
+		`CREATE TABLE billing_lifecycle_events (id TEXT PRIMARY KEY, transition_key TEXT NOT NULL UNIQUE, provider TEXT NOT NULL DEFAULT 'stripe', provider_event_id TEXT NOT NULL, event_type TEXT NOT NULL, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, payment_intent_id TEXT REFERENCES payment_intents(id) ON DELETE SET NULL, entity_type TEXT NOT NULL, entity_id TEXT, from_state TEXT, to_state TEXT NOT NULL, reason TEXT, payload JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE TABLE billing_invoices (id TEXT PRIMARY KEY, provider TEXT NOT NULL DEFAULT 'stripe', provider_invoice_id TEXT NOT NULL, provider_subscription_id TEXT, provider_payment_intent_id TEXT, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, subscription_id TEXT REFERENCES subscriptions(id) ON DELETE SET NULL, payment_intent_id TEXT REFERENCES payment_intents(id) ON DELETE SET NULL, status TEXT NOT NULL, amount_due DECIMAL(15,6) NOT NULL DEFAULT 0, amount_paid DECIMAL(15,6) NOT NULL DEFAULT 0, currency TEXT NOT NULL DEFAULT 'usd', hosted_invoice_url TEXT, invoice_pdf TEXT, period_start TIMESTAMPTZ, period_end TIMESTAMPTZ, payload JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE(provider, provider_invoice_id))`,
+		`CREATE TABLE billing_refunds (id TEXT PRIMARY KEY, provider TEXT NOT NULL DEFAULT 'stripe', provider_refund_id TEXT NOT NULL, provider_charge_id TEXT, provider_payment_intent_id TEXT, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, payment_intent_id TEXT REFERENCES payment_intents(id) ON DELETE SET NULL, topup_order_id TEXT REFERENCES topup_orders(id) ON DELETE SET NULL, amount DECIMAL(15,6) NOT NULL, currency TEXT NOT NULL DEFAULT 'usd', status TEXT NOT NULL, reason TEXT, payload JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE(provider, provider_refund_id))`,
 		`CREATE TABLE agents (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, name TEXT NOT NULL, description TEXT, model TEXT DEFAULT 'gpt-4o-mini', system_prompt TEXT, tools JSONB DEFAULT '[]', config JSONB DEFAULT '{}', is_public BOOLEAN DEFAULT FALSE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE agent_conversations (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, title TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE agent_messages (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES agent_conversations(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, role TEXT NOT NULL, content TEXT NOT NULL, tool_calls JSONB DEFAULT '[]', tool_call_id TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
@@ -1043,19 +1049,19 @@ func TestCrossTenantQuotaScopeUsesActiveOrganization(t *testing.T) {
 	topupRequest.AddCookie(cookie)
 	addCSRF(topupRequest, csrfToken)
 	router.ServeHTTP(topupRecorder, topupRequest)
-	if topupRecorder.Code != stdhttp.StatusOK {
-		t.Fatalf("topup expected 200, got %d with body %s", topupRecorder.Code, topupRecorder.Body.String())
+	if topupRecorder.Code != stdhttp.StatusPaymentRequired {
+		t.Fatalf("direct topup expected 402, got %d with body %s", topupRecorder.Code, topupRecorder.Body.String())
 	}
 
 	var activeBalance, otherBalance float64
-	if err := database.QueryRow(`SELECT balance FROM quotas WHERE organization_id = $1`, activeOrganizationID).Scan(&activeBalance); err != nil {
+	if err := database.QueryRow(`SELECT COALESCE((SELECT balance FROM quotas WHERE organization_id = $1), 0)`, activeOrganizationID).Scan(&activeBalance); err != nil {
 		t.Fatalf("query active org quota: %v", err)
 	}
 	if err := database.QueryRow(`SELECT balance FROM quotas WHERE organization_id = $1`, otherOrganizationID).Scan(&otherBalance); err != nil {
 		t.Fatalf("query other org quota: %v", err)
 	}
-	if activeBalance != 5 {
-		t.Fatalf("expected active organization balance 5 after topup, got %.2f", activeBalance)
+	if activeBalance != 0 {
+		t.Fatalf("expected active organization balance unchanged after rejected direct topup, got %.2f", activeBalance)
 	}
 	if otherBalance != 123 {
 		t.Fatalf("expected other organization balance unchanged at 123, got %.2f", otherBalance)

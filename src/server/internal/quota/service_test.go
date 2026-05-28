@@ -107,6 +107,9 @@ func (s *fakeStore) ListActiveSubscriptions(ctx context.Context, userID, organiz
 func (s *fakeStore) CreateTopupOrder(ctx context.Context, order *TopupOrder) (*TopupOrder, error) {
 	return nil, nil
 }
+func (s *fakeStore) UpdateTopupOrderCheckoutSession(ctx context.Context, paymentIntentID string, providerCheckoutSessionID string) error {
+	return nil
+}
 func (s *fakeStore) UpdateTopupOrderStatus(ctx context.Context, id string, status string, tradeNo string) error {
 	return nil
 }

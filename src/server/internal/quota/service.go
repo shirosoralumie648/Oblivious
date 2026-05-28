@@ -63,15 +63,18 @@ type Subscription struct {
 
 // TopupOrder 充值订单
 type TopupOrder struct {
-	ID             string     `json:"id"`
-	OrganizationID string     `json:"organizationId"`
-	UserID         string     `json:"userId"`
-	Amount         float64    `json:"amount"`
-	Money          float64    `json:"money"`
-	Status         string     `json:"status"`
-	TradeNo        string     `json:"tradeNo,omitempty"`
-	PaidAt         *time.Time `json:"paidAt,omitempty"`
-	CreatedAt      time.Time  `json:"createdAt"`
+	ID                        string     `json:"id"`
+	OrganizationID            string     `json:"organizationId"`
+	UserID                    string     `json:"userId"`
+	PaymentIntentID           string     `json:"paymentIntentId,omitempty"`
+	ProviderCheckoutSessionID string     `json:"providerCheckoutSessionId,omitempty"`
+	Amount                    float64    `json:"amount"`
+	Money                     float64    `json:"money"`
+	Status                    string     `json:"status"`
+	TradeNo                   string     `json:"tradeNo,omitempty"`
+	RefundedAmount            float64    `json:"refundedAmount"`
+	PaidAt                    *time.Time `json:"paidAt,omitempty"`
+	CreatedAt                 time.Time  `json:"createdAt"`
 }
 
 // Store 存储接口
@@ -96,6 +99,7 @@ type Store interface {
 
 	// Topup
 	CreateTopupOrder(ctx context.Context, order *TopupOrder) (*TopupOrder, error)
+	UpdateTopupOrderCheckoutSession(ctx context.Context, paymentIntentID string, providerCheckoutSessionID string) error
 	UpdateTopupOrderStatus(ctx context.Context, id string, status string, tradeNo string) error
 }
 
@@ -206,6 +210,40 @@ func (s *Service) Topup(ctx context.Context, userID, organizationID string, amou
 		return err
 	}
 	return s.store.UpdateQuotaBalance(ctx, userID, organizationID, amount)
+}
+
+func (s *Service) CreatePendingTopup(ctx context.Context, userID, organizationID, paymentIntentID string, amount float64, money float64) (*TopupOrder, error) {
+	if organizationID == "" {
+		return nil, fmt.Errorf("organization_id is required")
+	}
+	if amount <= 0 {
+		return nil, fmt.Errorf("amount must be positive")
+	}
+	id, err := auth.NewID("topup")
+	if err != nil {
+		return nil, err
+	}
+	order := &TopupOrder{
+		ID:              id,
+		OrganizationID:  organizationID,
+		UserID:          userID,
+		PaymentIntentID: paymentIntentID,
+		Amount:          amount,
+		Money:           money,
+		Status:          "pending",
+		CreatedAt:       time.Now().UTC(),
+	}
+	return s.store.CreateTopupOrder(ctx, order)
+}
+
+func (s *Service) SetTopupCheckoutSession(ctx context.Context, paymentIntentID string, providerCheckoutSessionID string) error {
+	if paymentIntentID == "" {
+		return fmt.Errorf("payment_intent_id is required")
+	}
+	if providerCheckoutSessionID == "" {
+		return fmt.Errorf("provider_checkout_session_id is required")
+	}
+	return s.store.UpdateTopupOrderCheckoutSession(ctx, paymentIntentID, providerCheckoutSessionID)
 }
 
 // ListPackages 列出套餐
@@ -505,13 +543,32 @@ func (s *SQLStore) ListActiveSubscriptions(ctx context.Context, userID, organiza
 // CreateTopupOrder 创建充值订单
 func (s *SQLStore) CreateTopupOrder(ctx context.Context, order *TopupOrder) (*TopupOrder, error) {
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO topup_orders (id, organization_id, user_id, amount, money, status, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, order.ID, order.OrganizationID, order.UserID, order.Amount, order.Money, order.Status, order.CreatedAt)
+		INSERT INTO topup_orders (id, organization_id, user_id, amount, money, status, payment_intent_id, provider_checkout_session_id, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), NULLIF($8, ''), $9)
+	`, order.ID, order.OrganizationID, order.UserID, order.Amount, order.Money, order.Status, order.PaymentIntentID, order.ProviderCheckoutSessionID, order.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert topup order: %w", err)
 	}
 	return order, nil
+}
+
+func (s *SQLStore) UpdateTopupOrderCheckoutSession(ctx context.Context, paymentIntentID string, providerCheckoutSessionID string) error {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE topup_orders
+		SET provider_checkout_session_id = $2
+		WHERE payment_intent_id = $1
+	`, paymentIntentID, providerCheckoutSessionID)
+	if err != nil {
+		return fmt.Errorf("update topup checkout session: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("topup checkout rows affected: %w", err)
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 // UpdateTopupOrderStatus 更新充值订单状态

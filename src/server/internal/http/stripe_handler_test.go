@@ -66,6 +66,18 @@ func TestStripeWebhookRouteRecordsSignedEventOnce(t *testing.T) {
 	if err := database.QueryRow(`SELECT organization_id FROM sessions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`, userID).Scan(&organizationID); err != nil {
 		t.Fatalf("query session organization: %v", err)
 	}
+	if _, err := database.Exec(`
+		INSERT INTO packages (id, name, description, quota_amount, price, duration_days, is_active, sort_order, created_at)
+		VALUES ('pkg_phase17', 'Phase 17 Pro', 'Phase 17 plan', 100, 29, 30, true, 1, NOW())
+	`); err != nil {
+		t.Fatalf("insert package: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO payment_intents (id, provider, organization_id, user_id, package_id, kind, amount, currency, status, metadata, created_at, updated_at)
+		VALUES ('pi_http_phase17', 'stripe', $1, $2, 'pkg_phase17', 'subscription', 29, 'usd', 'pending', '{}', NOW(), NOW())
+	`, organizationID, userID); err != nil {
+		t.Fatalf("insert payment intent: %v", err)
+	}
 	signed := signedHTTPCheckoutCompletedPayload(cfg.StripeWebhookSecret, "evt_http_phase17", organizationID, userID)
 
 	for i := 0; i < 2; i++ {
@@ -124,6 +136,7 @@ func signedHTTPCheckoutCompletedPayload(secret string, eventID string, organizat
 				"metadata": {
 					"organization_id": "` + organizationID + `",
 					"user_id": "` + userID + `",
+					"payment_intent_id": "pi_http_phase17",
 					"plan_id": "pkg_phase17",
 					"checkout_kind": "subscription"
 				}
@@ -204,4 +217,238 @@ func TestBillingCheckoutPersistsTenantPaymentIntent(t *testing.T) {
 	if providerSessionID != "cs_test_phase17" || amount != 29 || status != "pending" {
 		t.Fatalf("stored wrong checkout state: session=%s amount=%.2f status=%s", providerSessionID, amount, status)
 	}
+}
+
+func TestStripeWebhookRouteAppliesCheckoutCompletedSubscriptionOnce(t *testing.T) {
+	database := testDatabase(t)
+	cfg := testConfig()
+	cfg.StripeWebhookSecret = "whsec_phase18"
+	router := NewRouter(cfg, database)
+
+	if _, err := database.Exec(`
+		INSERT INTO packages (id, name, description, quota_amount, price, duration_days, is_active, sort_order, created_at)
+		VALUES ('pkg_phase18_sub', 'Phase 18 Pro', 'Phase 18 plan', 100, 29, 30, true, 1, NOW())
+	`); err != nil {
+		t.Fatalf("insert package: %v", err)
+	}
+	_, _, userID := registerHTTPUser(t, router, "stripe-lifecycle-sub@example.com")
+	var organizationID string
+	if err := database.QueryRow(`SELECT organization_id FROM sessions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`, userID).Scan(&organizationID); err != nil {
+		t.Fatalf("query session organization: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO payment_intents (id, provider, organization_id, user_id, package_id, kind, amount, currency, status, metadata, created_at, updated_at)
+		VALUES ('pi_http_lifecycle_sub', 'stripe', $1, $2, 'pkg_phase18_sub', 'subscription', 29, 'usd', 'pending', '{}', NOW(), NOW())
+	`, organizationID, userID); err != nil {
+		t.Fatalf("insert payment intent: %v", err)
+	}
+
+	signed := signedHTTPCheckoutCompletedLifecyclePayload(cfg.StripeWebhookSecret, "evt_http_phase18_sub", organizationID, userID, "pi_http_lifecycle_sub", "pkg_phase18_sub", "subscription")
+	for i := 0; i < 2; i++ {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/billing/stripe/webhook", strings.NewReader(string(signed.Payload)))
+		request.Header.Set("Stripe-Signature", signed.Header)
+		router.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("attempt %d expected 200, got %d with body %s", i+1, recorder.Code, recorder.Body.String())
+		}
+	}
+
+	var subscriptionCount, transitionCount int
+	var paymentStatus string
+	if err := database.QueryRow(`
+		SELECT COUNT(*) FROM subscriptions
+		WHERE organization_id = $1 AND user_id = $2 AND package_id = 'pkg_phase18_sub' AND status = 'active'
+	`, organizationID, userID).Scan(&subscriptionCount); err != nil {
+		t.Fatalf("query subscription count: %v", err)
+	}
+	if err := database.QueryRow(`SELECT status FROM payment_intents WHERE id = 'pi_http_lifecycle_sub'`).Scan(&paymentStatus); err != nil {
+		t.Fatalf("query payment status: %v", err)
+	}
+	if err := database.QueryRow(`
+		SELECT COUNT(*) FROM billing_lifecycle_events
+		WHERE transition_key = 'stripe:evt_http_phase18_sub:checkout:pi_http_lifecycle_sub'
+	`).Scan(&transitionCount); err != nil {
+		t.Fatalf("query transition count: %v", err)
+	}
+	if subscriptionCount != 1 || paymentStatus != "completed" || transitionCount != 1 {
+		t.Fatalf("expected one applied subscription lifecycle, got subscriptions=%d payment=%s transitions=%d", subscriptionCount, paymentStatus, transitionCount)
+	}
+}
+
+func TestStripeWebhookRouteRetriesLifecycleForRecordedDuplicateEvent(t *testing.T) {
+	database := testDatabase(t)
+	cfg := testConfig()
+	cfg.StripeWebhookSecret = "whsec_phase18_retry"
+	router := NewRouter(cfg, database)
+
+	_, _, userID := registerHTTPUser(t, router, "stripe-lifecycle-retry@example.com")
+	var organizationID string
+	if err := database.QueryRow(`SELECT organization_id FROM sessions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`, userID).Scan(&organizationID); err != nil {
+		t.Fatalf("query session organization: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO payment_intents (id, provider, organization_id, user_id, package_id, kind, amount, currency, status, metadata, created_at, updated_at)
+		VALUES ('pi_http_lifecycle_retry', 'stripe', $1, $2, NULL, 'subscription', 29, 'usd', 'pending', '{}', NOW(), NOW())
+	`, organizationID, userID); err != nil {
+		t.Fatalf("insert payment intent: %v", err)
+	}
+
+	signed := signedHTTPCheckoutCompletedLifecyclePayload(cfg.StripeWebhookSecret, "evt_http_phase18_retry", organizationID, userID, "pi_http_lifecycle_retry", "pkg_phase18_retry", "subscription")
+	firstRecorder := httptest.NewRecorder()
+	firstRequest := httptest.NewRequest(http.MethodPost, "/api/v1/billing/stripe/webhook", strings.NewReader(string(signed.Payload)))
+	firstRequest.Header.Set("Stripe-Signature", signed.Header)
+	router.ServeHTTP(firstRecorder, firstRequest)
+	if firstRecorder.Code != http.StatusInternalServerError {
+		t.Fatalf("expected first lifecycle attempt to fail after ledger insert, got %d with body %s", firstRecorder.Code, firstRecorder.Body.String())
+	}
+
+	var ledgerCount, transitionCount int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM stripe_webhook_events WHERE event_id = 'evt_http_phase18_retry'`).Scan(&ledgerCount); err != nil {
+		t.Fatalf("query retry ledger count: %v", err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM billing_lifecycle_events WHERE provider_event_id = 'evt_http_phase18_retry'`).Scan(&transitionCount); err != nil {
+		t.Fatalf("query retry transition count: %v", err)
+	}
+	if ledgerCount != 1 || transitionCount != 0 {
+		t.Fatalf("expected recorded webhook without lifecycle transition after first failure, got ledger=%d transitions=%d", ledgerCount, transitionCount)
+	}
+
+	if _, err := database.Exec(`
+		INSERT INTO packages (id, name, description, quota_amount, price, duration_days, is_active, sort_order, created_at)
+		VALUES ('pkg_phase18_retry', 'Phase 18 Retry Pro', 'Retry plan', 100, 29, 30, true, 1, NOW())
+	`); err != nil {
+		t.Fatalf("insert retry package: %v", err)
+	}
+	secondRecorder := httptest.NewRecorder()
+	secondRequest := httptest.NewRequest(http.MethodPost, "/api/v1/billing/stripe/webhook", strings.NewReader(string(signed.Payload)))
+	secondRequest.Header.Set("Stripe-Signature", signed.Header)
+	router.ServeHTTP(secondRecorder, secondRequest)
+	if secondRecorder.Code != http.StatusOK {
+		t.Fatalf("expected duplicate retry to apply lifecycle, got %d with body %s", secondRecorder.Code, secondRecorder.Body.String())
+	}
+
+	var subscriptionCount int
+	var paymentStatus string
+	if err := database.QueryRow(`
+		SELECT COUNT(*) FROM subscriptions
+		WHERE organization_id = $1 AND user_id = $2 AND package_id = 'pkg_phase18_retry' AND status = 'active'
+	`, organizationID, userID).Scan(&subscriptionCount); err != nil {
+		t.Fatalf("query retry subscription count: %v", err)
+	}
+	if err := database.QueryRow(`SELECT status FROM payment_intents WHERE id = 'pi_http_lifecycle_retry'`).Scan(&paymentStatus); err != nil {
+		t.Fatalf("query retry payment status: %v", err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM billing_lifecycle_events WHERE provider_event_id = 'evt_http_phase18_retry'`).Scan(&transitionCount); err != nil {
+		t.Fatalf("query retry final transition count: %v", err)
+	}
+	if subscriptionCount != 1 || paymentStatus != "completed" || transitionCount != 1 {
+		t.Fatalf("expected duplicate retry to complete lifecycle once, got subscriptions=%d payment=%s transitions=%d", subscriptionCount, paymentStatus, transitionCount)
+	}
+}
+
+func TestBillingCheckoutTopupDoesNotCreditQuotaBeforeWebhook(t *testing.T) {
+	database := testDatabase(t)
+	fakeCreator := &fakeCheckoutCreator{database: database}
+	cfg := testConfig()
+	cfg.StripeSuccessURL = "https://app.oblivious.test/billing/success"
+	cfg.StripeCancelURL = "https://app.oblivious.test/billing/cancel"
+	router := NewRouterWithOptions(cfg, database, RouterOptions{CheckoutCreator: fakeCreator})
+
+	cookie, csrfToken, userID := registerHTTPUser(t, router, "stripe-topup-checkout@example.com")
+	var organizationID string
+	if err := database.QueryRow(`SELECT organization_id FROM sessions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`, userID).Scan(&organizationID); err != nil {
+		t.Fatalf("query session organization: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/billing/checkout", strings.NewReader(`{"kind":"topup","amount":25}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(cookie)
+	addCSRF(request, csrfToken)
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("expected topup checkout to return 201, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+
+	var intentCount, topupCount int
+	var balance float64
+	if err := database.QueryRow(`
+		SELECT COUNT(*) FROM payment_intents
+		WHERE organization_id = $1 AND user_id = $2 AND kind = 'topup' AND status = 'pending'
+	`, organizationID, userID).Scan(&intentCount); err != nil {
+		t.Fatalf("query topup intent count: %v", err)
+	}
+	if err := database.QueryRow(`
+		SELECT COUNT(*) FROM topup_orders
+		WHERE organization_id = $1 AND user_id = $2 AND status = 'pending' AND amount = 25
+	`, organizationID, userID).Scan(&topupCount); err != nil {
+		t.Fatalf("query topup order count: %v", err)
+	}
+	if err := database.QueryRow(`SELECT COALESCE((SELECT balance FROM quotas WHERE organization_id = $1), 0)`, organizationID).Scan(&balance); err != nil {
+		t.Fatalf("query topup quota balance: %v", err)
+	}
+	if intentCount != 1 || topupCount != 1 || balance != 0 {
+		t.Fatalf("expected pending paid topup artifacts without quota credit, got intents=%d topups=%d balance=%.2f", intentCount, topupCount, balance)
+	}
+}
+
+func TestQuotaTopupEndpointNoLongerCreditsWithoutPayment(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+	cookie, csrfToken, userID := registerHTTPUser(t, router, "direct-topup-disabled@example.com")
+	var organizationID string
+	if err := database.QueryRow(`SELECT organization_id FROM sessions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`, userID).Scan(&organizationID); err != nil {
+		t.Fatalf("query session organization: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/app/quota/topup", strings.NewReader(`{"amount":5}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(cookie)
+	addCSRF(request, csrfToken)
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusPaymentRequired {
+		t.Fatalf("expected direct topup to require payment, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+
+	var balance float64
+	if err := database.QueryRow(`SELECT COALESCE((SELECT balance FROM quotas WHERE organization_id = $1), 0)`, organizationID).Scan(&balance); err != nil {
+		t.Fatalf("query direct topup balance: %v", err)
+	}
+	if balance != 0 {
+		t.Fatalf("direct topup must not credit quota without payment, got balance %.2f", balance)
+	}
+}
+
+func signedHTTPCheckoutCompletedLifecyclePayload(secret string, eventID string, organizationID string, userID string, paymentIntentID string, planID string, checkoutKind string) *webhook.SignedPayload {
+	payload := []byte(`{
+		"id": "` + eventID + `",
+		"object": "event",
+		"api_version": "` + stripeapi.APIVersion + `",
+		"type": "checkout.session.completed",
+		"data": {
+			"object": {
+				"id": "cs_http_phase18",
+				"object": "checkout.session",
+				"payment_intent": "pi_provider_http_phase18",
+				"subscription": "sub_provider_http_phase18",
+				"customer": "cus_http_phase18",
+				"amount_total": 2900,
+				"currency": "usd",
+				"metadata": {
+					"organization_id": "` + organizationID + `",
+					"user_id": "` + userID + `",
+					"payment_intent_id": "` + paymentIntentID + `",
+					"plan_id": "` + planID + `",
+					"checkout_kind": "` + checkoutKind + `"
+				}
+			}
+		}
+	}`)
+
+	return webhook.GenerateTestSignedPayload(&webhook.UnsignedPayload{
+		Payload: payload,
+		Secret:  secret,
+	})
 }

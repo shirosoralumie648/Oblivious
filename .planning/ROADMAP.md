@@ -14,7 +14,7 @@
 
 Milestone v06 has been initialized from `docs/superpowers/specs/2026-05-27-commercial-complete-program-design.md`.
 
-**Next workflow step:** execute Phase 18 Subscription Invoice Top-up Refund State Machine with TDD.
+**Next workflow step:** plan Phase 19 Marketplace Settlement and Governance.
 
 ## Current Milestone: v06 Billing And Marketplace Operations — Active
 
@@ -23,8 +23,8 @@ Milestone v06 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 | Phase | Name | Requirements | Status |
 |-------|------|--------------|--------|
 | Phase 17 | Stripe Payment Authority and Webhook Ledger | PAY-01, PAY-02 | Complete |
-| Phase 18 | Subscription Invoice Top-up Refund State Machine | PAY-03 | Ready to execute |
-| Phase 19 | Marketplace Settlement and Governance | MARKET-03, MARKET-04 | Planned |
+| Phase 18 | Subscription Invoice Top-up Refund State Machine | PAY-03 | Complete |
+| Phase 19 | Marketplace Settlement and Governance | MARKET-03, MARKET-04 | Ready to plan |
 | Phase 20 | Billing Admin Evidence and v06 Closeout | ADMIN-BILL-01, DOC-05 | Planned |
 
 ### Phase 17: Stripe Payment Authority and Webhook Ledger
@@ -82,6 +82,15 @@ Milestone v06 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 **Planning evidence:**
 - Context: `.planning/phases/18-subscription-invoice-topup-refund-state-machine/18-CONTEXT.md`
 - Plan: `.planning/phases/18-subscription-invoice-topup-refund-state-machine/18-01-PLAN.md`
+
+**Completion evidence:**
+- Summary: `.planning/phases/18-subscription-invoice-topup-refund-state-machine/18-01-SUMMARY.md`
+- Focused lifecycle tests: `cd src/server && TEST_DATABASE_URL=... OBLIVIOUS_REQUIRE_TEST_DATABASE=true go test ./internal/stripe -run 'Lifecycle|CheckoutCompleted|Topup|Invoice|Refund|Subscription' -count=1`
+- DB-backed route tests: `cd src/server && TEST_DATABASE_URL=... OBLIVIOUS_REQUIRE_TEST_DATABASE=true go test ./internal/http -run 'Stripe|Billing|Checkout|Webhook|Topup|Invoice|Refund|Subscription' -count=1`
+- Broader package check: `cd src/server && TEST_DATABASE_URL=... OBLIVIOUS_REQUIRE_TEST_DATABASE=true go test ./internal/stripe ./internal/http ./internal/quota -count=1`
+- Docs gate: `bash scripts/check.sh docs`
+- Broad quality gate: `GOPROXY=... GOSUMDB=... bash scripts/check.sh all`
+- Diff hygiene: `git diff --check`
 
 **Boundaries:**
 - Marketplace settlement, platform fees, payout state, and refund impact remain Phase 19.
@@ -306,7 +315,7 @@ Milestone v06 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 
 | Milestone | Scope | Plans | Requirements | Status | Completed |
 |-----------|-------|-------|--------------|--------|-----------|
-| v06 Billing And Marketplace Operations | Phases 17-20 | 1/4 plans complete | 2/7 requirements complete | Active | — |
+| v06 Billing And Marketplace Operations | Phases 17-20 | 2/4 plans complete | 3/7 requirements complete | Active | — |
 | v05 Relay Billing Completeness | Phases 13-16 | 4/4 plans complete | 7/7 requirements complete | Complete | 2026-05-28 |
 | v04 Commercial Foundation | Phases 9-12 | 4/4 plans complete | 11/11 requirements complete | Complete | 2026-05-28 |
 | v03.3 Mainline Consolidation | Phases 5-8 plus backlog 999.1 and 999.2 | 12/12 steps complete | 7/7 requirements complete | Complete | 2026-05-27 |
@@ -315,4 +324,4 @@ Milestone v06 has been initialized from `docs/superpowers/specs/2026-05-27-comme
 | Foundation through Backend | Phases 1, 2, 3a | Historical | RELAY, CHAT, AGENT, MCP, MEM, EXEC, QUOTA, ADMIN, MARKET | Complete | 2026-04-29 |
 
 ---
-*Roadmap updated: 2026-05-28 after completing Phase 17 Stripe Payment Authority and Webhook Ledger*
+*Roadmap updated: 2026-05-28 after completing Phase 18 Subscription Invoice Top-up Refund State Machine*

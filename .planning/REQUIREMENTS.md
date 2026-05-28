@@ -14,7 +14,7 @@
 
 ### Payment Lifecycle
 
-- [ ] **PAY-03**: Subscription lifecycle, invoices, refunds, failed-payment states, plan changes, and top-ups are implemented as auditable state transitions. Target: Phase 18.
+- [x] **PAY-03**: Subscription lifecycle, invoices, refunds, failed-payment states, plan changes, and top-ups are implemented as auditable state transitions. Completed in Phase 18 with `billing_lifecycle_events`, `billing_invoices`, `billing_refunds`, `LifecycleService`, payment-backed top-up fulfillment, refund quota reversal, duplicate webhook lifecycle retry, and DB-backed lifecycle/route tests.
 
 ### Marketplace Operations
 
@@ -46,7 +46,7 @@
 |-------------|-------|--------|
 | PAY-01 | Phase 17 — Stripe Payment Authority and Webhook Ledger | Complete |
 | PAY-02 | Phase 17 — Stripe Payment Authority and Webhook Ledger | Complete |
-| PAY-03 | Phase 18 — Subscription Invoice Top-up Refund State Machine | Planned |
+| PAY-03 | Phase 18 — Subscription Invoice Top-up Refund State Machine | Complete |
 | MARKET-03 | Phase 19 — Marketplace Settlement and Governance | Planned |
 | MARKET-04 | Phase 19 — Marketplace Settlement and Governance | Planned |
 | ADMIN-BILL-01 | Phase 20 — Billing Admin Evidence and v06 Closeout | Planned |
@@ -148,12 +148,12 @@
 - Historical traceability cleanup should use additive rows or notes, not broad rewrites of completed requirements.
 
 **Coverage:**
-- Active v06 requirements: 5
-- Completed v06 requirements: 2
+- Active v06 requirements: 4
+- Completed v06 requirements: 3
 - Planned v06 phase mappings: 7
 - Completed historical requirements: 68
 - Blocked requirements: 0
 - Unmapped v06 requirements: 0
 
 ---
-*Requirements updated: 2026-05-28 after completing Phase 17 Stripe Payment Authority and Webhook Ledger*
+*Requirements updated: 2026-05-28 after completing Phase 18 Subscription Invoice Top-up Refund State Machine*

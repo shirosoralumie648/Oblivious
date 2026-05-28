@@ -1,6 +1,7 @@
 package stripe
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,16 +15,25 @@ import (
 // WebhookHandler verifies Stripe webhook signatures and records provider events
 // into the payment ledger before later lifecycle phases apply business effects.
 type WebhookHandler struct {
-	ledger WebhookLedger
-	secret string
+	ledger    WebhookLedger
+	secret    string
+	lifecycle LifecycleApplier
+}
+
+type LifecycleApplier interface {
+	ApplyStripeEvent(ctx context.Context, event stripeapi.Event, payload []byte) error
 }
 
 // NewWebhookHandler creates a new WebhookHandler.
-func NewWebhookHandler(ledger WebhookLedger, webhookSecret string) *WebhookHandler {
-	return &WebhookHandler{
+func NewWebhookHandler(ledger WebhookLedger, webhookSecret string, lifecycle ...LifecycleApplier) *WebhookHandler {
+	handler := &WebhookHandler{
 		ledger: ledger,
 		secret: webhookSecret,
 	}
+	if len(lifecycle) > 0 {
+		handler.lifecycle = lifecycle[0]
+	}
+	return handler
 }
 
 // HandleWebhook processes an incoming Stripe webhook request.
@@ -44,14 +54,16 @@ func (h *WebhookHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	record := webhookEventRecord(event, payload)
-	created, err := h.ledger.RecordWebhookEvent(r.Context(), record)
+	_, err = h.ledger.RecordWebhookEvent(r.Context(), record)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "record webhook event failed"})
 		return
 	}
-	if !created {
-		writeJSON(w, http.StatusOK, map[string]bool{"received": true})
-		return
+	if h.lifecycle != nil {
+		if err := h.lifecycle.ApplyStripeEvent(r.Context(), event, payload); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "apply webhook lifecycle failed"})
+			return
+		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]bool{"received": true})
@@ -94,8 +106,9 @@ func enrichCheckoutCompletedRecord(record *WebhookEvent, event stripeapi.Event) 
 	record.UserID = session.Metadata["user_id"]
 	record.PaymentIntentID = session.Metadata["payment_intent_id"]
 
+	checkoutKind := session.Metadata["checkout_kind"]
 	planID := session.Metadata["plan_id"]
-	if record.OrganizationID == "" || record.UserID == "" || planID == "" {
+	if record.OrganizationID == "" || record.UserID == "" || (checkoutKind != "topup" && planID == "") {
 		record.Status = "failed"
 		record.Error = fmt.Sprintf("checkout.session.completed: missing organization_id, user_id, or plan_id (organization_id=%q, user_id=%q, plan_id=%q)", record.OrganizationID, record.UserID, planID)
 	}
