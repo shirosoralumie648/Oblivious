@@ -43,6 +43,10 @@ type recordingKnowledgeVectorStore struct {
 	ensuredVectorSize int
 	organizationID    string
 	knowledgeBaseID   string
+	searchEmbedding   []float32
+	searchOptions     KnowledgeRetrievalOptions
+	searchQuery       string
+	searchResults     []KnowledgeRetrievalResult
 }
 
 func (f *fakeStore) CreateKnowledgeBase(ctx context.Context, workspaceID, name string) (KnowledgeBase, error) {
@@ -172,6 +176,15 @@ func (s *recordingKnowledgeVectorStore) UpsertKnowledgeDocumentChunks(ctx contex
 	s.documentID = documentID
 	s.chunks = append([]KnowledgeDocumentChunk(nil), chunks...)
 	return nil
+}
+
+func (s *recordingKnowledgeVectorStore) SearchKnowledgeChunks(ctx context.Context, organizationID, knowledgeBaseID, query string, queryEmbedding []float32, options KnowledgeRetrievalOptions) ([]KnowledgeRetrievalResult, error) {
+	s.organizationID = organizationID
+	s.knowledgeBaseID = knowledgeBaseID
+	s.searchQuery = query
+	s.searchEmbedding = append([]float32(nil), queryEmbedding...)
+	s.searchOptions = options
+	return append([]KnowledgeRetrievalResult(nil), s.searchResults...), nil
 }
 
 type recordingKnowledgeEmbedder struct {
@@ -853,6 +866,51 @@ func TestRetrieveWithOptionsRecordsRAGRetrievalLatencyMetric(t *testing.T) {
 	}
 	if count := histogramSampleCount(t, metrics.RAGRetrievalLatencySeconds.WithLabelValues(mode)); count <= before {
 		t.Fatalf("expected RAG retrieval latency histogram sample, before=%v after=%v", before, count)
+	}
+}
+
+func TestRetrieveWithOptionsUsesQdrantSearchForVectorOnlyMode(t *testing.T) {
+	store := &fakeStore{
+		retrievalResults: []KnowledgeRetrievalResult{
+			{ChunkID: "sql_chunk", DocumentID: "doc_sql", DocumentTitle: "SQL Doc", Snippet: "sql fallback"},
+		},
+	}
+	embedder := &recordingKnowledgeEmbedder{}
+	vectorStore := &recordingKnowledgeVectorStore{
+		searchResults: []KnowledgeRetrievalResult{
+			{ChunkID: "qdrant_chunk", DocumentID: "doc_qdrant", DocumentTitle: "Qdrant Doc", Snippet: "qdrant answer"},
+		},
+	}
+	service := NewServiceWithEmbedderAndVectorStore(store, embedder, "text-embedding-3-small", vectorStore, 3)
+
+	results, err := service.RetrieveWithOptions(
+		context.Background(),
+		auth.Session{OrganizationID: "org_knowledge", WorkspaceID: "workspace_knowledge"},
+		"kb_qdrant",
+		"  qdrant   answer  ",
+		KnowledgeRetrievalOptions{Mode: KnowledgeRetrievalModeVector, Limit: 3, MinScore: 0.42},
+	)
+	if err != nil {
+		t.Fatalf("retrieve with qdrant vector search: %v", err)
+	}
+
+	if vectorStore.organizationID != "org_knowledge" || vectorStore.knowledgeBaseID != "kb_qdrant" {
+		t.Fatalf("expected tenant-scoped qdrant search, got org=%q kb=%q", vectorStore.organizationID, vectorStore.knowledgeBaseID)
+	}
+	if vectorStore.searchQuery != "qdrant answer" {
+		t.Fatalf("expected normalized qdrant query, got %q", vectorStore.searchQuery)
+	}
+	if len(vectorStore.searchEmbedding) != 3 {
+		t.Fatalf("expected qdrant search embedding, got %+v", vectorStore.searchEmbedding)
+	}
+	if vectorStore.searchOptions.Mode != KnowledgeRetrievalModeVector || vectorStore.searchOptions.Limit != 3 || vectorStore.searchOptions.MinScore != 0.42 {
+		t.Fatalf("expected qdrant search options to match vector request, got %+v", vectorStore.searchOptions)
+	}
+	if store.retrievalQuery != "" {
+		t.Fatalf("expected vector_only qdrant search to bypass SQL retrieval, got store query %q", store.retrievalQuery)
+	}
+	if len(results) != 1 || results[0].ChunkID != "qdrant_chunk" || results[0].RetrievalMode != KnowledgeRetrievalModeVector {
+		t.Fatalf("expected qdrant vector result with vector mode, got %+v", results)
 	}
 }
 

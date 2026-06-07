@@ -127,6 +127,7 @@ type knowledgeRetrieverNamedWithOptions interface {
 type KnowledgeVectorStore interface {
 	EnsureKnowledgeBaseCollection(ctx context.Context, organizationID, knowledgeBaseID string, vectorSize int) error
 	DeleteKnowledgeBaseCollection(ctx context.Context, organizationID, knowledgeBaseID string) error
+	SearchKnowledgeChunks(ctx context.Context, organizationID, knowledgeBaseID, query string, queryEmbedding []float32, options KnowledgeRetrievalOptions) ([]KnowledgeRetrievalResult, error)
 	UpsertKnowledgeDocumentChunks(ctx context.Context, organizationID, knowledgeBaseID, documentID string, chunks []KnowledgeDocumentChunk) error
 }
 
@@ -513,6 +514,13 @@ func (s *Service) RetrieveWithOptions(ctx context.Context, session auth.Session,
 	}
 	scope := knowledgeSessionScope(session)
 	candidateOptions := knowledgeRetrievalCandidateOptions(options, s != nil && s.reranker != nil)
+	if options.Mode == KnowledgeRetrievalModeVector && s != nil && s.vectorStore != nil && len(queryEmbedding) > 0 {
+		results, err := s.vectorStore.SearchKnowledgeChunks(ctx, scope, knowledgeBaseID, normalizedQuery, queryEmbedding, candidateOptions)
+		if err != nil {
+			return nil, err
+		}
+		return s.rerankKnowledgeResults(ctx, normalizedQuery, normalizeKnowledgeRetrievalResults(results, options.Mode), options)
+	}
 	if store, ok := s.store.(knowledgeRetrieverWithOptions); ok {
 		results, err := store.RetrieveKnowledge(ctx, scope, knowledgeBaseID, normalizedQuery, queryEmbedding, candidateOptions)
 		if err != nil {
