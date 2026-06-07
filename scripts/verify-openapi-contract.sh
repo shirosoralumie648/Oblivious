@@ -27,6 +27,7 @@ require_public_security_empty() {
 }
 
 required_paths=(
+  "/api/v1/agent/tools"
   "/api/v1/agent/runs"
   "/api/v1/agent/runs/{runId}"
   "/api/v1/agent/runs/{runId}/approve-tool"

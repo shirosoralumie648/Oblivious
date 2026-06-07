@@ -595,6 +595,25 @@ components:
           type: string
           format: date-time
 
+    AgentToolDefinition:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        inputSchema:
+          type: object
+          additionalProperties: true
+        toolType:
+          type: string
+          enum: [builtin, mcp, custom]
+        requiresApproval:
+          type: boolean
+        riskLevel:
+          type: string
+          enum: [safe, medium, dangerous]
+
     AgentToolRun:
       type: object
       properties:
@@ -2920,7 +2939,52 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
-  # ---- Agent runs ----
+  # ---- Agent tools and runs ----
+  /api/v1/agent/tools:
+    get:
+      summary: 获取 Agent 可用工具定义
+      operationId: listAgentTools
+      tags: [Agent]
+      parameters:
+        - name: agentId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Agent ID. Either `agentId` or `agent_id` is required.
+        - name: agent_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Snake-case alias for `agentId`.
+      responses:
+        "200":
+          description: Agent 当前启用且商业可用的工具定义
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/AgentToolDefinition"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Agent 不属于当前用户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/v1/agent/runs:
     post:
       summary: 创建并执行 Agent run
