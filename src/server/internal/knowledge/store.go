@@ -1083,10 +1083,35 @@ func buildKnowledgeDocumentChunks(content string) []configuredKnowledgeChunk {
 
 func buildKnowledgeDocumentChunksWithConfig(content string, config KnowledgeBaseConfig) []configuredKnowledgeChunk {
 	config = normalizeKnowledgeBaseConfig(config)
-	if config.ChunkStrategy == KnowledgeChunkStrategyFixedSize {
+	switch normalizeKnowledgeChunkStrategy(config.ChunkStrategy) {
+	case KnowledgeChunkStrategyFixedSize:
 		return buildFixedSizeKnowledgeDocumentChunks(content, config.ChunkSize, config.ChunkOverlap)
+	case KnowledgeChunkStrategyQASplit:
+		return buildQAKnowledgeDocumentChunks(content, config.ChunkSize)
+	case KnowledgeChunkStrategyTemplate:
+		return buildTemplateKnowledgeDocumentChunks(content, config.ChunkSize)
+	case KnowledgeChunkStrategySemantic:
+		return buildSemanticKnowledgeDocumentChunks(content, config.ChunkSize)
 	}
+	return buildSemanticKnowledgeDocumentChunks(content, config.ChunkSize)
+}
 
+func normalizeKnowledgeChunkStrategy(strategy string) string {
+	switch strings.TrimSpace(strategy) {
+	case KnowledgeChunkStrategyFixedSize:
+		return KnowledgeChunkStrategyFixedSize
+	case KnowledgeChunkStrategyQASplit:
+		return KnowledgeChunkStrategyQASplit
+	case KnowledgeChunkStrategyTemplate, KnowledgeChunkStrategyTemplateBased:
+		return KnowledgeChunkStrategyTemplate
+	case KnowledgeChunkStrategySemantic:
+		return KnowledgeChunkStrategySemantic
+	default:
+		return KnowledgeChunkStrategySemantic
+	}
+}
+
+func buildSemanticKnowledgeDocumentChunks(content string, chunkSize int) []configuredKnowledgeChunk {
 	normalized := strings.TrimSpace(strings.ReplaceAll(content, "\r\n", "\n"))
 	if normalized == "" {
 		return nil
@@ -1098,20 +1123,103 @@ func buildKnowledgeDocumentChunksWithConfig(content string, config KnowledgeBase
 	}
 
 	chunks := []configuredKnowledgeChunk{}
+	runeOffset := 0
 	for _, segment := range segments {
 		cleaned := strings.Join(strings.Fields(segment), " ")
 		if cleaned == "" {
+			runeOffset += len([]rune(segment)) + 2
 			continue
 		}
 
-		for _, chunk := range splitChunk(cleaned, knowledgeDocumentChunkSize) {
-			if chunk != "" {
-				chunks = append(chunks, configuredKnowledgeChunk{Content: chunk})
-			}
-		}
+		chunks = append(chunks, splitConfiguredKnowledgeChunk(cleaned, chunkSize, runeOffset)...)
+		runeOffset += len([]rune(segment)) + 2
 	}
 
 	return chunks
+}
+
+func buildQAKnowledgeDocumentChunks(content string, chunkSize int) []configuredKnowledgeChunk {
+	semanticChunks := buildSemanticKnowledgeDocumentChunks(content, chunkSize)
+	if len(semanticChunks) == 0 {
+		return nil
+	}
+
+	chunks := []configuredKnowledgeChunk{}
+	group := []configuredKnowledgeChunk{}
+	flush := func() {
+		if len(group) == 0 {
+			return
+		}
+		parts := make([]string, 0, len(group))
+		for _, chunk := range group {
+			if text := strings.TrimSpace(chunk.Content); text != "" {
+				parts = append(parts, text)
+			}
+		}
+		if len(parts) > 0 {
+			chunks = append(chunks, configuredKnowledgeChunk{
+				Content:   strings.Join(parts, " "),
+				StartRune: group[0].StartRune,
+				EndRune:   group[len(group)-1].EndRune,
+			})
+		}
+		group = nil
+	}
+
+	for _, chunk := range semanticChunks {
+		lower := strings.ToLower(strings.TrimSpace(chunk.Content))
+		if strings.HasPrefix(lower, "q:") {
+			flush()
+		}
+		group = append(group, chunk)
+		if strings.HasPrefix(lower, "a:") {
+			flush()
+		}
+	}
+	flush()
+	return chunks
+}
+
+func buildTemplateKnowledgeDocumentChunks(content string, chunkSize int) []configuredKnowledgeChunk {
+	normalized := strings.TrimSpace(strings.ReplaceAll(content, "\r\n", "\n"))
+	if normalized == "" {
+		return nil
+	}
+
+	sections := splitKnowledgeTemplateSections(normalized)
+	chunks := []configuredKnowledgeChunk{}
+	runeOffset := 0
+	for _, section := range sections {
+		text := strings.TrimSpace(section)
+		if text == "" {
+			runeOffset += len([]rune(section)) + 1
+			continue
+		}
+		chunks = append(chunks, splitConfiguredKnowledgeChunk(text, chunkSize, runeOffset)...)
+		runeOffset += len([]rune(section)) + 1
+	}
+	return chunks
+}
+
+func splitKnowledgeTemplateSections(text string) []string {
+	lines := strings.Split(text, "\n")
+	sections := []string{}
+	var current strings.Builder
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#") && len(trimmed) > 1 && current.Len() > 0 {
+			sections = append(sections, current.String())
+			current.Reset()
+		}
+		if current.Len() > 0 {
+			current.WriteString("\n")
+		}
+		current.WriteString(line)
+	}
+	if current.Len() > 0 {
+		sections = append(sections, current.String())
+	}
+	return sections
 }
 
 func buildFixedSizeKnowledgeDocumentChunks(content string, chunkSize, overlap int) []configuredKnowledgeChunk {
@@ -1144,6 +1252,52 @@ func buildFixedSizeKnowledgeDocumentChunks(content string, chunkSize, overlap in
 		}
 		start = end - overlap
 	}
+	return chunks
+}
+
+func splitConfiguredKnowledgeChunk(content string, maxLength, baseOffset int) []configuredKnowledgeChunk {
+	runes := []rune(strings.TrimSpace(content))
+	if len(runes) == 0 {
+		return nil
+	}
+	if maxLength <= 0 {
+		maxLength = knowledgeDocumentChunkSize
+	}
+
+	if len(runes) <= maxLength {
+		return []configuredKnowledgeChunk{{Content: string(runes), StartRune: baseOffset, EndRune: baseOffset + len(runes)}}
+	}
+
+	chunks := []configuredKnowledgeChunk{}
+	start := 0
+	for start < len(runes) {
+		end := start + maxLength
+		if end >= len(runes) {
+			text := strings.TrimSpace(string(runes[start:]))
+			if text != "" {
+				chunks = append(chunks, configuredKnowledgeChunk{Content: text, StartRune: baseOffset + start, EndRune: baseOffset + len(runes)})
+			}
+			break
+		}
+
+		splitAt := end
+		for splitAt > start && !unicode.IsSpace(runes[splitAt-1]) {
+			splitAt--
+		}
+		if splitAt == start {
+			splitAt = end
+		}
+
+		text := strings.TrimSpace(string(runes[start:splitAt]))
+		if text != "" {
+			chunks = append(chunks, configuredKnowledgeChunk{Content: text, StartRune: baseOffset + start, EndRune: baseOffset + splitAt})
+		}
+		start = splitAt
+		for start < len(runes) && unicode.IsSpace(runes[start]) {
+			start++
+		}
+	}
+
 	return chunks
 }
 

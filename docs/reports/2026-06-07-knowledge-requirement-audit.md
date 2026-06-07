@@ -26,7 +26,7 @@ Status values:
 | Requirement | Status | Evidence |
 | --- | --- | --- |
 | Knowledge-base config stores chunk strategy, size, and overlap. | Proven for config persistence/readback | Create/update/list/detail paths include `chunk_strategy`, `chunk_size`, and `chunk_overlap`; `TestSQLStoreListAndGetKnowledgeBasesReturnRAGConfig` covers readback. |
-| Main ingestion applies fixed, semantic, QA, or template chunking strategies. | Partial | Create/update document paths now load the knowledge-base chunk config before building chunks, and `fixed_size` uses configured chunk size and overlap with start/end rune metadata. `TestCreateDocumentUsesKnowledgeBaseChunkingConfig` and `TestUpdateDocumentUsesKnowledgeBaseChunkingConfig` prove the main ingestion path. Semantic, QA, and template-specific generation still need full strategy-specific coverage in the service path. |
+| Main ingestion applies fixed, semantic, QA, or template chunking strategies. | Proven for service ingestion path | Create/update document paths load the knowledge-base chunk config before building chunks. `fixed_size` uses configured size/overlap with start/end rune metadata; `semantic` honors configured chunk size in the service path; `qa_split` groups question/answer pairs; and `template_based`/`template` split heading-based sections while keeping headings attached to body text. `TestCreateDocumentUsesKnowledgeBaseChunkingConfig`, `TestUpdateDocumentUsesKnowledgeBaseChunkingConfig`, `TestCreateDocumentUsesSemanticChunkingConfig`, `TestCreateDocumentUsesQAChunkingConfig`, `TestCreateDocumentUsesTemplateBasedChunkingConfig`, and `TestUpdateDocumentUsesTemplateBasedChunkingConfig` prove the main ingestion path. |
 | Chunk visualization/editing is available end to end. | Partial | Workspace UI has retrieval result and chunk actions, and server chunk update/list paths exist. This audit did not prove original-document visual chunk boundaries, split/merge editing, or colored chunk overlays. |
 
 ## 3.3 Document Update Strategy
@@ -59,7 +59,7 @@ Status values:
 Fresh checks for this slice:
 
 - `go test ./internal/knowledge -run 'TestSQLStore(CreateRetrievalTestCasePersistsExpectedResult|ListRetrievalTestCasesReturnsSavedExpectedResults)' -count=1`
-- `go test ./internal/knowledge -run 'Test(Create|Update)DocumentUsesKnowledgeBaseChunkingConfig' -count=1`
+- `go test ./internal/knowledge -run 'Test(Create|Update)DocumentUses.*ChunkingConfig' -count=1`
 - `go test ./internal/knowledge -run 'TestRetrieveWithOptions(ReranksHybridRerankResults|ExpandsHybridRerankCandidatePool)' -count=1`
 - `go test ./internal/knowledge/retrieval -run TestKnowledgeResultRerankerCallsCohereCompatibleEndpoint -count=1`
 - `go test ./internal/config -run 'TestLoadRAGRerankerConfig|TestLoadRejectsInvalidRAGRerankerTopK' -count=1`
@@ -73,10 +73,9 @@ All Go commands above were run from `src/server` with absolute `GOCACHE=/tmp/obl
 
 The Knowledge/RAG row remains `Partial`, not `Proven`.
 
-The current Knowledge/RAG slices close the highest-priority API/store contract gaps for retrieval mode naming, knowledge-base RAG config readback, SQL-backed retrieval test case persistence, fixed-size chunking config in the main document create/update ingestion path, configured HTTP reranking for `hybrid_rerank`, and knowledge-base `rerankTopK` candidate-pool expansion before final result truncation. The remaining high-value work is:
+The current Knowledge/RAG slices close the highest-priority API/store contract gaps for retrieval mode naming, knowledge-base RAG config readback, SQL-backed retrieval test case persistence, fixed/semantic/QA/template chunking config in the main document create/update ingestion path, configured HTTP reranking for `hybrid_rerank`, and knowledge-base `rerankTopK` candidate-pool expansion before final result truncation. The remaining high-value work is:
 
-1. Extend service-path chunking coverage beyond `fixed_size` to semantic, QA, and template-specific behavior.
-2. Add fallback/metrics visibility for reranker outages.
-3. Implement incremental and multi-version update semantics beyond storing strategy names.
-4. Populate citation highlight positions and prove document preview/source navigation.
-5. Add Qdrant chunk upsert/search instead of collection-only wiring.
+1. Add fallback/metrics visibility for reranker outages.
+2. Implement incremental and multi-version update semantics beyond storing strategy names.
+3. Populate citation highlight positions and prove document preview/source navigation.
+4. Add Qdrant chunk upsert/search instead of collection-only wiring.

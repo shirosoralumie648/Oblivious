@@ -465,6 +465,121 @@ func TestCreateDocumentUsesKnowledgeBaseChunkingConfig(t *testing.T) {
 	}
 }
 
+func TestCreateDocumentUsesSemanticChunkingConfig(t *testing.T) {
+	store := &fakeStore{
+		createdDoc: KnowledgeDocument{ID: "doc_semantic_chunk_config", Title: "Semantic Chunk Config Doc"},
+		detailBase: KnowledgeBase{
+			ChunkSize:     120,
+			ChunkStrategy: KnowledgeChunkStrategySemantic,
+			ID:            "kb_semantic_chunk_config",
+			Name:          "Semantic Chunk Config KB",
+		},
+	}
+	service := NewService(store)
+	content := strings.Repeat("semantic phrase ", 12)
+
+	if _, err := service.CreateDocumentWithOptions(
+		context.Background(),
+		auth.Session{WorkspaceID: "workspace_1", OrganizationID: "org_1"},
+		"kb_semantic_chunk_config",
+		"Semantic Chunk Config Doc",
+		content,
+		KnowledgeDocumentOptions{},
+	); err != nil {
+		t.Fatalf("create document with semantic chunks: %v", err)
+	}
+
+	if len(store.createdChunks) < 2 {
+		t.Fatalf("expected semantic chunking to honor configured chunk size and split the paragraph, got %d chunks: %+v", len(store.createdChunks), store.createdChunks)
+	}
+	if got := len([]rune(store.createdChunks[0].Content)); got > 120 {
+		t.Fatalf("expected semantic chunk to be capped by KB chunk size 120, got %d: %q", got, store.createdChunks[0].Content)
+	}
+	if store.createdChunks[0].Metadata.EndRune == 0 {
+		t.Fatalf("expected semantic chunk metadata to include end rune, got %+v", store.createdChunks[0].Metadata)
+	}
+}
+
+func TestCreateDocumentUsesQAChunkingConfig(t *testing.T) {
+	store := &fakeStore{
+		createdDoc: KnowledgeDocument{ID: "doc_qa_chunk_config", Title: "QA Chunk Config Doc"},
+		detailBase: KnowledgeBase{
+			ChunkSize:     200,
+			ChunkStrategy: KnowledgeChunkStrategyQASplit,
+			ID:            "kb_qa_chunk_config",
+			Name:          "QA Chunk Config KB",
+		},
+	}
+	service := NewService(store)
+	content := strings.Join([]string{
+		"Q: What does the workspace store?",
+		"A: It stores tenant-scoped knowledge documents.",
+		"Q: How are answers traced?",
+		"A: Citations point back to source chunks.",
+	}, "\n")
+
+	if _, err := service.CreateDocumentWithOptions(
+		context.Background(),
+		auth.Session{WorkspaceID: "workspace_1", OrganizationID: "org_1"},
+		"kb_qa_chunk_config",
+		"QA Chunk Config Doc",
+		content,
+		KnowledgeDocumentOptions{},
+	); err != nil {
+		t.Fatalf("create document with QA chunks: %v", err)
+	}
+
+	if len(store.createdChunks) != 2 {
+		t.Fatalf("expected QA chunking to group each question and answer pair into 2 chunks, got %d: %+v", len(store.createdChunks), store.createdChunks)
+	}
+	if first := store.createdChunks[0].Content; !strings.Contains(first, "Q: What does the workspace store?") || !strings.Contains(first, "A: It stores tenant-scoped knowledge documents.") {
+		t.Fatalf("expected first QA chunk to contain the first question and answer, got %q", first)
+	}
+	if second := store.createdChunks[1].Content; !strings.Contains(second, "Q: How are answers traced?") || !strings.Contains(second, "A: Citations point back to source chunks.") {
+		t.Fatalf("expected second QA chunk to contain the second question and answer, got %q", second)
+	}
+}
+
+func TestCreateDocumentUsesTemplateBasedChunkingConfig(t *testing.T) {
+	store := &fakeStore{
+		createdDoc: KnowledgeDocument{ID: "doc_template_chunk_config", Title: "Template Chunk Config Doc"},
+		detailBase: KnowledgeBase{
+			ChunkSize:     200,
+			ChunkStrategy: KnowledgeChunkStrategyTemplateBased,
+			ID:            "kb_template_chunk_config",
+			Name:          "Template Chunk Config KB",
+		},
+	}
+	service := NewService(store)
+	content := strings.Join([]string{
+		"# Overview",
+		"Overview content stays attached to its heading.",
+		"## Procedure",
+		"Procedure content stays attached to the next heading.",
+	}, "\n")
+
+	if _, err := service.CreateDocumentWithOptions(
+		context.Background(),
+		auth.Session{WorkspaceID: "workspace_1", OrganizationID: "org_1"},
+		"kb_template_chunk_config",
+		"Template Chunk Config Doc",
+		content,
+		KnowledgeDocumentOptions{},
+	); err != nil {
+		t.Fatalf("create document with template chunks: %v", err)
+	}
+
+	if len(store.createdChunks) != 2 {
+		t.Fatalf("expected template chunking to split by headings into 2 sections, got %d: %+v", len(store.createdChunks), store.createdChunks)
+	}
+	if first := store.createdChunks[0].Content; !strings.Contains(first, "# Overview") || !strings.Contains(first, "Overview content stays attached") {
+		t.Fatalf("expected first template chunk to keep overview heading with body, got %q", first)
+	}
+	if second := store.createdChunks[1].Content; !strings.Contains(second, "## Procedure") || !strings.Contains(second, "Procedure content stays attached") {
+		t.Fatalf("expected second template chunk to keep procedure heading with body, got %q", second)
+	}
+}
+
 func TestUpdateDocumentUsesKnowledgeBaseChunkingConfig(t *testing.T) {
 	store := &fakeStore{
 		detailBase: KnowledgeBase{
@@ -502,6 +617,50 @@ func TestUpdateDocumentUsesKnowledgeBaseChunkingConfig(t *testing.T) {
 	}
 	if store.createdChunks[1].Metadata.StartRune != 100 || store.createdChunks[1].Metadata.EndRune != 220 {
 		t.Fatalf("expected update overlap metadata start/end 100/220, got %+v", store.createdChunks[1].Metadata)
+	}
+}
+
+func TestUpdateDocumentUsesTemplateBasedChunkingConfig(t *testing.T) {
+	store := &fakeStore{
+		detailBase: KnowledgeBase{
+			ChunkSize:     200,
+			ChunkStrategy: KnowledgeChunkStrategyTemplateBased,
+			ID:            "kb_template_chunk_config",
+			Name:          "Template Chunk Config KB",
+		},
+		updatedDoc: KnowledgeDocument{ID: "doc_template_chunk_config", Title: "Template Chunk Config Doc"},
+	}
+	service := NewService(store)
+	content := strings.Join([]string{
+		"# Existing Behavior",
+		"Existing behavior stays with the first heading.",
+		"## Updated Behavior",
+		"Updated behavior stays with the next heading.",
+	}, "\n")
+
+	if _, err := service.UpdateDocumentWithOptions(
+		context.Background(),
+		auth.Session{WorkspaceID: "workspace_1", OrganizationID: "org_1"},
+		"kb_template_chunk_config",
+		"doc_template_chunk_config",
+		"Template Chunk Config Doc",
+		content,
+		KnowledgeDocumentOptions{},
+	); err != nil {
+		t.Fatalf("update document with template chunks: %v", err)
+	}
+
+	if store.deletedDocID != "doc_template_chunk_config" {
+		t.Fatalf("expected update to target doc_template_chunk_config, got %q", store.deletedDocID)
+	}
+	if len(store.createdChunks) != 2 {
+		t.Fatalf("expected template chunking to split updated content into 2 sections, got %d: %+v", len(store.createdChunks), store.createdChunks)
+	}
+	if first := store.createdChunks[0].Content; !strings.Contains(first, "# Existing Behavior") || !strings.Contains(first, "Existing behavior stays") {
+		t.Fatalf("expected first updated template chunk to keep heading with body, got %q", first)
+	}
+	if second := store.createdChunks[1].Content; !strings.Contains(second, "## Updated Behavior") || !strings.Contains(second, "Updated behavior stays") {
+		t.Fatalf("expected second updated template chunk to keep heading with body, got %q", second)
 	}
 }
 
