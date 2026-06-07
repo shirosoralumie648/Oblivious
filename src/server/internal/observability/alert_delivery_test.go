@@ -278,6 +278,60 @@ func TestAlertRoutingRuleStoreUpdatesDispatcherChannels(t *testing.T) {
 	}
 }
 
+func TestAlertDeliveryDispatcherBatchesInfoEmailDigestForOneHour(t *testing.T) {
+	ctx := context.Background()
+	email := &captureDeliverySink{channel: AlertDeliveryChannelEmail}
+	dispatcher := NewAlertDeliveryDispatcher(AlertDeliveryDispatcherOptions{
+		Policy: DeliveryPolicy{
+			Routes: map[AlertSeverity][]AlertDeliveryChannel{
+				AlertSeverityInfo: {AlertDeliveryChannelEmail},
+			},
+		},
+		Sinks: []AlertDeliverySink{email},
+	})
+	startedAt := time.Date(2026, 6, 7, 8, 0, 0, 0, time.UTC)
+
+	firstResults := dispatcher.Deliver(ctx, AlertEvent{
+		Key:        "service-started",
+		Severity:   AlertSeverityInfo,
+		Title:      "Service started",
+		Message:    "api server started",
+		Component:  "server",
+		OccurredAt: startedAt,
+	})
+	secondResults := dispatcher.Deliver(ctx, AlertEvent{
+		Key:        "job-finished",
+		Severity:   AlertSeverityInfo,
+		Title:      "Scheduled job finished",
+		Message:    "daily sync completed",
+		Component:  "scheduler",
+		OccurredAt: startedAt.Add(30 * time.Minute),
+	})
+
+	if len(firstResults) != 0 || len(secondResults) != 0 || len(email.events) != 0 {
+		t.Fatalf("expected info email alerts to be queued for digest, first=%+v second=%+v email=%+v", firstResults, secondResults, email.events)
+	}
+	if earlyResults := dispatcher.FlushInfoEmailDigests(ctx, startedAt.Add(59*time.Minute)); len(earlyResults) != 0 {
+		t.Fatalf("expected digest flush before one hour to be skipped, got %+v", earlyResults)
+	}
+
+	dueResults := dispatcher.FlushInfoEmailDigests(ctx, startedAt.Add(time.Hour))
+
+	if len(dueResults) != 1 || !dueResults[0].Delivered || dueResults[0].Channel != AlertDeliveryChannelEmail || dueResults[0].Err != nil {
+		t.Fatalf("expected one delivered info digest email, got %+v", dueResults)
+	}
+	if len(email.events) != 1 {
+		t.Fatalf("expected one digest email event, got %+v", email.events)
+	}
+	digest := email.events[0]
+	if digest.Severity != AlertSeverityInfo || digest.Title != "Info alert digest (2 events)" {
+		t.Fatalf("expected info digest title and severity, got %+v", digest)
+	}
+	if !strings.Contains(digest.Message, "Service started") || !strings.Contains(digest.Message, "Scheduled job finished") || !strings.Contains(digest.Message, "api server started") || !strings.Contains(digest.Message, "daily sync completed") {
+		t.Fatalf("expected digest message to summarize queued info alerts, got %q", digest.Message)
+	}
+}
+
 func TestAlertRoutingRulesRouteWarningToInAppNotifications(t *testing.T) {
 	ctx := context.Background()
 	stateStore := NewInMemoryAlertStateStore()
@@ -611,7 +665,7 @@ func TestAlertProviderDeliveryResolverSendsSMTPEmailProvider(t *testing.T) {
 	dispatcher := NewAlertDeliveryDispatcher(AlertDeliveryDispatcherOptions{
 		Policy: DeliveryPolicy{
 			Routes: map[AlertSeverity][]AlertDeliveryChannel{
-				AlertSeverityInfo: {AlertDeliveryChannelEmail},
+				AlertSeverityWarning: {AlertDeliveryChannelEmail},
 			},
 		},
 		SinkResolver: NewAlertProviderDeliverySinkResolver(AlertProviderDeliverySinkResolverOptions{
@@ -621,7 +675,7 @@ func TestAlertProviderDeliveryResolverSendsSMTPEmailProvider(t *testing.T) {
 
 	results := dispatcher.Deliver(ctx, AlertEvent{
 		Key:        "relay-backlog",
-		Severity:   AlertSeverityInfo,
+		Severity:   AlertSeverityWarning,
 		Title:      "Relay backlog",
 		Message:    "queue depth is high",
 		Component:  "relay",
@@ -644,7 +698,7 @@ func TestAlertProviderDeliveryResolverSendsSMTPEmailProvider(t *testing.T) {
 	if strings.Join(gotMessages[0].recipients, ",") != "ops@example.com,oncall@example.com" {
 		t.Fatalf("expected SMTP recipients to be parsed, got %+v", gotMessages[0])
 	}
-	if !strings.Contains(gotMessages[0].data, "Subject: [INFO] Relay backlog") || !strings.Contains(gotMessages[0].data, "queue depth is high") {
+	if !strings.Contains(gotMessages[0].data, "Subject: [WARNING] Relay backlog") || !strings.Contains(gotMessages[0].data, "queue depth is high") {
 		t.Fatalf("expected SMTP email body with alert content, got %q", gotMessages[0].data)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -65,6 +66,7 @@ type AlertDeliveryDispatcherOptions struct {
 	HistoryStore      AlertDeliveryHistoryStore
 	NotificationStore AlertNotificationStateStore
 	NotifyWindows     map[AlertSeverity]time.Duration
+	InfoDigestWindow  time.Duration
 }
 
 type AlertDeliveryDispatcher struct {
@@ -75,6 +77,9 @@ type AlertDeliveryDispatcher struct {
 	historyStore      AlertDeliveryHistoryStore
 	notificationStore AlertNotificationStateStore
 	notifyWindows     map[AlertSeverity]time.Duration
+	infoDigestWindow  time.Duration
+	infoDigestMu      sync.Mutex
+	infoEmailDigest   *alertInfoEmailDigest
 }
 
 type AlertDeliveryHistoryStore interface {
@@ -94,6 +99,7 @@ func NewAlertDeliveryDispatcher(options AlertDeliveryDispatcherOptions) *AlertDe
 		historyStore:      options.HistoryStore,
 		notificationStore: options.NotificationStore,
 		notifyWindows:     normalizeAlertNotifyWindows(options.NotifyWindows),
+		infoDigestWindow:  normalizeInfoEmailDigestWindow(options.InfoDigestWindow),
 	}
 	for _, sink := range options.Sinks {
 		if sink == nil {
@@ -116,38 +122,72 @@ type AlertDeliveryResult struct {
 	Err          error
 }
 
+type alertInfoEmailDigest struct {
+	StartedAt time.Time
+	Events    []AlertEvent
+}
+
 func (d *AlertDeliveryDispatcher) Deliver(ctx context.Context, event AlertEvent) []AlertDeliveryResult {
 	if d == nil {
 		return nil
 	}
+	results := d.FlushInfoEmailDigests(ctx, eventTime(event))
 	if !d.shouldNotify(ctx, event) {
-		return []AlertDeliveryResult{}
+		return results
 	}
 
 	channels := d.channelsForSeverity(ctx, event.Severity)
-	results := make([]AlertDeliveryResult, 0, len(channels))
 	for _, channel := range channels {
-		sinks, err := d.sinksForChannel(ctx, channel)
-		if err != nil {
-			results = append(results, AlertDeliveryResult{Channel: channel, Err: err})
+		if d.shouldQueueInfoEmailDigest(event, channel) {
+			d.queueInfoEmailDigest(event)
 			continue
 		}
-		if len(sinks) == 0 {
-			results = append(results, AlertDeliveryResult{
-				Channel: channel,
-				Err:     fmt.Errorf("%w: %s", ErrAlertDeliverySinkMissing, channel),
-			})
-			continue
+		results = append(results, d.deliverToChannel(ctx, channel, event)...)
+	}
+	return results
+}
+
+func (d *AlertDeliveryDispatcher) FlushInfoEmailDigests(ctx context.Context, now time.Time) []AlertDeliveryResult {
+	if d == nil || d.infoDigestWindow <= 0 {
+		return nil
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+
+	d.infoDigestMu.Lock()
+	digest := d.infoEmailDigest
+	if digest == nil || len(digest.Events) == 0 || now.Sub(digest.StartedAt) < d.infoDigestWindow {
+		d.infoDigestMu.Unlock()
+		return nil
+	}
+	d.infoEmailDigest = nil
+	d.infoDigestMu.Unlock()
+
+	event := infoEmailDigestEvent(*digest, now)
+	return d.deliverToChannel(ctx, AlertDeliveryChannelEmail, event)
+}
+
+func (d *AlertDeliveryDispatcher) deliverToChannel(ctx context.Context, channel AlertDeliveryChannel, event AlertEvent) []AlertDeliveryResult {
+	sinks, err := d.sinksForChannel(ctx, channel)
+	if err != nil {
+		return []AlertDeliveryResult{{Channel: channel, Err: err}}
+	}
+	if len(sinks) == 0 {
+		return []AlertDeliveryResult{{
+			Channel: channel,
+			Err:     fmt.Errorf("%w: %s", ErrAlertDeliverySinkMissing, channel),
+		}}
+	}
+	results := make([]AlertDeliveryResult, 0, len(sinks))
+	for _, sink := range sinks {
+		result := newAlertDeliveryResult(channel, sink)
+		if err := sink.Deliver(ctx, event); err != nil {
+			result.Err = err
+		} else {
+			result.Delivered = true
 		}
-		for _, sink := range sinks {
-			result := newAlertDeliveryResult(channel, sink)
-			if err := sink.Deliver(ctx, event); err != nil {
-				result.Err = err
-			} else {
-				result.Delivered = true
-			}
-			results = append(results, result)
-		}
+		results = append(results, result)
 	}
 	if d.historyStore != nil && len(results) > 0 {
 		_ = d.historyStore.RecordDeliveryAttempts(ctx, event, results)
@@ -170,6 +210,27 @@ func (d *AlertDeliveryDispatcher) sinksForChannel(ctx context.Context, channel A
 		}
 	}
 	return sinks, nil
+}
+
+func (d *AlertDeliveryDispatcher) shouldQueueInfoEmailDigest(event AlertEvent, channel AlertDeliveryChannel) bool {
+	return d != nil && d.infoDigestWindow > 0 && event.Severity == AlertSeverityInfo && channel == AlertDeliveryChannelEmail
+}
+
+func (d *AlertDeliveryDispatcher) queueInfoEmailDigest(event AlertEvent) {
+	if d == nil || d.infoDigestWindow <= 0 {
+		return
+	}
+	if event.OccurredAt.IsZero() {
+		event.OccurredAt = time.Now().UTC()
+	}
+
+	d.infoDigestMu.Lock()
+	defer d.infoDigestMu.Unlock()
+
+	if d.infoEmailDigest == nil {
+		d.infoEmailDigest = &alertInfoEmailDigest{StartedAt: event.OccurredAt}
+	}
+	d.infoEmailDigest.Events = append(d.infoEmailDigest.Events, cloneAlertEvent(event))
 }
 
 func newAlertDeliveryResult(channel AlertDeliveryChannel, sink AlertDeliverySink) AlertDeliveryResult {
@@ -240,6 +301,82 @@ func alertDeliveryResultError(result AlertDeliveryResult) string {
 		return ""
 	}
 	return result.Err.Error()
+}
+
+func normalizeInfoEmailDigestWindow(window time.Duration) time.Duration {
+	if window < 0 {
+		return 0
+	}
+	if window == 0 {
+		return time.Hour
+	}
+	return window
+}
+
+func infoEmailDigestEvent(digest alertInfoEmailDigest, now time.Time) AlertEvent {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	return AlertEvent{
+		Key:        "info-email-digest:" + digest.StartedAt.UTC().Format("2006010215"),
+		Severity:   AlertSeverityInfo,
+		Title:      fmt.Sprintf("Info alert digest (%d events)", len(digest.Events)),
+		Message:    infoEmailDigestMessage(digest),
+		Component:  "observability",
+		OccurredAt: now.UTC(),
+		Fields: map[string]any{
+			"digest_started_at":  digest.StartedAt.UTC().Format(time.RFC3339Nano),
+			"digest_event_count": len(digest.Events),
+		},
+	}
+}
+
+func infoEmailDigestMessage(digest alertInfoEmailDigest) string {
+	lines := []string{
+		"Hourly info alert digest",
+		fmt.Sprintf("Window started at %s", digest.StartedAt.UTC().Format(time.RFC3339Nano)),
+		"",
+	}
+	for _, event := range digest.Events {
+		title := strings.TrimSpace(event.Title)
+		if title == "" {
+			title = alertKey(event)
+		}
+		if title == "" {
+			title = "Info alert"
+		}
+		line := "- "
+		if !event.OccurredAt.IsZero() {
+			line += event.OccurredAt.UTC().Format(time.RFC3339) + " "
+		}
+		if component := strings.TrimSpace(event.Component); component != "" {
+			line += "[" + component + "] "
+		}
+		line += title
+		if message := strings.TrimSpace(event.Message); message != "" {
+			line += ": " + message
+		}
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func eventTime(event AlertEvent) time.Time {
+	if event.OccurredAt.IsZero() {
+		return time.Now().UTC()
+	}
+	return event.OccurredAt
+}
+
+func cloneAlertEvent(event AlertEvent) AlertEvent {
+	if event.Fields != nil {
+		fields := make(map[string]any, len(event.Fields))
+		for key, value := range event.Fields {
+			fields[key] = value
+		}
+		event.Fields = fields
+	}
+	return event
 }
 
 func makeAlertDeliveryAttemptID(alertKey string, occurredAt time.Time, channel AlertDeliveryChannel, sequence int) string {
