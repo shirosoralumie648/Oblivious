@@ -818,6 +818,495 @@ components:
         failed:
           type: integer
 
+    WorkflowDefinition:
+      type: object
+      properties:
+        id:
+          type: string
+        organizationId:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum: [draft, published, archived]
+        version:
+          type: integer
+        definition:
+          type: object
+          additionalProperties: true
+        variables:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    WorkflowDefinitionEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/Envelope"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/WorkflowDefinition"
+
+    WorkflowDefinitionsEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/Envelope"
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/WorkflowDefinition"
+
+    CreateWorkflowRequest:
+      type: object
+      required: [name, definition]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum: [draft, published, archived]
+        definition:
+          type: object
+          additionalProperties: true
+        variables:
+          type: object
+          additionalProperties: true
+
+    UpdateWorkflowRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum: [draft, published, archived]
+        definition:
+          type: object
+          additionalProperties: true
+        variables:
+          type: object
+          additionalProperties: true
+
+    ExecuteWorkflowRequest:
+      type: object
+      properties:
+        executionMode:
+          type: string
+          enum: [auto]
+        execution_mode:
+          type: string
+          enum: [auto]
+        input:
+          type: object
+          additionalProperties: true
+
+    RollbackWorkflowRequest:
+      type: object
+      required: [version]
+      properties:
+        version:
+          type: integer
+
+    CreateWorkflowBranchRequest:
+      type: object
+      required: [name, version]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        version:
+          type: integer
+        experimentKey:
+          type: string
+        trafficPercent:
+          type: integer
+
+    PublishWorkflowBranchRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+
+    WorkflowExecution:
+      type: object
+      properties:
+        id:
+          type: string
+        workflowId:
+          type: string
+        organizationId:
+          type: string
+        status:
+          type: string
+          enum: [queued, running, paused, partial_success, completed, succeeded, failed, timeout, cancelled, max_iterations]
+        input:
+          type: object
+          additionalProperties: true
+        output:
+          type: object
+          additionalProperties: true
+        context:
+          type: object
+          additionalProperties: true
+        nodeExecutions:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowNodeExecution"
+        error:
+          type: object
+          additionalProperties: true
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    WorkflowExecutionEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/Envelope"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/WorkflowExecution"
+
+    WorkflowExecutionsEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/Envelope"
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/WorkflowExecution"
+
+    WorkflowNodeExecution:
+      type: object
+      properties:
+        nodeId:
+          type: string
+        nodeType:
+          type: string
+        input:
+          nullable: true
+        output:
+          nullable: true
+        status:
+          type: string
+        attempt:
+          type: integer
+        durationMs:
+          type: integer
+        tokens:
+          type: integer
+        costUsd:
+          type: number
+          format: double
+        error:
+          type: object
+          additionalProperties: true
+        context:
+          type: object
+          additionalProperties: true
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+
+    WorkflowNodeTestRequest:
+      type: object
+      required: [nodeId]
+      properties:
+        nodeId:
+          type: string
+        node_id:
+          type: string
+        input:
+          type: object
+          additionalProperties: true
+
+    WorkflowNodeTestResult:
+      type: object
+      properties:
+        workflowId:
+          type: string
+        nodeId:
+          type: string
+        status:
+          type: string
+        input:
+          type: object
+          additionalProperties: true
+        output:
+          type: object
+          additionalProperties: true
+        error:
+          type: object
+          additionalProperties: true
+        durationMs:
+          type: integer
+        trace:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+
+    WorkflowNodeTestResultEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/Envelope"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/WorkflowNodeTestResult"
+
+    WorkflowResourceCheckRequest:
+      type: object
+      properties:
+        totalTokens:
+          type: integer
+        nodeExecutionCount:
+          type: integer
+        now:
+          type: string
+          format: date-time
+
+    WorkflowFailureDecisionRequest:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [retry, retry_with_input, edit_input_retry, continue, skip, branch, fail, terminate]
+        input:
+          type: object
+          additionalProperties: true
+        nextNodeId:
+          type: string
+        nodeId:
+          type: string
+
+    WorkflowResumeExecutionRequest:
+      type: object
+      properties:
+        nodeId:
+          type: string
+        input:
+          type: object
+          additionalProperties: true
+
+    WorkflowDebugVariableSnapshot:
+      type: object
+      properties:
+        input:
+          type: object
+          additionalProperties: true
+        context:
+          type: object
+          additionalProperties: true
+        nodeOutputs:
+          type: object
+          additionalProperties:
+            type: object
+            additionalProperties: true
+
+    WorkflowDebugTraceEntry:
+      type: object
+      properties:
+        nodeId:
+          type: string
+        nodeType:
+          type: string
+        status:
+          type: string
+        attempt:
+          type: integer
+        input:
+          type: object
+          additionalProperties: true
+        output:
+          type: object
+          additionalProperties: true
+        error:
+          type: object
+          additionalProperties: true
+        context:
+          type: object
+          additionalProperties: true
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+        durationMs:
+          type: integer
+
+    WorkflowDebugPerformance:
+      type: object
+      properties:
+        totalDurationMs:
+          type: integer
+        nodeDurationsMs:
+          type: object
+          additionalProperties:
+            type: integer
+        bottleneckNodeId:
+          type: string
+
+    WorkflowDebugLogEntry:
+      type: object
+      properties:
+        level:
+          type: string
+        message:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        nodeId:
+          type: string
+
+    WorkflowExecutionDebugSnapshot:
+      type: object
+      properties:
+        executionId:
+          type: string
+        workflowId:
+          type: string
+        status:
+          type: string
+        variableSnapshot:
+          $ref: "#/components/schemas/WorkflowDebugVariableSnapshot"
+        trace:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowDebugTraceEntry"
+        outputs:
+          type: object
+          additionalProperties:
+            type: object
+            additionalProperties: true
+        performance:
+          $ref: "#/components/schemas/WorkflowDebugPerformance"
+        logs:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowDebugLogEntry"
+
+    WorkflowExecutionDebugSnapshotEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/Envelope"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/WorkflowExecutionDebugSnapshot"
+
+    WorkflowSemanticMatchRequest:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+
+    WorkflowConversationMatchRequest:
+      type: object
+      required: [conversationId]
+      properties:
+        conversationId:
+          type: string
+
+    WorkflowSemanticTriggerMatch:
+      type: object
+      properties:
+        workflowId:
+          type: string
+        workflowVersion:
+          type: integer
+        workflowName:
+          type: string
+        triggerId:
+          type: string
+        keyword:
+          type: string
+        semanticThreshold:
+          type: number
+          format: double
+        score:
+          type: number
+          format: double
+        matchMethod:
+          type: string
+        triggerDefinition:
+          type: object
+          additionalProperties: true
+        workflowDefinition:
+          type: object
+          additionalProperties: true
+
+    WorkflowConversationTriggerMatch:
+      type: object
+      properties:
+        workflowId:
+          type: string
+        workflowVersion:
+          type: integer
+        workflowName:
+          type: string
+        triggerId:
+          type: string
+        conversationId:
+          type: string
+        triggerDefinition:
+          type: object
+          additionalProperties: true
+        workflowDefinition:
+          type: object
+          additionalProperties: true
+
+    WorkflowSemanticMatchesEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/Envelope"
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/WorkflowSemanticTriggerMatch"
+
+    WorkflowConversationMatchesEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/Envelope"
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/WorkflowConversationTriggerMatch"
+
     UsageSummary:
       type: object
       properties:
@@ -2494,6 +2983,734 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+
+  # ---- Workflows ----
+  /api/v1/workflows:
+    get:
+      summary: 获取工作流列表
+      operationId: listWorkflows
+      tags: [Workflow]
+      responses:
+        "200":
+          description: 当前组织的工作流列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowDefinitionsEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      summary: 创建工作流
+      operationId: createWorkflow
+      tags: [Workflow]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWorkflowRequest"
+      responses:
+        "201":
+          description: 创建后的工作流
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowDefinitionEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/workflows/semantic-matches:
+    post:
+      summary: 匹配语义触发器
+      operationId: matchWorkflowSemanticTriggers
+      tags: [Workflow]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkflowSemanticMatchRequest"
+      responses:
+        "200":
+          description: 语义触发器匹配结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowSemanticMatchesEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/workflows/conversation-matches:
+    post:
+      summary: 匹配会话触发器
+      operationId: matchWorkflowConversationTriggers
+      tags: [Workflow]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkflowConversationMatchRequest"
+      responses:
+        "200":
+          description: 会话触发器匹配结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowConversationMatchesEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/workflows/webhooks/{organizationId}/{workflowId}:
+    post:
+      summary: 接收公开签名工作流 webhook
+      operationId: triggerSignedWorkflowWebhook
+      tags: [Workflow]
+      security: []
+      parameters:
+        - name: organizationId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: X-Oblivious-Timestamp
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Unix 秒或 RFC3339 时间戳，允许 5 分钟窗口。
+        - name: X-Oblivious-Signature
+          in: header
+          required: true
+          schema:
+            type: string
+          description: HMAC-SHA256 over `timestamp + "." + raw_body`，可带 `sha256=` 前缀。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "201":
+          description: 由 webhook 触发的工作流执行
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowExecutionEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          description: 签名、时间戳或 webhook secret 无效
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: webhook 重放或状态冲突
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+
+  /api/v1/workflows/{workflowId}:
+    get:
+      summary: 获取工作流详情
+      operationId: getWorkflow
+      tags: [Workflow]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 工作流详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowDefinitionEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      summary: 更新工作流
+      operationId: updateWorkflow
+      tags: [Workflow]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateWorkflowRequest"
+      responses:
+        "200":
+          description: 更新后的工作流
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowDefinitionEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      summary: 删除或归档工作流
+      operationId: deleteWorkflow
+      tags: [Workflow]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 删除或归档后的工作流
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowDefinitionEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/workflows/{workflowId}/execute:
+    post:
+      summary: 启动工作流执行
+      operationId: executeWorkflow
+      tags: [Workflow]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExecuteWorkflowRequest"
+      responses:
+        "201":
+          description: 新建的工作流执行
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowExecutionEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/workflows/{workflowId}/webhook:
+    post:
+      summary: 通过登录会话触发工作流 webhook
+      operationId: triggerWorkflowWebhook
+      tags: [Workflow]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "201":
+          description: webhook 触发的工作流执行
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowExecutionEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/workflows/{workflowId}/versions:
+    get:
+      summary: 获取工作流版本历史
+      operationId: listWorkflowVersions
+      tags: [Workflow]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 工作流版本列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowDefinitionsEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/workflows/{workflowId}/branches:
+    post:
+      summary: 创建工作流分支
+      operationId: createWorkflowBranch
+      tags: [Workflow]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWorkflowBranchRequest"
+      responses:
+        "201":
+          description: 创建后的分支工作流
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowDefinitionEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/workflows/{workflowId}/branches/{branchId}/publish:
+    post:
+      summary: 将工作流分支发布为新工作流
+      operationId: publishWorkflowBranch
+      tags: [Workflow]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: branchId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishWorkflowBranchRequest"
+      responses:
+        "201":
+          description: 发布后的工作流
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowDefinitionEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/workflows/{workflowId}/branches/{branchId}/merge:
+    post:
+      summary: 合并工作流分支回主线
+      operationId: mergeWorkflowBranch
+      tags: [Workflow]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: branchId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 合并后的主线工作流
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowDefinitionEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/workflows/{workflowId}/rollback:
+    post:
+      summary: 回滚工作流版本
+      operationId: rollbackWorkflow
+      tags: [Workflow]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RollbackWorkflowRequest"
+      responses:
+        "200":
+          description: 回滚后的工作流
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowDefinitionEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/workflows/{workflowId}/test-node:
+    post:
+      summary: 测试单个工作流节点
+      operationId: testWorkflowNode
+      tags: [Workflow]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkflowNodeTestRequest"
+      responses:
+        "200":
+          description: 节点测试结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowNodeTestResultEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/workflows/{workflowId}/executions:
+    get:
+      summary: 获取工作流执行列表
+      operationId: listWorkflowExecutions
+      tags: [Workflow]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 工作流执行列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowExecutionsEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/workflows/{workflowId}/executions/{executionId}:
+    get:
+      summary: 获取工作流执行详情
+      operationId: getWorkflowExecution
+      tags: [Workflow]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: executionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 工作流执行详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowExecutionEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/workflows/{workflowId}/executions/{executionId}/debug-snapshot:
+    get:
+      summary: 获取工作流执行调试快照
+      operationId: getWorkflowExecutionDebugSnapshot
+      tags: [Workflow]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: executionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 执行调试快照
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowExecutionDebugSnapshotEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/workflows/{workflowId}/executions/{executionId}/resource-check:
+    post:
+      summary: 检查工作流执行资源限制
+      operationId: checkWorkflowExecutionResources
+      tags: [Workflow]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: executionId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkflowResourceCheckRequest"
+      responses:
+        "200":
+          description: 资源检查后的执行状态，资源限制命中时也可能返回暂停状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowExecutionEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: 资源限制或状态冲突
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+
+  /api/v1/workflows/{workflowId}/executions/{executionId}/decision:
+    post:
+      summary: 处理暂停失败的工作流执行
+      operationId: decideWorkflowExecutionFailure
+      tags: [Workflow]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: executionId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkflowFailureDecisionRequest"
+      responses:
+        "200":
+          description: 决策后的执行状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowExecutionEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: 状态冲突
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+
+  /api/v1/workflows/{workflowId}/executions/{executionId}/pause:
+    post:
+      summary: 暂停工作流执行
+      operationId: pauseWorkflowExecution
+      tags: [Workflow]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: executionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 暂停后的执行状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowExecutionEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: 状态冲突
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+
+  /api/v1/workflows/{workflowId}/executions/{executionId}/resume:
+    post:
+      summary: 恢复工作流执行
+      operationId: resumeWorkflowExecution
+      tags: [Workflow]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: executionId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkflowResumeExecutionRequest"
+      responses:
+        "200":
+          description: 恢复后的执行状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowExecutionEnvelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: 状态冲突
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+
+  /api/v1/workflows/{workflowId}/executions/{executionId}/cancel:
+    post:
+      summary: 取消工作流执行
+      operationId: cancelWorkflowExecution
+      tags: [Workflow]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: executionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 取消后的执行状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowExecutionEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: 状态冲突
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
 
   # ---- Publishing channels ----
   /api/v1/channels:
