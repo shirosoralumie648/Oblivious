@@ -22,6 +22,7 @@ type PlanForm = {
   price: string;
   modelAccess: string;
   agentLimit: string;
+  maxTokensPerRequest: string;
   durationDays: string;
   isPublic: boolean;
   sortOrder: string;
@@ -66,6 +67,7 @@ const emptyForm: PlanForm = {
   price: '0',
   modelAccess: '',
   agentLimit: '1',
+  maxTokensPerRequest: '0',
   durationDays: '',
   isPublic: true,
   sortOrder: '0',
@@ -95,6 +97,7 @@ function planToForm(plan: PlanInfo): PlanForm {
     price: String(plan.price),
     modelAccess: plan.modelAccess.join(', '),
     agentLimit: String(plan.agentLimit),
+    maxTokensPerRequest: String(plan.maxTokensPerRequest ?? 0),
     durationDays: plan.durationDays == null ? '' : String(plan.durationDays),
     isPublic: plan.isPublic,
     sortOrder: String(plan.sortOrder),
@@ -150,6 +153,7 @@ function planPayload(form: PlanForm): PlanCreateRequest {
     price: numericValue(form.price),
     modelAccess: form.modelAccess.split(',').map((model) => model.trim()).filter(Boolean),
     agentLimit: numericValue(form.agentLimit, 1),
+    maxTokensPerRequest: numericValue(form.maxTokensPerRequest),
     durationDays: form.durationDays.trim() ? numericValue(form.durationDays) : null,
     isPublic: form.isPublic,
     sortOrder: numericValue(form.sortOrder),
@@ -217,6 +221,7 @@ export function AdminPlansPage() {
     { key: 'name', header: 'Name', sortable: true },
     { key: 'price', header: 'Price', render: (plan) => money(plan.price) },
     { key: 'quotaAmount', header: 'Quota', render: (plan) => `${plan.quotaAmount.toLocaleString()} credits / ${plan.tokenQuota.toLocaleString()} tokens` },
+    { key: 'maxTokensPerRequest', header: 'Request Cap', render: (plan) => `${(plan.maxTokensPerRequest ?? 0).toLocaleString()} tokens` },
     {
       key: 'modelAccess',
       header: 'Model Access',
@@ -333,6 +338,10 @@ export function AdminPlansPage() {
             <label htmlFor="plan-agent-limit" className="text-sm font-medium">Agent Limit</label>
             <Input id="plan-agent-limit" type="number" value={state.form.agentLimit} onChange={(event) => dispatch({ type: 'FORM_FIELD', field: 'agentLimit', value: event.target.value })} />
           </div>
+        </div>
+        <div className="space-y-2">
+          <label htmlFor="plan-request-token-cap" className="text-sm font-medium">Request Token Cap</label>
+          <Input id="plan-request-token-cap" type="number" value={state.form.maxTokensPerRequest} onChange={(event) => dispatch({ type: 'FORM_FIELD', field: 'maxTokensPerRequest', value: event.target.value })} />
         </div>
         <div className="space-y-2">
           <label htmlFor="plan-model-access" className="text-sm font-medium">Model Access</label>

@@ -22,6 +22,8 @@ type fakeStore struct {
 	billingSessions map[string]*BillingSession
 	idempotencyKeys map[string]string
 	usageLimits     map[string]UsageLimitSettings
+	packages        map[string]*Package
+	subscriptions   []*Subscription
 }
 
 func newFakeStore() *fakeStore {
@@ -30,6 +32,7 @@ func newFakeStore() *fakeStore {
 		billingSessions: make(map[string]*BillingSession),
 		idempotencyKeys: make(map[string]string),
 		usageLimits:     make(map[string]UsageLimitSettings),
+		packages:        make(map[string]*Package),
 	}
 }
 
@@ -106,14 +109,30 @@ func (s *fakeStore) RefundBillingSession(ctx context.Context, id string) error {
 
 // Unused Store methods.
 func (s *fakeStore) ListPackages(ctx context.Context, activeOnly bool) ([]*Package, error) {
-	return nil, nil
+	packages := make([]*Package, 0, len(s.packages))
+	for _, pkg := range s.packages {
+		if activeOnly && (!pkg.IsActive || !pkg.IsPublic) {
+			continue
+		}
+		packages = append(packages, pkg)
+	}
+	return packages, nil
 }
-func (s *fakeStore) GetPackage(ctx context.Context, id string) (*Package, error) { return nil, nil }
+func (s *fakeStore) GetPackage(ctx context.Context, id string) (*Package, error) {
+	return s.packages[id], nil
+}
 func (s *fakeStore) CreateSubscription(ctx context.Context, sub *Subscription) (*Subscription, error) {
-	return nil, nil
+	s.subscriptions = append(s.subscriptions, sub)
+	return sub, nil
 }
 func (s *fakeStore) ListActiveSubscriptions(ctx context.Context, userID, organizationID string) ([]*Subscription, error) {
-	return nil, nil
+	subs := []*Subscription{}
+	for _, sub := range s.subscriptions {
+		if sub.UserID == userID && sub.OrganizationID == organizationID && sub.Status == "active" {
+			subs = append(subs, sub)
+		}
+	}
+	return subs, nil
 }
 func (s *fakeStore) CreateTopupOrder(ctx context.Context, order *TopupOrder) (*TopupOrder, error) {
 	return nil, nil
@@ -602,6 +621,51 @@ func TestQuotaUsageLimitSettingsResolveUserOverrideWithOrganizationFallback(t *t
 	}
 }
 
+func TestQuotaResolveUsageLimitFallsBackToActiveSubscriptionRequestCap(t *testing.T) {
+	store := newFakeStore()
+	store.packages["pkg_pro"] = &Package{
+		ID:                  "pkg_pro",
+		Name:                "Pro",
+		MaxTokensPerRequest: 32000,
+		IsActive:            true,
+		IsPublic:            true,
+	}
+	store.subscriptions = []*Subscription{{
+		ID:             "sub_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		PackageID:      "pkg_pro",
+		Status:         "active",
+		StartedAt:      time.Now().UTC(),
+		CreatedAt:      time.Now().UTC(),
+	}}
+	svc := NewService(store)
+
+	limit, err := svc.ResolveUsageLimit(context.Background(), "org_1", "user_1")
+	if err != nil {
+		t.Fatalf("resolve usage limit: %v", err)
+	}
+	if limit.MaxTokensPerRequest != 32000 {
+		t.Fatalf("expected request cap from active subscription package, got %+v", limit)
+	}
+
+	if _, err := svc.SaveUsageLimitSettings(context.Background(), UsageLimitSettings{
+		OrganizationID:      "org_1",
+		UserID:              "user_1",
+		QuotaMode:           "user",
+		MaxTokensPerRequest: 4000,
+	}); err != nil {
+		t.Fatalf("save explicit user request cap: %v", err)
+	}
+	limit, err = svc.ResolveUsageLimit(context.Background(), "org_1", "user_1")
+	if err != nil {
+		t.Fatalf("resolve explicit usage limit: %v", err)
+	}
+	if limit.MaxTokensPerRequest != 4000 {
+		t.Fatalf("expected explicit usage-limit setting to override subscription cap, got %+v", limit)
+	}
+}
+
 func TestQuotaUsageLimitSettingsValidationAndDefaults(t *testing.T) {
 	svc := NewService(newFakeStore())
 	ctx := context.Background()
@@ -702,6 +766,41 @@ func TestSQLStoreUsageLimitSettingsRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSQLStoreResolveUsageLimitFallsBackToActiveSubscriptionRequestCap(t *testing.T) {
+	store, ctx := testSQLQuotaStore(t)
+	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
+
+	if _, err := store.db.ExecContext(ctx, `
+		INSERT INTO packages (
+			id, name, description, quota_amount, token_quota, price, model_access,
+			agent_limit, max_tokens_per_request, duration_days, is_active, is_public, sort_order, created_at, updated_at
+		)
+		VALUES ('pkg_pro', 'Pro', 'request cap plan', 100, 2000000, 29, ARRAY['gpt-4o'], 25, 32000, 30, true, true, 1, $1, $1)
+	`, now); err != nil {
+		t.Fatalf("insert package: %v", err)
+	}
+	if _, err := store.CreateSubscription(ctx, &Subscription{
+		ID:             "sub_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		PackageID:      "pkg_pro",
+		Status:         "active",
+		StartedAt:      now,
+		CreatedAt:      now,
+	}); err != nil {
+		t.Fatalf("create subscription: %v", err)
+	}
+
+	svc := NewService(store)
+	limit, err := svc.ResolveUsageLimit(ctx, "org_1", "user_1")
+	if err != nil {
+		t.Fatalf("resolve usage limit: %v", err)
+	}
+	if limit.MaxTokensPerRequest != 32000 {
+		t.Fatalf("expected SQL subscription request cap, got %+v", limit)
+	}
+}
+
 func TestSQLStoreListPackagesReturnsOnlyActivePublicHybridPlans(t *testing.T) {
 	store, ctx := testSQLQuotaStore(t)
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
@@ -709,12 +808,12 @@ func TestSQLStoreListPackagesReturnsOnlyActivePublicHybridPlans(t *testing.T) {
 	if _, err := store.db.ExecContext(ctx, `
 		INSERT INTO packages (
 			id, name, description, quota_amount, token_quota, price, model_access,
-			agent_limit, duration_days, is_active, is_public, sort_order, created_at, updated_at
+			agent_limit, max_tokens_per_request, duration_days, is_active, is_public, sort_order, created_at, updated_at
 		)
 		VALUES
-			('pkg_public', 'Public Pro', 'public plan', 100, 2000000, 29, ARRAY['gpt-4o','gpt-4o-mini'], 25, 30, true, true, 1, $1, $1),
-			('pkg_private', 'Private Enterprise', 'hidden plan', 1000, 9000000, 299, ARRAY['gpt-4o'], 100, 30, true, false, 0, $1, $1),
-			('pkg_inactive', 'Inactive Starter', 'inactive plan', 10, 100000, 9, ARRAY['gpt-4o-mini'], 5, 30, false, true, 2, $1, $1)
+			('pkg_public', 'Public Pro', 'public plan', 100, 2000000, 29, ARRAY['gpt-4o','gpt-4o-mini'], 25, 32000, 30, true, true, 1, $1, $1),
+			('pkg_private', 'Private Enterprise', 'hidden plan', 1000, 9000000, 299, ARRAY['gpt-4o'], 100, 64000, 30, true, false, 0, $1, $1),
+			('pkg_inactive', 'Inactive Starter', 'inactive plan', 10, 100000, 9, ARRAY['gpt-4o-mini'], 5, 4000, 30, false, true, 2, $1, $1)
 	`, now); err != nil {
 		t.Fatalf("insert packages: %v", err)
 	}
@@ -732,6 +831,9 @@ func TestSQLStoreListPackagesReturnsOnlyActivePublicHybridPlans(t *testing.T) {
 	}
 	if pkg.TokenQuota != 2000000 || pkg.AgentLimit != 25 {
 		t.Fatalf("expected hybrid quota fields, got %+v", pkg)
+	}
+	if pkg.MaxTokensPerRequest != 32000 {
+		t.Fatalf("expected request token cap from plan, got %+v", pkg)
 	}
 	if len(pkg.ModelAccess) != 2 || pkg.ModelAccess[0] != "gpt-4o" || pkg.ModelAccess[1] != "gpt-4o-mini" {
 		t.Fatalf("expected model access list, got %+v", pkg.ModelAccess)
@@ -771,6 +873,7 @@ func testSQLQuotaStore(t *testing.T) (*SQLStore, context.Context) {
 
 	statements := []string{
 		`DROP TABLE IF EXISTS packages CASCADE`,
+		`DROP TABLE IF EXISTS subscriptions CASCADE`,
 		`DROP TABLE IF EXISTS token_rate_limits CASCADE`,
 		`DROP TABLE IF EXISTS concurrency_limits CASCADE`,
 		`DROP TABLE IF EXISTS organization_memberships CASCADE`,
@@ -787,12 +890,23 @@ func testSQLQuotaStore(t *testing.T) (*SQLStore, context.Context) {
 			price DECIMAL(10,2) NOT NULL,
 			model_access TEXT[] NOT NULL DEFAULT '{}',
 			agent_limit INTEGER NOT NULL DEFAULT 10,
+			max_tokens_per_request INTEGER NOT NULL DEFAULT 0,
 			duration_days INT,
 			is_active BOOLEAN NOT NULL DEFAULT true,
 			is_public BOOLEAN NOT NULL DEFAULT true,
 			sort_order INT NOT NULL DEFAULT 0,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE TABLE subscriptions (
+			id TEXT PRIMARY KEY,
+			organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			package_id TEXT NOT NULL REFERENCES packages(id),
+			status TEXT NOT NULL DEFAULT 'active',
+			started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			expires_at TIMESTAMPTZ,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
 		`INSERT INTO users (id, email, name) VALUES ('user_1', 'user@example.test', 'User One'), ('user_2', 'user2@example.test', 'User Two')`,
 		`INSERT INTO organizations (id, name) VALUES ('org_1', 'Org One')`,

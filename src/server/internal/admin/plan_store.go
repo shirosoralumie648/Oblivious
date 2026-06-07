@@ -69,7 +69,7 @@ func (s *SQLStore) ListPlans(ctx context.Context, filter PlanFilter) ([]*PlanInf
 
 	query := fmt.Sprintf(`
 		SELECT id, name, description, quota_amount, token_quota, price,
-		       model_access, agent_limit, duration_days, is_active, is_public,
+		       model_access, agent_limit, max_tokens_per_request, duration_days, is_active, is_public,
 		       sort_order, created_at, updated_at
 		FROM packages
 		%s
@@ -93,7 +93,7 @@ func (s *SQLStore) ListPlans(ctx context.Context, filter PlanFilter) ([]*PlanInf
 
 		if err := rows.Scan(
 			&p.ID, &p.Name, &description, &p.QuotaAmount, &p.TokenQuota, &p.Price,
-			pq.Array(&models), &p.AgentLimit, &durationDays,
+			pq.Array(&models), &p.AgentLimit, &p.MaxTokensPerRequest, &durationDays,
 			&p.IsActive, &p.IsPublic, &p.SortOrder,
 			&p.CreatedAt, &p.UpdatedAt,
 		); err != nil {
@@ -124,13 +124,13 @@ func (s *SQLStore) GetPlan(ctx context.Context, id string) (*PlanInfo, error) {
 
 	err := s.db.QueryRowContext(ctx, `
 		SELECT id, name, description, quota_amount, token_quota, price,
-		       model_access, agent_limit, duration_days, is_active, is_public,
+		       model_access, agent_limit, max_tokens_per_request, duration_days, is_active, is_public,
 		       sort_order, created_at, updated_at
 		FROM packages
 		WHERE id = $1
 	`, id).Scan(
 		&p.ID, &p.Name, &description, &p.QuotaAmount, &p.TokenQuota, &p.Price,
-		pq.Array(&models), &p.AgentLimit, &durationDays,
+		pq.Array(&models), &p.AgentLimit, &p.MaxTokensPerRequest, &durationDays,
 		&p.IsActive, &p.IsPublic, &p.SortOrder,
 		&p.CreatedAt, &p.UpdatedAt,
 	)
@@ -174,19 +174,19 @@ func (s *SQLStore) CreatePlan(ctx context.Context, input PlanCreateRequest) (*Pl
 
 	err = s.db.QueryRowContext(ctx, `
 		INSERT INTO packages (id, name, description, quota_amount, token_quota, price,
-		                      model_access, agent_limit, duration_days, is_active, is_public,
+		                      model_access, agent_limit, max_tokens_per_request, duration_days, is_active, is_public,
 		                      sort_order, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6,
-		        $7, $8, $9, true, $10,
-		        $11, NOW(), NOW())
+		        $7, $8, $9, $10, true, $11,
+		        $12, NOW(), NOW())
 		RETURNING id, name, description, quota_amount, token_quota, price,
-		          model_access, agent_limit, duration_days, is_active, is_public,
+		          model_access, agent_limit, max_tokens_per_request, duration_days, is_active, is_public,
 		          sort_order, created_at, updated_at
 	`, id, input.Name, nullString(input.Description), input.QuotaAmount, input.TokenQuota, input.Price,
-		pq.Array(models), input.AgentLimit, input.DurationDays, input.IsPublic,
+		pq.Array(models), input.AgentLimit, input.MaxTokensPerRequest, input.DurationDays, input.IsPublic,
 		input.SortOrder).Scan(
 		&p.ID, &p.Name, &description, &p.QuotaAmount, &p.TokenQuota, &p.Price,
-		pq.Array(&scannedModels), &p.AgentLimit, &durationDays,
+		pq.Array(&scannedModels), &p.AgentLimit, &p.MaxTokensPerRequest, &durationDays,
 		&p.IsActive, &p.IsPublic, &p.SortOrder,
 		&p.CreatedAt, &p.UpdatedAt,
 	)
@@ -225,12 +225,13 @@ func (s *SQLStore) UpdatePlan(ctx context.Context, id string, input PlanUpdateRe
 			price = COALESCE($5, price),
 			model_access = COALESCE($6, model_access),
 			agent_limit = COALESCE($7, agent_limit),
-			is_active = COALESCE($8, is_active),
-			is_public = COALESCE($9, is_public),
+			max_tokens_per_request = COALESCE($8, max_tokens_per_request),
+			is_active = COALESCE($9, is_active),
+			is_public = COALESCE($10, is_public),
 			updated_at = NOW()
-		WHERE id = $10
+		WHERE id = $11
 		RETURNING id, name, description, quota_amount, token_quota, price,
-		          model_access, agent_limit, duration_days, is_active, is_public,
+		          model_access, agent_limit, max_tokens_per_request, duration_days, is_active, is_public,
 		          sort_order, created_at, updated_at
 	`,
 		input.Name,
@@ -240,12 +241,13 @@ func (s *SQLStore) UpdatePlan(ctx context.Context, id string, input PlanUpdateRe
 		input.Price,
 		pq.Array(coalesceModels(input.ModelAccess)),
 		input.AgentLimit,
+		input.MaxTokensPerRequest,
 		input.IsActive,
 		input.IsPublic,
 		id,
 	).Scan(
 		&p.ID, &p.Name, &description, &p.QuotaAmount, &p.TokenQuota, &p.Price,
-		pq.Array(&scannedModels), &p.AgentLimit, &durationDays,
+		pq.Array(&scannedModels), &p.AgentLimit, &p.MaxTokensPerRequest, &durationDays,
 		&p.IsActive, &p.IsPublic, &p.SortOrder,
 		&p.CreatedAt, &p.UpdatedAt,
 	)

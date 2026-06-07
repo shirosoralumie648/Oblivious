@@ -52,6 +52,9 @@ func (s *Service) CreatePlan(ctx context.Context, actor auth.Session, input Plan
 	if input.AgentLimit <= 0 {
 		return nil, fmt.Errorf("agent limit must be > 0")
 	}
+	if input.MaxTokensPerRequest < 0 {
+		return nil, fmt.Errorf("max tokens per request must be >= 0")
+	}
 
 	result, err := s.store.CreatePlan(ctx, input)
 	if err != nil {
@@ -67,6 +70,9 @@ func (s *Service) CreatePlan(ctx context.Context, actor auth.Session, input Plan
 func (s *Service) UpdatePlan(ctx context.Context, actor auth.Session, id string, input PlanUpdateRequest, ip string) (*PlanInfo, error) {
 	if id == "" {
 		return nil, fmt.Errorf("plan id is required")
+	}
+	if input.MaxTokensPerRequest != nil && *input.MaxTokensPerRequest < 0 {
+		return nil, fmt.Errorf("max tokens per request must be >= 0")
 	}
 
 	result, err := s.store.UpdatePlan(ctx, id, input)

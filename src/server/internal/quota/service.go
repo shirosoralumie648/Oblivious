@@ -43,20 +43,21 @@ type BillingSession struct {
 
 // Package 套餐
 type Package struct {
-	ID           string    `json:"id"`
-	Name         string    `json:"name"`
-	Description  string    `json:"description,omitempty"`
-	QuotaAmount  float64   `json:"quotaAmount"`
-	TokenQuota   int       `json:"tokenQuota"`
-	Price        float64   `json:"price"`
-	ModelAccess  []string  `json:"modelAccess"`
-	AgentLimit   int       `json:"agentLimit"`
-	DurationDays *int      `json:"durationDays,omitempty"`
-	IsActive     bool      `json:"isActive"`
-	IsPublic     bool      `json:"isPublic"`
-	SortOrder    int       `json:"sortOrder"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	ID                  string    `json:"id"`
+	Name                string    `json:"name"`
+	Description         string    `json:"description,omitempty"`
+	QuotaAmount         float64   `json:"quotaAmount"`
+	TokenQuota          int       `json:"tokenQuota"`
+	Price               float64   `json:"price"`
+	ModelAccess         []string  `json:"modelAccess"`
+	AgentLimit          int       `json:"agentLimit"`
+	MaxTokensPerRequest int       `json:"maxTokensPerRequest"`
+	DurationDays        *int      `json:"durationDays,omitempty"`
+	IsActive            bool      `json:"isActive"`
+	IsPublic            bool      `json:"isPublic"`
+	SortOrder           int       `json:"sortOrder"`
+	CreatedAt           time.Time `json:"createdAt"`
+	UpdatedAt           time.Time `json:"updatedAt"`
 }
 
 // Subscription 订阅
@@ -257,8 +258,32 @@ func (s *Service) ResolveUsageLimit(ctx context.Context, organizationID, userID 
 		UserID:                settings.UserID,
 		MaxConcurrentRequests: settings.MaxConcurrentRequests,
 		MaxTokensPerWindow:    settings.MaxTokensPerWindow,
-		MaxTokensPerRequest:   settings.MaxTokensPerRequest,
+		MaxTokensPerRequest:   s.resolveSubscriptionRequestTokenCap(ctx, organizationID, userID, settings.MaxTokensPerRequest),
 	}, nil
+}
+
+func (s *Service) resolveSubscriptionRequestTokenCap(ctx context.Context, organizationID, userID string, configured int) int {
+	if configured > 0 || userID == "" {
+		return configured
+	}
+	subscriptions, err := s.store.ListActiveSubscriptions(ctx, userID, organizationID)
+	if err != nil {
+		return configured
+	}
+	cap := configured
+	for _, sub := range subscriptions {
+		if sub == nil || sub.PackageID == "" {
+			continue
+		}
+		pkg, err := s.store.GetPackage(ctx, sub.PackageID)
+		if err != nil || pkg == nil || !pkg.IsActive {
+			continue
+		}
+		if pkg.MaxTokensPerRequest > cap {
+			cap = pkg.MaxTokensPerRequest
+		}
+	}
+	return cap
 }
 
 func (s *Service) ListUsageLimitSettings(ctx context.Context, organizationID string) ([]UsageLimitSettings, error) {
@@ -702,7 +727,7 @@ func (s *SQLStore) RefundBillingSession(ctx context.Context, id string) error {
 
 // ListPackages 列出套餐
 func (s *SQLStore) ListPackages(ctx context.Context, activeOnly bool) ([]*Package, error) {
-	query := `SELECT id, name, description, quota_amount, token_quota, price, model_access, agent_limit, duration_days, is_active, is_public, sort_order, created_at, updated_at FROM packages`
+	query := `SELECT id, name, description, quota_amount, token_quota, price, model_access, agent_limit, max_tokens_per_request, duration_days, is_active, is_public, sort_order, created_at, updated_at FROM packages`
 	if activeOnly {
 		query += ` WHERE is_active = true AND is_public = true`
 	}
@@ -721,7 +746,7 @@ func (s *SQLStore) ListPackages(ctx context.Context, activeOnly bool) ([]*Packag
 		var description sql.NullString
 		var modelAccess []string
 
-		if err := rows.Scan(&p.ID, &p.Name, &description, &p.QuotaAmount, &p.TokenQuota, &p.Price, pq.Array(&modelAccess), &p.AgentLimit, &durationDays, &p.IsActive, &p.IsPublic, &p.SortOrder, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &description, &p.QuotaAmount, &p.TokenQuota, &p.Price, pq.Array(&modelAccess), &p.AgentLimit, &p.MaxTokensPerRequest, &durationDays, &p.IsActive, &p.IsPublic, &p.SortOrder, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan package: %w", err)
 		}
 
@@ -748,9 +773,9 @@ func (s *SQLStore) GetPackage(ctx context.Context, id string) (*Package, error) 
 	var modelAccess []string
 
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, name, description, quota_amount, token_quota, price, model_access, agent_limit, duration_days, is_active, is_public, sort_order, created_at, updated_at
+		SELECT id, name, description, quota_amount, token_quota, price, model_access, agent_limit, max_tokens_per_request, duration_days, is_active, is_public, sort_order, created_at, updated_at
 		FROM packages WHERE id = $1
-	`, id).Scan(&p.ID, &p.Name, &description, &p.QuotaAmount, &p.TokenQuota, &p.Price, pq.Array(&modelAccess), &p.AgentLimit, &durationDays, &p.IsActive, &p.IsPublic, &p.SortOrder, &p.CreatedAt, &p.UpdatedAt)
+	`, id).Scan(&p.ID, &p.Name, &description, &p.QuotaAmount, &p.TokenQuota, &p.Price, pq.Array(&modelAccess), &p.AgentLimit, &p.MaxTokensPerRequest, &durationDays, &p.IsActive, &p.IsPublic, &p.SortOrder, &p.CreatedAt, &p.UpdatedAt)
 
 	if err == sql.ErrNoRows {
 		return nil, nil

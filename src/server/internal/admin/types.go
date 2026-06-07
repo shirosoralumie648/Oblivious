@@ -263,47 +263,50 @@ type RouteUpdateRequest struct {
 
 // PlanInfo represents a package/plan for admin management (D-10, D-11).
 type PlanInfo struct {
-	ID           string    `json:"id"`
-	Name         string    `json:"name"`
-	Description  string    `json:"description"`
-	QuotaAmount  float64   `json:"quotaAmount"`
-	TokenQuota   int       `json:"tokenQuota"`
-	Price        float64   `json:"price"`
-	ModelAccess  []string  `json:"modelAccess"`
-	AgentLimit   int       `json:"agentLimit"`
-	DurationDays *int      `json:"durationDays,omitempty"`
-	IsActive     bool      `json:"isActive"`
-	IsPublic     bool      `json:"isPublic"`
-	SortOrder    int       `json:"sortOrder"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	ID                  string    `json:"id"`
+	Name                string    `json:"name"`
+	Description         string    `json:"description"`
+	QuotaAmount         float64   `json:"quotaAmount"`
+	TokenQuota          int       `json:"tokenQuota"`
+	Price               float64   `json:"price"`
+	ModelAccess         []string  `json:"modelAccess"`
+	AgentLimit          int       `json:"agentLimit"`
+	MaxTokensPerRequest int       `json:"maxTokensPerRequest"`
+	DurationDays        *int      `json:"durationDays,omitempty"`
+	IsActive            bool      `json:"isActive"`
+	IsPublic            bool      `json:"isPublic"`
+	SortOrder           int       `json:"sortOrder"`
+	CreatedAt           time.Time `json:"createdAt"`
+	UpdatedAt           time.Time `json:"updatedAt"`
 }
 
 // PlanCreateRequest is the input for creating a new plan.
 type PlanCreateRequest struct {
-	Name         string   `json:"name"`
-	Description  string   `json:"description"`
-	QuotaAmount  float64  `json:"quotaAmount"`
-	TokenQuota   int      `json:"tokenQuota"`
-	Price        float64  `json:"price"`
-	ModelAccess  []string `json:"modelAccess"`
-	AgentLimit   int      `json:"agentLimit"`
-	DurationDays *int     `json:"durationDays,omitempty"`
-	IsPublic     bool     `json:"isPublic"`
-	SortOrder    int      `json:"sortOrder"`
+	Name                string   `json:"name"`
+	Description         string   `json:"description"`
+	QuotaAmount         float64  `json:"quotaAmount"`
+	TokenQuota          int      `json:"tokenQuota"`
+	Price               float64  `json:"price"`
+	ModelAccess         []string `json:"modelAccess"`
+	AgentLimit          int      `json:"agentLimit"`
+	MaxTokensPerRequest int      `json:"maxTokensPerRequest"`
+	DurationDays        *int     `json:"durationDays,omitempty"`
+	IsPublic            bool     `json:"isPublic"`
+	SortOrder           int      `json:"sortOrder"`
 }
 
 // PlanUpdateRequest is the input for updating an existing plan.
 type PlanUpdateRequest struct {
-	Name        *string   `json:"name,omitempty"`
-	Description *string   `json:"description,omitempty"`
-	QuotaAmount *float64  `json:"quotaAmount,omitempty"`
-	TokenQuota  *int      `json:"tokenQuota,omitempty"`
-	Price       *float64  `json:"price,omitempty"`
-	ModelAccess *[]string `json:"modelAccess,omitempty"`
-	AgentLimit  *int      `json:"agentLimit,omitempty"`
-	IsActive    *bool     `json:"isActive,omitempty"`
-	IsPublic    *bool     `json:"isPublic,omitempty"`
+	Name                *string   `json:"name,omitempty"`
+	Description         *string   `json:"description,omitempty"`
+	QuotaAmount         *float64  `json:"quotaAmount,omitempty"`
+	TokenQuota          *int      `json:"tokenQuota,omitempty"`
+	Price               *float64  `json:"price,omitempty"`
+	ModelAccess         *[]string `json:"modelAccess,omitempty"`
+	AgentLimit          *int      `json:"agentLimit,omitempty"`
+	MaxTokensPerRequest *int      `json:"maxTokensPerRequest,omitempty"`
+	IsActive            *bool     `json:"isActive,omitempty"`
+	IsPublic            *bool     `json:"isPublic,omitempty"`
 }
 
 // UserDetail is the full user view for admin management (D-12, D-13).

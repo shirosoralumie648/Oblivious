@@ -258,6 +258,7 @@ export type PlanInfo = {
   price: number;
   modelAccess: string[];
   agentLimit: number;
+  maxTokensPerRequest: number;
   durationDays?: number | null;
   isActive: boolean;
   isPublic: boolean;
@@ -275,6 +276,7 @@ export type PlanCreateRequest = {
   price: number;
   modelAccess: string[];
   agentLimit: number;
+  maxTokensPerRequest: number;
   durationDays?: number | null;
   isPublic: boolean;
   sortOrder: number;

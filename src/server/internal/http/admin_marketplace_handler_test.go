@@ -546,6 +546,37 @@ func TestAdminHandlerCoversReleaseListSurfaces(t *testing.T) {
 	}
 }
 
+func TestAdminHandlerCreatesPlanWithRequestTokenCap(t *testing.T) {
+	store := &fakeAdminStore{}
+	handler := newAdminHandler(admin.NewService(store))
+	adminSession := testAdminSession()
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/admin/plans", strings.NewReader(`{
+		"name": "Pro",
+		"description": "Production plan",
+		"quotaAmount": 500,
+		"tokenQuota": 1000000,
+		"price": 29,
+		"modelAccess": ["gpt-4o"],
+		"agentLimit": 10,
+		"maxTokensPerRequest": 32000,
+		"isPublic": true,
+		"sortOrder": 1
+	}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, adminSession))
+	recorder := httptest.NewRecorder()
+
+	handler.createPlan(recorder, request)
+
+	if recorder.Code != stdhttp.StatusCreated {
+		t.Fatalf("expected create plan 201, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if store.createdPlan.MaxTokensPerRequest != 32000 {
+		t.Fatalf("expected request token cap to reach plan store, got %+v", store.createdPlan)
+	}
+	if !strings.Contains(recorder.Body.String(), `"maxTokensPerRequest":32000`) {
+		t.Fatalf("expected response to include request token cap, got %s", recorder.Body.String())
+	}
+}
+
 func TestMarketplaceHandlerExposesPublicAndSessionOperations(t *testing.T) {
 	store := &fakeMarketplaceStore{}
 	handler := newMarketplaceHandler(marketplace.NewService(store, nil), nil)
@@ -1164,6 +1195,7 @@ type fakeAdminStore struct {
 	currentChannelModels []string
 	updatedChannelModels []string
 	channelDiagnostics   *admin.ChannelDiagnosticsUpdate
+	createdPlan          admin.PlanCreateRequest
 }
 
 func (s *fakeAdminStore) GetSystemStats(ctx context.Context) (*admin.SystemStats, error) {
@@ -1316,15 +1348,16 @@ func (s *fakeAdminStore) DeleteRoute(ctx context.Context, id string) error {
 }
 
 func (s *fakeAdminStore) ListPlans(ctx context.Context, filter admin.PlanFilter) ([]*admin.PlanInfo, error) {
-	return []*admin.PlanInfo{{ID: "plan_1", Name: "Pro", IsActive: true}}, nil
+	return []*admin.PlanInfo{{ID: "plan_1", Name: "Pro", MaxTokensPerRequest: 32000, IsActive: true}}, nil
 }
 
 func (s *fakeAdminStore) GetPlan(ctx context.Context, id string) (*admin.PlanInfo, error) {
-	return &admin.PlanInfo{ID: id, Name: "Pro", IsActive: true}, nil
+	return &admin.PlanInfo{ID: id, Name: "Pro", MaxTokensPerRequest: 32000, IsActive: true}, nil
 }
 
 func (s *fakeAdminStore) CreatePlan(ctx context.Context, input admin.PlanCreateRequest) (*admin.PlanInfo, error) {
-	return &admin.PlanInfo{ID: "plan_1", Name: input.Name, IsActive: true}, nil
+	s.createdPlan = input
+	return &admin.PlanInfo{ID: "plan_1", Name: input.Name, MaxTokensPerRequest: input.MaxTokensPerRequest, IsActive: true}, nil
 }
 
 func (s *fakeAdminStore) UpdatePlan(ctx context.Context, id string, input admin.PlanUpdateRequest) (*admin.PlanInfo, error) {
