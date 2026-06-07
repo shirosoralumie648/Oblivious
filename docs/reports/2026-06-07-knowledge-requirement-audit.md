@@ -43,8 +43,8 @@ Status values:
 | Requirement | Status | Evidence |
 | --- | --- | --- |
 | Retrieval results include citation/source metadata and highlights. | Proven for SQL/API/UI citation surfaces | SQL retrieval scans document/chunk identity, version, page number, source URL, original text, matched snippet, confidence, and query highlight positions into `KnowledgeCitation`. `TestSQLStoreRetrieveKnowledgeWithOptionsUsesCrossTenantSafeVectorSearch` proves page/source metadata, `TestSQLStoreRetrieveKnowledgeWithOptionsPopulatesCitationHighlights` proves highlight offsets in the main SQL scan path, `TestKnowledgeHandlerRetrieveAcceptsHybridOptions` proves handler serialization, and `KnowledgePage` tests cover page/source/original text/highlight rendering plus original document preview links. |
-| Qdrant vector store is wired. | Partial | `QdrantVectorStore` can ensure/delete tenant collections and router wiring can attach it to the knowledge service. There is no repository-owned Qdrant upsert/search path for document chunks yet. |
-| HNSW/vector payload search is production-backed by Qdrant. | Gap | Current retrieval uses PostgreSQL/pgvector SQL. Qdrant payload upsert/search is not implemented. |
+| Qdrant vector store is wired for collections, chunk upsert, and chunk search adapter calls. | Proven for adapter and ingestion upsert, partial for main retrieval routing | `QdrantVectorStore` can ensure/delete tenant collections, upsert embedded document chunks as tenant-scoped points with document/chunk/version/source payload, and issue Qdrant point searches that map payloads back into `KnowledgeRetrievalResult`. Router wiring can attach the store to the knowledge service, and `CreateDocumentWithOptions` upserts embedded chunks after the SQL write. Covered by `TestQdrantVectorStoreEnsuresTenantCollection`, `TestQdrantVectorStoreUpsertsTenantChunkPoints`, `TestQdrantVectorStoreSearchesTenantChunkPoints`, `TestCreateDocumentUpsertsEmbeddedChunksToQdrantVectorStore`, and `TestNewKnowledgeServiceWiresQdrantVectorStore`. |
+| HNSW/vector payload search is production-backed by Qdrant in the main retrieval path. | Partial | Qdrant point search is implemented and tested at the adapter level, but `RetrieveWithOptions` still routes production retrieval through PostgreSQL/pgvector SQL. A follow-up needs to select Qdrant search for configured vector backends or hybrid vector candidates. |
 
 ## 7.6 Retrieval Testing UI and API
 
@@ -63,6 +63,8 @@ Fresh checks for this slice:
 - `go test ./internal/knowledge -run 'Test(Create|Update)DocumentUses.*ChunkingConfig' -count=1`
 - `go test ./internal/knowledge -run 'TestSQLStore(UpdateKnowledgeDocumentVersionedReplacesOnlyCurrentVersionChunks|CreateKnowledgeDocumentWithOptionsPersistsCrossTenantChunksAndEmbeddings)' -count=1`
 - `go test ./internal/knowledge -run 'TestRetrieveWithOptions(FallsBackWhenHybridRerankerFails|ReranksHybridRerankResults|ExpandsHybridRerankCandidatePool)' -count=1`
+- `go test ./internal/knowledge -run 'TestQdrantVectorStore(UpsertsTenantChunkPoints|SearchesTenantChunkPoints)' -count=1`
+- `go test ./internal/knowledge -run 'Test(CreateDocumentUpsertsEmbeddedChunksToQdrantVectorStore|UpdateDocumentUsesTemplateBasedChunkingConfig|QdrantVectorStore)' -count=1`
 - `go test ./internal/knowledge/retrieval -run TestKnowledgeResultRerankerCallsCohereCompatibleEndpoint -count=1`
 - `go test ./internal/config -run 'TestLoadRAGRerankerConfig|TestLoadRejectsInvalidRAGRerankerTopK' -count=1`
 - `go test ./internal/http -run 'TestKnowledgeHandlerRetrieve(UsesKnowledgeBaseRerankTopK|AcceptsHybridOptions|AcceptsVectorOnlyMode)|TestKnowledgeHandlerRunsRetrievalTestCases|TestNewKnowledgeServiceWiresRAGReranker' -count=1`
@@ -76,7 +78,7 @@ All Go commands above were run from `src/server` with absolute `GOCACHE=/tmp/obl
 
 The Knowledge/RAG row remains `Partial`, not `Proven`.
 
-The current Knowledge/RAG slices close the highest-priority API/store contract gaps for retrieval mode naming, knowledge-base RAG config readback, SQL-backed retrieval test case persistence, fixed/semantic/QA/template chunking config in the main document create/update ingestion path, configured HTTP reranking for `hybrid_rerank`, reranker outage fallback metrics, versioned chunk coexistence for update writes, citation highlight/source metadata in SQL/API/UI surfaces, and knowledge-base `rerankTopK` candidate-pool expansion before final result truncation. The remaining high-value work is:
+The current Knowledge/RAG slices close the highest-priority API/store contract gaps for retrieval mode naming, knowledge-base RAG config readback, SQL-backed retrieval test case persistence, fixed/semantic/QA/template chunking config in the main document create/update ingestion path, configured HTTP reranking for `hybrid_rerank`, reranker outage fallback metrics, versioned chunk coexistence for update writes, citation highlight/source metadata in SQL/API/UI surfaces, Qdrant chunk upsert/search adapter behavior, and knowledge-base `rerankTopK` candidate-pool expansion before final result truncation. The remaining high-value work is:
 
 1. Implement incremental diff/hash update semantics beyond storing strategy names.
-2. Add Qdrant chunk upsert/search instead of collection-only wiring.
+2. Route configured production retrieval through Qdrant search where Qdrant is selected as the vector backend.

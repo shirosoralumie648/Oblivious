@@ -36,6 +36,8 @@ type fakeStore struct {
 }
 
 type recordingKnowledgeVectorStore struct {
+	chunks            []KnowledgeDocumentChunk
+	documentID        string
 	deletedCollection string
 	ensuredCollection string
 	ensuredVectorSize int
@@ -161,6 +163,14 @@ func (s *recordingKnowledgeVectorStore) DeleteKnowledgeBaseCollection(ctx contex
 	s.organizationID = organizationID
 	s.knowledgeBaseID = knowledgeBaseID
 	s.deletedCollection = KnowledgeVectorCollectionName(organizationID, knowledgeBaseID)
+	return nil
+}
+
+func (s *recordingKnowledgeVectorStore) UpsertKnowledgeDocumentChunks(ctx context.Context, organizationID, knowledgeBaseID, documentID string, chunks []KnowledgeDocumentChunk) error {
+	s.organizationID = organizationID
+	s.knowledgeBaseID = knowledgeBaseID
+	s.documentID = documentID
+	s.chunks = append([]KnowledgeDocumentChunk(nil), chunks...)
 	return nil
 }
 
@@ -695,6 +705,41 @@ func TestCreateDocumentPassesTrustedRelayIdentityToEmbedder(t *testing.T) {
 	}
 	if embedder.batchOrganizationID != "org_knowledge" {
 		t.Fatalf("expected trusted organization org_knowledge, got %q", embedder.batchOrganizationID)
+	}
+}
+
+func TestCreateDocumentUpsertsEmbeddedChunksToQdrantVectorStore(t *testing.T) {
+	store := &fakeStore{createdDoc: KnowledgeDocument{ID: "doc_qdrant", Title: "Qdrant Doc"}}
+	embedder := &recordingKnowledgeEmbedder{}
+	vectorStore := &recordingKnowledgeVectorStore{}
+	service := NewServiceWithEmbedderAndVectorStore(store, embedder, "text-embedding-3-small", vectorStore, 3)
+
+	document, err := service.CreateDocumentWithOptions(
+		context.Background(),
+		auth.Session{OrganizationID: "org_knowledge", WorkspaceID: "workspace_knowledge"},
+		"kb_qdrant",
+		"Qdrant Doc",
+		"qdrant indexed document content",
+		KnowledgeDocumentOptions{DocumentVersion: "v2", SourceURL: "https://docs.example/qdrant.md", PageNumber: 4},
+	)
+	if err != nil {
+		t.Fatalf("create document: %v", err)
+	}
+
+	if document.ID != "doc_qdrant" {
+		t.Fatalf("expected created document id doc_qdrant, got %q", document.ID)
+	}
+	if vectorStore.organizationID != "org_knowledge" || vectorStore.knowledgeBaseID != "kb_qdrant" || vectorStore.documentID != "doc_qdrant" {
+		t.Fatalf("expected tenant-scoped qdrant upsert, got org=%q kb=%q doc=%q", vectorStore.organizationID, vectorStore.knowledgeBaseID, vectorStore.documentID)
+	}
+	if len(vectorStore.chunks) == 0 {
+		t.Fatal("expected qdrant upsert to receive generated chunks")
+	}
+	if len(vectorStore.chunks[0].Embedding) != 3 {
+		t.Fatalf("expected qdrant chunk to include embedding, got %+v", vectorStore.chunks[0])
+	}
+	if vectorStore.chunks[0].Metadata.SourceURL != "https://docs.example/qdrant.md" || vectorStore.chunks[0].Metadata.PageNumber != 4 {
+		t.Fatalf("expected qdrant chunk metadata to preserve source/page, got %+v", vectorStore.chunks[0].Metadata)
 	}
 }
 

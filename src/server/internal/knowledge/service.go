@@ -127,6 +127,7 @@ type knowledgeRetrieverNamedWithOptions interface {
 type KnowledgeVectorStore interface {
 	EnsureKnowledgeBaseCollection(ctx context.Context, organizationID, knowledgeBaseID string, vectorSize int) error
 	DeleteKnowledgeBaseCollection(ctx context.Context, organizationID, knowledgeBaseID string) error
+	UpsertKnowledgeDocumentChunks(ctx context.Context, organizationID, knowledgeBaseID, documentID string, chunks []KnowledgeDocumentChunk) error
 }
 
 type retrievalTestCaseCreator interface {
@@ -463,10 +464,24 @@ func (s *Service) CreateDocumentWithOptions(ctx context.Context, session auth.Se
 	recordRAGDocumentProcessingMetrics(baseConfig.ChunkStrategy, len(chunks), startedAt)
 	scope := knowledgeSessionScope(session)
 	if store, ok := s.store.(documentCreatorWithOptions); ok {
-		return store.CreateKnowledgeDocumentWithOptions(ctx, scope, knowledgeBaseID, title, content, chunks, options)
+		document, err := store.CreateKnowledgeDocumentWithOptions(ctx, scope, knowledgeBaseID, title, content, chunks, options)
+		if err != nil {
+			return KnowledgeDocument{}, err
+		}
+		if err := s.upsertDocumentChunks(ctx, scope, knowledgeBaseID, document.ID, chunks); err != nil {
+			return KnowledgeDocument{}, err
+		}
+		return document, nil
 	}
 	if store, ok := s.store.(documentCreatorWithChunks); ok {
-		return store.CreateKnowledgeDocument(ctx, scope, knowledgeBaseID, title, content, chunks)
+		document, err := store.CreateKnowledgeDocument(ctx, scope, knowledgeBaseID, title, content, chunks)
+		if err != nil {
+			return KnowledgeDocument{}, err
+		}
+		if err := s.upsertDocumentChunks(ctx, scope, knowledgeBaseID, document.ID, chunks); err != nil {
+			return KnowledgeDocument{}, err
+		}
+		return document, nil
 	}
 	store, ok := s.store.(interface {
 		CreateKnowledgeDocument(ctx context.Context, workspaceID, knowledgeBaseID, title, content string) (KnowledgeDocument, error)
@@ -574,10 +589,24 @@ func (s *Service) UpdateDocumentWithOptions(ctx context.Context, session auth.Se
 	recordRAGDocumentProcessingMetrics(baseConfig.ChunkStrategy, len(chunks), startedAt)
 	scope := knowledgeSessionScope(session)
 	if store, ok := s.store.(documentUpdaterWithOptions); ok {
-		return store.UpdateKnowledgeDocumentWithOptions(ctx, scope, knowledgeBaseID, documentID, title, content, chunks, options)
+		document, err := store.UpdateKnowledgeDocumentWithOptions(ctx, scope, knowledgeBaseID, documentID, title, content, chunks, options)
+		if err != nil {
+			return KnowledgeDocument{}, err
+		}
+		if err := s.upsertDocumentChunks(ctx, scope, knowledgeBaseID, documentID, chunks); err != nil {
+			return KnowledgeDocument{}, err
+		}
+		return document, nil
 	}
 	if store, ok := s.store.(documentUpdaterWithChunks); ok {
-		return store.UpdateKnowledgeDocument(ctx, scope, knowledgeBaseID, documentID, title, content, chunks)
+		document, err := store.UpdateKnowledgeDocument(ctx, scope, knowledgeBaseID, documentID, title, content, chunks)
+		if err != nil {
+			return KnowledgeDocument{}, err
+		}
+		if err := s.upsertDocumentChunks(ctx, scope, knowledgeBaseID, documentID, chunks); err != nil {
+			return KnowledgeDocument{}, err
+		}
+		return document, nil
 	}
 	store, ok := s.store.(interface {
 		UpdateKnowledgeDocument(ctx context.Context, workspaceID, knowledgeBaseID, documentID, title, content string) (KnowledgeDocument, error)
@@ -586,6 +615,13 @@ func (s *Service) UpdateDocumentWithOptions(ctx context.Context, session auth.Se
 		return KnowledgeDocument{}, sql.ErrNoRows
 	}
 	return store.UpdateKnowledgeDocument(ctx, session.WorkspaceID, knowledgeBaseID, documentID, title, content)
+}
+
+func (s *Service) upsertDocumentChunks(ctx context.Context, organizationID, knowledgeBaseID, documentID string, chunks []KnowledgeDocumentChunk) error {
+	if s == nil || s.vectorStore == nil || len(chunks) == 0 {
+		return nil
+	}
+	return s.vectorStore.UpsertKnowledgeDocumentChunks(ctx, organizationID, knowledgeBaseID, documentID, chunks)
 }
 
 func (s *Service) DeleteDocument(ctx context.Context, session auth.Session, knowledgeBaseID, documentID string) error {
