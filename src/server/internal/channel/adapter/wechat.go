@@ -1,8 +1,10 @@
 package adapter
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"net/http"
 	"time"
@@ -24,7 +26,13 @@ func (a *WeChatAdapter) Type() string {
 
 func (a *WeChatAdapter) TransformInbound(raw json.RawMessage) (InternalMessage, error) {
 	var payload wechatInboundPayload
-	if err := json.Unmarshal(raw, &payload); err != nil {
+	rawFormat := "json"
+	if IsXMLPayload(raw) {
+		if err := xml.Unmarshal(raw, &payload); err != nil {
+			return InternalMessage{}, fmt.Errorf("decode wechat xml payload: %w", err)
+		}
+		rawFormat = "xml"
+	} else if err := json.Unmarshal(raw, &payload); err != nil {
 		return InternalMessage{}, fmt.Errorf("decode wechat payload: %w", err)
 	}
 
@@ -55,10 +63,14 @@ func (a *WeChatAdapter) TransformInbound(raw json.RawMessage) (InternalMessage, 
 		Role:           "user",
 		Content:        content,
 		Metadata: map[string]any{
-			"adapter":  "wechat",
-			"msg_type": payload.MsgType,
+			"adapter":    "wechat",
+			"msg_type":   payload.MsgType,
+			"raw_format": rawFormat,
 		},
 		Timestamp: time.Now().UTC(),
+	}
+	if payload.ToUserName != "" {
+		message.Metadata["to_user_name"] = payload.ToUserName
 	}
 	if err := ValidateMessage(message); err != nil {
 		return InternalMessage{}, err
@@ -69,6 +81,19 @@ func (a *WeChatAdapter) TransformInbound(raw json.RawMessage) (InternalMessage, 
 func (a *WeChatAdapter) TransformOutbound(message InternalMessage) (json.RawMessage, error) {
 	if err := ValidateMessage(message); err != nil {
 		return nil, err
+	}
+	if StringMetadata(message.Metadata, "wechat_format") == "xml" {
+		raw, err := xml.Marshal(wechatXMLPayload{
+			ToUserName:   message.ConversationID,
+			FromUserName: StringMetadata(message.Metadata, "from_user_name"),
+			CreateTime:   IntMetadata(message.Metadata, "create_time"),
+			MsgType:      "text",
+			Content:      FirstTextPart(message.Content),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("encode wechat xml payload: %w", err)
+		}
+		return raw, nil
 	}
 
 	if card, ok := FirstCardPart(message.Content); ok && card.URL != "" {
@@ -128,18 +153,28 @@ func (a *WeChatAdapter) TestConnection(ctx context.Context, config map[string]an
 }
 
 type wechatInboundPayload struct {
-	ID             string `json:"id,omitempty"`
-	ConversationID string `json:"conversation_id,omitempty"`
-	MsgID          string `json:"MsgId,omitempty"`
-	FromUserName   string `json:"FromUserName,omitempty"`
-	ToUserName     string `json:"ToUserName,omitempty"`
-	MsgType        string `json:"MsgType,omitempty"`
-	Content        string `json:"Content,omitempty"`
-	PicURL         string `json:"PicUrl,omitempty"`
-	MediaID        string `json:"MediaId,omitempty"`
-	Title          string `json:"Title,omitempty"`
-	Description    string `json:"Description,omitempty"`
-	URL            string `json:"Url,omitempty"`
+	XMLName        xml.Name `json:"-" xml:"xml"`
+	ID             string   `json:"id,omitempty"`
+	ConversationID string   `json:"conversation_id,omitempty"`
+	MsgID          string   `json:"MsgId,omitempty" xml:"MsgId"`
+	FromUserName   string   `json:"FromUserName,omitempty" xml:"FromUserName"`
+	ToUserName     string   `json:"ToUserName,omitempty" xml:"ToUserName"`
+	MsgType        string   `json:"MsgType,omitempty" xml:"MsgType"`
+	Content        string   `json:"Content,omitempty" xml:"Content"`
+	PicURL         string   `json:"PicUrl,omitempty" xml:"PicUrl"`
+	MediaID        string   `json:"MediaId,omitempty" xml:"MediaId"`
+	Title          string   `json:"Title,omitempty" xml:"Title"`
+	Description    string   `json:"Description,omitempty" xml:"Description"`
+	URL            string   `json:"Url,omitempty" xml:"Url"`
+}
+
+type wechatXMLPayload struct {
+	XMLName      xml.Name `xml:"xml"`
+	ToUserName   string   `xml:"ToUserName"`
+	FromUserName string   `xml:"FromUserName"`
+	CreateTime   int64    `xml:"CreateTime"`
+	MsgType      string   `xml:"MsgType"`
+	Content      string   `xml:"Content,omitempty"`
 }
 
 type wechatOutboundPayload struct {
@@ -159,4 +194,26 @@ type wechatNewsArticle struct {
 	Description string `json:"description,omitempty"`
 	URL         string `json:"url"`
 	PicURL      string `json:"picurl,omitempty"`
+}
+
+// IntMetadata extracts an integer value from a metadata map.
+func IntMetadata(metadata map[string]any, key string) int64 {
+	if metadata == nil {
+		return 0
+	}
+	switch value := metadata[key].(type) {
+	case int64:
+		return value
+	case int:
+		return int64(value)
+	case float64:
+		return int64(value)
+	default:
+		return 0
+	}
+}
+
+// IsXMLPayload reports whether a raw payload appears to be XML.
+func IsXMLPayload(raw json.RawMessage) bool {
+	return bytes.HasPrefix(bytes.TrimSpace(raw), []byte("<"))
 }
