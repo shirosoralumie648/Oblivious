@@ -758,6 +758,29 @@ func smtpAlertMessage(fromEmail string, recipients []string, event AlertEvent) [
 		title = "Operational alert"
 	}
 	subject := fmt.Sprintf("[%s] %s", strings.ToUpper(string(event.Severity)), title)
+	boundary := "oblivious-alert-alternative"
+	headers := []string{
+		"From: " + sanitizeSMTPHeader(fromEmail),
+		"To: " + sanitizeSMTPHeader(strings.Join(recipients, ", ")),
+		"Subject: " + sanitizeSMTPHeader(subject),
+		"Date: " + time.Now().UTC().Format(time.RFC1123Z),
+		"MIME-Version: 1.0",
+		"Content-Type: multipart/alternative; boundary=\"" + boundary + "\"",
+		"",
+		"--" + boundary,
+		"Content-Type: text/plain; charset=UTF-8",
+		"",
+		smtpAlertPlainBody(event),
+		"--" + boundary,
+		"Content-Type: text/html; charset=UTF-8",
+		"",
+		smtpAlertHTMLBody(event),
+		"--" + boundary + "--",
+	}
+	return []byte(strings.Join(headers, "\r\n"))
+}
+
+func smtpAlertPlainBody(event AlertEvent) string {
 	body := []string{
 		alertIMText(event),
 	}
@@ -767,17 +790,29 @@ func smtpAlertMessage(fromEmail string, recipients []string, event AlertEvent) [
 	if !event.OccurredAt.IsZero() {
 		body = append(body, "occurred_at: "+event.OccurredAt.UTC().Format(time.RFC3339Nano))
 	}
-	headers := []string{
-		"From: " + sanitizeSMTPHeader(fromEmail),
-		"To: " + sanitizeSMTPHeader(strings.Join(recipients, ", ")),
-		"Subject: " + sanitizeSMTPHeader(subject),
-		"Date: " + time.Now().UTC().Format(time.RFC1123Z),
-		"MIME-Version: 1.0",
-		"Content-Type: text/plain; charset=UTF-8",
-		"",
-		strings.Join(body, "\r\n"),
+	return strings.Join(body, "\r\n")
+}
+
+func smtpAlertHTMLBody(event AlertEvent) string {
+	parts := []string{
+		"<!doctype html>",
+		"<html><body>",
+		"<p><strong>" + html.EscapeString(alertIMTitle(event)) + "</strong></p>",
 	}
-	return []byte(strings.Join(headers, "\r\n"))
+	if message := strings.TrimSpace(event.Message); message != "" {
+		parts = append(parts, "<p>"+html.EscapeString(message)+"</p>")
+	}
+	if component := strings.TrimSpace(event.Component); component != "" {
+		parts = append(parts, "<p><code>component</code> "+html.EscapeString(component)+"</p>")
+	}
+	if key := alertKey(event); key != "" {
+		parts = append(parts, "<p><code>alert_key</code> "+html.EscapeString(key)+"</p>")
+	}
+	if !event.OccurredAt.IsZero() {
+		parts = append(parts, "<p><code>occurred_at</code> "+html.EscapeString(event.OccurredAt.UTC().Format(time.RFC3339Nano))+"</p>")
+	}
+	parts = append(parts, "</body></html>")
+	return strings.Join(parts, "\r\n")
 }
 
 func sanitizeSMTPHeader(value string) string {

@@ -26,7 +26,7 @@ Status values:
 | Billing and monetization | Functional logic 6.1-6.3; Part 2 3.5 | Billing, quota, payment, Stripe, pricing settings, API token, usage log and analytics files exist across server/admin/web. | Partial | Verify concurrency limits, quota granularity, model/user/channel cost dimensions, payouts/refunds/topups, and commercial gate docs. |
 | Marketplace ecosystem | Functional logic 8.1-8.4; Part 2 3.6 | Marketplace service/search/governance/settlement/review scanner/ranking signals files and admin/marketplace pages exist. | Partial | Verify review SLA, settlement cycles, tiered revenue shares, ranking/recommendation algorithm, takedown, and payment-provider integration. |
 | Frontend shell and core pages | Functional logic 7.1-7.6; Part 2 4.x | Admin/console/workspace/marketplace pages and feature APIs exist, including chat, knowledge, workflows, agents, scheduled tasks, notifications, admin usage/model/settings pages. | Partial | Run route-level UI regression, inspect layout/accessibility, and verify every spec workflow is reachable and complete. |
-| Observability metrics, logs, alerts, recovery | Functional logic 9.1-9.3; Part 3 10.x | Observability request logs, metrics collector, alert state/routing/provider config/delivery/history/recovery, HTTP middleware alerting, admin alerts UI, dashboards and docs exist. SMTP warning delivery, info email one-hour digest batching, IM Markdown webhook payloads, third-party PagerDuty/Opsgenie/Aliyun/Tencent delivery, Twilio/Aliyun SMS delivery, Twilio phone delivery, and per-recipient hourly SMS/phone limits have focused tests. | Partial | Complete final alert requirement audit against Functional Logic 9.1-9.3. |
+| Observability metrics, logs, alerts, recovery | Functional logic 9.1-9.3; Part 3 10.x | Observability request logs, metrics collector, alert state/routing/provider config/delivery/history/recovery, HTTP middleware alerting, admin alerts UI, dashboards and docs exist. SMTP plain text + HTML warning delivery, info email one-hour digest batching, IM Markdown webhook payloads, third-party PagerDuty/Opsgenie/Aliyun/Tencent delivery, Twilio/Aliyun SMS delivery, Twilio phone delivery, per-recipient hourly SMS/phone limits, alert escalation, and recovery action records have focused tests. `docs/reports/2026-06-07-alert-requirement-audit.md` maps Functional Logic 9.1-9.3. | Partial | Complete Functional Logic 9.3 recovery gaps: restart attempt/backoff/exhaustion state, HPA threshold/cooldown alignment, queue-backlog scaling trigger or explicit boundary, and Patroni/Sentinel/Kafka/LB failover deliverables or release boundary. |
 | Database schema and migrations | Part 3 7.x | Many migrations exist, including enhanced relay/workflow/knowledge/agent/channel/marketplace/billing/observability tables. | Partial | Check migration ordering, idempotence, schema coverage against Part 3 tables, and clean any duplicate/overlapping migrations. |
 | API contract | Part 3 8.x | `docs/api/openapi.yaml`, admin/app route files, aliases, and route surface tests exist. | Partial | Verify unified response format, OpenAPI coverage for new endpoints, auth/CSRF/session behavior, and route surface parity. |
 | Deployment and operations | Part 3 9.x-10.x | Kubernetes manifests, Docker assets, Prometheus/Grafana assets, release docs and validation scripts exist. | Partial | Verify deploy manifests with scripts, resource settings, secrets/config maps, backup/restore, SLO and alert rule coverage. |
@@ -47,8 +47,11 @@ These checks prove only the covered surfaces. They do not prove full project com
 
 ## Immediate Next Implementation Order
 
-1. Close remaining alert notification fidelity:
-   - Requirement-by-requirement alert audit against Functional Logic 9.1-9.3.
+1. Close Functional Logic 9.3 recovery gaps:
+   - RecoveryController restart attempt accounting, backoff schedule, and exhausted/manual-intervention state.
+   - Kubernetes restart/HPA validation and HPA threshold/cooldown alignment.
+   - Queue-backlog scaling trigger or explicit boundary.
+   - Patroni/Sentinel/Kafka/load-balancer failover manifests/tests or explicit release boundary.
 2. Move through the remaining matrix top-down:
    - For each row, write/confirm focused tests.
    - Implement missing behavior.

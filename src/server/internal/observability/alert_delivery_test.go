@@ -701,6 +701,12 @@ func TestAlertProviderDeliveryResolverSendsSMTPEmailProvider(t *testing.T) {
 	if !strings.Contains(gotMessages[0].data, "Subject: [WARNING] Relay backlog") || !strings.Contains(gotMessages[0].data, "queue depth is high") {
 		t.Fatalf("expected SMTP email body with alert content, got %q", gotMessages[0].data)
 	}
+	if !strings.Contains(gotMessages[0].data, "Content-Type: multipart/alternative;") || !strings.Contains(gotMessages[0].data, "Content-Type: text/plain; charset=UTF-8") || !strings.Contains(gotMessages[0].data, "Content-Type: text/html; charset=UTF-8") {
+		t.Fatalf("expected SMTP email to include both plain text and HTML alternatives, got %q", gotMessages[0].data)
+	}
+	if !strings.Contains(gotMessages[0].data, "<strong>[WARNING] Relay backlog</strong>") || !strings.Contains(gotMessages[0].data, "<p>queue depth is high</p>") {
+		t.Fatalf("expected SMTP HTML alternative with alert title and message, got %q", gotMessages[0].data)
+	}
 }
 
 func TestProbeAlertProviderConfigSendsSMTPEmail(t *testing.T) {
