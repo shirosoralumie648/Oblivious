@@ -333,6 +333,50 @@ func TestPublishingChannelHandlerCreatesConfigForSessionOrganization(t *testing.
 	}
 }
 
+func TestPublishingChannelHandlerRedactsConfigSecretsInResponses(t *testing.T) {
+	store := &publishingChannelFakeStore{configs: map[string]*channel.ChannelConfig{
+		"channel_1": {
+			ID:             "channel_1",
+			OrganizationID: "org_1",
+			Type:           channel.ChannelTypeWebhook,
+			Name:           "Website",
+			Config: map[string]any{
+				"secret":        "top-secret",
+				"webhookSecret": "camel-secret",
+				"webhook_url":   "https://hooks.example.test/inbound",
+			},
+			Status: channel.ChannelStatusActive,
+		},
+	}}
+	handler := newPublishingChannelTestHandler(store)
+
+	listRecorder := httptest.NewRecorder()
+	handler.listChannels(listRecorder, publishingChannelRequest(stdhttp.MethodGet, "/api/v1/channels", "", "org_1"))
+	assertPublishingChannelResponseRedactsSecrets(t, listRecorder.Body.String())
+
+	getRecorder := httptest.NewRecorder()
+	handler.getChannel(getRecorder, publishingChannelRequest(stdhttp.MethodGet, "/api/v1/channels/channel_1", "", "org_1"), "channel_1")
+	assertPublishingChannelResponseRedactsSecrets(t, getRecorder.Body.String())
+
+	createRecorder := httptest.NewRecorder()
+	handler.createChannel(createRecorder, publishingChannelRequest(stdhttp.MethodPost, "/api/v1/channels", `{"type":"webhook","name":"New","config":{"secret":"new-secret","webhook_url":"https://hooks.example.test/new"}}`, "org_1"))
+	assertPublishingChannelResponseRedactsSecrets(t, createRecorder.Body.String())
+	if store.createdConfig == nil || store.createdConfig.Config["secret"] != "new-secret" {
+		t.Fatalf("expected create to preserve stored secret, got %+v", store.createdConfig)
+	}
+
+	updateRecorder := httptest.NewRecorder()
+	handler.updateChannel(updateRecorder, publishingChannelRequest(stdhttp.MethodPut, "/api/v1/channels/channel_1", `{"type":"webhook","name":"Website EU","config":{"webhook_secret":"rotated-secret","webhook_url":"https://hooks.example.test/eu"},"status":"degraded"}`, "org_1"), "channel_1")
+	assertPublishingChannelResponseRedactsSecrets(t, updateRecorder.Body.String())
+	if store.updatedConfig == nil || store.updatedConfig.Config["webhook_secret"] != "rotated-secret" {
+		t.Fatalf("expected update to preserve stored secret, got %+v", store.updatedConfig)
+	}
+
+	statusRecorder := httptest.NewRecorder()
+	handler.updateChannelStatus(statusRecorder, publishingChannelRequest(stdhttp.MethodPatch, "/api/v1/channels/channel_1/status", `{"status":"active"}`, "org_1"), "channel_1")
+	assertPublishingChannelResponseRedactsSecrets(t, statusRecorder.Body.String())
+}
+
 func TestPublishingChannelHandlerCreatesSupportedPublishingAdapterTypes(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
@@ -1617,6 +1661,20 @@ func publishingChannelRequest(method, path, body, organizationID string) *stdhtt
 		WorkspaceID:    "workspace_1",
 	}))
 	return request
+}
+
+func assertPublishingChannelResponseRedactsSecrets(t *testing.T, body string) {
+	t.Helper()
+	for _, leaked := range []string{"top-secret", "camel-secret", "new-secret", "rotated-secret"} {
+		if strings.Contains(body, leaked) {
+			t.Fatalf("expected channel response to redact %q, got %s", leaked, body)
+		}
+	}
+	if !strings.Contains(body, `"secret":"********"`) &&
+		!strings.Contains(body, `"webhookSecret":"********"`) &&
+		!strings.Contains(body, `"webhook_secret":"********"`) {
+		t.Fatalf("expected channel response to include a redaction marker, got %s", body)
+	}
 }
 
 func cloneChannelConfig(config *channel.ChannelConfig) *channel.ChannelConfig {

@@ -18,8 +18,9 @@ import (
 )
 
 const (
-	channelDefaultLimit = 20
-	channelMaxLimit     = 100
+	channelDefaultLimit   = 20
+	channelMaxLimit       = 100
+	channelRedactedSecret = "********"
 )
 
 var publishingChannelAlertSink observability.AlertSink
@@ -89,7 +90,7 @@ func (h channelHandler) listChannels(w stdhttp.ResponseWriter, r *stdhttp.Reques
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "list channels failed")
 		return
 	}
-	writeSuccess(w, stdhttp.StatusOK, configs)
+	writeSuccess(w, stdhttp.StatusOK, redactChannelConfigs(configs))
 }
 
 func (h channelHandler) getChannel(w stdhttp.ResponseWriter, r *stdhttp.Request, channelID string) {
@@ -97,7 +98,7 @@ func (h channelHandler) getChannel(w stdhttp.ResponseWriter, r *stdhttp.Request,
 	if !ok {
 		return
 	}
-	writeSuccess(w, stdhttp.StatusOK, config)
+	writeSuccess(w, stdhttp.StatusOK, redactChannelConfig(config))
 }
 
 func (h channelHandler) createChannel(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -124,7 +125,7 @@ func (h channelHandler) createChannel(w stdhttp.ResponseWriter, r *stdhttp.Reque
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	writeSuccess(w, stdhttp.StatusCreated, created)
+	writeSuccess(w, stdhttp.StatusCreated, redactChannelConfig(created))
 }
 
 func (h channelHandler) updateChannel(w stdhttp.ResponseWriter, r *stdhttp.Request, channelID string) {
@@ -151,7 +152,7 @@ func (h channelHandler) updateChannel(w stdhttp.ResponseWriter, r *stdhttp.Reque
 		writeError(w, stdhttp.StatusNotFound, "not_found", "channel not found")
 		return
 	}
-	writeSuccess(w, stdhttp.StatusOK, updated)
+	writeSuccess(w, stdhttp.StatusOK, redactChannelConfig(updated))
 }
 
 func (h channelHandler) deleteChannel(w stdhttp.ResponseWriter, r *stdhttp.Request, channelID string) {
@@ -338,7 +339,7 @@ func (h channelHandler) setChannelStatus(w stdhttp.ResponseWriter, r *stdhttp.Re
 		writeError(w, stdhttp.StatusNotFound, "not_found", "channel not found")
 		return
 	}
-	writeSuccess(w, stdhttp.StatusOK, updated)
+	writeSuccess(w, stdhttp.StatusOK, redactChannelConfig(updated))
 }
 
 func (h channelHandler) requireSessionChannel(w stdhttp.ResponseWriter, r *stdhttp.Request, channelID string) (*publishingchannel.ChannelConfig, bool) {
@@ -666,4 +667,43 @@ func channelSecret(config map[string]any) string {
 		}
 	}
 	return ""
+}
+
+func redactChannelConfigs(configs []*publishingchannel.ChannelConfig) []*publishingchannel.ChannelConfig {
+	redacted := make([]*publishingchannel.ChannelConfig, 0, len(configs))
+	for _, config := range configs {
+		redacted = append(redacted, redactChannelConfig(config))
+	}
+	return redacted
+}
+
+func redactChannelConfig(config *publishingchannel.ChannelConfig) *publishingchannel.ChannelConfig {
+	if config == nil {
+		return nil
+	}
+	clone := *config
+	if config.Config != nil {
+		clone.Config = redactChannelConfigMap(config.Config)
+	}
+	return &clone
+}
+
+func redactChannelConfigMap(config map[string]any) map[string]any {
+	redacted := make(map[string]any, len(config))
+	for key, value := range config {
+		if isChannelSecretKey(key) && strings.TrimSpace(fmt.Sprint(value)) != "" {
+			redacted[key] = channelRedactedSecret
+			continue
+		}
+		redacted[key] = value
+	}
+	return redacted
+}
+
+func isChannelSecretKey(key string) bool {
+	normalized := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(key, "_", ""), "-", ""))
+	return strings.Contains(normalized, "secret") ||
+		strings.Contains(normalized, "token") ||
+		strings.Contains(normalized, "apikey") ||
+		strings.Contains(normalized, "password")
 }
