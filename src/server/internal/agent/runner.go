@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"oblivious/server/internal/auth"
 	"oblivious/server/internal/chat"
@@ -32,6 +33,11 @@ type RunnerConfig struct {
 }
 
 const maxTokenBudget = 1_000_000
+
+const (
+	shortTermMessageLimit = 50
+	shortTermTokenLimit   = 10_000
+)
 
 const (
 	ExecutionModeReact    = "react"
@@ -435,6 +441,7 @@ func (r *Runner) buildChatMessages(ctx context.Context, session auth.Session, ag
 }
 
 func (r *Runner) buildChatMessagesWithEvidence(ctx context.Context, session auth.Session, agent *Agent, messages []*Message, userContent string) ([]chat.Message, memoryEvidence) {
+	messages = limitShortTermMessages(messages)
 	// 转换为 chat.Message 格式
 	chatMessages := make([]chat.Message, len(messages))
 	for i, m := range messages {
@@ -459,6 +466,68 @@ func (r *Runner) buildChatMessagesWithEvidence(ctx context.Context, session auth
 	}
 
 	return chatMessages, evidence
+}
+
+func limitShortTermMessages(messages []*Message) []*Message {
+	if len(messages) <= 1 {
+		return messages
+	}
+	start := len(messages)
+	estimatedTokens := 0
+	for i := len(messages) - 1; i >= 0; i-- {
+		if len(messages)-i > shortTermMessageLimit {
+			break
+		}
+		messageTokens := estimateAgentMessageTokens(messages[i])
+		if estimatedTokens > 0 && estimatedTokens+messageTokens > shortTermTokenLimit {
+			break
+		}
+		estimatedTokens += messageTokens
+		start = i
+	}
+	if start == 0 {
+		return messages
+	}
+	for start < len(messages) && isOrphanedToolResult(messages[start]) {
+		start++
+	}
+	return messages[start:]
+}
+
+func estimateAgentMessageTokens(message *Message) int {
+	if message == nil {
+		return 0
+	}
+	tokens := estimateTextTokens(message.Role) + estimateTextTokens(message.Content) + estimateTextTokens(message.ToolCallID)
+	for _, toolCall := range message.ToolCalls {
+		tokens += estimateTextTokens(toolCall.ID) + estimateTextTokens(toolCall.Name)
+		if len(toolCall.Arguments) > 0 {
+			if payload, err := json.Marshal(toolCall.Arguments); err == nil {
+				tokens += estimateTextTokens(string(payload))
+			}
+		}
+	}
+	return tokens
+}
+
+func estimateTextTokens(value string) int {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return 0
+	}
+	runeCount := utf8.RuneCountInString(trimmed)
+	tokens := runeCount / 4
+	if runeCount%4 != 0 {
+		tokens++
+	}
+	if tokens < 1 {
+		return 1
+	}
+	return tokens
+}
+
+func isOrphanedToolResult(message *Message) bool {
+	return message != nil && message.Role == "tool" && strings.TrimSpace(message.ToolCallID) != ""
 }
 
 func (r *Runner) searchMemory(ctx context.Context, session auth.Session, agent *Agent, query string) ([]*memory.SearchResult, bool) {

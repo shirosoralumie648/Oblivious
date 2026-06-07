@@ -2592,6 +2592,137 @@ func TestRunWithToolsRecordsMemoryEvidence(t *testing.T) {
 	}
 }
 
+func TestRunWithToolsUsesOnlyRecentShortTermMessages(t *testing.T) {
+	history := make([]*Message, 0, 60)
+	baseTime := time.Date(2026, 6, 8, 10, 0, 0, 0, time.UTC)
+	for i := 0; i < 60; i++ {
+		role := "user"
+		if i%2 == 1 {
+			role = "assistant"
+		}
+		history = append(history, &Message{
+			ID:             "history_msg",
+			ConversationID: "conv_1",
+			OrganizationID: "org_1",
+			Role:           role,
+			Content:        "history message " + string(rune('A'+i%26)),
+			CreatedAt:      baseTime.Add(time.Duration(i) * time.Minute),
+		})
+	}
+	history[10].Content = "old message outside short term window"
+	history[11].Content = "first retained history message"
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+			Tools: []Tool{
+				{Name: "datetime", Type: "builtin", Enabled: true},
+			},
+		},
+		conversation: &Conversation{
+			ID:             "conv_1",
+			AgentID:        "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+		},
+		messages: history,
+	}
+	gateway := &fakeGateway{
+		structured: []*chat.CompletionResponse{
+			{Content: "short term bounded answer", FinishReason: "stop"},
+		},
+	}
+	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+
+	_, err := runner.RunWithTools(
+		context.Background(),
+		auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}},
+		store.agent,
+		store.conversation.ID,
+		"current request stays in context",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("RunWithTools returned error: %v", err)
+	}
+	if len(gateway.lastStructuredMessages) != 50 {
+		t.Fatalf("expected short-term context to keep 50 messages, got %d", len(gateway.lastStructuredMessages))
+	}
+	prompt := chatMessagesContent(gateway.lastStructuredMessages)
+	if strings.Contains(prompt, "old message outside short term window") {
+		t.Fatalf("expected old message to be pruned from short-term context, got %q", prompt)
+	}
+	if !strings.Contains(prompt, "first retained history message") || !strings.Contains(prompt, "current request stays in context") {
+		t.Fatalf("expected recent history and current request to remain, got %q", prompt)
+	}
+}
+
+func TestRunWithToolsLimitsShortTermMessagesByEstimatedTokens(t *testing.T) {
+	longContent := strings.Repeat("x", 45_000)
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+			Tools: []Tool{
+				{Name: "datetime", Type: "builtin", Enabled: true},
+			},
+		},
+		conversation: &Conversation{
+			ID:             "conv_1",
+			AgentID:        "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+		},
+		messages: []*Message{
+			{
+				ID:             "old_large_1",
+				ConversationID: "conv_1",
+				OrganizationID: "org_1",
+				Role:           "user",
+				Content:        "oversized old message one " + longContent,
+				CreatedAt:      time.Date(2026, 6, 8, 10, 0, 0, 0, time.UTC),
+			},
+			{
+				ID:             "old_large_2",
+				ConversationID: "conv_1",
+				OrganizationID: "org_1",
+				Role:           "assistant",
+				Content:        "oversized old message two " + longContent,
+				CreatedAt:      time.Date(2026, 6, 8, 10, 1, 0, 0, time.UTC),
+			},
+		},
+	}
+	gateway := &fakeGateway{
+		structured: []*chat.CompletionResponse{
+			{Content: "token bounded answer", FinishReason: "stop"},
+		},
+	}
+	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+
+	_, err := runner.RunWithTools(
+		context.Background(),
+		auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}},
+		store.agent,
+		store.conversation.ID,
+		"compact current request",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("RunWithTools returned error: %v", err)
+	}
+	prompt := chatMessagesContent(gateway.lastStructuredMessages)
+	if strings.Contains(prompt, "oversized old message") {
+		t.Fatalf("expected oversized history to be pruned by token budget, got %q", prompt[:120])
+	}
+	if !strings.Contains(prompt, "compact current request") {
+		t.Fatalf("expected current request to remain after token pruning, got %q", prompt)
+	}
+}
+
 func TestRunnerInjectsUserManagedAgentMemoriesIntoPrompt(t *testing.T) {
 	store := &fakeStore{
 		agent: &Agent{
