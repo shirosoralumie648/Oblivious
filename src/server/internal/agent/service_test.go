@@ -2170,6 +2170,94 @@ func TestServiceApproveToolRunResumeStopsWhenTokenBudgetExceeded(t *testing.T) {
 	}
 }
 
+func TestServiceApproveToolRunResumeStopsWhenMaxIterationsReached(t *testing.T) {
+	now := time.Now().UTC()
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+			Config: Config{
+				MaxIterations: 1,
+			},
+			Tools: []Tool{
+				{Name: "datetime", Type: "builtin", Enabled: true, RequiresApproval: true},
+			},
+		},
+		conversation: &Conversation{
+			ID:             "conv_1",
+			AgentID:        "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+		},
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Status:         RunStatusPendingApproval,
+			IterationCount: 1,
+			ToolCallCount:  1,
+			StartedAt:      now,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+		toolRuns: []*ToolRun{{
+			ID:             "tool_run_pending",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			ToolCallID:     "call_datetime",
+			ToolName:       "datetime",
+			ToolType:       "builtin",
+			Arguments:      map[string]any{},
+			Status:         ToolRunStatusPendingApproval,
+			ApprovalStatus: ApprovalStatusPending,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+		messages: []*Message{
+			{
+				ID:             "user_1",
+				ConversationID: "conv_1",
+				OrganizationID: "org_1",
+				Role:           "user",
+				Content:        "what time is it?",
+				CreatedAt:      now,
+			},
+			{
+				ID:             "assistant_tool_call",
+				ConversationID: "conv_1",
+				OrganizationID: "org_1",
+				Role:           "assistant",
+				ToolCalls:      []ToolCall{{ID: "call_datetime", Name: "datetime", Arguments: map[string]any{}}},
+				CreatedAt:      now,
+			},
+		},
+	}
+	gateway := &fakeGateway{
+		structured: []*chat.CompletionResponse{
+			{Content: "This final answer should not be requested.", FinishReason: "stop"},
+		},
+	}
+	service := NewService(store, gateway)
+
+	_, err := service.ApproveToolRun(context.Background(), auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}}, "tool_run_pending", "operator approved")
+	if !errors.Is(err, ErrMaxIterationsExceeded) {
+		t.Fatalf("expected ErrMaxIterationsExceeded, got %v", err)
+	}
+	if gateway.structuredCalls != 0 {
+		t.Fatalf("expected max-iteration guard to stop before resumed model call, got %d calls", gateway.structuredCalls)
+	}
+	run := store.runs[0]
+	if run.Status != RunStatusMaxIterationsReached || run.IterationCount != 1 || run.ToolCallCount != 1 || !strings.Contains(run.Error, ErrMaxIterationsExceeded.Error()) {
+		t.Fatalf("expected durable run max-iterations evidence after resume, got %+v", run)
+	}
+}
+
 func TestServiceRetryToolRunReexecutesFailedToolAndRestoresRunDetail(t *testing.T) {
 	now := time.Now().UTC()
 	store := &fakeStore{

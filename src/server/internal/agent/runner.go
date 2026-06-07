@@ -964,6 +964,11 @@ func (r *Runner) ResumeAfterApprovedTool(ctx context.Context, session auth.Sessi
 	}
 
 	ctx = withSessionRelayMetadata(ctx, session)
+	maxIterations := r.maxIterationsFor(agent)
+	if run.IterationCount >= maxIterations {
+		_ = r.failRunWithStatus(ctx, session.OrganizationID, run.ID, RunStatusMaxIterationsReached, ErrMaxIterationsExceeded.Error(), run.IterationCount, run.ToolCallCount)
+		return nil, fmt.Errorf("%w (%d)", ErrMaxIterationsExceeded, maxIterations)
+	}
 	tokenBudget := normalizeTokenBudget(agent.Config.TokenBudget)
 	structuredGateway, ok := r.gateway.(chat.StructuredReplyGenerator)
 	if !ok {
