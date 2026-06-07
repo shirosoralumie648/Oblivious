@@ -32,11 +32,13 @@ type ChannelStore interface {
 // registers all built-in platform adapters.
 func NewChannelService(store ChannelStore) *ChannelService {
 	adapters := map[string]adapter.ChannelAdapter{
-		"feishu":   adapter.NewFeiShuAdapter(),
-		"wechat":   adapter.NewWeChatAdapter(),
-		"discord":  adapter.NewDiscordAdapter(),
-		"slack":    adapter.NewSlackAdapter(),
-		"web_sdk":  adapter.NewWebSDKAdapter(),
+		"feishu":    adapter.NewFeiShuAdapter(),
+		"wechat":    adapter.NewWeChatAdapter(),
+		"discord":   adapter.NewDiscordAdapter(),
+		"slack":     adapter.NewSlackAdapter(),
+		"telegram":  adapter.NewTelegramAdapter(),
+		"web_embed": adapter.NewWebEmbedAdapter(),
+		"web_sdk":   adapter.NewWebSDKAdapter(),
 	}
 	return &ChannelService{
 		store:       store,
