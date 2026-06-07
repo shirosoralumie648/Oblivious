@@ -310,6 +310,14 @@ type ChannelStats struct {
 	RateLimitedUntil time.Time `json:"rate_limited_until,omitempty"`
 
 	AffinityConversationCount int `json:"affinity_conversation_count"`
+
+	RuntimeSamples []ChannelRuntimeSample `json:"runtime_samples,omitempty"`
+}
+
+type ChannelRuntimeSample struct {
+	At        time.Time `json:"at"`
+	Success   bool      `json:"success"`
+	LatencyUs int64     `json:"latency_us"`
 }
 
 // ChannelPoolInterface 渠道池接口（由 relay.ChannelPool 实现）

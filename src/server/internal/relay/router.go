@@ -695,10 +695,32 @@ func (r *Router) updateRuntimeChannelStats(channelID string, success bool, durat
 		stats.FailureCount++
 	}
 	if durationSeconds >= 0 {
-		stats.LatencySumUs += int64(durationSeconds * 1_000_000)
+		latencyUs := int64(durationSeconds * 1_000_000)
+		stats.LatencySumUs += latencyUs
 		stats.LatencyCount++
+		recordAdaptiveRuntimeSample(stats, time.Now().UTC(), success, latencyUs)
 	}
 	metrics.SetRelayChannelHealthScore(channelID, runtimeHealthScore(stats))
+}
+
+const adaptiveRuntimeWindow = 5 * time.Minute
+
+func recordAdaptiveRuntimeSample(stats *types.ChannelStats, now time.Time, success bool, latencyUs int64) {
+	if stats == nil {
+		return
+	}
+	cutoff := now.Add(-adaptiveRuntimeWindow)
+	samples := stats.RuntimeSamples[:0]
+	for _, sample := range stats.RuntimeSamples {
+		if !sample.At.IsZero() && sample.At.After(cutoff) {
+			samples = append(samples, sample)
+		}
+	}
+	stats.RuntimeSamples = append(samples, types.ChannelRuntimeSample{
+		At:        now,
+		Success:   success,
+		LatencyUs: latencyUs,
+	})
 }
 
 func runtimeHealthScore(stats *types.ChannelStats) float64 {

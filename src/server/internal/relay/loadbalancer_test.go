@@ -2,6 +2,7 @@ package relay
 
 import (
 	"testing"
+	"time"
 
 	"oblivious/server/internal/relay/types"
 )
@@ -118,6 +119,44 @@ func TestLoadBalancer_AdaptiveUsesRuntimeHealthMetrics(t *testing.T) {
 
 	if counts["healthy"] <= counts["degraded"] {
 		t.Fatalf("adaptive strategy should prefer healthy runtime metrics, got healthy=%d degraded=%d", counts["healthy"], counts["degraded"])
+	}
+}
+
+func TestLoadBalancer_AdaptiveErrorRateUsesFiveMinuteWindow(t *testing.T) {
+	pool := NewChannelPool()
+	pool.AddChannel(&types.Channel{ID: "recent_success", BaseURL: "http://recent-success", Enabled: true}, 1)
+	pool.AddChannel(&types.Channel{ID: "old_failures", BaseURL: "http://old-failures", Enabled: true}, 1)
+
+	recentStats, ok := pool.GetStats("recent_success")
+	if !ok {
+		t.Fatal("recent_success channel stats should exist")
+	}
+	recentStats.SuccessCount = 100
+	recentStats.LatencySumUs = 50_000 * 100
+	recentStats.LatencyCount = 100
+
+	oldStats, ok := pool.GetStats("old_failures")
+	if !ok {
+		t.Fatal("old_failures channel stats should exist")
+	}
+	oldStats.SuccessCount = 100
+	oldStats.FailureCount = 900
+	oldStats.LatencySumUs = 50_000 * 1000
+	oldStats.LatencyCount = 1000
+	oldStats.RuntimeSamples = []types.ChannelRuntimeSample{
+		{At: time.Now().Add(-6 * time.Minute), Success: false, LatencyUs: 50_000},
+		{At: time.Now().Add(-30 * time.Second), Success: true, LatencyUs: 50_000},
+	}
+
+	lb := NewLoadBalancer(pool, "adaptive")
+	lb.random = &sequenceRandom{floats: []float64{0.75}}
+
+	ch := lb.Select("chat")
+	if ch == nil {
+		t.Fatal("channel should not be nil")
+	}
+	if ch.Channel.ID != "old_failures" {
+		t.Fatalf("old failures outside the 5-minute adaptive window should not suppress current weight, got %s", ch.Channel.ID)
 	}
 }
 

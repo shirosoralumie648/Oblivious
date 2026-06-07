@@ -271,13 +271,20 @@ func (lb *LoadBalancer) adaptiveWeight(ch *types.RouteChannel) float64 {
 	errorRate := 0.0
 	stats, ok := lb.pool.GetStats(routeChannelID(ch))
 	if ok && stats != nil {
-		total := stats.SuccessCount + stats.FailureCount
-		if total > 0 {
-			errorRate = float64(stats.FailureCount) / float64(total)
+		windowTotal, windowFailures, windowLatencyUs := adaptiveRuntimeWindowStats(stats, time.Now().UTC())
+		if windowTotal > 0 {
+			errorRate = float64(windowFailures) / float64(windowTotal)
 			healthScore = 100 * (1 - errorRate)
-		}
-		if stats.LatencyCount > 0 {
-			avgLatencyMs = float64(stats.LatencySumUs) / float64(stats.LatencyCount) / 1000
+			avgLatencyMs = float64(windowLatencyUs) / float64(windowTotal) / 1000
+		} else {
+			total := stats.SuccessCount + stats.FailureCount
+			if total > 0 {
+				errorRate = float64(stats.FailureCount) / float64(total)
+				healthScore = 100 * (1 - errorRate)
+			}
+			if stats.LatencyCount > 0 {
+				avgLatencyMs = float64(stats.LatencySumUs) / float64(stats.LatencyCount) / 1000
+			}
 		}
 		if avgLatencyMs > 0 {
 			healthScore *= math.Min(1, 200/avgLatencyMs)
@@ -292,4 +299,24 @@ func (lb *LoadBalancer) adaptiveWeight(ch *types.RouteChannel) float64 {
 		return 0
 	}
 	return weight
+}
+
+func adaptiveRuntimeWindowStats(stats *types.ChannelStats, now time.Time) (total int64, failures int64, latencyUs int64) {
+	if stats == nil {
+		return 0, 0, 0
+	}
+	cutoff := now.Add(-adaptiveRuntimeWindow)
+	for _, sample := range stats.RuntimeSamples {
+		if sample.At.IsZero() || !sample.At.After(cutoff) {
+			continue
+		}
+		total++
+		if !sample.Success {
+			failures++
+		}
+		if sample.LatencyUs >= 0 {
+			latencyUs += sample.LatencyUs
+		}
+	}
+	return total, failures, latencyUs
 }

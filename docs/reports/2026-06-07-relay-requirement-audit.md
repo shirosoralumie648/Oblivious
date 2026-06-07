@@ -18,7 +18,7 @@ Status values:
 | --- | --- | --- |
 | Supports weighted load balancing using each channel's configured weight. | Proven | `src/server/internal/relay/balancer/weighted.go` now implements deterministic weighted round-robin; `src/server/internal/relay/loadbalancer.go` uses the same deterministic weighted sequence for the production `weighted` strategy. `TestWeightedRoundRobin_SelectsDeterministicWeightedSequence` and `TestLoadBalancer_Weighted` assert `3:1` channel sequencing. |
 | Supports adaptive load balancing. | Proven | `src/server/internal/relay/balancer/adaptive.go` and `src/server/internal/relay/loadbalancer.go` compute dynamic weights from static weight, health score, error rate, and average latency. `TestAdaptiveBalancer_HighErrorRateReducesWeight` and `TestLoadBalancer_AdaptiveUsesRuntimeHealthMetrics` verify degraded channels lose weight. |
-| Adaptive formula uses health score, 5-minute error rate, and average latency. | Partial | Runtime stats include success/failure counts and average latency, and adaptive weights use `healthScore * (1-errorRate) / log2(latency+1)`. The current in-memory window is request-count based, not explicitly a 5-minute time window. |
+| Adaptive formula uses health score, 5-minute error rate, and average latency. | Proven | Runtime stats now retain timestamped `ChannelRuntimeSample` entries and prune the adaptive sample set to `5 * time.Minute`. Production `LoadBalancer.adaptiveWeight` uses the 5-minute sample window for error rate and average latency before falling back to cumulative counters when no window samples exist. `TestLoadBalancer_AdaptiveErrorRateUsesFiveMinuteWindow` proves failures older than five minutes do not suppress current adaptive weight. |
 | Health check and automatic removal from routing. | Proven | `src/server/internal/relay/healthchecker.go`, `src/server/internal/relay/relay.go`, and `src/server/internal/relay/loadbalancer.go` exclude unhealthy, invalid, and temporarily rate-limited channels. `TestRelayStartHealthChecksMarksUnhealthyChannelInvalid` and `TestRelayHealthChecksRouteChannelUnhealthyAlertAndResolveOnRecovery` cover health failure handling and recovery alert state. |
 
 ## 1.2 Channel Affinity
@@ -75,8 +75,6 @@ Status values:
 
 ## Current Conclusion
 
-The repository-owned Relay path now proves the core Functional Logic 1.1-1.5 behavior for weighted round-robin, adaptive selection, conversation affinity, cross-channel failover, RPM/TPM local enforcement plus 90% soft-threshold weight reduction, passive 429 handling, public/private semantic cache policy, OpenAI-compatible provider catalog expansion, and production Chat streaming/SSE compatibility.
+The repository-owned Relay path now proves the core Functional Logic 1.1-1.5 behavior for weighted round-robin, adaptive selection with 5-minute error-rate windows, conversation affinity, cross-channel failover, RPM/TPM local enforcement plus 90% soft-threshold weight reduction, passive 429 handling, public/private semantic cache policy, OpenAI-compatible provider catalog expansion, and production Chat streaming/SSE compatibility.
 
-The row remains `Partial`, not `Proven`, because one adaptive-balancing timing detail still needs work:
-
-1. Replace or augment the request-count-based adaptive error-rate stats with an explicitly 5-minute error-rate window, then prove that the production adaptive formula uses that window together with health score and average latency.
+No known repository-owned gaps remain for Functional Logic 1.1-1.5, Fusion Design 3.1, and the covered Relay API contract rows in this audit. External live-provider compatibility remains deployment/provider-specific and is not claimed here.
