@@ -51,6 +51,17 @@ type KnowledgeDocument struct {
 	UpdatedAt       time.Time `json:"updatedAt"`
 }
 
+type KnowledgeDocumentVersion struct {
+	ChunkCount      int       `json:"chunkCount"`
+	Content         string    `json:"content"`
+	DocumentID      string    `json:"documentId"`
+	DocumentVersion string    `json:"documentVersion"`
+	KnowledgeBaseID string    `json:"knowledgeBaseId"`
+	Title           string    `json:"title"`
+	UpdateStrategy  string    `json:"updateStrategy,omitempty"`
+	UpdatedAt       time.Time `json:"updatedAt"`
+}
+
 type KnowledgeRetrievalResult struct {
 	ChunkID         string            `json:"chunkId,omitempty"`
 	ChunkIndex      int               `json:"chunkIndex,omitempty"`
@@ -112,6 +123,10 @@ type documentIDDeleter interface {
 
 type documentChunkLister interface {
 	ListKnowledgeDocumentChunks(ctx context.Context, organizationID, knowledgeBaseID, documentID string) ([]KnowledgeDocumentChunkView, error)
+}
+
+type documentVersionLister interface {
+	ListKnowledgeDocumentVersions(ctx context.Context, organizationID, knowledgeBaseID, documentID string) ([]KnowledgeDocumentVersion, error)
 }
 
 type documentChunkUpdater interface {
@@ -451,6 +466,14 @@ func (s *Service) ListDocumentChunks(ctx context.Context, session auth.Session, 
 		return []KnowledgeDocumentChunkView{}, nil
 	}
 	return store.ListKnowledgeDocumentChunks(ctx, knowledgeSessionScope(session), knowledgeBaseID, documentID)
+}
+
+func (s *Service) ListDocumentVersions(ctx context.Context, session auth.Session, knowledgeBaseID, documentID string) ([]KnowledgeDocumentVersion, error) {
+	store, ok := s.store.(documentVersionLister)
+	if !ok {
+		return []KnowledgeDocumentVersion{}, nil
+	}
+	return store.ListKnowledgeDocumentVersions(ctx, knowledgeSessionScope(session), knowledgeBaseID, documentID)
 }
 
 func (s *Service) UpdateDocumentChunk(ctx context.Context, session auth.Session, knowledgeBaseID, documentID, chunkID, content string) (KnowledgeDocumentChunkView, error) {

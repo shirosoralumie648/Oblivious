@@ -26,6 +26,7 @@ type fakeStore struct {
 	deletedID        string
 	detailBase       KnowledgeBase
 	documentChunks   []KnowledgeDocumentChunkView
+	documentVersions []KnowledgeDocumentVersion
 	documents        []KnowledgeDocument
 	listBases        []KnowledgeBase
 	retrievalQuery   string
@@ -159,6 +160,13 @@ func (f *fakeStore) ListKnowledgeDocumentChunks(ctx context.Context, workspaceID
 	f.requestedID = knowledgeBaseID
 	f.deletedDocID = documentID
 	return append([]KnowledgeDocumentChunkView(nil), f.documentChunks...), nil
+}
+
+func (f *fakeStore) ListKnowledgeDocumentVersions(ctx context.Context, workspaceID, knowledgeBaseID, documentID string) ([]KnowledgeDocumentVersion, error) {
+	f.workspaceID = workspaceID
+	f.requestedID = knowledgeBaseID
+	f.deletedDocID = documentID
+	return append([]KnowledgeDocumentVersion(nil), f.documentVersions...), nil
 }
 
 func (f *fakeStore) UpdateKnowledgeDocumentChunk(ctx context.Context, workspaceID, knowledgeBaseID, documentID, chunkID, content string) (KnowledgeDocumentChunkView, error) {
@@ -446,6 +454,42 @@ func TestListDocumentsReturnsKnowledgeBaseDocuments(t *testing.T) {
 	}
 	if len(documents) != 1 {
 		t.Fatalf("expected 1 document, got %d", len(documents))
+	}
+}
+
+func TestListDocumentVersionsReturnsOrganizationScopedHistory(t *testing.T) {
+	store := &fakeStore{
+		documentVersions: []KnowledgeDocumentVersion{
+			{
+				ChunkCount:      2,
+				Content:         "Current version content.",
+				DocumentID:      "doc_1",
+				DocumentVersion: "v3",
+				KnowledgeBaseID: "kb_7",
+				Title:           "Runbook",
+				UpdateStrategy:  KnowledgeUpdateStrategyVersioned,
+				UpdatedAt:       time.Date(2026, time.June, 7, 10, 30, 0, 0, time.UTC),
+			},
+		},
+	}
+	service := NewService(store)
+
+	versions, err := service.ListDocumentVersions(context.Background(), auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+	}, "kb_7", "doc_1")
+	if err != nil {
+		t.Fatalf("list document versions: %v", err)
+	}
+
+	if store.workspaceID != "org_1" {
+		t.Fatalf("expected organization scope org_1, got %s", store.workspaceID)
+	}
+	if store.requestedID != "kb_7" || store.deletedDocID != "doc_1" {
+		t.Fatalf("expected kb_7/doc_1, got %s/%s", store.requestedID, store.deletedDocID)
+	}
+	if len(versions) != 1 || versions[0].DocumentVersion != "v3" || versions[0].ChunkCount != 2 {
+		t.Fatalf("expected version history response, got %+v", versions)
 	}
 }
 

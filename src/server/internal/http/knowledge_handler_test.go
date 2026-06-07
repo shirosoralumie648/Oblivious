@@ -25,6 +25,7 @@ type knowledgeFakeStore struct {
 	deletedID         string
 	detailBase        knowledge.KnowledgeBase
 	documentChunks    []knowledge.KnowledgeDocumentChunkView
+	documentVersions  []knowledge.KnowledgeDocumentVersion
 	documents         []knowledge.KnowledgeDocument
 	listBases         []knowledge.KnowledgeBase
 	organizationID    string
@@ -108,6 +109,13 @@ func (f *knowledgeFakeStore) ListKnowledgeDocumentChunks(ctx context.Context, or
 	f.requestedID = knowledgeBaseID
 	f.deletedDocID = documentID
 	return f.documentChunks, nil
+}
+
+func (f *knowledgeFakeStore) ListKnowledgeDocumentVersions(ctx context.Context, organizationID, knowledgeBaseID, documentID string) ([]knowledge.KnowledgeDocumentVersion, error) {
+	f.organizationID = organizationID
+	f.requestedID = knowledgeBaseID
+	f.deletedDocID = documentID
+	return f.documentVersions, nil
 }
 
 func (f *knowledgeFakeStore) UpdateKnowledgeDocumentChunk(ctx context.Context, organizationID, knowledgeBaseID, documentID, chunkID, content string) (knowledge.KnowledgeDocumentChunkView, error) {
@@ -444,6 +452,57 @@ func TestKnowledgeHandlerListDocumentChunksReturnsTenantScopedChunks(t *testing.
 	}
 }
 
+func TestKnowledgeHandlerListDocumentVersionsReturnsHistory(t *testing.T) {
+	store := &knowledgeFakeStore{
+		documentVersions: []knowledge.KnowledgeDocumentVersion{
+			{
+				ChunkCount:      2,
+				Content:         "Current version content.",
+				DocumentID:      "doc_1",
+				DocumentVersion: "v3",
+				KnowledgeBaseID: "kb_2",
+				Title:           "Runbook",
+				UpdateStrategy:  knowledge.KnowledgeUpdateStrategyVersioned,
+				UpdatedAt:       time.Date(2026, time.June, 7, 10, 30, 0, 0, time.UTC),
+			},
+			{
+				ChunkCount:      1,
+				Content:         "Previous version content.",
+				DocumentID:      "doc_1",
+				DocumentVersion: "v2",
+				KnowledgeBaseID: "kb_2",
+				Title:           "Runbook",
+				UpdateStrategy:  knowledge.KnowledgeUpdateStrategyVersioned,
+				UpdatedAt:       time.Date(2026, time.June, 7, 9, 30, 0, 0, time.UTC),
+			},
+		},
+	}
+	handler := newKnowledgeTestHandler(store)
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/app/knowledge-bases/kb_2/documents/doc_1/versions", nil).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+	}))
+	recorder := httptest.NewRecorder()
+
+	handler.listKnowledgeDocumentVersions(recorder, request, "kb_2", "doc_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if store.organizationID != "org_1" || store.requestedID != "kb_2" || store.deletedDocID != "doc_1" {
+		t.Fatalf("expected tenant-scoped version list, org=%q kb=%q doc=%q", store.organizationID, store.requestedID, store.deletedDocID)
+	}
+	var response struct {
+		Data []knowledge.KnowledgeDocumentVersion `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(response.Data) != 2 || response.Data[0].DocumentVersion != "v3" || response.Data[0].ChunkCount != 2 || response.Data[1].DocumentVersion != "v2" {
+		t.Fatalf("expected version history response, got %+v", response.Data)
+	}
+}
+
 func TestKnowledgeHandlerUpdateDocumentChunkReturnsUpdatedChunk(t *testing.T) {
 	store := &knowledgeFakeStore{
 		updatedChunk: knowledge.KnowledgeDocumentChunkView{
@@ -533,6 +592,25 @@ func TestKnowledgeAliasRoutesUpdateDocumentChunkUsesPutWithoutBreakingList(t *te
 	mux.ServeHTTP(listRecorder, listRequest)
 	if listRecorder.Code != stdhttp.StatusOK {
 		t.Fatalf("expected GET chunks route 200, got %d with body %s", listRecorder.Code, listRecorder.Body.String())
+	}
+}
+
+func TestKnowledgeAliasRoutesDispatchDocumentVersions(t *testing.T) {
+	store := &knowledgeFakeStore{
+		documentVersions: []knowledge.KnowledgeDocumentVersion{{DocumentID: "doc_1", DocumentVersion: "v2", KnowledgeBaseID: "kb_2", Title: "Runbook"}},
+	}
+	mux := stdhttp.NewServeMux()
+	registerKnowledgeAliasRoutes(mux, &recordingSessionMiddleware{}, newKnowledgeTestHandler(store))
+
+	request := knowledgeAliasRequest(stdhttp.MethodGet, "/api/v1/knowledge-bases/kb_2/documents/doc_1/versions", "")
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected document versions route 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if store.organizationID != "org_1" || store.requestedID != "kb_2" || store.deletedDocID != "doc_1" {
+		t.Fatalf("expected version route to request org_1/kb_2/doc_1, got org=%q kb=%q doc=%q", store.organizationID, store.requestedID, store.deletedDocID)
 	}
 }
 

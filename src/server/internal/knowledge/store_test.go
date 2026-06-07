@@ -6,6 +6,7 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"io"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -899,6 +900,97 @@ func TestSQLStoreMergeKnowledgeDocumentChunksCombinesNeighborAndReindexes(t *tes
 	mergedMetadata := knowledgeRetrievalArgString(updateArgs, 6)
 	if !strings.Contains(mergedMetadata, `"startRune":100`) || !strings.Contains(mergedMetadata, `"endRune":122`) {
 		t.Fatalf("merged metadata = %s, want range 100-122", mergedMetadata)
+	}
+}
+
+func TestSQLStoreListKnowledgeDocumentVersionsReturnsTenantScopedHistory(t *testing.T) {
+	driverName := "knowledge_document_versions_list_test"
+	updatedAt := time.Date(2026, time.June, 7, 10, 30, 0, 0, time.UTC)
+	queryer := &knowledgeRetrievalQueryer{
+		columnsByQuery: map[string][]string{
+			"FROM knowledge_document_versions": {"document_version", "title", "content", "update_strategy", "chunk_count", "updated_at"},
+		},
+		rowsByQuery: map[string][][]driver.Value{
+			"FROM knowledge_document_versions": {
+				{"v3", "Runbook", "Current version content.", "versioned", int64(2), updatedAt},
+				{"v2", "Runbook", "Previous version content.", "versioned", int64(1), updatedAt.Add(-time.Hour)},
+			},
+		},
+		rows: [][]driver.Value{
+			{"v3", "Runbook", "Current version content.", "versioned", int64(2), updatedAt},
+			{"v2", "Runbook", "Previous version content.", "versioned", int64(1), updatedAt.Add(-time.Hour)},
+		},
+	}
+	registerKnowledgeRetrievalDriver(driverName, queryer)
+
+	db, err := sql.Open(driverName, "")
+	if err != nil {
+		t.Fatalf("open capture db: %v", err)
+	}
+	defer db.Close()
+
+	versions, err := NewSQLStore(db).ListKnowledgeDocumentVersions(context.Background(), "org_1", "kb_1", "doc_1")
+	if err != nil {
+		t.Fatalf("list knowledge document versions: %v", err)
+	}
+
+	queryer.mu.Lock()
+	query := queryer.query
+	args := append([]driver.NamedValue(nil), queryer.args...)
+	queryer.mu.Unlock()
+
+	for _, want := range []string{
+		"knowledge_document_versions",
+		"knowledge_documents",
+		"knowledge_bases",
+		"organization_id = $1",
+		"kb.id = $2",
+		"d.id = $3",
+		"chunk_count",
+		"ORDER BY v.updated_at DESC",
+	} {
+		if !strings.Contains(query, want) {
+			t.Fatalf("expected document versions query to include %q, got %s", want, query)
+		}
+	}
+	if got := knowledgeRetrievalArgString(args, 1); got != "org_1" {
+		t.Fatalf("organization arg = %q, want org_1", got)
+	}
+	if got := knowledgeRetrievalArgString(args, 2); got != "kb_1" {
+		t.Fatalf("knowledge base arg = %q, want kb_1", got)
+	}
+	if got := knowledgeRetrievalArgString(args, 3); got != "doc_1" {
+		t.Fatalf("document arg = %q, want doc_1", got)
+	}
+	if len(versions) != 2 {
+		t.Fatalf("expected 2 versions, got %d", len(versions))
+	}
+	if versions[0].DocumentVersion != "v3" || versions[0].ChunkCount != 2 || versions[0].Content != "Current version content." {
+		t.Fatalf("unexpected current version: %+v", versions[0])
+	}
+	if versions[1].DocumentVersion != "v2" || versions[1].ChunkCount != 1 || versions[1].Content != "Previous version content." {
+		t.Fatalf("unexpected previous version: %+v", versions[1])
+	}
+}
+
+func TestKnowledgeDocumentVersionHistoryMigrationBackfillsExistingDocuments(t *testing.T) {
+	raw, err := os.ReadFile("../../migrations/0075_knowledge_document_version_history.sql")
+	if err != nil {
+		t.Fatalf("read knowledge document version history migration: %v", err)
+	}
+	migration := string(raw)
+
+	for _, want := range []string{
+		"INSERT INTO knowledge_document_versions",
+		"'kdv_' || md5(d.organization_id || ':' || d.knowledge_base_id || ':' || d.id || ':' || COALESCE(NULLIF(d.document_version, ''), 'v1'))",
+		"FROM knowledge_documents d",
+		"JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id",
+		"COALESCE(NULLIF(d.document_version, ''), 'v1')",
+		"ON CONFLICT (organization_id, knowledge_base_id, document_id, document_version)",
+	} {
+		if !strings.Contains(migration, want) {
+			t.Fatalf("expected migration to contain %q, got:\n%s", want, migration)
+		}
 	}
 }
 

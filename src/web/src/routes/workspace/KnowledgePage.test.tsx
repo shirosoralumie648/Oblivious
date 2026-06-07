@@ -8,6 +8,7 @@ const deleteKnowledgeBase = vi.fn();
 const deleteKnowledgeDocument = vi.fn();
 const getKnowledgeBase = vi.fn();
 const listKnowledgeDocumentChunks = vi.fn();
+const listKnowledgeDocumentVersions = vi.fn();
 const listKnowledgeDocuments = vi.fn();
 const listKnowledgeBases = vi.fn();
 const listRetrievalTestCases = vi.fn();
@@ -60,6 +61,7 @@ vi.mock('../../features/knowledge/api', () => ({
     deleteKnowledgeDocument,
     getKnowledgeBase,
     listKnowledgeDocumentChunks,
+    listKnowledgeDocumentVersions,
     listKnowledgeDocuments,
     listKnowledgeBases,
     listRetrievalTestCases,
@@ -91,6 +93,7 @@ describe('KnowledgePage', () => {
     deleteKnowledgeDocument.mockReset();
     getKnowledgeBase.mockReset();
     listKnowledgeDocumentChunks.mockReset();
+    listKnowledgeDocumentVersions.mockReset();
     listKnowledgeDocuments.mockReset();
     listKnowledgeBases.mockReset();
     listRetrievalTestCases.mockReset();
@@ -1047,6 +1050,68 @@ describe('KnowledgePage', () => {
     expect(screen.getByRole('button', { name: 'Chunk 2 kdc_2 selected' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getAllByText('Second architecture chunk with details.').length).toBeGreaterThan(0);
     expect(screen.getByText('chunk_id: kdc_2')).toBeInTheDocument();
+  });
+
+  it('loads document version history and restores a selected version into the editor', async () => {
+    routeState.knowledgeBaseId = 'kb_9';
+    getKnowledgeBase.mockResolvedValue({
+      documentCount: 1,
+      id: 'kb_9',
+      name: 'Architecture Notes',
+      updatedAt: '2026-04-03T11:30:00Z'
+    });
+    listKnowledgeDocuments.mockResolvedValue([
+      {
+        content: 'Current version content.',
+        documentVersion: 'v3',
+        id: 'doc_1',
+        title: 'Runbook',
+        updateStrategy: 'versioned',
+        updatedAt: '2026-06-07T10:30:00Z'
+      }
+    ]);
+    listKnowledgeDocumentVersions.mockResolvedValue([
+      {
+        chunkCount: 2,
+        content: 'Current version content.',
+        documentId: 'doc_1',
+        documentVersion: 'v3',
+        knowledgeBaseId: 'kb_9',
+        title: 'Runbook',
+        updateStrategy: 'versioned',
+        updatedAt: '2026-06-07T10:30:00Z'
+      },
+      {
+        chunkCount: 1,
+        content: 'Previous version content.',
+        documentId: 'doc_1',
+        documentVersion: 'v2',
+        knowledgeBaseId: 'kb_9',
+        title: 'Runbook',
+        updateStrategy: 'versioned',
+        updatedAt: '2026-06-07T09:30:00Z'
+      }
+    ]);
+
+    render(<KnowledgePage />);
+
+    await screen.findByRole('heading', { name: 'Architecture Notes' });
+    fireEvent.click(screen.getByRole('button', { name: 'View version history for Runbook' }));
+
+    await waitFor(() => {
+      expect(listKnowledgeDocumentVersions).toHaveBeenCalledWith('kb_9', 'doc_1');
+    });
+    expect(screen.getByRole('heading', { name: 'Version history for Runbook' })).toBeInTheDocument();
+    expect(screen.getByText('Version v3 · chunks 2')).toBeInTheDocument();
+    expect(screen.getByText('Version v2 · chunks 1')).toBeInTheDocument();
+    expect(screen.getByText('Previous version content.')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Restore version v2 for Runbook' }));
+
+    expect(screen.getByLabelText('Document title')).toHaveValue('Runbook');
+    expect(screen.getByLabelText('Document content')).toHaveValue('Previous version content.');
+    expect(screen.getByLabelText('Document version')).toHaveValue('v2');
+    expect(screen.getByLabelText('Update strategy')).toHaveValue('versioned');
   });
 
   it('renders an original document preview with source paging and chunk boundaries', async () => {

@@ -257,6 +257,28 @@ components:
         metadata:
           $ref: "#/components/schemas/KnowledgeChunkMetadata"
 
+    KnowledgeDocumentVersion:
+      type: object
+      properties:
+        documentId:
+          type: string
+        knowledgeBaseId:
+          type: string
+        documentVersion:
+          type: string
+        title:
+          type: string
+        content:
+          type: string
+        updateStrategy:
+          type: string
+          enum: [full_replace, incremental, versioned]
+        chunkCount:
+          type: integer
+        updatedAt:
+          type: string
+          format: date-time
+
     CreateDocumentRequest:
       type: object
       required: [title]
@@ -1069,6 +1091,41 @@ paths:
           description: 删除成功
         "401":
           $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/versions:
+    get:
+      summary: 获取知识库文档版本历史
+      operationId: listKnowledgeDocumentVersions
+      tags: [Knowledge]
+      parameters:
+        - name: knowledgeBaseId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 文档版本历史
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/KnowledgeDocumentVersion"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks:
     get:

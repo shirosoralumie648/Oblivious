@@ -16,6 +16,26 @@ function createClient(overrides: Partial<HttpClient> = {}) {
 }
 
 describe('createKnowledgeApi', () => {
+  it('lists knowledge document version history', async () => {
+    const versions = [
+      {
+        chunkCount: 2,
+        content: 'Current version content.',
+        documentId: 'doc_1',
+        documentVersion: 'v3',
+        knowledgeBaseId: 'kb_9',
+        title: 'Runbook',
+        updateStrategy: 'versioned' as const
+      }
+    ];
+    const get = vi.fn().mockResolvedValue(versions);
+    const api = createKnowledgeApi(createClient({ get }));
+
+    await expect(api.listKnowledgeDocumentVersions('kb_9', 'doc_1')).resolves.toEqual(versions);
+
+    expect(get).toHaveBeenCalledWith('/api/v1/app/knowledge-bases/kb_9/documents/doc_1/versions');
+  });
+
   it('lists and runs retrieval test cases for a knowledge base', async () => {
     const testCases = [
       {

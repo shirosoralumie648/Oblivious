@@ -205,6 +205,17 @@ export type KnowledgeDocumentSummary = {
   updatedAt?: string;
 };
 
+export type KnowledgeDocumentVersion = {
+  chunkCount: number;
+  content: string;
+  documentId: string;
+  documentVersion: string;
+  knowledgeBaseId: string;
+  title: string;
+  updateStrategy?: KnowledgeUpdateStrategy;
+  updatedAt?: string;
+};
+
 export type KnowledgeDocumentChunk = {
   chunkId: string;
   chunkIndex: number;

@@ -227,6 +227,26 @@ func (h knowledgeHandler) listKnowledgeDocumentChunks(w stdhttp.ResponseWriter, 
 	writeSuccess(w, stdhttp.StatusOK, chunks)
 }
 
+func (h knowledgeHandler) listKnowledgeDocumentVersions(w stdhttp.ResponseWriter, r *stdhttp.Request, knowledgeBaseID, documentID string) {
+	session, ok := sessionFromContext(r)
+	if !ok {
+		writeError(w, stdhttp.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+
+	versions, err := h.service.ListDocumentVersions(r.Context(), session, knowledgeBaseID, documentID)
+	if err != nil {
+		if isNotFoundError(err) {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "knowledge document not found")
+			return
+		}
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "list knowledge document versions failed")
+		return
+	}
+
+	writeSuccess(w, stdhttp.StatusOK, versions)
+}
+
 func (h knowledgeHandler) updateKnowledgeDocumentChunk(w stdhttp.ResponseWriter, r *stdhttp.Request, knowledgeBaseID, documentID, chunkID string) {
 	session, ok := sessionFromContext(r)
 	if !ok {

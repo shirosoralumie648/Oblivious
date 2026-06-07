@@ -9,6 +9,7 @@ import type {
   KnowledgeBaseSummary,
   KnowledgeChunkStrategy,
   KnowledgeDocumentChunk,
+  KnowledgeDocumentVersion,
   KnowledgeDocumentSummary,
   KnowledgeRetrievalResult,
   KnowledgeRetrievalMode,
@@ -394,6 +395,7 @@ export function KnowledgePage() {
   const [isDeletingDocumentId, setIsDeletingDocumentId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingDocumentChunks, setIsLoadingDocumentChunks] = useState(false);
+  const [isLoadingDocumentVersions, setIsLoadingDocumentVersions] = useState(false);
   const [isRetrievingKnowledge, setIsRetrievingKnowledge] = useState(false);
   const [isEditingChunkStructure, setIsEditingChunkStructure] = useState(false);
   const [isRunningRetrievalTests, setIsRunningRetrievalTests] = useState(false);
@@ -422,6 +424,7 @@ export function KnowledgePage() {
   const [knowledgeChunkContentDraft, setKnowledgeChunkContentDraft] = useState('');
   const [knowledgeChunkSplitAt, setKnowledgeChunkSplitAt] = useState(0);
   const [knowledgeDocumentChunks, setKnowledgeDocumentChunks] = useState<KnowledgeDocumentChunk[]>([]);
+  const [knowledgeDocumentVersions, setKnowledgeDocumentVersions] = useState<KnowledgeDocumentVersion[]>([]);
   const [knowledgeDocuments, setKnowledgeDocuments] = useState<KnowledgeDocumentSummary[]>([]);
   const [lastRetrievedQuery, setLastRetrievedQuery] = useState('');
   const [retrievalLimit, setRetrievalLimit] = useState(defaultRetrievalLimit);
@@ -438,6 +441,7 @@ export function KnowledgePage() {
   const [selectedKnowledgeBase, setSelectedKnowledgeBase] = useState<KnowledgeBaseSummary | null>(null);
   const [selectedChunkId, setSelectedChunkId] = useState<string | null>(null);
   const [selectedChunkDocument, setSelectedChunkDocument] = useState<KnowledgeDocumentSummary | null>(null);
+  const [selectedVersionDocument, setSelectedVersionDocument] = useState<KnowledgeDocumentSummary | null>(null);
   const [uploadDocumentFile, setUploadDocumentFile] = useState<File | null>(null);
   const [uploadDocumentFileInputKey, setUploadDocumentFileInputKey] = useState(0);
   const [uploadDocumentTitle, setUploadDocumentTitle] = useState('');
@@ -512,6 +516,12 @@ export function KnowledgePage() {
     setSelectedChunkId(null);
   };
 
+  const resetDocumentVersions = () => {
+    setIsLoadingDocumentVersions(false);
+    setKnowledgeDocumentVersions([]);
+    setSelectedVersionDocument(null);
+  };
+
   const resetUploadDocumentForm = () => {
     setUploadDocumentFile(null);
     setUploadDocumentFileInputKey((current) => current + 1);
@@ -578,6 +588,7 @@ export function KnowledgePage() {
             setKnowledgeBases([]);
             resetDocumentEditor();
             resetDocumentChunks();
+            resetDocumentVersions();
             resetKnowledgeRetrieval();
           }
         } else {
@@ -591,6 +602,7 @@ export function KnowledgePage() {
             resetKnowledgeBaseRagConfig();
             resetDocumentEditor();
             resetDocumentChunks();
+            resetDocumentVersions();
             resetKnowledgeRetrieval();
           }
         }
@@ -604,6 +616,7 @@ export function KnowledgePage() {
           resetKnowledgeBaseRagConfig();
           resetDocumentEditor();
           resetDocumentChunks();
+          resetDocumentVersions();
           resetKnowledgeRetrieval();
           setError('Unable to load workspace data. Retry the request or check the backend session.');
         }
@@ -806,6 +819,36 @@ export function KnowledgePage() {
     }
   };
 
+  const handleViewDocumentVersions = async (document: KnowledgeDocumentSummary) => {
+    if (!knowledgeBaseId) {
+      return;
+    }
+
+    setIsLoadingDocumentVersions(true);
+    setError(null);
+    setSelectedVersionDocument(document);
+
+    try {
+      const versions = await knowledgeApi.listKnowledgeDocumentVersions(knowledgeBaseId, document.id);
+      setKnowledgeDocumentVersions(versions);
+    } catch {
+      setKnowledgeDocumentVersions([]);
+      setError('Unable to load document version history. Retry the request or check the backend session.');
+    } finally {
+      setIsLoadingDocumentVersions(false);
+    }
+  };
+
+  const handleRestoreKnowledgeDocumentVersion = (version: KnowledgeDocumentVersion) => {
+    setEditingDocumentId(version.documentId);
+    setKnowledgeDocumentTitle(version.title);
+    setKnowledgeDocumentContent(version.content);
+    setKnowledgeDocumentVersion(version.documentVersion);
+    setKnowledgeDocumentUpdateStrategy(version.updateStrategy ?? 'versioned');
+    setKnowledgeDocumentSourceUrl('');
+    setKnowledgeDocumentSourcePage('');
+  };
+
   const documentSummaryForRetrievalResult = (result: KnowledgeRetrievalResult): KnowledgeDocumentSummary => {
     const existingDocument = knowledgeDocuments.find((document) => document.id === result.documentId);
     if (existingDocument) {
@@ -952,6 +995,7 @@ export function KnowledgePage() {
 
       resetKnowledgeRetrieval();
       resetDocumentChunks();
+      resetDocumentVersions();
       resetDocumentEditor();
     } catch {
       setError(
@@ -995,6 +1039,7 @@ export function KnowledgePage() {
       );
       resetKnowledgeRetrieval();
       resetDocumentChunks();
+      resetDocumentVersions();
       resetUploadDocumentForm();
     } catch {
       setError('Unable to upload knowledge document. Retry the request or check the backend session.');
@@ -1038,6 +1083,9 @@ export function KnowledgePage() {
       }
       if (selectedChunkDocument?.id === document.id) {
         resetDocumentChunks();
+      }
+      if (selectedVersionDocument?.id === document.id) {
+        resetDocumentVersions();
       }
     } catch {
       setError('Unable to delete knowledge document. Retry the request or check the backend session.');
@@ -1445,6 +1493,13 @@ export function KnowledgePage() {
                   >
                     {`View chunks for ${document.title}`}
                   </button>
+                  <button
+                    disabled={isLoadingDocumentVersions && selectedVersionDocument?.id === document.id}
+                    onClick={() => void handleViewDocumentVersions(document)}
+                    type="button"
+                  >
+                    {`View version history for ${document.title}`}
+                  </button>
                   <button onClick={() => handleEditKnowledgeDocument(document)} type="button">
                     {`Edit document ${document.title}`}
                   </button>
@@ -1458,6 +1513,27 @@ export function KnowledgePage() {
                 </li>
               ))}
             </ul>
+          ) : null}
+          {selectedVersionDocument ? (
+            <section aria-label="Document version history">
+              <h2>{`Version history for ${selectedVersionDocument.title}`}</h2>
+              {isLoadingDocumentVersions ? <p>Loading document version history…</p> : null}
+              {!isLoadingDocumentVersions && knowledgeDocumentVersions.length === 0 ? <p>No document versions recorded yet.</p> : null}
+              {knowledgeDocumentVersions.length > 0 ? (
+                <ul>
+                  {knowledgeDocumentVersions.map((version) => (
+                    <li key={`${version.documentId}-${version.documentVersion}`}>
+                      <strong>{`Version ${formatDocumentVersion(version.documentVersion)} · chunks ${version.chunkCount}`}</strong>
+                      {version.updateStrategy ? <p>{`Update strategy: ${version.updateStrategy}`}</p> : null}
+                      <p>{version.content}</p>
+                      <button onClick={() => handleRestoreKnowledgeDocumentVersion(version)} type="button">
+                        {`Restore version ${formatDocumentVersion(version.documentVersion)} for ${version.title}`}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </section>
           ) : null}
           {selectedChunkDocument ? (
             <section aria-label="Document chunks">

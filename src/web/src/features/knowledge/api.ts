@@ -5,6 +5,7 @@ import type {
   CreateKnowledgeRetrievalTestCaseRequest,
   KnowledgeBaseSummary,
   KnowledgeDocumentChunk,
+  KnowledgeDocumentVersion,
   KnowledgeDocumentSummary,
   KnowledgeRetrievalResult,
   KnowledgeRetrievalTestCase,
@@ -32,6 +33,7 @@ export interface KnowledgeApi {
   deleteKnowledgeDocument: (knowledgeBaseId: string, documentId: string) => Promise<void>;
   getKnowledgeBase: (knowledgeBaseId: string) => Promise<KnowledgeBaseSummary>;
   listKnowledgeDocumentChunks: (knowledgeBaseId: string, documentId: string) => Promise<KnowledgeDocumentChunk[]>;
+  listKnowledgeDocumentVersions: (knowledgeBaseId: string, documentId: string) => Promise<KnowledgeDocumentVersion[]>;
   listKnowledgeDocuments: (knowledgeBaseId: string) => Promise<KnowledgeDocumentSummary[]>;
   listKnowledgeBases: () => Promise<KnowledgeBaseSummary[]>;
   listRetrievalTestCases: (knowledgeBaseId: string) => Promise<KnowledgeRetrievalTestCase[]>;
@@ -113,6 +115,8 @@ export function createKnowledgeApi(client: HttpClient): KnowledgeApi {
     getKnowledgeBase: (knowledgeBaseId) => client.get<KnowledgeBaseSummary>(`/api/v1/app/knowledge-bases/${knowledgeBaseId}`),
     listKnowledgeDocumentChunks: (knowledgeBaseId, documentId) =>
       client.get<KnowledgeDocumentChunk[]>(`/api/v1/app/knowledge-bases/${knowledgeBaseId}/documents/${documentId}/chunks`),
+    listKnowledgeDocumentVersions: (knowledgeBaseId, documentId) =>
+      client.get<KnowledgeDocumentVersion[]>(`/api/v1/app/knowledge-bases/${knowledgeBaseId}/documents/${documentId}/versions`),
     listKnowledgeDocuments: (knowledgeBaseId) =>
       client.get<KnowledgeDocumentSummary[]>(`/api/v1/app/knowledge-bases/${knowledgeBaseId}/documents`),
     listKnowledgeBases: () => client.get<KnowledgeBaseSummary[]>('/api/v1/app/knowledge-bases'),

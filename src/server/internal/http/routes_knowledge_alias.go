@@ -79,6 +79,15 @@ func registerKnowledgeAliasRoutes(mux *stdhttp.ServeMux, authMiddleware sessionM
 			return
 		}
 
+		if len(parts) == 4 && parts[1] == "documents" && parts[2] != "" && parts[3] == "versions" {
+			if r.Method == stdhttp.MethodGet {
+				knowledgeHandler.listKnowledgeDocumentVersions(w, r, knowledgeBaseID, parts[2])
+			} else {
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
+
 		if len(parts) == 3 && parts[1] == "documents" && parts[2] != "" {
 			documentID := parts[2]
 			switch r.Method {

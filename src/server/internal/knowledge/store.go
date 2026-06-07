@@ -428,6 +428,10 @@ func (s *SQLStore) CreateKnowledgeDocumentWithOptions(ctx context.Context, organ
 		return KnowledgeDocument{}, err
 	}
 
+	if err := upsertKnowledgeDocumentVersion(ctx, tx, organizationID, knowledgeBaseID, documentID, title, content, options, now); err != nil {
+		return KnowledgeDocument{}, err
+	}
+
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE knowledge_bases
 		SET document_count = document_count + 1, updated_at = $2
@@ -500,6 +504,38 @@ func (s *SQLStore) ListKnowledgeDocumentChunks(ctx context.Context, organization
 	}
 	defer rows.Close()
 	return scanKnowledgeDocumentChunkViews(rows)
+}
+
+func (s *SQLStore) ListKnowledgeDocumentVersions(ctx context.Context, organizationID, knowledgeBaseID, documentID string) ([]KnowledgeDocumentVersion, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT
+			v.document_version,
+			v.title,
+			v.content,
+			v.update_strategy,
+			COUNT(c.id) AS chunk_count,
+			v.updated_at
+		FROM knowledge_document_versions v
+		JOIN knowledge_documents d ON d.id = v.document_id
+		JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
+		LEFT JOIN knowledge_document_chunks c
+		  ON c.document_id = v.document_id
+		 AND c.organization_id = v.organization_id
+		 AND COALESCE(NULLIF(c.document_version, ''), d.document_version, '') = v.document_version
+		WHERE v.organization_id = $1
+		  AND d.organization_id = $1
+		  AND kb.organization_id = $1
+		  AND kb.id = $2
+		  AND d.id = $3
+		  AND v.knowledge_base_id = kb.id
+		GROUP BY v.document_version, v.title, v.content, v.update_strategy, v.updated_at
+		ORDER BY v.updated_at DESC, v.document_version DESC
+	`, organizationID, knowledgeBaseID, documentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanKnowledgeDocumentVersions(rows, knowledgeBaseID, documentID)
 }
 
 func (s *SQLStore) UpdateKnowledgeDocumentChunk(ctx context.Context, organizationID, knowledgeBaseID, documentID, chunkID, content string) (KnowledgeDocumentChunkView, error) {
@@ -721,6 +757,10 @@ func (s *SQLStore) UpdateKnowledgeDocumentWithOptions(ctx context.Context, organ
 	}
 
 	if err := replaceKnowledgeDocumentChunksWithOptions(ctx, tx, organizationID, documentID, chunks, options, defaultKnowledgeStoreEmbeddingModel, now); err != nil {
+		return KnowledgeDocument{}, err
+	}
+
+	if err := upsertKnowledgeDocumentVersion(ctx, tx, organizationID, knowledgeBaseID, documentID, title, content, options, now); err != nil {
 		return KnowledgeDocument{}, err
 	}
 
@@ -1275,6 +1315,31 @@ func scanKnowledgeDocumentChunkView(scanner interface{ Scan(dest ...any) error }
 	return chunk, nil
 }
 
+func scanKnowledgeDocumentVersions(rows interface {
+	Next() bool
+	Scan(dest ...any) error
+	Err() error
+}, knowledgeBaseID, documentID string) ([]KnowledgeDocumentVersion, error) {
+	versions := []KnowledgeDocumentVersion{}
+	for rows.Next() {
+		var version KnowledgeDocumentVersion
+		version.KnowledgeBaseID = knowledgeBaseID
+		version.DocumentID = documentID
+		if err := rows.Scan(
+			&version.DocumentVersion,
+			&version.Title,
+			&version.Content,
+			&version.UpdateStrategy,
+			&version.ChunkCount,
+			&version.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		versions = append(versions, version)
+	}
+	return versions, rows.Err()
+}
+
 func selectKnowledgeDocumentChunkForEdit(ctx context.Context, tx *sql.Tx, organizationID, knowledgeBaseID, documentID, chunkID string) (knowledgeDocumentChunkRecord, error) {
 	row := tx.QueryRowContext(ctx, `
 		SELECT c.id, c.chunk_index, c.content, COALESCE(NULLIF(c.document_version, ''), d.document_version, ''), COALESCE(c.metadata, '{}'::jsonb)
@@ -1430,6 +1495,36 @@ func formatKnowledgeVector(embedding []float32) string {
 
 func replaceKnowledgeDocumentChunks(ctx context.Context, tx *sql.Tx, documentID, content string, now time.Time) error {
 	return replaceKnowledgeDocumentChunksWithOptions(ctx, tx, "", documentID, chunksFromContent(content), KnowledgeDocumentOptions{}, defaultKnowledgeStoreEmbeddingModel, now)
+}
+
+func upsertKnowledgeDocumentVersion(ctx context.Context, tx *sql.Tx, organizationID, knowledgeBaseID, documentID, title, content string, options KnowledgeDocumentOptions, now time.Time) error {
+	options = normalizeKnowledgeDocumentOptions(options)
+	versionID, err := auth.NewID("kdv")
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO knowledge_document_versions (
+			id,
+			document_id,
+			knowledge_base_id,
+			organization_id,
+			document_version,
+			title,
+			content,
+			update_strategy,
+			created_at,
+			updated_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+		ON CONFLICT (organization_id, knowledge_base_id, document_id, document_version)
+		DO UPDATE SET
+			title = EXCLUDED.title,
+			content = EXCLUDED.content,
+			update_strategy = EXCLUDED.update_strategy,
+			updated_at = EXCLUDED.updated_at
+	`, versionID, documentID, knowledgeBaseID, organizationID, options.DocumentVersion, title, content, options.UpdateStrategy, now)
+	return err
 }
 
 func replaceKnowledgeDocumentChunksWithOptions(ctx context.Context, tx *sql.Tx, organizationID, documentID string, chunks []KnowledgeDocumentChunk, options KnowledgeDocumentOptions, embeddingModel string, now time.Time) error {
