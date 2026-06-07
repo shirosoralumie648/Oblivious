@@ -2,7 +2,9 @@ package knowledge
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -10,6 +12,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/lib/pq"
 	"oblivious/server/internal/auth"
 )
 
@@ -27,6 +30,13 @@ type knowledgeRetrievalCandidate struct {
 	chunkContent  sql.NullString
 	chunkIndex    int
 	updatedAt     time.Time
+}
+
+type existingKnowledgeDocumentChunk struct {
+	chunkID     string
+	chunkIndex  int
+	content     string
+	contentHash string
 }
 
 func buildKnowledgeQueryTerms(query string) []string {
@@ -433,6 +443,34 @@ func (s *SQLStore) CreateKnowledgeDocumentWithOptions(ctx context.Context, organ
 
 func (s *SQLStore) UpdateKnowledgeDocument(ctx context.Context, workspaceID, knowledgeBaseID, documentID, title, content string) (KnowledgeDocument, error) {
 	return s.UpdateKnowledgeDocumentWithOptions(ctx, workspaceID, knowledgeBaseID, documentID, title, content, chunksFromContent(content), KnowledgeDocumentOptions{})
+}
+
+func (s *SQLStore) DiffKnowledgeDocumentChunks(ctx context.Context, organizationID, knowledgeBaseID, documentID string, chunks []KnowledgeDocumentChunk, options KnowledgeDocumentOptions) ([]KnowledgeDocumentChunk, error) {
+	options = normalizeKnowledgeDocumentOptions(options)
+	if options.UpdateStrategy != KnowledgeUpdateStrategyIncremental {
+		return append([]KnowledgeDocumentChunk(nil), chunks...), nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT c.id, c.chunk_index, c.content, COALESCE(c.metadata, '{}'::jsonb)
+		FROM knowledge_document_chunks c
+		JOIN knowledge_documents d ON d.id = c.document_id
+		JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
+		WHERE c.document_id = $1
+		  AND c.organization_id = $2
+		  AND kb.organization_id = $2
+		  AND kb.id = $3
+		  AND c.document_version = $4
+		ORDER BY c.chunk_index ASC
+	`, documentID, organizationID, knowledgeBaseID, options.DocumentVersion)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	existing, err := scanExistingKnowledgeDocumentChunks(rows)
+	if err != nil {
+		return nil, err
+	}
+	return changedKnowledgeDocumentChunks(chunks, existing), nil
 }
 
 func (s *SQLStore) UpdateKnowledgeDocumentWithOptions(ctx context.Context, organizationID, knowledgeBaseID, documentID, title, content string, chunks []KnowledgeDocumentChunk, options KnowledgeDocumentOptions) (KnowledgeDocument, error) {
@@ -1046,6 +1084,9 @@ func replaceKnowledgeDocumentChunks(ctx context.Context, tx *sql.Tx, documentID,
 
 func replaceKnowledgeDocumentChunksWithOptions(ctx context.Context, tx *sql.Tx, organizationID, documentID string, chunks []KnowledgeDocumentChunk, options KnowledgeDocumentOptions, embeddingModel string, now time.Time) error {
 	options = normalizeKnowledgeDocumentOptions(options)
+	if options.UpdateStrategy == KnowledgeUpdateStrategyIncremental {
+		return replaceKnowledgeDocumentChunksIncremental(ctx, tx, organizationID, documentID, chunks, options, embeddingModel, now)
+	}
 	if options.UpdateStrategy == KnowledgeUpdateStrategyVersioned {
 		if _, err := tx.ExecContext(ctx, `
 			DELETE FROM knowledge_document_chunks
@@ -1061,6 +1102,107 @@ func replaceKnowledgeDocumentChunksWithOptions(ctx context.Context, tx *sql.Tx, 
 		return err
 	}
 
+	return insertKnowledgeDocumentChunks(ctx, tx, organizationID, documentID, chunks, options, embeddingModel, now)
+}
+
+func replaceKnowledgeDocumentChunksIncremental(ctx context.Context, tx *sql.Tx, organizationID, documentID string, chunks []KnowledgeDocumentChunk, options KnowledgeDocumentOptions, embeddingModel string, now time.Time) error {
+	existing, err := listExistingKnowledgeDocumentChunks(ctx, tx, documentID, options.DocumentVersion)
+	if err != nil {
+		return err
+	}
+	existingByIndex := make(map[int]existingKnowledgeDocumentChunk, len(existing))
+	for _, chunk := range existing {
+		existingByIndex[chunk.chunkIndex] = chunk
+	}
+
+	changedChunks := changedKnowledgeDocumentChunks(chunks, existing)
+	changedIndexes := make([]int, 0, len(changedChunks)+len(existing))
+	nextIndexes := map[int]struct{}{}
+	for index := range chunks {
+		nextIndexes[index] = struct{}{}
+	}
+	for _, chunk := range changedChunks {
+		changedIndexes = append(changedIndexes, chunk.ChunkIndex)
+	}
+	for index := range existingByIndex {
+		if _, ok := nextIndexes[index]; !ok {
+			changedIndexes = append(changedIndexes, index)
+		}
+	}
+	if len(changedIndexes) > 0 {
+		if _, err := tx.ExecContext(ctx, `
+			DELETE FROM knowledge_document_chunks
+			WHERE document_id = $1
+			  AND document_version = $2
+			  AND chunk_index = ANY($3)
+		`, documentID, options.DocumentVersion, pq.Array(changedIndexes)); err != nil {
+			return err
+		}
+	}
+	return insertKnowledgeDocumentChunks(ctx, tx, organizationID, documentID, changedChunks, options, embeddingModel, now)
+}
+
+func changedKnowledgeDocumentChunks(chunks []KnowledgeDocumentChunk, existing []existingKnowledgeDocumentChunk) []KnowledgeDocumentChunk {
+	existingByIndex := make(map[int]existingKnowledgeDocumentChunk, len(existing))
+	for _, chunk := range existing {
+		existingByIndex[chunk.chunkIndex] = chunk
+	}
+	changedChunks := make([]KnowledgeDocumentChunk, 0, len(chunks))
+	for index, chunk := range chunks {
+		chunk.ChunkIndex = index
+		hash := knowledgeDocumentChunkContentHash(chunk.Content)
+		if current, ok := existingByIndex[index]; ok && current.contentHash == hash {
+			continue
+		}
+		changedChunks = append(changedChunks, chunk)
+	}
+	return changedChunks
+}
+
+func listExistingKnowledgeDocumentChunks(ctx context.Context, tx *sql.Tx, documentID, documentVersion string) ([]existingKnowledgeDocumentChunk, error) {
+	rows, err := tx.QueryContext(ctx, `
+		SELECT id, chunk_index, content, COALESCE(metadata, '{}'::jsonb)
+		FROM knowledge_document_chunks
+		WHERE document_id = $1
+		  AND document_version = $2
+		ORDER BY chunk_index ASC
+	`, documentID, documentVersion)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanExistingKnowledgeDocumentChunks(rows)
+}
+
+func scanExistingKnowledgeDocumentChunks(rows interface {
+	Next() bool
+	Scan(dest ...any) error
+	Err() error
+}) ([]existingKnowledgeDocumentChunk, error) {
+	var chunks []existingKnowledgeDocumentChunk
+	for rows.Next() {
+		var (
+			chunk       existingKnowledgeDocumentChunk
+			metadataRaw []byte
+		)
+		if err := rows.Scan(&chunk.chunkID, &chunk.chunkIndex, &chunk.content, &metadataRaw); err != nil {
+			return nil, err
+		}
+		metadata := KnowledgeChunkMetadata{}
+		if len(metadataRaw) > 0 {
+			_ = json.Unmarshal(metadataRaw, &metadata)
+		}
+		chunk.contentHash = knowledgeChunkMetadataContentHash(metadata)
+		if chunk.contentHash == "" {
+			chunk.contentHash = knowledgeDocumentChunkContentHash(chunk.content)
+		}
+		chunks = append(chunks, chunk)
+	}
+	return chunks, rows.Err()
+}
+
+func insertKnowledgeDocumentChunks(ctx context.Context, tx *sql.Tx, organizationID, documentID string, chunks []KnowledgeDocumentChunk, options KnowledgeDocumentOptions, embeddingModel string, now time.Time) error {
+	options = normalizeKnowledgeDocumentOptions(options)
 	if embeddingModel = strings.TrimSpace(embeddingModel); embeddingModel == "" {
 		embeddingModel = defaultKnowledgeStoreEmbeddingModel
 	}
@@ -1072,7 +1214,9 @@ func replaceKnowledgeDocumentChunksWithOptions(ctx context.Context, tx *sql.Tx, 
 		if err != nil {
 			return err
 		}
-		chunk.ChunkIndex = index
+		if chunk.ChunkIndex < 0 {
+			chunk.ChunkIndex = index
+		}
 		if strings.TrimSpace(chunk.DocumentVersion) == "" {
 			chunk.DocumentVersion = options.DocumentVersion
 		}
@@ -1085,6 +1229,7 @@ func replaceKnowledgeDocumentChunksWithOptions(ctx context.Context, tx *sql.Tx, 
 		if strings.TrimSpace(chunk.Metadata.SourceURL) == "" {
 			chunk.Metadata.SourceURL = options.SourceURL
 		}
+		chunk.Metadata = withKnowledgeChunkContentHash(chunk.Metadata, chunk.Content)
 		metadataJSON, err := json.Marshal(chunk.Metadata)
 		if err != nil {
 			return err
@@ -1099,6 +1244,29 @@ func replaceKnowledgeDocumentChunksWithOptions(ctx context.Context, tx *sql.Tx, 
 	}
 
 	return nil
+}
+
+func knowledgeDocumentChunkContentHash(content string) string {
+	sum := sha256.Sum256([]byte(content))
+	return hex.EncodeToString(sum[:])
+}
+
+func withKnowledgeChunkContentHash(metadata KnowledgeChunkMetadata, content string) KnowledgeChunkMetadata {
+	if metadata.Extra == nil {
+		metadata.Extra = map[string]any{}
+	}
+	metadata.Extra["contentHash"] = knowledgeDocumentChunkContentHash(content)
+	return metadata
+}
+
+func knowledgeChunkMetadataContentHash(metadata KnowledgeChunkMetadata) string {
+	if metadata.Extra == nil {
+		return ""
+	}
+	if value, ok := metadata.Extra["contentHash"]; ok {
+		return strings.TrimSpace(fmt.Sprint(value))
+	}
+	return ""
 }
 
 func chunksFromContent(content string) []KnowledgeDocumentChunk {

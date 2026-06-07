@@ -557,6 +557,127 @@ func TestSQLStoreUpdateKnowledgeDocumentVersionedReplacesOnlyCurrentVersionChunk
 	}
 }
 
+func TestSQLStoreUpdateKnowledgeDocumentIncrementalReplacesOnlyChangedChunkHashes(t *testing.T) {
+	driverName := "knowledge_update_incremental_options_test"
+	unchangedHash := knowledgeDocumentChunkContentHash("unchanged content")
+	queryer := &knowledgeRetrievalQueryer{
+		rowsByQuery: map[string][][]driver.Value{
+			"FROM knowledge_document_chunks": {
+				{"kdc_keep", int64(0), "unchanged content", []byte(`{"extra":{"contentHash":"` + unchangedHash + `"}}`)},
+				{"kdc_replace", int64(1), "old content", []byte(`{"extra":{"contentHash":"old_hash"}}`)},
+			},
+		},
+	}
+	registerKnowledgeRetrievalDriver(driverName, queryer)
+
+	db, err := sql.Open(driverName, "")
+	if err != nil {
+		t.Fatalf("open capture db: %v", err)
+	}
+	defer db.Close()
+
+	document, err := NewSQLStore(db).UpdateKnowledgeDocumentWithOptions(
+		context.Background(),
+		"org_1",
+		"kb_1",
+		"doc_1",
+		"Deployment Runbook",
+		"unchanged content\nnew content",
+		[]KnowledgeDocumentChunk{
+			{ChunkIndex: 0, Content: "unchanged content", DocumentVersion: "v1"},
+			{ChunkIndex: 1, Content: "new content", DocumentVersion: "v1"},
+		},
+		KnowledgeDocumentOptions{DocumentVersion: "v1", UpdateStrategy: KnowledgeUpdateStrategyIncremental},
+	)
+	if err != nil {
+		t.Fatalf("update knowledge document with incremental options: %v", err)
+	}
+	if document.UpdateStrategy != KnowledgeUpdateStrategyIncremental {
+		t.Fatalf("expected returned document to include incremental strategy, got %+v", document)
+	}
+
+	deleteQuery, deleteArgs := knowledgeRetrievalExecForQuery(t, queryer, "DELETE FROM knowledge_document_chunks")
+	if strings.Contains(deleteQuery, "WHERE document_id = $1\n\t") && !strings.Contains(deleteQuery, "chunk_index") {
+		t.Fatalf("expected incremental update not to delete every chunk for document, got %s", deleteQuery)
+	}
+	if !strings.Contains(deleteQuery, "chunk_index = ANY") {
+		t.Fatalf("expected incremental delete to target changed chunk indexes, got %s", deleteQuery)
+	}
+	if got := knowledgeRetrievalArgString(deleteArgs, 1); got != "doc_1" {
+		t.Fatalf("delete document arg = %q, want doc_1", got)
+	}
+	if got := knowledgeRetrievalArgString(deleteArgs, 2); got != "v1" {
+		t.Fatalf("delete version arg = %q, want v1", got)
+	}
+	insertArgs := knowledgeRetrievalExecArgsForQuery(t, queryer, "INSERT INTO knowledge_document_chunks")
+	if got := knowledgeRetrievalArgInt(insertArgs, 4); got != 1 {
+		t.Fatalf("expected only changed chunk index 1 to be inserted, got chunk_index=%d", got)
+	}
+	if got := knowledgeRetrievalArgString(insertArgs, 10); !strings.Contains(got, `"contentHash":"`+knowledgeDocumentChunkContentHash("new content")+`"`) {
+		t.Fatalf("expected inserted metadata to include new content hash, got %s", got)
+	}
+}
+
+func TestSQLStoreDiffKnowledgeDocumentChunksReturnsOnlyChangedIncrementalChunks(t *testing.T) {
+	driverName := "knowledge_diff_incremental_chunks_test"
+	unchangedHash := knowledgeDocumentChunkContentHash("unchanged content")
+	queryer := &knowledgeRetrievalQueryer{
+		rowsByQuery: map[string][][]driver.Value{
+			"FROM knowledge_document_chunks": {
+				{"kdc_keep", int64(0), "unchanged content", []byte(`{"extra":{"contentHash":"` + unchangedHash + `"}}`)},
+				{"kdc_replace", int64(1), "old content", []byte(`{"extra":{"contentHash":"old_hash"}}`)},
+			},
+		},
+	}
+	registerKnowledgeRetrievalDriver(driverName, queryer)
+
+	db, err := sql.Open(driverName, "")
+	if err != nil {
+		t.Fatalf("open capture db: %v", err)
+	}
+	defer db.Close()
+
+	changed, err := NewSQLStore(db).DiffKnowledgeDocumentChunks(
+		context.Background(),
+		"org_1",
+		"kb_1",
+		"doc_1",
+		[]KnowledgeDocumentChunk{
+			{ChunkIndex: 0, Content: "unchanged content", DocumentVersion: "v1"},
+			{ChunkIndex: 1, Content: "new content", DocumentVersion: "v1"},
+		},
+		KnowledgeDocumentOptions{DocumentVersion: "v1", UpdateStrategy: KnowledgeUpdateStrategyIncremental},
+	)
+	if err != nil {
+		t.Fatalf("diff incremental chunks: %v", err)
+	}
+	if len(changed) != 1 || changed[0].ChunkIndex != 1 || changed[0].Content != "new content" {
+		t.Fatalf("expected only changed chunk index 1, got %+v", changed)
+	}
+
+	queryer.mu.Lock()
+	query := queryer.query
+	args := append([]driver.NamedValue(nil), queryer.args...)
+	queryer.mu.Unlock()
+	for _, want := range []string{"JOIN knowledge_documents", "JOIN knowledge_bases", "c.organization_id = $2", "kb.organization_id = $2", "kb.id = $3", "c.document_version = $4"} {
+		if !strings.Contains(query, want) {
+			t.Fatalf("expected diff query to include %q, got %s", want, query)
+		}
+	}
+	if got := knowledgeRetrievalArgString(args, 1); got != "doc_1" {
+		t.Fatalf("document arg = %q, want doc_1", got)
+	}
+	if got := knowledgeRetrievalArgString(args, 2); got != "org_1" {
+		t.Fatalf("organization arg = %q, want org_1", got)
+	}
+	if got := knowledgeRetrievalArgString(args, 3); got != "kb_1" {
+		t.Fatalf("knowledge base arg = %q, want kb_1", got)
+	}
+	if got := knowledgeRetrievalArgString(args, 4); got != "v1" {
+		t.Fatalf("document version arg = %q, want v1", got)
+	}
+}
+
 var knowledgeRetrievalDrivers sync.Map
 
 func registerKnowledgeRetrievalDriver(name string, queryer *knowledgeRetrievalQueryer) {
@@ -599,7 +720,7 @@ func (c knowledgeRetrievalConn) Close() error {
 }
 
 func (c knowledgeRetrievalConn) Begin() (driver.Tx, error) {
-	return knowledgeRetrievalTx{}, nil
+	return knowledgeRetrievalTx{queryer: c.queryer}, nil
 }
 
 func (c knowledgeRetrievalConn) ExecContext(_ context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
@@ -640,7 +761,9 @@ func (c knowledgeRetrievalConn) CheckNamedValue(_ *driver.NamedValue) error {
 	return nil
 }
 
-type knowledgeRetrievalTx struct{}
+type knowledgeRetrievalTx struct {
+	queryer *knowledgeRetrievalQueryer
+}
 
 func (knowledgeRetrievalTx) Commit() error {
 	return nil
@@ -648,6 +771,40 @@ func (knowledgeRetrievalTx) Commit() error {
 
 func (knowledgeRetrievalTx) Rollback() error {
 	return nil
+}
+
+func (tx knowledgeRetrievalTx) ExecContext(_ context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
+	tx.queryer.mu.Lock()
+	tx.queryer.execQueries = append(tx.queryer.execQueries, query)
+	tx.queryer.execArgs = append(tx.queryer.execArgs, append([]driver.NamedValue(nil), args...))
+	tx.queryer.mu.Unlock()
+	return driver.RowsAffected(1), nil
+}
+
+func (tx knowledgeRetrievalTx) QueryContext(_ context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+	tx.queryer.mu.Lock()
+	tx.queryer.query = query
+	tx.queryer.args = append([]driver.NamedValue(nil), args...)
+	rows := append([][]driver.Value(nil), tx.queryer.rows...)
+	columns := knowledgeRetrievalResultColumns()
+	if len(tx.queryer.rowsByQuery) > 0 {
+		for pattern, configuredRows := range tx.queryer.rowsByQuery {
+			if strings.Contains(query, pattern) {
+				rows = append([][]driver.Value(nil), configuredRows...)
+				if configuredColumns, ok := tx.queryer.columnsByQuery[pattern]; ok {
+					columns = append([]string(nil), configuredColumns...)
+				} else if len(configuredRows) > 0 {
+					columns = generatedKnowledgeTestColumns(len(configuredRows[0]))
+				}
+				break
+			}
+		}
+	}
+	tx.queryer.mu.Unlock()
+	return &knowledgeRetrievalRows{
+		columns: columns,
+		rows:    rows,
+	}, nil
 }
 
 type knowledgeRetrievalRows struct {
@@ -705,6 +862,21 @@ func knowledgeRetrievalArgString(args []driver.NamedValue, ordinal int) string {
 		}
 	}
 	return ""
+}
+
+func knowledgeRetrievalArgInt(args []driver.NamedValue, ordinal int) int {
+	for _, arg := range args {
+		if arg.Ordinal != ordinal {
+			continue
+		}
+		switch value := arg.Value.(type) {
+		case int:
+			return value
+		case int64:
+			return int(value)
+		}
+	}
+	return 0
 }
 
 func knowledgeRetrievalExecArgsForQuery(t *testing.T, queryer *knowledgeRetrievalQueryer, pattern string) []driver.NamedValue {

@@ -117,6 +117,10 @@ type documentChunkUpdater interface {
 	UpdateKnowledgeDocumentChunk(ctx context.Context, organizationID, knowledgeBaseID, documentID, chunkID, content string) (KnowledgeDocumentChunkView, error)
 }
 
+type documentChunkDiffer interface {
+	DiffKnowledgeDocumentChunks(ctx context.Context, organizationID, knowledgeBaseID, documentID string, chunks []KnowledgeDocumentChunk, options KnowledgeDocumentOptions) ([]KnowledgeDocumentChunk, error)
+}
+
 type knowledgeRetrieverWithOptions interface {
 	RetrieveKnowledge(ctx context.Context, organizationID, knowledgeBaseID, query string, queryEmbedding []float32, options KnowledgeRetrievalOptions) ([]KnowledgeRetrievalResult, error)
 }
@@ -639,21 +643,29 @@ func (s *Service) UpdateDocumentWithOptions(ctx context.Context, session auth.Se
 	recordRAGDocumentProcessingMetrics(baseConfig.ChunkStrategy, len(chunks), startedAt)
 	scope := knowledgeSessionScope(session)
 	if store, ok := s.store.(documentUpdaterWithOptions); ok {
+		vectorChunks, err := s.vectorChunksForDocumentUpdate(ctx, scope, knowledgeBaseID, documentID, chunks, options)
+		if err != nil {
+			return KnowledgeDocument{}, err
+		}
 		document, err := store.UpdateKnowledgeDocumentWithOptions(ctx, scope, knowledgeBaseID, documentID, title, content, chunks, options)
 		if err != nil {
 			return KnowledgeDocument{}, err
 		}
-		if err := s.upsertDocumentChunks(ctx, scope, knowledgeBaseID, documentID, chunks); err != nil {
+		if err := s.upsertDocumentChunks(ctx, scope, knowledgeBaseID, documentID, vectorChunks); err != nil {
 			return KnowledgeDocument{}, err
 		}
 		return document, nil
 	}
 	if store, ok := s.store.(documentUpdaterWithChunks); ok {
+		vectorChunks, err := s.vectorChunksForDocumentUpdate(ctx, scope, knowledgeBaseID, documentID, chunks, options)
+		if err != nil {
+			return KnowledgeDocument{}, err
+		}
 		document, err := store.UpdateKnowledgeDocument(ctx, scope, knowledgeBaseID, documentID, title, content, chunks)
 		if err != nil {
 			return KnowledgeDocument{}, err
 		}
-		if err := s.upsertDocumentChunks(ctx, scope, knowledgeBaseID, documentID, chunks); err != nil {
+		if err := s.upsertDocumentChunks(ctx, scope, knowledgeBaseID, documentID, vectorChunks); err != nil {
 			return KnowledgeDocument{}, err
 		}
 		return document, nil
@@ -665,6 +677,17 @@ func (s *Service) UpdateDocumentWithOptions(ctx context.Context, session auth.Se
 		return KnowledgeDocument{}, sql.ErrNoRows
 	}
 	return store.UpdateKnowledgeDocument(ctx, session.WorkspaceID, knowledgeBaseID, documentID, title, content)
+}
+
+func (s *Service) vectorChunksForDocumentUpdate(ctx context.Context, organizationID, knowledgeBaseID, documentID string, chunks []KnowledgeDocumentChunk, options KnowledgeDocumentOptions) ([]KnowledgeDocumentChunk, error) {
+	if options.UpdateStrategy != KnowledgeUpdateStrategyIncremental || s == nil || s.vectorStore == nil {
+		return chunks, nil
+	}
+	store, ok := s.store.(documentChunkDiffer)
+	if !ok {
+		return chunks, nil
+	}
+	return store.DiffKnowledgeDocumentChunks(ctx, organizationID, knowledgeBaseID, documentID, chunks, options)
 }
 
 func (s *Service) upsertDocumentChunks(ctx context.Context, organizationID, knowledgeBaseID, documentID string, chunks []KnowledgeDocumentChunk) error {

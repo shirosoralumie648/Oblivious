@@ -20,6 +20,8 @@ type fakeStore struct {
 	createdBase      KnowledgeBase
 	createdChunks    []KnowledgeDocumentChunk
 	createdDoc       KnowledgeDocument
+	diffChunks       []KnowledgeDocumentChunk
+	diffOptions      KnowledgeDocumentOptions
 	deletedDocID     string
 	deletedID        string
 	detailBase       KnowledgeBase
@@ -131,6 +133,17 @@ func (f *fakeStore) UpdateKnowledgeDocumentWithOptions(ctx context.Context, work
 	}
 	f.createdChunks = append([]KnowledgeDocumentChunk(nil), chunks...)
 	return f.updatedDoc, nil
+}
+
+func (f *fakeStore) DiffKnowledgeDocumentChunks(ctx context.Context, workspaceID, knowledgeBaseID, documentID string, chunks []KnowledgeDocumentChunk, options KnowledgeDocumentOptions) ([]KnowledgeDocumentChunk, error) {
+	f.workspaceID = workspaceID
+	f.requestedID = knowledgeBaseID
+	f.deletedDocID = documentID
+	f.diffOptions = options
+	if f.diffChunks != nil {
+		return append([]KnowledgeDocumentChunk(nil), f.diffChunks...), nil
+	}
+	return append([]KnowledgeDocumentChunk(nil), chunks...), nil
 }
 
 func (f *fakeStore) DeleteKnowledgeDocument(ctx context.Context, workspaceID, knowledgeBaseID, documentID string) error {
@@ -689,6 +702,46 @@ func TestUpdateDocumentUsesTemplateBasedChunkingConfig(t *testing.T) {
 	}
 	if second := store.createdChunks[1].Content; !strings.Contains(second, "## Updated Behavior") || !strings.Contains(second, "Updated behavior stays") {
 		t.Fatalf("expected second updated template chunk to keep heading with body, got %q", second)
+	}
+}
+
+func TestUpdateDocumentIncrementalUpsertsOnlyChangedChunksToQdrantVectorStore(t *testing.T) {
+	store := &fakeStore{
+		detailBase: KnowledgeBase{
+			ChunkSize:     12,
+			ChunkStrategy: KnowledgeChunkStrategyFixedSize,
+			ID:            "kb_incremental_qdrant",
+			Name:          "Incremental Qdrant KB",
+		},
+		diffChunks: []KnowledgeDocumentChunk{
+			{ChunkIndex: 1, Content: "changed chunk", DocumentVersion: "v1", Embedding: []float32{0.4, 0.5, 0.6}},
+		},
+		updatedDoc: KnowledgeDocument{ID: "doc_incremental", Title: "Incremental Doc", UpdateStrategy: KnowledgeUpdateStrategyIncremental},
+	}
+	embedder := &recordingKnowledgeEmbedder{}
+	vectorStore := &recordingKnowledgeVectorStore{}
+	service := NewServiceWithEmbedderAndVectorStore(store, embedder, "text-embedding-3-small", vectorStore, 3)
+
+	if _, err := service.UpdateDocumentWithOptions(
+		context.Background(),
+		auth.Session{WorkspaceID: "workspace_1", OrganizationID: "org_1"},
+		"kb_incremental_qdrant",
+		"doc_incremental",
+		"Incremental Doc",
+		"unchanged chunk changed chunk",
+		KnowledgeDocumentOptions{DocumentVersion: "v1", UpdateStrategy: KnowledgeUpdateStrategyIncremental},
+	); err != nil {
+		t.Fatalf("update document with incremental qdrant chunks: %v", err)
+	}
+
+	if store.diffOptions.UpdateStrategy != KnowledgeUpdateStrategyIncremental {
+		t.Fatalf("expected diff options to use incremental strategy, got %+v", store.diffOptions)
+	}
+	if len(vectorStore.chunks) != 1 {
+		t.Fatalf("expected only changed chunks to be upserted to qdrant, got %+v", vectorStore.chunks)
+	}
+	if vectorStore.chunks[0].ChunkIndex != 1 || vectorStore.chunks[0].Content != "changed chunk" {
+		t.Fatalf("expected qdrant upsert to receive changed chunk index 1, got %+v", vectorStore.chunks[0])
 	}
 }
 
