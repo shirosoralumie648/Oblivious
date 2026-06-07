@@ -22,6 +22,8 @@ describe('AdminUsageLogsPage', () => {
       byFeature: [],
       byUser: [],
       byTime: [],
+      byChannel: [],
+      byProvider: [],
       crossDimensions: [],
     });
   });
@@ -72,7 +74,7 @@ describe('AdminUsageLogsPage', () => {
     expect(screen.getByText('120')).toBeInTheDocument();
   });
 
-  it('renders usage analytics panels for model, feature, user, and time dimensions', async () => {
+  it('renders usage analytics panels for model, feature, user, time, channel, and provider dimensions', async () => {
     listUsageLogs.mockResolvedValue({ data: [], total: 0 });
     getUsageAnalytics.mockResolvedValue({
       byModel: [{ dimension: 'model', key: 'gpt-4o', requestCount: 3, totalTokens: 150, totalCost: 0.0012 }],
@@ -88,6 +90,8 @@ describe('AdminUsageLogsPage', () => {
           totalCost: 0.002,
         },
       ],
+      byChannel: [{ dimension: 'channel', key: 'ch_1', requestCount: 6, totalTokens: 360, totalCost: 0.0025 }],
+      byProvider: [{ dimension: 'provider', key: 'openai', requestCount: 7, totalTokens: 420, totalCost: 0.003 }],
     });
 
     render(<AdminUsageLogsPage />);
@@ -97,10 +101,14 @@ describe('AdminUsageLogsPage', () => {
     expect(screen.getByRole('heading', { name: 'By feature' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'By user' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'By time' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'By channel' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'By provider' })).toBeInTheDocument();
     expect(screen.getByText('gpt-4o')).toBeInTheDocument();
     expect(screen.getByText('chat')).toBeInTheDocument();
     expect(screen.getByText('user_1')).toBeInTheDocument();
     expect(screen.getByText('2026-06-04T00:00:00Z')).toBeInTheDocument();
+    expect(screen.getByText('ch_1')).toBeInTheDocument();
+    expect(screen.getByText('openai')).toBeInTheDocument();
     expect(screen.getByText('$0.0012')).toBeInTheDocument();
   });
 
@@ -111,6 +119,8 @@ describe('AdminUsageLogsPage', () => {
       byFeature: [],
       byUser: [],
       byTime: [],
+      byChannel: [],
+      byProvider: [],
       crossDimensions: [
         {
           dimension: 'model_time',

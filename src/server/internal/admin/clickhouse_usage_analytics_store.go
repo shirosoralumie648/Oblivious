@@ -44,6 +44,14 @@ func (s *ClickHouseUsageAnalyticsStore) GetUsageAnalytics(ctx context.Context, f
 	if err != nil {
 		return UsageAnalytics{}, err
 	}
+	byChannel, err := s.queryBuckets(ctx, "channel", "COALESCE(NULLIF(JSONExtractString(metadata, 'channel_id'), ''), 'unknown')", "", where, args, filter.Limit)
+	if err != nil {
+		return UsageAnalytics{}, err
+	}
+	byProvider, err := s.queryBuckets(ctx, "provider", "COALESCE(NULLIF(JSONExtractString(metadata, 'provider'), ''), 'unknown')", "", where, args, filter.Limit)
+	if err != nil {
+		return UsageAnalytics{}, err
+	}
 	crossDimensions, err := s.queryCrossBuckets(ctx, []usageAnalyticsCrossDimension{
 		{
 			dimension:           "model_time",
@@ -75,6 +83,8 @@ func (s *ClickHouseUsageAnalyticsStore) GetUsageAnalytics(ctx context.Context, f
 		ByFeature:       byFeature,
 		ByUser:          byUser,
 		ByTime:          byTime,
+		ByChannel:       byChannel,
+		ByProvider:      byProvider,
 		CrossDimensions: crossDimensions,
 	}, nil
 }

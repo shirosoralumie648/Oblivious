@@ -376,7 +376,7 @@ export type UsageLogFilter = {
 };
 
 export type UsageAnalyticsBucket = {
-  dimension: 'model' | 'feature' | 'user' | 'time' | string;
+  dimension: 'model' | 'feature' | 'user' | 'time' | 'channel' | 'provider' | string;
   key: string;
   requestCount: number;
   totalTokens: number;
@@ -395,6 +395,8 @@ export type UsageAnalyticsResponse = {
   byFeature: UsageAnalyticsBucket[];
   byUser: UsageAnalyticsBucket[];
   byTime: UsageAnalyticsBucket[];
+  byChannel: UsageAnalyticsBucket[];
+  byProvider: UsageAnalyticsBucket[];
   crossDimensions?: UsageAnalyticsCrossDimensionBucket[];
 };
 

@@ -48,6 +48,8 @@ const emptyAnalytics: UsageAnalyticsResponse = {
   byFeature: [],
   byUser: [],
   byTime: [],
+  byChannel: [],
+  byProvider: [],
   crossDimensions: [],
 };
 
@@ -339,11 +341,13 @@ export function AdminUsageLogsPage() {
             Usage Analytics
           </h2>
         </div>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           <AnalyticsPanel title="By model" rows={state.analytics.byModel} />
           <AnalyticsPanel title="By feature" rows={state.analytics.byFeature} />
           <AnalyticsPanel title="By user" rows={state.analytics.byUser} />
           <AnalyticsPanel title="By time" rows={state.analytics.byTime} />
+          <AnalyticsPanel title="By channel" rows={state.analytics.byChannel} />
+          <AnalyticsPanel title="By provider" rows={state.analytics.byProvider} />
         </div>
         <CrossDimensionsPanel rows={state.analytics.crossDimensions ?? []} />
       </section>

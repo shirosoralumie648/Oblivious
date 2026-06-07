@@ -163,6 +163,14 @@ func (s *SQLStore) GetUsageAnalytics(ctx context.Context, filter UsageAnalyticsF
 	if err != nil {
 		return UsageAnalytics{}, err
 	}
+	byChannel, err := s.queryUsageAnalyticsBuckets(ctx, "channel", "COALESCE(NULLIF(channel_id, ''), 'unknown')", "", where, args, filter.Limit)
+	if err != nil {
+		return UsageAnalytics{}, err
+	}
+	byProvider, err := s.queryUsageAnalyticsBuckets(ctx, "provider", "COALESCE(NULLIF(provider, ''), 'unknown')", "", where, args, filter.Limit)
+	if err != nil {
+		return UsageAnalytics{}, err
+	}
 	crossDimensions, err := s.queryUsageAnalyticsCrossBuckets(ctx, []usageAnalyticsCrossDimension{
 		{
 			dimension:           "model_time",
@@ -194,6 +202,8 @@ func (s *SQLStore) GetUsageAnalytics(ctx context.Context, filter UsageAnalyticsF
 		ByFeature:       byFeature,
 		ByUser:          byUser,
 		ByTime:          byTime,
+		ByChannel:       byChannel,
+		ByProvider:      byProvider,
 		CrossDimensions: crossDimensions,
 	}, nil
 }

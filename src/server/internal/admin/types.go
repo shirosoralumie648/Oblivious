@@ -469,7 +469,7 @@ type UsageAnalyticsFilter struct {
 }
 
 // UsageAnalyticsBucket is one grouped usage aggregate. Dimension is one of
-// model, feature, user, or time.
+// model, feature, user, time, channel, provider, or a cross dimension.
 type UsageAnalyticsBucket struct {
 	Dimension    string    `json:"dimension"`
 	Key          string    `json:"key"`
@@ -486,6 +486,8 @@ type UsageAnalytics struct {
 	ByFeature       []UsageAnalyticsBucket `json:"byFeature"`
 	ByUser          []UsageAnalyticsBucket `json:"byUser"`
 	ByTime          []UsageAnalyticsBucket `json:"byTime"`
+	ByChannel       []UsageAnalyticsBucket `json:"byChannel"`
+	ByProvider      []UsageAnalyticsBucket `json:"byProvider"`
 	CrossDimensions []UsageAnalyticsBucket `json:"crossDimensions"`
 }
 

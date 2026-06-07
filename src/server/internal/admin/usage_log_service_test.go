@@ -105,6 +105,20 @@ func TestServiceGetUsageAnalyticsNormalizesFilterAndReturnsDimensions(t *testing
 				TotalCost:    0.12,
 				StartedAt:    to,
 			}},
+			ByChannel: []UsageAnalyticsBucket{{
+				Dimension:    "channel",
+				Key:          "ch_1",
+				RequestCount: 2,
+				TotalTokens:  600,
+				TotalCost:    0.18,
+			}},
+			ByProvider: []UsageAnalyticsBucket{{
+				Dimension:    "provider",
+				Key:          "openai",
+				RequestCount: 2,
+				TotalTokens:  600,
+				TotalCost:    0.18,
+			}},
 			CrossDimensions: []UsageAnalyticsBucket{{
 				Dimension:    "model_time",
 				Key:          "gpt-4o|2026-06-04",
@@ -147,8 +161,12 @@ func TestServiceGetUsageAnalyticsNormalizesFilterAndReturnsDimensions(t *testing
 	if !store.analyticsFilter.From.Equal(from) || !store.analyticsFilter.To.Equal(to) {
 		t.Fatalf("expected explicit analytics range, got from=%s to=%s", store.analyticsFilter.From, store.analyticsFilter.To)
 	}
-	if len(analytics.ByModel) != 1 || len(analytics.ByFeature) != 1 || len(analytics.ByUser) != 1 || len(analytics.ByTime) != 1 {
+	if len(analytics.ByModel) != 1 || len(analytics.ByFeature) != 1 || len(analytics.ByUser) != 1 || len(analytics.ByTime) != 1 ||
+		len(analytics.ByChannel) != 1 || len(analytics.ByProvider) != 1 {
 		t.Fatalf("expected all analytics dimensions, got %+v", analytics)
+	}
+	if analytics.ByChannel[0].Dimension != "channel" || analytics.ByChannel[0].Key != "ch_1" || analytics.ByProvider[0].Key != "openai" {
+		t.Fatalf("expected channel/provider cost dimensions, got channels=%+v providers=%+v", analytics.ByChannel, analytics.ByProvider)
 	}
 	if len(analytics.CrossDimensions) != 1 || analytics.CrossDimensions[0].Dimension != "model_time" || analytics.CrossDimensions[0].Primary != "gpt-4o" {
 		t.Fatalf("expected cross dimension analytics, got %+v", analytics.CrossDimensions)

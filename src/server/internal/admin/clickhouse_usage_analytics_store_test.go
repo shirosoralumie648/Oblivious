@@ -54,7 +54,9 @@ func TestClickHouseUsageAnalyticsStoreQueriesRequestLogsWithGranularity(t *testi
 		"sum(cost_usd)",
 		"JSONExtractString(metadata, 'relay_api_type')",
 		"JSONExtractString(metadata, 'channel_id') = ?",
+		"COALESCE(NULLIF(JSONExtractString(metadata, 'channel_id'), ''), 'unknown')",
 		"JSONExtractString(metadata, 'provider') = ?",
+		"COALESCE(NULLIF(JSONExtractString(metadata, 'provider'), ''), 'unknown')",
 		"status_code >= 200",
 		"status_code < 400",
 	} {
@@ -76,6 +78,12 @@ func TestClickHouseUsageAnalyticsStoreQueriesRequestLogsWithGranularity(t *testi
 	}
 	if len(analytics.ByTime) != 1 || analytics.ByTime[0].Key != "2026-06-01T00:01:00Z" || !analytics.ByTime[0].StartedAt.Equal(from.Add(time.Minute)) {
 		t.Fatalf("unexpected time analytics: %+v", analytics.ByTime)
+	}
+	if len(analytics.ByChannel) != 1 || analytics.ByChannel[0].Key != "ch_1" || analytics.ByChannel[0].TotalCost != 0.31 {
+		t.Fatalf("unexpected channel analytics: %+v", analytics.ByChannel)
+	}
+	if len(analytics.ByProvider) != 1 || analytics.ByProvider[0].Key != "openai" || analytics.ByProvider[0].TotalCost != 0.31 {
+		t.Fatalf("unexpected provider analytics: %+v", analytics.ByProvider)
 	}
 	if len(analytics.CrossDimensions) != 3 {
 		t.Fatalf("expected three cross dimension buckets, got %+v", analytics.CrossDimensions)
@@ -245,6 +253,14 @@ func (c clickHouseUsageAnalyticsConn) QueryContext(_ context.Context, query stri
 		startedAt := time.Date(2026, 6, 1, 0, 1, 0, 0, time.UTC)
 		return clickHouseUsageAnalyticsRows([]string{"key", "request_count", "total_tokens", "total_cost", "started_at"}, [][]driver.Value{
 			{"2026-06-01T00:01:00Z", int64(3), int64(1200), 0.42, startedAt},
+		}), nil
+	case strings.Contains(query, "GROUP BY COALESCE(NULLIF(JSONExtractString(metadata, 'channel_id'), ''), 'unknown')"):
+		return clickHouseUsageAnalyticsRows([]string{"key", "request_count", "total_tokens", "total_cost", "started_at"}, [][]driver.Value{
+			{"ch_1", int64(2), int64(700), 0.31, nil},
+		}), nil
+	case strings.Contains(query, "GROUP BY COALESCE(NULLIF(JSONExtractString(metadata, 'provider'), ''), 'unknown')"):
+		return clickHouseUsageAnalyticsRows([]string{"key", "request_count", "total_tokens", "total_cost", "started_at"}, [][]driver.Value{
+			{"openai", int64(2), int64(700), 0.31, nil},
 		}), nil
 	case strings.Contains(query, "relay_api_type"):
 		return clickHouseUsageAnalyticsRows([]string{"key", "request_count", "total_tokens", "total_cost", "started_at"}, [][]driver.Value{

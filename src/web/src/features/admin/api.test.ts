@@ -275,6 +275,8 @@ describe('createAdminApi', () => {
       byFeature: [],
       byUser: [],
       byTime: [],
+      byChannel: [{ dimension: 'channel', key: 'ch_1', requestCount: 2, totalTokens: 90, totalCost: 0.0006 }],
+      byProvider: [{ dimension: 'provider', key: 'openai', requestCount: 2, totalTokens: 90, totalCost: 0.0006 }],
     });
     const api = createAdminApi(createClient({ get }));
 
@@ -291,6 +293,8 @@ describe('createAdminApi', () => {
       byFeature: [],
       byUser: [],
       byTime: [],
+      byChannel: [{ dimension: 'channel', key: 'ch_1', requestCount: 2, totalTokens: 90, totalCost: 0.0006 }],
+      byProvider: [{ dimension: 'provider', key: 'openai', requestCount: 2, totalTokens: 90, totalCost: 0.0006 }],
     });
 
     expect(get).toHaveBeenCalledWith(
@@ -304,6 +308,8 @@ describe('createAdminApi', () => {
       byFeature: [],
       byUser: [],
       byTime: [],
+      byChannel: [],
+      byProvider: [],
     });
     const api = createAdminApi(createClient({ get }));
 
@@ -328,6 +334,8 @@ describe('createAdminApi', () => {
       byFeature: [],
       byUser: [],
       byTime: [],
+      byChannel: [],
+      byProvider: [],
       crossDimensions: [
         {
           dimension: 'model_time',
@@ -347,6 +355,8 @@ describe('createAdminApi', () => {
       byFeature: [],
       byUser: [],
       byTime: [],
+      byChannel: [],
+      byProvider: [],
       crossDimensions: [
         {
           dimension: 'model_time',
