@@ -69,6 +69,7 @@ type ClaimDueRetryMessagesInput struct {
 	FallbackChannelID string
 	Now               time.Time
 	Limit             int
+	Force             bool
 }
 
 type ArchiveExpiredMessageLogsInput struct {
@@ -443,11 +444,11 @@ func (s *SQLStore) ListDueRetryMessages(ctx context.Context, input ClaimDueRetry
 		WHERE direction = 'outbound'
 		  AND status = $1
 		  AND next_retry_at IS NOT NULL
-		  AND next_retry_at <= $2
+		  AND ($5 = true OR next_retry_at <= $2)
 		  AND ($4 = '' OR channel_id = $4)
 		ORDER BY next_retry_at ASC, created_at ASC, id ASC
 		LIMIT $3
-	`, MessageStatusRetryPending, now, limit, channelID)
+	`, MessageStatusRetryPending, now, limit, channelID, input.Force)
 	if err != nil {
 		return nil, fmt.Errorf("list due channel retry messages: %w", err)
 	}
@@ -482,7 +483,7 @@ func (s *SQLStore) ClaimDueRetryMessages(ctx context.Context, input ClaimDueRetr
 			WHERE direction = 'outbound'
 			  AND status = $1
 			  AND next_retry_at IS NOT NULL
-			  AND next_retry_at <= $2
+			  AND ($6 = true OR next_retry_at <= $2)
 			  AND ($5 = '' OR channel_id = $5)
 			ORDER BY next_retry_at ASC, created_at ASC, id ASC
 			LIMIT $3
@@ -501,7 +502,7 @@ func (s *SQLStore) ClaimDueRetryMessages(ctx context.Context, input ClaimDueRetr
 			transform_success, transform_error, status, retry_count, failure_reason, next_retry_at, created_at
 		FROM updated
 		ORDER BY next_retry_at ASC, created_at ASC, id ASC
-	`, MessageStatusRetryPending, now, limit, MessageStatusSending, channelID)
+	`, MessageStatusRetryPending, now, limit, MessageStatusSending, channelID, input.Force)
 	if err != nil {
 		return nil, fmt.Errorf("claim due channel retry messages: %w", err)
 	}

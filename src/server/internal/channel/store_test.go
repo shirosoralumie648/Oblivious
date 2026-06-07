@@ -699,6 +699,54 @@ func TestChannelSQLStoreListsAndClaimsDueRetryMessagesForSpecificChannel(t *test
 	}
 }
 
+func TestChannelSQLStoreForceClaimsFutureRetryMessagesForManualFailover(t *testing.T) {
+	store, _, ctx := testChannelSQLStore(t)
+
+	created, err := store.CreateConfig(ctx, &ChannelConfig{
+		ID:             "channel_config_force_retry",
+		OrganizationID: "org_1",
+		Type:           ChannelTypeWebhook,
+		Name:           "Force Retry Webhook",
+		Config:         map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("CreateConfig returned error: %v", err)
+	}
+
+	now := time.Date(2026, 6, 4, 17, 0, 0, 0, time.UTC)
+	future := now.Add(45 * time.Minute)
+	if _, err := store.RecordMessageLog(ctx, &ChannelMessageLog{
+		ID:                 "channel_message_future_retry",
+		ChannelID:          created.ID,
+		Direction:          DirectionOutbound,
+		TransformedMessage: InternalMessage{ID: "msg_future_retry", Role: RoleAssistant, Content: []ContentPart{{Type: ContentTypeText, Text: "future retry"}}},
+		TransformSuccess:   true,
+		Status:             MessageStatusRetryPending,
+		RetryCount:         1,
+		NextRetryAt:        &future,
+		CreatedAt:          now.Add(-time.Minute),
+	}); err != nil {
+		t.Fatalf("RecordMessageLog returned error: %v", err)
+	}
+
+	notYetDue, err := store.ClaimDueRetryMessages(ctx, ClaimDueRetryMessagesInput{ChannelID: created.ID, Now: now, Limit: 10})
+	if err != nil {
+		t.Fatalf("ClaimDueRetryMessages without force returned error: %v", err)
+	}
+	if len(notYetDue) != 0 {
+		t.Fatalf("expected future retry not to be claimed without force, got %+v", notYetDue)
+	}
+
+	claimed, err := store.ClaimDueRetryMessages(ctx, ClaimDueRetryMessagesInput{ChannelID: created.ID, Now: now, Limit: 10, Force: true})
+	if err != nil {
+		t.Fatalf("ClaimDueRetryMessages with force returned error: %v", err)
+	}
+	assertChannelMessageIDs(t, claimed, []string{"channel_message_future_retry"})
+	if claimed[0].Status != MessageStatusSending {
+		t.Fatalf("expected forced future retry to be marked sending, got %+v", claimed[0])
+	}
+}
+
 func TestChannelSQLStoreArchivesExpiredMessageLogsWithoutDeletingRetryQueue(t *testing.T) {
 	store, database, ctx := testChannelSQLStore(t)
 

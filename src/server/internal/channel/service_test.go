@@ -534,6 +534,29 @@ func TestServiceListsAndClaimsDueRetryMessagesThroughStore(t *testing.T) {
 	}
 }
 
+func TestServiceClaimDueRetryMessagesForwardsForceFailoverFlag(t *testing.T) {
+	now := time.Date(2026, 6, 5, 10, 0, 0, 0, time.UTC)
+	store := &fakeRetryMessageStore{
+		claimed: []*ChannelMessageLog{{ID: "channel_message_future_pending", ChannelID: "channel_1", Direction: DirectionOutbound, Status: MessageStatusSending}},
+	}
+	service := NewService(NewAdapterRegistry(nil))
+
+	_, err := service.ClaimDueRetryMessages(context.Background(), store, ClaimDueRetryMessagesInput{
+		ChannelID:         "channel_1",
+		FallbackChannelID: "channel_fallback",
+		Now:               now,
+		Limit:             10,
+		Force:             true,
+	})
+
+	if err != nil {
+		t.Fatalf("ClaimDueRetryMessages returned error: %v", err)
+	}
+	if !store.claimInput.Force || store.claimInput.FallbackChannelID != "channel_fallback" {
+		t.Fatalf("expected force failover input to be forwarded, got %+v", store.claimInput)
+	}
+}
+
 func TestServiceProcessDueRetryMessagesResendsClaimedMessagesAndRecordsSuccess(t *testing.T) {
 	now := time.Date(2026, 6, 5, 10, 0, 0, 0, time.UTC)
 	createdAt := now.Add(-10 * time.Minute)

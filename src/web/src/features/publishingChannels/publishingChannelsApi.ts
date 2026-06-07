@@ -51,6 +51,7 @@ export type PublishingChannelMessageLog = {
 
 export type RetryFailedChannelMessagesRequest = {
   fallback_channel_id?: string;
+  force?: boolean;
   limit?: number;
 };
 

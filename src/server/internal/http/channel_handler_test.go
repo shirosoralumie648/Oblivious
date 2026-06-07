@@ -161,7 +161,7 @@ func (s *publishingChannelFakeStore) ListDueRetryMessages(ctx context.Context, i
 			log.Direction == channel.DirectionOutbound &&
 			log.Status == channel.MessageStatusRetryPending &&
 			log.NextRetryAt != nil &&
-			!log.NextRetryAt.After(now) {
+			(input.Force || !log.NextRetryAt.After(now)) {
 			logs = append(logs, cloneChannelMessageLog(log))
 		}
 	}
@@ -187,7 +187,7 @@ func (s *publishingChannelFakeStore) ClaimDueRetryMessages(ctx context.Context, 
 			log.Direction != channel.DirectionOutbound ||
 			log.Status != channel.MessageStatusRetryPending ||
 			log.NextRetryAt == nil ||
-			log.NextRetryAt.After(now) {
+			(!input.Force && log.NextRetryAt.After(now)) {
 			continue
 		}
 		updated := cloneChannelMessageLog(log)
@@ -586,6 +586,82 @@ func TestPublishingChannelHandlerRetriesFailedMessagesThroughFallbackChannel(t *
 	}
 	if response.Data.Claimed != 1 || response.Data.Failed != 1 || response.Data.Succeeded != 0 {
 		t.Fatalf("unexpected retry process result: %+v", response.Data)
+	}
+}
+
+func TestPublishingChannelHandlerForceFailoverRetriesFuturePendingMessagesThroughFallback(t *testing.T) {
+	now := time.Now().UTC()
+	futureRetryAt := now.Add(45 * time.Minute)
+	fallbackServer := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		w.WriteHeader(stdhttp.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer fallbackServer.Close()
+
+	store := &publishingChannelFakeStore{
+		configs: map[string]*channel.ChannelConfig{
+			"channel_primary": {
+				ID:             "channel_primary",
+				OrganizationID: "org_1",
+				Type:           channel.ChannelTypeWebhook,
+				Name:           "Primary",
+				Config:         map[string]any{"webhook_url": "https://primary.example/retry"},
+				Status:         channel.ChannelStatusDegraded,
+			},
+			"channel_fallback": {
+				ID:             "channel_fallback",
+				OrganizationID: "org_1",
+				Type:           channel.ChannelTypeWebhook,
+				Name:           "Fallback",
+				Config:         map[string]any{"webhook_url": fallbackServer.URL},
+				Status:         channel.ChannelStatusActive,
+			},
+		},
+		logs: []*channel.ChannelMessageLog{
+			{
+				ID:                 "channel_message_future_pending",
+				ChannelID:          "channel_primary",
+				ConversationID:     "conversation_1",
+				Direction:          channel.DirectionOutbound,
+				TransformedMessage: channel.InternalMessage{ID: "msg_future_pending", ConversationID: "conversation_1", Role: channel.RoleAssistant, Content: []channel.ContentPart{{Type: channel.ContentTypeText, Text: "switch now"}}},
+				TransformSuccess:   false,
+				Status:             channel.MessageStatusRetryPending,
+				RetryCount:         2,
+				FailureReason:      "primary degraded",
+				NextRetryAt:        &futureRetryAt,
+				CreatedAt:          now.Add(-time.Minute),
+			},
+		},
+	}
+	handler := newPublishingChannelTestHandler(store)
+
+	body := `{"fallback_channel_id":"channel_fallback","limit":10,"force":true}`
+	recorder := httptest.NewRecorder()
+	handler.retryFailedChannelMessages(recorder, publishingChannelRequest(stdhttp.MethodPost, "/api/v1/channels/channel_primary/retry-failed-messages", body, "org_1"), "channel_primary")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if len(store.updatedRetryLogs) != 1 {
+		t.Fatalf("expected force failover to claim future pending message, got %+v", store.updatedRetryLogs)
+	}
+	updated := store.updatedRetryLogs[0]
+	if updated.ID != "channel_message_future_pending" ||
+		updated.ChannelID != "channel_fallback" ||
+		updated.Status != channel.MessageStatusRecorded ||
+		!updated.TransformSuccess ||
+		updated.NextRetryAt != nil {
+		t.Fatalf("expected future pending message to be delivered through fallback immediately, got %+v", updated)
+	}
+
+	var response struct {
+		Data channel.RetryProcessResult `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode retry response: %v", err)
+	}
+	if response.Data.Claimed != 1 || response.Data.Succeeded != 1 || response.Data.Failed != 0 {
+		t.Fatalf("unexpected force failover retry result: %+v", response.Data)
 	}
 }
 

@@ -390,6 +390,7 @@ export function PublishingChannelsPage() {
     const parsedLimit = Number.parseInt(selectedRetryLimit, 10);
     const payload = {
       ...(fallbackChannelID ? { fallback_channel_id: fallbackChannelID } : {}),
+      ...(fallbackChannelID ? { force: true } : {}),
       ...(Number.isFinite(parsedLimit) && parsedLimit > 0 ? { limit: parsedLimit } : {})
     };
 
@@ -668,7 +669,11 @@ export function PublishingChannelsPage() {
                     disabled={!selectedChannel || retryingFailedChannelID === selectedChannel.id}
                     type="submit"
                   >
-                    {retryingFailedChannelID === selectedChannel.id ? 'Retrying...' : 'Retry failed messages'}
+                    {retryingFailedChannelID === selectedChannel.id
+                      ? 'Retrying...'
+                      : selectedFallbackChannelID.trim() !== ''
+                        ? 'Switch queue to fallback'
+                        : 'Retry failed messages'}
                   </button>
                 </form>
               </div>

@@ -102,12 +102,14 @@ describe('createPublishingChannelsApi', () => {
     await expect(
       api.retryFailedChannelMessages('channel_1', {
         fallback_channel_id: 'channel_2',
+        force: true,
         limit: 10
       })
     ).resolves.toEqual(expect.objectContaining({ claimed: 10, permanentFailures: 2, succeeded: 7 }));
 
     expect(post).toHaveBeenCalledWith('/api/v1/channels/channel_1/retry-failed-messages', {
       fallback_channel_id: 'channel_2',
+      force: true,
       limit: 10
     });
   });

@@ -306,11 +306,12 @@ describe('PublishingChannelsPage', () => {
     const failedQueue = screen.getByLabelText('Failed retry queue controls');
     fireEvent.change(within(failedQueue).getByLabelText('Fallback channel'), { target: { value: 'channel_2' } });
     fireEvent.change(within(failedQueue).getByLabelText('Retry limit'), { target: { value: '5' } });
-    fireEvent.click(within(failedQueue).getByRole('button', { name: 'Retry failed messages' }));
+    fireEvent.click(within(failedQueue).getByRole('button', { name: 'Switch queue to fallback' }));
 
     await waitFor(() => {
       expect(retryFailedChannelMessages).toHaveBeenCalledWith('channel_1', {
         fallback_channel_id: 'channel_2',
+        force: true,
         limit: 5
       });
     });

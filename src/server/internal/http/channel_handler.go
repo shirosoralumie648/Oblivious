@@ -68,6 +68,7 @@ type retryFailedChannelMessagesRequest struct {
 	FallbackChannelID      string `json:"fallback_channel_id"`
 	FallbackChannelIDCamel string `json:"fallbackChannelId"`
 	Limit                  int    `json:"limit"`
+	Force                  bool   `json:"force"`
 }
 
 func newChannelHandler(store publishingChannelStore, service *publishingchannel.Service) channelHandler {
@@ -279,6 +280,7 @@ func (h channelHandler) retryFailedChannelMessages(w stdhttp.ResponseWriter, r *
 		ChannelID:         channelID,
 		FallbackChannelID: fallbackChannelID,
 		Limit:             payload.Limit,
+		Force:             payload.Force,
 		Now:               time.Now().UTC(),
 	})
 	if err != nil {
