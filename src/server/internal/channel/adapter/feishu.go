@@ -69,11 +69,15 @@ func (a *FeiShuAdapter) TransformOutbound(message InternalMessage) (json.RawMess
 		return nil, err
 	}
 
-	text := FirstTextPart(message.Content)
 	payload := feishuOutboundPayload{
-		ChatID:  message.ConversationID,
-		MsgType: "text",
-		Content: feishuContent{Text: text},
+		ChatID: message.ConversationID,
+	}
+	if card := FirstCardMetadata(message.Content); card != nil {
+		payload.MsgType = "interactive"
+		payload.Card = card
+	} else {
+		payload.MsgType = "text"
+		payload.Content = &feishuContent{Text: FirstTextPart(message.Content)}
 	}
 
 	raw, err := json.Marshal(payload)
@@ -114,9 +118,10 @@ type feishuSender struct {
 }
 
 type feishuOutboundPayload struct {
-	ChatID  string        `json:"chat_id,omitempty"`
-	MsgType string        `json:"msg_type,omitempty"`
-	Content feishuContent `json:"content,omitempty"`
+	ChatID  string         `json:"chat_id,omitempty"`
+	MsgType string         `json:"msg_type,omitempty"`
+	Content *feishuContent `json:"content,omitempty"`
+	Card    map[string]any `json:"card,omitempty"`
 }
 
 func extractURL(config map[string]any, keys ...string) string {

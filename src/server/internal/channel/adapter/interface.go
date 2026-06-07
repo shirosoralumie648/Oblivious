@@ -67,6 +67,35 @@ func FirstTextPart(content []ContentPart) string {
 	return ""
 }
 
+// FirstCardPart extracts the first card content part from a message.
+func FirstCardPart(content []ContentPart) (ContentPart, bool) {
+	for _, part := range content {
+		if part.Type == "card" {
+			return part, true
+		}
+	}
+	return ContentPart{}, false
+}
+
+// FirstCardMetadata extracts the first platform card payload from message content.
+func FirstCardMetadata(content []ContentPart) map[string]any {
+	part, ok := FirstCardPart(content)
+	if !ok || len(part.Metadata) == 0 {
+		return nil
+	}
+	return part.Metadata
+}
+
+// FirstContentPart extracts the first content part matching the requested type.
+func FirstContentPart(content []ContentPart, contentType string) (ContentPart, bool) {
+	for _, part := range content {
+		if part.Type == contentType {
+			return part, true
+		}
+	}
+	return ContentPart{}, false
+}
+
 // StringMetadata extracts a string value from a metadata map.
 func StringMetadata(metadata map[string]any, key string) string {
 	if metadata == nil {

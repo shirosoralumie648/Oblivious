@@ -71,11 +71,45 @@ func (a *WeChatAdapter) TransformOutbound(message InternalMessage) (json.RawMess
 		return nil, err
 	}
 
-	text := FirstTextPart(message.Content)
+	if card, ok := FirstCardPart(message.Content); ok && card.URL != "" {
+		payload := wechatOutboundPayload{
+			ToUser:  message.ConversationID,
+			MsgType: "news",
+			News: &wechatNewsPayload{
+				Articles: []wechatNewsArticle{{
+					Title:       FirstNonEmpty(card.Text, StringMetadata(card.Metadata, "title")),
+					Description: StringMetadata(card.Metadata, "description"),
+					URL:         card.URL,
+					PicURL:      FirstNonEmpty(StringMetadata(card.Metadata, "picurl"), StringMetadata(card.Metadata, "pic_url")),
+				}},
+			},
+		}
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			return nil, fmt.Errorf("encode wechat payload: %w", err)
+		}
+		return raw, nil
+	}
+
+	if image, ok := FirstContentPart(message.Content, "image"); ok {
+		if mediaID := StringMetadata(image.Metadata, "media_id"); mediaID != "" {
+			payload := wechatOutboundPayload{
+				ToUser:  message.ConversationID,
+				MsgType: "image",
+				Image:   map[string]string{"media_id": mediaID},
+			}
+			raw, err := json.Marshal(payload)
+			if err != nil {
+				return nil, fmt.Errorf("encode wechat payload: %w", err)
+			}
+			return raw, nil
+		}
+	}
+
 	payload := wechatOutboundPayload{
 		ToUser:  message.ConversationID,
 		MsgType: "text",
-		Text:    map[string]string{"content": text},
+		Text:    map[string]string{"content": FirstTextPart(message.Content)},
 	}
 
 	raw, err := json.Marshal(payload)
@@ -109,7 +143,20 @@ type wechatInboundPayload struct {
 }
 
 type wechatOutboundPayload struct {
-	ToUser  string            `json:"touser,omitempty"`
-	MsgType string            `json:"msgtype"`
-	Text    map[string]string `json:"text,omitempty"`
+	ToUser  string             `json:"touser,omitempty"`
+	MsgType string             `json:"msgtype"`
+	Text    map[string]string  `json:"text,omitempty"`
+	News    *wechatNewsPayload `json:"news,omitempty"`
+	Image   map[string]string  `json:"image,omitempty"`
+}
+
+type wechatNewsPayload struct {
+	Articles []wechatNewsArticle `json:"articles"`
+}
+
+type wechatNewsArticle struct {
+	Title       string `json:"title"`
+	Description string `json:"description,omitempty"`
+	URL         string `json:"url"`
+	PicURL      string `json:"picurl,omitempty"`
 }
