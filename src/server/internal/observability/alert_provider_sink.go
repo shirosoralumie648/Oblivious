@@ -888,31 +888,54 @@ func (s *IMWebhookAlertDeliverySink) Deliver(ctx context.Context, event AlertEve
 
 func imAlertWebhookPayload(kind AlertProviderKind, event AlertEvent) map[string]any {
 	text := alertIMText(event)
+	markdown := alertIMMarkdown(event)
 	switch kind {
 	case AlertProviderKindFeishuWebhook:
 		return map[string]any{
-			"msg_type": "text",
-			"content": map[string]any{
-				"text": text,
+			"msg_type": "interactive",
+			"card": map[string]any{
+				"header": map[string]any{
+					"title": map[string]any{
+						"tag":     "plain_text",
+						"content": alertIMTitle(event),
+					},
+					"template": feishuAlertTemplate(event.Severity),
+				},
+				"elements": []map[string]any{
+					{
+						"tag":     "markdown",
+						"content": markdown,
+					},
+				},
 			},
 		}
 	case AlertProviderKindDingTalk:
 		return map[string]any{
-			"msgtype": "text",
-			"text": map[string]any{
-				"content": text,
+			"msgtype": "markdown",
+			"markdown": map[string]any{
+				"title": alertIMTitle(event),
+				"text":  markdown,
 			},
 		}
 	case AlertProviderKindWeComWebhook:
 		return map[string]any{
 			"msgtype": "markdown",
 			"markdown": map[string]any{
-				"content": text,
+				"content": markdown,
 			},
 		}
 	default:
 		payload := map[string]any{
 			"text": text,
+			"blocks": []map[string]any{
+				{
+					"type": "section",
+					"text": map[string]any{
+						"type": "mrkdwn",
+						"text": markdown,
+					},
+				},
+			},
 		}
 		if key := alertKey(event); key != "" {
 			payload["alert_key"] = key
@@ -945,6 +968,47 @@ func alertIMText(event AlertEvent) string {
 		parts = append(parts, "component: "+strings.TrimSpace(event.Component))
 	}
 	return strings.Join(parts, "\n")
+}
+
+func alertIMMarkdown(event AlertEvent) string {
+	parts := []string{"**" + alertIMTitle(event) + "**"}
+	if message := strings.TrimSpace(event.Message); message != "" {
+		parts = append(parts, message)
+	}
+	if component := strings.TrimSpace(event.Component); component != "" {
+		parts = append(parts, "`component` "+component)
+	}
+	if key := alertKey(event); key != "" {
+		parts = append(parts, "`alert_key` "+key)
+	}
+	if !event.OccurredAt.IsZero() {
+		parts = append(parts, "`occurred_at` "+event.OccurredAt.UTC().Format(time.RFC3339Nano))
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func alertIMTitle(event AlertEvent) string {
+	title := strings.TrimSpace(event.Title)
+	if title == "" {
+		title = alertKey(event)
+	}
+	if title == "" {
+		title = "Operational alert"
+	}
+	return fmt.Sprintf("[%s] %s", strings.ToUpper(string(event.Severity)), title)
+}
+
+func feishuAlertTemplate(severity AlertSeverity) string {
+	switch severity {
+	case AlertSeverityCritical:
+		return "red"
+	case AlertSeverityWarning:
+		return "orange"
+	case AlertSeverityInfo:
+		return "blue"
+	default:
+		return "grey"
+	}
 }
 
 var _ AlertDeliverySinkResolver = (*AlertProviderDeliverySinkResolver)(nil)

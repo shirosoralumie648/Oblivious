@@ -552,8 +552,21 @@ func TestAlertProviderDeliveryResolverPostsActiveSlackWebhookProvider(t *testing
 	if postedPath != "/slack" {
 		t.Fatalf("expected Slack webhook path /slack, got %q", postedPath)
 	}
-	if postedPayload["text"] == "" || !strings.Contains(postedPayload["text"].(string), "Relay backlog") || !strings.Contains(postedPayload["text"].(string), "queue depth is high") {
-		t.Fatalf("expected Slack text payload with alert title and message, got %+v", postedPayload)
+	blocks, ok := postedPayload["blocks"].([]any)
+	if !ok || len(blocks) == 0 {
+		t.Fatalf("expected Slack rich markdown blocks, got %+v", postedPayload)
+	}
+	section, ok := blocks[0].(map[string]any)
+	if !ok || section["type"] != "section" {
+		t.Fatalf("expected Slack first block to be a section, got %+v", blocks[0])
+	}
+	text, ok := section["text"].(map[string]any)
+	if !ok || text["type"] != "mrkdwn" {
+		t.Fatalf("expected Slack section to use mrkdwn text, got %+v", section)
+	}
+	markdown := text["text"].(string)
+	if !strings.Contains(markdown, "*[WARNING] Relay backlog*") || !strings.Contains(markdown, "queue depth is high") || !strings.Contains(markdown, "`component` relay") {
+		t.Fatalf("expected Slack markdown payload with alert title, message, and component, got %+v", postedPayload)
 	}
 }
 
@@ -747,9 +760,17 @@ func TestAlertProviderDeliveryResolverPostsNativeIMWebhookProviders(t *testing.T
 			wantPath: "/feishu",
 			assertBody: func(t *testing.T, payload map[string]any) {
 				t.Helper()
-				content, ok := payload["content"].(map[string]any)
-				if payload["msg_type"] != "text" || !ok || !strings.Contains(content["text"].(string), "Relay backlog") {
-					t.Fatalf("expected Feishu text payload, got %+v", payload)
+				card, ok := payload["card"].(map[string]any)
+				if payload["msg_type"] != "interactive" || !ok {
+					t.Fatalf("expected Feishu interactive markdown payload, got %+v", payload)
+				}
+				elements, ok := card["elements"].([]any)
+				if !ok || len(elements) == 0 {
+					t.Fatalf("expected Feishu card elements, got %+v", payload)
+				}
+				markdown, ok := elements[0].(map[string]any)
+				if !ok || markdown["tag"] != "markdown" || !strings.Contains(markdown["content"].(string), "**[WARNING] Relay backlog**") {
+					t.Fatalf("expected Feishu markdown element, got %+v", payload)
 				}
 			},
 		},
@@ -759,9 +780,9 @@ func TestAlertProviderDeliveryResolverPostsNativeIMWebhookProviders(t *testing.T
 			wantPath: "/dingtalk",
 			assertBody: func(t *testing.T, payload map[string]any) {
 				t.Helper()
-				text, ok := payload["text"].(map[string]any)
-				if payload["msgtype"] != "text" || !ok || !strings.Contains(text["content"].(string), "Relay backlog") {
-					t.Fatalf("expected DingTalk text payload, got %+v", payload)
+				markdown, ok := payload["markdown"].(map[string]any)
+				if payload["msgtype"] != "markdown" || !ok || !strings.Contains(markdown["text"].(string), "**[WARNING] Relay backlog**") {
+					t.Fatalf("expected DingTalk markdown payload, got %+v", payload)
 				}
 			},
 		},
@@ -772,7 +793,7 @@ func TestAlertProviderDeliveryResolverPostsNativeIMWebhookProviders(t *testing.T
 			assertBody: func(t *testing.T, payload map[string]any) {
 				t.Helper()
 				markdown, ok := payload["markdown"].(map[string]any)
-				if payload["msgtype"] != "markdown" || !ok || !strings.Contains(markdown["content"].(string), "Relay backlog") {
+				if payload["msgtype"] != "markdown" || !ok || !strings.Contains(markdown["content"].(string), "**[WARNING] Relay backlog**") {
 					t.Fatalf("expected WeCom markdown payload, got %+v", payload)
 				}
 			},
