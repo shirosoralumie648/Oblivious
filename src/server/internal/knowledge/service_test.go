@@ -2,6 +2,7 @@ package knowledge
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -171,6 +172,7 @@ type recordingKnowledgeEmbedder struct {
 }
 
 type recordingKnowledgeReranker struct {
+	err     error
 	limit   int
 	query   string
 	results []KnowledgeRetrievalResult
@@ -180,6 +182,9 @@ func (r *recordingKnowledgeReranker) Rerank(ctx context.Context, query string, r
 	r.query = query
 	r.limit = limit
 	r.results = append([]KnowledgeRetrievalResult(nil), results...)
+	if r.err != nil {
+		return nil, r.err
+	}
 	reranked := append([]KnowledgeRetrievalResult(nil), results...)
 	if len(reranked) >= 2 {
 		reranked[0], reranked[1] = reranked[1], reranked[0]
@@ -877,6 +882,43 @@ func TestRetrieveWithOptionsExpandsHybridRerankCandidatePool(t *testing.T) {
 	}
 	if len(results) != 1 {
 		t.Fatalf("expected final result limit 1, got %+v", results)
+	}
+}
+
+func TestRetrieveWithOptionsFallsBackWhenHybridRerankerFails(t *testing.T) {
+	store := &fakeStore{
+		retrievalResults: []KnowledgeRetrievalResult{
+			{ChunkID: "chunk_a", DocumentID: "doc_a", DocumentTitle: "Alpha", Snippet: "original first", Score: 0.7},
+			{ChunkID: "chunk_b", DocumentID: "doc_b", DocumentTitle: "Beta", Snippet: "original second", Score: 0.6},
+		},
+	}
+	reranker := &recordingKnowledgeReranker{err: errors.New("reranker unavailable")}
+	service := NewServiceWithReranker(store, reranker)
+	beforeFallbacks := testutil.ToFloat64(metrics.RAGRerankerFallbackTotal.WithLabelValues(KnowledgeRetrievalModeHybridRerank))
+
+	results, err := service.RetrieveWithOptions(
+		context.Background(),
+		auth.Session{WorkspaceID: "workspace_1", OrganizationID: "org_1"},
+		"kb_1",
+		"fallback answer",
+		KnowledgeRetrievalOptions{Mode: KnowledgeRetrievalModeHybridRerank, Limit: 1, RerankTopK: 2},
+	)
+	if err != nil {
+		t.Fatalf("expected reranker outage to fall back to original retrieval results, got error: %v", err)
+	}
+
+	if len(reranker.results) != 2 {
+		t.Fatalf("expected reranker to receive candidate pool before fallback, got %+v", reranker.results)
+	}
+	if len(results) != 1 || results[0].ChunkID != "chunk_a" {
+		t.Fatalf("expected fallback to preserve original order with final limit, got %+v", results)
+	}
+	if results[0].RetrievalMode != KnowledgeRetrievalModeHybridRerank || results[0].RetrievalMethod != KnowledgeRetrievalMethodEmbeddingRAG {
+		t.Fatalf("expected fallback result to keep requested mode while preserving original retrieval method, got %+v", results[0])
+	}
+	afterFallbacks := testutil.ToFloat64(metrics.RAGRerankerFallbackTotal.WithLabelValues(KnowledgeRetrievalModeHybridRerank))
+	if afterFallbacks != beforeFallbacks+1 {
+		t.Fatalf("expected reranker fallback counter increment, before=%v after=%v", beforeFallbacks, afterFallbacks)
 	}
 }
 

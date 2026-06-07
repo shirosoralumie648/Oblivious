@@ -676,7 +676,8 @@ func (s *Service) rerankKnowledgeResults(ctx context.Context, query string, resu
 	}
 	reranked, err := s.reranker.Rerank(ctx, query, results, options.Limit)
 	if err != nil {
-		return nil, err
+		metrics.RecordRAGRerankerFallback(options.Mode)
+		return limitKnowledgeRetrievalResults(normalizeKnowledgeRetrievalResults(results, options.Mode), options.Limit), nil
 	}
 	return limitKnowledgeRetrievalResults(normalizeKnowledgeRetrievalResults(reranked, KnowledgeRetrievalModeHybridRerank), options.Limit), nil
 }

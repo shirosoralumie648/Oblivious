@@ -19,7 +19,7 @@ Status values:
 | Knowledge-base retrieval mode supports `vector_only`, `hybrid`, and `hybrid_rerank`. | Proven for API/store contract | `KnowledgeRetrievalModeVector` now serializes as `vector_only`, while legacy `"vector"` input is still normalized to `vector_only`. `TestKnowledgeHandlerRetrieveAcceptsVectorOnlyMode` proves the HTTP retrieve API accepts the spec/frontend mode, and `TestSQLStoreRetrieveKnowledgeWithOptionsUsesCrossTenantSafeVectorSearch` proves SQL vector mode accepts `vector_only`. |
 | Knowledge-base retrieval config is preserved after list/detail reload. | Proven | `ListKnowledgeBases` and `GetKnowledgeBase` now select and scan retrieval mode, limit, min score, vector/keyword weights, reranker config, chunk config, embedding model, and update strategy. `TestSQLStoreListAndGetKnowledgeBasesReturnRAGConfig` proves config readback. |
 | Hybrid retrieval combines vector and keyword search. | Partial | `RetrieveKnowledgeWithOptions` has pgvector and full-text branches with weighted score fusion and tenant filters. Focused SQL-shape tests cover the query, but this is not yet a production quality benchmark. |
-| `hybrid_rerank` invokes a configured reranker model. | Proven for configured HTTP reranker path | `Service` now accepts a `KnowledgeReranker`, `hybrid_rerank` calls it after store retrieval, `retrieval.KnowledgeResultReranker` adapts `KnowledgeRetrievalResult` to the Cohere-compatible `/rerank` client, and `newKnowledgeService` wires it when `RAG_RERANKER_BASE_URL` is configured. Retrieval now expands the store candidate pool to the knowledge-base `rerankTopK` before applying the final user-facing limit. Covered by `TestRetrieveWithOptionsReranksHybridRerankResults`, `TestRetrieveWithOptionsExpandsHybridRerankCandidatePool`, `TestKnowledgeHandlerRetrieveUsesKnowledgeBaseRerankTopK`, `TestKnowledgeResultRerankerCallsCohereCompatibleEndpoint`, `TestLoadRAGRerankerConfig`, and `TestNewKnowledgeServiceWiresRAGReranker`. |
+| `hybrid_rerank` invokes a configured reranker model and falls back on outage. | Proven for configured HTTP reranker path and service fallback | `Service` now accepts a `KnowledgeReranker`, `hybrid_rerank` calls it after store retrieval, `retrieval.KnowledgeResultReranker` adapts `KnowledgeRetrievalResult` to the Cohere-compatible `/rerank` client, and `newKnowledgeService` wires it when `RAG_RERANKER_BASE_URL` is configured. Retrieval expands the store candidate pool to the knowledge-base `rerankTopK` before applying the final user-facing limit. If the reranker fails, service retrieval preserves original candidate ordering, applies the final limit, and increments `rag_reranker_fallback_total{mode="hybrid_rerank"}`. Covered by `TestRetrieveWithOptionsReranksHybridRerankResults`, `TestRetrieveWithOptionsExpandsHybridRerankCandidatePool`, `TestRetrieveWithOptionsFallsBackWhenHybridRerankerFails`, `TestKnowledgeHandlerRetrieveUsesKnowledgeBaseRerankTopK`, `TestKnowledgeResultRerankerCallsCohereCompatibleEndpoint`, `TestLoadRAGRerankerConfig`, `TestNewKnowledgeServiceWiresRAGReranker`, and `TestFusionObservabilityMetricsRecordWorkflowRAGAndAgentSignals`. |
 
 ## 3.2 Chunking Strategy Configuration
 
@@ -60,10 +60,11 @@ Fresh checks for this slice:
 
 - `go test ./internal/knowledge -run 'TestSQLStore(CreateRetrievalTestCasePersistsExpectedResult|ListRetrievalTestCasesReturnsSavedExpectedResults)' -count=1`
 - `go test ./internal/knowledge -run 'Test(Create|Update)DocumentUses.*ChunkingConfig' -count=1`
-- `go test ./internal/knowledge -run 'TestRetrieveWithOptions(ReranksHybridRerankResults|ExpandsHybridRerankCandidatePool)' -count=1`
+- `go test ./internal/knowledge -run 'TestRetrieveWithOptions(FallsBackWhenHybridRerankerFails|ReranksHybridRerankResults|ExpandsHybridRerankCandidatePool)' -count=1`
 - `go test ./internal/knowledge/retrieval -run TestKnowledgeResultRerankerCallsCohereCompatibleEndpoint -count=1`
 - `go test ./internal/config -run 'TestLoadRAGRerankerConfig|TestLoadRejectsInvalidRAGRerankerTopK' -count=1`
 - `go test ./internal/http -run 'TestKnowledgeHandlerRetrieve(UsesKnowledgeBaseRerankTopK|AcceptsHybridOptions|AcceptsVectorOnlyMode)|TestKnowledgeHandlerRunsRetrievalTestCases|TestNewKnowledgeServiceWiresRAGReranker' -count=1`
+- `go test ./internal/metrics -run TestFusionObservabilityMetricsRecordWorkflowRAGAndAgentSignals -count=1`
 - `go test ./internal/knowledge/... -count=1`
 - `go test ./internal/http -run 'TestKnowledgeHandler|TestNewKnowledgeServiceWiresQdrantVectorStore|TestRegisterKnowledgeRoutes|TestKnowledgeRoutes|TestRegisterKnowledge' -count=1`
 
@@ -73,9 +74,8 @@ All Go commands above were run from `src/server` with absolute `GOCACHE=/tmp/obl
 
 The Knowledge/RAG row remains `Partial`, not `Proven`.
 
-The current Knowledge/RAG slices close the highest-priority API/store contract gaps for retrieval mode naming, knowledge-base RAG config readback, SQL-backed retrieval test case persistence, fixed/semantic/QA/template chunking config in the main document create/update ingestion path, configured HTTP reranking for `hybrid_rerank`, and knowledge-base `rerankTopK` candidate-pool expansion before final result truncation. The remaining high-value work is:
+The current Knowledge/RAG slices close the highest-priority API/store contract gaps for retrieval mode naming, knowledge-base RAG config readback, SQL-backed retrieval test case persistence, fixed/semantic/QA/template chunking config in the main document create/update ingestion path, configured HTTP reranking for `hybrid_rerank`, reranker outage fallback metrics, and knowledge-base `rerankTopK` candidate-pool expansion before final result truncation. The remaining high-value work is:
 
-1. Add fallback/metrics visibility for reranker outages.
-2. Implement incremental and multi-version update semantics beyond storing strategy names.
-3. Populate citation highlight positions and prove document preview/source navigation.
-4. Add Qdrant chunk upsert/search instead of collection-only wiring.
+1. Implement incremental and multi-version update semantics beyond storing strategy names.
+2. Populate citation highlight positions and prove document preview/source navigation.
+3. Add Qdrant chunk upsert/search instead of collection-only wiring.

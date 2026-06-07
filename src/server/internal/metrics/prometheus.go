@@ -284,6 +284,14 @@ var (
 		[]string{"mode"},
 	)
 
+	RAGRerankerFallbackTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "rag_reranker_fallback_total",
+			Help: "Total number of RAG reranker fallbacks by retrieval mode",
+		},
+		[]string{"mode"},
+	)
+
 	RAGChunkCount = promauto.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "rag_chunk_count",
@@ -507,6 +515,10 @@ func ObserveRAGRetrievalLatency(mode string, seconds float64) {
 		return
 	}
 	RAGRetrievalLatencySeconds.WithLabelValues(lowCardinalityOrUnknown(mode)).Observe(seconds)
+}
+
+func RecordRAGRerankerFallback(mode string) {
+	RAGRerankerFallbackTotal.WithLabelValues(lowCardinalityOrUnknown(mode)).Inc()
 }
 
 func SetRAGChunkCount(count int) {

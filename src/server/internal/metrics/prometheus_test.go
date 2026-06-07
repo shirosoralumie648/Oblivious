@@ -178,6 +178,12 @@ func TestFusionObservabilityMetricsRecordWorkflowRAGAndAgentSignals(t *testing.T
 	if count := testutil.CollectAndCount(RAGRetrievalLatencySeconds, "rag_retrieval_latency_seconds"); count == 0 {
 		t.Fatal("expected RAG retrieval latency histogram to be collectable")
 	}
+	fallbackBefore := testutil.ToFloat64(RAGRerankerFallbackTotal.WithLabelValues("hybrid_rerank"))
+	RecordRAGRerankerFallback("hybrid_rerank")
+	fallbackAfter := testutil.ToFloat64(RAGRerankerFallbackTotal.WithLabelValues("hybrid_rerank"))
+	if fallbackAfter != fallbackBefore+1 {
+		t.Fatalf("expected RAG reranker fallback counter increment, before=%v after=%v", fallbackBefore, fallbackAfter)
+	}
 	ObserveRAGDocumentProcessingDuration("template_based", 1.5)
 	if count := testutil.CollectAndCount(RAGDocumentProcessingDurationSeconds, "rag_document_processing_duration_seconds"); count == 0 {
 		t.Fatal("expected RAG document processing duration histogram to be collectable")
