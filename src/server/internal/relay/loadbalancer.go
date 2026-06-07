@@ -113,6 +113,9 @@ func (lb *LoadBalancer) filterHealthy(apiType string) []*types.RouteChannel {
 		if stats != nil && stats.Invalid {
 			continue
 		}
+		if stats != nil && stats.Forbidden {
+			continue
+		}
 		if ch.Healthy {
 			result = append(result, ch)
 		}

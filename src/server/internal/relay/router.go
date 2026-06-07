@@ -574,7 +574,14 @@ func retryAfterDuration(resp *types.ProviderResponse) time.Duration {
 func (r *Router) markInvalidProviderFailure(ch *types.RouteChannel, resp *types.ProviderResponse) {
 	stats, _ := r.pool.GetStats(routeChannelID(ch))
 	if stats != nil {
-		stats.Invalid = true
+		switch resp.StatusCode {
+		case http.StatusForbidden:
+			stats.Forbidden = true
+		case http.StatusUnauthorized:
+			stats.Invalid = true
+		default:
+			stats.Invalid = true
+		}
 	}
 }
 
@@ -641,6 +648,9 @@ func runtimeHealthScore(stats *types.ChannelStats) float64 {
 	errorRate := float64(stats.FailureCount) / float64(total)
 	score := 1 - errorRate
 	if stats.Invalid {
+		score = 0
+	}
+	if stats.Forbidden {
 		score = 0
 	}
 	if !stats.RateLimitedUntil.IsZero() && time.Now().Before(stats.RateLimitedUntil) && score > 0.2 {

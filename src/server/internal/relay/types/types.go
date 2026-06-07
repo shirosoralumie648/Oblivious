@@ -304,6 +304,7 @@ type ChannelStats struct {
 	LatencySumUs     int64     `json:"latency_sum_us"`
 	LatencyCount     int64     `json:"latency_count"`
 	Invalid          bool      `json:"invalid"`
+	Forbidden        bool      `json:"forbidden"`
 	LastProbeSuccess time.Time `json:"last_probe_success"`
 	LastProbeTime    time.Time `json:"last_probe_time"`
 	RateLimitedUntil time.Time `json:"rate_limited_until,omitempty"`

@@ -47,7 +47,7 @@ Status values:
 | 500/502/503/504 retry across channels. | Proven | `IsRetryable` includes 500, 502, 503, and 504. Billing route tests cover 5xx and 502 cross-channel retry. |
 | 429 retry across channels and mark rate-limited. | Proven | `IsRetryable` includes 429; `TestRouterRouteWithBillingRetries429AcrossChannelsAndMarksRateLimitedUntil` covers `Retry-After` parsing and backup channel selection. |
 | Network errors retry across channels. | Proven | `RouteWithBilling` treats upstream callback errors as retryable and excludes the failed channel; `TestRouterRouteWithBillingRetriesNetworkErrorsAcrossChannels` proves backup channel retry. |
-| 401 and 403 do not retry and mark channel invalid/forbidden. | Partial | 401 and 403 are non-retryable via `IsRetryable`; `TestRouterRouteWithBillingDoesNotRetryUnauthorizedProviderResponse` proves 401 marks the channel invalid and does not retry. There is not yet a focused 403 test that distinguishes forbidden from invalid. |
+| 401 and 403 do not retry and mark channel invalid/forbidden. | Proven | 401 and 403 are non-retryable via `IsRetryable`; `TestRouterRouteWithBillingDoesNotRetryUnauthorizedProviderResponse` proves 401 marks the channel invalid and does not retry; `TestRouterRouteWithBillingDoesNotRetryForbiddenProviderResponse` proves 403 marks a distinct forbidden runtime state without retrying; `TestLoadBalancer_SkipsForbiddenChannel` proves forbidden channels are removed from subsequent selection. |
 | 400 returns directly to the user without retry. | Proven | `IsRetryable` excludes 400 and `RouteWithBilling` returns non-retryable provider responses directly. |
 | Maximum retry count is 3 cross-channel retries. | Proven | `maxRouteBillingAttempts` is 4 total attempts; `TestRouterRouteWithBillingAllowsThreeCrossChannelRetries` proves primary plus three retry channels. |
 | Backoff is immediate, 1s, then 3s. | Proven | `routeRetryBackoff` returns `0`, `1s`, and `3s`; billing failover path uses `sleepBeforeRetry`. |
@@ -77,9 +77,8 @@ Status values:
 
 The repository-owned Relay path now proves the core Functional Logic 1.1-1.5 behavior for weighted round-robin, adaptive selection, conversation affinity, cross-channel failover, RPM/TPM local enforcement, passive 429 handling, and public/private semantic cache policy.
 
-The row remains `Partial`, not `Proven`, because four requirements still need work or explicit boundary decisions:
+The row remains `Partial`, not `Proven`, because three requirements still need work or explicit boundary decisions:
 
 1. Add a 90% local RPM/TPM soft-threshold signal that lowers channel weight before hard rejection.
-2. Add focused coverage for 403 forbidden classification and decide whether the channel state should distinguish `forbidden` from generic `invalid`.
-3. Either align legacy `RouteWithFallback` backoff with the production billing path or document it as non-production.
-4. Decide whether semantic cache similarity thresholds must be changed to the spec's `0.85`, and whether all 100+ provider entries must be callable adapters rather than planned catalog entries.
+2. Either align legacy `RouteWithFallback` backoff with the production billing path or document it as non-production.
+3. Decide whether semantic cache similarity thresholds must be changed to the spec's `0.85`, and whether all 100+ provider entries must be callable adapters rather than planned catalog entries.

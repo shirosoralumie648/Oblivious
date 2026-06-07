@@ -148,6 +148,28 @@ func TestLoadBalancer_SkipsUnhealthy(t *testing.T) {
 	}
 }
 
+func TestLoadBalancer_SkipsForbiddenChannel(t *testing.T) {
+	pool := NewChannelPool()
+	pool.AddChannel(&types.Channel{ID: "forbidden", BaseURL: "http://forbidden", Enabled: true}, 100)
+	pool.AddChannel(&types.Channel{ID: "backup", BaseURL: "http://backup", Enabled: true}, 1)
+	stats, ok := pool.GetStats("forbidden")
+	if !ok {
+		t.Fatal("forbidden channel stats should exist")
+	}
+	stats.Forbidden = true
+
+	lb := NewLoadBalancer(pool, "weighted")
+	for i := 0; i < 5; i++ {
+		ch := lb.Select("chat")
+		if ch == nil {
+			t.Fatal("should return backup channel")
+		}
+		if ch.Channel.ID != "backup" {
+			t.Fatalf("expected backup when forbidden channel is marked forbidden, got %s", ch.Channel.ID)
+		}
+	}
+}
+
 type sequenceRandom struct {
 	ints     []int
 	floats   []float64

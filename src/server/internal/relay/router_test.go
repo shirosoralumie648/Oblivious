@@ -296,6 +296,36 @@ func TestRouterRouteWithBillingDoesNotRetryUnauthorizedProviderResponse(t *testi
 	}
 }
 
+func TestRouterRouteWithBillingDoesNotRetryForbiddenProviderResponse(t *testing.T) {
+	router, affinityStore := newRetryAffinityTestRouter()
+	ctx := types.WithTrustedConversationID(context.Background(), "conv_403")
+
+	var attempts []string
+	resp, err := router.RouteWithBilling(ctx, types.APITypeChat, "gpt-4o-mini", "", "idem_no_retry_403", &types.Usage{TotalTokens: 20}, func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
+		channelID := routeChannelID(ch)
+		attempts = append(attempts, channelID)
+		return &types.ProviderResponse{
+			StatusCode: http.StatusForbidden,
+			Error:      &types.ProviderError{Code: "forbidden", StatusCode: http.StatusForbidden, Retryable: false},
+		}, nil
+	})
+
+	if err != nil {
+		t.Fatalf("non-retryable provider response should return response without router error, got %v", err)
+	}
+	if resp == nil || resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected original 403 response, got %+v", resp)
+	}
+	assertAttemptedChannels(t, attempts, []string{"primary"})
+	if got := affinityStore.channelFor("conv_403"); got != "primary" {
+		t.Fatalf("expected initial affinity to remain primary, got %q", got)
+	}
+	stats, ok := router.pool.GetStats("primary")
+	if !ok || stats == nil || !stats.Forbidden || stats.Invalid {
+		t.Fatalf("expected forbidden channel to be marked forbidden but not invalid, got ok=%v stats=%+v", ok, stats)
+	}
+}
+
 func TestRouterRouteWithBillingUsesConversationAffinityBeforeLoadBalancer(t *testing.T) {
 	router, affinityStore := newRetryAffinityTestRouter()
 	if err := affinityStore.SaveConversationAffinity(context.Background(), "conv_sticky", "backup"); err != nil {
