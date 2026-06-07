@@ -521,8 +521,301 @@ components:
         memories:
           type: array
           items:
-            $ref: "#/components/schemas/AgentMemory"
+              $ref: "#/components/schemas/AgentMemory"
         total:
+          type: integer
+
+    AgentRunCreateRequest:
+      type: object
+      required: [agent_id, conversation_id, input]
+      properties:
+        agent_id:
+          type: string
+        agentId:
+          type: string
+        conversation_id:
+          type: string
+        conversationId:
+          type: string
+        input:
+          type: string
+        message:
+          type: string
+        mode:
+          type: string
+          enum: [react, planning]
+        max_iterations:
+          type: integer
+          minimum: 1
+          maximum: 100
+        maxIterations:
+          type: integer
+          minimum: 1
+          maximum: 100
+        token_budget:
+          type: integer
+          minimum: 1000
+          maximum: 1000000
+        tokenBudget:
+          type: integer
+          minimum: 1000
+          maximum: 1000000
+
+    AgentRun:
+      type: object
+      properties:
+        id:
+          type: string
+        conversationId:
+          type: string
+        agentId:
+          type: string
+        mode:
+          type: string
+          enum: [react, planning]
+        status:
+          type: string
+          enum: [running, pending_approval, completed, failed, max_iterations_reached, token_budget_exceeded]
+        memoryEnabled:
+          type: boolean
+        memorySearched:
+          type: boolean
+        memoryResultCount:
+          type: integer
+        iterationCount:
+          type: integer
+        toolCallCount:
+          type: integer
+        error:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AgentToolRun:
+      type: object
+      properties:
+        id:
+          type: string
+        runId:
+          type: string
+        toolCallId:
+          type: string
+        toolName:
+          type: string
+        toolType:
+          type: string
+        riskLevel:
+          type: string
+        arguments:
+          type: object
+          additionalProperties: true
+        status:
+          type: string
+        approvalStatus:
+          type: string
+        approvalDecisionReason:
+          type: string
+        attemptCount:
+          type: integer
+        resultContent:
+          type: string
+        error:
+          type: string
+
+    AgentPlanStep:
+      type: object
+      properties:
+        id:
+          type: string
+        runId:
+          type: string
+        index:
+          type: integer
+        title:
+          type: string
+        status:
+          type: string
+          enum: [pending, approved, running, completed, failed, skipped]
+        approvalStatus:
+          type: string
+        toolName:
+          type: string
+        input:
+          type: object
+          additionalProperties: true
+        resultContent:
+          type: string
+        error:
+          type: string
+
+    AgentRunResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+        run:
+          $ref: "#/components/schemas/AgentRun"
+        toolRuns:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentToolRun"
+        planSteps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentPlanStep"
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/Message"
+
+    AgentToolDecisionRequest:
+      type: object
+      properties:
+        toolRunId:
+          type: string
+        tool_run_id:
+          type: string
+        reason:
+          type: string
+
+    AgentPlanStepDecisionRequest:
+      type: object
+      properties:
+        planStepId:
+          type: string
+        plan_step_id:
+          type: string
+        reason:
+          type: string
+
+    ChannelConfig:
+      type: object
+      properties:
+        id:
+          type: string
+        organization_id:
+          type: string
+        type:
+          type: string
+          enum: [api, webhook, feishu, wechat, discord, slack, telegram, web_embed]
+        name:
+          type: string
+        config:
+          type: object
+          additionalProperties: true
+          description: Sensitive values such as secret, token, API key, and password fields are redacted as ******** in responses.
+        status:
+          type: string
+          enum: [active, degraded, disabled]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ChannelConfigRequest:
+      type: object
+      required: [type, name]
+      properties:
+        type:
+          type: string
+          enum: [api, webhook, feishu, wechat, discord, slack, telegram, web_embed]
+        name:
+          type: string
+        config:
+          type: object
+          additionalProperties: true
+        status:
+          type: string
+          enum: [active, degraded, disabled]
+
+    ChannelStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [active, degraded, disabled]
+
+    ChannelMessage:
+      type: object
+      properties:
+        id:
+          type: string
+        conversation_id:
+          type: string
+        role:
+          type: string
+          enum: [user, assistant, system]
+        text:
+          type: string
+        content:
+          type: array
+          items:
+            type: object
+        metadata:
+          type: object
+          additionalProperties: true
+
+    SendChannelMessageRequest:
+      type: object
+      required: [message]
+      properties:
+        message:
+          $ref: "#/components/schemas/ChannelMessage"
+
+    RetryFailedChannelMessagesRequest:
+      type: object
+      properties:
+        fallback_channel_id:
+          type: string
+        fallbackChannelId:
+          type: string
+        limit:
+          type: integer
+        force:
+          type: boolean
+
+    ChannelMessageLog:
+      type: object
+      properties:
+        id:
+          type: string
+        channel_id:
+          type: string
+        conversation_id:
+          type: string
+        direction:
+          type: string
+          enum: [inbound, outbound]
+        status:
+          type: string
+        retry_count:
+          type: integer
+        failure_reason:
+          type: string
+        raw_message:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+
+    ChannelRetryProcessResult:
+      type: object
+      properties:
+        claimed:
+          type: integer
+        succeeded:
+          type: integer
+        failed:
           type: integer
 
     UsageSummary:
@@ -1760,6 +2053,228 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  # ---- Agent runs ----
+  /api/v1/agent/runs:
+    post:
+      summary: 创建并执行 Agent run
+      operationId: createAgentRun
+      tags: [Agent]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentRunCreateRequest"
+      responses:
+        "201":
+          description: Agent run 已创建
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AgentRunResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/agent/runs/{runId}:
+    get:
+      summary: 获取 Agent run 详情
+      operationId: getAgentRun
+      tags: [Agent]
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Agent run 详情、工具调用和计划步骤
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AgentRunResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/agent/runs/{runId}/approve-tool:
+    post:
+      summary: 审批待处理的 Agent 工具调用
+      operationId: approveAgentToolRun
+      tags: [Agent]
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentToolDecisionRequest"
+      responses:
+        "200":
+          description: 刷新后的 Agent run 状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AgentRunResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/agent/runs/{runId}/reject-tool:
+    post:
+      summary: 拒绝待处理的 Agent 工具调用
+      operationId: rejectAgentToolRun
+      tags: [Agent]
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentToolDecisionRequest"
+      responses:
+        "200":
+          description: 刷新后的 Agent run 状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AgentRunResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/agent/runs/{runId}/retry-tool:
+    post:
+      summary: 重试失败的 Agent 工具调用
+      operationId: retryAgentToolRun
+      tags: [Agent]
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentToolDecisionRequest"
+      responses:
+        "200":
+          description: 刷新后的 Agent run 状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AgentRunResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/agent/runs/{runId}/approve-plan-step:
+    post:
+      summary: 审批 Agent planning 步骤
+      operationId: approveAgentPlanStep
+      tags: [Agent]
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentPlanStepDecisionRequest"
+      responses:
+        "200":
+          description: 刷新后的 Agent run 状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AgentRunResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/agent/runs/{runId}/execute-plan-step:
+    post:
+      summary: 执行 Agent planning 步骤
+      operationId: executeAgentPlanStep
+      tags: [Agent]
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentPlanStepDecisionRequest"
+      responses:
+        "200":
+          description: 刷新后的 Agent run 状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AgentRunResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   # ---- Agent memories ----
   /api/v1/agent/memories:
     get:
@@ -1979,6 +2494,377 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+
+  # ---- Publishing channels ----
+  /api/v1/channels:
+    get:
+      summary: 获取发布渠道列表
+      operationId: listPublishingChannels
+      tags: [Publishing]
+      responses:
+        "200":
+          description: 当前组织的渠道配置列表，敏感配置字段会被脱敏
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/ChannelConfig"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      summary: 创建发布渠道
+      operationId: createPublishingChannel
+      tags: [Publishing]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChannelConfigRequest"
+      responses:
+        "201":
+          description: 创建后的渠道配置，敏感配置字段会被脱敏
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/ChannelConfig"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/channels/{channelId}:
+    get:
+      summary: 获取发布渠道配置
+      operationId: getPublishingChannel
+      tags: [Publishing]
+      parameters:
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 渠道配置，敏感配置字段会被脱敏
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/ChannelConfig"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      summary: 更新发布渠道配置
+      operationId: updatePublishingChannel
+      tags: [Publishing]
+      parameters:
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChannelConfigRequest"
+      responses:
+        "200":
+          description: 更新后的渠道配置，敏感配置字段会被脱敏
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/ChannelConfig"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      summary: 禁用发布渠道
+      operationId: deletePublishingChannel
+      tags: [Publishing]
+      parameters:
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 禁用后的渠道配置
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/ChannelConfig"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/channels/{channelId}/status:
+    patch:
+      summary: 更新发布渠道状态
+      operationId: updatePublishingChannelStatus
+      tags: [Publishing]
+      parameters:
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChannelStatusRequest"
+      responses:
+        "200":
+          description: 更新状态后的渠道配置，敏感配置字段会被脱敏
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/ChannelConfig"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/channels/{channelId}/test:
+    post:
+      summary: 测试发布渠道连接
+      operationId: testPublishingChannel
+      tags: [Publishing]
+      parameters:
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 渠道连接测试结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/channels/{channelId}/send:
+    post:
+      summary: 通过发布渠道发送消息
+      operationId: sendPublishingChannelMessage
+      tags: [Publishing]
+      parameters:
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendChannelMessageRequest"
+      responses:
+        "200":
+          description: 发送日志记录
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/ChannelMessageLog"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/channels/{channelId}/messages:
+    get:
+      summary: 获取发布渠道消息日志
+      operationId: listPublishingChannelMessages
+      tags: [Publishing]
+      parameters:
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: 渠道消息日志
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/ChannelMessageLog"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/channels/{channelId}/failed-messages:
+    get:
+      summary: 获取发布渠道失败重试队列
+      operationId: listPublishingChannelFailedMessages
+      tags: [Publishing]
+      parameters:
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: 失败或待重试消息
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/ChannelMessageLog"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/channels/{channelId}/retry-failed-messages:
+    post:
+      summary: 重试发布渠道失败消息
+      operationId: retryPublishingChannelFailedMessages
+      tags: [Publishing]
+      parameters:
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RetryFailedChannelMessagesRequest"
+      responses:
+        "200":
+          description: 重试处理结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/ChannelRetryProcessResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/channels/webhook/{channelId}:
+    post:
+      summary: 接收发布渠道公开 webhook
+      operationId: receivePublishingChannelWebhook
+      tags: [Publishing]
+      security: []
+      parameters:
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: X-Oblivious-Timestamp
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: X-Oblivious-Signature
+          in: header
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: 入站消息日志
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/ChannelMessageLog"
+        "401":
+          description: 签名无效或缺失
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
 
   # ---- 控制台 (Console / Billing) ----
   /api/v1/console/usage:
