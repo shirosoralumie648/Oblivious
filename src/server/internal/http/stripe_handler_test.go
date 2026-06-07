@@ -301,6 +301,125 @@ func TestDomesticPaymentWebhookRouteAppliesTopupLifecycleOnce(t *testing.T) {
 	}
 }
 
+func TestDomesticPaymentWebhookRouteAppliesSubscriptionLifecycleOnce(t *testing.T) {
+	database := testDatabase(t)
+	cfg := testConfig()
+	cfg.AlipayWebhookSecret = "alipay_subscription_secret"
+	router := NewRouter(cfg, database)
+	_, _, userID := registerHTTPUser(t, router, "alipay-subscription@example.com")
+	_, organizationID := queryHTTPUserScope(t, database, userID)
+	if _, err := database.Exec(`
+		INSERT INTO packages (id, name, description, quota_amount, price, duration_days, is_active, sort_order, created_at)
+		VALUES ('pkg_alipay_subscription', 'Alipay Subscription', 'Domestic subscription plan', 100, 29, 30, true, 1, NOW())
+	`); err != nil {
+		t.Fatalf("insert domestic subscription package: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO subscriptions (
+			id, organization_id, user_id, package_id, status, provider_subscription_id,
+			provider_customer_id, current_period_start, current_period_end, started_at, created_at, updated_at
+		)
+		VALUES ('sub_alipay_local', $1, $2, 'pkg_alipay_subscription', 'active', 'sub_alipay_1',
+		        'buyer_alipay_1', NOW(), NOW() + INTERVAL '30 days', NOW(), NOW(), NOW())
+	`, organizationID, userID); err != nil {
+		t.Fatalf("insert domestic subscription: %v", err)
+	}
+
+	updatedPayload := []byte(fmt.Sprintf(`{
+		"id": "evt_alipay_subscription_updated",
+		"type": "subscription.updated",
+		"organization_id": %q,
+		"user_id": %q,
+		"provider_subscription_id": "sub_alipay_1",
+		"provider_customer_id": "buyer_alipay_2",
+		"status": "past_due",
+		"cancel_at_period_end": true
+	}`, organizationID, userID))
+	deletedPayload := []byte(fmt.Sprintf(`{
+		"id": "evt_alipay_subscription_deleted",
+		"type": "subscription.deleted",
+		"organization_id": %q,
+		"user_id": %q,
+		"provider_subscription_id": "sub_alipay_1",
+		"provider_customer_id": "buyer_alipay_2",
+		"status": "active"
+	}`, organizationID, userID))
+	timestamp := "1760000000"
+	for i := 0; i < 2; i++ {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/billing/alipay/webhook", strings.NewReader(string(updatedPayload)))
+		request.Header.Set("Oblivious-Payment-Timestamp", timestamp)
+		request.Header.Set("Oblivious-Payment-Signature", domesticWebhookSignature(cfg.AlipayWebhookSecret, timestamp, updatedPayload))
+		router.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("update attempt %d expected alipay subscription webhook 200, got %d with body %s", i+1, recorder.Code, recorder.Body.String())
+		}
+	}
+
+	var status, providerCustomerID string
+	var cancelAtPeriodEnd bool
+	if err := database.QueryRow(`
+		SELECT status, COALESCE(provider_customer_id, ''), cancel_at_period_end
+		FROM subscriptions
+		WHERE id = 'sub_alipay_local'
+	`).Scan(&status, &providerCustomerID, &cancelAtPeriodEnd); err != nil {
+		t.Fatalf("query updated domestic subscription: %v", err)
+	}
+	if status != "past_due" || providerCustomerID != "buyer_alipay_2" || !cancelAtPeriodEnd {
+		t.Fatalf("expected past_due domestic subscription update, got status=%s customer=%s cancel=%v", status, providerCustomerID, cancelAtPeriodEnd)
+	}
+
+	for i := 0; i < 2; i++ {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/billing/alipay/webhook", strings.NewReader(string(deletedPayload)))
+		request.Header.Set("Oblivious-Payment-Timestamp", timestamp)
+		request.Header.Set("Oblivious-Payment-Signature", domesticWebhookSignature(cfg.AlipayWebhookSecret, timestamp, deletedPayload))
+		router.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("delete attempt %d expected alipay subscription webhook 200, got %d with body %s", i+1, recorder.Code, recorder.Body.String())
+		}
+	}
+
+	var transitionCount, webhookCount int
+	var transitionProvider, updateEventType, deleteEventType string
+	if err := database.QueryRow(`SELECT status FROM subscriptions WHERE id = 'sub_alipay_local'`).Scan(&status); err != nil {
+		t.Fatalf("query deleted domestic subscription: %v", err)
+	}
+	if err := database.QueryRow(`
+		SELECT COUNT(*), COALESCE(MAX(provider), '')
+		FROM billing_lifecycle_events
+		WHERE provider_event_id IN ('evt_alipay_subscription_updated', 'evt_alipay_subscription_deleted')
+	`).Scan(&transitionCount, &transitionProvider); err != nil {
+		t.Fatalf("query domestic subscription transitions: %v", err)
+	}
+	if err := database.QueryRow(`
+		SELECT COALESCE(MAX(event_type), '')
+		FROM billing_lifecycle_events
+		WHERE provider_event_id = 'evt_alipay_subscription_updated'
+	`).Scan(&updateEventType); err != nil {
+		t.Fatalf("query domestic subscription update event type: %v", err)
+	}
+	if err := database.QueryRow(`
+		SELECT COALESCE(MAX(event_type), '')
+		FROM billing_lifecycle_events
+		WHERE provider_event_id = 'evt_alipay_subscription_deleted'
+	`).Scan(&deleteEventType); err != nil {
+		t.Fatalf("query domestic subscription delete event type: %v", err)
+	}
+	if err := database.QueryRow(`
+		SELECT COUNT(*)
+		FROM stripe_webhook_events
+		WHERE event_id IN ('evt_alipay_subscription_updated', 'evt_alipay_subscription_deleted')
+	`).Scan(&webhookCount); err != nil {
+		t.Fatalf("query domestic subscription webhook ledger count: %v", err)
+	}
+	if status != "cancelled" || transitionCount != 2 || transitionProvider != "alipay" ||
+		updateEventType != "alipay.subscription.updated" || deleteEventType != "alipay.subscription.deleted" || webhookCount != 2 {
+		t.Fatalf("expected one alipay update/delete lifecycle, got status=%s transitions=%d provider=%s update=%s delete=%s webhooks=%d",
+			status, transitionCount, transitionProvider, updateEventType, deleteEventType, webhookCount)
+	}
+}
+
 func TestDomesticPaymentWebhookRouteAppliesTopupRefundOnce(t *testing.T) {
 	database := testDatabase(t)
 	cfg := testConfig()

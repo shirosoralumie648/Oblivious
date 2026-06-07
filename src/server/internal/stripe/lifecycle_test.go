@@ -15,10 +15,14 @@ import (
 )
 
 type fakeLifecycleStore struct {
-	checkoutEvents []checkoutCompletedLifecycle
-	checkoutIDs    []string
-	refundEvents   []refundLifecycle
-	refundIDs      []string
+	checkoutEvents            []checkoutCompletedLifecycle
+	checkoutIDs               []string
+	refundEvents              []refundLifecycle
+	refundIDs                 []string
+	subscriptionUpdatedEvents []subscriptionLifecycle
+	subscriptionUpdatedIDs    []string
+	subscriptionDeletedEvents []subscriptionLifecycle
+	subscriptionDeletedIDs    []string
 }
 
 func (s *fakeLifecycleStore) ApplyCheckoutCompleted(_ context.Context, eventID string, input checkoutCompletedLifecycle, _ []byte) error {
@@ -32,10 +36,14 @@ func (s *fakeLifecycleStore) ApplyInvoicePaid(context.Context, string, invoiceLi
 func (s *fakeLifecycleStore) ApplyInvoicePaymentFailed(context.Context, string, invoiceLifecycle, []byte) error {
 	return nil
 }
-func (s *fakeLifecycleStore) ApplySubscriptionUpdated(context.Context, string, subscriptionLifecycle, []byte) error {
+func (s *fakeLifecycleStore) ApplySubscriptionUpdated(_ context.Context, eventID string, input subscriptionLifecycle, _ []byte) error {
+	s.subscriptionUpdatedIDs = append(s.subscriptionUpdatedIDs, eventID)
+	s.subscriptionUpdatedEvents = append(s.subscriptionUpdatedEvents, input)
 	return nil
 }
-func (s *fakeLifecycleStore) ApplySubscriptionDeleted(context.Context, string, subscriptionLifecycle, []byte) error {
+func (s *fakeLifecycleStore) ApplySubscriptionDeleted(_ context.Context, eventID string, input subscriptionLifecycle, _ []byte) error {
+	s.subscriptionDeletedIDs = append(s.subscriptionDeletedIDs, eventID)
+	s.subscriptionDeletedEvents = append(s.subscriptionDeletedEvents, input)
 	return nil
 }
 func (s *fakeLifecycleStore) ApplyRefund(_ context.Context, eventID string, input refundLifecycle, _ []byte) error {
@@ -225,6 +233,67 @@ func TestLifecycleAppliesDomesticMarketplaceRefundThroughSettlementApplier(t *te
 		input.PaymentIntentID != "pi_marketplace_1" || input.ProviderPaymentIntentID != "trade_marketplace_1" ||
 		input.Amount != 10 || input.Currency != "cny" || input.Reason != "requested_by_customer" {
 		t.Fatalf("unexpected domestic marketplace refund input: %+v", input)
+	}
+}
+
+func TestLifecycleAppliesDomesticSubscriptionUpdatedThroughSubscriptionLifecycle(t *testing.T) {
+	store := &fakeLifecycleStore{}
+	service := NewLifecycleService(store)
+
+	if err := service.ApplyDomesticSubscriptionUpdated(context.Background(), DomesticSubscription{
+		Provider:               "alipay",
+		EventID:                "evt_alipay_sub_updated",
+		OrganizationID:         "org_1",
+		UserID:                 "user_1",
+		ProviderSubscriptionID: "sub_alipay_1",
+		ProviderCustomerID:     "buyer_alipay_1",
+		Status:                 "past_due",
+		CancelAtPeriodEnd:      true,
+	}, []byte(`{"id":"evt_alipay_sub_updated"}`)); err != nil {
+		t.Fatalf("ApplyDomesticSubscriptionUpdated returned error: %v", err)
+	}
+
+	if len(store.subscriptionUpdatedIDs) != 1 || store.subscriptionUpdatedIDs[0] != "evt_alipay_sub_updated" {
+		t.Fatalf("expected one domestic subscription update id, got %+v", store.subscriptionUpdatedIDs)
+	}
+	if len(store.subscriptionUpdatedEvents) != 1 {
+		t.Fatalf("expected one domestic subscription update input, got %+v", store.subscriptionUpdatedEvents)
+	}
+	input := store.subscriptionUpdatedEvents[0]
+	if input.Provider != "alipay" || input.ProviderSubscriptionID != "sub_alipay_1" ||
+		input.ProviderCustomerID != "buyer_alipay_1" || input.OrganizationID != "org_1" ||
+		input.UserID != "user_1" || input.Status != "past_due" || !input.CancelAtPeriodEnd {
+		t.Fatalf("unexpected domestic subscription update input: %+v", input)
+	}
+}
+
+func TestLifecycleAppliesDomesticSubscriptionDeletedThroughSubscriptionLifecycle(t *testing.T) {
+	store := &fakeLifecycleStore{}
+	service := NewLifecycleService(store)
+
+	if err := service.ApplyDomesticSubscriptionDeleted(context.Background(), DomesticSubscription{
+		Provider:               "wechatpay",
+		EventID:                "evt_wechatpay_sub_deleted",
+		OrganizationID:         "org_1",
+		UserID:                 "user_1",
+		ProviderSubscriptionID: "sub_wechatpay_1",
+		ProviderCustomerID:     "buyer_wechatpay_1",
+		Status:                 "active",
+	}, []byte(`{"id":"evt_wechatpay_sub_deleted"}`)); err != nil {
+		t.Fatalf("ApplyDomesticSubscriptionDeleted returned error: %v", err)
+	}
+
+	if len(store.subscriptionDeletedIDs) != 1 || store.subscriptionDeletedIDs[0] != "evt_wechatpay_sub_deleted" {
+		t.Fatalf("expected one domestic subscription deleted id, got %+v", store.subscriptionDeletedIDs)
+	}
+	if len(store.subscriptionDeletedEvents) != 1 {
+		t.Fatalf("expected one domestic subscription deleted input, got %+v", store.subscriptionDeletedEvents)
+	}
+	input := store.subscriptionDeletedEvents[0]
+	if input.Provider != "wechatpay" || input.ProviderSubscriptionID != "sub_wechatpay_1" ||
+		input.ProviderCustomerID != "buyer_wechatpay_1" || input.OrganizationID != "org_1" ||
+		input.UserID != "user_1" || input.Status != "cancelled" || input.CancelAtPeriodEnd {
+		t.Fatalf("unexpected domestic subscription deleted input: %+v", input)
 	}
 }
 

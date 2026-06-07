@@ -78,6 +78,17 @@ type DomesticRefund struct {
 	Reason                  string
 }
 
+type DomesticSubscription struct {
+	Provider               string
+	EventID                string
+	OrganizationID         string
+	UserID                 string
+	ProviderSubscriptionID string
+	ProviderCustomerID     string
+	Status                 string
+	CancelAtPeriodEnd      bool
+}
+
 // LifecycleStore persists idempotent billing lifecycle transitions.
 type LifecycleStore interface {
 	ApplyCheckoutCompleted(ctx context.Context, eventID string, input checkoutCompletedLifecycle, payload []byte) error
@@ -361,6 +372,56 @@ func (s *LifecycleService) ApplyDomesticRefund(ctx context.Context, input Domest
 	return nil
 }
 
+func (s *LifecycleService) ApplyDomesticSubscriptionUpdated(ctx context.Context, input DomesticSubscription, payload []byte) error {
+	return s.applyDomesticSubscription(ctx, input, false, payload)
+}
+
+func (s *LifecycleService) ApplyDomesticSubscriptionDeleted(ctx context.Context, input DomesticSubscription, payload []byte) error {
+	return s.applyDomesticSubscription(ctx, input, true, payload)
+}
+
+func (s *LifecycleService) applyDomesticSubscription(ctx context.Context, input DomesticSubscription, deleted bool, payload []byte) error {
+	provider := strings.ToLower(strings.TrimSpace(input.Provider))
+	if provider == "" {
+		provider = "domestic"
+	}
+	ctx, span := observability.StartSpan(ctx, "billing.domestic_subscription_lifecycle", observability.String("payment.provider", provider))
+	defer span.End()
+
+	if s == nil || s.store == nil {
+		return nil
+	}
+	status := normalizeSubscriptionStatus(strings.TrimSpace(input.Status))
+	if status == "" {
+		status = "active"
+	}
+	metricState := "updated"
+	apply := s.store.ApplySubscriptionUpdated
+	if deleted {
+		status = "cancelled"
+		metricState = "deleted"
+		apply = s.store.ApplySubscriptionDeleted
+	}
+	if input.EventID == "" || input.OrganizationID == "" || input.UserID == "" || input.ProviderSubscriptionID == "" {
+		metrics.RecordBillingLifecycleEvent("subscription", "failed")
+		return fmt.Errorf("%s subscription: missing event_id, organization_id, user_id, or subscription_id", provider)
+	}
+	if err := apply(ctx, input.EventID, subscriptionLifecycle{
+		Provider:               provider,
+		ProviderSubscriptionID: input.ProviderSubscriptionID,
+		ProviderCustomerID:     input.ProviderCustomerID,
+		OrganizationID:         input.OrganizationID,
+		UserID:                 input.UserID,
+		Status:                 status,
+		CancelAtPeriodEnd:      input.CancelAtPeriodEnd,
+	}, payload); err != nil {
+		metrics.RecordBillingLifecycleEvent("subscription", "failed")
+		return err
+	}
+	metrics.RecordBillingLifecycleEvent("subscription", metricState)
+	return nil
+}
+
 type checkoutCompletedLifecycle struct {
 	Provider                  string
 	SessionID                 string
@@ -541,6 +602,7 @@ func parseInvoiceLifecycle(event stripeapi.Event) (invoiceLifecycle, error) {
 }
 
 type subscriptionLifecycle struct {
+	Provider               string
 	ProviderSubscriptionID string
 	ProviderCustomerID     string
 	OrganizationID         string
@@ -570,6 +632,7 @@ func parseSubscriptionLifecycle(event stripeapi.Event) (subscriptionLifecycle, e
 		metadata = map[string]string{}
 	}
 	input := subscriptionLifecycle{
+		Provider:               "stripe",
 		ProviderSubscriptionID: subscription.ID,
 		ProviderCustomerID:     string(subscription.Customer),
 		OrganizationID:         metadata["organization_id"],
@@ -827,26 +890,42 @@ func (s *SQLLifecycleStore) applyInvoice(ctx context.Context, eventID string, in
 }
 
 func (s *SQLLifecycleStore) ApplySubscriptionUpdated(ctx context.Context, eventID string, input subscriptionLifecycle, payload []byte) error {
-	return s.applySubscription(ctx, eventID, "customer.subscription.updated", input, payload)
+	return s.applySubscription(ctx, eventID, "subscription.updated", input, payload)
 }
 
 func (s *SQLLifecycleStore) ApplySubscriptionDeleted(ctx context.Context, eventID string, input subscriptionLifecycle, payload []byte) error {
 	input.Status = "cancelled"
-	return s.applySubscription(ctx, eventID, "customer.subscription.deleted", input, payload)
+	return s.applySubscription(ctx, eventID, "subscription.deleted", input, payload)
 }
 
 func (s *SQLLifecycleStore) applySubscription(ctx context.Context, eventID string, eventType string, input subscriptionLifecycle, payload []byte) error {
-	transitionKey := fmt.Sprintf("stripe:%s:subscription:%s", eventID, input.ProviderSubscriptionID)
+	provider := strings.ToLower(strings.TrimSpace(input.Provider))
+	if provider == "" {
+		provider = "stripe"
+	}
+	fullEventType := eventType
+	if provider == "stripe" {
+		switch eventType {
+		case "subscription.updated":
+			fullEventType = "customer.subscription.updated"
+		case "subscription.deleted":
+			fullEventType = "customer.subscription.deleted"
+		}
+	} else {
+		fullEventType = fmt.Sprintf("%s.%s", provider, eventType)
+	}
+	transitionKey := fmt.Sprintf("%s:%s:subscription:%s", provider, eventID, input.ProviderSubscriptionID)
 	return s.withTransition(ctx, lifecycleTransition{
 		Key:             transitionKey,
+		Provider:        provider,
 		ProviderEventID: eventID,
-		EventType:       eventType,
+		EventType:       fullEventType,
 		OrganizationID:  input.OrganizationID,
 		UserID:          input.UserID,
 		EntityType:      "subscription",
 		EntityID:        input.ProviderSubscriptionID,
 		ToState:         input.Status,
-		Reason:          eventType,
+		Reason:          fullEventType,
 		Payload:         payload,
 	}, func(tx *sql.Tx) error {
 		now := time.Now().UTC()

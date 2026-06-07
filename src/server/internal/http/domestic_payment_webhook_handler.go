@@ -45,6 +45,7 @@ type domesticPaymentWebhookEvent struct {
 	Currency                  string  `json:"currency"`
 	Status                    string  `json:"status"`
 	Reason                    string  `json:"reason"`
+	CancelAtPeriodEnd         bool    `json:"cancel_at_period_end"`
 }
 
 type domesticPaymentLifecycleInput struct {
@@ -67,6 +68,8 @@ type domesticPaymentLifecycleInput struct {
 type domesticPaymentLifecycle interface {
 	ApplyDomesticCheckoutPaid(ctx context.Context, input domesticPaymentLifecycleInput, payload []byte) error
 	ApplyDomesticRefund(ctx context.Context, input domesticPaymentRefundInput, payload []byte) error
+	ApplyDomesticSubscriptionUpdated(ctx context.Context, input domesticPaymentSubscriptionInput, payload []byte) error
+	ApplyDomesticSubscriptionDeleted(ctx context.Context, input domesticPaymentSubscriptionInput, payload []byte) error
 }
 
 type domesticPaymentRefundInput struct {
@@ -83,6 +86,17 @@ type domesticPaymentRefundInput struct {
 	Currency                string
 	Status                  string
 	Reason                  string
+}
+
+type domesticPaymentSubscriptionInput struct {
+	Provider               string
+	EventID                string
+	OrganizationID         string
+	UserID                 string
+	ProviderSubscriptionID string
+	ProviderCustomerID     string
+	Status                 string
+	CancelAtPeriodEnd      bool
 }
 
 type stripeDomesticPaymentLifecycleAdapter struct {
@@ -132,6 +146,38 @@ func (a stripeDomesticPaymentLifecycleAdapter) ApplyDomesticRefund(ctx context.C
 	}, payload)
 }
 
+func (a stripeDomesticPaymentLifecycleAdapter) ApplyDomesticSubscriptionUpdated(ctx context.Context, input domesticPaymentSubscriptionInput, payload []byte) error {
+	if a.service == nil {
+		return nil
+	}
+	return a.service.ApplyDomesticSubscriptionUpdated(ctx, stripebilling.DomesticSubscription{
+		Provider:               input.Provider,
+		EventID:                input.EventID,
+		OrganizationID:         input.OrganizationID,
+		UserID:                 input.UserID,
+		ProviderSubscriptionID: input.ProviderSubscriptionID,
+		ProviderCustomerID:     input.ProviderCustomerID,
+		Status:                 input.Status,
+		CancelAtPeriodEnd:      input.CancelAtPeriodEnd,
+	}, payload)
+}
+
+func (a stripeDomesticPaymentLifecycleAdapter) ApplyDomesticSubscriptionDeleted(ctx context.Context, input domesticPaymentSubscriptionInput, payload []byte) error {
+	if a.service == nil {
+		return nil
+	}
+	return a.service.ApplyDomesticSubscriptionDeleted(ctx, stripebilling.DomesticSubscription{
+		Provider:               input.Provider,
+		EventID:                input.EventID,
+		OrganizationID:         input.OrganizationID,
+		UserID:                 input.UserID,
+		ProviderSubscriptionID: input.ProviderSubscriptionID,
+		ProviderCustomerID:     input.ProviderCustomerID,
+		Status:                 input.Status,
+		CancelAtPeriodEnd:      input.CancelAtPeriodEnd,
+	}, payload)
+}
+
 func newDomesticPaymentWebhookHandler(provider string, secret string, ledger stripebilling.WebhookLedger, lifecycle ...domesticPaymentLifecycle) domesticPaymentWebhookHandler {
 	var lifecycleApplier domesticPaymentLifecycle
 	if len(lifecycle) > 0 {
@@ -178,7 +224,8 @@ func (h domesticPaymentWebhookHandler) handle(w stdhttp.ResponseWriter, r *stdht
 	now := time.Now().UTC()
 	status := "processed"
 	errorMessage := ""
-	if strings.TrimSpace(event.OrganizationID) == "" || strings.TrimSpace(event.UserID) == "" || strings.TrimSpace(event.PaymentIntentID) == "" {
+	if strings.TrimSpace(event.OrganizationID) == "" || strings.TrimSpace(event.UserID) == "" ||
+		(strings.TrimSpace(event.PaymentIntentID) == "" && !isDomesticSubscriptionEventType(event.Type)) {
 		status = "failed"
 		errorMessage = "missing organization_id, user_id, or payment_intent_id"
 	}
@@ -240,6 +287,34 @@ func (h domesticPaymentWebhookHandler) handle(w stdhttp.ResponseWriter, r *stdht
 				writeError(w, stdhttp.StatusInternalServerError, "webhook_lifecycle_failed", "apply payment webhook lifecycle failed")
 				return
 			}
+		case event.Type == "subscription.updated":
+			if err := h.lifecycle.ApplyDomesticSubscriptionUpdated(r.Context(), domesticPaymentSubscriptionInput{
+				Provider:               h.provider,
+				EventID:                event.ID,
+				OrganizationID:         strings.TrimSpace(event.OrganizationID),
+				UserID:                 strings.TrimSpace(event.UserID),
+				ProviderSubscriptionID: strings.TrimSpace(event.ProviderSubscriptionID),
+				ProviderCustomerID:     strings.TrimSpace(event.ProviderCustomerID),
+				Status:                 strings.TrimSpace(event.Status),
+				CancelAtPeriodEnd:      event.CancelAtPeriodEnd,
+			}, payload); err != nil {
+				writeError(w, stdhttp.StatusInternalServerError, "webhook_lifecycle_failed", "apply payment webhook lifecycle failed")
+				return
+			}
+		case event.Type == "subscription.deleted", event.Type == "subscription.cancelled", event.Type == "subscription.canceled":
+			if err := h.lifecycle.ApplyDomesticSubscriptionDeleted(r.Context(), domesticPaymentSubscriptionInput{
+				Provider:               h.provider,
+				EventID:                event.ID,
+				OrganizationID:         strings.TrimSpace(event.OrganizationID),
+				UserID:                 strings.TrimSpace(event.UserID),
+				ProviderSubscriptionID: strings.TrimSpace(event.ProviderSubscriptionID),
+				ProviderCustomerID:     strings.TrimSpace(event.ProviderCustomerID),
+				Status:                 strings.TrimSpace(event.Status),
+				CancelAtPeriodEnd:      event.CancelAtPeriodEnd,
+			}, payload); err != nil {
+				writeError(w, stdhttp.StatusInternalServerError, "webhook_lifecycle_failed", "apply payment webhook lifecycle failed")
+				return
+			}
 		}
 	}
 
@@ -249,6 +324,15 @@ func (h domesticPaymentWebhookHandler) handle(w stdhttp.ResponseWriter, r *stdht
 func isDomesticRefundEventType(eventType string) bool {
 	switch strings.TrimSpace(eventType) {
 	case "refund.succeeded", "refund.created", "payment.refunded":
+		return true
+	default:
+		return false
+	}
+}
+
+func isDomesticSubscriptionEventType(eventType string) bool {
+	switch strings.TrimSpace(eventType) {
+	case "subscription.updated", "subscription.deleted", "subscription.cancelled", "subscription.canceled":
 		return true
 	default:
 		return false

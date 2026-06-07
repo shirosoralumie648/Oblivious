@@ -27,8 +27,10 @@ func (s *domesticWebhookMemoryLedger) RecordWebhookEvent(_ context.Context, even
 }
 
 type fakeDomesticPaymentLifecycle struct {
-	calls       []domesticPaymentLifecycleInput
-	refundCalls []domesticPaymentRefundInput
+	calls                    []domesticPaymentLifecycleInput
+	refundCalls              []domesticPaymentRefundInput
+	subscriptionUpdatedCalls []domesticPaymentSubscriptionInput
+	subscriptionDeletedCalls []domesticPaymentSubscriptionInput
 }
 
 func (s *fakeDomesticPaymentLifecycle) ApplyDomesticCheckoutPaid(_ context.Context, input domesticPaymentLifecycleInput, _ []byte) error {
@@ -38,6 +40,16 @@ func (s *fakeDomesticPaymentLifecycle) ApplyDomesticCheckoutPaid(_ context.Conte
 
 func (s *fakeDomesticPaymentLifecycle) ApplyDomesticRefund(_ context.Context, input domesticPaymentRefundInput, _ []byte) error {
 	s.refundCalls = append(s.refundCalls, input)
+	return nil
+}
+
+func (s *fakeDomesticPaymentLifecycle) ApplyDomesticSubscriptionUpdated(_ context.Context, input domesticPaymentSubscriptionInput, _ []byte) error {
+	s.subscriptionUpdatedCalls = append(s.subscriptionUpdatedCalls, input)
+	return nil
+}
+
+func (s *fakeDomesticPaymentLifecycle) ApplyDomesticSubscriptionDeleted(_ context.Context, input domesticPaymentSubscriptionInput, _ []byte) error {
+	s.subscriptionDeletedCalls = append(s.subscriptionDeletedCalls, input)
 	return nil
 }
 
@@ -83,6 +95,79 @@ func TestDomesticPaymentWebhookHandlerAppliesCheckoutPaidLifecycleOnce(t *testin
 		call.ProviderPaymentIntentID != "trade_alipay_paid" || call.ProviderCheckoutSessionID != "alipay_session_paid" ||
 		call.OrganizationID != "org_1" || call.UserID != "user_1" || call.Kind != "topup" || call.Amount != 25 || call.Currency != "cny" {
 		t.Fatalf("unexpected domestic lifecycle input: %+v", call)
+	}
+}
+
+func TestDomesticPaymentWebhookHandlerAppliesSubscriptionLifecycleOnce(t *testing.T) {
+	ledger := newDomesticWebhookMemoryLedger()
+	lifecycle := &fakeDomesticPaymentLifecycle{}
+	handler := newDomesticPaymentWebhookHandler("alipay", "alipay_secret", ledger, lifecycle)
+	updatedPayload := []byte(`{
+		"id": "evt_alipay_subscription_updated",
+		"type": "subscription.updated",
+		"organization_id": "org_1",
+		"user_id": "user_1",
+		"payment_intent_id": "pi_alipay_sub",
+		"provider_subscription_id": "sub_alipay_1",
+		"provider_customer_id": "buyer_alipay_1",
+		"status": "past_due",
+		"cancel_at_period_end": true
+	}`)
+	deletedPayload := []byte(`{
+		"id": "evt_alipay_subscription_deleted",
+		"type": "subscription.deleted",
+		"organization_id": "org_1",
+		"user_id": "user_1",
+		"payment_intent_id": "pi_alipay_sub",
+		"provider_subscription_id": "sub_alipay_1",
+		"provider_customer_id": "buyer_alipay_1",
+		"status": "active"
+	}`)
+	timestamp := "1760000000"
+
+	for i := 0; i < 2; i++ {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/billing/alipay/webhook", strings.NewReader(string(updatedPayload)))
+		request.Header.Set(domesticPaymentTimestampHeader, timestamp)
+		request.Header.Set(domesticPaymentSignatureHeader, domesticWebhookSignature("alipay_secret", timestamp, updatedPayload))
+		handler.handle(recorder, request)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("update attempt %d expected signed subscription webhook 200, got %d with body %s", i+1, recorder.Code, recorder.Body.String())
+		}
+	}
+	for i := 0; i < 2; i++ {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/billing/alipay/webhook", strings.NewReader(string(deletedPayload)))
+		request.Header.Set(domesticPaymentTimestampHeader, timestamp)
+		request.Header.Set(domesticPaymentSignatureHeader, domesticWebhookSignature("alipay_secret", timestamp, deletedPayload))
+		handler.handle(recorder, request)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("delete attempt %d expected signed subscription webhook 200, got %d with body %s", i+1, recorder.Code, recorder.Body.String())
+		}
+	}
+
+	if len(ledger.events) != 2 {
+		t.Fatalf("expected ledger to record two subscription events once each, got %d", len(ledger.events))
+	}
+	if len(lifecycle.subscriptionUpdatedCalls) != 1 {
+		t.Fatalf("expected lifecycle to apply duplicate subscription update once, got %+v", lifecycle.subscriptionUpdatedCalls)
+	}
+	updated := lifecycle.subscriptionUpdatedCalls[0]
+	if updated.Provider != "alipay" || updated.EventID != "evt_alipay_subscription_updated" ||
+		updated.OrganizationID != "org_1" || updated.UserID != "user_1" ||
+		updated.ProviderSubscriptionID != "sub_alipay_1" || updated.ProviderCustomerID != "buyer_alipay_1" ||
+		updated.Status != "past_due" || !updated.CancelAtPeriodEnd {
+		t.Fatalf("unexpected domestic subscription update input: %+v", updated)
+	}
+	if len(lifecycle.subscriptionDeletedCalls) != 1 {
+		t.Fatalf("expected lifecycle to apply duplicate subscription deletion once, got %+v", lifecycle.subscriptionDeletedCalls)
+	}
+	deleted := lifecycle.subscriptionDeletedCalls[0]
+	if deleted.Provider != "alipay" || deleted.EventID != "evt_alipay_subscription_deleted" ||
+		deleted.OrganizationID != "org_1" || deleted.UserID != "user_1" ||
+		deleted.ProviderSubscriptionID != "sub_alipay_1" || deleted.ProviderCustomerID != "buyer_alipay_1" ||
+		deleted.Status != "active" || deleted.CancelAtPeriodEnd {
+		t.Fatalf("unexpected domestic subscription delete input: %+v", deleted)
 	}
 }
 
