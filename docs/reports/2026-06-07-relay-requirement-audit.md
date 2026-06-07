@@ -68,15 +68,15 @@ Status values:
 | Requirement | Status | Evidence |
 | --- | --- | --- |
 | OpenAI-compatible relay routes for chat, embeddings, images, audio, and models. | Proven | `src/server/internal/relay/handler/router.go` registers `/v1/chat/completions`, `/v1/embeddings`, `/v1/images/generations`, `/v1/audio/transcriptions`, `/v1/models`; `relayAliasTargetPath` maps `/api/v1/relay/*` aliases; `TestCombineHandlersRelayAliasesRouteToOpenAICompatiblePaths` and `TestCombineHandlersRelayAliasesReachProductionRelayPolicy`. |
-| Streaming/SSE response support. | Partial | Chat, responses, and realtime handlers have stream paths and route strategies. This audit did not run an end-to-end SSE compatibility proof against the fusion spec. |
+| Streaming/SSE response support. | Proven | Chat, responses, and realtime handlers have stream paths and route strategies. `TestNewRelayProductionChatStreamsProviderSSEEndToEnd` proves the production `/v1/chat/completions` route preserves `stream:true`, forwards OpenAI-compatible SSE from the provider, requests `stream_options.include_usage=true`, parses usage from the SSE usage chunk, records the usage log, and settles API-token quota. Existing chat/responses handler tests cover lower-level streaming handler behavior. |
 | Provider adapters cover OpenAI, Claude, Gemini, Vertex, Bedrock, and expanded OpenAI-compatible providers. | Proven | `AdapterForChannel` supports built-in OpenAI-compatible providers plus native Claude, Gemini, Vertex, and Bedrock; provider tests cover URL construction for these adapters. OpenAI-compatible catalog providers with an explicit channel `BaseURL` now use the generic adapter path, while entries without a callable endpoint still fail closed. |
 | 100+ provider support. | Proven | `SupportedProviders()` returns more than 100 catalog entries; built-in supported providers have default callable adapters, and catalog OpenAI-compatible providers become callable when the tenant configures an explicit base URL. `TestProviderCatalogCoversHundredPlusCommercialProviders`, `TestAdapterForChannelSupportsExpandedOpenAICompatibleCatalog`, `TestAdapterForChannelAllowsCatalogOpenAICompatibleProviderWithExplicitBaseURL`, and `TestAdapterForChannelRejectsCatalogProviderWithoutCallableBaseURL` cover the support contract. |
 | Billing, usage logging, semantic cache, and metrics are unified through Relay. | Proven for production chat path | `RouteWithBilling` performs pre-authorization, API-token quota, usage logging, cache lookup/store, metrics, and settlement; production tests cover quota failure, semantic cache reuse, and settlement success/failure paths. |
 
 ## Current Conclusion
 
-The repository-owned Relay path now proves the core Functional Logic 1.1-1.5 behavior for weighted round-robin, adaptive selection, conversation affinity, cross-channel failover, RPM/TPM local enforcement plus 90% soft-threshold weight reduction, passive 429 handling, and public/private semantic cache policy.
+The repository-owned Relay path now proves the core Functional Logic 1.1-1.5 behavior for weighted round-robin, adaptive selection, conversation affinity, cross-channel failover, RPM/TPM local enforcement plus 90% soft-threshold weight reduction, passive 429 handling, public/private semantic cache policy, OpenAI-compatible provider catalog expansion, and production Chat streaming/SSE compatibility.
 
-The row remains `Partial`, not `Proven`, because one API compatibility proof still needs work:
+The row remains `Partial`, not `Proven`, because one adaptive-balancing timing detail still needs work:
 
-1. Run or add an end-to-end streaming/SSE compatibility proof against the fusion spec.
+1. Replace or augment the request-count-based adaptive error-rate stats with an explicitly 5-minute error-rate window, then prove that the production adaptive formula uses that window together with health score and average latency.

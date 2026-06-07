@@ -864,6 +864,99 @@ func TestNewRelayProductionChatSettlesAPITokenQuotaAndRecordsUsageOnSuccess(t *t
 	}
 }
 
+func TestNewRelayProductionChatStreamsProviderSSEEndToEnd(t *testing.T) {
+	var upstreamPath string
+	var upstreamAuth string
+	var upstreamBody struct {
+		Model   string `json:"model"`
+		Stream  bool   `json:"stream"`
+		Options struct {
+			IncludeUsage bool `json:"include_usage"`
+		} `json:"stream_options"`
+	}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamPath = r.URL.Path
+		upstreamAuth = r.Header.Get("Authorization")
+		if err := json.NewDecoder(r.Body).Decode(&upstreamBody); err != nil {
+			t.Fatalf("decode upstream body: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"hel\"}}]}\n\n"))
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3,\"total_tokens\":10}}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	t.Cleanup(upstream.Close)
+
+	pool := NewChannelPool()
+	pool.AddChannel(&types.Channel{
+		ID:                 "ch_openai_stream",
+		Name:               "OpenAI stream test",
+		Provider:           "openai",
+		BaseURL:            upstream.URL,
+		APIKey:             "sk-upstream-stream",
+		Models:             []string{"gpt-4o-mini"},
+		CBThreshold:        5,
+		EstimatedCostPer1K: 0.0003,
+		Enabled:            true,
+	}, 100)
+	authenticator := &recordingRelayAuthenticator{
+		identity: types.RelayAPITokenIdentity{
+			TokenID:        "tok_stream",
+			UserID:         "user_stream",
+			OrganizationID: "org_stream",
+			UserGroup:      "default",
+		},
+	}
+	relayInstance, err := NewRelay(&Config{
+		Pool:                  pool,
+		Production:            true,
+		APITokenAuthenticator: authenticator,
+	})
+	if err != nil {
+		t.Fatalf("new relay: %v", err)
+	}
+	tokenQuota := &recordingAPITokenQuotaManager{}
+	usageLogger := &recordingUsageLogger{}
+	relayInstance.Router().SetAPITokenQuotaManager(tokenQuota)
+	relayInstance.Router().SetUsageLogger(usageLogger)
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-4o-mini","stream":true,"messages":[{"role":"user","content":"stream success"}]}`))
+	request.Header.Set("Authorization", "Bearer obv_stream")
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	relayInstance.Engine().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	if contentType := recorder.Header().Get("Content-Type"); !strings.HasPrefix(contentType, "text/event-stream") {
+		t.Fatalf("Content-Type = %q, want text/event-stream", contentType)
+	}
+	if upstreamPath != "/v1/chat/completions" || upstreamAuth != "Bearer sk-upstream-stream" {
+		t.Fatalf("unexpected upstream request path=%q auth=%q", upstreamPath, upstreamAuth)
+	}
+	if upstreamBody.Model != "gpt-4o-mini" || !upstreamBody.Stream || !upstreamBody.Options.IncludeUsage {
+		t.Fatalf("upstream streaming request not preserved with usage option: %+v", upstreamBody)
+	}
+	if !strings.Contains(recorder.Body.String(), `data: {"choices":[{"delta":{"content":"hel"}}]}`) || !strings.Contains(recorder.Body.String(), "data: [DONE]") {
+		t.Fatalf("expected provider SSE body, got %s", recorder.Body.String())
+	}
+	if len(usageLogger.records) != 1 {
+		t.Fatalf("expected 1 usage log record, got %d", len(usageLogger.records))
+	}
+	record := usageLogger.records[0]
+	if record.Provider != "openai" || record.ChannelID != "ch_openai_stream" || record.Status != RelayUsageStatusSuccess || record.StatusCode != http.StatusOK {
+		t.Fatalf("usage route/status mismatch: %+v", record)
+	}
+	if record.PromptTokens != 7 || record.CompletionTokens != 3 || record.TotalTokens != 10 {
+		t.Fatalf("streaming usage tokens should come from SSE usage chunk, got %+v", record)
+	}
+	if tokenQuota.settledTokenID != "tok_stream" || tokenQuota.settledAmount <= 0 {
+		t.Fatalf("expected streaming request to settle API token quota, got %+v", tokenQuota)
+	}
+}
+
 func TestNewRelayProductionChatUsesSharedSemanticCacheOnSecondRequest(t *testing.T) {
 	upstreamCalls := 0
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
