@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"oblivious/server/internal/config"
+	"oblivious/server/internal/notification"
 	relaytypes "oblivious/server/internal/relay/types"
 	"oblivious/server/internal/workflow"
 )
@@ -93,17 +94,78 @@ func TestNewConfiguredWorkflowServiceWiresRelaySemanticTriggerMatcher(t *testing
 	}
 }
 
+func TestNewConfiguredWorkflowServiceWiresFailurePauseNotification(t *testing.T) {
+	notificationStore := &workflowServiceNotificationStore{}
+	store := newWorkflowServiceMemoryStore()
+	service := newConfiguredWorkflowServiceWithStoreAndNotifier(config.Config{
+		RelayEnabled: false,
+	}, store, notification.NewService(notificationStore))
+
+	created, err := service.CreateWorkflow(context.Background(), workflow.CreateWorkflowRequest{
+		OrganizationID: "org_1",
+		Name:           "Incident triage",
+		Status:         workflow.WorkflowStatusPublished,
+		Definition: map[string]any{
+			"nodes": []any{map[string]any{"id": "call_agent", "type": "agent"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkflow returned error: %v", err)
+	}
+	execution, err := service.StartExecution(context.Background(), workflow.StartExecutionRequest{
+		OrganizationID: "org_1",
+		WorkflowID:     created.ID,
+		Context: map[string]any{
+			"userId":      "user_1",
+			"workspaceId": "workspace_1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("StartExecution returned error: %v", err)
+	}
+
+	if _, err := service.RecordNodeStatus(context.Background(), "org_1", execution.ID, workflow.RecordNodeStatusRequest{
+		NodeID:   "call_agent",
+		NodeType: "agent",
+		Status:   workflow.NodeStatusFailed,
+		Error:    map[string]any{"message": "agent timeout"},
+	}); err != nil {
+		t.Fatalf("RecordNodeStatus returned error: %v", err)
+	}
+
+	if len(notificationStore.created) != 1 {
+		t.Fatalf("expected one in-app notification, got %+v", notificationStore.created)
+	}
+	got := notificationStore.created[0]
+	if got.UserID != "user_1" || got.Type != "warning" || got.Category != "workflow" {
+		t.Fatalf("unexpected notification envelope: %+v", got)
+	}
+	if got.Title != "Workflow paused: Incident triage" || got.Message != "Node call_agent failed: agent timeout" {
+		t.Fatalf("unexpected notification content: %+v", got)
+	}
+	if got.ActionURL != "/workspace/workflows/"+created.ID+"/executions/"+execution.ID {
+		t.Fatalf("unexpected action URL: %q", got.ActionURL)
+	}
+	if got.Metadata["event"] != "workflow.failure_paused" || got.Metadata["nodeType"] != "agent" || got.Metadata["workspaceId"] != "workspace_1" {
+		t.Fatalf("unexpected notification metadata: %+v", got.Metadata)
+	}
+}
+
 type workflowServiceMemoryStore struct {
-	workflows map[string]*workflow.WorkflowDefinition
-	versions  map[string][]*workflow.WorkflowDefinition
-	nextID    int
+	workflows  map[string]*workflow.WorkflowDefinition
+	versions   map[string][]*workflow.WorkflowDefinition
+	executions map[string]*workflow.WorkflowExecution
+	nodes      map[string][]workflow.WorkflowNodeExecution
+	nextID     int
 }
 
 func newWorkflowServiceMemoryStore() *workflowServiceMemoryStore {
 	return &workflowServiceMemoryStore{
-		workflows: map[string]*workflow.WorkflowDefinition{},
-		versions:  map[string][]*workflow.WorkflowDefinition{},
-		nextID:    1,
+		workflows:  map[string]*workflow.WorkflowDefinition{},
+		versions:   map[string][]*workflow.WorkflowDefinition{},
+		executions: map[string]*workflow.WorkflowExecution{},
+		nodes:      map[string][]workflow.WorkflowNodeExecution{},
+		nextID:     1,
 	}
 }
 
@@ -186,17 +248,61 @@ func (s *workflowServiceMemoryStore) UpdateWorkflow(ctx context.Context, req wor
 
 func (s *workflowServiceMemoryStore) CreateExecution(ctx context.Context, req workflow.CreateExecutionRequest) (*workflow.WorkflowExecution, error) {
 	_ = ctx
-	return nil, nil
+	id := s.nextIDValue("wexec")
+	now := time.Now().UTC()
+	execution := &workflow.WorkflowExecution{
+		ID:               id,
+		WorkflowID:       req.WorkflowID,
+		WorkflowVersion:  req.WorkflowVersion,
+		OrganizationID:   req.OrganizationID,
+		Status:           req.Status,
+		Input:            req.Input,
+		Output:           req.Output,
+		Error:            req.Error,
+		Context:          req.Context,
+		WorkflowSnapshot: req.WorkflowSnapshot,
+		StartedAt:        req.StartedAt,
+		CompletedAt:      req.CompletedAt,
+		DurationMS:       req.DurationMS,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}
+	if execution.Status == "" {
+		execution.Status = workflow.ExecutionStatusRunning
+	}
+	if execution.StartedAt.IsZero() {
+		execution.StartedAt = now
+	}
+	s.executions[id] = cloneWorkflowServiceExecution(execution)
+	for _, nodeReq := range req.NodeExecutions {
+		node, _ := s.CreateNodeExecution(context.Background(), req.OrganizationID, id, nodeReq)
+		if node != nil {
+			execution.NodeExecutions = append(execution.NodeExecutions, *node)
+		}
+	}
+	return cloneWorkflowServiceExecution(execution), nil
 }
 
 func (s *workflowServiceMemoryStore) ListExecutions(ctx context.Context, organizationID, workflowID string) ([]*workflow.WorkflowExecution, error) {
 	_ = ctx
-	return nil, nil
+	executions := []*workflow.WorkflowExecution{}
+	for _, execution := range s.executions {
+		if execution.OrganizationID == organizationID && execution.WorkflowID == workflowID {
+			executions = append(executions, cloneWorkflowServiceExecution(execution))
+		}
+	}
+	return executions, nil
 }
 
 func (s *workflowServiceMemoryStore) GetExecution(ctx context.Context, organizationID, id string) (*workflow.WorkflowExecution, error) {
 	_ = ctx
-	return nil, nil
+	execution := s.executions[id]
+	if execution == nil || execution.OrganizationID != organizationID {
+		return nil, nil
+	}
+	cloned := cloneWorkflowServiceExecution(execution)
+	cloned.NodeExecutions = append([]workflow.WorkflowNodeExecution(nil), s.nodes[id]...)
+	return cloned, nil
 }
 
 func (s *workflowServiceMemoryStore) ListActiveExecutionHealth(ctx context.Context, organizationID string, statuses []workflow.ExecutionStatus) ([]workflow.WorkflowExecutionHealthSummary, error) {
@@ -216,12 +322,49 @@ func (s *workflowServiceMemoryStore) CountRunningExecutionsForOrganization(ctx c
 
 func (s *workflowServiceMemoryStore) UpdateExecutionStatus(ctx context.Context, organizationID, id string, status workflow.ExecutionStatus, completedAt *time.Time) (*workflow.WorkflowExecution, error) {
 	_ = ctx
-	return nil, nil
+	execution := s.executions[id]
+	if execution == nil || execution.OrganizationID != organizationID {
+		return nil, nil
+	}
+	execution.Status = status
+	execution.CompletedAt = completedAt
+	execution.UpdatedAt = time.Now().UTC()
+	return cloneWorkflowServiceExecution(execution), nil
 }
 
 func (s *workflowServiceMemoryStore) CreateNodeExecution(ctx context.Context, organizationID, executionID string, req workflow.CreateNodeExecutionRequest) (*workflow.WorkflowNodeExecution, error) {
 	_ = ctx
-	return nil, nil
+	execution := s.executions[executionID]
+	if execution == nil || execution.OrganizationID != organizationID {
+		return nil, nil
+	}
+	now := time.Now().UTC()
+	node := workflow.WorkflowNodeExecution{
+		ID:             s.nextIDValue("wnode"),
+		ExecutionID:    executionID,
+		OrganizationID: organizationID,
+		NodeID:         req.NodeID,
+		NodeType:       req.NodeType,
+		Status:         req.Status,
+		Attempt:        req.Attempt,
+		Input:          req.Input,
+		Output:         req.Output,
+		Error:          req.Error,
+		Context:        req.Context,
+		StartedAt:      req.StartedAt,
+		CompletedAt:    req.CompletedAt,
+		DurationMS:     req.DurationMS,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	if node.Status == "" {
+		node.Status = workflow.NodeStatusPending
+	}
+	if node.StartedAt.IsZero() {
+		node.StartedAt = now
+	}
+	s.nodes[executionID] = append(s.nodes[executionID], node)
+	return &node, nil
 }
 
 func cloneWorkflowServiceDefinition(input *workflow.WorkflowDefinition) *workflow.WorkflowDefinition {
@@ -230,4 +373,55 @@ func cloneWorkflowServiceDefinition(input *workflow.WorkflowDefinition) *workflo
 	}
 	cloned := *input
 	return &cloned
+}
+
+func cloneWorkflowServiceExecution(input *workflow.WorkflowExecution) *workflow.WorkflowExecution {
+	if input == nil {
+		return nil
+	}
+	cloned := *input
+	cloned.NodeExecutions = append([]workflow.WorkflowNodeExecution(nil), input.NodeExecutions...)
+	return &cloned
+}
+
+func (s *workflowServiceMemoryStore) nextIDValue(prefix string) string {
+	id := prefix + "_default_wiring_1"
+	if s.nextID > 1 {
+		id = prefix + "_default_wiring_2"
+	}
+	s.nextID++
+	return id
+}
+
+type workflowServiceNotificationStore struct {
+	created []*notification.Notification
+}
+
+func (s *workflowServiceNotificationStore) Create(ctx context.Context, notification *notification.Notification) (*notification.Notification, error) {
+	s.created = append(s.created, notification)
+	return notification, nil
+}
+
+func (s *workflowServiceNotificationStore) Get(ctx context.Context, id string) (*notification.Notification, error) {
+	return nil, nil
+}
+
+func (s *workflowServiceNotificationStore) List(ctx context.Context, userID string, unreadOnly bool, limit, offset int) ([]*notification.Notification, error) {
+	return nil, nil
+}
+
+func (s *workflowServiceNotificationStore) MarkRead(ctx context.Context, id string) error {
+	return nil
+}
+
+func (s *workflowServiceNotificationStore) MarkAllRead(ctx context.Context, userID string) error {
+	return nil
+}
+
+func (s *workflowServiceNotificationStore) Delete(ctx context.Context, id string) error {
+	return nil
+}
+
+func (s *workflowServiceNotificationStore) GetUnreadCount(ctx context.Context, userID string) (int, error) {
+	return 0, nil
 }

@@ -15,6 +15,7 @@ import (
 	publishingchannel "oblivious/server/internal/channel"
 	"oblivious/server/internal/chat"
 	"oblivious/server/internal/config"
+	"oblivious/server/internal/notification"
 	"oblivious/server/internal/observability"
 	"oblivious/server/internal/quota"
 	"oblivious/server/internal/relay"
@@ -48,7 +49,8 @@ func NewServer(cfg config.Config, database *sql.DB) *stdhttp.Server {
 		ensureDefaultChannel(relayStore, relayPool, cfg)
 	}
 
-	workflowService := newConfiguredWorkflowService(cfg, database)
+	notificationService := notification.NewService(notification.NewSQLStore(database))
+	workflowService := newConfiguredWorkflowService(cfg, database, notificationService)
 	scheduleAgentGateway := chat.NewRelayGateway(
 		chat.WithRelayURL("http://localhost:"+fmt.Sprintf("%d", cfg.Port)+"/v1"),
 		chat.WithDefaultModel(cfg.RelayDefaultModel),

@@ -82,9 +82,10 @@ func (a stripeMarketplaceSettlementAdapter) ApplyMarketplaceRefund(ctx context.C
 
 func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOptions) stdhttp.Handler {
 	mux := stdhttp.NewServeMux()
+	notificationService := notification.NewService(notification.NewSQLStore(database))
 	workflowService := options.WorkflowService
 	if workflowService == nil {
-		workflowService = newConfiguredWorkflowService(cfg, database)
+		workflowService = newConfiguredWorkflowService(cfg, database, notificationService)
 	}
 	mux.HandleFunc("/healthz", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		if r.Method != stdhttp.MethodGet {
@@ -208,7 +209,7 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	)
 
 	// Notification service
-	notificationHandler := newNotificationHandler(notification.NewService(notification.NewSQLStore(database)))
+	notificationHandler := newNotificationHandler(notificationService)
 	channelStore := publishingchannel.NewSQLStore(database)
 	channelHandler := newChannelHandler(channelStore, publishingchannel.NewServiceWithOptions(
 		publishingchannel.NewAdapterRegistry(nil),

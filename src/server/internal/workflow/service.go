@@ -26,6 +26,7 @@ type Service struct {
 	orgMaxConcurrentWorkflows int
 	nodeExecutors             *NodeExecutorRegistry
 	semanticTriggerMatcher    SemanticTriggerMatcher
+	failurePauseNotifier      WorkflowFailurePauseNotificationSink
 	scheduleSyncer            ScheduleSyncer
 	systemLimits              SystemWorkflowLimits
 	systemLimitWindow         []time.Time
@@ -62,6 +63,10 @@ type SemanticTriggerMatcher interface {
 	MatchSemanticTrigger(ctx context.Context, req SemanticTriggerMatchRequest) (SemanticTriggerMatchDecision, error)
 }
 
+type WorkflowFailurePauseNotificationSink interface {
+	NotifyWorkflowFailurePaused(ctx context.Context, event WorkflowFailurePauseNotification) error
+}
+
 type agentApprovalNodeExecutor interface {
 	ApproveToolRun(ctx context.Context, input NodeExecutorInput, pending WorkflowNodeExecution, submitted map[string]any) (map[string]any, error)
 }
@@ -81,6 +86,20 @@ type SemanticTriggerMatchDecision struct {
 	Keyword     string
 	Score       float64
 	MatchMethod string
+}
+
+type WorkflowFailurePauseNotification struct {
+	UserID         string
+	OrganizationID string
+	WorkspaceID    string
+	WorkflowID     string
+	WorkflowName   string
+	ExecutionID    string
+	NodeID         string
+	NodeType       string
+	Message        string
+	ActionURL      string
+	Metadata       map[string]any
 }
 
 func WithOrgMaxConcurrentWorkflows(limit int) ServiceOption {
@@ -113,6 +132,12 @@ func WithNodeExecutors(registry *NodeExecutorRegistry) ServiceOption {
 func WithSemanticTriggerMatcher(matcher SemanticTriggerMatcher) ServiceOption {
 	return func(service *Service) {
 		service.semanticTriggerMatcher = matcher
+	}
+}
+
+func WithFailurePauseNotificationSink(sink WorkflowFailurePauseNotificationSink) ServiceOption {
+	return func(service *Service) {
+		service.failurePauseNotifier = sink
 	}
 }
 
@@ -1568,8 +1593,68 @@ func (s *Service) recordFailedNodeStatus(ctx context.Context, organizationID str
 		if _, err := s.setExecutionStatus(ctx, organizationID, execution.ID, ExecutionStatusPaused, nil); err != nil {
 			return nil, err
 		}
+		if err := s.notifyFailurePause(ctx, organizationID, execution, node, message); err != nil {
+			return nil, err
+		}
 		return node, nil
 	}
+}
+
+func (s *Service) notifyFailurePause(ctx context.Context, organizationID string, execution *WorkflowExecution, node *WorkflowNodeExecution, message string) error {
+	if s == nil || s.failurePauseNotifier == nil || execution == nil || node == nil {
+		return nil
+	}
+	userID := strings.TrimSpace(stringFromWorkflowValue(execution.Context["userId"]))
+	if userID == "" {
+		return nil
+	}
+	workflowName := strings.TrimSpace(stringFromWorkflowValue(execution.Context["workflowName"]))
+	if workflowName == "" {
+		workflow, err := s.GetWorkflow(ctx, organizationID, execution.WorkflowID)
+		if err != nil {
+			return err
+		}
+		if workflow != nil {
+			workflowName = workflow.Name
+		}
+	}
+	if strings.TrimSpace(message) == "" {
+		message = "node execution failed"
+	}
+	workspaceID := strings.TrimSpace(stringFromWorkflowValue(execution.Context["workspaceId"]))
+	metadata := map[string]any{
+		"event":          "workflow.failure_paused",
+		"organizationId": organizationID,
+		"workflowId":     execution.WorkflowID,
+		"workflowName":   workflowName,
+		"executionId":    execution.ID,
+		"nodeId":         node.NodeID,
+		"nodeType":       node.NodeType,
+		"message":        message,
+	}
+	if workspaceID != "" {
+		metadata["workspaceId"] = workspaceID
+	}
+	return s.failurePauseNotifier.NotifyWorkflowFailurePaused(ctx, WorkflowFailurePauseNotification{
+		UserID:         userID,
+		OrganizationID: organizationID,
+		WorkspaceID:    workspaceID,
+		WorkflowID:     execution.WorkflowID,
+		WorkflowName:   workflowName,
+		ExecutionID:    execution.ID,
+		NodeID:         node.NodeID,
+		NodeType:       node.NodeType,
+		Message:        message,
+		ActionURL:      workflowExecutionActionURL(execution.WorkflowID, execution.ID),
+		Metadata:       metadata,
+	})
+}
+
+func workflowExecutionActionURL(workflowID, executionID string) string {
+	if strings.TrimSpace(workflowID) == "" || strings.TrimSpace(executionID) == "" {
+		return ""
+	}
+	return "/workspace/workflows/" + strings.TrimSpace(workflowID) + "/executions/" + strings.TrimSpace(executionID)
 }
 
 func (s *Service) createPolicyNodeExecution(ctx context.Context, organizationID, executionID string, req RecordNodeStatusRequest, status NodeStatus, attempt int, errorValue map[string]any, contextValue map[string]any) (*WorkflowNodeExecution, error) {

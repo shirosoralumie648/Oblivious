@@ -2268,6 +2268,63 @@ func TestServiceRecordNodeStatusAppliesFailurePolicies(t *testing.T) {
 	}
 }
 
+func TestServiceRecordNodeStatusNotifiesUserWhenFailurePausesExecution(t *testing.T) {
+	store := newMemoryWorkflowStore()
+	notifier := &recordingWorkflowNotificationSink{}
+	service := NewService(store, WithFailurePauseNotificationSink(notifier))
+	ctx := context.Background()
+
+	workflow, err := service.CreateWorkflow(ctx, CreateWorkflowRequest{
+		OrganizationID: "org_1",
+		Name:           "Incident triage",
+		Definition: workflowDefinitionDAG(
+			[]map[string]any{{"id": "call_agent", "type": "agent"}},
+			nil,
+		),
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkflow returned error: %v", err)
+	}
+
+	execution, err := service.StartExecution(ctx, StartExecutionRequest{
+		OrganizationID: "org_1",
+		WorkflowID:     workflow.ID,
+		Context: map[string]any{
+			"userId":      "user_1",
+			"workspaceId": "workspace_1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("StartExecution returned error: %v", err)
+	}
+
+	if _, err := service.RecordNodeStatus(ctx, "org_1", execution.ID, RecordNodeStatusRequest{
+		NodeID:   "call_agent",
+		NodeType: "agent",
+		Status:   NodeStatusFailed,
+		Error:    map[string]any{"message": "tool approval expired"},
+	}); err != nil {
+		t.Fatalf("RecordNodeStatus pause policy returned error: %v", err)
+	}
+
+	if len(notifier.events) != 1 {
+		t.Fatalf("expected one failure pause notification, got %+v", notifier.events)
+	}
+	event := notifier.events[0]
+	if event.UserID != "user_1" || event.OrganizationID != "org_1" || event.WorkflowID != workflow.ID || event.ExecutionID != execution.ID || event.NodeID != "call_agent" {
+		t.Fatalf("unexpected notification scope: %+v", event)
+	}
+	if event.WorkflowName != "Incident triage" || event.NodeType != "agent" || event.Message != "tool approval expired" {
+		t.Fatalf("unexpected notification content: %+v", event)
+	}
+	if event.ActionURL != "/workspace/workflows/"+workflow.ID+"/executions/"+execution.ID {
+		t.Fatalf("unexpected action URL: %q", event.ActionURL)
+	}
+	if event.Metadata["event"] != "workflow.failure_paused" || event.Metadata["workspaceId"] != "workspace_1" {
+		t.Fatalf("unexpected notification metadata: %+v", event.Metadata)
+	}
+}
+
 func TestServiceResolvePausedFailureDecisionRetriesSkipsAndTerminates(t *testing.T) {
 	ctx := context.Background()
 
@@ -2408,6 +2465,16 @@ type recordingSemanticTriggerMatcher struct {
 	calls       int
 	decision    SemanticTriggerMatchDecision
 	lastRequest SemanticTriggerMatchRequest
+}
+
+type recordingWorkflowNotificationSink struct {
+	events []WorkflowFailurePauseNotification
+}
+
+func (s *recordingWorkflowNotificationSink) NotifyWorkflowFailurePaused(ctx context.Context, event WorkflowFailurePauseNotification) error {
+	_ = ctx
+	s.events = append(s.events, event)
+	return nil
 }
 
 type recordingWorkflowScheduleSyncer struct {
