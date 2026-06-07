@@ -33,6 +33,7 @@ const defaultRerankerModel = 'bge-reranker-large';
 const defaultRerankTopK = 5;
 const supportedUploadAccept = '.txt,.text,.md,.markdown,.pdf,.docx,text/plain,text/markdown,text/x-markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 const unsupportedUploadFormatMessage = 'Knowledge document uploads currently support .txt, .md, PDF, and DOCX files. Legacy .doc parsing is not available yet.';
+const chunkOverlayPalette = ['#2563eb', '#16a34a', '#f59e0b', '#dc2626', '#7c3aed', '#0891b2'];
 
 type KnowledgeBaseWithRagConfig = KnowledgeBaseSummary & {
   chunkOverlap?: number;
@@ -249,6 +250,18 @@ function isSupportedUploadDocumentFile(file: File) {
 
 function formatHighlightPosition(position: { start: number; end: number }) {
   return `${position.start}-${position.end}`;
+}
+
+function chunkOverlayColor(chunkIndex: number) {
+  return chunkOverlayPalette[Math.abs(chunkIndex) % chunkOverlayPalette.length];
+}
+
+function formatChunkRuneRange(chunk: KnowledgeDocumentChunk) {
+  const { endRune, startRune } = chunk.metadata;
+  if (typeof startRune !== 'number' || typeof endRune !== 'number' || endRune <= startRune) {
+    return null;
+  }
+  return `Range ${startRune}-${endRune}`;
 }
 
 function findQueryHighlightRange(content: string, query: string) {
@@ -1483,14 +1496,31 @@ export function KnowledgePage() {
                     <ul aria-label="Chunk boundary overlay">
                       {knowledgeDocumentChunks.map((chunk) => {
                         const isSelected = selectedChunk?.chunkId === chunk.chunkId;
+                        const overlayRange = formatChunkRuneRange(chunk);
                         return (
                           <li key={`preview-${chunk.chunkId}`}>
                             <button
+                              aria-label={`Preview chunk boundary ${chunk.chunkIndex + 1} ${chunk.chunkId}${isSelected ? ' selected' : ''}`}
                               aria-pressed={isSelected}
                               onClick={() => setSelectedChunkId(chunk.chunkId)}
+                              style={{
+                                borderColor: chunkOverlayColor(chunk.chunkIndex)
+                              }}
                               type="button"
                             >
-                              {`Preview chunk boundary ${chunk.chunkIndex + 1} ${chunk.chunkId}${isSelected ? ' selected' : ''}`}
+                              <span
+                                aria-label={`Overlay color for ${chunk.chunkId}`}
+                                role="img"
+                                style={{
+                                  backgroundColor: chunkOverlayColor(chunk.chunkIndex),
+                                  display: 'inline-block',
+                                  height: '0.75rem',
+                                  marginRight: '0.4rem',
+                                  width: '0.75rem'
+                                }}
+                              />
+                              <span>{`Preview chunk boundary ${chunk.chunkIndex + 1} ${chunk.chunkId}${isSelected ? ' selected' : ''}`}</span>
+                              {overlayRange ? <span>{` ${overlayRange}`}</span> : null}
                             </button>
                           </li>
                         );

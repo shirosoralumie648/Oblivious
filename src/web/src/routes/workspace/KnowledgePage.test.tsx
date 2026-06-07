@@ -1004,8 +1004,10 @@ describe('KnowledgePage', () => {
         estimatedTokenCount: 6,
         metadata: {
           documentVersion: 'v2',
+          endRune: 44,
           pageNumber: 12,
-          sourceUrl: 'https://docs.example/runbook.pdf'
+          sourceUrl: 'https://docs.example/runbook.pdf',
+          startRune: 0
         }
       },
       {
@@ -1073,8 +1075,10 @@ describe('KnowledgePage', () => {
         estimatedTokenCount: 8,
         metadata: {
           documentVersion: 'v2',
+          endRune: 44,
           pageNumber: 12,
-          sourceUrl: 'https://docs.example/runbook.pdf'
+          sourceUrl: 'https://docs.example/runbook.pdf',
+          startRune: 0
         }
       },
       {
@@ -1086,8 +1090,10 @@ describe('KnowledgePage', () => {
         estimatedTokenCount: 9,
         metadata: {
           documentVersion: 'v2',
+          endRune: 92,
           pageNumber: 13,
-          sourceUrl: 'https://docs.example/runbook.pdf'
+          sourceUrl: 'https://docs.example/runbook.pdf',
+          startRune: 45
         }
       }
     ]);
@@ -1110,6 +1116,12 @@ describe('KnowledgePage', () => {
       'true'
     );
     expect(screen.getByRole('button', { name: 'Preview chunk boundary 2 kdc_2' })).toHaveAttribute('aria-pressed', 'false');
+    const firstOverlayButton = screen.getByRole('button', { name: 'Preview chunk boundary 1 kdc_1 selected' });
+    const secondOverlayButton = screen.getByRole('button', { name: 'Preview chunk boundary 2 kdc_2' });
+    expect(firstOverlayButton).toHaveTextContent('Range 0-44');
+    expect(secondOverlayButton).toHaveTextContent('Range 45-92');
+    expect(screen.getByLabelText('Overlay color for kdc_1')).toHaveStyle({ backgroundColor: '#2563eb' });
+    expect(screen.getByLabelText('Overlay color for kdc_2')).toHaveStyle({ backgroundColor: '#16a34a' });
 
     fireEvent.click(screen.getByRole('button', { name: 'Preview chunk boundary 2 kdc_2' }));
 
