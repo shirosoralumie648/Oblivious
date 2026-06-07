@@ -10,10 +10,11 @@ import (
 )
 
 type LoadBalancer struct {
-	pool     *ChannelPool
-	strategy string
-	mu       sync.Mutex
-	random   loadBalancerRandom
+	pool           *ChannelPool
+	strategy       string
+	mu             sync.Mutex
+	random         loadBalancerRandom
+	weightedCursor int
 }
 
 type loadBalancerRandom interface {
@@ -137,16 +138,28 @@ func (lb *LoadBalancer) selectFromCandidates(candidates []*types.RouteChannel) *
 func (lb *LoadBalancer) weightedSelect(channels []*types.RouteChannel) *types.RouteChannel {
 	totalWeight := 0
 	for _, ch := range channels {
-		totalWeight += ch.Weight
+		if ch.Weight > 0 {
+			totalWeight += ch.Weight
+		}
 	}
-	if totalWeight == 0 {
-		return channels[len(channels)-1]
+	if totalWeight <= 0 {
+		if lb.weightedCursor >= len(channels) {
+			lb.weightedCursor = 0
+		}
+		ch := channels[lb.weightedCursor]
+		lb.weightedCursor++
+		return ch
 	}
-	r := lb.random.Intn(totalWeight)
+
+	position := lb.weightedCursor % totalWeight
+	lb.weightedCursor++
 	cumulative := 0
 	for _, ch := range channels {
+		if ch.Weight <= 0 {
+			continue
+		}
 		cumulative += ch.Weight
-		if r < cumulative {
+		if position < cumulative {
 			return ch
 		}
 	}

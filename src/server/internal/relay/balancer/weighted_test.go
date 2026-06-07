@@ -6,7 +6,7 @@ import (
 	"oblivious/server/internal/relay/types"
 )
 
-func TestWeightedRoundRobin_Select(t *testing.T) {
+func TestWeightedRoundRobin_SelectsDeterministicWeightedSequence(t *testing.T) {
 	channels := []*types.WeightedChannel{
 		{ChannelID: "a", StaticWeight: 3, Healthy: true, Enabled: true},
 		{ChannelID: "b", StaticWeight: 1, Healthy: true, Enabled: true},
@@ -14,20 +14,19 @@ func TestWeightedRoundRobin_Select(t *testing.T) {
 
 	wrr := NewWeightedRoundRobin(channels)
 
-	counts := map[string]int{"a": 0, "b": 0}
-	for i := 0; i < 400; i++ {
+	got := make([]string, 0, 8)
+	for i := 0; i < 8; i++ {
 		ch := wrr.Select()
 		if ch != nil {
-			counts[ch.ChannelID]++
+			got = append(got, ch.ChannelID)
 		}
 	}
 
-	// a should appear ~3x more than b (3:1 ratio)
-	if counts["a"] < 200 || counts["a"] > 350 {
-		t.Fatalf("expected ~300 selections for a, got %d", counts["a"])
-	}
-	if counts["b"] < 50 || counts["b"] > 150 {
-		t.Fatalf("expected ~100 selections for b, got %d", counts["b"])
+	want := []string{"a", "a", "a", "b", "a", "a", "a", "b"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("weighted round-robin sequence = %v, want %v", got, want)
+		}
 	}
 }
 

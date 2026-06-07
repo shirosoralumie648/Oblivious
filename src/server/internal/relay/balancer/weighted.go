@@ -1,7 +1,6 @@
 package balancer
 
 import (
-	"math/rand"
 	"sync"
 
 	"oblivious/server/internal/relay/types"
@@ -13,6 +12,8 @@ type WeightedRoundRobin struct {
 	mu           sync.Mutex
 	totalWeight  int
 	channels     []*types.WeightedChannel
+	schedule     []*types.WeightedChannel
+	nextSchedule int
 }
 
 // NewWeightedRoundRobin 创建加权轮询负载均衡器
@@ -25,33 +26,25 @@ func NewWeightedRoundRobin(channels []*types.WeightedChannel) *WeightedRoundRobi
 			wrr.totalWeight += ch.StaticWeight
 		}
 	}
+	wrr.schedule = weightedChannelSchedule(wrr.channels)
 	return wrr
 }
 
-// Select 根据加权随机选择渠道
+// Select 根据加权轮询选择渠道
 func (w *WeightedRoundRobin) Select() *types.WeightedChannel {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	if len(w.channels) == 0 {
+	if len(w.schedule) == 0 {
 		return nil
 	}
 
-	// 如果所有权重为 0，均匀随机
-	if w.totalWeight == 0 {
-		return w.channels[rand.Intn(len(w.channels))]
+	if w.nextSchedule >= len(w.schedule) {
+		w.nextSchedule = 0
 	}
-
-	r := rand.Intn(w.totalWeight)
-	cumulative := 0
-	for _, ch := range w.channels {
-		cumulative += ch.StaticWeight
-		if r < cumulative {
-			return ch
-		}
-	}
-
-	return w.channels[len(w.channels)-1]
+	ch := w.schedule[w.nextSchedule]
+	w.nextSchedule++
+	return ch
 }
 
 // UpdateChannels 更新渠道列表（例如健康状态变化后）
@@ -61,12 +54,14 @@ func (w *WeightedRoundRobin) UpdateChannels(channels []*types.WeightedChannel) {
 
 	w.channels = make([]*types.WeightedChannel, 0, len(channels))
 	w.totalWeight = 0
+	w.nextSchedule = 0
 	for _, ch := range channels {
 		if ch.Enabled && ch.Healthy {
 			w.channels = append(w.channels, ch)
 			w.totalWeight += ch.StaticWeight
 		}
 	}
+	w.schedule = weightedChannelSchedule(w.channels)
 }
 
 // Channels 返回当前可用渠道
@@ -83,4 +78,27 @@ func (w *WeightedRoundRobin) TotalWeight() int {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.totalWeight
+}
+
+func weightedChannelSchedule(channels []*types.WeightedChannel) []*types.WeightedChannel {
+	totalWeight := 0
+	for _, ch := range channels {
+		if ch.StaticWeight > 0 {
+			totalWeight += ch.StaticWeight
+		}
+	}
+
+	if totalWeight <= 0 {
+		schedule := make([]*types.WeightedChannel, len(channels))
+		copy(schedule, channels)
+		return schedule
+	}
+
+	schedule := make([]*types.WeightedChannel, 0, totalWeight)
+	for _, ch := range channels {
+		for i := 0; i < ch.StaticWeight; i++ {
+			schedule = append(schedule, ch)
+		}
+	}
+	return schedule
 }

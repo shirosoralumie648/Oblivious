@@ -12,10 +12,9 @@ func TestLoadBalancer_Weighted(t *testing.T) {
 	pool.AddChannel(&types.Channel{ID: "b", BaseURL: "http://b", Enabled: true}, 1)
 
 	lb := NewLoadBalancer(pool, "weighted")
-	lb.random = &sequenceRandom{ints: []int{0, 1, 2, 3}}
 
-	got := make([]string, 0, 4)
-	for i := 0; i < 4; i++ {
+	got := make([]string, 0, 8)
+	for i := 0; i < 8; i++ {
 		ch := lb.Select("chat")
 		if ch == nil {
 			t.Fatal("channel should not be nil")
@@ -23,10 +22,10 @@ func TestLoadBalancer_Weighted(t *testing.T) {
 		got = append(got, ch.Channel.ID)
 	}
 
-	want := []string{"a", "a", "a", "b"}
+	want := []string{"a", "a", "a", "b", "a", "a", "a", "b"}
 	for i := range want {
 		if got[i] != want[i] {
-			t.Fatalf("weighted selection sequence = %v, want %v", got, want)
+			t.Fatalf("weighted round-robin sequence = %v, want %v", got, want)
 		}
 	}
 }
