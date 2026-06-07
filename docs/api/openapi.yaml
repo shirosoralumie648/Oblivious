@@ -1442,6 +1442,80 @@ components:
         received:
           type: boolean
 
+    QuotaSnapshot:
+      type: object
+      properties:
+        id:
+          type: string
+        organizationId:
+          type: string
+        userId:
+          type: string
+        balance:
+          type: number
+          format: double
+          description: Available quota balance in USD.
+        used:
+          type: number
+          format: double
+          description: Used quota amount in USD.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    PackageOption:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        quotaAmount:
+          type: number
+          format: double
+        tokenQuota:
+          type: integer
+        price:
+          type: number
+          format: double
+        modelAccess:
+          type: array
+          items:
+            type: string
+        agentLimit:
+          type: integer
+        maxTokensPerRequest:
+          type: integer
+        durationDays:
+          type: integer
+        isActive:
+          type: boolean
+        isPublic:
+          type: boolean
+        sortOrder:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    QuotaTopupRequest:
+      type: object
+      required: [amount]
+      properties:
+        amount:
+          type: number
+          format: double
+          exclusiveMinimum: 0
+          description: Positive top-up amount in USD.
+
     RelayAPIToken:
       type: object
       properties:
@@ -2526,6 +2600,88 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+
+  # ---- Quota and packages ----
+  /api/v1/app/quota:
+    get:
+      summary: 获取当前用户配额余额
+      operationId: getQuota
+      tags: [Billing]
+      responses:
+        "200":
+          description: 当前用户在当前组织下的配额余额
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/QuotaSnapshot"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+  /api/v1/app/packages:
+    get:
+      summary: 获取可购买套餐
+      operationId: listPackages
+      tags: [Billing]
+      responses:
+        "200":
+          description: 当前可用套餐列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/PackageOption"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+  /api/v1/app/quota/topup:
+    post:
+      summary: 旧版配额充值入口
+      operationId: topupQuota
+      tags: [Billing]
+      description: |
+        This compatibility endpoint validates the amount and returns
+        `payment_required`; production top-up checkout should use
+        `/api/v1/billing/checkout` with `kind=topup`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QuotaTopupRequest"
+      responses:
+        "402":
+          description: 必须通过 billing checkout 完成充值
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+              example:
+                ok: false
+                data: null
+                error:
+                  code: payment_required
+                  message: "use /api/v1/billing/checkout with kind=topup"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
 
   # ---- 任务 (Task) ----
   /api/v1/app/tasks:
