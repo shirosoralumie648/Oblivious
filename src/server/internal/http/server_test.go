@@ -489,6 +489,28 @@ func TestConfigureHTTPAlertingRoutesPublishingChannelDegradedToSignedWebhookAndR
 	if len(postedBody) == 0 {
 		t.Fatal("expected channel degraded alert webhook payload")
 	}
+	var payload map[string]any
+	if err := json.Unmarshal(postedBody, &payload); err != nil {
+		t.Fatalf("decode channel degraded alert webhook payload: %v\n%s", err, string(postedBody))
+	}
+	message, _ := payload["message"].(string)
+	if !strings.Contains(message, "Website") ||
+		!strings.Contains(message, "delivery_failure") ||
+		!strings.Contains(message, "webhook delivery failed with status 503") {
+		t.Fatalf("expected webhook message with channel name, failure type, and reason, got %+v", payload)
+	}
+	fields, ok := payload["fields"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected channel degraded webhook fields, got %+v", payload["fields"])
+	}
+	impactScope, _ := fields["impact_scope"].(string)
+	if fields["channel_name"] != "Website" ||
+		fields["channel_type"] != string(publishingchannel.ChannelTypeWebhook) ||
+		fields["failure_type"] != "delivery_failure" ||
+		!strings.Contains(impactScope, "Website") ||
+		!strings.Contains(impactScope, "outbound messages") {
+		t.Fatalf("expected webhook fields with channel name, failure type, and impact scope, got %+v", fields)
+	}
 	const alertKey = "publishing_channel:org_1:channel_1:degraded"
 	state, found, err := store.GetAlertState(context.Background(), alertKey)
 	if err != nil {

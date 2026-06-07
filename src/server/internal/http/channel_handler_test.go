@@ -269,6 +269,21 @@ func (s *publishingChannelFakeStore) CreateEvent(ctx context.Context, event noti
 	return created, nil
 }
 
+func deliveredAlertChannels(attempts []observability.AlertDeliveryAttempt, channels ...observability.AlertDeliveryChannel) bool {
+	delivered := make(map[observability.AlertDeliveryChannel]bool, len(attempts))
+	for _, attempt := range attempts {
+		if attempt.Delivered {
+			delivered[attempt.Channel] = true
+		}
+	}
+	for _, channel := range channels {
+		if !delivered[channel] {
+			return false
+		}
+	}
+	return true
+}
+
 func TestPublishingChannelHandlerListsTenantConfigs(t *testing.T) {
 	store := &publishingChannelFakeStore{configs: map[string]*channel.ChannelConfig{
 		"channel_1": {ID: "channel_1", OrganizationID: "org_1", Type: channel.ChannelTypeWebhook, Name: "Website", Status: channel.ChannelStatusActive},
@@ -1311,6 +1326,21 @@ func TestPublishingChannelHandlerMarksChannelDegradedAndNotifiesAfterThreeConsec
 	if notification.Metadata["channelID"] != "channel_1" || !strings.Contains(notification.Metadata["failureReason"].(string), "content is required") {
 		t.Fatalf("expected channelID and failureReason notification metadata, got %+v", notification.Metadata)
 	}
+	if notification.Metadata["channelName"] != "Website" || notification.Metadata["channelType"] != string(channel.ChannelTypeWebhook) {
+		t.Fatalf("expected channel name/type notification metadata, got %+v", notification.Metadata)
+	}
+	if notification.Metadata["failureType"] != "transform_error" {
+		t.Fatalf("expected transform_error failure type, got %+v", notification.Metadata)
+	}
+	impactScope, ok := notification.Metadata["impactScope"].(string)
+	if !ok || !strings.Contains(impactScope, "Website") || !strings.Contains(impactScope, "outbound messages") {
+		t.Fatalf("expected impact scope with channel and outbound queue context, got %+v", notification.Metadata)
+	}
+	if !strings.Contains(notification.Message, "Website") ||
+		!strings.Contains(notification.Message, "transform_error") ||
+		!strings.Contains(notification.Message, impactScope) {
+		t.Fatalf("expected notification message to include channel, failure type, and impact scope, got %q", notification.Message)
+	}
 }
 
 func TestPublishingChannelHandlerRoutesDegradedChannelToAlertDeliveryAndRecovery(t *testing.T) {
@@ -1318,14 +1348,20 @@ func TestPublishingChannelHandlerRoutesDegradedChannelToAlertDeliveryAndRecovery
 		"channel_1": {ID: "channel_1", OrganizationID: "org_1", Type: channel.ChannelTypeWebhook, Name: "Website", Status: channel.ChannelStatusActive},
 	}}
 	alertStore := observability.NewInMemoryAlertStateStore()
-	alertSink := &captureMiddlewareAlertSink{channel: observability.AlertDeliveryChannelInApp}
+	emailSink := &captureMiddlewareAlertSink{channel: observability.AlertDeliveryChannelEmail}
+	inAppSink := &captureMiddlewareAlertSink{channel: observability.AlertDeliveryChannelInApp}
+	webhookSink := &captureMiddlewareAlertSink{channel: observability.AlertDeliveryChannelThirdParty}
 	dispatcher := observability.NewAlertDeliveryDispatcher(observability.AlertDeliveryDispatcherOptions{
 		Policy: observability.DeliveryPolicy{
 			Routes: map[observability.AlertSeverity][]observability.AlertDeliveryChannel{
-				observability.AlertSeverityWarning: {observability.AlertDeliveryChannelInApp},
+				observability.AlertSeverityWarning: {
+					observability.AlertDeliveryChannelEmail,
+					observability.AlertDeliveryChannelInApp,
+					observability.AlertDeliveryChannelThirdParty,
+				},
 			},
 		},
-		Sinks:        []observability.AlertDeliverySink{alertSink},
+		Sinks:        []observability.AlertDeliverySink{emailSink, inAppSink, webhookSink},
 		HistoryStore: alertStore,
 	})
 	alertRouter := observability.NewAlertRouter(observability.AlertRouterOptions{
@@ -1367,15 +1403,33 @@ func TestPublishingChannelHandlerRoutesDegradedChannelToAlertDeliveryAndRecovery
 	if !found || state.Status != observability.AlertStatusOpen || state.Component != "publishing_channel" {
 		t.Fatalf("expected open publishing channel alert state, found=%v state=%+v", found, state)
 	}
-	if len(alertSink.events) != 1 || alertSink.events[0].Key != alertKey {
-		t.Fatalf("expected one delivered channel degraded alert, got %+v", alertSink.events)
+	if len(emailSink.events) != 1 || len(inAppSink.events) != 1 || len(webhookSink.events) != 1 {
+		t.Fatalf("expected email, in-app, and webhook delivery, got email=%+v in_app=%+v webhook=%+v", emailSink.events, inAppSink.events, webhookSink.events)
+	}
+	event := emailSink.events[0]
+	if event.Key != alertKey || inAppSink.events[0].Key != alertKey || webhookSink.events[0].Key != alertKey {
+		t.Fatalf("expected delivered channel degraded alert key %q, got email=%+v in_app=%+v webhook=%+v", alertKey, emailSink.events, inAppSink.events, webhookSink.events)
+	}
+	if event.Fields["channel_name"] != "Website" ||
+		event.Fields["channel_type"] != string(channel.ChannelTypeWebhook) ||
+		event.Fields["failure_type"] != "transform_error" {
+		t.Fatalf("expected enriched degraded alert fields, got %+v", event.Fields)
+	}
+	impactScope, ok := event.Fields["impact_scope"].(string)
+	if !ok || !strings.Contains(impactScope, "Website") || !strings.Contains(impactScope, "outbound messages") {
+		t.Fatalf("expected alert impact scope with channel and outbound queue context, got %+v", event.Fields)
+	}
+	if !strings.Contains(event.Message, "Website") ||
+		!strings.Contains(event.Message, "transform_error") ||
+		!strings.Contains(event.Message, impactScope) {
+		t.Fatalf("expected alert message to include channel, failure type, and impact scope, got %q", event.Message)
 	}
 	attempts, err := alertStore.ListDeliveryAttempts(context.Background(), observability.AlertDeliveryHistoryFilter{AlertKey: alertKey})
 	if err != nil {
 		t.Fatalf("list delivery attempts: %v", err)
 	}
-	if len(attempts) != 1 || attempts[0].Channel != observability.AlertDeliveryChannelInApp || !attempts[0].Delivered {
-		t.Fatalf("expected successful in-app delivery attempt, got %+v", attempts)
+	if !deliveredAlertChannels(attempts, observability.AlertDeliveryChannelEmail, observability.AlertDeliveryChannelInApp, observability.AlertDeliveryChannelThirdParty) {
+		t.Fatalf("expected successful email, in-app, and webhook delivery attempts, got %+v", attempts)
 	}
 	actions, err := alertStore.ListRecoveryActions(context.Background(), observability.RecoveryActionFilter{AlertKey: alertKey})
 	if err != nil {
@@ -1441,8 +1495,26 @@ func TestPublishingChannelHealthNotifierRoutesRetryWorkerDegradedEventToAlertDel
 	if !state.LastOccurredAt.Equal(occurredAt) {
 		t.Fatalf("expected alert timestamp from retry worker event, got %s", state.LastOccurredAt)
 	}
-	if len(alertSink.events) != 1 || alertSink.events[0].Key != alertKey || alertSink.events[0].Message != "upstream 503" {
+	if len(alertSink.events) != 1 || alertSink.events[0].Key != alertKey {
 		t.Fatalf("expected one delivered retry worker channel degraded alert, got %+v", alertSink.events)
+	}
+	event := alertSink.events[0]
+	if event.Fields["channel_name"] != "Retry worker channel" ||
+		event.Fields["channel_type"] != string(channel.ChannelTypeWebhook) ||
+		event.Fields["failure_type"] != "delivery_failure" ||
+		event.Fields["failure_reason"] != "upstream 503" ||
+		event.Fields["message_log_id"] != "channel_message_retry_worker" {
+		t.Fatalf("expected enriched retry worker alert fields, got %+v", event.Fields)
+	}
+	impactScope, ok := event.Fields["impact_scope"].(string)
+	if !ok || !strings.Contains(impactScope, "Retry worker channel") || !strings.Contains(impactScope, "outbound messages") {
+		t.Fatalf("expected retry worker impact scope with channel and outbound queue context, got %+v", event.Fields)
+	}
+	if !strings.Contains(event.Message, "Retry worker channel") ||
+		!strings.Contains(event.Message, "delivery_failure") ||
+		!strings.Contains(event.Message, impactScope) ||
+		!strings.Contains(event.Message, "upstream 503") {
+		t.Fatalf("expected retry worker alert message to include channel, failure type, impact scope, and reason, got %q", event.Message)
 	}
 	actions, err := alertStore.ListRecoveryActions(context.Background(), observability.RecoveryActionFilter{AlertKey: alertKey})
 	if err != nil {

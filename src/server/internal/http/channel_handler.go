@@ -385,21 +385,29 @@ func (h channelHandler) notifyChannelDegraded(r *stdhttp.Request, config *publis
 	if !ok || h.store == nil {
 		return
 	}
-	reason := strings.TrimSpace(logEntry.FailureReason)
-	if reason == "" {
-		reason = strings.TrimSpace(logEntry.TransformError)
+	reason := publishingChannelFailureReason(logEntry, "")
+	failureType := publishingChannelFailureType(logEntry)
+	impactScope := publishingChannelImpactScope(config)
+	message := publishingChannelDegradedMessage(config, failureType, impactScope, reason)
+	metadata := map[string]any{
+		"channelID":     publishingChannelConfigID(config),
+		"channelName":   publishingChannelConfigName(config),
+		"channelType":   publishingChannelConfigType(config),
+		"failureReason": reason,
+		"failureType":   failureType,
+		"impactScope":   impactScope,
+	}
+	if logEntry != nil && strings.TrimSpace(logEntry.ID) != "" {
+		metadata["messageLogID"] = logEntry.ID
 	}
 	_, _ = h.store.CreateEvent(r.Context(), notification.NotificationEvent{
 		UserID:    session.User.ID,
 		Type:      "warning",
 		Category:  "system",
 		Title:     "Publishing channel degraded",
-		Message:   "Publishing channel delivery failed repeatedly.",
+		Message:   message,
 		ActionURL: "/workspace/publishing-channels",
-		Metadata: map[string]any{
-			"channelID":     config.ID,
-			"failureReason": reason,
-		},
+		Metadata:  metadata,
 	})
 	routePublishingChannelDegradedAlert(r.Context(), config, logEntry, reason)
 }
@@ -466,16 +474,77 @@ func routePublishingChannelDegradedAlert(ctx context.Context, config *publishing
 }
 
 func publishingChannelDegradedAlertEvent(config *publishingchannel.ChannelConfig, logEntry *publishingchannel.ChannelMessageLog, reason string) observability.AlertEvent {
-	channelID := ""
+	channelID := publishingChannelConfigID(config)
 	organizationID := ""
-	channelType := ""
-	channelName := ""
 	if config != nil {
-		channelID = config.ID
 		organizationID = config.OrganizationID
-		channelType = string(config.Type)
-		channelName = config.Name
 	}
+	channelType := publishingChannelConfigType(config)
+	channelName := publishingChannelConfigName(config)
+	reason = publishingChannelFailureReason(logEntry, reason)
+	failureType := publishingChannelFailureType(logEntry)
+	impactScope := publishingChannelImpactScope(config)
+	occurredAt := time.Now().UTC()
+	if logEntry != nil && !logEntry.CreatedAt.IsZero() {
+		occurredAt = logEntry.CreatedAt.UTC()
+	}
+	fields := map[string]any{
+		"organization_id": organizationID,
+		"channel_id":      channelID,
+		"channel_type":    channelType,
+		"channel_name":    channelName,
+		"failure_reason":  reason,
+		"failure_type":    failureType,
+		"impact_scope":    impactScope,
+		"source":          "publishing_channel.health",
+	}
+	if logEntry != nil && strings.TrimSpace(logEntry.ID) != "" {
+		fields["message_log_id"] = logEntry.ID
+	}
+	return observability.AlertEvent{
+		Key:        fmt.Sprintf("publishing_channel:%s:%s:degraded", organizationID, channelID),
+		Severity:   observability.AlertSeverityWarning,
+		Title:      "Publishing channel degraded",
+		Message:    publishingChannelDegradedMessage(config, failureType, impactScope, reason),
+		Component:  "publishing_channel",
+		OccurredAt: occurredAt,
+		Fields:     fields,
+	}
+}
+
+func publishingChannelConfigID(config *publishingchannel.ChannelConfig) string {
+	if config == nil {
+		return ""
+	}
+	return config.ID
+}
+
+func publishingChannelConfigName(config *publishingchannel.ChannelConfig) string {
+	if config == nil {
+		return ""
+	}
+	return strings.TrimSpace(config.Name)
+}
+
+func publishingChannelConfigType(config *publishingchannel.ChannelConfig) string {
+	if config == nil {
+		return ""
+	}
+	return string(config.Type)
+}
+
+func publishingChannelDisplayName(config *publishingchannel.ChannelConfig) string {
+	if name := publishingChannelConfigName(config); name != "" {
+		return name
+	}
+	if id := publishingChannelConfigID(config); id != "" {
+		return id
+	}
+	return "unknown channel"
+}
+
+func publishingChannelFailureReason(logEntry *publishingchannel.ChannelMessageLog, reason string) string {
+	reason = strings.TrimSpace(reason)
 	if reason == "" && logEntry != nil {
 		reason = strings.TrimSpace(logEntry.FailureReason)
 		if reason == "" {
@@ -483,28 +552,39 @@ func publishingChannelDegradedAlertEvent(config *publishingchannel.ChannelConfig
 		}
 	}
 	if reason == "" {
-		reason = "publishing channel delivery failed repeatedly"
+		return "publishing channel delivery failed repeatedly"
 	}
-	occurredAt := time.Now().UTC()
-	if logEntry != nil && !logEntry.CreatedAt.IsZero() {
-		occurredAt = logEntry.CreatedAt.UTC()
+	return reason
+}
+
+func publishingChannelFailureType(logEntry *publishingchannel.ChannelMessageLog) string {
+	if logEntry == nil {
+		return "channel_degraded"
 	}
-	return observability.AlertEvent{
-		Key:        fmt.Sprintf("publishing_channel:%s:%s:degraded", organizationID, channelID),
-		Severity:   observability.AlertSeverityWarning,
-		Title:      "Publishing channel degraded",
-		Message:    reason,
-		Component:  "publishing_channel",
-		OccurredAt: occurredAt,
-		Fields: map[string]any{
-			"organization_id": organizationID,
-			"channel_id":      channelID,
-			"channel_type":    channelType,
-			"channel_name":    channelName,
-			"failure_reason":  reason,
-			"source":          "publishing_channel.health",
-		},
+	if strings.TrimSpace(logEntry.TransformError) != "" || !logEntry.TransformSuccess && strings.TrimSpace(logEntry.FailureReason) == "" {
+		return "transform_error"
 	}
+	switch logEntry.Status {
+	case publishingchannel.MessageStatusPermanentFailure:
+		return "permanent_failure"
+	case publishingchannel.MessageStatusRetryPending, publishingchannel.MessageStatusSending:
+		return "delivery_failure"
+	default:
+		if strings.TrimSpace(logEntry.FailureReason) != "" {
+			return "delivery_failure"
+		}
+		return "channel_degraded"
+	}
+}
+
+func publishingChannelImpactScope(config *publishingchannel.ChannelConfig) string {
+	channelName := publishingChannelDisplayName(config)
+	return fmt.Sprintf("outbound messages for %s are affected and may require retry or fallback routing", channelName)
+}
+
+func publishingChannelDegradedMessage(config *publishingchannel.ChannelConfig, failureType, impactScope, reason string) string {
+	channelName := publishingChannelDisplayName(config)
+	return fmt.Sprintf("Publishing channel %s degraded: %s. Impact scope: %s. Failure reason: %s.", channelName, failureType, impactScope, reason)
 }
 
 func publishingChannelHealthNotifier(ctx context.Context, event publishingchannel.ChannelHealthEvent) {
