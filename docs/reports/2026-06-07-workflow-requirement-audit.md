@@ -33,7 +33,7 @@ Status values:
 | `skip_on_failure` marks node skipped and continues as partial success. | Proven | `RecordNodeStatus` seeds downstream nodes after skip and marks `partial_success`; `RunExecutionUntilBlocked` continues after skipped node. Covered by `TestApplyNodeFailureSkipsOptionalNodeAndContinues`, `TestServiceRecordNodeStatusAppliesFailurePolicies`, and `TestServiceRunExecutionUntilBlockedContinuesAfterSkipOnFailure`. |
 | `failure_branch` routes error context to a branch. | Proven | `seedFailureBranchNode` merges `workflow.error` into branch input/context. Covered by `TestApplyNodeFailureBranchesToFailureNodeWithErrorContext`, `TestServiceRecordNodeStatusAppliesFailurePolicies`, and `TestServiceRunExecutionFailureBranchRunsWithErrorContext`. |
 | User options: retry node, skip node, edit input retry, terminate workflow. | Proven | `ResolvePausedFailure` supports retry, continue, branch, and fail decisions with edited input. Covered by `TestServiceResolvePausedFailureDecisionRetriesSkipsAndTerminates` and `TestWorkflowHandlerWorkflowDecisionSupportsPausedFailureUserActions`. |
-| Notify user on pause/failure. | Partial | The paused execution and node records expose reason/error to API/UI. `pause_on_failure` now emits a workflow failure-pause event through `WithFailurePauseNotificationSink`; the default HTTP/server wiring adapts that event into an in-app notification with workflow/execution/node metadata and an action URL. Covered by `TestServiceRecordNodeStatusNotifiesUserWhenFailurePausesExecution`, `TestNewConfiguredWorkflowServiceWiresFailurePauseNotification`, and `TestRouteSurfaceWiresConfiguredWorkflowSystemLimits`. Email/Webhook delivery for this exact workflow failure-pause event is still not proven. |
+| Notify user on pause/failure. | Proven | The paused execution and node records expose reason/error to API/UI. `pause_on_failure` now emits a workflow failure-pause event through `WithFailurePauseNotificationSink`; the default HTTP/server wiring adapts that event into an in-app notification with workflow/execution/node metadata and an action URL, and also routes a warning `observability.AlertEvent` into the configured HTTP alert sink. Warning alerts use the default email and IM/webhook-backed delivery channels. Covered by `TestServiceRecordNodeStatusNotifiesUserWhenFailurePausesExecution`, `TestNewConfiguredWorkflowServiceWiresFailurePauseNotification`, `TestNewConfiguredWorkflowServiceRoutesFailurePauseAlertForEmailAndWebhookDelivery`, and `TestRouteSurfaceWiresConfiguredWorkflowSystemLimits`. |
 
 ## 2.3 Concurrency Control
 
@@ -83,9 +83,8 @@ Status values:
 
 ## Current Conclusion
 
-The repository-owned Workflow engine now proves most Functional Logic 2.1-2.6 behavior: trigger modes, default schedule synchronization wiring, Chat-driven conversation/semantic dispatcher wiring, Relay-backed semantic-threshold matcher wiring, DAG execution, failure strategies, in-app failure-pause notification, concurrency queues/rejects, resource timeout/token/node limits, variable interpolation/debug snapshots, version history, rollback, and branch creation.
+The repository-owned Workflow engine now proves most Functional Logic 2.1-2.6 behavior: trigger modes, default schedule synchronization wiring, Chat-driven conversation/semantic dispatcher wiring, Relay-backed semantic-threshold matcher wiring, DAG execution, failure strategies, in-app and alert-routed failure-pause notifications, concurrency queues/rejects, resource timeout/token/node limits, variable interpolation/debug snapshots, version history, rollback, and branch creation.
 
 The matrix row remains `Partial`, not `Proven`, because these requirements still need work or stronger evidence:
 
-1. Prove email/Webhook delivery for workflow failure-pause notifications, beyond the covered in-app path.
-2. Prove 20+ node types and production-grade frontend drag/drop workflows end to end.
+1. Prove 20+ node types and production-grade frontend drag/drop workflows end to end.

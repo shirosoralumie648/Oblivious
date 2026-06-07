@@ -23,6 +23,7 @@ import (
 	"oblivious/server/internal/relay/types"
 	"oblivious/server/internal/schedule"
 	"oblivious/server/internal/usage"
+	"oblivious/server/internal/workflow"
 )
 
 func NewServer(cfg config.Config, database *sql.DB) *stdhttp.Server {
@@ -50,7 +51,11 @@ func NewServer(cfg config.Config, database *sql.DB) *stdhttp.Server {
 	}
 
 	notificationService := notification.NewService(notification.NewSQLStore(database))
-	workflowService := newConfiguredWorkflowService(cfg, database, notificationService)
+	alertStateStore := observability.NewSQLAlertStateStore(database)
+	alertRoutingRuleStore := observability.NewSQLAlertRoutingRuleStore(database)
+	alertProviderConfigStore := observability.NewSQLAlertProviderConfigStore(database)
+	alertingCloser := configureHTTPAlerting(cfg, alertStateStore, alertRoutingRuleStore, alertProviderConfigStore)
+	workflowService := newConfiguredWorkflowServiceWithStoreNotifierAndAlerts(cfg, workflow.NewSQLStore(database), notificationService, currentHTTPAlertSink())
 	scheduleAgentGateway := chat.NewRelayGateway(
 		chat.WithRelayURL("http://localhost:"+fmt.Sprintf("%d", cfg.Port)+"/v1"),
 		chat.WithDefaultModel(cfg.RelayDefaultModel),
@@ -60,10 +65,6 @@ func NewServer(cfg config.Config, database *sql.DB) *stdhttp.Server {
 		agentService.SetWebSearchProvider(provider)
 	}
 	scheduleService := newScheduleService(schedule.NewSQLStore(database), workflowService, agentService)
-	alertStateStore := observability.NewSQLAlertStateStore(database)
-	alertRoutingRuleStore := observability.NewSQLAlertRoutingRuleStore(database)
-	alertProviderConfigStore := observability.NewSQLAlertProviderConfigStore(database)
-	alertingCloser := configureHTTPAlerting(cfg, alertStateStore, alertRoutingRuleStore, alertProviderConfigStore)
 
 	// Create main router
 	var relayConfigApplier admin.RelayConfigApplier

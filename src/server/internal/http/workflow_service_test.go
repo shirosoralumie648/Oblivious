@@ -10,6 +10,7 @@ import (
 
 	"oblivious/server/internal/config"
 	"oblivious/server/internal/notification"
+	"oblivious/server/internal/observability"
 	relaytypes "oblivious/server/internal/relay/types"
 	"oblivious/server/internal/workflow"
 )
@@ -148,6 +149,71 @@ func TestNewConfiguredWorkflowServiceWiresFailurePauseNotification(t *testing.T)
 	}
 	if got.Metadata["event"] != "workflow.failure_paused" || got.Metadata["nodeType"] != "agent" || got.Metadata["workspaceId"] != "workspace_1" {
 		t.Fatalf("unexpected notification metadata: %+v", got.Metadata)
+	}
+}
+
+func TestNewConfiguredWorkflowServiceRoutesFailurePauseAlertForEmailAndWebhookDelivery(t *testing.T) {
+	notificationStore := &workflowServiceNotificationStore{}
+	alertSink := &workflowServiceAlertSink{}
+	store := newWorkflowServiceMemoryStore()
+	service := newConfiguredWorkflowServiceWithStoreNotifierAndAlerts(config.Config{
+		RelayEnabled: false,
+	}, store, notification.NewService(notificationStore), alertSink)
+
+	created, err := service.CreateWorkflow(context.Background(), workflow.CreateWorkflowRequest{
+		OrganizationID: "org_1",
+		Name:           "Incident triage",
+		Status:         workflow.WorkflowStatusPublished,
+		Definition: map[string]any{
+			"nodes": []any{map[string]any{"id": "call_agent", "type": "agent"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkflow returned error: %v", err)
+	}
+	execution, err := service.StartExecution(context.Background(), workflow.StartExecutionRequest{
+		OrganizationID: "org_1",
+		WorkflowID:     created.ID,
+		Context: map[string]any{
+			"userId":      "user_1",
+			"workspaceId": "workspace_1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("StartExecution returned error: %v", err)
+	}
+
+	if _, err := service.RecordNodeStatus(context.Background(), "org_1", execution.ID, workflow.RecordNodeStatusRequest{
+		NodeID:   "call_agent",
+		NodeType: "agent",
+		Status:   workflow.NodeStatusFailed,
+		Error:    map[string]any{"message": "agent timeout"},
+	}); err != nil {
+		t.Fatalf("RecordNodeStatus returned error: %v", err)
+	}
+
+	if len(notificationStore.created) != 1 {
+		t.Fatalf("expected existing in-app notification to remain wired, got %+v", notificationStore.created)
+	}
+	if len(alertSink.events) != 1 {
+		t.Fatalf("expected one workflow failure alert event, got %+v", alertSink.events)
+	}
+	event := alertSink.events[0]
+	if event.Key != "workflow:failure_paused:"+execution.ID+":call_agent" || event.Severity != observability.AlertSeverityWarning || event.Component != "workflow" {
+		t.Fatalf("unexpected workflow failure alert identity: %+v", event)
+	}
+	if event.Title != "Workflow paused: Incident triage" || event.Message != "Node call_agent failed: agent timeout" {
+		t.Fatalf("unexpected workflow failure alert content: %+v", event)
+	}
+	if event.Fields["event"] != "workflow.failure_paused" || event.Fields["actionUrl"] != "/workspace/workflows/"+created.ID+"/executions/"+execution.ID {
+		t.Fatalf("expected workflow failure alert fields to preserve metadata/action URL, got %+v", event.Fields)
+	}
+	policy := observability.DefaultAlertDeliveryPolicy()
+	if !sameWorkflowServiceAlertChannels(policy.ChannelsForSeverity(event.Severity), []observability.AlertDeliveryChannel{
+		observability.AlertDeliveryChannelEmail,
+		observability.AlertDeliveryChannelIM,
+	}) {
+		t.Fatalf("expected warning workflow alerts to route to email and webhook-backed IM channels, got %+v", policy.ChannelsForSeverity(event.Severity))
 	}
 }
 
@@ -424,4 +490,25 @@ func (s *workflowServiceNotificationStore) Delete(ctx context.Context, id string
 
 func (s *workflowServiceNotificationStore) GetUnreadCount(ctx context.Context, userID string) (int, error) {
 	return 0, nil
+}
+
+type workflowServiceAlertSink struct {
+	events []observability.AlertEvent
+}
+
+func (s *workflowServiceAlertSink) Notify(ctx context.Context, event observability.AlertEvent) error {
+	s.events = append(s.events, event)
+	return nil
+}
+
+func sameWorkflowServiceAlertChannels(a, b []observability.AlertDeliveryChannel) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for index := range a {
+		if a[index] != b[index] {
+			return false
+		}
+	}
+	return true
 }

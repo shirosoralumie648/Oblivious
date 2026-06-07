@@ -100,18 +100,19 @@ func TestRouteSurfaceWiresConfiguredWorkflowSystemLimits(t *testing.T) {
 		t.Fatalf("read workflow_service.go: %v", err)
 	}
 
-	if !strings.Contains(string(routerSource), "workflowService = newConfiguredWorkflowService(cfg, database, notificationService)") {
-		t.Fatal("expected default router workflow service to use configured workflow limits and failure notifications")
+	if !strings.Contains(string(routerSource), "workflowService = newConfiguredWorkflowServiceWithStoreNotifierAndAlerts(cfg, workflow.NewSQLStore(database), notificationService, currentHTTPAlertSink())") {
+		t.Fatal("expected default router workflow service to use configured workflow limits, failure notifications, and alert delivery sink")
 	}
-	if !strings.Contains(string(serverSource), "workflowService := newConfiguredWorkflowService(cfg, database, notificationService)") {
-		t.Fatal("expected server workflow service to use configured workflow limits and failure notifications")
+	if !strings.Contains(string(serverSource), "workflowService := newConfiguredWorkflowServiceWithStoreNotifierAndAlerts(cfg, workflow.NewSQLStore(database), notificationService, currentHTTPAlertSink())") {
+		t.Fatal("expected server workflow service to use configured workflow limits, failure notifications, and alert delivery sink")
 	}
 	serviceText := string(serviceSource)
 	if !strings.Contains(serviceText, "workflow.WithSystemWorkflowLimits") ||
 		!strings.Contains(serviceText, "cfg.WorkflowSystemMaxConcurrent") ||
 		!strings.Contains(serviceText, "cfg.WorkflowGlobalMaxExecutionsPerMinute") ||
-		!strings.Contains(serviceText, "workflow.WithFailurePauseNotificationSink") {
-		t.Fatal("expected workflow service helper to pass configured system workflow limits and failure notification sink")
+		!strings.Contains(serviceText, "workflow.WithFailurePauseNotificationSink") ||
+		!strings.Contains(serviceText, "workflowFailurePauseAlertEvent") {
+		t.Fatal("expected workflow service helper to pass configured system workflow limits, failure notification sink, and alert event adapter")
 	}
 }
 

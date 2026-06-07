@@ -85,7 +85,7 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	notificationService := notification.NewService(notification.NewSQLStore(database))
 	workflowService := options.WorkflowService
 	if workflowService == nil {
-		workflowService = newConfiguredWorkflowService(cfg, database, notificationService)
+		workflowService = newConfiguredWorkflowServiceWithStoreNotifierAndAlerts(cfg, workflow.NewSQLStore(database), notificationService, currentHTTPAlertSink())
 	}
 	mux.HandleFunc("/healthz", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		if r.Method != stdhttp.MethodGet {
