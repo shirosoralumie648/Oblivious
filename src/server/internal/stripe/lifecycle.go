@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -42,6 +43,22 @@ type MarketplaceRefund struct {
 	Amount                  float64
 	Currency                string
 	Reason                  string
+}
+
+type DomesticCheckoutPaid struct {
+	Provider                  string
+	EventID                   string
+	OrganizationID            string
+	UserID                    string
+	PaymentIntentID           string
+	PackageID                 string
+	Kind                      string
+	ProviderPaymentIntentID   string
+	ProviderSubscriptionID    string
+	ProviderCustomerID        string
+	ProviderCheckoutSessionID string
+	Amount                    float64
+	Currency                  string
 }
 
 // LifecycleStore persists idempotent billing lifecycle transitions.
@@ -189,7 +206,57 @@ func (s *LifecycleService) ApplyStripeEvent(ctx context.Context, event stripeapi
 	}
 }
 
+func (s *LifecycleService) ApplyDomesticCheckoutPaid(ctx context.Context, input DomesticCheckoutPaid, payload []byte) error {
+	provider := strings.ToLower(strings.TrimSpace(input.Provider))
+	if provider == "" {
+		provider = "domestic"
+	}
+	ctx, span := observability.StartSpan(ctx, "billing.domestic_lifecycle", observability.String("payment.provider", provider))
+	defer span.End()
+
+	if s == nil || s.store == nil {
+		return nil
+	}
+	kind := strings.TrimSpace(input.Kind)
+	if kind == "" {
+		kind = "subscription"
+	}
+	currency := strings.ToLower(strings.TrimSpace(input.Currency))
+	if currency == "" {
+		currency = "cny"
+	}
+	if input.EventID == "" || input.OrganizationID == "" || input.UserID == "" || input.PaymentIntentID == "" {
+		metrics.RecordBillingLifecycleEvent("checkout", "failed")
+		return fmt.Errorf("%s checkout.paid: missing event_id, organization_id, user_id, or payment_intent_id", provider)
+	}
+	if kind == "subscription" && input.PackageID == "" {
+		metrics.RecordBillingLifecycleEvent("checkout", "failed")
+		return fmt.Errorf("%s checkout.paid: missing plan_id for subscription checkout", provider)
+	}
+	if err := s.store.ApplyCheckoutCompleted(ctx, input.EventID, checkoutCompletedLifecycle{
+		Provider:                  provider,
+		SessionID:                 input.ProviderCheckoutSessionID,
+		OrganizationID:            input.OrganizationID,
+		UserID:                    input.UserID,
+		PaymentIntentID:           input.PaymentIntentID,
+		PackageID:                 input.PackageID,
+		Kind:                      kind,
+		ProviderPaymentIntentID:   input.ProviderPaymentIntentID,
+		ProviderSubscriptionID:    input.ProviderSubscriptionID,
+		ProviderCustomerID:        input.ProviderCustomerID,
+		ProviderCheckoutSessionID: input.ProviderCheckoutSessionID,
+		Amount:                    input.Amount,
+		Currency:                  currency,
+	}, payload); err != nil {
+		metrics.RecordBillingLifecycleEvent("checkout", "failed")
+		return err
+	}
+	metrics.RecordBillingLifecycleEvent("checkout", "completed")
+	return nil
+}
+
 type checkoutCompletedLifecycle struct {
+	Provider                  string
 	SessionID                 string
 	OrganizationID            string
 	UserID                    string
@@ -486,9 +553,14 @@ func NewSQLLifecycleStore(db *sql.DB) *SQLLifecycleStore {
 }
 
 func (s *SQLLifecycleStore) ApplyCheckoutCompleted(ctx context.Context, eventID string, input checkoutCompletedLifecycle, payload []byte) error {
-	transitionKey := fmt.Sprintf("stripe:%s:checkout:%s", eventID, input.PaymentIntentID)
+	provider := strings.ToLower(strings.TrimSpace(input.Provider))
+	if provider == "" {
+		provider = "stripe"
+	}
+	transitionKey := fmt.Sprintf("%s:%s:checkout:%s", provider, eventID, input.PaymentIntentID)
 	return s.withTransition(ctx, lifecycleTransition{
 		Key:             transitionKey,
+		Provider:        provider,
 		ProviderEventID: eventID,
 		EventType:       "checkout.session.completed",
 		OrganizationID:  input.OrganizationID,
@@ -799,6 +871,7 @@ func (s *SQLLifecycleStore) ApplyRefund(ctx context.Context, eventID string, inp
 
 type lifecycleTransition struct {
 	Key             string
+	Provider        string
 	ProviderEventID string
 	EventType       string
 	OrganizationID  string
@@ -823,15 +896,19 @@ func (s *SQLLifecycleStore) withTransition(ctx context.Context, transition lifec
 	if len(payload) == 0 {
 		payload = []byte(`{}`)
 	}
+	provider := strings.ToLower(strings.TrimSpace(transition.Provider))
+	if provider == "" {
+		provider = "stripe"
+	}
 	result, err := tx.ExecContext(ctx, `
 		INSERT INTO billing_lifecycle_events (
 			id, transition_key, provider, provider_event_id, event_type,
 			organization_id, user_id, payment_intent_id, entity_type, entity_id,
 			from_state, to_state, reason, payload, created_at
 		)
-		VALUES ($1, $2, 'stripe', $3, $4, $5, $6, NULLIF($7, ''), $8, NULLIF($9, ''), NULLIF($10, ''), $11, NULLIF($12, ''), $13, $14)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''), $9, NULLIF($10, ''), NULLIF($11, ''), $12, NULLIF($13, ''), $14, $15)
 		ON CONFLICT (transition_key) DO NOTHING
-	`, uuid.New().String(), transition.Key, transition.ProviderEventID, transition.EventType, transition.OrganizationID, transition.UserID, transition.PaymentIntentID, transition.EntityType, transition.EntityID, transition.FromState, transition.ToState, transition.Reason, payload, time.Now().UTC())
+	`, uuid.New().String(), transition.Key, provider, transition.ProviderEventID, transition.EventType, transition.OrganizationID, transition.UserID, transition.PaymentIntentID, transition.EntityType, transition.EntityID, transition.FromState, transition.ToState, transition.Reason, payload, time.Now().UTC())
 	if err != nil {
 		return fmt.Errorf("insert lifecycle transition: %w", err)
 	}

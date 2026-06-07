@@ -14,29 +14,34 @@ import (
 	"oblivious/server/internal/metrics"
 )
 
-type fakeLifecycleStore struct{}
+type fakeLifecycleStore struct {
+	checkoutEvents []checkoutCompletedLifecycle
+	checkoutIDs    []string
+}
 
-func (fakeLifecycleStore) ApplyCheckoutCompleted(context.Context, string, checkoutCompletedLifecycle, []byte) error {
+func (s *fakeLifecycleStore) ApplyCheckoutCompleted(_ context.Context, eventID string, input checkoutCompletedLifecycle, _ []byte) error {
+	s.checkoutIDs = append(s.checkoutIDs, eventID)
+	s.checkoutEvents = append(s.checkoutEvents, input)
 	return nil
 }
-func (fakeLifecycleStore) ApplyInvoicePaid(context.Context, string, invoiceLifecycle, []byte) error {
+func (s *fakeLifecycleStore) ApplyInvoicePaid(context.Context, string, invoiceLifecycle, []byte) error {
 	return nil
 }
-func (fakeLifecycleStore) ApplyInvoicePaymentFailed(context.Context, string, invoiceLifecycle, []byte) error {
+func (s *fakeLifecycleStore) ApplyInvoicePaymentFailed(context.Context, string, invoiceLifecycle, []byte) error {
 	return nil
 }
-func (fakeLifecycleStore) ApplySubscriptionUpdated(context.Context, string, subscriptionLifecycle, []byte) error {
+func (s *fakeLifecycleStore) ApplySubscriptionUpdated(context.Context, string, subscriptionLifecycle, []byte) error {
 	return nil
 }
-func (fakeLifecycleStore) ApplySubscriptionDeleted(context.Context, string, subscriptionLifecycle, []byte) error {
+func (s *fakeLifecycleStore) ApplySubscriptionDeleted(context.Context, string, subscriptionLifecycle, []byte) error {
 	return nil
 }
-func (fakeLifecycleStore) ApplyRefund(context.Context, string, refundLifecycle, []byte) error {
+func (s *fakeLifecycleStore) ApplyRefund(context.Context, string, refundLifecycle, []byte) error {
 	return nil
 }
 
 func TestLifecycleObservabilityRecordsCheckoutCompleted(t *testing.T) {
-	service := NewLifecycleService(fakeLifecycleStore{})
+	service := NewLifecycleService(&fakeLifecycleStore{})
 	event := lifecycleCheckoutCompletedEvent("evt_obs_checkout", map[string]string{
 		"organization_id":   "org_obs",
 		"user_id":           "user_obs",
@@ -59,6 +64,40 @@ func TestLifecycleObservabilityRecordsCheckoutCompleted(t *testing.T) {
 	after := testutil.ToFloat64(metrics.BillingLifecycleEventsTotal.WithLabelValues("checkout", "completed"))
 	if after != before+1 {
 		t.Fatalf("expected checkout lifecycle metric increment, before=%v after=%v", before, after)
+	}
+}
+
+func TestLifecycleAppliesDomesticCheckoutPaidThroughCheckoutCompletion(t *testing.T) {
+	store := &fakeLifecycleStore{}
+	service := NewLifecycleService(store)
+
+	if err := service.ApplyDomesticCheckoutPaid(context.Background(), DomesticCheckoutPaid{
+		Provider:                  "alipay",
+		EventID:                   "evt_alipay_paid",
+		OrganizationID:            "org_1",
+		UserID:                    "user_1",
+		PaymentIntentID:           "pi_1",
+		PackageID:                 "",
+		Kind:                      "topup",
+		ProviderPaymentIntentID:   "trade_1",
+		ProviderCheckoutSessionID: "alipay_session_1",
+		Amount:                    25,
+		Currency:                  "cny",
+	}, []byte(`{"id":"evt_alipay_paid"}`)); err != nil {
+		t.Fatalf("ApplyDomesticCheckoutPaid returned error: %v", err)
+	}
+
+	if len(store.checkoutIDs) != 1 || store.checkoutIDs[0] != "evt_alipay_paid" {
+		t.Fatalf("expected one domestic checkout event id, got %+v", store.checkoutIDs)
+	}
+	if len(store.checkoutEvents) != 1 {
+		t.Fatalf("expected one domestic checkout input, got %+v", store.checkoutEvents)
+	}
+	input := store.checkoutEvents[0]
+	if input.Provider != "alipay" || input.PaymentIntentID != "pi_1" || input.Kind != "topup" ||
+		input.ProviderPaymentIntentID != "trade_1" || input.ProviderCheckoutSessionID != "alipay_session_1" ||
+		input.Amount != 25 || input.Currency != "cny" || input.OrganizationID != "org_1" || input.UserID != "user_1" {
+		t.Fatalf("unexpected domestic checkout input: %+v", input)
 	}
 }
 

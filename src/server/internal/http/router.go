@@ -168,17 +168,15 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 		CancelURL:     cfg.StripeCancelURL,
 		WebhookSecret: cfg.StripeWebhookSecret,
 	}, stripebilling.NewSQLPaymentIntentStore(database), quotaService, paymentProviderRegistry, checkoutCreators)
-	stripeWebhookHandler := stripebilling.NewWebhookHandler(
-		stripebilling.NewSQLWebhookLedger(database),
-		cfg.StripeWebhookSecret,
-		stripebilling.NewLifecycleService(
-			stripebilling.NewSQLLifecycleStore(database),
-			stripebilling.WithMarketplaceSettlementApplier(stripeMarketplaceSettlementAdapter{service: marketplaceSettlementService}),
-		),
+	billingLifecycleService := stripebilling.NewLifecycleService(
+		stripebilling.NewSQLLifecycleStore(database),
+		stripebilling.WithMarketplaceSettlementApplier(stripeMarketplaceSettlementAdapter{service: marketplaceSettlementService}),
 	)
+	stripeWebhookHandler := stripebilling.NewWebhookHandler(stripebilling.NewSQLWebhookLedger(database), cfg.StripeWebhookSecret, billingLifecycleService)
 	paymentWebhookLedger := stripebilling.NewSQLWebhookLedger(database)
-	alipayWebhookHandler := newDomesticPaymentWebhookHandler("alipay", cfg.AlipayWebhookSecret, paymentWebhookLedger)
-	weChatPayWebhookHandler := newDomesticPaymentWebhookHandler("wechatpay", cfg.WeChatPayWebhookSecret, paymentWebhookLedger)
+	domesticPaymentLifecycle := stripeDomesticPaymentLifecycleAdapter{service: billingLifecycleService}
+	alipayWebhookHandler := newDomesticPaymentWebhookHandler("alipay", cfg.AlipayWebhookSecret, paymentWebhookLedger, domesticPaymentLifecycle)
+	weChatPayWebhookHandler := newDomesticPaymentWebhookHandler("wechatpay", cfg.WeChatPayWebhookSecret, paymentWebhookLedger, domesticPaymentLifecycle)
 
 	adminOptions := []admin.ServiceOption{
 		admin.WithChannelRuntimeStatsProvider(options.ChannelRuntimeStatsProvider),

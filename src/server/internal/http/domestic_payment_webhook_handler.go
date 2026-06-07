@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -19,25 +20,83 @@ const (
 )
 
 type domesticPaymentWebhookHandler struct {
-	provider string
-	secret   string
-	ledger   stripebilling.WebhookLedger
+	provider  string
+	secret    string
+	ledger    stripebilling.WebhookLedger
+	lifecycle domesticPaymentLifecycle
 }
 
 type domesticPaymentWebhookEvent struct {
-	ID                      string `json:"id"`
-	Type                    string `json:"type"`
-	OrganizationID          string `json:"organization_id"`
-	UserID                  string `json:"user_id"`
-	PaymentIntentID         string `json:"payment_intent_id"`
-	ProviderPaymentIntentID string `json:"provider_payment_intent_id"`
+	ID                        string  `json:"id"`
+	Type                      string  `json:"type"`
+	OrganizationID            string  `json:"organization_id"`
+	UserID                    string  `json:"user_id"`
+	PaymentIntentID           string  `json:"payment_intent_id"`
+	PackageID                 string  `json:"plan_id"`
+	Kind                      string  `json:"kind"`
+	ProviderPaymentIntentID   string  `json:"provider_payment_intent_id"`
+	ProviderSubscriptionID    string  `json:"provider_subscription_id"`
+	ProviderCustomerID        string  `json:"provider_customer_id"`
+	ProviderCheckoutSessionID string  `json:"provider_checkout_session_id"`
+	Amount                    float64 `json:"amount"`
+	Currency                  string  `json:"currency"`
 }
 
-func newDomesticPaymentWebhookHandler(provider string, secret string, ledger stripebilling.WebhookLedger) domesticPaymentWebhookHandler {
+type domesticPaymentLifecycleInput struct {
+	Provider                  string
+	EventID                   string
+	OrganizationID            string
+	UserID                    string
+	PaymentIntentID           string
+	PackageID                 string
+	Kind                      string
+	ProviderPaymentIntentID   string
+	ProviderSubscriptionID    string
+	ProviderCustomerID        string
+	ProviderCheckoutSessionID string
+	Amount                    float64
+	Currency                  string
+}
+
+type domesticPaymentLifecycle interface {
+	ApplyDomesticCheckoutPaid(ctx context.Context, input domesticPaymentLifecycleInput, payload []byte) error
+}
+
+type stripeDomesticPaymentLifecycleAdapter struct {
+	service *stripebilling.LifecycleService
+}
+
+func (a stripeDomesticPaymentLifecycleAdapter) ApplyDomesticCheckoutPaid(ctx context.Context, input domesticPaymentLifecycleInput, payload []byte) error {
+	if a.service == nil {
+		return nil
+	}
+	return a.service.ApplyDomesticCheckoutPaid(ctx, stripebilling.DomesticCheckoutPaid{
+		Provider:                  input.Provider,
+		EventID:                   input.EventID,
+		OrganizationID:            input.OrganizationID,
+		UserID:                    input.UserID,
+		PaymentIntentID:           input.PaymentIntentID,
+		PackageID:                 input.PackageID,
+		Kind:                      input.Kind,
+		ProviderPaymentIntentID:   input.ProviderPaymentIntentID,
+		ProviderSubscriptionID:    input.ProviderSubscriptionID,
+		ProviderCustomerID:        input.ProviderCustomerID,
+		ProviderCheckoutSessionID: input.ProviderCheckoutSessionID,
+		Amount:                    input.Amount,
+		Currency:                  input.Currency,
+	}, payload)
+}
+
+func newDomesticPaymentWebhookHandler(provider string, secret string, ledger stripebilling.WebhookLedger, lifecycle ...domesticPaymentLifecycle) domesticPaymentWebhookHandler {
+	var lifecycleApplier domesticPaymentLifecycle
+	if len(lifecycle) > 0 {
+		lifecycleApplier = lifecycle[0]
+	}
 	return domesticPaymentWebhookHandler{
-		provider: strings.ToLower(strings.TrimSpace(provider)),
-		secret:   strings.TrimSpace(secret),
-		ledger:   ledger,
+		provider:  strings.ToLower(strings.TrimSpace(provider)),
+		secret:    strings.TrimSpace(secret),
+		ledger:    ledger,
+		lifecycle: lifecycleApplier,
 	}
 }
 
@@ -78,7 +137,7 @@ func (h domesticPaymentWebhookHandler) handle(w stdhttp.ResponseWriter, r *stdht
 		status = "failed"
 		errorMessage = "missing organization_id, user_id, or payment_intent_id"
 	}
-	if _, err := h.ledger.RecordWebhookEvent(r.Context(), stripebilling.WebhookEvent{
+	recorded, err := h.ledger.RecordWebhookEvent(r.Context(), stripebilling.WebhookEvent{
 		Provider:        h.provider,
 		EventID:         event.ID,
 		EventType:       event.Type,
@@ -90,9 +149,30 @@ func (h domesticPaymentWebhookHandler) handle(w stdhttp.ResponseWriter, r *stdht
 		Error:           errorMessage,
 		ReceivedAt:      now,
 		ProcessedAt:     &now,
-	}); err != nil {
+	})
+	if err != nil {
 		writeError(w, stdhttp.StatusInternalServerError, "webhook_record_failed", "record payment webhook failed")
 		return
+	}
+	if recorded && h.lifecycle != nil && status == "processed" && event.Type == "checkout.paid" {
+		if err := h.lifecycle.ApplyDomesticCheckoutPaid(r.Context(), domesticPaymentLifecycleInput{
+			Provider:                  h.provider,
+			EventID:                   event.ID,
+			OrganizationID:            strings.TrimSpace(event.OrganizationID),
+			UserID:                    strings.TrimSpace(event.UserID),
+			PaymentIntentID:           strings.TrimSpace(event.PaymentIntentID),
+			PackageID:                 strings.TrimSpace(event.PackageID),
+			Kind:                      strings.TrimSpace(event.Kind),
+			ProviderPaymentIntentID:   strings.TrimSpace(event.ProviderPaymentIntentID),
+			ProviderSubscriptionID:    strings.TrimSpace(event.ProviderSubscriptionID),
+			ProviderCustomerID:        strings.TrimSpace(event.ProviderCustomerID),
+			ProviderCheckoutSessionID: strings.TrimSpace(event.ProviderCheckoutSessionID),
+			Amount:                    event.Amount,
+			Currency:                  strings.TrimSpace(event.Currency),
+		}, payload); err != nil {
+			writeError(w, stdhttp.StatusInternalServerError, "webhook_lifecycle_failed", "apply payment webhook lifecycle failed")
+			return
+		}
 	}
 
 	writeSuccess(w, stdhttp.StatusOK, map[string]bool{"received": true})

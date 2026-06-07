@@ -216,6 +216,82 @@ func TestDomesticPaymentWebhookRoutesVerifySignatureAndRecordEvents(t *testing.T
 	}
 }
 
+func TestDomesticPaymentWebhookRouteAppliesTopupLifecycleOnce(t *testing.T) {
+	database := testDatabase(t)
+	cfg := testConfig()
+	cfg.AlipayWebhookSecret = "alipay_lifecycle_secret"
+	router := NewRouter(cfg, database)
+	_, _, userID := registerHTTPUser(t, router, "alipay-lifecycle@example.com")
+	_, organizationID := queryHTTPUserScope(t, database, userID)
+	if _, err := database.Exec(`
+		INSERT INTO payment_intents (id, provider, organization_id, user_id, kind, amount, currency, status, metadata, created_at, updated_at)
+		VALUES ('pi_alipay_lifecycle', 'alipay', $1, $2, 'topup', 25, 'cny', 'pending', '{}', NOW(), NOW())
+	`, organizationID, userID); err != nil {
+		t.Fatalf("insert domestic topup payment intent: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO topup_orders (id, organization_id, user_id, amount, money, status, payment_intent_id, created_at)
+		VALUES ('topup_alipay_lifecycle', $1, $2, 25, 25, 'pending', 'pi_alipay_lifecycle', NOW())
+	`, organizationID, userID); err != nil {
+		t.Fatalf("insert domestic topup order: %v", err)
+	}
+
+	payload := []byte(fmt.Sprintf(`{
+		"id": "evt_alipay_lifecycle",
+		"type": "checkout.paid",
+		"organization_id": %q,
+		"user_id": %q,
+		"payment_intent_id": "pi_alipay_lifecycle",
+		"provider_payment_intent_id": "trade_alipay_lifecycle",
+		"provider_checkout_session_id": "alipay_session_lifecycle",
+		"kind": "topup",
+		"amount": 25,
+		"currency": "cny"
+	}`, organizationID, userID))
+	timestamp := "1760000000"
+	for i := 0; i < 2; i++ {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/billing/alipay/webhook", strings.NewReader(string(payload)))
+		request.Header.Set("Oblivious-Payment-Timestamp", timestamp)
+		request.Header.Set("Oblivious-Payment-Signature", domesticWebhookSignature(cfg.AlipayWebhookSecret, timestamp, payload))
+		router.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("attempt %d expected alipay lifecycle webhook 200, got %d with body %s", i+1, recorder.Code, recorder.Body.String())
+		}
+	}
+
+	var paymentStatus, providerPaymentIntentID, topupStatus string
+	var quotaBalance float64
+	if err := database.QueryRow(`
+		SELECT status, COALESCE(provider_payment_intent_id, '')
+		FROM payment_intents
+		WHERE id = 'pi_alipay_lifecycle'
+	`).Scan(&paymentStatus, &providerPaymentIntentID); err != nil {
+		t.Fatalf("query domestic payment intent lifecycle: %v", err)
+	}
+	if err := database.QueryRow(`SELECT status FROM topup_orders WHERE id = 'topup_alipay_lifecycle'`).Scan(&topupStatus); err != nil {
+		t.Fatalf("query domestic topup lifecycle: %v", err)
+	}
+	if err := database.QueryRow(`SELECT balance FROM quotas WHERE organization_id = $1`, organizationID).Scan(&quotaBalance); err != nil {
+		t.Fatalf("query domestic topup quota balance: %v", err)
+	}
+	if paymentStatus != "completed" || providerPaymentIntentID != "trade_alipay_lifecycle" || topupStatus != "paid" || quotaBalance != 25 {
+		t.Fatalf("expected one applied domestic topup lifecycle, got payment=%s provider_pi=%s topup=%s balance=%.2f", paymentStatus, providerPaymentIntentID, topupStatus, quotaBalance)
+	}
+
+	var transitionCount int
+	if err := database.QueryRow(`
+		SELECT COUNT(*)
+		FROM billing_lifecycle_events
+		WHERE provider_event_id = 'evt_alipay_lifecycle'
+	`).Scan(&transitionCount); err != nil {
+		t.Fatalf("query domestic lifecycle transition count: %v", err)
+	}
+	if transitionCount != 1 {
+		t.Fatalf("expected one domestic lifecycle transition, got %d", transitionCount)
+	}
+}
+
 func TestBillingCheckoutRequiresSession(t *testing.T) {
 	router := NewRouter(testConfig(), testDatabase(t))
 
