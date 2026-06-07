@@ -130,6 +130,34 @@ describe('createKnowledgeApi', () => {
     });
   });
 
+  it('splits and merges knowledge document chunks', async () => {
+    const chunks = [
+      {
+        charCount: 12,
+        chunkId: 'kdc_left',
+        chunkIndex: 0,
+        content: 'Left chunk.',
+        documentVersion: 'v3',
+        estimatedTokenCount: 3,
+        metadata: {
+          documentVersion: 'v3'
+        }
+      }
+    ];
+    const post = vi.fn().mockResolvedValue(chunks);
+    const api = createKnowledgeApi(createClient({ post }));
+
+    await expect(api.splitKnowledgeDocumentChunk('kb_9', 'doc_1', 'kdc_7', { splitAt: 18 })).resolves.toEqual(chunks);
+    await expect(api.mergeKnowledgeDocumentChunks('kb_9', 'doc_1', 'kdc_7', { direction: 'next' })).resolves.toEqual(chunks);
+
+    expect(post).toHaveBeenNthCalledWith(1, '/api/v1/app/knowledge-bases/kb_9/documents/doc_1/chunks/kdc_7/split', {
+      splitAt: 18
+    });
+    expect(post).toHaveBeenNthCalledWith(2, '/api/v1/app/knowledge-bases/kb_9/documents/doc_1/chunks/kdc_7/merge', {
+      direction: 'next'
+    });
+  });
+
   it('uploads knowledge documents through multipart form data', async () => {
     const uploadedDocument = {
       content: 'Uploaded content',

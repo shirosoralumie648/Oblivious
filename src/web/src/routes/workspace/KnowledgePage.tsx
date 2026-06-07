@@ -382,6 +382,7 @@ export function KnowledgePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingDocumentChunks, setIsLoadingDocumentChunks] = useState(false);
   const [isRetrievingKnowledge, setIsRetrievingKnowledge] = useState(false);
+  const [isEditingChunkStructure, setIsEditingChunkStructure] = useState(false);
   const [isRunningRetrievalTests, setIsRunningRetrievalTests] = useState(false);
   const [isSavingChunk, setIsSavingChunk] = useState(false);
   const [isSavingRetrievalTestCaseChunkId, setIsSavingRetrievalTestCaseChunkId] = useState<string | null>(null);
@@ -406,6 +407,7 @@ export function KnowledgePage() {
   const [knowledgeBaseRetrievalMode, setKnowledgeBaseRetrievalMode] = useState<KnowledgeRetrievalMode>(defaultKnowledgeRetrievalMode);
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBaseSummary[]>([]);
   const [knowledgeChunkContentDraft, setKnowledgeChunkContentDraft] = useState('');
+  const [knowledgeChunkSplitAt, setKnowledgeChunkSplitAt] = useState(0);
   const [knowledgeDocumentChunks, setKnowledgeDocumentChunks] = useState<KnowledgeDocumentChunk[]>([]);
   const [knowledgeDocuments, setKnowledgeDocuments] = useState<KnowledgeDocumentSummary[]>([]);
   const [lastRetrievedQuery, setLastRetrievedQuery] = useState('');
@@ -488,8 +490,10 @@ export function KnowledgePage() {
 
   const resetDocumentChunks = () => {
     setIsLoadingDocumentChunks(false);
+    setIsEditingChunkStructure(false);
     setIsSavingChunk(false);
     setKnowledgeChunkContentDraft('');
+    setKnowledgeChunkSplitAt(0);
     setKnowledgeDocumentChunks([]);
     setSelectedChunkDocument(null);
     setSelectedChunkId(null);
@@ -521,6 +525,9 @@ export function KnowledgePage() {
   };
 
   const selectedChunk = knowledgeDocumentChunks.find((chunk) => chunk.chunkId === selectedChunkId) ?? knowledgeDocumentChunks[0] ?? null;
+  const selectedChunkListIndex = selectedChunk
+    ? knowledgeDocumentChunks.findIndex((chunk) => chunk.chunkId === selectedChunk.chunkId)
+    : -1;
   const chunkPreviewSourceUrl =
     selectedChunk?.metadata.sourceUrl ?? knowledgeDocumentChunks.find((chunk) => chunk.metadata.sourceUrl)?.metadata.sourceUrl;
   const chunkPreviewPageNumber =
@@ -532,6 +539,7 @@ export function KnowledgePage() {
 
   useEffect(() => {
     setKnowledgeChunkContentDraft(selectedChunk?.content ?? '');
+    setKnowledgeChunkSplitAt(selectedChunk?.charCount ?? selectedChunk?.content.length ?? 0);
   }, [selectedChunk?.chunkId, selectedChunk?.content]);
 
   useEffect(() => {
@@ -827,6 +835,64 @@ export function KnowledgePage() {
       setError('Unable to update document chunk. Retry the request or check the backend session.');
     } finally {
       setIsSavingChunk(false);
+    }
+  };
+
+  const applyChunkListUpdate = (chunks: KnowledgeDocumentChunk[], preferredChunkId?: string) => {
+    setKnowledgeDocumentChunks(chunks);
+    const nextSelectedChunkId = chunks.some((chunk) => chunk.chunkId === preferredChunkId)
+      ? preferredChunkId ?? null
+      : chunks[0]?.chunkId ?? null;
+    setSelectedChunkId(nextSelectedChunkId);
+  };
+
+  const handleSplitKnowledgeDocumentChunk = async () => {
+    if (!knowledgeBaseId || !selectedChunkDocument || !selectedChunk) {
+      return;
+    }
+    const splitAt = Math.trunc(knowledgeChunkSplitAt);
+    if (!Number.isFinite(splitAt) || splitAt <= 0 || splitAt >= selectedChunk.charCount) {
+      return;
+    }
+
+    setIsEditingChunkStructure(true);
+    setError(null);
+
+    try {
+      const chunks = await knowledgeApi.splitKnowledgeDocumentChunk(
+        knowledgeBaseId,
+        selectedChunkDocument.id,
+        selectedChunk.chunkId,
+        { splitAt }
+      );
+      applyChunkListUpdate(chunks, selectedChunk.chunkId);
+    } catch {
+      setError('Unable to split document chunk. Retry the request or check the backend session.');
+    } finally {
+      setIsEditingChunkStructure(false);
+    }
+  };
+
+  const handleMergeKnowledgeDocumentChunks = async (direction: 'previous' | 'next') => {
+    if (!knowledgeBaseId || !selectedChunkDocument || !selectedChunk) {
+      return;
+    }
+
+    setIsEditingChunkStructure(true);
+    setError(null);
+
+    try {
+      const chunks = await knowledgeApi.mergeKnowledgeDocumentChunks(
+        knowledgeBaseId,
+        selectedChunkDocument.id,
+        selectedChunk.chunkId,
+        { direction }
+      );
+      applyChunkListUpdate(chunks, selectedChunk.chunkId);
+    } catch {
+      setError('Unable to merge document chunks. Retry the request or check the backend session.');
+    } finally {
+      setIsEditingChunkStructure(false);
     }
   };
 
@@ -1465,6 +1531,41 @@ export function KnowledgePage() {
                         type="button"
                       >
                         Save chunk
+                      </button>
+                      <label>
+                        Chunk split position
+                        <input
+                          max={Math.max(selectedChunk.charCount - 1, 1)}
+                          min={1}
+                          onChange={(event) => setKnowledgeChunkSplitAt(Number(event.target.value))}
+                          type="number"
+                          value={knowledgeChunkSplitAt}
+                        />
+                      </label>
+                      <button
+                        disabled={
+                          isEditingChunkStructure ||
+                          knowledgeChunkSplitAt <= 0 ||
+                          knowledgeChunkSplitAt >= selectedChunk.charCount
+                        }
+                        onClick={() => void handleSplitKnowledgeDocumentChunk()}
+                        type="button"
+                      >
+                        Split chunk
+                      </button>
+                      <button
+                        disabled={isEditingChunkStructure || selectedChunkListIndex <= 0}
+                        onClick={() => void handleMergeKnowledgeDocumentChunks('previous')}
+                        type="button"
+                      >
+                        Merge with previous chunk
+                      </button>
+                      <button
+                        disabled={isEditingChunkStructure || selectedChunkListIndex < 0 || selectedChunkListIndex >= knowledgeDocumentChunks.length - 1}
+                        onClick={() => void handleMergeKnowledgeDocumentChunks('next')}
+                        type="button"
+                      >
+                        Merge with next chunk
                       </button>
                     </section>
                   ) : null}

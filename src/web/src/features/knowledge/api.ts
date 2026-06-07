@@ -10,7 +10,9 @@ import type {
   KnowledgeRetrievalTestCase,
   KnowledgeRetrievalTestRunReport,
   KnowledgeRetrievalTestRunRequest,
+  MergeKnowledgeDocumentChunksRequest,
   RetrieveKnowledgeRequest,
+  SplitKnowledgeDocumentChunkRequest,
   UpdateKnowledgeBaseRequest,
   UpdateKnowledgeDocumentRequest,
   UploadKnowledgeDocumentRequest
@@ -38,6 +40,18 @@ export interface KnowledgeApi {
     knowledgeBaseId: string,
     payload: KnowledgeRetrievalTestRunRequest
   ) => Promise<KnowledgeRetrievalTestRunReport>;
+  mergeKnowledgeDocumentChunks: (
+    knowledgeBaseId: string,
+    documentId: string,
+    chunkId: string,
+    payload: MergeKnowledgeDocumentChunksRequest
+  ) => Promise<KnowledgeDocumentChunk[]>;
+  splitKnowledgeDocumentChunk: (
+    knowledgeBaseId: string,
+    documentId: string,
+    chunkId: string,
+    payload: SplitKnowledgeDocumentChunkRequest
+  ) => Promise<KnowledgeDocumentChunk[]>;
   updateKnowledgeBase: (knowledgeBaseId: string, payload: UpdateKnowledgeBaseRequest) => Promise<KnowledgeBaseSummary>;
   updateKnowledgeDocument: (
     knowledgeBaseId: string,
@@ -109,6 +123,16 @@ export function createKnowledgeApi(client: HttpClient): KnowledgeApi {
     runRetrievalTestCases: (knowledgeBaseId, payload) =>
       client.post<KnowledgeRetrievalTestRunReport>(
         `/api/v1/app/knowledge-bases/${knowledgeBaseId}/retrieval-test-cases/run`,
+        payload
+      ),
+    mergeKnowledgeDocumentChunks: (knowledgeBaseId, documentId, chunkId, payload) =>
+      client.post<KnowledgeDocumentChunk[]>(
+        `/api/v1/app/knowledge-bases/${knowledgeBaseId}/documents/${documentId}/chunks/${chunkId}/merge`,
+        payload
+      ),
+    splitKnowledgeDocumentChunk: (knowledgeBaseId, documentId, chunkId, payload) =>
+      client.post<KnowledgeDocumentChunk[]>(
+        `/api/v1/app/knowledge-bases/${knowledgeBaseId}/documents/${documentId}/chunks/${chunkId}/split`,
         payload
       ),
     updateKnowledgeBase: (knowledgeBaseId, payload) =>

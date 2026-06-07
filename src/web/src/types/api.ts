@@ -214,9 +214,19 @@ export type KnowledgeDocumentChunk = {
     documentVersion?: string;
     pageNumber?: number;
     sourceUrl?: string;
+    startRune?: number;
+    endRune?: number;
   };
   charCount: number;
   estimatedTokenCount: number;
+};
+
+export type SplitKnowledgeDocumentChunkRequest = {
+  splitAt: number;
+};
+
+export type MergeKnowledgeDocumentChunksRequest = {
+  direction: 'previous' | 'next';
 };
 
 export type KnowledgeRetrievalResult = {

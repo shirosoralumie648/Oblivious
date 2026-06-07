@@ -14,6 +14,8 @@ const listRetrievalTestCases = vi.fn();
 const navigate = vi.fn();
 const retrieveKnowledge = vi.fn();
 const runRetrievalTestCases = vi.fn();
+const mergeKnowledgeDocumentChunks = vi.fn();
+const splitKnowledgeDocumentChunk = vi.fn();
 const updateKnowledgeBase = vi.fn();
 const updateKnowledgeDocumentChunk = vi.fn();
 const updateKnowledgeDocument = vi.fn();
@@ -63,6 +65,8 @@ vi.mock('../../features/knowledge/api', () => ({
     listRetrievalTestCases,
     retrieveKnowledge,
     runRetrievalTestCases,
+    mergeKnowledgeDocumentChunks,
+    splitKnowledgeDocumentChunk,
     updateKnowledgeBase,
     updateKnowledgeDocumentChunk,
     updateKnowledgeDocument,
@@ -95,6 +99,8 @@ describe('KnowledgePage', () => {
     routeState.knowledgeBaseId = undefined;
     retrieveKnowledge.mockReset();
     runRetrievalTestCases.mockReset();
+    mergeKnowledgeDocumentChunks.mockReset();
+    splitKnowledgeDocumentChunk.mockReset();
     updateKnowledgeBase.mockReset();
     updateKnowledgeDocumentChunk.mockReset();
     updateKnowledgeDocument.mockReset();
@@ -1307,6 +1313,97 @@ describe('KnowledgePage', () => {
     expect(screen.getAllByText('Edited architecture chunk preview.').length).toBeGreaterThan(0);
     expect(screen.getByText('Characters: 35')).toBeInTheDocument();
     expect(screen.getByText('Estimated tokens: 8')).toBeInTheDocument();
+  });
+
+  it('splits and merges a selected document chunk from the chunk editor', async () => {
+    routeState.knowledgeBaseId = 'kb_9';
+    getKnowledgeBase.mockResolvedValue({
+      documentCount: 1,
+      id: 'kb_9',
+      name: 'Architecture Notes',
+      updatedAt: '2026-04-03T11:30:00Z'
+    });
+    listKnowledgeDocuments.mockResolvedValue([
+      {
+        content: 'System boundaries',
+        id: 'doc_1',
+        title: 'Overview',
+        updatedAt: '2026-04-03T11:45:00Z'
+      }
+    ]);
+    listKnowledgeDocumentChunks.mockResolvedValue([
+      {
+        charCount: 31,
+        chunkId: 'kdc_1',
+        chunkIndex: 0,
+        content: 'First architecture chunk. Second.',
+        documentVersion: 'v2',
+        estimatedTokenCount: 7,
+        metadata: {
+          documentVersion: 'v2'
+        }
+      }
+    ]);
+    splitKnowledgeDocumentChunk.mockResolvedValue([
+      {
+        charCount: 24,
+        chunkId: 'kdc_left',
+        chunkIndex: 0,
+        content: 'First architecture chunk.',
+        documentVersion: 'v2',
+        estimatedTokenCount: 6,
+        metadata: {
+          documentVersion: 'v2'
+        }
+      },
+      {
+        charCount: 7,
+        chunkId: 'kdc_right',
+        chunkIndex: 1,
+        content: 'Second.',
+        documentVersion: 'v2',
+        estimatedTokenCount: 2,
+        metadata: {
+          documentVersion: 'v2'
+        }
+      }
+    ]);
+    mergeKnowledgeDocumentChunks.mockResolvedValue([
+      {
+        charCount: 33,
+        chunkId: 'kdc_left',
+        chunkIndex: 0,
+        content: 'First architecture chunk.\n\nSecond.',
+        documentVersion: 'v2',
+        estimatedTokenCount: 8,
+        metadata: {
+          documentVersion: 'v2'
+        }
+      }
+    ]);
+
+    render(<KnowledgePage />);
+
+    await screen.findByRole('heading', { name: 'Architecture Notes' });
+    fireEvent.click(screen.getByRole('button', { name: 'View chunks for Overview' }));
+    expect(await screen.findByLabelText('Chunk split position')).toHaveValue(31);
+
+    fireEvent.change(screen.getByLabelText('Chunk split position'), { target: { value: '24' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Split chunk' }));
+
+    await waitFor(() => {
+      expect(splitKnowledgeDocumentChunk).toHaveBeenCalledWith('kb_9', 'doc_1', 'kdc_1', { splitAt: 24 });
+    });
+    expect(screen.getByText('chunk_id: kdc_left')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Preview chunk boundary 2 kdc_right' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Merge with next chunk' }));
+
+    await waitFor(() => {
+      expect(mergeKnowledgeDocumentChunks).toHaveBeenCalledWith('kb_9', 'doc_1', 'kdc_left', { direction: 'next' });
+    });
+    expect(screen.getByLabelText('Selected chunk details')).toHaveTextContent('First architecture chunk. Second.');
+    expect(screen.queryByRole('button', { name: 'Preview chunk boundary 2 kdc_right' })).not.toBeInTheDocument();
   });
 
   it('submits retrieval tuning parameters and renders scored source details', async () => {
