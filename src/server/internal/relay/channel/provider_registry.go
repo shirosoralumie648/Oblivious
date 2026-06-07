@@ -288,18 +288,25 @@ func AdapterForChannel(ch *types.Channel) (types.ProviderAdapter, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrProviderUnknown, ch.Provider)
 	}
-	if spec.Status != ProviderStatusSupported {
-		return nil, fmt.Errorf("%w: %s adapter is %s", ErrProviderUnsupported, spec.ID, spec.Status)
-	}
 
-	baseURL := strings.TrimSpace(ch.BaseURL)
+	explicitBaseURL := strings.TrimSpace(ch.BaseURL)
+	baseURL := explicitBaseURL
 	if baseURL == "" {
 		baseURL = spec.DefaultBaseURL
+		if spec.Status != ProviderStatusSupported {
+			return nil, fmt.Errorf("%w: %s adapter is %s", ErrProviderUnsupported, spec.ID, spec.Status)
+		}
 	}
 	switch spec.Kind {
 	case ProviderKindOpenAICompatible:
+		if spec.Status != ProviderStatusSupported && explicitBaseURL == "" {
+			return nil, fmt.Errorf("%w: %s adapter is %s", ErrProviderUnsupported, spec.ID, spec.Status)
+		}
 		return NewOpenAICompatibleAdapter(spec.ID, baseURL, ch.APIKey), nil
 	case ProviderKindNative:
+		if spec.Status != ProviderStatusSupported {
+			return nil, fmt.Errorf("%w: %s adapter is %s", ErrProviderUnsupported, spec.ID, spec.Status)
+		}
 		if spec.ID == "claude" {
 			return NewClaudeAdapter(baseURL, ch.APIKey), nil
 		}

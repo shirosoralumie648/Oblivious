@@ -99,6 +99,39 @@ func TestAdapterForChannelSupportsExpandedOpenAICompatibleCatalog(t *testing.T) 
 	}
 }
 
+func TestAdapterForChannelAllowsCatalogOpenAICompatibleProviderWithExplicitBaseURL(t *testing.T) {
+	adapter, err := AdapterForChannel(&types.Channel{
+		ID:       "ch_perplexity",
+		Provider: "perplexity",
+		BaseURL:  "https://api.perplexity.ai",
+		APIKey:   "pplx-key",
+	})
+	if err != nil {
+		t.Fatalf("planned OpenAI-compatible catalog providers with explicit base URL should be callable: %v", err)
+	}
+	if adapter.Provider() != "perplexity" {
+		t.Fatalf("adapter provider = %q, want perplexity", adapter.Provider())
+	}
+	url, err := adapter.BuildURL("sonar", types.APITypeChat)
+	if err != nil {
+		t.Fatalf("BuildURL returned error: %v", err)
+	}
+	if url != "https://api.perplexity.ai/v1/chat/completions" {
+		t.Fatalf("url = %q", url)
+	}
+}
+
+func TestAdapterForChannelRejectsCatalogProviderWithoutCallableBaseURL(t *testing.T) {
+	_, err := AdapterForChannel(&types.Channel{
+		ID:       "ch_perplexity",
+		Provider: "perplexity",
+		APIKey:   "pplx-key",
+	})
+	if err == nil {
+		t.Fatal("planned catalog provider without explicit base URL should fail closed")
+	}
+}
+
 func TestAdapterForChannelSupportsOpenAICompatibleProviderFamily(t *testing.T) {
 	for _, provider := range []string{"openai", "deepseek", "openrouter", "ollama", "claude"} {
 		t.Run(provider, func(t *testing.T) {
