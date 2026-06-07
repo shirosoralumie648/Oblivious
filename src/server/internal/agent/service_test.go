@@ -2077,6 +2077,99 @@ func TestServiceApproveToolRunResumesReactLoopToFinalAnswer(t *testing.T) {
 	}
 }
 
+func TestServiceApproveToolRunResumeStopsWhenTokenBudgetExceeded(t *testing.T) {
+	now := time.Now().UTC()
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+			Config: Config{
+				TokenBudget: 1000,
+			},
+			Tools: []Tool{
+				{Name: "datetime", Type: "builtin", Enabled: true, RequiresApproval: true},
+			},
+		},
+		conversation: &Conversation{
+			ID:             "conv_1",
+			AgentID:        "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+		},
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Status:         RunStatusPendingApproval,
+			IterationCount: 1,
+			ToolCallCount:  1,
+			StartedAt:      now,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+		toolRuns: []*ToolRun{{
+			ID:             "tool_run_pending",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			ToolCallID:     "call_datetime",
+			ToolName:       "datetime",
+			ToolType:       "builtin",
+			Arguments:      map[string]any{},
+			Status:         ToolRunStatusPendingApproval,
+			ApprovalStatus: ApprovalStatusPending,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+		messages: []*Message{
+			{
+				ID:             "user_1",
+				ConversationID: "conv_1",
+				OrganizationID: "org_1",
+				Role:           "user",
+				Content:        "what time is it?",
+				CreatedAt:      now,
+			},
+			{
+				ID:             "assistant_tool_call",
+				ConversationID: "conv_1",
+				OrganizationID: "org_1",
+				Role:           "assistant",
+				ToolCalls:      []ToolCall{{ID: "call_datetime", Name: "datetime", Arguments: map[string]any{}}},
+				CreatedAt:      now,
+			},
+		},
+	}
+	gateway := &fakeGateway{
+		structured: []*chat.CompletionResponse{
+			{Content: "This final answer is too expensive.", FinishReason: "stop", Usage: &chat.CompletionUsage{TotalTokens: 1200}},
+		},
+	}
+	service := NewService(store, gateway)
+
+	_, err := service.ApproveToolRun(context.Background(), auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}}, "tool_run_pending", "operator approved")
+	if !errors.Is(err, ErrTokenBudgetExceeded) {
+		t.Fatalf("expected ErrTokenBudgetExceeded, got %v", err)
+	}
+	if gateway.structuredCalls != 1 {
+		t.Fatalf("expected resume to call model once before budget stop, got %d calls", gateway.structuredCalls)
+	}
+	for _, message := range store.messages {
+		if message.Role == "assistant" && message.Content == "This final answer is too expensive." {
+			t.Fatalf("budget-exceeded resume should not persist final assistant answer, got messages=%+v", store.messages)
+		}
+	}
+	run := store.runs[0]
+	if run.Status != RunStatusTokenBudgetExceeded || run.IterationCount != 2 || run.ToolCallCount != 1 || !strings.Contains(run.Error, "token_budget_exceeded") {
+		t.Fatalf("expected durable run token budget evidence after resume, got %+v", run)
+	}
+}
+
 func TestServiceRetryToolRunReexecutesFailedToolAndRestoresRunDetail(t *testing.T) {
 	now := time.Now().UTC()
 	store := &fakeStore{

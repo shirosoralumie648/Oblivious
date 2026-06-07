@@ -964,12 +964,19 @@ func (r *Runner) ResumeAfterApprovedTool(ctx context.Context, session auth.Sessi
 	}
 
 	ctx = withSessionRelayMetadata(ctx, session)
+	tokenBudget := normalizeTokenBudget(agent.Config.TokenBudget)
 	structuredGateway, ok := r.gateway.(chat.StructuredReplyGenerator)
 	if !ok {
 		reply, err := r.gateway.GenerateReply(ctx, chatMessages, config)
 		if err != nil {
 			_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), run.IterationCount+1, run.ToolCallCount)
 			return nil, fmt.Errorf("generate reply: %w", err)
+		}
+		estimatedTokens := estimateChatMessageTokens(append(chatMessages, chat.Message{Role: "assistant", Content: reply}))
+		if tokenBudget > 0 && estimatedTokens > tokenBudget {
+			message := fmt.Sprintf("token_budget_exceeded: estimated %d tokens exceeds budget %d", estimatedTokens, tokenBudget)
+			_ = r.failRunWithStatus(ctx, session.OrganizationID, run.ID, RunStatusTokenBudgetExceeded, message, run.IterationCount+1, run.ToolCallCount)
+			return nil, fmt.Errorf("%w: estimated %d tokens exceeds budget %d", ErrTokenBudgetExceeded, estimatedTokens, tokenBudget)
 		}
 		assistantMsg, err := r.store.CreateMessage(ctx, run.ConversationID, session.OrganizationID, "assistant", reply, nil, "")
 		if err != nil {
@@ -993,6 +1000,12 @@ func (r *Runner) ResumeAfterApprovedTool(ctx context.Context, session auth.Sessi
 	if err != nil {
 		_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), run.IterationCount+1, run.ToolCallCount)
 		return nil, fmt.Errorf("generate structured reply: %w", err)
+	}
+	usedTokens := completionTotalTokens(reply)
+	if tokenBudget > 0 && usedTokens > tokenBudget {
+		message := fmt.Sprintf("token_budget_exceeded: used %d tokens exceeds budget %d", usedTokens, tokenBudget)
+		_ = r.failRunWithStatus(ctx, session.OrganizationID, run.ID, RunStatusTokenBudgetExceeded, message, run.IterationCount+1, run.ToolCallCount)
+		return nil, fmt.Errorf("%w: used %d tokens exceeds budget %d", ErrTokenBudgetExceeded, usedTokens, tokenBudget)
 	}
 	if len(reply.ToolCalls) > 0 {
 		message := "approved tool resume produced another tool call"
