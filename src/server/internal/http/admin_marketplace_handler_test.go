@@ -14,6 +14,7 @@ import (
 	"oblivious/server/internal/auth"
 	"oblivious/server/internal/config"
 	"oblivious/server/internal/marketplace"
+	"oblivious/server/internal/observability"
 	"oblivious/server/internal/payment"
 	"oblivious/server/internal/quota"
 	relaytypes "oblivious/server/internal/relay/types"
@@ -120,6 +121,85 @@ func TestAdminHandlerListsReviewsWithMarketplaceReviewSLA(t *testing.T) {
 		!strings.Contains(recorder.Body.String(), `"manualSlaStatus":"due_soon"`) ||
 		!strings.Contains(recorder.Body.String(), `"minutesUntilDeadline":60`) {
 		t.Fatalf("expected pending review response to expose reviewSLA, got %s", recorder.Body.String())
+	}
+}
+
+func TestAdminHandlerEnforcesMarketplaceReviewSLA(t *testing.T) {
+	enforcer := &fakeReviewSLAEnforcer{
+		result: marketplace.ReviewSLAEnforcementResult{Scanned: 3, Alerted: 2},
+	}
+	handler := newAdminHandlerWithReviewSLA(admin.NewService(&fakeAdminStore{}), enforcer)
+
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/admin/reviews/sla/enforce?limit=50&offset=2", nil)
+	recorder := httptest.NewRecorder()
+
+	handler.enforceReviewSLA(recorder, request)
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected SLA enforcement 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if enforcer.options.Limit != 50 || enforcer.options.Offset != 2 {
+		t.Fatalf("expected limit/offset to be passed through, got %+v", enforcer.options)
+	}
+	if !strings.Contains(recorder.Body.String(), `"scanned":3`) || !strings.Contains(recorder.Body.String(), `"alerted":2`) {
+		t.Fatalf("expected enforcement result in response, got %s", recorder.Body.String())
+	}
+}
+
+func TestAdminReviewSLAEnforceRouteScansPendingReviewsAndAlerts(t *testing.T) {
+	database := testDatabase(t)
+	alerts := &captureReviewSLAAlertSink{}
+	restoreAlerts := setHTTPAlertRouterForTest(alerts)
+	defer restoreAlerts()
+	router := NewRouter(testConfig(), database)
+
+	userCookie, userCSRF, _ := registerHTTPUser(t, router, "marketplace-sla-user@example.com")
+	adminCookie, adminCSRF, adminUserID := registerHTTPUser(t, router, "marketplace-sla-admin@example.com")
+	promoteHTTPUserToAdmin(t, database, adminUserID)
+	_, organizationID := queryHTTPUserScope(t, database, adminUserID)
+	if _, err := database.Exec(`
+		INSERT INTO published_agents (
+			id, owner_id, organization_id, name, description, tools, example_conversations,
+			visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at
+		)
+		VALUES ('agent_sla_overdue_http', $1, $2, 'SLA Overdue HTTP', 'Pending review past manual SLA.',
+		        '{"tools":[{"name":"sla"}]}'::jsonb, '[]'::jsonb, 'public', 'pending_review',
+		        'free', 0, 0, 0, 0, NOW() - INTERVAL '80 hours', NOW() - INTERVAL '80 hours')
+	`, adminUserID, organizationID); err != nil {
+		t.Fatalf("insert pending review agent: %v", err)
+	}
+
+	forbiddenRecorder := httptest.NewRecorder()
+	forbiddenRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/admin/reviews/sla/enforce?limit=10", nil)
+	forbiddenRequest.AddCookie(userCookie)
+	addCSRF(forbiddenRequest, userCSRF)
+	router.ServeHTTP(forbiddenRecorder, forbiddenRequest)
+	if forbiddenRecorder.Code != stdhttp.StatusForbidden {
+		t.Fatalf("expected non-admin SLA enforcement route 403, got %d: %s", forbiddenRecorder.Code, forbiddenRecorder.Body.String())
+	}
+	if len(alerts.events) != 0 {
+		t.Fatalf("non-admin request must not emit SLA alerts, got %+v", alerts.events)
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/admin/reviews/sla/enforce?limit=10", nil)
+	request.AddCookie(adminCookie)
+	addCSRF(request, adminCSRF)
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected SLA enforcement route 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"scanned":1`) || !strings.Contains(recorder.Body.String(), `"alerted":1`) {
+		t.Fatalf("expected scanned/alerted response from route, got %s", recorder.Body.String())
+	}
+	if len(alerts.events) != 1 {
+		t.Fatalf("expected one routed SLA alert, got %+v", alerts.events)
+	}
+	if alerts.events[0].Key != "marketplace_review_sla:agent_sla_overdue_http:manual:overdue" ||
+		alerts.events[0].Severity != observability.AlertSeverityCritical ||
+		alerts.events[0].Component != "marketplace.review" {
+		t.Fatalf("unexpected routed SLA alert: %+v", alerts.events[0])
 	}
 }
 
@@ -1229,6 +1309,25 @@ func (s *fakeAdminStore) RejectAgent(ctx context.Context, id string, reason stri
 func (s *fakeAdminStore) RequestAgentChanges(ctx context.Context, id string, reason string) error {
 	s.needsChangesAgentID = id
 	s.needsChangesReason = reason
+	return nil
+}
+
+type fakeReviewSLAEnforcer struct {
+	options marketplace.ReviewSLAEnforcementOptions
+	result  marketplace.ReviewSLAEnforcementResult
+}
+
+func (s *fakeReviewSLAEnforcer) EnforceReviewSLAs(ctx context.Context, options marketplace.ReviewSLAEnforcementOptions) (marketplace.ReviewSLAEnforcementResult, error) {
+	s.options = options
+	return s.result, nil
+}
+
+type captureReviewSLAAlertSink struct {
+	events []observability.AlertEvent
+}
+
+func (s *captureReviewSLAAlertSink) Notify(_ context.Context, event observability.AlertEvent) error {
+	s.events = append(s.events, event)
 	return nil
 }
 

@@ -24,10 +24,15 @@ type adminMarketplacePayoutService interface {
 	MarkPayoutPaid(ctx context.Context, payoutID string, providerPayoutID string) (*marketplace.MarketplacePayout, error)
 }
 
+type adminReviewSLAEnforcer interface {
+	EnforceReviewSLAs(ctx context.Context, options marketplace.ReviewSLAEnforcementOptions) (marketplace.ReviewSLAEnforcementResult, error)
+}
+
 type adminHandler struct {
-	service       *admin.Service
-	quotaService  adminQuotaSettingsService
-	payoutService adminMarketplacePayoutService
+	service          *admin.Service
+	quotaService     adminQuotaSettingsService
+	payoutService    adminMarketplacePayoutService
+	reviewSLAService adminReviewSLAEnforcer
 }
 
 func newAdminHandler(service *admin.Service) adminHandler {
@@ -40,6 +45,10 @@ func newAdminHandlerWithQuota(service *admin.Service, quotaService adminQuotaSet
 
 func newAdminHandlerWithPayouts(service *admin.Service, payoutService adminMarketplacePayoutService) adminHandler {
 	return adminHandler{service: service, payoutService: payoutService}
+}
+
+func newAdminHandlerWithReviewSLA(service *admin.Service, reviewSLAService adminReviewSLAEnforcer) adminHandler {
+	return adminHandler{service: service, reviewSLAService: reviewSLAService}
 }
 
 func newAdminHandlerWithQuotaAndPayouts(service *admin.Service, quotaService adminQuotaSettingsService, payoutService adminMarketplacePayoutService) adminHandler {
@@ -807,6 +816,22 @@ func (h adminHandler) listReviews(w stdhttp.ResponseWriter, r *stdhttp.Request) 
 		"reviews": reviews,
 		"total":   len(reviews),
 	})
+}
+
+func (h adminHandler) enforceReviewSLA(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if h.reviewSLAService == nil {
+		writeError(w, stdhttp.StatusServiceUnavailable, "service_unavailable", "marketplace review SLA service is not configured")
+		return
+	}
+	result, err := h.reviewSLAService.EnforceReviewSLAs(r.Context(), marketplace.ReviewSLAEnforcementOptions{
+		Limit:  parseQueryInt(r, "limit", 100, 100),
+		Offset: parseQueryInt(r, "offset", 0, 0),
+	})
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, result)
 }
 
 func (h adminHandler) approveAgent(w stdhttp.ResponseWriter, r *stdhttp.Request, agentID string) {

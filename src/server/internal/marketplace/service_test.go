@@ -7,6 +7,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"oblivious/server/internal/observability"
 )
 
 type marketplaceServiceStore struct {
@@ -296,6 +298,15 @@ func (r *marketplaceAutomatedReviewer) RunAutomatedReview(ctx context.Context, a
 		result.AgentID = agentID
 	}
 	return &result, nil
+}
+
+type marketplaceSLACaptureAlertSink struct {
+	events []observability.AlertEvent
+}
+
+func (s *marketplaceSLACaptureAlertSink) Notify(_ context.Context, event observability.AlertEvent) error {
+	s.events = append(s.events, event)
+	return nil
 }
 
 func validAgentPublishRequest() AgentPublishRequest {
@@ -660,5 +671,65 @@ func TestServiceListPendingReviewsAddsReviewSLAForStandardAndVIPPublishers(t *te
 	}
 	if vipSLA.ManualSlaStatus != "overdue" || vipSLA.MinutesUntilDeadline != -60 {
 		t.Fatalf("expected VIP review to be 60 minutes overdue, got %+v", vipSLA)
+	}
+}
+
+func TestServiceEnforceReviewSLAsAlertsDueSoonAndOverdueOnce(t *testing.T) {
+	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
+	store := newMarketplaceServiceStore()
+	store.pendingReviews = []*PublishedAgent{
+		{
+			ID:             "agent_due_soon",
+			Name:           "Due Soon Review",
+			OrganizationID: "org_standard",
+			Status:         AgentStatusPendingReview,
+			CreatedAt:      now.Add(-70 * time.Hour),
+			UpdatedAt:      now.Add(-70 * time.Hour),
+		},
+		{
+			ID:                  "agent_vip_overdue",
+			Name:                "VIP Overdue Review",
+			OrganizationID:      "org_vip",
+			Status:              AgentStatusPendingReview,
+			CreatedAt:           now.Add(-25 * time.Hour),
+			UpdatedAt:           now.Add(-25 * time.Hour),
+			PublisherReviewTier: "vip",
+		},
+	}
+	alerts := &marketplaceSLACaptureAlertSink{}
+	service := NewService(store, nil, WithReviewSLAClock(func() time.Time { return now }), WithReviewSLAAlertSink(alerts))
+
+	result, err := service.EnforceReviewSLAs(context.Background(), ReviewSLAEnforcementOptions{Limit: 20})
+	if err != nil {
+		t.Fatalf("EnforceReviewSLAs returned error: %v", err)
+	}
+	if result.Scanned != 2 || result.Alerted != 2 {
+		t.Fatalf("expected two scanned and alerted reviews, got %+v", result)
+	}
+	if len(alerts.events) != 2 {
+		t.Fatalf("expected two alert events, got %+v", alerts.events)
+	}
+	if alerts.events[0].Key != "marketplace_review_sla:agent_due_soon:manual:due_soon" ||
+		alerts.events[0].Severity != observability.AlertSeverityWarning ||
+		alerts.events[0].Fields["manualSlaStatus"] != "due_soon" ||
+		alerts.events[0].Fields["minutesUntilDeadline"] != 120 {
+		t.Fatalf("unexpected due-soon SLA alert: %+v", alerts.events[0])
+	}
+	if alerts.events[1].Key != "marketplace_review_sla:agent_vip_overdue:manual:overdue" ||
+		alerts.events[1].Severity != observability.AlertSeverityCritical ||
+		alerts.events[1].Fields["manualSlaHours"] != 24 ||
+		alerts.events[1].Fields["publisherTier"] != "vip" {
+		t.Fatalf("unexpected overdue VIP SLA alert: %+v", alerts.events[1])
+	}
+
+	secondResult, err := service.EnforceReviewSLAs(context.Background(), ReviewSLAEnforcementOptions{Limit: 20})
+	if err != nil {
+		t.Fatalf("second EnforceReviewSLAs returned error: %v", err)
+	}
+	if secondResult.Scanned != 2 || secondResult.Alerted != 0 {
+		t.Fatalf("expected second enforcement to scan but not duplicate alerts, got %+v", secondResult)
+	}
+	if len(alerts.events) != 2 {
+		t.Fatalf("expected no duplicate alert events, got %+v", alerts.events)
 	}
 }

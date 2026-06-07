@@ -7,6 +7,8 @@ import (
 	"math"
 	"strings"
 	"time"
+
+	"oblivious/server/internal/observability"
 )
 
 // AuditLogger is the audit callback interface for logging review actions.
@@ -27,6 +29,8 @@ type Service struct {
 	audit             AuditLogger
 	automatedReviewer AutomatedReviewer
 	reviewSLAClock    func() time.Time
+	reviewSLAAlert    observability.AlertSink
+	reviewSLAAlerts   map[string]bool
 }
 
 // NewService creates a new marketplace Service.
@@ -50,12 +54,28 @@ func WithReviewSLAClock(clock func() time.Time) ServiceOption {
 	}
 }
 
+func WithReviewSLAAlertSink(sink observability.AlertSink) ServiceOption {
+	return func(service *Service) {
+		service.reviewSLAAlert = sink
+	}
+}
+
 type AutomatedReviewError struct {
 	Result AutomatedReviewResult
 }
 
 func (e *AutomatedReviewError) Error() string {
 	return "automated review rejected marketplace submission"
+}
+
+type ReviewSLAEnforcementOptions struct {
+	Limit  int
+	Offset int
+}
+
+type ReviewSLAEnforcementResult struct {
+	Scanned int `json:"scanned"`
+	Alerted int `json:"alerted"`
 }
 
 // --- Agent Publishing ---
@@ -271,6 +291,48 @@ func (s *Service) addReviewSLAs(agents []*PublishedAgent) {
 	}
 }
 
+func (s *Service) EnforceReviewSLAs(ctx context.Context, options ReviewSLAEnforcementOptions) (ReviewSLAEnforcementResult, error) {
+	limit := options.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 100
+	}
+	offset := options.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	agents, err := s.store.ListPendingReviews(ctx, limit, offset)
+	if err != nil {
+		return ReviewSLAEnforcementResult{}, err
+	}
+	s.addReviewSLAs(agents)
+
+	result := ReviewSLAEnforcementResult{Scanned: len(agents)}
+	if s.reviewSLAAlert == nil {
+		return result, nil
+	}
+	if s.reviewSLAAlerts == nil {
+		s.reviewSLAAlerts = make(map[string]bool)
+	}
+	for _, agent := range agents {
+		if agent == nil || agent.ReviewSLA == nil {
+			continue
+		}
+		event, ok := reviewSLAAlertEvent(agent)
+		if !ok {
+			continue
+		}
+		if s.reviewSLAAlerts[event.Key] {
+			continue
+		}
+		if err := s.reviewSLAAlert.Notify(ctx, event); err != nil {
+			return result, err
+		}
+		s.reviewSLAAlerts[event.Key] = true
+		result.Alerted++
+	}
+	return result, nil
+}
+
 func AddReviewSLA(agent *PublishedAgent, now time.Time) {
 	if agent == nil || agent.Status != "pending_review" {
 		return
@@ -329,6 +391,46 @@ func slaStatus(deadline time.Time, now time.Time, dueSoonThreshold time.Duration
 		return "due_soon"
 	}
 	return "within_sla"
+}
+
+func reviewSLAAlertEvent(agent *PublishedAgent) (observability.AlertEvent, bool) {
+	if agent == nil || agent.ReviewSLA == nil {
+		return observability.AlertEvent{}, false
+	}
+	status := agent.ReviewSLA.ManualSlaStatus
+	if status != "due_soon" && status != "overdue" {
+		return observability.AlertEvent{}, false
+	}
+	severity := observability.AlertSeverityWarning
+	if status == "overdue" {
+		severity = observability.AlertSeverityCritical
+	}
+	agentName := strings.TrimSpace(agent.Name)
+	if agentName == "" {
+		agentName = agent.ID
+	}
+	return observability.AlertEvent{
+		Key:        fmt.Sprintf("marketplace_review_sla:%s:manual:%s", agent.ID, status),
+		Severity:   severity,
+		Title:      "Marketplace review SLA " + strings.ReplaceAll(status, "_", " "),
+		Message:    fmt.Sprintf("Marketplace review for %s is %s; manual deadline %s.", agentName, strings.ReplaceAll(status, "_", " "), agent.ReviewSLA.ManualDeadlineAt.Format(time.RFC3339)),
+		Component:  "marketplace.review",
+		OccurredAt: time.Now().UTC(),
+		Fields: map[string]any{
+			"agentID":                agent.ID,
+			"agentName":              agentName,
+			"organizationID":         agent.OrganizationID,
+			"manualDeadlineAt":       agent.ReviewSLA.ManualDeadlineAt.Format(time.RFC3339),
+			"manualSlaHours":         agent.ReviewSLA.ManualSlaHours,
+			"manualSlaStatus":        agent.ReviewSLA.ManualSlaStatus,
+			"minutesUntilDeadline":   agent.ReviewSLA.MinutesUntilDeadline,
+			"publisherTier":          agent.ReviewSLA.PublisherTier,
+			"publisherTierSource":    agent.ReviewSLA.PublisherTierSource,
+			"vipPublisher":           agent.ReviewSLA.VIPPublisher,
+			"automatedReviewStatus":  agent.ReviewSLA.AutomatedReviewSlaStatus,
+			"automatedReviewMinutes": agent.ReviewSLA.AutomatedReviewSlaMinutes,
+		},
+	}, true
 }
 
 // ApproveAgent approves a pending agent (D-17).

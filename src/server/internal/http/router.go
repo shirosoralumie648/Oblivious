@@ -188,14 +188,15 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 		}))
 	}
 	adminService := admin.NewService(admin.NewSQLStore(database), adminOptions...)
-	adminHandler := newAdminHandler(adminService)
 	tenantHandler := newTenantHandler(tenant.NewService(tenant.NewSQLStore(database)), authService, authMiddleware)
 	sensitiveActionRateLimit := auth.RateLimitPolicy{Limit: 5, Window: time.Minute, BlockDuration: 15 * time.Minute}
 
 	// Marketplace service
 	marketplaceGovernanceService := marketplace.NewGovernanceService(marketplaceStore)
+	marketplaceService := marketplace.NewService(marketplaceStore, adminService, marketplace.WithReviewSLAAlertSink(currentHTTPAlertSink()))
+	adminHandler := newAdminHandlerWithReviewSLA(adminService, marketplaceService)
 	marketplaceHandler := newMarketplaceHandler(
-		marketplace.NewService(marketplaceStore, adminService),
+		marketplaceService,
 		marketplace.NewSearchService(database),
 		withMarketplaceCheckout(marketplaceSettlementService, checkoutCreator, stripebilling.CheckoutConfig{
 			SecretKey:     cfg.StripeSecretKey,
@@ -1151,6 +1152,14 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	})))
 	mux.Handle("/api/v1/admin/reviews/", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/admin/reviews/"), "/"), "/")
+		if len(parts) == 2 && parts[0] == "sla" && parts[1] == "enforce" {
+			if r.Method == stdhttp.MethodPost {
+				adminHandler.enforceReviewSLA(w, r)
+				return
+			}
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
 		if len(parts) != 2 || parts[0] == "" {
 			writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
 			return
@@ -1165,6 +1174,11 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 		case "reject":
 			if r.Method == stdhttp.MethodPost {
 				adminHandler.rejectAgent(w, r, parts[0])
+				return
+			}
+		case "needs-changes":
+			if r.Method == stdhttp.MethodPost {
+				adminHandler.needsChangesAgent(w, r, parts[0])
 				return
 			}
 		}
