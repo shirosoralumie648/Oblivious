@@ -1442,6 +1442,113 @@ components:
         received:
           type: boolean
 
+    RelayAPIToken:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        tokenPrefix:
+          type: string
+        status:
+          type: string
+          enum: [active, revoked]
+        userGroup:
+          type: string
+        modelLimitsEnabled:
+          type: boolean
+        modelLimits:
+          type: array
+          items:
+            type: string
+        quotaLimit:
+          type: number
+          format: double
+        usedQuota:
+          type: number
+          format: double
+        expiresAt:
+          type: string
+          format: date-time
+        lastUsedAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        revokedAt:
+          type: string
+          format: date-time
+
+    CreateRelayAPITokenRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        userGroup:
+          type: string
+        modelLimitsEnabled:
+          type: boolean
+        modelLimits:
+          type: array
+          items:
+            type: string
+        quotaLimit:
+          type: number
+          format: double
+        expiresAt:
+          type: string
+          format: date-time
+
+    CreatedRelayAPIToken:
+      type: object
+      properties:
+        rawToken:
+          type: string
+          description: The one-time raw token value. It is never returned by list APIs.
+        token:
+          $ref: "#/components/schemas/RelayAPIToken"
+
+    RelayAPITokenUsageItem:
+      type: object
+      properties:
+        id:
+          type: string
+        apiTokenId:
+          type: string
+        requestId:
+          type: string
+        apiType:
+          type: string
+        model:
+          type: string
+        channelId:
+          type: string
+        provider:
+          type: string
+        status:
+          type: string
+        statusCode:
+          type: integer
+        errorCode:
+          type: string
+        latencyMs:
+          type: integer
+        cost:
+          type: number
+          format: double
+        promptTokens:
+          type: integer
+        completionTokens:
+          type: integer
+        totalTokens:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+
     AccessSummary:
       type: object
       properties:
@@ -4295,6 +4402,116 @@ paths:
                           $ref: "#/components/schemas/BillingInvoiceSummary"
         "401":
           $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/console/api-tokens:
+    get:
+      summary: 获取当前用户的 Relay API tokens
+      operationId: listConsoleAPITokens
+      tags: [Billing]
+      responses:
+        "200":
+          description: 当前用户可见的 API token 列表，不包含 raw token
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/RelayAPIToken"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      summary: 创建 Relay API token
+      operationId: createConsoleAPIToken
+      tags: [Billing]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRelayAPITokenRequest"
+      responses:
+        "201":
+          description: 创建后的 API token；rawToken 只在本响应中返回一次
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/CreatedRelayAPIToken"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/console/api-tokens/{tokenId}:
+    delete:
+      summary: 撤销 Relay API token
+      operationId: revokeConsoleAPIToken
+      tags: [Billing]
+      parameters:
+        - name: tokenId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: token 已撤销
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          status:
+                            type: string
+                            enum: [revoked]
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/console/api-tokens/{tokenId}/usage:
+    get:
+      summary: 获取 Relay API token 使用记录
+      operationId: listConsoleAPITokenUsage
+      tags: [Billing]
+      parameters:
+        - name: tokenId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: token 使用记录
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/RelayAPITokenUsageItem"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /api/v1/billing/checkout:
     post:

@@ -61,13 +61,74 @@ func TestRouteSurfaceRegistersCanonicalKnowledgeRoutesThroughRegistrar(t *testin
 }
 
 func TestRouteSurfaceRegistersConsoleInvoiceRoute(t *testing.T) {
-	source, err := os.ReadFile("router.go")
+	routerSource, err := os.ReadFile("router.go")
 	if err != nil {
 		t.Fatalf("read router.go: %v", err)
 	}
+	routesSource, err := os.ReadFile("routes_console.go")
+	if err != nil {
+		t.Fatalf("read routes_console.go: %v", err)
+	}
 
-	if !strings.Contains(string(source), `mux.Handle("/api/v1/console/invoices"`) {
+	if !strings.Contains(string(routerSource), "registerConsoleRoutes(mux, authMiddleware, consoleHandler)") {
+		t.Fatal("expected NewRouterWithOptions to register canonical console routes through registerConsoleRoutes")
+	}
+	if !strings.Contains(string(routesSource), `mux.Handle("/api/v1/console/invoices"`) {
 		t.Fatal("expected NewRouterWithOptions to expose /api/v1/console/invoices")
+	}
+}
+
+func TestRouteSurfaceRegistersConsoleAPITokenRoutes(t *testing.T) {
+	routerSource, err := os.ReadFile("router.go")
+	if err != nil {
+		t.Fatalf("read router.go: %v", err)
+	}
+	routesSource, err := os.ReadFile("routes_console.go")
+	if err != nil {
+		t.Fatalf("read routes_console.go: %v", err)
+	}
+	if !strings.Contains(string(routerSource), "registerConsoleRoutes(mux, authMiddleware, consoleHandler)") {
+		t.Fatal("expected NewRouterWithOptions to register canonical console routes through registerConsoleRoutes")
+	}
+	text := string(routesSource)
+
+	for _, expected := range []string{
+		`mux.Handle("/api/v1/console/api-tokens"`,
+		`mux.Handle("/api/v1/console/api-tokens/"`,
+		"consoleHandler.createAPIToken",
+		"consoleHandler.listAPITokenUsage",
+		"consoleHandler.revokeAPIToken",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("expected NewRouterWithOptions to expose Console API token route surface containing %q", expected)
+		}
+	}
+}
+
+func TestRouteSurfaceRequiresSessionForConsoleAPITokenRoutesWithoutDatabase(t *testing.T) {
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{})
+
+	tests := []struct {
+		method string
+		path   string
+	}{
+		{stdhttp.MethodGet, "/api/v1/console/api-tokens"},
+		{stdhttp.MethodPost, "/api/v1/console/api-tokens"},
+		{stdhttp.MethodGet, "/api/v1/console/api-tokens/tok_1/usage"},
+		{stdhttp.MethodDelete, "/api/v1/console/api-tokens/tok_1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, nil)
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusUnauthorized {
+				t.Fatalf("expected 401 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
 	}
 }
 
