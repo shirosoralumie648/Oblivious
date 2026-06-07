@@ -450,6 +450,81 @@ components:
         budgetLimit:
           type: integer
 
+    AgentMemory:
+      type: object
+      properties:
+        id:
+          type: string
+        organizationId:
+          type: string
+        userId:
+          type: string
+        agentId:
+          type: string
+        type:
+          type: string
+          enum: [short_term, long_term, user_managed]
+        content:
+          type: string
+        importance:
+          type: integer
+          minimum: 1
+          maximum: 5
+        metadata:
+          type: object
+          additionalProperties: true
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AgentMemoryRequest:
+      type: object
+      required: [content]
+      properties:
+        agentId:
+          type: string
+        agent_id:
+          type: string
+        type:
+          type: string
+          enum: [short_term, long_term, user_managed]
+        content:
+          type: string
+        importance:
+          type: integer
+          minimum: 1
+          maximum: 5
+        metadata:
+          type: object
+          additionalProperties: true
+
+    AgentMemoryImportRequest:
+      type: object
+      required: [memories]
+      properties:
+        memories:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/AgentMemoryRequest"
+
+    AgentMemoryListResponse:
+      type: object
+      properties:
+        memories:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentMemory"
+        total:
+          type: integer
+
     UsageSummary:
       type: object
       properties:
@@ -1684,6 +1759,226 @@ paths:
                         $ref: "#/components/schemas/Task"
         "401":
           $ref: "#/components/responses/Unauthorized"
+
+  # ---- Agent memories ----
+  /api/v1/agent/memories:
+    get:
+      summary: 搜索或列出 Agent 记忆
+      operationId: listAgentMemories
+      tags: [Agent]
+      parameters:
+        - name: agentId
+          in: query
+          schema:
+            type: string
+        - name: query
+          in: query
+          schema:
+            type: string
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [short_term, long_term, user_managed]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: 记忆列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/AgentMemory"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      summary: 创建用户管理的 Agent 记忆
+      operationId: createAgentMemory
+      tags: [Agent]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentMemoryRequest"
+      responses:
+        "201":
+          description: 记忆已创建
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AgentMemory"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/agent/memories/import:
+    post:
+      summary: 批量导入 Agent 记忆
+      operationId: importAgentMemories
+      tags: [Agent]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentMemoryImportRequest"
+      responses:
+        "201":
+          description: 记忆已导入
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/AgentMemory"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/agent/memories/export:
+    get:
+      summary: 导出当前用户可访问的 Agent 记忆
+      operationId: exportAgentMemories
+      tags: [Agent]
+      parameters:
+        - name: agentId
+          in: query
+          schema:
+            type: string
+        - name: query
+          in: query
+          schema:
+            type: string
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [short_term, long_term, user_managed]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: 可下载的记忆导出包
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+              description: attachment filename for the JSON export.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AgentMemoryListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/agent/memories/{memoryId}:
+    patch:
+      summary: 更新 Agent 记忆
+      operationId: updateAgentMemory
+      tags: [Agent]
+      parameters:
+        - name: memoryId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                content:
+                  type: string
+                importance:
+                  type: integer
+                  minimum: 1
+                  maximum: 5
+      responses:
+        "200":
+          description: 记忆已更新
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AgentMemory"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      summary: 删除 Agent 记忆
+      operationId: deleteAgentMemory
+      tags: [Agent]
+      parameters:
+        - name: memoryId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: 记忆已删除
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   # ---- 控制台 (Console / Billing) ----
   /api/v1/console/usage:
