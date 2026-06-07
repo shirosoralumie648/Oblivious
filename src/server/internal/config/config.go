@@ -71,6 +71,10 @@ type Config struct {
 	ScheduleWorkerIntervalMS int
 	ScheduleWorkerClaimLimit int
 
+	// Workflow system-level guardrails. Zero keeps the guard disabled.
+	WorkflowSystemMaxConcurrent          int
+	WorkflowGlobalMaxExecutionsPerMinute int
+
 	// Channel message log archive configuration. Disabled unless a file root or
 	// S3-compatible object storage target is configured.
 	ChannelMessageLogArchiveEnabled     bool
@@ -288,6 +292,24 @@ func Load() (Config, error) {
 		}
 		scheduleWorkerClaimLimit = parsedLimit
 	}
+	workflowSystemMaxConcurrent := 0
+	workflowSystemMaxConcurrentRaw := strings.TrimSpace(os.Getenv("WORKFLOW_SYSTEM_MAX_CONCURRENT"))
+	if workflowSystemMaxConcurrentRaw != "" {
+		parsedLimit, parseErr := strconv.Atoi(workflowSystemMaxConcurrentRaw)
+		if parseErr != nil || parsedLimit < 1 {
+			return Config{}, fmt.Errorf("invalid WORKFLOW_SYSTEM_MAX_CONCURRENT: %q", workflowSystemMaxConcurrentRaw)
+		}
+		workflowSystemMaxConcurrent = parsedLimit
+	}
+	workflowGlobalMaxExecutionsPerMinute := 0
+	workflowGlobalMaxExecutionsPerMinuteRaw := strings.TrimSpace(os.Getenv("WORKFLOW_GLOBAL_MAX_EXECUTIONS_PER_MINUTE"))
+	if workflowGlobalMaxExecutionsPerMinuteRaw != "" {
+		parsedLimit, parseErr := strconv.Atoi(workflowGlobalMaxExecutionsPerMinuteRaw)
+		if parseErr != nil || parsedLimit < 1 {
+			return Config{}, fmt.Errorf("invalid WORKFLOW_GLOBAL_MAX_EXECUTIONS_PER_MINUTE: %q", workflowGlobalMaxExecutionsPerMinuteRaw)
+		}
+		workflowGlobalMaxExecutionsPerMinute = parsedLimit
+	}
 	channelMessageLogArchiveRoot := strings.TrimSpace(os.Getenv("CHANNEL_MESSAGE_LOG_ARCHIVE_ROOT"))
 	channelMessageLogArchiveBackend := strings.ToLower(strings.TrimSpace(os.Getenv("CHANNEL_MESSAGE_LOG_ARCHIVE_BACKEND")))
 	channelMessageLogArchiveS3Endpoint := strings.TrimSpace(os.Getenv("CHANNEL_MESSAGE_LOG_ARCHIVE_S3_ENDPOINT"))
@@ -430,6 +452,9 @@ func Load() (Config, error) {
 		ScheduleWorkerEnabled:    scheduleWorkerEnabled,
 		ScheduleWorkerIntervalMS: scheduleWorkerIntervalMS,
 		ScheduleWorkerClaimLimit: scheduleWorkerClaimLimit,
+
+		WorkflowSystemMaxConcurrent:          workflowSystemMaxConcurrent,
+		WorkflowGlobalMaxExecutionsPerMinute: workflowGlobalMaxExecutionsPerMinute,
 
 		ChannelMessageLogArchiveEnabled:     channelMessageLogArchiveEnabled,
 		ChannelMessageLogArchiveBackend:     channelMessageLogArchiveBackend,

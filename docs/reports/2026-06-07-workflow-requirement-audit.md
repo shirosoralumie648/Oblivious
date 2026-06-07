@@ -42,7 +42,7 @@ Status values:
 | Workflow-level configurable `max_concurrent_executions`, default 10. | Proven | `resourcePolicyForWorkflow` reads multiple key styles; `StartExecution` queues or rejects by workflow limit. Covered by `TestServiceStartExecutionRejectsWhenWorkflowConcurrencyLimitIsReached`. |
 | Organization-level shared concurrent workflow limit, default 50. | Proven | `WithOrgMaxConcurrentWorkflows` and `CountRunningExecutionsForOrganization`; execution queues when org limit is reached. Covered by org limit tests around start/promotion behavior. |
 | Trigger-aware smart defaults: conversation high, schedule serial, webhook medium. | Proven | `concurrencyPolicyForTrigger` sets conversation 50, schedule 1, webhook 10 unless workflow override exists. Covered by `TestServiceStartExecutionQueuesScheduleTriggersSeriallyByDefault` and `TestServicePromoteQueuedExecutionsKeepsScheduleTriggersSerial`. |
-| System-level max concurrent workflows and global workflow executions/minute. | Gap | `workflowResourcePolicy` has system-level fields, but there is no current config/wiring or global per-minute counter enforcing `system_max_concurrent_workflows` or `global_max_workflow_executions_per_minute`. |
+| System-level max concurrent workflows and global workflow executions/minute. | Proven | `SystemWorkflowLimits` and `WithSystemWorkflowLimits` add service-level guardrails for `MaxConcurrentWorkflows` and `MaxExecutionsPerMinute`. `StartExecution` rejects new executions before persistence when the configured global running-execution count or in-process one-minute sliding window is exceeded, while existing organization/workflow limits remain intact. `WORKFLOW_SYSTEM_MAX_CONCURRENT` and `WORKFLOW_GLOBAL_MAX_EXECUTIONS_PER_MINUTE` load into config, and the default router/server workflow service path passes those values through `newConfiguredWorkflowService`. Covered by `TestServiceStartExecutionRejectsWhenSystemConcurrencyLimitIsReached`, `TestServiceStartExecutionRejectsWhenGlobalExecutionsPerMinuteLimitIsReached`, `TestLoadWorkflowSystemLimitConfig`, and `TestRouteSurfaceWiresConfiguredWorkflowSystemLimits`. |
 
 ## 2.4 Resource Limits
 
@@ -87,9 +87,8 @@ The repository-owned Workflow engine now proves most Functional Logic 2.1-2.6 be
 
 The matrix row remains `Partial`, not `Proven`, because these requirements still need work or stronger evidence:
 
-1. Add system-level global concurrency and executions-per-minute enforcement.
-2. Inject a Relay-backed `EmbeddingSemanticTriggerMatcher` into the default workflow service so threshold-only semantic triggers are production-proven.
-3. Tie workflow failure pauses to concrete user notifications once the alert/notification provider pipeline is fully proven.
-4. Formalize/prove the node-local `node.{node_id}.{var_name}` namespace contract.
-5. Add branch merge/publish semantics beyond branch creation.
-6. Prove 20+ node types and production-grade frontend drag/drop workflows end to end.
+1. Inject a Relay-backed `EmbeddingSemanticTriggerMatcher` into the default workflow service so threshold-only semantic triggers are production-proven.
+2. Tie workflow failure pauses to concrete user notifications once the alert/notification provider pipeline is fully proven.
+3. Formalize/prove the node-local `node.{node_id}.{var_name}` namespace contract.
+4. Add branch merge/publish semantics beyond branch creation.
+5. Prove 20+ node types and production-grade frontend drag/drop workflows end to end.

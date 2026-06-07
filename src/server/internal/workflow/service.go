@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"oblivious/server/internal/metrics"
@@ -26,9 +27,17 @@ type Service struct {
 	nodeExecutors             *NodeExecutorRegistry
 	semanticTriggerMatcher    SemanticTriggerMatcher
 	scheduleSyncer            ScheduleSyncer
+	systemLimits              SystemWorkflowLimits
+	systemLimitWindow         []time.Time
+	systemLimitMu             sync.Mutex
 }
 
 type ServiceOption func(*Service)
+
+type SystemWorkflowLimits struct {
+	MaxConcurrentWorkflows int
+	MaxExecutionsPerMinute int
+}
 
 type ScheduleSyncer interface {
 	SyncWorkflowScheduleTriggers(ctx context.Context, req WorkflowScheduleSyncRequest) error
@@ -78,6 +87,17 @@ func WithOrgMaxConcurrentWorkflows(limit int) ServiceOption {
 	return func(service *Service) {
 		if limit > 0 {
 			service.orgMaxConcurrentWorkflows = limit
+		}
+	}
+}
+
+func WithSystemWorkflowLimits(limits SystemWorkflowLimits) ServiceOption {
+	return func(service *Service) {
+		if limits.MaxConcurrentWorkflows > 0 {
+			service.systemLimits.MaxConcurrentWorkflows = limits.MaxConcurrentWorkflows
+		}
+		if limits.MaxExecutionsPerMinute > 0 {
+			service.systemLimits.MaxExecutionsPerMinute = limits.MaxExecutionsPerMinute
 		}
 	}
 }
@@ -559,6 +579,13 @@ func (s *Service) StartExecution(ctx context.Context, req StartExecutionRequest)
 		return nil, err
 	}
 	policy := concurrencyPolicyForTrigger(runtimeWorkflow, triggerType)
+	if err := s.checkSystemWorkflowLimits(ctx, time.Now().UTC()); err != nil {
+		return nil, err
+	}
+	reservedGlobalStart, err := s.reserveGlobalExecutionStart(time.Now().UTC())
+	if err != nil {
+		return nil, err
+	}
 	status := ExecutionStatusRunning
 	if s.orgMaxConcurrentWorkflows > 0 {
 		runningForOrg, err := s.store.CountRunningExecutionsForOrganization(ctx, req.OrganizationID)
@@ -592,12 +619,74 @@ func (s *Service) StartExecution(ctx context.Context, req StartExecutionRequest)
 		NodeExecutions:   startNodes,
 	})
 	if err != nil {
+		if reservedGlobalStart {
+			s.releaseGlobalExecutionStart()
+		}
 		return nil, err
 	}
 	if execution == nil {
+		if reservedGlobalStart {
+			s.releaseGlobalExecutionStart()
+		}
 		return nil, fmt.Errorf("%w: workflow %s", ErrNotFound, req.WorkflowID)
 	}
 	return execution, nil
+}
+
+func (s *Service) checkSystemWorkflowLimits(ctx context.Context, now time.Time) error {
+	if s == nil {
+		return nil
+	}
+	if s.systemLimits.MaxConcurrentWorkflows > 0 {
+		summaries, err := s.store.ListActiveExecutionHealth(ctx, "", []ExecutionStatus{ExecutionStatusRunning})
+		if err != nil {
+			return err
+		}
+		running := 0
+		for _, summary := range summaries {
+			running += summary.Count
+		}
+		if running >= s.systemLimits.MaxConcurrentWorkflows {
+			return fmt.Errorf("%w: system has %d running workflow executions", ErrWorkflowConcurrencyLimit, running)
+		}
+	}
+	return nil
+}
+
+func (s *Service) reserveGlobalExecutionStart(now time.Time) (bool, error) {
+	if s == nil || s.systemLimits.MaxExecutionsPerMinute <= 0 {
+		return false, nil
+	}
+	s.systemLimitMu.Lock()
+	defer s.systemLimitMu.Unlock()
+	s.pruneSystemLimitWindowLocked(now)
+	if len(s.systemLimitWindow) >= s.systemLimits.MaxExecutionsPerMinute {
+		return false, fmt.Errorf("%w: system exceeded %d workflow executions per minute", ErrWorkflowConcurrencyLimit, s.systemLimits.MaxExecutionsPerMinute)
+	}
+	s.systemLimitWindow = append(s.systemLimitWindow, now)
+	return true, nil
+}
+
+func (s *Service) releaseGlobalExecutionStart() {
+	if s == nil || s.systemLimits.MaxExecutionsPerMinute <= 0 {
+		return
+	}
+	s.systemLimitMu.Lock()
+	defer s.systemLimitMu.Unlock()
+	if len(s.systemLimitWindow) > 0 {
+		s.systemLimitWindow = s.systemLimitWindow[:len(s.systemLimitWindow)-1]
+	}
+}
+
+func (s *Service) pruneSystemLimitWindowLocked(now time.Time) {
+	cutoff := now.Add(-time.Minute)
+	window := s.systemLimitWindow[:0]
+	for _, startedAt := range s.systemLimitWindow {
+		if startedAt.After(cutoff) {
+			window = append(window, startedAt)
+		}
+	}
+	s.systemLimitWindow = window
 }
 
 func (s *Service) MatchSemanticTriggers(ctx context.Context, req MatchSemanticTriggersRequest) ([]SemanticTriggerMatch, error) {

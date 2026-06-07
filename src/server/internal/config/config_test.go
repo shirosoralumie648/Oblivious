@@ -129,6 +129,22 @@ func TestLoadQdrantConfig(t *testing.T) {
 	}
 }
 
+func TestLoadWorkflowSystemLimitConfig(t *testing.T) {
+	t.Setenv("SERVER_PORT", "8080")
+	t.Setenv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/oblivious?sslmode=disable")
+	t.Setenv("SESSION_SECRET", "test-secret")
+	t.Setenv("WORKFLOW_SYSTEM_MAX_CONCURRENT", "75")
+	t.Setenv("WORKFLOW_GLOBAL_MAX_EXECUTIONS_PER_MINUTE", "120")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if cfg.WorkflowSystemMaxConcurrent != 75 || cfg.WorkflowGlobalMaxExecutionsPerMinute != 120 {
+		t.Fatalf("unexpected workflow system limits: concurrent=%d perMinute=%d", cfg.WorkflowSystemMaxConcurrent, cfg.WorkflowGlobalMaxExecutionsPerMinute)
+	}
+}
+
 func TestLoadRAGRerankerConfig(t *testing.T) {
 	t.Setenv("SERVER_PORT", "8080")
 	t.Setenv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/oblivious?sslmode=disable")

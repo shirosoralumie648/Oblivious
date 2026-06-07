@@ -1673,6 +1673,61 @@ func TestServiceStartExecutionUsesDefaultOrganizationConcurrencyLimit(t *testing
 	}
 }
 
+func TestServiceStartExecutionRejectsWhenSystemConcurrencyLimitIsReached(t *testing.T) {
+	store := newMemoryWorkflowStore()
+	service := NewService(store, WithSystemWorkflowLimits(SystemWorkflowLimits{
+		MaxConcurrentWorkflows: 2,
+	}))
+	ctx := context.Background()
+
+	workflow, err := service.CreateWorkflow(ctx, CreateWorkflowRequest{
+		OrganizationID: "org_3",
+		Name:           "System Limit Flow",
+		Definition:     workflowDefinitionWithNodes("start"),
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkflow returned error: %v", err)
+	}
+	store.addExecution("org_1", "other_workflow_a", ExecutionStatusRunning)
+	store.addExecution("org_2", "other_workflow_b", ExecutionStatusRunning)
+
+	_, err = service.StartExecution(ctx, StartExecutionRequest{OrganizationID: "org_3", WorkflowID: workflow.ID})
+	if !errors.Is(err, ErrWorkflowConcurrencyLimit) {
+		t.Fatalf("StartExecution over system concurrency err=%v, want ErrWorkflowConcurrencyLimit", err)
+	}
+	if got := len(store.executions); got != 2 {
+		t.Fatalf("expected system concurrency rejection not to persist a new execution, got %d executions", got)
+	}
+}
+
+func TestServiceStartExecutionRejectsWhenGlobalExecutionsPerMinuteLimitIsReached(t *testing.T) {
+	store := newMemoryWorkflowStore()
+	service := NewService(store, WithSystemWorkflowLimits(SystemWorkflowLimits{
+		MaxExecutionsPerMinute: 1,
+	}))
+	ctx := context.Background()
+
+	workflow, err := service.CreateWorkflow(ctx, CreateWorkflowRequest{
+		OrganizationID: "org_1",
+		Name:           "Minute Limit Flow",
+		Definition:     workflowDefinitionWithNodes("start"),
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkflow returned error: %v", err)
+	}
+	if _, err := service.StartExecution(ctx, StartExecutionRequest{OrganizationID: "org_1", WorkflowID: workflow.ID}); err != nil {
+		t.Fatalf("StartExecution first returned error: %v", err)
+	}
+
+	_, err = service.StartExecution(ctx, StartExecutionRequest{OrganizationID: "org_1", WorkflowID: workflow.ID})
+	if !errors.Is(err, ErrWorkflowConcurrencyLimit) {
+		t.Fatalf("StartExecution over global executions/minute err=%v, want ErrWorkflowConcurrencyLimit", err)
+	}
+	if got := len(store.executions); got != 1 {
+		t.Fatalf("expected global minute rejection not to persist a new execution, got %d executions", got)
+	}
+}
+
 func TestServiceCheckResourceLimitsTimesOutLongRunningExecution(t *testing.T) {
 	store := newMemoryWorkflowStore()
 	service := NewService(store)

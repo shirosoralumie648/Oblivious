@@ -86,6 +86,34 @@ func TestRouteSurfaceRefreshesWorkflowHealthBeforeMetricsScrape(t *testing.T) {
 	}
 }
 
+func TestRouteSurfaceWiresConfiguredWorkflowSystemLimits(t *testing.T) {
+	routerSource, err := os.ReadFile("router.go")
+	if err != nil {
+		t.Fatalf("read router.go: %v", err)
+	}
+	serverSource, err := os.ReadFile("server.go")
+	if err != nil {
+		t.Fatalf("read server.go: %v", err)
+	}
+	serviceSource, err := os.ReadFile("workflow_service.go")
+	if err != nil {
+		t.Fatalf("read workflow_service.go: %v", err)
+	}
+
+	if !strings.Contains(string(routerSource), "workflowService = newConfiguredWorkflowService(cfg, database)") {
+		t.Fatal("expected default router workflow service to use configured workflow limits")
+	}
+	if !strings.Contains(string(serverSource), "workflowService := newConfiguredWorkflowService(cfg, database)") {
+		t.Fatal("expected server workflow service to use configured workflow limits")
+	}
+	serviceText := string(serviceSource)
+	if !strings.Contains(serviceText, "workflow.WithSystemWorkflowLimits") ||
+		!strings.Contains(serviceText, "cfg.WorkflowSystemMaxConcurrent") ||
+		!strings.Contains(serviceText, "cfg.WorkflowGlobalMaxExecutionsPerMinute") {
+		t.Fatal("expected workflow service helper to pass configured system workflow limits")
+	}
+}
+
 func TestRouteSurfaceAdminRoutesRequireAdmin(t *testing.T) {
 	router := NewRouter(testConfig(), testDatabase(t))
 	cookie := routeSurfaceRegisterUser(t, router, "route-user@example.com")

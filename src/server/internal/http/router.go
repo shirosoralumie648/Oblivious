@@ -84,7 +84,7 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	mux := stdhttp.NewServeMux()
 	workflowService := options.WorkflowService
 	if workflowService == nil {
-		workflowService = workflow.NewService(workflow.NewSQLStore(database))
+		workflowService = newConfiguredWorkflowService(cfg, database)
 	}
 	mux.HandleFunc("/healthz", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		if r.Method != stdhttp.MethodGet {

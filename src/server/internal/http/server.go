@@ -22,7 +22,6 @@ import (
 	"oblivious/server/internal/relay/types"
 	"oblivious/server/internal/schedule"
 	"oblivious/server/internal/usage"
-	"oblivious/server/internal/workflow"
 )
 
 func NewServer(cfg config.Config, database *sql.DB) *stdhttp.Server {
@@ -49,7 +48,7 @@ func NewServer(cfg config.Config, database *sql.DB) *stdhttp.Server {
 		ensureDefaultChannel(relayStore, relayPool, cfg)
 	}
 
-	workflowService := workflow.NewService(workflow.NewSQLStore(database))
+	workflowService := newConfiguredWorkflowService(cfg, database)
 	scheduleAgentGateway := chat.NewRelayGateway(
 		chat.WithRelayURL("http://localhost:"+fmt.Sprintf("%d", cfg.Port)+"/v1"),
 		chat.WithDefaultModel(cfg.RelayDefaultModel),
