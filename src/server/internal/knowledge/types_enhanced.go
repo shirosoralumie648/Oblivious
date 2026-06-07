@@ -125,6 +125,7 @@ type KnowledgeRetrievalOptions struct {
 	Mode            string  `json:"mode,omitempty"`
 	Limit           int     `json:"limit,omitempty"`
 	MinScore        float64 `json:"minScore,omitempty"`
+	RerankTopK      int     `json:"rerankTopK,omitempty"`
 	VectorWeight    float64 `json:"vectorWeight,omitempty"`
 	KeywordWeight   float64 `json:"keywordWeight,omitempty"`
 }

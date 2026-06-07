@@ -25,6 +25,7 @@ type fakeStore struct {
 	documents        []KnowledgeDocument
 	listBases        []KnowledgeBase
 	retrievalQuery   string
+	retrievalOptions KnowledgeRetrievalOptions
 	retrievalResults []KnowledgeRetrievalResult
 	requestedDoc     KnowledgeDocument
 	requestedID      string
@@ -143,6 +144,7 @@ func (f *fakeStore) RetrieveKnowledgeWithOptions(ctx context.Context, workspaceI
 	f.workspaceID = workspaceID
 	f.requestedID = knowledgeBaseID
 	f.retrievalQuery = query
+	f.retrievalOptions = options
 	return f.retrievalResults, nil
 }
 
@@ -680,6 +682,42 @@ func TestRetrieveWithOptionsReranksHybridRerankResults(t *testing.T) {
 	}
 	if results[0].RetrievalMethod != KnowledgeRetrievalModeHybridRerank || results[0].RetrievalMode != KnowledgeRetrievalModeHybridRerank {
 		t.Fatalf("expected hybrid_rerank method/mode, got %+v", results[0])
+	}
+}
+
+func TestRetrieveWithOptionsExpandsHybridRerankCandidatePool(t *testing.T) {
+	store := &fakeStore{
+		retrievalResults: []KnowledgeRetrievalResult{
+			{ChunkID: "chunk_a", DocumentID: "doc_a", DocumentTitle: "Alpha", Snippet: "less relevant", Score: 0.7},
+			{ChunkID: "chunk_b", DocumentID: "doc_b", DocumentTitle: "Beta", Snippet: "best answer", Score: 0.6},
+			{ChunkID: "chunk_c", DocumentID: "doc_c", DocumentTitle: "Gamma", Snippet: "fallback answer", Score: 0.5},
+		},
+	}
+	reranker := &recordingKnowledgeReranker{}
+	service := NewServiceWithReranker(store, reranker)
+
+	results, err := service.RetrieveWithOptions(
+		context.Background(),
+		auth.Session{WorkspaceID: "workspace_1", OrganizationID: "org_1"},
+		"kb_1",
+		"best answer",
+		KnowledgeRetrievalOptions{Mode: KnowledgeRetrievalModeHybridRerank, Limit: 1, RerankTopK: 3},
+	)
+	if err != nil {
+		t.Fatalf("retrieve with rerank: %v", err)
+	}
+
+	if store.retrievalOptions.Limit != 3 {
+		t.Fatalf("expected store candidate limit 3, got %+v", store.retrievalOptions)
+	}
+	if reranker.limit != 1 {
+		t.Fatalf("expected final reranker limit 1, got %d", reranker.limit)
+	}
+	if len(reranker.results) != 3 {
+		t.Fatalf("expected reranker to receive expanded candidate pool, got %+v", reranker.results)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected final result limit 1, got %+v", results)
 	}
 }
 

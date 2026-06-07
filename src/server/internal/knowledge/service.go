@@ -327,6 +327,9 @@ func normalizeKnowledgeRetrievalOptions(options KnowledgeRetrievalOptions) (Know
 	if options.Limit == 0 {
 		options.Limit = knowledgeRetrievalLimit
 	}
+	if options.RerankTopK < 0 {
+		return KnowledgeRetrievalOptions{}, ErrInvalidKnowledgeRetrievalOptions
+	}
 	if options.MinScore < 0 {
 		return KnowledgeRetrievalOptions{}, ErrInvalidKnowledgeRetrievalOptions
 	}
@@ -344,6 +347,15 @@ func normalizeKnowledgeRetrievalOptions(options KnowledgeRetrievalOptions) (Know
 		options.DocumentVersion = ""
 	}
 	return options, nil
+}
+
+func knowledgeRetrievalCandidateOptions(options KnowledgeRetrievalOptions, hasReranker bool) KnowledgeRetrievalOptions {
+	if !hasReranker || options.Mode != KnowledgeRetrievalModeHybridRerank || options.RerankTopK <= options.Limit {
+		return options
+	}
+	candidateOptions := options
+	candidateOptions.Limit = options.RerankTopK
+	return candidateOptions
 }
 
 func (s *Service) List(ctx context.Context, session auth.Session) ([]KnowledgeBase, error) {
@@ -485,15 +497,16 @@ func (s *Service) RetrieveWithOptions(ctx context.Context, session auth.Session,
 		return nil, err
 	}
 	scope := knowledgeSessionScope(session)
+	candidateOptions := knowledgeRetrievalCandidateOptions(options, s != nil && s.reranker != nil)
 	if store, ok := s.store.(knowledgeRetrieverWithOptions); ok {
-		results, err := store.RetrieveKnowledge(ctx, scope, knowledgeBaseID, normalizedQuery, queryEmbedding, options)
+		results, err := store.RetrieveKnowledge(ctx, scope, knowledgeBaseID, normalizedQuery, queryEmbedding, candidateOptions)
 		if err != nil {
 			return nil, err
 		}
 		return s.rerankKnowledgeResults(ctx, normalizedQuery, normalizeKnowledgeRetrievalResults(results, options.Mode), options)
 	}
 	if store, ok := s.store.(knowledgeRetrieverNamedWithOptions); ok {
-		results, err := store.RetrieveKnowledgeWithOptions(ctx, scope, knowledgeBaseID, normalizedQuery, queryEmbedding, options)
+		results, err := store.RetrieveKnowledgeWithOptions(ctx, scope, knowledgeBaseID, normalizedQuery, queryEmbedding, candidateOptions)
 		if err != nil {
 			return nil, err
 		}
@@ -665,7 +678,14 @@ func (s *Service) rerankKnowledgeResults(ctx context.Context, query string, resu
 	if err != nil {
 		return nil, err
 	}
-	return normalizeKnowledgeRetrievalResults(reranked, KnowledgeRetrievalModeHybridRerank), nil
+	return limitKnowledgeRetrievalResults(normalizeKnowledgeRetrievalResults(reranked, KnowledgeRetrievalModeHybridRerank), options.Limit), nil
+}
+
+func limitKnowledgeRetrievalResults(results []KnowledgeRetrievalResult, limit int) []KnowledgeRetrievalResult {
+	if limit <= 0 || len(results) <= limit {
+		return results
+	}
+	return results[:limit]
 }
 
 func (s *Service) knowledgeBaseConfigForDocument(ctx context.Context, session auth.Session, knowledgeBaseID string) (KnowledgeBaseConfig, error) {

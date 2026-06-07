@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -8,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"oblivious/server/internal/auth"
 	"oblivious/server/internal/knowledge"
 )
 
@@ -375,12 +377,23 @@ func (h knowledgeHandler) retrieveKnowledge(w stdhttp.ResponseWriter, r *stdhttp
 		return
 	}
 
+	rerankTopK, err := h.knowledgeBaseRerankTopK(r.Context(), session, knowledgeBaseID, payload.Mode)
+	if err != nil {
+		if isNotFoundError(err) {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "knowledge base not found")
+			return
+		}
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "load knowledge base config failed")
+		return
+	}
+
 	results, err := h.service.RetrieveWithOptions(r.Context(), session, knowledgeBaseID, query, knowledge.KnowledgeRetrievalOptions{
 		AllVersions:     payload.AllVersions,
 		DocumentVersion: strings.TrimSpace(payload.DocumentVersion),
 		Mode:            strings.TrimSpace(payload.Mode),
 		Limit:           payload.Limit,
 		MinScore:        payload.MinScore,
+		RerankTopK:      rerankTopK,
 		VectorWeight:    payload.VectorWeight,
 		KeywordWeight:   payload.KeywordWeight,
 	})
@@ -464,12 +477,23 @@ func (h knowledgeHandler) runRetrievalTestCases(w stdhttp.ResponseWriter, r *std
 		}
 	}
 
+	rerankTopK, err := h.knowledgeBaseRerankTopK(r.Context(), session, knowledgeBaseID, payload.Mode)
+	if err != nil {
+		if isNotFoundError(err) {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "knowledge base not found")
+			return
+		}
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "load knowledge base config failed")
+		return
+	}
+
 	report, err := h.service.RunRetrievalTestCases(r.Context(), session, knowledgeBaseID, knowledge.KnowledgeRetrievalOptions{
 		AllVersions:     payload.AllVersions,
 		DocumentVersion: strings.TrimSpace(payload.DocumentVersion),
 		Mode:            strings.TrimSpace(payload.Mode),
 		Limit:           payload.Limit,
 		MinScore:        payload.MinScore,
+		RerankTopK:      rerankTopK,
 		VectorWeight:    payload.VectorWeight,
 		KeywordWeight:   payload.KeywordWeight,
 	})
@@ -578,6 +602,17 @@ func knowledgeBaseConfigFromRequest(payload createKnowledgeBaseRequest) knowledg
 		UpdateStrategy: strings.TrimSpace(payload.UpdateStrategy),
 		VectorWeight:   payload.VectorWeight,
 	}
+}
+
+func (h knowledgeHandler) knowledgeBaseRerankTopK(ctx context.Context, session auth.Session, knowledgeBaseID, mode string) (int, error) {
+	if strings.TrimSpace(mode) != knowledge.KnowledgeRetrievalModeHybridRerank {
+		return 0, nil
+	}
+	base, err := h.service.Get(ctx, session, knowledgeBaseID)
+	if err != nil {
+		return 0, err
+	}
+	return base.RerankTopK, nil
 }
 
 func writeKnowledgeUploadError(w stdhttp.ResponseWriter, err error) {

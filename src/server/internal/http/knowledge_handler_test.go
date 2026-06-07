@@ -1046,6 +1046,34 @@ func TestKnowledgeHandlerRetrieveAcceptsVectorOnlyMode(t *testing.T) {
 	}
 }
 
+func TestKnowledgeHandlerRetrieveUsesKnowledgeBaseRerankTopK(t *testing.T) {
+	store := &knowledgeFakeStore{
+		detailBase: knowledge.KnowledgeBase{
+			ID:         "kb_2",
+			RerankTopK: 4,
+		},
+		retrievalResults: []knowledge.KnowledgeRetrievalResult{
+			{DocumentID: "doc_1", ChunkID: "chunk_1", Snippet: "deployment rollback"},
+		},
+	}
+	handler := newKnowledgeTestHandler(store)
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_2/retrieve", strings.NewReader(`{"query":"deployment","mode":"hybrid_rerank","limit":1}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+	}))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.retrieveKnowledge(recorder, request, "kb_2")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if store.retrievalOptions.RerankTopK != 4 {
+		t.Fatalf("expected rerank topK 4 from knowledge base config, got %+v", store.retrievalOptions)
+	}
+}
+
 func TestKnowledgeHandlerRetrieveRejectsInvalidMode(t *testing.T) {
 	store := &knowledgeFakeStore{
 		retrievalResults: []knowledge.KnowledgeRetrievalResult{},
