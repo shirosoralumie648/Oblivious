@@ -97,7 +97,7 @@ func (s *SQLStore) ListUsageLogs(ctx context.Context, filter UsageLogFilter) ([]
 			COALESCE(channel_cost, 0),
 			input_tokens,
 			output_tokens,
-			COALESCE(total_tokens, input_tokens + output_tokens),
+			COALESCE(NULLIF(total_tokens, 0), input_tokens + output_tokens),
 			created_at
 		FROM usage_records
 		`+where+`
@@ -144,6 +144,9 @@ func (s *SQLStore) ListUsageLogs(ctx context.Context, filter UsageLogFilter) ([]
 
 func (s *SQLStore) GetUsageAnalytics(ctx context.Context, filter UsageAnalyticsFilter) (UsageAnalytics, error) {
 	filter = normalizeUsageAnalyticsFilter(filter)
+	if filter.Granularity == "day" {
+		return s.getDailyUsageAnalytics(ctx, filter)
+	}
 	where, args := usageAnalyticsWhere(filter)
 	timeKeyExpression, timeStartedAtExpression := postgresUsageAnalyticsTimeExpressions(filter.Granularity)
 
@@ -216,6 +219,18 @@ type usageAnalyticsCrossDimension struct {
 	orderBy             string
 }
 
+type usageAnalyticsSource struct {
+	table           string
+	totalTokensExpr string
+	totalCostExpr   string
+}
+
+var usageRecordsAnalyticsSource = usageAnalyticsSource{
+	table:           "usage_records",
+	totalTokensExpr: "COALESCE(NULLIF(total_tokens, 0), input_tokens + output_tokens)",
+	totalCostExpr:   "cost",
+}
+
 func postgresUsageAnalyticsTimeExpressions(granularity string) (string, string) {
 	unit := normalizeUsageAnalyticsGranularity(granularity)
 	startedAtExpression := fmt.Sprintf("date_trunc('%s', created_at)", unit)
@@ -232,6 +247,10 @@ func postgresUsageAnalyticsTimeExpressions(granularity string) (string, string) 
 }
 
 func (s *SQLStore) queryUsageAnalyticsBuckets(ctx context.Context, dimension, keyExpression, timeExpression, where string, args []any, limit int) ([]UsageAnalyticsBucket, error) {
+	return s.queryUsageAnalyticsBucketsFrom(ctx, usageRecordsAnalyticsSource, dimension, keyExpression, timeExpression, where, args, limit)
+}
+
+func (s *SQLStore) queryUsageAnalyticsBucketsFrom(ctx context.Context, source usageAnalyticsSource, dimension, keyExpression, timeExpression, where string, args []any, limit int) ([]UsageAnalyticsBucket, error) {
 	if limit <= 0 {
 		limit = 10
 	}
@@ -247,15 +266,15 @@ func (s *SQLStore) queryUsageAnalyticsBuckets(ctx context.Context, dimension, ke
 		SELECT
 			%[1]s AS key,
 			COALESCE(SUM(request_count), 0)::int AS request_count,
-			COALESCE(SUM(COALESCE(total_tokens, input_tokens + output_tokens)), 0)::int AS total_tokens,
-			COALESCE(SUM(cost), 0)::double precision AS total_cost,
+			COALESCE(SUM(%[7]s), 0)::int AS total_tokens,
+			COALESCE(SUM(%[8]s), 0)::double precision AS total_cost,
 			%[2]s
-		FROM usage_records
+		FROM %[9]s
 		%[3]s
 		GROUP BY %[1]s%[4]s
 		ORDER BY %[5]s
 		LIMIT $%[6]d
-	`, keyExpression, selectStartedAt, where, groupStartedAt, orderBy, len(args)+1)
+	`, keyExpression, selectStartedAt, where, groupStartedAt, orderBy, len(args)+1, source.totalTokensExpr, source.totalCostExpr, source.table)
 	queryArgs := append(append([]any(nil), args...), limit)
 	rows, err := s.db.QueryContext(ctx, query, queryArgs...)
 	if err != nil {
@@ -280,9 +299,13 @@ func (s *SQLStore) queryUsageAnalyticsBuckets(ctx context.Context, dimension, ke
 }
 
 func (s *SQLStore) queryUsageAnalyticsCrossBuckets(ctx context.Context, dimensions []usageAnalyticsCrossDimension, where string, args []any, limit int) ([]UsageAnalyticsBucket, error) {
+	return s.queryUsageAnalyticsCrossBucketsFrom(ctx, usageRecordsAnalyticsSource, dimensions, where, args, limit)
+}
+
+func (s *SQLStore) queryUsageAnalyticsCrossBucketsFrom(ctx context.Context, source usageAnalyticsSource, dimensions []usageAnalyticsCrossDimension, where string, args []any, limit int) ([]UsageAnalyticsBucket, error) {
 	buckets := []UsageAnalyticsBucket{}
 	for _, dimension := range dimensions {
-		items, err := s.queryUsageAnalyticsCrossBucket(ctx, dimension, where, args, limit)
+		items, err := s.queryUsageAnalyticsCrossBucketFrom(ctx, source, dimension, where, args, limit)
 		if err != nil {
 			return nil, err
 		}
@@ -292,6 +315,10 @@ func (s *SQLStore) queryUsageAnalyticsCrossBuckets(ctx context.Context, dimensio
 }
 
 func (s *SQLStore) queryUsageAnalyticsCrossBucket(ctx context.Context, dimension usageAnalyticsCrossDimension, where string, args []any, limit int) ([]UsageAnalyticsBucket, error) {
+	return s.queryUsageAnalyticsCrossBucketFrom(ctx, usageRecordsAnalyticsSource, dimension, where, args, limit)
+}
+
+func (s *SQLStore) queryUsageAnalyticsCrossBucketFrom(ctx context.Context, source usageAnalyticsSource, dimension usageAnalyticsCrossDimension, where string, args []any, limit int) ([]UsageAnalyticsBucket, error) {
 	if limit <= 0 {
 		limit = 10
 	}
@@ -310,15 +337,15 @@ func (s *SQLStore) queryUsageAnalyticsCrossBucket(ctx context.Context, dimension
 			%[1]s AS primary_key,
 			%[2]s AS secondary_key,
 			COALESCE(SUM(request_count), 0)::int AS request_count,
-			COALESCE(SUM(COALESCE(total_tokens, input_tokens + output_tokens)), 0)::int AS total_tokens,
-			COALESCE(SUM(cost), 0)::double precision AS total_cost,
+			COALESCE(SUM(%[8]s), 0)::int AS total_tokens,
+			COALESCE(SUM(%[9]s), 0)::double precision AS total_cost,
 			%[3]s
-		FROM usage_records
+		FROM %[10]s
 		%[4]s
 		GROUP BY %[1]s, %[2]s%[5]s
 		ORDER BY %[6]s
 		LIMIT $%[7]d
-	`, dimension.primaryExpression, dimension.secondaryExpression, selectStartedAt, where, groupStartedAt, orderBy, len(args)+1)
+	`, dimension.primaryExpression, dimension.secondaryExpression, selectStartedAt, where, groupStartedAt, orderBy, len(args)+1, source.totalTokensExpr, source.totalCostExpr, source.table)
 	queryArgs := append(append([]any(nil), args...), limit)
 	rows, err := s.db.QueryContext(ctx, query, queryArgs...)
 	if err != nil {
