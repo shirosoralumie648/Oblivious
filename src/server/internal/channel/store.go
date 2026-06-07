@@ -36,6 +36,9 @@ type RetryWorkerStore interface {
 	RetryMessageStore
 	GetConfigByID(ctx context.Context, id string) (*ChannelConfig, error)
 	UpdateRetryMessageLog(ctx context.Context, log *ChannelMessageLog) (*ChannelMessageLog, error)
+	UpdateConfigStatus(ctx context.Context, organizationID, id string, status ChannelStatus) (*ChannelConfig, error)
+	CountConsecutiveDeliveryFailures(ctx context.Context, channelID string, limit int) (int, error)
+	CountConsecutiveSuccessfulDeliveries(ctx context.Context, channelID string, limit int) (int, error)
 }
 
 type ConfigUpdate struct {

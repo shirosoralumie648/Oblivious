@@ -33,6 +33,18 @@ func (s *retryWorkerTestStore) UpdateRetryMessageLog(ctx context.Context, log *C
 	return log, nil
 }
 
+func (s *retryWorkerTestStore) UpdateConfigStatus(ctx context.Context, organizationID, id string, status ChannelStatus) (*ChannelConfig, error) {
+	return nil, nil
+}
+
+func (s *retryWorkerTestStore) CountConsecutiveDeliveryFailures(ctx context.Context, channelID string, limit int) (int, error) {
+	return 0, nil
+}
+
+func (s *retryWorkerTestStore) CountConsecutiveSuccessfulDeliveries(ctx context.Context, channelID string, limit int) (int, error) {
+	return 0, nil
+}
+
 func (s *retryWorkerTestStore) snapshot() (int, ClaimDueRetryMessagesInput) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -33,10 +33,18 @@ func (f *fakeRetryMessageStore) ClaimDueRetryMessages(ctx context.Context, input
 
 type fakeRetryWorkerStore struct {
 	fakeRetryMessageStore
-	configs      map[string]*ChannelConfig
-	updated      []*ChannelMessageLog
-	getConfigErr error
-	updateErr    error
+	configs           map[string]*ChannelConfig
+	updated           []*ChannelMessageLog
+	getConfigErr      error
+	statusUpdates     []ChannelStatus
+	statusUpdateIDs   []string
+	successCount      int
+	successCountID    string
+	successCountLimit int
+	failureCount      int
+	failureCountID    string
+	failureCountLimit int
+	updateErr         error
 }
 
 func (f *fakeRetryWorkerStore) GetConfigByID(ctx context.Context, id string) (*ChannelConfig, error) {
@@ -53,6 +61,28 @@ func (f *fakeRetryWorkerStore) UpdateRetryMessageLog(ctx context.Context, log *C
 	stored := *log
 	f.updated = append(f.updated, &stored)
 	return &stored, nil
+}
+
+func (f *fakeRetryWorkerStore) UpdateConfigStatus(ctx context.Context, organizationID, id string, status ChannelStatus) (*ChannelConfig, error) {
+	f.statusUpdates = append(f.statusUpdates, status)
+	f.statusUpdateIDs = append(f.statusUpdateIDs, id)
+	if f.configs == nil || f.configs[id] == nil {
+		return nil, nil
+	}
+	f.configs[id].Status = status
+	return f.configs[id], nil
+}
+
+func (f *fakeRetryWorkerStore) CountConsecutiveSuccessfulDeliveries(ctx context.Context, channelID string, limit int) (int, error) {
+	f.successCountID = channelID
+	f.successCountLimit = limit
+	return f.successCount, nil
+}
+
+func (f *fakeRetryWorkerStore) CountConsecutiveDeliveryFailures(ctx context.Context, channelID string, limit int) (int, error) {
+	f.failureCountID = channelID
+	f.failureCountLimit = limit
+	return f.failureCount, nil
 }
 
 type retryTestAdapter struct {
@@ -564,6 +594,44 @@ func TestServiceProcessDueRetryMessagesResendsClaimedMessagesAndRecordsSuccess(t
 	}
 }
 
+func TestServiceProcessDueRetryMessagesRecoversDegradedChannelAfterConsecutiveSuccesses(t *testing.T) {
+	now := time.Date(2026, 6, 5, 10, 5, 0, 0, time.UTC)
+	channelType := ChannelType("retry_recovery")
+	adapter := &retryTestAdapter{channelType: channelType}
+	claimed := &ChannelMessageLog{
+		ID:                 "channel_message_retry_recovery",
+		ChannelID:          "channel_retry_recovery",
+		ConversationID:     "conversation_retry",
+		Direction:          DirectionOutbound,
+		TransformedMessage: InternalMessage{ID: "msg_retry_recovery", ConversationID: "conversation_retry", Role: RoleAssistant, Content: []ContentPart{{Type: ContentTypeText, Text: "retry recovers"}}},
+		Status:             MessageStatusSending,
+		RetryCount:         2,
+		CreatedAt:          now.Add(-time.Hour),
+	}
+	store := &fakeRetryWorkerStore{
+		fakeRetryMessageStore: fakeRetryMessageStore{claimed: []*ChannelMessageLog{claimed}},
+		configs: map[string]*ChannelConfig{
+			claimed.ChannelID: {ID: claimed.ChannelID, OrganizationID: "org_1", Type: channelType, Config: map[string]any{}, Status: ChannelStatusDegraded},
+		},
+		successCount: 3,
+	}
+	service := NewService(NewAdapterRegistry(map[ChannelType]ChannelAdapter{channelType: adapter}))
+
+	result, err := service.ProcessDueRetryMessages(context.Background(), store, ClaimDueRetryMessagesInput{Now: now, Limit: 10})
+	if err != nil {
+		t.Fatalf("ProcessDueRetryMessages returned error: %v", err)
+	}
+	if result.Succeeded != 1 || result.Failed != 0 {
+		t.Fatalf("expected retry success, got %+v", result)
+	}
+	if store.successCountID != claimed.ChannelID || store.successCountLimit != ChannelHealthThreshold {
+		t.Fatalf("expected success health count for channel threshold, got id=%q limit=%d", store.successCountID, store.successCountLimit)
+	}
+	if len(store.statusUpdates) != 1 || store.statusUpdates[0] != ChannelStatusActive || store.statusUpdateIDs[0] != claimed.ChannelID {
+		t.Fatalf("expected degraded channel to recover active, got statuses=%+v ids=%+v", store.statusUpdates, store.statusUpdateIDs)
+	}
+}
+
 func TestServiceProcessDueRetryMessagesRoutesClaimedMessageToFallbackChannel(t *testing.T) {
 	now := time.Date(2026, 6, 5, 10, 15, 0, 0, time.UTC)
 	primaryType := ChannelType("retry_primary")
@@ -669,6 +737,44 @@ func TestServiceProcessDueRetryMessagesBacksOffFailedResend(t *testing.T) {
 	}
 	if updated.NextRetryAt == nil || !updated.NextRetryAt.Equal(now.Add(15*time.Minute)) {
 		t.Fatalf("expected third retry backoff at %s, got %+v", now.Add(15*time.Minute), updated.NextRetryAt)
+	}
+}
+
+func TestServiceProcessDueRetryMessagesDegradesChannelAfterConsecutiveFailures(t *testing.T) {
+	now := time.Date(2026, 6, 5, 10, 45, 0, 0, time.UTC)
+	channelType := ChannelType("retry_degrade")
+	adapter := &retryTestAdapter{channelType: channelType, deliverErr: errors.New("upstream 503")}
+	claimed := &ChannelMessageLog{
+		ID:                 "channel_message_retry_degrade",
+		ChannelID:          "channel_retry_degrade",
+		ConversationID:     "conversation_retry",
+		Direction:          DirectionOutbound,
+		TransformedMessage: InternalMessage{ID: "msg_retry_degrade", ConversationID: "conversation_retry", Role: RoleAssistant, Content: []ContentPart{{Type: ContentTypeText, Text: "retry still fails"}}},
+		Status:             MessageStatusSending,
+		RetryCount:         2,
+		CreatedAt:          now.Add(-time.Hour),
+	}
+	store := &fakeRetryWorkerStore{
+		fakeRetryMessageStore: fakeRetryMessageStore{claimed: []*ChannelMessageLog{claimed}},
+		configs: map[string]*ChannelConfig{
+			claimed.ChannelID: {ID: claimed.ChannelID, OrganizationID: "org_1", Type: channelType, Config: map[string]any{}, Status: ChannelStatusActive},
+		},
+		failureCount: 3,
+	}
+	service := NewService(NewAdapterRegistry(map[ChannelType]ChannelAdapter{channelType: adapter}))
+
+	result, err := service.ProcessDueRetryMessages(context.Background(), store, ClaimDueRetryMessagesInput{Now: now, Limit: 10})
+	if err != nil {
+		t.Fatalf("ProcessDueRetryMessages returned error: %v", err)
+	}
+	if result.Succeeded != 0 || result.Failed != 1 {
+		t.Fatalf("expected retry failure, got %+v", result)
+	}
+	if store.failureCountID != claimed.ChannelID || store.failureCountLimit != ChannelHealthThreshold {
+		t.Fatalf("expected failure health count for channel threshold, got id=%q limit=%d", store.failureCountID, store.failureCountLimit)
+	}
+	if len(store.statusUpdates) != 1 || store.statusUpdates[0] != ChannelStatusDegraded || store.statusUpdateIDs[0] != claimed.ChannelID {
+		t.Fatalf("expected active channel to degrade, got statuses=%+v ids=%+v", store.statusUpdates, store.statusUpdateIDs)
 	}
 }
 

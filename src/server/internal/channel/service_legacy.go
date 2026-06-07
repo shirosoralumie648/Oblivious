@@ -10,6 +10,8 @@ import (
 
 var ErrRetryMessageStoreRequired = errors.New("retry message store is required")
 
+const ChannelHealthThreshold = 3
+
 type ReceiveRequest struct {
 	ChannelID string
 	Type      ChannelType
@@ -230,6 +232,7 @@ func (s *Service) ProcessDueRetryMessages(ctx context.Context, store RetryWorker
 				if err != nil {
 					return result, err
 				}
+				s.updateRetryChannelHealth(ctx, store, config, &updated)
 				continue
 			}
 			if sendErr != nil {
@@ -248,8 +251,30 @@ func (s *Service) ProcessDueRetryMessages(ctx context.Context, store RetryWorker
 		if _, err := store.UpdateRetryMessageLog(ctx, &failed); err != nil {
 			return result, err
 		}
+		if config != nil {
+			s.updateRetryChannelHealth(ctx, store, config, &failed)
+		}
 	}
 	return result, nil
+}
+
+func (s *Service) updateRetryChannelHealth(ctx context.Context, store RetryWorkerStore, config *ChannelConfig, logEntry *ChannelMessageLog) {
+	if store == nil || config == nil || logEntry == nil {
+		return
+	}
+	if !logEntry.TransformSuccess || logEntry.Status == MessageStatusRetryPending || logEntry.Status == MessageStatusPermanentFailure {
+		count, err := store.CountConsecutiveDeliveryFailures(ctx, config.ID, ChannelHealthThreshold)
+		if err == nil && count >= ChannelHealthThreshold && config.Status != ChannelStatusDegraded {
+			_, _ = store.UpdateConfigStatus(ctx, config.OrganizationID, config.ID, ChannelStatusDegraded)
+		}
+		return
+	}
+	if config.Status == ChannelStatusDegraded {
+		count, err := store.CountConsecutiveSuccessfulDeliveries(ctx, config.ID, ChannelHealthThreshold)
+		if err == nil && count >= ChannelHealthThreshold {
+			_, _ = store.UpdateConfigStatus(ctx, config.OrganizationID, config.ID, ChannelStatusActive)
+		}
+	}
 }
 
 func (s *Service) adapter(channelType ChannelType) (ChannelAdapter, error) {

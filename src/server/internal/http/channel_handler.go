@@ -18,9 +18,8 @@ import (
 )
 
 const (
-	channelHealthThreshold = 3
-	channelDefaultLimit    = 20
-	channelMaxLimit        = 100
+	channelDefaultLimit = 20
+	channelMaxLimit     = 100
 )
 
 var publishingChannelAlertSink observability.AlertSink
@@ -363,8 +362,8 @@ func (h channelHandler) updateChannelHealthAfterSend(r *stdhttp.Request, config 
 		return
 	}
 	if !logEntry.TransformSuccess || logEntry.Status == publishingchannel.MessageStatusRetryPending || logEntry.Status == publishingchannel.MessageStatusPermanentFailure {
-		count, err := h.store.CountConsecutiveDeliveryFailures(r.Context(), config.ID, channelHealthThreshold)
-		if err == nil && count >= channelHealthThreshold && config.Status != publishingchannel.ChannelStatusDegraded {
+		count, err := h.store.CountConsecutiveDeliveryFailures(r.Context(), config.ID, publishingchannel.ChannelHealthThreshold)
+		if err == nil && count >= publishingchannel.ChannelHealthThreshold && config.Status != publishingchannel.ChannelStatusDegraded {
 			if _, updateErr := h.store.UpdateConfigStatus(r.Context(), config.OrganizationID, config.ID, publishingchannel.ChannelStatusDegraded); updateErr == nil {
 				h.notifyChannelDegraded(r, config, logEntry)
 			}
@@ -372,8 +371,8 @@ func (h channelHandler) updateChannelHealthAfterSend(r *stdhttp.Request, config 
 		return
 	}
 	if config.Status == publishingchannel.ChannelStatusDegraded {
-		count, err := h.store.CountConsecutiveSuccessfulDeliveries(r.Context(), config.ID, channelHealthThreshold)
-		if err == nil && count >= channelHealthThreshold {
+		count, err := h.store.CountConsecutiveSuccessfulDeliveries(r.Context(), config.ID, publishingchannel.ChannelHealthThreshold)
+		if err == nil && count >= publishingchannel.ChannelHealthThreshold {
 			_, _ = h.store.UpdateConfigStatus(r.Context(), config.OrganizationID, config.ID, publishingchannel.ChannelStatusActive)
 		}
 	}
