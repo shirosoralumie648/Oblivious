@@ -1,18 +1,28 @@
 package http
 
 import (
+	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"database/sql"
+	"database/sql/driver"
+	"encoding/hex"
 	"encoding/json"
+	"io"
 	stdhttp "net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	_ "github.com/lib/pq"
 	"golang.org/x/crypto/bcrypt"
 
+	publishingchannel "oblivious/server/internal/channel"
 	"oblivious/server/internal/config"
+	"oblivious/server/internal/observability"
 )
 
 const testDatabaseURLEnvVar = "TEST_DATABASE_URL"
@@ -53,6 +63,10 @@ func testDatabase(t *testing.T) *sql.DB {
 	statements := []string{
 		`DROP TABLE IF EXISTS organization_invitations CASCADE`,
 		`DROP TABLE IF EXISTS organization_memberships CASCADE`,
+		`DROP TABLE IF EXISTS scheduled_task_runs CASCADE`,
+		`DROP TABLE IF EXISTS scheduled_tasks CASCADE`,
+		`DROP TABLE IF EXISTS relay_pricing_settings CASCADE`,
+		`DROP TABLE IF EXISTS relay_api_tokens CASCADE`,
 		`DROP TABLE IF EXISTS password_reset_tokens CASCADE`,
 		`DROP TABLE IF EXISTS auth_rate_limits CASCADE`,
 		`DROP TABLE IF EXISTS audit_logs CASCADE`,
@@ -63,6 +77,7 @@ func testDatabase(t *testing.T) *sql.DB {
 		`DROP TABLE IF EXISTS marketplace_orders CASCADE`,
 		`DROP TABLE IF EXISTS marketplace_governance_events CASCADE`,
 		`DROP TABLE IF EXISTS marketplace_abuse_reports CASCADE`,
+		`DROP TABLE IF EXISTS marketplace_templates CASCADE`,
 		`DROP TABLE IF EXISTS agent_installs CASCADE`,
 		`DROP TABLE IF EXISTS agent_versions CASCADE`,
 		`DROP TABLE IF EXISTS published_agents CASCADE`,
@@ -80,6 +95,7 @@ func testDatabase(t *testing.T) *sql.DB {
 		`DROP TABLE IF EXISTS quotas CASCADE`,
 		`DROP TABLE IF EXISTS notifications CASCADE`,
 		`DROP TABLE IF EXISTS agent_messages CASCADE`,
+		`DROP TABLE IF EXISTS agent_memories CASCADE`,
 		`DROP TABLE IF EXISTS agent_conversations CASCADE`,
 		`DROP TABLE IF EXISTS agents CASCADE`,
 		`DROP TABLE IF EXISTS memory_chunks CASCADE`,
@@ -107,17 +123,22 @@ func testDatabase(t *testing.T) *sql.DB {
 		`CREATE TABLE organization_memberships (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, role TEXT NOT NULL, created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), removed_at TIMESTAMPTZ, CHECK (role IN ('owner', 'admin', 'member')))`,
 		`CREATE UNIQUE INDEX idx_org_memberships_active_user_http_test ON organization_memberships(organization_id, user_id) WHERE removed_at IS NULL`,
 		`CREATE UNIQUE INDEX idx_org_memberships_single_owner_http_test ON organization_memberships(organization_id) WHERE role = 'owner' AND removed_at IS NULL`,
+		`CREATE TABLE scheduled_tasks (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, target_type TEXT NOT NULL, target_id TEXT NOT NULL, workflow_trigger_id TEXT, cron_expression TEXT NOT NULL, enabled BOOLEAN NOT NULL DEFAULT true, last_run_at TIMESTAMPTZ, next_run_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), CHECK (target_type IN ('workflow', 'agent')), CHECK (btrim(cron_expression) <> ''))`,
+		`CREATE UNIQUE INDEX idx_scheduled_tasks_workflow_trigger_unique_http_test ON scheduled_tasks(organization_id, target_type, target_id, workflow_trigger_id) WHERE target_type = 'workflow' AND workflow_trigger_id IS NOT NULL`,
+		`CREATE TABLE scheduled_task_runs (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, scheduled_task_id TEXT NOT NULL REFERENCES scheduled_tasks(id) ON DELETE CASCADE, status TEXT NOT NULL, started_at TIMESTAMPTZ, finished_at TIMESTAMPTZ, error TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), CHECK (status IN ('queued', 'running', 'completed', 'failed', 'cancelled')))`,
 		`CREATE TABLE organization_invitations (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, email TEXT NOT NULL, role TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE, status TEXT NOT NULL DEFAULT 'pending', invited_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, accepted_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL, expires_at TIMESTAMPTZ NOT NULL, accepted_at TIMESTAMPTZ, revoked_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), CHECK (role IN ('admin', 'member')), CHECK (status IN ('pending', 'accepted', 'revoked', 'expired')))`,
+		`CREATE TABLE relay_api_tokens (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, user_group TEXT NOT NULL DEFAULT '', name TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE, token_prefix TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', model_limits_enabled BOOLEAN NOT NULL DEFAULT false, model_limits TEXT[] NOT NULL DEFAULT '{}', quota_limit NUMERIC(18, 6), used_quota NUMERIC(18, 6) NOT NULL DEFAULT 0, expires_at TIMESTAMPTZ, last_used_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), revoked_at TIMESTAMPTZ, CHECK (status IN ('active', 'revoked')))`,
+		`CREATE TABLE relay_pricing_settings (key TEXT PRIMARY KEY, value JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE conversations (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, title TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
-		`CREATE TABLE messages (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, role TEXT NOT NULL, content TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL)`,
-		`CREATE TABLE knowledge_bases (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, name TEXT NOT NULL, document_count INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE TABLE messages (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, role TEXT NOT NULL, content TEXT NOT NULL, metadata JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL)`,
+		`CREATE TABLE knowledge_bases (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, name TEXT NOT NULL, document_count INTEGER NOT NULL DEFAULT 0, retrieval_mode TEXT NOT NULL DEFAULT 'hybrid', retrieval_limit INTEGER NOT NULL DEFAULT 5, min_score DOUBLE PRECISION NOT NULL DEFAULT 0, vector_weight DOUBLE PRECISION NOT NULL DEFAULT 0.7, keyword_weight DOUBLE PRECISION NOT NULL DEFAULT 0.3, reranker_model TEXT NOT NULL DEFAULT '', rerank_top_k INTEGER NOT NULL DEFAULT 5, chunk_strategy TEXT NOT NULL DEFAULT 'template_based', chunk_size INTEGER NOT NULL DEFAULT 500, chunk_overlap INTEGER NOT NULL DEFAULT 50, embedding_model TEXT NOT NULL DEFAULT 'text-embedding-3-small', update_strategy TEXT NOT NULL DEFAULT 'full_replace', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE knowledge_documents (id TEXT PRIMARY KEY, knowledge_base_id TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, title TEXT NOT NULL, content TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE knowledge_document_chunks (id TEXT PRIMARY KEY, document_id TEXT NOT NULL REFERENCES knowledge_documents(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, chunk_index INTEGER NOT NULL, content TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE (document_id, chunk_index))`,
 		`CREATE TABLE conversation_knowledge_bindings (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE, knowledge_base_id TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE (conversation_id, knowledge_base_id))`,
 		`CREATE TABLE conversation_configs (conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, model_id TEXT NOT NULL DEFAULT 'demo-reply', system_prompt_override TEXT NOT NULL DEFAULT '', temperature DOUBLE PRECISION NOT NULL DEFAULT 1, max_output_tokens INTEGER NOT NULL DEFAULT 1024, tools_enabled BOOLEAN NOT NULL DEFAULT FALSE, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE user_preferences (user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, onboarding_completed BOOLEAN NOT NULL DEFAULT FALSE, default_mode TEXT NOT NULL DEFAULT 'chat', model_strategy TEXT NOT NULL DEFAULT 'balanced', network_enabled_hint BOOLEAN NOT NULL DEFAULT FALSE, default_agent_model TEXT NOT NULL DEFAULT 'gpt-4o-mini', sidebar_collapsed BOOLEAN NOT NULL DEFAULT FALSE, notifications JSONB NOT NULL DEFAULT '{}', updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE notifications (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, type TEXT NOT NULL, category TEXT NOT NULL, title TEXT NOT NULL, message TEXT NOT NULL, is_read BOOLEAN NOT NULL DEFAULT FALSE, action_url TEXT, metadata JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), read_at TIMESTAMPTZ)`,
-		`CREATE TABLE usage_records (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL, model_id TEXT NOT NULL, request_count INTEGER NOT NULL, input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE TABLE usage_records (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, workspace_id TEXT REFERENCES workspaces(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL, model_id TEXT NOT NULL, request_count INTEGER NOT NULL, input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL, api_type TEXT, channel_id TEXT, provider TEXT, api_token_id TEXT, status TEXT, status_code INTEGER, latency_ms INTEGER, cost NUMERIC(15,6) NOT NULL DEFAULT 0, channel_cost NUMERIC(15,6) NOT NULL DEFAULT 0, request_id TEXT, error_code TEXT, total_tokens INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE quotas (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, balance DECIMAL(15,6) NOT NULL DEFAULT 0, used DECIMAL(15,6) NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE (organization_id))`,
 		`CREATE TABLE billing_sessions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, channel_id TEXT, model TEXT, api_type TEXT, idempotency_key TEXT NOT NULL, pre_authorized_amt DECIMAL(15,6) NOT NULL DEFAULT 0, settled_amt DECIMAL(15,6) NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'preauthorized', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), settled_at TIMESTAMPTZ)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_test_billing_sessions_unique_org_idempotency ON billing_sessions(organization_id, idempotency_key) WHERE idempotency_key <> ''`,
@@ -132,6 +153,7 @@ func testDatabase(t *testing.T) *sql.DB {
 		`CREATE TABLE agents (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, name TEXT NOT NULL, description TEXT, model TEXT DEFAULT 'gpt-4o-mini', system_prompt TEXT, tools JSONB DEFAULT '[]', config JSONB DEFAULT '{}', is_public BOOLEAN DEFAULT FALSE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE agent_conversations (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, title TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE agent_messages (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES agent_conversations(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, role TEXT NOT NULL, content TEXT NOT NULL, tool_calls JSONB DEFAULT '[]', tool_call_id TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE TABLE agent_memories (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL, type TEXT NOT NULL, content TEXT NOT NULL, metadata JSONB NOT NULL DEFAULT '{}', expires_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE memory_documents (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, title TEXT, content TEXT NOT NULL, source_type TEXT DEFAULT 'manual', source_url TEXT, metadata JSONB DEFAULT '{}', total_chunks INTEGER DEFAULT 0, embedding_model TEXT DEFAULT 'text-embedding-3-small', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE memory_chunks (id TEXT PRIMARY KEY, document_id TEXT NOT NULL REFERENCES memory_documents(id) ON DELETE CASCADE, user_id TEXT NOT NULL, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, content TEXT NOT NULL, chunk_index INTEGER NOT NULL, embedding TEXT, metadata JSONB DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE (document_id, chunk_index))`,
 		`CREATE TABLE mcp_servers (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, name TEXT NOT NULL, url TEXT NOT NULL, auth_token_encrypted TEXT, status TEXT DEFAULT 'disconnected', last_connected_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
@@ -146,6 +168,7 @@ func testDatabase(t *testing.T) *sql.DB {
 		`CREATE TABLE marketplace_settlements (id TEXT PRIMARY KEY, order_id TEXT NOT NULL UNIQUE REFERENCES marketplace_orders(id) ON DELETE CASCADE, publisher_organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, publisher_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, agent_id TEXT NOT NULL REFERENCES published_agents(id) ON DELETE CASCADE, gross_amount DECIMAL(15,6) NOT NULL, platform_fee_amount DECIMAL(15,6) NOT NULL, publisher_net_amount DECIMAL(15,6) NOT NULL, refunded_amount DECIMAL(15,6) NOT NULL DEFAULT 0, payout_id TEXT REFERENCES marketplace_payouts(id) ON DELETE SET NULL, status TEXT NOT NULL, hold_until TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE marketplace_governance_events (id TEXT PRIMARY KEY, actor_user_id TEXT REFERENCES users(id) ON DELETE SET NULL, actor_organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, agent_id TEXT NOT NULL REFERENCES published_agents(id) ON DELETE CASCADE, action TEXT NOT NULL, from_status TEXT, to_status TEXT, reason TEXT, metadata JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE marketplace_abuse_reports (id TEXT PRIMARY KEY, reporter_organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, reporter_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, agent_id TEXT NOT NULL REFERENCES published_agents(id) ON DELETE CASCADE, reason TEXT NOT NULL, details TEXT, status TEXT NOT NULL DEFAULT 'open', resolution TEXT, reviewer_user_id TEXT REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), resolved_at TIMESTAMPTZ)`,
+		`CREATE TABLE marketplace_templates (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, type TEXT NOT NULL, name TEXT NOT NULL, description TEXT, template_data JSONB NOT NULL, category TEXT, tags TEXT[] NOT NULL DEFAULT '{}', downloads_count INTEGER NOT NULL DEFAULT 0, rating_avg DECIMAL(3,2), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 	}
 	for _, statement := range statements {
 		if _, err := database.Exec(statement); err != nil {
@@ -201,6 +224,347 @@ func csrfTokenForCookie(t *testing.T, router stdhttp.Handler, cookie *stdhttp.Co
 
 func addCSRF(request *stdhttp.Request, csrfToken string) {
 	request.Header.Set(csrfHeaderName, csrfToken)
+}
+
+var serverRequestLogCaptureDrivers sync.Map
+
+func registerServerRequestLogCaptureDriver(name string, capture *serverRequestLogCapture) {
+	if _, loaded := serverRequestLogCaptureDrivers.LoadOrStore(name, capture); loaded {
+		return
+	}
+	sql.Register(name, serverRequestLogCaptureDriver{name: name})
+}
+
+type serverRequestLogCapture struct {
+	mu    sync.Mutex
+	query string
+	args  []driver.NamedValue
+}
+
+type serverRequestLogCaptureDriver struct {
+	name string
+}
+
+func (d serverRequestLogCaptureDriver) Open(_ string) (driver.Conn, error) {
+	capture, _ := serverRequestLogCaptureDrivers.Load(d.name)
+	return serverRequestLogCaptureConn{capture: capture.(*serverRequestLogCapture)}, nil
+}
+
+type serverRequestLogCaptureConn struct {
+	capture *serverRequestLogCapture
+}
+
+func (c serverRequestLogCaptureConn) Prepare(_ string) (driver.Stmt, error) {
+	return nil, driver.ErrSkip
+}
+
+func (c serverRequestLogCaptureConn) Close() error {
+	return nil
+}
+
+func (c serverRequestLogCaptureConn) Begin() (driver.Tx, error) {
+	return nil, driver.ErrSkip
+}
+
+func (c serverRequestLogCaptureConn) ExecContext(_ context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
+	c.capture.mu.Lock()
+	c.capture.query = query
+	c.capture.args = append([]driver.NamedValue(nil), args...)
+	c.capture.mu.Unlock()
+	return driver.RowsAffected(1), nil
+}
+
+func TestNewServerConfiguresClickHouseRequestLogSink(t *testing.T) {
+	database, err := sql.Open("postgres", "postgres://postgres:postgres@localhost:5432/oblivious?sslmode=disable")
+	if err != nil {
+		t.Fatalf("open placeholder database: %v", err)
+	}
+	defer database.Close()
+
+	driverName := "http_server_request_log_capture"
+	capture := &serverRequestLogCapture{}
+	registerServerRequestLogCaptureDriver(driverName, capture)
+	cfg := testConfig()
+	cfg.DatabaseURL = "postgres://postgres:postgres@localhost:5432/oblivious?sslmode=disable"
+	cfg.ObservabilityRequestLogBackend = "clickhouse"
+	cfg.ClickHouseDriver = driverName
+	cfg.ClickHouseDSN = "capture-dsn"
+	server := NewServer(cfg, database)
+	defer server.Close()
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(stdhttp.MethodGet, "/healthz", nil)
+
+	server.Handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected healthz 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	capture.mu.Lock()
+	query := capture.query
+	args := append([]driver.NamedValue(nil), capture.args...)
+	capture.mu.Unlock()
+	if !strings.Contains(query, "INSERT INTO request_logs") {
+		t.Fatalf("expected request log insert, got query %q", query)
+	}
+	if len(args) == 0 {
+		t.Fatal("expected request log insert args")
+	}
+}
+
+func TestConfigureHTTPAlertingRoutes5xxToSignedWebhookAndRecovery(t *testing.T) {
+	store := observability.NewInMemoryAlertStateStore()
+	routingStore := observability.NewInMemoryAlertRoutingRuleStore(observability.AlertRoutingRules{
+		observability.AlertSeverityWarning: {observability.AlertDeliveryChannelThirdParty},
+	})
+	var postedBody []byte
+	var postedSignature string
+	upstream := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		postedSignature = r.Header.Get("X-Oblivious-Alert-Signature")
+		var err error
+		postedBody, err = io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read alert webhook body: %v", err)
+		}
+		w.WriteHeader(stdhttp.StatusAccepted)
+	}))
+	defer upstream.Close()
+
+	restore := configureHTTPAlerting(config.Config{
+		ObservabilityHTTPAlertsEnabled:      true,
+		AlertWebhookURL:                     upstream.URL,
+		AlertWebhookSecret:                  "alert-secret",
+		ObservabilityHTTPRecoveryEnabled:    true,
+		ObservabilityHTTPRecoveryCooldownMS: 1000,
+	}, store, routingStore, nil)
+	if restore == nil {
+		t.Fatal("expected HTTP alerting to configure restore hook")
+	}
+	defer restore()
+
+	handler := withRequestID(withLogging(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		w.WriteHeader(stdhttp.StatusInternalServerError)
+	})))
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/admin/relay/routes", nil)
+
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusInternalServerError {
+		t.Fatalf("expected original 500 response, got %d", recorder.Code)
+	}
+	if len(postedBody) == 0 {
+		t.Fatal("expected alert webhook to receive signed payload")
+	}
+	mac := hmac.New(sha256.New, []byte("alert-secret"))
+	mac.Write(postedBody)
+	if want := "sha256=" + hex.EncodeToString(mac.Sum(nil)); postedSignature != want {
+		t.Fatalf("expected webhook signature %s, got %s", want, postedSignature)
+	}
+	const alertKey = "http:/api/v1/admin/relay/routes:500"
+	state, found, err := store.GetAlertState(context.Background(), alertKey)
+	if err != nil {
+		t.Fatalf("get alert state: %v", err)
+	}
+	if !found || state.Status != observability.AlertStatusOpen || state.Severity != observability.AlertSeverityWarning {
+		t.Fatalf("expected open warning alert state, found=%v state=%+v", found, state)
+	}
+	attempts, err := store.ListDeliveryAttempts(context.Background(), observability.AlertDeliveryHistoryFilter{AlertKey: alertKey})
+	if err != nil {
+		t.Fatalf("list delivery attempts: %v", err)
+	}
+	if len(attempts) != 1 || attempts[0].Channel != observability.AlertDeliveryChannelThirdParty || !attempts[0].Delivered {
+		t.Fatalf("expected successful third-party delivery attempt, got %+v", attempts)
+	}
+	actions, err := store.ListRecoveryActions(context.Background(), observability.RecoveryActionFilter{AlertKey: alertKey})
+	if err != nil {
+		t.Fatalf("list recovery actions: %v", err)
+	}
+	if len(actions) != 1 || actions[0].PolicyName != "record-http-5xx" || actions[0].Type != observability.RecoveryActionRestart {
+		t.Fatalf("expected recorded HTTP recovery action, got %+v", actions)
+	}
+}
+
+func TestConfigureHTTPAlertingRoutes5xxToSlackProviderConfig(t *testing.T) {
+	store := observability.NewInMemoryAlertStateStore()
+	routingStore := observability.NewInMemoryAlertRoutingRuleStore(observability.AlertRoutingRules{
+		observability.AlertSeverityWarning: {observability.AlertDeliveryChannelIM},
+	})
+	var postedPayload map[string]any
+	upstream := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.URL.Path != "/slack" {
+			t.Errorf("expected Slack provider webhook path /slack, got %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&postedPayload); err != nil {
+			t.Errorf("decode Slack provider payload: %v", err)
+		}
+		w.WriteHeader(stdhttp.StatusOK)
+	}))
+	defer upstream.Close()
+	providerStore := observability.NewInMemoryAlertProviderConfigStore(observability.AlertProviderConfig{
+		ID:     "alert_provider_slack_ops",
+		Kind:   observability.AlertProviderKindSlackWebhook,
+		Name:   "Slack Ops",
+		Status: observability.AlertProviderStatusActive,
+		Config: map[string]string{
+			"webhook_url": upstream.URL + "/slack",
+		},
+	})
+
+	restore := configureHTTPAlerting(config.Config{
+		ObservabilityHTTPAlertsEnabled: true,
+	}, store, routingStore, providerStore)
+	if restore == nil {
+		t.Fatal("expected HTTP alerting to configure provider-backed delivery")
+	}
+	defer restore()
+
+	handler := withRequestID(withLogging(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		w.WriteHeader(stdhttp.StatusInternalServerError)
+	})))
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/admin/relay/routes", nil)
+
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusInternalServerError {
+		t.Fatalf("expected original 500 response, got %d", recorder.Code)
+	}
+	if postedPayload["text"] == "" || !strings.Contains(postedPayload["text"].(string), "HTTP 500") {
+		t.Fatalf("expected Slack alert text payload for HTTP 500, got %+v", postedPayload)
+	}
+	const alertKey = "http:/api/v1/admin/relay/routes:500"
+	attempts, err := store.ListDeliveryAttempts(context.Background(), observability.AlertDeliveryHistoryFilter{AlertKey: alertKey})
+	if err != nil {
+		t.Fatalf("list delivery attempts: %v", err)
+	}
+	if len(attempts) != 1 ||
+		attempts[0].Channel != observability.AlertDeliveryChannelIM ||
+		attempts[0].ProviderID != "alert_provider_slack_ops" ||
+		attempts[0].ProviderKind != observability.AlertProviderKindSlackWebhook ||
+		!attempts[0].Delivered {
+		t.Fatalf("expected successful Slack provider delivery attempt, got %+v", attempts)
+	}
+}
+
+func TestConfigureHTTPAlertingRoutesPublishingChannelDegradedToSignedWebhookAndRecovery(t *testing.T) {
+	store := observability.NewInMemoryAlertStateStore()
+	routingStore := observability.NewInMemoryAlertRoutingRuleStore(observability.AlertRoutingRules{
+		observability.AlertSeverityWarning: {observability.AlertDeliveryChannelThirdParty},
+	})
+	var postedBody []byte
+	upstream := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		var err error
+		postedBody, err = io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read alert webhook body: %v", err)
+		}
+		w.WriteHeader(stdhttp.StatusAccepted)
+	}))
+	defer upstream.Close()
+
+	restore := configureHTTPAlerting(config.Config{
+		ObservabilityHTTPAlertsEnabled:      true,
+		AlertWebhookURL:                     upstream.URL,
+		ObservabilityHTTPRecoveryEnabled:    true,
+		ObservabilityHTTPRecoveryCooldownMS: 1000,
+	}, store, routingStore, nil)
+	if restore == nil {
+		t.Fatal("expected HTTP alerting to configure publishing channel hooks")
+	}
+	defer restore()
+
+	routePublishingChannelDegradedAlert(context.Background(), &publishingchannel.ChannelConfig{
+		ID:             "channel_1",
+		OrganizationID: "org_1",
+		Type:           publishingchannel.ChannelTypeWebhook,
+		Name:           "Website",
+	}, &publishingchannel.ChannelMessageLog{
+		ID:            "log_1",
+		FailureReason: "webhook delivery failed with status 503",
+		CreatedAt:     time.Date(2026, 6, 7, 9, 0, 0, 0, time.UTC),
+	}, "webhook delivery failed with status 503")
+
+	if len(postedBody) == 0 {
+		t.Fatal("expected channel degraded alert webhook payload")
+	}
+	const alertKey = "publishing_channel:org_1:channel_1:degraded"
+	state, found, err := store.GetAlertState(context.Background(), alertKey)
+	if err != nil {
+		t.Fatalf("get alert state: %v", err)
+	}
+	if !found || state.Status != observability.AlertStatusOpen || state.Component != "publishing_channel" {
+		t.Fatalf("expected open publishing channel alert state, found=%v state=%+v", found, state)
+	}
+	attempts, err := store.ListDeliveryAttempts(context.Background(), observability.AlertDeliveryHistoryFilter{AlertKey: alertKey})
+	if err != nil {
+		t.Fatalf("list delivery attempts: %v", err)
+	}
+	if len(attempts) != 1 || attempts[0].Channel != observability.AlertDeliveryChannelThirdParty || !attempts[0].Delivered {
+		t.Fatalf("expected successful channel degraded webhook delivery attempt, got %+v", attempts)
+	}
+	actions, err := store.ListRecoveryActions(context.Background(), observability.RecoveryActionFilter{AlertKey: alertKey})
+	if err != nil {
+		t.Fatalf("list recovery actions: %v", err)
+	}
+	if len(actions) != 1 || actions[0].PolicyName != "record-channel-degraded" || actions[0].Type != observability.RecoveryActionFailover {
+		t.Fatalf("expected recorded channel recovery action, got %+v", actions)
+	}
+}
+
+func TestBuildRelayConfigWiresHealthAlertingAndRecovery(t *testing.T) {
+	store := observability.NewInMemoryAlertStateStore()
+	routingStore := observability.NewInMemoryAlertRoutingRuleStore(observability.AlertRoutingRules{
+		observability.AlertSeverityWarning: {observability.AlertDeliveryChannelThirdParty},
+	})
+	var postedBody []byte
+	upstream := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		var err error
+		postedBody, err = io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read relay health alert webhook body: %v", err)
+		}
+		w.WriteHeader(stdhttp.StatusAccepted)
+	}))
+	defer upstream.Close()
+	restore := configureHTTPAlerting(config.Config{
+		ObservabilityHTTPAlertsEnabled:      true,
+		AlertWebhookURL:                     upstream.URL,
+		ObservabilityHTTPRecoveryEnabled:    true,
+		ObservabilityHTTPRecoveryCooldownMS: 1000,
+	}, store, routingStore, nil)
+	if restore == nil {
+		t.Fatal("expected alerting restore callback")
+	}
+	defer restore()
+
+	relayConfig := buildRelayConfig(testConfig(), nil, nil, nil, nil, nil, store)
+	if relayConfig.HealthAlertSink == nil || relayConfig.HealthRecoveryController == nil || relayConfig.HealthAlertStateStore != store {
+		t.Fatalf("expected relay health alerting to be wired, got sink=%T recovery=%T store=%T", relayConfig.HealthAlertSink, relayConfig.HealthRecoveryController, relayConfig.HealthAlertStateStore)
+	}
+	event := observability.AlertEvent{
+		Key:       "relay:channel:ch_test:unhealthy",
+		Severity:  observability.AlertSeverityWarning,
+		Component: observability.ComponentRelay,
+		Title:     "Relay channel unhealthy",
+	}
+	if err := relayConfig.HealthAlertSink.Notify(context.Background(), event); err != nil {
+		t.Fatalf("notify relay health alert: %v", err)
+	}
+	if len(postedBody) == 0 {
+		t.Fatal("expected relay health alert webhook payload")
+	}
+	if _, err := relayConfig.HealthRecoveryController.HandleAlert(context.Background(), event); err != nil {
+		t.Fatalf("handle relay health recovery: %v", err)
+	}
+	actions, err := store.ListRecoveryActions(context.Background(), observability.RecoveryActionFilter{AlertKey: event.Key})
+	if err != nil {
+		t.Fatalf("list recovery actions: %v", err)
+	}
+	if len(actions) != 1 || actions[0].PolicyName != "record-relay-channel-unhealthy" || actions[0].Type != observability.RecoveryActionFailover {
+		t.Fatalf("expected relay health failover policy, got %+v", actions)
+	}
 }
 
 func registerHTTPUser(t *testing.T, router stdhttp.Handler, email string) (*stdhttp.Cookie, string, string) {
@@ -1182,6 +1546,76 @@ func TestCrossTenantMarketplacePublisherScopeUsesActiveOrganization(t *testing.T
 	}
 }
 
+func TestMarketplacePublisherSettlementPreferencesUseActiveOrganization(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+
+	cookie, csrfToken, userID := registerHTTPUser(t, router, "marketplace-settlement-prefs@example.com")
+	_, activeOrganizationID := queryHTTPUserScope(t, database, userID)
+	promoteHTTPUserToAdmin(t, database, userID)
+	otherOrganizationID := createHTTPOrganization(t, router, cookie, csrfToken, "Other Settlement Org", "other-settlement-org")
+
+	getRecorder := httptest.NewRecorder()
+	getRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/marketplace/publisher/settlement-preferences", nil)
+	getRequest.AddCookie(cookie)
+	router.ServeHTTP(getRecorder, getRequest)
+	if getRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("default settlement preferences expected 200, got %d with body %s", getRecorder.Code, getRecorder.Body.String())
+	}
+	var getResponse struct {
+		Data struct {
+			Cycle                string  `json:"cycle"`
+			PayoutBusinessDays   int     `json:"payoutBusinessDays"`
+			ProcessingFeePercent float64 `json:"processingFeePercent"`
+			MinimumPayoutAmount  float64 `json:"minimumPayoutAmount"`
+			EffectiveFrom        string  `json:"effectiveFrom"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(getRecorder.Body.Bytes(), &getResponse); err != nil {
+		t.Fatalf("decode settlement preferences: %v", err)
+	}
+	if getResponse.Data.Cycle != "monthly" || getResponse.Data.PayoutBusinessDays != 5 || getResponse.Data.ProcessingFeePercent != 1 {
+		t.Fatalf("expected default monthly settlement preferences, got %+v", getResponse.Data)
+	}
+	if getResponse.Data.MinimumPayoutAmount != 100 || getResponse.Data.EffectiveFrom != "next_settlement_cycle" {
+		t.Fatalf("expected minimum payout and effective-from metadata, got %+v", getResponse.Data)
+	}
+
+	updateRecorder := httptest.NewRecorder()
+	updateRequest := httptest.NewRequest(stdhttp.MethodPut, "/api/v1/marketplace/publisher/settlement-preferences", strings.NewReader(`{"cycle":"weekly"}`))
+	updateRequest.Header.Set("Content-Type", "application/json")
+	updateRequest.AddCookie(cookie)
+	addCSRF(updateRequest, csrfToken)
+	router.ServeHTTP(updateRecorder, updateRequest)
+	if updateRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("update settlement preferences expected 200, got %d with body %s", updateRecorder.Code, updateRecorder.Body.String())
+	}
+
+	var activeCycle, otherCycle string
+	if err := database.QueryRow(`SELECT metadata #>> '{marketplace,settlement,cycle}' FROM organizations WHERE id = $1`, activeOrganizationID).Scan(&activeCycle); err != nil {
+		t.Fatalf("query active organization settlement cycle: %v", err)
+	}
+	if err := database.QueryRow(`SELECT COALESCE(metadata #>> '{marketplace,settlement,cycle}', '') FROM organizations WHERE id = $1`, otherOrganizationID).Scan(&otherCycle); err != nil {
+		t.Fatalf("query other organization settlement cycle: %v", err)
+	}
+	if activeCycle != "weekly" {
+		t.Fatalf("expected active organization weekly cycle, got %q", activeCycle)
+	}
+	if otherCycle != "" {
+		t.Fatalf("expected other organization metadata unchanged, got %q", otherCycle)
+	}
+
+	invalidRecorder := httptest.NewRecorder()
+	invalidRequest := httptest.NewRequest(stdhttp.MethodPut, "/api/v1/marketplace/publisher/settlement-preferences", strings.NewReader(`{"cycle":"daily"}`))
+	invalidRequest.Header.Set("Content-Type", "application/json")
+	invalidRequest.AddCookie(cookie)
+	addCSRF(invalidRequest, csrfToken)
+	router.ServeHTTP(invalidRecorder, invalidRequest)
+	if invalidRecorder.Code != stdhttp.StatusBadRequest {
+		t.Fatalf("invalid cycle expected 400, got %d with body %s", invalidRecorder.Code, invalidRecorder.Body.String())
+	}
+}
+
 func TestMarketplaceAdminReviewAuditCarriesAgentOrganization(t *testing.T) {
 	database := testDatabase(t)
 	router := NewRouter(testConfig(), database)
@@ -1237,6 +1671,51 @@ func TestMarketplaceAdminReviewAuditCarriesAgentOrganization(t *testing.T) {
 	}
 	if len(auditResponse.Data.Entries) != 1 || auditResponse.Data.Entries[0].OrganizationID != organizationID {
 		t.Fatalf("expected audit list organization %q, got %+v", organizationID, auditResponse.Data.Entries)
+	}
+}
+
+func TestMarketplaceAdminReviewNeedsChangesRoute(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+
+	cookie, csrfToken, userID := registerHTTPUser(t, router, "marketplace-needs-changes-admin@example.com")
+	_, organizationID := queryHTTPUserScope(t, database, userID)
+	promoteHTTPUserToAdmin(t, database, userID)
+
+	if _, err := database.Exec(`
+		INSERT INTO published_agents (id, owner_id, organization_id, name, description, tools, example_conversations, visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at)
+		VALUES ('agent_needs_changes_route', $1, $2, 'Needs Changes Agent', 'Agent waiting for manual review.', '{"tools":[{"name":"review"}]}'::jsonb, '[]'::jsonb, 'public', 'pending_review', 'free', 0, 0, 0, 0, NOW(), NOW())
+	`, userID, organizationID); err != nil {
+		t.Fatalf("insert pending marketplace agent: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO agent_versions (id, agent_id, organization_id, version, changelog, metadata, status, created_at)
+		VALUES ('version_needs_changes_route', 'agent_needs_changes_route', $1, '1.0.0', 'initial', '{}'::jsonb, 'pending_review', NOW())
+	`, organizationID); err != nil {
+		t.Fatalf("insert pending marketplace version: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/admin/reviews/agent_needs_changes_route/needs-changes", strings.NewReader(`{"reason":"Add compliance evidence."}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(cookie)
+	addCSRF(request, csrfToken)
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("needs changes expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+
+	var agentStatus, reviewReason, versionStatus string
+	if err := database.QueryRow(`
+		SELECT a.status, COALESCE(a.review_reason, ''), v.status
+		FROM published_agents a
+		JOIN agent_versions v ON v.agent_id = a.id
+		WHERE a.id = 'agent_needs_changes_route'
+	`).Scan(&agentStatus, &reviewReason, &versionStatus); err != nil {
+		t.Fatalf("query needs changes route state: %v", err)
+	}
+	if agentStatus != "needs_changes" || versionStatus != "needs_changes" || reviewReason != "Add compliance evidence." {
+		t.Fatalf("expected needs_changes state with reason, got agent=%s version=%s reason=%q", agentStatus, versionStatus, reviewReason)
 	}
 }
 
@@ -1645,6 +2124,155 @@ func TestConsoleUsageReflectsRecordedChatRequests(t *testing.T) {
 	}
 	if usageResponse.Data.Requests != 1 {
 		t.Fatalf("expected requests 1, got %d", usageResponse.Data.Requests)
+	}
+}
+
+func TestConsoleUsageListsCurrentUserRecentRelayRequests(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+
+	cookie, _, userID := registerHTTPUser(t, router, "console-usage-recent@example.com")
+	workspaceID, organizationID := queryHTTPUserScope(t, database, userID)
+	if _, err := database.Exec(`
+		INSERT INTO users (id, email, password_hash, role)
+		VALUES ('user_other_usage_recent', 'other-usage-recent@example.com', 'hash', 'user')
+	`); err != nil {
+		t.Fatalf("insert other usage user: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO usage_records (
+			id, user_id, workspace_id, organization_id, model_id, request_count,
+			input_tokens, output_tokens, api_type, channel_id, provider, api_token_id,
+			status, status_code, latency_ms, cost, channel_cost, request_id, total_tokens, created_at
+		)
+		VALUES
+			('usage_recent_user', $1, $2, $3, 'gpt-4o', 1, 100, 20, 'chat', 'ch_1', 'openai', 'tok_1', 'success', 200, 42, 0.42, 0.21, 'req_1', 120, NOW()),
+			('usage_recent_other_user', 'user_other_usage_recent', NULL, $3, 'gpt-4o-mini', 1, 10, 5, 'chat', 'ch_other', 'openai', 'tok_other', 'success', 200, 24, 0.12, 0.06, 'req_other', 15, NOW())
+	`, userID, workspaceID, organizationID); err != nil {
+		t.Fatalf("insert recent relay usage records: %v", err)
+	}
+
+	usageRecorder := httptest.NewRecorder()
+	usageRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/console/usage", nil)
+	usageRequest.AddCookie(cookie)
+	router.ServeHTTP(usageRecorder, usageRequest)
+	if usageRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("console usage expected 200, got %d with body %s", usageRecorder.Code, usageRecorder.Body.String())
+	}
+
+	var usageResponse struct {
+		Data struct {
+			Recent []struct {
+				APITokenID  string  `json:"apiTokenId"`
+				ChannelID   string  `json:"channelId"`
+				Cost        float64 `json:"cost"`
+				LatencyMS   int64   `json:"latencyMs"`
+				Model       string  `json:"model"`
+				Provider    string  `json:"provider"`
+				RequestID   string  `json:"requestId"`
+				Status      string  `json:"status"`
+				TotalTokens int     `json:"totalTokens"`
+			} `json:"recent"`
+			Requests int `json:"requests"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(usageRecorder.Body.Bytes(), &usageResponse); err != nil {
+		t.Fatalf("decode console usage recent response: %v", err)
+	}
+	if usageResponse.Data.Requests != 1 {
+		t.Fatalf("expected current user requests 1, got %d", usageResponse.Data.Requests)
+	}
+	if len(usageResponse.Data.Recent) != 1 {
+		t.Fatalf("expected exactly 1 current-user recent usage entry, got %+v", usageResponse.Data.Recent)
+	}
+	recent := usageResponse.Data.Recent[0]
+	if recent.RequestID != "req_1" || recent.APITokenID != "tok_1" || recent.Model != "gpt-4o" {
+		t.Fatalf("unexpected recent usage identity fields: %+v", recent)
+	}
+	if recent.Provider != "openai" || recent.ChannelID != "ch_1" || recent.Status != "success" {
+		t.Fatalf("unexpected recent usage route/status fields: %+v", recent)
+	}
+	if recent.Cost != 0.42 || recent.LatencyMS != 42 || recent.TotalTokens != 120 {
+		t.Fatalf("unexpected recent usage accounting fields: %+v", recent)
+	}
+}
+
+func TestConsoleAPITokenCreateListAndRevoke(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+	cookie, csrfToken, userID := registerHTTPUser(t, router, "console-api-token@example.com")
+	_, organizationID := queryHTTPUserScope(t, database, userID)
+
+	createRecorder := httptest.NewRecorder()
+	createRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/console/api-tokens", strings.NewReader(`{
+		"name":"CI gateway key",
+		"modelLimitsEnabled":true,
+		"modelLimits":["gpt-4o","gpt-4o-mini"]
+	}`))
+	createRequest.Header.Set("Content-Type", "application/json")
+	createRequest.AddCookie(cookie)
+	addCSRF(createRequest, csrfToken)
+	router.ServeHTTP(createRecorder, createRequest)
+	if createRecorder.Code != stdhttp.StatusCreated {
+		t.Fatalf("create api token expected 201, got %d with body %s", createRecorder.Code, createRecorder.Body.String())
+	}
+
+	var createResponse struct {
+		Data struct {
+			RawToken string `json:"rawToken"`
+			Token    struct {
+				ID          string `json:"id"`
+				TokenPrefix string `json:"tokenPrefix"`
+				Status      string `json:"status"`
+			} `json:"token"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(createRecorder.Body.Bytes(), &createResponse); err != nil {
+		t.Fatalf("decode create token response: %v", err)
+	}
+	if !strings.HasPrefix(createResponse.Data.RawToken, "obv_") || createResponse.Data.Token.ID == "" {
+		t.Fatalf("expected raw token and token id, got %+v", createResponse.Data)
+	}
+
+	var storedUserID, storedOrganizationID, tokenHash, status string
+	if err := database.QueryRow(`
+		SELECT user_id, organization_id, token_hash, status
+		FROM relay_api_tokens
+		WHERE id = $1
+	`, createResponse.Data.Token.ID).Scan(&storedUserID, &storedOrganizationID, &tokenHash, &status); err != nil {
+		t.Fatalf("query stored relay api token: %v", err)
+	}
+	if storedUserID != userID || storedOrganizationID != organizationID || status != "active" {
+		t.Fatalf("unexpected stored token scope/status user=%q org=%q status=%q", storedUserID, storedOrganizationID, status)
+	}
+	if tokenHash == createResponse.Data.RawToken || len(tokenHash) != 64 {
+		t.Fatalf("expected sha256 token hash, got %q", tokenHash)
+	}
+
+	listRecorder := httptest.NewRecorder()
+	listRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/console/api-tokens", nil)
+	listRequest.AddCookie(cookie)
+	router.ServeHTTP(listRecorder, listRequest)
+	if listRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("list api tokens expected 200, got %d with body %s", listRecorder.Code, listRecorder.Body.String())
+	}
+	if strings.Contains(listRecorder.Body.String(), createResponse.Data.RawToken) {
+		t.Fatalf("list api tokens leaked raw token: %s", listRecorder.Body.String())
+	}
+
+	revokeRecorder := httptest.NewRecorder()
+	revokeRequest := httptest.NewRequest(stdhttp.MethodDelete, "/api/v1/console/api-tokens/"+createResponse.Data.Token.ID, nil)
+	revokeRequest.AddCookie(cookie)
+	addCSRF(revokeRequest, csrfToken)
+	router.ServeHTTP(revokeRecorder, revokeRequest)
+	if revokeRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("revoke api token expected 200, got %d with body %s", revokeRecorder.Code, revokeRecorder.Body.String())
+	}
+	if err := database.QueryRow(`SELECT status FROM relay_api_tokens WHERE id = $1`, createResponse.Data.Token.ID).Scan(&status); err != nil {
+		t.Fatalf("query revoked token: %v", err)
+	}
+	if status != "revoked" {
+		t.Fatalf("expected revoked token status, got %q", status)
 	}
 }
 

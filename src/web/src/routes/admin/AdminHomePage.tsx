@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, type ReactNode } from 'react';
 import {
+  RiAlarmWarningLine,
   RiBarChartLine,
   RiFileListLine,
   RiGitBranchLine,
@@ -86,6 +87,12 @@ const commercialOperations: CommercialOperation[] = [
     href: '/admin/audit-log',
     description: 'Administrative and commercial governance events.',
     icon: <RiFileListLine className="size-4" aria-hidden="true" />,
+  },
+  {
+    label: 'Alerts',
+    href: '/admin/alerts',
+    description: 'Observability alert state and incident review.',
+    icon: <RiAlarmWarningLine className="size-4" aria-hidden="true" />,
   },
   {
     label: 'Review Queue',

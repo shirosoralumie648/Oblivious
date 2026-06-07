@@ -1,8 +1,10 @@
 package relay
 
 import (
+	"math"
 	"math/rand"
 	"sync"
+	"time"
 
 	"oblivious/server/internal/relay/types"
 )
@@ -11,12 +13,19 @@ type LoadBalancer struct {
 	pool     *ChannelPool
 	strategy string
 	mu       sync.Mutex
+	random   loadBalancerRandom
+}
+
+type loadBalancerRandom interface {
+	Float64() float64
+	Intn(n int) int
 }
 
 func NewLoadBalancer(pool *ChannelPool, strategy string) *LoadBalancer {
 	return &LoadBalancer{
 		pool:     pool,
 		strategy: strategy,
+		random:   rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 }
 
@@ -36,9 +45,43 @@ func (lb *LoadBalancer) Select(apiType string) *types.RouteChannel {
 		return lb.prioritySelect(candidates)
 	case "cost_aware":
 		return lb.costAwareSelect(candidates)
+	case "adaptive":
+		return lb.adaptiveSelect(candidates)
 	default:
 		return lb.weightedSelect(candidates)
 	}
+}
+
+func (lb *LoadBalancer) SelectExcluding(apiType string, excluded map[string]bool) *types.RouteChannel {
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
+
+	candidates := lb.filterHealthy(apiType)
+	if len(excluded) > 0 {
+		filtered := candidates[:0]
+		for _, ch := range candidates {
+			if !excluded[routeChannelID(ch)] {
+				filtered = append(filtered, ch)
+			}
+		}
+		candidates = filtered
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	return lb.selectFromCandidates(candidates)
+}
+
+func (lb *LoadBalancer) SelectChannelByID(apiType, channelID string) *types.RouteChannel {
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
+
+	for _, ch := range lb.filterHealthy(apiType) {
+		if routeChannelID(ch) == channelID {
+			return ch
+		}
+	}
+	return nil
 }
 
 func (lb *LoadBalancer) filterHealthy(apiType string) []*types.RouteChannel {
@@ -51,7 +94,7 @@ func (lb *LoadBalancer) filterHealthy(apiType string) []*types.RouteChannel {
 		for _, ch := range channels {
 			if ch.Enabled {
 				routeChannels = append(routeChannels, &types.RouteChannel{
-					Channel:    ch,
+					Channel:   ch,
 					ChannelID: ch.ID,
 					Weight:    1,
 					Enabled:   ch.Enabled,
@@ -60,12 +103,35 @@ func (lb *LoadBalancer) filterHealthy(apiType string) []*types.RouteChannel {
 		}
 	}
 	var result []*types.RouteChannel
+	now := time.Now()
 	for _, ch := range routeChannels {
+		stats, _ := lb.pool.GetStats(routeChannelID(ch))
+		if stats != nil && !stats.RateLimitedUntil.IsZero() && now.Before(stats.RateLimitedUntil) {
+			continue
+		}
+		if stats != nil && stats.Invalid {
+			continue
+		}
 		if ch.Healthy {
 			result = append(result, ch)
 		}
 	}
 	return result
+}
+
+func (lb *LoadBalancer) selectFromCandidates(candidates []*types.RouteChannel) *types.RouteChannel {
+	switch lb.strategy {
+	case "weighted":
+		return lb.weightedSelect(candidates)
+	case "priority":
+		return lb.prioritySelect(candidates)
+	case "cost_aware":
+		return lb.costAwareSelect(candidates)
+	case "adaptive":
+		return lb.adaptiveSelect(candidates)
+	default:
+		return lb.weightedSelect(candidates)
+	}
 }
 
 func (lb *LoadBalancer) weightedSelect(channels []*types.RouteChannel) *types.RouteChannel {
@@ -76,7 +142,7 @@ func (lb *LoadBalancer) weightedSelect(channels []*types.RouteChannel) *types.Ro
 	if totalWeight == 0 {
 		return channels[len(channels)-1]
 	}
-	r := rand.Intn(totalWeight)
+	r := lb.random.Intn(totalWeight)
 	cumulative := 0
 	for _, ch := range channels {
 		cumulative += ch.Weight
@@ -109,7 +175,7 @@ func (lb *LoadBalancer) costAwareSelect(channels []*types.RouteChannel) *types.R
 		weights[i] = 1.0 / cost
 		totalInverse += weights[i]
 	}
-	r := rand.Float64() * totalInverse
+	r := lb.random.Float64() * totalInverse
 	cumulative := 0.0
 	for i, ch := range channels {
 		cumulative += weights[i]
@@ -118,4 +184,59 @@ func (lb *LoadBalancer) costAwareSelect(channels []*types.RouteChannel) *types.R
 		}
 	}
 	return channels[len(channels)-1]
+}
+
+func (lb *LoadBalancer) adaptiveSelect(channels []*types.RouteChannel) *types.RouteChannel {
+	totalWeight := 0.0
+	weights := make([]float64, len(channels))
+	for i, ch := range channels {
+		weight := lb.adaptiveWeight(ch)
+		weights[i] = weight
+		totalWeight += weight
+	}
+	if totalWeight <= 0 {
+		return lb.weightedSelect(channels)
+	}
+	r := lb.random.Float64() * totalWeight
+	cumulative := 0.0
+	for i, ch := range channels {
+		cumulative += weights[i]
+		if r < cumulative {
+			return ch
+		}
+	}
+	return channels[len(channels)-1]
+}
+
+func (lb *LoadBalancer) adaptiveWeight(ch *types.RouteChannel) float64 {
+	staticWeight := ch.Weight
+	if staticWeight <= 0 {
+		staticWeight = 1
+	}
+	healthScore := 100.0
+	avgLatencyMs := 100.0
+	errorRate := 0.0
+	stats, ok := lb.pool.GetStats(routeChannelID(ch))
+	if ok && stats != nil {
+		total := stats.SuccessCount + stats.FailureCount
+		if total > 0 {
+			errorRate = float64(stats.FailureCount) / float64(total)
+			healthScore = 100 * (1 - errorRate)
+		}
+		if stats.LatencyCount > 0 {
+			avgLatencyMs = float64(stats.LatencySumUs) / float64(stats.LatencyCount) / 1000
+		}
+		if avgLatencyMs > 0 {
+			healthScore *= math.Min(1, 200/avgLatencyMs)
+		}
+	}
+	logLatency := math.Log2(avgLatencyMs + 1)
+	if logLatency <= 0 {
+		logLatency = 1
+	}
+	weight := float64(staticWeight) * (healthScore / 100) * (1 - errorRate) / logLatency
+	if weight < 0 {
+		return 0
+	}
+	return weight
 }

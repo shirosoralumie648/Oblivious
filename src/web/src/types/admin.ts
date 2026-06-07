@@ -22,6 +22,18 @@ export type AdminStats = {
 
 export type ChannelStatus = 'online' | 'degraded' | 'offline';
 
+export type ChannelBalance = {
+  amount: number;
+  currency: string;
+  source?: string;
+};
+
+export type ChannelHealthDetail = {
+  status: ChannelStatus;
+  message?: string;
+  checkedAt?: string;
+};
+
 export type ChannelInfo = {
   id: string;
   name: string;
@@ -29,15 +41,26 @@ export type ChannelInfo = {
   baseURL: string;
   baseUrl?: string;
   models: string[];
+  groups: string[];
   rpm: number;
   tpm: number;
   priority: number;
+  estimatedCostPer1K?: number;
+  costMultiplier?: number;
   weight?: number;
   enabled: boolean;
   status: ChannelStatus;
   latency: number | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type ChannelProviderInfo = {
+  id: string;
+  displayName: string;
+  kind: string;
+  status: string;
+  defaultBaseURL: string;
 };
 
 export type ChannelCreateRequest = {
@@ -47,9 +70,12 @@ export type ChannelCreateRequest = {
   baseURL: string;
   baseUrl?: string;
   models: string[];
+  groups: string[];
   rpmLimit: number;
   tpmLimit: number;
   priority: number;
+  estimatedCostPer1K: number;
+  costMultiplier: number;
   weight?: number;
 };
 
@@ -57,19 +83,131 @@ export type ChannelUpdateRequest = Partial<ChannelCreateRequest> & {
   enabled?: boolean;
 };
 
+export type RelayPricingSettings = {
+  modelMultipliers: Record<string, number>;
+  groupMultipliers: Record<string, number>;
+};
+
+export type UsageLimitSettings = {
+  organizationId?: string;
+  organizationID?: string;
+  userId?: string;
+  userID?: string;
+  quotaMode?: 'organization' | 'user' | string;
+  maxConcurrentRequests: number;
+  windowSeconds: number;
+  maxTokensPerWindow: number;
+  updatedAt?: string;
+};
+
 export type ChannelTestResult = {
   success: boolean;
   latency: number;
   latencyMs?: number;
+  provider?: string;
+  models?: string[];
+  balance?: ChannelBalance | null;
+  balanceError?: string;
+  health?: ChannelHealthDetail | null;
   error?: string;
+};
+
+export type ChannelModelSyncResult = {
+  channel: ChannelInfo;
+  testResult: ChannelTestResult;
+};
+
+export type ChannelModelUpdatePreview = {
+  id: string;
+  currentModels: string[];
+  upstreamModels: string[];
+  added: string[];
+  removed: string[];
+  unchanged: string[];
+  testResult?: ChannelTestResult;
+};
+
+export type ChannelModelUpdateApplyRequest = {
+  mode?: 'merge' | 'replace';
+};
+
+export type ChannelModelUpdateApplyResult = {
+  channel?: ChannelInfo;
+  preview?: ChannelModelUpdatePreview;
+  mode: 'merge' | 'replace';
+  appliedModels: string[];
+};
+
+export type ChannelBalanceRefreshResult = {
+  id: string;
+  status: ChannelStatus;
+  balance?: ChannelBalance | null;
+  balanceError?: string;
+  channelHealth?: ChannelHealthDetail | null;
+  testResult: ChannelTestResult;
+  checkedAt?: string;
 };
 
 export type ChannelHealth = {
   id?: string;
   status: ChannelStatus;
   latency: number;
+  models?: string[];
+  balance?: ChannelBalance | null;
+  balanceError?: string;
+  health?: ChannelHealthDetail | null;
   error?: string;
   checkedAt?: string;
+};
+
+export type ChannelRuntimeStats = {
+  channelID: string;
+  channelId?: string;
+  rpmCurrent: number;
+  tpmCurrent: number;
+  totalRequests: number;
+  successCount: number;
+  failureCount: number;
+  avgLatencyMs: number;
+  rateLimitedUntil?: string;
+  affinityConversationCount?: number;
+};
+
+export type ModelInventoryChannel = {
+  id: string;
+  name: string;
+  provider: string;
+  groups: string[];
+  enabled: boolean;
+  priority: number;
+  estimatedCostPer1K: number;
+  costMultiplier: number;
+};
+
+export type ModelInventoryEntry = {
+  model: string;
+  providers: string[];
+  groups: string[];
+  channelCount: number;
+  enabledChannelCount: number;
+  disabledChannelCount: number;
+  minEstimatedCostPer1K: number;
+  maxEstimatedCostPer1K: number;
+  avgCostMultiplier: number;
+  requestCount: number;
+  totalCost: number;
+  totalChannelCost: number;
+  channels: ModelInventoryChannel[];
+};
+
+export type ModelInventoryFilter = {
+  provider?: string;
+  group?: string;
+  status?: string;
+  search?: string;
+  sort?: string;
+  limit?: number;
+  offset?: number;
 };
 
 export type RouteChannel = {
@@ -87,10 +225,12 @@ export type RouteChannelInput = {
   enabled: boolean;
 };
 
+export type RouteStrategy = 'adaptive' | 'weighted' | 'priority' | 'cost_aware';
+
 export type RouteInfo = {
   id: string;
   model: string;
-  strategy: string;
+  strategy: RouteStrategy | string;
   channels: RouteChannel[];
   createdAt: string;
   modelPattern?: string;
@@ -102,7 +242,7 @@ export type RouteInfo = {
 
 export type RouteCreateRequest = {
   model: string;
-  strategy: string;
+  strategy: RouteStrategy;
   channels: RouteChannelInput[];
 };
 
@@ -187,6 +327,141 @@ export type AuditEntry = {
   createdAt: string;
 };
 
+export type UsageLogEntry = {
+  id: string;
+  organizationId?: string;
+  userId: string;
+  apiTokenId?: string;
+  requestId?: string;
+  apiType?: string;
+  featureType?: string;
+  quotaMode?: string;
+  model: string;
+  channelId?: string;
+  provider?: string;
+  status?: string;
+  statusCode?: number;
+  errorCode?: string;
+  latencyMs?: number;
+  cost: number;
+  channelCost: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  createdAt: string;
+};
+
+export type UsageLogFilter = {
+  organizationID?: string;
+  organizationId?: string;
+  userID?: string;
+  userId?: string;
+  apiTokenID?: string;
+  apiTokenId?: string;
+  requestID?: string;
+  requestId?: string;
+  apiType?: string;
+  featureType?: string;
+  quotaMode?: string;
+  model?: string;
+  channelID?: string;
+  channelId?: string;
+  provider?: string;
+  status?: string;
+  limit?: number;
+  offset?: number;
+};
+
+export type UsageAnalyticsBucket = {
+  dimension: 'model' | 'feature' | 'user' | 'time' | string;
+  key: string;
+  requestCount: number;
+  totalTokens: number;
+  totalCost: number;
+  startedAt?: string;
+};
+
+export type UsageAnalyticsCrossDimensionBucket = UsageAnalyticsBucket & {
+  dimension: 'model_time' | 'user_feature' | 'feature_time' | string;
+  primary?: string;
+  secondary?: string;
+};
+
+export type UsageAnalyticsResponse = {
+  byModel: UsageAnalyticsBucket[];
+  byFeature: UsageAnalyticsBucket[];
+  byUser: UsageAnalyticsBucket[];
+  byTime: UsageAnalyticsBucket[];
+  crossDimensions?: UsageAnalyticsCrossDimensionBucket[];
+};
+
+export type UsageAnalyticsFilter = {
+  organizationID?: string;
+  organizationId?: string;
+  userID?: string;
+  userId?: string;
+  apiType?: string;
+  model?: string;
+  channelID?: string;
+  channelId?: string;
+  provider?: string;
+  status?: string;
+  granularity?: 'second' | 'minute' | 'hour' | 'day';
+  featureType?: string;
+  quotaMode?: string;
+  from?: string;
+  to?: string;
+  limit?: number;
+};
+
+export type APITokenEntry = {
+  id: string;
+  organizationId: string;
+  userId: string;
+  userEmail: string;
+  name: string;
+  tokenPrefix: string;
+  status: string;
+  userGroup?: string;
+  modelLimitsEnabled: boolean;
+  modelLimits: string[];
+  quotaLimit?: number | null;
+  usedQuota: number;
+  requestCount: number;
+  totalCost: number;
+  expiresAt?: string | null;
+  lastUsedAt?: string | null;
+  createdAt: string;
+  revokedAt?: string | null;
+};
+
+export type APITokenFilter = {
+  organizationID?: string;
+  organizationId?: string;
+  userID?: string;
+  userId?: string;
+  status?: string;
+  userGroup?: string;
+  search?: string;
+  model?: string;
+  limit?: number;
+  offset?: number;
+};
+
+export type ReviewSLA = {
+  submittedAt?: string;
+  automatedReviewDeadlineAt: string;
+  automatedReviewSlaMinutes: number;
+  automatedReviewSlaStatus: string;
+  manualDeadlineAt: string;
+  manualSlaHours: number;
+  manualSlaStatus: string;
+  minutesUntilDeadline: number;
+  vipPublisher: boolean;
+  publisherTier: string;
+  publisherTierSource: string;
+};
+
 export type PublishedAgent = {
   id: string;
   name: string;
@@ -196,7 +471,7 @@ export type PublishedAgent = {
   ownerID: string;
   ownerId?: string;
   ownerName: string;
-  status: 'draft' | 'pending_review' | 'pending' | 'approved' | 'rejected';
+  status: 'draft' | 'pending_review' | 'pending' | 'approved' | 'rejected' | 'needs_changes' | 'takedown';
   reviewReason?: string;
   rejectionReason?: string | null;
   visibility: 'public' | 'private' | 'unlisted';
@@ -212,6 +487,8 @@ export type PublishedAgent = {
   installCount: number;
   createdAt: string;
   updatedAt: string;
+  publisherReviewTier?: string;
+  reviewSLA?: ReviewSLA;
 };
 
 export type PaginatedResponse<T> = {
@@ -285,6 +562,7 @@ export type BillingInspectionRecord = {
   eventType?: string;
   packageId?: string;
   paymentIntentId?: string;
+  topupOrderId?: string;
   providerPaymentIntentId?: string;
   providerCheckoutSessionId?: string;
   providerSubscriptionId?: string;
@@ -309,4 +587,5 @@ export type BillingInspectionRecord = {
   receivedAt?: string;
   processedAt?: string | null;
   error?: string;
+  reason?: string;
 };

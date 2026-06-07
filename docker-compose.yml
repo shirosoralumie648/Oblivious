@@ -1,85 +1,172 @@
+# =============================================================================
+# Oblivious - Docker Compose (Development Environment)
+# =============================================================================
+# Usage:
+#   docker compose up -d          # start all services
+#   docker compose logs -f oblivious-server
+#   docker compose down -v        # stop and remove volumes
+# =============================================================================
+
 services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL 16
+  # ---------------------------------------------------------------------------
   postgres:
     image: ${OBLIVIOUS_POSTGRES_IMAGE:-pgvector/pgvector:pg16}
+    container_name: oblivious-postgres
+    restart: unless-stopped
     environment:
-      POSTGRES_DB: oblivious
-      POSTGRES_USER: oblivious
-      POSTGRES_PASSWORD: oblivious
+      POSTGRES_USER: ${POSTGRES_USER:-oblivious}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-oblivious}
+      POSTGRES_DB: ${POSTGRES_DB:-oblivious}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./src/server/migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U oblivious -d oblivious"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-oblivious}"]
       interval: 10s
       timeout: 5s
       retries: 5
-    volumes:
-      - oblivious-postgres-data:/var/lib/postgresql/data
 
+  # ---------------------------------------------------------------------------
+  # Redis 7
+  # ---------------------------------------------------------------------------
   redis:
-    image: ${OBLIVIOUS_IMAGE_REGISTRY_PREFIX:-}redis:7
-    command: ["redis-server", "--appendonly", "yes"]
+    image: redis:7-alpine
+    container_name: oblivious-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
-    volumes:
-      - oblivious-redis-data:/data
 
+  # ---------------------------------------------------------------------------
+  # Qdrant (Vector Database)
+  # ---------------------------------------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:v1.12.1
+    container_name: oblivious-qdrant
+    restart: unless-stopped
+    ports:
+      - "${QDRANT_HTTP_PORT:-6333}:6333"
+      - "${QDRANT_GRPC_PORT:-6334}:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:6333/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # ClickHouse (Request Log Analytics)
+  # ---------------------------------------------------------------------------
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.12-alpine
+    container_name: oblivious-clickhouse
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: ${CLICKHOUSE_DATABASE:-oblivious}
+    ports:
+      - "${CLICKHOUSE_HTTP_PORT:-8123}:8123"
+      - "${CLICKHOUSE_NATIVE_PORT:-9000}:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --query 'SELECT 1' >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  clickhouse-init:
+    image: clickhouse/clickhouse-server:24.12-alpine
+    container_name: oblivious-clickhouse-init
+    restart: "no"
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    volumes:
+      - ./src/server/migrations/clickhouse:/migrations/clickhouse:ro
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        for migration in /migrations/clickhouse/*.sql; do
+          clickhouse-client --host clickhouse --database "$${CLICKHOUSE_DATABASE:-oblivious}" --multiquery < "$$migration"
+        done
+
+  # ---------------------------------------------------------------------------
+  # Oblivious Application Server
+  # ---------------------------------------------------------------------------
   oblivious-server:
     build:
       context: .
       dockerfile: Dockerfile.server
       args:
-        GO_IMAGE: ${OBLIVIOUS_IMAGE_REGISTRY_PREFIX:-}golang:1.25-bookworm
-        ALPINE_IMAGE: ${OBLIVIOUS_IMAGE_REGISTRY_PREFIX:-}alpine:3.21
         GOPROXY: ${OBLIVIOUS_GOPROXY:-https://proxy.golang.org,direct}
         GOSUMDB: ${OBLIVIOUS_GOSUMDB:-sum.golang.org}
+    image: ${OBLIVIOUS_SERVER_IMAGE:-oblivious-server:local}
+    container_name: oblivious-server
+    restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-    environment:
-      - SERVER_PORT=8080
-      - APP_ENV=production
-      - DATABASE_URL=postgres://oblivious:oblivious@postgres:5432/oblivious?sslmode=disable
-      - SESSION_SECRET=change-me-in-production
-      - SESSION_COOKIE_NAME=oblivious_session
-      - SESSION_COOKIE_SECURE=false
-      - CORS_ALLOWED_ORIGINS=http://localhost:${OBLIVIOUS_WEB_HOST_PORT:-4173},http://localhost:${OBLIVIOUS_SERVER_HOST_PORT:-8080}
-      - LLM_BASE_URL=
-      - LLM_API_KEY=
-      - LLM_TIMEOUT_MS=30000
-      - MODEL_DEFAULT_NAME=demo-reply
-      - RELAY_ENABLED=true
-      - RELAY_DEFAULT_MODEL=gpt-4o-mini
-      - OPENAI_API_KEY=
-      - OPENAI_BASE_URL=https://api.openai.com
+      qdrant:
+        condition: service_healthy
+      clickhouse-init:
+        condition: service_completed_successfully
     ports:
       - "${OBLIVIOUS_SERVER_HOST_PORT:-8080}:8080"
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
-      interval: 10s
-      timeout: 5s
-      retries: 6
+    environment:
+      - SERVER_PORT=8080
+      - APP_ENV=development
+      - DATABASE_URL=postgres://oblivious:oblivious@postgres:5432/oblivious?sslmode=disable
+      - SESSION_SECRET=${SESSION_SECRET:-dev-session-secret-change-in-prod}
+      - SESSION_COOKIE_NAME=oblivious_session
+      - SESSION_COOKIE_SECURE=false
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - RELAY_RATE_LIMIT_BACKEND=${RELAY_RATE_LIMIT_BACKEND:-redis}
+      - RELAY_RATE_LIMIT_REDIS_KEY_PREFIX=${RELAY_RATE_LIMIT_REDIS_KEY_PREFIX:-relay:rate_limit}
+      - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
+      - QDRANT_API_KEY=${QDRANT_API_KEY:-}
+      - QDRANT_VECTOR_SIZE=${QDRANT_VECTOR_SIZE:-1536}
+      - OBSERVABILITY_REQUEST_LOG_BACKEND=${OBSERVABILITY_REQUEST_LOG_BACKEND:-clickhouse}
+      - CLICKHOUSE_DSN=${CLICKHOUSE_DSN:-tcp://clickhouse:9000?database=oblivious}
+      - CLICKHOUSE_DRIVER=${CLICKHOUSE_DRIVER:-clickhouse}
+      - LLM_BASE_URL=${LLM_BASE_URL:-}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_TIMEOUT_MS=30000
+      - MODEL_DEFAULT_NAME=${MODEL_DEFAULT_NAME:-demo-reply}
+      - RELAY_ENABLED=${RELAY_ENABLED:-true}
+      - LOG_LEVEL=${LOG_LEVEL:-debug}
 
+  # ---------------------------------------------------------------------------
+  # Oblivious Web
+  # ---------------------------------------------------------------------------
   oblivious-web:
     build:
       context: .
       dockerfile: Dockerfile.web
-      args:
-        NODE_IMAGE: ${OBLIVIOUS_IMAGE_REGISTRY_PREFIX:-}node:20-bookworm-slim
-        NGINX_IMAGE: ${OBLIVIOUS_IMAGE_REGISTRY_PREFIX:-}nginx:1.27-alpine
+    image: ${OBLIVIOUS_WEB_IMAGE:-oblivious-web:local}
+    container_name: oblivious-web
+    restart: unless-stopped
     depends_on:
-      oblivious-server:
-        condition: service_healthy
+      - oblivious-server
     ports:
       - "${OBLIVIOUS_WEB_HOST_PORT:-4173}:80"
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
-      interval: 10s
-      timeout: 5s
-      retries: 6
 
 volumes:
-  oblivious-postgres-data:
-  oblivious-redis-data:
+  postgres_data:
+  redis_data:
+  qdrant_data:
+  clickhouse_data:

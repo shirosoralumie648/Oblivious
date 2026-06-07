@@ -2,12 +2,18 @@ package quota
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
+	_ "github.com/lib/pq"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"oblivious/server/internal/metrics"
+	"oblivious/server/internal/relay/ratelimit"
 )
 
 // fakeStore implements Store for testing quota.Service.
@@ -15,6 +21,7 @@ type fakeStore struct {
 	quotas          map[string]*Quota
 	billingSessions map[string]*BillingSession
 	idempotencyKeys map[string]string
+	usageLimits     map[string]UsageLimitSettings
 }
 
 func newFakeStore() *fakeStore {
@@ -22,6 +29,7 @@ func newFakeStore() *fakeStore {
 		quotas:          make(map[string]*Quota),
 		billingSessions: make(map[string]*BillingSession),
 		idempotencyKeys: make(map[string]string),
+		usageLimits:     make(map[string]UsageLimitSettings),
 	}
 }
 
@@ -115,6 +123,42 @@ func (s *fakeStore) UpdateTopupOrderCheckoutSession(ctx context.Context, payment
 }
 func (s *fakeStore) UpdateTopupOrderStatus(ctx context.Context, id string, status string, tradeNo string) error {
 	return nil
+}
+func (s *fakeStore) SaveUsageLimitSettings(ctx context.Context, settings UsageLimitSettings) (*UsageLimitSettings, error) {
+	normalized, err := normalizeUsageLimitSettings(settings)
+	if err != nil {
+		return nil, err
+	}
+	normalized.UpdatedAt = time.Now().UTC()
+	s.usageLimits[usageLimitSettingsKey(normalized.OrganizationID, normalized.UserID)] = normalized
+	return &normalized, nil
+}
+func (s *fakeStore) ResolveUsageLimitSettings(ctx context.Context, organizationID, userID string) (UsageLimitSettings, error) {
+	if userID != "" {
+		if settings, ok := s.usageLimits[usageLimitSettingsKey(organizationID, userID)]; ok {
+			return settings, nil
+		}
+	}
+	if settings, ok := s.usageLimits[usageLimitSettingsKey(organizationID, "")]; ok {
+		return settings, nil
+	}
+	return UsageLimitSettings{OrganizationID: organizationID, UserID: userID, QuotaMode: usageLimitQuotaMode(userID)}, nil
+}
+func (s *fakeStore) ListUsageLimitSettings(ctx context.Context, organizationID string) ([]UsageLimitSettings, error) {
+	settings := make([]UsageLimitSettings, 0, len(s.usageLimits))
+	if orgSettings, ok := s.usageLimits[usageLimitSettingsKey(organizationID, "")]; ok {
+		settings = append(settings, orgSettings)
+	}
+	for _, item := range s.usageLimits {
+		if item.OrganizationID == organizationID && item.UserID != "" {
+			settings = append(settings, item)
+		}
+	}
+	return settings, nil
+}
+
+func usageLimitSettingsKey(organizationID, userID string) string {
+	return organizationID + "|" + userID
 }
 
 func TestPreConsume_Success(t *testing.T) {
@@ -407,4 +451,330 @@ func TestTopup(t *testing.T) {
 	if q.Balance != 150.0 {
 		t.Fatalf("expected balance 150.0 after topup, got %f", q.Balance)
 	}
+}
+
+func TestQuotaConcurrencyLimitPreventsSecondLeaseUntilReleased(t *testing.T) {
+	store := newFakeStore()
+	svc := NewService(store, WithRateLimiter(ratelimit.NewInMemoryRateLimiter(ratelimit.InMemoryOptions{})))
+	ctx := context.Background()
+	limit := UsageLimit{OrganizationID: "org_1", UserID: "user_1", MaxConcurrentRequests: 1}
+
+	lease, err := svc.BeginUsage(ctx, limit)
+	if err != nil {
+		t.Fatalf("BeginUsage first lease returned error: %v", err)
+	}
+	if lease == nil || lease.OrganizationID != "org_1" || lease.UserID != "user_1" {
+		t.Fatalf("unexpected usage lease: %+v", lease)
+	}
+
+	_, err = svc.BeginUsage(ctx, limit)
+	if !errors.Is(err, ErrUsageLimited) {
+		t.Fatalf("BeginUsage second lease err = %v, want ErrUsageLimited", err)
+	}
+	var usageErr *UsageLimitError
+	if !errors.As(err, &usageErr) || usageErr.Dimension != UsageLimitDimensionConcurrent {
+		t.Fatalf("expected concurrent UsageLimitError, got %#v", err)
+	}
+
+	if err := svc.EndUsage(ctx, lease); err != nil {
+		t.Fatalf("EndUsage returned error: %v", err)
+	}
+	if _, err := svc.BeginUsage(ctx, limit); err != nil {
+		t.Fatalf("BeginUsage after release returned error: %v", err)
+	}
+}
+
+func TestQuotaTokenRateLimitUsesOrganizationAndUserWindow(t *testing.T) {
+	now := time.Date(2026, 6, 5, 10, 0, 0, 0, time.UTC)
+	store := newFakeStore()
+	svc := NewService(store, WithRateLimiter(ratelimit.NewInMemoryRateLimiter(ratelimit.InMemoryOptions{
+		Clock: func() time.Time { return now },
+	})))
+	ctx := context.Background()
+	limit := UsageLimit{OrganizationID: "org_1", UserID: "user_1", MaxTokensPerWindow: 100}
+
+	if err := svc.ReserveUsageTokens(ctx, limit, 60); err != nil {
+		t.Fatalf("ReserveUsageTokens first reservation returned error: %v", err)
+	}
+	err := svc.ReserveUsageTokens(ctx, limit, 50)
+	if !errors.Is(err, ErrUsageLimited) {
+		t.Fatalf("ReserveUsageTokens over limit err = %v, want ErrUsageLimited", err)
+	}
+	var usageErr *UsageLimitError
+	if !errors.As(err, &usageErr) || usageErr.Dimension != UsageLimitDimensionTokens || usageErr.Remaining != 40 {
+		t.Fatalf("expected token UsageLimitError remaining=40, got %#v", err)
+	}
+
+	otherUser := limit
+	otherUser.UserID = "user_2"
+	if err := svc.ReserveUsageTokens(ctx, otherUser, 50); err != nil {
+		t.Fatalf("other user should have an independent token window: %v", err)
+	}
+}
+
+func TestQuotaUsageLimitSettingsResolveUserOverrideWithOrganizationFallback(t *testing.T) {
+	store := newFakeStore()
+	svc := NewService(store)
+	ctx := context.Background()
+
+	organizationSettings, err := svc.SaveUsageLimitSettings(ctx, UsageLimitSettings{
+		OrganizationID:        "org_1",
+		MaxConcurrentRequests: 10,
+		WindowSeconds:         60,
+		MaxTokensPerWindow:    1000,
+	})
+	if err != nil {
+		t.Fatalf("save organization usage limit settings: %v", err)
+	}
+	if organizationSettings.QuotaMode != "organization" {
+		t.Fatalf("expected organization quota mode, got %+v", organizationSettings)
+	}
+	userSettings, err := svc.SaveUsageLimitSettings(ctx, UsageLimitSettings{
+		OrganizationID:        "org_1",
+		UserID:                "user_1",
+		QuotaMode:             "user",
+		MaxConcurrentRequests: 2,
+		WindowSeconds:         30,
+		MaxTokensPerWindow:    200,
+	})
+	if err != nil {
+		t.Fatalf("save user usage limit settings: %v", err)
+	}
+	if userSettings.QuotaMode != "user" {
+		t.Fatalf("expected user quota mode, got %+v", userSettings)
+	}
+
+	userLimit, err := svc.ResolveUsageLimit(ctx, "org_1", "user_1")
+	if err != nil {
+		t.Fatalf("resolve user usage limit: %v", err)
+	}
+	if userLimit.MaxConcurrentRequests != 2 || userLimit.MaxTokensPerWindow != 200 {
+		t.Fatalf("expected user override limits, got %+v", userLimit)
+	}
+
+	orgLimit, err := svc.ResolveUsageLimit(ctx, "org_1", "user_2")
+	if err != nil {
+		t.Fatalf("resolve organization fallback usage limit: %v", err)
+	}
+	if orgLimit.UserID != "" || orgLimit.MaxConcurrentRequests != 10 || orgLimit.MaxTokensPerWindow != 1000 {
+		t.Fatalf("expected organization-scoped fallback limits, got %+v", orgLimit)
+	}
+
+	settings, err := svc.ListUsageLimitSettings(ctx, "org_1")
+	if err != nil {
+		t.Fatalf("list usage limit settings: %v", err)
+	}
+	if len(settings) != 2 {
+		t.Fatalf("expected two persisted settings, got %+v", settings)
+	}
+	if settings[0].UserID != "" || settings[1].UserID != "user_1" {
+		t.Fatalf("expected organization scope before user scope, got %+v", settings)
+	}
+	if settings[0].QuotaMode != "organization" || settings[1].QuotaMode != "user" {
+		t.Fatalf("expected explicit quota modes, got %+v", settings)
+	}
+}
+
+func TestQuotaUsageLimitSettingsValidationAndDefaults(t *testing.T) {
+	svc := NewService(newFakeStore())
+	ctx := context.Background()
+
+	if _, err := svc.SaveUsageLimitSettings(ctx, UsageLimitSettings{MaxConcurrentRequests: 1}); err == nil {
+		t.Fatal("expected organization_id validation error")
+	}
+	if _, err := svc.SaveUsageLimitSettings(ctx, UsageLimitSettings{OrganizationID: "org_1"}); err == nil {
+		t.Fatal("expected positive limit validation error")
+	}
+	if _, err := svc.SaveUsageLimitSettings(ctx, UsageLimitSettings{
+		OrganizationID:     "org_1",
+		QuotaMode:          "user",
+		MaxTokensPerWindow: 500,
+	}); err == nil || !strings.Contains(err.Error(), "user_id is required for user quota mode") {
+		t.Fatalf("expected user quota mode to require user_id, got %v", err)
+	}
+	if _, err := svc.SaveUsageLimitSettings(ctx, UsageLimitSettings{
+		OrganizationID:     "org_1",
+		UserID:             "user_1",
+		QuotaMode:          "organization",
+		MaxTokensPerWindow: 500,
+	}); err == nil || !strings.Contains(err.Error(), "user_id must be empty for organization quota mode") {
+		t.Fatalf("expected organization quota mode to reject user_id, got %v", err)
+	}
+	if _, err := svc.SaveUsageLimitSettings(ctx, UsageLimitSettings{
+		OrganizationID:     "org_1",
+		QuotaMode:          "team",
+		MaxTokensPerWindow: 500,
+	}); err == nil || !strings.Contains(err.Error(), "quota_mode must be organization or user") {
+		t.Fatalf("expected quota mode validation error, got %v", err)
+	}
+
+	saved, err := svc.SaveUsageLimitSettings(ctx, UsageLimitSettings{
+		OrganizationID:     "org_1",
+		MaxTokensPerWindow: 500,
+	})
+	if err != nil {
+		t.Fatalf("save token usage limit with default window: %v", err)
+	}
+	if saved.WindowSeconds != defaultUsageLimitWindowSeconds {
+		t.Fatalf("expected default token window %d seconds, got %d", defaultUsageLimitWindowSeconds, saved.WindowSeconds)
+	}
+	if saved.QuotaMode != "organization" {
+		t.Fatalf("expected organization quota mode default, got %+v", saved)
+	}
+}
+
+func TestSQLStoreUsageLimitSettingsRoundTrip(t *testing.T) {
+	store, ctx := testSQLQuotaStore(t)
+
+	if _, err := store.SaveUsageLimitSettings(ctx, UsageLimitSettings{
+		OrganizationID:        "org_1",
+		MaxConcurrentRequests: 8,
+		WindowSeconds:         60,
+		MaxTokensPerWindow:    900,
+	}); err != nil {
+		t.Fatalf("save organization SQL usage limit settings: %v", err)
+	}
+	if _, err := store.SaveUsageLimitSettings(ctx, UsageLimitSettings{
+		OrganizationID:        "org_1",
+		UserID:                "user_1",
+		MaxConcurrentRequests: 3,
+		WindowSeconds:         45,
+		MaxTokensPerWindow:    300,
+	}); err != nil {
+		t.Fatalf("save user SQL usage limit settings: %v", err)
+	}
+
+	userLimit, err := store.ResolveUsageLimitSettings(ctx, "org_1", "user_1")
+	if err != nil {
+		t.Fatalf("resolve SQL user settings: %v", err)
+	}
+	if userLimit.MaxConcurrentRequests != 3 || userLimit.WindowSeconds != 45 || userLimit.MaxTokensPerWindow != 300 {
+		t.Fatalf("expected SQL user override settings, got %+v", userLimit)
+	}
+	if userLimit.QuotaMode != "user" {
+		t.Fatalf("expected SQL user quota mode, got %+v", userLimit)
+	}
+
+	orgLimit, err := store.ResolveUsageLimitSettings(ctx, "org_1", "user_2")
+	if err != nil {
+		t.Fatalf("resolve SQL organization fallback settings: %v", err)
+	}
+	if orgLimit.MaxConcurrentRequests != 8 || orgLimit.MaxTokensPerWindow != 900 {
+		t.Fatalf("expected SQL organization fallback settings, got %+v", orgLimit)
+	}
+	if orgLimit.QuotaMode != "organization" {
+		t.Fatalf("expected SQL organization quota mode, got %+v", orgLimit)
+	}
+}
+
+func TestSQLStoreListPackagesReturnsOnlyActivePublicHybridPlans(t *testing.T) {
+	store, ctx := testSQLQuotaStore(t)
+	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
+
+	if _, err := store.db.ExecContext(ctx, `
+		INSERT INTO packages (
+			id, name, description, quota_amount, token_quota, price, model_access,
+			agent_limit, duration_days, is_active, is_public, sort_order, created_at, updated_at
+		)
+		VALUES
+			('pkg_public', 'Public Pro', 'public plan', 100, 2000000, 29, ARRAY['gpt-4o','gpt-4o-mini'], 25, 30, true, true, 1, $1, $1),
+			('pkg_private', 'Private Enterprise', 'hidden plan', 1000, 9000000, 299, ARRAY['gpt-4o'], 100, 30, true, false, 0, $1, $1),
+			('pkg_inactive', 'Inactive Starter', 'inactive plan', 10, 100000, 9, ARRAY['gpt-4o-mini'], 5, 30, false, true, 2, $1, $1)
+	`, now); err != nil {
+		t.Fatalf("insert packages: %v", err)
+	}
+
+	packages, err := store.ListPackages(ctx, true)
+	if err != nil {
+		t.Fatalf("ListPackages returned error: %v", err)
+	}
+	if len(packages) != 1 {
+		t.Fatalf("expected one active public package, got %d: %+v", len(packages), packages)
+	}
+	pkg := packages[0]
+	if pkg.ID != "pkg_public" || !pkg.IsActive || !pkg.IsPublic {
+		t.Fatalf("expected active public package only, got %+v", pkg)
+	}
+	if pkg.TokenQuota != 2000000 || pkg.AgentLimit != 25 {
+		t.Fatalf("expected hybrid quota fields, got %+v", pkg)
+	}
+	if len(pkg.ModelAccess) != 2 || pkg.ModelAccess[0] != "gpt-4o" || pkg.ModelAccess[1] != "gpt-4o-mini" {
+		t.Fatalf("expected model access list, got %+v", pkg.ModelAccess)
+	}
+	if !pkg.UpdatedAt.Equal(now) {
+		t.Fatalf("expected updatedAt %s, got %s", now, pkg.UpdatedAt)
+	}
+}
+
+func testSQLQuotaStore(t *testing.T) (*SQLStore, context.Context) {
+	t.Helper()
+
+	databaseURL := strings.TrimSpace(os.Getenv("TEST_DATABASE_URL"))
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is required for quota SQL store tests")
+	}
+
+	database, err := sql.Open("postgres", databaseURL)
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	if err := database.Ping(); err != nil {
+		t.Fatalf("ping database: %v", err)
+	}
+	t.Cleanup(func() {
+		database.Close()
+	})
+
+	if _, err := database.Exec(`SELECT pg_advisory_lock(104254)`); err != nil {
+		t.Fatalf("lock quota test database: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := database.Exec(`SELECT pg_advisory_unlock(104254)`); err != nil {
+			t.Fatalf("unlock quota test database: %v", err)
+		}
+	})
+
+	statements := []string{
+		`DROP TABLE IF EXISTS packages CASCADE`,
+		`DROP TABLE IF EXISTS token_rate_limits CASCADE`,
+		`DROP TABLE IF EXISTS concurrency_limits CASCADE`,
+		`DROP TABLE IF EXISTS organization_memberships CASCADE`,
+		`DROP TABLE IF EXISTS organizations CASCADE`,
+		`DROP TABLE IF EXISTS users CASCADE`,
+		`CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL DEFAULT '', name TEXT NOT NULL DEFAULT '')`,
+		`CREATE TABLE organizations (id TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '')`,
+		`CREATE TABLE packages (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			description TEXT,
+			quota_amount DECIMAL(15,6) NOT NULL,
+			token_quota INTEGER NOT NULL DEFAULT 1000000,
+			price DECIMAL(10,2) NOT NULL,
+			model_access TEXT[] NOT NULL DEFAULT '{}',
+			agent_limit INTEGER NOT NULL DEFAULT 10,
+			duration_days INT,
+			is_active BOOLEAN NOT NULL DEFAULT true,
+			is_public BOOLEAN NOT NULL DEFAULT true,
+			sort_order INT NOT NULL DEFAULT 0,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`INSERT INTO users (id, email, name) VALUES ('user_1', 'user@example.test', 'User One'), ('user_2', 'user2@example.test', 'User Two')`,
+		`INSERT INTO organizations (id, name) VALUES ('org_1', 'Org One')`,
+	}
+	for _, statement := range statements {
+		if _, err := database.Exec(statement); err != nil {
+			t.Fatalf("prepare quota test database: %v\nstatement: %s", err, statement)
+		}
+	}
+
+	migration, err := os.ReadFile("../../migrations/0054_usage_limits.sql")
+	if err != nil {
+		t.Fatalf("read usage limits migration: %v", err)
+	}
+	if _, err := database.Exec(string(migration)); err != nil {
+		t.Fatalf("apply usage limits migration: %v", err)
+	}
+
+	return NewSQLStore(database), context.Background()
 }

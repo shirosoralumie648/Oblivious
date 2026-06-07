@@ -1,0 +1,1205 @@
+package http
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	stdhttp "net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"oblivious/server/internal/agent"
+	"oblivious/server/internal/auth"
+	"oblivious/server/internal/chat"
+)
+
+func TestAgentRunsHandlerCreateRunStartsReactRunAndReturnsMessages(t *testing.T) {
+	store := newFakeAgentRunsStore()
+	store.agent = &agent.Agent{
+		ID:             "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		Name:           "Research Agent",
+		Model:          "test-model",
+		Tools:          []agent.Tool{{Name: "search", Type: "builtin", Enabled: true}},
+		Config:         agent.Config{MaxIterations: 3, TokenBudget: 2_000},
+	}
+	store.conversation = &agent.Conversation{
+		ID:             "conv_1",
+		AgentID:        "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+	}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{reply: "done"}))
+
+	recorder := httptest.NewRecorder()
+	request := newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs", `{
+		"agent_id":"agent_1",
+		"conversation_id":"conv_1",
+		"input":"summarize this",
+		"mode":"react",
+		"token_budget": 42,
+		"max_iterations": 250
+	}`)
+	handler.createRun(recorder, request)
+
+	if recorder.Code != stdhttp.StatusCreated {
+		t.Fatalf("expected 201, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Data agentRunResponse `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Data.Run.ID == "" || response.Data.Run.Status != agent.RunStatusCompleted {
+		t.Fatalf("expected completed run in response, got %+v", response.Data.Run)
+	}
+	if response.Data.Status != agent.RunStatusCompleted || response.Data.ID != response.Data.Run.ID {
+		t.Fatalf("expected facade id/status mirrors, got %+v", response.Data)
+	}
+	if len(response.Data.Messages) != 2 || response.Data.Messages[0].Role != "user" || response.Data.Messages[1].Content != "done" {
+		t.Fatalf("expected user and assistant messages, got %+v", response.Data.Messages)
+	}
+	if store.agent.Config.MaxIterations != 3 {
+		t.Fatalf("expected run-scoped max_iterations override not to mutate agent config, got %d", store.agent.Config.MaxIterations)
+	}
+	if store.agent.Config.TokenBudget != 2_000 {
+		t.Fatalf("expected run-scoped token_budget override not to mutate agent config, got %d", store.agent.Config.TokenBudget)
+	}
+}
+
+func TestAgentRunsHandlerGetRunReturnsDetailAndMessages(t *testing.T) {
+	store := newFakeAgentRunsStore()
+	store.runs = []*agent.Run{{
+		ID:             "run_1",
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		Status:         agent.RunStatusCompleted,
+	}}
+	store.toolRuns = []*agent.ToolRun{{
+		ID:             "tool_run_1",
+		OrganizationID: "org_1",
+		RunID:          "run_1",
+		ToolName:       "search",
+		Status:         agent.ToolRunStatusCompleted,
+	}}
+	store.messages = []*agent.Message{{
+		ID:             "msg_1",
+		ConversationID: "conv_1",
+		OrganizationID: "org_1",
+		Role:           "assistant",
+		Content:        "done",
+	}}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{}))
+
+	recorder := httptest.NewRecorder()
+	handler.getRun(recorder, newAgentRunsRequest(stdhttp.MethodGet, "/api/v1/agent/runs/run_1", ""), "run_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Data agentRunResponse `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Data.Run.ID != "run_1" || len(response.Data.ToolRuns) != 1 || len(response.Data.Messages) != 1 {
+		t.Fatalf("expected run detail with tool run and message, got %+v", response.Data)
+	}
+}
+
+func TestAgentRunsHandlerCreateRunStartsPlanningRun(t *testing.T) {
+	store := newFakeAgentRunsStore()
+	store.agent = &agent.Agent{
+		ID:             "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		Name:           "Planning Agent",
+		Model:          "test-model",
+	}
+	store.conversation = &agent.Conversation{
+		ID:             "conv_1",
+		AgentID:        "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+	}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{reply: "1. Gather requirements\n2. Draft implementation plan"}))
+
+	recorder := httptest.NewRecorder()
+	request := newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs", `{
+		"agent_id":"agent_1",
+		"conversation_id":"conv_1",
+		"input":"make a plan",
+		"mode":"planning"
+	}`)
+	handler.createRun(recorder, request)
+
+	if recorder.Code != stdhttp.StatusCreated {
+		t.Fatalf("expected 201, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Data agentRunResponse `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Data.Run == nil || response.Data.Run.Status != agent.RunStatusPendingApproval {
+		t.Fatalf("expected planning run to wait for plan step execution, got %+v", response.Data.Run)
+	}
+	if len(response.Data.Messages) != 2 {
+		t.Fatalf("expected user and planning messages, got %+v", response.Data.Messages)
+	}
+	if response.Data.Messages[0].Role != "user" || response.Data.Messages[0].Content != "make a plan" {
+		t.Fatalf("expected original user request to be persisted, got %+v", response.Data.Messages[0])
+	}
+	if response.Data.Messages[1].Role != "assistant" || !strings.Contains(response.Data.Messages[1].Content, "Draft implementation plan") {
+		t.Fatalf("expected assistant planning response, got %+v", response.Data.Messages[1])
+	}
+}
+
+func TestAgentRunsHandlerCreateRunUsesAgentDefaultExecutionModePlanning(t *testing.T) {
+	store := newFakeAgentRunsStore()
+	store.agent = &agent.Agent{
+		ID:             "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		Name:           "Planning Default Agent",
+		Model:          "test-model",
+		Config: agent.Config{
+			DefaultExecutionMode: agent.ExecutionModePlanning,
+		},
+	}
+	store.conversation = &agent.Conversation{
+		ID:             "conv_1",
+		AgentID:        "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+	}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{reply: "1. Gather context\n2. Execute changes"}))
+
+	recorder := httptest.NewRecorder()
+	request := newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs", `{
+		"agent_id":"agent_1",
+		"conversation_id":"conv_1",
+		"input":"plan by default"
+	}`)
+	handler.createRun(recorder, request)
+
+	if recorder.Code != stdhttp.StatusCreated {
+		t.Fatalf("expected 201, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Data agentRunResponse `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(response.Data.PlanSteps) != 2 {
+		t.Fatalf("expected planning run to create plan steps from default mode, got %+v", response.Data)
+	}
+	if len(response.Data.Messages) != 2 || !strings.Contains(response.Data.Messages[1].Content, "Execute changes") {
+		t.Fatalf("expected planning messages from default mode, got %+v", response.Data.Messages)
+	}
+}
+
+func TestAgentRunsHandlerCreateRunRejectsExplicitBlankExecutionMode(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "blank string",
+			body: `{
+				"agent_id":"agent_1",
+				"conversation_id":"conv_1",
+				"input":"do not default",
+				"mode":" "
+			}`,
+		},
+		{
+			name: "null",
+			body: `{
+				"agent_id":"agent_1",
+				"conversation_id":"conv_1",
+				"input":"do not default",
+				"mode":null
+			}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newFakeAgentRunsStore()
+			store.agent = &agent.Agent{
+				ID:             "agent_1",
+				OrganizationID: "org_1",
+				UserID:         "user_1",
+				Name:           "Planning Default Agent",
+				Model:          "test-model",
+				Config: agent.Config{
+					DefaultExecutionMode: agent.ExecutionModePlanning,
+				},
+			}
+			store.conversation = &agent.Conversation{
+				ID:             "conv_1",
+				AgentID:        "agent_1",
+				OrganizationID: "org_1",
+				UserID:         "user_1",
+			}
+			handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{reply: "should not run"}))
+
+			recorder := httptest.NewRecorder()
+			handler.createRun(recorder, newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs", tt.body))
+
+			if recorder.Code != stdhttp.StatusBadRequest {
+				t.Fatalf("expected 400, got %d with body %s", recorder.Code, recorder.Body.String())
+			}
+			if !strings.Contains(recorder.Body.String(), "mode must be react or planning") {
+				t.Fatalf("expected mode validation error, got %s", recorder.Body.String())
+			}
+			if len(store.runs) != 0 || len(store.planSteps) != 0 || len(store.messages) != 0 {
+				t.Fatalf("expected explicit blank mode to stop before starting run, got runs=%+v planSteps=%+v messages=%+v", store.runs, store.planSteps, store.messages)
+			}
+		})
+	}
+}
+
+func TestAgentRunsHandlerCreateRunRequestModeOverridesAgentDefaultExecutionMode(t *testing.T) {
+	store := newFakeAgentRunsStore()
+	store.agent = &agent.Agent{
+		ID:             "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		Name:           "Planning Default Agent",
+		Model:          "test-model",
+		Config: agent.Config{
+			DefaultExecutionMode: agent.ExecutionModePlanning,
+		},
+	}
+	store.conversation = &agent.Conversation{
+		ID:             "conv_1",
+		AgentID:        "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+	}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{reply: "react answer"}))
+
+	recorder := httptest.NewRecorder()
+	request := newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs", `{
+		"agent_id":"agent_1",
+		"conversation_id":"conv_1",
+		"input":"answer directly",
+		"mode":"react"
+	}`)
+	handler.createRun(recorder, request)
+
+	if recorder.Code != stdhttp.StatusCreated {
+		t.Fatalf("expected 201, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Data agentRunResponse `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(response.Data.PlanSteps) != 0 {
+		t.Fatalf("expected explicit react mode to skip planning steps, got %+v", response.Data.PlanSteps)
+	}
+	if len(response.Data.Messages) != 2 || response.Data.Messages[1].Content != "react answer" {
+		t.Fatalf("expected react response despite planning default, got %+v", response.Data.Messages)
+	}
+}
+
+func TestAgentRunsHandlerApprovePlanStepReturnsUpdatedRunDetail(t *testing.T) {
+	now := time.Now().UTC()
+	store := newFakeAgentRunsStore()
+	store.runs = []*agent.Run{{
+		ID:             "run_1",
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		Status:         agent.RunStatusCompleted,
+	}}
+	store.planSteps = []*agent.PlanStep{{
+		ID:             "step_1",
+		RunID:          "run_1",
+		OrganizationID: "org_1",
+		Index:          1,
+		Title:          "Gather requirements",
+		Status:         agent.PlanStepStatusPending,
+		ApprovalStatus: agent.ApprovalStatusNotRequired,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{}))
+
+	recorder := httptest.NewRecorder()
+	handler.approvePlanStep(recorder, newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/approve-plan-step", `{"planStepId":"step_1","reason":"ready"}`), "run_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Data agentRunResponse `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Data.Run == nil || response.Data.Run.ID != "run_1" {
+		t.Fatalf("expected run detail, got %+v", response.Data.Run)
+	}
+	if len(response.Data.PlanSteps) != 1 {
+		t.Fatalf("expected plan step detail, got %+v", response.Data)
+	}
+	step := response.Data.PlanSteps[0]
+	if step.ID != "step_1" || step.Status != agent.PlanStepStatusApproved || step.ApprovalStatus != agent.ApprovalStatusApproved {
+		t.Fatalf("expected approved plan step, got %+v", step)
+	}
+}
+
+func TestAgentRunsHandlerExecutePlanStepAcceptsSnakeCaseID(t *testing.T) {
+	now := time.Now().UTC()
+	store := newFakeAgentRunsStore()
+	store.agent = &agent.Agent{
+		ID:             "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		Name:           "Implementation Agent",
+		Model:          "test-model",
+	}
+	store.conversation = &agent.Conversation{
+		ID:             "conv_1",
+		AgentID:        "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+	}
+	store.runs = []*agent.Run{{
+		ID:             "run_1",
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		Status:         agent.RunStatusCompleted,
+	}}
+	store.planSteps = []*agent.PlanStep{{
+		ID:             "step_1",
+		RunID:          "run_1",
+		OrganizationID: "org_1",
+		Index:          1,
+		Title:          "Run implementation",
+		Status:         agent.PlanStepStatusApproved,
+		ApprovalStatus: agent.ApprovalStatusApproved,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}}
+	store.messages = []*agent.Message{{
+		ID:             "msg_1",
+		ConversationID: "conv_1",
+		OrganizationID: "org_1",
+		Role:           "user",
+		Content:        "implement the approved step",
+		CreatedAt:      now,
+	}}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{reply: "step executed"}))
+
+	recorder := httptest.NewRecorder()
+	handler.executePlanStep(recorder, newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/execute-plan-step", `{"plan_step_id":"step_1"}`), "run_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Data agentRunResponse `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(response.Data.PlanSteps) != 1 {
+		t.Fatalf("expected plan step detail, got %+v", response.Data)
+	}
+	step := response.Data.PlanSteps[0]
+	if step.ID != "step_1" || step.Status != agent.PlanStepStatusCompleted || step.ResultContent != "step executed" {
+		t.Fatalf("expected completed plan step result, got %+v", step)
+	}
+}
+
+func TestAgentRunsHandlerApprovePlanStepVerifiesStepBelongsToRun(t *testing.T) {
+	store := newFakeAgentRunsStore()
+	store.runs = []*agent.Run{
+		{ID: "run_1", OrganizationID: "org_1", UserID: "user_1"},
+		{ID: "run_2", OrganizationID: "org_1", UserID: "user_1"},
+	}
+	store.planSteps = []*agent.PlanStep{{
+		ID:             "step_other",
+		RunID:          "run_2",
+		OrganizationID: "org_1",
+		Status:         agent.PlanStepStatusPending,
+		ApprovalStatus: agent.ApprovalStatusNotRequired,
+	}}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{}))
+
+	recorder := httptest.NewRecorder()
+	handler.approvePlanStep(recorder, newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/approve-plan-step", `{"planStepId":"step_other"}`), "run_1")
+
+	if recorder.Code != stdhttp.StatusBadRequest {
+		t.Fatalf("expected 400, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "planStepId does not belong to run") {
+		t.Fatalf("expected membership error, got %s", recorder.Body.String())
+	}
+}
+
+func TestAgentRunsHandlerApproveToolSelectsOnlyPendingApprovalWhenOmitted(t *testing.T) {
+	store := newFakeAgentRunsStore()
+	store.agent = &agent.Agent{
+		ID:             "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		Model:          "test-model",
+		Tools:          []agent.Tool{{Name: "datetime", Type: "builtin", Enabled: true, RequiresApproval: true}},
+	}
+	store.runs = []*agent.Run{{
+		ID:             "run_1",
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		Status:         agent.RunStatusPendingApproval,
+	}}
+	store.toolRuns = []*agent.ToolRun{
+		{
+			ID:             "tool_run_pending",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			ToolCallID:     "call_datetime_pending",
+			ToolName:       "datetime",
+			ToolType:       "builtin",
+			Arguments:      map[string]any{},
+			Status:         agent.ToolRunStatusPendingApproval,
+			ApprovalStatus: agent.ApprovalStatusPending,
+		},
+		{
+			ID:             "tool_run_completed",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			ToolName:       "datetime",
+			Status:         agent.ToolRunStatusCompleted,
+			ApprovalStatus: agent.ApprovalStatusNotRequired,
+		},
+	}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{}))
+
+	recorder := httptest.NewRecorder()
+	handler.approveTool(recorder, newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/approve-tool", `{"reason":"reviewed"}`), "run_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Data agentRunResponse `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(response.Data.ToolRuns) == 0 {
+		t.Fatalf("expected tool run detail, got %+v", response.Data)
+	}
+	toolRun := response.Data.ToolRuns[0]
+	if toolRun.ID != "tool_run_pending" || toolRun.Status != agent.ToolRunStatusCompleted || toolRun.ApprovalStatus != agent.ApprovalStatusApproved || toolRun.ApprovalDecisionReason != "reviewed" {
+		t.Fatalf("expected pending tool run approved and completed, got %+v", toolRun)
+	}
+}
+
+func TestAgentRunsHandlerRejectToolReturnsFailedRunDetail(t *testing.T) {
+	now := time.Now().UTC()
+	store := newFakeAgentRunsStore()
+	store.runs = []*agent.Run{{
+		ID:             "run_1",
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		Status:         agent.RunStatusPendingApproval,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}}
+	store.toolRuns = []*agent.ToolRun{{
+		ID:             "tool_run_pending",
+		OrganizationID: "org_1",
+		RunID:          "run_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		ToolCallID:     "call_datetime",
+		ToolName:       "datetime",
+		ToolType:       "builtin",
+		Arguments:      map[string]any{"timezone": "UTC"},
+		Status:         agent.ToolRunStatusPendingApproval,
+		ApprovalStatus: agent.ApprovalStatusPending,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{}))
+
+	recorder := httptest.NewRecorder()
+	handler.rejectTool(recorder, newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/reject-tool", `{"toolRunId":"tool_run_pending","reason":"unsafe command"}`), "run_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Data agentRunResponse `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Data.Run == nil || response.Data.Run.Status != agent.RunStatusFailed || !strings.Contains(response.Data.Run.Error, "unsafe command") {
+		t.Fatalf("expected failed run detail with reject reason, got %+v", response.Data.Run)
+	}
+	if len(response.Data.ToolRuns) != 1 {
+		t.Fatalf("expected one tool run detail, got %+v", response.Data.ToolRuns)
+	}
+	toolRun := response.Data.ToolRuns[0]
+	if toolRun.ID != "tool_run_pending" || toolRun.Status != agent.ToolRunStatusRejected || toolRun.ApprovalStatus != agent.ApprovalStatusRejected || toolRun.ApprovalDecisionReason != "unsafe command" {
+		t.Fatalf("expected rejected tool run detail, got %+v", toolRun)
+	}
+}
+
+func TestAgentRunsHandlerApproveToolRejectsAmbiguousOmittedToolRunID(t *testing.T) {
+	store := newFakeAgentRunsStore()
+	store.runs = []*agent.Run{{
+		ID:             "run_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		Status:         agent.RunStatusPendingApproval,
+	}}
+	store.toolRuns = []*agent.ToolRun{
+		{ID: "tool_run_1", OrganizationID: "org_1", RunID: "run_1", Status: agent.ToolRunStatusPendingApproval, ApprovalStatus: agent.ApprovalStatusPending},
+		{ID: "tool_run_2", OrganizationID: "org_1", RunID: "run_1", Status: agent.ToolRunStatusPendingApproval, ApprovalStatus: agent.ApprovalStatusPending},
+	}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{}))
+
+	recorder := httptest.NewRecorder()
+	handler.approveTool(recorder, newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/approve-tool", `{}`), "run_1")
+
+	if recorder.Code != stdhttp.StatusBadRequest {
+		t.Fatalf("expected 400, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "toolRunId is required") {
+		t.Fatalf("expected ambiguous tool id message, got %s", recorder.Body.String())
+	}
+}
+
+func TestAgentRunsHandlerApproveToolVerifiesToolBelongsToRun(t *testing.T) {
+	store := newFakeAgentRunsStore()
+	store.runs = []*agent.Run{
+		{ID: "run_1", OrganizationID: "org_1", UserID: "user_1"},
+		{ID: "run_2", OrganizationID: "org_1", UserID: "user_1"},
+	}
+	store.toolRuns = []*agent.ToolRun{{
+		ID:             "tool_run_other",
+		OrganizationID: "org_1",
+		RunID:          "run_2",
+		Status:         agent.ToolRunStatusPendingApproval,
+		ApprovalStatus: agent.ApprovalStatusPending,
+	}}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{}))
+
+	recorder := httptest.NewRecorder()
+	handler.approveTool(recorder, newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/approve-tool", `{"toolRunId":"tool_run_other"}`), "run_1")
+
+	if recorder.Code != stdhttp.StatusBadRequest {
+		t.Fatalf("expected 400, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "does not belong to run") {
+		t.Fatalf("expected membership error, got %s", recorder.Body.String())
+	}
+}
+
+func TestAgentRunsHandlerRetryToolAcceptsSnakeCaseID(t *testing.T) {
+	store := newFakeAgentRunsStore()
+	store.agent = &agent.Agent{
+		ID:             "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		Model:          "test-model",
+		Tools:          []agent.Tool{{Name: "datetime", Type: "builtin", Enabled: true}},
+	}
+	store.runs = []*agent.Run{{
+		ID:             "run_1",
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		Status:         agent.RunStatusFailed,
+	}}
+	store.toolRuns = []*agent.ToolRun{{
+		ID:             "tool_run_failed",
+		OrganizationID: "org_1",
+		RunID:          "run_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		ToolCallID:     "call_datetime_failed",
+		ToolName:       "datetime",
+		ToolType:       "builtin",
+		Arguments:      map[string]any{},
+		Status:         agent.ToolRunStatusFailed,
+		ApprovalStatus: agent.ApprovalStatusNotRequired,
+		AttemptCount:   1,
+		Error:          "failed",
+	}}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{}))
+
+	recorder := httptest.NewRecorder()
+	handler.retryTool(recorder, newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/retry-tool", `{"tool_run_id":"tool_run_failed"}`), "run_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Data agentRunResponse `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(response.Data.ToolRuns) == 0 {
+		t.Fatalf("expected tool run detail, got %+v", response.Data)
+	}
+	toolRun := response.Data.ToolRuns[0]
+	if toolRun.ID != "tool_run_failed" || toolRun.Status != agent.ToolRunStatusCompleted || toolRun.AttemptCount != 2 || toolRun.Error != "" {
+		t.Fatalf("expected failed tool run retried and completed, got %+v", toolRun)
+	}
+}
+
+func TestAgentRunsHandlerApproveToolReturnsRecoverableRunDetail(t *testing.T) {
+	now := time.Now().UTC()
+	store := newFakeAgentRunsStore()
+	store.agent = &agent.Agent{
+		ID:             "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		Model:          "test-model",
+		Tools:          []agent.Tool{{Name: "datetime", Type: "builtin", Enabled: true, RequiresApproval: true}},
+	}
+	store.runs = []*agent.Run{{
+		ID:             "run_1",
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		Status:         agent.RunStatusPendingApproval,
+		IterationCount: 1,
+		ToolCallCount:  1,
+	}}
+	store.toolRuns = []*agent.ToolRun{{
+		ID:             "tool_run_pending",
+		OrganizationID: "org_1",
+		RunID:          "run_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		ToolCallID:     "call_datetime",
+		ToolName:       "datetime",
+		ToolType:       "builtin",
+		Arguments:      map[string]any{},
+		Status:         agent.ToolRunStatusPendingApproval,
+		ApprovalStatus: agent.ApprovalStatusPending,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{}))
+
+	recorder := httptest.NewRecorder()
+	handler.approveTool(recorder, newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/approve-tool", `{"toolRunId":"tool_run_pending","reason":"ok"}`), "run_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Data agentRunResponse `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Data.Run == nil || response.Data.Run.Status != agent.RunStatusCompleted {
+		t.Fatalf("expected completed run detail, got %+v", response.Data.Run)
+	}
+	if len(response.Data.ToolRuns) != 1 || response.Data.ToolRuns[0].Status != agent.ToolRunStatusCompleted {
+		t.Fatalf("expected completed tool run detail, got %+v", response.Data.ToolRuns)
+	}
+	if len(response.Data.Messages) != 2 {
+		t.Fatalf("expected recoverable tool result and final assistant messages, got %+v", response.Data.Messages)
+	}
+	if response.Data.Messages[0].Role != "tool" || response.Data.Messages[0].ToolCallID != "call_datetime" {
+		t.Fatalf("expected recoverable tool result message first, got %+v", response.Data.Messages)
+	}
+	if response.Data.Messages[1].Role != "assistant" || response.Data.Messages[1].Content == "" {
+		t.Fatalf("expected final assistant message after approved tool, got %+v", response.Data.Messages)
+	}
+}
+
+func TestAgentRunsHandlerRetryToolSelectsOnlyFailedWhenOmitted(t *testing.T) {
+	store := newFakeAgentRunsStore()
+	store.agent = &agent.Agent{
+		ID:             "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		Model:          "test-model",
+		Tools:          []agent.Tool{{Name: "datetime", Type: "builtin", Enabled: true}},
+	}
+	store.runs = []*agent.Run{{
+		ID:             "run_1",
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		Status:         agent.RunStatusFailed,
+	}}
+	store.toolRuns = []*agent.ToolRun{
+		{ID: "tool_run_completed", OrganizationID: "org_1", RunID: "run_1", Status: agent.ToolRunStatusCompleted, ApprovalStatus: agent.ApprovalStatusNotRequired},
+		{ID: "tool_run_failed", OrganizationID: "org_1", RunID: "run_1", ConversationID: "conv_1", AgentID: "agent_1", ToolCallID: "call_datetime_failed", ToolName: "datetime", ToolType: "builtin", Arguments: map[string]any{}, Status: agent.ToolRunStatusFailed, ApprovalStatus: agent.ApprovalStatusNotRequired, AttemptCount: 1, Error: "failed"},
+	}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{}))
+
+	recorder := httptest.NewRecorder()
+	handler.retryTool(recorder, newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/retry-tool", `{}`), "run_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"id":"tool_run_failed"`) {
+		t.Fatalf("expected failed tool run response, got %s", recorder.Body.String())
+	}
+}
+
+func TestAgentRunsHandlerListToolsRequiresAgentID(t *testing.T) {
+	handler := newAgentRunsHandler(agent.NewService(newFakeAgentRunsStore(), &fakeAgentRunsGateway{}))
+
+	recorder := httptest.NewRecorder()
+	handler.listTools(recorder, newAgentRunsRequest(stdhttp.MethodGet, "/api/v1/agent/tools", ""))
+
+	if recorder.Code != stdhttp.StatusBadRequest {
+		t.Fatalf("expected 400, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestAgentRunsHandlerListToolsAcceptsAgentIDAlias(t *testing.T) {
+	store := newFakeAgentRunsStore()
+	store.agent = &agent.Agent{
+		ID:             "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		Tools: []agent.Tool{{
+			Name:        "custom_tool",
+			Type:        "mcp",
+			Description: "Custom MCP tool",
+			Enabled:     true,
+		}},
+	}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{}))
+
+	recorder := httptest.NewRecorder()
+	handler.listTools(recorder, newAgentRunsRequest(stdhttp.MethodGet, "/api/v1/agent/tools?agent_id=agent_1", ""))
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"name":"custom_tool"`) {
+		t.Fatalf("expected listed tool, got %s", recorder.Body.String())
+	}
+}
+
+func newAgentRunsRequest(method, path, body string) *stdhttp.Request {
+	var reader *strings.Reader
+	if body == "" {
+		reader = strings.NewReader("")
+	} else {
+		reader = strings.NewReader(body)
+	}
+	request := httptest.NewRequest(method, path, reader)
+	request.Header.Set("Content-Type", "application/json")
+	return request.WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		ID:             "session_1",
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+		User: auth.User{
+			ID:    "user_1",
+			Email: "user@example.com",
+			Role:  "user",
+		},
+	}))
+}
+
+type fakeAgentRunsGateway struct {
+	reply string
+}
+
+func (g *fakeAgentRunsGateway) GenerateReply(ctx context.Context, messages []chat.Message, config chat.ConversationConfig) (string, error) {
+	if g.reply == "" {
+		return "ok", nil
+	}
+	return g.reply, nil
+}
+
+func (g *fakeAgentRunsGateway) GenerateReplyStream(ctx context.Context, messages []chat.Message, config chat.ConversationConfig, onChunk func(string) error) error {
+	return onChunk(g.reply)
+}
+
+func (g *fakeAgentRunsGateway) GenerateStructuredReply(ctx context.Context, messages []chat.Message, config chat.ConversationConfig, tools []map[string]any) (*chat.CompletionResponse, error) {
+	if g.reply == "" {
+		return &chat.CompletionResponse{Content: "ok"}, nil
+	}
+	return &chat.CompletionResponse{Content: g.reply}, nil
+}
+
+type fakeAgentRunsStore struct {
+	agent                    *agent.Agent
+	conversation             *agent.Conversation
+	listMemoryAgentID        string
+	listMemoryLimit          int
+	listMemoryOrganizationID string
+	listMemoryQuery          string
+	listMemoryUserID         string
+	memories                 []*agent.Memory
+	messages                 []*agent.Message
+	planSteps                []*agent.PlanStep
+	runs                     []*agent.Run
+	toolRuns                 []*agent.ToolRun
+}
+
+func newFakeAgentRunsStore() *fakeAgentRunsStore {
+	return &fakeAgentRunsStore{}
+}
+
+func (s *fakeAgentRunsStore) CreateAgent(ctx context.Context, userID, organizationID string, req *agent.CreateAgentRequest) (*agent.Agent, error) {
+	panic("not used")
+}
+
+func (s *fakeAgentRunsStore) GetAgent(ctx context.Context, id, organizationID string) (*agent.Agent, error) {
+	if s.agent != nil && s.agent.ID == id && s.agent.OrganizationID == organizationID {
+		return s.agent, nil
+	}
+	return nil, nil
+}
+
+func (s *fakeAgentRunsStore) ListAgents(ctx context.Context, userID, organizationID string) ([]*agent.Agent, error) {
+	panic("not used")
+}
+
+func (s *fakeAgentRunsStore) UpdateAgent(ctx context.Context, id, organizationID string, req *agent.UpdateAgentRequest) (*agent.Agent, error) {
+	panic("not used")
+}
+
+func (s *fakeAgentRunsStore) DeleteAgent(ctx context.Context, id, organizationID string) error {
+	panic("not used")
+}
+
+func (s *fakeAgentRunsStore) CreateConversation(ctx context.Context, agentID, userID, organizationID string, title string) (*agent.Conversation, error) {
+	panic("not used")
+}
+
+func (s *fakeAgentRunsStore) GetConversation(ctx context.Context, id, organizationID string) (*agent.Conversation, error) {
+	if s.conversation != nil && s.conversation.ID == id && s.conversation.OrganizationID == organizationID {
+		return s.conversation, nil
+	}
+	return nil, nil
+}
+
+func (s *fakeAgentRunsStore) ListConversations(ctx context.Context, agentID, userID, organizationID string) ([]*agent.Conversation, error) {
+	panic("not used")
+}
+
+func (s *fakeAgentRunsStore) DeleteConversation(ctx context.Context, id, organizationID string) error {
+	panic("not used")
+}
+
+func (s *fakeAgentRunsStore) CreateMessage(ctx context.Context, conversationID, organizationID, role, content string, toolCalls []agent.ToolCall, toolCallID string) (*agent.Message, error) {
+	msg := &agent.Message{
+		ID:             role + "_message",
+		ConversationID: conversationID,
+		OrganizationID: organizationID,
+		Role:           role,
+		Content:        content,
+		ToolCalls:      append([]agent.ToolCall(nil), toolCalls...),
+		ToolCallID:     toolCallID,
+		CreatedAt:      time.Now().UTC(),
+	}
+	s.messages = append(s.messages, msg)
+	return msg, nil
+}
+
+func (s *fakeAgentRunsStore) ListMessages(ctx context.Context, conversationID, organizationID string) ([]*agent.Message, error) {
+	var messages []*agent.Message
+	for _, msg := range s.messages {
+		if msg.ConversationID == conversationID && msg.OrganizationID == organizationID {
+			messages = append(messages, msg)
+		}
+	}
+	return messages, nil
+}
+
+func (s *fakeAgentRunsStore) CreateRun(ctx context.Context, req *agent.CreateRunRequest) (*agent.Run, error) {
+	now := time.Now().UTC()
+	run := &agent.Run{
+		ID:                "run_1",
+		OrganizationID:    req.OrganizationID,
+		ConversationID:    req.ConversationID,
+		AgentID:           req.AgentID,
+		UserID:            req.UserID,
+		RequestID:         req.RequestID,
+		Status:            req.Status,
+		MemoryEnabled:     req.MemoryEnabled,
+		MemorySearched:    req.MemorySearched,
+		MemoryResultCount: req.MemoryResultCount,
+		StartedAt:         now,
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	}
+	s.runs = append(s.runs, run)
+	return run, nil
+}
+
+func (s *fakeAgentRunsStore) GetRun(ctx context.Context, organizationID, id string) (*agent.Run, error) {
+	for _, run := range s.runs {
+		if run.OrganizationID == organizationID && run.ID == id {
+			return run, nil
+		}
+	}
+	return nil, nil
+}
+
+func (s *fakeAgentRunsStore) ListRuns(ctx context.Context, organizationID, conversationID string) ([]*agent.Run, error) {
+	var runs []*agent.Run
+	for _, run := range s.runs {
+		if run.OrganizationID == organizationID && run.ConversationID == conversationID {
+			runs = append(runs, run)
+		}
+	}
+	return runs, nil
+}
+
+func (s *fakeAgentRunsStore) UpdateRun(ctx context.Context, organizationID, id string, req agent.UpdateRunRequest) (*agent.Run, error) {
+	run, _ := s.GetRun(ctx, organizationID, id)
+	if run == nil {
+		return nil, errors.New("run not found")
+	}
+	if req.Status != nil {
+		run.Status = *req.Status
+	}
+	if req.IterationCount != nil {
+		run.IterationCount = *req.IterationCount
+	}
+	if req.ToolCallCount != nil {
+		run.ToolCallCount = *req.ToolCallCount
+	}
+	if req.FinalMessageID != nil {
+		run.FinalMessageID = *req.FinalMessageID
+	}
+	if req.Error != nil {
+		run.Error = *req.Error
+	}
+	if req.CompletedAt != nil {
+		run.CompletedAt = req.CompletedAt
+	}
+	run.UpdatedAt = time.Now().UTC()
+	return run, nil
+}
+
+func (s *fakeAgentRunsStore) CreateToolRun(ctx context.Context, req *agent.CreateToolRunRequest) (*agent.ToolRun, error) {
+	panic("not used")
+}
+
+func (s *fakeAgentRunsStore) GetToolRun(ctx context.Context, organizationID, id string) (*agent.ToolRun, error) {
+	for _, toolRun := range s.toolRuns {
+		if toolRun.OrganizationID == organizationID && toolRun.ID == id {
+			return toolRun, nil
+		}
+	}
+	return nil, nil
+}
+
+func (s *fakeAgentRunsStore) ListToolRuns(ctx context.Context, organizationID, runID string) ([]*agent.ToolRun, error) {
+	var toolRuns []*agent.ToolRun
+	for _, toolRun := range s.toolRuns {
+		if toolRun.OrganizationID == organizationID && toolRun.RunID == runID {
+			toolRuns = append(toolRuns, toolRun)
+		}
+	}
+	return toolRuns, nil
+}
+
+func (s *fakeAgentRunsStore) UpdateToolRun(ctx context.Context, organizationID, id string, req agent.UpdateToolRunRequest) (*agent.ToolRun, error) {
+	toolRun, _ := s.GetToolRun(ctx, organizationID, id)
+	if toolRun == nil {
+		return nil, errors.New("tool run not found")
+	}
+	if req.Status != nil {
+		toolRun.Status = *req.Status
+	}
+	if req.ApprovalStatus != nil {
+		toolRun.ApprovalStatus = *req.ApprovalStatus
+	}
+	if req.ApprovedByUserID != nil {
+		toolRun.ApprovedByUserID = *req.ApprovedByUserID
+	}
+	if req.ApprovalDecisionReason != nil {
+		toolRun.ApprovalDecisionReason = *req.ApprovalDecisionReason
+	}
+	if req.AttemptCount != nil {
+		toolRun.AttemptCount = *req.AttemptCount
+	}
+	if req.ResultContent != nil {
+		toolRun.ResultContent = *req.ResultContent
+	}
+	if req.Error != nil {
+		toolRun.Error = *req.Error
+	}
+	if req.StartedAt != nil {
+		toolRun.StartedAt = req.StartedAt
+	}
+	if req.CompletedAt != nil {
+		toolRun.CompletedAt = req.CompletedAt
+	}
+	if req.ClearCompletedAt {
+		toolRun.CompletedAt = nil
+	}
+	toolRun.UpdatedAt = time.Now().UTC()
+	return toolRun, nil
+}
+
+func (s *fakeAgentRunsStore) CreatePlanStep(ctx context.Context, req *agent.CreatePlanStepRequest) (*agent.PlanStep, error) {
+	now := time.Now().UTC()
+	status := req.Status
+	if status == "" {
+		status = agent.PlanStepStatusPending
+	}
+	approvalStatus := req.ApprovalStatus
+	if approvalStatus == "" {
+		approvalStatus = agent.ApprovalStatusNotRequired
+	}
+	input := map[string]any{}
+	for key, value := range req.Input {
+		input[key] = value
+	}
+	step := &agent.PlanStep{
+		ID:             "plan_step_" + time.Now().UTC().Format("150405.000000"),
+		RunID:          req.RunID,
+		OrganizationID: req.OrganizationID,
+		Index:          req.Index,
+		Title:          req.Title,
+		Status:         status,
+		ApprovalStatus: approvalStatus,
+		ToolName:       req.ToolName,
+		Input:          input,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	s.planSteps = append(s.planSteps, step)
+	return step, nil
+}
+
+func (s *fakeAgentRunsStore) ListPlanSteps(ctx context.Context, organizationID, runID string) ([]*agent.PlanStep, error) {
+	var steps []*agent.PlanStep
+	for _, step := range s.planSteps {
+		if step.OrganizationID == organizationID && step.RunID == runID {
+			steps = append(steps, step)
+		}
+	}
+	return steps, nil
+}
+
+func (s *fakeAgentRunsStore) GetPlanStep(ctx context.Context, organizationID, id string) (*agent.PlanStep, error) {
+	for _, step := range s.planSteps {
+		if step.ID == id && step.OrganizationID == organizationID {
+			return step, nil
+		}
+	}
+	return nil, nil
+}
+
+func (s *fakeAgentRunsStore) UpdatePlanStep(ctx context.Context, organizationID, id string, req agent.UpdatePlanStepRequest) (*agent.PlanStep, error) {
+	step, _ := s.GetPlanStep(ctx, organizationID, id)
+	if step == nil {
+		return nil, errors.New("agent plan step not found")
+	}
+	if req.Status != nil {
+		step.Status = *req.Status
+	}
+	if req.ApprovalStatus != nil {
+		step.ApprovalStatus = *req.ApprovalStatus
+	}
+	if req.ResultContent != nil {
+		step.ResultContent = *req.ResultContent
+	}
+	if req.Error != nil {
+		step.Error = *req.Error
+	}
+	if req.StartedAt != nil {
+		step.StartedAt = req.StartedAt
+	}
+	if req.ClearCompletedAt {
+		step.CompletedAt = nil
+	} else if req.CompletedAt != nil {
+		step.CompletedAt = req.CompletedAt
+	}
+	step.UpdatedAt = time.Now().UTC()
+	return step, nil
+}
+
+func (s *fakeAgentRunsStore) CreateMemory(ctx context.Context, req *agent.CreateMemoryStoreRequest) (*agent.Memory, error) {
+	now := time.Now().UTC()
+	metadata := map[string]any{}
+	for key, value := range req.Metadata {
+		metadata[key] = value
+	}
+	memory := &agent.Memory{
+		ID:             "memory_" + time.Now().UTC().Format("150405.000000"),
+		OrganizationID: req.OrganizationID,
+		UserID:         req.UserID,
+		AgentID:        req.AgentID,
+		Type:           req.Type,
+		Content:        req.Content,
+		Metadata:       metadata,
+		ExpiresAt:      req.ExpiresAt,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	s.memories = append(s.memories, memory)
+	return memory, nil
+}
+
+func (s *fakeAgentRunsStore) ListMemories(ctx context.Context, organizationID, userID string, req agent.ListMemoriesRequest) ([]*agent.Memory, error) {
+	s.listMemoryOrganizationID = organizationID
+	s.listMemoryUserID = userID
+	s.listMemoryAgentID = req.AgentID
+	s.listMemoryQuery = req.Query
+	s.listMemoryLimit = req.Limit
+
+	var memories []*agent.Memory
+	for _, memory := range s.memories {
+		if memory.OrganizationID != organizationID || memory.UserID != userID {
+			continue
+		}
+		if req.AgentID != "" && memory.AgentID != req.AgentID {
+			continue
+		}
+		if req.Type != "" && memory.Type != req.Type {
+			continue
+		}
+		if req.Query != "" && !strings.Contains(strings.ToLower(memory.Content), strings.ToLower(req.Query)) {
+			continue
+		}
+		memories = append(memories, memory)
+		if req.Limit > 0 && len(memories) >= req.Limit {
+			break
+		}
+	}
+	return memories, nil
+}

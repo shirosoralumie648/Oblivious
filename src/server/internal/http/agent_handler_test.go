@@ -11,7 +11,293 @@ import (
 	"testing"
 
 	"oblivious/server/internal/agent"
+	"oblivious/server/internal/auth"
+	"oblivious/server/internal/chat"
 )
+
+func TestAgentHandlerCreateRejectsInvalidDefaultExecutionModeAsBadRequest(t *testing.T) {
+	handler := newAgentHandler(agent.NewService(nil, nil))
+	request := httptest.NewRequest(
+		stdhttp.MethodPost,
+		"/api/v1/app/agents",
+		strings.NewReader(`{"name":"Bad mode","config":{"defaultExecutionMode":"manual"}}`),
+	).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		OrganizationID: "org_1",
+		User:           auth.User{ID: "user_1"},
+	}))
+	recorder := httptest.NewRecorder()
+
+	handler.createAgent(recorder, request)
+
+	if recorder.Code != stdhttp.StatusBadRequest {
+		t.Fatalf("expected 400, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"code":"invalid_request"`) || !strings.Contains(recorder.Body.String(), "defaultExecutionMode must be react or planning") {
+		t.Fatalf("expected default execution mode validation response, got %s", recorder.Body.String())
+	}
+}
+
+func TestAgentHandlerUpdateRejectsInvalidDefaultExecutionModeAsBadRequest(t *testing.T) {
+	store := &agentHTTPConfigStore{agent: &agent.Agent{
+		ID:             "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		Name:           "Existing agent",
+		Config:         agent.Config{DefaultExecutionMode: agent.ExecutionModeReact},
+	}}
+	handler := newAgentHandler(agent.NewService(store, nil))
+	request := httptest.NewRequest(
+		stdhttp.MethodPut,
+		"/api/v1/app/agents/agent_1",
+		strings.NewReader(`{"config":{"defaultExecutionMode":"manual"}}`),
+	).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		OrganizationID: "org_1",
+		User:           auth.User{ID: "user_1"},
+	}))
+	recorder := httptest.NewRecorder()
+
+	handler.updateAgent(recorder, request, "agent_1")
+
+	if recorder.Code != stdhttp.StatusBadRequest {
+		t.Fatalf("expected 400, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"code":"invalid_request"`) || !strings.Contains(recorder.Body.String(), "defaultExecutionMode must be react or planning") {
+		t.Fatalf("expected default execution mode validation response, got %s", recorder.Body.String())
+	}
+}
+
+func TestAgentHandlerSendMessageRejectsInvalidOverrideModeAsBadRequest(t *testing.T) {
+	store := &agentHTTPConfigStore{
+		agent: &agent.Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+		},
+		conversation: &agent.Conversation{
+			ID:             "conv_1",
+			AgentID:        "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+		},
+	}
+	handler := newAgentHandler(agent.NewService(store, nil))
+	request := httptest.NewRequest(
+		stdhttp.MethodPost,
+		"/api/v1/app/agents/conversations/conv_1/messages",
+		strings.NewReader(`{"content":"hello","mode":"manual"}`),
+	).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		OrganizationID: "org_1",
+		User:           auth.User{ID: "user_1"},
+	}))
+	recorder := httptest.NewRecorder()
+
+	handler.sendMessage(recorder, request, "conv_1")
+
+	if recorder.Code != stdhttp.StatusBadRequest {
+		t.Fatalf("expected 400, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"code":"invalid_request"`) || !strings.Contains(recorder.Body.String(), "mode must be react or planning") {
+		t.Fatalf("expected mode validation response, got %s", recorder.Body.String())
+	}
+	if len(store.messages) != 0 {
+		t.Fatalf("expected invalid mode to stop before message persistence, got %+v", store.messages)
+	}
+}
+
+func TestAgentHandlerSendMessageAcceptsCamelAndSnakeExecutionOverrides(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "camel",
+			body: `{"content":"hello","mode":"react","maxIterations":1,"tokenBudget":1000}`,
+		},
+		{
+			name: "snake",
+			body: `{"content":"hello","mode":"react","max_iterations":1,"token_budget":1000}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &agentHTTPConfigStore{
+				agent: &agent.Agent{
+					ID:             "agent_1",
+					OrganizationID: "org_1",
+					UserID:         "user_1",
+					Model:          "gpt-4o-mini",
+				},
+				conversation: &agent.Conversation{
+					ID:             "conv_1",
+					AgentID:        "agent_1",
+					OrganizationID: "org_1",
+					UserID:         "user_1",
+				},
+			}
+			handler := newAgentHandler(agent.NewService(store, &agentHTTPFakeGateway{reply: "ok"}))
+			request := httptest.NewRequest(
+				stdhttp.MethodPost,
+				"/api/v1/app/agents/conversations/conv_1/messages",
+				strings.NewReader(tt.body),
+			).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+				OrganizationID: "org_1",
+				User:           auth.User{ID: "user_1"},
+			}))
+			recorder := httptest.NewRecorder()
+
+			handler.sendMessage(recorder, request, "conv_1")
+
+			if recorder.Code != stdhttp.StatusOK {
+				t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+			}
+			if len(store.messages) != 2 || store.messages[1].Content != "ok" {
+				t.Fatalf("expected user and assistant messages, got %+v", store.messages)
+			}
+		})
+	}
+}
+
+type agentHTTPConfigStore struct {
+	agent        *agent.Agent
+	conversation *agent.Conversation
+	messages     []*agent.Message
+}
+
+func (s *agentHTTPConfigStore) CreateAgent(ctx context.Context, userID, organizationID string, req *agent.CreateAgentRequest) (*agent.Agent, error) {
+	return nil, nil
+}
+
+func (s *agentHTTPConfigStore) GetAgent(ctx context.Context, id, organizationID string) (*agent.Agent, error) {
+	if s.agent != nil && s.agent.ID == id && s.agent.OrganizationID == organizationID {
+		return s.agent, nil
+	}
+	return nil, nil
+}
+
+func (s *agentHTTPConfigStore) ListAgents(ctx context.Context, userID, organizationID string) ([]*agent.Agent, error) {
+	return nil, nil
+}
+
+func (s *agentHTTPConfigStore) UpdateAgent(ctx context.Context, id, organizationID string, req *agent.UpdateAgentRequest) (*agent.Agent, error) {
+	return s.agent, nil
+}
+
+func (s *agentHTTPConfigStore) DeleteAgent(ctx context.Context, id, organizationID string) error {
+	return nil
+}
+
+func (s *agentHTTPConfigStore) CreateConversation(ctx context.Context, agentID, userID, organizationID string, title string) (*agent.Conversation, error) {
+	return nil, nil
+}
+
+func (s *agentHTTPConfigStore) GetConversation(ctx context.Context, id, organizationID string) (*agent.Conversation, error) {
+	if s.conversation != nil && s.conversation.ID == id && s.conversation.OrganizationID == organizationID {
+		return s.conversation, nil
+	}
+	return nil, nil
+}
+
+func (s *agentHTTPConfigStore) ListConversations(ctx context.Context, agentID, userID, organizationID string) ([]*agent.Conversation, error) {
+	return nil, nil
+}
+
+func (s *agentHTTPConfigStore) DeleteConversation(ctx context.Context, id, organizationID string) error {
+	return nil
+}
+
+func (s *agentHTTPConfigStore) CreateMessage(ctx context.Context, conversationID, organizationID, role, content string, toolCalls []agent.ToolCall, toolCallID string) (*agent.Message, error) {
+	msg := &agent.Message{
+		ID:             role + "_message",
+		ConversationID: conversationID,
+		OrganizationID: organizationID,
+		Role:           role,
+		Content:        content,
+		ToolCalls:      append([]agent.ToolCall(nil), toolCalls...),
+		ToolCallID:     toolCallID,
+	}
+	s.messages = append(s.messages, msg)
+	return msg, nil
+}
+
+func (s *agentHTTPConfigStore) ListMessages(ctx context.Context, conversationID, organizationID string) ([]*agent.Message, error) {
+	var messages []*agent.Message
+	for _, msg := range s.messages {
+		if msg.ConversationID == conversationID && msg.OrganizationID == organizationID {
+			messages = append(messages, msg)
+		}
+	}
+	return messages, nil
+}
+
+func (s *agentHTTPConfigStore) CreateRun(ctx context.Context, req *agent.CreateRunRequest) (*agent.Run, error) {
+	return nil, nil
+}
+
+func (s *agentHTTPConfigStore) GetRun(ctx context.Context, organizationID, id string) (*agent.Run, error) {
+	return nil, nil
+}
+
+func (s *agentHTTPConfigStore) ListRuns(ctx context.Context, organizationID, conversationID string) ([]*agent.Run, error) {
+	return nil, nil
+}
+
+func (s *agentHTTPConfigStore) UpdateRun(ctx context.Context, organizationID, id string, req agent.UpdateRunRequest) (*agent.Run, error) {
+	return nil, nil
+}
+
+func (s *agentHTTPConfigStore) CreateToolRun(ctx context.Context, req *agent.CreateToolRunRequest) (*agent.ToolRun, error) {
+	return nil, nil
+}
+
+func (s *agentHTTPConfigStore) GetToolRun(ctx context.Context, organizationID, id string) (*agent.ToolRun, error) {
+	return nil, nil
+}
+
+func (s *agentHTTPConfigStore) ListToolRuns(ctx context.Context, organizationID, runID string) ([]*agent.ToolRun, error) {
+	return nil, nil
+}
+
+func (s *agentHTTPConfigStore) UpdateToolRun(ctx context.Context, organizationID, id string, req agent.UpdateToolRunRequest) (*agent.ToolRun, error) {
+	return nil, nil
+}
+
+func (s *agentHTTPConfigStore) CreatePlanStep(ctx context.Context, req *agent.CreatePlanStepRequest) (*agent.PlanStep, error) {
+	return nil, nil
+}
+
+func (s *agentHTTPConfigStore) GetPlanStep(ctx context.Context, organizationID, id string) (*agent.PlanStep, error) {
+	return nil, nil
+}
+
+func (s *agentHTTPConfigStore) ListPlanSteps(ctx context.Context, organizationID, runID string) ([]*agent.PlanStep, error) {
+	return nil, nil
+}
+
+func (s *agentHTTPConfigStore) UpdatePlanStep(ctx context.Context, organizationID, id string, req agent.UpdatePlanStepRequest) (*agent.PlanStep, error) {
+	return nil, nil
+}
+
+func (s *agentHTTPConfigStore) CreateMemory(ctx context.Context, req *agent.CreateMemoryStoreRequest) (*agent.Memory, error) {
+	return nil, nil
+}
+
+func (s *agentHTTPConfigStore) ListMemories(ctx context.Context, organizationID, userID string, req agent.ListMemoriesRequest) ([]*agent.Memory, error) {
+	return nil, nil
+}
+
+type agentHTTPFakeGateway struct {
+	reply string
+}
+
+func (g *agentHTTPFakeGateway) GenerateReply(ctx context.Context, messages []chat.Message, config chat.ConversationConfig) (string, error) {
+	return g.reply, nil
+}
+
+func (g *agentHTTPFakeGateway) GenerateReplyStream(ctx context.Context, messages []chat.Message, config chat.ConversationConfig, onChunk func(string) error) error {
+	return onChunk(g.reply)
+}
 
 func prepareHTTPAgentWorkflowState(t *testing.T, database *sql.DB, userID, organizationID string) (*agent.Run, *agent.ToolRun, *agent.ToolRun) {
 	t.Helper()

@@ -51,10 +51,41 @@ func registerKnowledgeRoutes(mux *stdhttp.ServeMux, authMiddleware authMiddlewar
 			return
 		}
 
+		if len(parts) == 3 && parts[1] == "documents" && parts[2] == "upload" {
+			if r.Method == stdhttp.MethodPost {
+				knowledgeHandler.uploadKnowledgeDocument(w, r, knowledgeBaseID)
+			} else {
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
+
 		if len(parts) == 2 && parts[1] == "retrieve" {
 			switch r.Method {
 			case stdhttp.MethodPost:
 				knowledgeHandler.retrieveKnowledge(w, r, knowledgeBaseID)
+			default:
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
+
+		if len(parts) == 2 && parts[1] == "retrieval-test-cases" {
+			switch r.Method {
+			case stdhttp.MethodGet:
+				knowledgeHandler.listRetrievalTestCases(w, r, knowledgeBaseID)
+			case stdhttp.MethodPost:
+				knowledgeHandler.createRetrievalTestCase(w, r, knowledgeBaseID)
+			default:
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
+
+		if len(parts) == 3 && parts[1] == "retrieval-test-cases" && parts[2] == "run" {
+			switch r.Method {
+			case stdhttp.MethodPost:
+				knowledgeHandler.runRetrievalTestCases(w, r, knowledgeBaseID)
 			default:
 				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			}
@@ -69,6 +100,24 @@ func registerKnowledgeRoutes(mux *stdhttp.ServeMux, authMiddleware authMiddlewar
 			case stdhttp.MethodDelete:
 				knowledgeHandler.deleteKnowledgeDocument(w, r, knowledgeBaseID, documentID)
 			default:
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
+
+		if len(parts) == 4 && parts[1] == "documents" && parts[2] != "" && parts[3] == "chunks" {
+			if r.Method == stdhttp.MethodGet {
+				knowledgeHandler.listKnowledgeDocumentChunks(w, r, knowledgeBaseID, parts[2])
+			} else {
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
+
+		if len(parts) == 5 && parts[1] == "documents" && parts[2] != "" && parts[3] == "chunks" && parts[4] != "" {
+			if r.Method == stdhttp.MethodPut {
+				knowledgeHandler.updateKnowledgeDocumentChunk(w, r, knowledgeBaseID, parts[2], parts[4])
+			} else {
 				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			}
 			return

@@ -45,9 +45,11 @@ describe('ConsoleLayout', () => {
     expect(await screen.findByRole('link', { name: 'Workspace settings' })).toHaveAttribute('href', '/settings');
     expect(await screen.findByRole('link', { name: 'Return to workspace' })).toHaveAttribute('href', '/chat');
     expect(await screen.findByText('Overview page')).toBeInTheDocument();
+    expect(document.querySelector('[data-gsap-scope="console"]')).toBeInTheDocument();
+    expect(document.querySelectorAll('[data-gsap-item]').length).toBeGreaterThan(5);
   });
 
-  it('renders console navigation in overview-billing-usage-models-access order', async () => {
+  it('renders console navigation in overview-billing-usage-models-access-notifications order', async () => {
     const router = createMemoryRouter(
       [
         {
@@ -74,7 +76,8 @@ describe('ConsoleLayout', () => {
       'Billing',
       'Usage',
       'Models',
-      'Access'
+      'Access',
+      'Notifications'
     ]);
   });
 });

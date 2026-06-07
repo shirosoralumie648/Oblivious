@@ -1,10 +1,8 @@
 package handler
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"time"
 
@@ -43,10 +41,14 @@ func (h *ModerationsHandler) Handle(c *gin.Context) error {
 
 	resp, err := h.executeRequest(c, req, nil)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "relay_error", "message": err.Error()}})
+		writeRelayHandlerError(c, resp, err)
 		return nil
 	}
-	c.Data(http.StatusOK, "application/json", resp.Content)
+	statusCode := resp.StatusCode
+	if statusCode < http.StatusContinue {
+		statusCode = http.StatusOK
+	}
+	c.Data(statusCode, "application/json", resp.Content)
 	return nil
 }
 
@@ -73,8 +75,21 @@ func (h *ModerationsHandler) executeRequest(c *gin.Context, req *channel.Provide
 		idempotencyKey,
 		usage,
 		func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
-			upstreamURL, _ := h.adapter.BuildURL(req.Model, req.APIType)
-			headers, _ := h.adapter.BuildHeaders(c.Request.Context(), req.Model, req.APIType)
+			if ch == nil || ch.Channel == nil {
+				return nil, types.ErrNoAvailableChannel
+			}
+			adapter, err := channel.AdapterForChannel(ch.Channel)
+			if err != nil {
+				return nil, err
+			}
+			upstreamURL, err := adapter.BuildURL(req.Model, req.APIType)
+			if err != nil {
+				return nil, err
+			}
+			headers, err := adapter.BuildHeaders(c.Request.Context(), req.Model, req.APIType)
+			if err != nil {
+				return nil, err
+			}
 
 			providerReq := &channel.ProviderRequest{
 				APIType: req.APIType,
@@ -84,30 +99,7 @@ func (h *ModerationsHandler) executeRequest(c *gin.Context, req *channel.Provide
 				Headers: headers,
 			}
 
-			return h.doUpstreamRequest(providerReq)
+			return executeProviderAdapterRequest(c.Request.Context(), adapter, providerReq)
 		},
 	)
-}
-
-func (h *ModerationsHandler) doUpstreamRequest(req *channel.ProviderRequest) (*types.ProviderResponse, error) {
-	body, err := marshalRequest(req)
-	if err != nil {
-		return nil, err
-	}
-	upstreamReq, err := http.NewRequest("POST", req.URL, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	upstreamReq.Header = req.Headers.Clone()
-	upstreamReq.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(upstreamReq)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	bodyOut, _ := io.ReadAll(resp.Body)
-	return providerResponseFromHTTP(resp.StatusCode, bodyOut), nil
 }

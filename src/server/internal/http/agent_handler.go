@@ -39,6 +39,10 @@ func (h agentHandler) createAgent(w stdhttp.ResponseWriter, r *stdhttp.Request) 
 
 	ag, err := h.service.CreateAgent(r.Context(), session, &req)
 	if err != nil {
+		if isInvalidAgentDefaultExecutionModeError(err) {
+			writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
 		return
 	}
@@ -104,6 +108,10 @@ func (h agentHandler) updateAgent(w stdhttp.ResponseWriter, r *stdhttp.Request, 
 
 	ag, err := h.service.UpdateAgent(r.Context(), session, id, &req)
 	if err != nil {
+		if isInvalidAgentDefaultExecutionModeError(err) {
+			writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
 		if err.Error() == "agent not found" {
 			writeError(w, stdhttp.StatusNotFound, "not_found", err.Error())
 			return
@@ -245,7 +253,12 @@ func (h agentHandler) deleteConversation(w stdhttp.ResponseWriter, r *stdhttp.Re
 }
 
 type agentSendMessageRequest struct {
-	Content string `json:"content"`
+	Content            string            `json:"content"`
+	Mode               agentRunModeField `json:"mode"`
+	MaxIterations      *int              `json:"max_iterations"`
+	MaxIterationsCamel *int              `json:"maxIterations"`
+	TokenBudget        *int              `json:"token_budget"`
+	TokenBudgetCamel   *int              `json:"tokenBudget"`
 }
 
 // POST /api/v1/app/agents/conversations/:id/messages
@@ -268,13 +281,30 @@ func (h agentHandler) sendMessage(w stdhttp.ResponseWriter, r *stdhttp.Request, 
 		return
 	}
 
+	mode := ""
+	if req.Mode.Set {
+		mode = strings.ToLower(strings.TrimSpace(req.Mode.Value))
+		if mode == "" || (mode != agent.ExecutionModeReact && mode != agent.ExecutionModePlanning) {
+			writeError(w, stdhttp.StatusBadRequest, "invalid_request", "mode must be react or planning")
+			return
+		}
+	}
+
 	msg, err := h.service.SendMessage(chat.WithRelayRequestMetadata(r.Context(), chat.RelayRequestMetadata{
 		OrganizationID: session.OrganizationID,
 		UserID:         session.User.ID,
 		WorkspaceID:    session.WorkspaceID,
 		RequestID:      requestIDFromContext(r.Context()),
-	}), session, conversationID, content)
+	}), session, conversationID, content, agent.SendMessageOptions{
+		Mode:          mode,
+		MaxIterations: firstIntPointer(req.MaxIterations, req.MaxIterationsCamel),
+		TokenBudget:   firstIntPointer(req.TokenBudget, req.TokenBudgetCamel),
+	})
 	if err != nil {
+		if err.Error() == "mode must be react or planning" {
+			writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
 		if err.Error() == "conversation not found" || err.Error() == "agent not found" {
 			writeError(w, stdhttp.StatusNotFound, "not_found", err.Error())
 			return
@@ -414,7 +444,7 @@ func (h agentHandler) retryToolRun(w stdhttp.ResponseWriter, r *stdhttp.Request,
 
 func writeAgentWorkflowError(w stdhttp.ResponseWriter, err error) {
 	switch err.Error() {
-	case "conversation not found", "run not found", "tool run not found":
+	case "agent not found", "conversation not found", "run not found", "tool run not found":
 		writeError(w, stdhttp.StatusNotFound, "not_found", err.Error())
 	case "access denied":
 		writeError(w, stdhttp.StatusForbidden, "forbidden", err.Error())
@@ -423,6 +453,10 @@ func writeAgentWorkflowError(w stdhttp.ResponseWriter, err error) {
 	default:
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
 	}
+}
+
+func isInvalidAgentDefaultExecutionModeError(err error) bool {
+	return err != nil && err.Error() == "defaultExecutionMode must be react or planning"
 }
 
 // GET /api/v1/app/agents/:id/tools

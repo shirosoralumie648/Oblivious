@@ -1,11 +1,10 @@
 package handler
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -35,20 +34,30 @@ func (h *EmbeddingsHandler) Handle(c *gin.Context) error {
 		model = "text-embedding-3-small"
 	}
 
+	inputText, body, err := parseEmbeddingsInput(rawReq, model)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "invalid_request", "message": err.Error()}})
+		return nil
+	}
+
 	req := &channel.ProviderRequest{
 		APIType: types.APITypeEmbeddings,
 		Model:   model,
-		Input:   getString(rawReq, "input"),
+		Input:   inputText,
+		Body:    body,
 	}
 
 	usage := h.adapter.EstimateUsage(req)
 	resp, err := h.executeRequest(c, req, usage)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "relay_error", "message": err.Error()}})
+		writeRelayHandlerError(c, resp, err)
 		return nil
 	}
-
-	c.Data(http.StatusOK, "application/json", resp.Content)
+	statusCode := resp.StatusCode
+	if statusCode < http.StatusContinue {
+		statusCode = http.StatusOK
+	}
+	c.Data(statusCode, "application/json", resp.Content)
 	return nil
 }
 
@@ -75,41 +84,58 @@ func (h *EmbeddingsHandler) executeRequest(c *gin.Context, req *channel.Provider
 		idempotencyKey,
 		usage,
 		func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
-			upstreamURL, _ := h.adapter.BuildURL(req.Model, req.APIType)
-			headers, _ := h.adapter.BuildHeaders(c.Request.Context(), req.Model, req.APIType)
+			if ch == nil || ch.Channel == nil {
+				return nil, types.ErrNoAvailableChannel
+			}
+			adapter, err := channel.AdapterForChannel(ch.Channel)
+			if err != nil {
+				return nil, err
+			}
+			upstreamURL, err := adapter.BuildURL(req.Model, req.APIType)
+			if err != nil {
+				return nil, err
+			}
+			headers, err := adapter.BuildHeaders(c.Request.Context(), req.Model, req.APIType)
+			if err != nil {
+				return nil, err
+			}
 
 			providerReq := &channel.ProviderRequest{
 				APIType: req.APIType,
 				Model:   req.Model,
 				URL:     upstreamURL,
 				Input:   req.Input,
+				Body:    req.Body,
 				Headers: headers,
 			}
 
-			return h.doUpstreamRequest(providerReq)
+			return executeProviderAdapterRequest(c.Request.Context(), adapter, providerReq)
 		},
 	)
 }
 
-func (h *EmbeddingsHandler) doUpstreamRequest(req *channel.ProviderRequest) (*types.ProviderResponse, error) {
-	body, err := marshalRequest(req)
-	if err != nil {
-		return nil, err
+func parseEmbeddingsInput(rawReq map[string]any, model string) (string, []byte, error) {
+	switch input := rawReq["input"].(type) {
+	case string:
+		return input, nil, nil
+	case []any:
+		values := make([]string, 0, len(input))
+		for _, item := range input {
+			text, ok := item.(string)
+			if !ok {
+				return "", nil, fmt.Errorf("embedding input array must contain strings")
+			}
+			values = append(values, text)
+		}
+		body, err := json.Marshal(map[string]any{
+			"model": model,
+			"input": values,
+		})
+		if err != nil {
+			return "", nil, err
+		}
+		return strings.Join(values, "\n"), body, nil
+	default:
+		return "", nil, nil
 	}
-	upstreamReq, err := http.NewRequest("POST", req.URL, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	upstreamReq.Header = req.Headers.Clone()
-	upstreamReq.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Do(upstreamReq)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	bodyOut, _ := io.ReadAll(resp.Body)
-	return providerResponseFromHTTP(resp.StatusCode, bodyOut), nil
 }

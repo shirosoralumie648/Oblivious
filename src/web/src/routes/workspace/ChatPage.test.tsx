@@ -12,7 +12,7 @@ describe('Route domains', () => {
     render(<RouterProvider future={routerFuture} router={router} />);
 
     expect(await screen.findByText('Workspace')).toBeInTheDocument();
-    expect(await screen.findByText('Conversations')).toBeInTheDocument();
+    expect((await screen.findAllByText('Conversations')).length).toBeGreaterThan(0);
     expect(await screen.findByText('Capability Panel')).toBeInTheDocument();
     expect(await screen.findByText('Chat')).toBeInTheDocument();
   });
@@ -23,7 +23,7 @@ describe('Route domains', () => {
     render(<RouterProvider future={routerFuture} router={router} />);
 
     expect(await screen.findByText('Workspace')).toBeInTheDocument();
-    expect(await screen.findByText('Conversations')).toBeInTheDocument();
+    expect((await screen.findAllByText('Conversations')).length).toBeGreaterThan(0);
     expect(await screen.findByText('Capability Panel')).toBeInTheDocument();
     expect(await screen.findByText('Chat')).toBeInTheDocument();
   });

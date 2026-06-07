@@ -1,0 +1,132 @@
+import { describe, expect, it, vi } from 'vitest';
+
+import type { HttpClient } from '../../services/http/client';
+import { createAgentPlanStepsApi } from './planStepsApi';
+
+function createClient(overrides: Partial<HttpClient> = {}) {
+  const client: HttpClient = {
+    delete: vi.fn(),
+    get: vi.fn(),
+    post: vi.fn(),
+    put: vi.fn(),
+    request: vi.fn(),
+    ...overrides
+  };
+  return client;
+}
+
+describe('createAgentPlanStepsApi', () => {
+  it('loads run detail and normalizes run status with plan steps', async () => {
+    const get = vi.fn().mockResolvedValue({
+      data: {
+        planSteps: [{ id: 'step_1', runId: 'run_1', status: 'pending', title: 'Inspect workspace' }],
+        run: { id: 'run_1', status: 'planning' },
+        status: 'planning',
+        toolRuns: [
+          {
+            approvalStatus: 'pending',
+            id: 'tool_run_1',
+            riskLevel: 'dangerous',
+            runId: 'run_1',
+            status: 'pending_approval',
+            toolName: 'execute_code',
+            toolType: 'builtin'
+          }
+        ]
+      }
+    });
+    const api = createAgentPlanStepsApi(createClient({ get }));
+
+    await expect(api.getRunDetail('run_1')).resolves.toEqual({
+      id: 'run_1',
+      planSteps: [{ id: 'step_1', runId: 'run_1', status: 'pending', title: 'Inspect workspace' }],
+      status: 'planning',
+      toolRuns: [
+        {
+          approvalStatus: 'pending',
+          id: 'tool_run_1',
+          riskLevel: 'dangerous',
+          runId: 'run_1',
+          status: 'pending_approval',
+          toolName: 'execute_code',
+          toolType: 'builtin'
+        }
+      ]
+    });
+
+    expect(get).toHaveBeenCalledWith('/api/v1/agent/runs/run_1');
+  });
+
+  it('approves a run plan step through the agent run endpoint', async () => {
+    const post = vi.fn().mockResolvedValue({
+      planSteps: [{ id: 'step_1', runId: 'run_1', status: 'approved', title: 'Inspect workspace' }]
+    });
+    const api = createAgentPlanStepsApi(createClient({ post }));
+
+    await expect(api.approvePlanStep('run_1', 'step_1', 'Looks good')).resolves.toEqual([
+      { id: 'step_1', runId: 'run_1', status: 'approved', title: 'Inspect workspace' }
+    ]);
+
+    expect(post).toHaveBeenCalledWith('/api/v1/agent/runs/run_1/approve-plan-step', {
+      planStepId: 'step_1',
+      reason: 'Looks good'
+    });
+  });
+
+  it('executes a run plan step and returns refreshed plan steps', async () => {
+    const post = vi.fn().mockResolvedValue({
+      data: {
+        planSteps: [{ id: 'step_1', runId: 'run_1', resultContent: 'done', status: 'completed', title: 'Inspect workspace' }]
+      }
+    });
+    const api = createAgentPlanStepsApi(createClient({ post }));
+
+    await expect(api.executePlanStep('run_1', 'step_1')).resolves.toEqual([
+      { id: 'step_1', runId: 'run_1', resultContent: 'done', status: 'completed', title: 'Inspect workspace' }
+    ]);
+
+    expect(post).toHaveBeenCalledWith('/api/v1/agent/runs/run_1/execute-plan-step', {
+      planStepId: 'step_1'
+    });
+  });
+
+  it('approves, rejects, and retries tool runs through the agent run endpoint', async () => {
+    const post = vi.fn()
+      .mockResolvedValueOnce({
+        data: {
+          toolRuns: [{ approvalStatus: 'approved', id: 'tool_run_1', runId: 'run_1', status: 'running', toolName: 'execute_code' }]
+        }
+      })
+      .mockResolvedValueOnce({
+        data: {
+          toolRuns: [{ approvalStatus: 'rejected', id: 'tool_run_3', runId: 'run_1', status: 'rejected', toolName: 'write_file' }]
+        }
+      })
+      .mockResolvedValueOnce({
+        toolRuns: [{ approvalStatus: 'not_required', id: 'tool_run_2', runId: 'run_1', status: 'running', toolName: 'web_search' }]
+      });
+    const api = createAgentPlanStepsApi(createClient({ post }));
+
+    await expect(api.approveToolRun('run_1', 'tool_run_1', 'Reviewed command')).resolves.toEqual([
+      { approvalStatus: 'approved', id: 'tool_run_1', runId: 'run_1', status: 'running', toolName: 'execute_code' }
+    ]);
+    await expect(api.rejectToolRun('run_1', 'tool_run_3', 'Unsafe command')).resolves.toEqual([
+      { approvalStatus: 'rejected', id: 'tool_run_3', runId: 'run_1', status: 'rejected', toolName: 'write_file' }
+    ]);
+    await expect(api.retryToolRun('run_1', 'tool_run_2')).resolves.toEqual([
+      { approvalStatus: 'not_required', id: 'tool_run_2', runId: 'run_1', status: 'running', toolName: 'web_search' }
+    ]);
+
+    expect(post).toHaveBeenNthCalledWith(1, '/api/v1/agent/runs/run_1/approve-tool', {
+      reason: 'Reviewed command',
+      toolRunId: 'tool_run_1'
+    });
+    expect(post).toHaveBeenNthCalledWith(2, '/api/v1/agent/runs/run_1/reject-tool', {
+      reason: 'Unsafe command',
+      toolRunId: 'tool_run_3'
+    });
+    expect(post).toHaveBeenNthCalledWith(3, '/api/v1/agent/runs/run_1/retry-tool', {
+      toolRunId: 'tool_run_2'
+    });
+  });
+});

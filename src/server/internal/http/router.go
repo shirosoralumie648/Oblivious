@@ -8,11 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-
 	"oblivious/server/internal/admin"
 	"oblivious/server/internal/agent"
 	"oblivious/server/internal/auth"
+	publishingchannel "oblivious/server/internal/channel"
 	"oblivious/server/internal/chat"
 	"oblivious/server/internal/config"
 	"oblivious/server/internal/console"
@@ -21,12 +20,17 @@ import (
 	"oblivious/server/internal/mcp"
 	"oblivious/server/internal/memory"
 	"oblivious/server/internal/notification"
+	"oblivious/server/internal/observability"
+	"oblivious/server/internal/payment"
 	"oblivious/server/internal/quota"
+	"oblivious/server/internal/relay"
+	"oblivious/server/internal/schedule"
 	stripebilling "oblivious/server/internal/stripe"
 	"oblivious/server/internal/task"
 	"oblivious/server/internal/tenant"
 	"oblivious/server/internal/usage"
 	"oblivious/server/internal/userprefs"
+	"oblivious/server/internal/workflow"
 	"oblivious/server/internal/ws"
 )
 
@@ -35,7 +39,17 @@ func NewRouter(cfg config.Config, database *sql.DB) stdhttp.Handler {
 }
 
 type RouterOptions struct {
-	CheckoutCreator stripebilling.CheckoutCreator
+	CheckoutCreator             stripebilling.CheckoutCreator
+	CheckoutCreators            map[string]stripebilling.CheckoutCreator
+	PaymentProviderRegistry     *payment.Registry
+	RelayPricingStore           *relay.PricingStore
+	ChannelRuntimeStatsProvider admin.ChannelRuntimeStatsProvider
+	RelayConfigApplier          admin.RelayConfigApplier
+	WorkflowService             *workflow.Service
+	ScheduleService             *schedule.Service
+	AlertStateStore             observability.AlertStateStore
+	AlertRoutingRuleStore       observability.AlertRoutingRuleStore
+	AlertProviderConfigStore    observability.AlertProviderConfigStore
 }
 
 type stripeMarketplaceSettlementAdapter struct {
@@ -67,6 +81,10 @@ func (a stripeMarketplaceSettlementAdapter) ApplyMarketplaceRefund(ctx context.C
 
 func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOptions) stdhttp.Handler {
 	mux := stdhttp.NewServeMux()
+	workflowService := options.WorkflowService
+	if workflowService == nil {
+		workflowService = workflow.NewService(workflow.NewSQLStore(database))
+	}
 	mux.HandleFunc("/healthz", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		if r.Method != stdhttp.MethodGet {
 			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
@@ -75,59 +93,39 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 
 		writeJSON(w, stdhttp.StatusOK, map[string]string{"status": "ok"})
 	})
-	mux.Handle("/metrics", promhttp.Handler())
+	// workflowMetricsHandler calls RefreshExecutionHealthMetrics before serving the Prometheus scrape.
+	mux.Handle("/metrics", workflowMetricsHandler(workflowService))
 
 	authService := auth.NewService(auth.NewSQLStore(database))
 	authMiddleware := newAuthMiddleware(cfg, authService)
 	preferencesService := userprefs.NewService(userprefs.NewSQLStore(database))
 	authHandler := newAuthHandler(authService, authMiddleware, preferencesService)
 
-	// Chat service with optional Relay gateway
-	var chatService *chat.Service
+	relayGateway := chat.NewRelayGateway(
+		chat.WithRelayURL("http://localhost:"+fmt.Sprintf("%d", cfg.Port)+"/v1"),
+		chat.WithDefaultModel(cfg.RelayDefaultModel),
+	)
+	var replyGenerator chat.ReplyGenerator
 	if cfg.RelayEnabled {
-		relayGateway := chat.NewRelayGateway(
-			chat.WithRelayURL("http://localhost:"+fmt.Sprintf("%d", cfg.Port)+"/v1"),
-			chat.WithDefaultModel(cfg.RelayDefaultModel),
-		)
 		var gateway chat.ChatGateway = relayGateway
 		if cfg.Env != "production" {
 			localGenerator := chat.NewHTTPReplyGenerator("", "", cfg.ModelDefaultName, time.Duration(cfg.LLMTimeoutMS)*time.Millisecond)
 			gateway = chat.NewCompositeGateway(relayGateway, localGenerator)
 		}
-		chatService = chat.NewServiceWithGateway(chat.NewSQLStore(database), gateway, cfg.ModelDefaultName, usage.NewSQLRecorder(database))
+		replyGenerator = gateway
 	} else {
-		replyGenerator := chat.NewHTTPReplyGenerator("", "", cfg.ModelDefaultName, time.Duration(cfg.LLMTimeoutMS)*time.Millisecond)
-		chatService = chat.NewService(chat.NewSQLStore(database), replyGenerator, cfg.ModelDefaultName, usage.NewSQLRecorder(database))
+		replyGenerator = chat.NewHTTPReplyGenerator("", "", cfg.ModelDefaultName, time.Duration(cfg.LLMTimeoutMS)*time.Millisecond)
 	}
+	chatService := chat.NewService(chat.NewSQLStore(database), replyGenerator, cfg.ModelDefaultName, usage.NewSQLRecorder(database))
 	chatHandler := newChatHandler(chatService)
 	consoleHandler := newConsoleHandler(console.NewService(console.NewSQLStore(database)), preferencesService)
 	knowledgeStore := knowledge.NewSQLStore(database)
-	knowledgeService := knowledge.NewService(knowledgeStore)
-	if cfg.RelayEnabled {
-		knowledgeService = knowledge.NewServiceWithEmbedder(
-			knowledgeStore,
-			memory.NewRelayEmbedder(
-				"http://localhost:"+fmt.Sprintf("%d", cfg.Port)+"/v1",
-				"text-embedding-3-small",
-			),
-			"text-embedding-3-small",
-		)
-	}
+	knowledgeService := newKnowledgeService(cfg, knowledgeStore)
 	knowledgeHandler := newKnowledgeHandler(knowledgeService)
 	preferencesHandler := newPreferencesHandler(preferencesService)
 	taskHandler := newTaskHandler(task.NewService(task.NewSQLStore(database)))
 
-	// Agent service with shared gateway
-	var agentService *agent.Service
-	if chatService.HasStreamSupport() {
-		agentService = agent.NewService(agent.NewSQLStore(database), chatService.ChatGateway())
-	} else {
-		relayGateway := chat.NewRelayGateway(
-			chat.WithRelayURL("http://localhost:"+fmt.Sprintf("%d", cfg.Port)+"/v1"),
-			chat.WithDefaultModel(cfg.RelayDefaultModel),
-		)
-		agentService = agent.NewService(agent.NewSQLStore(database), relayGateway)
-	}
+	agentService := agent.NewService(agent.NewSQLStore(database), relayGateway)
 	agentHandler := newAgentHandler(agentService)
 
 	// Memory service with Relay embedder
@@ -143,6 +141,8 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 		agentService.SetMemory(memoryService)
 	}
 	memoryHandler := newMemoryHandler(memoryService)
+	agentMemoryHandler := newAgentMemoriesHandler(agentService)
+	agentRunsHandler := newAgentRunsHandler(agentService)
 
 	// MCP client
 	mcpClient := mcp.NewClient(mcp.NewSQLStore(database))
@@ -165,7 +165,7 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 		SuccessURL:    cfg.StripeSuccessURL,
 		CancelURL:     cfg.StripeCancelURL,
 		WebhookSecret: cfg.StripeWebhookSecret,
-	}, stripebilling.NewSQLPaymentIntentStore(database), quotaService)
+	}, stripebilling.NewSQLPaymentIntentStore(database), quotaService, options.PaymentProviderRegistry, options.CheckoutCreators)
 	stripeWebhookHandler := stripebilling.NewWebhookHandler(
 		stripebilling.NewSQLWebhookLedger(database),
 		cfg.StripeWebhookSecret,
@@ -175,8 +175,16 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 		),
 	)
 
-	// Admin service
-	adminService := admin.NewService(admin.NewSQLStore(database))
+	adminOptions := []admin.ServiceOption{
+		admin.WithChannelRuntimeStatsProvider(options.ChannelRuntimeStatsProvider),
+		admin.WithRelayConfigApplier(options.RelayConfigApplier),
+	}
+	if options.RelayPricingStore != nil {
+		adminOptions = append(adminOptions, admin.WithRelayPricingSettingsApplier(func(settings admin.RelayPricingSettings) {
+			options.RelayPricingStore.ApplyMultipliers(settings.ModelMultipliers, settings.GroupMultipliers)
+		}))
+	}
+	adminService := admin.NewService(admin.NewSQLStore(database), adminOptions...)
 	adminHandler := newAdminHandler(adminService)
 	tenantHandler := newTenantHandler(tenant.NewService(tenant.NewSQLStore(database)), authService, authMiddleware)
 	sensitiveActionRateLimit := auth.RateLimitPolicy{Limit: 5, Window: time.Minute, BlockDuration: 15 * time.Minute}
@@ -191,14 +199,42 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 			SuccessURL:    cfg.StripeSuccessURL,
 			CancelURL:     cfg.StripeCancelURL,
 			WebhookSecret: cfg.StripeWebhookSecret,
-		}),
+		}, options.PaymentProviderRegistry, options.CheckoutCreators),
 		withMarketplaceGovernance(marketplaceGovernanceService),
 	)
 
 	// Notification service
 	notificationHandler := newNotificationHandler(notification.NewService(notification.NewSQLStore(database)))
+	channelStore := publishingchannel.NewSQLStore(database)
+	channelHandler := newChannelHandler(channelStore, publishingchannel.NewService(publishingchannel.NewAdapterRegistry(nil)))
+	workflowHandler := newWorkflowHandler(newWorkflowServiceAdapter(workflowService))
+	scheduleService := options.ScheduleService
+	if scheduleService == nil {
+		scheduleService = newScheduleService(schedule.NewSQLStore(database), workflowService, agentService)
+	}
+	scheduleHandler := newScheduleHandler(scheduleService)
+	alertStateStore := options.AlertStateStore
+	if alertStateStore == nil {
+		alertStateStore = observability.NewSQLAlertStateStore(database)
+	}
+	alertRoutingRuleStore := options.AlertRoutingRuleStore
+	if alertRoutingRuleStore == nil {
+		alertRoutingRuleStore = observability.NewSQLAlertRoutingRuleStore(database)
+	}
+	alertProviderConfigStore := options.AlertProviderConfigStore
+	if alertProviderConfigStore == nil {
+		alertProviderConfigStore = observability.NewSQLAlertProviderConfigStore(database)
+	}
+	observabilityAlertHandler := newObservabilityAlertHandlerWithStores(alertStateStore, alertRoutingRuleStore, alertProviderConfigStore)
 
 	registerAuthRoutes(mux, authMiddleware, authHandler)
+	registerKnowledgeRoutes(mux, authMiddleware, knowledgeHandler)
+	registerAgentMemoryRoutes(mux, authMiddleware, agentMemoryHandler)
+	registerAgentRunRoutes(mux, authMiddleware, agentRunsHandler)
+	registerWorkflowRoutes(mux, authMiddleware, workflowHandler)
+	registerScheduleRoutes(mux, authMiddleware, scheduleHandler)
+	registerPublishingChannelRoutes(mux, authMiddleware, channelHandler)
+	registerObservabilityAlertRoutes(mux, authMiddleware, observabilityAlertHandler)
 
 	// Preferences routes
 	mux.Handle("/api/v1/app/me/preferences", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -269,77 +305,6 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 		default:
 			writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
 		}
-	})))
-
-	// Knowledge routes
-	mux.Handle("/api/v1/app/knowledge-bases", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
-		switch r.Method {
-		case stdhttp.MethodGet:
-			knowledgeHandler.listKnowledgeBases(w, r)
-		case stdhttp.MethodPost:
-			knowledgeHandler.createKnowledgeBase(w, r)
-		default:
-			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-		}
-	})))
-	mux.Handle("/api/v1/app/knowledge-bases/", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
-		trimmedPath := strings.TrimPrefix(r.URL.Path, "/api/v1/app/knowledge-bases/")
-		parts := strings.Split(trimmedPath, "/")
-		if len(parts) == 0 || parts[0] == "" {
-			writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
-			return
-		}
-
-		knowledgeBaseID := parts[0]
-		if len(parts) == 1 {
-			switch r.Method {
-			case stdhttp.MethodGet:
-				knowledgeHandler.getKnowledgeBase(w, r, knowledgeBaseID)
-			case stdhttp.MethodPut:
-				knowledgeHandler.updateKnowledgeBase(w, r, knowledgeBaseID)
-			case stdhttp.MethodDelete:
-				knowledgeHandler.deleteKnowledgeBase(w, r, knowledgeBaseID)
-			default:
-				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-			}
-			return
-		}
-
-		if len(parts) == 2 && parts[1] == "documents" {
-			switch r.Method {
-			case stdhttp.MethodGet:
-				knowledgeHandler.listKnowledgeDocuments(w, r, knowledgeBaseID)
-			case stdhttp.MethodPost:
-				knowledgeHandler.createKnowledgeDocument(w, r, knowledgeBaseID)
-			default:
-				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-			}
-			return
-		}
-
-		if len(parts) == 2 && parts[1] == "retrieve" {
-			if r.Method == stdhttp.MethodPost {
-				knowledgeHandler.retrieveKnowledge(w, r, knowledgeBaseID)
-			} else {
-				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-			}
-			return
-		}
-
-		if len(parts) == 3 && parts[1] == "documents" && parts[2] != "" {
-			documentID := parts[2]
-			switch r.Method {
-			case stdhttp.MethodPut:
-				knowledgeHandler.updateKnowledgeDocument(w, r, knowledgeBaseID, documentID)
-			case stdhttp.MethodDelete:
-				knowledgeHandler.deleteKnowledgeDocument(w, r, knowledgeBaseID, documentID)
-			default:
-				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-			}
-			return
-		}
-
-		writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
 	})))
 
 	// Task routes
@@ -719,6 +684,13 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 			return
 		}
 		consoleHandler.getBilling(w, r)
+	})))
+	mux.Handle("/api/v1/console/invoices", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.Method != stdhttp.MethodGet {
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		consoleHandler.listBillingInvoices(w, r)
 	})))
 
 	// Quota routes
@@ -1383,4 +1355,25 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	})
 
 	return applyMiddleware(authMiddleware.securityGuard(mux), withRecover, withRequestID, withLogging, withCORS(cfg.CORSAllowedOrigins))
+}
+
+func newKnowledgeService(cfg config.Config, knowledgeStore any) *knowledge.Service {
+	service := knowledge.NewService(knowledgeStore)
+	if cfg.RelayEnabled {
+		service = knowledge.NewServiceWithEmbedder(
+			knowledgeStore,
+			memory.NewRelayEmbedder(
+				"http://localhost:"+fmt.Sprintf("%d", cfg.Port)+"/v1",
+				"text-embedding-3-small",
+			),
+			"text-embedding-3-small",
+		)
+	}
+	if strings.TrimSpace(cfg.QdrantURL) != "" {
+		service.WithVectorStore(
+			knowledge.NewQdrantVectorStore(cfg.QdrantURL, cfg.QdrantAPIKey),
+			cfg.QdrantVectorSize,
+		)
+	}
+	return service
 }

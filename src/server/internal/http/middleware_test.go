@@ -2,15 +2,56 @@ package http
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	stdhttp "net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"oblivious/server/internal/auth"
 	"oblivious/server/internal/observability"
 )
+
+type captureMiddlewareRequestLogSink struct {
+	rows []observability.RequestLogRow
+	err  error
+}
+
+func (s *captureMiddlewareRequestLogSink) InsertRequestLog(_ context.Context, row observability.RequestLogRow) error {
+	s.rows = append(s.rows, row)
+	return s.err
+}
+
+type captureMiddlewareAlertSink struct {
+	channel observability.AlertDeliveryChannel
+	events  []observability.AlertEvent
+	err     error
+}
+
+func (s *captureMiddlewareAlertSink) Channel() observability.AlertDeliveryChannel {
+	return s.channel
+}
+
+func (s *captureMiddlewareAlertSink) Deliver(_ context.Context, event observability.AlertEvent) error {
+	s.events = append(s.events, event)
+	return s.err
+}
+
+func assertUUIDValue(t *testing.T, label string, value any) {
+	t.Helper()
+
+	text, ok := value.(string)
+	if !ok || strings.TrimSpace(text) == "" {
+		t.Fatalf("expected %s to be a UUID string, got %#v", label, value)
+	}
+	if _, err := uuid.Parse(text); err != nil {
+		t.Fatalf("expected %s to be a UUID, got %q: %v", label, text, err)
+	}
+}
 
 func TestWithCORSAllowsConfiguredOrigin(t *testing.T) {
 	handler := withCORS([]string{"http://localhost:5173"})(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -71,6 +112,9 @@ func TestRequestIDFromContextReturnsRequestIDGeneratedByMiddleware(t *testing.T)
 	if gotRequestID == "" {
 		t.Fatal("expected requestIDFromContext to return a request ID")
 	}
+	if _, err := uuid.Parse(gotRequestID); err != nil {
+		t.Fatalf("expected request ID to be a UUID for ClickHouse request_logs, got %q: %v", gotRequestID, err)
+	}
 	if recorder.Header().Get(requestIDHeader) != gotRequestID {
 		t.Fatalf("expected response request id %q, got %q", gotRequestID, recorder.Header().Get(requestIDHeader))
 	}
@@ -103,12 +147,15 @@ func TestWithLoggingWritesStructuredRequestEvent(t *testing.T) {
 	if record["event"] != "http.request" {
 		t.Fatalf("expected http.request event, got %#v", record["event"])
 	}
-	if record["component"] != "http" {
-		t.Fatalf("expected http component, got %#v", record["component"])
+	if record["component"] != "agent" {
+		t.Fatalf("expected agent component, got %#v", record["component"])
 	}
 	if record["request_id"] == "" {
 		t.Fatalf("expected request_id in log: %#v", record)
 	}
+	assertUUIDValue(t, "request_id", record["request_id"])
+	assertUUIDValue(t, "trace_id", record["trace_id"])
+	assertUUIDValue(t, "span_id", record["span_id"])
 	if record["organization_id"] != "org_123" {
 		t.Fatalf("expected organization scope, got %#v", record["organization_id"])
 	}
@@ -129,5 +176,221 @@ func TestWithLoggingWritesStructuredRequestEvent(t *testing.T) {
 		if strings.Contains(forbiddenText, forbidden) {
 			t.Fatalf("log leaked forbidden value %q: %s", forbidden, forbiddenText)
 		}
+	}
+}
+
+func TestWithLoggingWritesRequestEventToRequestLogSink(t *testing.T) {
+	var output bytes.Buffer
+	restoreLogger := setObservabilityLoggerForTest(observability.NewJSONLogger(&output))
+	defer restoreLogger()
+	sink := &captureMiddlewareRequestLogSink{}
+	restoreSink := setRequestLogSinkForTest(sink)
+	defer restoreSink()
+
+	handler := withRequestID(withLogging(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		attachSessionToObservabilityScope(r, auth.Session{
+			OrganizationID: "750e8400-e29b-41d4-a716-446655440000",
+			User:           auth.User{ID: "850e8400-e29b-41d4-a716-446655440000"},
+		})
+		w.WriteHeader(stdhttp.StatusAccepted)
+	})))
+
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/conversations/conversation_123/messages", strings.NewReader(`{"prompt":"secret"}`))
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusAccepted {
+		t.Fatalf("expected handler response to survive request log sink, got %d", recorder.Code)
+	}
+	if len(sink.rows) != 1 {
+		t.Fatalf("expected one request log row, got %+v", sink.rows)
+	}
+	row := sink.rows[0]
+	if row.Service != "chat" ||
+		row.Endpoint != "/api/v1/app/conversations/:id/messages" ||
+		row.Method != stdhttp.MethodPost ||
+		row.StatusCode != stdhttp.StatusAccepted ||
+		row.OrganizationID != "750e8400-e29b-41d4-a716-446655440000" ||
+		row.UserID != "850e8400-e29b-41d4-a716-446655440000" {
+		t.Fatalf("unexpected request log row: %+v", row)
+	}
+	if row.DurationMS == 0 {
+		t.Fatalf("expected non-zero request duration, got %+v", row)
+	}
+	if row.ID == "00000000-0000-0000-0000-000000000000" {
+		t.Fatalf("expected request log id to preserve UUID request id, got %+v", row)
+	}
+	if row.TraceID == "00000000-0000-0000-0000-000000000000" {
+		t.Fatalf("expected request log trace id to be populated, got %+v", row)
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal([]byte(row.Metadata), &metadata); err != nil {
+		t.Fatalf("expected JSON metadata, got %v: %s", err, row.Metadata)
+	}
+	if metadata["feature_type"] != "chat" {
+		t.Fatalf("expected chat feature_type in request log metadata, got %+v", metadata)
+	}
+	assertUUIDValue(t, "metadata span_id", metadata["span_id"])
+	if strings.Contains(row.Metadata, "secret") {
+		t.Fatalf("request log metadata leaked request body: %s", row.Metadata)
+	}
+}
+
+func TestWithLoggingClassifiesRequestLogsByFeature(t *testing.T) {
+	tests := []struct {
+		name    string
+		path    string
+		service string
+		feature string
+	}{
+		{
+			name:    "workflow API",
+			path:    "/api/v1/workflows/workflow_123/execute",
+			service: "workflow",
+			feature: "workflow",
+		},
+		{
+			name:    "agent API",
+			path:    "/api/v1/agent/runs/run_123/approve-tool",
+			service: "agent",
+			feature: "agent",
+		},
+		{
+			name:    "knowledge RAG API",
+			path:    "/api/v1/app/knowledge-bases/kb_123/retrieve",
+			service: "rag",
+			feature: "rag",
+		},
+		{
+			name:    "relay image API",
+			path:    "/v1/images/generations",
+			service: "relay",
+			feature: "image",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sink := &captureMiddlewareRequestLogSink{}
+			restoreSink := setRequestLogSinkForTest(sink)
+			defer restoreSink()
+
+			handler := withRequestID(withLogging(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+				w.WriteHeader(stdhttp.StatusNoContent)
+			})))
+
+			handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(stdhttp.MethodPost, tt.path, nil))
+
+			if len(sink.rows) != 1 {
+				t.Fatalf("expected one request log row, got %+v", sink.rows)
+			}
+			row := sink.rows[0]
+			if row.Service != tt.service {
+				t.Fatalf("service = %q, want %q; row=%+v", row.Service, tt.service, row)
+			}
+			var metadata map[string]any
+			if err := json.Unmarshal([]byte(row.Metadata), &metadata); err != nil {
+				t.Fatalf("expected JSON metadata, got %v: %s", err, row.Metadata)
+			}
+			if metadata["feature_type"] != tt.feature {
+				t.Fatalf("feature_type = %#v, want %q; metadata=%+v", metadata["feature_type"], tt.feature, metadata)
+			}
+		})
+	}
+}
+
+func TestWithLoggingRequestLogSinkFailureDoesNotBreakResponse(t *testing.T) {
+	sink := &captureMiddlewareRequestLogSink{err: errors.New("clickhouse unavailable")}
+	restoreSink := setRequestLogSinkForTest(sink)
+	defer restoreSink()
+
+	handler := withRequestID(withLogging(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		w.WriteHeader(stdhttp.StatusNoContent)
+	})))
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(stdhttp.MethodGet, "/healthz", nil))
+
+	if recorder.Code != stdhttp.StatusNoContent {
+		t.Fatalf("expected request log sink error not to break response, got %d", recorder.Code)
+	}
+	if len(sink.rows) != 1 {
+		t.Fatalf("expected sink to be attempted once, got %+v", sink.rows)
+	}
+}
+
+func TestWithLoggingRoutesHTTP5xxToAlertDeliveryAndRecovery(t *testing.T) {
+	store := observability.NewInMemoryAlertStateStore()
+	inApp := &captureMiddlewareAlertSink{channel: observability.AlertDeliveryChannelInApp}
+	dispatcher := observability.NewAlertDeliveryDispatcher(observability.AlertDeliveryDispatcherOptions{
+		Policy: observability.DeliveryPolicy{
+			Routes: map[observability.AlertSeverity][]observability.AlertDeliveryChannel{
+				observability.AlertSeverityWarning: {observability.AlertDeliveryChannelInApp},
+			},
+		},
+		Sinks:        []observability.AlertDeliverySink{inApp},
+		HistoryStore: store,
+	})
+	router := observability.NewAlertRouter(observability.AlertRouterOptions{
+		StateStore: store,
+		NotifySink: dispatcher,
+	})
+	recovery := observability.NewRecoveryController(observability.RecoveryControllerOptions{
+		StateStore: store,
+		Policies: []observability.RecoveryPolicy{
+			{
+				Name:       "record-http-5xx",
+				Severity:   observability.AlertSeverityWarning,
+				Component:  observability.ComponentHTTP,
+				ActionType: observability.RecoveryActionRestart,
+			},
+		},
+	})
+	restoreAlertRouter := setHTTPAlertRouterForTest(router)
+	defer restoreAlertRouter()
+	restoreRecovery := setHTTPRecoveryControllerForTest(recovery)
+	defer restoreRecovery()
+
+	handler := withRequestID(withLogging(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		w.WriteHeader(stdhttp.StatusInternalServerError)
+		_, _ = w.Write([]byte("upstream failed"))
+	})))
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/relay/chat/completions", strings.NewReader(`{"model":"gpt-5"}`))
+
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusInternalServerError {
+		t.Fatalf("expected original 500 response to survive alert handling, got %d", recorder.Code)
+	}
+	const alertKey = "http:/api/v1/relay/chat/completions:500"
+	state, found, err := store.GetAlertState(context.Background(), alertKey)
+	if err != nil {
+		t.Fatalf("get alert state: %v", err)
+	}
+	if !found || state.Status != observability.AlertStatusOpen || state.Severity != observability.AlertSeverityWarning || state.Component != observability.ComponentHTTP {
+		t.Fatalf("expected open HTTP warning alert state, found=%v state=%+v", found, state)
+	}
+	if len(inApp.events) != 1 {
+		t.Fatalf("expected in-app alert sink to receive one event, got %+v", inApp.events)
+	}
+	if inApp.events[0].Key != alertKey || inApp.events[0].Title != "HTTP 500 on /api/v1/relay/chat/completions" {
+		t.Fatalf("unexpected alert event delivered: %+v", inApp.events[0])
+	}
+	attempts, err := store.ListDeliveryAttempts(context.Background(), observability.AlertDeliveryHistoryFilter{AlertKey: alertKey})
+	if err != nil {
+		t.Fatalf("list delivery attempts: %v", err)
+	}
+	if len(attempts) != 1 || attempts[0].Channel != observability.AlertDeliveryChannelInApp || !attempts[0].Delivered {
+		t.Fatalf("expected successful in-app delivery attempt, got %+v", attempts)
+	}
+	actions, err := store.ListRecoveryActions(context.Background(), observability.RecoveryActionFilter{AlertKey: alertKey})
+	if err != nil {
+		t.Fatalf("list recovery actions: %v", err)
+	}
+	if len(actions) != 1 || actions[0].PolicyName != "record-http-5xx" || actions[0].Status != observability.RecoveryActionRecorded {
+		t.Fatalf("expected recorded recovery action, got %+v", actions)
 	}
 }

@@ -26,10 +26,6 @@ func NewPricingStoreWithDefaults() *PricingStore {
 			types.DimPromptTokens:     0.002,
 			types.DimCompletionTokens: 0.008,
 		},
-		types.APITypeResponses: {
-			types.DimPromptTokens:     0.002,
-			types.DimCompletionTokens: 0.008,
-		},
 		types.APITypeCompletions: {
 			types.DimPromptTokens:     0.002,
 			types.DimCompletionTokens: 0.008,
@@ -40,24 +36,6 @@ func NewPricingStoreWithDefaults() *PricingStore {
 		types.APITypeImageGen: {
 			types.DimImageCount: 0.004,
 		},
-		types.APITypeImageEdit: {
-			types.DimImageCount: 0.004,
-		},
-		types.APITypeImageVar: {
-			types.DimImageCount: 0.004,
-		},
-		types.APITypeAudioSpeech: {
-			types.DimAudioSeconds: 0.0001,
-		},
-		types.APITypeAudioSTT: {
-			types.DimAudioSeconds: 0.0001,
-		},
-		types.APITypeAudioTranslate: {
-			types.DimAudioSeconds: 0.0001,
-		},
-		types.APITypeModeration: {
-			types.DimPromptTokens: 0.0001,
-		},
 	}
 	for apiType, dims := range defaults {
 		for dim, price := range dims {
@@ -66,6 +44,32 @@ func NewPricingStoreWithDefaults() *PricingStore {
 		}
 	}
 	return store
+}
+
+func (s *PricingStore) ApplyMultipliers(modelMultipliers, groupMultipliers map[string]float64) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for model, multiplier := range modelMultipliers {
+		if multiplier < 0 {
+			continue
+		}
+		modelPrices := s.prices[model]
+		if len(modelPrices) == 0 {
+			continue
+		}
+		for apiType, dimensions := range modelPrices {
+			if dimensions == nil {
+				continue
+			}
+			for dimension, price := range dimensions {
+				s.prices[model][apiType][dimension] = price * multiplier
+			}
+		}
+	}
+	_ = groupMultipliers
 }
 
 func (s *PricingStore) SetPrice(model string, apiType types.APIType, dim types.UsageDimension, price float64) {
@@ -91,7 +95,7 @@ func (s *PricingStore) GetPrice(model string, apiType types.APIType, dim types.U
 }
 
 func (s *PricingStore) CalculateCost(model string, apiType types.APIType, usage *types.Usage) float64 {
-	if usage == nil {
+	if s == nil || usage == nil {
 		return 0
 	}
 	var total float64

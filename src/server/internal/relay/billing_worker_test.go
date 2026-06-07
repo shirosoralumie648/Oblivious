@@ -8,13 +8,12 @@ import (
 
 func TestBillingTimeoutTask_Payload(t *testing.T) {
 	task := &BillingTimeoutTask{
-		SessionID:      "sess_123",
-		ChannelID:      "ch_1",
-		APIType:        types.APITypeChat,
-		Model:          "gpt-4o",
-		AuthAmt:        10.0,
+		SessionID:     "sess_123",
+		ChannelID:     "ch_1",
+		APIType:       types.APITypeChat,
+		Model:         "gpt-4o",
+		AuthAmt:       10.0,
 		IdempotencyKey: "idem_123",
-		OrganizationID: "org_1",
 	}
 	payload, err := structToPayload(task)
 	if err != nil {
@@ -30,9 +29,6 @@ func TestBillingTimeoutTask_Payload(t *testing.T) {
 	if decoded.AuthAmt != task.AuthAmt {
 		t.Fatalf("expected %f, got %f", task.AuthAmt, decoded.AuthAmt)
 	}
-	if decoded.OrganizationID != task.OrganizationID {
-		t.Fatalf("expected organization %s, got %s", task.OrganizationID, decoded.OrganizationID)
-	}
 }
 
 func TestBillingPollingTask_Payload(t *testing.T) {
@@ -45,7 +41,6 @@ func TestBillingPollingTask_Payload(t *testing.T) {
 		IdempotencyKey:   "idem_123",
 		MaxAttempts:      5,
 		AttemptNo:        1,
-		OrganizationID:   "org_1",
 	}
 	payload, err := structToPayload(task)
 	if err != nil {
@@ -60,9 +55,6 @@ func TestBillingPollingTask_Payload(t *testing.T) {
 	}
 	if decoded.AttemptNo != task.AttemptNo {
 		t.Fatalf("expected %d, got %d", task.AttemptNo, decoded.AttemptNo)
-	}
-	if decoded.OrganizationID != task.OrganizationID {
-		t.Fatalf("expected organization %s, got %s", task.OrganizationID, decoded.OrganizationID)
 	}
 }
 

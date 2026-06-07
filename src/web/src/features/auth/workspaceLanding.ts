@@ -5,5 +5,11 @@ export function resolveWorkspaceLandingPath(preferences: UserPreferences | null 
     return '/onboarding';
   }
 
-  return preferences.defaultMode === 'solo' ? '/solo/new' : '/chat';
+  if (preferences.defaultMode === 'solo') {
+    return '/solo/new';
+  }
+  if (String(preferences.defaultMode) === 'agent') {
+    return '/agents';
+  }
+  return '/chat';
 }

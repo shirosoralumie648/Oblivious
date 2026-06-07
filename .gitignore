@@ -12,4 +12,5 @@ deploy/kubernetes/secret.yaml
 bin/
 .build/
 .tmp/
+reference/
 *.log

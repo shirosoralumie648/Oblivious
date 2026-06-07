@@ -65,6 +65,8 @@ Use:
 
 The alert set covers Relay outage, quota settlement failure, Stripe webhook failure, migration failure, high provider error rate, and tenant isolation incidents.
 
+The Grafana dashboard artifact also covers usage analytics dashboard panels for model usage, feature usage, user cost, time trend, and cross-dimension usage/cost analytics. This is repository-local dashboard coverage only; external Grafana deployment, datasource configuration, and live panel rendering remain deployment evidence.
+
 ## Release, Rollback, Incident, And Disaster Recovery
 
 Use:

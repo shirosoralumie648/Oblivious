@@ -4,14 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
 	"time"
 
 	"github.com/lib/pq"
 
 	"oblivious/server/internal/auth"
+	"oblivious/server/internal/relay/types"
 )
 
 // ChannelStore defines operations on relay channels.
@@ -20,6 +19,7 @@ type ChannelStore interface {
 	GetChannel(ctx context.Context, id string) (*ChannelInfo, error)
 	CreateChannel(ctx context.Context, input ChannelCreateRequest) (*ChannelInfo, error)
 	UpdateChannel(ctx context.Context, id string, input ChannelUpdateRequest) (*ChannelInfo, error)
+	UpdateChannelDiagnostics(ctx context.Context, id string, input ChannelDiagnosticsUpdate) (*ChannelHealth, error)
 	DeleteChannel(ctx context.Context, id string) error
 	TestChannel(ctx context.Context, id string) (*ChannelTestResult, error)
 	BatchUpdateChannels(ctx context.Context, ids []string, action string) error
@@ -65,8 +65,9 @@ func (s *SQLStore) ListChannels(ctx context.Context, filter ChannelFilter) ([]*C
 	}
 
 	query := fmt.Sprintf(`
-		SELECT id, name, provider, base_url, models,
-		       rpm_limit, tpm_limit, priority, enabled,
+		SELECT id, name, provider, base_url, models, groups,
+		       rpm_limit, tpm_limit, priority, estimated_cost_per_1k, cost_multiplier, enabled,
+		       COALESCE(last_health_status, 'offline'), COALESCE(last_latency_ms, 0),
 		       created_at, updated_at
 		FROM channels
 		%s
@@ -85,13 +86,15 @@ func (s *SQLStore) ListChannels(ctx context.Context, filter ChannelFilter) ([]*C
 	for rows.Next() {
 		var ch ChannelInfo
 		var models []string
-		if err := rows.Scan(&ch.ID, &ch.Name, &ch.Provider, &ch.BaseURL, pq.Array(&models),
-			&ch.RPM, &ch.TPM, &ch.Priority, &ch.Enabled,
+		var groups []string
+		if err := rows.Scan(&ch.ID, &ch.Name, &ch.Provider, &ch.BaseURL, pq.Array(&models), pq.Array(&groups),
+			&ch.RPM, &ch.TPM, &ch.Priority, &ch.EstimatedCostPer1K, &ch.CostMultiplier, &ch.Enabled,
+			&ch.Status, &ch.Latency,
 			&ch.CreatedAt, &ch.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan channel: %w", err)
 		}
 		ch.Models = models
-		ch.Status = "offline" // default; health checker populates this
+		ch.Groups = groups
 		channels = append(channels, &ch)
 	}
 	return channels, rows.Err()
@@ -101,15 +104,18 @@ func (s *SQLStore) ListChannels(ctx context.Context, filter ChannelFilter) ([]*C
 func (s *SQLStore) GetChannel(ctx context.Context, id string) (*ChannelInfo, error) {
 	var ch ChannelInfo
 	var models []string
+	var groups []string
 
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, name, provider, base_url, models,
-		       rpm_limit, tpm_limit, priority, enabled,
+		SELECT id, name, provider, base_url, models, groups,
+		       rpm_limit, tpm_limit, priority, estimated_cost_per_1k, cost_multiplier, enabled,
+		       COALESCE(last_health_status, 'offline'), COALESCE(last_latency_ms, 0),
 		       created_at, updated_at
 		FROM channels
 		WHERE id = $1
-	`, id).Scan(&ch.ID, &ch.Name, &ch.Provider, &ch.BaseURL, pq.Array(&models),
-		&ch.RPM, &ch.TPM, &ch.Priority, &ch.Enabled,
+	`, id).Scan(&ch.ID, &ch.Name, &ch.Provider, &ch.BaseURL, pq.Array(&models), pq.Array(&groups),
+		&ch.RPM, &ch.TPM, &ch.Priority, &ch.EstimatedCostPer1K, &ch.CostMultiplier, &ch.Enabled,
+		&ch.Status, &ch.Latency,
 		&ch.CreatedAt, &ch.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -118,7 +124,7 @@ func (s *SQLStore) GetChannel(ctx context.Context, id string) (*ChannelInfo, err
 		return nil, fmt.Errorf("get channel: %w", err)
 	}
 	ch.Models = models
-	ch.Status = "offline"
+	ch.Groups = groups
 	return &ch, nil
 }
 
@@ -133,25 +139,31 @@ func (s *SQLStore) CreateChannel(ctx context.Context, input ChannelCreateRequest
 	if models == nil {
 		models = []string{}
 	}
+	groups := input.Groups
+	if groups == nil {
+		groups = []string{}
+	}
 
 	var ch ChannelInfo
 	err = s.db.QueryRowContext(ctx, `
-		INSERT INTO channels (id, name, provider, base_url, api_key_encrypted, models,
-		                      rpm_limit, tpm_limit, priority, enabled, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, NOW(), NOW())
-		RETURNING id, name, provider, base_url, models,
-		          rpm_limit, tpm_limit, priority, enabled,
+		INSERT INTO channels (id, name, provider, base_url, api_key_encrypted, models, groups,
+		                      rpm_limit, tpm_limit, priority, estimated_cost_per_1k, cost_multiplier, enabled, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true, NOW(), NOW())
+		RETURNING id, name, provider, base_url, models, groups,
+		          rpm_limit, tpm_limit, priority, estimated_cost_per_1k, cost_multiplier, enabled,
+		          COALESCE(last_health_status, 'offline'), COALESCE(last_latency_ms, 0),
 		          created_at, updated_at
-	`, id, input.Name, input.Provider, input.BaseURL, input.APIKey, pq.Array(models),
-		input.RpmLimit, input.TpmLimit, input.Priority).Scan(
-		&ch.ID, &ch.Name, &ch.Provider, &ch.BaseURL, pq.Array(&models),
-		&ch.RPM, &ch.TPM, &ch.Priority, &ch.Enabled,
+	`, id, input.Name, input.Provider, input.BaseURL, input.APIKey, pq.Array(models), pq.Array(groups),
+		input.RpmLimit, input.TpmLimit, input.Priority, input.EstimatedCostPer1K, normalizeAdminCostMultiplier(input.CostMultiplier)).Scan(
+		&ch.ID, &ch.Name, &ch.Provider, &ch.BaseURL, pq.Array(&models), pq.Array(&groups),
+		&ch.RPM, &ch.TPM, &ch.Priority, &ch.EstimatedCostPer1K, &ch.CostMultiplier, &ch.Enabled,
+		&ch.Status, &ch.Latency,
 		&ch.CreatedAt, &ch.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("create channel: %w", err)
 	}
 	ch.Models = models
-	ch.Status = "offline"
+	ch.Groups = groups
 	return &ch, nil
 }
 
@@ -160,6 +172,7 @@ func (s *SQLStore) UpdateChannel(ctx context.Context, id string, input ChannelUp
 	// Build dynamic UPDATE with COALESCE/NULLIF for optional pointer fields
 	var ch ChannelInfo
 	var models []string
+	var groups []string
 
 	err := s.db.QueryRowContext(ctx, `
 		UPDATE channels SET
@@ -167,34 +180,112 @@ func (s *SQLStore) UpdateChannel(ctx context.Context, id string, input ChannelUp
 			base_url = COALESCE(NULLIF($2::text,''), base_url),
 			api_key_encrypted = COALESCE(NULLIF($3::text,''), api_key_encrypted),
 			models = COALESCE(NULLIF($4::text[], '{}'), models),
-			rpm_limit = COALESCE(NULLIF($5::int, 0), rpm_limit),
-			tpm_limit = COALESCE(NULLIF($6::int, 0), tpm_limit),
-			priority = COALESCE(NULLIF($7::int, 0), priority),
-			enabled = COALESCE($8::boolean, enabled),
+			groups = COALESCE(NULLIF($5::text[], '{}'), groups),
+			rpm_limit = COALESCE(NULLIF($6::int, 0), rpm_limit),
+			tpm_limit = COALESCE(NULLIF($7::int, 0), tpm_limit),
+			priority = COALESCE(NULLIF($8::int, 0), priority),
+			estimated_cost_per_1k = COALESCE($9::double precision, estimated_cost_per_1k),
+			cost_multiplier = COALESCE($10::double precision, cost_multiplier),
+			enabled = COALESCE($11::boolean, enabled),
 			updated_at = NOW()
-		WHERE id = $9
-		RETURNING id, name, provider, base_url, models,
-		          rpm_limit, tpm_limit, priority, enabled,
+		WHERE id = $12
+		RETURNING id, name, provider, base_url, models, groups,
+		          rpm_limit, tpm_limit, priority, estimated_cost_per_1k, cost_multiplier, enabled,
+		          COALESCE(last_health_status, 'offline'), COALESCE(last_latency_ms, 0),
 		          created_at, updated_at
 	`,
 		coalesceString(input.Name),
 		coalesceString(input.BaseURL),
 		coalesceString(input.APIKey),
 		pq.Array(coalesceModels(input.Models)),
+		pq.Array(coalesceModels(input.Groups)),
 		coalesceInt(input.RpmLimit),
 		coalesceInt(input.TpmLimit),
 		coalesceInt(input.Priority),
+		coalesceFloat(input.EstimatedCostPer1K),
+		coalesceCostMultiplier(input.CostMultiplier),
 		input.Enabled,
 		id,
-	).Scan(&ch.ID, &ch.Name, &ch.Provider, &ch.BaseURL, pq.Array(&models),
-		&ch.RPM, &ch.TPM, &ch.Priority, &ch.Enabled,
+	).Scan(&ch.ID, &ch.Name, &ch.Provider, &ch.BaseURL, pq.Array(&models), pq.Array(&groups),
+		&ch.RPM, &ch.TPM, &ch.Priority, &ch.EstimatedCostPer1K, &ch.CostMultiplier, &ch.Enabled,
+		&ch.Status, &ch.Latency,
 		&ch.CreatedAt, &ch.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("update channel: %w", err)
 	}
 	ch.Models = models
-	ch.Status = "offline"
+	ch.Groups = groups
 	return &ch, nil
+}
+
+// UpdateChannelDiagnostics persists the latest provider probe diagnostics.
+func (s *SQLStore) UpdateChannelDiagnostics(ctx context.Context, id string, input ChannelDiagnosticsUpdate) (*ChannelHealth, error) {
+	checkedAt := input.CheckedAt
+	if checkedAt.IsZero() {
+		checkedAt = time.Now().UTC()
+	}
+
+	status := firstNonEmpty(input.Status, "offline")
+	message := ""
+	if input.Health != nil {
+		status = firstNonEmpty(input.Health.Status, status)
+		message = input.Health.Message
+		if !input.Health.CheckedAt.IsZero() {
+			checkedAt = input.Health.CheckedAt
+		}
+	}
+
+	var balanceAmount interface{}
+	var balanceCurrency interface{}
+	var balanceSource interface{}
+	if input.Balance != nil {
+		balanceAmount = input.Balance.Amount
+		balanceCurrency = firstNonEmpty(input.Balance.Currency, "USD")
+		balanceSource = nullableString(input.Balance.Source)
+	}
+
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE channels SET
+			last_balance_amount = $2,
+			last_balance_currency = $3,
+			last_balance_source = $4,
+			last_balance_error = $5,
+			last_health_status = $6,
+			last_health_message = $7,
+			last_health_checked_at = $8,
+			last_latency_ms = $9,
+			last_probe_error = $10,
+			updated_at = NOW()
+		WHERE id = $1
+	`, id, balanceAmount, balanceCurrency, balanceSource, nullableString(input.BalanceError),
+		status, nullableString(message), checkedAt, input.Latency, nullableString(input.Error))
+	if err != nil {
+		return nil, fmt.Errorf("update channel diagnostics: %w", err)
+	}
+	if rows, err := result.RowsAffected(); err == nil && rows == 0 {
+		return nil, fmt.Errorf("channel not found")
+	}
+
+	health := input.Health
+	if health == nil {
+		health = &ChannelHealthDetail{Status: status, CheckedAt: checkedAt}
+	} else {
+		copied := *health
+		copied.Status = status
+		copied.CheckedAt = checkedAt
+		health = &copied
+	}
+
+	return &ChannelHealth{
+		ID:           id,
+		Status:       status,
+		Latency:      input.Latency,
+		Balance:      input.Balance,
+		BalanceError: input.BalanceError,
+		Health:       health,
+		Error:        input.Error,
+		CheckedAt:    checkedAt,
+	}, nil
 }
 
 // DeleteChannel deletes a channel by ID.
@@ -203,9 +294,10 @@ func (s *SQLStore) DeleteChannel(ctx context.Context, id string) error {
 	return err
 }
 
-// TestChannel performs a lightweight connectivity test to the channel's base URL.
+// TestChannel performs a provider-aware connectivity test using the stored
+// channel credentials and returns the upstream model list when available.
 func (s *SQLStore) TestChannel(ctx context.Context, id string) (*ChannelTestResult, error) {
-	ch, err := s.GetChannel(ctx, id)
+	ch, err := s.getRelayChannelForProbe(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("test channel: %w", err)
 	}
@@ -213,36 +305,31 @@ func (s *SQLStore) TestChannel(ctx context.Context, id string) (*ChannelTestResu
 		return &ChannelTestResult{Success: false, Error: "channel not found"}, nil
 	}
 
-	start := time.Now()
+	return testRelayChannel(ctx, ch), nil
+}
 
-	client := &http.Client{Timeout: 5 * time.Second}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(ch.BaseURL, "/")+"/models", nil)
+func (s *SQLStore) getRelayChannelForProbe(ctx context.Context, id string) (*types.Channel, error) {
+	ch := &types.Channel{}
+	var models []string
+	var groups []string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, name, provider, base_url, api_key_encrypted, models, groups,
+		       rpm_limit, tpm_limit, priority, estimated_cost_per_1k, cost_multiplier, enabled
+		FROM channels
+		WHERE id = $1
+	`, id).Scan(
+		&ch.ID, &ch.Name, &ch.Provider, &ch.BaseURL, &ch.APIKey, pq.Array(&models), pq.Array(&groups),
+		&ch.RPMLimit, &ch.TPMLimit, &ch.Priority, &ch.EstimatedCostPer1K, &ch.CostMultiplier, &ch.Enabled,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
 	if err != nil {
-		return &ChannelTestResult{Success: false, Error: err.Error()}, nil
+		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer <redacted>")
-	// Note: API key stored encrypted — actual key retrieval requires decryption at the relay layer.
-	// For admin test, we use a simple connectivity check without actual auth.
-
-	resp, err := client.Do(req)
-	latency := time.Since(start).Milliseconds()
-
-	if err != nil {
-		return &ChannelTestResult{Success: false, Latency: latency, Error: err.Error()}, nil
-	}
-	defer resp.Body.Close()
-
-	// Read a limited portion to confirm response body
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
-
-	if resp.StatusCode >= 200 && resp.StatusCode < 500 {
-		return &ChannelTestResult{Success: true, Latency: latency}, nil
-	}
-	return &ChannelTestResult{
-		Success: false,
-		Latency: latency,
-		Error:   fmt.Sprintf("unexpected status: %d", resp.StatusCode),
-	}, nil
+	ch.Models = models
+	ch.Groups = groups
+	return ch, nil
 }
 
 // BatchUpdateChannels enables or disables multiple channels at once.
@@ -288,4 +375,32 @@ func coalesceModels(ptr *[]string) []string {
 		return nil
 	}
 	return *ptr
+}
+
+func coalesceFloat(ptr *float64) interface{} {
+	if ptr == nil {
+		return nil
+	}
+	return *ptr
+}
+
+func coalesceCostMultiplier(ptr *float64) interface{} {
+	if ptr == nil {
+		return nil
+	}
+	return normalizeAdminCostMultiplier(*ptr)
+}
+
+func normalizeAdminCostMultiplier(multiplier float64) float64 {
+	if multiplier <= 0 {
+		return 1
+	}
+	return multiplier
+}
+
+func nullableString(value string) interface{} {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return value
 }

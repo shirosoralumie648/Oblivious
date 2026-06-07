@@ -4,7 +4,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 
-import { createMarketplaceApi, type AgentPublishRequest, type Category } from '../../features/marketplace/api';
+import {
+  createMarketplaceApi,
+  getAutomatedReviewRejection,
+  type AgentPublishRequest,
+  type AutomatedReviewResult,
+  type Category,
+} from '../../features/marketplace/api';
 import { createHttpClient } from '../../services/http/client';
 
 type PublishForm = AgentPublishRequest;
@@ -14,6 +20,7 @@ type PublishState = {
   form: PublishForm;
   loading: boolean;
   error: string | null;
+  automatedReview: AutomatedReviewResult | null;
   success: string | null;
 };
 
@@ -22,7 +29,7 @@ type Action =
   | { type: 'FIELD'; field: keyof PublishForm; value: string | string[] | number }
   | { type: 'SUBMIT_START' }
   | { type: 'SUBMIT_SUCCESS'; message: string }
-  | { type: 'SUBMIT_ERROR'; error: string };
+  | { type: 'SUBMIT_ERROR'; error: string; automatedReview?: AutomatedReviewResult | null };
 
 const initialForm: PublishForm = {
   name: '',
@@ -44,6 +51,7 @@ const initialState: PublishState = {
   form: initialForm,
   loading: false,
   error: null,
+  automatedReview: null,
   success: null,
 };
 
@@ -54,11 +62,11 @@ function reducer(state: PublishState, action: Action): PublishState {
     case 'FIELD':
       return { ...state, form: { ...state.form, [action.field]: action.value }, success: null };
     case 'SUBMIT_START':
-      return { ...state, loading: true, error: null, success: null };
+      return { ...state, loading: true, error: null, automatedReview: null, success: null };
     case 'SUBMIT_SUCCESS':
-      return { ...state, loading: false, error: null, success: action.message };
+      return { ...state, loading: false, error: null, automatedReview: null, success: action.message };
     case 'SUBMIT_ERROR':
-      return { ...state, loading: false, error: action.error, success: null };
+      return { ...state, loading: false, error: action.error, automatedReview: action.automatedReview ?? null, success: null };
     default:
       return state;
   }
@@ -110,7 +118,12 @@ export function MarketplacePublishPage() {
             : 'Agent submitted for review. Paid installs remain checkout-backed until approval and settlement evidence exist.',
       });
     } catch (error) {
-      dispatch({ type: 'SUBMIT_ERROR', error: error instanceof Error ? error.message : 'Unable to publish agent.' });
+      const automatedReview = getAutomatedReviewRejection(error);
+      dispatch({
+        type: 'SUBMIT_ERROR',
+        error: automatedReview ? 'Automated review rejected this submission.' : error instanceof Error ? error.message : 'Unable to publish agent.',
+        automatedReview,
+      });
     }
   };
 
@@ -203,7 +216,26 @@ export function MarketplacePublishPage() {
         <Textarea id="agent-changelog" value={state.form.changelog} onChange={(event) => dispatch({ type: 'FIELD', field: 'changelog', value: event.target.value })} />
       </div>
 
-      {state.error ? <p className="text-sm text-destructive">{state.error}</p> : null}
+      {state.error ? (
+        <div className="space-y-3 rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive" role="alert">
+          <p className="font-medium">{state.error}</p>
+          {state.automatedReview ? (
+            <ul className="space-y-2">
+              {state.automatedReview.findings.map((finding, index) => (
+                <li key={`${finding.type}-${finding.field ?? 'field'}-${index}`} className="space-y-1">
+                  <div className="flex flex-wrap gap-2">
+                    <span className="rounded-md border border-destructive/30 px-2 py-0.5 text-xs font-medium">{finding.type}</span>
+                    <span className="rounded-md border border-destructive/30 px-2 py-0.5 text-xs font-medium">{finding.severity}</span>
+                    {finding.field ? <span className="rounded-md border border-destructive/30 px-2 py-0.5 text-xs font-medium">{finding.field}</span> : null}
+                  </div>
+                  <p>{finding.message}</p>
+                  {finding.evidence ? <p className="text-xs opacity-80">{finding.evidence}</p> : null}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
       {state.success ? <p className="text-sm text-muted-foreground">{state.success}</p> : null}
       <Button type="button" className="min-h-[44px]" disabled={state.loading} onClick={() => void handleSubmit()}>
         Publish Agent

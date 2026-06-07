@@ -2,6 +2,8 @@ package handler
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,12 +16,29 @@ import (
 
 // BatchHandler Batch 处理（submit 原生 + status 透传）
 type BatchHandler struct {
-	pool    *types.ChannelPoolInterface
-	adapter *channel.OpenAIAdapter
+	pool             *types.ChannelPoolInterface
+	adapter          *channel.OpenAIAdapter
+	pollingRegistrar BatchPollingRegistrar
 }
 
 func NewBatchHandler(p *types.ChannelPoolInterface, a *channel.OpenAIAdapter) *BatchHandler {
 	return &BatchHandler{pool: p, adapter: a}
+}
+
+type BatchPollingRegistration struct {
+	BatchID   string
+	RequestID string
+	Model     string
+	APIType   types.APIType
+}
+
+type BatchPollingRegistrar interface {
+	RegisterBatchPolling(ctx context.Context, task BatchPollingRegistration) error
+}
+
+func (h *BatchHandler) WithPollingRegistrar(registrar BatchPollingRegistrar) *BatchHandler {
+	h.pollingRegistrar = registrar
+	return h
 }
 
 func (h *BatchHandler) Handle(c *gin.Context) error {
@@ -56,12 +75,29 @@ func (h *BatchHandler) HandleSubmit(c *gin.Context) error {
 		RequestID: c.GetHeader("X-Request-ID"),
 		Body:      body,
 	}
-	_ = req
 
-	// TODO: PreBill 预扣（Plan D 实现 BillingHook 后启用）
-	// session, err := h.billing.PreBill(c.Request.Context(), req, nil)
+	if GetRouter() != nil {
+		resp, err := h.executeRequest(c, req, estimateBatchUsage(h.adapter, req))
+		if err != nil {
+			writeRelayHandlerError(c, resp, err)
+			return nil
+		}
+		if err := h.registerBatchPolling(c, resp.Content, model); err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"code": "batch_polling_registration_failed", "message": err.Error()}})
+			return nil
+		}
+		contentType := "application/json"
+		if resp.Headers != nil && resp.Headers.Get("Content-Type") != "" {
+			contentType = resp.Headers.Get("Content-Type")
+		}
+		statusCode := resp.StatusCode
+		if statusCode < http.StatusContinue {
+			statusCode = http.StatusOK
+		}
+		c.Data(statusCode, contentType, resp.Content)
+		return nil
+	}
 
-	// 提交到 OpenAI
 	upstreamURL, _ := h.adapter.BuildURL(model, types.APITypeBatch)
 	upstreamReq, err := http.NewRequest("POST", upstreamURL, bytes.NewReader(body))
 	if err != nil {
@@ -86,10 +122,50 @@ func (h *BatchHandler) HandleSubmit(c *gin.Context) error {
 		return nil
 	}
 
-	// TODO: 提取 batch_id，注册 Asynq polling 任务（Plan D）
+	if err := h.registerBatchPolling(c, bodyOut, model); err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"code": "batch_polling_registration_failed", "message": err.Error()}})
+		return nil
+	}
 
 	c.Data(resp.StatusCode, "application/json", bodyOut)
 	return nil
+}
+
+func estimateBatchUsage(adapter *channel.OpenAIAdapter, req *channel.ProviderRequest) *types.Usage {
+	if adapter != nil {
+		if usage := adapter.EstimateUsage(req); usage != nil {
+			return usage
+		}
+	}
+	return &types.Usage{}
+}
+
+func (h *BatchHandler) registerBatchPolling(c *gin.Context, body []byte, model string) error {
+	// Registering an injected polling hook keeps production route policy closed
+	// until the async billing worker is wired to this hook.
+	if h.pollingRegistrar == nil {
+		return nil
+	}
+	batchID := extractBatchID(body)
+	if batchID == "" {
+		return nil
+	}
+	return h.pollingRegistrar.RegisterBatchPolling(c.Request.Context(), BatchPollingRegistration{
+		BatchID:   batchID,
+		RequestID: c.GetHeader(types.HeaderRequestID),
+		Model:     model,
+		APIType:   types.APITypeBatch,
+	})
+}
+
+func extractBatchID(body []byte) string {
+	var payload struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return ""
+	}
+	return payload.ID
 }
 
 // GET /v1/batches (透传)
@@ -146,8 +222,21 @@ func (h *BatchHandler) executeRequest(c *gin.Context, req *channel.ProviderReque
 		idempotencyKey,
 		usage,
 		func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
-			upstreamURL, _ := h.adapter.BuildURL(req.Model, req.APIType)
-			headers, _ := h.adapter.BuildHeaders(c.Request.Context(), req.Model, req.APIType)
+			if ch == nil || ch.Channel == nil {
+				return nil, types.ErrNoAvailableChannel
+			}
+			adapter, err := channel.AdapterForChannel(ch.Channel)
+			if err != nil {
+				return nil, err
+			}
+			upstreamURL, err := adapter.BuildURL(req.Model, req.APIType)
+			if err != nil {
+				return nil, err
+			}
+			headers, err := adapter.BuildHeaders(c.Request.Context(), req.Model, req.APIType)
+			if err != nil {
+				return nil, err
+			}
 
 			upstreamReq, err := http.NewRequest("POST", upstreamURL, bytes.NewReader(req.Body))
 			if err != nil {
@@ -164,7 +253,7 @@ func (h *BatchHandler) executeRequest(c *gin.Context, req *channel.ProviderReque
 			defer resp.Body.Close()
 
 			bodyOut, _ := io.ReadAll(resp.Body)
-			return providerResponseFromHTTP(resp.StatusCode, bodyOut), nil
+			return providerResponseFromHTTPWithHeaders(resp.StatusCode, resp.Header, bodyOut), nil
 		},
 	)
 }

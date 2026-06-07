@@ -7,6 +7,7 @@ This runbook closes the v07 `OPS-06` incident response procedure for Phase 23 al
 - Capture alert name, timestamp, owner, severity, dashboard panel, metric expression, command output, and affected environment class.
 - Do not paste secrets, prompt text, response text, raw Stripe payloads, database URLs, customer data, kubeconfig material, or backup dump contents into incident records.
 - If external Prometheus, Grafana, OpenTelemetry, or error-tracking vendor integrations are unavailable, record that explicitly. Repository-local artifacts alone are not live vendor proof.
+- For usage/cost analytics reviews, record the Grafana usage analytics dashboard panel and filter context for model usage, feature usage, user cost, time trend, and cross-dimension usage/cost analytics.
 - Roll back through `docs/release/release-rollback-runbook.md` when mitigation cannot restore safe operation quickly.
 - Trigger disaster recovery through `docs/release/disaster-recovery-runbook.md` when data restoration or fresh infrastructure is required.
 
@@ -19,7 +20,14 @@ This runbook closes the v07 `OPS-06` incident response procedure for Phase 23 al
 | `StripeWebhookFailure` | billing-ops | critical | `stripe_webhook_failures_total`, `stripe_webhook_events_total` | Stripe webhook failures panel |
 | `MigrationFailure` | platform-ops | critical | `migration_runs_total` | Migration runs panel |
 | `HighProviderErrorRate` | relay-ops | warning | `provider_failures_total`, `provider_request_duration_seconds_count` | Provider failures and latency panels |
+| `WorkflowExecutionFailureRate` | workflow-ops | warning | `workflow_execution_total{status=~"failed|timeout|max_iterations"}` | Workflow active executions and workflow SLOs |
+| `WorkflowExecutionStuck` | workflow-ops | warning | `workflow_execution_active`, `workflow_execution_active_age_seconds` | Workflow active execution age panel |
+| `WorkflowQueueBacklog` | workflow-ops | warning | `workflow_execution_active`, `workflow_execution_active_age_seconds` | Workflow active executions and age panels |
 | `TenantIsolationIncident` | security-ops | critical | `http_requests_total{status_class="4xx"}` plus tenant-isolation evidence | Tenant isolation signal panel |
+
+## Usage And Cost Analytics Evidence
+
+Use `deploy/observability/grafana-dashboard.json` as the repository-local Grafana dashboard artifact for usage/cost analytics evidence. It should expose usage analytics dashboard panels for model usage, feature usage, user cost, time trend, and cross-dimension usage/cost analytics. Treat those panels as supporting investigation context unless a separate alert names them directly; external Grafana deployment, datasource wiring, and live panel rendering are not proven by this repository artifact alone.
 
 ## RelayOutage
 
@@ -112,6 +120,42 @@ Mitigation:
 Evidence:
 
 - Provider/channel IDs, failure reasons, route decision samples, relay-security output, and mitigation result.
+
+## WorkflowExecutionFailureRate
+
+First 15 minutes:
+
+1. Inspect `workflow_execution_total` by terminal status and confirm whether failures are `failed`, `timeout`, or `max_iterations`.
+2. Review the oldest recent failed executions and their node execution trail.
+3. Check whether failures correlate with a release, trigger type, provider/channel outage, resource limit, or workflow definition change.
+
+Mitigation:
+
+- Use product workflow controls to pause, cancel, retry, or branch executions; do not directly update workflow execution rows in the database.
+- Disable or roll back the workflow definition if a newly published definition is failing broadly.
+- Roll back the release if runtime execution, node dispatch, or resource-limit behavior regressed.
+
+Evidence:
+
+- Alert sample, execution IDs, sanitized node errors, workflow version, trigger type, mitigation action, and rollback decision.
+
+## WorkflowExecutionStuck And WorkflowQueueBacklog
+
+First 15 minutes:
+
+1. Inspect `workflow_execution_active` and `workflow_execution_active_age_seconds` by status.
+2. Identify the oldest `running`, `queued`, or `paused` execution and inspect its node execution status.
+3. Check queue concurrency policies, organization concurrency limits, resource limits, schedule trigger serialization, and worker availability.
+
+Mitigation:
+
+- For stuck running executions, use supported pause/cancel/retry controls after confirming the node state and idempotency risk.
+- For queue backlog, reduce concurrency pressure, disable noisy triggers, or promote queued executions only through supported service behavior.
+- Do not manually change execution status in SQL except under an approved data-repair procedure with rollback evidence.
+
+Evidence:
+
+- Active count/age sample, oldest execution ID, workflow ID/version, node status, concurrency/resource-limit findings, mitigation action, and follow-up verification.
 
 ## TenantIsolationIncident
 

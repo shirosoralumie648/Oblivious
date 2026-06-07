@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -47,5 +48,37 @@ func TestGenerateReplyFallsBackToDemoWithoutProviderConfig(t *testing.T) {
 	}
 	if reply != "Assistant reply: hello" {
 		t.Fatalf("expected demo fallback, got %s", reply)
+	}
+}
+
+func TestToOpenAIMessagesPrependsPersonaAndSystemPrompt(t *testing.T) {
+	messages := toOpenAIMessages([]Message{{Role: "user", Content: "hello"}}, ConversationConfig{
+		SystemPromptOverride: "Follow the workspace policy.",
+		PersonaRole:          "Product coach",
+		PersonaStyle:         "Socratic",
+		PersonaTone:          "Calm and direct",
+		PersonaConstraints:   "Ask one question at a time.",
+	})
+
+	if len(messages) != 2 {
+		t.Fatalf("expected system and user messages, got %+v", messages)
+	}
+	if messages[0].Role != "system" {
+		t.Fatalf("expected first message to be system, got %+v", messages[0])
+	}
+	systemPrompt := messages[0].Content
+	for _, want := range []string{
+		"Follow the workspace policy.",
+		"Role: Product coach",
+		"Style: Socratic",
+		"Tone: Calm and direct",
+		"Constraints: Ask one question at a time.",
+	} {
+		if !strings.Contains(systemPrompt, want) {
+			t.Fatalf("expected system prompt to contain %q, got %q", want, systemPrompt)
+		}
+	}
+	if messages[1].Role != "user" || messages[1].Content != "hello" {
+		t.Fatalf("expected user message to be preserved, got %+v", messages[1])
 	}
 }

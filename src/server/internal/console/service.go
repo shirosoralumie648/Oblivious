@@ -3,15 +3,37 @@ package console
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"strings"
 	"time"
 
 	"oblivious/server/internal/auth"
+	"oblivious/server/internal/relay"
 	"oblivious/server/internal/userprefs"
 )
 
 type UsageSummary struct {
-	Period   string `json:"period"`
-	Requests int    `json:"requests"`
+	Period     string                         `json:"period"`
+	Requests   int                            `json:"requests"`
+	ByModel    []UsageDimensionSummary        `json:"byModel"`
+	ByFeature  []UsageDimensionSummary        `json:"byFeature"`
+	ByUser     []UsageDimensionSummary        `json:"byUser"`
+	TimeSeries []UsageTimeSeriesSummary       `json:"timeSeries"`
+	Recent     []relay.RelayAPITokenUsageItem `json:"recent"`
+}
+
+type UsageDimensionSummary struct {
+	Key          string  `json:"key"`
+	RequestCount int     `json:"requestCount"`
+	TotalTokens  int     `json:"totalTokens"`
+	TotalCost    float64 `json:"totalCost"`
+}
+
+type UsageTimeSeriesSummary struct {
+	Bucket       string  `json:"bucket"`
+	RequestCount int     `json:"requestCount"`
+	TotalTokens  int     `json:"totalTokens"`
+	TotalCost    float64 `json:"totalCost"`
 }
 
 type ModelSummary struct {
@@ -21,11 +43,22 @@ type ModelSummary struct {
 }
 
 type BillingSummary struct {
-	Period           string  `json:"period"`
-	Requests         int     `json:"requests"`
-	InputTokens      int     `json:"inputTokens"`
-	OutputTokens     int     `json:"outputTokens"`
-	EstimatedCostUSD float64 `json:"estimatedCostUsd"`
+	Period           string                 `json:"period"`
+	Requests         int                    `json:"requests"`
+	InputTokens      int                    `json:"inputTokens"`
+	OutputTokens     int                    `json:"outputTokens"`
+	EstimatedCostUSD float64                `json:"estimatedCostUsd"`
+	BalanceUSD       float64                `json:"balanceUsd"`
+	CreditLimitUSD   float64                `json:"creditLimitUsd"`
+	CurrentSpendUSD  float64                `json:"currentSpendUsd"`
+	NextInvoice      *BillingInvoiceSummary `json:"nextInvoice,omitempty"`
+}
+
+type BillingInvoiceSummary struct {
+	ID        string  `json:"id"`
+	Status    string  `json:"status"`
+	AmountUSD float64 `json:"amountUsd"`
+	DueAt     string  `json:"dueAt"`
 }
 
 type AccessSummary struct {
@@ -40,22 +73,44 @@ type AccessSummary struct {
 	WorkspaceID         string `json:"workspaceId"`
 }
 
+type CreateAPITokenRequest struct {
+	Name               string     `json:"name"`
+	UserGroup          string     `json:"userGroup,omitempty"`
+	ModelLimitsEnabled bool       `json:"modelLimitsEnabled"`
+	ModelLimits        []string   `json:"modelLimits"`
+	QuotaLimit         *float64   `json:"quotaLimit,omitempty"`
+	ExpiresAt          *time.Time `json:"expiresAt,omitempty"`
+}
+
 type Store interface {
 	GetBillingSummary(ctx context.Context, organizationID string) (BillingSummary, error)
+	ListBillingInvoices(ctx context.Context, organizationID string) ([]BillingInvoiceSummary, error)
 	GetModelSummaries(ctx context.Context, organizationID string) ([]ModelSummary, error)
-	GetUsageSummary(ctx context.Context, organizationID string) (UsageSummary, error)
+	GetUsageSummary(ctx context.Context, organizationID, userID string) (UsageSummary, error)
+}
+
+type APITokenStore interface {
+	CreateRelayAPIToken(ctx context.Context, input relay.CreateRelayAPITokenInput) (relay.CreatedRelayAPIToken, error)
+	ListRelayAPITokens(ctx context.Context, organizationID, userID string) ([]relay.RelayAPITokenListItem, error)
+	ListRelayAPITokenUsage(ctx context.Context, organizationID, userID, tokenID string) ([]relay.RelayAPITokenUsageItem, error)
+	RevokeRelayAPIToken(ctx context.Context, organizationID, userID, tokenID string) error
 }
 
 type Service struct {
-	store Store
+	apiTokenStore APITokenStore
+	store         Store
 }
 
 func NewService(store Store) *Service {
 	return &Service{store: store}
 }
 
+func NewServiceWithAPITokens(store Store, apiTokenStore APITokenStore) *Service {
+	return &Service{store: store, apiTokenStore: apiTokenStore}
+}
+
 func (s *Service) GetUsage(ctx context.Context, session auth.Session) (UsageSummary, error) {
-	return s.store.GetUsageSummary(ctx, session.OrganizationID)
+	return s.store.GetUsageSummary(ctx, session.OrganizationID, session.User.ID)
 }
 
 func (s *Service) GetModels(ctx context.Context, session auth.Session) ([]ModelSummary, error) {
@@ -64,6 +119,10 @@ func (s *Service) GetModels(ctx context.Context, session auth.Session) ([]ModelS
 
 func (s *Service) GetBilling(ctx context.Context, session auth.Session) (BillingSummary, error) {
 	return s.store.GetBillingSummary(ctx, session.OrganizationID)
+}
+
+func (s *Service) ListBillingInvoices(ctx context.Context, session auth.Session) ([]BillingInvoiceSummary, error) {
+	return s.store.ListBillingInvoices(ctx, session.OrganizationID)
 }
 
 func (s *Service) GetAccess(session auth.Session, preferences userprefs.Preferences) AccessSummary {
@@ -78,6 +137,88 @@ func (s *Service) GetAccess(session auth.Session, preferences userprefs.Preferen
 		UserID:              session.User.ID,
 		WorkspaceID:         session.WorkspaceID,
 	}
+}
+
+func (s *Service) CreateAPIToken(ctx context.Context, session auth.Session, input CreateAPITokenRequest) (relay.CreatedRelayAPIToken, error) {
+	if s.apiTokenStore == nil {
+		return relay.CreatedRelayAPIToken{}, errors.New("api token store is not configured")
+	}
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		return relay.CreatedRelayAPIToken{}, errors.New("api token name is required")
+	}
+	if input.QuotaLimit != nil && *input.QuotaLimit <= 0 {
+		return relay.CreatedRelayAPIToken{}, errors.New("api token quota limit must be greater than zero")
+	}
+	if input.ExpiresAt != nil && !input.ExpiresAt.After(time.Now().UTC()) {
+		return relay.CreatedRelayAPIToken{}, errors.New("api token expiration must be in the future")
+	}
+	return s.apiTokenStore.CreateRelayAPIToken(ctx, relay.CreateRelayAPITokenInput{
+		UserID:             session.User.ID,
+		OrganizationID:     session.OrganizationID,
+		UserGroup:          strings.TrimSpace(input.UserGroup),
+		Name:               name,
+		ModelLimitsEnabled: input.ModelLimitsEnabled,
+		ModelLimits:        normalizeModelLimits(input.ModelLimits),
+		QuotaLimit:         input.QuotaLimit,
+		ExpiresAt:          input.ExpiresAt,
+	})
+}
+
+func (s *Service) ListAPITokens(ctx context.Context, session auth.Session) ([]relay.RelayAPITokenListItem, error) {
+	if s.apiTokenStore == nil {
+		return nil, errors.New("api token store is not configured")
+	}
+	return s.apiTokenStore.ListRelayAPITokens(ctx, session.OrganizationID, session.User.ID)
+}
+
+func (s *Service) ListAPITokenUsage(ctx context.Context, session auth.Session, tokenID string) ([]relay.RelayAPITokenUsageItem, error) {
+	if s.apiTokenStore == nil {
+		return nil, errors.New("api token store is not configured")
+	}
+	tokenID = strings.TrimSpace(tokenID)
+	if tokenID == "" {
+		return nil, sql.ErrNoRows
+	}
+	tokens, err := s.apiTokenStore.ListRelayAPITokens(ctx, session.OrganizationID, session.User.ID)
+	if err != nil {
+		return nil, err
+	}
+	found := false
+	for _, token := range tokens {
+		if token.ID == tokenID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, sql.ErrNoRows
+	}
+	return s.apiTokenStore.ListRelayAPITokenUsage(ctx, session.OrganizationID, session.User.ID, tokenID)
+}
+
+func (s *Service) RevokeAPIToken(ctx context.Context, session auth.Session, tokenID string) error {
+	if s.apiTokenStore == nil {
+		return errors.New("api token store is not configured")
+	}
+	if strings.TrimSpace(tokenID) == "" {
+		return sql.ErrNoRows
+	}
+	return s.apiTokenStore.RevokeRelayAPIToken(ctx, session.OrganizationID, session.User.ID, tokenID)
+}
+
+func normalizeModelLimits(modelLimits []string) []string {
+	normalized := make([]string, 0, len(modelLimits))
+	seen := make(map[string]bool)
+	for _, model := range modelLimits {
+		model = strings.TrimSpace(model)
+		if model == "" || seen[model] {
+			continue
+		}
+		seen[model] = true
+		normalized = append(normalized, model)
+	}
+	return normalized
 }
 
 type SQLStore struct {

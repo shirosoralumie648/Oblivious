@@ -2,30 +2,59 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"oblivious/server/internal/relay/types"
 	"oblivious/server/internal/relay/channel"
+	"oblivious/server/internal/relay/types"
 )
 
 // FilesHandler 文件代理处理（upload + 透传）
 type FilesHandler struct {
-	pool        *types.ChannelPoolInterface
-	adapter     *channel.OpenAIAdapter
-	storagePath string
+	pool         *types.ChannelPoolInterface
+	adapter      *channel.OpenAIAdapter
+	storagePath  string
+	mappingStore FilesMappingStore
 }
 
 func NewFilesHandler(p *types.ChannelPoolInterface, a *channel.OpenAIAdapter, storagePath string) *FilesHandler {
 	return &FilesHandler{pool: p, adapter: a, storagePath: storagePath}
 }
+
+func (h *FilesHandler) WithMappingStore(store FilesMappingStore) *FilesHandler {
+	h.mappingStore = store
+	return h
+}
+
+type FileMappingRecord struct {
+	LocalFileID    string
+	OpenAIFileID   string
+	LocalPath      string
+	SizeBytes      int64
+	UserID         string
+	OrganizationID string
+	RequestID      string
+	CreatedAt      time.Time
+}
+
+type FilesMappingStore interface {
+	SaveFileMapping(ctx context.Context, record FileMappingRecord) error
+}
+
+type fileMappingLookupStore interface {
+	GetFileMapping(ctx context.Context, localFileID, userID, organizationID string) (FileMappingRecord, error)
+}
+
+var ErrFileMappingNotFound = errors.New("relay file mapping not found")
 
 func (h *FilesHandler) Handle(c *gin.Context) error {
 	path := c.Request.URL.Path
@@ -55,6 +84,19 @@ func (h *FilesHandler) HandleStream(c *gin.Context) error {
 
 // POST /v1/files (文件代理：用户上传 -> 本地存储 -> 转发 OpenAI)
 func (h *FilesHandler) HandleUpload(c *gin.Context) error {
+	if h.mappingStore == nil {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": gin.H{"code": "relay_file_mapping_store_required", "message": "file upload requires a configured mapping store"}})
+		return nil
+	}
+	applyTrustedInternalIdentity(c)
+
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "invalid_request", "message": "failed to read upload body"}})
+		return nil
+	}
+	c.Request.Body = io.NopCloser(bytes.NewReader(body))
+
 	file, header, err := c.Request.FormFile("file")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "invalid_request", "message": "no file provided"}})
@@ -84,38 +126,45 @@ func (h *FilesHandler) HandleUpload(c *gin.Context) error {
 		return nil
 	}
 
-	// 2. 转发到 OpenAI（简化：直接透传 multipart）
-	upstreamURL, _ := h.adapter.BuildURL("", types.APITypeFiles)
-	upstreamURL = upstreamURL + "/v1/files"
-	upstreamReq, err := http.NewRequest("POST", upstreamURL, nil)
+	// 2. 转发到上游文件接口（直接透传 multipart）
+	resp, err := h.uploadToUpstream(c, body, c.GetHeader("Content-Type"))
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"code": "upstream_error", "message": err.Error()}})
+		c.JSON(statusCodeForFilesUploadError(err), gin.H{"error": gin.H{"code": "upstream_error", "message": err.Error()}})
 		return nil
 	}
-	upstreamHeaders, _ := h.adapter.BuildHeaders(c.Request.Context(), "", types.APITypeFiles)
-	upstreamReq.Header = upstreamHeaders
 
-	client := &http.Client{Timeout: 120 * time.Second}
-	resp, err := client.Do(upstreamReq)
-	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"code": "upstream_error", "message": err.Error()}})
-		return nil
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode >= 400 {
-		c.Data(resp.StatusCode, "application/json", body)
+	upstreamBody := resp.Content
+	if resp.StatusCode >= http.StatusBadRequest {
+		contentType := "application/json"
+		if resp.Headers != nil && strings.TrimSpace(resp.Headers.Get("Content-Type")) != "" {
+			contentType = resp.Headers.Get("Content-Type")
+		}
+		c.Data(resp.StatusCode, contentType, upstreamBody)
 		return nil
 	}
 
 	// 3. 解析 OpenAI 返回的 file_id，存入映射表
 	var openAIResp map[string]any
-	json.Unmarshal(body, &openAIResp)
+	_ = json.Unmarshal(upstreamBody, &openAIResp)
 	openAIFileID, _ := openAIResp["id"].(string)
-	h.saveFileMapping(fileID, openAIFileID, localPath, header.Size)
+	if strings.TrimSpace(openAIFileID) == "" {
+		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"code": "upstream_error", "message": "upstream file response missing id"}})
+		return nil
+	}
+	if err := h.saveFileMapping(c.Request.Context(), fileID, openAIFileID, localPath, header.Size); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "relay_file_mapping_failed", "message": "failed to save file mapping"}})
+		return nil
+	}
 
-	c.Data(http.StatusOK, "application/json", body)
+	openAIResp["id"] = fileID
+	openAIResp["provider_file_id"] = openAIFileID
+	clientBody, err := json.Marshal(openAIResp)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "relay_file_response_failed", "message": "failed to prepare file response"}})
+		return nil
+	}
+
+	c.Data(http.StatusOK, "application/json", clientBody)
 	return nil
 }
 
@@ -126,45 +175,217 @@ func (h *FilesHandler) HandleList(c *gin.Context) {
 
 // GET /v1/files/:id (透传)
 func (h *FilesHandler) HandleGet(c *gin.Context) {
-	h.passthrough(c, "GET", "/v1/files/"+c.Param("id"), nil)
+	h.passthroughMappedFile(c, "GET", c.Param("id"), "")
 }
 
 // DELETE /v1/files/:id (透传)
 func (h *FilesHandler) HandleDelete(c *gin.Context) {
-	h.passthrough(c, "DELETE", "/v1/files/"+c.Param("id"), nil)
+	h.passthroughMappedFile(c, "DELETE", c.Param("id"), "")
 }
 
 // GET /v1/files/:id/content (透传)
 func (h *FilesHandler) HandleContent(c *gin.Context) {
-	h.passthrough(c, "GET", "/v1/files/"+c.Param("id")+"/content", nil)
+	h.passthroughMappedFile(c, "GET", c.Param("id"), "/content")
+}
+
+func (h *FilesHandler) uploadToUpstream(c *gin.Context, body []byte, contentType string) (*types.ProviderResponse, error) {
+	router := GetRouter()
+	if router != nil {
+		return router.RouteWithBilling(c.Request.Context(), types.APITypeFiles, "", "", filesIdempotencyKey(c, "upload"), fileUploadUsage(body), func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
+			return uploadFilesBodyToChannel(c.Request.Context(), ch, body, contentType)
+		})
+	}
+	if h.adapter == nil {
+		return nil, types.ErrNoAvailableChannel
+	}
+	return uploadFilesBodyWithAdapter(c.Request.Context(), h.adapter, body, contentType)
+}
+
+func uploadFilesBodyToChannel(ctx context.Context, ch *types.RouteChannel, body []byte, contentType string) (*types.ProviderResponse, error) {
+	if ch == nil || ch.Channel == nil {
+		return nil, types.ErrNoAvailableChannel
+	}
+	adapter, err := channel.AdapterForChannel(ch.Channel)
+	if err != nil {
+		return nil, err
+	}
+	return uploadFilesBodyWithAdapter(ctx, adapter, body, contentType)
+}
+
+func uploadFilesBodyWithAdapter(ctx context.Context, adapter types.ProviderAdapter, body []byte, contentType string) (*types.ProviderResponse, error) {
+	upstreamURL, err := adapter.BuildURL("", types.APITypeFiles)
+	if err != nil {
+		return nil, err
+	}
+	upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, upstreamURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	upstreamHeaders, _ := adapter.BuildHeaders(ctx, "", types.APITypeFiles)
+	upstreamReq.Header = upstreamHeaders
+	upstreamReq.Header.Set("Content-Type", contentType)
+	upstreamReq.ContentLength = int64(len(body))
+
+	client := &http.Client{Timeout: 120 * time.Second}
+	resp, err := client.Do(upstreamReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	upstreamBody, _ := io.ReadAll(resp.Body)
+	return &types.ProviderResponse{
+		StatusCode: resp.StatusCode,
+		Headers:    resp.Header.Clone(),
+		Content:    upstreamBody,
+		Done:       true,
+	}, nil
+}
+
+func statusCodeForFilesUploadError(err error) int {
+	if err == nil {
+		return http.StatusBadGateway
+	}
+	if errors.Is(err, types.ErrNoAvailableChannel) {
+		return http.StatusServiceUnavailable
+	}
+	return http.StatusBadGateway
 }
 
 func (h *FilesHandler) passthrough(c *gin.Context, method, path string, body []byte) {
-	upstreamURL, _ := h.adapter.BuildURL("", types.APITypeFiles)
-	upstreamURL = upstreamURL + path
-	req, err := http.NewRequest(method, upstreamURL, bytes.NewReader(body))
+	resp, err := h.passthroughUpstream(c, method, path, body)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"code": "upstream_error", "message": err.Error()}})
+		status := http.StatusBadGateway
+		if errors.Is(err, types.ErrNoAvailableChannel) {
+			status = http.StatusServiceUnavailable
+		}
+		c.JSON(status, gin.H{"error": gin.H{"code": "upstream_error", "message": err.Error()}})
 		return
 	}
-	headers, _ := h.adapter.BuildHeaders(c.Request.Context(), "", types.APITypeFiles)
+	c.Data(resp.StatusCode, resp.Headers.Get("Content-Type"), resp.Content)
+}
+
+func (h *FilesHandler) passthroughUpstream(c *gin.Context, method, path string, body []byte) (*types.ProviderResponse, error) {
+	router := GetRouter()
+	if router != nil {
+		return router.RouteWithBilling(c.Request.Context(), types.APITypeFiles, "", "", filesIdempotencyKey(c, strings.ToLower(method)), &types.Usage{}, func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
+			return passthroughFilesPathToChannel(c.Request.Context(), ch, method, path, body)
+		})
+	}
+	if h.adapter == nil {
+		return nil, types.ErrNoAvailableChannel
+	}
+	return passthroughFilesPathWithAdapter(c.Request.Context(), h.adapter, method, path, body)
+}
+
+func passthroughFilesPathToChannel(ctx context.Context, ch *types.RouteChannel, method, path string, body []byte) (*types.ProviderResponse, error) {
+	if ch == nil || ch.Channel == nil {
+		return nil, types.ErrNoAvailableChannel
+	}
+	adapter, err := channel.AdapterForChannel(ch.Channel)
+	if err != nil {
+		return nil, err
+	}
+	return passthroughFilesPathWithAdapter(ctx, adapter, method, path, body)
+}
+
+func passthroughFilesPathWithAdapter(ctx context.Context, adapter types.ProviderAdapter, method, path string, body []byte) (*types.ProviderResponse, error) {
+	upstreamURL, err := adapter.BuildURL("", types.APITypeFiles)
+	if err != nil {
+		return nil, err
+	}
+	upstreamURL = upstreamURL + path
+	req, err := http.NewRequestWithContext(ctx, method, upstreamURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	headers, _ := adapter.BuildHeaders(ctx, "", types.APITypeFiles)
 	req.Header = headers
 	req.Header.Set("Content-Type", "application/json")
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"code": "upstream_error", "message": err.Error()}})
-		return
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	bodyOut, _ := io.ReadAll(resp.Body)
-	c.Data(resp.StatusCode, resp.Header.Get("Content-Type"), bodyOut)
+	return &types.ProviderResponse{
+		StatusCode: resp.StatusCode,
+		Headers:    resp.Header.Clone(),
+		Content:    bodyOut,
+		Done:       true,
+	}, nil
+}
+
+func (h *FilesHandler) passthroughMappedFile(c *gin.Context, method, localFileID, suffix string) {
+	if h.mappingStore == nil {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": gin.H{"code": "relay_file_mapping_store_required", "message": "file passthrough requires a configured mapping store"}})
+		return
+	}
+	applyTrustedInternalIdentity(c)
+
+	userID, hasUserID := types.TrustedUserIDFromContext(c.Request.Context())
+	organizationID, hasOrganizationID := types.TrustedOrganizationIDFromContext(c.Request.Context())
+	if !hasUserID || strings.TrimSpace(userID) == "" || !hasOrganizationID || strings.TrimSpace(organizationID) == "" {
+		c.JSON(http.StatusForbidden, gin.H{"error": gin.H{"code": "relay_file_mapping_identity_required", "message": "file passthrough requires trusted tenant identity"}})
+		return
+	}
+
+	lookupStore, ok := h.mappingStore.(fileMappingLookupStore)
+	if !ok {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": gin.H{"code": "relay_file_mapping_lookup_required", "message": "file passthrough requires a mapping lookup store"}})
+		return
+	}
+
+	mapping, err := lookupStore.GetFileMapping(c.Request.Context(), localFileID, userID, organizationID)
+	if err != nil {
+		status := http.StatusInternalServerError
+		code := "relay_file_mapping_lookup_failed"
+		message := "failed to lookup file mapping"
+		if errors.Is(err, ErrFileMappingNotFound) {
+			status = http.StatusNotFound
+			code = "relay_file_mapping_not_found"
+			message = "file mapping not found"
+		}
+		c.JSON(status, gin.H{"error": gin.H{"code": code, "message": message}})
+		return
+	}
+	if strings.TrimSpace(mapping.OpenAIFileID) == "" {
+		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "relay_file_mapping_not_found", "message": "file mapping not found"}})
+		return
+	}
+
+	h.passthrough(c, method, "/"+mapping.OpenAIFileID+suffix, nil)
 }
 
 // saveFileMapping 将本地 fileID 和 OpenAI fileID 的映射存入 DB
-func (h *FilesHandler) saveFileMapping(localID, openaiID, path string, size int64) {
-	// TODO: 存入 relay_files 表（Plan D 或后续实现）
-	fmt.Printf("file mapped: local=%s openai=%s path=%s size=%d\n", localID, openaiID, path, size)
+func (h *FilesHandler) saveFileMapping(ctx context.Context, localID, openaiID, path string, size int64) error {
+	userID, _ := types.TrustedUserIDFromContext(ctx)
+	organizationID, _ := types.TrustedOrganizationIDFromContext(ctx)
+	requestID, _ := types.TrustedRequestIDFromContext(ctx)
+	return h.mappingStore.SaveFileMapping(ctx, FileMappingRecord{
+		LocalFileID:    localID,
+		OpenAIFileID:   openaiID,
+		LocalPath:      path,
+		SizeBytes:      size,
+		UserID:         userID,
+		OrganizationID: organizationID,
+		RequestID:      requestID,
+		CreatedAt:      time.Now().UTC(),
+	})
+}
+
+func fileUploadUsage(body []byte) *types.Usage {
+	return &types.Usage{StorageBytes: int64(len(body))}
+}
+
+func filesIdempotencyKey(c *gin.Context, operation string) string {
+	if c != nil {
+		if key := strings.TrimSpace(c.GetHeader("Idempotency-Key")); key != "" {
+			return key
+		}
+	}
+	return "files_" + strings.TrimSpace(operation) + "_" + uuid.NewString()
 }

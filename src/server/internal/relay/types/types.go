@@ -7,10 +7,42 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	relaycache "oblivious/server/internal/relay/cache"
 )
 
 // ErrNoAvailableChannel 无可用渠道
 var ErrNoAvailableChannel = errors.New("relay: no available channel")
+
+var (
+	ErrRelayAPITokenInvalid       = errors.New("relay API token invalid")
+	ErrRelayAPITokenRevoked       = errors.New("relay API token revoked")
+	ErrRelayAPITokenExpired       = errors.New("relay API token expired")
+	ErrRelayAPITokenModelDenied   = errors.New("relay API token model denied")
+	ErrRelayAPITokenQuotaExceeded = errors.New("relay API token quota exceeded")
+)
+
+const (
+	HeaderInternalAuth         = "X-Oblivious-Internal-Auth"
+	HeaderInternalUserID       = "X-Oblivious-User-ID"
+	HeaderInternalOrganization = "X-Oblivious-Organization-ID"
+	HeaderInternalUserGroup    = "X-Oblivious-User-Group"
+	HeaderInternalConversation = "X-Oblivious-Conversation-ID"
+	HeaderRequestID            = "X-Request-ID"
+
+	SharedInternalToken = "oblivious-internal"
+)
+
+type trustedContextKey string
+
+const (
+	trustedUserIDKey         trustedContextKey = "relay_trusted_user_id"
+	trustedOrganizationIDKey trustedContextKey = "relay_trusted_organization_id"
+	trustedAPITokenIDKey     trustedContextKey = "relay_trusted_api_token_id"
+	trustedRequestIDKey      trustedContextKey = "relay_trusted_request_id"
+	trustedUserGroupKey      trustedContextKey = "relay_trusted_user_group"
+	trustedConversationIDKey trustedContextKey = "relay_trusted_conversation_id"
+	semanticCacheRequestKey  trustedContextKey = "relay_semantic_cache_request"
+)
 
 // APIType 枚举（22 种 OpenAI API 类型）
 type APIType int
@@ -37,6 +69,7 @@ const (
 	APITypeAudioTranslate
 	APITypeModeration
 	APITypeCompletions
+	APITypeModels
 )
 
 func (a APIType) String() string {
@@ -45,12 +78,87 @@ func (a APIType) String() string {
 		"threads", "runs", "batch", "batch_files", "fine_tuning",
 		"files", "embeddings", "images_generations", "images_edits",
 		"images_variations", "videos", "audio_speech", "audio_transcriptions",
-		"audio_translations", "moderations", "completions",
+		"audio_translations", "moderations", "completions", "models",
 	}
 	if a < 0 || int(a) >= len(names) {
 		return "unknown"
 	}
 	return names[a]
+}
+
+func WithTrustedUserID(ctx context.Context, userID string) context.Context {
+	return context.WithValue(ctx, trustedUserIDKey, userID)
+}
+
+func TrustedUserIDFromContext(ctx context.Context) (string, bool) {
+	return trustedStringFromContext(ctx, trustedUserIDKey)
+}
+
+func WithTrustedOrganizationID(ctx context.Context, organizationID string) context.Context {
+	return context.WithValue(ctx, trustedOrganizationIDKey, organizationID)
+}
+
+func TrustedOrganizationIDFromContext(ctx context.Context) (string, bool) {
+	return trustedStringFromContext(ctx, trustedOrganizationIDKey)
+}
+
+func WithTrustedAPITokenID(ctx context.Context, tokenID string) context.Context {
+	return context.WithValue(ctx, trustedAPITokenIDKey, tokenID)
+}
+
+func TrustedAPITokenIDFromContext(ctx context.Context) (string, bool) {
+	return trustedStringFromContext(ctx, trustedAPITokenIDKey)
+}
+
+func WithTrustedRequestID(ctx context.Context, requestID string) context.Context {
+	return context.WithValue(ctx, trustedRequestIDKey, requestID)
+}
+
+func TrustedRequestIDFromContext(ctx context.Context) (string, bool) {
+	return trustedStringFromContext(ctx, trustedRequestIDKey)
+}
+
+func WithTrustedUserGroup(ctx context.Context, userGroup string) context.Context {
+	return context.WithValue(ctx, trustedUserGroupKey, userGroup)
+}
+
+func TrustedUserGroupFromContext(ctx context.Context) (string, bool) {
+	return trustedStringFromContext(ctx, trustedUserGroupKey)
+}
+
+func WithTrustedConversationID(ctx context.Context, conversationID string) context.Context {
+	return context.WithValue(ctx, trustedConversationIDKey, conversationID)
+}
+
+func TrustedConversationIDFromContext(ctx context.Context) (string, bool) {
+	return trustedStringFromContext(ctx, trustedConversationIDKey)
+}
+
+type SemanticCacheRequest = relaycache.SemanticCacheRequest
+
+func WithSemanticCacheRequest(ctx context.Context, req SemanticCacheRequest) context.Context {
+	return context.WithValue(ctx, semanticCacheRequestKey, req)
+}
+
+func SemanticCacheRequestFromContext(ctx context.Context) (SemanticCacheRequest, bool) {
+	req, ok := ctx.Value(semanticCacheRequestKey).(SemanticCacheRequest)
+	return req, ok
+}
+
+type RelayAPITokenIdentity struct {
+	TokenID        string
+	UserID         string
+	OrganizationID string
+	UserGroup      string
+}
+
+type RelayAPITokenAuthenticator interface {
+	AuthenticateRelayAPIToken(ctx context.Context, rawToken, model string, apiType APIType) (RelayAPITokenIdentity, error)
+}
+
+func trustedStringFromContext(ctx context.Context, key trustedContextKey) (string, bool) {
+	value, ok := ctx.Value(key).(string)
+	return value, ok && value != ""
 }
 
 // HandlerStrategy 处理器策略
@@ -75,34 +183,6 @@ const (
 	DimStorageBytes     UsageDimension = "storage_bytes"
 	DimTrainingTokens   UsageDimension = "training_tokens"
 )
-
-// Internal headers for trusted server-to-server traffic from the app gateway.
-const (
-	HeaderInternalUserID       = "X-Oblivious-Internal-User-ID"
-	HeaderInternalWorkspace    = "X-Oblivious-Internal-Workspace-ID"
-	HeaderInternalOrganization = "X-Oblivious-Internal-Organization-ID"
-	HeaderInternalAuth         = "X-Oblivious-Internal-Auth"
-	HeaderRequestID            = "X-Request-ID"
-)
-
-// SharedInternalToken is the shared secret that the app gateway sends in
-// X-Oblivious-Internal-Auth to prove the request is internal server traffic.
-// Override via OBLIVIOUS_INTERNAL_AUTH_TOKEN env var.
-// External clients MUST NOT be able to set this header.
-var SharedInternalToken = "oblivious-internal-v1"
-
-// ToolCall describes a tool invocation requested by the model.
-type ToolCall struct {
-	ID       string       `json:"id,omitempty"`
-	Type     string       `json:"type,omitempty"`
-	Function ToolFunction `json:"function,omitempty"`
-}
-
-// ToolFunction names the tool and carries its serialised arguments.
-type ToolFunction struct {
-	Name      string `json:"name,omitempty"`
-	Arguments string `json:"arguments,omitempty"`
-}
 
 // Usage 用量结构
 type Usage struct {
@@ -131,6 +211,7 @@ func (e *ProviderError) Error() string {
 // ProviderResponse Provider 原生响应
 type ProviderResponse struct {
 	StatusCode int
+	Headers    http.Header
 	Content    []byte
 	Done       bool
 	Usage      *Usage
@@ -170,6 +251,7 @@ type Channel struct {
 	BaseURL             string   `json:"base_url"`
 	APIKey              string   `json:"-"` // 加密存储，不暴露
 	Models              []string `json:"models"`
+	Groups              []string `json:"groups,omitempty"`
 	RPMLimit            int      `json:"rpm_limit"`
 	TPMLimit            int      `json:"tpm_limit"`
 	CBThreshold         int      `json:"cb_threshold"`
@@ -179,6 +261,8 @@ type Channel struct {
 	ProbePrompt         string   `json:"probe_prompt"`
 	Strategy            string   `json:"strategy"`
 	Priority            int      `json:"priority"`
+	EstimatedCostPer1K  float64  `json:"estimated_cost_per_1k"`
+	CostMultiplier      float64  `json:"cost_multiplier"`
 	Enabled             bool     `json:"enabled"`
 }
 
@@ -199,6 +283,7 @@ type RouteChannel struct {
 	Enabled            bool     `json:"enabled"`
 	Healthy            bool     `json:"healthy"`
 	EstimatedCostPer1K float64  `json:"estimated_cost_per_1k"`
+	CostMultiplier     float64  `json:"cost_multiplier"`
 }
 
 // ChannelStats 运行时状态（内存）
@@ -218,8 +303,12 @@ type ChannelStats struct {
 	FailureCount     int64     `json:"failure_count"`
 	LatencySumUs     int64     `json:"latency_sum_us"`
 	LatencyCount     int64     `json:"latency_count"`
+	Invalid          bool      `json:"invalid"`
 	LastProbeSuccess time.Time `json:"last_probe_success"`
 	LastProbeTime    time.Time `json:"last_probe_time"`
+	RateLimitedUntil time.Time `json:"rate_limited_until,omitempty"`
+
+	AffinityConversationCount int `json:"affinity_conversation_count"`
 }
 
 // ChannelPoolInterface 渠道池接口（由 relay.ChannelPool 实现）
@@ -248,8 +337,20 @@ type Message struct {
 	Role       string     `json:"role"`
 	Content    string     `json:"content"`
 	MediaURLs  []string   `json:"media_urls,omitempty"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+}
+
+// ToolCall is the OpenAI-compatible function call shape carried through Relay.
+type ToolCall struct {
+	ID       string       `json:"id,omitempty"`
+	Type     string       `json:"type,omitempty"`
+	Function ToolFunction `json:"function,omitempty"`
+}
+
+type ToolFunction struct {
+	Name      string `json:"name,omitempty"`
+	Arguments string `json:"arguments,omitempty"`
 }
 
 // ProviderRequest 内部标准请求格式
@@ -260,6 +361,8 @@ type ProviderRequest struct {
 	URL         string           `json:"url"`
 	Stream      bool             `json:"stream"`
 	Messages    []Message        `json:"messages,omitempty"`
+	Tools       []map[string]any `json:"tools,omitempty"`
+	ToolChoice  any              `json:"tool_choice,omitempty"`
 	MaxTokens   int              `json:"max_tokens,omitempty"`
 	Input       string           `json:"input,omitempty"`
 	AudioFormat string           `json:"audio_format,omitempty"`
@@ -269,42 +372,6 @@ type ProviderRequest struct {
 	FileURL     string           `json:"file_url,omitempty"`
 	Body        []byte           `json:"body,omitempty"`
 	RequestID   string           `json:"request_id,omitempty"`
-	Tools       []map[string]any `json:"tools,omitempty"`
-	ToolChoice  any              `json:"tool_choice,omitempty"`
-}
-
-// Trusted internal identity propagated via context from the handler
-// to the billing layer. Only set for internal server-to-server requests
-// that carry a valid X-Oblivious-Internal-Auth header.
-type trustedUserContextKey struct{}
-type trustedOrganizationContextKey struct{}
-type trustedRequestContextKey struct{}
-
-func WithTrustedUserID(ctx context.Context, userID string) context.Context {
-	return context.WithValue(ctx, trustedUserContextKey{}, userID)
-}
-
-func TrustedUserIDFromContext(ctx context.Context) (string, bool) {
-	userID, ok := ctx.Value(trustedUserContextKey{}).(string)
-	return userID, ok
-}
-
-func WithTrustedOrganizationID(ctx context.Context, organizationID string) context.Context {
-	return context.WithValue(ctx, trustedOrganizationContextKey{}, organizationID)
-}
-
-func TrustedOrganizationIDFromContext(ctx context.Context) (string, bool) {
-	organizationID, ok := ctx.Value(trustedOrganizationContextKey{}).(string)
-	return organizationID, ok
-}
-
-func WithTrustedRequestID(ctx context.Context, requestID string) context.Context {
-	return context.WithValue(ctx, trustedRequestContextKey{}, requestID)
-}
-
-func TrustedRequestIDFromContext(ctx context.Context) (string, bool) {
-	requestID, ok := ctx.Value(trustedRequestContextKey{}).(string)
-	return requestID, ok
 }
 
 // Capabilities 能力声明
@@ -316,6 +383,84 @@ type Capabilities struct {
 	SupportsAudio      bool
 	SupportsRealtime   bool
 	SupportsAssistants bool
+}
+
+// HealthScore 健康分（0-100）
+type HealthScore struct {
+	ChannelID     string    `json:"channel_id"`
+	Score         float64   `json:"score"`          // 0-100
+	AvgLatencyMs  float64   `json:"avg_latency_ms"` // 移动平均延迟
+	ErrorRate     float64   `json:"error_rate"`     // 0-1 错误率
+	TotalProbes   int64     `json:"total_probes"`
+	FailedProbes  int64     `json:"failed_probes"`
+	LastProbeTime time.Time `json:"last_probe_time"`
+	LastHealthy   bool      `json:"last_healthy"`
+	RemovedAt     time.Time `json:"removed_at,omitempty"` // 自动摘除时间
+}
+
+// WeightedChannel 带动态权重的渠道
+type WeightedChannel struct {
+	Channel       *Channel `json:"channel"`
+	ChannelID     string   `json:"channel_id"`
+	StaticWeight  int      `json:"static_weight"`  // 配置权重
+	DynamicWeight float64  `json:"dynamic_weight"` // 动态计算权重
+	Healthy       bool     `json:"healthy"`
+	Enabled       bool     `json:"enabled"`
+}
+
+// CacheEntry 缓存条目
+type CacheEntry struct {
+	Key       string    `json:"key"` // 向量 hash 或 query hash
+	Query     string    `json:"query"`
+	Response  []byte    `json:"response"`
+	IsPublic  bool      `json:"is_public"` // true=全局共享，false=组织私有
+	OrgID     string    `json:"org_id"`    // 组织隔离
+	Model     string    `json:"model"`
+	HitCount  int64     `json:"hit_count"`
+	Embedding []float32 `json:"embedding"` // 语义向量
+	CreatedAt time.Time `json:"created_at"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+// AffinityMapping 渠道亲和性映射
+type AffinityMapping struct {
+	ConversationID string    `json:"conversation_id"`
+	ChannelID      string    `json:"channel_id"`
+	OrgID          string    `json:"org_id"`
+	CreatedAt      time.Time `json:"created_at"`
+	LastUsedAt     time.Time `json:"last_used_at"`
+	FailoverCount  int       `json:"failover_count"` // 故障切换次数
+}
+
+// RateLimitInfo 限流信息
+type RateLimitInfo struct {
+	ChannelID     string    `json:"channel_id"`
+	RPMUsed       int       `json:"rpm_used"`
+	RPMLimit      int       `json:"rpm_limit"`
+	TPMUsed       int       `json:"tpm_used"`
+	TPMLimit      int       `json:"tpm_limit"`
+	WindowStart   time.Time `json:"window_start"`
+	RetryAfterSec int       `json:"retry_after_sec"` // 从 429 解析
+}
+
+// CacheLevel 缓存级别
+type CacheLevel int
+
+const (
+	CacheLevelNone    CacheLevel = iota
+	CacheLevelPrivate            // 组织私有缓存
+	CacheLevelPublic             // 全局公共缓存（无敏感信息）
+)
+
+func (cl CacheLevel) String() string {
+	switch cl {
+	case CacheLevelPrivate:
+		return "private"
+	case CacheLevelPublic:
+		return "public"
+	default:
+		return "none"
+	}
 }
 
 // ProviderAdapter Provider 适配器接口

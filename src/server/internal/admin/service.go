@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
 
 	"oblivious/server/internal/marketplace"
+	relaytypes "oblivious/server/internal/relay/types"
 )
 
 // UserStats holds aggregate user statistics.
@@ -56,18 +58,131 @@ type UserInfo struct {
 
 // Service provides admin business logic, delegating to Store.
 type Service struct {
-	store Store
+	store                       Store
+	usageAnalyticsStore         UsageAnalyticsStore
+	relayPricingSettingsApplier func(RelayPricingSettings)
+	channelRuntimeStatsProvider ChannelRuntimeStatsProvider
+	relayConfigApplier          RelayConfigApplier
+}
+
+type ServiceOption func(*Service)
+
+type ChannelRuntimeStatsProvider interface {
+	GetAllStats() map[string]*relaytypes.ChannelStats
+}
+
+type RelayConfigChangeKind string
+
+const (
+	RelayConfigChangeChannel RelayConfigChangeKind = "channel"
+	RelayConfigChangeRoute   RelayConfigChangeKind = "route"
+)
+
+type RelayConfigChangeAction string
+
+const (
+	RelayConfigActionUpsert RelayConfigChangeAction = "upsert"
+	RelayConfigActionDelete RelayConfigChangeAction = "delete"
+)
+
+type RelayConfigChange struct {
+	Kind   RelayConfigChangeKind
+	Action RelayConfigChangeAction
+	ID     string
+}
+
+type RelayConfigApplier func(ctx context.Context, change RelayConfigChange) error
+
+func WithRelayPricingSettingsApplier(applier func(RelayPricingSettings)) ServiceOption {
+	return func(service *Service) {
+		service.relayPricingSettingsApplier = applier
+	}
+}
+
+func WithChannelRuntimeStatsProvider(provider ChannelRuntimeStatsProvider) ServiceOption {
+	return func(service *Service) {
+		service.channelRuntimeStatsProvider = provider
+	}
+}
+
+func WithRelayConfigApplier(applier RelayConfigApplier) ServiceOption {
+	return func(service *Service) {
+		service.relayConfigApplier = applier
+	}
+}
+
+func WithUsageAnalyticsStore(store UsageAnalyticsStore) ServiceOption {
+	return func(service *Service) {
+		service.usageAnalyticsStore = store
+	}
 }
 
 // NewService creates a new admin Service.
-func NewService(store Store) *Service {
-	return &Service{store: store}
+func NewService(store Store, options ...ServiceOption) *Service {
+	service := &Service{store: store}
+	for _, option := range options {
+		option(service)
+	}
+	return service
 }
 
 // --- System Stats ---
 
 func (s *Service) GetSystemStats(ctx context.Context) (*SystemStats, error) {
 	return s.store.GetSystemStats(ctx)
+}
+
+func (s *Service) ListChannelRuntimeStats(ctx context.Context) ([]ChannelRuntimeStats, error) {
+	_ = ctx
+	if s.channelRuntimeStatsProvider == nil {
+		return []ChannelRuntimeStats{}, nil
+	}
+	allStats := s.channelRuntimeStatsProvider.GetAllStats()
+	channelIDs := make([]string, 0, len(allStats))
+	for channelID := range allStats {
+		channelIDs = append(channelIDs, channelID)
+	}
+	sort.Strings(channelIDs)
+
+	result := make([]ChannelRuntimeStats, 0, len(channelIDs))
+	for _, channelID := range channelIDs {
+		stats := allStats[channelID]
+		if stats == nil {
+			continue
+		}
+		var rateLimitedUntil *time.Time
+		if !stats.RateLimitedUntil.IsZero() {
+			until := stats.RateLimitedUntil.UTC()
+			rateLimitedUntil = &until
+		}
+		avgLatencyMS := 0.0
+		if stats.LatencyCount > 0 {
+			avgLatencyMS = float64(stats.LatencySumUs) / float64(stats.LatencyCount) / 1000.0
+		}
+		channelIDValue := stats.ChannelID
+		if channelIDValue == "" {
+			channelIDValue = channelID
+		}
+		result = append(result, ChannelRuntimeStats{
+			ChannelID:                 channelIDValue,
+			RPMCurrent:                stats.RPMCurrent,
+			TPMCurrent:                stats.TPMCurrent,
+			TotalRequests:             stats.TotalRequests,
+			SuccessCount:              stats.SuccessCount,
+			FailureCount:              stats.FailureCount,
+			AvgLatencyMS:              avgLatencyMS,
+			RateLimitedUntil:          rateLimitedUntil,
+			AffinityConversationCount: stats.AffinityConversationCount,
+		})
+	}
+	return result, nil
+}
+
+func (s *Service) applyRelayConfigChange(ctx context.Context, change RelayConfigChange) error {
+	if s.relayConfigApplier == nil || change.ID == "" {
+		return nil
+	}
+	return s.relayConfigApplier(ctx, change)
 }
 
 // --- User Management (quota/account — enhanced lifecycle methods in user_service.go) ---
@@ -92,6 +207,10 @@ func (s *Service) ApproveAgent(ctx context.Context, id string) error {
 
 func (s *Service) RejectAgent(ctx context.Context, id string, reason string) error {
 	return s.store.RejectAgent(ctx, id, reason)
+}
+
+func (s *Service) RequestAgentChanges(ctx context.Context, id string, reason string) error {
+	return s.store.RequestAgentChanges(ctx, id, reason)
 }
 
 // LogAction creates an audit log entry for an admin operation.

@@ -350,8 +350,11 @@ func TestRelayGateway_GenerateStructuredReply_PlainText(t *testing.T) {
 func TestRelayGateway_ForwardsInternalRelayHeaders(t *testing.T) {
 	var gotUserID string
 	var gotWorkspaceID string
+	var gotOrganizationID string
 	var gotRequestID string
 	var gotInternalAuth string
+	var gotUserGroup string
+	var gotConversationID string
 
 	gateway := NewRelayGateway(
 		WithRelayURL("http://relay.test/v1"),
@@ -360,8 +363,11 @@ func TestRelayGateway_ForwardsInternalRelayHeaders(t *testing.T) {
 			Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 				gotUserID = r.Header.Get("X-Oblivious-Internal-User-ID")
 				gotWorkspaceID = r.Header.Get("X-Oblivious-Internal-Workspace-ID")
+				gotOrganizationID = r.Header.Get("X-Oblivious-Internal-Organization-ID")
 				gotRequestID = r.Header.Get("X-Request-ID")
 				gotInternalAuth = r.Header.Get("X-Oblivious-Internal-Auth")
+				gotUserGroup = r.Header.Get("X-Oblivious-Internal-User-Group")
+				gotConversationID = r.Header.Get("X-Oblivious-Internal-Conversation-ID")
 
 				return &http.Response{
 					StatusCode: http.StatusOK,
@@ -382,12 +388,14 @@ func TestRelayGateway_ForwardsInternalRelayHeaders(t *testing.T) {
 
 	_, err := gateway.GenerateReply(
 		WithRelayRequestMetadata(context.Background(), RelayRequestMetadata{
-			UserID:      "user_1",
-			WorkspaceID: "workspace_1",
-			RequestID:   "req_123",
+			UserID:         "user_1",
+			WorkspaceID:    "workspace_1",
+			OrganizationID: "org_1",
+			RequestID:      "req_123",
+			UserGroup:      "vip",
 		}),
 		[]Message{{Role: "user", Content: "hello"}},
-		ConversationConfig{ModelID: "gpt-4o-mini"},
+		ConversationConfig{ConversationID: "conversation_1", ModelID: "gpt-4o-mini"},
 	)
 	if err != nil {
 		t.Fatalf("GenerateReply failed: %v", err)
@@ -399,11 +407,20 @@ func TestRelayGateway_ForwardsInternalRelayHeaders(t *testing.T) {
 	if gotWorkspaceID != "workspace_1" {
 		t.Fatalf("expected workspace header workspace_1, got %q", gotWorkspaceID)
 	}
+	if gotOrganizationID != "org_1" {
+		t.Fatalf("expected organization header org_1, got %q", gotOrganizationID)
+	}
 	if gotRequestID != "req_123" {
 		t.Fatalf("expected request id req_123, got %q", gotRequestID)
 	}
 	if gotInternalAuth == "" {
 		t.Fatalf("expected internal auth header to be set")
+	}
+	if gotUserGroup != "vip" {
+		t.Fatalf("expected user group header vip, got %q", gotUserGroup)
+	}
+	if gotConversationID != "conversation_1" {
+		t.Fatalf("expected conversation header conversation_1, got %q", gotConversationID)
 	}
 }
 

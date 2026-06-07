@@ -3,7 +3,74 @@ import { useEffect, useMemo, useState } from 'react';
 import { createConsoleApi } from '../../features/console/api';
 import { ConsoleWorkbenchLayout } from '../../features/console/components/ConsoleWorkbenchLayout';
 import { createHttpClient } from '../../services/http/client';
-import type { AccessSummary, UsageSummary } from '../../types/api';
+import type {
+  AccessSummary,
+  RelayApiTokenUsageItem,
+  UsageDimensionSummary,
+  UsageSummary,
+  UsageTimeSeriesSummary
+} from '../../types/api';
+
+function formatCurrency(value: number) {
+  return `$${value.toFixed(4)}`;
+}
+
+function providerChannelLabel(item: RelayApiTokenUsageItem) {
+  if (!item.provider && !item.channelId) {
+    return '-';
+  }
+  return `${item.provider || '-'} / ${item.channelId || '-'}`;
+}
+
+function requestLabel(item: RelayApiTokenUsageItem) {
+  return item.requestId || item.id;
+}
+
+function metricRow(row: UsageDimensionSummary | UsageTimeSeriesSummary) {
+  return (
+    <>
+      <td>{'key' in row ? row.key : row.bucket}</td>
+      <td>{`${row.requestCount.toLocaleString()} req`}</td>
+      <td>{`${row.totalTokens.toLocaleString()} tokens`}</td>
+      <td>{formatCurrency(row.totalCost)}</td>
+    </>
+  );
+}
+
+function UsageAggregationTable({
+  emptyText,
+  rows,
+  title
+}: {
+  emptyText: string;
+  rows: Array<UsageDimensionSummary | UsageTimeSeriesSummary>;
+  title: string;
+}) {
+  return (
+    <section aria-label={title}>
+      <h2>{title}</h2>
+      {rows.length > 0 ? (
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Segment</th>
+              <th scope="col">Requests</th>
+              <th scope="col">Tokens</th>
+              <th scope="col">Cost</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={'key' in row ? row.key : row.bucket}>{metricRow(row)}</tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <p>{emptyText}</p>
+      )}
+    </section>
+  );
+}
 
 export function UsagePage() {
   const consoleApi = useMemo(() => createConsoleApi(createHttpClient()), []);
@@ -54,6 +121,47 @@ export function UsagePage() {
         <>
           <p>{`Requests: ${usageSummary.requests}`}</p>
           <p>{`Period: ${usageSummary.period}`}</p>
+          <UsageAggregationTable
+            emptyText="No model usage recorded for this period."
+            rows={usageSummary.byModel ?? []}
+            title="By model"
+          />
+          <UsageAggregationTable
+            emptyText="No feature usage recorded for this period."
+            rows={usageSummary.byFeature ?? []}
+            title="By feature"
+          />
+          <UsageAggregationTable
+            emptyText="No user usage recorded for this period."
+            rows={usageSummary.byUser ?? []}
+            title="Top users"
+          />
+          <UsageAggregationTable
+            emptyText="No daily usage trend recorded for this period."
+            rows={usageSummary.timeSeries ?? []}
+            title="Daily trend"
+          />
+          <section>
+            <h2>Recent relay requests</h2>
+            {usageSummary.recent && usageSummary.recent.length > 0 ? (
+              <ul>
+                {usageSummary.recent.map((item) => (
+                  <li key={item.id}>
+                    <span>{requestLabel(item)}</span>
+                    <span>{item.apiTokenId || '-'}</span>
+                    <span>{item.model || '-'}</span>
+                    <span>{providerChannelLabel(item)}</span>
+                    <span>{item.status || 'unknown'}</span>
+                    <span>{`${item.totalTokens} tokens`}</span>
+                    <span>{formatCurrency(item.cost)}</span>
+                    <span>{`${item.latencyMs ?? 0} ms`}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>No recent relay usage recorded for this user.</p>
+            )}
+          </section>
         </>
       ) : (
         <p>Usage summary unavailable.</p>

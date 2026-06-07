@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	stdhttp "net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 )
@@ -19,6 +20,7 @@ func TestRouteSurfaceRequiresSessionForAppRoutes(t *testing.T) {
 		path   string
 	}{
 		{"agents", stdhttp.MethodGet, "/api/v1/app/agents"},
+		{"agent memories", stdhttp.MethodGet, "/api/v1/agent/memories"},
 		{"memory documents", stdhttp.MethodGet, "/api/v1/app/memory/documents"},
 		{"mcp servers", stdhttp.MethodGet, "/api/v1/app/mcp-servers"},
 		{"notifications", stdhttp.MethodGet, "/api/v1/app/notifications"},
@@ -26,6 +28,7 @@ func TestRouteSurfaceRequiresSessionForAppRoutes(t *testing.T) {
 		{"console usage", stdhttp.MethodGet, "/api/v1/console/usage"},
 		{"preferences", stdhttp.MethodGet, "/api/v1/app/me/preferences"},
 		{"knowledge bases", stdhttp.MethodGet, "/api/v1/app/knowledge-bases"},
+		{"knowledge document upload", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/documents/upload"},
 		{"tasks", stdhttp.MethodGet, "/api/v1/app/tasks"},
 		{"organizations", stdhttp.MethodGet, "/api/v1/app/organizations"},
 		{"organization members", stdhttp.MethodGet, "/api/v1/app/organizations/org_1/members"},
@@ -43,6 +46,43 @@ func TestRouteSurfaceRequiresSessionForAppRoutes(t *testing.T) {
 				t.Fatalf("expected 401 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
 			}
 		})
+	}
+}
+
+func TestRouteSurfaceRegistersCanonicalKnowledgeRoutesThroughRegistrar(t *testing.T) {
+	source, err := os.ReadFile("router.go")
+	if err != nil {
+		t.Fatalf("read router.go: %v", err)
+	}
+
+	if !strings.Contains(string(source), "registerKnowledgeRoutes(mux, authMiddleware, knowledgeHandler)") {
+		t.Fatal("expected NewRouterWithOptions to register canonical app knowledge routes through registerKnowledgeRoutes")
+	}
+}
+
+func TestRouteSurfaceRegistersConsoleInvoiceRoute(t *testing.T) {
+	source, err := os.ReadFile("router.go")
+	if err != nil {
+		t.Fatalf("read router.go: %v", err)
+	}
+
+	if !strings.Contains(string(source), `mux.Handle("/api/v1/console/invoices"`) {
+		t.Fatal("expected NewRouterWithOptions to expose /api/v1/console/invoices")
+	}
+}
+
+func TestRouteSurfaceRefreshesWorkflowHealthBeforeMetricsScrape(t *testing.T) {
+	source, err := os.ReadFile("router.go")
+	if err != nil {
+		t.Fatalf("read router.go: %v", err)
+	}
+
+	text := string(source)
+	if !strings.Contains(text, `mux.Handle("/metrics", workflowMetricsHandler(workflowService))`) {
+		t.Fatal("expected /metrics to use workflowMetricsHandler")
+	}
+	if !strings.Contains(text, "RefreshExecutionHealthMetrics") {
+		t.Fatal("expected workflowMetricsHandler to refresh workflow execution health metrics before scrape")
 	}
 }
 

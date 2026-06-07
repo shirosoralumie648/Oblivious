@@ -3,7 +3,9 @@ package marketplace
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -34,6 +36,7 @@ type Store interface {
 	UninstallAgent(ctx context.Context, agentID, userID, organizationID string) error
 	ListUserInstalls(ctx context.Context, userID, organizationID string) ([]*AgentInstall, error)
 	IsInstalled(ctx context.Context, agentID, userID, organizationID string) (bool, error)
+	RecordAgentRankingSignal(ctx context.Context, agentID string, event AgentRankingSignalEvent) error
 
 	// Reviews (D-27)
 	CreateReview(ctx context.Context, userID, organizationID string, input ReviewInput) (*AgentReview, error)
@@ -44,6 +47,16 @@ type Store interface {
 	// Categories (D-28)
 	ListCategories(ctx context.Context) ([]*Category, error)
 	GetCategoryBySlug(ctx context.Context, slug string) (*Category, error)
+
+	// Templates
+	CreateTemplate(ctx context.Context, organizationID string, input TemplateCreateRequest) (*MarketplaceTemplate, error)
+	ListTemplates(ctx context.Context, filter TemplateFilter) ([]*MarketplaceTemplate, int, error)
+	GetTemplate(ctx context.Context, id string) (*MarketplaceTemplate, error)
+	InstallTemplate(ctx context.Context, templateID, userID, organizationID string) (*TemplateInstall, error)
+
+	// Publisher settlement preferences
+	GetPublisherSettlementPreferences(ctx context.Context, organizationID string) (*MarketplaceSettlementPreferences, error)
+	UpdatePublisherSettlementPreferences(ctx context.Context, organizationID string, cycle string) (*MarketplaceSettlementPreferences, error)
 
 	// Tags
 	SetAgentTags(ctx context.Context, agentID string, tags []string) error
@@ -64,6 +77,54 @@ func NewSQLStore(db *sql.DB) *SQLStore {
 
 // GetDB returns the underlying *sql.DB for analytics queries.
 func (s *SQLStore) GetDB() *sql.DB { return s.db }
+
+// GetPublisherSettlementPreferences reads publisher settlement preferences from organization metadata.
+func (s *SQLStore) GetPublisherSettlementPreferences(ctx context.Context, organizationID string) (*MarketplaceSettlementPreferences, error) {
+	var cycle sql.NullString
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT metadata #>> '{marketplace,settlement,cycle}'
+		FROM organizations
+		WHERE id = $1
+	`, organizationID).Scan(&cycle); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get publisher settlement preferences: %w", err)
+	}
+	return &MarketplaceSettlementPreferences{Cycle: cycle.String}, nil
+}
+
+// UpdatePublisherSettlementPreferences stores the next-cycle settlement preference in organization metadata.
+func (s *SQLStore) UpdatePublisherSettlementPreferences(ctx context.Context, organizationID string, cycle string) (*MarketplaceSettlementPreferences, error) {
+	now := time.Now().UTC()
+	var storedCycle string
+	if err := s.db.QueryRowContext(ctx, `
+		UPDATE organizations
+		SET metadata = COALESCE(metadata, '{}'::jsonb) ||
+			jsonb_build_object(
+				'marketplace',
+				COALESCE(metadata->'marketplace', '{}'::jsonb) ||
+				jsonb_build_object(
+					'settlement',
+					COALESCE(metadata #> '{marketplace,settlement}', '{}'::jsonb) ||
+					jsonb_build_object(
+						'cycle', $2::text,
+						'effectiveFrom', 'next_settlement_cycle',
+						'updatedAt', $3::timestamptz
+					)
+				)
+			),
+		    updated_at = $3
+		WHERE id = $1
+		RETURNING metadata #>> '{marketplace,settlement,cycle}'
+	`, organizationID, cycle, now).Scan(&storedCycle); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("organization not found")
+		}
+		return nil, fmt.Errorf("update publisher settlement preferences: %w", err)
+	}
+	return &MarketplaceSettlementPreferences{Cycle: storedCycle}, nil
+}
 
 // selectAgentColumns returns the standard SELECT column list for published_agents with JOINs.
 const selectAgentColumns = `a.id, a.organization_id, a.owner_id, COALESCE(u.name, ''), a.name, a.description,
@@ -327,7 +388,97 @@ func (s *SQLStore) ListPendingReviews(ctx context.Context, limit, offset int) ([
 	if err != nil {
 		return nil, fmt.Errorf("list pending reviews: %w", err)
 	}
-	return scanAgents(rows)
+	agents, err := scanAgents(rows)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.attachReviewQueueMetadata(ctx, agents); err != nil {
+		return nil, fmt.Errorf("list pending reviews: %w", err)
+	}
+	now := time.Now().UTC()
+	for _, agent := range agents {
+		AddReviewSLA(agent, now)
+	}
+	return agents, nil
+}
+
+func (s *SQLStore) attachReviewQueueMetadata(ctx context.Context, agents []*PublishedAgent) error {
+	if len(agents) == 0 {
+		return nil
+	}
+	organizationIDs := make([]string, 0, len(agents))
+	seen := map[string]struct{}{}
+	for _, agent := range agents {
+		if agent == nil || agent.OrganizationID == "" {
+			continue
+		}
+		if _, ok := seen[agent.OrganizationID]; ok {
+			continue
+		}
+		seen[agent.OrganizationID] = struct{}{}
+		organizationIDs = append(organizationIDs, agent.OrganizationID)
+	}
+	if len(organizationIDs) == 0 {
+		return nil
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, metadata
+		FROM organizations
+		WHERE id = ANY($1::text[])
+	`, pq.Array(organizationIDs))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	tierByOrgID := map[string]string{}
+	for rows.Next() {
+		var orgID string
+		var metadataRaw []byte
+		if err := rows.Scan(&orgID, &metadataRaw); err != nil {
+			return err
+		}
+		tierByOrgID[orgID] = publisherReviewTierFromMetadata(metadataRaw)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, agent := range agents {
+		if agent == nil || agent.PublisherReviewTier != "" {
+			continue
+		}
+		agent.PublisherReviewTier = tierByOrgID[agent.OrganizationID]
+	}
+	return nil
+}
+
+func publisherReviewTierFromMetadata(metadataRaw []byte) string {
+	if len(metadataRaw) == 0 {
+		return ""
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(metadataRaw, &metadata); err != nil {
+		return ""
+	}
+	for _, key := range []string{"marketplaceReviewTier", "reviewTier", "publisherTier", "tier", "plan", "planId", "planID"} {
+		value, ok := metadata[key]
+		if !ok {
+			continue
+		}
+		tier := strings.ToLower(strings.TrimSpace(fmt.Sprint(value)))
+		switch tier {
+		case "vip", "priority", "enterprise":
+			return tier
+		}
+	}
+	if value, ok := metadata["vipPublisher"].(bool); ok && value {
+		return "vip"
+	}
+	if value, ok := metadata["isVIP"].(bool); ok && value {
+		return "vip"
+	}
+	return ""
 }
 
 // ApproveAgent approves a pending agent.
@@ -385,6 +536,55 @@ func (s *SQLStore) RejectAgent(ctx context.Context, id, reviewerID, reason strin
 	}
 
 	return nil
+}
+
+// RequestAgentChanges asks a publisher to supplement a pending submission.
+func (s *SQLStore) RequestAgentChanges(ctx context.Context, id, reviewerID, reason string) error {
+	if reason == "" {
+		return fmt.Errorf("request agent changes: reason is required")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("request agent changes: begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	var currentStatus string
+	if err := tx.QueryRowContext(ctx, `SELECT status FROM published_agents WHERE id = $1 FOR UPDATE`, id).Scan(&currentStatus); err != nil {
+		return fmt.Errorf("request agent changes: load agent: %w", err)
+	}
+	if currentStatus != AgentStatusPendingReview {
+		return fmt.Errorf("request agent changes: agent not in pending_review state")
+	}
+	now := time.Now().UTC()
+	result, err := tx.ExecContext(ctx, `
+		UPDATE published_agents
+		SET status = $2, reviewed_at = $4, review_reason = $3, updated_at = $4
+		WHERE id = $1 AND status = $5
+	`, id, AgentStatusNeedsChanges, reason, now, AgentStatusPendingReview)
+	if err != nil {
+		return fmt.Errorf("request agent changes: update agent: %w", err)
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("request agent changes: agent not in pending_review state")
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE agent_versions SET status = $2
+		WHERE agent_id = $1 AND status = $3
+	`, id, AgentStatusNeedsChanges, AgentStatusPendingReview); err != nil {
+		return fmt.Errorf("request agent changes: update versions: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO marketplace_governance_events (
+			id, actor_user_id, agent_id, action,
+			from_status, to_status, reason, metadata, created_at
+		)
+		VALUES ($1, NULLIF($2, ''), $3, 'needs_changes', $4, $5, $6, '{}', $7)
+	`, uuid.New().String(), reviewerID, id, currentStatus, AgentStatusNeedsChanges, reason, now); err != nil {
+		return fmt.Errorf("request agent changes: insert event: %w", err)
+	}
+	return tx.Commit()
 }
 
 // --- Version Management ---
@@ -522,6 +722,38 @@ func (s *SQLStore) InstallAgent(ctx context.Context, agentID, userID, organizati
 		return nil, fmt.Errorf("install agent: fetch: %w", err)
 	}
 	return &inst, nil
+}
+
+// RecordAgentRankingSignal increments aggregate recommendation counters for an agent.
+func (s *SQLStore) RecordAgentRankingSignal(ctx context.Context, agentID string, event AgentRankingSignalEvent) error {
+	impressionDelta := 0
+	clickDelta := 0
+	installDelta := 0
+	switch event {
+	case AgentRankingSignalImpression:
+		impressionDelta = 1
+	case AgentRankingSignalClick:
+		clickDelta = 1
+	case AgentRankingSignalInstallConversion:
+		installDelta = 1
+	default:
+		return fmt.Errorf("record ranking signal: unsupported event %q", event)
+	}
+
+	if _, err := s.db.ExecContext(ctx, `
+		INSERT INTO marketplace_agent_ranking_signals (
+			agent_id, impression_count, click_count, install_conversion_count, updated_at
+		)
+		VALUES ($1, $2, $3, $4, NOW())
+		ON CONFLICT (agent_id) DO UPDATE SET
+			impression_count = marketplace_agent_ranking_signals.impression_count + EXCLUDED.impression_count,
+			click_count = marketplace_agent_ranking_signals.click_count + EXCLUDED.click_count,
+			install_conversion_count = marketplace_agent_ranking_signals.install_conversion_count + EXCLUDED.install_conversion_count,
+			updated_at = NOW()
+	`, agentID, impressionDelta, clickDelta, installDelta); err != nil {
+		return fmt.Errorf("record ranking signal: %w", err)
+	}
+	return nil
 }
 
 // UninstallAgent removes an agent install and decrements install count.
@@ -735,6 +967,158 @@ func (s *SQLStore) GetCategoryBySlug(ctx context.Context, slug string) (*Categor
 		return nil, fmt.Errorf("get category by slug: %w", err)
 	}
 	return &cat, nil
+}
+
+// --- Templates ---
+
+func (s *SQLStore) CreateTemplate(ctx context.Context, organizationID string, input TemplateCreateRequest) (*MarketplaceTemplate, error) {
+	id := uuid.New().String()
+	now := time.Now().UTC()
+
+	template, err := scanTemplate(s.db.QueryRowContext(ctx, `
+		INSERT INTO marketplace_templates (id, organization_id, type, name, description, template_data, category, tags, downloads_count, rating_avg, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8::text[], 0, NULL, $9, $10)
+		RETURNING id, organization_id, type, name, COALESCE(description, ''), template_data, COALESCE(category, ''), tags,
+			downloads_count, COALESCE(rating_avg, 0), created_at, updated_at
+	`, id, organizationID, input.Type, input.Name, nullIfEmpty(input.Description), string(input.TemplateData), nullIfEmpty(input.Category), pq.Array(input.Tags), now, now))
+	if err != nil {
+		return nil, fmt.Errorf("create template: %w", err)
+	}
+	return template, nil
+}
+
+func (s *SQLStore) ListTemplates(ctx context.Context, filter TemplateFilter) ([]*MarketplaceTemplate, int, error) {
+	limit := filter.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, organization_id, type, name, COALESCE(description, ''), template_data, COALESCE(category, ''), tags,
+			downloads_count, COALESCE(rating_avg, 0), created_at, updated_at,
+			COUNT(*) OVER() AS total
+		FROM marketplace_templates
+		WHERE ($1 = '' OR type = $1)
+			AND ($2 = '' OR category = $2)
+			AND ($3 = '' OR name ILIKE '%' || $3 || '%' OR COALESCE(description, '') ILIKE '%' || $3 || '%')
+			AND (cardinality($4::text[]) = 0 OR tags && $4::text[])
+		ORDER BY downloads_count DESC, created_at DESC
+		LIMIT $5 OFFSET $6
+	`, filter.Type, filter.Category, filter.Query, pq.Array(filter.Tags), limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list templates: %w", err)
+	}
+	defer rows.Close()
+
+	var templates []*MarketplaceTemplate
+	total := 0
+	for rows.Next() {
+		template, rowTotal, err := scanTemplateWithTotal(rows)
+		if err != nil {
+			return nil, 0, fmt.Errorf("list templates: scan: %w", err)
+		}
+		templates = append(templates, template)
+		total = rowTotal
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	return templates, total, nil
+}
+
+func (s *SQLStore) GetTemplate(ctx context.Context, id string) (*MarketplaceTemplate, error) {
+	template, err := scanTemplate(s.db.QueryRowContext(ctx, `
+		SELECT id, organization_id, type, name, COALESCE(description, ''), template_data, COALESCE(category, ''), tags,
+			downloads_count, COALESCE(rating_avg, 0), created_at, updated_at
+		FROM marketplace_templates
+		WHERE id = $1
+	`, id))
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get template: %w", err)
+	}
+	return template, nil
+}
+
+func (s *SQLStore) InstallTemplate(ctx context.Context, templateID, userID, organizationID string) (*TemplateInstall, error) {
+	template, err := s.GetTemplate(ctx, templateID)
+	if err != nil {
+		return nil, fmt.Errorf("install template: %w", err)
+	}
+	if template == nil {
+		return nil, fmt.Errorf("install template: template not found")
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE marketplace_templates SET downloads_count = downloads_count + 1 WHERE id = $1`, templateID); err != nil {
+		return nil, fmt.Errorf("install template: update count: %w", err)
+	}
+	return &TemplateInstall{
+		ID:             uuid.New().String(),
+		TemplateID:     template.ID,
+		OrganizationID: organizationID,
+		UserID:         userID,
+		Type:           template.Type,
+		Name:           template.Name,
+		TemplateData:   template.TemplateData,
+		InstalledAt:    time.Now().UTC(),
+	}, nil
+}
+
+func scanTemplate(scanner interface {
+	Scan(dest ...interface{}) error
+}) (*MarketplaceTemplate, error) {
+	var template MarketplaceTemplate
+	var data []byte
+	if err := scanner.Scan(
+		&template.ID,
+		&template.OrganizationID,
+		&template.Type,
+		&template.Name,
+		&template.Description,
+		&data,
+		&template.Category,
+		pq.Array(&template.Tags),
+		&template.DownloadsCount,
+		&template.RatingAvg,
+		&template.CreatedAt,
+		&template.UpdatedAt,
+	); err != nil {
+		return nil, err
+	}
+	template.TemplateData = data
+	return &template, nil
+}
+
+func scanTemplateWithTotal(scanner interface {
+	Scan(dest ...interface{}) error
+}) (*MarketplaceTemplate, int, error) {
+	var template MarketplaceTemplate
+	var data []byte
+	var total int
+	if err := scanner.Scan(
+		&template.ID,
+		&template.OrganizationID,
+		&template.Type,
+		&template.Name,
+		&template.Description,
+		&data,
+		&template.Category,
+		pq.Array(&template.Tags),
+		&template.DownloadsCount,
+		&template.RatingAvg,
+		&template.CreatedAt,
+		&template.UpdatedAt,
+		&total,
+	); err != nil {
+		return nil, 0, err
+	}
+	template.TemplateData = data
+	return &template, total, nil
 }
 
 // --- Tags ---

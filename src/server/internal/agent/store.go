@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math"
+	"strings"
 	"time"
 )
 
@@ -32,15 +34,30 @@ type Tool struct {
 	ServerID         string `json:"serverId,omitempty"` // MCP server ID
 	Enabled          bool   `json:"enabled"`
 	RequiresApproval bool   `json:"requiresApproval,omitempty"`
+	RiskLevel        string `json:"riskLevel,omitempty"`
+	InputSchema      any    `json:"inputSchema,omitempty"`
+	Runtime          string `json:"runtime,omitempty"`
+	SourceCode       string `json:"sourceCode,omitempty"`
+	TimeoutSeconds   int    `json:"timeoutSeconds,omitempty"`
 }
 
 // Config 表示 Agent 配置
 type Config struct {
-	EnableMemory     bool     `json:"enableMemory,omitempty"`
-	MaxTokens        int      `json:"maxTokens,omitempty"`
-	Temperature      float64  `json:"temperature,omitempty"`
-	TopP             float64  `json:"topP,omitempty"`
-	KnowledgeBaseIDs []string `json:"knowledgeBaseIds,omitempty"`
+	EnableMemory          bool                            `json:"enableMemory,omitempty"`
+	MaxTokens             int                             `json:"maxTokens,omitempty"`
+	MaxIterations         int                             `json:"maxIterations,omitempty"`
+	TokenBudget           int                             `json:"tokenBudget,omitempty"`
+	DefaultExecutionMode  string                          `json:"defaultExecutionMode,omitempty"`
+	Temperature           float64                         `json:"temperature,omitempty"`
+	TopP                  float64                         `json:"topP,omitempty"`
+	KnowledgeBaseIDs      []string                        `json:"knowledgeBaseIds,omitempty"`
+	ApprovalMode          string                          `json:"approvalMode,omitempty"`
+	ToolApprovalOverrides map[string]ToolApprovalOverride `json:"toolApprovalOverrides,omitempty"`
+}
+
+type ToolApprovalOverride struct {
+	RiskLevel        string `json:"riskLevel,omitempty"`
+	RequiresApproval *bool  `json:"requiresApproval,omitempty"`
 }
 
 // Conversation 表示 Agent 对话
@@ -74,16 +91,25 @@ type ToolCall struct {
 }
 
 const (
-	RunStatusRunning         = "running"
-	RunStatusPendingApproval = "pending_approval"
-	RunStatusCompleted       = "completed"
-	RunStatusFailed          = "failed"
+	RunStatusRunning              = "running"
+	RunStatusPendingApproval      = "pending_approval"
+	RunStatusCompleted            = "completed"
+	RunStatusFailed               = "failed"
+	RunStatusMaxIterationsReached = "max_iterations_reached"
+	RunStatusTokenBudgetExceeded  = "token_budget_exceeded"
 
 	ToolRunStatusPendingApproval = "pending_approval"
 	ToolRunStatusRunning         = "running"
 	ToolRunStatusCompleted       = "completed"
 	ToolRunStatusFailed          = "failed"
 	ToolRunStatusRejected        = "rejected"
+
+	PlanStepStatusPending   = "pending"
+	PlanStepStatusApproved  = "approved"
+	PlanStepStatusRunning   = "running"
+	PlanStepStatusCompleted = "completed"
+	PlanStepStatusFailed    = "failed"
+	PlanStepStatusSkipped   = "skipped"
 
 	ApprovalStatusNotRequired = "not_required"
 	ApprovalStatusPending     = "pending"
@@ -124,6 +150,7 @@ type ToolRun struct {
 	ToolName               string         `json:"toolName"`
 	ToolType               string         `json:"toolType"`
 	ServerID               string         `json:"serverId,omitempty"`
+	RiskLevel              string         `json:"riskLevel,omitempty"`
 	Arguments              map[string]any `json:"arguments"`
 	Status                 string         `json:"status"`
 	ApprovalStatus         string         `json:"approvalStatus"`
@@ -138,9 +165,65 @@ type ToolRun struct {
 	UpdatedAt              time.Time      `json:"updatedAt"`
 }
 
+type PlanStep struct {
+	ID             string         `json:"id"`
+	RunID          string         `json:"runId"`
+	OrganizationID string         `json:"organizationId"`
+	Index          int            `json:"index"`
+	Title          string         `json:"title"`
+	Status         string         `json:"status"`
+	ApprovalStatus string         `json:"approvalStatus"`
+	ToolName       string         `json:"toolName,omitempty"`
+	Input          map[string]any `json:"input,omitempty"`
+	ResultContent  string         `json:"resultContent,omitempty"`
+	Error          string         `json:"error,omitempty"`
+	StartedAt      *time.Time     `json:"startedAt,omitempty"`
+	CompletedAt    *time.Time     `json:"completedAt,omitempty"`
+	CreatedAt      time.Time      `json:"createdAt"`
+	UpdatedAt      time.Time      `json:"updatedAt"`
+}
+
+const (
+	MemoryTypeShortTerm   = "short_term"
+	MemoryTypeLongTerm    = "long_term"
+	MemoryTypeUserManaged = "user_managed"
+
+	memoryMetadataImportanceKey = "_importance"
+)
+
+type Memory struct {
+	ID             string         `json:"id"`
+	OrganizationID string         `json:"organizationId"`
+	UserID         string         `json:"userId"`
+	AgentID        string         `json:"agentId,omitempty"`
+	Type           string         `json:"type"`
+	Content        string         `json:"content"`
+	Importance     int            `json:"importance"`
+	Metadata       map[string]any `json:"metadata,omitempty"`
+	ExpiresAt      *time.Time     `json:"expiresAt,omitempty"`
+	CreatedAt      time.Time      `json:"createdAt"`
+	UpdatedAt      time.Time      `json:"updatedAt"`
+}
+
 type RunDetail struct {
-	Run      *Run       `json:"run"`
-	ToolRuns []*ToolRun `json:"toolRuns"`
+	Run       *Run        `json:"run"`
+	ToolRuns  []*ToolRun  `json:"toolRuns"`
+	PlanSteps []*PlanStep `json:"planSteps,omitempty"`
+}
+
+type RunWithMessages struct {
+	Run       *Run        `json:"run"`
+	ToolRuns  []*ToolRun  `json:"toolRuns"`
+	PlanSteps []*PlanStep `json:"planSteps,omitempty"`
+	Messages  []*Message  `json:"messages"`
+}
+
+type StartRunRequest struct {
+	AgentID        string
+	ConversationID string
+	Input          string
+	MaxIterations  *int
+	TokenBudget    *int
 }
 
 type CreateRunRequest struct {
@@ -177,6 +260,7 @@ type CreateToolRunRequest struct {
 	ToolName               string
 	ToolType               string
 	ServerID               string
+	RiskLevel              string
 	Arguments              map[string]any
 	Status                 string
 	ApprovalStatus         string
@@ -187,6 +271,17 @@ type CreateToolRunRequest struct {
 	Error                  string
 	StartedAt              *time.Time
 	CompletedAt            *time.Time
+}
+
+type CreatePlanStepRequest struct {
+	OrganizationID string
+	RunID          string
+	Index          int
+	Title          string
+	Status         string
+	ApprovalStatus string
+	ToolName       string
+	Input          map[string]any
 }
 
 type UpdateToolRunRequest struct {
@@ -200,6 +295,70 @@ type UpdateToolRunRequest struct {
 	StartedAt              *time.Time
 	CompletedAt            *time.Time
 	ClearCompletedAt       bool
+}
+
+type UpdatePlanStepRequest struct {
+	Status           *string
+	ApprovalStatus   *string
+	ResultContent    *string
+	Error            *string
+	StartedAt        *time.Time
+	CompletedAt      *time.Time
+	ClearCompletedAt bool
+}
+
+type CreateMemoryRequest struct {
+	AgentID    string
+	Type       string
+	Content    string
+	Importance int
+	Metadata   map[string]any
+	ExpiresAt  *time.Time
+}
+
+type ListMemoriesRequest struct {
+	AgentID string
+	Type    string
+	Query   string
+	Limit   int
+	Offset  int
+}
+
+type CreateMemoryStoreRequest struct {
+	OrganizationID string
+	UserID         string
+	AgentID        string
+	Type           string
+	Content        string
+	Embedding      []float32
+	Importance     int
+	Metadata       map[string]any
+	ExpiresAt      *time.Time
+}
+
+type SearchMemoriesRequest struct {
+	AgentID   string
+	Type      string
+	Embedding []float32
+	Limit     int
+	MinScore  float64
+}
+
+type MemorySearchResult struct {
+	Memory Memory
+	Score  float64
+}
+
+type UpdateMemoryRequest struct {
+	Content    *string
+	Importance *int
+}
+
+type UpdateMemoryStoreRequest struct {
+	Content        *string
+	Embedding      []float32
+	ClearEmbedding bool
+	Importance     *int
 }
 
 // CreateAgentRequest 创建 Agent 请求
@@ -252,6 +411,14 @@ type Store interface {
 	GetToolRun(ctx context.Context, organizationID, id string) (*ToolRun, error)
 	ListToolRuns(ctx context.Context, organizationID, runID string) ([]*ToolRun, error)
 	UpdateToolRun(ctx context.Context, organizationID, id string, req UpdateToolRunRequest) (*ToolRun, error)
+	CreatePlanStep(ctx context.Context, req *CreatePlanStepRequest) (*PlanStep, error)
+	GetPlanStep(ctx context.Context, organizationID, id string) (*PlanStep, error)
+	ListPlanSteps(ctx context.Context, organizationID, runID string) ([]*PlanStep, error)
+	UpdatePlanStep(ctx context.Context, organizationID, id string, req UpdatePlanStepRequest) (*PlanStep, error)
+
+	// Agent memories
+	CreateMemory(ctx context.Context, req *CreateMemoryStoreRequest) (*Memory, error)
+	ListMemories(ctx context.Context, organizationID, userID string, req ListMemoriesRequest) ([]*Memory, error)
 }
 
 // SQLStore SQL 实现
@@ -274,10 +441,15 @@ func (s *SQLStore) CreateAgent(ctx context.Context, userID, organizationID strin
 		model = "gpt-4o-mini"
 	}
 
+	normalizedConfig, err := NormalizeConfigForWrite(req.Config)
+	if err != nil {
+		return nil, err
+	}
+	req.Config = normalizedConfig
 	toolsJSON, _ := json.Marshal(req.Tools)
 	configJSON, _ := json.Marshal(req.Config)
 
-	_, err := s.db.ExecContext(ctx, `
+	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO agents (id, user_id, organization_id, name, description, model, system_prompt, tools, config, is_public, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 	`, id, userID, organizationID, req.Name, req.Description, model, req.SystemPrompt, toolsJSON, configJSON, req.IsPublic, now, now)
@@ -381,7 +553,11 @@ func (s *SQLStore) UpdateAgent(ctx context.Context, id, organizationID string, r
 		agent.Tools = req.Tools
 	}
 	if req.Config != nil {
-		agent.Config = *req.Config
+		normalizedConfig, err := NormalizeConfigForWrite(*req.Config)
+		if err != nil {
+			return nil, err
+		}
+		agent.Config = normalizedConfig
 	}
 	if req.IsPublic != nil {
 		agent.IsPublic = *req.IsPublic
@@ -714,16 +890,16 @@ func (s *SQLStore) CreateToolRun(ctx context.Context, req *CreateToolRunRequest)
 	result, err := s.db.ExecContext(ctx, `
 		INSERT INTO agent_tool_runs (
 			id, organization_id, run_id, conversation_id, agent_id, tool_call_id, tool_name,
-			tool_type, server_id, arguments, status, approval_status, approved_by_user_id,
-			approval_decision_reason, attempt_count, result_content, error, started_at,
-			completed_at, created_at, updated_at
+			tool_type, server_id, risk_level, arguments, status, approval_status,
+			approved_by_user_id, approval_decision_reason, attempt_count, result_content,
+			error, started_at, completed_at, created_at, updated_at
 		)
 		SELECT $1, r.organization_id, r.id, r.conversation_id, r.agent_id, $5, $6,
-			$7, $8, $9, $10, $11, NULLIF($12, ''), $13, $14, $15, $16, $17, $18, $19, $19
+			$7, $8, $9, $10, $11, $12, NULLIF($13, ''), $14, $15, $16, $17, $18, $19, $20, $20
 		FROM agent_runs r
 		WHERE r.id = $2 AND r.organization_id = $3 AND r.conversation_id = $4
 	`, id, req.RunID, req.OrganizationID, req.ConversationID, req.ToolCallID, req.ToolName,
-		req.ToolType, req.ServerID, argumentsJSON, status, approvalStatus, req.ApprovedByUserID,
+		req.ToolType, req.ServerID, req.RiskLevel, argumentsJSON, status, approvalStatus, req.ApprovedByUserID,
 		req.ApprovalDecisionReason, req.AttemptCount, req.ResultContent, req.Error,
 		req.StartedAt, req.CompletedAt, now)
 	if err != nil {
@@ -742,7 +918,7 @@ func (s *SQLStore) CreateToolRun(ctx context.Context, req *CreateToolRunRequest)
 func (s *SQLStore) GetToolRun(ctx context.Context, organizationID, id string) (*ToolRun, error) {
 	toolRun, err := scanToolRun(s.db.QueryRowContext(ctx, `
 		SELECT id, organization_id, run_id, conversation_id, agent_id, tool_call_id, tool_name,
-			tool_type, server_id, arguments, status, approval_status, approved_by_user_id,
+			tool_type, server_id, risk_level, arguments, status, approval_status, approved_by_user_id,
 			approval_decision_reason, attempt_count, result_content, error, started_at,
 			completed_at, created_at, updated_at
 		FROM agent_tool_runs
@@ -760,7 +936,7 @@ func (s *SQLStore) GetToolRun(ctx context.Context, organizationID, id string) (*
 func (s *SQLStore) ListToolRuns(ctx context.Context, organizationID, runID string) ([]*ToolRun, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, organization_id, run_id, conversation_id, agent_id, tool_call_id, tool_name,
-			tool_type, server_id, arguments, status, approval_status, approved_by_user_id,
+			tool_type, server_id, risk_level, arguments, status, approval_status, approved_by_user_id,
 			approval_decision_reason, attempt_count, result_content, error, started_at,
 			completed_at, created_at, updated_at
 		FROM agent_tool_runs
@@ -781,6 +957,146 @@ func (s *SQLStore) ListToolRuns(ctx context.Context, organizationID, runID strin
 		toolRuns = append(toolRuns, toolRun)
 	}
 	return toolRuns, rows.Err()
+}
+
+func (s *SQLStore) CreatePlanStep(ctx context.Context, req *CreatePlanStepRequest) (*PlanStep, error) {
+	id := generateID()
+	now := time.Now()
+	status := req.Status
+	if status == "" {
+		status = PlanStepStatusPending
+	}
+	approvalStatus := req.ApprovalStatus
+	if approvalStatus == "" {
+		approvalStatus = ApprovalStatusNotRequired
+	}
+	input := req.Input
+	if input == nil {
+		input = map[string]any{}
+	}
+	inputJSON, err := json.Marshal(input)
+	if err != nil {
+		return nil, fmt.Errorf("marshal plan step input: %w", err)
+	}
+
+	result, err := s.db.ExecContext(ctx, `
+		INSERT INTO agent_plan_steps (
+			id, organization_id, run_id, step_index, title, status, approval_status,
+			tool_name, input, created_at, updated_at
+		)
+		SELECT $1, r.organization_id, r.id, $4, $5, $6, $7, $8, $9, $10, $10
+		FROM agent_runs r
+		WHERE r.id = $2 AND r.organization_id = $3
+	`, id, req.RunID, req.OrganizationID, req.Index, req.Title, status, approvalStatus, req.ToolName, inputJSON, now)
+	if err != nil {
+		return nil, fmt.Errorf("insert agent plan step: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("insert agent plan step rows: %w", err)
+	}
+	if rowsAffected == 0 {
+		return nil, fmt.Errorf("agent run not found")
+	}
+
+	steps, err := s.ListPlanSteps(ctx, req.OrganizationID, req.RunID)
+	if err != nil {
+		return nil, err
+	}
+	for _, step := range steps {
+		if step.ID == id {
+			return step, nil
+		}
+	}
+	return nil, fmt.Errorf("agent plan step not found")
+}
+
+func (s *SQLStore) ListPlanSteps(ctx context.Context, organizationID, runID string) ([]*PlanStep, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, organization_id, run_id, step_index, title, status, approval_status,
+			tool_name, input, result_content, error, started_at, completed_at, created_at, updated_at
+		FROM agent_plan_steps
+		WHERE organization_id = $1 AND run_id = $2
+		ORDER BY step_index ASC, created_at ASC
+	`, organizationID, runID)
+	if err != nil {
+		return nil, fmt.Errorf("list agent plan steps: %w", err)
+	}
+	defer rows.Close()
+
+	var steps []*PlanStep
+	for rows.Next() {
+		step, err := scanPlanStep(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan agent plan step: %w", err)
+		}
+		steps = append(steps, step)
+	}
+	return steps, rows.Err()
+}
+
+func (s *SQLStore) GetPlanStep(ctx context.Context, organizationID, id string) (*PlanStep, error) {
+	step, err := scanPlanStep(s.db.QueryRowContext(ctx, `
+		SELECT id, organization_id, run_id, step_index, title, status, approval_status,
+			tool_name, input, result_content, error, started_at, completed_at, created_at, updated_at
+		FROM agent_plan_steps
+		WHERE id = $1 AND organization_id = $2
+	`, id, organizationID))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get agent plan step: %w", err)
+	}
+	return step, nil
+}
+
+func (s *SQLStore) UpdatePlanStep(ctx context.Context, organizationID, id string, req UpdatePlanStepRequest) (*PlanStep, error) {
+	step, err := s.GetPlanStep(ctx, organizationID, id)
+	if err != nil {
+		return nil, err
+	}
+	if step == nil {
+		return nil, fmt.Errorf("agent plan step not found")
+	}
+
+	if req.Status != nil {
+		step.Status = *req.Status
+	}
+	if req.ApprovalStatus != nil {
+		step.ApprovalStatus = *req.ApprovalStatus
+	}
+	if req.ResultContent != nil {
+		step.ResultContent = *req.ResultContent
+	}
+	if req.Error != nil {
+		step.Error = *req.Error
+	}
+	if req.StartedAt != nil {
+		step.StartedAt = req.StartedAt
+	}
+	if req.ClearCompletedAt {
+		step.CompletedAt = nil
+	} else if req.CompletedAt != nil {
+		step.CompletedAt = req.CompletedAt
+	}
+
+	_, err = s.db.ExecContext(ctx, `
+		UPDATE agent_plan_steps
+		SET status = $3,
+			approval_status = $4,
+			result_content = $5,
+			error = $6,
+			started_at = $7,
+			completed_at = CASE WHEN $8 THEN NULL::timestamptz ELSE $9::timestamptz END,
+			updated_at = $10
+		WHERE id = $1 AND organization_id = $2
+	`, id, organizationID, step.Status, step.ApprovalStatus, step.ResultContent, step.Error,
+		step.StartedAt, req.ClearCompletedAt, step.CompletedAt, time.Now())
+	if err != nil {
+		return nil, fmt.Errorf("update agent plan step: %w", err)
+	}
+	return s.GetPlanStep(ctx, organizationID, id)
 }
 
 func (s *SQLStore) UpdateToolRun(ctx context.Context, organizationID, id string, req UpdateToolRunRequest) (*ToolRun, error) {
@@ -844,6 +1160,234 @@ func (s *SQLStore) UpdateToolRun(ctx context.Context, organizationID, id string,
 	return s.GetToolRun(ctx, organizationID, id)
 }
 
+func (s *SQLStore) CreateMemory(ctx context.Context, req *CreateMemoryStoreRequest) (*Memory, error) {
+	id := fmt.Sprintf("agentmem_%d", time.Now().UnixNano())
+	now := time.Now()
+	metadata := copyMetadata(req.Metadata)
+	importance, err := normalizeMemoryImportance(req.Importance)
+	if err != nil {
+		return nil, err
+	}
+	metadata[memoryMetadataImportanceKey] = importance
+	metadataJSON, err := json.Marshal(metadata)
+	if err != nil {
+		return nil, fmt.Errorf("marshal agent memory metadata: %w", err)
+	}
+
+	_, err = s.db.ExecContext(ctx, `
+		INSERT INTO agent_memories (
+			id, organization_id, user_id, agent_id, type, content, embedding, metadata, expires_at, created_at, updated_at
+		)
+		VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, NULLIF($7, '')::vector, $8, $9, $10, $10)
+	`, id, req.OrganizationID, req.UserID, req.AgentID, req.Type, req.Content, agentMemoryEmbeddingToVector(req.Embedding), metadataJSON, req.ExpiresAt, now)
+	if err != nil {
+		return nil, fmt.Errorf("insert agent memory: %w", err)
+	}
+
+	return &Memory{
+		ID:             id,
+		OrganizationID: req.OrganizationID,
+		UserID:         req.UserID,
+		AgentID:        req.AgentID,
+		Type:           req.Type,
+		Content:        req.Content,
+		Importance:     importance,
+		Metadata:       publicMemoryMetadata(metadata),
+		ExpiresAt:      req.ExpiresAt,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}, nil
+}
+
+func (s *SQLStore) GetMemory(ctx context.Context, organizationID, id string) (*Memory, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, organization_id, user_id, agent_id, type, content, metadata, expires_at, created_at, updated_at
+		FROM agent_memories
+		WHERE id = $1 AND organization_id = $2
+	`, id, organizationID)
+	memory, err := scanMemory(row)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get agent memory: %w", err)
+	}
+	return memory, nil
+}
+
+func (s *SQLStore) ListMemories(ctx context.Context, organizationID, userID string, req ListMemoriesRequest) ([]*Memory, error) {
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	if req.Offset < 0 {
+		req.Offset = 0
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, organization_id, user_id, agent_id, type, content, metadata, expires_at, created_at, updated_at
+		FROM agent_memories
+		WHERE organization_id = $1
+			AND user_id = $2
+			AND ($3 = '' OR agent_id = $3)
+			AND ($4 = '' OR type = $4)
+			AND ($5 = '' OR content ILIKE '%' || $5 || '%' OR metadata::text ILIKE '%' || $5 || '%')
+			AND (expires_at IS NULL OR expires_at > NOW())
+		ORDER BY created_at DESC
+		LIMIT $6 OFFSET $7
+	`, organizationID, userID, req.AgentID, req.Type, req.Query, limit, req.Offset)
+	if err != nil {
+		return nil, fmt.Errorf("list agent memories: %w", err)
+	}
+	defer rows.Close()
+
+	var memories []*Memory
+	for rows.Next() {
+		memory, err := scanMemory(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan agent memory: %w", err)
+		}
+		memories = append(memories, memory)
+	}
+	return memories, rows.Err()
+}
+
+func (s *SQLStore) SearchMemories(ctx context.Context, organizationID, userID string, req SearchMemoriesRequest) ([]*MemorySearchResult, error) {
+	if len(req.Embedding) == 0 {
+		return []*MemorySearchResult{}, nil
+	}
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 5
+	}
+	if limit > 20 {
+		limit = 20
+	}
+	minScore := req.MinScore
+	if minScore <= 0 {
+		minScore = 0.5
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, organization_id, user_id, agent_id, type, content, metadata, expires_at, created_at, updated_at,
+			1 - (embedding <=> $5::vector) AS similarity
+		FROM agent_memories
+		WHERE organization_id = $1
+			AND user_id = $2
+			AND ($3 = '' OR agent_id = $3)
+			AND ($4 = '' OR type = $4)
+			AND embedding IS NOT NULL
+			AND (expires_at IS NULL OR expires_at > NOW())
+			AND (1 - (embedding <=> $5::vector)) >= $6
+		ORDER BY embedding <=> $5::vector, updated_at DESC
+		LIMIT $7
+	`, organizationID, userID, req.AgentID, req.Type, agentMemoryEmbeddingToVector(req.Embedding), minScore, limit)
+	if err != nil {
+		return nil, fmt.Errorf("search agent memories: %w", err)
+	}
+	defer rows.Close()
+
+	results := make([]*MemorySearchResult, 0, limit)
+	for rows.Next() {
+		var memory Memory
+		var agentID sql.NullString
+		var metadataJSON []byte
+		var expiresAt sql.NullTime
+		var score float64
+		if err := rows.Scan(
+			&memory.ID,
+			&memory.OrganizationID,
+			&memory.UserID,
+			&agentID,
+			&memory.Type,
+			&memory.Content,
+			&metadataJSON,
+			&expiresAt,
+			&memory.CreatedAt,
+			&memory.UpdatedAt,
+			&score,
+		); err != nil {
+			return nil, fmt.Errorf("scan agent memory search result: %w", err)
+		}
+		memory.AgentID = agentID.String
+		if len(metadataJSON) > 0 {
+			_ = json.Unmarshal(metadataJSON, &memory.Metadata)
+		}
+		if memory.Metadata == nil {
+			memory.Metadata = map[string]any{}
+		}
+		memory.Importance = memoryImportanceFromMetadata(memory.Metadata)
+		memory.Metadata = publicMemoryMetadata(memory.Metadata)
+		if expiresAt.Valid {
+			memory.ExpiresAt = &expiresAt.Time
+		}
+		results = append(results, &MemorySearchResult{Memory: memory, Score: score})
+	}
+	return results, rows.Err()
+}
+
+func (s *SQLStore) UpdateMemory(ctx context.Context, organizationID, userID, id string, req UpdateMemoryStoreRequest) (*Memory, error) {
+	memory, err := s.GetMemory(ctx, organizationID, id)
+	if err != nil {
+		return nil, err
+	}
+	if memory == nil || memory.UserID != userID {
+		return nil, fmt.Errorf("memory not found")
+	}
+
+	if req.Content != nil {
+		memory.Content = *req.Content
+	}
+	if req.Importance != nil {
+		memory.Importance = *req.Importance
+	}
+	metadata := copyMetadata(memory.Metadata)
+	metadata[memoryMetadataImportanceKey] = memory.Importance
+	metadataJSON, err := json.Marshal(metadata)
+	if err != nil {
+		return nil, fmt.Errorf("marshal agent memory metadata: %w", err)
+	}
+
+	now := time.Now()
+	_, err = s.db.ExecContext(ctx, `
+		UPDATE agent_memories
+		SET content = $4,
+			metadata = $5,
+			embedding = CASE
+				WHEN $6 <> '' THEN $6::vector
+				WHEN $7 THEN NULL
+				ELSE embedding
+			END,
+			updated_at = $8
+		WHERE id = $1 AND organization_id = $2 AND user_id = $3
+	`, id, organizationID, userID, memory.Content, metadataJSON, agentMemoryEmbeddingToVector(req.Embedding), req.ClearEmbedding, now)
+	if err != nil {
+		return nil, fmt.Errorf("update agent memory: %w", err)
+	}
+
+	memory.Metadata = publicMemoryMetadata(metadata)
+	memory.UpdatedAt = now
+	return memory, nil
+}
+
+func (s *SQLStore) DeleteMemory(ctx context.Context, organizationID, userID, id string) error {
+	result, err := s.db.ExecContext(ctx, `
+		DELETE FROM agent_memories
+		WHERE id = $1 AND organization_id = $2 AND user_id = $3
+	`, id, organizationID, userID)
+	if err != nil {
+		return fmt.Errorf("delete agent memory: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err == nil && rowsAffected == 0 {
+		return fmt.Errorf("memory not found")
+	}
+	return nil
+}
+
 type scanner interface {
 	Scan(dest ...any) error
 }
@@ -898,6 +1442,7 @@ func scanToolRun(row scanner) (*ToolRun, error) {
 		&toolRun.ToolName,
 		&toolRun.ToolType,
 		&toolRun.ServerID,
+		&toolRun.RiskLevel,
 		&argumentsJSON,
 		&toolRun.Status,
 		&toolRun.ApprovalStatus,
@@ -928,6 +1473,125 @@ func scanToolRun(row scanner) (*ToolRun, error) {
 		toolRun.CompletedAt = &completedAt.Time
 	}
 	return &toolRun, nil
+}
+
+func scanPlanStep(row scanner) (*PlanStep, error) {
+	var step PlanStep
+	var inputJSON []byte
+	var startedAt sql.NullTime
+	var completedAt sql.NullTime
+	err := row.Scan(
+		&step.ID,
+		&step.OrganizationID,
+		&step.RunID,
+		&step.Index,
+		&step.Title,
+		&step.Status,
+		&step.ApprovalStatus,
+		&step.ToolName,
+		&inputJSON,
+		&step.ResultContent,
+		&step.Error,
+		&startedAt,
+		&completedAt,
+		&step.CreatedAt,
+		&step.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if len(inputJSON) > 0 {
+		_ = json.Unmarshal(inputJSON, &step.Input)
+	}
+	if step.Input == nil {
+		step.Input = map[string]any{}
+	}
+	if startedAt.Valid {
+		step.StartedAt = &startedAt.Time
+	}
+	if completedAt.Valid {
+		step.CompletedAt = &completedAt.Time
+	}
+	return &step, nil
+}
+
+func scanMemory(row scanner) (*Memory, error) {
+	var memory Memory
+	var agentID sql.NullString
+	var metadataJSON []byte
+	var expiresAt sql.NullTime
+	err := row.Scan(
+		&memory.ID,
+		&memory.OrganizationID,
+		&memory.UserID,
+		&agentID,
+		&memory.Type,
+		&memory.Content,
+		&metadataJSON,
+		&expiresAt,
+		&memory.CreatedAt,
+		&memory.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	memory.AgentID = agentID.String
+	if len(metadataJSON) > 0 {
+		_ = json.Unmarshal(metadataJSON, &memory.Metadata)
+	}
+	if memory.Metadata == nil {
+		memory.Metadata = map[string]any{}
+	}
+	memory.Importance = memoryImportanceFromMetadata(memory.Metadata)
+	memory.Metadata = publicMemoryMetadata(memory.Metadata)
+	if expiresAt.Valid {
+		memory.ExpiresAt = &expiresAt.Time
+	}
+	return &memory, nil
+}
+
+func memoryImportanceFromMetadata(metadata map[string]any) int {
+	value, ok := metadata[memoryMetadataImportanceKey]
+	if !ok {
+		return 3
+	}
+	switch typed := value.(type) {
+	case int:
+		if typed >= 1 && typed <= 5 {
+			return typed
+		}
+	case int64:
+		if typed >= 1 && typed <= 5 {
+			return int(typed)
+		}
+	case float64:
+		if typed >= 1 && typed <= 5 && math.Trunc(typed) == typed {
+			return int(typed)
+		}
+	case json.Number:
+		parsed, err := typed.Int64()
+		if err == nil && parsed >= 1 && parsed <= 5 {
+			return int(parsed)
+		}
+	}
+	return 3
+}
+
+func publicMemoryMetadata(metadata map[string]any) map[string]any {
+	copied := copyMetadata(metadata)
+	delete(copied, memoryMetadataImportanceKey)
+	return copied
+}
+
+func agentMemoryEmbeddingToVector(embedding []float32) string {
+	if len(embedding) == 0 {
+		return ""
+	}
+	parts := make([]string, len(embedding))
+	for i, value := range embedding {
+		parts[i] = fmt.Sprintf("%f", value)
+	}
+	return "[" + strings.Join(parts, ",") + "]"
 }
 
 func generateID() string {

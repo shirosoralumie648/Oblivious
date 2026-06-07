@@ -14,50 +14,99 @@ import (
 )
 
 type chatFakeStore struct {
-	config               chat.ConversationConfig
-	lastConversationID   string
-	messages             []chat.Message
-	lastOrganizationID   string
-	lastKnowledgeBaseIDs []string
+	config                chat.ConversationConfig
+	conversation          chat.Conversation
+	deletedConversationID string
+	lastConversationID    string
+	lastMessageID         string
+	lastOrganizationID    string
+	messages              []chat.Message
+	lastWorkspaceID       string
+	lastKnowledgeBaseIDs  []string
 }
 
-func (f *chatFakeStore) CreateConversation(ctx context.Context, workspaceID, organizationID, title, defaultModelID string) (chat.Conversation, error) {
+func (f *chatFakeStore) CreateConversation(ctx context.Context, workspaceID string, args ...string) (chat.Conversation, error) {
+	f.lastWorkspaceID = workspaceID
 	return chat.Conversation{}, nil
 }
 
-func (f *chatFakeStore) CreateMessage(ctx context.Context, conversationID, organizationID, role, content string) (chat.Message, error) {
+func (f *chatFakeStore) CreateMessage(ctx context.Context, conversationID string, args ...string) (chat.Message, error) {
+	f.lastConversationID = conversationID
 	return chat.Message{}, nil
 }
 
-func (f *chatFakeStore) GetConversationConfig(ctx context.Context, conversationID, organizationID, defaultModelID string) (chat.ConversationConfig, error) {
+func (f *chatFakeStore) GetConversationConfig(ctx context.Context, conversationID, workspaceID, defaultModelID string) (chat.ConversationConfig, error) {
 	f.lastConversationID = conversationID
-	f.lastOrganizationID = organizationID
+	f.lastWorkspaceID = workspaceID
 	return f.config, nil
 }
 
-func (f *chatFakeStore) ListConversations(ctx context.Context, organizationID string) ([]chat.Conversation, error) {
+func (f *chatFakeStore) GetConversation(ctx context.Context, conversationID, scopeID string) (chat.Conversation, error) {
+	f.lastConversationID = conversationID
+	f.lastOrganizationID = scopeID
+	if f.conversation.ID != "" {
+		return f.conversation, nil
+	}
+	return chat.Conversation{ID: conversationID, Title: "Conversation"}, nil
+}
+
+func (f *chatFakeStore) UpdateConversation(ctx context.Context, conversationID, scopeID, title string) (chat.Conversation, error) {
+	f.lastConversationID = conversationID
+	f.lastOrganizationID = scopeID
+	return chat.Conversation{ID: conversationID, Title: title}, nil
+}
+
+func (f *chatFakeStore) DeleteConversation(ctx context.Context, conversationID, scopeID string) error {
+	f.deletedConversationID = conversationID
+	f.lastOrganizationID = scopeID
+	return nil
+}
+
+func (f *chatFakeStore) ListConversations(ctx context.Context, workspaceID string) ([]chat.Conversation, error) {
 	return nil, nil
 }
 
-func (f *chatFakeStore) ListMessages(ctx context.Context, conversationID, organizationID string) ([]chat.Message, error) {
+func (f *chatFakeStore) ListMessages(ctx context.Context, conversationID, workspaceID string) ([]chat.Message, error) {
 	f.lastConversationID = conversationID
-	f.lastOrganizationID = organizationID
+	f.lastWorkspaceID = workspaceID
 	return append([]chat.Message(nil), f.messages...), nil
+}
+
+func (f *chatFakeStore) UpdateMessage(ctx context.Context, conversationID, scopeID, messageID, content string) (chat.Message, error) {
+	f.lastConversationID = conversationID
+	f.lastOrganizationID = scopeID
+	f.lastMessageID = messageID
+	return chat.Message{ID: messageID, Role: "user", Content: content}, nil
+}
+
+func (f *chatFakeStore) DeleteMessage(ctx context.Context, conversationID, scopeID, messageID string) error {
+	f.lastConversationID = conversationID
+	f.lastOrganizationID = scopeID
+	f.lastMessageID = messageID
+	return nil
+}
+
+func (f *chatFakeStore) BookmarkMessage(ctx context.Context, conversationID, scopeID, messageID string, bookmarked bool) (chat.Message, error) {
+	f.lastConversationID = conversationID
+	f.lastOrganizationID = scopeID
+	f.lastMessageID = messageID
+	return chat.Message{ID: messageID, Bookmarked: bookmarked}, nil
 }
 
 func (f *chatFakeStore) UpdateConversationConfig(
 	ctx context.Context,
 	conversationID,
-	organizationID,
+	workspaceID,
 	modelID,
 	systemPromptOverride string,
 	temperature float64,
 	maxOutputTokens int,
 	toolsEnabled bool,
 	knowledgeBaseIDs []string,
+	personaIDs ...string,
 ) (chat.ConversationConfig, error) {
 	f.lastConversationID = conversationID
-	f.lastOrganizationID = organizationID
+	f.lastWorkspaceID = workspaceID
 	f.lastKnowledgeBaseIDs = append([]string(nil), knowledgeBaseIDs...)
 
 	return chat.ConversationConfig{
@@ -70,6 +119,76 @@ func (f *chatFakeStore) UpdateConversationConfig(
 		KnowledgeBaseIDs:     append([]string(nil), knowledgeBaseIDs...),
 		UpdatedAt:            time.Date(2026, time.April, 3, 14, 0, 0, 0, time.UTC),
 	}, nil
+}
+
+func (f *chatFakeStore) ForkConversation(ctx context.Context, organizationID, workspaceID, sourceConversationID, title, branchFromMessageID string) (chat.Conversation, error) {
+	f.lastOrganizationID = organizationID
+	f.lastWorkspaceID = workspaceID
+	f.lastConversationID = sourceConversationID
+	return chat.Conversation{ID: "forked_1", ParentID: sourceConversationID, Title: title}, nil
+}
+
+func (f *chatFakeStore) ListConversationBranches(ctx context.Context, conversationID, workspaceID string) ([]chat.Conversation, error) {
+	return nil, nil
+}
+
+func (f *chatFakeStore) CreatePersona(ctx context.Context, workspaceID string, persona chat.Persona) (chat.Persona, error) {
+	persona.ID = "persona_1"
+	return persona, nil
+}
+
+func (f *chatFakeStore) GetPersona(ctx context.Context, personaID, workspaceID string) (chat.Persona, error) {
+	return chat.Persona{ID: personaID, WorkspaceID: workspaceID}, nil
+}
+
+func (f *chatFakeStore) ListPersonas(ctx context.Context, workspaceID string) ([]chat.Persona, error) {
+	return nil, nil
+}
+
+func (f *chatFakeStore) UpdatePersona(ctx context.Context, personaID, workspaceID string, persona chat.Persona) (chat.Persona, error) {
+	persona.ID = personaID
+	return persona, nil
+}
+
+func (f *chatFakeStore) DeletePersona(ctx context.Context, personaID, workspaceID string) error {
+	return nil
+}
+
+func (f *chatFakeStore) CreateMessageWithMetadata(ctx context.Context, conversationID, role, content string, metadata *chat.MessageMetadata) (chat.Message, error) {
+	return chat.Message{}, nil
+}
+
+func (f *chatFakeStore) AddMessageAttachment(ctx context.Context, attachment chat.MessageAttachment) (chat.MessageAttachment, error) {
+	return attachment, nil
+}
+
+func (f *chatFakeStore) ListMessageAttachments(ctx context.Context, messageID string) ([]chat.MessageAttachment, error) {
+	return nil, nil
+}
+
+func (f *chatFakeStore) SearchMessages(ctx context.Context, workspaceID, query string, limit int) ([]chat.MessageSearchResult, error) {
+	return nil, nil
+}
+
+func (f *chatFakeStore) CreateMessageShareWithOptions(ctx context.Context, conversationID, organizationID, messageID string, expiresAt *time.Time) (chat.MessageShare, error) {
+	f.lastConversationID = conversationID
+	f.lastOrganizationID = organizationID
+	f.lastMessageID = messageID
+	return chat.MessageShare{ID: "msgshare_1", ConversationID: conversationID, OrganizationID: organizationID, MessageID: messageID, ExpiresAt: expiresAt}, nil
+}
+
+func (f *chatFakeStore) GetMessageShare(ctx context.Context, shareID string, now time.Time) (chat.MessageShareDetail, error) {
+	return chat.MessageShareDetail{MessageShare: chat.MessageShare{ID: shareID}}, nil
+}
+
+func (f *chatFakeStore) CreateConversationShare(ctx context.Context, conversationID, organizationID string, options chat.ConversationShareStoreOptions) (chat.ConversationShare, error) {
+	f.lastConversationID = conversationID
+	f.lastOrganizationID = organizationID
+	return chat.ConversationShare{ID: "convshare_1", ConversationID: conversationID, OrganizationID: organizationID, StartMessageID: options.StartMessageID, EndMessageID: options.EndMessageID, ExpiresAt: options.ExpiresAt}, nil
+}
+
+func (f *chatFakeStore) GetConversationShare(ctx context.Context, shareID string, now time.Time) (chat.ConversationShareDetail, error) {
+	return chat.ConversationShareDetail{ConversationShare: chat.ConversationShare{ID: shareID}}, nil
 }
 
 type noopReplyGenerator struct{}
@@ -93,8 +212,7 @@ func TestChatHandlerGetConversationConfigReturnsKnowledgeBaseIDs(t *testing.T) {
 	}
 	handler := newChatHandler(chat.NewService(store, noopReplyGenerator{}, "demo-reply", nil))
 	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/app/conversations/conversation_1/config", nil).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
-		OrganizationID: "org_1",
-		WorkspaceID:    "workspace_1",
+		WorkspaceID: "workspace_1",
 	}))
 	recorder := httptest.NewRecorder()
 
@@ -103,8 +221,8 @@ func TestChatHandlerGetConversationConfigReturnsKnowledgeBaseIDs(t *testing.T) {
 	if recorder.Code != stdhttp.StatusOK {
 		t.Fatalf("expected 200, got %d", recorder.Code)
 	}
-	if store.lastConversationID != "conversation_1" || store.lastOrganizationID != "org_1" {
-		t.Fatalf("unexpected lookup target: conversation=%s organization=%s", store.lastConversationID, store.lastOrganizationID)
+	if store.lastConversationID != "conversation_1" || store.lastWorkspaceID != "workspace_1" {
+		t.Fatalf("unexpected lookup target: conversation=%s workspace=%s", store.lastConversationID, store.lastWorkspaceID)
 	}
 
 	var response struct {
@@ -126,8 +244,7 @@ func TestChatHandlerUpdateConversationConfigAcceptsKnowledgeBaseIDs(t *testing.T
 		"/api/v1/app/conversations/conversation_1/config",
 		strings.NewReader(`{"modelId":"quality-chat","systemPromptOverride":"Use docs","temperature":0.7,"maxOutputTokens":1024,"toolsEnabled":true,"knowledgeBaseIds":["kb_2","kb_4"]}`),
 	).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
-		OrganizationID: "org_1",
-		WorkspaceID:    "workspace_1",
+		WorkspaceID: "workspace_1",
 	}))
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
@@ -165,8 +282,7 @@ func TestChatHandlerConvertConversationToTaskReturnsDraft(t *testing.T) {
 	}
 	handler := newChatHandler(chat.NewService(store, noopReplyGenerator{}, "demo-reply", nil))
 	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/conversations/conversation_1/convert-to-task", nil).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
-		OrganizationID: "org_1",
-		WorkspaceID:    "workspace_1",
+		WorkspaceID: "workspace_1",
 	}))
 	recorder := httptest.NewRecorder()
 
@@ -190,5 +306,152 @@ func TestChatHandlerConvertConversationToTaskReturnsDraft(t *testing.T) {
 	}
 	if len(response.Data.RelatedKnowledgeBaseIDs) != 1 || response.Data.RelatedKnowledgeBaseIDs[0] != "kb_2" {
 		t.Fatalf("unexpected related knowledge bases: %+v", response.Data)
+	}
+}
+
+func TestChatHandlerCreatePersonaReturnsPersona(t *testing.T) {
+	store := &chatFakeStore{}
+	handler := newChatHandler(chat.NewService(store, noopReplyGenerator{}, "demo-reply", nil))
+	request := httptest.NewRequest(
+		stdhttp.MethodPost,
+		"/api/v1/app/personas",
+		strings.NewReader(`{"name":"Helpful Assistant","role":"Tutor","style":"Friendly","tone":"Warm","constraints":"No code","openingMessage":"Hi!","suggestedQuestions":["What?","How?"]}`),
+	).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		WorkspaceID: "workspace_1",
+	}))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.createPersona(recorder, request)
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+
+	var response struct {
+		Data chat.Persona `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Data.Name != "Helpful Assistant" {
+		t.Fatalf("expected persona name 'Helpful Assistant', got %s", response.Data.Name)
+	}
+	if response.Data.Role != "Tutor" {
+		t.Fatalf("expected persona role 'Tutor', got %s", response.Data.Role)
+	}
+	if len(response.Data.SuggestedQuestions) != 2 {
+		t.Fatalf("expected 2 suggested questions, got %d", len(response.Data.SuggestedQuestions))
+	}
+}
+
+func TestChatHandlerCreatePersonaRequiresName(t *testing.T) {
+	store := &chatFakeStore{}
+	handler := newChatHandler(chat.NewService(store, noopReplyGenerator{}, "demo-reply", nil))
+	request := httptest.NewRequest(
+		stdhttp.MethodPost,
+		"/api/v1/app/personas",
+		strings.NewReader(`{"role":"Tutor"}`),
+	).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		WorkspaceID: "workspace_1",
+	}))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.createPersona(recorder, request)
+
+	if recorder.Code != stdhttp.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", recorder.Code)
+	}
+}
+
+func TestChatHandlerForkConversationReturnsFork(t *testing.T) {
+	store := &chatFakeStore{}
+	handler := newChatHandler(chat.NewService(store, noopReplyGenerator{}, "demo-reply", nil))
+	request := httptest.NewRequest(
+		stdhttp.MethodPost,
+		"/api/v1/app/conversations/fork",
+		strings.NewReader(`{"sourceConversationId":"conv_1","branchFromMessageId":"msg_3","title":"My branch"}`),
+	).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		WorkspaceID: "workspace_1",
+	}))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.forkConversation(recorder, request)
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+
+	var response struct {
+		Data chat.Conversation `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Data.ID != "forked_1" {
+		t.Fatalf("expected forked_1, got %s", response.Data.ID)
+	}
+	if response.Data.ParentID != "conv_1" {
+		t.Fatalf("expected parent conv_1, got %s", response.Data.ParentID)
+	}
+}
+
+func TestChatHandlerForkConversationRequiresSourceID(t *testing.T) {
+	store := &chatFakeStore{}
+	handler := newChatHandler(chat.NewService(store, noopReplyGenerator{}, "demo-reply", nil))
+	request := httptest.NewRequest(
+		stdhttp.MethodPost,
+		"/api/v1/app/conversations/fork",
+		strings.NewReader(`{"branchFromMessageId":"msg_3"}`),
+	).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		WorkspaceID: "workspace_1",
+	}))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.forkConversation(recorder, request)
+
+	if recorder.Code != stdhttp.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", recorder.Code)
+	}
+}
+
+func TestChatHandlerSearchMessagesReturnsResults(t *testing.T) {
+	store := &chatFakeStore{}
+	handler := newChatHandler(chat.NewService(store, noopReplyGenerator{}, "demo-reply", nil))
+	request := httptest.NewRequest(
+		stdhttp.MethodGet,
+		"/api/v1/app/conversations/search?q=hello&limit=5",
+		nil,
+	).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		WorkspaceID: "workspace_1",
+	}))
+	recorder := httptest.NewRecorder()
+
+	handler.searchMessages(recorder, request)
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestChatHandlerSearchMessagesRequiresQuery(t *testing.T) {
+	store := &chatFakeStore{}
+	handler := newChatHandler(chat.NewService(store, noopReplyGenerator{}, "demo-reply", nil))
+	request := httptest.NewRequest(
+		stdhttp.MethodGet,
+		"/api/v1/app/conversations/search",
+		nil,
+	).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		WorkspaceID: "workspace_1",
+	}))
+	recorder := httptest.NewRecorder()
+
+	handler.searchMessages(recorder, request)
+
+	if recorder.Code != stdhttp.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", recorder.Code)
 	}
 }

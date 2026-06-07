@@ -34,7 +34,6 @@ func TestProductionDisabledRoutesFailClosedBeforeHandler(t *testing.T) {
 		path    string
 		handler *countingHandler
 	}{
-		{name: "file upload", method: http.MethodPost, path: "/v1/files", handler: filesHandler},
 		{name: "thread create", method: http.MethodPost, path: "/v1/threads", handler: threadsHandler},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -56,6 +55,105 @@ func TestProductionDisabledRoutesFailClosedBeforeHandler(t *testing.T) {
 	}
 }
 
+func TestProductionBatchAndRealtimeRoutesFailClosedBeforeHandler(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	batchHandler := &countingHandler{}
+	realtimeHandler := &countingHandler{}
+	engine := gin.New()
+	RegisterRoutesWithOptions(engine, map[types.APIType]types.Handler{
+		types.APITypeBatch:    batchHandler,
+		types.APITypeRealtime: realtimeHandler,
+	}, RouteRegistrationOptions{Production: true})
+
+	for _, tc := range []struct {
+		name    string
+		method  string
+		path    string
+		handler *countingHandler
+	}{
+		{name: "realtime websocket", method: http.MethodGet, path: "/v1/realtime", handler: realtimeHandler},
+		{name: "batch create", method: http.MethodPost, path: "/v1/batch", handler: batchHandler},
+		{name: "batch list", method: http.MethodGet, path: "/v1/batches", handler: batchHandler},
+		{name: "batch retrieve", method: http.MethodGet, path: "/v1/batches/batch_123", handler: batchHandler},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(`{}`))
+			rec := httptest.NewRecorder()
+
+			engine.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusNotImplemented {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusNotImplemented, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), "endpoint_disabled_in_production") {
+				t.Fatalf("expected endpoint_disabled_in_production response, got %s", rec.Body.String())
+			}
+			if tc.handler.calls != 0 {
+				t.Fatalf("disabled route reached handler %d times", tc.handler.calls)
+			}
+		})
+	}
+}
+
+func TestProductionFilesUploadRequiresAuditSinkBeforeHandler(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	filesHandler := &countingHandler{}
+	engine := gin.New()
+	RegisterRoutesWithOptions(engine, map[types.APIType]types.Handler{
+		types.APITypeFiles: filesHandler,
+	}, RouteRegistrationOptions{Production: true})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/files", strings.NewReader(`{}`))
+	addConfiguredTrustedRelayHeaders(t, req)
+	rec := httptest.NewRecorder()
+
+	engine.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusNotImplemented, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "relay_audit_sink_required") {
+		t.Fatalf("expected relay_audit_sink_required response, got %s", rec.Body.String())
+	}
+	if filesHandler.calls != 0 {
+		t.Fatalf("file upload without audit sink reached handler %d times", filesHandler.calls)
+	}
+}
+
+func TestProductionFilesUploadWithAuditSinkReachesHandler(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	filesHandler := &identityRecordingHandler{}
+	audit := &recordingRouteAuditSink{}
+	engine := gin.New()
+	RegisterRoutesWithOptions(engine, map[types.APIType]types.Handler{
+		types.APITypeFiles: filesHandler,
+	}, RouteRegistrationOptions{Production: true, AuditSink: audit})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/files", strings.NewReader(`{}`))
+	addConfiguredTrustedRelayHeaders(t, req)
+	req.Header.Set(types.HeaderRequestID, "req_file_1")
+	rec := httptest.NewRecorder()
+
+	engine.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusAccepted, rec.Body.String())
+	}
+	if filesHandler.userID != "user_1" || filesHandler.organizationID != "org_1" || filesHandler.requestID != "req_file_1" {
+		t.Fatalf("handler saw identity user=%q org=%q request=%q", filesHandler.userID, filesHandler.organizationID, filesHandler.requestID)
+	}
+	if len(audit.events) != 1 {
+		t.Fatalf("expected 1 audit event, got %d", len(audit.events))
+	}
+	event := audit.events[0]
+	if event.Result != RouteAuditResultAllowed || event.APIType != types.APITypeFiles || event.UserID != "user_1" || event.OrganizationID != "org_1" {
+		t.Fatalf("unexpected audit event: %+v", event)
+	}
+}
+
 func TestProductionSupportedRoutesStillReachHandler(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -66,7 +164,7 @@ func TestProductionSupportedRoutesStillReachHandler(t *testing.T) {
 	}, RouteRegistrationOptions{Production: true})
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{}`))
-	addTrustedRelayHeaders(req)
+	addConfiguredTrustedRelayHeaders(t, req)
 	rec := httptest.NewRecorder()
 
 	engine.ServeHTTP(rec, req)
@@ -133,6 +231,30 @@ func TestProductionSupportedRoutesRequireTrustedIdentityBeforeHandler(t *testing
 	}
 }
 
+func TestProductionTrustedIdentityRejectsDefaultInternalTokenWhenSecretUnset(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("OBLIVIOUS_INTERNAL_AUTH_TOKEN", "")
+
+	chatHandler := &countingHandler{}
+	engine := gin.New()
+	RegisterRoutesWithOptions(engine, map[types.APIType]types.Handler{
+		types.APITypeChat: chatHandler,
+	}, RouteRegistrationOptions{Production: true})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{}`))
+	addTrustedRelayHeaders(req)
+	rec := httptest.NewRecorder()
+
+	engine.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusUnauthorized, rec.Body.String())
+	}
+	if chatHandler.calls != 0 {
+		t.Fatalf("default internal token reached handler %d times", chatHandler.calls)
+	}
+}
+
 func TestProductionSupportedRoutesAttachTrustedIdentityAndAudit(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -144,8 +266,10 @@ func TestProductionSupportedRoutesAttachTrustedIdentityAndAudit(t *testing.T) {
 	}, RouteRegistrationOptions{Production: true, AuditSink: audit})
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{}`))
-	addTrustedRelayHeaders(req)
+	addConfiguredTrustedRelayHeaders(t, req)
 	req.Header.Set(types.HeaderRequestID, "req_123")
+	req.Header.Set(types.HeaderInternalUserGroup, "vip")
+	req.Header.Set(types.HeaderInternalConversation, "conversation_1")
 	rec := httptest.NewRecorder()
 
 	engine.ServeHTTP(rec, req)
@@ -156,12 +280,118 @@ func TestProductionSupportedRoutesAttachTrustedIdentityAndAudit(t *testing.T) {
 	if chatHandler.userID != "user_1" || chatHandler.organizationID != "org_1" || chatHandler.requestID != "req_123" {
 		t.Fatalf("handler saw identity user=%q org=%q request=%q", chatHandler.userID, chatHandler.organizationID, chatHandler.requestID)
 	}
+	if chatHandler.userGroup != "vip" {
+		t.Fatalf("handler saw user group %q, want vip", chatHandler.userGroup)
+	}
+	if chatHandler.conversationID != "conversation_1" {
+		t.Fatalf("handler saw conversation id %q, want conversation_1", chatHandler.conversationID)
+	}
 	if len(audit.events) != 1 {
 		t.Fatalf("expected 1 audit event, got %d", len(audit.events))
 	}
 	event := audit.events[0]
 	if event.Result != RouteAuditResultAllowed || event.UserID != "user_1" || event.OrganizationID != "org_1" || event.RequestID != "req_123" {
 		t.Fatalf("unexpected audit event: %+v", event)
+	}
+}
+
+func TestProductionSupportedRoutesAcceptRelayAPIToken(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	chatHandler := &identityRecordingHandler{}
+	authenticator := &fakeRelayAPITokenAuthenticator{
+		identity: types.RelayAPITokenIdentity{
+			TokenID:        "tok_1",
+			UserID:         "user_token",
+			OrganizationID: "org_token",
+			UserGroup:      "vip",
+		},
+	}
+	engine := gin.New()
+	RegisterRoutesWithOptions(engine, map[types.APIType]types.Handler{
+		types.APITypeChat: chatHandler,
+	}, RouteRegistrationOptions{Production: true, APITokenAuthenticator: authenticator})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-4o","messages":[{"role":"user","content":"ping"}]}`))
+	req.Header.Set("Authorization", "Bearer obv_test")
+	req.Header.Set(types.HeaderRequestID, "req_token")
+	rec := httptest.NewRecorder()
+
+	engine.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusAccepted, rec.Body.String())
+	}
+	if authenticator.rawToken != "obv_test" || authenticator.model != "gpt-4o" || authenticator.apiType != types.APITypeChat {
+		t.Fatalf("authenticator saw token=%q model=%q apiType=%s", authenticator.rawToken, authenticator.model, authenticator.apiType.String())
+	}
+	if chatHandler.userID != "user_token" || chatHandler.organizationID != "org_token" || chatHandler.apiTokenID != "tok_1" || chatHandler.requestID != "req_token" {
+		t.Fatalf("handler saw identity user=%q org=%q token=%q request=%q", chatHandler.userID, chatHandler.organizationID, chatHandler.apiTokenID, chatHandler.requestID)
+	}
+	if chatHandler.userGroup != "vip" {
+		t.Fatalf("handler saw API token user group %q, want vip", chatHandler.userGroup)
+	}
+}
+
+func TestProductionAPITokenRequestGetsGeneratedRequestID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	chatHandler := &identityRecordingHandler{}
+	authenticator := &fakeRelayAPITokenAuthenticator{
+		identity: types.RelayAPITokenIdentity{
+			TokenID:        "tok_1",
+			UserID:         "user_token",
+			OrganizationID: "org_token",
+		},
+	}
+	engine := gin.New()
+	RegisterRoutesWithOptions(engine, map[types.APIType]types.Handler{
+		types.APITypeChat: chatHandler,
+	}, RouteRegistrationOptions{Production: true, APITokenAuthenticator: authenticator})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-4o","messages":[{"role":"user","content":"ping"}]}`))
+	req.Header.Set("Authorization", "Bearer obv_test")
+	rec := httptest.NewRecorder()
+
+	engine.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusAccepted, rec.Body.String())
+	}
+	if chatHandler.requestID == "" {
+		t.Fatal("expected generated request id in handler context")
+	}
+	if rec.Header().Get(types.HeaderRequestID) != chatHandler.requestID {
+		t.Fatalf("response request id = %q, handler request id = %q", rec.Header().Get(types.HeaderRequestID), chatHandler.requestID)
+	}
+}
+
+func TestProductionSupportedRoutesRejectAPITokenModelDenied(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	chatHandler := &countingHandler{}
+	engine := gin.New()
+	RegisterRoutesWithOptions(engine, map[types.APIType]types.Handler{
+		types.APITypeChat: chatHandler,
+	}, RouteRegistrationOptions{
+		Production:            true,
+		APITokenAuthenticator: &fakeRelayAPITokenAuthenticator{err: types.ErrRelayAPITokenModelDenied},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-4o"}`))
+	req.Header.Set("Authorization", "Bearer obv_model_denied")
+	rec := httptest.NewRecorder()
+
+	engine.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusForbidden, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "relay_model_not_allowed") {
+		t.Fatalf("expected relay_model_not_allowed response, got %s", rec.Body.String())
+	}
+	if chatHandler.calls != 0 {
+		t.Fatalf("denied token reached handler %d times", chatHandler.calls)
 	}
 }
 
@@ -202,7 +432,7 @@ func TestRoutePolicyObservabilityRecordsAllowedAndRejectedDecisions(t *testing.T
 		"none",
 	))
 	req = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{}`))
-	addTrustedRelayHeaders(req)
+	addConfiguredTrustedRelayHeaders(t, req)
 	rec = httptest.NewRecorder()
 	engine.ServeHTTP(rec, req)
 	allowedAfter := testutil.ToFloat64(metrics.RelayRouteDecisionsTotal.WithLabelValues(
@@ -221,7 +451,7 @@ func TestRoutePolicyObservabilityRecordsAllowedAndRejectedDecisions(t *testing.T
 		string(RouteAuditResultRejected),
 		"endpoint_disabled_in_production",
 	))
-	req = httptest.NewRequest(http.MethodPost, "/v1/files", strings.NewReader(`{}`))
+	req = httptest.NewRequest(http.MethodGet, "/v1/files", nil)
 	rec = httptest.NewRecorder()
 	engine.ServeHTTP(rec, req)
 	disabledAfter := testutil.ToFloat64(metrics.RelayRouteDecisionsTotal.WithLabelValues(
@@ -249,7 +479,7 @@ func TestRoutePolicyObservabilityWritesStructuredDecisionEvent(t *testing.T) {
 	}, RouteRegistrationOptions{Production: true})
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions?api_key=sk-secret", strings.NewReader(`{"prompt":"secret"}`))
-	addTrustedRelayHeaders(req)
+	addConfiguredTrustedRelayHeaders(t, req)
 	req.Header.Set(types.HeaderRequestID, "req_obs_1")
 	rec := httptest.NewRecorder()
 
@@ -304,6 +534,9 @@ type identityRecordingHandler struct {
 	userID         string
 	organizationID string
 	requestID      string
+	apiTokenID     string
+	userGroup      string
+	conversationID string
 }
 
 func (h *identityRecordingHandler) Handle(c *gin.Context) error {
@@ -311,6 +544,9 @@ func (h *identityRecordingHandler) Handle(c *gin.Context) error {
 	h.userID, _ = types.TrustedUserIDFromContext(c.Request.Context())
 	h.organizationID, _ = types.TrustedOrganizationIDFromContext(c.Request.Context())
 	h.requestID, _ = types.TrustedRequestIDFromContext(c.Request.Context())
+	h.apiTokenID, _ = types.TrustedAPITokenIDFromContext(c.Request.Context())
+	h.userGroup, _ = types.TrustedUserGroupFromContext(c.Request.Context())
+	h.conversationID, _ = types.TrustedConversationIDFromContext(c.Request.Context())
 	c.JSON(http.StatusAccepted, gin.H{"ok": true})
 	return nil
 }
@@ -331,4 +567,30 @@ func addTrustedRelayHeaders(req *http.Request) {
 	req.Header.Set(types.HeaderInternalAuth, types.SharedInternalToken)
 	req.Header.Set(types.HeaderInternalUserID, "user_1")
 	req.Header.Set(types.HeaderInternalOrganization, "org_1")
+}
+
+func addConfiguredTrustedRelayHeaders(t *testing.T, req *http.Request) {
+	t.Helper()
+	t.Setenv("OBLIVIOUS_INTERNAL_AUTH_TOKEN", "test-internal-token")
+	req.Header.Set(types.HeaderInternalAuth, "test-internal-token")
+	req.Header.Set(types.HeaderInternalUserID, "user_1")
+	req.Header.Set(types.HeaderInternalOrganization, "org_1")
+}
+
+type fakeRelayAPITokenAuthenticator struct {
+	identity types.RelayAPITokenIdentity
+	err      error
+	rawToken string
+	model    string
+	apiType  types.APIType
+}
+
+func (a *fakeRelayAPITokenAuthenticator) AuthenticateRelayAPIToken(ctx context.Context, rawToken, model string, apiType types.APIType) (types.RelayAPITokenIdentity, error) {
+	a.rawToken = rawToken
+	a.model = model
+	a.apiType = apiType
+	if a.err != nil {
+		return types.RelayAPITokenIdentity{}, a.err
+	}
+	return a.identity, nil
 }

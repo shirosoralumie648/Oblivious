@@ -7,8 +7,9 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
+
+	"github.com/google/uuid"
 
 	"oblivious/server/internal/auth"
 	"oblivious/server/internal/metrics"
@@ -24,9 +25,14 @@ const (
 	observabilityScopeContextKey contextKey = "observability-scope"
 )
 
-var requestCounter uint64
 var observabilityLogger = observability.NewJSONLogger(os.Stdout)
 var observabilityLoggerMu sync.RWMutex
+var requestLogSink observability.RequestLogSink = observability.NoopRequestLogSink{}
+var requestLogSinkMu sync.RWMutex
+var httpAlertSink observability.AlertSink
+var httpAlertSinkMu sync.RWMutex
+var httpRecoveryController *observability.RecoveryController
+var httpRecoveryControllerMu sync.RWMutex
 
 type statusRecorder struct {
 	stdhttp.ResponseWriter
@@ -66,7 +72,7 @@ func withRecover(next stdhttp.Handler) stdhttp.Handler {
 
 func withRequestID(next stdhttp.Handler) stdhttp.Handler {
 	return stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
-		requestID := fmt.Sprintf("%d-%d", time.Now().UnixNano(), atomic.AddUint64(&requestCounter, 1))
+		requestID := uuid.NewString()
 		w.Header().Set(requestIDHeader, requestID)
 
 		ctx := context.WithValue(r.Context(), requestIDContextKey, requestID)
@@ -101,17 +107,34 @@ func withLogging(next stdhttp.Handler) stdhttp.Handler {
 		organizationID, userID := scope.snapshot()
 		metrics.RecordHTTPRequest(r.Method, route, recorder.status)
 		metrics.ObserveHTTPRequestDuration(r.Method, route, duration.Seconds())
-		currentObservabilityLogger().Log(ctx, observability.Event{
-			Component:      "http",
+		component, featureType := classifyRequestFeature(r.URL.Path)
+		traceID := requestID
+		if _, err := uuid.Parse(traceID); err != nil {
+			traceID = uuid.NewString()
+		}
+		spanID := uuid.NewString()
+		event := observability.Event{
+			Component:      component,
 			Event:          "http.request",
 			RequestID:      requestID,
+			TraceID:        traceID,
+			SpanID:         spanID,
 			OrganizationID: organizationID,
 			UserID:         userID,
 			Method:         r.Method,
 			Route:          route,
 			Status:         recorder.status,
 			Latency:        duration,
-		})
+			Fields: map[string]any{
+				"feature_type": featureType,
+			},
+		}
+		if component == observability.ComponentRelay {
+			event.RelayAPIType = featureType
+		}
+		currentObservabilityLogger().Log(ctx, event)
+		_ = observability.WriteRequestLog(ctx, currentRequestLogSink(), event, startedAt.UTC())
+		routeHTTPAlert(ctx, r.Method, route, recorder.status, duration, startedAt.UTC(), requestID)
 	})
 }
 
@@ -152,6 +175,117 @@ func setObservabilityLoggerForTest(logger *observability.Logger) func() {
 		observabilityLoggerMu.Lock()
 		observabilityLogger = previous
 		observabilityLoggerMu.Unlock()
+	}
+}
+
+func currentRequestLogSink() observability.RequestLogSink {
+	requestLogSinkMu.RLock()
+	defer requestLogSinkMu.RUnlock()
+	return requestLogSink
+}
+
+func setRequestLogSinkForTest(sink observability.RequestLogSink) func() {
+	return setRequestLogSink(sink)
+}
+
+func setRequestLogSink(sink observability.RequestLogSink) func() {
+	requestLogSinkMu.Lock()
+	previous := requestLogSink
+	requestLogSink = sink
+	requestLogSinkMu.Unlock()
+
+	return func() {
+		requestLogSinkMu.Lock()
+		requestLogSink = previous
+		requestLogSinkMu.Unlock()
+	}
+}
+
+func setHTTPAlertRouterForTest(sink observability.AlertSink) func() {
+	return setHTTPAlertSink(sink)
+}
+
+func setHTTPAlertSink(sink observability.AlertSink) func() {
+	httpAlertSinkMu.Lock()
+	previous := httpAlertSink
+	httpAlertSink = sink
+	httpAlertSinkMu.Unlock()
+
+	return func() {
+		httpAlertSinkMu.Lock()
+		httpAlertSink = previous
+		httpAlertSinkMu.Unlock()
+	}
+}
+
+func currentHTTPAlertSink() observability.AlertSink {
+	httpAlertSinkMu.RLock()
+	defer httpAlertSinkMu.RUnlock()
+	return httpAlertSink
+}
+
+func setHTTPRecoveryControllerForTest(controller *observability.RecoveryController) func() {
+	return setHTTPRecoveryController(controller)
+}
+
+func setHTTPRecoveryController(controller *observability.RecoveryController) func() {
+	httpRecoveryControllerMu.Lock()
+	previous := httpRecoveryController
+	httpRecoveryController = controller
+	httpRecoveryControllerMu.Unlock()
+
+	return func() {
+		httpRecoveryControllerMu.Lock()
+		httpRecoveryController = previous
+		httpRecoveryControllerMu.Unlock()
+	}
+}
+
+func currentHTTPRecoveryController() *observability.RecoveryController {
+	httpRecoveryControllerMu.RLock()
+	defer httpRecoveryControllerMu.RUnlock()
+	return httpRecoveryController
+}
+
+func routeHTTPAlert(ctx context.Context, method, route string, status int, latency time.Duration, occurredAt time.Time, requestID string) {
+	if status < stdhttp.StatusInternalServerError {
+		return
+	}
+	alertSink := currentHTTPAlertSink()
+	recoveryController := currentHTTPRecoveryController()
+	if alertSink == nil && recoveryController == nil {
+		return
+	}
+	event := httpAlertEvent(method, route, status, latency, occurredAt, requestID)
+	if alertSink != nil {
+		_ = alertSink.Notify(ctx, event)
+	}
+	if recoveryController != nil {
+		_, _ = recoveryController.HandleAlert(ctx, event)
+	}
+}
+
+func httpAlertEvent(method, route string, status int, latency time.Duration, occurredAt time.Time, requestID string) observability.AlertEvent {
+	severity := observability.AlertSeverityWarning
+	if status >= stdhttp.StatusServiceUnavailable {
+		severity = observability.AlertSeverityCritical
+	}
+	return observability.AlertEvent{
+		Key:        fmt.Sprintf("http:%s:%d", route, status),
+		Severity:   severity,
+		Title:      fmt.Sprintf("HTTP %d on %s", status, route),
+		Message:    fmt.Sprintf("%s %s returned %d in %dms", method, route, status, latency.Milliseconds()),
+		Component:  observability.ComponentHTTP,
+		OccurredAt: occurredAt,
+		Fields: map[string]any{
+			"method":      method,
+			"route":       route,
+			"status":      status,
+			"latency_ms":  latency.Milliseconds(),
+			"request_id":  requestID,
+			"source":      "http.middleware",
+			"status_text": stdhttp.StatusText(status),
+		},
 	}
 }
 
@@ -197,6 +331,52 @@ func normalizeRoute(path string) string {
 		}
 	}
 	return "/" + strings.Join(segments, "/")
+}
+
+func classifyRequestFeature(path string) (string, string) {
+	normalized := strings.ToLower(strings.TrimSpace(path))
+	if normalized == "" {
+		return observability.ComponentHTTP, "http"
+	}
+
+	switch {
+	case strings.HasPrefix(normalized, "/v1/") || strings.HasPrefix(normalized, "/api/v1/relay/"):
+		return observability.ComponentRelay, classifyRelayFeature(normalized)
+	case strings.HasPrefix(normalized, "/api/v1/workflows"):
+		return observability.ComponentWorkflow, "workflow"
+	case strings.HasPrefix(normalized, "/api/v1/agent/") || normalized == "/api/v1/agent" ||
+		strings.HasPrefix(normalized, "/api/v1/app/agents"):
+		return observability.ComponentAgent, "agent"
+	case strings.Contains(normalized, "/knowledge-bases") || strings.HasPrefix(normalized, "/api/v1/documents/"):
+		return "rag", "rag"
+	case strings.Contains(normalized, "/conversations") ||
+		strings.Contains(normalized, "/message-shares") ||
+		strings.Contains(normalized, "/conversation-shares") ||
+		strings.Contains(normalized, "/personas"):
+		return "chat", "chat"
+	default:
+		return observability.ComponentHTTP, "http"
+	}
+}
+
+func classifyRelayFeature(path string) string {
+	switch {
+	case strings.Contains(path, "/images"):
+		return "image"
+	case strings.Contains(path, "/audio") ||
+		strings.Contains(path, "/speech") ||
+		strings.Contains(path, "/transcriptions") ||
+		strings.Contains(path, "/translations"):
+		return "audio"
+	case strings.Contains(path, "/embeddings"):
+		return "rag"
+	case strings.Contains(path, "/chat") ||
+		strings.Contains(path, "/responses") ||
+		strings.Contains(path, "/completions"):
+		return "chat"
+	default:
+		return "relay"
+	}
 }
 
 func withCORS(allowedOrigins []string) func(stdhttp.Handler) stdhttp.Handler {

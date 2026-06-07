@@ -1,16 +1,16 @@
 package handler
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	relaycache "oblivious/server/internal/relay/cache"
 	"oblivious/server/internal/relay/channel"
 	"oblivious/server/internal/relay/types"
 )
@@ -21,12 +21,17 @@ var upgrader = websocket.Upgrader{
 
 // ChatHandler Chat Completions 处理
 type ChatHandler struct {
-	pool    *types.ChannelPoolInterface
-	adapter *channel.OpenAIAdapter
+	pool                  *types.ChannelPoolInterface
+	adapter               *channel.OpenAIAdapter
+	semanticCacheEmbedder SemanticCacheEmbedder
 }
 
 func NewChatHandler(p *types.ChannelPoolInterface, a *channel.OpenAIAdapter) *ChatHandler {
 	return &ChatHandler{pool: p, adapter: a}
+}
+
+func NewChatHandlerWithSemanticCacheEmbedder(p *types.ChannelPoolInterface, a *channel.OpenAIAdapter, embedder SemanticCacheEmbedder) *ChatHandler {
+	return &ChatHandler{pool: p, adapter: a, semanticCacheEmbedder: embedder}
 }
 
 // Handle 同步请求
@@ -65,45 +70,42 @@ func (h *ChatHandler) Handle(c *gin.Context) error {
 		ToolChoice: rawReq["tool_choice"],
 	}
 
-	if stream {
-		c.JSON(http.StatusNotImplemented, gin.H{"error": gin.H{"code": "streaming_settlement_not_supported", "message": "Chat streaming is disabled until tested billing settlement semantics exist"}})
-		return nil
-	}
-
-	// Resolve trusted internal user identity for app-originated requests.
-	ctx := c.Request.Context()
-	if internalAuth := c.GetHeader(types.HeaderInternalAuth); internalAuth != "" {
-		expectedToken := os.Getenv("OBLIVIOUS_INTERNAL_AUTH_TOKEN")
-		if expectedToken == "" {
-			expectedToken = types.SharedInternalToken
-		}
-		if internalAuth == expectedToken {
-			if userID := c.GetHeader(types.HeaderInternalUserID); userID != "" {
-				ctx = types.WithTrustedUserID(ctx, userID)
-			}
-			if organizationID := c.GetHeader(types.HeaderInternalOrganization); organizationID != "" {
-				ctx = types.WithTrustedOrganizationID(ctx, organizationID)
-			}
-			c.Request = c.Request.WithContext(ctx)
-		}
-	}
+	applyTrustedInternalIdentity(c)
 
 	// 估算用量
 	usage := h.adapter.EstimateUsage(req)
 
+	if cacheReq, cacheable := semanticCacheRequestFromChat(c.Request.Context(), req); cacheable {
+		cacheReq = attachSemanticCacheEmbedding(c.Request.Context(), cacheReq, h.semanticCacheEmbedder)
+		c.Request = c.Request.WithContext(types.WithSemanticCacheRequest(c.Request.Context(), cacheReq))
+	}
+
 	// 通过 executeRequest 路由
 	resp, err := h.executeRequest(c, req, usage)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "relay_error", "message": err.Error()}})
+		writeRelayHandlerError(c, resp, err)
 		return nil
 	}
 
-	c.Data(http.StatusOK, "application/json", resp.Content)
+	if req.Stream {
+		h.handleStream(c, req, resp)
+		return nil
+	}
+
+	statusCode := resp.StatusCode
+	if statusCode < http.StatusContinue {
+		statusCode = http.StatusOK
+	}
+	c.Data(statusCode, "application/json", resp.Content)
 	return nil
 }
 
 // handleStream SSE 流式处理
 func (h *ChatHandler) handleStream(c *gin.Context, req *channel.ProviderRequest, resp *types.ProviderResponse) {
+	statusCode := resp.StatusCode
+	if statusCode < http.StatusContinue {
+		statusCode = http.StatusOK
+	}
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
@@ -112,14 +114,59 @@ func (h *ChatHandler) handleStream(c *gin.Context, req *channel.ProviderRequest,
 	// resp.Content 在真实实现中是 upstream response body
 	// 这里简化处理；真实场景需要流式代理
 	if len(resp.Content) > 0 {
-		c.Writer.Write(resp.Content)
-		c.Writer.(http.Flusher).Flush()
+		c.Data(statusCode, "text/event-stream", resp.Content)
+		return
 	}
+	c.Status(statusCode)
 }
 
 // HandleStream 实现 Handler 接口（用于 WebSocket，但 Chat 用 Handle）
 func (h *ChatHandler) HandleStream(c *gin.Context) error {
 	return h.Handle(c)
+}
+
+func semanticCacheRequestFromChat(ctx context.Context, req *channel.ProviderRequest) (types.SemanticCacheRequest, bool) {
+	if req == nil || req.Stream || strings.TrimSpace(req.Model) == "" {
+		return types.SemanticCacheRequest{}, false
+	}
+	query := canonicalChatSemanticCacheQuery(req)
+	if strings.TrimSpace(query) == "" {
+		return types.SemanticCacheRequest{}, false
+	}
+	organizationID, hasOrganizationID := types.TrustedOrganizationIDFromContext(ctx)
+	userID, hasUserID := types.TrustedUserIDFromContext(ctx)
+	cacheReq := types.SemanticCacheRequest{
+		OrganizationID: organizationID,
+		UserID:         userID,
+		Model:          req.Model,
+		Query:          query,
+	}
+	if hasOrganizationID || hasUserID {
+		cacheReq.UserScoped = relaycache.IsSensitiveSemanticCacheRequest(cacheReq)
+	}
+	return cacheReq, true
+}
+
+func canonicalChatSemanticCacheQuery(req *channel.ProviderRequest) string {
+	if len(req.Messages) == 0 {
+		return ""
+	}
+	payload := struct {
+		Messages   []types.Message  `json:"messages"`
+		MaxTokens  int              `json:"max_tokens,omitempty"`
+		Tools      []map[string]any `json:"tools,omitempty"`
+		ToolChoice any              `json:"tool_choice,omitempty"`
+	}{
+		Messages:   req.Messages,
+		MaxTokens:  req.MaxTokens,
+		Tools:      req.Tools,
+		ToolChoice: req.ToolChoice,
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
+	return string(body)
 }
 
 func (h *ChatHandler) executeRequest(c *gin.Context, req *channel.ProviderRequest, usage *types.Usage) (*types.ProviderResponse, error) {
@@ -141,43 +188,35 @@ func (h *ChatHandler) executeRequest(c *gin.Context, req *channel.ProviderReques
 		idempotencyKey,
 		usage,
 		func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
-			upstreamURL, _ := h.adapter.BuildURL(req.Model, req.APIType)
-			headers, _ := h.adapter.BuildHeaders(c.Request.Context(), req.Model, req.APIType)
-
-			providerReq := &channel.ProviderRequest{
-				APIType:   req.APIType,
-				Model:     req.Model,
-				URL:       upstreamURL,
-				Stream:    req.Stream,
-				Messages:  req.Messages,
-				MaxTokens: req.MaxTokens,
-				Headers:   headers,
+			if ch == nil || ch.Channel == nil {
+				return nil, types.ErrNoAvailableChannel
+			}
+			adapter, err := channel.AdapterForChannel(ch.Channel)
+			if err != nil {
+				return nil, err
+			}
+			upstreamURL, err := adapter.BuildURL(req.Model, req.APIType)
+			if err != nil {
+				return nil, err
+			}
+			headers, err := adapter.BuildHeaders(c.Request.Context(), req.Model, req.APIType)
+			if err != nil {
+				return nil, err
 			}
 
-			return h.doUpstreamRequest(providerReq)
+			providerReq := &channel.ProviderRequest{
+				APIType:    req.APIType,
+				Model:      req.Model,
+				URL:        upstreamURL,
+				Stream:     req.Stream,
+				Messages:   req.Messages,
+				MaxTokens:  req.MaxTokens,
+				Headers:    headers,
+				Tools:      req.Tools,
+				ToolChoice: req.ToolChoice,
+			}
+
+			return executeProviderAdapterRequest(c.Request.Context(), adapter, providerReq)
 		},
 	)
-}
-
-func (h *ChatHandler) doUpstreamRequest(req *channel.ProviderRequest) (*types.ProviderResponse, error) {
-	body, err := marshalRequest(req)
-	if err != nil {
-		return nil, err
-	}
-	upstreamReq, err := http.NewRequest("POST", req.URL, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	upstreamReq.Header = req.Headers.Clone()
-	upstreamReq.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Do(upstreamReq)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	bodyOut, _ := io.ReadAll(resp.Body)
-	return providerResponseFromHTTP(resp.StatusCode, bodyOut), nil
 }

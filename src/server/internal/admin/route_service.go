@@ -35,6 +35,9 @@ func (s *Service) CreateRoute(ctx context.Context, actor auth.Session, input Rou
 	if err != nil {
 		return nil, err
 	}
+	if err := s.applyRelayConfigChange(ctx, RelayConfigChange{Kind: RelayConfigChangeRoute, Action: RelayConfigActionUpsert, ID: result.ID}); err != nil {
+		return nil, err
+	}
 
 	changes, _ := json.Marshal(input)
 	ip := extractIP(r)
@@ -53,6 +56,9 @@ func (s *Service) UpdateRoute(ctx context.Context, actor auth.Session, id string
 	if err != nil {
 		return nil, err
 	}
+	if err := s.applyRelayConfigChange(ctx, RelayConfigChange{Kind: RelayConfigChangeRoute, Action: RelayConfigActionUpsert, ID: result.ID}); err != nil {
+		return nil, err
+	}
 
 	changes, _ := json.Marshal(input)
 	ip := extractIP(r)
@@ -64,6 +70,9 @@ func (s *Service) UpdateRoute(ctx context.Context, actor auth.Session, id string
 // DeleteRoute deletes a model route and records an audit entry.
 func (s *Service) DeleteRoute(ctx context.Context, actor auth.Session, id string, r *http.Request) error {
 	if err := s.store.DeleteRoute(ctx, id); err != nil {
+		return err
+	}
+	if err := s.applyRelayConfigChange(ctx, RelayConfigChange{Kind: RelayConfigChangeRoute, Action: RelayConfigActionDelete, ID: id}); err != nil {
 		return err
 	}
 

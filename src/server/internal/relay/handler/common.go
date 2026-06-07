@@ -2,9 +2,11 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -83,6 +85,35 @@ func getBool(m map[string]any, key string) bool {
 	return false
 }
 
+func applyTrustedInternalIdentity(c *gin.Context) {
+	ctx := c.Request.Context()
+	if _, ok := types.TrustedAPITokenIDFromContext(ctx); ok {
+		return
+	}
+	if _, ok := types.TrustedUserIDFromContext(ctx); ok {
+		return
+	}
+	if _, ok := types.TrustedOrganizationIDFromContext(ctx); ok {
+		return
+	}
+	userID, organizationID, requestID, userGroup, ok := trustedIdentityFromHeaders(c, false)
+	if !ok {
+		return
+	}
+	ctx = types.WithTrustedUserID(ctx, userID)
+	ctx = types.WithTrustedOrganizationID(ctx, organizationID)
+	if requestID != "" {
+		ctx = types.WithTrustedRequestID(ctx, requestID)
+	}
+	if userGroup != "" {
+		ctx = types.WithTrustedUserGroup(ctx, userGroup)
+	}
+	if conversationID := strings.TrimSpace(c.GetHeader(types.HeaderInternalConversation)); conversationID != "" {
+		ctx = types.WithTrustedConversationID(ctx, conversationID)
+	}
+	c.Request = c.Request.WithContext(ctx)
+}
+
 // buildUpstreamRequest 构建转发到上游的 HTTP 请求
 func buildUpstreamRequest(req *channel.ProviderRequest) (*http.Request, error) {
 	body, err := marshalRequest(req)
@@ -148,8 +179,13 @@ func marshalRequest(req *channel.ProviderRequest) ([]byte, error) {
 }
 
 func providerResponseFromHTTP(statusCode int, body []byte) *types.ProviderResponse {
+	return providerResponseFromHTTPWithHeaders(statusCode, nil, body)
+}
+
+func providerResponseFromHTTPWithHeaders(statusCode int, headers http.Header, body []byte) *types.ProviderResponse {
 	return &types.ProviderResponse{
 		StatusCode: statusCode,
+		Headers:    headers.Clone(),
 		Content:    body,
 		Done:       true,
 		Usage:      parseProviderUsage(body),
@@ -164,6 +200,88 @@ func parseProviderUsage(body []byte) *types.Usage {
 		return nil
 	}
 	return payload.Usage
+}
+
+func executeProviderAdapterRequest(ctx context.Context, adapter types.ProviderAdapter, req *channel.ProviderRequest) (*types.ProviderResponse, error) {
+	resp, err := adapter.DoRequest(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	bodyOut, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= http.StatusBadRequest {
+		return &types.ProviderResponse{
+			StatusCode: resp.StatusCode,
+			Headers:    resp.Header.Clone(),
+			Content:    bodyOut,
+			Done:       true,
+			Error:      adapter.MapError(resp.StatusCode, bodyOut),
+		}, nil
+	}
+	providerResp, err := adapter.ConvertResponse(bodyOut, req.Stream)
+	if err != nil {
+		return nil, err
+	}
+	if providerResp == nil {
+		return providerResponseFromHTTPWithHeaders(resp.StatusCode, resp.Header, bodyOut), nil
+	}
+	providerResp.StatusCode = resp.StatusCode
+	providerResp.Headers = resp.Header.Clone()
+	if len(providerResp.Content) == 0 {
+		providerResp.Content = bodyOut
+	}
+	providerResp.Done = true
+	return providerResp, nil
+}
+
+type relayStatusError interface {
+	StatusCode() int
+}
+
+type relayCodeError interface {
+	RelayErrorCode() string
+}
+
+func writeRelayHandlerError(c *gin.Context, resp *types.ProviderResponse, err error) {
+	if resp != nil {
+		statusCode := resp.StatusCode
+		if statusCode < http.StatusContinue {
+			statusCode = http.StatusBadGateway
+		}
+		if len(resp.Content) > 0 && (resp.StatusCode >= http.StatusBadRequest || resp.Error != nil || err == nil) {
+			c.Data(statusCode, "application/json", resp.Content)
+			return
+		}
+		if resp.Error != nil {
+			code := resp.Error.Code
+			if code == "" {
+				code = "provider_error"
+			}
+			message := resp.Error.Message
+			if message == "" && err != nil {
+				message = err.Error()
+			}
+			c.JSON(statusCode, gin.H{"error": gin.H{"code": code, "message": message}})
+			return
+		}
+	}
+
+	statusCode := http.StatusInternalServerError
+	if err != nil {
+		if statusErr, ok := err.(relayStatusError); ok && statusErr.StatusCode() >= http.StatusBadRequest {
+			statusCode = statusErr.StatusCode()
+		}
+	}
+	message := "relay request failed"
+	code := "relay_error"
+	if err != nil {
+		message = err.Error()
+		if codedErr, ok := err.(relayCodeError); ok && codedErr.RelayErrorCode() != "" {
+			code = codedErr.RelayErrorCode()
+		}
+	}
+	c.JSON(statusCode, gin.H{"error": gin.H{"code": code, "message": message}})
 }
 
 // passthroughHelper 通用的透传函数

@@ -7,19 +7,20 @@ import (
 
 // PublisherStats holds aggregate statistics for a publisher's agents (D-23).
 type PublisherStats struct {
-	TotalAgents             int          `json:"totalAgents"`
-	TotalInstalls           int          `json:"totalInstalls"`
-	ActiveUsers             int          `json:"activeUsers"`
-	TotalAPICalls           int          `json:"totalAPICalls"`
-	GrossRevenue            float64      `json:"grossRevenue"`
-	PlatformFees            float64      `json:"platformFees"`
-	NetRevenue              float64      `json:"netRevenue"`
-	RefundedAmount          float64      `json:"refundedAmount"`
-	PendingSettlementAmount float64      `json:"pendingSettlementAmount"`
-	AvailableAmount         float64      `json:"availableAmount"`
-	PayoutPendingAmount     float64      `json:"payoutPendingAmount"`
-	PaidOutAmount           float64      `json:"paidOutAmount"`
-	PerAgentStats           []AgentStats `json:"perAgentStats"`
+	TotalAgents             int                              `json:"totalAgents"`
+	TotalInstalls           int                              `json:"totalInstalls"`
+	ActiveUsers             int                              `json:"activeUsers"`
+	TotalAPICalls           int                              `json:"totalAPICalls"`
+	GrossRevenue            float64                          `json:"grossRevenue"`
+	PlatformFees            float64                          `json:"platformFees"`
+	NetRevenue              float64                          `json:"netRevenue"`
+	RefundedAmount          float64                          `json:"refundedAmount"`
+	PendingSettlementAmount float64                          `json:"pendingSettlementAmount"`
+	AvailableAmount         float64                          `json:"availableAmount"`
+	PayoutPendingAmount     float64                          `json:"payoutPendingAmount"`
+	PaidOutAmount           float64                          `json:"paidOutAmount"`
+	RevenueTier             MarketplaceRevenueTierDisclosure `json:"revenueTier"`
+	PerAgentStats           []AgentStats                     `json:"perAgentStats"`
 }
 
 // AgentStats holds per-agent statistics for a publisher (D-23).
@@ -84,6 +85,8 @@ func (s *Service) GetPublisherStats(ctx context.Context, ownerID, organizationID
 		&stats.PayoutPendingAmount, &stats.PaidOutAmount); err != nil {
 		return nil, fmt.Errorf("get publisher stats: settlement amounts: %w", err)
 	}
+
+	stats.RevenueTier = marketplaceRevenueTierDisclosure(stats.GrossRevenue)
 
 	// Per-agent stats
 	rows, err := db.QueryContext(ctx, `

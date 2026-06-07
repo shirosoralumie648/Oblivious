@@ -46,9 +46,17 @@ describe('WorkspaceLayout', () => {
     expect(await screen.findByRole('link', { name: 'Chat' })).toBeInTheDocument();
     expect(await screen.findByRole('link', { name: 'SOLO' })).toBeInTheDocument();
     expect(await screen.findByRole('link', { name: 'Knowledge' })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Agent Memories' })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Agents' })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'MCP Servers' })).toBeInTheDocument();
     expect(await screen.findByRole('link', { name: 'Settings' })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Workflows' })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Scheduled Tasks' })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Publishing' })).toBeInTheDocument();
     expect(await screen.findByRole('link', { name: 'Console' })).toBeInTheDocument();
     expect(await screen.findByText('Workspace child')).toBeInTheDocument();
+    expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
+    expect(document.querySelectorAll('[data-gsap-item]').length).toBeGreaterThan(4);
   });
 
   it('renders workspace navigation in chat-first order', async () => {
@@ -69,6 +77,19 @@ describe('WorkspaceLayout', () => {
 
     const links = (await screen.findAllByRole('link')).map((link) => link.textContent);
 
-    expect(links).toEqual(['Chat', 'Knowledge', 'SOLO', 'Settings', 'Console']);
+    expect(links).toEqual([
+      'Chat',
+      'Knowledge',
+      'Agents',
+      'MCP Servers',
+      'Agent Memories',
+      'SOLO',
+      'Workflows',
+      'Scheduled Tasks',
+      'Publishing',
+      'Settings',
+      'Console',
+      'Marketplace'
+    ]);
   });
 });

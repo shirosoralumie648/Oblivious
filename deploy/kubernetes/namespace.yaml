@@ -4,3 +4,4 @@ metadata:
   name: oblivious
   labels:
     app.kubernetes.io/name: oblivious
+    app.kubernetes.io/part-of: oblivious

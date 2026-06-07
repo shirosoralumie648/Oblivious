@@ -1,38 +1,153 @@
 import type { HttpClient } from '../../services/http/client';
+import { streamText } from '../../services/http/stream';
 import type {
   ConversationConfig,
   ConversationMessage,
+  ConversationShareResponse,
   ConversationSummary,
   ConvertConversationToTaskResponse,
   CreateConversationRequest,
+  BookmarkConversationMessageRequest,
+  ForkConversationRequest,
+  MessageShareResponse,
   ModelOption,
+  PersonaSummary,
   SendMessageRequest,
+  UpdateConversationMessageRequest,
   UpdateConversationConfigRequest
 } from '../../types/api';
 
+export type CreateMessageShareOptions = {
+  expiresAt?: string;
+};
+
+export type CreateConversationShareOptions = {
+  endMessageId?: string;
+  expiresAt?: string;
+  startMessageId?: string;
+};
+
 export type ChatApi = {
   createConversation: (payload: CreateConversationRequest) => Promise<ConversationSummary>;
+  createConversationShare: (
+    conversationId: string,
+    options?: CreateConversationShareOptions
+  ) => Promise<ConversationShareResponse>;
+  createMessageShare: (
+    conversationId: string,
+    messageId: string,
+    options?: CreateMessageShareOptions
+  ) => Promise<MessageShareResponse>;
   convertConversationToTask: (conversationId: string) => Promise<ConvertConversationToTaskResponse>;
+  deleteConversation: (conversationId: string) => Promise<void>;
+  deleteMessage: (conversationId: string, messageId: string) => Promise<void>;
+  exportConversationMarkdown: (conversationId: string) => Promise<string>;
+  forkConversation: (conversationId: string, payload: ForkConversationRequest) => Promise<ConversationSummary>;
+  bookmarkMessage: (
+    conversationId: string,
+    messageId: string,
+    payload: BookmarkConversationMessageRequest
+  ) => Promise<ConversationMessage>;
+  getConversation: (conversationId: string) => Promise<ConversationSummary>;
   getConversationConfig: (conversationId: string) => Promise<ConversationConfig>;
   listConversations: () => Promise<ConversationSummary[]>;
   listMessages: (conversationId: string) => Promise<ConversationMessage[]>;
   listModels: () => Promise<ModelOption[]>;
+  listPersonas: () => Promise<PersonaSummary[]>;
   sendMessage: (conversationId: string, payload: SendMessageRequest) => Promise<ConversationMessage[]>;
+  sendMessageStream: (
+    conversationId: string,
+    payload: SendMessageRequest,
+    handlers: { onChunk: (chunk: string) => void; signal?: AbortSignal }
+  ) => Promise<void>;
+  updateMessage: (
+    conversationId: string,
+    messageId: string,
+    payload: UpdateConversationMessageRequest
+  ) => Promise<ConversationMessage>;
+  updateConversation: (conversationId: string, payload: CreateConversationRequest) => Promise<ConversationSummary>;
   updateConversationConfig: (conversationId: string, payload: UpdateConversationConfigRequest) => Promise<ConversationConfig>;
 };
 
-export function createChatApi(client: HttpClient): ChatApi {
+export type ChatApiOptions = {
+  fetchFn?: typeof fetch;
+};
+
+export function createChatApi(client: HttpClient, options: ChatApiOptions = {}): ChatApi {
+  const fetchFn = options.fetchFn ?? fetch;
+  const messagePath = (conversationId: string, messageId: string) =>
+    `/api/v1/app/conversations/${conversationId}/messages/${messageId}`;
+  const normalizeMessageShare = (share: MessageShareResponse): MessageShareResponse => ({
+    ...share,
+    id: share.id ?? share.shareId,
+    url: share.url ?? share.shareUrl
+  });
+  const normalizeConversationShare = (share: ConversationShareResponse): ConversationShareResponse => ({
+    ...share,
+    id: share.id ?? share.shareId,
+    url: share.url ?? share.shareUrl
+  });
+  const normalizeConversationSummary = (conversation: ConversationSummary): ConversationSummary => ({
+    ...conversation,
+    parentId: conversation.parentId ?? conversation.parent_id
+  });
+
   return {
     createConversation: (payload) => client.post<ConversationSummary>('/api/v1/app/conversations', payload),
+    createConversationShare: async (conversationId, options) => {
+      const path = `/api/v1/app/conversations/${conversationId}/share`;
+      const share =
+        options === undefined
+          ? await client.post<ConversationShareResponse>(path)
+          : await client.post<ConversationShareResponse>(path, options);
+      return normalizeConversationShare(share);
+    },
+    createMessageShare: async (conversationId, messageId, options) => {
+      const path = `${messagePath(conversationId, messageId)}/share`;
+      const share =
+        options === undefined
+          ? await client.post<MessageShareResponse>(path)
+          : await client.post<MessageShareResponse>(path, options);
+      return normalizeMessageShare(share);
+    },
     convertConversationToTask: (conversationId) =>
       client.post<ConvertConversationToTaskResponse>(`/api/v1/app/conversations/${conversationId}/convert-to-task`),
+    deleteConversation: (conversationId) => client.delete<void>(`/api/v1/app/conversations/${conversationId}`),
+    deleteMessage: (conversationId, messageId) => client.delete<void>(messagePath(conversationId, messageId)),
+    exportConversationMarkdown: (conversationId) =>
+      client.get<string>(`/api/v1/app/conversations/${encodeURIComponent(conversationId)}/export.md`),
+    forkConversation: async (conversationId, payload) =>
+      normalizeConversationSummary(await client.post<ConversationSummary>(`/api/v1/app/conversations/${conversationId}/fork`, payload)),
+    bookmarkMessage: (conversationId, messageId, payload) =>
+      client.post<ConversationMessage>(`${messagePath(conversationId, messageId)}/bookmark`, payload),
+    getConversation: async (conversationId) =>
+      normalizeConversationSummary(await client.get<ConversationSummary>(`/api/v1/app/conversations/${conversationId}`)),
     getConversationConfig: (conversationId) =>
       client.get<ConversationConfig>(`/api/v1/app/conversations/${conversationId}/config`),
     listConversations: () => client.get<ConversationSummary[]>('/api/v1/app/conversations'),
     listMessages: (conversationId) => client.get<ConversationMessage[]>(`/api/v1/app/conversations/${conversationId}/messages`),
     listModels: () => client.get<ModelOption[]>('/api/v1/app/models'),
+    listPersonas: () => client.get<PersonaSummary[]>('/api/v1/app/personas'),
     sendMessage: (conversationId, payload) =>
       client.post<ConversationMessage[]>(`/api/v1/app/conversations/${conversationId}/messages`, payload),
+    sendMessageStream: (conversationId, payload, handlers) =>
+      streamText(
+        `/api/v1/app/conversations/${conversationId}/messages/stream`,
+        handlers.onChunk,
+        fetchFn,
+        {
+          body: JSON.stringify(payload),
+          headers: {
+            Accept: 'text/event-stream',
+            'Content-Type': 'application/json'
+          },
+          method: 'POST',
+          signal: handlers.signal
+        }
+      ),
+    updateMessage: (conversationId, messageId, payload) => client.put<ConversationMessage>(messagePath(conversationId, messageId), payload),
+    updateConversation: async (conversationId, payload) =>
+      normalizeConversationSummary(await client.put<ConversationSummary>(`/api/v1/app/conversations/${conversationId}`, payload)),
     updateConversationConfig: (conversationId, payload) =>
       client.put<ConversationConfig>(`/api/v1/app/conversations/${conversationId}/config`, payload)
   };

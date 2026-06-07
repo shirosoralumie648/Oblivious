@@ -8,7 +8,14 @@ import { Textarea } from '@/components/ui/textarea';
 
 import { EmptyState } from '../../components/shared/EmptyState';
 import { RatingStars } from '../../components/shared/RatingStars';
-import { createMarketplaceApi, type AgentReview, type AgentVersion, type MarketplaceAgent } from '../../features/marketplace/api';
+import {
+  createMarketplaceApi,
+  getMarketplaceCheckoutUrl,
+  isMarketplaceCheckoutResponse,
+  type AgentReview,
+  type AgentVersion,
+  type MarketplaceAgent,
+} from '../../features/marketplace/api';
 import { createHttpClient } from '../../services/http/client';
 
 type DetailState = {
@@ -18,9 +25,11 @@ type DetailState = {
   loading: boolean;
   error: string | null;
   selectedVersion: string;
+  paymentProvider: string;
   reviewRating: number;
   reviewText: string;
   actionMessage: string | null;
+  checkoutUrl: string | null;
   actionError: { title: string; message?: string } | null;
   installing: boolean;
   submittingReview: boolean;
@@ -31,9 +40,11 @@ type Action =
   | { type: 'LOAD_SUCCESS'; agent: MarketplaceAgent; versions: AgentVersion[]; reviews: AgentReview[] }
   | { type: 'LOAD_ERROR'; error: string }
   | { type: 'SET_VERSION'; value: string }
+  | { type: 'SET_PAYMENT_PROVIDER'; value: string }
   | { type: 'SET_RATING'; value: number }
   | { type: 'SET_REVIEW'; value: string }
   | { type: 'SET_MESSAGE'; value: string | null }
+  | { type: 'SET_CHECKOUT'; url: string }
   | { type: 'SET_ACTION_ERROR'; title: string; message?: string }
   | { type: 'SET_INSTALLING'; value: boolean }
   | { type: 'SET_SUBMITTING_REVIEW'; value: boolean };
@@ -45,9 +56,11 @@ const initialState: DetailState = {
   loading: true,
   error: null,
   selectedVersion: '',
+  paymentProvider: 'stripe',
   reviewRating: 5,
   reviewText: '',
   actionMessage: null,
+  checkoutUrl: null,
   actionError: null,
   installing: false,
   submittingReview: false,
@@ -71,14 +84,18 @@ function reducer(state: DetailState, action: Action): DetailState {
       return { ...state, loading: false, error: action.error };
     case 'SET_VERSION':
       return { ...state, selectedVersion: action.value };
+    case 'SET_PAYMENT_PROVIDER':
+      return { ...state, paymentProvider: action.value };
     case 'SET_RATING':
       return { ...state, reviewRating: action.value };
     case 'SET_REVIEW':
       return { ...state, reviewText: action.value };
     case 'SET_MESSAGE':
-      return { ...state, actionError: null, actionMessage: action.value };
+      return { ...state, actionError: null, actionMessage: action.value, checkoutUrl: null };
+    case 'SET_CHECKOUT':
+      return { ...state, actionError: null, actionMessage: 'Checkout session ready.', checkoutUrl: action.url };
     case 'SET_ACTION_ERROR':
-      return { ...state, actionError: { title: action.title, message: action.message }, actionMessage: null };
+      return { ...state, actionError: { title: action.title, message: action.message }, actionMessage: null, checkoutUrl: null };
     case 'SET_INSTALLING':
       return { ...state, installing: action.value };
     case 'SET_SUBMITTING_REVIEW':
@@ -101,6 +118,38 @@ function getErrorMessage(error: unknown, fallback: string) {
 
 function priceLabel(agent: MarketplaceAgent) {
   return agent.pricingType === 'free' ? 'Free' : `$${agent.pricingAmount.toFixed(2)}`;
+}
+
+function isPaidAgent(agent: MarketplaceAgent) {
+  return agent.pricingType !== 'free' && agent.pricingAmount > 0;
+}
+
+function paymentProviderLabel(provider: string) {
+  switch (provider) {
+    case 'alipay':
+      return 'Alipay';
+    case 'wechatpay':
+      return 'WeChat Pay';
+    default:
+      return 'Stripe';
+  }
+}
+
+function normalizedPaymentProviders(agent: MarketplaceAgent) {
+  if (agent.paymentProviders === undefined) {
+    return [{ name: 'stripe' }];
+  }
+
+  return agent.paymentProviders
+    .map((provider) => ({ name: provider.name.trim().toLowerCase() }))
+    .filter((provider) => provider.name !== '');
+}
+
+function selectedPaymentProviderForAgent(agent: MarketplaceAgent, selectedProvider: string) {
+  const providers = normalizedPaymentProviders(agent);
+  return providers.some((provider) => provider.name === selectedProvider)
+    ? selectedProvider
+    : providers[0]?.name ?? '';
 }
 
 export function MarketplaceAgentDetailPage() {
@@ -137,8 +186,19 @@ export function MarketplaceAgentDetailPage() {
     dispatch({ type: 'SET_INSTALLING', value: true });
     dispatch({ type: 'SET_MESSAGE', value: null });
     try {
-      await api.installAgent(agentId, state.selectedVersion || undefined);
-      dispatch({ type: 'SET_MESSAGE', value: 'Agent installed.' });
+      const paymentProvider = state.agent && isPaidAgent(state.agent)
+        ? selectedPaymentProviderForAgent(state.agent, state.paymentProvider)
+        : '';
+      const installResult =
+        state.agent && isPaidAgent(state.agent)
+          ? await api.installAgent(agentId, state.selectedVersion || undefined, paymentProvider || undefined)
+          : await api.installAgent(agentId, state.selectedVersion || undefined);
+      const checkoutUrl = getMarketplaceCheckoutUrl(installResult);
+      if (isMarketplaceCheckoutResponse(installResult) && checkoutUrl) {
+        dispatch({ type: 'SET_CHECKOUT', url: checkoutUrl });
+      } else {
+        dispatch({ type: 'SET_MESSAGE', value: 'Agent installed.' });
+      }
     } catch (error) {
       dispatch({
         type: 'SET_ACTION_ERROR',
@@ -185,6 +245,11 @@ export function MarketplaceAgentDetailPage() {
   }
 
   const agent = state.agent;
+  const paidAgent = isPaidAgent(agent);
+  const paymentProviders = paidAgent ? normalizedPaymentProviders(agent) : [];
+  const selectedPaymentProvider = paidAgent ? selectedPaymentProviderForAgent(agent, state.paymentProvider) : '';
+  const checkoutLabel =
+    selectedPaymentProvider === 'stripe' ? 'Continue checkout' : `Continue ${paymentProviderLabel(selectedPaymentProvider)} checkout`;
 
   return (
     <div className="space-y-6">
@@ -227,10 +292,27 @@ export function MarketplaceAgentDetailPage() {
                 ))}
               </select>
             ) : null}
-            <Button type="button" className="min-h-[44px] w-full" disabled={state.installing} onClick={() => void handleInstall()}>
+            {paidAgent && paymentProviders.length > 0 ? (
+              <select
+                aria-label="Payment provider"
+                value={selectedPaymentProvider}
+                onChange={(event) => dispatch({ type: 'SET_PAYMENT_PROVIDER', value: event.target.value })}
+                className="min-h-[44px] w-full rounded-lg border border-input bg-input/30 px-3 text-sm text-foreground"
+              >
+                {paymentProviders.map((provider) => (
+                  <option key={provider.name} value={provider.name}>{paymentProviderLabel(provider.name)}</option>
+                ))}
+              </select>
+            ) : null}
+            <Button type="button" className="min-h-[44px] w-full" disabled={state.installing || (paidAgent && paymentProviders.length === 0)} onClick={() => void handleInstall()}>
               Install Agent
             </Button>
             {state.actionMessage ? <p className="text-sm text-muted-foreground">{state.actionMessage}</p> : null}
+            {state.checkoutUrl ? (
+              <Button asChild className="min-h-[44px] w-full" variant="secondary">
+                <a href={state.checkoutUrl}>{checkoutLabel}</a>
+              </Button>
+            ) : null}
             {state.actionError ? (
               <div role="alert" className="rounded-lg border border-destructive/30 p-3 text-sm text-destructive">
                 <p>{state.actionError.title}</p>

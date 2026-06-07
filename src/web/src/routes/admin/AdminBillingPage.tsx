@@ -21,6 +21,8 @@ type BillingState = {
   total: number;
   loading: boolean;
   error: string | null;
+  actionError: string | null;
+  actioningPayoutId: string | null;
   surface: BillingSurface;
   filters: {
     organizationID: string;
@@ -35,8 +37,12 @@ type BillingAction =
   | { type: 'LOAD_START' }
   | { type: 'LOAD_SUCCESS'; summary: BillingSummary; rows: BillingInspectionRecord[]; total: number }
   | { type: 'LOAD_ERROR'; error: string }
+  | { type: 'ACTION_START'; payoutId: string }
+  | { type: 'ACTION_DONE' }
+  | { type: 'ACTION_ERROR'; error: string }
   | { type: 'SET_SURFACE'; surface: BillingSurface }
-  | { type: 'SET_FILTER'; field: keyof BillingState['filters']; value: string };
+  | { type: 'SET_FILTER'; field: keyof BillingState['filters']; value: string }
+  | { type: 'OPEN_FAILED_WEBHOOKS' };
 
 const initialState: BillingState = {
   summary: {},
@@ -44,6 +50,8 @@ const initialState: BillingState = {
   total: 0,
   loading: true,
   error: null,
+  actionError: null,
+  actioningPayoutId: null,
   surface: 'sessions',
   filters: {
     organizationID: '',
@@ -62,10 +70,18 @@ function reducer(state: BillingState, action: BillingAction): BillingState {
       return { ...state, loading: false, error: null, summary: action.summary, rows: action.rows, total: action.total };
     case 'LOAD_ERROR':
       return { ...state, loading: false, error: action.error };
+    case 'ACTION_START':
+      return { ...state, actionError: null, actioningPayoutId: action.payoutId };
+    case 'ACTION_DONE':
+      return { ...state, actioningPayoutId: null };
+    case 'ACTION_ERROR':
+      return { ...state, actioningPayoutId: null, actionError: action.error };
     case 'SET_SURFACE':
       return { ...state, surface: action.surface };
     case 'SET_FILTER':
       return { ...state, filters: { ...state.filters, [action.field]: action.value } };
+    case 'OPEN_FAILED_WEBHOOKS':
+      return { ...state, surface: 'webhookEvents', filters: { ...state.filters, status: 'failed' } };
     default:
       return state;
   }
@@ -206,6 +222,9 @@ const surfaces: SurfaceConfig[] = [
     columns: [
       { key: 'id', header: 'Refund', render: (row) => idCell(row.id) },
       { key: 'providerRefundId', header: 'Provider ID', render: (row) => idCell(row.providerRefundId) },
+      { key: 'reason', header: 'Reason', render: (row) => row.reason || '-' },
+      { key: 'paymentIntentId', header: 'Payment Intent', render: (row) => idCell(row.paymentIntentId) },
+      { key: 'topupOrderId', header: 'Top-up Order', render: (row) => idCell(row.topupOrderId) },
       { key: 'amount', header: 'Amount', render: amountCell },
       { key: 'status', header: 'Status', render: statusCell },
       { key: 'createdAt', header: 'Created', render: (row) => dateLabel(row.createdAt) },
@@ -280,6 +299,23 @@ export function AdminBillingPage() {
     void loadBilling();
   }, [loadBilling]);
 
+  const handleMarkPayoutPaid = async (record: BillingInspectionRecord) => {
+    const providerPayoutId = record.providerPayoutId || record.id;
+    dispatch({ type: 'ACTION_START', payoutId: record.id });
+    try {
+      await api.markMarketplacePayoutPaid(record.id, providerPayoutId);
+      dispatch({ type: 'ACTION_DONE' });
+      await loadBilling();
+    } catch (error) {
+      dispatch({ type: 'ACTION_ERROR', error: error instanceof Error ? error.message : 'Unable to mark payout paid.' });
+    }
+  };
+
+  const failedWebhookCount = state.summary.webhookEvents?.failedCount ?? 0;
+  const refundedPaymentAmount = state.summary.paymentIntents?.refundedAmount ?? 0;
+  const refundedTopupAmount = state.summary.topups?.refundedAmount ?? 0;
+  const refundedRefundAmount = state.summary.refunds?.refundedAmount ?? 0;
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -298,6 +334,36 @@ export function AdminBillingPage() {
             </div>
           );
         })}
+      </div>
+
+      <div className="rounded-lg border border-border bg-card p-4">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Recovery queue</div>
+            <div className="mt-1 text-base font-semibold text-foreground">Failure recovery</div>
+          </div>
+          <div className="grid flex-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <div className="text-xs text-muted-foreground">Failed webhooks</div>
+              <div className="mt-1 text-lg font-semibold text-foreground">{numberLabel(failedWebhookCount)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">Payment refunds</div>
+              <div className="mt-1 text-lg font-semibold text-foreground">{money(refundedPaymentAmount)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">Top-up refunds</div>
+              <div className="mt-1 text-lg font-semibold text-foreground">{money(refundedTopupAmount)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">Refund records</div>
+              <div className="mt-1 text-lg font-semibold text-foreground">{money(refundedRefundAmount)}</div>
+            </div>
+          </div>
+          <Button type="button" variant="outline" className="min-h-[40px] self-start lg:self-center" onClick={() => dispatch({ type: 'OPEN_FAILED_WEBHOOKS' })}>
+            Review failed webhooks
+          </Button>
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-2" role="tablist" aria-label="Billing surfaces">
@@ -361,7 +427,25 @@ export function AdminBillingPage() {
         error={state.error}
         emptyMessage="No billing records found for this commercial surface."
         onRetry={loadBilling}
+        renderActions={
+          state.surface === 'payouts'
+            ? (record) =>
+                record.status === 'payout_pending' ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="min-h-[36px]"
+                    disabled={state.actioningPayoutId === record.id}
+                    aria-label={`Mark payout ${record.id} paid`}
+                    onClick={() => void handleMarkPayoutPaid(record)}
+                  >
+                    Mark paid
+                  </Button>
+                ) : null
+            : undefined
+        }
       />
+      {state.actionError ? <div role="alert" className="text-sm text-destructive">{state.actionError}</div> : null}
     </div>
   );
 }

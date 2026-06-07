@@ -3,18 +3,42 @@ package marketplace
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
+
+	"oblivious/server/internal/notification"
 )
 
 type GovernanceService struct {
-	store *SQLStore
+	store        *SQLStore
+	notification *notification.Service
+	scanner      ReviewScanner
 }
 
-func NewGovernanceService(store *SQLStore) *GovernanceService {
-	return &GovernanceService{store: store}
+type GovernanceOption func(*GovernanceService)
+
+func WithGovernanceNotifications(service *notification.Service) GovernanceOption {
+	return func(s *GovernanceService) {
+		s.notification = service
+	}
+}
+
+func WithGovernanceScanner(scanner ReviewScanner) GovernanceOption {
+	return func(s *GovernanceService) {
+		s.scanner = scanner
+	}
+}
+
+func NewGovernanceService(store *SQLStore, opts ...GovernanceOption) *GovernanceService {
+	service := &GovernanceService{store: store, scanner: NewStaticReviewScanner()}
+	for _, opt := range opts {
+		opt(service)
+	}
+	return service
 }
 
 func (s *GovernanceService) TakedownAgent(ctx context.Context, action GovernanceAction) error {
@@ -62,6 +86,93 @@ func (s *GovernanceService) ReinstateAgent(ctx context.Context, action Governanc
 	return s.updateAgentGovernanceStatus(ctx, action, "reinstate", "approved")
 }
 
+func (s *GovernanceService) RequestAgentChanges(ctx context.Context, action GovernanceAction) error {
+	if action.ActorUserID == "" || action.AgentID == "" || action.Reason == "" {
+		return fmt.Errorf("request agent changes: actor, agent, and reason are required")
+	}
+	tx, err := s.store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("request agent changes: begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	var currentStatus string
+	if err := tx.QueryRowContext(ctx, `SELECT status FROM published_agents WHERE id = $1 FOR UPDATE`, action.AgentID).Scan(&currentStatus); err != nil {
+		return fmt.Errorf("request agent changes: load agent: %w", err)
+	}
+	if currentStatus != AgentStatusPendingReview {
+		return fmt.Errorf("request agent changes: agent not in pending_review state")
+	}
+	now := time.Now().UTC()
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE published_agents
+		SET status = $2, reviewed_at = $4, review_reason = $3, updated_at = $4
+		WHERE id = $1 AND status = $5
+	`, action.AgentID, AgentStatusNeedsChanges, action.Reason, now, AgentStatusPendingReview); err != nil {
+		return fmt.Errorf("request agent changes: update agent: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE agent_versions SET status = $2
+		WHERE agent_id = $1 AND status = $3
+	`, action.AgentID, AgentStatusNeedsChanges, AgentStatusPendingReview); err != nil {
+		return fmt.Errorf("request agent changes: update versions: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO marketplace_governance_events (
+			id, actor_user_id, actor_organization_id, agent_id, action,
+			from_status, to_status, reason, metadata, created_at
+		)
+		VALUES ($1, $2, NULLIF($3, ''), $4, 'needs_changes', $5, $6, $7, '{}', $8)
+	`, uuid.New().String(), action.ActorUserID, action.ActorOrganizationID, action.AgentID, currentStatus, AgentStatusNeedsChanges, action.Reason, now); err != nil {
+		return fmt.Errorf("request agent changes: insert event: %w", err)
+	}
+	return tx.Commit()
+}
+
+func (s *GovernanceService) RunAutomatedReview(ctx context.Context, agentID string) (*AutomatedReviewResult, error) {
+	if agentID == "" {
+		return nil, fmt.Errorf("automated review: agent is required")
+	}
+	agent, err := s.store.GetAgent(ctx, agentID)
+	if err != nil {
+		return nil, fmt.Errorf("automated review: load agent: %w", err)
+	}
+	if agent == nil {
+		return nil, fmt.Errorf("automated review: agent not found")
+	}
+	if agent.Status != "pending_review" {
+		return nil, fmt.Errorf("automated review: agent not in pending_review state")
+	}
+
+	scanner := s.scanner
+	if scanner == nil {
+		scanner = NewStaticReviewScanner()
+	}
+	result, err := scanner.ScanAgent(ctx, *agent)
+	if err != nil {
+		return nil, fmt.Errorf("automated review: scan agent: %w", err)
+	}
+	if result.AgentID == "" {
+		result.AgentID = agent.ID
+	}
+	if result.Scanner == "" {
+		result.Scanner = defaultReviewScannerName
+	}
+	if result.CreatedAt.IsZero() {
+		result.CreatedAt = time.Now().UTC()
+	}
+	if result.Decision == "" {
+		result.Decision = "pending_manual_review"
+	}
+	if result.Decision != "pending_manual_review" && result.Decision != "rejected" {
+		return nil, fmt.Errorf("automated review: unsupported decision %q", result.Decision)
+	}
+	if err := s.persistAutomatedReview(ctx, *agent, result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func (s *GovernanceService) ReportAbuse(ctx context.Context, req AbuseReportRequest) (*AbuseReport, error) {
 	if req.ReporterOrganizationID == "" || req.ReporterUserID == "" || req.AgentID == "" || req.Reason == "" {
 		return nil, fmt.Errorf("report abuse: reporter, agent, and reason are required")
@@ -72,12 +183,12 @@ func (s *GovernanceService) ReportAbuse(ctx context.Context, req AbuseReportRequ
 	}
 	defer tx.Rollback()
 
-	var exists bool
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM published_agents WHERE id = $1)`, req.AgentID).Scan(&exists); err != nil {
+	var publisherUserID, agentName string
+	if err := tx.QueryRowContext(ctx, `SELECT owner_id, name FROM published_agents WHERE id = $1`, req.AgentID).Scan(&publisherUserID, &agentName); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("report abuse: agent not found")
+		}
 		return nil, fmt.Errorf("report abuse: check agent: %w", err)
-	}
-	if !exists {
-		return nil, fmt.Errorf("report abuse: agent not found")
 	}
 
 	now := time.Now().UTC()
@@ -103,7 +214,114 @@ func (s *GovernanceService) ReportAbuse(ctx context.Context, req AbuseReportRequ
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("report abuse: commit: %w", err)
 	}
+	if err := s.notifyAbuseReportOpened(ctx, publisherUserID, agentName, req, reportID); err != nil {
+		return nil, err
+	}
 	return s.loadAbuseReport(ctx, reportID)
+}
+
+func (s *GovernanceService) persistAutomatedReview(ctx context.Context, agent PublishedAgent, result AutomatedReviewResult) error {
+	tx, err := s.store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("automated review: begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	var currentStatus string
+	if err := tx.QueryRowContext(ctx, `SELECT status FROM published_agents WHERE id = $1 FOR UPDATE`, agent.ID).Scan(&currentStatus); err != nil {
+		return fmt.Errorf("automated review: lock agent: %w", err)
+	}
+	if currentStatus != "pending_review" {
+		return fmt.Errorf("automated review: agent not in pending_review state")
+	}
+
+	now := time.Now().UTC()
+	action := "automated_review_pass"
+	nextStatus := "pending_review"
+	reason := "automated review passed; awaiting manual review"
+	if result.Decision == "rejected" {
+		action = "automated_review_reject"
+		nextStatus = "rejected"
+		reason = automatedReviewReason(result.Findings)
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE published_agents
+			SET status = 'rejected', review_reason = $2, reviewed_at = $3, updated_at = $3
+			WHERE id = $1 AND status = 'pending_review'
+		`, agent.ID, reason, now); err != nil {
+			return fmt.Errorf("automated review: reject agent: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE agent_versions SET status = 'rejected'
+			WHERE agent_id = $1 AND status = 'pending_review'
+		`, agent.ID); err != nil {
+			return fmt.Errorf("automated review: reject versions: %w", err)
+		}
+	}
+
+	metadata, err := json.Marshal(map[string]any{
+		"agentID":   result.AgentID,
+		"decision":  result.Decision,
+		"scanner":   result.Scanner,
+		"findings":  result.Findings,
+		"createdAt": result.CreatedAt,
+	})
+	if err != nil {
+		return fmt.Errorf("automated review: encode metadata: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO marketplace_governance_events (
+			id, actor_user_id, actor_organization_id, agent_id, action,
+			from_status, to_status, reason, metadata, created_at
+		)
+		VALUES ($1, NULL, NULL, $2, $3, $4, $5, $6, $7::jsonb, $8)
+	`, uuid.New().String(), agent.ID, action, currentStatus, nextStatus, reason, string(metadata), now); err != nil {
+		return fmt.Errorf("automated review: insert event: %w", err)
+	}
+	return tx.Commit()
+}
+
+func automatedReviewReason(findings []ReviewFinding) string {
+	if len(findings) == 0 {
+		return "automated review rejected"
+	}
+	types := make([]string, 0, len(findings))
+	seen := map[string]bool{}
+	for _, finding := range findings {
+		if finding.Type == "" || seen[finding.Type] {
+			continue
+		}
+		seen[finding.Type] = true
+		types = append(types, finding.Type)
+	}
+	if len(types) == 0 {
+		return "automated review rejected"
+	}
+	return "automated review rejected: " + strings.Join(types, ", ")
+}
+
+func (s *GovernanceService) notifyAbuseReportOpened(ctx context.Context, publisherUserID, agentName string, req AbuseReportRequest, reportID string) error {
+	if s.notification == nil {
+		return nil
+	}
+	_, err := s.notification.CreateEvent(ctx, notification.NotificationEvent{
+		UserID:    publisherUserID,
+		Type:      "warning",
+		Category:  "marketplace",
+		Title:     "Marketplace report received",
+		Message:   fmt.Sprintf("Your published agent %q received a marketplace report for %s.", agentName, req.Reason),
+		ActionURL: fmt.Sprintf("/marketplace/agents/%s/reports/%s", req.AgentID, reportID),
+		Metadata: map[string]any{
+			"event":                  "marketplace.abuse_report.opened",
+			"reportID":               reportID,
+			"agentID":                req.AgentID,
+			"reason":                 req.Reason,
+			"reporterOrganizationID": req.ReporterOrganizationID,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("report abuse: notify publisher: %w", err)
+	}
+	return nil
 }
 
 func (s *GovernanceService) ResolveAbuseReport(ctx context.Context, resolution AbuseResolution) error {
@@ -148,6 +366,60 @@ func (s *GovernanceService) ResolveAbuseReport(ctx context.Context, resolution A
 		return fmt.Errorf("resolve abuse report: insert event: %w", err)
 	}
 	return tx.Commit()
+}
+
+func (s *GovernanceService) ListAbuseReports(ctx context.Context, filter AbuseReportFilter) ([]*AbuseReport, error) {
+	if s.store == nil || s.store.db == nil {
+		return nil, fmt.Errorf("list abuse reports: store is not configured")
+	}
+	status := strings.TrimSpace(filter.Status)
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	query := `
+		SELECT id, reporter_organization_id, reporter_user_id, agent_id, reason,
+		       details, status, resolution, reviewer_user_id, created_at, updated_at
+		FROM marketplace_abuse_reports`
+	args := []any{}
+	if status != "" {
+		args = append(args, status)
+		query += fmt.Sprintf(" WHERE status = $%d", len(args))
+	}
+	args = append(args, limit, offset)
+	query += fmt.Sprintf(" ORDER BY created_at DESC, id DESC LIMIT $%d OFFSET $%d", len(args)-1, len(args))
+
+	rows, err := s.store.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list abuse reports: query: %w", err)
+	}
+	defer rows.Close()
+
+	reports := []*AbuseReport{}
+	for rows.Next() {
+		var report AbuseReport
+		var details, resolution, reviewer sql.NullString
+		if err := rows.Scan(&report.ID, &report.ReporterOrganizationID, &report.ReporterUserID, &report.AgentID,
+			&report.Reason, &details, &report.Status, &resolution, &reviewer, &report.CreatedAt, &report.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("list abuse reports: scan: %w", err)
+		}
+		report.Details = details.String
+		report.Resolution = resolution.String
+		report.ReviewerUserID = reviewer.String
+		reports = append(reports, &report)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list abuse reports: rows: %w", err)
+	}
+	return reports, nil
 }
 
 func (s *GovernanceService) updateAgentGovernanceStatus(ctx context.Context, action GovernanceAction, eventAction string, nextStatus string) error {

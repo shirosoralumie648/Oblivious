@@ -42,7 +42,9 @@ wait_for_compose_dependencies() {
 
   for attempt in $(seq 1 "$attempts"); do
     if docker compose exec -T postgres pg_isready -U oblivious -d oblivious >/dev/null 2>&1 &&
-      [[ "$(docker compose exec -T redis redis-cli ping 2>/dev/null | tr -d '\r')" == "PONG" ]]; then
+      [[ "$(docker compose exec -T redis redis-cli ping 2>/dev/null | tr -d '\r')" == "PONG" ]] &&
+      docker compose exec -T qdrant wget -qO- http://localhost:6333/healthz >/dev/null 2>&1 &&
+      docker compose exec -T clickhouse clickhouse-client --query "SELECT 1" >/dev/null 2>&1; then
       echo "[deploy-validate] compose dependencies ready"
       return
     fi
@@ -109,11 +111,14 @@ fi
 rm -f "$build_log"
 
 echo "[deploy-validate] starting data services"
-run_compose_up postgres redis
+run_compose_up postgres redis qdrant clickhouse
 wait_for_compose_dependencies
 
 echo "[deploy-validate] applying migrations"
 docker compose run --rm --no-deps oblivious-server /usr/local/bin/oblivious-migrate
+
+echo "[deploy-validate] applying ClickHouse migrations"
+docker compose run --rm clickhouse-init
 
 echo "[deploy-validate] starting application stack"
 run_compose_up oblivious-server oblivious-web

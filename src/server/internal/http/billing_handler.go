@@ -2,26 +2,31 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	stdhttp "net/http"
+	"strings"
 
 	"github.com/google/uuid"
 
+	"oblivious/server/internal/payment"
 	"oblivious/server/internal/quota"
 	stripebilling "oblivious/server/internal/stripe"
 )
 
 type billingHandler struct {
-	checkoutCreator stripebilling.CheckoutCreator
-	checkoutConfig  stripebilling.CheckoutConfig
-	paymentStore    stripebilling.PaymentIntentStore
-	quotaService    *quota.Service
+	checkoutCreators map[string]stripebilling.CheckoutCreator
+	checkoutConfig   stripebilling.CheckoutConfig
+	paymentStore     stripebilling.PaymentIntentStore
+	quotaService     *quota.Service
+	providerRegistry *payment.Registry
 }
 
 type billingCheckoutRequest struct {
 	PackageID string  `json:"packageId"`
 	Kind      string  `json:"kind"`
 	Amount    float64 `json:"amount"`
+	Provider  string  `json:"provider"`
 }
 
 type billingCheckoutResponse struct {
@@ -29,12 +34,27 @@ type billingCheckoutResponse struct {
 	URL               string `json:"url"`
 }
 
-func newBillingHandler(checkoutCreator stripebilling.CheckoutCreator, checkoutConfig stripebilling.CheckoutConfig, paymentStore stripebilling.PaymentIntentStore, quotaService *quota.Service) billingHandler {
+func newBillingHandler(checkoutCreator stripebilling.CheckoutCreator, checkoutConfig stripebilling.CheckoutConfig, paymentStore stripebilling.PaymentIntentStore, quotaService *quota.Service, providerRegistry *payment.Registry, checkoutCreators map[string]stripebilling.CheckoutCreator) billingHandler {
+	if providerRegistry == nil {
+		providerRegistry = payment.DefaultRegistry()
+	}
+	creators := map[string]stripebilling.CheckoutCreator{}
+	if checkoutCreator != nil {
+		creators["stripe"] = checkoutCreator
+	}
+	for providerName, creator := range checkoutCreators {
+		normalized := strings.ToLower(strings.TrimSpace(providerName))
+		if normalized == "" || creator == nil {
+			continue
+		}
+		creators[normalized] = creator
+	}
 	return billingHandler{
-		checkoutCreator: checkoutCreator,
-		checkoutConfig:  checkoutConfig,
-		paymentStore:    paymentStore,
-		quotaService:    quotaService,
+		checkoutCreators: creators,
+		checkoutConfig:   checkoutConfig,
+		paymentStore:     paymentStore,
+		quotaService:     quotaService,
+		providerRegistry: providerRegistry,
 	}
 }
 
@@ -60,6 +80,28 @@ func (h billingHandler) checkout(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	}
 	if kind != "subscription" && kind != "topup" {
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "kind must be subscription or topup")
+		return
+	}
+	provider, err := h.providerRegistry.Resolve(req.Provider)
+	if err != nil {
+		var providerErr *payment.ProviderError
+		if errors.As(err, &providerErr) {
+			switch providerErr.Code {
+			case payment.CodeProviderNotConfigured:
+				writeError(w, stdhttp.StatusNotImplemented, providerErr.Code, "payment provider is not configured")
+			case payment.CodeUnsupportedProvider:
+				writeError(w, stdhttp.StatusBadRequest, providerErr.Code, "payment provider is not supported")
+			default:
+				writeError(w, stdhttp.StatusBadRequest, "invalid_provider", "payment provider is invalid")
+			}
+			return
+		}
+		writeError(w, stdhttp.StatusBadRequest, "invalid_provider", "payment provider is invalid")
+		return
+	}
+	checkoutCreator := h.checkoutCreators[provider.Name]
+	if checkoutCreator == nil {
+		writeError(w, stdhttp.StatusNotImplemented, payment.CodeProviderNotConfigured, "payment provider checkout is not configured")
 		return
 	}
 
@@ -97,7 +139,7 @@ func (h billingHandler) checkout(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		}
 		intent = stripebilling.PaymentIntent{
 			ID:             paymentIntentID,
-			Provider:       "stripe",
+			Provider:       provider.Name,
 			OrganizationID: session.OrganizationID,
 			UserID:         session.User.ID,
 			PackageID:      pkg.ID,
@@ -119,7 +161,7 @@ func (h billingHandler) checkout(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		checkoutReq.PlanPrice = req.Amount
 		intent = stripebilling.PaymentIntent{
 			ID:             paymentIntentID,
-			Provider:       "stripe",
+			Provider:       provider.Name,
 			OrganizationID: session.OrganizationID,
 			UserID:         session.User.ID,
 			Kind:           kind,
@@ -143,7 +185,7 @@ func (h billingHandler) checkout(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		}
 	}
 
-	checkoutSession, err := h.checkoutCreator.CreateCheckoutSession(r.Context(), h.checkoutConfig, checkoutReq)
+	checkoutSession, err := checkoutCreator.CreateCheckoutSession(r.Context(), h.checkoutConfig, checkoutReq)
 	if err != nil {
 		writeError(w, stdhttp.StatusBadGateway, "checkout_create_failed", "create checkout session failed")
 		return

@@ -1,0 +1,176 @@
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const getRelayPricingSettings = vi.fn();
+const updateRelayPricingSettings = vi.fn();
+const getUsageLimitSettings = vi.fn();
+const updateUsageLimitSettings = vi.fn();
+
+vi.mock('../../features/admin/api', () => ({
+  createAdminApi: () => ({
+    getRelayPricingSettings,
+    updateRelayPricingSettings,
+    getUsageLimitSettings,
+    updateUsageLimitSettings,
+  }),
+}));
+
+import { AdminSettingsPage } from './AdminSettingsPage';
+
+describe('AdminSettingsPage', () => {
+  beforeEach(() => {
+    getRelayPricingSettings.mockReset();
+    updateRelayPricingSettings.mockReset();
+    getUsageLimitSettings.mockReset();
+    updateUsageLimitSettings.mockReset();
+  });
+
+  it('loads and saves relay pricing multiplier settings', async () => {
+    getRelayPricingSettings.mockResolvedValue({
+      modelMultipliers: { 'gpt-4o': 1.5 },
+      groupMultipliers: { vip: 0.8 },
+    });
+    getUsageLimitSettings.mockResolvedValue([]);
+    updateRelayPricingSettings.mockResolvedValue({
+      modelMultipliers: { 'gpt-4o': 2 },
+      groupMultipliers: { vip: 0.75 },
+    });
+
+    render(<AdminSettingsPage />);
+
+    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+    fireEvent.change(await screen.findByLabelText('Model multipliers JSON'), {
+      target: { value: '{ "gpt-4o": 2 }' },
+    });
+    fireEvent.change(screen.getByLabelText('Group multipliers JSON'), {
+      target: { value: '{ "vip": 0.75 }' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Settings' }));
+
+    await waitFor(() => expect(updateRelayPricingSettings).toHaveBeenCalledWith({
+      modelMultipliers: { 'gpt-4o': 2 },
+      groupMultipliers: { vip: 0.75 },
+    }));
+    expect(await screen.findByText('Settings saved.')).toBeInTheDocument();
+  });
+
+  it('loads and saves usage limit settings', async () => {
+    getRelayPricingSettings.mockResolvedValue({
+      modelMultipliers: {},
+      groupMultipliers: {},
+    });
+    getUsageLimitSettings.mockResolvedValue([
+      {
+        organizationId: 'org_1',
+        quotaMode: 'organization',
+        maxConcurrentRequests: 10,
+        windowSeconds: 60,
+        maxTokensPerWindow: 1000,
+      },
+    ]);
+    updateUsageLimitSettings.mockResolvedValue({
+      scopeType: 'user',
+      scopeId: 'user_1',
+      limitType: 'tokens',
+      period: 'hour',
+      limitValue: 300,
+      enabled: true,
+    });
+
+    render(<AdminSettingsPage />);
+
+    expect(await screen.findByText('organization org_1')).toBeInTheDocument();
+    expect(screen.getByText('Mode: organization')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Scope type'), {
+      target: { value: 'user' },
+    });
+    fireEvent.change(screen.getByLabelText('Scope ID'), {
+      target: { value: 'user_1' },
+    });
+    fireEvent.change(screen.getByLabelText('Limit type'), {
+      target: { value: 'tokens' },
+    });
+    fireEvent.change(screen.getByLabelText('Period'), {
+      target: { value: 'hour' },
+    });
+    fireEvent.change(screen.getByLabelText('Limit value'), {
+      target: { value: '300' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Usage Limit' }));
+
+    await waitFor(() => expect(updateUsageLimitSettings).toHaveBeenCalledWith({
+      id: undefined,
+      scopeType: 'user',
+      scopeId: 'user_1',
+      limitType: 'tokens',
+      period: 'hour',
+      limitValue: 300,
+      enabled: true,
+    }));
+    expect(await screen.findByText('Usage limit saved.')).toBeInTheDocument();
+  });
+
+  it('selects an existing usage limit for safe editing before saving', async () => {
+    getRelayPricingSettings.mockResolvedValue({
+      modelMultipliers: {},
+      groupMultipliers: {},
+    });
+    getUsageLimitSettings.mockResolvedValue([
+      {
+        id: 'limit_org_workspace_day',
+        scopeType: 'organization',
+        scopeId: 'org_1',
+        limitType: 'workspace_chat',
+        period: 'day',
+        limitValue: 5000,
+        enabled: true,
+      },
+      {
+        id: 'limit_user_images_hour',
+        scopeType: 'user',
+        scopeId: 'user_1',
+        limitType: 'image_generation',
+        period: 'hour',
+        limitValue: 25,
+        enabled: false,
+      },
+    ]);
+    updateUsageLimitSettings.mockResolvedValue({
+      id: 'limit_user_images_hour',
+      scopeType: 'user',
+      scopeId: 'user_1',
+      limitType: 'image_generation',
+      period: 'hour',
+      limitValue: 30,
+      enabled: true,
+    });
+
+    render(<AdminSettingsPage />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit user user_1 image_generation hour' }));
+
+    expect(screen.getByLabelText('Scope type')).toHaveValue('user');
+    expect(screen.getByLabelText('Scope ID')).toHaveValue('user_1');
+    expect(screen.getByLabelText('Limit type')).toHaveValue('image_generation');
+    expect(screen.getByLabelText('Period')).toHaveValue('hour');
+    expect(screen.getByLabelText('Limit value')).toHaveValue(25);
+    expect(screen.getByLabelText('Enabled')).not.toBeChecked();
+
+    fireEvent.change(screen.getByLabelText('Limit value'), {
+      target: { value: '30' },
+    });
+    fireEvent.click(screen.getByLabelText('Enabled'));
+    fireEvent.click(screen.getByRole('button', { name: 'Save Usage Limit' }));
+
+    await waitFor(() => expect(updateUsageLimitSettings).toHaveBeenCalledWith({
+      id: 'limit_user_images_hour',
+      scopeType: 'user',
+      scopeId: 'user_1',
+      limitType: 'image_generation',
+      period: 'hour',
+      limitValue: 30,
+      enabled: true,
+    }));
+    expect(screen.getByDisplayValue('user_1')).toBeInTheDocument();
+  });
+});

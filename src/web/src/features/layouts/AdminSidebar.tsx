@@ -4,11 +4,14 @@ import {
   RiDashboardLine,
   RiFileListLine,
   RiGitBranchLine,
+  RiKey2Line,
+  RiAlarmWarningLine,
   RiMenuFoldLine,
   RiMenuLine,
   RiMoneyDollarCircleLine,
   RiRouterLine,
   RiSearchLine,
+  RiSettings3Line,
   RiShieldCheckLine,
   RiUserLine,
 } from '@remixicon/react';
@@ -41,6 +44,10 @@ const sidebarGroups: SidebarGroup[] = [
     items: [{ label: 'Channels', path: '/admin/channels', icon: <RiRouterLine />, keywords: ['provider', 'llm', 'api'] }],
   },
   {
+    label: 'Models',
+    items: [{ label: 'Models', path: '/admin/models', icon: <RiFileListLine />, keywords: ['model', 'provider', 'channel', 'cost', 'inventory'] }],
+  },
+  {
     label: 'Routes',
     items: [{ label: 'Model Routes', path: '/admin/routes', icon: <RiGitBranchLine />, keywords: ['routing', 'model'] }],
   },
@@ -51,6 +58,18 @@ const sidebarGroups: SidebarGroup[] = [
   {
     label: 'Billing',
     items: [{ label: 'Billing', path: '/admin/billing', icon: <RiMoneyDollarCircleLine />, keywords: ['billing', 'payment', 'invoice', 'refund', 'stripe', 'settlement', 'payout'] }],
+  },
+  {
+    label: 'Logs',
+    items: [
+      { label: 'API Tokens', path: '/admin/api-tokens', icon: <RiKey2Line />, keywords: ['token', 'key', 'access', 'quota', 'relay'] },
+      { label: 'Usage Logs', path: '/admin/usage-logs', icon: <RiFileListLine />, keywords: ['usage', 'request', 'logs', 'latency', 'cost', 'relay'] },
+      { label: 'Alerts', path: '/admin/alerts', icon: <RiAlarmWarningLine />, keywords: ['alert', 'observability', 'incident', 'health'] },
+    ],
+  },
+  {
+    label: 'Settings',
+    items: [{ label: 'Settings', path: '/admin/settings', icon: <RiSettings3Line />, keywords: ['settings', 'pricing', 'ratio', 'multiplier'] }],
   },
   {
     label: 'Users',
@@ -96,8 +115,9 @@ export function AdminSidebar() {
     <aside
       aria-label="Admin navigation"
       className={cn('flex h-screen shrink-0 flex-col border-r border-sidebar-border bg-card transition-[width]', collapsed ? 'w-16' : 'w-64')}
+      data-gsap-item
     >
-      <div className="flex min-h-16 items-center gap-2 border-b border-sidebar-border p-3">
+      <div className="flex min-h-16 items-center gap-2 border-b border-sidebar-border p-3" data-gsap-item>
         {!collapsed ? (
           <div className="relative flex-1">
             <RiSearchLine className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
@@ -124,7 +144,7 @@ export function AdminSidebar() {
       <ScrollArea className="flex-1">
         <nav className="space-y-5 p-3">
           {filteredGroups.map((group) => (
-            <section key={group.label} className="space-y-2">
+            <section key={group.label} className="space-y-2" data-gsap-item>
               {!collapsed ? (
                 <div className="space-y-2">
                   <Separator />
@@ -145,6 +165,7 @@ export function AdminSidebar() {
                       collapsed && 'justify-center px-0',
                       active && 'border-sidebar-primary bg-sidebar-primary text-sidebar-primary-foreground hover:bg-sidebar-primary hover:text-sidebar-primary-foreground'
                     )}
+                    data-gsap-item
                   >
                     <span className="[&_svg]:size-5">{item.icon}</span>
                     {!collapsed ? <span className="truncate">{item.label}</span> : null}

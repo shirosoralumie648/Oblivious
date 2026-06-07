@@ -3,17 +3,25 @@ package marketplace
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"testing"
+	"time"
 )
 
 type marketplaceServiceStore struct {
-	agents         map[string]*PublishedAgent
-	installs       map[string]*AgentInstall
-	reviews        map[string]*AgentReview
-	lastOwnerID    string
-	lastOrgID      string
-	lastListLimit  int
-	lastListOffset int
+	agents           map[string]*PublishedAgent
+	installs         map[string]*AgentInstall
+	reviews          map[string]*AgentReview
+	templates        map[string]*MarketplaceTemplate
+	templateInstalls map[string]*TemplateInstall
+	settlementPrefs  map[string]MarketplaceSettlementPreferences
+	rankingSignals   map[string]map[AgentRankingSignalEvent]int
+	pendingReviews   []*PublishedAgent
+	lastOwnerID      string
+	lastOrgID        string
+	lastListLimit    int
+	lastListOffset   int
 }
 
 func newMarketplaceServiceStore() *marketplaceServiceStore {
@@ -30,6 +38,22 @@ func newMarketplaceServiceStore() *marketplaceServiceStore {
 		},
 		installs: make(map[string]*AgentInstall),
 		reviews:  make(map[string]*AgentReview),
+		templates: map[string]*MarketplaceTemplate{
+			"tpl_1": {
+				ID:             "tpl_1",
+				OrganizationID: "publisher_org",
+				Type:           "workflow",
+				Name:           "Lead Intake",
+				Description:    "Captures leads and routes follow-up work.",
+				TemplateData:   json.RawMessage(`{"nodes":[{"id":"start"}]}`),
+				Category:       "sales",
+				Tags:           []string{"crm", "sales"},
+				DownloadsCount: 7,
+			},
+		},
+		templateInstalls: make(map[string]*TemplateInstall),
+		settlementPrefs:  make(map[string]MarketplaceSettlementPreferences),
+		rankingSignals:   make(map[string]map[AgentRankingSignalEvent]int),
 	}
 }
 
@@ -95,6 +119,9 @@ func (s *marketplaceServiceStore) ListUserAgents(ctx context.Context, ownerID, o
 }
 
 func (s *marketplaceServiceStore) ListPendingReviews(ctx context.Context, limit, offset int) ([]*PublishedAgent, error) {
+	if s.pendingReviews != nil {
+		return s.pendingReviews, nil
+	}
 	return []*PublishedAgent{{ID: "agent_new", Status: "pending_review"}}, nil
 }
 
@@ -151,6 +178,14 @@ func (s *marketplaceServiceStore) IsInstalled(ctx context.Context, agentID, user
 	return ok, nil
 }
 
+func (s *marketplaceServiceStore) RecordAgentRankingSignal(ctx context.Context, agentID string, event AgentRankingSignalEvent) error {
+	if s.rankingSignals[agentID] == nil {
+		s.rankingSignals[agentID] = make(map[AgentRankingSignalEvent]int)
+	}
+	s.rankingSignals[agentID][event]++
+	return nil
+}
+
 func (s *marketplaceServiceStore) CreateReview(ctx context.Context, userID, organizationID string, input ReviewInput) (*AgentReview, error) {
 	review := &AgentReview{ID: "review_1", AgentID: input.AgentID, OrganizationID: organizationID, UserID: userID, Rating: input.Rating, Body: input.Body}
 	s.reviews[marketplaceTenantKey(organizationID, input.AgentID, userID)] = review
@@ -190,6 +225,56 @@ func (s *marketplaceServiceStore) GetDB() *sql.DB {
 	return nil
 }
 
+func (s *marketplaceServiceStore) CreateTemplate(ctx context.Context, organizationID string, input TemplateCreateRequest) (*MarketplaceTemplate, error) {
+	template := &MarketplaceTemplate{
+		ID:             "tpl_new",
+		OrganizationID: organizationID,
+		Type:           input.Type,
+		Name:           input.Name,
+		Description:    input.Description,
+		TemplateData:   input.TemplateData,
+		Category:       input.Category,
+		Tags:           input.Tags,
+	}
+	s.templates[template.ID] = template
+	return template, nil
+}
+
+func (s *marketplaceServiceStore) ListTemplates(ctx context.Context, filter TemplateFilter) ([]*MarketplaceTemplate, int, error) {
+	var templates []*MarketplaceTemplate
+	for _, template := range s.templates {
+		if filter.Type != "" && template.Type != filter.Type {
+			continue
+		}
+		templates = append(templates, template)
+	}
+	return templates, len(templates), nil
+}
+
+func (s *marketplaceServiceStore) GetTemplate(ctx context.Context, id string) (*MarketplaceTemplate, error) {
+	return s.templates[id], nil
+}
+
+func (s *marketplaceServiceStore) InstallTemplate(ctx context.Context, templateID, userID, organizationID string) (*TemplateInstall, error) {
+	install := &TemplateInstall{ID: "tpl_install_1", TemplateID: templateID, UserID: userID, OrganizationID: organizationID}
+	s.templateInstalls[marketplaceTenantKey(organizationID, templateID, userID)] = install
+	if template := s.templates[templateID]; template != nil {
+		template.DownloadsCount++
+	}
+	return install, nil
+}
+
+func (s *marketplaceServiceStore) GetPublisherSettlementPreferences(ctx context.Context, organizationID string) (*MarketplaceSettlementPreferences, error) {
+	prefs := s.settlementPrefs[organizationID]
+	return &prefs, nil
+}
+
+func (s *marketplaceServiceStore) UpdatePublisherSettlementPreferences(ctx context.Context, organizationID string, cycle string) (*MarketplaceSettlementPreferences, error) {
+	prefs := MarketplaceSettlementPreferences{Cycle: cycle}
+	s.settlementPrefs[organizationID] = prefs
+	return &prefs, nil
+}
+
 type marketplaceAuditRecorder struct {
 	actions []string
 }
@@ -197,6 +282,20 @@ type marketplaceAuditRecorder struct {
 func (a *marketplaceAuditRecorder) LogAction(ctx context.Context, actorID, actorEmail, action, resourceType, resourceID, changes, ipAddress string) error {
 	a.actions = append(a.actions, action)
 	return nil
+}
+
+type marketplaceAutomatedReviewer struct {
+	agentIDs []string
+	results  map[string]AutomatedReviewResult
+}
+
+func (r *marketplaceAutomatedReviewer) RunAutomatedReview(ctx context.Context, agentID string) (*AutomatedReviewResult, error) {
+	r.agentIDs = append(r.agentIDs, agentID)
+	result := r.results[agentID]
+	if result.AgentID == "" {
+		result.AgentID = agentID
+	}
+	return &result, nil
 }
 
 func validAgentPublishRequest() AgentPublishRequest {
@@ -215,7 +314,10 @@ func validAgentPublishRequest() AgentPublishRequest {
 func TestServicePublishAgentCreatesPendingReviewAndAudit(t *testing.T) {
 	store := newMarketplaceServiceStore()
 	audit := &marketplaceAuditRecorder{}
-	service := NewService(store, audit)
+	reviewer := &marketplaceAutomatedReviewer{results: map[string]AutomatedReviewResult{
+		"agent_new": {Decision: "pending_manual_review"},
+	}}
+	service := NewService(store, audit, WithAutomatedReview(reviewer))
 
 	agent, err := service.PublishAgent(context.Background(), "owner_1", "org_1", "owner@example.com", validAgentPublishRequest(), "127.0.0.1")
 	if err != nil {
@@ -233,6 +335,139 @@ func TestServicePublishAgentCreatesPendingReviewAndAudit(t *testing.T) {
 	if len(audit.actions) != 1 || audit.actions[0] != "agent.publish" {
 		t.Fatalf("expected agent.publish audit action, got %v", audit.actions)
 	}
+	if len(reviewer.agentIDs) != 1 || reviewer.agentIDs[0] != "agent_new" {
+		t.Fatalf("expected automated review for created agent, got %v", reviewer.agentIDs)
+	}
+}
+
+func TestServicePublishAgentRejectsAutomatedReviewFindings(t *testing.T) {
+	store := newMarketplaceServiceStore()
+	reviewer := &marketplaceAutomatedReviewer{results: map[string]AutomatedReviewResult{
+		"agent_new": {
+			Decision: "rejected",
+			Findings: []ReviewFinding{{
+				Type:     "prompt_injection",
+				Severity: "critical",
+				Field:    "system_prompt",
+				Message:  "Prompt content attempts to override instructions or reveal hidden prompts.",
+			}},
+		},
+	}}
+	service := NewService(store, nil, WithAutomatedReview(reviewer))
+
+	_, err := service.PublishAgent(context.Background(), "owner_1", "org_1", "owner@example.com", validAgentPublishRequest(), "127.0.0.1")
+	if err == nil {
+		t.Fatal("expected automated review rejection")
+	}
+	var reviewErr *AutomatedReviewError
+	if !errors.As(err, &reviewErr) {
+		t.Fatalf("expected AutomatedReviewError, got %T: %v", err, err)
+	}
+	if reviewErr.Result.Decision != "rejected" || len(reviewErr.Result.Findings) != 1 {
+		t.Fatalf("expected structured rejected findings, got %+v", reviewErr.Result)
+	}
+	if reviewErr.Result.Findings[0].Type != "prompt_injection" {
+		t.Fatalf("expected prompt_injection finding, got %+v", reviewErr.Result.Findings[0])
+	}
+}
+
+func TestServicePublishAgentBlocksSensitiveAPIFindingWithDefaultScanner(t *testing.T) {
+	store := newMarketplaceServiceStore()
+	service := NewService(store, nil)
+	req := validAgentPublishRequest()
+	req.Tools = `{"tools":[{"name":"token-export","endpoint":"/oauth/tokens","scope":"admin:read"}]}`
+
+	_, err := service.PublishAgent(context.Background(), "owner_1", "org_1", "owner@example.com", req, "127.0.0.1")
+	if err == nil {
+		t.Fatal("expected sensitive API finding to block publication")
+	}
+	var reviewErr *AutomatedReviewError
+	if !errors.As(err, &reviewErr) {
+		t.Fatalf("expected AutomatedReviewError, got %T: %v", err, err)
+	}
+	if reviewErr.Result.Decision != "rejected" {
+		t.Fatalf("expected rejected decision, got %+v", reviewErr.Result)
+	}
+	if len(reviewErr.Result.Findings) == 0 || reviewErr.Result.Findings[0].Type != "sensitive_api" {
+		t.Fatalf("expected sensitive_api finding, got %+v", reviewErr.Result.Findings)
+	}
+}
+
+func TestServiceUpdateAgentRejectsAutomatedReviewFindings(t *testing.T) {
+	store := newMarketplaceServiceStore()
+	store.agents["agent_approved"].OwnerID = "owner_1"
+	store.agents["agent_approved"].OrganizationID = "publisher_org"
+	reviewer := &marketplaceAutomatedReviewer{results: map[string]AutomatedReviewResult{
+		"agent_approved": {
+			Decision: "rejected",
+			Findings: []ReviewFinding{{
+				Type:     "prompt_injection",
+				Severity: "critical",
+				Field:    "system_prompt",
+				Message:  "Prompt content attempts to override instructions or reveal hidden prompts.",
+			}},
+		},
+	}}
+	service := NewService(store, nil, WithAutomatedReview(reviewer))
+
+	_, err := service.UpdateAgent(context.Background(), "owner_1", "publisher_org", "owner@example.com", "agent_approved", validAgentPublishRequest(), "127.0.0.1")
+	if err == nil {
+		t.Fatal("expected automated review rejection")
+	}
+	var reviewErr *AutomatedReviewError
+	if !errors.As(err, &reviewErr) {
+		t.Fatalf("expected AutomatedReviewError, got %T: %v", err, err)
+	}
+	if len(reviewer.agentIDs) != 1 || reviewer.agentIDs[0] != "agent_approved" {
+		t.Fatalf("expected automated review for updated agent, got %v", reviewer.agentIDs)
+	}
+	if reviewErr.Result.Decision != "rejected" || len(reviewErr.Result.Findings) != 1 {
+		t.Fatalf("expected structured rejected findings, got %+v", reviewErr.Result)
+	}
+}
+
+func TestServiceCreatesAndInstallsMarketplaceTemplate(t *testing.T) {
+	store := newMarketplaceServiceStore()
+	service := NewService(store, nil)
+
+	created, err := service.CreateTemplate(context.Background(), "org_1", TemplateCreateRequest{
+		Type:         "workflow",
+		Name:         "Launch Checklist",
+		Description:  "Reusable launch workflow for GTM handoffs.",
+		TemplateData: json.RawMessage(`{"steps":["brief","review"]}`),
+		Category:     "operations",
+		Tags:         []string{"launch"},
+	})
+	if err != nil {
+		t.Fatalf("create template: %v", err)
+	}
+	if created.ID == "" || created.OrganizationID != "org_1" || created.Type != "workflow" {
+		t.Fatalf("unexpected created template: %+v", created)
+	}
+
+	install, err := service.InstallTemplate(context.Background(), "user_1", "buyer_org", "tpl_1")
+	if err != nil {
+		t.Fatalf("install template: %v", err)
+	}
+	if install.TemplateID != "tpl_1" || string(install.TemplateData) != `{"nodes":[{"id":"start"}]}` {
+		t.Fatalf("expected installed template data to be returned, got %+v", install)
+	}
+	if store.templates["tpl_1"].DownloadsCount != 8 {
+		t.Fatalf("expected download count increment, got %d", store.templates["tpl_1"].DownloadsCount)
+	}
+}
+
+func TestServiceRejectsInvalidMarketplaceTemplate(t *testing.T) {
+	service := NewService(newMarketplaceServiceStore(), nil)
+
+	_, err := service.CreateTemplate(context.Background(), "org_1", TemplateCreateRequest{
+		Type:         "channel",
+		Name:         "Bad",
+		TemplateData: json.RawMessage(`not-json`),
+	})
+	if err == nil {
+		t.Fatal("expected invalid marketplace template to be rejected")
+	}
 }
 
 func TestServiceInstallAgentCreatesUserInstall(t *testing.T) {
@@ -245,6 +480,36 @@ func TestServiceInstallAgentCreatesUserInstall(t *testing.T) {
 	}
 	if install.AgentID != "agent_approved" || install.UserID != "user_1" || install.OrganizationID != "org_1" {
 		t.Fatalf("unexpected install: %#v", install)
+	}
+}
+
+func TestServiceRecordAgentRankingSignalValidatesAndDelegatesEvents(t *testing.T) {
+	store := newMarketplaceServiceStore()
+	service := NewService(store, nil)
+	ctx := context.Background()
+
+	for _, event := range []AgentRankingSignalEvent{
+		AgentRankingSignalImpression,
+		AgentRankingSignalClick,
+		AgentRankingSignalInstallConversion,
+		AgentRankingSignalImpression,
+	} {
+		if err := service.RecordAgentRankingSignal(ctx, "agent_approved", event); err != nil {
+			t.Fatalf("RecordAgentRankingSignal(%s) returned error: %v", event, err)
+		}
+	}
+
+	signals := store.rankingSignals["agent_approved"]
+	if signals[AgentRankingSignalImpression] != 2 ||
+		signals[AgentRankingSignalClick] != 1 ||
+		signals[AgentRankingSignalInstallConversion] != 1 {
+		t.Fatalf("unexpected ranking signal counters: %+v", signals)
+	}
+	if err := service.RecordAgentRankingSignal(ctx, "", AgentRankingSignalImpression); err == nil {
+		t.Fatal("expected blank agent ID to be rejected")
+	}
+	if err := service.RecordAgentRankingSignal(ctx, "agent_approved", AgentRankingSignalEvent("share")); err == nil {
+		t.Fatal("expected unsupported ranking signal event to be rejected")
 	}
 }
 
@@ -296,5 +561,104 @@ func TestServiceListUserAgentsClampsMyAgentsPagination(t *testing.T) {
 	}
 	if store.lastOrgID != "org_1" || agents[0].OrganizationID != "org_1" {
 		t.Fatalf("expected org_1 to be used for my-agents, store=%q agent=%q", store.lastOrgID, agents[0].OrganizationID)
+	}
+}
+
+func TestServiceSettlementPreferencesDefaultToMonthly(t *testing.T) {
+	service := NewService(newMarketplaceServiceStore(), nil)
+
+	prefs, err := service.GetPublisherSettlementPreferences(context.Background(), "publisher_org")
+	if err != nil {
+		t.Fatalf("GetPublisherSettlementPreferences returned error: %v", err)
+	}
+	if prefs.Cycle != "monthly" || prefs.PayoutBusinessDays != 5 || prefs.ProcessingFeePercent != 1 {
+		t.Fatalf("expected monthly default with 5 business days and 1%% fee, got %+v", prefs)
+	}
+	if prefs.MinimumPayoutAmount != 100 || prefs.EffectiveFrom != "next_settlement_cycle" {
+		t.Fatalf("expected minimum payout and next-cycle effect metadata, got %+v", prefs)
+	}
+}
+
+func TestServiceUpdatesSettlementPreferencesForNextCycle(t *testing.T) {
+	store := newMarketplaceServiceStore()
+	service := NewService(store, nil)
+
+	prefs, err := service.UpdatePublisherSettlementPreferences(context.Background(), "publisher_org", "quarterly")
+	if err != nil {
+		t.Fatalf("UpdatePublisherSettlementPreferences returned error: %v", err)
+	}
+	if prefs.Cycle != "quarterly" || prefs.PayoutBusinessDays != 5 || prefs.ProcessingFeePercent != 0.5 {
+		t.Fatalf("expected quarterly payout preferences, got %+v", prefs)
+	}
+	stored := store.settlementPrefs["publisher_org"]
+	if stored.Cycle != "quarterly" {
+		t.Fatalf("expected store to persist quarterly cycle, got %+v", stored)
+	}
+}
+
+func TestServiceRejectsInvalidSettlementCycle(t *testing.T) {
+	service := NewService(newMarketplaceServiceStore(), nil)
+
+	_, err := service.UpdatePublisherSettlementPreferences(context.Background(), "publisher_org", "daily")
+	if err == nil {
+		t.Fatal("expected invalid settlement cycle to be rejected")
+	}
+}
+
+func TestServiceListPendingReviewsAddsReviewSLAForStandardAndVIPPublishers(t *testing.T) {
+	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
+	standardSubmittedAt := now.Add(-70 * time.Hour)
+	vipSubmittedAt := now.Add(-25 * time.Hour)
+	store := newMarketplaceServiceStore()
+	store.pendingReviews = []*PublishedAgent{
+		{
+			ID:             "agent_standard",
+			OrganizationID: "org_standard",
+			Status:         "pending_review",
+			CreatedAt:      standardSubmittedAt,
+			UpdatedAt:      standardSubmittedAt,
+		},
+		{
+			ID:                  "agent_vip",
+			OrganizationID:      "org_vip",
+			Status:              "pending_review",
+			CreatedAt:           vipSubmittedAt,
+			UpdatedAt:           vipSubmittedAt,
+			PublisherReviewTier: "vip",
+		},
+	}
+	service := NewService(store, nil, WithReviewSLAClock(func() time.Time { return now }))
+
+	reviews, err := service.ListPendingReviews(context.Background(), 20, 0)
+	if err != nil {
+		t.Fatalf("ListPendingReviews returned error: %v", err)
+	}
+	if len(reviews) != 2 {
+		t.Fatalf("expected 2 pending reviews, got %d", len(reviews))
+	}
+
+	standardSLA := reviews[0].ReviewSLA
+	if standardSLA == nil {
+		t.Fatal("expected standard pending review to include reviewSLA")
+	}
+	if standardSLA.ManualSlaHours != 72 || !standardSLA.ManualDeadlineAt.Equal(standardSubmittedAt.Add(72*time.Hour)) {
+		t.Fatalf("expected 72h standard manual SLA, got %+v", standardSLA)
+	}
+	if standardSLA.ManualSlaStatus != "due_soon" || standardSLA.MinutesUntilDeadline != 120 || standardSLA.VIPPublisher {
+		t.Fatalf("expected standard review due soon with 120 minutes left, got %+v", standardSLA)
+	}
+	if standardSLA.AutomatedReviewSlaMinutes != 5 || !standardSLA.AutomatedReviewDeadlineAt.Equal(standardSubmittedAt.Add(5*time.Minute)) {
+		t.Fatalf("expected 5m automated review SLA metadata, got %+v", standardSLA)
+	}
+
+	vipSLA := reviews[1].ReviewSLA
+	if vipSLA == nil {
+		t.Fatal("expected VIP pending review to include reviewSLA")
+	}
+	if vipSLA.ManualSlaHours != 24 || !vipSLA.VIPPublisher || vipSLA.PublisherTier != "vip" {
+		t.Fatalf("expected VIP review to use 24h SLA with VIP input, got %+v", vipSLA)
+	}
+	if vipSLA.ManualSlaStatus != "overdue" || vipSLA.MinutesUntilDeadline != -60 {
+		t.Fatalf("expected VIP review to be 60 minutes overdue, got %+v", vipSLA)
 	}
 }

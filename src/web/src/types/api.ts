@@ -43,21 +43,60 @@ export type SessionResponse = {
 export type ConversationSummary = {
   id: string;
   title: string;
+  archivedAt?: string;
   createdAt?: string;
+  hasBookmarkedMessages?: boolean;
+  parentId?: string;
+  parent_id?: string;
   updatedAt?: string;
 };
 
 export type ConversationMessage = {
+  attachments?: MessageAttachment[];
   id: string;
   role: string;
   content: string;
+  bookmarked?: boolean;
   createdAt?: string;
+  knowledgeCitations?: KnowledgeCitation[];
+};
+
+export type KnowledgeCitation = {
+  chunkId?: string;
+  chunkIndex?: number;
+  documentId?: string;
+  documentTitle?: string;
+  documentVersion?: string;
+  highlightPositions?: Array<{ end: number; start: number }>;
+  knowledgeBaseId?: string;
+  knowledgeBaseName?: string;
+  originalText?: string;
+  pageNumber?: number;
+  retrievalMethod?: string;
+  score?: number;
+  snippet: string;
+  sourceUrl?: string;
+};
+
+export type MessageAttachment = {
+  contentType: string;
+  id: string;
+  name: string;
+  providerFileId?: string;
+  sizeBytes: number;
+  type: 'file' | 'image';
+  url?: string;
 };
 
 export type ConversationConfig = {
   conversationId: string;
   knowledgeBaseIds: string[];
   modelId: string;
+  personaId?: string;
+  personaRole?: string;
+  personaStyle?: string;
+  personaTone?: string;
+  personaConstraints?: string;
   systemPromptOverride: string;
   temperature: number;
   maxOutputTokens: number;
@@ -65,9 +104,21 @@ export type ConversationConfig = {
   updatedAt?: string;
 };
 
+export type PersonaSummary = {
+  id: string;
+  name: string;
+  role?: string;
+  style?: string;
+  tone?: string;
+  constraints?: string;
+  openingMessage?: string;
+  suggestedQuestions?: string;
+};
+
 export type UpdateConversationConfigRequest = {
   knowledgeBaseIds: string[];
   modelId: string;
+  personaId?: string;
   systemPromptOverride: string;
   temperature: number;
   maxOutputTokens: number;
@@ -78,7 +129,13 @@ export type CreateConversationRequest = {
   title?: string;
 };
 
+export type ForkConversationRequest = {
+  messageId?: string;
+  title?: string;
+};
+
 export type SendMessageRequest = {
+  attachments?: MessageAttachment[];
   content: string;
   overrides?: {
     modelId?: string;
@@ -88,6 +145,23 @@ export type SendMessageRequest = {
     toolsEnabled?: boolean;
   };
 };
+
+export type UpdateConversationMessageRequest = {
+  content: string;
+};
+
+export type BookmarkConversationMessageRequest = {
+  bookmarked: boolean;
+};
+
+export type MessageShareResponse = {
+  id?: string;
+  shareId?: string;
+  shareUrl?: string;
+  url?: string;
+};
+
+export type ConversationShareResponse = MessageShareResponse;
 
 export type ConvertConversationToTaskResponse = {
   draftTaskGoal: string;
@@ -101,7 +175,21 @@ export type ModelOption = {
   label: string;
 };
 
-export type KnowledgeBaseSummary = {
+export type KnowledgeRetrievalMode = 'vector_only' | 'hybrid' | 'hybrid_rerank';
+
+export type KnowledgeChunkStrategy = 'fixed_size' | 'semantic' | 'qa_split' | 'template_based';
+
+export type KnowledgeBaseRagConfig = {
+  chunkOverlap?: number;
+  chunkSize?: number;
+  chunkStrategy?: KnowledgeChunkStrategy;
+  embeddingModel?: string;
+  rerankTopK?: number;
+  rerankerModel?: string;
+  retrievalMode?: KnowledgeRetrievalMode;
+};
+
+export type KnowledgeBaseSummary = KnowledgeBaseRagConfig & {
   id: string;
   name: string;
   documentCount: number;
@@ -112,7 +200,23 @@ export type KnowledgeDocumentSummary = {
   id: string;
   title: string;
   content: string;
+  documentVersion?: string;
+  updateStrategy?: KnowledgeUpdateStrategy;
   updatedAt?: string;
+};
+
+export type KnowledgeDocumentChunk = {
+  chunkId: string;
+  chunkIndex: number;
+  content: string;
+  documentVersion: string;
+  metadata: {
+    documentVersion?: string;
+    pageNumber?: number;
+    sourceUrl?: string;
+  };
+  charCount: number;
+  estimatedTokenCount: number;
 };
 
 export type KnowledgeRetrievalResult = {
@@ -120,10 +224,67 @@ export type KnowledgeRetrievalResult = {
   chunkIndex: number;
   documentId: string;
   documentTitle: string;
+  documentVersion?: string;
   retrievalMethod: string;
   similarity: number;
   snippet: string;
   source: KnowledgeRetrievalSource;
+};
+
+export type CreateKnowledgeRetrievalTestCaseRequest = {
+  expectedResult: KnowledgeRetrievalResult;
+  query: string;
+};
+
+export type KnowledgeRetrievalTestCase = {
+  createdAt?: string;
+  expectedChunkId: string;
+  expectedChunkIndex: number;
+  expectedDocumentId: string;
+  expectedDocumentTitle?: string;
+  expectedDocumentVersion?: string;
+  expectedResult?: KnowledgeRetrievalResult;
+  expectedSnippet?: string;
+  id: string;
+  knowledgeBaseId: string;
+  organizationId?: string;
+  query: string;
+  updatedAt?: string;
+};
+
+export type KnowledgeRetrievalTestRunRequest = {
+  allVersions?: boolean;
+  documentVersion?: string;
+  keywordWeight?: number;
+  limit?: number;
+  minScore?: number;
+  mode?: KnowledgeRetrievalMode;
+  vectorWeight?: number;
+};
+
+export type KnowledgeRetrievalTestRunResult = {
+  actualResult?: KnowledgeRetrievalResult;
+  expectedResult: KnowledgeRetrievalResult;
+  matchedResult?: KnowledgeRetrievalResult;
+  passed: boolean;
+  query: string;
+  rank: number;
+  reason?: string;
+  testCaseId: string;
+};
+
+export type KnowledgeRetrievalTestRunReport = {
+  failed: number;
+  knowledgeBaseId: string;
+  passed: number;
+  ranAt?: string;
+  results: KnowledgeRetrievalTestRunResult[];
+  total: number;
+};
+
+export type KnowledgeHighlightPosition = {
+  start: number;
+  end: number;
 };
 
 export type KnowledgeRetrievalSource = {
@@ -131,28 +292,58 @@ export type KnowledgeRetrievalSource = {
   chunkIndex: number;
   documentId: string;
   documentTitle: string;
+  documentVersion?: string;
+  pageNumber?: number;
+  sourceUrl?: string;
+  originalText?: string;
+  matchedSnippet?: string;
+  highlightPositions?: KnowledgeHighlightPosition[];
 };
 
-export type CreateKnowledgeBaseRequest = {
+export type CreateKnowledgeBaseRequest = KnowledgeBaseRagConfig & {
   name: string;
 };
 
-export type UpdateKnowledgeBaseRequest = {
+export type UpdateKnowledgeBaseRequest = KnowledgeBaseRagConfig & {
   name: string;
 };
+
+export type KnowledgeUpdateStrategy = 'full_replace' | 'incremental' | 'versioned';
 
 export type CreateKnowledgeDocumentRequest = {
   title: string;
   content: string;
+  documentVersion?: string;
+  pageNumber?: number;
+  sourceUrl?: string;
+  updateStrategy?: KnowledgeUpdateStrategy;
+};
+
+export type UploadKnowledgeDocumentRequest = {
+  file: File;
+  title?: string;
+  documentVersion?: string;
+  pageNumber?: number;
+  sourceUrl?: string;
+  updateStrategy?: KnowledgeUpdateStrategy;
 };
 
 export type UpdateKnowledgeDocumentRequest = {
   title: string;
   content: string;
+  documentVersion?: string;
+  updateStrategy?: KnowledgeUpdateStrategy;
 };
 
 export type RetrieveKnowledgeRequest = {
+  allVersions?: boolean;
+  documentVersion?: string;
+  keywordWeight?: number;
+  limit?: number;
+  minScore?: number;
+  mode?: KnowledgeRetrievalMode;
   query: string;
+  vectorWeight?: number;
 };
 
 export type TaskStatus =
@@ -233,9 +424,39 @@ export type UpdateTaskBudgetRequest = {
   budgetLimit: number;
 };
 
+export type ScheduledTaskRun = {
+  id: string;
+  scheduledTaskId: string;
+  status: string;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  error?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type UsageDimensionSummary = {
+  key: string;
+  requestCount: number;
+  totalTokens: number;
+  totalCost: number;
+};
+
+export type UsageTimeSeriesSummary = {
+  bucket: string;
+  requestCount: number;
+  totalTokens: number;
+  totalCost: number;
+};
+
 export type UsageSummary = {
   period: string;
+  byFeature?: UsageDimensionSummary[];
+  byModel?: UsageDimensionSummary[];
+  byUser?: UsageDimensionSummary[];
+  recent?: RelayApiTokenUsageItem[];
   requests: number;
+  timeSeries?: UsageTimeSeriesSummary[];
 };
 
 export type ModelSummary = {
@@ -264,21 +485,85 @@ export type AccessSummary = {
   workspaceId: string;
 };
 
+export type RelayApiToken = {
+  id: string;
+  name: string;
+  tokenPrefix: string;
+  status: string;
+  userGroup?: string;
+  modelLimitsEnabled: boolean;
+  modelLimits: string[];
+  quotaLimit?: number;
+  usedQuota: number;
+  expiresAt?: string;
+  lastUsedAt?: string;
+  createdAt: string;
+  revokedAt?: string;
+};
+
+export type RelayApiTokenUsageItem = {
+  id: string;
+  apiTokenId: string;
+  requestId: string;
+  apiType: string;
+  model: string;
+  channelId: string;
+  provider: string;
+  status: string;
+  statusCode: number;
+  errorCode?: string;
+  latencyMs: number;
+  cost: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  createdAt: string;
+};
+
+export type CreateRelayApiTokenRequest = {
+  name: string;
+  modelLimitsEnabled: boolean;
+  modelLimits: string[];
+  userGroup?: string;
+  quotaLimit?: number;
+  expiresAt?: string;
+};
+
+export type CreatedRelayApiToken = {
+  rawToken: string;
+  token: RelayApiToken;
+};
+
 export type AgentTool = {
   name: string;
   description?: string;
   type?: 'builtin' | 'mcp' | string;
   serverId?: string;
   enabled?: boolean;
+  requiresApproval?: boolean;
+  riskLevel?: 'safe' | 'medium' | 'dangerous' | string;
   inputSchema?: unknown;
+  runtime?: 'api' | 'python' | string;
+  sourceCode?: string;
+  timeoutSeconds?: number;
+};
+
+export type ToolApprovalOverride = {
+  requiresApproval?: boolean;
+  riskLevel?: 'safe' | 'medium' | 'dangerous' | string;
 };
 
 export type AgentConfig = {
   enableMemory?: boolean;
+  maxIterations?: number;
   maxTokens?: number;
+  tokenBudget?: number;
+  defaultExecutionMode?: string;
   temperature?: number;
   topP?: number;
   knowledgeBaseIds?: string[];
+  approvalMode?: 'tiered' | 'all' | 'none' | 'custom' | string;
+  toolApprovalOverrides?: Record<string, ToolApprovalOverride>;
 };
 
 export type AgentSummary = {
@@ -367,6 +652,7 @@ export type McpServer = {
   name: string;
   url: string;
   authToken?: string;
+  hasAuthToken?: boolean;
   status: 'connected' | 'disconnected' | 'error' | string;
   lastConnectedAt?: string;
   createdAt: string;

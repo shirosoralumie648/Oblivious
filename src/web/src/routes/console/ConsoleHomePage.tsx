@@ -66,10 +66,10 @@ export function ConsoleHomePage() {
   const accessPosture = accessSummary ? `Session ${accessSummary.sessionId}` : 'Access posture unavailable';
 
   return (
-    <section>
-      <h1>Console Home</h1>
-      <p>{`Current workspace scope: ${accessSummary?.workspaceId ?? 'unavailable'}`}</p>
-      <section aria-label="Key performance indicators">
+    <section className="space-y-5" data-gsap-scope="console-home">
+      <h1 data-gsap-item>Console Home</h1>
+      <p data-gsap-item>{`Current workspace scope: ${accessSummary?.workspaceId ?? 'unavailable'}`}</p>
+      <section aria-label="Key performance indicators" className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" data-gsap-item>
         <ConsoleOverviewCard
           note={billingSummary?.period ?? 'Billing summary unavailable'}
           title="Estimated cost"
@@ -95,16 +95,24 @@ export function ConsoleHomePage() {
           value={accessPosture}
         />
       </section>
-      <ConsoleSnapshotPanel title="Cost and usage focus">
-        <p>{`Billing requests: ${billingSummary?.requests ?? 'unavailable'}`}</p>
-        <p>{`Usage requests: ${usageSummary?.requests ?? 'unavailable'}`}</p>
-        <Link to="/console/billing">Open billing drill-down</Link>
-        <Link to="/console/usage">Open usage drill-down</Link>
-      </ConsoleSnapshotPanel>
-      <ConsoleSnapshotPanel title="Supporting summaries">
-        <p>{`Active user: ${accessSummary?.userEmail ?? 'unavailable'}`}</p>
-        <p>{accessSummary?.networkEnabledHint ? 'Network access hint enabled' : 'Network access hint unavailable'}</p>
-      </ConsoleSnapshotPanel>
+      <div className="grid gap-4 lg:grid-cols-2" data-gsap-item>
+        <ConsoleSnapshotPanel title="Cost and usage focus">
+          <p>{`Billing requests: ${billingSummary?.requests ?? 'unavailable'}`}</p>
+          <p>{`Usage requests: ${usageSummary?.requests ?? 'unavailable'}`}</p>
+          <div className="flex flex-wrap gap-3">
+            <Link className="inline-flex min-h-[44px] items-center rounded-lg border border-[#d7d2c4] px-3 font-semibold text-[#1a614f] transition hover:bg-[#e9f2ee]" to="/console/billing">
+              Open billing drill-down
+            </Link>
+            <Link className="inline-flex min-h-[44px] items-center rounded-lg border border-[#d7d2c4] px-3 font-semibold text-[#1a614f] transition hover:bg-[#e9f2ee]" to="/console/usage">
+              Open usage drill-down
+            </Link>
+          </div>
+        </ConsoleSnapshotPanel>
+        <ConsoleSnapshotPanel title="Supporting summaries">
+          <p>{`Active user: ${accessSummary?.userEmail ?? 'unavailable'}`}</p>
+          <p>{accessSummary?.networkEnabledHint ? 'Network access hint enabled' : 'Network access hint unavailable'}</p>
+        </ConsoleSnapshotPanel>
+      </div>
     </section>
   );
 }

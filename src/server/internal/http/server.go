@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -9,32 +10,98 @@ import (
 
 	"github.com/google/uuid"
 
+	"oblivious/server/internal/admin"
+	"oblivious/server/internal/agent"
+	publishingchannel "oblivious/server/internal/channel"
+	"oblivious/server/internal/chat"
 	"oblivious/server/internal/config"
+	"oblivious/server/internal/observability"
 	"oblivious/server/internal/quota"
 	"oblivious/server/internal/relay"
+	"oblivious/server/internal/relay/ratelimit"
 	"oblivious/server/internal/relay/types"
+	"oblivious/server/internal/schedule"
+	"oblivious/server/internal/usage"
+	"oblivious/server/internal/workflow"
 )
 
 func NewServer(cfg config.Config, database *sql.DB) *stdhttp.Server {
-	// Create main router
-	mainHandler := NewRouter(cfg, database)
-
-	// If Relay is enabled, integrate it
+	requestLogCloser := configureRequestLogSink(cfg)
+	var relayPricingStore *relay.PricingStore
+	var relayPool *relay.ChannelPool
+	var relayStore *relay.RelayStore
 	if cfg.RelayEnabled {
-		relayStore := relay.NewRelayStore(database)
-		pool := relay.NewChannelPool()
+		relayPricingStore = relay.NewPricingStoreWithDefaults()
+		if settings, err := admin.NewSQLStore(database).GetRelayPricingSettings(context.Background()); err != nil {
+			log.Printf("warning: failed to load relay pricing settings: %v", err)
+		} else if settings != nil {
+			relayPricingStore.ApplyMultipliers(settings.ModelMultipliers, settings.GroupMultipliers)
+		}
+		relayStore = relay.NewRelayStore(database)
+		relayPool = relay.NewChannelPool()
 
 		// Load channels from database
-		if err := relayStore.LoadPoolFromStore(pool); err != nil {
+		if err := relayStore.LoadPoolFromStore(relayPool); err != nil {
 			log.Printf("warning: failed to load channels from database: %v", err)
 		}
 
 		// Ensure default channel for development
-		ensureDefaultChannel(relayStore, pool, cfg)
+		ensureDefaultChannel(relayStore, relayPool, cfg)
+	}
+
+	workflowService := workflow.NewService(workflow.NewSQLStore(database))
+	scheduleAgentGateway := chat.NewRelayGateway(
+		chat.WithRelayURL("http://localhost:"+fmt.Sprintf("%d", cfg.Port)+"/v1"),
+		chat.WithDefaultModel(cfg.RelayDefaultModel),
+	)
+	agentService := agent.NewService(agent.NewSQLStore(database), scheduleAgentGateway)
+	if provider := buildAgentWebSearchProvider(cfg); provider != nil {
+		agentService.SetWebSearchProvider(provider)
+	}
+	scheduleService := newScheduleService(schedule.NewSQLStore(database), workflowService, agentService)
+	alertStateStore := observability.NewSQLAlertStateStore(database)
+	alertRoutingRuleStore := observability.NewSQLAlertRoutingRuleStore(database)
+	alertProviderConfigStore := observability.NewSQLAlertProviderConfigStore(database)
+	alertingCloser := configureHTTPAlerting(cfg, alertStateStore, alertRoutingRuleStore, alertProviderConfigStore)
+
+	// Create main router
+	var relayConfigApplier admin.RelayConfigApplier
+	if relayStore != nil && relayPool != nil {
+		relayConfigApplier = func(ctx context.Context, change admin.RelayConfigChange) error {
+			_ = ctx
+			_ = change
+			return relayStore.ReloadPoolFromStore(relayPool)
+		}
+	}
+	mainHandler := NewRouterWithOptions(cfg, database, RouterOptions{
+		RelayPricingStore:           relayPricingStore,
+		ChannelRuntimeStatsProvider: relayPool,
+		RelayConfigApplier:          relayConfigApplier,
+		WorkflowService:             workflowService,
+		ScheduleService:             scheduleService,
+		AlertStateStore:             alertStateStore,
+		AlertRoutingRuleStore:       alertRoutingRuleStore,
+		AlertProviderConfigStore:    alertProviderConfigStore,
+	})
+
+	// If Relay is enabled, integrate it
+	var closeRateLimiter func() error
+	var cancelRelayHealthChecks context.CancelFunc
+	if cfg.RelayEnabled {
 
 		// Create Relay instance
-		relayInstance, err := relay.NewRelay(&relay.Config{Pool: pool, Production: cfg.Env == "production"})
+		apiTokenStore := relay.NewRelayAPITokenSQLStore(database)
+		apiTokenAuthenticator := relay.NewAPITokenAuthenticator(apiTokenStore)
+		rateLimiter, rateLimiterCloser := buildRelayRateLimiter(cfg)
+		closeRateLimiter = rateLimiterCloser
+		relayInstance, err := relay.NewRelay(buildRelayConfig(cfg, database, relayPool, relayPricingStore, apiTokenAuthenticator, rateLimiter, alertStateStore))
 		if err != nil {
+			if closeRateLimiter != nil {
+				if closeErr := closeRateLimiter(); closeErr != nil {
+					log.Printf("warning: failed to close relay rate limiter: %v", closeErr)
+				}
+				closeRateLimiter = nil
+			}
 			log.Printf("warning: failed to create relay: %v", err)
 		} else {
 			// Wire quota.Service into the relay billing lifecycle so that
@@ -42,17 +109,195 @@ func NewServer(cfg config.Config, database *sql.DB) *stdhttp.Server {
 			quotaStore := quota.NewSQLStore(database)
 			quotaService := quota.NewService(quotaStore)
 			relayInstance.Router().SetQuotaManager(quotaService)
+			relayInstance.Router().SetAPITokenQuotaManager(apiTokenStore)
+			relayInstance.Router().SetUsageLogger(usage.NewSQLRecorder(database))
+			relayInstance.Router().SetRateLimitResolver(buildRelayUsageLimitResolver(quotaService))
+			relayHealthCheckCtx, cancelHealthChecks := context.WithCancel(context.Background())
+			cancelRelayHealthChecks = cancelHealthChecks
+			relayInstance.StartHealthChecks(relayHealthCheckCtx)
 
 			// Mount Relay under /v1/*
 			mainHandler = combineHandlers(mainHandler, relayInstance.Engine())
 		}
 	}
 
-	return &stdhttp.Server{
+	server := &stdhttp.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
 		Handler:           mainHandler,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
+	if cfg.ScheduleWorkerEnabled {
+		workerCtx, cancelWorker := context.WithCancel(context.Background())
+		worker := schedule.NewWorker(scheduleService, schedule.WorkerConfig{
+			Interval: time.Duration(cfg.ScheduleWorkerIntervalMS) * time.Millisecond,
+			Limit:    cfg.ScheduleWorkerClaimLimit,
+			OnError: func(err error) {
+				log.Printf("warning: scheduled task worker failed: %v", err)
+			},
+		})
+		go worker.Run(workerCtx)
+		server.RegisterOnShutdown(cancelWorker)
+	}
+	if cfg.Env != "test" {
+		channelRetryWorkerCtx, cancelChannelRetryWorker := context.WithCancel(context.Background())
+		channelRetryStore := publishingchannel.NewSQLStore(database)
+		channelRetryWorker := publishingchannel.NewRetryWorker(
+			publishingchannel.NewService(publishingchannel.NewAdapterRegistry(nil)),
+			channelRetryStore,
+			publishingchannel.RetryWorkerConfig{
+				OnError: func(err error) {
+					log.Printf("warning: channel retry worker failed: %v", err)
+				},
+			},
+		)
+		go channelRetryWorker.Run(channelRetryWorkerCtx)
+		server.RegisterOnShutdown(cancelChannelRetryWorker)
+	}
+	if closeRateLimiter != nil {
+		server.RegisterOnShutdown(func() {
+			if err := closeRateLimiter(); err != nil {
+				log.Printf("warning: failed to close relay rate limiter: %v", err)
+			}
+		})
+	}
+	if cancelRelayHealthChecks != nil {
+		server.RegisterOnShutdown(cancelRelayHealthChecks)
+	}
+	if requestLogCloser != nil {
+		server.RegisterOnShutdown(requestLogCloser)
+	}
+	if alertingCloser != nil {
+		server.RegisterOnShutdown(alertingCloser)
+	}
+	return server
+}
+
+func configureRequestLogSink(cfg config.Config) func() {
+	if cfg.ObservabilityRequestLogBackend != "clickhouse" {
+		return nil
+	}
+	clickHouseDB, err := sql.Open(cfg.ClickHouseDriver, cfg.ClickHouseDSN)
+	if err != nil {
+		log.Printf("warning: failed to open ClickHouse request log sink: %v", err)
+		return nil
+	}
+	restoreSink := setRequestLogSink(observability.NewSQLRequestLogSink(clickHouseDB))
+	return func() {
+		restoreSink()
+		if err := clickHouseDB.Close(); err != nil {
+			log.Printf("warning: failed to close ClickHouse request log sink: %v", err)
+		}
+	}
+}
+
+func configureHTTPAlerting(
+	cfg config.Config,
+	stateStore observability.AlertStateStore,
+	routingStore observability.AlertRoutingRuleStore,
+	providerStore observability.AlertProviderConfigStore,
+) func() {
+	if !cfg.ObservabilityHTTPAlertsEnabled && !cfg.ObservabilityHTTPRecoveryEnabled {
+		return nil
+	}
+	var restoreCallbacks []func()
+	var alertSink observability.AlertSink
+	if cfg.ObservabilityHTTPAlertsEnabled {
+		sinks := []observability.AlertDeliverySink{}
+		if cfg.AlertWebhookURL != "" {
+			sinks = append(sinks, observability.NewWebhookAlertDeliverySink(observability.AlertWebhookDeliverySinkOptions{
+				EndpointURL: cfg.AlertWebhookURL,
+				Secret:      cfg.AlertWebhookSecret,
+			}))
+		}
+		dispatcher := observability.NewAlertDeliveryDispatcher(observability.AlertDeliveryDispatcherOptions{
+			RoutingRules: routingStore,
+			Sinks:        sinks,
+			SinkResolver: observability.NewAlertProviderDeliverySinkResolver(observability.AlertProviderDeliverySinkResolverOptions{
+				ProviderStore: providerStore,
+			}),
+			HistoryStore: stateStore,
+		})
+		alertSink = observability.NewAlertRouter(observability.AlertRouterOptions{
+			StateStore: stateStore,
+			NotifySink: dispatcher,
+		})
+		restoreCallbacks = append(restoreCallbacks, setHTTPAlertSink(alertSink))
+		restoreCallbacks = append(restoreCallbacks, setPublishingChannelAlertSink(alertSink))
+	}
+	if cfg.ObservabilityHTTPRecoveryEnabled {
+		cooldown := time.Duration(cfg.ObservabilityHTTPRecoveryCooldownMS) * time.Millisecond
+		recovery := observability.NewRecoveryController(observability.RecoveryControllerOptions{
+			StateStore: stateStore,
+			Policies: []observability.RecoveryPolicy{
+				{
+					Name:       "record-http-5xx",
+					Severity:   observability.AlertSeverityWarning,
+					Component:  observability.ComponentHTTP,
+					ActionType: observability.RecoveryActionRestart,
+					Cooldown:   cooldown,
+				},
+				{
+					Name:       "record-http-critical-5xx",
+					Severity:   observability.AlertSeverityCritical,
+					Component:  observability.ComponentHTTP,
+					ActionType: observability.RecoveryActionRestart,
+					Cooldown:   cooldown,
+				},
+				{
+					Name:       "record-channel-degraded",
+					Severity:   observability.AlertSeverityWarning,
+					Component:  "publishing_channel",
+					ActionType: observability.RecoveryActionFailover,
+					Cooldown:   cooldown,
+				},
+				{
+					Name:       "record-relay-channel-unhealthy",
+					Severity:   observability.AlertSeverityWarning,
+					Component:  observability.ComponentRelay,
+					ActionType: observability.RecoveryActionFailover,
+					Cooldown:   cooldown,
+				},
+			},
+		})
+		restoreCallbacks = append(restoreCallbacks, setHTTPRecoveryController(recovery))
+		restoreCallbacks = append(restoreCallbacks, setPublishingChannelRecoveryController(recovery))
+	}
+	if len(restoreCallbacks) == 0 {
+		return nil
+	}
+	return func() {
+		for index := len(restoreCallbacks) - 1; index >= 0; index-- {
+			restoreCallbacks[index]()
+		}
+	}
+}
+
+func buildRelayConfig(
+	cfg config.Config,
+	database *sql.DB,
+	relayPool *relay.ChannelPool,
+	relayPricingStore *relay.PricingStore,
+	apiTokenAuthenticator types.RelayAPITokenAuthenticator,
+	rateLimiter ratelimit.RateLimiter,
+	alertStateStore observability.AlertStateStore,
+) *relay.Config {
+	relayConfig := &relay.Config{
+		Pool:                     relayPool,
+		PricingStore:             relayPricingStore,
+		Production:               cfg.Env == "production",
+		APITokenAuthenticator:    apiTokenAuthenticator,
+		RateLimiter:              rateLimiter,
+		HealthAlertSink:          currentHTTPAlertSink(),
+		HealthRecoveryController: currentHTTPRecoveryController(),
+		HealthAlertStateStore:    alertStateStore,
+	}
+	if database != nil {
+		relayStore := relay.NewRelayStore(database)
+		relayConfig.FilesMappingStore = relayStore
+		relayConfig.ConversationAffinityStore = relayStore
+	}
+	applyRelaySemanticCacheConfig(relayConfig, buildRelaySemanticCacheConfig(cfg, database))
+	return relayConfig
 }
 
 // ensureDefaultChannel creates a default OpenAI channel if no channels exist
@@ -90,7 +335,41 @@ func combineHandlers(main stdhttp.Handler, relayEngine stdhttp.Handler) stdhttp.
 			relayEngine.ServeHTTP(w, r)
 			return
 		}
+		if aliasPath, ok := relayAliasTargetPath(r.Method, r.URL.Path); ok {
+			aliasRequest := r.Clone(r.Context())
+			aliasRequest.URL.Path = aliasPath
+			aliasRequest.RequestURI = ""
+			relayEngine.ServeHTTP(w, aliasRequest)
+			return
+		}
 		// Everything else goes to main router
 		main.ServeHTTP(w, r)
 	})
+}
+
+func relayAliasTargetPath(method, path string) (string, bool) {
+	switch method + " " + path {
+	case stdhttp.MethodPost + " /api/v1/relay/chat/completions":
+		return "/v1/chat/completions", true
+	case stdhttp.MethodPost + " /api/v1/relay/embeddings":
+		return "/v1/embeddings", true
+	case stdhttp.MethodPost + " /api/v1/relay/responses":
+		return "/v1/responses", true
+	case stdhttp.MethodPost + " /api/v1/relay/images/generations":
+		return "/v1/images/generations", true
+	case stdhttp.MethodPost + " /api/v1/relay/images/edits":
+		return "/v1/images/edits", true
+	case stdhttp.MethodPost + " /api/v1/relay/images/variations":
+		return "/v1/images/variations", true
+	case stdhttp.MethodPost + " /api/v1/relay/audio/speech":
+		return "/v1/audio/speech", true
+	case stdhttp.MethodPost + " /api/v1/relay/audio/transcriptions":
+		return "/v1/audio/transcriptions", true
+	case stdhttp.MethodPost + " /api/v1/relay/audio/translations":
+		return "/v1/audio/translations", true
+	case stdhttp.MethodGet + " /api/v1/relay/models":
+		return "/v1/models", true
+	default:
+		return "", false
+	}
 }

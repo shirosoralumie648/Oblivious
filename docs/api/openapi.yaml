@@ -1,0 +1,1345 @@
+openapi: "3.0.3"
+info:
+  title: Oblivious API
+  description: |
+    Oblivious 是一个面向工作区的 AI 应用平台，提供对话、知识库、任务编排等能力。
+    本文档描述了所有可用的 REST API 端点。
+  version: "1.0.0"
+  contact:
+    name: Oblivious Team
+
+servers:
+  - url: http://localhost:8080
+    description: 本地开发环境
+  - url: https://api.oblivious.dev
+    description: 生产环境
+
+security:
+  - cookieAuth: []
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: session_id
+      description: 登录后通过 Set-Cookie 设置的会话令牌
+
+  schemas:
+    Envelope:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+        data:
+          description: 成功时返回的业务数据
+        error:
+          $ref: "#/components/schemas/ErrorPayload"
+
+    ErrorPayload:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          example: invalid_request
+        message:
+          type: string
+          example: "invalid json body"
+
+    CredentialsRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        password:
+          type: string
+          format: password
+          minLength: 1
+
+    SessionResponse:
+      type: object
+      properties:
+        onboardingCompleted:
+          type: boolean
+        preferences:
+          $ref: "#/components/schemas/Preferences"
+        session:
+          type: object
+          properties:
+            expiresAt:
+              type: string
+              format: date-time
+            id:
+              type: string
+        user:
+          type: object
+          properties:
+            email:
+              type: string
+            id:
+              type: string
+        workspace:
+          type: object
+          properties:
+            id:
+              type: string
+
+    Preferences:
+      type: object
+      properties:
+        defaultMode:
+          type: string
+        modelStrategy:
+          type: string
+        networkEnabledHint:
+          type: boolean
+        onboardingCompleted:
+          type: boolean
+
+    UpdatePreferencesRequest:
+      type: object
+      properties:
+        defaultMode:
+          type: string
+        modelStrategy:
+          type: string
+        networkEnabledHint:
+          type: boolean
+        onboardingCompleted:
+          type: boolean
+
+    CreateConversationRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          example: "新对话"
+
+    Conversation:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    SendMessageRequest:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+          example: "你好"
+        overrides:
+          $ref: "#/components/schemas/MessageOverrides"
+
+    MessageOverrides:
+      type: object
+      properties:
+        modelId:
+          type: string
+        systemPromptOverride:
+          type: string
+        temperature:
+          type: number
+          format: double
+        maxOutputTokens:
+          type: integer
+        toolsEnabled:
+          type: boolean
+
+    UpdateConversationConfigRequest:
+      type: object
+      properties:
+        modelId:
+          type: string
+        knowledgeBaseIds:
+          type: array
+          items:
+            type: string
+        systemPromptOverride:
+          type: string
+        temperature:
+          type: number
+          format: double
+        maxOutputTokens:
+          type: integer
+        toolsEnabled:
+          type: boolean
+
+    Message:
+      type: object
+      properties:
+        id:
+          type: string
+        role:
+          type: string
+          enum: [user, assistant, system]
+        content:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    Model:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+
+    KnowledgeBase:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        documentCount:
+          type: integer
+
+    CreateKnowledgeBaseRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          example: "产品文档"
+
+    Document:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        content:
+          type: string
+
+    CreateDocumentRequest:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+        content:
+          type: string
+
+    RetrieveKnowledgeRequest:
+      type: object
+      required: [query]
+      properties:
+        query:
+          type: string
+          example: "如何配置模型"
+
+    CreateTaskRequest:
+      type: object
+      required: [goal]
+      properties:
+        title:
+          type: string
+        goal:
+          type: string
+          example: "分析最近一个月的销售数据"
+        executionMode:
+          type: string
+          enum: [auto, semi-auto, manual]
+        authorizationScope:
+          type: string
+        budgetLimit:
+          type: integer
+        knowledgeBaseIds:
+          type: array
+          items:
+            type: string
+        toolAllowList:
+          type: array
+          items:
+            type: string
+        toolDenyList:
+          type: array
+          items:
+            type: string
+
+    Task:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        goal:
+          type: string
+        status:
+          type: string
+          enum: [draft, running, paused, completed, cancelled, failed]
+        budgetLimit:
+          type: integer
+
+    UpdateTaskBudgetRequest:
+      type: object
+      properties:
+        budgetLimit:
+          type: integer
+
+    UsageSummary:
+      type: object
+      properties:
+        totalTokens:
+          type: integer
+        totalCost:
+          type: number
+          format: double
+
+    BillingSummary:
+      type: object
+      properties:
+        plan:
+          type: string
+        billingPeriod:
+          type: string
+        amount:
+          type: number
+          format: double
+
+    AccessSummary:
+      type: object
+      properties:
+        features:
+          type: object
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+
+  responses:
+    Unauthorized:
+      description: 未认证或会话已过期
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Envelope"
+          example:
+            ok: false
+            data: null
+            error:
+              code: unauthorized
+              message: "authentication required"
+
+    MethodNotAllowed:
+      description: 请求方法不被允许
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Envelope"
+          example:
+            ok: false
+            data: null
+            error:
+              code: method_not_allowed
+              message: "method not allowed"
+
+    BadRequest:
+      description: 请求参数无效
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Envelope"
+          example:
+            ok: false
+            data: null
+            error:
+              code: invalid_request
+              message: "invalid json body"
+
+    InternalError:
+      description: 服务器内部错误
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Envelope"
+          example:
+            ok: false
+            data: null
+            error:
+              code: internal_error
+              message: "operation failed"
+
+paths:
+  # ---- 健康检查 ----
+  /healthz:
+    get:
+      summary: 健康检查
+      operationId: healthCheck
+      tags: [系统]
+      security: []
+      responses:
+        "200":
+          description: 服务正常
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /metrics:
+    get:
+      summary: Prometheus 指标
+      operationId: metrics
+      tags: [系统]
+      security: []
+      description: 返回 Prometheus 格式的运行指标，由 promhttp 提供。
+      responses:
+        "200":
+          description: Prometheus 文本格式指标
+
+  # ---- 认证 (Auth) ----
+  /api/v1/auth/register:
+    post:
+      summary: 注册
+      operationId: register
+      tags: [Auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CredentialsRequest"
+      responses:
+        "200":
+          description: 注册成功，返回会话信息
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/SessionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/auth/login:
+    post:
+      summary: 登录
+      operationId: login
+      tags: [Auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CredentialsRequest"
+      responses:
+        "200":
+          description: 登录成功，返回会话信息
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/SessionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          description: 邮箱或密码错误
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+              example:
+                ok: false
+                data: null
+                error:
+                  code: invalid_credentials
+                  message: "invalid email or password"
+
+  /api/v1/auth/me:
+    get:
+      summary: 获取当前会话信息
+      operationId: getCurrentSession
+      tags: [Auth]
+      responses:
+        "200":
+          description: 当前会话详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/SessionResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/auth/logout:
+    post:
+      summary: 登出
+      operationId: logout
+      tags: [Auth]
+      responses:
+        "200":
+          description: 登出成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          loggedOut:
+                            type: boolean
+                            example: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ---- 用户偏好 (Preferences) ----
+  /api/v1/app/me/preferences:
+    get:
+      summary: 获取用户偏好设置
+      operationId: getPreferences
+      tags: [Preferences]
+      responses:
+        "200":
+          description: 用户偏好
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Preferences"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    put:
+      summary: 更新用户偏好设置
+      operationId: updatePreferences
+      tags: [Preferences]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePreferencesRequest"
+      responses:
+        "200":
+          description: 更新后的偏好
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Preferences"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ---- 模型列表 ----
+  /api/v1/app/models:
+    get:
+      summary: 获取可用模型列表
+      operationId: listModels
+      tags: [Chat]
+      responses:
+        "200":
+          description: 模型列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Model"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ---- 对话 (Chat) ----
+  /api/v1/app/conversations:
+    get:
+      summary: 获取对话列表
+      operationId: listConversations
+      tags: [Chat]
+      responses:
+        "200":
+          description: 对话列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Conversation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      summary: 创建新对话
+      operationId: createConversation
+      tags: [Chat]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateConversationRequest"
+      responses:
+        "200":
+          description: 新创建的对话
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Conversation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/app/conversations/{conversationId}/messages:
+    get:
+      summary: 获取对话消息列表
+      operationId: listMessages
+      tags: [Chat]
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 消息列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Message"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      summary: 发送消息
+      operationId: sendMessage
+      tags: [Chat]
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendMessageRequest"
+      responses:
+        "200":
+          description: 包含用户消息和助手回复的消息列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Message"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/app/conversations/{conversationId}/config:
+    get:
+      summary: 获取对话配置
+      operationId: getConversationConfig
+      tags: [Chat]
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 对话配置
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    put:
+      summary: 更新对话配置
+      operationId: updateConversationConfig
+      tags: [Chat]
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateConversationConfigRequest"
+      responses:
+        "200":
+          description: 更新后的对话配置
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/app/conversations/{conversationId}/convert-to-task:
+    post:
+      summary: 将对话转换为任务
+      operationId: convertConversationToTask
+      tags: [Chat]
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 转换后的任务草稿
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ---- 知识库 (Knowledge) ----
+  /api/v1/app/knowledge-bases:
+    get:
+      summary: 获取知识库列表
+      operationId: listKnowledgeBases
+      tags: [Knowledge]
+      responses:
+        "200":
+          description: 知识库列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/KnowledgeBase"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      summary: 创建知识库
+      operationId: createKnowledgeBase
+      tags: [Knowledge]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateKnowledgeBaseRequest"
+      responses:
+        "200":
+          description: 新创建的知识库
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/KnowledgeBase"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/app/knowledge-bases/{knowledgeBaseId}:
+    get:
+      summary: 获取知识库详情
+      operationId: getKnowledgeBase
+      tags: [Knowledge]
+      parameters:
+        - name: knowledgeBaseId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 知识库详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/KnowledgeBase"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    put:
+      summary: 更新知识库
+      operationId: updateKnowledgeBase
+      tags: [Knowledge]
+      parameters:
+        - name: knowledgeBaseId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateKnowledgeBaseRequest"
+      responses:
+        "200":
+          description: 更新后的知识库
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/KnowledgeBase"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    delete:
+      summary: 删除知识库
+      operationId: deleteKnowledgeBase
+      tags: [Knowledge]
+      parameters:
+        - name: knowledgeBaseId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: 删除成功
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/app/knowledge-bases/{knowledgeBaseId}/documents:
+    get:
+      summary: 获取知识库文档列表
+      operationId: listKnowledgeDocuments
+      tags: [Knowledge]
+      parameters:
+        - name: knowledgeBaseId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 文档列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Document"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      summary: 创建知识库文档
+      operationId: createKnowledgeDocument
+      tags: [Knowledge]
+      parameters:
+        - name: knowledgeBaseId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateDocumentRequest"
+      responses:
+        "200":
+          description: 新创建的文档
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Document"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}:
+    put:
+      summary: 更新知识库文档
+      operationId: updateKnowledgeDocument
+      tags: [Knowledge]
+      parameters:
+        - name: knowledgeBaseId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateDocumentRequest"
+      responses:
+        "200":
+          description: 更新后的文档
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Document"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    delete:
+      summary: 删除知识库文档
+      operationId: deleteKnowledgeDocument
+      tags: [Knowledge]
+      parameters:
+        - name: knowledgeBaseId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: 删除成功
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/app/knowledge-bases/{knowledgeBaseId}/retrieve:
+    post:
+      summary: 知识库检索
+      operationId: retrieveKnowledge
+      tags: [Knowledge]
+      parameters:
+        - name: knowledgeBaseId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RetrieveKnowledgeRequest"
+      responses:
+        "200":
+          description: 检索结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ---- 任务 (Task) ----
+  /api/v1/app/tasks:
+    get:
+      summary: 获取任务列表
+      operationId: listTasks
+      tags: [Task]
+      responses:
+        "200":
+          description: 任务列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Task"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      summary: 创建任务
+      operationId: createTask
+      tags: [Task]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTaskRequest"
+      responses:
+        "200":
+          description: 新创建的任务
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Task"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/app/tasks/{taskId}:
+    get:
+      summary: 获取任务详情
+      operationId: getTask
+      tags: [Task]
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 任务详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Task"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/app/tasks/{taskId}/start:
+    post:
+      summary: 启动任务
+      operationId: startTask
+      tags: [Task]
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 任务状态已更新
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Task"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/app/tasks/{taskId}/approve:
+    post:
+      summary: 审批任务
+      operationId: approveTask
+      tags: [Task]
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 任务已审批
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Task"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/app/tasks/{taskId}/pause:
+    post:
+      summary: 暂停任务
+      operationId: pauseTask
+      tags: [Task]
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 任务已暂停
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Task"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/app/tasks/{taskId}/resume:
+    post:
+      summary: 恢复任务
+      operationId: resumeTask
+      tags: [Task]
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 任务已恢复
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Task"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/app/tasks/{taskId}/cancel:
+    post:
+      summary: 取消任务
+      operationId: cancelTask
+      tags: [Task]
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 任务已取消
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Task"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/app/tasks/{taskId}/budget:
+    post:
+      summary: 更新任务预算
+      operationId: updateTaskBudget
+      tags: [Task]
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTaskBudgetRequest"
+      responses:
+        "200":
+          description: 预算已更新
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Task"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ---- 控制台 (Console / Billing) ----
+  /api/v1/console/usage:
+    get:
+      summary: 获取使用量概览
+      operationId: getUsage
+      tags: [Billing]
+      responses:
+        "200":
+          description: 使用量汇总
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/UsageSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/console/access:
+    get:
+      summary: 获取访问权限概览
+      operationId: getAccess
+      tags: [Billing]
+      responses:
+        "200":
+          description: 权限概览
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AccessSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/console/models:
+    get:
+      summary: 获取模型概览（控制台）
+      operationId: getConsoleModels
+      tags: [Billing]
+      responses:
+        "200":
+          description: 模型摘要列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/console/billing:
+    get:
+      summary: 获取账单概览
+      operationId: getBilling
+      tags: [Billing]
+      responses:
+        "200":
+          description: 账单汇总
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/BillingSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"

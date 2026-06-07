@@ -9,8 +9,8 @@ import (
 // ChannelPool 渠道池（内存缓存）
 type ChannelPool struct {
 	mu       sync.RWMutex
-	channels map[string]*types.Channel       // channel_id -> channel
-	routes   map[string]*types.ModelRoute  // model -> route
+	channels map[string]*types.Channel      // channel_id -> channel
+	routes   map[string]*types.ModelRoute   // model -> route
 	stats    map[string]*types.ChannelStats // channel_id -> runtime stats
 }
 
@@ -74,6 +74,27 @@ func (p *ChannelPool) UpdateRoute(route *types.ModelRoute) {
 	p.routes[route.Model] = route
 }
 
+func (p *ChannelPool) ReplaceConfig(channels []*types.Channel, routes []*types.ModelRoute) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.channels = make(map[string]*types.Channel, len(channels))
+	p.routes = make(map[string]*types.ModelRoute, len(routes))
+	p.stats = make(map[string]*types.ChannelStats, len(channels))
+	for _, ch := range channels {
+		if ch == nil || ch.ID == "" {
+			continue
+		}
+		p.channels[ch.ID] = ch
+		p.stats[ch.ID] = &types.ChannelStats{ChannelID: ch.ID}
+	}
+	for _, route := range routes {
+		if route == nil {
+			continue
+		}
+		p.routes[route.Model] = route
+	}
+}
+
 // ListChannels 列出所有渠道
 func (p *ChannelPool) ListChannels() []*types.Channel {
 	p.mu.RLock()
@@ -122,9 +143,12 @@ func (p *ChannelPool) AddChannel(ch *types.Channel, weight int) {
 		p.routes[""] = &types.ModelRoute{Model: "", Strategy: "weighted"}
 	}
 	p.routes[""].Channels = append(p.routes[""].Channels, types.RouteChannel{
-		Channel:    ch,
-		ChannelID: ch.ID,
-		Weight:    weight,
-		Healthy:   ch.Enabled,
+		Channel:            ch,
+		ChannelID:          ch.ID,
+		Weight:             weight,
+		Healthy:            ch.Enabled,
+		Enabled:            ch.Enabled,
+		EstimatedCostPer1K: ch.EstimatedCostPer1K,
+		CostMultiplier:     ch.CostMultiplier,
 	})
 }

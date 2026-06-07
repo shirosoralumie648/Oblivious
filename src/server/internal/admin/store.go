@@ -18,6 +18,10 @@ type Store interface {
 	PlanStore
 	UserStore
 	BillingInspectionStore
+	RelayPricingSettingsStore
+	UsageLogStore
+	APITokenStore
+	ModelInventoryStore
 
 	// System stats (D-07: admin dashboard)
 	GetSystemStats(ctx context.Context) (*SystemStats, error)
@@ -30,6 +34,7 @@ type Store interface {
 	ListPendingReviews(ctx context.Context) ([]*marketplace.PublishedAgent, error)
 	ApproveAgent(ctx context.Context, id string) error
 	RejectAgent(ctx context.Context, id string, reason string) error
+	RequestAgentChanges(ctx context.Context, id string, reason string) error
 }
 
 // SQLStore implements Store using database/sql.
@@ -158,6 +163,10 @@ func (s *SQLStore) ApproveAgent(ctx context.Context, id string) error {
 
 func (s *SQLStore) RejectAgent(ctx context.Context, id string, reason string) error {
 	return marketplace.NewSQLStore(s.db).RejectAgent(ctx, id, "", reason)
+}
+
+func (s *SQLStore) RequestAgentChanges(ctx context.Context, id string, reason string) error {
+	return marketplace.NewSQLStore(s.db).RequestAgentChanges(ctx, id, "", reason)
 }
 
 // Ensure SQLStore implements Store at compile time.

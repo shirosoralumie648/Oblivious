@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
+	"strings"
+	"time"
 )
 
 // AuditLogger is the audit callback interface for logging review actions.
@@ -12,15 +15,47 @@ type AuditLogger interface {
 	LogAction(ctx context.Context, actorID, actorEmail, action, resourceType, resourceID, changes, ipAddress string) error
 }
 
+type AutomatedReviewer interface {
+	RunAutomatedReview(ctx context.Context, agentID string) (*AutomatedReviewResult, error)
+}
+
+type ServiceOption func(*Service)
+
 // Service provides marketplace business logic on top of Store.
 type Service struct {
-	store Store
-	audit AuditLogger
+	store             Store
+	audit             AuditLogger
+	automatedReviewer AutomatedReviewer
+	reviewSLAClock    func() time.Time
 }
 
 // NewService creates a new marketplace Service.
-func NewService(store Store, audit AuditLogger) *Service {
-	return &Service{store: store, audit: audit}
+func NewService(store Store, audit AuditLogger, options ...ServiceOption) *Service {
+	service := &Service{store: store, audit: audit}
+	for _, option := range options {
+		option(service)
+	}
+	return service
+}
+
+func WithAutomatedReview(reviewer AutomatedReviewer) ServiceOption {
+	return func(service *Service) {
+		service.automatedReviewer = reviewer
+	}
+}
+
+func WithReviewSLAClock(clock func() time.Time) ServiceOption {
+	return func(service *Service) {
+		service.reviewSLAClock = clock
+	}
+}
+
+type AutomatedReviewError struct {
+	Result AutomatedReviewResult
+}
+
+func (e *AutomatedReviewError) Error() string {
+	return "automated review rejected marketplace submission"
 }
 
 // --- Agent Publishing ---
@@ -47,6 +82,9 @@ func (s *Service) PublishAgent(ctx context.Context, userID, organizationID, user
 	if err != nil {
 		return nil, fmt.Errorf("publish agent: %w", err)
 	}
+	if err := s.runPublicationAutomatedReview(ctx, agent); err != nil {
+		return nil, fmt.Errorf("publish agent: %w", err)
+	}
 
 	// Audit
 	if s.audit != nil {
@@ -57,6 +95,30 @@ func (s *Service) PublishAgent(ctx context.Context, userID, organizationID, user
 	}
 
 	return agent, nil
+}
+
+func (s *Service) runPublicationAutomatedReview(ctx context.Context, agent *PublishedAgent) error {
+	var result *AutomatedReviewResult
+	if s.automatedReviewer != nil {
+		review, err := s.automatedReviewer.RunAutomatedReview(ctx, agent.ID)
+		if err != nil {
+			return err
+		}
+		result = review
+	} else {
+		review, err := NewStaticReviewScanner().ScanAgent(ctx, *agent)
+		if err != nil {
+			return err
+		}
+		result = &review
+	}
+	if result == nil {
+		return nil
+	}
+	if result.Decision == "rejected" {
+		return &AutomatedReviewError{Result: *result}
+	}
+	return nil
 }
 
 // validatePublishRequest validates all required fields for agent publication.
@@ -139,6 +201,9 @@ func (s *Service) UpdateAgent(ctx context.Context, userID, organizationID, userE
 	if err != nil {
 		return nil, fmt.Errorf("update agent: %w", err)
 	}
+	if err := s.runPublicationAutomatedReview(ctx, agent); err != nil {
+		return nil, fmt.Errorf("update agent: %w", err)
+	}
 
 	// Audit
 	if s.audit != nil {
@@ -181,7 +246,89 @@ func (s *Service) ListPendingReviews(ctx context.Context, limit, offset int) ([]
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	return s.store.ListPendingReviews(ctx, limit, offset)
+	agents, err := s.store.ListPendingReviews(ctx, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	s.addReviewSLAs(agents)
+	return agents, nil
+}
+
+const (
+	automatedReviewSLAMinutes = 5
+	standardManualSLAHours    = 72
+	vipManualSLAHours         = 24
+	dueSoonReviewThreshold    = 4 * time.Hour
+)
+
+func (s *Service) addReviewSLAs(agents []*PublishedAgent) {
+	now := time.Now().UTC()
+	if s.reviewSLAClock != nil {
+		now = s.reviewSLAClock().UTC()
+	}
+	for _, agent := range agents {
+		AddReviewSLA(agent, now)
+	}
+}
+
+func AddReviewSLA(agent *PublishedAgent, now time.Time) {
+	if agent == nil || agent.Status != "pending_review" {
+		return
+	}
+	submittedAt := agent.CreatedAt
+	if submittedAt.IsZero() {
+		submittedAt = agent.UpdatedAt
+	}
+	if submittedAt.IsZero() {
+		submittedAt = now
+	}
+	submittedAt = submittedAt.UTC()
+	now = now.UTC()
+
+	tier, tierSource, isVIP := reviewSLAPublisherTier(agent.PublisherReviewTier)
+	manualHours := standardManualSLAHours
+	if isVIP {
+		manualHours = vipManualSLAHours
+	}
+	manualDeadline := submittedAt.Add(time.Duration(manualHours) * time.Hour)
+	automatedDeadline := submittedAt.Add(time.Duration(automatedReviewSLAMinutes) * time.Minute)
+	minutesUntilDeadline := int(math.Ceil(manualDeadline.Sub(now).Minutes()))
+
+	agent.ReviewSLA = &ReviewSLA{
+		SubmittedAt:               submittedAt,
+		AutomatedReviewDeadlineAt: automatedDeadline,
+		AutomatedReviewSlaMinutes: automatedReviewSLAMinutes,
+		AutomatedReviewSlaStatus:  slaStatus(automatedDeadline, now, 0),
+		ManualDeadlineAt:          manualDeadline,
+		ManualSlaHours:            manualHours,
+		ManualSlaStatus:           slaStatus(manualDeadline, now, dueSoonReviewThreshold),
+		MinutesUntilDeadline:      minutesUntilDeadline,
+		VIPPublisher:              isVIP,
+		PublisherTier:             tier,
+		PublisherTierSource:       tierSource,
+	}
+}
+
+func reviewSLAPublisherTier(rawTier string) (tier string, source string, isVIP bool) {
+	tier = strings.ToLower(strings.TrimSpace(rawTier))
+	switch tier {
+	case "vip", "priority", "enterprise":
+		return tier, "organization_metadata", true
+	case "":
+		return "standard", "default", false
+	default:
+		return tier, "organization_metadata", false
+	}
+}
+
+func slaStatus(deadline time.Time, now time.Time, dueSoonThreshold time.Duration) string {
+	if !now.Before(deadline) {
+		return "overdue"
+	}
+	if dueSoonThreshold > 0 && !now.Before(deadline.Add(-dueSoonThreshold)) {
+		return "due_soon"
+	}
+	return "within_sla"
 }
 
 // ApproveAgent approves a pending agent (D-17).
@@ -251,6 +398,19 @@ func (s *Service) InstallAgent(ctx context.Context, userID, organizationID, agen
 	}
 
 	return s.store.InstallAgent(ctx, agentID, userID, organizationID, versionID)
+}
+
+// RecordAgentRankingSignal records one aggregate ranking event for recommendation scoring.
+func (s *Service) RecordAgentRankingSignal(ctx context.Context, agentID string, event AgentRankingSignalEvent) error {
+	if agentID == "" {
+		return fmt.Errorf("record ranking signal: agentID is required")
+	}
+	switch event {
+	case AgentRankingSignalImpression, AgentRankingSignalClick, AgentRankingSignalInstallConversion:
+	default:
+		return fmt.Errorf("record ranking signal: unsupported event %q", event)
+	}
+	return s.store.RecordAgentRankingSignal(ctx, agentID, event)
 }
 
 // UninstallAgent removes an agent install.
@@ -324,6 +484,71 @@ func (s *Service) ListCategories(ctx context.Context) ([]*Category, error) {
 // GetCategory retrieves a category by slug.
 func (s *Service) GetCategory(ctx context.Context, slug string) (*Category, error) {
 	return s.store.GetCategoryBySlug(ctx, slug)
+}
+
+// --- Templates ---
+
+func (s *Service) CreateTemplate(ctx context.Context, organizationID string, input TemplateCreateRequest) (*MarketplaceTemplate, error) {
+	if err := validateTemplateCreateRequest(input); err != nil {
+		return nil, fmt.Errorf("create template: %w", err)
+	}
+	return s.store.CreateTemplate(ctx, organizationID, input)
+}
+
+func (s *Service) ListTemplates(ctx context.Context, filter TemplateFilter) ([]*MarketplaceTemplate, int, error) {
+	if filter.Limit <= 0 || filter.Limit > 100 {
+		filter.Limit = 20
+	}
+	if filter.Offset < 0 {
+		filter.Offset = 0
+	}
+	return s.store.ListTemplates(ctx, filter)
+}
+
+func (s *Service) GetTemplate(ctx context.Context, id string) (*MarketplaceTemplate, error) {
+	if id == "" {
+		return nil, fmt.Errorf("get template: id is required")
+	}
+	return s.store.GetTemplate(ctx, id)
+}
+
+func (s *Service) InstallTemplate(ctx context.Context, userID, organizationID, templateID string) (*TemplateInstall, error) {
+	if templateID == "" {
+		return nil, fmt.Errorf("install template: templateID is required")
+	}
+	template, err := s.store.GetTemplate(ctx, templateID)
+	if err != nil {
+		return nil, fmt.Errorf("install template: %w", err)
+	}
+	if template == nil {
+		return nil, fmt.Errorf("install template: template not found")
+	}
+	install, err := s.store.InstallTemplate(ctx, templateID, userID, organizationID)
+	if err != nil {
+		return nil, fmt.Errorf("install template: %w", err)
+	}
+	install.Type = template.Type
+	install.Name = template.Name
+	install.TemplateData = template.TemplateData
+	return install, nil
+}
+
+func validateTemplateCreateRequest(input TemplateCreateRequest) error {
+	switch input.Type {
+	case "workflow", "bot", "plugin":
+	default:
+		return fmt.Errorf("type must be one of: workflow, bot, plugin")
+	}
+	if len(input.Name) < 3 || len(input.Name) > 200 {
+		return fmt.Errorf("name must be 3-200 characters")
+	}
+	if len(input.Description) > 2000 {
+		return fmt.Errorf("description must be 2000 characters or fewer")
+	}
+	if len(input.TemplateData) == 0 || !json.Valid(input.TemplateData) {
+		return fmt.Errorf("templateData must be valid JSON")
+	}
+	return nil
 }
 
 // --- Versions (D-19) ---

@@ -11,11 +11,16 @@ import (
 	"oblivious/server/internal/auth"
 	"oblivious/server/internal/chat"
 	"oblivious/server/internal/memory"
+	"oblivious/server/internal/metrics"
 )
 
 // ErrMaxIterationsExceeded is returned when the tool-calling loop exhausts its
 // iteration budget without the model producing a final non-tool response.
 var ErrMaxIterationsExceeded = errors.New("tool loop exceeded max iterations")
+
+// ErrTokenBudgetExceeded is returned when model usage exceeds a configured run
+// token budget before another tool or model step can safely continue.
+var ErrTokenBudgetExceeded = errors.New("token budget exceeded")
 
 // ErrToolApprovalRequired is returned when a tool call has been persisted and
 // the workflow is waiting for explicit approval before execution.
@@ -26,6 +31,22 @@ type RunnerConfig struct {
 	MaxIterations int // 最大工具调用迭代次数
 }
 
+const maxTokenBudget = 1_000_000
+
+const (
+	ExecutionModeReact    = "react"
+	ExecutionModePlanning = "planning"
+
+	ApprovalModeTiered = "tiered"
+	ApprovalModeAll    = "all"
+	ApprovalModeNone   = "none"
+	ApprovalModeCustom = "custom"
+
+	ToolRiskSafe      = "safe"
+	ToolRiskMedium    = "medium"
+	ToolRiskDangerous = "dangerous"
+)
+
 // DefaultRunnerConfig 默认运行配置
 func DefaultRunnerConfig() RunnerConfig {
 	return RunnerConfig{
@@ -33,13 +54,224 @@ func DefaultRunnerConfig() RunnerConfig {
 	}
 }
 
+// NormalizeConfig applies runtime defaults and limits for user-configurable
+// Agent execution controls.
+func NormalizeConfig(config Config) Config {
+	config.MaxIterations = normalizeMaxIterations(config.MaxIterations, DefaultRunnerConfig().MaxIterations)
+	config.TokenBudget = normalizeTokenBudget(config.TokenBudget)
+	config.DefaultExecutionMode = NormalizeExecutionMode(config.DefaultExecutionMode)
+	config.ApprovalMode = normalizeApprovalMode(config.ApprovalMode)
+	return config
+}
+
+func NormalizeConfigForWrite(config Config) (Config, error) {
+	normalizedMode, err := NormalizeExecutionModeForWrite(config.DefaultExecutionMode)
+	if err != nil {
+		return Config{}, err
+	}
+	config = NormalizeConfig(config)
+	config.DefaultExecutionMode = normalizedMode
+	return config, nil
+}
+
+func NormalizeExecutionMode(value string) string {
+	normalized, err := NormalizeExecutionModeForWrite(value)
+	if err != nil {
+		return ExecutionModeReact
+	}
+	return normalized
+}
+
+func NormalizeExecutionModeForWrite(value string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", ExecutionModeReact:
+		return ExecutionModeReact, nil
+	case ExecutionModePlanning:
+		return ExecutionModePlanning, nil
+	default:
+		return "", fmt.Errorf("defaultExecutionMode must be react or planning")
+	}
+}
+
+func normalizeApprovalMode(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case ApprovalModeAll:
+		return ApprovalModeAll
+	case ApprovalModeNone:
+		return ApprovalModeNone
+	case ApprovalModeCustom:
+		return ApprovalModeCustom
+	default:
+		return ApprovalModeTiered
+	}
+}
+
+func normalizeMaxIterations(value, defaultValue int) int {
+	if defaultValue <= 0 {
+		defaultValue = 10
+	}
+	if value <= 0 {
+		return defaultValue
+	}
+	if value > 100 {
+		return 100
+	}
+	return value
+}
+
+func normalizeTokenBudget(value int) int {
+	if value <= 0 {
+		return 0
+	}
+	if value < 1_000 {
+		return 1_000
+	}
+	if value > maxTokenBudget {
+		return maxTokenBudget
+	}
+	return value
+}
+
+type toolApprovalDecision struct {
+	RiskLevel        string
+	RequiresApproval bool
+}
+
+func (r *Runner) decideToolApproval(ctx context.Context, organizationID, conversationID string, agent *Agent, tool *Tool, toolCall ToolCall) toolApprovalDecision {
+	riskLevel := normalizeToolRiskLevel("")
+	if tool != nil {
+		riskLevel = normalizeToolRiskLevel(tool.RiskLevel)
+	}
+	if riskLevel == "" {
+		riskLevel = inferToolRiskLevel(toolCall.Name)
+	}
+
+	requiresApproval := false
+	mode := ApprovalModeTiered
+	if agent != nil {
+		mode = normalizeApprovalMode(agent.Config.ApprovalMode)
+	}
+	switch mode {
+	case ApprovalModeAll:
+		requiresApproval = true
+	case ApprovalModeNone:
+		requiresApproval = false
+	case ApprovalModeCustom:
+		if override, ok := toolApprovalOverride(agent, toolCall.Name); ok {
+			if normalized := normalizeToolRiskLevel(override.RiskLevel); normalized != "" {
+				riskLevel = normalized
+			}
+			if override.RequiresApproval != nil {
+				requiresApproval = *override.RequiresApproval
+			} else {
+				requiresApproval = r.tieredToolRequiresApproval(ctx, organizationID, conversationID, toolCall.Name, riskLevel)
+			}
+		} else {
+			requiresApproval = r.tieredToolRequiresApproval(ctx, organizationID, conversationID, toolCall.Name, riskLevel)
+		}
+	default:
+		requiresApproval = r.tieredToolRequiresApproval(ctx, organizationID, conversationID, toolCall.Name, riskLevel)
+	}
+	if tool != nil && tool.RequiresApproval {
+		requiresApproval = true
+	}
+	return toolApprovalDecision{RiskLevel: riskLevel, RequiresApproval: requiresApproval}
+}
+
+func toolApprovalOverride(agent *Agent, toolName string) (ToolApprovalOverride, bool) {
+	if agent == nil || len(agent.Config.ToolApprovalOverrides) == 0 {
+		return ToolApprovalOverride{}, false
+	}
+	override, ok := agent.Config.ToolApprovalOverrides[toolName]
+	return override, ok
+}
+
+func (r *Runner) tieredToolRequiresApproval(ctx context.Context, organizationID, conversationID, toolName, riskLevel string) bool {
+	switch normalizeToolRiskLevel(riskLevel) {
+	case ToolRiskSafe:
+		return false
+	case ToolRiskMedium:
+		return !r.hasApprovedMediumTool(ctx, organizationID, conversationID, toolName)
+	case ToolRiskDangerous:
+		return true
+	default:
+		return true
+	}
+}
+
+func (r *Runner) hasApprovedMediumTool(ctx context.Context, organizationID, conversationID, toolName string) bool {
+	if r == nil || r.store == nil || strings.TrimSpace(conversationID) == "" {
+		return false
+	}
+	runs, err := r.store.ListRuns(ctx, organizationID, conversationID)
+	if err != nil {
+		return false
+	}
+	for _, run := range runs {
+		if run == nil {
+			continue
+		}
+		toolRuns, err := r.store.ListToolRuns(ctx, organizationID, run.ID)
+		if err != nil {
+			continue
+		}
+		for _, toolRun := range toolRuns {
+			if toolRun != nil &&
+				toolRun.ConversationID == conversationID &&
+				toolRun.ToolName == toolName &&
+				normalizeToolRiskLevel(toolRun.RiskLevel) == ToolRiskMedium &&
+				toolRun.ApprovalStatus == ApprovalStatusApproved {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func normalizeToolRiskLevel(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case ToolRiskSafe:
+		return ToolRiskSafe
+	case ToolRiskMedium:
+		return ToolRiskMedium
+	case ToolRiskDangerous:
+		return ToolRiskDangerous
+	default:
+		return ""
+	}
+}
+
+func inferToolRiskLevel(name string) string {
+	normalized := strings.ToLower(strings.TrimSpace(name))
+	switch {
+	case strings.Contains(normalized, "delete"),
+		strings.Contains(normalized, "drop"),
+		strings.Contains(normalized, "pay"),
+		strings.Contains(normalized, "transfer"),
+		strings.Contains(normalized, "execute_code"):
+		return ToolRiskDangerous
+	case strings.Contains(normalized, "write"),
+		strings.Contains(normalized, "create"),
+		strings.Contains(normalized, "update"),
+		strings.Contains(normalized, "post"):
+		return ToolRiskMedium
+	default:
+		return ToolRiskSafe
+	}
+}
+
 // Runner Agent 执行器
 type Runner struct {
-	store    Store
-	gateway  chat.ChatGateway
-	executor *ToolExecutor
-	memory   MemorySearcher
-	config   RunnerConfig
+	store          Store
+	gateway        chat.ChatGateway
+	executor       *ToolExecutor
+	memory         MemorySearcher
+	memoryEmbedder MemoryEmbedder
+	config         RunnerConfig
+}
+
+type memoryVectorSearchStore interface {
+	SearchMemories(ctx context.Context, organizationID, userID string, req SearchMemoriesRequest) ([]*MemorySearchResult, error)
 }
 
 // NewRunner 创建 Agent Runner
@@ -53,11 +285,17 @@ func NewRunner(store Store, gateway chat.ChatGateway, executor *ToolExecutor, me
 	}
 }
 
+func (r *Runner) SetMemoryEmbedder(embedder MemoryEmbedder) {
+	r.memoryEmbedder = embedder
+}
+
 // RunResult 运行结果
 type RunResult struct {
-	Message    *Message `json:"message"`
-	ToolCalls  int      `json:"toolCalls"`
-	UsedMemory bool     `json:"usedMemory"`
+	Message           *Message `json:"message"`
+	ToolCalls         int      `json:"toolCalls"`
+	UsedMemory        bool     `json:"usedMemory"`
+	MemorySearched    bool     `json:"memorySearched"`
+	MemoryResultCount int      `json:"memoryResultCount"`
 }
 
 type memoryEvidence struct {
@@ -88,6 +326,8 @@ func (r *Runner) Run(ctx context.Context, session auth.Session, agent *Agent, co
 	// 构建对话上下文
 	chatMessages, evidence := r.buildChatMessagesWithEvidence(ctx, session, agent, messages, userContent)
 	result.UsedMemory = evidence.enabled
+	result.MemorySearched = evidence.searched
+	result.MemoryResultCount = evidence.resultCount
 
 	// 构建 config
 	config := chat.ConversationConfig{
@@ -150,6 +390,8 @@ func (r *Runner) RunStream(ctx context.Context, session auth.Session, agent *Age
 	// 构建对话上下文
 	chatMessages, evidence := r.buildChatMessagesWithEvidence(ctx, session, agent, messages, userContent)
 	result.UsedMemory = evidence.enabled
+	result.MemorySearched = evidence.searched
+	result.MemoryResultCount = evidence.resultCount
 
 	// 构建 config
 	config := chat.ConversationConfig{
@@ -204,11 +446,11 @@ func (r *Runner) buildChatMessagesWithEvidence(ctx context.Context, session auth
 		}
 	}
 
-	evidence := memoryEvidence{enabled: agent.Config.EnableMemory && r.memory != nil}
+	evidence := memoryEvidence{enabled: agent.Config.EnableMemory && (r.memory != nil || r.store != nil)}
 
 	// 如果启用 Memory，注入相关记忆
 	if evidence.enabled {
-		results, searched := r.searchMemory(ctx, session, userContent)
+		results, searched := r.searchMemory(ctx, session, agent, userContent)
 		evidence.searched = searched
 		evidence.resultCount = len(results)
 		if len(results) > 0 {
@@ -219,16 +461,84 @@ func (r *Runner) buildChatMessagesWithEvidence(ctx context.Context, session auth
 	return chatMessages, evidence
 }
 
-func (r *Runner) searchMemory(ctx context.Context, session auth.Session, query string) ([]*memory.SearchResult, bool) {
-	results, err := r.memory.Search(ctx, session, &memory.SearchRequest{
-		Query:    query,
-		TopK:     5,
-		MinScore: 0.5,
-	})
-	if err != nil {
-		return nil, true
+func (r *Runner) searchMemory(ctx context.Context, session auth.Session, agent *Agent, query string) ([]*memory.SearchResult, bool) {
+	results := make([]*memory.SearchResult, 0, 5)
+	if r.memory != nil {
+		internalResults, err := r.memory.Search(ctx, session, &memory.SearchRequest{
+			Query:    query,
+			TopK:     5,
+			MinScore: 0.5,
+		})
+		if err == nil {
+			results = append(results, internalResults...)
+		}
+	}
+
+	if r.store != nil && agent != nil && agent.ID != "" {
+		if vectorResults, ok := r.searchUserManagedMemoriesByVector(ctx, session, agent, query); ok {
+			results = append(results, vectorResults...)
+			return results, true
+		}
+		managedMemories, err := r.store.ListMemories(ctx, session.OrganizationID, session.User.ID, ListMemoriesRequest{
+			AgentID: agent.ID,
+			Type:    MemoryTypeUserManaged,
+			Query:   query,
+			Limit:   5,
+		})
+		if err == nil {
+			for _, managedMemory := range managedMemories {
+				if managedMemory == nil {
+					continue
+				}
+				results = append(results, &memory.SearchResult{
+					DocumentID:    "agent_memory:" + managedMemory.ID,
+					DocumentTitle: "Agent memory",
+					ChunkContent:  managedMemory.Content,
+					ChunkIndex:    0,
+					Score:         1,
+				})
+			}
+		}
 	}
 	return results, true
+}
+
+func (r *Runner) searchUserManagedMemoriesByVector(ctx context.Context, session auth.Session, agent *Agent, query string) ([]*memory.SearchResult, bool) {
+	if r.memoryEmbedder == nil || r.store == nil || agent == nil || strings.TrimSpace(query) == "" {
+		return nil, false
+	}
+	vectorStore, ok := r.store.(memoryVectorSearchStore)
+	if !ok {
+		return nil, false
+	}
+	embedding, err := r.memoryEmbedder.Embed(withAgentMemoryRelayIdentity(ctx, session), query)
+	if err != nil || len(embedding) == 0 {
+		return nil, false
+	}
+	matches, err := vectorStore.SearchMemories(ctx, session.OrganizationID, session.User.ID, SearchMemoriesRequest{
+		AgentID:   agent.ID,
+		Type:      MemoryTypeUserManaged,
+		Embedding: embedding,
+		Limit:     5,
+		MinScore:  0.5,
+	})
+	if err != nil || len(matches) == 0 {
+		return nil, false
+	}
+	results := make([]*memory.SearchResult, 0, len(matches))
+	for _, match := range matches {
+		if match == nil {
+			continue
+		}
+		results = append(results, &memory.SearchResult{
+			DocumentID:    "agent_memory:" + match.Memory.ID,
+			DocumentTitle: "Agent memory",
+			ChunkContent:  match.Memory.Content,
+			ChunkIndex:    0,
+			Score:         match.Score,
+		})
+	}
+	return results, len(results) > 0
 }
 
 // injectMemoryResults 注入相关记忆到消息上下文
@@ -320,6 +630,8 @@ func (r *Runner) RunWithTools(ctx context.Context, session auth.Session, agent *
 	// 构建对话上下文
 	chatMessages, evidence := r.buildChatMessagesWithEvidence(ctx, session, agent, messages, userContent)
 	result.UsedMemory = evidence.enabled
+	result.MemorySearched = evidence.searched
+	result.MemoryResultCount = evidence.resultCount
 
 	// 构建 config
 	config := chat.ConversationConfig{
@@ -397,11 +709,20 @@ func (r *Runner) RunWithTools(ctx context.Context, session auth.Session, agent *
 	// implemented end-to-end.  The final assistant turn streams its
 	// content to the caller in word-level chunks, preserving the
 	// streaming UX without a second API call.
-	for iteration := 0; iteration < r.config.MaxIterations; iteration++ {
+	maxIterations := r.maxIterationsFor(agent)
+	tokenBudget := normalizeTokenBudget(agent.Config.TokenBudget)
+	usedTokens := 0
+	for iteration := 0; iteration < maxIterations; iteration++ {
 		reply, err := structuredGateway.GenerateStructuredReply(ctx, chatMessages, config, tools)
 		if err != nil {
 			_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), iteration+1, result.ToolCalls)
 			return nil, fmt.Errorf("generate structured reply: %w", err)
+		}
+		usedTokens += completionTotalTokens(reply)
+		if tokenBudget > 0 && usedTokens > tokenBudget {
+			message := fmt.Sprintf("token_budget_exceeded: used %d tokens exceeds budget %d", usedTokens, tokenBudget)
+			_ = r.failRunWithStatus(ctx, session.OrganizationID, run.ID, RunStatusTokenBudgetExceeded, message, iteration+1, result.ToolCalls)
+			return nil, fmt.Errorf("%w: used %d tokens exceeds budget %d", ErrTokenBudgetExceeded, usedTokens, tokenBudget)
 		}
 
 		toolCalls := chatToolCallsToAgent(reply.ToolCalls)
@@ -419,17 +740,16 @@ func (r *Runner) RunWithTools(ctx context.Context, session auth.Session, agent *
 				targetTool := findEnabledTool(agent, toolCall.Name)
 				toolType := ""
 				serverID := ""
-				requiresApproval := false
 				if targetTool != nil {
 					toolType = targetTool.Type
 					serverID = targetTool.ServerID
-					requiresApproval = targetTool.RequiresApproval
 				}
+				approvalDecision := r.decideToolApproval(ctx, session.OrganizationID, conversationID, agent, targetTool, toolCall)
 				status := ToolRunStatusRunning
 				approvalStatus := ApprovalStatusNotRequired
 				attemptCount := 1
 				var startedAt *time.Time
-				if requiresApproval {
+				if approvalDecision.RequiresApproval {
 					status = ToolRunStatusPendingApproval
 					approvalStatus = ApprovalStatusPending
 					attemptCount = 0
@@ -446,6 +766,7 @@ func (r *Runner) RunWithTools(ctx context.Context, session auth.Session, agent *
 					ToolName:       toolCall.Name,
 					ToolType:       toolType,
 					ServerID:       serverID,
+					RiskLevel:      approvalDecision.RiskLevel,
 					Arguments:      toolCall.Arguments,
 					Status:         status,
 					ApprovalStatus: approvalStatus,
@@ -456,33 +777,36 @@ func (r *Runner) RunWithTools(ctx context.Context, session auth.Session, agent *
 					_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), iteration+1, result.ToolCalls)
 					return nil, fmt.Errorf("create tool run %s: %w", toolCall.Name, err)
 				}
-				if requiresApproval {
-					_, _ = r.store.UpdateRun(ctx, session.OrganizationID, run.ID, UpdateRunRequest{
+				if approvalDecision.RequiresApproval {
+					if _, updateErr := r.store.UpdateRun(ctx, session.OrganizationID, run.ID, UpdateRunRequest{
 						Status:         stringPointer(RunStatusPendingApproval),
 						IterationCount: intPointer(iteration + 1),
 						ToolCallCount:  intPointer(result.ToolCalls + len(toolCalls)),
-					})
+					}); updateErr == nil {
+						recordAgentRunMetrics(RunStatusPendingApproval, iteration+1)
+						metrics.RecordAgentToolCall(toolCall.Name, string(ToolRunStatusPendingApproval))
+					}
 					return nil, ErrToolApprovalRequired
 				}
 				execResult, err := r.ExecuteTool(ctx, agent, &toolCall)
 				if err != nil {
-					_ = r.failToolRun(ctx, session.OrganizationID, toolRun.ID, err.Error(), attemptCount)
+					_ = r.failToolRun(ctx, session.OrganizationID, toolRun.ID, toolCall.Name, err.Error(), attemptCount)
 					_ = r.failRun(ctx, session.OrganizationID, run.ID, fmt.Sprintf("execute tool %s: %s", toolCall.Name, err.Error()), iteration+1, result.ToolCalls)
 					return nil, fmt.Errorf("execute tool %s: %w", toolCall.Name, err)
 				}
 				if execResult == nil {
 					toolErr := fmt.Sprintf("tool %s returned no result", toolCall.Name)
-					_ = r.failToolRun(ctx, session.OrganizationID, toolRun.ID, toolErr, attemptCount)
+					_ = r.failToolRun(ctx, session.OrganizationID, toolRun.ID, toolCall.Name, toolErr, attemptCount)
 					_ = r.failRun(ctx, session.OrganizationID, run.ID, toolErr, iteration+1, result.ToolCalls)
 					return nil, fmt.Errorf("%s", toolErr)
 				}
 				if execResult.IsError {
-					_ = r.failToolRun(ctx, session.OrganizationID, toolRun.ID, execResult.Content, attemptCount)
+					_ = r.failToolRun(ctx, session.OrganizationID, toolRun.ID, toolCall.Name, execResult.Content, attemptCount)
 					_ = r.failRun(ctx, session.OrganizationID, run.ID, fmt.Sprintf("tool %s failed: %s", toolCall.Name, execResult.Content), iteration+1, result.ToolCalls)
 					return nil, fmt.Errorf("tool %s failed: %s", toolCall.Name, execResult.Content)
 				}
 				if _, err := r.store.CreateMessage(ctx, conversationID, session.OrganizationID, "tool", execResult.Content, nil, toolCall.ID); err != nil {
-					_ = r.failToolRun(ctx, session.OrganizationID, toolRun.ID, err.Error(), attemptCount)
+					_ = r.failToolRun(ctx, session.OrganizationID, toolRun.ID, toolCall.Name, err.Error(), attemptCount)
 					_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), iteration+1, result.ToolCalls)
 					return nil, fmt.Errorf("save tool message: %w", err)
 				}
@@ -496,6 +820,7 @@ func (r *Runner) RunWithTools(ctx context.Context, session auth.Session, agent *
 					_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), iteration+1, result.ToolCalls)
 					return nil, fmt.Errorf("complete tool run %s: %w", toolCall.Name, err)
 				}
+				metrics.RecordAgentToolCall(toolCall.Name, string(ToolRunStatusCompleted))
 			}
 
 			result.ToolCalls += len(toolCalls)
@@ -536,8 +861,95 @@ func (r *Runner) RunWithTools(ctx context.Context, session auth.Session, agent *
 		return result, nil
 	}
 
-	_ = r.failRun(ctx, session.OrganizationID, run.ID, ErrMaxIterationsExceeded.Error(), r.config.MaxIterations, result.ToolCalls)
-	return nil, fmt.Errorf("%w (%d)", ErrMaxIterationsExceeded, r.config.MaxIterations)
+	_ = r.failRunWithStatus(ctx, session.OrganizationID, run.ID, RunStatusMaxIterationsReached, ErrMaxIterationsExceeded.Error(), maxIterations, result.ToolCalls)
+	return nil, fmt.Errorf("%w (%d)", ErrMaxIterationsExceeded, maxIterations)
+}
+
+func (r *Runner) ResumeAfterApprovedTool(ctx context.Context, session auth.Session, agent *Agent, run *Run) (*RunResult, error) {
+	if run == nil {
+		return nil, fmt.Errorf("run not found")
+	}
+	result := &RunResult{}
+	messages, err := r.store.ListMessages(ctx, run.ConversationID, session.OrganizationID)
+	if err != nil {
+		return nil, fmt.Errorf("refresh messages: %w", err)
+	}
+	chatMessages := r.buildChatMessages(ctx, session, agent, messages, "")
+
+	config := chat.ConversationConfig{
+		ModelID:              agent.Model,
+		SystemPromptOverride: agent.SystemPrompt,
+		Temperature:          agent.Config.Temperature,
+		MaxOutputTokens:      agent.Config.MaxTokens,
+		ToolsEnabled:         true,
+	}
+	if config.Temperature == 0 {
+		config.Temperature = 1.0
+	}
+	if config.MaxOutputTokens == 0 {
+		config.MaxOutputTokens = 2048
+	}
+
+	ctx = withSessionRelayMetadata(ctx, session)
+	structuredGateway, ok := r.gateway.(chat.StructuredReplyGenerator)
+	if !ok {
+		reply, err := r.gateway.GenerateReply(ctx, chatMessages, config)
+		if err != nil {
+			_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), run.IterationCount+1, run.ToolCallCount)
+			return nil, fmt.Errorf("generate reply: %w", err)
+		}
+		assistantMsg, err := r.store.CreateMessage(ctx, run.ConversationID, session.OrganizationID, "assistant", reply, nil, "")
+		if err != nil {
+			_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), run.IterationCount+1, run.ToolCallCount)
+			return nil, fmt.Errorf("save assistant message: %w", err)
+		}
+		result.Message = assistantMsg
+		if err := r.completeRun(ctx, session.OrganizationID, run.ID, run.IterationCount+1, run.ToolCallCount, assistantMsg.ID); err != nil {
+			return nil, err
+		}
+		return result, nil
+	}
+
+	tools, err := r.BuildOpenAITools(ctx, agent)
+	if err != nil {
+		_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), run.IterationCount, run.ToolCallCount)
+		return nil, fmt.Errorf("build tools: %w", err)
+	}
+	reply, err := structuredGateway.GenerateStructuredReply(ctx, chatMessages, config, tools)
+	if err != nil {
+		_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), run.IterationCount+1, run.ToolCallCount)
+		return nil, fmt.Errorf("generate structured reply: %w", err)
+	}
+	if len(reply.ToolCalls) > 0 {
+		message := "approved tool resume produced another tool call"
+		_ = r.failRun(ctx, session.OrganizationID, run.ID, message, run.IterationCount+1, run.ToolCallCount+len(reply.ToolCalls))
+		return nil, fmt.Errorf("%s", message)
+	}
+	assistantMsg, err := r.store.CreateMessage(ctx, run.ConversationID, session.OrganizationID, "assistant", reply.Content, nil, "")
+	if err != nil {
+		_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), run.IterationCount+1, run.ToolCallCount)
+		return nil, fmt.Errorf("save assistant message: %w", err)
+	}
+	result.Message = assistantMsg
+	if err := r.completeRun(ctx, session.OrganizationID, run.ID, run.IterationCount+1, run.ToolCallCount, assistantMsg.ID); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (r *Runner) maxIterationsFor(agent *Agent) int {
+	defaultValue := r.config.MaxIterations
+	if agent == nil {
+		return normalizeMaxIterations(0, defaultValue)
+	}
+	return normalizeMaxIterations(agent.Config.MaxIterations, defaultValue)
+}
+
+func completionTotalTokens(reply *chat.CompletionResponse) int {
+	if reply == nil || reply.Usage == nil || reply.Usage.TotalTokens <= 0 {
+		return 0
+	}
+	return reply.Usage.TotalTokens
 }
 
 func (r *Runner) completeRun(ctx context.Context, organizationID, runID string, iterationCount, toolCallCount int, finalMessageID string) error {
@@ -552,22 +964,33 @@ func (r *Runner) completeRun(ctx context.Context, organizationID, runID string, 
 	if err != nil {
 		return fmt.Errorf("complete agent run: %w", err)
 	}
+	recordAgentRunMetrics(RunStatusCompleted, iterationCount)
 	return nil
 }
 
 func (r *Runner) failRun(ctx context.Context, organizationID, runID, message string, iterationCount, toolCallCount int) error {
+	return r.failRunWithStatus(ctx, organizationID, runID, RunStatusFailed, message, iterationCount, toolCallCount)
+}
+
+func (r *Runner) failRunWithStatus(ctx context.Context, organizationID, runID, status, message string, iterationCount, toolCallCount int) error {
+	if status == "" {
+		status = RunStatusFailed
+	}
 	completedAt := time.Now().UTC()
 	_, err := r.store.UpdateRun(ctx, organizationID, runID, UpdateRunRequest{
-		Status:         stringPointer(RunStatusFailed),
+		Status:         stringPointer(status),
 		IterationCount: intPointer(iterationCount),
 		ToolCallCount:  intPointer(toolCallCount),
 		Error:          stringPointer(message),
 		CompletedAt:    &completedAt,
 	})
+	if err == nil {
+		recordAgentRunMetrics(status, iterationCount)
+	}
 	return err
 }
 
-func (r *Runner) failToolRun(ctx context.Context, organizationID, toolRunID, message string, attemptCount int) error {
+func (r *Runner) failToolRun(ctx context.Context, organizationID, toolRunID, toolName, message string, attemptCount int) error {
 	completedAt := time.Now().UTC()
 	_, err := r.store.UpdateToolRun(ctx, organizationID, toolRunID, UpdateToolRunRequest{
 		Status:       stringPointer(ToolRunStatusFailed),
@@ -575,6 +998,9 @@ func (r *Runner) failToolRun(ctx context.Context, organizationID, toolRunID, mes
 		AttemptCount: intPointer(attemptCount),
 		CompletedAt:  &completedAt,
 	})
+	if err == nil {
+		metrics.RecordAgentToolCall(toolName, string(ToolRunStatusFailed))
+	}
 	return err
 }
 

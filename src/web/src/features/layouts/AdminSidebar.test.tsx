@@ -15,7 +15,10 @@ describe('AdminSidebar', () => {
 
     expect(screen.getByRole('complementary', { name: 'Admin navigation' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Channels/ })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: /Models/ })).toHaveAttribute('href', '/admin/models');
     expect(screen.getByRole('link', { name: /Billing/ })).toHaveAttribute('href', '/admin/billing');
+    expect(screen.getByRole('link', { name: /API Tokens/ })).toHaveAttribute('href', '/admin/api-tokens');
+    expect(screen.getByRole('link', { name: /Usage Logs/ })).toHaveAttribute('href', '/admin/usage-logs');
     expect(screen.getByRole('link', { name: /Review Queue/ })).toHaveAttribute('href', '/admin/reviews');
   });
 
@@ -35,5 +38,32 @@ describe('AdminSidebar', () => {
 
     expect(screen.getByRole('button', { name: 'Expand admin sidebar' })).toBeInTheDocument();
     expect(screen.queryByPlaceholderText('Search modules...')).not.toBeInTheDocument();
+  });
+
+  it('filters API token management by token and key keywords', () => {
+    render(
+      <MemoryRouter initialEntries={['/admin']} future={routerFuture}>
+        <AdminSidebar />
+      </MemoryRouter>
+    );
+
+    fireEvent.change(screen.getByPlaceholderText('Search modules...'), { target: { value: 'key' } });
+
+    expect(screen.getByRole('link', { name: /API Tokens/ })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Channels/ })).not.toBeInTheDocument();
+  });
+
+  it('filters model inventory by model and provider keywords', () => {
+    render(
+      <MemoryRouter initialEntries={['/admin']} future={routerFuture}>
+        <AdminSidebar />
+      </MemoryRouter>
+    );
+
+    fireEvent.change(screen.getByPlaceholderText('Search modules...'), { target: { value: 'provider' } });
+
+    expect(screen.getByRole('link', { name: /Models/ })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Channels/ })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Users/ })).not.toBeInTheDocument();
   });
 });

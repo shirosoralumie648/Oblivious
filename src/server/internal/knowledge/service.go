@@ -3,209 +3,751 @@ package knowledge
 import (
 	"context"
 	"database/sql"
-	"fmt"
+	"errors"
 	"strings"
 	"time"
+	"unicode"
 
 	"oblivious/server/internal/auth"
+	"oblivious/server/internal/metrics"
 	relaytypes "oblivious/server/internal/relay/types"
 )
 
-const (
-	defaultKnowledgeEmbeddingModel = "text-embedding-3-small"
-	knowledgeRAGRetrievalMethod    = "embedding_rag"
-	knowledgeRAGRetrievalLimit     = 5
-	knowledgeRAGMinSimilarity      = 0.0
+var (
+	ErrEmptyKnowledgeDocumentChunk       = errors.New("empty knowledge document chunk")
+	ErrInvalidKnowledgeRetrievalOptions  = errors.New("invalid knowledge retrieval options")
+	ErrInvalidKnowledgeRetrievalTestCase = errors.New("invalid knowledge retrieval test case")
 )
 
+const KnowledgeRetrievalMethodEmbeddingRAG = "embedding_rag"
+
 type KnowledgeBase struct {
-	DocumentCount int       `json:"documentCount"`
-	ID            string    `json:"id"`
-	Name          string    `json:"name"`
-	UpdatedAt     time.Time `json:"updatedAt"`
+	ChunkOverlap   int       `json:"chunkOverlap,omitempty"`
+	ChunkSize      int       `json:"chunkSize,omitempty"`
+	ChunkStrategy  string    `json:"chunkStrategy,omitempty"`
+	DocumentCount  int       `json:"documentCount"`
+	EmbeddingModel string    `json:"embeddingModel,omitempty"`
+	ID             string    `json:"id"`
+	KeywordWeight  float64   `json:"keywordWeight,omitempty"`
+	MinScore       float64   `json:"minScore,omitempty"`
+	Name           string    `json:"name"`
+	RerankTopK     int       `json:"rerankTopK,omitempty"`
+	RerankerModel  string    `json:"rerankerModel,omitempty"`
+	RetrievalLimit int       `json:"retrievalLimit,omitempty"`
+	RetrievalMode  string    `json:"retrievalMode,omitempty"`
+	UpdateStrategy string    `json:"updateStrategy,omitempty"`
+	UpdatedAt      time.Time `json:"updatedAt"`
+	VectorWeight   float64   `json:"vectorWeight,omitempty"`
 }
 
 type KnowledgeDocument struct {
-	Content   string    `json:"content"`
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	Content         string    `json:"content"`
+	DocumentVersion string    `json:"documentVersion,omitempty"`
+	ID              string    `json:"id"`
+	Title           string    `json:"title"`
+	UpdateStrategy  string    `json:"updateStrategy,omitempty"`
+	UpdatedAt       time.Time `json:"updatedAt"`
 }
 
 type KnowledgeRetrievalResult struct {
+	ChunkID         string            `json:"chunkId,omitempty"`
+	ChunkIndex      int               `json:"chunkIndex,omitempty"`
 	DocumentID      string            `json:"documentId"`
 	DocumentTitle   string            `json:"documentTitle"`
-	ChunkID         string            `json:"chunkId"`
-	ChunkIndex      int               `json:"chunkIndex"`
-	RetrievalMethod string            `json:"retrievalMethod"`
-	Similarity      float64           `json:"similarity"`
+	DocumentVersion string            `json:"documentVersion,omitempty"`
+	RetrievalMethod string            `json:"retrievalMethod,omitempty"`
+	RetrievalMode   string            `json:"retrievalMode,omitempty"`
+	Score           float64           `json:"score,omitempty"`
+	Similarity      float64           `json:"similarity,omitempty"`
 	Snippet         string            `json:"snippet"`
-	Source          KnowledgeCitation `json:"source"`
+	Source          KnowledgeCitation `json:"source,omitempty"`
 }
 
-type KnowledgeCitation struct {
-	DocumentID    string `json:"documentId"`
-	DocumentTitle string `json:"documentTitle"`
-	ChunkID       string `json:"chunkId"`
-	ChunkIndex    int    `json:"chunkIndex"`
+type Store interface {
+	CreateKnowledgeBase(ctx context.Context, workspaceID, name string) (KnowledgeBase, error)
+	CreateKnowledgeDocument(ctx context.Context, workspaceID, knowledgeBaseID, title, content string) (KnowledgeDocument, error)
+	DeleteKnowledgeBase(ctx context.Context, workspaceID, knowledgeBaseID string) error
+	DeleteKnowledgeDocument(ctx context.Context, workspaceID, knowledgeBaseID, documentID string) error
+	GetKnowledgeBase(ctx context.Context, workspaceID, knowledgeBaseID string) (KnowledgeBase, error)
+	ListKnowledgeDocuments(ctx context.Context, workspaceID, knowledgeBaseID string) ([]KnowledgeDocument, error)
+	ListKnowledgeBases(ctx context.Context, workspaceID string) ([]KnowledgeBase, error)
+	RetrieveKnowledge(ctx context.Context, workspaceID, knowledgeBaseID, query string) ([]KnowledgeRetrievalResult, error)
+	UpdateKnowledgeBase(ctx context.Context, workspaceID, knowledgeBaseID, name string) (KnowledgeBase, error)
+	UpdateKnowledgeDocument(ctx context.Context, workspaceID, knowledgeBaseID, documentID, title, content string) (KnowledgeDocument, error)
 }
 
-type KnowledgeDocumentChunk struct {
-	ID             string    `json:"id"`
-	DocumentID     string    `json:"documentId"`
-	OrganizationID string    `json:"organizationId"`
-	ChunkIndex     int       `json:"chunkIndex"`
-	Content        string    `json:"content"`
-	Embedding      []float32 `json:"embedding,omitempty"`
-	EmbeddingModel string    `json:"embeddingModel"`
-	IndexedAt      time.Time `json:"indexedAt"`
+type organizationBaseCreator interface {
+	CreateKnowledgeBase(ctx context.Context, workspaceID, organizationID, name string) (KnowledgeBase, error)
 }
 
-type KnowledgeEmbedder interface {
+type knowledgeBaseConfigCreator interface {
+	CreateKnowledgeBaseWithConfig(ctx context.Context, workspaceID, organizationID, name string, config KnowledgeBaseConfig) (KnowledgeBase, error)
+}
+
+type knowledgeBaseConfigUpdater interface {
+	UpdateKnowledgeBaseWithConfig(ctx context.Context, organizationID, knowledgeBaseID, name string, config KnowledgeBaseConfig) (KnowledgeBase, error)
+}
+
+type documentCreatorWithChunks interface {
+	CreateKnowledgeDocument(ctx context.Context, organizationID, knowledgeBaseID, title, content string, chunks []KnowledgeDocumentChunk) (KnowledgeDocument, error)
+}
+
+type documentCreatorWithOptions interface {
+	CreateKnowledgeDocumentWithOptions(ctx context.Context, organizationID, knowledgeBaseID, title, content string, chunks []KnowledgeDocumentChunk, options KnowledgeDocumentOptions) (KnowledgeDocument, error)
+}
+
+type documentUpdaterWithChunks interface {
+	UpdateKnowledgeDocument(ctx context.Context, organizationID, knowledgeBaseID, documentID, title, content string, chunks []KnowledgeDocumentChunk) (KnowledgeDocument, error)
+}
+
+type documentUpdaterWithOptions interface {
+	UpdateKnowledgeDocumentWithOptions(ctx context.Context, organizationID, knowledgeBaseID, documentID, title, content string, chunks []KnowledgeDocumentChunk, options KnowledgeDocumentOptions) (KnowledgeDocument, error)
+}
+
+type documentIDDeleter interface {
+	DeleteKnowledgeDocumentByID(ctx context.Context, organizationID, documentID string) error
+}
+
+type documentChunkLister interface {
+	ListKnowledgeDocumentChunks(ctx context.Context, organizationID, knowledgeBaseID, documentID string) ([]KnowledgeDocumentChunkView, error)
+}
+
+type documentChunkUpdater interface {
+	UpdateKnowledgeDocumentChunk(ctx context.Context, organizationID, knowledgeBaseID, documentID, chunkID, content string) (KnowledgeDocumentChunkView, error)
+}
+
+type knowledgeRetrieverWithOptions interface {
+	RetrieveKnowledge(ctx context.Context, organizationID, knowledgeBaseID, query string, queryEmbedding []float32, options KnowledgeRetrievalOptions) ([]KnowledgeRetrievalResult, error)
+}
+
+type knowledgeRetrieverNamedWithOptions interface {
+	RetrieveKnowledgeWithOptions(ctx context.Context, organizationID, knowledgeBaseID, query string, queryEmbedding []float32, options KnowledgeRetrievalOptions) ([]KnowledgeRetrievalResult, error)
+}
+
+type KnowledgeVectorStore interface {
+	EnsureKnowledgeBaseCollection(ctx context.Context, organizationID, knowledgeBaseID string, vectorSize int) error
+	DeleteKnowledgeBaseCollection(ctx context.Context, organizationID, knowledgeBaseID string) error
+}
+
+type retrievalTestCaseCreator interface {
+	CreateRetrievalTestCase(ctx context.Context, organizationID, knowledgeBaseID string, req CreateKnowledgeRetrievalTestCaseRequest) (KnowledgeRetrievalTestCase, error)
+}
+
+type retrievalTestCaseLister interface {
+	ListRetrievalTestCases(ctx context.Context, organizationID, knowledgeBaseID string) ([]KnowledgeRetrievalTestCase, error)
+}
+
+type Service struct {
+	store          any
+	embedder       Embedder
+	embeddingModel string
+	vectorSize     int
+	vectorStore    KnowledgeVectorStore
+}
+
+type Embedder interface {
 	Embed(ctx context.Context, text string) ([]float32, error)
 	EmbedBatch(ctx context.Context, texts []string) ([][]float32, error)
 }
 
-type Store interface {
-	CreateKnowledgeBase(ctx context.Context, workspaceID, organizationID, name string) (KnowledgeBase, error)
-	CreateKnowledgeDocument(ctx context.Context, organizationID, knowledgeBaseID, title, content string, chunks []KnowledgeDocumentChunk) (KnowledgeDocument, error)
-	DeleteKnowledgeBase(ctx context.Context, organizationID, knowledgeBaseID string) error
-	DeleteKnowledgeDocument(ctx context.Context, organizationID, knowledgeBaseID, documentID string) error
-	GetKnowledgeBase(ctx context.Context, organizationID, knowledgeBaseID string) (KnowledgeBase, error)
-	ListKnowledgeDocuments(ctx context.Context, organizationID, knowledgeBaseID string) ([]KnowledgeDocument, error)
-	ListKnowledgeBases(ctx context.Context, organizationID string) ([]KnowledgeBase, error)
-	RetrieveKnowledge(ctx context.Context, organizationID, knowledgeBaseID string, queryEmbedding []float32, limit int, minScore float64) ([]KnowledgeRetrievalResult, error)
-	UpdateKnowledgeBase(ctx context.Context, organizationID, knowledgeBaseID, name string) (KnowledgeBase, error)
-	UpdateKnowledgeDocument(ctx context.Context, organizationID, knowledgeBaseID, documentID, title, content string, chunks []KnowledgeDocumentChunk) (KnowledgeDocument, error)
+type KnowledgeEmbedder = Embedder
+
+func NewService(store any) *Service {
+	return &Service{store: store}
 }
 
-type Service struct {
-	embeddingModel string
-	embedder       KnowledgeEmbedder
-	store          Store
-}
-
-func NewService(store Store) *Service {
-	return NewServiceWithEmbedder(store, nil, defaultKnowledgeEmbeddingModel)
-}
-
-func NewServiceWithEmbedder(store Store, embedder KnowledgeEmbedder, embeddingModel string) *Service {
-	if strings.TrimSpace(embeddingModel) == "" {
-		embeddingModel = defaultKnowledgeEmbeddingModel
-	}
+func NewServiceWithEmbedder(store any, embedder Embedder, embeddingModel string) *Service {
 	return &Service{
-		embeddingModel: embeddingModel,
-		embedder:       embedder,
 		store:          store,
+		embedder:       embedder,
+		embeddingModel: strings.TrimSpace(embeddingModel),
 	}
+}
+
+func NewServiceWithVectorStore(store any, vectorStore KnowledgeVectorStore, vectorSize int) *Service {
+	return NewService(store).WithVectorStore(vectorStore, vectorSize)
+}
+
+func NewServiceWithEmbedderAndVectorStore(store any, embedder Embedder, embeddingModel string, vectorStore KnowledgeVectorStore, vectorSize int) *Service {
+	return NewServiceWithEmbedder(store, embedder, embeddingModel).WithVectorStore(vectorStore, vectorSize)
+}
+
+func (s *Service) WithVectorStore(vectorStore KnowledgeVectorStore, vectorSize int) *Service {
+	if s == nil {
+		return nil
+	}
+	s.vectorStore = vectorStore
+	if vectorSize > 0 {
+		s.vectorSize = vectorSize
+	}
+	return s
 }
 
 func normalizeKnowledgeQuery(query string) string {
 	return strings.Join(strings.Fields(strings.TrimSpace(query)), " ")
 }
 
+func knowledgeSessionScope(session auth.Session) string {
+	if strings.TrimSpace(session.OrganizationID) != "" {
+		return strings.TrimSpace(session.OrganizationID)
+	}
+	return strings.TrimSpace(session.WorkspaceID)
+}
+
+func KnowledgeVectorCollectionName(organizationID, knowledgeBaseID string) string {
+	return "kb_" + sanitizeKnowledgeVectorScope(organizationID) + "_" + sanitizeKnowledgeVectorScope(knowledgeBaseID)
+}
+
+func sanitizeKnowledgeVectorScope(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	var builder strings.Builder
+	lastUnderscore := false
+	for _, r := range value {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			builder.WriteRune(r)
+			lastUnderscore = false
+			continue
+		}
+		if !lastUnderscore {
+			builder.WriteByte('_')
+			lastUnderscore = true
+		}
+	}
+	sanitized := strings.Trim(builder.String(), "_")
+	if sanitized == "" {
+		return "unknown"
+	}
+	return sanitized
+}
+
+func withKnowledgeRelayIdentity(ctx context.Context, session auth.Session) context.Context {
+	if userID := strings.TrimSpace(session.User.ID); userID != "" {
+		ctx = relaytypes.WithTrustedUserID(ctx, userID)
+	}
+	if organizationID := strings.TrimSpace(session.OrganizationID); organizationID != "" {
+		ctx = relaytypes.WithTrustedOrganizationID(ctx, organizationID)
+	}
+	return ctx
+}
+
+func normalizeKnowledgeBaseConfig(config KnowledgeBaseConfig) KnowledgeBaseConfig {
+	config.RetrievalMode = normalizeKnowledgeRetrievalMode(config.RetrievalMode)
+	if config.RetrievalLimit <= 0 {
+		config.RetrievalLimit = 5
+	}
+	if config.VectorWeight <= 0 {
+		config.VectorWeight = 0.7
+	}
+	if config.KeywordWeight <= 0 {
+		config.KeywordWeight = 0.3
+	}
+	if config.RerankTopK <= 0 {
+		config.RerankTopK = 5
+	}
+	if config.ChunkStrategy == "" {
+		config.ChunkStrategy = KnowledgeChunkStrategyTemplateBased
+	}
+	if config.ChunkSize <= 0 {
+		config.ChunkSize = 500
+	}
+	if config.ChunkOverlap < 0 {
+		config.ChunkOverlap = 0
+	}
+	if config.EmbeddingModel == "" {
+		config.EmbeddingModel = "text-embedding-3-small"
+	}
+	if config.UpdateStrategy == "" {
+		config.UpdateStrategy = KnowledgeUpdateStrategyFullReplace
+	}
+	return config
+}
+
+func normalizeKnowledgeDocumentOptions(options KnowledgeDocumentOptions) KnowledgeDocumentOptions {
+	options.DocumentVersion = strings.TrimSpace(options.DocumentVersion)
+	if options.DocumentVersion == "" {
+		options.DocumentVersion = "v1"
+	}
+	options.SourceURL = strings.TrimSpace(options.SourceURL)
+	options.UpdateStrategy = strings.TrimSpace(options.UpdateStrategy)
+	if options.UpdateStrategy == "" {
+		options.UpdateStrategy = KnowledgeUpdateStrategyFullReplace
+	}
+	if options.PageNumber < 0 {
+		options.PageNumber = 0
+	}
+	return options
+}
+
+func normalizeKnowledgeRetrievalMode(mode string) string {
+	switch strings.TrimSpace(mode) {
+	case "", KnowledgeRetrievalModeHybrid:
+		return KnowledgeRetrievalModeHybrid
+	case KnowledgeRetrievalModeVector:
+		return KnowledgeRetrievalModeVector
+	case KnowledgeRetrievalModeKeyword:
+		return KnowledgeRetrievalModeKeyword
+	case KnowledgeRetrievalModeHybridRerank:
+		return KnowledgeRetrievalModeHybridRerank
+	default:
+		return strings.TrimSpace(mode)
+	}
+}
+
+func normalizeKnowledgeRetrievalOptions(options KnowledgeRetrievalOptions) (KnowledgeRetrievalOptions, error) {
+	if strings.TrimSpace(options.Mode) == "" {
+		options.Mode = KnowledgeRetrievalModeHybrid
+	} else {
+		options.Mode = normalizeKnowledgeRetrievalMode(options.Mode)
+	}
+	switch options.Mode {
+	case KnowledgeRetrievalModeVector, KnowledgeRetrievalModeKeyword, KnowledgeRetrievalModeHybrid, KnowledgeRetrievalModeHybridRerank:
+	default:
+		return KnowledgeRetrievalOptions{}, ErrInvalidKnowledgeRetrievalOptions
+	}
+	if options.Limit < 0 {
+		return KnowledgeRetrievalOptions{}, ErrInvalidKnowledgeRetrievalOptions
+	}
+	if options.Limit == 0 {
+		options.Limit = knowledgeRetrievalLimit
+	}
+	if options.MinScore < 0 {
+		return KnowledgeRetrievalOptions{}, ErrInvalidKnowledgeRetrievalOptions
+	}
+	if options.VectorWeight < 0 || options.KeywordWeight < 0 {
+		return KnowledgeRetrievalOptions{}, ErrInvalidKnowledgeRetrievalOptions
+	}
+	if options.VectorWeight == 0 {
+		options.VectorWeight = 0.7
+	}
+	if options.KeywordWeight == 0 {
+		options.KeywordWeight = 0.3
+	}
+	options.DocumentVersion = strings.TrimSpace(options.DocumentVersion)
+	if options.AllVersions {
+		options.DocumentVersion = ""
+	}
+	return options, nil
+}
+
 func (s *Service) List(ctx context.Context, session auth.Session) ([]KnowledgeBase, error) {
-	return s.store.ListKnowledgeBases(ctx, session.OrganizationID)
+	if s == nil || s.store == nil {
+		return []KnowledgeBase{}, nil
+	}
+	store, ok := s.store.(interface {
+		ListKnowledgeBases(ctx context.Context, scopeID string) ([]KnowledgeBase, error)
+	})
+	if !ok {
+		return []KnowledgeBase{}, nil
+	}
+	return store.ListKnowledgeBases(ctx, knowledgeSessionScope(session))
 }
 
 func (s *Service) Create(ctx context.Context, session auth.Session, name string) (KnowledgeBase, error) {
-	return s.store.CreateKnowledgeBase(ctx, session.WorkspaceID, session.OrganizationID, name)
+	if s == nil || s.store == nil {
+		return KnowledgeBase{}, sql.ErrNoRows
+	}
+	if store, ok := s.store.(organizationBaseCreator); ok {
+		return store.CreateKnowledgeBase(ctx, session.WorkspaceID, knowledgeSessionScope(session), name)
+	}
+	store, ok := s.store.(interface {
+		CreateKnowledgeBase(ctx context.Context, workspaceID, name string) (KnowledgeBase, error)
+	})
+	if !ok {
+		return KnowledgeBase{}, sql.ErrNoRows
+	}
+	return store.CreateKnowledgeBase(ctx, session.WorkspaceID, name)
+}
+
+func (s *Service) CreateWithConfig(ctx context.Context, session auth.Session, name string, config KnowledgeBaseConfig) (KnowledgeBase, error) {
+	config = normalizeKnowledgeBaseConfig(config)
+	var base KnowledgeBase
+	var err error
+	if store, ok := s.store.(knowledgeBaseConfigCreator); ok {
+		base, err = store.CreateKnowledgeBaseWithConfig(ctx, session.WorkspaceID, knowledgeSessionScope(session), name, config)
+	} else {
+		base, err = s.Create(ctx, session, name)
+	}
+	if err != nil {
+		return KnowledgeBase{}, err
+	}
+	if err := s.ensureVectorCollection(ctx, session, base.ID); err != nil {
+		return KnowledgeBase{}, err
+	}
+	return base, nil
 }
 
 func (s *Service) Get(ctx context.Context, session auth.Session, knowledgeBaseID string) (KnowledgeBase, error) {
-	return s.store.GetKnowledgeBase(ctx, session.OrganizationID, knowledgeBaseID)
+	store, ok := s.store.(interface {
+		GetKnowledgeBase(ctx context.Context, scopeID, knowledgeBaseID string) (KnowledgeBase, error)
+	})
+	if !ok {
+		return KnowledgeBase{}, sql.ErrNoRows
+	}
+	return store.GetKnowledgeBase(ctx, knowledgeSessionScope(session), knowledgeBaseID)
 }
 
 func (s *Service) ListDocuments(ctx context.Context, session auth.Session, knowledgeBaseID string) ([]KnowledgeDocument, error) {
-	return s.store.ListKnowledgeDocuments(ctx, session.OrganizationID, knowledgeBaseID)
+	store, ok := s.store.(interface {
+		ListKnowledgeDocuments(ctx context.Context, scopeID, knowledgeBaseID string) ([]KnowledgeDocument, error)
+	})
+	if !ok {
+		return []KnowledgeDocument{}, nil
+	}
+	return store.ListKnowledgeDocuments(ctx, knowledgeSessionScope(session), knowledgeBaseID)
+}
+
+func (s *Service) ListDocumentChunks(ctx context.Context, session auth.Session, knowledgeBaseID, documentID string) ([]KnowledgeDocumentChunkView, error) {
+	store, ok := s.store.(documentChunkLister)
+	if !ok {
+		return []KnowledgeDocumentChunkView{}, nil
+	}
+	return store.ListKnowledgeDocumentChunks(ctx, knowledgeSessionScope(session), knowledgeBaseID, documentID)
+}
+
+func (s *Service) UpdateDocumentChunk(ctx context.Context, session auth.Session, knowledgeBaseID, documentID, chunkID, content string) (KnowledgeDocumentChunkView, error) {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return KnowledgeDocumentChunkView{}, ErrEmptyKnowledgeDocumentChunk
+	}
+	store, ok := s.store.(documentChunkUpdater)
+	if !ok {
+		return KnowledgeDocumentChunkView{}, sql.ErrNoRows
+	}
+	return store.UpdateKnowledgeDocumentChunk(ctx, knowledgeSessionScope(session), knowledgeBaseID, documentID, chunkID, content)
 }
 
 func (s *Service) CreateDocument(ctx context.Context, session auth.Session, knowledgeBaseID, title, content string) (KnowledgeDocument, error) {
-	chunks, err := s.buildIndexedChunks(ctx, session, content)
+	return s.CreateDocumentWithOptions(ctx, session, knowledgeBaseID, title, content, KnowledgeDocumentOptions{})
+}
+
+func (s *Service) CreateDocumentWithOptions(ctx context.Context, session auth.Session, knowledgeBaseID, title, content string, options KnowledgeDocumentOptions) (KnowledgeDocument, error) {
+	options = normalizeKnowledgeDocumentOptions(options)
+	startedAt := time.Now()
+	chunks, err := s.buildDocumentChunks(withKnowledgeRelayIdentity(ctx, session), content, options)
 	if err != nil {
 		return KnowledgeDocument{}, err
 	}
-	return s.store.CreateKnowledgeDocument(ctx, session.OrganizationID, knowledgeBaseID, title, content, chunks)
+	recordRAGDocumentProcessingMetrics(KnowledgeChunkStrategyTemplateBased, len(chunks), startedAt)
+	scope := knowledgeSessionScope(session)
+	if store, ok := s.store.(documentCreatorWithOptions); ok {
+		return store.CreateKnowledgeDocumentWithOptions(ctx, scope, knowledgeBaseID, title, content, chunks, options)
+	}
+	if store, ok := s.store.(documentCreatorWithChunks); ok {
+		return store.CreateKnowledgeDocument(ctx, scope, knowledgeBaseID, title, content, chunks)
+	}
+	store, ok := s.store.(interface {
+		CreateKnowledgeDocument(ctx context.Context, workspaceID, knowledgeBaseID, title, content string) (KnowledgeDocument, error)
+	})
+	if !ok {
+		return KnowledgeDocument{}, sql.ErrNoRows
+	}
+	return store.CreateKnowledgeDocument(ctx, session.WorkspaceID, knowledgeBaseID, title, content)
 }
 
 func (s *Service) Retrieve(ctx context.Context, session auth.Session, knowledgeBaseID, query string) ([]KnowledgeRetrievalResult, error) {
+	return s.RetrieveWithOptions(ctx, session, knowledgeBaseID, query, KnowledgeRetrievalOptions{})
+}
+
+func (s *Service) RetrieveWithOptions(ctx context.Context, session auth.Session, knowledgeBaseID, query string, options KnowledgeRetrievalOptions) ([]KnowledgeRetrievalResult, error) {
+	startedAt := time.Now()
 	normalizedQuery := normalizeKnowledgeQuery(query)
 	if normalizedQuery == "" {
 		return []KnowledgeRetrievalResult{}, nil
 	}
-	if s.embedder == nil {
-		return nil, fmt.Errorf("knowledge embedding retrieval is not configured")
-	}
-
-	queryEmbedding, err := s.embedder.Embed(withKnowledgeRelayIdentity(ctx, session), normalizedQuery)
+	options, err := normalizeKnowledgeRetrievalOptions(options)
 	if err != nil {
-		return nil, fmt.Errorf("embed knowledge query: %w", err)
+		return nil, err
 	}
-
-	return s.store.RetrieveKnowledge(ctx, session.OrganizationID, knowledgeBaseID, queryEmbedding, knowledgeRAGRetrievalLimit, knowledgeRAGMinSimilarity)
+	defer metrics.ObserveRAGRetrievalLatency(options.Mode, time.Since(startedAt).Seconds())
+	queryEmbedding, err := s.embedQuery(withKnowledgeRelayIdentity(ctx, session), normalizedQuery)
+	if err != nil {
+		return nil, err
+	}
+	scope := knowledgeSessionScope(session)
+	if store, ok := s.store.(knowledgeRetrieverWithOptions); ok {
+		results, err := store.RetrieveKnowledge(ctx, scope, knowledgeBaseID, normalizedQuery, queryEmbedding, options)
+		return normalizeKnowledgeRetrievalResults(results, options.Mode), err
+	}
+	if store, ok := s.store.(knowledgeRetrieverNamedWithOptions); ok {
+		results, err := store.RetrieveKnowledgeWithOptions(ctx, scope, knowledgeBaseID, normalizedQuery, queryEmbedding, options)
+		return normalizeKnowledgeRetrievalResults(results, options.Mode), err
+	}
+	store, ok := s.store.(interface {
+		RetrieveKnowledge(ctx context.Context, workspaceID, knowledgeBaseID, query string) ([]KnowledgeRetrievalResult, error)
+	})
+	if !ok {
+		return []KnowledgeRetrievalResult{}, nil
+	}
+	results, err := store.RetrieveKnowledge(ctx, session.WorkspaceID, knowledgeBaseID, normalizedQuery)
+	return normalizeKnowledgeRetrievalResults(results, KnowledgeRetrievalModeHybrid), err
 }
 
 func (s *Service) Update(ctx context.Context, session auth.Session, knowledgeBaseID, name string) (KnowledgeBase, error) {
-	return s.store.UpdateKnowledgeBase(ctx, session.OrganizationID, knowledgeBaseID, name)
+	store, ok := s.store.(interface {
+		UpdateKnowledgeBase(ctx context.Context, scopeID, knowledgeBaseID, name string) (KnowledgeBase, error)
+	})
+	if !ok {
+		return KnowledgeBase{}, sql.ErrNoRows
+	}
+	return store.UpdateKnowledgeBase(ctx, knowledgeSessionScope(session), knowledgeBaseID, name)
+}
+
+func (s *Service) UpdateWithConfig(ctx context.Context, session auth.Session, knowledgeBaseID, name string, config KnowledgeBaseConfig) (KnowledgeBase, error) {
+	config = normalizeKnowledgeBaseConfig(config)
+	if store, ok := s.store.(knowledgeBaseConfigUpdater); ok {
+		return store.UpdateKnowledgeBaseWithConfig(ctx, knowledgeSessionScope(session), knowledgeBaseID, name, config)
+	}
+	return s.Update(ctx, session, knowledgeBaseID, name)
 }
 
 func (s *Service) Delete(ctx context.Context, session auth.Session, knowledgeBaseID string) error {
-	return s.store.DeleteKnowledgeBase(ctx, session.OrganizationID, knowledgeBaseID)
+	store, ok := s.store.(interface {
+		DeleteKnowledgeBase(ctx context.Context, scopeID, knowledgeBaseID string) error
+	})
+	if !ok {
+		return sql.ErrNoRows
+	}
+	if err := store.DeleteKnowledgeBase(ctx, knowledgeSessionScope(session), knowledgeBaseID); err != nil {
+		return err
+	}
+	return s.deleteVectorCollection(ctx, session, knowledgeBaseID)
 }
 
 func (s *Service) UpdateDocument(ctx context.Context, session auth.Session, knowledgeBaseID, documentID, title, content string) (KnowledgeDocument, error) {
-	chunks, err := s.buildIndexedChunks(ctx, session, content)
+	return s.UpdateDocumentWithOptions(ctx, session, knowledgeBaseID, documentID, title, content, KnowledgeDocumentOptions{})
+}
+
+func (s *Service) UpdateDocumentWithOptions(ctx context.Context, session auth.Session, knowledgeBaseID, documentID, title, content string, options KnowledgeDocumentOptions) (KnowledgeDocument, error) {
+	options = normalizeKnowledgeDocumentOptions(options)
+	startedAt := time.Now()
+	chunks, err := s.buildDocumentChunks(withKnowledgeRelayIdentity(ctx, session), content, options)
 	if err != nil {
 		return KnowledgeDocument{}, err
 	}
-	return s.store.UpdateKnowledgeDocument(ctx, session.OrganizationID, knowledgeBaseID, documentID, title, content, chunks)
+	recordRAGDocumentProcessingMetrics(KnowledgeChunkStrategyTemplateBased, len(chunks), startedAt)
+	scope := knowledgeSessionScope(session)
+	if store, ok := s.store.(documentUpdaterWithOptions); ok {
+		return store.UpdateKnowledgeDocumentWithOptions(ctx, scope, knowledgeBaseID, documentID, title, content, chunks, options)
+	}
+	if store, ok := s.store.(documentUpdaterWithChunks); ok {
+		return store.UpdateKnowledgeDocument(ctx, scope, knowledgeBaseID, documentID, title, content, chunks)
+	}
+	store, ok := s.store.(interface {
+		UpdateKnowledgeDocument(ctx context.Context, workspaceID, knowledgeBaseID, documentID, title, content string) (KnowledgeDocument, error)
+	})
+	if !ok {
+		return KnowledgeDocument{}, sql.ErrNoRows
+	}
+	return store.UpdateKnowledgeDocument(ctx, session.WorkspaceID, knowledgeBaseID, documentID, title, content)
 }
 
 func (s *Service) DeleteDocument(ctx context.Context, session auth.Session, knowledgeBaseID, documentID string) error {
-	return s.store.DeleteKnowledgeDocument(ctx, session.OrganizationID, knowledgeBaseID, documentID)
+	store, ok := s.store.(interface {
+		DeleteKnowledgeDocument(ctx context.Context, scopeID, knowledgeBaseID, documentID string) error
+	})
+	if !ok {
+		return sql.ErrNoRows
+	}
+	return store.DeleteKnowledgeDocument(ctx, knowledgeSessionScope(session), knowledgeBaseID, documentID)
 }
 
-func (s *Service) buildIndexedChunks(ctx context.Context, session auth.Session, content string) ([]KnowledgeDocumentChunk, error) {
-	chunkContents := buildKnowledgeDocumentChunks(content)
-	if len(chunkContents) == 0 {
-		return nil, nil
+func (s *Service) DeleteDocumentByID(ctx context.Context, session auth.Session, documentID string) error {
+	store, ok := s.store.(documentIDDeleter)
+	if !ok {
+		return sql.ErrNoRows
 	}
-	if s.embedder == nil {
-		return nil, fmt.Errorf("knowledge embedding indexing is not configured")
-	}
+	return store.DeleteKnowledgeDocumentByID(ctx, knowledgeSessionScope(session), documentID)
+}
 
-	embeddings, err := s.embedder.EmbedBatch(withKnowledgeRelayIdentity(ctx, session), chunkContents)
+func (s *Service) CreateRetrievalTestCase(ctx context.Context, session auth.Session, knowledgeBaseID string, req CreateKnowledgeRetrievalTestCaseRequest) (KnowledgeRetrievalTestCase, error) {
+	req.Query = normalizeKnowledgeQuery(req.Query)
+	if req.Query == "" || (req.ExpectedResult.DocumentID == "" && req.ExpectedResult.ChunkID == "") {
+		return KnowledgeRetrievalTestCase{}, ErrInvalidKnowledgeRetrievalTestCase
+	}
+	store, ok := s.store.(retrievalTestCaseCreator)
+	if !ok {
+		return KnowledgeRetrievalTestCase{}, sql.ErrNoRows
+	}
+	return store.CreateRetrievalTestCase(ctx, knowledgeSessionScope(session), knowledgeBaseID, req)
+}
+
+func (s *Service) ListRetrievalTestCases(ctx context.Context, session auth.Session, knowledgeBaseID string) ([]KnowledgeRetrievalTestCase, error) {
+	store, ok := s.store.(retrievalTestCaseLister)
+	if !ok {
+		return []KnowledgeRetrievalTestCase{}, nil
+	}
+	return store.ListRetrievalTestCases(ctx, knowledgeSessionScope(session), knowledgeBaseID)
+}
+
+func (s *Service) RunRetrievalTestCases(ctx context.Context, session auth.Session, knowledgeBaseID string, options KnowledgeRetrievalOptions) (KnowledgeRetrievalTestRunReport, error) {
+	options, err := normalizeKnowledgeRetrievalOptions(options)
 	if err != nil {
-		return nil, fmt.Errorf("embed knowledge chunks: %w", err)
+		return KnowledgeRetrievalTestRunReport{}, err
 	}
-
-	now := time.Now().UTC()
-	chunks := make([]KnowledgeDocumentChunk, len(chunkContents))
-	for i, chunkContent := range chunkContents {
-		var embedding []float32
-		if i < len(embeddings) {
-			embedding = append([]float32(nil), embeddings[i]...)
+	cases, err := s.ListRetrievalTestCases(ctx, session, knowledgeBaseID)
+	if err != nil {
+		return KnowledgeRetrievalTestRunReport{}, err
+	}
+	report := KnowledgeRetrievalTestRunReport{
+		Total:   len(cases),
+		Results: make([]KnowledgeRetrievalTestRunResult, 0, len(cases)),
+	}
+	for _, testCase := range cases {
+		results, err := s.RetrieveWithOptions(ctx, session, knowledgeBaseID, testCase.Query, options)
+		if err != nil {
+			return KnowledgeRetrievalTestRunReport{}, err
 		}
-		chunks[i] = KnowledgeDocumentChunk{
-			OrganizationID: session.OrganizationID,
-			ChunkIndex:     i,
-			Content:        chunkContent,
-			Embedding:      embedding,
-			EmbeddingModel: s.embeddingModel,
-			IndexedAt:      now,
+		runResult := KnowledgeRetrievalTestRunResult{
+			TestCaseID: testCase.ID,
+			Query:      testCase.Query,
+			Expected:   expectedResultFromTestCase(testCase),
+		}
+		for i, result := range results {
+			if knowledgeResultMatchesTestCase(result, testCase) {
+				runResult.Passed = true
+				runResult.Rank = i + 1
+				runResult.Actual = result
+				break
+			}
+		}
+		if runResult.Passed {
+			report.Passed++
+		} else {
+			report.Failed++
+			if len(results) > 0 {
+				runResult.Actual = results[0]
+			}
+		}
+		report.Results = append(report.Results, runResult)
+	}
+	return report, nil
+}
+
+func (s *Service) buildDocumentChunks(ctx context.Context, content string, options KnowledgeDocumentOptions) ([]KnowledgeDocumentChunk, error) {
+	rawChunks := buildKnowledgeDocumentChunks(content)
+	chunks := make([]KnowledgeDocumentChunk, 0, len(rawChunks))
+	for index, chunk := range rawChunks {
+		metadata := KnowledgeChunkMetadata{
+			DocumentVersion: options.DocumentVersion,
+			PageNumber:      options.PageNumber,
+			SourceURL:       options.SourceURL,
+		}
+		chunks = append(chunks, KnowledgeDocumentChunk{
+			ChunkIndex:          index,
+			Content:             chunk,
+			DocumentVersion:     options.DocumentVersion,
+			EstimatedTokenCount: estimateKnowledgeTokens(chunk),
+			Metadata:            metadata,
+		})
+	}
+	if s != nil && s.embedder != nil && len(chunks) > 0 {
+		texts := make([]string, len(chunks))
+		for i := range chunks {
+			texts[i] = chunks[i].Content
+		}
+		embeddings, err := s.embedder.EmbedBatch(ctx, texts)
+		if err != nil {
+			return nil, err
+		}
+		for i := range chunks {
+			if i < len(embeddings) {
+				chunks[i].Embedding = append([]float32(nil), embeddings[i]...)
+			}
 		}
 	}
 	return chunks, nil
 }
 
-func withKnowledgeRelayIdentity(ctx context.Context, session auth.Session) context.Context {
-	if session.User.ID != "" {
-		ctx = relaytypes.WithTrustedUserID(ctx, session.User.ID)
+func recordRAGDocumentProcessingMetrics(strategy string, chunkCount int, startedAt time.Time) {
+	metrics.ObserveRAGDocumentProcessingDuration(strategy, time.Since(startedAt).Seconds())
+	metrics.SetRAGChunkCount(chunkCount)
+}
+
+func normalizeKnowledgeRetrievalResults(results []KnowledgeRetrievalResult, mode string) []KnowledgeRetrievalResult {
+	for index := range results {
+		if strings.TrimSpace(results[index].RetrievalMode) == "" {
+			results[index].RetrievalMode = normalizeKnowledgeRetrievalMode(mode)
+		}
+		if strings.TrimSpace(results[index].RetrievalMethod) == "" {
+			results[index].RetrievalMethod = KnowledgeRetrievalMethodEmbeddingRAG
+		}
 	}
-	if session.OrganizationID != "" {
-		ctx = relaytypes.WithTrustedOrganizationID(ctx, session.OrganizationID)
+	return results
+}
+
+func (s *Service) embedQuery(ctx context.Context, query string) ([]float32, error) {
+	if s == nil || s.embedder == nil {
+		return nil, nil
 	}
-	return ctx
+	embedding, err := s.embedder.Embed(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	return append([]float32(nil), embedding...), nil
+}
+
+func (s *Service) ensureVectorCollection(ctx context.Context, session auth.Session, knowledgeBaseID string) error {
+	if s == nil || s.vectorStore == nil {
+		return nil
+	}
+	vectorSize := s.vectorSize
+	if vectorSize <= 0 {
+		vectorSize = 1536
+	}
+	return s.vectorStore.EnsureKnowledgeBaseCollection(ctx, knowledgeSessionScope(session), knowledgeBaseID, vectorSize)
+}
+
+func (s *Service) deleteVectorCollection(ctx context.Context, session auth.Session, knowledgeBaseID string) error {
+	if s == nil || s.vectorStore == nil {
+		return nil
+	}
+	return s.vectorStore.DeleteKnowledgeBaseCollection(ctx, knowledgeSessionScope(session), knowledgeBaseID)
+}
+
+func estimateKnowledgeTokens(content string) int {
+	runes := len([]rune(strings.TrimSpace(content)))
+	if runes == 0 {
+		return 0
+	}
+	tokens := runes / 4
+	if runes%4 != 0 {
+		tokens++
+	}
+	if tokens == 0 {
+		return 1
+	}
+	return tokens
+}
+
+func expectedResultFromTestCase(testCase KnowledgeRetrievalTestCase) KnowledgeRetrievalResult {
+	if testCase.ExpectedResult.DocumentID != "" || testCase.ExpectedResult.ChunkID != "" {
+		return testCase.ExpectedResult
+	}
+	return KnowledgeRetrievalResult{
+		ChunkID:         testCase.ExpectedChunkID,
+		ChunkIndex:      testCase.ExpectedChunkIndex,
+		DocumentID:      testCase.ExpectedDocumentID,
+		DocumentTitle:   testCase.ExpectedDocumentTitle,
+		DocumentVersion: testCase.ExpectedDocumentVersion,
+		Snippet:         testCase.ExpectedSnippet,
+	}
+}
+
+func knowledgeResultMatchesTestCase(result KnowledgeRetrievalResult, testCase KnowledgeRetrievalTestCase) bool {
+	expected := expectedResultFromTestCase(testCase)
+	if expected.DocumentID != "" && result.DocumentID != expected.DocumentID {
+		return false
+	}
+	if expected.ChunkID != "" && result.ChunkID != expected.ChunkID {
+		return false
+	}
+	if expected.ChunkIndex != 0 && result.ChunkIndex != expected.ChunkIndex {
+		return false
+	}
+	if expected.DocumentVersion != "" && result.DocumentVersion != expected.DocumentVersion {
+		return false
+	}
+	return true
 }
 
 type SQLStore struct {

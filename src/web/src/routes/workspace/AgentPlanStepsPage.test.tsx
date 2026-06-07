@@ -1,0 +1,368 @@
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const approvePlanStep = vi.fn();
+const approveToolRun = vi.fn();
+const executePlanStep = vi.fn();
+const getRunDetail = vi.fn();
+const rejectToolRun = vi.fn();
+const retryToolRun = vi.fn();
+
+vi.mock('../../features/agents/planStepsApi', () => ({
+  createAgentPlanStepsApi: () => ({
+    approvePlanStep,
+    approveToolRun,
+    executePlanStep,
+    getRunDetail,
+    rejectToolRun,
+    retryToolRun
+  })
+}));
+
+import { AgentPlanStepsPage } from './AgentPlanStepsPage';
+import { routerFuture } from '../../app/routerFuture';
+
+function renderPage(planSteps: unknown[] = []) {
+  render(
+    <MemoryRouter
+      future={routerFuture}
+      initialEntries={[
+        {
+          pathname: '/agent-runs/run_1/plan-steps',
+          state: { planSteps }
+        }
+      ]}
+    >
+      <Routes>
+        <Route path="/agent-runs/:runId/plan-steps" element={<AgentPlanStepsPage />} />
+      </Routes>
+    </MemoryRouter>
+  );
+}
+
+function renderDirectPage() {
+  render(
+    <MemoryRouter
+      future={routerFuture}
+      initialEntries={[
+        {
+          pathname: '/agent-runs/run_1/plan-steps'
+        }
+      ]}
+    >
+      <Routes>
+        <Route path="/agent-runs/:runId/plan-steps" element={<AgentPlanStepsPage />} />
+      </Routes>
+    </MemoryRouter>
+  );
+}
+
+describe('AgentPlanStepsPage', () => {
+  beforeEach(() => {
+    approvePlanStep.mockReset();
+    approveToolRun.mockReset();
+    executePlanStep.mockReset();
+    getRunDetail.mockReset();
+    rejectToolRun.mockReset();
+    retryToolRun.mockReset();
+  });
+
+  it('loads run detail on direct entry and refreshes status with plan steps', async () => {
+    getRunDetail
+      .mockResolvedValueOnce({
+        id: 'run_1',
+        planSteps: [
+          {
+            approvalStatus: 'pending',
+            id: 'step_1',
+            index: 1,
+            runId: 'run_1',
+            status: 'pending',
+            title: 'Inspect workspace'
+          }
+        ],
+        status: 'planning'
+      })
+      .mockResolvedValueOnce({
+        id: 'run_1',
+        planSteps: [
+          {
+            approvalStatus: 'approved',
+            id: 'step_1',
+            index: 1,
+            runId: 'run_1',
+            status: 'approved',
+            title: 'Inspect workspace'
+          },
+          {
+            approvalStatus: 'not_required',
+            id: 'step_2',
+            index: 2,
+            runId: 'run_1',
+            status: 'pending',
+            title: 'Patch web page'
+          }
+        ],
+        status: 'awaiting_execution'
+      });
+
+    renderDirectPage();
+
+    expect(await screen.findByText('Status: planning')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Inspect workspace' })).toBeInTheDocument();
+    expect(getRunDetail).toHaveBeenCalledWith('run_1');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh plan steps' }));
+
+    expect(await screen.findByText('Status: awaiting_execution')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Patch web page' })).toBeInTheDocument();
+    expect(getRunDetail).toHaveBeenCalledTimes(2);
+  });
+
+  it('renders plan steps from navigation state and refreshes them after approve and execute actions', async () => {
+    renderPage([
+      {
+        approvalStatus: 'pending',
+        id: 'step_1',
+        index: 1,
+        runId: 'run_1',
+        status: 'pending',
+        title: 'Inspect workspace'
+      },
+      {
+        approvalStatus: 'approved',
+        id: 'step_2',
+        index: 2,
+        runId: 'run_1',
+        status: 'approved',
+        title: 'Patch web page'
+      }
+    ]);
+
+    expect(screen.getByRole('heading', { name: 'Agent Plan Steps' })).toBeInTheDocument();
+    expect(screen.getByText('Run run_1')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Inspect workspace' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Patch web page' })).toBeInTheDocument();
+
+    approvePlanStep.mockResolvedValueOnce([
+      {
+        approvalStatus: 'approved',
+        id: 'step_1',
+        index: 1,
+        runId: 'run_1',
+        status: 'approved',
+        title: 'Inspect workspace'
+      },
+      {
+        approvalStatus: 'approved',
+        id: 'step_2',
+        index: 2,
+        runId: 'run_1',
+        status: 'approved',
+        title: 'Patch web page'
+      }
+    ]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Approve Inspect workspace' }));
+
+    await waitFor(() => expect(approvePlanStep).toHaveBeenCalledWith('run_1', 'step_1'));
+    await waitFor(() => {
+      expect(within(screen.getByLabelText('Plan step Inspect workspace')).getAllByText('approved').length).toBeGreaterThan(0);
+    });
+
+    executePlanStep.mockResolvedValueOnce([
+      {
+        approvalStatus: 'approved',
+        id: 'step_1',
+        index: 1,
+        resultContent: 'Workspace inspected.',
+        runId: 'run_1',
+        status: 'completed',
+        title: 'Inspect workspace'
+      },
+      {
+        approvalStatus: 'approved',
+        id: 'step_2',
+        index: 2,
+        runId: 'run_1',
+        status: 'approved',
+        title: 'Patch web page'
+      }
+    ]);
+
+    const firstStep = screen.getByLabelText('Plan step Inspect workspace');
+    fireEvent.click(within(firstStep).getByRole('button', { name: 'Execute Inspect workspace' }));
+
+    await waitFor(() => expect(executePlanStep).toHaveBeenCalledWith('run_1', 'step_1'));
+    expect(await screen.findByText('Workspace inspected.')).toBeInTheDocument();
+  });
+
+  it('surfaces operation failures without dropping current plan steps', async () => {
+    approvePlanStep.mockRejectedValueOnce(new Error('Approval failed'));
+
+    renderPage([
+      {
+        id: 'step_1',
+        index: 1,
+        runId: 'run_1',
+        status: 'pending',
+        title: 'Inspect workspace'
+      }
+    ]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Approve Inspect workspace' }));
+
+    expect(await screen.findByText('Approval failed')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Inspect workspace' })).toBeInTheDocument();
+  });
+
+  it('renders tool approval queue and refreshes tool runs after approve, reject, and retry actions', async () => {
+    getRunDetail.mockResolvedValue({
+      id: 'run_1',
+      planSteps: [],
+      status: 'requires_tool_approval',
+      toolRuns: [
+        {
+          approvalStatus: 'pending',
+          arguments: { path: 'src/server/main.go' },
+          id: 'tool_run_1',
+          riskLevel: 'dangerous',
+          runId: 'run_1',
+          status: 'pending_approval',
+          toolName: 'write_file',
+          toolType: 'builtin'
+        },
+        {
+          approvalStatus: 'not_required',
+          error: 'search endpoint timed out',
+          id: 'tool_run_2',
+          riskLevel: 'medium',
+          runId: 'run_1',
+          status: 'failed',
+          toolName: 'web_search',
+          toolType: 'mcp'
+        },
+        {
+          approvalStatus: 'pending',
+          arguments: { command: 'rm -rf /tmp/build' },
+          id: 'tool_run_3',
+          riskLevel: 'dangerous',
+          runId: 'run_1',
+          status: 'pending_approval',
+          toolName: 'delete_file',
+          toolType: 'builtin'
+        }
+      ]
+    });
+    approveToolRun.mockResolvedValueOnce([
+      {
+        approvalStatus: 'approved',
+        id: 'tool_run_1',
+        riskLevel: 'dangerous',
+        runId: 'run_1',
+        status: 'running',
+        toolName: 'write_file',
+        toolType: 'builtin'
+      },
+      {
+        approvalStatus: 'not_required',
+        error: 'search endpoint timed out',
+        id: 'tool_run_2',
+        riskLevel: 'medium',
+        runId: 'run_1',
+        status: 'failed',
+        toolName: 'web_search',
+        toolType: 'mcp'
+      },
+      {
+        approvalStatus: 'pending',
+        id: 'tool_run_3',
+        riskLevel: 'dangerous',
+        runId: 'run_1',
+        status: 'pending_approval',
+        toolName: 'delete_file',
+        toolType: 'builtin'
+      }
+    ]);
+    rejectToolRun.mockResolvedValueOnce([
+      {
+        approvalStatus: 'approved',
+        id: 'tool_run_1',
+        riskLevel: 'dangerous',
+        runId: 'run_1',
+        status: 'running',
+        toolName: 'write_file',
+        toolType: 'builtin'
+      },
+      {
+        approvalStatus: 'not_required',
+        error: 'search endpoint timed out',
+        id: 'tool_run_2',
+        riskLevel: 'medium',
+        runId: 'run_1',
+        status: 'failed',
+        toolName: 'web_search',
+        toolType: 'mcp'
+      },
+      {
+        approvalStatus: 'rejected',
+        id: 'tool_run_3',
+        riskLevel: 'dangerous',
+        runId: 'run_1',
+        status: 'rejected',
+        toolName: 'delete_file',
+        toolType: 'builtin'
+      }
+    ]);
+    retryToolRun.mockResolvedValueOnce([
+      {
+        approvalStatus: 'approved',
+        id: 'tool_run_1',
+        riskLevel: 'dangerous',
+        runId: 'run_1',
+        status: 'running',
+        toolName: 'write_file',
+        toolType: 'builtin'
+      },
+      {
+        approvalStatus: 'not_required',
+        id: 'tool_run_2',
+        riskLevel: 'medium',
+        runId: 'run_1',
+        status: 'running',
+        toolName: 'web_search',
+        toolType: 'mcp'
+      }
+    ]);
+
+    renderDirectPage();
+
+    expect(await screen.findByRole('heading', { name: 'Tool Approval Queue' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Tool run write_file')).toHaveTextContent('dangerous');
+    expect(screen.getByLabelText('Tool run write_file')).toHaveTextContent('"path": "src/server/main.go"');
+    expect(screen.getByLabelText('Tool run web_search')).toHaveTextContent('search endpoint timed out');
+    expect(screen.getByLabelText('Tool run delete_file')).toHaveTextContent('"command": "rm -rf /tmp/build"');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Approve tool write_file' }));
+
+    await waitFor(() => expect(approveToolRun).toHaveBeenCalledWith('run_1', 'tool_run_1', 'Approved from Agent Plan Steps'));
+    await waitFor(() => {
+      expect(within(screen.getByLabelText('Tool run write_file')).getByText('running')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reject tool delete_file' }));
+
+    await waitFor(() => expect(rejectToolRun).toHaveBeenCalledWith('run_1', 'tool_run_3', 'Rejected from Agent Plan Steps'));
+    await waitFor(() => {
+      expect(within(screen.getByLabelText('Tool run delete_file')).getByText('rejected')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry tool web_search' }));
+
+    await waitFor(() => expect(retryToolRun).toHaveBeenCalledWith('run_1', 'tool_run_2'));
+    await waitFor(() => {
+      expect(within(screen.getByLabelText('Tool run web_search')).getByText('running')).toBeInTheDocument();
+    });
+  });
+});

@@ -3,11 +3,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const getBillingSummary = vi.fn();
 const listBillingSurface = vi.fn();
+const markMarketplacePayoutPaid = vi.fn();
 
 vi.mock('../../features/admin/api', () => ({
   createAdminApi: () => ({
     getBillingSummary,
     listBillingSurface,
+    markMarketplacePayoutPaid,
   }),
 }));
 
@@ -17,6 +19,7 @@ describe('AdminBillingPage', () => {
   beforeEach(() => {
     getBillingSummary.mockReset();
     listBillingSurface.mockReset();
+    markMarketplacePayoutPaid.mockReset();
   });
 
   it('renders billing summary and session inspection rows', async () => {
@@ -76,5 +79,93 @@ describe('AdminBillingPage', () => {
     render(<AdminBillingPage />);
 
     expect(await screen.findByText('No billing records found for this commercial surface.')).toBeInTheDocument();
+  });
+
+  it('opens the failed webhook recovery queue with a failed status filter', async () => {
+    getBillingSummary.mockResolvedValue({
+      webhookEvents: { count: 4, failedCount: 2 },
+    });
+    listBillingSurface.mockResolvedValue({ data: [], total: 0 });
+
+    render(<AdminBillingPage />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Review failed webhooks' }));
+
+    await waitFor(() =>
+      expect(listBillingSurface).toHaveBeenLastCalledWith(
+        'webhookEvents',
+        expect.objectContaining({ status: 'failed', limit: 50 })
+      )
+    );
+  });
+
+  it('renders refund recovery investigation fields in the refunds table', async () => {
+    getBillingSummary.mockResolvedValue({});
+    listBillingSurface
+      .mockResolvedValueOnce({ data: [], total: 0 })
+      .mockResolvedValueOnce({
+        data: [
+          {
+            id: 'rf_1',
+            providerRefundId: 'stripe_rf_1',
+            paymentIntentId: 'pi_recover_1',
+            topupOrderId: 'topup_order_1',
+            reason: 'duplicate charge',
+            amount: 12,
+            status: 'processed',
+            createdAt: '2026-06-04T00:00:00Z',
+          },
+        ],
+        total: 1,
+      });
+
+    render(<AdminBillingPage />);
+
+    fireEvent.click(await screen.findByRole('tab', { name: 'Refunds' }));
+
+    expect(await screen.findByText('duplicate charge')).toBeInTheDocument();
+    expect(screen.getByText('pi_recover_1')).toBeInTheDocument();
+    expect(screen.getByText('topup_order_1')).toBeInTheDocument();
+  });
+
+  it('marks payout pending rows as paid from the payouts surface', async () => {
+    getBillingSummary.mockResolvedValue({});
+    markMarketplacePayoutPaid.mockResolvedValue({ id: 'payout_1', status: 'paid_out', providerPayoutId: 'provider-paid-1' });
+    listBillingSurface
+      .mockResolvedValueOnce({ data: [], total: 0 })
+      .mockResolvedValueOnce({
+        data: [
+          {
+            id: 'payout_1',
+            provider: 'local',
+            providerPayoutId: 'manual-batch-1',
+            amount: 40,
+            status: 'payout_pending',
+            createdAt: '2026-06-04T00:00:00Z',
+          },
+        ],
+        total: 1,
+      })
+      .mockResolvedValueOnce({
+        data: [
+          {
+            id: 'payout_1',
+            provider: 'local',
+            providerPayoutId: 'provider-paid-1',
+            amount: 40,
+            status: 'paid_out',
+            createdAt: '2026-06-04T00:00:00Z',
+          },
+        ],
+        total: 1,
+      });
+
+    render(<AdminBillingPage />);
+
+    fireEvent.click(await screen.findByRole('tab', { name: 'Payouts' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Mark payout payout_1 paid' }));
+
+    await waitFor(() => expect(markMarketplacePayoutPaid).toHaveBeenCalledWith('payout_1', 'manual-batch-1'));
+    expect(await screen.findByText('Paid Out')).toBeInTheDocument();
   });
 });

@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -59,15 +58,23 @@ func (h *ImagesHandler) HandleGenerations(c *gin.Context) error {
 		APIType: types.APITypeImageGen,
 		Model:   model,
 	}
-	body, _ := io.ReadAll(c.Request.Body)
+	body, err := json.Marshal(rawReq)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "invalid_request", "message": "invalid JSON body"}})
+		return nil
+	}
 	req.Body = body
 
 	resp, err := h.executeRequestRaw(c, req, "application/json")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "relay_error", "message": err.Error()}})
+		writeRelayHandlerError(c, resp, err)
 		return nil
 	}
-	c.Data(http.StatusOK, "application/json", resp.Content)
+	statusCode := resp.StatusCode
+	if statusCode < http.StatusContinue {
+		statusCode = http.StatusOK
+	}
+	c.Data(statusCode, "application/json", resp.Content)
 	return nil
 }
 
@@ -86,10 +93,14 @@ func (h *ImagesHandler) HandleEdits(c *gin.Context) error {
 
 	resp, err := h.executeRequestRaw(c, req, "application/json")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "relay_error", "message": err.Error()}})
+		writeRelayHandlerError(c, resp, err)
 		return nil
 	}
-	c.Data(http.StatusOK, "application/json", resp.Content)
+	statusCode := resp.StatusCode
+	if statusCode < http.StatusContinue {
+		statusCode = http.StatusOK
+	}
+	c.Data(statusCode, "application/json", resp.Content)
 	return nil
 }
 
@@ -105,10 +116,14 @@ func (h *ImagesHandler) HandleVariations(c *gin.Context) error {
 
 	resp, err := h.executeRequestRaw(c, req, "application/json")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "relay_error", "message": err.Error()}})
+		writeRelayHandlerError(c, resp, err)
 		return nil
 	}
-	c.Data(http.StatusOK, "application/json", resp.Content)
+	statusCode := resp.StatusCode
+	if statusCode < http.StatusContinue {
+		statusCode = http.StatusOK
+	}
+	c.Data(statusCode, "application/json", resp.Content)
 	return nil
 }
 
@@ -131,29 +146,37 @@ func (h *ImagesHandler) executeRequest(c *gin.Context, req *channel.ProviderRequ
 		idempotencyKey,
 		usage,
 		func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
-			upstreamURL, _ := h.adapter.BuildURL(req.Model, req.APIType)
-			headers, _ := h.adapter.BuildHeaders(c.Request.Context(), req.Model, req.APIType)
-
-			upstreamReq, err := http.NewRequest("POST", upstreamURL, bytes.NewReader(req.Body))
+			if ch == nil || ch.Channel == nil {
+				return nil, types.ErrNoAvailableChannel
+			}
+			adapter, err := channel.AdapterForChannel(ch.Channel)
 			if err != nil {
 				return nil, err
 			}
-			upstreamReq.Header = headers.Clone()
-			upstreamReq.Header.Set("Content-Type", "application/json")
-
-			client := &http.Client{Timeout: 60 * time.Second}
-			resp, err := client.Do(upstreamReq)
+			upstreamURL, err := adapter.BuildURL(req.Model, req.APIType)
 			if err != nil {
 				return nil, err
 			}
-			defer resp.Body.Close()
+			headers, err := adapter.BuildHeaders(c.Request.Context(), req.Model, req.APIType)
+			if err != nil {
+				return nil, err
+			}
+			headers.Set("Content-Type", "application/json")
 
-			bodyOut, _ := io.ReadAll(resp.Body)
-			return providerResponseFromHTTP(resp.StatusCode, bodyOut), nil
+			providerReq := &channel.ProviderRequest{
+				APIType: req.APIType,
+				Model:   req.Model,
+				URL:     upstreamURL,
+				Body:    req.Body,
+				Headers: headers,
+			}
+
+			return executeProviderAdapterRequest(c.Request.Context(), adapter, providerReq)
 		},
 	)
 }
 
 func (h *ImagesHandler) executeRequestRaw(c *gin.Context, req *channel.ProviderRequest, contentType string) (*types.ProviderResponse, error) {
-	return h.executeRequest(c, req, nil)
+	_ = contentType
+	return h.executeRequest(c, req, h.adapter.EstimateUsage(req))
 }

@@ -137,6 +137,229 @@
           "legendFormat": "{{route}}"
         }
       ]
+    },
+    {
+      "id": 13,
+      "title": "Model usage cost",
+      "description": "Usage analytics from ClickHouse request_logs grouped by model.",
+      "type": "barchart",
+      "targets": [
+        {
+          "datasource": { "type": "grafana-clickhouse-datasource" },
+          "format": "table",
+          "rawSql": "SELECT model, count() AS request_count, sum(request_tokens + response_tokens) AS total_tokens, sum(cost_usd) AS total_cost FROM request_logs WHERE $__timeFilter(timestamp) GROUP BY model ORDER BY total_cost DESC LIMIT 20"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "title": "Feature usage",
+      "description": "Usage analytics from ClickHouse request_logs grouped by relay feature.",
+      "type": "barchart",
+      "targets": [
+        {
+          "datasource": { "type": "grafana-clickhouse-datasource" },
+          "format": "table",
+          "rawSql": "SELECT COALESCE(NULLIF(JSONExtractString(metadata, 'relay_api_type'), ''), service, 'unknown') AS feature, count() AS request_count, sum(request_tokens + response_tokens) AS total_tokens, sum(cost_usd) AS total_cost FROM request_logs WHERE $__timeFilter(timestamp) GROUP BY feature ORDER BY total_tokens DESC LIMIT 20"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "title": "Top user cost",
+      "description": "Usage analytics from ClickHouse request_logs grouped by original user identity.",
+      "type": "table",
+      "targets": [
+        {
+          "datasource": { "type": "grafana-clickhouse-datasource" },
+          "format": "table",
+          "rawSql": "SELECT COALESCE(NULLIF(JSONExtractString(metadata, 'user_id'), ''), toString(user_id)) AS user_id, count() AS request_count, sum(request_tokens + response_tokens) AS total_tokens, sum(cost_usd) AS total_cost FROM request_logs WHERE $__timeFilter(timestamp) GROUP BY user_id ORDER BY total_cost DESC LIMIT 50"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "title": "Usage time trend",
+      "description": "Usage analytics request, token, and cost trend from ClickHouse request_logs.",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "grafana-clickhouse-datasource" },
+          "format": "time_series",
+          "rawSql": "SELECT toStartOfHour(timestamp) AS time, count() AS request_count, sum(request_tokens + response_tokens) AS total_tokens, sum(cost_usd) AS total_cost FROM request_logs WHERE $__timeFilter(timestamp) GROUP BY time ORDER BY time ASC"
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "title": "Model x time",
+      "description": "Cross-dimension usage analytics for model x time cost trends.",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "grafana-clickhouse-datasource" },
+          "format": "time_series",
+          "rawSql": "SELECT toStartOfHour(timestamp) AS time, model, count() AS request_count, sum(request_tokens + response_tokens) AS total_tokens, sum(cost_usd) AS total_cost FROM request_logs WHERE $__timeFilter(timestamp) GROUP BY time, model ORDER BY time ASC, total_cost DESC"
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "title": "User x feature",
+      "description": "Cross-dimension usage analytics for user x feature preferences and cost.",
+      "type": "table",
+      "targets": [
+        {
+          "datasource": { "type": "grafana-clickhouse-datasource" },
+          "format": "table",
+          "rawSql": "SELECT COALESCE(NULLIF(JSONExtractString(metadata, 'user_id'), ''), toString(user_id)) AS user_id, COALESCE(NULLIF(JSONExtractString(metadata, 'relay_api_type'), ''), service, 'unknown') AS feature, count() AS request_count, sum(request_tokens + response_tokens) AS total_tokens, sum(cost_usd) AS total_cost FROM request_logs WHERE $__timeFilter(timestamp) GROUP BY user_id, feature ORDER BY total_cost DESC LIMIT 100"
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "title": "Feature x time",
+      "description": "Cross-dimension usage analytics for feature x time trends.",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "grafana-clickhouse-datasource" },
+          "format": "time_series",
+          "rawSql": "SELECT toStartOfHour(timestamp) AS time, COALESCE(NULLIF(JSONExtractString(metadata, 'relay_api_type'), ''), service, 'unknown') AS feature, count() AS request_count, sum(request_tokens + response_tokens) AS total_tokens, sum(cost_usd) AS total_cost FROM request_logs WHERE $__timeFilter(timestamp) GROUP BY time, feature ORDER BY time ASC, total_cost DESC"
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "title": "Workflow active executions",
+      "description": "Active workflow execution counts by running, queued, and paused status.",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum(workflow_execution_active) by (status)",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "title": "Workflow active execution age",
+      "description": "Oldest active workflow execution age by low-cardinality status.",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "max(workflow_execution_active_age_seconds) by (status)",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "title": "RAG retrieval latency",
+      "description": "RAG retrieval latency p95 by retrieval mode.",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(rag_retrieval_latency_seconds_bucket[5m])) by (le, mode))",
+          "legendFormat": "{{mode}} p95"
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "title": "RAG document processing duration",
+      "description": "RAG document processing duration p95 by chunk strategy.",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(rag_document_processing_duration_seconds_bucket[5m])) by (le, strategy))",
+          "legendFormat": "{{strategy}} p95"
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "title": "RAG chunk count",
+      "description": "Most recent RAG chunk count emitted during document processing.",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rag_chunk_count",
+          "legendFormat": "chunks"
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "title": "Workflow execution total",
+      "description": "Workflow execution volume by status from workflow_execution_total.",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum(rate(workflow_execution_total[5m])) by (status)",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "title": "Workflow execution duration",
+      "description": "Workflow execution duration p95 by status from workflow_execution_duration_seconds.",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(workflow_execution_duration_seconds_bucket[5m])) by (le, status))",
+          "legendFormat": "{{status}} p95"
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "title": "Workflow node error rate",
+      "description": "Workflow node error rate by low-cardinality node type from workflow_node_error_rate.",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "max(workflow_node_error_rate) by (node_type)",
+          "legendFormat": "{{node_type}}"
+        }
+      ]
+    },
+    {
+      "id": 28,
+      "title": "Agent run total",
+      "description": "Agent run volume by status from agent_run_total.",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum(rate(agent_run_total[5m])) by (status)",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    },
+    {
+      "id": 29,
+      "title": "Agent tool call total",
+      "description": "Agent tool call volume by tool and status from agent_tool_call_total.",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum(rate(agent_tool_call_total[5m])) by (tool_name, status)",
+          "legendFormat": "{{tool_name}} {{status}}"
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "title": "Agent iteration count",
+      "description": "Agent iteration count p95 by run status from agent_iteration_count.",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(agent_iteration_count_bucket[5m])) by (le, status))",
+          "legendFormat": "{{status}} p95"
+        }
+      ]
     }
   ]
 }

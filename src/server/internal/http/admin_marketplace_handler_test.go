@@ -14,6 +14,10 @@ import (
 	"oblivious/server/internal/auth"
 	"oblivious/server/internal/config"
 	"oblivious/server/internal/marketplace"
+	"oblivious/server/internal/payment"
+	"oblivious/server/internal/quota"
+	relaytypes "oblivious/server/internal/relay/types"
+	stripebilling "oblivious/server/internal/stripe"
 )
 
 func TestAdminHandlerExposesPhase31Operations(t *testing.T) {
@@ -61,6 +65,425 @@ func TestAdminHandlerExposesPhase31Operations(t *testing.T) {
 	}
 	if store.approvedAgentID != "agent_1" {
 		t.Fatalf("expected approved agent agent_1, got %q", store.approvedAgentID)
+	}
+
+	needsChangesRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/admin/reviews/agent_1/needs-changes", strings.NewReader(`{"reason":"Add data retention details."}`)).
+		WithContext(context.WithValue(context.Background(), sessionContextKey, testAdminSession()))
+	needsChangesRecorder := httptest.NewRecorder()
+	handler.needsChangesAgent(needsChangesRecorder, needsChangesRequest, "agent_1")
+	if needsChangesRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("needs changes expected 200, got %d: %s", needsChangesRecorder.Code, needsChangesRecorder.Body.String())
+	}
+	if store.needsChangesAgentID != "agent_1" || store.needsChangesReason != "Add data retention details." {
+		t.Fatalf("expected needs changes agent/reason to be stored, got id=%q reason=%q", store.needsChangesAgentID, store.needsChangesReason)
+	}
+	if !strings.Contains(needsChangesRecorder.Body.String(), `"status":"needs_changes"`) {
+		t.Fatalf("expected needs_changes response status, got %s", needsChangesRecorder.Body.String())
+	}
+}
+
+func TestAdminHandlerListsReviewsWithMarketplaceReviewSLA(t *testing.T) {
+	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
+	store := &fakeAdminStore{
+		pendingReviews: []*marketplace.PublishedAgent{{
+			ID:        "agent_sla",
+			Name:      "Review me",
+			Status:    "pending_review",
+			CreatedAt: now.Add(-71 * time.Hour),
+			UpdatedAt: now.Add(-71 * time.Hour),
+			ReviewSLA: &marketplace.ReviewSLA{
+				ManualDeadlineAt:          now.Add(time.Hour),
+				ManualSlaHours:            72,
+				ManualSlaStatus:           "due_soon",
+				MinutesUntilDeadline:      60,
+				AutomatedReviewDeadlineAt: now.Add(-70*time.Hour - 55*time.Minute),
+				AutomatedReviewSlaMinutes: 5,
+				AutomatedReviewSlaStatus:  "overdue",
+				VIPPublisher:              false,
+				PublisherTier:             "standard",
+				PublisherTierSource:       "default",
+			},
+		}},
+	}
+	handler := newAdminHandler(admin.NewService(store))
+
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/admin/reviews", nil)
+	recorder := httptest.NewRecorder()
+	handler.listReviews(recorder, request)
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected reviews 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"reviewSLA"`) ||
+		!strings.Contains(recorder.Body.String(), `"manualDeadlineAt":"2026-06-05T13:00:00Z"`) ||
+		!strings.Contains(recorder.Body.String(), `"manualSlaHours":72`) ||
+		!strings.Contains(recorder.Body.String(), `"manualSlaStatus":"due_soon"`) ||
+		!strings.Contains(recorder.Body.String(), `"minutesUntilDeadline":60`) {
+		t.Fatalf("expected pending review response to expose reviewSLA, got %s", recorder.Body.String())
+	}
+}
+
+func TestAdminHandlerSyncsChannelModels(t *testing.T) {
+	store := &fakeAdminStore{
+		channelTestResult: &admin.ChannelTestResult{
+			Success: true,
+			Models:  []string{"gpt-4o", "gpt-4o-mini"},
+		},
+	}
+	handler := newAdminHandler(admin.NewService(store))
+
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/admin/channels/ch_1/sync-models", nil).
+		WithContext(context.WithValue(context.Background(), sessionContextKey, testAdminSession()))
+	recorder := httptest.NewRecorder()
+
+	handler.syncChannelModels(recorder, request, "ch_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("sync models expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !equalStrings(store.updatedChannelModels, []string{"gpt-4o", "gpt-4o-mini"}) {
+		t.Fatalf("expected channel models to be persisted, got %#v", store.updatedChannelModels)
+	}
+	if !strings.Contains(recorder.Body.String(), `"channel"`) ||
+		!strings.Contains(recorder.Body.String(), `"testResult"`) ||
+		!strings.Contains(recorder.Body.String(), `"models":["gpt-4o","gpt-4o-mini"]`) {
+		t.Fatalf("expected sync response with channel and probe models, got %s", recorder.Body.String())
+	}
+}
+
+func TestAdminHandlerDetectsAndAppliesChannelModelUpdates(t *testing.T) {
+	store := &fakeAdminStore{
+		currentChannelModels: []string{"gpt-4o", "legacy-model"},
+		channelTestResult: &admin.ChannelTestResult{
+			Success: true,
+			Models:  []string{"gpt-4o", "gpt-4.1"},
+		},
+	}
+	handler := newAdminHandler(admin.NewService(store))
+
+	detectRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/admin/channels/ch_1/model-updates/detect", nil).
+		WithContext(context.WithValue(context.Background(), sessionContextKey, testAdminSession()))
+	detectRecorder := httptest.NewRecorder()
+	handler.detectChannelModelUpdates(detectRecorder, detectRequest, "ch_1")
+	if detectRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("detect model updates expected 200, got %d: %s", detectRecorder.Code, detectRecorder.Body.String())
+	}
+	if !strings.Contains(detectRecorder.Body.String(), `"added":["gpt-4.1"]`) ||
+		!strings.Contains(detectRecorder.Body.String(), `"removed":["legacy-model"]`) {
+		t.Fatalf("expected model update diff, got %s", detectRecorder.Body.String())
+	}
+	if store.updatedChannelModels != nil {
+		t.Fatalf("detect must not persist channel models, got %#v", store.updatedChannelModels)
+	}
+
+	applyRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/admin/channels/ch_1/model-updates/apply", strings.NewReader(`{"mode":"replace"}`)).
+		WithContext(context.WithValue(context.Background(), sessionContextKey, testAdminSession()))
+	applyRecorder := httptest.NewRecorder()
+	handler.applyChannelModelUpdates(applyRecorder, applyRequest, "ch_1")
+	if applyRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("apply model updates expected 200, got %d: %s", applyRecorder.Code, applyRecorder.Body.String())
+	}
+	if !equalStrings(store.updatedChannelModels, []string{"gpt-4o", "gpt-4.1"}) {
+		t.Fatalf("expected replaced channel models, got %#v", store.updatedChannelModels)
+	}
+	if !strings.Contains(applyRecorder.Body.String(), `"mode":"replace"`) ||
+		!strings.Contains(applyRecorder.Body.String(), `"appliedModels":["gpt-4o","gpt-4.1"]`) {
+		t.Fatalf("expected apply response with replaced models, got %s", applyRecorder.Body.String())
+	}
+}
+
+func TestAdminHandlerRefreshesChannelBalance(t *testing.T) {
+	store := &fakeAdminStore{
+		channelTestResult: &admin.ChannelTestResult{
+			Success: true,
+			Latency: 42,
+			Balance: &admin.ChannelBalance{
+				Amount:   8.5,
+				Currency: "USD",
+				Source:   "provider_balance",
+			},
+			Health: &admin.ChannelHealthDetail{Status: "online", CheckedAt: time.Now().UTC()},
+		},
+	}
+	handler := newAdminHandler(admin.NewService(store))
+
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/admin/channels/ch_1/refresh-balance", nil).
+		WithContext(context.WithValue(context.Background(), sessionContextKey, testAdminSession()))
+	recorder := httptest.NewRecorder()
+
+	handler.refreshChannelBalance(recorder, request, "ch_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("refresh balance expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if store.channelDiagnostics == nil || store.channelDiagnostics.Balance == nil || store.channelDiagnostics.Balance.Amount != 8.5 {
+		t.Fatalf("expected balance diagnostics to be persisted, got %#v", store.channelDiagnostics)
+	}
+	if !strings.Contains(recorder.Body.String(), `"balance"`) || !strings.Contains(recorder.Body.String(), `"amount":8.5`) {
+		t.Fatalf("expected balance refresh response, got %s", recorder.Body.String())
+	}
+}
+
+func TestAdminHandlerListsChannelRuntimeStats(t *testing.T) {
+	until := time.Date(2026, 6, 4, 12, 30, 0, 0, time.UTC)
+	handler := newAdminHandler(admin.NewService(&fakeAdminStore{}, admin.WithChannelRuntimeStatsProvider(fakeRuntimeStatsProvider{
+		stats: map[string]*relaytypes.ChannelStats{
+			"ch_1": {
+				ChannelID:        "ch_1",
+				RPMCurrent:       7,
+				TPMCurrent:       321,
+				TotalRequests:    12,
+				SuccessCount:     10,
+				FailureCount:     2,
+				LatencySumUs:     900_000,
+				LatencyCount:     3,
+				RateLimitedUntil: until,
+			},
+		},
+	})))
+
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/admin/channels/stats", nil)
+	recorder := httptest.NewRecorder()
+
+	handler.listChannelRuntimeStats(recorder, request)
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("runtime stats expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"channelID":"ch_1"`) ||
+		!strings.Contains(recorder.Body.String(), `"rpmCurrent":7`) ||
+		!strings.Contains(recorder.Body.String(), `"tpmCurrent":321`) ||
+		!strings.Contains(recorder.Body.String(), `"avgLatencyMs":300`) ||
+		!strings.Contains(recorder.Body.String(), `"rateLimitedUntil":"2026-06-04T12:30:00Z"`) {
+		t.Fatalf("runtime stats response missing expected fields: %s", recorder.Body.String())
+	}
+}
+
+func TestAdminHandlerUpdatesRelayPricingSettings(t *testing.T) {
+	store := &fakeAdminStore{}
+	var applied admin.RelayPricingSettings
+	handler := newAdminHandler(admin.NewService(store, admin.WithRelayPricingSettingsApplier(func(settings admin.RelayPricingSettings) {
+		applied = settings
+	})))
+
+	request := httptest.NewRequest(stdhttp.MethodPut, "/api/v1/admin/settings/relay-pricing", strings.NewReader(`{
+		"modelMultipliers": {"gpt-4o": 1.5},
+		"groupMultipliers": {"vip": 0.8}
+	}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, testAdminSession()))
+	recorder := httptest.NewRecorder()
+
+	handler.updateRelayPricingSettings(recorder, request)
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected settings update 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if store.relayPricingSettings.ModelMultipliers["gpt-4o"] != 1.5 || store.relayPricingSettings.GroupMultipliers["vip"] != 0.8 {
+		t.Fatalf("store relay pricing settings not updated: %#v", store.relayPricingSettings)
+	}
+	if applied.ModelMultipliers["gpt-4o"] != 1.5 || applied.GroupMultipliers["vip"] != 0.8 {
+		t.Fatalf("relay pricing settings not applied: %#v", applied)
+	}
+	if !strings.Contains(recorder.Body.String(), `"modelMultipliers"`) || !strings.Contains(recorder.Body.String(), `"groupMultipliers"`) {
+		t.Fatalf("response should include settings maps, got %s", recorder.Body.String())
+	}
+}
+
+func TestAdminHandlerManagesUsageLimitSettings(t *testing.T) {
+	quotaService := &fakeAdminQuotaSettingsService{
+		settings: []quota.UsageLimitSettings{{
+			OrganizationID:        "org_admin",
+			QuotaMode:             "organization",
+			MaxConcurrentRequests: 10,
+			WindowSeconds:         60,
+			MaxTokensPerWindow:    1000,
+		}},
+	}
+	handler := newAdminHandlerWithQuota(admin.NewService(&fakeAdminStore{}), quotaService)
+	adminSession := testAdminSession()
+	adminSession.OrganizationID = "org_admin"
+
+	listRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/admin/settings/usage-limits", nil).
+		WithContext(context.WithValue(context.Background(), sessionContextKey, adminSession))
+	listRecorder := httptest.NewRecorder()
+	handler.listUsageLimitSettings(listRecorder, listRequest)
+
+	if listRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected usage limit list 200, got %d: %s", listRecorder.Code, listRecorder.Body.String())
+	}
+	if quotaService.listOrganizationID != "org_admin" {
+		t.Fatalf("expected list to use session organization org_admin, got %q", quotaService.listOrganizationID)
+	}
+	if !strings.Contains(listRecorder.Body.String(), `"maxConcurrentRequests":10`) ||
+		!strings.Contains(listRecorder.Body.String(), `"maxTokensPerWindow":1000`) ||
+		!strings.Contains(listRecorder.Body.String(), `"quotaMode":"organization"`) {
+		t.Fatalf("expected usage limit settings in response, got %s", listRecorder.Body.String())
+	}
+
+	updateRequest := httptest.NewRequest(stdhttp.MethodPut, "/api/v1/admin/settings/usage-limits", strings.NewReader(`{
+		"userId": "user_1",
+		"quotaMode": "user",
+		"maxConcurrentRequests": 3,
+		"windowSeconds": 30,
+		"maxTokensPerWindow": 300
+	}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, adminSession))
+	updateRecorder := httptest.NewRecorder()
+	handler.updateUsageLimitSettings(updateRecorder, updateRequest)
+
+	if updateRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected usage limit update 200, got %d: %s", updateRecorder.Code, updateRecorder.Body.String())
+	}
+	if quotaService.saved.OrganizationID != "org_admin" || quotaService.saved.UserID != "user_1" {
+		t.Fatalf("expected update to scope to session org and requested user, got %+v", quotaService.saved)
+	}
+	if quotaService.saved.QuotaMode != "user" {
+		t.Fatalf("expected update to preserve quota mode, got %+v", quotaService.saved)
+	}
+	if quotaService.saved.MaxConcurrentRequests != 3 || quotaService.saved.WindowSeconds != 30 || quotaService.saved.MaxTokensPerWindow != 300 {
+		t.Fatalf("unexpected saved usage limit settings: %+v", quotaService.saved)
+	}
+}
+
+func TestAdminHandlerListsUsageLogsWithFilters(t *testing.T) {
+	store := &fakeAdminStore{}
+	handler := newAdminHandler(admin.NewService(store))
+
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/admin/usage-logs?organizationID=org_1&userID=user_1&apiTokenID=tok_1&channelID=ch_1&provider=openai&status=success&model=gpt-4o&featureType=workspace_chat&quotaMode=relay_billing&limit=250&offset=-1", nil)
+	recorder := httptest.NewRecorder()
+
+	handler.listUsageLogs(recorder, request)
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected usage logs 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if store.usageLogFilter.Limit != 100 || store.usageLogFilter.Offset != 0 {
+		t.Fatalf("expected clamped usage log pagination, got limit=%d offset=%d", store.usageLogFilter.Limit, store.usageLogFilter.Offset)
+	}
+	if store.usageLogFilter.OrganizationID != "org_1" || store.usageLogFilter.UserID != "user_1" || store.usageLogFilter.APITokenID != "tok_1" {
+		t.Fatalf("expected identity filters to be passed, got %#v", store.usageLogFilter)
+	}
+	if store.usageLogFilter.FeatureType != "workspace_chat" || store.usageLogFilter.QuotaMode != "relay_billing" {
+		t.Fatalf("expected usage classification filters to be passed, got %#v", store.usageLogFilter)
+	}
+	if !strings.Contains(recorder.Body.String(), `"usageLogs"`) ||
+		!strings.Contains(recorder.Body.String(), `"requestId":"req_1"`) ||
+		!strings.Contains(recorder.Body.String(), `"featureType":"workspace_chat"`) ||
+		!strings.Contains(recorder.Body.String(), `"quotaMode":"relay_billing"`) {
+		t.Fatalf("expected usage logs response payload, got %s", recorder.Body.String())
+	}
+}
+
+func TestAdminHandlerGetsUsageAnalyticsWithFilters(t *testing.T) {
+	store := &fakeAdminStore{}
+	handler := newAdminHandler(admin.NewService(store))
+
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/admin/usage-analytics?organizationID=org_1&userID=user_1&apiType=chat&model=gpt-4o&channelID=ch_1&provider=openai&status=success&granularity=minute&from=2026-06-01T00:00:00Z&to=2026-06-04T00:00:00Z&limit=250", nil)
+	recorder := httptest.NewRecorder()
+
+	handler.getUsageAnalytics(recorder, request)
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected usage analytics 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if store.usageAnalyticsFilter.OrganizationID != "org_1" || store.usageAnalyticsFilter.UserID != "user_1" {
+		t.Fatalf("expected identity filters to be passed, got %#v", store.usageAnalyticsFilter)
+	}
+	if store.usageAnalyticsFilter.APIType != "chat" || store.usageAnalyticsFilter.Model != "gpt-4o" || store.usageAnalyticsFilter.ChannelID != "ch_1" ||
+		store.usageAnalyticsFilter.Provider != "openai" || store.usageAnalyticsFilter.Status != "success" {
+		t.Fatalf("expected gateway analytics filters to be passed, got %#v", store.usageAnalyticsFilter)
+	}
+	if store.usageAnalyticsFilter.Limit != 100 {
+		t.Fatalf("expected clamped usage analytics limit, got %d", store.usageAnalyticsFilter.Limit)
+	}
+	if store.usageAnalyticsFilter.Granularity != "minute" {
+		t.Fatalf("expected usage analytics granularity to be passed, got %q", store.usageAnalyticsFilter.Granularity)
+	}
+	if !store.usageAnalyticsFilter.From.Equal(time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)) ||
+		!store.usageAnalyticsFilter.To.Equal(time.Date(2026, 6, 4, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("expected parsed time filters, got from=%s to=%s", store.usageAnalyticsFilter.From, store.usageAnalyticsFilter.To)
+	}
+	if !strings.Contains(recorder.Body.String(), `"byModel"`) ||
+		!strings.Contains(recorder.Body.String(), `"byFeature"`) ||
+		!strings.Contains(recorder.Body.String(), `"byUser"`) ||
+		!strings.Contains(recorder.Body.String(), `"byTime"`) ||
+		!strings.Contains(recorder.Body.String(), `"crossDimensions"`) {
+		t.Fatalf("expected four analytics dimensions, got %s", recorder.Body.String())
+	}
+}
+
+func TestAdminHandlerListsAndRevokesAPITokens(t *testing.T) {
+	store := &fakeAdminStore{}
+	handler := newAdminHandler(admin.NewService(store))
+
+	listRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/admin/api-tokens?organizationID=org_1&userID=user_1&status=active&userGroup=vip&search=Production&model=gpt-4o&limit=250&offset=-1", nil)
+	listRecorder := httptest.NewRecorder()
+
+	handler.listAPITokens(listRecorder, listRequest)
+
+	if listRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected api tokens 200, got %d: %s", listRecorder.Code, listRecorder.Body.String())
+	}
+	if store.apiTokenFilter.Limit != 100 || store.apiTokenFilter.Offset != 0 {
+		t.Fatalf("expected clamped api token pagination, got limit=%d offset=%d", store.apiTokenFilter.Limit, store.apiTokenFilter.Offset)
+	}
+	if store.apiTokenFilter.OrganizationID != "org_1" || store.apiTokenFilter.UserID != "user_1" || store.apiTokenFilter.Status != "active" || store.apiTokenFilter.UserGroup != "vip" {
+		t.Fatalf("expected identity/status filters to be passed, got %#v", store.apiTokenFilter)
+	}
+	if store.apiTokenFilter.Search != "Production" || store.apiTokenFilter.Model != "gpt-4o" {
+		t.Fatalf("expected search/model filters to be passed, got %#v", store.apiTokenFilter)
+	}
+	if !strings.Contains(listRecorder.Body.String(), `"apiTokens"`) ||
+		!strings.Contains(listRecorder.Body.String(), `"tokenPrefix":"sk-oblv"`) ||
+		!strings.Contains(listRecorder.Body.String(), `"userEmail":"user@example.com"`) ||
+		!strings.Contains(listRecorder.Body.String(), `"userGroup":"vip"`) ||
+		!strings.Contains(listRecorder.Body.String(), `"requestCount":12`) ||
+		!strings.Contains(listRecorder.Body.String(), `"totalCost":1.23`) {
+		t.Fatalf("expected api token operational fields in response, got %s", listRecorder.Body.String())
+	}
+
+	revokeRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/admin/api-tokens/tok_1/revoke", nil).
+		WithContext(context.WithValue(context.Background(), sessionContextKey, testAdminSession()))
+	revokeRecorder := httptest.NewRecorder()
+
+	handler.revokeAPIToken(revokeRecorder, revokeRequest, "tok_1")
+
+	if revokeRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected revoke 200, got %d: %s", revokeRecorder.Code, revokeRecorder.Body.String())
+	}
+	if store.revokedAPITokenID != "tok_1" {
+		t.Fatalf("expected token tok_1 to be revoked, got %q", store.revokedAPITokenID)
+	}
+	if !strings.Contains(revokeRecorder.Body.String(), `"status":"revoked"`) {
+		t.Fatalf("expected revoke response status, got %s", revokeRecorder.Body.String())
+	}
+}
+
+func TestAdminHandlerListsModelInventoryWithFilters(t *testing.T) {
+	store := &fakeAdminStore{}
+	handler := newAdminHandler(admin.NewService(store))
+
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/admin/models?provider=openai&group=vip&status=enabled&search=gpt&sort=requestCount:desc&limit=250&offset=-1", nil)
+	recorder := httptest.NewRecorder()
+
+	handler.listModelInventory(recorder, request)
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected model inventory 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if store.modelInventoryFilter.Limit != 100 || store.modelInventoryFilter.Offset != 0 {
+		t.Fatalf("expected clamped model inventory pagination, got limit=%d offset=%d", store.modelInventoryFilter.Limit, store.modelInventoryFilter.Offset)
+	}
+	if store.modelInventoryFilter.Provider != "openai" || store.modelInventoryFilter.Group != "vip" || store.modelInventoryFilter.Status != "enabled" || store.modelInventoryFilter.Search != "gpt" {
+		t.Fatalf("expected model inventory filters to be passed, got %#v", store.modelInventoryFilter)
+	}
+	if store.modelInventoryFilter.Sort != "requests:desc" {
+		t.Fatalf("expected model inventory sort to be normalized and passed, got %q", store.modelInventoryFilter.Sort)
+	}
+	if !strings.Contains(recorder.Body.String(), `"models"`) ||
+		!strings.Contains(recorder.Body.String(), `"model":"gpt-4o"`) ||
+		!strings.Contains(recorder.Body.String(), `"providers":["openai"]`) ||
+		!strings.Contains(recorder.Body.String(), `"channelCount":1`) ||
+		!strings.Contains(recorder.Body.String(), `"totalCost":1.23`) {
+		t.Fatalf("expected model inventory operational fields, got %s", recorder.Body.String())
 	}
 }
 
@@ -246,6 +669,128 @@ func TestMarketplaceHandlerPublicBrowseAndSessionGuards(t *testing.T) {
 	}
 }
 
+func TestMarketplaceHandlerRejectsUnconfiguredPaidInstallProviderBeforeSettlement(t *testing.T) {
+	store := &fakeMarketplaceStore{
+		agent: &marketplace.PublishedAgent{
+			ID:             "agent_paid",
+			OrganizationID: "org_publisher",
+			OwnerID:        "publisher_1",
+			Name:           "Paid Agent",
+			Status:         "approved",
+			Visibility:     "public",
+			PricingType:    "one_time",
+			PricingAmount:  25,
+		},
+	}
+	settlement := &fakeMarketplaceSettlementService{}
+	checkoutCreator := &fakeCheckoutCreator{}
+	handler := newMarketplaceHandler(
+		marketplace.NewService(store, nil),
+		nil,
+		withMarketplaceCheckout(settlement, checkoutCreator, stripebilling.CheckoutConfig{}, nil, nil),
+	)
+	session := testAdminSession()
+	session.OrganizationID = "org_buyer"
+
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/marketplace/agents/agent_paid/install?versionID=ver_1&provider=alipay", nil).
+		WithContext(context.WithValue(context.Background(), sessionContextKey, session))
+	recorder := httptest.NewRecorder()
+
+	handler.installAgent(recorder, request, "agent_paid")
+
+	if recorder.Code != stdhttp.StatusNotImplemented {
+		t.Fatalf("expected unconfigured paid install provider to return 501, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var response Envelope
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Error == nil || response.Error.Code != payment.CodeProviderNotConfigured {
+		t.Fatalf("expected provider_not_configured response, got %+v", response.Error)
+	}
+	if settlement.createCalls != 0 {
+		t.Fatalf("settlement must not be called before provider is configured, got %d calls", settlement.createCalls)
+	}
+	if checkoutCreator.request.PaymentIntentID != "" {
+		t.Fatalf("checkout creator must not be called for unconfigured provider, got %+v", checkoutCreator.request)
+	}
+}
+
+func TestMarketplaceHandlerUsesConfiguredPaidInstallProviderCheckoutCreator(t *testing.T) {
+	store := &fakeMarketplaceStore{
+		agent: &marketplace.PublishedAgent{
+			ID:             "agent_paid",
+			OrganizationID: "org_publisher",
+			OwnerID:        "publisher_1",
+			Name:           "Paid Agent",
+			Status:         "approved",
+			Visibility:     "public",
+			PricingType:    "one_time",
+			PricingAmount:  25,
+		},
+	}
+	settlement := &fakeMarketplaceSettlementService{
+		order: &marketplace.MarketplaceOrder{
+			ID:                      "order_alipay",
+			BuyerOrganizationID:     "org_buyer",
+			BuyerUserID:             "user_admin",
+			PublisherOrganizationID: "org_publisher",
+			PublisherUserID:         "publisher_1",
+			AgentID:                 "agent_paid",
+			VersionID:               "ver_1",
+			PaymentIntentID:         "pi_alipay",
+			GrossAmount:             25,
+			Currency:                "usd",
+		},
+	}
+	stripeCreator := &fakeCheckoutCreator{}
+	alipayCreator := &fakeCheckoutCreator{
+		sessionID:  "alipay_marketplace_session",
+		sessionURL: "https://checkout.alipay.test/marketplace/alipay_marketplace_session",
+	}
+	providerRegistry := payment.NewRegistry("stripe")
+	providerRegistry.Register(payment.Provider{Name: "stripe", Configured: true})
+	providerRegistry.Register(payment.Provider{Name: "alipay", Configured: true})
+	handler := newMarketplaceHandler(
+		marketplace.NewService(store, nil),
+		nil,
+		withMarketplaceCheckout(
+			settlement,
+			stripeCreator,
+			stripebilling.CheckoutConfig{},
+			providerRegistry,
+			map[string]stripebilling.CheckoutCreator{"alipay": alipayCreator},
+		),
+	)
+	session := testAdminSession()
+	session.OrganizationID = "org_buyer"
+
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/marketplace/agents/agent_paid/install?versionID=ver_1&provider=alipay", nil).
+		WithContext(context.WithValue(context.Background(), sessionContextKey, session))
+	recorder := httptest.NewRecorder()
+
+	handler.installAgent(recorder, request, "agent_paid")
+
+	if recorder.Code != stdhttp.StatusCreated {
+		t.Fatalf("expected configured paid install provider to return 201, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if settlement.createCalls != 1 {
+		t.Fatalf("expected one settlement checkout call, got %d", settlement.createCalls)
+	}
+	if settlement.request.Provider != "alipay" {
+		t.Fatalf("expected settlement provider alipay, got %q", settlement.request.Provider)
+	}
+	if stripeCreator.request.PaymentIntentID != "" {
+		t.Fatalf("stripe checkout creator must not be called for alipay, got %+v", stripeCreator.request)
+	}
+	if alipayCreator.request.PaymentIntentID != "pi_alipay" || alipayCreator.request.CheckoutKind != "marketplace_install" || alipayCreator.request.AgentID != "agent_paid" {
+		t.Fatalf("alipay checkout creator saw wrong marketplace request: %+v", alipayCreator.request)
+	}
+	if settlement.sessionID != "alipay_marketplace_session" || settlement.sessionPaymentIntentID != "pi_alipay" {
+		t.Fatalf("expected alipay checkout session to be recorded, got session=%q intent=%q", settlement.sessionID, settlement.sessionPaymentIntentID)
+	}
+}
+
 func TestMarketplaceGovernanceTakedownAppealAndReinstate(t *testing.T) {
 	database := testDatabase(t)
 	router := NewRouter(testConfig(), database)
@@ -392,6 +937,81 @@ func TestMarketplaceAbuseReportLifecycle(t *testing.T) {
 	}
 }
 
+func TestAdminMarketplaceListsOpenAbuseReports(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+
+	adminCookie, _, adminUserID := registerHTTPUser(t, router, "marketplace-abuse-list-admin@example.com")
+	if _, err := database.Exec(`UPDATE users SET role = 'admin' WHERE id = $1`, adminUserID); err != nil {
+		t.Fatalf("mark admin user: %v", err)
+	}
+	reporterCookie, reporterCSRF, reporterUserID := registerHTTPUser(t, router, "marketplace-abuse-list-reporter@example.com")
+	_, _, publisherUserID := registerHTTPUser(t, router, "marketplace-abuse-list-publisher@example.com")
+	_, publisherOrganizationID := queryHTTPUserScope(t, database, publisherUserID)
+
+	insertHTTPMarketplaceAgent(t, database, "agent_abuse_list_http", publisherUserID, publisherOrganizationID, "free", 0)
+
+	createReport := func(reason, details string) string {
+		t.Helper()
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/marketplace/agents/agent_abuse_list_http/abuse-reports", strings.NewReader(`{"reason":"`+reason+`","details":"`+details+`"}`))
+		request.Header.Set("Content-Type", "application/json")
+		request.AddCookie(reporterCookie)
+		addCSRF(request, reporterCSRF)
+		router.ServeHTTP(recorder, request)
+		if recorder.Code != stdhttp.StatusCreated {
+			t.Fatalf("create abuse report expected 201, got %d: %s", recorder.Code, recorder.Body.String())
+		}
+		var response struct {
+			Data struct {
+				ID string `json:"id"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+			t.Fatalf("decode created report: %v", err)
+		}
+		return response.Data.ID
+	}
+
+	oldReportID := createReport("spam", "old report")
+	if _, err := database.Exec(`UPDATE marketplace_abuse_reports SET created_at = NOW() - INTERVAL '2 hours', updated_at = NOW() - INTERVAL '2 hours' WHERE id = $1`, oldReportID); err != nil {
+		t.Fatalf("age old report: %v", err)
+	}
+	resolvedReportID := createReport("phishing", "resolved report")
+	if _, err := database.Exec(`UPDATE marketplace_abuse_reports SET status = 'resolved', resolution = 'handled', reviewer_user_id = $2, updated_at = NOW(), resolved_at = NOW() WHERE id = $1`, resolvedReportID, adminUserID); err != nil {
+		t.Fatalf("resolve report directly: %v", err)
+	}
+	newReportID := createReport("malware", "new report")
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/admin/marketplace/abuse-reports?status=open&limit=1&offset=1", nil)
+	request.AddCookie(adminCookie)
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("list abuse reports expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+
+	var response struct {
+		Data struct {
+			Reports []marketplace.AbuseReport `json:"reports"`
+			Total   int                       `json:"total"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+	if response.Data.Total != 1 || len(response.Data.Reports) != 1 {
+		t.Fatalf("expected one paginated open report, got total=%d reports=%d", response.Data.Total, len(response.Data.Reports))
+	}
+	report := response.Data.Reports[0]
+	if report.ID != oldReportID || report.AgentID != "agent_abuse_list_http" || report.ReporterUserID != reporterUserID || report.Reason != "spam" || report.Details != "old report" || report.Status != "open" {
+		t.Fatalf("expected old open report with public triage fields, got %+v; newest was %s", report, newReportID)
+	}
+	if report.CreatedAt.IsZero() || report.UpdatedAt.IsZero() {
+		t.Fatalf("expected createdAt and updatedAt to be populated, got %+v", report)
+	}
+}
+
 func TestMarketplacePublisherStatsIncludesSettlementAmounts(t *testing.T) {
 	database := testDatabase(t)
 	router := NewRouter(testConfig(), database)
@@ -497,6 +1117,18 @@ func addSignedSessionCookie(t *testing.T, middleware authMiddleware, request *st
 	request.AddCookie(cookies[0])
 }
 
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func testAdminSession() auth.Session {
 	return auth.Session{
 		ID: "session_admin",
@@ -512,10 +1144,23 @@ func testAdminSession() auth.Session {
 }
 
 type fakeAdminStore struct {
-	channelFilter   admin.ChannelFilter
-	batchAction     string
-	routeUpdate     admin.RouteUpdateRequest
-	approvedAgentID string
+	channelFilter        admin.ChannelFilter
+	usageLogFilter       admin.UsageLogFilter
+	usageAnalyticsFilter admin.UsageAnalyticsFilter
+	apiTokenFilter       admin.APITokenFilter
+	modelInventoryFilter admin.ModelInventoryFilter
+	pendingReviews       []*marketplace.PublishedAgent
+	batchAction          string
+	routeUpdate          admin.RouteUpdateRequest
+	approvedAgentID      string
+	needsChangesAgentID  string
+	needsChangesReason   string
+	revokedAPITokenID    string
+	relayPricingSettings admin.RelayPricingSettings
+	channelTestResult    *admin.ChannelTestResult
+	currentChannelModels []string
+	updatedChannelModels []string
+	channelDiagnostics   *admin.ChannelDiagnosticsUpdate
 }
 
 func (s *fakeAdminStore) GetSystemStats(ctx context.Context) (*admin.SystemStats, error) {
@@ -531,6 +1176,9 @@ func (s *fakeAdminStore) DeleteUser(ctx context.Context, userID string) error {
 }
 
 func (s *fakeAdminStore) ListPendingReviews(ctx context.Context) ([]*marketplace.PublishedAgent, error) {
+	if s.pendingReviews != nil {
+		return s.pendingReviews, nil
+	}
 	return []*marketplace.PublishedAgent{{ID: "agent_1", Name: "Review me", Status: "pending_review"}}, nil
 }
 
@@ -543,13 +1191,51 @@ func (s *fakeAdminStore) RejectAgent(ctx context.Context, id string, reason stri
 	return nil
 }
 
+func (s *fakeAdminStore) RequestAgentChanges(ctx context.Context, id string, reason string) error {
+	s.needsChangesAgentID = id
+	s.needsChangesReason = reason
+	return nil
+}
+
+func (s *fakeAdminStore) GetRelayPricingSettings(ctx context.Context) (*admin.RelayPricingSettings, error) {
+	settings := s.relayPricingSettings
+	if settings.ModelMultipliers == nil {
+		settings.ModelMultipliers = map[string]float64{}
+	}
+	if settings.GroupMultipliers == nil {
+		settings.GroupMultipliers = map[string]float64{}
+	}
+	return &settings, nil
+}
+
+func (s *fakeAdminStore) UpdateRelayPricingSettings(ctx context.Context, settings admin.RelayPricingSettings) (*admin.RelayPricingSettings, error) {
+	s.relayPricingSettings = settings
+	return &settings, nil
+}
+
+type fakeAdminQuotaSettingsService struct {
+	settings           []quota.UsageLimitSettings
+	listOrganizationID string
+	saved              quota.UsageLimitSettings
+}
+
+func (s *fakeAdminQuotaSettingsService) ListUsageLimitSettings(ctx context.Context, organizationID string) ([]quota.UsageLimitSettings, error) {
+	s.listOrganizationID = organizationID
+	return s.settings, nil
+}
+
+func (s *fakeAdminQuotaSettingsService) SaveUsageLimitSettings(ctx context.Context, settings quota.UsageLimitSettings) (*quota.UsageLimitSettings, error) {
+	s.saved = settings
+	return &settings, nil
+}
+
 func (s *fakeAdminStore) ListChannels(ctx context.Context, filter admin.ChannelFilter) ([]*admin.ChannelInfo, error) {
 	s.channelFilter = filter
 	return []*admin.ChannelInfo{{ID: "ch_1", Name: "OpenAI", Provider: "openai"}}, nil
 }
 
 func (s *fakeAdminStore) GetChannel(ctx context.Context, id string) (*admin.ChannelInfo, error) {
-	return &admin.ChannelInfo{ID: id, Name: "OpenAI", Provider: "openai"}, nil
+	return &admin.ChannelInfo{ID: id, Name: "OpenAI", Provider: "openai", Models: append([]string{}, s.currentChannelModels...)}, nil
 }
 
 func (s *fakeAdminStore) CreateChannel(ctx context.Context, input admin.ChannelCreateRequest) (*admin.ChannelInfo, error) {
@@ -557,7 +1243,24 @@ func (s *fakeAdminStore) CreateChannel(ctx context.Context, input admin.ChannelC
 }
 
 func (s *fakeAdminStore) UpdateChannel(ctx context.Context, id string, input admin.ChannelUpdateRequest) (*admin.ChannelInfo, error) {
-	return &admin.ChannelInfo{ID: id, Name: "OpenAI", Provider: "openai"}, nil
+	if input.Models != nil {
+		s.updatedChannelModels = append([]string{}, (*input.Models)...)
+	}
+	return &admin.ChannelInfo{ID: id, Name: "OpenAI", Provider: "openai", Models: append([]string{}, s.updatedChannelModels...)}, nil
+}
+
+func (s *fakeAdminStore) UpdateChannelDiagnostics(ctx context.Context, id string, input admin.ChannelDiagnosticsUpdate) (*admin.ChannelHealth, error) {
+	s.channelDiagnostics = &input
+	return &admin.ChannelHealth{
+		ID:           id,
+		Status:       input.Status,
+		Latency:      input.Latency,
+		Balance:      input.Balance,
+		BalanceError: input.BalanceError,
+		Health:       input.Health,
+		Error:        input.Error,
+		CheckedAt:    input.CheckedAt,
+	}, nil
 }
 
 func (s *fakeAdminStore) DeleteChannel(ctx context.Context, id string) error {
@@ -565,12 +1268,23 @@ func (s *fakeAdminStore) DeleteChannel(ctx context.Context, id string) error {
 }
 
 func (s *fakeAdminStore) TestChannel(ctx context.Context, id string) (*admin.ChannelTestResult, error) {
+	if s.channelTestResult != nil {
+		return s.channelTestResult, nil
+	}
 	return &admin.ChannelTestResult{Success: true, Latency: 12}, nil
 }
 
 func (s *fakeAdminStore) BatchUpdateChannels(ctx context.Context, ids []string, action string) error {
 	s.batchAction = action
 	return nil
+}
+
+type fakeRuntimeStatsProvider struct {
+	stats map[string]*relaytypes.ChannelStats
+}
+
+func (p fakeRuntimeStatsProvider) GetAllStats() map[string]*relaytypes.ChannelStats {
+	return p.stats
 }
 
 func (s *fakeAdminStore) ListRoutes(ctx context.Context) ([]*admin.RouteInfo, error) {
@@ -650,11 +1364,174 @@ func (s *fakeAdminStore) ListAuditEntries(ctx context.Context, filter admin.Audi
 	return []*admin.AuditEntry{{ID: "aud_1", Action: "channel.create"}}, 1, nil
 }
 
+func (s *fakeAdminStore) ListUsageLogs(ctx context.Context, filter admin.UsageLogFilter) ([]*admin.UsageLogEntry, int, error) {
+	s.usageLogFilter = filter
+	return []*admin.UsageLogEntry{{
+		ID:               "usage_1",
+		OrganizationID:   "org_1",
+		UserID:           "user_1",
+		APITokenID:       "tok_1",
+		RequestID:        "req_1",
+		APIType:          "chat",
+		FeatureType:      "workspace_chat",
+		QuotaMode:        "relay_billing",
+		Model:            "gpt-4o",
+		ChannelID:        "ch_1",
+		Provider:         "openai",
+		Status:           "success",
+		StatusCode:       200,
+		LatencyMS:        42,
+		Cost:             0.42,
+		ChannelCost:      0.21,
+		PromptTokens:     100,
+		CompletionTokens: 20,
+		TotalTokens:      120,
+		CreatedAt:        time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC),
+	}}, 1, nil
+}
+
+func (s *fakeAdminStore) GetUsageAnalytics(ctx context.Context, filter admin.UsageAnalyticsFilter) (admin.UsageAnalytics, error) {
+	s.usageAnalyticsFilter = filter
+	return admin.UsageAnalytics{
+		ByModel: []admin.UsageAnalyticsBucket{{
+			Dimension:    "model",
+			Key:          "gpt-4o",
+			RequestCount: 3,
+			TotalTokens:  1200,
+			TotalCost:    0.42,
+		}},
+		ByFeature: []admin.UsageAnalyticsBucket{{
+			Dimension:    "feature",
+			Key:          "chat",
+			RequestCount: 3,
+			TotalTokens:  1200,
+			TotalCost:    0.42,
+		}},
+		ByUser: []admin.UsageAnalyticsBucket{{
+			Dimension:    "user",
+			Key:          "user_1",
+			RequestCount: 3,
+			TotalTokens:  1200,
+			TotalCost:    0.42,
+		}},
+		ByTime: []admin.UsageAnalyticsBucket{{
+			Dimension:    "time",
+			Key:          "2026-06-01",
+			RequestCount: 3,
+			TotalTokens:  1200,
+			TotalCost:    0.42,
+			StartedAt:    time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		}},
+		CrossDimensions: []admin.UsageAnalyticsBucket{{
+			Dimension:    "model_time",
+			Key:          "gpt-4o|2026-06-01",
+			Primary:      "gpt-4o",
+			Secondary:    "2026-06-01",
+			RequestCount: 3,
+			TotalTokens:  1200,
+			TotalCost:    0.42,
+			StartedAt:    time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		}},
+	}, nil
+}
+
+func (s *fakeAdminStore) ListAPITokens(ctx context.Context, filter admin.APITokenFilter) ([]*admin.APITokenEntry, int, error) {
+	s.apiTokenFilter = filter
+	quotaLimit := 50.0
+	return []*admin.APITokenEntry{{
+		ID:                 "tok_1",
+		OrganizationID:     "org_1",
+		UserID:             "user_1",
+		UserEmail:          "user@example.com",
+		Name:               "Production key",
+		TokenPrefix:        "sk-oblv",
+		Status:             "active",
+		UserGroup:          "vip",
+		ModelLimitsEnabled: true,
+		ModelLimits:        []string{"gpt-4o"},
+		QuotaLimit:         &quotaLimit,
+		UsedQuota:          12.5,
+		RequestCount:       12,
+		TotalCost:          1.23,
+		CreatedAt:          time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC),
+	}}, 1, nil
+}
+
+func (s *fakeAdminStore) RevokeAPIToken(ctx context.Context, tokenID string) error {
+	s.revokedAPITokenID = tokenID
+	return nil
+}
+
+func (s *fakeAdminStore) ListModelInventory(ctx context.Context, filter admin.ModelInventoryFilter) ([]*admin.ModelInventoryEntry, int, error) {
+	s.modelInventoryFilter = filter
+	return []*admin.ModelInventoryEntry{{
+		Model:                 "gpt-4o",
+		Providers:             []string{"openai"},
+		Groups:                []string{"default", "vip"},
+		ChannelCount:          1,
+		EnabledChannelCount:   1,
+		DisabledChannelCount:  0,
+		MinEstimatedCostPer1K: 0.02,
+		MaxEstimatedCostPer1K: 0.02,
+		AvgCostMultiplier:     1.1,
+		RequestCount:          30,
+		TotalCost:             1.23,
+		TotalChannelCost:      0.61,
+		Channels: []admin.ModelInventoryChannel{{
+			ID:                 "ch_1",
+			Name:               "OpenAI primary",
+			Provider:           "openai",
+			Groups:             []string{"default", "vip"},
+			Enabled:            true,
+			Priority:           10,
+			EstimatedCostPer1K: 0.02,
+			CostMultiplier:     1.1,
+		}},
+	}}, 1, nil
+}
+
 type fakeMarketplaceStore struct {
 	installedAgentID   string
 	installedOrgID     string
 	installedUserID    string
 	installedVersionID string
+	agent              *marketplace.PublishedAgent
+}
+
+type fakeMarketplaceSettlementService struct {
+	order                  *marketplace.MarketplaceOrder
+	request                marketplace.PaidInstallCheckoutRequest
+	sessionID              string
+	sessionPaymentIntentID string
+	createCalls            int
+	setSessionCalls        int
+}
+
+func (s *fakeMarketplaceSettlementService) CreatePaidInstallCheckout(ctx context.Context, input marketplace.PaidInstallCheckoutRequest) (*marketplace.MarketplaceOrder, error) {
+	s.createCalls++
+	s.request = input
+	if s.order != nil {
+		return s.order, nil
+	}
+	return &marketplace.MarketplaceOrder{
+		ID:                      "order_1",
+		BuyerOrganizationID:     input.BuyerOrganizationID,
+		BuyerUserID:             input.BuyerUserID,
+		PublisherOrganizationID: "org_publisher",
+		PublisherUserID:         "publisher_1",
+		AgentID:                 input.AgentID,
+		VersionID:               input.VersionID,
+		PaymentIntentID:         "pi_marketplace",
+		GrossAmount:             25,
+		Currency:                "usd",
+	}, nil
+}
+
+func (s *fakeMarketplaceSettlementService) SetPaidInstallCheckoutSession(ctx context.Context, orderID, paymentIntentID, providerCheckoutSessionID string) error {
+	s.setSessionCalls++
+	s.sessionID = providerCheckoutSessionID
+	s.sessionPaymentIntentID = paymentIntentID
+	return nil
 }
 
 func (s *fakeMarketplaceStore) CreateAgent(ctx context.Context, ownerID, organizationID string, input marketplace.AgentPublishRequest) (*marketplace.PublishedAgent, error) {
@@ -662,6 +1539,13 @@ func (s *fakeMarketplaceStore) CreateAgent(ctx context.Context, ownerID, organiz
 }
 
 func (s *fakeMarketplaceStore) GetAgent(ctx context.Context, id string) (*marketplace.PublishedAgent, error) {
+	if s.agent != nil {
+		agent := *s.agent
+		if agent.ID == "" {
+			agent.ID = id
+		}
+		return &agent, nil
+	}
 	return &marketplace.PublishedAgent{ID: id, OrganizationID: "org_1", OwnerID: "owner_1", Name: "Agent", Status: "approved", Visibility: "public"}, nil
 }
 
@@ -721,6 +1605,10 @@ func (s *fakeMarketplaceStore) IsInstalled(ctx context.Context, agentID, userID,
 	return true, nil
 }
 
+func (s *fakeMarketplaceStore) RecordAgentRankingSignal(ctx context.Context, agentID string, event marketplace.AgentRankingSignalEvent) error {
+	return nil
+}
+
 func (s *fakeMarketplaceStore) CreateReview(ctx context.Context, userID, organizationID string, input marketplace.ReviewInput) (*marketplace.AgentReview, error) {
 	return &marketplace.AgentReview{ID: "review_1", AgentID: input.AgentID, OrganizationID: organizationID, UserID: userID, Rating: input.Rating}, nil
 }
@@ -743,6 +1631,31 @@ func (s *fakeMarketplaceStore) ListCategories(ctx context.Context) ([]*marketpla
 
 func (s *fakeMarketplaceStore) GetCategoryBySlug(ctx context.Context, slug string) (*marketplace.Category, error) {
 	return &marketplace.Category{ID: "cat_1", Name: "Productivity", Slug: slug}, nil
+}
+
+func (s *fakeMarketplaceStore) CreateTemplate(ctx context.Context, organizationID string, input marketplace.TemplateCreateRequest) (*marketplace.MarketplaceTemplate, error) {
+	return &marketplace.MarketplaceTemplate{ID: "tpl_1", OrganizationID: organizationID, Type: input.Type, Name: input.Name, TemplateData: input.TemplateData, Tags: input.Tags}, nil
+}
+
+func (s *fakeMarketplaceStore) ListTemplates(ctx context.Context, filter marketplace.TemplateFilter) ([]*marketplace.MarketplaceTemplate, int, error) {
+	templates := []*marketplace.MarketplaceTemplate{{ID: "tpl_1", Type: "workflow", Name: "Lead Intake", TemplateData: []byte(`{"nodes":[]}`)}}
+	return templates, len(templates), nil
+}
+
+func (s *fakeMarketplaceStore) GetTemplate(ctx context.Context, id string) (*marketplace.MarketplaceTemplate, error) {
+	return &marketplace.MarketplaceTemplate{ID: id, Type: "workflow", Name: "Lead Intake", TemplateData: []byte(`{"nodes":[]}`)}, nil
+}
+
+func (s *fakeMarketplaceStore) InstallTemplate(ctx context.Context, templateID, userID, organizationID string) (*marketplace.TemplateInstall, error) {
+	return &marketplace.TemplateInstall{ID: "tpl_install_1", TemplateID: templateID, UserID: userID, OrganizationID: organizationID, Type: "workflow", Name: "Lead Intake", TemplateData: []byte(`{"nodes":[]}`)}, nil
+}
+
+func (s *fakeMarketplaceStore) GetPublisherSettlementPreferences(ctx context.Context, organizationID string) (*marketplace.MarketplaceSettlementPreferences, error) {
+	return &marketplace.MarketplaceSettlementPreferences{Cycle: "monthly"}, nil
+}
+
+func (s *fakeMarketplaceStore) UpdatePublisherSettlementPreferences(ctx context.Context, organizationID string, cycle string) (*marketplace.MarketplaceSettlementPreferences, error) {
+	return &marketplace.MarketplaceSettlementPreferences{Cycle: cycle}, nil
 }
 
 func (s *fakeMarketplaceStore) SetAgentTags(ctx context.Context, agentID string, tags []string) error {

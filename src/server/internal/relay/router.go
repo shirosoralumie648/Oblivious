@@ -2,29 +2,42 @@ package relay
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
-	"os"
-	"sync"
+	"strings"
 	"time"
 
 	"oblivious/server/internal/metrics"
-	"oblivious/server/internal/observability"
+	relaycache "oblivious/server/internal/relay/cache"
+	"oblivious/server/internal/relay/ratelimit"
 	"oblivious/server/internal/relay/types"
 )
 
-type Router struct {
-	pool             *ChannelPool
-	loadBalancer     *LoadBalancer
-	circuitBreakers  map[string]*CircuitBreaker
-	tokenBucket      *TokenBucket
-	healthChecker    *HealthChecker
-	billingHook      *BillingHook
-	billingRedisAddr string
+const maxRouteBillingAttempts = 4
+
+type ConversationAffinityStore interface {
+	SaveConversationAffinity(ctx context.Context, conversationID, channelID string) error
+	GetConversationAffinity(ctx context.Context, conversationID string) (string, error)
 }
 
-var relayObservabilityLogger = observability.NewJSONLogger(os.Stdout)
-var relayObservabilityLoggerMu sync.RWMutex
+type Router struct {
+	pool                 *ChannelPool
+	loadBalancer         *LoadBalancer
+	circuitBreakers      map[string]*CircuitBreaker
+	tokenBucket          *TokenBucket
+	healthChecker        *HealthChecker
+	billingHook          *BillingHook
+	billingRedisAddr     string
+	rateLimiter          ratelimit.RateLimiter
+	rateLimitResolver    RateLimitResolver
+	affinityStore        ConversationAffinityStore
+	semanticCache        *relaycache.SemanticCache
+	quotaManager         QuotaManager
+	apiTokenQuotaManager APITokenQuotaManager
+	usageLogger          UsageLogger
+}
 
 func NewRouter(
 	pool *ChannelPool,
@@ -63,7 +76,7 @@ func NewRouterWithBilling(
 }
 
 func (r *Router) SelectChannel(ctx context.Context, apiType string) *types.RouteChannel {
-	// Check rate limit first
+	_ = ctx
 	if r.tokenBucket != nil {
 		ok, _ := r.tokenBucket.TryAcquire("rpm")
 		if !ok {
@@ -71,88 +84,73 @@ func (r *Router) SelectChannel(ctx context.Context, apiType string) *types.Route
 		}
 	}
 
-	// Select via load balancer
 	ch := r.loadBalancer.Select(apiType)
 	if ch == nil {
 		return nil
 	}
 
-	// Check circuit breaker
-	if cb, ok := r.circuitBreakers[ch.Channel.ID]; ok {
-		if cb.State() == StateOpen {
-			return nil
-		}
+	if cb, ok := r.circuitBreakers[ch.Channel.ID]; ok && cb.State() == StateOpen {
+		return nil
 	}
 
 	return ch
 }
 
-func (r *Router) Route(ctx context.Context, apiType string, fn func(ch *types.RouteChannel) (*types.ProviderResponse, error)) (*types.ProviderResponse, error) {
-	ctx, span := observability.StartSpan(ctx, "relay.route", observability.String("relay.api_type", apiType))
-	defer span.End()
+func (r *Router) selectChannelForBilling(ctx context.Context, apiType string, excluded map[string]bool) *types.RouteChannel {
+	conversationID, _ := types.TrustedConversationIDFromContext(ctx)
+	if conversationID != "" && r.affinityStore != nil {
+		if channelID, err := r.affinityStore.GetConversationAffinity(ctx, conversationID); err == nil && channelID != "" && !excluded[channelID] {
+			if ch := r.loadBalancer.SelectChannelByID(apiType, channelID); ch != nil {
+				if cb, ok := r.circuitBreakers[routeChannelID(ch)]; !ok || cb.State() != StateOpen {
+					return ch
+				}
+			}
+		}
+	}
 
+	ch := r.loadBalancer.SelectExcluding(apiType, excluded)
+	if ch == nil {
+		return nil
+	}
+	if cb, ok := r.circuitBreakers[routeChannelID(ch)]; ok && cb.State() == StateOpen {
+		excluded[routeChannelID(ch)] = true
+		return r.selectChannelForBilling(ctx, apiType, excluded)
+	}
+	return ch
+}
+
+func (r *Router) Route(ctx context.Context, apiType string, fn func(ch *types.RouteChannel) (*types.ProviderResponse, error)) (*types.ProviderResponse, error) {
 	ch := r.SelectChannel(ctx, apiType)
 	if ch == nil {
 		return nil, &RouterError{
 			Code:       http.StatusServiceUnavailable,
 			Message:    "no healthy channel available",
 			RetryAfter: 30,
+			ErrorCode:  "no_available_channel",
 		}
 	}
 
-	return r.executeOnChannel(ctx, ch, apiType, fn)
-}
-
-func (r *Router) executeOnChannel(ctx context.Context, ch *types.RouteChannel, apiType string, fn func(ch *types.RouteChannel) (*types.ProviderResponse, error)) (*types.ProviderResponse, error) {
-	provider := providerForRouteChannel(ch)
-	channelID := routeChannelID(ch)
-	ctx, span := observability.StartSpan(
-		ctx,
-		"relay.provider_call",
-		observability.String("provider", provider),
-		observability.String("channel_id", channelID),
-		observability.String("relay.api_type", apiType),
-	)
-	defer span.End()
-
-	startedAt := time.Now()
 	resp, err := fn(ch)
-	duration := time.Since(startedAt)
-	metrics.ObserveProviderRequestDuration(provider, channelID, apiType, duration.Seconds())
 	if err != nil {
-		if cb, ok := r.circuitBreakers[ch.Channel.ID]; ok {
-			cb.RecordFailure()
-		}
-		metrics.RecordProviderFailure(provider, channelID, apiType, "request_error")
-		logProviderFailure(ctx, provider, channelID, apiType, "request_error", duration)
+		r.recordSelectedFailure(routeChannelID(ch))
 		return nil, err
 	}
 
 	if resp != nil && resp.StatusCode >= 500 {
-		if cb, ok := r.circuitBreakers[ch.Channel.ID]; ok {
-			cb.RecordFailure()
-		}
-		metrics.RecordProviderFailure(provider, channelID, apiType, "provider_5xx")
-		logProviderFailure(ctx, provider, channelID, apiType, "provider_5xx", duration)
+		r.recordSelectedFailure(routeChannelID(ch))
 	} else if resp != nil && resp.StatusCode < 500 {
-		if cb, ok := r.circuitBreakers[ch.Channel.ID]; ok {
-			cb.RecordSuccess()
-		}
+		r.recordSelectedSuccess(routeChannelID(ch))
 	}
 
 	return resp, nil
 }
 
 func (r *Router) RecordChannelSuccess(channelID string) {
-	if cb, ok := r.circuitBreakers[channelID]; ok {
-		cb.RecordSuccess()
-	}
+	r.recordSelectedSuccess(channelID)
 }
 
 func (r *Router) RecordChannelFailure(channelID string) {
-	if cb, ok := r.circuitBreakers[channelID]; ok {
-		cb.RecordFailure()
-	}
+	r.recordSelectedFailure(channelID)
 }
 
 func (r *Router) RouteWithFallback(
@@ -162,12 +160,16 @@ func (r *Router) RouteWithFallback(
 	fn func(ch *types.RouteChannel) (*types.ProviderResponse, error),
 ) (*types.ProviderResponse, error) {
 	var lastErr error
+	var lastResp *types.ProviderResponse
 	for attempt := 1; attempt <= attempts; attempt++ {
 		resp, err := r.Route(ctx, apiType, fn)
-		if err == nil && resp != nil {
+		if err == nil && resp != nil && !IsRetryable(resp.StatusCode) {
 			return resp, nil
 		}
 		lastErr = err
+		if resp != nil {
+			lastResp = resp
+		}
 
 		if resp != nil && IsRetryable(resp.StatusCode) && attempt < attempts {
 			backoff := time.Duration(attempt*attempt) * 200 * time.Millisecond
@@ -179,10 +181,14 @@ func (r *Router) RouteWithFallback(
 	}
 
 	if lastErr == nil {
+		if lastResp != nil {
+			return lastResp, nil
+		}
 		return nil, &RouterError{
 			Code:       http.StatusServiceUnavailable,
 			Message:    "all channels failed",
 			RetryAfter: 30,
+			ErrorCode:  "no_available_channel",
 		}
 	}
 
@@ -193,6 +199,7 @@ type RouterError struct {
 	Code       int
 	Message    string
 	RetryAfter int
+	ErrorCode  string
 }
 
 func (e *RouterError) Error() string {
@@ -203,10 +210,28 @@ func (e *RouterError) RetryAfterSeconds() int {
 	return e.RetryAfter
 }
 
+func (e *RouterError) StatusCode() int {
+	return e.Code
+}
+
+func (e *RouterError) RelayErrorCode() string {
+	return e.ErrorCode
+}
+
 func (r *Router) SetQuotaManager(manager QuotaManager) {
-	if r.billingHook != nil {
-		r.billingHook.SetQuotaManager(manager)
-	}
+	r.quotaManager = manager
+}
+
+func (r *Router) SetAPITokenQuotaManager(manager APITokenQuotaManager) {
+	r.apiTokenQuotaManager = manager
+}
+
+func (r *Router) SetUsageLogger(logger UsageLogger) {
+	r.usageLogger = logger
+}
+
+func (r *Router) SetRateLimitResolver(resolver RateLimitResolver) {
+	r.rateLimitResolver = resolver
 }
 
 func (r *Router) RouteWithBilling(
@@ -218,121 +243,508 @@ func (r *Router) RouteWithBilling(
 	usage *types.Usage,
 	fn func(ch *types.RouteChannel) (*types.ProviderResponse, error),
 ) (*types.ProviderResponse, error) {
-	// Resolve trusted internal user identity for app-originated requests.
+	startedAt := time.Now()
+	requestID, _ := types.TrustedRequestIDFromContext(ctx)
 	userID, _ := types.TrustedUserIDFromContext(ctx)
 	organizationID, _ := types.TrustedOrganizationIDFromContext(ctx)
-	requestID, _ := types.TrustedRequestIDFromContext(ctx)
+	apiTokenID, _ := types.TrustedAPITokenIDFromContext(ctx)
+	conversationID, _ := types.TrustedConversationIDFromContext(ctx)
 
-	ch := r.SelectChannel(ctx, apiType.String())
-	if ch == nil {
-		return nil, &RouterError{
-			Code:       http.StatusServiceUnavailable,
-			Message:    "no healthy channel available",
-			RetryAfter: 30,
-		}
-	}
-	selectedChannelID := routeChannelID(ch)
-
-	// Create a single billing session carried through the full lifecycle:
-	// PreBill -> PostBill (on success) or Refund (on failure).
-	session := &BillingSession{
-		ChannelID:      selectedChannelID,
-		APIType:        apiType,
-		Model:          model,
-		IdempotencyKey: idempotencyKey,
-		OrganizationID: organizationID,
-		UserID:         userID,
-		RequestID:      requestID,
-	}
-	if channelID != "" {
-		session.ChannelID = channelID
-	}
-
-	// Pre-authorize billing
-	if r.billingHook != nil {
-		_, err := r.billingHook.PreBill(session, usage)
+	if cacheReq, ok := types.SemanticCacheRequestFromContext(ctx); ok && r.semanticCache != nil {
+		hit, err := r.semanticCache.Lookup(ctx, cacheReq)
 		if err != nil {
-			return nil, &RouterError{
-				Code:    http.StatusInternalServerError,
-				Message: "billing pre-authorization failed: " + err.Error(),
-			}
+			return nil, err
+		}
+		metrics.RecordRelaySemanticCacheLookup(apiType.String(), model, hit != nil)
+		if hit != nil {
+			_ = r.recordUsage(ctx, RelayUsageLogRecord{
+				UserID:         userID,
+				OrganizationID: organizationID,
+				APITokenID:     apiTokenID,
+				RequestID:      requestID,
+				APIType:        apiType.String(),
+				Model:          model,
+				Provider:       "semantic_cache",
+				Status:         RelayUsageStatusSuccess,
+				StatusCode:     http.StatusOK,
+				LatencyMS:      time.Since(startedAt).Milliseconds(),
+				CreatedAt:      time.Now().UTC(),
+			})
+			r.recordRelayRuntimeMetrics("semantic_cache", "semantic_cache", apiType, model, http.StatusOK, "hit", startedAt)
+			return types.NewOKResponse(hit.Response, nil), nil
 		}
 	}
 
-	// Route the request
-	resp, err := r.executeOnChannel(ctx, ch, apiType.String(), fn)
-
-	// Post-bill (settle) on success, or refund on failure
-	if r.billingHook != nil {
-		if err != nil {
-			if refundErr := r.refundBillingSession(session); refundErr != nil {
-				return nil, refundErr
+	excludedChannels := make(map[string]bool)
+	var lastErr error
+	var lastResp *types.ProviderResponse
+	for attempt := 1; attempt <= maxRouteBillingAttempts; attempt++ {
+		ch := r.selectChannelForBilling(ctx, apiType.String(), excludedChannels)
+		if ch == nil {
+			routeErr := &RouterError{Code: http.StatusServiceUnavailable, Message: "no healthy channel available", RetryAfter: 30, ErrorCode: "no_available_channel"}
+			_ = r.recordUsage(ctx, r.errorUsageRecord(userID, organizationID, apiTokenID, requestID, apiType, model, nil, routeErr.Code, routeErr.ErrorCode, startedAt))
+			r.recordRelayRuntimeMetrics("router", "none", apiType, model, routeErr.Code, "miss", startedAt)
+			if lastErr != nil {
+				return nil, lastErr
 			}
-			// Also enqueue a timeout-based refund as a safety net for
-			// cases where the upstream may have consumed resources
-			// despite the client-side error.
-			if r.billingRedisAddr != "" {
-				timeoutTask := &BillingTimeoutTask{
-					SessionID:      session.ID,
-					ChannelID:      session.ChannelID,
-					APIType:        apiType,
-					Model:          model,
-					AuthAmt:        session.PreAuthorizedAmt,
-					IdempotencyKey: idempotencyKey,
-					QuotaSessionID: session.QuotaSessionID,
-					UserID:         userID,
-					OrganizationID: organizationID,
+			if lastResp != nil {
+				return lastResp, nil
+			}
+			return nil, routeErr
+		}
+		selectedChannelID := routeChannelID(ch)
+		billingChannelID := channelID
+		if billingChannelID == "" {
+			billingChannelID = selectedChannelID
+		}
+
+		rateLimitChecks := rateLimitChecksForResolution(r.resolveRateLimit(ctx, ch, model, usage))
+		releaseRateLimit := func() {}
+		if r.rateLimiter != nil && len(rateLimitChecks) > 0 {
+			for _, check := range rateLimitChecks {
+				if rateLimitCheckEmpty(check) {
+					continue
 				}
-				EnqueueBillingTimeoutTask(r.billingRedisAddr, timeoutTask, 5*time.Minute)
+				if err := r.rateLimiter.Allow(ctx, check.Key, check.Limits, check.Usage); err != nil {
+					routeErr := rateLimitRouterError(err)
+					_ = r.recordUsage(ctx, r.errorUsageRecord(userID, organizationID, apiTokenID, requestID, apiType, model, ch, routeErr.Code, routeErr.ErrorCode, startedAt))
+					r.recordRelayRuntimeMetricsForChannel(ch, apiType, model, routeErr.Code, "miss", startedAt)
+					return nil, routeErr
+				}
 			}
-			return resp, err
-		}
-
-		if resp == nil {
-			return nil, r.refundBillingFailure(session, "nil provider response", http.StatusBadGateway)
-		}
-
-		if resp.StatusCode >= http.StatusBadRequest {
-			return resp, r.refundBillingFailure(session, fmt.Sprintf("provider error response status %d", resp.StatusCode), resp.StatusCode)
-		}
-
-		settlementUsage, usageErr := settlementUsageForResponse(apiType, usage, resp)
-		if usageErr != nil {
-			return resp, r.refundBillingFailure(session, usageErr.Error(), http.StatusBadGateway)
-		}
-
-		if _, err := r.billingHook.PostBill(session, settlementUsage); err != nil {
-			return resp, &RouterError{
-				Code:    http.StatusInternalServerError,
-				Message: "billing settlement failed: " + err.Error(),
+			begunRateLimitKeys := []ratelimit.Key{}
+			for _, check := range rateLimitChecks {
+				if rateLimitCheckEmpty(check) || check.Limits.MaxConcurrent <= 0 {
+					continue
+				}
+				if err := r.rateLimiter.Begin(ctx, check.Key, check.Limits); err != nil {
+					for i := len(begunRateLimitKeys) - 1; i >= 0; i-- {
+						_ = r.rateLimiter.End(ctx, begunRateLimitKeys[i])
+					}
+					routeErr := rateLimitRouterError(err)
+					_ = r.recordUsage(ctx, r.errorUsageRecord(userID, organizationID, apiTokenID, requestID, apiType, model, ch, routeErr.Code, routeErr.ErrorCode, startedAt))
+					r.recordRelayRuntimeMetricsForChannel(ch, apiType, model, routeErr.Code, "miss", startedAt)
+					return nil, routeErr
+				}
+				begunRateLimitKeys = append(begunRateLimitKeys, check.Key)
+			}
+			releaseRateLimit = func() {
+				for i := len(begunRateLimitKeys) - 1; i >= 0; i-- {
+					_ = r.rateLimiter.End(ctx, begunRateLimitKeys[i])
+				}
 			}
 		}
+
+		attemptIdempotencyKey := attemptScopedIdempotencyKey(idempotencyKey, attempt)
+		var billingSessionID string
+		if r.quotaManager != nil {
+			preauthAmount := r.estimatedUsageCost(model, apiType, usage, ch)
+			session, err := r.quotaManager.PreConsume(ctx, userID, organizationID, preauthAmount, attemptIdempotencyKey, billingChannelID, model, apiType.String())
+			if err != nil {
+				releaseRateLimit()
+				routeErr := &RouterError{Code: http.StatusPaymentRequired, Message: "billing pre-authorization failed: " + err.Error(), ErrorCode: "billing_pre_authorization_failed"}
+				_ = r.recordUsage(ctx, r.errorUsageRecord(userID, organizationID, apiTokenID, requestID, apiType, model, ch, routeErr.Code, routeErr.ErrorCode, startedAt))
+				r.recordRelayRuntimeMetricsForChannel(ch, apiType, model, routeErr.Code, "miss", startedAt)
+				return nil, routeErr
+			}
+			if session != nil {
+				billingSessionID = session.ID
+			}
+		}
+
+		if r.billingHook != nil {
+			_, err := r.billingHook.PreBill(&BillingSession{
+				ChannelID:      billingChannelID,
+				APIType:        apiType,
+				Model:          model,
+				IdempotencyKey: attemptIdempotencyKey,
+			}, usage)
+			if err != nil {
+				releaseRateLimit()
+				routeErr := &RouterError{Code: http.StatusInternalServerError, Message: "billing pre-authorization failed: " + err.Error(), ErrorCode: "billing_pre_authorization_failed"}
+				_ = r.recordUsage(ctx, r.errorUsageRecord(userID, organizationID, apiTokenID, requestID, apiType, model, ch, routeErr.Code, routeErr.ErrorCode, startedAt))
+				r.recordRelayRuntimeMetricsForChannel(ch, apiType, model, routeErr.Code, "miss", startedAt)
+				return nil, routeErr
+			}
+		}
+
+		tokenPreauthorizedAmount := r.estimatedUsageCost(model, apiType, usage, ch)
+		if r.apiTokenQuotaManager != nil && apiTokenID != "" {
+			if err := r.apiTokenQuotaManager.PreAuthorizeRelayAPITokenQuota(ctx, apiTokenID, tokenPreauthorizedAmount); err != nil {
+				releaseRateLimit()
+				if r.quotaManager != nil && billingSessionID != "" {
+					_ = r.quotaManager.Refund(ctx, billingSessionID)
+				}
+				status, code := relayAPITokenQuotaRouterError(err)
+				routeErr := &RouterError{Code: status, Message: "API token quota pre-authorization failed: " + err.Error(), ErrorCode: code}
+				_ = r.recordUsage(ctx, r.errorUsageRecord(userID, organizationID, apiTokenID, requestID, apiType, model, ch, routeErr.Code, routeErr.ErrorCode, startedAt))
+				r.recordRelayRuntimeMetricsForChannel(ch, apiType, model, routeErr.Code, "miss", startedAt)
+				return nil, routeErr
+			}
+		}
+
+		resp, err := fn(ch)
+		releaseRateLimit()
+		if err != nil {
+			r.recordSelectedFailure(selectedChannelID)
+			if r.quotaManager != nil && billingSessionID != "" {
+				_ = r.quotaManager.Refund(ctx, billingSessionID)
+			}
+			if r.apiTokenQuotaManager != nil && apiTokenID != "" {
+				_ = r.apiTokenQuotaManager.RefundRelayAPITokenQuota(ctx, apiTokenID, tokenPreauthorizedAmount)
+			}
+			_ = r.recordUsage(ctx, r.errorUsageRecord(userID, organizationID, apiTokenID, requestID, apiType, model, ch, http.StatusBadGateway, "upstream_error", startedAt))
+			lastErr = err
+			excludedChannels[selectedChannelID] = true
+			if attempt < maxRouteBillingAttempts {
+				r.sleepBeforeRetry(attempt)
+				continue
+			}
+			return nil, err
+		}
+
+		if resp != nil && isRetryableProviderResponse(resp) {
+			r.recordSelectedFailure(selectedChannelID)
+			r.markRetryableProviderFailure(ch, resp)
+			if r.quotaManager != nil && billingSessionID != "" {
+				_ = r.quotaManager.Refund(ctx, billingSessionID)
+			}
+			if r.apiTokenQuotaManager != nil && apiTokenID != "" {
+				_ = r.apiTokenQuotaManager.RefundRelayAPITokenQuota(ctx, apiTokenID, tokenPreauthorizedAmount)
+			}
+			if resp.Error != nil {
+				lastErr = resp.Error
+			}
+			lastResp = resp
+			excludedChannels[selectedChannelID] = true
+			if attempt < maxRouteBillingAttempts {
+				r.sleepBeforeRetry(attempt)
+				continue
+			}
+			return resp, nil
+		}
+
+		if resp != nil && isNonRetryableInvalidProviderResponse(resp) {
+			r.markInvalidProviderFailure(ch, resp)
+		}
+
+		if resp != nil && resp.StatusCode >= 500 {
+			r.recordSelectedFailure(selectedChannelID)
+		} else {
+			r.recordSelectedSuccess(selectedChannelID)
+		}
+
+		if conversationID != "" && r.affinityStore != nil {
+			_ = r.affinityStore.SaveConversationAffinity(ctx, conversationID, selectedChannelID)
+		}
+
+		actualUsage := usage
+		if resp != nil && resp.Usage != nil {
+			actualUsage = resp.Usage
+		}
+		actualCost := r.estimatedUsageCost(model, apiType, actualUsage, ch)
+
+		if r.quotaManager != nil && billingSessionID != "" {
+			if err := r.quotaManager.Settle(ctx, billingSessionID, actualCost); err != nil {
+				if r.apiTokenQuotaManager != nil && apiTokenID != "" {
+					_ = r.apiTokenQuotaManager.RefundRelayAPITokenQuota(ctx, apiTokenID, tokenPreauthorizedAmount)
+				}
+				routeErr := &RouterError{Code: http.StatusInternalServerError, Message: "billing settlement failed: " + err.Error(), ErrorCode: "billing_settlement_failed"}
+				_ = r.recordUsage(ctx, r.errorUsageRecord(userID, organizationID, apiTokenID, requestID, apiType, model, ch, routeErr.Code, routeErr.ErrorCode, startedAt))
+				r.recordRelayRuntimeMetricsForChannel(ch, apiType, model, routeErr.Code, "miss", startedAt)
+				return nil, routeErr
+			}
+		}
+
+		if r.apiTokenQuotaManager != nil && apiTokenID != "" {
+			if err := r.apiTokenQuotaManager.SettleRelayAPITokenQuota(ctx, apiTokenID, tokenPreauthorizedAmount, actualCost); err != nil {
+				if r.quotaManager != nil && billingSessionID != "" {
+					_ = r.quotaManager.Refund(ctx, billingSessionID)
+				}
+				routeErr := &RouterError{Code: http.StatusInternalServerError, Message: "API token quota settlement failed: " + err.Error(), ErrorCode: "api_token_quota_settlement_failed"}
+				_ = r.recordUsage(ctx, r.errorUsageRecord(userID, organizationID, apiTokenID, requestID, apiType, model, ch, routeErr.Code, routeErr.ErrorCode, startedAt))
+				r.recordRelayRuntimeMetricsForChannel(ch, apiType, model, routeErr.Code, "miss", startedAt)
+				return nil, routeErr
+			}
+		}
+
+		if r.billingHook != nil && resp != nil && resp.Usage != nil {
+			session := &BillingSession{
+				ChannelID:      billingChannelID,
+				APIType:        apiType,
+				Model:          model,
+				IdempotencyKey: attemptIdempotencyKey,
+			}
+			_, _ = r.billingHook.PostBill(session, resp.Usage)
+		}
+
+		if resp != nil && resp.StatusCode < http.StatusBadRequest {
+			if cacheReq, ok := types.SemanticCacheRequestFromContext(ctx); ok && r.semanticCache != nil && len(resp.Content) > 0 {
+				_, _ = r.semanticCache.Store(ctx, cacheReq, json.RawMessage(resp.Content))
+			}
+		}
+
+		statusCode := http.StatusOK
+		if resp != nil && resp.StatusCode >= http.StatusContinue {
+			statusCode = resp.StatusCode
+		}
+		record := r.successUsageRecord(userID, organizationID, apiTokenID, requestID, apiType, model, ch, actualUsage, actualCost, startedAt)
+		record.StatusCode = statusCode
+		if resp != nil && resp.StatusCode >= http.StatusBadRequest {
+			record.Status = RelayUsageStatusError
+			if resp.Error != nil {
+				record.ErrorCode = resp.Error.Code
+			}
+		}
+		_ = r.recordUsage(ctx, record)
+		r.recordRelayRuntimeMetricsForChannel(ch, apiType, model, statusCode, "miss", startedAt)
+
+		return resp, nil
 	}
 
-	return resp, err
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return lastResp, nil
 }
 
-func (r *Router) refundBillingSession(session *BillingSession) error {
-	if _, err := r.billingHook.Refund(session); err != nil {
-		return &RouterError{
-			Code:    http.StatusInternalServerError,
-			Message: "billing refund failed: " + err.Error(),
-		}
-	}
-	return nil
+func (r *Router) sleepBeforeRetry(attempt int) {
+	time.Sleep(routeRetryBackoff(attempt))
 }
 
-func (r *Router) refundBillingFailure(session *BillingSession, reason string, statusCode int) error {
-	if err := r.refundBillingSession(session); err != nil {
-		return err
+func routeRetryBackoff(attempt int) time.Duration {
+	switch attempt {
+	case 1:
+		return 0
+	case 2:
+		return time.Second
+	default:
+		return 3 * time.Second
 	}
-	if statusCode < http.StatusBadRequest {
-		statusCode = http.StatusBadGateway
+}
+
+func attemptScopedIdempotencyKey(idempotencyKey string, attempt int) string {
+	if attempt <= 1 || idempotencyKey == "" {
+		return idempotencyKey
 	}
-	return &RouterError{
-		Code:    statusCode,
-		Message: "billing refund completed: " + reason,
+	return fmt.Sprintf("%s:attempt:%d", idempotencyKey, attempt)
+}
+
+func isRetryableProviderResponse(resp *types.ProviderResponse) bool {
+	if resp == nil {
+		return false
 	}
+	if resp.Error != nil && resp.Error.Retryable {
+		return true
+	}
+	return IsRetryable(resp.StatusCode)
+}
+
+func isNonRetryableInvalidProviderResponse(resp *types.ProviderResponse) bool {
+	if resp == nil {
+		return false
+	}
+	return resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden
+}
+
+func (r *Router) markRetryableProviderFailure(ch *types.RouteChannel, resp *types.ProviderResponse) {
+	if resp == nil || ch == nil {
+		return
+	}
+	if resp.StatusCode == http.StatusTooManyRequests {
+		stats, _ := r.pool.GetStats(routeChannelID(ch))
+		if stats != nil {
+			stats.RateLimitedUntil = time.Now().UTC().Add(retryAfterDuration(resp))
+		}
+	}
+}
+
+func retryAfterDuration(resp *types.ProviderResponse) time.Duration {
+	if resp != nil && resp.Headers != nil {
+		if raw := strings.TrimSpace(resp.Headers.Get("Retry-After")); raw != "" {
+			var seconds int
+			if _, err := fmt.Sscanf(raw, "%d", &seconds); err == nil && seconds > 0 {
+				return time.Duration(seconds) * time.Second
+			}
+		}
+	}
+	return time.Minute
+}
+
+func (r *Router) markInvalidProviderFailure(ch *types.RouteChannel, resp *types.ProviderResponse) {
+	stats, _ := r.pool.GetStats(routeChannelID(ch))
+	if stats != nil {
+		stats.Invalid = true
+	}
+}
+
+func (r *Router) recordSelectedSuccess(channelID string) {
+	if cb, ok := r.circuitBreakers[channelID]; ok {
+		cb.RecordSuccess()
+	}
+}
+
+func (r *Router) recordSelectedFailure(channelID string) {
+	if cb, ok := r.circuitBreakers[channelID]; ok {
+		cb.RecordFailure()
+	}
+}
+
+func (r *Router) recordRelayRuntimeMetricsForChannel(ch *types.RouteChannel, apiType types.APIType, model string, statusCode int, cacheStatus string, startedAt time.Time) {
+	r.recordRelayRuntimeMetrics(routeChannelProvider(ch), routeChannelID(ch), apiType, model, statusCode, cacheStatus, startedAt)
+}
+
+func (r *Router) recordRelayRuntimeMetrics(provider, channelID string, apiType types.APIType, model string, statusCode int, cacheStatus string, startedAt time.Time) {
+	if statusCode < http.StatusContinue {
+		statusCode = http.StatusOK
+	}
+	status := "success"
+	if statusCode >= http.StatusBadRequest {
+		status = "error"
+	}
+	durationSeconds := time.Since(startedAt).Seconds()
+	metrics.RecordRelayRequest(provider, channelID, apiType.String(), status, cacheStatus)
+	metrics.RecordRequest(channelID, model, apiType.String(), status)
+	metrics.RecordDuration(channelID, model, apiType.String(), durationSeconds)
+	r.updateRuntimeChannelStats(channelID, status == "success", durationSeconds)
+}
+
+func (r *Router) updateRuntimeChannelStats(channelID string, success bool, durationSeconds float64) {
+	if r == nil || r.pool == nil || channelID == "" || channelID == "none" || channelID == "semantic_cache" {
+		return
+	}
+	stats, ok := r.pool.GetStats(channelID)
+	if !ok || stats == nil {
+		return
+	}
+	stats.TotalRequests++
+	if success {
+		stats.SuccessCount++
+	} else {
+		stats.FailureCount++
+	}
+	if durationSeconds >= 0 {
+		stats.LatencySumUs += int64(durationSeconds * 1_000_000)
+		stats.LatencyCount++
+	}
+	metrics.SetRelayChannelHealthScore(channelID, runtimeHealthScore(stats))
+}
+
+func runtimeHealthScore(stats *types.ChannelStats) float64 {
+	if stats == nil {
+		return 1
+	}
+	total := stats.SuccessCount + stats.FailureCount
+	if total <= 0 {
+		return 1
+	}
+	errorRate := float64(stats.FailureCount) / float64(total)
+	score := 1 - errorRate
+	if stats.Invalid {
+		score = 0
+	}
+	if !stats.RateLimitedUntil.IsZero() && time.Now().Before(stats.RateLimitedUntil) && score > 0.2 {
+		score = 0.2
+	}
+	if stats.LatencyCount > 0 {
+		avgLatencySeconds := float64(stats.LatencySumUs) / float64(stats.LatencyCount) / 1_000_000
+		if avgLatencySeconds > 0.5 {
+			score *= 0.5 / avgLatencySeconds
+		}
+	}
+	if score < 0 {
+		return 0
+	}
+	if score > 1 {
+		return 1
+	}
+	return score
+}
+
+func (r *Router) estimatedUsageCost(model string, apiType types.APIType, usage *types.Usage, ch *types.RouteChannel) float64 {
+	cost := 0.0
+	if r.billingHook != nil && r.billingHook.pricing != nil {
+		cost = r.billingHook.pricing.CalculateCost(model, apiType, usage)
+	}
+	if cost <= 0 && usage != nil {
+		cost = float64(usage.TotalTokens) / 1000 * 0.001
+		cost += float64(usage.ImageCount) * 0.004
+		cost += usage.AudioSeconds * 0.0001
+	}
+	if ch != nil {
+		multiplier := ch.CostMultiplier
+		if multiplier <= 0 && ch.Channel != nil {
+			multiplier = ch.Channel.CostMultiplier
+		}
+		if multiplier <= 0 {
+			multiplier = 1
+		}
+		cost *= multiplier
+	}
+	if cost <= 0 {
+		return 0.000001
+	}
+	return cost
+}
+
+func (r *Router) channelCost(cost float64, ch *types.RouteChannel) float64 {
+	if ch == nil {
+		return 0
+	}
+	multiplier := ch.CostMultiplier
+	if multiplier <= 0 && ch.Channel != nil {
+		multiplier = ch.Channel.CostMultiplier
+	}
+	if multiplier <= 0 {
+		multiplier = 1
+	}
+	return cost / multiplier
+}
+
+func (r *Router) successUsageRecord(userID, organizationID, apiTokenID, requestID string, apiType types.APIType, model string, ch *types.RouteChannel, usage *types.Usage, cost float64, startedAt time.Time) RelayUsageLogRecord {
+	record := RelayUsageLogRecord{
+		UserID:         userID,
+		OrganizationID: organizationID,
+		APITokenID:     apiTokenID,
+		RequestID:      requestID,
+		APIType:        apiType.String(),
+		Model:          model,
+		Status:         RelayUsageStatusSuccess,
+		StatusCode:     http.StatusOK,
+		LatencyMS:      time.Since(startedAt).Milliseconds(),
+		Cost:           cost,
+		ChannelCost:    r.channelCost(cost, ch),
+		CreatedAt:      time.Now().UTC(),
+	}
+	if ch != nil {
+		record.ChannelID = routeChannelID(ch)
+		if ch.Channel != nil {
+			record.Provider = ch.Channel.Provider
+		}
+	}
+	if usage != nil {
+		record.PromptTokens = usage.PromptTokens
+		record.CompletionTokens = usage.CompletionTokens
+		record.TotalTokens = usage.TotalTokens
+	}
+	return record
+}
+
+func (r *Router) errorUsageRecord(userID, organizationID, apiTokenID, requestID string, apiType types.APIType, model string, ch *types.RouteChannel, statusCode int, errorCode string, startedAt time.Time) RelayUsageLogRecord {
+	record := r.successUsageRecord(userID, organizationID, apiTokenID, requestID, apiType, model, ch, nil, 0, startedAt)
+	record.Status = RelayUsageStatusError
+	record.StatusCode = statusCode
+	record.ErrorCode = errorCode
+	record.Cost = 0
+	record.ChannelCost = 0
+	return record
+}
+
+func (r *Router) recordUsage(ctx context.Context, record RelayUsageLogRecord) error {
+	if r == nil || r.usageLogger == nil {
+		return nil
+	}
+	return r.usageLogger.RecordRelayUsage(ctx, record)
 }
 
 func routeChannelID(ch *types.RouteChannel) string {
@@ -348,85 +760,105 @@ func routeChannelID(ch *types.RouteChannel) string {
 	return ""
 }
 
-func providerForRouteChannel(ch *types.RouteChannel) string {
-	if ch == nil || ch.Channel == nil || ch.Channel.Provider == "" {
-		return "unknown"
+func routeChannelProvider(ch *types.RouteChannel) string {
+	if ch == nil || ch.Channel == nil {
+		return ""
 	}
 	return ch.Channel.Provider
 }
 
-func logProviderFailure(ctx context.Context, provider, channelID, apiType, reason string, latency time.Duration) {
-	userID, _ := types.TrustedUserIDFromContext(ctx)
-	organizationID, _ := types.TrustedOrganizationIDFromContext(ctx)
-	requestID, _ := types.TrustedRequestIDFromContext(ctx)
-	currentObservabilityLogger().Log(ctx, observability.Event{
-		Component:      "relay",
-		Event:          "relay.provider_failure",
-		RequestID:      requestID,
-		OrganizationID: organizationID,
-		UserID:         userID,
-		RelayAPIType:   apiType,
-		ChannelID:      channelID,
-		Provider:       provider,
-		FailureReason:  reason,
-		Latency:        latency,
-	})
-}
-
-func currentObservabilityLogger() *observability.Logger {
-	relayObservabilityLoggerMu.RLock()
-	defer relayObservabilityLoggerMu.RUnlock()
-	return relayObservabilityLogger
-}
-
-func setObservabilityLoggerForTest(logger *observability.Logger) func() {
-	relayObservabilityLoggerMu.Lock()
-	previous := relayObservabilityLogger
-	relayObservabilityLogger = logger
-	relayObservabilityLoggerMu.Unlock()
-
-	return func() {
-		relayObservabilityLoggerMu.Lock()
-		relayObservabilityLogger = previous
-		relayObservabilityLoggerMu.Unlock()
+func relayAPITokenQuotaRouterError(err error) (int, string) {
+	switch {
+	case errors.Is(err, types.ErrRelayAPITokenQuotaExceeded):
+		return http.StatusPaymentRequired, "relay_api_token_quota_exceeded"
+	default:
+		return http.StatusPaymentRequired, "relay_api_token_quota_exceeded"
 	}
 }
 
-type billingSettlementPolicy int
-
-const (
-	billingSettlementRequiresUsage billingSettlementPolicy = iota
-	billingSettlementAllowsEstimate
-	billingSettlementProductionDisabled
-)
-
-func settlementUsageForResponse(apiType types.APIType, estimate *types.Usage, resp *types.ProviderResponse) (*types.Usage, error) {
-	if resp != nil && resp.Usage != nil {
-		return resp.Usage, nil
+func (r *Router) resolveRateLimit(ctx context.Context, ch *types.RouteChannel, model string, usage *types.Usage) RateLimitResolution {
+	if r == nil || ch == nil {
+		return RateLimitResolution{}
 	}
-
-	switch settlementPolicyForAPIType(apiType) {
-	case billingSettlementAllowsEstimate:
-		if estimate != nil {
-			return estimate, nil
+	if r.rateLimitResolver != nil {
+		resolution := r.rateLimitResolver(ctx, ch, model, usage)
+		if resolution.Key.ChannelID == "" {
+			resolution.Key.ChannelID = routeChannelID(ch)
 		}
-		return nil, fmt.Errorf("missing settlement estimate")
-	case billingSettlementRequiresUsage:
-		return nil, fmt.Errorf("missing required usage")
-	default:
-		return nil, fmt.Errorf("billing settlement policy is production disabled")
+		if resolution.Key.Model == "" {
+			resolution.Key.Model = model
+		}
+		if resolution.Usage.Tokens == 0 && usage != nil {
+			resolution.Usage.Tokens = usage.TotalTokens
+		}
+		return resolution
+	}
+	limits := ratelimit.Limits{}
+	if ch.Channel != nil {
+		limits.RPM = ch.Channel.RPMLimit
+		limits.TPM = ch.Channel.TPMLimit
+	}
+	tokens := 0
+	if usage != nil {
+		tokens = usage.TotalTokens
+	}
+	return RateLimitResolution{
+		Key: ratelimit.Key{
+			ChannelID: routeChannelID(ch),
+			Model:     model,
+		},
+		Limits: limits,
+		Usage:  ratelimit.Usage{Tokens: tokens},
 	}
 }
 
-func settlementPolicyForAPIType(apiType types.APIType) billingSettlementPolicy {
-	switch apiType {
-	case types.APITypeImageGen, types.APITypeImageEdit, types.APITypeImageVar,
-		types.APITypeAudioSpeech, types.APITypeAudioSTT, types.APITypeAudioTranslate,
-		types.APITypeModeration:
-		return billingSettlementAllowsEstimate
-	case types.APITypeChat, types.APITypeResponses, types.APITypeEmbeddings, types.APITypeCompletions:
-		return billingSettlementRequiresUsage
-	default:
-		return billingSettlementProductionDisabled
+func (r RateLimitResolution) empty() bool {
+	if !rateLimitCheckEmpty(RateLimitCheck{Key: r.Key, Limits: r.Limits, Usage: r.Usage}) {
+		return false
 	}
+	for _, check := range r.Additional {
+		if !rateLimitCheckEmpty(check) {
+			return false
+		}
+	}
+	return true
+}
+
+func rateLimitChecksForResolution(resolution RateLimitResolution) []RateLimitCheck {
+	checks := []RateLimitCheck{}
+	primary := RateLimitCheck{Key: resolution.Key, Limits: resolution.Limits, Usage: resolution.Usage}
+	if !rateLimitCheckEmpty(primary) {
+		checks = append(checks, primary)
+	}
+	for _, check := range resolution.Additional {
+		if !rateLimitCheckEmpty(check) {
+			checks = append(checks, check)
+		}
+	}
+	return checks
+}
+
+func rateLimitCheckEmpty(check RateLimitCheck) bool {
+	return check.Limits.RPM <= 0 && check.Limits.TPM <= 0 && check.Limits.MaxConcurrent <= 0
+}
+
+func rateLimitRouterError(err error) *RouterError {
+	routeErr := &RouterError{
+		Code:      http.StatusTooManyRequests,
+		Message:   "relay rate limit exceeded",
+		ErrorCode: "relay_rate_limited",
+	}
+	var limitErr *ratelimit.LimitError
+	if errors.As(err, &limitErr) {
+		if limitErr.RetryAfter > 0 {
+			routeErr.RetryAfter = int(limitErr.RetryAfter.Round(time.Second) / time.Second)
+			if routeErr.RetryAfter <= 0 {
+				routeErr.RetryAfter = 1
+			}
+		}
+		if limitErr.Dimension != "" {
+			routeErr.Message = fmt.Sprintf("relay rate limit exceeded: %s", limitErr.Dimension)
+		}
+	}
+	return routeErr
 }

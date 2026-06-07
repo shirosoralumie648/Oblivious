@@ -3,15 +3,21 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const createKnowledgeBase = vi.fn();
 const createKnowledgeDocument = vi.fn();
+const createRetrievalTestCase = vi.fn();
 const deleteKnowledgeBase = vi.fn();
 const deleteKnowledgeDocument = vi.fn();
 const getKnowledgeBase = vi.fn();
+const listKnowledgeDocumentChunks = vi.fn();
 const listKnowledgeDocuments = vi.fn();
 const listKnowledgeBases = vi.fn();
+const listRetrievalTestCases = vi.fn();
 const navigate = vi.fn();
 const retrieveKnowledge = vi.fn();
+const runRetrievalTestCases = vi.fn();
 const updateKnowledgeBase = vi.fn();
+const updateKnowledgeDocumentChunk = vi.fn();
 const updateKnowledgeDocument = vi.fn();
+const uploadKnowledgeDocument = vi.fn();
 const routeState = vi.hoisted(() => ({
   knowledgeBaseId: undefined as string | undefined
 }));
@@ -47,14 +53,20 @@ vi.mock('../../features/knowledge/api', () => ({
   createKnowledgeApi: () => ({
     createKnowledgeBase,
     createKnowledgeDocument,
+    createRetrievalTestCase,
     deleteKnowledgeBase,
     deleteKnowledgeDocument,
     getKnowledgeBase,
+    listKnowledgeDocumentChunks,
     listKnowledgeDocuments,
     listKnowledgeBases,
+    listRetrievalTestCases,
     retrieveKnowledge,
+    runRetrievalTestCases,
     updateKnowledgeBase,
-    updateKnowledgeDocument
+    updateKnowledgeDocumentChunk,
+    updateKnowledgeDocument,
+    uploadKnowledgeDocument
   })
 }));
 
@@ -70,16 +82,23 @@ describe('KnowledgePage', () => {
     };
     createKnowledgeBase.mockReset();
     createKnowledgeDocument.mockReset();
+    createRetrievalTestCase.mockReset();
     deleteKnowledgeBase.mockReset();
     deleteKnowledgeDocument.mockReset();
     getKnowledgeBase.mockReset();
+    listKnowledgeDocumentChunks.mockReset();
     listKnowledgeDocuments.mockReset();
     listKnowledgeBases.mockReset();
+    listRetrievalTestCases.mockReset();
+    listRetrievalTestCases.mockResolvedValue([]);
     navigate.mockReset();
     routeState.knowledgeBaseId = undefined;
     retrieveKnowledge.mockReset();
+    runRetrievalTestCases.mockReset();
     updateKnowledgeBase.mockReset();
+    updateKnowledgeDocumentChunk.mockReset();
     updateKnowledgeDocument.mockReset();
+    uploadKnowledgeDocument.mockReset();
   });
 
   it('loads and renders knowledge bases with workspace context', async () => {
@@ -206,15 +225,233 @@ describe('KnowledgePage', () => {
     await screen.findByRole('heading', { name: 'Architecture Notes' });
     fireEvent.change(screen.getByLabelText('Document title'), { target: { value: 'Draft' } });
     fireEvent.change(screen.getByLabelText('Document content'), { target: { value: 'Initial architecture draft' } });
+    fireEvent.change(screen.getByLabelText('Document source URL'), { target: { value: ' https://docs.example/draft.md ' } });
+    fireEvent.change(screen.getByLabelText('Document source page'), { target: { value: '5' } });
     fireEvent.click(screen.getByRole('button', { name: 'Create document' }));
 
     await waitFor(() => {
       expect(createKnowledgeDocument).toHaveBeenCalledWith('kb_9', {
         content: 'Initial architecture draft',
+        pageNumber: 5,
+        sourceUrl: 'https://docs.example/draft.md',
         title: 'Draft'
       });
     });
     expect(screen.getByText('Draft')).toBeInTheDocument();
+  });
+
+  it('creates versioned knowledge documents with an update strategy', async () => {
+    routeState.knowledgeBaseId = 'kb_9';
+    getKnowledgeBase.mockResolvedValue({
+      documentCount: 1,
+      id: 'kb_9',
+      name: 'Architecture Notes',
+      updatedAt: '2026-04-03T11:30:00Z'
+    });
+    listKnowledgeDocuments.mockResolvedValue([]);
+    createKnowledgeDocument.mockResolvedValue({
+      content: 'Initial architecture draft',
+      documentVersion: 'v3',
+      id: 'doc_9',
+      title: 'Draft',
+      updateStrategy: 'versioned',
+      updatedAt: '2026-04-03T12:00:00Z'
+    });
+
+    render(<KnowledgePage />);
+
+    await screen.findByRole('heading', { name: 'Architecture Notes' });
+    fireEvent.change(screen.getByLabelText('Document title'), { target: { value: 'Draft' } });
+    fireEvent.change(screen.getByLabelText('Document content'), { target: { value: 'Initial architecture draft' } });
+    fireEvent.change(screen.getByLabelText('Document version'), { target: { value: 'v3' } });
+    fireEvent.change(screen.getByLabelText('Update strategy'), { target: { value: 'versioned' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create document' }));
+
+    await waitFor(() => {
+      expect(createKnowledgeDocument).toHaveBeenCalledWith('kb_9', {
+        content: 'Initial architecture draft',
+        documentVersion: 'v3',
+        title: 'Draft',
+        updateStrategy: 'versioned'
+      });
+    });
+    expect(screen.getByText('Version: v3')).toBeInTheDocument();
+  });
+
+  it('uploads a document file and clears stale retrieval and chunk details', async () => {
+    routeState.knowledgeBaseId = 'kb_9';
+    getKnowledgeBase.mockResolvedValue({
+      documentCount: 1,
+      id: 'kb_9',
+      name: 'Architecture Notes',
+      updatedAt: '2026-04-03T11:30:00Z'
+    });
+    listKnowledgeDocuments.mockResolvedValue([
+      {
+        content: 'System boundaries',
+        id: 'doc_1',
+        title: 'Overview',
+        updatedAt: '2026-04-03T11:45:00Z'
+      }
+    ]);
+    listKnowledgeDocumentChunks.mockResolvedValue([
+      {
+        charCount: 24,
+        chunkId: 'kdc_1',
+        chunkIndex: 0,
+        content: 'First architecture chunk.',
+        documentVersion: 'v2',
+        estimatedTokenCount: 6,
+        metadata: {
+          documentVersion: 'v2'
+        }
+      }
+    ]);
+    retrieveKnowledge.mockResolvedValue([
+      {
+        chunkId: 'kdc_1',
+        chunkIndex: 0,
+        documentId: 'doc_1',
+        documentTitle: 'Overview',
+        retrievalMethod: 'embedding_rag',
+        similarity: 0.88,
+        source: {
+          chunkId: 'kdc_1',
+          chunkIndex: 0,
+          documentId: 'doc_1',
+          documentTitle: 'Overview'
+        },
+        snippet: 'System boundaries include deployment controls.'
+      }
+    ]);
+    uploadKnowledgeDocument.mockResolvedValue({
+      content: 'Uploaded architecture runbook content',
+      documentVersion: 'v4',
+      id: 'doc_upload',
+      title: 'Uploaded Runbook',
+      updateStrategy: 'versioned',
+      updatedAt: '2026-04-03T12:45:00Z'
+    });
+
+    render(<KnowledgePage />);
+
+    await screen.findByRole('heading', { name: 'Architecture Notes' });
+    fireEvent.change(screen.getByLabelText('Retrieval query'), { target: { value: 'deployment' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search knowledge' }));
+    expect(await screen.findByText('System boundaries include deployment controls.')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'View chunks for Overview' }));
+    expect(await screen.findByRole('heading', { name: 'Chunks for Overview' })).toBeInTheDocument();
+    expect(screen.getAllByText('First architecture chunk.').length).toBeGreaterThan(0);
+
+    const file = new File(['%PDF-1.4 uploaded body'], 'runbook.pdf', { type: 'application/pdf' });
+    fireEvent.change(screen.getByLabelText('Document file'), { target: { files: [file] } });
+    fireEvent.change(screen.getByLabelText('Upload title'), { target: { value: 'Uploaded Runbook' } });
+    fireEvent.change(screen.getByLabelText('Upload document version'), { target: { value: 'v4' } });
+    fireEvent.change(screen.getByLabelText('Upload source URL'), { target: { value: ' https://docs.example/runbook.pdf ' } });
+    fireEvent.change(screen.getByLabelText('Upload source page'), { target: { value: '12' } });
+    fireEvent.change(screen.getByLabelText('Upload update strategy'), { target: { value: 'versioned' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Upload document' }));
+
+    await waitFor(() => {
+      expect(uploadKnowledgeDocument).toHaveBeenCalledWith('kb_9', {
+        documentVersion: 'v4',
+        file,
+        pageNumber: 12,
+        sourceUrl: 'https://docs.example/runbook.pdf',
+        title: 'Uploaded Runbook',
+        updateStrategy: 'versioned'
+      });
+    });
+
+    const uploadedTitle = screen.getByText('Uploaded Runbook');
+    const existingTitle = screen.getByText('Overview');
+    expect(uploadedTitle.compareDocumentPosition(existingTitle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByText('System boundaries include deployment controls.')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Chunks for Overview' })).not.toBeInTheDocument();
+    expect(screen.getByText('Documents: 2')).toBeInTheDocument();
+  });
+
+  it('uploads a DOCX document file now that the backend parser supports it', async () => {
+    routeState.knowledgeBaseId = 'kb_9';
+    getKnowledgeBase.mockResolvedValue({
+      documentCount: 1,
+      id: 'kb_9',
+      name: 'Architecture Notes',
+      updatedAt: '2026-04-03T11:30:00Z'
+    });
+    listKnowledgeDocuments.mockResolvedValue([]);
+    uploadKnowledgeDocument.mockResolvedValue({
+      content: 'DOCX architecture runbook content',
+      documentVersion: 'v5',
+      id: 'doc_docx',
+      title: 'DOCX Runbook',
+      updateStrategy: 'versioned',
+      updatedAt: '2026-04-03T13:00:00Z'
+    });
+
+    render(<KnowledgePage />);
+
+    await screen.findByRole('heading', { name: 'Architecture Notes' });
+    const fileInput = screen.getByLabelText('Document file');
+    expect(fileInput).toHaveAttribute(
+      'accept',
+      '.txt,.text,.md,.markdown,.pdf,.docx,text/plain,text/markdown,text/x-markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    );
+
+    const file = new File(['docx body'], 'runbook.docx', {
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    });
+    fireEvent.change(fileInput, { target: { files: [file] } });
+    fireEvent.change(screen.getByLabelText('Upload title'), { target: { value: 'DOCX Runbook' } });
+    fireEvent.change(screen.getByLabelText('Upload document version'), { target: { value: 'v5' } });
+    fireEvent.change(screen.getByLabelText('Upload update strategy'), { target: { value: 'versioned' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Upload document' }));
+
+    await waitFor(() => {
+      expect(uploadKnowledgeDocument).toHaveBeenCalledWith('kb_9', {
+        documentVersion: 'v5',
+        file,
+        title: 'DOCX Runbook',
+        updateStrategy: 'versioned'
+      });
+    });
+    expect(screen.queryByText(/DOCX parsing is not available yet/)).not.toBeInTheDocument();
+    expect(screen.getByText('DOCX Runbook')).toBeInTheDocument();
+  });
+
+  it('blocks unsupported document upload formats before calling the API', async () => {
+    routeState.knowledgeBaseId = 'kb_9';
+    getKnowledgeBase.mockResolvedValue({
+      documentCount: 1,
+      id: 'kb_9',
+      name: 'Architecture Notes',
+      updatedAt: '2026-04-03T11:30:00Z'
+    });
+    listKnowledgeDocuments.mockResolvedValue([]);
+
+    render(<KnowledgePage />);
+
+    await screen.findByRole('heading', { name: 'Architecture Notes' });
+    const fileInput = screen.getByLabelText('Document file');
+    expect(fileInput).toHaveAttribute(
+      'accept',
+      '.txt,.text,.md,.markdown,.pdf,.docx,text/plain,text/markdown,text/x-markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    );
+
+    fireEvent.change(fileInput, {
+      target: {
+        files: [
+          new File(['doc body'], 'runbook.doc', {
+            type: 'application/msword'
+          })
+        ]
+      }
+    });
+
+    expect(await screen.findByText('Knowledge document uploads currently support .txt, .md, PDF, and DOCX files. Legacy .doc parsing is not available yet.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Upload document' })).toBeDisabled();
+    expect(uploadKnowledgeDocument).not.toHaveBeenCalled();
   });
 
   it('renames the selected knowledge base', async () => {
@@ -243,6 +480,69 @@ describe('KnowledgePage', () => {
       expect(updateKnowledgeBase).toHaveBeenCalledWith('kb_9', { name: 'Architecture Decisions' });
     });
     expect(screen.getByRole('heading', { name: 'Architecture Decisions' })).toBeInTheDocument();
+  });
+
+  it('saves knowledge-base level RAG retrieval and chunking configuration', async () => {
+    routeState.knowledgeBaseId = 'kb_9';
+    getKnowledgeBase.mockResolvedValue({
+      chunkOverlap: 80,
+      chunkSize: 900,
+      chunkStrategy: 'semantic',
+      documentCount: 1,
+      embeddingModel: 'text-embedding-3-small',
+      id: 'kb_9',
+      name: 'Architecture Notes',
+      rerankTopK: 8,
+      rerankerModel: 'bge-reranker-base',
+      retrievalMode: 'hybrid',
+      updatedAt: '2026-04-03T11:30:00Z'
+    });
+    listKnowledgeDocuments.mockResolvedValue([]);
+    updateKnowledgeBase.mockResolvedValue({
+      chunkOverlap: 120,
+      chunkSize: 1200,
+      chunkStrategy: 'qa_split',
+      documentCount: 1,
+      embeddingModel: 'text-embedding-3-large',
+      id: 'kb_9',
+      name: 'Architecture Notes',
+      rerankTopK: 10,
+      rerankerModel: 'bge-reranker-large',
+      retrievalMode: 'hybrid_rerank',
+      updatedAt: '2026-04-03T12:30:00Z'
+    });
+
+    render(<KnowledgePage />);
+
+    await screen.findByRole('heading', { name: 'Architecture Notes' });
+    expect(screen.getByText('Retrieval strategy: hybrid')).toBeInTheDocument();
+    expect(screen.getByText('Chunking: semantic · 900 chars · 80 overlap')).toBeInTheDocument();
+    expect(screen.getByText('Reranking: bge-reranker-base · top 8')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Default retrieval strategy'), { target: { value: 'hybrid_rerank' } });
+    fireEvent.change(screen.getByLabelText('Chunking strategy'), { target: { value: 'qa_split' } });
+    fireEvent.change(screen.getByLabelText('Chunk size'), { target: { value: '1200' } });
+    fireEvent.change(screen.getByLabelText('Chunk overlap'), { target: { value: '120' } });
+    fireEvent.change(screen.getByLabelText('Embedding model'), { target: { value: 'text-embedding-3-large' } });
+    fireEvent.change(screen.getByLabelText('Reranker model'), { target: { value: 'bge-reranker-large' } });
+    fireEvent.change(screen.getByLabelText('Rerank top K'), { target: { value: '10' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save knowledge base' }));
+
+    await waitFor(() => {
+      expect(updateKnowledgeBase).toHaveBeenCalledWith('kb_9', {
+        chunkOverlap: 120,
+        chunkSize: 1200,
+        chunkStrategy: 'qa_split',
+        embeddingModel: 'text-embedding-3-large',
+        name: 'Architecture Notes',
+        rerankTopK: 10,
+        rerankerModel: 'bge-reranker-large',
+        retrievalMode: 'hybrid_rerank'
+      });
+    });
+    expect(screen.getByText('Retrieval strategy: hybrid_rerank')).toBeInTheDocument();
+    expect(screen.getByText('Chunking: qa_split · 1200 chars · 120 overlap')).toBeInTheDocument();
+    expect(screen.getByText('Reranking: bge-reranker-large · top 10')).toBeInTheDocument();
   });
 
   it('updates and deletes documents inside the selected knowledge base', async () => {
@@ -346,6 +646,21 @@ describe('KnowledgePage', () => {
           documentTitle: 'Overview'
         },
         snippet: 'System boundaries include deployment controls.'
+      },
+      {
+        chunkId: 'kdc_2',
+        chunkIndex: 0,
+        documentId: 'doc_1',
+        documentTitle: 'Overview',
+        retrievalMethod: 'keyword',
+        similarity: 0.79,
+        source: {
+          chunkId: 'kdc_2',
+          chunkIndex: 0,
+          documentId: 'doc_1',
+          documentTitle: 'Overview'
+        },
+        snippet: 'Deployment controls cover release approvals.'
       }
     ]);
 
@@ -356,10 +671,745 @@ describe('KnowledgePage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Search knowledge' }));
 
     await waitFor(() => {
-      expect(retrieveKnowledge).toHaveBeenCalledWith('kb_9', { query: 'deployment' });
+      expect(retrieveKnowledge).toHaveBeenCalledWith('kb_9', {
+        query: 'deployment'
+      });
     });
     expect(screen.getByText('System boundaries include deployment controls.')).toBeInTheDocument();
-    expect(screen.getByText('Source: Overview · chunk 3 · embedding_rag · 93%')).toBeInTheDocument();
+    expect(screen.getByText('Score: 93%')).toBeInTheDocument();
+    expect(screen.getByText('Method: embedding_rag')).toBeInTheDocument();
+    expect(screen.getByText('Source: Overview · chunk 3 · kdc_1')).toBeInTheDocument();
+    expect(screen.getByText(/Retrieval metrics: 2 hits · avg 86% · \d+ ms/)).toBeInTheDocument();
+  });
+
+  it('adds a retrieval result to the knowledge test set', async () => {
+    routeState.knowledgeBaseId = 'kb_9';
+    getKnowledgeBase.mockResolvedValue({
+      documentCount: 2,
+      id: 'kb_9',
+      name: 'Architecture Notes',
+      updatedAt: '2026-04-03T11:30:00Z'
+    });
+    listKnowledgeDocuments.mockResolvedValue([
+      {
+        content: 'System boundaries',
+        id: 'doc_1',
+        title: 'Overview',
+        updatedAt: '2026-04-03T11:45:00Z'
+      }
+    ]);
+    const result = {
+      chunkId: 'kdc_1',
+      chunkIndex: 2,
+      documentId: 'doc_1',
+      documentTitle: 'Overview',
+      retrievalMethod: 'hybrid',
+      similarity: 0.93,
+      source: {
+        chunkId: 'kdc_1',
+        chunkIndex: 2,
+        documentId: 'doc_1',
+        documentTitle: 'Overview'
+      },
+      snippet: 'System boundaries include deployment controls.'
+    };
+    retrieveKnowledge.mockResolvedValue([result]);
+    createRetrievalTestCase.mockResolvedValue({
+      expectedChunkId: 'kdc_1',
+      expectedChunkIndex: 2,
+      expectedDocumentId: 'doc_1',
+      id: 'krtc_1',
+      knowledgeBaseId: 'kb_9',
+      query: 'deployment'
+    });
+
+    render(<KnowledgePage />);
+
+    await screen.findByRole('heading', { name: 'Architecture Notes' });
+    fireEvent.change(screen.getByLabelText('Retrieval query'), { target: { value: 'deployment' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search knowledge' }));
+    await screen.findByText('System boundaries include deployment controls.');
+    fireEvent.click(screen.getByRole('button', { name: 'Add result kdc_1 to test set' }));
+
+    await waitFor(() => {
+      expect(createRetrievalTestCase).toHaveBeenCalledWith('kb_9', {
+        expectedResult: result,
+        query: 'deployment'
+      });
+    });
+    expect(screen.getByText('Saved retrieval test case krtc_1')).toBeInTheDocument();
+  });
+
+  it('lists saved retrieval test cases and runs the retrieval evaluation report', async () => {
+    routeState.knowledgeBaseId = 'kb_9';
+    getKnowledgeBase.mockResolvedValue({
+      documentCount: 2,
+      id: 'kb_9',
+      name: 'Architecture Notes',
+      updatedAt: '2026-04-03T11:30:00Z'
+    });
+    listKnowledgeDocuments.mockResolvedValue([
+      {
+        content: 'System boundaries',
+        id: 'doc_1',
+        title: 'Overview',
+        updatedAt: '2026-04-03T11:45:00Z'
+      }
+    ]);
+    listRetrievalTestCases.mockResolvedValue([
+      {
+        expectedChunkId: 'kdc_1',
+        expectedChunkIndex: 2,
+        expectedDocumentId: 'doc_1',
+        expectedDocumentTitle: 'Overview',
+        id: 'krtc_1',
+        knowledgeBaseId: 'kb_9',
+        query: 'deployment rollback'
+      },
+      {
+        expectedChunkId: 'kdc_missing',
+        expectedChunkIndex: 0,
+        expectedDocumentId: 'doc_missing',
+        expectedDocumentTitle: 'Missing',
+        id: 'krtc_2',
+        knowledgeBaseId: 'kb_9',
+        query: 'billing controls'
+      }
+    ]);
+    runRetrievalTestCases.mockResolvedValue({
+      failed: 1,
+      knowledgeBaseId: 'kb_9',
+      passed: 1,
+      ranAt: '2026-06-05T12:00:00Z',
+      results: [
+        {
+          actualResult: {
+            chunkId: 'kdc_1',
+            chunkIndex: 2,
+            documentId: 'doc_1',
+            documentTitle: 'Overview',
+            retrievalMethod: 'hybrid',
+            similarity: 0.92,
+            snippet: 'Deployment rollback plans belong in the release runbook.',
+            source: {
+              chunkId: 'kdc_1',
+              chunkIndex: 2,
+              documentId: 'doc_1',
+              documentTitle: 'Overview'
+            }
+          },
+          expectedResult: {
+            chunkId: 'kdc_1',
+            chunkIndex: 2,
+            documentId: 'doc_1',
+            documentTitle: 'Overview',
+            retrievalMethod: 'hybrid',
+            similarity: 0.92,
+            snippet: 'Deployment rollback plans belong in the release runbook.',
+            source: {
+              chunkId: 'kdc_1',
+              chunkIndex: 2,
+              documentId: 'doc_1',
+              documentTitle: 'Overview'
+            }
+          },
+          passed: true,
+          query: 'deployment rollback',
+          rank: 1,
+          testCaseId: 'krtc_1'
+        },
+        {
+          expectedResult: {
+            chunkId: 'kdc_missing',
+            chunkIndex: 0,
+            documentId: 'doc_missing',
+            documentTitle: 'Missing',
+            retrievalMethod: 'hybrid',
+            similarity: 0,
+            snippet: '',
+            source: {
+              chunkId: 'kdc_missing',
+              chunkIndex: 0,
+              documentId: 'doc_missing',
+              documentTitle: 'Missing'
+            }
+          },
+          passed: false,
+          query: 'billing controls',
+          rank: 0,
+          reason: 'expected retrieval result was not returned',
+          testCaseId: 'krtc_2'
+        }
+      ],
+      total: 2
+    });
+
+    render(<KnowledgePage />);
+
+    await waitFor(() => {
+      expect(listRetrievalTestCases).toHaveBeenCalledWith('kb_9');
+    });
+    expect(await screen.findByText('Retrieval test set')).toBeInTheDocument();
+    expect(screen.getByText('Saved cases: 2')).toBeInTheDocument();
+    expect(screen.getByText('deployment rollback')).toBeInTheDocument();
+    expect(screen.getByText('Expected: Overview · chunk 3 · kdc_1')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Retrieval mode'), { target: { value: 'hybrid' } });
+    fireEvent.change(screen.getByLabelText('Retrieval limit'), { target: { value: '3' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Run retrieval tests' }));
+
+    await waitFor(() => {
+      expect(runRetrievalTestCases).toHaveBeenCalledWith('kb_9', {
+        limit: 3,
+        mode: 'hybrid'
+      });
+    });
+    expect(screen.getByText('Evaluation: 1 passed / 1 failed / 2 total')).toBeInTheDocument();
+    expect(screen.getByText('krtc_1 passed at rank 1')).toBeInTheDocument();
+    expect(screen.getByText('krtc_2 failed: expected retrieval result was not returned')).toBeInTheDocument();
+    expect(screen.getByText('Actual top: Overview · chunk 3 · kdc_1')).toBeInTheDocument();
+  });
+
+  it('runs retrieval tests with knowledge-base default tuning when controls are untouched', async () => {
+    routeState.knowledgeBaseId = 'kb_9';
+    getKnowledgeBase.mockResolvedValue({
+      documentCount: 2,
+      id: 'kb_9',
+      name: 'Architecture Notes',
+      updatedAt: '2026-04-03T11:30:00Z'
+    });
+    listKnowledgeDocuments.mockResolvedValue([]);
+    listRetrievalTestCases.mockResolvedValue([
+      {
+        expectedChunkId: 'kdc_1',
+        expectedChunkIndex: 2,
+        expectedDocumentId: 'doc_1',
+        expectedDocumentTitle: 'Overview',
+        id: 'krtc_1',
+        knowledgeBaseId: 'kb_9',
+        query: 'deployment rollback'
+      }
+    ]);
+    runRetrievalTestCases.mockResolvedValue({
+      failed: 0,
+      knowledgeBaseId: 'kb_9',
+      passed: 1,
+      ranAt: '2026-06-05T12:00:00Z',
+      results: [],
+      total: 1
+    });
+
+    render(<KnowledgePage />);
+
+    await screen.findByText('Saved cases: 1');
+    fireEvent.click(screen.getByRole('button', { name: 'Run retrieval tests' }));
+
+    await waitFor(() => {
+      expect(runRetrievalTestCases).toHaveBeenCalledWith('kb_9', {});
+    });
+  });
+
+  it('retrieves a selected document version or all versions', async () => {
+    routeState.knowledgeBaseId = 'kb_9';
+    getKnowledgeBase.mockResolvedValue({
+      documentCount: 2,
+      id: 'kb_9',
+      name: 'Architecture Notes',
+      updatedAt: '2026-04-03T11:30:00Z'
+    });
+    listKnowledgeDocuments.mockResolvedValue([
+      {
+        content: 'System boundaries',
+        documentVersion: 'v2',
+        id: 'doc_1',
+        title: 'Overview',
+        updatedAt: '2026-04-03T11:45:00Z'
+      }
+    ]);
+    retrieveKnowledge.mockResolvedValue([
+      {
+        chunkId: 'kdc_1',
+        chunkIndex: 0,
+        documentId: 'doc_1',
+        documentTitle: 'Overview',
+        documentVersion: 'v2',
+        retrievalMethod: 'hybrid',
+        similarity: 0.91,
+        source: {
+          chunkId: 'kdc_1',
+          chunkIndex: 0,
+          documentId: 'doc_1',
+          documentTitle: 'Overview',
+          documentVersion: 'v2'
+        },
+        snippet: 'Versioned deployment boundaries.'
+      }
+    ]);
+
+    render(<KnowledgePage />);
+
+    await screen.findByRole('heading', { name: 'Architecture Notes' });
+    fireEvent.change(screen.getByLabelText('Retrieval query'), { target: { value: 'deployment' } });
+    fireEvent.change(screen.getByLabelText('Retrieval document version'), { target: { value: 'v2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search knowledge' }));
+
+    await waitFor(() => {
+      expect(retrieveKnowledge).toHaveBeenLastCalledWith('kb_9', {
+        documentVersion: 'v2',
+        query: 'deployment'
+      });
+    });
+    expect(screen.getAllByText('Version: v2').length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByLabelText('Search all document versions'));
+    fireEvent.click(screen.getByRole('button', { name: 'Search knowledge' }));
+
+    await waitFor(() => {
+      expect(retrieveKnowledge).toHaveBeenLastCalledWith('kb_9', {
+        allVersions: true,
+        query: 'deployment'
+      });
+    });
+  });
+
+  it('loads document chunks and renders the selected chunk details', async () => {
+    routeState.knowledgeBaseId = 'kb_9';
+    getKnowledgeBase.mockResolvedValue({
+      documentCount: 1,
+      id: 'kb_9',
+      name: 'Architecture Notes',
+      updatedAt: '2026-04-03T11:30:00Z'
+    });
+    listKnowledgeDocuments.mockResolvedValue([
+      {
+        content: 'System boundaries',
+        id: 'doc_1',
+        title: 'Overview',
+        updatedAt: '2026-04-03T11:45:00Z'
+      }
+    ]);
+    listKnowledgeDocumentChunks.mockResolvedValue([
+      {
+        charCount: 24,
+        chunkId: 'kdc_1',
+        chunkIndex: 0,
+        content: 'First architecture chunk.',
+        documentVersion: 'v2',
+        estimatedTokenCount: 6,
+        metadata: {
+          documentVersion: 'v2',
+          pageNumber: 12,
+          sourceUrl: 'https://docs.example/runbook.pdf'
+        }
+      },
+      {
+        charCount: 36,
+        chunkId: 'kdc_2',
+        chunkIndex: 1,
+        content: 'Second architecture chunk with details.',
+        documentVersion: 'v2',
+        estimatedTokenCount: 9,
+        metadata: {
+          documentVersion: 'v2'
+        }
+      }
+    ]);
+
+    render(<KnowledgePage />);
+
+    await screen.findByRole('heading', { name: 'Architecture Notes' });
+    fireEvent.click(screen.getByRole('button', { name: 'View chunks for Overview' }));
+
+    await waitFor(() => {
+      expect(listKnowledgeDocumentChunks).toHaveBeenCalledWith('kb_9', 'doc_1');
+    });
+    expect(screen.getByRole('heading', { name: 'Chunks for Overview' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Chunk 1 kdc_1 selected' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Chunk 2 kdc_2' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getAllByText('First architecture chunk.').length).toBeGreaterThan(0);
+    expect(screen.getByText('chunk_id: kdc_1')).toBeInTheDocument();
+    expect(screen.getByText('Characters: 24')).toBeInTheDocument();
+    expect(screen.getByText('Estimated tokens: 6')).toBeInTheDocument();
+    expect(screen.getByText('documentVersion: v2')).toBeInTheDocument();
+    expect(screen.getByText('Page: 12')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open chunk source' })).toHaveAttribute('href', 'https://docs.example/runbook.pdf');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Chunk 2 kdc_2' }));
+
+    expect(screen.getByRole('button', { name: 'Chunk 2 kdc_2 selected' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getAllByText('Second architecture chunk with details.').length).toBeGreaterThan(0);
+    expect(screen.getByText('chunk_id: kdc_2')).toBeInTheDocument();
+  });
+
+  it('renders an original document preview with source paging and chunk boundaries', async () => {
+    routeState.knowledgeBaseId = 'kb_9';
+    getKnowledgeBase.mockResolvedValue({
+      documentCount: 1,
+      id: 'kb_9',
+      name: 'Architecture Notes',
+      updatedAt: '2026-04-03T11:30:00Z'
+    });
+    listKnowledgeDocuments.mockResolvedValue([
+      {
+        content: 'Uploaded runbook extracted text',
+        id: 'doc_1',
+        title: 'Uploaded Runbook',
+        updatedAt: '2026-04-03T11:45:00Z'
+      }
+    ]);
+    listKnowledgeDocumentChunks.mockResolvedValue([
+      {
+        charCount: 44,
+        chunkId: 'kdc_1',
+        chunkIndex: 0,
+        content: 'First runbook chunk from the original PDF.',
+        documentVersion: 'v2',
+        estimatedTokenCount: 8,
+        metadata: {
+          documentVersion: 'v2',
+          pageNumber: 12,
+          sourceUrl: 'https://docs.example/runbook.pdf'
+        }
+      },
+      {
+        charCount: 47,
+        chunkId: 'kdc_2',
+        chunkIndex: 1,
+        content: 'Second runbook chunk with escalation steps.',
+        documentVersion: 'v2',
+        estimatedTokenCount: 9,
+        metadata: {
+          documentVersion: 'v2',
+          pageNumber: 13,
+          sourceUrl: 'https://docs.example/runbook.pdf'
+        }
+      }
+    ]);
+
+    render(<KnowledgePage />);
+
+    await screen.findByRole('heading', { name: 'Architecture Notes' });
+    fireEvent.click(screen.getByRole('button', { name: 'View chunks for Uploaded Runbook' }));
+
+    const preview = await screen.findByLabelText('Original document preview');
+    expect(preview).toHaveTextContent('Original preview: Uploaded Runbook');
+    expect(preview).toHaveTextContent('PDF source');
+    expect(preview).toHaveTextContent('Page 12');
+    expect(screen.getByRole('link', { name: 'Open PDF page 12' })).toHaveAttribute(
+      'href',
+      'https://docs.example/runbook.pdf#page=12'
+    );
+    expect(screen.getByRole('button', { name: 'Preview chunk boundary 1 kdc_1 selected' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+    expect(screen.getByRole('button', { name: 'Preview chunk boundary 2 kdc_2' })).toHaveAttribute('aria-pressed', 'false');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview chunk boundary 2 kdc_2' }));
+
+    expect(screen.getByRole('button', { name: 'Preview chunk boundary 2 kdc_2 selected' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+    expect(screen.getByText('chunk_id: kdc_2')).toBeInTheDocument();
+    expect(preview).toHaveTextContent('Second runbook chunk with escalation steps.');
+  });
+
+  it('opens the matching chunk directly from a retrieval result', async () => {
+    routeState.knowledgeBaseId = 'kb_9';
+    getKnowledgeBase.mockResolvedValue({
+      documentCount: 1,
+      id: 'kb_9',
+      name: 'Architecture Notes',
+      updatedAt: '2026-04-03T11:30:00Z'
+    });
+    listKnowledgeDocuments.mockResolvedValue([
+      {
+        content: 'System boundaries',
+        id: 'doc_1',
+        title: 'Overview',
+        updatedAt: '2026-04-03T11:45:00Z'
+      }
+    ]);
+    retrieveKnowledge.mockResolvedValue([
+      {
+        chunkId: 'kdc_2',
+        chunkIndex: 1,
+        documentId: 'doc_1',
+        documentTitle: 'Overview',
+        retrievalMethod: 'hybrid',
+        similarity: 0.9,
+        source: {
+          chunkId: 'kdc_2',
+          chunkIndex: 1,
+          documentId: 'doc_1',
+          documentTitle: 'Overview'
+        },
+        snippet: 'Second architecture chunk with details.'
+      }
+    ]);
+    listKnowledgeDocumentChunks.mockResolvedValue([
+      {
+        charCount: 24,
+        chunkId: 'kdc_1',
+        chunkIndex: 0,
+        content: 'First architecture chunk.',
+        documentVersion: 'v1',
+        estimatedTokenCount: 6,
+        metadata: {}
+      },
+      {
+        charCount: 36,
+        chunkId: 'kdc_2',
+        chunkIndex: 1,
+        content: 'Second architecture chunk with details.',
+        documentVersion: 'v1',
+        estimatedTokenCount: 9,
+        metadata: {}
+      }
+    ]);
+
+    render(<KnowledgePage />);
+
+    await screen.findByRole('heading', { name: 'Architecture Notes' });
+    fireEvent.change(screen.getByLabelText('Retrieval query'), { target: { value: 'deployment' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search knowledge' }));
+
+    expect(await screen.findByText('Second architecture chunk with details.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'View chunk kdc_2' }));
+
+    await waitFor(() => {
+      expect(listKnowledgeDocumentChunks).toHaveBeenCalledWith('kb_9', 'doc_1');
+    });
+    expect(await screen.findByRole('heading', { name: 'Chunks for Overview' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Chunk 2 kdc_2 selected' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('chunk_id: kdc_2')).toBeInTheDocument();
+  });
+
+  it('previews the selected retrieval chunk with highlighted query text', async () => {
+    routeState.knowledgeBaseId = 'kb_9';
+    getKnowledgeBase.mockResolvedValue({
+      documentCount: 1,
+      id: 'kb_9',
+      name: 'Architecture Notes',
+      updatedAt: '2026-04-03T11:30:00Z'
+    });
+    listKnowledgeDocuments.mockResolvedValue([
+      {
+        content: 'System boundaries',
+        id: 'doc_1',
+        title: 'Overview',
+        updatedAt: '2026-04-03T11:45:00Z'
+      }
+    ]);
+    retrieveKnowledge.mockResolvedValue([
+      {
+        chunkId: 'kdc_2',
+        chunkIndex: 1,
+        documentId: 'doc_1',
+        documentTitle: 'Overview',
+        retrievalMethod: 'hybrid',
+        similarity: 0.9,
+        source: {
+          chunkId: 'kdc_2',
+          chunkIndex: 1,
+          documentId: 'doc_1',
+          documentTitle: 'Overview'
+        },
+        snippet: 'Deployment controls are part of the selected chunk.'
+      }
+    ]);
+    listKnowledgeDocumentChunks.mockResolvedValue([
+      {
+        charCount: 94,
+        chunkId: 'kdc_2',
+        chunkIndex: 1,
+        content: 'Full source chunk: Deployment controls require staged approval before production rollout.',
+        documentVersion: 'v1',
+        estimatedTokenCount: 14,
+        metadata: {}
+      }
+    ]);
+
+    const { container } = render(<KnowledgePage />);
+
+    await screen.findByRole('heading', { name: 'Architecture Notes' });
+    fireEvent.change(screen.getByLabelText('Retrieval query'), { target: { value: 'deployment controls' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search knowledge' }));
+    await screen.findByText('Deployment controls are part of the selected chunk.');
+    fireEvent.click(screen.getByRole('button', { name: 'View chunk kdc_2' }));
+
+    const selectedChunkPanel = await screen.findByLabelText('Selected chunk details');
+    expect(screen.getByRole('heading', { name: 'Selected chunk' })).toBeInTheDocument();
+    expect(selectedChunkPanel).toHaveTextContent('Full source chunk: Deployment controls require staged approval before production rollout.');
+    const highlightedText = selectedChunkPanel.querySelector('mark')?.textContent;
+    expect(highlightedText).toBe('Deployment controls');
+    expect(container.querySelector('mark')).toBeInTheDocument();
+  });
+
+  it('edits a selected document chunk and updates the local preview', async () => {
+    routeState.knowledgeBaseId = 'kb_9';
+    getKnowledgeBase.mockResolvedValue({
+      documentCount: 1,
+      id: 'kb_9',
+      name: 'Architecture Notes',
+      updatedAt: '2026-04-03T11:30:00Z'
+    });
+    listKnowledgeDocuments.mockResolvedValue([
+      {
+        content: 'System boundaries',
+        id: 'doc_1',
+        title: 'Overview',
+        updatedAt: '2026-04-03T11:45:00Z'
+      }
+    ]);
+    listKnowledgeDocumentChunks.mockResolvedValue([
+      {
+        charCount: 24,
+        chunkId: 'kdc_1',
+        chunkIndex: 0,
+        content: 'First architecture chunk.',
+        documentVersion: 'v2',
+        estimatedTokenCount: 6,
+        metadata: {
+          documentVersion: 'v2'
+        }
+      }
+    ]);
+    updateKnowledgeDocumentChunk.mockResolvedValue({
+      charCount: 35,
+      chunkId: 'kdc_1',
+      chunkIndex: 0,
+      content: 'Edited architecture chunk preview.',
+      documentVersion: 'v2',
+      estimatedTokenCount: 8,
+      metadata: {
+        documentVersion: 'v2'
+      }
+    });
+
+    render(<KnowledgePage />);
+
+    await screen.findByRole('heading', { name: 'Architecture Notes' });
+    fireEvent.click(screen.getByRole('button', { name: 'View chunks for Overview' }));
+    expect(await screen.findByLabelText('Chunk content editor')).toHaveValue('First architecture chunk.');
+
+    fireEvent.change(screen.getByLabelText('Chunk content editor'), {
+      target: { value: 'Edited architecture chunk preview.' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save chunk' }));
+
+    await waitFor(() => {
+      expect(updateKnowledgeDocumentChunk).toHaveBeenCalledWith('kb_9', 'doc_1', 'kdc_1', {
+        content: 'Edited architecture chunk preview.'
+      });
+    });
+    expect(screen.getAllByText('Edited architecture chunk preview.').length).toBeGreaterThan(0);
+    expect(screen.getByText('Characters: 35')).toBeInTheDocument();
+    expect(screen.getByText('Estimated tokens: 8')).toBeInTheDocument();
+  });
+
+  it('submits retrieval tuning parameters and renders scored source details', async () => {
+    routeState.knowledgeBaseId = 'kb_9';
+    getKnowledgeBase.mockResolvedValue({
+      documentCount: 2,
+      id: 'kb_9',
+      name: 'Architecture Notes',
+      updatedAt: '2026-04-03T11:30:00Z'
+    });
+    listKnowledgeDocuments.mockResolvedValue([
+      {
+        content: 'System boundaries',
+        id: 'doc_1',
+        title: 'Overview',
+        updatedAt: '2026-04-03T11:45:00Z'
+      }
+    ]);
+    retrieveKnowledge.mockResolvedValue([
+      {
+        chunkId: 'kdc_7',
+        chunkIndex: 4,
+        documentId: 'doc_1',
+        documentTitle: 'Overview',
+        retrievalMethod: 'hybrid',
+        similarity: 0.87,
+        source: {
+          chunkId: 'kdc_7',
+          chunkIndex: 4,
+          documentId: 'doc_1',
+          documentTitle: 'Overview'
+        },
+        snippet: 'Deployment rollback plans belong in the release runbook.'
+      }
+    ]);
+
+    render(<KnowledgePage />);
+
+    await screen.findByRole('heading', { name: 'Architecture Notes' });
+    fireEvent.change(screen.getByLabelText('Retrieval query'), { target: { value: 'deployment rollback' } });
+    fireEvent.change(screen.getByLabelText('Retrieval limit'), { target: { value: '7' } });
+    fireEvent.change(screen.getByLabelText('Similarity threshold'), { target: { value: '0.42' } });
+    fireEvent.change(screen.getByLabelText('Retrieval mode'), { target: { value: 'hybrid' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search knowledge' }));
+
+    await waitFor(() => {
+      expect(retrieveKnowledge).toHaveBeenCalledWith('kb_9', {
+        limit: 7,
+        minScore: 0.42,
+        mode: 'hybrid',
+        query: 'deployment rollback'
+      });
+    });
+    expect(screen.getByText('Score: 87%')).toBeInTheDocument();
+    expect(screen.getByText('Method: hybrid')).toBeInTheDocument();
+    expect(screen.getByText('Source: Overview · chunk 5 · kdc_7')).toBeInTheDocument();
+    expect(screen.getByText('Deployment rollback plans belong in the release runbook.')).toBeInTheDocument();
+  });
+
+  it('renders citation page, source URL, original text, and highlight spans', async () => {
+    routeState.knowledgeBaseId = 'kb_9';
+    getKnowledgeBase.mockResolvedValue({
+      documentCount: 1,
+      id: 'kb_9',
+      name: 'Architecture Notes',
+      updatedAt: '2026-04-03T11:30:00Z'
+    });
+    listKnowledgeDocuments.mockResolvedValue([]);
+    retrieveKnowledge.mockResolvedValue([
+      {
+        chunkId: 'kdc_trace',
+        chunkIndex: 3,
+        documentId: 'doc_trace',
+        documentTitle: 'User Manual.pdf',
+        retrievalMethod: 'hybrid_rerank',
+        similarity: 0.91,
+        source: {
+          chunkId: 'kdc_trace',
+          chunkIndex: 3,
+          documentId: 'doc_trace',
+          documentTitle: 'User Manual.pdf',
+          pageNumber: 15,
+          sourceUrl: 'https://docs.example/manual.pdf',
+          originalText: 'Deployment controls require approval before production rollout.',
+          matchedSnippet: 'Deployment controls',
+          highlightPositions: [{ start: 0, end: 19 }]
+        },
+        snippet: 'Deployment controls require approval before production rollout.'
+      }
+    ]);
+
+    const { container } = render(<KnowledgePage />);
+
+    await screen.findByRole('heading', { name: 'Architecture Notes' });
+    fireEvent.change(screen.getByLabelText('Retrieval query'), { target: { value: 'deployment controls' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search knowledge' }));
+
+    expect(await screen.findByText('Page: 15')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open source document' })).toHaveAttribute('href', 'https://docs.example/manual.pdf');
+    expect(screen.getByText('Original text: Deployment controls require approval before production rollout.')).toBeInTheDocument();
+    expect(screen.getByText((_, element) => element?.textContent === 'Matched snippet: Deployment controls')).toBeInTheDocument();
+    expect(container.querySelector('mark')?.textContent).toBe('Deployment controls');
+    expect(screen.getByText('Highlight: 0-19')).toBeInTheDocument();
   });
 
   it('shows query-specific empty feedback when retrieval returns no snippets', async () => {

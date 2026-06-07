@@ -1,22 +1,49 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"net"
 	stdhttp "net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"oblivious/server/internal/admin"
 	"oblivious/server/internal/auth"
+	"oblivious/server/internal/marketplace"
+	"oblivious/server/internal/quota"
 )
 
+type adminQuotaSettingsService interface {
+	ListUsageLimitSettings(ctx context.Context, organizationID string) ([]quota.UsageLimitSettings, error)
+	SaveUsageLimitSettings(ctx context.Context, settings quota.UsageLimitSettings) (*quota.UsageLimitSettings, error)
+}
+
+type adminMarketplacePayoutService interface {
+	MarkPayoutPaid(ctx context.Context, payoutID string, providerPayoutID string) (*marketplace.MarketplacePayout, error)
+}
+
 type adminHandler struct {
-	service *admin.Service
+	service       *admin.Service
+	quotaService  adminQuotaSettingsService
+	payoutService adminMarketplacePayoutService
 }
 
 func newAdminHandler(service *admin.Service) adminHandler {
 	return adminHandler{service: service}
+}
+
+func newAdminHandlerWithQuota(service *admin.Service, quotaService adminQuotaSettingsService) adminHandler {
+	return adminHandler{service: service, quotaService: quotaService}
+}
+
+func newAdminHandlerWithPayouts(service *admin.Service, payoutService adminMarketplacePayoutService) adminHandler {
+	return adminHandler{service: service, payoutService: payoutService}
+}
+
+func newAdminHandlerWithQuotaAndPayouts(service *admin.Service, quotaService adminQuotaSettingsService, payoutService adminMarketplacePayoutService) adminHandler {
+	return adminHandler{service: service, quotaService: quotaService, payoutService: payoutService}
 }
 
 func (h adminHandler) getStats(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -46,6 +73,18 @@ func (h adminHandler) listChannels(w stdhttp.ResponseWriter, r *stdhttp.Request)
 	writeSuccess(w, stdhttp.StatusOK, map[string]any{
 		"channels": channels,
 		"total":    len(channels),
+	})
+}
+
+func (h adminHandler) listChannelProviders(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	providers, err := h.service.ListChannelProviders(r.Context())
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+
+	writeSuccess(w, stdhttp.StatusOK, map[string]any{
+		"providers": providers,
 	})
 }
 
@@ -127,6 +166,66 @@ func (h adminHandler) testChannel(w stdhttp.ResponseWriter, r *stdhttp.Request, 
 	writeSuccess(w, stdhttp.StatusOK, result)
 }
 
+func (h adminHandler) syncChannelModels(w stdhttp.ResponseWriter, r *stdhttp.Request, channelID string) {
+	session, ok := sessionOrUnauthorized(w, r)
+	if !ok {
+		return
+	}
+
+	result, err := h.service.SyncChannelModels(r.Context(), session, channelID, r)
+	if err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+
+	writeSuccess(w, stdhttp.StatusOK, result)
+}
+
+func (h adminHandler) detectChannelModelUpdates(w stdhttp.ResponseWriter, r *stdhttp.Request, channelID string) {
+	result, err := h.service.DetectChannelModelUpdates(r.Context(), channelID)
+	if err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+
+	writeSuccess(w, stdhttp.StatusOK, result)
+}
+
+func (h adminHandler) applyChannelModelUpdates(w stdhttp.ResponseWriter, r *stdhttp.Request, channelID string) {
+	session, ok := sessionOrUnauthorized(w, r)
+	if !ok {
+		return
+	}
+
+	var req admin.ChannelModelUpdateApplyRequest
+	if !decodeRequestJSON(w, r, &req) {
+		return
+	}
+
+	result, err := h.service.ApplyChannelModelUpdates(r.Context(), session, channelID, req, r)
+	if err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+
+	writeSuccess(w, stdhttp.StatusOK, result)
+}
+
+func (h adminHandler) refreshChannelBalance(w stdhttp.ResponseWriter, r *stdhttp.Request, channelID string) {
+	session, ok := sessionOrUnauthorized(w, r)
+	if !ok {
+		return
+	}
+
+	result, err := h.service.RefreshChannelBalance(r.Context(), session, channelID, r)
+	if err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+
+	writeSuccess(w, stdhttp.StatusOK, result)
+}
+
 func (h adminHandler) getChannelHealth(w stdhttp.ResponseWriter, r *stdhttp.Request, channelID string) {
 	health, err := h.service.GetChannelHealth(r.Context(), channelID)
 	if err != nil {
@@ -135,6 +234,18 @@ func (h adminHandler) getChannelHealth(w stdhttp.ResponseWriter, r *stdhttp.Requ
 	}
 
 	writeSuccess(w, stdhttp.StatusOK, health)
+}
+
+func (h adminHandler) listChannelRuntimeStats(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	stats, err := h.service.ListChannelRuntimeStats(r.Context())
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+
+	writeSuccess(w, stdhttp.StatusOK, map[string]any{
+		"stats": stats,
+	})
 }
 
 func (h adminHandler) batchUpdateChannels(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -171,6 +282,199 @@ func (h adminHandler) batchUpdateChannels(w stdhttp.ResponseWriter, r *stdhttp.R
 	}
 
 	writeSuccess(w, stdhttp.StatusOK, map[string]string{"status": "updated"})
+}
+
+func (h adminHandler) getRelayPricingSettings(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	settings, err := h.service.GetRelayPricingSettings(r.Context())
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+
+	writeSuccess(w, stdhttp.StatusOK, settings)
+}
+
+func (h adminHandler) updateRelayPricingSettings(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	session, ok := sessionOrUnauthorized(w, r)
+	if !ok {
+		return
+	}
+
+	var req admin.RelayPricingSettings
+	if !decodeRequestJSON(w, r, &req) {
+		return
+	}
+
+	settings, err := h.service.UpdateRelayPricingSettings(r.Context(), session, req, requestClientIP(r))
+	if err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+
+	writeSuccess(w, stdhttp.StatusOK, settings)
+}
+
+func (h adminHandler) listUsageLimitSettings(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	session, ok := sessionOrUnauthorized(w, r)
+	if !ok {
+		return
+	}
+	if h.quotaService == nil {
+		writeError(w, stdhttp.StatusServiceUnavailable, "quota_unavailable", "quota settings service is unavailable")
+		return
+	}
+
+	settings, err := h.quotaService.ListUsageLimitSettings(r.Context(), session.OrganizationID)
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, map[string]any{"usageLimits": settings})
+}
+
+func (h adminHandler) updateUsageLimitSettings(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	session, ok := sessionOrUnauthorized(w, r)
+	if !ok {
+		return
+	}
+	if h.quotaService == nil {
+		writeError(w, stdhttp.StatusServiceUnavailable, "quota_unavailable", "quota settings service is unavailable")
+		return
+	}
+
+	var req quota.UsageLimitSettings
+	if !decodeRequestJSON(w, r, &req) {
+		return
+	}
+	req.OrganizationID = session.OrganizationID
+	settings, err := h.quotaService.SaveUsageLimitSettings(r.Context(), req)
+	if err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, settings)
+}
+
+func (h adminHandler) listUsageLogs(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	filter := admin.UsageLogFilter{
+		OrganizationID: r.URL.Query().Get("organizationID"),
+		UserID:         r.URL.Query().Get("userID"),
+		APITokenID:     r.URL.Query().Get("apiTokenID"),
+		RequestID:      r.URL.Query().Get("requestID"),
+		APIType:        r.URL.Query().Get("apiType"),
+		FeatureType:    r.URL.Query().Get("featureType"),
+		QuotaMode:      r.URL.Query().Get("quotaMode"),
+		Model:          r.URL.Query().Get("model"),
+		ChannelID:      r.URL.Query().Get("channelID"),
+		Provider:       r.URL.Query().Get("provider"),
+		Status:         r.URL.Query().Get("status"),
+		Limit:          parseQueryInt(r, "limit", 50, 100),
+		Offset:         parseQueryInt(r, "offset", 0, 0),
+	}
+
+	logs, total, err := h.service.ListUsageLogs(r.Context(), filter)
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+
+	writeSuccess(w, stdhttp.StatusOK, map[string]any{
+		"usageLogs": logs,
+		"total":     total,
+	})
+}
+
+func (h adminHandler) getUsageAnalytics(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	filter := admin.UsageAnalyticsFilter{
+		OrganizationID: r.URL.Query().Get("organizationID"),
+		UserID:         r.URL.Query().Get("userID"),
+		APIType:        r.URL.Query().Get("apiType"),
+		FeatureType:    r.URL.Query().Get("featureType"),
+		QuotaMode:      r.URL.Query().Get("quotaMode"),
+		Model:          r.URL.Query().Get("model"),
+		ChannelID:      r.URL.Query().Get("channelID"),
+		Provider:       r.URL.Query().Get("provider"),
+		Status:         r.URL.Query().Get("status"),
+		Granularity:    r.URL.Query().Get("granularity"),
+		Limit:          parseQueryInt(r, "limit", 10, 100),
+	}
+	if from, ok := parseQueryTime(r, "from"); ok {
+		filter.From = from
+	}
+	if to, ok := parseQueryTime(r, "to"); ok {
+		filter.To = to
+	}
+	analytics, err := h.service.GetUsageAnalytics(r.Context(), filter)
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, analytics)
+}
+
+func (h adminHandler) listAPITokens(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	filter := admin.APITokenFilter{
+		OrganizationID: r.URL.Query().Get("organizationID"),
+		UserID:         r.URL.Query().Get("userID"),
+		Status:         r.URL.Query().Get("status"),
+		UserGroup:      r.URL.Query().Get("userGroup"),
+		Search:         r.URL.Query().Get("search"),
+		Model:          r.URL.Query().Get("model"),
+		Limit:          parseQueryInt(r, "limit", 50, 100),
+		Offset:         parseQueryInt(r, "offset", 0, 0),
+	}
+
+	tokens, total, err := h.service.ListAPITokens(r.Context(), filter)
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+
+	writeSuccess(w, stdhttp.StatusOK, map[string]any{
+		"apiTokens": tokens,
+		"total":     total,
+	})
+}
+
+func (h adminHandler) revokeAPIToken(w stdhttp.ResponseWriter, r *stdhttp.Request, tokenID string) {
+	session, ok := sessionOrUnauthorized(w, r)
+	if !ok {
+		return
+	}
+
+	if err := h.service.RevokeAPIToken(r.Context(), session, tokenID, requestClientIP(r)); err != nil {
+		if isNotFoundError(err) {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "api token not found")
+			return
+		}
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+
+	writeSuccess(w, stdhttp.StatusOK, map[string]string{"status": "revoked"})
+}
+
+func (h adminHandler) listModelInventory(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	filter := admin.ModelInventoryFilter{
+		Provider: r.URL.Query().Get("provider"),
+		Group:    r.URL.Query().Get("group"),
+		Status:   r.URL.Query().Get("status"),
+		Search:   r.URL.Query().Get("search"),
+		Sort:     r.URL.Query().Get("sort"),
+		Limit:    parseQueryInt(r, "limit", 50, 100),
+		Offset:   parseQueryInt(r, "offset", 0, 0),
+	}
+
+	models, total, err := h.service.ListModelInventory(r.Context(), filter)
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+
+	writeSuccess(w, stdhttp.StatusOK, map[string]any{
+		"models": models,
+		"total":  total,
+	})
 }
 
 func (h adminHandler) listRoutes(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -542,6 +846,28 @@ func (h adminHandler) rejectAgent(w stdhttp.ResponseWriter, r *stdhttp.Request, 
 	writeSuccess(w, stdhttp.StatusOK, map[string]string{"status": "rejected"})
 }
 
+func (h adminHandler) needsChangesAgent(w stdhttp.ResponseWriter, r *stdhttp.Request, agentID string) {
+	session, ok := sessionOrUnauthorized(w, r)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	if !decodeRequestJSON(w, r, &req) {
+		return
+	}
+
+	if err := h.service.RequestAgentChanges(r.Context(), agentID, req.Reason); err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	_ = h.service.LogAction(r.Context(), session.User.ID, session.User.Email, "agent.needs_changes", "agent", agentID, req.Reason, requestClientIP(r))
+
+	writeSuccess(w, stdhttp.StatusOK, map[string]string{"status": "needs_changes"})
+}
+
 func (h adminHandler) billingFilter(r *stdhttp.Request) admin.BillingInspectionFilter {
 	return admin.BillingInspectionFilter{
 		OrganizationID: firstNonEmpty(r.URL.Query().Get("organizationID"), r.URL.Query().Get("organizationId")),
@@ -644,6 +970,25 @@ func (h adminHandler) listMarketplacePayouts(w stdhttp.ResponseWriter, r *stdhtt
 	writeSuccess(w, stdhttp.StatusOK, map[string]any{"payouts": items, "total": total})
 }
 
+func (h adminHandler) markMarketplacePayoutPaid(w stdhttp.ResponseWriter, r *stdhttp.Request, payoutID string) {
+	if h.payoutService == nil {
+		writeError(w, stdhttp.StatusServiceUnavailable, "service_unavailable", "marketplace payout service is not configured")
+		return
+	}
+	var request struct {
+		ProviderPayoutID string `json:"providerPayoutID"`
+	}
+	if !decodeRequestJSON(w, r, &request) {
+		return
+	}
+	payout, err := h.payoutService.MarkPayoutPaid(r.Context(), payoutID, request.ProviderPayoutID)
+	if err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, payout)
+}
+
 func decodeRequestJSON(w stdhttp.ResponseWriter, r *stdhttp.Request, dst any) bool {
 	if err := json.NewDecoder(r.Body).Decode(dst); err != nil {
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "invalid json body")
@@ -677,6 +1022,18 @@ func parseQueryInt(r *stdhttp.Request, key string, defaultValue int, maxValue in
 		return maxValue
 	}
 	return parsed
+}
+
+func parseQueryTime(r *stdhttp.Request, key string) (time.Time, bool) {
+	value := strings.TrimSpace(r.URL.Query().Get(key))
+	if value == "" {
+		return time.Time{}, false
+	}
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return parsed, true
 }
 
 func parseOptionalBool(r *stdhttp.Request, key string) (bool, bool) {

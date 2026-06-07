@@ -57,6 +57,7 @@ type CompletionResponse struct {
 type RelayRequestMetadata struct {
 	OrganizationID string
 	UserID         string
+	UserGroup      string
 	WorkspaceID    string
 	RequestID      string
 }
@@ -105,15 +106,15 @@ func selectModelID(modelID, fallback string) string {
 	return fallback
 }
 
-func toOpenAIMessages(messages []Message, systemPromptOverride string, toolsEnabled bool) []openAIMessage {
+func toOpenAIMessages(messages []Message, config ConversationConfig) []openAIMessage {
 	result := make([]openAIMessage, 0, len(messages)+2)
-	if strings.TrimSpace(systemPromptOverride) != "" {
+	if systemPrompt := buildSystemPrompt(config); systemPrompt != "" {
 		result = append(result, openAIMessage{
-			Content: systemPromptOverride,
+			Content: systemPrompt,
 			Role:    "system",
 		})
 	}
-	if toolsEnabled {
+	if config.ToolsEnabled {
 		result = append(result, openAIMessage{
 			Content: "Tools are enabled for this conversation.",
 			Role:    "system",
@@ -133,4 +134,30 @@ func toOpenAIMessages(messages []Message, systemPromptOverride string, toolsEnab
 	}
 
 	return result
+}
+
+func buildSystemPrompt(config ConversationConfig) string {
+	parts := []string{}
+	if prompt := strings.TrimSpace(config.SystemPromptOverride); prompt != "" {
+		parts = append(parts, prompt)
+	}
+
+	personaLines := []string{}
+	if role := strings.TrimSpace(config.PersonaRole); role != "" {
+		personaLines = append(personaLines, "Role: "+role)
+	}
+	if style := strings.TrimSpace(config.PersonaStyle); style != "" {
+		personaLines = append(personaLines, "Style: "+style)
+	}
+	if tone := strings.TrimSpace(config.PersonaTone); tone != "" {
+		personaLines = append(personaLines, "Tone: "+tone)
+	}
+	if constraints := strings.TrimSpace(config.PersonaConstraints); constraints != "" {
+		personaLines = append(personaLines, "Constraints: "+constraints)
+	}
+	if len(personaLines) > 0 {
+		parts = append(parts, strings.Join(personaLines, "\n"))
+	}
+
+	return strings.Join(parts, "\n\n")
 }

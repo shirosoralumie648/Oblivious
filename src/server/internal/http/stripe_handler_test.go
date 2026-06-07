@@ -12,13 +12,16 @@ import (
 
 	stripeapi "github.com/stripe/stripe-go/v83"
 	"github.com/stripe/stripe-go/v83/webhook"
+	"oblivious/server/internal/payment"
 
 	stripebilling "oblivious/server/internal/stripe"
 )
 
 type fakeCheckoutCreator struct {
-	database *sql.DB
-	request  stripebilling.CheckoutSessionRequest
+	database   *sql.DB
+	sessionID  string
+	sessionURL string
+	request    stripebilling.CheckoutSessionRequest
 }
 
 func (f *fakeCheckoutCreator) CreateCheckoutSession(_ context.Context, _ stripebilling.CheckoutConfig, req stripebilling.CheckoutSessionRequest) (*stripeapi.CheckoutSession, error) {
@@ -32,9 +35,17 @@ func (f *fakeCheckoutCreator) CreateCheckoutSession(_ context.Context, _ stripeb
 			return nil, fmt.Errorf("payment intent %s was not precreated", req.PaymentIntentID)
 		}
 	}
+	sessionID := f.sessionID
+	if sessionID == "" {
+		sessionID = "cs_test_phase17"
+	}
+	sessionURL := f.sessionURL
+	if sessionURL == "" {
+		sessionURL = "https://checkout.stripe.test/cs_test_phase17"
+	}
 	return &stripeapi.CheckoutSession{
-		ID:  "cs_test_phase17",
-		URL: "https://checkout.stripe.test/cs_test_phase17",
+		ID:  sessionID,
+		URL: sessionURL,
 	}, nil
 }
 
@@ -286,6 +297,164 @@ func TestBillingCheckoutPersistsTenantPaymentIntent(t *testing.T) {
 	}
 }
 
+func TestBillingCheckoutExplicitStripeUsesExistingCheckout(t *testing.T) {
+	database := testDatabase(t)
+	fakeCreator := &fakeCheckoutCreator{database: database}
+	cfg := testConfig()
+	cfg.StripeSuccessURL = "https://app.oblivious.test/billing/success"
+	cfg.StripeCancelURL = "https://app.oblivious.test/billing/cancel"
+	router := NewRouterWithOptions(cfg, database, RouterOptions{CheckoutCreator: fakeCreator})
+
+	if _, err := database.Exec(`
+		INSERT INTO packages (id, name, description, quota_amount, price, duration_days, is_active, sort_order, created_at)
+		VALUES ('pkg_provider_stripe', 'Provider Stripe Pro', 'Provider regression plan', 100, 29, 30, true, 1, NOW())
+	`); err != nil {
+		t.Fatalf("insert package: %v", err)
+	}
+
+	cookie, csrfToken, userID := registerHTTPUser(t, router, "stripe-explicit-provider@example.com")
+	var organizationID string
+	if err := database.QueryRow(`SELECT organization_id FROM sessions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`, userID).Scan(&organizationID); err != nil {
+		t.Fatalf("query session organization: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/billing/checkout", strings.NewReader(`{"provider":"stripe","packageId":"pkg_provider_stripe","kind":"subscription"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(cookie)
+	addCSRF(request, csrfToken)
+
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("expected explicit stripe checkout to return 201, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if fakeCreator.request.OrganizationID != organizationID || fakeCreator.request.UserID != userID || fakeCreator.request.PlanID != "pkg_provider_stripe" {
+		t.Fatalf("checkout creator saw wrong explicit stripe metadata: %+v", fakeCreator.request)
+	}
+
+	var provider string
+	if err := database.QueryRow(`SELECT provider FROM payment_intents WHERE provider_checkout_session_id = 'cs_test_phase17'`).Scan(&provider); err != nil {
+		t.Fatalf("query explicit stripe payment intent: %v", err)
+	}
+	if provider != "stripe" {
+		t.Fatalf("expected explicit stripe payment intent provider stripe, got %q", provider)
+	}
+}
+
+func TestBillingCheckoutUnconfiguredProvidersDoNotCreateArtifacts(t *testing.T) {
+	for _, provider := range []string{"alipay", "wechatpay"} {
+		t.Run(provider, func(t *testing.T) {
+			database := testDatabase(t)
+			fakeCreator := &fakeCheckoutCreator{database: database}
+			cfg := testConfig()
+			cfg.StripeSuccessURL = "https://app.oblivious.test/billing/success"
+			cfg.StripeCancelURL = "https://app.oblivious.test/billing/cancel"
+			router := NewRouterWithOptions(cfg, database, RouterOptions{CheckoutCreator: fakeCreator})
+
+			cookie, csrfToken, userID := registerHTTPUser(t, router, "checkout-"+provider+"@example.com")
+			var organizationID string
+			if err := database.QueryRow(`SELECT organization_id FROM sessions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`, userID).Scan(&organizationID); err != nil {
+				t.Fatalf("query session organization: %v", err)
+			}
+
+			recorder := httptest.NewRecorder()
+			body := fmt.Sprintf(`{"provider":%q,"kind":"topup","amount":25}`, provider)
+			request := httptest.NewRequest(http.MethodPost, "/api/v1/billing/checkout", strings.NewReader(body))
+			request.Header.Set("Content-Type", "application/json")
+			request.AddCookie(cookie)
+			addCSRF(request, csrfToken)
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusNotImplemented {
+				t.Fatalf("expected unconfigured %s checkout to return 501, got %d with body %s", provider, recorder.Code, recorder.Body.String())
+			}
+			var response Envelope
+			if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+				t.Fatalf("decode unconfigured provider response: %v", err)
+			}
+			if response.Error == nil || response.Error.Code != "provider_not_configured" {
+				t.Fatalf("expected provider_not_configured response, got %+v", response.Error)
+			}
+			if fakeCreator.request.PaymentIntentID != "" {
+				t.Fatalf("checkout creator should not be called for %s, got %+v", provider, fakeCreator.request)
+			}
+
+			var intentCount, topupCount, marketplaceOrderCount int
+			if err := database.QueryRow(`SELECT COUNT(*) FROM payment_intents WHERE organization_id = $1 AND user_id = $2`, organizationID, userID).Scan(&intentCount); err != nil {
+				t.Fatalf("query payment intent count: %v", err)
+			}
+			if err := database.QueryRow(`SELECT COUNT(*) FROM topup_orders WHERE organization_id = $1 AND user_id = $2`, organizationID, userID).Scan(&topupCount); err != nil {
+				t.Fatalf("query topup order count: %v", err)
+			}
+			if err := database.QueryRow(`SELECT COUNT(*) FROM marketplace_orders WHERE buyer_organization_id = $1 AND buyer_user_id = $2`, organizationID, userID).Scan(&marketplaceOrderCount); err != nil {
+				t.Fatalf("query marketplace order count: %v", err)
+			}
+			if intentCount != 0 || topupCount != 0 || marketplaceOrderCount != 0 {
+				t.Fatalf("expected no artifacts for %s, got intents=%d topups=%d marketplace_orders=%d", provider, intentCount, topupCount, marketplaceOrderCount)
+			}
+		})
+	}
+}
+
+func TestBillingCheckoutUsesConfiguredProviderCheckoutCreator(t *testing.T) {
+	database := testDatabase(t)
+	stripeCreator := &fakeCheckoutCreator{database: database}
+	alipayCreator := &fakeCheckoutCreator{
+		database:   database,
+		sessionID:  "alipay_session_phase20",
+		sessionURL: "https://checkout.alipay.test/alipay_session_phase20",
+	}
+	providerRegistry := payment.NewRegistry("stripe")
+	providerRegistry.Register(payment.Provider{Name: "stripe", Configured: true})
+	providerRegistry.Register(payment.Provider{Name: "alipay", Configured: true})
+
+	cfg := testConfig()
+	cfg.StripeSuccessURL = "https://app.oblivious.test/billing/success"
+	cfg.StripeCancelURL = "https://app.oblivious.test/billing/cancel"
+	router := NewRouterWithOptions(cfg, database, RouterOptions{
+		CheckoutCreator:         stripeCreator,
+		CheckoutCreators:        map[string]stripebilling.CheckoutCreator{"alipay": alipayCreator},
+		PaymentProviderRegistry: providerRegistry,
+	})
+
+	cookie, csrfToken, userID := registerHTTPUser(t, router, "alipay-checkout-provider@example.com")
+	var organizationID string
+	if err := database.QueryRow(`SELECT organization_id FROM sessions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`, userID).Scan(&organizationID); err != nil {
+		t.Fatalf("query session organization: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/billing/checkout", strings.NewReader(`{"provider":"alipay","kind":"topup","amount":25}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(cookie)
+	addCSRF(request, csrfToken)
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("expected configured alipay checkout to return 201, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if stripeCreator.request.PaymentIntentID != "" {
+		t.Fatalf("stripe checkout creator must not be used for alipay, got %+v", stripeCreator.request)
+	}
+	if alipayCreator.request.PaymentIntentID == "" || alipayCreator.request.CheckoutKind != "topup" || alipayCreator.request.PlanPrice != 25 {
+		t.Fatalf("alipay checkout creator saw wrong request: %+v", alipayCreator.request)
+	}
+
+	var storedProvider, storedOrganizationID, storedUserID string
+	if err := database.QueryRow(`
+		SELECT provider, organization_id, user_id
+		FROM payment_intents
+		WHERE provider_checkout_session_id = 'alipay_session_phase20'
+	`).Scan(&storedProvider, &storedOrganizationID, &storedUserID); err != nil {
+		t.Fatalf("query alipay payment intent: %v", err)
+	}
+	if storedProvider != "alipay" || storedOrganizationID != organizationID || storedUserID != userID {
+		t.Fatalf("expected alipay tenant payment intent, got provider=%s org=%s user=%s", storedProvider, storedOrganizationID, storedUserID)
+	}
+}
+
 func TestMarketplacePaidInstallDoesNotInstallBeforeWebhook(t *testing.T) {
 	database := testDatabase(t)
 	fakeCreator := &fakeCheckoutCreator{database: database}
@@ -347,6 +516,79 @@ func TestMarketplacePaidInstallDoesNotInstallBeforeWebhook(t *testing.T) {
 	}
 	if installCount != 0 || orderCount != 1 || intentCount != 1 {
 		t.Fatalf("expected no install and one pending order/intent, got installs=%d orders=%d intents=%d", installCount, orderCount, intentCount)
+	}
+}
+
+func TestMarketplacePaidInstallUsesConfiguredProviderCheckoutCreator(t *testing.T) {
+	database := testDatabase(t)
+	stripeCreator := &fakeCheckoutCreator{database: database}
+	alipayCreator := &fakeCheckoutCreator{
+		database:   database,
+		sessionID:  "alipay_marketplace_session",
+		sessionURL: "https://checkout.alipay.test/marketplace/alipay_marketplace_session",
+	}
+	providerRegistry := payment.NewRegistry("stripe")
+	providerRegistry.Register(payment.Provider{Name: "stripe", Configured: true})
+	providerRegistry.Register(payment.Provider{Name: "alipay", Configured: true})
+
+	cfg := testConfig()
+	cfg.StripeSuccessURL = "https://app.oblivious.test/marketplace/success"
+	cfg.StripeCancelURL = "https://app.oblivious.test/marketplace/cancel"
+	router := NewRouterWithOptions(cfg, database, RouterOptions{
+		CheckoutCreator:         stripeCreator,
+		CheckoutCreators:        map[string]stripebilling.CheckoutCreator{"alipay": alipayCreator},
+		PaymentProviderRegistry: providerRegistry,
+	})
+
+	cookie, csrfToken, buyerUserID := registerHTTPUser(t, router, "marketplace-alipay-buyer@example.com")
+	_, buyerOrganizationID := queryHTTPUserScope(t, database, buyerUserID)
+	_, _, publisherUserID := registerHTTPUser(t, router, "marketplace-alipay-publisher@example.com")
+	_, publisherOrganizationID := queryHTTPUserScope(t, database, publisherUserID)
+
+	if _, err := database.Exec(`
+		INSERT INTO published_agents (
+			id, owner_id, organization_id, name, description, tools, example_conversations,
+			visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at
+		)
+		VALUES ('agent_paid_alipay', $1, $2, 'Paid Alipay Agent', 'Paid marketplace provider routing test agent.',
+		        '{"tools":[{"name":"paid"}]}'::jsonb, '[]'::jsonb, 'public', 'approved',
+		        'one_time', 50, 0, 0, 0, NOW(), NOW())
+	`, publisherUserID, publisherOrganizationID); err != nil {
+		t.Fatalf("insert paid alipay marketplace agent: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO agent_versions (id, agent_id, organization_id, version, changelog, metadata, status, created_at)
+		VALUES ('version_agent_paid_alipay', 'agent_paid_alipay', $1, '1.0.0', 'initial', '{}', 'approved', NOW())
+	`, publisherOrganizationID); err != nil {
+		t.Fatalf("insert paid alipay marketplace version: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/marketplace/agents/agent_paid_alipay/install?versionID=version_agent_paid_alipay&provider=alipay", nil)
+	request.AddCookie(cookie)
+	addCSRF(request, csrfToken)
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("paid alipay install expected checkout 201, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if stripeCreator.request.PaymentIntentID != "" {
+		t.Fatalf("stripe checkout creator must not be used for alipay marketplace install, got %+v", stripeCreator.request)
+	}
+	if alipayCreator.request.CheckoutKind != "marketplace_install" || alipayCreator.request.AgentID != "agent_paid_alipay" || alipayCreator.request.MarketplaceOrderID == "" {
+		t.Fatalf("alipay checkout creator saw wrong marketplace metadata: %+v", alipayCreator.request)
+	}
+
+	var storedProvider string
+	if err := database.QueryRow(`
+		SELECT provider
+		FROM payment_intents
+		WHERE id = $1 AND kind = 'marketplace_install' AND organization_id = $2
+	`, alipayCreator.request.PaymentIntentID, buyerOrganizationID).Scan(&storedProvider); err != nil {
+		t.Fatalf("query alipay marketplace payment intent: %v", err)
+	}
+	if storedProvider != "alipay" {
+		t.Fatalf("expected alipay marketplace payment intent, got provider %q", storedProvider)
 	}
 }
 

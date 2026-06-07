@@ -2,6 +2,7 @@ import { HttpError } from './errors';
 import { unwrapEnvelope } from './envelope';
 
 export type HttpClient = {
+  request: <T>(path: string, init?: RequestInit) => Promise<T>;
   get: <T>(path: string, init?: RequestInit) => Promise<T>;
   post: <T>(path: string, body?: unknown, init?: RequestInit) => Promise<T>;
   put: <T>(path: string, body?: unknown, init?: RequestInit) => Promise<T>;
@@ -18,11 +19,12 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
   const fetchFn = options.fetchFn ?? fetch;
 
   const request = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
+    const isFormDataBody = typeof FormData !== 'undefined' && init.body instanceof FormData;
     const response = await fetchFn(`${baseUrl}${path}`, {
       ...init,
       headers: {
         Accept: 'application/json',
-        ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+        ...(init.body && !isFormDataBody ? { 'Content-Type': 'application/json' } : {}),
         ...(init.headers ?? {})
       }
     });
@@ -53,6 +55,7 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
   };
 
   return {
+    request,
     get: (path, init) => request(path, { ...init, method: 'GET' }),
     post: (path, body, init) =>
       request(path, {

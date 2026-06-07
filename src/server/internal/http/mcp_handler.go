@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	stdhttp "net/http"
 	"strings"
+	"time"
 
 	"oblivious/server/internal/mcp"
 )
@@ -16,11 +17,60 @@ func newMCPHandler(client *mcp.Client) mcpHandler {
 	return mcpHandler{client: client}
 }
 
+// GET /api/v1/app/mcp-local-servers
+func (h mcpHandler) listLocalServers(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if _, ok := sessionFromContext(r); !ok {
+		writeError(w, stdhttp.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+
+	writeSuccess(w, stdhttp.StatusOK, mcp.NewLocalCatalog().ListServers(r.Context()))
+}
+
 // AddServerRequest 添加 MCP Server 请求
 type AddServerRequest struct {
 	Name      string `json:"name"`
 	URL       string `json:"url"`
 	AuthToken string `json:"authToken,omitempty"`
+}
+
+type mcpServerResponse struct {
+	ID              string    `json:"id"`
+	OrganizationID  string    `json:"organizationId"`
+	UserID          string    `json:"userId"`
+	Name            string    `json:"name"`
+	URL             string    `json:"url"`
+	HasAuthToken    bool      `json:"hasAuthToken"`
+	Status          string    `json:"status"`
+	LastConnectedAt time.Time `json:"lastConnectedAt,omitempty"`
+	CreatedAt       time.Time `json:"createdAt"`
+	UpdatedAt       time.Time `json:"updatedAt"`
+}
+
+func toMCPServerResponse(server *mcp.Server) *mcpServerResponse {
+	if server == nil {
+		return nil
+	}
+	return &mcpServerResponse{
+		ID:              server.ID,
+		OrganizationID:  server.OrganizationID,
+		UserID:          server.UserID,
+		Name:            server.Name,
+		URL:             server.URL,
+		HasAuthToken:    server.HasAuthToken || server.AuthToken != "",
+		Status:          server.Status,
+		LastConnectedAt: server.LastConnectedAt,
+		CreatedAt:       server.CreatedAt,
+		UpdatedAt:       server.UpdatedAt,
+	}
+}
+
+func toMCPServerResponses(servers []*mcp.Server) []*mcpServerResponse {
+	responses := make([]*mcpServerResponse, 0, len(servers))
+	for _, server := range servers {
+		responses = append(responses, toMCPServerResponse(server))
+	}
+	return responses
 }
 
 // POST /api/v1/app/mcp-servers
@@ -62,7 +112,7 @@ func (h mcpHandler) addServer(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		return
 	}
 
-	writeSuccess(w, stdhttp.StatusCreated, created)
+	writeSuccess(w, stdhttp.StatusCreated, toMCPServerResponse(created))
 }
 
 // GET /api/v1/app/mcp-servers
@@ -79,7 +129,7 @@ func (h mcpHandler) listServers(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		return
 	}
 
-	writeSuccess(w, stdhttp.StatusOK, servers)
+	writeSuccess(w, stdhttp.StatusOK, toMCPServerResponses(servers))
 }
 
 // GET /api/v1/app/mcp-servers/:id
@@ -104,7 +154,7 @@ func (h mcpHandler) getServer(w stdhttp.ResponseWriter, r *stdhttp.Request, id s
 		return
 	}
 
-	writeSuccess(w, stdhttp.StatusOK, server)
+	writeSuccess(w, stdhttp.StatusOK, toMCPServerResponse(server))
 }
 
 // DELETE /api/v1/app/mcp-servers/:id
@@ -168,7 +218,7 @@ func (h mcpHandler) connectServer(w stdhttp.ResponseWriter, r *stdhttp.Request, 
 
 	// 返回更新后的服务器状态
 	updated, _ := h.client.GetServer(r.Context(), id, session.OrganizationID)
-	writeSuccess(w, stdhttp.StatusOK, updated)
+	writeSuccess(w, stdhttp.StatusOK, toMCPServerResponse(updated))
 }
 
 // POST /api/v1/app/mcp-servers/:id/disconnect

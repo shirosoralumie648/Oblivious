@@ -52,7 +52,7 @@ if [[ "$secret_realpath" == "$example_realpath" ]]; then
   exit 2
 fi
 
-if rg -q "REPLACE_ME|change-me-in-production" "$secret_file"; then
+if rg -q "REPLACE_ME|CHANGE_ME|change-me-in-production" "$secret_file"; then
   echo "[k8s-validate] secret file still contains placeholder values" >&2
   exit 2
 fi
@@ -67,17 +67,20 @@ echo "[k8s-validate] applying config and data services"
 kubectl apply -f deploy/kubernetes/configmap.yaml
 kubectl apply -f deploy/kubernetes/postgres.yaml
 kubectl apply -f deploy/kubernetes/redis.yaml
+kubectl apply -f deploy/kubernetes/qdrant.yaml
 
 echo "[k8s-validate] applying application workloads"
-kubectl apply -f deploy/kubernetes/server.yaml
-kubectl apply -f deploy/kubernetes/web.yaml
+kubectl apply -f deploy/kubernetes/app-deployment.yaml
+kubectl apply -f deploy/kubernetes/app-service.yaml
+kubectl apply -f deploy/kubernetes/hpa.yaml
+kubectl apply -f deploy/kubernetes/ingress.yaml
 
 echo "[k8s-validate] waiting for rollouts"
+kubectl -n "$namespace" rollout status deployment/oblivious-qdrant
 kubectl -n "$namespace" rollout status deployment/oblivious-server
-kubectl -n "$namespace" rollout status deployment/oblivious-web
 
 echo "[k8s-validate] port-forwarding oblivious-server on localhost:$port"
-kubectl -n "$namespace" port-forward service/oblivious-server "$port:8080" >/tmp/oblivious-k8s-port-forward.log 2>&1 &
+kubectl -n "$namespace" port-forward service/oblivious-server "$port:http" >/tmp/oblivious-k8s-port-forward.log 2>&1 &
 port_forward_pid=$!
 
 for attempt in $(seq 1 "${OBLIVIOUS_K8S_PORT_FORWARD_ATTEMPTS:-20}"); do

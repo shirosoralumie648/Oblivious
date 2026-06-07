@@ -3,12 +3,12 @@ package knowledge
 import (
 	"context"
 	"database/sql"
-	"os"
+	"database/sql/driver"
+	"encoding/json"
+	"io"
 	"strings"
+	"sync"
 	"testing"
-	"time"
-
-	_ "github.com/lib/pq"
 )
 
 func TestScoreKnowledgeCandidatePrefersTitleMatchesOverChunkAndBody(t *testing.T) {
@@ -55,152 +55,343 @@ func TestChooseKnowledgeSnippetSourcePrefersChunkWhenChunkHasMoreTermHits(t *tes
 	}
 }
 
-func testKnowledgeRAGSQLStore(t *testing.T) (*SQLStore, context.Context) {
-	t.Helper()
-
-	databaseURL := strings.TrimSpace(os.Getenv("TEST_DATABASE_URL"))
-	if databaseURL == "" {
-		if strings.EqualFold(os.Getenv("OBLIVIOUS_REQUIRE_TEST_DATABASE"), "true") {
-			t.Fatal("TEST_DATABASE_URL is required for DB-backed knowledge RAG tests")
-		}
-		t.Skip("TEST_DATABASE_URL is required for DB-backed knowledge RAG tests")
-	}
-
-	database, err := sql.Open("postgres", databaseURL)
-	if err != nil {
-		t.Fatalf("open database: %v", err)
-	}
-	if err := database.Ping(); err != nil {
-		t.Fatalf("ping database: %v", err)
-	}
-	t.Cleanup(func() {
-		database.Close()
-	})
-
-	if _, err := database.Exec(`SELECT pg_advisory_lock(104227)`); err != nil {
-		t.Fatalf("lock knowledge RAG test database: %v", err)
-	}
-	t.Cleanup(func() {
-		if _, err := database.Exec(`SELECT pg_advisory_unlock(104227)`); err != nil {
-			t.Fatalf("unlock knowledge RAG test database: %v", err)
-		}
-	})
-
-	statements := []string{
-		`DROP TABLE IF EXISTS knowledge_document_chunks CASCADE`,
-		`DROP TABLE IF EXISTS knowledge_documents CASCADE`,
-		`DROP TABLE IF EXISTS knowledge_bases CASCADE`,
-		`CREATE TABLE knowledge_bases (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, organization_id TEXT, name TEXT NOT NULL, document_count INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
-		`CREATE TABLE knowledge_documents (id TEXT PRIMARY KEY, knowledge_base_id TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE, organization_id TEXT, title TEXT NOT NULL, content TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
-		`CREATE TABLE knowledge_document_chunks (id TEXT PRIMARY KEY, document_id TEXT NOT NULL REFERENCES knowledge_documents(id) ON DELETE CASCADE, organization_id TEXT, chunk_index INTEGER NOT NULL, content TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
-	}
-	for _, statement := range statements {
-		if _, err := database.Exec(statement); err != nil {
-			t.Fatalf("prepare knowledge RAG database: %v\nstatement: %s", err, statement)
-		}
-	}
-
-	migration, err := os.ReadFile("../../migrations/0032_knowledge_rag_index.sql")
-	if err != nil {
-		t.Fatalf("read knowledge RAG migration: %v", err)
-	}
-	if _, err := database.Exec(string(migration)); err != nil {
-		t.Fatalf("apply knowledge RAG migration: %v", err)
-	}
-
-	return NewSQLStore(database), context.Background()
-}
-
-func TestKnowledgeStorePersistsChunkEmbeddingsAndRetrievesBySimilarity(t *testing.T) {
-	store, ctx := testKnowledgeRAGSQLStore(t)
-
-	base, err := store.CreateKnowledgeBase(ctx, "workspace_1", "org_1", "RAG Sources")
-	if err != nil {
-		t.Fatalf("create knowledge base: %v", err)
-	}
-	_, err = store.CreateKnowledgeDocument(ctx, "org_1", base.ID, "Deployment Runbook", "deployment rollback recovery", []KnowledgeDocumentChunk{
-		{
-			Content:        "General notes that are farther away.",
-			ChunkIndex:     0,
-			Embedding:      testKnowledgeEmbedding(0, 1),
-			EmbeddingModel: "text-embedding-3-small",
-			IndexedAt:      time.Now().UTC(),
+func TestSQLStoreRetrieveKnowledgeWithOptionsUsesCrossTenantSafeVectorSearch(t *testing.T) {
+	driverName := "knowledge_retrieve_options_test"
+	queryer := &knowledgeRetrievalQueryer{
+		rows: [][]driver.Value{
+			{
+				"doc_1",
+				"Deployment Runbook",
+				"v2",
+				"kdc_1",
+				int64(3),
+				"v2",
+				"Deployment rollback restore runbook content.",
+				[]byte(`{"pageNumber":7,"sourceUrl":"https://docs.example/runbook.md"}`),
+				float64(0.92),
+				float64(0.92),
+				"embedding_rag",
+			},
 		},
-		{
-			Content:        "Deployment rollback runbook source citation.",
-			ChunkIndex:     1,
-			Embedding:      testKnowledgeEmbedding(1, 0),
-			EmbeddingModel: "text-embedding-3-small",
-			IndexedAt:      time.Now().UTC(),
-		},
-	})
+	}
+	registerKnowledgeRetrievalDriver(driverName, queryer)
+
+	db, err := sql.Open(driverName, "")
 	if err != nil {
-		t.Fatalf("create knowledge document: %v", err)
+		t.Fatalf("open capture db: %v", err)
+	}
+	defer db.Close()
+
+	results, err := NewSQLStore(db).RetrieveKnowledgeWithOptions(
+		context.Background(),
+		"org_1",
+		"kb_1",
+		"deployment rollback",
+		[]float32{0.1, 0.2, 0.3},
+		KnowledgeRetrievalOptions{Mode: KnowledgeRetrievalModeVector, Limit: 3, MinScore: 0.5},
+	)
+	if err != nil {
+		t.Fatalf("retrieve knowledge with options: %v", err)
 	}
 
-	results, err := store.RetrieveKnowledge(ctx, "org_1", base.ID, testKnowledgeEmbedding(1, 0), 5, 0)
-	if err != nil {
-		t.Fatalf("retrieve knowledge: %v", err)
-	}
-	if len(results) == 0 {
-		t.Fatal("expected vector retrieval results")
-	}
-	if results[0].ChunkIndex != 1 {
-		t.Fatalf("expected closest chunk index 1 first, got %+v", results[0])
-	}
-	if results[0].RetrievalMethod != knowledgeRAGRetrievalMethod {
-		t.Fatalf("expected embedding RAG retrieval method, got %q", results[0].RetrievalMethod)
-	}
-	if results[0].Source.DocumentTitle != "Deployment Runbook" || results[0].Source.ChunkID == "" {
-		t.Fatalf("expected source citation fields, got %+v", results[0].Source)
-	}
-}
+	queryer.mu.Lock()
+	query := queryer.query
+	args := append([]driver.NamedValue(nil), queryer.args...)
+	queryer.mu.Unlock()
 
-func TestKnowledgeStoreRetrieveRAGRejectsCrossTenantChunks(t *testing.T) {
-	store, ctx := testKnowledgeRAGSQLStore(t)
-
-	baseOne, err := store.CreateKnowledgeBase(ctx, "workspace_1", "org_1", "Org One")
-	if err != nil {
-		t.Fatalf("create org one knowledge base: %v", err)
+	for _, want := range []string{
+		"organization_id = $1",
+		"kb.organization_id = $1",
+		"d.organization_id = $1",
+		"c.organization_id = $1",
+		"c.embedding <=> $3::vector",
+		"Similarity",
+		"RetrievalMethod",
+		"KnowledgeCitation",
+	} {
+		if !strings.Contains(query, want) {
+			t.Fatalf("expected retrieval query to include %q, got %s", want, query)
+		}
 	}
-	baseTwo, err := store.CreateKnowledgeBase(ctx, "workspace_2", "org_2", "Org Two")
-	if err != nil {
-		t.Fatalf("create org two knowledge base: %v", err)
+	if got := knowledgeRetrievalArgString(args, 1); got != "org_1" {
+		t.Fatalf("organization arg = %q, want org_1", got)
 	}
-	if _, err := store.CreateKnowledgeDocument(ctx, "org_1", baseOne.ID, "Org One Source", "tenant one source", []KnowledgeDocumentChunk{{
-		Content:        "Tenant one citation.",
-		ChunkIndex:     0,
-		Embedding:      testKnowledgeEmbedding(1, 0),
-		EmbeddingModel: "text-embedding-3-small",
-		IndexedAt:      time.Now().UTC(),
-	}}); err != nil {
-		t.Fatalf("create org one document: %v", err)
+	if got := knowledgeRetrievalArgString(args, 2); got != "kb_1" {
+		t.Fatalf("knowledge base arg = %q, want kb_1", got)
 	}
-	if _, err := store.CreateKnowledgeDocument(ctx, "org_2", baseTwo.ID, "Org Two Source", "tenant two source", []KnowledgeDocumentChunk{{
-		Content:        "Tenant two citation should not leak.",
-		ChunkIndex:     0,
-		Embedding:      testKnowledgeEmbedding(1, 0),
-		EmbeddingModel: "text-embedding-3-small",
-		IndexedAt:      time.Now().UTC(),
-	}}); err != nil {
-		t.Fatalf("create org two document: %v", err)
+	if got := knowledgeRetrievalArgString(args, 3); got != "[0.100000,0.200000,0.300000]" {
+		t.Fatalf("embedding arg = %q, want formatted vector", got)
 	}
 
-	results, err := store.RetrieveKnowledge(ctx, "org_1", baseOne.ID, testKnowledgeEmbedding(1, 0), 10, 0)
-	if err != nil {
-		t.Fatalf("retrieve knowledge: %v", err)
-	}
 	if len(results) != 1 {
-		t.Fatalf("expected only org one result, got %d: %+v", len(results), results)
+		t.Fatalf("expected 1 result, got %d", len(results))
 	}
-	if results[0].DocumentTitle != "Org One Source" {
-		t.Fatalf("expected org one source only, got %+v", results[0])
+	result := results[0]
+	if result.DocumentID != "doc_1" || result.ChunkID != "kdc_1" || result.ChunkIndex != 3 {
+		t.Fatalf("unexpected retrieval result identity: %+v", result)
+	}
+	if result.RetrievalMethod != KnowledgeRetrievalMethodEmbeddingRAG {
+		t.Fatalf("expected embedding_rag retrieval method, got %q", result.RetrievalMethod)
+	}
+	if result.Similarity != 0.92 || result.Score != 0.92 {
+		t.Fatalf("expected similarity and score 0.92, got similarity=%v score=%v", result.Similarity, result.Score)
+	}
+	if result.Source.DocumentTitle != "Deployment Runbook" || result.Source.PageNumber != 7 || result.Source.SourceURL != "https://docs.example/runbook.md" {
+		t.Fatalf("unexpected citation source: %+v", result.Source)
 	}
 }
 
-func testKnowledgeEmbedding(first, second float32) []float32 {
-	embedding := make([]float32, 1536)
-	embedding[0] = first
-	embedding[1] = second
-	return embedding
+func TestSQLStoreRetrieveKnowledgeWithOptionsWithoutEmbeddingUsesKeywordOnlyQuery(t *testing.T) {
+	driverName := "knowledge_retrieve_keyword_fallback_test"
+	queryer := &knowledgeRetrievalQueryer{}
+	registerKnowledgeRetrievalDriver(driverName, queryer)
+
+	db, err := sql.Open(driverName, "")
+	if err != nil {
+		t.Fatalf("open capture db: %v", err)
+	}
+	defer db.Close()
+
+	if _, err := NewSQLStore(db).RetrieveKnowledgeWithOptions(
+		context.Background(),
+		"org_1",
+		"kb_1",
+		"deployment rollback",
+		nil,
+		KnowledgeRetrievalOptions{Mode: KnowledgeRetrievalModeHybrid, Limit: 3},
+	); err != nil {
+		t.Fatalf("retrieve knowledge with keyword fallback: %v", err)
+	}
+
+	queryer.mu.Lock()
+	query := queryer.query
+	queryer.mu.Unlock()
+
+	if strings.Contains(query, "<=>") {
+		t.Fatalf("expected keyword fallback query not to use pgvector distance, got %s", query)
+	}
+	if !strings.Contains(query, "websearch_to_tsquery") || !strings.Contains(query, "organization_id = $1") {
+		t.Fatalf("expected keyword fallback query to use tenant-scoped full text search, got %s", query)
+	}
+}
+
+func TestSQLStoreCreateKnowledgeDocumentWithOptionsPersistsCrossTenantChunksAndEmbeddings(t *testing.T) {
+	driverName := "knowledge_write_options_test"
+	queryer := &knowledgeRetrievalQueryer{}
+	registerKnowledgeRetrievalDriver(driverName, queryer)
+
+	db, err := sql.Open(driverName, "")
+	if err != nil {
+		t.Fatalf("open capture db: %v", err)
+	}
+	defer db.Close()
+
+	document, err := NewSQLStore(db).CreateKnowledgeDocumentWithOptions(
+		context.Background(),
+		"org_1",
+		"kb_1",
+		"Deployment Runbook",
+		"Deployment rollback content",
+		[]KnowledgeDocumentChunk{
+			{
+				ChunkIndex:      0,
+				Content:         "Deployment rollback content",
+				DocumentVersion: "v2",
+				Embedding:       []float32{0.1, 0.2, 0.3},
+				Metadata: KnowledgeChunkMetadata{
+					DocumentVersion: "v2",
+					PageNumber:      7,
+					SourceURL:       "https://docs.example/runbook.md",
+				},
+			},
+		},
+		KnowledgeDocumentOptions{DocumentVersion: "v2", SourceURL: "https://docs.example/runbook.md", PageNumber: 7, UpdateStrategy: KnowledgeUpdateStrategyVersioned},
+	)
+	if err != nil {
+		t.Fatalf("create knowledge document with options: %v", err)
+	}
+	if document.ID == "" || document.DocumentVersion != "v2" || document.UpdateStrategy != KnowledgeUpdateStrategyVersioned {
+		t.Fatalf("expected returned document to include versioned metadata, got %+v", document)
+	}
+
+	queryer.mu.Lock()
+	execQueries := strings.Join(queryer.execQueries, "\n")
+	execArgs := append([][]driver.NamedValue(nil), queryer.execArgs...)
+	queryer.mu.Unlock()
+
+	for _, want := range []string{
+		"knowledge_documents",
+		"knowledge_document_chunks",
+		"organization_id",
+		"embedding",
+		"embedding_model",
+		"metadata",
+		"document_version",
+	} {
+		if !strings.Contains(execQueries, want) {
+			t.Fatalf("expected write queries to include %q, got %s", want, execQueries)
+		}
+	}
+	if len(execArgs) < 2 {
+		t.Fatalf("expected document and chunk insert execs, got %#v", execArgs)
+	}
+	if got := knowledgeRetrievalArgString(execArgs[0], 2); got != "org_1" {
+		t.Fatalf("document organization arg = %q, want org_1", got)
+	}
+	chunkArgs := knowledgeRetrievalExecArgsForQuery(t, queryer, "INSERT INTO knowledge_document_chunks")
+	if got := knowledgeRetrievalArgString(chunkArgs, 3); got != "org_1" {
+		t.Fatalf("chunk organization arg = %q, want org_1", got)
+	}
+	if got := knowledgeRetrievalArgString(chunkArgs, 6); got != "[0.100000,0.200000,0.300000]" {
+		t.Fatalf("chunk embedding arg = %q, want formatted vector", got)
+	}
+	if got := knowledgeRetrievalArgString(chunkArgs, 10); !strings.Contains(got, `"sourceUrl":"https://docs.example/runbook.md"`) {
+		t.Fatalf("chunk metadata arg = %q, want source URL metadata", got)
+	}
+}
+
+var knowledgeRetrievalDrivers sync.Map
+
+func registerKnowledgeRetrievalDriver(name string, queryer *knowledgeRetrievalQueryer) {
+	if _, loaded := knowledgeRetrievalDrivers.LoadOrStore(name, queryer); loaded {
+		return
+	}
+	sql.Register(name, knowledgeRetrievalDriver{name: name})
+}
+
+type knowledgeRetrievalQueryer struct {
+	mu          sync.Mutex
+	query       string
+	args        []driver.NamedValue
+	rows        [][]driver.Value
+	execQueries []string
+	execArgs    [][]driver.NamedValue
+}
+
+type knowledgeRetrievalDriver struct {
+	name string
+}
+
+func (d knowledgeRetrievalDriver) Open(_ string) (driver.Conn, error) {
+	queryer, _ := knowledgeRetrievalDrivers.Load(d.name)
+	return knowledgeRetrievalConn{queryer: queryer.(*knowledgeRetrievalQueryer)}, nil
+}
+
+type knowledgeRetrievalConn struct {
+	queryer *knowledgeRetrievalQueryer
+}
+
+func (c knowledgeRetrievalConn) Prepare(_ string) (driver.Stmt, error) {
+	return nil, driver.ErrSkip
+}
+
+func (c knowledgeRetrievalConn) Close() error {
+	return nil
+}
+
+func (c knowledgeRetrievalConn) Begin() (driver.Tx, error) {
+	return knowledgeRetrievalTx{}, nil
+}
+
+func (c knowledgeRetrievalConn) ExecContext(_ context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
+	c.queryer.mu.Lock()
+	c.queryer.execQueries = append(c.queryer.execQueries, query)
+	c.queryer.execArgs = append(c.queryer.execArgs, append([]driver.NamedValue(nil), args...))
+	c.queryer.mu.Unlock()
+	return driver.RowsAffected(1), nil
+}
+
+func (c knowledgeRetrievalConn) QueryContext(_ context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+	c.queryer.mu.Lock()
+	c.queryer.query = query
+	c.queryer.args = append([]driver.NamedValue(nil), args...)
+	rows := append([][]driver.Value(nil), c.queryer.rows...)
+	c.queryer.mu.Unlock()
+	return &knowledgeRetrievalRows{
+		columns: []string{
+			"document_id",
+			"document_title",
+			"document_version",
+			"chunk_id",
+			"chunk_index",
+			"chunk_version",
+			"content",
+			"metadata",
+			"similarity",
+			"score",
+			"retrieval_method",
+		},
+		rows: rows,
+	}, nil
+}
+
+func (c knowledgeRetrievalConn) CheckNamedValue(_ *driver.NamedValue) error {
+	return nil
+}
+
+type knowledgeRetrievalTx struct{}
+
+func (knowledgeRetrievalTx) Commit() error {
+	return nil
+}
+
+func (knowledgeRetrievalTx) Rollback() error {
+	return nil
+}
+
+type knowledgeRetrievalRows struct {
+	columns []string
+	index   int
+	rows    [][]driver.Value
+}
+
+func (r *knowledgeRetrievalRows) Columns() []string {
+	return r.columns
+}
+
+func (r *knowledgeRetrievalRows) Close() error {
+	return nil
+}
+
+func (r *knowledgeRetrievalRows) Next(dest []driver.Value) error {
+	if r.index >= len(r.rows) {
+		return io.EOF
+	}
+	copy(dest, r.rows[r.index])
+	r.index++
+	return nil
+}
+
+func knowledgeRetrievalArgString(args []driver.NamedValue, ordinal int) string {
+	for _, arg := range args {
+		if arg.Ordinal == ordinal {
+			value, _ := arg.Value.(string)
+			return value
+		}
+	}
+	return ""
+}
+
+func knowledgeRetrievalExecArgsForQuery(t *testing.T, queryer *knowledgeRetrievalQueryer, pattern string) []driver.NamedValue {
+	t.Helper()
+	queryer.mu.Lock()
+	defer queryer.mu.Unlock()
+	for index, query := range queryer.execQueries {
+		if strings.Contains(query, pattern) {
+			return append([]driver.NamedValue(nil), queryer.execArgs[index]...)
+		}
+	}
+	t.Fatalf("expected exec query matching %q, got %v", pattern, queryer.execQueries)
+	return nil
+}
+
+func TestSQLStoreKnowledgeChunkMetadataJSONShape(t *testing.T) {
+	metadata := KnowledgeChunkMetadata{PageNumber: 7, SourceURL: "https://docs.example/runbook.md"}
+	raw, err := json.Marshal(metadata)
+	if err != nil {
+		t.Fatalf("marshal metadata: %v", err)
+	}
+	if !strings.Contains(string(raw), "pageNumber") || !strings.Contains(string(raw), "sourceUrl") {
+		t.Fatalf("expected chunk metadata JSON shape, got %s", raw)
+	}
 }

@@ -14,10 +14,11 @@ var (
 )
 
 var retryableCodes = map[int]bool{
-	http.StatusTooManyRequests:       true,
-	http.StatusBadGateway:             true,
-	http.StatusServiceUnavailable:     true,
-	http.StatusGatewayTimeout:         true,
+	http.StatusTooManyRequests:     true,
+	http.StatusInternalServerError: true,
+	http.StatusBadGateway:          true,
+	http.StatusServiceUnavailable:  true,
+	http.StatusGatewayTimeout:      true,
 }
 
 func Retry(fn func(ctx context.Context) (*types.ProviderResponse, error), maxAttempts int, apiType string) (*types.ProviderResponse, error) {

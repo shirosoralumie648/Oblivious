@@ -61,4 +61,23 @@ describe('http client', () => {
 
     await expect(client.get('/api/v1/console/usage')).rejects.toBeInstanceOf(HttpError);
   });
+
+  it('sends multipart request bodies without JSON content type', async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ ok: true, data: { uploaded: true }, error: null }), { status: 200 }));
+    const client = createHttpClient({ baseUrl: 'https://api.example.test', fetchFn: fetchFn as unknown as typeof fetch });
+    const formData = new FormData();
+    formData.append('file', new File(['body'], 'notes.md', { type: 'text/markdown' }));
+
+    const result = await client.request<{ uploaded: boolean }>('/api/v1/app/knowledge-bases/kb_1/documents/upload', {
+      body: formData,
+      method: 'POST'
+    });
+
+    expect(result).toEqual({ uploaded: true });
+    expect(fetchFn).toHaveBeenCalledWith('https://api.example.test/api/v1/app/knowledge-bases/kb_1/documents/upload', {
+      body: formData,
+      method: 'POST',
+      headers: { Accept: 'application/json' }
+    });
+  });
 });

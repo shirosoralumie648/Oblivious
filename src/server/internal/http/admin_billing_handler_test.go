@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"oblivious/server/internal/admin"
+	"oblivious/server/internal/marketplace"
 )
 
 func TestAdminBillingRoutesRequireAdmin(t *testing.T) {
@@ -174,6 +175,159 @@ func TestAdminBillingListsExposeAllRequiredSurfaces(t *testing.T) {
 	}
 }
 
+func TestAdminBillingMarksMarketplacePayoutPaid(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+	cookie, _, userID := registerHTTPUser(t, router, "billing-payout-paid@example.com")
+	promoteHTTPUserToAdmin(t, database, userID)
+	_, organizationID := queryHTTPUserScope(t, database, userID)
+	seedAdminBillingState(t, database, organizationID, userID)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(
+		stdhttp.MethodPost,
+		"/api/v1/admin/billing/payouts/payout_admin_phase20/paid",
+		strings.NewReader(`{"providerPayoutID":"provider-paid-admin-1"}`),
+	)
+	request.AddCookie(cookie)
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected mark payout paid 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"status":"paid_out"`) || !strings.Contains(recorder.Body.String(), `"providerPayoutId":"provider-paid-admin-1"`) {
+		t.Fatalf("expected paid payout response, got %s", recorder.Body.String())
+	}
+
+	var payoutStatus, providerPayoutID, settlementStatus string
+	if err := database.QueryRow(`SELECT status, COALESCE(provider_payout_id, '') FROM marketplace_payouts WHERE id = 'payout_admin_phase20'`).Scan(&payoutStatus, &providerPayoutID); err != nil {
+		t.Fatalf("query payout state: %v", err)
+	}
+	if err := database.QueryRow(`SELECT status FROM marketplace_settlements WHERE payout_id = 'payout_admin_phase20'`).Scan(&settlementStatus); err != nil {
+		t.Fatalf("query settlement state: %v", err)
+	}
+	if payoutStatus != "paid_out" || providerPayoutID != "provider-paid-admin-1" || settlementStatus != "paid_out" {
+		t.Fatalf("expected payout and settlement paid_out, got payout=%s provider=%s settlement=%s", payoutStatus, providerPayoutID, settlementStatus)
+	}
+}
+
+func TestAdminBillingMarkPayoutPaidHandlerCallsSettlementService(t *testing.T) {
+	payoutService := &fakeMarketplacePayoutAdminService{}
+	handler := newAdminHandlerWithPayouts(admin.NewService(&fakeAdminStore{}), payoutService)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(
+		stdhttp.MethodPost,
+		"/api/v1/admin/billing/payouts/payout_1/paid",
+		strings.NewReader(`{"providerPayoutID":"provider-paid-1"}`),
+	)
+	handler.markMarketplacePayoutPaid(recorder, request, "payout_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected handler 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if payoutService.payoutID != "payout_1" || payoutService.providerPayoutID != "provider-paid-1" {
+		t.Fatalf("expected payout service to receive payout_1/provider-paid-1, got payout=%q provider=%q", payoutService.payoutID, payoutService.providerPayoutID)
+	}
+	if !strings.Contains(recorder.Body.String(), `"status":"paid_out"`) {
+		t.Fatalf("expected paid payout response, got %s", recorder.Body.String())
+	}
+}
+
+func TestAdminBillingListsApplyRecoveryFilters(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+	cookie, _, userID := registerHTTPUser(t, router, "billing-recovery@example.com")
+	promoteHTTPUserToAdmin(t, database, userID)
+	_, organizationID := queryHTTPUserScope(t, database, userID)
+	seedAdminBillingState(t, database, organizationID, userID)
+
+	cases := []struct {
+		path         string
+		collection   string
+		expectedText string
+		unwantedText string
+	}{
+		{
+			path:         "/api/v1/admin/billing/webhook-events?organizationID=" + organizationID + "&status=failed",
+			collection:   "webhookEvents",
+			expectedText: "evt_admin_phase20_failed",
+			unwantedText: "evt_admin_phase20_ok",
+		},
+		{
+			path:         "/api/v1/admin/billing/payment-intents?organizationID=" + organizationID + "&kind=marketplace_install&provider=stripe",
+			collection:   "paymentIntents",
+			expectedText: "pi_market_admin_phase20",
+			unwantedText: "pi_admin_phase20",
+		},
+		{
+			path:         "/api/v1/admin/billing/refunds?organizationID=" + organizationID + "&status=succeeded&provider=stripe",
+			collection:   "refunds",
+			expectedText: "refund_admin_phase20",
+			unwantedText: "evt_admin_phase20_failed",
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.collection, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(stdhttp.MethodGet, tt.path, nil)
+			request.AddCookie(cookie)
+			router.ServeHTTP(recorder, request)
+			if recorder.Code != stdhttp.StatusOK {
+				t.Fatalf("%s expected 200, got %d with body %s", tt.path, recorder.Code, recorder.Body.String())
+			}
+			body := recorder.Body.String()
+			if !strings.Contains(body, `"`+tt.collection+`"`) || !strings.Contains(body, tt.expectedText) {
+				t.Fatalf("expected filtered %s response to contain %q and collection %q; body=%s", tt.path, tt.expectedText, tt.collection, body)
+			}
+			if tt.unwantedText != "" && strings.Contains(body, tt.unwantedText) {
+				t.Fatalf("expected filtered %s response not to contain %q; body=%s", tt.path, tt.unwantedText, body)
+			}
+		})
+	}
+}
+
+func TestAdminBillingSummaryAppliesFailedStatusFilter(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+	cookie, _, userID := registerHTTPUser(t, router, "billing-failed-summary@example.com")
+	promoteHTTPUserToAdmin(t, database, userID)
+	_, organizationID := queryHTTPUserScope(t, database, userID)
+	seedAdminBillingState(t, database, organizationID, userID)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/admin/billing/summary?organizationID="+organizationID+"&status=failed", nil)
+	request.AddCookie(cookie)
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected failed billing summary 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+
+	var response struct {
+		Data struct {
+			WebhookEvents struct {
+				Count       int `json:"count"`
+				FailedCount int `json:"failedCount"`
+			} `json:"webhookEvents"`
+			PaymentIntents struct {
+				Count int `json:"count"`
+			} `json:"paymentIntents"`
+			Subscriptions struct {
+				Count int `json:"count"`
+			} `json:"subscriptions"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode failed billing summary: %v", err)
+	}
+	if response.Data.WebhookEvents.Count != 1 || response.Data.WebhookEvents.FailedCount != 1 {
+		t.Fatalf("expected failed summary to include one failed webhook, got %+v", response.Data.WebhookEvents)
+	}
+	if response.Data.PaymentIntents.Count != 0 || response.Data.Subscriptions.Count != 0 {
+		t.Fatalf("expected failed summary to exclude non-failed payment/subscription rows, got paymentIntents=%+v subscriptions=%+v", response.Data.PaymentIntents, response.Data.Subscriptions)
+	}
+}
+
 func seedAdminBillingState(t *testing.T, database *sql.DB, organizationID, userID string) {
 	t.Helper()
 
@@ -258,4 +412,20 @@ func (s *fakeAdminStore) ListMarketplaceSettlements(ctx context.Context, filter 
 
 func (s *fakeAdminStore) ListMarketplacePayouts(ctx context.Context, filter admin.BillingInspectionFilter) ([]*admin.MarketplacePayoutInspection, int, error) {
 	return []*admin.MarketplacePayoutInspection{{ID: "payout_1"}}, 1, nil
+}
+
+type fakeMarketplacePayoutAdminService struct {
+	payoutID         string
+	providerPayoutID string
+}
+
+func (s *fakeMarketplacePayoutAdminService) MarkPayoutPaid(ctx context.Context, payoutID string, providerPayoutID string) (*marketplace.MarketplacePayout, error) {
+	s.payoutID = payoutID
+	s.providerPayoutID = providerPayoutID
+	return &marketplace.MarketplacePayout{
+		ID:               payoutID,
+		Provider:         "local",
+		ProviderPayoutID: providerPayoutID,
+		Status:           "paid_out",
+	}, nil
 }

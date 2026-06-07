@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	relaytypes "oblivious/server/internal/relay/types"
 )
 
 // RelayGateway 通过 Relay 调用 LLM
@@ -64,9 +66,10 @@ func NewRelayGateway(opts ...RelayGatewayOption) *RelayGateway {
 // GenerateReply 实现 ReplyGenerator 接口
 func (g *RelayGateway) GenerateReply(ctx context.Context, messages []Message, config ConversationConfig) (string, error) {
 	req := &chatCompletionRequest{
-		Model:       selectModelID(config.ModelID, g.defaultModel),
-		Messages:    toOpenAIMessages(messages, config.SystemPromptOverride, config.ToolsEnabled),
-		Temperature: config.Temperature,
+		Model:          selectModelID(config.ModelID, g.defaultModel),
+		Messages:       toOpenAIMessages(messages, config),
+		Temperature:    config.Temperature,
+		ConversationID: config.ConversationID,
 	}
 	if config.MaxOutputTokens > 0 {
 		req.MaxTokens = config.MaxOutputTokens
@@ -87,10 +90,11 @@ func (g *RelayGateway) GenerateReply(ctx context.Context, messages []Message, co
 // GenerateReplyStream 流式生成回复
 func (g *RelayGateway) GenerateReplyStream(ctx context.Context, messages []Message, config ConversationConfig, onChunk func(string) error) error {
 	req := &chatCompletionRequest{
-		Model:       selectModelID(config.ModelID, g.defaultModel),
-		Messages:    toOpenAIMessages(messages, config.SystemPromptOverride, config.ToolsEnabled),
-		Temperature: config.Temperature,
-		Stream:      true,
+		Model:          selectModelID(config.ModelID, g.defaultModel),
+		Messages:       toOpenAIMessages(messages, config),
+		Temperature:    config.Temperature,
+		Stream:         true,
+		ConversationID: config.ConversationID,
 	}
 	if config.MaxOutputTokens > 0 {
 		req.MaxTokens = config.MaxOutputTokens
@@ -102,10 +106,11 @@ func (g *RelayGateway) GenerateReplyStream(ctx context.Context, messages []Messa
 // GenerateStructuredReply returns the full assistant payload needed for tool-calling loops.
 func (g *RelayGateway) GenerateStructuredReply(ctx context.Context, messages []Message, config ConversationConfig, tools []map[string]any) (*CompletionResponse, error) {
 	req := &chatCompletionRequest{
-		Model:       selectModelID(config.ModelID, g.defaultModel),
-		Messages:    toOpenAIMessages(messages, config.SystemPromptOverride, config.ToolsEnabled),
-		Temperature: config.Temperature,
-		Tools:       tools,
+		Model:          selectModelID(config.ModelID, g.defaultModel),
+		Messages:       toOpenAIMessages(messages, config),
+		Temperature:    config.Temperature,
+		Tools:          tools,
+		ConversationID: config.ConversationID,
 	}
 	if config.MaxOutputTokens > 0 {
 		req.MaxTokens = config.MaxOutputTokens
@@ -142,12 +147,13 @@ func (g *RelayGateway) GenerateStructuredReply(ctx context.Context, messages []M
 
 // chatCompletionRequest OpenAI Chat Completion 请求
 type chatCompletionRequest struct {
-	Model       string           `json:"model"`
-	Messages    []openAIMessage  `json:"messages"`
-	Temperature float64          `json:"temperature,omitempty"`
-	MaxTokens   int              `json:"max_tokens,omitempty"`
-	Stream      bool             `json:"stream,omitempty"`
-	Tools       []map[string]any `json:"tools,omitempty"`
+	Model          string           `json:"model"`
+	Messages       []openAIMessage  `json:"messages"`
+	Temperature    float64          `json:"temperature,omitempty"`
+	MaxTokens      int              `json:"max_tokens,omitempty"`
+	Stream         bool             `json:"stream,omitempty"`
+	Tools          []map[string]any `json:"tools,omitempty"`
+	ConversationID string           `json:"-"`
 }
 
 // chatCompletionResponse OpenAI Chat Completion 响应
@@ -184,6 +190,7 @@ func (g *RelayGateway) complete(ctx context.Context, req *chatCompletionRequest)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	applyRelayRequestMetadata(httpReq)
+	applyRelayConversationMetadata(httpReq, req.ConversationID)
 
 	resp, err := g.httpClient.Do(httpReq)
 	if err != nil {
@@ -218,6 +225,7 @@ func (g *RelayGateway) completeStream(ctx context.Context, req *chatCompletionRe
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "text/event-stream")
 	applyRelayRequestMetadata(httpReq)
+	applyRelayConversationMetadata(httpReq, req.ConversationID)
 
 	resp, err := g.httpClient.Do(httpReq)
 	if err != nil {
@@ -357,6 +365,9 @@ func applyRelayRequestMetadata(req *http.Request) {
 	if metadata.OrganizationID != "" {
 		req.Header.Set("X-Oblivious-Internal-Organization-ID", metadata.OrganizationID)
 	}
+	if metadata.UserGroup != "" {
+		req.Header.Set("X-Oblivious-Internal-User-Group", metadata.UserGroup)
+	}
 	if metadata.RequestID != "" {
 		req.Header.Set("X-Request-ID", metadata.RequestID)
 	}
@@ -368,4 +379,13 @@ func applyRelayRequestMetadata(req *http.Request) {
 		internalAuth = "oblivious-internal-v1"
 	}
 	req.Header.Set("X-Oblivious-Internal-Auth", internalAuth)
+}
+
+func applyRelayConversationMetadata(req *http.Request, conversationID string) {
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return
+	}
+	req.Header.Set(relaytypes.HeaderInternalConversation, conversationID)
+	req.Header.Set("X-Oblivious-Internal-Conversation-ID", conversationID)
 }

@@ -3,7 +3,9 @@ package knowledge
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -12,9 +14,10 @@ import (
 )
 
 const (
-	knowledgeDocumentChunkSize = 280
-	knowledgeRetrievalLimit    = 5
-	knowledgeSnippetSize       = 220
+	defaultKnowledgeStoreEmbeddingModel = "text-embedding-3-small"
+	knowledgeDocumentChunkSize          = 280
+	knowledgeRetrievalLimit             = 5
+	knowledgeSnippetSize                = 220
 )
 
 type knowledgeRetrievalCandidate struct {
@@ -68,7 +71,12 @@ func chooseKnowledgeSnippetSource(body string, chunk sql.NullString, terms []str
 	return body
 }
 
-func (s *SQLStore) CreateKnowledgeBase(ctx context.Context, workspaceID, organizationID, name string) (KnowledgeBase, error) {
+func (s *SQLStore) CreateKnowledgeBase(ctx context.Context, workspaceID, name string) (KnowledgeBase, error) {
+	return s.CreateKnowledgeBaseWithConfig(ctx, workspaceID, workspaceID, name, KnowledgeBaseConfig{})
+}
+
+func (s *SQLStore) CreateKnowledgeBaseWithConfig(ctx context.Context, workspaceID, organizationID, name string, config KnowledgeBaseConfig) (KnowledgeBase, error) {
+	config = normalizeKnowledgeBaseConfig(config)
 	knowledgeBaseID, err := auth.NewID("kb")
 	if err != nil {
 		return KnowledgeBase{}, err
@@ -76,40 +84,122 @@ func (s *SQLStore) CreateKnowledgeBase(ctx context.Context, workspaceID, organiz
 
 	now := time.Now().UTC()
 	if _, err := s.db.ExecContext(ctx, `
-		INSERT INTO knowledge_bases (id, workspace_id, organization_id, name, document_count, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, 0, $5, $5)
-	`, knowledgeBaseID, workspaceID, organizationID, name, now); err != nil {
+		INSERT INTO knowledge_bases (
+			id,
+			workspace_id,
+			organization_id,
+			name,
+			document_count,
+			retrieval_mode,
+			retrieval_limit,
+			min_score,
+			vector_weight,
+			keyword_weight,
+			reranker_model,
+			rerank_top_k,
+			chunk_strategy,
+			chunk_size,
+			chunk_overlap,
+			embedding_model,
+			update_strategy,
+			created_at,
+			updated_at
+		)
+		VALUES ($1, $2, $3, $4, 0, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $17)
+	`, knowledgeBaseID, workspaceID, organizationID, name, config.RetrievalMode, config.RetrievalLimit, config.MinScore, config.VectorWeight, config.KeywordWeight, config.RerankerModel, config.RerankTopK, config.ChunkStrategy, config.ChunkSize, config.ChunkOverlap, config.EmbeddingModel, config.UpdateStrategy, now); err != nil {
 		return KnowledgeBase{}, err
 	}
 
 	return KnowledgeBase{
-		DocumentCount: 0,
-		ID:            knowledgeBaseID,
-		Name:          name,
-		UpdatedAt:     now,
+		ChunkOverlap:   config.ChunkOverlap,
+		ChunkSize:      config.ChunkSize,
+		ChunkStrategy:  config.ChunkStrategy,
+		DocumentCount:  0,
+		EmbeddingModel: config.EmbeddingModel,
+		ID:             knowledgeBaseID,
+		KeywordWeight:  config.KeywordWeight,
+		MinScore:       config.MinScore,
+		Name:           name,
+		RerankTopK:     config.RerankTopK,
+		RerankerModel:  config.RerankerModel,
+		RetrievalLimit: config.RetrievalLimit,
+		RetrievalMode:  config.RetrievalMode,
+		UpdateStrategy: config.UpdateStrategy,
+		UpdatedAt:      now,
+		VectorWeight:   config.VectorWeight,
 	}, nil
 }
 
-func (s *SQLStore) UpdateKnowledgeBase(ctx context.Context, organizationID, knowledgeBaseID, name string) (KnowledgeBase, error) {
+func (s *SQLStore) UpdateKnowledgeBase(ctx context.Context, workspaceID, knowledgeBaseID, name string) (KnowledgeBase, error) {
 	var base KnowledgeBase
 
 	if err := s.db.QueryRowContext(ctx, `
 		UPDATE knowledge_bases
 		SET name = $3, updated_at = $4
-		WHERE organization_id = $1 AND id = $2
+		WHERE (organization_id = $1 OR workspace_id = $1) AND id = $2
 		RETURNING id, name, document_count, updated_at
-	`, organizationID, knowledgeBaseID, name, time.Now().UTC()).Scan(&base.ID, &base.Name, &base.DocumentCount, &base.UpdatedAt); err != nil {
+	`, workspaceID, knowledgeBaseID, name, time.Now().UTC()).Scan(&base.ID, &base.Name, &base.DocumentCount, &base.UpdatedAt); err != nil {
 		return KnowledgeBase{}, err
 	}
 
 	return base, nil
 }
 
-func (s *SQLStore) DeleteKnowledgeBase(ctx context.Context, organizationID, knowledgeBaseID string) error {
+func (s *SQLStore) UpdateKnowledgeBaseWithConfig(ctx context.Context, organizationID, knowledgeBaseID, name string, config KnowledgeBaseConfig) (KnowledgeBase, error) {
+	config = normalizeKnowledgeBaseConfig(config)
+	now := time.Now().UTC()
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE knowledge_bases
+		SET name = $3,
+			retrieval_mode = $4,
+			retrieval_limit = $5,
+			min_score = $6,
+			vector_weight = $7,
+			keyword_weight = $8,
+			reranker_model = $9,
+			rerank_top_k = $10,
+			chunk_strategy = $11,
+			chunk_size = $12,
+			chunk_overlap = $13,
+			embedding_model = $14,
+			update_strategy = $15,
+			updated_at = $16
+		WHERE organization_id = $1 AND id = $2
+	`, organizationID, knowledgeBaseID, name, config.RetrievalMode, config.RetrievalLimit, config.MinScore, config.VectorWeight, config.KeywordWeight, config.RerankerModel, config.RerankTopK, config.ChunkStrategy, config.ChunkSize, config.ChunkOverlap, config.EmbeddingModel, config.UpdateStrategy, now)
+	if err != nil {
+		return KnowledgeBase{}, err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return KnowledgeBase{}, err
+	}
+	if rowsAffected == 0 {
+		return KnowledgeBase{}, sql.ErrNoRows
+	}
+	return KnowledgeBase{
+		ChunkOverlap:   config.ChunkOverlap,
+		ChunkSize:      config.ChunkSize,
+		ChunkStrategy:  config.ChunkStrategy,
+		EmbeddingModel: config.EmbeddingModel,
+		ID:             knowledgeBaseID,
+		KeywordWeight:  config.KeywordWeight,
+		MinScore:       config.MinScore,
+		Name:           name,
+		RerankTopK:     config.RerankTopK,
+		RerankerModel:  config.RerankerModel,
+		RetrievalLimit: config.RetrievalLimit,
+		RetrievalMode:  config.RetrievalMode,
+		UpdateStrategy: config.UpdateStrategy,
+		UpdatedAt:      now,
+		VectorWeight:   config.VectorWeight,
+	}, nil
+}
+
+func (s *SQLStore) DeleteKnowledgeBase(ctx context.Context, workspaceID, knowledgeBaseID string) error {
 	result, err := s.db.ExecContext(ctx, `
 		DELETE FROM knowledge_bases
-		WHERE organization_id = $1 AND id = $2
-	`, organizationID, knowledgeBaseID)
+		WHERE (organization_id = $1 OR workspace_id = $1) AND id = $2
+	`, workspaceID, knowledgeBaseID)
 	if err != nil {
 		return err
 	}
@@ -125,13 +215,13 @@ func (s *SQLStore) DeleteKnowledgeBase(ctx context.Context, organizationID, know
 	return nil
 }
 
-func (s *SQLStore) ListKnowledgeBases(ctx context.Context, organizationID string) ([]KnowledgeBase, error) {
+func (s *SQLStore) ListKnowledgeBases(ctx context.Context, workspaceID string) ([]KnowledgeBase, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, name, document_count, updated_at
 		FROM knowledge_bases
-		WHERE organization_id = $1
+		WHERE organization_id = $1 OR workspace_id = $1
 		ORDER BY updated_at DESC, name ASC
-	`, organizationID)
+	`, workspaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -149,28 +239,28 @@ func (s *SQLStore) ListKnowledgeBases(ctx context.Context, organizationID string
 	return bases, rows.Err()
 }
 
-func (s *SQLStore) GetKnowledgeBase(ctx context.Context, organizationID, knowledgeBaseID string) (KnowledgeBase, error) {
+func (s *SQLStore) GetKnowledgeBase(ctx context.Context, workspaceID, knowledgeBaseID string) (KnowledgeBase, error) {
 	var base KnowledgeBase
 
 	if err := s.db.QueryRowContext(ctx, `
 		SELECT id, name, document_count, updated_at
 		FROM knowledge_bases
-		WHERE organization_id = $1 AND id = $2
-	`, organizationID, knowledgeBaseID).Scan(&base.ID, &base.Name, &base.DocumentCount, &base.UpdatedAt); err != nil {
+		WHERE (organization_id = $1 OR workspace_id = $1) AND id = $2
+	`, workspaceID, knowledgeBaseID).Scan(&base.ID, &base.Name, &base.DocumentCount, &base.UpdatedAt); err != nil {
 		return KnowledgeBase{}, err
 	}
 
 	return base, nil
 }
 
-func (s *SQLStore) ListKnowledgeDocuments(ctx context.Context, organizationID, knowledgeBaseID string) ([]KnowledgeDocument, error) {
+func (s *SQLStore) ListKnowledgeDocuments(ctx context.Context, workspaceID, knowledgeBaseID string) ([]KnowledgeDocument, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT d.id, d.title, d.content, d.updated_at
 		FROM knowledge_documents d
 		JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
-		WHERE kb.organization_id = $1 AND d.organization_id = $1 AND d.knowledge_base_id = $2
+		WHERE (kb.organization_id = $1 OR kb.workspace_id = $1) AND d.knowledge_base_id = $2
 		ORDER BY d.updated_at DESC, d.title ASC
-	`, organizationID, knowledgeBaseID)
+	`, workspaceID, knowledgeBaseID)
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +278,12 @@ func (s *SQLStore) ListKnowledgeDocuments(ctx context.Context, organizationID, k
 	return documents, rows.Err()
 }
 
-func (s *SQLStore) CreateKnowledgeDocument(ctx context.Context, organizationID, knowledgeBaseID, title, content string, chunks []KnowledgeDocumentChunk) (KnowledgeDocument, error) {
+func (s *SQLStore) CreateKnowledgeDocument(ctx context.Context, workspaceID, knowledgeBaseID, title, content string) (KnowledgeDocument, error) {
+	return s.CreateKnowledgeDocumentWithOptions(ctx, workspaceID, knowledgeBaseID, title, content, chunksFromContent(content), KnowledgeDocumentOptions{})
+}
+
+func (s *SQLStore) CreateKnowledgeDocumentWithOptions(ctx context.Context, organizationID, knowledgeBaseID, title, content string, chunks []KnowledgeDocumentChunk, options KnowledgeDocumentOptions) (KnowledgeDocument, error) {
+	options = normalizeKnowledgeDocumentOptions(options)
 	documentID, err := auth.NewID("doc")
 	if err != nil {
 		return KnowledgeDocument{}, err
@@ -202,11 +297,11 @@ func (s *SQLStore) CreateKnowledgeDocument(ctx context.Context, organizationID, 
 	defer tx.Rollback()
 
 	result, err := tx.ExecContext(ctx, `
-		INSERT INTO knowledge_documents (id, knowledge_base_id, organization_id, title, content, created_at, updated_at)
-		SELECT $1, kb.id, kb.organization_id, $3, $4, $5, $5
+		INSERT INTO knowledge_documents (id, organization_id, knowledge_base_id, title, content, document_version, update_strategy, created_at, updated_at)
+		SELECT $1, $2, kb.id, $4, $5, $6, $7, $8, $8
 		FROM knowledge_bases kb
-		WHERE kb.organization_id = $2 AND kb.id = $6
-	`, documentID, organizationID, title, content, now, knowledgeBaseID)
+		WHERE kb.organization_id = $2 AND kb.id = $3
+	`, documentID, organizationID, knowledgeBaseID, title, content, options.DocumentVersion, options.UpdateStrategy, now)
 	if err != nil {
 		return KnowledgeDocument{}, err
 	}
@@ -219,7 +314,7 @@ func (s *SQLStore) CreateKnowledgeDocument(ctx context.Context, organizationID, 
 		return KnowledgeDocument{}, sql.ErrNoRows
 	}
 
-	if err := replaceKnowledgeDocumentChunks(ctx, tx, documentID, organizationID, chunks, now); err != nil {
+	if err := replaceKnowledgeDocumentChunksWithOptions(ctx, tx, organizationID, documentID, chunks, options, defaultKnowledgeStoreEmbeddingModel, now); err != nil {
 		return KnowledgeDocument{}, err
 	}
 
@@ -236,15 +331,21 @@ func (s *SQLStore) CreateKnowledgeDocument(ctx context.Context, organizationID, 
 	}
 
 	return KnowledgeDocument{
-		Content:   content,
-		ID:        documentID,
-		Title:     title,
-		UpdatedAt: now,
+		Content:         content,
+		DocumentVersion: options.DocumentVersion,
+		ID:              documentID,
+		Title:           title,
+		UpdateStrategy:  options.UpdateStrategy,
+		UpdatedAt:       now,
 	}, nil
 }
 
-func (s *SQLStore) UpdateKnowledgeDocument(ctx context.Context, organizationID, knowledgeBaseID, documentID, title, content string, chunks []KnowledgeDocumentChunk) (KnowledgeDocument, error) {
-	var document KnowledgeDocument
+func (s *SQLStore) UpdateKnowledgeDocument(ctx context.Context, workspaceID, knowledgeBaseID, documentID, title, content string) (KnowledgeDocument, error) {
+	return s.UpdateKnowledgeDocumentWithOptions(ctx, workspaceID, knowledgeBaseID, documentID, title, content, chunksFromContent(content), KnowledgeDocumentOptions{})
+}
+
+func (s *SQLStore) UpdateKnowledgeDocumentWithOptions(ctx context.Context, organizationID, knowledgeBaseID, documentID, title, content string, chunks []KnowledgeDocumentChunk, options KnowledgeDocumentOptions) (KnowledgeDocument, error) {
+	options = normalizeKnowledgeDocumentOptions(options)
 	now := time.Now().UTC()
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -253,22 +354,31 @@ func (s *SQLStore) UpdateKnowledgeDocument(ctx context.Context, organizationID, 
 	}
 	defer tx.Rollback()
 
-	if err := tx.QueryRowContext(ctx, `
+	result, err := tx.ExecContext(ctx, `
 		UPDATE knowledge_documents d
-		SET title = $4, content = $5, updated_at = $6
+		SET title = $4,
+			content = $5,
+			document_version = $6,
+			update_strategy = $7,
+			updated_at = $8
 		FROM knowledge_bases kb
-		WHERE d.knowledge_base_id = kb.id AND kb.organization_id = $1 AND d.organization_id = $1 AND kb.id = $2 AND d.id = $3
-		RETURNING d.id, d.title, d.content, d.updated_at
-	`, organizationID, knowledgeBaseID, documentID, title, content, now).Scan(
-		&document.ID,
-		&document.Title,
-		&document.Content,
-		&document.UpdatedAt,
-	); err != nil {
+		WHERE d.knowledge_base_id = kb.id
+		  AND kb.organization_id = $1
+		  AND kb.id = $2
+		  AND d.id = $3
+	`, organizationID, knowledgeBaseID, documentID, title, content, options.DocumentVersion, options.UpdateStrategy, now)
+	if err != nil {
 		return KnowledgeDocument{}, err
 	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return KnowledgeDocument{}, err
+	}
+	if rowsAffected == 0 {
+		return KnowledgeDocument{}, sql.ErrNoRows
+	}
 
-	if err := replaceKnowledgeDocumentChunks(ctx, tx, document.ID, organizationID, chunks, now); err != nil {
+	if err := replaceKnowledgeDocumentChunksWithOptions(ctx, tx, organizationID, documentID, chunks, options, defaultKnowledgeStoreEmbeddingModel, now); err != nil {
 		return KnowledgeDocument{}, err
 	}
 
@@ -276,10 +386,17 @@ func (s *SQLStore) UpdateKnowledgeDocument(ctx context.Context, organizationID, 
 		return KnowledgeDocument{}, err
 	}
 
-	return document, nil
+	return KnowledgeDocument{
+		Content:         content,
+		DocumentVersion: options.DocumentVersion,
+		ID:              documentID,
+		Title:           title,
+		UpdateStrategy:  options.UpdateStrategy,
+		UpdatedAt:       now,
+	}, nil
 }
 
-func (s *SQLStore) DeleteKnowledgeDocument(ctx context.Context, organizationID, knowledgeBaseID, documentID string) error {
+func (s *SQLStore) DeleteKnowledgeDocument(ctx context.Context, workspaceID, knowledgeBaseID, documentID string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -289,8 +406,8 @@ func (s *SQLStore) DeleteKnowledgeDocument(ctx context.Context, organizationID, 
 	result, err := tx.ExecContext(ctx, `
 		DELETE FROM knowledge_documents d
 		USING knowledge_bases kb
-		WHERE d.knowledge_base_id = kb.id AND kb.organization_id = $1 AND d.organization_id = $1 AND kb.id = $2 AND d.id = $3
-	`, organizationID, knowledgeBaseID, documentID)
+		WHERE d.knowledge_base_id = kb.id AND (kb.organization_id = $1 OR kb.workspace_id = $1) AND kb.id = $2 AND d.id = $3
+	`, workspaceID, knowledgeBaseID, documentID)
 	if err != nil {
 		return err
 	}
@@ -306,77 +423,62 @@ func (s *SQLStore) DeleteKnowledgeDocument(ctx context.Context, organizationID, 
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE knowledge_bases
 		SET document_count = GREATEST(document_count - 1, 0), updated_at = $2
-		WHERE organization_id = $1 AND id = $3
-	`, organizationID, time.Now().UTC(), knowledgeBaseID); err != nil {
+		WHERE (organization_id = $1 OR workspace_id = $1) AND id = $3
+	`, workspaceID, time.Now().UTC(), knowledgeBaseID); err != nil {
 		return err
 	}
 
 	return tx.Commit()
 }
 
-func (s *SQLStore) RetrieveKnowledge(ctx context.Context, organizationID, knowledgeBaseID string, queryEmbedding []float32, limit int, minScore float64) ([]KnowledgeRetrievalResult, error) {
-	if len(queryEmbedding) == 0 {
+func (s *SQLStore) RetrieveKnowledge(ctx context.Context, workspaceID, knowledgeBaseID, query string) ([]KnowledgeRetrievalResult, error) {
+	normalizedQuery := normalizeKnowledgeQuery(query)
+	if normalizedQuery == "" {
 		return []KnowledgeRetrievalResult{}, nil
 	}
-	if limit <= 0 {
-		limit = knowledgeRetrievalLimit
-	}
 
-	embeddingVector := knowledgeEmbeddingToVector(queryEmbedding)
+	pattern := "%" + escapeLikePattern(normalizedQuery) + "%"
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT
-			d.id,
-			d.title,
-			c.id,
-			c.chunk_index,
-			c.content,
-			1 - (c.embedding <=> $3::vector) AS similarity
-		FROM knowledge_document_chunks c
-		JOIN knowledge_documents d ON d.id = c.document_id
+		SELECT d.id, d.title, d.content, c.content, COALESCE(c.chunk_index, -1), d.updated_at
+		FROM knowledge_documents d
 		JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
-		WHERE kb.organization_id = $1
-		  AND d.organization_id = $1
-		  AND c.organization_id = $1
-		  AND d.knowledge_base_id = $2
-		  AND c.embedding IS NOT NULL
-		  AND (1 - (c.embedding <=> $3::vector)) >= $5
-		ORDER BY c.embedding <=> $3::vector, d.updated_at DESC, d.title ASC, c.chunk_index ASC
-		LIMIT $4
-	`, organizationID, knowledgeBaseID, embeddingVector, limit, minScore)
+		LEFT JOIN knowledge_document_chunks c ON c.document_id = d.id
+		WHERE (kb.organization_id = $1 OR kb.workspace_id = $1) AND d.knowledge_base_id = $2 AND (
+			d.title ILIKE $3 ESCAPE '\'
+			OR d.content ILIKE $3 ESCAPE '\'
+			OR c.content ILIKE $3 ESCAPE '\'
+		)
+		ORDER BY d.updated_at DESC, d.title ASC, COALESCE(c.chunk_index, -1) ASC
+		LIMIT 20
+	`, workspaceID, knowledgeBaseID, pattern)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	results := make([]KnowledgeRetrievalResult, 0, limit)
+	terms := buildKnowledgeQueryTerms(normalizedQuery)
+	candidates := []knowledgeRetrievalCandidate{}
 	for rows.Next() {
 		var (
 			documentID    string
 			documentTitle string
-			chunkID       string
+			documentBody  string
+			chunkContent  sql.NullString
 			chunkIndex    int
-			chunkContent  string
-			similarity    float64
+			updatedAt     time.Time
 		)
 
-		if err := rows.Scan(&documentID, &documentTitle, &chunkID, &chunkIndex, &chunkContent, &similarity); err != nil {
+		if err := rows.Scan(&documentID, &documentTitle, &documentBody, &chunkContent, &chunkIndex, &updatedAt); err != nil {
 			return nil, err
 		}
 
-		results = append(results, KnowledgeRetrievalResult{
-			DocumentID:      documentID,
-			DocumentTitle:   documentTitle,
-			ChunkID:         chunkID,
-			ChunkIndex:      chunkIndex,
-			RetrievalMethod: knowledgeRAGRetrievalMethod,
-			Similarity:      similarity,
-			Snippet:         buildKnowledgeSnippet(chunkContent, ""),
-			Source: KnowledgeCitation{
-				DocumentID:    documentID,
-				DocumentTitle: documentTitle,
-				ChunkID:       chunkID,
-				ChunkIndex:    chunkIndex,
-			},
+		candidates = append(candidates, knowledgeRetrievalCandidate{
+			documentID:    documentID,
+			documentTitle: documentTitle,
+			documentBody:  documentBody,
+			chunkContent:  chunkContent,
+			chunkIndex:    chunkIndex,
+			updatedAt:     updatedAt,
 		})
 	}
 
@@ -384,34 +486,361 @@ func (s *SQLStore) RetrieveKnowledge(ctx context.Context, organizationID, knowle
 		return nil, err
 	}
 
+	sort.SliceStable(candidates, func(i, j int) bool {
+		left := candidates[i]
+		right := candidates[j]
+
+		leftScore := scoreKnowledgeCandidate(left.documentTitle, left.documentBody, left.chunkContent, terms)
+		rightScore := scoreKnowledgeCandidate(right.documentTitle, right.documentBody, right.chunkContent, terms)
+		if leftScore != rightScore {
+			return leftScore > rightScore
+		}
+		if !left.updatedAt.Equal(right.updatedAt) {
+			return left.updatedAt.After(right.updatedAt)
+		}
+		if left.documentTitle != right.documentTitle {
+			return left.documentTitle < right.documentTitle
+		}
+		return left.chunkIndex < right.chunkIndex
+	})
+
+	results := make([]KnowledgeRetrievalResult, 0, knowledgeRetrievalLimit)
+	seen := map[string]struct{}{}
+	for _, candidate := range candidates {
+		source := chooseKnowledgeSnippetSource(candidate.documentBody, candidate.chunkContent, terms)
+		snippet := buildKnowledgeSnippet(source, normalizedQuery)
+		if snippet == "" {
+			continue
+		}
+
+		resultKey := candidate.documentID + "|" + snippet
+		if _, exists := seen[resultKey]; exists {
+			continue
+		}
+		seen[resultKey] = struct{}{}
+
+		results = append(results, KnowledgeRetrievalResult{
+			DocumentID:    candidate.documentID,
+			DocumentTitle: candidate.documentTitle,
+			Snippet:       snippet,
+		})
+		if len(results) == knowledgeRetrievalLimit {
+			break
+		}
+	}
+
 	return results, nil
 }
 
-func replaceKnowledgeDocumentChunks(ctx context.Context, tx *sql.Tx, documentID, organizationID string, chunks []KnowledgeDocumentChunk, now time.Time) error {
+func (s *SQLStore) RetrieveKnowledgeWithOptions(ctx context.Context, organizationID, knowledgeBaseID, query string, queryEmbedding []float32, options KnowledgeRetrievalOptions) ([]KnowledgeRetrievalResult, error) {
+	normalizedQuery := normalizeKnowledgeQuery(query)
+	if normalizedQuery == "" {
+		return []KnowledgeRetrievalResult{}, nil
+	}
+	options, err := normalizeKnowledgeRetrievalOptions(options)
+	if err != nil {
+		return nil, err
+	}
+	if options.Mode == KnowledgeRetrievalModeVector && len(queryEmbedding) == 0 {
+		return []KnowledgeRetrievalResult{}, nil
+	}
+	if len(queryEmbedding) == 0 {
+		options.Mode = KnowledgeRetrievalModeKeyword
+		return s.retrieveKnowledgeByKeywordWithOptions(ctx, organizationID, knowledgeBaseID, normalizedQuery, options)
+	}
+
+	embeddingVector := formatKnowledgeVector(queryEmbedding)
+	rows, err := s.db.QueryContext(ctx, `
+		WITH vector_results AS (
+			SELECT
+				d.id AS document_id,
+				d.title AS document_title,
+				COALESCE(d.document_version, '') AS document_version,
+				c.id AS chunk_id,
+				c.chunk_index AS chunk_index,
+				COALESCE(NULLIF(c.document_version, ''), d.document_version, '') AS chunk_version,
+				c.content AS content,
+				COALESCE(c.metadata, '{}'::jsonb) AS metadata,
+				1 - (c.embedding <=> $3::vector) AS similarity,
+				(1 - (c.embedding <=> $3::vector)) * $7 AS score,
+				$9::text AS retrieval_method,
+				c.embedding <=> $3::vector AS vector_distance
+			FROM knowledge_document_chunks c
+			JOIN knowledge_documents d ON d.id = c.document_id
+			JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
+			WHERE kb.organization_id = $1
+			  AND d.organization_id = $1
+			  AND c.organization_id = $1
+			  AND d.knowledge_base_id = $2
+			  AND c.embedding IS NOT NULL
+			  AND ($10::text = '' OR COALESCE(NULLIF(c.document_version, ''), d.document_version, '') = $10)
+			  AND $3::vector IS NOT NULL
+			  AND (1 - (c.embedding <=> $3::vector)) >= $5
+			  AND $8::text IN ('vector', 'hybrid', 'hybrid_rerank')
+			ORDER BY c.embedding <=> $3::vector, d.updated_at DESC, d.title ASC, c.chunk_index ASC
+			LIMIT $4
+		),
+		keyword_query AS (
+			SELECT websearch_to_tsquery('simple', $6) AS query
+		),
+		keyword_results AS (
+			SELECT
+				d.id AS document_id,
+				d.title AS document_title,
+				COALESCE(d.document_version, '') AS document_version,
+				c.id AS chunk_id,
+				c.chunk_index AS chunk_index,
+				COALESCE(NULLIF(c.document_version, ''), d.document_version, '') AS chunk_version,
+				c.content AS content,
+				COALESCE(c.metadata, '{}'::jsonb) AS metadata,
+				0::double precision AS similarity,
+				ts_rank_cd(
+					setweight(to_tsvector('simple', COALESCE(d.title, '')), 'A') ||
+					setweight(to_tsvector('simple', COALESCE(c.content, '')), 'B'),
+					keyword_query.query
+				) * $11 AS score,
+				$9::text AS retrieval_method,
+				NULL::double precision AS vector_distance
+			FROM knowledge_document_chunks c
+			JOIN knowledge_documents d ON d.id = c.document_id
+			JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
+			CROSS JOIN keyword_query
+			WHERE kb.organization_id = $1
+			  AND d.organization_id = $1
+			  AND c.organization_id = $1
+			  AND d.knowledge_base_id = $2
+			  AND ($10::text = '' OR COALESCE(NULLIF(c.document_version, ''), d.document_version, '') = $10)
+			  AND $8::text IN ('keyword', 'hybrid', 'hybrid_rerank')
+			  AND keyword_query.query @@ (
+				setweight(to_tsvector('simple', COALESCE(d.title, '')), 'A') ||
+				setweight(to_tsvector('simple', COALESCE(c.content, '')), 'B')
+			  )
+			ORDER BY score DESC, d.updated_at DESC, d.title ASC, c.chunk_index ASC
+			LIMIT $4
+		),
+		fused AS (
+			SELECT DISTINCT ON (chunk_id)
+				document_id,
+				document_title,
+				document_version,
+				chunk_id,
+				chunk_index,
+				chunk_version,
+				content,
+				metadata,
+				MAX(similarity) OVER (PARTITION BY chunk_id) AS "Similarity",
+				SUM(score) OVER (PARTITION BY chunk_id) AS score,
+				retrieval_method AS "RetrievalMethod",
+				NULL::jsonb AS "KnowledgeCitation",
+				vector_distance
+			FROM (
+				SELECT * FROM vector_results
+				UNION ALL
+				SELECT * FROM keyword_results
+			) merged
+			ORDER BY chunk_id, score DESC
+		)
+		SELECT
+			document_id,
+			document_title,
+			document_version,
+			chunk_id,
+			chunk_index,
+			chunk_version,
+			content,
+			metadata,
+			"Similarity",
+			score,
+			"RetrievalMethod"
+		FROM fused
+		ORDER BY score DESC, vector_distance ASC NULLS LAST, document_title ASC, chunk_index ASC
+		LIMIT $4
+	`, organizationID, knowledgeBaseID, embeddingVector, options.Limit, options.MinScore, normalizedQuery, options.VectorWeight, options.Mode, KnowledgeRetrievalMethodEmbeddingRAG, options.DocumentVersion, options.KeywordWeight)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return scanKnowledgeRetrievalRows(rows, normalizedQuery)
+}
+
+func (s *SQLStore) retrieveKnowledgeByKeywordWithOptions(ctx context.Context, organizationID, knowledgeBaseID, query string, options KnowledgeRetrievalOptions) ([]KnowledgeRetrievalResult, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		WITH keyword_query AS (
+			SELECT websearch_to_tsquery('simple', $3) AS query
+		)
+		SELECT
+			d.id AS document_id,
+			d.title AS document_title,
+			COALESCE(d.document_version, '') AS document_version,
+			c.id AS chunk_id,
+			c.chunk_index AS chunk_index,
+			COALESCE(NULLIF(c.document_version, ''), d.document_version, '') AS chunk_version,
+			c.content AS content,
+			COALESCE(c.metadata, '{}'::jsonb) AS metadata,
+			0::double precision AS "Similarity",
+			ts_rank_cd(
+				setweight(to_tsvector('simple', COALESCE(d.title, '')), 'A') ||
+				setweight(to_tsvector('simple', COALESCE(c.content, '')), 'B'),
+				keyword_query.query
+			) AS score,
+			$6::text AS "RetrievalMethod"
+		FROM knowledge_document_chunks c
+		JOIN knowledge_documents d ON d.id = c.document_id
+		JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
+		CROSS JOIN keyword_query
+		WHERE kb.organization_id = $1
+		  AND d.organization_id = $1
+		  AND c.organization_id = $1
+		  AND d.knowledge_base_id = $2
+		  AND ($5::text = '' OR COALESCE(NULLIF(c.document_version, ''), d.document_version, '') = $5)
+		  AND keyword_query.query @@ (
+			setweight(to_tsvector('simple', COALESCE(d.title, '')), 'A') ||
+			setweight(to_tsvector('simple', COALESCE(c.content, '')), 'B')
+		  )
+		ORDER BY score DESC, d.updated_at DESC, d.title ASC, c.chunk_index ASC
+		LIMIT $4
+	`, organizationID, knowledgeBaseID, query, options.Limit, options.DocumentVersion, KnowledgeRetrievalMethodEmbeddingRAG)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanKnowledgeRetrievalRows(rows, query)
+}
+
+func scanKnowledgeRetrievalRows(rows *sql.Rows, query string) ([]KnowledgeRetrievalResult, error) {
+	results := []KnowledgeRetrievalResult{}
+	for rows.Next() {
+		var (
+			documentID      string
+			documentTitle   string
+			documentVersion string
+			chunkID         string
+			chunkIndex      int
+			chunkVersion    string
+			content         string
+			metadataRaw     []byte
+			similarity      float64
+			score           float64
+			retrievalMethod string
+		)
+		if err := rows.Scan(
+			&documentID,
+			&documentTitle,
+			&documentVersion,
+			&chunkID,
+			&chunkIndex,
+			&chunkVersion,
+			&content,
+			&metadataRaw,
+			&similarity,
+			&score,
+			&retrievalMethod,
+		); err != nil {
+			return nil, err
+		}
+
+		if strings.TrimSpace(chunkVersion) != "" {
+			documentVersion = strings.TrimSpace(chunkVersion)
+		}
+		metadata := KnowledgeChunkMetadata{}
+		if len(metadataRaw) > 0 {
+			_ = json.Unmarshal(metadataRaw, &metadata)
+		}
+		if strings.TrimSpace(metadata.DocumentVersion) != "" {
+			documentVersion = strings.TrimSpace(metadata.DocumentVersion)
+		}
+
+		snippet := buildKnowledgeSnippet(content, query)
+		if snippet == "" {
+			snippet = strings.Join(strings.Fields(content), " ")
+		}
+		source := KnowledgeCitation{
+			DocumentID:      documentID,
+			DocumentTitle:   documentTitle,
+			DocumentVersion: documentVersion,
+			ChunkID:         chunkID,
+			ChunkIndex:      chunkIndex,
+			PageNumber:      metadata.PageNumber,
+			SourceURL:       metadata.SourceURL,
+			OriginalText:    content,
+			MatchedSnippet:  snippet,
+			ConfidenceScore: similarity,
+		}
+
+		results = append(results, KnowledgeRetrievalResult{
+			ChunkID:         chunkID,
+			ChunkIndex:      chunkIndex,
+			DocumentID:      documentID,
+			DocumentTitle:   documentTitle,
+			DocumentVersion: documentVersion,
+			RetrievalMethod: retrievalMethod,
+			Score:           score,
+			Similarity:      similarity,
+			Snippet:         snippet,
+			Source:          source,
+		})
+	}
+	return results, rows.Err()
+}
+
+func formatKnowledgeVector(embedding []float32) string {
+	if len(embedding) == 0 {
+		return ""
+	}
+	parts := make([]string, len(embedding))
+	for index, value := range embedding {
+		parts[index] = fmt.Sprintf("%f", value)
+	}
+	return "[" + strings.Join(parts, ",") + "]"
+}
+
+func replaceKnowledgeDocumentChunks(ctx context.Context, tx *sql.Tx, documentID, content string, now time.Time) error {
+	return replaceKnowledgeDocumentChunksWithOptions(ctx, tx, "", documentID, chunksFromContent(content), KnowledgeDocumentOptions{}, defaultKnowledgeStoreEmbeddingModel, now)
+}
+
+func replaceKnowledgeDocumentChunksWithOptions(ctx context.Context, tx *sql.Tx, organizationID, documentID string, chunks []KnowledgeDocumentChunk, options KnowledgeDocumentOptions, embeddingModel string, now time.Time) error {
 	if _, err := tx.ExecContext(ctx, `
 		DELETE FROM knowledge_document_chunks
-		WHERE document_id = $1 AND organization_id = $2
-	`, documentID, organizationID); err != nil {
+		WHERE document_id = $1
+	`, documentID); err != nil {
 		return err
 	}
 
+	options = normalizeKnowledgeDocumentOptions(options)
+	if embeddingModel = strings.TrimSpace(embeddingModel); embeddingModel == "" {
+		embeddingModel = defaultKnowledgeStoreEmbeddingModel
+	}
+	if len(chunks) == 0 {
+		chunks = []KnowledgeDocumentChunk{}
+	}
 	for index, chunk := range chunks {
 		chunkID, err := auth.NewID("kdc")
 		if err != nil {
 			return err
 		}
-		if strings.TrimSpace(chunk.ID) != "" {
-			chunkID = chunk.ID
+		chunk.ChunkIndex = index
+		if strings.TrimSpace(chunk.DocumentVersion) == "" {
+			chunk.DocumentVersion = options.DocumentVersion
 		}
-		indexedAt := chunk.IndexedAt
-		if indexedAt.IsZero() {
-			indexedAt = now
+		if strings.TrimSpace(chunk.Metadata.DocumentVersion) == "" {
+			chunk.Metadata.DocumentVersion = chunk.DocumentVersion
+		}
+		if chunk.Metadata.PageNumber == 0 {
+			chunk.Metadata.PageNumber = options.PageNumber
+		}
+		if strings.TrimSpace(chunk.Metadata.SourceURL) == "" {
+			chunk.Metadata.SourceURL = options.SourceURL
+		}
+		metadataJSON, err := json.Marshal(chunk.Metadata)
+		if err != nil {
+			return err
 		}
 
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO knowledge_document_chunks (id, document_id, organization_id, chunk_index, content, embedding, embedding_model, indexed_at, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6::vector, $7, $8, $9)
-		`, chunkID, documentID, organizationID, index, chunk.Content, knowledgeEmbeddingToVector(chunk.Embedding), chunk.EmbeddingModel, indexedAt, now); err != nil {
+			INSERT INTO knowledge_document_chunks (id, document_id, organization_id, chunk_index, content, embedding, embedding_model, indexed_at, document_version, metadata, created_at)
+			VALUES ($1, $2, $3, $4, $5, NULLIF($6, '')::vector, $7, $8, $9, $10::jsonb, $11)
+		`, chunkID, documentID, organizationID, chunk.ChunkIndex, chunk.Content, formatKnowledgeVector(chunk.Embedding), embeddingModel, now, chunk.DocumentVersion, string(metadataJSON), now); err != nil {
 			return err
 		}
 	}
@@ -419,21 +848,19 @@ func replaceKnowledgeDocumentChunks(ctx context.Context, tx *sql.Tx, documentID,
 	return nil
 }
 
-func knowledgeEmbeddingToVector(embedding []float32) string {
-	if len(embedding) == 0 {
-		return "[]"
+func chunksFromContent(content string) []KnowledgeDocumentChunk {
+	rawChunks := buildKnowledgeDocumentChunks(content)
+	chunks := make([]KnowledgeDocumentChunk, 0, len(rawChunks))
+	for index, chunk := range rawChunks {
+		chunks = append(chunks, KnowledgeDocumentChunk{
+			ChunkIndex:          index,
+			Content:             chunk,
+			DocumentVersion:     "v1",
+			EstimatedTokenCount: estimateKnowledgeTokens(chunk),
+			Metadata:            KnowledgeChunkMetadata{DocumentVersion: "v1"},
+		})
 	}
-
-	result := make([]byte, 0, len(embedding)*12)
-	result = append(result, '[')
-	for i, value := range embedding {
-		if i > 0 {
-			result = append(result, ',')
-		}
-		result = append(result, fmt.Sprintf("%f", value)...)
-	}
-	result = append(result, ']')
-	return string(result)
+	return chunks
 }
 
 func buildKnowledgeDocumentChunks(content string) []string {

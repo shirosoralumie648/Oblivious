@@ -5,15 +5,36 @@ metadata:
   namespace: oblivious
   labels:
     app.kubernetes.io/name: oblivious
+    app.kubernetes.io/component: server
 data:
+  # Application
+  APP_ENV: "production"
   SERVER_PORT: "8080"
-  APP_ENV: production
-  CORS_ALLOWED_ORIGINS: http://localhost:4173,http://localhost:8080
-  SESSION_COOKIE_NAME: oblivious_session
-  SESSION_COOKIE_SECURE: "false"
-  LLM_BASE_URL: ""
-  LLM_TIMEOUT_MS: "30000"
-  MODEL_DEFAULT_NAME: demo-reply
+  LOG_LEVEL: "info"
+
+  # Database (host/port/dbname - credentials come from Secret)
+  POSTGRES_HOST: "oblivious-postgres.oblivious.svc.cluster.local"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "oblivious"
+  POSTGRES_SSLMODE: "require"
+
+  # Redis
+  REDIS_URL: "redis://oblivious-redis.oblivious.svc.cluster.local:6379/0"
+  RELAY_RATE_LIMIT_BACKEND: "redis"
+  RELAY_RATE_LIMIT_REDIS_KEY_PREFIX: "relay:rate_limit"
+
+  # Qdrant
+  QDRANT_URL: "http://oblivious-qdrant.oblivious.svc.cluster.local:6333"
+  QDRANT_VECTOR_SIZE: "1536"
+
+  # Session
+  SESSION_COOKIE_NAME: "oblivious_session"
+  SESSION_COOKIE_SECURE: "true"
+
+  # CORS
+  CORS_ALLOWED_ORIGINS: "https://app.oblivious.ai"
+
+  # LLM defaults (API key comes from Secret)
   RELAY_ENABLED: "true"
-  RELAY_DEFAULT_MODEL: gpt-4o-mini
-  OPENAI_BASE_URL: https://api.openai.com
+  LLM_TIMEOUT_MS: "30000"
+  MODEL_DEFAULT_NAME: "demo-reply"

@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     completed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CHECK (status IN ('running', 'pending_approval', 'completed', 'failed'))
+    CHECK (status IN ('running', 'pending_approval', 'completed', 'failed', 'max_iterations_reached', 'token_budget_exceeded'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_agent_runs_org_conversation_created

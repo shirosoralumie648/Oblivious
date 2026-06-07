@@ -35,4 +35,12 @@ func registerConsoleRoutes(mux *stdhttp.ServeMux, authMiddleware authMiddleware,
 
 		consoleHandler.getBilling(w, r)
 	})))
+	mux.Handle("/api/v1/console/invoices", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.Method != stdhttp.MethodGet {
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+
+		consoleHandler.listBillingInvoices(w, r)
+	})))
 }

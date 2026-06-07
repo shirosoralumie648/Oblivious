@@ -2,7 +2,9 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"sort"
 	"strconv"
@@ -19,19 +21,51 @@ type BuiltinTool interface {
 	Execute(ctx context.Context, args map[string]any) (*ToolResult, error)
 }
 
+type WebSearchResult struct {
+	Title   string
+	URL     string
+	Snippet string
+}
+
+type WebSearchProvider interface {
+	Search(ctx context.Context, query string) ([]WebSearchResult, error)
+}
+
+var webSearchProvider WebSearchProvider
+
+func SetWebSearchProvider(provider WebSearchProvider) {
+	webSearchProvider = provider
+}
+
+func SetWebSearchProviderForTest(provider WebSearchProvider) func() {
+	previous := webSearchProvider
+	webSearchProvider = provider
+	return func() {
+		webSearchProvider = previous
+	}
+}
+
+func WebSearchProviderConfigured() bool {
+	return webSearchProvider != nil
+}
+
 // BuiltinTools 内置工具集合
 var BuiltinTools = map[string]BuiltinTool{
-	"web_search":   &WebSearchTool{},
-	"calculator":   &CalculatorTool{},
-	"datetime":     &DatetimeTool{},
-	"http_request": &HTTPRequestTool{},
+	"web_search":     &WebSearchTool{},
+	"calculator":     &CalculatorTool{},
+	"datetime":       &DatetimeTool{},
+	"http_request":   &HTTPRequestTool{},
+	"json_formatter": &JSONFormatterTool{},
+	"text_transform": &TextTransformTool{},
 }
 
 var defaultCommercialBuiltinEnabled = map[string]bool{
-	"calculator":   true,
-	"datetime":     true,
-	"web_search":   false,
-	"http_request": false,
+	"calculator":     true,
+	"datetime":       true,
+	"json_formatter": true,
+	"text_transform": true,
+	"web_search":     false,
+	"http_request":   false,
 }
 
 // IsDefaultCommercialBuiltin reports whether a builtin is safe and real enough
@@ -79,8 +113,38 @@ func (t *WebSearchTool) Execute(ctx context.Context, args map[string]any) (*Tool
 	if strings.TrimSpace(query) == "" {
 		return nil, fmt.Errorf("query is required")
 	}
+	query = strings.TrimSpace(query)
+	if webSearchProvider != nil {
+		results, err := webSearchProvider.Search(ctx, query)
+		if err != nil {
+			return &ToolResult{Content: err.Error(), IsError: true}, nil
+		}
+		return &ToolResult{Content: formatWebSearchResults(results)}, nil
+	}
 
 	return disabledBuiltinResult("web_search", "no search provider is configured"), nil
+}
+
+func formatWebSearchResults(results []WebSearchResult) string {
+	if len(results) == 0 {
+		return "No search results found."
+	}
+	var builder strings.Builder
+	for i, result := range results {
+		if i > 0 {
+			builder.WriteString("\n\n")
+		}
+		builder.WriteString(fmt.Sprintf("%d. %s", i+1, strings.TrimSpace(result.Title)))
+		if strings.TrimSpace(result.URL) != "" {
+			builder.WriteString("\n")
+			builder.WriteString(strings.TrimSpace(result.URL))
+		}
+		if strings.TrimSpace(result.Snippet) != "" {
+			builder.WriteString("\n")
+			builder.WriteString(strings.TrimSpace(result.Snippet))
+		}
+	}
+	return builder.String()
 }
 
 // CalculatorTool 计算器工具
@@ -148,6 +212,129 @@ func (t *DatetimeTool) Execute(ctx context.Context, args map[string]any) (*ToolR
 	return &ToolResult{
 		Content: fmt.Sprintf("Current date and time: %s", now.Format(time.RFC3339)),
 	}, nil
+}
+
+// JSONFormatterTool formats or compacts caller-provided JSON without I/O.
+type JSONFormatterTool struct{}
+
+func (t *JSONFormatterTool) Name() string {
+	return "json_formatter"
+}
+
+func (t *JSONFormatterTool) Description() string {
+	return "Format or compact JSON text"
+}
+
+func (t *JSONFormatterTool) InputSchema() any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"json": map[string]any{
+				"type":        "string",
+				"description": "JSON text to format",
+			},
+			"format": map[string]any{
+				"type":        "string",
+				"description": "Output format",
+				"enum":        []string{"pretty", "compact"},
+				"default":     "pretty",
+			},
+		},
+		"required": []string{"json"},
+	}
+}
+
+func (t *JSONFormatterTool) Execute(ctx context.Context, args map[string]any) (*ToolResult, error) {
+	_ = ctx
+	input, ok := args["json"].(string)
+	if !ok || strings.TrimSpace(input) == "" {
+		return nil, fmt.Errorf("json is required")
+	}
+
+	format, _ := args["format"].(string)
+	format = strings.TrimSpace(strings.ToLower(format))
+	if format == "" {
+		format = "pretty"
+	}
+
+	var value any
+	decoder := json.NewDecoder(strings.NewReader(input))
+	decoder.UseNumber()
+	if err := decoder.Decode(&value); err != nil {
+		return &ToolResult{Content: "invalid JSON: " + err.Error(), IsError: true}, nil
+	}
+	if decoder.Decode(&value) != io.EOF {
+		return &ToolResult{Content: "invalid JSON: multiple JSON values provided", IsError: true}, nil
+	}
+
+	var output []byte
+	var err error
+	switch format {
+	case "pretty":
+		output, err = json.MarshalIndent(value, "", "  ")
+	case "compact":
+		output, err = json.Marshal(value)
+	default:
+		return nil, fmt.Errorf("unsupported format %q", format)
+	}
+	if err != nil {
+		return &ToolResult{Content: "invalid JSON: " + err.Error(), IsError: true}, nil
+	}
+	return &ToolResult{Content: string(output)}, nil
+}
+
+// TextTransformTool applies deterministic string transforms without I/O.
+type TextTransformTool struct{}
+
+func (t *TextTransformTool) Name() string {
+	return "text_transform"
+}
+
+func (t *TextTransformTool) Description() string {
+	return "Apply deterministic text transformations"
+}
+
+func (t *TextTransformTool) InputSchema() any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"text": map[string]any{
+				"type":        "string",
+				"description": "Text to transform",
+			},
+			"operation": map[string]any{
+				"type":        "string",
+				"description": "Text transform operation",
+				"enum":        []string{"uppercase", "lowercase", "trim", "collapse_whitespace"},
+			},
+		},
+		"required": []string{"text", "operation"},
+	}
+}
+
+func (t *TextTransformTool) Execute(ctx context.Context, args map[string]any) (*ToolResult, error) {
+	_ = ctx
+	text, ok := args["text"].(string)
+	if !ok {
+		return nil, fmt.Errorf("text is required")
+	}
+	operation, ok := args["operation"].(string)
+	if !ok || strings.TrimSpace(operation) == "" {
+		return nil, fmt.Errorf("operation is required")
+	}
+
+	switch strings.TrimSpace(strings.ToLower(operation)) {
+	case "uppercase":
+		return &ToolResult{Content: strings.ToUpper(text)}, nil
+	case "lowercase":
+		return &ToolResult{Content: strings.ToLower(text)}, nil
+	case "trim":
+		return &ToolResult{Content: strings.TrimSpace(text)}, nil
+	case "collapse_whitespace":
+		return &ToolResult{Content: strings.Join(strings.Fields(text), " ")}, nil
+	default:
+		return nil, fmt.Errorf("unsupported operation %q", operation)
+	}
 }
 
 // HTTPRequestTool HTTP 请求工具

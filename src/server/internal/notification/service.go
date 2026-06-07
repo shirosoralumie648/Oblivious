@@ -35,6 +35,17 @@ type CreateNotificationRequest struct {
 	Metadata  map[string]any `json:"metadata,omitempty"`
 }
 
+// NotificationEvent is the common in-app event envelope used by business domains.
+type NotificationEvent struct {
+	UserID    string
+	Type      string
+	Category  string
+	Title     string
+	Message   string
+	ActionURL string
+	Metadata  map[string]any
+}
+
 // Store 存储接口
 type Store interface {
 	Create(ctx context.Context, notification *Notification) (*Notification, error)
@@ -93,6 +104,21 @@ func (s *Service) Create(ctx context.Context, userID string, req *CreateNotifica
 	}
 
 	return s.store.Create(ctx, notification)
+}
+
+// CreateEvent persists a business-domain event as an in-app notification.
+func (s *Service) CreateEvent(ctx context.Context, event NotificationEvent) (*Notification, error) {
+	if event.UserID == "" {
+		return nil, fmt.Errorf("user is required")
+	}
+	return s.Create(ctx, event.UserID, &CreateNotificationRequest{
+		Type:      event.Type,
+		Category:  event.Category,
+		Title:     event.Title,
+		Message:   event.Message,
+		ActionURL: event.ActionURL,
+		Metadata:  event.Metadata,
+	})
 }
 
 // List 列出通知

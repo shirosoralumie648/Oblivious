@@ -1,10 +1,13 @@
 package http
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"mime/multipart"
 	stdhttp "net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"strings"
 	"testing"
 	"time"
@@ -14,21 +17,33 @@ import (
 )
 
 type knowledgeFakeStore struct {
-	createdName      string
-	createdBase      knowledge.KnowledgeBase
-	createdDoc       knowledge.KnowledgeDocument
-	deletedDocID     string
-	deletedID        string
-	detailBase       knowledge.KnowledgeBase
-	documents        []knowledge.KnowledgeDocument
-	listBases        []knowledge.KnowledgeBase
-	organizationID   string
-	queryEmbedding   []float32
-	retrievalResults []knowledge.KnowledgeRetrievalResult
-	requestedDoc     knowledge.KnowledgeDocument
-	requestedID      string
-	updatedBase      knowledge.KnowledgeBase
-	updatedDoc       knowledge.KnowledgeDocument
+	createdName       string
+	createdBase       knowledge.KnowledgeBase
+	createdBaseConfig knowledge.KnowledgeBaseConfig
+	createdDoc        knowledge.KnowledgeDocument
+	deletedDocID      string
+	deletedID         string
+	detailBase        knowledge.KnowledgeBase
+	documentChunks    []knowledge.KnowledgeDocumentChunkView
+	documents         []knowledge.KnowledgeDocument
+	listBases         []knowledge.KnowledgeBase
+	organizationID    string
+	persistedChunks   []knowledge.KnowledgeDocumentChunk
+	queryEmbedding    []float32
+	retrievalOptions  knowledge.KnowledgeRetrievalOptions
+	retrievalQuery    string
+	retrievalResults  []knowledge.KnowledgeRetrievalResult
+	createdTestCase   knowledge.KnowledgeRetrievalTestCase
+	listTestCases     []knowledge.KnowledgeRetrievalTestCase
+	testCaseRequest   knowledge.CreateKnowledgeRetrievalTestCaseRequest
+	requestedDoc      knowledge.KnowledgeDocument
+	requestedID       string
+	updatedBase       knowledge.KnowledgeBase
+	updatedBaseConfig knowledge.KnowledgeBaseConfig
+	updatedChunk      knowledge.KnowledgeDocumentChunkView
+	updatedChunkID    string
+	updatedContent    string
+	updatedDoc        knowledge.KnowledgeDocument
 }
 
 type knowledgeFakeEmbedder struct {
@@ -60,6 +75,13 @@ func (f *knowledgeFakeStore) CreateKnowledgeBase(ctx context.Context, workspaceI
 	return f.createdBase, nil
 }
 
+func (f *knowledgeFakeStore) CreateKnowledgeBaseWithConfig(ctx context.Context, workspaceID, organizationID, name string, config knowledge.KnowledgeBaseConfig) (knowledge.KnowledgeBase, error) {
+	f.organizationID = organizationID
+	f.createdName = name
+	f.createdBaseConfig = config
+	return f.createdBase, nil
+}
+
 func (f *knowledgeFakeStore) ListKnowledgeBases(ctx context.Context, organizationID string) ([]knowledge.KnowledgeBase, error) {
 	f.organizationID = organizationID
 	return f.listBases, nil
@@ -77,13 +99,36 @@ func (f *knowledgeFakeStore) ListKnowledgeDocuments(ctx context.Context, organiz
 	return f.documents, nil
 }
 
+func (f *knowledgeFakeStore) ListKnowledgeDocumentChunks(ctx context.Context, organizationID, knowledgeBaseID, documentID string) ([]knowledge.KnowledgeDocumentChunkView, error) {
+	f.organizationID = organizationID
+	f.requestedID = knowledgeBaseID
+	f.deletedDocID = documentID
+	return f.documentChunks, nil
+}
+
+func (f *knowledgeFakeStore) UpdateKnowledgeDocumentChunk(ctx context.Context, organizationID, knowledgeBaseID, documentID, chunkID, content string) (knowledge.KnowledgeDocumentChunkView, error) {
+	f.organizationID = organizationID
+	f.requestedID = knowledgeBaseID
+	f.deletedDocID = documentID
+	f.updatedChunkID = chunkID
+	f.updatedContent = content
+	return f.updatedChunk, nil
+}
+
 func (f *knowledgeFakeStore) CreateKnowledgeDocument(ctx context.Context, organizationID, knowledgeBaseID, title, content string, chunks []knowledge.KnowledgeDocumentChunk) (knowledge.KnowledgeDocument, error) {
+	return f.CreateKnowledgeDocumentWithOptions(ctx, organizationID, knowledgeBaseID, title, content, chunks, knowledge.KnowledgeDocumentOptions{})
+}
+
+func (f *knowledgeFakeStore) CreateKnowledgeDocumentWithOptions(ctx context.Context, organizationID, knowledgeBaseID, title, content string, chunks []knowledge.KnowledgeDocumentChunk, options knowledge.KnowledgeDocumentOptions) (knowledge.KnowledgeDocument, error) {
 	f.organizationID = organizationID
 	f.requestedID = knowledgeBaseID
 	f.requestedDoc = knowledge.KnowledgeDocument{
-		Title:   title,
-		Content: content,
+		Title:           title,
+		Content:         content,
+		DocumentVersion: options.DocumentVersion,
+		UpdateStrategy:  options.UpdateStrategy,
 	}
+	f.persistedChunks = append([]knowledge.KnowledgeDocumentChunk(nil), chunks...)
 	return f.createdDoc, nil
 }
 
@@ -94,6 +139,14 @@ func (f *knowledgeFakeStore) UpdateKnowledgeBase(ctx context.Context, organizati
 	return f.updatedBase, nil
 }
 
+func (f *knowledgeFakeStore) UpdateKnowledgeBaseWithConfig(ctx context.Context, organizationID, knowledgeBaseID, name string, config knowledge.KnowledgeBaseConfig) (knowledge.KnowledgeBase, error) {
+	f.organizationID = organizationID
+	f.requestedID = knowledgeBaseID
+	f.createdName = name
+	f.updatedBaseConfig = config
+	return f.updatedBase, nil
+}
+
 func (f *knowledgeFakeStore) DeleteKnowledgeBase(ctx context.Context, organizationID, knowledgeBaseID string) error {
 	f.organizationID = organizationID
 	f.deletedID = knowledgeBaseID
@@ -101,12 +154,18 @@ func (f *knowledgeFakeStore) DeleteKnowledgeBase(ctx context.Context, organizati
 }
 
 func (f *knowledgeFakeStore) UpdateKnowledgeDocument(ctx context.Context, organizationID, knowledgeBaseID, documentID, title, content string, chunks []knowledge.KnowledgeDocumentChunk) (knowledge.KnowledgeDocument, error) {
+	return f.UpdateKnowledgeDocumentWithOptions(ctx, organizationID, knowledgeBaseID, documentID, title, content, chunks, knowledge.KnowledgeDocumentOptions{})
+}
+
+func (f *knowledgeFakeStore) UpdateKnowledgeDocumentWithOptions(ctx context.Context, organizationID, knowledgeBaseID, documentID, title, content string, chunks []knowledge.KnowledgeDocumentChunk, options knowledge.KnowledgeDocumentOptions) (knowledge.KnowledgeDocument, error) {
 	f.organizationID = organizationID
 	f.requestedID = knowledgeBaseID
 	f.deletedDocID = documentID
 	f.requestedDoc = knowledge.KnowledgeDocument{
-		Title:   title,
-		Content: content,
+		Title:           title,
+		Content:         content,
+		DocumentVersion: options.DocumentVersion,
+		UpdateStrategy:  options.UpdateStrategy,
 	}
 	return f.updatedDoc, nil
 }
@@ -118,11 +177,32 @@ func (f *knowledgeFakeStore) DeleteKnowledgeDocument(ctx context.Context, organi
 	return nil
 }
 
-func (f *knowledgeFakeStore) RetrieveKnowledge(ctx context.Context, organizationID, knowledgeBaseID string, queryEmbedding []float32, limit int, minScore float64) ([]knowledge.KnowledgeRetrievalResult, error) {
+func (f *knowledgeFakeStore) DeleteKnowledgeDocumentByID(ctx context.Context, organizationID, documentID string) error {
+	f.organizationID = organizationID
+	f.deletedDocID = documentID
+	return nil
+}
+
+func (f *knowledgeFakeStore) RetrieveKnowledge(ctx context.Context, organizationID, knowledgeBaseID, query string, queryEmbedding []float32, options knowledge.KnowledgeRetrievalOptions) ([]knowledge.KnowledgeRetrievalResult, error) {
 	f.organizationID = organizationID
 	f.requestedID = knowledgeBaseID
+	f.retrievalQuery = query
 	f.queryEmbedding = append([]float32(nil), queryEmbedding...)
+	f.retrievalOptions = options
 	return f.retrievalResults, nil
+}
+
+func (f *knowledgeFakeStore) CreateRetrievalTestCase(ctx context.Context, organizationID, knowledgeBaseID string, req knowledge.CreateKnowledgeRetrievalTestCaseRequest) (knowledge.KnowledgeRetrievalTestCase, error) {
+	f.organizationID = organizationID
+	f.requestedID = knowledgeBaseID
+	f.testCaseRequest = req
+	return f.createdTestCase, nil
+}
+
+func (f *knowledgeFakeStore) ListRetrievalTestCases(ctx context.Context, organizationID, knowledgeBaseID string) ([]knowledge.KnowledgeRetrievalTestCase, error) {
+	f.organizationID = organizationID
+	f.requestedID = knowledgeBaseID
+	return f.listTestCases, nil
 }
 
 func TestKnowledgeHandlerListReturnsWorkspaceBases(t *testing.T) {
@@ -193,6 +273,54 @@ func TestKnowledgeHandlerCreateCreatesKnowledgeBase(t *testing.T) {
 	}
 }
 
+func TestKnowledgeHandlerCreateKnowledgeBaseAcceptsRAGConfiguration(t *testing.T) {
+	store := &knowledgeFakeStore{
+		createdBase: knowledge.KnowledgeBase{
+			DocumentCount:  0,
+			ID:             "kb_1",
+			Name:           "Roadmap Notes",
+			RetrievalMode:  knowledge.KnowledgeRetrievalModeHybrid,
+			ChunkStrategy:  knowledge.KnowledgeChunkStrategySemantic,
+			ChunkSize:      900,
+			ChunkOverlap:   80,
+			EmbeddingModel: "text-embedding-3-small",
+			UpdatedAt:      time.Date(2026, time.April, 3, 9, 30, 0, 0, time.UTC),
+		},
+	}
+	handler := newKnowledgeTestHandler(store)
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases", strings.NewReader(`{
+		"name":"Roadmap Notes",
+		"retrievalMode":"hybrid",
+		"chunkStrategy":"semantic",
+		"chunkSize":900,
+		"chunkOverlap":80,
+		"embeddingModel":"text-embedding-3-small"
+	}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+	}))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.createKnowledgeBase(recorder, request)
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if store.createdBaseConfig.RetrievalMode != knowledge.KnowledgeRetrievalModeHybrid {
+		t.Fatalf("expected hybrid retrieval mode, got %+v", store.createdBaseConfig)
+	}
+	if store.createdBaseConfig.ChunkStrategy != knowledge.KnowledgeChunkStrategySemantic {
+		t.Fatalf("expected semantic chunk strategy, got %+v", store.createdBaseConfig)
+	}
+	if store.createdBaseConfig.ChunkSize != 900 || store.createdBaseConfig.ChunkOverlap != 80 {
+		t.Fatalf("expected chunk sizing 900/80, got %+v", store.createdBaseConfig)
+	}
+	if !strings.Contains(recorder.Body.String(), `"retrievalMode":"hybrid"`) {
+		t.Fatalf("expected response to include RAG config, got %s", recorder.Body.String())
+	}
+}
+
 func TestKnowledgeHandlerGetReturnsKnowledgeBase(t *testing.T) {
 	store := &knowledgeFakeStore{
 		detailBase: knowledge.KnowledgeBase{
@@ -250,6 +378,142 @@ func TestKnowledgeHandlerListDocumentsReturnsKnowledgeBaseDocuments(t *testing.T
 	}
 }
 
+func TestKnowledgeHandlerListDocumentChunksReturnsTenantScopedChunks(t *testing.T) {
+	store := &knowledgeFakeStore{
+		documentChunks: []knowledge.KnowledgeDocumentChunkView{
+			{
+				ChunkID:             "kdc_1",
+				ChunkIndex:          1,
+				Content:             "Full chunk content.",
+				DocumentVersion:     "v2",
+				CharCount:           19,
+				EstimatedTokenCount: 5,
+				Metadata:            knowledge.KnowledgeChunkMetadata{DocumentVersion: "v2"},
+			},
+		},
+	}
+	handler := newKnowledgeTestHandler(store)
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/app/knowledge-bases/kb_2/documents/doc_1/chunks", nil).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+	}))
+	recorder := httptest.NewRecorder()
+
+	handler.listKnowledgeDocumentChunks(recorder, request, "kb_2", "doc_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if store.organizationID != "org_1" {
+		t.Fatalf("expected organization org_1, got %s", store.organizationID)
+	}
+	if store.requestedID != "kb_2" || store.deletedDocID != "doc_1" {
+		t.Fatalf("expected kb_2/doc_1, got %s/%s", store.requestedID, store.deletedDocID)
+	}
+
+	var response struct {
+		Data []knowledge.KnowledgeDocumentChunkView `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(response.Data) != 1 || response.Data[0].ChunkID != "kdc_1" {
+		t.Fatalf("expected chunk response, got %+v", response.Data)
+	}
+}
+
+func TestKnowledgeHandlerUpdateDocumentChunkReturnsUpdatedChunk(t *testing.T) {
+	store := &knowledgeFakeStore{
+		updatedChunk: knowledge.KnowledgeDocumentChunkView{
+			ChunkID:             "kdc_1",
+			ChunkIndex:          1,
+			Content:             "Updated chunk content.",
+			DocumentVersion:     "v2",
+			CharCount:           22,
+			EstimatedTokenCount: 6,
+			Metadata:            knowledge.KnowledgeChunkMetadata{DocumentVersion: "v2"},
+		},
+	}
+	handler := newKnowledgeTestHandler(store)
+	request := httptest.NewRequest(stdhttp.MethodPut, "/api/v1/app/knowledge-bases/kb_2/documents/doc_1/chunks/kdc_1", strings.NewReader(`{"content":"  Updated chunk content.  "}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+	}))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.updateKnowledgeDocumentChunk(recorder, request, "kb_2", "doc_1", "kdc_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if store.organizationID != "org_1" {
+		t.Fatalf("expected organization org_1, got %s", store.organizationID)
+	}
+	if store.requestedID != "kb_2" || store.deletedDocID != "doc_1" || store.updatedChunkID != "kdc_1" {
+		t.Fatalf("expected kb_2/doc_1/kdc_1, got %s/%s/%s", store.requestedID, store.deletedDocID, store.updatedChunkID)
+	}
+	if store.updatedContent != "Updated chunk content." {
+		t.Fatalf("expected trimmed content, got %q", store.updatedContent)
+	}
+
+	var response struct {
+		Data knowledge.KnowledgeDocumentChunkView `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Data.ChunkID != "kdc_1" || response.Data.Content != "Updated chunk content." {
+		t.Fatalf("expected updated chunk response, got %+v", response.Data)
+	}
+}
+
+func TestKnowledgeHandlerUpdateDocumentChunkRejectsEmptyContent(t *testing.T) {
+	store := &knowledgeFakeStore{}
+	handler := newKnowledgeTestHandler(store)
+	request := httptest.NewRequest(stdhttp.MethodPut, "/api/v1/app/knowledge-bases/kb_2/documents/doc_1/chunks/kdc_1", strings.NewReader(`{"content":"   "}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+	}))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.updateKnowledgeDocumentChunk(recorder, request, "kb_2", "doc_1", "kdc_1")
+
+	if recorder.Code != stdhttp.StatusBadRequest {
+		t.Fatalf("expected 400, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "empty_chunk_content") {
+		t.Fatalf("expected empty chunk content error, got %s", recorder.Body.String())
+	}
+	if store.updatedChunkID != "" {
+		t.Fatalf("empty content must not call store, got chunk %q", store.updatedChunkID)
+	}
+}
+
+func TestKnowledgeAliasRoutesUpdateDocumentChunkUsesPutWithoutBreakingList(t *testing.T) {
+	store := &knowledgeFakeStore{
+		documentChunks: []knowledge.KnowledgeDocumentChunkView{{ChunkID: "kdc_list", Content: "Existing chunk."}},
+		updatedChunk:   knowledge.KnowledgeDocumentChunkView{ChunkID: "kdc_1", Content: "Updated chunk content."},
+	}
+	mux := stdhttp.NewServeMux()
+	registerKnowledgeAliasRoutes(mux, &recordingSessionMiddleware{}, newKnowledgeTestHandler(store))
+
+	updateRequest := knowledgeAliasRequest(stdhttp.MethodPut, "/api/v1/knowledge-bases/kb_2/documents/doc_1/chunks/kdc_1", `{"content":"Updated chunk content."}`)
+	updateRecorder := httptest.NewRecorder()
+	mux.ServeHTTP(updateRecorder, updateRequest)
+	if updateRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected PUT route 200, got %d with body %s", updateRecorder.Code, updateRecorder.Body.String())
+	}
+
+	listRequest := knowledgeAliasRequest(stdhttp.MethodGet, "/api/v1/knowledge-bases/kb_2/documents/doc_1/chunks", "")
+	listRecorder := httptest.NewRecorder()
+	mux.ServeHTTP(listRecorder, listRequest)
+	if listRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected GET chunks route 200, got %d with body %s", listRecorder.Code, listRecorder.Body.String())
+	}
+}
+
 func TestKnowledgeHandlerCreateDocumentCreatesKnowledgeBaseDocument(t *testing.T) {
 	store := &knowledgeFakeStore{
 		createdDoc: knowledge.KnowledgeDocument{
@@ -277,6 +541,143 @@ func TestKnowledgeHandlerCreateDocumentCreatesKnowledgeBaseDocument(t *testing.T
 	}
 	if store.requestedDoc.Title != "Plan" {
 		t.Fatalf("expected title Plan, got %s", store.requestedDoc.Title)
+	}
+}
+
+func TestKnowledgeHandlerCreateDocumentAcceptsVersionOptions(t *testing.T) {
+	store := &knowledgeFakeStore{
+		createdDoc: knowledge.KnowledgeDocument{
+			Content:         "Initial plan",
+			DocumentVersion: "v3",
+			ID:              "doc_2",
+			Title:           "Plan",
+			UpdateStrategy:  knowledge.KnowledgeUpdateStrategyVersioned,
+			UpdatedAt:       time.Date(2026, time.April, 3, 13, 0, 0, 0, time.UTC),
+		},
+	}
+	handler := newKnowledgeTestHandler(store)
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_2/documents", strings.NewReader(`{
+		"title":"Plan",
+		"content":"Initial plan",
+		"documentVersion":" v3 ",
+		"updateStrategy":"versioned"
+	}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+	}))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.createKnowledgeDocument(recorder, request, "kb_2")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if store.requestedDoc.DocumentVersion != "v3" {
+		t.Fatalf("expected document version v3, got %q", store.requestedDoc.DocumentVersion)
+	}
+	if store.requestedDoc.UpdateStrategy != knowledge.KnowledgeUpdateStrategyVersioned {
+		t.Fatalf("expected versioned update strategy, got %q", store.requestedDoc.UpdateStrategy)
+	}
+}
+
+func TestKnowledgeHandlerUploadDocumentCreatesParsedKnowledgeDocument(t *testing.T) {
+	store := &knowledgeFakeStore{
+		createdDoc: knowledge.KnowledgeDocument{
+			Content:         "deploy rollback steps",
+			DocumentVersion: "v2",
+			ID:              "doc_upload",
+			Title:           "Runbook.md",
+			UpdateStrategy:  knowledge.KnowledgeUpdateStrategyVersioned,
+			UpdatedAt:       time.Date(2026, time.April, 3, 13, 0, 0, 0, time.UTC),
+		},
+	}
+	handler := newKnowledgeTestHandler(store)
+	body, contentType := knowledgeUploadMultipartBody(t, map[string]string{
+		"documentVersion": " v2 ",
+		"updateStrategy":  "versioned",
+	}, "file", " Runbook.md ", "text/markdown", "\ufeffdeploy rollback steps")
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_2/documents/upload", body).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+	}))
+	request.Header.Set("Content-Type", contentType)
+	recorder := httptest.NewRecorder()
+
+	handler.uploadKnowledgeDocument(recorder, request, "kb_2")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if store.requestedID != "kb_2" {
+		t.Fatalf("expected kb_2, got %s", store.requestedID)
+	}
+	if store.requestedDoc.Title != "Runbook.md" {
+		t.Fatalf("expected title from filename, got %q", store.requestedDoc.Title)
+	}
+	if store.requestedDoc.Content != "deploy rollback steps" {
+		t.Fatalf("expected normalized uploaded content, got %q", store.requestedDoc.Content)
+	}
+	if store.requestedDoc.DocumentVersion != "v2" || store.requestedDoc.UpdateStrategy != knowledge.KnowledgeUpdateStrategyVersioned {
+		t.Fatalf("expected versioned upload options, got %+v", store.requestedDoc)
+	}
+	if !strings.Contains(recorder.Body.String(), `"id":"doc_upload"`) {
+		t.Fatalf("expected created document response, got %s", recorder.Body.String())
+	}
+}
+
+func TestKnowledgeHandlerUploadDocumentPersistsSourceMetadataOnChunks(t *testing.T) {
+	store := &knowledgeFakeStore{
+		createdDoc: knowledge.KnowledgeDocument{
+			Content: "deployment controls require approval",
+			ID:      "doc_source",
+			Title:   "Runbook.md",
+		},
+	}
+	handler := newKnowledgeTestHandler(store)
+	body, contentType := knowledgeUploadMultipartBody(t, map[string]string{
+		"documentVersion": " v4 ",
+		"pageNumber":      " 7 ",
+		"sourceUrl":       " https://docs.example/runbook.md ",
+	}, "file", "Runbook.md", "text/markdown", "deployment controls require approval")
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_2/documents/upload", body).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+	}))
+	request.Header.Set("Content-Type", contentType)
+	recorder := httptest.NewRecorder()
+
+	handler.uploadKnowledgeDocument(recorder, request, "kb_2")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if len(store.persistedChunks) == 0 {
+		t.Fatalf("expected indexed chunks to be passed to store")
+	}
+	metadata := store.persistedChunks[0].Metadata
+	if metadata.DocumentVersion != "v4" || metadata.PageNumber != 7 || metadata.SourceURL != "https://docs.example/runbook.md" {
+		t.Fatalf("expected upload source metadata on chunk, got %+v", metadata)
+	}
+}
+
+func TestKnowledgeHandlerUploadDocumentRejectsUnsupportedFormat(t *testing.T) {
+	handler := newKnowledgeTestHandler(&knowledgeFakeStore{})
+	body, contentType := knowledgeUploadMultipartBody(t, nil, "file", "manual.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "word document bytes")
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_2/documents/upload", body).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+	}))
+	request.Header.Set("Content-Type", contentType)
+	recorder := httptest.NewRecorder()
+
+	handler.uploadKnowledgeDocument(recorder, request, "kb_2")
+
+	if recorder.Code != stdhttp.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "unsupported_document_format") {
+		t.Fatalf("expected unsupported document format response, got %s", recorder.Body.String())
 	}
 }
 
@@ -349,6 +750,229 @@ func TestKnowledgeHandlerRetrieveReturnsRelevantMatches(t *testing.T) {
 	}
 }
 
+func TestKnowledgeHandlerCreateRetrievalTestCaseStoresResult(t *testing.T) {
+	store := &knowledgeFakeStore{
+		createdTestCase: knowledge.KnowledgeRetrievalTestCase{
+			ID:                 "krtc_1",
+			KnowledgeBaseID:    "kb_2",
+			Query:              "deployment rollback",
+			ExpectedDocumentID: "doc_2",
+			ExpectedChunkID:    "kdc_2",
+			ExpectedChunkIndex: 1,
+		},
+	}
+	handler := newKnowledgeTestHandler(store)
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_2/retrieval-test-cases", strings.NewReader(`{
+		"query":" deployment   rollback ",
+		"expectedResult":{
+			"documentId":"doc_2",
+			"documentTitle":"Plan",
+			"chunkId":"kdc_2",
+			"chunkIndex":1,
+			"retrievalMethod":"hybrid",
+			"similarity":0.92,
+			"snippet":"Initial plan mentions deployment boundaries.",
+			"source":{"documentId":"doc_2","documentTitle":"Plan","chunkId":"kdc_2","chunkIndex":1}
+		}
+	}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+	}))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.createRetrievalTestCase(recorder, request, "kb_2")
+
+	if recorder.Code != stdhttp.StatusCreated {
+		t.Fatalf("expected 201, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if store.organizationID != "org_1" || store.requestedID != "kb_2" {
+		t.Fatalf("expected scoped retrieval test case store call, org=%q kb=%q", store.organizationID, store.requestedID)
+	}
+	if store.testCaseRequest.Query != "deployment rollback" || store.testCaseRequest.ExpectedResult.ChunkID != "kdc_2" {
+		t.Fatalf("expected normalized test case request, got %+v", store.testCaseRequest)
+	}
+	if !strings.Contains(recorder.Body.String(), `"id":"krtc_1"`) {
+		t.Fatalf("expected created test case response, got %s", recorder.Body.String())
+	}
+}
+
+func TestKnowledgeHandlerListsRetrievalTestCases(t *testing.T) {
+	store := &knowledgeFakeStore{
+		listTestCases: []knowledge.KnowledgeRetrievalTestCase{
+			{
+				ID:                 "krtc_1",
+				KnowledgeBaseID:    "kb_2",
+				Query:              "deployment rollback",
+				ExpectedDocumentID: "doc_2",
+				ExpectedChunkID:    "kdc_2",
+			},
+		},
+	}
+	handler := newKnowledgeTestHandler(store)
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/app/knowledge-bases/kb_2/retrieval-test-cases", nil).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+	}))
+	recorder := httptest.NewRecorder()
+
+	handler.listRetrievalTestCases(recorder, request, "kb_2")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if store.organizationID != "org_1" || store.requestedID != "kb_2" {
+		t.Fatalf("expected scoped retrieval test case list call, org=%q kb=%q", store.organizationID, store.requestedID)
+	}
+	if !strings.Contains(recorder.Body.String(), `"id":"krtc_1"`) {
+		t.Fatalf("expected retrieval test case response, got %s", recorder.Body.String())
+	}
+}
+
+func TestKnowledgeHandlerRunsRetrievalTestCases(t *testing.T) {
+	store := &knowledgeFakeStore{
+		detailBase: knowledge.KnowledgeBase{
+			ID:             "kb_2",
+			RetrievalLimit: 3,
+			RetrievalMode:  knowledge.KnowledgeRetrievalModeHybrid,
+		},
+		listTestCases: []knowledge.KnowledgeRetrievalTestCase{
+			{
+				ID:                 "krtc_1",
+				KnowledgeBaseID:    "kb_2",
+				Query:              "deployment rollback",
+				ExpectedDocumentID: "doc_2",
+				ExpectedChunkID:    "kdc_2",
+				ExpectedChunkIndex: 1,
+			},
+		},
+		retrievalResults: []knowledge.KnowledgeRetrievalResult{
+			{
+				DocumentID: "doc_2",
+				ChunkID:    "kdc_2",
+				ChunkIndex: 1,
+				Snippet:    "Initial plan mentions deployment boundaries.",
+			},
+		},
+	}
+	handler := newKnowledgeTestHandler(store)
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_2/retrieval-test-cases/run", strings.NewReader(`{
+		"mode":"hybrid",
+		"limit":3
+	}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+	}))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.runRetrievalTestCases(recorder, request, "kb_2")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if store.retrievalOptions.Mode != knowledge.KnowledgeRetrievalModeHybrid || store.retrievalOptions.Limit != 3 {
+		t.Fatalf("expected hybrid run options, got %+v", store.retrievalOptions)
+	}
+
+	var response struct {
+		Data knowledge.KnowledgeRetrievalTestRunReport `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Data.Total != 1 || response.Data.Passed != 1 || response.Data.Failed != 0 {
+		t.Fatalf("expected passing run report, got %+v", response.Data)
+	}
+	if len(response.Data.Results) != 1 || !response.Data.Results[0].Passed || response.Data.Results[0].Rank != 1 {
+		t.Fatalf("expected passing case result, got %+v", response.Data.Results)
+	}
+}
+
+func knowledgeUploadMultipartBody(t *testing.T, fields map[string]string, fieldName, filename, contentType, content string) (*bytes.Buffer, string) {
+	t.Helper()
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	for key, value := range fields {
+		if err := writer.WriteField(key, value); err != nil {
+			t.Fatalf("write multipart field %s: %v", key, err)
+		}
+	}
+	part, err := writer.CreatePart(textproto.MIMEHeader{
+		"Content-Disposition": {`form-data; name="` + fieldName + `"; filename="` + filename + `"`},
+		"Content-Type":        {contentType},
+	})
+	if err != nil {
+		t.Fatalf("create multipart file: %v", err)
+	}
+	if _, err := part.Write([]byte(content)); err != nil {
+		t.Fatalf("write multipart file: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+	return body, writer.FormDataContentType()
+}
+
+func TestKnowledgeHandlerRetrieveAcceptsDocumentVersionOptions(t *testing.T) {
+	store := &knowledgeFakeStore{
+		retrievalResults: []knowledge.KnowledgeRetrievalResult{},
+	}
+	handler := newKnowledgeTestHandler(store)
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_2/retrieve", strings.NewReader(`{
+		"query":"deployment",
+		"mode":"hybrid",
+		"documentVersion":" v2 "
+	}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+	}))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.retrieveKnowledge(recorder, request, "kb_2")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if store.retrievalOptions.DocumentVersion != "v2" {
+		t.Fatalf("expected document version v2, got %q", store.retrievalOptions.DocumentVersion)
+	}
+	if store.retrievalOptions.AllVersions {
+		t.Fatalf("expected allVersions false when documentVersion is selected")
+	}
+}
+
+func TestKnowledgeHandlerRetrieveAllVersionsClearsVersionFilter(t *testing.T) {
+	store := &knowledgeFakeStore{
+		retrievalResults: []knowledge.KnowledgeRetrievalResult{},
+	}
+	handler := newKnowledgeTestHandler(store)
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_2/retrieve", strings.NewReader(`{
+		"query":"deployment",
+		"allVersions":true,
+		"documentVersion":"v2"
+	}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+	}))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.retrieveKnowledge(recorder, request, "kb_2")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if !store.retrievalOptions.AllVersions {
+		t.Fatalf("expected allVersions true")
+	}
+	if store.retrievalOptions.DocumentVersion != "" {
+		t.Fatalf("expected allVersions to clear document version, got %q", store.retrievalOptions.DocumentVersion)
+	}
+}
+
 func TestKnowledgeHandlerRetrieveTrimsAndNormalizesQuery(t *testing.T) {
 	store := &knowledgeFakeStore{
 		retrievalResults: []knowledge.KnowledgeRetrievalResult{},
@@ -369,6 +993,59 @@ func TestKnowledgeHandlerRetrieveTrimsAndNormalizesQuery(t *testing.T) {
 	}
 	if len(embedder.embedInputs) != 1 || embedder.embedInputs[0] != "deployment rollback" {
 		t.Fatalf("expected normalized retrieval query, got %+v", embedder.embedInputs)
+	}
+}
+
+func TestKnowledgeHandlerRetrieveAcceptsHybridOptions(t *testing.T) {
+	store := &knowledgeFakeStore{
+		retrievalResults: []knowledge.KnowledgeRetrievalResult{},
+	}
+	handler := newKnowledgeTestHandler(store)
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_2/retrieve", strings.NewReader(`{"query":"deployment","mode":"hybrid","limit":3,"vectorWeight":0.6,"keywordWeight":0.4}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+	}))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.retrieveKnowledge(recorder, request, "kb_2")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+	if store.retrievalOptions.Mode != knowledge.KnowledgeRetrievalModeHybrid {
+		t.Fatalf("expected hybrid retrieval mode, got %q", store.retrievalOptions.Mode)
+	}
+	if store.retrievalOptions.Limit != 3 {
+		t.Fatalf("expected limit 3, got %d", store.retrievalOptions.Limit)
+	}
+	if store.retrievalOptions.VectorWeight != 0.6 || store.retrievalOptions.KeywordWeight != 0.4 {
+		t.Fatalf("expected weights 0.6/0.4, got %.2f/%.2f", store.retrievalOptions.VectorWeight, store.retrievalOptions.KeywordWeight)
+	}
+}
+
+func TestKnowledgeHandlerRetrieveRejectsInvalidMode(t *testing.T) {
+	store := &knowledgeFakeStore{
+		retrievalResults: []knowledge.KnowledgeRetrievalResult{},
+	}
+	handler := newKnowledgeTestHandler(store)
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_2/retrieve", strings.NewReader(`{"query":"deployment","mode":"hybird"}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+	}))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.retrieveKnowledge(recorder, request, "kb_2")
+
+	if recorder.Code != stdhttp.StatusBadRequest {
+		t.Fatalf("expected 400, got %d; body=%s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "invalid_retrieval_options") {
+		t.Fatalf("expected invalid retrieval options response, got %s", recorder.Body.String())
+	}
+	if store.retrievalQuery != "" {
+		t.Fatalf("invalid mode must not reach store, got query %q", store.retrievalQuery)
 	}
 }
 
@@ -428,6 +1105,54 @@ func TestKnowledgeHandlerUpdateKnowledgeBaseUpdatesKnowledgeBase(t *testing.T) {
 	}
 	if store.createdName != "Updated Notes" {
 		t.Fatalf("expected updated name Updated Notes, got %s", store.createdName)
+	}
+}
+
+func TestKnowledgeHandlerUpdateKnowledgeBaseAcceptsRAGConfiguration(t *testing.T) {
+	store := &knowledgeFakeStore{
+		updatedBase: knowledge.KnowledgeBase{
+			DocumentCount:  2,
+			ID:             "kb_2",
+			Name:           "Updated Notes",
+			RetrievalMode:  knowledge.KnowledgeRetrievalModeHybridRerank,
+			ChunkStrategy:  knowledge.KnowledgeChunkStrategyQASplit,
+			ChunkSize:      1200,
+			ChunkOverlap:   120,
+			EmbeddingModel: "text-embedding-3-large",
+			UpdatedAt:      time.Date(2026, time.April, 3, 13, 30, 0, 0, time.UTC),
+		},
+	}
+	handler := newKnowledgeTestHandler(store)
+	request := httptest.NewRequest(stdhttp.MethodPut, "/api/v1/app/knowledge-bases/kb_2", strings.NewReader(`{
+		"name":"Updated Notes",
+		"retrievalMode":"hybrid_rerank",
+		"chunkStrategy":"qa_split",
+		"chunkSize":1200,
+		"chunkOverlap":120,
+		"embeddingModel":"text-embedding-3-large"
+	}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+	}))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.updateKnowledgeBase(recorder, request, "kb_2")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if store.updatedBaseConfig.RetrievalMode != knowledge.KnowledgeRetrievalModeHybridRerank {
+		t.Fatalf("expected hybrid_rerank retrieval mode, got %+v", store.updatedBaseConfig)
+	}
+	if store.updatedBaseConfig.ChunkStrategy != knowledge.KnowledgeChunkStrategyQASplit {
+		t.Fatalf("expected qa_split chunk strategy, got %+v", store.updatedBaseConfig)
+	}
+	if store.updatedBaseConfig.EmbeddingModel != "text-embedding-3-large" {
+		t.Fatalf("expected embedding model to be forwarded, got %+v", store.updatedBaseConfig)
+	}
+	if !strings.Contains(recorder.Body.String(), `"chunkStrategy":"qa_split"`) {
+		t.Fatalf("expected response to include normalized chunk strategy, got %s", recorder.Body.String())
 	}
 }
 
@@ -502,5 +1227,30 @@ func TestKnowledgeHandlerDeleteDocumentDeletesKnowledgeBaseDocument(t *testing.T
 	}
 	if store.deletedDocID != "doc_2" {
 		t.Fatalf("expected document id doc_2, got %s", store.deletedDocID)
+	}
+}
+
+func TestKnowledgeHandlerDeleteDocumentByIDDeletesOrganizationDocument(t *testing.T) {
+	store := &knowledgeFakeStore{}
+	handler := newKnowledgeTestHandler(store)
+	request := httptest.NewRequest(stdhttp.MethodDelete, "/api/v1/documents/doc_3", nil).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+	}))
+	recorder := httptest.NewRecorder()
+
+	handler.deleteKnowledgeDocumentByID(recorder, request, "doc_3")
+
+	if recorder.Code != stdhttp.StatusNoContent {
+		t.Fatalf("expected 204, got %d", recorder.Code)
+	}
+	if store.organizationID != "org_1" {
+		t.Fatalf("expected organization org_1, got %s", store.organizationID)
+	}
+	if store.requestedID != "" {
+		t.Fatalf("expected no knowledge base id, got %s", store.requestedID)
+	}
+	if store.deletedDocID != "doc_3" {
+		t.Fatalf("expected document id doc_3, got %s", store.deletedDocID)
 	}
 }

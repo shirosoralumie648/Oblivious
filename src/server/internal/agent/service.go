@@ -2,13 +2,18 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"oblivious/server/internal/auth"
 	"oblivious/server/internal/chat"
 	"oblivious/server/internal/mcp"
 	"oblivious/server/internal/memory"
+	"oblivious/server/internal/metrics"
+	relaytypes "oblivious/server/internal/relay/types"
 )
 
 // MemorySearcher Memory 搜索接口
@@ -16,13 +21,111 @@ type MemorySearcher interface {
 	Search(ctx context.Context, session auth.Session, req *memory.SearchRequest) ([]*memory.SearchResult, error)
 }
 
+type MemoryEmbedder interface {
+	Embed(ctx context.Context, text string) ([]float32, error)
+}
+
+type memoryManagementStore interface {
+	GetMemory(ctx context.Context, organizationID, id string) (*Memory, error)
+	UpdateMemory(ctx context.Context, organizationID, userID, id string, req UpdateMemoryStoreRequest) (*Memory, error)
+	DeleteMemory(ctx context.Context, organizationID, userID, id string) error
+}
+
 // Service Agent 服务
 type Service struct {
-	store     Store
-	gateway   chat.ChatGateway
-	mcpClient *mcp.Client
-	memory    MemorySearcher
-	runner    *Runner
+	store             Store
+	gateway           chat.ChatGateway
+	mcpClient         *mcp.Client
+	memory            MemorySearcher
+	memoryEmbedder    MemoryEmbedder
+	webSearchProvider mcp.WebSearchProvider
+	runner            *Runner
+	planStepExecutor  PlanStepExecutor
+}
+
+type PlanStepExecutionResult struct {
+	ResultContent string
+}
+
+type PlanStepExecutor interface {
+	ExecutePlanStep(ctx context.Context, step *PlanStep) (*PlanStepExecutionResult, error)
+}
+
+type defaultPlanStepExecutor struct {
+	executor *ToolExecutor
+	store    Store
+	gateway  chat.ChatGateway
+}
+
+func (e defaultPlanStepExecutor) ExecutePlanStep(ctx context.Context, step *PlanStep) (*PlanStepExecutionResult, error) {
+	if step == nil {
+		return nil, fmt.Errorf("plan step not found")
+	}
+	if strings.TrimSpace(step.ToolName) != "" {
+		executor := e.executor
+		if executor == nil {
+			executor = NewToolExecutor(nil)
+		}
+		arguments := step.Input
+		if arguments == nil {
+			arguments = map[string]any{}
+		}
+		result, err := executor.Execute(ctx, &Agent{
+			OrganizationID: step.OrganizationID,
+			Tools: []Tool{{
+				Name:    step.ToolName,
+				Type:    "builtin",
+				Enabled: true,
+			}},
+		}, &ToolCall{
+			ID:        "plan_step_" + step.ID,
+			Name:      step.ToolName,
+			Arguments: arguments,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if result == nil {
+			return nil, fmt.Errorf("tool %s returned no result", step.ToolName)
+		}
+		if result.IsError {
+			return nil, fmt.Errorf("tool %s failed: %s", step.ToolName, result.Content)
+		}
+		return &PlanStepExecutionResult{ResultContent: result.Content}, nil
+	}
+	if e.store == nil {
+		return nil, fmt.Errorf("plan step executor store is not configured")
+	}
+	if e.gateway == nil {
+		return nil, fmt.Errorf("plan step executor gateway is not configured")
+	}
+	run, err := e.store.GetRun(ctx, step.OrganizationID, step.RunID)
+	if err != nil {
+		return nil, fmt.Errorf("get plan step run: %w", err)
+	}
+	if run == nil {
+		return nil, fmt.Errorf("agent run not found")
+	}
+	agent, err := e.store.GetAgent(ctx, run.AgentID, step.OrganizationID)
+	if err != nil {
+		return nil, fmt.Errorf("get plan step agent: %w", err)
+	}
+	if agent == nil {
+		return nil, fmt.Errorf("agent not found")
+	}
+	messages, err := e.store.ListMessages(ctx, run.ConversationID, step.OrganizationID)
+	if err != nil {
+		return nil, fmt.Errorf("get plan step messages: %w", err)
+	}
+	steps, err := e.store.ListPlanSteps(ctx, step.OrganizationID, step.RunID)
+	if err != nil {
+		return nil, fmt.Errorf("get plan steps: %w", err)
+	}
+	reply, err := e.gateway.GenerateReply(ctx, buildPlanStepExecutionMessages(run, agent, step, messages, steps), planStepExecutionConversationConfig(run, agent))
+	if err != nil {
+		return nil, fmt.Errorf("execute plan step with model: %w", err)
+	}
+	return &PlanStepExecutionResult{ResultContent: strings.TrimSpace(reply)}, nil
 }
 
 // NewService 创建 Service
@@ -61,7 +164,14 @@ func NewServiceWithMemory(store Store, gateway chat.ChatGateway, mcpClient *mcp.
 // initRunner 初始化 Runner
 func (s *Service) initRunner() {
 	executor := NewToolExecutor(s.mcpClient)
+	executor.SetWebSearchProvider(s.webSearchProvider)
 	s.runner = NewRunner(s.store, s.gateway, executor, s.memory, DefaultRunnerConfig())
+	s.runner.SetMemoryEmbedder(s.memoryEmbedder)
+	if s.planStepExecutor == nil {
+		s.planStepExecutor = defaultPlanStepExecutor{executor: executor, store: s.store, gateway: s.gateway}
+	} else if _, ok := s.planStepExecutor.(defaultPlanStepExecutor); ok {
+		s.planStepExecutor = defaultPlanStepExecutor{executor: executor, store: s.store, gateway: s.gateway}
+	}
 }
 
 // SetMCPClient 设置 MCP 客户端
@@ -76,12 +186,45 @@ func (s *Service) SetMemory(mem MemorySearcher) {
 	s.initRunner()
 }
 
+func (s *Service) SetMemoryEmbedder(embedder MemoryEmbedder) {
+	s.memoryEmbedder = embedder
+	if s.runner != nil {
+		s.runner.SetMemoryEmbedder(embedder)
+	}
+}
+
+func (s *Service) SetWebSearchProvider(provider mcp.WebSearchProvider) {
+	s.webSearchProvider = provider
+	if s.runner != nil && s.runner.executor != nil {
+		s.runner.executor.SetWebSearchProvider(provider)
+	}
+	if executor, ok := s.planStepExecutor.(defaultPlanStepExecutor); ok && executor.executor != nil {
+		executor.executor.SetWebSearchProvider(provider)
+		s.planStepExecutor = executor
+	}
+}
+
+func (s *Service) SetPlanStepExecutor(executor PlanStepExecutor) {
+	if executor == nil {
+		toolExecutor := NewToolExecutor(s.mcpClient)
+		toolExecutor.SetWebSearchProvider(s.webSearchProvider)
+		s.planStepExecutor = defaultPlanStepExecutor{executor: toolExecutor, store: s.store, gateway: s.gateway}
+		return
+	}
+	s.planStepExecutor = executor
+}
+
 // CreateAgent 创建 Agent
 func (s *Service) CreateAgent(ctx context.Context, session auth.Session, req *CreateAgentRequest) (*Agent, error) {
 	if req.Name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
 
+	normalizedConfig, err := NormalizeConfigForWrite(req.Config)
+	if err != nil {
+		return nil, err
+	}
+	req.Config = normalizedConfig
 	return s.store.CreateAgent(ctx, session.User.ID, session.OrganizationID, req)
 }
 
@@ -122,7 +265,15 @@ func (s *Service) UpdateAgent(ctx context.Context, session auth.Session, id stri
 		return nil, fmt.Errorf("access denied")
 	}
 
-	return s.store.UpdateAgent(ctx, id, session.OrganizationID, req)
+	normalizedReq := *req
+	if req.Config != nil {
+		normalizedConfig, err := NormalizeConfigForWrite(*req.Config)
+		if err != nil {
+			return nil, err
+		}
+		normalizedReq.Config = &normalizedConfig
+	}
+	return s.store.UpdateAgent(ctx, id, session.OrganizationID, &normalizedReq)
 }
 
 // DeleteAgent 删除 Agent
@@ -140,6 +291,176 @@ func (s *Service) DeleteAgent(ctx context.Context, session auth.Session, id stri
 	}
 
 	return s.store.DeleteAgent(ctx, id, session.OrganizationID)
+}
+
+func (s *Service) CreateMemory(ctx context.Context, session auth.Session, req CreateMemoryRequest) (*Memory, error) {
+	content := strings.TrimSpace(req.Content)
+	if content == "" {
+		return nil, fmt.Errorf("content is required")
+	}
+
+	agentID := strings.TrimSpace(req.AgentID)
+	if agentID != "" {
+		agent, err := s.store.GetAgent(ctx, agentID, session.OrganizationID)
+		if err != nil {
+			return nil, err
+		}
+		if agent == nil {
+			return nil, fmt.Errorf("agent not found")
+		}
+		if agent.UserID != session.User.ID {
+			return nil, fmt.Errorf("access denied")
+		}
+	}
+
+	memoryType := normalizeMemoryType(req.Type)
+	metadata := copyMetadata(req.Metadata)
+	importance, err := normalizeMemoryImportance(req.Importance)
+	if err != nil {
+		return nil, err
+	}
+	embedding := s.embedMemoryContent(ctx, session, content)
+	memory, err := s.store.CreateMemory(ctx, &CreateMemoryStoreRequest{
+		OrganizationID: session.OrganizationID,
+		UserID:         session.User.ID,
+		AgentID:        agentID,
+		Type:           memoryType,
+		Content:        content,
+		Embedding:      embedding,
+		Importance:     importance,
+		Metadata:       metadata,
+		ExpiresAt:      req.ExpiresAt,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if memory != nil && memory.Importance == 0 {
+		memory.Importance = importance
+	}
+	return memory, nil
+}
+
+func (s *Service) ListMemories(ctx context.Context, session auth.Session, req ListMemoriesRequest) ([]*Memory, error) {
+	req.AgentID = strings.TrimSpace(req.AgentID)
+	req.Type = strings.TrimSpace(req.Type)
+	req.Query = strings.TrimSpace(req.Query)
+	if req.AgentID != "" {
+		agent, err := s.store.GetAgent(ctx, req.AgentID, session.OrganizationID)
+		if err != nil {
+			return nil, err
+		}
+		if agent == nil {
+			return nil, fmt.Errorf("agent not found")
+		}
+		if agent.UserID != session.User.ID && !agent.IsPublic {
+			return nil, fmt.Errorf("access denied")
+		}
+	}
+	if req.Type != "" {
+		req.Type = normalizeMemoryType(req.Type)
+	}
+	if req.Limit <= 0 {
+		req.Limit = 20
+	}
+	if req.Limit > 100 {
+		req.Limit = 100
+	}
+	if req.Offset < 0 {
+		req.Offset = 0
+	}
+	return s.store.ListMemories(ctx, session.OrganizationID, session.User.ID, req)
+}
+
+func (s *Service) UpdateMemory(ctx context.Context, session auth.Session, id string, req UpdateMemoryRequest) (*Memory, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil, fmt.Errorf("memory not found")
+	}
+
+	managementStore, ok := s.store.(memoryManagementStore)
+	if !ok {
+		return nil, fmt.Errorf("memory management is not configured")
+	}
+
+	memory, err := managementStore.GetMemory(ctx, session.OrganizationID, id)
+	if err != nil {
+		return nil, err
+	}
+	if memory == nil {
+		return nil, fmt.Errorf("memory not found")
+	}
+	if memory.UserID != session.User.ID {
+		return nil, fmt.Errorf("access denied")
+	}
+
+	updateReq := UpdateMemoryStoreRequest{}
+	if req.Content != nil {
+		content := strings.TrimSpace(*req.Content)
+		if content == "" {
+			return nil, fmt.Errorf("content is required")
+		}
+		updateReq.Content = &content
+		if embedding := s.embedMemoryContent(ctx, session, content); len(embedding) > 0 {
+			updateReq.Embedding = embedding
+		} else {
+			updateReq.ClearEmbedding = true
+		}
+	}
+	if req.Importance != nil {
+		importance := *req.Importance
+		if importance < 1 || importance > 5 {
+			return nil, fmt.Errorf("importance must be between 1 and 5")
+		}
+		updateReq.Importance = &importance
+	}
+
+	return managementStore.UpdateMemory(ctx, session.OrganizationID, session.User.ID, id, updateReq)
+}
+
+func (s *Service) DeleteMemory(ctx context.Context, session auth.Session, id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return fmt.Errorf("memory not found")
+	}
+
+	managementStore, ok := s.store.(memoryManagementStore)
+	if !ok {
+		return fmt.Errorf("memory management is not configured")
+	}
+
+	memory, err := managementStore.GetMemory(ctx, session.OrganizationID, id)
+	if err != nil {
+		return err
+	}
+	if memory == nil {
+		return fmt.Errorf("memory not found")
+	}
+	if memory.UserID != session.User.ID {
+		return fmt.Errorf("access denied")
+	}
+
+	return managementStore.DeleteMemory(ctx, session.OrganizationID, session.User.ID, id)
+}
+
+func (s *Service) embedMemoryContent(ctx context.Context, session auth.Session, content string) []float32 {
+	if s.memoryEmbedder == nil || strings.TrimSpace(content) == "" {
+		return nil
+	}
+	embedding, err := s.memoryEmbedder.Embed(withAgentMemoryRelayIdentity(ctx, session), content)
+	if err != nil || len(embedding) == 0 {
+		return nil
+	}
+	return embedding
+}
+
+func withAgentMemoryRelayIdentity(ctx context.Context, session auth.Session) context.Context {
+	if session.User.ID != "" {
+		ctx = relaytypes.WithTrustedUserID(ctx, session.User.ID)
+	}
+	if session.OrganizationID != "" {
+		ctx = relaytypes.WithTrustedOrganizationID(ctx, session.OrganizationID)
+	}
+	return ctx
 }
 
 // CreateConversation 创建对话
@@ -209,8 +530,32 @@ func (s *Service) DeleteConversation(ctx context.Context, session auth.Session, 
 	return s.store.DeleteConversation(ctx, id, session.OrganizationID)
 }
 
+func (s *Service) DefaultExecutionModeForRun(ctx context.Context, session auth.Session, agentID string) (string, error) {
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return ExecutionModeReact, fmt.Errorf("agent not found")
+	}
+	agent, err := s.store.GetAgent(ctx, agentID, session.OrganizationID)
+	if err != nil {
+		return "", err
+	}
+	if agent == nil {
+		return "", fmt.Errorf("agent not found")
+	}
+	if agent.UserID != session.User.ID && !agent.IsPublic {
+		return "", fmt.Errorf("access denied")
+	}
+	return NormalizeExecutionMode(agent.Config.DefaultExecutionMode), nil
+}
+
+type SendMessageOptions struct {
+	Mode          string
+	MaxIterations *int
+	TokenBudget   *int
+}
+
 // SendMessage 发送消息
-func (s *Service) SendMessage(ctx context.Context, session auth.Session, conversationID string, content string) (*Message, error) {
+func (s *Service) SendMessage(ctx context.Context, session auth.Session, conversationID string, content string, options ...SendMessageOptions) (*Message, error) {
 	// 获取对话
 	conv, err := s.store.GetConversation(ctx, conversationID, session.OrganizationID)
 	if err != nil {
@@ -232,20 +577,465 @@ func (s *Service) SendMessage(ctx context.Context, session auth.Session, convers
 		return nil, fmt.Errorf("agent not found")
 	}
 
-	if hasEnabledTools(agent) {
-		result, err := s.runner.RunWithTools(ctx, session, agent, conversationID, content, nil)
+	runAgent := *agent
+	mode := ""
+	if len(options) > 0 {
+		option := options[0]
+		mode = strings.ToLower(strings.TrimSpace(option.Mode))
+		if mode != "" && mode != ExecutionModeReact && mode != ExecutionModePlanning {
+			return nil, fmt.Errorf("mode must be react or planning")
+		}
+		if option.MaxIterations != nil {
+			runAgent.Config.MaxIterations = *option.MaxIterations
+		}
+		if option.TokenBudget != nil {
+			runAgent.Config.TokenBudget = *option.TokenBudget
+		}
+	}
+
+	if mode == ExecutionModePlanning {
+		result, err := s.StartPlanningRun(ctx, session, StartRunRequest{
+			AgentID:        runAgent.ID,
+			ConversationID: conversationID,
+			Input:          content,
+			MaxIterations:  firstSendMessageIntPointer(options, func(option SendMessageOptions) *int { return option.MaxIterations }),
+			TokenBudget:    firstSendMessageIntPointer(options, func(option SendMessageOptions) *int { return option.TokenBudget }),
+		})
+		if err != nil {
+			return nil, err
+		}
+		return lastAssistantMessage(result), nil
+	}
+
+	if hasEnabledTools(&runAgent) {
+		result, err := s.runner.RunWithTools(ctx, session, &runAgent, conversationID, content, nil)
 		if err != nil {
 			return nil, err
 		}
 		return result.Message, nil
 	}
 
-	result, err := s.runner.Run(ctx, session, agent, conversationID, content)
+	result, err := s.runner.Run(ctx, session, &runAgent, conversationID, content)
 	if err != nil {
 		return nil, err
 	}
 
 	return result.Message, nil
+}
+
+func firstSendMessageIntPointer(options []SendMessageOptions, pick func(SendMessageOptions) *int) *int {
+	if len(options) == 0 {
+		return nil
+	}
+	return pick(options[0])
+}
+
+func lastAssistantMessage(result *RunWithMessages) *Message {
+	if result == nil {
+		return nil
+	}
+	if result.Run != nil && result.Run.FinalMessageID != "" {
+		for _, message := range result.Messages {
+			if message != nil && message.ID == result.Run.FinalMessageID {
+				return message
+			}
+		}
+	}
+	for i := len(result.Messages) - 1; i >= 0; i-- {
+		if result.Messages[i] != nil && result.Messages[i].Role == "assistant" {
+			return result.Messages[i]
+		}
+	}
+	return nil
+}
+
+func (s *Service) StartRun(ctx context.Context, session auth.Session, req StartRunRequest) (*RunWithMessages, error) {
+	content := req.Input
+	if content == "" {
+		return nil, fmt.Errorf("input is required")
+	}
+
+	conv, err := s.store.GetConversation(ctx, req.ConversationID, session.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	if conv == nil {
+		return nil, fmt.Errorf("conversation not found")
+	}
+	if conv.UserID != session.User.ID {
+		return nil, fmt.Errorf("access denied")
+	}
+
+	agent, err := s.store.GetAgent(ctx, req.AgentID, session.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	if agent == nil {
+		return nil, fmt.Errorf("agent not found")
+	}
+	if agent.UserID != session.User.ID && !agent.IsPublic {
+		return nil, fmt.Errorf("access denied")
+	}
+	if conv.AgentID != "" && conv.AgentID != agent.ID {
+		return nil, fmt.Errorf("conversation not found")
+	}
+
+	runAgent := *agent
+	if req.MaxIterations != nil {
+		runAgent.Config.MaxIterations = *req.MaxIterations
+	}
+	if req.TokenBudget != nil {
+		runAgent.Config.TokenBudget = *req.TokenBudget
+	}
+	runAgent.Config = NormalizeConfig(runAgent.Config)
+
+	var runResult *RunResult
+	var run *Run
+	if hasEnabledTools(&runAgent) {
+		runResult, err = s.runner.RunWithTools(ctx, session, &runAgent, conv.ID, content, nil)
+	} else {
+		metadata, _ := chat.RelayRequestMetadataFromContext(ctx)
+		run, createErr := s.store.CreateRun(ctx, &CreateRunRequest{
+			OrganizationID: session.OrganizationID,
+			ConversationID: conv.ID,
+			AgentID:        runAgent.ID,
+			UserID:         session.User.ID,
+			RequestID:      metadata.RequestID,
+			Status:         RunStatusRunning,
+		})
+		if createErr != nil {
+			return nil, createErr
+		}
+		if run == nil {
+			return nil, fmt.Errorf("create agent run: no row created")
+		}
+		runResult, err = s.runner.Run(ctx, session, &runAgent, conv.ID, content)
+		now := time.Now().UTC()
+		if err != nil {
+			if _, updateErr := s.store.UpdateRun(ctx, session.OrganizationID, run.ID, UpdateRunRequest{
+				Status:      stringPointer(RunStatusFailed),
+				Error:       stringPointer(err.Error()),
+				CompletedAt: &now,
+			}); updateErr == nil {
+				recordAgentRunMetrics(RunStatusFailed, 1)
+			}
+			return nil, err
+		}
+		finalMessageID := ""
+		if runResult != nil && runResult.Message != nil {
+			finalMessageID = runResult.Message.ID
+		}
+		run, err = s.store.UpdateRun(ctx, session.OrganizationID, run.ID, UpdateRunRequest{
+			Status:            stringPointer(RunStatusCompleted),
+			MemoryEnabled:     boolPointer(runResult != nil && runResult.UsedMemory),
+			MemorySearched:    boolPointer(runResult != nil && runResult.MemorySearched),
+			MemoryResultCount: intPointer(runResultMemoryResultCount(runResult)),
+			FinalMessageID:    &finalMessageID,
+			CompletedAt:       &now,
+		})
+		if err == nil {
+			recordAgentRunMetrics(RunStatusCompleted, 1)
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	messages, err := s.store.ListMessages(ctx, conv.ID, session.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+
+	if run == nil {
+		runs, listErr := s.store.ListRuns(ctx, session.OrganizationID, conv.ID)
+		if listErr == nil && len(runs) > 0 {
+			run = runs[len(runs)-1]
+		}
+	}
+	if run == nil && runResult != nil && runResult.Message != nil {
+		run = &Run{
+			ID:                runResult.Message.ID,
+			OrganizationID:    session.OrganizationID,
+			ConversationID:    conv.ID,
+			AgentID:           runAgent.ID,
+			UserID:            session.User.ID,
+			Status:            RunStatusCompleted,
+			MemoryEnabled:     runResult.UsedMemory,
+			MemorySearched:    runResult.MemorySearched,
+			MemoryResultCount: runResult.MemoryResultCount,
+			FinalMessageID:    runResult.Message.ID,
+			StartedAt:         runResult.Message.CreatedAt,
+			CreatedAt:         runResult.Message.CreatedAt,
+			UpdatedAt:         runResult.Message.CreatedAt,
+		}
+	}
+
+	toolRuns := []*ToolRun(nil)
+	planSteps := []*PlanStep(nil)
+	if run != nil {
+		toolRuns, err = s.store.ListToolRuns(ctx, session.OrganizationID, run.ID)
+		if err != nil {
+			return nil, err
+		}
+		planSteps, err = s.store.ListPlanSteps(ctx, session.OrganizationID, run.ID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &RunWithMessages{Run: run, ToolRuns: toolRuns, PlanSteps: planSteps, Messages: messages}, nil
+}
+
+func runResultMemoryResultCount(result *RunResult) int {
+	if result == nil {
+		return 0
+	}
+	return result.MemoryResultCount
+}
+
+func (s *Service) StartPlanningRun(ctx context.Context, session auth.Session, req StartRunRequest) (*RunWithMessages, error) {
+	content := strings.TrimSpace(req.Input)
+	if content == "" {
+		return nil, fmt.Errorf("input is required")
+	}
+
+	conv, err := s.store.GetConversation(ctx, req.ConversationID, session.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	if conv == nil {
+		return nil, fmt.Errorf("conversation not found")
+	}
+	if conv.UserID != session.User.ID {
+		return nil, fmt.Errorf("access denied")
+	}
+
+	agent, err := s.store.GetAgent(ctx, req.AgentID, session.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	if agent == nil {
+		return nil, fmt.Errorf("agent not found")
+	}
+	if agent.UserID != session.User.ID && !agent.IsPublic {
+		return nil, fmt.Errorf("access denied")
+	}
+	if conv.AgentID != "" && conv.AgentID != agent.ID {
+		return nil, fmt.Errorf("conversation not found")
+	}
+
+	runAgent := *agent
+	if req.MaxIterations != nil {
+		runAgent.Config.MaxIterations = *req.MaxIterations
+	}
+	if req.TokenBudget != nil {
+		runAgent.Config.TokenBudget = *req.TokenBudget
+	}
+	runAgent.Config = NormalizeConfig(runAgent.Config)
+
+	ctx = withSessionRelayMetadata(ctx, session)
+	metadata, _ := chat.RelayRequestMetadataFromContext(ctx)
+
+	if _, err := s.store.CreateMessage(ctx, conv.ID, session.OrganizationID, "user", content, nil, ""); err != nil {
+		return nil, fmt.Errorf("save planning request: %w", err)
+	}
+	messages, err := s.store.ListMessages(ctx, conv.ID, session.OrganizationID)
+	if err != nil {
+		return nil, fmt.Errorf("get planning messages: %w", err)
+	}
+	chatMessages, evidence := s.runner.buildChatMessagesWithEvidence(ctx, session, &runAgent, messages, content)
+
+	run, err := s.store.CreateRun(ctx, &CreateRunRequest{
+		OrganizationID:    session.OrganizationID,
+		ConversationID:    conv.ID,
+		AgentID:           runAgent.ID,
+		UserID:            session.User.ID,
+		RequestID:         metadata.RequestID,
+		Status:            RunStatusRunning,
+		MemoryEnabled:     evidence.enabled,
+		MemorySearched:    evidence.searched,
+		MemoryResultCount: evidence.resultCount,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create planning run: %w", err)
+	}
+	if run == nil {
+		return nil, fmt.Errorf("create planning run: no row created")
+	}
+
+	reply, err := s.gateway.GenerateReply(ctx, chatMessages, planningConversationConfig(&runAgent))
+	if err != nil {
+		now := time.Now().UTC()
+		if _, updateErr := s.store.UpdateRun(ctx, session.OrganizationID, run.ID, UpdateRunRequest{
+			Status:            stringPointer(RunStatusFailed),
+			MemoryEnabled:     boolPointer(evidence.enabled),
+			MemorySearched:    boolPointer(evidence.searched),
+			MemoryResultCount: intPointer(evidence.resultCount),
+			IterationCount:    intPointer(1),
+			Error:             stringPointer(err.Error()),
+			CompletedAt:       &now,
+		}); updateErr == nil {
+			recordAgentRunMetrics(RunStatusFailed, 1)
+		}
+		return nil, fmt.Errorf("generate planning reply: %w", err)
+	}
+
+	assistantMsg, err := s.store.CreateMessage(ctx, conv.ID, session.OrganizationID, "assistant", reply, nil, "")
+	if err != nil {
+		now := time.Now().UTC()
+		if _, updateErr := s.store.UpdateRun(ctx, session.OrganizationID, run.ID, UpdateRunRequest{
+			Status:            stringPointer(RunStatusFailed),
+			MemoryEnabled:     boolPointer(evidence.enabled),
+			MemorySearched:    boolPointer(evidence.searched),
+			MemoryResultCount: intPointer(evidence.resultCount),
+			IterationCount:    intPointer(1),
+			Error:             stringPointer(err.Error()),
+			CompletedAt:       &now,
+		}); updateErr == nil {
+			recordAgentRunMetrics(RunStatusFailed, 1)
+		}
+		return nil, fmt.Errorf("save planning reply: %w", err)
+	}
+
+	planSteps, err := s.persistPlanningSteps(ctx, session.OrganizationID, run.ID, reply)
+	if err != nil {
+		now := time.Now().UTC()
+		if _, updateErr := s.store.UpdateRun(ctx, session.OrganizationID, run.ID, UpdateRunRequest{
+			Status:            stringPointer(RunStatusFailed),
+			MemoryEnabled:     boolPointer(evidence.enabled),
+			MemorySearched:    boolPointer(evidence.searched),
+			MemoryResultCount: intPointer(evidence.resultCount),
+			IterationCount:    intPointer(1),
+			Error:             stringPointer(err.Error()),
+			CompletedAt:       &now,
+		}); updateErr == nil {
+			recordAgentRunMetrics(RunStatusFailed, 1)
+		}
+		return nil, fmt.Errorf("persist planning steps: %w", err)
+	}
+
+	run, err = s.store.UpdateRun(ctx, session.OrganizationID, run.ID, UpdateRunRequest{
+		Status:            stringPointer(RunStatusPendingApproval),
+		MemoryEnabled:     boolPointer(evidence.enabled),
+		MemorySearched:    boolPointer(evidence.searched),
+		MemoryResultCount: intPointer(evidence.resultCount),
+		IterationCount:    intPointer(1),
+		ToolCallCount:     intPointer(0),
+		FinalMessageID:    stringPointer(assistantMsg.ID),
+	})
+	if err != nil {
+		return nil, err
+	}
+	recordAgentRunMetrics(RunStatusPendingApproval, 1)
+
+	messages, err = s.store.ListMessages(ctx, conv.ID, session.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	return &RunWithMessages{Run: run, ToolRuns: nil, PlanSteps: planSteps, Messages: messages}, nil
+}
+
+var (
+	numberedPlanStepPattern = regexp.MustCompile(`^\s*\d+[\.)]\s+(.+?)\s*$`)
+	bulletedPlanStepPattern = regexp.MustCompile(`^\s*[-*+]\s+(.+?)\s*$`)
+)
+
+func (s *Service) persistPlanningSteps(ctx context.Context, organizationID, runID, reply string) ([]*PlanStep, error) {
+	specs := parsePlanStepSpecs(reply)
+	steps := make([]*PlanStep, 0, len(specs))
+	for i, spec := range specs {
+		step, err := s.store.CreatePlanStep(ctx, &CreatePlanStepRequest{
+			OrganizationID: organizationID,
+			RunID:          runID,
+			Index:          i + 1,
+			Title:          spec.Title,
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusNotRequired,
+			ToolName:       spec.ToolName,
+			Input:          spec.Input,
+		})
+		if err != nil {
+			return nil, err
+		}
+		steps = append(steps, step)
+	}
+	return steps, nil
+}
+
+type parsedPlanStepSpec struct {
+	Title    string         `json:"title"`
+	ToolName string         `json:"toolName"`
+	Input    map[string]any `json:"input"`
+}
+
+func parsePlanStepSpecs(reply string) []parsedPlanStepSpec {
+	var structured []parsedPlanStepSpec
+	if err := json.Unmarshal([]byte(strings.TrimSpace(reply)), &structured); err == nil {
+		steps := make([]parsedPlanStepSpec, 0, len(structured))
+		for _, step := range structured {
+			step.Title = strings.TrimSpace(step.Title)
+			step.ToolName = strings.TrimSpace(step.ToolName)
+			if step.Title == "" {
+				continue
+			}
+			if step.Input == nil {
+				step.Input = map[string]any{}
+			}
+			steps = append(steps, step)
+		}
+		if len(steps) > 0 {
+			return steps
+		}
+	}
+
+	titles := parsePlanStepTitles(reply)
+	steps := make([]parsedPlanStepSpec, 0, len(titles))
+	for _, title := range titles {
+		steps = append(steps, parsedPlanStepSpec{
+			Title: title,
+			Input: map[string]any{},
+		})
+	}
+	return steps
+}
+
+func parsePlanStepTitles(reply string) []string {
+	var titles []string
+	for _, line := range strings.Split(reply, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		title := ""
+		if match := numberedPlanStepPattern.FindStringSubmatch(line); len(match) == 2 {
+			title = match[1]
+		} else if match := bulletedPlanStepPattern.FindStringSubmatch(line); len(match) == 2 {
+			title = match[1]
+		}
+		title = strings.TrimSpace(title)
+		if title == "" {
+			continue
+		}
+		titles = append(titles, title)
+	}
+	return titles
+}
+
+func recordAgentRunMetrics(status string, iterations int) {
+	metrics.RecordAgentRun(status)
+	metrics.ObserveAgentIterationCount(status, iterations)
+}
+
+func (s *Service) GetRunWithMessages(ctx context.Context, session auth.Session, runID string) (*RunWithMessages, error) {
+	detail, err := s.GetRunDetail(ctx, session, runID)
+	if err != nil {
+		return nil, err
+	}
+	messages, err := s.store.ListMessages(ctx, detail.Run.ConversationID, session.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	return &RunWithMessages{Run: detail.Run, ToolRuns: detail.ToolRuns, PlanSteps: detail.PlanSteps, Messages: messages}, nil
 }
 
 // SendMessageStream 流式发送消息
@@ -320,7 +1110,169 @@ func (s *Service) GetRunDetail(ctx context.Context, session auth.Session, runID 
 	if err != nil {
 		return nil, err
 	}
-	return &RunDetail{Run: run, ToolRuns: toolRuns}, nil
+	planSteps, err := s.store.ListPlanSteps(ctx, session.OrganizationID, run.ID)
+	if err != nil {
+		return nil, err
+	}
+	return &RunDetail{Run: run, ToolRuns: toolRuns, PlanSteps: planSteps}, nil
+}
+
+func (s *Service) ApprovePlanStep(ctx context.Context, session auth.Session, planStepID, reason string) (*PlanStep, error) {
+	step, err := s.getPlanStepForSession(ctx, session, planStepID)
+	if err != nil {
+		return nil, err
+	}
+	if step.Status != PlanStepStatusPending {
+		return nil, fmt.Errorf("plan step is not pending")
+	}
+	if step.ApprovalStatus == ApprovalStatusRejected {
+		return nil, fmt.Errorf("plan step approval was rejected")
+	}
+	return s.store.UpdatePlanStep(ctx, session.OrganizationID, planStepID, UpdatePlanStepRequest{
+		Status:         stringPointer(PlanStepStatusApproved),
+		ApprovalStatus: stringPointer(ApprovalStatusApproved),
+		Error:          stringPointer(""),
+	})
+}
+
+func (s *Service) ExecutePlanStep(ctx context.Context, session auth.Session, planStepID string) (*PlanStep, error) {
+	step, err := s.getPlanStepForSession(ctx, session, planStepID)
+	if err != nil {
+		return nil, err
+	}
+	if step.Status != PlanStepStatusApproved && !(step.Status == PlanStepStatusPending && step.ApprovalStatus == ApprovalStatusNotRequired) {
+		return nil, fmt.Errorf("plan step is not approved for execution")
+	}
+
+	startedAt := time.Now().UTC()
+	running, err := s.store.UpdatePlanStep(ctx, session.OrganizationID, planStepID, UpdatePlanStepRequest{
+		Status:           stringPointer(PlanStepStatusRunning),
+		Error:            stringPointer(""),
+		StartedAt:        &startedAt,
+		ClearCompletedAt: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var toolRun *ToolRun
+	if strings.TrimSpace(running.ToolName) != "" {
+		run, err := s.getRunForSession(ctx, session, running.RunID)
+		if err != nil {
+			return nil, err
+		}
+		toolRun, err = s.store.CreateToolRun(ctx, &CreateToolRunRequest{
+			OrganizationID: running.OrganizationID,
+			RunID:          running.RunID,
+			ConversationID: run.ConversationID,
+			AgentID:        run.AgentID,
+			ToolCallID:     "plan_step_" + running.ID,
+			ToolName:       running.ToolName,
+			ToolType:       "builtin",
+			RiskLevel:      inferToolRiskLevel(running.ToolName),
+			Arguments:      running.Input,
+			Status:         ToolRunStatusRunning,
+			ApprovalStatus: ApprovalStatusNotRequired,
+			AttemptCount:   1,
+			StartedAt:      &startedAt,
+		})
+		if err != nil {
+			failedAt := time.Now().UTC()
+			failed, updateErr := s.store.UpdatePlanStep(ctx, session.OrganizationID, planStepID, UpdatePlanStepRequest{
+				Status:      stringPointer(PlanStepStatusFailed),
+				Error:       stringPointer(err.Error()),
+				CompletedAt: &failedAt,
+			})
+			if updateErr != nil {
+				return nil, updateErr
+			}
+			return failed, err
+		}
+	}
+
+	ctx = withSessionRelayMetadata(ctx, session)
+	result, execErr := s.planStepExecutor.ExecutePlanStep(ctx, running)
+	completedAt := time.Now().UTC()
+	if execErr != nil {
+		if toolRun != nil {
+			_, _ = s.store.UpdateToolRun(ctx, session.OrganizationID, toolRun.ID, UpdateToolRunRequest{
+				Status:       stringPointer(ToolRunStatusFailed),
+				Error:        stringPointer(execErr.Error()),
+				AttemptCount: intPointer(1),
+				CompletedAt:  &completedAt,
+			})
+		}
+		failed, updateErr := s.store.UpdatePlanStep(ctx, session.OrganizationID, planStepID, UpdatePlanStepRequest{
+			Status:      stringPointer(PlanStepStatusFailed),
+			Error:       stringPointer(execErr.Error()),
+			CompletedAt: &completedAt,
+		})
+		if updateErr != nil {
+			return nil, updateErr
+		}
+		return failed, execErr
+	}
+
+	resultContent := ""
+	if result != nil {
+		resultContent = result.ResultContent
+	}
+	if toolRun != nil {
+		if _, err := s.store.UpdateToolRun(ctx, session.OrganizationID, toolRun.ID, UpdateToolRunRequest{
+			Status:        stringPointer(ToolRunStatusCompleted),
+			ResultContent: stringPointer(resultContent),
+			Error:         stringPointer(""),
+			AttemptCount:  intPointer(1),
+			CompletedAt:   &completedAt,
+		}); err != nil {
+			return nil, err
+		}
+		metrics.RecordAgentToolCall(running.ToolName, string(ToolRunStatusCompleted))
+	}
+	completed, err := s.store.UpdatePlanStep(ctx, session.OrganizationID, planStepID, UpdatePlanStepRequest{
+		Status:        stringPointer(PlanStepStatusCompleted),
+		ResultContent: stringPointer(resultContent),
+		Error:         stringPointer(""),
+		CompletedAt:   &completedAt,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := s.completeRunWhenAllPlanStepsDone(ctx, session, completed.RunID); err != nil {
+		return nil, err
+	}
+	return completed, nil
+}
+
+func (s *Service) completeRunWhenAllPlanStepsDone(ctx context.Context, session auth.Session, runID string) error {
+	run, err := s.getRunForSession(ctx, session, runID)
+	if err != nil {
+		return err
+	}
+	if run.Status == RunStatusCompleted {
+		return nil
+	}
+	steps, err := s.store.ListPlanSteps(ctx, session.OrganizationID, runID)
+	if err != nil {
+		return err
+	}
+	if len(steps) == 0 {
+		return nil
+	}
+	for _, step := range steps {
+		if step.Status != PlanStepStatusCompleted && step.Status != PlanStepStatusSkipped {
+			return nil
+		}
+	}
+	now := time.Now().UTC()
+	_, err = s.store.UpdateRun(ctx, session.OrganizationID, runID, UpdateRunRequest{
+		Status:      stringPointer(RunStatusCompleted),
+		CompletedAt: &now,
+	})
+	if err == nil {
+		recordAgentRunMetrics(RunStatusCompleted, run.IterationCount)
+	}
+	return err
 }
 
 func (s *Service) ApproveToolRun(ctx context.Context, session auth.Session, toolRunID, reason string) (*ToolRun, error) {
@@ -332,7 +1284,7 @@ func (s *Service) ApproveToolRun(ctx context.Context, session auth.Session, tool
 		return nil, fmt.Errorf("tool run is not pending approval")
 	}
 	now := time.Now().UTC()
-	return s.store.UpdateToolRun(ctx, session.OrganizationID, toolRunID, UpdateToolRunRequest{
+	toolRun, err = s.store.UpdateToolRun(ctx, session.OrganizationID, toolRunID, UpdateToolRunRequest{
 		Status:                 stringPointer(ToolRunStatusRunning),
 		ApprovalStatus:         stringPointer(ApprovalStatusApproved),
 		ApprovedByUserID:       stringPointer(session.User.ID),
@@ -341,6 +1293,10 @@ func (s *Service) ApproveToolRun(ctx context.Context, session auth.Session, tool
 		StartedAt:              &now,
 		ClearCompletedAt:       true,
 	})
+	if err != nil {
+		return nil, err
+	}
+	return s.executePersistedToolRun(ctx, session, toolRun)
 }
 
 func (s *Service) RejectToolRun(ctx context.Context, session auth.Session, toolRunID, reason string) (*ToolRun, error) {
@@ -350,6 +1306,10 @@ func (s *Service) RejectToolRun(ctx context.Context, session auth.Session, toolR
 	}
 	if toolRun.ApprovalStatus != ApprovalStatusPending || toolRun.Status != ToolRunStatusPendingApproval {
 		return nil, fmt.Errorf("tool run is not pending approval")
+	}
+	run, err := s.getRunForSession(ctx, session, toolRun.RunID)
+	if err != nil {
+		return nil, err
 	}
 	completedAt := time.Now().UTC()
 	updated, err := s.store.UpdateToolRun(ctx, session.OrganizationID, toolRunID, UpdateToolRunRequest{
@@ -363,11 +1323,14 @@ func (s *Service) RejectToolRun(ctx context.Context, session auth.Session, toolR
 	if err != nil {
 		return nil, err
 	}
-	_, _ = s.store.UpdateRun(ctx, session.OrganizationID, toolRun.RunID, UpdateRunRequest{
+	metrics.RecordAgentToolCall(toolRun.ToolName, string(ToolRunStatusRejected))
+	if _, updateErr := s.store.UpdateRun(ctx, session.OrganizationID, toolRun.RunID, UpdateRunRequest{
 		Status:      stringPointer(RunStatusFailed),
 		Error:       stringPointer("tool run rejected: " + reason),
 		CompletedAt: &completedAt,
-	})
+	}); updateErr == nil {
+		recordAgentRunMetrics(RunStatusFailed, run.IterationCount)
+	}
 	return updated, nil
 }
 
@@ -381,7 +1344,7 @@ func (s *Service) RetryToolRun(ctx context.Context, session auth.Session, toolRu
 	}
 	now := time.Now().UTC()
 	empty := ""
-	return s.store.UpdateToolRun(ctx, session.OrganizationID, toolRunID, UpdateToolRunRequest{
+	toolRun, err = s.store.UpdateToolRun(ctx, session.OrganizationID, toolRunID, UpdateToolRunRequest{
 		Status:           stringPointer(ToolRunStatusRunning),
 		ApprovalStatus:   stringPointer(toolRun.ApprovalStatus),
 		AttemptCount:     intPointer(toolRun.AttemptCount + 1),
@@ -390,6 +1353,90 @@ func (s *Service) RetryToolRun(ctx context.Context, session auth.Session, toolRu
 		StartedAt:        &now,
 		ClearCompletedAt: true,
 	})
+	if err != nil {
+		return nil, err
+	}
+	return s.executePersistedToolRun(ctx, session, toolRun)
+}
+
+func (s *Service) executePersistedToolRun(ctx context.Context, session auth.Session, toolRun *ToolRun) (*ToolRun, error) {
+	if toolRun == nil {
+		return nil, fmt.Errorf("tool run not found")
+	}
+	run, err := s.getRunForSession(ctx, session, toolRun.RunID)
+	if err != nil {
+		return nil, err
+	}
+	agent, err := s.store.GetAgent(ctx, toolRun.AgentID, session.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	if agent == nil {
+		return nil, fmt.Errorf("agent not found")
+	}
+	if agent.UserID != session.User.ID && !agent.IsPublic {
+		return nil, fmt.Errorf("access denied")
+	}
+
+	toolCall := &ToolCall{
+		ID:        toolRun.ToolCallID,
+		Name:      toolRun.ToolName,
+		Arguments: toolRun.Arguments,
+	}
+	if toolCall.Arguments == nil {
+		toolCall.Arguments = map[string]any{}
+	}
+
+	execResult, err := s.runner.ExecuteTool(ctx, agent, toolCall)
+	if err != nil {
+		_ = s.runner.failToolRun(ctx, session.OrganizationID, toolRun.ID, toolRun.ToolName, err.Error(), toolRun.AttemptCount)
+		_ = s.runner.failRun(ctx, session.OrganizationID, run.ID, fmt.Sprintf("execute tool %s: %s", toolRun.ToolName, err.Error()), run.IterationCount, run.ToolCallCount)
+		return nil, fmt.Errorf("execute tool %s: %w", toolRun.ToolName, err)
+	}
+	if execResult == nil {
+		message := fmt.Sprintf("tool %s returned no result", toolRun.ToolName)
+		_ = s.runner.failToolRun(ctx, session.OrganizationID, toolRun.ID, toolRun.ToolName, message, toolRun.AttemptCount)
+		_ = s.runner.failRun(ctx, session.OrganizationID, run.ID, message, run.IterationCount, run.ToolCallCount)
+		return nil, fmt.Errorf("%s", message)
+	}
+	if execResult.IsError {
+		_ = s.runner.failToolRun(ctx, session.OrganizationID, toolRun.ID, toolRun.ToolName, execResult.Content, toolRun.AttemptCount)
+		_ = s.runner.failRun(ctx, session.OrganizationID, run.ID, fmt.Sprintf("tool %s failed: %s", toolRun.ToolName, execResult.Content), run.IterationCount, run.ToolCallCount)
+		return nil, fmt.Errorf("tool %s failed: %s", toolRun.ToolName, execResult.Content)
+	}
+
+	if _, err := s.store.CreateMessage(ctx, toolRun.ConversationID, session.OrganizationID, "tool", execResult.Content, nil, toolRun.ToolCallID); err != nil {
+		_ = s.runner.failToolRun(ctx, session.OrganizationID, toolRun.ID, toolRun.ToolName, err.Error(), toolRun.AttemptCount)
+		_ = s.runner.failRun(ctx, session.OrganizationID, run.ID, err.Error(), run.IterationCount, run.ToolCallCount)
+		return nil, fmt.Errorf("save tool message: %w", err)
+	}
+
+	completedAt := time.Now().UTC()
+	empty := ""
+	updated, err := s.store.UpdateToolRun(ctx, session.OrganizationID, toolRun.ID, UpdateToolRunRequest{
+		Status:        stringPointer(ToolRunStatusCompleted),
+		ResultContent: stringPointer(execResult.Content),
+		Error:         &empty,
+		AttemptCount:  intPointer(toolRun.AttemptCount),
+		CompletedAt:   &completedAt,
+	})
+	if err != nil {
+		_ = s.runner.failRun(ctx, session.OrganizationID, run.ID, err.Error(), run.IterationCount, run.ToolCallCount)
+		return nil, fmt.Errorf("complete tool run %s: %w", toolRun.ToolName, err)
+	}
+	metrics.RecordAgentToolCall(toolRun.ToolName, string(ToolRunStatusCompleted))
+
+	if _, err := s.store.UpdateRun(ctx, session.OrganizationID, run.ID, UpdateRunRequest{
+		Status:      stringPointer(RunStatusRunning),
+		Error:       &empty,
+		CompletedAt: nil,
+	}); err != nil {
+		return nil, fmt.Errorf("resume agent run after tool %s: %w", toolRun.ToolName, err)
+	}
+	if _, err := s.runner.ResumeAfterApprovedTool(ctx, session, agent, run); err != nil {
+		return nil, err
+	}
+	return updated, nil
 }
 
 func (s *Service) getToolRunForSession(ctx context.Context, session auth.Session, toolRunID string) (*ToolRun, error) {
@@ -408,6 +1455,24 @@ func (s *Service) getToolRunForSession(ctx context.Context, session auth.Session
 		return nil, fmt.Errorf("tool run not found")
 	}
 	return toolRun, nil
+}
+
+func (s *Service) getPlanStepForSession(ctx context.Context, session auth.Session, planStepID string) (*PlanStep, error) {
+	step, err := s.store.GetPlanStep(ctx, session.OrganizationID, planStepID)
+	if err != nil {
+		return nil, err
+	}
+	if step == nil {
+		return nil, fmt.Errorf("plan step not found")
+	}
+	run, err := s.getRunForSession(ctx, session, step.RunID)
+	if err != nil {
+		return nil, err
+	}
+	if run.ID != step.RunID {
+		return nil, fmt.Errorf("plan step not found")
+	}
+	return step, nil
 }
 
 func (s *Service) getRunForSession(ctx context.Context, session auth.Session, runID string) (*Run, error) {
@@ -434,6 +1499,193 @@ func hasEnabledTools(agent *Agent) bool {
 		}
 	}
 	return false
+}
+
+func planningConversationConfig(agent *Agent) chat.ConversationConfig {
+	config := chat.ConversationConfig{}
+	if agent != nil {
+		config.ModelID = agent.Model
+		config.SystemPromptOverride = strings.TrimSpace(strings.Join([]string{
+			agent.SystemPrompt,
+			"You are in planning mode. Analyze the user's task and produce a concise, ordered execution plan. Do not execute tools or claim that work has been completed.",
+		}, "\n\n"))
+		config.Temperature = agent.Config.Temperature
+		config.MaxOutputTokens = agent.Config.MaxTokens
+	}
+	if config.Temperature == 0 {
+		config.Temperature = 1.0
+	}
+	if config.MaxOutputTokens == 0 {
+		config.MaxOutputTokens = 2048
+	}
+	return config
+}
+
+func planStepExecutionConversationConfig(run *Run, agent *Agent) chat.ConversationConfig {
+	config := chat.ConversationConfig{}
+	if run != nil {
+		config.ConversationID = run.ConversationID
+	}
+	if agent != nil {
+		config.ModelID = agent.Model
+		config.KnowledgeBaseIDs = append([]string(nil), agent.Config.KnowledgeBaseIDs...)
+		config.SystemPromptOverride = strings.TrimSpace(strings.Join([]string{
+			agent.SystemPrompt,
+			"Execute exactly one approved plan step. Use the provided conversation, current step, and prior completed step results as context. Do not execute other plan steps or claim unrelated work. Return the concrete result for this step only.",
+		}, "\n\n"))
+		config.Temperature = agent.Config.Temperature
+		config.MaxOutputTokens = agent.Config.MaxTokens
+	}
+	if config.Temperature == 0 {
+		config.Temperature = 1.0
+	}
+	if config.MaxOutputTokens == 0 {
+		config.MaxOutputTokens = 2048
+	}
+	return config
+}
+
+func buildPlanStepExecutionMessages(run *Run, agent *Agent, currentStep *PlanStep, messages []*Message, steps []*PlanStep) []chat.Message {
+	var builder strings.Builder
+	builder.WriteString("Execute exactly one approved plan step.\n\n")
+	if agent != nil && strings.TrimSpace(agent.SystemPrompt) != "" {
+		builder.WriteString("Agent system prompt:\n")
+		builder.WriteString(strings.TrimSpace(agent.SystemPrompt))
+		builder.WriteString("\n\n")
+	}
+	if run != nil {
+		builder.WriteString("Run context:\n")
+		builder.WriteString("- Run ID: ")
+		builder.WriteString(run.ID)
+		builder.WriteString("\n")
+		builder.WriteString("- Conversation ID: ")
+		builder.WriteString(run.ConversationID)
+		builder.WriteString("\n\n")
+	}
+	if len(messages) > 0 {
+		builder.WriteString("Conversation so far:\n")
+		for _, message := range messages {
+			if message == nil || strings.TrimSpace(message.Content) == "" {
+				continue
+			}
+			role := strings.TrimSpace(message.Role)
+			if role == "" {
+				role = "message"
+			}
+			builder.WriteString("- ")
+			builder.WriteString(role)
+			builder.WriteString(": ")
+			builder.WriteString(strings.TrimSpace(message.Content))
+			builder.WriteString("\n")
+		}
+		builder.WriteString("\n")
+	}
+	builder.WriteString("Current plan step:\n")
+	if currentStep != nil {
+		builder.WriteString("- Index: ")
+		builder.WriteString(fmt.Sprintf("%d", currentStep.Index))
+		builder.WriteString("\n")
+		builder.WriteString("- Title: ")
+		builder.WriteString(strings.TrimSpace(currentStep.Title))
+		builder.WriteString("\n")
+		if len(currentStep.Input) > 0 {
+			builder.WriteString("- Input: ")
+			builder.WriteString(formatPlanStepInput(currentStep.Input))
+			builder.WriteString("\n")
+		}
+	}
+	builder.WriteString("\n")
+	priorResults := planStepPriorResults(currentStep, steps)
+	if len(priorResults) > 0 {
+		builder.WriteString("Prior completed plan steps:\n")
+		for _, result := range priorResults {
+			builder.WriteString(result)
+			builder.WriteString("\n")
+		}
+	} else {
+		builder.WriteString("Prior completed plan steps:\n- None\n")
+	}
+	builder.WriteString("\nReturn only the execution result for the current plan step.")
+
+	return []chat.Message{{
+		Role:    "user",
+		Content: builder.String(),
+	}}
+}
+
+func planStepPriorResults(currentStep *PlanStep, steps []*PlanStep) []string {
+	currentIndex := 0
+	if currentStep != nil {
+		currentIndex = currentStep.Index
+	}
+	results := make([]string, 0, len(steps))
+	for _, step := range steps {
+		if step == nil {
+			continue
+		}
+		if currentStep != nil && step.ID == currentStep.ID {
+			continue
+		}
+		if step.Status != PlanStepStatusCompleted && step.Status != PlanStepStatusSkipped {
+			continue
+		}
+		if currentIndex > 0 && step.Index >= currentIndex {
+			continue
+		}
+		title := strings.TrimSpace(step.Title)
+		if title == "" {
+			title = step.ID
+		}
+		result := strings.TrimSpace(step.ResultContent)
+		if result == "" {
+			result = step.Status
+		}
+		results = append(results, fmt.Sprintf("- Step %d, %s: %s", step.Index, title, result))
+	}
+	return results
+}
+
+func formatPlanStepInput(input map[string]any) string {
+	payload, err := json.Marshal(input)
+	if err != nil {
+		return fmt.Sprintf("%v", input)
+	}
+	return string(payload)
+}
+
+func normalizeMemoryType(memoryType string) string {
+	switch strings.TrimSpace(memoryType) {
+	case MemoryTypeShortTerm:
+		return MemoryTypeShortTerm
+	case MemoryTypeUserManaged:
+		return MemoryTypeUserManaged
+	case MemoryTypeLongTerm, "":
+		return MemoryTypeLongTerm
+	default:
+		return MemoryTypeLongTerm
+	}
+}
+
+func normalizeMemoryImportance(importance int) (int, error) {
+	if importance == 0 {
+		return 3, nil
+	}
+	if importance < 1 || importance > 5 {
+		return 0, fmt.Errorf("importance must be between 1 and 5")
+	}
+	return importance, nil
+}
+
+func copyMetadata(metadata map[string]any) map[string]any {
+	copied := map[string]any{}
+	for key, value := range metadata {
+		copied[key] = value
+	}
+	return copied
+}
+
+func boolPointer(value bool) *bool {
+	return &value
 }
 
 // ExecuteTool 执行工具
@@ -465,7 +1717,7 @@ func (s *Service) ExecuteTool(ctx context.Context, session auth.Session, agentID
 	// 根据工具类型执行
 	switch targetTool.Type {
 	case "builtin":
-		if !mcp.IsDefaultCommercialBuiltin(toolName) {
+		if !s.isCommercialBuiltinEnabled(toolName) {
 			return &mcp.ToolResult{
 				Content: fmt.Sprintf("builtin tool %s is disabled for default commercial use", toolName),
 				IsError: true,
@@ -475,6 +1727,10 @@ func (s *Service) ExecuteTool(ctx context.Context, session auth.Session, agentID
 		tool, ok := mcp.GetBuiltinTool(toolName)
 		if !ok {
 			return nil, fmt.Errorf("builtin tool not found: %s", toolName)
+		}
+		if toolName == "web_search" && s.webSearchProvider != nil {
+			restore := mcp.SetWebSearchProviderForTest(s.webSearchProvider)
+			defer restore()
 		}
 		return tool.Execute(ctx, args)
 
@@ -516,13 +1772,16 @@ func (s *Service) ListAvailableTools(ctx context.Context, session auth.Session, 
 		}
 
 		def := ToolDefinition{
-			Name:        t.Name,
-			Description: t.Description,
+			Name:             t.Name,
+			Description:      t.Description,
+			ToolType:         normalizeToolType(t.Type),
+			RequiresApproval: t.RequiresApproval,
+			RiskLevel:        toolDefinitionRiskLevel(t),
 		}
 
 		// 获取 InputSchema
 		if t.Type == "builtin" {
-			if !mcp.IsDefaultCommercialBuiltin(t.Name) {
+			if !s.isCommercialBuiltinEnabled(t.Name) {
 				continue
 			}
 			if builtin, ok := mcp.GetBuiltinTool(t.Name); ok {
@@ -544,10 +1803,19 @@ func (s *Service) ListAvailableTools(ctx context.Context, session auth.Session, 
 					}
 				}
 			}
+		} else if t.Type == "custom" {
+			def.InputSchema = t.InputSchema
 		}
 
 		tools = append(tools, def)
 	}
 
 	return tools, nil
+}
+
+func (s *Service) isCommercialBuiltinEnabled(name string) bool {
+	if mcp.IsDefaultCommercialBuiltin(name) {
+		return true
+	}
+	return name == "web_search" && s.webSearchProvider != nil
 }

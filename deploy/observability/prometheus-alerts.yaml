@@ -72,3 +72,177 @@ groups:
         annotations:
           summary: Potential tenant isolation incident signal
           description: HTTP 4xx denial volume is elevated. Correlate with tenant-isolation security logs and cross-tenant test evidence.
+
+  - name: oblivious-v08-workflow-rag-relay-agent
+    rules:
+      - alert: WorkflowExecutionFailureRate
+        expr: |
+          (
+            sum(rate(workflow_execution_total{status=~"failed|timeout|max_iterations"}[5m]))
+            /
+            clamp_min(sum(rate(workflow_execution_total[5m])), 0.001)
+          ) > 0.1
+          and sum(increase(workflow_execution_total[5m])) >= 10
+        for: 5m
+        labels:
+          severity: warning
+          owner: workflow-ops
+          slo: workflow-execution-reliability
+          runbook: docs/release/observability-slos.md#workflow-execution-failure-rate
+        annotations:
+          summary: Workflow execution failure rate is above 10 percent
+          description: Failed, timed out, or max-iteration workflow executions exceed the reliability threshold over the last five minutes.
+
+      - alert: WorkflowExecutionStuck
+        expr: |
+          workflow_execution_active{status="running"} > 0
+          and workflow_execution_active_age_seconds{status="running"} > 3600
+        for: 10m
+        labels:
+          severity: warning
+          owner: workflow-ops
+          slo: workflow-execution-latency
+          runbook: docs/release/observability-slos.md#workflow-execution-stuck
+        annotations:
+          summary: Running workflow execution has been active for more than one hour
+          description: The oldest running workflow execution active-age gauge is above the stuck threshold.
+
+      - alert: WorkflowExecutionDurationHigh
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(workflow_execution_duration_seconds_bucket[5m])) by (le, status)
+          ) > 3600
+        for: 10m
+        labels:
+          severity: warning
+          owner: workflow-ops
+          slo: workflow-execution-latency
+          runbook: docs/release/observability-slos.md#workflow-execution-duration-high
+        annotations:
+          summary: Workflow execution p95 duration is above one hour
+          description: Completed workflow execution duration exceeds the stuck threshold by status.
+
+      - alert: WorkflowQueueBacklog
+        expr: |
+          workflow_execution_active{status="queued"} > 0
+          and workflow_execution_active_age_seconds{status="queued"} > 300
+        for: 10m
+        labels:
+          severity: warning
+          owner: workflow-ops
+          slo: workflow-queue-latency
+          runbook: docs/release/observability-slos.md#workflow-queue-backlog
+        annotations:
+          summary: Workflow queue backlog is older than five minutes
+          description: At least one queued workflow execution has remained queued beyond the backlog threshold.
+
+      - alert: WorkflowNodeErrorRateHigh
+        expr: max(workflow_node_error_rate) by (node_type) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          owner: workflow-ops
+          slo: workflow-node-reliability
+          runbook: docs/release/observability-slos.md#workflow-node-error-rate-high
+        annotations:
+          summary: Workflow node error rate is above 10 percent
+          description: A workflow node type is reporting an elevated error rate.
+
+      - alert: RAGRetrievalSlowness
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(rag_retrieval_latency_seconds_bucket[5m])) by (le, mode)
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+          owner: rag-ops
+          slo: rag-retrieval-latency
+          runbook: docs/release/observability-slos.md#rag-retrieval-slowness
+        annotations:
+          summary: RAG retrieval p95 latency is above 2 seconds
+          description: RAG retrieval latency exceeds the interactive retrieval threshold by mode.
+
+      - alert: QdrantDown
+        expr: up{job="qdrant"} == 0 or absent(up{job="qdrant"})
+        for: 1m
+        labels:
+          severity: critical
+          owner: rag-ops
+          slo: vector-store-availability
+          runbook: docs/release/observability-slos.md#qdrant-down
+        annotations:
+          summary: Qdrant scrape target is down or missing
+          description: Prometheus cannot scrape the qdrant job, or the configured Qdrant target is reporting down.
+
+      - alert: RelaySemanticCacheLowHitRate
+        expr: |
+          (
+            sum(rate(relay_semantic_cache_events_total{result="hit"}[15m])) by (api_type, model)
+            /
+            clamp_min(sum(rate(relay_semantic_cache_events_total[15m])) by (api_type, model), 0.001)
+          ) < 0.2
+          and sum(increase(relay_semantic_cache_events_total[15m])) by (api_type, model) >= 50
+        for: 15m
+        labels:
+          severity: warning
+          owner: relay-ops
+          slo: relay-semantic-cache-efficiency
+          runbook: docs/release/observability-slos.md#relay-semantic-cache-low-hit-rate
+        annotations:
+          summary: Relay semantic cache hit rate is below 20 percent
+          description: Relay semantic cache lookups are missing too often for an active API type and model.
+
+      - alert: AgentRunFailureRate
+        expr: |
+          (
+            sum(rate(agent_run_total{status=~"failed|max_iterations_reached|token_budget_exceeded"}[5m]))
+            /
+            clamp_min(sum(rate(agent_run_total[5m])), 0.001)
+          ) > 0.1
+          and sum(increase(agent_run_total[5m])) >= 10
+        for: 5m
+        labels:
+          severity: warning
+          owner: agent-ops
+          slo: agent-run-reliability
+          runbook: docs/release/observability-slos.md#agent-run-failure-rate
+        annotations:
+          summary: Agent run failure rate is above 10 percent
+          description: Failed, max-iteration, or token-budget-exceeded agent runs exceed the reliability threshold over the last five minutes.
+
+      - alert: AgentToolCallFailureRate
+        expr: |
+          (
+            sum(rate(agent_tool_call_total{status=~"failed|rejected"}[5m])) by (tool_name)
+            /
+            clamp_min(sum(rate(agent_tool_call_total[5m])) by (tool_name), 0.001)
+          ) > 0.1
+          and sum(increase(agent_tool_call_total[5m])) by (tool_name) >= 10
+        for: 5m
+        labels:
+          severity: warning
+          owner: agent-ops
+          slo: agent-tool-reliability
+          runbook: docs/release/observability-slos.md#agent-tool-call-failure-rate
+        annotations:
+          summary: Agent tool call failure rate is above 10 percent
+          description: Failed or rejected agent tool calls exceed the reliability threshold by tool.
+
+      - alert: AgentIterationCountHigh
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(agent_iteration_count_bucket[5m])) by (le, status)
+          ) > 13
+        for: 10m
+        labels:
+          severity: warning
+          owner: agent-ops
+          slo: agent-iteration-budget
+          runbook: docs/release/observability-slos.md#agent-iteration-count-high
+        annotations:
+          summary: Agent iteration count p95 is above budget
+          description: Agent runs are consuming unusually high iteration counts by status.

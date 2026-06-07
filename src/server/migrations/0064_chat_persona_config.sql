@@ -1,0 +1,19 @@
+ALTER TABLE conversation_configs
+ADD COLUMN IF NOT EXISTS persona_id TEXT NOT NULL DEFAULT '';
+
+CREATE TABLE IF NOT EXISTS personas (
+	id TEXT PRIMARY KEY,
+	organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+	name TEXT NOT NULL DEFAULT '',
+	role TEXT NOT NULL DEFAULT '',
+	style TEXT NOT NULL DEFAULT '',
+	tone TEXT NOT NULL DEFAULT '',
+	constraints TEXT NOT NULL DEFAULT '',
+	opening_message TEXT NOT NULL DEFAULT '',
+	suggested_questions JSONB NOT NULL DEFAULT '[]'::jsonb,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE personas
+ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT '';

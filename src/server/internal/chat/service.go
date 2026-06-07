@@ -3,7 +3,6 @@ package chat
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -12,19 +11,27 @@ import (
 )
 
 type Conversation struct {
-	CreatedAt time.Time `json:"createdAt"`
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	CreatedAt             time.Time `json:"createdAt"`
+	HasBookmarkedMessages bool      `json:"hasBookmarkedMessages,omitempty"`
+	ID                    string    `json:"id"`
+	ParentID              string    `json:"parentId,omitempty"`
+	PersonaID             string    `json:"personaId,omitempty"`
+	KnowledgeBaseIDs      []string  `json:"knowledgeBaseIds,omitempty"`
+	Title                 string    `json:"title"`
+	UpdatedAt             time.Time `json:"updatedAt"`
 }
 
 type Message struct {
-	Content    string     `json:"content"`
-	CreatedAt  time.Time  `json:"createdAt"`
-	ID         string     `json:"id"`
-	Role       string     `json:"role"`
-	ToolCalls  []ToolCall `json:"toolCalls,omitempty"`
-	ToolCallID string     `json:"toolCallId,omitempty"`
+	Attachments        []MessageAttachment `json:"attachments,omitempty"`
+	Bookmarked         bool                `json:"bookmarked,omitempty"`
+	Content            string              `json:"content"`
+	CreatedAt          time.Time           `json:"createdAt"`
+	ID                 string              `json:"id"`
+	KnowledgeCitations []KnowledgeCitation `json:"knowledgeCitations,omitempty"`
+	Role               string              `json:"role"`
+	ToolCallID         string              `json:"toolCallId,omitempty"`
+	ToolCalls          []ToolCall          `json:"toolCalls,omitempty"`
+	Metadata           *MessageMetadata    `json:"metadata,omitempty"`
 }
 
 type TaskDraft struct {
@@ -35,22 +42,59 @@ type TaskDraft struct {
 }
 
 type Store interface {
-	CreateConversation(ctx context.Context, workspaceID, organizationID, title, defaultModelID string) (Conversation, error)
-	CreateMessage(ctx context.Context, conversationID, organizationID, role, content string) (Message, error)
-	GetConversationConfig(ctx context.Context, conversationID, organizationID, defaultModelID string) (ConversationConfig, error)
-	ListConversations(ctx context.Context, organizationID string) ([]Conversation, error)
-	ListMessages(ctx context.Context, conversationID, organizationID string) ([]Message, error)
+	CreateConversation(ctx context.Context, workspaceID string, args ...string) (Conversation, error)
+	CreateMessage(ctx context.Context, conversationID string, args ...string) (Message, error)
+	GetConversationConfig(ctx context.Context, conversationID, scopeID, defaultModelID string) (ConversationConfig, error)
+	ListConversations(ctx context.Context, scopeID string) ([]Conversation, error)
+	ListMessages(ctx context.Context, conversationID, scopeID string) ([]Message, error)
 	UpdateConversationConfig(
 		ctx context.Context,
 		conversationID,
-		organizationID,
+		scopeID,
 		modelID,
 		systemPromptOverride string,
 		temperature float64,
 		maxOutputTokens int,
 		toolsEnabled bool,
 		knowledgeBaseIDs []string,
+		personaIDs ...string,
 	) (ConversationConfig, error)
+
+	// Conversation forking
+	ForkConversation(ctx context.Context, organizationID, workspaceID, sourceConversationID, title, branchFromMessageID string) (Conversation, error)
+	ListConversationBranches(ctx context.Context, conversationID, scopeID string) ([]Conversation, error)
+
+	// Persona CRUD
+	CreatePersona(ctx context.Context, workspaceID string, persona Persona) (Persona, error)
+	GetPersona(ctx context.Context, personaID, workspaceID string) (Persona, error)
+	ListPersonas(ctx context.Context, workspaceID string) ([]Persona, error)
+	UpdatePersona(ctx context.Context, personaID, workspaceID string, persona Persona) (Persona, error)
+	DeletePersona(ctx context.Context, personaID, workspaceID string) error
+
+	// Message metadata & search
+	CreateMessageWithMetadata(ctx context.Context, conversationID, role, content string, metadata *MessageMetadata) (Message, error)
+	AddMessageAttachment(ctx context.Context, attachment MessageAttachment) (MessageAttachment, error)
+	ListMessageAttachments(ctx context.Context, messageID string) ([]MessageAttachment, error)
+	SearchMessages(ctx context.Context, workspaceID, query string, limit int) ([]MessageSearchResult, error)
+}
+
+type ConversationActionStore interface {
+	GetConversation(ctx context.Context, conversationID, scopeID string) (Conversation, error)
+	UpdateConversation(ctx context.Context, conversationID, scopeID, title string) (Conversation, error)
+	DeleteConversation(ctx context.Context, conversationID, scopeID string) error
+}
+
+type MessageActionStore interface {
+	UpdateMessage(ctx context.Context, conversationID, scopeID, messageID, content string) (Message, error)
+	DeleteMessage(ctx context.Context, conversationID, scopeID, messageID string) error
+	BookmarkMessage(ctx context.Context, conversationID, scopeID, messageID string, bookmarked bool) (Message, error)
+}
+
+type ShareStore interface {
+	CreateMessageShareWithOptions(ctx context.Context, conversationID, organizationID, messageID string, expiresAt *time.Time) (MessageShare, error)
+	GetMessageShare(ctx context.Context, shareID string, now time.Time) (MessageShareDetail, error)
+	CreateConversationShare(ctx context.Context, conversationID, organizationID string, options ConversationShareStoreOptions) (ConversationShare, error)
+	GetConversationShare(ctx context.Context, shareID string, now time.Time) (ConversationShareDetail, error)
 }
 
 type UsageRecord struct {
@@ -71,7 +115,6 @@ type UsageRecorder interface {
 type Service struct {
 	defaultModelID string
 	replyGenerator ReplyGenerator
-	chatGateway    ChatGateway // 新增：支持流式的 Gateway
 	store          Store
 	usageRecorder  UsageRecorder
 }
@@ -80,37 +123,9 @@ func NewService(store Store, replyGenerator ReplyGenerator, defaultModelID strin
 	return &Service{
 		defaultModelID: defaultModelID,
 		replyGenerator: replyGenerator,
-		chatGateway:    nil, // 可选，通过 SetChatGateway 设置
 		store:          store,
 		usageRecorder:  usageRecorder,
 	}
-}
-
-// NewServiceWithGateway 创建带 ChatGateway 的 Service
-func NewServiceWithGateway(store Store, gateway ChatGateway, defaultModelID string, usageRecorder UsageRecorder) *Service {
-	return &Service{
-		defaultModelID: defaultModelID,
-		replyGenerator: gateway, // ChatGateway 也实现了 ReplyGenerator
-		chatGateway:    gateway,
-		store:          store,
-		usageRecorder:  usageRecorder,
-	}
-}
-
-// SetChatGateway 设置 ChatGateway（用于依赖注入）
-func (s *Service) SetChatGateway(gateway ChatGateway) {
-	s.chatGateway = gateway
-	s.replyGenerator = gateway
-}
-
-// HasStreamSupport 检查是否支持流式
-func (s *Service) HasStreamSupport() bool {
-	return s.chatGateway != nil
-}
-
-// ChatGateway 返回 ChatGateway（用于 Agent 等共享）
-func (s *Service) ChatGateway() ChatGateway {
-	return s.chatGateway
 }
 
 func (s *Service) CreateConversation(ctx context.Context, session auth.Session, title string) (Conversation, error) {
@@ -118,28 +133,162 @@ func (s *Service) CreateConversation(ctx context.Context, session auth.Session, 
 		title = "New conversation"
 	}
 
-	return s.store.CreateConversation(ctx, session.WorkspaceID, session.OrganizationID, title, s.defaultModelID)
+	if organizationID := strings.TrimSpace(session.OrganizationID); organizationID != "" {
+		return s.store.CreateConversation(ctx, session.WorkspaceID, organizationID, title, s.defaultModelID)
+	}
+	return s.store.CreateConversation(ctx, session.WorkspaceID, title, s.defaultModelID)
+}
+
+func (s *Service) GetConversation(ctx context.Context, session auth.Session, conversationID string) (Conversation, error) {
+	store, ok := s.store.(ConversationActionStore)
+	if !ok {
+		return Conversation{}, ErrUnsupportedChatAction
+	}
+	return store.GetConversation(ctx, conversationID, chatSessionScopeID(session))
+}
+
+func (s *Service) UpdateConversation(ctx context.Context, session auth.Session, conversationID, title string) (Conversation, error) {
+	store, ok := s.store.(ConversationActionStore)
+	if !ok {
+		return Conversation{}, ErrUnsupportedChatAction
+	}
+	return store.UpdateConversation(ctx, conversationID, chatSessionScopeID(session), title)
+}
+
+func (s *Service) DeleteConversation(ctx context.Context, session auth.Session, conversationID string) error {
+	store, ok := s.store.(ConversationActionStore)
+	if !ok {
+		return ErrUnsupportedChatAction
+	}
+	return store.DeleteConversation(ctx, conversationID, chatSessionScopeID(session))
+}
+
+func (s *Service) ForkConversation(ctx context.Context, session auth.Session, sourceConversationID, branchFromMessageID, title string) (Conversation, error) {
+	if title == "" {
+		title = "Branched conversation"
+	}
+
+	return s.store.ForkConversation(ctx, chatSessionScopeID(session), session.WorkspaceID, sourceConversationID, title, branchFromMessageID)
+}
+
+func (s *Service) ListConversationBranches(ctx context.Context, session auth.Session, conversationID string) ([]Conversation, error) {
+	return s.store.ListConversationBranches(ctx, conversationID, chatSessionScopeID(session))
+}
+
+func (s *Service) CreatePersona(ctx context.Context, session auth.Session, persona Persona) (Persona, error) {
+	persona.WorkspaceID = session.WorkspaceID
+	return s.store.CreatePersona(ctx, chatSessionScopeID(session), persona)
+}
+
+func (s *Service) GetPersona(ctx context.Context, session auth.Session, personaID string) (Persona, error) {
+	return s.store.GetPersona(ctx, personaID, chatSessionScopeID(session))
+}
+
+func (s *Service) ListPersonas(ctx context.Context, session auth.Session) ([]Persona, error) {
+	return s.store.ListPersonas(ctx, chatSessionScopeID(session))
+}
+
+func (s *Service) UpdatePersona(ctx context.Context, session auth.Session, personaID string, persona Persona) (Persona, error) {
+	return s.store.UpdatePersona(ctx, personaID, chatSessionScopeID(session), persona)
+}
+
+func (s *Service) DeletePersona(ctx context.Context, session auth.Session, personaID string) error {
+	return s.store.DeletePersona(ctx, personaID, chatSessionScopeID(session))
+}
+
+func (s *Service) SearchMessages(ctx context.Context, session auth.Session, query string, limit int) ([]MessageSearchResult, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	return s.store.SearchMessages(ctx, chatSessionScopeID(session), query, limit)
+}
+
+func (s *Service) AddMessageAttachment(ctx context.Context, session auth.Session, attachment MessageAttachment) (MessageAttachment, error) {
+	return s.store.AddMessageAttachment(ctx, attachment)
+}
+
+func (s *Service) ListMessageAttachments(ctx context.Context, session auth.Session, messageID string) ([]MessageAttachment, error) {
+	return s.store.ListMessageAttachments(ctx, messageID)
 }
 
 func (s *Service) GetConversationConfig(ctx context.Context, session auth.Session, conversationID string) (ConversationConfig, error) {
-	return s.store.GetConversationConfig(ctx, conversationID, session.OrganizationID, s.defaultModelID)
+	return s.store.GetConversationConfig(ctx, conversationID, chatSessionScopeID(session), s.defaultModelID)
 }
 
 func (s *Service) ListConversations(ctx context.Context, session auth.Session) ([]Conversation, error) {
-	return s.store.ListConversations(ctx, session.OrganizationID)
+	return s.store.ListConversations(ctx, chatSessionScopeID(session))
 }
 
 func (s *Service) ListMessages(ctx context.Context, session auth.Session, conversationID string) ([]Message, error) {
-	return s.store.ListMessages(ctx, conversationID, session.OrganizationID)
+	return s.store.ListMessages(ctx, conversationID, chatSessionScopeID(session))
+}
+
+func (s *Service) UpdateMessage(ctx context.Context, session auth.Session, conversationID, messageID, content string) (Message, error) {
+	store, ok := s.store.(MessageActionStore)
+	if !ok {
+		return Message{}, ErrUnsupportedChatAction
+	}
+	return store.UpdateMessage(ctx, conversationID, chatSessionScopeID(session), messageID, content)
+}
+
+func (s *Service) DeleteMessage(ctx context.Context, session auth.Session, conversationID, messageID string) error {
+	store, ok := s.store.(MessageActionStore)
+	if !ok {
+		return ErrUnsupportedChatAction
+	}
+	return store.DeleteMessage(ctx, conversationID, chatSessionScopeID(session), messageID)
+}
+
+func (s *Service) BookmarkMessage(ctx context.Context, session auth.Session, conversationID, messageID string, bookmarked bool) (Message, error) {
+	store, ok := s.store.(MessageActionStore)
+	if !ok {
+		return Message{}, ErrUnsupportedChatAction
+	}
+	return store.BookmarkMessage(ctx, conversationID, chatSessionScopeID(session), messageID, bookmarked)
+}
+
+func (s *Service) CreateMessageShare(ctx context.Context, session auth.Session, conversationID, messageID string, expiresAt *time.Time) (MessageShare, error) {
+	store, ok := s.store.(ShareStore)
+	if !ok {
+		return MessageShare{}, ErrUnsupportedChatAction
+	}
+	return store.CreateMessageShareWithOptions(ctx, conversationID, chatSessionScopeID(session), messageID, expiresAt)
+}
+
+func (s *Service) GetMessageShare(ctx context.Context, shareID string, now time.Time) (MessageShareDetail, error) {
+	store, ok := s.store.(ShareStore)
+	if !ok {
+		return MessageShareDetail{}, ErrUnsupportedChatAction
+	}
+	return store.GetMessageShare(ctx, shareID, now)
+}
+
+func (s *Service) CreateConversationShare(ctx context.Context, session auth.Session, conversationID string, options ConversationShareStoreOptions) (ConversationShare, error) {
+	store, ok := s.store.(ShareStore)
+	if !ok {
+		return ConversationShare{}, ErrUnsupportedChatAction
+	}
+	return store.CreateConversationShare(ctx, conversationID, chatSessionScopeID(session), options)
+}
+
+func (s *Service) GetConversationShare(ctx context.Context, shareID string, now time.Time) (ConversationShareDetail, error) {
+	store, ok := s.store.(ShareStore)
+	if !ok {
+		return ConversationShareDetail{}, ErrUnsupportedChatAction
+	}
+	return store.GetConversationShare(ctx, shareID, now)
 }
 
 func (s *Service) ConvertConversationToTask(ctx context.Context, session auth.Session, conversationID string) (TaskDraft, error) {
-	config, err := s.store.GetConversationConfig(ctx, conversationID, session.OrganizationID, s.defaultModelID)
+	config, err := s.store.GetConversationConfig(ctx, conversationID, chatSessionScopeID(session), s.defaultModelID)
 	if err != nil {
 		return TaskDraft{}, err
 	}
 
-	messages, err := s.store.ListMessages(ctx, conversationID, session.OrganizationID)
+	messages, err := s.store.ListMessages(ctx, conversationID, chatSessionScopeID(session))
 	if err != nil {
 		return TaskDraft{}, err
 	}
@@ -162,6 +311,7 @@ func (s *Service) UpdateConversationConfig(
 	maxOutputTokens int,
 	toolsEnabled bool,
 	knowledgeBaseIDs []string,
+	personaIDs ...string,
 ) (ConversationConfig, error) {
 	if modelID == "" {
 		modelID = s.defaultModelID
@@ -173,17 +323,22 @@ func (s *Service) UpdateConversationConfig(
 		maxOutputTokens = 1024
 	}
 	knowledgeBaseIDs = normalizeKnowledgeBaseIDs(knowledgeBaseIDs)
+	personaID := ""
+	if len(personaIDs) > 0 {
+		personaID = strings.TrimSpace(personaIDs[0])
+	}
 
 	return s.store.UpdateConversationConfig(
 		ctx,
 		conversationID,
-		session.OrganizationID,
+		chatSessionScopeID(session),
 		modelID,
 		systemPromptOverride,
 		temperature,
 		maxOutputTokens,
 		toolsEnabled,
 		knowledgeBaseIDs,
+		personaID,
 	)
 }
 
@@ -232,6 +387,9 @@ func mergeConversationConfig(base ConversationConfig, overrides *MessageOverride
 	if overrides.ToolsEnabled != nil {
 		effective.ToolsEnabled = *overrides.ToolsEnabled
 	}
+	if overrides.PersonaID != nil && *overrides.PersonaID != "" {
+		effective.PersonaID = *overrides.PersonaID
+	}
 	return effective
 }
 
@@ -278,29 +436,50 @@ func draftTaskGoalFromMessages(messages []Message) string {
 }
 
 func (s *Service) SendMessage(ctx context.Context, session auth.Session, conversationID, content string, overrides *MessageOverrides) ([]Message, error) {
-	if _, err := s.store.CreateMessage(ctx, conversationID, session.OrganizationID, "user", content); err != nil {
+	scopeID := chatSessionScopeID(session)
+	if strings.TrimSpace(session.OrganizationID) != "" {
+		if _, err := s.store.CreateMessage(ctx, conversationID, session.OrganizationID, "user", content); err != nil {
+			return nil, err
+		}
+	} else if _, err := s.store.CreateMessage(ctx, conversationID, "user", content); err != nil {
 		return nil, err
 	}
 
-	messages, err := s.store.ListMessages(ctx, conversationID, session.OrganizationID)
+	messages, err := s.store.ListMessages(ctx, conversationID, scopeID)
 	if err != nil {
 		return nil, err
 	}
 
-	conversationConfig, err := s.store.GetConversationConfig(ctx, conversationID, session.OrganizationID, s.defaultModelID)
+	conversationConfig, err := s.store.GetConversationConfig(ctx, conversationID, scopeID, s.defaultModelID)
 	if err != nil {
 		return nil, err
 	}
 
 	effectiveConfig := mergeConversationConfig(conversationConfig, overrides, s.defaultModelID)
-	ctx = withSessionRelayMetadata(ctx, session)
+
+	// Resolve persona system prompt if a persona is configured
+	if effectiveConfig.PersonaID != "" {
+		persona, personaErr := s.store.GetPersona(ctx, effectiveConfig.PersonaID, scopeID)
+		if personaErr == nil && persona.ID != "" {
+			personaPrompt := buildPersonaSystemPrompt(persona)
+			if effectiveConfig.SystemPromptOverride != "" {
+				effectiveConfig.SystemPromptOverride = personaPrompt + "\n\n" + effectiveConfig.SystemPromptOverride
+			} else {
+				effectiveConfig.SystemPromptOverride = personaPrompt
+			}
+		}
+	}
 
 	reply, err := s.replyGenerator.GenerateReply(ctx, messages, effectiveConfig)
 	if err != nil {
 		return nil, err
 	}
 
-	if _, err := s.store.CreateMessage(ctx, conversationID, session.OrganizationID, "assistant", reply); err != nil {
+	if strings.TrimSpace(session.OrganizationID) != "" {
+		if _, err := s.store.CreateMessage(ctx, conversationID, session.OrganizationID, "assistant", reply); err != nil {
+			return nil, err
+		}
+	} else if _, err := s.store.CreateMessage(ctx, conversationID, "assistant", reply); err != nil {
 		return nil, err
 	}
 
@@ -319,76 +498,48 @@ func (s *Service) SendMessage(ctx context.Context, session auth.Session, convers
 		}
 	}
 
-	return s.store.ListMessages(ctx, conversationID, session.OrganizationID)
+	return s.store.ListMessages(ctx, conversationID, scopeID)
 }
 
-// SendMessageStream 流式发送消息
-func (s *Service) SendMessageStream(ctx context.Context, session auth.Session, conversationID, content string, overrides *MessageOverrides, onChunk func(string) error) error {
-	if s.chatGateway == nil {
-		return errors.New("stream not supported: chat gateway not configured")
+func chatSessionScopeID(session auth.Session) string {
+	if organizationID := strings.TrimSpace(session.OrganizationID); organizationID != "" {
+		return organizationID
 	}
+	return session.WorkspaceID
+}
 
-	if _, err := s.store.CreateMessage(ctx, conversationID, session.OrganizationID, "user", content); err != nil {
-		return err
+func buildPersonaSystemPrompt(persona Persona) string {
+	parts := []string{}
+	if persona.Name != "" {
+		parts = append(parts, "Name: "+persona.Name)
 	}
-
-	messages, err := s.store.ListMessages(ctx, conversationID, session.OrganizationID)
-	if err != nil {
-		return err
+	if persona.Role != "" {
+		parts = append(parts, "Role: "+persona.Role)
 	}
-
-	conversationConfig, err := s.store.GetConversationConfig(ctx, conversationID, session.OrganizationID, s.defaultModelID)
-	if err != nil {
-		return err
+	if persona.Style != "" {
+		parts = append(parts, "Style: "+persona.Style)
 	}
-
-	effectiveConfig := mergeConversationConfig(conversationConfig, overrides, s.defaultModelID)
-	ctx = withSessionRelayMetadata(ctx, session)
-
-	var replyBuilder strings.Builder
-	err = s.chatGateway.GenerateReplyStream(ctx, messages, effectiveConfig, func(chunk string) error {
-		replyBuilder.WriteString(chunk)
-		return onChunk(chunk)
-	})
-	if err != nil {
-		return err
+	if persona.Tone != "" {
+		parts = append(parts, "Tone: "+persona.Tone)
 	}
-
-	reply := replyBuilder.String()
-	if _, err := s.store.CreateMessage(ctx, conversationID, session.OrganizationID, "assistant", reply); err != nil {
-		return err
+	if persona.Constraints != "" {
+		parts = append(parts, "Constraints: "+persona.Constraints)
 	}
+	if persona.OpeningMessage != "" {
+		parts = append(parts, "Opening message: "+persona.OpeningMessage)
+	}
+	return "You are the following persona. Adhere to these traits:\n" + joinLines(parts)
+}
 
-	if s.usageRecorder != nil {
-		if err := s.usageRecorder.RecordChatUsage(ctx, UsageRecord{
-			ConversationID: conversationID,
-			InputTokens:    estimateTokens(content),
-			ModelID:        effectiveConfig.ModelID,
-			OrganizationID: session.OrganizationID,
-			OutputTokens:   estimateTokens(reply),
-			RequestCount:   1,
-			UserID:         session.User.ID,
-			WorkspaceID:    session.WorkspaceID,
-		}); err != nil {
-			return err
+func joinLines(lines []string) string {
+	result := ""
+	for i, line := range lines {
+		if i > 0 {
+			result += "\n"
 		}
+		result += line
 	}
-
-	return nil
-}
-
-func withSessionRelayMetadata(ctx context.Context, session auth.Session) context.Context {
-	metadata, _ := RelayRequestMetadataFromContext(ctx)
-	if strings.TrimSpace(metadata.UserID) == "" {
-		metadata.UserID = session.User.ID
-	}
-	if strings.TrimSpace(metadata.WorkspaceID) == "" {
-		metadata.WorkspaceID = session.WorkspaceID
-	}
-	if strings.TrimSpace(metadata.OrganizationID) == "" {
-		metadata.OrganizationID = session.OrganizationID
-	}
-	return WithRelayRequestMetadata(ctx, metadata)
+	return result
 }
 
 func estimateTokens(text string) int {

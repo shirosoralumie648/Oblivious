@@ -3,12 +3,15 @@ package quota
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/lib/pq"
 	"oblivious/server/internal/auth"
 	"oblivious/server/internal/metrics"
 	"oblivious/server/internal/observability"
+	"oblivious/server/internal/relay/ratelimit"
 )
 
 // Quota 用户配额
@@ -44,11 +47,16 @@ type Package struct {
 	Name         string    `json:"name"`
 	Description  string    `json:"description,omitempty"`
 	QuotaAmount  float64   `json:"quotaAmount"`
+	TokenQuota   int       `json:"tokenQuota"`
 	Price        float64   `json:"price"`
+	ModelAccess  []string  `json:"modelAccess"`
+	AgentLimit   int       `json:"agentLimit"`
 	DurationDays *int      `json:"durationDays,omitempty"`
 	IsActive     bool      `json:"isActive"`
+	IsPublic     bool      `json:"isPublic"`
 	SortOrder    int       `json:"sortOrder"`
 	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
 // Subscription 订阅
@@ -103,21 +111,233 @@ type Store interface {
 	CreateTopupOrder(ctx context.Context, order *TopupOrder) (*TopupOrder, error)
 	UpdateTopupOrderCheckoutSession(ctx context.Context, paymentIntentID string, providerCheckoutSessionID string) error
 	UpdateTopupOrderStatus(ctx context.Context, id string, status string, tradeNo string) error
+
+	// Usage limits
+	SaveUsageLimitSettings(ctx context.Context, settings UsageLimitSettings) (*UsageLimitSettings, error)
+	ResolveUsageLimitSettings(ctx context.Context, organizationID, userID string) (UsageLimitSettings, error)
+	ListUsageLimitSettings(ctx context.Context, organizationID string) ([]UsageLimitSettings, error)
+}
+
+var ErrUsageLimited = errors.New("usage limit exceeded")
+
+const defaultUsageLimitWindowSeconds = 60
+
+type UsageLimitDimension string
+
+const (
+	UsageLimitDimensionConcurrent UsageLimitDimension = "concurrent"
+	UsageLimitDimensionTokens     UsageLimitDimension = "tokens"
+)
+
+type UsageLimit struct {
+	OrganizationID        string
+	UserID                string
+	MaxConcurrentRequests int
+	MaxTokensPerWindow    int
+}
+
+type UsageLimitSettings struct {
+	OrganizationID        string    `json:"organizationId"`
+	UserID                string    `json:"userId,omitempty"`
+	QuotaMode             string    `json:"quotaMode,omitempty"`
+	MaxConcurrentRequests int       `json:"maxConcurrentRequests"`
+	WindowSeconds         int       `json:"windowSeconds"`
+	MaxTokensPerWindow    int       `json:"maxTokensPerWindow"`
+	UpdatedAt             time.Time `json:"updatedAt"`
+}
+
+type UsageLease struct {
+	OrganizationID string `json:"organizationId"`
+	UserID         string `json:"userId,omitempty"`
+}
+
+type UsageLimitError struct {
+	Dimension  UsageLimitDimension
+	Limit      int
+	Current    int
+	Remaining  int
+	RetryAfter time.Duration
+}
+
+func (e *UsageLimitError) Error() string {
+	return fmt.Sprintf("usage limit exceeded: %s", e.Dimension)
+}
+
+func (e *UsageLimitError) Unwrap() error {
+	return ErrUsageLimited
 }
 
 // Service 配额服务
 type Service struct {
-	store Store
+	store       Store
+	rateLimiter ratelimit.RateLimiter
+}
+
+type ServiceOption func(*Service)
+
+func WithRateLimiter(limiter ratelimit.RateLimiter) ServiceOption {
+	return func(s *Service) {
+		s.rateLimiter = limiter
+	}
 }
 
 // NewService 创建 Service
-func NewService(store Store) *Service {
-	return &Service{store: store}
+func NewService(store Store, opts ...ServiceOption) *Service {
+	service := &Service{store: store}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(service)
+		}
+	}
+	return service
 }
 
 // GetBalance 获取用户余额
 func (s *Service) GetBalance(ctx context.Context, userID, organizationID string) (*Quota, error) {
 	return s.store.GetOrCreateQuota(ctx, userID, organizationID)
+}
+
+func (s *Service) BeginUsage(ctx context.Context, limit UsageLimit) (*UsageLease, error) {
+	if err := validateUsageLimitIdentity(limit); err != nil {
+		return nil, err
+	}
+	if s.rateLimiter == nil || limit.MaxConcurrentRequests <= 0 {
+		return &UsageLease{OrganizationID: limit.OrganizationID, UserID: limit.UserID}, nil
+	}
+	if err := s.rateLimiter.Begin(ctx, usageLimitRateKey(limit), ratelimit.Limits{MaxConcurrent: limit.MaxConcurrentRequests}); err != nil {
+		return nil, usageLimitError(err, UsageLimitDimensionConcurrent)
+	}
+	return &UsageLease{OrganizationID: limit.OrganizationID, UserID: limit.UserID}, nil
+}
+
+func (s *Service) EndUsage(ctx context.Context, lease *UsageLease) error {
+	if lease == nil || s.rateLimiter == nil {
+		return nil
+	}
+	return s.rateLimiter.End(ctx, usageLimitRateKey(UsageLimit{OrganizationID: lease.OrganizationID, UserID: lease.UserID}))
+}
+
+func (s *Service) ReserveUsageTokens(ctx context.Context, limit UsageLimit, tokens int) error {
+	if err := validateUsageLimitIdentity(limit); err != nil {
+		return err
+	}
+	if tokens <= 0 || s.rateLimiter == nil || limit.MaxTokensPerWindow <= 0 {
+		return nil
+	}
+	if err := s.rateLimiter.Allow(ctx, usageLimitRateKey(limit), ratelimit.Limits{TPM: limit.MaxTokensPerWindow}, ratelimit.Usage{Tokens: tokens}); err != nil {
+		return usageLimitError(err, UsageLimitDimensionTokens)
+	}
+	return nil
+}
+
+func (s *Service) SaveUsageLimitSettings(ctx context.Context, settings UsageLimitSettings) (*UsageLimitSettings, error) {
+	normalized, err := normalizeUsageLimitSettings(settings)
+	if err != nil {
+		return nil, err
+	}
+	return s.store.SaveUsageLimitSettings(ctx, normalized)
+}
+
+func (s *Service) ResolveUsageLimit(ctx context.Context, organizationID, userID string) (UsageLimit, error) {
+	if organizationID == "" {
+		return UsageLimit{}, fmt.Errorf("organization_id is required")
+	}
+	settings, err := s.store.ResolveUsageLimitSettings(ctx, organizationID, userID)
+	if err != nil {
+		return UsageLimit{}, err
+	}
+	return UsageLimit{
+		OrganizationID:        organizationID,
+		UserID:                settings.UserID,
+		MaxConcurrentRequests: settings.MaxConcurrentRequests,
+		MaxTokensPerWindow:    settings.MaxTokensPerWindow,
+	}, nil
+}
+
+func (s *Service) ListUsageLimitSettings(ctx context.Context, organizationID string) ([]UsageLimitSettings, error) {
+	if organizationID == "" {
+		return nil, fmt.Errorf("organization_id is required")
+	}
+	return s.store.ListUsageLimitSettings(ctx, organizationID)
+}
+
+func validateUsageLimitIdentity(limit UsageLimit) error {
+	if limit.OrganizationID == "" {
+		return fmt.Errorf("organization_id is required")
+	}
+	return nil
+}
+
+func normalizeUsageLimitSettings(settings UsageLimitSettings) (UsageLimitSettings, error) {
+	if settings.OrganizationID == "" {
+		return UsageLimitSettings{}, fmt.Errorf("organization_id is required")
+	}
+	if settings.MaxConcurrentRequests < 0 {
+		return UsageLimitSettings{}, fmt.Errorf("max_concurrent_requests must be non-negative")
+	}
+	if settings.MaxTokensPerWindow < 0 {
+		return UsageLimitSettings{}, fmt.Errorf("max_tokens_per_window must be non-negative")
+	}
+	if settings.MaxConcurrentRequests == 0 && settings.MaxTokensPerWindow == 0 {
+		return UsageLimitSettings{}, fmt.Errorf("at least one usage limit must be greater than zero")
+	}
+	if settings.WindowSeconds < 0 {
+		return UsageLimitSettings{}, fmt.Errorf("window_seconds must be non-negative")
+	}
+	if settings.WindowSeconds == 0 {
+		settings.WindowSeconds = defaultUsageLimitWindowSeconds
+	}
+	switch settings.QuotaMode {
+	case "":
+		settings.QuotaMode = usageLimitQuotaMode(settings.UserID)
+	case "organization":
+		if settings.UserID != "" {
+			return UsageLimitSettings{}, fmt.Errorf("user_id must be empty for organization quota mode")
+		}
+	case "user":
+		if settings.UserID == "" {
+			return UsageLimitSettings{}, fmt.Errorf("user_id is required for user quota mode")
+		}
+	default:
+		return UsageLimitSettings{}, fmt.Errorf("quota_mode must be organization or user")
+	}
+	return settings, nil
+}
+
+func usageLimitQuotaMode(userID string) string {
+	if userID == "" {
+		return "organization"
+	}
+	return "user"
+}
+
+func usageLimitRateKey(limit UsageLimit) ratelimit.Key {
+	tokenID := limit.UserID
+	if tokenID == "" {
+		tokenID = limit.OrganizationID
+	}
+	return ratelimit.Key{
+		ChannelID: "quota",
+		Model:     limit.OrganizationID,
+		TokenID:   tokenID,
+	}
+}
+
+func usageLimitError(err error, dimension UsageLimitDimension) error {
+	var limitErr *ratelimit.LimitError
+	if errors.As(err, &limitErr) {
+		return &UsageLimitError{
+			Dimension:  dimension,
+			Limit:      limitErr.Limit,
+			Current:    limitErr.Current,
+			Remaining:  limitErr.Remaining,
+			RetryAfter: limitErr.RetryAfter,
+		}
+	}
+	if errors.Is(err, ratelimit.ErrRateLimited) {
+		return &UsageLimitError{Dimension: dimension}
+	}
+	return err
 }
 
 // PreConsume 预扣配额
@@ -464,9 +684,9 @@ func (s *SQLStore) RefundBillingSession(ctx context.Context, id string) error {
 
 // ListPackages 列出套餐
 func (s *SQLStore) ListPackages(ctx context.Context, activeOnly bool) ([]*Package, error) {
-	query := `SELECT id, name, description, quota_amount, price, duration_days, is_active, sort_order, created_at FROM packages`
+	query := `SELECT id, name, description, quota_amount, token_quota, price, model_access, agent_limit, duration_days, is_active, is_public, sort_order, created_at, updated_at FROM packages`
 	if activeOnly {
-		query += ` WHERE is_active = true`
+		query += ` WHERE is_active = true AND is_public = true`
 	}
 	query += ` ORDER BY sort_order ASC, created_at DESC`
 
@@ -481,12 +701,17 @@ func (s *SQLStore) ListPackages(ctx context.Context, activeOnly bool) ([]*Packag
 		var p Package
 		var durationDays sql.NullInt64
 		var description sql.NullString
+		var modelAccess []string
 
-		if err := rows.Scan(&p.ID, &p.Name, &description, &p.QuotaAmount, &p.Price, &durationDays, &p.IsActive, &p.SortOrder, &p.CreatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &description, &p.QuotaAmount, &p.TokenQuota, &p.Price, pq.Array(&modelAccess), &p.AgentLimit, &durationDays, &p.IsActive, &p.IsPublic, &p.SortOrder, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan package: %w", err)
 		}
 
 		p.Description = description.String
+		p.ModelAccess = modelAccess
+		if p.ModelAccess == nil {
+			p.ModelAccess = []string{}
+		}
 		if durationDays.Valid {
 			days := int(durationDays.Int64)
 			p.DurationDays = &days
@@ -502,11 +727,12 @@ func (s *SQLStore) GetPackage(ctx context.Context, id string) (*Package, error) 
 	var p Package
 	var durationDays sql.NullInt64
 	var description sql.NullString
+	var modelAccess []string
 
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, name, description, quota_amount, price, duration_days, is_active, sort_order, created_at
+		SELECT id, name, description, quota_amount, token_quota, price, model_access, agent_limit, duration_days, is_active, is_public, sort_order, created_at, updated_at
 		FROM packages WHERE id = $1
-	`, id).Scan(&p.ID, &p.Name, &description, &p.QuotaAmount, &p.Price, &durationDays, &p.IsActive, &p.SortOrder, &p.CreatedAt)
+	`, id).Scan(&p.ID, &p.Name, &description, &p.QuotaAmount, &p.TokenQuota, &p.Price, pq.Array(&modelAccess), &p.AgentLimit, &durationDays, &p.IsActive, &p.IsPublic, &p.SortOrder, &p.CreatedAt, &p.UpdatedAt)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -516,12 +742,168 @@ func (s *SQLStore) GetPackage(ctx context.Context, id string) (*Package, error) 
 	}
 
 	p.Description = description.String
+	p.ModelAccess = modelAccess
+	if p.ModelAccess == nil {
+		p.ModelAccess = []string{}
+	}
 	if durationDays.Valid {
 		days := int(durationDays.Int64)
 		p.DurationDays = &days
 	}
 
 	return &p, nil
+}
+
+func (s *SQLStore) SaveUsageLimitSettings(ctx context.Context, settings UsageLimitSettings) (*UsageLimitSettings, error) {
+	normalized, err := normalizeUsageLimitSettings(settings)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	normalized.UpdatedAt = now
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin usage limit settings transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	if err := upsertConcurrencyLimit(ctx, tx, normalized, now); err != nil {
+		return nil, err
+	}
+	if err := upsertTokenRateLimit(ctx, tx, normalized, now); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit usage limit settings: %w", err)
+	}
+
+	return &normalized, nil
+}
+
+func upsertConcurrencyLimit(ctx context.Context, tx *sql.Tx, settings UsageLimitSettings, now time.Time) error {
+	id, err := auth.NewID("clim")
+	if err != nil {
+		return err
+	}
+	if settings.UserID == "" {
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO concurrency_limits (id, organization_id, user_id, max_concurrent_requests, current_concurrent, updated_at)
+			VALUES ($1, $2, NULL, $3, 0, $4)
+			ON CONFLICT (organization_id) WHERE user_id IS NULL
+			DO UPDATE SET max_concurrent_requests = EXCLUDED.max_concurrent_requests, updated_at = EXCLUDED.updated_at
+		`, id, settings.OrganizationID, settings.MaxConcurrentRequests, now)
+	} else {
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO concurrency_limits (id, organization_id, user_id, max_concurrent_requests, current_concurrent, updated_at)
+			VALUES ($1, $2, $3, $4, 0, $5)
+			ON CONFLICT (organization_id, user_id) WHERE user_id IS NOT NULL
+			DO UPDATE SET max_concurrent_requests = EXCLUDED.max_concurrent_requests, updated_at = EXCLUDED.updated_at
+		`, id, settings.OrganizationID, settings.UserID, settings.MaxConcurrentRequests, now)
+	}
+	if err != nil {
+		return fmt.Errorf("upsert concurrency limit: %w", err)
+	}
+	return nil
+}
+
+func upsertTokenRateLimit(ctx context.Context, tx *sql.Tx, settings UsageLimitSettings, now time.Time) error {
+	id, err := auth.NewID("tlim")
+	if err != nil {
+		return err
+	}
+	windowSeconds := settings.WindowSeconds
+	if settings.MaxTokensPerWindow > 0 && windowSeconds <= 0 {
+		windowSeconds = defaultUsageLimitWindowSeconds
+	}
+	if settings.UserID == "" {
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO token_rate_limits (id, organization_id, user_id, window_seconds, max_tokens_per_window, current_window_tokens, updated_at)
+			VALUES ($1, $2, NULL, $3, $4, 0, $5)
+			ON CONFLICT (organization_id) WHERE user_id IS NULL
+			DO UPDATE SET window_seconds = EXCLUDED.window_seconds,
+				max_tokens_per_window = EXCLUDED.max_tokens_per_window,
+				updated_at = EXCLUDED.updated_at
+		`, id, settings.OrganizationID, windowSeconds, settings.MaxTokensPerWindow, now)
+	} else {
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO token_rate_limits (id, organization_id, user_id, window_seconds, max_tokens_per_window, current_window_tokens, updated_at)
+			VALUES ($1, $2, $3, $4, $5, 0, $6)
+			ON CONFLICT (organization_id, user_id) WHERE user_id IS NOT NULL
+			DO UPDATE SET window_seconds = EXCLUDED.window_seconds,
+				max_tokens_per_window = EXCLUDED.max_tokens_per_window,
+				updated_at = EXCLUDED.updated_at
+		`, id, settings.OrganizationID, settings.UserID, windowSeconds, settings.MaxTokensPerWindow, now)
+	}
+	if err != nil {
+		return fmt.Errorf("upsert token rate limit: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLStore) ResolveUsageLimitSettings(ctx context.Context, organizationID, userID string) (UsageLimitSettings, error) {
+	settings, err := s.ListUsageLimitSettings(ctx, organizationID)
+	if err != nil {
+		return UsageLimitSettings{}, err
+	}
+	var organizationSettings *UsageLimitSettings
+	for i := range settings {
+		if settings[i].UserID == userID && userID != "" {
+			return settings[i], nil
+		}
+		if settings[i].UserID == "" {
+			organizationSettings = &settings[i]
+		}
+	}
+	if organizationSettings != nil {
+		return *organizationSettings, nil
+	}
+	return UsageLimitSettings{OrganizationID: organizationID, UserID: userID, QuotaMode: usageLimitQuotaMode(userID)}, nil
+}
+
+func (s *SQLStore) ListUsageLimitSettings(ctx context.Context, organizationID string) ([]UsageLimitSettings, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT
+			COALESCE(c.organization_id, t.organization_id) AS organization_id,
+			COALESCE(c.user_id, t.user_id, '') AS user_id,
+			COALESCE(c.max_concurrent_requests, 0) AS max_concurrent_requests,
+			COALESCE(t.window_seconds, 0) AS window_seconds,
+			COALESCE(t.max_tokens_per_window, 0) AS max_tokens_per_window,
+			GREATEST(
+				COALESCE(c.updated_at, '-infinity'::timestamptz),
+				COALESCE(t.updated_at, '-infinity'::timestamptz)
+			) AS updated_at
+		FROM concurrency_limits c
+		FULL OUTER JOIN token_rate_limits t
+			ON c.organization_id = t.organization_id
+			AND COALESCE(c.user_id, '') = COALESCE(t.user_id, '')
+		WHERE COALESCE(c.organization_id, t.organization_id) = $1
+		ORDER BY
+			CASE WHEN COALESCE(c.user_id, t.user_id) IS NULL THEN 0 ELSE 1 END,
+			COALESCE(c.user_id, t.user_id, '') ASC
+	`, organizationID)
+	if err != nil {
+		return nil, fmt.Errorf("list usage limit settings: %w", err)
+	}
+	defer rows.Close()
+
+	var settings []UsageLimitSettings
+	for rows.Next() {
+		var item UsageLimitSettings
+		if err := rows.Scan(
+			&item.OrganizationID,
+			&item.UserID,
+			&item.MaxConcurrentRequests,
+			&item.WindowSeconds,
+			&item.MaxTokensPerWindow,
+			&item.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan usage limit settings: %w", err)
+		}
+		item.QuotaMode = usageLimitQuotaMode(item.UserID)
+		settings = append(settings, item)
+	}
+	return settings, rows.Err()
 }
 
 // CreateSubscription 创建订阅

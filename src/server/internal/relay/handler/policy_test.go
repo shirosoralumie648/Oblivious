@@ -77,6 +77,10 @@ func TestInitialCommercialPolicyClassifiesCurrentSurface(t *testing.T) {
 		"POST /v1/chat/completions",
 		"POST /v1/responses",
 		"POST /v1/embeddings",
+		"POST /v1/files",
+		"GET /v1/files/:id",
+		"DELETE /v1/files/:id",
+		"GET /v1/files/:id/content",
 		"POST /v1/images/generations",
 		"POST /v1/images/edits",
 		"POST /v1/images/variations",
@@ -102,11 +106,7 @@ func TestInitialCommercialPolicyClassifiesCurrentSurface(t *testing.T) {
 		"POST /v1/batch",
 		"GET /v1/batches",
 		"GET /v1/batches/:id",
-		"POST /v1/files",
 		"GET /v1/files",
-		"GET /v1/files/:id",
-		"DELETE /v1/files/:id",
-		"GET /v1/files/:id/content",
 		"POST /v1/fine_tuning/jobs",
 		"GET /v1/fine_tuning/jobs",
 		"GET /v1/fine_tuning/jobs/:id",
@@ -153,6 +153,31 @@ func TestSupportedRoutePoliciesDeclareCostAbuseGuardrails(t *testing.T) {
 	}
 }
 
+func TestMappedFilePassthroughRoutesAreProductionEnabled(t *testing.T) {
+	supportedMappedFiles := []string{
+		"GET /v1/files/:id",
+		"DELETE /v1/files/:id",
+		"GET /v1/files/:id/content",
+	}
+	for _, key := range supportedMappedFiles {
+		policy := mustPolicy(t, key)
+		if policy.Class != CommercialSupportedBilled {
+			t.Fatalf("%s class = %s, want %s", key, policy.Class, CommercialSupportedBilled)
+		}
+		if !policy.ProductionEnabled {
+			t.Fatalf("%s should be production enabled after tenant mapping lookup support", key)
+		}
+		if !policy.TenantIdentityRequired {
+			t.Fatalf("%s must require trusted tenant identity", key)
+		}
+	}
+
+	listPolicy := mustPolicy(t, "GET /v1/files")
+	if listPolicy.Class != DisabledInProduction {
+		t.Fatalf("GET /v1/files class = %s, want %s until tenant-scoped list support exists", listPolicy.Class, DisabledInProduction)
+	}
+}
+
 func TestRoutePoliciesDeclareBillingSettlementPolicy(t *testing.T) {
 	for _, policy := range AllRoutePolicies() {
 		key := policy.Method + " " + policy.Path
@@ -167,6 +192,10 @@ func TestRoutePoliciesDeclareBillingSettlementPolicy(t *testing.T) {
 		case DisabledInProduction:
 			if policy.BillingPolicy != BillingPolicyProductionDisabled {
 				t.Fatalf("%s billing policy = %s, want %s", key, policy.BillingPolicy, BillingPolicyProductionDisabled)
+			}
+		case InternalAdminOnly:
+			if policy.BillingPolicy != BillingPolicyNotApplicable {
+				t.Fatalf("%s billing policy = %s, want %s", key, policy.BillingPolicy, BillingPolicyNotApplicable)
 			}
 		}
 	}
@@ -190,6 +219,9 @@ func TestInitialBillingSettlementPolicyClassifiesCurrentSurface(t *testing.T) {
 		"POST /v1/images/generations",
 		"POST /v1/images/edits",
 		"POST /v1/images/variations",
+		"GET /v1/files/:id",
+		"DELETE /v1/files/:id",
+		"GET /v1/files/:id/content",
 		"POST /v1/audio/speech",
 		"POST /v1/audio/transcriptions",
 		"POST /v1/audio/translations",

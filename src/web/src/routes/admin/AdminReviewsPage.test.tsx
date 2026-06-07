@@ -4,12 +4,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const listReviews = vi.fn();
 const approveAgent = vi.fn();
 const rejectAgent = vi.fn();
+const requestAgentChanges = vi.fn();
 
 vi.mock('../../features/admin/api', () => ({
   createAdminApi: () => ({
     listReviews,
     approveAgent,
     rejectAgent,
+    requestAgentChanges,
   }),
 }));
 
@@ -40,6 +42,7 @@ describe('AdminReviewsPage', () => {
     listReviews.mockReset();
     approveAgent.mockReset();
     rejectAgent.mockReset();
+    requestAgentChanges.mockReset();
   });
 
   it('renders pending agents with owner, category, and status', async () => {
@@ -62,6 +65,36 @@ describe('AdminReviewsPage', () => {
     expect(await screen.findByText('Pricing: one_time $19.00')).toBeInTheDocument();
     expect(screen.getByText('Visibility: public')).toBeInTheDocument();
     expect(screen.getByText('Governance status: pending_review')).toBeInTheDocument();
+  });
+
+  it('renders pending review SLA status, deadlines, and publisher tier', async () => {
+    listReviews.mockResolvedValue({
+      data: [
+        {
+          ...pendingAgent,
+          reviewSLA: {
+            submittedAt: '2026-06-02T13:00:00Z',
+            manualDeadlineAt: '2026-06-05T13:00:00Z',
+            manualSlaHours: 72,
+            manualSlaStatus: 'due_soon',
+            minutesUntilDeadline: 60,
+            automatedReviewDeadlineAt: '2026-06-02T13:05:00Z',
+            automatedReviewSlaMinutes: 5,
+            automatedReviewSlaStatus: 'overdue',
+            vipPublisher: true,
+            publisherTier: 'vip',
+            publisherTierSource: 'organization_metadata',
+          },
+        },
+      ],
+      total: 1,
+    });
+
+    render(<AdminReviewsPage />);
+
+    expect(await screen.findByText('Manual SLA: Due soon by 2026-06-05 13:00 UTC')).toBeInTheDocument();
+    expect(screen.getByText('Automated SLA: Overdue')).toBeInTheDocument();
+    expect(screen.getByText('Publisher tier: vip')).toBeInTheDocument();
   });
 
   it('approves agents through confirmation', async () => {
@@ -90,5 +123,21 @@ describe('AdminReviewsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reject Agent' }));
 
     await waitFor(() => expect(rejectAgent).toHaveBeenCalledWith('agent_1', 'Missing tool description.'));
+  });
+
+  it('requests publisher changes with a required reason', async () => {
+    listReviews.mockResolvedValue({ data: [pendingAgent], total: 1 });
+    requestAgentChanges.mockResolvedValue(undefined);
+
+    render(<AdminReviewsPage />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Request changes for agent Research Agent' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Request Changes' }));
+    expect(await screen.findByText('A change request reason is required.')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Change Request Reason'), { target: { value: 'Add screenshots and clarify pricing.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Request Changes' }));
+
+    await waitFor(() => expect(requestAgentChanges).toHaveBeenCalledWith('agent_1', 'Add screenshots and clarify pricing.'));
   });
 });

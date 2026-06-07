@@ -45,8 +45,10 @@ func testAgentRunSQLStore(t *testing.T) (*SQLStore, context.Context) {
 	})
 
 	statements := []string{
+		`DROP TABLE IF EXISTS agent_plan_steps CASCADE`,
 		`DROP TABLE IF EXISTS agent_tool_runs CASCADE`,
 		`DROP TABLE IF EXISTS agent_runs CASCADE`,
+		`DROP TABLE IF EXISTS agent_memories CASCADE`,
 		`DROP TABLE IF EXISTS agent_messages CASCADE`,
 		`DROP TABLE IF EXISTS agent_conversations CASCADE`,
 		`DROP TABLE IF EXISTS agents CASCADE`,
@@ -74,6 +76,34 @@ func testAgentRunSQLStore(t *testing.T) (*SQLStore, context.Context) {
 	}
 	if _, err := database.Exec(string(migration)); err != nil {
 		t.Fatalf("apply agent workflow migration: %v", err)
+	}
+	toolRiskMigration, err := os.ReadFile("../../migrations/0050_agent_tool_risk_level.sql")
+	if err != nil {
+		t.Fatalf("read agent tool risk migration: %v", err)
+	}
+	if _, err := database.Exec(string(toolRiskMigration)); err != nil {
+		t.Fatalf("apply agent tool risk migration: %v", err)
+	}
+	planStepMigration, err := os.ReadFile("../../migrations/0051_agent_plan_steps.sql")
+	if err != nil {
+		t.Fatalf("read agent plan steps migration: %v", err)
+	}
+	if _, err := database.Exec(string(planStepMigration)); err != nil {
+		t.Fatalf("apply agent plan steps migration: %v", err)
+	}
+	planStepExecutionMigration, err := os.ReadFile("../../migrations/0052_agent_plan_step_execution.sql")
+	if err != nil {
+		t.Fatalf("read agent plan step execution migration: %v", err)
+	}
+	if _, err := database.Exec(string(planStepExecutionMigration)); err != nil {
+		t.Fatalf("apply agent plan step execution migration: %v", err)
+	}
+	agentMemoriesMigration, err := os.ReadFile("../../migrations/0044_agent_memories.sql")
+	if err != nil {
+		t.Fatalf("read agent memories migration: %v", err)
+	}
+	if _, err := database.Exec(string(agentMemoriesMigration)); err != nil {
+		t.Fatalf("apply agent memories migration: %v", err)
 	}
 
 	return NewSQLStore(database), context.Background()
@@ -122,6 +152,107 @@ func TestAgentRunStorePersistsRunLifecycle(t *testing.T) {
 	}
 	if updated.CompletedAt == nil {
 		t.Fatalf("expected completed_at to be persisted: %+v", updated)
+	}
+}
+
+func TestAgentSQLStorePersistsApprovalConfigAndToolRiskLevels(t *testing.T) {
+	store, ctx := testAgentRunSQLStore(t)
+
+	requiresApproval := true
+	created, err := store.CreateAgent(ctx, "user_1", "org_1", &CreateAgentRequest{
+		Name:  "Risk Managed Agent",
+		Model: "gpt-4o-mini",
+		Tools: []Tool{
+			{Name: "datetime", Type: "builtin", Enabled: true, RiskLevel: ToolRiskSafe},
+			{Name: "execute_code", Type: "builtin", Enabled: true, RiskLevel: ToolRiskDangerous},
+		},
+		Config: Config{
+			ApprovalMode: ApprovalModeCustom,
+			ToolApprovalOverrides: map[string]ToolApprovalOverride{
+				"execute_code": {
+					RiskLevel:        ToolRiskDangerous,
+					RequiresApproval: &requiresApproval,
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent returned error: %v", err)
+	}
+
+	got, err := store.GetAgent(ctx, created.ID, "org_1")
+	if err != nil {
+		t.Fatalf("GetAgent returned error: %v", err)
+	}
+	assertAgentApprovalAndToolRisk(t, got, ApprovalModeCustom, ToolRiskDangerous, true)
+
+	requiresApproval = false
+	updated, err := store.UpdateAgent(ctx, created.ID, "org_1", &UpdateAgentRequest{
+		Tools: []Tool{
+			{Name: "write_note", Type: "builtin", Enabled: true, RiskLevel: ToolRiskMedium},
+		},
+		Config: &Config{
+			ApprovalMode: ApprovalModeNone,
+			ToolApprovalOverrides: map[string]ToolApprovalOverride{
+				"write_note": {
+					RiskLevel:        ToolRiskMedium,
+					RequiresApproval: &requiresApproval,
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateAgent returned error: %v", err)
+	}
+	assertAgentApprovalAndToolRisk(t, updated, ApprovalModeNone, ToolRiskMedium, false)
+
+	got, err = store.GetAgent(ctx, created.ID, "org_1")
+	if err != nil {
+		t.Fatalf("GetAgent after update returned error: %v", err)
+	}
+	assertAgentApprovalAndToolRisk(t, got, ApprovalModeNone, ToolRiskMedium, false)
+}
+
+func TestAgentSQLStorePersistsDefaultExecutionModeConfig(t *testing.T) {
+	store, ctx := testAgentRunSQLStore(t)
+
+	created, err := store.CreateAgent(ctx, "user_1", "org_1", &CreateAgentRequest{
+		Name:  "Planning Default Agent",
+		Model: "gpt-4o-mini",
+		Config: Config{
+			DefaultExecutionMode: ExecutionModePlanning,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent returned error: %v", err)
+	}
+
+	got, err := store.GetAgent(ctx, created.ID, "org_1")
+	if err != nil {
+		t.Fatalf("GetAgent returned error: %v", err)
+	}
+	if got.Config.DefaultExecutionMode != ExecutionModePlanning {
+		t.Fatalf("default execution mode = %q, want %q", got.Config.DefaultExecutionMode, ExecutionModePlanning)
+	}
+
+	updated, err := store.UpdateAgent(ctx, created.ID, "org_1", &UpdateAgentRequest{
+		Config: &Config{
+			DefaultExecutionMode: ExecutionModeReact,
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateAgent returned error: %v", err)
+	}
+	if updated.Config.DefaultExecutionMode != ExecutionModeReact {
+		t.Fatalf("updated default execution mode = %q, want %q", updated.Config.DefaultExecutionMode, ExecutionModeReact)
+	}
+
+	got, err = store.GetAgent(ctx, created.ID, "org_1")
+	if err != nil {
+		t.Fatalf("GetAgent after update returned error: %v", err)
+	}
+	if got.Config.DefaultExecutionMode != ExecutionModeReact {
+		t.Fatalf("persisted default execution mode after update = %q, want %q", got.Config.DefaultExecutionMode, ExecutionModeReact)
 	}
 }
 
@@ -191,6 +322,206 @@ func TestAgentToolRunStorePersistsToolLifecycle(t *testing.T) {
 	}
 	if completed.CompletedAt == nil {
 		t.Fatalf("expected completed_at to be persisted: %+v", completed)
+	}
+}
+
+func TestAgentPlanStepStoreRoundTripsStepsInOrder(t *testing.T) {
+	store, ctx := testAgentRunSQLStore(t)
+
+	run, err := store.CreateRun(ctx, &CreateRunRequest{
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		RequestID:      "req_plan_step_round_trip",
+		Status:         RunStatusRunning,
+	})
+	if err != nil {
+		t.Fatalf("CreateRun returned error: %v", err)
+	}
+
+	first, err := store.CreatePlanStep(ctx, &CreatePlanStepRequest{
+		OrganizationID: "org_1",
+		RunID:          run.ID,
+		Index:          1,
+		Title:          "Gather requirements",
+		Status:         PlanStepStatusPending,
+		ApprovalStatus: ApprovalStatusNotRequired,
+	})
+	if err != nil {
+		t.Fatalf("CreatePlanStep first returned error: %v", err)
+	}
+	second, err := store.CreatePlanStep(ctx, &CreatePlanStepRequest{
+		OrganizationID: "org_1",
+		RunID:          run.ID,
+		Index:          2,
+		Title:          "Draft implementation",
+		Status:         PlanStepStatusPending,
+		ApprovalStatus: ApprovalStatusNotRequired,
+		ToolName:       "write_file",
+		Input:          map[string]any{"path": "src/server/internal/agent/store.go"},
+	})
+	if err != nil {
+		t.Fatalf("CreatePlanStep second returned error: %v", err)
+	}
+
+	steps, err := store.ListPlanSteps(ctx, "org_1", run.ID)
+	if err != nil {
+		t.Fatalf("ListPlanSteps returned error: %v", err)
+	}
+	if len(steps) != 2 {
+		t.Fatalf("expected 2 plan steps, got %+v", steps)
+	}
+	if steps[0].ID != first.ID || steps[1].ID != second.ID {
+		t.Fatalf("expected insertion/index order, got %+v", steps)
+	}
+	if steps[0].Index != 1 || steps[0].Title != "Gather requirements" || steps[0].Status != PlanStepStatusPending {
+		t.Fatalf("unexpected first step: %+v", steps[0])
+	}
+	if steps[1].Index != 2 || steps[1].Title != "Draft implementation" || steps[1].ToolName != "write_file" {
+		t.Fatalf("unexpected second step: %+v", steps[1])
+	}
+	if steps[1].Input["path"] != "src/server/internal/agent/store.go" {
+		t.Fatalf("expected step input to round trip, got %+v", steps[1].Input)
+	}
+
+	crossTenantSteps, err := store.ListPlanSteps(ctx, "org_2", run.ID)
+	if err != nil {
+		t.Fatalf("cross-tenant ListPlanSteps returned error: %v", err)
+	}
+	if len(crossTenantSteps) != 0 {
+		t.Fatalf("expected no cross-tenant plan steps, got %+v", crossTenantSteps)
+	}
+}
+
+func TestAgentPlanStepStoreUpdatesStatusAndExecutionResult(t *testing.T) {
+	store, ctx := testAgentRunSQLStore(t)
+
+	run, err := store.CreateRun(ctx, &CreateRunRequest{
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		RequestID:      "req_plan_step_update",
+		Status:         RunStatusRunning,
+	})
+	if err != nil {
+		t.Fatalf("CreateRun returned error: %v", err)
+	}
+	step, err := store.CreatePlanStep(ctx, &CreatePlanStepRequest{
+		OrganizationID: "org_1",
+		RunID:          run.ID,
+		Index:          1,
+		Title:          "Execute a minimal step",
+		Status:         PlanStepStatusPending,
+		ApprovalStatus: ApprovalStatusPending,
+		ToolName:       "agent_step",
+		Input:          map[string]any{"kind": "test"},
+	})
+	if err != nil {
+		t.Fatalf("CreatePlanStep returned error: %v", err)
+	}
+
+	startedAt := time.Now().UTC()
+	running, err := store.UpdatePlanStep(ctx, "org_1", step.ID, UpdatePlanStepRequest{
+		Status:         stringPtr(PlanStepStatusRunning),
+		ApprovalStatus: stringPtr(ApprovalStatusApproved),
+		StartedAt:      &startedAt,
+	})
+	if err != nil {
+		t.Fatalf("UpdatePlanStep running returned error: %v", err)
+	}
+	if running.Status != PlanStepStatusRunning || running.ApprovalStatus != ApprovalStatusApproved {
+		t.Fatalf("expected running approved step, got %+v", running)
+	}
+	if running.StartedAt == nil || running.CompletedAt != nil {
+		t.Fatalf("expected started step without completion time, got %+v", running)
+	}
+	if running.Title != "Execute a minimal step" || running.Input["kind"] != "test" {
+		t.Fatalf("UpdatePlanStep should preserve step fields, got %+v", running)
+	}
+
+	completedAt := time.Now().UTC()
+	completed, err := store.UpdatePlanStep(ctx, "org_1", step.ID, UpdatePlanStepRequest{
+		Status:        stringPtr(PlanStepStatusCompleted),
+		ResultContent: stringPtr("done"),
+		Error:         stringPtr(""),
+		CompletedAt:   &completedAt,
+	})
+	if err != nil {
+		t.Fatalf("UpdatePlanStep completed returned error: %v", err)
+	}
+	if completed.Status != PlanStepStatusCompleted || completed.ResultContent != "done" || completed.Error != "" {
+		t.Fatalf("expected completed step result, got %+v", completed)
+	}
+	if completed.CompletedAt == nil {
+		t.Fatalf("expected completed_at to be persisted, got %+v", completed)
+	}
+
+	listed, err := store.ListPlanSteps(ctx, "org_1", run.ID)
+	if err != nil {
+		t.Fatalf("ListPlanSteps returned error: %v", err)
+	}
+	if len(listed) != 1 || listed[0].Status != PlanStepStatusCompleted || listed[0].ResultContent != "done" {
+		t.Fatalf("expected listed completed step with result, got %+v", listed)
+	}
+	if _, err := store.UpdatePlanStep(ctx, "org_2", step.ID, UpdatePlanStepRequest{Status: stringPtr(PlanStepStatusFailed)}); err == nil {
+		t.Fatal("cross-tenant UpdatePlanStep should fail")
+	}
+}
+
+func TestAgentToolRunStorePersistsRiskLevel(t *testing.T) {
+	store, ctx := testAgentRunSQLStore(t)
+
+	run, err := store.CreateRun(ctx, &CreateRunRequest{
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		RequestID:      "req_tool_run_risk",
+		Status:         RunStatusRunning,
+	})
+	if err != nil {
+		t.Fatalf("CreateRun returned error: %v", err)
+	}
+
+	toolRun, err := store.CreateToolRun(ctx, &CreateToolRunRequest{
+		OrganizationID: "org_1",
+		RunID:          run.ID,
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		ToolCallID:     "call_execute_code_1",
+		ToolName:       "execute_code",
+		ToolType:       "builtin",
+		RiskLevel:      ToolRiskDangerous,
+		Arguments:      map[string]any{"language": "python"},
+		Status:         ToolRunStatusPendingApproval,
+		ApprovalStatus: ApprovalStatusPending,
+	})
+	if err != nil {
+		t.Fatalf("CreateToolRun returned error: %v", err)
+	}
+	if toolRun.RiskLevel != ToolRiskDangerous {
+		t.Fatalf("created tool run risk level = %q, want %q", toolRun.RiskLevel, ToolRiskDangerous)
+	}
+
+	got, err := store.GetToolRun(ctx, "org_1", toolRun.ID)
+	if err != nil {
+		t.Fatalf("GetToolRun returned error: %v", err)
+	}
+	if got.RiskLevel != ToolRiskDangerous {
+		t.Fatalf("GetToolRun risk level = %q, want %q", got.RiskLevel, ToolRiskDangerous)
+	}
+
+	listed, err := store.ListToolRuns(ctx, "org_1", run.ID)
+	if err != nil {
+		t.Fatalf("ListToolRuns returned error: %v", err)
+	}
+	if len(listed) != 1 {
+		t.Fatalf("expected 1 listed tool run, got %d", len(listed))
+	}
+	if listed[0].RiskLevel != ToolRiskDangerous {
+		t.Fatalf("ListToolRuns risk level = %q, want %q", listed[0].RiskLevel, ToolRiskDangerous)
 	}
 }
 
@@ -290,12 +621,101 @@ func TestAgentRunStoreRejectsCrossTenantCreate(t *testing.T) {
 	}
 }
 
+func TestAgentMemoryStorePersistsAndFiltersMemories(t *testing.T) {
+	store, ctx := testAgentRunSQLStore(t)
+
+	created, err := store.CreateMemory(ctx, &CreateMemoryStoreRequest{
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		AgentID:        "agent_1",
+		Type:           MemoryTypeUserManaged,
+		Content:        "I prefer concise answers",
+		Metadata:       map[string]any{"topic": "style"},
+	})
+	if err != nil {
+		t.Fatalf("CreateMemory returned error: %v", err)
+	}
+	if created.ID == "" || created.Type != MemoryTypeUserManaged || created.Metadata["topic"] != "style" {
+		t.Fatalf("unexpected created memory: %+v", created)
+	}
+	_, err = store.CreateMemory(ctx, &CreateMemoryStoreRequest{
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		AgentID:        "agent_1",
+		Type:           MemoryTypeLongTerm,
+		Content:        "Use detailed examples",
+	})
+	if err != nil {
+		t.Fatalf("CreateMemory second returned error: %v", err)
+	}
+
+	memories, err := store.ListMemories(ctx, "org_1", "user_1", ListMemoriesRequest{
+		AgentID: "agent_1",
+		Type:    MemoryTypeUserManaged,
+		Query:   "concise",
+		Limit:   10,
+	})
+	if err != nil {
+		t.Fatalf("ListMemories returned error: %v", err)
+	}
+	if len(memories) != 1 || memories[0].ID != created.ID {
+		t.Fatalf("expected only created user-managed memory, got %+v", memories)
+	}
+
+	crossTenant, err := store.ListMemories(ctx, "org_2", "user_1", ListMemoriesRequest{Limit: 10})
+	if err != nil {
+		t.Fatalf("cross-tenant ListMemories returned error: %v", err)
+	}
+	if len(crossTenant) != 0 {
+		t.Fatalf("expected cross-tenant list to be empty, got %+v", crossTenant)
+	}
+}
+
 func stringPtr(value string) *string {
 	return &value
 }
 
 func intPtr(value int) *int {
 	return &value
+}
+
+func assertAgentApprovalAndToolRisk(t *testing.T, got *Agent, wantApprovalMode, wantRiskLevel string, wantRequiresApproval bool) {
+	t.Helper()
+
+	if got == nil {
+		t.Fatal("expected agent, got nil")
+	}
+	if got.Config.ApprovalMode != wantApprovalMode {
+		t.Fatalf("approval mode = %q, want %q; agent=%+v", got.Config.ApprovalMode, wantApprovalMode, got)
+	}
+	if len(got.Tools) != 1 && len(got.Tools) != 2 {
+		t.Fatalf("expected persisted tools, got %+v", got.Tools)
+	}
+
+	foundRiskLevel := false
+	for _, tool := range got.Tools {
+		if tool.RiskLevel == wantRiskLevel {
+			foundRiskLevel = true
+			break
+		}
+	}
+	if !foundRiskLevel {
+		t.Fatalf("expected a tool risk level %q, got %+v", wantRiskLevel, got.Tools)
+	}
+
+	for _, override := range got.Config.ToolApprovalOverrides {
+		if override.RiskLevel != wantRiskLevel {
+			continue
+		}
+		if override.RequiresApproval == nil {
+			t.Fatalf("requires approval override was not persisted: %+v", got.Config.ToolApprovalOverrides)
+		}
+		if *override.RequiresApproval != wantRequiresApproval {
+			t.Fatalf("requires approval = %v, want %v", *override.RequiresApproval, wantRequiresApproval)
+		}
+		return
+	}
+	t.Fatalf("expected override risk level %q, got %+v", wantRiskLevel, got.Config.ToolApprovalOverrides)
 }
 
 func TestMarshalToolCallsRoundTrip(t *testing.T) {

@@ -1,12 +1,12 @@
 # Oblivious
 
-Oblivious is a multi-tenant AI SaaS platform with a Go backend, a React frontend, and PostgreSQL as the system of record. It integrates LobeHub-style C-end Chat and Agent experience with New-API-style B-end channel, billing, Relay, Admin, and Marketplace operations.
+Oblivious 是一个面向工作区的 multi-tenant AI SaaS 平台，提供 Chat、Agent、Knowledge RAG、Relay、Admin、Marketplace 和商业化运营能力。后端使用 Go 构建，前端基于 React，PostgreSQL 作为数据存储。
 
-The core commercial invariant is Relay: all AI calls must go through Relay so billing, rate limiting, auditing, and monitoring stay unified across Chat, Agent workflows, Knowledge RAG, and supported `/v1/*` endpoints.
+核心商业不变量是 Relay：所有 AI 调用必须经过 Relay，让计费、限流、审计和监控在 Chat、Agent workflows、Knowledge RAG 与受支持的 `/v1/*` 端点上保持统一。
 
 ## Mainline Boundary
 
-The current mainline covers:
+当前主线覆盖：
 
 - `src/server`
 - `src/web`
@@ -14,92 +14,132 @@ The current mainline covers:
 - `scripts`
 - `.github/workflows`
 
-`lobehub` and `new-api` remain in the repository as reference directories only. They are not part of the root workspace, root CI, or release scope.
+`lobehub/` 和 `new-api/` 是仓库内参考目录，不属于根 workspace、根 CI 或发布范围。
+
+## 技术栈
+
+| 层级 | 技术 |
+|------|------|
+| 后端 | Go 1.25, net/http |
+| 前端 | React, TypeScript, pnpm |
+| 数据库 | PostgreSQL 14+ |
+| 构建工具 | pnpm 10.6.0, Go modules |
+| 监控 | Prometheus, Grafana |
+| 部署 | Docker, Kubernetes |
+
+## 项目结构
+
+```
+src/server   - Go API 服务、数据库迁移、领域服务
+src/web      - React 前端应用
+config       - 环境变量模板
+scripts      - 开发与 CI 脚本
+deploy       - Docker、Kubernetes、可观测性配置
+docs         - 架构文档、API 文档、发布指南
+```
 
 ## Product Surfaces
 
-- Chat workspace with model configuration, Knowledge binding, SOLO handoff, quota-aware errors, and Relay-backed provider access.
-- Agent and SOLO workflows with durable `agent_runs`, `agent_tool_runs`, approval/reject/retry state, memory evidence, tool boundaries, and budget context.
-- Knowledge with Relay embeddings, pgvector retrieval, `embedding_rag` metadata, and source citations.
-- MCP built-ins where `calculator` and `datetime` are real default commercial tools; `web_search` and `http_request` are disabled by default until real provider or tenant-safe outbound policy exists.
-- Admin operations for channels, routes, plans, billing inspection, users, audit logs, and Marketplace review queues.
-- Marketplace browse, publish, review, install, owner stats, governance, paid-install order handling, settlement, payout, and refund-impact evidence.
-- Production operations evidence for compose validation, Kubernetes manifest validation path, backup/restore, observability, release/rollback, incident response, and disaster recovery.
+- Chat workspace：模型配置、Knowledge 绑定、SOLO handoff、quota-aware errors、Relay-backed provider access。
+- Agent 和 SOLO workflows：durable `agent_runs`、`agent_tool_runs`、approval/reject/retry state、memory evidence、tool boundaries、budget context。
+- Knowledge：Relay embeddings、pgvector retrieval、`embedding_rag` metadata、source citations。
+- MCP built-ins：`calculator` 与 `datetime` 是默认商业内置工具；`web_search` 与 `http_request` 在配置真实 provider 或 tenant-safe outbound policy 前默认禁用。
+- Admin operations：channels、routes、plans、billing inspection、users、audit logs、Marketplace review queues。
+- Marketplace：browse、publish、review、install、owner stats、governance、paid-install order handling、settlement、payout、refund-impact evidence。
+- Production operations evidence：compose validation、Kubernetes manifest validation path、backup/restore、observability、release/rollback、incident response、disaster recovery。
 
-## Prerequisites
+## Quick Start / 快速开始
 
-- Go 1.22
+### 环境要求
+
+- Go 1.25
 - Node.js 20+
 - pnpm 10.6.0
 - PostgreSQL 14+
 
-## Quick Start
+### 安装与运行
 
-1. Install workspace dependencies.
+```bash
+# 1. 安装依赖
+pnpm install --frozen-lockfile
 
-   ```bash
-   pnpm install --frozen-lockfile
-   ```
+# 2. 配置环境变量
+cp config/.env.example .env
+# 编辑 .env 填入数据库连接等配置
 
-2. Export runtime environment variables from [`config/.env.example`](config/.env.example).
+# 3. 执行数据库迁移
+(cd src/server && go run ./cmd/migrate)
 
-3. Apply database migrations.
+# 4. 启动开发服务器
+bash scripts/dev.sh
+```
 
-   ```bash
-   cd src/server
-   go run ./cmd/migrate
-   ```
+服务启动后访问 `http://localhost:8080`。
 
-4. Start the web app and API.
-
-   ```bash
-   bash scripts/dev.sh
-   ```
+## 开发指南
 
 ## Quality Gates
 
-Run the same top-level commands used by CI before pushing changes:
+运行与 CI 一致的检查命令，确保代码质量：
 
 ```bash
 bash scripts/check.sh
 bash scripts/test.sh
 ```
 
-`bash scripts/check.sh` verifies release assets, docs and environment consistency, the web production build, and the server unit/contract packages.
+`bash scripts/check.sh` 会检查发布资产完整性、文档一致性、前端生产构建、后端单元/契约测试。
 
-`bash scripts/test.sh` runs the web Vitest suite, the server unit packages, and the HTTP integration package. Local runs skip DB-backed integration tests explicitly when `TEST_DATABASE_URL` is unset. CI sets `OBLIVIOUS_REQUIRE_TEST_DATABASE=true` with `TEST_DATABASE_URL`, so server integration coverage must run instead of silently skipping.
+`bash scripts/test.sh` 会执行前端 Vitest、后端单元测试与 HTTP 集成测试。如未设置 `TEST_DATABASE_URL`，本地集成测试会按规则显式跳过；CI 设置 `OBLIVIOUS_REQUIRE_TEST_DATABASE=true` 时必须运行数据库集成覆盖。
 
-Commercial-readiness gates are defined in [`docs/release/commercial-gates.md`](docs/release/commercial-gates.md). The current routed HTTP surface is indexed in [`docs/API.md`](docs/API.md). Historical release-candidate evidence remains in [`docs/release/rc-checklist.md`](docs/release/rc-checklist.md).
+商业 readiness gate 定义在 [docs/release/commercial-gates.md](docs/release/commercial-gates.md)。当前 HTTP surface 索引在 [docs/API.md](docs/API.md)。历史 RC readiness checklist 见 [docs/release/rc-checklist.md](docs/release/rc-checklist.md)。
+
+### 运行测试
+
+```bash
+bash scripts/test.sh
+```
+
+该脚本依次执行：前端 Vitest 测试、后端单元测试、HTTP 集成测试。如未设置 `TEST_DATABASE_URL` 环境变量，集成测试将被跳过。
+
+### API 文档
+
+完整的 API 文档参见 [docs/API.md](docs/API.md) 和 [docs/api/README.md](docs/api/README.md)，OpenAPI 3.0 规范文件位于 [docs/api/openapi.yaml](docs/api/openapi.yaml)。
 
 ## Commercial Documentation
 
-- [`docs/product/public-overview.md`](docs/product/public-overview.md): public product overview for Chat, Agent, Knowledge RAG, Relay, Admin, Marketplace, billing, and operations
-- [`docs/product/onboarding.md`](docs/product/onboarding.md): customer, admin, publisher, and operator onboarding paths
-- [`docs/product/pricing.md`](docs/product/pricing.md): subscription, top-up, quota, invoice, refund, and Marketplace settlement model
-- [`docs/product/operator-guide.md`](docs/product/operator-guide.md): deploy, backup, restore, observability, release, rollback, incident, and disaster recovery index
-- [`docs/API.md`](docs/API.md): current routed HTTP API index
-- [`docs/architecture/current-system-contracts.md`](docs/architecture/current-system-contracts.md): current API and runtime contract baseline
-- [`docs/release/commercial-gates.md`](docs/release/commercial-gates.md): commercial-readiness gate contract
-- [`docs/release/release-rollback-runbook.md`](docs/release/release-rollback-runbook.md): release and rollback procedure
-- [`docs/release/backup-restore-runbook.md`](docs/release/backup-restore-runbook.md): PostgreSQL backup and restore procedure
-- [`docs/release/observability-slos.md`](docs/release/observability-slos.md): observability, alert, dashboard, and SLO contract
-- [`docs/release/incident-response-runbook.md`](docs/release/incident-response-runbook.md): incident response procedure
-- [`docs/release/disaster-recovery-runbook.md`](docs/release/disaster-recovery-runbook.md): disaster recovery procedure
+- [docs/product/public-overview.md](docs/product/public-overview.md): public product overview for Chat, Agent, Knowledge RAG, Relay, Admin, Marketplace, billing, and operations
+- [docs/product/onboarding.md](docs/product/onboarding.md): customer, admin, publisher, and operator onboarding paths
+- [docs/product/pricing.md](docs/product/pricing.md): subscription, top-up, quota, invoice, refund, and Marketplace settlement model
+- [docs/product/operator-guide.md](docs/product/operator-guide.md): deploy, backup, restore, observability, release, rollback, incident, and disaster recovery index
+- [docs/API.md](docs/API.md): current routed HTTP API index
+- [docs/architecture/current-system-contracts.md](docs/architecture/current-system-contracts.md): current API and runtime contract baseline
+- [docs/release/commercial-gates.md](docs/release/commercial-gates.md): commercial-readiness gate contract
+- [docs/release/release-rollback-runbook.md](docs/release/release-rollback-runbook.md): release and rollback procedure
+- [docs/release/backup-restore-runbook.md](docs/release/backup-restore-runbook.md): PostgreSQL backup and restore procedure
+- [docs/release/observability-slos.md](docs/release/observability-slos.md): observability, alert, dashboard, and SLO contract
+- [docs/release/incident-response-runbook.md](docs/release/incident-response-runbook.md): incident response procedure
+- [docs/release/disaster-recovery-runbook.md](docs/release/disaster-recovery-runbook.md): disaster recovery procedure
 
 ## Completion Boundary
 
-Phase 29 closes only `PROD-05`: public docs, onboarding, pricing, and operator guide alignment. Phase 30 still must prove end-to-end commercial journeys and `AUDIT-01`.
+Phase 30 已完成当前 v08 Product Completeness 的端到端商业旅程与 `AUDIT-01` 仓库内证据闭环，但 external Prometheus/Grafana/OTel/error-tracking deployment、真实 provider keys 和 live runtime smoke 仍属于环境相关证据。
 
-`no-final-readiness`: do not claim final commercial readiness until Phase 30 maps every commercial gate to current repository evidence, automated verification, and runtime smoke where applicable.
+`no-final-readiness`: 不要在缺少每个商业 gate 的当前仓库证据、自动化验证和适用 runtime smoke 前声称最终商业 readiness。
 
-## Repository Layout
+## 核心功能
 
-- [`src/server`](src/server): Go API, migrations, and domain services
-- [`src/web`](src/web): React workspace and console UI
-- [`docs/API.md`](docs/API.md): current routed HTTP API index
-- [`docs/architecture/current-system-contracts.md`](docs/architecture/current-system-contracts.md): current API and runtime contract baseline
-- [`docs/release/commercial-gates.md`](docs/release/commercial-gates.md): commercial-readiness gate contract
-- [`docs/product`](docs/product): public overview, onboarding, pricing, and operator guide
-- [`docs/release/rc-checklist.md`](docs/release/rc-checklist.md): historical RC readiness checklist
-- `lobehub/`: repository-local reference code, excluded from mainline workspace and CI
-- `new-api/`: repository-local reference code, excluded from mainline workspace and CI
+- **对话 (Chat)** - 与 AI 模型进行多轮对话，支持模型切换、参数调节、知识库关联
+- **知识库 (Knowledge)** - 创建和管理知识库，上传文档，基于语义的检索问答
+- **任务 (Task)** - SOLO 任务编排，支持自动/半自动/手动执行模式，预算控制与审批流程
+- **控制台 (Console)** - 使用量统计、账单管理、模型概览、访问权限控制
+- **用户偏好** - 默认模式、模型策略、引导流程等个性化配置
+
+## 相关文档
+
+- [API 文档](docs/api/README.md)
+- [系统架构](docs/architecture/current-system-contracts.md)
+- [RC 发布检查清单](docs/release/rc-checklist.md)
+- [商业门禁](docs/release/commercial-gates.md)
+- [可观测性 SLO](docs/release/observability-slos.md)
+- [事故响应手册](docs/release/incident-response-runbook.md)
+- [运维指南](docs/product/operator-guide.md)

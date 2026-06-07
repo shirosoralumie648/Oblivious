@@ -16,6 +16,12 @@ Usage: bash scripts/check.sh [all|docs|web|server|relay-security]
 EOF
 }
 
+assert_contains() {
+  local pattern="$1"
+  local path="$2"
+  grep -Fq -- "$pattern" "$path"
+}
+
 mkdir -p "$corepack_home"
 mkdir -p "$go_cache" "$go_mod_cache"
 export COREPACK_HOME="$corepack_home"
@@ -29,6 +35,9 @@ run_docs_checks() {
 
   echo "[check] Verifying release assets."
   bash "$repo_root/scripts/verify-quality-gates.sh"
+
+  echo "[check] Verifying observability dashboard."
+  node "$repo_root/scripts/verify-observability-dashboard.mjs"
 
   echo "[check] Verifying docs and env consistency."
   contracts_file="$repo_root/docs/architecture/current-system-contracts.md"
@@ -51,29 +60,29 @@ run_docs_checks() {
   )
 
   for var_name in "${frontend_vars[@]}"; do
-    rg -q --fixed-strings "$var_name" "$repo_root/config/.env.example"
-    rg -q --fixed-strings "$var_name" "$contracts_file"
+    assert_contains "$var_name" "$repo_root/config/.env.example"
+    assert_contains "$var_name" "$contracts_file"
   done
 
   for var_name in "${backend_vars[@]}"; do
-    rg -q --fixed-strings "$var_name" "$repo_root/config/.env.example"
-    rg -q --fixed-strings "$var_name" "$contracts_file"
-    rg -q --fixed-strings "$var_name" "$repo_root/src/server/internal/config/config.go"
+    assert_contains "$var_name" "$repo_root/config/.env.example"
+    assert_contains "$var_name" "$contracts_file"
+    assert_contains "$var_name" "$repo_root/src/server/internal/config/config.go"
   done
 
-  rg -q --fixed-strings "bash scripts/check.sh" "$contracts_file"
-  rg -q --fixed-strings "bash scripts/test.sh" "$contracts_file"
+  assert_contains "bash scripts/check.sh" "$contracts_file"
+  assert_contains "bash scripts/test.sh" "$contracts_file"
 
   echo "[check] Verifying mainline workspace boundary."
-  rg -q --fixed-strings "packages:" "$workspace_file"
-  rg -q --fixed-strings "  - src/web" "$workspace_file"
+  assert_contains "packages:" "$workspace_file"
+  assert_contains "  - src/web" "$workspace_file"
 
-  if rg -q --fixed-strings "lobehub" "$workspace_file"; then
+  if grep -Fq -- "lobehub" "$workspace_file"; then
     echo "[check] Unexpected workspace member: lobehub" >&2
     exit 1
   fi
 
-  if rg -q --fixed-strings "new-api" "$workspace_file"; then
+  if grep -Fq -- "new-api" "$workspace_file"; then
     echo "[check] Unexpected workspace member: new-api" >&2
     exit 1
   fi

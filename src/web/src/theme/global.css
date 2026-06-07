@@ -15,10 +15,183 @@ body {
   font-family: var(--font-family-sans);
 }
 
-main {
-  display: grid;
-  gap: 0.5rem;
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--primary) 24%, transparent);
+}
+
+@keyframes panel-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.motion-root {
   min-height: 100vh;
-  place-content: center;
-  text-align: center;
+}
+
+[data-gsap-item] {
+  transform: translateZ(0);
+  will-change: transform, opacity;
+}
+
+[data-gsap-magnetic] {
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-gsap-item],
+  [data-gsap-magnetic] {
+    transform: none !important;
+    will-change: auto;
+  }
+}
+
+.workspace-canvas > section:not([class]),
+.console-canvas > section:not([class]) {
+  display: grid;
+  gap: 16px;
+  max-width: 1080px;
+}
+
+.workspace-canvas > section:not([class]) > h1,
+.console-canvas > section:not([class]) > h1 {
+  font-family: var(--font-heading);
+  font-size: 32px;
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+.workspace-canvas > section:not([class]) h2,
+.console-canvas > section:not([class]) h2 {
+  font-family: var(--font-heading);
+  font-size: 20px;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.workspace-canvas > section:not([class]) p,
+.console-canvas > section:not([class]) p {
+  color: #5f594d;
+  line-height: 1.6;
+}
+
+.workspace-canvas > section:not([class]) > section:not([class]),
+.console-canvas > section:not([class]) > section:not([class]) {
+  border: 1px solid #d7d2c4;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 14px 40px rgb(38 31 20 / 8%);
+  padding: 20px;
+}
+
+.workspace-canvas > section:not([class]) ul,
+.console-canvas > section:not([class]) ul {
+  display: grid;
+  gap: 12px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.workspace-canvas > section:not([class]) li,
+.console-canvas > section:not([class]) li {
+  border: 1px solid #d7d2c4;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 14px;
+}
+
+.workspace-canvas > section:not([class]) label,
+.console-canvas > section:not([class]) label {
+  display: grid;
+  gap: 8px;
+  color: #2a261f;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.workspace-canvas > section:not([class]) input:not([type='checkbox']),
+.workspace-canvas > section:not([class]) textarea,
+.workspace-canvas > section:not([class]) select,
+.console-canvas > section:not([class]) input:not([type='checkbox']),
+.console-canvas > section:not([class]) textarea,
+.console-canvas > section:not([class]) select {
+  min-height: 44px;
+  border: 1px solid #cfc8b7;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #181611;
+  padding: 10px 12px;
+  outline: none;
+}
+
+.workspace-canvas > section:not([class]) textarea,
+.console-canvas > section:not([class]) textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.workspace-canvas > section:not([class]) input:focus,
+.workspace-canvas > section:not([class]) textarea:focus,
+.workspace-canvas > section:not([class]) select:focus,
+.console-canvas > section:not([class]) input:focus,
+.console-canvas > section:not([class]) textarea:focus,
+.console-canvas > section:not([class]) select:focus {
+  border-color: #1a614f;
+  box-shadow: 0 0 0 3px rgb(26 97 79 / 16%);
+}
+
+.workspace-canvas > section:not([class]) button,
+.console-canvas > section:not([class]) button {
+  min-height: 44px;
+  width: fit-content;
+  border: 1px solid #cfc8b7;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #181611;
+  cursor: pointer;
+  font-weight: 650;
+  padding: 10px 14px;
+  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.workspace-canvas > section:not([class]) button:hover,
+.console-canvas > section:not([class]) button:hover {
+  border-color: #1a614f;
+  background: #e9f2ee;
+  transform: translateY(-1px);
+}
+
+.workspace-canvas > section:not([class]) button:disabled,
+.console-canvas > section:not([class]) button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+  transform: none;
+}
+
+.workspace-canvas > section:not([class]) a,
+.console-canvas > section:not([class]) a {
+  color: #1a614f;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.workspace-canvas > section:not([class]) a:hover,
+.console-canvas > section:not([class]) a:hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
 }

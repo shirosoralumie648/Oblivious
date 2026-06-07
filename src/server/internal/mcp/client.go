@@ -2,11 +2,17 @@ package mcp
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +26,7 @@ type Server struct {
 	Name            string    `json:"name"`
 	URL             string    `json:"url"`
 	AuthToken       string    `json:"authToken,omitempty"`
+	HasAuthToken    bool      `json:"hasAuthToken"`
 	Status          string    `json:"status"` // "connected" | "disconnected" | "error"
 	LastConnectedAt time.Time `json:"lastConnectedAt,omitempty"`
 	CreatedAt       time.Time `json:"createdAt"`
@@ -118,12 +125,9 @@ func (c *Client) RemoveServer(ctx context.Context, id, organizationID string) er
 
 // Connect 连接到 MCP Server
 func (c *Client) Connect(ctx context.Context, serverID, organizationID string) error {
-	c.mu.RLock()
-	conn, ok := c.servers[serverID]
-	c.mu.RUnlock()
-
-	if !ok || conn.server.OrganizationID != organizationID {
-		return fmt.Errorf("server not found: %s", serverID)
+	conn, err := c.getServerConnection(ctx, serverID, organizationID)
+	if err != nil {
+		return err
 	}
 
 	// 发送初始化请求
@@ -200,12 +204,9 @@ func (c *Client) Disconnect(serverID, organizationID string) error {
 
 // ListTools 列出 MCP Server 的工具
 func (c *Client) ListTools(serverID, organizationID string) ([]ToolDefinition, error) {
-	c.mu.RLock()
-	conn, ok := c.servers[serverID]
-	c.mu.RUnlock()
-
-	if !ok || conn.server.OrganizationID != organizationID {
-		return nil, fmt.Errorf("server not found: %s", serverID)
+	conn, err := c.getServerConnection(context.Background(), serverID, organizationID)
+	if err != nil {
+		return nil, err
 	}
 
 	if conn.status != "connected" {
@@ -217,12 +218,9 @@ func (c *Client) ListTools(serverID, organizationID string) ([]ToolDefinition, e
 
 // CallTool 调用 MCP 工具
 func (c *Client) CallTool(ctx context.Context, serverID, organizationID, toolName string, args map[string]any) (*ToolResult, error) {
-	c.mu.RLock()
-	conn, ok := c.servers[serverID]
-	c.mu.RUnlock()
-
-	if !ok || conn.server.OrganizationID != organizationID {
-		return nil, fmt.Errorf("server not found: %s", serverID)
+	conn, err := c.getServerConnection(ctx, serverID, organizationID)
+	if err != nil {
+		return nil, err
 	}
 
 	req := map[string]any{
@@ -277,6 +275,34 @@ func (c *Client) CallTool(ctx context.Context, serverID, organizationID, toolNam
 		Content: content.String(),
 		IsError: toolResp.Result.IsError,
 	}, nil
+}
+
+func (c *Client) getServerConnection(ctx context.Context, serverID, organizationID string) (*serverConnection, error) {
+	c.mu.RLock()
+	conn, ok := c.servers[serverID]
+	c.mu.RUnlock()
+
+	if ok && conn.server.OrganizationID == organizationID {
+		return conn, nil
+	}
+
+	server, err := c.store.GetServer(ctx, serverID, organizationID)
+	if err != nil {
+		return nil, err
+	}
+	if server == nil {
+		return nil, fmt.Errorf("server not found: %s", serverID)
+	}
+
+	conn = &serverConnection{
+		server: server,
+		status: server.Status,
+	}
+	c.mu.Lock()
+	c.servers[serverID] = conn
+	c.mu.Unlock()
+
+	return conn, nil
 }
 
 // listToolsFromServer 从服务器获取工具列表
@@ -351,6 +377,11 @@ type SQLStore struct {
 	db *sql.DB
 }
 
+const (
+	mcpAuthTokenGCMCodecPrefix    = "mcp:v2:gcm:"
+	mcpAuthTokenLegacyCodecPrefix = "mcp:v1:b64:"
+)
+
 // NewSQLStore 创建 SQLStore
 func NewSQLStore(db *sql.DB) *SQLStore {
 	return &SQLStore{db: db}
@@ -360,11 +391,15 @@ func NewSQLStore(db *sql.DB) *SQLStore {
 func (s *SQLStore) CreateServer(ctx context.Context, userID, organizationID string, server *Server) (*Server, error) {
 	id := fmt.Sprintf("mcp_%d", time.Now().UnixNano())
 	now := time.Now()
+	storedAuthToken, err := encodeMCPAuthToken(server.AuthToken)
+	if err != nil {
+		return nil, fmt.Errorf("protect auth token: %w", err)
+	}
 
-	_, err := s.db.ExecContext(ctx, `
+	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO mcp_servers (id, user_id, organization_id, name, url, auth_token_encrypted, status, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-	`, id, userID, organizationID, server.Name, server.URL, server.AuthToken, "disconnected", now, now)
+	`, id, userID, organizationID, server.Name, server.URL, storedAuthToken, "disconnected", now, now)
 	if err != nil {
 		return nil, fmt.Errorf("insert server: %w", err)
 	}
@@ -376,6 +411,7 @@ func (s *SQLStore) CreateServer(ctx context.Context, userID, organizationID stri
 		Name:           server.Name,
 		URL:            server.URL,
 		AuthToken:      server.AuthToken,
+		HasAuthToken:   server.AuthToken != "",
 		Status:         "disconnected",
 		CreatedAt:      now,
 		UpdatedAt:      now,
@@ -399,7 +435,13 @@ func (s *SQLStore) GetServer(ctx context.Context, id, organizationID string) (*S
 		return nil, fmt.Errorf("get server: %w", err)
 	}
 
-	server.AuthToken = authToken.String
+	if authToken.Valid {
+		server.AuthToken, err = decodeMCPAuthToken(authToken.String)
+		if err != nil {
+			return nil, fmt.Errorf("decode auth token: %w", err)
+		}
+		server.HasAuthToken = authToken.String != ""
+	}
 	if lastConnected.Valid {
 		server.LastConnectedAt = lastConnected.Time
 	}
@@ -429,14 +471,83 @@ func (s *SQLStore) ListServers(ctx context.Context, userID, organizationID strin
 			return nil, fmt.Errorf("scan server: %w", err)
 		}
 
-		server.AuthToken = authToken.String
 		if lastConnected.Valid {
 			server.LastConnectedAt = lastConnected.Time
 		}
+		server.HasAuthToken = authToken.Valid && authToken.String != ""
 		servers = append(servers, &server)
 	}
 
 	return servers, rows.Err()
+}
+
+func encodeMCPAuthToken(token string) (string, error) {
+	if token == "" {
+		return "", nil
+	}
+	key := mcpAuthTokenEncryptionKey()
+	block, err := aes.NewCipher(key[:])
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return "", err
+	}
+	ciphertext := gcm.Seal(nil, nonce, []byte(token), nil)
+	payload := append(nonce, ciphertext...)
+	return mcpAuthTokenGCMCodecPrefix + base64.RawURLEncoding.EncodeToString(payload), nil
+}
+
+func decodeMCPAuthToken(stored string) (string, error) {
+	if stored == "" {
+		return "", nil
+	}
+	if strings.HasPrefix(stored, mcpAuthTokenGCMCodecPrefix) {
+		payload, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(stored, mcpAuthTokenGCMCodecPrefix))
+		if err != nil {
+			return "", err
+		}
+		key := mcpAuthTokenEncryptionKey()
+		block, err := aes.NewCipher(key[:])
+		if err != nil {
+			return "", err
+		}
+		gcm, err := cipher.NewGCM(block)
+		if err != nil {
+			return "", err
+		}
+		if len(payload) < gcm.NonceSize() {
+			return "", fmt.Errorf("invalid protected token payload")
+		}
+		nonce := payload[:gcm.NonceSize()]
+		ciphertext := payload[gcm.NonceSize():]
+		plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+		if err != nil {
+			return "", err
+		}
+		return string(plaintext), nil
+	}
+	if !strings.HasPrefix(stored, mcpAuthTokenLegacyCodecPrefix) {
+		return stored, nil
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(stored, mcpAuthTokenLegacyCodecPrefix))
+	if err != nil {
+		return "", err
+	}
+	return string(decoded), nil
+}
+
+func mcpAuthTokenEncryptionKey() [32]byte {
+	secret := strings.TrimSpace(os.Getenv("MCP_AUTH_TOKEN_ENCRYPTION_KEY"))
+	if secret == "" {
+		secret = strings.TrimSpace(os.Getenv("SESSION_SECRET"))
+	}
+	return sha256.Sum256([]byte("oblivious:mcp-auth-token:" + secret))
 }
 
 // UpdateServerStatus 更新服务器状态

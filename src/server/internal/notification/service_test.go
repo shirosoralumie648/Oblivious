@@ -179,3 +179,30 @@ func TestServiceGetAndDeleteDelegateToStore(t *testing.T) {
 		t.Fatalf("expected deleted notification to be missing, got %+v err=%v", got, err)
 	}
 }
+
+func TestServiceCreateEventPersistsBusinessNotification(t *testing.T) {
+	store := &fakeNotificationStore{}
+	service := NewService(store)
+
+	created, err := service.CreateEvent(context.Background(), NotificationEvent{
+		UserID:    "publisher_user",
+		Type:      "warning",
+		Category:  "marketplace",
+		Title:     "Marketplace report received",
+		Message:   "Your published agent was reported for malware.",
+		ActionURL: "/marketplace/agents/agent_abuse",
+		Metadata: map[string]any{
+			"event":   "marketplace.abuse_report.opened",
+			"agentID": "agent_abuse",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateEvent returned error: %v", err)
+	}
+	if created.UserID != "publisher_user" || created.Type != "warning" || created.Category != "marketplace" {
+		t.Fatalf("unexpected notification envelope: %+v", created)
+	}
+	if created.Metadata["event"] != "marketplace.abuse_report.opened" || created.ActionURL != "/marketplace/agents/agent_abuse" {
+		t.Fatalf("event metadata/action URL was not preserved: %+v", created)
+	}
+}

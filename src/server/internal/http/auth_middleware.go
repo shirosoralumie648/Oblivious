@@ -14,6 +14,7 @@ import (
 )
 
 const sessionContextKey contextKey = "session"
+const channelSessionContextKey = sessionContextKey
 
 type authMiddleware struct {
 	config  config.Config

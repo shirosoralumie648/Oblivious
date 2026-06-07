@@ -1,36 +1,33 @@
 package relay
 
 import (
-	"math/rand"
 	"testing"
 
 	"oblivious/server/internal/relay/types"
 )
 
 func TestLoadBalancer_Weighted(t *testing.T) {
-	rand.Seed(1)
-
 	pool := NewChannelPool()
 	pool.AddChannel(&types.Channel{ID: "a", BaseURL: "http://a", Enabled: true}, 3)
 	pool.AddChannel(&types.Channel{ID: "b", BaseURL: "http://b", Enabled: true}, 1)
 
 	lb := NewLoadBalancer(pool, "weighted")
+	lb.random = &sequenceRandom{ints: []int{0, 1, 2, 3}}
 
-	counts := map[string]int{"a": 0, "b": 0}
-	for i := 0; i < 400; i++ {
+	got := make([]string, 0, 4)
+	for i := 0; i < 4; i++ {
 		ch := lb.Select("chat")
-		if ch != nil {
-			counts[ch.Channel.ID]++
+		if ch == nil {
+			t.Fatal("channel should not be nil")
 		}
+		got = append(got, ch.Channel.ID)
 	}
 
-	// a should appear roughly 3x more often than b without relying on a
-	// tiny random sample that flakes under normal test runs.
-	if counts["a"] < 250 || counts["a"] > 350 {
-		t.Fatalf("expected ~300 selections for a, got %d", counts["a"])
-	}
-	if counts["b"] < 50 || counts["b"] > 150 {
-		t.Fatalf("expected ~100 selections for b, got %d", counts["b"])
+	want := []string{"a", "a", "a", "b"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("weighted selection sequence = %v, want %v", got, want)
+		}
 	}
 }
 
@@ -86,6 +83,45 @@ func TestLoadBalancer_CostAware(t *testing.T) {
 	}
 }
 
+func TestLoadBalancer_AdaptiveUsesRuntimeHealthMetrics(t *testing.T) {
+	pool := NewChannelPool()
+	pool.AddChannel(&types.Channel{ID: "healthy", BaseURL: "http://healthy", Enabled: true}, 1)
+	pool.AddChannel(&types.Channel{ID: "degraded", BaseURL: "http://degraded", Enabled: true}, 100)
+
+	healthyStats, ok := pool.GetStats("healthy")
+	if !ok {
+		t.Fatal("healthy channel stats should exist")
+	}
+	healthyStats.SuccessCount = 100
+	healthyStats.FailureCount = 0
+	healthyStats.LatencySumUs = 50_000 * 100
+	healthyStats.LatencyCount = 100
+
+	degradedStats, ok := pool.GetStats("degraded")
+	if !ok {
+		t.Fatal("degraded channel stats should exist")
+	}
+	degradedStats.SuccessCount = 1
+	degradedStats.FailureCount = 99
+	degradedStats.LatencySumUs = 2_000_000 * 100
+	degradedStats.LatencyCount = 100
+
+	lb := NewLoadBalancer(pool, "adaptive")
+
+	counts := map[string]int{"healthy": 0, "degraded": 0}
+	for i := 0; i < 80; i++ {
+		ch := lb.Select("chat")
+		if ch == nil {
+			t.Fatal("channel should not be nil")
+		}
+		counts[ch.Channel.ID]++
+	}
+
+	if counts["healthy"] <= counts["degraded"] {
+		t.Fatalf("adaptive strategy should prefer healthy runtime metrics, got healthy=%d degraded=%d", counts["healthy"], counts["degraded"])
+	}
+}
+
 func TestLoadBalancer_AllHealthy(t *testing.T) {
 	pool := NewChannelPool()
 	pool.AddChannel(&types.Channel{ID: "a", BaseURL: "http://a", Enabled: true}, 1)
@@ -111,4 +147,29 @@ func TestLoadBalancer_SkipsUnhealthy(t *testing.T) {
 	if ch.Channel.ID != "b" {
 		t.Fatalf("expected b, got %s", ch.Channel.ID)
 	}
+}
+
+type sequenceRandom struct {
+	ints     []int
+	floats   []float64
+	intPos   int
+	floatPos int
+}
+
+func (r *sequenceRandom) Intn(n int) int {
+	if len(r.ints) == 0 {
+		return 0
+	}
+	value := r.ints[r.intPos%len(r.ints)]
+	r.intPos++
+	return value % n
+}
+
+func (r *sequenceRandom) Float64() float64 {
+	if len(r.floats) == 0 {
+		return 0
+	}
+	value := r.floats[r.floatPos%len(r.floats)]
+	r.floatPos++
+	return value
 }

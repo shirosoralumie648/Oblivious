@@ -4,59 +4,221 @@ import "time"
 
 // ChannelInfo represents a relay channel in the admin list (D-02, D-03).
 type ChannelInfo struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Provider  string    `json:"provider"`
-	BaseURL   string    `json:"baseURL"`
-	Models    []string  `json:"models"`
-	RPM       int       `json:"rpm"`
-	TPM       int       `json:"tpm"`
-	Priority  int       `json:"priority"`
-	Enabled   bool      `json:"enabled"`
-	Status    string    `json:"status"`  // "online"|"degraded"|"offline"
-	Latency   int64     `json:"latency"` // milliseconds
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	ID                 string    `json:"id"`
+	Name               string    `json:"name"`
+	Provider           string    `json:"provider"`
+	BaseURL            string    `json:"baseURL"`
+	Models             []string  `json:"models"`
+	Groups             []string  `json:"groups"`
+	RPM                int       `json:"rpm"`
+	TPM                int       `json:"tpm"`
+	Priority           int       `json:"priority"`
+	EstimatedCostPer1K float64   `json:"estimatedCostPer1K"`
+	CostMultiplier     float64   `json:"costMultiplier"`
+	Enabled            bool      `json:"enabled"`
+	Status             string    `json:"status"`  // "online"|"degraded"|"offline"
+	Latency            int64     `json:"latency"` // milliseconds
+	CreatedAt          time.Time `json:"createdAt"`
+	UpdatedAt          time.Time `json:"updatedAt"`
+}
+
+// ChannelProviderInfo describes one relay provider type supported by the
+// gateway and exposed to admin channel forms.
+type ChannelProviderInfo struct {
+	ID             string `json:"id"`
+	DisplayName    string `json:"displayName"`
+	Kind           string `json:"kind"`
+	Status         string `json:"status"`
+	DefaultBaseURL string `json:"defaultBaseURL"`
+}
+
+// ModelInventoryEntry is the admin model inventory row aggregated from relay
+// channels and request-level usage records.
+type ModelInventoryEntry struct {
+	Model                 string                  `json:"model"`
+	Providers             []string                `json:"providers"`
+	Groups                []string                `json:"groups"`
+	ChannelCount          int                     `json:"channelCount"`
+	EnabledChannelCount   int                     `json:"enabledChannelCount"`
+	DisabledChannelCount  int                     `json:"disabledChannelCount"`
+	MinEstimatedCostPer1K float64                 `json:"minEstimatedCostPer1K"`
+	MaxEstimatedCostPer1K float64                 `json:"maxEstimatedCostPer1K"`
+	AvgCostMultiplier     float64                 `json:"avgCostMultiplier"`
+	RequestCount          int                     `json:"requestCount"`
+	TotalCost             float64                 `json:"totalCost"`
+	TotalChannelCost      float64                 `json:"totalChannelCost"`
+	Channels              []ModelInventoryChannel `json:"channels"`
+}
+
+// ModelInventoryChannel is one channel that advertises a model.
+type ModelInventoryChannel struct {
+	ID                 string   `json:"id"`
+	Name               string   `json:"name"`
+	Provider           string   `json:"provider"`
+	Groups             []string `json:"groups"`
+	Enabled            bool     `json:"enabled"`
+	Priority           int      `json:"priority"`
+	EstimatedCostPer1K float64  `json:"estimatedCostPer1K"`
+	CostMultiplier     float64  `json:"costMultiplier"`
+}
+
+// ModelInventoryFilter contains filter parameters for admin model inventory.
+type ModelInventoryFilter struct {
+	Provider string
+	Group    string
+	Status   string
+	Search   string
+	Sort     string
+	Limit    int
+	Offset   int
 }
 
 // ChannelCreateRequest is the input for creating a new channel (D-02).
 type ChannelCreateRequest struct {
-	Name     string   `json:"name"`
-	Provider string   `json:"provider"`
-	BaseURL  string   `json:"baseURL"`
-	APIKey   string   `json:"apiKey"`
-	Models   []string `json:"models"`
-	RpmLimit int      `json:"rpmLimit"`
-	TpmLimit int      `json:"tpmLimit"`
-	Priority int      `json:"priority"`
+	Name               string   `json:"name"`
+	Provider           string   `json:"provider"`
+	BaseURL            string   `json:"baseURL"`
+	APIKey             string   `json:"apiKey"`
+	Models             []string `json:"models"`
+	Groups             []string `json:"groups"`
+	RpmLimit           int      `json:"rpmLimit"`
+	TpmLimit           int      `json:"tpmLimit"`
+	Priority           int      `json:"priority"`
+	EstimatedCostPer1K float64  `json:"estimatedCostPer1K"`
+	CostMultiplier     float64  `json:"costMultiplier"`
 }
 
 // ChannelUpdateRequest is the input for updating an existing channel.
 type ChannelUpdateRequest struct {
-	Name     *string   `json:"name,omitempty"`
-	BaseURL  *string   `json:"baseURL,omitempty"`
-	APIKey   *string   `json:"apiKey,omitempty"`
-	Models   *[]string `json:"models,omitempty"`
-	RpmLimit *int      `json:"rpmLimit,omitempty"`
-	TpmLimit *int      `json:"tpmLimit,omitempty"`
-	Priority *int      `json:"priority,omitempty"`
-	Enabled  *bool     `json:"enabled,omitempty"`
+	Name               *string   `json:"name,omitempty"`
+	BaseURL            *string   `json:"baseURL,omitempty"`
+	APIKey             *string   `json:"apiKey,omitempty"`
+	Models             *[]string `json:"models,omitempty"`
+	Groups             *[]string `json:"groups,omitempty"`
+	RpmLimit           *int      `json:"rpmLimit,omitempty"`
+	TpmLimit           *int      `json:"tpmLimit,omitempty"`
+	Priority           *int      `json:"priority,omitempty"`
+	EstimatedCostPer1K *float64  `json:"estimatedCostPer1K,omitempty"`
+	CostMultiplier     *float64  `json:"costMultiplier,omitempty"`
+	Enabled            *bool     `json:"enabled,omitempty"`
+}
+
+// RelayPricingSettings contains the gateway multiplier settings used by relay
+// billing. It mirrors new-api's model/group ratio concepts with explicit JSON
+// maps so admins can tune pricing without redeploying.
+type RelayPricingSettings struct {
+	ModelMultipliers map[string]float64 `json:"modelMultipliers"`
+	GroupMultipliers map[string]float64 `json:"groupMultipliers"`
 }
 
 // ChannelTestResult holds the result of a channel connectivity test (D-06).
 type ChannelTestResult struct {
-	Success bool   `json:"success"`
-	Latency int64  `json:"latency"`
-	Error   string `json:"error,omitempty"`
+	Success      bool                 `json:"success"`
+	Latency      int64                `json:"latency"`
+	Provider     string               `json:"provider,omitempty"`
+	Models       []string             `json:"models,omitempty"`
+	Balance      *ChannelBalance      `json:"balance,omitempty"`
+	BalanceError string               `json:"balanceError,omitempty"`
+	Health       *ChannelHealthDetail `json:"health,omitempty"`
+	Error        string               `json:"error,omitempty"`
+}
+
+// ChannelModelSyncResult is returned when an admin probes a channel and writes
+// the discovered upstream model list back to the channel configuration.
+type ChannelModelSyncResult struct {
+	Channel    *ChannelInfo       `json:"channel"`
+	TestResult *ChannelTestResult `json:"testResult"`
+}
+
+// ChannelModelUpdatePreview describes the delta between the configured channel
+// model list and the currently reported upstream model list.
+type ChannelModelUpdatePreview struct {
+	ID             string             `json:"id"`
+	CurrentModels  []string           `json:"currentModels"`
+	UpstreamModels []string           `json:"upstreamModels"`
+	Added          []string           `json:"added"`
+	Removed        []string           `json:"removed"`
+	Unchanged      []string           `json:"unchanged"`
+	TestResult     *ChannelTestResult `json:"testResult"`
+}
+
+// ChannelModelUpdateApplyRequest controls how detected upstream model changes
+// are applied to a channel. Mode may be "merge" or "replace"; empty means
+// merge.
+type ChannelModelUpdateApplyRequest struct {
+	Mode string `json:"mode,omitempty"`
+}
+
+// ChannelModelUpdateApplyResult returns the diff plus the persisted channel.
+type ChannelModelUpdateApplyResult struct {
+	Channel       *ChannelInfo               `json:"channel"`
+	Preview       *ChannelModelUpdatePreview `json:"preview"`
+	Mode          string                     `json:"mode"`
+	AppliedModels []string                   `json:"appliedModels"`
+}
+
+// ChannelDiagnosticsUpdate persists the latest operational probe state for a
+// relay channel so the admin surface can show known health without relying only
+// on transient probe responses.
+type ChannelDiagnosticsUpdate struct {
+	Status       string               `json:"status"`
+	Latency      int64                `json:"latency"`
+	Balance      *ChannelBalance      `json:"balance,omitempty"`
+	BalanceError string               `json:"balanceError,omitempty"`
+	Health       *ChannelHealthDetail `json:"health,omitempty"`
+	Error        string               `json:"error,omitempty"`
+	CheckedAt    time.Time            `json:"checkedAt"`
+}
+
+// ChannelBalanceRefreshResult is returned when an admin explicitly refreshes
+// and stores the provider-reported account balance for a channel.
+type ChannelBalanceRefreshResult struct {
+	ID            string               `json:"id"`
+	Status        string               `json:"status"`
+	Balance       *ChannelBalance      `json:"balance,omitempty"`
+	BalanceError  string               `json:"balanceError,omitempty"`
+	ChannelHealth *ChannelHealthDetail `json:"channelHealth,omitempty"`
+	TestResult    *ChannelTestResult   `json:"testResult"`
+	CheckedAt     time.Time            `json:"checkedAt"`
+}
+
+type ChannelBalance struct {
+	Amount   float64 `json:"amount"`
+	Currency string  `json:"currency"`
+	Source   string  `json:"source,omitempty"`
+}
+
+type ChannelHealthDetail struct {
+	Status    string    `json:"status"`
+	Message   string    `json:"message,omitempty"`
+	CheckedAt time.Time `json:"checkedAt"`
 }
 
 // ChannelHealth is the lightweight health view for admin channel diagnostics.
 type ChannelHealth struct {
-	ID        string    `json:"id"`
-	Status    string    `json:"status"`
-	Latency   int64     `json:"latency"`
-	Error     string    `json:"error,omitempty"`
-	CheckedAt time.Time `json:"checkedAt"`
+	ID           string               `json:"id"`
+	Status       string               `json:"status"`
+	Latency      int64                `json:"latency"`
+	Models       []string             `json:"models,omitempty"`
+	Balance      *ChannelBalance      `json:"balance,omitempty"`
+	BalanceError string               `json:"balanceError,omitempty"`
+	Health       *ChannelHealthDetail `json:"health,omitempty"`
+	Error        string               `json:"error,omitempty"`
+	CheckedAt    time.Time            `json:"checkedAt"`
+}
+
+// ChannelRuntimeStats exposes in-memory relay routing counters for admin
+// diagnostics. These values reset with the relay process.
+type ChannelRuntimeStats struct {
+	ChannelID                 string     `json:"channelID"`
+	RPMCurrent                int        `json:"rpmCurrent"`
+	TPMCurrent                int        `json:"tpmCurrent"`
+	TotalRequests             int64      `json:"totalRequests"`
+	SuccessCount              int64      `json:"successCount"`
+	FailureCount              int64      `json:"failureCount"`
+	AvgLatencyMS              float64    `json:"avgLatencyMs"`
+	RateLimitedUntil          *time.Time `json:"rateLimitedUntil,omitempty"`
+	AffinityConversationCount int        `json:"affinityConversationCount"`
 }
 
 // RouteInfo represents a model route configuration (D-04).
@@ -208,6 +370,120 @@ type AuditFilter struct {
 	DateTo         string
 	Limit          int
 	Offset         int
+}
+
+// APITokenEntry is the admin-wide Relay API token inspection row.
+type APITokenEntry struct {
+	ID                 string     `json:"id"`
+	OrganizationID     string     `json:"organizationId"`
+	UserID             string     `json:"userId"`
+	UserEmail          string     `json:"userEmail"`
+	Name               string     `json:"name"`
+	TokenPrefix        string     `json:"tokenPrefix"`
+	Status             string     `json:"status"`
+	UserGroup          string     `json:"userGroup,omitempty"`
+	ModelLimitsEnabled bool       `json:"modelLimitsEnabled"`
+	ModelLimits        []string   `json:"modelLimits"`
+	QuotaLimit         *float64   `json:"quotaLimit,omitempty"`
+	UsedQuota          float64    `json:"usedQuota"`
+	RequestCount       int        `json:"requestCount"`
+	TotalCost          float64    `json:"totalCost"`
+	ExpiresAt          *time.Time `json:"expiresAt,omitempty"`
+	LastUsedAt         *time.Time `json:"lastUsedAt,omitempty"`
+	CreatedAt          time.Time  `json:"createdAt"`
+	RevokedAt          *time.Time `json:"revokedAt,omitempty"`
+}
+
+// APITokenFilter contains filter parameters for admin Relay API token inspection.
+type APITokenFilter struct {
+	OrganizationID string
+	UserID         string
+	Status         string
+	UserGroup      string
+	Search         string
+	Model          string
+	Limit          int
+	Offset         int
+}
+
+// UsageLogEntry is a request-level Relay usage record for admin inspection.
+type UsageLogEntry struct {
+	ID               string    `json:"id"`
+	OrganizationID   string    `json:"organizationId,omitempty"`
+	UserID           string    `json:"userId"`
+	APITokenID       string    `json:"apiTokenId,omitempty"`
+	RequestID        string    `json:"requestId,omitempty"`
+	APIType          string    `json:"apiType,omitempty"`
+	FeatureType      string    `json:"featureType,omitempty"`
+	QuotaMode        string    `json:"quotaMode,omitempty"`
+	Model            string    `json:"model"`
+	ChannelID        string    `json:"channelId,omitempty"`
+	Provider         string    `json:"provider,omitempty"`
+	Status           string    `json:"status,omitempty"`
+	StatusCode       int       `json:"statusCode,omitempty"`
+	ErrorCode        string    `json:"errorCode,omitempty"`
+	LatencyMS        int       `json:"latencyMs,omitempty"`
+	Cost             float64   `json:"cost"`
+	ChannelCost      float64   `json:"channelCost"`
+	PromptTokens     int       `json:"promptTokens"`
+	CompletionTokens int       `json:"completionTokens"`
+	TotalTokens      int       `json:"totalTokens"`
+	CreatedAt        time.Time `json:"createdAt"`
+}
+
+// UsageLogFilter contains filter parameters for admin Relay usage inspection.
+type UsageLogFilter struct {
+	OrganizationID string
+	UserID         string
+	APITokenID     string
+	RequestID      string
+	APIType        string
+	FeatureType    string
+	QuotaMode      string
+	Model          string
+	ChannelID      string
+	Provider       string
+	Status         string
+	Limit          int
+	Offset         int
+}
+
+// UsageAnalyticsFilter contains filter parameters for aggregated usage analytics.
+type UsageAnalyticsFilter struct {
+	OrganizationID string
+	UserID         string
+	APIType        string
+	FeatureType    string
+	QuotaMode      string
+	Model          string
+	ChannelID      string
+	Provider       string
+	Status         string
+	Granularity    string
+	From           time.Time
+	To             time.Time
+	Limit          int
+}
+
+// UsageAnalyticsBucket is one grouped usage aggregate. Dimension is one of
+// model, feature, user, or time.
+type UsageAnalyticsBucket struct {
+	Dimension    string    `json:"dimension"`
+	Key          string    `json:"key"`
+	Primary      string    `json:"primary,omitempty"`
+	Secondary    string    `json:"secondary,omitempty"`
+	RequestCount int       `json:"requestCount"`
+	TotalTokens  int       `json:"totalTokens"`
+	TotalCost    float64   `json:"totalCost"`
+	StartedAt    time.Time `json:"startedAt,omitempty"`
+}
+
+type UsageAnalytics struct {
+	ByModel         []UsageAnalyticsBucket `json:"byModel"`
+	ByFeature       []UsageAnalyticsBucket `json:"byFeature"`
+	ByUser          []UsageAnalyticsBucket `json:"byUser"`
+	ByTime          []UsageAnalyticsBucket `json:"byTime"`
+	CrossDimensions []UsageAnalyticsBucket `json:"crossDimensions"`
 }
 
 // BatchRequest is the input for batch operations (D-08).

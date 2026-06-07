@@ -35,4 +35,15 @@ describe('resolveWorkspaceLandingPath', () => {
       })
     ).toBe('/solo/new');
   });
+
+  it('routes completed agent users to /agents', () => {
+    expect(
+      resolveWorkspaceLandingPath({
+        defaultMode: 'agent',
+        modelStrategy: 'balanced',
+        networkEnabledHint: true,
+        onboardingCompleted: true
+      } as never)
+    ).toBe('/agents');
+  });
 });

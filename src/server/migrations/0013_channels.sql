@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS channels (
     probe_prompt TEXT,
     strategy TEXT DEFAULT 'weighted',
     priority INTEGER DEFAULT 0,
+    estimated_cost_per_1k DOUBLE PRECISION NOT NULL DEFAULT 0,
+    cost_multiplier DOUBLE PRECISION NOT NULL DEFAULT 1,
     enabled BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

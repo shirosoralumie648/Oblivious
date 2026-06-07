@@ -14,7 +14,7 @@ assert_file_exists() {
 assert_file_contains() {
   local path="$1"
   local pattern="$2"
-  if ! rg -q --fixed-strings -- "$pattern" "$path"; then
+  if ! grep -Fq -- "$pattern" "$path"; then
     echo "[quality-gates] expected pattern '$pattern' in $path" >&2
     exit 1
   fi
@@ -23,7 +23,7 @@ assert_file_contains() {
 assert_file_not_contains() {
   local path="$1"
   local pattern="$2"
-  if rg -q --fixed-strings -- "$pattern" "$path"; then
+  if grep -Fq -- "$pattern" "$path"; then
     echo "[quality-gates] unexpected pattern '$pattern' in $path" >&2
     exit 1
   fi
@@ -38,13 +38,22 @@ assert_file_not_matches() {
   fi
 }
 
+assert_file_matches() {
+  local path="$1"
+  local pattern="$2"
+  if ! rg -q -- "$pattern" "$path"; then
+    echo "[quality-gates] expected regex '$pattern' in $path" >&2
+    exit 1
+  fi
+}
+
 assert_file_count_at_least() {
   local path="$1"
   local pattern="$2"
   local minimum="$3"
   local count
 
-  count=$(rg --fixed-strings --count -- "$pattern" "$path" || true)
+  count=$(grep -F -c -- "$pattern" "$path" || true)
   if [[ -z "$count" ]]; then
     count=0
   fi
@@ -93,6 +102,11 @@ k8s_configmap_file="$repo_root/deploy/kubernetes/configmap.yaml"
 k8s_secret_example_file="$repo_root/deploy/kubernetes/secret.example.yaml"
 k8s_postgres_file="$repo_root/deploy/kubernetes/postgres.yaml"
 k8s_redis_file="$repo_root/deploy/kubernetes/redis.yaml"
+k8s_qdrant_file="$repo_root/deploy/kubernetes/qdrant.yaml"
+k8s_app_deployment_file="$repo_root/deploy/kubernetes/app-deployment.yaml"
+k8s_app_service_file="$repo_root/deploy/kubernetes/app-service.yaml"
+k8s_hpa_file="$repo_root/deploy/kubernetes/hpa.yaml"
+k8s_ingress_file="$repo_root/deploy/kubernetes/ingress.yaml"
 k8s_server_file="$repo_root/deploy/kubernetes/server.yaml"
 k8s_web_file="$repo_root/deploy/kubernetes/web.yaml"
 observability_alerts_file="$repo_root/deploy/observability/prometheus-alerts.yaml"
@@ -188,6 +202,11 @@ assert_file_exists "$k8s_configmap_file"
 assert_file_exists "$k8s_secret_example_file"
 assert_file_exists "$k8s_postgres_file"
 assert_file_exists "$k8s_redis_file"
+assert_file_exists "$k8s_qdrant_file"
+assert_file_exists "$k8s_app_deployment_file"
+assert_file_exists "$k8s_app_service_file"
+assert_file_exists "$k8s_hpa_file"
+assert_file_exists "$k8s_ingress_file"
 assert_file_exists "$k8s_server_file"
 assert_file_exists "$k8s_web_file"
 assert_file_exists "$observability_alerts_file"
@@ -428,10 +447,12 @@ assert_file_contains "$commercial_gates_file" "disabled by default"
 
 assert_file_contains "$builtin_mcp_file" "ListDefaultCommercialBuiltinTools"
 assert_file_contains "$builtin_mcp_file" "defaultCommercialBuiltinEnabled"
-assert_file_contains "$builtin_mcp_file" "\"calculator\":   true"
-assert_file_contains "$builtin_mcp_file" "\"datetime\":     true"
-assert_file_contains "$builtin_mcp_file" "\"web_search\":   false"
-assert_file_contains "$builtin_mcp_file" "\"http_request\": false"
+assert_file_matches "$builtin_mcp_file" '"calculator":[[:space:]]+true'
+assert_file_matches "$builtin_mcp_file" '"datetime":[[:space:]]+true'
+assert_file_matches "$builtin_mcp_file" '"json_formatter":[[:space:]]+true'
+assert_file_matches "$builtin_mcp_file" '"text_transform":[[:space:]]+true'
+assert_file_matches "$builtin_mcp_file" '"web_search":[[:space:]]+false'
+assert_file_matches "$builtin_mcp_file" '"http_request":[[:space:]]+false'
 assert_file_not_contains "$builtin_mcp_file" "placeholder - integrate with search API"
 assert_file_not_contains "$builtin_mcp_file" "placeholder - implement expression parser"
 assert_file_contains "$phase25_context_file" "PROD-01"
@@ -671,6 +692,14 @@ assert_file_contains "$observability_alerts_file" "StripeWebhookFailure"
 assert_file_contains "$observability_alerts_file" "MigrationFailure"
 assert_file_contains "$observability_alerts_file" "HighProviderErrorRate"
 assert_file_contains "$observability_alerts_file" "TenantIsolationIncident"
+assert_file_contains "$observability_alerts_file" "WorkflowExecutionFailureRate"
+assert_file_contains "$observability_alerts_file" "WorkflowExecutionStuck"
+assert_file_contains "$observability_alerts_file" "WorkflowExecutionDurationHigh"
+assert_file_contains "$observability_alerts_file" "WorkflowNodeErrorRateHigh"
+assert_file_contains "$observability_alerts_file" "RAGRetrievalSlowness"
+assert_file_contains "$observability_alerts_file" "AgentRunFailureRate"
+assert_file_contains "$observability_alerts_file" "AgentToolCallFailureRate"
+assert_file_contains "$observability_alerts_file" "AgentIterationCountHigh"
 assert_file_contains "$observability_alerts_file" "severity:"
 assert_file_contains "$observability_alerts_file" "owner:"
 assert_file_contains "$observability_alerts_file" "relay_route_decisions_total"
@@ -678,6 +707,13 @@ assert_file_contains "$observability_alerts_file" "provider_failures_total"
 assert_file_contains "$observability_alerts_file" "quota_settlement_failures_total"
 assert_file_contains "$observability_alerts_file" "stripe_webhook_failures_total"
 assert_file_contains "$observability_alerts_file" "migration_runs_total"
+assert_file_contains "$observability_alerts_file" "workflow_execution_total"
+assert_file_contains "$observability_alerts_file" "workflow_execution_duration_seconds"
+assert_file_contains "$observability_alerts_file" "workflow_node_error_rate"
+assert_file_contains "$observability_alerts_file" "rag_retrieval_latency_seconds"
+assert_file_contains "$observability_alerts_file" "agent_run_total"
+assert_file_contains "$observability_alerts_file" "agent_tool_call_total"
+assert_file_contains "$observability_alerts_file" "agent_iteration_count"
 assert_file_contains "$observability_dashboard_file" "Oblivious Production Operations"
 assert_file_contains "$observability_dashboard_file" "OPS-04"
 assert_file_contains "$observability_dashboard_file" "OPS-05"
@@ -687,6 +723,15 @@ assert_file_contains "$observability_dashboard_file" "billing_lifecycle_events_t
 assert_file_contains "$observability_dashboard_file" "stripe_webhook_failures_total"
 assert_file_contains "$observability_dashboard_file" "marketplace_settlement_events_total"
 assert_file_contains "$observability_dashboard_file" "migration_runs_total"
+assert_file_contains "$observability_dashboard_file" "workflow_execution_total"
+assert_file_contains "$observability_dashboard_file" "workflow_execution_duration_seconds"
+assert_file_contains "$observability_dashboard_file" "workflow_node_error_rate"
+assert_file_contains "$observability_dashboard_file" "rag_retrieval_latency_seconds"
+assert_file_contains "$observability_dashboard_file" "rag_document_processing_duration_seconds"
+assert_file_contains "$observability_dashboard_file" "rag_chunk_count"
+assert_file_contains "$observability_dashboard_file" "agent_run_total"
+assert_file_contains "$observability_dashboard_file" "agent_tool_call_total"
+assert_file_contains "$observability_dashboard_file" "agent_iteration_count"
 
 assert_file_contains "$dockerfile_server_file" "src/server/cmd/server"
 assert_file_contains "$dockerfile_server_file" "EXPOSE 8080"
@@ -703,6 +748,12 @@ assert_file_contains "$compose_file" "oblivious-web"
 assert_file_contains "$compose_file" "OBLIVIOUS_POSTGRES_IMAGE"
 assert_file_contains "$compose_file" "pgvector/pgvector:pg16"
 assert_file_contains "$compose_file" "redis:7"
+assert_file_contains "$compose_file" "qdrant/qdrant"
+assert_file_contains "$compose_file" "clickhouse/clickhouse-server"
+assert_file_contains "$compose_file" "clickhouse-init"
+assert_file_contains "$compose_file" "src/server/migrations/clickhouse"
+assert_file_contains "$compose_file" "QDRANT_VECTOR_SIZE"
+assert_file_contains "$compose_file" "CLICKHOUSE_DSN"
 assert_file_contains "$compose_file" "DATABASE_URL=postgres://oblivious:oblivious@postgres:5432/oblivious?sslmode=disable"
 assert_file_not_contains "$compose_file" "sk-"
 assert_file_contains "$deploy_smoke_file" 'BASE_URL="${BASE_URL:-http://127.0.0.1:8080}"'
@@ -710,6 +761,8 @@ assert_file_contains "$deploy_smoke_file" "/healthz"
 assert_file_contains "$deploy_smoke_file" "healthz ok"
 assert_file_contains "$deploy_validate_file" "docker compose build"
 assert_file_contains "$deploy_validate_file" "docker compose up -d"
+assert_file_contains "$deploy_validate_file" "qdrant"
+assert_file_contains "$deploy_validate_file" "clickhouse-init"
 assert_file_contains "$deploy_validate_file" "bash scripts/deploy-smoke.sh"
 assert_file_contains "$deploy_validate_file" "docker daemon is not reachable"
 assert_file_contains "$deploy_validate_file" "DEPLOY_VALIDATE_DOCKER_UP_TIMEOUT_SECONDS"
@@ -728,9 +781,21 @@ assert_file_contains "$relay_security_file" "NewHTTPReplyGenerator"
 assert_file_contains "$relay_security_file" "TenantIdentityRequired"
 assert_file_contains "$k8s_namespace_file" "name: oblivious"
 assert_file_contains "$k8s_configmap_file" "RELAY_ENABLED"
+assert_file_contains "$k8s_configmap_file" "QDRANT_VECTOR_SIZE"
 assert_file_contains "$k8s_secret_example_file" "REPLACE_ME"
+assert_file_contains "$k8s_secret_example_file" "oblivious-secrets"
 assert_file_contains "$k8s_server_file" "/healthz"
 assert_file_contains "$k8s_postgres_file" "pgvector/pgvector:pg16"
+assert_file_contains "$k8s_postgres_file" "oblivious-secrets"
+assert_file_contains "$k8s_redis_file" "name: oblivious-redis"
+assert_file_contains "$k8s_qdrant_file" "name: oblivious-qdrant"
+assert_file_contains "$k8s_qdrant_file" "qdrant/qdrant"
+assert_file_contains "$k8s_app_deployment_file" "ghcr.io/oblivious/server:latest"
+assert_file_contains "$k8s_app_deployment_file" "oblivious-secrets"
+assert_file_contains "$k8s_app_service_file" "name: oblivious-server"
+assert_file_contains "$k8s_app_service_file" "port: 80"
+assert_file_contains "$k8s_hpa_file" "name: oblivious-server"
+assert_file_contains "$k8s_ingress_file" "oblivious-server"
 assert_file_contains "$k8s_server_file" "oblivious-server:local"
 assert_file_contains "$k8s_web_file" "oblivious-web:local"
 for k8s_file in "$repo_root"/deploy/kubernetes/*.yaml; do
@@ -745,6 +810,7 @@ assert_file_contains "$weekly_status_file" "## Risks / Blockers"
 assert_file_contains "$blocker_escalation_file" "| Severity | Definition | Response Window | Escalate To |"
 
 assert_file_contains "$check_script" "scripts/verify-quality-gates.sh"
+assert_file_contains "$check_script" "scripts/verify-observability-dashboard.mjs"
 assert_file_contains "$check_script" "scripts/verify-relay-security.sh"
 assert_file_contains "$check_script" "relay-security"
 assert_file_contains "$check_script" 'workspace_file="$repo_root/pnpm-workspace.yaml"'

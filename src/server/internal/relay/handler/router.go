@@ -18,8 +18,9 @@ func GetRouter() types.RouterInterface {
 }
 
 type RouteRegistrationOptions struct {
-	Production bool
-	AuditSink  RouteAuditSink
+	Production            bool
+	AuditSink             RouteAuditSink
+	APITokenAuthenticator types.RelayAPITokenAuthenticator
 }
 
 // Route 定义
@@ -91,6 +92,7 @@ func getOpenAIRoutes() []Route {
 		// Chat / Responses
 		{Method: "POST", Path: "/v1/chat/completions", APIType: types.APITypeChat, Strategy: types.StrategyNative, Retryable: true},
 		{Method: "POST", Path: "/v1/responses", APIType: types.APITypeResponses, Strategy: types.StrategyNative, Retryable: true},
+		{Method: "GET", Path: "/v1/models", APIType: types.APITypeModels, Strategy: types.StrategyNative, Retryable: false},
 
 		// Realtime (WebSocket)
 		{Method: "GET", Path: "/v1/realtime", APIType: types.APITypeRealtime, Strategy: types.StrategyNative, Retryable: false},

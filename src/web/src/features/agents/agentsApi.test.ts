@@ -1,0 +1,267 @@
+import { describe, expect, it, vi } from 'vitest';
+
+import type { HttpClient } from '../../services/http/client';
+import { createAgentsApi } from './agentsApi';
+
+function createClient(overrides: Partial<HttpClient> = {}) {
+  const client: HttpClient = {
+    delete: vi.fn(),
+    get: vi.fn(),
+    post: vi.fn(),
+    put: vi.fn(),
+    request: vi.fn(),
+    ...overrides
+  };
+  return client;
+}
+
+describe('createAgentsApi', () => {
+  it('lists workspace agents from the app agent endpoint', async () => {
+    const get = vi.fn().mockResolvedValue([
+      {
+        config: { approvalMode: 'tiered' },
+        id: 'agent_1',
+        isPublic: false,
+        model: 'gpt-4o-mini',
+        name: 'Research Agent',
+        tools: [{ enabled: true, name: 'web_search', riskLevel: 'medium', type: 'builtin' }]
+      }
+    ]);
+    const api = createAgentsApi(createClient({ get }));
+
+    await expect(api.listAgents()).resolves.toEqual([
+      {
+        config: { approvalMode: 'tiered' },
+        id: 'agent_1',
+        isPublic: false,
+        model: 'gpt-4o-mini',
+        name: 'Research Agent',
+        tools: [{ enabled: true, name: 'web_search', riskLevel: 'medium', type: 'builtin' }]
+      }
+    ]);
+
+    expect(get).toHaveBeenCalledWith('/api/v1/app/agents');
+  });
+
+  it('creates an agent through the app agent endpoint', async () => {
+    const post = vi.fn().mockResolvedValue({
+      config: { approvalMode: 'tiered', defaultExecutionMode: 'react' },
+      description: 'Research and summarize workspace materials.',
+      id: 'agent_created',
+      isPublic: false,
+      model: 'gpt-4o-mini',
+      name: 'Research Builder',
+      systemPrompt: 'Prefer cited answers.',
+      tools: []
+    });
+    const api = createAgentsApi(createClient({ post }));
+
+    await expect(
+      api.createAgent({
+        config: { approvalMode: 'tiered', defaultExecutionMode: 'react' },
+        description: 'Research and summarize workspace materials.',
+        isPublic: false,
+        model: 'gpt-4o-mini',
+        name: 'Research Builder',
+        systemPrompt: 'Prefer cited answers.',
+        tools: []
+      })
+    ).resolves.toMatchObject({
+      id: 'agent_created',
+      name: 'Research Builder'
+    });
+
+    expect(post).toHaveBeenCalledWith('/api/v1/app/agents', {
+      config: { approvalMode: 'tiered', defaultExecutionMode: 'react' },
+      description: 'Research and summarize workspace materials.',
+      isPublic: false,
+      model: 'gpt-4o-mini',
+      name: 'Research Builder',
+      systemPrompt: 'Prefer cited answers.',
+      tools: []
+    });
+  });
+
+  it('gets and deletes a single agent through the app agent endpoint', async () => {
+    const get = vi.fn().mockResolvedValue({
+      id: 'agent_1',
+      isPublic: false,
+      model: 'gpt-4o-mini',
+      name: 'Research Agent',
+      tools: []
+    });
+    const deleteRequest = vi.fn().mockResolvedValue({ status: 'deleted' });
+    const api = createAgentsApi(createClient({ delete: deleteRequest, get }));
+
+    await expect(api.getAgent('agent_1')).resolves.toMatchObject({ id: 'agent_1', name: 'Research Agent' });
+    await expect(api.deleteAgent('agent_1')).resolves.toBeUndefined();
+
+    expect(get).toHaveBeenCalledWith('/api/v1/app/agents/agent_1');
+    expect(deleteRequest).toHaveBeenCalledWith('/api/v1/app/agents/agent_1');
+  });
+
+  it('updates approval policy without dropping the existing agent fields', async () => {
+    const put = vi.fn().mockResolvedValue({
+      config: {
+        approvalMode: 'custom',
+        toolApprovalOverrides: {
+          web_search: { requiresApproval: true, riskLevel: 'medium' }
+        }
+      },
+      id: 'agent_1',
+      isPublic: false,
+      model: 'gpt-4o-mini',
+      name: 'Research Agent',
+      tools: [{ enabled: true, name: 'web_search', riskLevel: 'medium', type: 'builtin' }]
+    });
+    const api = createAgentsApi(createClient({ put }));
+
+    await expect(
+      api.updateAgent('agent_1', {
+        config: {
+          approvalMode: 'custom',
+          toolApprovalOverrides: {
+            web_search: { requiresApproval: true, riskLevel: 'medium' }
+          }
+        },
+        model: 'gpt-4o-mini',
+        name: 'Research Agent',
+        tools: [{ enabled: true, name: 'web_search', riskLevel: 'medium', type: 'builtin' }]
+      })
+    ).resolves.toMatchObject({
+      config: {
+        approvalMode: 'custom',
+        toolApprovalOverrides: {
+          web_search: { requiresApproval: true, riskLevel: 'medium' }
+        }
+      },
+      id: 'agent_1'
+    });
+
+    expect(put).toHaveBeenCalledWith('/api/v1/app/agents/agent_1', {
+      config: {
+        approvalMode: 'custom',
+        toolApprovalOverrides: {
+          web_search: { requiresApproval: true, riskLevel: 'medium' }
+        }
+      },
+      model: 'gpt-4o-mini',
+      name: 'Research Agent',
+      tools: [{ enabled: true, name: 'web_search', riskLevel: 'medium', type: 'builtin' }]
+    });
+  });
+
+  it('loads available tool definitions for an agent', async () => {
+    const get = vi.fn().mockResolvedValue([
+      {
+        description: 'Search workspace and web sources',
+        inputSchema: { properties: { query: { type: 'string' } }, type: 'object' },
+        name: 'web_search'
+      }
+    ]);
+    const api = createAgentsApi(createClient({ get }));
+
+    await expect(api.getAgentTools('agent_1')).resolves.toEqual([
+      {
+        description: 'Search workspace and web sources',
+        inputSchema: { properties: { query: { type: 'string' } }, type: 'object' },
+        name: 'web_search',
+        requiresApproval: false,
+        riskLevel: 'safe',
+        toolType: 'builtin'
+      }
+    ]);
+
+    expect(get).toHaveBeenCalledWith('/api/v1/app/agents/agent_1/tools');
+  });
+
+  it('normalizes available tool approval metadata with legacy-safe defaults', async () => {
+    const get = vi.fn().mockResolvedValue([
+      {
+        description: 'Search workspace and web sources',
+        inputSchema: { properties: { query: { type: 'string' } }, type: 'object' },
+        name: 'web_search',
+        requiresApproval: true,
+        riskLevel: 'medium',
+        toolType: 'builtin'
+      },
+      {
+        description: 'Legacy MCP response without approval metadata',
+        name: 'legacy_mcp_tool'
+      }
+    ]);
+    const api = createAgentsApi(createClient({ get }));
+
+    await expect(api.getAgentTools('agent_1')).resolves.toEqual([
+      {
+        description: 'Search workspace and web sources',
+        inputSchema: { properties: { query: { type: 'string' } }, type: 'object' },
+        name: 'web_search',
+        requiresApproval: true,
+        riskLevel: 'medium',
+        toolType: 'builtin'
+      },
+      {
+        description: 'Legacy MCP response without approval metadata',
+        name: 'legacy_mcp_tool',
+        requiresApproval: false,
+        riskLevel: 'safe',
+        toolType: 'builtin'
+      }
+    ]);
+  });
+
+  it('starts an agent run from the agent runs endpoint', async () => {
+    const post = vi.fn().mockResolvedValue({
+      id: 'run_1',
+      planSteps: [{ id: 'step_1', status: 'pending', title: 'Inspect workspace' }],
+      status: 'running',
+      toolRuns: []
+    });
+    const api = createAgentsApi(createClient({ post }));
+
+    await expect(
+      api.createRun({
+        agentId: 'agent_1',
+        conversationId: 'conversation_1',
+        input: 'Audit the workspace release checklist',
+        maxIterations: 20,
+        mode: 'planning',
+        tokenBudget: 50000
+      })
+    ).resolves.toEqual({
+      id: 'run_1',
+      planSteps: [{ id: 'step_1', status: 'pending', title: 'Inspect workspace' }],
+      status: 'running',
+      toolRuns: []
+    });
+
+    expect(post).toHaveBeenCalledWith('/api/v1/agent/runs', {
+      agentId: 'agent_1',
+      conversationId: 'conversation_1',
+      input: 'Audit the workspace release checklist',
+      maxIterations: 20,
+      mode: 'planning',
+      tokenBudget: 50000
+    });
+  });
+
+  it('normalizes prompt to the backend input field when starting a run', async () => {
+    const post = vi.fn().mockResolvedValue({ id: 'run_1', status: 'running' });
+    const api = createAgentsApi(createClient({ post }));
+
+    await api.createRun({
+      agentId: 'agent_1',
+      conversationId: 'conversation_1',
+      mode: 'react',
+      prompt: 'Summarize the open workspace tasks'
+    });
+
+    expect(post).toHaveBeenCalledWith('/api/v1/agent/runs', {
+      agentId: 'agent_1',
+      conversationId: 'conversation_1',
+      input: 'Summarize the open workspace tasks',
+      mode: 'react'
+    });
+  });
+});
