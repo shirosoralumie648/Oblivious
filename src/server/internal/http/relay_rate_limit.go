@@ -62,10 +62,12 @@ func buildRelayUsageLimitResolver(service relayUsageLimitService) relay.RateLimi
 		}
 		resolution := relay.RateLimitResolution{
 			Limits: ratelimit.Limits{
-				MaxConcurrent: limit.MaxConcurrentRequests,
-				TPM:           limit.MaxTokensPerWindow,
+				MaxConcurrent:       limit.MaxConcurrentRequests,
+				TPM:                 limit.MaxTokensPerWindow,
+				MaxTokensPerRequest: limit.MaxTokensPerRequest,
 			},
-			Key: relayUsageLimitRateKey(limit, organizationID),
+			Key:   relayUsageLimitRateKey(limit, organizationID),
+			Usage: relayRateLimitUsage(usage),
 		}
 		if !relayRateLimitCheckEmpty(channelCheck) {
 			resolution.Additional = append(resolution.Additional, channelCheck)
@@ -80,17 +82,27 @@ func relayChannelRateLimitCheck(channel *types.RouteChannel, model string, usage
 		limits.RPM = channel.Channel.RPMLimit
 		limits.TPM = channel.Channel.TPMLimit
 	}
-	tokens := 0
-	if usage != nil {
-		tokens = usage.TotalTokens
-	}
 	return relay.RateLimitCheck{
 		Key: ratelimit.Key{
 			ChannelID: relayRateLimitChannelID(channel),
 			Model:     model,
 		},
 		Limits: limits,
-		Usage:  ratelimit.Usage{Tokens: tokens},
+		Usage:  relayRateLimitUsage(usage),
+	}
+}
+
+func relayRateLimitUsage(usage *types.Usage) ratelimit.Usage {
+	if usage == nil {
+		return ratelimit.Usage{}
+	}
+	requestTokens := usage.PromptTokens
+	if requestTokens <= 0 {
+		requestTokens = usage.TotalTokens
+	}
+	return ratelimit.Usage{
+		Tokens:        usage.TotalTokens,
+		RequestTokens: requestTokens,
 	}
 }
 
@@ -103,7 +115,10 @@ func relayRateLimitResolutionFromCheck(check relay.RateLimitCheck) relay.RateLim
 }
 
 func relayRateLimitCheckEmpty(check relay.RateLimitCheck) bool {
-	return check.Limits.RPM <= 0 && check.Limits.TPM <= 0 && check.Limits.MaxConcurrent <= 0
+	return check.Limits.RPM <= 0 &&
+		check.Limits.TPM <= 0 &&
+		check.Limits.MaxConcurrent <= 0 &&
+		check.Limits.MaxTokensPerRequest <= 0
 }
 
 func relayRateLimitChannelID(channel *types.RouteChannel) string {

@@ -25,11 +25,13 @@ CREATE TABLE IF NOT EXISTS token_rate_limits (
     user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
     window_seconds INT NOT NULL DEFAULT 60,
     max_tokens_per_window BIGINT NOT NULL,
+    max_tokens_per_request BIGINT NOT NULL DEFAULT 0,
     current_window_start TIMESTAMPTZ,
     current_window_tokens BIGINT NOT NULL DEFAULT 0,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CHECK (window_seconds > 0),
     CHECK (max_tokens_per_window >= 0),
+    CHECK (max_tokens_per_request >= 0),
     CHECK (current_window_tokens >= 0)
 );
 

@@ -66,6 +66,7 @@ func TestBuildRelayUsageLimitResolverUsesResolvedQuotaScope(t *testing.T) {
 			OrganizationID:        "org_1",
 			MaxConcurrentRequests: 2,
 			MaxTokensPerWindow:    500,
+			MaxTokensPerRequest:   100,
 		},
 	}
 	resolver := buildRelayUsageLimitResolver(service)
@@ -76,7 +77,7 @@ func TestBuildRelayUsageLimitResolverUsesResolvedQuotaScope(t *testing.T) {
 	if service.organizationID != "org_1" || service.userID != "user_2" {
 		t.Fatalf("expected resolver to use trusted identity, got org=%q user=%q", service.organizationID, service.userID)
 	}
-	if resolution.Limits.MaxConcurrent != 2 || resolution.Limits.TPM != 500 {
+	if resolution.Limits.MaxConcurrent != 2 || resolution.Limits.TPM != 500 || resolution.Limits.MaxTokensPerRequest != 100 {
 		t.Fatalf("unexpected resolver limits: %+v", resolution.Limits)
 	}
 	if resolution.Key != (ratelimit.Key{ChannelID: "quota", Model: "org_1", TokenID: "org_1"}) {
@@ -96,6 +97,7 @@ func TestBuildRelayUsageLimitResolverKeepsChannelRateLimits(t *testing.T) {
 			OrganizationID:        "org_1",
 			MaxConcurrentRequests: 2,
 			MaxTokensPerWindow:    500,
+			MaxTokensPerRequest:   100,
 		},
 	}
 	resolver := buildRelayUsageLimitResolver(service)
@@ -113,7 +115,7 @@ func TestBuildRelayUsageLimitResolverKeepsChannelRateLimits(t *testing.T) {
 	if resolution.Key != (ratelimit.Key{ChannelID: "quota", Model: "org_1", TokenID: "org_1"}) {
 		t.Fatalf("expected quota-scoped primary key, got %+v", resolution.Key)
 	}
-	if resolution.Limits.MaxConcurrent != 2 || resolution.Limits.TPM != 500 || resolution.Limits.RPM != 0 {
+	if resolution.Limits.MaxConcurrent != 2 || resolution.Limits.TPM != 500 || resolution.Limits.MaxTokensPerRequest != 100 || resolution.Limits.RPM != 0 {
 		t.Fatalf("unexpected quota-scoped primary limits: %+v", resolution.Limits)
 	}
 	if len(resolution.Additional) != 1 {

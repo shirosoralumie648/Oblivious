@@ -125,8 +125,9 @@ const defaultUsageLimitWindowSeconds = 60
 type UsageLimitDimension string
 
 const (
-	UsageLimitDimensionConcurrent UsageLimitDimension = "concurrent"
-	UsageLimitDimensionTokens     UsageLimitDimension = "tokens"
+	UsageLimitDimensionConcurrent    UsageLimitDimension = "concurrent"
+	UsageLimitDimensionTokens        UsageLimitDimension = "tokens"
+	UsageLimitDimensionRequestTokens UsageLimitDimension = "request_tokens"
 )
 
 type UsageLimit struct {
@@ -134,6 +135,7 @@ type UsageLimit struct {
 	UserID                string
 	MaxConcurrentRequests int
 	MaxTokensPerWindow    int
+	MaxTokensPerRequest   int
 }
 
 type UsageLimitSettings struct {
@@ -143,6 +145,7 @@ type UsageLimitSettings struct {
 	MaxConcurrentRequests int       `json:"maxConcurrentRequests"`
 	WindowSeconds         int       `json:"windowSeconds"`
 	MaxTokensPerWindow    int       `json:"maxTokensPerWindow"`
+	MaxTokensPerRequest   int       `json:"maxTokensPerRequest"`
 	UpdatedAt             time.Time `json:"updatedAt"`
 }
 
@@ -221,11 +224,14 @@ func (s *Service) ReserveUsageTokens(ctx context.Context, limit UsageLimit, toke
 	if err := validateUsageLimitIdentity(limit); err != nil {
 		return err
 	}
-	if tokens <= 0 || s.rateLimiter == nil || limit.MaxTokensPerWindow <= 0 {
+	if tokens <= 0 || s.rateLimiter == nil || (limit.MaxTokensPerWindow <= 0 && limit.MaxTokensPerRequest <= 0) {
 		return nil
 	}
-	if err := s.rateLimiter.Allow(ctx, usageLimitRateKey(limit), ratelimit.Limits{TPM: limit.MaxTokensPerWindow}, ratelimit.Usage{Tokens: tokens}); err != nil {
-		return usageLimitError(err, UsageLimitDimensionTokens)
+	if err := s.rateLimiter.Allow(ctx, usageLimitRateKey(limit), ratelimit.Limits{
+		TPM:                 limit.MaxTokensPerWindow,
+		MaxTokensPerRequest: limit.MaxTokensPerRequest,
+	}, ratelimit.Usage{Tokens: tokens, RequestTokens: tokens}); err != nil {
+		return usageLimitError(err, usageLimitDimensionFromRateLimitError(err, UsageLimitDimensionTokens))
 	}
 	return nil
 }
@@ -251,6 +257,7 @@ func (s *Service) ResolveUsageLimit(ctx context.Context, organizationID, userID 
 		UserID:                settings.UserID,
 		MaxConcurrentRequests: settings.MaxConcurrentRequests,
 		MaxTokensPerWindow:    settings.MaxTokensPerWindow,
+		MaxTokensPerRequest:   settings.MaxTokensPerRequest,
 	}, nil
 }
 
@@ -278,7 +285,10 @@ func normalizeUsageLimitSettings(settings UsageLimitSettings) (UsageLimitSetting
 	if settings.MaxTokensPerWindow < 0 {
 		return UsageLimitSettings{}, fmt.Errorf("max_tokens_per_window must be non-negative")
 	}
-	if settings.MaxConcurrentRequests == 0 && settings.MaxTokensPerWindow == 0 {
+	if settings.MaxTokensPerRequest < 0 {
+		return UsageLimitSettings{}, fmt.Errorf("max_tokens_per_request must be non-negative")
+	}
+	if settings.MaxConcurrentRequests == 0 && settings.MaxTokensPerWindow == 0 && settings.MaxTokensPerRequest == 0 {
 		return UsageLimitSettings{}, fmt.Errorf("at least one usage limit must be greater than zero")
 	}
 	if settings.WindowSeconds < 0 {
@@ -338,6 +348,14 @@ func usageLimitError(err error, dimension UsageLimitDimension) error {
 		return &UsageLimitError{Dimension: dimension}
 	}
 	return err
+}
+
+func usageLimitDimensionFromRateLimitError(err error, fallback UsageLimitDimension) UsageLimitDimension {
+	var limitErr *ratelimit.LimitError
+	if errors.As(err, &limitErr) && limitErr.Dimension == ratelimit.DimensionRequestTokens {
+		return UsageLimitDimensionRequestTokens
+	}
+	return fallback
 }
 
 // PreConsume 预扣配额
@@ -813,27 +831,29 @@ func upsertTokenRateLimit(ctx context.Context, tx *sql.Tx, settings UsageLimitSe
 		return err
 	}
 	windowSeconds := settings.WindowSeconds
-	if settings.MaxTokensPerWindow > 0 && windowSeconds <= 0 {
+	if (settings.MaxTokensPerWindow > 0 || settings.MaxTokensPerRequest > 0) && windowSeconds <= 0 {
 		windowSeconds = defaultUsageLimitWindowSeconds
 	}
 	if settings.UserID == "" {
 		_, err = tx.ExecContext(ctx, `
-			INSERT INTO token_rate_limits (id, organization_id, user_id, window_seconds, max_tokens_per_window, current_window_tokens, updated_at)
-			VALUES ($1, $2, NULL, $3, $4, 0, $5)
+			INSERT INTO token_rate_limits (id, organization_id, user_id, window_seconds, max_tokens_per_window, max_tokens_per_request, current_window_tokens, updated_at)
+			VALUES ($1, $2, NULL, $3, $4, $5, 0, $6)
 			ON CONFLICT (organization_id) WHERE user_id IS NULL
 			DO UPDATE SET window_seconds = EXCLUDED.window_seconds,
 				max_tokens_per_window = EXCLUDED.max_tokens_per_window,
+				max_tokens_per_request = EXCLUDED.max_tokens_per_request,
 				updated_at = EXCLUDED.updated_at
-		`, id, settings.OrganizationID, windowSeconds, settings.MaxTokensPerWindow, now)
+		`, id, settings.OrganizationID, windowSeconds, settings.MaxTokensPerWindow, settings.MaxTokensPerRequest, now)
 	} else {
 		_, err = tx.ExecContext(ctx, `
-			INSERT INTO token_rate_limits (id, organization_id, user_id, window_seconds, max_tokens_per_window, current_window_tokens, updated_at)
-			VALUES ($1, $2, $3, $4, $5, 0, $6)
+			INSERT INTO token_rate_limits (id, organization_id, user_id, window_seconds, max_tokens_per_window, max_tokens_per_request, current_window_tokens, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, 0, $7)
 			ON CONFLICT (organization_id, user_id) WHERE user_id IS NOT NULL
 			DO UPDATE SET window_seconds = EXCLUDED.window_seconds,
 				max_tokens_per_window = EXCLUDED.max_tokens_per_window,
+				max_tokens_per_request = EXCLUDED.max_tokens_per_request,
 				updated_at = EXCLUDED.updated_at
-		`, id, settings.OrganizationID, settings.UserID, windowSeconds, settings.MaxTokensPerWindow, now)
+		`, id, settings.OrganizationID, settings.UserID, windowSeconds, settings.MaxTokensPerWindow, settings.MaxTokensPerRequest, now)
 	}
 	if err != nil {
 		return fmt.Errorf("upsert token rate limit: %w", err)
@@ -869,6 +889,7 @@ func (s *SQLStore) ListUsageLimitSettings(ctx context.Context, organizationID st
 			COALESCE(c.max_concurrent_requests, 0) AS max_concurrent_requests,
 			COALESCE(t.window_seconds, 0) AS window_seconds,
 			COALESCE(t.max_tokens_per_window, 0) AS max_tokens_per_window,
+			COALESCE(t.max_tokens_per_request, 0) AS max_tokens_per_request,
 			GREATEST(
 				COALESCE(c.updated_at, '-infinity'::timestamptz),
 				COALESCE(t.updated_at, '-infinity'::timestamptz)
@@ -896,6 +917,7 @@ func (s *SQLStore) ListUsageLimitSettings(ctx context.Context, organizationID st
 			&item.MaxConcurrentRequests,
 			&item.WindowSeconds,
 			&item.MaxTokensPerWindow,
+			&item.MaxTokensPerRequest,
 			&item.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan usage limit settings: %w", err)

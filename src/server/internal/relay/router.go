@@ -839,7 +839,10 @@ func rateLimitChecksForResolution(resolution RateLimitResolution) []RateLimitChe
 }
 
 func rateLimitCheckEmpty(check RateLimitCheck) bool {
-	return check.Limits.RPM <= 0 && check.Limits.TPM <= 0 && check.Limits.MaxConcurrent <= 0
+	return check.Limits.RPM <= 0 &&
+		check.Limits.TPM <= 0 &&
+		check.Limits.MaxConcurrent <= 0 &&
+		check.Limits.MaxTokensPerRequest <= 0
 }
 
 func rateLimitRouterError(err error) *RouterError {

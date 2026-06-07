@@ -407,6 +407,7 @@ describe('createAdminApi', () => {
           maxConcurrentRequests: 10,
           windowSeconds: 60,
           maxTokensPerWindow: 1000,
+          maxTokensPerRequest: 250,
         },
       ],
     });
@@ -417,6 +418,7 @@ describe('createAdminApi', () => {
       maxConcurrentRequests: 3,
       windowSeconds: 30,
       maxTokensPerWindow: 300,
+      maxTokensPerRequest: 75,
     });
     const api = createAdminApi(createClient({ get, put }));
 
@@ -427,6 +429,7 @@ describe('createAdminApi', () => {
         maxConcurrentRequests: 10,
         windowSeconds: 60,
         maxTokensPerWindow: 1000,
+        maxTokensPerRequest: 250,
       },
     ]);
     await expect(
@@ -436,6 +439,7 @@ describe('createAdminApi', () => {
         maxConcurrentRequests: 3,
         windowSeconds: 30,
         maxTokensPerWindow: 300,
+        maxTokensPerRequest: 75,
       })
     ).resolves.toEqual({
       organizationId: 'org_1',
@@ -444,6 +448,7 @@ describe('createAdminApi', () => {
       maxConcurrentRequests: 3,
       windowSeconds: 30,
       maxTokensPerWindow: 300,
+      maxTokensPerRequest: 75,
     });
 
     expect(get).toHaveBeenCalledWith('/api/v1/admin/settings/usage-limits');
@@ -453,6 +458,7 @@ describe('createAdminApi', () => {
       maxConcurrentRequests: 3,
       windowSeconds: 30,
       maxTokensPerWindow: 300,
+      maxTokensPerRequest: 75,
     });
   });
 

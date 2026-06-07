@@ -66,6 +66,7 @@ describe('AdminSettingsPage', () => {
         maxConcurrentRequests: 10,
         windowSeconds: 60,
         maxTokensPerWindow: 1000,
+        maxTokensPerRequest: 250,
       },
     ]);
     updateUsageLimitSettings.mockResolvedValue({
@@ -106,6 +107,12 @@ describe('AdminSettingsPage', () => {
       period: 'hour',
       limitValue: 300,
       enabled: true,
+      userId: 'user_1',
+      quotaMode: 'user',
+      maxConcurrentRequests: 0,
+      windowSeconds: 3600,
+      maxTokensPerWindow: 300,
+      maxTokensPerRequest: 0,
     }));
     expect(await screen.findByText('Usage limit saved.')).toBeInTheDocument();
   });
@@ -133,6 +140,9 @@ describe('AdminSettingsPage', () => {
         period: 'hour',
         limitValue: 25,
         enabled: false,
+        maxConcurrentRequests: 4,
+        maxTokensPerWindow: 100,
+        maxTokensPerRequest: 20,
       },
     ]);
     updateUsageLimitSettings.mockResolvedValue({
@@ -170,6 +180,12 @@ describe('AdminSettingsPage', () => {
       period: 'hour',
       limitValue: 30,
       enabled: true,
+      userId: 'user_1',
+      quotaMode: 'user',
+      maxConcurrentRequests: 4,
+      windowSeconds: 3600,
+      maxTokensPerWindow: 30,
+      maxTokensPerRequest: 20,
     }));
     expect(screen.getByDisplayValue('user_1')).toBeInTheDocument();
   });

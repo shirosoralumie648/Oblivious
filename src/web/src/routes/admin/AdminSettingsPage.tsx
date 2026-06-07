@@ -69,6 +69,8 @@ type UsageLimitFormPayload = {
   enabled: boolean;
 };
 
+type UsageLimitUpdatePayload = UsageLimitSettings & UsageLimitFormPayload;
+
 function prettyMap(input: Record<string, number> | undefined) {
   return JSON.stringify(input ?? {}, null, 2);
 }
@@ -122,7 +124,16 @@ function usageScopeId(settings: UsageLimitSettings): string {
 
 function usageLimitType(settings: UsageLimitSettings): string {
   const editable = settings as EditableUsageLimitSettings;
-  return editable.limitType ?? editable.limit_type ?? 'tokens';
+  if (editable.limitType || editable.limit_type) {
+    return editable.limitType ?? editable.limit_type ?? 'tokens';
+  }
+  if ((settings.maxTokensPerRequest ?? 0) > 0) {
+    return 'request_tokens';
+  }
+  if ((settings.maxConcurrentRequests ?? 0) > 0 && (settings.maxTokensPerWindow ?? 0) <= 0) {
+    return 'concurrent_requests';
+  }
+  return 'tokens';
 }
 
 function usageLimitPeriod(settings: UsageLimitSettings): string {
@@ -132,7 +143,18 @@ function usageLimitPeriod(settings: UsageLimitSettings): string {
 
 function usageLimitValue(settings: UsageLimitSettings): number {
   const editable = settings as EditableUsageLimitSettings;
-  return editable.limitValue ?? editable.limit_value ?? settings.maxTokensPerWindow ?? settings.maxConcurrentRequests;
+  const explicitValue = editable.limitValue ?? editable.limit_value;
+  if (explicitValue !== undefined) {
+    return explicitValue;
+  }
+  switch (usageLimitType(settings)) {
+    case 'request_tokens':
+      return settings.maxTokensPerRequest ?? 0;
+    case 'concurrent_requests':
+      return settings.maxConcurrentRequests;
+    default:
+      return settings.maxTokensPerWindow;
+  }
 }
 
 function usageLimitEnabled(settings: UsageLimitSettings): boolean {
@@ -156,6 +178,43 @@ function usageQuotaModeLabel(settings: UsageLimitSettings): string {
 
 function usageEditLabel(settings: UsageLimitSettings): string {
   return `Edit ${usageScopeLabel(settings)} ${usageLimitType(settings)} ${usageLimitPeriod(settings)}`;
+}
+
+function usageLimitPayload(input: UsageLimitFormPayload, existing?: UsageLimitSettings): UsageLimitUpdatePayload {
+  const payload: UsageLimitUpdatePayload = {
+    ...input,
+    userId: input.scopeType === 'user' ? input.scopeId : undefined,
+    quotaMode: input.scopeType === 'user' ? 'user' : 'organization',
+    maxConcurrentRequests: existing?.maxConcurrentRequests ?? 0,
+    windowSeconds: usagePeriodSeconds(input.period),
+    maxTokensPerWindow: existing?.maxTokensPerWindow ?? 0,
+    maxTokensPerRequest: existing?.maxTokensPerRequest ?? 0,
+  };
+  switch (input.limitType) {
+    case 'concurrent_requests':
+      payload.maxConcurrentRequests = input.limitValue;
+      break;
+    case 'request_tokens':
+      payload.maxTokensPerRequest = input.limitValue;
+      break;
+    default:
+      payload.maxTokensPerWindow = input.limitValue;
+      break;
+  }
+  return payload;
+}
+
+function usagePeriodSeconds(period: string): number {
+  switch (period) {
+    case 'hour':
+      return 3600;
+    case 'day':
+      return 86400;
+    case 'month':
+      return 2592000;
+    default:
+      return 60;
+  }
 }
 
 export function AdminSettingsPage() {
@@ -225,7 +284,7 @@ export function AdminSettingsPage() {
         limitValue: parsePositiveInteger('Limit value', state.usageLimitValue),
         enabled: state.usageEnabled,
       };
-      const updated = await api.updateUsageLimitSettings(input as unknown as UsageLimitSettings);
+      const updated = await api.updateUsageLimitSettings(usageLimitPayload(input, selectedLimit));
       setState((current) => {
         const updatedKey = usageScopeKey(updated);
         const previousKey = current.selectedUsageLimitKey;
@@ -398,6 +457,7 @@ export function AdminSettingsPage() {
               onChange={(event) => setState((current) => ({ ...current, usageLimitType: event.target.value, saved: null }))}
             >
               <option value="tokens">tokens</option>
+              <option value="request_tokens">request_tokens</option>
               <option value="requests">requests</option>
               <option value="concurrent_requests">concurrent_requests</option>
               <option value="workspace_chat">workspace_chat</option>

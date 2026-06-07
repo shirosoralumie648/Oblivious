@@ -60,6 +60,11 @@ func (l *RedisRateLimiter) Allow(ctx context.Context, key Key, limits Limits, us
 	if err := l.ensureClient(); err != nil {
 		return err
 	}
+	requestTokens := requestTokensFromUsage(usage)
+	if limits.MaxTokensPerRequest > 0 && requestTokens > limits.MaxTokensPerRequest {
+		return limitError(key, DimensionRequestTokens, limits.MaxTokensPerRequest, requestTokens, 0, 0)
+	}
+
 	if limits.RPM > 0 {
 		decision, err := l.runDecisionScript(ctx, redisRPMScript, DimensionRPM, limits.RPM, l.redisKey("rpm", key), limits.RPM, millis(l.window), uniqueRedisMember())
 		if err != nil {
@@ -115,6 +120,11 @@ func (l *RedisRateLimiter) Check(ctx context.Context, key Key, limits Limits, us
 	if err := l.ensureClient(); err != nil {
 		return Decision{Allowed: false}
 	}
+	requestTokens := requestTokensFromUsage(usage)
+	if limits.MaxTokensPerRequest > 0 && requestTokens > limits.MaxTokensPerRequest {
+		return Decision{Allowed: false, Dimension: DimensionRequestTokens, Limit: limits.MaxTokensPerRequest, Current: requestTokens}
+	}
+
 	if limits.RPM > 0 {
 		decision, err := l.runDecisionScript(ctx, redisRPMCheckScript, DimensionRPM, limits.RPM, l.redisKey("rpm", key), limits.RPM, millis(l.window))
 		if err != nil || !decision.Allowed {

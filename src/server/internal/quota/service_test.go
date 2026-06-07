@@ -512,6 +512,31 @@ func TestQuotaTokenRateLimitUsesOrganizationAndUserWindow(t *testing.T) {
 	}
 }
 
+func TestQuotaRequestTokenLimitRejectsOversizedSingleRequestWithoutConsumingWindow(t *testing.T) {
+	store := newFakeStore()
+	svc := NewService(store, WithRateLimiter(ratelimit.NewInMemoryRateLimiter(ratelimit.InMemoryOptions{})))
+	ctx := context.Background()
+	limit := UsageLimit{
+		OrganizationID:      "org_1",
+		UserID:              "user_1",
+		MaxTokensPerWindow:  100,
+		MaxTokensPerRequest: 20,
+	}
+
+	err := svc.ReserveUsageTokens(ctx, limit, 25)
+	if !errors.Is(err, ErrUsageLimited) {
+		t.Fatalf("oversized request err = %v, want ErrUsageLimited", err)
+	}
+	var usageErr *UsageLimitError
+	if !errors.As(err, &usageErr) || usageErr.Dimension != UsageLimitDimensionRequestTokens {
+		t.Fatalf("expected request-token UsageLimitError, got %#v", err)
+	}
+
+	if err := svc.ReserveUsageTokens(ctx, limit, 10); err != nil {
+		t.Fatalf("valid request should pass after oversized request was rejected without consuming token window: %v", err)
+	}
+}
+
 func TestQuotaUsageLimitSettingsResolveUserOverrideWithOrganizationFallback(t *testing.T) {
 	store := newFakeStore()
 	svc := NewService(store)
@@ -522,6 +547,7 @@ func TestQuotaUsageLimitSettingsResolveUserOverrideWithOrganizationFallback(t *t
 		MaxConcurrentRequests: 10,
 		WindowSeconds:         60,
 		MaxTokensPerWindow:    1000,
+		MaxTokensPerRequest:   250,
 	})
 	if err != nil {
 		t.Fatalf("save organization usage limit settings: %v", err)
@@ -536,6 +562,7 @@ func TestQuotaUsageLimitSettingsResolveUserOverrideWithOrganizationFallback(t *t
 		MaxConcurrentRequests: 2,
 		WindowSeconds:         30,
 		MaxTokensPerWindow:    200,
+		MaxTokensPerRequest:   75,
 	})
 	if err != nil {
 		t.Fatalf("save user usage limit settings: %v", err)
@@ -548,7 +575,7 @@ func TestQuotaUsageLimitSettingsResolveUserOverrideWithOrganizationFallback(t *t
 	if err != nil {
 		t.Fatalf("resolve user usage limit: %v", err)
 	}
-	if userLimit.MaxConcurrentRequests != 2 || userLimit.MaxTokensPerWindow != 200 {
+	if userLimit.MaxConcurrentRequests != 2 || userLimit.MaxTokensPerWindow != 200 || userLimit.MaxTokensPerRequest != 75 {
 		t.Fatalf("expected user override limits, got %+v", userLimit)
 	}
 
@@ -556,7 +583,7 @@ func TestQuotaUsageLimitSettingsResolveUserOverrideWithOrganizationFallback(t *t
 	if err != nil {
 		t.Fatalf("resolve organization fallback usage limit: %v", err)
 	}
-	if orgLimit.UserID != "" || orgLimit.MaxConcurrentRequests != 10 || orgLimit.MaxTokensPerWindow != 1000 {
+	if orgLimit.UserID != "" || orgLimit.MaxConcurrentRequests != 10 || orgLimit.MaxTokensPerWindow != 1000 || orgLimit.MaxTokensPerRequest != 250 {
 		t.Fatalf("expected organization-scoped fallback limits, got %+v", orgLimit)
 	}
 
@@ -607,13 +634,19 @@ func TestQuotaUsageLimitSettingsValidationAndDefaults(t *testing.T) {
 	}); err == nil || !strings.Contains(err.Error(), "quota_mode must be organization or user") {
 		t.Fatalf("expected quota mode validation error, got %v", err)
 	}
+	if _, err := svc.SaveUsageLimitSettings(ctx, UsageLimitSettings{
+		OrganizationID:      "org_1",
+		MaxTokensPerRequest: -1,
+	}); err == nil || !strings.Contains(err.Error(), "max_tokens_per_request must be non-negative") {
+		t.Fatalf("expected request token limit validation error, got %v", err)
+	}
 
 	saved, err := svc.SaveUsageLimitSettings(ctx, UsageLimitSettings{
-		OrganizationID:     "org_1",
-		MaxTokensPerWindow: 500,
+		OrganizationID:      "org_1",
+		MaxTokensPerRequest: 500,
 	})
 	if err != nil {
-		t.Fatalf("save token usage limit with default window: %v", err)
+		t.Fatalf("save request token usage limit with default window: %v", err)
 	}
 	if saved.WindowSeconds != defaultUsageLimitWindowSeconds {
 		t.Fatalf("expected default token window %d seconds, got %d", defaultUsageLimitWindowSeconds, saved.WindowSeconds)
@@ -631,6 +664,7 @@ func TestSQLStoreUsageLimitSettingsRoundTrip(t *testing.T) {
 		MaxConcurrentRequests: 8,
 		WindowSeconds:         60,
 		MaxTokensPerWindow:    900,
+		MaxTokensPerRequest:   250,
 	}); err != nil {
 		t.Fatalf("save organization SQL usage limit settings: %v", err)
 	}
@@ -640,6 +674,7 @@ func TestSQLStoreUsageLimitSettingsRoundTrip(t *testing.T) {
 		MaxConcurrentRequests: 3,
 		WindowSeconds:         45,
 		MaxTokensPerWindow:    300,
+		MaxTokensPerRequest:   75,
 	}); err != nil {
 		t.Fatalf("save user SQL usage limit settings: %v", err)
 	}
@@ -648,7 +683,7 @@ func TestSQLStoreUsageLimitSettingsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve SQL user settings: %v", err)
 	}
-	if userLimit.MaxConcurrentRequests != 3 || userLimit.WindowSeconds != 45 || userLimit.MaxTokensPerWindow != 300 {
+	if userLimit.MaxConcurrentRequests != 3 || userLimit.WindowSeconds != 45 || userLimit.MaxTokensPerWindow != 300 || userLimit.MaxTokensPerRequest != 75 {
 		t.Fatalf("expected SQL user override settings, got %+v", userLimit)
 	}
 	if userLimit.QuotaMode != "user" {
@@ -659,7 +694,7 @@ func TestSQLStoreUsageLimitSettingsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve SQL organization fallback settings: %v", err)
 	}
-	if orgLimit.MaxConcurrentRequests != 8 || orgLimit.MaxTokensPerWindow != 900 {
+	if orgLimit.MaxConcurrentRequests != 8 || orgLimit.MaxTokensPerWindow != 900 || orgLimit.MaxTokensPerRequest != 250 {
 		t.Fatalf("expected SQL organization fallback settings, got %+v", orgLimit)
 	}
 	if orgLimit.QuotaMode != "organization" {

@@ -62,6 +62,27 @@ func TestRedisRateLimiterRPMReturnsRateLimitedDecision(t *testing.T) {
 	}
 }
 
+func TestRedisRateLimiterRequestTokenLimitRejectsOversizedSingleRequestWithoutConsumingWindow(t *testing.T) {
+	client := newFakeRedisRateLimitClient()
+	limiter := NewRedisRateLimiter(client, RedisOptions{})
+	ctx := context.Background()
+	key := Key{ChannelID: "ch_1", Model: "gpt-5", TokenID: "tok_1"}
+	limits := Limits{RPM: 1, TPM: 100, MaxTokensPerRequest: 20}
+
+	err := limiter.Allow(ctx, key, limits, Usage{Tokens: 25})
+	if !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("oversized request err = %v, want ErrRateLimited", err)
+	}
+	var limitErr *LimitError
+	if !errors.As(err, &limitErr) || limitErr.Dimension != DimensionRequestTokens {
+		t.Fatalf("oversized request err = %#v, want request-token LimitError", err)
+	}
+
+	if err := limiter.Allow(ctx, key, limits, Usage{Tokens: 10}); err != nil {
+		t.Fatalf("valid request should pass after oversized request was rejected without consuming RPM/TPM: %v", err)
+	}
+}
+
 func TestRedisRateLimiterBeginEndManagesConcurrency(t *testing.T) {
 	client := newFakeRedisRateLimitClient()
 	limiter := NewRedisRateLimiter(client, RedisOptions{})

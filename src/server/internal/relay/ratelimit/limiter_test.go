@@ -65,6 +65,29 @@ func TestInMemoryRateLimiterTPMUsesSixtySecondAccumulator(t *testing.T) {
 	}
 }
 
+func TestInMemoryRateLimiterRequestTokenLimitRejectsOversizedSingleRequestWithoutConsumingWindow(t *testing.T) {
+	limiter := NewInMemoryRateLimiter(InMemoryOptions{})
+	ctx := context.Background()
+	limits := Limits{RPM: 1, TPM: 100, MaxTokensPerRequest: 20}
+	key := Key{ChannelID: "ch_1", Model: "gpt-5", TokenID: "tok_1"}
+
+	err := limiter.Allow(ctx, key, limits, Usage{Tokens: 25})
+	if !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("oversized request err = %v, want ErrRateLimited", err)
+	}
+	var limitErr *LimitError
+	if !errors.As(err, &limitErr) || limitErr.Dimension != DimensionRequestTokens {
+		t.Fatalf("err = %#v, want request-token LimitError", err)
+	}
+	if limitErr.Limit != 20 || limitErr.Current != 25 || limitErr.Remaining != 0 {
+		t.Fatalf("limit decision = %#v, want current request tokens without remaining budget", limitErr.Decision)
+	}
+
+	if err := limiter.Allow(ctx, key, limits, Usage{Tokens: 10}); err != nil {
+		t.Fatalf("valid request should pass after oversized request was rejected without consuming RPM/TPM: %v", err)
+	}
+}
+
 func TestInMemoryRateLimiterConcurrentBeginEnd(t *testing.T) {
 	limiter := NewInMemoryRateLimiter(InMemoryOptions{})
 	ctx := context.Background()

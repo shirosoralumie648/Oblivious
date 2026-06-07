@@ -97,6 +97,7 @@ export type UsageLimitSettings = {
   maxConcurrentRequests: number;
   windowSeconds: number;
   maxTokensPerWindow: number;
+  maxTokensPerRequest?: number;
   updatedAt?: string;
 };
 

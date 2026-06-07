@@ -16,9 +16,10 @@ var ErrRateLimited = errors.New("relay rate limit exceeded")
 type Dimension string
 
 const (
-	DimensionRPM        Dimension = "rpm"
-	DimensionTPM        Dimension = "tpm"
-	DimensionConcurrent Dimension = "concurrent"
+	DimensionRPM           Dimension = "rpm"
+	DimensionTPM           Dimension = "tpm"
+	DimensionConcurrent    Dimension = "concurrent"
+	DimensionRequestTokens Dimension = "request_tokens"
 )
 
 type Key struct {
@@ -28,13 +29,15 @@ type Key struct {
 }
 
 type Limits struct {
-	RPM           int
-	TPM           int
-	MaxConcurrent int
+	RPM                 int
+	TPM                 int
+	MaxConcurrent       int
+	MaxTokensPerRequest int
 }
 
 type Usage struct {
-	Tokens int
+	Tokens        int
+	RequestTokens int
 }
 
 type Decision struct {
@@ -107,6 +110,11 @@ func (l *InMemoryRateLimiter) Allow(ctx context.Context, key Key, limits Limits,
 	defer l.mu.Unlock()
 
 	now := l.clock().UTC()
+	requestTokens := requestTokensFromUsage(usage)
+	if limits.MaxTokensPerRequest > 0 && requestTokens > limits.MaxTokensPerRequest {
+		return limitError(key, DimensionRequestTokens, limits.MaxTokensPerRequest, requestTokens, 0, 0)
+	}
+
 	if limits.RPM > 0 {
 		rpmKey := counterKey("rpm", key)
 		events := pruneEvents(l.rpmEvents[rpmKey], now, defaultWindow)
@@ -175,6 +183,11 @@ func (l *InMemoryRateLimiter) Check(ctx context.Context, key Key, limits Limits,
 	defer l.mu.Unlock()
 
 	now := l.clock().UTC()
+	requestTokens := requestTokensFromUsage(usage)
+	if limits.MaxTokensPerRequest > 0 && requestTokens > limits.MaxTokensPerRequest {
+		return Decision{Allowed: false, Dimension: DimensionRequestTokens, Limit: limits.MaxTokensPerRequest, Current: requestTokens}
+	}
+
 	if limits.RPM > 0 {
 		events := pruneEvents(l.rpmEvents[counterKey("rpm", key)], now, defaultWindow)
 		if len(events)+1 > limits.RPM {
@@ -245,4 +258,15 @@ func maxInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func requestTokensFromUsage(usage Usage) int {
+	tokens := usage.RequestTokens
+	if tokens == 0 {
+		tokens = usage.Tokens
+	}
+	if tokens < 0 {
+		return 0
+	}
+	return tokens
 }

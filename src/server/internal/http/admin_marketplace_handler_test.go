@@ -296,6 +296,7 @@ func TestAdminHandlerManagesUsageLimitSettings(t *testing.T) {
 			MaxConcurrentRequests: 10,
 			WindowSeconds:         60,
 			MaxTokensPerWindow:    1000,
+			MaxTokensPerRequest:   250,
 		}},
 	}
 	handler := newAdminHandlerWithQuota(admin.NewService(&fakeAdminStore{}), quotaService)
@@ -315,6 +316,7 @@ func TestAdminHandlerManagesUsageLimitSettings(t *testing.T) {
 	}
 	if !strings.Contains(listRecorder.Body.String(), `"maxConcurrentRequests":10`) ||
 		!strings.Contains(listRecorder.Body.String(), `"maxTokensPerWindow":1000`) ||
+		!strings.Contains(listRecorder.Body.String(), `"maxTokensPerRequest":250`) ||
 		!strings.Contains(listRecorder.Body.String(), `"quotaMode":"organization"`) {
 		t.Fatalf("expected usage limit settings in response, got %s", listRecorder.Body.String())
 	}
@@ -324,7 +326,8 @@ func TestAdminHandlerManagesUsageLimitSettings(t *testing.T) {
 		"quotaMode": "user",
 		"maxConcurrentRequests": 3,
 		"windowSeconds": 30,
-		"maxTokensPerWindow": 300
+		"maxTokensPerWindow": 300,
+		"maxTokensPerRequest": 75
 	}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, adminSession))
 	updateRecorder := httptest.NewRecorder()
 	handler.updateUsageLimitSettings(updateRecorder, updateRequest)
@@ -338,7 +341,7 @@ func TestAdminHandlerManagesUsageLimitSettings(t *testing.T) {
 	if quotaService.saved.QuotaMode != "user" {
 		t.Fatalf("expected update to preserve quota mode, got %+v", quotaService.saved)
 	}
-	if quotaService.saved.MaxConcurrentRequests != 3 || quotaService.saved.WindowSeconds != 30 || quotaService.saved.MaxTokensPerWindow != 300 {
+	if quotaService.saved.MaxConcurrentRequests != 3 || quotaService.saved.WindowSeconds != 30 || quotaService.saved.MaxTokensPerWindow != 300 || quotaService.saved.MaxTokensPerRequest != 75 {
 		t.Fatalf("unexpected saved usage limit settings: %+v", quotaService.saved)
 	}
 }
