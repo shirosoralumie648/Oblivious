@@ -114,6 +114,36 @@ func TestRouterRouteWithFallbackRetriesRetryableProviderResponse(t *testing.T) {
 	}
 }
 
+func TestRouterRouteWithFallbackRetriesFirstRetryableProviderResponseImmediately(t *testing.T) {
+	pool := NewChannelPool()
+	pool.AddChannel(&types.Channel{ID: "a", BaseURL: "http://a", Enabled: true}, 1)
+
+	router := NewRouter(pool, NewLoadBalancer(pool, "weighted"), nil, nil, NewHealthChecker(HealthCheckDisabled, 5*time.Second))
+	var sleeps []time.Duration
+	router.retrySleep = func(d time.Duration) {
+		sleeps = append(sleeps, d)
+	}
+
+	callCount := 0
+	resp, err := router.RouteWithFallback(context.Background(), "chat", 2, func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
+		callCount++
+		if callCount == 1 {
+			return &types.ProviderResponse{StatusCode: http.StatusServiceUnavailable}, nil
+		}
+		return types.NewOKResponse([]byte(`{"ok":true}`), nil), nil
+	})
+
+	if err != nil {
+		t.Fatalf("RouteWithFallback returned error: %v", err)
+	}
+	if resp == nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected retry to return successful response, got %+v", resp)
+	}
+	if len(sleeps) != 1 || sleeps[0] != 0 {
+		t.Fatalf("expected first retry to use immediate production backoff, got %v", sleeps)
+	}
+}
+
 func TestRouterRouteWithBillingRetries5xxAcrossChannelsAndUpdatesConversationAffinity(t *testing.T) {
 	router, affinityStore := newRetryAffinityTestRouter()
 	ctx := types.WithTrustedConversationID(context.Background(), "conv_5xx")

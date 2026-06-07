@@ -37,6 +37,7 @@ type Router struct {
 	quotaManager         QuotaManager
 	apiTokenQuotaManager APITokenQuotaManager
 	usageLogger          UsageLogger
+	retrySleep           func(time.Duration)
 }
 
 func NewRouter(
@@ -172,11 +173,7 @@ func (r *Router) RouteWithFallback(
 		}
 
 		if resp != nil && IsRetryable(resp.StatusCode) && attempt < attempts {
-			backoff := time.Duration(attempt*attempt) * 200 * time.Millisecond
-			if backoff > 5*time.Second {
-				backoff = 5 * time.Second
-			}
-			time.Sleep(backoff)
+			r.sleepBeforeRetry(attempt)
 		}
 	}
 
@@ -509,7 +506,12 @@ func (r *Router) RouteWithBilling(
 }
 
 func (r *Router) sleepBeforeRetry(attempt int) {
-	time.Sleep(routeRetryBackoff(attempt))
+	backoff := routeRetryBackoff(attempt)
+	if r.retrySleep != nil {
+		r.retrySleep(backoff)
+		return
+	}
+	time.Sleep(backoff)
 }
 
 func routeRetryBackoff(attempt int) time.Duration {

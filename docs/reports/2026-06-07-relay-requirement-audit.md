@@ -51,7 +51,7 @@ Status values:
 | 400 returns directly to the user without retry. | Proven | `IsRetryable` excludes 400 and `RouteWithBilling` returns non-retryable provider responses directly. |
 | Maximum retry count is 3 cross-channel retries. | Proven | `maxRouteBillingAttempts` is 4 total attempts; `TestRouterRouteWithBillingAllowsThreeCrossChannelRetries` proves primary plus three retry channels. |
 | Backoff is immediate, 1s, then 3s. | Proven | `routeRetryBackoff` returns `0`, `1s`, and `3s`; billing failover path uses `sleepBeforeRetry`. |
-| Legacy `RouteWithFallback` follows the same backoff contract. | Gap | The older non-billing helper still uses quadratic `200ms`, `800ms`, etc. The production billing route is aligned with the functional logic, but the helper is not. |
+| Legacy `RouteWithFallback` follows the same backoff contract. | Proven | `RouteWithFallback` now uses `sleepBeforeRetry`, the same helper as the production billing path. `TestRouterRouteWithFallbackRetriesFirstRetryableProviderResponseImmediately` proves the first retryable provider response uses the immediate production backoff instead of the old quadratic delay. |
 
 ## 1.5 Semantic Cache
 
@@ -77,8 +77,7 @@ Status values:
 
 The repository-owned Relay path now proves the core Functional Logic 1.1-1.5 behavior for weighted round-robin, adaptive selection, conversation affinity, cross-channel failover, RPM/TPM local enforcement, passive 429 handling, and public/private semantic cache policy.
 
-The row remains `Partial`, not `Proven`, because three requirements still need work or explicit boundary decisions:
+The row remains `Partial`, not `Proven`, because two requirements still need work or explicit boundary decisions:
 
 1. Add a 90% local RPM/TPM soft-threshold signal that lowers channel weight before hard rejection.
-2. Either align legacy `RouteWithFallback` backoff with the production billing path or document it as non-production.
-3. Decide whether semantic cache similarity thresholds must be changed to the spec's `0.85`, and whether all 100+ provider entries must be callable adapters rather than planned catalog entries.
+2. Decide whether semantic cache similarity thresholds must be changed to the spec's `0.85`, and whether all 100+ provider entries must be callable adapters rather than planned catalog entries.
