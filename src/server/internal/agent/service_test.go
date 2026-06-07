@@ -504,6 +504,7 @@ func (s *fakeStore) CreateMemory(ctx context.Context, req *CreateMemoryStoreRequ
 		AgentID:        req.AgentID,
 		Type:           req.Type,
 		Content:        req.Content,
+		Importance:     req.Importance,
 		Metadata:       copyMetadata(req.Metadata),
 		ExpiresAt:      req.ExpiresAt,
 		CreatedAt:      now,
@@ -2662,6 +2663,67 @@ func TestRunWithToolsRecordsMemoryEvidence(t *testing.T) {
 	run := store.runs[0]
 	if !run.MemoryEnabled || !run.MemorySearched || run.MemoryResultCount != 2 {
 		t.Fatalf("expected memory evidence on run, got %+v", run)
+	}
+}
+
+func TestRunWithToolsStoresLongTermInteractionMemoryWhenEnabled(t *testing.T) {
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+			Config:         Config{EnableMemory: true},
+		},
+		conversation: &Conversation{
+			ID:             "conv_1",
+			AgentID:        "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+		},
+	}
+	gateway := &fakeGateway{
+		structured: []*chat.CompletionResponse{
+			{Content: "Use the tenant-safe migration guard.", FinishReason: "stop"},
+		},
+	}
+	embedder := &fakeAgentMemoryEmbedder{
+		embeddings: map[string][]float32{
+			"User: What should we remember about migrations?\nAssistant: Use the tenant-safe migration guard.": {0.4, 0.6},
+		},
+	}
+	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+	runner.SetMemoryEmbedder(embedder)
+
+	_, err := runner.RunWithTools(
+		context.Background(),
+		auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}},
+		store.agent,
+		store.conversation.ID,
+		"What should we remember about migrations?",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("RunWithTools returned error: %v", err)
+	}
+	if len(store.memories) != 1 {
+		t.Fatalf("expected one automatic long-term memory, got %+v", store.memories)
+	}
+	created := store.memories[0]
+	if created.Type != MemoryTypeLongTerm || created.AgentID != "agent_1" || created.UserID != "user_1" || created.OrganizationID != "org_1" {
+		t.Fatalf("expected scoped long-term agent memory, got %+v", created)
+	}
+	if created.Content != "User: What should we remember about migrations?\nAssistant: Use the tenant-safe migration guard." {
+		t.Fatalf("unexpected automatic memory content: %q", created.Content)
+	}
+	if created.Importance != 3 || created.Metadata["source"] != "agent_run" || created.Metadata["conversation_id"] != "conv_1" {
+		t.Fatalf("expected automatic memory metadata and default importance, got %+v", created)
+	}
+	if !reflect.DeepEqual(store.createMemoryEmbedding, []float32{0.4, 0.6}) {
+		t.Fatalf("expected embedded automatic memory, got %+v", store.createMemoryEmbedding)
+	}
+	if len(embedder.texts) == 0 || embedder.texts[len(embedder.texts)-1] != created.Content {
+		t.Fatalf("expected automatic memory content to be embedded, got %+v", embedder.texts)
 	}
 }
 

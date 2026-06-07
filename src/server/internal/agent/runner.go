@@ -369,6 +369,7 @@ func (r *Runner) Run(ctx context.Context, session auth.Session, agent *Agent, co
 		}
 
 		result.Message = assistantMsg
+		r.storeLongTermInteractionMemory(ctx, session, agent, conversationID, userContent, reply)
 		break
 	}
 
@@ -762,6 +763,7 @@ func (r *Runner) RunWithTools(ctx context.Context, session auth.Session, agent *
 			return nil, err
 		}
 		result.Message = assistantMsg
+		r.storeLongTermInteractionMemory(ctx, session, agent, conversationID, userContent, reply)
 		return result, nil
 	}
 
@@ -916,6 +918,7 @@ func (r *Runner) RunWithTools(ctx context.Context, session auth.Session, agent *
 		if err := r.completeRun(ctx, session.OrganizationID, run.ID, iteration+1, result.ToolCalls, assistantMsg.ID); err != nil {
 			return nil, err
 		}
+		r.storeLongTermInteractionMemory(ctx, session, agent, conversationID, userContent, reply.Content)
 
 		// Stream the final answer in word-level chunks when the caller
 		// provided a streaming callback.  We already have the full
@@ -977,6 +980,7 @@ func (r *Runner) ResumeAfterApprovedTool(ctx context.Context, session auth.Sessi
 		if err := r.completeRun(ctx, session.OrganizationID, run.ID, run.IterationCount+1, run.ToolCallCount, assistantMsg.ID); err != nil {
 			return nil, err
 		}
+		r.storeLongTermInteractionMemory(ctx, session, agent, run.ConversationID, lastUserMessageContent(messages), reply)
 		return result, nil
 	}
 
@@ -1004,6 +1008,7 @@ func (r *Runner) ResumeAfterApprovedTool(ctx context.Context, session auth.Sessi
 	if err := r.completeRun(ctx, session.OrganizationID, run.ID, run.IterationCount+1, run.ToolCallCount, assistantMsg.ID); err != nil {
 		return nil, err
 	}
+	r.storeLongTermInteractionMemory(ctx, session, agent, run.ConversationID, lastUserMessageContent(messages), reply.Content)
 	return result, nil
 }
 
@@ -1036,6 +1041,47 @@ func (r *Runner) completeRun(ctx context.Context, organizationID, runID string, 
 	}
 	recordAgentRunMetrics(RunStatusCompleted, iterationCount)
 	return nil
+}
+
+func (r *Runner) storeLongTermInteractionMemory(ctx context.Context, session auth.Session, agent *Agent, conversationID, userContent, assistantContent string) {
+	if r == nil || r.store == nil || agent == nil || !agent.Config.EnableMemory {
+		return
+	}
+	userContent = strings.TrimSpace(userContent)
+	assistantContent = strings.TrimSpace(assistantContent)
+	if userContent == "" || assistantContent == "" {
+		return
+	}
+	content := fmt.Sprintf("User: %s\nAssistant: %s", userContent, assistantContent)
+	req := &CreateMemoryStoreRequest{
+		OrganizationID: session.OrganizationID,
+		UserID:         session.User.ID,
+		AgentID:        agent.ID,
+		Type:           MemoryTypeLongTerm,
+		Content:        content,
+		Importance:     3,
+		Metadata: map[string]any{
+			"source":          "agent_run",
+			"conversation_id": conversationID,
+		},
+	}
+	if r.memoryEmbedder != nil {
+		embedding, err := r.memoryEmbedder.Embed(withSessionRelayMetadata(ctx, session), content)
+		if err != nil {
+			return
+		}
+		req.Embedding = embedding
+	}
+	_, _ = r.store.CreateMemory(ctx, req)
+}
+
+func lastUserMessageContent(messages []*Message) string {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i] != nil && messages[i].Role == "user" {
+			return messages[i].Content
+		}
+	}
+	return ""
 }
 
 func (r *Runner) failRun(ctx context.Context, organizationID, runID, message string, iterationCount, toolCallCount int) error {
