@@ -369,6 +369,35 @@ func TestSettlementPayoutStateIsLocalOnly(t *testing.T) {
 	}
 }
 
+func TestSettlementMarkPayoutPendingDispatchesConfiguredProvider(t *testing.T) {
+	database := settlementTestDB(t)
+	provider := &fakeMarketplacePayoutProvider{name: "stripe_connect", providerPayoutID: "po_provider_1"}
+	service := NewSettlementService(NewSQLStore(database), WithMarketplacePayoutProvider(provider))
+
+	insertSettlementUserOrg(t, database, "buyer_user", "buyer_org")
+	insertSettlementUserOrg(t, database, "publisher_user", "publisher_org")
+	insertSettlementAgent(t, database, "agent_paid", "publisher_user", "publisher_org", "one_time", 50)
+	settlementID := createAvailableSettlement(t, service, database, "agent_paid", "buyer_org", "buyer_user", time.Now().Add(-time.Hour))
+
+	payout, err := service.MarkSettlementPayoutPending(context.Background(), settlementID, "")
+	if err != nil {
+		t.Fatalf("MarkSettlementPayoutPending returned error: %v", err)
+	}
+
+	if provider.callCount != 1 {
+		t.Fatalf("expected configured payout provider to be called once, got %d", provider.callCount)
+	}
+	if provider.lastRequest.PayoutID != payout.ID || provider.lastRequest.PublisherOrganizationID != "publisher_org" || provider.lastRequest.PublisherUserID != "publisher_user" {
+		t.Fatalf("unexpected provider payout request: %#v for payout %#v", provider.lastRequest, payout)
+	}
+	if provider.lastRequest.Amount != 40 || provider.lastRequest.Currency != "usd" {
+		t.Fatalf("expected provider payout request amount 40 usd, got %#v", provider.lastRequest)
+	}
+	if payout.Provider != "stripe_connect" || payout.ProviderPayoutID != "po_provider_1" || payout.Status != "payout_pending" {
+		t.Fatalf("expected payout to record provider dispatch, got %#v", payout)
+	}
+}
+
 func TestSettlementMarkPayoutPaidUpdatesPayoutAndSettlementsOnce(t *testing.T) {
 	database := settlementTestDB(t)
 	service := NewSettlementService(NewSQLStore(database))
@@ -469,6 +498,41 @@ func TestSettlementCreateDuePayoutsAggregatesAvailableSettlementsOnce(t *testing
 	}
 }
 
+func TestSettlementCreateDuePayoutsDispatchesConfiguredProvider(t *testing.T) {
+	database := settlementTestDB(t)
+	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
+	provider := &fakeMarketplacePayoutProvider{name: "stripe_connect", providerPayoutID: "po_batch_1"}
+	service := NewSettlementService(NewSQLStore(database), WithMarketplaceMinimumSettlement(50, 0), WithMarketplacePayoutProvider(provider))
+
+	insertSettlementUserOrg(t, database, "buyer_user", "buyer_org")
+	insertSettlementUserOrg(t, database, "publisher_user", "publisher_org")
+	insertSettlementAgent(t, database, "agent_paid", "publisher_user", "publisher_org", "one_time", 50)
+
+	firstDue := createAvailableSettlement(t, service, database, "agent_paid", "buyer_org", "buyer_user", now.Add(-time.Hour))
+	secondDue := createAvailableSettlement(t, service, database, "agent_paid", "buyer_org", "buyer_user", now.Add(-time.Hour))
+
+	payouts, err := service.CreateDuePayouts(context.Background(), now)
+	if err != nil {
+		t.Fatalf("CreateDuePayouts returned error: %v", err)
+	}
+	if len(payouts) != 1 {
+		t.Fatalf("expected one provider-dispatched payout, got %d: %#v", len(payouts), payouts)
+	}
+	payout := payouts[0]
+	if provider.callCount != 1 {
+		t.Fatalf("expected configured payout provider to be called once, got %d", provider.callCount)
+	}
+	if provider.lastRequest.PayoutID != payout.ID || provider.lastRequest.Amount != 80 || provider.lastRequest.Currency != "usd" {
+		t.Fatalf("unexpected provider batch payout request: %#v for payout %#v", provider.lastRequest, payout)
+	}
+	if len(provider.lastRequest.SettlementIDs) != 2 || provider.lastRequest.SettlementIDs[0] != firstDue || provider.lastRequest.SettlementIDs[1] != secondDue {
+		t.Fatalf("expected provider request to include due settlement ids [%s %s], got %#v", firstDue, secondDue, provider.lastRequest.SettlementIDs)
+	}
+	if payout.Provider != "stripe_connect" || payout.ProviderPayoutID != "po_batch_1" || payout.Status != "payout_pending" {
+		t.Fatalf("expected payout to record provider dispatch, got %#v", payout)
+	}
+}
+
 func TestSettlementPublisherStatsIncludesSettlementAmounts(t *testing.T) {
 	database := settlementTestDB(t)
 	settlementService := NewSettlementService(NewSQLStore(database))
@@ -559,11 +623,13 @@ func settlementTestDB(t *testing.T) *sql.DB {
 		`DROP TABLE IF EXISTS agent_installs CASCADE`,
 		`DROP TABLE IF EXISTS agent_versions CASCADE`,
 		`DROP TABLE IF EXISTS published_agents CASCADE`,
+		`DROP TABLE IF EXISTS categories CASCADE`,
 		`DROP TABLE IF EXISTS organizations CASCADE`,
 		`DROP TABLE IF EXISTS users CASCADE`,
 		`CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'user', name TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE organizations (id TEXT PRIMARY KEY, slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', metadata JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
-		`CREATE TABLE published_agents (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, name TEXT NOT NULL, description TEXT NOT NULL, icon_url TEXT, category_id TEXT, tags TEXT[] NOT NULL DEFAULT '{}', tools JSONB, example_conversations JSONB, system_prompt TEXT, visibility TEXT NOT NULL DEFAULT 'public', status TEXT NOT NULL DEFAULT 'approved', review_reason TEXT, pricing_type TEXT NOT NULL DEFAULT 'free', pricing_amount DECIMAL(10,2) DEFAULT 0, install_count INTEGER NOT NULL DEFAULT 0, rating_avg DECIMAL(3,2) DEFAULT 0, rating_count INTEGER NOT NULL DEFAULT 0, reviewed_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE TABLE categories (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, slug TEXT NOT NULL UNIQUE, display_order INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE TABLE published_agents (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, name TEXT NOT NULL, description TEXT NOT NULL, icon_url TEXT, category_id TEXT REFERENCES categories(id), tags TEXT[] NOT NULL DEFAULT '{}', tools JSONB, example_conversations JSONB, system_prompt TEXT, visibility TEXT NOT NULL DEFAULT 'public', status TEXT NOT NULL DEFAULT 'approved', review_reason TEXT, pricing_type TEXT NOT NULL DEFAULT 'free', pricing_amount DECIMAL(10,2) DEFAULT 0, install_count INTEGER NOT NULL DEFAULT 0, rating_avg DECIMAL(3,2) DEFAULT 0, rating_count INTEGER NOT NULL DEFAULT 0, reviewed_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE agent_versions (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL REFERENCES published_agents(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, version TEXT NOT NULL, changelog TEXT, metadata JSONB, status TEXT NOT NULL DEFAULT 'approved', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE(agent_id, version))`,
 		`CREATE TABLE agent_installs (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL REFERENCES published_agents(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, version_id TEXT REFERENCES agent_versions(id), installed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE(organization_id, agent_id, user_id))`,
 		`CREATE TABLE payment_intents (id TEXT PRIMARY KEY, provider TEXT NOT NULL DEFAULT 'stripe', provider_checkout_session_id TEXT UNIQUE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, package_id TEXT, kind TEXT NOT NULL, amount DECIMAL(15,6) NOT NULL, currency TEXT NOT NULL DEFAULT 'usd', status TEXT NOT NULL DEFAULT 'pending', metadata JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), provider_payment_intent_id TEXT, provider_subscription_id TEXT, provider_invoice_id TEXT, refunded_amount DECIMAL(15,6) NOT NULL DEFAULT 0, CONSTRAINT payment_intents_kind_check CHECK (kind IN ('subscription', 'topup', 'marketplace_install')))`,
@@ -647,4 +713,21 @@ func createAvailableSettlement(t *testing.T, service *SettlementService, databas
 		t.Fatalf("make settlement available: %v", err)
 	}
 	return settlement.ID
+}
+
+type fakeMarketplacePayoutProvider struct {
+	name             string
+	providerPayoutID string
+	callCount        int
+	lastRequest      MarketplacePayoutDispatchRequest
+}
+
+func (p *fakeMarketplacePayoutProvider) Name() string {
+	return p.name
+}
+
+func (p *fakeMarketplacePayoutProvider) CreatePayout(ctx context.Context, request MarketplacePayoutDispatchRequest) (MarketplacePayoutDispatchResult, error) {
+	p.callCount++
+	p.lastRequest = request
+	return MarketplacePayoutDispatchResult{ProviderPayoutID: p.providerPayoutID}, nil
 }

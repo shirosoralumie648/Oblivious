@@ -128,8 +128,8 @@ func (s *SQLStore) UpdatePublisherSettlementPreferences(ctx context.Context, org
 
 // selectAgentColumns returns the standard SELECT column list for published_agents with JOINs.
 const selectAgentColumns = `a.id, a.organization_id, a.owner_id, COALESCE(u.name, ''), a.name, a.description,
-	a.icon_url, a.category_id, COALESCE(c.name, ''), a.tags, a.tools,
-	a.example_conversations, a.system_prompt, a.visibility, a.status,
+	a.icon_url, a.category_id, COALESCE(c.name, ''), a.tags, COALESCE(a.tools, '{}'::jsonb)::text,
+	COALESCE(a.example_conversations, '[]'::jsonb)::text, a.system_prompt, a.visibility, a.status,
 	a.review_reason, a.pricing_type, a.pricing_amount, a.install_count,
 	a.rating_avg, a.rating_count, a.created_at, a.updated_at`
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"oblivious/server/internal/notification"
@@ -395,6 +396,10 @@ type reviewCandidate struct {
 
 func insertReviewCandidate(t *testing.T, database *sql.DB, candidate reviewCandidate) {
 	t.Helper()
+	tools := strings.TrimSpace(candidate.Tools)
+	if tools == "" {
+		tools = "[]"
+	}
 	if _, err := database.Exec(`
 		INSERT INTO published_agents (
 			id, owner_id, organization_id, name, description, tools, example_conversations,
@@ -404,7 +409,7 @@ func insertReviewCandidate(t *testing.T, database *sql.DB, candidate reviewCandi
 		VALUES ($1, $2, $3, 'Review Candidate', 'A candidate submitted for marketplace review.',
 		        $4::jsonb, '[]'::jsonb, $5, 'public', 'pending_review',
 		        'free', 0, 0, 0, 0, NOW(), NOW())
-	`, candidate.ID, candidate.OwnerID, candidate.OrganizationID, candidate.Tools, candidate.SystemPrompt); err != nil {
+	`, candidate.ID, candidate.OwnerID, candidate.OrganizationID, tools, candidate.SystemPrompt); err != nil {
 		t.Fatalf("insert review candidate: %v", err)
 	}
 	if _, err := database.Exec(`
