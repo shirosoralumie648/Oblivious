@@ -45,6 +45,7 @@ func TestDomesticPaymentWebhookHandlerAppliesCheckoutPaidLifecycleOnce(t *testin
 		"organization_id": "org_1",
 		"user_id": "user_1",
 		"payment_intent_id": "pi_alipay_paid",
+		"marketplace_order_id": "order_alipay_paid",
 		"provider_payment_intent_id": "trade_alipay_paid",
 		"provider_checkout_session_id": "alipay_session_paid",
 		"kind": "topup",
@@ -72,6 +73,7 @@ func TestDomesticPaymentWebhookHandlerAppliesCheckoutPaidLifecycleOnce(t *testin
 	}
 	call := lifecycle.calls[0]
 	if call.Provider != "alipay" || call.EventID != "evt_alipay_checkout_paid" || call.PaymentIntentID != "pi_alipay_paid" ||
+		call.MarketplaceOrderID != "order_alipay_paid" ||
 		call.ProviderPaymentIntentID != "trade_alipay_paid" || call.ProviderCheckoutSessionID != "alipay_session_paid" ||
 		call.OrganizationID != "org_1" || call.UserID != "user_1" || call.Kind != "topup" || call.Amount != 25 || call.Currency != "cny" {
 		t.Fatalf("unexpected domestic lifecycle input: %+v", call)

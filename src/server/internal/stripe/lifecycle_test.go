@@ -40,6 +40,19 @@ func (s *fakeLifecycleStore) ApplyRefund(context.Context, string, refundLifecycl
 	return nil
 }
 
+type fakeMarketplaceSettlementApplier struct {
+	checkoutEvents []MarketplaceCheckoutCompleted
+}
+
+func (s *fakeMarketplaceSettlementApplier) ApplyPaidInstallCheckoutCompleted(_ context.Context, input MarketplaceCheckoutCompleted) error {
+	s.checkoutEvents = append(s.checkoutEvents, input)
+	return nil
+}
+
+func (s *fakeMarketplaceSettlementApplier) ApplyMarketplaceRefund(context.Context, MarketplaceRefund) error {
+	return nil
+}
+
 func TestLifecycleObservabilityRecordsCheckoutCompleted(t *testing.T) {
 	service := NewLifecycleService(&fakeLifecycleStore{})
 	event := lifecycleCheckoutCompletedEvent("evt_obs_checkout", map[string]string{
@@ -98,6 +111,41 @@ func TestLifecycleAppliesDomesticCheckoutPaidThroughCheckoutCompletion(t *testin
 		input.ProviderPaymentIntentID != "trade_1" || input.ProviderCheckoutSessionID != "alipay_session_1" ||
 		input.Amount != 25 || input.Currency != "cny" || input.OrganizationID != "org_1" || input.UserID != "user_1" {
 		t.Fatalf("unexpected domestic checkout input: %+v", input)
+	}
+}
+
+func TestLifecycleAppliesDomesticMarketplaceInstallThroughSettlementApplier(t *testing.T) {
+	store := &fakeLifecycleStore{}
+	settlement := &fakeMarketplaceSettlementApplier{}
+	service := NewLifecycleService(store, WithMarketplaceSettlementApplier(settlement))
+
+	if err := service.ApplyDomesticCheckoutPaid(context.Background(), DomesticCheckoutPaid{
+		Provider:                  "alipay",
+		EventID:                   "evt_alipay_marketplace_paid",
+		OrganizationID:            "org_1",
+		UserID:                    "user_1",
+		PaymentIntentID:           "pi_marketplace_1",
+		MarketplaceOrderID:        "order_marketplace_1",
+		Kind:                      "marketplace_install",
+		ProviderPaymentIntentID:   "trade_marketplace_1",
+		ProviderCheckoutSessionID: "alipay_marketplace_session_1",
+		Amount:                    50,
+		Currency:                  "cny",
+	}, []byte(`{"id":"evt_alipay_marketplace_paid"}`)); err != nil {
+		t.Fatalf("ApplyDomesticCheckoutPaid returned error: %v", err)
+	}
+
+	if len(store.checkoutEvents) != 0 {
+		t.Fatalf("domestic marketplace install must not use generic checkout store, got %+v", store.checkoutEvents)
+	}
+	if len(settlement.checkoutEvents) != 1 {
+		t.Fatalf("expected one marketplace settlement input, got %+v", settlement.checkoutEvents)
+	}
+	input := settlement.checkoutEvents[0]
+	if input.EventID != "evt_alipay_marketplace_paid" || input.OrderID != "order_marketplace_1" ||
+		input.PaymentIntentID != "pi_marketplace_1" || input.ProviderPaymentIntentID != "trade_marketplace_1" ||
+		input.ProviderCheckoutSessionID != "alipay_marketplace_session_1" {
+		t.Fatalf("unexpected domestic marketplace settlement input: %+v", input)
 	}
 }
 

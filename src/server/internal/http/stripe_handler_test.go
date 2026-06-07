@@ -167,13 +167,22 @@ func TestDomesticPaymentWebhookRoutesVerifySignatureAndRecordEvents(t *testing.T
 			`, "pi_"+tc.provider+"_webhook", tc.provider, organizationID, userID); err != nil {
 				t.Fatalf("insert domestic payment intent: %v", err)
 			}
+			if _, err := database.Exec(`
+				INSERT INTO topup_orders (id, organization_id, user_id, amount, money, status, payment_intent_id, created_at)
+				VALUES ($1, $2, $3, 25, 25, 'pending', $4, NOW())
+			`, "topup_"+tc.provider+"_webhook", organizationID, userID, "pi_"+tc.provider+"_webhook"); err != nil {
+				t.Fatalf("insert domestic topup order: %v", err)
+			}
 			payload := []byte(fmt.Sprintf(`{
 				"id": %q,
 				"type": "checkout.paid",
 				"organization_id": %q,
 				"user_id": %q,
 				"payment_intent_id": %q,
-				"provider_payment_intent_id": %q
+				"provider_payment_intent_id": %q,
+				"kind": "topup",
+				"amount": 25,
+				"currency": "cny"
 			}`, tc.eventID, organizationID, userID, "pi_"+tc.provider+"_webhook", "provider_"+tc.provider+"_paid"))
 
 			badRecorder := httptest.NewRecorder()
@@ -819,6 +828,119 @@ func TestMarketplacePaidInstallUsesConfiguredProviderCheckoutCreator(t *testing.
 	}
 	if storedProvider != "alipay" {
 		t.Fatalf("expected alipay marketplace payment intent, got provider %q", storedProvider)
+	}
+}
+
+func TestDomesticPaymentWebhookRouteAppliesMarketplaceInstallSettlementOnce(t *testing.T) {
+	database := testDatabase(t)
+	stripeCreator := &fakeCheckoutCreator{database: database}
+	alipayCreator := &fakeCheckoutCreator{
+		database:   database,
+		sessionID:  "alipay_marketplace_paid_session",
+		sessionURL: "https://checkout.alipay.test/marketplace/alipay_marketplace_paid_session",
+	}
+	providerRegistry := payment.NewRegistry("stripe")
+	providerRegistry.Register(payment.Provider{Name: "stripe", Configured: true})
+	providerRegistry.Register(payment.Provider{Name: "alipay", Configured: true})
+
+	cfg := testConfig()
+	cfg.AlipayWebhookSecret = "alipay_marketplace_secret"
+	cfg.StripeSuccessURL = "https://app.oblivious.test/marketplace/success"
+	cfg.StripeCancelURL = "https://app.oblivious.test/marketplace/cancel"
+	router := NewRouterWithOptions(cfg, database, RouterOptions{
+		CheckoutCreator:         stripeCreator,
+		CheckoutCreators:        map[string]stripebilling.CheckoutCreator{"alipay": alipayCreator},
+		PaymentProviderRegistry: providerRegistry,
+	})
+
+	cookie, csrfToken, buyerUserID := registerHTTPUser(t, router, "marketplace-alipay-webhook-buyer@example.com")
+	_, buyerOrganizationID := queryHTTPUserScope(t, database, buyerUserID)
+	_, _, publisherUserID := registerHTTPUser(t, router, "marketplace-alipay-webhook-publisher@example.com")
+	_, publisherOrganizationID := queryHTTPUserScope(t, database, publisherUserID)
+
+	if _, err := database.Exec(`
+		INSERT INTO published_agents (
+			id, owner_id, organization_id, name, description, tools, example_conversations,
+			visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at
+		)
+		VALUES ('agent_paid_alipay_webhook', $1, $2, 'Paid Alipay Webhook Agent', 'Paid marketplace domestic webhook test agent.',
+		        '{"tools":[{"name":"paid"}]}'::jsonb, '[]'::jsonb, 'public', 'approved',
+		        'one_time', 50, 0, 0, 0, NOW(), NOW())
+	`, publisherUserID, publisherOrganizationID); err != nil {
+		t.Fatalf("insert paid alipay webhook marketplace agent: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO agent_versions (id, agent_id, organization_id, version, changelog, metadata, status, created_at)
+		VALUES ('version_agent_paid_alipay_webhook', 'agent_paid_alipay_webhook', $1, '1.0.0', 'initial', '{}', 'approved', NOW())
+	`, publisherOrganizationID); err != nil {
+		t.Fatalf("insert paid alipay webhook marketplace version: %v", err)
+	}
+
+	installRecorder := httptest.NewRecorder()
+	installRequest := httptest.NewRequest(http.MethodPost, "/api/v1/marketplace/agents/agent_paid_alipay_webhook/install?versionID=version_agent_paid_alipay_webhook&provider=alipay", nil)
+	installRequest.AddCookie(cookie)
+	addCSRF(installRequest, csrfToken)
+	router.ServeHTTP(installRecorder, installRequest)
+	if installRecorder.Code != http.StatusCreated {
+		t.Fatalf("paid alipay install checkout expected 201, got %d with body %s", installRecorder.Code, installRecorder.Body.String())
+	}
+	if stripeCreator.request.PaymentIntentID != "" {
+		t.Fatalf("stripe checkout creator must not be used for alipay marketplace install, got %+v", stripeCreator.request)
+	}
+	if alipayCreator.request.CheckoutKind != "marketplace_install" || alipayCreator.request.MarketplaceOrderID == "" {
+		t.Fatalf("alipay checkout creator saw wrong marketplace metadata: %+v", alipayCreator.request)
+	}
+
+	payload := []byte(fmt.Sprintf(`{
+		"id": "evt_alipay_marketplace_install",
+		"type": "checkout.paid",
+		"organization_id": %q,
+		"user_id": %q,
+		"payment_intent_id": %q,
+		"marketplace_order_id": %q,
+		"provider_payment_intent_id": "alipay_marketplace_payment_1",
+		"provider_checkout_session_id": "alipay_marketplace_session",
+		"kind": "marketplace_install",
+		"amount": 50,
+		"currency": "cny"
+	}`, buyerOrganizationID, buyerUserID, alipayCreator.request.PaymentIntentID, alipayCreator.request.MarketplaceOrderID))
+	timestamp := "1760000000"
+	for i := 0; i < 2; i++ {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/billing/alipay/webhook", strings.NewReader(string(payload)))
+		request.Header.Set("Oblivious-Payment-Timestamp", timestamp)
+		request.Header.Set("Oblivious-Payment-Signature", domesticWebhookSignature(cfg.AlipayWebhookSecret, timestamp, payload))
+		router.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("attempt %d expected 200, got %d with body %s", i+1, recorder.Code, recorder.Body.String())
+		}
+	}
+
+	var orderStatus, paymentStatus, storedProviderPaymentIntentID string
+	var installCount, settlementCount, transitionCount int
+	if err := database.QueryRow(`SELECT status FROM marketplace_orders WHERE id = $1`, alipayCreator.request.MarketplaceOrderID).Scan(&orderStatus); err != nil {
+		t.Fatalf("query domestic marketplace order: %v", err)
+	}
+	if err := database.QueryRow(`
+		SELECT status, COALESCE(provider_payment_intent_id, '')
+		FROM payment_intents
+		WHERE id = $1 AND provider = 'alipay'
+	`, alipayCreator.request.PaymentIntentID).Scan(&paymentStatus, &storedProviderPaymentIntentID); err != nil {
+		t.Fatalf("query domestic marketplace payment intent: %v", err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM agent_installs WHERE agent_id = 'agent_paid_alipay_webhook' AND organization_id = $1`, buyerOrganizationID).Scan(&installCount); err != nil {
+		t.Fatalf("count domestic marketplace install: %v", err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM marketplace_settlements WHERE order_id = $1`, alipayCreator.request.MarketplaceOrderID).Scan(&settlementCount); err != nil {
+		t.Fatalf("count domestic marketplace settlements: %v", err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM billing_lifecycle_events WHERE provider_event_id = 'evt_alipay_marketplace_install'`).Scan(&transitionCount); err != nil {
+		t.Fatalf("count domestic marketplace lifecycle transitions: %v", err)
+	}
+	if orderStatus != "paid" || paymentStatus != "completed" || storedProviderPaymentIntentID != "alipay_marketplace_payment_1" ||
+		installCount != 1 || settlementCount != 1 || transitionCount != 1 {
+		t.Fatalf("expected paid order, completed intent, one install, one settlement, one transition; got order=%s payment=%s provider_pi=%s installs=%d settlements=%d transitions=%d",
+			orderStatus, paymentStatus, storedProviderPaymentIntentID, installCount, settlementCount, transitionCount)
 	}
 }
 

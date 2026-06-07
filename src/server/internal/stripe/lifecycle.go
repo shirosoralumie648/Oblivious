@@ -51,6 +51,7 @@ type DomesticCheckoutPaid struct {
 	OrganizationID            string
 	UserID                    string
 	PaymentIntentID           string
+	MarketplaceOrderID        string
 	PackageID                 string
 	Kind                      string
 	ProviderPaymentIntentID   string
@@ -232,6 +233,28 @@ func (s *LifecycleService) ApplyDomesticCheckoutPaid(ctx context.Context, input 
 	if kind == "subscription" && input.PackageID == "" {
 		metrics.RecordBillingLifecycleEvent("checkout", "failed")
 		return fmt.Errorf("%s checkout.paid: missing plan_id for subscription checkout", provider)
+	}
+	if kind == "marketplace_install" {
+		if s.marketplaceApplier == nil {
+			metrics.RecordBillingLifecycleEvent("checkout", "failed")
+			return fmt.Errorf("%s checkout.paid: marketplace settlement applier is not configured", provider)
+		}
+		if strings.TrimSpace(input.MarketplaceOrderID) == "" {
+			metrics.RecordBillingLifecycleEvent("checkout", "failed")
+			return fmt.Errorf("%s checkout.paid: missing marketplace_order_id for marketplace install checkout", provider)
+		}
+		if err := s.marketplaceApplier.ApplyPaidInstallCheckoutCompleted(ctx, MarketplaceCheckoutCompleted{
+			EventID:                   input.EventID,
+			OrderID:                   strings.TrimSpace(input.MarketplaceOrderID),
+			PaymentIntentID:           input.PaymentIntentID,
+			ProviderCheckoutSessionID: input.ProviderCheckoutSessionID,
+			ProviderPaymentIntentID:   input.ProviderPaymentIntentID,
+		}); err != nil {
+			metrics.RecordBillingLifecycleEvent("checkout", "failed")
+			return err
+		}
+		metrics.RecordBillingLifecycleEvent("checkout", "completed")
+		return nil
 	}
 	if err := s.store.ApplyCheckoutCompleted(ctx, input.EventID, checkoutCompletedLifecycle{
 		Provider:                  provider,

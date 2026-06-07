@@ -32,6 +32,7 @@ type domesticPaymentWebhookEvent struct {
 	OrganizationID            string  `json:"organization_id"`
 	UserID                    string  `json:"user_id"`
 	PaymentIntentID           string  `json:"payment_intent_id"`
+	MarketplaceOrderID        string  `json:"marketplace_order_id"`
 	PackageID                 string  `json:"plan_id"`
 	Kind                      string  `json:"kind"`
 	ProviderPaymentIntentID   string  `json:"provider_payment_intent_id"`
@@ -48,6 +49,7 @@ type domesticPaymentLifecycleInput struct {
 	OrganizationID            string
 	UserID                    string
 	PaymentIntentID           string
+	MarketplaceOrderID        string
 	PackageID                 string
 	Kind                      string
 	ProviderPaymentIntentID   string
@@ -76,6 +78,7 @@ func (a stripeDomesticPaymentLifecycleAdapter) ApplyDomesticCheckoutPaid(ctx con
 		OrganizationID:            input.OrganizationID,
 		UserID:                    input.UserID,
 		PaymentIntentID:           input.PaymentIntentID,
+		MarketplaceOrderID:        input.MarketplaceOrderID,
 		PackageID:                 input.PackageID,
 		Kind:                      input.Kind,
 		ProviderPaymentIntentID:   input.ProviderPaymentIntentID,
@@ -161,6 +164,7 @@ func (h domesticPaymentWebhookHandler) handle(w stdhttp.ResponseWriter, r *stdht
 			OrganizationID:            strings.TrimSpace(event.OrganizationID),
 			UserID:                    strings.TrimSpace(event.UserID),
 			PaymentIntentID:           strings.TrimSpace(event.PaymentIntentID),
+			MarketplaceOrderID:        strings.TrimSpace(event.MarketplaceOrderID),
 			PackageID:                 strings.TrimSpace(event.PackageID),
 			Kind:                      strings.TrimSpace(event.Kind),
 			ProviderPaymentIntentID:   strings.TrimSpace(event.ProviderPaymentIntentID),
