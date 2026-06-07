@@ -25,6 +25,7 @@ type fakeStore struct {
 	deletedDocID     string
 	deletedID        string
 	detailBase       KnowledgeBase
+	documentChunks   []KnowledgeDocumentChunkView
 	documents        []KnowledgeDocument
 	listBases        []KnowledgeBase
 	retrievalQuery   string
@@ -32,6 +33,8 @@ type fakeStore struct {
 	retrievalResults []KnowledgeRetrievalResult
 	requestedDoc     KnowledgeDocument
 	requestedID      string
+	updatedChunk     KnowledgeDocumentChunkView
+	updatedChunkID   string
 	updatedBase      KnowledgeBase
 	updatedDoc       KnowledgeDocument
 	workspaceID      string
@@ -144,6 +147,22 @@ func (f *fakeStore) DiffKnowledgeDocumentChunks(ctx context.Context, workspaceID
 		return append([]KnowledgeDocumentChunk(nil), f.diffChunks...), nil
 	}
 	return append([]KnowledgeDocumentChunk(nil), chunks...), nil
+}
+
+func (f *fakeStore) ListKnowledgeDocumentChunks(ctx context.Context, workspaceID, knowledgeBaseID, documentID string) ([]KnowledgeDocumentChunkView, error) {
+	f.workspaceID = workspaceID
+	f.requestedID = knowledgeBaseID
+	f.deletedDocID = documentID
+	return append([]KnowledgeDocumentChunkView(nil), f.documentChunks...), nil
+}
+
+func (f *fakeStore) UpdateKnowledgeDocumentChunk(ctx context.Context, workspaceID, knowledgeBaseID, documentID, chunkID, content string) (KnowledgeDocumentChunkView, error) {
+	f.workspaceID = workspaceID
+	f.requestedID = knowledgeBaseID
+	f.deletedDocID = documentID
+	f.updatedChunkID = chunkID
+	f.requestedDoc = KnowledgeDocument{Content: content}
+	return f.updatedChunk, nil
 }
 
 func (f *fakeStore) DeleteKnowledgeDocument(ctx context.Context, workspaceID, knowledgeBaseID, documentID string) error {
@@ -806,6 +825,70 @@ func TestCreateDocumentUpsertsEmbeddedChunksToQdrantVectorStore(t *testing.T) {
 	}
 	if vectorStore.chunks[0].Metadata.SourceURL != "https://docs.example/qdrant.md" || vectorStore.chunks[0].Metadata.PageNumber != 4 {
 		t.Fatalf("expected qdrant chunk metadata to preserve source/page, got %+v", vectorStore.chunks[0].Metadata)
+	}
+}
+
+func TestUpdateDocumentChunkReindexesEditedChunkInQdrantVectorStore(t *testing.T) {
+	store := &fakeStore{
+		updatedChunk: KnowledgeDocumentChunkView{
+			ChunkID:         "kdc_1",
+			ChunkIndex:      2,
+			Content:         "Updated chunk content.",
+			DocumentVersion: "v2",
+			Metadata: KnowledgeChunkMetadata{
+				DocumentVersion: "v2",
+				PageNumber:      7,
+				SourceURL:       "https://docs.example/runbook.md",
+			},
+		},
+	}
+	embedder := &recordingKnowledgeEmbedder{}
+	vectorStore := &recordingKnowledgeVectorStore{}
+	service := NewServiceWithEmbedderAndVectorStore(store, embedder, "text-embedding-3-small", vectorStore, 3)
+
+	chunk, err := service.UpdateDocumentChunk(
+		context.Background(),
+		auth.Session{
+			OrganizationID: "org_knowledge",
+			User:           auth.User{ID: "user_knowledge"},
+			WorkspaceID:    "workspace_knowledge",
+		},
+		"kb_qdrant",
+		"doc_qdrant",
+		"kdc_1",
+		" Updated chunk content. ",
+	)
+	if err != nil {
+		t.Fatalf("update document chunk: %v", err)
+	}
+
+	if chunk.ChunkID != "kdc_1" || chunk.Content != "Updated chunk content." {
+		t.Fatalf("expected updated chunk response, got %+v", chunk)
+	}
+	if store.workspaceID != "org_knowledge" || store.requestedID != "kb_qdrant" || store.deletedDocID != "doc_qdrant" || store.updatedChunkID != "kdc_1" {
+		t.Fatalf("expected tenant-scoped chunk update, scope=%q kb=%q doc=%q chunk=%q", store.workspaceID, store.requestedID, store.deletedDocID, store.updatedChunkID)
+	}
+	if store.requestedDoc.Content != "Updated chunk content." {
+		t.Fatalf("expected store to receive trimmed chunk content, got %q", store.requestedDoc.Content)
+	}
+	if embedder.organizationID != "org_knowledge" || embedder.userID != "user_knowledge" {
+		t.Fatalf("expected trusted relay identity for edited chunk embedding, org=%q user=%q", embedder.organizationID, embedder.userID)
+	}
+	if vectorStore.organizationID != "org_knowledge" || vectorStore.knowledgeBaseID != "kb_qdrant" || vectorStore.documentID != "doc_qdrant" {
+		t.Fatalf("expected tenant-scoped qdrant chunk upsert, org=%q kb=%q doc=%q", vectorStore.organizationID, vectorStore.knowledgeBaseID, vectorStore.documentID)
+	}
+	if len(vectorStore.chunks) != 1 {
+		t.Fatalf("expected one edited chunk to be upserted, got %+v", vectorStore.chunks)
+	}
+	upserted := vectorStore.chunks[0]
+	if upserted.ChunkIndex != 2 || upserted.Content != "Updated chunk content." || upserted.DocumentVersion != "v2" {
+		t.Fatalf("expected edited chunk index/content/version in qdrant upsert, got %+v", upserted)
+	}
+	if len(upserted.Embedding) != 3 {
+		t.Fatalf("expected edited chunk embedding, got %+v", upserted)
+	}
+	if upserted.Metadata.SourceURL != "https://docs.example/runbook.md" || upserted.Metadata.PageNumber != 7 || upserted.Metadata.DocumentVersion != "v2" {
+		t.Fatalf("expected edited chunk metadata to be preserved, got %+v", upserted.Metadata)
 	}
 }
 

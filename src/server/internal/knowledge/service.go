@@ -449,7 +449,15 @@ func (s *Service) UpdateDocumentChunk(ctx context.Context, session auth.Session,
 	if !ok {
 		return KnowledgeDocumentChunkView{}, sql.ErrNoRows
 	}
-	return store.UpdateKnowledgeDocumentChunk(ctx, knowledgeSessionScope(session), knowledgeBaseID, documentID, chunkID, content)
+	scope := knowledgeSessionScope(session)
+	chunk, err := store.UpdateKnowledgeDocumentChunk(ctx, scope, knowledgeBaseID, documentID, chunkID, content)
+	if err != nil {
+		return KnowledgeDocumentChunkView{}, err
+	}
+	if err := s.upsertEditedDocumentChunk(ctx, session, scope, knowledgeBaseID, documentID, chunk); err != nil {
+		return KnowledgeDocumentChunkView{}, err
+	}
+	return chunk, nil
 }
 
 func (s *Service) CreateDocument(ctx context.Context, session auth.Session, knowledgeBaseID, title, content string) (KnowledgeDocument, error) {
@@ -695,6 +703,45 @@ func (s *Service) upsertDocumentChunks(ctx context.Context, organizationID, know
 		return nil
 	}
 	return s.vectorStore.UpsertKnowledgeDocumentChunks(ctx, organizationID, knowledgeBaseID, documentID, chunks)
+}
+
+func (s *Service) upsertEditedDocumentChunk(ctx context.Context, session auth.Session, organizationID, knowledgeBaseID, documentID string, view KnowledgeDocumentChunkView) error {
+	if s == nil || s.vectorStore == nil || s.embedder == nil {
+		return nil
+	}
+	content := strings.TrimSpace(view.Content)
+	if content == "" {
+		return nil
+	}
+	embedding, err := s.embedder.Embed(withKnowledgeRelayIdentity(ctx, session), content)
+	if err != nil {
+		return err
+	}
+	chunk := knowledgeDocumentChunkFromView(view)
+	chunk.Content = content
+	chunk.Embedding = append([]float32(nil), embedding...)
+	if chunk.EstimatedTokenCount == 0 {
+		chunk.EstimatedTokenCount = estimateKnowledgeTokens(content)
+	}
+	return s.upsertDocumentChunks(ctx, organizationID, knowledgeBaseID, documentID, []KnowledgeDocumentChunk{chunk})
+}
+
+func knowledgeDocumentChunkFromView(view KnowledgeDocumentChunkView) KnowledgeDocumentChunk {
+	metadata := view.Metadata
+	documentVersion := strings.TrimSpace(view.DocumentVersion)
+	if documentVersion == "" {
+		documentVersion = strings.TrimSpace(metadata.DocumentVersion)
+	}
+	if strings.TrimSpace(metadata.DocumentVersion) == "" {
+		metadata.DocumentVersion = documentVersion
+	}
+	return KnowledgeDocumentChunk{
+		ChunkIndex:          view.ChunkIndex,
+		Content:             view.Content,
+		DocumentVersion:     documentVersion,
+		EstimatedTokenCount: view.EstimatedTokenCount,
+		Metadata:            metadata,
+	}
 }
 
 func (s *Service) DeleteDocument(ctx context.Context, session auth.Session, knowledgeBaseID, documentID string) error {
