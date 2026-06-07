@@ -31,6 +31,11 @@ type agentMemoryImportRequest struct {
 	Memories []agentMemoryCreateRequest `json:"memories"`
 }
 
+type agentMemoryExportResponse struct {
+	Memories []*agent.Memory `json:"memories"`
+	Total    int             `json:"total"`
+}
+
 type agentMemoryUpdateRequest struct {
 	Content    *string `json:"content"`
 	Importance *int    `json:"importance"`
@@ -121,6 +126,41 @@ func (h agentMemoriesHandler) importMemories(w stdhttp.ResponseWriter, r *stdhtt
 	}
 
 	writeSuccess(w, stdhttp.StatusCreated, imported)
+}
+
+func (h agentMemoriesHandler) exportMemories(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	session, ok := sessionFromContext(r)
+	if !ok {
+		writeError(w, stdhttp.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+	if h.service == nil {
+		writeError(w, stdhttp.StatusServiceUnavailable, "service_unavailable", "agent memory service is not configured")
+		return
+	}
+
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 || limit > 100 {
+		limit = 100
+	}
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	memories, err := h.service.ListMemories(r.Context(), session, agent.ListMemoriesRequest{
+		AgentID: firstAgentRunNonEmpty(r.URL.Query().Get("agentId"), r.URL.Query().Get("agent_id")),
+		Type:    r.URL.Query().Get("type"),
+		Query:   strings.TrimSpace(r.URL.Query().Get("query")),
+		Limit:   limit,
+		Offset:  offset,
+	})
+	if err != nil {
+		writeAgentMemoryError(w, err)
+		return
+	}
+
+	w.Header().Set("Content-Disposition", `attachment; filename="agent-memories-export.json"`)
+	writeSuccess(w, stdhttp.StatusOK, agentMemoryExportResponse{
+		Memories: memories,
+		Total:    len(memories),
+	})
 }
 
 func (h agentMemoriesHandler) searchMemories(w stdhttp.ResponseWriter, r *stdhttp.Request) {

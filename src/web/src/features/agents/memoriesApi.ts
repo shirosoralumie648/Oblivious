@@ -80,6 +80,7 @@ function toMemoriesResponse(payload: AgentMemoriesPayload): AgentMemoriesRespons
 export type AgentMemoriesApi = {
   createMemory: (payload: CreateAgentMemoryRequest) => Promise<AgentMemory>;
   deleteMemory: (memoryId: string) => Promise<void>;
+  exportMemories: (params: Partial<SearchAgentMemoriesParams>) => Promise<AgentMemoriesResponse>;
   importMemories: (payload: CreateAgentMemoryRequest[]) => Promise<AgentMemory[]>;
   searchMemories: (params: SearchAgentMemoriesParams) => Promise<AgentMemoriesResponse>;
   updateMemory: (memoryId: string, payload: UpdateAgentMemoryRequest) => Promise<AgentMemory>;
@@ -91,6 +92,19 @@ export function createAgentMemoriesApi(client: HttpClient): AgentMemoriesApi {
   return {
     createMemory: (payload) => client.post<AgentMemory>(path, payload),
     deleteMemory: (memoryId) => client.delete<void>(`${path}/${encodeURIComponent(memoryId)}`),
+    exportMemories: async (params) =>
+      toMemoriesResponse(
+        await client.get<AgentMemoriesPayload>(
+          `${path}/export${buildQuery({
+            agentId: params.agentId,
+            limit: params.limit,
+            offset: params.offset,
+            query: params.query,
+            topK: params.topK,
+            type: params.type
+          })}`
+        )
+      ),
     importMemories: (payload) => client.post<AgentMemory[]>(`${path}/import`, { memories: payload }),
     searchMemories: async (params) =>
       toMemoriesResponse(

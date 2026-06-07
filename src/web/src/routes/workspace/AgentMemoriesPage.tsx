@@ -104,6 +104,7 @@ export function AgentMemoriesPage() {
   const [savingMemoryId, setSavingMemoryId] = useState<string | null>(null);
   const [deletingMemoryId, setDeletingMemoryId] = useState<string | null>(null);
   const [exportUrl, setExportUrl] = useState('');
+  const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [memories, setMemories] = useState<AgentMemory[]>([]);
@@ -221,11 +222,28 @@ export function AgentMemoriesPage() {
     }
   };
 
-  const exportMemories = () => {
-    const exportBlob = new Blob([JSON.stringify(memoryExportPayload(memories), null, 2)], {
-      type: 'application/json;charset=utf-8'
-    });
-    setExportUrl(URL.createObjectURL(exportBlob));
+  const exportMemories = async () => {
+    setIsExporting(true);
+    setError(null);
+
+    try {
+      const parsedLimit = Number.parseInt(resultLimit, 10);
+      const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 10;
+      const response = await memoriesApi.exportMemories({
+        agentId: agentId.trim() || undefined,
+        limit,
+        query: query.trim() || undefined,
+        type: memoryType || undefined
+      });
+      const exportBlob = new Blob([JSON.stringify(memoryExportPayload(response.data), null, 2)], {
+        type: 'application/json;charset=utf-8'
+      });
+      setExportUrl(URL.createObjectURL(exportBlob));
+    } catch (caughtError) {
+      setError(errorMessage(caughtError, 'Unable to export memories. Retry the request or check the backend session.'));
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const importMemories = async (file: File | undefined) => {
@@ -378,11 +396,11 @@ export function AgentMemoriesPage() {
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   className="rounded-lg border border-[#d7d2c4] px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
-                  disabled={memories.length === 0}
-                  onClick={exportMemories}
+                  disabled={isExporting || memories.length === 0}
+                  onClick={() => void exportMemories()}
                   type="button"
                 >
-                  Export memories
+                  {isExporting ? 'Exporting...' : 'Export memories'}
                 </button>
                 {exportUrl ? (
                   <a

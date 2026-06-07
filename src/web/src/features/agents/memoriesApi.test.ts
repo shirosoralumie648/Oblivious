@@ -90,6 +90,21 @@ describe('createAgentMemoriesApi', () => {
     expect(post).toHaveBeenCalledWith('/api/v1/agent/memories/import', { memories: payload });
   });
 
+  it('exports memories through the scoped export endpoint', async () => {
+    const get = vi.fn().mockResolvedValue({
+      memories: [{ content: 'Exported memory.', id: 'memory_export_1', type: 'user_managed' }],
+      total: 1
+    });
+    const api = createAgentMemoriesApi(createClient({ get }));
+
+    await expect(api.exportMemories({ agentId: 'agent_1', query: 'release', type: 'user_managed' })).resolves.toEqual({
+      data: [{ content: 'Exported memory.', id: 'memory_export_1', type: 'user_managed' }],
+      total: 1
+    });
+
+    expect(get).toHaveBeenCalledWith('/api/v1/agent/memories/export?agentId=agent_1&query=release&type=user_managed');
+  });
+
   it('searches memories with type and limit filters', async () => {
     const get = vi.fn().mockResolvedValue({
       data: [

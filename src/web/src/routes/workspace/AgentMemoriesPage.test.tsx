@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const createMemory = vi.fn();
 const deleteMemory = vi.fn();
+const exportMemories = vi.fn();
 const importMemories = vi.fn();
 const searchMemories = vi.fn();
 const updateMemory = vi.fn();
@@ -11,6 +12,7 @@ vi.mock('../../features/agents/memoriesApi', () => ({
   createAgentMemoriesApi: () => ({
     createMemory,
     deleteMemory,
+    exportMemories,
     importMemories,
     searchMemories,
     updateMemory
@@ -23,6 +25,7 @@ describe('AgentMemoriesPage', () => {
   beforeEach(() => {
     createMemory.mockReset();
     deleteMemory.mockReset();
+    exportMemories.mockReset();
     importMemories.mockReset();
     searchMemories.mockReset();
     updateMemory.mockReset();
@@ -170,6 +173,19 @@ describe('AgentMemoriesPage', () => {
       ],
       total: 1
     });
+    exportMemories.mockResolvedValueOnce({
+      data: [
+        {
+          agentId: 'agent_1',
+          content: 'Prefer concise rollout notes.',
+          id: 'memory_1',
+          importance: 4,
+          metadata: { topic: 'release' },
+          type: 'user_managed'
+        }
+      ],
+      total: 1
+    });
     importMemories.mockResolvedValueOnce([
       {
         agentId: 'agent_2',
@@ -196,6 +212,9 @@ describe('AgentMemoriesPage', () => {
       await screen.findByText('Prefer concise rollout notes.');
       fireEvent.click(screen.getByRole('button', { name: 'Export memories' }));
 
+      await waitFor(() => {
+        expect(exportMemories).toHaveBeenCalledWith({ agentId: undefined, limit: 10, query: 'rollout', type: undefined });
+      });
       expect(createObjectURL).toHaveBeenCalledTimes(1);
       expect(await screen.findByRole('link', { name: 'Download memory export' })).toHaveAttribute(
         'href',

@@ -72,6 +72,46 @@ func TestRegisterAgentMemoryRoutesDispatchesImport(t *testing.T) {
 	}
 }
 
+func TestRegisterAgentMemoryRoutesDispatchesExport(t *testing.T) {
+	store := newFakeAgentRunsStore()
+	store.agent = &agent.Agent{
+		ID:             "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+	}
+	store.memories = []*agent.Memory{
+		{ID: "memory_1", OrganizationID: "org_1", UserID: "user_1", AgentID: "agent_1", Content: "Exported memory one.", Type: agent.MemoryTypeUserManaged, Importance: 5},
+		{ID: "memory_2", OrganizationID: "org_1", UserID: "user_1", AgentID: "agent_2", Content: "Other agent memory.", Type: agent.MemoryTypeUserManaged, Importance: 3},
+		{ID: "memory_3", OrganizationID: "org_2", UserID: "user_1", AgentID: "agent_1", Content: "Other tenant memory.", Type: agent.MemoryTypeUserManaged, Importance: 3},
+	}
+	handler := newAgentMemoriesHandler(agent.NewService(store, &fakeAgentRunsGateway{}))
+	mux := stdhttp.NewServeMux()
+	authMiddleware := &recordingSessionMiddleware{}
+	registerAgentMemoryRoutes(mux, authMiddleware, handler)
+
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, newAgentMemoriesRequest(stdhttp.MethodGet, "/api/v1/agent/memories/export?agentId=agent_1&type=user_managed", ""))
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("export expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "Exported memory one.") {
+		t.Fatalf("expected export response to include scoped memory, got %s", recorder.Body.String())
+	}
+	if strings.Contains(recorder.Body.String(), "Other agent memory") || strings.Contains(recorder.Body.String(), "Other tenant memory") {
+		t.Fatalf("export response leaked out-of-scope memory: %s", recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Header().Get("Content-Disposition"), "agent-memories-export.json") {
+		t.Fatalf("expected attachment export header, got %q", recorder.Header().Get("Content-Disposition"))
+	}
+	if store.listMemoryLimit != 100 {
+		t.Fatalf("expected export to request max page size, got limit %d", store.listMemoryLimit)
+	}
+	if authMiddleware.requestCalls != 1 {
+		t.Fatalf("expected session middleware for export route, got %d", authMiddleware.requestCalls)
+	}
+}
+
 func TestRegisterAgentMemoryRoutesDispatchesUpdateAndDelete(t *testing.T) {
 	store := newFakeAgentMemoriesStore()
 	store.memories = []*agent.Memory{
