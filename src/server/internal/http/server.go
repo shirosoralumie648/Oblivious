@@ -142,7 +142,10 @@ func NewServer(cfg config.Config, database *sql.DB) *stdhttp.Server {
 		channelRetryWorkerCtx, cancelChannelRetryWorker := context.WithCancel(context.Background())
 		channelRetryStore := publishingchannel.NewSQLStore(database)
 		channelRetryWorker := publishingchannel.NewRetryWorker(
-			publishingchannel.NewService(publishingchannel.NewAdapterRegistry(nil)),
+			publishingchannel.NewServiceWithOptions(
+				publishingchannel.NewAdapterRegistry(nil),
+				publishingchannel.WithChannelHealthNotifier(publishingChannelHealthNotifier),
+			),
 			channelRetryStore,
 			publishingchannel.RetryWorkerConfig{
 				OnError: func(err error) {

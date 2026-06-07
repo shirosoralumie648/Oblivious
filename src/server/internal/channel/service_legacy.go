@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -36,19 +37,51 @@ type ProcessDueRetryMessagesResult struct {
 
 type RetryProcessResult = ProcessDueRetryMessagesResult
 
+type ChannelHealthEvent struct {
+	OrganizationID string
+	ChannelID      string
+	ChannelName    string
+	ChannelType    ChannelType
+	Status         ChannelStatus
+	MessageLogID   string
+	Reason         string
+	OccurredAt     time.Time
+}
+
+type ChannelHealthNotifier func(ctx context.Context, event ChannelHealthEvent)
+
 type Service struct {
-	registry *AdapterRegistry
+	registry       *AdapterRegistry
+	healthNotifier ChannelHealthNotifier
 }
 
 type outboundDeliverer interface {
 	DeliverOutbound(ctx context.Context, config map[string]any, raw json.RawMessage) error
 }
 
+type ServiceOption func(*Service)
+
+func WithChannelHealthNotifier(notifier ChannelHealthNotifier) ServiceOption {
+	return func(s *Service) {
+		s.healthNotifier = notifier
+	}
+}
+
 func NewService(registry *AdapterRegistry) *Service {
+	return NewServiceWithOptions(registry)
+}
+
+func NewServiceWithOptions(registry *AdapterRegistry, options ...ServiceOption) *Service {
 	if registry == nil {
 		registry = NewAdapterRegistry(nil)
 	}
-	return &Service{registry: registry}
+	service := &Service{registry: registry}
+	for _, option := range options {
+		if option != nil {
+			option(service)
+		}
+	}
+	return service
 }
 
 func (s *Service) Receive(ctx context.Context, req ReceiveRequest) (ChannelMessageLog, error) {
@@ -232,7 +265,7 @@ func (s *Service) ProcessDueRetryMessages(ctx context.Context, store RetryWorker
 				if err != nil {
 					return result, err
 				}
-				s.updateRetryChannelHealth(ctx, store, config, &updated)
+				s.updateRetryChannelHealth(ctx, store, config, &updated, now)
 				continue
 			}
 			if sendErr != nil {
@@ -252,20 +285,22 @@ func (s *Service) ProcessDueRetryMessages(ctx context.Context, store RetryWorker
 			return result, err
 		}
 		if config != nil {
-			s.updateRetryChannelHealth(ctx, store, config, &failed)
+			s.updateRetryChannelHealth(ctx, store, config, &failed, now)
 		}
 	}
 	return result, nil
 }
 
-func (s *Service) updateRetryChannelHealth(ctx context.Context, store RetryWorkerStore, config *ChannelConfig, logEntry *ChannelMessageLog) {
+func (s *Service) updateRetryChannelHealth(ctx context.Context, store RetryWorkerStore, config *ChannelConfig, logEntry *ChannelMessageLog, occurredAt time.Time) {
 	if store == nil || config == nil || logEntry == nil {
 		return
 	}
 	if !logEntry.TransformSuccess || logEntry.Status == MessageStatusRetryPending || logEntry.Status == MessageStatusPermanentFailure {
 		count, err := store.CountConsecutiveDeliveryFailures(ctx, config.ID, ChannelHealthThreshold)
 		if err == nil && count >= ChannelHealthThreshold && config.Status != ChannelStatusDegraded {
-			_, _ = store.UpdateConfigStatus(ctx, config.OrganizationID, config.ID, ChannelStatusDegraded)
+			if _, updateErr := store.UpdateConfigStatus(ctx, config.OrganizationID, config.ID, ChannelStatusDegraded); updateErr == nil {
+				s.notifyChannelHealth(ctx, config, logEntry, ChannelStatusDegraded, occurredAt)
+			}
 		}
 		return
 	}
@@ -275,6 +310,34 @@ func (s *Service) updateRetryChannelHealth(ctx context.Context, store RetryWorke
 			_, _ = store.UpdateConfigStatus(ctx, config.OrganizationID, config.ID, ChannelStatusActive)
 		}
 	}
+}
+
+func (s *Service) notifyChannelHealth(ctx context.Context, config *ChannelConfig, logEntry *ChannelMessageLog, status ChannelStatus, occurredAt time.Time) {
+	if s == nil || s.healthNotifier == nil || config == nil {
+		return
+	}
+	reason := ""
+	messageLogID := ""
+	if occurredAt.IsZero() {
+		occurredAt = time.Now().UTC()
+	}
+	if logEntry != nil {
+		reason = strings.TrimSpace(logEntry.FailureReason)
+		if reason == "" {
+			reason = strings.TrimSpace(logEntry.TransformError)
+		}
+		messageLogID = logEntry.ID
+	}
+	s.healthNotifier(ctx, ChannelHealthEvent{
+		OrganizationID: config.OrganizationID,
+		ChannelID:      config.ID,
+		ChannelName:    config.Name,
+		ChannelType:    config.Type,
+		Status:         status,
+		MessageLogID:   messageLogID,
+		Reason:         reason,
+		OccurredAt:     occurredAt,
+	})
 }
 
 func (s *Service) adapter(channelType ChannelType) (ChannelAdapter, error) {

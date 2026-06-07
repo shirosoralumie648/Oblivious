@@ -778,6 +778,58 @@ func TestServiceProcessDueRetryMessagesDegradesChannelAfterConsecutiveFailures(t
 	}
 }
 
+func TestServiceProcessDueRetryMessagesNotifiesWhenRetryFailuresDegradeChannel(t *testing.T) {
+	now := time.Date(2026, 6, 5, 10, 50, 0, 0, time.UTC)
+	channelType := ChannelType("retry_notify_degrade")
+	adapter := &retryTestAdapter{channelType: channelType, deliverErr: errors.New("upstream 503")}
+	claimed := &ChannelMessageLog{
+		ID:                 "channel_message_retry_notify",
+		ChannelID:          "channel_retry_notify",
+		ConversationID:     "conversation_retry",
+		Direction:          DirectionOutbound,
+		TransformedMessage: InternalMessage{ID: "msg_retry_notify", ConversationID: "conversation_retry", Role: RoleAssistant, Content: []ContentPart{{Type: ContentTypeText, Text: "retry notifies"}}},
+		Status:             MessageStatusSending,
+		RetryCount:         2,
+		CreatedAt:          now.Add(-time.Hour),
+	}
+	store := &fakeRetryWorkerStore{
+		fakeRetryMessageStore: fakeRetryMessageStore{claimed: []*ChannelMessageLog{claimed}},
+		configs: map[string]*ChannelConfig{
+			claimed.ChannelID: {ID: claimed.ChannelID, OrganizationID: "org_1", Type: channelType, Name: "Ops channel", Config: map[string]any{}, Status: ChannelStatusActive},
+		},
+		failureCount: 3,
+	}
+	var events []ChannelHealthEvent
+	service := NewServiceWithOptions(
+		NewAdapterRegistry(map[ChannelType]ChannelAdapter{channelType: adapter}),
+		WithChannelHealthNotifier(func(ctx context.Context, event ChannelHealthEvent) {
+			events = append(events, event)
+		}),
+	)
+
+	result, err := service.ProcessDueRetryMessages(context.Background(), store, ClaimDueRetryMessagesInput{Now: now, Limit: 10})
+	if err != nil {
+		t.Fatalf("ProcessDueRetryMessages returned error: %v", err)
+	}
+	if result.Failed != 1 {
+		t.Fatalf("expected retry failure, got %+v", result)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected one channel health notification, got %+v", events)
+	}
+	event := events[0]
+	if event.Status != ChannelStatusDegraded ||
+		event.OrganizationID != "org_1" ||
+		event.ChannelID != claimed.ChannelID ||
+		event.ChannelName != "Ops channel" ||
+		event.ChannelType != channelType {
+		t.Fatalf("unexpected health event: %+v", event)
+	}
+	if event.MessageLogID != claimed.ID || !strings.Contains(event.Reason, "upstream 503") || !event.OccurredAt.Equal(now) {
+		t.Fatalf("expected retry failure details in event, got %+v", event)
+	}
+}
+
 func TestServiceProcessDueRetryMessagesMarksPermanentFailureAtRetryLimit(t *testing.T) {
 	now := time.Date(2026, 6, 5, 11, 0, 0, 0, time.UTC)
 	channelType := ChannelType("retry_permanent")

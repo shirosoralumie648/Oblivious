@@ -38,7 +38,10 @@ func newPublishingChannelTestHandler(store *publishingChannelFakeStore) channelH
 	if store.configs == nil {
 		store.configs = map[string]*channel.ChannelConfig{}
 	}
-	service := channel.NewService(channel.NewAdapterRegistry(nil))
+	service := channel.NewServiceWithOptions(
+		channel.NewAdapterRegistry(nil),
+		channel.WithChannelHealthNotifier(publishingChannelHealthNotifier),
+	)
 	return newChannelHandler(store, service)
 }
 
@@ -583,6 +586,124 @@ func TestPublishingChannelHandlerRetriesFailedMessagesThroughFallbackChannel(t *
 	}
 	if response.Data.Claimed != 1 || response.Data.Failed != 1 || response.Data.Succeeded != 0 {
 		t.Fatalf("unexpected retry process result: %+v", response.Data)
+	}
+}
+
+func TestPublishingChannelHandlerRetryFailedMessagesRoutesDegradedAlert(t *testing.T) {
+	now := time.Now().UTC().Add(-time.Minute)
+	server := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		w.WriteHeader(stdhttp.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	store := &publishingChannelFakeStore{
+		configs: map[string]*channel.ChannelConfig{
+			"channel_primary": {
+				ID:             "channel_primary",
+				OrganizationID: "org_1",
+				Type:           channel.ChannelTypeWebhook,
+				Name:           "Primary",
+				Config:         map[string]any{"webhook_url": server.URL},
+				Status:         channel.ChannelStatusActive,
+			},
+		},
+		logs: []*channel.ChannelMessageLog{
+			{
+				ID:                 "channel_message_primary_due",
+				ChannelID:          "channel_primary",
+				ConversationID:     "conversation_1",
+				Direction:          channel.DirectionOutbound,
+				TransformedMessage: channel.InternalMessage{ID: "msg_primary_due", ConversationID: "conversation_1", Role: channel.RoleAssistant, Content: []channel.ContentPart{{Type: channel.ContentTypeText, Text: "retry primary"}}},
+				TransformSuccess:   false,
+				Status:             channel.MessageStatusRetryPending,
+				RetryCount:         2,
+				FailureReason:      "primary degraded",
+				NextRetryAt:        &now,
+				CreatedAt:          now.Add(-time.Minute),
+			},
+			{
+				ID:                 "channel_message_previous_failure_1",
+				ChannelID:          "channel_primary",
+				ConversationID:     "conversation_1",
+				Direction:          channel.DirectionOutbound,
+				TransformedMessage: channel.InternalMessage{ID: "msg_previous_failure_1", ConversationID: "conversation_1", Role: channel.RoleAssistant, Content: []channel.ContentPart{{Type: channel.ContentTypeText, Text: "previous failure"}}},
+				TransformSuccess:   false,
+				Status:             channel.MessageStatusRetryPending,
+				RetryCount:         1,
+				FailureReason:      "prior upstream 503",
+				NextRetryAt:        nil,
+				CreatedAt:          now.Add(-2 * time.Minute),
+			},
+			{
+				ID:                 "channel_message_previous_failure_2",
+				ChannelID:          "channel_primary",
+				ConversationID:     "conversation_1",
+				Direction:          channel.DirectionOutbound,
+				TransformedMessage: channel.InternalMessage{ID: "msg_previous_failure_2", ConversationID: "conversation_1", Role: channel.RoleAssistant, Content: []channel.ContentPart{{Type: channel.ContentTypeText, Text: "previous failure"}}},
+				TransformSuccess:   false,
+				Status:             channel.MessageStatusRetryPending,
+				RetryCount:         1,
+				FailureReason:      "prior upstream 503",
+				NextRetryAt:        nil,
+				CreatedAt:          now.Add(-3 * time.Minute),
+			},
+		},
+	}
+	alertStore := observability.NewInMemoryAlertStateStore()
+	alertSink := &captureMiddlewareAlertSink{channel: observability.AlertDeliveryChannelInApp}
+	dispatcher := observability.NewAlertDeliveryDispatcher(observability.AlertDeliveryDispatcherOptions{
+		Policy: observability.DeliveryPolicy{
+			Routes: map[observability.AlertSeverity][]observability.AlertDeliveryChannel{
+				observability.AlertSeverityWarning: {observability.AlertDeliveryChannelInApp},
+			},
+		},
+		Sinks:        []observability.AlertDeliverySink{alertSink},
+		HistoryStore: alertStore,
+	})
+	restoreAlert := setPublishingChannelAlertSinkForTest(observability.NewAlertRouter(observability.AlertRouterOptions{
+		StateStore: alertStore,
+		NotifySink: dispatcher,
+	}))
+	defer restoreAlert()
+	restoreRecovery := setPublishingChannelRecoveryControllerForTest(observability.NewRecoveryController(observability.RecoveryControllerOptions{
+		StateStore: alertStore,
+		Policies: []observability.RecoveryPolicy{
+			{
+				Name:       "record-channel-degraded",
+				Severity:   observability.AlertSeverityWarning,
+				Component:  "publishing_channel",
+				ActionType: observability.RecoveryActionFailover,
+			},
+		},
+	}))
+	defer restoreRecovery()
+	handler := newPublishingChannelTestHandler(store)
+
+	recorder := httptest.NewRecorder()
+	handler.retryFailedChannelMessages(recorder, publishingChannelRequest(stdhttp.MethodPost, "/api/v1/channels/channel_primary/retry-failed-messages", `{"limit":10}`, "org_1"), "channel_primary")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if store.configs["channel_primary"].Status != channel.ChannelStatusDegraded {
+		t.Fatalf("expected retry failure threshold to degrade primary channel, got %q", store.configs["channel_primary"].Status)
+	}
+	const alertKey = "publishing_channel:org_1:channel_primary:degraded"
+	state, found, err := alertStore.GetAlertState(context.Background(), alertKey)
+	if err != nil {
+		t.Fatalf("get alert state: %v", err)
+	}
+	if !found || state.Status != observability.AlertStatusOpen {
+		t.Fatalf("expected open retry endpoint degraded alert, found=%v state=%+v", found, state)
+	}
+	if len(alertSink.events) != 1 || alertSink.events[0].Key != alertKey || !strings.Contains(alertSink.events[0].Message, "503") {
+		t.Fatalf("expected delivered retry endpoint degraded alert, got %+v", alertSink.events)
+	}
+	actions, err := alertStore.ListRecoveryActions(context.Background(), observability.RecoveryActionFilter{AlertKey: alertKey})
+	if err != nil {
+		t.Fatalf("list recovery actions: %v", err)
+	}
+	if len(actions) != 1 || actions[0].Type != observability.RecoveryActionFailover {
+		t.Fatalf("expected retry endpoint recovery action, got %+v", actions)
 	}
 }
 
@@ -1186,6 +1307,73 @@ func TestPublishingChannelHandlerRoutesDegradedChannelToAlertDeliveryAndRecovery
 	}
 	if len(actions) != 1 || actions[0].PolicyName != "record-channel-degraded" || actions[0].Type != observability.RecoveryActionFailover {
 		t.Fatalf("expected recorded channel failover recovery action, got %+v", actions)
+	}
+}
+
+func TestPublishingChannelHealthNotifierRoutesRetryWorkerDegradedEventToAlertDeliveryAndRecovery(t *testing.T) {
+	alertStore := observability.NewInMemoryAlertStateStore()
+	alertSink := &captureMiddlewareAlertSink{channel: observability.AlertDeliveryChannelInApp}
+	dispatcher := observability.NewAlertDeliveryDispatcher(observability.AlertDeliveryDispatcherOptions{
+		Policy: observability.DeliveryPolicy{
+			Routes: map[observability.AlertSeverity][]observability.AlertDeliveryChannel{
+				observability.AlertSeverityWarning: {observability.AlertDeliveryChannelInApp},
+			},
+		},
+		Sinks:        []observability.AlertDeliverySink{alertSink},
+		HistoryStore: alertStore,
+	})
+	alertRouter := observability.NewAlertRouter(observability.AlertRouterOptions{
+		StateStore: alertStore,
+		NotifySink: dispatcher,
+	})
+	recovery := observability.NewRecoveryController(observability.RecoveryControllerOptions{
+		StateStore: alertStore,
+		Policies: []observability.RecoveryPolicy{
+			{
+				Name:       "record-channel-degraded",
+				Severity:   observability.AlertSeverityWarning,
+				Component:  "publishing_channel",
+				ActionType: observability.RecoveryActionFailover,
+			},
+		},
+	})
+	restoreAlert := setPublishingChannelAlertSinkForTest(alertRouter)
+	defer restoreAlert()
+	restoreRecovery := setPublishingChannelRecoveryControllerForTest(recovery)
+	defer restoreRecovery()
+
+	occurredAt := time.Date(2026, 6, 5, 12, 30, 0, 0, time.UTC)
+	publishingChannelHealthNotifier(context.Background(), channel.ChannelHealthEvent{
+		OrganizationID: "org_1",
+		ChannelID:      "channel_retry_worker",
+		ChannelName:    "Retry worker channel",
+		ChannelType:    channel.ChannelTypeWebhook,
+		Status:         channel.ChannelStatusDegraded,
+		MessageLogID:   "channel_message_retry_worker",
+		Reason:         "upstream 503",
+		OccurredAt:     occurredAt,
+	})
+
+	const alertKey = "publishing_channel:org_1:channel_retry_worker:degraded"
+	state, found, err := alertStore.GetAlertState(context.Background(), alertKey)
+	if err != nil {
+		t.Fatalf("get alert state: %v", err)
+	}
+	if !found || state.Status != observability.AlertStatusOpen || state.Component != "publishing_channel" {
+		t.Fatalf("expected open retry worker publishing alert, found=%v state=%+v", found, state)
+	}
+	if !state.LastOccurredAt.Equal(occurredAt) {
+		t.Fatalf("expected alert timestamp from retry worker event, got %s", state.LastOccurredAt)
+	}
+	if len(alertSink.events) != 1 || alertSink.events[0].Key != alertKey || alertSink.events[0].Message != "upstream 503" {
+		t.Fatalf("expected one delivered retry worker channel degraded alert, got %+v", alertSink.events)
+	}
+	actions, err := alertStore.ListRecoveryActions(context.Background(), observability.RecoveryActionFilter{AlertKey: alertKey})
+	if err != nil {
+		t.Fatalf("list recovery actions: %v", err)
+	}
+	if len(actions) != 1 || actions[0].PolicyName != "record-channel-degraded" || actions[0].Type != observability.RecoveryActionFailover {
+		t.Fatalf("expected retry worker channel failover recovery action, got %+v", actions)
 	}
 }
 

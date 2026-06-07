@@ -505,6 +505,25 @@ func publishingChannelDegradedAlertEvent(config *publishingchannel.ChannelConfig
 	}
 }
 
+func publishingChannelHealthNotifier(ctx context.Context, event publishingchannel.ChannelHealthEvent) {
+	if event.Status != publishingchannel.ChannelStatusDegraded {
+		return
+	}
+	routePublishingChannelDegradedAlert(ctx, &publishingchannel.ChannelConfig{
+		ID:             event.ChannelID,
+		OrganizationID: event.OrganizationID,
+		Type:           event.ChannelType,
+		Name:           event.ChannelName,
+		Status:         event.Status,
+	}, &publishingchannel.ChannelMessageLog{
+		ID:            event.MessageLogID,
+		ChannelID:     event.ChannelID,
+		Status:        publishingchannel.MessageStatusRetryPending,
+		FailureReason: event.Reason,
+		CreatedAt:     event.OccurredAt,
+	}, event.Reason)
+}
+
 func decodeChannelJSON(w stdhttp.ResponseWriter, r *stdhttp.Request, dst any) bool {
 	if err := json.NewDecoder(r.Body).Decode(dst); err != nil {
 		if errors.Is(err, io.EOF) {

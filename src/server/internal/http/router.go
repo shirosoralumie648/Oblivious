@@ -207,7 +207,10 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	// Notification service
 	notificationHandler := newNotificationHandler(notification.NewService(notification.NewSQLStore(database)))
 	channelStore := publishingchannel.NewSQLStore(database)
-	channelHandler := newChannelHandler(channelStore, publishingchannel.NewService(publishingchannel.NewAdapterRegistry(nil)))
+	channelHandler := newChannelHandler(channelStore, publishingchannel.NewServiceWithOptions(
+		publishingchannel.NewAdapterRegistry(nil),
+		publishingchannel.WithChannelHealthNotifier(publishingChannelHealthNotifier),
+	))
 	workflowHandler := newWorkflowHandler(newWorkflowServiceAdapter(workflowService))
 	chatService.SetSemanticWorkflowTriggerer(workflowSemanticTriggerDispatcher{service: newWorkflowServiceAdapter(workflowService)})
 	scheduleService := options.ScheduleService
