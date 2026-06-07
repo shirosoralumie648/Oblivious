@@ -1731,6 +1731,20 @@ func TestServiceCheckResourceLimitsPausesWhenTokenBudgetIsExceeded(t *testing.T)
 	if checked.Status != ExecutionStatusPaused || checked.CompletedAt != nil {
 		t.Fatalf("CheckResourceLimits token budget got %+v, want paused without completion time", checked)
 	}
+	guardNodes := workflowNodeExecutionsByID(checked.NodeExecutions, "workflow_resource_guard")
+	if len(guardNodes) != 1 {
+		t.Fatalf("expected resource guard node execution, got %+v", guardNodes)
+	}
+	guard := guardNodes[0]
+	if guard.Status != NodeStatusFailed || guard.NodeType != "resource_guard" {
+		t.Fatalf("expected failed resource guard node, got %+v", guard)
+	}
+	if guard.Error["code"] != "token_budget_exceeded" || guard.Error["maxTokensBudget"] != 100 || guard.Error["totalTokens"] != 101 {
+		t.Fatalf("expected token budget error payload, got %+v", guard.Error)
+	}
+	if guard.Context["pauseReason"] != "token_budget_exceeded" {
+		t.Fatalf("expected pause reason context, got %+v", guard.Context)
+	}
 }
 
 func TestServiceCheckResourceLimitsStopsWhenNodeExecutionLimitIsExceeded(t *testing.T) {

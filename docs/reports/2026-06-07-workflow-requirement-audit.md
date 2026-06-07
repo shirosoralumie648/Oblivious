@@ -1,0 +1,95 @@
+# Workflow Requirement Audit - 2026-06-07
+
+Scope:
+
+- `docs/superpowers/specs/2026-06-04-functional-logic-details.md` sections 2.1-2.6.
+- `docs/superpowers/specs/2026-06-04-complete-fusion-design.md` section 3.2.
+- `docs/superpowers/specs/2026-06-04-complete-fusion-design-part2.md` section 4.3.2.
+- `docs/superpowers/specs/2026-06-04-complete-fusion-design-part3.md` section 8.3.3.
+
+Status values:
+
+- `Proven`: current code and focused tests prove the requirement.
+- `Partial`: current code exists, but the requirement is only partly implemented or partly verified.
+- `Gap`: current evidence contradicts or misses the requirement.
+- `Unverified`: code may exist, but evidence is too weak for a completion claim.
+
+## 2.1 Trigger Modes
+
+| Requirement | Status | Evidence |
+| --- | --- | --- |
+| Manual execution with user input. | Proven | `Service.StartExecution` accepts `WorkflowTriggerManual` and input; `/api/v1/workflows/:id/execute` passes input. Covered by `TestServiceStartExecutionCreatesRunningExecutionFromWorkflow`, `TestWorkflowHandlerStartExecutionPassesInput`, and `TestWorkflowHandlerStartExecutionAutoModeRunsUntilBlocked`. |
+| Conversation trigger binding `conversation_id -> workflow_id`. | Proven | `MatchConversationTriggers` scans published workflow trigger definitions, and Chat send-message now calls the workflow semantic/conversation dispatcher after a successful assistant reply. Covered by `TestServiceMatchConversationTriggersReturnsPublishedConversationBindings`, `TestWorkflowHandlerConversationMatchesRequireConversationID`, `TestRegisterWorkflowRoutesDispatchesConversationMatches`, `TestWorkflowSemanticTriggerDispatcherStartsMatchedWorkflows`, `TestSendMessageTriggersSemanticWorkflowsAfterAssistantReply`, and `TestDefaultChatServiceCanUseWorkflowSemanticTriggerDispatcher`. |
+| Schedule trigger with cron expression. | Proven | `trigger.ScheduleTrigger` parses 5-field cron and computes next run; the default schedule service now registers itself as the workflow schedule syncer, so published workflow lifecycle changes sync schedule triggers to scheduled tasks. Covered by `TestServiceSyncsScheduleTriggersForPublishedWorkflowLifecycle`, `TestServiceCreatePublishedWorkflowSyncsScheduleTriggers`, `TestWorkflowServiceCanUseDefaultScheduleServiceForScheduleTriggerSync`, `TestRegisterWorkflowRoutesDispatchesWorkflowCrudAndTestNode`, and `TestDefaultRouterSyncsWorkflowScheduleTriggersToScheduledTasks`. |
+| Webhook trigger with URL, secret, and payload. | Proven | `trigger.WebhookTrigger` validates HMAC signatures and methods; HTTP handler supports raw and signed webhooks. Covered by `TestWorkflowHandlerWebhookStartsExecutionWithRawPayload`, `TestWorkflowHandlerSignedWebhookStartsExecutionForValidSignature`, replay/expiry/signature rejection tests, and `TestRegisterWorkflowRoutesDispatchesSignedWebhookWithoutSession`. |
+| Semantic trigger with keywords and embedding threshold. | Partial | Keyword semantic triggers and Chat send-message dispatcher wiring are proven. An injected `EmbeddingSemanticTriggerMatcher` supports `semanticThreshold` and propagates user/org identity, but the default router/service does not yet inject a Relay-backed matcher, so production threshold-only semantic triggers are not proven. Covered pieces include `TestServiceMatchSemanticTriggersReturnsPublishedKeywordMatches`, `TestServiceMatchSemanticTriggersUsesInjectedMatcherForThresholdTriggers`, `TestEmbeddingSemanticTriggerMatcherChoosesBestKeywordAndPropagatesIdentity`, `TestSendMessageTriggersSemanticWorkflowsAfterAssistantReply`, and HTTP route tests. |
+
+## 2.2 Node Failure Handling
+
+| Requirement | Status | Evidence |
+| --- | --- | --- |
+| Default `pause_on_failure` pauses for user decision. | Proven | `ApplyNodeFailure` and `Service.RecordNodeStatus` default to paused execution. Covered by `TestApplyNodeFailureDefaultsToPauseForUserDecision`, `TestServiceRecordNodeStatusAppliesFailurePolicies`, and paused failure decision HTTP tests. |
+| `auto_retry` uses retries with exponential delays. | Proven | Runtime failure policy uses default `1s`, `3s`, `9s` delays and retrying node status. Covered by `TestApplyNodeFailureUsesExponentialDefaultRetryDelays`, `TestServiceRunExecutionUntilBlockedWaitsForAutoRetryDelay`, and `TestServiceRunExecutionUntilBlockedRunsDueAutoRetry`. |
+| `skip_on_failure` marks node skipped and continues as partial success. | Proven | `RecordNodeStatus` seeds downstream nodes after skip and marks `partial_success`; `RunExecutionUntilBlocked` continues after skipped node. Covered by `TestApplyNodeFailureSkipsOptionalNodeAndContinues`, `TestServiceRecordNodeStatusAppliesFailurePolicies`, and `TestServiceRunExecutionUntilBlockedContinuesAfterSkipOnFailure`. |
+| `failure_branch` routes error context to a branch. | Proven | `seedFailureBranchNode` merges `workflow.error` into branch input/context. Covered by `TestApplyNodeFailureBranchesToFailureNodeWithErrorContext`, `TestServiceRecordNodeStatusAppliesFailurePolicies`, and `TestServiceRunExecutionFailureBranchRunsWithErrorContext`. |
+| User options: retry node, skip node, edit input retry, terminate workflow. | Proven | `ResolvePausedFailure` supports retry, continue, branch, and fail decisions with edited input. Covered by `TestServiceResolvePausedFailureDecisionRetriesSkipsAndTerminates` and `TestWorkflowHandlerWorkflowDecisionSupportsPausedFailureUserActions`. |
+| Notify user on pause/failure. | Partial | The paused execution and node records expose reason/error to API/UI, and this slice adds a resource guard failure record for token-budget pause. There is not yet a proven email/in-app/webhook notification path tied specifically to workflow failure pause decisions. |
+
+## 2.3 Concurrency Control
+
+| Requirement | Status | Evidence |
+| --- | --- | --- |
+| Workflow-level configurable `max_concurrent_executions`, default 10. | Proven | `resourcePolicyForWorkflow` reads multiple key styles; `StartExecution` queues or rejects by workflow limit. Covered by `TestServiceStartExecutionRejectsWhenWorkflowConcurrencyLimitIsReached`. |
+| Organization-level shared concurrent workflow limit, default 50. | Proven | `WithOrgMaxConcurrentWorkflows` and `CountRunningExecutionsForOrganization`; execution queues when org limit is reached. Covered by org limit tests around start/promotion behavior. |
+| Trigger-aware smart defaults: conversation high, schedule serial, webhook medium. | Proven | `concurrencyPolicyForTrigger` sets conversation 50, schedule 1, webhook 10 unless workflow override exists. Covered by `TestServiceStartExecutionQueuesScheduleTriggersSeriallyByDefault` and `TestServicePromoteQueuedExecutionsKeepsScheduleTriggersSerial`. |
+| System-level max concurrent workflows and global workflow executions/minute. | Gap | `workflowResourcePolicy` has system-level fields, but there is no current config/wiring or global per-minute counter enforcing `system_max_concurrent_workflows` or `global_max_workflow_executions_per_minute`. |
+
+## 2.4 Resource Limits
+
+| Requirement | Status | Evidence |
+| --- | --- | --- |
+| Execution timeout defaults to one hour and can be configured. | Proven | `CheckResourceLimits` marks status `timeout`; covered by `TestServiceCheckResourceLimitsTimesOutLongRunningExecution`. |
+| Token budget pauses workflow and surfaces a user-visible reason. | Proven | `CheckResourceLimits` pauses execution and now records a failed `workflow_resource_guard` node with `token_budget_exceeded`, `maxTokensBudget`, and `totalTokens`. Covered by `TestServiceCheckResourceLimitsPausesWhenTokenBudgetIsExceeded`. |
+| Node execution count prevents infinite loops and marks `max_iterations`. | Proven | `RunExecutionUntilBlocked` and `CheckResourceLimits` enforce `max_node_executions`; covered by `TestServiceCheckResourceLimitsStopsWhenNodeExecutionLimitIsExceeded` and `TestServiceRunExecutionUntilBlockedAllowsExecutionAtNodeLimit`. |
+| Organization-level concurrency before start. | Proven | See 2.3 org-level concurrency evidence. |
+
+## 2.5 Variable Scope
+
+| Requirement | Status | Evidence |
+| --- | --- | --- |
+| Workflow input/global variables and node outputs are available to downstream nodes. | Proven | Runtime interpolation supports `{{input.*}}`, `{{workflow.name}}`, and `{{nodes.node_id.output.*}}`. Covered by `TestServiceRunReadyNodeInterpolatesWorkflowInputAndPriorNodeOutput`. |
+| System variables include execution id, start time, workflow name, user id, and org id. | Proven | Covered by `TestServiceRunReadyNodeInterpolatesSystemExecutionAndOrganizationVariables` and `TestServiceRunReadyNodeInterpolatesUserVariableFromExecutionContextAndTriggerPayload`. |
+| Variable inspection/debug snapshot. | Proven | `BuildExecutionDebugSnapshot` returns variable snapshot, trace, outputs, performance, and logs; HTTP/UI API exposes debug snapshot. Covered by workflow debug snapshot route tests and Workflows API types. |
+| Node-local variable lifetime. | Partial | Node executor input is scoped per node, but there is no separately named `node.{node_id}.{var_name}` local namespace contract proven by tests. |
+
+## 2.6 Version Management
+
+| Requirement | Status | Evidence |
+| --- | --- | --- |
+| Saving updates creates version history. | Proven | `UpdateWorkflow` increments version and stores history; `TestServiceUpdateWorkflowCreatesVersionHistory` and SQL store version tests. |
+| Running executions bind to published version and snapshot, not draft edits. | Proven | `StartExecution` uses latest published version and stores `WorkflowVersion`/`WorkflowSnapshot`; `TestServiceStartExecutionBindsLatestPublishedVersion` and store tests. |
+| Rollback creates a new version from historical definition. | Proven | `RollbackWorkflow` creates a new version; covered by `TestServiceRollbackWorkflowCreatesNewVersionFromHistory`, `TestWorkflowHandlerRollbackWorkflowPassesVersion`, and route tests. |
+| Branch from historical version for experiments. | Proven | `CreateWorkflowBranch` copies a version as draft experiment metadata; covered by `TestServiceCreateWorkflowBranchCopiesVersionAsDraftExperiment`, handler tests, and route tests. |
+| Branch merge back to mainline or publish as new workflow. | Gap | Branch creation exists, but there is no current merge-back API or dedicated publish-branch flow proven by tests. |
+
+## Fusion Design 3.2 and Frontend/API Surface
+
+| Requirement | Status | Evidence |
+| --- | --- | --- |
+| Workflow CRUD, execute, test-node, executions, pause, resume API. | Proven | API routes in `src/server/internal/http/routes_workflow.go`; tests include `TestRegisterWorkflowRoutesDispatchesWorkflowCrudAndTestNode`, execution action tests, and handler tests. |
+| React Flow visual editor and debug panel. | Proven for core UI | `WorkflowsPage.tsx` uses `@xyflow/react`, node palette, trigger/resource/failure policy forms, test node, debug snapshot, version/rollback/branch controls. `WorkflowsPage.test.tsx` and `workflowsApi.test.ts` cover key UI/API behavior. |
+| 20+ node types. | Partial | Runtime supports many concrete node categories including start/manual/agent/LLM/knowledge/condition/loop/code/HTTP/tool/database/RPA/user_input, with executor tests. The audit did not prove 20+ distinct draggable node components or callable executors. |
+| Complete end-to-end production success rate target >99%. | Unverified | Metrics exist for workflow execution and node errors, but success-rate SLO is not proven by load/production evidence. |
+
+## Current Conclusion
+
+The repository-owned Workflow engine now proves most Functional Logic 2.1-2.6 behavior: trigger modes, default schedule synchronization wiring, Chat-driven conversation/semantic dispatcher wiring, DAG execution, failure strategies, concurrency queues/rejects, resource timeout/token/node limits, variable interpolation/debug snapshots, version history, rollback, and branch creation.
+
+The matrix row remains `Partial`, not `Proven`, because these requirements still need work or stronger evidence:
+
+1. Add system-level global concurrency and executions-per-minute enforcement.
+2. Inject a Relay-backed `EmbeddingSemanticTriggerMatcher` into the default workflow service so threshold-only semantic triggers are production-proven.
+3. Tie workflow failure pauses to concrete user notifications once the alert/notification provider pipeline is fully proven.
+4. Formalize/prove the node-local `node.{node_id}.{var_name}` namespace contract.
+5. Add branch merge/publish semantics beyond branch creation.
+6. Prove 20+ node types and production-grade frontend drag/drop workflows end to end.

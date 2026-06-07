@@ -14,7 +14,11 @@ func newScheduleService(store schedule.Store, workflowService *workflow.Service,
 	if agentStarter != nil {
 		options = append(options, schedule.WithAgentStarter(agentStarter))
 	}
-	return schedule.NewService(store, options...)
+	service := schedule.NewService(store, options...)
+	if workflowService != nil {
+		workflowService.SetScheduleSyncer(service)
+	}
+	return service
 }
 
 var _ schedule.AgentStarter = (*agent.Service)(nil)

@@ -615,6 +615,49 @@ func TestWorkflowSemanticTriggerDispatcherStartsMatchedWorkflows(t *testing.T) {
 	}
 }
 
+func TestDefaultChatServiceCanUseWorkflowSemanticTriggerDispatcher(t *testing.T) {
+	service := chat.NewService(
+		&chatFakeStore{
+			config: chat.ConversationConfig{
+				ConversationID:  "conversation_1",
+				ModelID:         "demo-reply",
+				Temperature:     1,
+				MaxOutputTokens: 1024,
+			},
+		},
+		noopReplyGenerator{},
+		"demo-reply",
+		nil,
+	)
+	workflowService := &workflowFakeService{
+		semanticMatches: []workflow.SemanticTriggerMatch{
+			{WorkflowID: "workflow_1", TriggerID: "urgent", Keyword: "incident", Score: 0.91, MatchMethod: "embedding"},
+		},
+		started:               &workflow.WorkflowExecution{ID: "wexec_1", WorkflowID: "workflow_1", Status: workflow.ExecutionStatusRunning},
+		runUntilBlockedResult: &workflow.WorkflowExecution{ID: "wexec_1", WorkflowID: "workflow_1", Status: workflow.ExecutionStatusSucceeded},
+	}
+	service.SetSemanticWorkflowTriggerer(workflowSemanticTriggerDispatcher{service: workflowService})
+
+	_, err := service.SendMessage(context.Background(), auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+		User:           auth.User{ID: "user_1"},
+	}, "conversation_1", "urgent incident", nil)
+	if err != nil {
+		t.Fatalf("SendMessage returned error: %v", err)
+	}
+
+	if len(workflowService.startRequests) != 1 {
+		t.Fatalf("expected one triggered workflow, got %d", len(workflowService.startRequests))
+	}
+	if workflowService.semanticMatchReq.Message != "urgent incident" || workflowService.semanticMatchReq.UserID != "user_1" {
+		t.Fatalf("unexpected semantic match request: %+v", workflowService.semanticMatchReq)
+	}
+	if workflowService.startRequests[0].WorkflowID != "workflow_1" || workflowService.startRequests[0].TriggerType != workflow.WorkflowTriggerSemantic {
+		t.Fatalf("unexpected started workflow request: %+v", workflowService.startRequests[0])
+	}
+}
+
 func TestWorkflowHandlerStartExecutionAutoModeRunsUntilBlocked(t *testing.T) {
 	service := &workflowFakeService{
 		started: &workflow.WorkflowExecution{

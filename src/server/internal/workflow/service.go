@@ -1081,6 +1081,26 @@ func (s *Service) CheckResourceLimits(ctx context.Context, organizationID, execu
 		return updated, fmt.Errorf("%w: execution exceeded max duration", ErrWorkflowResourceLimit)
 	}
 	if policy.MaxTokensBudget > 0 && usage.TotalTokens > policy.MaxTokensBudget {
+		_, nodeErr := s.store.CreateNodeExecution(ctx, organizationID, executionID, CreateNodeExecutionRequest{
+			NodeID:   "workflow_resource_guard",
+			NodeType: "resource_guard",
+			Status:   NodeStatusFailed,
+			Attempt:  1,
+			Error: map[string]any{
+				"code":            "token_budget_exceeded",
+				"message":         "workflow token budget exceeded",
+				"maxTokensBudget": policy.MaxTokensBudget,
+				"totalTokens":     usage.TotalTokens,
+			},
+			Context: map[string]any{
+				"pauseReason": "token_budget_exceeded",
+			},
+			StartedAt:   now,
+			CompletedAt: &now,
+		})
+		if nodeErr != nil {
+			return nil, nodeErr
+		}
 		updated, updateErr := s.setExecutionStatus(ctx, organizationID, executionID, ExecutionStatusPaused, nil)
 		if updateErr != nil {
 			return nil, updateErr
@@ -1663,6 +1683,11 @@ func (s *Service) setExecutionStatus(ctx context.Context, organizationID, execut
 	}
 	if execution == nil {
 		return nil, fmt.Errorf("%w: execution %s", ErrNotFound, executionID)
+	}
+	if refreshed, refreshErr := s.store.GetExecution(ctx, organizationID, executionID); refreshErr != nil {
+		return nil, refreshErr
+	} else if refreshed != nil {
+		execution = refreshed
 	}
 	if isTerminalExecutionStatus(status) {
 		metrics.RecordWorkflowExecution(string(status), workflowExecutionDurationSeconds(execution))

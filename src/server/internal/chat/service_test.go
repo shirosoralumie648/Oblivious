@@ -94,6 +94,15 @@ func (f *fakeUsageRecorder) RecordChatUsage(ctx context.Context, record UsageRec
 	return nil
 }
 
+type fakeSemanticWorkflowTriggerer struct {
+	requests []SemanticWorkflowTriggerRequest
+}
+
+func (f *fakeSemanticWorkflowTriggerer) TriggerSemanticWorkflows(ctx context.Context, req SemanticWorkflowTriggerRequest) error {
+	f.requests = append(f.requests, req)
+	return nil
+}
+
 type recordingStore struct {
 	config                   ConversationConfig
 	lastConversationID       string
@@ -293,6 +302,48 @@ func TestSendMessageRecordsUsage(t *testing.T) {
 	}
 	if record.RequestCount != 1 {
 		t.Fatalf("expected request count 1, got %d", record.RequestCount)
+	}
+}
+
+func TestSendMessageTriggersSemanticWorkflowsAfterAssistantReply(t *testing.T) {
+	store := &recordingStore{
+		config: ConversationConfig{
+			ConversationID:  "conversation_1",
+			ModelID:         "quality-chat",
+			Temperature:     1,
+			MaxOutputTokens: 1024,
+		},
+	}
+	triggerer := &fakeSemanticWorkflowTriggerer{}
+	service := NewService(store, fakeGenerator{reply: "assistant reply"}, "demo-reply", nil)
+	service.SetSemanticWorkflowTriggerer(triggerer)
+
+	_, err := service.SendMessage(
+		context.Background(),
+		auth.Session{
+			OrganizationID: "org_1",
+			WorkspaceID:    "workspace_1",
+			User: auth.User{
+				ID: "user_1",
+			},
+		},
+		"conversation_1",
+		"please triage this incident",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("send message: %v", err)
+	}
+
+	if len(triggerer.requests) != 1 {
+		t.Fatalf("expected one semantic workflow trigger request, got %d", len(triggerer.requests))
+	}
+	request := triggerer.requests[0]
+	if request.OrganizationID != "org_1" || request.WorkspaceID != "workspace_1" || request.UserID != "user_1" {
+		t.Fatalf("unexpected trigger scope: %+v", request)
+	}
+	if request.ConversationID != "conversation_1" || request.Message != "please triage this incident" {
+		t.Fatalf("unexpected trigger payload: %+v", request)
 	}
 }
 

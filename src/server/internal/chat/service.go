@@ -112,11 +112,16 @@ type UsageRecorder interface {
 	RecordChatUsage(ctx context.Context, record UsageRecord) error
 }
 
+type SemanticWorkflowTriggerer interface {
+	TriggerSemanticWorkflows(ctx context.Context, req SemanticWorkflowTriggerRequest) error
+}
+
 type Service struct {
-	defaultModelID string
-	replyGenerator ReplyGenerator
-	store          Store
-	usageRecorder  UsageRecorder
+	defaultModelID            string
+	replyGenerator            ReplyGenerator
+	semanticWorkflowTriggerer SemanticWorkflowTriggerer
+	store                     Store
+	usageRecorder             UsageRecorder
 }
 
 func NewService(store Store, replyGenerator ReplyGenerator, defaultModelID string, usageRecorder UsageRecorder) *Service {
@@ -126,6 +131,13 @@ func NewService(store Store, replyGenerator ReplyGenerator, defaultModelID strin
 		store:          store,
 		usageRecorder:  usageRecorder,
 	}
+}
+
+func (s *Service) SetSemanticWorkflowTriggerer(triggerer SemanticWorkflowTriggerer) {
+	if s == nil {
+		return
+	}
+	s.semanticWorkflowTriggerer = triggerer
 }
 
 func (s *Service) CreateConversation(ctx context.Context, session auth.Session, title string) (Conversation, error) {
@@ -491,6 +503,18 @@ func (s *Service) SendMessage(ctx context.Context, session auth.Session, convers
 			OrganizationID: session.OrganizationID,
 			OutputTokens:   estimateTokens(reply),
 			RequestCount:   1,
+			UserID:         session.User.ID,
+			WorkspaceID:    session.WorkspaceID,
+		}); err != nil {
+			return nil, err
+		}
+	}
+
+	if s.semanticWorkflowTriggerer != nil {
+		if err := s.semanticWorkflowTriggerer.TriggerSemanticWorkflows(ctx, SemanticWorkflowTriggerRequest{
+			ConversationID: conversationID,
+			Message:        content,
+			OrganizationID: session.OrganizationID,
 			UserID:         session.User.ID,
 			WorkspaceID:    session.WorkspaceID,
 		}); err != nil {

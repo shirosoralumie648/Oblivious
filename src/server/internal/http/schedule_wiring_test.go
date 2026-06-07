@@ -63,8 +63,7 @@ func TestWorkflowServiceCanUseDefaultScheduleServiceForScheduleTriggerSync(t *te
 	workflowStore := newScheduleWiringWorkflowStore()
 	scheduleStore := &scheduleWiringStore{}
 	workflowService := workflow.NewService(workflowStore)
-	scheduleService := newScheduleService(scheduleStore, workflowService, nil)
-	workflowService.SetScheduleSyncer(scheduleService)
+	_ = newScheduleService(scheduleStore, workflowService, nil)
 
 	created, err := workflowService.CreateWorkflow(context.Background(), workflow.CreateWorkflowRequest{
 		OrganizationID: "org_1",
