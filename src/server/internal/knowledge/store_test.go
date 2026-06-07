@@ -143,6 +143,60 @@ func TestSQLStoreRetrieveKnowledgeWithOptionsUsesCrossTenantSafeVectorSearch(t *
 	}
 }
 
+func TestSQLStoreRetrieveKnowledgeWithOptionsPopulatesCitationHighlights(t *testing.T) {
+	driverName := "knowledge_retrieve_citation_highlight_test"
+	queryer := &knowledgeRetrievalQueryer{
+		rows: [][]driver.Value{
+			{
+				"doc_1",
+				"Deployment Manual",
+				"v3",
+				"kdc_1",
+				int64(0),
+				"v3",
+				"Deployment controls require approval before production rollout.",
+				[]byte(`{"pageNumber":15,"sourceUrl":"https://docs.example/manual.pdf"}`),
+				float64(0.91),
+				float64(0.91),
+				"embedding_rag",
+			},
+		},
+	}
+	registerKnowledgeRetrievalDriver(driverName, queryer)
+
+	db, err := sql.Open(driverName, "")
+	if err != nil {
+		t.Fatalf("open capture db: %v", err)
+	}
+	defer db.Close()
+
+	results, err := NewSQLStore(db).RetrieveKnowledgeWithOptions(
+		context.Background(),
+		"org_1",
+		"kb_1",
+		"deployment controls",
+		[]float32{0.1, 0.2, 0.3},
+		KnowledgeRetrievalOptions{Mode: KnowledgeRetrievalModeVector, Limit: 1},
+	)
+	if err != nil {
+		t.Fatalf("retrieve knowledge with citation highlights: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+
+	source := results[0].Source
+	if source.MatchedSnippet == "" || source.OriginalText == "" || source.PageNumber != 15 || source.SourceURL != "https://docs.example/manual.pdf" {
+		t.Fatalf("expected citation source metadata to be populated, got %+v", source)
+	}
+	if len(source.HighlightPositions) != 1 {
+		t.Fatalf("expected exact query highlight position, got %+v", source.HighlightPositions)
+	}
+	if got := source.HighlightPositions[0]; got.Start != 0 || got.End != 19 {
+		t.Fatalf("expected highlight 0-19, got %+v", got)
+	}
+}
+
 func TestSQLStoreRetrieveKnowledgeWithOptionsWithoutEmbeddingUsesKeywordOnlyQuery(t *testing.T) {
 	driverName := "knowledge_retrieve_keyword_fallback_test"
 	queryer := &knowledgeRetrievalQueryer{}

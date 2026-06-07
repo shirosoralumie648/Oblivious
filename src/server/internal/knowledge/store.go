@@ -964,16 +964,17 @@ func scanKnowledgeRetrievalRows(rows *sql.Rows, query string) ([]KnowledgeRetrie
 			snippet = strings.Join(strings.Fields(content), " ")
 		}
 		source := KnowledgeCitation{
-			DocumentID:      documentID,
-			DocumentTitle:   documentTitle,
-			DocumentVersion: documentVersion,
-			ChunkID:         chunkID,
-			ChunkIndex:      chunkIndex,
-			PageNumber:      metadata.PageNumber,
-			SourceURL:       metadata.SourceURL,
-			OriginalText:    content,
-			MatchedSnippet:  snippet,
-			ConfidenceScore: similarity,
+			DocumentID:         documentID,
+			DocumentTitle:      documentTitle,
+			DocumentVersion:    documentVersion,
+			ChunkID:            chunkID,
+			ChunkIndex:         chunkIndex,
+			HighlightPositions: buildKnowledgeHighlightPositions(content, query),
+			PageNumber:         metadata.PageNumber,
+			SourceURL:          metadata.SourceURL,
+			OriginalText:       content,
+			MatchedSnippet:     snippet,
+			ConfidenceScore:    similarity,
 		}
 
 		results = append(results, KnowledgeRetrievalResult{
@@ -990,6 +991,42 @@ func scanKnowledgeRetrievalRows(rows *sql.Rows, query string) ([]KnowledgeRetrie
 		})
 	}
 	return results, rows.Err()
+}
+
+func buildKnowledgeHighlightPositions(content, query string) []HighlightPosition {
+	query = strings.TrimSpace(query)
+	if content == "" || query == "" {
+		return nil
+	}
+
+	lowerContent := strings.ToLower(content)
+	lowerQuery := strings.ToLower(query)
+	positions := []HighlightPosition{}
+
+	index := 0
+	for {
+		position := strings.Index(lowerContent[index:], lowerQuery)
+		if position < 0 {
+			break
+		}
+		startByte := index + position
+		positions = append(positions, HighlightPosition{
+			Start: knowledgeByteToRuneOffset(content, startByte),
+			End:   knowledgeByteToRuneOffset(content, startByte+len(query)),
+		})
+		index = startByte + len(query)
+	}
+	return positions
+}
+
+func knowledgeByteToRuneOffset(value string, byteOffset int) int {
+	if byteOffset <= 0 {
+		return 0
+	}
+	if byteOffset >= len(value) {
+		return len([]rune(value))
+	}
+	return len([]rune(value[:byteOffset]))
 }
 
 func formatKnowledgeVector(embedding []float32) string {
