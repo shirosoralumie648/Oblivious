@@ -62,3 +62,24 @@ func TestRegistryAvailableProvidersOnlyIncludesConfiguredProviders(t *testing.T)
 		t.Fatalf("expected only stripe to be available, got %+v", providers)
 	}
 }
+
+func TestDefaultRegistryKeepsDomesticProvidersCNYButUnconfigured(t *testing.T) {
+	registry := DefaultRegistry()
+
+	for _, providerName := range []string{"alipay", "wechatpay"} {
+		_, err := registry.Resolve(providerName)
+		var providerErr *ProviderError
+		if !errors.As(err, &providerErr) || providerErr.Code != CodeProviderNotConfigured {
+			t.Fatalf("expected %s to be registered but unconfigured, got %T %v", providerName, err, err)
+		}
+	}
+
+	registry.Register(Provider{Name: "alipay", Configured: true, Currency: "cny"})
+	provider, err := registry.Resolve("alipay")
+	if err != nil {
+		t.Fatalf("resolve configured alipay: %v", err)
+	}
+	if provider.Currency != "cny" {
+		t.Fatalf("expected configured alipay currency cny, got %q", provider.Currency)
+	}
+}

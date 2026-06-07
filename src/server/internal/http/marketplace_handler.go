@@ -47,18 +47,13 @@ func withMarketplaceCheckout(settlementService marketplaceSettlementCheckoutServ
 		if providerRegistry == nil {
 			providerRegistry = payment.DefaultRegistry()
 		}
-		creators := map[string]stripebilling.CheckoutCreator{}
-		if checkoutCreator != nil {
-			creators["stripe"] = checkoutCreator
+		if checkoutCreators == nil {
+			checkoutCreators = map[string]stripebilling.CheckoutCreator{}
 		}
-		for providerName, creator := range checkoutCreators {
-			normalized := strings.ToLower(strings.TrimSpace(providerName))
-			if normalized == "" || creator == nil {
-				continue
-			}
-			creators[normalized] = creator
+		if checkoutCreator != nil && checkoutCreators["stripe"] == nil {
+			checkoutCreators["stripe"] = checkoutCreator
 		}
-		handler.checkoutCreators = creators
+		handler.checkoutCreators = checkoutCreators
 		handler.checkoutConfig = checkoutConfig
 		handler.providerRegistry = providerRegistry
 	}

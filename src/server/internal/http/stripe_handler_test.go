@@ -455,6 +455,56 @@ func TestBillingCheckoutUsesConfiguredProviderCheckoutCreator(t *testing.T) {
 	}
 }
 
+func TestBillingCheckoutUsesConfiguredDomesticProviderFromRouterConfig(t *testing.T) {
+	database := testDatabase(t)
+	cfg := testConfig()
+	cfg.StripeSuccessURL = "https://app.oblivious.test/billing/success"
+	cfg.StripeCancelURL = "https://app.oblivious.test/billing/cancel"
+	cfg.AlipayCheckoutBaseURL = "https://checkout.alipay.test/session"
+	router := NewRouter(cfg, database)
+
+	cookie, csrfToken, userID := registerHTTPUser(t, router, "alipay-router-config@example.com")
+	_, organizationID := queryHTTPUserScope(t, database, userID)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/billing/checkout", strings.NewReader(`{"provider":"alipay","kind":"topup","amount":25}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(cookie)
+	addCSRF(request, csrfToken)
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("expected configured alipay checkout to return 201, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Data struct {
+			CheckoutSessionID string `json:"checkoutSessionId"`
+			URL               string `json:"url"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode alipay router checkout response: %v", err)
+	}
+	if response.Data.CheckoutSessionID == "" || !strings.HasPrefix(response.Data.CheckoutSessionID, "alipay_") {
+		t.Fatalf("expected alipay checkout session id, got %q", response.Data.CheckoutSessionID)
+	}
+	if !strings.HasPrefix(response.Data.URL, "https://checkout.alipay.test/session?") {
+		t.Fatalf("expected configured alipay checkout URL, got %q", response.Data.URL)
+	}
+
+	var storedProvider, storedCurrency, providerSessionID string
+	if err := database.QueryRow(`
+		SELECT provider, currency, provider_checkout_session_id
+		FROM payment_intents
+		WHERE organization_id = $1 AND user_id = $2 AND kind = 'topup'
+	`, organizationID, userID).Scan(&storedProvider, &storedCurrency, &providerSessionID); err != nil {
+		t.Fatalf("query configured alipay payment intent: %v", err)
+	}
+	if storedProvider != "alipay" || storedCurrency != "cny" || providerSessionID != response.Data.CheckoutSessionID {
+		t.Fatalf("expected alipay/cny payment intent with checkout session, got provider=%s currency=%s session=%s response=%s", storedProvider, storedCurrency, providerSessionID, response.Data.CheckoutSessionID)
+	}
+}
+
 func TestMarketplacePaidInstallDoesNotInstallBeforeWebhook(t *testing.T) {
 	database := testDatabase(t)
 	fakeCreator := &fakeCheckoutCreator{database: database}

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	stdhttp "net/http"
-	"strings"
 
 	"github.com/google/uuid"
 
@@ -38,19 +37,14 @@ func newBillingHandler(checkoutCreator stripebilling.CheckoutCreator, checkoutCo
 	if providerRegistry == nil {
 		providerRegistry = payment.DefaultRegistry()
 	}
-	creators := map[string]stripebilling.CheckoutCreator{}
-	if checkoutCreator != nil {
-		creators["stripe"] = checkoutCreator
+	if checkoutCreators == nil {
+		checkoutCreators = map[string]stripebilling.CheckoutCreator{}
 	}
-	for providerName, creator := range checkoutCreators {
-		normalized := strings.ToLower(strings.TrimSpace(providerName))
-		if normalized == "" || creator == nil {
-			continue
-		}
-		creators[normalized] = creator
+	if checkoutCreator != nil && checkoutCreators["stripe"] == nil {
+		checkoutCreators["stripe"] = checkoutCreator
 	}
 	return billingHandler{
-		checkoutCreators: creators,
+		checkoutCreators: checkoutCreators,
 		checkoutConfig:   checkoutConfig,
 		paymentStore:     paymentStore,
 		quotaService:     quotaService,
@@ -106,11 +100,15 @@ func (h billingHandler) checkout(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	}
 
 	paymentIntentID := uuid.New().String()
+	currency := provider.Currency
+	if currency == "" {
+		currency = "usd"
+	}
 	checkoutReq := stripebilling.CheckoutSessionRequest{
 		OrganizationID:  session.OrganizationID,
 		UserID:          session.User.ID,
 		PaymentIntentID: paymentIntentID,
-		Currency:        "usd",
+		Currency:        currency,
 		CheckoutKind:    kind,
 	}
 	var intent stripebilling.PaymentIntent
@@ -145,7 +143,7 @@ func (h billingHandler) checkout(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 			PackageID:      pkg.ID,
 			Kind:           kind,
 			Amount:         pkg.Price,
-			Currency:       "usd",
+			Currency:       currency,
 			Status:         "pending",
 			Metadata: map[string]string{
 				"package_name":  pkg.Name,
@@ -166,7 +164,7 @@ func (h billingHandler) checkout(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 			UserID:         session.User.ID,
 			Kind:           kind,
 			Amount:         req.Amount,
-			Currency:       "usd",
+			Currency:       currency,
 			Status:         "pending",
 			Metadata: map[string]string{
 				"topup_amount": fmt.Sprintf("%.6f", req.Amount),

@@ -161,12 +161,13 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	if checkoutCreator == nil {
 		checkoutCreator = stripebilling.CheckoutCreatorFunc(stripebilling.CreateCheckoutSession)
 	}
+	paymentProviderRegistry, checkoutCreators := buildPaymentCheckoutProviders(cfg, checkoutCreator, options.PaymentProviderRegistry, options.CheckoutCreators)
 	billingHandler := newBillingHandler(checkoutCreator, stripebilling.CheckoutConfig{
 		SecretKey:     cfg.StripeSecretKey,
 		SuccessURL:    cfg.StripeSuccessURL,
 		CancelURL:     cfg.StripeCancelURL,
 		WebhookSecret: cfg.StripeWebhookSecret,
-	}, stripebilling.NewSQLPaymentIntentStore(database), quotaService, options.PaymentProviderRegistry, options.CheckoutCreators)
+	}, stripebilling.NewSQLPaymentIntentStore(database), quotaService, paymentProviderRegistry, checkoutCreators)
 	stripeWebhookHandler := stripebilling.NewWebhookHandler(
 		stripebilling.NewSQLWebhookLedger(database),
 		cfg.StripeWebhookSecret,
@@ -200,7 +201,7 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 			SuccessURL:    cfg.StripeSuccessURL,
 			CancelURL:     cfg.StripeCancelURL,
 			WebhookSecret: cfg.StripeWebhookSecret,
-		}, options.PaymentProviderRegistry, options.CheckoutCreators),
+		}, paymentProviderRegistry, checkoutCreators),
 		withMarketplaceGovernance(marketplaceGovernanceService),
 	)
 

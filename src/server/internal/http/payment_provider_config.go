@@ -1,0 +1,125 @@
+package http
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"net/url"
+	"strings"
+
+	stripeapi "github.com/stripe/stripe-go/v83"
+
+	"oblivious/server/internal/config"
+	"oblivious/server/internal/payment"
+	stripebilling "oblivious/server/internal/stripe"
+)
+
+type hostedCheckoutCreator struct {
+	provider string
+	baseURL  string
+}
+
+func (c hostedCheckoutCreator) CreateCheckoutSession(_ context.Context, _ stripebilling.CheckoutConfig, req stripebilling.CheckoutSessionRequest) (*stripeapi.CheckoutSession, error) {
+	base, err := url.Parse(strings.TrimSpace(c.baseURL))
+	if err != nil || base.Scheme == "" || base.Host == "" {
+		return nil, fmt.Errorf("invalid %s checkout base url", c.provider)
+	}
+	provider := strings.ToLower(strings.TrimSpace(c.provider))
+	sessionID := hostedCheckoutSessionID(provider, req.PaymentIntentID)
+	currency := strings.ToLower(strings.TrimSpace(req.Currency))
+	if currency == "" {
+		currency = "cny"
+	}
+	query := base.Query()
+	query.Set("provider", provider)
+	query.Set("checkout_kind", firstNonEmptyString(req.CheckoutKind, "subscription"))
+	query.Set("payment_intent_id", req.PaymentIntentID)
+	query.Set("organization_id", req.OrganizationID)
+	query.Set("user_id", req.UserID)
+	query.Set("plan_id", req.PlanID)
+	query.Set("plan_name", req.PlanName)
+	query.Set("amount", fmt.Sprintf("%.2f", req.PlanPrice))
+	query.Set("currency", currency)
+	query.Set("session_id", sessionID)
+	base.RawQuery = query.Encode()
+	return &stripeapi.CheckoutSession{
+		ID:  sessionID,
+		URL: base.String(),
+	}, nil
+}
+
+func hostedCheckoutSessionID(provider string, paymentIntentID string) string {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	paymentIntentID = strings.TrimSpace(paymentIntentID)
+	if paymentIntentID == "" {
+		return provider + "_checkout"
+	}
+	safeIntent := sanitizeCheckoutIDPart(paymentIntentID)
+	if len(safeIntent) <= 48 {
+		return provider + "_" + safeIntent
+	}
+	sum := sha256.Sum256([]byte(paymentIntentID))
+	return provider + "_" + safeIntent[:32] + "_" + hex.EncodeToString(sum[:])[:12]
+}
+
+func sanitizeCheckoutIDPart(value string) string {
+	var builder strings.Builder
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z':
+			builder.WriteRune(r)
+		case r >= 'A' && r <= 'Z':
+			builder.WriteRune(r)
+		case r >= '0' && r <= '9':
+			builder.WriteRune(r)
+		case r == '_' || r == '-':
+			builder.WriteRune(r)
+		}
+	}
+	if builder.Len() == 0 {
+		return "checkout"
+	}
+	return builder.String()
+}
+
+func buildPaymentCheckoutProviders(cfg config.Config, stripeCreator stripebilling.CheckoutCreator, providerRegistry *payment.Registry, checkoutCreators map[string]stripebilling.CheckoutCreator) (*payment.Registry, map[string]stripebilling.CheckoutCreator) {
+	if providerRegistry == nil {
+		providerRegistry = payment.DefaultRegistry()
+	}
+	creators := map[string]stripebilling.CheckoutCreator{}
+	if stripeCreator != nil {
+		creators["stripe"] = stripeCreator
+	}
+	for providerName, creator := range checkoutCreators {
+		normalized := strings.ToLower(strings.TrimSpace(providerName))
+		if normalized == "" || creator == nil {
+			continue
+		}
+		creators[normalized] = creator
+	}
+	registerHostedDomesticCheckout(providerRegistry, creators, "alipay", cfg.AlipayCheckoutBaseURL)
+	registerHostedDomesticCheckout(providerRegistry, creators, "wechatpay", cfg.WeChatPayCheckoutBaseURL)
+	return providerRegistry, creators
+}
+
+func registerHostedDomesticCheckout(registry *payment.Registry, creators map[string]stripebilling.CheckoutCreator, providerName string, baseURL string) {
+	providerName = strings.ToLower(strings.TrimSpace(providerName))
+	baseURL = strings.TrimSpace(baseURL)
+	if providerName == "" || baseURL == "" {
+		return
+	}
+	if _, exists := creators[providerName]; !exists {
+		creators[providerName] = hostedCheckoutCreator{provider: providerName, baseURL: baseURL}
+	}
+	registry.Register(payment.Provider{Name: providerName, Configured: true, Currency: "cny"})
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}

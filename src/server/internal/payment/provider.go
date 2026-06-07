@@ -14,6 +14,7 @@ const (
 type Provider struct {
 	Name       string
 	Configured bool
+	Currency   string
 }
 
 type ProviderError struct {
@@ -41,6 +42,10 @@ func (r *Registry) Register(provider Provider) {
 	provider.Name = normalizeName(provider.Name)
 	if provider.Name == "" {
 		return
+	}
+	provider.Currency = strings.ToLower(strings.TrimSpace(provider.Currency))
+	if provider.Currency == "" {
+		provider.Currency = "usd"
 	}
 	r.providers[provider.Name] = provider
 }
@@ -75,9 +80,9 @@ func (r *Registry) AvailableProviders() []Provider {
 
 func DefaultRegistry() *Registry {
 	registry := NewRegistry("stripe")
-	registry.Register(Provider{Name: "stripe", Configured: true})
-	registry.Register(Provider{Name: "alipay", Configured: false})
-	registry.Register(Provider{Name: "wechatpay", Configured: false})
+	registry.Register(Provider{Name: "stripe", Configured: true, Currency: "usd"})
+	registry.Register(Provider{Name: "alipay", Configured: false, Currency: "cny"})
+	registry.Register(Provider{Name: "wechatpay", Configured: false, Currency: "cny"})
 	return registry
 }
 

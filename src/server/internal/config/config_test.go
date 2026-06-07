@@ -574,6 +574,25 @@ func TestLoadStripeConfig(t *testing.T) {
 	}
 }
 
+func TestLoadDomesticPaymentCheckoutConfig(t *testing.T) {
+	t.Setenv("SERVER_PORT", "8080")
+	t.Setenv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/oblivious?sslmode=disable")
+	t.Setenv("SESSION_SECRET", "test-secret")
+	t.Setenv("ALIPAY_CHECKOUT_BASE_URL", " https://checkout.alipay.example.test/pay ")
+	t.Setenv("WECHATPAY_CHECKOUT_BASE_URL", " https://checkout.wechatpay.example.test/pay ")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if cfg.AlipayCheckoutBaseURL != "https://checkout.alipay.example.test/pay" {
+		t.Fatalf("expected alipay checkout base URL, got %q", cfg.AlipayCheckoutBaseURL)
+	}
+	if cfg.WeChatPayCheckoutBaseURL != "https://checkout.wechatpay.example.test/pay" {
+		t.Fatalf("expected wechatpay checkout base URL, got %q", cfg.WeChatPayCheckoutBaseURL)
+	}
+}
+
 func TestLoadRejectsInvalidLLMTimeout(t *testing.T) {
 	t.Setenv("SERVER_PORT", "8080")
 	t.Setenv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/oblivious?sslmode=disable")
