@@ -1,0 +1,77 @@
+# Knowledge and RAG Requirement Audit - 2026-06-07
+
+Scope:
+
+- `docs/superpowers/specs/2026-06-04-functional-logic-details.md` sections 3.1-3.4 and 7.6.
+- `docs/superpowers/specs/2026-06-04-complete-fusion-design.md` section 3.3.
+
+Status values:
+
+- `Proven`: current code and focused tests prove the requirement.
+- `Partial`: current code exists, but the requirement is only partly implemented or partly verified.
+- `Gap`: current evidence contradicts or misses the requirement.
+- `Unverified`: code may exist, but evidence is too weak for a completion claim.
+
+## 3.1 Retrieval Strategy Configuration
+
+| Requirement | Status | Evidence |
+| --- | --- | --- |
+| Knowledge-base retrieval mode supports `vector_only`, `hybrid`, and `hybrid_rerank`. | Proven for API/store contract | `KnowledgeRetrievalModeVector` now serializes as `vector_only`, while legacy `"vector"` input is still normalized to `vector_only`. `TestKnowledgeHandlerRetrieveAcceptsVectorOnlyMode` proves the HTTP retrieve API accepts the spec/frontend mode, and `TestSQLStoreRetrieveKnowledgeWithOptionsUsesCrossTenantSafeVectorSearch` proves SQL vector mode accepts `vector_only`. |
+| Knowledge-base retrieval config is preserved after list/detail reload. | Proven | `ListKnowledgeBases` and `GetKnowledgeBase` now select and scan retrieval mode, limit, min score, vector/keyword weights, reranker config, chunk config, embedding model, and update strategy. `TestSQLStoreListAndGetKnowledgeBasesReturnRAGConfig` proves config readback. |
+| Hybrid retrieval combines vector and keyword search. | Partial | `RetrieveKnowledgeWithOptions` has pgvector and full-text branches with weighted score fusion and tenant filters. Focused SQL-shape tests cover the query, but this is not yet a production benchmark or reranker-backed evaluation. |
+| `hybrid_rerank` invokes a configured reranker model. | Gap | The mode is accepted and routed through the hybrid SQL branch, but the main service/store path does not call the reranker package or external reranker model. |
+
+## 3.2 Chunking Strategy Configuration
+
+| Requirement | Status | Evidence |
+| --- | --- | --- |
+| Knowledge-base config stores chunk strategy, size, and overlap. | Proven for config persistence/readback | Create/update/list/detail paths include `chunk_strategy`, `chunk_size`, and `chunk_overlap`; `TestSQLStoreListAndGetKnowledgeBasesReturnRAGConfig` covers readback. |
+| Main ingestion applies fixed, semantic, QA, or template chunking strategies. | Partial | Chunking engine files exist, and document chunk metadata is persisted. The current service/store ingestion path still builds chunks with the existing content splitter unless callers provide explicit chunks; it does not yet load the knowledge-base chunk config and drive ingestion from it. |
+| Chunk visualization/editing is available end to end. | Partial | Workspace UI has retrieval result and chunk actions, and server chunk update/list paths exist. This audit did not prove original-document visual chunk boundaries, split/merge editing, or colored chunk overlays. |
+
+## 3.3 Document Update Strategy
+
+| Requirement | Status | Evidence |
+| --- | --- | --- |
+| Knowledge-base config stores full-replace, incremental, and versioned update strategy names. | Proven for config contract | `KnowledgeUpdateStrategyIncremental` is now defined alongside `full_replace` and `versioned`, and config readback preserves `incremental`. |
+| Full replace document updates remove old chunks and write new chunks. | Proven for current default | `replaceKnowledgeDocumentChunksWithOptions` deletes chunks for the document and inserts replacement chunks with metadata; document write tests cover chunk and metadata persistence. |
+| Incremental update performs diff-aware chunk updates. | Gap | No current code computes document diffs, chunk hashes, or changed-chunk-only updates. |
+| Versioned update preserves multiple document/chunk versions and supports version-scoped retrieval. | Partial | Document and chunk rows carry `document_version`, and retrieval can filter by version. The write path still deletes prior chunks for a document, so multi-version coexistence is not fully implemented. |
+
+## 3.4 Citation and Vector Store
+
+| Requirement | Status | Evidence |
+| --- | --- | --- |
+| Retrieval results include citation/source metadata. | Partial | SQL retrieval scans document/chunk identity, version, page number, source URL, original text, matched snippet, and confidence into `KnowledgeCitation`. Focused tests assert page/source metadata. Highlight positions are defined but not populated in the main scan path. |
+| Qdrant vector store is wired. | Partial | `QdrantVectorStore` can ensure/delete tenant collections and router wiring can attach it to the knowledge service. There is no repository-owned Qdrant upsert/search path for document chunks yet. |
+| HNSW/vector payload search is production-backed by Qdrant. | Gap | Current retrieval uses PostgreSQL/pgvector SQL. Qdrant payload upsert/search is not implemented. |
+
+## 7.6 Retrieval Testing UI and API
+
+| Requirement | Status | Evidence |
+| --- | --- | --- |
+| Retrieval test UI can save scored results as test cases and run evaluations. | Proven for frontend/API flow | `KnowledgePage` exposes save/run controls, feature API tests cover create/list/run calls, and handler tests cover request/response behavior. |
+| SQL-backed stores persist and list retrieval test cases. | Proven | `SQLStore.CreateRetrievalTestCase` now inserts into `knowledge_retrieval_test_cases` through a tenant-scoped `INSERT ... SELECT FROM knowledge_bases`, and `SQLStore.ListRetrievalTestCases` reads saved expected results by org/base. `TestSQLStoreCreateRetrievalTestCasePersistsExpectedResult` and `TestSQLStoreListRetrievalTestCasesReturnsSavedExpectedResults` prove the SQL path. |
+| Retrieval test reports prove quality of configured RAG modes. | Partial | `RunRetrievalTestCases` compares expected document/chunk/version against actual retrieval results. This is a functional harness, not yet a curated quality benchmark across chunk/rerank/update policies. |
+
+## Verification
+
+Fresh checks for this slice:
+
+- `go test ./internal/knowledge -run 'TestSQLStore(CreateRetrievalTestCasePersistsExpectedResult|ListRetrievalTestCasesReturnsSavedExpectedResults)' -count=1`
+- `go test ./internal/knowledge/... -count=1`
+- `go test ./internal/http -run 'TestKnowledgeHandler|TestNewKnowledgeServiceWiresQdrantVectorStore|TestRegisterKnowledgeRoutes|TestKnowledgeRoutes|TestRegisterKnowledge' -count=1`
+
+All Go commands above were run from `src/server` with absolute `GOCACHE=/tmp/oblivious-gocache` and `GOMODCACHE=/tmp/oblivious-gomodcache`.
+
+## Current Conclusion
+
+The Knowledge/RAG row remains `Partial`, not `Proven`.
+
+This slice closes the highest-priority API/store contract gaps for retrieval mode naming, knowledge-base RAG config readback, and SQL-backed retrieval test case persistence. The remaining high-value work is:
+
+1. Drive ingestion from knowledge-base chunking config instead of the fixed default splitter.
+2. Wire a real reranker into `hybrid_rerank`.
+3. Implement incremental and multi-version update semantics beyond storing strategy names.
+4. Populate citation highlight positions and prove document preview/source navigation.
+5. Add Qdrant chunk upsert/search instead of collection-only wiring.

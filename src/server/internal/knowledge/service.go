@@ -282,7 +282,7 @@ func normalizeKnowledgeRetrievalMode(mode string) string {
 	switch strings.TrimSpace(mode) {
 	case "", KnowledgeRetrievalModeHybrid:
 		return KnowledgeRetrievalModeHybrid
-	case KnowledgeRetrievalModeVector:
+	case KnowledgeRetrievalModeVector, "vector":
 		return KnowledgeRetrievalModeVector
 	case KnowledgeRetrievalModeKeyword:
 		return KnowledgeRetrievalModeKeyword

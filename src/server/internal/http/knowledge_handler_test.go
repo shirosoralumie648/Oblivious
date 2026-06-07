@@ -1024,6 +1024,28 @@ func TestKnowledgeHandlerRetrieveAcceptsHybridOptions(t *testing.T) {
 	}
 }
 
+func TestKnowledgeHandlerRetrieveAcceptsVectorOnlyMode(t *testing.T) {
+	store := &knowledgeFakeStore{
+		retrievalResults: []knowledge.KnowledgeRetrievalResult{},
+	}
+	handler := newKnowledgeTestHandler(store)
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_2/retrieve", strings.NewReader(`{"query":"deployment","mode":"vector_only","limit":2}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+	}))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.retrieveKnowledge(recorder, request, "kb_2")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d; body=%s", recorder.Code, recorder.Body.String())
+	}
+	if store.retrievalOptions.Mode != knowledge.KnowledgeRetrievalModeVector {
+		t.Fatalf("expected vector_only retrieval mode, got %q", store.retrievalOptions.Mode)
+	}
+}
+
 func TestKnowledgeHandlerRetrieveRejectsInvalidMode(t *testing.T) {
 	store := &knowledgeFakeStore{
 		retrievalResults: []knowledge.KnowledgeRetrievalResult{},

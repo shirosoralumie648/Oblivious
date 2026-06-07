@@ -6,9 +6,11 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"io"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestScoreKnowledgeCandidatePrefersTitleMatchesOverChunkAndBody(t *testing.T) {
@@ -175,6 +177,210 @@ func TestSQLStoreRetrieveKnowledgeWithOptionsWithoutEmbeddingUsesKeywordOnlyQuer
 	}
 }
 
+func TestSQLStoreListAndGetKnowledgeBasesReturnRAGConfig(t *testing.T) {
+	driverName := "knowledge_base_config_read_test"
+	now := time.Date(2026, time.June, 7, 9, 0, 0, 0, time.UTC)
+	queryer := &knowledgeRetrievalQueryer{
+		rowsByQuery: map[string][][]driver.Value{
+			"FROM knowledge_bases": {
+				{
+					"kb_1",
+					"Ops KB",
+					int64(2),
+					"vector_only",
+					int64(8),
+					float64(0.42),
+					float64(0.8),
+					float64(0.2),
+					"bge-reranker-large",
+					int64(12),
+					"semantic",
+					int64(900),
+					int64(120),
+					"text-embedding-3-large",
+					"incremental",
+					now,
+				},
+			},
+		},
+	}
+	registerKnowledgeRetrievalDriver(driverName, queryer)
+
+	db, err := sql.Open(driverName, "")
+	if err != nil {
+		t.Fatalf("open capture db: %v", err)
+	}
+	defer db.Close()
+
+	listed, err := NewSQLStore(db).ListKnowledgeBases(context.Background(), "org_1")
+	if err != nil {
+		t.Fatalf("list knowledge bases: %v", err)
+	}
+	if len(listed) != 1 {
+		t.Fatalf("expected one knowledge base, got %+v", listed)
+	}
+	if listed[0].RetrievalMode != KnowledgeRetrievalModeVector || listed[0].RetrievalLimit != 8 || listed[0].ChunkStrategy != KnowledgeChunkStrategySemantic {
+		t.Fatalf("expected listed base to include RAG config, got %+v", listed[0])
+	}
+	if listed[0].EmbeddingModel != "text-embedding-3-large" || listed[0].UpdateStrategy != KnowledgeUpdateStrategyIncremental {
+		t.Fatalf("expected listed base to include embedding/update config, got %+v", listed[0])
+	}
+
+	detail, err := NewSQLStore(db).GetKnowledgeBase(context.Background(), "org_1", "kb_1")
+	if err != nil {
+		t.Fatalf("get knowledge base: %v", err)
+	}
+	if detail.RetrievalMode != KnowledgeRetrievalModeVector || detail.RerankerModel != "bge-reranker-large" || detail.RerankTopK != 12 {
+		t.Fatalf("expected detail base to include RAG config, got %+v", detail)
+	}
+}
+
+func TestSQLStoreCreateRetrievalTestCasePersistsExpectedResult(t *testing.T) {
+	driverName := "knowledge_retrieval_test_case_create_test"
+	queryer := &knowledgeRetrievalQueryer{
+		rowsByQuery: map[string][][]driver.Value{
+			"INSERT INTO knowledge_retrieval_test_cases": {
+				{
+					"krtc_1",
+					"kb_1",
+					"deployment rollback",
+					"doc_1",
+					"Deployment Runbook",
+					"v2",
+					"kdc_1",
+					int64(3),
+					"rollback snippet",
+					[]byte(`{"documentId":"doc_1","documentTitle":"Deployment Runbook","documentVersion":"v2","chunkId":"kdc_1","chunkIndex":3,"snippet":"rollback snippet","score":0.91}`),
+				},
+			},
+		},
+	}
+	registerKnowledgeRetrievalDriver(driverName, queryer)
+
+	db, err := sql.Open(driverName, "")
+	if err != nil {
+		t.Fatalf("open capture db: %v", err)
+	}
+	defer db.Close()
+
+	testCase, err := NewSQLStore(db).CreateRetrievalTestCase(context.Background(), "org_1", "kb_1", CreateKnowledgeRetrievalTestCaseRequest{
+		Query: "deployment rollback",
+		ExpectedResult: KnowledgeRetrievalResult{
+			ChunkID:         "kdc_1",
+			ChunkIndex:      3,
+			DocumentID:      "doc_1",
+			DocumentTitle:   "Deployment Runbook",
+			DocumentVersion: "v2",
+			Score:           0.91,
+			Snippet:         "rollback snippet",
+		},
+	})
+	if err != nil {
+		t.Fatalf("create retrieval test case: %v", err)
+	}
+	if testCase.ID != "krtc_1" || testCase.KnowledgeBaseID != "kb_1" || testCase.ExpectedChunkID != "kdc_1" {
+		t.Fatalf("unexpected retrieval test case: %+v", testCase)
+	}
+	if testCase.ExpectedResult.DocumentID != "doc_1" || testCase.ExpectedResult.ChunkIndex != 3 {
+		t.Fatalf("expected result was not decoded, got %+v", testCase.ExpectedResult)
+	}
+
+	queryer.mu.Lock()
+	query := queryer.query
+	args := append([]driver.NamedValue(nil), queryer.args...)
+	queryer.mu.Unlock()
+	for _, want := range []string{
+		"INSERT INTO knowledge_retrieval_test_cases",
+		"SELECT",
+		"FROM knowledge_bases",
+		"kb.organization_id = $1",
+		"kb.id = $2",
+		"expected_result",
+		"RETURNING",
+	} {
+		if !strings.Contains(query, want) {
+			t.Fatalf("expected create retrieval test case query to include %q, got %s", want, query)
+		}
+	}
+	if got := knowledgeRetrievalArgString(args, 1); got != "org_1" {
+		t.Fatalf("organization arg = %q, want org_1", got)
+	}
+	if got := knowledgeRetrievalArgString(args, 2); got != "kb_1" {
+		t.Fatalf("knowledge base arg = %q, want kb_1", got)
+	}
+	if got := knowledgeRetrievalArgString(args, 4); got != "deployment rollback" {
+		t.Fatalf("query arg = %q, want deployment rollback", got)
+	}
+	if got := knowledgeRetrievalArgString(args, 11); !strings.Contains(got, `"chunkId":"kdc_1"`) {
+		t.Fatalf("expected result arg = %q, want chunk id JSON", got)
+	}
+}
+
+func TestSQLStoreListRetrievalTestCasesReturnsSavedExpectedResults(t *testing.T) {
+	driverName := "knowledge_retrieval_test_case_list_test"
+	queryer := &knowledgeRetrievalQueryer{
+		rowsByQuery: map[string][][]driver.Value{
+			"FROM knowledge_retrieval_test_cases": {
+				{
+					"krtc_1",
+					"kb_1",
+					"deployment rollback",
+					"doc_1",
+					"Deployment Runbook",
+					"v2",
+					"kdc_1",
+					int64(3),
+					"rollback snippet",
+					[]byte(`{"documentId":"doc_1","documentTitle":"Deployment Runbook","documentVersion":"v2","chunkId":"kdc_1","chunkIndex":3,"snippet":"rollback snippet","score":0.91}`),
+				},
+			},
+		},
+	}
+	registerKnowledgeRetrievalDriver(driverName, queryer)
+
+	db, err := sql.Open(driverName, "")
+	if err != nil {
+		t.Fatalf("open capture db: %v", err)
+	}
+	defer db.Close()
+
+	testCases, err := NewSQLStore(db).ListRetrievalTestCases(context.Background(), "org_1", "kb_1")
+	if err != nil {
+		t.Fatalf("list retrieval test cases: %v", err)
+	}
+	if len(testCases) != 1 {
+		t.Fatalf("expected one retrieval test case, got %+v", testCases)
+	}
+	testCase := testCases[0]
+	if testCase.ID != "krtc_1" || testCase.Query != "deployment rollback" || testCase.ExpectedDocumentVersion != "v2" {
+		t.Fatalf("unexpected retrieval test case: %+v", testCase)
+	}
+	if testCase.ExpectedResult.DocumentTitle != "Deployment Runbook" || testCase.ExpectedResult.Score != 0.91 {
+		t.Fatalf("expected result was not decoded, got %+v", testCase.ExpectedResult)
+	}
+
+	queryer.mu.Lock()
+	query := queryer.query
+	args := append([]driver.NamedValue(nil), queryer.args...)
+	queryer.mu.Unlock()
+	for _, want := range []string{
+		"FROM knowledge_retrieval_test_cases",
+		"organization_id = $1",
+		"knowledge_base_id = $2",
+		"ORDER BY created_at DESC",
+	} {
+		if !strings.Contains(query, want) {
+			t.Fatalf("expected list retrieval test case query to include %q, got %s", want, query)
+		}
+	}
+	if got := knowledgeRetrievalArgString(args, 1); got != "org_1" {
+		t.Fatalf("organization arg = %q, want org_1", got)
+	}
+	if got := knowledgeRetrievalArgString(args, 2); got != "kb_1" {
+		t.Fatalf("knowledge base arg = %q, want kb_1", got)
+	}
+}
+
 func TestSQLStoreCreateKnowledgeDocumentWithOptionsPersistsCrossTenantChunksAndEmbeddings(t *testing.T) {
 	driverName := "knowledge_write_options_test"
 	queryer := &knowledgeRetrievalQueryer{}
@@ -260,12 +466,14 @@ func registerKnowledgeRetrievalDriver(name string, queryer *knowledgeRetrievalQu
 }
 
 type knowledgeRetrievalQueryer struct {
-	mu          sync.Mutex
-	query       string
-	args        []driver.NamedValue
-	rows        [][]driver.Value
-	execQueries []string
-	execArgs    [][]driver.NamedValue
+	mu             sync.Mutex
+	query          string
+	args           []driver.NamedValue
+	rows           [][]driver.Value
+	rowsByQuery    map[string][][]driver.Value
+	columnsByQuery map[string][]string
+	execQueries    []string
+	execArgs       [][]driver.NamedValue
 }
 
 type knowledgeRetrievalDriver struct {
@@ -306,22 +514,24 @@ func (c knowledgeRetrievalConn) QueryContext(_ context.Context, query string, ar
 	c.queryer.query = query
 	c.queryer.args = append([]driver.NamedValue(nil), args...)
 	rows := append([][]driver.Value(nil), c.queryer.rows...)
+	columns := knowledgeRetrievalResultColumns()
+	if len(c.queryer.rowsByQuery) > 0 {
+		for pattern, configuredRows := range c.queryer.rowsByQuery {
+			if strings.Contains(query, pattern) {
+				rows = append([][]driver.Value(nil), configuredRows...)
+				if configuredColumns, ok := c.queryer.columnsByQuery[pattern]; ok {
+					columns = append([]string(nil), configuredColumns...)
+				} else if len(configuredRows) > 0 {
+					columns = generatedKnowledgeTestColumns(len(configuredRows[0]))
+				}
+				break
+			}
+		}
+	}
 	c.queryer.mu.Unlock()
 	return &knowledgeRetrievalRows{
-		columns: []string{
-			"document_id",
-			"document_title",
-			"document_version",
-			"chunk_id",
-			"chunk_index",
-			"chunk_version",
-			"content",
-			"metadata",
-			"similarity",
-			"score",
-			"retrieval_method",
-		},
-		rows: rows,
+		columns: columns,
+		rows:    rows,
 	}, nil
 }
 
@@ -343,6 +553,30 @@ type knowledgeRetrievalRows struct {
 	columns []string
 	index   int
 	rows    [][]driver.Value
+}
+
+func knowledgeRetrievalResultColumns() []string {
+	return []string{
+		"document_id",
+		"document_title",
+		"document_version",
+		"chunk_id",
+		"chunk_index",
+		"chunk_version",
+		"content",
+		"metadata",
+		"similarity",
+		"score",
+		"retrieval_method",
+	}
+}
+
+func generatedKnowledgeTestColumns(count int) []string {
+	columns := make([]string, count)
+	for index := range columns {
+		columns[index] = "col_" + strconv.Itoa(index+1)
+	}
+	return columns
 }
 
 func (r *knowledgeRetrievalRows) Columns() []string {

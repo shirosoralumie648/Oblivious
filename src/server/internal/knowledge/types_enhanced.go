@@ -10,7 +10,7 @@ const (
 )
 
 const (
-	RetrievalModeVector       = "vector"
+	RetrievalModeVector       = "vector_only"
 	RetrievalModeKeyword      = "keyword"
 	RetrievalModeHybrid       = "hybrid"
 	RetrievalModeHybridRerank = "hybrid_rerank"
@@ -54,6 +54,7 @@ const (
 
 const (
 	KnowledgeUpdateStrategyFullReplace = "full_replace"
+	KnowledgeUpdateStrategyIncremental = "incremental"
 	KnowledgeUpdateStrategyVersioned   = "versioned"
 )
 

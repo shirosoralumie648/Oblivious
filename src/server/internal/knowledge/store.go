@@ -195,6 +195,65 @@ func (s *SQLStore) UpdateKnowledgeBaseWithConfig(ctx context.Context, organizati
 	}, nil
 }
 
+type knowledgeBaseScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanKnowledgeBase(scanner knowledgeBaseScanner, base *KnowledgeBase) error {
+	if err := scanner.Scan(
+		&base.ID,
+		&base.Name,
+		&base.DocumentCount,
+		&base.RetrievalMode,
+		&base.RetrievalLimit,
+		&base.MinScore,
+		&base.VectorWeight,
+		&base.KeywordWeight,
+		&base.RerankerModel,
+		&base.RerankTopK,
+		&base.ChunkStrategy,
+		&base.ChunkSize,
+		&base.ChunkOverlap,
+		&base.EmbeddingModel,
+		&base.UpdateStrategy,
+		&base.UpdatedAt,
+	); err != nil {
+		return err
+	}
+	*base = knowledgeBaseWithNormalizedConfig(*base)
+	return nil
+}
+
+func knowledgeBaseWithNormalizedConfig(base KnowledgeBase) KnowledgeBase {
+	config := normalizeKnowledgeBaseConfig(KnowledgeBaseConfig{
+		ChunkOverlap:   base.ChunkOverlap,
+		ChunkSize:      base.ChunkSize,
+		ChunkStrategy:  base.ChunkStrategy,
+		EmbeddingModel: base.EmbeddingModel,
+		KeywordWeight:  base.KeywordWeight,
+		MinScore:       base.MinScore,
+		RerankTopK:     base.RerankTopK,
+		RerankerModel:  base.RerankerModel,
+		RetrievalLimit: base.RetrievalLimit,
+		RetrievalMode:  base.RetrievalMode,
+		UpdateStrategy: base.UpdateStrategy,
+		VectorWeight:   base.VectorWeight,
+	})
+	base.ChunkOverlap = config.ChunkOverlap
+	base.ChunkSize = config.ChunkSize
+	base.ChunkStrategy = config.ChunkStrategy
+	base.EmbeddingModel = config.EmbeddingModel
+	base.KeywordWeight = config.KeywordWeight
+	base.MinScore = config.MinScore
+	base.RerankTopK = config.RerankTopK
+	base.RerankerModel = config.RerankerModel
+	base.RetrievalLimit = config.RetrievalLimit
+	base.RetrievalMode = config.RetrievalMode
+	base.UpdateStrategy = config.UpdateStrategy
+	base.VectorWeight = config.VectorWeight
+	return base
+}
+
 func (s *SQLStore) DeleteKnowledgeBase(ctx context.Context, workspaceID, knowledgeBaseID string) error {
 	result, err := s.db.ExecContext(ctx, `
 		DELETE FROM knowledge_bases
@@ -217,7 +276,23 @@ func (s *SQLStore) DeleteKnowledgeBase(ctx context.Context, workspaceID, knowled
 
 func (s *SQLStore) ListKnowledgeBases(ctx context.Context, workspaceID string) ([]KnowledgeBase, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, name, document_count, updated_at
+		SELECT
+			id,
+			name,
+			document_count,
+			COALESCE(retrieval_mode, ''),
+			retrieval_limit,
+			min_score,
+			vector_weight,
+			keyword_weight,
+			COALESCE(reranker_model, ''),
+			rerank_top_k,
+			COALESCE(chunk_strategy, ''),
+			chunk_size,
+			chunk_overlap,
+			COALESCE(embedding_model, ''),
+			COALESCE(update_strategy, ''),
+			updated_at
 		FROM knowledge_bases
 		WHERE organization_id = $1 OR workspace_id = $1
 		ORDER BY updated_at DESC, name ASC
@@ -230,7 +305,7 @@ func (s *SQLStore) ListKnowledgeBases(ctx context.Context, workspaceID string) (
 	bases := []KnowledgeBase{}
 	for rows.Next() {
 		var base KnowledgeBase
-		if err := rows.Scan(&base.ID, &base.Name, &base.DocumentCount, &base.UpdatedAt); err != nil {
+		if err := scanKnowledgeBase(rows, &base); err != nil {
 			return nil, err
 		}
 		bases = append(bases, base)
@@ -242,11 +317,27 @@ func (s *SQLStore) ListKnowledgeBases(ctx context.Context, workspaceID string) (
 func (s *SQLStore) GetKnowledgeBase(ctx context.Context, workspaceID, knowledgeBaseID string) (KnowledgeBase, error) {
 	var base KnowledgeBase
 
-	if err := s.db.QueryRowContext(ctx, `
-		SELECT id, name, document_count, updated_at
+	if err := scanKnowledgeBase(s.db.QueryRowContext(ctx, `
+		SELECT
+			id,
+			name,
+			document_count,
+			COALESCE(retrieval_mode, ''),
+			retrieval_limit,
+			min_score,
+			vector_weight,
+			keyword_weight,
+			COALESCE(reranker_model, ''),
+			rerank_top_k,
+			COALESCE(chunk_strategy, ''),
+			chunk_size,
+			chunk_overlap,
+			COALESCE(embedding_model, ''),
+			COALESCE(update_strategy, ''),
+			updated_at
 		FROM knowledge_bases
 		WHERE (organization_id = $1 OR workspace_id = $1) AND id = $2
-	`, workspaceID, knowledgeBaseID).Scan(&base.ID, &base.Name, &base.DocumentCount, &base.UpdatedAt); err != nil {
+	`, workspaceID, knowledgeBaseID), &base); err != nil {
 		return KnowledgeBase{}, err
 	}
 
@@ -576,7 +667,7 @@ func (s *SQLStore) RetrieveKnowledgeWithOptions(ctx context.Context, organizatio
 			  AND ($10::text = '' OR COALESCE(NULLIF(c.document_version, ''), d.document_version, '') = $10)
 			  AND $3::vector IS NOT NULL
 			  AND (1 - (c.embedding <=> $3::vector)) >= $5
-			  AND $8::text IN ('vector', 'hybrid', 'hybrid_rerank')
+			  AND $8::text IN ('vector_only', 'hybrid', 'hybrid_rerank')
 			ORDER BY c.embedding <=> $3::vector, d.updated_at DESC, d.title ASC, c.chunk_index ASC
 			LIMIT $4
 		),
@@ -706,6 +797,123 @@ func (s *SQLStore) retrieveKnowledgeByKeywordWithOptions(ctx context.Context, or
 	}
 	defer rows.Close()
 	return scanKnowledgeRetrievalRows(rows, query)
+}
+
+func (s *SQLStore) CreateRetrievalTestCase(ctx context.Context, organizationID, knowledgeBaseID string, req CreateKnowledgeRetrievalTestCaseRequest) (KnowledgeRetrievalTestCase, error) {
+	testCaseID, err := auth.NewID("krtc")
+	if err != nil {
+		return KnowledgeRetrievalTestCase{}, err
+	}
+	resultJSON, err := json.Marshal(req.ExpectedResult)
+	if err != nil {
+		return KnowledgeRetrievalTestCase{}, err
+	}
+	expected := req.ExpectedResult
+	var testCase KnowledgeRetrievalTestCase
+	if err := scanKnowledgeRetrievalTestCase(s.db.QueryRowContext(ctx, `
+		INSERT INTO knowledge_retrieval_test_cases (
+			id,
+			organization_id,
+			knowledge_base_id,
+			query,
+			expected_document_id,
+			expected_document_title,
+			expected_document_version,
+			expected_chunk_id,
+			expected_chunk_index,
+			expected_snippet,
+			expected_result,
+			created_at,
+			updated_at
+		)
+		SELECT
+			$3,
+			$1,
+			kb.id,
+			$4,
+			$5,
+			$6,
+			$7,
+			$8,
+			$9,
+			$10,
+			$11::jsonb,
+			$12,
+			$12
+		FROM knowledge_bases kb
+		WHERE kb.organization_id = $1 AND kb.id = $2
+		RETURNING
+			id,
+			knowledge_base_id,
+			query,
+			expected_document_id,
+			expected_document_title,
+			expected_document_version,
+			expected_chunk_id,
+			expected_chunk_index,
+			expected_snippet,
+			expected_result
+	`, organizationID, knowledgeBaseID, testCaseID, req.Query, expected.DocumentID, expected.DocumentTitle, expected.DocumentVersion, expected.ChunkID, expected.ChunkIndex, expected.Snippet, string(resultJSON), time.Now().UTC()), &testCase); err != nil {
+		return KnowledgeRetrievalTestCase{}, err
+	}
+	return testCase, nil
+}
+
+func (s *SQLStore) ListRetrievalTestCases(ctx context.Context, organizationID, knowledgeBaseID string) ([]KnowledgeRetrievalTestCase, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT
+			id,
+			knowledge_base_id,
+			query,
+			expected_document_id,
+			expected_document_title,
+			expected_document_version,
+			expected_chunk_id,
+			expected_chunk_index,
+			expected_snippet,
+			expected_result
+		FROM knowledge_retrieval_test_cases
+		WHERE organization_id = $1 AND knowledge_base_id = $2
+		ORDER BY created_at DESC, id DESC
+	`, organizationID, knowledgeBaseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	testCases := []KnowledgeRetrievalTestCase{}
+	for rows.Next() {
+		var testCase KnowledgeRetrievalTestCase
+		if err := scanKnowledgeRetrievalTestCase(rows, &testCase); err != nil {
+			return nil, err
+		}
+		testCases = append(testCases, testCase)
+	}
+	return testCases, rows.Err()
+}
+
+func scanKnowledgeRetrievalTestCase(scanner interface{ Scan(dest ...any) error }, testCase *KnowledgeRetrievalTestCase) error {
+	var expectedResultRaw []byte
+	if err := scanner.Scan(
+		&testCase.ID,
+		&testCase.KnowledgeBaseID,
+		&testCase.Query,
+		&testCase.ExpectedDocumentID,
+		&testCase.ExpectedDocumentTitle,
+		&testCase.ExpectedDocumentVersion,
+		&testCase.ExpectedChunkID,
+		&testCase.ExpectedChunkIndex,
+		&testCase.ExpectedSnippet,
+		&expectedResultRaw,
+	); err != nil {
+		return err
+	}
+	if len(expectedResultRaw) > 0 {
+		if err := json.Unmarshal(expectedResultRaw, &testCase.ExpectedResult); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func scanKnowledgeRetrievalRows(rows *sql.Rows, query string) ([]KnowledgeRetrievalResult, error) {
