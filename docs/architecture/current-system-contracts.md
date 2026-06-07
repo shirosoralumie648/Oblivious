@@ -369,6 +369,7 @@ Functional Logic 9.3 infrastructure failover uses `docs/release/recovery-platfor
 | `MODEL_DEFAULT_NAME` | No | `demo-reply` | Consumed |
 | `WORKFLOW_SYSTEM_MAX_CONCURRENT` | No | empty | Optional global running workflow execution guard; invalid positive integers fail config load |
 | `WORKFLOW_GLOBAL_MAX_EXECUTIONS_PER_MINUTE` | No | empty | Optional process-local one-minute workflow start guard; invalid positive integers fail config load |
+| `WORKFLOW_RELAY_BASE_URL` | No | empty | Optional Relay `/v1` base URL override for workflow semantic-threshold embeddings; defaults to the local server Relay endpoint |
 | `RELAY_ENABLED` | No | `true` | Controls Relay mounting |
 | `RELAY_DEFAULT_MODEL` | No | `gpt-4o-mini` | Relay default model |
 | `RAG_RERANKER_BASE_URL` | No | empty | Enables Cohere-compatible `/rerank` calls for Knowledge `hybrid_rerank` |

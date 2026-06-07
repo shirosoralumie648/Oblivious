@@ -26,6 +26,7 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("REDIS_PASSWORD", "")
 	t.Setenv("REDIS_DB", "")
 	t.Setenv("RELAY_RATE_LIMIT_REDIS_KEY_PREFIX", "")
+	t.Setenv("WORKFLOW_RELAY_BASE_URL", "")
 	t.Setenv("AGENT_WEB_SEARCH_PROVIDER", "")
 	t.Setenv("AGENT_WEB_SEARCH_ENDPOINT", "")
 	t.Setenv("AGENT_WEB_SEARCH_API_KEY", "")
@@ -135,6 +136,7 @@ func TestLoadWorkflowSystemLimitConfig(t *testing.T) {
 	t.Setenv("SESSION_SECRET", "test-secret")
 	t.Setenv("WORKFLOW_SYSTEM_MAX_CONCURRENT", "75")
 	t.Setenv("WORKFLOW_GLOBAL_MAX_EXECUTIONS_PER_MINUTE", "120")
+	t.Setenv("WORKFLOW_RELAY_BASE_URL", " http://relay.internal:8080/v1 ")
 
 	cfg, err := Load()
 	if err != nil {
@@ -142,6 +144,9 @@ func TestLoadWorkflowSystemLimitConfig(t *testing.T) {
 	}
 	if cfg.WorkflowSystemMaxConcurrent != 75 || cfg.WorkflowGlobalMaxExecutionsPerMinute != 120 {
 		t.Fatalf("unexpected workflow system limits: concurrent=%d perMinute=%d", cfg.WorkflowSystemMaxConcurrent, cfg.WorkflowGlobalMaxExecutionsPerMinute)
+	}
+	if cfg.WorkflowRelayBaseURL != "http://relay.internal:8080/v1" {
+		t.Fatalf("unexpected workflow relay base URL: %q", cfg.WorkflowRelayBaseURL)
 	}
 }
 

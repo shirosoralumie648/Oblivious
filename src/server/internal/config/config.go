@@ -74,6 +74,7 @@ type Config struct {
 	// Workflow system-level guardrails. Zero keeps the guard disabled.
 	WorkflowSystemMaxConcurrent          int
 	WorkflowGlobalMaxExecutionsPerMinute int
+	WorkflowRelayBaseURL                 string
 
 	// Channel message log archive configuration. Disabled unless a file root or
 	// S3-compatible object storage target is configured.
@@ -310,6 +311,7 @@ func Load() (Config, error) {
 		}
 		workflowGlobalMaxExecutionsPerMinute = parsedLimit
 	}
+	workflowRelayBaseURL := strings.TrimSpace(os.Getenv("WORKFLOW_RELAY_BASE_URL"))
 	channelMessageLogArchiveRoot := strings.TrimSpace(os.Getenv("CHANNEL_MESSAGE_LOG_ARCHIVE_ROOT"))
 	channelMessageLogArchiveBackend := strings.ToLower(strings.TrimSpace(os.Getenv("CHANNEL_MESSAGE_LOG_ARCHIVE_BACKEND")))
 	channelMessageLogArchiveS3Endpoint := strings.TrimSpace(os.Getenv("CHANNEL_MESSAGE_LOG_ARCHIVE_S3_ENDPOINT"))
@@ -455,6 +457,7 @@ func Load() (Config, error) {
 
 		WorkflowSystemMaxConcurrent:          workflowSystemMaxConcurrent,
 		WorkflowGlobalMaxExecutionsPerMinute: workflowGlobalMaxExecutionsPerMinute,
+		WorkflowRelayBaseURL:                 workflowRelayBaseURL,
 
 		ChannelMessageLogArchiveEnabled:     channelMessageLogArchiveEnabled,
 		ChannelMessageLogArchiveBackend:     channelMessageLogArchiveBackend,

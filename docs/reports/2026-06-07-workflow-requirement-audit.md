@@ -22,7 +22,7 @@ Status values:
 | Conversation trigger binding `conversation_id -> workflow_id`. | Proven | `MatchConversationTriggers` scans published workflow trigger definitions, and Chat send-message now calls the workflow semantic/conversation dispatcher after a successful assistant reply. Covered by `TestServiceMatchConversationTriggersReturnsPublishedConversationBindings`, `TestWorkflowHandlerConversationMatchesRequireConversationID`, `TestRegisterWorkflowRoutesDispatchesConversationMatches`, `TestWorkflowSemanticTriggerDispatcherStartsMatchedWorkflows`, `TestSendMessageTriggersSemanticWorkflowsAfterAssistantReply`, and `TestDefaultChatServiceCanUseWorkflowSemanticTriggerDispatcher`. |
 | Schedule trigger with cron expression. | Proven | `trigger.ScheduleTrigger` parses 5-field cron and computes next run; the default schedule service now registers itself as the workflow schedule syncer, so published workflow lifecycle changes sync schedule triggers to scheduled tasks. Covered by `TestServiceSyncsScheduleTriggersForPublishedWorkflowLifecycle`, `TestServiceCreatePublishedWorkflowSyncsScheduleTriggers`, `TestWorkflowServiceCanUseDefaultScheduleServiceForScheduleTriggerSync`, `TestRegisterWorkflowRoutesDispatchesWorkflowCrudAndTestNode`, and `TestDefaultRouterSyncsWorkflowScheduleTriggersToScheduledTasks`. |
 | Webhook trigger with URL, secret, and payload. | Proven | `trigger.WebhookTrigger` validates HMAC signatures and methods; HTTP handler supports raw and signed webhooks. Covered by `TestWorkflowHandlerWebhookStartsExecutionWithRawPayload`, `TestWorkflowHandlerSignedWebhookStartsExecutionForValidSignature`, replay/expiry/signature rejection tests, and `TestRegisterWorkflowRoutesDispatchesSignedWebhookWithoutSession`. |
-| Semantic trigger with keywords and embedding threshold. | Partial | Keyword semantic triggers and Chat send-message dispatcher wiring are proven. An injected `EmbeddingSemanticTriggerMatcher` supports `semanticThreshold` and propagates user/org identity, but the default router/service does not yet inject a Relay-backed matcher, so production threshold-only semantic triggers are not proven. Covered pieces include `TestServiceMatchSemanticTriggersReturnsPublishedKeywordMatches`, `TestServiceMatchSemanticTriggersUsesInjectedMatcherForThresholdTriggers`, `TestEmbeddingSemanticTriggerMatcherChoosesBestKeywordAndPropagatesIdentity`, `TestSendMessageTriggersSemanticWorkflowsAfterAssistantReply`, and HTTP route tests. |
+| Semantic trigger with keywords and embedding threshold. | Proven | Keyword semantic triggers and Chat send-message dispatcher wiring are proven. `EmbeddingSemanticTriggerMatcher` supports `semanticThreshold`, propagates user/org identity, and the default router/server workflow service now injects a Relay-backed matcher when Relay is enabled. `WORKFLOW_RELAY_BASE_URL` can override the local `/v1` Relay endpoint for deployments/tests. Covered by `TestServiceMatchSemanticTriggersReturnsPublishedKeywordMatches`, `TestServiceMatchSemanticTriggersUsesInjectedMatcherForThresholdTriggers`, `TestEmbeddingSemanticTriggerMatcherChoosesBestKeywordAndPropagatesIdentity`, `TestSendMessageTriggersSemanticWorkflowsAfterAssistantReply`, `TestNewConfiguredWorkflowServiceWiresRelaySemanticTriggerMatcher`, `TestLoadWorkflowSystemLimitConfig`, and HTTP route tests. |
 
 ## 2.2 Node Failure Handling
 
@@ -83,12 +83,11 @@ Status values:
 
 ## Current Conclusion
 
-The repository-owned Workflow engine now proves most Functional Logic 2.1-2.6 behavior: trigger modes, default schedule synchronization wiring, Chat-driven conversation/semantic dispatcher wiring, DAG execution, failure strategies, concurrency queues/rejects, resource timeout/token/node limits, variable interpolation/debug snapshots, version history, rollback, and branch creation.
+The repository-owned Workflow engine now proves most Functional Logic 2.1-2.6 behavior: trigger modes, default schedule synchronization wiring, Chat-driven conversation/semantic dispatcher wiring, Relay-backed semantic-threshold matcher wiring, DAG execution, failure strategies, concurrency queues/rejects, resource timeout/token/node limits, variable interpolation/debug snapshots, version history, rollback, and branch creation.
 
 The matrix row remains `Partial`, not `Proven`, because these requirements still need work or stronger evidence:
 
-1. Inject a Relay-backed `EmbeddingSemanticTriggerMatcher` into the default workflow service so threshold-only semantic triggers are production-proven.
-2. Tie workflow failure pauses to concrete user notifications once the alert/notification provider pipeline is fully proven.
-3. Formalize/prove the node-local `node.{node_id}.{var_name}` namespace contract.
-4. Add branch merge/publish semantics beyond branch creation.
-5. Prove 20+ node types and production-grade frontend drag/drop workflows end to end.
+1. Tie workflow failure pauses to concrete user notifications once the alert/notification provider pipeline is fully proven.
+2. Formalize/prove the node-local `node.{node_id}.{var_name}` namespace contract.
+3. Add branch merge/publish semantics beyond branch creation.
+4. Prove 20+ node types and production-grade frontend drag/drop workflows end to end.
