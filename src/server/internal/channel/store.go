@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/lib/pq"
+
 	"oblivious/server/internal/notification"
 )
 
@@ -25,6 +27,11 @@ type Store interface {
 type MessageLogStore interface {
 	ListMessageLogs(ctx context.Context, channelID string, input ListMessageLogsInput) ([]*ChannelMessageLog, error)
 	ListFailedMessageLogs(ctx context.Context, channelID string, input ListMessageLogsInput) ([]*ChannelMessageLog, error)
+}
+
+type MessageLogArchiveStore interface {
+	ListExpiredMessageLogsForArchive(ctx context.Context, input ArchiveExpiredMessageLogsInput) ([]*ChannelMessageLog, error)
+	DeleteArchivedMessageLogs(ctx context.Context, ids []string) (ArchiveExpiredMessageLogsResult, error)
 }
 
 type RetryMessageStore interface {
@@ -73,6 +80,7 @@ type ArchiveExpiredMessageLogsResult struct {
 	ArchivedIDs []string  `json:"archived_ids"`
 	Count       int       `json:"count"`
 	Before      time.Time `json:"before"`
+	ObjectKey   string    `json:"object_key,omitempty"`
 }
 
 type MessageLogRetentionPolicy struct {
@@ -112,6 +120,23 @@ const archiveExpiredMessageLogsSQL = `
 	DELETE FROM channel_messages message
 	USING expired
 	WHERE message.id = expired.id
+	RETURNING id
+`
+
+const listExpiredMessageLogsForArchiveSQL = `
+	SELECT id, channel_id, conversation_id, direction, raw_message, transformed_message,
+		transform_success, transform_error, status, retry_count, failure_reason, next_retry_at, created_at
+	FROM channel_messages
+	WHERE created_at < $1
+	  AND status IN ($2, $3)
+	ORDER BY created_at ASC, id ASC
+	LIMIT $4
+`
+
+const deleteArchivedMessageLogsSQL = `
+	DELETE FROM channel_messages
+	WHERE id = ANY($1)
+	  AND status IN ($2, $3)
 	RETURNING id
 `
 
@@ -583,6 +608,48 @@ func (s *SQLStore) ArchiveExpiredMessageLogs(ctx context.Context, input ArchiveE
 	return result, nil
 }
 
+func (s *SQLStore) ListExpiredMessageLogsForArchive(ctx context.Context, input ArchiveExpiredMessageLogsInput) ([]*ChannelMessageLog, error) {
+	before, limit := normalizeArchiveExpiredMessageLogsInput(input)
+	if before.IsZero() {
+		return nil, fmt.Errorf("archive cutoff is required")
+	}
+	rows, err := s.db.QueryContext(ctx, listExpiredMessageLogsForArchiveSQL, before, MessageStatusRecorded, MessageStatusPermanentFailure, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list expired channel message logs for archive: %w", err)
+	}
+	defer rows.Close()
+	logs, err := scanChannelMessageLogs(rows)
+	if err != nil {
+		return nil, fmt.Errorf("scan expired channel message logs for archive: %w", err)
+	}
+	return logs, nil
+}
+
+func (s *SQLStore) DeleteArchivedMessageLogs(ctx context.Context, ids []string) (ArchiveExpiredMessageLogsResult, error) {
+	result := ArchiveExpiredMessageLogsResult{}
+	ids = normalizeArchiveMessageLogIDs(ids)
+	if len(ids) == 0 {
+		return result, nil
+	}
+	rows, err := s.db.QueryContext(ctx, deleteArchivedMessageLogsSQL, pq.Array(ids), MessageStatusRecorded, MessageStatusPermanentFailure)
+	if err != nil {
+		return result, fmt.Errorf("delete archived channel message logs: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return result, fmt.Errorf("scan deleted channel message log id: %w", err)
+		}
+		result.ArchivedIDs = append(result.ArchivedIDs, id)
+	}
+	if err := rows.Err(); err != nil {
+		return result, fmt.Errorf("scan deleted channel message log ids: %w", err)
+	}
+	result.Count = len(result.ArchivedIDs)
+	return result, nil
+}
+
 func (s *SQLStore) CreateEvent(ctx context.Context, event notification.NotificationEvent) (*notification.Notification, error) {
 	return notification.NewService(notification.NewSQLStore(s.db)).CreateEvent(ctx, event)
 }
@@ -651,6 +718,22 @@ func normalizeArchiveExpiredMessageLogsInput(input ArchiveExpiredMessageLogsInpu
 		limit = defaultArchiveMessageLogLimit
 	}
 	return before, limit
+}
+
+func normalizeArchiveMessageLogIDs(ids []string) []string {
+	seen := map[string]struct{}{}
+	normalized := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		normalized = append(normalized, id)
+	}
+	return normalized
 }
 
 func scanChannelMessageLogs(rows *sql.Rows) ([]*ChannelMessageLog, error) {

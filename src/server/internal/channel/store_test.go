@@ -61,6 +61,40 @@ func TestArchiveExpiredMessageLogsSQLPreservesRetryQueueAndBatchesDeletes(t *tes
 	}
 }
 
+func TestMessageLogObjectArchiveSQLListsBeforeDeletingAndPreservesRetryQueue(t *testing.T) {
+	for _, fragment := range []string{
+		"SELECT id, channel_id, conversation_id, direction, raw_message, transformed_message",
+		"created_at < $1",
+		"status IN ($2, $3)",
+		"ORDER BY created_at ASC, id ASC",
+		"LIMIT $4",
+	} {
+		if !strings.Contains(listExpiredMessageLogsForArchiveSQL, fragment) {
+			t.Fatalf("expected expired message archive list SQL to include %q, got: %s", fragment, listExpiredMessageLogsForArchiveSQL)
+		}
+	}
+	for _, fragment := range []string{
+		"DELETE FROM channel_messages",
+		"id = ANY($1)",
+		"status IN ($2, $3)",
+		"RETURNING id",
+	} {
+		if !strings.Contains(deleteArchivedMessageLogsSQL, fragment) {
+			t.Fatalf("expected archived message delete SQL to include %q, got: %s", fragment, deleteArchivedMessageLogsSQL)
+		}
+	}
+	for _, query := range []string{listExpiredMessageLogsForArchiveSQL, deleteArchivedMessageLogsSQL} {
+		if strings.Contains(query, string(MessageStatusRetryPending)) || strings.Contains(query, string(MessageStatusSending)) {
+			t.Fatalf("object archive SQL must not include retry queue statuses directly: %s", query)
+		}
+	}
+
+	ids := normalizeArchiveMessageLogIDs([]string{"msg_1", "", "msg_1", "msg_2"})
+	if len(ids) != 2 || ids[0] != "msg_1" || ids[1] != "msg_2" {
+		t.Fatalf("expected stable deduplicated archive ids, got %+v", ids)
+	}
+}
+
 func TestMessageLogRetentionPolicyBuildsDefaultAndCustomArchiveCutoffs(t *testing.T) {
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
 	defaultInput := MessageLogRetentionPolicy{
@@ -753,6 +787,81 @@ func TestChannelSQLStoreArchivesExpiredMessageLogsWithoutDeletingRetryQueue(t *t
 		t.Fatalf("scan remaining ids: %v", err)
 	}
 	assertStringSet(t, remaining, []string{"channel_message_old_retry_pending", "channel_message_recent_recorded"})
+}
+
+func TestChannelSQLStoreArchivesExpiredMessageLogsToObjectBeforeDeleting(t *testing.T) {
+	store, database, ctx := testChannelSQLStore(t)
+
+	created, err := store.CreateConfig(ctx, &ChannelConfig{
+		ID:             "channel_config_object_archive",
+		OrganizationID: "org_1",
+		Type:           ChannelTypeWebhook,
+		Name:           "Object Archive Webhook",
+		Config:         map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("CreateConfig returned error: %v", err)
+	}
+
+	now := time.Date(2026, 6, 7, 10, 0, 0, 0, time.UTC)
+	cutoff := now.Add(-30 * 24 * time.Hour)
+	for _, log := range []ChannelMessageLog{
+		{
+			ID:               "channel_message_object_old_recorded",
+			ChannelID:        created.ID,
+			Direction:        DirectionInbound,
+			RawMessage:       json.RawMessage(`{"text":"old recorded"}`),
+			TransformSuccess: true,
+			Status:           MessageStatusRecorded,
+			CreatedAt:        cutoff.Add(-time.Hour),
+		},
+		{
+			ID:                 "channel_message_object_old_retry",
+			ChannelID:          created.ID,
+			Direction:          DirectionOutbound,
+			RawMessage:         json.RawMessage(`{"text":"old retry"}`),
+			TransformedMessage: InternalMessage{ID: "msg_old_retry", Role: RoleAssistant, Content: []ContentPart{{Type: ContentTypeText, Text: "old retry"}}},
+			TransformSuccess:   true,
+			Status:             MessageStatusRetryPending,
+			RetryCount:         1,
+			CreatedAt:          cutoff.Add(-2 * time.Hour),
+		},
+	} {
+		if _, err := store.RecordMessageLog(ctx, &log); err != nil {
+			t.Fatalf("RecordMessageLog(%s) returned error: %v", log.ID, err)
+		}
+	}
+
+	sink := NewFileMessageLogArchiveSink(t.TempDir())
+	result, err := NewService(nil).ArchiveExpiredMessageLogs(ctx, store, sink, MessageLogArchiveRequest{
+		Before: cutoff,
+		Now:    now,
+		Limit:  10,
+	})
+	if err != nil {
+		t.Fatalf("ArchiveExpiredMessageLogs returned error: %v", err)
+	}
+	if result.Count != 1 || !strings.HasPrefix(result.ObjectKey, "channel-message-logs/20260607T100000Z-") || !strings.HasSuffix(result.ObjectKey, ".json") {
+		t.Fatalf("expected one archived object result, got %+v", result)
+	}
+
+	var remaining []string
+	rows, err := database.QueryContext(ctx, `SELECT id FROM channel_messages ORDER BY id ASC`)
+	if err != nil {
+		t.Fatalf("query remaining channel messages: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			t.Fatalf("scan remaining id: %v", err)
+		}
+		remaining = append(remaining, id)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("scan remaining ids: %v", err)
+	}
+	assertStringSet(t, remaining, []string{"channel_message_object_old_retry"})
 }
 
 func assertChannelMessageIDs(t *testing.T, logs []*ChannelMessageLog, want []string) {

@@ -64,6 +64,14 @@ type Config struct {
 	ScheduleWorkerIntervalMS int
 	ScheduleWorkerClaimLimit int
 
+	// Channel message log archive configuration. Disabled unless a local or
+	// object-storage mounted archive root is configured.
+	ChannelMessageLogArchiveEnabled    bool
+	ChannelMessageLogArchiveRoot       string
+	ChannelMessageLogArchiveIntervalMS int
+	ChannelMessageLogRetentionHours    int
+	ChannelMessageLogArchiveLimit      int
+
 	// Observability request log configuration. ClickHouse is disabled unless
 	// explicitly selected because local/dev environments usually do not run it.
 	ObservabilityRequestLogBackend string
@@ -263,6 +271,35 @@ func Load() (Config, error) {
 		}
 		scheduleWorkerClaimLimit = parsedLimit
 	}
+	channelMessageLogArchiveRoot := strings.TrimSpace(os.Getenv("CHANNEL_MESSAGE_LOG_ARCHIVE_ROOT"))
+	channelMessageLogArchiveEnabled := channelMessageLogArchiveRoot != ""
+	channelMessageLogArchiveIntervalMS := 3600000
+	channelMessageLogArchiveIntervalRaw := strings.TrimSpace(os.Getenv("CHANNEL_MESSAGE_LOG_ARCHIVE_INTERVAL_MS"))
+	if channelMessageLogArchiveIntervalRaw != "" {
+		parsedInterval, parseErr := strconv.Atoi(channelMessageLogArchiveIntervalRaw)
+		if parseErr != nil || parsedInterval < 1 {
+			return Config{}, fmt.Errorf("invalid CHANNEL_MESSAGE_LOG_ARCHIVE_INTERVAL_MS: %q", channelMessageLogArchiveIntervalRaw)
+		}
+		channelMessageLogArchiveIntervalMS = parsedInterval
+	}
+	channelMessageLogRetentionHours := 30 * 24
+	channelMessageLogRetentionHoursRaw := strings.TrimSpace(os.Getenv("CHANNEL_MESSAGE_LOG_RETENTION_HOURS"))
+	if channelMessageLogRetentionHoursRaw != "" {
+		parsedRetention, parseErr := strconv.Atoi(channelMessageLogRetentionHoursRaw)
+		if parseErr != nil || parsedRetention < 1 {
+			return Config{}, fmt.Errorf("invalid CHANNEL_MESSAGE_LOG_RETENTION_HOURS: %q", channelMessageLogRetentionHoursRaw)
+		}
+		channelMessageLogRetentionHours = parsedRetention
+	}
+	channelMessageLogArchiveLimit := 500
+	channelMessageLogArchiveLimitRaw := strings.TrimSpace(os.Getenv("CHANNEL_MESSAGE_LOG_ARCHIVE_LIMIT"))
+	if channelMessageLogArchiveLimitRaw != "" {
+		parsedLimit, parseErr := strconv.Atoi(channelMessageLogArchiveLimitRaw)
+		if parseErr != nil || parsedLimit < 1 {
+			return Config{}, fmt.Errorf("invalid CHANNEL_MESSAGE_LOG_ARCHIVE_LIMIT: %q", channelMessageLogArchiveLimitRaw)
+		}
+		channelMessageLogArchiveLimit = parsedLimit
+	}
 	observabilityRequestLogBackend := strings.ToLower(strings.TrimSpace(os.Getenv("OBSERVABILITY_REQUEST_LOG_BACKEND")))
 	switch observabilityRequestLogBackend {
 	case "":
@@ -334,6 +371,12 @@ func Load() (Config, error) {
 		ScheduleWorkerEnabled:    scheduleWorkerEnabled,
 		ScheduleWorkerIntervalMS: scheduleWorkerIntervalMS,
 		ScheduleWorkerClaimLimit: scheduleWorkerClaimLimit,
+
+		ChannelMessageLogArchiveEnabled:    channelMessageLogArchiveEnabled,
+		ChannelMessageLogArchiveRoot:       channelMessageLogArchiveRoot,
+		ChannelMessageLogArchiveIntervalMS: channelMessageLogArchiveIntervalMS,
+		ChannelMessageLogRetentionHours:    channelMessageLogRetentionHours,
+		ChannelMessageLogArchiveLimit:      channelMessageLogArchiveLimit,
 
 		ObservabilityRequestLogBackend: observabilityRequestLogBackend,
 		ClickHouseDSN:                  clickHouseDSN,

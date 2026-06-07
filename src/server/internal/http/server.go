@@ -156,6 +156,24 @@ func NewServer(cfg config.Config, database *sql.DB) *stdhttp.Server {
 		go channelRetryWorker.Run(channelRetryWorkerCtx)
 		server.RegisterOnShutdown(cancelChannelRetryWorker)
 	}
+	if cfg.Env != "test" && cfg.ChannelMessageLogArchiveEnabled {
+		channelArchiveWorkerCtx, cancelChannelArchiveWorker := context.WithCancel(context.Background())
+		channelArchiveWorker := publishingchannel.NewArchiveWorker(
+			publishingchannel.NewService(publishingchannel.NewAdapterRegistry(nil)),
+			publishingchannel.NewSQLStore(database),
+			publishingchannel.NewFileMessageLogArchiveSink(cfg.ChannelMessageLogArchiveRoot),
+			publishingchannel.ArchiveWorkerConfig{
+				Interval:  time.Duration(cfg.ChannelMessageLogArchiveIntervalMS) * time.Millisecond,
+				Retention: time.Duration(cfg.ChannelMessageLogRetentionHours) * time.Hour,
+				Limit:     cfg.ChannelMessageLogArchiveLimit,
+				OnError: func(err error) {
+					log.Printf("warning: channel message log archive worker failed: %v", err)
+				},
+			},
+		)
+		go channelArchiveWorker.Run(channelArchiveWorkerCtx)
+		server.RegisterOnShutdown(cancelChannelArchiveWorker)
+	}
 	if closeRateLimiter != nil {
 		server.RegisterOnShutdown(func() {
 			if err := closeRateLimiter(); err != nil {

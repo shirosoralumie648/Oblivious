@@ -353,6 +353,55 @@ func TestLoadObservabilityHTTPAlertConfig(t *testing.T) {
 	}
 }
 
+func TestLoadChannelMessageLogArchiveConfig(t *testing.T) {
+	t.Setenv("SERVER_PORT", "8080")
+	t.Setenv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/oblivious?sslmode=disable")
+	t.Setenv("SESSION_SECRET", "test-secret")
+	t.Setenv("CHANNEL_MESSAGE_LOG_ARCHIVE_ROOT", " /var/lib/oblivious/channel-archives ")
+	t.Setenv("CHANNEL_MESSAGE_LOG_ARCHIVE_INTERVAL_MS", "300000")
+	t.Setenv("CHANNEL_MESSAGE_LOG_RETENTION_HOURS", "168")
+	t.Setenv("CHANNEL_MESSAGE_LOG_ARCHIVE_LIMIT", "75")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !cfg.ChannelMessageLogArchiveEnabled {
+		t.Fatal("expected channel message log archive to be enabled when root is configured")
+	}
+	if cfg.ChannelMessageLogArchiveRoot != "/var/lib/oblivious/channel-archives" {
+		t.Fatalf("expected trimmed channel archive root, got %q", cfg.ChannelMessageLogArchiveRoot)
+	}
+	if cfg.ChannelMessageLogArchiveIntervalMS != 300000 || cfg.ChannelMessageLogRetentionHours != 168 || cfg.ChannelMessageLogArchiveLimit != 75 {
+		t.Fatalf("unexpected channel archive config interval=%d retention=%d limit=%d", cfg.ChannelMessageLogArchiveIntervalMS, cfg.ChannelMessageLogRetentionHours, cfg.ChannelMessageLogArchiveLimit)
+	}
+}
+
+func TestLoadRejectsInvalidChannelMessageLogArchiveConfig(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		key  string
+		val  string
+	}{
+		{name: "interval", key: "CHANNEL_MESSAGE_LOG_ARCHIVE_INTERVAL_MS", val: "0"},
+		{name: "retention", key: "CHANNEL_MESSAGE_LOG_RETENTION_HOURS", val: "0"},
+		{name: "limit", key: "CHANNEL_MESSAGE_LOG_ARCHIVE_LIMIT", val: "-1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("SERVER_PORT", "8080")
+			t.Setenv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/oblivious?sslmode=disable")
+			t.Setenv("SESSION_SECRET", "test-secret")
+			t.Setenv("CHANNEL_MESSAGE_LOG_ARCHIVE_ROOT", "/tmp/channel-archives")
+			t.Setenv(tc.key, tc.val)
+
+			_, err := Load()
+			if err == nil {
+				t.Fatalf("expected error for invalid %s", tc.key)
+			}
+		})
+	}
+}
+
 func TestLoadRejectsInvalidObservabilityHTTPRecoveryCooldown(t *testing.T) {
 	t.Setenv("SERVER_PORT", "8080")
 	t.Setenv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/oblivious?sslmode=disable")
