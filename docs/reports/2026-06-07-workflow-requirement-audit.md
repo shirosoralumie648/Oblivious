@@ -77,14 +77,14 @@ Status values:
 | Requirement | Status | Evidence |
 | --- | --- | --- |
 | Workflow CRUD, execute, test-node, executions, pause, resume API. | Proven | API routes in `src/server/internal/http/routes_workflow.go`; tests include `TestRegisterWorkflowRoutesDispatchesWorkflowCrudAndTestNode`, execution action tests, and handler tests. |
-| React Flow visual editor and debug panel. | Proven for core UI | `WorkflowsPage.tsx` uses `@xyflow/react`, node palette, trigger/resource/failure policy forms, test node, debug snapshot, version/rollback/branch controls. `WorkflowsPage.test.tsx` and `workflowsApi.test.ts` cover key UI/API behavior. |
-| 20+ node types. | Partial | Runtime supports many concrete node categories including start/manual/agent/LLM/knowledge/condition/loop/code/HTTP/tool/database/RPA/user_input, with executor tests. The audit did not prove 20+ distinct draggable node components or callable executors. |
+| React Flow visual editor and debug panel. | Proven for core UI | `WorkflowsPage.tsx` uses `@xyflow/react`, node palette, trigger/resource/failure policy forms, test node, debug snapshot, version/rollback/branch controls, and drag/drop palette creation on the React Flow canvas. `WorkflowsPage.test.tsx` and `workflowsApi.test.ts` cover key UI/API behavior. |
+| 20+ node types. | Proven for frontend creation | Runtime supports many concrete node categories including start/manual/agent/LLM/knowledge/condition/loop/code/HTTP/tool/database/RPA/user_input, with executor tests. The workspace Workflow editor exposes 22 unique node palette types (`start`, `end`, `manual`, `trigger`, `condition`, `loop`, `join`, `code`, `http`, `llm`, `knowledge`, `user_input`, `approval`, `agent`, `tool`, `database`, `rpa`, `transform`, `router`, `notification`, `delay`, `webhook`), marks them as draggable, accepts palette drops on the React Flow canvas, snaps dropped nodes to the 20px grid, and persists the created node in the workflow definition save payload. Covered by `WorkflowsPage.test.tsx` including `creates draggable 20+ workflow node types from the React Flow palette`. |
 | Complete end-to-end production success rate target >99%. | Unverified | Metrics exist for workflow execution and node errors, but success-rate SLO is not proven by load/production evidence. |
 
 ## Current Conclusion
 
-The repository-owned Workflow engine now proves most Functional Logic 2.1-2.6 behavior: trigger modes, default schedule synchronization wiring, Chat-driven conversation/semantic dispatcher wiring, Relay-backed semantic-threshold matcher wiring, DAG execution, failure strategies, in-app and alert-routed failure-pause notifications, concurrency queues/rejects, resource timeout/token/node limits, variable interpolation/debug snapshots, version history, rollback, and branch creation.
+The repository-owned Workflow engine now proves most Functional Logic 2.1-2.6 behavior: trigger modes, default schedule synchronization wiring, Chat-driven conversation/semantic dispatcher wiring, Relay-backed semantic-threshold matcher wiring, DAG execution, failure strategies, in-app and alert-routed failure-pause notifications, concurrency queues/rejects, resource timeout/token/node limits, variable interpolation/debug snapshots, version history, rollback, branch creation, and 22 draggable frontend node types on the React Flow editor.
 
 The matrix row remains `Partial`, not `Proven`, because these requirements still need work or stronger evidence:
 
-1. Prove 20+ node types and production-grade frontend drag/drop workflows end to end.
+1. Prove complete end-to-end production success-rate target >99% with load/production evidence.

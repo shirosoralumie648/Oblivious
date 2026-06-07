@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type DragEvent } from 'react';
 import { RiCodeBoxLine, RiKey2Line, RiShieldKeyholeLine, RiWebhookLine } from '@remixicon/react';
 import {
   Background,
@@ -241,6 +241,7 @@ const workflowNodePalette = [
   { label: 'Webhook', type: 'webhook' },
 ];
 
+const workflowNodeDragDataType = 'application/x-workflow-node-type';
 const workflowDefinitionNodeTypes = workflowNodePalette.map((nodeType) => nodeType.type);
 
 const emptyDebugDraft: NodeDebugDraft = {
@@ -384,6 +385,10 @@ function snapCanvasPosition(position: WorkflowCanvasPosition): WorkflowCanvasPos
     x: snapCanvasCoordinate(position.x),
     y: snapCanvasCoordinate(position.y),
   };
+}
+
+function finiteCanvasCoordinate(value: unknown, fallback: number) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
 function fallbackCanvasPosition(index: number): WorkflowCanvasPosition {
@@ -576,6 +581,40 @@ function addDefinitionNode(
       {
         id: nodeId,
         input,
+        type: nodeType,
+      },
+    ],
+  };
+}
+
+function nextWorkflowPaletteNodeId(nodes: VisualWorkflowNode[], nodeType: string) {
+  const normalizedType = nodeType.trim() || 'node';
+  const existingIds = new Set(nodes.map((node) => node.id));
+  let index = nodes.length + 1;
+  let nodeId = `${normalizedType}-${index}`;
+  while (existingIds.has(nodeId)) {
+    index += 1;
+    nodeId = `${normalizedType}-${index}`;
+  }
+
+  return nodeId;
+}
+
+function addDefinitionNodeFromPalette(
+  definition: Record<string, unknown>,
+  nodes: VisualWorkflowNode[],
+  nodeType: string,
+  position: WorkflowCanvasPosition
+) {
+  const nodeId = nextWorkflowPaletteNodeId(nodes, nodeType);
+  return {
+    ...definition,
+    nodes: [
+      ...workflowDefinitionNodes(definition),
+      {
+        id: nodeId,
+        input: {},
+        position,
         type: nodeType,
       },
     ],
@@ -2414,6 +2453,52 @@ export function WorkflowsPage() {
     setError(null);
   };
 
+  const handleWorkflowPaletteDragStart = (event: DragEvent<HTMLButtonElement>, nodeType: string) => {
+    event.dataTransfer.effectAllowed = 'copy';
+    event.dataTransfer.setData(workflowNodeDragDataType, nodeType);
+  };
+
+  const handleWorkflowCanvasDrop = (
+    event: DragEvent<HTMLDivElement>,
+    workflow: WorkflowDefinition,
+    nodes: VisualWorkflowNode[]
+  ) => {
+    event.preventDefault();
+    const nodeType = event.dataTransfer?.getData(workflowNodeDragDataType).trim() ?? '';
+    if (nodeType === '') {
+      return;
+    }
+
+    const canvasBounds = event.currentTarget.getBoundingClientRect();
+    const fallbackPosition = fallbackCanvasPosition(nodes.length);
+    const canvasLeft = finiteCanvasCoordinate(canvasBounds.left, 0);
+    const canvasTop = finiteCanvasCoordinate(canvasBounds.top, 0);
+    const position = snapCanvasPosition({
+      x:
+        finiteCanvasCoordinate(event.clientX, canvasLeft + fallbackPosition.x) -
+        canvasLeft +
+        finiteCanvasCoordinate(event.currentTarget.scrollLeft, 0),
+      y:
+        finiteCanvasCoordinate(event.clientY, canvasTop + fallbackPosition.y) -
+        canvasTop +
+        finiteCanvasCoordinate(event.currentTarget.scrollTop, 0),
+    });
+    const nodeId = nextWorkflowPaletteNodeId(nodes, nodeType);
+    const definition = addDefinitionNodeFromPalette(workflow.definition, nodes, nodeType, position);
+    replaceWorkflowDefinitionDraft(workflow, definition);
+    setSelectedNodeIds((current) => ({ ...current, [workflow.id]: nodeId }));
+    updateDebugDraft(workflow.id, {
+      inputText: formatJson({}),
+      nodeId,
+    });
+    updateWorkflowDefinitionDraft(workflow.id, {
+      nodeId: '',
+      nodeInputText: '{}',
+      nodeType,
+    });
+    setError(null);
+  };
+
   const handleSaveWorkflowDefinition = async (workflow: WorkflowDefinition) => {
     setBusyAction(`definition:${workflow.id}`);
     setError(null);
@@ -3736,7 +3821,10 @@ export function WorkflowsPage() {
                                 <button
                                   aria-label={`Add ${paletteNode.label} node template to ${workflow.name}`}
                                   className="min-h-9 rounded-lg border border-[#d7d2c4] bg-white px-3 text-left text-xs font-semibold text-[#181611] transition hover:border-[#1a614f] hover:bg-[#e9f2ee]"
+                                  data-node-type={paletteNode.type}
+                                  draggable
                                   key={paletteNode.type}
+                                  onDragStart={(event) => handleWorkflowPaletteDragStart(event, paletteNode.type)}
                                   onClick={() => updateWorkflowDefinitionDraft(workflow.id, { nodeType: paletteNode.type })}
                                   title={`${paletteNode.label} node`}
                                   type="button"
@@ -3752,6 +3840,13 @@ export function WorkflowsPage() {
                             <div
                               aria-label={`React Flow canvas for ${workflow.name}`}
                               className="relative min-h-[360px] overflow-auto rounded-lg border border-[#d7d2c4] bg-[#fbfaf7]"
+                              onDragOver={(event) => {
+                                event.preventDefault();
+                                if (event.dataTransfer) {
+                                  event.dataTransfer.dropEffect = 'copy';
+                                }
+                              }}
+                              onDrop={(event) => handleWorkflowCanvasDrop(event, workflow, workflowNodes)}
                             >
                               <div className="h-[520px] min-w-[820px]">
                                 <ReactFlowProvider>

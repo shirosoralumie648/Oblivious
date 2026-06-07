@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const cancelExecution = vi.fn();
@@ -57,6 +57,29 @@ vi.mock('../../features/scheduledTasks/scheduledTasksApi', () => ({
 }));
 
 import { WorkflowsPage } from './WorkflowsPage';
+
+function createWorkflowDragDataTransfer(initialNodeType = '') {
+  const values = new Map<string, string>();
+  if (initialNodeType !== '') {
+    values.set('application/x-workflow-node-type', initialNodeType);
+  }
+
+  return {
+    clearData: vi.fn((format?: string) => {
+      if (format) {
+        values.delete(format);
+        return;
+      }
+      values.clear();
+    }),
+    dropEffect: 'copy',
+    effectAllowed: 'copy',
+    getData: vi.fn((format: string) => values.get(format) ?? ''),
+    setData: vi.fn((format: string, value: string) => {
+      values.set(format, value);
+    }),
+  };
+}
 
 describe('WorkflowsPage', () => {
   beforeEach(() => {
@@ -1740,6 +1763,85 @@ describe('WorkflowsPage', () => {
     expect(within(visualEditor).getAllByRole('button', { name: /Add .* node template to Incident triage/ })).toHaveLength(
       22
     );
+  });
+
+  it('creates draggable 20+ workflow node types from the React Flow palette', async () => {
+    const definition = {
+      edges: [],
+      nodes: [{ id: 'manual-start', position: { x: 80, y: 80 }, type: 'manual' }],
+    };
+    listWorkflows.mockResolvedValue([
+      {
+        definition,
+        description: 'Existing workflow',
+        id: 'workflow_1',
+        name: 'Incident triage',
+        status: 'draft',
+        variables: { owner: 'ops' },
+        version: 1,
+      },
+    ]);
+    updateWorkflow.mockResolvedValue({
+      definition: {
+        ...definition,
+        nodes: [
+          { id: 'manual-start', position: { x: 80, y: 80 }, type: 'manual' },
+          { id: 'knowledge-2', input: {}, position: { x: 420, y: 220 }, type: 'knowledge' },
+        ],
+      },
+      description: 'Existing workflow',
+      id: 'workflow_1',
+      name: 'Incident triage',
+      status: 'draft',
+      variables: { owner: 'ops' },
+      version: 2,
+    });
+
+    render(<WorkflowsPage />);
+
+    await screen.findByText('Incident triage');
+    const visualEditor = screen.getByLabelText('Visual editor for Incident triage');
+    const palette = within(visualEditor).getByLabelText('Node palette for Incident triage');
+    const paletteButtons = within(palette).getAllByRole('button');
+    const paletteTypes = paletteButtons.map((button) => button.getAttribute('data-node-type'));
+    const canvas = within(visualEditor).getByLabelText('React Flow canvas for Incident triage');
+
+    expect(paletteButtons).toHaveLength(22);
+    expect(new Set(paletteTypes).size).toBe(22);
+    for (const button of paletteButtons) {
+      expect(button).toHaveAttribute('draggable', 'true');
+      expect(button).toHaveAttribute('data-node-type');
+    }
+
+    fireEvent.dragStart(within(palette).getByRole('button', { name: 'Add Knowledge node template to Incident triage' }), {
+      dataTransfer: createWorkflowDragDataTransfer(),
+    });
+    fireEvent.dragOver(canvas, {
+      dataTransfer: createWorkflowDragDataTransfer('knowledge'),
+    });
+    const dropEvent = createEvent.drop(canvas, {
+      dataTransfer: createWorkflowDragDataTransfer('knowledge'),
+    });
+    Object.defineProperty(dropEvent, 'clientX', { value: 417 });
+    Object.defineProperty(dropEvent, 'clientY', { value: 216 });
+    fireEvent(canvas, dropEvent);
+    fireEvent.click(within(visualEditor).getByRole('button', { name: 'Save definition for Incident triage' }));
+
+    await waitFor(() => {
+      expect(updateWorkflow).toHaveBeenCalledWith('workflow_1', {
+        definition: {
+          edges: [],
+          nodes: [
+            { id: 'manual-start', position: { x: 80, y: 80 }, type: 'manual' },
+            { id: 'knowledge-2', input: {}, position: { x: 420, y: 220 }, type: 'knowledge' },
+          ],
+        },
+        description: 'Existing workflow',
+        name: 'Incident triage',
+        status: 'draft',
+        variables: { owner: 'ops' },
+      });
+    });
   });
 
   it('loads executable debug templates when selecting workflow runtime nodes', async () => {
