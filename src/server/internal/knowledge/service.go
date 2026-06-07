@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -521,6 +522,14 @@ func (s *Service) RetrieveWithOptions(ctx context.Context, session auth.Session,
 		}
 		return s.rerankKnowledgeResults(ctx, normalizedQuery, normalizeKnowledgeRetrievalResults(results, options.Mode), options)
 	}
+	if isHybridKnowledgeRetrievalMode(options.Mode) && s != nil && s.vectorStore != nil && len(queryEmbedding) > 0 {
+		if results, ok, err := s.retrieveHybridWithVectorStore(ctx, scope, knowledgeBaseID, normalizedQuery, queryEmbedding, candidateOptions); ok || err != nil {
+			if err != nil {
+				return nil, err
+			}
+			return s.rerankKnowledgeResults(ctx, normalizedQuery, normalizeKnowledgeRetrievalResults(results, options.Mode), options)
+		}
+	}
 	if store, ok := s.store.(knowledgeRetrieverWithOptions); ok {
 		results, err := store.RetrieveKnowledge(ctx, scope, knowledgeBaseID, normalizedQuery, queryEmbedding, candidateOptions)
 		if err != nil {
@@ -546,6 +555,39 @@ func (s *Service) RetrieveWithOptions(ctx context.Context, session auth.Session,
 		return nil, err
 	}
 	return s.rerankKnowledgeResults(ctx, normalizedQuery, normalizeKnowledgeRetrievalResults(results, KnowledgeRetrievalModeHybrid), options)
+}
+
+func isHybridKnowledgeRetrievalMode(mode string) bool {
+	return mode == KnowledgeRetrievalModeHybrid || mode == KnowledgeRetrievalModeHybridRerank
+}
+
+func (s *Service) retrieveHybridWithVectorStore(ctx context.Context, organizationID, knowledgeBaseID, query string, queryEmbedding []float32, options KnowledgeRetrievalOptions) ([]KnowledgeRetrievalResult, bool, error) {
+	var keywordResults []KnowledgeRetrievalResult
+	keywordOptions := options
+	keywordOptions.Mode = KnowledgeRetrievalModeKeyword
+	if store, ok := s.store.(knowledgeRetrieverWithOptions); ok {
+		results, err := store.RetrieveKnowledge(ctx, organizationID, knowledgeBaseID, query, nil, keywordOptions)
+		if err != nil {
+			return nil, true, err
+		}
+		keywordResults = results
+	} else if store, ok := s.store.(knowledgeRetrieverNamedWithOptions); ok {
+		results, err := store.RetrieveKnowledgeWithOptions(ctx, organizationID, knowledgeBaseID, query, nil, keywordOptions)
+		if err != nil {
+			return nil, true, err
+		}
+		keywordResults = results
+	} else {
+		return nil, false, nil
+	}
+
+	vectorOptions := options
+	vectorOptions.Mode = KnowledgeRetrievalModeVector
+	vectorResults, err := s.vectorStore.SearchKnowledgeChunks(ctx, organizationID, knowledgeBaseID, query, queryEmbedding, vectorOptions)
+	if err != nil {
+		return nil, true, err
+	}
+	return fuseKnowledgeRetrievalResults(vectorResults, keywordResults, options), true, nil
 }
 
 func (s *Service) Update(ctx context.Context, session auth.Session, knowledgeBaseID, name string) (KnowledgeBase, error) {
@@ -731,6 +773,76 @@ func limitKnowledgeRetrievalResults(results []KnowledgeRetrievalResult, limit in
 		return results
 	}
 	return results[:limit]
+}
+
+type knowledgeFusedRetrievalEntry struct {
+	result   KnowledgeRetrievalResult
+	score    float64
+	bestRank int
+	bestSrc  int
+}
+
+func fuseKnowledgeRetrievalResults(vectorResults, keywordResults []KnowledgeRetrievalResult, options KnowledgeRetrievalOptions) []KnowledgeRetrievalResult {
+	entries := map[string]*knowledgeFusedRetrievalEntry{}
+	addBatch := func(results []KnowledgeRetrievalResult, weight float64, sourceOrder int) {
+		for rank, result := range results {
+			key := knowledgeRetrievalResultKey(result)
+			entry, ok := entries[key]
+			if !ok {
+				entry = &knowledgeFusedRetrievalEntry{result: result, bestRank: rank, bestSrc: sourceOrder}
+				entries[key] = entry
+			}
+			entry.score += weight / float64(60+rank+1)
+			if rank < entry.bestRank || (rank == entry.bestRank && sourceOrder < entry.bestSrc) {
+				entry.bestRank = rank
+				entry.bestSrc = sourceOrder
+				entry.result = result
+			}
+		}
+	}
+	addBatch(vectorResults, options.VectorWeight, 0)
+	addBatch(keywordResults, options.KeywordWeight, 1)
+
+	flat := make([]*knowledgeFusedRetrievalEntry, 0, len(entries))
+	for _, entry := range entries {
+		entry.result.Score = entry.score
+		entry.result.RetrievalMode = options.Mode
+		if strings.TrimSpace(entry.result.RetrievalMethod) == "" {
+			entry.result.RetrievalMethod = KnowledgeRetrievalMethodEmbeddingRAG
+		}
+		flat = append(flat, entry)
+	}
+	sort.SliceStable(flat, func(i, j int) bool {
+		if flat[i].score != flat[j].score {
+			return flat[i].score > flat[j].score
+		}
+		if flat[i].bestRank != flat[j].bestRank {
+			return flat[i].bestRank < flat[j].bestRank
+		}
+		if flat[i].bestSrc != flat[j].bestSrc {
+			return flat[i].bestSrc < flat[j].bestSrc
+		}
+		if flat[i].result.DocumentTitle != flat[j].result.DocumentTitle {
+			return flat[i].result.DocumentTitle < flat[j].result.DocumentTitle
+		}
+		return flat[i].result.ChunkIndex < flat[j].result.ChunkIndex
+	})
+
+	results := make([]KnowledgeRetrievalResult, len(flat))
+	for index, entry := range flat {
+		results[index] = entry.result
+	}
+	return limitKnowledgeRetrievalResults(results, options.Limit)
+}
+
+func knowledgeRetrievalResultKey(result KnowledgeRetrievalResult) string {
+	if strings.TrimSpace(result.ChunkID) != "" {
+		return strings.TrimSpace(result.ChunkID)
+	}
+	if strings.TrimSpace(result.DocumentID) != "" {
+		return strings.TrimSpace(result.DocumentID) + ":" + strings.TrimSpace(result.DocumentVersion) + ":" + strings.TrimSpace(result.Snippet)
+	}
+	return strings.TrimSpace(result.DocumentTitle) + ":" + strings.TrimSpace(result.Snippet)
 }
 
 func (s *Service) knowledgeBaseConfigForDocument(ctx context.Context, session auth.Session, knowledgeBaseID string) (KnowledgeBaseConfig, error) {

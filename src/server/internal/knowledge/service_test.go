@@ -914,6 +914,98 @@ func TestRetrieveWithOptionsUsesQdrantSearchForVectorOnlyMode(t *testing.T) {
 	}
 }
 
+func TestRetrieveWithOptionsFusesQdrantVectorAndKeywordResultsForHybridMode(t *testing.T) {
+	store := &fakeStore{
+		retrievalResults: []KnowledgeRetrievalResult{
+			{ChunkID: "keyword_chunk", DocumentID: "doc_keyword", DocumentTitle: "Keyword Doc", Snippet: "keyword match"},
+			{ChunkID: "shared_chunk", DocumentID: "doc_shared", DocumentTitle: "Shared Doc", Snippet: "keyword duplicate"},
+		},
+	}
+	embedder := &recordingKnowledgeEmbedder{}
+	vectorStore := &recordingKnowledgeVectorStore{
+		searchResults: []KnowledgeRetrievalResult{
+			{ChunkID: "vector_chunk", DocumentID: "doc_vector", DocumentTitle: "Vector Doc", Snippet: "semantic match"},
+			{ChunkID: "shared_chunk", DocumentID: "doc_shared", DocumentTitle: "Shared Doc", Snippet: "vector duplicate"},
+		},
+	}
+	service := NewServiceWithEmbedderAndVectorStore(store, embedder, "text-embedding-3-small", vectorStore, 3)
+
+	results, err := service.RetrieveWithOptions(
+		context.Background(),
+		auth.Session{OrganizationID: "org_knowledge", WorkspaceID: "workspace_knowledge"},
+		"kb_qdrant",
+		"hybrid answer",
+		KnowledgeRetrievalOptions{Mode: KnowledgeRetrievalModeHybrid, Limit: 3, MinScore: 0.31, VectorWeight: 0.8, KeywordWeight: 0.2},
+	)
+	if err != nil {
+		t.Fatalf("retrieve hybrid with qdrant vector candidates: %v", err)
+	}
+
+	if vectorStore.searchQuery != "hybrid answer" || len(vectorStore.searchEmbedding) != 3 {
+		t.Fatalf("expected qdrant vector candidate search, query=%q embedding=%+v", vectorStore.searchQuery, vectorStore.searchEmbedding)
+	}
+	if vectorStore.searchOptions.Mode != KnowledgeRetrievalModeVector || vectorStore.searchOptions.MinScore != 0.31 {
+		t.Fatalf("expected qdrant vector candidate options, got %+v", vectorStore.searchOptions)
+	}
+	if store.retrievalQuery != "hybrid answer" || store.retrievalOptions.Mode != KnowledgeRetrievalModeKeyword {
+		t.Fatalf("expected keyword-only SQL candidate retrieval, query=%q options=%+v", store.retrievalQuery, store.retrievalOptions)
+	}
+	if len(results) != 3 {
+		t.Fatalf("expected fused vector and keyword candidates with duplicate chunk collapsed, got %+v", results)
+	}
+	if results[0].ChunkID != "shared_chunk" || results[1].ChunkID != "vector_chunk" || results[2].ChunkID != "keyword_chunk" {
+		t.Fatalf("expected weighted RRF order shared/vector/keyword, got %+v", results)
+	}
+	for _, result := range results {
+		if result.RetrievalMode != KnowledgeRetrievalModeHybrid {
+			t.Fatalf("expected fused result to keep hybrid mode, got %+v", result)
+		}
+	}
+}
+
+func TestRetrieveWithOptionsReranksQdrantHybridCandidatesForHybridRerankMode(t *testing.T) {
+	store := &fakeStore{
+		retrievalResults: []KnowledgeRetrievalResult{
+			{ChunkID: "keyword_chunk", DocumentID: "doc_keyword", DocumentTitle: "Keyword Doc", Snippet: "keyword match"},
+		},
+	}
+	embedder := &recordingKnowledgeEmbedder{}
+	vectorStore := &recordingKnowledgeVectorStore{
+		searchResults: []KnowledgeRetrievalResult{
+			{ChunkID: "vector_chunk", DocumentID: "doc_vector", DocumentTitle: "Vector Doc", Snippet: "semantic match"},
+		},
+	}
+	reranker := &recordingKnowledgeReranker{}
+	service := NewServiceWithEmbedderAndVectorStore(store, embedder, "text-embedding-3-small", vectorStore, 3).WithReranker(reranker)
+
+	results, err := service.RetrieveWithOptions(
+		context.Background(),
+		auth.Session{OrganizationID: "org_knowledge", WorkspaceID: "workspace_knowledge"},
+		"kb_qdrant",
+		"hybrid rerank answer",
+		KnowledgeRetrievalOptions{Mode: KnowledgeRetrievalModeHybridRerank, Limit: 1, RerankTopK: 2},
+	)
+	if err != nil {
+		t.Fatalf("retrieve hybrid_rerank with qdrant candidates: %v", err)
+	}
+
+	if vectorStore.searchOptions.Mode != KnowledgeRetrievalModeVector || vectorStore.searchOptions.Limit != 2 {
+		t.Fatalf("expected qdrant vector candidate search to use expanded candidate limit, got %+v", vectorStore.searchOptions)
+	}
+	if store.retrievalOptions.Mode != KnowledgeRetrievalModeKeyword || store.retrievalOptions.Limit != 2 {
+		t.Fatalf("expected keyword candidate retrieval to use expanded candidate limit, got %+v", store.retrievalOptions)
+	}
+	if len(reranker.results) != 2 {
+		t.Fatalf("expected reranker to receive fused qdrant+keyword candidates, got %+v", reranker.results)
+	}
+	if reranker.results[0].ChunkID != "vector_chunk" || reranker.results[1].ChunkID != "keyword_chunk" {
+		t.Fatalf("expected reranker input order vector/keyword from fused candidates, got %+v", reranker.results)
+	}
+	if len(results) != 1 || results[0].RetrievalMode != KnowledgeRetrievalModeHybridRerank {
+		t.Fatalf("expected final hybrid_rerank result, got %+v", results)
+	}
+}
+
 func TestRetrieveWithOptionsReranksHybridRerankResults(t *testing.T) {
 	store := &fakeStore{
 		retrievalResults: []KnowledgeRetrievalResult{
