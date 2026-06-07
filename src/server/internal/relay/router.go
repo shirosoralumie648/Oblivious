@@ -97,7 +97,7 @@ func (r *Router) SelectChannel(ctx context.Context, apiType string) *types.Route
 	return ch
 }
 
-func (r *Router) selectChannelForBilling(ctx context.Context, apiType string, excluded map[string]bool) *types.RouteChannel {
+func (r *Router) selectChannelForBilling(ctx context.Context, apiType, model string, usage *types.Usage, excluded map[string]bool) *types.RouteChannel {
 	conversationID, _ := types.TrustedConversationIDFromContext(ctx)
 	if conversationID != "" && r.affinityStore != nil {
 		if channelID, err := r.affinityStore.GetConversationAffinity(ctx, conversationID); err == nil && channelID != "" && !excluded[channelID] {
@@ -109,13 +109,18 @@ func (r *Router) selectChannelForBilling(ctx context.Context, apiType string, ex
 		}
 	}
 
-	ch := r.loadBalancer.SelectExcluding(apiType, excluded)
+	var ch *types.RouteChannel
+	if r.rateLimiter != nil {
+		ch = r.loadBalancer.SelectExcludingWithWeights(apiType, excluded, r.localRateLimitWeightAdjuster(ctx, model, usage))
+	} else {
+		ch = r.loadBalancer.SelectExcluding(apiType, excluded)
+	}
 	if ch == nil {
 		return nil
 	}
 	if cb, ok := r.circuitBreakers[routeChannelID(ch)]; ok && cb.State() == StateOpen {
 		excluded[routeChannelID(ch)] = true
-		return r.selectChannelForBilling(ctx, apiType, excluded)
+		return r.selectChannelForBilling(ctx, apiType, model, usage, excluded)
 	}
 	return ch
 }
@@ -276,7 +281,7 @@ func (r *Router) RouteWithBilling(
 	var lastErr error
 	var lastResp *types.ProviderResponse
 	for attempt := 1; attempt <= maxRouteBillingAttempts; attempt++ {
-		ch := r.selectChannelForBilling(ctx, apiType.String(), excludedChannels)
+		ch := r.selectChannelForBilling(ctx, apiType.String(), model, usage, excludedChannels)
 		if ch == nil {
 			routeErr := &RouterError{Code: http.StatusServiceUnavailable, Message: "no healthy channel available", RetryAfter: 30, ErrorCode: "no_available_channel"}
 			_ = r.recordUsage(ctx, r.errorUsageRecord(userID, organizationID, apiTokenID, requestID, apiType, model, nil, routeErr.Code, routeErr.ErrorCode, startedAt))
@@ -523,6 +528,63 @@ func routeRetryBackoff(attempt int) time.Duration {
 	default:
 		return 3 * time.Second
 	}
+}
+
+func (r *Router) localRateLimitWeightAdjuster(ctx context.Context, model string, usage *types.Usage) func(*types.RouteChannel) int {
+	return func(ch *types.RouteChannel) int {
+		weight := ch.Weight
+		if weight <= 0 {
+			weight = 1
+		}
+		if r == nil || r.rateLimiter == nil || ch == nil {
+			return weight
+		}
+		checks := rateLimitChecksForResolution(r.resolveRateLimit(ctx, ch, model, usage))
+		for _, check := range checks {
+			if rateLimitCheckEmpty(check) || check.Key.ChannelID != routeChannelID(ch) {
+				continue
+			}
+			decision := r.rateLimiter.Check(ctx, check.Key, check.Limits, check.Usage)
+			if rateLimitDecisionNearSoftThreshold(decision, check) {
+				return softThresholdWeight(weight)
+			}
+		}
+		return weight
+	}
+}
+
+func rateLimitDecisionNearSoftThreshold(decision ratelimit.Decision, check RateLimitCheck) bool {
+	if !decision.Allowed || decision.Limit <= 0 {
+		return false
+	}
+	switch decision.Dimension {
+	case ratelimit.DimensionRPM, ratelimit.DimensionTPM:
+	default:
+		return false
+	}
+	projected := decision.Current
+	switch decision.Dimension {
+	case ratelimit.DimensionRPM:
+		projected++
+	case ratelimit.DimensionTPM:
+		tokens := check.Usage.Tokens
+		if tokens < 0 {
+			tokens = 0
+		}
+		projected += tokens
+	}
+	return projected*10 >= decision.Limit*9
+}
+
+func softThresholdWeight(weight int) int {
+	if weight <= 1 {
+		return 1
+	}
+	reduced := weight / 10
+	if reduced < 1 {
+		return 1
+	}
+	return reduced
 }
 
 func attemptScopedIdempotencyKey(idempotencyKey string, attempt int) string {

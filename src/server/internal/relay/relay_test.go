@@ -447,6 +447,71 @@ func TestRouterRouteWithBillingRejectsRateLimitedRequestBeforeUpstream(t *testin
 	}
 }
 
+func TestRouterRouteWithBillingReducesChannelWeightNearLocalRPMLimit(t *testing.T) {
+	pool := NewChannelPool()
+	pool.AddChannel(&types.Channel{
+		ID:       "primary",
+		Name:     "Primary",
+		Provider: "openai",
+		BaseURL:  "https://primary.example",
+		APIKey:   "sk-primary",
+		Models:   []string{"gpt-4o-mini"},
+		Enabled:  true,
+		RPMLimit: 10,
+	}, 100)
+	pool.AddChannel(&types.Channel{
+		ID:       "backup",
+		Name:     "Backup",
+		Provider: "openai",
+		BaseURL:  "https://backup.example",
+		APIKey:   "sk-backup",
+		Models:   []string{"gpt-4o-mini"},
+		Enabled:  true,
+		RPMLimit: 10,
+	}, 10)
+
+	router := NewRouterWithBilling(
+		pool,
+		NewLoadBalancer(pool, "weighted"),
+		map[string]*CircuitBreaker{
+			"primary": NewCircuitBreaker("primary", 5, time.Second, time.Minute),
+			"backup":  NewCircuitBreaker("backup", 5, time.Second, time.Minute),
+		},
+		nil,
+		NewHealthChecker(HealthCheckDisabled, time.Second),
+		nil,
+		"",
+	)
+	limiter := &recordingRelayRateLimiter{
+		checkDecisions: map[string]ratelimit.Decision{
+			"primary": {Allowed: true, Dimension: ratelimit.DimensionRPM, Limit: 10, Current: 9, Remaining: 1},
+			"backup":  {Allowed: true, Dimension: ratelimit.DimensionRPM, Limit: 10, Current: 0, Remaining: 10},
+		},
+	}
+	router.rateLimiter = limiter
+
+	counts := map[string]int{}
+	for i := 0; i < 20; i++ {
+		resp, err := router.RouteWithBilling(context.Background(), types.APITypeChat, "gpt-4o-mini", "", "idem_soft_limit", &types.Usage{TotalTokens: 20}, func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
+			counts[routeChannelID(ch)]++
+			return types.NewOKResponse([]byte(`{"ok":true}`), &types.Usage{TotalTokens: 20}), nil
+		})
+		if err != nil {
+			t.Fatalf("RouteWithBilling returned error on attempt %d: %v", i+1, err)
+		}
+		if resp == nil || resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected successful response on attempt %d, got %+v", i+1, resp)
+		}
+	}
+
+	if counts["backup"] == 0 {
+		t.Fatalf("expected near-limit primary channel to be down-weighted enough for backup traffic, got counts=%v", counts)
+	}
+	if counts["primary"] >= 20 {
+		t.Fatalf("near-limit primary channel should not keep full static weight, got counts=%v", counts)
+	}
+}
+
 func TestRouterRouteWithBillingReleasesConcurrencyAfterUpstream(t *testing.T) {
 	pool := NewChannelPool()
 	pool.AddChannel(&types.Channel{
@@ -1135,15 +1200,16 @@ func (a *recordingRelayAuthenticator) AuthenticateRelayAPIToken(_ context.Contex
 }
 
 type recordingRelayRateLimiter struct {
-	mu           sync.Mutex
-	allowErr     error
-	beginErr     error
-	allowCalls   int
-	beginCalls   int
-	endCalls     int
-	lastAllowKey ratelimit.Key
-	lastBeginKey ratelimit.Key
-	lastEndKey   ratelimit.Key
+	mu             sync.Mutex
+	allowErr       error
+	beginErr       error
+	checkDecisions map[string]ratelimit.Decision
+	allowCalls     int
+	beginCalls     int
+	endCalls       int
+	lastAllowKey   ratelimit.Key
+	lastBeginKey   ratelimit.Key
+	lastEndKey     ratelimit.Key
 }
 
 func (l *recordingRelayRateLimiter) Allow(_ context.Context, key ratelimit.Key, _ ratelimit.Limits, _ ratelimit.Usage) error {
@@ -1170,7 +1236,14 @@ func (l *recordingRelayRateLimiter) End(_ context.Context, key ratelimit.Key) er
 	return nil
 }
 
-func (l *recordingRelayRateLimiter) Check(context.Context, ratelimit.Key, ratelimit.Limits, ratelimit.Usage) ratelimit.Decision {
+func (l *recordingRelayRateLimiter) Check(_ context.Context, key ratelimit.Key, _ ratelimit.Limits, _ ratelimit.Usage) ratelimit.Decision {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.checkDecisions != nil {
+		if decision, ok := l.checkDecisions[key.ChannelID]; ok {
+			return decision
+		}
+	}
 	return ratelimit.Decision{Allowed: true}
 }
 

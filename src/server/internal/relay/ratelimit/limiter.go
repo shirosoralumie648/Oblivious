@@ -188,11 +188,19 @@ func (l *InMemoryRateLimiter) Check(ctx context.Context, key Key, limits Limits,
 		return Decision{Allowed: false, Dimension: DimensionRequestTokens, Limit: limits.MaxTokensPerRequest, Current: requestTokens}
 	}
 
+	bestAllowed := Decision{Allowed: true}
 	if limits.RPM > 0 {
 		events := pruneEvents(l.rpmEvents[counterKey("rpm", key)], now, defaultWindow)
 		if len(events)+1 > limits.RPM {
 			return Decision{Allowed: false, Dimension: DimensionRPM, Limit: limits.RPM, Current: len(events), RetryAfter: retryAfter(events, now, defaultWindow)}
 		}
+		bestAllowed = highestProjectedUsage(bestAllowed, Decision{
+			Allowed:   true,
+			Dimension: DimensionRPM,
+			Limit:     limits.RPM,
+			Current:   len(events),
+			Remaining: maxInt(0, limits.RPM-len(events)),
+		}, 1)
 	}
 	if limits.TPM > 0 && usage.Tokens > 0 {
 		window := l.tpmWindows[counterKey("tpm", key)]
@@ -205,6 +213,14 @@ func (l *InMemoryRateLimiter) Check(ctx context.Context, key Key, limits Limits,
 		if current+usage.Tokens > limits.TPM {
 			return Decision{Allowed: false, Dimension: DimensionTPM, Limit: limits.TPM, Current: current, Remaining: maxInt(0, limits.TPM-current), RetryAfter: retry}
 		}
+		bestAllowed = highestProjectedUsage(bestAllowed, Decision{
+			Allowed:    true,
+			Dimension:  DimensionTPM,
+			Limit:      limits.TPM,
+			Current:    current,
+			Remaining:  maxInt(0, limits.TPM-current),
+			RetryAfter: retry,
+		}, usage.Tokens)
 	}
 	if limits.MaxConcurrent > 0 {
 		current := l.concurrent[counterKey("concurrent", key)]
@@ -212,7 +228,28 @@ func (l *InMemoryRateLimiter) Check(ctx context.Context, key Key, limits Limits,
 			return Decision{Allowed: false, Dimension: DimensionConcurrent, Limit: limits.MaxConcurrent, Current: current}
 		}
 	}
-	return Decision{Allowed: true}
+	return bestAllowed
+}
+
+func highestProjectedUsage(current, candidate Decision, projectedIncrement int) Decision {
+	if candidate.Limit <= 0 {
+		return current
+	}
+	if current.Limit <= 0 {
+		return candidate
+	}
+	currentProjected := current.Current
+	switch current.Dimension {
+	case DimensionRPM:
+		currentProjected++
+	case DimensionTPM:
+		currentProjected += projectedIncrement
+	}
+	candidateProjected := candidate.Current + projectedIncrement
+	if candidateProjected*current.Limit > currentProjected*candidate.Limit {
+		return candidate
+	}
+	return current
 }
 
 func pruneEvents(events []time.Time, now time.Time, window time.Duration) []time.Time {

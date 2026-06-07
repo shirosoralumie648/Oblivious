@@ -73,6 +73,27 @@ func (lb *LoadBalancer) SelectExcluding(apiType string, excluded map[string]bool
 	return lb.selectFromCandidates(candidates)
 }
 
+func (lb *LoadBalancer) SelectExcludingWithWeights(apiType string, excluded map[string]bool, adjuster func(*types.RouteChannel) int) *types.RouteChannel {
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
+
+	candidates := lb.filterHealthy(apiType)
+	if len(excluded) > 0 {
+		filtered := candidates[:0]
+		for _, ch := range candidates {
+			if !excluded[routeChannelID(ch)] {
+				filtered = append(filtered, ch)
+			}
+		}
+		candidates = filtered
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	candidates = adjustedCandidateWeights(candidates, adjuster)
+	return lb.selectFromCandidates(candidates)
+}
+
 func (lb *LoadBalancer) SelectChannelByID(apiType, channelID string) *types.RouteChannel {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
@@ -121,6 +142,22 @@ func (lb *LoadBalancer) filterHealthy(apiType string) []*types.RouteChannel {
 		}
 	}
 	return result
+}
+
+func adjustedCandidateWeights(candidates []*types.RouteChannel, adjuster func(*types.RouteChannel) int) []*types.RouteChannel {
+	if adjuster == nil || len(candidates) == 0 {
+		return candidates
+	}
+	adjusted := make([]*types.RouteChannel, 0, len(candidates))
+	for _, ch := range candidates {
+		if ch == nil {
+			continue
+		}
+		copyCh := *ch
+		copyCh.Weight = adjuster(ch)
+		adjusted = append(adjusted, &copyCh)
+	}
+	return adjusted
 }
 
 func (lb *LoadBalancer) selectFromCandidates(candidates []*types.RouteChannel) *types.RouteChannel {

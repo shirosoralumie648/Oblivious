@@ -125,11 +125,13 @@ func (l *RedisRateLimiter) Check(ctx context.Context, key Key, limits Limits, us
 		return Decision{Allowed: false, Dimension: DimensionRequestTokens, Limit: limits.MaxTokensPerRequest, Current: requestTokens}
 	}
 
+	bestAllowed := Decision{Allowed: true}
 	if limits.RPM > 0 {
 		decision, err := l.runDecisionScript(ctx, redisRPMCheckScript, DimensionRPM, limits.RPM, l.redisKey("rpm", key), limits.RPM, millis(l.window))
 		if err != nil || !decision.Allowed {
 			return decision
 		}
+		bestAllowed = highestProjectedUsage(bestAllowed, decision, 1)
 	}
 
 	tokens := usage.Tokens
@@ -141,6 +143,7 @@ func (l *RedisRateLimiter) Check(ctx context.Context, key Key, limits Limits, us
 		if err != nil || !decision.Allowed {
 			return decision
 		}
+		bestAllowed = highestProjectedUsage(bestAllowed, decision, tokens)
 	}
 
 	if limits.MaxConcurrent > 0 {
@@ -149,7 +152,7 @@ func (l *RedisRateLimiter) Check(ctx context.Context, key Key, limits Limits, us
 			return decision
 		}
 	}
-	return Decision{Allowed: true}
+	return bestAllowed
 }
 
 func (l *RedisRateLimiter) runDecisionScript(ctx context.Context, script string, dimension Dimension, limit int, key string, args ...interface{}) (Decision, error) {

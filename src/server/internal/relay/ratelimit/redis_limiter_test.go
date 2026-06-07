@@ -83,6 +83,28 @@ func TestRedisRateLimiterRequestTokenLimitRejectsOversizedSingleRequestWithoutCo
 	}
 }
 
+func TestRedisRateLimiterCheckReportsAllowedLocalUsage(t *testing.T) {
+	client := newFakeRedisRateLimitClient()
+	limiter := NewRedisRateLimiter(client, RedisOptions{})
+	ctx := context.Background()
+	key := Key{ChannelID: "ch_1", Model: "gpt-5", TokenID: "tok_1"}
+	limits := Limits{RPM: 10, TPM: 100}
+
+	for i := 0; i < 9; i++ {
+		if err := limiter.Allow(ctx, key, limits, Usage{Tokens: 5}); err != nil {
+			t.Fatalf("seed request %d should pass: %v", i+1, err)
+		}
+	}
+
+	decision := limiter.Check(ctx, key, limits, Usage{Tokens: 5})
+	if !decision.Allowed || decision.Dimension != DimensionRPM || decision.Limit != 10 || decision.Current != 9 || decision.Remaining != 1 {
+		t.Fatalf("RPM check decision = %+v, want allowed current usage", decision)
+	}
+	if err := limiter.Allow(ctx, key, limits, Usage{Tokens: 5}); err != nil {
+		t.Fatalf("check should not consume RPM/TPM window before the next allow: %v", err)
+	}
+}
+
 func TestRedisRateLimiterBeginEndManagesConcurrency(t *testing.T) {
 	client := newFakeRedisRateLimitClient()
 	limiter := NewRedisRateLimiter(client, RedisOptions{})
@@ -138,6 +160,15 @@ func (c *fakeRedisRateLimitClient) Eval(ctx context.Context, script string, keys
 	limit := intArg(args, 0)
 	key := keys[0]
 	switch {
+	case strings.Contains(script, "rpm sliding-window check"):
+		if limit <= 0 {
+			return redis.NewCmdResult([]interface{}{int64(1), int64(0), int64(0)}, nil)
+		}
+		current := c.rpm[key]
+		if current+1 > limit {
+			return redis.NewCmdResult([]interface{}{int64(0), int64(current), int64(0)}, nil)
+		}
+		return redis.NewCmdResult([]interface{}{int64(1), int64(current), int64(limit - current)}, nil)
 	case strings.Contains(script, "rpm"):
 		if limit <= 0 {
 			return redis.NewCmdResult([]interface{}{int64(1), int64(0), int64(0)}, nil)
@@ -148,6 +179,16 @@ func (c *fakeRedisRateLimitClient) Eval(ctx context.Context, script string, keys
 		}
 		current++
 		c.rpm[key] = current
+		return redis.NewCmdResult([]interface{}{int64(1), int64(current), int64(limit - current)}, nil)
+	case strings.Contains(script, "tpm fixed-window check"):
+		if limit <= 0 {
+			return redis.NewCmdResult([]interface{}{int64(1), int64(0), int64(0)}, nil)
+		}
+		tokens := intArg(args, 1)
+		current := c.tpm[key]
+		if current+tokens > limit {
+			return redis.NewCmdResult([]interface{}{int64(0), int64(current), int64(limit - current)}, nil)
+		}
 		return redis.NewCmdResult([]interface{}{int64(1), int64(current), int64(limit - current)}, nil)
 	case strings.Contains(script, "tpm"):
 		if limit <= 0 {

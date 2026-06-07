@@ -88,6 +88,24 @@ func TestInMemoryRateLimiterRequestTokenLimitRejectsOversizedSingleRequestWithou
 	}
 }
 
+func TestInMemoryRateLimiterCheckReportsAllowedLocalUsage(t *testing.T) {
+	limiter := NewInMemoryRateLimiter(InMemoryOptions{})
+	ctx := context.Background()
+	key := Key{ChannelID: "ch_1", Model: "gpt-5", TokenID: "tok_1"}
+	limits := Limits{RPM: 10, TPM: 100}
+
+	for i := 0; i < 9; i++ {
+		if err := limiter.Allow(ctx, key, limits, Usage{Tokens: 5}); err != nil {
+			t.Fatalf("seed request %d should pass: %v", i+1, err)
+		}
+	}
+
+	decision := limiter.Check(ctx, key, limits, Usage{Tokens: 5})
+	if !decision.Allowed || decision.Dimension != DimensionRPM || decision.Limit != 10 || decision.Current != 9 || decision.Remaining != 1 {
+		t.Fatalf("RPM check decision = %+v, want allowed current usage", decision)
+	}
+}
+
 func TestInMemoryRateLimiterConcurrentBeginEnd(t *testing.T) {
 	limiter := NewInMemoryRateLimiter(InMemoryOptions{})
 	ctx := context.Background()

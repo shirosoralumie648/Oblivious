@@ -38,7 +38,7 @@ Status values:
 | Redis-backed counters are available. | Proven | `buildRelayRateLimiter` supports `RelayRateLimitBackend=redis`; `src/server/internal/relay/ratelimit/redis_limiter.go` implements the Redis limiter; `TestBuildRelayRateLimiterCreatesRedisLimiter` verifies wiring. |
 | Local counter rejects before upstream call. | Proven | `TestRouterRouteWithBillingRejectsRateLimitedRequestBeforeUpstream` proves a 429 `relay_rate_limited` router error is returned and the upstream callback is not called. |
 | Passive upstream 429 marks channel `rate_limited`, parses `Retry-After`, removes it temporarily, and retries another channel. | Proven | `markRetryableProviderFailure` sets `RateLimitedUntil` from `Retry-After`; `LoadBalancer.filterHealthy` excludes rate-limited channels; `TestRouterRouteWithBillingRetries429AcrossChannelsAndMarksRateLimitedUntil` proves retry and temporary removal. |
-| Approaching 90% of local limit lowers channel weight before hard reject. | Gap | No current limiter decision or load-balancer weight path uses a 90% soft-threshold signal. Existing behavior enforces the hard local limit and handles upstream 429 passively. |
+| Approaching 90% of local limit lowers channel weight before hard reject. | Proven | `RateLimiter.Check` now reports allowed RPM/TPM current usage for both memory and Redis counters; `Router.localRateLimitWeightAdjuster` applies a 90% projected local channel RPM/TPM soft threshold and temporarily reduces the candidate's effective load-balancer weight before the hard `Allow` gate. `TestRouterRouteWithBillingReducesChannelWeightNearLocalRPMLimit`, `TestInMemoryRateLimiterCheckReportsAllowedLocalUsage`, and `TestRedisRateLimiterCheckReportsAllowedLocalUsage` cover the path. |
 
 ## 1.4 Failover Rules
 
@@ -75,9 +75,8 @@ Status values:
 
 ## Current Conclusion
 
-The repository-owned Relay path now proves the core Functional Logic 1.1-1.5 behavior for weighted round-robin, adaptive selection, conversation affinity, cross-channel failover, RPM/TPM local enforcement, passive 429 handling, and public/private semantic cache policy.
+The repository-owned Relay path now proves the core Functional Logic 1.1-1.5 behavior for weighted round-robin, adaptive selection, conversation affinity, cross-channel failover, RPM/TPM local enforcement plus 90% soft-threshold weight reduction, passive 429 handling, and public/private semantic cache policy.
 
-The row remains `Partial`, not `Proven`, because two requirements still need work or explicit boundary decisions:
+The row remains `Partial`, not `Proven`, because one requirement group still needs work or explicit boundary decisions:
 
-1. Add a 90% local RPM/TPM soft-threshold signal that lowers channel weight before hard rejection.
-2. Decide whether semantic cache similarity thresholds must be changed to the spec's `0.85`, and whether all 100+ provider entries must be callable adapters rather than planned catalog entries.
+1. Decide whether semantic cache similarity thresholds must be changed to the spec's `0.85`, and whether all 100+ provider entries must be callable adapters rather than planned catalog entries.
