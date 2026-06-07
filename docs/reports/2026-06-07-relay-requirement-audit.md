@@ -61,7 +61,7 @@ Status values:
 | Sensitive or user-scoped queries use organization namespace and 1-hour TTL. | Proven | `isSensitiveSemanticCacheQuery` checks email, phone, organization name, user name/id, pronouns, and `UserScoped`; `TestSemanticCachePolicyClassifiesScopeAndTTL` and `TestSemanticCacheLookupSensitiveQueriesNeverCheckGlobal`. |
 | Lookup order checks global first, then org cache for public org requests. | Proven | `SemanticCache.Lookup` builds `[global, org]` lookup keys for public org requests; `TestSemanticCacheLookupOrderUsesGlobalThenOrgForPublicQueries` proves order. |
 | Cache key excludes channel ID. | Proven | `TestSemanticCacheQueryHashIncludesModelAndIgnoresChannelID`. |
-| Vector/text similarity lookup is available. | Partial | In-memory store supports text similarity and embedding similarity. SQL backend can store vectors and configures an embedder for SQL cache. Current thresholds are `0.7` text and `0.8` embedding, not the `0.85` threshold referenced elsewhere in the functional logic details. |
+| Vector/text similarity lookup is available. | Proven | In-memory store supports text similarity and embedding similarity. SQL backend uses pgvector for embedding similarity and the configured Relay handlers attach embeddings when available. Text and embedding similarity thresholds are both aligned to the functional logic `0.85`; `TestSemanticCacheTextSimilarityRequires085Threshold`, `TestSemanticCacheEmbeddingSimilarityRequires085Threshold`, `TestSemanticCacheLookupUsesEmbeddingSimilarityWhenQueryTextDiffers`, and `TestSQLSemanticCacheStoreUsesPgvectorForSimilarityLookup` cover the path. |
 
 ## Fusion Design 3.1 and API Contract
 
@@ -77,6 +77,6 @@ Status values:
 
 The repository-owned Relay path now proves the core Functional Logic 1.1-1.5 behavior for weighted round-robin, adaptive selection, conversation affinity, cross-channel failover, RPM/TPM local enforcement plus 90% soft-threshold weight reduction, passive 429 handling, and public/private semantic cache policy.
 
-The row remains `Partial`, not `Proven`, because one requirement group still needs work or explicit boundary decisions:
+The row remains `Partial`, not `Proven`, because one provider-support boundary still needs work or an explicit decision:
 
-1. Decide whether semantic cache similarity thresholds must be changed to the spec's `0.85`, and whether all 100+ provider entries must be callable adapters rather than planned catalog entries.
+1. Decide whether all 100+ provider entries must be callable adapters rather than planned catalog entries.

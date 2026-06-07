@@ -363,6 +363,38 @@ func TestSemanticCacheLookupFallsBackToSimilarOrgScopedQueryWithinSameOrganizati
 	}
 }
 
+func TestSemanticCacheTextSimilarityRequires085Threshold(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 6, 4, 10, 0, 0, 0, time.UTC)
+	store := NewInMemorySemanticCacheStore()
+	cache := NewSemanticCache(store, SemanticCacheOptions{
+		Now: func() time.Time { return now },
+	})
+
+	storedReq := SemanticCacheRequest{
+		OrganizationID: "org_1",
+		Model:          "gpt-4o",
+		Query:          "alpha beta gamma delta epsilon zeta eta theta iota",
+		UserScoped:     true,
+	}
+	if _, err := cache.Store(ctx, storedReq, json.RawMessage(`{"answer":"too broad"}`)); err != nil {
+		t.Fatalf("store failed: %v", err)
+	}
+
+	hit, err := cache.Lookup(ctx, SemanticCacheRequest{
+		OrganizationID: "org_1",
+		Model:          "gpt-4o",
+		Query:          "alpha beta gamma delta epsilon zeta eta theta kappa",
+		UserScoped:     true,
+	})
+	if err != nil {
+		t.Fatalf("lookup failed: %v", err)
+	}
+	if hit != nil {
+		t.Fatalf("0.80 text similarity must not meet the 0.85 semantic cache threshold, got hit %+v", hit.Key)
+	}
+}
+
 func TestSemanticCacheLookupUsesEmbeddingSimilarityWhenQueryTextDiffers(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 6, 4, 10, 0, 0, 0, time.UTC)
@@ -409,6 +441,38 @@ func TestSemanticCacheLookupUsesEmbeddingSimilarityWhenQueryTextDiffers(t *testi
 	}
 	if string(hit.Response) != `{"answer":"pricing"}` {
 		t.Fatalf("unexpected cached response: %s", hit.Response)
+	}
+}
+
+func TestSemanticCacheEmbeddingSimilarityRequires085Threshold(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 6, 4, 10, 0, 0, 0, time.UTC)
+	store := NewInMemorySemanticCacheStore()
+	cache := NewSemanticCache(store, SemanticCacheOptions{
+		Now: func() time.Time { return now },
+	})
+
+	storedReq := SemanticCacheRequest{
+		OrganizationID: "org_1",
+		Model:          "gpt-4o",
+		Query:          "pricing forecast renewal terms",
+		QueryEmbedding: []float32{1, 0},
+	}
+	if _, err := cache.Store(ctx, storedReq, json.RawMessage(`{"answer":"too broad"}`)); err != nil {
+		t.Fatalf("store failed: %v", err)
+	}
+
+	hit, err := cache.Lookup(ctx, SemanticCacheRequest{
+		OrganizationID: "org_1",
+		Model:          "gpt-4o",
+		Query:          "unrelated visible words",
+		QueryEmbedding: []float32{0.84, 0.5425864},
+	})
+	if err != nil {
+		t.Fatalf("lookup failed: %v", err)
+	}
+	if hit != nil {
+		t.Fatalf("0.80 embedding similarity must not meet the 0.85 semantic cache threshold, got hit %+v", hit.Key)
 	}
 }
 

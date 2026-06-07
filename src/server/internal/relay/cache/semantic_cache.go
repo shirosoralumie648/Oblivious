@@ -359,8 +359,8 @@ func isSensitiveSemanticCacheQuery(req SemanticCacheRequest) bool {
 }
 
 const (
-	semanticCacheSimilarityThreshold          = 0.7
-	semanticCacheEmbeddingSimilarityThreshold = 0.8
+	semanticCacheSimilarityThreshold          = 0.85
+	semanticCacheEmbeddingSimilarityThreshold = 0.85
 )
 
 var semanticCacheTokenPattern = regexp.MustCompile(`[\p{L}\p{N}]+`)
