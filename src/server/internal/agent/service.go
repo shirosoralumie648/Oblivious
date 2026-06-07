@@ -713,9 +713,11 @@ func (s *Service) StartRun(ctx context.Context, session auth.Session, req StartR
 		now := time.Now().UTC()
 		if err != nil {
 			if _, updateErr := s.store.UpdateRun(ctx, session.OrganizationID, run.ID, UpdateRunRequest{
-				Status:      stringPointer(RunStatusFailed),
-				Error:       stringPointer(err.Error()),
-				CompletedAt: &now,
+				Status:         stringPointer(RunStatusFailed),
+				IterationCount: intPointer(1),
+				ToolCallCount:  intPointer(0),
+				Error:          stringPointer(err.Error()),
+				CompletedAt:    &now,
 			}); updateErr == nil {
 				recordAgentRunMetrics(RunStatusFailed, 1)
 			}
@@ -730,6 +732,8 @@ func (s *Service) StartRun(ctx context.Context, session auth.Session, req StartR
 			MemoryEnabled:     boolPointer(runResult != nil && runResult.UsedMemory),
 			MemorySearched:    boolPointer(runResult != nil && runResult.MemorySearched),
 			MemoryResultCount: intPointer(runResultMemoryResultCount(runResult)),
+			IterationCount:    intPointer(1),
+			ToolCallCount:     intPointer(0),
 			FinalMessageID:    &finalMessageID,
 			CompletedAt:       &now,
 		})

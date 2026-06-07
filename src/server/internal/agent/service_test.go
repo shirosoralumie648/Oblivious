@@ -1517,6 +1517,9 @@ func TestServiceStartRunWithoutToolsCreatesDurableFetchableRun(t *testing.T) {
 	if run.Status != RunStatusCompleted || run.FinalMessageID == "" || run.CompletedAt == nil {
 		t.Fatalf("expected completed run with final message, got %+v", run)
 	}
+	if run.IterationCount != 1 || run.ToolCallCount != 0 {
+		t.Fatalf("expected no-tool run to record one iteration and zero tool calls, got iterations=%d tools=%d", run.IterationCount, run.ToolCallCount)
+	}
 	if run.RequestID != "req_plain_start" {
 		t.Fatalf("expected request id to persist, got %q", run.RequestID)
 	}
@@ -1813,6 +1816,9 @@ func TestServiceStartRunWithoutToolsMarksDurableRunFailedOnRunnerError(t *testin
 	run := store.runs[0]
 	if run.Status != RunStatusFailed || run.Error == "" || run.CompletedAt == nil {
 		t.Fatalf("expected failed completed run with error, got %+v", run)
+	}
+	if run.IterationCount != 1 || run.ToolCallCount != 0 {
+		t.Fatalf("expected failed no-tool run to record one iteration and zero tool calls, got iterations=%d tools=%d", run.IterationCount, run.ToolCallCount)
 	}
 }
 
