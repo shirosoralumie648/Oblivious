@@ -36,7 +36,7 @@ Status values:
 | Knowledge-base config stores full-replace, incremental, and versioned update strategy names. | Proven for config contract | `KnowledgeUpdateStrategyIncremental` is now defined alongside `full_replace` and `versioned`, and config readback preserves `incremental`. |
 | Full replace document updates remove old chunks and write new chunks. | Proven for current default | `replaceKnowledgeDocumentChunksWithOptions` deletes chunks for the document and inserts replacement chunks with metadata; document write tests cover chunk and metadata persistence. |
 | Incremental update performs diff-aware chunk updates. | Gap | No current code computes document diffs, chunk hashes, or changed-chunk-only updates. |
-| Versioned update preserves multiple document/chunk versions and supports version-scoped retrieval. | Partial | Document and chunk rows carry `document_version`, and retrieval can filter by version. The write path still deletes prior chunks for a document, so multi-version coexistence is not fully implemented. |
+| Versioned update preserves multiple chunk versions and supports version-scoped retrieval. | Proven for chunk coexistence, partial for document version history | Document and chunk rows carry `document_version`, retrieval can filter by version, and `versioned` updates now replace only chunks matching the current document version instead of deleting all chunks for the document. `TestSQLStoreUpdateKnowledgeDocumentVersionedReplacesOnlyCurrentVersionChunks` proves the SQL write path preserves other chunk versions. The `knowledge_documents` row still acts as the current-version pointer rather than a full document-version history table. |
 
 ## 3.4 Citation and Vector Store
 
@@ -60,6 +60,7 @@ Fresh checks for this slice:
 
 - `go test ./internal/knowledge -run 'TestSQLStore(CreateRetrievalTestCasePersistsExpectedResult|ListRetrievalTestCasesReturnsSavedExpectedResults)' -count=1`
 - `go test ./internal/knowledge -run 'Test(Create|Update)DocumentUses.*ChunkingConfig' -count=1`
+- `go test ./internal/knowledge -run 'TestSQLStore(UpdateKnowledgeDocumentVersionedReplacesOnlyCurrentVersionChunks|CreateKnowledgeDocumentWithOptionsPersistsCrossTenantChunksAndEmbeddings)' -count=1`
 - `go test ./internal/knowledge -run 'TestRetrieveWithOptions(FallsBackWhenHybridRerankerFails|ReranksHybridRerankResults|ExpandsHybridRerankCandidatePool)' -count=1`
 - `go test ./internal/knowledge/retrieval -run TestKnowledgeResultRerankerCallsCohereCompatibleEndpoint -count=1`
 - `go test ./internal/config -run 'TestLoadRAGRerankerConfig|TestLoadRejectsInvalidRAGRerankerTopK' -count=1`
@@ -74,8 +75,8 @@ All Go commands above were run from `src/server` with absolute `GOCACHE=/tmp/obl
 
 The Knowledge/RAG row remains `Partial`, not `Proven`.
 
-The current Knowledge/RAG slices close the highest-priority API/store contract gaps for retrieval mode naming, knowledge-base RAG config readback, SQL-backed retrieval test case persistence, fixed/semantic/QA/template chunking config in the main document create/update ingestion path, configured HTTP reranking for `hybrid_rerank`, reranker outage fallback metrics, and knowledge-base `rerankTopK` candidate-pool expansion before final result truncation. The remaining high-value work is:
+The current Knowledge/RAG slices close the highest-priority API/store contract gaps for retrieval mode naming, knowledge-base RAG config readback, SQL-backed retrieval test case persistence, fixed/semantic/QA/template chunking config in the main document create/update ingestion path, configured HTTP reranking for `hybrid_rerank`, reranker outage fallback metrics, versioned chunk coexistence for update writes, and knowledge-base `rerankTopK` candidate-pool expansion before final result truncation. The remaining high-value work is:
 
-1. Implement incremental and multi-version update semantics beyond storing strategy names.
+1. Implement incremental diff/hash update semantics beyond storing strategy names.
 2. Populate citation highlight positions and prove document preview/source navigation.
 3. Add Qdrant chunk upsert/search instead of collection-only wiring.

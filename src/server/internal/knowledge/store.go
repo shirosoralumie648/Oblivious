@@ -1008,14 +1008,22 @@ func replaceKnowledgeDocumentChunks(ctx context.Context, tx *sql.Tx, documentID,
 }
 
 func replaceKnowledgeDocumentChunksWithOptions(ctx context.Context, tx *sql.Tx, organizationID, documentID string, chunks []KnowledgeDocumentChunk, options KnowledgeDocumentOptions, embeddingModel string, now time.Time) error {
-	if _, err := tx.ExecContext(ctx, `
+	options = normalizeKnowledgeDocumentOptions(options)
+	if options.UpdateStrategy == KnowledgeUpdateStrategyVersioned {
+		if _, err := tx.ExecContext(ctx, `
+			DELETE FROM knowledge_document_chunks
+			WHERE document_id = $1
+			  AND document_version = $2
+		`, documentID, options.DocumentVersion); err != nil {
+			return err
+		}
+	} else if _, err := tx.ExecContext(ctx, `
 		DELETE FROM knowledge_document_chunks
 		WHERE document_id = $1
 	`, documentID); err != nil {
 		return err
 	}
 
-	options = normalizeKnowledgeDocumentOptions(options)
 	if embeddingModel = strings.TrimSpace(embeddingModel); embeddingModel == "" {
 		embeddingModel = defaultKnowledgeStoreEmbeddingModel
 	}

@@ -456,6 +456,53 @@ func TestSQLStoreCreateKnowledgeDocumentWithOptionsPersistsCrossTenantChunksAndE
 	}
 }
 
+func TestSQLStoreUpdateKnowledgeDocumentVersionedReplacesOnlyCurrentVersionChunks(t *testing.T) {
+	driverName := "knowledge_update_versioned_options_test"
+	queryer := &knowledgeRetrievalQueryer{}
+	registerKnowledgeRetrievalDriver(driverName, queryer)
+
+	db, err := sql.Open(driverName, "")
+	if err != nil {
+		t.Fatalf("open capture db: %v", err)
+	}
+	defer db.Close()
+
+	document, err := NewSQLStore(db).UpdateKnowledgeDocumentWithOptions(
+		context.Background(),
+		"org_1",
+		"kb_1",
+		"doc_1",
+		"Deployment Runbook",
+		"Deployment rollback v2 content",
+		[]KnowledgeDocumentChunk{
+			{
+				ChunkIndex:      0,
+				Content:         "Deployment rollback v2 content",
+				DocumentVersion: "v2",
+				Metadata:        KnowledgeChunkMetadata{DocumentVersion: "v2"},
+			},
+		},
+		KnowledgeDocumentOptions{DocumentVersion: "v2", UpdateStrategy: KnowledgeUpdateStrategyVersioned},
+	)
+	if err != nil {
+		t.Fatalf("update knowledge document with versioned options: %v", err)
+	}
+	if document.DocumentVersion != "v2" || document.UpdateStrategy != KnowledgeUpdateStrategyVersioned {
+		t.Fatalf("expected returned document to include versioned metadata, got %+v", document)
+	}
+
+	deleteQuery, deleteArgs := knowledgeRetrievalExecForQuery(t, queryer, "DELETE FROM knowledge_document_chunks")
+	if !strings.Contains(deleteQuery, "document_version") {
+		t.Fatalf("expected versioned update to delete chunks only for the current document version, got %s", deleteQuery)
+	}
+	if got := knowledgeRetrievalArgString(deleteArgs, 1); got != "doc_1" {
+		t.Fatalf("delete document arg = %q, want doc_1", got)
+	}
+	if got := knowledgeRetrievalArgString(deleteArgs, 2); got != "v2" {
+		t.Fatalf("delete version arg = %q, want v2", got)
+	}
+}
+
 var knowledgeRetrievalDrivers sync.Map
 
 func registerKnowledgeRetrievalDriver(name string, queryer *knowledgeRetrievalQueryer) {
@@ -608,15 +655,21 @@ func knowledgeRetrievalArgString(args []driver.NamedValue, ordinal int) string {
 
 func knowledgeRetrievalExecArgsForQuery(t *testing.T, queryer *knowledgeRetrievalQueryer, pattern string) []driver.NamedValue {
 	t.Helper()
+	_, args := knowledgeRetrievalExecForQuery(t, queryer, pattern)
+	return args
+}
+
+func knowledgeRetrievalExecForQuery(t *testing.T, queryer *knowledgeRetrievalQueryer, pattern string) (string, []driver.NamedValue) {
+	t.Helper()
 	queryer.mu.Lock()
 	defer queryer.mu.Unlock()
 	for index, query := range queryer.execQueries {
 		if strings.Contains(query, pattern) {
-			return append([]driver.NamedValue(nil), queryer.execArgs[index]...)
+			return query, append([]driver.NamedValue(nil), queryer.execArgs[index]...)
 		}
 	}
 	t.Fatalf("expected exec query matching %q, got %v", pattern, queryer.execQueries)
-	return nil
+	return "", nil
 }
 
 func TestSQLStoreKnowledgeChunkMetadataJSONShape(t *testing.T) {
