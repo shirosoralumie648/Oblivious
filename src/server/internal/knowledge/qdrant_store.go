@@ -43,6 +43,25 @@ func (s *QdrantVectorStore) DeleteKnowledgeBaseCollection(ctx context.Context, o
 	return s.doCollectionRequest(ctx, http.MethodDelete, organizationID, knowledgeBaseID, nil)
 }
 
+func (s *QdrantVectorStore) DeleteKnowledgeDocumentChunks(ctx context.Context, organizationID, knowledgeBaseID, documentID string) error {
+	documentID = strings.TrimSpace(documentID)
+	if documentID == "" {
+		return nil
+	}
+	return s.doQdrantRequest(ctx, http.MethodPost, qdrantCollectionPath(organizationID, knowledgeBaseID)+"/points/delete", qdrantDeletePointsRequest{
+		Filter: qdrantPayloadFilter{
+			Must: []qdrantFieldCondition{
+				{
+					Key: "document_id",
+					Match: qdrantMatchValue{
+						Value: documentID,
+					},
+				},
+			},
+		},
+	}, 0)
+}
+
 func (s *QdrantVectorStore) UpsertKnowledgeDocumentChunks(ctx context.Context, organizationID, knowledgeBaseID, documentID string, chunks []KnowledgeDocumentChunk) error {
 	points := make([]qdrantPoint, 0, len(chunks))
 	for _, chunk := range chunks {
@@ -143,6 +162,23 @@ type qdrantVectorConfig struct {
 
 type qdrantUpsertPointsRequest struct {
 	Points []qdrantPoint `json:"points"`
+}
+
+type qdrantDeletePointsRequest struct {
+	Filter qdrantPayloadFilter `json:"filter"`
+}
+
+type qdrantPayloadFilter struct {
+	Must []qdrantFieldCondition `json:"must"`
+}
+
+type qdrantFieldCondition struct {
+	Key   string           `json:"key"`
+	Match qdrantMatchValue `json:"match"`
+}
+
+type qdrantMatchValue struct {
+	Value any `json:"value"`
 }
 
 type qdrantPoint struct {

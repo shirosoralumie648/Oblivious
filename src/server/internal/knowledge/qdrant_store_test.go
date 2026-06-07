@@ -80,6 +80,56 @@ func TestQdrantVectorStoreDeletesTenantCollection(t *testing.T) {
 	}
 }
 
+func TestQdrantVectorStoreDeletesDocumentPointsByPayloadFilter(t *testing.T) {
+	var received struct {
+		method string
+		path   string
+		apiKey string
+		body   struct {
+			Filter struct {
+				Must []struct {
+					Key   string `json:"key"`
+					Match struct {
+						Value string `json:"value"`
+					} `json:"match"`
+				} `json:"must"`
+			} `json:"filter"`
+		}
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received.method = r.Method
+		received.path = r.URL.Path
+		received.apiKey = r.Header.Get("api-key")
+		if err := json.NewDecoder(r.Body).Decode(&received.body); err != nil {
+			t.Fatalf("decode qdrant delete body: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	store := NewQdrantVectorStore(server.URL, "qdrant-secret")
+	if err := store.DeleteKnowledgeDocumentChunks(context.Background(), "org_acme", "kb_product_docs", "doc_1"); err != nil {
+		t.Fatalf("delete qdrant document chunks: %v", err)
+	}
+
+	if received.method != http.MethodPost {
+		t.Fatalf("expected POST, got %s", received.method)
+	}
+	if received.path != "/collections/kb_org_acme_kb_product_docs/points/delete" {
+		t.Fatalf("unexpected path %q", received.path)
+	}
+	if received.apiKey != "qdrant-secret" {
+		t.Fatalf("expected qdrant api key header, got %q", received.apiKey)
+	}
+	if len(received.body.Filter.Must) != 1 {
+		t.Fatalf("expected one delete filter condition, got %+v", received.body.Filter.Must)
+	}
+	condition := received.body.Filter.Must[0]
+	if condition.Key != "document_id" || condition.Match.Value != "doc_1" {
+		t.Fatalf("unexpected delete filter condition %+v", condition)
+	}
+}
+
 func TestQdrantVectorStoreUpsertsTenantChunkPoints(t *testing.T) {
 	var received struct {
 		method string

@@ -33,6 +33,10 @@ type fakeStore struct {
 	retrievalResults []KnowledgeRetrievalResult
 	requestedDoc     KnowledgeDocument
 	requestedID      string
+	mergedChunks     []KnowledgeDocumentChunkView
+	mergeDirection   string
+	splitAt          int
+	splitChunks      []KnowledgeDocumentChunkView
 	updatedChunk     KnowledgeDocumentChunkView
 	updatedChunkID   string
 	updatedBase      KnowledgeBase
@@ -52,6 +56,7 @@ type recordingKnowledgeVectorStore struct {
 	searchOptions     KnowledgeRetrievalOptions
 	searchQuery       string
 	searchResults     []KnowledgeRetrievalResult
+	deletedDocumentID string
 }
 
 func (f *fakeStore) CreateKnowledgeBase(ctx context.Context, workspaceID, name string) (KnowledgeBase, error) {
@@ -165,6 +170,24 @@ func (f *fakeStore) UpdateKnowledgeDocumentChunk(ctx context.Context, workspaceI
 	return f.updatedChunk, nil
 }
 
+func (f *fakeStore) SplitKnowledgeDocumentChunk(ctx context.Context, workspaceID, knowledgeBaseID, documentID, chunkID string, splitAt int) ([]KnowledgeDocumentChunkView, error) {
+	f.workspaceID = workspaceID
+	f.requestedID = knowledgeBaseID
+	f.deletedDocID = documentID
+	f.updatedChunkID = chunkID
+	f.splitAt = splitAt
+	return append([]KnowledgeDocumentChunkView(nil), f.splitChunks...), nil
+}
+
+func (f *fakeStore) MergeKnowledgeDocumentChunks(ctx context.Context, workspaceID, knowledgeBaseID, documentID, chunkID, direction string) ([]KnowledgeDocumentChunkView, error) {
+	f.workspaceID = workspaceID
+	f.requestedID = knowledgeBaseID
+	f.deletedDocID = documentID
+	f.updatedChunkID = chunkID
+	f.mergeDirection = direction
+	return append([]KnowledgeDocumentChunkView(nil), f.mergedChunks...), nil
+}
+
 func (f *fakeStore) DeleteKnowledgeDocument(ctx context.Context, workspaceID, knowledgeBaseID, documentID string) error {
 	f.workspaceID = workspaceID
 	f.requestedID = knowledgeBaseID
@@ -199,6 +222,13 @@ func (s *recordingKnowledgeVectorStore) DeleteKnowledgeBaseCollection(ctx contex
 	s.organizationID = organizationID
 	s.knowledgeBaseID = knowledgeBaseID
 	s.deletedCollection = KnowledgeVectorCollectionName(organizationID, knowledgeBaseID)
+	return nil
+}
+
+func (s *recordingKnowledgeVectorStore) DeleteKnowledgeDocumentChunks(ctx context.Context, organizationID, knowledgeBaseID, documentID string) error {
+	s.organizationID = organizationID
+	s.knowledgeBaseID = knowledgeBaseID
+	s.deletedDocumentID = documentID
 	return nil
 }
 
@@ -889,6 +919,64 @@ func TestUpdateDocumentChunkReindexesEditedChunkInQdrantVectorStore(t *testing.T
 	}
 	if upserted.Metadata.SourceURL != "https://docs.example/runbook.md" || upserted.Metadata.PageNumber != 7 || upserted.Metadata.DocumentVersion != "v2" {
 		t.Fatalf("expected edited chunk metadata to be preserved, got %+v", upserted.Metadata)
+	}
+}
+
+func TestSplitDocumentChunkReindexesDocumentChunksInQdrantVectorStore(t *testing.T) {
+	store := &fakeStore{
+		splitChunks: []KnowledgeDocumentChunkView{
+			{
+				ChunkID:         "kdc_left",
+				ChunkIndex:      0,
+				Content:         "First half.",
+				DocumentVersion: "v2",
+				Metadata:        KnowledgeChunkMetadata{DocumentVersion: "v2", SourceURL: "https://docs.example/runbook.md"},
+			},
+			{
+				ChunkID:         "kdc_right",
+				ChunkIndex:      1,
+				Content:         "Second half.",
+				DocumentVersion: "v2",
+				Metadata:        KnowledgeChunkMetadata{DocumentVersion: "v2", SourceURL: "https://docs.example/runbook.md"},
+			},
+		},
+	}
+	embedder := &recordingKnowledgeEmbedder{}
+	vectorStore := &recordingKnowledgeVectorStore{}
+	service := NewServiceWithEmbedderAndVectorStore(store, embedder, "text-embedding-3-small", vectorStore, 3)
+
+	chunks, err := service.SplitDocumentChunk(
+		context.Background(),
+		auth.Session{OrganizationID: "org_knowledge", User: auth.User{ID: "user_knowledge"}, WorkspaceID: "workspace_knowledge"},
+		"kb_qdrant",
+		"doc_qdrant",
+		"kdc_original",
+		11,
+	)
+	if err != nil {
+		t.Fatalf("split document chunk: %v", err)
+	}
+
+	if len(chunks) != 2 || chunks[0].Content != "First half." || chunks[1].Content != "Second half." {
+		t.Fatalf("expected split chunks in response, got %+v", chunks)
+	}
+	if store.workspaceID != "org_knowledge" || store.requestedID != "kb_qdrant" || store.deletedDocID != "doc_qdrant" || store.updatedChunkID != "kdc_original" || store.splitAt != 11 {
+		t.Fatalf("expected tenant-scoped split, scope=%q kb=%q doc=%q chunk=%q splitAt=%d", store.workspaceID, store.requestedID, store.deletedDocID, store.updatedChunkID, store.splitAt)
+	}
+	if vectorStore.deletedDocumentID != "doc_qdrant" {
+		t.Fatalf("expected qdrant document points to be deleted before reindex, got %q", vectorStore.deletedDocumentID)
+	}
+	if vectorStore.organizationID != "org_knowledge" || vectorStore.knowledgeBaseID != "kb_qdrant" || vectorStore.documentID != "doc_qdrant" {
+		t.Fatalf("expected tenant-scoped qdrant reindex, org=%q kb=%q doc=%q", vectorStore.organizationID, vectorStore.knowledgeBaseID, vectorStore.documentID)
+	}
+	if len(vectorStore.chunks) != 2 {
+		t.Fatalf("expected all split chunks to be upserted, got %+v", vectorStore.chunks)
+	}
+	if embedder.batchOrganizationID != "org_knowledge" || embedder.batchUserID != "user_knowledge" {
+		t.Fatalf("expected trusted relay identity for split chunk embeddings, org=%q user=%q", embedder.batchOrganizationID, embedder.batchUserID)
+	}
+	if vectorStore.chunks[0].ChunkIndex != 0 || vectorStore.chunks[1].ChunkIndex != 1 || len(vectorStore.chunks[0].Embedding) != 3 || len(vectorStore.chunks[1].Embedding) != 3 {
+		t.Fatalf("expected indexed embedded split chunks, got %+v", vectorStore.chunks)
 	}
 }
 

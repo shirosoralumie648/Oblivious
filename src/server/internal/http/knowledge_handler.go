@@ -64,6 +64,14 @@ type updateKnowledgeDocumentChunkRequest struct {
 	Content string `json:"content"`
 }
 
+type splitKnowledgeDocumentChunkRequest struct {
+	SplitAt int `json:"splitAt"`
+}
+
+type mergeKnowledgeDocumentChunksRequest struct {
+	Direction string `json:"direction"`
+}
+
 func newKnowledgeHandler(service *knowledge.Service) knowledgeHandler {
 	return knowledgeHandler{service: service}
 }
@@ -247,6 +255,66 @@ func (h knowledgeHandler) updateKnowledgeDocumentChunk(w stdhttp.ResponseWriter,
 	}
 
 	writeSuccess(w, stdhttp.StatusOK, chunk)
+}
+
+func (h knowledgeHandler) splitKnowledgeDocumentChunk(w stdhttp.ResponseWriter, r *stdhttp.Request, knowledgeBaseID, documentID, chunkID string) {
+	session, ok := sessionFromContext(r)
+	if !ok {
+		writeError(w, stdhttp.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+
+	var payload splitKnowledgeDocumentChunkRequest
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "invalid json body")
+		return
+	}
+
+	chunks, err := h.service.SplitDocumentChunk(r.Context(), session, knowledgeBaseID, documentID, chunkID, payload.SplitAt)
+	if err != nil {
+		if errors.Is(err, knowledge.ErrInvalidKnowledgeDocumentChunkEdit) {
+			writeError(w, stdhttp.StatusBadRequest, "invalid_chunk_edit", err.Error())
+			return
+		}
+		if isNotFoundError(err) {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "knowledge document chunk not found")
+			return
+		}
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "split knowledge document chunk failed")
+		return
+	}
+
+	writeSuccess(w, stdhttp.StatusOK, chunks)
+}
+
+func (h knowledgeHandler) mergeKnowledgeDocumentChunks(w stdhttp.ResponseWriter, r *stdhttp.Request, knowledgeBaseID, documentID, chunkID string) {
+	session, ok := sessionFromContext(r)
+	if !ok {
+		writeError(w, stdhttp.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+
+	var payload mergeKnowledgeDocumentChunksRequest
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "invalid json body")
+		return
+	}
+
+	chunks, err := h.service.MergeDocumentChunks(r.Context(), session, knowledgeBaseID, documentID, chunkID, payload.Direction)
+	if err != nil {
+		if errors.Is(err, knowledge.ErrInvalidKnowledgeDocumentChunkEdit) {
+			writeError(w, stdhttp.StatusBadRequest, "invalid_chunk_edit", err.Error())
+			return
+		}
+		if isNotFoundError(err) {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "knowledge document chunk not found")
+			return
+		}
+		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "merge knowledge document chunks failed")
+		return
+	}
+
+	writeSuccess(w, stdhttp.StatusOK, chunks)
 }
 
 func (h knowledgeHandler) createKnowledgeDocument(w stdhttp.ResponseWriter, r *stdhttp.Request, knowledgeBaseID string) {

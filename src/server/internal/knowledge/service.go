@@ -16,6 +16,7 @@ import (
 
 var (
 	ErrEmptyKnowledgeDocumentChunk       = errors.New("empty knowledge document chunk")
+	ErrInvalidKnowledgeDocumentChunkEdit = errors.New("invalid knowledge document chunk edit")
 	ErrInvalidKnowledgeRetrievalOptions  = errors.New("invalid knowledge retrieval options")
 	ErrInvalidKnowledgeRetrievalTestCase = errors.New("invalid knowledge retrieval test case")
 )
@@ -117,6 +118,14 @@ type documentChunkUpdater interface {
 	UpdateKnowledgeDocumentChunk(ctx context.Context, organizationID, knowledgeBaseID, documentID, chunkID, content string) (KnowledgeDocumentChunkView, error)
 }
 
+type documentChunkSplitter interface {
+	SplitKnowledgeDocumentChunk(ctx context.Context, organizationID, knowledgeBaseID, documentID, chunkID string, splitAt int) ([]KnowledgeDocumentChunkView, error)
+}
+
+type documentChunkMerger interface {
+	MergeKnowledgeDocumentChunks(ctx context.Context, organizationID, knowledgeBaseID, documentID, chunkID, direction string) ([]KnowledgeDocumentChunkView, error)
+}
+
 type documentChunkDiffer interface {
 	DiffKnowledgeDocumentChunks(ctx context.Context, organizationID, knowledgeBaseID, documentID string, chunks []KnowledgeDocumentChunk, options KnowledgeDocumentOptions) ([]KnowledgeDocumentChunk, error)
 }
@@ -134,6 +143,10 @@ type KnowledgeVectorStore interface {
 	DeleteKnowledgeBaseCollection(ctx context.Context, organizationID, knowledgeBaseID string) error
 	SearchKnowledgeChunks(ctx context.Context, organizationID, knowledgeBaseID, query string, queryEmbedding []float32, options KnowledgeRetrievalOptions) ([]KnowledgeRetrievalResult, error)
 	UpsertKnowledgeDocumentChunks(ctx context.Context, organizationID, knowledgeBaseID, documentID string, chunks []KnowledgeDocumentChunk) error
+}
+
+type KnowledgeDocumentVectorDeleter interface {
+	DeleteKnowledgeDocumentChunks(ctx context.Context, organizationID, knowledgeBaseID, documentID string) error
 }
 
 type retrievalTestCaseCreator interface {
@@ -460,6 +473,45 @@ func (s *Service) UpdateDocumentChunk(ctx context.Context, session auth.Session,
 	return chunk, nil
 }
 
+func (s *Service) SplitDocumentChunk(ctx context.Context, session auth.Session, knowledgeBaseID, documentID, chunkID string, splitAt int) ([]KnowledgeDocumentChunkView, error) {
+	if splitAt <= 0 {
+		return nil, ErrInvalidKnowledgeDocumentChunkEdit
+	}
+	store, ok := s.store.(documentChunkSplitter)
+	if !ok {
+		return nil, sql.ErrNoRows
+	}
+	scope := knowledgeSessionScope(session)
+	chunks, err := store.SplitKnowledgeDocumentChunk(ctx, scope, knowledgeBaseID, documentID, chunkID, splitAt)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.reindexDocumentChunkViews(ctx, session, scope, knowledgeBaseID, documentID, chunks); err != nil {
+		return nil, err
+	}
+	return chunks, nil
+}
+
+func (s *Service) MergeDocumentChunks(ctx context.Context, session auth.Session, knowledgeBaseID, documentID, chunkID, direction string) ([]KnowledgeDocumentChunkView, error) {
+	direction = strings.TrimSpace(strings.ToLower(direction))
+	if direction != "next" && direction != "previous" {
+		return nil, ErrInvalidKnowledgeDocumentChunkEdit
+	}
+	store, ok := s.store.(documentChunkMerger)
+	if !ok {
+		return nil, sql.ErrNoRows
+	}
+	scope := knowledgeSessionScope(session)
+	chunks, err := store.MergeKnowledgeDocumentChunks(ctx, scope, knowledgeBaseID, documentID, chunkID, direction)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.reindexDocumentChunkViews(ctx, session, scope, knowledgeBaseID, documentID, chunks); err != nil {
+		return nil, err
+	}
+	return chunks, nil
+}
+
 func (s *Service) CreateDocument(ctx context.Context, session auth.Session, knowledgeBaseID, title, content string) (KnowledgeDocument, error) {
 	return s.CreateDocumentWithOptions(ctx, session, knowledgeBaseID, title, content, KnowledgeDocumentOptions{})
 }
@@ -724,6 +776,45 @@ func (s *Service) upsertEditedDocumentChunk(ctx context.Context, session auth.Se
 		chunk.EstimatedTokenCount = estimateKnowledgeTokens(content)
 	}
 	return s.upsertDocumentChunks(ctx, organizationID, knowledgeBaseID, documentID, []KnowledgeDocumentChunk{chunk})
+}
+
+func (s *Service) reindexDocumentChunkViews(ctx context.Context, session auth.Session, organizationID, knowledgeBaseID, documentID string, views []KnowledgeDocumentChunkView) error {
+	if s == nil || s.vectorStore == nil || s.embedder == nil || len(views) == 0 {
+		return nil
+	}
+	chunks := make([]KnowledgeDocumentChunk, 0, len(views))
+	texts := make([]string, 0, len(views))
+	for _, view := range views {
+		content := strings.TrimSpace(view.Content)
+		if content == "" {
+			continue
+		}
+		chunk := knowledgeDocumentChunkFromView(view)
+		chunk.Content = content
+		if chunk.EstimatedTokenCount == 0 {
+			chunk.EstimatedTokenCount = estimateKnowledgeTokens(content)
+		}
+		chunks = append(chunks, chunk)
+		texts = append(texts, content)
+	}
+	if len(chunks) == 0 {
+		return nil
+	}
+	embeddings, err := s.embedder.EmbedBatch(withKnowledgeRelayIdentity(ctx, session), texts)
+	if err != nil {
+		return err
+	}
+	for index := range chunks {
+		if index < len(embeddings) {
+			chunks[index].Embedding = append([]float32(nil), embeddings[index]...)
+		}
+	}
+	if deleter, ok := s.vectorStore.(KnowledgeDocumentVectorDeleter); ok {
+		if err := deleter.DeleteKnowledgeDocumentChunks(ctx, organizationID, knowledgeBaseID, documentID); err != nil {
+			return err
+		}
+	}
+	return s.upsertDocumentChunks(ctx, organizationID, knowledgeBaseID, documentID, chunks)
 }
 
 func knowledgeDocumentChunkFromView(view KnowledgeDocumentChunkView) KnowledgeDocumentChunk {

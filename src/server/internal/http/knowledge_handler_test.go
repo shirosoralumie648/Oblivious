@@ -38,6 +38,10 @@ type knowledgeFakeStore struct {
 	testCaseRequest   knowledge.CreateKnowledgeRetrievalTestCaseRequest
 	requestedDoc      knowledge.KnowledgeDocument
 	requestedID       string
+	mergedChunks      []knowledge.KnowledgeDocumentChunkView
+	mergeDirection    string
+	splitAt           int
+	splitChunks       []knowledge.KnowledgeDocumentChunkView
 	updatedBase       knowledge.KnowledgeBase
 	updatedBaseConfig knowledge.KnowledgeBaseConfig
 	updatedChunk      knowledge.KnowledgeDocumentChunkView
@@ -113,6 +117,24 @@ func (f *knowledgeFakeStore) UpdateKnowledgeDocumentChunk(ctx context.Context, o
 	f.updatedChunkID = chunkID
 	f.updatedContent = content
 	return f.updatedChunk, nil
+}
+
+func (f *knowledgeFakeStore) SplitKnowledgeDocumentChunk(ctx context.Context, organizationID, knowledgeBaseID, documentID, chunkID string, splitAt int) ([]knowledge.KnowledgeDocumentChunkView, error) {
+	f.organizationID = organizationID
+	f.requestedID = knowledgeBaseID
+	f.deletedDocID = documentID
+	f.updatedChunkID = chunkID
+	f.splitAt = splitAt
+	return append([]knowledge.KnowledgeDocumentChunkView(nil), f.splitChunks...), nil
+}
+
+func (f *knowledgeFakeStore) MergeKnowledgeDocumentChunks(ctx context.Context, organizationID, knowledgeBaseID, documentID, chunkID, direction string) ([]knowledge.KnowledgeDocumentChunkView, error) {
+	f.organizationID = organizationID
+	f.requestedID = knowledgeBaseID
+	f.deletedDocID = documentID
+	f.updatedChunkID = chunkID
+	f.mergeDirection = direction
+	return append([]knowledge.KnowledgeDocumentChunkView(nil), f.mergedChunks...), nil
 }
 
 func (f *knowledgeFakeStore) CreateKnowledgeDocument(ctx context.Context, organizationID, knowledgeBaseID, title, content string, chunks []knowledge.KnowledgeDocumentChunk) (knowledge.KnowledgeDocument, error) {
@@ -511,6 +533,96 @@ func TestKnowledgeAliasRoutesUpdateDocumentChunkUsesPutWithoutBreakingList(t *te
 	mux.ServeHTTP(listRecorder, listRequest)
 	if listRecorder.Code != stdhttp.StatusOK {
 		t.Fatalf("expected GET chunks route 200, got %d with body %s", listRecorder.Code, listRecorder.Body.String())
+	}
+}
+
+func TestKnowledgeHandlerSplitDocumentChunkReturnsReindexedChunks(t *testing.T) {
+	store := &knowledgeFakeStore{
+		splitChunks: []knowledge.KnowledgeDocumentChunkView{
+			{ChunkID: "kdc_left", ChunkIndex: 0, Content: "First half."},
+			{ChunkID: "kdc_right", ChunkIndex: 1, Content: "Second half."},
+		},
+	}
+	handler := newKnowledgeTestHandler(store)
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_2/documents/doc_1/chunks/kdc_1/split", strings.NewReader(`{"splitAt":11}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+	}))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.splitKnowledgeDocumentChunk(recorder, request, "kb_2", "doc_1", "kdc_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if store.organizationID != "org_1" || store.requestedID != "kb_2" || store.deletedDocID != "doc_1" || store.updatedChunkID != "kdc_1" || store.splitAt != 11 {
+		t.Fatalf("expected tenant-scoped split, org=%q kb=%q doc=%q chunk=%q splitAt=%d", store.organizationID, store.requestedID, store.deletedDocID, store.updatedChunkID, store.splitAt)
+	}
+	var response struct {
+		Data []knowledge.KnowledgeDocumentChunkView `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(response.Data) != 2 || response.Data[0].ChunkID != "kdc_left" || response.Data[1].ChunkID != "kdc_right" {
+		t.Fatalf("expected split chunk response, got %+v", response.Data)
+	}
+}
+
+func TestKnowledgeHandlerMergeDocumentChunksReturnsReindexedChunks(t *testing.T) {
+	store := &knowledgeFakeStore{
+		mergedChunks: []knowledge.KnowledgeDocumentChunkView{
+			{ChunkID: "kdc_merged", ChunkIndex: 0, Content: "First half.\n\nSecond half."},
+		},
+	}
+	handler := newKnowledgeTestHandler(store)
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_2/documents/doc_1/chunks/kdc_1/merge", strings.NewReader(`{"direction":"next"}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+	}))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.mergeKnowledgeDocumentChunks(recorder, request, "kb_2", "doc_1", "kdc_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if store.organizationID != "org_1" || store.requestedID != "kb_2" || store.deletedDocID != "doc_1" || store.updatedChunkID != "kdc_1" || store.mergeDirection != "next" {
+		t.Fatalf("expected tenant-scoped merge, org=%q kb=%q doc=%q chunk=%q direction=%q", store.organizationID, store.requestedID, store.deletedDocID, store.updatedChunkID, store.mergeDirection)
+	}
+	var response struct {
+		Data []knowledge.KnowledgeDocumentChunkView `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(response.Data) != 1 || response.Data[0].ChunkID != "kdc_merged" {
+		t.Fatalf("expected merged chunk response, got %+v", response.Data)
+	}
+}
+
+func TestKnowledgeAliasRoutesDispatchChunkSplitAndMerge(t *testing.T) {
+	store := &knowledgeFakeStore{
+		mergedChunks: []knowledge.KnowledgeDocumentChunkView{{ChunkID: "kdc_merged", Content: "Merged."}},
+		splitChunks:  []knowledge.KnowledgeDocumentChunkView{{ChunkID: "kdc_left", Content: "Left."}, {ChunkID: "kdc_right", Content: "Right."}},
+	}
+	mux := stdhttp.NewServeMux()
+	registerKnowledgeAliasRoutes(mux, &recordingSessionMiddleware{}, newKnowledgeTestHandler(store))
+
+	splitRequest := knowledgeAliasRequest(stdhttp.MethodPost, "/api/v1/knowledge-bases/kb_2/documents/doc_1/chunks/kdc_1/split", `{"splitAt":5}`)
+	splitRecorder := httptest.NewRecorder()
+	mux.ServeHTTP(splitRecorder, splitRequest)
+	if splitRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected split route 200, got %d with body %s", splitRecorder.Code, splitRecorder.Body.String())
+	}
+
+	mergeRequest := knowledgeAliasRequest(stdhttp.MethodPost, "/api/v1/knowledge-bases/kb_2/documents/doc_1/chunks/kdc_1/merge", `{"direction":"next"}`)
+	mergeRecorder := httptest.NewRecorder()
+	mux.ServeHTTP(mergeRecorder, mergeRequest)
+	if mergeRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected merge route 200, got %d with body %s", mergeRecorder.Code, mergeRecorder.Body.String())
 	}
 }
 

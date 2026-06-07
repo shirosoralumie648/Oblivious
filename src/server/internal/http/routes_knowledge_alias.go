@@ -110,6 +110,22 @@ func registerKnowledgeAliasRoutes(mux *stdhttp.ServeMux, authMiddleware sessionM
 			return
 		}
 
+		if len(parts) == 6 && parts[1] == "documents" && parts[2] != "" && parts[3] == "chunks" && parts[4] != "" {
+			if r.Method != stdhttp.MethodPost {
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+				return
+			}
+			switch parts[5] {
+			case "split":
+				knowledgeHandler.splitKnowledgeDocumentChunk(w, r, knowledgeBaseID, parts[2], parts[4])
+			case "merge":
+				knowledgeHandler.mergeKnowledgeDocumentChunks(w, r, knowledgeBaseID, parts[2], parts[4])
+			default:
+				writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
+			}
+			return
+		}
+
 		writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
 	})))
 

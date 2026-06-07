@@ -225,6 +225,38 @@ components:
         content:
           type: string
 
+    KnowledgeChunkMetadata:
+      type: object
+      properties:
+        documentVersion:
+          type: string
+        pageNumber:
+          type: integer
+        sourceUrl:
+          type: string
+        startRune:
+          type: integer
+        endRune:
+          type: integer
+
+    KnowledgeDocumentChunk:
+      type: object
+      properties:
+        chunkId:
+          type: string
+        chunkIndex:
+          type: integer
+        content:
+          type: string
+        documentVersion:
+          type: string
+        charCount:
+          type: integer
+        estimatedTokenCount:
+          type: integer
+        metadata:
+          $ref: "#/components/schemas/KnowledgeChunkMetadata"
+
     CreateDocumentRequest:
       type: object
       required: [title]
@@ -233,6 +265,29 @@ components:
           type: string
         content:
           type: string
+
+    UpdateKnowledgeDocumentChunkRequest:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+
+    SplitKnowledgeDocumentChunkRequest:
+      type: object
+      required: [splitAt]
+      properties:
+        splitAt:
+          type: integer
+          minimum: 1
+
+    MergeKnowledgeDocumentChunksRequest:
+      type: object
+      required: [direction]
+      properties:
+        direction:
+          type: string
+          enum: [previous, next]
 
     RetrieveKnowledgeRequest:
       type: object
@@ -364,6 +419,19 @@ components:
             error:
               code: invalid_request
               message: "invalid json body"
+
+    NotFound:
+      description: 资源不存在
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Envelope"
+          example:
+            ok: false
+            data: null
+            error:
+              code: not_found
+              message: "resource not found"
 
     InternalError:
       description: 服务器内部错误
@@ -1001,6 +1069,183 @@ paths:
           description: 删除成功
         "401":
           $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks:
+    get:
+      summary: 获取知识库文档分块
+      operationId: listKnowledgeDocumentChunks
+      tags: [Knowledge]
+      parameters:
+        - name: knowledgeBaseId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 文档分块列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/KnowledgeDocumentChunk"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks/{chunkId}:
+    put:
+      summary: 更新知识库文档分块
+      operationId: updateKnowledgeDocumentChunk
+      tags: [Knowledge]
+      parameters:
+        - name: knowledgeBaseId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: chunkId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateKnowledgeDocumentChunkRequest"
+      responses:
+        "200":
+          description: 更新后的文档分块
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/KnowledgeDocumentChunk"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks/{chunkId}/split:
+    post:
+      summary: 拆分知识库文档分块
+      operationId: splitKnowledgeDocumentChunk
+      tags: [Knowledge]
+      parameters:
+        - name: knowledgeBaseId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: chunkId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SplitKnowledgeDocumentChunkRequest"
+      responses:
+        "200":
+          description: 拆分后的当前文档分块列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/KnowledgeDocumentChunk"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks/{chunkId}/merge:
+    post:
+      summary: 合并知识库文档分块
+      operationId: mergeKnowledgeDocumentChunks
+      tags: [Knowledge]
+      parameters:
+        - name: knowledgeBaseId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: chunkId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MergeKnowledgeDocumentChunksRequest"
+      responses:
+        "200":
+          description: 合并后的当前文档分块列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/KnowledgeDocumentChunk"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /api/v1/app/knowledge-bases/{knowledgeBaseId}/retrieve:
     post:

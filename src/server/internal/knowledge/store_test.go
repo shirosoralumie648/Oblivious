@@ -678,6 +678,230 @@ func TestSQLStoreDiffKnowledgeDocumentChunksReturnsOnlyChangedIncrementalChunks(
 	}
 }
 
+func TestSQLStoreListKnowledgeDocumentChunksReturnsTenantScopedChunkViews(t *testing.T) {
+	driverName := "knowledge_list_document_chunks_test"
+	queryer := &knowledgeRetrievalQueryer{
+		rowsByQuery: map[string][][]driver.Value{
+			"FROM knowledge_document_chunks": {
+				{
+					"kdc_1",
+					int64(2),
+					"Deployment rollback chunk.",
+					"v2",
+					[]byte(`{"documentVersion":"v2","pageNumber":7,"sourceUrl":"https://docs.example/runbook.md"}`),
+				},
+			},
+		},
+	}
+	registerKnowledgeRetrievalDriver(driverName, queryer)
+
+	db, err := sql.Open(driverName, "")
+	if err != nil {
+		t.Fatalf("open capture db: %v", err)
+	}
+	defer db.Close()
+
+	chunks, err := NewSQLStore(db).ListKnowledgeDocumentChunks(context.Background(), "org_1", "kb_1", "doc_1")
+	if err != nil {
+		t.Fatalf("list document chunks: %v", err)
+	}
+	if len(chunks) != 1 {
+		t.Fatalf("expected one chunk, got %+v", chunks)
+	}
+	if chunks[0].ChunkID != "kdc_1" || chunks[0].ChunkIndex != 2 || chunks[0].CharCount != 26 || chunks[0].EstimatedTokenCount == 0 {
+		t.Fatalf("unexpected chunk view: %+v", chunks[0])
+	}
+	if chunks[0].Metadata.PageNumber != 7 || chunks[0].Metadata.SourceURL != "https://docs.example/runbook.md" {
+		t.Fatalf("expected metadata to be decoded, got %+v", chunks[0].Metadata)
+	}
+
+	queryer.mu.Lock()
+	query := queryer.query
+	args := append([]driver.NamedValue(nil), queryer.args...)
+	queryer.mu.Unlock()
+	for _, want := range []string{"JOIN knowledge_documents", "JOIN knowledge_bases", "c.organization_id = $1", "kb.organization_id = $1", "kb.id = $2", "d.id = $3", "ORDER BY c.chunk_index ASC"} {
+		if !strings.Contains(query, want) {
+			t.Fatalf("expected list chunks query to include %q, got %s", want, query)
+		}
+	}
+	if got := knowledgeRetrievalArgString(args, 1); got != "org_1" {
+		t.Fatalf("organization arg = %q, want org_1", got)
+	}
+	if got := knowledgeRetrievalArgString(args, 2); got != "kb_1" {
+		t.Fatalf("knowledge base arg = %q, want kb_1", got)
+	}
+	if got := knowledgeRetrievalArgString(args, 3); got != "doc_1" {
+		t.Fatalf("document arg = %q, want doc_1", got)
+	}
+}
+
+func TestSQLStoreUpdateKnowledgeDocumentChunkUpdatesContentHashAndReturnsChunk(t *testing.T) {
+	driverName := "knowledge_update_document_chunk_test"
+	queryer := &knowledgeRetrievalQueryer{
+		rowsByQuery: map[string][][]driver.Value{
+			"UPDATE knowledge_document_chunks": {
+				{
+					"kdc_1",
+					int64(1),
+					"Updated chunk content.",
+					"v2",
+					[]byte(`{"documentVersion":"v2","pageNumber":8}`),
+				},
+			},
+		},
+	}
+	registerKnowledgeRetrievalDriver(driverName, queryer)
+
+	db, err := sql.Open(driverName, "")
+	if err != nil {
+		t.Fatalf("open capture db: %v", err)
+	}
+	defer db.Close()
+
+	chunk, err := NewSQLStore(db).UpdateKnowledgeDocumentChunk(context.Background(), "org_1", "kb_1", "doc_1", "kdc_1", "Updated chunk content.")
+	if err != nil {
+		t.Fatalf("update document chunk: %v", err)
+	}
+	if chunk.ChunkID != "kdc_1" || chunk.Content != "Updated chunk content." || chunk.DocumentVersion != "v2" {
+		t.Fatalf("unexpected updated chunk: %+v", chunk)
+	}
+
+	queryer.mu.Lock()
+	query := queryer.query
+	args := append([]driver.NamedValue(nil), queryer.args...)
+	queryer.mu.Unlock()
+	for _, want := range []string{"UPDATE knowledge_document_chunks", "FROM knowledge_documents", "JOIN knowledge_bases", "c.organization_id = $1", "kb.organization_id = $1", "c.id = $4", "metadata", "RETURNING"} {
+		if !strings.Contains(query, want) {
+			t.Fatalf("expected update chunk query to include %q, got %s", want, query)
+		}
+	}
+	if got := knowledgeRetrievalArgString(args, 1); got != "org_1" {
+		t.Fatalf("organization arg = %q, want org_1", got)
+	}
+	if got := knowledgeRetrievalArgString(args, 4); got != "kdc_1" {
+		t.Fatalf("chunk arg = %q, want kdc_1", got)
+	}
+	if got := knowledgeRetrievalArgString(args, 5); got != "Updated chunk content." {
+		t.Fatalf("content arg = %q, want updated content", got)
+	}
+	if got := knowledgeRetrievalArgString(args, 6); !strings.Contains(got, `"contentHash":"`+knowledgeDocumentChunkContentHash("Updated chunk content.")+`"`) {
+		t.Fatalf("metadata arg = %q, want updated content hash", got)
+	}
+}
+
+func TestSQLStoreSplitKnowledgeDocumentChunkReindexesFollowingChunks(t *testing.T) {
+	driverName := "knowledge_split_document_chunk_test"
+	queryer := &knowledgeRetrievalQueryer{
+		rowsByQuery: map[string][][]driver.Value{
+			"AND c.id = $4": {
+				{
+					"kdc_original",
+					int64(1),
+					"Alpha beta gamma delta",
+					"v2",
+					[]byte(`{"documentVersion":"v2","pageNumber":3,"startRune":100,"endRune":122}`),
+				},
+			},
+			"ORDER BY c.chunk_index ASC": {
+				{"kdc_left", int64(1), "Alpha beta", "v2", []byte(`{"documentVersion":"v2","pageNumber":3}`)},
+				{"kdc_right", int64(2), "gamma delta", "v2", []byte(`{"documentVersion":"v2","pageNumber":3}`)},
+			},
+		},
+	}
+	registerKnowledgeRetrievalDriver(driverName, queryer)
+
+	db, err := sql.Open(driverName, "")
+	if err != nil {
+		t.Fatalf("open capture db: %v", err)
+	}
+	defer db.Close()
+
+	chunks, err := NewSQLStore(db).SplitKnowledgeDocumentChunk(context.Background(), "org_1", "kb_1", "doc_1", "kdc_original", 10)
+	if err != nil {
+		t.Fatalf("split document chunk: %v", err)
+	}
+	if len(chunks) != 2 || chunks[0].Content != "Alpha beta" || chunks[1].Content != "gamma delta" {
+		t.Fatalf("expected split chunks returned, got %+v", chunks)
+	}
+
+	queryer.mu.Lock()
+	execQueries := strings.Join(queryer.execQueries, "\n")
+	queryer.mu.Unlock()
+	for _, want := range []string{
+		"UPDATE knowledge_document_chunks",
+		"chunk_index = -chunk_index - 100000",
+		"chunk_index = (-chunk_index - 100000) + 1",
+		"INSERT INTO knowledge_document_chunks",
+		"document_id = $",
+	} {
+		if !strings.Contains(execQueries, want) {
+			t.Fatalf("expected split execs to include %q, got %s", want, execQueries)
+		}
+	}
+
+	_, leftArgs := knowledgeRetrievalExecForQuery(t, queryer, "SET content = $5")
+	leftMetadata := knowledgeRetrievalArgString(leftArgs, 6)
+	if !strings.Contains(leftMetadata, `"startRune":100`) || !strings.Contains(leftMetadata, `"endRune":110`) {
+		t.Fatalf("left split metadata = %s, want original range 100-110", leftMetadata)
+	}
+	rightArgs := knowledgeRetrievalExecArgsForQuery(t, queryer, "INSERT INTO knowledge_document_chunks")
+	rightMetadata := knowledgeRetrievalArgString(rightArgs, 8)
+	if !strings.Contains(rightMetadata, `"startRune":111`) || !strings.Contains(rightMetadata, `"endRune":122`) {
+		t.Fatalf("right split metadata = %s, want trimmed original range 111-122", rightMetadata)
+	}
+}
+
+func TestSQLStoreMergeKnowledgeDocumentChunksCombinesNeighborAndReindexes(t *testing.T) {
+	driverName := "knowledge_merge_document_chunks_test"
+	queryer := &knowledgeRetrievalQueryer{
+		rowsByQuery: map[string][][]driver.Value{
+			"AND c.id = $4": {
+				{"kdc_current", int64(1), "Alpha beta", "v2", []byte(`{"documentVersion":"v2","pageNumber":3,"startRune":100,"endRune":110}`)},
+			},
+			"AND c.chunk_index = $4": {
+				{"kdc_next", int64(2), "gamma delta", "v2", []byte(`{"documentVersion":"v2","pageNumber":3,"startRune":111,"endRune":122}`)},
+			},
+			"ORDER BY c.chunk_index ASC": {
+				{"kdc_current", int64(1), "Alpha beta\n\ngamma delta", "v2", []byte(`{"documentVersion":"v2","pageNumber":3}`)},
+			},
+		},
+	}
+	registerKnowledgeRetrievalDriver(driverName, queryer)
+
+	db, err := sql.Open(driverName, "")
+	if err != nil {
+		t.Fatalf("open capture db: %v", err)
+	}
+	defer db.Close()
+
+	chunks, err := NewSQLStore(db).MergeKnowledgeDocumentChunks(context.Background(), "org_1", "kb_1", "doc_1", "kdc_current", "next")
+	if err != nil {
+		t.Fatalf("merge document chunks: %v", err)
+	}
+	if len(chunks) != 1 || chunks[0].Content != "Alpha beta\n\ngamma delta" {
+		t.Fatalf("expected merged chunk returned, got %+v", chunks)
+	}
+
+	queryer.mu.Lock()
+	execQueries := strings.Join(queryer.execQueries, "\n")
+	queryer.mu.Unlock()
+	for _, want := range []string{
+		"UPDATE knowledge_document_chunks",
+		"DELETE FROM knowledge_document_chunks",
+		"chunk_index = chunk_index - 1",
+	} {
+		if !strings.Contains(execQueries, want) {
+			t.Fatalf("expected merge execs to include %q, got %s", want, execQueries)
+		}
+	}
+
+	_, updateArgs := knowledgeRetrievalExecForQuery(t, queryer, "SET content = $5")
+	mergedMetadata := knowledgeRetrievalArgString(updateArgs, 6)
+	if !strings.Contains(mergedMetadata, `"startRune":100`) || !strings.Contains(mergedMetadata, `"endRune":122`) {
+		t.Fatalf("merged metadata = %s, want range 100-122", mergedMetadata)
+	}
+}
+
 var knowledgeRetrievalDrivers sync.Map
 
 func registerKnowledgeRetrievalDriver(name string, queryer *knowledgeRetrievalQueryer) {
@@ -696,6 +920,19 @@ type knowledgeRetrievalQueryer struct {
 	columnsByQuery map[string][]string
 	execQueries    []string
 	execArgs       [][]driver.NamedValue
+}
+
+func (q *knowledgeRetrievalQueryer) matchRowsPattern(query string) (string, bool) {
+	if len(q.rowsByQuery) == 0 {
+		return "", false
+	}
+	best := ""
+	for pattern := range q.rowsByQuery {
+		if strings.Contains(query, pattern) && len(pattern) > len(best) {
+			best = pattern
+		}
+	}
+	return best, best != ""
 }
 
 type knowledgeRetrievalDriver struct {
@@ -737,17 +974,12 @@ func (c knowledgeRetrievalConn) QueryContext(_ context.Context, query string, ar
 	c.queryer.args = append([]driver.NamedValue(nil), args...)
 	rows := append([][]driver.Value(nil), c.queryer.rows...)
 	columns := knowledgeRetrievalResultColumns()
-	if len(c.queryer.rowsByQuery) > 0 {
-		for pattern, configuredRows := range c.queryer.rowsByQuery {
-			if strings.Contains(query, pattern) {
-				rows = append([][]driver.Value(nil), configuredRows...)
-				if configuredColumns, ok := c.queryer.columnsByQuery[pattern]; ok {
-					columns = append([]string(nil), configuredColumns...)
-				} else if len(configuredRows) > 0 {
-					columns = generatedKnowledgeTestColumns(len(configuredRows[0]))
-				}
-				break
-			}
+	if pattern, ok := c.queryer.matchRowsPattern(query); ok {
+		rows = append([][]driver.Value(nil), c.queryer.rowsByQuery[pattern]...)
+		if configuredColumns, ok := c.queryer.columnsByQuery[pattern]; ok {
+			columns = append([]string(nil), configuredColumns...)
+		} else if len(rows) > 0 {
+			columns = generatedKnowledgeTestColumns(len(rows[0]))
 		}
 	}
 	c.queryer.mu.Unlock()
@@ -787,17 +1019,12 @@ func (tx knowledgeRetrievalTx) QueryContext(_ context.Context, query string, arg
 	tx.queryer.args = append([]driver.NamedValue(nil), args...)
 	rows := append([][]driver.Value(nil), tx.queryer.rows...)
 	columns := knowledgeRetrievalResultColumns()
-	if len(tx.queryer.rowsByQuery) > 0 {
-		for pattern, configuredRows := range tx.queryer.rowsByQuery {
-			if strings.Contains(query, pattern) {
-				rows = append([][]driver.Value(nil), configuredRows...)
-				if configuredColumns, ok := tx.queryer.columnsByQuery[pattern]; ok {
-					columns = append([]string(nil), configuredColumns...)
-				} else if len(configuredRows) > 0 {
-					columns = generatedKnowledgeTestColumns(len(configuredRows[0]))
-				}
-				break
-			}
+	if pattern, ok := tx.queryer.matchRowsPattern(query); ok {
+		rows = append([][]driver.Value(nil), tx.queryer.rowsByQuery[pattern]...)
+		if configuredColumns, ok := tx.queryer.columnsByQuery[pattern]; ok {
+			columns = append([]string(nil), configuredColumns...)
+		} else if len(rows) > 0 {
+			columns = generatedKnowledgeTestColumns(len(rows[0]))
 		}
 	}
 	tx.queryer.mu.Unlock()

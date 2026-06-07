@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/lib/pq"
 	"oblivious/server/internal/auth"
@@ -37,6 +38,14 @@ type existingKnowledgeDocumentChunk struct {
 	chunkIndex  int
 	content     string
 	contentHash string
+}
+
+type knowledgeDocumentChunkRecord struct {
+	chunkID         string
+	chunkIndex      int
+	content         string
+	documentVersion string
+	metadata        KnowledgeChunkMetadata
 }
 
 func buildKnowledgeQueryTerms(query string) []string {
@@ -471,6 +480,210 @@ func (s *SQLStore) DiffKnowledgeDocumentChunks(ctx context.Context, organization
 		return nil, err
 	}
 	return changedKnowledgeDocumentChunks(chunks, existing), nil
+}
+
+func (s *SQLStore) ListKnowledgeDocumentChunks(ctx context.Context, organizationID, knowledgeBaseID, documentID string) ([]KnowledgeDocumentChunkView, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT c.id, c.chunk_index, c.content, COALESCE(NULLIF(c.document_version, ''), d.document_version, ''), COALESCE(c.metadata, '{}'::jsonb)
+		FROM knowledge_document_chunks c
+		JOIN knowledge_documents d ON d.id = c.document_id
+		JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
+		WHERE c.organization_id = $1
+		  AND d.organization_id = $1
+		  AND kb.organization_id = $1
+		  AND kb.id = $2
+		  AND d.id = $3
+		ORDER BY c.chunk_index ASC
+	`, organizationID, knowledgeBaseID, documentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanKnowledgeDocumentChunkViews(rows)
+}
+
+func (s *SQLStore) UpdateKnowledgeDocumentChunk(ctx context.Context, organizationID, knowledgeBaseID, documentID, chunkID, content string) (KnowledgeDocumentChunkView, error) {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return KnowledgeDocumentChunkView{}, ErrEmptyKnowledgeDocumentChunk
+	}
+	metadata := withKnowledgeChunkContentHash(KnowledgeChunkMetadata{}, content)
+	metadataJSON, err := json.Marshal(metadata)
+	if err != nil {
+		return KnowledgeDocumentChunkView{}, err
+	}
+	row := s.db.QueryRowContext(ctx, `
+		UPDATE knowledge_document_chunks c
+		SET content = $5,
+		    metadata = COALESCE(c.metadata, '{}'::jsonb) || $6::jsonb,
+		    indexed_at = NULL,
+		    embedding = NULL
+		FROM knowledge_documents d
+		JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
+		WHERE c.document_id = d.id
+		  AND c.organization_id = $1
+		  AND d.organization_id = $1
+		  AND kb.organization_id = $1
+		  AND kb.id = $2
+		  AND d.id = $3
+		  AND c.id = $4
+		RETURNING c.id, c.chunk_index, c.content, COALESCE(NULLIF(c.document_version, ''), d.document_version, ''), COALESCE(c.metadata, '{}'::jsonb)
+	`, organizationID, knowledgeBaseID, documentID, chunkID, content, string(metadataJSON))
+	return scanKnowledgeDocumentChunkView(row)
+}
+
+func (s *SQLStore) SplitKnowledgeDocumentChunk(ctx context.Context, organizationID, knowledgeBaseID, documentID, chunkID string, splitAt int) ([]KnowledgeDocumentChunkView, error) {
+	if splitAt <= 0 {
+		return nil, ErrInvalidKnowledgeDocumentChunkEdit
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	record, err := selectKnowledgeDocumentChunkForEdit(ctx, tx, organizationID, knowledgeBaseID, documentID, chunkID)
+	if err != nil {
+		return nil, err
+	}
+	runes := []rune(record.content)
+	if splitAt <= 0 || splitAt >= len(runes) {
+		return nil, ErrInvalidKnowledgeDocumentChunkEdit
+	}
+	left := strings.TrimSpace(string(runes[:splitAt]))
+	right := strings.TrimSpace(string(runes[splitAt:]))
+	if left == "" || right == "" {
+		return nil, ErrInvalidKnowledgeDocumentChunkEdit
+	}
+	leftStart, leftEnd := splitKnowledgeChunkRuneRange(record.metadata, 0, splitAt, string(runes[:splitAt]))
+	rightStart, rightEnd := splitKnowledgeChunkRuneRange(record.metadata, splitAt, len(runes), string(runes[splitAt:]))
+	now := time.Now().UTC()
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE knowledge_document_chunks
+		SET chunk_index = -chunk_index - 100000
+		WHERE organization_id = $1 AND document_id = $2 AND chunk_index > $3
+	`, organizationID, documentID, record.chunkIndex); err != nil {
+		return nil, err
+	}
+	leftMetadata := withKnowledgeChunkContentHash(record.metadata, left)
+	leftMetadata.StartRune = leftStart
+	leftMetadata.EndRune = leftEnd
+	leftMetadataJSON, err := json.Marshal(leftMetadata)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE knowledge_document_chunks
+		SET content = $5,
+		    metadata = $6::jsonb,
+		    embedding = NULL,
+		    indexed_at = NULL
+		WHERE organization_id = $1 AND document_id = $2 AND id = $3 AND chunk_index = $4
+	`, organizationID, documentID, chunkID, record.chunkIndex, left, string(leftMetadataJSON)); err != nil {
+		return nil, err
+	}
+	rightID, err := auth.NewID("kdc")
+	if err != nil {
+		return nil, err
+	}
+	rightMetadata := withKnowledgeChunkContentHash(record.metadata, right)
+	rightMetadata.StartRune = rightStart
+	rightMetadata.EndRune = rightEnd
+	rightMetadataJSON, err := json.Marshal(rightMetadata)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO knowledge_document_chunks (id, document_id, organization_id, chunk_index, content, embedding, embedding_model, indexed_at, document_version, metadata, created_at)
+		VALUES ($1, $2, $3, $4, $5, NULL, $6, NULL, $7, $8::jsonb, $9)
+	`, rightID, documentID, organizationID, record.chunkIndex+1, right, defaultKnowledgeStoreEmbeddingModel, record.documentVersion, string(rightMetadataJSON), now); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE knowledge_document_chunks
+		SET chunk_index = (-chunk_index - 100000) + 1
+		WHERE organization_id = $1 AND document_id = $2 AND chunk_index < 0
+	`, organizationID, documentID); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return s.ListKnowledgeDocumentChunks(ctx, organizationID, knowledgeBaseID, documentID)
+}
+
+func (s *SQLStore) MergeKnowledgeDocumentChunks(ctx context.Context, organizationID, knowledgeBaseID, documentID, chunkID, direction string) ([]KnowledgeDocumentChunkView, error) {
+	direction = strings.TrimSpace(strings.ToLower(direction))
+	if direction != "next" && direction != "previous" {
+		return nil, ErrInvalidKnowledgeDocumentChunkEdit
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	current, err := selectKnowledgeDocumentChunkForEdit(ctx, tx, organizationID, knowledgeBaseID, documentID, chunkID)
+	if err != nil {
+		return nil, err
+	}
+	neighborIndex := current.chunkIndex + 1
+	keep := current
+	if direction == "previous" {
+		neighborIndex = current.chunkIndex - 1
+	}
+	neighbor, err := selectKnowledgeDocumentChunkByIndexForEdit(ctx, tx, organizationID, knowledgeBaseID, documentID, neighborIndex)
+	if err != nil {
+		return nil, err
+	}
+	remove := neighbor
+	if direction == "previous" {
+		keep = neighbor
+		remove = current
+	}
+	mergedContent := strings.TrimSpace(keep.content)
+	if trailing := strings.TrimSpace(remove.content); trailing != "" {
+		if mergedContent != "" {
+			mergedContent += "\n\n"
+		}
+		mergedContent += trailing
+	}
+	if mergedContent == "" {
+		return nil, ErrInvalidKnowledgeDocumentChunkEdit
+	}
+	metadata := withKnowledgeChunkContentHash(keep.metadata, mergedContent)
+	metadata.StartRune, metadata.EndRune = mergeKnowledgeChunkRuneRange(keep.metadata, remove.metadata)
+	metadataJSON, err := json.Marshal(metadata)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE knowledge_document_chunks
+		SET content = $5,
+		    metadata = $6::jsonb,
+		    embedding = NULL,
+		    indexed_at = NULL
+		WHERE organization_id = $1 AND document_id = $2 AND id = $3 AND chunk_index = $4
+	`, organizationID, documentID, keep.chunkID, keep.chunkIndex, mergedContent, string(metadataJSON)); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM knowledge_document_chunks
+		WHERE organization_id = $1 AND document_id = $2 AND id = $3
+	`, organizationID, documentID, remove.chunkID); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE knowledge_document_chunks
+		SET chunk_index = chunk_index - 1
+		WHERE organization_id = $1 AND document_id = $2 AND chunk_index > $3
+	`, organizationID, documentID, remove.chunkIndex); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return s.ListKnowledgeDocumentChunks(ctx, organizationID, knowledgeBaseID, documentID)
 }
 
 func (s *SQLStore) UpdateKnowledgeDocumentWithOptions(ctx context.Context, organizationID, knowledgeBaseID, documentID, title, content string, chunks []KnowledgeDocumentChunk, options KnowledgeDocumentOptions) (KnowledgeDocument, error) {
@@ -1029,6 +1242,143 @@ func scanKnowledgeRetrievalRows(rows *sql.Rows, query string) ([]KnowledgeRetrie
 		})
 	}
 	return results, rows.Err()
+}
+
+func scanKnowledgeDocumentChunkViews(rows *sql.Rows) ([]KnowledgeDocumentChunkView, error) {
+	chunks := []KnowledgeDocumentChunkView{}
+	for rows.Next() {
+		chunk, err := scanKnowledgeDocumentChunkView(rows)
+		if err != nil {
+			return nil, err
+		}
+		chunks = append(chunks, chunk)
+	}
+	return chunks, rows.Err()
+}
+
+func scanKnowledgeDocumentChunkView(scanner interface{ Scan(dest ...any) error }) (KnowledgeDocumentChunkView, error) {
+	var (
+		chunk       KnowledgeDocumentChunkView
+		metadataRaw []byte
+	)
+	if err := scanner.Scan(&chunk.ChunkID, &chunk.ChunkIndex, &chunk.Content, &chunk.DocumentVersion, &metadataRaw); err != nil {
+		return KnowledgeDocumentChunkView{}, err
+	}
+	if len(metadataRaw) > 0 {
+		_ = json.Unmarshal(metadataRaw, &chunk.Metadata)
+	}
+	if strings.TrimSpace(chunk.Metadata.DocumentVersion) != "" {
+		chunk.DocumentVersion = strings.TrimSpace(chunk.Metadata.DocumentVersion)
+	}
+	chunk.CharCount = len([]rune(chunk.Content))
+	chunk.EstimatedTokenCount = estimateKnowledgeTokens(chunk.Content)
+	return chunk, nil
+}
+
+func selectKnowledgeDocumentChunkForEdit(ctx context.Context, tx *sql.Tx, organizationID, knowledgeBaseID, documentID, chunkID string) (knowledgeDocumentChunkRecord, error) {
+	row := tx.QueryRowContext(ctx, `
+		SELECT c.id, c.chunk_index, c.content, COALESCE(NULLIF(c.document_version, ''), d.document_version, ''), COALESCE(c.metadata, '{}'::jsonb)
+		FROM knowledge_document_chunks c
+		JOIN knowledge_documents d ON d.id = c.document_id
+		JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
+		WHERE c.organization_id = $1
+		  AND d.organization_id = $1
+		  AND kb.organization_id = $1
+		  AND kb.id = $2
+		  AND d.id = $3
+		  AND c.id = $4
+	`, organizationID, knowledgeBaseID, documentID, chunkID)
+	return scanKnowledgeDocumentChunkRecord(row)
+}
+
+func selectKnowledgeDocumentChunkByIndexForEdit(ctx context.Context, tx *sql.Tx, organizationID, knowledgeBaseID, documentID string, chunkIndex int) (knowledgeDocumentChunkRecord, error) {
+	row := tx.QueryRowContext(ctx, `
+		SELECT c.id, c.chunk_index, c.content, COALESCE(NULLIF(c.document_version, ''), d.document_version, ''), COALESCE(c.metadata, '{}'::jsonb)
+		FROM knowledge_document_chunks c
+		JOIN knowledge_documents d ON d.id = c.document_id
+		JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
+		WHERE c.organization_id = $1
+		  AND d.organization_id = $1
+		  AND kb.organization_id = $1
+		  AND kb.id = $2
+		  AND d.id = $3
+		  AND c.chunk_index = $4
+	`, organizationID, knowledgeBaseID, documentID, chunkIndex)
+	return scanKnowledgeDocumentChunkRecord(row)
+}
+
+func scanKnowledgeDocumentChunkRecord(scanner interface{ Scan(dest ...any) error }) (knowledgeDocumentChunkRecord, error) {
+	var (
+		record      knowledgeDocumentChunkRecord
+		metadataRaw []byte
+	)
+	if err := scanner.Scan(&record.chunkID, &record.chunkIndex, &record.content, &record.documentVersion, &metadataRaw); err != nil {
+		return knowledgeDocumentChunkRecord{}, err
+	}
+	if len(metadataRaw) > 0 {
+		_ = json.Unmarshal(metadataRaw, &record.metadata)
+	}
+	if strings.TrimSpace(record.metadata.DocumentVersion) != "" {
+		record.documentVersion = strings.TrimSpace(record.metadata.DocumentVersion)
+	}
+	return record, nil
+}
+
+func splitKnowledgeChunkRuneRange(metadata KnowledgeChunkMetadata, segmentStart, segmentEnd int, segment string) (int, int) {
+	if metadata.EndRune <= metadata.StartRune || segmentEnd <= segmentStart {
+		return 0, 0
+	}
+	base := metadata.StartRune
+	leftTrim := leadingTrimmedRuneCount(segment)
+	rightTrim := trailingTrimmedRuneCount(segment)
+	start := base + segmentStart + leftTrim
+	end := base + segmentEnd - rightTrim
+	if end < start {
+		end = start
+	}
+	return start, end
+}
+
+func mergeKnowledgeChunkRuneRange(first, second KnowledgeChunkMetadata) (int, int) {
+	start := first.StartRune
+	end := first.EndRune
+	if second.StartRune > 0 && (start == 0 || second.StartRune < start) {
+		start = second.StartRune
+	}
+	if second.EndRune > end {
+		end = second.EndRune
+	}
+	if end < start {
+		end = start
+	}
+	return start, end
+}
+
+func leadingTrimmedRuneCount(value string) int {
+	count := 0
+	for _, r := range value {
+		if !unicode.IsSpace(r) {
+			break
+		}
+		count++
+	}
+	return count
+}
+
+func trailingTrimmedRuneCount(value string) int {
+	count := 0
+	for index := len(value); index > 0; {
+		r, size := utf8.DecodeLastRuneInString(value[:index])
+		if r == utf8.RuneError && size == 0 {
+			break
+		}
+		if !unicode.IsSpace(r) {
+			break
+		}
+		count++
+		index -= size
+	}
+	return count
 }
 
 func buildKnowledgeHighlightPositions(content, query string) []HighlightPosition {
