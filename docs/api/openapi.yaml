@@ -561,6 +561,149 @@ components:
           minimum: 1000
           maximum: 1000000
 
+    AgentWorkspaceTool:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        type:
+          type: string
+          enum: [builtin, mcp, custom]
+        serverId:
+          type: string
+        enabled:
+          type: boolean
+        requiresApproval:
+          type: boolean
+        riskLevel:
+          type: string
+          enum: [safe, medium, dangerous]
+        inputSchema:
+          type: object
+          additionalProperties: true
+        runtime:
+          type: string
+        sourceCode:
+          type: string
+        timeoutSeconds:
+          type: integer
+
+    AgentToolApprovalOverride:
+      type: object
+      properties:
+        requiresApproval:
+          type: boolean
+        riskLevel:
+          type: string
+          enum: [safe, medium, dangerous]
+
+    AgentConfig:
+      type: object
+      properties:
+        enableMemory:
+          type: boolean
+        maxTokens:
+          type: integer
+        maxIterations:
+          type: integer
+        tokenBudget:
+          type: integer
+        defaultExecutionMode:
+          type: string
+          enum: [react, planning]
+        temperature:
+          type: number
+          format: double
+        topP:
+          type: number
+          format: double
+        knowledgeBaseIds:
+          type: array
+          items:
+            type: string
+        approvalMode:
+          type: string
+          enum: [tiered, all, none, custom]
+        toolApprovalOverrides:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/AgentToolApprovalOverride"
+
+    AgentWorkspaceAgent:
+      type: object
+      properties:
+        id:
+          type: string
+        organizationId:
+          type: string
+        userId:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        model:
+          type: string
+        systemPrompt:
+          type: string
+        tools:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentWorkspaceTool"
+        config:
+          $ref: "#/components/schemas/AgentConfig"
+        isPublic:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateAgentRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        model:
+          type: string
+        systemPrompt:
+          type: string
+        tools:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentWorkspaceTool"
+        config:
+          $ref: "#/components/schemas/AgentConfig"
+        isPublic:
+          type: boolean
+
+    UpdateAgentRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        model:
+          type: string
+        systemPrompt:
+          type: string
+        tools:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentWorkspaceTool"
+        config:
+          $ref: "#/components/schemas/AgentConfig"
+        isPublic:
+          type: boolean
+
     AgentRun:
       type: object
       properties:
@@ -2938,6 +3081,201 @@ paths:
                         $ref: "#/components/schemas/Task"
         "401":
           $ref: "#/components/responses/Unauthorized"
+
+  # ---- Workspace Agent management ----
+  /api/v1/app/agents:
+    get:
+      summary: 获取当前用户的 Agent 列表
+      operationId: listWorkspaceAgents
+      tags: [Agent]
+      responses:
+        "200":
+          description: 当前组织和用户可访问的 Agent 列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/AgentWorkspaceAgent"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      summary: 创建 Agent
+      operationId: createWorkspaceAgent
+      tags: [Agent]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAgentRequest"
+      responses:
+        "201":
+          description: 新创建的 Agent
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AgentWorkspaceAgent"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/app/agents/{agentId}:
+    get:
+      summary: 获取 Agent 详情
+      operationId: getWorkspaceAgent
+      tags: [Agent]
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Agent 详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AgentWorkspaceAgent"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Agent 不属于当前用户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      summary: 更新 Agent
+      operationId: updateWorkspaceAgent
+      tags: [Agent]
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAgentRequest"
+      responses:
+        "200":
+          description: 更新后的 Agent
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AgentWorkspaceAgent"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Agent 不属于当前用户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      summary: 删除 Agent
+      operationId: deleteWorkspaceAgent
+      tags: [Agent]
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Agent 已删除
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          status:
+                            type: string
+                            example: deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Agent 不属于当前用户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/app/agents/{agentId}/tools:
+    get:
+      summary: 获取 Agent 可用工具定义
+      operationId: listWorkspaceAgentTools
+      tags: [Agent]
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Agent 当前启用且商业可用的工具定义
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/AgentToolDefinition"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Agent 不属于当前用户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   # ---- Agent tools and runs ----
   /api/v1/agent/tools:
