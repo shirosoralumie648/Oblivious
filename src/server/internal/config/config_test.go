@@ -579,7 +579,9 @@ func TestLoadDomesticPaymentCheckoutConfig(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/oblivious?sslmode=disable")
 	t.Setenv("SESSION_SECRET", "test-secret")
 	t.Setenv("ALIPAY_CHECKOUT_BASE_URL", " https://checkout.alipay.example.test/pay ")
+	t.Setenv("ALIPAY_WEBHOOK_SECRET", " alipay_webhook_secret ")
 	t.Setenv("WECHATPAY_CHECKOUT_BASE_URL", " https://checkout.wechatpay.example.test/pay ")
+	t.Setenv("WECHATPAY_WEBHOOK_SECRET", " wechatpay_webhook_secret ")
 
 	cfg, err := Load()
 	if err != nil {
@@ -588,8 +590,14 @@ func TestLoadDomesticPaymentCheckoutConfig(t *testing.T) {
 	if cfg.AlipayCheckoutBaseURL != "https://checkout.alipay.example.test/pay" {
 		t.Fatalf("expected alipay checkout base URL, got %q", cfg.AlipayCheckoutBaseURL)
 	}
+	if cfg.AlipayWebhookSecret != "alipay_webhook_secret" {
+		t.Fatalf("expected alipay webhook secret, got %q", cfg.AlipayWebhookSecret)
+	}
 	if cfg.WeChatPayCheckoutBaseURL != "https://checkout.wechatpay.example.test/pay" {
 		t.Fatalf("expected wechatpay checkout base URL, got %q", cfg.WeChatPayCheckoutBaseURL)
+	}
+	if cfg.WeChatPayWebhookSecret != "wechatpay_webhook_secret" {
+		t.Fatalf("expected wechatpay webhook secret, got %q", cfg.WeChatPayWebhookSecret)
 	}
 }
 

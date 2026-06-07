@@ -2,7 +2,10 @@ package http
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,6 +15,7 @@ import (
 
 	stripeapi "github.com/stripe/stripe-go/v83"
 	"github.com/stripe/stripe-go/v83/webhook"
+	"oblivious/server/internal/config"
 	"oblivious/server/internal/payment"
 
 	stripebilling "oblivious/server/internal/stripe"
@@ -120,6 +124,98 @@ func TestStripeWebhookRouteRecordsSignedEventOnce(t *testing.T) {
 	}
 }
 
+func TestDomesticPaymentWebhookRoutesVerifySignatureAndRecordEvents(t *testing.T) {
+	for _, tc := range []struct {
+		provider    string
+		path        string
+		secret      string
+		eventID     string
+		configure   func(*config.Config)
+		signatureTo func(string, string, []byte) string
+	}{
+		{
+			provider: "alipay",
+			path:     "/api/v1/billing/alipay/webhook",
+			secret:   "alipay_webhook_secret",
+			eventID:  "evt_alipay_paid",
+			configure: func(cfg *config.Config) {
+				cfg.AlipayWebhookSecret = "alipay_webhook_secret"
+			},
+			signatureTo: domesticWebhookSignature,
+		},
+		{
+			provider: "wechatpay",
+			path:     "/api/v1/billing/wechatpay/webhook",
+			secret:   "wechatpay_webhook_secret",
+			eventID:  "evt_wechat_paid",
+			configure: func(cfg *config.Config) {
+				cfg.WeChatPayWebhookSecret = "wechatpay_webhook_secret"
+			},
+			signatureTo: domesticWebhookSignature,
+		},
+	} {
+		t.Run(tc.provider, func(t *testing.T) {
+			database := testDatabase(t)
+			cfg := testConfig()
+			tc.configure(&cfg)
+			router := NewRouter(cfg, database)
+			_, _, userID := registerHTTPUser(t, router, tc.provider+"-webhook@example.com")
+			_, organizationID := queryHTTPUserScope(t, database, userID)
+			if _, err := database.Exec(`
+				INSERT INTO payment_intents (id, provider, organization_id, user_id, kind, amount, currency, status, metadata, created_at, updated_at)
+				VALUES ($1, $2, $3, $4, 'topup', 25, 'cny', 'pending', '{}', NOW(), NOW())
+			`, "pi_"+tc.provider+"_webhook", tc.provider, organizationID, userID); err != nil {
+				t.Fatalf("insert domestic payment intent: %v", err)
+			}
+			payload := []byte(fmt.Sprintf(`{
+				"id": %q,
+				"type": "checkout.paid",
+				"organization_id": %q,
+				"user_id": %q,
+				"payment_intent_id": %q,
+				"provider_payment_intent_id": %q
+			}`, tc.eventID, organizationID, userID, "pi_"+tc.provider+"_webhook", "provider_"+tc.provider+"_paid"))
+
+			badRecorder := httptest.NewRecorder()
+			badRequest := httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(string(payload)))
+			badRequest.Header.Set("Oblivious-Payment-Timestamp", "1760000000")
+			badRequest.Header.Set("Oblivious-Payment-Signature", "bad-signature")
+			router.ServeHTTP(badRecorder, badRequest)
+			if badRecorder.Code != http.StatusBadRequest {
+				t.Fatalf("expected invalid %s signature to return 400, got %d with body %s", tc.provider, badRecorder.Code, badRecorder.Body.String())
+			}
+
+			timestamp := "1760000000"
+			for i := 0; i < 2; i++ {
+				recorder := httptest.NewRecorder()
+				request := httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(string(payload)))
+				request.Header.Set("Oblivious-Payment-Timestamp", timestamp)
+				request.Header.Set("Oblivious-Payment-Signature", tc.signatureTo(tc.secret, timestamp, payload))
+				router.ServeHTTP(recorder, request)
+				if recorder.Code != http.StatusOK {
+					t.Fatalf("attempt %d expected signed %s webhook 200, got %d with body %s", i+1, tc.provider, recorder.Code, recorder.Body.String())
+				}
+			}
+
+			var count int
+			var storedProvider, status, storedOrganizationID, storedUserID, paymentIntentID string
+			if err := database.QueryRow(`
+				SELECT COUNT(*), MAX(provider), MAX(status), MAX(organization_id), MAX(user_id), MAX(payment_intent_id)
+				FROM stripe_webhook_events
+				WHERE event_id = $1
+			`, tc.eventID).Scan(&count, &storedProvider, &status, &storedOrganizationID, &storedUserID, &paymentIntentID); err != nil {
+				t.Fatalf("query domestic webhook event: %v", err)
+			}
+			if count != 1 {
+				t.Fatalf("expected one domestic webhook ledger row for duplicate event, got %d", count)
+			}
+			if storedProvider != tc.provider || status != "processed" || storedOrganizationID != organizationID || storedUserID != userID || paymentIntentID != "pi_"+tc.provider+"_webhook" {
+				t.Fatalf("unexpected domestic webhook event provider=%s status=%s org=%s user=%s intent=%s", storedProvider, status, storedOrganizationID, storedUserID, paymentIntentID)
+			}
+		})
+	}
+}
+
 func TestBillingCheckoutRequiresSession(t *testing.T) {
 	router := NewRouter(testConfig(), testDatabase(t))
 
@@ -132,6 +228,14 @@ func TestBillingCheckoutRequiresSession(t *testing.T) {
 	if recorder.Code != http.StatusUnauthorized {
 		t.Fatalf("expected checkout without session to return 401, got %d with body %s", recorder.Code, recorder.Body.String())
 	}
+}
+
+func domesticWebhookSignature(secret string, timestamp string, payload []byte) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(timestamp))
+	mac.Write([]byte("."))
+	mac.Write(payload)
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
 func signedHTTPCheckoutCompletedPayload(secret string, eventID string, organizationID string, userID string) *webhook.SignedPayload {

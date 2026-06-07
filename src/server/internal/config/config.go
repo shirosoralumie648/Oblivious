@@ -62,7 +62,9 @@ type Config struct {
 	// Domestic payment checkout configuration. A provider stays unavailable
 	// unless its hosted checkout base URL is configured.
 	AlipayCheckoutBaseURL    string
+	AlipayWebhookSecret      string
 	WeChatPayCheckoutBaseURL string
+	WeChatPayWebhookSecret   string
 
 	// Scheduled task worker configuration
 	ScheduleWorkerEnabled    bool
@@ -260,7 +262,9 @@ func Load() (Config, error) {
 	stripeCancelURL := strings.TrimSpace(os.Getenv("STRIPE_CANCEL_URL"))
 	stripeWebhookSecret := strings.TrimSpace(os.Getenv("STRIPE_WEBHOOK_SECRET"))
 	alipayCheckoutBaseURL := strings.TrimSpace(os.Getenv("ALIPAY_CHECKOUT_BASE_URL"))
+	alipayWebhookSecret := strings.TrimSpace(os.Getenv("ALIPAY_WEBHOOK_SECRET"))
 	weChatPayCheckoutBaseURL := strings.TrimSpace(os.Getenv("WECHATPAY_CHECKOUT_BASE_URL"))
+	weChatPayWebhookSecret := strings.TrimSpace(os.Getenv("WECHATPAY_WEBHOOK_SECRET"))
 
 	scheduleWorkerEnabled := !strings.EqualFold(env, "test")
 	if raw := strings.TrimSpace(os.Getenv("SCHEDULE_WORKER_ENABLED")); raw != "" {
@@ -419,7 +423,9 @@ func Load() (Config, error) {
 		StripeCancelURL:              stripeCancelURL,
 		StripeWebhookSecret:          stripeWebhookSecret,
 		AlipayCheckoutBaseURL:        alipayCheckoutBaseURL,
+		AlipayWebhookSecret:          alipayWebhookSecret,
 		WeChatPayCheckoutBaseURL:     weChatPayCheckoutBaseURL,
+		WeChatPayWebhookSecret:       weChatPayWebhookSecret,
 
 		ScheduleWorkerEnabled:    scheduleWorkerEnabled,
 		ScheduleWorkerIntervalMS: scheduleWorkerIntervalMS,

@@ -176,6 +176,9 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 			stripebilling.WithMarketplaceSettlementApplier(stripeMarketplaceSettlementAdapter{service: marketplaceSettlementService}),
 		),
 	)
+	paymentWebhookLedger := stripebilling.NewSQLWebhookLedger(database)
+	alipayWebhookHandler := newDomesticPaymentWebhookHandler("alipay", cfg.AlipayWebhookSecret, paymentWebhookLedger)
+	weChatPayWebhookHandler := newDomesticPaymentWebhookHandler("wechatpay", cfg.WeChatPayWebhookSecret, paymentWebhookLedger)
 
 	adminOptions := []admin.ServiceOption{
 		admin.WithChannelRuntimeStatsProvider(options.ChannelRuntimeStatsProvider),
@@ -734,6 +737,20 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 			return
 		}
 		stripeWebhookHandler.HandleWebhook(w, r)
+	})
+	mux.HandleFunc("/api/v1/billing/alipay/webhook", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.Method != stdhttp.MethodPost {
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		alipayWebhookHandler.handle(w, r)
+	})
+	mux.HandleFunc("/api/v1/billing/wechatpay/webhook", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.Method != stdhttp.MethodPost {
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		weChatPayWebhookHandler.handle(w, r)
 	})
 
 	// Notification routes
