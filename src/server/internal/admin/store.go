@@ -139,9 +139,12 @@ func (s *SQLStore) GetSystemStats(ctx context.Context) (*SystemStats, error) {
 
 func (s *SQLStore) UpdateUserQuota(ctx context.Context, userID string, balance float64) error {
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO quotas (id, user_id, balance, used, created_at, updated_at)
-		SELECT 'quota_' || $1, $1, $2, 0, NOW(), NOW()
-		ON CONFLICT (user_id) DO UPDATE SET balance = $2, updated_at = NOW()
+		INSERT INTO quotas (id, organization_id, user_id, scope, balance, used, created_at, updated_at)
+		SELECT 'quota_' || m.organization_id || '_' || $1, m.organization_id, $1, 'user', $2, 0, NOW(), NOW()
+		FROM organization_memberships m
+		WHERE m.user_id = $1 AND m.removed_at IS NULL
+		ON CONFLICT (organization_id, user_id) WHERE scope = 'user'
+		DO UPDATE SET balance = EXCLUDED.balance, updated_at = EXCLUDED.updated_at
 	`, userID, balance)
 	return err
 }

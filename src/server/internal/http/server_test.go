@@ -139,7 +139,9 @@ func testDatabase(t *testing.T) *sql.DB {
 		`CREATE TABLE user_preferences (user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, onboarding_completed BOOLEAN NOT NULL DEFAULT FALSE, default_mode TEXT NOT NULL DEFAULT 'chat', model_strategy TEXT NOT NULL DEFAULT 'balanced', network_enabled_hint BOOLEAN NOT NULL DEFAULT FALSE, default_agent_model TEXT NOT NULL DEFAULT 'gpt-4o-mini', sidebar_collapsed BOOLEAN NOT NULL DEFAULT FALSE, notifications JSONB NOT NULL DEFAULT '{}', updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE notifications (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, type TEXT NOT NULL, category TEXT NOT NULL, title TEXT NOT NULL, message TEXT NOT NULL, is_read BOOLEAN NOT NULL DEFAULT FALSE, action_url TEXT, metadata JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), read_at TIMESTAMPTZ)`,
 		`CREATE TABLE usage_records (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, workspace_id TEXT REFERENCES workspaces(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL, model_id TEXT NOT NULL, request_count INTEGER NOT NULL, input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL, api_type TEXT, channel_id TEXT, provider TEXT, api_token_id TEXT, status TEXT, status_code INTEGER, latency_ms INTEGER, cost NUMERIC(15,6) NOT NULL DEFAULT 0, channel_cost NUMERIC(15,6) NOT NULL DEFAULT 0, request_id TEXT, error_code TEXT, total_tokens INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
-		`CREATE TABLE quotas (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, balance DECIMAL(15,6) NOT NULL DEFAULT 0, used DECIMAL(15,6) NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE (organization_id))`,
+		`CREATE TABLE quotas (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, scope TEXT NOT NULL DEFAULT 'organization', balance DECIMAL(15,6) NOT NULL DEFAULT 0, used DECIMAL(15,6) NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), CHECK (scope IN ('organization', 'user')))`,
+		`CREATE UNIQUE INDEX idx_test_quotas_unique_organization_scope ON quotas(organization_id) WHERE scope = 'organization'`,
+		`CREATE UNIQUE INDEX idx_test_quotas_unique_user_scope ON quotas(organization_id, user_id) WHERE scope = 'user'`,
 		`CREATE TABLE billing_sessions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, channel_id TEXT, model TEXT, api_type TEXT, idempotency_key TEXT NOT NULL, pre_authorized_amt DECIMAL(15,6) NOT NULL DEFAULT 0, settled_amt DECIMAL(15,6) NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'preauthorized', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), settled_at TIMESTAMPTZ)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_test_billing_sessions_unique_org_idempotency ON billing_sessions(organization_id, idempotency_key) WHERE idempotency_key <> ''`,
 		`CREATE TABLE packages (id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT, quota_amount DECIMAL(15,6) NOT NULL, price DECIMAL(10,2) NOT NULL, duration_days INT, is_active BOOLEAN DEFAULT true, sort_order INT DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
@@ -1441,8 +1443,8 @@ func TestCrossTenantQuotaScopeUsesActiveOrganization(t *testing.T) {
 	otherOrganizationID := createHTTPOrganization(t, router, cookie, csrfToken, "Other Quota Org", "other-quota-org")
 
 	if _, err := database.Exec(`
-		INSERT INTO quotas (id, user_id, organization_id, balance, used, created_at, updated_at)
-		VALUES ('quota_other_org', $1, $2, 123, 7, NOW(), NOW())
+		INSERT INTO quotas (id, user_id, organization_id, scope, balance, used, created_at, updated_at)
+		VALUES ('quota_other_org', $1, $2, 'organization', 123, 7, NOW(), NOW())
 	`, userID, otherOrganizationID); err != nil {
 		t.Fatalf("insert other org quota: %v", err)
 	}
@@ -1482,10 +1484,10 @@ func TestCrossTenantQuotaScopeUsesActiveOrganization(t *testing.T) {
 	}
 
 	var activeBalance, otherBalance float64
-	if err := database.QueryRow(`SELECT COALESCE((SELECT balance FROM quotas WHERE organization_id = $1), 0)`, activeOrganizationID).Scan(&activeBalance); err != nil {
+	if err := database.QueryRow(`SELECT COALESCE((SELECT balance FROM quotas WHERE organization_id = $1 AND scope = 'organization'), 0)`, activeOrganizationID).Scan(&activeBalance); err != nil {
 		t.Fatalf("query active org quota: %v", err)
 	}
-	if err := database.QueryRow(`SELECT balance FROM quotas WHERE organization_id = $1`, otherOrganizationID).Scan(&otherBalance); err != nil {
+	if err := database.QueryRow(`SELECT balance FROM quotas WHERE organization_id = $1 AND scope = 'organization'`, otherOrganizationID).Scan(&otherBalance); err != nil {
 		t.Fatalf("query other org quota: %v", err)
 	}
 	if activeBalance != 0 {

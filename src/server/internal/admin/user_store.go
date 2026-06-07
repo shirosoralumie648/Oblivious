@@ -102,7 +102,7 @@ func (s *SQLStore) ListUsers(ctx context.Context, filter UserListFilter) ([]*Use
 		FROM users u
 		LEFT JOIN packages p ON u.plan_id = p.id
 		LEFT JOIN usage_records ur ON u.id = ur.user_id
-		LEFT JOIN quotas q ON u.id = q.user_id
+		LEFT JOIN quotas q ON u.id = q.user_id AND q.scope = 'user'
 		%s
 		GROUP BY u.id, p.name, q.used
 		%s
@@ -163,7 +163,7 @@ func (s *SQLStore) GetUserByID(ctx context.Context, id string) (*UserDetail, err
 		FROM users u
 		LEFT JOIN packages p ON u.plan_id = p.id
 		LEFT JOIN usage_records ur ON u.id = ur.user_id
-		LEFT JOIN quotas q ON u.id = q.user_id
+		LEFT JOIN quotas q ON u.id = q.user_id AND q.scope = 'user'
 		WHERE u.id = $1
 		GROUP BY u.id, p.name, q.used
 	`, id).Scan(&u.ID, &u.Email, &u.Name, &u.Role,

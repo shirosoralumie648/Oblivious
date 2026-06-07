@@ -122,6 +122,10 @@ type Store interface {
 var ErrUsageLimited = errors.New("usage limit exceeded")
 
 const defaultUsageLimitWindowSeconds = 60
+const (
+	quotaScopeOrganization = "organization"
+	quotaScopeUser         = "user"
+)
 
 type UsageLimitDimension string
 
@@ -554,14 +558,44 @@ func NewSQLStore(db *sql.DB) *SQLStore {
 	return &SQLStore{db: db}
 }
 
+func (s *SQLStore) quotaBalanceScope(ctx context.Context, userID, organizationID string) (string, error) {
+	if userID == "" {
+		return quotaScopeOrganization, nil
+	}
+	var exists bool
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM concurrency_limits
+			WHERE organization_id = $1 AND user_id = $2
+			UNION ALL
+			SELECT 1 FROM token_rate_limits
+			WHERE organization_id = $1 AND user_id = $2
+			LIMIT 1
+		)
+	`, organizationID, userID).Scan(&exists); err != nil {
+		return "", fmt.Errorf("resolve quota balance scope: %w", err)
+	}
+	if exists {
+		return quotaScopeUser, nil
+	}
+	return quotaScopeOrganization, nil
+}
+
 // GetOrCreateQuota 获取或创建配额
 func (s *SQLStore) GetOrCreateQuota(ctx context.Context, userID, organizationID string) (*Quota, error) {
+	scope, err := s.quotaBalanceScope(ctx, userID, organizationID)
+	if err != nil {
+		return nil, err
+	}
 	// 尝试获取
 	var quota Quota
-	err := s.db.QueryRowContext(ctx, `
+	err = s.db.QueryRowContext(ctx, `
 		SELECT id, organization_id, user_id, balance, used, created_at, updated_at
-		FROM quotas WHERE organization_id = $1
-	`, organizationID).Scan(&quota.ID, &quota.OrganizationID, &quota.UserID, &quota.Balance, &quota.Used, &quota.CreatedAt, &quota.UpdatedAt)
+		FROM quotas
+		WHERE organization_id = $1
+		  AND scope = $2
+		  AND ($2 = 'organization' OR user_id = $3)
+	`, organizationID, scope, userID).Scan(&quota.ID, &quota.OrganizationID, &quota.UserID, &quota.Balance, &quota.Used, &quota.CreatedAt, &quota.UpdatedAt)
 
 	if err == nil {
 		return &quota, nil
@@ -579,17 +613,20 @@ func (s *SQLStore) GetOrCreateQuota(ctx context.Context, userID, organizationID 
 
 	now := time.Now().UTC()
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO quotas (id, organization_id, user_id, balance, used, created_at, updated_at)
-		VALUES ($1, $2, $3, 0, 0, $4, $4)
-		ON CONFLICT (organization_id) DO NOTHING
-	`, id, organizationID, userID, now)
+		INSERT INTO quotas (id, organization_id, user_id, scope, balance, used, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, 0, 0, $5, $5)
+		ON CONFLICT DO NOTHING
+	`, id, organizationID, userID, scope, now)
 	if err != nil {
 		return nil, fmt.Errorf("create quota: %w", err)
 	}
 	if err := s.db.QueryRowContext(ctx, `
 		SELECT id, organization_id, user_id, balance, used, created_at, updated_at
-		FROM quotas WHERE organization_id = $1
-	`, organizationID).Scan(&quota.ID, &quota.OrganizationID, &quota.UserID, &quota.Balance, &quota.Used, &quota.CreatedAt, &quota.UpdatedAt); err != nil {
+		FROM quotas
+		WHERE organization_id = $1
+		  AND scope = $2
+		  AND ($2 = 'organization' OR user_id = $3)
+	`, organizationID, scope, userID).Scan(&quota.ID, &quota.OrganizationID, &quota.UserID, &quota.Balance, &quota.Used, &quota.CreatedAt, &quota.UpdatedAt); err != nil {
 		return nil, fmt.Errorf("get created quota: %w", err)
 	}
 
@@ -599,19 +636,29 @@ func (s *SQLStore) GetOrCreateQuota(ctx context.Context, userID, organizationID 
 // UpdateQuotaBalance 更新配额余额
 func (s *SQLStore) UpdateQuotaBalance(ctx context.Context, userID, organizationID string, delta float64) error {
 	now := time.Now().UTC()
+	scope, err := s.quotaBalanceScope(ctx, userID, organizationID)
+	if err != nil {
+		return err
+	}
 
 	if delta > 0 {
 		// 充值
 		_, err := s.db.ExecContext(ctx, `
-			UPDATE quotas SET balance = balance + $2, updated_at = $3 WHERE organization_id = $1
-		`, organizationID, delta, now)
+			UPDATE quotas SET balance = balance + $4, updated_at = $5
+			WHERE organization_id = $1
+			  AND scope = $2
+			  AND ($2 = 'organization' OR user_id = $3)
+		`, organizationID, scope, userID, delta, now)
 		return err
 	}
 
 	// 消费
-	_, err := s.db.ExecContext(ctx, `
-		UPDATE quotas SET balance = balance + $2, used = used - $2, updated_at = $3 WHERE organization_id = $1
-	`, organizationID, delta, now)
+	_, err = s.db.ExecContext(ctx, `
+		UPDATE quotas SET balance = balance + $4, used = used - $4, updated_at = $5
+		WHERE organization_id = $1
+		  AND scope = $2
+		  AND ($2 = 'organization' OR user_id = $3)
+	`, organizationID, scope, userID, delta, now)
 	return err
 }
 

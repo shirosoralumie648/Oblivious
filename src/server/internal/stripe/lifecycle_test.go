@@ -214,7 +214,7 @@ func TestLifecycleApplyCheckoutSessionCompletedFulfillsTopupOnce(t *testing.T) {
 	if err := database.QueryRow(`SELECT status, refunded_amount FROM topup_orders WHERE id = 'topup_order_1'`).Scan(&topupStatus, &refundedAmount); err != nil {
 		t.Fatalf("query topup order: %v", err)
 	}
-	if err := database.QueryRow(`SELECT balance FROM quotas WHERE organization_id = 'org_topup'`).Scan(&balance); err != nil {
+	if err := database.QueryRow(`SELECT balance FROM quotas WHERE organization_id = 'org_topup' AND scope = 'organization'`).Scan(&balance); err != nil {
 		t.Fatalf("query quota balance: %v", err)
 	}
 	if intentStatus != "completed" || topupStatus != "paid" || refundedAmount != 0 || balance != 25 {
@@ -398,8 +398,8 @@ func TestLifecycleApplyRefundRecordsRefundAndAdjustsTopup(t *testing.T) {
 		t.Fatalf("insert refund topup order: %v", err)
 	}
 	if _, err := database.Exec(`
-		INSERT INTO quotas (id, organization_id, user_id, balance, used, created_at, updated_at)
-		VALUES ('quota_refund', 'org_refund', 'user_refund', 25, 0, NOW(), NOW())
+		INSERT INTO quotas (id, organization_id, user_id, scope, balance, used, created_at, updated_at)
+		VALUES ('quota_refund', 'org_refund', 'user_refund', 'organization', 25, 0, NOW(), NOW())
 	`); err != nil {
 		t.Fatalf("insert refund quota: %v", err)
 	}
@@ -435,7 +435,7 @@ func TestLifecycleApplyRefundRecordsRefundAndAdjustsTopup(t *testing.T) {
 	if err := database.QueryRow(`SELECT refunded_amount FROM topup_orders WHERE id = 'topup_refund'`).Scan(&topupRefunded); err != nil {
 		t.Fatalf("query refunded topup: %v", err)
 	}
-	if err := database.QueryRow(`SELECT balance FROM quotas WHERE organization_id = 'org_refund'`).Scan(&balance); err != nil {
+	if err := database.QueryRow(`SELECT balance FROM quotas WHERE organization_id = 'org_refund' AND scope = 'organization'`).Scan(&balance); err != nil {
 		t.Fatalf("query refund quota: %v", err)
 	}
 	if refundCount != 1 || intentStatus != "partially_refunded" || intentRefunded != 10 || topupRefunded != 10 || balance != 15 {
@@ -486,7 +486,9 @@ func lifecycleTestDB(t *testing.T) *sql.DB {
 		`CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'user', plan_id TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE organizations (id TEXT PRIMARY KEY, slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', metadata JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE packages (id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT, quota_amount DECIMAL(15,6) NOT NULL, price DECIMAL(10,2) NOT NULL, duration_days INT, is_active BOOLEAN DEFAULT true, sort_order INT DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
-		`CREATE TABLE quotas (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, balance DECIMAL(15,6) NOT NULL DEFAULT 0, used DECIMAL(15,6) NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE (organization_id))`,
+		`CREATE TABLE quotas (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, scope TEXT NOT NULL DEFAULT 'organization', balance DECIMAL(15,6) NOT NULL DEFAULT 0, used DECIMAL(15,6) NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), CHECK (scope IN ('organization', 'user')))`,
+		`CREATE UNIQUE INDEX idx_test_quotas_unique_organization_scope ON quotas(organization_id) WHERE scope = 'organization'`,
+		`CREATE UNIQUE INDEX idx_test_quotas_unique_user_scope ON quotas(organization_id, user_id) WHERE scope = 'user'`,
 		`CREATE TABLE subscriptions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, package_id TEXT NOT NULL REFERENCES packages(id), status TEXT DEFAULT 'active', started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), expires_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), current_period_start TIMESTAMPTZ NOT NULL DEFAULT NOW(), current_period_end TIMESTAMPTZ, next_plan_id TEXT, provider_subscription_id TEXT, provider_customer_id TEXT, provider_checkout_session_id TEXT, provider_latest_invoice_id TEXT, failed_payment_at TIMESTAMPTZ, cancel_at_period_end BOOLEAN NOT NULL DEFAULT false, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE payment_intents (id TEXT PRIMARY KEY, provider TEXT NOT NULL DEFAULT 'stripe', provider_checkout_session_id TEXT UNIQUE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, package_id TEXT REFERENCES packages(id), kind TEXT NOT NULL, amount DECIMAL(15,6) NOT NULL, currency TEXT NOT NULL DEFAULT 'usd', status TEXT NOT NULL DEFAULT 'pending', metadata JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), provider_payment_intent_id TEXT, provider_subscription_id TEXT, provider_invoice_id TEXT, refunded_amount DECIMAL(15,6) NOT NULL DEFAULT 0)`,
 		`CREATE TABLE topup_orders (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, amount DECIMAL(15,6) NOT NULL, money DECIMAL(10,2) NOT NULL, status TEXT DEFAULT 'pending', trade_no TEXT, paid_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), payment_intent_id TEXT REFERENCES payment_intents(id) ON DELETE SET NULL, provider_checkout_session_id TEXT, refunded_amount DECIMAL(15,6) NOT NULL DEFAULT 0)`,

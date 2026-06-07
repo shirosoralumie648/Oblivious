@@ -272,7 +272,7 @@ func TestDomesticPaymentWebhookRouteAppliesTopupLifecycleOnce(t *testing.T) {
 	if err := database.QueryRow(`SELECT status FROM topup_orders WHERE id = 'topup_alipay_lifecycle'`).Scan(&topupStatus); err != nil {
 		t.Fatalf("query domestic topup lifecycle: %v", err)
 	}
-	if err := database.QueryRow(`SELECT balance FROM quotas WHERE organization_id = $1`, organizationID).Scan(&quotaBalance); err != nil {
+	if err := database.QueryRow(`SELECT balance FROM quotas WHERE organization_id = $1 AND scope = 'organization'`, organizationID).Scan(&quotaBalance); err != nil {
 		t.Fatalf("query domestic topup quota balance: %v", err)
 	}
 	if paymentStatus != "completed" || providerPaymentIntentID != "trade_alipay_lifecycle" || topupStatus != "paid" || quotaBalance != 25 {
@@ -1184,7 +1184,7 @@ func TestBillingCheckoutTopupDoesNotCreditQuotaBeforeWebhook(t *testing.T) {
 	`, organizationID, userID).Scan(&topupCount); err != nil {
 		t.Fatalf("query topup order count: %v", err)
 	}
-	if err := database.QueryRow(`SELECT COALESCE((SELECT balance FROM quotas WHERE organization_id = $1), 0)`, organizationID).Scan(&balance); err != nil {
+	if err := database.QueryRow(`SELECT COALESCE((SELECT balance FROM quotas WHERE organization_id = $1 AND scope = 'organization'), 0)`, organizationID).Scan(&balance); err != nil {
 		t.Fatalf("query topup quota balance: %v", err)
 	}
 	if intentCount != 1 || topupCount != 1 || balance != 0 {
@@ -1212,7 +1212,7 @@ func TestQuotaTopupEndpointNoLongerCreditsWithoutPayment(t *testing.T) {
 	}
 
 	var balance float64
-	if err := database.QueryRow(`SELECT COALESCE((SELECT balance FROM quotas WHERE organization_id = $1), 0)`, organizationID).Scan(&balance); err != nil {
+	if err := database.QueryRow(`SELECT COALESCE((SELECT balance FROM quotas WHERE organization_id = $1 AND scope = 'organization'), 0)`, organizationID).Scan(&balance); err != nil {
 		t.Fatalf("query direct topup balance: %v", err)
 	}
 	if balance != 0 {

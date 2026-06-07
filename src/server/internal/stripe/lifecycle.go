@@ -860,7 +860,7 @@ func (s *SQLLifecycleStore) ApplyRefund(ctx context.Context, eventID string, inp
 			if _, err := tx.ExecContext(ctx, `
 				UPDATE quotas
 				SET balance = balance - $2, updated_at = $3
-				WHERE organization_id = $1
+				WHERE organization_id = $1 AND scope = 'organization'
 			`, input.OrganizationID, input.Amount, now); err != nil {
 				return fmt.Errorf("reverse refunded topup quota: %w", err)
 			}
@@ -1011,7 +1011,7 @@ func (s *SQLLifecycleStore) applyTopupCheckout(ctx context.Context, tx *sql.Tx, 
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE quotas
 			SET balance = balance + $2, updated_at = $3
-			WHERE organization_id = $1
+			WHERE organization_id = $1 AND scope = 'organization'
 		`, input.OrganizationID, amount, now); err != nil {
 			return fmt.Errorf("credit topup quota: %w", err)
 		}
@@ -1074,9 +1074,9 @@ func payloadOrEmpty(payload []byte) []byte {
 
 func (s *SQLLifecycleStore) ensureQuota(ctx context.Context, tx *sql.Tx, userID, organizationID string) error {
 	_, err := tx.ExecContext(ctx, `
-		INSERT INTO quotas (id, organization_id, user_id, balance, used, created_at, updated_at)
-		VALUES ($1, $2, $3, 0, 0, $4, $4)
-		ON CONFLICT (organization_id) DO NOTHING
+		INSERT INTO quotas (id, organization_id, user_id, scope, balance, used, created_at, updated_at)
+		VALUES ($1, $2, $3, 'organization', 0, 0, $4, $4)
+		ON CONFLICT DO NOTHING
 	`, "quota_"+uuid.New().String(), organizationID, userID, time.Now().UTC())
 	if err != nil {
 		return fmt.Errorf("ensure quota: %w", err)

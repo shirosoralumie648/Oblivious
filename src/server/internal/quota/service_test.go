@@ -37,16 +37,17 @@ func newFakeStore() *fakeStore {
 }
 
 func (s *fakeStore) GetOrCreateQuota(ctx context.Context, userID, organizationID string) (*Quota, error) {
-	if s.quotas[organizationID] == nil {
-		s.quotas[organizationID] = &Quota{
-			ID:             "quota_" + organizationID,
+	key := s.quotaBalanceKey(userID, organizationID)
+	if s.quotas[key] == nil {
+		s.quotas[key] = &Quota{
+			ID:             "quota_" + organizationID + "_" + userID,
 			OrganizationID: organizationID,
 			UserID:         userID,
 			Balance:        100.0,
 			Used:           0,
 		}
 	}
-	return s.quotas[organizationID], nil
+	return s.quotas[key], nil
 }
 
 func (s *fakeStore) UpdateQuotaBalance(ctx context.Context, userID, organizationID string, delta float64) error {
@@ -180,6 +181,22 @@ func usageLimitSettingsKey(organizationID, userID string) string {
 	return organizationID + "|" + userID
 }
 
+func (s *fakeStore) quotaBalanceKey(userID, organizationID string) string {
+	if userID != "" {
+		if settings, ok := s.usageLimits[usageLimitSettingsKey(organizationID, userID)]; ok && settings.QuotaMode == "user" {
+			return organizationID + "|" + userID
+		}
+	}
+	return organizationID + "|"
+}
+
+func quotaBalanceKey(userID, organizationID string) string {
+	if userID == "" {
+		return organizationID + "|"
+	}
+	return organizationID + "|" + userID
+}
+
 func TestPreConsume_Success(t *testing.T) {
 	store := newFakeStore()
 	svc := NewService(store)
@@ -267,11 +284,47 @@ func TestPreConsume_IdempotencyScopedByOrganization(t *testing.T) {
 	if session1.ID == session2.ID {
 		t.Fatal("same idempotency key in different organizations must create distinct billing sessions")
 	}
-	if store.quotas["org_1"].Balance != 90.0 {
-		t.Fatalf("expected org_1 balance 90.0, got %f", store.quotas["org_1"].Balance)
+	if store.quotas[quotaBalanceKey("", "org_1")].Balance != 90.0 {
+		t.Fatalf("expected org_1 balance 90.0, got %f", store.quotas[quotaBalanceKey("", "org_1")].Balance)
 	}
-	if store.quotas["org_2"].Balance != 90.0 {
-		t.Fatalf("expected org_2 balance 90.0, got %f", store.quotas["org_2"].Balance)
+	if store.quotas[quotaBalanceKey("", "org_2")].Balance != 90.0 {
+		t.Fatalf("expected org_2 balance 90.0, got %f", store.quotas[quotaBalanceKey("", "org_2")].Balance)
+	}
+}
+
+func TestPreConsumeUserQuotaModeUsesUserScopedBalance(t *testing.T) {
+	store := newFakeStore()
+	svc := NewService(store)
+	ctx := context.Background()
+
+	if _, err := svc.SaveUsageLimitSettings(ctx, UsageLimitSettings{
+		OrganizationID:      "org_1",
+		MaxTokensPerWindow:  1000,
+		MaxTokensPerRequest: 100,
+	}); err != nil {
+		t.Fatalf("save organization quota mode: %v", err)
+	}
+	if _, err := svc.SaveUsageLimitSettings(ctx, UsageLimitSettings{
+		OrganizationID:      "org_1",
+		UserID:              "user_2",
+		QuotaMode:           "user",
+		MaxTokensPerWindow:  500,
+		MaxTokensPerRequest: 50,
+	}); err != nil {
+		t.Fatalf("save user quota mode: %v", err)
+	}
+
+	if _, err := svc.PreConsume(ctx, "user_2", "org_1", 25.0, "idem_user_mode", "ch_1", "gpt-4o", "chat"); err != nil {
+		t.Fatalf("user-mode PreConsume failed: %v", err)
+	}
+
+	userQuota, _ := store.GetOrCreateQuota(ctx, "user_2", "org_1")
+	orgQuota, _ := store.GetOrCreateQuota(ctx, "user_1", "org_1")
+	if userQuota.Balance != 75.0 || userQuota.UserID != "user_2" {
+		t.Fatalf("expected user_2 scoped balance 75, got %+v", userQuota)
+	}
+	if orgQuota.Balance != 100.0 || orgQuota.UserID != "user_1" {
+		t.Fatalf("expected organization/default balance to remain 100 for user_1, got %+v", orgQuota)
 	}
 }
 
@@ -766,6 +819,55 @@ func TestSQLStoreUsageLimitSettingsRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSQLStoreUserQuotaModeUsesUserScopedBalance(t *testing.T) {
+	store, ctx := testSQLQuotaStore(t)
+	svc := NewService(store)
+
+	if _, err := svc.SaveUsageLimitSettings(ctx, UsageLimitSettings{
+		OrganizationID:      "org_1",
+		MaxTokensPerWindow:  1000,
+		MaxTokensPerRequest: 100,
+	}); err != nil {
+		t.Fatalf("save organization SQL quota mode: %v", err)
+	}
+	if _, err := svc.SaveUsageLimitSettings(ctx, UsageLimitSettings{
+		OrganizationID:      "org_1",
+		UserID:              "user_2",
+		QuotaMode:           "user",
+		MaxTokensPerWindow:  500,
+		MaxTokensPerRequest: 50,
+	}); err != nil {
+		t.Fatalf("save user SQL quota mode: %v", err)
+	}
+	if err := svc.Topup(ctx, "user_1", "org_1", 100.0); err != nil {
+		t.Fatalf("top up organization SQL quota: %v", err)
+	}
+	if err := svc.Topup(ctx, "user_2", "org_1", 100.0); err != nil {
+		t.Fatalf("top up user SQL quota: %v", err)
+	}
+
+	if _, err := svc.PreConsume(ctx, "user_2", "org_1", 25.0, "idem_sql_user_mode", "ch_1", "gpt-4o", "chat"); err != nil {
+		t.Fatalf("user-mode SQL PreConsume failed: %v", err)
+	}
+
+	var userBalance, orgBalance float64
+	if err := store.db.QueryRowContext(ctx, `
+		SELECT balance FROM quotas
+		WHERE organization_id = 'org_1' AND scope = 'user' AND user_id = 'user_2'
+	`).Scan(&userBalance); err != nil {
+		t.Fatalf("query user-scoped SQL quota: %v", err)
+	}
+	if err := store.db.QueryRowContext(ctx, `
+		SELECT balance FROM quotas
+		WHERE organization_id = 'org_1' AND scope = 'organization'
+	`).Scan(&orgBalance); err != nil {
+		t.Fatalf("query organization-scoped SQL quota: %v", err)
+	}
+	if userBalance != 75.0 || orgBalance != 100.0 {
+		t.Fatalf("expected user balance 75 and organization balance 100, got user=%.2f org=%.2f", userBalance, orgBalance)
+	}
+}
+
 func TestSQLStoreResolveUsageLimitFallsBackToActiveSubscriptionRequestCap(t *testing.T) {
 	store, ctx := testSQLQuotaStore(t)
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
@@ -876,6 +978,8 @@ func testSQLQuotaStore(t *testing.T) (*SQLStore, context.Context) {
 		`DROP TABLE IF EXISTS subscriptions CASCADE`,
 		`DROP TABLE IF EXISTS token_rate_limits CASCADE`,
 		`DROP TABLE IF EXISTS concurrency_limits CASCADE`,
+		`DROP TABLE IF EXISTS billing_sessions CASCADE`,
+		`DROP TABLE IF EXISTS quotas CASCADE`,
 		`DROP TABLE IF EXISTS organization_memberships CASCADE`,
 		`DROP TABLE IF EXISTS organizations CASCADE`,
 		`DROP TABLE IF EXISTS users CASCADE`,
@@ -898,6 +1002,34 @@ func testSQLQuotaStore(t *testing.T) (*SQLStore, context.Context) {
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
+		`CREATE TABLE quotas (
+			id TEXT PRIMARY KEY,
+			organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			scope TEXT NOT NULL DEFAULT 'organization',
+			balance DECIMAL(15,6) NOT NULL DEFAULT 0,
+			used DECIMAL(15,6) NOT NULL DEFAULT 0,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			CHECK (scope IN ('organization', 'user'))
+		)`,
+		`CREATE UNIQUE INDEX idx_test_quotas_unique_organization_scope ON quotas(organization_id) WHERE scope = 'organization'`,
+		`CREATE UNIQUE INDEX idx_test_quotas_unique_user_scope ON quotas(organization_id, user_id) WHERE scope = 'user'`,
+		`CREATE TABLE billing_sessions (
+			id TEXT PRIMARY KEY,
+			organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			channel_id TEXT,
+			model TEXT,
+			api_type TEXT,
+			idempotency_key TEXT NOT NULL,
+			pre_authorized_amt DECIMAL(15,6) NOT NULL DEFAULT 0,
+			settled_amt DECIMAL(15,6) NOT NULL DEFAULT 0,
+			status TEXT NOT NULL DEFAULT 'preauthorized',
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			settled_at TIMESTAMPTZ
+		)`,
+		`CREATE UNIQUE INDEX idx_test_billing_sessions_unique_org_idempotency ON billing_sessions(organization_id, idempotency_key) WHERE idempotency_key <> ''`,
 		`CREATE TABLE subscriptions (
 			id TEXT PRIMARY KEY,
 			organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
