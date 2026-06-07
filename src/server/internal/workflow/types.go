@@ -78,6 +78,7 @@ type Node struct {
 	ID            string         `json:"id"`
 	Type          string         `json:"type,omitempty"`
 	Input         map[string]any `json:"input,omitempty"`
+	Variables     map[string]any `json:"variables,omitempty"`
 	FailurePolicy FailurePolicy  `json:"failurePolicy,omitempty"`
 }
 
@@ -249,19 +250,19 @@ type WorkflowStateMachineTransition struct {
 
 // WebhookTriggerConfig defines configuration for a webhook trigger.
 type WebhookTriggerConfig struct {
-	ID             string         `json:"id"`
-	URL            string         `json:"url"`
-	Secret         string         `json:"secret,omitempty"`
-	AllowedMethods []string       `json:"allowedMethods,omitempty"`
+	ID             string            `json:"id"`
+	URL            string            `json:"url"`
+	Secret         string            `json:"secret,omitempty"`
+	AllowedMethods []string          `json:"allowedMethods,omitempty"`
 	Headers        map[string]string `json:"headers,omitempty"`
-	Definition     map[string]any `json:"definition,omitempty"`
+	Definition     map[string]any    `json:"definition,omitempty"`
 }
 
 // WebhookVerificationResult contains the result of webhook payload verification.
 type WebhookVerificationResult struct {
-	Valid    bool   `json:"valid"`
-	Error    string `json:"error,omitempty"`
-	Payload  map[string]any `json:"payload,omitempty"`
+	Valid   bool           `json:"valid"`
+	Error   string         `json:"error,omitempty"`
+	Payload map[string]any `json:"payload,omitempty"`
 }
 
 // ScheduleTriggerConfig defines configuration for a schedule trigger.
@@ -284,11 +285,11 @@ type ScheduleNextRunResult struct {
 
 // FailureRetryConfig defines retry behavior for node failures.
 type FailureRetryConfig struct {
-	MaxRetries      int             `json:"maxRetries"`
-	InitialDelay    time.Duration   `json:"initialDelay"`
-	MaxDelay        time.Duration   `json:"maxDelay"`
-	BackoffFactor   float64         `json:"backoffFactor"`
-	RetryableErrors []string        `json:"retryableErrors,omitempty"`
+	MaxRetries      int           `json:"maxRetries"`
+	InitialDelay    time.Duration `json:"initialDelay"`
+	MaxDelay        time.Duration `json:"maxDelay"`
+	BackoffFactor   float64       `json:"backoffFactor"`
+	RetryableErrors []string      `json:"retryableErrors,omitempty"`
 }
 
 // FailureRetryState tracks the current retry state for a node execution.
@@ -314,36 +315,36 @@ type VersionMetadata struct {
 
 // ExecutionTraceEntry represents a single entry in an execution trace.
 type ExecutionTraceEntry struct {
-	Timestamp   time.Time      `json:"timestamp"`
-	NodeID      string         `json:"nodeId"`
-	NodeType    string         `json:"nodeType"`
-	Status      NodeStatus     `json:"status"`
-	DurationMS  int            `json:"durationMs,omitempty"`
-	Input       map[string]any `json:"input,omitempty"`
-	Output      map[string]any `json:"output,omitempty"`
-	Error       map[string]any `json:"error,omitempty"`
-	Attempt     int            `json:"attempt,omitempty"`
+	Timestamp  time.Time      `json:"timestamp"`
+	NodeID     string         `json:"nodeId"`
+	NodeType   string         `json:"nodeType"`
+	Status     NodeStatus     `json:"status"`
+	DurationMS int            `json:"durationMs,omitempty"`
+	Input      map[string]any `json:"input,omitempty"`
+	Output     map[string]any `json:"output,omitempty"`
+	Error      map[string]any `json:"error,omitempty"`
+	Attempt    int            `json:"attempt,omitempty"`
 }
 
 // VariableInspectResult holds the result of variable inspection for debugging.
 type VariableInspectResult struct {
-	Path      string `json:"path"`
-	Value     any    `json:"value"`
-	Type      string `json:"type"`
-	Source    string `json:"source"`
-	NodeID    string `json:"nodeId,omitempty"`
+	Path   string `json:"path"`
+	Value  any    `json:"value"`
+	Type   string `json:"type"`
+	Source string `json:"source"`
+	NodeID string `json:"nodeId,omitempty"`
 }
 
 // NodeTestResult holds the result of a single-node test execution.
 type NodeTestResult struct {
-	WorkflowID string         `json:"workflowId"`
-	NodeID     string         `json:"nodeId"`
-	NodeType   string         `json:"nodeType"`
-	Status     ExecutionStatus `json:"status"`
-	Input      map[string]any `json:"input,omitempty"`
-	Output     map[string]any `json:"output,omitempty"`
-	Error      map[string]any `json:"error,omitempty"`
-	DurationMS int            `json:"durationMs,omitempty"`
-	Trace      []ExecutionTraceEntry `json:"trace,omitempty"`
+	WorkflowID string                  `json:"workflowId"`
+	NodeID     string                  `json:"nodeId"`
+	NodeType   string                  `json:"nodeType"`
+	Status     ExecutionStatus         `json:"status"`
+	Input      map[string]any          `json:"input,omitempty"`
+	Output     map[string]any          `json:"output,omitempty"`
+	Error      map[string]any          `json:"error,omitempty"`
+	DurationMS int                     `json:"durationMs,omitempty"`
+	Trace      []ExecutionTraceEntry   `json:"trace,omitempty"`
 	Variables  []VariableInspectResult `json:"variables,omitempty"`
 }

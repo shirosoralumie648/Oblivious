@@ -60,7 +60,7 @@ Status values:
 | Workflow input/global variables and node outputs are available to downstream nodes. | Proven | Runtime interpolation supports `{{input.*}}`, `{{workflow.name}}`, and `{{nodes.node_id.output.*}}`. Covered by `TestServiceRunReadyNodeInterpolatesWorkflowInputAndPriorNodeOutput`. |
 | System variables include execution id, start time, workflow name, user id, and org id. | Proven | Covered by `TestServiceRunReadyNodeInterpolatesSystemExecutionAndOrganizationVariables` and `TestServiceRunReadyNodeInterpolatesUserVariableFromExecutionContextAndTriggerPayload`. |
 | Variable inspection/debug snapshot. | Proven | `BuildExecutionDebugSnapshot` returns variable snapshot, trace, outputs, performance, and logs; HTTP/UI API exposes debug snapshot. Covered by workflow debug snapshot route tests and Workflows API types. |
-| Node-local variable lifetime. | Partial | Node executor input is scoped per node, but there is no separately named `node.{node_id}.{var_name}` local namespace contract proven by tests. |
+| Node-local variable lifetime. | Proven | Node definitions can declare `variables`, and `RunReadyNode` resolves those values into the current node-only namespace `node.{node_id}.{var_name}` before interpolating the node input. Other nodes cannot read a previous node's `node.*` locals and must use `nodes.{node_id}.output.*` for cross-node data. Covered by `TestServiceRunReadyNodeInterpolatesCurrentNodeLocalVariablesOnly`. |
 
 ## 2.6 Version Management
 
@@ -88,6 +88,5 @@ The repository-owned Workflow engine now proves most Functional Logic 2.1-2.6 be
 The matrix row remains `Partial`, not `Proven`, because these requirements still need work or stronger evidence:
 
 1. Prove email/Webhook delivery for workflow failure-pause notifications, beyond the covered in-app path.
-2. Formalize/prove the node-local `node.{node_id}.{var_name}` namespace contract.
-3. Add branch merge/publish semantics beyond branch creation.
-4. Prove 20+ node types and production-grade frontend drag/drop workflows end to end.
+2. Add branch merge/publish semantics beyond branch creation.
+3. Prove 20+ node types and production-grade frontend drag/drop workflows end to end.

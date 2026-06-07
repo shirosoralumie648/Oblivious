@@ -204,6 +204,70 @@ func TestServiceRunReadyNodeInterpolatesUserVariableFromExecutionContextAndTrigg
 	}
 }
 
+func TestServiceRunReadyNodeInterpolatesCurrentNodeLocalVariablesOnly(t *testing.T) {
+	store := newMemoryWorkflowStore()
+	service := NewService(store, WithNodeExecutors(NewNodeExecutorRegistry(
+		EchoNodeExecutor("agent"),
+	)))
+	ctx := context.Background()
+	workflow, err := service.CreateWorkflow(ctx, CreateWorkflowRequest{
+		OrganizationID: "org_1",
+		Name:           "Node Local Variable Flow",
+		Status:         WorkflowStatusPublished,
+		Definition: workflowDefinitionDAG(
+			[]map[string]any{
+				{"id": "prepare", "type": "agent", "variables": map[string]any{
+					"summary": "{{input.ticket}}:{{workflow.name}}",
+					"payload": map[string]any{"ticket": "{{input.ticket}}"},
+				}, "input": map[string]any{
+					"summary": "{{node.prepare.summary}}",
+					"ticket":  "{{node.prepare.payload.ticket}}",
+				}},
+				{"id": "notify", "type": "agent", "input": map[string]any{
+					"leaked": "{{node.prepare.summary}}",
+				}},
+			},
+			[]map[string]any{{"from": "prepare", "to": "notify"}},
+		),
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkflow returned error: %v", err)
+	}
+	execution, err := service.StartExecution(ctx, StartExecutionRequest{
+		OrganizationID: "org_1",
+		WorkflowID:     workflow.ID,
+		Input:          map[string]any{"ticket": "INC-42"},
+	})
+	if err != nil {
+		t.Fatalf("StartExecution returned error: %v", err)
+	}
+
+	if err := service.RunReadyNode(ctx, "org_1", execution.ID, "prepare"); err != nil {
+		t.Fatalf("RunReadyNode prepare returned error: %v", err)
+	}
+
+	updated, err := service.GetExecution(ctx, "org_1", execution.ID)
+	if err != nil {
+		t.Fatalf("GetExecution returned error: %v", err)
+	}
+	prepareNodes := workflowNodeExecutionsByID(updated.NodeExecutions, "prepare")
+	if len(prepareNodes) != 2 {
+		t.Fatalf("expected seeded and completed prepare nodes, got %+v", prepareNodes)
+	}
+	completed := prepareNodes[len(prepareNodes)-1]
+	if completed.Input["summary"] != "INC-42:Node Local Variable Flow" || completed.Input["ticket"] != "INC-42" {
+		t.Fatalf("expected current node-local variables to interpolate, got %#v", completed.Input)
+	}
+
+	err = service.RunReadyNode(ctx, "org_1", execution.ID, "notify")
+	if err == nil {
+		t.Fatalf("expected downstream node-local variable reference to fail")
+	}
+	if !errors.Is(err, ErrWorkflowVariableNotFound) || !strings.Contains(err.Error(), "node.prepare.summary") {
+		t.Fatalf("expected node-local scope error, got %v", err)
+	}
+}
+
 func TestServiceRunExecutionUntilBlockedAdvancesReadyDAGNodesToSuccess(t *testing.T) {
 	store := newMemoryWorkflowStore()
 	service := NewService(store, WithNodeExecutors(NewNodeExecutorRegistry(

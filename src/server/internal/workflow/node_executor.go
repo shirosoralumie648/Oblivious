@@ -1016,7 +1016,7 @@ func (s *Service) RunReadyNode(ctx context.Context, organizationID, executionID,
 			inputSource = pendingInput
 		}
 	}
-	input, err := interpolateNodeInput(inputSource, workflow, execution)
+	input, err := interpolateNodeInput(inputSource, workflow, execution, node)
 	if err != nil {
 		return s.recordRuntimeNodeFailure(ctx, organizationID, execution, node, err)
 	}
@@ -1102,11 +1102,15 @@ var (
 	workflowWholeTemplatePattern = regexp.MustCompile(`^\s*\{\{\s*([^{}]+?)\s*\}\}\s*$`)
 )
 
-func interpolateNodeInput(input map[string]any, workflow *WorkflowDefinition, execution *WorkflowExecution) (map[string]any, error) {
+func interpolateNodeInput(input map[string]any, workflow *WorkflowDefinition, execution *WorkflowExecution, currentNode Node) (map[string]any, error) {
 	if input == nil {
 		return mergeWorkflowMaps(execution.Input, nil), nil
 	}
-	resolved, err := interpolateValue(input, workflow, execution)
+	localVariables, err := resolveCurrentNodeLocalVariables(currentNode, workflow, execution)
+	if err != nil {
+		return nil, err
+	}
+	resolved, err := interpolateValue(input, workflow, execution, currentNode, localVariables)
 	if err != nil {
 		return nil, err
 	}
@@ -1117,17 +1121,17 @@ func interpolateNodeInput(input map[string]any, workflow *WorkflowDefinition, ex
 	return mapped, nil
 }
 
-func interpolateValue(value any, workflow *WorkflowDefinition, execution *WorkflowExecution) (any, error) {
+func interpolateValue(value any, workflow *WorkflowDefinition, execution *WorkflowExecution, currentNode Node, localVariables map[string]any) (any, error) {
 	switch typed := value.(type) {
 	case string:
 		if parts := workflowWholeTemplatePattern.FindStringSubmatch(typed); len(parts) == 2 {
-			return resolveWorkflowVariable(strings.TrimSpace(parts[1]), workflow, execution)
+			return resolveWorkflowVariable(strings.TrimSpace(parts[1]), workflow, execution, currentNode, localVariables)
 		}
-		return interpolateString(typed, workflow, execution)
+		return interpolateString(typed, workflow, execution, currentNode, localVariables)
 	case map[string]any:
 		next := make(map[string]any, len(typed))
 		for key, item := range typed {
-			resolved, err := interpolateValue(item, workflow, execution)
+			resolved, err := interpolateValue(item, workflow, execution, currentNode, localVariables)
 			if err != nil {
 				return nil, err
 			}
@@ -1137,7 +1141,7 @@ func interpolateValue(value any, workflow *WorkflowDefinition, execution *Workfl
 	case []any:
 		next := make([]any, 0, len(typed))
 		for _, item := range typed {
-			resolved, err := interpolateValue(item, workflow, execution)
+			resolved, err := interpolateValue(item, workflow, execution, currentNode, localVariables)
 			if err != nil {
 				return nil, err
 			}
@@ -1149,7 +1153,7 @@ func interpolateValue(value any, workflow *WorkflowDefinition, execution *Workfl
 	}
 }
 
-func interpolateString(template string, workflow *WorkflowDefinition, execution *WorkflowExecution) (string, error) {
+func interpolateString(template string, workflow *WorkflowDefinition, execution *WorkflowExecution, currentNode Node, localVariables map[string]any) (string, error) {
 	var interpolateErr error
 	resolved := workflowTemplatePattern.ReplaceAllStringFunc(template, func(match string) string {
 		if interpolateErr != nil {
@@ -1159,7 +1163,7 @@ func interpolateString(template string, workflow *WorkflowDefinition, execution 
 		if len(parts) != 2 {
 			return match
 		}
-		value, err := resolveWorkflowVariable(strings.TrimSpace(parts[1]), workflow, execution)
+		value, err := resolveWorkflowVariable(strings.TrimSpace(parts[1]), workflow, execution, currentNode, localVariables)
 		if err != nil {
 			interpolateErr = err
 			return match
@@ -1172,7 +1176,7 @@ func interpolateString(template string, workflow *WorkflowDefinition, execution 
 	return resolved, nil
 }
 
-func resolveWorkflowVariable(path string, workflow *WorkflowDefinition, execution *WorkflowExecution) (any, error) {
+func resolveWorkflowVariable(path string, workflow *WorkflowDefinition, execution *WorkflowExecution, currentNode Node, localVariables map[string]any) (any, error) {
 	switch {
 	case path == "execution.id":
 		if execution == nil || strings.TrimSpace(execution.ID) == "" {
@@ -1197,11 +1201,36 @@ func resolveWorkflowVariable(path string, workflow *WorkflowDefinition, executio
 		return lookupPath(workflow.Variables, strings.TrimPrefix(path, "workflow."), path)
 	case strings.HasPrefix(path, "input."):
 		return lookupPath(execution.Input, strings.TrimPrefix(path, "input."), path)
+	case strings.HasPrefix(path, "node."):
+		return resolveCurrentNodeVariable(path, currentNode, localVariables)
 	case strings.HasPrefix(path, "nodes."):
 		return lookupPath(nodeOutputsByID(execution.NodeExecutions), strings.TrimPrefix(path, "nodes."), path)
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrWorkflowVariableNotFound, path)
 	}
+}
+
+func resolveCurrentNodeLocalVariables(currentNode Node, workflow *WorkflowDefinition, execution *WorkflowExecution) (map[string]any, error) {
+	if len(currentNode.Variables) == 0 {
+		return nil, nil
+	}
+	resolved := make(map[string]any, len(currentNode.Variables))
+	for key, value := range currentNode.Variables {
+		next, err := interpolateValue(value, workflow, execution, Node{}, nil)
+		if err != nil {
+			return nil, err
+		}
+		resolved[key] = next
+	}
+	return resolved, nil
+}
+
+func resolveCurrentNodeVariable(path string, currentNode Node, localVariables map[string]any) (any, error) {
+	prefix := "node." + strings.TrimSpace(currentNode.ID) + "."
+	if prefix == "node.." || !strings.HasPrefix(path, prefix) {
+		return nil, fmt.Errorf("%w: %s", ErrWorkflowVariableNotFound, path)
+	}
+	return lookupPath(localVariables, strings.TrimPrefix(path, prefix), path)
 }
 
 func resolveWorkflowUserID(execution *WorkflowExecution, originalPath string) (any, error) {
@@ -1308,8 +1337,12 @@ func resolveConditionFieldValue(field string, input NodeExecutorInput) (any, err
 	if field == "" {
 		return nil, fmt.Errorf("%w: condition field is required", ErrInvalidInput)
 	}
-	if strings.HasPrefix(field, "workflow.") || strings.HasPrefix(field, "input.") || strings.HasPrefix(field, "nodes.") {
-		return resolveWorkflowVariable(field, input.Workflow, input.Execution)
+	if strings.HasPrefix(field, "workflow.") || strings.HasPrefix(field, "input.") || strings.HasPrefix(field, "node.") || strings.HasPrefix(field, "nodes.") {
+		localVariables, err := resolveCurrentNodeLocalVariables(input.Node, input.Workflow, input.Execution)
+		if err != nil {
+			return nil, err
+		}
+		return resolveWorkflowVariable(field, input.Workflow, input.Execution, input.Node, localVariables)
 	}
 	if input.Execution != nil {
 		if value, err := lookupPath(input.Execution.Input, field, "input."+field); err == nil {

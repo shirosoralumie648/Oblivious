@@ -530,7 +530,7 @@ func (s *Service) TestNode(ctx context.Context, req TestNodeRequest) (*TestNodeR
 		Input:            req.Input,
 		WorkflowSnapshot: workflow.Definition,
 	}
-	input, err := interpolateNodeInput(node.Input, workflow, execution)
+	input, err := interpolateNodeInput(node.Input, workflow, execution, node)
 	if err != nil {
 		return nil, err
 	}
@@ -2564,6 +2564,9 @@ func nodeFromMap(value map[string]any) Node {
 	}
 	if input, ok := mapStringAnyFromAny(value["input"]); ok {
 		node.Input = input
+	}
+	if variables, ok := mapStringAnyFromAny(value["variables"]); ok {
+		node.Variables = variables
 	}
 	if policy, ok := failurePolicyFromMapValue(value["failurePolicy"]); ok {
 		node.FailurePolicy = policy
