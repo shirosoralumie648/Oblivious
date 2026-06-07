@@ -29,9 +29,12 @@ type fakeStore struct {
 	documentVersions []KnowledgeDocumentVersion
 	documents        []KnowledgeDocument
 	listBases        []KnowledgeBase
+	listTestCases    []KnowledgeRetrievalTestCase
+	retrievalCalls   []KnowledgeRetrievalOptions
 	retrievalQuery   string
 	retrievalOptions KnowledgeRetrievalOptions
 	retrievalResults []KnowledgeRetrievalResult
+	resultsByMode    map[string][]KnowledgeRetrievalResult
 	requestedDoc     KnowledgeDocument
 	requestedID      string
 	mergedChunks     []KnowledgeDocumentChunkView
@@ -43,6 +46,8 @@ type fakeStore struct {
 	updatedBase      KnowledgeBase
 	updatedDoc       KnowledgeDocument
 	workspaceID      string
+	createdTestCase  KnowledgeRetrievalTestCase
+	testCaseRequest  CreateKnowledgeRetrievalTestCaseRequest
 }
 
 type recordingKnowledgeVectorStore struct {
@@ -215,7 +220,24 @@ func (f *fakeStore) RetrieveKnowledgeWithOptions(ctx context.Context, workspaceI
 	f.requestedID = knowledgeBaseID
 	f.retrievalQuery = query
 	f.retrievalOptions = options
+	f.retrievalCalls = append(f.retrievalCalls, options)
+	if f.resultsByMode != nil {
+		return append([]KnowledgeRetrievalResult(nil), f.resultsByMode[options.Mode]...), nil
+	}
 	return f.retrievalResults, nil
+}
+
+func (f *fakeStore) CreateRetrievalTestCase(ctx context.Context, workspaceID, knowledgeBaseID string, req CreateKnowledgeRetrievalTestCaseRequest) (KnowledgeRetrievalTestCase, error) {
+	f.workspaceID = workspaceID
+	f.requestedID = knowledgeBaseID
+	f.testCaseRequest = req
+	return f.createdTestCase, nil
+}
+
+func (f *fakeStore) ListRetrievalTestCases(ctx context.Context, workspaceID, knowledgeBaseID string) ([]KnowledgeRetrievalTestCase, error) {
+	f.workspaceID = workspaceID
+	f.requestedID = knowledgeBaseID
+	return append([]KnowledgeRetrievalTestCase(nil), f.listTestCases...), nil
 }
 
 func (s *recordingKnowledgeVectorStore) EnsureKnowledgeBaseCollection(ctx context.Context, organizationID, knowledgeBaseID string, vectorSize int) error {
@@ -1134,6 +1156,75 @@ func TestRetrieveWithOptionsRecordsRAGRetrievalLatencyMetric(t *testing.T) {
 	}
 	if count := histogramSampleCount(t, metrics.RAGRetrievalLatencySeconds.WithLabelValues(mode)); count <= before {
 		t.Fatalf("expected RAG retrieval latency histogram sample, before=%v after=%v", before, count)
+	}
+}
+
+func TestRunRetrievalTestCasesBuildsCuratedBenchmarkAcrossRAGModes(t *testing.T) {
+	store := &fakeStore{
+		listTestCases: []KnowledgeRetrievalTestCase{
+			{
+				ID:                 "krtc_deploy",
+				KnowledgeBaseID:    "kb_1",
+				Query:              "deployment rollback",
+				ExpectedDocumentID: "doc_deploy",
+				ExpectedChunkID:    "chunk_deploy",
+			},
+			{
+				ID:                 "krtc_billing",
+				KnowledgeBaseID:    "kb_1",
+				Query:              "billing controls",
+				ExpectedDocumentID: "doc_billing",
+				ExpectedChunkID:    "chunk_billing",
+			},
+		},
+		resultsByMode: map[string][]KnowledgeRetrievalResult{
+			KnowledgeRetrievalModeVector: {
+				{DocumentID: "doc_deploy", ChunkID: "chunk_deploy", Snippet: "Deployment rollback."},
+			},
+			KnowledgeRetrievalModeHybrid: {
+				{DocumentID: "doc_deploy", ChunkID: "chunk_deploy", Snippet: "Deployment rollback."},
+				{DocumentID: "doc_billing", ChunkID: "chunk_billing", Snippet: "Billing controls."},
+			},
+			KnowledgeRetrievalModeHybridRerank: {
+				{DocumentID: "doc_billing", ChunkID: "chunk_billing", Snippet: "Billing controls."},
+				{DocumentID: "doc_deploy", ChunkID: "chunk_deploy", Snippet: "Deployment rollback."},
+			},
+		},
+	}
+	service := NewService(store)
+
+	report, err := service.RunRetrievalTestCases(context.Background(), auth.Session{OrganizationID: "org_1", WorkspaceID: "workspace_1"}, "kb_1", KnowledgeRetrievalOptions{
+		BenchmarkModes: []string{
+			KnowledgeRetrievalModeVector,
+			KnowledgeRetrievalModeHybrid,
+			KnowledgeRetrievalModeHybridRerank,
+		},
+		Limit: 2,
+	})
+	if err != nil {
+		t.Fatalf("run retrieval benchmark: %v", err)
+	}
+
+	if report.KnowledgeBaseID != "kb_1" {
+		t.Fatalf("expected benchmark report knowledge base id kb_1, got %q", report.KnowledgeBaseID)
+	}
+	if len(report.Benchmarks) != 3 {
+		t.Fatalf("expected 3 benchmark mode reports, got %+v", report.Benchmarks)
+	}
+	if report.Benchmarks[0].Mode != KnowledgeRetrievalModeVector || report.Benchmarks[0].Passed != 1 || report.Benchmarks[0].Failed != 1 || report.Benchmarks[0].PassRate != 0.5 {
+		t.Fatalf("unexpected vector benchmark: %+v", report.Benchmarks[0])
+	}
+	if report.Benchmarks[1].Mode != KnowledgeRetrievalModeHybrid || report.Benchmarks[1].Passed != 2 || report.Benchmarks[1].Failed != 0 || report.Benchmarks[1].PassRate != 1 {
+		t.Fatalf("unexpected hybrid benchmark: %+v", report.Benchmarks[1])
+	}
+	if report.Benchmarks[2].Mode != KnowledgeRetrievalModeHybridRerank || report.Benchmarks[2].Passed != 2 || report.Benchmarks[2].AverageRank != 1.5 {
+		t.Fatalf("unexpected hybrid_rerank benchmark: %+v", report.Benchmarks[2])
+	}
+	if len(store.retrievalCalls) != 6 {
+		t.Fatalf("expected each of 2 curated cases to run across 3 modes, got %+v", store.retrievalCalls)
+	}
+	if store.retrievalCalls[0].Mode != KnowledgeRetrievalModeVector || store.retrievalCalls[2].Mode != KnowledgeRetrievalModeHybrid || store.retrievalCalls[4].Mode != KnowledgeRetrievalModeHybridRerank {
+		t.Fatalf("expected calls grouped by benchmark mode, got %+v", store.retrievalCalls)
 	}
 }
 

@@ -120,14 +120,15 @@ type HybridEngineRetrievalOptions struct {
 }
 
 type KnowledgeRetrievalOptions struct {
-	AllVersions     bool    `json:"allVersions,omitempty"`
-	DocumentVersion string  `json:"documentVersion,omitempty"`
-	Mode            string  `json:"mode,omitempty"`
-	Limit           int     `json:"limit,omitempty"`
-	MinScore        float64 `json:"minScore,omitempty"`
-	RerankTopK      int     `json:"rerankTopK,omitempty"`
-	VectorWeight    float64 `json:"vectorWeight,omitempty"`
-	KeywordWeight   float64 `json:"keywordWeight,omitempty"`
+	AllVersions     bool     `json:"allVersions,omitempty"`
+	BenchmarkModes  []string `json:"benchmarkModes,omitempty"`
+	DocumentVersion string   `json:"documentVersion,omitempty"`
+	Mode            string   `json:"mode,omitempty"`
+	Limit           int      `json:"limit,omitempty"`
+	MinScore        float64  `json:"minScore,omitempty"`
+	RerankTopK      int      `json:"rerankTopK,omitempty"`
+	VectorWeight    float64  `json:"vectorWeight,omitempty"`
+	KeywordWeight   float64  `json:"keywordWeight,omitempty"`
 }
 
 // HybridEngineRetrievalResult is a single retrieval result from the hybrid engine.
@@ -227,13 +228,26 @@ type KnowledgeRetrievalTestRunResult struct {
 	Query      string                   `json:"query"`
 	Passed     bool                     `json:"passed"`
 	Rank       int                      `json:"rank"`
-	Expected   KnowledgeRetrievalResult `json:"expected"`
-	Actual     KnowledgeRetrievalResult `json:"actual,omitempty"`
+	Expected   KnowledgeRetrievalResult `json:"expectedResult"`
+	Actual     KnowledgeRetrievalResult `json:"actualResult,omitempty"`
+	Reason     string                   `json:"reason,omitempty"`
+}
+
+type KnowledgeRetrievalBenchmarkReport struct {
+	Mode        string                            `json:"mode"`
+	Total       int                               `json:"total"`
+	Passed      int                               `json:"passed"`
+	Failed      int                               `json:"failed"`
+	PassRate    float64                           `json:"passRate"`
+	AverageRank float64                           `json:"averageRank,omitempty"`
+	Results     []KnowledgeRetrievalTestRunResult `json:"results"`
 }
 
 type KnowledgeRetrievalTestRunReport struct {
-	Total   int                               `json:"total"`
-	Passed  int                               `json:"passed"`
-	Failed  int                               `json:"failed"`
-	Results []KnowledgeRetrievalTestRunResult `json:"results"`
+	KnowledgeBaseID string                              `json:"knowledgeBaseId"`
+	Total           int                                 `json:"total"`
+	Passed          int                                 `json:"passed"`
+	Failed          int                                 `json:"failed"`
+	Results         []KnowledgeRetrievalTestRunResult   `json:"results"`
+	Benchmarks      []KnowledgeRetrievalBenchmarkReport `json:"benchmarks,omitempty"`
 }

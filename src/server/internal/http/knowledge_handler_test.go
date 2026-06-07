@@ -1077,6 +1077,66 @@ func TestKnowledgeHandlerRunsRetrievalTestCases(t *testing.T) {
 	if len(response.Data.Results) != 1 || !response.Data.Results[0].Passed || response.Data.Results[0].Rank != 1 {
 		t.Fatalf("expected passing case result, got %+v", response.Data.Results)
 	}
+	if !strings.Contains(recorder.Body.String(), `"expectedResult"`) || !strings.Contains(recorder.Body.String(), `"actualResult"`) {
+		t.Fatalf("expected run report to use frontend-compatible result field names, got %s", recorder.Body.String())
+	}
+}
+
+func TestKnowledgeHandlerRunsCuratedRetrievalBenchmarksAcrossModes(t *testing.T) {
+	store := &knowledgeFakeStore{
+		detailBase: knowledge.KnowledgeBase{
+			ID:             "kb_2",
+			RetrievalLimit: 3,
+			RetrievalMode:  knowledge.KnowledgeRetrievalModeHybrid,
+		},
+		listTestCases: []knowledge.KnowledgeRetrievalTestCase{
+			{
+				ID:                 "krtc_1",
+				KnowledgeBaseID:    "kb_2",
+				Query:              "deployment rollback",
+				ExpectedDocumentID: "doc_2",
+				ExpectedChunkID:    "kdc_2",
+			},
+		},
+		retrievalResults: []knowledge.KnowledgeRetrievalResult{
+			{
+				DocumentID: "doc_2",
+				ChunkID:    "kdc_2",
+				Snippet:    "Deployment rollback.",
+			},
+		},
+	}
+	handler := newKnowledgeTestHandler(store)
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_2/retrieval-test-cases/run", strings.NewReader(`{
+		"benchmarkModes":["vector_only","hybrid","hybrid_rerank"],
+		"limit":3
+	}`)).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+	}))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.runRetrievalTestCases(recorder, request, "kb_2")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Data knowledge.KnowledgeRetrievalTestRunReport `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Data.KnowledgeBaseID != "kb_2" {
+		t.Fatalf("expected report knowledge base id kb_2, got %q", response.Data.KnowledgeBaseID)
+	}
+	if len(response.Data.Benchmarks) != 3 {
+		t.Fatalf("expected three benchmark reports, got %+v", response.Data.Benchmarks)
+	}
+	if response.Data.Benchmarks[0].Mode != knowledge.KnowledgeRetrievalModeVector || response.Data.Benchmarks[1].Mode != knowledge.KnowledgeRetrievalModeHybrid || response.Data.Benchmarks[2].Mode != knowledge.KnowledgeRetrievalModeHybridRerank {
+		t.Fatalf("unexpected benchmark mode order: %+v", response.Data.Benchmarks)
+	}
 }
 
 func knowledgeUploadMultipartBody(t *testing.T, fields map[string]string, fieldName, filename, contentType, content string) (*bytes.Buffer, string) {

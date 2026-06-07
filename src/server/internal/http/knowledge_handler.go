@@ -45,14 +45,15 @@ type createKnowledgeDocumentRequest struct {
 }
 
 type retrieveKnowledgeRequest struct {
-	AllVersions     bool    `json:"allVersions"`
-	DocumentVersion string  `json:"documentVersion"`
-	KeywordWeight   float64 `json:"keywordWeight"`
-	Limit           int     `json:"limit"`
-	MinScore        float64 `json:"minScore"`
-	Mode            string  `json:"mode"`
-	Query           string  `json:"query"`
-	VectorWeight    float64 `json:"vectorWeight"`
+	AllVersions     bool     `json:"allVersions"`
+	BenchmarkModes  []string `json:"benchmarkModes"`
+	DocumentVersion string   `json:"documentVersion"`
+	KeywordWeight   float64  `json:"keywordWeight"`
+	Limit           int      `json:"limit"`
+	MinScore        float64  `json:"minScore"`
+	Mode            string   `json:"mode"`
+	Query           string   `json:"query"`
+	VectorWeight    float64  `json:"vectorWeight"`
 }
 
 type createKnowledgeRetrievalTestCaseRequest struct {
@@ -577,6 +578,7 @@ func (h knowledgeHandler) runRetrievalTestCases(w stdhttp.ResponseWriter, r *std
 
 	report, err := h.service.RunRetrievalTestCases(r.Context(), session, knowledgeBaseID, knowledge.KnowledgeRetrievalOptions{
 		AllVersions:     payload.AllVersions,
+		BenchmarkModes:  payload.BenchmarkModes,
 		DocumentVersion: strings.TrimSpace(payload.DocumentVersion),
 		Mode:            strings.TrimSpace(payload.Mode),
 		Limit:           payload.Limit,

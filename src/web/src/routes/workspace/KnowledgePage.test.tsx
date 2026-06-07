@@ -879,6 +879,79 @@ describe('KnowledgePage', () => {
     expect(screen.getByText('Actual top: Overview · chunk 3 · kdc_1')).toBeInTheDocument();
   });
 
+  it('runs curated retrieval benchmarks across configured RAG modes', async () => {
+    routeState.knowledgeBaseId = 'kb_9';
+    getKnowledgeBase.mockResolvedValue({
+      documentCount: 2,
+      id: 'kb_9',
+      name: 'Architecture Notes',
+      updatedAt: '2026-04-03T11:30:00Z'
+    });
+    listKnowledgeDocuments.mockResolvedValue([]);
+    listRetrievalTestCases.mockResolvedValue([
+      {
+        expectedChunkId: 'kdc_1',
+        expectedChunkIndex: 2,
+        expectedDocumentId: 'doc_1',
+        expectedDocumentTitle: 'Overview',
+        id: 'krtc_1',
+        knowledgeBaseId: 'kb_9',
+        query: 'deployment rollback'
+      }
+    ]);
+    runRetrievalTestCases.mockResolvedValue({
+      benchmarks: [
+        {
+          averageRank: 2,
+          failed: 1,
+          mode: 'vector_only',
+          passRate: 0.5,
+          passed: 1,
+          results: [],
+          total: 2
+        },
+        {
+          averageRank: 1,
+          failed: 0,
+          mode: 'hybrid',
+          passRate: 1,
+          passed: 2,
+          results: [],
+          total: 2
+        },
+        {
+          averageRank: 1.5,
+          failed: 0,
+          mode: 'hybrid_rerank',
+          passRate: 1,
+          passed: 2,
+          results: [],
+          total: 2
+        }
+      ],
+      failed: 1,
+      knowledgeBaseId: 'kb_9',
+      passed: 1,
+      results: [],
+      total: 2
+    });
+
+    render(<KnowledgePage />);
+
+    await screen.findByText('Saved cases: 1');
+    fireEvent.click(screen.getByRole('button', { name: 'Run RAG mode benchmark' }));
+
+    await waitFor(() => {
+      expect(runRetrievalTestCases).toHaveBeenCalledWith('kb_9', {
+        benchmarkModes: ['vector_only', 'hybrid', 'hybrid_rerank']
+      });
+    });
+    expect(screen.getByText('RAG mode benchmark')).toBeInTheDocument();
+    expect(screen.getByText('vector_only: 1/2 passed · 50% · average rank 2')).toBeInTheDocument();
+    expect(screen.getByText('hybrid: 2/2 passed · 100% · average rank 1')).toBeInTheDocument();
+    expect(screen.getByText('hybrid_rerank: 2/2 passed · 100% · average rank 1.5')).toBeInTheDocument();
+  });
+
   it('runs retrieval tests with knowledge-base default tuning when controls are untouched', async () => {
     routeState.knowledgeBaseId = 'kb_9';
     getKnowledgeBase.mockResolvedValue({

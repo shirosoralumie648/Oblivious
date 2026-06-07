@@ -91,6 +91,35 @@ describe('createKnowledgeApi', () => {
     });
   });
 
+  it('runs curated RAG mode benchmark payloads for retrieval test cases', async () => {
+    const report = {
+      benchmarks: [
+        {
+          averageRank: 1,
+          failed: 0,
+          mode: 'hybrid',
+          passed: 2,
+          passRate: 1,
+          results: [],
+          total: 2
+        }
+      ],
+      failed: 0,
+      knowledgeBaseId: 'kb_9',
+      passed: 2,
+      results: [],
+      total: 2
+    };
+    const post = vi.fn().mockResolvedValue(report);
+    const api = createKnowledgeApi(createClient({ post }));
+
+    await expect(api.runRetrievalTestCases('kb_9', { benchmarkModes: ['vector_only', 'hybrid', 'hybrid_rerank'] })).resolves.toEqual(report);
+
+    expect(post).toHaveBeenCalledWith('/api/v1/app/knowledge-bases/kb_9/retrieval-test-cases/run', {
+      benchmarkModes: ['vector_only', 'hybrid', 'hybrid_rerank']
+    });
+  });
+
   it('creates retrieval test cases from scored retrieval results', async () => {
     const created = {
       expectedChunkId: 'kdc_7',

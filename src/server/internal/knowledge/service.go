@@ -346,6 +346,21 @@ func normalizeKnowledgeRetrievalMode(mode string) string {
 }
 
 func normalizeKnowledgeRetrievalOptions(options KnowledgeRetrievalOptions) (KnowledgeRetrievalOptions, error) {
+	normalizedBenchmarkModes := make([]string, 0, len(options.BenchmarkModes))
+	seenBenchmarkModes := map[string]bool{}
+	for _, mode := range options.BenchmarkModes {
+		normalizedMode := normalizeKnowledgeRetrievalMode(mode)
+		switch normalizedMode {
+		case KnowledgeRetrievalModeVector, KnowledgeRetrievalModeKeyword, KnowledgeRetrievalModeHybrid, KnowledgeRetrievalModeHybridRerank:
+		default:
+			return KnowledgeRetrievalOptions{}, ErrInvalidKnowledgeRetrievalOptions
+		}
+		if !seenBenchmarkModes[normalizedMode] {
+			seenBenchmarkModes[normalizedMode] = true
+			normalizedBenchmarkModes = append(normalizedBenchmarkModes, normalizedMode)
+		}
+	}
+	options.BenchmarkModes = normalizedBenchmarkModes
 	if strings.TrimSpace(options.Mode) == "" {
 		options.Mode = KnowledgeRetrievalModeHybrid
 	} else {
@@ -905,9 +920,17 @@ func (s *Service) RunRetrievalTestCases(ctx context.Context, session auth.Sessio
 	if err != nil {
 		return KnowledgeRetrievalTestRunReport{}, err
 	}
+	if len(options.BenchmarkModes) > 0 {
+		return s.runRetrievalTestCaseBenchmarks(ctx, session, knowledgeBaseID, cases, options)
+	}
+	return s.runRetrievalTestCasesForMode(ctx, session, knowledgeBaseID, cases, options)
+}
+
+func (s *Service) runRetrievalTestCasesForMode(ctx context.Context, session auth.Session, knowledgeBaseID string, cases []KnowledgeRetrievalTestCase, options KnowledgeRetrievalOptions) (KnowledgeRetrievalTestRunReport, error) {
 	report := KnowledgeRetrievalTestRunReport{
-		Total:   len(cases),
-		Results: make([]KnowledgeRetrievalTestRunResult, 0, len(cases)),
+		KnowledgeBaseID: knowledgeBaseID,
+		Total:           len(cases),
+		Results:         make([]KnowledgeRetrievalTestRunResult, 0, len(cases)),
 	}
 	for _, testCase := range cases {
 		results, err := s.RetrieveWithOptions(ctx, session, knowledgeBaseID, testCase.Query, options)
@@ -931,6 +954,7 @@ func (s *Service) RunRetrievalTestCases(ctx context.Context, session auth.Sessio
 			report.Passed++
 		} else {
 			report.Failed++
+			runResult.Reason = "expected retrieval result was not returned"
 			if len(results) > 0 {
 				runResult.Actual = results[0]
 			}
@@ -938,6 +962,56 @@ func (s *Service) RunRetrievalTestCases(ctx context.Context, session auth.Sessio
 		report.Results = append(report.Results, runResult)
 	}
 	return report, nil
+}
+
+func (s *Service) runRetrievalTestCaseBenchmarks(ctx context.Context, session auth.Session, knowledgeBaseID string, cases []KnowledgeRetrievalTestCase, options KnowledgeRetrievalOptions) (KnowledgeRetrievalTestRunReport, error) {
+	report := KnowledgeRetrievalTestRunReport{
+		KnowledgeBaseID: knowledgeBaseID,
+		Total:           len(cases),
+		Benchmarks:      make([]KnowledgeRetrievalBenchmarkReport, 0, len(options.BenchmarkModes)),
+	}
+	for index, mode := range options.BenchmarkModes {
+		modeOptions := options
+		modeOptions.Mode = mode
+		modeOptions.BenchmarkModes = nil
+		modeReport, err := s.runRetrievalTestCasesForMode(ctx, session, knowledgeBaseID, cases, modeOptions)
+		if err != nil {
+			return KnowledgeRetrievalTestRunReport{}, err
+		}
+		benchmark := benchmarkReportFromTestRun(mode, modeReport)
+		report.Benchmarks = append(report.Benchmarks, benchmark)
+		if index == 0 {
+			report.Passed = modeReport.Passed
+			report.Failed = modeReport.Failed
+			report.Results = modeReport.Results
+		}
+	}
+	return report, nil
+}
+
+func benchmarkReportFromTestRun(mode string, report KnowledgeRetrievalTestRunReport) KnowledgeRetrievalBenchmarkReport {
+	benchmark := KnowledgeRetrievalBenchmarkReport{
+		Mode:    mode,
+		Total:   report.Total,
+		Passed:  report.Passed,
+		Failed:  report.Failed,
+		Results: report.Results,
+	}
+	if report.Total > 0 {
+		benchmark.PassRate = float64(report.Passed) / float64(report.Total)
+	}
+	totalRank := 0
+	rankedResults := 0
+	for _, result := range report.Results {
+		if result.Passed && result.Rank > 0 {
+			totalRank += result.Rank
+			rankedResults++
+		}
+	}
+	if rankedResults > 0 {
+		benchmark.AverageRank = float64(totalRank) / float64(rankedResults)
+	}
+	return benchmark
 }
 
 func (s *Service) rerankKnowledgeResults(ctx context.Context, query string, results []KnowledgeRetrievalResult, options KnowledgeRetrievalOptions) ([]KnowledgeRetrievalResult, error) {

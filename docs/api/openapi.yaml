@@ -318,6 +318,87 @@ components:
         query:
           type: string
           example: "如何配置模型"
+        mode:
+          type: string
+          enum: [vector_only, hybrid, hybrid_rerank]
+        limit:
+          type: integer
+        minScore:
+          type: number
+          format: double
+        documentVersion:
+          type: string
+        allVersions:
+          type: boolean
+        vectorWeight:
+          type: number
+          format: double
+        keywordWeight:
+          type: number
+          format: double
+
+    KnowledgeRetrievalTestRunRequest:
+      type: object
+      properties:
+        mode:
+          type: string
+          enum: [vector_only, hybrid, hybrid_rerank]
+        benchmarkModes:
+          type: array
+          items:
+            type: string
+            enum: [vector_only, hybrid, hybrid_rerank]
+        limit:
+          type: integer
+        minScore:
+          type: number
+          format: double
+        documentVersion:
+          type: string
+        allVersions:
+          type: boolean
+        vectorWeight:
+          type: number
+          format: double
+        keywordWeight:
+          type: number
+          format: double
+
+    KnowledgeRetrievalTestRunReport:
+      type: object
+      properties:
+        knowledgeBaseId:
+          type: string
+        total:
+          type: integer
+        passed:
+          type: integer
+        failed:
+          type: integer
+        benchmarks:
+          type: array
+          items:
+            type: object
+            properties:
+              mode:
+                type: string
+                enum: [vector_only, hybrid, hybrid_rerank]
+              total:
+                type: integer
+              passed:
+                type: integer
+              failed:
+                type: integer
+              passRate:
+                type: number
+                format: double
+              averageRank:
+                type: number
+                format: double
+              results:
+                type: array
+                items:
+                  type: object
 
     CreateTaskRequest:
       type: object
@@ -1328,6 +1409,40 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Envelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/app/knowledge-bases/{knowledgeBaseId}/retrieval-test-cases/run:
+    post:
+      summary: 运行知识库检索测试或跨模式质量基准
+      operationId: runKnowledgeRetrievalTestCases
+      tags: [Knowledge]
+      parameters:
+        - name: knowledgeBaseId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KnowledgeRetrievalTestRunRequest"
+      responses:
+        "200":
+          description: 检索测试运行报告
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/KnowledgeRetrievalTestRunReport"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":

@@ -35,6 +35,7 @@ const defaultRerankTopK = 5;
 const supportedUploadAccept = '.txt,.text,.md,.markdown,.pdf,.docx,text/plain,text/markdown,text/x-markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 const unsupportedUploadFormatMessage = 'Knowledge document uploads currently support .txt, .md, PDF, and DOCX files. Legacy .doc parsing is not available yet.';
 const chunkOverlayPalette = ['#2563eb', '#16a34a', '#f59e0b', '#dc2626', '#7c3aed', '#0891b2'];
+const retrievalBenchmarkModes: KnowledgeRetrievalMode[] = ['vector_only', 'hybrid', 'hybrid_rerank'];
 
 type KnowledgeBaseWithRagConfig = KnowledgeBaseSummary & {
   chunkOverlap?: number;
@@ -111,6 +112,12 @@ function formatRetrievalSource(result: KnowledgeRetrievalResult) {
 function formatExpectedRetrievalTestCase(testCase: KnowledgeRetrievalTestCase) {
   const title = testCase.expectedDocumentTitle?.trim() || testCase.expectedResult?.documentTitle || testCase.expectedDocumentId;
   return `Expected: ${title} · chunk ${testCase.expectedChunkIndex + 1} · ${testCase.expectedChunkId}`;
+}
+
+function formatRetrievalBenchmarkSummary(benchmark: NonNullable<KnowledgeRetrievalTestRunReport['benchmarks']>[number]) {
+  const passPercent = Math.round(benchmark.passRate * 100);
+  const averageRank = benchmark.averageRank && Number.isFinite(benchmark.averageRank) ? benchmark.averageRank : 0;
+  return `${benchmark.mode}: ${benchmark.passed}/${benchmark.total} passed · ${passPercent}% · average rank ${averageRank}`;
 }
 
 function formatRunResultSource(result: KnowledgeRetrievalResult) {
@@ -795,6 +802,26 @@ export function KnowledgePage() {
     }
   };
 
+  const handleRunRetrievalBenchmark = async () => {
+    if (!knowledgeBaseId) {
+      return;
+    }
+
+    setIsRunningRetrievalTests(true);
+    setError(null);
+
+    try {
+      const report = await knowledgeApi.runRetrievalTestCases(knowledgeBaseId, {
+        benchmarkModes: retrievalBenchmarkModes
+      });
+      setRetrievalTestRunReport(report);
+    } catch {
+      setError('Unable to run retrieval tests. Retry the request or check the backend session.');
+    } finally {
+      setIsRunningRetrievalTests(false);
+    }
+  };
+
   const handleViewDocumentChunks = async (document: KnowledgeDocumentSummary, preferredChunkId?: string) => {
     if (!knowledgeBaseId) {
       return;
@@ -1362,6 +1389,13 @@ export function KnowledgePage() {
             >
               Run retrieval tests
             </button>
+            <button
+              disabled={isRunningRetrievalTests || retrievalTestCases.length === 0}
+              onClick={() => void handleRunRetrievalBenchmark()}
+              type="button"
+            >
+              Run RAG mode benchmark
+            </button>
             {retrievalTestCases.length === 0 ? <p>No retrieval test cases saved yet.</p> : null}
             {retrievalTestCases.length > 0 ? (
               <ul>
@@ -1376,6 +1410,16 @@ export function KnowledgePage() {
             {retrievalTestRunReport ? (
               <section aria-label="Retrieval test run report">
                 <h3>{`Evaluation: ${retrievalTestRunReport.passed} passed / ${retrievalTestRunReport.failed} failed / ${retrievalTestRunReport.total} total`}</h3>
+                {retrievalTestRunReport.benchmarks && retrievalTestRunReport.benchmarks.length > 0 ? (
+                  <section aria-label="RAG mode benchmark">
+                    <h4>RAG mode benchmark</h4>
+                    <ul>
+                      {retrievalTestRunReport.benchmarks.map((benchmark) => (
+                        <li key={benchmark.mode}>{formatRetrievalBenchmarkSummary(benchmark)}</li>
+                      ))}
+                    </ul>
+                  </section>
+                ) : null}
                 <ul>
                   {retrievalTestRunReport.results.map((result) => (
                     <li key={result.testCaseId}>

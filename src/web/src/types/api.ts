@@ -275,6 +275,7 @@ export type KnowledgeRetrievalTestCase = {
 
 export type KnowledgeRetrievalTestRunRequest = {
   allVersions?: boolean;
+  benchmarkModes?: KnowledgeRetrievalMode[];
   documentVersion?: string;
   keywordWeight?: number;
   limit?: number;
@@ -294,7 +295,18 @@ export type KnowledgeRetrievalTestRunResult = {
   testCaseId: string;
 };
 
+export type KnowledgeRetrievalBenchmarkReport = {
+  averageRank?: number;
+  failed: number;
+  mode: KnowledgeRetrievalMode;
+  passed: number;
+  passRate: number;
+  results: KnowledgeRetrievalTestRunResult[];
+  total: number;
+};
+
 export type KnowledgeRetrievalTestRunReport = {
+  benchmarks?: KnowledgeRetrievalBenchmarkReport[];
   failed: number;
   knowledgeBaseId: string;
   passed: number;
