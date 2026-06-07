@@ -39,6 +39,9 @@ run_docs_checks() {
   echo "[check] Verifying observability dashboard."
   node "$repo_root/scripts/verify-observability-dashboard.mjs"
 
+  echo "[check] Verifying Kubernetes recovery policy."
+  bash "$repo_root/scripts/verify-k8s-recovery-policy.sh"
+
   echo "[check] Verifying docs and env consistency."
   contracts_file="$repo_root/docs/architecture/current-system-contracts.md"
   frontend_vars=(

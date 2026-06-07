@@ -11,31 +11,42 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: oblivious-server
-  minReplicas: 2
+  minReplicas: 3
   maxReplicas: 10
   behavior:
     scaleUp:
-      stabilizationWindowSeconds: 60
-      policies:
-        - type: Pods
-          value: 2
-          periodSeconds: 60
-    scaleDown:
       stabilizationWindowSeconds: 300
+      selectPolicy: Max
       policies:
+        - type: Percent
+          value: 50
+          periodSeconds: 300
         - type: Pods
           value: 1
-          periodSeconds: 120
+          periodSeconds: 300
+    scaleDown:
+      stabilizationWindowSeconds: 900
+      policies:
+        - type: Percent
+          value: 20
+          periodSeconds: 900
   metrics:
     - type: Resource
       resource:
         name: cpu
         target:
           type: Utilization
-          averageUtilization: 70
+          averageUtilization: 80
     - type: Resource
       resource:
         name: memory
         target:
           type: Utilization
-          averageUtilization: 80
+          averageUtilization: 85
+    - type: External
+      external:
+        metric:
+          name: workflow_queue_backlog
+        target:
+          type: AverageValue
+          averageValue: "100"

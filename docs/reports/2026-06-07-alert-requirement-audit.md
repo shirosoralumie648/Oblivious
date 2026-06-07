@@ -39,21 +39,20 @@ Status values:
 
 | Requirement | Status | Evidence / gap |
 | --- | --- | --- |
-| Automatic restart when health check fails 3 times. | Partial | Kubernetes deployments include `/healthz` liveness/readiness probes with `failureThreshold: 3`, and HTTP 5xx/panic paths record restart recovery actions. Missing: a controller-backed restart executor or manifest validation proving failed health checks trigger the intended Kubernetes restart path. |
+| Automatic restart when health check fails 3 times. | Proven | `deploy/kubernetes/app-deployment.yaml` defines `/healthz` liveness/readiness probes with `failureThreshold: 3`; `scripts/verify-k8s-recovery-policy.sh` validates the probe contract; HTTP 5xx/panic paths record restart recovery actions. |
 | Restart on OOM and panic/crash. | Partial | Kubernetes liveness/startup behavior can recover crashed containers, and HTTP middleware routes panic/5xx into recovery action records. Missing: explicit OOM/panic policy tests and restart action execution semantics. |
 | Restart strategy max 5 restarts/10 minutes with 10s, 30s, 60s, 120s, 300s backoff, then mark failure for manual intervention. | Proven | `RecoveryController` counts restart attempts in a 10-minute window, assigns the default backoff sequence, persists `attempt` and `next_attempt_at`, and records `exhausted` on the sixth attempt; `TestRecoveryControllerSchedulesRestartBackoffAndExhaustsAfterFiveAttempts`. |
-| Kubernetes `restartPolicy: Always` + readiness probe. | Partial | Deployment templates define readiness/liveness probes; Deployment pod templates rely on Kubernetes default `restartPolicy: Always`. Missing: manifest audit or validation that asserts the intended restart policy/probe contract. |
-| Automatic scale out when CPU > 80% for 5 minutes, memory > 85% for 5 minutes, or queue backlog > 100. | Partial | `deploy/kubernetes/hpa.yaml` exists and has CPU/memory metrics. Missing: thresholds are currently CPU 70/memory 80, there is no queue backlog metric trigger, and no test validates the HPA spec against Functional Logic 9.3. |
-| Scale-out increases current replicas by 50%, minimum 1, with maximum configured and 5-minute cooldown. | Partial | HPA has max replicas and scale behavior, but current policy is fixed pod increments rather than 50% scaling and 5-minute cooldown proof. |
-| Scale-down when CPU/memory < 30% for 15 minutes, reduce by 20%, minimum 3, cooldown 15 minutes. | Gap | Current HPA min replicas is 2 and scale-down behavior is 1 pod per 120 seconds with 300-second stabilization. It does not match the specified minimum or 15-minute cooldown. |
+| Kubernetes `restartPolicy: Always` + readiness probe. | Proven | Deployment pod templates rely on Kubernetes Deployment default `restartPolicy: Always`; readiness/liveness probes are validated by `scripts/verify-k8s-recovery-policy.sh`. |
+| Automatic scale out when CPU > 80% for 5 minutes, memory > 85% for 5 minutes, or queue backlog > 100. | Proven | `deploy/kubernetes/hpa.yaml` sets CPU 80%, memory 85%, queue backlog `workflow_queue_backlog` average value `100`, and 5-minute scale-up stabilization; `scripts/verify-k8s-recovery-policy.sh`. |
+| Scale-out increases current replicas by 50%, minimum 1, with maximum configured and 5-minute cooldown. | Proven | HPA uses `Percent` 50 and `Pods` 1 scale-up policies, max replicas 10, and 300-second scale-up stabilization; `scripts/verify-k8s-recovery-policy.sh`. |
+| Scale-down when CPU/memory < 30% for 15 minutes, reduce by 20%, minimum 3, cooldown 15 minutes. | Partial | HPA uses min replicas 3, 20% scale-down, and 900-second stabilization. Kubernetes HPA v2 scale-down remains based on target utilization rather than an explicit low-utilization threshold; a custom metric or explicit boundary is still needed to prove the `<30%` trigger exactly. |
 | PostgreSQL Patroni failover, Redis Sentinel failover, Kafka leader election, load balancer health removal/rejoin. | Gap | Current repository has runbooks and basic Kubernetes manifests for PostgreSQL/Redis, but no Patroni, Redis Sentinel, Kafka, or load-balancer failover manifests/tests proving these behaviors. |
 
 ## Current Conclusion
 
-Sections 9.1 and 9.2 are proven by focused tests after the 2026-06-07 alert notification work. Section 9.3 remains partial: the repository records bounded restart recovery actions and has baseline Kubernetes probes/HPA, but it does not yet fully verify the Kubernetes restart path, autoscaling behavior, and infrastructure failover semantics required by Functional Logic 9.3.
+Sections 9.1 and 9.2 are proven by focused tests after the 2026-06-07 alert notification work. Section 9.3 remains partial: the repository records bounded restart recovery actions and now validates Kubernetes probes/HPA behavior for the expressible 9.3 autoscaling rules, but it does not yet prove the exact `<30%` scale-down trigger or infrastructure failover semantics required by Functional Logic 9.3.
 
 Next implementation order:
 
-1. Add a Kubernetes manifest validation test or script for restart probes and HPA thresholds.
-2. Update HPA manifests to match CPU/memory thresholds, min replicas, and cooldowns where Kubernetes can express them.
-3. Decide whether Patroni, Redis Sentinel, Kafka, and load-balancer failover are in-repo deliverables or documented external platform prerequisites; then add manifests/tests or an explicit release boundary.
+1. Decide whether the exact `<30%` scale-down trigger is implemented through custom metrics or documented as an HPA/platform limitation.
+2. Decide whether Patroni, Redis Sentinel, Kafka, and load-balancer failover are in-repo deliverables or documented external platform prerequisites; then add manifests/tests or an explicit release boundary.
