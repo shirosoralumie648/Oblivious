@@ -295,6 +295,9 @@ func (a *DiscordAdapter) TransformInbound(raw json.RawMessage) (InternalMessage,
 		},
 		Timestamp: time.Now().UTC(),
 	}
+	if len(payload.Reactions) > 0 {
+		message.Metadata["reactions"] = payload.Reactions
+	}
 	if message.Role == "" {
 		message.Role = RoleUser
 	}
@@ -318,6 +321,7 @@ func (a *DiscordAdapter) TransformOutbound(message InternalMessage) (json.RawMes
 			payload.Embeds = append(payload.Embeds, part.Metadata)
 		}
 	}
+	payload.Reactions = discordReactionsFromMetadata(message.Metadata)
 
 	raw, err := json.Marshal(payload)
 	if err != nil {
@@ -606,6 +610,7 @@ type discordPayload struct {
 	Content     string              `json:"content,omitempty"`
 	Embeds      []map[string]any    `json:"embeds,omitempty"`
 	Attachments []discordAttachment `json:"attachments,omitempty"`
+	Reactions   []map[string]any    `json:"reactions,omitempty"`
 	Author      platformSender      `json:"author,omitempty"`
 }
 
@@ -769,6 +774,33 @@ func stringMetadata(metadata map[string]any, key string) string {
 		return ""
 	}
 	return value
+}
+
+func discordReactionsFromMetadata(metadata map[string]any) []map[string]any {
+	if metadata == nil {
+		return nil
+	}
+	switch reactions := metadata["reactions"].(type) {
+	case []map[string]any:
+		return reactions
+	case []any:
+		normalized := make([]map[string]any, 0, len(reactions))
+		for _, reaction := range reactions {
+			if reactionMap, ok := reaction.(map[string]any); ok {
+				normalized = append(normalized, reactionMap)
+			}
+		}
+		if len(normalized) > 0 {
+			return normalized
+		}
+	}
+	if emoji, ok := metadata["emoji"].(string); ok && emoji != "" {
+		return []map[string]any{{"emoji": map[string]any{"name": emoji}}}
+	}
+	if emoji, ok := metadata["emoji"].(map[string]any); ok && len(emoji) > 0 {
+		return []map[string]any{{"emoji": emoji}}
+	}
+	return nil
 }
 
 func firstNonEmpty(values ...string) string {

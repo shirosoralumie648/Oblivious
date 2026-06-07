@@ -65,6 +65,9 @@ func (a *DiscordAdapter) TransformInbound(raw json.RawMessage) (InternalMessage,
 		},
 		Timestamp: time.Now().UTC(),
 	}
+	if len(payload.Reactions) > 0 {
+		message.Metadata["reactions"] = payload.Reactions
+	}
 	if err := ValidateMessage(message); err != nil {
 		return InternalMessage{}, err
 	}
@@ -85,6 +88,7 @@ func (a *DiscordAdapter) TransformOutbound(message InternalMessage) (json.RawMes
 			payload.Embeds = append(payload.Embeds, part.Metadata)
 		}
 	}
+	payload.Reactions = DiscordReactionsFromMetadata(message.Metadata)
 
 	raw, err := json.Marshal(payload)
 	if err != nil {
@@ -102,13 +106,14 @@ func (a *DiscordAdapter) TestConnection(ctx context.Context, config map[string]a
 }
 
 type discordInboundPayload struct {
-	ID          string               `json:"id,omitempty"`
-	ChannelID   string               `json:"channel_id,omitempty"`
-	GuildID     string               `json:"guild_id,omitempty"`
-	Content     string               `json:"content,omitempty"`
-	Embeds      []map[string]any     `json:"embeds,omitempty"`
-	Attachments []discordAttachment  `json:"attachments,omitempty"`
-	Author      discordAuthor        `json:"author,omitempty"`
+	ID          string              `json:"id,omitempty"`
+	ChannelID   string              `json:"channel_id,omitempty"`
+	GuildID     string              `json:"guild_id,omitempty"`
+	Content     string              `json:"content,omitempty"`
+	Embeds      []map[string]any    `json:"embeds,omitempty"`
+	Attachments []discordAttachment `json:"attachments,omitempty"`
+	Reactions   []map[string]any    `json:"reactions,omitempty"`
+	Author      discordAuthor       `json:"author,omitempty"`
 }
 
 type discordAuthor struct {
@@ -129,4 +134,33 @@ type discordOutboundPayload struct {
 	ChannelID string           `json:"channel_id,omitempty"`
 	Content   string           `json:"content,omitempty"`
 	Embeds    []map[string]any `json:"embeds,omitempty"`
+	Reactions []map[string]any `json:"reactions,omitempty"`
+}
+
+// DiscordReactionsFromMetadata normalizes internal emoji/reaction metadata into Discord reactions.
+func DiscordReactionsFromMetadata(metadata map[string]any) []map[string]any {
+	if metadata == nil {
+		return nil
+	}
+	switch reactions := metadata["reactions"].(type) {
+	case []map[string]any:
+		return reactions
+	case []any:
+		normalized := make([]map[string]any, 0, len(reactions))
+		for _, reaction := range reactions {
+			if reactionMap, ok := reaction.(map[string]any); ok {
+				normalized = append(normalized, reactionMap)
+			}
+		}
+		if len(normalized) > 0 {
+			return normalized
+		}
+	}
+	if emoji, ok := metadata["emoji"].(string); ok && emoji != "" {
+		return []map[string]any{{"emoji": map[string]any{"name": emoji}}}
+	}
+	if emoji, ok := metadata["emoji"].(map[string]any); ok && len(emoji) > 0 {
+		return []map[string]any{{"emoji": emoji}}
+	}
+	return nil
 }
