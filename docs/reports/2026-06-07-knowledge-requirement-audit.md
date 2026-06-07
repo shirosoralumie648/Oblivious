@@ -26,7 +26,7 @@ Status values:
 | Requirement | Status | Evidence |
 | --- | --- | --- |
 | Knowledge-base config stores chunk strategy, size, and overlap. | Proven for config persistence/readback | Create/update/list/detail paths include `chunk_strategy`, `chunk_size`, and `chunk_overlap`; `TestSQLStoreListAndGetKnowledgeBasesReturnRAGConfig` covers readback. |
-| Main ingestion applies fixed, semantic, QA, or template chunking strategies. | Partial | Chunking engine files exist, and document chunk metadata is persisted. The current service/store ingestion path still builds chunks with the existing content splitter unless callers provide explicit chunks; it does not yet load the knowledge-base chunk config and drive ingestion from it. |
+| Main ingestion applies fixed, semantic, QA, or template chunking strategies. | Partial | Create/update document paths now load the knowledge-base chunk config before building chunks, and `fixed_size` uses configured chunk size and overlap with start/end rune metadata. `TestCreateDocumentUsesKnowledgeBaseChunkingConfig` and `TestUpdateDocumentUsesKnowledgeBaseChunkingConfig` prove the main ingestion path. Semantic, QA, and template-specific generation still need full strategy-specific coverage in the service path. |
 | Chunk visualization/editing is available end to end. | Partial | Workspace UI has retrieval result and chunk actions, and server chunk update/list paths exist. This audit did not prove original-document visual chunk boundaries, split/merge editing, or colored chunk overlays. |
 
 ## 3.3 Document Update Strategy
@@ -59,6 +59,7 @@ Status values:
 Fresh checks for this slice:
 
 - `go test ./internal/knowledge -run 'TestSQLStore(CreateRetrievalTestCasePersistsExpectedResult|ListRetrievalTestCasesReturnsSavedExpectedResults)' -count=1`
+- `go test ./internal/knowledge -run 'Test(Create|Update)DocumentUsesKnowledgeBaseChunkingConfig' -count=1`
 - `go test ./internal/knowledge/... -count=1`
 - `go test ./internal/http -run 'TestKnowledgeHandler|TestNewKnowledgeServiceWiresQdrantVectorStore|TestRegisterKnowledgeRoutes|TestKnowledgeRoutes|TestRegisterKnowledge' -count=1`
 
@@ -68,9 +69,9 @@ All Go commands above were run from `src/server` with absolute `GOCACHE=/tmp/obl
 
 The Knowledge/RAG row remains `Partial`, not `Proven`.
 
-This slice closes the highest-priority API/store contract gaps for retrieval mode naming, knowledge-base RAG config readback, and SQL-backed retrieval test case persistence. The remaining high-value work is:
+The current Knowledge/RAG slices close the highest-priority API/store contract gaps for retrieval mode naming, knowledge-base RAG config readback, SQL-backed retrieval test case persistence, and fixed-size chunking config in the main document create/update ingestion path. The remaining high-value work is:
 
-1. Drive ingestion from knowledge-base chunking config instead of the fixed default splitter.
+1. Extend service-path chunking coverage beyond `fixed_size` to semantic, QA, and template-specific behavior.
 2. Wire a real reranker into `hybrid_rerank`.
 3. Implement incremental and multi-version update semantics beyond storing strategy names.
 4. Populate citation highlight positions and prove document preview/source navigation.

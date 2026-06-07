@@ -1057,21 +1057,36 @@ func replaceKnowledgeDocumentChunksWithOptions(ctx context.Context, tx *sql.Tx, 
 }
 
 func chunksFromContent(content string) []KnowledgeDocumentChunk {
-	rawChunks := buildKnowledgeDocumentChunks(content)
+	rawChunks := buildKnowledgeDocumentChunksWithConfig(content, normalizeKnowledgeBaseConfig(KnowledgeBaseConfig{}))
 	chunks := make([]KnowledgeDocumentChunk, 0, len(rawChunks))
 	for index, chunk := range rawChunks {
 		chunks = append(chunks, KnowledgeDocumentChunk{
 			ChunkIndex:          index,
-			Content:             chunk,
+			Content:             chunk.Content,
 			DocumentVersion:     "v1",
-			EstimatedTokenCount: estimateKnowledgeTokens(chunk),
-			Metadata:            KnowledgeChunkMetadata{DocumentVersion: "v1"},
+			EstimatedTokenCount: estimateKnowledgeTokens(chunk.Content),
+			Metadata:            KnowledgeChunkMetadata{DocumentVersion: "v1", StartRune: chunk.StartRune, EndRune: chunk.EndRune},
 		})
 	}
 	return chunks
 }
 
-func buildKnowledgeDocumentChunks(content string) []string {
+type configuredKnowledgeChunk struct {
+	Content   string
+	EndRune   int
+	StartRune int
+}
+
+func buildKnowledgeDocumentChunks(content string) []configuredKnowledgeChunk {
+	return buildKnowledgeDocumentChunksWithConfig(content, normalizeKnowledgeBaseConfig(KnowledgeBaseConfig{}))
+}
+
+func buildKnowledgeDocumentChunksWithConfig(content string, config KnowledgeBaseConfig) []configuredKnowledgeChunk {
+	config = normalizeKnowledgeBaseConfig(config)
+	if config.ChunkStrategy == KnowledgeChunkStrategyFixedSize {
+		return buildFixedSizeKnowledgeDocumentChunks(content, config.ChunkSize, config.ChunkOverlap)
+	}
+
 	normalized := strings.TrimSpace(strings.ReplaceAll(content, "\r\n", "\n"))
 	if normalized == "" {
 		return nil
@@ -1082,7 +1097,7 @@ func buildKnowledgeDocumentChunks(content string) []string {
 		segments = strings.Split(normalized, "\n")
 	}
 
-	chunks := []string{}
+	chunks := []configuredKnowledgeChunk{}
 	for _, segment := range segments {
 		cleaned := strings.Join(strings.Fields(segment), " ")
 		if cleaned == "" {
@@ -1091,11 +1106,44 @@ func buildKnowledgeDocumentChunks(content string) []string {
 
 		for _, chunk := range splitChunk(cleaned, knowledgeDocumentChunkSize) {
 			if chunk != "" {
-				chunks = append(chunks, chunk)
+				chunks = append(chunks, configuredKnowledgeChunk{Content: chunk})
 			}
 		}
 	}
 
+	return chunks
+}
+
+func buildFixedSizeKnowledgeDocumentChunks(content string, chunkSize, overlap int) []configuredKnowledgeChunk {
+	runes := []rune(strings.TrimSpace(strings.ReplaceAll(content, "\r\n", "\n")))
+	if len(runes) == 0 {
+		return nil
+	}
+	if chunkSize <= 0 {
+		chunkSize = 500
+	}
+	if overlap < 0 {
+		overlap = 0
+	}
+	if overlap >= chunkSize {
+		overlap = chunkSize - 1
+	}
+
+	chunks := []configuredKnowledgeChunk{}
+	for start := 0; start < len(runes); {
+		end := start + chunkSize
+		if end > len(runes) {
+			end = len(runes)
+		}
+		text := strings.TrimSpace(string(runes[start:end]))
+		if text != "" {
+			chunks = append(chunks, configuredKnowledgeChunk{Content: text, StartRune: start, EndRune: end})
+		}
+		if end == len(runes) {
+			break
+		}
+		start = end - overlap
+	}
 	return chunks
 }
 

@@ -423,11 +423,15 @@ func (s *Service) CreateDocument(ctx context.Context, session auth.Session, know
 func (s *Service) CreateDocumentWithOptions(ctx context.Context, session auth.Session, knowledgeBaseID, title, content string, options KnowledgeDocumentOptions) (KnowledgeDocument, error) {
 	options = normalizeKnowledgeDocumentOptions(options)
 	startedAt := time.Now()
-	chunks, err := s.buildDocumentChunks(withKnowledgeRelayIdentity(ctx, session), content, options)
+	baseConfig, err := s.knowledgeBaseConfigForDocument(ctx, session, knowledgeBaseID)
 	if err != nil {
 		return KnowledgeDocument{}, err
 	}
-	recordRAGDocumentProcessingMetrics(KnowledgeChunkStrategyTemplateBased, len(chunks), startedAt)
+	chunks, err := s.buildDocumentChunks(withKnowledgeRelayIdentity(ctx, session), content, options, baseConfig)
+	if err != nil {
+		return KnowledgeDocument{}, err
+	}
+	recordRAGDocumentProcessingMetrics(baseConfig.ChunkStrategy, len(chunks), startedAt)
 	scope := knowledgeSessionScope(session)
 	if store, ok := s.store.(documentCreatorWithOptions); ok {
 		return store.CreateKnowledgeDocumentWithOptions(ctx, scope, knowledgeBaseID, title, content, chunks, options)
@@ -520,11 +524,15 @@ func (s *Service) UpdateDocument(ctx context.Context, session auth.Session, know
 func (s *Service) UpdateDocumentWithOptions(ctx context.Context, session auth.Session, knowledgeBaseID, documentID, title, content string, options KnowledgeDocumentOptions) (KnowledgeDocument, error) {
 	options = normalizeKnowledgeDocumentOptions(options)
 	startedAt := time.Now()
-	chunks, err := s.buildDocumentChunks(withKnowledgeRelayIdentity(ctx, session), content, options)
+	baseConfig, err := s.knowledgeBaseConfigForDocument(ctx, session, knowledgeBaseID)
 	if err != nil {
 		return KnowledgeDocument{}, err
 	}
-	recordRAGDocumentProcessingMetrics(KnowledgeChunkStrategyTemplateBased, len(chunks), startedAt)
+	chunks, err := s.buildDocumentChunks(withKnowledgeRelayIdentity(ctx, session), content, options, baseConfig)
+	if err != nil {
+		return KnowledgeDocument{}, err
+	}
+	recordRAGDocumentProcessingMetrics(baseConfig.ChunkStrategy, len(chunks), startedAt)
 	scope := knowledgeSessionScope(session)
 	if store, ok := s.store.(documentUpdaterWithOptions); ok {
 		return store.UpdateKnowledgeDocumentWithOptions(ctx, scope, knowledgeBaseID, documentID, title, content, chunks, options)
@@ -623,20 +631,35 @@ func (s *Service) RunRetrievalTestCases(ctx context.Context, session auth.Sessio
 	return report, nil
 }
 
-func (s *Service) buildDocumentChunks(ctx context.Context, content string, options KnowledgeDocumentOptions) ([]KnowledgeDocumentChunk, error) {
-	rawChunks := buildKnowledgeDocumentChunks(content)
+func (s *Service) knowledgeBaseConfigForDocument(ctx context.Context, session auth.Session, knowledgeBaseID string) (KnowledgeBaseConfig, error) {
+	base, err := s.Get(ctx, session, knowledgeBaseID)
+	if err != nil {
+		return normalizeKnowledgeBaseConfig(KnowledgeBaseConfig{}), err
+	}
+	return normalizeKnowledgeBaseConfig(KnowledgeBaseConfig{
+		ChunkOverlap:  base.ChunkOverlap,
+		ChunkSize:     base.ChunkSize,
+		ChunkStrategy: base.ChunkStrategy,
+	}), nil
+}
+
+func (s *Service) buildDocumentChunks(ctx context.Context, content string, options KnowledgeDocumentOptions, baseConfig KnowledgeBaseConfig) ([]KnowledgeDocumentChunk, error) {
+	baseConfig = normalizeKnowledgeBaseConfig(baseConfig)
+	rawChunks := buildKnowledgeDocumentChunksWithConfig(content, baseConfig)
 	chunks := make([]KnowledgeDocumentChunk, 0, len(rawChunks))
 	for index, chunk := range rawChunks {
 		metadata := KnowledgeChunkMetadata{
 			DocumentVersion: options.DocumentVersion,
 			PageNumber:      options.PageNumber,
 			SourceURL:       options.SourceURL,
+			StartRune:       chunk.StartRune,
+			EndRune:         chunk.EndRune,
 		}
 		chunks = append(chunks, KnowledgeDocumentChunk{
 			ChunkIndex:          index,
-			Content:             chunk,
+			Content:             chunk.Content,
 			DocumentVersion:     options.DocumentVersion,
-			EstimatedTokenCount: estimateKnowledgeTokens(chunk),
+			EstimatedTokenCount: estimateKnowledgeTokens(chunk.Content),
 			Metadata:            metadata,
 		})
 	}

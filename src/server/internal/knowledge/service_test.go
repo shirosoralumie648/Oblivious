@@ -2,6 +2,7 @@ package knowledge
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -107,6 +108,20 @@ func (f *fakeStore) UpdateKnowledgeDocument(ctx context.Context, workspaceID, kn
 		Title:   title,
 		Content: content,
 	}
+	return f.updatedDoc, nil
+}
+
+func (f *fakeStore) UpdateKnowledgeDocumentWithOptions(ctx context.Context, workspaceID, knowledgeBaseID, documentID, title, content string, chunks []KnowledgeDocumentChunk, options KnowledgeDocumentOptions) (KnowledgeDocument, error) {
+	f.workspaceID = workspaceID
+	f.requestedID = knowledgeBaseID
+	f.deletedDocID = documentID
+	f.requestedDoc = KnowledgeDocument{
+		Title:           title,
+		Content:         content,
+		DocumentVersion: options.DocumentVersion,
+		UpdateStrategy:  options.UpdateStrategy,
+	}
+	f.createdChunks = append([]KnowledgeDocumentChunk(nil), chunks...)
 	return f.updatedDoc, nil
 }
 
@@ -381,6 +396,85 @@ func TestCreateDocumentRecordsRAGDocumentProcessingMetrics(t *testing.T) {
 	}
 	if got := testutil.ToFloat64(metrics.RAGChunkCount); got != float64(len(store.createdChunks)) {
 		t.Fatalf("expected RAG chunk count %d, got %v", len(store.createdChunks), got)
+	}
+}
+
+func TestCreateDocumentUsesKnowledgeBaseChunkingConfig(t *testing.T) {
+	store := &fakeStore{
+		createdDoc: KnowledgeDocument{ID: "doc_chunk_config", Title: "Chunk Config Doc"},
+		detailBase: KnowledgeBase{
+			ChunkOverlap:  20,
+			ChunkSize:     120,
+			ChunkStrategy: KnowledgeChunkStrategyFixedSize,
+			ID:            "kb_chunk_config",
+			Name:          "Chunk Config KB",
+		},
+	}
+	service := NewService(store)
+	content := strings.Repeat("a", 260)
+
+	if _, err := service.CreateDocumentWithOptions(
+		context.Background(),
+		auth.Session{WorkspaceID: "workspace_1", OrganizationID: "org_1"},
+		"kb_chunk_config",
+		"Chunk Config Doc",
+		content,
+		KnowledgeDocumentOptions{},
+	); err != nil {
+		t.Fatalf("create document with configured chunks: %v", err)
+	}
+
+	if store.workspaceID != "org_1" || store.requestedID != "kb_chunk_config" {
+		t.Fatalf("expected knowledge base config lookup and write to use org scope, scope=%q kb=%q", store.workspaceID, store.requestedID)
+	}
+	if len(store.createdChunks) != 3 {
+		t.Fatalf("expected fixed-size chunk config to create 3 chunks, got %d: %+v", len(store.createdChunks), store.createdChunks)
+	}
+	if got := len([]rune(store.createdChunks[0].Content)); got != 120 {
+		t.Fatalf("expected first chunk size 120 from KB config, got %d", got)
+	}
+	if store.createdChunks[1].Metadata.StartRune != 100 || store.createdChunks[1].Metadata.EndRune != 220 {
+		t.Fatalf("expected overlap metadata start/end 100/220, got %+v", store.createdChunks[1].Metadata)
+	}
+}
+
+func TestUpdateDocumentUsesKnowledgeBaseChunkingConfig(t *testing.T) {
+	store := &fakeStore{
+		detailBase: KnowledgeBase{
+			ChunkOverlap:  20,
+			ChunkSize:     120,
+			ChunkStrategy: KnowledgeChunkStrategyFixedSize,
+			ID:            "kb_chunk_config",
+			Name:          "Chunk Config KB",
+		},
+		updatedDoc: KnowledgeDocument{ID: "doc_chunk_config", Title: "Chunk Config Doc"},
+	}
+	service := NewService(store)
+	content := strings.Repeat("b", 260)
+
+	if _, err := service.UpdateDocumentWithOptions(
+		context.Background(),
+		auth.Session{WorkspaceID: "workspace_1", OrganizationID: "org_1"},
+		"kb_chunk_config",
+		"doc_chunk_config",
+		"Chunk Config Doc",
+		content,
+		KnowledgeDocumentOptions{},
+	); err != nil {
+		t.Fatalf("update document with configured chunks: %v", err)
+	}
+
+	if store.deletedDocID != "doc_chunk_config" {
+		t.Fatalf("expected update to target doc_chunk_config, got %q", store.deletedDocID)
+	}
+	if len(store.createdChunks) != 3 {
+		t.Fatalf("expected fixed-size chunk config to create 3 update chunks, got %d: %+v", len(store.createdChunks), store.createdChunks)
+	}
+	if got := len([]rune(store.createdChunks[0].Content)); got != 120 {
+		t.Fatalf("expected first update chunk size 120 from KB config, got %d", got)
+	}
+	if store.createdChunks[1].Metadata.StartRune != 100 || store.createdChunks[1].Metadata.EndRune != 220 {
+		t.Fatalf("expected update overlap metadata start/end 100/220, got %+v", store.createdChunks[1].Metadata)
 	}
 }
 
