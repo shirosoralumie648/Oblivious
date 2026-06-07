@@ -17,6 +17,8 @@ import (
 type fakeLifecycleStore struct {
 	checkoutEvents []checkoutCompletedLifecycle
 	checkoutIDs    []string
+	refundEvents   []refundLifecycle
+	refundIDs      []string
 }
 
 func (s *fakeLifecycleStore) ApplyCheckoutCompleted(_ context.Context, eventID string, input checkoutCompletedLifecycle, _ []byte) error {
@@ -36,12 +38,15 @@ func (s *fakeLifecycleStore) ApplySubscriptionUpdated(context.Context, string, s
 func (s *fakeLifecycleStore) ApplySubscriptionDeleted(context.Context, string, subscriptionLifecycle, []byte) error {
 	return nil
 }
-func (s *fakeLifecycleStore) ApplyRefund(context.Context, string, refundLifecycle, []byte) error {
+func (s *fakeLifecycleStore) ApplyRefund(_ context.Context, eventID string, input refundLifecycle, _ []byte) error {
+	s.refundIDs = append(s.refundIDs, eventID)
+	s.refundEvents = append(s.refundEvents, input)
 	return nil
 }
 
 type fakeMarketplaceSettlementApplier struct {
 	checkoutEvents []MarketplaceCheckoutCompleted
+	refundEvents   []MarketplaceRefund
 }
 
 func (s *fakeMarketplaceSettlementApplier) ApplyPaidInstallCheckoutCompleted(_ context.Context, input MarketplaceCheckoutCompleted) error {
@@ -49,7 +54,8 @@ func (s *fakeMarketplaceSettlementApplier) ApplyPaidInstallCheckoutCompleted(_ c
 	return nil
 }
 
-func (s *fakeMarketplaceSettlementApplier) ApplyMarketplaceRefund(context.Context, MarketplaceRefund) error {
+func (s *fakeMarketplaceSettlementApplier) ApplyMarketplaceRefund(_ context.Context, input MarketplaceRefund) error {
+	s.refundEvents = append(s.refundEvents, input)
 	return nil
 }
 
@@ -146,6 +152,79 @@ func TestLifecycleAppliesDomesticMarketplaceInstallThroughSettlementApplier(t *t
 		input.PaymentIntentID != "pi_marketplace_1" || input.ProviderPaymentIntentID != "trade_marketplace_1" ||
 		input.ProviderCheckoutSessionID != "alipay_marketplace_session_1" {
 		t.Fatalf("unexpected domestic marketplace settlement input: %+v", input)
+	}
+}
+
+func TestLifecycleAppliesDomesticRefundThroughRefundLifecycle(t *testing.T) {
+	store := &fakeLifecycleStore{}
+	service := NewLifecycleService(store)
+
+	if err := service.ApplyDomesticRefund(context.Background(), DomesticRefund{
+		Provider:                "alipay",
+		EventID:                 "evt_alipay_refund",
+		OrganizationID:          "org_1",
+		UserID:                  "user_1",
+		PaymentIntentID:         "pi_1",
+		Kind:                    "topup",
+		ProviderRefundID:        "alipay_refund_1",
+		ProviderPaymentIntentID: "trade_1",
+		Amount:                  10,
+		Currency:                "cny",
+		Status:                  "succeeded",
+		Reason:                  "requested_by_customer",
+	}, []byte(`{"id":"evt_alipay_refund"}`)); err != nil {
+		t.Fatalf("ApplyDomesticRefund returned error: %v", err)
+	}
+
+	if len(store.refundIDs) != 1 || store.refundIDs[0] != "evt_alipay_refund" {
+		t.Fatalf("expected one domestic refund event id, got %+v", store.refundIDs)
+	}
+	if len(store.refundEvents) != 1 {
+		t.Fatalf("expected one domestic refund input, got %+v", store.refundEvents)
+	}
+	input := store.refundEvents[0]
+	if input.Provider != "alipay" || input.ProviderRefundID != "alipay_refund_1" ||
+		input.PaymentIntentID != "pi_1" || input.ProviderPaymentIntentID != "trade_1" ||
+		input.Kind != "topup" || input.Amount != 10 || input.Currency != "cny" ||
+		input.Status != "succeeded" || input.Reason != "requested_by_customer" ||
+		input.OrganizationID != "org_1" || input.UserID != "user_1" {
+		t.Fatalf("unexpected domestic refund input: %+v", input)
+	}
+}
+
+func TestLifecycleAppliesDomesticMarketplaceRefundThroughSettlementApplier(t *testing.T) {
+	store := &fakeLifecycleStore{}
+	settlement := &fakeMarketplaceSettlementApplier{}
+	service := NewLifecycleService(store, WithMarketplaceSettlementApplier(settlement))
+
+	if err := service.ApplyDomesticRefund(context.Background(), DomesticRefund{
+		Provider:                "alipay",
+		EventID:                 "evt_alipay_marketplace_refund",
+		OrganizationID:          "org_1",
+		UserID:                  "user_1",
+		PaymentIntentID:         "pi_marketplace_1",
+		Kind:                    "marketplace_install",
+		ProviderRefundID:        "alipay_marketplace_refund_1",
+		ProviderPaymentIntentID: "trade_marketplace_1",
+		Amount:                  10,
+		Currency:                "cny",
+		Status:                  "succeeded",
+		Reason:                  "requested_by_customer",
+	}, []byte(`{"id":"evt_alipay_marketplace_refund"}`)); err != nil {
+		t.Fatalf("ApplyDomesticRefund returned error: %v", err)
+	}
+
+	if len(store.refundEvents) != 1 {
+		t.Fatalf("expected generic refund ledger to be applied once, got %+v", store.refundEvents)
+	}
+	if len(settlement.refundEvents) != 1 {
+		t.Fatalf("expected marketplace settlement refund input, got %+v", settlement.refundEvents)
+	}
+	input := settlement.refundEvents[0]
+	if input.EventID != "evt_alipay_marketplace_refund" || input.ProviderRefundID != "alipay_marketplace_refund_1" ||
+		input.PaymentIntentID != "pi_marketplace_1" || input.ProviderPaymentIntentID != "trade_marketplace_1" ||
+		input.Amount != 10 || input.Currency != "cny" || input.Reason != "requested_by_customer" {
+		t.Fatalf("unexpected domestic marketplace refund input: %+v", input)
 	}
 }
 

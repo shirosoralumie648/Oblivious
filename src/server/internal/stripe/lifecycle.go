@@ -62,6 +62,22 @@ type DomesticCheckoutPaid struct {
 	Currency                  string
 }
 
+type DomesticRefund struct {
+	Provider                string
+	EventID                 string
+	OrganizationID          string
+	UserID                  string
+	PaymentIntentID         string
+	Kind                    string
+	ProviderRefundID        string
+	ProviderChargeID        string
+	ProviderPaymentIntentID string
+	Amount                  float64
+	Currency                string
+	Status                  string
+	Reason                  string
+}
+
 // LifecycleStore persists idempotent billing lifecycle transitions.
 type LifecycleStore interface {
 	ApplyCheckoutCompleted(ctx context.Context, eventID string, input checkoutCompletedLifecycle, payload []byte) error
@@ -275,6 +291,73 @@ func (s *LifecycleService) ApplyDomesticCheckoutPaid(ctx context.Context, input 
 		return err
 	}
 	metrics.RecordBillingLifecycleEvent("checkout", "completed")
+	return nil
+}
+
+func (s *LifecycleService) ApplyDomesticRefund(ctx context.Context, input DomesticRefund, payload []byte) error {
+	provider := strings.ToLower(strings.TrimSpace(input.Provider))
+	if provider == "" {
+		provider = "domestic"
+	}
+	ctx, span := observability.StartSpan(ctx, "billing.domestic_refund_lifecycle", observability.String("payment.provider", provider))
+	defer span.End()
+
+	if s == nil || s.store == nil {
+		return nil
+	}
+	currency := strings.ToLower(strings.TrimSpace(input.Currency))
+	if currency == "" {
+		currency = "cny"
+	}
+	status := strings.TrimSpace(input.Status)
+	if status == "" {
+		status = "succeeded"
+	}
+	if input.EventID == "" || input.OrganizationID == "" || input.UserID == "" || input.ProviderRefundID == "" || input.Amount <= 0 {
+		metrics.RecordBillingLifecycleEvent("refund", "failed")
+		return fmt.Errorf("%s refund: missing event_id, organization_id, user_id, refund_id, or positive amount", provider)
+	}
+	if input.PaymentIntentID == "" && input.ProviderPaymentIntentID == "" {
+		metrics.RecordBillingLifecycleEvent("refund", "failed")
+		return fmt.Errorf("%s refund: missing payment_intent_id or provider_payment_intent_id", provider)
+	}
+	refund := refundLifecycle{
+		Provider:                provider,
+		ProviderRefundID:        strings.TrimSpace(input.ProviderRefundID),
+		ProviderChargeID:        strings.TrimSpace(input.ProviderChargeID),
+		ProviderPaymentIntentID: strings.TrimSpace(input.ProviderPaymentIntentID),
+		OrganizationID:          input.OrganizationID,
+		UserID:                  input.UserID,
+		PaymentIntentID:         input.PaymentIntentID,
+		Kind:                    strings.TrimSpace(input.Kind),
+		Amount:                  input.Amount,
+		Currency:                currency,
+		Status:                  status,
+		Reason:                  strings.TrimSpace(input.Reason),
+	}
+	if err := s.store.ApplyRefund(ctx, input.EventID, refund, payload); err != nil {
+		metrics.RecordBillingLifecycleEvent("refund", "failed")
+		return err
+	}
+	if refund.Kind == "marketplace_install" {
+		if s.marketplaceApplier == nil {
+			metrics.RecordBillingLifecycleEvent("refund", "failed")
+			return fmt.Errorf("%s refund: marketplace settlement applier is not configured", provider)
+		}
+		if err := s.marketplaceApplier.ApplyMarketplaceRefund(ctx, MarketplaceRefund{
+			EventID:                 input.EventID,
+			ProviderRefundID:        refund.ProviderRefundID,
+			PaymentIntentID:         refund.PaymentIntentID,
+			ProviderPaymentIntentID: refund.ProviderPaymentIntentID,
+			Amount:                  refund.Amount,
+			Currency:                refund.Currency,
+			Reason:                  refund.Reason,
+		}); err != nil {
+			metrics.RecordBillingLifecycleEvent("refund", "failed")
+			return err
+		}
+	}
+	metrics.RecordBillingLifecycleEvent("refund", "created")
 	return nil
 }
 
@@ -504,6 +587,7 @@ func parseSubscriptionLifecycle(event stripeapi.Event) (subscriptionLifecycle, e
 }
 
 type refundLifecycle struct {
+	Provider                string
 	ProviderRefundID        string
 	ProviderChargeID        string
 	ProviderPaymentIntentID string
@@ -545,6 +629,7 @@ func parseRefundLifecycle(event stripeapi.Event) (refundLifecycle, error) {
 		status = "succeeded"
 	}
 	input := refundLifecycle{
+		Provider:                "stripe",
 		ProviderRefundID:        refund.ID,
 		ProviderChargeID:        string(refund.Charge),
 		ProviderPaymentIntentID: string(refund.PaymentIntent),
@@ -788,9 +873,14 @@ func (s *SQLLifecycleStore) applySubscription(ctx context.Context, eventID strin
 }
 
 func (s *SQLLifecycleStore) ApplyRefund(ctx context.Context, eventID string, input refundLifecycle, payload []byte) error {
-	transitionKey := fmt.Sprintf("stripe:%s:refund:%s", eventID, input.ProviderRefundID)
+	provider := strings.ToLower(strings.TrimSpace(input.Provider))
+	if provider == "" {
+		provider = "stripe"
+	}
+	transitionKey := fmt.Sprintf("%s:%s:refund:%s", provider, eventID, input.ProviderRefundID)
 	return s.withTransition(ctx, lifecycleTransition{
 		Key:             transitionKey,
+		Provider:        provider,
 		ProviderEventID: eventID,
 		EventType:       "refund.created",
 		OrganizationID:  input.OrganizationID,
@@ -845,10 +935,10 @@ func (s *SQLLifecycleStore) ApplyRefund(ctx context.Context, eventID string, inp
 				organization_id, user_id, payment_intent_id, topup_order_id,
 				amount, currency, status, reason, payload, created_at, updated_at
 			)
-			VALUES ($1, 'stripe', $2, NULLIF($3, ''), NULLIF($4, ''), $5, $6, $7, NULLIF($8, ''), $9, $10, $11, NULLIF($12, ''), $13, $14, $14)
+			VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), $6, $7, $8, NULLIF($9, ''), $10, $11, $12, NULLIF($13, ''), $14, $15, $15)
 			ON CONFLICT (provider, provider_refund_id) DO UPDATE
 			SET status = EXCLUDED.status, updated_at = EXCLUDED.updated_at, payload = EXCLUDED.payload
-		`, uuid.New().String(), input.ProviderRefundID, input.ProviderChargeID, input.ProviderPaymentIntentID, input.OrganizationID, input.UserID, paymentIntentID, topupOrderID, input.Amount, input.Currency, input.Status, input.Reason, payloadOrEmpty(payload), now); err != nil {
+		`, uuid.New().String(), provider, input.ProviderRefundID, input.ProviderChargeID, input.ProviderPaymentIntentID, input.OrganizationID, input.UserID, paymentIntentID, topupOrderID, input.Amount, input.Currency, input.Status, input.Reason, payloadOrEmpty(payload), now); err != nil {
 			return fmt.Errorf("upsert refund: %w", err)
 		}
 

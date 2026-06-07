@@ -301,6 +301,87 @@ func TestDomesticPaymentWebhookRouteAppliesTopupLifecycleOnce(t *testing.T) {
 	}
 }
 
+func TestDomesticPaymentWebhookRouteAppliesTopupRefundOnce(t *testing.T) {
+	database := testDatabase(t)
+	cfg := testConfig()
+	cfg.AlipayWebhookSecret = "alipay_refund_secret"
+	router := NewRouter(cfg, database)
+	_, _, userID := registerHTTPUser(t, router, "alipay-refund@example.com")
+	_, organizationID := queryHTTPUserScope(t, database, userID)
+	if _, err := database.Exec(`
+		INSERT INTO payment_intents (
+			id, provider, organization_id, user_id, kind, amount, currency, status,
+			metadata, created_at, updated_at, provider_payment_intent_id
+		)
+		VALUES ('pi_alipay_refund', 'alipay', $1, $2, 'topup', 25, 'cny', 'completed',
+		        '{}', NOW(), NOW(), 'trade_alipay_refund')
+	`, organizationID, userID); err != nil {
+		t.Fatalf("insert domestic refund payment intent: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO topup_orders (id, organization_id, user_id, amount, money, status, payment_intent_id, paid_at, created_at)
+		VALUES ('topup_alipay_refund', $1, $2, 25, 25, 'paid', 'pi_alipay_refund', NOW(), NOW())
+	`, organizationID, userID); err != nil {
+		t.Fatalf("insert domestic refund topup order: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO quotas (id, organization_id, user_id, scope, balance, used, created_at, updated_at)
+		VALUES ('quota_alipay_refund', $1, $2, 'organization', 25, 0, NOW(), NOW())
+	`, organizationID, userID); err != nil {
+		t.Fatalf("seed domestic refund quota balance: %v", err)
+	}
+
+	payload := []byte(fmt.Sprintf(`{
+		"id": "evt_alipay_refund",
+		"type": "refund.succeeded",
+		"organization_id": %q,
+		"user_id": %q,
+		"payment_intent_id": "pi_alipay_refund",
+		"provider_payment_intent_id": "trade_alipay_refund",
+		"provider_refund_id": "alipay_refund_1",
+		"kind": "topup",
+		"amount": 10,
+		"currency": "cny",
+		"reason": "requested_by_customer"
+	}`, organizationID, userID))
+	timestamp := "1760000000"
+	for i := 0; i < 2; i++ {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/billing/alipay/webhook", strings.NewReader(string(payload)))
+		request.Header.Set("Oblivious-Payment-Timestamp", timestamp)
+		request.Header.Set("Oblivious-Payment-Signature", domesticWebhookSignature(cfg.AlipayWebhookSecret, timestamp, payload))
+		router.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("attempt %d expected alipay refund webhook 200, got %d with body %s", i+1, recorder.Code, recorder.Body.String())
+		}
+	}
+
+	var refundCount int
+	var paymentStatus, refundProvider string
+	var intentRefunded, topupRefunded, quotaBalance float64
+	if err := database.QueryRow(`
+		SELECT COUNT(*), COALESCE(MAX(provider), '')
+		FROM billing_refunds
+		WHERE provider_refund_id = 'alipay_refund_1'
+	`).Scan(&refundCount, &refundProvider); err != nil {
+		t.Fatalf("query domestic refund count: %v", err)
+	}
+	if err := database.QueryRow(`SELECT status, refunded_amount FROM payment_intents WHERE id = 'pi_alipay_refund'`).Scan(&paymentStatus, &intentRefunded); err != nil {
+		t.Fatalf("query domestic refund payment intent: %v", err)
+	}
+	if err := database.QueryRow(`SELECT refunded_amount FROM topup_orders WHERE id = 'topup_alipay_refund'`).Scan(&topupRefunded); err != nil {
+		t.Fatalf("query domestic refund topup: %v", err)
+	}
+	if err := database.QueryRow(`SELECT balance FROM quotas WHERE organization_id = $1 AND scope = 'organization'`, organizationID).Scan(&quotaBalance); err != nil {
+		t.Fatalf("query domestic refund quota: %v", err)
+	}
+	if refundCount != 1 || refundProvider != "alipay" || paymentStatus != "partially_refunded" ||
+		intentRefunded != 10 || topupRefunded != 10 || quotaBalance != 15 {
+		t.Fatalf("expected one alipay partial refund and quota reversal, got refunds=%d provider=%s payment=%s intentRefund=%.2f topupRefund=%.2f balance=%.2f",
+			refundCount, refundProvider, paymentStatus, intentRefunded, topupRefunded, quotaBalance)
+	}
+}
+
 func TestBillingCheckoutRequiresSession(t *testing.T) {
 	router := NewRouter(testConfig(), testDatabase(t))
 
@@ -941,6 +1022,130 @@ func TestDomesticPaymentWebhookRouteAppliesMarketplaceInstallSettlementOnce(t *t
 		installCount != 1 || settlementCount != 1 || transitionCount != 1 {
 		t.Fatalf("expected paid order, completed intent, one install, one settlement, one transition; got order=%s payment=%s provider_pi=%s installs=%d settlements=%d transitions=%d",
 			orderStatus, paymentStatus, storedProviderPaymentIntentID, installCount, settlementCount, transitionCount)
+	}
+}
+
+func TestDomesticPaymentWebhookRouteAppliesMarketplaceRefundOnce(t *testing.T) {
+	database := testDatabase(t)
+	stripeCreator := &fakeCheckoutCreator{database: database}
+	alipayCreator := &fakeCheckoutCreator{
+		database:   database,
+		sessionID:  "alipay_marketplace_refund_session",
+		sessionURL: "https://checkout.alipay.test/marketplace/alipay_marketplace_refund_session",
+	}
+	providerRegistry := payment.NewRegistry("stripe")
+	providerRegistry.Register(payment.Provider{Name: "stripe", Configured: true})
+	providerRegistry.Register(payment.Provider{Name: "alipay", Configured: true})
+
+	cfg := testConfig()
+	cfg.AlipayWebhookSecret = "alipay_marketplace_refund_secret"
+	cfg.StripeSuccessURL = "https://app.oblivious.test/marketplace/success"
+	cfg.StripeCancelURL = "https://app.oblivious.test/marketplace/cancel"
+	router := NewRouterWithOptions(cfg, database, RouterOptions{
+		CheckoutCreator:         stripeCreator,
+		CheckoutCreators:        map[string]stripebilling.CheckoutCreator{"alipay": alipayCreator},
+		PaymentProviderRegistry: providerRegistry,
+	})
+
+	cookie, csrfToken, buyerUserID := registerHTTPUser(t, router, "marketplace-alipay-refund-buyer@example.com")
+	_, buyerOrganizationID := queryHTTPUserScope(t, database, buyerUserID)
+	_, _, publisherUserID := registerHTTPUser(t, router, "marketplace-alipay-refund-publisher@example.com")
+	_, publisherOrganizationID := queryHTTPUserScope(t, database, publisherUserID)
+
+	if _, err := database.Exec(`
+		INSERT INTO published_agents (
+			id, owner_id, organization_id, name, description, tools, example_conversations,
+			visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at
+		)
+		VALUES ('agent_paid_alipay_refund', $1, $2, 'Paid Alipay Refund Agent', 'Paid marketplace domestic refund test agent.',
+		        '{"tools":[{"name":"paid"}]}'::jsonb, '[]'::jsonb, 'public', 'approved',
+		        'one_time', 50, 0, 0, 0, NOW(), NOW())
+	`, publisherUserID, publisherOrganizationID); err != nil {
+		t.Fatalf("insert paid alipay refund marketplace agent: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO agent_versions (id, agent_id, organization_id, version, changelog, metadata, status, created_at)
+		VALUES ('version_agent_paid_alipay_refund', 'agent_paid_alipay_refund', $1, '1.0.0', 'initial', '{}', 'approved', NOW())
+	`, publisherOrganizationID); err != nil {
+		t.Fatalf("insert paid alipay refund marketplace version: %v", err)
+	}
+
+	installRecorder := httptest.NewRecorder()
+	installRequest := httptest.NewRequest(http.MethodPost, "/api/v1/marketplace/agents/agent_paid_alipay_refund/install?versionID=version_agent_paid_alipay_refund&provider=alipay", nil)
+	installRequest.AddCookie(cookie)
+	addCSRF(installRequest, csrfToken)
+	router.ServeHTTP(installRecorder, installRequest)
+	if installRecorder.Code != http.StatusCreated {
+		t.Fatalf("paid alipay install checkout expected 201, got %d with body %s", installRecorder.Code, installRecorder.Body.String())
+	}
+
+	paidPayload := []byte(fmt.Sprintf(`{
+		"id": "evt_alipay_marketplace_refund_paid",
+		"type": "checkout.paid",
+		"organization_id": %q,
+		"user_id": %q,
+		"payment_intent_id": %q,
+		"marketplace_order_id": %q,
+		"provider_payment_intent_id": "alipay_marketplace_refund_payment_1",
+		"provider_checkout_session_id": "alipay_marketplace_refund_session",
+		"kind": "marketplace_install",
+		"amount": 50,
+		"currency": "cny"
+	}`, buyerOrganizationID, buyerUserID, alipayCreator.request.PaymentIntentID, alipayCreator.request.MarketplaceOrderID))
+	timestamp := "1760000000"
+	paidRecorder := httptest.NewRecorder()
+	paidRequest := httptest.NewRequest(http.MethodPost, "/api/v1/billing/alipay/webhook", strings.NewReader(string(paidPayload)))
+	paidRequest.Header.Set("Oblivious-Payment-Timestamp", timestamp)
+	paidRequest.Header.Set("Oblivious-Payment-Signature", domesticWebhookSignature(cfg.AlipayWebhookSecret, timestamp, paidPayload))
+	router.ServeHTTP(paidRecorder, paidRequest)
+	if paidRecorder.Code != http.StatusOK {
+		t.Fatalf("paid marketplace webhook expected 200, got %d with body %s", paidRecorder.Code, paidRecorder.Body.String())
+	}
+
+	refundPayload := []byte(fmt.Sprintf(`{
+		"id": "evt_alipay_marketplace_refund",
+		"type": "refund.succeeded",
+		"organization_id": %q,
+		"user_id": %q,
+		"payment_intent_id": %q,
+		"provider_payment_intent_id": "alipay_marketplace_refund_payment_1",
+		"provider_refund_id": "alipay_marketplace_refund_1",
+		"kind": "marketplace_install",
+		"amount": 10,
+		"currency": "cny",
+		"reason": "requested_by_customer"
+	}`, buyerOrganizationID, buyerUserID, alipayCreator.request.PaymentIntentID))
+	for i := 0; i < 2; i++ {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/billing/alipay/webhook", strings.NewReader(string(refundPayload)))
+		request.Header.Set("Oblivious-Payment-Timestamp", timestamp)
+		request.Header.Set("Oblivious-Payment-Signature", domesticWebhookSignature(cfg.AlipayWebhookSecret, timestamp, refundPayload))
+		router.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("refund attempt %d expected 200, got %d with body %s", i+1, recorder.Code, recorder.Body.String())
+		}
+	}
+
+	var orderStatus, settlementStatus, refundProvider string
+	var orderRefunded, settlementRefunded float64
+	var refundCount int
+	if err := database.QueryRow(`SELECT status, refunded_amount FROM marketplace_orders WHERE id = $1`, alipayCreator.request.MarketplaceOrderID).Scan(&orderStatus, &orderRefunded); err != nil {
+		t.Fatalf("query domestic marketplace refund order: %v", err)
+	}
+	if err := database.QueryRow(`SELECT status, refunded_amount FROM marketplace_settlements WHERE order_id = $1`, alipayCreator.request.MarketplaceOrderID).Scan(&settlementStatus, &settlementRefunded); err != nil {
+		t.Fatalf("query domestic marketplace refund settlement: %v", err)
+	}
+	if err := database.QueryRow(`
+		SELECT COUNT(*), COALESCE(MAX(provider), '')
+		FROM billing_refunds
+		WHERE provider_refund_id = 'alipay_marketplace_refund_1'
+	`).Scan(&refundCount, &refundProvider); err != nil {
+		t.Fatalf("query domestic marketplace billing refunds: %v", err)
+	}
+	if orderStatus != "partially_refunded" || settlementStatus != "partially_refunded" ||
+		orderRefunded != 10 || settlementRefunded != 10 || refundCount != 1 || refundProvider != "alipay" {
+		t.Fatalf("expected one alipay marketplace partial refund, got order=%s %.2f settlement=%s %.2f refunds=%d provider=%s",
+			orderStatus, orderRefunded, settlementStatus, settlementRefunded, refundCount, refundProvider)
 	}
 }
 
