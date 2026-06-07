@@ -476,6 +476,46 @@ func TestRegisterWorkflowRoutesDispatchesCreateWorkflowBranch(t *testing.T) {
 	}
 }
 
+func TestRegisterWorkflowRoutesDispatchesBranchPublishAndMerge(t *testing.T) {
+	service := &workflowFakeService{
+		publishedBranch: &workflow.WorkflowDefinition{
+			ID:      "workflow_published_branch",
+			Name:    "Published Branch",
+			Status:  workflow.WorkflowStatusPublished,
+			Version: 1,
+		},
+		mergedBranch: &workflow.WorkflowDefinition{
+			ID:      "workflow_1",
+			Name:    "Incident Router",
+			Status:  workflow.WorkflowStatusPublished,
+			Version: 3,
+		},
+	}
+	handler := newWorkflowHandler(service)
+	mux := stdhttp.NewServeMux()
+	registerWorkflowRoutes(mux, passThroughAuthMiddleware{}, handler)
+
+	publishRecorder := httptest.NewRecorder()
+	mux.ServeHTTP(publishRecorder, workflowTestRequest(stdhttp.MethodPost, "/api/v1/workflows/workflow_1/branches/workflow_branch/publish", `{
+		"name": "Published Branch"
+	}`))
+	if publishRecorder.Code != stdhttp.StatusCreated {
+		t.Fatalf("publish branch expected 201, got %d with body %s", publishRecorder.Code, publishRecorder.Body.String())
+	}
+	if service.publishBranchReq.BranchID != "workflow_branch" || service.publishBranchReq.Name != "Published Branch" {
+		t.Fatalf("unexpected publish branch request: %+v", service.publishBranchReq)
+	}
+
+	mergeRecorder := httptest.NewRecorder()
+	mux.ServeHTTP(mergeRecorder, workflowTestRequest(stdhttp.MethodPost, "/api/v1/workflows/workflow_1/branches/workflow_branch/merge", ""))
+	if mergeRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("merge branch expected 200, got %d with body %s", mergeRecorder.Code, mergeRecorder.Body.String())
+	}
+	if service.mergeBranchReq.BranchID != "workflow_branch" {
+		t.Fatalf("unexpected merge branch request: %+v", service.mergeBranchReq)
+	}
+}
+
 type passThroughAuthMiddleware struct{}
 
 func (passThroughAuthMiddleware) requireSession(next stdhttp.Handler) stdhttp.Handler {

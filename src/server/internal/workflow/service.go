@@ -239,6 +239,18 @@ type CreateWorkflowBranchRequest struct {
 	TrafficPercent int
 }
 
+type PublishWorkflowBranchRequest struct {
+	OrganizationID string
+	BranchID       string
+	Name           string
+	Description    string
+}
+
+type MergeWorkflowBranchRequest struct {
+	OrganizationID string
+	BranchID       string
+}
+
 type UpdateWorkflowRequest struct {
 	OrganizationID string
 	WorkflowID     string
@@ -485,6 +497,70 @@ func (s *Service) CreateWorkflowBranch(ctx context.Context, req CreateWorkflowBr
 			TrafficPercent: req.TrafficPercent,
 		}),
 		Variables: cloneWorkflowMap(source.Variables),
+	})
+}
+
+func (s *Service) PublishWorkflowBranch(ctx context.Context, req PublishWorkflowBranchRequest) (*WorkflowDefinition, error) {
+	if strings.TrimSpace(req.OrganizationID) == "" {
+		return nil, fmt.Errorf("%w: organization ID is required", ErrInvalidInput)
+	}
+	if strings.TrimSpace(req.BranchID) == "" {
+		return nil, fmt.Errorf("%w: branch workflow ID is required", ErrInvalidInput)
+	}
+	branch, err := s.GetWorkflow(ctx, req.OrganizationID, req.BranchID)
+	if err != nil {
+		return nil, err
+	}
+	if _, ok := workflowBranchMetadataFromDefinition(branch.Definition); !ok {
+		return nil, fmt.Errorf("%w: workflow %s is not a branch", ErrInvalidInput, req.BranchID)
+	}
+
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		name = branch.Name
+	}
+	description := strings.TrimSpace(req.Description)
+	if description == "" {
+		description = branch.Description
+	}
+	return s.CreateWorkflow(ctx, CreateWorkflowRequest{
+		OrganizationID: req.OrganizationID,
+		Name:           name,
+		Description:    description,
+		Status:         WorkflowStatusPublished,
+		Definition:     workflowDefinitionWithoutBranchMetadata(branch.Definition),
+		Variables:      cloneWorkflowMap(branch.Variables),
+	})
+}
+
+func (s *Service) MergeWorkflowBranch(ctx context.Context, req MergeWorkflowBranchRequest) (*WorkflowDefinition, error) {
+	if strings.TrimSpace(req.OrganizationID) == "" {
+		return nil, fmt.Errorf("%w: organization ID is required", ErrInvalidInput)
+	}
+	if strings.TrimSpace(req.BranchID) == "" {
+		return nil, fmt.Errorf("%w: branch workflow ID is required", ErrInvalidInput)
+	}
+	branch, err := s.GetWorkflow(ctx, req.OrganizationID, req.BranchID)
+	if err != nil {
+		return nil, err
+	}
+	metadata, ok := workflowBranchMetadataFromDefinition(branch.Definition)
+	if !ok || strings.TrimSpace(metadata.SourceWorkflow) == "" {
+		return nil, fmt.Errorf("%w: workflow %s is not a mergeable branch", ErrInvalidInput, req.BranchID)
+	}
+	source, err := s.GetWorkflow(ctx, req.OrganizationID, metadata.SourceWorkflow)
+	if err != nil {
+		return nil, err
+	}
+	published := WorkflowStatusPublished
+	return s.UpdateWorkflow(ctx, UpdateWorkflowRequest{
+		OrganizationID: req.OrganizationID,
+		WorkflowID:     source.ID,
+		Name:           &source.Name,
+		Description:    &source.Description,
+		Status:         &published,
+		Definition:     workflowDefinitionWithoutBranchMetadata(branch.Definition),
+		Variables:      cloneWorkflowMap(branch.Variables),
 	})
 }
 
@@ -3075,6 +3151,28 @@ func workflowDefinitionWithBranchMetadata(definition map[string]any, metadata wo
 		"trafficPercent":   metadata.TrafficPercent,
 	}
 	return next
+}
+
+func workflowDefinitionWithoutBranchMetadata(definition map[string]any) map[string]any {
+	next := cloneWorkflowMap(definition)
+	delete(next, "branch")
+	return next
+}
+
+func workflowBranchMetadataFromDefinition(definition map[string]any) (workflowBranchMetadata, bool) {
+	branch, ok := mapStringAnyFromAny(definition["branch"])
+	if !ok {
+		return workflowBranchMetadata{}, false
+	}
+	sourceWorkflow := strings.TrimSpace(stringFromWorkflowValue(branch["sourceWorkflowId"]))
+	sourceVersion, _ := intFromWorkflowValue(branch["sourceVersion"])
+	trafficPercent, _ := intFromWorkflowValue(branch["trafficPercent"])
+	return workflowBranchMetadata{
+		ExperimentKey:  strings.TrimSpace(stringFromWorkflowValue(branch["experimentKey"])),
+		SourceVersion:  sourceVersion,
+		SourceWorkflow: sourceWorkflow,
+		TrafficPercent: trafficPercent,
+	}, true
 }
 
 func cloneWorkflowMap(value map[string]any) map[string]any {

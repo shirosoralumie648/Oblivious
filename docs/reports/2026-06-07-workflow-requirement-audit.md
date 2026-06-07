@@ -70,7 +70,7 @@ Status values:
 | Running executions bind to published version and snapshot, not draft edits. | Proven | `StartExecution` uses latest published version and stores `WorkflowVersion`/`WorkflowSnapshot`; `TestServiceStartExecutionBindsLatestPublishedVersion` and store tests. |
 | Rollback creates a new version from historical definition. | Proven | `RollbackWorkflow` creates a new version; covered by `TestServiceRollbackWorkflowCreatesNewVersionFromHistory`, `TestWorkflowHandlerRollbackWorkflowPassesVersion`, and route tests. |
 | Branch from historical version for experiments. | Proven | `CreateWorkflowBranch` copies a version as draft experiment metadata; covered by `TestServiceCreateWorkflowBranchCopiesVersionAsDraftExperiment`, handler tests, and route tests. |
-| Branch merge back to mainline or publish as new workflow. | Gap | Branch creation exists, but there is no current merge-back API or dedicated publish-branch flow proven by tests. |
+| Branch merge back to mainline or publish as new workflow. | Proven | `PublishWorkflowBranch` publishes a draft branch definition as a new published workflow without experiment metadata, and `MergeWorkflowBranch` applies branch definition/variables back to the source workflow as a new published mainline version. HTTP routes expose `POST /api/v1/workflows/{source}/branches/{branch}/publish` and `POST /api/v1/workflows/{source}/branches/{branch}/merge`, and the web API client calls both action endpoints. Covered by `TestServicePublishWorkflowBranchAsNewWorkflow`, `TestServiceMergeWorkflowBranchBackToMainline`, `TestWorkflowHandlerPublishWorkflowBranchPassesRequest`, `TestWorkflowHandlerMergeWorkflowBranchPassesRequest`, `TestRegisterWorkflowRoutesDispatchesBranchPublishAndMerge`, and `workflowsApi.test.ts`. |
 
 ## Fusion Design 3.2 and Frontend/API Surface
 
@@ -88,5 +88,4 @@ The repository-owned Workflow engine now proves most Functional Logic 2.1-2.6 be
 The matrix row remains `Partial`, not `Proven`, because these requirements still need work or stronger evidence:
 
 1. Prove email/Webhook delivery for workflow failure-pause notifications, beyond the covered in-app path.
-2. Add branch merge/publish semantics beyond branch creation.
-3. Prove 20+ node types and production-grade frontend drag/drop workflows end to end.
+2. Prove 20+ node types and production-grade frontend drag/drop workflows end to end.

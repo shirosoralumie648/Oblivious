@@ -118,6 +118,26 @@ func registerWorkflowRoutes(mux *stdhttp.ServeMux, authMiddleware sessionMiddlew
 			return
 		}
 
+		if len(parts) == 4 && parts[1] == "branches" && parts[2] != "" {
+			switch parts[3] {
+			case "publish":
+				if r.Method == stdhttp.MethodPost {
+					workflowHandler.publishWorkflowBranch(w, r, workflowID, parts[2])
+				} else {
+					writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+				}
+			case "merge":
+				if r.Method == stdhttp.MethodPost {
+					workflowHandler.mergeWorkflowBranch(w, r, workflowID, parts[2])
+				} else {
+					writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+				}
+			default:
+				writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
+			}
+			return
+		}
+
 		if len(parts) == 2 && parts[1] == "rollback" {
 			switch r.Method {
 			case stdhttp.MethodPost:

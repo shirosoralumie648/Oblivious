@@ -60,6 +60,10 @@ type workflowFakeService struct {
 	workflowID                  string
 	branchReq                   workflow.CreateWorkflowBranchRequest
 	branched                    *workflow.WorkflowDefinition
+	publishBranchReq            workflow.PublishWorkflowBranchRequest
+	publishedBranch             *workflow.WorkflowDefinition
+	mergeBranchReq              workflow.MergeWorkflowBranchRequest
+	mergedBranch                *workflow.WorkflowDefinition
 	rollbackReq                 workflow.RollbackWorkflowRequest
 	rolledBack                  *workflow.WorkflowDefinition
 
@@ -82,6 +86,8 @@ type workflowFakeService struct {
 	updateErr         error
 	rollbackErr       error
 	branchErr         error
+	publishBranchErr  error
+	mergeBranchErr    error
 }
 
 func (s *workflowFakeService) CreateWorkflow(ctx context.Context, session auth.Session, req workflow.CreateWorkflowRequest) (*workflow.WorkflowDefinition, error) {
@@ -135,6 +141,18 @@ func (s *workflowFakeService) CreateWorkflowBranch(ctx context.Context, session 
 	s.organizationID = session.OrganizationID
 	s.branchReq = req
 	return s.branched, s.branchErr
+}
+
+func (s *workflowFakeService) PublishWorkflowBranch(ctx context.Context, session auth.Session, req workflow.PublishWorkflowBranchRequest) (*workflow.WorkflowDefinition, error) {
+	s.organizationID = session.OrganizationID
+	s.publishBranchReq = req
+	return s.publishedBranch, s.publishBranchErr
+}
+
+func (s *workflowFakeService) MergeWorkflowBranch(ctx context.Context, session auth.Session, req workflow.MergeWorkflowBranchRequest) (*workflow.WorkflowDefinition, error) {
+	s.organizationID = session.OrganizationID
+	s.mergeBranchReq = req
+	return s.mergedBranch, s.mergeBranchErr
 }
 
 func (s *workflowFakeService) DeleteWorkflow(ctx context.Context, session auth.Session, workflowID string) (*workflow.WorkflowDefinition, error) {
@@ -453,6 +471,74 @@ func TestWorkflowHandlerCreateWorkflowBranchPassesExperimentRequest(t *testing.T
 	}
 	if response.Data.ID != "workflow_branch" || response.Data.Status != workflow.WorkflowStatusDraft {
 		t.Fatalf("unexpected branch response: %+v", response.Data)
+	}
+}
+
+func TestWorkflowHandlerPublishWorkflowBranchPassesRequest(t *testing.T) {
+	service := &workflowFakeService{
+		publishedBranch: &workflow.WorkflowDefinition{
+			ID:      "workflow_published_branch",
+			Name:    "Incident Router Published Experiment",
+			Status:  workflow.WorkflowStatusPublished,
+			Version: 1,
+		},
+	}
+	handler := newWorkflowHandler(service)
+	recorder := httptest.NewRecorder()
+
+	handler.publishWorkflowBranch(recorder, workflowTestRequest(stdhttp.MethodPost, "/api/v1/workflows/workflow_1/branches/workflow_branch/publish", `{
+		"name": " Incident Router Published Experiment ",
+		"description": " Published branch "
+	}`), "workflow_1", "workflow_branch")
+
+	if recorder.Code != stdhttp.StatusCreated {
+		t.Fatalf("expected 201, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if service.publishBranchReq.BranchID != "workflow_branch" || service.publishBranchReq.OrganizationID != "" {
+		t.Fatalf("unexpected publish branch request before adapter enrichment: %+v", service.publishBranchReq)
+	}
+	if service.publishBranchReq.Name != "Incident Router Published Experiment" || service.publishBranchReq.Description != "Published branch" {
+		t.Fatalf("expected trimmed publish branch fields, got %+v", service.publishBranchReq)
+	}
+	var response struct {
+		Data workflow.WorkflowDefinition `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Data.ID != "workflow_published_branch" || response.Data.Status != workflow.WorkflowStatusPublished {
+		t.Fatalf("unexpected publish branch response: %+v", response.Data)
+	}
+}
+
+func TestWorkflowHandlerMergeWorkflowBranchPassesRequest(t *testing.T) {
+	service := &workflowFakeService{
+		mergedBranch: &workflow.WorkflowDefinition{
+			ID:      "workflow_1",
+			Name:    "Incident Router",
+			Status:  workflow.WorkflowStatusPublished,
+			Version: 3,
+		},
+	}
+	handler := newWorkflowHandler(service)
+	recorder := httptest.NewRecorder()
+
+	handler.mergeWorkflowBranch(recorder, workflowTestRequest(stdhttp.MethodPost, "/api/v1/workflows/workflow_1/branches/workflow_branch/merge", ""), "workflow_1", "workflow_branch")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if service.mergeBranchReq.BranchID != "workflow_branch" || service.mergeBranchReq.OrganizationID != "" {
+		t.Fatalf("unexpected merge branch request before adapter enrichment: %+v", service.mergeBranchReq)
+	}
+	var response struct {
+		Data workflow.WorkflowDefinition `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Data.ID != "workflow_1" || response.Data.Version != 3 {
+		t.Fatalf("unexpected merge branch response: %+v", response.Data)
 	}
 }
 

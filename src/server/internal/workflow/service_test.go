@@ -548,6 +548,152 @@ func TestServiceCreateWorkflowBranchCopiesVersionAsDraftExperiment(t *testing.T)
 	}
 }
 
+func TestServicePublishWorkflowBranchAsNewWorkflow(t *testing.T) {
+	store := newMemoryWorkflowStore()
+	service := NewService(store)
+	ctx := context.Background()
+
+	source, err := service.CreateWorkflow(ctx, CreateWorkflowRequest{
+		OrganizationID: "org_1",
+		Name:           "Incident Router",
+		Description:    "Stable production routing",
+		Status:         WorkflowStatusPublished,
+		Definition: workflowDefinitionDAG(
+			[]map[string]any{{"id": "manual-start", "type": "manual"}},
+			nil,
+		),
+		Variables: map[string]any{"owner": "ops"},
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkflow returned error: %v", err)
+	}
+	branch, err := service.CreateWorkflowBranch(ctx, CreateWorkflowBranchRequest{
+		OrganizationID: "org_1",
+		WorkflowID:     source.ID,
+		Version:        source.Version,
+		Name:           "Incident Router Experiment B",
+		ExperimentKey:  "routing-copy-v2",
+		TrafficPercent: 25,
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkflowBranch returned error: %v", err)
+	}
+	editedBranch, err := service.UpdateWorkflow(ctx, UpdateWorkflowRequest{
+		OrganizationID: "org_1",
+		WorkflowID:     branch.ID,
+		Definition: workflowDefinitionWithBranchMetadata(
+			workflowDefinitionDAG([]map[string]any{{"id": "experiment-start", "type": "manual"}}, nil),
+			workflowBranchMetadata{
+				ExperimentKey:  "routing-copy-v2",
+				SourceVersion:  source.Version,
+				SourceWorkflow: source.ID,
+				TrafficPercent: 25,
+			},
+		),
+		Variables: map[string]any{"owner": "experiment"},
+	})
+	if err != nil {
+		t.Fatalf("UpdateWorkflow branch returned error: %v", err)
+	}
+
+	published, err := service.PublishWorkflowBranch(ctx, PublishWorkflowBranchRequest{
+		OrganizationID: "org_1",
+		BranchID:       editedBranch.ID,
+		Name:           "Incident Router Experiment Published",
+		Description:    "Published experiment",
+	})
+	if err != nil {
+		t.Fatalf("PublishWorkflowBranch returned error: %v", err)
+	}
+
+	if published.ID == source.ID || published.ID == branch.ID {
+		t.Fatalf("expected published branch to become a new workflow, got %q", published.ID)
+	}
+	if published.Status != WorkflowStatusPublished || published.Version != 1 {
+		t.Fatalf("expected published branch v1, got status=%s version=%d", published.Status, published.Version)
+	}
+	if published.Name != "Incident Router Experiment Published" || published.Description != "Published experiment" {
+		t.Fatalf("unexpected published workflow identity: %+v", published)
+	}
+	if published.Variables["owner"] != "experiment" {
+		t.Fatalf("expected branch variables to publish, got %+v", published.Variables)
+	}
+	if _, ok := published.Definition["branch"]; ok {
+		t.Fatalf("expected published workflow definition to omit branch metadata, got %+v", published.Definition)
+	}
+	nodes := published.Definition["nodes"].([]any)
+	if nodes[0].(map[string]any)["id"] != "experiment-start" {
+		t.Fatalf("expected published definition from branch, got %+v", published.Definition)
+	}
+}
+
+func TestServiceMergeWorkflowBranchBackToMainline(t *testing.T) {
+	store := newMemoryWorkflowStore()
+	service := NewService(store)
+	ctx := context.Background()
+
+	source, err := service.CreateWorkflow(ctx, CreateWorkflowRequest{
+		OrganizationID: "org_1",
+		Name:           "Incident Router",
+		Status:         WorkflowStatusPublished,
+		Definition:     workflowDefinitionWithNodes("stable-start"),
+		Variables:      map[string]any{"owner": "ops"},
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkflow returned error: %v", err)
+	}
+	branch, err := service.CreateWorkflowBranch(ctx, CreateWorkflowBranchRequest{
+		OrganizationID: "org_1",
+		WorkflowID:     source.ID,
+		Version:        source.Version,
+		Name:           "Incident Router Experiment B",
+		ExperimentKey:  "routing-copy-v2",
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkflowBranch returned error: %v", err)
+	}
+	editedBranch, err := service.UpdateWorkflow(ctx, UpdateWorkflowRequest{
+		OrganizationID: "org_1",
+		WorkflowID:     branch.ID,
+		Definition: workflowDefinitionWithBranchMetadata(
+			workflowDefinitionWithNodes("merged-start"),
+			workflowBranchMetadata{
+				ExperimentKey:  "routing-copy-v2",
+				SourceVersion:  source.Version,
+				SourceWorkflow: source.ID,
+			},
+		),
+		Variables: map[string]any{"owner": "experiment"},
+	})
+	if err != nil {
+		t.Fatalf("UpdateWorkflow branch returned error: %v", err)
+	}
+
+	merged, err := service.MergeWorkflowBranch(ctx, MergeWorkflowBranchRequest{
+		OrganizationID: "org_1",
+		BranchID:       editedBranch.ID,
+	})
+	if err != nil {
+		t.Fatalf("MergeWorkflowBranch returned error: %v", err)
+	}
+
+	if merged.ID != source.ID {
+		t.Fatalf("expected branch merge to update source workflow %q, got %q", source.ID, merged.ID)
+	}
+	if merged.Version != 2 || merged.Status != WorkflowStatusPublished {
+		t.Fatalf("expected source workflow v2 published after merge, got status=%s version=%d", merged.Status, merged.Version)
+	}
+	if got := merged.Definition["nodes"].([]any)[0].(map[string]any)["id"]; got != "merged-start" {
+		t.Fatalf("expected merged definition from branch, got %v", got)
+	}
+	if _, ok := merged.Definition["branch"]; ok {
+		t.Fatalf("expected merged mainline definition to omit branch metadata, got %+v", merged.Definition)
+	}
+	if merged.Variables["owner"] != "experiment" {
+		t.Fatalf("expected merged variables from branch, got %+v", merged.Variables)
+	}
+}
+
 func TestServiceTestNodeValidatesNodeAndEchoesInput(t *testing.T) {
 	store := newMemoryWorkflowStore()
 	service := NewService(store)

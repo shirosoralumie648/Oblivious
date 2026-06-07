@@ -29,6 +29,8 @@ type workflowService interface {
 	UpdateWorkflow(ctx context.Context, session auth.Session, req workflow.UpdateWorkflowRequest) (*workflow.WorkflowDefinition, error)
 	RollbackWorkflow(ctx context.Context, session auth.Session, req workflow.RollbackWorkflowRequest) (*workflow.WorkflowDefinition, error)
 	CreateWorkflowBranch(ctx context.Context, session auth.Session, req workflow.CreateWorkflowBranchRequest) (*workflow.WorkflowDefinition, error)
+	PublishWorkflowBranch(ctx context.Context, session auth.Session, req workflow.PublishWorkflowBranchRequest) (*workflow.WorkflowDefinition, error)
+	MergeWorkflowBranch(ctx context.Context, session auth.Session, req workflow.MergeWorkflowBranchRequest) (*workflow.WorkflowDefinition, error)
 	DeleteWorkflow(ctx context.Context, session auth.Session, workflowID string) (*workflow.WorkflowDefinition, error)
 	StartExecution(ctx context.Context, session auth.Session, workflowID string, input map[string]any) (*workflow.WorkflowExecution, error)
 	StartExecutionWithTrigger(ctx context.Context, session auth.Session, req workflow.StartExecutionRequest) (*workflow.WorkflowExecution, error)
@@ -122,6 +124,18 @@ func (a workflowServiceAdapter) CreateWorkflowBranch(ctx context.Context, sessio
 	req.Description = strings.TrimSpace(req.Description)
 	req.ExperimentKey = strings.TrimSpace(req.ExperimentKey)
 	return a.service.CreateWorkflowBranch(ctx, req)
+}
+
+func (a workflowServiceAdapter) PublishWorkflowBranch(ctx context.Context, session auth.Session, req workflow.PublishWorkflowBranchRequest) (*workflow.WorkflowDefinition, error) {
+	req.OrganizationID = session.OrganizationID
+	req.Name = strings.TrimSpace(req.Name)
+	req.Description = strings.TrimSpace(req.Description)
+	return a.service.PublishWorkflowBranch(ctx, req)
+}
+
+func (a workflowServiceAdapter) MergeWorkflowBranch(ctx context.Context, session auth.Session, req workflow.MergeWorkflowBranchRequest) (*workflow.WorkflowDefinition, error) {
+	req.OrganizationID = session.OrganizationID
+	return a.service.MergeWorkflowBranch(ctx, req)
 }
 
 func (a workflowServiceAdapter) DeleteWorkflow(ctx context.Context, session auth.Session, workflowID string) (*workflow.WorkflowDefinition, error) {
@@ -352,6 +366,11 @@ type workflowCreateBranchRequest struct {
 	Version        int    `json:"version"`
 	ExperimentKey  string `json:"experimentKey,omitempty"`
 	TrafficPercent int    `json:"trafficPercent,omitempty"`
+}
+
+type workflowPublishBranchRequest struct {
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
 type workflowStartExecutionRequest struct {
@@ -650,6 +669,50 @@ func (h workflowHandler) createWorkflowBranch(w stdhttp.ResponseWriter, r *stdht
 		return
 	}
 	writeSuccess(w, stdhttp.StatusCreated, branched)
+}
+
+func (h workflowHandler) publishWorkflowBranch(w stdhttp.ResponseWriter, r *stdhttp.Request, workflowID string, branchID string) {
+	session, ok := sessionFromContext(r)
+	if !ok {
+		writeError(w, stdhttp.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+
+	var payload workflowPublishBranchRequest
+	if r.Body != nil && r.Body != stdhttp.NoBody {
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			writeError(w, stdhttp.StatusBadRequest, "invalid_request", "invalid json body")
+			return
+		}
+	}
+
+	published, err := h.service.PublishWorkflowBranch(r.Context(), session, workflow.PublishWorkflowBranchRequest{
+		BranchID:    branchID,
+		Name:        strings.TrimSpace(payload.Name),
+		Description: strings.TrimSpace(payload.Description),
+	})
+	if err != nil {
+		writeWorkflowError(w, err)
+		return
+	}
+	writeSuccess(w, stdhttp.StatusCreated, published)
+}
+
+func (h workflowHandler) mergeWorkflowBranch(w stdhttp.ResponseWriter, r *stdhttp.Request, workflowID string, branchID string) {
+	session, ok := sessionFromContext(r)
+	if !ok {
+		writeError(w, stdhttp.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+
+	merged, err := h.service.MergeWorkflowBranch(r.Context(), session, workflow.MergeWorkflowBranchRequest{
+		BranchID: branchID,
+	})
+	if err != nil {
+		writeWorkflowError(w, err)
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, merged)
 }
 
 func (h workflowHandler) deleteWorkflow(w stdhttp.ResponseWriter, r *stdhttp.Request, workflowID string) {

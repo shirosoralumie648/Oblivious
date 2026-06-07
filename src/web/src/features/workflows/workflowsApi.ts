@@ -66,6 +66,11 @@ export type CreateWorkflowBranchRequest = {
   trafficPercent?: number;
 };
 
+export type PublishWorkflowBranchRequest = {
+  name?: string;
+  description?: string;
+};
+
 export type CheckWorkflowResourceLimitsRequest = {
   totalTokens?: number;
   nodeExecutionCount?: number;
@@ -212,6 +217,12 @@ export type WorkflowsApi = {
   ) => Promise<WorkflowExecution>;
   createWorkflowBranch: (workflowId: string, payload: CreateWorkflowBranchRequest) => Promise<WorkflowDefinition>;
   createWorkflow: (payload: CreateWorkflowRequest) => Promise<WorkflowDefinition>;
+  publishWorkflowBranch: (
+    workflowId: string,
+    branchId: string,
+    payload?: PublishWorkflowBranchRequest
+  ) => Promise<WorkflowDefinition>;
+  mergeWorkflowBranch: (workflowId: string, branchId: string) => Promise<WorkflowDefinition>;
   cancelExecution: (workflowId: string, executionId: string) => Promise<WorkflowExecution>;
   deleteWorkflow: (workflowId: string) => Promise<WorkflowDefinition>;
   executeWorkflow: (workflowId: string, payload?: ExecuteWorkflowRequest) => Promise<WorkflowExecution>;
@@ -250,6 +261,10 @@ export function createWorkflowsApi(client: HttpClient): WorkflowsApi {
     createWorkflow: (payload) => client.post<WorkflowDefinition>('/api/v1/workflows', payload),
     createWorkflowBranch: (workflowId, payload) =>
       client.post<WorkflowDefinition>(`/api/v1/workflows/${workflowId}/branches`, payload),
+    publishWorkflowBranch: (workflowId, branchId, payload = {}) =>
+      client.post<WorkflowDefinition>(`/api/v1/workflows/${workflowId}/branches/${branchId}/publish`, payload),
+    mergeWorkflowBranch: (workflowId, branchId) =>
+      client.post<WorkflowDefinition>(`/api/v1/workflows/${workflowId}/branches/${branchId}/merge`),
     checkWorkflowResourceLimits: (workflowId, executionId, payload) =>
       client.post<WorkflowExecution>(`${executionPath(workflowId, executionId)}/resource-check`, payload),
     cancelExecution: (workflowId, executionId) =>

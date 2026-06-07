@@ -248,6 +248,42 @@ describe('createWorkflowsApi', () => {
     expect(post).toHaveBeenCalledWith('/api/v1/workflows/workflow_1/branches', payload);
   });
 
+  it('publishes and merges workflow branches through branch action endpoints', async () => {
+    const post = vi
+      .fn()
+      .mockResolvedValueOnce({
+        definition: { nodes: [{ id: 'experiment-start', type: 'manual' }] },
+        id: 'workflow_published_branch',
+        name: 'Published branch',
+        status: 'published',
+        version: 1,
+      })
+      .mockResolvedValueOnce({
+        definition: { nodes: [{ id: 'merged-start', type: 'manual' }] },
+        id: 'workflow_1',
+        name: 'Incident triage',
+        status: 'published',
+        version: 3,
+      });
+    const api = createWorkflowsApi(createClient({ post }));
+
+    await expect(
+      api.publishWorkflowBranch('workflow_1', 'workflow_branch', {
+        description: 'Published experiment',
+        name: 'Published branch',
+      })
+    ).resolves.toEqual(expect.objectContaining({ id: 'workflow_published_branch', status: 'published' }));
+    await expect(api.mergeWorkflowBranch('workflow_1', 'workflow_branch')).resolves.toEqual(
+      expect.objectContaining({ id: 'workflow_1', version: 3 })
+    );
+
+    expect(post).toHaveBeenNthCalledWith(1, '/api/v1/workflows/workflow_1/branches/workflow_branch/publish', {
+      description: 'Published experiment',
+      name: 'Published branch',
+    });
+    expect(post).toHaveBeenNthCalledWith(2, '/api/v1/workflows/workflow_1/branches/workflow_branch/merge');
+  });
+
   it('tests a workflow node from the node debug endpoint', async () => {
     const post = vi.fn().mockResolvedValue({
       nodeId: 'notify',
