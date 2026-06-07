@@ -64,6 +64,15 @@ required_paths=(
   "/api/v1/workflows/{workflowId}/executions/{executionId}/pause"
   "/api/v1/workflows/{workflowId}/executions/{executionId}/resume"
   "/api/v1/workflows/{workflowId}/executions/{executionId}/cancel"
+  "/api/v1/console/usage"
+  "/api/v1/console/access"
+  "/api/v1/console/models"
+  "/api/v1/console/billing"
+  "/api/v1/console/invoices"
+  "/api/v1/billing/checkout"
+  "/api/v1/billing/stripe/webhook"
+  "/api/v1/billing/alipay/webhook"
+  "/api/v1/billing/wechatpay/webhook"
 )
 
 for path in "${required_paths[@]}"; do
@@ -72,5 +81,8 @@ done
 
 require_public_security_empty "/api/v1/channels/webhook/{channelId}"
 require_public_security_empty "/api/v1/workflows/webhooks/{organizationId}/{workflowId}"
+require_public_security_empty "/api/v1/billing/stripe/webhook"
+require_public_security_empty "/api/v1/billing/alipay/webhook"
+require_public_security_empty "/api/v1/billing/wechatpay/webhook"
 
-echo "[openapi-contract] required Agent run, publishing channel, and Workflow paths are documented."
+echo "[openapi-contract] required Agent run, publishing channel, Workflow, and Billing paths are documented."

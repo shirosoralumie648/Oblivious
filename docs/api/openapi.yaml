@@ -1319,13 +1319,128 @@ components:
     BillingSummary:
       type: object
       properties:
-        plan:
+        period:
           type: string
-        billingPeriod:
+        requests:
+          type: integer
+        inputTokens:
+          type: integer
+        outputTokens:
+          type: integer
+        estimatedCostUsd:
+          type: number
+          format: double
+        balanceUsd:
+          type: number
+          format: double
+        creditLimitUsd:
+          type: number
+          format: double
+        currentSpendUsd:
+          type: number
+          format: double
+        nextInvoice:
+          $ref: "#/components/schemas/BillingInvoiceSummary"
+
+    BillingInvoiceSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+        amountUsd:
+          type: number
+          format: double
+        dueAt:
+          type: string
+
+    BillingCheckoutRequest:
+      type: object
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          enum: [subscription, topup]
+        packageId:
+          type: string
+          description: Required for subscription checkout.
+        amount:
+          type: number
+          format: double
+          description: Required and positive for top-up checkout.
+        provider:
+          type: string
+          enum: [stripe, alipay, wechatpay]
+
+    BillingCheckoutSession:
+      type: object
+      properties:
+        checkoutSessionId:
+          type: string
+        url:
+          type: string
+          format: uri
+
+    DomesticPaymentWebhookEvent:
+      type: object
+      required: [id, type]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum:
+            - checkout.paid
+            - refund.succeeded
+            - refund.created
+            - payment.refunded
+            - subscription.updated
+            - subscription.deleted
+            - subscription.cancelled
+            - subscription.canceled
+        organization_id:
+          type: string
+        user_id:
+          type: string
+        payment_intent_id:
+          type: string
+        marketplace_order_id:
+          type: string
+        plan_id:
+          type: string
+        kind:
+          type: string
+          enum: [subscription, topup, marketplace_install]
+        provider_refund_id:
+          type: string
+        provider_charge_id:
+          type: string
+        provider_payment_intent_id:
+          type: string
+        provider_subscription_id:
+          type: string
+        provider_customer_id:
+          type: string
+        provider_checkout_session_id:
           type: string
         amount:
           type: number
           format: double
+        currency:
+          type: string
+        status:
+          type: string
+        reason:
+          type: string
+        cancel_at_period_end:
+          type: boolean
+
+    WebhookReceivedResponse:
+      type: object
+      properties:
+        received:
+          type: boolean
 
     AccessSummary:
       type: object
@@ -4158,3 +4273,196 @@ paths:
                         $ref: "#/components/schemas/BillingSummary"
         "401":
           $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/console/invoices:
+    get:
+      summary: 获取账单发票摘要列表
+      operationId: listConsoleBillingInvoices
+      tags: [Billing]
+      responses:
+        "200":
+          description: 当前组织的账单发票摘要
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/BillingInvoiceSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/billing/checkout:
+    post:
+      summary: 创建订阅或余额充值 checkout
+      operationId: createBillingCheckout
+      tags: [Billing]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BillingCheckoutRequest"
+      responses:
+        "201":
+          description: 支付 provider 返回的 checkout session
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/BillingCheckoutSession"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: subscription package 不存在
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "502":
+          description: 创建 checkout session 失败
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+
+  /api/v1/billing/stripe/webhook:
+    post:
+      summary: 接收 Stripe 支付 webhook
+      operationId: receiveStripeBillingWebhook
+      tags: [Billing]
+      security: []
+      parameters:
+        - name: Stripe-Signature
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: webhook 已记录或重复事件已安全忽略
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookReceivedResponse"
+        "400":
+          description: 签名或 payload 无效
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+
+  /api/v1/billing/alipay/webhook:
+    post:
+      summary: 接收 Alipay 支付 webhook
+      operationId: receiveAlipayBillingWebhook
+      tags: [Billing]
+      security: []
+      parameters:
+        - name: Oblivious-Payment-Timestamp
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: Oblivious-Payment-Signature
+          in: header
+          required: true
+          schema:
+            type: string
+          description: HMAC-SHA256 over `timestamp + "." + raw_body`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DomesticPaymentWebhookEvent"
+      responses:
+        "200":
+          description: webhook 已记录或重复事件已安全忽略
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/WebhookReceivedResponse"
+        "400":
+          description: 签名、payload 或事件字段无效
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "501":
+          description: 支付 provider webhook 未配置
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+
+  /api/v1/billing/wechatpay/webhook:
+    post:
+      summary: 接收 WeChat Pay 支付 webhook
+      operationId: receiveWeChatPayBillingWebhook
+      tags: [Billing]
+      security: []
+      parameters:
+        - name: Oblivious-Payment-Timestamp
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: Oblivious-Payment-Signature
+          in: header
+          required: true
+          schema:
+            type: string
+          description: HMAC-SHA256 over `timestamp + "." + raw_body`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DomesticPaymentWebhookEvent"
+      responses:
+        "200":
+          description: webhook 已记录或重复事件已安全忽略
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/WebhookReceivedResponse"
+        "400":
+          description: 签名、payload 或事件字段无效
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "501":
+          description: 支付 provider webhook 未配置
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
