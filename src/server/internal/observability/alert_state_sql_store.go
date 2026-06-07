@@ -405,9 +405,9 @@ func (s *SQLAlertStateStore) RecordRecoveryAction(ctx context.Context, action Re
 
 	if _, err := tx.ExecContext(ctx, `
 INSERT INTO observability_recovery_actions (
-	id, policy_name, alert_key, severity, component, action_type, status, reason, created_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-`, action.ID, action.PolicyName, action.AlertKey, action.Severity, action.Component, action.Type, action.Status, action.Reason, action.CreatedAt); err != nil {
+	id, policy_name, alert_key, severity, component, action_type, status, reason, attempt, next_attempt_at, created_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+`, action.ID, action.PolicyName, action.AlertKey, action.Severity, action.Component, action.Type, action.Status, action.Reason, action.Attempt, nullableTime(action.NextAttemptAt), action.CreatedAt); err != nil {
 		return false, RecoveryAction{}, fmt.Errorf("insert recovery action: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -422,7 +422,7 @@ func (s *SQLAlertStateStore) ListRecoveryActions(ctx context.Context, filter Rec
 	}
 
 	query := `
-SELECT id, policy_name, alert_key, severity, component, action_type, status, reason, created_at
+SELECT id, policy_name, alert_key, severity, component, action_type, status, reason, attempt, next_attempt_at, created_at
 FROM observability_recovery_actions`
 	conditions := make([]string, 0, 4)
 	args := make([]any, 0, 6)
@@ -464,8 +464,12 @@ FROM observability_recovery_actions`
 	actions := []RecoveryAction{}
 	for rows.Next() {
 		var action RecoveryAction
-		if err := rows.Scan(&action.ID, &action.PolicyName, &action.AlertKey, &action.Severity, &action.Component, &action.Type, &action.Status, &action.Reason, &action.CreatedAt); err != nil {
+		var nextAttemptAt sql.NullTime
+		if err := rows.Scan(&action.ID, &action.PolicyName, &action.AlertKey, &action.Severity, &action.Component, &action.Type, &action.Status, &action.Reason, &action.Attempt, &nextAttemptAt, &action.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan recovery action: %w", err)
+		}
+		if nextAttemptAt.Valid {
+			action.NextAttemptAt = nextAttemptAt.Time
 		}
 		actions = append(actions, cloneRecoveryAction(action))
 	}
@@ -489,19 +493,23 @@ func (s *SQLAlertStateStore) getAlertStateForUpdate(ctx context.Context, tx *sql
 
 func (s *SQLAlertStateStore) getLastRecoveryAction(ctx context.Context, tx *sql.Tx, policyName, alertKey string) (RecoveryAction, bool, error) {
 	var action RecoveryAction
+	var nextAttemptAt sql.NullTime
 	err := tx.QueryRowContext(ctx, `
-SELECT id, policy_name, alert_key, severity, component, action_type, status, reason, created_at
+SELECT id, policy_name, alert_key, severity, component, action_type, status, reason, attempt, next_attempt_at, created_at
 FROM observability_recovery_actions
 WHERE policy_name = $1 AND alert_key = $2
 ORDER BY created_at DESC
 LIMIT 1
 FOR UPDATE
-`, policyName, alertKey).Scan(&action.ID, &action.PolicyName, &action.AlertKey, &action.Severity, &action.Component, &action.Type, &action.Status, &action.Reason, &action.CreatedAt)
+`, policyName, alertKey).Scan(&action.ID, &action.PolicyName, &action.AlertKey, &action.Severity, &action.Component, &action.Type, &action.Status, &action.Reason, &action.Attempt, &nextAttemptAt, &action.CreatedAt)
 	if err == sql.ErrNoRows {
 		return RecoveryAction{}, false, nil
 	}
 	if err != nil {
 		return RecoveryAction{}, false, fmt.Errorf("get last recovery action: %w", err)
+	}
+	if nextAttemptAt.Valid {
+		action.NextAttemptAt = nextAttemptAt.Time
 	}
 	return cloneRecoveryAction(action), true, nil
 }

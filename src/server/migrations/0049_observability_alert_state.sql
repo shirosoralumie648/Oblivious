@@ -58,6 +58,8 @@ CREATE TABLE IF NOT EXISTS observability_recovery_actions (
     action_type TEXT NOT NULL,
     status TEXT NOT NULL,
     reason TEXT NOT NULL DEFAULT '',
+    attempt INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL
 );
 

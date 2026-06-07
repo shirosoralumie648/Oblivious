@@ -2,6 +2,7 @@ package observability
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
@@ -56,6 +57,61 @@ func TestRecoveryControllerRecordsCriticalPolicyActionWithCooldown(t *testing.T)
 	actions := store.RecoveryActions()
 	if len(actions) != 1 {
 		t.Fatalf("expected one stored recovery action inside cooldown, got %d", len(actions))
+	}
+}
+
+func TestRecoveryControllerSchedulesRestartBackoffAndExhaustsAfterFiveAttempts(t *testing.T) {
+	ctx := context.Background()
+	store := NewInMemoryAlertStateStore()
+	controller := NewRecoveryController(RecoveryControllerOptions{
+		StateStore: store,
+		Policies: []RecoveryPolicy{
+			{
+				Name:       "restart-unhealthy-service",
+				Severity:   AlertSeverityCritical,
+				Component:  "server",
+				ActionType: RecoveryActionRestart,
+			},
+		},
+	})
+	startedAt := time.Date(2026, 6, 7, 10, 0, 0, 0, time.UTC)
+	wantBackoff := []time.Duration{10 * time.Second, 30 * time.Second, time.Minute, 2 * time.Minute, 5 * time.Minute}
+
+	for attempt := 1; attempt <= 5; attempt++ {
+		occurredAt := startedAt.Add(time.Duration(attempt-1) * time.Minute)
+		decision, err := controller.HandleAlert(ctx, AlertEvent{
+			Key:        "server-unhealthy",
+			Severity:   AlertSeverityCritical,
+			Component:  "server",
+			Title:      "Health check failed",
+			OccurredAt: occurredAt,
+		})
+		if err != nil {
+			t.Fatalf("handle restart attempt %d: %v", attempt, err)
+		}
+		if !decision.Created || decision.Action.Status != RecoveryActionRecorded || decision.Action.Attempt != attempt {
+			t.Fatalf("expected recorded restart attempt %d, got %+v", attempt, decision)
+		}
+		if !decision.Action.NextAttemptAt.Equal(occurredAt.Add(wantBackoff[attempt-1])) {
+			t.Fatalf("expected attempt %d next retry at %s, got %+v", attempt, occurredAt.Add(wantBackoff[attempt-1]), decision.Action)
+		}
+	}
+
+	exhausted, err := controller.HandleAlert(ctx, AlertEvent{
+		Key:        "server-unhealthy",
+		Severity:   AlertSeverityCritical,
+		Component:  "server",
+		Title:      "Health check failed",
+		OccurredAt: startedAt.Add(6 * time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("handle exhausted restart attempt: %v", err)
+	}
+	if !exhausted.Created || exhausted.Action.Status != RecoveryActionExhausted || exhausted.Action.Attempt != 6 {
+		t.Fatalf("expected sixth restart attempt to be exhausted, got %+v", exhausted)
+	}
+	if !exhausted.Action.NextAttemptAt.IsZero() || !strings.Contains(exhausted.Action.Reason, "manual intervention") {
+		t.Fatalf("expected exhausted restart to stop retries and require manual intervention, got %+v", exhausted.Action)
 	}
 }
 
