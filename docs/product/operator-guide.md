@@ -60,12 +60,21 @@ The restore path verifies `schema_migrations` filenames and SHA-256 checksums.
 Use:
 
 - `docs/release/observability-slos.md`
+- `docs/release/recovery-platform-contract.md`
 - `deploy/observability/prometheus-alerts.yaml`
 - `deploy/observability/grafana-dashboard.json`
 
 The alert set covers Relay outage, quota settlement failure, Stripe webhook failure, migration failure, high provider error rate, and tenant isolation incidents.
 
 The Grafana dashboard artifact also covers usage analytics dashboard panels for model usage, feature usage, user cost, time trend, and cross-dimension usage/cost analytics. This is repository-local dashboard coverage only; external Grafana deployment, datasource configuration, and live panel rendering remain deployment evidence.
+
+Validate repository-owned Kubernetes recovery policy with:
+
+```bash
+bash scripts/verify-k8s-recovery-policy.sh
+```
+
+PostgreSQL Patroni or managed failover, Redis Sentinel or managed failover, Kafka leader election, load-balancer target removal/rejoin, and exact `<30%` custom autoscaler triggers are deployment-platform evidence recorded through `docs/release/recovery-platform-contract.md`.
 
 ## Release, Rollback, Incident, And Disaster Recovery
 

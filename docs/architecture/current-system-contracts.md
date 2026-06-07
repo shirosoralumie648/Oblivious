@@ -337,8 +337,11 @@ Admin Billing is read-only inspection for these records.
 | Browser E2E | `COREPACK_HOME=.tmp/corepack pnpm --dir src/web test:e2e` | Admin and Marketplace Playwright gate |
 | Deployment validation | `bash scripts/deploy-validate.sh` | Builds, starts, migrates, and smokes app/Relay paths |
 | Backup/restore smoke | `bash scripts/backup-restore-smoke.sh` | Proves PostgreSQL tenant-commercial data recovery and migration ledger integrity |
+| Kubernetes recovery policy | `bash scripts/verify-k8s-recovery-policy.sh` | Verifies restart probes and HPA recovery policy encoded in repository manifests |
 
 Release and rollback use `docs/release/release-rollback-runbook.md`. Backup and restore use `docs/release/backup-restore-runbook.md`. Incident and disaster recovery use `docs/release/incident-response-runbook.md` and `docs/release/disaster-recovery-runbook.md`.
+
+Functional Logic 9.3 infrastructure failover uses `docs/release/recovery-platform-contract.md`: the repository owns app recovery policy, HPA manifest validation, and recovery action evidence; production PostgreSQL Patroni or managed failover, Redis Sentinel or managed failover, Kafka leader election, load-balancer target removal/rejoin, and any literal `<30%` custom autoscaler trigger are deployment-platform evidence.
 
 ## 9. Environment Variable Matrix
 
