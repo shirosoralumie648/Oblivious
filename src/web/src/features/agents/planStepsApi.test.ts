@@ -20,7 +20,14 @@ describe('createAgentPlanStepsApi', () => {
     const get = vi.fn().mockResolvedValue({
       data: {
         planSteps: [{ id: 'step_1', runId: 'run_1', status: 'pending', title: 'Inspect workspace' }],
-        run: { id: 'run_1', status: 'planning' },
+        run: {
+          error: 'tool loop exceeded max iterations',
+          id: 'run_1',
+          iterationCount: 4,
+          mode: 'planning',
+          status: 'planning',
+          toolCallCount: 3
+        },
         status: 'planning',
         toolRuns: [
           {
@@ -38,9 +45,13 @@ describe('createAgentPlanStepsApi', () => {
     const api = createAgentPlanStepsApi(createClient({ get }));
 
     await expect(api.getRunDetail('run_1')).resolves.toEqual({
+      error: 'tool loop exceeded max iterations',
       id: 'run_1',
+      iterationCount: 4,
+      mode: 'planning',
       planSteps: [{ id: 'step_1', runId: 'run_1', status: 'pending', title: 'Inspect workspace' }],
       status: 'planning',
+      toolCallCount: 3,
       toolRuns: [
         {
           approvalStatus: 'pending',

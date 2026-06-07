@@ -36,8 +36,12 @@ export type AgentToolRun = {
 };
 
 export type AgentRunDetail = {
+  error?: string;
   id: string;
+  iterationCount?: number;
+  mode?: string;
   status: string;
+  toolCallCount?: number;
   planSteps: AgentPlanStep[];
   toolRuns: AgentToolRun[];
 };
@@ -52,19 +56,31 @@ type AgentPlanStepsPayload = {
 };
 
 type AgentRunRecord = {
+  error?: string;
   id?: string;
+  iterationCount?: number;
+  mode?: string;
   status?: string;
+  toolCallCount?: number;
 };
 
 type AgentRunDetailPayload = AgentPlanStepsPayload & {
   data?: AgentPlanStepsPayload['data'] & {
+    error?: string;
     id?: string;
+    iterationCount?: number;
+    mode?: string;
     run?: AgentRunRecord | null;
     status?: string;
+    toolCallCount?: number;
   };
+  error?: string;
   id?: string;
+  iterationCount?: number;
+  mode?: string;
   run?: AgentRunRecord | null;
   status?: string;
+  toolCallCount?: number;
 };
 
 function planStepsFromPayload(payload: AgentPlanStepsPayload): AgentPlanStep[] {
@@ -80,9 +96,13 @@ function runDetailFromPayload(payload: AgentRunDetailPayload): AgentRunDetail {
   const run = detail.run ?? null;
 
   return {
+    error: detail.error ?? run?.error,
     id: detail.id ?? run?.id ?? '',
+    iterationCount: detail.iterationCount ?? run?.iterationCount,
+    mode: detail.mode ?? run?.mode,
     planSteps: planStepsFromPayload(payload),
     status: detail.status ?? run?.status ?? '',
+    toolCallCount: detail.toolCallCount ?? run?.toolCallCount,
     toolRuns: toolRunsFromPayload(payload)
   };
 }

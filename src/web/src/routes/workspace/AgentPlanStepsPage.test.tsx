@@ -72,6 +72,8 @@ describe('AgentPlanStepsPage', () => {
     getRunDetail
       .mockResolvedValueOnce({
         id: 'run_1',
+        iterationCount: 2,
+        mode: 'planning',
         planSteps: [
           {
             approvalStatus: 'pending',
@@ -82,10 +84,14 @@ describe('AgentPlanStepsPage', () => {
             title: 'Inspect workspace'
           }
         ],
-        status: 'planning'
+        status: 'planning',
+        toolCallCount: 1
       })
       .mockResolvedValueOnce({
+        error: 'tool loop exceeded max iterations',
         id: 'run_1',
+        iterationCount: 10,
+        mode: 'planning',
         planSteps: [
           {
             approvalStatus: 'approved',
@@ -104,18 +110,25 @@ describe('AgentPlanStepsPage', () => {
             title: 'Patch web page'
           }
         ],
-        status: 'awaiting_execution'
+        status: 'max_iterations_reached',
+        toolCallCount: 7
       });
 
     renderDirectPage();
 
     expect(await screen.findByText('Status: planning')).toBeInTheDocument();
+    expect(screen.getByLabelText('Agent run execution controls')).toHaveTextContent('Mode planning');
+    expect(screen.getByLabelText('Agent run execution controls')).toHaveTextContent('Iterations 2');
+    expect(screen.getByLabelText('Agent run execution controls')).toHaveTextContent('Tool calls 1');
     expect(screen.getByRole('heading', { name: 'Inspect workspace' })).toBeInTheDocument();
     expect(getRunDetail).toHaveBeenCalledWith('run_1');
 
     fireEvent.click(screen.getByRole('button', { name: 'Refresh plan steps' }));
 
-    expect(await screen.findByText('Status: awaiting_execution')).toBeInTheDocument();
+    expect(await screen.findByText('Status: max_iterations_reached')).toBeInTheDocument();
+    expect(screen.getByLabelText('Agent run execution controls')).toHaveTextContent('Iterations 10');
+    expect(screen.getByLabelText('Agent run execution controls')).toHaveTextContent('Tool calls 7');
+    expect(screen.getByLabelText('Agent run execution controls')).toHaveTextContent('Stop reason tool loop exceeded max iterations');
     expect(screen.getByRole('heading', { name: 'Patch web page' })).toBeInTheDocument();
     expect(getRunDetail).toHaveBeenCalledTimes(2);
   });

@@ -64,7 +64,11 @@ export function AgentPlanStepsPage() {
   const [operatingStepId, setOperatingStepId] = useState<string | null>(null);
   const [operatingToolRunId, setOperatingToolRunId] = useState<string | null>(null);
   const [planSteps, setPlanSteps] = useState<AgentPlanStep[]>(() => statePlanSteps(location.state));
+  const [runError, setRunError] = useState<string | null>(null);
+  const [runIterationCount, setRunIterationCount] = useState<number | null>(null);
+  const [runMode, setRunMode] = useState<string | null>(null);
   const [runStatus, setRunStatus] = useState<string | null>(null);
+  const [runToolCallCount, setRunToolCallCount] = useState<number | null>(null);
   const [toolRuns, setToolRuns] = useState<AgentToolRun[]>([]);
 
   const refreshRunDetail = useCallback(async () => {
@@ -79,7 +83,11 @@ export function AgentPlanStepsPage() {
     try {
       const detail = await api.getRunDetail(runId);
       setPlanSteps(detail.planSteps);
+      setRunError(detail.error || null);
+      setRunIterationCount(typeof detail.iterationCount === 'number' ? detail.iterationCount : null);
+      setRunMode(detail.mode || null);
       setRunStatus(detail.status || null);
+      setRunToolCallCount(typeof detail.toolCallCount === 'number' ? detail.toolCallCount : null);
       setToolRuns(detail.toolRuns ?? []);
     } catch (caughtError) {
       setError(errorMessage(caughtError, 'Unable to load plan steps.'));
@@ -146,6 +154,35 @@ export function AgentPlanStepsPage() {
         <h1 className="font-heading text-3xl font-semibold text-[#181611]">Agent Plan Steps</h1>
         {runId ? <p className="text-sm text-[#625b4f]">Run {runId}</p> : null}
         {runStatus ? <p className="text-sm font-medium text-[#3f3a31]">Status: {runStatus}</p> : null}
+        <dl
+          aria-label="Agent run execution controls"
+          className="grid gap-2 text-sm text-[#3f3a31] sm:grid-cols-3"
+        >
+          {runMode ? (
+            <div className="rounded-lg border border-[#d7d2c4] bg-white px-3 py-2">
+              <dt className="text-xs font-semibold uppercase text-[#6d6658]">Mode </dt>
+              <dd className="font-medium">{runMode}</dd>
+            </div>
+          ) : null}
+          {runIterationCount !== null ? (
+            <div className="rounded-lg border border-[#d7d2c4] bg-white px-3 py-2">
+              <dt className="text-xs font-semibold uppercase text-[#6d6658]">Iterations </dt>
+              <dd className="font-medium">{runIterationCount}</dd>
+            </div>
+          ) : null}
+          {runToolCallCount !== null ? (
+            <div className="rounded-lg border border-[#d7d2c4] bg-white px-3 py-2">
+              <dt className="text-xs font-semibold uppercase text-[#6d6658]">Tool calls </dt>
+              <dd className="font-medium">{runToolCallCount}</dd>
+            </div>
+          ) : null}
+          {runError ? (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 sm:col-span-3">
+              <dt className="text-xs font-semibold uppercase text-red-700">Stop reason </dt>
+              <dd className="font-medium text-red-800">{runError}</dd>
+            </div>
+          ) : null}
+        </dl>
         <button
           className="min-h-10 rounded-lg border border-[#181611] px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
           disabled={isRefreshing}
