@@ -24,6 +24,62 @@ func TestUpdateRetryMessageLogSQLPersistsFallbackChannelID(t *testing.T) {
 	}
 }
 
+func TestArchiveExpiredMessageLogsSQLPreservesRetryQueueAndBatchesDeletes(t *testing.T) {
+	for _, fragment := range []string{
+		"DELETE FROM channel_messages",
+		"created_at < $1",
+		"status IN ($2, $3)",
+		"ORDER BY created_at ASC, id ASC",
+		"LIMIT $4",
+		"RETURNING id",
+	} {
+		if !strings.Contains(archiveExpiredMessageLogsSQL, fragment) {
+			t.Fatalf("expected expired message archive SQL to include %q, got: %s", fragment, archiveExpiredMessageLogsSQL)
+		}
+	}
+	if strings.Contains(archiveExpiredMessageLogsSQL, string(MessageStatusRetryPending)) || strings.Contains(archiveExpiredMessageLogsSQL, string(MessageStatusSending)) {
+		t.Fatalf("expired message archive SQL must not delete retry queue statuses directly: %s", archiveExpiredMessageLogsSQL)
+	}
+
+	before, limit := normalizeArchiveExpiredMessageLogsInput(ArchiveExpiredMessageLogsInput{})
+	if !before.IsZero() {
+		t.Fatalf("expected zero cutoff to remain zero for caller validation, got %s", before)
+	}
+	if limit != defaultArchiveMessageLogLimit {
+		t.Fatalf("expected default archive limit %d, got %d", defaultArchiveMessageLogLimit, limit)
+	}
+	cutoff := time.Date(2026, 6, 5, 0, 0, 0, 0, time.UTC)
+	before, limit = normalizeArchiveExpiredMessageLogsInput(ArchiveExpiredMessageLogsInput{
+		Before: cutoff,
+		Limit:  defaultArchiveMessageLogLimit + 50,
+	})
+	if !before.Equal(cutoff) {
+		t.Fatalf("expected cutoff to be preserved, got %s", before)
+	}
+	if limit != defaultArchiveMessageLogLimit {
+		t.Fatalf("expected archive limit cap %d, got %d", defaultArchiveMessageLogLimit, limit)
+	}
+}
+
+func TestMessageLogRetentionPolicyBuildsDefaultAndCustomArchiveCutoffs(t *testing.T) {
+	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
+	defaultInput := MessageLogRetentionPolicy{
+		Now: func() time.Time { return now },
+	}.ArchiveInput()
+	if !defaultInput.Before.Equal(now.Add(-30 * 24 * time.Hour)) {
+		t.Fatalf("expected default 30 day retention cutoff, got %s", defaultInput.Before)
+	}
+
+	customInput := MessageLogRetentionPolicy{
+		Retention: 7 * 24 * time.Hour,
+		Limit:     25,
+		Now:       func() time.Time { return now },
+	}.ArchiveInput()
+	if !customInput.Before.Equal(now.Add(-7*24*time.Hour)) || customInput.Limit != 25 {
+		t.Fatalf("expected custom retention archive input, got %+v", customInput)
+	}
+}
+
 func testChannelSQLStore(t *testing.T) (*SQLStore, *sql.DB, context.Context) {
 	t.Helper()
 
@@ -609,6 +665,96 @@ func TestChannelSQLStoreListsAndClaimsDueRetryMessagesForSpecificChannel(t *test
 	}
 }
 
+func TestChannelSQLStoreArchivesExpiredMessageLogsWithoutDeletingRetryQueue(t *testing.T) {
+	store, database, ctx := testChannelSQLStore(t)
+
+	created, err := store.CreateConfig(ctx, &ChannelConfig{
+		ID:             "channel_config_archive",
+		OrganizationID: "org_1",
+		Type:           ChannelTypeWebhook,
+		Name:           "Archive Webhook",
+		Config:         map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("CreateConfig returned error: %v", err)
+	}
+
+	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
+	cutoff := now.Add(-30 * 24 * time.Hour)
+	for _, log := range []ChannelMessageLog{
+		{
+			ID:               "channel_message_old_recorded",
+			ChannelID:        created.ID,
+			Direction:        DirectionInbound,
+			RawMessage:       json.RawMessage(`{"text":"old recorded"}`),
+			TransformSuccess: true,
+			Status:           MessageStatusRecorded,
+			CreatedAt:        cutoff.Add(-time.Hour),
+		},
+		{
+			ID:               "channel_message_old_permanent",
+			ChannelID:        created.ID,
+			Direction:        DirectionOutbound,
+			RawMessage:       json.RawMessage(`{"text":"old permanent"}`),
+			TransformSuccess: false,
+			TransformError:   "permanent",
+			Status:           MessageStatusPermanentFailure,
+			CreatedAt:        cutoff.Add(-2 * time.Hour),
+		},
+		{
+			ID:                 "channel_message_old_retry_pending",
+			ChannelID:          created.ID,
+			Direction:          DirectionOutbound,
+			RawMessage:         json.RawMessage(`{"text":"old retry"}`),
+			TransformedMessage: InternalMessage{ID: "msg_old_retry", Role: RoleAssistant, Content: []ContentPart{{Type: ContentTypeText, Text: "old retry"}}},
+			TransformSuccess:   true,
+			Status:             MessageStatusRetryPending,
+			RetryCount:         2,
+			CreatedAt:          cutoff.Add(-3 * time.Hour),
+		},
+		{
+			ID:               "channel_message_recent_recorded",
+			ChannelID:        created.ID,
+			Direction:        DirectionInbound,
+			RawMessage:       json.RawMessage(`{"text":"recent"}`),
+			TransformSuccess: true,
+			Status:           MessageStatusRecorded,
+			CreatedAt:        cutoff.Add(time.Hour),
+		},
+	} {
+		if _, err := store.RecordMessageLog(ctx, &log); err != nil {
+			t.Fatalf("RecordMessageLog(%s) returned error: %v", log.ID, err)
+		}
+	}
+
+	result, err := store.ArchiveExpiredMessageLogs(ctx, ArchiveExpiredMessageLogsInput{Before: cutoff, Limit: 10})
+	if err != nil {
+		t.Fatalf("ArchiveExpiredMessageLogs returned error: %v", err)
+	}
+	assertStringSet(t, result.ArchivedIDs, []string{"channel_message_old_recorded", "channel_message_old_permanent"})
+	if result.Count != 2 || !result.Before.Equal(cutoff) {
+		t.Fatalf("unexpected archive result: %+v", result)
+	}
+
+	var remaining []string
+	rows, err := database.QueryContext(ctx, `SELECT id FROM channel_messages ORDER BY id ASC`)
+	if err != nil {
+		t.Fatalf("query remaining channel messages: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			t.Fatalf("scan remaining id: %v", err)
+		}
+		remaining = append(remaining, id)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("scan remaining ids: %v", err)
+	}
+	assertStringSet(t, remaining, []string{"channel_message_old_retry_pending", "channel_message_recent_recorded"})
+}
+
 func assertChannelMessageIDs(t *testing.T, logs []*ChannelMessageLog, want []string) {
 	t.Helper()
 	if len(logs) != len(want) {
@@ -617,6 +763,22 @@ func assertChannelMessageIDs(t *testing.T, logs []*ChannelMessageLog, want []str
 	for i, expectedID := range want {
 		if logs[i].ID != expectedID {
 			t.Fatalf("expected message id at index %d to be %q, got %q; logs=%+v", i, expectedID, logs[i].ID, logs)
+		}
+	}
+}
+
+func assertStringSet(t *testing.T, got []string, want []string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("expected %d strings, got %d: got=%+v want=%+v", len(want), len(got), got, want)
+	}
+	seen := map[string]int{}
+	for _, value := range got {
+		seen[value]++
+	}
+	for _, expected := range want {
+		if seen[expected] != 1 {
+			t.Fatalf("expected string %q exactly once, got=%+v want=%+v", expected, got, want)
 		}
 	}
 }

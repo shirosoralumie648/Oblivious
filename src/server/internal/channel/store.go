@@ -50,6 +50,8 @@ type ConfigUpdate struct {
 
 const defaultMessageLogListLimit = 20
 const defaultRetryMessageClaimLimit = 100
+const defaultArchiveMessageLogLimit = 500
+const defaultMessageLogRetention = 30 * 24 * time.Hour
 
 type ListMessageLogsInput struct {
 	Limit int
@@ -62,9 +64,56 @@ type ClaimDueRetryMessagesInput struct {
 	Limit             int
 }
 
+type ArchiveExpiredMessageLogsInput struct {
+	Before time.Time
+	Limit  int
+}
+
+type ArchiveExpiredMessageLogsResult struct {
+	ArchivedIDs []string  `json:"archived_ids"`
+	Count       int       `json:"count"`
+	Before      time.Time `json:"before"`
+}
+
+type MessageLogRetentionPolicy struct {
+	Retention time.Duration
+	Limit     int
+	Now       func() time.Time
+}
+
+func (p MessageLogRetentionPolicy) ArchiveInput() ArchiveExpiredMessageLogsInput {
+	retention := p.Retention
+	if retention <= 0 {
+		retention = defaultMessageLogRetention
+	}
+	now := time.Now().UTC()
+	if p.Now != nil {
+		now = p.Now().UTC()
+	}
+	return ArchiveExpiredMessageLogsInput{
+		Before: now.Add(-retention),
+		Limit:  p.Limit,
+	}
+}
+
 type SQLStore struct {
 	db *sql.DB
 }
+
+const archiveExpiredMessageLogsSQL = `
+	WITH expired AS (
+		SELECT id
+		FROM channel_messages
+		WHERE created_at < $1
+		  AND status IN ($2, $3)
+		ORDER BY created_at ASC, id ASC
+		LIMIT $4
+	)
+	DELETE FROM channel_messages message
+	USING expired
+	WHERE message.id = expired.id
+	RETURNING id
+`
 
 const updateRetryMessageLogSQL = `
 	UPDATE channel_messages
@@ -507,6 +556,33 @@ func (s *SQLStore) CountConsecutiveSuccessfulDeliveries(ctx context.Context, cha
 	return count, nil
 }
 
+func (s *SQLStore) ArchiveExpiredMessageLogs(ctx context.Context, input ArchiveExpiredMessageLogsInput) (ArchiveExpiredMessageLogsResult, error) {
+	before, limit := normalizeArchiveExpiredMessageLogsInput(input)
+	result := ArchiveExpiredMessageLogsResult{Before: before}
+	if before.IsZero() {
+		return result, fmt.Errorf("archive cutoff is required")
+	}
+
+	rows, err := s.db.QueryContext(ctx, archiveExpiredMessageLogsSQL, before, MessageStatusRecorded, MessageStatusPermanentFailure, limit)
+	if err != nil {
+		return result, fmt.Errorf("archive expired channel message logs: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return result, fmt.Errorf("scan archived channel message log id: %w", err)
+		}
+		result.ArchivedIDs = append(result.ArchivedIDs, id)
+	}
+	if err := rows.Err(); err != nil {
+		return result, fmt.Errorf("scan archived channel message log ids: %w", err)
+	}
+	result.Count = len(result.ArchivedIDs)
+	return result, nil
+}
+
 func (s *SQLStore) CreateEvent(ctx context.Context, event notification.NotificationEvent) (*notification.Notification, error) {
 	return notification.NewService(notification.NewSQLStore(s.db)).CreateEvent(ctx, event)
 }
@@ -563,6 +639,18 @@ func normalizeRetryClaimInput(input ClaimDueRetryMessagesInput) (time.Time, int)
 		limit = defaultRetryMessageClaimLimit
 	}
 	return now, limit
+}
+
+func normalizeArchiveExpiredMessageLogsInput(input ArchiveExpiredMessageLogsInput) (time.Time, int) {
+	before := input.Before
+	if !before.IsZero() {
+		before = before.UTC()
+	}
+	limit := input.Limit
+	if limit <= 0 || limit > defaultArchiveMessageLogLimit {
+		limit = defaultArchiveMessageLogLimit
+	}
+	return before, limit
 }
 
 func scanChannelMessageLogs(rows *sql.Rows) ([]*ChannelMessageLog, error) {
