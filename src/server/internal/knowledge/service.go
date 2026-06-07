@@ -141,6 +141,7 @@ type Service struct {
 	store          any
 	embedder       Embedder
 	embeddingModel string
+	reranker       KnowledgeReranker
 	vectorSize     int
 	vectorStore    KnowledgeVectorStore
 }
@@ -151,6 +152,10 @@ type Embedder interface {
 }
 
 type KnowledgeEmbedder = Embedder
+
+type KnowledgeReranker interface {
+	Rerank(ctx context.Context, query string, results []KnowledgeRetrievalResult, limit int) ([]KnowledgeRetrievalResult, error)
+}
 
 func NewService(store any) *Service {
 	return &Service{store: store}
@@ -164,12 +169,24 @@ func NewServiceWithEmbedder(store any, embedder Embedder, embeddingModel string)
 	}
 }
 
+func NewServiceWithReranker(store any, reranker KnowledgeReranker) *Service {
+	return NewService(store).WithReranker(reranker)
+}
+
 func NewServiceWithVectorStore(store any, vectorStore KnowledgeVectorStore, vectorSize int) *Service {
 	return NewService(store).WithVectorStore(vectorStore, vectorSize)
 }
 
 func NewServiceWithEmbedderAndVectorStore(store any, embedder Embedder, embeddingModel string, vectorStore KnowledgeVectorStore, vectorSize int) *Service {
 	return NewServiceWithEmbedder(store, embedder, embeddingModel).WithVectorStore(vectorStore, vectorSize)
+}
+
+func (s *Service) WithReranker(reranker KnowledgeReranker) *Service {
+	if s == nil {
+		return nil
+	}
+	s.reranker = reranker
+	return s
 }
 
 func (s *Service) WithVectorStore(vectorStore KnowledgeVectorStore, vectorSize int) *Service {
@@ -470,11 +487,17 @@ func (s *Service) RetrieveWithOptions(ctx context.Context, session auth.Session,
 	scope := knowledgeSessionScope(session)
 	if store, ok := s.store.(knowledgeRetrieverWithOptions); ok {
 		results, err := store.RetrieveKnowledge(ctx, scope, knowledgeBaseID, normalizedQuery, queryEmbedding, options)
-		return normalizeKnowledgeRetrievalResults(results, options.Mode), err
+		if err != nil {
+			return nil, err
+		}
+		return s.rerankKnowledgeResults(ctx, normalizedQuery, normalizeKnowledgeRetrievalResults(results, options.Mode), options)
 	}
 	if store, ok := s.store.(knowledgeRetrieverNamedWithOptions); ok {
 		results, err := store.RetrieveKnowledgeWithOptions(ctx, scope, knowledgeBaseID, normalizedQuery, queryEmbedding, options)
-		return normalizeKnowledgeRetrievalResults(results, options.Mode), err
+		if err != nil {
+			return nil, err
+		}
+		return s.rerankKnowledgeResults(ctx, normalizedQuery, normalizeKnowledgeRetrievalResults(results, options.Mode), options)
 	}
 	store, ok := s.store.(interface {
 		RetrieveKnowledge(ctx context.Context, workspaceID, knowledgeBaseID, query string) ([]KnowledgeRetrievalResult, error)
@@ -483,7 +506,10 @@ func (s *Service) RetrieveWithOptions(ctx context.Context, session auth.Session,
 		return []KnowledgeRetrievalResult{}, nil
 	}
 	results, err := store.RetrieveKnowledge(ctx, session.WorkspaceID, knowledgeBaseID, normalizedQuery)
-	return normalizeKnowledgeRetrievalResults(results, KnowledgeRetrievalModeHybrid), err
+	if err != nil {
+		return nil, err
+	}
+	return s.rerankKnowledgeResults(ctx, normalizedQuery, normalizeKnowledgeRetrievalResults(results, KnowledgeRetrievalModeHybrid), options)
 }
 
 func (s *Service) Update(ctx context.Context, session auth.Session, knowledgeBaseID, name string) (KnowledgeBase, error) {
@@ -629,6 +655,17 @@ func (s *Service) RunRetrievalTestCases(ctx context.Context, session auth.Sessio
 		report.Results = append(report.Results, runResult)
 	}
 	return report, nil
+}
+
+func (s *Service) rerankKnowledgeResults(ctx context.Context, query string, results []KnowledgeRetrievalResult, options KnowledgeRetrievalOptions) ([]KnowledgeRetrievalResult, error) {
+	if options.Mode != KnowledgeRetrievalModeHybridRerank || s == nil || s.reranker == nil || len(results) == 0 {
+		return results, nil
+	}
+	reranked, err := s.reranker.Rerank(ctx, query, results, options.Limit)
+	if err != nil {
+		return nil, err
+	}
+	return normalizeKnowledgeRetrievalResults(reranked, KnowledgeRetrievalModeHybridRerank), nil
 }
 
 func (s *Service) knowledgeBaseConfigForDocument(ctx context.Context, session auth.Session, knowledgeBaseID string) (KnowledgeBaseConfig, error) {

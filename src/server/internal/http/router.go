@@ -16,6 +16,7 @@ import (
 	"oblivious/server/internal/config"
 	"oblivious/server/internal/console"
 	"oblivious/server/internal/knowledge"
+	"oblivious/server/internal/knowledge/retrieval"
 	"oblivious/server/internal/marketplace"
 	"oblivious/server/internal/mcp"
 	"oblivious/server/internal/memory"
@@ -1375,6 +1376,14 @@ func newKnowledgeService(cfg config.Config, knowledgeStore any) *knowledge.Servi
 			knowledge.NewQdrantVectorStore(cfg.QdrantURL, cfg.QdrantAPIKey),
 			cfg.QdrantVectorSize,
 		)
+	}
+	if strings.TrimSpace(cfg.RAGRerankerBaseURL) != "" {
+		service.WithReranker(retrieval.NewKnowledgeResultReranker(knowledge.RerankerConfig{
+			APIKey:  cfg.RAGRerankerAPIKey,
+			BaseURL: cfg.RAGRerankerBaseURL,
+			Model:   cfg.RAGRerankerModel,
+			TopK:    cfg.RAGRerankerTopK,
+		}))
 	}
 	return service
 }

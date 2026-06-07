@@ -129,6 +129,36 @@ func TestLoadQdrantConfig(t *testing.T) {
 	}
 }
 
+func TestLoadRAGRerankerConfig(t *testing.T) {
+	t.Setenv("SERVER_PORT", "8080")
+	t.Setenv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/oblivious?sslmode=disable")
+	t.Setenv("SESSION_SECRET", "test-secret")
+	t.Setenv("RAG_RERANKER_BASE_URL", " http://reranker.internal:8081 ")
+	t.Setenv("RAG_RERANKER_API_KEY", " reranker-secret ")
+	t.Setenv("RAG_RERANKER_MODEL", " bge-reranker-base ")
+	t.Setenv("RAG_RERANKER_TOP_K", "12")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if cfg.RAGRerankerBaseURL != "http://reranker.internal:8081" || cfg.RAGRerankerAPIKey != "reranker-secret" || cfg.RAGRerankerModel != "bge-reranker-base" || cfg.RAGRerankerTopK != 12 {
+		t.Fatalf("unexpected reranker config url=%q key=%q model=%q topK=%d", cfg.RAGRerankerBaseURL, cfg.RAGRerankerAPIKey, cfg.RAGRerankerModel, cfg.RAGRerankerTopK)
+	}
+}
+
+func TestLoadRejectsInvalidRAGRerankerTopK(t *testing.T) {
+	t.Setenv("SERVER_PORT", "8080")
+	t.Setenv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/oblivious?sslmode=disable")
+	t.Setenv("SESSION_SECRET", "test-secret")
+	t.Setenv("RAG_RERANKER_TOP_K", "0")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for invalid RAG_RERANKER_TOP_K")
+	}
+}
+
 func TestLoadRejectsInvalidQdrantVectorSize(t *testing.T) {
 	t.Setenv("SERVER_PORT", "8080")
 	t.Setenv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/oblivious?sslmode=disable")

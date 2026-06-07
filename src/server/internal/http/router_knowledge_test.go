@@ -12,11 +12,16 @@ import (
 )
 
 type routerKnowledgeStore struct {
-	createdBase knowledge.KnowledgeBase
+	createdBase      knowledge.KnowledgeBase
+	retrievalResults []knowledge.KnowledgeRetrievalResult
 }
 
 func (s *routerKnowledgeStore) CreateKnowledgeBase(ctx context.Context, workspaceID, name string) (knowledge.KnowledgeBase, error) {
 	return s.createdBase, nil
+}
+
+func (s *routerKnowledgeStore) RetrieveKnowledgeWithOptions(ctx context.Context, organizationID, knowledgeBaseID, query string, queryEmbedding []float32, options knowledge.KnowledgeRetrievalOptions) ([]knowledge.KnowledgeRetrievalResult, error) {
+	return append([]knowledge.KnowledgeRetrievalResult(nil), s.retrievalResults...), nil
 }
 
 func TestNewKnowledgeServiceWiresQdrantVectorStore(t *testing.T) {
@@ -55,5 +60,48 @@ func TestNewKnowledgeServiceWiresQdrantVectorStore(t *testing.T) {
 	}
 	if received.apiKey != "qdrant-secret" {
 		t.Fatalf("expected qdrant api-key header, got %q", received.apiKey)
+	}
+}
+
+func TestNewKnowledgeServiceWiresRAGReranker(t *testing.T) {
+	var received struct {
+		authorization string
+		path          string
+	}
+	rerankerServer := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		received.path = r.URL.Path
+		received.authorization = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"results":[{"index":1,"relevance_score":0.97},{"index":0,"relevance_score":0.22}]}`))
+	}))
+	defer rerankerServer.Close()
+
+	service := newKnowledgeService(config.Config{
+		Port:               8080,
+		RAGRerankerAPIKey:  "reranker-secret",
+		RAGRerankerBaseURL: rerankerServer.URL,
+		RAGRerankerModel:   "bge-reranker-base",
+		RAGRerankerTopK:    2,
+		RelayEnabled:       false,
+	}, &routerKnowledgeStore{
+		retrievalResults: []knowledge.KnowledgeRetrievalResult{
+			{ChunkID: "chunk_a", DocumentID: "doc_a", DocumentTitle: "Alpha", Snippet: "alpha"},
+			{ChunkID: "chunk_b", DocumentID: "doc_b", DocumentTitle: "Beta", Snippet: "beta"},
+		},
+	})
+
+	results, err := service.RetrieveWithOptions(context.Background(), auth.Session{OrganizationID: "org_acme", WorkspaceID: "workspace_1"}, "kb_product_docs", "beta", knowledge.KnowledgeRetrievalOptions{Mode: knowledge.KnowledgeRetrievalModeHybridRerank, Limit: 1})
+	if err != nil {
+		t.Fatalf("retrieve with router-wired reranker: %v", err)
+	}
+
+	if received.path != "/rerank" {
+		t.Fatalf("expected reranker /rerank request, got %q", received.path)
+	}
+	if received.authorization != "Bearer reranker-secret" {
+		t.Fatalf("expected reranker auth header, got %q", received.authorization)
+	}
+	if len(results) != 1 || results[0].ChunkID != "chunk_b" || results[0].Score != 0.97 {
+		t.Fatalf("expected reranked chunk_b result, got %+v", results)
 	}
 }

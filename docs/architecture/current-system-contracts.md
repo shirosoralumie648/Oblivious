@@ -369,6 +369,10 @@ Functional Logic 9.3 infrastructure failover uses `docs/release/recovery-platfor
 | `MODEL_DEFAULT_NAME` | No | `demo-reply` | Consumed |
 | `RELAY_ENABLED` | No | `true` | Controls Relay mounting |
 | `RELAY_DEFAULT_MODEL` | No | `gpt-4o-mini` | Relay default model |
+| `RAG_RERANKER_BASE_URL` | No | empty | Enables Cohere-compatible `/rerank` calls for Knowledge `hybrid_rerank` |
+| `RAG_RERANKER_API_KEY` | No | empty | Bearer token for the RAG reranker service |
+| `RAG_RERANKER_MODEL` | No | `bge-reranker-large` | RAG reranker model name |
+| `RAG_RERANKER_TOP_K` | No | `5` | RAG reranker candidate count; invalid values fail startup config load |
 | `OPENAI_API_KEY` | No | empty | Development default channel key |
 | `OPENAI_BASE_URL` | No | `https://api.openai.com` | Development default channel base URL |
 

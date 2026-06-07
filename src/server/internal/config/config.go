@@ -33,6 +33,12 @@ type Config struct {
 	QdrantAPIKey     string
 	QdrantVectorSize int
 
+	// RAG reranker configuration. Disabled unless RAG_RERANKER_BASE_URL is set.
+	RAGRerankerBaseURL string
+	RAGRerankerAPIKey  string
+	RAGRerankerModel   string
+	RAGRerankerTopK    int
+
 	// Relay configuration
 	RelayEnabled                 bool
 	RelayDefaultModel            string
@@ -153,6 +159,21 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("invalid QDRANT_VECTOR_SIZE: %q", qdrantVectorSizeRaw)
 		}
 		qdrantVectorSize = parsedSize
+	}
+	ragRerankerBaseURL := strings.TrimSpace(os.Getenv("RAG_RERANKER_BASE_URL"))
+	ragRerankerAPIKey := strings.TrimSpace(os.Getenv("RAG_RERANKER_API_KEY"))
+	ragRerankerModel := strings.TrimSpace(os.Getenv("RAG_RERANKER_MODEL"))
+	if ragRerankerModel == "" {
+		ragRerankerModel = "bge-reranker-large"
+	}
+	ragRerankerTopK := 5
+	ragRerankerTopKRaw := strings.TrimSpace(os.Getenv("RAG_RERANKER_TOP_K"))
+	if ragRerankerTopKRaw != "" {
+		parsedTopK, parseErr := strconv.Atoi(ragRerankerTopKRaw)
+		if parseErr != nil || parsedTopK < 1 {
+			return Config{}, fmt.Errorf("invalid RAG_RERANKER_TOP_K: %q", ragRerankerTopKRaw)
+		}
+		ragRerankerTopK = parsedTopK
 	}
 
 	// Relay configuration
@@ -291,6 +312,10 @@ func Load() (Config, error) {
 		QdrantURL:                    qdrantURL,
 		QdrantAPIKey:                 qdrantAPIKey,
 		QdrantVectorSize:             qdrantVectorSize,
+		RAGRerankerBaseURL:           ragRerankerBaseURL,
+		RAGRerankerAPIKey:            ragRerankerAPIKey,
+		RAGRerankerModel:             ragRerankerModel,
+		RAGRerankerTopK:              ragRerankerTopK,
 		RelayEnabled:                 relayEnabled,
 		RelayDefaultModel:            relayDefaultModel,
 		RelayRateLimitBackend:        relayRateLimitBackend,

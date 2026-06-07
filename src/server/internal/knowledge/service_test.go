@@ -168,6 +168,31 @@ type recordingKnowledgeEmbedder struct {
 	userID              string
 }
 
+type recordingKnowledgeReranker struct {
+	limit   int
+	query   string
+	results []KnowledgeRetrievalResult
+}
+
+func (r *recordingKnowledgeReranker) Rerank(ctx context.Context, query string, results []KnowledgeRetrievalResult, limit int) ([]KnowledgeRetrievalResult, error) {
+	r.query = query
+	r.limit = limit
+	r.results = append([]KnowledgeRetrievalResult(nil), results...)
+	reranked := append([]KnowledgeRetrievalResult(nil), results...)
+	if len(reranked) >= 2 {
+		reranked[0], reranked[1] = reranked[1], reranked[0]
+		reranked[0].Score = 0.99
+		reranked[1].Score = 0.42
+	}
+	for index := range reranked {
+		reranked[index].RetrievalMethod = KnowledgeRetrievalModeHybridRerank
+	}
+	if limit > 0 && len(reranked) > limit {
+		reranked = reranked[:limit]
+	}
+	return reranked, nil
+}
+
 func (e *recordingKnowledgeEmbedder) Embed(ctx context.Context, text string) ([]float32, error) {
 	e.userID, _ = relaytypes.TrustedUserIDFromContext(ctx)
 	e.organizationID, _ = relaytypes.TrustedOrganizationIDFromContext(ctx)
@@ -617,6 +642,44 @@ func TestRetrieveWithOptionsRecordsRAGRetrievalLatencyMetric(t *testing.T) {
 	}
 	if count := histogramSampleCount(t, metrics.RAGRetrievalLatencySeconds.WithLabelValues(mode)); count <= before {
 		t.Fatalf("expected RAG retrieval latency histogram sample, before=%v after=%v", before, count)
+	}
+}
+
+func TestRetrieveWithOptionsReranksHybridRerankResults(t *testing.T) {
+	store := &fakeStore{
+		retrievalResults: []KnowledgeRetrievalResult{
+			{ChunkID: "chunk_a", DocumentID: "doc_a", DocumentTitle: "Alpha", Snippet: "less relevant", Score: 0.7},
+			{ChunkID: "chunk_b", DocumentID: "doc_b", DocumentTitle: "Beta", Snippet: "best answer", Score: 0.6},
+		},
+	}
+	reranker := &recordingKnowledgeReranker{}
+	service := NewServiceWithReranker(store, reranker)
+
+	results, err := service.RetrieveWithOptions(
+		context.Background(),
+		auth.Session{WorkspaceID: "workspace_1", OrganizationID: "org_1"},
+		"kb_1",
+		"  best   answer  ",
+		KnowledgeRetrievalOptions{Mode: KnowledgeRetrievalModeHybridRerank, Limit: 1},
+	)
+	if err != nil {
+		t.Fatalf("retrieve with rerank: %v", err)
+	}
+
+	if reranker.query != "best answer" {
+		t.Fatalf("expected reranker query %q, got %q", "best answer", reranker.query)
+	}
+	if reranker.limit != 1 {
+		t.Fatalf("expected reranker limit 1, got %d", reranker.limit)
+	}
+	if len(reranker.results) != 2 {
+		t.Fatalf("expected reranker to receive two candidates, got %+v", reranker.results)
+	}
+	if len(results) != 1 || results[0].ChunkID != "chunk_b" {
+		t.Fatalf("expected reranked top chunk_b, got %+v", results)
+	}
+	if results[0].RetrievalMethod != KnowledgeRetrievalModeHybridRerank || results[0].RetrievalMode != KnowledgeRetrievalModeHybridRerank {
+		t.Fatalf("expected hybrid_rerank method/mode, got %+v", results[0])
 	}
 }
 
