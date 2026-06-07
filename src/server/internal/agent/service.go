@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -121,7 +122,13 @@ func (e defaultPlanStepExecutor) ExecutePlanStep(ctx context.Context, step *Plan
 	if err != nil {
 		return nil, fmt.Errorf("get plan steps: %w", err)
 	}
-	reply, err := e.gateway.GenerateReply(ctx, buildPlanStepExecutionMessages(run, agent, step, messages, steps), planStepExecutionConversationConfig(run, agent))
+	chatMessages := buildPlanStepExecutionMessages(run, agent, step, messages, steps)
+	tokenBudget := normalizeTokenBudget(agent.Config.TokenBudget)
+	estimatedTokens := estimateChatMessageTokens(chatMessages)
+	if tokenBudget > 0 && estimatedTokens > tokenBudget {
+		return nil, fmt.Errorf("%w: estimated %d prompt tokens exceeds budget %d", ErrTokenBudgetExceeded, estimatedTokens, tokenBudget)
+	}
+	reply, err := e.gateway.GenerateReply(ctx, chatMessages, planStepExecutionConversationConfig(run, agent))
 	if err != nil {
 		return nil, fmt.Errorf("execute plan step with model: %w", err)
 	}
@@ -1200,21 +1207,36 @@ func (s *Service) ExecutePlanStep(ctx context.Context, session auth.Session, pla
 	result, execErr := s.planStepExecutor.ExecutePlanStep(ctx, running)
 	completedAt := time.Now().UTC()
 	if execErr != nil {
+		execErrMessage := execErr.Error()
+		if errors.Is(execErr, ErrTokenBudgetExceeded) {
+			execErrMessage = "token_budget_exceeded: " + execErrMessage
+		}
 		if toolRun != nil {
 			_, _ = s.store.UpdateToolRun(ctx, session.OrganizationID, toolRun.ID, UpdateToolRunRequest{
 				Status:       stringPointer(ToolRunStatusFailed),
-				Error:        stringPointer(execErr.Error()),
+				Error:        stringPointer(execErrMessage),
 				AttemptCount: intPointer(1),
 				CompletedAt:  &completedAt,
 			})
 		}
 		failed, updateErr := s.store.UpdatePlanStep(ctx, session.OrganizationID, planStepID, UpdatePlanStepRequest{
 			Status:      stringPointer(PlanStepStatusFailed),
-			Error:       stringPointer(execErr.Error()),
+			Error:       stringPointer(execErrMessage),
 			CompletedAt: &completedAt,
 		})
 		if updateErr != nil {
 			return nil, updateErr
+		}
+		if errors.Is(execErr, ErrTokenBudgetExceeded) {
+			_, updateRunErr := s.store.UpdateRun(ctx, session.OrganizationID, running.RunID, UpdateRunRequest{
+				Status:         stringPointer(RunStatusTokenBudgetExceeded),
+				Error:          stringPointer(execErrMessage),
+				IterationCount: intPointer(1),
+				CompletedAt:    &completedAt,
+			})
+			if updateRunErr != nil {
+				return nil, updateRunErr
+			}
 		}
 		return failed, execErr
 	}
@@ -1549,6 +1571,15 @@ func planStepExecutionConversationConfig(run *Run, agent *Agent) chat.Conversati
 		config.MaxOutputTokens = 2048
 	}
 	return config
+}
+
+func estimateChatMessageTokens(messages []chat.Message) int {
+	total := 0
+	for _, message := range messages {
+		total += estimateTextTokens(message.Role)
+		total += estimateTextTokens(message.Content)
+	}
+	return total
 }
 
 func buildPlanStepExecutionMessages(run *Run, agent *Agent, currentStep *PlanStep, messages []*Message, steps []*PlanStep) []chat.Message {

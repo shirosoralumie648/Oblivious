@@ -849,6 +849,79 @@ func TestExecutePlanStepRunsPlainLLMStepWithPlanningContext(t *testing.T) {
 	}
 }
 
+func TestExecutePlanStepStopsBeforePlainLLMWhenTokenBudgetExceeded(t *testing.T) {
+	now := time.Now().UTC()
+	largeContext := strings.Repeat("tenant migration risk ", 900)
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+			Config: Config{
+				TokenBudget: 1000,
+			},
+		},
+		conversation: &Conversation{
+			ID:             "conv_1",
+			AgentID:        "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+		},
+		messages: []*Message{{
+			ID:             "msg_user",
+			ConversationID: "conv_1",
+			OrganizationID: "org_1",
+			Role:           "user",
+			Content:        largeContext,
+			CreatedAt:      now,
+		}},
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Status:         RunStatusPendingApproval,
+			StartedAt:      now,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+		planSteps: []*PlanStep{{
+			ID:             "step_1",
+			RunID:          "run_1",
+			OrganizationID: "org_1",
+			Index:          1,
+			Title:          "Summarize oversized context",
+			Status:         PlanStepStatusApproved,
+			ApprovalStatus: ApprovalStatusApproved,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+	}
+	gateway := &fakeGateway{plainReply: "should not be called"}
+	service := NewService(store, gateway)
+
+	step, err := service.ExecutePlanStep(
+		context.Background(),
+		auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}},
+		"step_1",
+	)
+	if !errors.Is(err, ErrTokenBudgetExceeded) {
+		t.Fatalf("expected ErrTokenBudgetExceeded, got %v", err)
+	}
+	if gateway.plainCalls != 0 {
+		t.Fatalf("expected token budget guard to stop before gateway call, got %d calls", gateway.plainCalls)
+	}
+	if step == nil || step.Status != PlanStepStatusFailed || !strings.Contains(step.Error, "token_budget_exceeded") {
+		t.Fatalf("expected failed plan step with token budget evidence, got %+v", step)
+	}
+	run := store.runs[0]
+	if run.Status != RunStatusTokenBudgetExceeded || !strings.Contains(run.Error, "token_budget_exceeded") || run.IterationCount != 1 {
+		t.Fatalf("expected planning run to record token budget stop, got %+v", run)
+	}
+}
+
 func TestServiceCreateUpdateAgentNormalizesIterationAndTokenBudgetConfig(t *testing.T) {
 	session := auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}}
 	store := &fakeStore{}
