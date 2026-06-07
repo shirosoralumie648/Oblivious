@@ -77,6 +77,13 @@ func testAgentRunSQLStore(t *testing.T) (*SQLStore, context.Context) {
 	if _, err := database.Exec(string(migration)); err != nil {
 		t.Fatalf("apply agent workflow migration: %v", err)
 	}
+	runModeMigration, err := os.ReadFile("../../migrations/0070_agent_run_mode.sql")
+	if err != nil {
+		t.Fatalf("read agent run mode migration: %v", err)
+	}
+	if _, err := database.Exec(string(runModeMigration)); err != nil {
+		t.Fatalf("apply agent run mode migration: %v", err)
+	}
 	toolRiskMigration, err := os.ReadFile("../../migrations/0050_agent_tool_risk_level.sql")
 	if err != nil {
 		t.Fatalf("read agent tool risk migration: %v", err)
@@ -118,6 +125,7 @@ func TestAgentRunStorePersistsRunLifecycle(t *testing.T) {
 		AgentID:           "agent_1",
 		UserID:            "user_1",
 		RequestID:         "req_agent_run_lifecycle",
+		Mode:              ExecutionModePlanning,
 		Status:            RunStatusRunning,
 		MemoryEnabled:     true,
 		MemorySearched:    true,
@@ -128,6 +136,9 @@ func TestAgentRunStorePersistsRunLifecycle(t *testing.T) {
 	}
 	if run.ID == "" || run.OrganizationID != "org_1" || run.Status != RunStatusRunning {
 		t.Fatalf("unexpected created run: %+v", run)
+	}
+	if run.Mode != ExecutionModePlanning {
+		t.Fatalf("expected persisted run mode %q, got %q", ExecutionModePlanning, run.Mode)
 	}
 	if !run.MemoryEnabled || !run.MemorySearched || run.MemoryResultCount != 2 {
 		t.Fatalf("memory evidence was not persisted on run: %+v", run)

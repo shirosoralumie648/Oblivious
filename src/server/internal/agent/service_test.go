@@ -227,6 +227,7 @@ func (s *fakeStore) CreateRun(ctx context.Context, req *CreateRunRequest) (*Run,
 		AgentID:           req.AgentID,
 		UserID:            req.UserID,
 		RequestID:         req.RequestID,
+		Mode:              NormalizeExecutionMode(req.Mode),
 		Status:            status,
 		MemoryEnabled:     req.MemoryEnabled,
 		MemorySearched:    req.MemorySearched,
@@ -1517,6 +1518,9 @@ func TestServiceStartRunWithoutToolsCreatesDurableFetchableRun(t *testing.T) {
 	if run.Status != RunStatusCompleted || run.FinalMessageID == "" || run.CompletedAt == nil {
 		t.Fatalf("expected completed run with final message, got %+v", run)
 	}
+	if run.Mode != ExecutionModeReact {
+		t.Fatalf("expected durable no-tool run mode %q, got %q", ExecutionModeReact, run.Mode)
+	}
 	if run.IterationCount != 1 || run.ToolCallCount != 0 {
 		t.Fatalf("expected no-tool run to record one iteration and zero tool calls, got iterations=%d tools=%d", run.IterationCount, run.ToolCallCount)
 	}
@@ -1567,6 +1571,9 @@ func TestServiceStartPlanningRunCreatesDurablePlanWithoutExecutingTools(t *testi
 	}
 	if result.Run == nil || result.Run.Status != RunStatusPendingApproval {
 		t.Fatalf("expected planning run to wait for plan step execution, got %+v", result.Run)
+	}
+	if result.Run.Mode != ExecutionModePlanning {
+		t.Fatalf("expected planning run mode %q, got %q", ExecutionModePlanning, result.Run.Mode)
 	}
 	if len(store.toolRuns) != 0 {
 		t.Fatalf("expected planning mode not to execute tools, got %+v", store.toolRuns)

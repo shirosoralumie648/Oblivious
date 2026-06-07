@@ -701,6 +701,7 @@ func (s *Service) StartRun(ctx context.Context, session auth.Session, req StartR
 			AgentID:        runAgent.ID,
 			UserID:         session.User.ID,
 			RequestID:      metadata.RequestID,
+			Mode:           ExecutionModeReact,
 			Status:         RunStatusRunning,
 		})
 		if createErr != nil {
@@ -855,6 +856,7 @@ func (s *Service) StartPlanningRun(ctx context.Context, session auth.Session, re
 		AgentID:           runAgent.ID,
 		UserID:            session.User.ID,
 		RequestID:         metadata.RequestID,
+		Mode:              ExecutionModePlanning,
 		Status:            RunStatusRunning,
 		MemoryEnabled:     evidence.enabled,
 		MemorySearched:    evidence.searched,

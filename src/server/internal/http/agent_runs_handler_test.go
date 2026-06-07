@@ -57,6 +57,9 @@ func TestAgentRunsHandlerCreateRunStartsReactRunAndReturnsMessages(t *testing.T)
 	if response.Data.Run.ID == "" || response.Data.Run.Status != agent.RunStatusCompleted {
 		t.Fatalf("expected completed run in response, got %+v", response.Data.Run)
 	}
+	if response.Data.Run.Mode != agent.ExecutionModeReact {
+		t.Fatalf("expected react run mode in response, got %+v", response.Data.Run)
+	}
 	if response.Data.Status != agent.RunStatusCompleted || response.Data.ID != response.Data.Run.ID {
 		t.Fatalf("expected facade id/status mirrors, got %+v", response.Data)
 	}
@@ -151,6 +154,9 @@ func TestAgentRunsHandlerCreateRunStartsPlanningRun(t *testing.T) {
 	}
 	if response.Data.Run == nil || response.Data.Run.Status != agent.RunStatusPendingApproval {
 		t.Fatalf("expected planning run to wait for plan step execution, got %+v", response.Data.Run)
+	}
+	if response.Data.Run.Mode != agent.ExecutionModePlanning {
+		t.Fatalf("expected planning run mode in response, got %+v", response.Data.Run)
 	}
 	if len(response.Data.Messages) != 2 {
 		t.Fatalf("expected user and planning messages, got %+v", response.Data.Messages)
@@ -954,6 +960,7 @@ func (s *fakeAgentRunsStore) CreateRun(ctx context.Context, req *agent.CreateRun
 		AgentID:           req.AgentID,
 		UserID:            req.UserID,
 		RequestID:         req.RequestID,
+		Mode:              agent.NormalizeExecutionMode(req.Mode),
 		Status:            req.Status,
 		MemoryEnabled:     req.MemoryEnabled,
 		MemorySearched:    req.MemorySearched,

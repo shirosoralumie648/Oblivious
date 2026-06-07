@@ -125,6 +125,7 @@ type Run struct {
 	AgentID           string     `json:"agentId"`
 	UserID            string     `json:"userId"`
 	RequestID         string     `json:"requestId,omitempty"`
+	Mode              string     `json:"mode"`
 	Status            string     `json:"status"`
 	MemoryEnabled     bool       `json:"memoryEnabled"`
 	MemorySearched    bool       `json:"memorySearched"`
@@ -232,6 +233,7 @@ type CreateRunRequest struct {
 	AgentID           string
 	UserID            string
 	RequestID         string
+	Mode              string
 	Status            string
 	MemoryEnabled     bool
 	MemorySearched    bool
@@ -742,16 +744,17 @@ func (s *SQLStore) CreateRun(ctx context.Context, req *CreateRunRequest) (*Run, 
 	if status == "" {
 		status = RunStatusRunning
 	}
+	mode := NormalizeExecutionMode(req.Mode)
 
 	result, err := s.db.ExecContext(ctx, `
 		INSERT INTO agent_runs (
-			id, organization_id, conversation_id, agent_id, user_id, request_id, status,
+			id, organization_id, conversation_id, agent_id, user_id, request_id, mode, status,
 			memory_enabled, memory_searched, memory_result_count, started_at, created_at, updated_at
 		)
-		SELECT $1, c.organization_id, c.id, c.agent_id, $5, $6, $7, $8, $9, $10, $11, $12, $12
+		SELECT $1, c.organization_id, c.id, c.agent_id, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13
 		FROM agent_conversations c
 		WHERE c.id = $2 AND c.organization_id = $3 AND c.agent_id = $4
-	`, id, req.ConversationID, req.OrganizationID, req.AgentID, req.UserID, req.RequestID, status,
+	`, id, req.ConversationID, req.OrganizationID, req.AgentID, req.UserID, req.RequestID, mode, status,
 		req.MemoryEnabled, req.MemorySearched, req.MemoryResultCount, startedAt, now)
 	if err != nil {
 		return nil, fmt.Errorf("insert agent run: %w", err)
@@ -769,7 +772,7 @@ func (s *SQLStore) CreateRun(ctx context.Context, req *CreateRunRequest) (*Run, 
 
 func (s *SQLStore) GetRun(ctx context.Context, organizationID, id string) (*Run, error) {
 	run, err := scanRun(s.db.QueryRowContext(ctx, `
-		SELECT id, organization_id, conversation_id, agent_id, user_id, request_id, status,
+		SELECT id, organization_id, conversation_id, agent_id, user_id, request_id, mode, status,
 			memory_enabled, memory_searched, memory_result_count, iteration_count, tool_call_count,
 			final_message_id, error, started_at, completed_at, created_at, updated_at
 		FROM agent_runs
@@ -786,7 +789,7 @@ func (s *SQLStore) GetRun(ctx context.Context, organizationID, id string) (*Run,
 
 func (s *SQLStore) ListRuns(ctx context.Context, organizationID, conversationID string) ([]*Run, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, organization_id, conversation_id, agent_id, user_id, request_id, status,
+		SELECT id, organization_id, conversation_id, agent_id, user_id, request_id, mode, status,
 			memory_enabled, memory_searched, memory_result_count, iteration_count, tool_call_count,
 			final_message_id, error, started_at, completed_at, created_at, updated_at
 		FROM agent_runs
@@ -1403,6 +1406,7 @@ func scanRun(row scanner) (*Run, error) {
 		&run.AgentID,
 		&run.UserID,
 		&run.RequestID,
+		&run.Mode,
 		&run.Status,
 		&run.MemoryEnabled,
 		&run.MemorySearched,
@@ -1419,6 +1423,7 @@ func scanRun(row scanner) (*Run, error) {
 	if err != nil {
 		return nil, err
 	}
+	run.Mode = NormalizeExecutionMode(run.Mode)
 	run.FinalMessageID = finalMessageID.String
 	if completedAt.Valid {
 		run.CompletedAt = &completedAt.Time

@@ -655,6 +655,7 @@ func (r *Runner) RunWithTools(ctx context.Context, session auth.Session, agent *
 		AgentID:           agent.ID,
 		UserID:            session.User.ID,
 		RequestID:         metadata.RequestID,
+		Mode:              ExecutionModeReact,
 		Status:            RunStatusRunning,
 		MemoryEnabled:     evidence.enabled,
 		MemorySearched:    evidence.searched,
