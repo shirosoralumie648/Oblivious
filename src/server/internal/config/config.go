@@ -64,13 +64,19 @@ type Config struct {
 	ScheduleWorkerIntervalMS int
 	ScheduleWorkerClaimLimit int
 
-	// Channel message log archive configuration. Disabled unless a local or
-	// object-storage mounted archive root is configured.
-	ChannelMessageLogArchiveEnabled    bool
-	ChannelMessageLogArchiveRoot       string
-	ChannelMessageLogArchiveIntervalMS int
-	ChannelMessageLogRetentionHours    int
-	ChannelMessageLogArchiveLimit      int
+	// Channel message log archive configuration. Disabled unless a file root or
+	// S3-compatible object storage target is configured.
+	ChannelMessageLogArchiveEnabled     bool
+	ChannelMessageLogArchiveBackend     string
+	ChannelMessageLogArchiveRoot        string
+	ChannelMessageLogArchiveS3Endpoint  string
+	ChannelMessageLogArchiveS3Region    string
+	ChannelMessageLogArchiveS3Bucket    string
+	ChannelMessageLogArchiveS3AccessKey string
+	ChannelMessageLogArchiveS3SecretKey string
+	ChannelMessageLogArchiveIntervalMS  int
+	ChannelMessageLogRetentionHours     int
+	ChannelMessageLogArchiveLimit       int
 
 	// Observability request log configuration. ClickHouse is disabled unless
 	// explicitly selected because local/dev environments usually do not run it.
@@ -272,7 +278,45 @@ func Load() (Config, error) {
 		scheduleWorkerClaimLimit = parsedLimit
 	}
 	channelMessageLogArchiveRoot := strings.TrimSpace(os.Getenv("CHANNEL_MESSAGE_LOG_ARCHIVE_ROOT"))
-	channelMessageLogArchiveEnabled := channelMessageLogArchiveRoot != ""
+	channelMessageLogArchiveBackend := strings.ToLower(strings.TrimSpace(os.Getenv("CHANNEL_MESSAGE_LOG_ARCHIVE_BACKEND")))
+	channelMessageLogArchiveS3Endpoint := strings.TrimSpace(os.Getenv("CHANNEL_MESSAGE_LOG_ARCHIVE_S3_ENDPOINT"))
+	channelMessageLogArchiveS3Region := strings.TrimSpace(os.Getenv("CHANNEL_MESSAGE_LOG_ARCHIVE_S3_REGION"))
+	channelMessageLogArchiveS3Bucket := strings.TrimSpace(os.Getenv("CHANNEL_MESSAGE_LOG_ARCHIVE_S3_BUCKET"))
+	channelMessageLogArchiveS3AccessKey := strings.TrimSpace(os.Getenv("CHANNEL_MESSAGE_LOG_ARCHIVE_S3_ACCESS_KEY"))
+	channelMessageLogArchiveS3SecretKey := strings.TrimSpace(os.Getenv("CHANNEL_MESSAGE_LOG_ARCHIVE_S3_SECRET_KEY"))
+	if channelMessageLogArchiveBackend == "minio" {
+		channelMessageLogArchiveBackend = "s3"
+	}
+	switch channelMessageLogArchiveBackend {
+	case "":
+		if channelMessageLogArchiveRoot != "" {
+			channelMessageLogArchiveBackend = "file"
+		}
+	case "file", "s3":
+	default:
+		return Config{}, fmt.Errorf("invalid CHANNEL_MESSAGE_LOG_ARCHIVE_BACKEND: %q", channelMessageLogArchiveBackend)
+	}
+	channelMessageLogArchiveEnabled := channelMessageLogArchiveBackend != ""
+	if channelMessageLogArchiveBackend == "file" && channelMessageLogArchiveRoot == "" {
+		return Config{}, fmt.Errorf("CHANNEL_MESSAGE_LOG_ARCHIVE_ROOT is required when CHANNEL_MESSAGE_LOG_ARCHIVE_BACKEND=file")
+	}
+	if channelMessageLogArchiveBackend == "s3" {
+		if channelMessageLogArchiveS3Endpoint == "" {
+			return Config{}, fmt.Errorf("CHANNEL_MESSAGE_LOG_ARCHIVE_S3_ENDPOINT is required when CHANNEL_MESSAGE_LOG_ARCHIVE_BACKEND=s3")
+		}
+		if channelMessageLogArchiveS3Bucket == "" {
+			return Config{}, fmt.Errorf("CHANNEL_MESSAGE_LOG_ARCHIVE_S3_BUCKET is required when CHANNEL_MESSAGE_LOG_ARCHIVE_BACKEND=s3")
+		}
+		if channelMessageLogArchiveS3AccessKey == "" {
+			return Config{}, fmt.Errorf("CHANNEL_MESSAGE_LOG_ARCHIVE_S3_ACCESS_KEY is required when CHANNEL_MESSAGE_LOG_ARCHIVE_BACKEND=s3")
+		}
+		if channelMessageLogArchiveS3SecretKey == "" {
+			return Config{}, fmt.Errorf("CHANNEL_MESSAGE_LOG_ARCHIVE_S3_SECRET_KEY is required when CHANNEL_MESSAGE_LOG_ARCHIVE_BACKEND=s3")
+		}
+		if channelMessageLogArchiveS3Region == "" {
+			channelMessageLogArchiveS3Region = "us-east-1"
+		}
+	}
 	channelMessageLogArchiveIntervalMS := 3600000
 	channelMessageLogArchiveIntervalRaw := strings.TrimSpace(os.Getenv("CHANNEL_MESSAGE_LOG_ARCHIVE_INTERVAL_MS"))
 	if channelMessageLogArchiveIntervalRaw != "" {
@@ -372,11 +416,17 @@ func Load() (Config, error) {
 		ScheduleWorkerIntervalMS: scheduleWorkerIntervalMS,
 		ScheduleWorkerClaimLimit: scheduleWorkerClaimLimit,
 
-		ChannelMessageLogArchiveEnabled:    channelMessageLogArchiveEnabled,
-		ChannelMessageLogArchiveRoot:       channelMessageLogArchiveRoot,
-		ChannelMessageLogArchiveIntervalMS: channelMessageLogArchiveIntervalMS,
-		ChannelMessageLogRetentionHours:    channelMessageLogRetentionHours,
-		ChannelMessageLogArchiveLimit:      channelMessageLogArchiveLimit,
+		ChannelMessageLogArchiveEnabled:     channelMessageLogArchiveEnabled,
+		ChannelMessageLogArchiveBackend:     channelMessageLogArchiveBackend,
+		ChannelMessageLogArchiveRoot:        channelMessageLogArchiveRoot,
+		ChannelMessageLogArchiveS3Endpoint:  channelMessageLogArchiveS3Endpoint,
+		ChannelMessageLogArchiveS3Region:    channelMessageLogArchiveS3Region,
+		ChannelMessageLogArchiveS3Bucket:    channelMessageLogArchiveS3Bucket,
+		ChannelMessageLogArchiveS3AccessKey: channelMessageLogArchiveS3AccessKey,
+		ChannelMessageLogArchiveS3SecretKey: channelMessageLogArchiveS3SecretKey,
+		ChannelMessageLogArchiveIntervalMS:  channelMessageLogArchiveIntervalMS,
+		ChannelMessageLogRetentionHours:     channelMessageLogRetentionHours,
+		ChannelMessageLogArchiveLimit:       channelMessageLogArchiveLimit,
 
 		ObservabilityRequestLogBackend: observabilityRequestLogBackend,
 		ClickHouseDSN:                  clickHouseDSN,

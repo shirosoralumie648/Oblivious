@@ -535,6 +535,38 @@ func TestConfigureHTTPAlertingRoutesPublishingChannelDegradedToSignedWebhookAndR
 	}
 }
 
+func TestBuildChannelMessageLogArchiveSinkSelectsS3Backend(t *testing.T) {
+	sink, err := buildChannelMessageLogArchiveSink(config.Config{
+		ChannelMessageLogArchiveBackend:     "s3",
+		ChannelMessageLogArchiveS3Endpoint:  "http://minio.internal:9000",
+		ChannelMessageLogArchiveS3Region:    "us-east-1",
+		ChannelMessageLogArchiveS3Bucket:    "channel-archives",
+		ChannelMessageLogArchiveS3AccessKey: "minio-access",
+		ChannelMessageLogArchiveS3SecretKey: "minio-secret",
+	})
+
+	if err != nil {
+		t.Fatalf("expected s3 archive sink, got error: %v", err)
+	}
+	if _, ok := sink.(*publishingchannel.S3MessageLogArchiveSink); !ok {
+		t.Fatalf("expected S3MessageLogArchiveSink, got %T", sink)
+	}
+}
+
+func TestBuildChannelMessageLogArchiveSinkSelectsFileBackend(t *testing.T) {
+	sink, err := buildChannelMessageLogArchiveSink(config.Config{
+		ChannelMessageLogArchiveBackend: "file",
+		ChannelMessageLogArchiveRoot:    "/var/lib/oblivious/channel-archives",
+	})
+
+	if err != nil {
+		t.Fatalf("expected file archive sink, got error: %v", err)
+	}
+	if _, ok := sink.(*publishingchannel.FileMessageLogArchiveSink); !ok {
+		t.Fatalf("expected FileMessageLogArchiveSink, got %T", sink)
+	}
+}
+
 func TestBuildRelayConfigWiresHealthAlertingAndRecovery(t *testing.T) {
 	store := observability.NewInMemoryAlertStateStore()
 	routingStore := observability.NewInMemoryAlertRoutingRuleStore(observability.AlertRoutingRules{

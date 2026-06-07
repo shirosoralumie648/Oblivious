@@ -157,22 +157,27 @@ func NewServer(cfg config.Config, database *sql.DB) *stdhttp.Server {
 		server.RegisterOnShutdown(cancelChannelRetryWorker)
 	}
 	if cfg.Env != "test" && cfg.ChannelMessageLogArchiveEnabled {
-		channelArchiveWorkerCtx, cancelChannelArchiveWorker := context.WithCancel(context.Background())
-		channelArchiveWorker := publishingchannel.NewArchiveWorker(
-			publishingchannel.NewService(publishingchannel.NewAdapterRegistry(nil)),
-			publishingchannel.NewSQLStore(database),
-			publishingchannel.NewFileMessageLogArchiveSink(cfg.ChannelMessageLogArchiveRoot),
-			publishingchannel.ArchiveWorkerConfig{
-				Interval:  time.Duration(cfg.ChannelMessageLogArchiveIntervalMS) * time.Millisecond,
-				Retention: time.Duration(cfg.ChannelMessageLogRetentionHours) * time.Hour,
-				Limit:     cfg.ChannelMessageLogArchiveLimit,
-				OnError: func(err error) {
-					log.Printf("warning: channel message log archive worker failed: %v", err)
+		archiveSink, archiveSinkErr := buildChannelMessageLogArchiveSink(cfg)
+		if archiveSinkErr != nil {
+			log.Printf("warning: channel message log archive worker disabled: %v", archiveSinkErr)
+		} else {
+			channelArchiveWorkerCtx, cancelChannelArchiveWorker := context.WithCancel(context.Background())
+			channelArchiveWorker := publishingchannel.NewArchiveWorker(
+				publishingchannel.NewService(publishingchannel.NewAdapterRegistry(nil)),
+				publishingchannel.NewSQLStore(database),
+				archiveSink,
+				publishingchannel.ArchiveWorkerConfig{
+					Interval:  time.Duration(cfg.ChannelMessageLogArchiveIntervalMS) * time.Millisecond,
+					Retention: time.Duration(cfg.ChannelMessageLogRetentionHours) * time.Hour,
+					Limit:     cfg.ChannelMessageLogArchiveLimit,
+					OnError: func(err error) {
+						log.Printf("warning: channel message log archive worker failed: %v", err)
+					},
 				},
-			},
-		)
-		go channelArchiveWorker.Run(channelArchiveWorkerCtx)
-		server.RegisterOnShutdown(cancelChannelArchiveWorker)
+			)
+			go channelArchiveWorker.Run(channelArchiveWorkerCtx)
+			server.RegisterOnShutdown(cancelChannelArchiveWorker)
+		}
 	}
 	if closeRateLimiter != nil {
 		server.RegisterOnShutdown(func() {
@@ -191,6 +196,30 @@ func NewServer(cfg config.Config, database *sql.DB) *stdhttp.Server {
 		server.RegisterOnShutdown(alertingCloser)
 	}
 	return server
+}
+
+func buildChannelMessageLogArchiveSink(cfg config.Config) (publishingchannel.MessageLogArchiveSink, error) {
+	backend := cfg.ChannelMessageLogArchiveBackend
+	if backend == "" && cfg.ChannelMessageLogArchiveRoot != "" {
+		backend = "file"
+	}
+	switch backend {
+	case "file":
+		if cfg.ChannelMessageLogArchiveRoot == "" {
+			return nil, fmt.Errorf("channel message log archive root is required")
+		}
+		return publishingchannel.NewFileMessageLogArchiveSink(cfg.ChannelMessageLogArchiveRoot), nil
+	case "s3":
+		return publishingchannel.NewS3MessageLogArchiveSink(publishingchannel.S3MessageLogArchiveSinkOptions{
+			Endpoint:  cfg.ChannelMessageLogArchiveS3Endpoint,
+			Region:    cfg.ChannelMessageLogArchiveS3Region,
+			Bucket:    cfg.ChannelMessageLogArchiveS3Bucket,
+			AccessKey: cfg.ChannelMessageLogArchiveS3AccessKey,
+			SecretKey: cfg.ChannelMessageLogArchiveS3SecretKey,
+		}), nil
+	default:
+		return nil, fmt.Errorf("unsupported channel message log archive backend %q", backend)
+	}
 }
 
 func configureRequestLogSink(cfg config.Config) func() {

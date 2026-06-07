@@ -1,9 +1,16 @@
 package channel
 
 import (
+	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -111,6 +118,180 @@ func (s *FileMessageLogArchiveSink) ArchiveMessageLogs(ctx context.Context, obje
 		return fmt.Errorf("write channel message log archive object: %w", err)
 	}
 	return nil
+}
+
+type S3MessageLogArchiveSinkOptions struct {
+	Endpoint   string
+	Region     string
+	Bucket     string
+	AccessKey  string
+	SecretKey  string
+	HTTPClient *http.Client
+	Now        func() time.Time
+}
+
+type S3MessageLogArchiveSink struct {
+	endpoint   string
+	region     string
+	bucket     string
+	accessKey  string
+	secretKey  string
+	httpClient *http.Client
+	now        func() time.Time
+}
+
+func NewS3MessageLogArchiveSink(options S3MessageLogArchiveSinkOptions) *S3MessageLogArchiveSink {
+	region := strings.TrimSpace(options.Region)
+	if region == "" {
+		region = "us-east-1"
+	}
+	client := options.HTTPClient
+	if client == nil {
+		client = &http.Client{Timeout: 30 * time.Second}
+	}
+	now := options.Now
+	if now == nil {
+		now = func() time.Time { return time.Now().UTC() }
+	}
+	return &S3MessageLogArchiveSink{
+		endpoint:   strings.TrimRight(strings.TrimSpace(options.Endpoint), "/"),
+		region:     region,
+		bucket:     strings.Trim(strings.TrimSpace(options.Bucket), "/"),
+		accessKey:  strings.TrimSpace(options.AccessKey),
+		secretKey:  strings.TrimSpace(options.SecretKey),
+		httpClient: client,
+		now:        now,
+	}
+}
+
+func (s *S3MessageLogArchiveSink) ArchiveMessageLogs(ctx context.Context, object MessageLogArchiveObject) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if s == nil || s.httpClient == nil {
+		return fmt.Errorf("s3 archive sink is required")
+	}
+	if s.endpoint == "" {
+		return fmt.Errorf("s3 archive endpoint is required")
+	}
+	if s.bucket == "" {
+		return fmt.Errorf("s3 archive bucket is required")
+	}
+	if s.accessKey == "" || s.secretKey == "" {
+		return fmt.Errorf("s3 archive credentials are required")
+	}
+	if strings.TrimSpace(object.Key) == "" {
+		return fmt.Errorf("archive object key is required")
+	}
+	payload, err := json.MarshalIndent(object, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal channel message log archive object: %w", err)
+	}
+	endpointURL, err := s.archiveObjectURL(object.Key)
+	if err != nil {
+		return err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPut, endpointURL, bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("build s3 archive request: %w", err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	s.signPutObjectRequest(request, payload)
+
+	response, err := s.httpClient.Do(request)
+	if err != nil {
+		return fmt.Errorf("put channel message log archive object: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 512))
+		return fmt.Errorf("put channel message log archive object returned %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return nil
+}
+
+func (s *S3MessageLogArchiveSink) archiveObjectURL(key string) (string, error) {
+	parsed, err := url.Parse(s.endpoint)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "", fmt.Errorf("invalid s3 archive endpoint: %q", s.endpoint)
+	}
+	prefix := strings.TrimRight(parsed.EscapedPath(), "/")
+	parsed.Path = prefix + "/" + archivePathEscape(s.bucket) + "/" + archiveKeyEscape(key)
+	parsed.RawPath = ""
+	parsed.RawQuery = ""
+	return parsed.String(), nil
+}
+
+func (s *S3MessageLogArchiveSink) signPutObjectRequest(request *http.Request, payload []byte) {
+	now := s.now().UTC()
+	amzDate := now.Format("20060102T150405Z")
+	date := now.Format("20060102")
+	payloadHash := sha256Hex(payload)
+	request.Header.Set("X-Amz-Date", amzDate)
+	request.Header.Set("X-Amz-Content-Sha256", payloadHash)
+
+	scope := date + "/" + s.region + "/s3/aws4_request"
+	signedHeaders := "content-type;host;x-amz-content-sha256;x-amz-date"
+	canonicalHeaders := "content-type:" + request.Header.Get("Content-Type") + "\n" +
+		"host:" + request.URL.Host + "\n" +
+		"x-amz-content-sha256:" + payloadHash + "\n" +
+		"x-amz-date:" + amzDate + "\n"
+	canonicalRequest := strings.Join([]string{
+		request.Method,
+		request.URL.EscapedPath(),
+		"",
+		canonicalHeaders,
+		signedHeaders,
+		payloadHash,
+	}, "\n")
+	stringToSign := strings.Join([]string{
+		"AWS4-HMAC-SHA256",
+		amzDate,
+		scope,
+		sha256Hex([]byte(canonicalRequest)),
+	}, "\n")
+	signature := hex.EncodeToString(hmacSHA256(s3SigningKey(s.secretKey, date, s.region), stringToSign))
+	request.Header.Set("Authorization", fmt.Sprintf(
+		"AWS4-HMAC-SHA256 Credential=%s/%s, SignedHeaders=%s, Signature=%s",
+		s.accessKey,
+		scope,
+		signedHeaders,
+		signature,
+	))
+}
+
+func archiveKeyEscape(key string) string {
+	parts := strings.Split(strings.TrimLeft(strings.TrimSpace(key), "/"), "/")
+	escaped := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		escaped = append(escaped, archivePathEscape(part))
+	}
+	return strings.Join(escaped, "/")
+}
+
+func archivePathEscape(value string) string {
+	return strings.ReplaceAll(url.PathEscape(value), "+", "%20")
+}
+
+func sha256Hex(payload []byte) string {
+	sum := sha256.Sum256(payload)
+	return hex.EncodeToString(sum[:])
+}
+
+func s3SigningKey(secret, date, region string) []byte {
+	dateKey := hmacSHA256([]byte("AWS4"+secret), date)
+	regionKey := hmacSHA256(dateKey, region)
+	serviceKey := hmacSHA256(regionKey, "s3")
+	return hmacSHA256(serviceKey, "aws4_request")
+}
+
+func hmacSHA256(key []byte, data string) []byte {
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte(data))
+	return mac.Sum(nil)
 }
 
 type ArchiveWorkerConfig struct {

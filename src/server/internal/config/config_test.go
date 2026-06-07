@@ -377,6 +377,47 @@ func TestLoadChannelMessageLogArchiveConfig(t *testing.T) {
 	}
 }
 
+func TestLoadChannelMessageLogS3ArchiveConfig(t *testing.T) {
+	t.Setenv("SERVER_PORT", "8080")
+	t.Setenv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/oblivious?sslmode=disable")
+	t.Setenv("SESSION_SECRET", "test-secret")
+	t.Setenv("CHANNEL_MESSAGE_LOG_ARCHIVE_BACKEND", " MinIO ")
+	t.Setenv("CHANNEL_MESSAGE_LOG_ARCHIVE_S3_ENDPOINT", " http://minio.internal:9000 ")
+	t.Setenv("CHANNEL_MESSAGE_LOG_ARCHIVE_S3_REGION", " us-east-1 ")
+	t.Setenv("CHANNEL_MESSAGE_LOG_ARCHIVE_S3_BUCKET", " channel-archives ")
+	t.Setenv("CHANNEL_MESSAGE_LOG_ARCHIVE_S3_ACCESS_KEY", " minio-access ")
+	t.Setenv("CHANNEL_MESSAGE_LOG_ARCHIVE_S3_SECRET_KEY", " minio-secret ")
+	t.Setenv("CHANNEL_MESSAGE_LOG_ARCHIVE_INTERVAL_MS", "300000")
+	t.Setenv("CHANNEL_MESSAGE_LOG_RETENTION_HOURS", "168")
+	t.Setenv("CHANNEL_MESSAGE_LOG_ARCHIVE_LIMIT", "75")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !cfg.ChannelMessageLogArchiveEnabled {
+		t.Fatal("expected channel message log archive to be enabled for s3 backend")
+	}
+	if cfg.ChannelMessageLogArchiveBackend != "s3" {
+		t.Fatalf("expected minio alias to normalize to s3 backend, got %q", cfg.ChannelMessageLogArchiveBackend)
+	}
+	if cfg.ChannelMessageLogArchiveS3Endpoint != "http://minio.internal:9000" ||
+		cfg.ChannelMessageLogArchiveS3Region != "us-east-1" ||
+		cfg.ChannelMessageLogArchiveS3Bucket != "channel-archives" ||
+		cfg.ChannelMessageLogArchiveS3AccessKey != "minio-access" ||
+		cfg.ChannelMessageLogArchiveS3SecretKey != "minio-secret" {
+		t.Fatalf("unexpected s3 archive config endpoint=%q region=%q bucket=%q access=%q secret=%q",
+			cfg.ChannelMessageLogArchiveS3Endpoint,
+			cfg.ChannelMessageLogArchiveS3Region,
+			cfg.ChannelMessageLogArchiveS3Bucket,
+			cfg.ChannelMessageLogArchiveS3AccessKey,
+			cfg.ChannelMessageLogArchiveS3SecretKey)
+	}
+	if cfg.ChannelMessageLogArchiveIntervalMS != 300000 || cfg.ChannelMessageLogRetentionHours != 168 || cfg.ChannelMessageLogArchiveLimit != 75 {
+		t.Fatalf("unexpected channel archive config interval=%d retention=%d limit=%d", cfg.ChannelMessageLogArchiveIntervalMS, cfg.ChannelMessageLogRetentionHours, cfg.ChannelMessageLogArchiveLimit)
+	}
+}
+
 func TestLoadRejectsInvalidChannelMessageLogArchiveConfig(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -397,6 +438,47 @@ func TestLoadRejectsInvalidChannelMessageLogArchiveConfig(t *testing.T) {
 			_, err := Load()
 			if err == nil {
 				t.Fatalf("expected error for invalid %s", tc.key)
+			}
+		})
+	}
+}
+
+func TestLoadRejectsInvalidChannelMessageLogArchiveBackend(t *testing.T) {
+	t.Setenv("SERVER_PORT", "8080")
+	t.Setenv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/oblivious?sslmode=disable")
+	t.Setenv("SESSION_SECRET", "test-secret")
+	t.Setenv("CHANNEL_MESSAGE_LOG_ARCHIVE_BACKEND", "gcs")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for invalid channel message log archive backend")
+	}
+}
+
+func TestLoadRejectsIncompleteChannelMessageLogS3ArchiveConfig(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		key  string
+	}{
+		{name: "endpoint", key: "CHANNEL_MESSAGE_LOG_ARCHIVE_S3_ENDPOINT"},
+		{name: "bucket", key: "CHANNEL_MESSAGE_LOG_ARCHIVE_S3_BUCKET"},
+		{name: "access key", key: "CHANNEL_MESSAGE_LOG_ARCHIVE_S3_ACCESS_KEY"},
+		{name: "secret key", key: "CHANNEL_MESSAGE_LOG_ARCHIVE_S3_SECRET_KEY"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("SERVER_PORT", "8080")
+			t.Setenv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/oblivious?sslmode=disable")
+			t.Setenv("SESSION_SECRET", "test-secret")
+			t.Setenv("CHANNEL_MESSAGE_LOG_ARCHIVE_BACKEND", "s3")
+			t.Setenv("CHANNEL_MESSAGE_LOG_ARCHIVE_S3_ENDPOINT", "http://minio.internal:9000")
+			t.Setenv("CHANNEL_MESSAGE_LOG_ARCHIVE_S3_BUCKET", "channel-archives")
+			t.Setenv("CHANNEL_MESSAGE_LOG_ARCHIVE_S3_ACCESS_KEY", "minio-access")
+			t.Setenv("CHANNEL_MESSAGE_LOG_ARCHIVE_S3_SECRET_KEY", "minio-secret")
+			t.Setenv(tc.key, "")
+
+			_, err := Load()
+			if err == nil {
+				t.Fatalf("expected error for missing %s", tc.key)
 			}
 		})
 	}

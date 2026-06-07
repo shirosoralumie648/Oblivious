@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -197,5 +200,74 @@ func TestFileMessageLogArchiveSinkWritesJSONObject(t *testing.T) {
 	}
 	if !strings.Contains(string(payload), `"msg_1"`) || !strings.Contains(string(payload), `"raw_message"`) {
 		t.Fatalf("expected archive payload to contain message log JSON, got %s", payload)
+	}
+}
+
+func TestS3MessageLogArchiveSinkPutsJSONObjectToBucket(t *testing.T) {
+	var method string
+	var path string
+	var authorization string
+	var amzDate string
+	var contentHash string
+	var contentType string
+	var payload []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var err error
+		method = r.Method
+		path = r.URL.EscapedPath()
+		authorization = r.Header.Get("Authorization")
+		amzDate = r.Header.Get("X-Amz-Date")
+		contentHash = r.Header.Get("X-Amz-Content-Sha256")
+		contentType = r.Header.Get("Content-Type")
+		payload, err = io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read archive request body: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	sink := NewS3MessageLogArchiveSink(S3MessageLogArchiveSinkOptions{
+		Endpoint:   server.URL,
+		Region:     "us-east-1",
+		Bucket:     "oblivious-archives",
+		AccessKey:  "minio-access",
+		SecretKey:  "minio-secret",
+		HTTPClient: server.Client(),
+		Now: func() time.Time {
+			return time.Date(2026, 6, 7, 10, 0, 0, 0, time.UTC)
+		},
+	})
+	object := MessageLogArchiveObject{
+		Key:       "channel-message-logs/20260607T100000Z.json",
+		Before:    time.Date(2026, 5, 8, 10, 0, 0, 0, time.UTC),
+		CreatedAt: time.Date(2026, 6, 7, 10, 0, 0, 0, time.UTC),
+		Logs: []*ChannelMessageLog{{
+			ID:         "msg_s3",
+			ChannelID:  "channel_1",
+			Direction:  DirectionOutbound,
+			RawMessage: json.RawMessage(`{"text":"hello s3"}`),
+			Status:     MessageStatusRecorded,
+			CreatedAt:  time.Date(2026, 5, 7, 10, 0, 0, 0, time.UTC),
+		}},
+	}
+
+	if err := sink.ArchiveMessageLogs(context.Background(), object); err != nil {
+		t.Fatalf("ArchiveMessageLogs returned error: %v", err)
+	}
+
+	if method != http.MethodPut || path != "/oblivious-archives/channel-message-logs/20260607T100000Z.json" {
+		t.Fatalf("expected S3-compatible PUT path, got method=%q path=%q", method, path)
+	}
+	if contentType != "application/json" || contentHash == "" || amzDate != "20260607T100000Z" {
+		t.Fatalf("expected JSON S3 headers, got contentType=%q hash=%q amzDate=%q", contentType, contentHash, amzDate)
+	}
+	if !strings.Contains(authorization, "AWS4-HMAC-SHA256") ||
+		!strings.Contains(authorization, "Credential=minio-access/20260607/us-east-1/s3/aws4_request") ||
+		!strings.Contains(authorization, "SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date") {
+		t.Fatalf("expected SigV4 authorization header, got %q", authorization)
+	}
+	if !strings.Contains(string(payload), `"msg_s3"`) || !strings.Contains(string(payload), `"raw_message"`) {
+		t.Fatalf("expected S3 archive payload to contain message log JSON, got %s", payload)
 	}
 }
