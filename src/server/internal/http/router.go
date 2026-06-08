@@ -179,7 +179,7 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	)
 	stripeWebhookHandler := stripebilling.NewWebhookHandler(stripebilling.NewSQLWebhookLedger(database), cfg.StripeWebhookSecret, billingLifecycleService)
 	paymentWebhookLedger := stripebilling.NewSQLWebhookLedger(database)
-	domesticPaymentLifecycle := stripeDomesticPaymentLifecycleAdapter{service: billingLifecycleService}
+	domesticPaymentLifecycle := stripeDomesticPaymentLifecycleAdapter{service: billingLifecycleService, settlementService: marketplaceSettlementService}
 	alipayWebhookHandler := newDomesticPaymentWebhookHandler("alipay", cfg.AlipayWebhookSecret, paymentWebhookLedger, domesticPaymentLifecycle)
 	weChatPayWebhookHandler := newDomesticPaymentWebhookHandler("wechatpay", cfg.WeChatPayWebhookSecret, paymentWebhookLedger, domesticPaymentLifecycle)
 

@@ -434,6 +434,119 @@ func TestSettlementMarkPayoutPaidUpdatesPayoutAndSettlementsOnce(t *testing.T) {
 	}
 }
 
+func TestSettlementProviderPayoutPaidWebhookMatchesProviderPayoutIDOnce(t *testing.T) {
+	database := settlementTestDB(t)
+	provider := &fakeMarketplacePayoutProvider{name: "stripe_connect", providerPayoutID: "po_provider_paid"}
+	service := NewSettlementService(NewSQLStore(database), WithMarketplacePayoutProvider(provider))
+
+	insertSettlementUserOrg(t, database, "buyer_user", "buyer_org")
+	insertSettlementUserOrg(t, database, "publisher_user", "publisher_org")
+	insertSettlementAgent(t, database, "agent_paid", "publisher_user", "publisher_org", "one_time", 50)
+
+	settlementID := createAvailableSettlement(t, service, database, "agent_paid", "buyer_org", "buyer_user", time.Now().Add(-time.Hour))
+	pendingPayout, err := service.MarkSettlementPayoutPending(context.Background(), settlementID, "")
+	if err != nil {
+		t.Fatalf("MarkSettlementPayoutPending returned error: %v", err)
+	}
+
+	for i := 0; i < 2; i++ {
+		payout, err := service.ApplyProviderPayoutLifecycle(context.Background(), ProviderPayoutLifecycleEvent{
+			Provider:         "stripe_connect",
+			EventID:          "evt_provider_payout_paid",
+			EventType:        "payout.paid",
+			ProviderPayoutID: "po_provider_paid",
+			Status:           "paid",
+		})
+		if err != nil {
+			t.Fatalf("ApplyProviderPayoutLifecycle paid attempt %d returned error: %v", i+1, err)
+		}
+		if payout.ID != pendingPayout.ID || payout.Status != "paid_out" || payout.ProviderPayoutID != "po_provider_paid" {
+			t.Fatalf("expected paid provider payout, got %#v", payout)
+		}
+	}
+
+	var payoutStatus, settlementStatus, transitionToState string
+	var transitionCount int
+	if err := database.QueryRow(`SELECT status FROM marketplace_payouts WHERE id = $1`, pendingPayout.ID).Scan(&payoutStatus); err != nil {
+		t.Fatalf("query provider paid payout: %v", err)
+	}
+	if err := database.QueryRow(`SELECT status FROM marketplace_settlements WHERE id = $1`, settlementID).Scan(&settlementStatus); err != nil {
+		t.Fatalf("query provider paid settlement: %v", err)
+	}
+	if err := database.QueryRow(`
+		SELECT COUNT(*), COALESCE(MAX(to_state), '')
+		FROM billing_lifecycle_events
+		WHERE provider_event_id = 'evt_provider_payout_paid'
+	`).Scan(&transitionCount, &transitionToState); err != nil {
+		t.Fatalf("query provider paid transition: %v", err)
+	}
+	if payoutStatus != "paid_out" || settlementStatus != "paid_out" || transitionCount != 1 || transitionToState != "paid_out" {
+		t.Fatalf("expected one paid provider transition, got payout=%s settlement=%s transitions=%d state=%s", payoutStatus, settlementStatus, transitionCount, transitionToState)
+	}
+}
+
+func TestSettlementProviderPayoutFailedWebhookReleasesSettlementsOnce(t *testing.T) {
+	database := settlementTestDB(t)
+	provider := &fakeMarketplacePayoutProvider{name: "stripe_connect", providerPayoutID: "po_provider_failed"}
+	service := NewSettlementService(NewSQLStore(database), WithMarketplacePayoutProvider(provider))
+
+	insertSettlementUserOrg(t, database, "buyer_user", "buyer_org")
+	insertSettlementUserOrg(t, database, "publisher_user", "publisher_org")
+	insertSettlementAgent(t, database, "agent_paid", "publisher_user", "publisher_org", "one_time", 50)
+
+	settlementID := createAvailableSettlement(t, service, database, "agent_paid", "buyer_org", "buyer_user", time.Now().Add(-time.Hour))
+	pendingPayout, err := service.MarkSettlementPayoutPending(context.Background(), settlementID, "")
+	if err != nil {
+		t.Fatalf("MarkSettlementPayoutPending returned error: %v", err)
+	}
+
+	for i := 0; i < 2; i++ {
+		payout, err := service.ApplyProviderPayoutLifecycle(context.Background(), ProviderPayoutLifecycleEvent{
+			Provider:         "stripe_connect",
+			EventID:          "evt_provider_payout_failed",
+			EventType:        "payout.failed",
+			PayoutID:         pendingPayout.ID,
+			ProviderPayoutID: "po_provider_failed",
+			Status:           "failed",
+			Reason:           "bank_account_closed",
+		})
+		if err != nil {
+			t.Fatalf("ApplyProviderPayoutLifecycle failed attempt %d returned error: %v", i+1, err)
+		}
+		if payout.ID != pendingPayout.ID || payout.Status != "failed" || payout.ProviderPayoutID != "po_provider_failed" {
+			t.Fatalf("expected failed provider payout, got %#v", payout)
+		}
+	}
+
+	var payoutStatus, settlementStatus, settlementPayoutID, providerReason string
+	var transitionCount int
+	if err := database.QueryRow(`
+		SELECT status, COALESCE(metadata->>'provider_reason', '')
+		FROM marketplace_payouts
+		WHERE id = $1
+	`, pendingPayout.ID).Scan(&payoutStatus, &providerReason); err != nil {
+		t.Fatalf("query failed payout: %v", err)
+	}
+	if err := database.QueryRow(`
+		SELECT status, COALESCE(payout_id, '')
+		FROM marketplace_settlements
+		WHERE id = $1
+	`, settlementID).Scan(&settlementStatus, &settlementPayoutID); err != nil {
+		t.Fatalf("query released settlement: %v", err)
+	}
+	if err := database.QueryRow(`
+		SELECT COUNT(*)
+		FROM billing_lifecycle_events
+		WHERE provider_event_id = 'evt_provider_payout_failed'
+	`).Scan(&transitionCount); err != nil {
+		t.Fatalf("query failed provider transition: %v", err)
+	}
+	if payoutStatus != "failed" || settlementStatus != "available" || settlementPayoutID != "" || providerReason != "bank_account_closed" || transitionCount != 1 {
+		t.Fatalf("expected failed payout and released settlement, got payout=%s settlement=%s settlementPayout=%q reason=%q transitions=%d",
+			payoutStatus, settlementStatus, settlementPayoutID, providerReason, transitionCount)
+	}
+}
+
 func TestSettlementCreateDuePayoutsAggregatesAvailableSettlementsOnce(t *testing.T) {
 	database := settlementTestDB(t)
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)

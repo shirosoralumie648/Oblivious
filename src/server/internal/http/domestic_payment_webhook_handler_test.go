@@ -31,6 +31,7 @@ type fakeDomesticPaymentLifecycle struct {
 	refundCalls              []domesticPaymentRefundInput
 	subscriptionUpdatedCalls []domesticPaymentSubscriptionInput
 	subscriptionDeletedCalls []domesticPaymentSubscriptionInput
+	payoutCalls              []domesticPaymentPayoutInput
 }
 
 func (s *fakeDomesticPaymentLifecycle) ApplyDomesticCheckoutPaid(_ context.Context, input domesticPaymentLifecycleInput, _ []byte) error {
@@ -50,6 +51,11 @@ func (s *fakeDomesticPaymentLifecycle) ApplyDomesticSubscriptionUpdated(_ contex
 
 func (s *fakeDomesticPaymentLifecycle) ApplyDomesticSubscriptionDeleted(_ context.Context, input domesticPaymentSubscriptionInput, _ []byte) error {
 	s.subscriptionDeletedCalls = append(s.subscriptionDeletedCalls, input)
+	return nil
+}
+
+func (s *fakeDomesticPaymentLifecycle) ApplyDomesticPayoutLifecycle(_ context.Context, input domesticPaymentPayoutInput, _ []byte) error {
+	s.payoutCalls = append(s.payoutCalls, input)
 	return nil
 }
 
@@ -214,5 +220,65 @@ func TestDomesticPaymentWebhookHandlerAppliesRefundLifecycleOnce(t *testing.T) {
 		call.OrganizationID != "org_1" || call.UserID != "user_1" || call.Kind != "topup" ||
 		call.Amount != 10 || call.Currency != "cny" || call.Status != "succeeded" || call.Reason != "requested_by_customer" {
 		t.Fatalf("unexpected domestic refund lifecycle input: %+v", call)
+	}
+}
+
+func TestDomesticPaymentWebhookHandlerAppliesPayoutLifecycleOnce(t *testing.T) {
+	ledger := newDomesticWebhookMemoryLedger()
+	lifecycle := &fakeDomesticPaymentLifecycle{}
+	handler := newDomesticPaymentWebhookHandler("alipay", "alipay_secret", ledger, lifecycle)
+	paidPayload := []byte(`{
+		"id": "evt_alipay_payout_paid",
+		"type": "payout.paid",
+		"payout_id": "payout_1",
+		"provider_payout_id": "alipay_payout_1",
+		"status": "paid"
+	}`)
+	failedPayload := []byte(`{
+		"id": "evt_alipay_payout_failed",
+		"type": "payout.failed",
+		"provider_payout_id": "alipay_payout_2",
+		"status": "failed",
+		"reason": "bank_account_closed"
+	}`)
+	timestamp := "1760000000"
+
+	for i := 0; i < 2; i++ {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/billing/alipay/webhook", strings.NewReader(string(paidPayload)))
+		request.Header.Set(domesticPaymentTimestampHeader, timestamp)
+		request.Header.Set(domesticPaymentSignatureHeader, domesticWebhookSignature("alipay_secret", timestamp, paidPayload))
+		handler.handle(recorder, request)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("paid attempt %d expected signed payout webhook 200, got %d with body %s", i+1, recorder.Code, recorder.Body.String())
+		}
+	}
+	for i := 0; i < 2; i++ {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/billing/alipay/webhook", strings.NewReader(string(failedPayload)))
+		request.Header.Set(domesticPaymentTimestampHeader, timestamp)
+		request.Header.Set(domesticPaymentSignatureHeader, domesticWebhookSignature("alipay_secret", timestamp, failedPayload))
+		handler.handle(recorder, request)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("failed attempt %d expected signed payout webhook 200, got %d with body %s", i+1, recorder.Code, recorder.Body.String())
+		}
+	}
+
+	if len(ledger.events) != 2 {
+		t.Fatalf("expected ledger to record two payout events once each, got %d", len(ledger.events))
+	}
+	if len(lifecycle.payoutCalls) != 2 {
+		t.Fatalf("expected lifecycle to apply two unique payout events once, got %+v", lifecycle.payoutCalls)
+	}
+	paid := lifecycle.payoutCalls[0]
+	if paid.Provider != "alipay" || paid.EventID != "evt_alipay_payout_paid" || paid.EventType != "payout.paid" ||
+		paid.PayoutID != "payout_1" || paid.ProviderPayoutID != "alipay_payout_1" || paid.Status != "paid" {
+		t.Fatalf("unexpected paid payout lifecycle input: %+v", paid)
+	}
+	failed := lifecycle.payoutCalls[1]
+	if failed.Provider != "alipay" || failed.EventID != "evt_alipay_payout_failed" || failed.EventType != "payout.failed" ||
+		failed.PayoutID != "" || failed.ProviderPayoutID != "alipay_payout_2" ||
+		failed.Status != "failed" || failed.Reason != "bank_account_closed" {
+		t.Fatalf("unexpected failed payout lifecycle input: %+v", failed)
 	}
 }

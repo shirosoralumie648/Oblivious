@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"oblivious/server/internal/marketplace"
 	stripebilling "oblivious/server/internal/stripe"
 )
 
@@ -41,6 +42,8 @@ type domesticPaymentWebhookEvent struct {
 	ProviderSubscriptionID    string  `json:"provider_subscription_id"`
 	ProviderCustomerID        string  `json:"provider_customer_id"`
 	ProviderCheckoutSessionID string  `json:"provider_checkout_session_id"`
+	PayoutID                  string  `json:"payout_id"`
+	ProviderPayoutID          string  `json:"provider_payout_id"`
 	Amount                    float64 `json:"amount"`
 	Currency                  string  `json:"currency"`
 	Status                    string  `json:"status"`
@@ -70,6 +73,7 @@ type domesticPaymentLifecycle interface {
 	ApplyDomesticRefund(ctx context.Context, input domesticPaymentRefundInput, payload []byte) error
 	ApplyDomesticSubscriptionUpdated(ctx context.Context, input domesticPaymentSubscriptionInput, payload []byte) error
 	ApplyDomesticSubscriptionDeleted(ctx context.Context, input domesticPaymentSubscriptionInput, payload []byte) error
+	ApplyDomesticPayoutLifecycle(ctx context.Context, input domesticPaymentPayoutInput, payload []byte) error
 }
 
 type domesticPaymentRefundInput struct {
@@ -99,8 +103,19 @@ type domesticPaymentSubscriptionInput struct {
 	CancelAtPeriodEnd      bool
 }
 
+type domesticPaymentPayoutInput struct {
+	Provider         string
+	EventID          string
+	EventType        string
+	PayoutID         string
+	ProviderPayoutID string
+	Status           string
+	Reason           string
+}
+
 type stripeDomesticPaymentLifecycleAdapter struct {
-	service *stripebilling.LifecycleService
+	service           *stripebilling.LifecycleService
+	settlementService *marketplace.SettlementService
 }
 
 func (a stripeDomesticPaymentLifecycleAdapter) ApplyDomesticCheckoutPaid(ctx context.Context, input domesticPaymentLifecycleInput, payload []byte) error {
@@ -178,6 +193,22 @@ func (a stripeDomesticPaymentLifecycleAdapter) ApplyDomesticSubscriptionDeleted(
 	}, payload)
 }
 
+func (a stripeDomesticPaymentLifecycleAdapter) ApplyDomesticPayoutLifecycle(ctx context.Context, input domesticPaymentPayoutInput, payload []byte) error {
+	if a.settlementService == nil {
+		return nil
+	}
+	_, err := a.settlementService.ApplyProviderPayoutLifecycle(ctx, marketplace.ProviderPayoutLifecycleEvent{
+		Provider:         input.Provider,
+		EventID:          input.EventID,
+		EventType:        input.EventType,
+		PayoutID:         input.PayoutID,
+		ProviderPayoutID: input.ProviderPayoutID,
+		Status:           input.Status,
+		Reason:           input.Reason,
+	})
+	return err
+}
+
 func newDomesticPaymentWebhookHandler(provider string, secret string, ledger stripebilling.WebhookLedger, lifecycle ...domesticPaymentLifecycle) domesticPaymentWebhookHandler {
 	var lifecycleApplier domesticPaymentLifecycle
 	if len(lifecycle) > 0 {
@@ -224,8 +255,11 @@ func (h domesticPaymentWebhookHandler) handle(w stdhttp.ResponseWriter, r *stdht
 	now := time.Now().UTC()
 	status := "processed"
 	errorMessage := ""
-	if strings.TrimSpace(event.OrganizationID) == "" || strings.TrimSpace(event.UserID) == "" ||
-		(strings.TrimSpace(event.PaymentIntentID) == "" && !isDomesticSubscriptionEventType(event.Type)) {
+	if isDomesticPayoutEventType(event.Type) && strings.TrimSpace(event.PayoutID) == "" && strings.TrimSpace(event.ProviderPayoutID) == "" {
+		status = "failed"
+		errorMessage = "missing payout_id or provider_payout_id"
+	} else if !isDomesticPayoutEventType(event.Type) && (strings.TrimSpace(event.OrganizationID) == "" || strings.TrimSpace(event.UserID) == "" ||
+		(strings.TrimSpace(event.PaymentIntentID) == "" && !isDomesticSubscriptionEventType(event.Type))) {
 		status = "failed"
 		errorMessage = "missing organization_id, user_id, or payment_intent_id"
 	}
@@ -315,10 +349,32 @@ func (h domesticPaymentWebhookHandler) handle(w stdhttp.ResponseWriter, r *stdht
 				writeError(w, stdhttp.StatusInternalServerError, "webhook_lifecycle_failed", "apply payment webhook lifecycle failed")
 				return
 			}
+		case isDomesticPayoutEventType(event.Type):
+			if err := h.lifecycle.ApplyDomesticPayoutLifecycle(r.Context(), domesticPaymentPayoutInput{
+				Provider:         h.provider,
+				EventID:          event.ID,
+				EventType:        event.Type,
+				PayoutID:         strings.TrimSpace(event.PayoutID),
+				ProviderPayoutID: strings.TrimSpace(event.ProviderPayoutID),
+				Status:           strings.TrimSpace(event.Status),
+				Reason:           strings.TrimSpace(event.Reason),
+			}, payload); err != nil {
+				writeError(w, stdhttp.StatusInternalServerError, "webhook_lifecycle_failed", "apply payment webhook lifecycle failed")
+				return
+			}
 		}
 	}
 
 	writeSuccess(w, stdhttp.StatusOK, map[string]bool{"received": true})
+}
+
+func isDomesticPayoutEventType(eventType string) bool {
+	switch strings.TrimSpace(eventType) {
+	case "payout.paid", "payout.failed":
+		return true
+	default:
+		return false
+	}
 }
 
 func isDomesticRefundEventType(eventType string) bool {

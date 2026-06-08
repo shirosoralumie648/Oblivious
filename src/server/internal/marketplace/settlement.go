@@ -48,6 +48,16 @@ type MarketplacePayoutDispatchResult struct {
 	ProviderPayoutID string
 }
 
+type ProviderPayoutLifecycleEvent struct {
+	Provider         string
+	EventID          string
+	EventType        string
+	PayoutID         string
+	ProviderPayoutID string
+	Status           string
+	Reason           string
+}
+
 type MarketplacePayoutProvider interface {
 	Name() string
 	CreatePayout(ctx context.Context, request MarketplacePayoutDispatchRequest) (MarketplacePayoutDispatchResult, error)
@@ -565,6 +575,155 @@ func (s *SettlementService) MarkPayoutPaid(ctx context.Context, payoutID string,
 	return s.loadPayout(ctx, payoutID)
 }
 
+func (s *SettlementService) ApplyProviderPayoutLifecycle(ctx context.Context, input ProviderPayoutLifecycleEvent) (*MarketplacePayout, error) {
+	ctx, span := observability.StartSpan(ctx, "marketplace.provider_payout_lifecycle")
+	defer span.End()
+
+	eventType := strings.TrimSpace(input.EventType)
+	provider := strings.ToLower(strings.TrimSpace(input.Provider))
+	eventID := strings.TrimSpace(input.EventID)
+	payoutID := strings.TrimSpace(input.PayoutID)
+	providerPayoutID := strings.TrimSpace(input.ProviderPayoutID)
+	reason := strings.TrimSpace(input.Reason)
+
+	if eventID == "" || eventType == "" {
+		metrics.RecordMarketplaceSettlementEvent("payout_provider", "failed")
+		return nil, fmt.Errorf("apply provider payout lifecycle: event id and type are required")
+	}
+	if payoutID == "" && providerPayoutID == "" {
+		metrics.RecordMarketplaceSettlementEvent("payout_provider", "failed")
+		return nil, fmt.Errorf("apply provider payout lifecycle: payout id or provider payout id is required")
+	}
+
+	toState := ""
+	switch eventType {
+	case "payout.paid":
+		toState = "paid_out"
+	case "payout.failed":
+		toState = "failed"
+	default:
+		metrics.RecordMarketplaceSettlementEvent("payout_provider", "failed")
+		return nil, fmt.Errorf("apply provider payout lifecycle: unsupported event type %s", eventType)
+	}
+
+	tx, err := s.store.db.BeginTx(ctx, nil)
+	if err != nil {
+		metrics.RecordMarketplaceSettlementEvent("payout_provider", "failed")
+		return nil, fmt.Errorf("apply provider payout lifecycle: begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	payout, err := loadPayoutForProviderLifecycle(ctx, tx, payoutID, providerPayoutID, provider)
+	if err != nil {
+		metrics.RecordMarketplaceSettlementEvent("payout_provider", "failed")
+		return nil, err
+	}
+	if provider == "" {
+		provider = payout.Provider
+	}
+	if provider != "" && payout.Provider != "" && payout.Provider != provider {
+		metrics.RecordMarketplaceSettlementEvent("payout_provider", "failed")
+		return nil, fmt.Errorf("apply provider payout lifecycle: payout %s belongs to provider %s, got %s", payout.ID, payout.Provider, provider)
+	}
+	if providerPayoutID == "" {
+		providerPayoutID = payout.ProviderPayoutID
+	} else if payout.ProviderPayoutID != "" && payout.ProviderPayoutID != providerPayoutID {
+		metrics.RecordMarketplaceSettlementEvent("payout_provider", "failed")
+		return nil, fmt.Errorf("apply provider payout lifecycle: payout %s belongs to provider payout %s, got %s", payout.ID, payout.ProviderPayoutID, providerPayoutID)
+	}
+
+	transitionKey := marketplaceLifecycleTransitionKey(provider, eventID, "marketplace_payout", payout.ID)
+	inserted, err := insertMarketplaceLifecycleTransition(ctx, tx, provider, transitionKey, eventID, eventType, payout.PublisherOrganizationID, payout.PublisherUserID, "", "marketplace_payout", payout.ID, toState)
+	if err != nil {
+		metrics.RecordMarketplaceSettlementEvent("payout_provider", "failed")
+		return nil, err
+	}
+	if !inserted {
+		metrics.RecordMarketplaceSettlementEvent("payout_provider", "duplicate")
+		if err := tx.Commit(); err != nil {
+			metrics.RecordMarketplaceSettlementEvent("payout_provider", "failed")
+			return nil, fmt.Errorf("apply provider payout lifecycle: commit duplicate: %w", err)
+		}
+		return s.loadPayout(ctx, payout.ID)
+	}
+
+	now := time.Now().UTC()
+	switch toState {
+	case "paid_out":
+		if payout.Status != "payout_pending" && payout.Status != "paid_out" {
+			metrics.RecordMarketplaceSettlementEvent("payout_provider", "failed")
+			return nil, fmt.Errorf("apply provider payout lifecycle: payout %s cannot transition from %s to paid_out", payout.ID, payout.Status)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE marketplace_payouts
+			SET status = 'paid_out',
+			    provider_payout_id = COALESCE(NULLIF($2, ''), provider_payout_id),
+			    metadata = metadata || jsonb_build_object(
+			        'provider_event_id', $3::text,
+			        'provider_event_type', $4::text,
+			        'provider_status', $5::text,
+			        'provider_reason', NULLIF($6, ''),
+			        'provider_processed_at', $7::timestamptz
+			    ),
+			    updated_at = $7
+			WHERE id = $1
+		`, payout.ID, providerPayoutID, eventID, eventType, strings.TrimSpace(input.Status), reason, now); err != nil {
+			metrics.RecordMarketplaceSettlementEvent("payout_provider", "failed")
+			return nil, fmt.Errorf("apply provider payout lifecycle: update paid payout: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE marketplace_settlements
+			SET status = 'paid_out',
+			    updated_at = $2
+			WHERE payout_id = $1
+			  AND status IN ('payout_pending', 'paid_out')
+		`, payout.ID, now); err != nil {
+			metrics.RecordMarketplaceSettlementEvent("payout_provider", "failed")
+			return nil, fmt.Errorf("apply provider payout lifecycle: update paid settlements: %w", err)
+		}
+	case "failed":
+		if payout.Status != "payout_pending" && payout.Status != "failed" {
+			metrics.RecordMarketplaceSettlementEvent("payout_provider", "failed")
+			return nil, fmt.Errorf("apply provider payout lifecycle: payout %s cannot transition from %s to failed", payout.ID, payout.Status)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE marketplace_payouts
+			SET status = 'failed',
+			    provider_payout_id = COALESCE(NULLIF($2, ''), provider_payout_id),
+			    metadata = metadata || jsonb_build_object(
+			        'provider_event_id', $3::text,
+			        'provider_event_type', $4::text,
+			        'provider_status', $5::text,
+			        'provider_reason', NULLIF($6, ''),
+			        'provider_processed_at', $7::timestamptz
+			    ),
+			    updated_at = $7
+			WHERE id = $1
+		`, payout.ID, providerPayoutID, eventID, eventType, strings.TrimSpace(input.Status), reason, now); err != nil {
+			metrics.RecordMarketplaceSettlementEvent("payout_provider", "failed")
+			return nil, fmt.Errorf("apply provider payout lifecycle: update failed payout: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE marketplace_settlements
+			SET payout_id = NULL,
+			    status = 'available',
+			    updated_at = $2
+			WHERE payout_id = $1
+			  AND status = 'payout_pending'
+		`, payout.ID, now); err != nil {
+			metrics.RecordMarketplaceSettlementEvent("payout_provider", "failed")
+			return nil, fmt.Errorf("apply provider payout lifecycle: release failed settlements: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		metrics.RecordMarketplaceSettlementEvent("payout_provider", "failed")
+		return nil, fmt.Errorf("apply provider payout lifecycle: commit: %w", err)
+	}
+	metrics.RecordMarketplaceSettlementEvent("payout_provider", toState)
+	return s.loadPayout(ctx, payout.ID)
+}
+
 func (s *SettlementService) CreateDuePayouts(ctx context.Context, now time.Time) ([]*MarketplacePayout, error) {
 	ctx, span := observability.StartSpan(ctx, "marketplace.create_due_payouts")
 	defer span.End()
@@ -829,6 +988,24 @@ func (s *SettlementService) loadPayout(ctx context.Context, payoutID string) (*M
 	return &payout, nil
 }
 
+func loadPayoutForProviderLifecycle(ctx context.Context, tx *sql.Tx, payoutID, providerPayoutID, provider string) (*MarketplacePayout, error) {
+	var payout MarketplacePayout
+	if err := tx.QueryRowContext(ctx, `
+		SELECT id, publisher_organization_id, publisher_user_id, amount, currency,
+		       provider, COALESCE(provider_payout_id, ''), status, created_at, updated_at
+		FROM marketplace_payouts
+		WHERE (($1 <> '' AND id = $1)
+		   OR ($2 <> '' AND provider_payout_id = $2 AND ($3 = '' OR provider = $3)))
+		ORDER BY CASE WHEN id = $1 THEN 0 ELSE 1 END
+		LIMIT 1
+		FOR UPDATE
+	`, payoutID, providerPayoutID, provider).Scan(&payout.ID, &payout.PublisherOrganizationID, &payout.PublisherUserID, &payout.Amount,
+		&payout.Currency, &payout.Provider, &payout.ProviderPayoutID, &payout.Status, &payout.CreatedAt, &payout.UpdatedAt); err != nil {
+		return nil, fmt.Errorf("apply provider payout lifecycle: load payout: %w", err)
+	}
+	return &payout, nil
+}
+
 func (s *SettlementService) loadOrderForUpdate(ctx context.Context, tx *sql.Tx, orderID string, paymentIntentID string) (*MarketplaceOrder, error) {
 	query := `
 		SELECT mo.id, mo.buyer_organization_id, mo.buyer_user_id, mo.publisher_organization_id, mo.publisher_user_id,
@@ -911,7 +1088,7 @@ func insertMarketplaceLifecycleTransition(ctx context.Context, tx *sql.Tx, provi
 			organization_id, user_id, payment_intent_id, entity_type, entity_id,
 			to_state, reason, payload, created_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $5, '{}', $12)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''), $9, $10, $11, $5, '{}', $12)
 		ON CONFLICT (transition_key) DO NOTHING
 	`, uuid.New().String(), transitionKey, provider, eventID, eventType, organizationID, userID, paymentIntentID, entityType, entityID, toState, time.Now().UTC())
 	if err != nil {

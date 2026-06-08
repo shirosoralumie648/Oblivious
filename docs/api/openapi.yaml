@@ -2087,6 +2087,8 @@ components:
             - subscription.deleted
             - subscription.cancelled
             - subscription.canceled
+            - payout.paid
+            - payout.failed
         organization_id:
           type: string
         user_id:
@@ -2111,6 +2113,10 @@ components:
         provider_customer_id:
           type: string
         provider_checkout_session_id:
+          type: string
+        payout_id:
+          type: string
+        provider_payout_id:
           type: string
         amount:
           type: number
