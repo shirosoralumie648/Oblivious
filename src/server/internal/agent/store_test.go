@@ -456,6 +456,21 @@ func TestAgentPlanStepStoreUpdatesStatusAndExecutionResult(t *testing.T) {
 		t.Fatalf("UpdatePlanStep should preserve step fields, got %+v", running)
 	}
 
+	updatedTitle := "Execute adjusted step"
+	updatedToolName := "read_file"
+	adjusted, err := store.UpdatePlanStep(ctx, "org_1", step.ID, UpdatePlanStepRequest{
+		Title:        &updatedTitle,
+		ToolName:     &updatedToolName,
+		Input:        map[string]any{"path": "new.go"},
+		ReplaceInput: true,
+	})
+	if err != nil {
+		t.Fatalf("UpdatePlanStep adjusted fields returned error: %v", err)
+	}
+	if adjusted.Title != "Execute adjusted step" || adjusted.ToolName != "read_file" || adjusted.Input["path"] != "new.go" {
+		t.Fatalf("expected updated plan step draft fields, got %+v", adjusted)
+	}
+
 	completedAt := time.Now().UTC()
 	completed, err := store.UpdatePlanStep(ctx, "org_1", step.ID, UpdatePlanStepRequest{
 		Status:        stringPtr(PlanStepStatusCompleted),

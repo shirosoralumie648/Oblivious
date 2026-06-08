@@ -8,6 +8,7 @@ const executePlanStep = vi.fn();
 const getRunDetail = vi.fn();
 const rejectToolRun = vi.fn();
 const retryToolRun = vi.fn();
+const updatePlanStep = vi.fn();
 
 vi.mock('../../features/agents/planStepsApi', () => ({
   createAgentPlanStepsApi: () => ({
@@ -16,7 +17,8 @@ vi.mock('../../features/agents/planStepsApi', () => ({
     executePlanStep,
     getRunDetail,
     rejectToolRun,
-    retryToolRun
+    retryToolRun,
+    updatePlanStep
   })
 }));
 
@@ -66,6 +68,7 @@ describe('AgentPlanStepsPage', () => {
     getRunDetail.mockReset();
     rejectToolRun.mockReset();
     retryToolRun.mockReset();
+    updatePlanStep.mockReset();
   });
 
   it('loads run detail on direct entry and refreshes status with plan steps', async () => {
@@ -228,6 +231,68 @@ describe('AgentPlanStepsPage', () => {
 
     expect(await screen.findByText('Approval failed')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Inspect workspace' })).toBeInTheDocument();
+  });
+
+  it('edits a pending or approved plan step and refreshes the draft', async () => {
+    renderPage([
+      {
+        approvalStatus: 'approved',
+        id: 'step_1',
+        index: 1,
+        input: { path: 'old.go' },
+        runId: 'run_1',
+        status: 'approved',
+        title: 'Patch original file',
+        toolName: 'write_file'
+      }
+    ]);
+    updatePlanStep.mockResolvedValueOnce([
+      {
+        approvalStatus: 'pending',
+        id: 'step_1',
+        index: 1,
+        input: { path: 'new.go' },
+        runId: 'run_1',
+        status: 'pending',
+        title: 'Read safer file',
+        toolName: 'read_file'
+      }
+    ]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Patch original file' }));
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Read safer file' } });
+    fireEvent.change(screen.getByLabelText('Tool'), { target: { value: 'read_file' } });
+    fireEvent.change(screen.getByLabelText('Input'), { target: { value: '{\"path\":\"new.go\"}' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Patch original file' }));
+
+    await waitFor(() => expect(updatePlanStep).toHaveBeenCalledWith('run_1', 'step_1', {
+      input: { path: 'new.go' },
+      title: 'Read safer file',
+      toolName: 'read_file'
+    }));
+    expect(await screen.findByRole('heading', { name: 'Read safer file' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Plan step Read safer file')).toHaveTextContent('pending');
+    expect(screen.getByLabelText('Plan step Read safer file')).toHaveTextContent('Approval: pending');
+    expect(screen.getByLabelText('Plan step Read safer file')).toHaveTextContent('"path": "new.go"');
+  });
+
+  it('rejects invalid JSON when editing a plan step input', async () => {
+    renderPage([
+      {
+        id: 'step_1',
+        index: 1,
+        runId: 'run_1',
+        status: 'pending',
+        title: 'Inspect workspace'
+      }
+    ]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Inspect workspace' }));
+    fireEvent.change(screen.getByLabelText('Input'), { target: { value: '{not-json}' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Inspect workspace' }));
+
+    expect(await screen.findByText('Plan step input must be valid JSON.')).toBeInTheDocument();
+    expect(updatePlanStep).not.toHaveBeenCalled();
   });
 
   it('renders tool approval queue and refreshes tool runs after approve, reject, and retry actions', async () => {

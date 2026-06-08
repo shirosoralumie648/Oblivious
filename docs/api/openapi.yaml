@@ -1069,6 +1069,23 @@ components:
         reason:
           type: string
 
+    AgentPlanStepUpdateRequest:
+      type: object
+      properties:
+        planStepId:
+          type: string
+        plan_step_id:
+          type: string
+        title:
+          type: string
+        toolName:
+          type: string
+        tool_name:
+          type: string
+        input:
+          type: object
+          additionalProperties: true
+
     ChannelConfig:
       type: object
       properties:
@@ -5893,6 +5910,39 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/AgentPlanStepDecisionRequest"
+      responses:
+        "200":
+          description: 刷新后的 Agent run 状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AgentRunResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/agent/runs/{runId}/update-plan-step:
+    patch:
+      summary: 调整 Agent planning 步骤草稿
+      operationId: updateAgentPlanStep
+      tags: [Agent]
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentPlanStepUpdateRequest"
       responses:
         "200":
           description: 刷新后的 Agent run 状态

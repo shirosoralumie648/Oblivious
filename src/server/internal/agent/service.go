@@ -1148,6 +1148,48 @@ func (s *Service) ApprovePlanStep(ctx context.Context, session auth.Session, pla
 	})
 }
 
+type UpdatePlanStepDraftRequest struct {
+	Title    *string
+	ToolName *string
+	Input    map[string]any
+}
+
+func (s *Service) UpdatePlanStepDraft(ctx context.Context, session auth.Session, planStepID string, req UpdatePlanStepDraftRequest) (*PlanStep, error) {
+	step, err := s.getPlanStepForSession(ctx, session, planStepID)
+	if err != nil {
+		return nil, err
+	}
+	if step.Status != PlanStepStatusPending && step.Status != PlanStepStatusApproved {
+		return nil, fmt.Errorf("plan step cannot be adjusted after execution starts")
+	}
+
+	updateReq := UpdatePlanStepRequest{
+		ResultContent:    stringPointer(""),
+		Error:            stringPointer(""),
+		ClearCompletedAt: true,
+	}
+	if req.Title != nil {
+		title := strings.TrimSpace(*req.Title)
+		if title == "" {
+			return nil, fmt.Errorf("plan step title is required")
+		}
+		updateReq.Title = &title
+	}
+	if req.ToolName != nil {
+		toolName := strings.TrimSpace(*req.ToolName)
+		updateReq.ToolName = &toolName
+	}
+	if req.Input != nil {
+		updateReq.Input = copyPlanStepInput(req.Input)
+		updateReq.ReplaceInput = true
+	}
+	if step.ApprovalStatus == ApprovalStatusApproved {
+		updateReq.Status = stringPointer(PlanStepStatusPending)
+		updateReq.ApprovalStatus = stringPointer(ApprovalStatusPending)
+	}
+	return s.store.UpdatePlanStep(ctx, session.OrganizationID, planStepID, updateReq)
+}
+
 func (s *Service) ExecutePlanStep(ctx context.Context, session auth.Session, planStepID string) (*PlanStep, error) {
 	step, err := s.getPlanStepForSession(ctx, session, planStepID)
 	if err != nil {
@@ -1270,6 +1312,14 @@ func (s *Service) ExecutePlanStep(ctx context.Context, session auth.Session, pla
 		return nil, err
 	}
 	return completed, nil
+}
+
+func copyPlanStepInput(input map[string]any) map[string]any {
+	copied := make(map[string]any, len(input))
+	for key, value := range input {
+		copied[key] = value
+	}
+	return copied
 }
 
 func (s *Service) completeRunWhenAllPlanStepsDone(ctx context.Context, session auth.Session, runID string) error {

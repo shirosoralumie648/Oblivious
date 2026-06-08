@@ -370,6 +370,56 @@ func TestAgentRunsHandlerApprovePlanStepReturnsUpdatedRunDetail(t *testing.T) {
 	}
 }
 
+func TestAgentRunsHandlerUpdatePlanStepReturnsUpdatedRunDetail(t *testing.T) {
+	now := time.Now().UTC()
+	store := newFakeAgentRunsStore()
+	store.runs = []*agent.Run{{
+		ID:             "run_1",
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		Status:         agent.RunStatusRunning,
+	}}
+	store.planSteps = []*agent.PlanStep{{
+		ID:             "step_1",
+		RunID:          "run_1",
+		OrganizationID: "org_1",
+		Index:          1,
+		Title:          "Original step",
+		Status:         agent.PlanStepStatusApproved,
+		ApprovalStatus: agent.ApprovalStatusApproved,
+		ToolName:       "write_file",
+		Input:          map[string]any{"path": "old.go"},
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{}))
+
+	recorder := httptest.NewRecorder()
+	handler.updatePlanStep(recorder, newAgentRunsRequest(stdhttp.MethodPatch, "/api/v1/agent/runs/run_1/update-plan-step", `{"planStepId":"step_1","title":"Read safer file","toolName":"read_file","input":{"path":"new.go"}}`), "run_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Data agentRunResponse `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(response.Data.PlanSteps) != 1 {
+		t.Fatalf("expected plan step detail, got %+v", response.Data)
+	}
+	step := response.Data.PlanSteps[0]
+	if step.Title != "Read safer file" || step.ToolName != "read_file" || step.Input["path"] != "new.go" {
+		t.Fatalf("expected edited plan step payload, got %+v", step)
+	}
+	if step.Status != agent.PlanStepStatusPending || step.ApprovalStatus != agent.ApprovalStatusPending {
+		t.Fatalf("expected edited approved step to require fresh review, got %+v", step)
+	}
+}
+
 func TestAgentRunsHandlerExecutePlanStepAcceptsSnakeCaseID(t *testing.T) {
 	now := time.Now().UTC()
 	store := newFakeAgentRunsStore()
@@ -1136,11 +1186,23 @@ func (s *fakeAgentRunsStore) UpdatePlanStep(ctx context.Context, organizationID,
 	if step == nil {
 		return nil, errors.New("agent plan step not found")
 	}
+	if req.Title != nil {
+		step.Title = *req.Title
+	}
 	if req.Status != nil {
 		step.Status = *req.Status
 	}
 	if req.ApprovalStatus != nil {
 		step.ApprovalStatus = *req.ApprovalStatus
+	}
+	if req.ToolName != nil {
+		step.ToolName = *req.ToolName
+	}
+	if req.ReplaceInput {
+		step.Input = map[string]any{}
+		for key, value := range req.Input {
+			step.Input[key] = value
+		}
 	}
 	if req.ResultContent != nil {
 		step.ResultContent = *req.ResultContent

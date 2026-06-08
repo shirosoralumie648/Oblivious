@@ -220,6 +220,47 @@ func TestRegisterAgentRunRoutesDispatchesApprovePlanStep(t *testing.T) {
 	}
 }
 
+func TestRegisterAgentRunRoutesDispatchesUpdatePlanStep(t *testing.T) {
+	store := newFakeAgentRunsStore()
+	store.runs = []*agent.Run{{
+		ID:             "run_1",
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		Status:         agent.RunStatusRunning,
+	}}
+	store.planSteps = []*agent.PlanStep{{
+		ID:             "step_1",
+		RunID:          "run_1",
+		OrganizationID: "org_1",
+		Index:          1,
+		Title:          "Original step",
+		Status:         agent.PlanStepStatusApproved,
+		ApprovalStatus: agent.ApprovalStatusApproved,
+		ToolName:       "write_file",
+		Input:          map[string]any{"path": "old.go"},
+	}}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{}))
+	mux := stdhttp.NewServeMux()
+	registerAgentRunRoutes(mux, passThroughAuthMiddleware{}, handler)
+
+	request := newAgentRunsRequest(stdhttp.MethodPatch, "/api/v1/agent/runs/run_1/update-plan-step", `{"planStepId":"step_1","title":"Read safer file","toolName":"read_file","input":{"path":"new.go"}}`)
+	recorder := httptest.NewRecorder()
+
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"title":"Read safer file"`) || !strings.Contains(recorder.Body.String(), `"toolName":"read_file"`) {
+		t.Fatalf("expected updated plan step response, got %s", recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"approvalStatus":"pending"`) {
+		t.Fatalf("expected updated approved step to require fresh review, got %s", recorder.Body.String())
+	}
+}
+
 func TestRegisterAgentRunRoutesDispatchesExecutePlanStep(t *testing.T) {
 	now := time.Now().UTC()
 	store := newFakeAgentRunsStore()

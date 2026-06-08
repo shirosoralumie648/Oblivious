@@ -9,6 +9,7 @@ export type AgentPlanStep = {
   title: string;
   status: AgentPlanStepStatus;
   approvalStatus?: string;
+  toolName?: string;
   input?: Record<string, unknown>;
   resultContent?: string;
   error?: string;
@@ -44,6 +45,12 @@ export type AgentRunDetail = {
   toolCallCount?: number;
   planSteps: AgentPlanStep[];
   toolRuns: AgentToolRun[];
+};
+
+export type UpdateAgentPlanStepRequest = {
+  input?: Record<string, unknown>;
+  title?: string;
+  toolName?: string;
 };
 
 type AgentPlanStepsPayload = {
@@ -110,6 +117,7 @@ function runDetailFromPayload(payload: AgentRunDetailPayload): AgentRunDetail {
 export type AgentPlanStepsApi = {
   getRunDetail: (runId: string) => Promise<AgentRunDetail>;
   approvePlanStep: (runId: string, planStepId: string, reason?: string) => Promise<AgentPlanStep[]>;
+  updatePlanStep: (runId: string, planStepId: string, payload: UpdateAgentPlanStepRequest) => Promise<AgentPlanStep[]>;
   executePlanStep: (runId: string, planStepId: string) => Promise<AgentPlanStep[]>;
   approveToolRun: (runId: string, toolRunId: string, reason?: string) => Promise<AgentToolRun[]>;
   rejectToolRun: (runId: string, toolRunId: string, reason?: string) => Promise<AgentToolRun[]>;
@@ -126,6 +134,19 @@ export function createAgentPlanStepsApi(client: HttpClient): AgentPlanStepsApi {
         await client.post<AgentPlanStepsPayload>(`${runPath(runId)}/approve-plan-step`, {
           planStepId,
           ...(reason ? { reason } : {})
+        })
+      ),
+    updatePlanStep: async (runId, planStepId, payload) =>
+      planStepsFromPayload(
+        await client.request<AgentPlanStepsPayload>(`${runPath(runId)}/update-plan-step`, {
+          body: JSON.stringify({
+            planStepId,
+            ...(payload.title !== undefined ? { title: payload.title } : {}),
+            ...(payload.toolName !== undefined ? { toolName: payload.toolName } : {}),
+            ...(payload.input !== undefined ? { input: payload.input } : {})
+          }),
+          headers: { 'Content-Type': 'application/json' },
+          method: 'PATCH'
         })
       ),
     executePlanStep: async (runId, planStepId) =>

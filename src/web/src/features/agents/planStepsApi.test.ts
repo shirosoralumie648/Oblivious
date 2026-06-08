@@ -101,6 +101,53 @@ describe('createAgentPlanStepsApi', () => {
     });
   });
 
+  it('updates a run plan step draft through the agent run endpoint', async () => {
+    const request = vi.fn().mockResolvedValue({
+      data: {
+        planSteps: [
+          {
+            approvalStatus: 'pending',
+            id: 'step_1',
+            input: { path: 'new.go' },
+            runId: 'run_1',
+            status: 'pending',
+            title: 'Read safer file',
+            toolName: 'read_file'
+          }
+        ]
+      }
+    });
+    const api = createAgentPlanStepsApi(createClient({ request }));
+
+    await expect(api.updatePlanStep('run_1', 'step_1', {
+      input: { path: 'new.go' },
+      title: 'Read safer file',
+      toolName: 'read_file'
+    })).resolves.toEqual([
+      {
+        approvalStatus: 'pending',
+        id: 'step_1',
+        input: { path: 'new.go' },
+        runId: 'run_1',
+        status: 'pending',
+        title: 'Read safer file',
+        toolName: 'read_file'
+      }
+    ]);
+
+    expect(request).toHaveBeenCalledWith('/api/v1/agent/runs/run_1/update-plan-step', expect.objectContaining({
+      headers: { 'Content-Type': 'application/json' },
+      method: 'PATCH'
+    }));
+    const [, init] = request.mock.calls[0];
+    expect(JSON.parse(init.body)).toEqual({
+      input: { path: 'new.go' },
+      planStepId: 'step_1',
+      title: 'Read safer file',
+      toolName: 'read_file'
+    });
+  });
+
   it('approves, rejects, and retries tool runs through the agent run endpoint', async () => {
     const post = vi.fn()
       .mockResolvedValueOnce({

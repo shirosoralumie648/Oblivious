@@ -413,11 +413,23 @@ func (s *fakeStore) UpdatePlanStep(ctx context.Context, organizationID, id strin
 	if step == nil {
 		return nil, errors.New("agent plan step not found")
 	}
+	if req.Title != nil {
+		step.Title = *req.Title
+	}
 	if req.Status != nil {
 		step.Status = *req.Status
 	}
 	if req.ApprovalStatus != nil {
 		step.ApprovalStatus = *req.ApprovalStatus
+	}
+	if req.ToolName != nil {
+		step.ToolName = *req.ToolName
+	}
+	if req.ReplaceInput {
+		step.Input = map[string]any{}
+		for key, value := range req.Input {
+			step.Input[key] = value
+		}
 	}
 	if req.ResultContent != nil {
 		step.ResultContent = *req.ResultContent
@@ -442,6 +454,83 @@ type fakePlanStepExecutor struct {
 	err           error
 	resultContent string
 	seenStep      *PlanStep
+}
+
+func TestServiceUpdatePlanStepDraftResetsApprovedStepForReview(t *testing.T) {
+	session := auth.Session{
+		User:           auth.User{ID: "user_1"},
+		OrganizationID: "org_1",
+	}
+	store := &fakeStore{
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Status:         RunStatusRunning,
+		}},
+		planSteps: []*PlanStep{{
+			ID:             "step_1",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			Index:          1,
+			Title:          "Draft original implementation",
+			Status:         PlanStepStatusApproved,
+			ApprovalStatus: ApprovalStatusApproved,
+			ToolName:       "write_file",
+			Input:          map[string]any{"path": "old.go"},
+		}},
+	}
+	service := NewService(store, &fakeGateway{})
+
+	updated, err := service.UpdatePlanStepDraft(context.Background(), session, "step_1", UpdatePlanStepDraftRequest{
+		Title:    stringPointer("Draft safer implementation"),
+		ToolName: stringPointer("read_file"),
+		Input:    map[string]any{"path": "new.go"},
+	})
+	if err != nil {
+		t.Fatalf("UpdatePlanStepDraft returned error: %v", err)
+	}
+
+	if updated.Title != "Draft safer implementation" || updated.ToolName != "read_file" || updated.Input["path"] != "new.go" {
+		t.Fatalf("expected edited plan step content, got %+v", updated)
+	}
+	if updated.Status != PlanStepStatusPending || updated.ApprovalStatus != ApprovalStatusPending {
+		t.Fatalf("approved plan edits should require fresh review, got status=%s approval=%s", updated.Status, updated.ApprovalStatus)
+	}
+}
+
+func TestServiceUpdatePlanStepDraftRejectsRunningStep(t *testing.T) {
+	session := auth.Session{
+		User:           auth.User{ID: "user_1"},
+		OrganizationID: "org_1",
+	}
+	store := &fakeStore{
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Status:         RunStatusRunning,
+		}},
+		planSteps: []*PlanStep{{
+			ID:             "step_1",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			Title:          "Already running",
+			Status:         PlanStepStatusRunning,
+			ApprovalStatus: ApprovalStatusApproved,
+		}},
+	}
+	service := NewService(store, &fakeGateway{})
+
+	if _, err := service.UpdatePlanStepDraft(context.Background(), session, "step_1", UpdatePlanStepDraftRequest{
+		Title: stringPointer("Too late"),
+	}); err == nil || !strings.Contains(err.Error(), "cannot be adjusted") {
+		t.Fatalf("expected running step edit rejection, got %v", err)
+	}
 }
 
 func (e *fakePlanStepExecutor) ExecutePlanStep(ctx context.Context, step *PlanStep) (*PlanStepExecutionResult, error) {

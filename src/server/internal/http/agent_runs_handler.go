@@ -60,6 +60,15 @@ type agentRunPlanStepRequest struct {
 	Reason          string `json:"reason"`
 }
 
+type agentRunPlanStepUpdateRequest struct {
+	PlanStepID      string         `json:"plan_step_id"`
+	PlanStepIDCamel string         `json:"planStepId"`
+	Title           *string        `json:"title"`
+	ToolName        *string        `json:"tool_name"`
+	ToolNameCamel   *string        `json:"toolName"`
+	Input           map[string]any `json:"input"`
+}
+
 type agentRunResponse struct {
 	ID        string            `json:"id"`
 	Status    string            `json:"status"`
@@ -279,6 +288,42 @@ func (h agentRunsHandler) approvePlanStep(w stdhttp.ResponseWriter, r *stdhttp.R
 	writeSuccess(w, stdhttp.StatusOK, newAgentRunResponse(result))
 }
 
+func (h agentRunsHandler) updatePlanStep(w stdhttp.ResponseWriter, r *stdhttp.Request, runID string) {
+	session, ok := sessionFromContext(r)
+	if !ok {
+		writeError(w, stdhttp.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+
+	var req agentRunPlanStepUpdateRequest
+	if err := decodeOptionalAgentRunJSONBody(r, &req); err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "invalid json body")
+		return
+	}
+	planStepID, ok := h.resolvePlanStepID(w, r, session, runID, firstAgentRunNonEmpty(req.PlanStepID, req.PlanStepIDCamel), func(step *agent.PlanStep) bool {
+		return step.Status == agent.PlanStepStatusPending || step.Status == agent.PlanStepStatusApproved
+	})
+	if !ok {
+		return
+	}
+
+	toolName := firstStringPointer(req.ToolName, req.ToolNameCamel)
+	if _, err := h.service.UpdatePlanStepDraft(r.Context(), session, planStepID, agent.UpdatePlanStepDraftRequest{
+		Title:    req.Title,
+		ToolName: toolName,
+		Input:    req.Input,
+	}); err != nil {
+		writeAgentWorkflowError(w, err)
+		return
+	}
+	result, err := h.service.GetRunWithMessages(r.Context(), session, strings.TrimSpace(runID))
+	if err != nil {
+		writeAgentWorkflowError(w, err)
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, newAgentRunResponse(result))
+}
+
 func (h agentRunsHandler) executePlanStep(w stdhttp.ResponseWriter, r *stdhttp.Request, runID string) {
 	session, ok := sessionFromContext(r)
 	if !ok {
@@ -452,6 +497,15 @@ func firstAgentRunNonEmpty(values ...string) string {
 }
 
 func firstIntPointer(values ...*int) *int {
+	for _, value := range values {
+		if value != nil {
+			return value
+		}
+	}
+	return nil
+}
+
+func firstStringPointer(values ...*string) *string {
 	for _, value := range values {
 		if value != nil {
 			return value

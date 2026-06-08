@@ -300,8 +300,12 @@ type UpdateToolRunRequest struct {
 }
 
 type UpdatePlanStepRequest struct {
+	Title            *string
 	Status           *string
 	ApprovalStatus   *string
+	ToolName         *string
+	Input            map[string]any
+	ReplaceInput     bool
 	ResultContent    *string
 	Error            *string
 	StartedAt        *time.Time
@@ -1063,11 +1067,23 @@ func (s *SQLStore) UpdatePlanStep(ctx context.Context, organizationID, id string
 		return nil, fmt.Errorf("agent plan step not found")
 	}
 
+	if req.Title != nil {
+		step.Title = *req.Title
+	}
 	if req.Status != nil {
 		step.Status = *req.Status
 	}
 	if req.ApprovalStatus != nil {
 		step.ApprovalStatus = *req.ApprovalStatus
+	}
+	if req.ToolName != nil {
+		step.ToolName = *req.ToolName
+	}
+	if req.ReplaceInput {
+		step.Input = map[string]any{}
+		if req.Input != nil {
+			step.Input = req.Input
+		}
 	}
 	if req.ResultContent != nil {
 		step.ResultContent = *req.ResultContent
@@ -1083,19 +1099,26 @@ func (s *SQLStore) UpdatePlanStep(ctx context.Context, organizationID, id string
 	} else if req.CompletedAt != nil {
 		step.CompletedAt = req.CompletedAt
 	}
+	inputJSON, err := json.Marshal(step.Input)
+	if err != nil {
+		return nil, fmt.Errorf("marshal plan step input: %w", err)
+	}
 
 	_, err = s.db.ExecContext(ctx, `
 		UPDATE agent_plan_steps
-		SET status = $3,
-			approval_status = $4,
-			result_content = $5,
-			error = $6,
-			started_at = $7,
-			completed_at = CASE WHEN $8 THEN NULL::timestamptz ELSE $9::timestamptz END,
-			updated_at = $10
+		SET title = $3,
+			status = $4,
+			approval_status = $5,
+			tool_name = $6,
+			input = $7,
+			result_content = $8,
+			error = $9,
+			started_at = $10,
+			completed_at = CASE WHEN $11 THEN NULL::timestamptz ELSE $12::timestamptz END,
+			updated_at = $13
 		WHERE id = $1 AND organization_id = $2
-	`, id, organizationID, step.Status, step.ApprovalStatus, step.ResultContent, step.Error,
-		step.StartedAt, req.ClearCompletedAt, step.CompletedAt, time.Now())
+	`, id, organizationID, step.Title, step.Status, step.ApprovalStatus, step.ToolName, inputJSON,
+		step.ResultContent, step.Error, step.StartedAt, req.ClearCompletedAt, step.CompletedAt, time.Now())
 	if err != nil {
 		return nil, fmt.Errorf("update agent plan step: %w", err)
 	}
