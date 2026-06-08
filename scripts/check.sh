@@ -42,6 +42,9 @@ run_docs_checks() {
   echo "[check] Verifying Kubernetes recovery policy."
   bash "$repo_root/scripts/verify-k8s-recovery-policy.sh"
 
+  echo "[check] Verifying deployment operations contract."
+  bash "$repo_root/scripts/verify-deployment-operations-contract.sh"
+
   echo "[check] Verifying OpenAPI contract coverage."
   bash "$repo_root/scripts/verify-openapi-contract.sh"
 
