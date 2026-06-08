@@ -1831,6 +1831,77 @@ components:
         reviewSLA:
           $ref: "#/components/schemas/MarketplaceReviewSLA"
 
+    MarketplaceAgentVersion:
+      type: object
+      properties:
+        id:
+          type: string
+        agentID:
+          type: string
+        organizationId:
+          type: string
+        version:
+          type: string
+        changelog:
+          type: string
+        status:
+          type: string
+          enum: [pending_review, approved, rejected, needs_changes]
+        createdAt:
+          type: string
+          format: date-time
+
+    MarketplacePaymentProvider:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          enum: [stripe, alipay, wechatpay]
+
+    MarketplaceAgentDetailResponse:
+      type: object
+      properties:
+        agent:
+          $ref: "#/components/schemas/MarketplacePublishedAgent"
+        versions:
+          type: array
+          items:
+            $ref: "#/components/schemas/MarketplaceAgentVersion"
+        paymentProviders:
+          type: array
+          items:
+            $ref: "#/components/schemas/MarketplacePaymentProvider"
+
+    MarketplaceAgentInstall:
+      type: object
+      properties:
+        id:
+          type: string
+        agentID:
+          type: string
+        organizationId:
+          type: string
+        userID:
+          type: string
+        installedAt:
+          type: string
+          format: date-time
+
+    MarketplaceInstallRequest:
+      type: object
+      properties:
+        versionID:
+          type: string
+        provider:
+          type: string
+          enum: [stripe, alipay, wechatpay]
+
+    MarketplaceInstallResponse:
+      oneOf:
+        - $ref: "#/components/schemas/MarketplaceAgentInstall"
+        - $ref: "#/components/schemas/BillingCheckoutSession"
+
     AdminReviewListResponse:
       type: object
       properties:
@@ -8864,7 +8935,12 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplaceAgentDetailResponse"
         "404":
           $ref: "#/components/responses/NotFound"
     put:
@@ -8927,13 +9003,24 @@ paths:
           in: query
           schema:
             type: string
+            enum: [stripe, alipay, wechatpay]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarketplaceInstallRequest"
       responses:
         "201":
           description: 免费安装记录或付费 checkout
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplaceInstallResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":

@@ -122,6 +122,65 @@ require_session_csrf_contract() {
   ' "$openapi_file"
 }
 
+require_marketplace_paid_install_contract() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+    schemas = spec.fetch("components", {}).fetch("schemas", {})
+    paths = spec.fetch("paths", {})
+    missing = []
+
+    detail = schemas["MarketplaceAgentDetailResponse"] || {}
+    payment_provider = schemas["MarketplacePaymentProvider"] || {}
+    install_request = schemas["MarketplaceInstallRequest"] || {}
+    install_response = schemas["MarketplaceInstallResponse"] || {}
+
+    unless detail.dig("properties", "paymentProviders", "items", "$ref") == "#/components/schemas/MarketplacePaymentProvider"
+      missing << "MarketplaceAgentDetailResponse.paymentProviders must reference MarketplacePaymentProvider"
+    end
+
+    provider_enum = payment_provider.dig("properties", "name", "enum") || []
+    unless ["stripe", "alipay", "wechatpay"].all? { |provider| provider_enum.include?(provider) }
+      missing << "MarketplacePaymentProvider.name must enumerate stripe, alipay, and wechatpay"
+    end
+
+    unless install_request.dig("properties", "versionID", "type") == "string"
+      missing << "MarketplaceInstallRequest.versionID must be documented"
+    end
+
+    request_provider_enum = install_request.dig("properties", "provider", "enum") || []
+    unless ["stripe", "alipay", "wechatpay"].all? { |provider| request_provider_enum.include?(provider) }
+      missing << "MarketplaceInstallRequest.provider must enumerate paid-install providers"
+    end
+
+    refs = install_response.fetch("oneOf", []).filter_map { |entry| entry["$ref"] }
+    unless refs.include?("#/components/schemas/MarketplaceAgentInstall") && refs.include?("#/components/schemas/BillingCheckoutSession")
+      missing << "MarketplaceInstallResponse must cover free install records and paid checkout sessions"
+    end
+
+    detail_data = paths.dig("/api/v1/marketplace/agents/{agentId}", "get", "responses", "200", "content", "application/json", "schema", "allOf")
+    unless detail_data.is_a?(Array) && detail_data.any? { |entry| entry.dig("properties", "data", "$ref") == "#/components/schemas/MarketplaceAgentDetailResponse" }
+      missing << "GET /api/v1/marketplace/agents/{agentId} must return MarketplaceAgentDetailResponse data"
+    end
+
+    install = paths.dig("/api/v1/marketplace/agents/{agentId}/install", "post") || {}
+    unless install.dig("requestBody", "content", "application/json", "schema", "$ref") == "#/components/schemas/MarketplaceInstallRequest"
+      missing << "POST /api/v1/marketplace/agents/{agentId}/install must document MarketplaceInstallRequest body"
+    end
+
+    install_data = install.dig("responses", "201", "content", "application/json", "schema", "allOf")
+    unless install_data.is_a?(Array) && install_data.any? { |entry| entry.dig("properties", "data", "$ref") == "#/components/schemas/MarketplaceInstallResponse" }
+      missing << "POST /api/v1/marketplace/agents/{agentId}/install 201 must return MarketplaceInstallResponse data"
+    end
+
+    unless missing.empty?
+      warn "[openapi-contract] Marketplace paid-install contract is incomplete:"
+      missing.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 require_relay_alias_bearer_contract() {
   ruby -ryaml -e '
     file = ARGV.shift
@@ -324,5 +383,6 @@ require_public_security_empty "/api/v1/billing/wechatpay/webhook"
 require_relay_alias_bearer_contract "${relay_alias_paths[@]}"
 require_api_json_responses_use_envelope
 require_session_csrf_contract
+require_marketplace_paid_install_contract
 
 echo "[openapi-contract] required Relay alias, Agent, Memory, MCP, Tenant, Notification, Observability, publishing channel, Workflow, Billing, and Marketplace paths are documented."

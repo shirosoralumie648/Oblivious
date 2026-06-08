@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	stdhttp "net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"oblivious/server/internal/marketplace"
@@ -56,5 +57,102 @@ func TestMarketplaceAgentDetailExposesOnlyConfiguredPaymentProviders(t *testing.
 	}
 	if len(response.Data.PaymentProviders) != 1 || response.Data.PaymentProviders[0].Name != "stripe" {
 		t.Fatalf("expected only configured stripe provider, got %+v", response.Data.PaymentProviders)
+	}
+}
+
+func TestMarketplacePaidInstallCheckoutUsesSelectedProviderAndReturnsCheckoutSession(t *testing.T) {
+	store := &fakeMarketplaceStore{
+		agent: &marketplace.PublishedAgent{
+			ID:             "agent_paid",
+			OrganizationID: "org_publisher",
+			OwnerID:        "publisher_1",
+			Name:           "Paid Agent",
+			Status:         "approved",
+			Visibility:     "public",
+			PricingType:    "one_time",
+			PricingAmount:  25,
+		},
+	}
+	settlement := &fakeMarketplaceSettlementService{
+		order: &marketplace.MarketplaceOrder{
+			ID:                      "order_alipay",
+			BuyerOrganizationID:     "org_buyer",
+			BuyerUserID:             "buyer_1",
+			PublisherOrganizationID: "org_publisher",
+			PublisherUserID:         "publisher_1",
+			AgentID:                 "agent_paid",
+			VersionID:               "version_paid_1",
+			PaymentIntentID:         "pi_alipay_marketplace",
+			GrossAmount:             25,
+			Currency:                "usd",
+		},
+	}
+	alipayCreator := &fakeCheckoutCreator{
+		sessionID:  "alipay_marketplace_session",
+		sessionURL: "https://checkout.alipay.test/marketplace/alipay_marketplace_session",
+	}
+	providerRegistry := payment.NewRegistry("stripe")
+	providerRegistry.Register(payment.Provider{Name: "stripe", Configured: true})
+	providerRegistry.Register(payment.Provider{Name: "alipay", Configured: true})
+	handler := newMarketplaceHandler(
+		marketplace.NewService(store, nil),
+		nil,
+		withMarketplaceCheckout(
+			settlement,
+			nil,
+			stripebilling.CheckoutConfig{},
+			providerRegistry,
+			map[string]stripebilling.CheckoutCreator{"alipay": alipayCreator},
+		),
+	)
+	session := testAdminSession()
+	session.User.ID = "buyer_1"
+	session.OrganizationID = "org_buyer"
+
+	request := httptest.NewRequest(
+		stdhttp.MethodPost,
+		"/api/v1/marketplace/agents/agent_paid/install",
+		strings.NewReader(`{"versionID":"version_paid_1","provider":"alipay"}`),
+	).WithContext(context.WithValue(context.Background(), sessionContextKey, session))
+	recorder := httptest.NewRecorder()
+
+	handler.installAgent(recorder, request, "agent_paid")
+
+	if recorder.Code != stdhttp.StatusCreated {
+		t.Fatalf("expected paid install checkout 201, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if settlement.createCalls != 1 {
+		t.Fatalf("expected one settlement checkout call, got %d", settlement.createCalls)
+	}
+	if settlement.request.Provider != "alipay" || settlement.request.VersionID != "version_paid_1" ||
+		settlement.request.AgentID != "agent_paid" || settlement.request.BuyerOrganizationID != "org_buyer" ||
+		settlement.request.BuyerUserID != "buyer_1" {
+		t.Fatalf("unexpected paid install settlement request: %+v", settlement.request)
+	}
+	if alipayCreator.request.PaymentIntentID != "pi_alipay_marketplace" ||
+		alipayCreator.request.CheckoutKind != "marketplace_install" ||
+		alipayCreator.request.MarketplaceOrderID != "order_alipay" ||
+		alipayCreator.request.AgentID != "agent_paid" ||
+		alipayCreator.request.VersionID != "version_paid_1" ||
+		alipayCreator.request.PublisherUserID != "publisher_1" ||
+		alipayCreator.request.PublisherOrganizationID != "org_publisher" {
+		t.Fatalf("checkout creator saw wrong marketplace metadata request: %+v", alipayCreator.request)
+	}
+	if settlement.sessionID != "alipay_marketplace_session" || settlement.sessionPaymentIntentID != "pi_alipay_marketplace" {
+		t.Fatalf("expected checkout session to be recorded, got session=%q intent=%q", settlement.sessionID, settlement.sessionPaymentIntentID)
+	}
+
+	var response struct {
+		Data struct {
+			CheckoutSessionID string `json:"checkoutSessionId"`
+			URL               string `json:"url"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Data.CheckoutSessionID != "alipay_marketplace_session" ||
+		response.Data.URL != "https://checkout.alipay.test/marketplace/alipay_marketplace_session" {
+		t.Fatalf("expected checkout session payload, got %+v", response.Data)
 	}
 }
