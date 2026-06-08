@@ -45,6 +45,9 @@ run_docs_checks() {
   echo "[check] Verifying OpenAPI contract coverage."
   bash "$repo_root/scripts/verify-openapi-contract.sh"
 
+  echo "[check] Verifying migration contract coverage."
+  bash "$repo_root/scripts/verify-migration-contract.sh"
+
   echo "[check] Verifying docs and env consistency."
   contracts_file="$repo_root/docs/architecture/current-system-contracts.md"
   frontend_vars=(

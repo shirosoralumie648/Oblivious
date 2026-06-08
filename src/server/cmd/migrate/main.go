@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -42,6 +43,8 @@ type migrationResult struct {
 	Applied int
 	Skipped int
 }
+
+var migrationFilePattern = regexp.MustCompile(`^[0-9]{4}_[a-z0-9][a-z0-9_]*\.sql$`)
 
 func applyMigrations(ctx context.Context, database *sql.DB, migrationsDir string) (result migrationResult, err error) {
 	ctx, span := observability.StartSpan(ctx, "migration.apply")
@@ -116,6 +119,9 @@ func loadMigrationFiles(migrationsDir string) ([]string, error) {
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
 			continue
+		}
+		if !migrationFilePattern.MatchString(entry.Name()) {
+			return nil, fmt.Errorf("invalid migration filename %q: expected NNNN_description.sql", entry.Name())
 		}
 		migrationPaths = append(migrationPaths, filepath.Join(migrationsDir, entry.Name()))
 	}

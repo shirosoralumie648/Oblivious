@@ -85,6 +85,25 @@ CREATE TABLE IF NOT EXISTS migration_probe (
 	}
 }
 
+func TestLoadMigrationFilesRejectsMalformedNames(t *testing.T) {
+	dir := t.TempDir()
+	writeMigrationFile(t, dir, "0001_create_probe.sql", `
+CREATE TABLE IF NOT EXISTS migration_probe (
+	id TEXT PRIMARY KEY
+);
+`)
+	writeMigrationFile(t, dir, "next_probe.sql", `
+CREATE TABLE IF NOT EXISTS migration_probe_next (
+	id TEXT PRIMARY KEY
+);
+`)
+
+	_, err := loadMigrationFiles(dir)
+	if err == nil || !strings.Contains(err.Error(), "invalid migration filename") {
+		t.Fatalf("expected invalid migration filename error, got %v", err)
+	}
+}
+
 func testMigrationDatabase(t *testing.T) *sql.DB {
 	t.Helper()
 
