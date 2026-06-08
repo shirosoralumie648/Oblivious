@@ -6,6 +6,7 @@
     "dev": "bash scripts/dev.sh",
     "test": "bash scripts/test.sh",
     "check": "bash scripts/check.sh",
+    "check:security": "bash scripts/check.sh security",
     "dev:web": "COREPACK_HOME=.tmp/corepack pnpm --dir src/web dev",
     "test:web": "COREPACK_HOME=.tmp/corepack pnpm --dir src/web test",
     "test:e2e": "COREPACK_HOME=.tmp/corepack pnpm --dir src/web test:e2e",

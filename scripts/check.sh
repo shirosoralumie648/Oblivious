@@ -12,7 +12,7 @@ target="${1:-all}"
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/check.sh [all|docs|web|server|relay-security]
+Usage: bash scripts/check.sh [all|docs|web|server|relay-security|security]
 EOF
 }
 
@@ -128,10 +128,16 @@ run_relay_security_checks() {
   bash "$repo_root/scripts/verify-relay-security.sh"
 }
 
+run_dependency_security_checks() {
+  echo "[check] Verifying dependency security."
+  bash "$repo_root/scripts/verify-dependency-security.sh"
+}
+
 case "$target" in
   all)
     run_docs_checks
     run_relay_security_checks
+    run_dependency_security_checks
     run_web_checks
     run_server_checks
     ;;
@@ -140,6 +146,9 @@ case "$target" in
     ;;
   relay-security)
     run_relay_security_checks
+    ;;
+  security)
+    run_dependency_security_checks
     ;;
   web)
     run_web_checks

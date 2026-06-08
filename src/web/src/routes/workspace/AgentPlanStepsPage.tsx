@@ -233,6 +233,7 @@ export function AgentPlanStepsPage() {
 
                 <div className="flex shrink-0 flex-wrap gap-2">
                   <button
+                    aria-label={`Approve tool ${toolRun.toolName}`}
                     className="min-h-10 rounded-lg border border-[#181611] px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
                     disabled={!canApproveToolRun(toolRun) || operatingToolRunId === toolRun.id}
                     onClick={() => void updateToolRun(toolRun, 'approve')}
@@ -242,6 +243,7 @@ export function AgentPlanStepsPage() {
                     <span className="sr-only"> {toolRun.toolName}</span>
                   </button>
                   <button
+                    aria-label={`Reject tool ${toolRun.toolName}`}
                     className="min-h-10 rounded-lg border border-red-700 px-3 text-sm font-semibold text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
                     disabled={!canRejectToolRun(toolRun) || operatingToolRunId === toolRun.id}
                     onClick={() => void updateToolRun(toolRun, 'reject')}
@@ -251,6 +253,7 @@ export function AgentPlanStepsPage() {
                     <span className="sr-only"> {toolRun.toolName}</span>
                   </button>
                   <button
+                    aria-label={`Retry tool ${toolRun.toolName}`}
                     className="min-h-10 rounded-lg bg-[#181611] px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
                     disabled={!canRetryToolRun(toolRun) || operatingToolRunId === toolRun.id}
                     onClick={() => void updateToolRun(toolRun, 'retry')}
@@ -288,6 +291,7 @@ export function AgentPlanStepsPage() {
 
               <div className="flex shrink-0 flex-wrap gap-2">
                 <button
+                  aria-label={`Approve ${step.title}`}
                   className="min-h-10 rounded-lg border border-[#181611] px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
                   disabled={!canApprove(step) || operatingStepId === step.id}
                   onClick={() => void updatePlanStep(step, 'approve')}
@@ -297,6 +301,7 @@ export function AgentPlanStepsPage() {
                   <span className="sr-only"> {step.title}</span>
                 </button>
                 <button
+                  aria-label={`Execute ${step.title}`}
                   className="min-h-10 rounded-lg bg-[#181611] px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
                   disabled={!canExecute(step) || operatingStepId === step.id}
                   onClick={() => void updatePlanStep(step, 'execute')}
