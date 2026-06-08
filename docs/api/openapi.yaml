@@ -11927,6 +11927,9 @@ paths:
       summary: 发布 Marketplace Agent
       operationId: publishMarketplaceAgent
       tags: [Marketplace]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       requestBody:
         required: true
         content:
@@ -11975,6 +11978,9 @@ paths:
       summary: 更新当前发布者的 Marketplace Agent
       operationId: updateMarketplaceAgent
       tags: [Marketplace]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       requestBody:
         required: true
         content:
@@ -11999,6 +12005,9 @@ paths:
       summary: 删除当前发布者的 Marketplace Agent
       operationId: deleteMarketplaceAgent
       tags: [Marketplace]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       responses:
         "200":
           description: Agent 已删除
@@ -12022,6 +12031,9 @@ paths:
       summary: 安装 Marketplace Agent 或创建付费安装 checkout
       operationId: installMarketplaceAgent
       tags: [Marketplace]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: versionID
           in: query
@@ -12057,6 +12069,9 @@ paths:
       summary: 卸载 Marketplace Agent
       operationId: uninstallMarketplaceAgentByInstallEndpoint
       tags: [Marketplace]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       responses:
         "200":
           description: Agent 已卸载
@@ -12094,6 +12109,9 @@ paths:
       summary: 提交或更新 Marketplace Agent 评论
       operationId: submitMarketplaceAgentReview
       tags: [Marketplace]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       requestBody:
         required: true
         content:
@@ -12130,6 +12148,9 @@ paths:
       summary: 对被治理的 Marketplace Agent 发起申诉
       operationId: appealMarketplaceAgent
       tags: [Marketplace]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       requestBody:
         required: false
         content:
@@ -12162,6 +12183,9 @@ paths:
       summary: 举报 Marketplace Agent
       operationId: reportMarketplaceAgentAbuse
       tags: [Marketplace]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       requestBody:
         required: true
         content:
@@ -12281,6 +12305,9 @@ paths:
       summary: 通过安装列表端点卸载 Marketplace Agent
       operationId: uninstallMarketplaceAgent
       tags: [Marketplace]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       responses:
         "200":
           description: Agent 已卸载
@@ -12329,6 +12356,9 @@ paths:
       summary: 更新 Marketplace 发布者结算偏好
       operationId: updateMarketplaceSettlementPreferences
       tags: [Marketplace]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       requestBody:
         required: true
         content:
@@ -12401,6 +12431,9 @@ paths:
       summary: 创建 Marketplace 模板
       operationId: createMarketplaceTemplate
       tags: [Marketplace]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       requestBody:
         required: true
         content:
@@ -12461,6 +12494,9 @@ paths:
       summary: 安装 Marketplace 模板
       operationId: installMarketplaceTemplate
       tags: [Marketplace]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       responses:
         "201":
           description: 模板已安装到当前组织

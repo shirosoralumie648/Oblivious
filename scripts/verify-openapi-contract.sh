@@ -875,6 +875,58 @@ require_mcp_auth_token_response_contract() {
   ' "$openapi_file"
 }
 
+require_marketplace_user_mutation_csrf_contract() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+    paths = spec.fetch("paths", {})
+    missing = []
+
+    def operation(paths, path, method, missing)
+      op = paths.dig(path, method)
+      unless op
+        missing << "#{method.upcase} #{path} must be documented"
+        return {}
+      end
+      op
+    end
+
+    def requires_cookie_and_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
+    end
+
+    [
+      ["/api/v1/marketplace/agents", "post"],
+      ["/api/v1/marketplace/agents/{agentId}", "put"],
+      ["/api/v1/marketplace/agents/{agentId}", "delete"],
+      ["/api/v1/marketplace/agents/{agentId}/install", "post"],
+      ["/api/v1/marketplace/agents/{agentId}/install", "delete"],
+      ["/api/v1/marketplace/installs/{agentId}", "delete"],
+      ["/api/v1/marketplace/agents/{agentId}/reviews", "post"],
+      ["/api/v1/marketplace/agents/{agentId}/appeal", "post"],
+      ["/api/v1/marketplace/agents/{agentId}/abuse-reports", "post"],
+      ["/api/v1/marketplace/publisher/settlement-preferences", "put"],
+      ["/api/v1/marketplace/templates", "post"],
+      ["/api/v1/marketplace/templates/{templateId}/install", "post"],
+    ].each do |path, method|
+      op = operation(paths, path, method, missing)
+      unless requires_cookie_and_csrf?(op)
+        missing << "#{method.upcase} #{path} must require cookieAuth and csrfHeader"
+      end
+      unless op.fetch("tags", []).include?("Marketplace")
+        missing << "#{method.upcase} #{path} must be tagged Marketplace"
+      end
+    end
+
+    unless missing.empty?
+      warn "[openapi-contract] Marketplace user mutation CSRF contract is incomplete:"
+      missing.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 require_admin_core_management_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
@@ -1446,6 +1498,7 @@ require_publishing_channel_secret_csrf_contract
 require_admin_channel_secret_response_contract
 require_admin_observability_provider_secret_csrf_contract
 require_mcp_auth_token_response_contract
+require_marketplace_user_mutation_csrf_contract
 require_admin_core_management_contract
 require_admin_billing_contract
 require_domestic_payment_webhook_payout_contract

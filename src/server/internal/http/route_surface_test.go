@@ -381,6 +381,42 @@ func TestRouteSurfaceMCPMutationsRejectCookieWithoutCSRFWithoutDatabase(t *testi
 	}
 }
 
+func TestRouteSurfaceMarketplaceUserMutationsRejectCookieWithoutCSRFWithoutDatabase(t *testing.T) {
+	session := routeSurfaceUserSession()
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}})
+	cookie := routeSurfaceSignedSessionCookie(t, session)
+
+	tests := []routeSurfaceCase{
+		{"publish agent", stdhttp.MethodPost, "/api/v1/marketplace/agents"},
+		{"update agent", stdhttp.MethodPut, "/api/v1/marketplace/agents/agent_1"},
+		{"delete agent", stdhttp.MethodDelete, "/api/v1/marketplace/agents/agent_1"},
+		{"install agent", stdhttp.MethodPost, "/api/v1/marketplace/agents/agent_1/install"},
+		{"uninstall agent by detail", stdhttp.MethodDelete, "/api/v1/marketplace/agents/agent_1/install"},
+		{"uninstall agent by installs", stdhttp.MethodDelete, "/api/v1/marketplace/installs/agent_1"},
+		{"submit review", stdhttp.MethodPost, "/api/v1/marketplace/agents/agent_1/reviews"},
+		{"appeal agent", stdhttp.MethodPost, "/api/v1/marketplace/agents/agent_1/appeal"},
+		{"report abuse", stdhttp.MethodPost, "/api/v1/marketplace/agents/agent_1/abuse-reports"},
+		{"update settlement preferences", stdhttp.MethodPut, "/api/v1/marketplace/publisher/settlement-preferences"},
+		{"create template", stdhttp.MethodPost, "/api/v1/marketplace/templates"},
+		{"install template", stdhttp.MethodPost, "/api/v1/marketplace/templates/template_1/install"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(`{}`))
+			request.Header.Set("Content-Type", "application/json")
+			request.AddCookie(cookie)
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusForbidden {
+				t.Fatalf("expected missing csrf to be rejected with 403 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
 func routeSurfaceRegisterUser(t *testing.T, router stdhttp.Handler, email string) *stdhttp.Cookie {
 	t.Helper()
 
