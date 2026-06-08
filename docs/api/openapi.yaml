@@ -4139,7 +4139,7 @@ components:
       type: object
       additionalProperties:
         type: string
-      description: Provider-specific configuration. Secret values are redacted in responses.
+      description: Provider-specific configuration. Secret values such as password, secret, token, webhook_url, routing_key, api_key, and private_key are accepted on create/update, redacted as ******** in responses, and preserved on update when omitted or submitted as ********.
 
     AdminObservabilityAlertProvider:
       type: object
@@ -11116,6 +11116,9 @@ paths:
       summary: 更新告警路由规则
       operationId: updateAdminObservabilityAlertRouting
       tags: [Admin, Observability]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       requestBody:
         required: true
         content:
@@ -11176,6 +11179,9 @@ paths:
       summary: 创建告警投递 provider 配置
       operationId: createAdminObservabilityAlertProvider
       tags: [Admin, Observability]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       requestBody:
         required: true
         content:
@@ -11210,6 +11216,9 @@ paths:
       summary: 更新告警投递 provider 配置
       operationId: updateAdminObservabilityAlertProvider
       tags: [Admin, Observability]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: providerId
           in: path
@@ -11252,6 +11261,9 @@ paths:
       summary: 测试告警投递 provider 配置
       operationId: testAdminObservabilityAlertProvider
       tags: [Admin, Observability]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: providerId
           in: path
@@ -11376,6 +11388,9 @@ paths:
       summary: 确认告警
       operationId: acknowledgeAdminObservabilityAlert
       tags: [Admin, Observability]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: alertKey
           in: path
@@ -11410,6 +11425,9 @@ paths:
       summary: 解决告警
       operationId: resolveAdminObservabilityAlert
       tags: [Admin, Observability]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: alertKey
           in: path

@@ -625,6 +625,131 @@ require_publishing_channel_secret_csrf_contract() {
   ' "$openapi_file"
 }
 
+require_admin_observability_provider_secret_csrf_contract() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+    paths = spec.fetch("paths", {})
+    schemas = spec.fetch("components", {}).fetch("schemas", {})
+    missing = []
+
+    def operation(paths, path, method, missing)
+      op = paths.dig(path, method)
+      unless op
+        missing << "#{method.upcase} #{path} must be documented"
+        return {}
+      end
+      op
+    end
+
+    def response_data_ref(operation, status)
+      operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "$ref") }&.
+        dig("properties", "data", "$ref")
+    end
+
+    def response_data_array_ref(operation, status)
+      operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "items", "$ref") }&.
+        dig("properties", "data", "items", "$ref")
+    end
+
+    def request_body_ref(operation)
+      operation.dig("requestBody", "content", "application/json", "schema", "$ref")
+    end
+
+    def requires_cookie_and_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
+    end
+
+    expected_data_refs = {
+      ["/api/v1/admin/observability/alert-routing", "get", "200"] => "#/components/schemas/AdminObservabilityAlertRoutingRules",
+      ["/api/v1/admin/observability/alert-routing", "put", "200"] => "#/components/schemas/AdminObservabilityAlertRoutingRules",
+      ["/api/v1/admin/observability/alert-providers", "post", "201"] => "#/components/schemas/AdminObservabilityAlertProvider",
+      ["/api/v1/admin/observability/alert-providers/{providerId}", "put", "200"] => "#/components/schemas/AdminObservabilityAlertProvider",
+      ["/api/v1/admin/observability/alert-providers/{providerId}/test", "post", "200"] => "#/components/schemas/AdminObservabilityAlertProviderTestResult",
+    }
+
+    expected_data_refs.each do |(path, method, status), expected|
+      op = operation(paths, path, method, missing)
+      unless response_data_ref(op, status) == expected
+        missing << "#{method.upcase} #{path} #{status} data must reference #{expected}"
+      end
+      tags = op.fetch("tags", [])
+      unless tags.include?("Admin") && tags.include?("Observability")
+        missing << "#{method.upcase} #{path} must be tagged Admin and Observability"
+      end
+    end
+
+    list = operation(paths, "/api/v1/admin/observability/alert-providers", "get", missing)
+    unless response_data_array_ref(list, "200") == "#/components/schemas/AdminObservabilityAlertProvider"
+      missing << "GET /api/v1/admin/observability/alert-providers 200 data must return AdminObservabilityAlertProvider[]"
+    end
+    unless list.fetch("tags", []).include?("Admin") && list.fetch("tags", []).include?("Observability")
+      missing << "GET /api/v1/admin/observability/alert-providers must be tagged Admin and Observability"
+    end
+
+    {
+      ["/api/v1/admin/observability/alert-routing", "put"] => "#/components/schemas/UpdateAdminObservabilityAlertRoutingRulesRequest",
+      ["/api/v1/admin/observability/alert-providers", "post"] => "#/components/schemas/AdminObservabilityAlertProviderRequest",
+      ["/api/v1/admin/observability/alert-providers/{providerId}", "put"] => "#/components/schemas/AdminObservabilityAlertProviderRequest",
+    }.each do |(path, method), expected|
+      op = operation(paths, path, method, missing)
+      unless request_body_ref(op) == expected
+        missing << "#{method.upcase} #{path} request body must reference #{expected}"
+      end
+    end
+
+    [
+      ["/api/v1/admin/observability/alert-routing", "put"],
+      ["/api/v1/admin/observability/alert-providers", "post"],
+      ["/api/v1/admin/observability/alert-providers/{providerId}", "put"],
+      ["/api/v1/admin/observability/alert-providers/{providerId}/test", "post"],
+      ["/api/v1/admin/observability/alerts/{alertKey}/acknowledge", "post"],
+      ["/api/v1/admin/observability/alerts/{alertKey}/resolve", "post"],
+    ].each do |path, method|
+      op = operation(paths, path, method, missing)
+      unless requires_cookie_and_csrf?(op)
+        missing << "#{method.upcase} #{path} must require cookieAuth and csrfHeader"
+      end
+    end
+
+    config = schemas["AdminObservabilityAlertProviderConfig"] || {}
+    description = config.fetch("description", "")
+    unless config["type"] == "object" &&
+        config.dig("additionalProperties", "type") == "string" &&
+        ["password", "secret", "token", "webhook_url", "routing_key", "api_key", "private_key"].all? { |word| description.include?(word) } &&
+        description.include?("********") &&
+        description.include?("preserved")
+      missing << "AdminObservabilityAlertProviderConfig must document credential input, redaction, and redacted-marker preservation"
+    end
+
+    provider = schemas["AdminObservabilityAlertProvider"] || {}
+    props = provider.fetch("properties", {})
+    ["id", "name", "createdAt", "updatedAt"].each do |property|
+      missing << "AdminObservabilityAlertProvider.#{property} must be documented" unless props.key?(property)
+    end
+    unless props.dig("kind", "$ref") == "#/components/schemas/AdminObservabilityAlertProviderKind" &&
+        props.dig("channel", "$ref") == "#/components/schemas/AdminObservabilityAlertDeliveryChannel" &&
+        props.dig("status", "$ref") == "#/components/schemas/AdminObservabilityAlertProviderStatus" &&
+        props.dig("config", "$ref") == "#/components/schemas/AdminObservabilityAlertProviderConfig"
+      missing << "AdminObservabilityAlertProvider must document kind/channel/status/config refs"
+    end
+
+    request = schemas["AdminObservabilityAlertProviderRequest"] || {}
+    unless request.dig("properties", "config", "$ref") == "#/components/schemas/AdminObservabilityAlertProviderConfig"
+      missing << "AdminObservabilityAlertProviderRequest.config must reference AdminObservabilityAlertProviderConfig"
+    end
+
+    unless missing.empty?
+      warn "[openapi-contract] Admin Observability provider secret/CSRF contract is incomplete:"
+      missing.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 require_admin_core_management_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
@@ -1194,6 +1319,7 @@ require_marketplace_surface_payload_contract
 require_marketplace_browse_payload_contract
 require_publishing_channel_secret_csrf_contract
 require_admin_channel_secret_response_contract
+require_admin_observability_provider_secret_csrf_contract
 require_admin_core_management_contract
 require_admin_billing_contract
 require_domestic_payment_webhook_payout_contract

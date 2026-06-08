@@ -322,6 +322,36 @@ func TestRouteSurfacePublishingChannelMutationsRejectCookieWithoutCSRFWithoutDat
 	}
 }
 
+func TestRouteSurfaceAdminObservabilityMutationsRejectAdminCookieWithoutCSRFWithoutDatabase(t *testing.T) {
+	session := routeSurfaceAdminSession()
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}})
+	cookie := routeSurfaceSignedSessionCookie(t, session)
+
+	tests := []routeSurfaceCase{
+		{"update alert routing", stdhttp.MethodPut, "/api/v1/admin/observability/alert-routing"},
+		{"create alert provider", stdhttp.MethodPost, "/api/v1/admin/observability/alert-providers"},
+		{"update alert provider", stdhttp.MethodPut, "/api/v1/admin/observability/alert-providers/provider_1"},
+		{"test alert provider", stdhttp.MethodPost, "/api/v1/admin/observability/alert-providers/provider_1/test"},
+		{"acknowledge alert", stdhttp.MethodPost, "/api/v1/admin/observability/alerts/relay-backlog/acknowledge"},
+		{"resolve alert", stdhttp.MethodPost, "/api/v1/admin/observability/alerts/relay-backlog/resolve"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(`{}`))
+			request.Header.Set("Content-Type", "application/json")
+			request.AddCookie(cookie)
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusForbidden {
+				t.Fatalf("expected missing csrf to be rejected with 403 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
 func routeSurfaceRegisterUser(t *testing.T, router stdhttp.Handler, email string) *stdhttp.Cookie {
 	t.Helper()
 
@@ -431,6 +461,16 @@ func routeSurfaceUserSession() auth.Session {
 			Role:  "user",
 		},
 	}
+}
+
+func routeSurfaceAdminSession() auth.Session {
+	session := routeSurfaceUserSession()
+	session.ID = "session_route_surface_admin"
+	session.User.ID = "admin_route_surface"
+	session.User.Email = "route-surface-admin@example.com"
+	session.User.Name = "Route Surface Admin"
+	session.User.Role = "admin"
+	return session
 }
 
 func routeSurfaceSignedSessionCookie(t *testing.T, session auth.Session) *stdhttp.Cookie {
