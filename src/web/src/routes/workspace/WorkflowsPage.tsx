@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type DragEvent } from 'react';
+import { useEffect, useMemo, useState, type DragEvent, type MouseEvent } from 'react';
 import { RiCodeBoxLine, RiKey2Line, RiShieldKeyholeLine, RiWebhookLine } from '@remixicon/react';
 import {
   Background,
@@ -141,6 +141,7 @@ type WorkflowReactFlowNodeData = Record<string, unknown> & {
   index: number;
   node: VisualWorkflowNode;
   nodeStatus: string;
+  onContextMenu: (event: MouseEvent, workflowId: string, node: VisualWorkflowNode) => void;
   onSelect: (workflowId: string, node: VisualWorkflowNode) => void;
   position: WorkflowCanvasPosition;
   statusBadgeClass: string;
@@ -148,6 +149,11 @@ type WorkflowReactFlowNodeData = Record<string, unknown> & {
 };
 
 type WorkflowReactFlowNode = ReactFlowNode<WorkflowReactFlowNodeData, 'workflowNode'>;
+type WorkflowNodeContextMenu = {
+  nodeId: string;
+  x: number;
+  y: number;
+};
 
 type WorkflowNodeFailureStrategy = 'auto_retry' | 'failure_branch' | 'pause_on_failure' | 'skip_on_failure';
 type StructuredTriggerDraftKind = 'conversation' | 'schedule' | 'semantic' | 'webhook';
@@ -187,6 +193,9 @@ function WorkflowReactFlowNodeComponent({ data, selected }: NodeProps<WorkflowRe
       onClick={(event) => {
         event.stopPropagation();
         data.onSelect(data.workflowId, data.node);
+      }}
+      onContextMenu={(event) => {
+        data.onContextMenu(event, data.workflowId, data.node);
       }}
       style={{
         height: workflowCanvasNodeHeight,
@@ -1441,7 +1450,8 @@ function buildWorkflowReactFlowNodes(
   nodeExecutionMap: Map<string, WorkflowNodeExecution>,
   selectedNodeId: string | undefined,
   snapEnabled: boolean,
-  onSelect: (workflowId: string, node: VisualWorkflowNode) => void
+  onSelect: (workflowId: string, node: VisualWorkflowNode) => void,
+  onContextMenu: (event: MouseEvent, workflowId: string, node: VisualWorkflowNode) => void
 ): WorkflowReactFlowNode[] {
   return workflowNodes.map((node, index) => {
     const nodeExecution = nodeExecutionMap.get(node.id);
@@ -1455,6 +1465,7 @@ function buildWorkflowReactFlowNodes(
         index,
         node,
         nodeStatus,
+        onContextMenu,
         onSelect,
         position,
         statusBadgeClass: visualNodeBadgeClass(nodeStatus, hasNodeExecution),
@@ -1686,6 +1697,7 @@ export function WorkflowsPage() {
   const [nodeFailureStrategyDrafts, setNodeFailureStrategyDrafts] = useState<Record<string, WorkflowNodeFailureStrategy>>(
     {}
   );
+  const [nodeContextMenus, setNodeContextMenus] = useState<Record<string, WorkflowNodeContextMenu | undefined>>({});
   const [selectedNodeIds, setSelectedNodeIds] = useState<Record<string, string | undefined>>({});
   const [snapToGridByWorkflow, setSnapToGridByWorkflow] = useState<Record<string, boolean>>({});
   const [versionsByWorkflow, setVersionsByWorkflow] = useState<Record<string, WorkflowDefinition[]>>({});
@@ -2462,6 +2474,36 @@ export function WorkflowsPage() {
     setError(null);
   };
 
+  const closeWorkflowNodeContextMenu = (workflowId: string) => {
+    setNodeContextMenus((current) => ({ ...current, [workflowId]: undefined }));
+  };
+
+  const handleWorkflowNodeContextMenu = (
+    event: MouseEvent,
+    workflowId: string,
+    node: VisualWorkflowNode
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    handleSelectNode(workflowId, node);
+    const canvas = event.currentTarget.closest('[data-workflow-canvas="true"]');
+    const bounds = canvas?.getBoundingClientRect();
+    setNodeContextMenus((current) => ({
+      ...current,
+      [workflowId]: {
+        nodeId: node.id,
+        x: Math.max(12, event.clientX - (bounds?.left ?? 0)),
+        y: Math.max(12, event.clientY - (bounds?.top ?? 0)),
+      },
+    }));
+  };
+
+  const handleContextMenuTestNode = async (workflow: WorkflowDefinition, node: VisualWorkflowNode) => {
+    handleSelectNode(workflow.id, node);
+    closeWorkflowNodeContextMenu(workflow.id);
+    await handleTestNode(workflow, node);
+  };
+
   const handleWorkflowCanvasConnect = (workflow: WorkflowDefinition, connection: Connection) => {
     if (!connection.source || !connection.target) {
       setError('New workflow edge source and target are required.');
@@ -2752,9 +2794,9 @@ export function WorkflowsPage() {
     }
   };
 
-  const handleTestNode = async (workflow: WorkflowDefinition) => {
+  const handleTestNode = async (workflow: WorkflowDefinition, nodeOverride?: VisualWorkflowNode) => {
     const draft = debugDrafts[workflow.id] ?? emptyDebugDraft;
-    const nodeId = draft.nodeId.trim();
+    const nodeId = (nodeOverride?.id ?? draft.nodeId).trim();
     if (nodeId === '') {
       setError('Enter a node ID before testing a workflow node.');
       return;
@@ -2762,7 +2804,7 @@ export function WorkflowsPage() {
 
     let input: Record<string, unknown>;
     try {
-      input = parseJsonObject(draft.inputText);
+      input = nodeOverride ? parseJsonObject(formatJson(workflowNodeDebugInput(nodeOverride))) : parseJsonObject(draft.inputText);
     } catch {
       setError('Node input JSON must be a JSON object.');
       return;
@@ -3309,6 +3351,10 @@ export function WorkflowsPage() {
               const latestWorkflowExecution = workflowExecutions[0];
               const nodeExecutionMap = buildNodeExecutionMap(latestWorkflowExecution);
               const selectedNode = workflowNodes.find((node) => node.id === selectedNodeIds[workflow.id]);
+              const workflowNodeContextMenu = nodeContextMenus[workflow.id];
+              const workflowNodeContextMenuNode = workflowNodeContextMenu
+                ? workflowNodes.find((node) => node.id === workflowNodeContextMenu.nodeId)
+                : undefined;
               const selectedNodeExecution = selectedNode ? nodeExecutionMap.get(selectedNode.id) : undefined;
               const selectedNodeStatus = selectedNode ? visualNodeStatus(selectedNode, selectedNodeExecution) : undefined;
               const selectedNodeFailureStrategy = selectedNode
@@ -3353,7 +3399,8 @@ export function WorkflowsPage() {
                 nodeExecutionMap,
                 selectedNode?.id,
                 snapEnabled,
-                handleSelectNode
+                handleSelectNode,
+                handleWorkflowNodeContextMenu
               );
               const reactFlowEdges = buildWorkflowReactFlowEdges(activeWorkflowEdges);
 
@@ -3911,6 +3958,7 @@ export function WorkflowsPage() {
                             <div
                               aria-label={`React Flow canvas for ${workflow.name}`}
                               className="relative min-h-[360px] overflow-auto rounded-lg border border-[#d7d2c4] bg-[#fbfaf7]"
+                              data-workflow-canvas="true"
                               onDragOver={(event) => {
                                 event.preventDefault();
                                 if (event.dataTransfer) {
@@ -3930,7 +3978,11 @@ export function WorkflowsPage() {
                                     nodesDraggable
                                     onConnect={(connection) => handleWorkflowCanvasConnect(workflow, connection)}
                                     onNodeClick={(_event, reactFlowNode) => {
+                                      closeWorkflowNodeContextMenu(workflow.id);
                                       handleSelectNode(workflow.id, reactFlowNode.data.node);
+                                    }}
+                                    onNodeContextMenu={(event, reactFlowNode) => {
+                                      handleWorkflowNodeContextMenu(event, workflow.id, reactFlowNode.data.node);
                                     }}
                                     onNodeDragStop={(_event, reactFlowNode) => {
                                       handleWorkflowCanvasNodeDragStop(workflow, reactFlowNode.data.node.id, {
@@ -3964,6 +4016,35 @@ export function WorkflowsPage() {
                                     </span>
                                   ))}
                                 </div>
+                                {workflowNodeContextMenu && workflowNodeContextMenuNode ? (
+                                  <div
+                                    aria-label={`Node context menu for ${workflowNodeContextMenuNode.id}`}
+                                    className="absolute z-20 w-44 rounded-lg border border-[#cfc8b7] bg-white p-2 shadow-lg"
+                                    role="menu"
+                                    style={{ left: workflowNodeContextMenu.x, top: workflowNodeContextMenu.y }}
+                                  >
+                                    <p className="truncate px-2 py-1 font-mono text-xs font-semibold text-[#625b4f]">
+                                      {workflowNodeContextMenuNode.id}
+                                    </p>
+                                    <button
+                                      className="mt-1 min-h-9 w-full rounded-md px-2 text-left text-sm font-semibold text-[#181611] hover:bg-[#e9f2ee]"
+                                      disabled={busyAction === `test:${workflow.id}`}
+                                      onClick={() => void handleContextMenuTestNode(workflow, workflowNodeContextMenuNode)}
+                                      role="menuitem"
+                                      type="button"
+                                    >
+                                      Test this node
+                                    </button>
+                                    <button
+                                      className="mt-1 min-h-8 w-full rounded-md px-2 text-left text-xs font-semibold text-[#625b4f] hover:bg-[#f6f1e8]"
+                                      onClick={() => closeWorkflowNodeContextMenu(workflow.id)}
+                                      role="menuitem"
+                                      type="button"
+                                    >
+                                      Close
+                                    </button>
+                                  </div>
+                                ) : null}
                               </div>
                             </div>
 

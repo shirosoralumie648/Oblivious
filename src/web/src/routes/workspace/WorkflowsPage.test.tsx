@@ -1709,6 +1709,54 @@ describe('WorkflowsPage', () => {
     expect(within(visualEditor).getByText(/"model": "triage-v1"/)).toBeInTheDocument();
   });
 
+  it('opens a node context menu and tests the selected node from the canvas', async () => {
+    listWorkflows.mockResolvedValue([
+      {
+        definition: {
+          nodes: [
+            { id: 'manual-start', input: { priority: 'high' }, status: 'ready', type: 'manual' },
+            { id: 'classify-ticket', input: { model: 'triage-v1' }, status: 'draft', type: 'llm' },
+          ],
+        },
+        id: 'workflow_1',
+        name: 'Incident triage',
+        status: 'draft',
+        version: 1,
+      },
+    ]);
+    testNode.mockResolvedValue({
+      nodeId: 'classify-ticket',
+      output: { label: 'incident' },
+      status: 'succeeded',
+      workflowId: 'workflow_1',
+    });
+
+    render(<WorkflowsPage />);
+
+    await screen.findByText('Incident triage');
+    const visualEditor = screen.getByLabelText('Visual editor for Incident triage');
+    const canvas = within(visualEditor).getByLabelText('React Flow canvas for Incident triage');
+    fireEvent.contextMenu(within(canvas).getByRole('button', { name: /Canvas node 2 classify-ticket llm at/ }), {
+      clientX: 180,
+      clientY: 160,
+    });
+
+    const contextMenu = await within(visualEditor).findByLabelText('Node context menu for classify-ticket');
+    expect(contextMenu).toHaveTextContent('classify-ticket');
+    expect(screen.getByLabelText('Node ID')).toHaveValue('classify-ticket');
+    expect(screen.getByLabelText('Node input JSON')).toHaveValue('{\n  "model": "triage-v1"\n}');
+    fireEvent.click(within(contextMenu).getByRole('menuitem', { name: 'Test this node' }));
+
+    await waitFor(() => {
+      expect(testNode).toHaveBeenCalledWith('workflow_1', {
+        input: { model: 'triage-v1' },
+        nodeId: 'classify-ticket',
+      });
+    });
+    expect(within(visualEditor).queryByLabelText('Node context menu for classify-ticket')).not.toBeInTheDocument();
+    expect(screen.getByText('Node classify-ticket returned succeeded')).toBeInTheDocument();
+  });
+
   it('renders workflow canvas palette snap controls and auto-arranges nodes on a 20px grid', async () => {
     const definition = {
       edges: [
