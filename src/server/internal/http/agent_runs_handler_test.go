@@ -894,7 +894,9 @@ func newAgentRunsRequest(method, path, body string) *stdhttp.Request {
 }
 
 type fakeAgentRunsGateway struct {
-	reply string
+	reply       string
+	structured  []*chat.CompletionResponse
+	structIndex int
 }
 
 func (g *fakeAgentRunsGateway) GenerateReply(ctx context.Context, messages []chat.Message, config chat.ConversationConfig) (string, error) {
@@ -909,6 +911,11 @@ func (g *fakeAgentRunsGateway) GenerateReplyStream(ctx context.Context, messages
 }
 
 func (g *fakeAgentRunsGateway) GenerateStructuredReply(ctx context.Context, messages []chat.Message, config chat.ConversationConfig, tools []map[string]any) (*chat.CompletionResponse, error) {
+	if g.structIndex < len(g.structured) {
+		response := g.structured[g.structIndex]
+		g.structIndex++
+		return response, nil
+	}
 	if g.reply == "" {
 		return &chat.CompletionResponse{Content: "ok"}, nil
 	}
@@ -1070,7 +1077,41 @@ func (s *fakeAgentRunsStore) UpdateRun(ctx context.Context, organizationID, id s
 }
 
 func (s *fakeAgentRunsStore) CreateToolRun(ctx context.Context, req *agent.CreateToolRunRequest) (*agent.ToolRun, error) {
-	panic("not used")
+	now := time.Now().UTC()
+	status := req.Status
+	if status == "" {
+		status = agent.ToolRunStatusRunning
+	}
+	approvalStatus := req.ApprovalStatus
+	if approvalStatus == "" {
+		approvalStatus = agent.ApprovalStatusNotRequired
+	}
+	arguments := req.Arguments
+	if arguments == nil {
+		arguments = map[string]any{}
+	}
+	toolRun := &agent.ToolRun{
+		ID:             "tool_run_created_" + time.Now().UTC().Format("150405.000000"),
+		OrganizationID: req.OrganizationID,
+		RunID:          req.RunID,
+		ConversationID: req.ConversationID,
+		AgentID:        req.AgentID,
+		ToolCallID:     req.ToolCallID,
+		ToolName:       req.ToolName,
+		ToolType:       req.ToolType,
+		ServerID:       req.ServerID,
+		RiskLevel:      req.RiskLevel,
+		Arguments:      arguments,
+		Status:         status,
+		ApprovalStatus: approvalStatus,
+		AttemptCount:   req.AttemptCount,
+		StartedAt:      req.StartedAt,
+		CompletedAt:    req.CompletedAt,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	s.toolRuns = append(s.toolRuns, toolRun)
+	return toolRun, nil
 }
 
 func (s *fakeAgentRunsStore) GetToolRun(ctx context.Context, organizationID, id string) (*agent.ToolRun, error) {

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"oblivious/server/internal/agent"
+	"oblivious/server/internal/chat"
 )
 
 func TestRegisterAgentRunRoutesDispatchesCreate(t *testing.T) {
@@ -89,6 +90,80 @@ func TestRegisterAgentRunRoutesDispatchesApproveTool(t *testing.T) {
 	}
 	if !strings.Contains(recorder.Body.String(), `"status":"completed"`) {
 		t.Fatalf("expected completed run detail, got %s", recorder.Body.String())
+	}
+}
+
+func TestRegisterAgentRunRoutesApproveToolCanReturnNextPendingApproval(t *testing.T) {
+	now := time.Now().UTC()
+	store := newFakeAgentRunsStore()
+	store.agent = &agent.Agent{
+		ID:             "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		Model:          "test-model",
+		Tools: []agent.Tool{
+			{Name: "datetime", Type: "builtin", Enabled: true, RequiresApproval: true},
+			{Name: "write_file", Type: "builtin", Enabled: true, RequiresApproval: true},
+		},
+	}
+	store.runs = []*agent.Run{{
+		ID:             "run_1",
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		Status:         agent.RunStatusPendingApproval,
+		IterationCount: 1,
+		ToolCallCount:  1,
+	}}
+	store.toolRuns = []*agent.ToolRun{{
+		ID:             "tool_run_pending",
+		OrganizationID: "org_1",
+		RunID:          "run_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		ToolCallID:     "call_datetime_pending",
+		ToolName:       "datetime",
+		ToolType:       "builtin",
+		Arguments:      map[string]any{},
+		Status:         agent.ToolRunStatusPendingApproval,
+		ApprovalStatus: agent.ApprovalStatusPending,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}}
+	store.messages = []*agent.Message{{
+		ID:             "assistant_tool_call",
+		ConversationID: "conv_1",
+		OrganizationID: "org_1",
+		Role:           "assistant",
+		ToolCalls:      []agent.ToolCall{{ID: "call_datetime_pending", Name: "datetime", Arguments: map[string]any{}}},
+		CreatedAt:      now,
+	}}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{
+		structured: []*chat.CompletionResponse{{
+			ToolCalls: []chat.ToolCall{
+				{ID: "call_write_file_pending", Type: "function", Function: chat.ToolFunction{Name: "write_file", Arguments: `{"path":"result.txt"}`}},
+			},
+			FinishReason: "tool_calls",
+		}},
+	}))
+	mux := stdhttp.NewServeMux()
+	registerAgentRunRoutes(mux, passThroughAuthMiddleware{}, handler)
+
+	request := newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/approve-tool", `{"toolRunId":"tool_run_pending","reason":"ok"}`)
+	recorder := httptest.NewRecorder()
+
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, `"status":"pending_approval"`) || !strings.Contains(body, `"toolName":"write_file"`) {
+		t.Fatalf("expected next pending approval tool run in response, got %s", body)
+	}
+	if !strings.Contains(body, `"status":"pending_approval"`) {
+		t.Fatalf("expected run to stay pending approval, got %s", body)
 	}
 }
 

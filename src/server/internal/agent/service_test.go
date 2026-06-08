@@ -2288,6 +2288,104 @@ func TestServiceApproveToolRunResumesReactLoopToFinalAnswer(t *testing.T) {
 	}
 }
 
+func TestServiceApproveToolRunResumePersistsNextPendingApprovalToolRun(t *testing.T) {
+	now := time.Now().UTC()
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+			Tools: []Tool{
+				{Name: "datetime", Type: "builtin", Enabled: true, RequiresApproval: true},
+				{Name: "write_file", Type: "builtin", Enabled: true, RequiresApproval: true},
+			},
+		},
+		conversation: &Conversation{
+			ID:             "conv_1",
+			AgentID:        "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+		},
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Status:         RunStatusPendingApproval,
+			IterationCount: 1,
+			ToolCallCount:  1,
+			StartedAt:      now,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+		toolRuns: []*ToolRun{{
+			ID:             "tool_run_datetime",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			ToolCallID:     "call_datetime",
+			ToolName:       "datetime",
+			ToolType:       "builtin",
+			Arguments:      map[string]any{},
+			Status:         ToolRunStatusPendingApproval,
+			ApprovalStatus: ApprovalStatusPending,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+		messages: []*Message{
+			{
+				ID:             "user_1",
+				ConversationID: "conv_1",
+				OrganizationID: "org_1",
+				Role:           "user",
+				Content:        "check time then write the result",
+				CreatedAt:      now,
+			},
+			{
+				ID:             "assistant_tool_call",
+				ConversationID: "conv_1",
+				OrganizationID: "org_1",
+				Role:           "assistant",
+				ToolCalls:      []ToolCall{{ID: "call_datetime", Name: "datetime", Arguments: map[string]any{}}},
+				CreatedAt:      now,
+			},
+		},
+	}
+	gateway := &fakeGateway{
+		structured: []*chat.CompletionResponse{
+			{
+				ToolCalls: []chat.ToolCall{
+					{ID: "call_write_file", Type: "function", Function: chat.ToolFunction{Name: "write_file", Arguments: `{"path":"result.txt","content":"noon"}`}},
+				},
+				FinishReason: "tool_calls",
+			},
+		},
+	}
+	service := NewService(store, gateway)
+
+	updated, err := service.ApproveToolRun(context.Background(), auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}}, "tool_run_datetime", "operator approved")
+	if err != nil {
+		t.Fatalf("ApproveToolRun returned error: %v", err)
+	}
+	if updated.Status != ToolRunStatusCompleted || updated.ToolName != "datetime" {
+		t.Fatalf("expected first approved tool to complete before next pause, got %+v", updated)
+	}
+	if len(store.toolRuns) != 2 {
+		t.Fatalf("expected second pending approval tool run, got %+v", store.toolRuns)
+	}
+	nextToolRun := store.toolRuns[1]
+	if nextToolRun.ToolName != "write_file" || nextToolRun.Status != ToolRunStatusPendingApproval || nextToolRun.ApprovalStatus != ApprovalStatusPending || nextToolRun.AttemptCount != 0 {
+		t.Fatalf("expected write_file pending approval evidence, got %+v", nextToolRun)
+	}
+	run := store.runs[0]
+	if run.Status != RunStatusPendingApproval || run.IterationCount != 2 || run.ToolCallCount != 2 || run.Error != "" || run.CompletedAt != nil {
+		t.Fatalf("expected durable run to remain pending for next approval, got %+v", run)
+	}
+}
+
 func TestServiceApproveToolRunResumeStopsWhenTokenBudgetExceeded(t *testing.T) {
 	now := time.Now().UTC()
 	store := &fakeStore{

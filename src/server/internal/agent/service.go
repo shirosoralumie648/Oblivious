@@ -1625,6 +1625,9 @@ func (s *Service) executePersistedToolRun(ctx context.Context, session auth.Sess
 		return nil, fmt.Errorf("resume agent run after tool %s: %w", toolRun.ToolName, err)
 	}
 	if _, err := s.runner.ResumeAfterApprovedTool(ctx, session, agent, run); err != nil {
+		if errors.Is(err, ErrToolApprovalRequired) {
+			return updated, nil
+		}
 		return nil, err
 	}
 	return updated, nil

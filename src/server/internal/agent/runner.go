@@ -799,103 +799,10 @@ func (r *Runner) RunWithTools(ctx context.Context, session auth.Session, agent *
 
 		toolCalls := chatToolCallsToAgent(reply.ToolCalls)
 		if len(toolCalls) > 0 {
-			// Save the assistant message that requested tool calls.
-			_, err = r.store.CreateMessage(ctx, conversationID, session.OrganizationID, "assistant", reply.Content, toolCalls, "")
+			result.ToolCalls, err = r.handleStructuredToolCalls(ctx, session, agent, run, conversationID, reply.Content, toolCalls, iteration+1, result.ToolCalls)
 			if err != nil {
-				return nil, fmt.Errorf("save assistant tool call message: %w", err)
+				return nil, err
 			}
-
-			// Execute each requested tool and persist the result as a
-			// role=tool message linked by tool_call_id so the model can
-			// correlate results to requests on the next iteration.
-			for _, toolCall := range toolCalls {
-				targetTool := findEnabledTool(agent, toolCall.Name)
-				toolType := ""
-				serverID := ""
-				if targetTool != nil {
-					toolType = targetTool.Type
-					serverID = targetTool.ServerID
-				}
-				approvalDecision := r.decideToolApproval(ctx, session.OrganizationID, conversationID, agent, targetTool, toolCall)
-				status := ToolRunStatusRunning
-				approvalStatus := ApprovalStatusNotRequired
-				attemptCount := 1
-				var startedAt *time.Time
-				if approvalDecision.RequiresApproval {
-					status = ToolRunStatusPendingApproval
-					approvalStatus = ApprovalStatusPending
-					attemptCount = 0
-				} else {
-					now := time.Now().UTC()
-					startedAt = &now
-				}
-				toolRun, err := r.store.CreateToolRun(ctx, &CreateToolRunRequest{
-					OrganizationID: session.OrganizationID,
-					RunID:          run.ID,
-					ConversationID: conversationID,
-					AgentID:        agent.ID,
-					ToolCallID:     toolCall.ID,
-					ToolName:       toolCall.Name,
-					ToolType:       toolType,
-					ServerID:       serverID,
-					RiskLevel:      approvalDecision.RiskLevel,
-					Arguments:      toolCall.Arguments,
-					Status:         status,
-					ApprovalStatus: approvalStatus,
-					AttemptCount:   attemptCount,
-					StartedAt:      startedAt,
-				})
-				if err != nil {
-					_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), iteration+1, result.ToolCalls)
-					return nil, fmt.Errorf("create tool run %s: %w", toolCall.Name, err)
-				}
-				if approvalDecision.RequiresApproval {
-					if _, updateErr := r.store.UpdateRun(ctx, session.OrganizationID, run.ID, UpdateRunRequest{
-						Status:         stringPointer(RunStatusPendingApproval),
-						IterationCount: intPointer(iteration + 1),
-						ToolCallCount:  intPointer(result.ToolCalls + len(toolCalls)),
-					}); updateErr == nil {
-						recordAgentRunMetrics(RunStatusPendingApproval, iteration+1)
-						metrics.RecordAgentToolCall(toolCall.Name, string(ToolRunStatusPendingApproval))
-					}
-					return nil, ErrToolApprovalRequired
-				}
-				execResult, err := r.ExecuteTool(ctx, agent, &toolCall)
-				if err != nil {
-					_ = r.failToolRun(ctx, session.OrganizationID, toolRun.ID, toolCall.Name, err.Error(), attemptCount)
-					_ = r.failRun(ctx, session.OrganizationID, run.ID, fmt.Sprintf("execute tool %s: %s", toolCall.Name, err.Error()), iteration+1, result.ToolCalls)
-					return nil, fmt.Errorf("execute tool %s: %w", toolCall.Name, err)
-				}
-				if execResult == nil {
-					toolErr := fmt.Sprintf("tool %s returned no result", toolCall.Name)
-					_ = r.failToolRun(ctx, session.OrganizationID, toolRun.ID, toolCall.Name, toolErr, attemptCount)
-					_ = r.failRun(ctx, session.OrganizationID, run.ID, toolErr, iteration+1, result.ToolCalls)
-					return nil, fmt.Errorf("%s", toolErr)
-				}
-				if execResult.IsError {
-					_ = r.failToolRun(ctx, session.OrganizationID, toolRun.ID, toolCall.Name, execResult.Content, attemptCount)
-					_ = r.failRun(ctx, session.OrganizationID, run.ID, fmt.Sprintf("tool %s failed: %s", toolCall.Name, execResult.Content), iteration+1, result.ToolCalls)
-					return nil, fmt.Errorf("tool %s failed: %s", toolCall.Name, execResult.Content)
-				}
-				if _, err := r.store.CreateMessage(ctx, conversationID, session.OrganizationID, "tool", execResult.Content, nil, toolCall.ID); err != nil {
-					_ = r.failToolRun(ctx, session.OrganizationID, toolRun.ID, toolCall.Name, err.Error(), attemptCount)
-					_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), iteration+1, result.ToolCalls)
-					return nil, fmt.Errorf("save tool message: %w", err)
-				}
-				completedAt := time.Now().UTC()
-				if _, err := r.store.UpdateToolRun(ctx, session.OrganizationID, toolRun.ID, UpdateToolRunRequest{
-					Status:        stringPointer(ToolRunStatusCompleted),
-					ResultContent: stringPointer(execResult.Content),
-					AttemptCount:  intPointer(attemptCount),
-					CompletedAt:   &completedAt,
-				}); err != nil {
-					_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), iteration+1, result.ToolCalls)
-					return nil, fmt.Errorf("complete tool run %s: %w", toolCall.Name, err)
-				}
-				metrics.RecordAgentToolCall(toolCall.Name, string(ToolRunStatusCompleted))
-			}
-
-			result.ToolCalls += len(toolCalls)
 
 			// Refresh the message view so the next iteration includes
 			// the tool-call and tool-result messages.
@@ -1012,10 +919,21 @@ func (r *Runner) ResumeAfterApprovedTool(ctx context.Context, session auth.Sessi
 		_ = r.failRunWithStatus(ctx, session.OrganizationID, run.ID, RunStatusTokenBudgetExceeded, message, run.IterationCount+1, run.ToolCallCount)
 		return nil, fmt.Errorf("%w: used %d tokens exceeds budget %d", ErrTokenBudgetExceeded, usedTokens, tokenBudget)
 	}
-	if len(reply.ToolCalls) > 0 {
-		message := "approved tool resume produced another tool call"
-		_ = r.failRun(ctx, session.OrganizationID, run.ID, message, run.IterationCount+1, run.ToolCallCount+len(reply.ToolCalls))
-		return nil, fmt.Errorf("%s", message)
+	toolCalls := chatToolCallsToAgent(reply.ToolCalls)
+	if len(toolCalls) > 0 {
+		result.ToolCalls, err = r.handleStructuredToolCalls(ctx, session, agent, run, run.ConversationID, reply.Content, toolCalls, run.IterationCount+1, run.ToolCallCount)
+		if err != nil {
+			return nil, err
+		}
+		messages, err = r.store.ListMessages(ctx, run.ConversationID, session.OrganizationID)
+		if err != nil {
+			_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), run.IterationCount+1, result.ToolCalls)
+			return nil, fmt.Errorf("refresh messages: %w", err)
+		}
+		chatMessages = r.buildChatMessages(ctx, session, agent, messages, "")
+		run.IterationCount++
+		run.ToolCallCount = result.ToolCalls
+		return r.resumeToolLoop(ctx, session, agent, run, chatMessages, config, tools, structuredGateway, tokenBudget, usedTokens)
 	}
 	assistantMsg, err := r.store.CreateMessage(ctx, run.ConversationID, session.OrganizationID, "assistant", reply.Content, nil, "")
 	if err != nil {
@@ -1028,6 +946,152 @@ func (r *Runner) ResumeAfterApprovedTool(ctx context.Context, session auth.Sessi
 	}
 	r.storeLongTermInteractionMemory(ctx, session, agent, run.ConversationID, lastUserMessageContent(messages), reply.Content)
 	return result, nil
+}
+
+func (r *Runner) resumeToolLoop(ctx context.Context, session auth.Session, agent *Agent, run *Run, chatMessages []chat.Message, config chat.ConversationConfig, tools []map[string]any, structuredGateway chat.StructuredReplyGenerator, tokenBudget int, usedTokens int) (*RunResult, error) {
+	result := &RunResult{ToolCalls: run.ToolCallCount}
+	maxIterations := r.maxIterationsFor(agent)
+	for iteration := run.IterationCount; iteration < maxIterations; iteration++ {
+		reply, err := structuredGateway.GenerateStructuredReply(ctx, chatMessages, config, tools)
+		if err != nil {
+			_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), iteration+1, result.ToolCalls)
+			return nil, fmt.Errorf("generate structured reply: %w", err)
+		}
+		usedTokens += completionTotalTokens(reply)
+		if tokenBudget > 0 && usedTokens > tokenBudget {
+			message := fmt.Sprintf("token_budget_exceeded: used %d tokens exceeds budget %d", usedTokens, tokenBudget)
+			_ = r.failRunWithStatus(ctx, session.OrganizationID, run.ID, RunStatusTokenBudgetExceeded, message, iteration+1, result.ToolCalls)
+			return nil, fmt.Errorf("%w: used %d tokens exceeds budget %d", ErrTokenBudgetExceeded, usedTokens, tokenBudget)
+		}
+
+		toolCalls := chatToolCallsToAgent(reply.ToolCalls)
+		if len(toolCalls) > 0 {
+			result.ToolCalls, err = r.handleStructuredToolCalls(ctx, session, agent, run, run.ConversationID, reply.Content, toolCalls, iteration+1, result.ToolCalls)
+			if err != nil {
+				return nil, err
+			}
+			messages, err := r.store.ListMessages(ctx, run.ConversationID, session.OrganizationID)
+			if err != nil {
+				_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), iteration+1, result.ToolCalls)
+				return nil, fmt.Errorf("refresh messages: %w", err)
+			}
+			chatMessages = r.buildChatMessages(ctx, session, agent, messages, "")
+			continue
+		}
+
+		assistantMsg, err := r.store.CreateMessage(ctx, run.ConversationID, session.OrganizationID, "assistant", reply.Content, nil, "")
+		if err != nil {
+			_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), iteration+1, result.ToolCalls)
+			return nil, fmt.Errorf("save assistant message: %w", err)
+		}
+		result.Message = assistantMsg
+		if err := r.completeRun(ctx, session.OrganizationID, run.ID, iteration+1, result.ToolCalls, assistantMsg.ID); err != nil {
+			return nil, err
+		}
+		messages, _ := r.store.ListMessages(ctx, run.ConversationID, session.OrganizationID)
+		r.storeLongTermInteractionMemory(ctx, session, agent, run.ConversationID, lastUserMessageContent(messages), reply.Content)
+		return result, nil
+	}
+
+	_ = r.failRunWithStatus(ctx, session.OrganizationID, run.ID, RunStatusMaxIterationsReached, ErrMaxIterationsExceeded.Error(), maxIterations, result.ToolCalls)
+	return nil, fmt.Errorf("%w (%d)", ErrMaxIterationsExceeded, maxIterations)
+}
+
+func (r *Runner) handleStructuredToolCalls(ctx context.Context, session auth.Session, agent *Agent, run *Run, conversationID, assistantContent string, toolCalls []ToolCall, iterationCount, previousToolCallCount int) (int, error) {
+	_, err := r.store.CreateMessage(ctx, conversationID, session.OrganizationID, "assistant", assistantContent, toolCalls, "")
+	if err != nil {
+		return previousToolCallCount, fmt.Errorf("save assistant tool call message: %w", err)
+	}
+
+	totalToolCallCount := previousToolCallCount + len(toolCalls)
+	for _, toolCall := range toolCalls {
+		targetTool := findEnabledTool(agent, toolCall.Name)
+		toolType := ""
+		serverID := ""
+		if targetTool != nil {
+			toolType = targetTool.Type
+			serverID = targetTool.ServerID
+		}
+		approvalDecision := r.decideToolApproval(ctx, session.OrganizationID, conversationID, agent, targetTool, toolCall)
+		status := ToolRunStatusRunning
+		approvalStatus := ApprovalStatusNotRequired
+		attemptCount := 1
+		var startedAt *time.Time
+		if approvalDecision.RequiresApproval {
+			status = ToolRunStatusPendingApproval
+			approvalStatus = ApprovalStatusPending
+			attemptCount = 0
+		} else {
+			now := time.Now().UTC()
+			startedAt = &now
+		}
+		toolRun, err := r.store.CreateToolRun(ctx, &CreateToolRunRequest{
+			OrganizationID: session.OrganizationID,
+			RunID:          run.ID,
+			ConversationID: conversationID,
+			AgentID:        agent.ID,
+			ToolCallID:     toolCall.ID,
+			ToolName:       toolCall.Name,
+			ToolType:       toolType,
+			ServerID:       serverID,
+			RiskLevel:      approvalDecision.RiskLevel,
+			Arguments:      toolCall.Arguments,
+			Status:         status,
+			ApprovalStatus: approvalStatus,
+			AttemptCount:   attemptCount,
+			StartedAt:      startedAt,
+		})
+		if err != nil {
+			_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), iterationCount, previousToolCallCount)
+			return previousToolCallCount, fmt.Errorf("create tool run %s: %w", toolCall.Name, err)
+		}
+		if approvalDecision.RequiresApproval {
+			if _, updateErr := r.store.UpdateRun(ctx, session.OrganizationID, run.ID, UpdateRunRequest{
+				Status:         stringPointer(RunStatusPendingApproval),
+				IterationCount: intPointer(iterationCount),
+				ToolCallCount:  intPointer(totalToolCallCount),
+				Error:          stringPointer(""),
+			}); updateErr == nil {
+				recordAgentRunMetrics(RunStatusPendingApproval, iterationCount)
+				metrics.RecordAgentToolCall(toolCall.Name, string(ToolRunStatusPendingApproval))
+			}
+			return totalToolCallCount, ErrToolApprovalRequired
+		}
+		execResult, err := r.ExecuteTool(ctx, agent, &toolCall)
+		if err != nil {
+			_ = r.failToolRun(ctx, session.OrganizationID, toolRun.ID, toolCall.Name, err.Error(), attemptCount)
+			_ = r.failRun(ctx, session.OrganizationID, run.ID, fmt.Sprintf("execute tool %s: %s", toolCall.Name, err.Error()), iterationCount, previousToolCallCount)
+			return previousToolCallCount, fmt.Errorf("execute tool %s: %w", toolCall.Name, err)
+		}
+		if execResult == nil {
+			toolErr := fmt.Sprintf("tool %s returned no result", toolCall.Name)
+			_ = r.failToolRun(ctx, session.OrganizationID, toolRun.ID, toolCall.Name, toolErr, attemptCount)
+			_ = r.failRun(ctx, session.OrganizationID, run.ID, toolErr, iterationCount, previousToolCallCount)
+			return previousToolCallCount, fmt.Errorf("%s", toolErr)
+		}
+		if execResult.IsError {
+			_ = r.failToolRun(ctx, session.OrganizationID, toolRun.ID, toolCall.Name, execResult.Content, attemptCount)
+			_ = r.failRun(ctx, session.OrganizationID, run.ID, fmt.Sprintf("tool %s failed: %s", toolCall.Name, execResult.Content), iterationCount, previousToolCallCount)
+			return previousToolCallCount, fmt.Errorf("tool %s failed: %s", toolCall.Name, execResult.Content)
+		}
+		if _, err := r.store.CreateMessage(ctx, conversationID, session.OrganizationID, "tool", execResult.Content, nil, toolCall.ID); err != nil {
+			_ = r.failToolRun(ctx, session.OrganizationID, toolRun.ID, toolCall.Name, err.Error(), attemptCount)
+			_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), iterationCount, previousToolCallCount)
+			return previousToolCallCount, fmt.Errorf("save tool message: %w", err)
+		}
+		completedAt := time.Now().UTC()
+		if _, err := r.store.UpdateToolRun(ctx, session.OrganizationID, toolRun.ID, UpdateToolRunRequest{
+			Status:        stringPointer(ToolRunStatusCompleted),
+			ResultContent: stringPointer(execResult.Content),
+			AttemptCount:  intPointer(attemptCount),
+			CompletedAt:   &completedAt,
+		}); err != nil {
+			_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), iterationCount, previousToolCallCount)
+			return previousToolCallCount, fmt.Errorf("complete tool run %s: %w", toolCall.Name, err)
+		}
+		metrics.RecordAgentToolCall(toolCall.Name, string(ToolRunStatusCompleted))
+	}
+	return totalToolCallCount, nil
 }
 
 func (r *Runner) maxIterationsFor(agent *Agent) int {
