@@ -236,6 +236,7 @@ func (h chatHandler) updateConversationConfig(w stdhttp.ResponseWriter, r *stdht
 		payload.MaxOutputTokens,
 		payload.ToolsEnabled,
 		payload.KnowledgeBaseIDs,
+		strings.TrimSpace(payload.PersonaID),
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

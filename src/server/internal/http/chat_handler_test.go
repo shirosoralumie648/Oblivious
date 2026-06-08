@@ -20,6 +20,7 @@ type chatFakeStore struct {
 	lastConversationID    string
 	lastMessageID         string
 	lastOrganizationID    string
+	lastPersonaID         string
 	messages              []chat.Message
 	lastWorkspaceID       string
 	lastKnowledgeBaseIDs  []string
@@ -108,10 +109,14 @@ func (f *chatFakeStore) UpdateConversationConfig(
 	f.lastConversationID = conversationID
 	f.lastWorkspaceID = workspaceID
 	f.lastKnowledgeBaseIDs = append([]string(nil), knowledgeBaseIDs...)
+	if len(personaIDs) > 0 {
+		f.lastPersonaID = personaIDs[0]
+	}
 
 	return chat.ConversationConfig{
 		ConversationID:       conversationID,
 		ModelID:              modelID,
+		PersonaID:            f.lastPersonaID,
 		SystemPromptOverride: systemPromptOverride,
 		Temperature:          temperature,
 		MaxOutputTokens:      maxOutputTokens,
@@ -242,7 +247,7 @@ func TestChatHandlerUpdateConversationConfigAcceptsKnowledgeBaseIDs(t *testing.T
 	request := httptest.NewRequest(
 		stdhttp.MethodPut,
 		"/api/v1/app/conversations/conversation_1/config",
-		strings.NewReader(`{"modelId":"quality-chat","systemPromptOverride":"Use docs","temperature":0.7,"maxOutputTokens":1024,"toolsEnabled":true,"knowledgeBaseIds":["kb_2","kb_4"]}`),
+		strings.NewReader(`{"modelId":"quality-chat","personaId":"persona_1","systemPromptOverride":"Use docs","temperature":0.7,"maxOutputTokens":1024,"toolsEnabled":true,"knowledgeBaseIds":["kb_2","kb_4"]}`),
 	).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
 		WorkspaceID: "workspace_1",
 	}))
@@ -257,6 +262,9 @@ func TestChatHandlerUpdateConversationConfigAcceptsKnowledgeBaseIDs(t *testing.T
 	if len(store.lastKnowledgeBaseIDs) != 2 || store.lastKnowledgeBaseIDs[0] != "kb_2" || store.lastKnowledgeBaseIDs[1] != "kb_4" {
 		t.Fatalf("expected knowledge ids [kb_2 kb_4], got %+v", store.lastKnowledgeBaseIDs)
 	}
+	if store.lastPersonaID != "persona_1" {
+		t.Fatalf("expected persona id persona_1, got %s", store.lastPersonaID)
+	}
 
 	var response struct {
 		Data chat.ConversationConfig `json:"data"`
@@ -266,6 +274,9 @@ func TestChatHandlerUpdateConversationConfigAcceptsKnowledgeBaseIDs(t *testing.T
 	}
 	if len(response.Data.KnowledgeBaseIDs) != 2 || response.Data.KnowledgeBaseIDs[0] != "kb_2" || response.Data.KnowledgeBaseIDs[1] != "kb_4" {
 		t.Fatalf("expected response knowledge ids [kb_2 kb_4], got %+v", response.Data.KnowledgeBaseIDs)
+	}
+	if response.Data.PersonaID != "persona_1" {
+		t.Fatalf("expected response persona id persona_1, got %s", response.Data.PersonaID)
 	}
 }
 

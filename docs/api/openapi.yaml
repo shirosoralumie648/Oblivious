@@ -178,6 +178,8 @@ components:
           type: array
           items:
             type: string
+        personaId:
+          type: string
         systemPromptOverride:
           type: string
         temperature:
@@ -187,6 +189,54 @@ components:
           type: integer
         toolsEnabled:
           type: boolean
+
+    ConversationConfig:
+      type: object
+      properties:
+        conversationId:
+          type: string
+        knowledgeBaseIds:
+          type: array
+          items:
+            type: string
+        modelId:
+          type: string
+        personaId:
+          type: string
+        personaRole:
+          type: string
+        personaStyle:
+          type: string
+        personaTone:
+          type: string
+        personaConstraints:
+          type: string
+        systemPromptOverride:
+          type: string
+        temperature:
+          type: number
+          format: double
+        maxOutputTokens:
+          type: integer
+        toolsEnabled:
+          type: boolean
+        updatedAt:
+          type: string
+          format: date-time
+
+    TaskDraft:
+      type: object
+      properties:
+        draftTaskGoal:
+          type: string
+        relatedKnowledgeBaseIds:
+          type: array
+          items:
+            type: string
+        suggestedBudget:
+          type: integer
+        suggestedExecutionMode:
+          type: string
 
     Message:
       type: object
@@ -4994,6 +5044,9 @@ paths:
       summary: 创建新对话
       operationId: createConversation
       tags: [Chat]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       requestBody:
         content:
           application/json:
@@ -5045,6 +5098,9 @@ paths:
       summary: 发送消息
       operationId: sendMessage
       tags: [Chat]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: conversationId
           in: path
@@ -5100,6 +5156,9 @@ paths:
       summary: 更新对话配置
       operationId: updateConversationConfig
       tags: [Chat]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: conversationId
           in: path
@@ -5118,7 +5177,12 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/ConversationConfig"
         "401":
           $ref: "#/components/responses/Unauthorized"
 
@@ -5127,6 +5191,9 @@ paths:
       summary: 将对话转换为任务
       operationId: convertConversationToTask
       tags: [Chat]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: conversationId
           in: path
@@ -5139,7 +5206,12 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/TaskDraft"
         "401":
           $ref: "#/components/responses/Unauthorized"
 

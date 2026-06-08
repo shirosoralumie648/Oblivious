@@ -1505,6 +1505,94 @@ require_preferences_mutation_csrf_contract() {
   ' "$openapi_file"
 }
 
+require_chat_mutation_csrf_contract() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+    paths = spec.fetch("paths", {})
+    schemas = spec.fetch("components", {}).fetch("schemas", {})
+    missing = []
+
+    def operation(paths, path, method, missing)
+      op = paths.dig(path, method)
+      unless op
+        missing << "#{method.upcase} #{path} must be documented"
+        return {}
+      end
+      op
+    end
+
+    def requires_cookie_and_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
+    end
+
+    def request_body_ref(operation)
+      operation.dig("requestBody", "content", "application/json", "schema", "$ref")
+    end
+
+    def response_data_ref(operation, status)
+      operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "$ref") }&.
+        dig("properties", "data", "$ref")
+    end
+
+    def response_data_array_ref(operation, status)
+      operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "items", "$ref") }&.
+        dig("properties", "data", "items", "$ref")
+    end
+
+    expected_responses = {
+      ["/api/v1/app/conversations", "post"] => ["200", "#/components/schemas/Conversation", :ref],
+      ["/api/v1/app/conversations/{conversationId}/messages", "post"] => ["200", "#/components/schemas/Message", :array_ref],
+      ["/api/v1/app/conversations/{conversationId}/config", "put"] => ["200", "#/components/schemas/ConversationConfig", :ref],
+      ["/api/v1/app/conversations/{conversationId}/convert-to-task", "post"] => ["200", "#/components/schemas/TaskDraft", :ref],
+    }
+
+    expected_responses.each do |(path, method), (status, expected, shape)|
+      op = operation(paths, path, method, missing)
+      unless requires_cookie_and_csrf?(op)
+        missing << "#{method.upcase} #{path} must require cookieAuth and csrfHeader"
+      end
+      unless op.fetch("tags", []).include?("Chat")
+        missing << "#{method.upcase} #{path} must be tagged Chat"
+      end
+      actual = shape == :array_ref ? response_data_array_ref(op, status) : response_data_ref(op, status)
+      unless actual == expected
+        missing << "#{method.upcase} #{path} #{status} data must reference #{expected}"
+      end
+    end
+
+    {
+      ["/api/v1/app/conversations", "post"] => "#/components/schemas/CreateConversationRequest",
+      ["/api/v1/app/conversations/{conversationId}/messages", "post"] => "#/components/schemas/SendMessageRequest",
+      ["/api/v1/app/conversations/{conversationId}/config", "put"] => "#/components/schemas/UpdateConversationConfigRequest",
+    }.each do |(path, method), expected|
+      op = operation(paths, path, method, missing)
+      unless request_body_ref(op) == expected
+        missing << "#{method.upcase} #{path} request body must reference #{expected}"
+      end
+    end
+
+    unless schemas.dig("UpdateConversationConfigRequest", "properties", "personaId", "type") == "string"
+      missing << "UpdateConversationConfigRequest must document personaId"
+    end
+    unless schemas.key?("ConversationConfig")
+      missing << "ConversationConfig schema must be documented"
+    end
+    unless schemas.key?("TaskDraft")
+      missing << "TaskDraft schema must be documented"
+    end
+
+    unless missing.empty?
+      warn "[openapi-contract] Chat mutation CSRF contract is incomplete:"
+      missing.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 require_admin_core_management_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
@@ -2087,6 +2175,7 @@ require_console_api_token_csrf_contract
 require_task_mutation_csrf_contract
 require_notification_mutation_csrf_contract
 require_preferences_mutation_csrf_contract
+require_chat_mutation_csrf_contract
 require_admin_core_management_contract
 require_admin_billing_contract
 require_domestic_payment_webhook_payout_contract
