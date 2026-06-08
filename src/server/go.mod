@@ -8,11 +8,11 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/hibiken/asynq v0.26.0
-	github.com/lib/pq v1.10.9
+	github.com/lib/pq v1.12.3
 	github.com/pkoukk/tiktoken-go v0.1.8
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/client_model v0.6.2
-	github.com/redis/go-redis/v9 v9.14.1
+	github.com/redis/go-redis/v9 v9.20.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/stripe/stripe-go/v83 v83.2.1
 	go.opentelemetry.io/otel v1.44.0
@@ -27,7 +27,6 @@ require (
 	github.com/bytedance/sonic/loader v0.5.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudwego/base64x v0.1.6 // indirect
-	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/dlclark/regexp2 v1.10.0 // indirect
 	github.com/dlclark/regexp2/v2 v2.1.1 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.12 // indirect
@@ -60,6 +59,7 @@ require (
 	go.mongodb.org/mongo-driver/v2 v2.5.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/metric v1.44.0 // indirect
+	go.uber.org/atomic v1.11.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/arch v0.22.0 // indirect
 	golang.org/x/net v0.54.0 // indirect
