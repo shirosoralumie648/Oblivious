@@ -1669,7 +1669,7 @@ func TestServiceSendMessageOverrideTokenBudgetUsesTemporaryAgentConfig(t *testin
 	}
 }
 
-func TestServiceSendMessageWithoutModeKeepsExistingSendBehavior(t *testing.T) {
+func TestServiceSendMessageUsesDefaultPlanningModeWhenModeOmitted(t *testing.T) {
 	store := &fakeStore{
 		agent: &Agent{
 			ID:             "agent_1",
@@ -1691,7 +1691,7 @@ func TestServiceSendMessageWithoutModeKeepsExistingSendBehavior(t *testing.T) {
 		},
 	}
 	gateway := &fakeGateway{
-		plainReply: "planning path should not be used without explicit mode",
+		plainReply: "Plan:\n1. Inspect the workspace\n2. Verify the release",
 		structured: []*chat.CompletionResponse{
 			{
 				Content:      "react answer",
@@ -1705,11 +1705,66 @@ func TestServiceSendMessageWithoutModeKeepsExistingSendBehavior(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SendMessage returned error: %v", err)
 	}
+	if msg == nil || !strings.Contains(msg.Content, "Verify the release") {
+		t.Fatalf("expected default planning response, got %+v", msg)
+	}
+	if gateway.plainCalls != 1 || gateway.structuredCalls != 0 {
+		t.Fatalf("expected default planning mode to use plain planning call, got plain=%d structured=%d", gateway.plainCalls, gateway.structuredCalls)
+	}
+	if len(store.runs) != 1 || store.runs[0].Mode != ExecutionModePlanning || store.runs[0].Status != RunStatusPendingApproval {
+		t.Fatalf("expected pending planning run from default mode, got %+v", store.runs)
+	}
+	if len(store.planSteps) != 2 {
+		t.Fatalf("expected parsed planning steps, got %+v", store.planSteps)
+	}
+}
+
+func TestServiceSendMessageExplicitReactModeOverridesPlanningDefault(t *testing.T) {
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+			Config: Config{
+				DefaultExecutionMode: ExecutionModePlanning,
+			},
+			Tools: []Tool{
+				{Name: "datetime", Type: "builtin", Enabled: true},
+			},
+		},
+		conversation: &Conversation{
+			ID:             "conv_1",
+			AgentID:        "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+		},
+	}
+	gateway := &fakeGateway{
+		plainReply: "planning path should not be used with explicit react mode",
+		structured: []*chat.CompletionResponse{
+			{
+				Content:      "react answer",
+				FinishReason: "stop",
+			},
+		},
+	}
+	service := NewService(store, gateway)
+
+	msg, err := service.SendMessage(context.Background(), auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}}, "conv_1", "hello", SendMessageOptions{
+		Mode: ExecutionModeReact,
+	})
+	if err != nil {
+		t.Fatalf("SendMessage returned error: %v", err)
+	}
 	if msg == nil || msg.Content != "react answer" {
-		t.Fatalf("expected existing tool send path answer, got %+v", msg)
+		t.Fatalf("expected explicit react answer, got %+v", msg)
 	}
 	if gateway.structuredCalls != 1 || gateway.plainCalls != 0 {
-		t.Fatalf("expected existing send path to use structured tool runner, got plain=%d structured=%d", gateway.plainCalls, gateway.structuredCalls)
+		t.Fatalf("expected explicit react mode to use structured runner, got plain=%d structured=%d", gateway.plainCalls, gateway.structuredCalls)
+	}
+	if len(store.runs) != 1 || store.runs[0].Mode != ExecutionModeReact || store.runs[0].Status != RunStatusCompleted {
+		t.Fatalf("expected completed react run from explicit override, got %+v", store.runs)
 	}
 }
 

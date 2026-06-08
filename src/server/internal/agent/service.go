@@ -586,12 +586,15 @@ func (s *Service) SendMessage(ctx context.Context, session auth.Session, convers
 	}
 
 	runAgent := *agent
-	mode := ""
+	mode := NormalizeExecutionMode(runAgent.Config.DefaultExecutionMode)
 	if len(options) > 0 {
 		option := options[0]
-		mode = strings.ToLower(strings.TrimSpace(option.Mode))
-		if mode != "" && mode != ExecutionModeReact && mode != ExecutionModePlanning {
-			return nil, fmt.Errorf("mode must be react or planning")
+		overrideMode := strings.ToLower(strings.TrimSpace(option.Mode))
+		if overrideMode != "" {
+			if overrideMode != ExecutionModeReact && overrideMode != ExecutionModePlanning {
+				return nil, fmt.Errorf("mode must be react or planning")
+			}
+			mode = overrideMode
 		}
 		if option.MaxIterations != nil {
 			runAgent.Config.MaxIterations = *option.MaxIterations
