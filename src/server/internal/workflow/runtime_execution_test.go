@@ -8,6 +8,9 @@ import (
 
 	"oblivious/server/internal/auth"
 	"oblivious/server/internal/knowledge"
+	"oblivious/server/internal/metrics"
+
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 func TestServiceRunReadyNodeInterpolatesWorkflowInputAndPriorNodeOutput(t *testing.T) {
@@ -316,6 +319,81 @@ func TestServiceRunExecutionUntilBlockedAdvancesReadyDAGNodesToSuccess(t *testin
 	notifyNodes := workflowNodeExecutionsByID(completed.NodeExecutions, "notify")
 	if got := notifyNodes[len(notifyNodes)-1].Output["ticket"]; got != "INC-11" {
 		t.Fatalf("expected downstream interpolation to reach notify output, got %#v", got)
+	}
+}
+
+func TestServiceWorkflowSuccessRateEvidenceGate(t *testing.T) {
+	store := newMemoryWorkflowStore()
+	service := NewService(store, WithNodeExecutors(NewNodeExecutorRegistry(
+		StaticNodeExecutor("start", map[string]any{"ticket": "INC-SLO"}),
+		EchoNodeExecutor("agent"),
+		EchoNodeExecutor("end"),
+	)))
+	ctx := context.Background()
+	workflow, err := service.CreateWorkflow(ctx, CreateWorkflowRequest{
+		OrganizationID: "org_1",
+		Name:           "Success Rate Evidence Flow",
+		Status:         WorkflowStatusPublished,
+		Definition: workflowDefinitionDAG(
+			[]map[string]any{
+				{"id": "start", "type": "start"},
+				{"id": "enrich", "type": "agent", "input": map[string]any{
+					"ticket": "{{nodes.start.output.ticket}}",
+					"run":    "{{input.run}}",
+				}},
+				{"id": "finish", "type": "end", "input": map[string]any{
+					"ticket": "{{nodes.enrich.output.ticket}}",
+					"run":    "{{nodes.enrich.output.run}}",
+				}},
+			},
+			[]map[string]any{
+				{"from": "start", "to": "enrich"},
+				{"from": "enrich", "to": "finish"},
+			},
+		),
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkflow returned error: %v", err)
+	}
+
+	const executions = 100
+	const threshold = 0.99
+	succeededBefore := testutil.ToFloat64(metrics.WorkflowExecutionTotal.WithLabelValues(string(ExecutionStatusSucceeded)))
+	succeeded := 0
+	failed := 0
+	for i := range executions {
+		execution, err := service.StartExecution(ctx, StartExecutionRequest{
+			OrganizationID: "org_1",
+			WorkflowID:     workflow.ID,
+			Input:          map[string]any{"run": i + 1},
+		})
+		if err != nil {
+			failed++
+			t.Logf("workflow_success_rate_start_error run=%d err=%v", i+1, err)
+			continue
+		}
+		completed, err := service.RunExecutionUntilBlocked(ctx, "org_1", execution.ID)
+		if err != nil {
+			failed++
+			t.Logf("workflow_success_rate_run_error run=%d execution=%s err=%v", i+1, execution.ID, err)
+			continue
+		}
+		if completed.Status == ExecutionStatusSucceeded {
+			succeeded++
+			continue
+		}
+		failed++
+		t.Logf("workflow_success_rate_terminal_miss run=%d execution=%s status=%s", i+1, execution.ID, completed.Status)
+	}
+
+	successRate := float64(succeeded) / float64(executions)
+	t.Logf("workflow_success_rate_evidence executions=%d succeeded=%d failed=%d success_rate=%.4f threshold=%.4f", executions, succeeded, failed, successRate, threshold)
+	if successRate < threshold {
+		t.Fatalf("workflow success rate %.4f below %.4f", successRate, threshold)
+	}
+	succeededAfter := testutil.ToFloat64(metrics.WorkflowExecutionTotal.WithLabelValues(string(ExecutionStatusSucceeded)))
+	if got := succeededAfter - succeededBefore; got != executions {
+		t.Fatalf("expected %d succeeded workflow metric increments, got %v", executions, got)
 	}
 }
 
