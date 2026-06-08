@@ -8,6 +8,7 @@ This audit covers the repository-owned migration contract for the 2026-06-04 fus
 - `src/server/cmd/migrate/main_test.go` covers malformed migration filenames with `TestLoadMigrationFilesRejectsMalformedNames`.
 - `scripts/verify-migration-contract.sh` statically checks every PostgreSQL migration in `src/server/migrations` before docs gates pass.
 - `scripts/verify-schema-coverage.sh` statically checks Part 3 core schema family coverage across `src/server/migrations` and `src/server/migrations/clickhouse`.
+- `scripts/verify-migration-replay.sh` starts a temporary pgvector PostgreSQL database when no `MIGRATION_REPLAY_DATABASE_URL` or `TEST_DATABASE_URL` is set, applies all migrations, reruns the migrator, and verifies the `schema_migrations` count.
 - `scripts/check.sh docs` now runs `scripts/verify-migration-contract.sh`, and `scripts/verify-quality-gates.sh` asserts the migration contract gate remains wired.
 
 ## Part 3 Core Schema Family Coverage
@@ -30,6 +31,24 @@ This audit covers the repository-owned migration contract for the 2026-06-04 fus
 
 This is a static coverage gate. It proves that each Part 3 core schema family has checked-in migration evidence, including the ClickHouse observability table. It does not prove that a fresh PostgreSQL instance can replay all migrations in this environment.
 
+## Full Migration Replay
+
+Fresh PostgreSQL replay initially exposed two ordering defects:
+
+- `0013_gateway_tables.sql` referenced `organizations` before the original tenant foundation migration created it.
+- `0016_knowledge_enhanced.sql` created organization-scoped indexes on `knowledge_bases`, but the table already existed from the v03 migration without the enhanced columns.
+
+The fix is forward-only and avoids renaming historical files:
+
+- `0000_tenant_prerequisites.sql` creates the minimal `organizations` prerequisite table before service migrations that reference it.
+- `0016_000_knowledge_enhanced_prerequisites.sql` backfills enhanced `knowledge_bases` columns before `0016_knowledge_enhanced.sql` creates organization-scoped indexes.
+- `0076_organization_created_by_fk.sql` adds the `organizations.created_by_user_id` foreign key after `users` is guaranteed to exist.
+
+Verification:
+
+- `bash scripts/verify-migration-replay.sh`
+- Result: first run applied 88 migrations, second run applied 0 and skipped 88, and `schema_migrations` reported 88 migrations recorded.
+
 ## Historical Duplicate Prefix Boundary
 
 The current tree has accepted historical duplicate prefix pairs from `0013-0022`:
@@ -37,7 +56,7 @@ The current tree has accepted historical duplicate prefix pairs from `0013-0022`
 - `0013_channels.sql`, `0013_gateway_tables.sql`
 - `0014_agents.sql`, `0014_relay_enhanced.sql`
 - `0015_mcp_servers.sql`, `0015_workflow_enhanced.sql`
-- `0016_knowledge_enhanced.sql`, `0016_pgvector.sql`
+- `0016_000_knowledge_enhanced_prerequisites.sql`, `0016_knowledge_enhanced.sql`, `0016_pgvector.sql`
 - `0017_agent_enhanced.sql`, `0017_quotas.sql`
 - `0018_channel_tables.sql`, `0018_user_preferences_ext.sql`
 - `0019_admin_role.sql`, `0019_task_tables.sql`
@@ -49,10 +68,9 @@ Do not rename historical migration files in-place. Their full filenames are alre
 
 ## Current Completion Assessment
 
-This slice moves the Database schema and migrations row forward by making migration ordering inputs explicit, preventing future malformed or ambiguous file additions, and requiring checked-in migration evidence for every Part 3 core schema family. It does not by itself prove SQL idempotence for every table family or full DB replay in this environment.
+This slice moves the Database schema and migrations row forward by making migration ordering inputs explicit, preventing future malformed or ambiguous file additions, requiring checked-in migration evidence for every Part 3 core schema family, and proving a fresh PostgreSQL migration replay plus ledger skip rerun in the current Docker-capable environment. It does not by itself prove semantic idempotence for every data backfill path under non-empty legacy production datasets.
 
 Remaining repository-owned work:
 
-- Run DB-backed migration replay when `TEST_DATABASE_URL` is available.
 - Add focused idempotence checks for high-risk table families that still rely on direct migration application in package tests.
 - Decide whether historical duplicate prefixes need a future forward-only ledger compatibility migration, instead of in-place renames.
