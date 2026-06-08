@@ -777,7 +777,7 @@ func (h workflowHandler) startExecution(w stdhttp.ResponseWriter, r *stdhttp.Req
 			return
 		}
 	}
-	writeSuccess(w, stdhttp.StatusCreated, execution)
+	writeSuccess(w, stdhttp.StatusCreated, redactWorkflowExecution(execution))
 }
 
 func (h workflowHandler) triggerWebhook(w stdhttp.ResponseWriter, r *stdhttp.Request, workflowID string) {
@@ -809,7 +809,7 @@ func (h workflowHandler) triggerWebhook(w stdhttp.ResponseWriter, r *stdhttp.Req
 		writeWorkflowError(w, err)
 		return
 	}
-	writeSuccess(w, stdhttp.StatusCreated, execution)
+	writeSuccess(w, stdhttp.StatusCreated, redactWorkflowExecution(execution))
 }
 
 func (h workflowHandler) triggerSignedWebhook(w stdhttp.ResponseWriter, r *stdhttp.Request, organizationID string, workflowID string) {
@@ -889,7 +889,7 @@ func (h workflowHandler) triggerSignedWebhook(w stdhttp.ResponseWriter, r *stdht
 		writeWorkflowError(w, err)
 		return
 	}
-	writeSuccess(w, stdhttp.StatusCreated, execution)
+	writeSuccess(w, stdhttp.StatusCreated, redactWorkflowExecution(execution))
 }
 
 func workflowWebhookSecret(definition map[string]any) string {
@@ -936,6 +936,26 @@ func redactWorkflowDefinitions(definitions []*workflow.WorkflowDefinition) []*wo
 		redacted = append(redacted, redactWorkflowDefinition(definition))
 	}
 	return redacted
+}
+
+func redactWorkflowExecutions(executions []*workflow.WorkflowExecution) []*workflow.WorkflowExecution {
+	redacted := make([]*workflow.WorkflowExecution, 0, len(executions))
+	for _, execution := range executions {
+		redacted = append(redacted, redactWorkflowExecution(execution))
+	}
+	return redacted
+}
+
+func redactWorkflowExecution(execution *workflow.WorkflowExecution) *workflow.WorkflowExecution {
+	if execution == nil {
+		return nil
+	}
+	clone := *execution
+	clone.WorkflowSnapshot = redactWorkflowDefinitionMap(execution.WorkflowSnapshot)
+	if execution.NodeExecutions != nil {
+		clone.NodeExecutions = append([]workflow.WorkflowNodeExecution(nil), execution.NodeExecutions...)
+	}
+	return &clone
 }
 
 func redactWorkflowDefinition(definition *workflow.WorkflowDefinition) *workflow.WorkflowDefinition {
@@ -1174,7 +1194,7 @@ func (h workflowHandler) listExecutions(w stdhttp.ResponseWriter, r *stdhttp.Req
 		writeWorkflowError(w, err)
 		return
 	}
-	writeSuccess(w, stdhttp.StatusOK, executions)
+	writeSuccess(w, stdhttp.StatusOK, redactWorkflowExecutions(executions))
 }
 
 func (h workflowHandler) getExecution(w stdhttp.ResponseWriter, r *stdhttp.Request, executionID string) {
@@ -1189,7 +1209,7 @@ func (h workflowHandler) getExecution(w stdhttp.ResponseWriter, r *stdhttp.Reque
 		writeWorkflowError(w, err)
 		return
 	}
-	writeSuccess(w, stdhttp.StatusOK, execution)
+	writeSuccess(w, stdhttp.StatusOK, redactWorkflowExecution(execution))
 }
 
 func (h workflowHandler) getExecutionDebugSnapshot(w stdhttp.ResponseWriter, r *stdhttp.Request, executionID string) {
@@ -1227,13 +1247,13 @@ func (h workflowHandler) checkResourceLimits(w stdhttp.ResponseWriter, r *stdhtt
 	})
 	if err != nil {
 		if errors.Is(err, workflow.ErrWorkflowResourceLimit) && execution != nil {
-			writeSuccess(w, stdhttp.StatusOK, execution)
+			writeSuccess(w, stdhttp.StatusOK, redactWorkflowExecution(execution))
 			return
 		}
 		writeWorkflowError(w, err)
 		return
 	}
-	writeSuccess(w, stdhttp.StatusOK, execution)
+	writeSuccess(w, stdhttp.StatusOK, redactWorkflowExecution(execution))
 }
 
 func (h workflowHandler) resolvePausedFailure(w stdhttp.ResponseWriter, r *stdhttp.Request, executionID string) {
@@ -1264,7 +1284,7 @@ func (h workflowHandler) resolvePausedFailure(w stdhttp.ResponseWriter, r *stdht
 		writeWorkflowError(w, err)
 		return
 	}
-	writeSuccess(w, stdhttp.StatusOK, execution)
+	writeSuccess(w, stdhttp.StatusOK, redactWorkflowExecution(execution))
 }
 
 func (h workflowHandler) pauseExecution(w stdhttp.ResponseWriter, r *stdhttp.Request, executionID string) {
@@ -1279,7 +1299,7 @@ func (h workflowHandler) pauseExecution(w stdhttp.ResponseWriter, r *stdhttp.Req
 		writeWorkflowError(w, err)
 		return
 	}
-	writeSuccess(w, stdhttp.StatusOK, execution)
+	writeSuccess(w, stdhttp.StatusOK, redactWorkflowExecution(execution))
 }
 
 func (h workflowHandler) resumeExecution(w stdhttp.ResponseWriter, r *stdhttp.Request, executionID string) {
@@ -1308,7 +1328,7 @@ func (h workflowHandler) resumeExecution(w stdhttp.ResponseWriter, r *stdhttp.Re
 		writeWorkflowError(w, err)
 		return
 	}
-	writeSuccess(w, stdhttp.StatusOK, execution)
+	writeSuccess(w, stdhttp.StatusOK, redactWorkflowExecution(execution))
 }
 
 func (h workflowHandler) cancelExecution(w stdhttp.ResponseWriter, r *stdhttp.Request, executionID string) {
@@ -1323,7 +1343,7 @@ func (h workflowHandler) cancelExecution(w stdhttp.ResponseWriter, r *stdhttp.Re
 		writeWorkflowError(w, err)
 		return
 	}
-	writeSuccess(w, stdhttp.StatusOK, execution)
+	writeSuccess(w, stdhttp.StatusOK, redactWorkflowExecution(execution))
 }
 
 func writeWorkflowError(w stdhttp.ResponseWriter, err error) {

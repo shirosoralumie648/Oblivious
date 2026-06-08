@@ -1415,6 +1415,191 @@ func TestWorkflowHandlerCheckResourceLimitsReturnsUpdatedExecutionWhenLimitIsRea
 	}
 }
 
+func TestWorkflowHandlerRedactsWorkflowSnapshotSecretsFromExecutionResponses(t *testing.T) {
+	secretSnapshot := map[string]any{
+		"webhook_secret": "top-level-secret",
+		"nodes": []any{map[string]any{
+			"id":   "notify",
+			"type": "webhook",
+			"config": map[string]any{
+				"secret": "nested-secret",
+			},
+		}},
+		"triggers": map[string]any{
+			"webhook": []any{map[string]any{"secret": "trigger-secret"}},
+		},
+	}
+	executionWithSecretSnapshot := func(status workflow.ExecutionStatus) *workflow.WorkflowExecution {
+		return &workflow.WorkflowExecution{
+			ID:               "wexec_1",
+			WorkflowID:       "workflow_1",
+			OrganizationID:   "org_1",
+			Status:           status,
+			Input:            map[string]any{"requestSecret": "payload-secret"},
+			WorkflowSnapshot: secretSnapshot,
+		}
+	}
+
+	tests := []struct {
+		name    string
+		service *workflowFakeService
+		call    func(handler workflowHandler, recorder *httptest.ResponseRecorder)
+		status  int
+	}{
+		{
+			name: "list executions",
+			service: &workflowFakeService{
+				executions: []*workflow.WorkflowExecution{executionWithSecretSnapshot(workflow.ExecutionStatusSucceeded)},
+			},
+			call: func(handler workflowHandler, recorder *httptest.ResponseRecorder) {
+				handler.listExecutions(recorder, workflowTestRequest(stdhttp.MethodGet, "/api/v1/workflows/workflow_1/executions", ""), "workflow_1")
+			},
+			status: stdhttp.StatusOK,
+		},
+		{
+			name: "get execution",
+			service: &workflowFakeService{
+				executionDetail: executionWithSecretSnapshot(workflow.ExecutionStatusSucceeded),
+			},
+			call: func(handler workflowHandler, recorder *httptest.ResponseRecorder) {
+				handler.getExecution(recorder, workflowTestRequest(stdhttp.MethodGet, "/api/v1/workflows/workflow_1/executions/wexec_1", ""), "wexec_1")
+			},
+			status: stdhttp.StatusOK,
+		},
+		{
+			name: "start execution",
+			service: &workflowFakeService{
+				started: executionWithSecretSnapshot(workflow.ExecutionStatusRunning),
+			},
+			call: func(handler workflowHandler, recorder *httptest.ResponseRecorder) {
+				handler.startExecution(recorder, workflowTestRequest(stdhttp.MethodPost, "/api/v1/workflows/workflow_1/execute", `{"input":{"requestSecret":"payload-secret"}}`), "workflow_1")
+			},
+			status: stdhttp.StatusCreated,
+		},
+		{
+			name: "auto start execution",
+			service: &workflowFakeService{
+				started:               executionWithSecretSnapshot(workflow.ExecutionStatusRunning),
+				runUntilBlockedResult: executionWithSecretSnapshot(workflow.ExecutionStatusSucceeded),
+			},
+			call: func(handler workflowHandler, recorder *httptest.ResponseRecorder) {
+				handler.startExecution(recorder, workflowTestRequest(stdhttp.MethodPost, "/api/v1/workflows/workflow_1/execute", `{"executionMode":"auto"}`), "workflow_1")
+			},
+			status: stdhttp.StatusCreated,
+		},
+		{
+			name: "unsigned webhook trigger",
+			service: &workflowFakeService{
+				started:               executionWithSecretSnapshot(workflow.ExecutionStatusRunning),
+				runUntilBlockedResult: executionWithSecretSnapshot(workflow.ExecutionStatusSucceeded),
+			},
+			call: func(handler workflowHandler, recorder *httptest.ResponseRecorder) {
+				handler.triggerWebhook(recorder, workflowTestRequest(stdhttp.MethodPost, "/api/v1/workflows/workflow_1/webhook", `{"event":"issue.created"}`), "workflow_1")
+			},
+			status: stdhttp.StatusCreated,
+		},
+		{
+			name: "signed webhook trigger",
+			service: &workflowFakeService{
+				workflowDetail: &workflow.WorkflowDefinition{
+					ID:             "workflow_1",
+					OrganizationID: "org_1",
+					Definition:     secretSnapshot,
+				},
+				started:               executionWithSecretSnapshot(workflow.ExecutionStatusRunning),
+				runUntilBlockedResult: executionWithSecretSnapshot(workflow.ExecutionStatusSucceeded),
+			},
+			call: func(handler workflowHandler, recorder *httptest.ResponseRecorder) {
+				body := `{"event":"signed.issue"}`
+				timestamp := workflowWebhookTimestamp(time.Now())
+				request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/workflows/webhooks/org_1/workflow_1", strings.NewReader(body))
+				request.Header.Set("X-Oblivious-Timestamp", timestamp)
+				request.Header.Set("X-Oblivious-Signature", workflowWebhookSignature("top-level-secret", timestamp, body))
+				handler.triggerSignedWebhook(recorder, request, "org_1", "workflow_1")
+			},
+			status: stdhttp.StatusCreated,
+		},
+		{
+			name: "resource check",
+			service: &workflowFakeService{
+				executionDetail:  executionWithSecretSnapshot(workflow.ExecutionStatusMaxIterations),
+				resourceCheckErr: workflow.ErrWorkflowResourceLimit,
+			},
+			call: func(handler workflowHandler, recorder *httptest.ResponseRecorder) {
+				handler.checkResourceLimits(recorder, workflowTestRequest(stdhttp.MethodPost, "/api/v1/workflows/workflow_1/executions/wexec_1/resource-check", `{"nodeExecutionCount":1001}`), "workflow_1", "wexec_1")
+			},
+			status: stdhttp.StatusOK,
+		},
+		{
+			name: "failure decision",
+			service: &workflowFakeService{
+				executionDetail:       executionWithSecretSnapshot(workflow.ExecutionStatusRunning),
+				runUntilBlockedResult: executionWithSecretSnapshot(workflow.ExecutionStatusSucceeded),
+			},
+			call: func(handler workflowHandler, recorder *httptest.ResponseRecorder) {
+				handler.resolvePausedFailure(recorder, workflowTestRequest(stdhttp.MethodPost, "/api/v1/workflows/workflow_1/executions/wexec_1/decision", `{"action":"retry","nodeId":"notify"}`), "wexec_1")
+			},
+			status: stdhttp.StatusOK,
+		},
+		{
+			name: "pause execution",
+			service: &workflowFakeService{
+				executionDetail: executionWithSecretSnapshot(workflow.ExecutionStatusPaused),
+			},
+			call: func(handler workflowHandler, recorder *httptest.ResponseRecorder) {
+				handler.pauseExecution(recorder, workflowTestRequest(stdhttp.MethodPost, "/api/v1/workflows/workflow_1/executions/wexec_1/pause", ""), "wexec_1")
+			},
+			status: stdhttp.StatusOK,
+		},
+		{
+			name: "resume execution",
+			service: &workflowFakeService{
+				executionDetail:       executionWithSecretSnapshot(workflow.ExecutionStatusRunning),
+				runUntilBlockedResult: executionWithSecretSnapshot(workflow.ExecutionStatusSucceeded),
+			},
+			call: func(handler workflowHandler, recorder *httptest.ResponseRecorder) {
+				handler.resumeExecution(recorder, workflowTestRequest(stdhttp.MethodPost, "/api/v1/workflows/workflow_1/executions/wexec_1/resume", ""), "wexec_1")
+			},
+			status: stdhttp.StatusOK,
+		},
+		{
+			name: "cancel execution",
+			service: &workflowFakeService{
+				executionDetail: executionWithSecretSnapshot(workflow.ExecutionStatusCancelled),
+			},
+			call: func(handler workflowHandler, recorder *httptest.ResponseRecorder) {
+				handler.cancelExecution(recorder, workflowTestRequest(stdhttp.MethodPost, "/api/v1/workflows/workflow_1/executions/wexec_1/cancel", ""), "wexec_1")
+			},
+			status: stdhttp.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler := newWorkflowHandler(tt.service)
+			recorder := httptest.NewRecorder()
+
+			tt.call(handler, recorder)
+
+			if recorder.Code != tt.status {
+				t.Fatalf("expected %d, got %d with body %s", tt.status, recorder.Code, recorder.Body.String())
+			}
+			body := recorder.Body.String()
+			for _, leaked := range []string{"top-level-secret", "nested-secret", "trigger-secret"} {
+				if strings.Contains(body, leaked) {
+					t.Fatalf("execution response leaked workflow snapshot secret %q: %s", leaked, body)
+				}
+			}
+			if strings.Contains(body, "payload-secret") == false {
+				t.Fatalf("expected runtime input payload to remain visible while definition snapshot is redacted, got %s", body)
+			}
+			if strings.Count(body, workflowRedactedSecret) == 0 {
+				t.Fatalf("expected workflow snapshot secrets to be redacted, got %s", body)
+			}
+		})
+	}
+}
+
 func TestWorkflowHandlerResolvePausedFailureDecisionRetriesNode(t *testing.T) {
 	service := &workflowFakeService{
 		executionDetail: &workflow.WorkflowExecution{
