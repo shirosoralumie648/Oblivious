@@ -31,13 +31,20 @@ func normalizeCostMultiplier(multiplier float64) float64 {
 	return multiplier
 }
 
+func normalizeChannelWeight(weight int) int {
+	if weight <= 0 {
+		return 100
+	}
+	return weight
+}
+
 // ListChannels 列出所有渠道
 func (s *RelayStore) ListChannels() ([]*types.Channel, error) {
 	rows, err := s.db.Query(`
 		SELECT id, name, provider, base_url, api_key_encrypted, models, groups,
 		       rpm_limit, tpm_limit, cb_threshold, cb_timeout,
 		       health_check_strategy, probe_model, probe_prompt,
-		       strategy, priority, estimated_cost_per_1k, cost_multiplier, enabled
+		       strategy, priority, weight, estimated_cost_per_1k, cost_multiplier, enabled
 		FROM channels
 		WHERE enabled = true
 		ORDER BY priority DESC, name
@@ -59,7 +66,7 @@ func (s *RelayStore) ListChannels() ([]*types.Channel, error) {
 			pq.Array(&models), pq.Array(&groups),
 			&ch.RPMLimit, &ch.TPMLimit, &ch.CBThreshold, &ch.CBTimeout,
 			&healthCheckStrategy, &probeModel, &probePrompt,
-			&ch.Strategy, &ch.Priority, &ch.EstimatedCostPer1K, &ch.CostMultiplier, &ch.Enabled,
+			&ch.Strategy, &ch.Priority, &ch.Weight, &ch.EstimatedCostPer1K, &ch.CostMultiplier, &ch.Enabled,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan channel: %w", err)
@@ -88,7 +95,7 @@ func (s *RelayStore) GetChannel(id string) (*types.Channel, error) {
 		SELECT id, name, provider, base_url, api_key_encrypted, models, groups,
 		       rpm_limit, tpm_limit, cb_threshold, cb_timeout,
 		       health_check_strategy, probe_model, probe_prompt,
-		       strategy, priority, estimated_cost_per_1k, cost_multiplier, enabled
+		       strategy, priority, weight, estimated_cost_per_1k, cost_multiplier, enabled
 		FROM channels
 		WHERE id = $1
 	`, id).Scan(
@@ -96,7 +103,7 @@ func (s *RelayStore) GetChannel(id string) (*types.Channel, error) {
 		pq.Array(&models), pq.Array(&groups),
 		&ch.RPMLimit, &ch.TPMLimit, &ch.CBThreshold, &ch.CBTimeout,
 		&healthCheckStrategy, &probeModel, &probePrompt,
-		&ch.Strategy, &ch.Priority, &ch.EstimatedCostPer1K, &ch.CostMultiplier, &ch.Enabled,
+		&ch.Strategy, &ch.Priority, &ch.Weight, &ch.EstimatedCostPer1K, &ch.CostMultiplier, &ch.Enabled,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -121,12 +128,12 @@ func (s *RelayStore) CreateChannel(ch *types.Channel) error {
 		INSERT INTO channels (id, name, provider, base_url, api_key_encrypted, models, groups,
 		                      rpm_limit, tpm_limit, cb_threshold, cb_timeout,
 		                      health_check_strategy, probe_model, probe_prompt,
-		                      strategy, priority, estimated_cost_per_1k, cost_multiplier, enabled, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+		                      strategy, priority, weight, estimated_cost_per_1k, cost_multiplier, enabled, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
 	`, ch.ID, ch.Name, ch.Provider, ch.BaseURL, ch.APIKey, pq.Array(ch.Models), pq.Array(ch.Groups),
 		ch.RPMLimit, ch.TPMLimit, ch.CBThreshold, ch.CBTimeout,
 		ch.HealthCheckStrategy, ch.ProbeModel, ch.ProbePrompt,
-		ch.Strategy, ch.Priority, ch.EstimatedCostPer1K, normalizeCostMultiplier(ch.CostMultiplier), ch.Enabled, now, now)
+		ch.Strategy, ch.Priority, normalizeChannelWeight(ch.Weight), ch.EstimatedCostPer1K, normalizeCostMultiplier(ch.CostMultiplier), ch.Enabled, now, now)
 	if err != nil {
 		return fmt.Errorf("create channel: %w", err)
 	}
@@ -137,16 +144,16 @@ func (s *RelayStore) CreateChannel(ch *types.Channel) error {
 func (s *RelayStore) UpdateChannel(ch *types.Channel) error {
 	now := time.Now()
 	_, err := s.db.Exec(`
-			UPDATE channels SET
-				name = $2, provider = $3, base_url = $4, api_key_encrypted = $5, models = $6, groups = $7,
-				rpm_limit = $8, tpm_limit = $9, cb_threshold = $10, cb_timeout = $11,
-				health_check_strategy = $12, probe_model = $13, probe_prompt = $14,
-				strategy = $15, priority = $16, estimated_cost_per_1k = $17, cost_multiplier = $18, enabled = $19, updated_at = $20
-			WHERE id = $1
-		`, ch.ID, ch.Name, ch.Provider, ch.BaseURL, ch.APIKey, pq.Array(ch.Models), pq.Array(ch.Groups),
+		UPDATE channels SET
+			name = $2, provider = $3, base_url = $4, api_key_encrypted = $5, models = $6, groups = $7,
+			rpm_limit = $8, tpm_limit = $9, cb_threshold = $10, cb_timeout = $11,
+			health_check_strategy = $12, probe_model = $13, probe_prompt = $14,
+			strategy = $15, priority = $16, weight = $17, estimated_cost_per_1k = $18, cost_multiplier = $19, enabled = $20, updated_at = $21
+		WHERE id = $1
+	`, ch.ID, ch.Name, ch.Provider, ch.BaseURL, ch.APIKey, pq.Array(ch.Models), pq.Array(ch.Groups),
 		ch.RPMLimit, ch.TPMLimit, ch.CBThreshold, ch.CBTimeout,
 		ch.HealthCheckStrategy, ch.ProbeModel, ch.ProbePrompt,
-		ch.Strategy, ch.Priority, ch.EstimatedCostPer1K, normalizeCostMultiplier(ch.CostMultiplier), ch.Enabled, now)
+		ch.Strategy, ch.Priority, normalizeChannelWeight(ch.Weight), ch.EstimatedCostPer1K, normalizeCostMultiplier(ch.CostMultiplier), ch.Enabled, now)
 	if err != nil {
 		return fmt.Errorf("update channel: %w", err)
 	}
@@ -416,7 +423,7 @@ func (s *RelayStore) poolConfigFromStore() ([]*types.Channel, []*types.ModelRout
 						defaultRoute.Channels = append(defaultRoute.Channels, types.RouteChannel{
 							Channel:            ch,
 							ChannelID:          ch.ID,
-							Weight:             100,
+							Weight:             normalizeChannelWeight(ch.Weight),
 							Priority:           ch.Priority,
 							Enabled:            ch.Enabled,
 							Healthy:            ch.Enabled,

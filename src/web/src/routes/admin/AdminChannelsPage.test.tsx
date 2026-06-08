@@ -396,7 +396,7 @@ describe('AdminChannelsPage', () => {
     })));
   });
 
-  it('submits rate limits when creating a channel', async () => {
+  it('submits rate limits and routing weight when creating a channel', async () => {
     listChannels.mockResolvedValue({ data: [], total: 0 });
     createChannel.mockResolvedValue({ id: 'ch_limits' });
 
@@ -408,12 +408,14 @@ describe('AdminChannelsPage', () => {
     fireEvent.change(screen.getByLabelText('Base URL'), { target: { value: 'https://api.openai.com/v1' } });
     fireEvent.change(screen.getByLabelText('RPM Limit'), { target: { value: '120' } });
     fireEvent.change(screen.getByLabelText('TPM Limit'), { target: { value: '240000' } });
+    fireEvent.change(screen.getByLabelText('Weight'), { target: { value: '35' } });
     fireEvent.click(screen.getByRole('button', { name: 'Create Channel' }));
 
     await waitFor(() => expect(createChannel).toHaveBeenCalledWith(expect.objectContaining({
       name: 'Limited OpenAI',
       rpmLimit: 120,
       tpmLimit: 240000,
+      weight: 35,
     })));
   });
 

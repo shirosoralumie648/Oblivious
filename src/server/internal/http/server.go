@@ -381,6 +381,7 @@ func ensureDefaultChannel(store *relay.RelayStore, pool *relay.ChannelPool, cfg 
 			Enabled:  true,
 			Strategy: "weighted",
 			Priority: 0,
+			Weight:   100,
 		}
 
 		if err := store.CreateChannel(defaultChannel); err != nil {

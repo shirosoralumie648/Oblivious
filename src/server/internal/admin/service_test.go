@@ -347,6 +347,30 @@ func TestRelayConfigApplierRunsAfterChannelAndRouteMutations(t *testing.T) {
 	}
 }
 
+func TestServicePassesChannelWeightThroughCreateAndUpdate(t *testing.T) {
+	store := &relayConfigApplyStore{}
+	service := NewService(store)
+	actor := auth.Session{User: auth.User{ID: "user_admin", Email: "admin@example.com"}}
+	request := httptest.NewRequest("POST", "/api/v1/admin", nil)
+
+	created, err := service.CreateChannel(context.Background(), actor, ChannelCreateRequest{Name: "Weighted OpenAI", Provider: "openai", Weight: 25}, request)
+	if err != nil {
+		t.Fatalf("CreateChannel failed: %v", err)
+	}
+	if store.createdWeight != 25 || created.Weight != 25 {
+		t.Fatalf("expected create weight 25, store=%d result=%d", store.createdWeight, created.Weight)
+	}
+
+	updatedWeight := 40
+	updated, err := service.UpdateChannel(context.Background(), actor, "ch_1", ChannelUpdateRequest{Weight: &updatedWeight}, request)
+	if err != nil {
+		t.Fatalf("UpdateChannel failed: %v", err)
+	}
+	if store.updatedWeight == nil || *store.updatedWeight != 40 || updated.Weight != 40 {
+		t.Fatalf("expected update weight 40, store=%v result=%d", store.updatedWeight, updated.Weight)
+	}
+}
+
 type syncChannelModelsStore struct {
 	Store
 	testResult    *ChannelTestResult
@@ -392,14 +416,22 @@ func (s *syncChannelModelsStore) CreateAuditEntry(ctx context.Context, entry *Au
 
 type relayConfigApplyStore struct {
 	Store
+	createdWeight int
+	updatedWeight *int
 }
 
 func (s *relayConfigApplyStore) CreateChannel(ctx context.Context, input ChannelCreateRequest) (*ChannelInfo, error) {
-	return &ChannelInfo{ID: "ch_1", Name: input.Name, Provider: input.Provider}, nil
+	s.createdWeight = input.Weight
+	return &ChannelInfo{ID: "ch_1", Name: input.Name, Provider: input.Provider, Weight: input.Weight}, nil
 }
 
 func (s *relayConfigApplyStore) UpdateChannel(ctx context.Context, id string, input ChannelUpdateRequest) (*ChannelInfo, error) {
-	return &ChannelInfo{ID: id, Name: "OpenAI", Provider: "openai"}, nil
+	s.updatedWeight = input.Weight
+	weight := 0
+	if input.Weight != nil {
+		weight = *input.Weight
+	}
+	return &ChannelInfo{ID: id, Name: "OpenAI", Provider: "openai", Weight: weight}, nil
 }
 
 func (s *relayConfigApplyStore) DeleteChannel(ctx context.Context, id string) error {

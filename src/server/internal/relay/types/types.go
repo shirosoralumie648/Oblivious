@@ -271,6 +271,7 @@ type Channel struct {
 	ProbePrompt         string   `json:"probe_prompt"`
 	Strategy            string   `json:"strategy"`
 	Priority            int      `json:"priority"`
+	Weight              int      `json:"weight"`
 	EstimatedCostPer1K  float64  `json:"estimated_cost_per_1k"`
 	CostMultiplier      float64  `json:"cost_multiplier"`
 	Enabled             bool     `json:"enabled"`

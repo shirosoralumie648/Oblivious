@@ -13,6 +13,7 @@ type ChannelInfo struct {
 	RPM                int       `json:"rpm"`
 	TPM                int       `json:"tpm"`
 	Priority           int       `json:"priority"`
+	Weight             int       `json:"weight"`
 	EstimatedCostPer1K float64   `json:"estimatedCostPer1K"`
 	CostMultiplier     float64   `json:"costMultiplier"`
 	Enabled            bool      `json:"enabled"`
@@ -84,6 +85,7 @@ type ChannelCreateRequest struct {
 	RpmLimit           int      `json:"rpmLimit"`
 	TpmLimit           int      `json:"tpmLimit"`
 	Priority           int      `json:"priority"`
+	Weight             int      `json:"weight"`
 	EstimatedCostPer1K float64  `json:"estimatedCostPer1K"`
 	CostMultiplier     float64  `json:"costMultiplier"`
 }
@@ -98,6 +100,7 @@ type ChannelUpdateRequest struct {
 	RpmLimit           *int      `json:"rpmLimit,omitempty"`
 	TpmLimit           *int      `json:"tpmLimit,omitempty"`
 	Priority           *int      `json:"priority,omitempty"`
+	Weight             *int      `json:"weight,omitempty"`
 	EstimatedCostPer1K *float64  `json:"estimatedCostPer1K,omitempty"`
 	CostMultiplier     *float64  `json:"costMultiplier,omitempty"`
 	Enabled            *bool     `json:"enabled,omitempty"`

@@ -136,10 +136,14 @@ func (lb *LoadBalancer) filterHealthy(apiType, model string) []*types.RouteChann
 		for _, ch := range channels {
 			if ch.Enabled {
 				routeChannels = append(routeChannels, &types.RouteChannel{
-					Channel:   ch,
-					ChannelID: ch.ID,
-					Weight:    1,
-					Enabled:   ch.Enabled,
+					Channel:            ch,
+					ChannelID:          ch.ID,
+					Weight:             defaultRouteChannelWeight(ch),
+					Priority:           ch.Priority,
+					Enabled:            ch.Enabled,
+					Healthy:            ch.Enabled,
+					EstimatedCostPer1K: ch.EstimatedCostPer1K,
+					CostMultiplier:     ch.CostMultiplier,
 				})
 			}
 		}
@@ -184,6 +188,13 @@ func (lb *LoadBalancer) modelRouteChannels(model string) []*types.RouteChannel {
 		result = append(result, ch)
 	}
 	return result
+}
+
+func defaultRouteChannelWeight(ch *types.Channel) int {
+	if ch == nil || ch.Weight <= 0 {
+		return 100
+	}
+	return ch.Weight
 }
 
 func adjustedCandidateWeights(candidates []*types.RouteChannel, adjuster func(*types.RouteChannel) int) []*types.RouteChannel {

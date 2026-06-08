@@ -31,6 +31,27 @@ func TestLoadBalancer_Weighted(t *testing.T) {
 	}
 }
 
+func TestLoadBalancerFallbackUsesChannelDefaultWeight(t *testing.T) {
+	pool := NewChannelPool()
+	pool.UpdateChannel(&types.Channel{ID: "primary", BaseURL: "http://primary", Enabled: true, Weight: 3})
+	pool.UpdateChannel(&types.Channel{ID: "backup", BaseURL: "http://backup", Enabled: true, Weight: 1})
+
+	lb := NewLoadBalancer(pool, "weighted")
+
+	candidates := lb.filterHealthy("chat", "unconfigured-model")
+	weights := map[string]int{}
+	for _, ch := range candidates {
+		weights[ch.Channel.ID] = ch.Weight
+		if !ch.Healthy {
+			t.Fatalf("fallback candidate %s should inherit enabled health", ch.Channel.ID)
+		}
+	}
+
+	if weights["primary"] != 3 || weights["backup"] != 1 {
+		t.Fatalf("fallback should use channel default weights 3:1, got weights=%v", weights)
+	}
+}
+
 func TestLoadBalancer_Priority(t *testing.T) {
 	pool := NewChannelPool()
 	pool.AddChannel(&types.Channel{ID: "a", BaseURL: "http://a", Enabled: true, Priority: 1}, 1)
