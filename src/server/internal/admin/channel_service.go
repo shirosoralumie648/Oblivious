@@ -52,7 +52,7 @@ func (s *Service) CreateChannel(ctx context.Context, actor auth.Session, input C
 		return nil, err
 	}
 
-	changes, _ := json.Marshal(input)
+	changes, _ := json.Marshal(redactedChannelCreateAuditChanges(input))
 	ip := extractIP(r)
 	_ = s.LogAction(ctx, actor.User.ID, actor.User.Email, "channel.create", "channel", result.ID, string(changes), ip)
 
@@ -102,7 +102,7 @@ func (s *Service) UpdateChannel(ctx context.Context, actor auth.Session, id stri
 		return nil, err
 	}
 
-	changes, _ := json.Marshal(input)
+	changes, _ := json.Marshal(redactedChannelUpdateAuditChanges(input))
 	ip := extractIP(r)
 	_ = s.LogAction(ctx, actor.User.ID, actor.User.Email, "channel.update", "channel", id, string(changes), ip)
 
@@ -121,6 +121,26 @@ func (s *Service) DeleteChannel(ctx context.Context, actor auth.Session, id stri
 	ip := extractIP(r)
 	_ = s.LogAction(ctx, actor.User.ID, actor.User.Email, "channel.delete", "channel", id, "", ip)
 	return nil
+}
+
+func redactedChannelCreateAuditChanges(input ChannelCreateRequest) ChannelCreateRequest {
+	input.APIKey = redactChannelAuditSecret(input.APIKey)
+	return input
+}
+
+func redactedChannelUpdateAuditChanges(input ChannelUpdateRequest) ChannelUpdateRequest {
+	if input.APIKey != nil {
+		redacted := redactChannelAuditSecret(*input.APIKey)
+		input.APIKey = &redacted
+	}
+	return input
+}
+
+func redactChannelAuditSecret(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return value
+	}
+	return "********"
 }
 
 // TestChannel performs a connectivity test on the channel.

@@ -347,6 +347,48 @@ func TestRelayConfigApplierRunsAfterChannelAndRouteMutations(t *testing.T) {
 	}
 }
 
+func TestServiceRedactsChannelAPIKeyFromAuditChanges(t *testing.T) {
+	store := &relayConfigApplyStore{}
+	service := NewService(store)
+	actor := auth.Session{User: auth.User{ID: "user_admin", Email: "admin@example.com"}}
+	request := httptest.NewRequest("POST", "/api/v1/admin/channels", nil)
+
+	_, err := service.CreateChannel(context.Background(), actor, ChannelCreateRequest{
+		Name:     "Secret OpenAI",
+		Provider: "openai",
+		APIKey:   "sk-create-secret",
+	}, request)
+	if err != nil {
+		t.Fatalf("CreateChannel failed: %v", err)
+	}
+	if store.createdAPIKey != "sk-create-secret" {
+		t.Fatalf("expected store to receive raw create API key, got %q", store.createdAPIKey)
+	}
+	if len(store.auditEntries) != 1 || store.auditEntries[0].Action != "channel.create" {
+		t.Fatalf("expected channel.create audit entry, got %#v", store.auditEntries)
+	}
+	if strings.Contains(store.auditEntries[0].Changes, "sk-create-secret") || !strings.Contains(store.auditEntries[0].Changes, `"apiKey":"********"`) {
+		t.Fatalf("expected create audit changes to redact apiKey, got %s", store.auditEntries[0].Changes)
+	}
+
+	updateKey := "sk-update-secret"
+	_, err = service.UpdateChannel(context.Background(), actor, "ch_1", ChannelUpdateRequest{
+		APIKey: &updateKey,
+	}, request)
+	if err != nil {
+		t.Fatalf("UpdateChannel failed: %v", err)
+	}
+	if store.updatedAPIKey == nil || *store.updatedAPIKey != "sk-update-secret" {
+		t.Fatalf("expected store to receive raw update API key, got %#v", store.updatedAPIKey)
+	}
+	if len(store.auditEntries) != 2 || store.auditEntries[1].Action != "channel.update" {
+		t.Fatalf("expected channel.update audit entry, got %#v", store.auditEntries)
+	}
+	if strings.Contains(store.auditEntries[1].Changes, "sk-update-secret") || !strings.Contains(store.auditEntries[1].Changes, `"apiKey":"********"`) {
+		t.Fatalf("expected update audit changes to redact apiKey, got %s", store.auditEntries[1].Changes)
+	}
+}
+
 func TestServicePassesChannelWeightThroughCreateAndUpdate(t *testing.T) {
 	store := &relayConfigApplyStore{}
 	service := NewService(store)
@@ -418,15 +460,20 @@ type relayConfigApplyStore struct {
 	Store
 	createdWeight int
 	updatedWeight *int
+	createdAPIKey string
+	updatedAPIKey *string
+	auditEntries  []*AuditEntry
 }
 
 func (s *relayConfigApplyStore) CreateChannel(ctx context.Context, input ChannelCreateRequest) (*ChannelInfo, error) {
 	s.createdWeight = input.Weight
+	s.createdAPIKey = input.APIKey
 	return &ChannelInfo{ID: "ch_1", Name: input.Name, Provider: input.Provider, Weight: input.Weight}, nil
 }
 
 func (s *relayConfigApplyStore) UpdateChannel(ctx context.Context, id string, input ChannelUpdateRequest) (*ChannelInfo, error) {
 	s.updatedWeight = input.Weight
+	s.updatedAPIKey = input.APIKey
 	weight := 0
 	if input.Weight != nil {
 		weight = *input.Weight
@@ -451,6 +498,7 @@ func (s *relayConfigApplyStore) DeleteRoute(ctx context.Context, id string) erro
 }
 
 func (s *relayConfigApplyStore) CreateAuditEntry(ctx context.Context, entry *AuditEntry) error {
+	s.auditEntries = append(s.auditEntries, entry)
 	return nil
 }
 

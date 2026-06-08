@@ -626,6 +626,65 @@ func TestAdminHandlerCoversReleaseListSurfaces(t *testing.T) {
 	}
 }
 
+func TestAdminHandlerRedactsChannelAPIKeysFromAuditLogResponses(t *testing.T) {
+	store := &fakeAdminStore{}
+	handler := newAdminHandler(admin.NewService(store))
+	session := testAdminSession()
+	ctx := context.WithValue(context.Background(), sessionContextKey, session)
+
+	createRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/admin/channels", strings.NewReader(`{
+		"name": "Secret OpenAI",
+		"provider": "openai",
+		"apiKey": "sk-create-secret"
+	}`)).WithContext(ctx)
+	createRecorder := httptest.NewRecorder()
+	handler.createChannel(createRecorder, createRequest)
+	if createRecorder.Code != stdhttp.StatusCreated {
+		t.Fatalf("create channel expected 201, got %d: %s", createRecorder.Code, createRecorder.Body.String())
+	}
+	if store.createdChannelAPIKey != "sk-create-secret" {
+		t.Fatalf("expected create store to receive raw API key, got %q", store.createdChannelAPIKey)
+	}
+
+	updateRequest := httptest.NewRequest(stdhttp.MethodPut, "/api/v1/admin/channels/ch_1", strings.NewReader(`{"apiKey":"sk-update-secret"}`)).WithContext(ctx)
+	updateRecorder := httptest.NewRecorder()
+	handler.updateChannel(updateRecorder, updateRequest, "ch_1")
+	if updateRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("update channel expected 200, got %d: %s", updateRecorder.Code, updateRecorder.Body.String())
+	}
+	if store.updatedChannelAPIKey == nil || *store.updatedChannelAPIKey != "sk-update-secret" {
+		t.Fatalf("expected update store to receive raw API key, got %#v", store.updatedChannelAPIKey)
+	}
+
+	auditRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/admin/audit-logs?resourceType=channel&resourceID=ch_1", nil)
+	auditRecorder := httptest.NewRecorder()
+	handler.listAuditLogs(auditRecorder, auditRequest)
+	if auditRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("audit list expected 200, got %d: %s", auditRecorder.Code, auditRecorder.Body.String())
+	}
+	body := auditRecorder.Body.String()
+	if strings.Contains(body, "sk-create-secret") || strings.Contains(body, "sk-update-secret") {
+		t.Fatalf("audit response leaked channel API key: %s", body)
+	}
+	var auditResponse struct {
+		Data struct {
+			Entries []admin.AuditEntry `json:"entries"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(auditRecorder.Body.Bytes(), &auditResponse); err != nil {
+		t.Fatalf("decode audit list: %v", err)
+	}
+	redactedEntries := 0
+	for _, entry := range auditResponse.Data.Entries {
+		if strings.Contains(entry.Changes, `"apiKey":"********"`) {
+			redactedEntries++
+		}
+	}
+	if redactedEntries != 2 {
+		t.Fatalf("expected both channel audit entries to redact apiKey, got %+v", auditResponse.Data.Entries)
+	}
+}
+
 func TestAdminHandlerCreatesPlanWithRequestTokenCap(t *testing.T) {
 	store := &fakeAdminStore{}
 	handler := newAdminHandler(admin.NewService(store))
@@ -1305,6 +1364,9 @@ type fakeAdminStore struct {
 	createdPlan           admin.PlanCreateRequest
 	recordedTopupRefundID string
 	recordedTopupRefund   admin.TopupRefundRequest
+	createdChannelAPIKey  string
+	updatedChannelAPIKey  *string
+	auditEntries          []*admin.AuditEntry
 }
 
 func (s *fakeAdminStore) GetSystemStats(ctx context.Context) (*admin.SystemStats, error) {
@@ -1402,6 +1464,7 @@ func (s *fakeAdminStore) GetChannel(ctx context.Context, id string) (*admin.Chan
 }
 
 func (s *fakeAdminStore) CreateChannel(ctx context.Context, input admin.ChannelCreateRequest) (*admin.ChannelInfo, error) {
+	s.createdChannelAPIKey = input.APIKey
 	return &admin.ChannelInfo{ID: "ch_1", Name: input.Name, Provider: input.Provider}, nil
 }
 
@@ -1409,6 +1472,7 @@ func (s *fakeAdminStore) UpdateChannel(ctx context.Context, id string, input adm
 	if input.Models != nil {
 		s.updatedChannelModels = append([]string{}, (*input.Models)...)
 	}
+	s.updatedChannelAPIKey = input.APIKey
 	return &admin.ChannelInfo{ID: id, Name: "OpenAI", Provider: "openai", Models: append([]string{}, s.updatedChannelModels...)}, nil
 }
 
@@ -1521,10 +1585,27 @@ func (s *fakeAdminStore) CountUsers(ctx context.Context, filter admin.UserListFi
 }
 
 func (s *fakeAdminStore) CreateAuditEntry(ctx context.Context, entry *admin.AuditEntry) error {
+	s.auditEntries = append(s.auditEntries, entry)
 	return nil
 }
 
 func (s *fakeAdminStore) ListAuditEntries(ctx context.Context, filter admin.AuditFilter) ([]*admin.AuditEntry, int, error) {
+	if s.auditEntries != nil {
+		var entries []*admin.AuditEntry
+		for _, entry := range s.auditEntries {
+			if filter.Action != "" && entry.Action != filter.Action {
+				continue
+			}
+			if filter.ResourceType != "" && entry.ResourceType != filter.ResourceType {
+				continue
+			}
+			if filter.ResourceID != "" && entry.ResourceID != filter.ResourceID {
+				continue
+			}
+			entries = append(entries, entry)
+		}
+		return entries, len(entries), nil
+	}
 	return []*admin.AuditEntry{{ID: "aud_1", Action: "channel.create"}}, 1, nil
 }
 
