@@ -2063,6 +2063,70 @@ components:
             id:
               type: string
 
+    Notification:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        type:
+          type: string
+          enum: [debug, info, warning, critical, error, success]
+        category:
+          type: string
+        title:
+          type: string
+        message:
+          type: string
+        isRead:
+          type: boolean
+        actionUrl:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+        readAt:
+          type: string
+          format: date-time
+
+    CreateNotificationRequest:
+      type: object
+      required: [title, message]
+      properties:
+        type:
+          type: string
+          enum: [debug, info, warning, critical, error, success]
+          default: info
+        category:
+          type: string
+          default: system
+        title:
+          type: string
+        message:
+          type: string
+        actionUrl:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+
+    NotificationUnreadCount:
+      type: object
+      properties:
+        count:
+          type: integer
+
+    NotificationActionStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok, deleted]
+
     QuotaSnapshot:
       type: object
       properties:
@@ -3665,6 +3729,178 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Envelope"
+
+  # ---- Workspace notifications ----
+  /api/v1/app/notifications:
+    get:
+      summary: 获取当前用户通知列表
+      operationId: listNotifications
+      tags: [Notification]
+      parameters:
+        - name: unread
+          in: query
+          schema:
+            type: boolean
+          description: When true, only unread notifications are returned.
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: 当前用户通知列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Notification"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      summary: 创建当前用户通知
+      operationId: createNotification
+      tags: [Notification]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateNotificationRequest"
+      responses:
+        "201":
+          description: 新创建的通知
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Notification"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/app/notifications/unread-count:
+    get:
+      summary: 获取当前用户未读通知数
+      operationId: getNotificationUnreadCount
+      tags: [Notification]
+      responses:
+        "200":
+          description: 未读通知数
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/NotificationUnreadCount"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/app/notifications/mark-all-read:
+    post:
+      summary: 标记当前用户所有通知为已读
+      operationId: markAllNotificationsRead
+      tags: [Notification]
+      responses:
+        "200":
+          description: 所有通知已标记为已读
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/NotificationActionStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/app/notifications/{notificationId}:
+    patch:
+      summary: 标记单条通知为已读
+      operationId: markNotificationRead
+      tags: [Notification]
+      parameters:
+        - name: notificationId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 通知已标记为已读
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/NotificationActionStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 通知不属于当前用户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      summary: 删除单条通知
+      operationId: deleteNotification
+      tags: [Notification]
+      parameters:
+        - name: notificationId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 通知已删除
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/NotificationActionStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 通知不属于当前用户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   # ---- 任务 (Task) ----
   /api/v1/app/tasks:
