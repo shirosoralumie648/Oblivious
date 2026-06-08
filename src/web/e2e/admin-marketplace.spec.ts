@@ -61,7 +61,7 @@ test('marketplace publish and my agents workflow works', async ({ page }) => {
 
   await page.goto('/marketplace/my-agents');
   await expect(page.getByRole('heading', { name: 'My Agents' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Published Agents' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Published Agents', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Installed Agents' })).toBeVisible();
   await expect(page.getByText('Release Notes Drafter').first()).toBeVisible();
   await expect(page.getByText('Release Helper').first()).toBeVisible();

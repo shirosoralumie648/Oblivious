@@ -25,6 +25,10 @@ func chatTestDatabase(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatalf("open database: %v", err)
 	}
+	// Pin to a single connection so the advisory lock is held for the
+	// lifetime of the test and cannot be bypassed by the connection pool.
+	database.SetMaxOpenConns(1)
+	database.SetMaxIdleConns(1)
 	if err := database.Ping(); err != nil {
 		t.Fatalf("ping database: %v", err)
 	}
@@ -45,6 +49,7 @@ func chatTestDatabase(t *testing.T) *sql.DB {
 		`DROP TABLE IF EXISTS conversation_knowledge_bindings CASCADE`,
 		`DROP TABLE IF EXISTS knowledge_bases CASCADE`,
 		`DROP TABLE IF EXISTS conversation_configs CASCADE`,
+		`DROP TABLE IF EXISTS personas CASCADE`,
 		`DROP TABLE IF EXISTS conversation_shares CASCADE`,
 		`DROP TABLE IF EXISTS message_shares CASCADE`,
 		`DROP TABLE IF EXISTS messages CASCADE`,

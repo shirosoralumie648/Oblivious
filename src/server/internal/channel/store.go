@@ -121,7 +121,7 @@ const archiveExpiredMessageLogsSQL = `
 	DELETE FROM channel_messages message
 	USING expired
 	WHERE message.id = expired.id
-	RETURNING id
+	RETURNING message.id
 `
 
 const listExpiredMessageLogsForArchiveSQL = `
@@ -302,6 +302,7 @@ func (s *SQLStore) RecordMessageLog(ctx context.Context, log *ChannelMessageLog)
 	if err != nil {
 		return nil, fmt.Errorf("marshal transformed channel message: %w", err)
 	}
+	rawMessage := nonNullableJSON(log.RawMessage)
 
 	var conversationID sql.NullString
 	if log.ConversationID != "" {
@@ -326,7 +327,7 @@ func (s *SQLStore) RecordMessageLog(ctx context.Context, log *ChannelMessageLog)
 			transform_success, transform_error, status, retry_count, failure_reason, next_retry_at, created_at
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-	`, id, log.ChannelID, conversationID, log.Direction, log.RawMessage, nullableJSON(transformedJSON),
+	`, id, log.ChannelID, conversationID, log.Direction, rawMessage, nullableJSON(transformedJSON),
 		log.TransformSuccess, transformError, status, log.RetryCount, failureReason, nextRetryAt, createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert channel message log: %w", err)
@@ -334,6 +335,7 @@ func (s *SQLStore) RecordMessageLog(ctx context.Context, log *ChannelMessageLog)
 
 	stored := *log
 	stored.ID = id
+	stored.RawMessage = append(json.RawMessage(nil), rawMessage...)
 	stored.Status = status
 	stored.CreatedAt = createdAt
 	return &stored, nil
@@ -803,6 +805,13 @@ func scanChannelMessageLog(row rowScanner) (*ChannelMessageLog, error) {
 func nullableJSON(raw []byte) any {
 	if len(raw) == 0 {
 		return nil
+	}
+	return raw
+}
+
+func nonNullableJSON(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return json.RawMessage(`{}`)
 	}
 	return raw
 }

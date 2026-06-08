@@ -12,7 +12,7 @@ require_test_database="${OBLIVIOUS_REQUIRE_TEST_DATABASE:-false}"
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/test.sh [all|web|server]
+Usage: bash scripts/test.sh [all|web|server|e2e]
 EOF
 }
 
@@ -38,33 +38,47 @@ run_server_tests() {
     return
   fi
 
-  echo "[test] Running server unit tests."
-  (cd "$server_dir" && go test ./... -count=1)
-
-  echo "[test] Running server integration tests."
   if [[ -z "${TEST_DATABASE_URL:-}" ]]; then
     if [[ "$require_test_database" == "true" ]]; then
       echo "[test] TEST_DATABASE_URL is required when OBLIVIOUS_REQUIRE_TEST_DATABASE=true." >&2
       exit 1
     fi
 
+    echo "[test] Running server unit tests."
+    (cd "$server_dir" && go test ./... -count=1)
+
     echo "[test] Skipping server integration tests: TEST_DATABASE_URL not set."
     return
   fi
 
-  (cd "$server_dir" && go test ./internal/http)
+  echo "[test] Running server database-backed tests serially."
+  (cd "$server_dir" && go test -p 1 ./... -count=1)
+}
+
+run_e2e_tests() {
+  if [[ ! -d "$web_dir" ]]; then
+    echo "[test] Skipping browser E2E tests: src/web not present."
+    return
+  fi
+
+  echo "[test] Running browser E2E tests."
+  pnpm --dir "$web_dir" test:e2e
 }
 
 case "$target" in
   all)
     run_web_tests
     run_server_tests
+    run_e2e_tests
     ;;
   web)
     run_web_tests
     ;;
   server)
     run_server_tests
+    ;;
+  e2e)
+    run_e2e_tests
     ;;
   *)
     usage >&2

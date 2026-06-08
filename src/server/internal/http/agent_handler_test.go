@@ -494,7 +494,7 @@ func TestAgentToolRunApprovalRejectRetryEndpointsAreTenantScoped(t *testing.T) {
 	if err := json.Unmarshal(retryRecorder.Body.Bytes(), &retryResponse); err != nil {
 		t.Fatalf("decode retry response: %v", err)
 	}
-	if retryResponse.Data.Status != agent.ToolRunStatusRunning || retryResponse.Data.AttemptCount != 2 || retryResponse.Data.Error != "" {
+	if retryResponse.Data.Status != agent.ToolRunStatusCompleted || retryResponse.Data.AttemptCount != 2 || retryResponse.Data.Error != "" || retryResponse.Data.ResultContent == "" {
 		t.Fatalf("expected retry attempt evidence, got %+v", retryResponse.Data)
 	}
 

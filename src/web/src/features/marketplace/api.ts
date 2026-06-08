@@ -83,6 +83,14 @@ export type MarketplaceRevenueTier = {
   estimatedPublisherNetIncreaseAtNextTier?: number;
 };
 
+export type PublisherAgentStats = {
+  agentID: string;
+  agentName: string;
+  installCount: number;
+  activeUsers: number;
+  apiCallCount: number;
+};
+
 export type PublisherStats = {
   totalAgents: number;
   totalInstalls: number;
@@ -97,6 +105,7 @@ export type PublisherStats = {
   payoutPendingAmount: number;
   paidOutAmount: number;
   revenueTier?: MarketplaceRevenueTier;
+  perAgentStats?: PublisherAgentStats[];
 };
 
 export type AgentPublishRequest = {

@@ -17,6 +17,7 @@ import (
 	stripeapi "github.com/stripe/stripe-go/v83"
 	"github.com/stripe/stripe-go/v83/webhook"
 
+	relaytypes "oblivious/server/internal/relay/types"
 	stripebilling "oblivious/server/internal/stripe"
 )
 
@@ -212,7 +213,7 @@ func TestCommercialHTTPJourney(t *testing.T) {
 			t.Fatalf("expected approved tool run, body=%s", body)
 		}
 		body = commercialDoJSON(t, router, stdhttp.MethodPost, "/api/v1/app/agents/tool-runs/"+failedToolRun.ID+"/retry", "", cookie, csrfToken, stdhttp.StatusOK)
-		if !strings.Contains(string(body), `"attemptCount":2`) || !strings.Contains(string(body), "running") {
+		if !strings.Contains(string(body), `"attemptCount":2`) || !strings.Contains(string(body), "completed") {
 			t.Fatalf("expected retry attempt evidence, body=%s", body)
 		}
 	})
@@ -336,7 +337,7 @@ func startCommercialJourneyRelay(t *testing.T) (int, *commercialRelayRecorder) {
 	mux.HandleFunc("/v1/chat/completions", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		recorder.mu.Lock()
 		recorder.chatCalls++
-		recorder.chatOrgs = append(recorder.chatOrgs, r.Header.Get("X-Oblivious-Internal-Organization-ID"))
+		recorder.chatOrgs = append(recorder.chatOrgs, commercialRelayOrganizationHeader(r))
 		recorder.mu.Unlock()
 
 		w.Header().Set("Content-Type", "application/json")
@@ -360,7 +361,7 @@ func startCommercialJourneyRelay(t *testing.T) (int, *commercialRelayRecorder) {
 		}
 		recorder.mu.Lock()
 		recorder.embeddingCalls++
-		recorder.embeddingOrgs = append(recorder.embeddingOrgs, r.Header.Get("X-Oblivious-Internal-Organization-ID"))
+		recorder.embeddingOrgs = append(recorder.embeddingOrgs, commercialRelayOrganizationHeader(r))
 		recorder.mu.Unlock()
 
 		var builder strings.Builder
@@ -398,6 +399,13 @@ func startCommercialJourneyRelay(t *testing.T) (int, *commercialRelayRecorder) {
 		t.Fatalf("parse commercial Relay port %q: %v", portText, err)
 	}
 	return port, recorder
+}
+
+func commercialRelayOrganizationHeader(r *stdhttp.Request) string {
+	if organizationID := strings.TrimSpace(r.Header.Get(relaytypes.HeaderInternalOrganization)); organizationID != "" {
+		return organizationID
+	}
+	return strings.TrimSpace(r.Header.Get("X-Oblivious-Internal-Organization-ID"))
 }
 
 func commercialEmbeddingJSON() string {

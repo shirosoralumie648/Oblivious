@@ -193,6 +193,39 @@ export async function registerAdminMarketplaceRoutes(page: Page): Promise<void> 
       return;
     }
 
+    if (method === 'GET' && pathname === '/api/v1/admin/channels/stats') {
+      await fulfillJSON(route, {
+        stats: [
+          {
+            channelID: channel.id,
+            rpmCurrent: 7,
+            tpmCurrent: 321,
+            totalRequests: 84,
+            successCount: 80,
+            failureCount: 4,
+            avgLatencyMs: channel.latency,
+            affinityConversationCount: 3,
+          },
+        ],
+      });
+      return;
+    }
+
+    if (method === 'GET' && pathname === '/api/v1/admin/channel-providers') {
+      await fulfillJSON(route, {
+        providers: [
+          {
+            id: 'openai',
+            displayName: 'OpenAI',
+            kind: 'openai_compatible',
+            status: 'supported',
+            defaultBaseURL: 'https://api.openai.com/v1',
+          },
+        ],
+      });
+      return;
+    }
+
     if (method === 'GET' && pathname === '/api/v1/admin/routes') {
       await fulfillJSON(route, { routes: [routeInfo], total: 1 });
       return;
@@ -279,6 +312,11 @@ export async function registerAdminMarketplaceRoutes(page: Page): Promise<void> 
       return;
     }
 
+    if (method === 'GET' && pathname === '/api/v1/marketplace/templates') {
+      await fulfillJSON(route, { templates: [], total: 0 });
+      return;
+    }
+
     if (method === 'GET' && pathname === '/api/v1/marketplace/curated') {
       await fulfillJSON(route, {
         popular: [releaseAgent],
@@ -329,6 +367,46 @@ export async function registerAdminMarketplaceRoutes(page: Page): Promise<void> 
 
     if (method === 'GET' && pathname === '/api/v1/marketplace/my-agents') {
       await fulfillJSON(route, { agents: [submittedAgent], total: 1 });
+      return;
+    }
+
+    if (method === 'GET' && pathname === '/api/v1/marketplace/publisher/stats') {
+      await fulfillJSON(route, {
+        totalAgents: 1,
+        totalInstalls: 1,
+        activeUsers: 1,
+        totalAPICalls: 0,
+        grossRevenue: 0,
+        platformFees: 0,
+        netRevenue: 0,
+        refundedAmount: 0,
+        pendingSettlementAmount: 0,
+        availableAmount: 0,
+        payoutPendingAmount: 0,
+        paidOutAmount: 0,
+        perAgentStats: [
+          {
+            agentID: submittedAgent.id,
+            agentName: submittedAgent.name,
+            installCount: 1,
+            activeUsers: 1,
+            apiCallCount: 0,
+          },
+        ],
+      });
+      return;
+    }
+
+    if (method === 'GET' && pathname === '/api/v1/marketplace/publisher/settlement-preferences') {
+      await fulfillJSON(route, {
+        cycle: 'monthly',
+        label: 'Monthly',
+        description: "Settles the previous month's Marketplace income on the first day of each month.",
+        payoutBusinessDays: 5,
+        processingFeePercent: 1,
+        minimumPayoutAmount: 100,
+        effectiveFrom: 'next_settlement_cycle',
+      });
       return;
     }
 

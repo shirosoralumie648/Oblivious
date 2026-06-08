@@ -115,12 +115,12 @@ run_web_checks() {
 
 run_server_checks() {
   if [[ ! -d "$server_dir" ]]; then
-    echo "[check] Skipping server unit checks: src/server not present."
+    echo "[check] Skipping server compile checks: src/server not present."
     return
   fi
 
-  echo "[check] Running server release checks."
-  (cd "$server_dir" && go test ./... -count=1)
+  echo "[check] Running server compile checks."
+  (cd "$server_dir" && go test ./... -run '^$' -count=1)
 }
 
 run_relay_security_checks() {

@@ -353,6 +353,11 @@ export async function registerCommercialJourneyRoutes(page: Page): Promise<void>
       return;
     }
 
+    if (method === 'GET' && pathname === '/api/v1/app/personas') {
+      await fulfillJSON(route, []);
+      return;
+    }
+
     if (method === 'GET' && pathname === '/api/v1/app/conversations') {
       await fulfillJSON(route, conversationCreated ? [conversation] : []);
       return;
@@ -398,6 +403,29 @@ export async function registerCommercialJourneyRoutes(page: Page): Promise<void>
       return;
     }
 
+    if (method === 'POST' && pathname === `/api/v1/app/conversations/${conversation.id}/messages/stream`) {
+      messages = [
+        {
+          id: 'msg_user_commercial',
+          role: 'user',
+          content: 'Prove the commercial Relay journey.',
+          createdAt: now,
+        },
+        {
+          id: 'msg_assistant_commercial',
+          role: 'assistant',
+          content: 'Relay settled this chat with quota, billing, and monitoring metadata attached.',
+          createdAt: now,
+        },
+      ];
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: 'data: [DONE]\n\n',
+      });
+      return;
+    }
+
     if (method === 'POST' && pathname === `/api/v1/app/conversations/${conversation.id}/convert-to-task`) {
       await fulfillJSON(route, {
         draftTaskGoal: approvalTask.goal,
@@ -420,6 +448,11 @@ export async function registerCommercialJourneyRoutes(page: Page): Promise<void>
 
     if (method === 'GET' && pathname === `/api/v1/app/knowledge-bases/${knowledgeBase.id}/documents`) {
       await fulfillJSON(route, [knowledgeDocument]);
+      return;
+    }
+
+    if (method === 'GET' && pathname === `/api/v1/app/knowledge-bases/${knowledgeBase.id}/retrieval-test-cases`) {
+      await fulfillJSON(route, []);
       return;
     }
 
@@ -486,6 +519,11 @@ export async function registerCommercialJourneyRoutes(page: Page): Promise<void>
       return;
     }
 
+    if (method === 'GET' && pathname === '/api/v1/marketplace/templates') {
+      await fulfillJSON(route, { templates: [], total: 0 });
+      return;
+    }
+
     if (method === 'GET' && pathname === '/api/v1/marketplace/featured') {
       await fulfillJSON(route, { agents: [commercialAgent], total: 1 });
       return;
@@ -524,6 +562,36 @@ export async function registerCommercialJourneyRoutes(page: Page): Promise<void>
 
     if (method === 'GET' && pathname === '/api/v1/marketplace/my-agents') {
       await fulfillJSON(route, { agents: publishedAgentSubmitted ? [submittedAgent, commercialAgent] : [commercialAgent], total: publishedAgentSubmitted ? 2 : 1 });
+      return;
+    }
+
+    if (method === 'GET' && pathname === '/api/v1/marketplace/publisher/stats') {
+      await fulfillJSON(route, {
+        totalAgents: publishedAgentSubmitted ? 2 : 1,
+        totalInstalls: 1,
+        activeUsers: 1,
+        totalAPICalls: 420,
+        grossRevenue: 50,
+        platformFees: 10,
+        netRevenue: 40,
+        refundedAmount: 10,
+        pendingSettlementAmount: 40,
+        availableAmount: 40,
+        payoutPendingAmount: 40,
+        paidOutAmount: 0,
+      });
+      return;
+    }
+
+    if (method === 'GET' && pathname === '/api/v1/marketplace/publisher/settlement-preferences') {
+      await fulfillJSON(route, {
+        cycle: 'monthly',
+        label: 'Monthly',
+        payoutBusinessDays: 5,
+        processingFeePercent: 1,
+        minimumPayoutAmount: 100,
+        effectiveFrom: 'next_settlement_cycle',
+      });
       return;
     }
 

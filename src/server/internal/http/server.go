@@ -56,10 +56,7 @@ func NewServer(cfg config.Config, database *sql.DB) *stdhttp.Server {
 	alertProviderConfigStore := observability.NewSQLAlertProviderConfigStore(database)
 	alertingCloser := configureHTTPAlerting(cfg, alertStateStore, alertRoutingRuleStore, alertProviderConfigStore)
 	workflowService := newConfiguredWorkflowServiceWithStoreNotifierAndAlerts(cfg, workflow.NewSQLStore(database), notificationService, currentHTTPAlertSink())
-	scheduleAgentGateway := chat.NewRelayGateway(
-		chat.WithRelayURL("http://localhost:"+fmt.Sprintf("%d", cfg.Port)+"/v1"),
-		chat.WithDefaultModel(cfg.RelayDefaultModel),
-	)
+	scheduleAgentGateway := newAgentGateway(cfg)
 	agentService := agent.NewService(agent.NewSQLStore(database), scheduleAgentGateway)
 	if provider := buildAgentWebSearchProvider(cfg); provider != nil {
 		agentService.SetWebSearchProvider(provider)
@@ -198,6 +195,22 @@ func NewServer(cfg config.Config, database *sql.DB) *stdhttp.Server {
 		server.RegisterOnShutdown(alertingCloser)
 	}
 	return server
+}
+
+func newAgentGateway(cfg config.Config) chat.ChatGateway {
+	relayGateway := chat.NewRelayGateway(
+		chat.WithRelayURL("http://localhost:"+fmt.Sprintf("%d", cfg.Port)+"/v1"),
+		chat.WithDefaultModel(cfg.RelayDefaultModel),
+	)
+	if cfg.RelayEnabled {
+		if cfg.Env != "production" {
+			localGenerator := chat.NewHTTPReplyGenerator("", "", cfg.ModelDefaultName, time.Duration(cfg.LLMTimeoutMS)*time.Millisecond)
+			return chat.NewCompositeGateway(relayGateway, localGenerator)
+		}
+		return relayGateway
+	}
+	localGenerator := chat.NewHTTPReplyGenerator("", "", cfg.ModelDefaultName, time.Duration(cfg.LLMTimeoutMS)*time.Millisecond)
+	return chat.NewLocalGateway(localGenerator)
 }
 
 func buildChannelMessageLogArchiveSink(cfg config.Config) (publishingchannel.MessageLogArchiveSink, error) {

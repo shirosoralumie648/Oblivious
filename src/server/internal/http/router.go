@@ -108,6 +108,7 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 		chat.WithDefaultModel(cfg.RelayDefaultModel),
 	)
 	var replyGenerator chat.ReplyGenerator
+	var agentGateway chat.ChatGateway
 	if cfg.RelayEnabled {
 		var gateway chat.ChatGateway = relayGateway
 		if cfg.Env != "production" {
@@ -115,19 +116,22 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 			gateway = chat.NewCompositeGateway(relayGateway, localGenerator)
 		}
 		replyGenerator = gateway
+		agentGateway = gateway
 	} else {
-		replyGenerator = chat.NewHTTPReplyGenerator("", "", cfg.ModelDefaultName, time.Duration(cfg.LLMTimeoutMS)*time.Millisecond)
+		localGenerator := chat.NewHTTPReplyGenerator("", "", cfg.ModelDefaultName, time.Duration(cfg.LLMTimeoutMS)*time.Millisecond)
+		replyGenerator = localGenerator
+		agentGateway = chat.NewLocalGateway(localGenerator)
 	}
 	chatService := chat.NewService(chat.NewSQLStore(database), replyGenerator, cfg.ModelDefaultName, usage.NewSQLRecorder(database))
 	chatHandler := newChatHandler(chatService)
-	consoleHandler := newConsoleHandler(console.NewService(console.NewSQLStore(database)), preferencesService)
+	consoleHandler := newConsoleHandler(console.NewServiceWithAPITokens(console.NewSQLStore(database), relay.NewRelayAPITokenSQLStore(database)), preferencesService)
 	knowledgeStore := knowledge.NewSQLStore(database)
 	knowledgeService := newKnowledgeService(cfg, knowledgeStore)
 	knowledgeHandler := newKnowledgeHandler(knowledgeService)
 	preferencesHandler := newPreferencesHandler(preferencesService)
 	taskHandler := newTaskHandler(task.NewService(task.NewSQLStore(database)))
 
-	agentService := agent.NewService(agent.NewSQLStore(database), relayGateway)
+	agentService := agent.NewService(agent.NewSQLStore(database), agentGateway)
 	agentHandler := newAgentHandler(agentService)
 
 	// Memory service with Relay embedder
@@ -195,7 +199,7 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	// Marketplace service
 	marketplaceGovernanceService := marketplace.NewGovernanceService(marketplaceStore)
 	marketplaceService := marketplace.NewService(marketplaceStore, adminService, marketplace.WithReviewSLAAlertSink(currentHTTPAlertSink()))
-	adminHandler := newAdminHandlerWithReviewSLA(adminService, marketplaceService)
+	adminHandler := newAdminHandlerWithPayoutsAndReviewSLA(adminService, marketplaceSettlementService, marketplaceService)
 	marketplaceHandler := newMarketplaceHandler(
 		marketplaceService,
 		marketplace.NewSearchService(database),
@@ -815,6 +819,25 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 		default:
 			writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
 		}
+	})))
+	mux.Handle("/api/v1/admin/billing/payouts", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.Method != stdhttp.MethodGet {
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		adminHandler.listMarketplacePayouts(w, r)
+	})))
+	mux.Handle("/api/v1/admin/billing/payouts/", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/admin/billing/payouts/"), "/"), "/")
+		if len(parts) == 2 && parts[0] != "" && parts[1] == "paid" {
+			if r.Method != stdhttp.MethodPost {
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+				return
+			}
+			adminHandler.markMarketplacePayoutPaid(w, r, parts[0])
+			return
+		}
+		writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
 	})))
 	mux.Handle("/api/v1/admin/channels", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		switch r.Method {

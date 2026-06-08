@@ -482,7 +482,7 @@ func (s *Service) SendMessage(ctx context.Context, session auth.Session, convers
 		}
 	}
 
-	reply, err := s.replyGenerator.GenerateReply(ctx, messages, effectiveConfig)
+	reply, err := s.replyGenerator.GenerateReply(withRelayMetadata(ctx, session, "chat"), messages, effectiveConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -530,6 +530,16 @@ func chatSessionScopeID(session auth.Session) string {
 		return organizationID
 	}
 	return session.WorkspaceID
+}
+
+func withRelayMetadata(ctx context.Context, session auth.Session, featureType string) context.Context {
+	return WithRelayRequestMetadata(ctx, RelayRequestMetadata{
+		OrganizationID: strings.TrimSpace(session.OrganizationID),
+		UserID:         strings.TrimSpace(session.User.ID),
+		UserGroup:      strings.TrimSpace(session.User.Role),
+		WorkspaceID:    strings.TrimSpace(session.WorkspaceID),
+		FeatureType:    strings.TrimSpace(featureType),
+	})
 }
 
 func buildPersonaSystemPrompt(persona Persona) string {

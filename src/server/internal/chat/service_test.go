@@ -85,6 +85,16 @@ func (f fakeGenerator) GenerateReply(ctx context.Context, messages []Message, co
 	return f.reply, nil
 }
 
+type metadataRecordingGenerator struct {
+	metadata RelayRequestMetadata
+	ok       bool
+}
+
+func (g *metadataRecordingGenerator) GenerateReply(ctx context.Context, messages []Message, config ConversationConfig) (string, error) {
+	g.metadata, g.ok = RelayRequestMetadataFromContext(ctx)
+	return "assistant reply", nil
+}
+
 type fakeUsageRecorder struct {
 	records []UsageRecord
 }
@@ -302,6 +312,56 @@ func TestSendMessageRecordsUsage(t *testing.T) {
 	}
 	if record.RequestCount != 1 {
 		t.Fatalf("expected request count 1, got %d", record.RequestCount)
+	}
+}
+
+func TestSendMessagePassesRelayRequestMetadataToReplyGenerator(t *testing.T) {
+	store := &recordingStore{
+		config: ConversationConfig{
+			ConversationID:  "conversation_1",
+			ModelID:         "quality-chat",
+			Temperature:     1,
+			MaxOutputTokens: 1024,
+		},
+	}
+	generator := &metadataRecordingGenerator{}
+	service := NewService(store, generator, "demo-reply", nil)
+
+	_, err := service.SendMessage(
+		context.Background(),
+		auth.Session{
+			OrganizationID: "org_1",
+			WorkspaceID:    "workspace_1",
+			User: auth.User{
+				ID:   "user_1",
+				Role: "admin",
+			},
+		},
+		"conversation_1",
+		"use relay metadata",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("send message: %v", err)
+	}
+
+	if !generator.ok {
+		t.Fatal("expected relay metadata on reply generator context")
+	}
+	if generator.metadata.OrganizationID != "org_1" {
+		t.Fatalf("expected organization metadata org_1, got %q", generator.metadata.OrganizationID)
+	}
+	if generator.metadata.UserID != "user_1" {
+		t.Fatalf("expected user metadata user_1, got %q", generator.metadata.UserID)
+	}
+	if generator.metadata.WorkspaceID != "workspace_1" {
+		t.Fatalf("expected workspace metadata workspace_1, got %q", generator.metadata.WorkspaceID)
+	}
+	if generator.metadata.UserGroup != "admin" {
+		t.Fatalf("expected user group metadata admin, got %q", generator.metadata.UserGroup)
+	}
+	if generator.metadata.FeatureType != "chat" {
+		t.Fatalf("expected chat feature metadata, got %q", generator.metadata.FeatureType)
 	}
 }
 

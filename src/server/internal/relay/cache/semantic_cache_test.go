@@ -549,9 +549,7 @@ func TestSQLSemanticCacheStorePersistsEntriesAndHitCounts(t *testing.T) {
 	if hit.Key != stored.Key {
 		t.Fatalf("expected persisted key %+v, got %+v", stored.Key, hit.Key)
 	}
-	if string(hit.Response) != `{"answer":"reuse similar answers"}` {
-		t.Fatalf("unexpected persisted response: %s", hit.Response)
-	}
+	assertJSONRawMessageEqual(t, "persisted response", hit.Response, json.RawMessage(`{"answer":"reuse similar answers"}`))
 	if hit.HitCount != 1 {
 		t.Fatalf("expected lookup to return incremented hit count 1, got %d", hit.HitCount)
 	}
@@ -577,6 +575,10 @@ func testSemanticCacheDatabase(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatalf("open database: %v", err)
 	}
+	// Pin to a single connection so the advisory lock is held for the
+	// lifetime of the test and cannot be bypassed by the connection pool.
+	database.SetMaxOpenConns(1)
+	database.SetMaxIdleConns(1)
 	if err := database.Ping(); err != nil {
 		t.Fatalf("ping database: %v", err)
 	}
@@ -608,6 +610,22 @@ func testSemanticCacheDatabase(t *testing.T) *sql.DB {
 	}
 
 	return database
+}
+
+func assertJSONRawMessageEqual(t *testing.T, label string, got, want json.RawMessage) {
+	t.Helper()
+
+	var gotValue any
+	if err := json.Unmarshal(got, &gotValue); err != nil {
+		t.Fatalf("invalid %s JSON %s: %v", label, got, err)
+	}
+	var wantValue any
+	if err := json.Unmarshal(want, &wantValue); err != nil {
+		t.Fatalf("invalid expected %s JSON %s: %v", label, want, err)
+	}
+	if !reflect.DeepEqual(gotValue, wantValue) {
+		t.Fatalf("unexpected %s: got %s want %s", label, got, want)
+	}
 }
 
 type spySemanticCacheStore struct {

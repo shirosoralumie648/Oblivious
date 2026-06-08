@@ -331,10 +331,10 @@ Admin Billing is read-only inspection for these records.
 | --- | --- | --- |
 | Docs and release assets | `bash scripts/check.sh docs` | Verifies docs, contracts, release assets, env contract, and workspace boundaries |
 | Web build | `bash scripts/check.sh web` | Runs `pnpm --dir src/web build` |
-| Server release checks | `bash scripts/check.sh server` | Runs `go test ./... -count=1` |
+| Server release checks | `bash scripts/check.sh server` | Compiles all server packages with `go test ./... -run '^$' -count=1`; execution tests live in `scripts/test.sh server` |
 | Web tests | `bash scripts/test.sh web` | Vitest suite |
-| Server tests | `bash scripts/test.sh server` | Server unit tests; local integration tests skip explicitly without `TEST_DATABASE_URL`; CI uses required DB mode |
-| Browser E2E | `COREPACK_HOME=.tmp/corepack pnpm --dir src/web test:e2e` | Admin and Marketplace Playwright gate |
+| Server tests | `bash scripts/test.sh server` | Server unit tests; local integration tests skip explicitly without `TEST_DATABASE_URL`; CI uses required DB mode and runs DB-backed packages serially |
+| Browser E2E | `bash scripts/test.sh e2e` | Admin and Marketplace Playwright gate |
 | Deployment validation | `bash scripts/deploy-validate.sh` | Builds, starts, migrates, and smokes app/Relay paths |
 | Backup/restore smoke | `bash scripts/backup-restore-smoke.sh` | Proves PostgreSQL tenant-commercial data recovery and migration ledger integrity |
 | Kubernetes recovery policy | `bash scripts/verify-k8s-recovery-policy.sh` | Verifies restart probes and HPA recovery policy encoded in repository manifests |

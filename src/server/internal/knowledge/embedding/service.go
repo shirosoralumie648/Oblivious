@@ -13,15 +13,14 @@ import (
 )
 
 const (
-	defaultModel        = "text-embedding-3-small"
-	defaultBaseURL      = "https://api.openai.com/v1"
-	embeddingEndpoint   = "/embeddings"
-	maxBatchSize        = 2048
-	defaultHTTPTimeout  = 30 * time.Second
+	defaultModel       = "text-embedding-3-small"
+	embeddingEndpoint  = "/embeddings"
+	maxBatchSize       = 2048
+	defaultHTTPTimeout = 30 * time.Second
 )
 
-// Service wraps the OpenAI-compatible embeddings API.  It is designed to be
-// called through the project's relay layer or directly against a provider.
+// Service wraps a Relay/OpenAI-compatible embeddings API endpoint. It requires
+// an explicit BaseURL unless callers inject embedding functions.
 // Safe for concurrent use.
 type Service struct {
 	model   string
@@ -29,16 +28,16 @@ type Service struct {
 	apiKey  string
 	client  *http.Client
 
-	mu       sync.RWMutex
-	embedFn  func(ctx context.Context, model, input string) ([]float32, error)
-	batchFn  func(ctx context.Context, model string, inputs []string) ([][]float32, error)
+	mu      sync.RWMutex
+	embedFn func(ctx context.Context, model, input string) ([]float32, error)
+	batchFn func(ctx context.Context, model string, inputs []string) ([][]float32, error)
 }
 
 // Config holds the configuration for the embedding service.
 type Config struct {
-	Model   string `json:"model"`
-	BaseURL string `json:"baseUrl,omitempty"`
-	APIKey  string `json:"-"`
+	Model   string        `json:"model"`
+	BaseURL string        `json:"baseUrl,omitempty"`
+	APIKey  string        `json:"-"`
 	Timeout time.Duration `json:"-"`
 }
 
@@ -75,9 +74,6 @@ func NewService(cfg Config, opts ...Option) *Service {
 		model = defaultModel
 	}
 	baseURL := strings.TrimSpace(cfg.BaseURL)
-	if baseURL == "" {
-		baseURL = defaultBaseURL
-	}
 	timeout := cfg.Timeout
 	if timeout <= 0 {
 		timeout = defaultHTTPTimeout
@@ -168,6 +164,10 @@ type embeddingData struct {
 }
 
 func (s *Service) callAPI(ctx context.Context, inputs []string) ([][]float32, error) {
+	if strings.TrimSpace(s.baseURL) == "" {
+		return nil, fmt.Errorf("embedding: base URL is required when no embedding function is configured")
+	}
+
 	body, err := json.Marshal(embeddingRequest{
 		Model: s.model,
 		Input: inputs,

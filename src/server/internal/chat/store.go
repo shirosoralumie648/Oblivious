@@ -357,14 +357,15 @@ func (s *SQLStore) ListConversations(ctx context.Context, scopeID string) ([]Con
 }
 
 func (s *SQLStore) ListMessages(ctx context.Context, conversationID, scopeID string) ([]Message, error) {
+	if _, err := s.getConversationDetailsByScope(ctx, s.db, conversationID, scopeID); err != nil {
+		return nil, err
+	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT m.id, m.role, m.content, m.metadata, m.bookmarked, m.created_at
 		FROM messages m
-		JOIN conversations c ON c.id = m.conversation_id
 		WHERE m.conversation_id = $1
-			AND (c.organization_id = $2 OR c.workspace_id = $2)
 		ORDER BY m.created_at ASC, m.id ASC
-	`, conversationID, scopeID)
+	`, conversationID)
 	if err != nil {
 		return nil, err
 	}
@@ -453,7 +454,10 @@ func (s *SQLStore) UpdateConversationConfig(
 			SELECT $1, $2, kb.id, $4, $5
 			FROM knowledge_bases kb
 			WHERE kb.id = $3
-				AND (kb.organization_id = $4 OR kb.workspace_id = $6)
+				AND (
+					($4 <> '' AND kb.organization_id = $4)
+					OR ($4 = '' AND kb.workspace_id = $6)
+				)
 			ON CONFLICT (conversation_id, knowledge_base_id) DO NOTHING
 		`, bindingID, conversationID, knowledgeBaseID, details.OrganizationID, updatedAt, details.WorkspaceID)
 		if err != nil {

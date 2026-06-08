@@ -23,6 +23,10 @@ type HTTPReplyGenerator struct {
 	defaultName string
 }
 
+type LocalGateway struct {
+	generator ReplyGenerator
+}
+
 type openAIMessage struct {
 	Content    string     `json:"content,omitempty"`
 	Role       string     `json:"role"`
@@ -83,10 +87,32 @@ func NewHTTPReplyGenerator(baseURL, apiKey, defaultName string, timeout time.Dur
 	}
 }
 
+func NewLocalGateway(generator ReplyGenerator) *LocalGateway {
+	return &LocalGateway{generator: generator}
+}
+
 func (g *HTTPReplyGenerator) GenerateReply(ctx context.Context, messages []Message, config ConversationConfig) (string, error) {
 	_ = ctx
 	_ = config
 	return formatDemoReply(messages), nil
+}
+
+func (g *LocalGateway) GenerateReply(ctx context.Context, messages []Message, config ConversationConfig) (string, error) {
+	if g == nil || g.generator == nil {
+		return "", ErrModelGatewayUnavailable
+	}
+	return g.generator.GenerateReply(ctx, messages, config)
+}
+
+func (g *LocalGateway) GenerateReplyStream(ctx context.Context, messages []Message, config ConversationConfig, onChunk func(string) error) error {
+	reply, err := g.GenerateReply(ctx, messages, config)
+	if err != nil {
+		return err
+	}
+	if onChunk != nil {
+		return onChunk(reply)
+	}
+	return nil
 }
 
 func formatDemoReply(messages []Message) string {

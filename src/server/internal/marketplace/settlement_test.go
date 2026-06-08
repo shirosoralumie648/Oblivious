@@ -596,6 +596,10 @@ func settlementTestDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatalf("open settlement database: %v", err)
 	}
+	// Pin to a single connection so the advisory lock is held for the
+	// lifetime of the test and cannot be bypassed by the connection pool.
+	database.SetMaxOpenConns(1)
+	database.SetMaxIdleConns(1)
 	if err := database.Ping(); err != nil {
 		t.Fatalf("ping settlement database: %v", err)
 	}

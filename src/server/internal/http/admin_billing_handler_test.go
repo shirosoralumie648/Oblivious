@@ -178,7 +178,7 @@ func TestAdminBillingListsExposeAllRequiredSurfaces(t *testing.T) {
 func TestAdminBillingMarksMarketplacePayoutPaid(t *testing.T) {
 	database := testDatabase(t)
 	router := NewRouter(testConfig(), database)
-	cookie, _, userID := registerHTTPUser(t, router, "billing-payout-paid@example.com")
+	cookie, csrfToken, userID := registerHTTPUser(t, router, "billing-payout-paid@example.com")
 	promoteHTTPUserToAdmin(t, database, userID)
 	_, organizationID := queryHTTPUserScope(t, database, userID)
 	seedAdminBillingState(t, database, organizationID, userID)
@@ -190,6 +190,7 @@ func TestAdminBillingMarksMarketplacePayoutPaid(t *testing.T) {
 		strings.NewReader(`{"providerPayoutID":"provider-paid-admin-1"}`),
 	)
 	request.AddCookie(cookie)
+	addCSRF(request, csrfToken)
 	router.ServeHTTP(recorder, request)
 	if recorder.Code != stdhttp.StatusOK {
 		t.Fatalf("expected mark payout paid 200, got %d with body %s", recorder.Code, recorder.Body.String())
@@ -357,7 +358,7 @@ func seedAdminBillingState(t *testing.T, database *sql.DB, organizationID, userI
 		`INSERT INTO marketplace_orders (id, buyer_organization_id, buyer_user_id, publisher_organization_id, publisher_user_id, agent_id, version_id, payment_intent_id, provider_checkout_session_id, provider_payment_intent_id, install_id, gross_amount, platform_fee_amount, publisher_net_amount, refunded_amount, currency, status, created_at, updated_at, paid_at)
 		 VALUES ('order_admin_phase20', $2, $1, $2, $1, 'agent_admin_phase20', NULL, 'pi_market_admin_phase20', 'cs_market_admin_phase20', 'pi_provider_market_admin_phase20', NULL, 50, 10, 40, 5, 'usd', 'partially_refunded', NOW(), NOW(), NOW())`,
 		`INSERT INTO marketplace_payouts (id, publisher_organization_id, publisher_user_id, amount, currency, provider, provider_payout_id, status, metadata, created_at, updated_at)
-		 VALUES ('payout_admin_phase20', $2, $1, 40, 'usd', 'local', 'po_admin_phase20', 'pending', '{}', NOW(), NOW())`,
+		 VALUES ('payout_admin_phase20', $2, $1, 40, 'usd', 'local', 'po_admin_phase20', 'payout_pending', '{}', NOW(), NOW())`,
 		`INSERT INTO marketplace_settlements (id, order_id, publisher_organization_id, publisher_user_id, agent_id, gross_amount, platform_fee_amount, publisher_net_amount, refunded_amount, payout_id, status, hold_until, created_at, updated_at)
 		 VALUES ('settlement_admin_phase20', 'order_admin_phase20', $2, $1, 'agent_admin_phase20', 50, 10, 40, 5, 'payout_admin_phase20', 'payout_pending', NOW() + INTERVAL '7 days', NOW(), NOW())`,
 	}

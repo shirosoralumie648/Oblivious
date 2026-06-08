@@ -1005,7 +1005,7 @@ func (s *SQLStore) ListTemplates(ctx context.Context, filter TemplateFilter) ([]
 		WHERE ($1 = '' OR type = $1)
 			AND ($2 = '' OR category = $2)
 			AND ($3 = '' OR name ILIKE '%' || $3 || '%' OR COALESCE(description, '') ILIKE '%' || $3 || '%')
-			AND (cardinality($4::text[]) = 0 OR tags && $4::text[])
+			AND (COALESCE(cardinality($4::text[]), 0) = 0 OR tags && $4::text[])
 		ORDER BY downloads_count DESC, created_at DESC
 		LIMIT $5 OFFSET $6
 	`, filter.Type, filter.Category, filter.Query, pq.Array(filter.Tags), limit, offset)

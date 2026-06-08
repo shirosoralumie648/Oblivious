@@ -31,7 +31,7 @@ func TestArchiveExpiredMessageLogsSQLPreservesRetryQueueAndBatchesDeletes(t *tes
 		"status IN ($2, $3)",
 		"ORDER BY created_at ASC, id ASC",
 		"LIMIT $4",
-		"RETURNING id",
+		"RETURNING message.id",
 	} {
 		if !strings.Contains(archiveExpiredMessageLogsSQL, fragment) {
 			t.Fatalf("expected expired message archive SQL to include %q, got: %s", fragment, archiveExpiredMessageLogsSQL)
@@ -129,6 +129,10 @@ func testChannelSQLStore(t *testing.T) (*SQLStore, *sql.DB, context.Context) {
 	if err != nil {
 		t.Fatalf("open database: %v", err)
 	}
+	// Pin to a single connection so the advisory lock is held for the
+	// lifetime of the test and cannot be bypassed by the connection pool.
+	database.SetMaxOpenConns(1)
+	database.SetMaxIdleConns(1)
 	if err := database.Ping(); err != nil {
 		t.Fatalf("ping database: %v", err)
 	}

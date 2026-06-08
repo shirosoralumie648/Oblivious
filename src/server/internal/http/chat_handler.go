@@ -1,7 +1,9 @@
 package http
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	stdhttp "net/http"
 	"strconv"
 	"strings"
@@ -184,6 +186,10 @@ func (h chatHandler) listMessages(w stdhttp.ResponseWriter, r *stdhttp.Request, 
 
 	messages, err := h.service.ListMessages(r.Context(), session, conversationID)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "conversation not found")
+			return
+		}
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "list messages failed")
 		return
 	}
@@ -232,6 +238,10 @@ func (h chatHandler) updateConversationConfig(w stdhttp.ResponseWriter, r *stdht
 		payload.KnowledgeBaseIDs,
 	)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "conversation not found")
+			return
+		}
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "update conversation config failed")
 		return
 	}
@@ -280,6 +290,10 @@ func (h chatHandler) sendMessage(w stdhttp.ResponseWriter, r *stdhttp.Request, c
 		toMessageOverrides(payload.Overrides),
 	)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "conversation not found")
+			return
+		}
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "send message failed")
 		return
 	}
