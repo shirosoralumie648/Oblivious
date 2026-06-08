@@ -352,6 +352,35 @@ func TestRouteSurfaceAdminObservabilityMutationsRejectAdminCookieWithoutCSRFWith
 	}
 }
 
+func TestRouteSurfaceMCPMutationsRejectCookieWithoutCSRFWithoutDatabase(t *testing.T) {
+	session := routeSurfaceUserSession()
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}})
+	cookie := routeSurfaceSignedSessionCookie(t, session)
+
+	tests := []routeSurfaceCase{
+		{"add mcp server", stdhttp.MethodPost, "/api/v1/app/mcp-servers"},
+		{"delete mcp server", stdhttp.MethodDelete, "/api/v1/app/mcp-servers/mcp_1"},
+		{"connect mcp server", stdhttp.MethodPost, "/api/v1/app/mcp-servers/mcp_1/connect"},
+		{"disconnect mcp server", stdhttp.MethodPost, "/api/v1/app/mcp-servers/mcp_1/disconnect"},
+		{"execute mcp tool", stdhttp.MethodPost, "/api/v1/app/mcp-servers/mcp_1/execute"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(`{}`))
+			request.Header.Set("Content-Type", "application/json")
+			request.AddCookie(cookie)
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusForbidden {
+				t.Fatalf("expected missing csrf to be rejected with 403 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
 func routeSurfaceRegisterUser(t *testing.T, router stdhttp.Handler, email string) *stdhttp.Cookie {
 	t.Helper()
 

@@ -3001,6 +3001,7 @@ components:
         authToken:
           type: string
           format: password
+          writeOnly: true
           description: Optional server auth token. Responses only return hasAuthToken.
 
     McpToolDefinition:
@@ -7404,6 +7405,9 @@ paths:
       summary: 添加当前用户的 MCP server
       operationId: addMcpServer
       tags: [MCP]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       requestBody:
         required: true
         content:
@@ -7464,6 +7468,9 @@ paths:
       summary: 删除 MCP server
       operationId: deleteMcpServer
       tags: [MCP]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: serverId
           in: path
@@ -7498,6 +7505,9 @@ paths:
       summary: 连接 MCP server 并刷新工具列表
       operationId: connectMcpServer
       tags: [MCP]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: serverId
           in: path
@@ -7532,6 +7542,9 @@ paths:
       summary: 断开 MCP server
       operationId: disconnectMcpServer
       tags: [MCP]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: serverId
           in: path
@@ -7636,6 +7649,9 @@ paths:
       summary: 执行 MCP server 工具
       operationId: executeMcpServerTool
       tags: [MCP]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: serverId
           in: path

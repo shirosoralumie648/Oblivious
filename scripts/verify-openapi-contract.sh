@@ -750,6 +750,131 @@ require_admin_observability_provider_secret_csrf_contract() {
   ' "$openapi_file"
 }
 
+require_mcp_auth_token_response_contract() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+    paths = spec.fetch("paths", {})
+    schemas = spec.fetch("components", {}).fetch("schemas", {})
+    missing = []
+
+    def operation(paths, path, method, missing)
+      op = paths.dig(path, method)
+      unless op
+        missing << "#{method.upcase} #{path} must be documented"
+        return {}
+      end
+      op
+    end
+
+    def response_data_ref(operation, status)
+      operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "$ref") }&.
+        dig("properties", "data", "$ref")
+    end
+
+    def response_data_array_ref(operation, status)
+      operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "items", "$ref") }&.
+        dig("properties", "data", "items", "$ref")
+    end
+
+    def request_body_ref(operation)
+      operation.dig("requestBody", "content", "application/json", "schema", "$ref")
+    end
+
+    def requires_cookie_and_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
+    end
+
+    list = operation(paths, "/api/v1/app/mcp-servers", "get", missing)
+    unless response_data_array_ref(list, "200") == "#/components/schemas/McpServer"
+      missing << "GET /api/v1/app/mcp-servers 200 data must return McpServer[]"
+    end
+
+    expected_data_refs = {
+      ["/api/v1/app/mcp-servers", "post", "201"] => "#/components/schemas/McpServer",
+      ["/api/v1/app/mcp-servers/{serverId}", "get", "200"] => "#/components/schemas/McpServer",
+      ["/api/v1/app/mcp-servers/{serverId}", "delete", "200"] => "#/components/schemas/McpActionStatus",
+      ["/api/v1/app/mcp-servers/{serverId}/connect", "post", "200"] => "#/components/schemas/McpServer",
+      ["/api/v1/app/mcp-servers/{serverId}/disconnect", "post", "200"] => "#/components/schemas/McpActionStatus",
+      ["/api/v1/app/mcp-servers/{serverId}/status", "get", "200"] => "#/components/schemas/McpActionStatus",
+      ["/api/v1/app/mcp-servers/{serverId}/execute", "post", "200"] => "#/components/schemas/McpToolResult",
+    }
+
+    expected_data_refs.each do |(path, method, status), expected|
+      op = operation(paths, path, method, missing)
+      unless response_data_ref(op, status) == expected
+        missing << "#{method.upcase} #{path} #{status} data must reference #{expected}"
+      end
+      unless op.fetch("tags", []).include?("MCP")
+        missing << "#{method.upcase} #{path} must be tagged MCP"
+      end
+    end
+
+    local = operation(paths, "/api/v1/app/mcp-local-servers", "get", missing)
+    unless response_data_array_ref(local, "200") == "#/components/schemas/McpLocalServer"
+      missing << "GET /api/v1/app/mcp-local-servers 200 data must return McpLocalServer[]"
+    end
+    tools = operation(paths, "/api/v1/app/mcp-servers/{serverId}/tools", "get", missing)
+    unless response_data_array_ref(tools, "200") == "#/components/schemas/McpToolDefinition"
+      missing << "GET /api/v1/app/mcp-servers/{serverId}/tools 200 data must return McpToolDefinition[]"
+    end
+
+    {
+      ["/api/v1/app/mcp-servers", "post"] => "#/components/schemas/AddMcpServerRequest",
+      ["/api/v1/app/mcp-servers/{serverId}/execute", "post"] => "#/components/schemas/ExecuteMcpToolRequest",
+    }.each do |(path, method), expected|
+      op = operation(paths, path, method, missing)
+      unless request_body_ref(op) == expected
+        missing << "#{method.upcase} #{path} request body must reference #{expected}"
+      end
+    end
+
+    [
+      ["/api/v1/app/mcp-servers", "post"],
+      ["/api/v1/app/mcp-servers/{serverId}", "delete"],
+      ["/api/v1/app/mcp-servers/{serverId}/connect", "post"],
+      ["/api/v1/app/mcp-servers/{serverId}/disconnect", "post"],
+      ["/api/v1/app/mcp-servers/{serverId}/execute", "post"],
+    ].each do |path, method|
+      op = operation(paths, path, method, missing)
+      unless requires_cookie_and_csrf?(op)
+        missing << "#{method.upcase} #{path} must require cookieAuth and csrfHeader"
+      end
+    end
+
+    server = schemas["McpServer"] || {}
+    props = server.fetch("properties", {})
+    if props.key?("authToken") || props.key?("auth_token")
+      missing << "McpServer response schema must not expose authToken"
+    end
+    unless props.dig("hasAuthToken", "type") == "boolean" &&
+        props.dig("hasAuthToken", "description").to_s.include?("raw token is not returned")
+      missing << "McpServer.hasAuthToken must document raw-token redaction"
+    end
+    ["id", "organizationId", "userId", "name", "url", "status", "createdAt", "updatedAt"].each do |property|
+      missing << "McpServer.#{property} must be documented" unless props.key?(property)
+    end
+
+    add = schemas["AddMcpServerRequest"] || {}
+    auth_token = add.dig("properties", "authToken") || {}
+    unless auth_token["type"] == "string" &&
+        auth_token["format"] == "password" &&
+        auth_token["writeOnly"] == true &&
+        auth_token.fetch("description", "").include?("hasAuthToken")
+      missing << "AddMcpServerRequest.authToken must be password writeOnly input and point responses to hasAuthToken"
+    end
+
+    unless missing.empty?
+      warn "[openapi-contract] MCP auth-token response contract is incomplete:"
+      missing.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 require_admin_core_management_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
@@ -1320,6 +1445,7 @@ require_marketplace_browse_payload_contract
 require_publishing_channel_secret_csrf_contract
 require_admin_channel_secret_response_contract
 require_admin_observability_provider_secret_csrf_contract
+require_mcp_auth_token_response_contract
 require_admin_core_management_contract
 require_admin_billing_contract
 require_domestic_payment_webhook_payout_contract
