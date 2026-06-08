@@ -346,6 +346,7 @@ func routeSurfaceAdminSubRouteCases() []routeSurfaceCase {
 		{"billing payouts", stdhttp.MethodGet, "/api/v1/admin/billing/payouts"},
 		{"billing topup refund", stdhttp.MethodPost, "/api/v1/admin/billing/topups/topup_1/refund"},
 		{"billing payout paid", stdhttp.MethodPost, "/api/v1/admin/billing/payouts/payout_1/paid"},
+		{"channel provider catalog", stdhttp.MethodGet, "/api/v1/admin/channel-providers"},
 		{"observability alert routing get", stdhttp.MethodGet, "/api/v1/admin/observability/alert-routing"},
 		{"observability alert routing update", stdhttp.MethodPut, "/api/v1/admin/observability/alert-routing"},
 		{"observability providers list", stdhttp.MethodGet, "/api/v1/admin/observability/alert-providers"},
