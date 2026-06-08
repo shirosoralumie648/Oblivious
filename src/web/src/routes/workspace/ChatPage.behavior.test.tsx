@@ -147,7 +147,7 @@ describe('ChatPage', () => {
     routeState.conversationId = undefined;
   });
 
-  it('shows an empty state on /chat and creates the first conversation', async () => {
+  it('shows the shared conversation rail on /chat and creates the first conversation', async () => {
     routeState.conversationId = undefined;
     listConversations.mockResolvedValue([]);
     listKnowledgeBases.mockResolvedValue([]);
@@ -156,6 +156,9 @@ describe('ChatPage', () => {
 
     render(<ChatPage />);
 
+    expect(await screen.findByRole('navigation', { name: 'Conversation rail' })).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: 'Conversation rail' })).toHaveClass('md:w-[200px]', 'lg:w-[300px]');
+    expect(screen.getByRole('button', { name: 'Conversations' })).toHaveAttribute('aria-expanded', 'false');
     expect(await screen.findByText('No conversations yet. Start a workspace thread to begin.')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Create first conversation' }));
 
@@ -163,6 +166,31 @@ describe('ChatPage', () => {
       expect(createConversation).toHaveBeenCalledWith({ title: 'New conversation' });
     });
     expect(navigate).toHaveBeenCalledWith('/chat/conversation_1');
+  });
+
+  it('opens and closes the mobile conversation rail from the chat shell', async () => {
+    routeState.conversationId = undefined;
+    listConversations.mockResolvedValue([{ id: 'conversation_1', title: 'Research thread' }]);
+    listKnowledgeBases.mockResolvedValue([]);
+    listModels.mockResolvedValue([{ id: 'balanced-chat', label: 'balanced-chat' }]);
+
+    render(<ChatPage />);
+
+    const toggle = await screen.findByRole('button', { name: 'Conversations' });
+    const rail = screen.getByRole('navigation', { name: 'Conversation rail' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(rail).toHaveClass('hidden');
+
+    fireEvent.click(toggle);
+
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(rail).toHaveClass('fixed');
+    expect(screen.getByRole('link', { name: 'Open conversation Research thread' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close conversations' }));
+
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(rail).toHaveClass('hidden');
   });
 
   it('sends a message inside the active conversation', async () => {

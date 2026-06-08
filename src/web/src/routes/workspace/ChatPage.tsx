@@ -1,3 +1,4 @@
+import { RiAddLine, RiCloseLine, RiMenuLine } from '@remixicon/react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
@@ -437,6 +438,7 @@ export function ChatPage() {
   const [personaOptions, setPersonaOptions] = useState<PersonaSummary[]>([]);
   const [conversationSearch, setConversationSearch] = useState('');
   const [conversationFilter, setConversationFilter] = useState<ConversationRailFilter>('all');
+  const [isConversationRailOpen, setIsConversationRailOpen] = useState(false);
   const [authorizationScope, setAuthorizationScope] = useState('workspace_tools');
   const [allowedTools, setAllowedTools] = useState('');
   const [blockedTools, setBlockedTools] = useState('');
@@ -588,6 +590,7 @@ export function ChatPage() {
     try {
       const conversation = await chatApi.createConversation({ title: 'New conversation' });
       setConversations((current) => [conversation, ...current]);
+      setIsConversationRailOpen(false);
       navigate(`/chat/${conversation.id}`);
     } catch (caughtError) {
       setActionError(toActionError('Unable to create conversation.', caughtError));
@@ -597,6 +600,7 @@ export function ChatPage() {
   };
 
   const openConversation = (nextConversationId: string) => {
+    setIsConversationRailOpen(false);
     navigate(`/chat/${nextConversationId}`);
   };
 
@@ -1054,18 +1058,33 @@ export function ChatPage() {
   const conversationRail = (
     <nav
       aria-label="Conversation rail"
-      className="w-[300px] shrink-0 border-r border-[#d7d2c4] bg-[#f6f1e8] px-3 py-4"
+      className={`${
+        isConversationRailOpen ? 'fixed inset-y-0 left-0 z-30 block w-[min(20rem,86vw)] shadow-xl md:static md:shadow-none' : 'hidden'
+      } min-h-full shrink-0 overflow-y-auto border-r border-[#d7d2c4] bg-[#f6f1e8] px-3 py-4 md:block md:w-[200px] lg:w-[300px]`}
     >
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-sm font-semibold text-[#2f2a21]">Conversations</h2>
-        <button
-          className="min-h-9 rounded-md border border-[#1a614f] px-3 text-sm font-semibold text-[#1a614f] disabled:opacity-60"
-          disabled={isCreatingConversation}
-          onClick={() => void handleCreateConversation()}
-          type="button"
-        >
-          New conversation
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            aria-label="New conversation"
+            className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-md border border-[#1a614f] text-[#1a614f] disabled:opacity-60"
+            disabled={isCreatingConversation}
+            onClick={() => void handleCreateConversation()}
+            title="New conversation"
+            type="button"
+          >
+            <RiAddLine className="size-4" aria-hidden="true" />
+          </button>
+          <button
+            aria-label="Close conversations"
+            className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-md border border-[#d7d2c4] text-[#625b4f] md:hidden"
+            onClick={() => setIsConversationRailOpen(false)}
+            title="Close conversations"
+            type="button"
+          >
+            <RiCloseLine className="size-4" aria-hidden="true" />
+          </button>
+        </div>
       </div>
       <label className="mt-4 block text-sm font-medium text-[#4d463a]">
         Search conversations
@@ -1130,37 +1149,21 @@ export function ChatPage() {
     </nav>
   );
 
-  if (!conversationId) {
-    return (
-      <section>
-        <h1>Chat workspace</h1>
-        {workspaceStatus}
-        {conversations.length === 0 ? (
-          <>
-            <p>No conversations yet. Start a workspace thread to begin.</p>
-            <button disabled={isCreatingConversation} onClick={() => void handleCreateConversation()} type="button">
-              Create first conversation
-            </button>
-          </>
-        ) : (
-          <section>
-            <h2>Recent conversations</h2>
-            {conversations.map((conversation) => (
-              <button key={conversation.id} onClick={() => navigate(`/chat/${conversation.id}`)} type="button">
-                {conversation.title}
-              </button>
-            ))}
-          </section>
-        )}
-      </section>
-    );
-  }
-
   return (
     <section className="min-h-full">
       <div className="flex min-h-[calc(100vh-8rem)]">
         {conversationRail}
         <main className="min-w-0 flex-1 px-6 py-5">
+          <button
+            aria-expanded={isConversationRailOpen}
+            aria-label="Conversations"
+            className="mb-4 inline-flex min-h-10 items-center gap-2 rounded-md border border-[#d7d2c4] px-3 text-sm font-semibold text-[#2f2a21] md:hidden"
+            onClick={() => setIsConversationRailOpen((current) => !current)}
+            type="button"
+          >
+            <RiMenuLine className="size-4" aria-hidden="true" />
+            Conversations
+          </button>
           <h1>Chat workspace</h1>
           {workspaceStatus}
           {!authState.preferences?.onboardingCompleted ? (
@@ -1171,161 +1174,182 @@ export function ChatPage() {
               </button>
             </section>
           ) : null}
-          <section>
-            <h2>Conversation transcript</h2>
-            {conversationId ? (
-              <div>
-                <button disabled={isExportingMarkdown} onClick={() => void exportMarkdown()} type="button">
-                  Export Markdown
-                </button>
-                <label>
-                  Conversation share expiration
-                  <input
-                    onChange={(event) => setConversationShareExpiration(event.target.value)}
-                    placeholder="2026-06-05T12:00:00Z"
-                    type="text"
-                    value={conversationShareExpiration}
-                  />
-                </label>
-                <button onClick={() => void shareConversation()} type="button">
-                  Share conversation
-                </button>
-                {conversationShareUrl ? <p>{conversationShareUrl}</p> : null}
-                {markdownExportUrl ? (
-                  <a download={`${conversationId}.md`} href={markdownExportUrl}>
-                    Download Markdown export
-                  </a>
-                ) : null}
-              </div>
-            ) : null}
-            {messages.length > 0 ? (
-              <ul>
-                {messages.map((message) => (
-                  <li key={message.id}>
-                    {editingMessageId === message.id ? (
-                      <div>
-                        <label>
-                          {`Edit message ${message.id} content`}
-                          <textarea
-                            onChange={(event) => setEditingMessageDraft(event.target.value)}
-                            value={editingMessageDraft}
-                          />
-                        </label>
-                        <button onClick={() => void saveMessageEdit(message)} type="button">
-                          {`Save edit for message ${message.id}`}
-                        </button>
-                        <button onClick={cancelEditingMessage} type="button">
-                          {`Cancel edit for message ${message.id}`}
-                        </button>
-                      </div>
-                    ) : (
-                      <>
-                        {message.content.trim() !== '' ? renderMessageContent(message.content) : null}
-                        {message.role === 'assistant' && message.knowledgeCitations ? (
-                          <KnowledgeCitationList citations={message.knowledgeCitations} messageId={message.id} />
-                        ) : null}
-                        {message.attachments && message.attachments.length > 0 ? (
-                          <ul aria-label={`Attachments for message ${message.id}`}>
-                            {message.attachments.map((attachment) => (
-                              <li key={attachment.id}>
-                                <span>{attachment.name}</span>
-                                <span>{formatAttachmentSize(attachment.sizeBytes)}</span>
-                                <span>{attachment.contentType}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : null}
-                      </>
-                    )}
-                    {message.bookmarked ? <p>Bookmarked</p> : null}
-                    {messageShares[message.id] ? <p>{messageShares[message.id]}</p> : null}
-                    <div aria-label={`Actions for message ${message.id}`}>
-                      <button onClick={() => void copyMessage(message)} type="button">
-                        {`Copy message ${message.id}`}
-                      </button>
-                      <button onClick={() => startEditingMessage(message)} type="button">
-                        {`Edit message ${message.id}`}
-                      </button>
-                      <button onClick={() => void deleteMessage(message)} type="button">
-                        {`Delete message ${message.id}`}
-                      </button>
-                      <button onClick={() => void toggleMessageBookmark(message)} type="button">
-                        {message.bookmarked ? `Unbookmark message ${message.id}` : `Bookmark message ${message.id}`}
-                      </button>
-                      <label>
-                        {`Share expiration for ${message.id}`}
-                        <input
-                          onChange={(event) => {
-                            setMessageShareExpirations((currentExpirations) => ({
-                              ...currentExpirations,
-                              [message.id]: event.target.value
-                            }));
-                          }}
-                          placeholder="2026-06-05T12:00:00Z"
-                          type="text"
-                          value={messageShareExpirations[message.id] ?? ''}
-                        />
-                      </label>
-                      <button onClick={() => void shareMessage(message)} type="button">
-                        {`Share message ${message.id}`}
-                      </button>
-                      <button onClick={() => void shareConversationFromMessage(message)} type="button">
-                        {`Share conversation from message ${message.id}`}
-                      </button>
-                      {message.role === 'user' ? (
-                        <button disabled={isSending} onClick={() => void handleRetryFromMessage(message)} type="button">
-                          {`Retry from message ${message.id}`}
-                        </button>
-                      ) : null}
-                      {message.role === 'assistant' ? (
-                        <button
-                          disabled={isSending}
-                          onClick={() => void handleRegenerateAssistantMessage(message)}
-                          type="button"
-                        >
-                          {`Regenerate response for message ${message.id}`}
-                        </button>
-                      ) : null}
-                      <button onClick={() => void handleForkFromMessage(message)} type="button">
-                        {`Branch from message ${message.id}`}
-                      </button>
-                      <button onClick={() => void handleForkFromMessage(message)} type="button">
-                        {`Fork conversation from message ${message.id}`}
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p>No messages yet.</p>
-            )}
-          </section>
-          <label>
-            Message draft
-            <textarea onChange={(event) => setMessageDraft(event.target.value)} value={messageDraft} />
-          </label>
-          <label>
-            Attach images/files
-            <input
-              multiple
-              onChange={(event) => updateMessageAttachments(event.target.files)}
-              type="file"
-            />
-          </label>
-          {messageAttachments.length > 0 ? (
-            <ul aria-label="Selected attachments">
-              {messageAttachments.map((attachment) => (
-                <li key={attachment.id}>
-                  <span>{attachment.name}</span>
-                  <span>{formatAttachmentSize(attachment.sizeBytes)}</span>
-                  <span>{attachment.contentType}</span>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-          <button disabled={isSending} onClick={() => void handleSendMessage()} type="button">
-            Send message
-          </button>
+          {conversationId ? (
+            <>
+              <section>
+                <h2>Conversation transcript</h2>
+                <div>
+                  <button disabled={isExportingMarkdown} onClick={() => void exportMarkdown()} type="button">
+                    Export Markdown
+                  </button>
+                  <label>
+                    Conversation share expiration
+                    <input
+                      onChange={(event) => setConversationShareExpiration(event.target.value)}
+                      placeholder="2026-06-05T12:00:00Z"
+                      type="text"
+                      value={conversationShareExpiration}
+                    />
+                  </label>
+                  <button onClick={() => void shareConversation()} type="button">
+                    Share conversation
+                  </button>
+                  {conversationShareUrl ? <p>{conversationShareUrl}</p> : null}
+                  {markdownExportUrl ? (
+                    <a download={`${conversationId}.md`} href={markdownExportUrl}>
+                      Download Markdown export
+                    </a>
+                  ) : null}
+                </div>
+                {messages.length > 0 ? (
+                  <ul>
+                    {messages.map((message) => (
+                      <li key={message.id}>
+                        {editingMessageId === message.id ? (
+                          <div>
+                            <label>
+                              {`Edit message ${message.id} content`}
+                              <textarea
+                                onChange={(event) => setEditingMessageDraft(event.target.value)}
+                                value={editingMessageDraft}
+                              />
+                            </label>
+                            <button onClick={() => void saveMessageEdit(message)} type="button">
+                              {`Save edit for message ${message.id}`}
+                            </button>
+                            <button onClick={cancelEditingMessage} type="button">
+                              {`Cancel edit for message ${message.id}`}
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            {message.content.trim() !== '' ? renderMessageContent(message.content) : null}
+                            {message.role === 'assistant' && message.knowledgeCitations ? (
+                              <KnowledgeCitationList citations={message.knowledgeCitations} messageId={message.id} />
+                            ) : null}
+                            {message.attachments && message.attachments.length > 0 ? (
+                              <ul aria-label={`Attachments for message ${message.id}`}>
+                                {message.attachments.map((attachment) => (
+                                  <li key={attachment.id}>
+                                    <span>{attachment.name}</span>
+                                    <span>{formatAttachmentSize(attachment.sizeBytes)}</span>
+                                    <span>{attachment.contentType}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : null}
+                          </>
+                        )}
+                        {message.bookmarked ? <p>Bookmarked</p> : null}
+                        {messageShares[message.id] ? <p>{messageShares[message.id]}</p> : null}
+                        <div aria-label={`Actions for message ${message.id}`}>
+                          <button onClick={() => void copyMessage(message)} type="button">
+                            {`Copy message ${message.id}`}
+                          </button>
+                          <button onClick={() => startEditingMessage(message)} type="button">
+                            {`Edit message ${message.id}`}
+                          </button>
+                          <button onClick={() => void deleteMessage(message)} type="button">
+                            {`Delete message ${message.id}`}
+                          </button>
+                          <button onClick={() => void toggleMessageBookmark(message)} type="button">
+                            {message.bookmarked ? `Unbookmark message ${message.id}` : `Bookmark message ${message.id}`}
+                          </button>
+                          <label>
+                            {`Share expiration for ${message.id}`}
+                            <input
+                              onChange={(event) => {
+                                setMessageShareExpirations((currentExpirations) => ({
+                                  ...currentExpirations,
+                                  [message.id]: event.target.value
+                                }));
+                              }}
+                              placeholder="2026-06-05T12:00:00Z"
+                              type="text"
+                              value={messageShareExpirations[message.id] ?? ''}
+                            />
+                          </label>
+                          <button onClick={() => void shareMessage(message)} type="button">
+                            {`Share message ${message.id}`}
+                          </button>
+                          <button onClick={() => void shareConversationFromMessage(message)} type="button">
+                            {`Share conversation from message ${message.id}`}
+                          </button>
+                          {message.role === 'user' ? (
+                            <button disabled={isSending} onClick={() => void handleRetryFromMessage(message)} type="button">
+                              {`Retry from message ${message.id}`}
+                            </button>
+                          ) : null}
+                          {message.role === 'assistant' ? (
+                            <button
+                              disabled={isSending}
+                              onClick={() => void handleRegenerateAssistantMessage(message)}
+                              type="button"
+                            >
+                              {`Regenerate response for message ${message.id}`}
+                            </button>
+                          ) : null}
+                          <button onClick={() => void handleForkFromMessage(message)} type="button">
+                            {`Branch from message ${message.id}`}
+                          </button>
+                          <button onClick={() => void handleForkFromMessage(message)} type="button">
+                            {`Fork conversation from message ${message.id}`}
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p>No messages yet.</p>
+                )}
+              </section>
+              <label>
+                Message draft
+                <textarea onChange={(event) => setMessageDraft(event.target.value)} value={messageDraft} />
+              </label>
+              <label>
+                Attach images/files
+                <input
+                  multiple
+                  onChange={(event) => updateMessageAttachments(event.target.files)}
+                  type="file"
+                />
+              </label>
+              {messageAttachments.length > 0 ? (
+                <ul aria-label="Selected attachments">
+                  {messageAttachments.map((attachment) => (
+                    <li key={attachment.id}>
+                      <span>{attachment.name}</span>
+                      <span>{formatAttachmentSize(attachment.sizeBytes)}</span>
+                      <span>{attachment.contentType}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              <button disabled={isSending} onClick={() => void handleSendMessage()} type="button">
+                Send message
+              </button>
+            </>
+          ) : (
+            <section>
+              <h2>Conversation transcript</h2>
+              {conversations.length === 0 ? (
+                <>
+                  <p>No conversations yet. Start a workspace thread to begin.</p>
+                  <button disabled={isCreatingConversation} onClick={() => void handleCreateConversation()} type="button">
+                    Create first conversation
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p>No active conversation selected.</p>
+                  <button disabled={isCreatingConversation} onClick={() => void handleCreateConversation()} type="button">
+                    New conversation
+                  </button>
+                </>
+              )}
+            </section>
+          )}
           {conversationConfig !== null ? (
             <section>
               <h2>Conversation settings</h2>
