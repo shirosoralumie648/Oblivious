@@ -53,6 +53,12 @@ func registerAgentRunRoutes(mux *stdhttp.ServeMux, authMiddleware sessionMiddlew
 				} else {
 					writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 				}
+			case "continue-budget":
+				if r.Method == stdhttp.MethodPost {
+					handler.continueBudget(w, r, runID)
+				} else {
+					writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+				}
 			case "approve-plan-step":
 				if r.Method == stdhttp.MethodPost {
 					handler.approvePlanStep(w, r, runID)

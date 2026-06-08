@@ -3,6 +3,7 @@ import { useLocation, useParams } from 'react-router-dom';
 
 import {
   createAgentPlanStepsApi,
+  type AgentRunDetail,
   type AgentPlanStep,
   type AgentToolRun,
   type MoveAgentPlanStepDirection
@@ -92,6 +93,8 @@ export function AgentPlanStepsPage() {
   const [editInput, setEditInput] = useState('');
   const [editTitle, setEditTitle] = useState('');
   const [editToolName, setEditToolName] = useState('');
+  const [continueBudget, setContinueBudget] = useState('2500');
+  const [isContinuingBudget, setIsContinuingBudget] = useState(false);
   const [isCreatingStep, setIsCreatingStep] = useState(false);
   const [newAfterStepId, setNewAfterStepId] = useState<string | null>(null);
   const [newInput, setNewInput] = useState('');
@@ -108,6 +111,16 @@ export function AgentPlanStepsPage() {
   const [toolRunDecisionReasons, setToolRunDecisionReasons] = useState<Record<string, string>>({});
   const [toolRuns, setToolRuns] = useState<AgentToolRun[]>([]);
 
+  const applyRunDetail = useCallback((detail: AgentRunDetail) => {
+    setPlanSteps(detail.planSteps);
+    setRunError(detail.error || null);
+    setRunIterationCount(typeof detail.iterationCount === 'number' ? detail.iterationCount : null);
+    setRunMode(detail.mode || null);
+    setRunStatus(detail.status || null);
+    setRunToolCallCount(typeof detail.toolCallCount === 'number' ? detail.toolCallCount : null);
+    setToolRuns(detail.toolRuns ?? []);
+  }, []);
+
   const refreshRunDetail = useCallback(async () => {
     if (!runId) {
       setError('Run ID is required.');
@@ -119,19 +132,13 @@ export function AgentPlanStepsPage() {
 
     try {
       const detail = await api.getRunDetail(runId);
-      setPlanSteps(detail.planSteps);
-      setRunError(detail.error || null);
-      setRunIterationCount(typeof detail.iterationCount === 'number' ? detail.iterationCount : null);
-      setRunMode(detail.mode || null);
-      setRunStatus(detail.status || null);
-      setRunToolCallCount(typeof detail.toolCallCount === 'number' ? detail.toolCallCount : null);
-      setToolRuns(detail.toolRuns ?? []);
+      applyRunDetail(detail);
     } catch (caughtError) {
       setError(errorMessage(caughtError, 'Unable to load plan steps.'));
     } finally {
       setIsRefreshing(false);
     }
-  }, [api, runId]);
+  }, [api, applyRunDetail, runId]);
 
   const startEditingStep = (step: AgentPlanStep) => {
     setEditingStepId(step.id);
@@ -369,6 +376,29 @@ export function AgentPlanStepsPage() {
     }));
   };
 
+  const continueRunWithBudget = async () => {
+    if (!runId) {
+      setError('Run ID is required.');
+      return;
+    }
+    const parsedBudget = Number.parseInt(continueBudget, 10);
+    if (!Number.isFinite(parsedBudget) || parsedBudget < 1000 || parsedBudget > 1000000) {
+      setError('Token budget must be between 1000 and 1000000.');
+      return;
+    }
+
+    setIsContinuingBudget(true);
+    setError(null);
+    try {
+      const detail = await api.continueRunWithBudget(runId, parsedBudget);
+      applyRunDetail(detail);
+    } catch (caughtError) {
+      setError(errorMessage(caughtError, 'Unable to continue run with increased budget.'));
+    } finally {
+      setIsContinuingBudget(false);
+    }
+  };
+
   return (
     <section className="mx-auto max-w-5xl space-y-6">
       <header className="space-y-2">
@@ -413,6 +443,30 @@ export function AgentPlanStepsPage() {
         >
           {isRefreshing ? 'Refreshing plan steps' : 'Refresh plan steps'}
         </button>
+        {runStatus === 'token_budget_exceeded' ? (
+          <div className="flex flex-col gap-2 rounded-lg border border-[#d7d2c4] bg-white p-3 sm:flex-row sm:items-end">
+            <label className="grid gap-1 text-sm font-medium text-[#3f3a31]">
+              Increased token budget
+              <input
+                aria-label="Increased token budget"
+                className="min-h-10 rounded-lg border border-[#d7d2c4] px-3 text-sm"
+                max={1000000}
+                min={1000}
+                onChange={(event) => setContinueBudget(event.target.value)}
+                type="number"
+                value={continueBudget}
+              />
+            </label>
+            <button
+              className="min-h-10 rounded-lg bg-[#181611] px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={isContinuingBudget}
+              onClick={() => void continueRunWithBudget()}
+              type="button"
+            >
+              {isContinuingBudget ? 'Continuing run' : 'Continue with budget'}
+            </button>
+          </div>
+        ) : null}
       </header>
 
       {error ? (

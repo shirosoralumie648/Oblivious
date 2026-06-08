@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const approvePlanStep = vi.fn();
 const approveToolRun = vi.fn();
+const continueRunWithBudget = vi.fn();
 const createPlanStep = vi.fn();
 const deletePlanStep = vi.fn();
 const executePlanStep = vi.fn();
@@ -19,6 +20,7 @@ vi.mock('../../features/agents/planStepsApi', () => ({
   createAgentPlanStepsApi: () => ({
     approvePlanStep,
     approveToolRun,
+    continueRunWithBudget,
     createPlanStep,
     deletePlanStep,
     executePlanStep,
@@ -74,6 +76,7 @@ describe('AgentPlanStepsPage', () => {
   beforeEach(() => {
     approvePlanStep.mockReset();
     approveToolRun.mockReset();
+    continueRunWithBudget.mockReset();
     createPlanStep.mockReset();
     deletePlanStep.mockReset();
     executePlanStep.mockReset();
@@ -149,6 +152,40 @@ describe('AgentPlanStepsPage', () => {
     expect(screen.getByLabelText('Agent run execution controls')).toHaveTextContent('Stop reason tool loop exceeded max iterations');
     expect(screen.getByRole('heading', { name: 'Patch web page' })).toBeInTheDocument();
     expect(getRunDetail).toHaveBeenCalledTimes(2);
+  });
+
+  it('continues token-budget-stopped runs with an increased budget', async () => {
+    getRunDetail.mockResolvedValueOnce({
+      error: 'token_budget_exceeded: used 1200 tokens exceeds budget 1000',
+      id: 'run_1',
+      iterationCount: 2,
+      mode: 'react',
+      planSteps: [],
+      status: 'token_budget_exceeded',
+      toolCallCount: 1,
+      toolRuns: []
+    });
+    continueRunWithBudget.mockResolvedValueOnce({
+      id: 'run_1',
+      iterationCount: 3,
+      mode: 'react',
+      planSteps: [],
+      status: 'completed',
+      toolCallCount: 1,
+      toolRuns: []
+    });
+
+    renderDirectPage();
+
+    expect(await screen.findByText('Status: token_budget_exceeded')).toBeInTheDocument();
+    expect(screen.getByLabelText('Agent run execution controls')).toHaveTextContent('Stop reason token_budget_exceeded: used 1200 tokens exceeds budget 1000');
+    fireEvent.change(screen.getByLabelText('Increased token budget'), { target: { value: '2500' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Continue with budget' }));
+
+    await waitFor(() => expect(continueRunWithBudget).toHaveBeenCalledWith('run_1', 2500));
+    expect(await screen.findByText('Status: completed')).toBeInTheDocument();
+    expect(screen.getByLabelText('Agent run execution controls')).toHaveTextContent('Iterations 3');
+    expect(screen.queryByRole('button', { name: 'Continue with budget' })).not.toBeInTheDocument();
   });
 
   it('renders plan steps from navigation state and refreshes them after approve and execute actions', async () => {

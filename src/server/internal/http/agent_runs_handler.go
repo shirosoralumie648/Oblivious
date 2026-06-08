@@ -84,6 +84,11 @@ type agentRunPlanStepMoveRequest struct {
 	Direction       string `json:"direction"`
 }
 
+type agentRunContinueBudgetRequest struct {
+	TokenBudget      *int `json:"token_budget"`
+	TokenBudgetCamel *int `json:"tokenBudget"`
+}
+
 type agentRunResponse struct {
 	ID        string            `json:"id"`
 	Status    string            `json:"status"`
@@ -261,6 +266,39 @@ func (h agentRunsHandler) retryTool(w stdhttp.ResponseWriter, r *stdhttp.Request
 	}
 
 	if _, err := h.service.RetryToolRun(r.Context(), session, toolRunID); err != nil {
+		writeAgentWorkflowError(w, err)
+		return
+	}
+	result, err := h.service.GetRunWithMessages(r.Context(), session, strings.TrimSpace(runID))
+	if err != nil {
+		writeAgentWorkflowError(w, err)
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, newAgentRunResponse(result))
+}
+
+func (h agentRunsHandler) continueBudget(w stdhttp.ResponseWriter, r *stdhttp.Request, runID string) {
+	session, ok := sessionFromContext(r)
+	if !ok {
+		writeError(w, stdhttp.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+
+	var req agentRunContinueBudgetRequest
+	if err := decodeOptionalAgentRunJSONBody(r, &req); err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "invalid json body")
+		return
+	}
+	tokenBudget := firstIntPointer(req.TokenBudget, req.TokenBudgetCamel)
+	if tokenBudget == nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "tokenBudget is required")
+		return
+	}
+	if *tokenBudget < 1000 || *tokenBudget > 1000000 {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "tokenBudget must be between 1000 and 1000000")
+		return
+	}
+	if _, err := h.service.ContinueRunWithTokenBudget(r.Context(), session, strings.TrimSpace(runID), *tokenBudget); err != nil {
 		writeAgentWorkflowError(w, err)
 		return
 	}

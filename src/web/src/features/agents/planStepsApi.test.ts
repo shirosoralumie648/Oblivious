@@ -84,6 +84,39 @@ describe('createAgentPlanStepsApi', () => {
     });
   });
 
+  it('continues a token-budget-stopped run with an increased budget', async () => {
+    const post = vi.fn().mockResolvedValue({
+      data: {
+        planSteps: [],
+        run: {
+          error: '',
+          id: 'run_1',
+          iterationCount: 3,
+          mode: 'react',
+          status: 'completed',
+          toolCallCount: 1
+        },
+        toolRuns: []
+      }
+    });
+    const api = createAgentPlanStepsApi(createClient({ post }));
+
+    await expect(api.continueRunWithBudget('run_1', 2500)).resolves.toEqual({
+      error: '',
+      id: 'run_1',
+      iterationCount: 3,
+      mode: 'react',
+      planSteps: [],
+      status: 'completed',
+      toolCallCount: 1,
+      toolRuns: []
+    });
+
+    expect(post).toHaveBeenCalledWith('/api/v1/agent/runs/run_1/continue-budget', {
+      tokenBudget: 2500
+    });
+  });
+
   it('executes a run plan step and returns refreshed plan steps', async () => {
     const post = vi.fn().mockResolvedValue({
       data: {

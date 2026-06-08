@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	stdhttp "net/http"
 	"strings"
 
@@ -443,14 +444,18 @@ func (h agentHandler) retryToolRun(w stdhttp.ResponseWriter, r *stdhttp.Request,
 }
 
 func writeAgentWorkflowError(w stdhttp.ResponseWriter, err error) {
+	if errors.Is(err, agent.ErrTokenBudgetExceeded) {
+		writeError(w, stdhttp.StatusConflict, "invalid_state", err.Error())
+		return
+	}
 	switch err.Error() {
 	case "agent not found", "conversation not found", "run not found", "tool run not found", "plan step not found":
 		writeError(w, stdhttp.StatusNotFound, "not_found", err.Error())
 	case "access denied":
 		writeError(w, stdhttp.StatusForbidden, "forbidden", err.Error())
-	case "tool run is not failed", "tool run is not pending approval", "plan step is not pending", "plan step is not failed", "plan step approval was rejected", "plan step cannot be adjusted after execution starts", "plan step is not approved for execution", "plan step cannot move up", "plan step cannot move down", "plan step cannot move across executed step":
+	case "tool run is not failed", "tool run is not pending approval", "agent run is not token budget exceeded", "plan step is not pending", "plan step is not failed", "plan step approval was rejected", "plan step cannot be adjusted after execution starts", "plan step is not approved for execution", "plan step cannot move up", "plan step cannot move down", "plan step cannot move across executed step":
 		writeError(w, stdhttp.StatusConflict, "invalid_state", err.Error())
-	case "plan step move direction must be up or down":
+	case "plan step move direction must be up or down", "tokenBudget must be between 1000 and 1000000":
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
 	default:
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())

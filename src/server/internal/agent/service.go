@@ -1805,6 +1805,43 @@ func (s *Service) RetryToolRun(ctx context.Context, session auth.Session, toolRu
 	return s.executePersistedToolRun(ctx, session, toolRun)
 }
 
+func (s *Service) ContinueRunWithTokenBudget(ctx context.Context, session auth.Session, runID string, tokenBudget int) (*RunResult, error) {
+	run, err := s.getRunForSession(ctx, session, runID)
+	if err != nil {
+		return nil, err
+	}
+	if run.Status != RunStatusTokenBudgetExceeded {
+		return nil, fmt.Errorf("agent run is not token budget exceeded")
+	}
+	if tokenBudget < 1_000 || tokenBudget > maxTokenBudget {
+		return nil, fmt.Errorf("tokenBudget must be between 1000 and 1000000")
+	}
+	normalizedBudget := normalizeTokenBudget(tokenBudget)
+	agent, err := s.store.GetAgent(ctx, run.AgentID, session.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	if agent == nil {
+		return nil, fmt.Errorf("agent not found")
+	}
+	if agent.UserID != session.User.ID && !agent.IsPublic {
+		return nil, fmt.Errorf("access denied")
+	}
+
+	if _, err := s.store.UpdateRun(ctx, session.OrganizationID, run.ID, UpdateRunRequest{
+		Status:           stringPointer(RunStatusRunning),
+		Error:            stringPointer(""),
+		ClearCompletedAt: true,
+	}); err != nil {
+		return nil, err
+	}
+	run.Status = RunStatusRunning
+	run.Error = ""
+	run.CompletedAt = nil
+
+	return s.runner.ResumeAfterApprovedToolWithTokenBudget(ctx, session, agent, run, &normalizedBudget)
+}
+
 func (s *Service) executePersistedToolRun(ctx context.Context, session auth.Session, toolRun *ToolRun) (*ToolRun, error) {
 	if toolRun == nil {
 		return nil, fmt.Errorf("tool run not found")

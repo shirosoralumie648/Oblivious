@@ -852,6 +852,10 @@ func (r *Runner) RunWithTools(ctx context.Context, session auth.Session, agent *
 }
 
 func (r *Runner) ResumeAfterApprovedTool(ctx context.Context, session auth.Session, agent *Agent, run *Run) (*RunResult, error) {
+	return r.ResumeAfterApprovedToolWithTokenBudget(ctx, session, agent, run, nil)
+}
+
+func (r *Runner) ResumeAfterApprovedToolWithTokenBudget(ctx context.Context, session auth.Session, agent *Agent, run *Run, tokenBudgetOverride *int) (*RunResult, error) {
 	if run == nil {
 		return nil, fmt.Errorf("run not found")
 	}
@@ -883,6 +887,9 @@ func (r *Runner) ResumeAfterApprovedTool(ctx context.Context, session auth.Sessi
 		return nil, fmt.Errorf("%w (%d)", ErrMaxIterationsExceeded, maxIterations)
 	}
 	tokenBudget := normalizeTokenBudget(agent.Config.TokenBudget)
+	if tokenBudgetOverride != nil {
+		tokenBudget = normalizeTokenBudget(*tokenBudgetOverride)
+	}
 	structuredGateway, ok := r.gateway.(chat.StructuredReplyGenerator)
 	if !ok {
 		reply, err := r.gateway.GenerateReply(ctx, chatMessages, config)

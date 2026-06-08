@@ -3083,6 +3083,168 @@ func TestServiceApproveToolRunResumeStopsWhenTokenBudgetExceeded(t *testing.T) {
 	}
 }
 
+func TestServiceContinueRunWithTokenBudgetResumesTokenBudgetExceededRun(t *testing.T) {
+	now := time.Now().UTC()
+	completedAt := now.Add(time.Minute)
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+			Config: Config{
+				TokenBudget: 1000,
+			},
+			Tools: []Tool{
+				{Name: "datetime", Type: "builtin", Enabled: true},
+			},
+		},
+		conversation: &Conversation{
+			ID:             "conv_1",
+			AgentID:        "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+		},
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Status:         RunStatusTokenBudgetExceeded,
+			IterationCount: 1,
+			ToolCallCount:  1,
+			Error:          "token_budget_exceeded: used 1200 tokens exceeds budget 1000",
+			CompletedAt:    &completedAt,
+			StartedAt:      now,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+		messages: []*Message{
+			{
+				ID:             "user_1",
+				ConversationID: "conv_1",
+				OrganizationID: "org_1",
+				Role:           "user",
+				Content:        "what time is it?",
+				CreatedAt:      now,
+			},
+			{
+				ID:             "assistant_tool_call",
+				ConversationID: "conv_1",
+				OrganizationID: "org_1",
+				Role:           "assistant",
+				ToolCalls:      []ToolCall{{ID: "call_datetime", Name: "datetime", Arguments: map[string]any{}}},
+				CreatedAt:      now,
+			},
+			{
+				ID:             "tool_1",
+				ConversationID: "conv_1",
+				OrganizationID: "org_1",
+				Role:           "tool",
+				Content:        "Current time: noon",
+				ToolCallID:     "call_datetime",
+				CreatedAt:      now,
+			},
+		},
+	}
+	gateway := &fakeGateway{
+		structured: []*chat.CompletionResponse{
+			{Content: "Final answer after budget increase.", FinishReason: "stop", Usage: &chat.CompletionUsage{TotalTokens: 1300}},
+		},
+	}
+	service := NewService(store, gateway)
+
+	result, err := service.ContinueRunWithTokenBudget(context.Background(), auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}}, "run_1", 2500)
+	if err != nil {
+		t.Fatalf("ContinueRunWithTokenBudget returned error: %v", err)
+	}
+	if result == nil || result.Message == nil || result.Message.Content != "Final answer after budget increase." {
+		t.Fatalf("expected final assistant result after budget increase, got %+v", result)
+	}
+	if gateway.structuredCalls != 1 {
+		t.Fatalf("expected one resumed structured call, got %d", gateway.structuredCalls)
+	}
+	if store.agent.Config.TokenBudget != 1000 {
+		t.Fatalf("continue budget override should not mutate agent config, got %d", store.agent.Config.TokenBudget)
+	}
+	run := store.runs[0]
+	if run.Status != RunStatusCompleted || run.Error != "" || run.CompletedAt == nil || run.IterationCount != 2 || run.ToolCallCount != 1 {
+		t.Fatalf("expected continued run to complete cleanly, got %+v", run)
+	}
+	if store.messages[len(store.messages)-1].Content != "Final answer after budget increase." {
+		t.Fatalf("expected final answer persisted on same conversation, got %+v", store.messages)
+	}
+}
+
+func TestServiceContinueRunWithTokenBudgetRejectsNonBudgetExceededRun(t *testing.T) {
+	now := time.Now().UTC()
+	store := &fakeStore{
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Status:         RunStatusFailed,
+			StartedAt:      now,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+	}
+	service := NewService(store, &fakeGateway{})
+
+	result, err := service.ContinueRunWithTokenBudget(context.Background(), auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}}, "run_1", 2500)
+	if err == nil || !strings.Contains(err.Error(), "agent run is not token budget exceeded") {
+		t.Fatalf("expected non-budget run rejection, got result=%+v err=%v", result, err)
+	}
+	if store.runs[0].Status != RunStatusFailed {
+		t.Fatalf("expected rejected continue to leave run unchanged, got %+v", store.runs[0])
+	}
+}
+
+func TestServiceContinueRunWithTokenBudgetRejectsOutOfRangeBudget(t *testing.T) {
+	for _, tokenBudget := range []int{999, 1_000_001} {
+		name := "below_minimum"
+		if tokenBudget > maxTokenBudget {
+			name = "above_maximum"
+		}
+		t.Run(name, func(t *testing.T) {
+			now := time.Now().UTC()
+			completedAt := now.Add(time.Minute)
+			store := &fakeStore{
+				runs: []*Run{{
+					ID:             "run_1",
+					OrganizationID: "org_1",
+					ConversationID: "conv_1",
+					AgentID:        "agent_1",
+					UserID:         "user_1",
+					Status:         RunStatusTokenBudgetExceeded,
+					Error:          "token_budget_exceeded: used 1200 tokens exceeds budget 1000",
+					CompletedAt:    &completedAt,
+					StartedAt:      now,
+					CreatedAt:      now,
+					UpdatedAt:      now,
+				}},
+			}
+			gateway := &fakeGateway{}
+			service := NewService(store, gateway)
+
+			result, err := service.ContinueRunWithTokenBudget(context.Background(), auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}}, "run_1", tokenBudget)
+			if err == nil || !strings.Contains(err.Error(), "tokenBudget must be between 1000 and 1000000") {
+				t.Fatalf("expected budget range rejection, got result=%+v err=%v", result, err)
+			}
+			run := store.runs[0]
+			if run.Status != RunStatusTokenBudgetExceeded || run.Error == "" || run.CompletedAt == nil {
+				t.Fatalf("expected rejected budget to leave run unchanged, got %+v", run)
+			}
+			if gateway.structuredCalls != 0 {
+				t.Fatalf("expected invalid budget to skip model resume, got %d calls", gateway.structuredCalls)
+			}
+		})
+	}
+}
+
 func TestServiceApproveToolRunResumeStopsWhenMaxIterationsReached(t *testing.T) {
 	now := time.Now().UTC()
 	store := &fakeStore{

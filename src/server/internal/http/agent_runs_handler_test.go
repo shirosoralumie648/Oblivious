@@ -650,6 +650,155 @@ func TestAgentRunsHandlerRetryPlanStepReturnsUpdatedRunDetail(t *testing.T) {
 	}
 }
 
+func TestAgentRunsHandlerContinueBudgetReturnsUpdatedRunDetail(t *testing.T) {
+	now := time.Now().UTC()
+	completedAt := now.Add(time.Minute)
+	store := newFakeAgentRunsStore()
+	store.agent = &agent.Agent{
+		ID:             "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		Name:           "Implementation Agent",
+		Model:          "test-model",
+		Config:         agent.Config{TokenBudget: 1000},
+		Tools:          []agent.Tool{{Name: "datetime", Type: "builtin", Enabled: true}},
+	}
+	store.conversation = &agent.Conversation{
+		ID:             "conv_1",
+		AgentID:        "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+	}
+	store.runs = []*agent.Run{{
+		ID:             "run_1",
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		Status:         agent.RunStatusTokenBudgetExceeded,
+		IterationCount: 1,
+		ToolCallCount:  1,
+		Error:          "token_budget_exceeded: used 1200 tokens exceeds budget 1000",
+		CompletedAt:    &completedAt,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}}
+	store.messages = []*agent.Message{{
+		ID:             "msg_user",
+		ConversationID: "conv_1",
+		OrganizationID: "org_1",
+		Role:           "user",
+		Content:        "continue this run",
+		CreatedAt:      now,
+	}, {
+		ID:             "msg_tool",
+		ConversationID: "conv_1",
+		OrganizationID: "org_1",
+		Role:           "tool",
+		Content:        "Current time: noon",
+		ToolCallID:     "call_datetime",
+		CreatedAt:      now,
+	}}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{structured: []*chat.CompletionResponse{
+		{Content: "continued after budget increase", Usage: &chat.CompletionUsage{TotalTokens: 1200}},
+	}}))
+
+	recorder := httptest.NewRecorder()
+	handler.continueBudget(recorder, newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/continue-budget", `{"token_budget":2500}`), "run_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Data agentRunResponse `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Data.Run == nil || response.Data.Run.Status != agent.RunStatusCompleted || response.Data.Run.Error != "" || response.Data.Run.CompletedAt == nil {
+		t.Fatalf("expected continued run to complete cleanly, got %+v", response.Data.Run)
+	}
+	if len(response.Data.Messages) == 0 || response.Data.Messages[len(response.Data.Messages)-1].Content != "continued after budget increase" {
+		t.Fatalf("expected final assistant message in response, got %+v", response.Data.Messages)
+	}
+	if store.agent.Config.TokenBudget != 1000 {
+		t.Fatalf("continue budget should not mutate agent config, got %d", store.agent.Config.TokenBudget)
+	}
+}
+
+func TestAgentRunsHandlerContinueBudgetRejectsOutOfRangeBudget(t *testing.T) {
+	handler := newAgentRunsHandler(agent.NewService(newFakeAgentRunsStore(), &fakeAgentRunsGateway{}))
+
+	recorder := httptest.NewRecorder()
+	handler.continueBudget(recorder, newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/continue-budget", `{"tokenBudget":1000001}`), "run_1")
+
+	if recorder.Code != stdhttp.StatusBadRequest {
+		t.Fatalf("expected 400, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "tokenBudget must be between 1000 and 1000000") {
+		t.Fatalf("expected budget range error, got %s", recorder.Body.String())
+	}
+}
+
+func TestAgentRunsHandlerContinueBudgetReturnsConflictWhenBudgetStillExceeded(t *testing.T) {
+	now := time.Now().UTC()
+	completedAt := now.Add(time.Minute)
+	store := newFakeAgentRunsStore()
+	store.agent = &agent.Agent{
+		ID:             "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		Name:           "Implementation Agent",
+		Model:          "test-model",
+		Config:         agent.Config{TokenBudget: 1000},
+		Tools:          []agent.Tool{{Name: "datetime", Type: "builtin", Enabled: true}},
+	}
+	store.conversation = &agent.Conversation{
+		ID:             "conv_1",
+		AgentID:        "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+	}
+	store.runs = []*agent.Run{{
+		ID:             "run_1",
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		Status:         agent.RunStatusTokenBudgetExceeded,
+		IterationCount: 1,
+		ToolCallCount:  1,
+		Error:          "token_budget_exceeded: used 1200 tokens exceeds budget 1000",
+		CompletedAt:    &completedAt,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}}
+	store.messages = []*agent.Message{{
+		ID:             "msg_user",
+		ConversationID: "conv_1",
+		OrganizationID: "org_1",
+		Role:           "user",
+		Content:        "continue this run",
+		CreatedAt:      now,
+	}}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{structured: []*chat.CompletionResponse{
+		{Content: "still too large", Usage: &chat.CompletionUsage{TotalTokens: 3000}},
+	}}))
+
+	recorder := httptest.NewRecorder()
+	handler.continueBudget(recorder, newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/continue-budget", `{"tokenBudget":2500}`), "run_1")
+
+	if recorder.Code != stdhttp.StatusConflict {
+		t.Fatalf("expected 409, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "token budget exceeded") {
+		t.Fatalf("expected token budget exceeded error, got %s", recorder.Body.String())
+	}
+	if store.runs[0].Status != agent.RunStatusTokenBudgetExceeded || !strings.Contains(store.runs[0].Error, "token_budget_exceeded") {
+		t.Fatalf("expected run to remain token_budget_exceeded, got %+v", store.runs[0])
+	}
+}
+
 func TestAgentRunsHandlerApproveToolSelectsOnlyPendingApprovalWhenOmitted(t *testing.T) {
 	store := newFakeAgentRunsStore()
 	store.agent = &agent.Agent{

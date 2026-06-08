@@ -685,6 +685,18 @@ components:
           minimum: 1000
           maximum: 1000000
 
+    AgentRunContinueBudgetRequest:
+      type: object
+      properties:
+        token_budget:
+          type: integer
+          minimum: 1000
+          maximum: 1000000
+        tokenBudget:
+          type: integer
+          minimum: 1000
+          maximum: 1000000
+
     AgentWorkspaceTool:
       type: object
       properties:
@@ -6425,6 +6437,46 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/agent/runs/{runId}/continue-budget:
+    post:
+      summary: 增加 Agent run Token 预算并继续执行
+      operationId: continueAgentRunWithBudget
+      tags: [Agent]
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentRunContinueBudgetRequest"
+      responses:
+        "200":
+          description: 刷新后的 Agent run 状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AgentRunResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: Agent run 当前状态不允许续跑或新增预算仍不足
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
 
   /api/v1/agent/runs/{runId}/approve-plan-step:
     post:

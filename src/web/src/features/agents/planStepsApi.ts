@@ -125,6 +125,7 @@ function runDetailFromPayload(payload: AgentRunDetailPayload): AgentRunDetail {
 
 export type AgentPlanStepsApi = {
   getRunDetail: (runId: string) => Promise<AgentRunDetail>;
+  continueRunWithBudget: (runId: string, tokenBudget: number) => Promise<AgentRunDetail>;
   approvePlanStep: (runId: string, planStepId: string, reason?: string) => Promise<AgentPlanStep[]>;
   createPlanStep: (runId: string, payload: CreateAgentPlanStepRequest) => Promise<AgentPlanStep[]>;
   updatePlanStep: (runId: string, planStepId: string, payload: UpdateAgentPlanStepRequest) => Promise<AgentPlanStep[]>;
@@ -143,6 +144,12 @@ export function createAgentPlanStepsApi(client: HttpClient): AgentPlanStepsApi {
 
   return {
     getRunDetail: async (runId) => runDetailFromPayload(await client.get<AgentRunDetailPayload>(runPath(runId))),
+    continueRunWithBudget: async (runId, tokenBudget) =>
+      runDetailFromPayload(
+        await client.post<AgentRunDetailPayload>(`${runPath(runId)}/continue-budget`, {
+          tokenBudget
+        })
+      ),
     approvePlanStep: async (runId, planStepId, reason) =>
       planStepsFromPayload(
         await client.post<AgentPlanStepsPayload>(`${runPath(runId)}/approve-plan-step`, {

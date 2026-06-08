@@ -629,6 +629,76 @@ func TestRegisterAgentRunRoutesDispatchesRetryPlanStep(t *testing.T) {
 	}
 }
 
+func TestRegisterAgentRunRoutesDispatchesContinueBudget(t *testing.T) {
+	now := time.Now().UTC()
+	completedAt := now.Add(time.Minute)
+	store := newFakeAgentRunsStore()
+	store.agent = &agent.Agent{
+		ID:             "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		Name:           "Implementation Agent",
+		Model:          "test-model",
+		Config:         agent.Config{TokenBudget: 1000},
+		Tools:          []agent.Tool{{Name: "datetime", Type: "builtin", Enabled: true}},
+	}
+	store.conversation = &agent.Conversation{
+		ID:             "conv_1",
+		AgentID:        "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+	}
+	store.runs = []*agent.Run{{
+		ID:             "run_1",
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		Status:         agent.RunStatusTokenBudgetExceeded,
+		IterationCount: 1,
+		ToolCallCount:  1,
+		Error:          "token_budget_exceeded: used 1200 tokens exceeds budget 1000",
+		CompletedAt:    &completedAt,
+	}}
+	store.messages = []*agent.Message{{
+		ID:             "msg_user",
+		ConversationID: "conv_1",
+		OrganizationID: "org_1",
+		Role:           "user",
+		Content:        "continue this run",
+		CreatedAt:      now,
+	}, {
+		ID:             "msg_tool",
+		ConversationID: "conv_1",
+		OrganizationID: "org_1",
+		Role:           "tool",
+		Content:        "Current time: noon",
+		ToolCallID:     "call_datetime",
+		CreatedAt:      now,
+	}}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{structured: []*chat.CompletionResponse{
+		{Content: "continued after budget increase", Usage: &chat.CompletionUsage{TotalTokens: 1200}},
+	}}))
+	mux := stdhttp.NewServeMux()
+	registerAgentRunRoutes(mux, passThroughAuthMiddleware{}, handler)
+
+	request := newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/continue-budget", `{"tokenBudget":2500}`)
+	recorder := httptest.NewRecorder()
+
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, `"status":"completed"`) || !strings.Contains(body, `"continued after budget increase"`) {
+		t.Fatalf("expected continued completed run detail, got %s", body)
+	}
+	if strings.Contains(body, `"token_budget_exceeded`) {
+		t.Fatalf("expected token budget error to be cleared, got %s", body)
+	}
+}
+
 func TestRegisterAgentRunRoutesDispatchesExecutePlanStep(t *testing.T) {
 	now := time.Now().UTC()
 	store := newFakeAgentRunsStore()
