@@ -1809,6 +1809,99 @@ components:
         received:
           type: boolean
 
+    McpLocalServer:
+      type: object
+      properties:
+        id:
+          type: string
+          example: local_builtin_safe
+        name:
+          type: string
+          example: Oblivious Safe Builtins
+        description:
+          type: string
+        toolCount:
+          type: integer
+
+    McpServer:
+      type: object
+      properties:
+        id:
+          type: string
+        organizationId:
+          type: string
+        userId:
+          type: string
+        name:
+          type: string
+        url:
+          type: string
+          format: uri
+        hasAuthToken:
+          type: boolean
+          description: Indicates whether the stored server has an auth token. The raw token is not returned.
+        status:
+          type: string
+          enum: [connected, disconnected, error, unknown]
+        lastConnectedAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AddMcpServerRequest:
+      type: object
+      required: [name, url]
+      properties:
+        name:
+          type: string
+        url:
+          type: string
+          format: uri
+        authToken:
+          type: string
+          format: password
+          description: Optional server auth token. Responses only return hasAuthToken.
+
+    McpToolDefinition:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        inputSchema:
+          type: object
+          additionalProperties: true
+
+    ExecuteMcpToolRequest:
+      type: object
+      required: [toolName]
+      properties:
+        toolName:
+          type: string
+        args:
+          type: object
+          additionalProperties: true
+
+    McpToolResult:
+      type: object
+      properties:
+        content:
+          type: string
+        isError:
+          type: boolean
+
+    McpActionStatus:
+      type: object
+      properties:
+        status:
+          type: string
+
     QuotaSnapshot:
       type: object
       properties:
@@ -4134,6 +4227,323 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+
+  # ---- Workspace MCP servers ----
+  /api/v1/app/mcp-local-servers:
+    get:
+      summary: 获取内置本地 MCP server catalog
+      operationId: listLocalMcpServers
+      tags: [MCP]
+      responses:
+        "200":
+          description: 当前可用的 tenant-safe 本地 MCP server 列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/McpLocalServer"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/app/mcp-servers:
+    get:
+      summary: 获取当前用户的 MCP server 列表
+      operationId: listMcpServers
+      tags: [MCP]
+      responses:
+        "200":
+          description: 当前用户配置的 MCP server 列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/McpServer"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      summary: 添加当前用户的 MCP server
+      operationId: addMcpServer
+      tags: [MCP]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddMcpServerRequest"
+      responses:
+        "201":
+          description: 新创建的 MCP server；authToken 不会在响应中返回
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/McpServer"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/app/mcp-servers/{serverId}:
+    get:
+      summary: 获取 MCP server 详情
+      operationId: getMcpServer
+      tags: [MCP]
+      parameters:
+        - name: serverId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: MCP server 详情；authToken 不会在响应中返回
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/McpServer"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: MCP server 不属于当前用户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      summary: 删除 MCP server
+      operationId: deleteMcpServer
+      tags: [MCP]
+      parameters:
+        - name: serverId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: MCP server 已删除
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/McpActionStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: MCP server 不属于当前用户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/app/mcp-servers/{serverId}/connect:
+    post:
+      summary: 连接 MCP server 并刷新工具列表
+      operationId: connectMcpServer
+      tags: [MCP]
+      parameters:
+        - name: serverId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 连接后的 MCP server 状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/McpServer"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: MCP server 不属于当前用户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/app/mcp-servers/{serverId}/disconnect:
+    post:
+      summary: 断开 MCP server
+      operationId: disconnectMcpServer
+      tags: [MCP]
+      parameters:
+        - name: serverId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: MCP server 已断开
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/McpActionStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: MCP server 不属于当前用户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/app/mcp-servers/{serverId}/tools:
+    get:
+      summary: 获取 MCP server 工具定义
+      operationId: listMcpServerTools
+      tags: [MCP]
+      parameters:
+        - name: serverId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: MCP server 暴露的工具定义
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/McpToolDefinition"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: MCP server 不属于当前用户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/app/mcp-servers/{serverId}/status:
+    get:
+      summary: 获取 MCP server 连接状态
+      operationId: getMcpServerStatus
+      tags: [MCP]
+      parameters:
+        - name: serverId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: MCP server 当前状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/McpActionStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: MCP server 不属于当前用户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/app/mcp-servers/{serverId}/execute:
+    post:
+      summary: 执行 MCP server 工具
+      operationId: executeMcpServerTool
+      tags: [MCP]
+      parameters:
+        - name: serverId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExecuteMcpToolRequest"
+      responses:
+        "200":
+          description: MCP 工具执行结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/McpToolResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: MCP server 不属于当前用户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   # ---- Agent tools and runs ----
   /api/v1/agent/tools:
