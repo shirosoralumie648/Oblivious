@@ -185,12 +185,16 @@ require_marketplace_template_type_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
     spec = YAML.load_file(file)
+    schemas = spec.fetch("components", {}).fetch("schemas", {})
     paths = spec.fetch("paths", {})
     missing = []
 
     list_enum = paths.dig("/api/v1/marketplace/templates", "get", "parameters")&.
       find { |param| param["name"] == "type" }&.dig("schema", "enum") || []
-    create_enum = paths.dig("/api/v1/marketplace/templates", "post", "requestBody", "content", "application/json", "schema", "properties", "type", "enum") || []
+    create_schema = paths.dig("/api/v1/marketplace/templates", "post", "requestBody", "content", "application/json", "schema") || {}
+    create_ref = create_schema["$ref"]
+    create_schema = schemas.fetch(create_ref.split("/").last, {}) if create_ref
+    create_enum = create_schema.dig("properties", "type", "enum") || []
 
     [
       ["GET /api/v1/marketplace/templates type query", list_enum],
@@ -206,6 +210,89 @@ require_marketplace_template_type_contract() {
 
     unless missing.empty?
       warn "[openapi-contract] Marketplace template type contract is incomplete:"
+      missing.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
+require_marketplace_surface_payload_contract() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+    paths = spec.fetch("paths", {})
+    schemas = spec.fetch("components", {}).fetch("schemas", {})
+    missing = []
+
+    def response_data_ref(paths, path, method, status)
+      paths.dig(path, method, "responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "$ref") }&.
+        dig("properties", "data", "$ref")
+    end
+
+    def request_body_ref(paths, path, method)
+      paths.dig(path, method, "requestBody", "content", "application/json", "schema", "$ref")
+    end
+
+    def request_body_required?(paths, path, method)
+      paths.dig(path, method, "requestBody", "required") == true
+    end
+
+    expected_data_refs = {
+      ["/api/v1/marketplace/agents/{agentId}/abuse-reports", "post", "201"] => "#/components/schemas/MarketplaceAbuseReport",
+      ["/api/v1/marketplace/publisher/settlement-preferences", "get", "200"] => "#/components/schemas/MarketplaceSettlementPreferences",
+      ["/api/v1/marketplace/publisher/settlement-preferences", "put", "200"] => "#/components/schemas/MarketplaceSettlementPreferences",
+      ["/api/v1/marketplace/templates", "get", "200"] => "#/components/schemas/MarketplaceTemplatesResponse",
+      ["/api/v1/marketplace/templates", "post", "201"] => "#/components/schemas/MarketplaceTemplate",
+      ["/api/v1/marketplace/templates/{templateId}", "get", "200"] => "#/components/schemas/MarketplaceTemplateDetailResponse",
+      ["/api/v1/marketplace/templates/{templateId}/install", "post", "201"] => "#/components/schemas/MarketplaceTemplateInstall",
+      ["/api/v1/admin/marketplace/abuse-reports", "get", "200"] => "#/components/schemas/MarketplaceAbuseReportsResponse",
+      ["/api/v1/admin/marketplace/abuse-reports/{reportId}/resolve", "post", "200"] => "#/components/schemas/MarketplaceAbuseReportStatusResponse",
+      ["/api/v1/admin/marketplace/abuse-reports/{reportId}/dismiss", "post", "200"] => "#/components/schemas/MarketplaceAbuseReportStatusResponse",
+    }
+
+    expected_data_refs.each do |(path, method, status), expected|
+      unless response_data_ref(paths, path, method, status) == expected
+        missing << "#{method.upcase} #{path} #{status} data must reference #{expected}"
+      end
+    end
+
+    expected_body_refs = {
+      ["/api/v1/marketplace/agents/{agentId}/abuse-reports", "post"] => "#/components/schemas/MarketplaceAbuseReportRequest",
+      ["/api/v1/marketplace/publisher/settlement-preferences", "put"] => "#/components/schemas/MarketplaceSettlementPreferencesRequest",
+      ["/api/v1/marketplace/templates", "post"] => "#/components/schemas/MarketplaceTemplateCreateRequest",
+      ["/api/v1/admin/marketplace/abuse-reports/{reportId}/resolve", "post"] => "#/components/schemas/MarketplaceAbuseReportResolutionRequest",
+      ["/api/v1/admin/marketplace/abuse-reports/{reportId}/dismiss", "post"] => "#/components/schemas/MarketplaceAbuseReportResolutionRequest",
+    }
+
+    expected_body_refs.each do |(path, method), expected|
+      unless request_body_ref(paths, path, method) == expected
+        missing << "#{method.upcase} #{path} request body must reference #{expected}"
+      end
+      unless request_body_required?(paths, path, method)
+        missing << "#{method.upcase} #{path} request body must be required"
+      end
+    end
+
+    template_list = schemas["MarketplaceTemplatesResponse"] || {}
+    unless template_list.dig("properties", "templates", "items", "$ref") == "#/components/schemas/MarketplaceTemplate" &&
+        template_list.dig("properties", "total", "type") == "integer"
+      missing << "MarketplaceTemplatesResponse must expose templates[] and total"
+    end
+
+    abuse_list = schemas["MarketplaceAbuseReportsResponse"] || {}
+    unless abuse_list.dig("properties", "reports", "items", "$ref") == "#/components/schemas/MarketplaceAbuseReport" &&
+        abuse_list.dig("properties", "total", "type") == "integer"
+      missing << "MarketplaceAbuseReportsResponse must expose reports[] and total"
+    end
+
+    settlement_enum = schemas.dig("MarketplaceSettlementPreferences", "properties", "cycle", "enum") || []
+    unless ["weekly", "monthly", "quarterly"].all? { |cycle| settlement_enum.include?(cycle) }
+      missing << "MarketplaceSettlementPreferences.cycle must enumerate weekly, monthly, and quarterly"
+    end
+
+    unless missing.empty?
+      warn "[openapi-contract] Marketplace surface payload contract is incomplete:"
       missing.each { |entry| warn "  - #{entry}" }
       exit 1
     end
@@ -558,6 +645,7 @@ require_api_json_responses_use_envelope
 require_session_csrf_contract
 require_marketplace_paid_install_contract
 require_marketplace_template_type_contract
+require_marketplace_surface_payload_contract
 require_admin_billing_contract
 
 echo "[openapi-contract] required Relay alias, Agent, Memory, MCP, Tenant, Notification, Observability, publishing channel, Workflow, Billing, and Marketplace paths are documented."

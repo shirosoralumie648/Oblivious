@@ -1941,6 +1941,191 @@ components:
         - $ref: "#/components/schemas/MarketplaceAgentInstall"
         - $ref: "#/components/schemas/BillingCheckoutSession"
 
+    MarketplaceTemplate:
+      type: object
+      properties:
+        id:
+          type: string
+        organizationId:
+          type: string
+        type:
+          type: string
+          enum: [agent, workflow, plugin]
+        name:
+          type: string
+        description:
+          type: string
+        templateData:
+          type: object
+          additionalProperties: true
+        category:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        downloadsCount:
+          type: integer
+        ratingAvg:
+          type: number
+          format: double
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    MarketplaceTemplatesResponse:
+      type: object
+      properties:
+        templates:
+          type: array
+          items:
+            $ref: "#/components/schemas/MarketplaceTemplate"
+        total:
+          type: integer
+
+    MarketplaceTemplateDetailResponse:
+      type: object
+      properties:
+        template:
+          $ref: "#/components/schemas/MarketplaceTemplate"
+
+    MarketplaceTemplateCreateRequest:
+      type: object
+      required: [type, name, templateData]
+      properties:
+        type:
+          type: string
+          enum: [agent, workflow, plugin]
+        name:
+          type: string
+        description:
+          type: string
+        templateData:
+          type: object
+          additionalProperties: true
+        category:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+
+    MarketplaceTemplateInstall:
+      type: object
+      properties:
+        id:
+          type: string
+        templateID:
+          type: string
+        organizationId:
+          type: string
+        userID:
+          type: string
+        type:
+          type: string
+          enum: [agent, workflow, plugin]
+        name:
+          type: string
+        templateData:
+          type: object
+          additionalProperties: true
+        installedAt:
+          type: string
+          format: date-time
+
+    MarketplaceSettlementPreferences:
+      type: object
+      properties:
+        cycle:
+          type: string
+          enum: [weekly, monthly, quarterly]
+        label:
+          type: string
+        description:
+          type: string
+        payoutBusinessDays:
+          type: integer
+        processingFeePercent:
+          type: number
+          format: double
+        minimumPayoutAmount:
+          type: number
+          format: double
+        effectiveFrom:
+          type: string
+
+    MarketplaceSettlementPreferencesRequest:
+      type: object
+      required: [cycle]
+      properties:
+        cycle:
+          type: string
+          enum: [weekly, monthly, quarterly]
+
+    MarketplaceAbuseReportRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+        details:
+          type: string
+
+    MarketplaceAbuseReport:
+      type: object
+      properties:
+        id:
+          type: string
+        reporterOrganizationId:
+          type: string
+        reporterUserId:
+          type: string
+        agentId:
+          type: string
+        reason:
+          type: string
+        details:
+          type: string
+        status:
+          type: string
+          enum: [open, resolved, dismissed]
+        resolution:
+          type: string
+        reviewerUserId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    MarketplaceAbuseReportsResponse:
+      type: object
+      properties:
+        reports:
+          type: array
+          items:
+            $ref: "#/components/schemas/MarketplaceAbuseReport"
+        total:
+          type: integer
+
+    MarketplaceAbuseReportStatusResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [resolved, dismissed]
+
+    MarketplaceAbuseReportResolutionRequest:
+      type: object
+      properties:
+        resolution:
+          type: string
+
     AdminReviewListResponse:
       type: object
       properties:
@@ -10218,20 +10403,19 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required: [reason]
-              properties:
-                reason:
-                  type: string
-                details:
-                  type: string
+              $ref: "#/components/schemas/MarketplaceAbuseReportRequest"
       responses:
         "201":
           description: Abuse report 已创建
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplaceAbuseReport"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -10354,7 +10538,12 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplaceSettlementPreferences"
         "401":
           $ref: "#/components/responses/Unauthorized"
     put:
@@ -10366,19 +10555,19 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required: [cycle]
-              properties:
-                cycle:
-                  type: string
-                  enum: [weekly, monthly, quarterly]
+              $ref: "#/components/schemas/MarketplaceSettlementPreferencesRequest"
       responses:
         "200":
           description: 结算偏好已更新
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplaceSettlementPreferences"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -10421,7 +10610,12 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplaceTemplatesResponse"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
     post:
@@ -10433,32 +10627,19 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required: [type, name, templateData]
-              properties:
-                type:
-                  type: string
-                  enum: [agent, workflow, plugin]
-                name:
-                  type: string
-                description:
-                  type: string
-                templateData:
-                  type: object
-                  additionalProperties: true
-                category:
-                  type: string
-                tags:
-                  type: array
-                  items:
-                    type: string
+              $ref: "#/components/schemas/MarketplaceTemplateCreateRequest"
       responses:
         "201":
           description: 模板已创建
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplaceTemplate"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -10481,7 +10662,12 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplaceTemplateDetailResponse"
         "404":
           $ref: "#/components/responses/NotFound"
 
@@ -10502,7 +10688,12 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplaceTemplateInstall"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -10791,7 +10982,12 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplaceAbuseReportsResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
 
@@ -10807,21 +11003,23 @@ paths:
       operationId: resolveMarketplaceAbuseReport
       tags: [Admin, Marketplace]
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                resolution:
-                  type: string
+              $ref: "#/components/schemas/MarketplaceAbuseReportResolutionRequest"
       responses:
         "200":
           description: abuse report 已解决
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplaceAbuseReportStatusResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -10839,21 +11037,23 @@ paths:
       operationId: dismissMarketplaceAbuseReport
       tags: [Admin, Marketplace]
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                resolution:
-                  type: string
+              $ref: "#/components/schemas/MarketplaceAbuseReportResolutionRequest"
       responses:
         "200":
           description: abuse report 已驳回
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplaceAbuseReportStatusResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":

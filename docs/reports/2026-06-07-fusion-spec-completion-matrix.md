@@ -37,6 +37,7 @@ Status values:
 
 - Billing row 26: Admin Billing inspection is now documented in OpenAPI for summary, sessions, payment intents, webhook events, subscriptions, top-ups, invoices, refunds, Marketplace settlements, Marketplace payouts, top-up refund recording, and payout-paid marking. The contract gate verifies response wrapper schemas, query filters, mutation request bodies, CSRF requirements, and the runtime payout-paid response schema.
 - API contract row 31: `scripts/verify-openapi-contract.sh` now guards Admin Billing route/schema parity instead of only path presence, including the summary schema, all list response collection wrappers, `AdminTopupRefundRequest`, `AdminMarketplacePayoutPaidRequest`, and `MarketplacePayout` response shape.
+- API contract row 31: Marketplace templates, publisher settlement preferences, and abuse-report routes now have explicit OpenAPI request/response schemas, and the contract gate verifies those `data` schema refs plus template type and settlement-cycle enums.
 
 ## Verified Evidence Already Collected
 
@@ -82,6 +83,10 @@ Status values:
 - `bash scripts/check.sh docs` passed after wiring the Admin Billing OpenAPI assertions through the docs check path.
 - `GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/http -run 'TestAdminBilling(ListsExposeAllRequiredSurfaces|MarksMarketplacePayoutPaid|ListsApplyRecoveryFilters|SummaryAppliesFailedStatusFilter)' -count=1 -v` completed with PASS but all four DB-backed Admin Billing tests were skipped locally because `TEST_DATABASE_URL` was not set.
 - `git diff --check` passed after the Admin Billing OpenAPI contract slice.
+- `bash scripts/verify-openapi-contract.sh` and `bash scripts/check.sh docs` passed after adding Marketplace template, publisher settlement-preference, and abuse-report schema-fidelity checks.
+- `GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/marketplace -run 'TestService(CreatesAndInstallsMarketplaceTemplate|RejectsInvalidMarketplaceTemplate|SettlementPreferencesDefaultToMonthly|UpdatesSettlementPreferencesForNextCycle)|TestGovernance(AbuseReportLifecycle|ListsOpenAbuseReportsForReviewQueue)' -count=1 -v` passed for DB-free template/preference service tests; the two governance abuse-report DB integration tests were skipped locally because `TEST_DATABASE_URL` was not set.
+- `GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/http -run 'TestMarketplaceRouterRegistersTemplateAndPublisherPreferenceRoutes|TestMarketplaceTemplateRoutesCreateListDetailAndInstall|TestMarketplacePublisherSettlementPreferencesUseActiveOrganization|TestAdminMarketplaceListsOpenAbuseReports|TestMarketplaceAbuseReportLifecycle' -count=1 -v` passed for the DB-free route-surface test; the DB-backed HTTP template/preference/abuse-report tests were skipped locally because `TEST_DATABASE_URL` was not set.
+- `git diff --check` passed after the Marketplace schema-fidelity contract slice.
 
 These checks prove only the covered surfaces. They do not prove full project completion.
 
