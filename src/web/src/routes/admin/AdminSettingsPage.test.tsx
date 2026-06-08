@@ -5,6 +5,7 @@ const getRelayPricingSettings = vi.fn();
 const updateRelayPricingSettings = vi.fn();
 const getUsageLimitSettings = vi.fn();
 const updateUsageLimitSettings = vi.fn();
+const listUsageLogs = vi.fn();
 
 vi.mock('../../features/admin/api', () => ({
   createAdminApi: () => ({
@@ -12,6 +13,7 @@ vi.mock('../../features/admin/api', () => ({
     updateRelayPricingSettings,
     getUsageLimitSettings,
     updateUsageLimitSettings,
+    listUsageLogs,
   }),
 }));
 
@@ -23,6 +25,8 @@ describe('AdminSettingsPage', () => {
     updateRelayPricingSettings.mockReset();
     getUsageLimitSettings.mockReset();
     updateUsageLimitSettings.mockReset();
+    listUsageLogs.mockReset();
+    listUsageLogs.mockResolvedValue({ data: [], total: 0 });
   });
 
   it('loads and saves relay pricing multiplier settings', async () => {
@@ -115,6 +119,73 @@ describe('AdminSettingsPage', () => {
       maxTokensPerRequest: 0,
     }));
     expect(await screen.findByText('Usage limit saved.')).toBeInTheDocument();
+  });
+
+  it('shows usage-limit enforcement and recovery signals from usage logs', async () => {
+    getRelayPricingSettings.mockResolvedValue({
+      modelMultipliers: {},
+      groupMultipliers: {},
+    });
+    getUsageLimitSettings.mockResolvedValue([
+      {
+        organizationId: 'org_1',
+        quotaMode: 'organization',
+        maxConcurrentRequests: 0,
+        windowSeconds: 60,
+        maxTokensPerWindow: 1000,
+        maxTokensPerRequest: 250,
+      },
+    ]);
+    listUsageLogs
+      .mockResolvedValueOnce({
+        data: [
+          {
+            id: 'usage_limited_1',
+            organizationId: 'org_1',
+            userId: 'user_1',
+            requestId: 'req_limited',
+            model: 'gpt-4o',
+            status: 'error',
+            statusCode: 429,
+            errorCode: 'relay_rate_limited',
+            cost: 0,
+            channelCost: 0,
+            promptTokens: 0,
+            completionTokens: 0,
+            totalTokens: 0,
+            createdAt: '2026-06-08T08:00:00Z',
+          },
+        ],
+        total: 1,
+      })
+      .mockResolvedValueOnce({
+        data: [
+          {
+            id: 'usage_recovered_1',
+            organizationId: 'org_1',
+            userId: 'user_1',
+            requestId: 'req_recovered',
+            model: 'gpt-4o',
+            status: 'success',
+            statusCode: 200,
+            cost: 0.01,
+            channelCost: 0.005,
+            promptTokens: 10,
+            completionTokens: 20,
+            totalTokens: 30,
+            createdAt: '2026-06-08T08:05:00Z',
+          },
+        ],
+        total: 1,
+      });
+
+    render(<AdminSettingsPage />);
+
+    expect(await screen.findByText('Recovered')).toBeInTheDocument();
+    expect(screen.getByText('1 recent hit - relay_rate_limited')).toBeInTheDocument();
+    expect(screen.getByText('Recovery: req_recovered')).toBeInTheDocument();
+    expect(listUsageLogs).toHaveBeenNthCalledWith(1, expect.objectContaining({ organizationID: 'org_1', status: 'error', limit: 50 }));
+    expect(listUsageLogs).toHaveBeenNthCalledWith(2, expect.objectContaining({ organizationID: 'org_1', status: 'success', limit: 1 }));
   });
 
   it('selects an existing usage limit for safe editing before saving', async () => {

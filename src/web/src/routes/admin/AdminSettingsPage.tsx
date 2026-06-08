@@ -7,7 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 
 import { createAdminApi } from '../../features/admin/api';
 import { createHttpClient } from '../../services/http/client';
-import type { RelayPricingSettings, UsageLimitSettings } from '../../types/admin';
+import type { RelayPricingSettings, UsageLimitSettings, UsageLogEntry, UsageLogFilter } from '../../types/admin';
 
 type SettingsState = {
   loading: boolean;
@@ -18,6 +18,8 @@ type SettingsState = {
   modelText: string;
   groupText: string;
   usageLimits: UsageLimitSettings[];
+  usageLimitSignals: Record<string, UsageLimitRuntimeSignal>;
+  usageLimitSignalError: string | null;
   selectedUsageLimitKey: string | null;
   usageScopeType: string;
   usageScopeId: string;
@@ -36,6 +38,8 @@ const initialState: SettingsState = {
   modelText: '{}',
   groupText: '{}',
   usageLimits: [],
+  usageLimitSignals: {},
+  usageLimitSignalError: null,
   selectedUsageLimitKey: null,
   usageScopeType: 'organization',
   usageScopeId: '',
@@ -70,6 +74,15 @@ type UsageLimitFormPayload = {
 };
 
 type UsageLimitUpdatePayload = UsageLimitSettings & UsageLimitFormPayload;
+
+type UsageLimitRuntimeSignal = {
+  recentLimitHits: number;
+  latestLimitHit?: UsageLogEntry;
+  latestRecovery?: UsageLogEntry;
+};
+
+const builtInUsageLimitTypes = new Set(['tokens', 'request_tokens', 'requests', 'concurrent_requests']);
+const usageLimitEnforcementCodes = new Set(['relay_rate_limited', 'rate_limited', 'usage_limit_exceeded']);
 
 function prettyMap(input: Record<string, number> | undefined) {
   return JSON.stringify(input ?? {}, null, 2);
@@ -204,6 +217,84 @@ function usageLimitPayload(input: UsageLimitFormPayload, existing?: UsageLimitSe
   return payload;
 }
 
+function usageLimitLogFilter(settings: UsageLimitSettings, status: 'error' | 'success'): UsageLogFilter {
+  const scopeType = usageScopeType(settings);
+  const scopeId = usageScopeId(settings);
+  const limitType = usageLimitType(settings);
+  const filter: UsageLogFilter = {
+    organizationID: settings.organizationId ?? settings.organizationID,
+    status,
+    limit: status === 'error' ? 50 : 1,
+  };
+  if (scopeType === 'organization' && scopeId) {
+    filter.organizationID = scopeId;
+  }
+  if (scopeType === 'user' && scopeId) {
+    filter.userID = scopeId;
+  }
+  if (!builtInUsageLimitTypes.has(limitType)) {
+    filter.featureType = limitType;
+  }
+  return filter;
+}
+
+function isUsageLimitHit(log: UsageLogEntry) {
+  return log.statusCode === 429 || usageLimitEnforcementCodes.has(log.errorCode ?? '');
+}
+
+function isAfter(left?: string, right?: string) {
+  if (!left || !right) {
+    return false;
+  }
+  return new Date(left).getTime() > new Date(right).getTime();
+}
+
+function usageLimitRuntimeStatus(signal?: UsageLimitRuntimeSignal) {
+  if (!signal) {
+    return 'No signal';
+  }
+  if (signal.recentLimitHits > 0) {
+    return isAfter(signal.latestRecovery?.createdAt, signal.latestLimitHit?.createdAt) ? 'Recovered' : 'Enforcing';
+  }
+  return signal.latestRecovery ? 'Clear' : 'No traffic';
+}
+
+function usageLimitRuntimeDetail(signal?: UsageLimitRuntimeSignal) {
+  if (!signal) {
+    return 'Runtime logs unavailable';
+  }
+  if (signal.latestLimitHit) {
+    const code = signal.latestLimitHit.errorCode || `HTTP ${signal.latestLimitHit.statusCode ?? 429}`;
+    return `${signal.recentLimitHits} recent hit${signal.recentLimitHits === 1 ? '' : 's'} - ${code}`;
+  }
+  if (signal.latestRecovery) {
+    return `Latest success ${signal.latestRecovery.requestId || signal.latestRecovery.id}`;
+  }
+  return 'No recent relay traffic';
+}
+
+async function loadUsageLimitRuntimeSignals(
+  api: Pick<ReturnType<typeof createAdminApi>, 'listUsageLogs'>,
+  usageLimits: UsageLimitSettings[]
+): Promise<Record<string, UsageLimitRuntimeSignal>> {
+  const entries = await Promise.all(usageLimits.map(async (settings) => {
+    const [errors, successes] = await Promise.all([
+      api.listUsageLogs(usageLimitLogFilter(settings, 'error')),
+      api.listUsageLogs(usageLimitLogFilter(settings, 'success')),
+    ]);
+    const limitHits = errors.data.filter(isUsageLimitHit);
+    return [
+      usageScopeKey(settings),
+      {
+        recentLimitHits: limitHits.length,
+        latestLimitHit: limitHits[0],
+        latestRecovery: successes.data[0],
+      } satisfies UsageLimitRuntimeSignal,
+    ] as const;
+  }));
+  return Object.fromEntries(entries);
+}
+
 function usagePeriodSeconds(period: string): number {
   switch (period) {
     case 'hour':
@@ -228,10 +319,19 @@ export function AdminSettingsPage() {
         api.getRelayPricingSettings(),
         api.getUsageLimitSettings(),
       ]);
+      let usageLimitSignals: Record<string, UsageLimitRuntimeSignal> = {};
+      let usageLimitSignalError: string | null = null;
+      try {
+        usageLimitSignals = await loadUsageLimitRuntimeSignals(api, usageLimits);
+      } catch (error) {
+        usageLimitSignalError = error instanceof Error ? error.message : 'Unable to load usage-limit runtime signals.';
+      }
       setState((current) => ({
         ...current,
         ...stateFromSettings(settings),
         usageLimits,
+        usageLimitSignals,
+        usageLimitSignalError,
         loading: false,
       }));
     } catch (error) {
@@ -387,7 +487,7 @@ export function AdminSettingsPage() {
               <div className="px-3 py-4 text-sm text-muted-foreground">No usage limits configured.</div>
             ) : (
               state.usageLimits.map((settings) => (
-                <div key={usageScopeKey(settings)} className="grid gap-2 px-3 py-3 text-sm md:grid-cols-[minmax(0,1fr)_repeat(4,120px)]">
+                <div key={usageScopeKey(settings)} className="grid gap-2 px-3 py-3 text-sm md:grid-cols-[minmax(0,1fr)_repeat(3,120px)_minmax(140px,180px)_80px]">
                   <div>
                     <div className="font-medium">{usageScopeLabel(settings)}</div>
                     <div className="text-xs text-muted-foreground">{settings.organizationId ?? settings.organizationID}</div>
@@ -405,6 +505,14 @@ export function AdminSettingsPage() {
                     <div className="text-xs text-muted-foreground">Limit</div>
                     <div>{usageLimitValue(settings)}</div>
                   </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">Runtime</div>
+                    <div>{usageLimitRuntimeStatus(state.usageLimitSignals[usageScopeKey(settings)])}</div>
+                    <div className="text-xs text-muted-foreground">{usageLimitRuntimeDetail(state.usageLimitSignals[usageScopeKey(settings)])}</div>
+                    {state.usageLimitSignals[usageScopeKey(settings)]?.latestRecovery ? (
+                      <div className="text-xs text-muted-foreground">{`Recovery: ${state.usageLimitSignals[usageScopeKey(settings)]?.latestRecovery?.requestId || state.usageLimitSignals[usageScopeKey(settings)]?.latestRecovery?.id}`}</div>
+                    ) : null}
+                  </div>
                   <div className="flex items-center justify-end">
                     <Button type="button" variant="outline" size="sm" onClick={() => editUsageLimit(settings)} aria-label={usageEditLabel(settings)}>
                       Edit
@@ -414,6 +522,9 @@ export function AdminSettingsPage() {
               ))
             )}
           </div>
+          {state.usageLimitSignalError ? (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-200">{state.usageLimitSignalError}</div>
+          ) : null}
         </div>
 
         <div className="space-y-4 rounded-lg border bg-card p-4">
