@@ -15,9 +15,11 @@ const listWorkflows = vi.fn();
 const matchConversationTriggers = vi.fn();
 const matchSemanticTriggers = vi.fn();
 const pauseExecution = vi.fn();
+const publishWorkflowBranch = vi.fn();
 const rollbackWorkflow = vi.fn();
 const resumeExecution = vi.fn();
 const resolvePausedFailure = vi.fn();
+const mergeWorkflowBranch = vi.fn();
 const listScheduledTasks = vi.fn();
 const runScheduledTaskNow = vi.fn();
 const testNode = vi.fn();
@@ -39,7 +41,9 @@ vi.mock('../../features/workflows/workflowsApi', () => ({
     listWorkflows,
     matchConversationTriggers,
     matchSemanticTriggers,
+    mergeWorkflowBranch,
     pauseExecution,
+    publishWorkflowBranch,
     rollbackWorkflow,
     resumeExecution,
     resolvePausedFailure,
@@ -96,7 +100,9 @@ describe('WorkflowsPage', () => {
     listWorkflows.mockReset();
     matchConversationTriggers.mockReset();
     matchSemanticTriggers.mockReset();
+    mergeWorkflowBranch.mockReset();
     pauseExecution.mockReset();
+    publishWorkflowBranch.mockReset();
     rollbackWorkflow.mockReset();
     resumeExecution.mockReset();
     resolvePausedFailure.mockReset();
@@ -3527,6 +3533,102 @@ describe('WorkflowsPage', () => {
     });
     expect(listWorkflowVersions).toHaveBeenCalledTimes(2);
     expect(screen.getByText('Incident triage branch')).toBeInTheDocument();
+  });
+
+  it('publishes and merges a created workflow branch from the workflow route', async () => {
+    listWorkflows.mockResolvedValue([
+      {
+        definition: { nodes: [{ id: 'manual-start', type: 'manual' }] },
+        id: 'workflow_1',
+        name: 'Incident triage',
+        status: 'published',
+        version: 2,
+      },
+    ]);
+    listWorkflowVersions
+      .mockResolvedValueOnce([
+        {
+          definition: {
+            branch: {
+              sourceVersion: 2,
+              sourceWorkflowId: 'workflow_1',
+            },
+            nodes: [{ id: 'manual-start', type: 'manual' }],
+          },
+          id: 'workflow_branch',
+          name: 'Incident triage branch',
+          status: 'draft',
+          version: 1,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          definition: {
+            branch: {
+              sourceVersion: 2,
+              sourceWorkflowId: 'workflow_1',
+            },
+            nodes: [{ id: 'manual-start', type: 'manual' }],
+          },
+          id: 'workflow_branch',
+          name: 'Incident triage branch',
+          status: 'published',
+          version: 1,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          definition: { nodes: [{ id: 'manual-start', type: 'manual' }] },
+          id: 'workflow_1',
+          name: 'Incident triage',
+          status: 'published',
+          version: 3,
+        },
+      ]);
+    publishWorkflowBranch.mockResolvedValue({
+      definition: {
+        branch: {
+          sourceVersion: 2,
+          sourceWorkflowId: 'workflow_1',
+        },
+        nodes: [{ id: 'manual-start', type: 'manual' }],
+      },
+      id: 'workflow_branch',
+      name: 'Incident triage branch',
+      status: 'published',
+      version: 1,
+    });
+    mergeWorkflowBranch.mockResolvedValue({
+      definition: { nodes: [{ id: 'manual-start', type: 'manual' }] },
+      id: 'workflow_1',
+      name: 'Incident triage',
+      status: 'published',
+      version: 3,
+    });
+
+    render(<WorkflowsPage />);
+
+    await screen.findByText('Incident triage');
+    fireEvent.click(screen.getByRole('button', { name: 'Load versions for Incident triage' }));
+
+    await waitFor(() => {
+      expect(listWorkflowVersions).toHaveBeenCalledWith('workflow_1');
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Publish branch Incident triage branch' }));
+
+    await waitFor(() => {
+      expect(publishWorkflowBranch).toHaveBeenCalledWith('workflow_1', 'workflow_branch', {
+        name: 'Incident triage branch',
+      });
+    });
+    expect(screen.getByLabelText('Workflow version 1 status')).toHaveTextContent('published');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Merge branch Incident triage branch into Incident triage' }));
+
+    await waitFor(() => {
+      expect(mergeWorkflowBranch).toHaveBeenCalledWith('workflow_1', 'workflow_branch');
+    });
+    expect(screen.getByText('Version: 3')).toBeInTheDocument();
   });
 
   it('shows version definition node summaries before rollback', async () => {

@@ -1154,6 +1154,20 @@ function defaultBranchName(workflow: WorkflowDefinition, version: WorkflowDefini
   return `${workflow.name} v${version.version} branch`;
 }
 
+function workflowBranchSourceId(version: WorkflowDefinition) {
+  const branch = version.definition.branch;
+  if (typeof branch !== 'object' || branch === null || Array.isArray(branch)) {
+    return null;
+  }
+
+  const sourceWorkflowId = (branch as Record<string, unknown>).sourceWorkflowId;
+  return typeof sourceWorkflowId === 'string' && sourceWorkflowId.trim() !== '' ? sourceWorkflowId : null;
+}
+
+function isWorkflowBranchVersion(workflow: WorkflowDefinition, version: WorkflowDefinition) {
+  return version.id !== workflow.id && workflowBranchSourceId(version) === workflow.id;
+}
+
 function formatJson(value: unknown) {
   if (value === undefined) {
     return '{}';
@@ -2885,6 +2899,55 @@ export function WorkflowsPage() {
     }
   };
 
+  const handlePublishWorkflowBranch = async (workflow: WorkflowDefinition, branch: WorkflowDefinition) => {
+    setBusyAction(`publish-branch:${workflow.id}:${branch.id}`);
+    setError(null);
+
+    try {
+      const publishedBranch = await workflowsApi.publishWorkflowBranch(workflow.id, branch.id, {
+        name: branch.name,
+      });
+      setWorkflows((current) => [
+        publishedBranch,
+        ...current.filter((currentWorkflow) => currentWorkflow.id !== publishedBranch.id),
+      ]);
+      syncWorkflowTriggerDraftState(publishedBranch.id, publishedBranch.definition);
+      setWorkflowVariablesDrafts((current) => ({
+        ...current,
+        [publishedBranch.id]: formatJson(publishedBranch.variables),
+      }));
+      const versions = await workflowsApi.listWorkflowVersions(workflow.id);
+      setVersionsByWorkflow((current) => ({ ...current, [workflow.id]: versions }));
+    } catch (caughtError) {
+      setError(errorMessage(caughtError, 'Unable to publish workflow branch.'));
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleMergeWorkflowBranch = async (workflow: WorkflowDefinition, branch: WorkflowDefinition) => {
+    setBusyAction(`merge-branch:${workflow.id}:${branch.id}`);
+    setError(null);
+
+    try {
+      const mergedWorkflow = await workflowsApi.mergeWorkflowBranch(workflow.id, branch.id);
+      setWorkflows((current) =>
+        current.map((currentWorkflow) => (currentWorkflow.id === mergedWorkflow.id ? mergedWorkflow : currentWorkflow))
+      );
+      syncWorkflowTriggerDraftState(mergedWorkflow.id, mergedWorkflow.definition);
+      setWorkflowVariablesDrafts((current) => ({
+        ...current,
+        [mergedWorkflow.id]: formatJson(mergedWorkflow.variables),
+      }));
+      const versions = await workflowsApi.listWorkflowVersions(workflow.id);
+      setVersionsByWorkflow((current) => ({ ...current, [workflow.id]: versions }));
+    } catch (caughtError) {
+      setError(errorMessage(caughtError, 'Unable to merge workflow branch.'));
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
   const replaceExecution = (workflowId: string, nextExecution: WorkflowExecution) => {
     setExecution(nextExecution);
     setExecutionsByWorkflow((current) => ({
@@ -4459,6 +4522,7 @@ export function WorkflowsPage() {
                               const branchKey = workflowBranchDraftKey(workflow.id, version.version);
                               const branchDraft =
                                 branchDrafts[branchKey] ?? { ...emptyBranchDraft, name: defaultBranchName(workflow, version) };
+                              const isBranchVersion = isWorkflowBranchVersion(workflow, version);
 
                               return (
                                 <div
@@ -4502,6 +4566,35 @@ export function WorkflowsPage() {
                                     >
                                       Create branch
                                     </button>
+                                    {isBranchVersion ? (
+                                      <>
+                                        <button
+                                          aria-label={`Publish branch ${version.name}`}
+                                          className="min-h-9 rounded-lg border border-[#cfc8b7] bg-white px-3 text-xs font-semibold text-[#181611] disabled:cursor-not-allowed disabled:opacity-50"
+                                          disabled={
+                                            busyAction === `publish-branch:${workflow.id}:${version.id}` ||
+                                            version.status === 'published'
+                                          }
+                                          onClick={() => void handlePublishWorkflowBranch(workflow, version)}
+                                          type="button"
+                                        >
+                                          {busyAction === `publish-branch:${workflow.id}:${version.id}`
+                                            ? 'Publishing...'
+                                            : 'Publish branch'}
+                                        </button>
+                                        <button
+                                          aria-label={`Merge branch ${version.name} into ${workflow.name}`}
+                                          className="min-h-9 rounded-lg border border-[#cfc8b7] bg-white px-3 text-xs font-semibold text-[#181611] disabled:cursor-not-allowed disabled:opacity-50"
+                                          disabled={busyAction === `merge-branch:${workflow.id}:${version.id}`}
+                                          onClick={() => void handleMergeWorkflowBranch(workflow, version)}
+                                          type="button"
+                                        >
+                                          {busyAction === `merge-branch:${workflow.id}:${version.id}`
+                                            ? 'Merging...'
+                                            : 'Merge branch'}
+                                        </button>
+                                      </>
+                                    ) : null}
                                   </div>
                                   {branchForms[branchKey] ? (
                                     <form
