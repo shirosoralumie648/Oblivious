@@ -6164,6 +6164,9 @@ paths:
       summary: 创建当前用户通知
       operationId: createNotification
       tags: [Notification]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       requestBody:
         required: true
         content:
@@ -6212,6 +6215,9 @@ paths:
       summary: 标记当前用户所有通知为已读
       operationId: markAllNotificationsRead
       tags: [Notification]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       responses:
         "200":
           description: 所有通知已标记为已读
@@ -6232,6 +6238,9 @@ paths:
       summary: 标记单条通知为已读
       operationId: markNotificationRead
       tags: [Notification]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: notificationId
           in: path
@@ -6264,6 +6273,9 @@ paths:
       summary: 删除单条通知
       operationId: deleteNotification
       tags: [Notification]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: notificationId
           in: path

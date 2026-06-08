@@ -1386,6 +1386,71 @@ require_task_mutation_csrf_contract() {
   ' "$openapi_file"
 }
 
+require_notification_mutation_csrf_contract() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+    paths = spec.fetch("paths", {})
+    missing = []
+
+    def operation(paths, path, method, missing)
+      op = paths.dig(path, method)
+      unless op
+        missing << "#{method.upcase} #{path} must be documented"
+        return {}
+      end
+      op
+    end
+
+    def requires_cookie_and_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
+    end
+
+    def request_body_ref(operation)
+      operation.dig("requestBody", "content", "application/json", "schema", "$ref")
+    end
+
+    def response_data_ref(operation, status)
+      operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "$ref") }&.
+        dig("properties", "data", "$ref")
+    end
+
+    expected_responses = {
+      ["/api/v1/app/notifications", "post"] => ["201", "#/components/schemas/Notification"],
+      ["/api/v1/app/notifications/mark-all-read", "post"] => ["200", "#/components/schemas/NotificationActionStatus"],
+      ["/api/v1/app/notifications/{notificationId}", "patch"] => ["200", "#/components/schemas/NotificationActionStatus"],
+      ["/api/v1/app/notifications/{notificationId}", "delete"] => ["200", "#/components/schemas/NotificationActionStatus"],
+    }
+
+    expected_responses.each do |(path, method), (status, expected)|
+      op = operation(paths, path, method, missing)
+      unless requires_cookie_and_csrf?(op)
+        missing << "#{method.upcase} #{path} must require cookieAuth and csrfHeader"
+      end
+      unless op.fetch("tags", []).include?("Notification")
+        missing << "#{method.upcase} #{path} must be tagged Notification"
+      end
+      unless response_data_ref(op, status) == expected
+        missing << "#{method.upcase} #{path} #{status} data must reference #{expected}"
+      end
+    end
+
+    create = operation(paths, "/api/v1/app/notifications", "post", missing)
+    unless create.dig("requestBody", "required") == true &&
+        request_body_ref(create) == "#/components/schemas/CreateNotificationRequest"
+      missing << "POST /api/v1/app/notifications request body must require CreateNotificationRequest"
+    end
+
+    unless missing.empty?
+      warn "[openapi-contract] Notification mutation CSRF contract is incomplete:"
+      missing.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 require_admin_core_management_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
@@ -1966,6 +2031,7 @@ require_tenant_organization_mutation_csrf_contract
 require_workflow_execution_control_csrf_contract
 require_console_api_token_csrf_contract
 require_task_mutation_csrf_contract
+require_notification_mutation_csrf_contract
 require_admin_core_management_contract
 require_admin_billing_contract
 require_domestic_payment_webhook_payout_contract
