@@ -473,6 +473,46 @@ func TestRouteSurfaceMarketplaceUserMutationsRejectCookieWithoutCSRFWithoutDatab
 	}
 }
 
+func TestRouteSurfaceAgentRunMutationsRejectCookieWithoutCSRFWithoutDatabase(t *testing.T) {
+	session := routeSurfaceUserSession()
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}})
+	cookie := routeSurfaceSignedSessionCookie(t, session)
+
+	tests := []routeSurfaceCase{
+		{"create run", stdhttp.MethodPost, "/api/v1/agent/runs"},
+		{"approve tool", stdhttp.MethodPost, "/api/v1/agent/runs/run_1/approve-tool"},
+		{"reject tool", stdhttp.MethodPost, "/api/v1/agent/runs/run_1/reject-tool"},
+		{"retry tool", stdhttp.MethodPost, "/api/v1/agent/runs/run_1/retry-tool"},
+		{"continue budget", stdhttp.MethodPost, "/api/v1/agent/runs/run_1/continue-budget"},
+		{"approve plan step", stdhttp.MethodPost, "/api/v1/agent/runs/run_1/approve-plan-step"},
+		{"execute plan step", stdhttp.MethodPost, "/api/v1/agent/runs/run_1/execute-plan-step"},
+		{"skip plan step", stdhttp.MethodPost, "/api/v1/agent/runs/run_1/skip-plan-step"},
+		{"retry plan step", stdhttp.MethodPost, "/api/v1/agent/runs/run_1/retry-plan-step"},
+		{"update plan step", stdhttp.MethodPatch, "/api/v1/agent/runs/run_1/update-plan-step"},
+		{"create plan step", stdhttp.MethodPost, "/api/v1/agent/runs/run_1/create-plan-step"},
+		{"move plan step", stdhttp.MethodPost, "/api/v1/agent/runs/run_1/move-plan-step"},
+		{"delete plan step", stdhttp.MethodPost, "/api/v1/agent/runs/run_1/delete-plan-step"},
+		{"workspace approve tool", stdhttp.MethodPost, "/api/v1/app/agents/tool-runs/tool_run_1/approve"},
+		{"workspace reject tool", stdhttp.MethodPost, "/api/v1/app/agents/tool-runs/tool_run_1/reject"},
+		{"workspace retry tool", stdhttp.MethodPost, "/api/v1/app/agents/tool-runs/tool_run_1/retry"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(`{}`))
+			request.Header.Set("Content-Type", "application/json")
+			request.AddCookie(cookie)
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusForbidden {
+				t.Fatalf("expected missing csrf to be rejected with 403 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
 func routeSurfaceRegisterUser(t *testing.T, router stdhttp.Handler, email string) *stdhttp.Cookie {
 	t.Helper()
 

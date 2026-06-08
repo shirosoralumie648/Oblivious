@@ -6993,6 +6993,9 @@ paths:
       summary: 审批 workspace Agent 工具调用
       operationId: approveWorkspaceAgentToolRun
       tags: [Agent]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: toolRunId
           in: path
@@ -7039,6 +7042,9 @@ paths:
       summary: 拒绝 workspace Agent 工具调用
       operationId: rejectWorkspaceAgentToolRun
       tags: [Agent]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: toolRunId
           in: path
@@ -7085,6 +7091,9 @@ paths:
       summary: 重试 workspace Agent 工具调用
       operationId: retryWorkspaceAgentToolRun
       tags: [Agent]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: toolRunId
           in: path
@@ -7740,6 +7749,9 @@ paths:
       summary: 创建并执行 Agent run
       operationId: createAgentRun
       tags: [Agent]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       requestBody:
         required: true
         content:
@@ -7796,6 +7808,9 @@ paths:
       summary: 审批待处理的 Agent 工具调用
       operationId: approveAgentToolRun
       tags: [Agent]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: runId
           in: path
@@ -7829,6 +7844,9 @@ paths:
       summary: 拒绝待处理的 Agent 工具调用
       operationId: rejectAgentToolRun
       tags: [Agent]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: runId
           in: path
@@ -7862,6 +7880,9 @@ paths:
       summary: 重试失败的 Agent 工具调用
       operationId: retryAgentToolRun
       tags: [Agent]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: runId
           in: path
@@ -7895,6 +7916,9 @@ paths:
       summary: 增加 Agent run Token 预算并继续执行
       operationId: continueAgentRunWithBudget
       tags: [Agent]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: runId
           in: path
@@ -7935,6 +7959,9 @@ paths:
       summary: 审批 Agent planning 步骤
       operationId: approveAgentPlanStep
       tags: [Agent]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: runId
           in: path
@@ -7968,6 +7995,9 @@ paths:
       summary: 执行 Agent planning 步骤
       operationId: executeAgentPlanStep
       tags: [Agent]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: runId
           in: path
@@ -8001,6 +8031,9 @@ paths:
       summary: 跳过 Agent planning 步骤
       operationId: skipAgentPlanStep
       tags: [Agent]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: runId
           in: path
@@ -8034,6 +8067,9 @@ paths:
       summary: 重试失败的 Agent planning 步骤
       operationId: retryAgentPlanStep
       tags: [Agent]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: runId
           in: path
@@ -8067,6 +8103,9 @@ paths:
       summary: 调整 Agent planning 步骤草稿
       operationId: updateAgentPlanStep
       tags: [Agent]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: runId
           in: path
@@ -8100,6 +8139,9 @@ paths:
       summary: 新增 Agent planning 步骤草稿
       operationId: createAgentPlanStep
       tags: [Agent]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: runId
           in: path
@@ -8134,6 +8176,9 @@ paths:
       summary: 移动 Agent planning 步骤顺序
       operationId: moveAgentPlanStep
       tags: [Agent]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: runId
           in: path
@@ -8167,6 +8212,9 @@ paths:
       summary: 删除 Agent planning 步骤草稿
       operationId: deleteAgentPlanStep
       tags: [Agent]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: runId
           in: path

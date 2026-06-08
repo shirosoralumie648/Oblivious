@@ -1017,6 +1017,62 @@ require_admin_marketplace_review_csrf_contract() {
   ' "$openapi_file"
 }
 
+require_agent_run_mutation_csrf_contract() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+    paths = spec.fetch("paths", {})
+    missing = []
+
+    def operation(paths, path, method, missing)
+      op = paths.dig(path, method)
+      unless op
+        missing << "#{method.upcase} #{path} must be documented"
+        return {}
+      end
+      op
+    end
+
+    def requires_cookie_and_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
+    end
+
+    [
+      ["/api/v1/agent/runs", "post"],
+      ["/api/v1/agent/runs/{runId}/approve-tool", "post"],
+      ["/api/v1/agent/runs/{runId}/reject-tool", "post"],
+      ["/api/v1/agent/runs/{runId}/retry-tool", "post"],
+      ["/api/v1/agent/runs/{runId}/continue-budget", "post"],
+      ["/api/v1/agent/runs/{runId}/approve-plan-step", "post"],
+      ["/api/v1/agent/runs/{runId}/execute-plan-step", "post"],
+      ["/api/v1/agent/runs/{runId}/skip-plan-step", "post"],
+      ["/api/v1/agent/runs/{runId}/retry-plan-step", "post"],
+      ["/api/v1/agent/runs/{runId}/update-plan-step", "patch"],
+      ["/api/v1/agent/runs/{runId}/create-plan-step", "post"],
+      ["/api/v1/agent/runs/{runId}/move-plan-step", "post"],
+      ["/api/v1/agent/runs/{runId}/delete-plan-step", "post"],
+      ["/api/v1/app/agents/tool-runs/{toolRunId}/approve", "post"],
+      ["/api/v1/app/agents/tool-runs/{toolRunId}/reject", "post"],
+      ["/api/v1/app/agents/tool-runs/{toolRunId}/retry", "post"],
+    ].each do |path, method|
+      op = operation(paths, path, method, missing)
+      unless requires_cookie_and_csrf?(op)
+        missing << "#{method.upcase} #{path} must require cookieAuth and csrfHeader"
+      end
+      unless op.fetch("tags", []).include?("Agent")
+        missing << "#{method.upcase} #{path} must be tagged Agent"
+      end
+    end
+
+    unless missing.empty?
+      warn "[openapi-contract] Agent run mutation CSRF contract is incomplete:"
+      missing.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 require_admin_core_management_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
@@ -1591,6 +1647,7 @@ require_mcp_auth_token_response_contract
 require_marketplace_user_mutation_csrf_contract
 require_admin_marketplace_governance_csrf_contract
 require_admin_marketplace_review_csrf_contract
+require_agent_run_mutation_csrf_contract
 require_admin_core_management_contract
 require_admin_billing_contract
 require_domestic_payment_webhook_payout_contract
