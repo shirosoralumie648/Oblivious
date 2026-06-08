@@ -262,11 +262,32 @@ describe('createAdminApi', () => {
       status: 'paid_out',
       providerPayoutId: 'provider-paid-1',
     });
+    post.mockResolvedValueOnce({ id: 'refund_1', status: 'succeeded', providerRefundId: 're_1' });
+    await expect(
+      api.refundTopup('topup_1', {
+        provider: 'stripe',
+        providerRefundId: 're_1',
+        providerChargeId: 'ch_1',
+        providerPaymentIntentId: 'pi_provider_1',
+        amount: 10,
+        currency: 'usd',
+        reason: 'duplicate charge',
+      })
+    ).resolves.toEqual({ id: 'refund_1', status: 'succeeded', providerRefundId: 're_1' });
 
     expect(get).toHaveBeenNthCalledWith(1, '/api/v1/admin/billing/summary?organizationID=org_1');
     expect(get).toHaveBeenNthCalledWith(2, '/api/v1/admin/billing/sessions?status=settled&limit=10');
     expect(get).toHaveBeenNthCalledWith(3, '/api/v1/admin/billing/payment-intents?kind=subscription');
-    expect(post).toHaveBeenCalledWith('/api/v1/admin/billing/payouts/payout_1/paid', { providerPayoutID: 'provider-paid-1' });
+    expect(post).toHaveBeenNthCalledWith(1, '/api/v1/admin/billing/payouts/payout_1/paid', { providerPayoutID: 'provider-paid-1' });
+    expect(post).toHaveBeenNthCalledWith(2, '/api/v1/admin/billing/topups/topup_1/refund', {
+      provider: 'stripe',
+      providerRefundID: 're_1',
+      providerChargeID: 'ch_1',
+      providerPaymentIntentID: 'pi_provider_1',
+      amount: 10,
+      currency: 'usd',
+      reason: 'duplicate charge',
+    });
   });
 
   it('serializes usage analytics filters with backend query keys', async () => {

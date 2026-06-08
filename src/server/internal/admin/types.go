@@ -625,6 +625,18 @@ type TopupInspection struct {
 	CreatedAt                 time.Time  `json:"createdAt"`
 }
 
+// TopupRefundRequest records a provider-confirmed refund against a paid top-up.
+type TopupRefundRequest struct {
+	Provider                string  `json:"provider,omitempty"`
+	ProviderRefundID        string  `json:"providerRefundID,omitempty"`
+	ProviderChargeID        string  `json:"providerChargeID,omitempty"`
+	ProviderPaymentIntentID string  `json:"providerPaymentIntentID,omitempty"`
+	Amount                  float64 `json:"amount"`
+	Currency                string  `json:"currency,omitempty"`
+	Status                  string  `json:"status,omitempty"`
+	Reason                  string  `json:"reason,omitempty"`
+}
+
 // InvoiceInspection is a read-only billing invoice row.
 type InvoiceInspection struct {
 	ID                      string     `json:"id"`

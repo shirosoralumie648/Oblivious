@@ -4,12 +4,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const getBillingSummary = vi.fn();
 const listBillingSurface = vi.fn();
 const markMarketplacePayoutPaid = vi.fn();
+const refundTopup = vi.fn();
 
 vi.mock('../../features/admin/api', () => ({
   createAdminApi: () => ({
     getBillingSummary,
     listBillingSurface,
     markMarketplacePayoutPaid,
+    refundTopup,
   }),
 }));
 
@@ -20,6 +22,7 @@ describe('AdminBillingPage', () => {
     getBillingSummary.mockReset();
     listBillingSurface.mockReset();
     markMarketplacePayoutPaid.mockReset();
+    refundTopup.mockReset();
   });
 
   it('renders billing summary and session inspection rows', async () => {
@@ -167,5 +170,64 @@ describe('AdminBillingPage', () => {
 
     await waitFor(() => expect(markMarketplacePayoutPaid).toHaveBeenCalledWith('payout_1', 'manual-batch-1'));
     expect(await screen.findByText('Paid Out')).toBeInTheDocument();
+  });
+
+  it('records a provider-confirmed top-up refund from the top-ups surface', async () => {
+    getBillingSummary.mockResolvedValue({});
+    refundTopup.mockResolvedValue({
+      id: 'refund_1',
+      providerRefundId: 'admin-topup_1',
+      topupOrderId: 'topup_1',
+      amount: 15,
+      status: 'succeeded',
+    });
+    listBillingSurface
+      .mockResolvedValueOnce({ data: [], total: 0 })
+      .mockResolvedValueOnce({
+        data: [
+          {
+            id: 'topup_1',
+            amount: 25,
+            money: 25,
+            refundedAmount: 10,
+            status: 'paid',
+            paymentIntentId: 'pi_topup_1',
+            providerPaymentIntentId: 'pi_provider_topup_1',
+            currency: 'usd',
+            createdAt: '2026-06-04T00:00:00Z',
+          },
+        ],
+        total: 1,
+      })
+      .mockResolvedValueOnce({
+        data: [
+          {
+            id: 'topup_1',
+            amount: 25,
+            money: 25,
+            refundedAmount: 25,
+            status: 'paid',
+            createdAt: '2026-06-04T00:00:00Z',
+          },
+        ],
+        total: 1,
+      });
+
+    render(<AdminBillingPage />);
+
+    fireEvent.click(await screen.findByRole('tab', { name: 'Top-ups' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Record refund for top-up topup_1' }));
+
+    await waitFor(() =>
+      expect(refundTopup).toHaveBeenCalledWith('topup_1', {
+        provider: 'manual',
+        providerRefundID: 'admin-topup_1',
+        providerPaymentIntentID: 'pi_provider_topup_1',
+        amount: 15,
+        currency: 'usd',
+        reason: 'admin recorded provider refund',
+      })
+    );
+    await waitFor(() => expect(listBillingSurface).toHaveBeenLastCalledWith('topups', expect.objectContaining({ limit: 50 })));
   });
 });

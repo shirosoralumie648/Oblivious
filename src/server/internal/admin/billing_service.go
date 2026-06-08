@@ -35,6 +35,10 @@ func (s *Service) ListRefunds(ctx context.Context, filter BillingInspectionFilte
 	return s.store.ListRefunds(ctx, filter)
 }
 
+func (s *Service) RecordTopupRefund(ctx context.Context, topupID string, request TopupRefundRequest) (*RefundInspection, error) {
+	return s.store.RecordTopupRefund(ctx, topupID, request)
+}
+
 func (s *Service) ListMarketplaceSettlements(ctx context.Context, filter BillingInspectionFilter) ([]*MarketplaceSettlementInspection, int, error) {
 	return s.store.ListMarketplaceSettlements(ctx, filter)
 }

@@ -31,6 +31,7 @@ import type {
   RouteCreateRequest,
   RouteInfo,
   RouteUpdateRequest,
+  TopupRefundRequest,
   UsageAnalyticsFilter,
   UsageAnalyticsResponse,
   UsageLimitSettings,
@@ -393,6 +394,7 @@ export type AdminApi = {
   requestAgentChanges: (id: string, reason: string) => Promise<void>;
   getBillingSummary: (params?: BillingFilter) => Promise<BillingSummary>;
   listBillingSurface: (surface: BillingSurface, params?: BillingFilter) => Promise<PaginatedResponse<BillingInspectionRecord>>;
+  refundTopup: (topupId: string, input: TopupRefundRequest) => Promise<BillingInspectionRecord>;
   markMarketplacePayoutPaid: (payoutId: string, providerPayoutId: string) => Promise<BillingInspectionRecord>;
   listObservabilityAlerts: (params?: AdminObservabilityAlertFilter) => Promise<AdminObservabilityAlertState[]>;
   getObservabilityAlert: (key: string) => Promise<AdminObservabilityAlertState>;
@@ -641,6 +643,18 @@ export function createAdminApi(client: HttpClient): AdminApi {
       delete queryParams.userId;
       const payload = await client.get<BillingListPayload>(`${apiPrefix}/billing/${billingSurfacePaths[surface]}${buildQuery(queryParams)}`);
       return collection(payload[billingSurfaceKeys[surface]] ?? payload.data, payload.total);
+    },
+    refundTopup: (topupId, input) => {
+      const body = {
+        ...input,
+        providerRefundID: input.providerRefundID ?? input.providerRefundId,
+        providerChargeID: input.providerChargeID ?? input.providerChargeId,
+        providerPaymentIntentID: input.providerPaymentIntentID ?? input.providerPaymentIntentId,
+      };
+      delete body.providerRefundId;
+      delete body.providerChargeId;
+      delete body.providerPaymentIntentId;
+      return client.post<BillingInspectionRecord>(`${apiPrefix}/billing/topups/${topupId}/refund`, body);
     },
     markMarketplacePayoutPaid: (payoutId, providerPayoutId) =>
       client.post<BillingInspectionRecord>(`${apiPrefix}/billing/payouts/${payoutId}/paid`, { providerPayoutID: providerPayoutId }),

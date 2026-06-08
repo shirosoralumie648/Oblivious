@@ -981,6 +981,23 @@ func (h adminHandler) listRefunds(w stdhttp.ResponseWriter, r *stdhttp.Request) 
 	writeSuccess(w, stdhttp.StatusOK, map[string]any{"refunds": items, "total": total})
 }
 
+func (h adminHandler) recordTopupRefund(w stdhttp.ResponseWriter, r *stdhttp.Request, topupID string) {
+	var request admin.TopupRefundRequest
+	if !decodeRequestJSON(w, r, &request) {
+		return
+	}
+	refund, err := h.service.RecordTopupRefund(r.Context(), topupID, request)
+	if err != nil {
+		if isNotFoundError(err) || strings.Contains(err.Error(), "not found") {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "topup not found")
+			return
+		}
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, refund)
+}
+
 func (h adminHandler) listMarketplaceSettlements(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	items, total, err := h.service.ListMarketplaceSettlements(r.Context(), h.billingFilter(r))
 	if err != nil {

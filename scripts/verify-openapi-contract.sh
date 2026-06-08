@@ -275,6 +275,7 @@ required_paths=(
   "/api/v1/workflows/{workflowId}/executions/{executionId}/pause"
   "/api/v1/workflows/{workflowId}/executions/{executionId}/resume"
   "/api/v1/workflows/{workflowId}/executions/{executionId}/cancel"
+  "/api/v1/admin/billing/topups/{topupId}/refund"
   "/api/v1/app/agents"
   "/api/v1/app/agents/{agentId}"
   "/api/v1/app/agents/{agentId}/tools"

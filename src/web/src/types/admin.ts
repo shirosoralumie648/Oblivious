@@ -594,3 +594,16 @@ export type BillingInspectionRecord = {
   error?: string;
   reason?: string;
 };
+
+export type TopupRefundRequest = {
+  provider?: string;
+  providerRefundID?: string;
+  providerRefundId?: string;
+  providerChargeID?: string;
+  providerChargeId?: string;
+  providerPaymentIntentID?: string;
+  providerPaymentIntentId?: string;
+  amount: number;
+  currency?: string;
+  reason?: string;
+};

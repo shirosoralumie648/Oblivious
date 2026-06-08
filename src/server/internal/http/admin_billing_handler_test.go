@@ -211,6 +211,80 @@ func TestAdminBillingMarksMarketplacePayoutPaid(t *testing.T) {
 	}
 }
 
+func TestAdminBillingRecordsTopupRefundAndAdjustsQuota(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+	cookie, csrfToken, userID := registerHTTPUser(t, router, "billing-topup-refund@example.com")
+	promoteHTTPUserToAdmin(t, database, userID)
+	_, organizationID := queryHTTPUserScope(t, database, userID)
+
+	if _, err := database.Exec(`
+		INSERT INTO payment_intents (
+			id, provider, provider_checkout_session_id, organization_id, user_id, package_id, kind,
+			amount, currency, status, metadata, created_at, updated_at, provider_payment_intent_id, refunded_amount
+		)
+		VALUES ('pi_topup_admin_refund', 'stripe', 'cs_topup_admin_refund', $1, $2, NULL, 'topup',
+		        25, 'usd', 'completed', '{}', NOW(), NOW(), 'pi_provider_topup_admin_refund', 0)
+	`, organizationID, userID); err != nil {
+		t.Fatalf("insert topup refund payment intent: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO topup_orders (
+			id, user_id, organization_id, amount, money, status, trade_no, paid_at, created_at,
+			payment_intent_id, provider_checkout_session_id, refunded_amount
+		)
+		VALUES ('topup_admin_refund', $2, $1, 25, 25, 'paid', 'trade_topup_admin_refund', NOW(), NOW(),
+		        'pi_topup_admin_refund', 'cs_topup_admin_refund', 0)
+	`, organizationID, userID); err != nil {
+		t.Fatalf("insert topup refund topup order: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO quotas (id, organization_id, user_id, scope, balance, used, created_at, updated_at)
+		VALUES ('quota_topup_admin_refund', $1, $2, 'organization', 25, 0, NOW(), NOW())
+	`, organizationID, userID); err != nil {
+		t.Fatalf("insert topup refund quota: %v", err)
+	}
+
+	for attempt := 0; attempt < 2; attempt++ {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(
+			stdhttp.MethodPost,
+			"/api/v1/admin/billing/topups/topup_admin_refund/refund",
+			strings.NewReader(`{"provider":"stripe","providerRefundID":"re_admin_operator_1","providerChargeID":"ch_admin_operator_1","amount":10,"reason":"duplicate charge"}`),
+		)
+		request.AddCookie(cookie)
+		addCSRF(request, csrfToken)
+		router.ServeHTTP(recorder, request)
+		if recorder.Code != stdhttp.StatusOK {
+			t.Fatalf("attempt %d expected topup refund 200, got %d with body %s", attempt+1, recorder.Code, recorder.Body.String())
+		}
+		if !strings.Contains(recorder.Body.String(), `"providerRefundId":"re_admin_operator_1"`) ||
+			!strings.Contains(recorder.Body.String(), `"topupOrderId":"topup_admin_refund"`) {
+			t.Fatalf("expected topup refund response to include refund and topup IDs, got %s", recorder.Body.String())
+		}
+	}
+
+	var refundCount int
+	var intentStatus string
+	var intentRefunded, topupRefunded, quotaBalance float64
+	if err := database.QueryRow(`SELECT COUNT(*) FROM billing_refunds WHERE provider = 'stripe' AND provider_refund_id = 're_admin_operator_1'`).Scan(&refundCount); err != nil {
+		t.Fatalf("query topup refund count: %v", err)
+	}
+	if err := database.QueryRow(`SELECT status, refunded_amount FROM payment_intents WHERE id = 'pi_topup_admin_refund'`).Scan(&intentStatus, &intentRefunded); err != nil {
+		t.Fatalf("query topup refund payment intent: %v", err)
+	}
+	if err := database.QueryRow(`SELECT refunded_amount FROM topup_orders WHERE id = 'topup_admin_refund'`).Scan(&topupRefunded); err != nil {
+		t.Fatalf("query topup refunded amount: %v", err)
+	}
+	if err := database.QueryRow(`SELECT balance FROM quotas WHERE organization_id = $1 AND scope = 'organization'`, organizationID).Scan(&quotaBalance); err != nil {
+		t.Fatalf("query topup refund quota balance: %v", err)
+	}
+	if refundCount != 1 || intentStatus != "partially_refunded" || intentRefunded != 10 || topupRefunded != 10 || quotaBalance != 15 {
+		t.Fatalf("expected idempotent partial topup refund and quota reversal, got count=%d intent=%s intentRefund=%.2f topupRefund=%.2f quota=%.2f",
+			refundCount, intentStatus, intentRefunded, topupRefunded, quotaBalance)
+	}
+}
+
 func TestAdminBillingMarkPayoutPaidHandlerCallsSettlementService(t *testing.T) {
 	payoutService := &fakeMarketplacePayoutAdminService{}
 	handler := newAdminHandlerWithPayouts(admin.NewService(&fakeAdminStore{}), payoutService)
@@ -231,6 +305,31 @@ func TestAdminBillingMarkPayoutPaidHandlerCallsSettlementService(t *testing.T) {
 	}
 	if !strings.Contains(recorder.Body.String(), `"status":"paid_out"`) {
 		t.Fatalf("expected paid payout response, got %s", recorder.Body.String())
+	}
+}
+
+func TestAdminBillingRecordTopupRefundHandlerCallsAdminService(t *testing.T) {
+	store := &fakeAdminStore{}
+	handler := newAdminHandler(admin.NewService(store))
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(
+		stdhttp.MethodPost,
+		"/api/v1/admin/billing/topups/topup_1/refund",
+		strings.NewReader(`{"provider":"stripe","providerRefundID":"re_1","providerChargeID":"ch_1","amount":10,"currency":"usd","reason":"duplicate charge"}`),
+	)
+	handler.recordTopupRefund(recorder, request, "topup_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected handler 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if store.recordedTopupRefundID != "topup_1" || store.recordedTopupRefund.ProviderRefundID != "re_1" ||
+		store.recordedTopupRefund.ProviderChargeID != "ch_1" || store.recordedTopupRefund.Amount != 10 {
+		t.Fatalf("expected topup refund request to reach store, got id=%q input=%+v", store.recordedTopupRefundID, store.recordedTopupRefund)
+	}
+	if !strings.Contains(recorder.Body.String(), `"topupOrderId":"topup_1"`) ||
+		!strings.Contains(recorder.Body.String(), `"providerRefundId":"re_1"`) {
+		t.Fatalf("expected topup refund response, got %s", recorder.Body.String())
 	}
 }
 
@@ -405,6 +504,19 @@ func (s *fakeAdminStore) ListInvoices(ctx context.Context, filter admin.BillingI
 
 func (s *fakeAdminStore) ListRefunds(ctx context.Context, filter admin.BillingInspectionFilter) ([]*admin.RefundInspection, int, error) {
 	return []*admin.RefundInspection{{ID: "refund_1"}}, 1, nil
+}
+
+func (s *fakeAdminStore) RecordTopupRefund(ctx context.Context, topupID string, request admin.TopupRefundRequest) (*admin.RefundInspection, error) {
+	s.recordedTopupRefundID = topupID
+	s.recordedTopupRefund = request
+	return &admin.RefundInspection{
+		ID:               "refund_1",
+		Provider:         request.Provider,
+		ProviderRefundID: request.ProviderRefundID,
+		TopupOrderID:     topupID,
+		Amount:           request.Amount,
+		Status:           "succeeded",
+	}, nil
 }
 
 func (s *fakeAdminStore) ListMarketplaceSettlements(ctx context.Context, filter admin.BillingInspectionFilter) ([]*admin.MarketplaceSettlementInspection, int, error) {

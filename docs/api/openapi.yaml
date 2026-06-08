@@ -2008,6 +2008,68 @@ components:
           type: string
           format: uri
 
+    AdminTopupRefundRequest:
+      type: object
+      required: [providerRefundID, amount]
+      properties:
+        provider:
+          type: string
+          description: Payment provider that already confirmed the refund.
+          example: stripe
+        providerRefundID:
+          type: string
+          description: Provider refund identifier used for idempotency.
+        providerChargeID:
+          type: string
+        providerPaymentIntentID:
+          type: string
+        amount:
+          type: number
+          format: double
+          minimum: 0
+        currency:
+          type: string
+          example: usd
+        reason:
+          type: string
+
+    AdminBillingInspectionRecord:
+      type: object
+      properties:
+        id:
+          type: string
+        organizationId:
+          type: string
+        userId:
+          type: string
+        paymentIntentId:
+          type: string
+        topupOrderId:
+          type: string
+        provider:
+          type: string
+        providerRefundId:
+          type: string
+        providerChargeId:
+          type: string
+        providerPaymentIntentId:
+          type: string
+        amount:
+          type: number
+          format: double
+        currency:
+          type: string
+        status:
+          type: string
+        reason:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
     DomesticPaymentWebhookEvent:
       type: object
       required: [id, type]
@@ -2857,6 +2919,19 @@ components:
             error:
               code: invalid_request
               message: "invalid json body"
+
+    Forbidden:
+      description: 当前用户无权执行该操作
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Envelope"
+          example:
+            ok: false
+            data: null
+            error:
+              code: forbidden
+              message: "admin role required"
 
     NotFound:
       description: 资源不存在
@@ -7864,6 +7939,47 @@ paths:
                 $ref: "#/components/schemas/Envelope"
 
   # ---- Admin organizations ----
+  /api/v1/admin/billing/topups/{topupId}/refund:
+    post:
+      summary: 记录管理员确认的 top-up 退款
+      operationId: recordAdminTopupRefund
+      tags: [Admin, Billing]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      parameters:
+        - name: topupId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminTopupRefundRequest"
+      responses:
+        "200":
+          description: 已记录退款并回滚对应 top-up 配额
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminBillingInspectionRecord"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/v1/admin/organizations:
     get:
       summary: 管理员获取组织列表

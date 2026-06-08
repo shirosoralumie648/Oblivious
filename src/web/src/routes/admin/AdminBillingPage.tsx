@@ -22,7 +22,7 @@ type BillingState = {
   loading: boolean;
   error: string | null;
   actionError: string | null;
-  actioningPayoutId: string | null;
+  actioningRecordId: string | null;
   surface: BillingSurface;
   filters: {
     organizationID: string;
@@ -37,7 +37,7 @@ type BillingAction =
   | { type: 'LOAD_START' }
   | { type: 'LOAD_SUCCESS'; summary: BillingSummary; rows: BillingInspectionRecord[]; total: number }
   | { type: 'LOAD_ERROR'; error: string }
-  | { type: 'ACTION_START'; payoutId: string }
+  | { type: 'ACTION_START'; recordId: string }
   | { type: 'ACTION_DONE' }
   | { type: 'ACTION_ERROR'; error: string }
   | { type: 'SET_SURFACE'; surface: BillingSurface }
@@ -51,7 +51,7 @@ const initialState: BillingState = {
   loading: true,
   error: null,
   actionError: null,
-  actioningPayoutId: null,
+  actioningRecordId: null,
   surface: 'sessions',
   filters: {
     organizationID: '',
@@ -71,11 +71,11 @@ function reducer(state: BillingState, action: BillingAction): BillingState {
     case 'LOAD_ERROR':
       return { ...state, loading: false, error: action.error };
     case 'ACTION_START':
-      return { ...state, actionError: null, actioningPayoutId: action.payoutId };
+      return { ...state, actionError: null, actioningRecordId: action.recordId };
     case 'ACTION_DONE':
-      return { ...state, actioningPayoutId: null };
+      return { ...state, actioningRecordId: null };
     case 'ACTION_ERROR':
-      return { ...state, actioningPayoutId: null, actionError: action.error };
+      return { ...state, actioningRecordId: null, actionError: action.error };
     case 'SET_SURFACE':
       return { ...state, surface: action.surface };
     case 'SET_FILTER':
@@ -301,13 +301,36 @@ export function AdminBillingPage() {
 
   const handleMarkPayoutPaid = async (record: BillingInspectionRecord) => {
     const providerPayoutId = record.providerPayoutId || record.id;
-    dispatch({ type: 'ACTION_START', payoutId: record.id });
+    dispatch({ type: 'ACTION_START', recordId: record.id });
     try {
       await api.markMarketplacePayoutPaid(record.id, providerPayoutId);
       dispatch({ type: 'ACTION_DONE' });
       await loadBilling();
     } catch (error) {
       dispatch({ type: 'ACTION_ERROR', error: error instanceof Error ? error.message : 'Unable to mark payout paid.' });
+    }
+  };
+
+  const handleRefundTopup = async (record: BillingInspectionRecord) => {
+    const remainingAmount = Math.max((record.amount ?? record.money ?? 0) - (record.refundedAmount ?? 0), 0);
+    if (remainingAmount <= 0) {
+      dispatch({ type: 'ACTION_ERROR', error: 'No refundable top-up balance remains.' });
+      return;
+    }
+    dispatch({ type: 'ACTION_START', recordId: record.id });
+    try {
+      await api.refundTopup(record.id, {
+        provider: record.provider || 'manual',
+        providerRefundID: record.providerRefundId || `admin-${record.id}`,
+        providerPaymentIntentID: record.providerPaymentIntentId,
+        amount: remainingAmount,
+        currency: record.currency || 'usd',
+        reason: 'admin recorded provider refund',
+      });
+      dispatch({ type: 'ACTION_DONE' });
+      await loadBilling();
+    } catch (error) {
+      dispatch({ type: 'ACTION_ERROR', error: error instanceof Error ? error.message : 'Unable to record top-up refund.' });
     }
   };
 
@@ -435,14 +458,30 @@ export function AdminBillingPage() {
                     type="button"
                     variant="outline"
                     className="min-h-[36px]"
-                    disabled={state.actioningPayoutId === record.id}
+                    disabled={state.actioningRecordId === record.id}
                     aria-label={`Mark payout ${record.id} paid`}
                     onClick={() => void handleMarkPayoutPaid(record)}
                   >
                     Mark paid
                   </Button>
                 ) : null
-            : undefined
+            : state.surface === 'topups'
+              ? (record) => {
+                  const remainingAmount = Math.max((record.amount ?? record.money ?? 0) - (record.refundedAmount ?? 0), 0);
+                  return record.status === 'paid' && remainingAmount > 0 ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="min-h-[36px]"
+                      disabled={state.actioningRecordId === record.id}
+                      aria-label={`Record refund for top-up ${record.id}`}
+                      onClick={() => void handleRefundTopup(record)}
+                    >
+                      Record refund
+                    </Button>
+                  ) : null;
+                }
+              : undefined
         }
       />
       {state.actionError ? <div role="alert" className="text-sm text-destructive">{state.actionError}</div> : null}

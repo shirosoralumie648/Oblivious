@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
-// BillingInspectionStore defines read-only Admin billing inspection operations.
+// BillingInspectionStore defines Admin billing inspection and operator recovery operations.
 type BillingInspectionStore interface {
 	GetBillingInspectionSummary(ctx context.Context, filter BillingInspectionFilter) (*BillingInspectionSummary, error)
 	ListBillingSessions(ctx context.Context, filter BillingInspectionFilter) ([]*BillingSessionInspection, int, error)
@@ -18,6 +20,7 @@ type BillingInspectionStore interface {
 	ListTopups(ctx context.Context, filter BillingInspectionFilter) ([]*TopupInspection, int, error)
 	ListInvoices(ctx context.Context, filter BillingInspectionFilter) ([]*InvoiceInspection, int, error)
 	ListRefunds(ctx context.Context, filter BillingInspectionFilter) ([]*RefundInspection, int, error)
+	RecordTopupRefund(ctx context.Context, topupID string, request TopupRefundRequest) (*RefundInspection, error)
 	ListMarketplaceSettlements(ctx context.Context, filter BillingInspectionFilter) ([]*MarketplaceSettlementInspection, int, error)
 	ListMarketplacePayouts(ctx context.Context, filter BillingInspectionFilter) ([]*MarketplacePayoutInspection, int, error)
 }
@@ -420,6 +423,192 @@ func (s *SQLStore) ListRefunds(ctx context.Context, filter BillingInspectionFilt
 		items = append(items, &item)
 	}
 	return items, total, rows.Err()
+}
+
+func (s *SQLStore) RecordTopupRefund(ctx context.Context, topupID string, request TopupRefundRequest) (*RefundInspection, error) {
+	topupID = strings.TrimSpace(topupID)
+	if topupID == "" {
+		return nil, fmt.Errorf("topup id is required")
+	}
+	provider := strings.ToLower(strings.TrimSpace(request.Provider))
+	if provider == "" {
+		provider = "manual"
+	}
+	providerRefundID := strings.TrimSpace(request.ProviderRefundID)
+	if providerRefundID == "" {
+		return nil, fmt.Errorf("provider refund id is required")
+	}
+	if request.Amount <= 0 {
+		return nil, fmt.Errorf("refund amount must be positive")
+	}
+	currency := strings.ToLower(strings.TrimSpace(request.Currency))
+	status := strings.TrimSpace(request.Status)
+	if status == "" {
+		status = "succeeded"
+	}
+	reason := strings.TrimSpace(request.Reason)
+	providerChargeID := strings.TrimSpace(request.ProviderChargeID)
+	providerPaymentIntentID := strings.TrimSpace(request.ProviderPaymentIntentID)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin topup refund: %w", err)
+	}
+	defer tx.Rollback()
+
+	var topup TopupInspection
+	var paidAt sql.NullTime
+	if err := tx.QueryRowContext(ctx, `
+		SELECT id, organization_id, user_id, COALESCE(payment_intent_id, ''), COALESCE(provider_checkout_session_id, ''),
+		       amount, money, status, COALESCE(trade_no, ''), refunded_amount, paid_at, created_at
+		FROM topup_orders
+		WHERE id = $1
+		FOR UPDATE
+	`, topupID).Scan(&topup.ID, &topup.OrganizationID, &topup.UserID, &topup.PaymentIntentID, &topup.ProviderCheckoutSessionID,
+		&topup.Amount, &topup.Money, &topup.Status, &topup.TradeNo, &topup.RefundedAmount, &paidAt, &topup.CreatedAt); err != nil {
+		return nil, fmt.Errorf("load topup for refund: %w", err)
+	}
+	topup.PaidAt = nullTimePtr(paidAt)
+	if topup.Status != "paid" && topup.Status != "partially_refunded" {
+		return nil, fmt.Errorf("topup must be paid before refund")
+	}
+	if topup.PaymentIntentID == "" {
+		return nil, fmt.Errorf("topup refund requires payment intent")
+	}
+
+	var intentKind, intentStatus, intentCurrency string
+	var intentAmount, priorRefunded float64
+	if err := tx.QueryRowContext(ctx, `
+		SELECT kind, status, amount, currency, refunded_amount, COALESCE(provider_payment_intent_id, '')
+		FROM payment_intents
+		WHERE id = $1 AND organization_id = $2 AND user_id = $3
+		FOR UPDATE
+	`, topup.PaymentIntentID, topup.OrganizationID, topup.UserID).Scan(
+		&intentKind,
+		&intentStatus,
+		&intentAmount,
+		&intentCurrency,
+		&priorRefunded,
+		&providerPaymentIntentID,
+	); err != nil {
+		return nil, fmt.Errorf("load topup payment intent: %w", err)
+	}
+	if intentKind != "topup" {
+		return nil, fmt.Errorf("payment intent is not a topup")
+	}
+	if currency == "" {
+		currency = strings.ToLower(intentCurrency)
+	}
+	if currency == "" {
+		currency = "usd"
+	}
+	available := intentAmount - priorRefunded
+	if available <= 0 {
+		return nil, fmt.Errorf("topup is already fully refunded")
+	}
+	if request.Amount > available {
+		return nil, fmt.Errorf("refund amount exceeds refundable balance")
+	}
+
+	now := time.Now().UTC()
+	eventID := "admin_topup_refund:" + provider + ":" + providerRefundID
+	transitionKey := provider + ":" + eventID + ":refund:" + providerRefundID
+	result, err := tx.ExecContext(ctx, `
+		INSERT INTO billing_lifecycle_events (
+			id, transition_key, provider, provider_event_id, event_type,
+			organization_id, user_id, payment_intent_id, entity_type, entity_id,
+			from_state, to_state, reason, payload, created_at
+		)
+		VALUES ($1, $2, $3, $4, 'refund.created', $5, $6, $7, 'refund', $8, $9, $10, NULLIF($11, ''), $12, $13)
+		ON CONFLICT (transition_key) DO NOTHING
+	`, uuid.New().String(), transitionKey, provider, eventID, topup.OrganizationID, topup.UserID, topup.PaymentIntentID, providerRefundID, intentStatus, status, reason, []byte(`{}`), now)
+	if err != nil {
+		return nil, fmt.Errorf("insert topup refund lifecycle: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("topup refund lifecycle rows affected: %w", err)
+	}
+	if rows == 0 {
+		refund, err := s.getRefundByProviderID(ctx, tx, provider, providerRefundID)
+		if err != nil {
+			return nil, err
+		}
+		if err := tx.Commit(); err != nil {
+			return nil, fmt.Errorf("commit idempotent topup refund: %w", err)
+		}
+		return refund, nil
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO billing_refunds (
+			id, provider, provider_refund_id, provider_charge_id, provider_payment_intent_id,
+			organization_id, user_id, payment_intent_id, topup_order_id,
+			amount, currency, status, reason, payload, created_at, updated_at
+		)
+		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), $6, $7, $8, $9, $10, $11, $12, NULLIF($13, ''), $14, $15, $15)
+	`, uuid.New().String(), provider, providerRefundID, providerChargeID, providerPaymentIntentID, topup.OrganizationID, topup.UserID,
+		topup.PaymentIntentID, topup.ID, request.Amount, currency, status, reason, []byte(`{}`), now); err != nil {
+		return nil, fmt.Errorf("insert topup refund: %w", err)
+	}
+
+	refundedTotal := priorRefunded + request.Amount
+	if refundedTotal > intentAmount {
+		refundedTotal = intentAmount
+	}
+	refundStatus := "partially_refunded"
+	if refundedTotal >= intentAmount {
+		refundStatus = "refunded"
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE payment_intents
+		SET status = $2, refunded_amount = $3, updated_at = $4
+		WHERE id = $1
+	`, topup.PaymentIntentID, refundStatus, refundedTotal, now); err != nil {
+		return nil, fmt.Errorf("update topup refund payment intent: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE topup_orders
+		SET refunded_amount = $2
+		WHERE id = $1
+	`, topup.ID, topup.RefundedAmount+request.Amount); err != nil {
+		return nil, fmt.Errorf("update refunded topup: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE quotas
+		SET balance = balance - $2, updated_at = $3
+		WHERE organization_id = $1 AND scope = 'organization'
+	`, topup.OrganizationID, request.Amount, now); err != nil {
+		return nil, fmt.Errorf("reverse topup refund quota: %w", err)
+	}
+
+	refund, err := s.getRefundByProviderID(ctx, tx, provider, providerRefundID)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit topup refund: %w", err)
+	}
+	return refund, nil
+}
+
+func (s *SQLStore) getRefundByProviderID(ctx context.Context, tx *sql.Tx, provider string, providerRefundID string) (*RefundInspection, error) {
+	var item RefundInspection
+	var paymentIntentID, topupOrderID sql.NullString
+	if err := tx.QueryRowContext(ctx, `
+		SELECT id, provider, provider_refund_id, COALESCE(provider_charge_id, ''), COALESCE(provider_payment_intent_id, ''),
+		       organization_id, user_id, payment_intent_id, topup_order_id, amount, currency, status, COALESCE(reason, ''),
+		       created_at, updated_at
+		FROM billing_refunds
+		WHERE provider = $1 AND provider_refund_id = $2
+	`, provider, providerRefundID).Scan(&item.ID, &item.Provider, &item.ProviderRefundID, &item.ProviderChargeID,
+		&item.ProviderPaymentIntentID, &item.OrganizationID, &item.UserID, &paymentIntentID, &topupOrderID,
+		&item.Amount, &item.Currency, &item.Status, &item.Reason, &item.CreatedAt, &item.UpdatedAt); err != nil {
+		return nil, fmt.Errorf("load topup refund record: %w", err)
+	}
+	item.PaymentIntentID = nullStringValue(paymentIntentID)
+	item.TopupOrderID = nullStringValue(topupOrderID)
+	return &item, nil
 }
 
 func (s *SQLStore) ListMarketplaceSettlements(ctx context.Context, filter BillingInspectionFilter) ([]*MarketplaceSettlementInspection, int, error) {

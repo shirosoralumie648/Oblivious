@@ -1285,24 +1285,26 @@ func testAdminSession() auth.Session {
 }
 
 type fakeAdminStore struct {
-	channelFilter        admin.ChannelFilter
-	usageLogFilter       admin.UsageLogFilter
-	usageAnalyticsFilter admin.UsageAnalyticsFilter
-	apiTokenFilter       admin.APITokenFilter
-	modelInventoryFilter admin.ModelInventoryFilter
-	pendingReviews       []*marketplace.PublishedAgent
-	batchAction          string
-	routeUpdate          admin.RouteUpdateRequest
-	approvedAgentID      string
-	needsChangesAgentID  string
-	needsChangesReason   string
-	revokedAPITokenID    string
-	relayPricingSettings admin.RelayPricingSettings
-	channelTestResult    *admin.ChannelTestResult
-	currentChannelModels []string
-	updatedChannelModels []string
-	channelDiagnostics   *admin.ChannelDiagnosticsUpdate
-	createdPlan          admin.PlanCreateRequest
+	channelFilter         admin.ChannelFilter
+	usageLogFilter        admin.UsageLogFilter
+	usageAnalyticsFilter  admin.UsageAnalyticsFilter
+	apiTokenFilter        admin.APITokenFilter
+	modelInventoryFilter  admin.ModelInventoryFilter
+	pendingReviews        []*marketplace.PublishedAgent
+	batchAction           string
+	routeUpdate           admin.RouteUpdateRequest
+	approvedAgentID       string
+	needsChangesAgentID   string
+	needsChangesReason    string
+	revokedAPITokenID     string
+	relayPricingSettings  admin.RelayPricingSettings
+	channelTestResult     *admin.ChannelTestResult
+	currentChannelModels  []string
+	updatedChannelModels  []string
+	channelDiagnostics    *admin.ChannelDiagnosticsUpdate
+	createdPlan           admin.PlanCreateRequest
+	recordedTopupRefundID string
+	recordedTopupRefund   admin.TopupRefundRequest
 }
 
 func (s *fakeAdminStore) GetSystemStats(ctx context.Context) (*admin.SystemStats, error) {
