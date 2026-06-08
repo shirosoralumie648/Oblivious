@@ -148,6 +148,28 @@ describe('createAgentPlanStepsApi', () => {
     });
   });
 
+  it('moves a run plan step through the agent run endpoint', async () => {
+    const post = vi.fn().mockResolvedValue({
+      data: {
+        planSteps: [
+          { id: 'step_2', index: 1, runId: 'run_1', status: 'pending', title: 'Verify patch' },
+          { id: 'step_1', index: 2, runId: 'run_1', status: 'pending', title: 'Draft patch' }
+        ]
+      }
+    });
+    const api = createAgentPlanStepsApi(createClient({ post }));
+
+    await expect(api.movePlanStep('run_1', 'step_2', 'up')).resolves.toEqual([
+      { id: 'step_2', index: 1, runId: 'run_1', status: 'pending', title: 'Verify patch' },
+      { id: 'step_1', index: 2, runId: 'run_1', status: 'pending', title: 'Draft patch' }
+    ]);
+
+    expect(post).toHaveBeenCalledWith('/api/v1/agent/runs/run_1/move-plan-step', {
+      direction: 'up',
+      planStepId: 'step_2'
+    });
+  });
+
   it('approves, rejects, and retries tool runs through the agent run endpoint', async () => {
     const post = vi.fn()
       .mockResolvedValueOnce({

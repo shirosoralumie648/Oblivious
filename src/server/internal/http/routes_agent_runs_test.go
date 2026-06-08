@@ -261,6 +261,59 @@ func TestRegisterAgentRunRoutesDispatchesUpdatePlanStep(t *testing.T) {
 	}
 }
 
+func TestRegisterAgentRunRoutesDispatchesMovePlanStep(t *testing.T) {
+	now := time.Now().UTC()
+	store := newFakeAgentRunsStore()
+	store.runs = []*agent.Run{{
+		ID:             "run_1",
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		Status:         agent.RunStatusPendingApproval,
+	}}
+	store.planSteps = []*agent.PlanStep{{
+		ID:             "step_1",
+		RunID:          "run_1",
+		OrganizationID: "org_1",
+		Index:          1,
+		Title:          "Draft patch",
+		Status:         agent.PlanStepStatusApproved,
+		ApprovalStatus: agent.ApprovalStatusApproved,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}, {
+		ID:             "step_2",
+		RunID:          "run_1",
+		OrganizationID: "org_1",
+		Index:          2,
+		Title:          "Verify patch",
+		Status:         agent.PlanStepStatusPending,
+		ApprovalStatus: agent.ApprovalStatusPending,
+		CreatedAt:      now.Add(time.Second),
+		UpdatedAt:      now.Add(time.Second),
+	}}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{}))
+	mux := stdhttp.NewServeMux()
+	registerAgentRunRoutes(mux, passThroughAuthMiddleware{}, handler)
+
+	request := newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/move-plan-step", `{"planStepId":"step_2","direction":"up"}`)
+	recorder := httptest.NewRecorder()
+
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, `"title":"Verify patch"`) || !strings.Contains(body, `"index":1`) {
+		t.Fatalf("expected moved plan step response, got %s", body)
+	}
+	if !strings.Contains(body, `"title":"Draft patch"`) || !strings.Contains(body, `"approvalStatus":"pending"`) {
+		t.Fatalf("expected moved approved neighbor to require fresh review, got %s", body)
+	}
+}
+
 func TestRegisterAgentRunRoutesDispatchesExecutePlanStep(t *testing.T) {
 	now := time.Now().UTC()
 	store := newFakeAgentRunsStore()

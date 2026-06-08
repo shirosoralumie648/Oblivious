@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useParams } from 'react-router-dom';
 
-import { createAgentPlanStepsApi, type AgentPlanStep, type AgentToolRun } from '../../features/agents/planStepsApi';
+import {
+  createAgentPlanStepsApi,
+  type AgentPlanStep,
+  type AgentToolRun,
+  type MoveAgentPlanStepDirection
+} from '../../features/agents/planStepsApi';
 import { createHttpClient } from '../../services/http/client';
 
 function errorMessage(error: unknown, fallback: string) {
@@ -45,6 +50,12 @@ function canExecute(step: AgentPlanStep) {
 
 function canEdit(step: AgentPlanStep) {
   return step.status === 'pending' || step.status === 'approved';
+}
+
+function canMovePlanStep(planSteps: AgentPlanStep[], index: number, direction: MoveAgentPlanStepDirection) {
+  const step = planSteps[index];
+  const target = planSteps[direction === 'up' ? index - 1 : index + 1];
+  return Boolean(step && target && canEdit(step) && canEdit(target));
 }
 
 function canApproveToolRun(toolRun: AgentToolRun) {
@@ -189,6 +200,26 @@ export function AgentPlanStepsPage() {
       void refreshRunDetail();
     } catch (caughtError) {
       setError(errorMessage(caughtError, `Unable to ${action} plan step.`));
+    } finally {
+      setOperatingStepId(null);
+    }
+  };
+
+  const movePlanStep = async (step: AgentPlanStep, direction: MoveAgentPlanStepDirection) => {
+    if (!runId) {
+      setError('Run ID is required.');
+      return;
+    }
+
+    setOperatingStepId(step.id);
+    setError(null);
+
+    try {
+      const refreshed = await api.movePlanStep(runId, step.id, direction);
+      setPlanSteps(refreshed);
+      void refreshRunDetail();
+    } catch (caughtError) {
+      setError(errorMessage(caughtError, `Unable to move plan step ${direction}.`));
     } finally {
       setOperatingStepId(null);
     }
@@ -342,9 +373,11 @@ export function AgentPlanStepsPage() {
 
       <section aria-label="Plan steps" className="space-y-3">
         {planSteps.length === 0 ? <p className="text-sm text-[#625b4f]">No plan steps to show yet.</p> : null}
-        {planSteps.map((step) => {
+        {planSteps.map((step, stepPosition) => {
           const isEditing = editingStepId === step.id;
           const stepInput = readableJSON(step.input);
+          const canMoveUp = canMovePlanStep(planSteps, stepPosition, 'up');
+          const canMoveDown = canMovePlanStep(planSteps, stepPosition, 'down');
           return (
             <article
               aria-label={`Plan step ${step.title}`}
@@ -434,6 +467,26 @@ export function AgentPlanStepsPage() {
                         type="button"
                       >
                         Edit
+                        <span className="sr-only"> {step.title}</span>
+                      </button>
+                      <button
+                        aria-label={`Move up ${step.title}`}
+                        className="min-h-10 rounded-lg border border-[#181611] px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={!canMoveUp || operatingStepId === step.id}
+                        onClick={() => void movePlanStep(step, 'up')}
+                        type="button"
+                      >
+                        Move up
+                        <span className="sr-only"> {step.title}</span>
+                      </button>
+                      <button
+                        aria-label={`Move down ${step.title}`}
+                        className="min-h-10 rounded-lg border border-[#181611] px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={!canMoveDown || operatingStepId === step.id}
+                        onClick={() => void movePlanStep(step, 'down')}
+                        type="button"
+                      >
+                        Move down
                         <span className="sr-only"> {step.title}</span>
                       </button>
                       <button

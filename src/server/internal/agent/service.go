@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -1154,6 +1155,11 @@ type UpdatePlanStepDraftRequest struct {
 	Input    map[string]any
 }
 
+const (
+	MovePlanStepDirectionUp   = "up"
+	MovePlanStepDirectionDown = "down"
+)
+
 func (s *Service) UpdatePlanStepDraft(ctx context.Context, session auth.Session, planStepID string, req UpdatePlanStepDraftRequest) (*PlanStep, error) {
 	step, err := s.getPlanStepForSession(ctx, session, planStepID)
 	if err != nil {
@@ -1188,6 +1194,73 @@ func (s *Service) UpdatePlanStepDraft(ctx context.Context, session auth.Session,
 		updateReq.ApprovalStatus = stringPointer(ApprovalStatusPending)
 	}
 	return s.store.UpdatePlanStep(ctx, session.OrganizationID, planStepID, updateReq)
+}
+
+func (s *Service) MovePlanStep(ctx context.Context, session auth.Session, planStepID, direction string) ([]*PlanStep, error) {
+	step, err := s.getPlanStepForSession(ctx, session, planStepID)
+	if err != nil {
+		return nil, err
+	}
+	if !isPlanStepDraftAdjustable(step) {
+		return nil, fmt.Errorf("plan step cannot be adjusted after execution starts")
+	}
+
+	direction = strings.ToLower(strings.TrimSpace(direction))
+	if direction != MovePlanStepDirectionUp && direction != MovePlanStepDirectionDown {
+		return nil, fmt.Errorf("plan step move direction must be up or down")
+	}
+
+	steps, err := s.store.ListPlanSteps(ctx, session.OrganizationID, step.RunID)
+	if err != nil {
+		return nil, err
+	}
+	sortPlanSteps(steps)
+
+	currentPosition := -1
+	for i, candidate := range steps {
+		if candidate.ID == step.ID {
+			currentPosition = i
+			break
+		}
+	}
+	if currentPosition == -1 {
+		return nil, fmt.Errorf("plan step not found")
+	}
+
+	targetPosition := currentPosition
+	if direction == MovePlanStepDirectionUp {
+		targetPosition--
+	} else {
+		targetPosition++
+	}
+	if targetPosition < 0 || targetPosition >= len(steps) {
+		return nil, fmt.Errorf("plan step cannot move %s", direction)
+	}
+
+	target := steps[targetPosition]
+	if !isPlanStepDraftAdjustable(target) {
+		return nil, fmt.Errorf("plan step cannot move across executed step")
+	}
+	stepIndex := step.Index
+	targetIndex := target.Index
+	bufferIndex := maxPlanStepIndex(steps) + 1
+
+	if _, err := s.store.UpdatePlanStep(ctx, session.OrganizationID, step.ID, planStepMoveUpdateRequest(bufferIndex, step)); err != nil {
+		return nil, err
+	}
+	if _, err := s.store.UpdatePlanStep(ctx, session.OrganizationID, target.ID, planStepMoveUpdateRequest(stepIndex, target)); err != nil {
+		return nil, err
+	}
+	if _, err := s.store.UpdatePlanStep(ctx, session.OrganizationID, step.ID, planStepMoveUpdateRequest(targetIndex, step)); err != nil {
+		return nil, err
+	}
+
+	steps, err = s.store.ListPlanSteps(ctx, session.OrganizationID, step.RunID)
+	if err != nil {
+		return nil, err
+	}
+	sortPlanSteps(steps)
+	return steps, nil
 }
 
 func (s *Service) ExecutePlanStep(ctx context.Context, session auth.Session, planStepID string) (*PlanStep, error) {
@@ -1320,6 +1393,46 @@ func copyPlanStepInput(input map[string]any) map[string]any {
 		copied[key] = value
 	}
 	return copied
+}
+
+func isPlanStepDraftAdjustable(step *PlanStep) bool {
+	if step == nil {
+		return false
+	}
+	return step.Status == PlanStepStatusPending || step.Status == PlanStepStatusApproved
+}
+
+func planStepMoveUpdateRequest(index int, step *PlanStep) UpdatePlanStepRequest {
+	req := UpdatePlanStepRequest{
+		Index:            intPointer(index),
+		ResultContent:    stringPointer(""),
+		Error:            stringPointer(""),
+		ClearCompletedAt: true,
+	}
+	if step != nil && step.ApprovalStatus == ApprovalStatusApproved {
+		req.Status = stringPointer(PlanStepStatusPending)
+		req.ApprovalStatus = stringPointer(ApprovalStatusPending)
+	}
+	return req
+}
+
+func sortPlanSteps(steps []*PlanStep) {
+	sort.SliceStable(steps, func(i, j int) bool {
+		if steps[i].Index == steps[j].Index {
+			return steps[i].CreatedAt.Before(steps[j].CreatedAt)
+		}
+		return steps[i].Index < steps[j].Index
+	})
+}
+
+func maxPlanStepIndex(steps []*PlanStep) int {
+	maxIndex := 0
+	for _, step := range steps {
+		if step != nil && step.Index > maxIndex {
+			maxIndex = step.Index
+		}
+	}
+	return maxIndex
 }
 
 func (s *Service) completeRunWhenAllPlanStepsDone(ctx context.Context, session auth.Session, runID string) error {

@@ -1186,6 +1186,9 @@ func (s *fakeAgentRunsStore) UpdatePlanStep(ctx context.Context, organizationID,
 	if step == nil {
 		return nil, errors.New("agent plan step not found")
 	}
+	if req.Index != nil {
+		step.Index = *req.Index
+	}
 	if req.Title != nil {
 		step.Title = *req.Title
 	}

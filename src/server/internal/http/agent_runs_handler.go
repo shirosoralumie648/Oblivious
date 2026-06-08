@@ -69,6 +69,12 @@ type agentRunPlanStepUpdateRequest struct {
 	Input           map[string]any `json:"input"`
 }
 
+type agentRunPlanStepMoveRequest struct {
+	PlanStepID      string `json:"plan_step_id"`
+	PlanStepIDCamel string `json:"planStepId"`
+	Direction       string `json:"direction"`
+}
+
 type agentRunResponse struct {
 	ID        string            `json:"id"`
 	Status    string            `json:"status"`
@@ -313,6 +319,37 @@ func (h agentRunsHandler) updatePlanStep(w stdhttp.ResponseWriter, r *stdhttp.Re
 		ToolName: toolName,
 		Input:    req.Input,
 	}); err != nil {
+		writeAgentWorkflowError(w, err)
+		return
+	}
+	result, err := h.service.GetRunWithMessages(r.Context(), session, strings.TrimSpace(runID))
+	if err != nil {
+		writeAgentWorkflowError(w, err)
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, newAgentRunResponse(result))
+}
+
+func (h agentRunsHandler) movePlanStep(w stdhttp.ResponseWriter, r *stdhttp.Request, runID string) {
+	session, ok := sessionFromContext(r)
+	if !ok {
+		writeError(w, stdhttp.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+
+	var req agentRunPlanStepMoveRequest
+	if err := decodeOptionalAgentRunJSONBody(r, &req); err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "invalid json body")
+		return
+	}
+	planStepID, ok := h.resolvePlanStepID(w, r, session, runID, firstAgentRunNonEmpty(req.PlanStepID, req.PlanStepIDCamel), func(step *agent.PlanStep) bool {
+		return step.Status == agent.PlanStepStatusPending || step.Status == agent.PlanStepStatusApproved
+	})
+	if !ok {
+		return
+	}
+
+	if _, err := h.service.MovePlanStep(r.Context(), session, planStepID, req.Direction); err != nil {
 		writeAgentWorkflowError(w, err)
 		return
 	}

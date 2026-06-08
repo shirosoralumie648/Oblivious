@@ -53,6 +53,8 @@ export type UpdateAgentPlanStepRequest = {
   toolName?: string;
 };
 
+export type MoveAgentPlanStepDirection = 'up' | 'down';
+
 type AgentPlanStepsPayload = {
   data?: {
     planSteps?: AgentPlanStep[];
@@ -118,6 +120,7 @@ export type AgentPlanStepsApi = {
   getRunDetail: (runId: string) => Promise<AgentRunDetail>;
   approvePlanStep: (runId: string, planStepId: string, reason?: string) => Promise<AgentPlanStep[]>;
   updatePlanStep: (runId: string, planStepId: string, payload: UpdateAgentPlanStepRequest) => Promise<AgentPlanStep[]>;
+  movePlanStep: (runId: string, planStepId: string, direction: MoveAgentPlanStepDirection) => Promise<AgentPlanStep[]>;
   executePlanStep: (runId: string, planStepId: string) => Promise<AgentPlanStep[]>;
   approveToolRun: (runId: string, toolRunId: string, reason?: string) => Promise<AgentToolRun[]>;
   rejectToolRun: (runId: string, toolRunId: string, reason?: string) => Promise<AgentToolRun[]>;
@@ -147,6 +150,13 @@ export function createAgentPlanStepsApi(client: HttpClient): AgentPlanStepsApi {
           }),
           headers: { 'Content-Type': 'application/json' },
           method: 'PATCH'
+        })
+      ),
+    movePlanStep: async (runId, planStepId, direction) =>
+      planStepsFromPayload(
+        await client.post<AgentPlanStepsPayload>(`${runPath(runId)}/move-plan-step`, {
+          direction,
+          planStepId
         })
       ),
     executePlanStep: async (runId, planStepId) =>

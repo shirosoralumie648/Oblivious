@@ -300,6 +300,7 @@ type UpdateToolRunRequest struct {
 }
 
 type UpdatePlanStepRequest struct {
+	Index            *int
 	Title            *string
 	Status           *string
 	ApprovalStatus   *string
@@ -1067,6 +1068,9 @@ func (s *SQLStore) UpdatePlanStep(ctx context.Context, organizationID, id string
 		return nil, fmt.Errorf("agent plan step not found")
 	}
 
+	if req.Index != nil {
+		step.Index = *req.Index
+	}
 	if req.Title != nil {
 		step.Title = *req.Title
 	}
@@ -1106,18 +1110,19 @@ func (s *SQLStore) UpdatePlanStep(ctx context.Context, organizationID, id string
 
 	_, err = s.db.ExecContext(ctx, `
 		UPDATE agent_plan_steps
-		SET title = $3,
-			status = $4,
-			approval_status = $5,
-			tool_name = $6,
-			input = $7,
-			result_content = $8,
-			error = $9,
-			started_at = $10,
-			completed_at = CASE WHEN $11 THEN NULL::timestamptz ELSE $12::timestamptz END,
-			updated_at = $13
+		SET step_index = $3,
+			title = $4,
+			status = $5,
+			approval_status = $6,
+			tool_name = $7,
+			input = $8,
+			result_content = $9,
+			error = $10,
+			started_at = $11,
+			completed_at = CASE WHEN $12 THEN NULL::timestamptz ELSE $13::timestamptz END,
+			updated_at = $14
 		WHERE id = $1 AND organization_id = $2
-	`, id, organizationID, step.Title, step.Status, step.ApprovalStatus, step.ToolName, inputJSON,
+	`, id, organizationID, step.Index, step.Title, step.Status, step.ApprovalStatus, step.ToolName, inputJSON,
 		step.ResultContent, step.Error, step.StartedAt, req.ClearCompletedAt, step.CompletedAt, time.Now())
 	if err != nil {
 		return nil, fmt.Errorf("update agent plan step: %w", err)

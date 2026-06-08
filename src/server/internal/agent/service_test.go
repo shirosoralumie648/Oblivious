@@ -413,6 +413,9 @@ func (s *fakeStore) UpdatePlanStep(ctx context.Context, organizationID, id strin
 	if step == nil {
 		return nil, errors.New("agent plan step not found")
 	}
+	if req.Index != nil {
+		step.Index = *req.Index
+	}
 	if req.Title != nil {
 		step.Title = *req.Title
 	}
@@ -530,6 +533,125 @@ func TestServiceUpdatePlanStepDraftRejectsRunningStep(t *testing.T) {
 		Title: stringPointer("Too late"),
 	}); err == nil || !strings.Contains(err.Error(), "cannot be adjusted") {
 		t.Fatalf("expected running step edit rejection, got %v", err)
+	}
+}
+
+func TestServiceMovePlanStepSwapsPendingStepsAndResetsApproval(t *testing.T) {
+	session := auth.Session{
+		User:           auth.User{ID: "user_1"},
+		OrganizationID: "org_1",
+	}
+	now := time.Now().UTC()
+	store := &fakeStore{
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Status:         RunStatusPendingApproval,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+		planSteps: []*PlanStep{{
+			ID:             "step_1",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			Index:          1,
+			Title:          "Gather requirements",
+			Status:         PlanStepStatusCompleted,
+			ApprovalStatus: ApprovalStatusNotRequired,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}, {
+			ID:             "step_2",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			Index:          2,
+			Title:          "Draft patch",
+			Status:         PlanStepStatusApproved,
+			ApprovalStatus: ApprovalStatusApproved,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}, {
+			ID:             "step_3",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			Index:          3,
+			Title:          "Verify patch",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusPending,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+	}
+	service := NewService(store, &fakeGateway{})
+
+	steps, err := service.MovePlanStep(context.Background(), session, "step_3", MovePlanStepDirectionUp)
+	if err != nil {
+		t.Fatalf("MovePlanStep returned error: %v", err)
+	}
+
+	if len(steps) != 3 {
+		t.Fatalf("expected refreshed plan steps, got %+v", steps)
+	}
+	if steps[0].ID != "step_1" || steps[0].Index != 1 {
+		t.Fatalf("completed first step should stay fixed, got %+v", steps)
+	}
+	if steps[1].ID != "step_3" || steps[1].Index != 2 {
+		t.Fatalf("expected step_3 to move up to index 2, got %+v", steps)
+	}
+	if steps[2].ID != "step_2" || steps[2].Index != 3 {
+		t.Fatalf("expected step_2 to move down to index 3, got %+v", steps)
+	}
+	if steps[2].Status != PlanStepStatusPending || steps[2].ApprovalStatus != ApprovalStatusPending {
+		t.Fatalf("moving an approved neighbor should require fresh review, got %+v", steps[2])
+	}
+}
+
+func TestServiceMovePlanStepRejectsMovingAcrossCompletedBoundary(t *testing.T) {
+	session := auth.Session{
+		User:           auth.User{ID: "user_1"},
+		OrganizationID: "org_1",
+	}
+	now := time.Now().UTC()
+	store := &fakeStore{
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Status:         RunStatusPendingApproval,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+		planSteps: []*PlanStep{{
+			ID:             "step_1",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			Index:          1,
+			Title:          "Gather requirements",
+			Status:         PlanStepStatusCompleted,
+			ApprovalStatus: ApprovalStatusNotRequired,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}, {
+			ID:             "step_2",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			Index:          2,
+			Title:          "Draft patch",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusPending,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+	}
+	service := NewService(store, &fakeGateway{})
+
+	if _, err := service.MovePlanStep(context.Background(), session, "step_2", MovePlanStepDirectionUp); err == nil || !strings.Contains(err.Error(), "cannot move across") {
+		t.Fatalf("expected move across completed step rejection, got %v", err)
 	}
 }
 

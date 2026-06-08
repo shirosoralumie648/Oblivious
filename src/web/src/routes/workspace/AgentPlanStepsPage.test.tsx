@@ -6,6 +6,7 @@ const approvePlanStep = vi.fn();
 const approveToolRun = vi.fn();
 const executePlanStep = vi.fn();
 const getRunDetail = vi.fn();
+const movePlanStep = vi.fn();
 const rejectToolRun = vi.fn();
 const retryToolRun = vi.fn();
 const updatePlanStep = vi.fn();
@@ -16,6 +17,7 @@ vi.mock('../../features/agents/planStepsApi', () => ({
     approveToolRun,
     executePlanStep,
     getRunDetail,
+    movePlanStep,
     rejectToolRun,
     retryToolRun,
     updatePlanStep
@@ -66,6 +68,7 @@ describe('AgentPlanStepsPage', () => {
     approveToolRun.mockReset();
     executePlanStep.mockReset();
     getRunDetail.mockReset();
+    movePlanStep.mockReset();
     rejectToolRun.mockReset();
     retryToolRun.mockReset();
     updatePlanStep.mockReset();
@@ -274,6 +277,77 @@ describe('AgentPlanStepsPage', () => {
     expect(screen.getByLabelText('Plan step Read safer file')).toHaveTextContent('pending');
     expect(screen.getByLabelText('Plan step Read safer file')).toHaveTextContent('Approval: pending');
     expect(screen.getByLabelText('Plan step Read safer file')).toHaveTextContent('"path": "new.go"');
+  });
+
+  it('moves pending plan steps while keeping completed steps fixed', async () => {
+    renderPage([
+      {
+        approvalStatus: 'not_required',
+        id: 'step_1',
+        index: 1,
+        resultContent: 'Requirements gathered.',
+        runId: 'run_1',
+        status: 'completed',
+        title: 'Gather requirements'
+      },
+      {
+        approvalStatus: 'approved',
+        id: 'step_2',
+        index: 2,
+        runId: 'run_1',
+        status: 'approved',
+        title: 'Draft patch'
+      },
+      {
+        approvalStatus: 'pending',
+        id: 'step_3',
+        index: 3,
+        runId: 'run_1',
+        status: 'pending',
+        title: 'Verify patch'
+      }
+    ]);
+    movePlanStep.mockResolvedValueOnce([
+      {
+        approvalStatus: 'pending',
+        id: 'step_1',
+        index: 1,
+        resultContent: 'Requirements gathered.',
+        runId: 'run_1',
+        status: 'completed',
+        title: 'Gather requirements'
+      },
+      {
+        approvalStatus: 'pending',
+        id: 'step_3',
+        index: 2,
+        runId: 'run_1',
+        status: 'pending',
+        title: 'Verify patch'
+      },
+      {
+        approvalStatus: 'pending',
+        id: 'step_2',
+        index: 3,
+        runId: 'run_1',
+        status: 'pending',
+        title: 'Draft patch'
+      }
+    ]);
+
+    expect(screen.getByRole('button', { name: 'Move up Draft patch' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Move down Draft patch' })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Move up Verify patch' }));
+
+    await waitFor(() => expect(movePlanStep).toHaveBeenCalledWith('run_1', 'step_3', 'up'));
+    const planArticles = await screen.findAllByLabelText(/^Plan step /);
+    expect(planArticles.map((article) => within(article).getByRole('heading').textContent)).toEqual([
+      'Gather requirements',
+      'Verify patch',
+      'Draft patch'
+    ]);
+    expect(screen.getByLabelText('Plan step Draft patch')).toHaveTextContent('Approval: pending');
   });
 
   it('rejects invalid JSON when editing a plan step input', async () => {

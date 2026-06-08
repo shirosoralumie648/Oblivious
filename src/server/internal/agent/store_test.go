@@ -500,6 +500,65 @@ func TestAgentPlanStepStoreUpdatesStatusAndExecutionResult(t *testing.T) {
 	}
 }
 
+func TestAgentPlanStepStoreUpdatesIndexUnderUniqueRunOrder(t *testing.T) {
+	store, ctx := testAgentRunSQLStore(t)
+
+	run, err := store.CreateRun(ctx, &CreateRunRequest{
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		RequestID:      "req_plan_step_reorder",
+		Status:         RunStatusPendingApproval,
+	})
+	if err != nil {
+		t.Fatalf("CreateRun returned error: %v", err)
+	}
+	first, err := store.CreatePlanStep(ctx, &CreatePlanStepRequest{
+		OrganizationID: "org_1",
+		RunID:          run.ID,
+		Index:          1,
+		Title:          "Draft patch",
+		Status:         PlanStepStatusPending,
+		ApprovalStatus: ApprovalStatusPending,
+	})
+	if err != nil {
+		t.Fatalf("CreatePlanStep first returned error: %v", err)
+	}
+	second, err := store.CreatePlanStep(ctx, &CreatePlanStepRequest{
+		OrganizationID: "org_1",
+		RunID:          run.ID,
+		Index:          2,
+		Title:          "Verify patch",
+		Status:         PlanStepStatusPending,
+		ApprovalStatus: ApprovalStatusPending,
+	})
+	if err != nil {
+		t.Fatalf("CreatePlanStep second returned error: %v", err)
+	}
+
+	bufferIndex := 3
+	if _, err := store.UpdatePlanStep(ctx, "org_1", second.ID, UpdatePlanStepRequest{Index: &bufferIndex}); err != nil {
+		t.Fatalf("UpdatePlanStep buffer index returned error: %v", err)
+	}
+	secondIndex := 2
+	if _, err := store.UpdatePlanStep(ctx, "org_1", first.ID, UpdatePlanStepRequest{Index: &secondIndex}); err != nil {
+		t.Fatalf("UpdatePlanStep first swap returned error: %v", err)
+	}
+	firstIndex := 1
+	if _, err := store.UpdatePlanStep(ctx, "org_1", second.ID, UpdatePlanStepRequest{Index: &firstIndex}); err != nil {
+		t.Fatalf("UpdatePlanStep second swap returned error: %v", err)
+	}
+
+	steps, err := store.ListPlanSteps(ctx, "org_1", run.ID)
+	if err != nil {
+		t.Fatalf("ListPlanSteps returned error: %v", err)
+	}
+	if len(steps) != 2 || steps[0].ID != second.ID || steps[0].Index != 1 || steps[1].ID != first.ID || steps[1].Index != 2 {
+		t.Fatalf("expected reordered plan steps, got %+v", steps)
+	}
+}
+
 func TestAgentToolRunStorePersistsRiskLevel(t *testing.T) {
 	store, ctx := testAgentRunSQLStore(t)
 

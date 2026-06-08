@@ -181,6 +181,8 @@ required_paths=(
   "/api/v1/agent/runs/{runId}/reject-tool"
   "/api/v1/agent/runs/{runId}/retry-tool"
   "/api/v1/agent/runs/{runId}/approve-plan-step"
+  "/api/v1/agent/runs/{runId}/update-plan-step"
+  "/api/v1/agent/runs/{runId}/move-plan-step"
   "/api/v1/agent/runs/{runId}/execute-plan-step"
   "/api/v1/channels"
   "/api/v1/channels/{channelId}"

@@ -1091,6 +1091,17 @@ components:
           type: object
           additionalProperties: true
 
+    AgentPlanStepMoveRequest:
+      type: object
+      properties:
+        planStepId:
+          type: string
+        plan_step_id:
+          type: string
+        direction:
+          type: string
+          enum: [up, down]
+
     ChannelConfig:
       type: object
       properties:
@@ -6327,6 +6338,39 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/AgentPlanStepUpdateRequest"
+      responses:
+        "200":
+          description: 刷新后的 Agent run 状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AgentRunResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/agent/runs/{runId}/move-plan-step:
+    post:
+      summary: 移动 Agent planning 步骤顺序
+      operationId: moveAgentPlanStep
+      tags: [Agent]
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentPlanStepMoveRequest"
       responses:
         "200":
           description: 刷新后的 Agent run 状态
