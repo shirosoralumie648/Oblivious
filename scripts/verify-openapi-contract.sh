@@ -89,6 +89,38 @@ require_api_json_responses_use_envelope() {
   ' "$openapi_file"
 }
 
+require_session_csrf_contract() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+    security_schemes = spec.fetch("components", {}).fetch("securitySchemes", {})
+    csrf_header = security_schemes["csrfHeader"]
+    missing = []
+
+    unless csrf_header && csrf_header["type"] == "apiKey" && csrf_header["in"] == "header" && csrf_header["name"] == "X-CSRF-Token"
+      missing << "components.securitySchemes.csrfHeader must document the X-CSRF-Token header"
+    end
+
+    session_response = spec.fetch("components", {}).fetch("schemas", {}).fetch("SessionResponse", {})
+    csrf_token = session_response.fetch("properties", {})["csrfToken"]
+    unless csrf_token && csrf_token["type"] == "string" && csrf_token.fetch("description", "").include?("X-CSRF-Token")
+      missing << "components.schemas.SessionResponse.csrfToken must document reuse as X-CSRF-Token"
+    end
+
+    logout = spec.fetch("paths", {}).fetch("/api/v1/auth/logout", {}).fetch("post", {})
+    security = logout.fetch("security", spec.fetch("security", []))
+    unless security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
+      missing << "POST /api/v1/auth/logout must require both cookieAuth and csrfHeader"
+    end
+
+    unless missing.empty?
+      warn "[openapi-contract] session CSRF contract is incomplete:"
+      missing.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 required_paths=(
   "/api/v1/agent/tools"
   "/api/v1/agent/runs"
@@ -229,5 +261,6 @@ require_public_security_empty "/api/v1/billing/stripe/webhook"
 require_public_security_empty "/api/v1/billing/alipay/webhook"
 require_public_security_empty "/api/v1/billing/wechatpay/webhook"
 require_api_json_responses_use_envelope
+require_session_csrf_contract
 
 echo "[openapi-contract] required Agent, Memory, MCP, Tenant, Notification, Observability, publishing channel, Workflow, Billing, and Marketplace paths are documented."

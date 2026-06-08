@@ -842,9 +842,13 @@ assert_file_contains "$check_script" "docs/architecture/current-system-contracts
 assert_file_contains "$check_script" "config/.env.example"
 assert_file_contains "$check_script" "go test ./... -count=1"
 assert_file_contains "$repo_root/scripts/verify-openapi-contract.sh" "require_api_json_responses_use_envelope"
+assert_file_contains "$repo_root/scripts/verify-openapi-contract.sh" "require_session_csrf_contract"
 assert_file_contains "$repo_root/scripts/verify-openapi-contract.sh" '#/components/schemas/Envelope'
 assert_file_contains "$repo_root/docs/reports/2026-06-07-fusion-spec-completion-matrix.md" "does not resolve to `#/components/schemas/Envelope`"
+assert_file_contains "$repo_root/docs/reports/2026-06-07-fusion-spec-completion-matrix.md" "session CSRF contract"
 assert_file_contains "$openapi_file" "/api/v1/billing/stripe/webhook"
+assert_file_contains "$openapi_file" "csrfHeader"
+assert_file_contains "$openapi_file" "X-CSRF-Token"
 
 assert_file_contains "$test_script" "Running server unit tests."
 assert_file_contains "$test_script" "Running server integration tests."

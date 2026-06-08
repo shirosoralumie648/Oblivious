@@ -23,7 +23,12 @@ components:
       type: apiKey
       in: cookie
       name: session_id
-      description: 登录后通过 Set-Cookie 设置的会话令牌
+      description: 登录后通过 Set-Cookie 设置的 HttpOnly、SameSite=Lax 会话令牌
+    csrfHeader:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+      description: 对带会话 cookie 的非 GET/HEAD/OPTIONS 变更请求，传入会话响应 data.csrfToken
 
   schemas:
     Envelope:
@@ -68,6 +73,9 @@ components:
           type: boolean
         preferences:
           $ref: "#/components/schemas/Preferences"
+        csrfToken:
+          type: string
+          description: 用作后续带会话 cookie 的变更请求 `X-CSRF-Token` header
         session:
           type: object
           properties:
@@ -2707,6 +2715,9 @@ paths:
       summary: 登出
       operationId: logout
       tags: [Auth]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       responses:
         "200":
           description: 登出成功
