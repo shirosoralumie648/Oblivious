@@ -1073,6 +1073,56 @@ require_agent_run_mutation_csrf_contract() {
   ' "$openapi_file"
 }
 
+require_billing_checkout_contract() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+    paths = spec.fetch("paths", {})
+    missing = []
+
+    def requires_cookie_and_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
+    end
+
+    def request_body_ref(operation)
+      operation.dig("requestBody", "content", "application/json", "schema", "$ref")
+    end
+
+    def response_data_ref(operation, status)
+      operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "$ref") }&.
+        dig("properties", "data", "$ref")
+    end
+
+    checkout = paths.dig("/api/v1/billing/checkout", "post")
+    unless checkout
+      missing << "POST /api/v1/billing/checkout must be documented"
+      checkout = {}
+    end
+
+    unless checkout.fetch("tags", []).include?("Billing")
+      missing << "POST /api/v1/billing/checkout must be tagged Billing"
+    end
+    unless requires_cookie_and_csrf?(checkout)
+      missing << "POST /api/v1/billing/checkout must require cookieAuth and csrfHeader"
+    end
+    unless checkout.dig("requestBody", "required") == true &&
+        request_body_ref(checkout) == "#/components/schemas/BillingCheckoutRequest"
+      missing << "POST /api/v1/billing/checkout request body must require BillingCheckoutRequest"
+    end
+    unless response_data_ref(checkout, "201") == "#/components/schemas/BillingCheckoutSession"
+      missing << "POST /api/v1/billing/checkout 201 data must reference BillingCheckoutSession"
+    end
+
+    unless missing.empty?
+      warn "[openapi-contract] Billing checkout contract is incomplete:"
+      missing.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 require_admin_core_management_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
@@ -1648,6 +1698,7 @@ require_marketplace_user_mutation_csrf_contract
 require_admin_marketplace_governance_csrf_contract
 require_admin_marketplace_review_csrf_contract
 require_agent_run_mutation_csrf_contract
+require_billing_checkout_contract
 require_admin_core_management_contract
 require_admin_billing_contract
 require_domestic_payment_webhook_payout_contract

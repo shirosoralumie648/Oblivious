@@ -12939,6 +12939,9 @@ paths:
       summary: 创建订阅或余额充值 checkout
       operationId: createBillingCheckout
       tags: [Billing]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       requestBody:
         required: true
         content:
