@@ -11,6 +11,7 @@ const getRunDetail = vi.fn();
 const movePlanStep = vi.fn();
 const rejectToolRun = vi.fn();
 const retryToolRun = vi.fn();
+const skipPlanStep = vi.fn();
 const updatePlanStep = vi.fn();
 
 vi.mock('../../features/agents/planStepsApi', () => ({
@@ -24,6 +25,7 @@ vi.mock('../../features/agents/planStepsApi', () => ({
     movePlanStep,
     rejectToolRun,
     retryToolRun,
+    skipPlanStep,
     updatePlanStep
   })
 }));
@@ -77,6 +79,7 @@ describe('AgentPlanStepsPage', () => {
     movePlanStep.mockReset();
     rejectToolRun.mockReset();
     retryToolRun.mockReset();
+    skipPlanStep.mockReset();
     updatePlanStep.mockReset();
   });
 
@@ -240,6 +243,88 @@ describe('AgentPlanStepsPage', () => {
 
     expect(await screen.findByText('Approval failed')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Inspect workspace' })).toBeInTheDocument();
+  });
+
+  it('skips pending, approved, or failed plan steps from the planning page', async () => {
+    renderPage([
+      {
+        approvalStatus: 'pending',
+        id: 'step_1',
+        index: 1,
+        runId: 'run_1',
+        status: 'pending',
+        title: 'Optional discovery'
+      },
+      {
+        approvalStatus: 'not_required',
+        id: 'step_2',
+        index: 2,
+        runId: 'run_1',
+        status: 'approved',
+        title: 'Approved verification'
+      },
+      {
+        approvalStatus: 'not_required',
+        id: 'step_3',
+        index: 3,
+        runId: 'run_1',
+        status: 'failed',
+        title: 'Failed verification'
+      },
+      {
+        approvalStatus: 'not_required',
+        id: 'step_4',
+        index: 4,
+        runId: 'run_1',
+        status: 'completed',
+        title: 'Completed implementation'
+      }
+    ]);
+    skipPlanStep.mockResolvedValueOnce([
+      {
+        approvalStatus: 'pending',
+        id: 'step_1',
+        index: 1,
+        runId: 'run_1',
+        status: 'skipped',
+        title: 'Optional discovery'
+      },
+      {
+        approvalStatus: 'not_required',
+        id: 'step_2',
+        index: 2,
+        runId: 'run_1',
+        status: 'approved',
+        title: 'Approved verification'
+      },
+      {
+        approvalStatus: 'not_required',
+        id: 'step_3',
+        index: 3,
+        runId: 'run_1',
+        status: 'failed',
+        title: 'Failed verification'
+      },
+      {
+        approvalStatus: 'not_required',
+        id: 'step_4',
+        index: 4,
+        runId: 'run_1',
+        status: 'completed',
+        title: 'Completed implementation'
+      }
+    ]);
+
+    expect(screen.getByRole('button', { name: 'Skip Approved verification' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Skip Failed verification' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Skip Completed implementation' })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Skip Optional discovery' }));
+
+    await waitFor(() => expect(skipPlanStep).toHaveBeenCalledWith('run_1', 'step_1'));
+    await waitFor(() => {
+      expect(within(screen.getByLabelText('Plan step Optional discovery')).getAllByText('skipped').length).toBeGreaterThan(0);
+    });
   });
 
   it('edits a pending or approved plan step and refreshes the draft', async () => {

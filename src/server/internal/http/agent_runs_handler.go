@@ -303,6 +303,37 @@ func (h agentRunsHandler) approvePlanStep(w stdhttp.ResponseWriter, r *stdhttp.R
 	writeSuccess(w, stdhttp.StatusOK, newAgentRunResponse(result))
 }
 
+func (h agentRunsHandler) skipPlanStep(w stdhttp.ResponseWriter, r *stdhttp.Request, runID string) {
+	session, ok := sessionFromContext(r)
+	if !ok {
+		writeError(w, stdhttp.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+
+	var req agentRunPlanStepRequest
+	if err := decodeOptionalAgentRunJSONBody(r, &req); err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "invalid json body")
+		return
+	}
+	planStepID, ok := h.resolvePlanStepID(w, r, session, runID, firstAgentRunNonEmpty(req.PlanStepID, req.PlanStepIDCamel), func(step *agent.PlanStep) bool {
+		return step.Status == agent.PlanStepStatusPending || step.Status == agent.PlanStepStatusApproved || step.Status == agent.PlanStepStatusFailed
+	})
+	if !ok {
+		return
+	}
+
+	if _, err := h.service.SkipPlanStep(r.Context(), session, planStepID, strings.TrimSpace(req.Reason)); err != nil {
+		writeAgentWorkflowError(w, err)
+		return
+	}
+	result, err := h.service.GetRunWithMessages(r.Context(), session, strings.TrimSpace(runID))
+	if err != nil {
+		writeAgentWorkflowError(w, err)
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, newAgentRunResponse(result))
+}
+
 func (h agentRunsHandler) createPlanStep(w stdhttp.ResponseWriter, r *stdhttp.Request, runID string) {
 	session, ok := sessionFromContext(r)
 	if !ok {

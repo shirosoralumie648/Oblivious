@@ -512,6 +512,66 @@ func TestAgentRunsHandlerApprovePlanStepVerifiesStepBelongsToRun(t *testing.T) {
 	}
 }
 
+func TestAgentRunsHandlerSkipPlanStepReturnsUpdatedRunDetail(t *testing.T) {
+	now := time.Now().UTC()
+	store := newFakeAgentRunsStore()
+	store.runs = []*agent.Run{{
+		ID:             "run_1",
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		Status:         agent.RunStatusPendingApproval,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}}
+	store.planSteps = []*agent.PlanStep{{
+		ID:             "step_1",
+		RunID:          "run_1",
+		OrganizationID: "org_1",
+		Index:          1,
+		Title:          "Optional discovery",
+		Status:         agent.PlanStepStatusPending,
+		ApprovalStatus: agent.ApprovalStatusNotRequired,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}, {
+		ID:             "step_2",
+		RunID:          "run_1",
+		OrganizationID: "org_1",
+		Index:          2,
+		Title:          "Verify patch",
+		Status:         agent.PlanStepStatusCompleted,
+		ApprovalStatus: agent.ApprovalStatusNotRequired,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{}))
+
+	recorder := httptest.NewRecorder()
+	handler.skipPlanStep(recorder, newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/skip-plan-step", `{"plan_step_id":"step_1","reason":"not required"}`), "run_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Data agentRunResponse `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Data.Run == nil || response.Data.Run.Status != agent.RunStatusCompleted {
+		t.Fatalf("expected run to complete after skipped/completed steps, got %+v", response.Data.Run)
+	}
+	if len(response.Data.PlanSteps) != 2 {
+		t.Fatalf("expected plan step detail, got %+v", response.Data)
+	}
+	step := response.Data.PlanSteps[0]
+	if step.ID != "step_1" || step.Status != agent.PlanStepStatusSkipped || step.Error != "not required" || step.CompletedAt == nil {
+		t.Fatalf("expected skipped plan step with reason, got %+v", step)
+	}
+}
+
 func TestAgentRunsHandlerApproveToolSelectsOnlyPendingApprovalWhenOmitted(t *testing.T) {
 	store := newFakeAgentRunsStore()
 	store.agent = &agent.Agent{

@@ -1522,6 +1522,38 @@ func (s *Service) ExecutePlanStep(ctx context.Context, session auth.Session, pla
 	return completed, nil
 }
 
+func (s *Service) SkipPlanStep(ctx context.Context, session auth.Session, planStepID, reason string) (*PlanStep, error) {
+	step, err := s.getPlanStepForSession(ctx, session, planStepID)
+	if err != nil {
+		return nil, err
+	}
+	if !canSkipPlanStep(step) {
+		return nil, fmt.Errorf("plan step cannot be skipped after execution starts")
+	}
+
+	completedAt := time.Now().UTC()
+	skipped, err := s.store.UpdatePlanStep(ctx, session.OrganizationID, planStepID, UpdatePlanStepRequest{
+		Status:        stringPointer(PlanStepStatusSkipped),
+		ResultContent: stringPointer(""),
+		Error:         stringPointer(strings.TrimSpace(reason)),
+		CompletedAt:   &completedAt,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := s.completeRunWhenAllPlanStepsDone(ctx, session, skipped.RunID); err != nil {
+		return nil, err
+	}
+	return skipped, nil
+}
+
+func canSkipPlanStep(step *PlanStep) bool {
+	if step == nil {
+		return false
+	}
+	return step.Status == PlanStepStatusPending || step.Status == PlanStepStatusApproved || step.Status == PlanStepStatusFailed
+}
+
 func (s *Service) ensurePriorPlanStepsDone(ctx context.Context, session auth.Session, step *PlanStep) error {
 	if step == nil {
 		return fmt.Errorf("plan step not found")

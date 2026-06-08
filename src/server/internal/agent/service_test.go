@@ -2359,6 +2359,177 @@ func TestServiceExecutePlanStepRejectsOutOfOrderStep(t *testing.T) {
 	}
 }
 
+func TestServiceSkipPlanStepAllowsLaterExecution(t *testing.T) {
+	now := time.Now().UTC()
+	store := &fakeStore{
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Status:         RunStatusPendingApproval,
+			StartedAt:      now,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+		planSteps: []*PlanStep{{
+			ID:             "step_1",
+			RunID:          "run_1",
+			OrganizationID: "org_1",
+			Index:          1,
+			Title:          "Optional discovery",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusNotRequired,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}, {
+			ID:             "step_2",
+			RunID:          "run_1",
+			OrganizationID: "org_1",
+			Index:          2,
+			Title:          "Verify implementation",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusNotRequired,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+	}
+	executor := &fakePlanStepExecutor{resultContent: "verification passed"}
+	service := NewService(store, &fakeGateway{})
+	service.SetPlanStepExecutor(executor)
+	session := auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}}
+
+	skipped, err := service.SkipPlanStep(context.Background(), session, "step_1", "not needed")
+	if err != nil {
+		t.Fatalf("SkipPlanStep returned error: %v", err)
+	}
+	if skipped.Status != PlanStepStatusSkipped || skipped.Error != "not needed" || skipped.CompletedAt == nil {
+		t.Fatalf("expected skipped step with reason and completion time, got %+v", skipped)
+	}
+
+	completed, err := service.ExecutePlanStep(context.Background(), session, "step_2")
+	if err != nil {
+		t.Fatalf("ExecutePlanStep after skipped prior step returned error: %v", err)
+	}
+	if completed.Status != PlanStepStatusCompleted || completed.ResultContent != "verification passed" {
+		t.Fatalf("expected second step to execute after skipped prior step, got %+v", completed)
+	}
+	run, err := store.GetRun(context.Background(), "org_1", "run_1")
+	if err != nil {
+		t.Fatalf("GetRun returned error: %v", err)
+	}
+	if run.Status != RunStatusCompleted || run.CompletedAt == nil {
+		t.Fatalf("expected run to complete after skipped/completed steps, got %+v", run)
+	}
+}
+
+func TestServiceSkipPlanStepCompletesRunWhenAllStepsAreDoneOrSkipped(t *testing.T) {
+	now := time.Now().UTC()
+	store := &fakeStore{
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Status:         RunStatusPendingApproval,
+			StartedAt:      now,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+		planSteps: []*PlanStep{{
+			ID:             "step_1",
+			RunID:          "run_1",
+			OrganizationID: "org_1",
+			Index:          1,
+			Title:          "Gather requirements",
+			Status:         PlanStepStatusCompleted,
+			ApprovalStatus: ApprovalStatusNotRequired,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}, {
+			ID:             "step_2",
+			RunID:          "run_1",
+			OrganizationID: "org_1",
+			Index:          2,
+			Title:          "Optional polish",
+			Status:         PlanStepStatusFailed,
+			ApprovalStatus: ApprovalStatusNotRequired,
+			Error:          "not required",
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+	}
+	service := NewService(store, &fakeGateway{})
+	session := auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}}
+
+	skipped, err := service.SkipPlanStep(context.Background(), session, "step_2", "")
+	if err != nil {
+		t.Fatalf("SkipPlanStep returned error: %v", err)
+	}
+	if skipped.Status != PlanStepStatusSkipped || skipped.Error != "" || skipped.CompletedAt == nil {
+		t.Fatalf("expected failed step to be skipped cleanly, got %+v", skipped)
+	}
+	run, err := store.GetRun(context.Background(), "org_1", "run_1")
+	if err != nil {
+		t.Fatalf("GetRun returned error: %v", err)
+	}
+	if run.Status != RunStatusCompleted || run.CompletedAt == nil {
+		t.Fatalf("expected run to complete after final skip, got %+v", run)
+	}
+}
+
+func TestServiceSkipPlanStepRejectsStartedOrTerminalSteps(t *testing.T) {
+	tests := []struct {
+		name   string
+		status string
+	}{
+		{name: "running", status: PlanStepStatusRunning},
+		{name: "completed", status: PlanStepStatusCompleted},
+		{name: "skipped", status: PlanStepStatusSkipped},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			now := time.Now().UTC()
+			store := &fakeStore{
+				runs: []*Run{{
+					ID:             "run_1",
+					OrganizationID: "org_1",
+					ConversationID: "conv_1",
+					AgentID:        "agent_1",
+					UserID:         "user_1",
+					Status:         RunStatusPendingApproval,
+					StartedAt:      now,
+					CreatedAt:      now,
+					UpdatedAt:      now,
+				}},
+				planSteps: []*PlanStep{{
+					ID:             "step_1",
+					RunID:          "run_1",
+					OrganizationID: "org_1",
+					Index:          1,
+					Title:          "Guarded step",
+					Status:         tt.status,
+					ApprovalStatus: ApprovalStatusNotRequired,
+					CreatedAt:      now,
+					UpdatedAt:      now,
+				}},
+			}
+			service := NewService(store, &fakeGateway{})
+			session := auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}}
+
+			_, err := service.SkipPlanStep(context.Background(), session, "step_1", "late skip")
+			if err == nil || !strings.Contains(err.Error(), "plan step cannot be skipped after execution starts") {
+				t.Fatalf("expected skip rejection for %s step, got %v", tt.status, err)
+			}
+			if store.planSteps[0].Status != tt.status || store.planSteps[0].Error != "" {
+				t.Fatalf("skip rejection mutated guarded step: %+v", store.planSteps[0])
+			}
+		})
+	}
+}
+
 func TestStartPlanningRunPersistsStructuredToolSteps(t *testing.T) {
 	store := &fakeStore{
 		agent: &Agent{

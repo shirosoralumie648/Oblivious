@@ -101,6 +101,24 @@ describe('createAgentPlanStepsApi', () => {
     });
   });
 
+  it('skips a run plan step and returns refreshed plan steps', async () => {
+    const post = vi.fn().mockResolvedValue({
+      data: {
+        planSteps: [{ error: 'not needed', id: 'step_1', runId: 'run_1', status: 'skipped', title: 'Inspect workspace' }]
+      }
+    });
+    const api = createAgentPlanStepsApi(createClient({ post }));
+
+    await expect(api.skipPlanStep('run_1', 'step_1', 'not needed')).resolves.toEqual([
+      { error: 'not needed', id: 'step_1', runId: 'run_1', status: 'skipped', title: 'Inspect workspace' }
+    ]);
+
+    expect(post).toHaveBeenCalledWith('/api/v1/agent/runs/run_1/skip-plan-step', {
+      planStepId: 'step_1',
+      reason: 'not needed'
+    });
+  });
+
   it('updates a run plan step draft through the agent run endpoint', async () => {
     const request = vi.fn().mockResolvedValue({
       data: {

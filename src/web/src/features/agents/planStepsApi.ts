@@ -131,6 +131,7 @@ export type AgentPlanStepsApi = {
   movePlanStep: (runId: string, planStepId: string, direction: MoveAgentPlanStepDirection) => Promise<AgentPlanStep[]>;
   deletePlanStep: (runId: string, planStepId: string) => Promise<AgentPlanStep[]>;
   executePlanStep: (runId: string, planStepId: string) => Promise<AgentPlanStep[]>;
+  skipPlanStep: (runId: string, planStepId: string, reason?: string) => Promise<AgentPlanStep[]>;
   approveToolRun: (runId: string, toolRunId: string, reason?: string) => Promise<AgentToolRun[]>;
   rejectToolRun: (runId: string, toolRunId: string, reason?: string) => Promise<AgentToolRun[]>;
   retryToolRun: (runId: string, toolRunId: string) => Promise<AgentToolRun[]>;
@@ -187,6 +188,13 @@ export function createAgentPlanStepsApi(client: HttpClient): AgentPlanStepsApi {
       planStepsFromPayload(
         await client.post<AgentPlanStepsPayload>(`${runPath(runId)}/execute-plan-step`, {
           planStepId
+        })
+      ),
+    skipPlanStep: async (runId, planStepId, reason) =>
+      planStepsFromPayload(
+        await client.post<AgentPlanStepsPayload>(`${runPath(runId)}/skip-plan-step`, {
+          planStepId,
+          ...(reason ? { reason } : {})
         })
       ),
     approveToolRun: async (runId, toolRunId, reason) =>
