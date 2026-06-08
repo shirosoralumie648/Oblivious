@@ -88,6 +88,14 @@ required_paths=(
   "/api/v1/app/mcp-servers/{serverId}/tools"
   "/api/v1/app/mcp-servers/{serverId}/status"
   "/api/v1/app/mcp-servers/{serverId}/execute"
+  "/api/v1/app/organizations"
+  "/api/v1/app/organizations/{organizationId}/select"
+  "/api/v1/app/organizations/{organizationId}/members"
+  "/api/v1/app/organizations/{organizationId}/members/{userId}"
+  "/api/v1/app/organizations/{organizationId}/invitations"
+  "/api/v1/app/organizations/{organizationId}/invitations/{invitationId}/revoke"
+  "/api/v1/app/organizations/{organizationId}/ownership-transfer"
+  "/api/v1/app/organization-invitations/{token}/accept"
   "/api/v1/app/quota"
   "/api/v1/app/packages"
   "/api/v1/app/quota/topup"
@@ -103,6 +111,10 @@ required_paths=(
   "/api/v1/billing/stripe/webhook"
   "/api/v1/billing/alipay/webhook"
   "/api/v1/billing/wechatpay/webhook"
+  "/api/v1/admin/organizations"
+  "/api/v1/admin/organizations/{organizationId}"
+  "/api/v1/admin/organizations/{organizationId}/archive"
+  "/api/v1/admin/organizations/{organizationId}/members"
 )
 
 for path in "${required_paths[@]}"; do
@@ -115,4 +127,4 @@ require_public_security_empty "/api/v1/billing/stripe/webhook"
 require_public_security_empty "/api/v1/billing/alipay/webhook"
 require_public_security_empty "/api/v1/billing/wechatpay/webhook"
 
-echo "[openapi-contract] required Agent, Memory, MCP, publishing channel, Workflow, and Billing paths are documented."
+echo "[openapi-contract] required Agent, Memory, MCP, Tenant, publishing channel, Workflow, and Billing paths are documented."

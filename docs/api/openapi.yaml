@@ -1902,6 +1902,167 @@ components:
         status:
           type: string
 
+    Organization:
+      type: object
+      properties:
+        id:
+          type: string
+        slug:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+          enum: [active, disabled, archived]
+        metadata:
+          type: object
+          additionalProperties: true
+        createdByUserID:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        archivedAt:
+          type: string
+          format: date-time
+
+    CreateOrganizationRequest:
+      type: object
+      required: [name, slug]
+      properties:
+        name:
+          type: string
+        slug:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+
+    UpdateOrganizationRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+          enum: [active, disabled, archived]
+        metadata:
+          type: object
+          additionalProperties: true
+
+    OrganizationMembership:
+      type: object
+      properties:
+        id:
+          type: string
+        organizationID:
+          type: string
+        organizationSlug:
+          type: string
+        organizationName:
+          type: string
+        userID:
+          type: string
+        userEmail:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [owner, admin, member]
+        createdByUserID:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        removedAt:
+          type: string
+          format: date-time
+
+    OrganizationInvitation:
+      type: object
+      properties:
+        id:
+          type: string
+        organizationID:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [owner, admin, member]
+        token:
+          type: string
+          description: Returned only when an invitation is created.
+        status:
+          type: string
+          enum: [pending, accepted, revoked, expired]
+        invitedByUserID:
+          type: string
+        acceptedByUserID:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+        acceptedAt:
+          type: string
+          format: date-time
+        revokedAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    InviteOrganizationMemberRequest:
+      type: object
+      required: [email, role]
+      properties:
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [admin, member]
+
+    UpdateOrganizationMemberRoleRequest:
+      type: object
+      required: [role]
+      properties:
+        role:
+          type: string
+          enum: [admin, member]
+
+    TransferOrganizationOwnershipRequest:
+      type: object
+      required: [newOwnerUserID]
+      properties:
+        newOwnerUserID:
+          type: string
+
+    OrganizationSelection:
+      type: object
+      properties:
+        organization:
+          type: object
+          properties:
+            id:
+              type: string
+        session:
+          type: object
+          properties:
+            id:
+              type: string
+
     QuotaSnapshot:
       type: object
       properties:
@@ -3142,6 +3303,368 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
+
+  # ---- Workspace organizations ----
+  /api/v1/app/organizations:
+    get:
+      summary: 获取当前用户的组织成员身份
+      operationId: listMyOrganizations
+      tags: [Tenant]
+      responses:
+        "200":
+          description: 当前用户可访问的组织成员身份列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          memberships:
+                            type: array
+                            items:
+                              $ref: "#/components/schemas/OrganizationMembership"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/app/organizations/{organizationId}/select:
+    post:
+      summary: 切换当前会话的活动组织
+      operationId: selectOrganization
+      tags: [Tenant]
+      parameters:
+        - name: organizationId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 会话已切换到目标组织，并刷新 session cookie
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/OrganizationSelection"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 当前用户不是目标组织成员
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/app/organizations/{organizationId}/members:
+    get:
+      summary: 获取组织成员列表
+      operationId: listOrganizationMembers
+      tags: [Tenant]
+      parameters:
+        - name: organizationId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 组织成员列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          members:
+                            type: array
+                            items:
+                              $ref: "#/components/schemas/OrganizationMembership"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 当前用户无权查看该组织成员
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/app/organizations/{organizationId}/members/{userId}:
+    put:
+      summary: 更新组织成员角色
+      operationId: updateOrganizationMemberRole
+      tags: [Tenant]
+      parameters:
+        - name: organizationId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateOrganizationMemberRoleRequest"
+      responses:
+        "200":
+          description: 更新后的成员身份；目标成员会话会被撤销
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/OrganizationMembership"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 当前用户无权更新该成员
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: 成员角色变更违反组织所有权约束
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+    delete:
+      summary: 移除组织成员
+      operationId: removeOrganizationMember
+      tags: [Tenant]
+      parameters:
+        - name: organizationId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: 成员已移除；目标成员会话会被撤销
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 当前用户无权移除该成员
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: 成员移除违反组织所有权约束
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+
+  /api/v1/app/organizations/{organizationId}/invitations:
+    post:
+      summary: 邀请用户加入组织
+      operationId: inviteOrganizationMember
+      tags: [Tenant]
+      parameters:
+        - name: organizationId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InviteOrganizationMemberRequest"
+      responses:
+        "201":
+          description: 新创建的组织邀请；token 只在创建响应中返回
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/OrganizationInvitation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 当前用户无权邀请组织成员
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "409":
+          description: 邀请或成员状态冲突
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+
+  /api/v1/app/organizations/{organizationId}/invitations/{invitationId}/revoke:
+    post:
+      summary: 撤销待处理的组织邀请
+      operationId: revokeOrganizationInvitation
+      tags: [Tenant]
+      parameters:
+        - name: organizationId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: invitationId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 撤销后的邀请
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/OrganizationInvitation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 当前用户无权撤销该邀请
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: 邀请不是 pending 状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+
+  /api/v1/app/organizations/{organizationId}/ownership-transfer:
+    post:
+      summary: 转移组织所有权
+      operationId: transferOrganizationOwnership
+      tags: [Tenant]
+      parameters:
+        - name: organizationId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TransferOrganizationOwnershipRequest"
+      responses:
+        "200":
+          description: 所有权已转移；旧 owner 和新 owner 会话会被撤销
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          transferred:
+                            type: boolean
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 当前用户不是组织 owner
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: 所有权转移违反组织约束
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+
+  /api/v1/app/organization-invitations/{token}/accept:
+    post:
+      summary: 接受组织邀请
+      operationId: acceptOrganizationInvitation
+      tags: [Tenant]
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 创建的成员身份；接受后会旋转当前 session
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/OrganizationMembership"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: 邀请已撤销、过期、已接受或用户已是成员
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
 
   # ---- 任务 (Task) ----
   /api/v1/app/tasks:
@@ -6130,6 +6653,260 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Envelope"
+
+  # ---- Admin organizations ----
+  /api/v1/admin/organizations:
+    get:
+      summary: 管理员获取组织列表
+      operationId: listAdminOrganizations
+      tags: [Admin]
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, disabled, archived]
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: 组织列表和总数
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          organizations:
+                            type: array
+                            items:
+                              $ref: "#/components/schemas/Organization"
+                          total:
+                            type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 当前用户不是管理员
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+    post:
+      summary: 管理员创建组织
+      operationId: createAdminOrganization
+      tags: [Admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOrganizationRequest"
+      responses:
+        "201":
+          description: 新创建的组织
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Organization"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 当前用户不是管理员
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "429":
+          description: 管理员敏感操作限流
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+
+  /api/v1/admin/organizations/{organizationId}:
+    get:
+      summary: 管理员获取组织详情
+      operationId: getAdminOrganization
+      tags: [Admin]
+      parameters:
+        - name: organizationId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 组织详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Organization"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 当前用户不是管理员
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      summary: 管理员更新组织
+      operationId: updateAdminOrganization
+      tags: [Admin]
+      parameters:
+        - name: organizationId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateOrganizationRequest"
+      responses:
+        "200":
+          description: 更新后的组织
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Organization"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 当前用户不是管理员
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          description: 管理员敏感操作限流
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+
+  /api/v1/admin/organizations/{organizationId}/archive:
+    post:
+      summary: 管理员归档组织
+      operationId: archiveAdminOrganization
+      tags: [Admin]
+      parameters:
+        - name: organizationId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 归档后的组织
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Organization"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 当前用户不是管理员
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          description: 管理员敏感操作限流
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+
+  /api/v1/admin/organizations/{organizationId}/members:
+    get:
+      summary: 管理员获取组织成员列表
+      operationId: listAdminOrganizationMembers
+      tags: [Admin]
+      parameters:
+        - name: organizationId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 组织成员列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          members:
+                            type: array
+                            items:
+                              $ref: "#/components/schemas/OrganizationMembership"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 当前用户不是管理员
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   # ---- 控制台 (Console / Billing) ----
   /api/v1/console/usage:
