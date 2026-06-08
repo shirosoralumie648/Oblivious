@@ -437,6 +437,7 @@ func (r *Runner) RunStream(ctx context.Context, session auth.Session, agent *Age
 	}
 
 	result.Message = assistantMsg
+	r.storeLongTermInteractionMemory(ctx, session, agent, conversationID, userContent, replyContent)
 	return result, nil
 }
 

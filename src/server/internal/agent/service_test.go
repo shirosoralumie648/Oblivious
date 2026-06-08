@@ -4445,14 +4445,17 @@ func (t *recordingBuiltinTool) Execute(ctx context.Context, args map[string]any)
 func TestSendMessageStreamPlainPath(t *testing.T) {
 	store := &fakeStore{
 		agent: &Agent{
-			ID:     "agent_stream",
-			UserID: "user_1",
-			Model:  "gpt-4o-mini",
+			ID:             "agent_stream",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+			Config:         Config{EnableMemory: true},
 		},
 		conversation: &Conversation{
-			ID:      "conv_stream",
-			AgentID: "agent_stream",
-			UserID:  "user_1",
+			ID:             "conv_stream",
+			AgentID:        "agent_stream",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
 		},
 	}
 
@@ -4463,7 +4466,8 @@ func TestSendMessageStreamPlainPath(t *testing.T) {
 	service := NewService(store, gateway)
 	var chunks []string
 	err := service.SendMessageStream(context.Background(), auth.Session{
-		User: auth.User{ID: "user_1"},
+		OrganizationID: "org_1",
+		User:           auth.User{ID: "user_1"},
 	}, "conv_stream", "hello", func(chunk string) error {
 		chunks = append(chunks, chunk)
 		return nil
@@ -4473,6 +4477,19 @@ func TestSendMessageStreamPlainPath(t *testing.T) {
 	}
 	if len(chunks) == 0 || chunks[0] != "streaming plain reply" {
 		t.Fatalf("expected 'streaming plain reply' chunk, got %v", chunks)
+	}
+	if len(store.memories) != 1 {
+		t.Fatalf("expected one automatic long-term memory, got %+v", store.memories)
+	}
+	created := store.memories[0]
+	if created.Type != MemoryTypeLongTerm || created.AgentID != "agent_stream" || created.UserID != "user_1" || created.OrganizationID != "org_1" {
+		t.Fatalf("expected scoped long-term streaming memory, got %+v", created)
+	}
+	if created.Content != "User: hello\nAssistant: streaming plain reply" {
+		t.Fatalf("unexpected streaming memory content: %q", created.Content)
+	}
+	if created.Importance != 3 || created.Metadata["source"] != "agent_run" || created.Metadata["conversation_id"] != "conv_stream" {
+		t.Fatalf("expected automatic memory metadata and default importance, got %+v", created)
 	}
 }
 
