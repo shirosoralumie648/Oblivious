@@ -198,7 +198,12 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 
 	// Marketplace service
 	marketplaceGovernanceService := marketplace.NewGovernanceService(marketplaceStore)
-	marketplaceService := marketplace.NewService(marketplaceStore, adminService, marketplace.WithReviewSLAAlertSink(currentHTTPAlertSink()))
+	marketplaceService := marketplace.NewService(
+		marketplaceStore,
+		adminService,
+		marketplace.WithAutomatedReview(marketplaceGovernanceService),
+		marketplace.WithReviewSLAAlertSink(currentHTTPAlertSink()),
+	)
 	adminHandler := newAdminHandlerWithPayoutsAndReviewSLA(adminService, marketplaceSettlementService, marketplaceService)
 	marketplaceHandler := newMarketplaceHandler(
 		marketplaceService,
