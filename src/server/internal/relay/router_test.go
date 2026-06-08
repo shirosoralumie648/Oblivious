@@ -478,6 +478,44 @@ func TestRouterRouteWithBillingRecordsRuntimeMetricsForSemanticCacheHitAndMiss(t
 	}
 }
 
+func TestRouterRouteWithBillingRecordsFeatureTypeForSemanticCacheHit(t *testing.T) {
+	router, _ := newRetryAffinityTestRouter()
+	router.semanticCache = relaycache.NewSemanticCache(relaycache.NewInMemorySemanticCacheStore(), relaycache.SemanticCacheOptions{
+		Now: func() time.Time { return time.Date(2026, 6, 6, 10, 0, 0, 0, time.UTC) },
+	})
+	usageLogger := &recordingUsageLogger{}
+	router.SetUsageLogger(usageLogger)
+	cacheReq := relaycache.SemanticCacheRequest{
+		OrganizationID: "org_workflow_cache",
+		Model:          "gpt-4o-mini",
+		Query:          "Summarize workflow cache attribution",
+	}
+	if _, err := router.semanticCache.Store(context.Background(), cacheReq, json.RawMessage(`{"cached":true}`)); err != nil {
+		t.Fatalf("seed cache: %v", err)
+	}
+	ctx := types.WithSemanticCacheRequest(context.Background(), cacheReq)
+	ctx = types.WithTrustedFeatureType(ctx, "workflow")
+
+	resp, err := router.RouteWithBilling(ctx, types.APITypeChat, cacheReq.Model, "", "idem_workflow_cache_hit", &types.Usage{TotalTokens: 20}, func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
+		t.Fatalf("provider callback should not run on semantic cache hit, got %s", routeChannelID(ch))
+		return nil, nil
+	})
+
+	if err != nil {
+		t.Fatalf("RouteWithBilling returned error: %v", err)
+	}
+	if resp == nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected cached successful response, got %+v", resp)
+	}
+	if len(usageLogger.records) != 1 {
+		t.Fatalf("expected 1 semantic cache usage record, got %+v", usageLogger.records)
+	}
+	record := usageLogger.records[0]
+	if record.Provider != "semantic_cache" || record.FeatureType != "workflow" {
+		t.Fatalf("expected semantic cache usage to keep workflow feature attribution, got %+v", record)
+	}
+}
+
 func newRetryAffinityTestRouter() (*Router, *memoryConversationAffinityStore) {
 	pool := NewChannelPool()
 	pool.AddChannel(&types.Channel{

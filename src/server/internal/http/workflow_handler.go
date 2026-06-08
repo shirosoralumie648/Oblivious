@@ -146,13 +146,13 @@ func (a workflowServiceAdapter) StartExecution(ctx context.Context, session auth
 	return a.StartExecutionWithTrigger(ctx, session, workflow.StartExecutionRequest{
 		WorkflowID: workflowID,
 		Input:      input,
-		Context:    workflowExecutionSessionContext(session),
+		Context:    workflowExecutionSessionContext(ctx, session),
 	})
 }
 
 func (a workflowServiceAdapter) StartExecutionWithTrigger(ctx context.Context, session auth.Session, req workflow.StartExecutionRequest) (*workflow.WorkflowExecution, error) {
 	req.OrganizationID = session.OrganizationID
-	req.Context = mergeWorkflowHandlerMaps(workflowExecutionSessionContext(session), req.Context)
+	req.Context = mergeWorkflowHandlerMaps(workflowExecutionSessionContext(ctx, session), req.Context)
 	return a.service.StartExecution(ctx, workflow.StartExecutionRequest{
 		OrganizationID: req.OrganizationID,
 		WorkflowID:     req.WorkflowID,
@@ -163,7 +163,7 @@ func (a workflowServiceAdapter) StartExecutionWithTrigger(ctx context.Context, s
 	})
 }
 
-func workflowExecutionSessionContext(session auth.Session) map[string]any {
+func workflowExecutionSessionContext(ctx context.Context, session auth.Session) map[string]any {
 	contextValue := map[string]any{}
 	if strings.TrimSpace(session.ID) != "" {
 		contextValue["sessionId"] = strings.TrimSpace(session.ID)
@@ -173,6 +173,9 @@ func workflowExecutionSessionContext(session auth.Session) map[string]any {
 	}
 	if strings.TrimSpace(session.WorkspaceID) != "" {
 		contextValue["workspaceId"] = strings.TrimSpace(session.WorkspaceID)
+	}
+	if requestID := strings.TrimSpace(requestIDFromContext(ctx)); requestID != "" {
+		contextValue["requestId"] = requestID
 	}
 	return contextValue
 }
@@ -748,7 +751,7 @@ func (h workflowHandler) startExecution(w stdhttp.ResponseWriter, r *stdhttp.Req
 	execution, err := h.service.StartExecutionWithTrigger(r.Context(), session, workflow.StartExecutionRequest{
 		WorkflowID: workflowID,
 		Input:      payload.Input,
-		Context:    workflowExecutionSessionContext(session),
+		Context:    workflowExecutionSessionContext(r.Context(), session),
 	})
 	if err != nil {
 		writeWorkflowError(w, err)

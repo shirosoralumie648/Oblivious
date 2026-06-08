@@ -1479,6 +1479,7 @@ func TestServiceRunReadyNodeExecutesInjectedLLMGateway(t *testing.T) {
 		OrganizationID: "org_1",
 		WorkflowID:     workflow.ID,
 		Input:          map[string]any{"ticket": "INC-42", "issue": "database latency"},
+		Context:        map[string]any{"userId": "user_1", "workspaceId": "workspace_1", "requestId": "req_workflow_1"},
 	})
 	if err != nil {
 		t.Fatalf("StartExecution returned error: %v", err)
@@ -1502,6 +1503,12 @@ func TestServiceRunReadyNodeExecutesInjectedLLMGateway(t *testing.T) {
 	}
 	if gateway.request.Options["temperature"] != 0.2 || gateway.request.Options["maxTokens"] != 128 {
 		t.Fatalf("expected options to be passed through, got %+v", gateway.request.Options)
+	}
+	if gateway.request.OrganizationID != "org_1" || gateway.request.FeatureType != "workflow" {
+		t.Fatalf("expected workflow llm request attribution, got %+v", gateway.request)
+	}
+	if gateway.request.UserID != "user_1" || gateway.request.WorkspaceID != "workspace_1" || gateway.request.RequestID != "req_workflow_1" {
+		t.Fatalf("expected workflow llm request identity metadata, got %+v", gateway.request)
 	}
 
 	updated, err := service.GetExecution(ctx, "org_1", execution.ID)

@@ -27,6 +27,7 @@ const (
 	HeaderInternalOrganization = "X-Oblivious-Organization-ID"
 	HeaderInternalUserGroup    = "X-Oblivious-User-Group"
 	HeaderInternalConversation = "X-Oblivious-Conversation-ID"
+	HeaderInternalFeatureType  = "X-Oblivious-Feature-Type"
 	HeaderRequestID            = "X-Request-ID"
 
 	SharedInternalToken = "oblivious-internal"
@@ -41,6 +42,7 @@ const (
 	trustedRequestIDKey      trustedContextKey = "relay_trusted_request_id"
 	trustedUserGroupKey      trustedContextKey = "relay_trusted_user_group"
 	trustedConversationIDKey trustedContextKey = "relay_trusted_conversation_id"
+	trustedFeatureTypeKey    trustedContextKey = "relay_trusted_feature_type"
 	semanticCacheRequestKey  trustedContextKey = "relay_semantic_cache_request"
 )
 
@@ -132,6 +134,14 @@ func WithTrustedConversationID(ctx context.Context, conversationID string) conte
 
 func TrustedConversationIDFromContext(ctx context.Context) (string, bool) {
 	return trustedStringFromContext(ctx, trustedConversationIDKey)
+}
+
+func WithTrustedFeatureType(ctx context.Context, featureType string) context.Context {
+	return context.WithValue(ctx, trustedFeatureTypeKey, featureType)
+}
+
+func TrustedFeatureTypeFromContext(ctx context.Context) (string, bool) {
+	return trustedStringFromContext(ctx, trustedFeatureTypeKey)
 }
 
 type SemanticCacheRequest = relaycache.SemanticCacheRequest

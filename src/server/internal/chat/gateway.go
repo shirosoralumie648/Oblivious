@@ -60,6 +60,7 @@ type RelayRequestMetadata struct {
 	UserGroup      string
 	WorkspaceID    string
 	RequestID      string
+	FeatureType    string
 }
 
 func WithRelayRequestMetadata(ctx context.Context, metadata RelayRequestMetadata) context.Context {

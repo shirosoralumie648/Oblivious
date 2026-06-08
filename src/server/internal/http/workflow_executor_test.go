@@ -57,6 +57,37 @@ func TestWorkflowLLMGatewayAdapterUsesStructuredChatGateway(t *testing.T) {
 	}
 }
 
+func TestWorkflowLLMGatewayAdapterInjectsRelayAttributionMetadata(t *testing.T) {
+	gateway := &recordingWorkflowChatGateway{
+		response: &chat.CompletionResponse{Content: "Workflow answer"},
+	}
+	adapter := workflowLLMGatewayAdapter{gateway: gateway}
+
+	_, err := adapter.Chat(context.Background(), workflow.LLMChatRequest{
+		Model:          "gpt-4o-mini",
+		Prompt:         "Summarize the incident",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		WorkspaceID:    "workspace_1",
+		RequestID:      "req_workflow_1",
+		FeatureType:    "workflow",
+	})
+	if err != nil {
+		t.Fatalf("Chat returned error: %v", err)
+	}
+
+	metadata, ok := chat.RelayRequestMetadataFromContext(gateway.ctx)
+	if !ok {
+		t.Fatal("expected workflow adapter to inject relay request metadata")
+	}
+	if metadata.OrganizationID != "org_1" || metadata.UserID != "user_1" || metadata.WorkspaceID != "workspace_1" || metadata.RequestID != "req_workflow_1" {
+		t.Fatalf("unexpected relay request metadata: %+v", metadata)
+	}
+	if metadata.FeatureType != "workflow" {
+		t.Fatalf("expected workflow feature attribution, got %+v", metadata)
+	}
+}
+
 func TestWorkflowNodeExecutorRegistryIncludesRealLLMKnowledgeAndAgentExecutors(t *testing.T) {
 	registry := workflowNodeExecutorRegistry(&recordingWorkflowChatGateway{}, knowledge.NewService(nil), &recordingWorkflowAgentStarter{}, workflowToolExecutorAdapter{executor: agent.NewToolExecutor(nil)}, workflowDatabaseSQLRunner{db: openWorkflowDatabaseSQLRunnerTestDB(t, &workflowDatabaseSQLRunnerCapture{})}, workflowJavaScriptCodeRunner{defaultTimeout: time.Second, maxTimeout: time.Second})
 
@@ -536,6 +567,7 @@ func (r *workflowDatabaseSQLRunnerRows) Next(dest []driver.Value) error {
 }
 
 type recordingWorkflowChatGateway struct {
+	ctx      context.Context
 	response *chat.CompletionResponse
 	messages []chat.Message
 	config   chat.ConversationConfig
@@ -620,21 +652,21 @@ func (s *recordingWorkflowAgentStarter) GetRunWithMessages(ctx context.Context, 
 }
 
 func (g *recordingWorkflowChatGateway) GenerateReply(ctx context.Context, messages []chat.Message, config chat.ConversationConfig) (string, error) {
-	_ = ctx
+	g.ctx = ctx
 	g.messages = append([]chat.Message(nil), messages...)
 	g.config = config
 	return g.response.Content, nil
 }
 
 func (g *recordingWorkflowChatGateway) GenerateReplyStream(ctx context.Context, messages []chat.Message, config chat.ConversationConfig, onChunk func(string) error) error {
-	_ = ctx
+	g.ctx = ctx
 	g.messages = append([]chat.Message(nil), messages...)
 	g.config = config
 	return onChunk(g.response.Content)
 }
 
 func (g *recordingWorkflowChatGateway) GenerateStructuredReply(ctx context.Context, messages []chat.Message, config chat.ConversationConfig, tools []map[string]any) (*chat.CompletionResponse, error) {
-	_ = ctx
+	g.ctx = ctx
 	g.messages = append([]chat.Message(nil), messages...)
 	g.config = config
 	g.tools = append([]map[string]any(nil), tools...)

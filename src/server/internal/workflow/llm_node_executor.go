@@ -11,10 +11,15 @@ type LLMChatGateway interface {
 }
 
 type LLMChatRequest struct {
-	Model    string
-	Prompt   string
-	Messages []LLMChatMessage
-	Options  map[string]any
+	Model          string
+	Prompt         string
+	Messages       []LLMChatMessage
+	Options        map[string]any
+	OrganizationID string
+	UserID         string
+	WorkspaceID    string
+	RequestID      string
+	FeatureType    string
 }
 
 type LLMChatMessage struct {
@@ -48,6 +53,7 @@ func (e *LLMNodeExecutor) Execute(ctx context.Context, input NodeExecutorInput) 
 	if err != nil {
 		return nil, err
 	}
+	applyLLMChatRequestAttribution(&request, input)
 	response, err := e.gateway.Chat(ctx, request)
 	if err != nil {
 		return nil, err
@@ -71,6 +77,24 @@ func (e *LLMNodeExecutor) Execute(ctx context.Context, input NodeExecutorInput) 
 		output["raw"] = mergeWorkflowMaps(response.Raw, nil)
 	}
 	return output, nil
+}
+
+const workflowLLMFeatureType = "workflow"
+
+func applyLLMChatRequestAttribution(request *LLMChatRequest, input NodeExecutorInput) {
+	if request == nil {
+		return
+	}
+	request.FeatureType = workflowLLMFeatureType
+	if input.Execution != nil {
+		request.OrganizationID = strings.TrimSpace(input.Execution.OrganizationID)
+		request.UserID = firstWorkflowString(input.Execution.Context, "userId", "userID", "user_id")
+		request.WorkspaceID = firstWorkflowString(input.Execution.Context, "workspaceId", "workspaceID", "workspace_id")
+		request.RequestID = firstWorkflowString(input.Execution.Context, "requestId", "requestID", "request_id")
+	}
+	if request.OrganizationID == "" && input.Workflow != nil {
+		request.OrganizationID = strings.TrimSpace(input.Workflow.OrganizationID)
+	}
 }
 
 func llmChatRequestFromInput(input map[string]any) (LLMChatRequest, error) {

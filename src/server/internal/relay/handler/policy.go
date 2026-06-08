@@ -175,6 +175,9 @@ func EnforceRoutePolicy(c *gin.Context, route Route, opts RouteRegistrationOptio
 		if userGroup != "" {
 			ctx = types.WithTrustedUserGroup(ctx, userGroup)
 		}
+		if featureType := trustedFeatureTypeFromHeaders(c); featureType != "" {
+			ctx = types.WithTrustedFeatureType(ctx, featureType)
+		}
 		c.Request = c.Request.WithContext(ctx)
 		recordRouteAudit(c, opts.AuditSink, policy, RouteAuditResultAllowed, userID, organizationID, requestID, "")
 		return false
@@ -191,6 +194,9 @@ func EnforceRoutePolicy(c *gin.Context, route Route, opts RouteRegistrationOptio
 			}
 			if userGroup != "" {
 				ctx = types.WithTrustedUserGroup(ctx, userGroup)
+			}
+			if featureType := trustedFeatureTypeFromHeaders(c); featureType != "" {
+				ctx = types.WithTrustedFeatureType(ctx, featureType)
 			}
 			if conversationID := strings.TrimSpace(c.GetHeader(types.HeaderInternalConversation)); conversationID != "" {
 				ctx = types.WithTrustedConversationID(ctx, conversationID)
@@ -310,15 +316,29 @@ func trustedIdentityFromHeaders(c *gin.Context, requireConfiguredSecret bool) (s
 	}
 
 	internalAuth := strings.TrimSpace(c.GetHeader(types.HeaderInternalAuth))
-	userID := strings.TrimSpace(c.GetHeader(types.HeaderInternalUserID))
-	organizationID := strings.TrimSpace(c.GetHeader(types.HeaderInternalOrganization))
+	userID := trustedHeader(c, types.HeaderInternalUserID, "X-Oblivious-Internal-User-ID")
+	organizationID := trustedHeader(c, types.HeaderInternalOrganization, "X-Oblivious-Internal-Organization-ID")
 	requestID := strings.TrimSpace(c.GetHeader(types.HeaderRequestID))
-	userGroup := strings.TrimSpace(c.GetHeader(types.HeaderInternalUserGroup))
+	userGroup := trustedHeader(c, types.HeaderInternalUserGroup, "X-Oblivious-Internal-User-Group")
 
 	if internalAuth != expectedToken || userID == "" || organizationID == "" {
 		return "", "", requestID, "", false
 	}
 	return userID, organizationID, requestID, userGroup, true
+}
+
+func trustedFeatureTypeFromHeaders(c *gin.Context) string {
+	return trustedHeader(c, types.HeaderInternalFeatureType, "X-Oblivious-Internal-Feature-Type")
+}
+
+func trustedHeader(c *gin.Context, names ...string) string {
+	for _, name := range names {
+		value := strings.TrimSpace(c.GetHeader(name))
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func ensureRelayRequestID(c *gin.Context) string {

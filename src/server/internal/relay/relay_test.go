@@ -424,7 +424,8 @@ func TestRouterRouteWithBillingRejectsRateLimitedRequestBeforeUpstream(t *testin
 	router.SetUsageLogger(usageLogger)
 
 	upstreamCalls := 0
-	resp, err := router.RouteWithBilling(context.Background(), types.APITypeChat, "gpt-4o-mini", "", "idem_rate", &types.Usage{TotalTokens: 20}, func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
+	ctx := types.WithTrustedFeatureType(context.Background(), "workflow")
+	resp, err := router.RouteWithBilling(ctx, types.APITypeChat, "gpt-4o-mini", "", "idem_rate", &types.Usage{TotalTokens: 20}, func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
 		upstreamCalls++
 		return types.NewOKResponse([]byte(`{"ok":true}`), nil), nil
 	})
@@ -444,6 +445,9 @@ func TestRouterRouteWithBillingRejectsRateLimitedRequestBeforeUpstream(t *testin
 	}
 	if len(usageLogger.records) != 1 || usageLogger.records[0].StatusCode != http.StatusTooManyRequests || usageLogger.records[0].ErrorCode != "relay_rate_limited" {
 		t.Fatalf("expected rate limit usage record, got %+v", usageLogger.records)
+	}
+	if usageLogger.records[0].FeatureType != "workflow" {
+		t.Fatalf("expected rate limit usage to keep workflow feature attribution, got %+v", usageLogger.records[0])
 	}
 }
 
@@ -861,6 +865,64 @@ func TestNewRelayProductionChatSettlesAPITokenQuotaAndRecordsUsageOnSuccess(t *t
 	}
 	if record.RequestID == "" || recorder.Header().Get(types.HeaderRequestID) != record.RequestID {
 		t.Fatalf("usage request id %q did not match response header %q", record.RequestID, recorder.Header().Get(types.HeaderRequestID))
+	}
+}
+
+func TestNewRelayProductionChatRecordsTrustedFeatureTypeOnUsage(t *testing.T) {
+	t.Setenv("OBLIVIOUS_INTERNAL_AUTH_TOKEN", types.SharedInternalToken)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"id":"chatcmpl-workflow",
+			"choices":[{"message":{"role":"assistant","content":"ok"}}],
+			"usage":{"prompt_tokens":40,"completion_tokens":10,"total_tokens":50}
+		}`))
+	}))
+	t.Cleanup(upstream.Close)
+
+	pool := NewChannelPool()
+	pool.AddChannel(&types.Channel{
+		ID:          "ch_openai_workflow",
+		Name:        "OpenAI workflow attribution test",
+		Provider:    "openai",
+		BaseURL:     upstream.URL,
+		APIKey:      "sk-upstream-workflow",
+		Models:      []string{"gpt-4o-mini"},
+		CBThreshold: 5,
+		Enabled:     true,
+	}, 100)
+	relayInstance, err := NewRelay(&Config{
+		Pool:       pool,
+		Production: true,
+	})
+	if err != nil {
+		t.Fatalf("new relay: %v", err)
+	}
+	usageLogger := &recordingUsageLogger{}
+	relayInstance.Router().SetUsageLogger(usageLogger)
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-4o-mini","messages":[{"role":"user","content":"summarize workflow"}]}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set(types.HeaderInternalAuth, types.SharedInternalToken)
+	request.Header.Set(types.HeaderInternalUserID, "user_workflow")
+	request.Header.Set(types.HeaderInternalOrganization, "org_workflow")
+	request.Header.Set(types.HeaderInternalFeatureType, "workflow")
+	recorder := httptest.NewRecorder()
+
+	relayInstance.Engine().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	if len(usageLogger.records) != 1 {
+		t.Fatalf("expected 1 usage log record, got %d", len(usageLogger.records))
+	}
+	record := usageLogger.records[0]
+	if record.UserID != "user_workflow" || record.OrganizationID != "org_workflow" {
+		t.Fatalf("usage identity mismatch: %+v", record)
+	}
+	if record.APIType != "chat" || record.FeatureType != "workflow" {
+		t.Fatalf("usage feature attribution mismatch: %+v", record)
 	}
 }
 

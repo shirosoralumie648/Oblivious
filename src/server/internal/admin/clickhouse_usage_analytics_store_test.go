@@ -52,6 +52,7 @@ func TestClickHouseUsageAnalyticsStoreQueriesRequestLogsWithGranularity(t *testi
 		"count() AS request_count",
 		"sum(request_tokens + response_tokens)",
 		"sum(cost_usd)",
+		"JSONExtractString(metadata, 'feature_type')",
 		"JSONExtractString(metadata, 'relay_api_type')",
 		"JSONExtractString(metadata, 'channel_id') = ?",
 		"COALESCE(NULLIF(JSONExtractString(metadata, 'channel_id'), ''), 'unknown')",
@@ -70,7 +71,7 @@ func TestClickHouseUsageAnalyticsStoreQueriesRequestLogsWithGranularity(t *testi
 	if len(analytics.ByModel) != 1 || analytics.ByModel[0].Key != "gpt-5.4" || analytics.ByModel[0].RequestCount != 3 {
 		t.Fatalf("unexpected model analytics: %+v", analytics.ByModel)
 	}
-	if len(analytics.ByFeature) != 1 || analytics.ByFeature[0].Key != "chat" {
+	if len(analytics.ByFeature) != 1 || analytics.ByFeature[0].Key != "workflow" {
 		t.Fatalf("unexpected feature analytics: %+v", analytics.ByFeature)
 	}
 	if len(analytics.ByUser) != 1 || analytics.ByUser[0].Key != "850e8400-e29b-41d4-a716-446655440000" {
@@ -93,10 +94,10 @@ func TestClickHouseUsageAnalyticsStoreQueriesRequestLogsWithGranularity(t *testi
 		analytics.CrossDimensions[0].Secondary != "2026-06-01T00:01:00Z" {
 		t.Fatalf("unexpected model_time cross dimension bucket: %+v", analytics.CrossDimensions[0])
 	}
-	if analytics.CrossDimensions[1].Dimension != "user_feature" || analytics.CrossDimensions[1].Primary == "" || analytics.CrossDimensions[1].Secondary != "chat" {
+	if analytics.CrossDimensions[1].Dimension != "user_feature" || analytics.CrossDimensions[1].Primary == "" || analytics.CrossDimensions[1].Secondary != "workflow" {
 		t.Fatalf("unexpected user_feature cross dimension bucket: %+v", analytics.CrossDimensions[1])
 	}
-	if analytics.CrossDimensions[2].Dimension != "feature_time" || analytics.CrossDimensions[2].Primary != "chat" || analytics.CrossDimensions[2].Secondary != "2026-06-01T00:01:00Z" {
+	if analytics.CrossDimensions[2].Dimension != "feature_time" || analytics.CrossDimensions[2].Primary != "workflow" || analytics.CrossDimensions[2].Secondary != "2026-06-01T00:01:00Z" {
 		t.Fatalf("unexpected feature_time cross dimension bucket: %+v", analytics.CrossDimensions[2])
 	}
 }
@@ -232,14 +233,14 @@ func (c clickHouseUsageAnalyticsConn) QueryContext(_ context.Context, query stri
 		return clickHouseUsageAnalyticsRows([]string{"primary_key", "secondary_key", "request_count", "total_tokens", "total_cost", "started_at"}, [][]driver.Value{
 			{"gpt-5.4", "2026-06-01T00:01:00Z", int64(3), int64(1200), 0.42, startedAt},
 		}), nil
-	case strings.Contains(query, "AS primary_key") && strings.Contains(query, "relay_api_type") && strings.Contains(query, "toStartOf") && strings.Contains(query, " AS started_at"):
+	case strings.Contains(query, "AS primary_key") && strings.Contains(query, "feature_type") && strings.Contains(query, "toStartOf") && strings.Contains(query, " AS started_at"):
 		startedAt := time.Date(2026, 6, 1, 0, 1, 0, 0, time.UTC)
 		return clickHouseUsageAnalyticsRows([]string{"primary_key", "secondary_key", "request_count", "total_tokens", "total_cost", "started_at"}, [][]driver.Value{
-			{"chat", "2026-06-01T00:01:00Z", int64(3), int64(1200), 0.42, startedAt},
+			{"workflow", "2026-06-01T00:01:00Z", int64(3), int64(1200), 0.42, startedAt},
 		}), nil
 	case strings.Contains(query, "AS primary_key") && strings.Contains(query, "JSONExtractString(metadata, 'user_id')"):
 		return clickHouseUsageAnalyticsRows([]string{"primary_key", "secondary_key", "request_count", "total_tokens", "total_cost", "started_at"}, [][]driver.Value{
-			{"850e8400-e29b-41d4-a716-446655440000", "chat", int64(3), int64(1200), 0.42, nil},
+			{"850e8400-e29b-41d4-a716-446655440000", "workflow", int64(3), int64(1200), 0.42, nil},
 		}), nil
 	case strings.Contains(query, "GROUP BY model"):
 		return clickHouseUsageAnalyticsRows([]string{"key", "request_count", "total_tokens", "total_cost", "started_at"}, [][]driver.Value{
@@ -262,9 +263,9 @@ func (c clickHouseUsageAnalyticsConn) QueryContext(_ context.Context, query stri
 		return clickHouseUsageAnalyticsRows([]string{"key", "request_count", "total_tokens", "total_cost", "started_at"}, [][]driver.Value{
 			{"openai", int64(2), int64(700), 0.31, nil},
 		}), nil
-	case strings.Contains(query, "relay_api_type"):
+	case strings.Contains(query, "feature_type"):
 		return clickHouseUsageAnalyticsRows([]string{"key", "request_count", "total_tokens", "total_cost", "started_at"}, [][]driver.Value{
-			{"chat", int64(3), int64(1200), 0.42, nil},
+			{"workflow", int64(3), int64(1200), 0.42, nil},
 		}), nil
 	default:
 		return clickHouseUsageAnalyticsRows([]string{"key", "request_count", "total_tokens", "total_cost", "started_at"}, nil), nil

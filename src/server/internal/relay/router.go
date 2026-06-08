@@ -251,6 +251,7 @@ func (r *Router) RouteWithBilling(
 	organizationID, _ := types.TrustedOrganizationIDFromContext(ctx)
 	apiTokenID, _ := types.TrustedAPITokenIDFromContext(ctx)
 	conversationID, _ := types.TrustedConversationIDFromContext(ctx)
+	featureType, _ := types.TrustedFeatureTypeFromContext(ctx)
 
 	if cacheReq, ok := types.SemanticCacheRequestFromContext(ctx); ok && r.semanticCache != nil {
 		hit, err := r.semanticCache.Lookup(ctx, cacheReq)
@@ -265,6 +266,7 @@ func (r *Router) RouteWithBilling(
 				APITokenID:     apiTokenID,
 				RequestID:      requestID,
 				APIType:        apiType.String(),
+				FeatureType:    featureType,
 				Model:          model,
 				Provider:       "semantic_cache",
 				Status:         RelayUsageStatusSuccess,
@@ -839,6 +841,11 @@ func (r *Router) errorUsageRecord(userID, organizationID, apiTokenID, requestID 
 func (r *Router) recordUsage(ctx context.Context, record RelayUsageLogRecord) error {
 	if r == nil || r.usageLogger == nil {
 		return nil
+	}
+	if record.FeatureType == "" {
+		if featureType, ok := types.TrustedFeatureTypeFromContext(ctx); ok {
+			record.FeatureType = featureType
+		}
 	}
 	return r.usageLogger.RecordRelayUsage(ctx, record)
 }

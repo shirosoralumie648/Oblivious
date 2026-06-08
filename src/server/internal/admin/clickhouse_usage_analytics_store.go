@@ -32,7 +32,8 @@ func (s *ClickHouseUsageAnalyticsStore) GetUsageAnalytics(ctx context.Context, f
 	if err != nil {
 		return UsageAnalytics{}, err
 	}
-	byFeature, err := s.queryBuckets(ctx, "feature", "COALESCE(NULLIF(JSONExtractString(metadata, 'relay_api_type'), ''), NULLIF(service, ''), 'unknown')", "", where, args, filter.Limit)
+	featureExpression := clickHouseUsageAnalyticsFeatureExpression()
+	byFeature, err := s.queryBuckets(ctx, "feature", featureExpression, "", where, args, filter.Limit)
 	if err != nil {
 		return UsageAnalytics{}, err
 	}
@@ -63,12 +64,12 @@ func (s *ClickHouseUsageAnalyticsStore) GetUsageAnalytics(ctx context.Context, f
 		{
 			dimension:           "user_feature",
 			primaryExpression:   clickHouseUsageAnalyticsUserExpression(),
-			secondaryExpression: "COALESCE(NULLIF(JSONExtractString(metadata, 'relay_api_type'), ''), NULLIF(service, ''), 'unknown')",
+			secondaryExpression: featureExpression,
 			orderBy:             "total_cost DESC, request_count DESC, primary_key ASC, secondary_key ASC",
 		},
 		{
 			dimension:           "feature_time",
-			primaryExpression:   "COALESCE(NULLIF(JSONExtractString(metadata, 'relay_api_type'), ''), NULLIF(service, ''), 'unknown')",
+			primaryExpression:   featureExpression,
 			secondaryExpression: fmt.Sprintf("formatDateTime(%s, '%%Y-%%m-%%dT%%H:%%i:%%SZ')", bucketExpression),
 			startedAtExpression: bucketExpression,
 			orderBy:             "started_at ASC, total_cost DESC, request_count DESC, primary_key ASC",
@@ -122,6 +123,10 @@ func clickHouseUsageAnalyticsWhere(filter UsageAnalyticsFilter) (string, []any) 
 
 func clickHouseUsageAnalyticsUserExpression() string {
 	return "COALESCE(NULLIF(JSONExtractString(metadata, 'user_id'), ''), toString(user_id))"
+}
+
+func clickHouseUsageAnalyticsFeatureExpression() string {
+	return "COALESCE(NULLIF(JSONExtractString(metadata, 'feature_type'), ''), NULLIF(JSONExtractString(metadata, 'relay_api_type'), ''), NULLIF(service, ''), 'unknown')"
 }
 
 func clickHouseUsageAnalyticsBucketExpression(granularity string) string {

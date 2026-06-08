@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	relaytypes "oblivious/server/internal/relay/types"
 )
 
 func TestRelayGateway_GenerateReply(t *testing.T) {
@@ -355,6 +357,8 @@ func TestRelayGateway_ForwardsInternalRelayHeaders(t *testing.T) {
 	var gotInternalAuth string
 	var gotUserGroup string
 	var gotConversationID string
+	var gotFeatureType string
+	var gotCanonicalFeatureType string
 
 	gateway := NewRelayGateway(
 		WithRelayURL("http://relay.test/v1"),
@@ -368,6 +372,8 @@ func TestRelayGateway_ForwardsInternalRelayHeaders(t *testing.T) {
 				gotInternalAuth = r.Header.Get("X-Oblivious-Internal-Auth")
 				gotUserGroup = r.Header.Get("X-Oblivious-Internal-User-Group")
 				gotConversationID = r.Header.Get("X-Oblivious-Internal-Conversation-ID")
+				gotFeatureType = r.Header.Get("X-Oblivious-Internal-Feature-Type")
+				gotCanonicalFeatureType = r.Header.Get(relaytypes.HeaderInternalFeatureType)
 
 				return &http.Response{
 					StatusCode: http.StatusOK,
@@ -393,6 +399,7 @@ func TestRelayGateway_ForwardsInternalRelayHeaders(t *testing.T) {
 			OrganizationID: "org_1",
 			RequestID:      "req_123",
 			UserGroup:      "vip",
+			FeatureType:    "workflow",
 		}),
 		[]Message{{Role: "user", Content: "hello"}},
 		ConversationConfig{ConversationID: "conversation_1", ModelID: "gpt-4o-mini"},
@@ -421,6 +428,12 @@ func TestRelayGateway_ForwardsInternalRelayHeaders(t *testing.T) {
 	}
 	if gotConversationID != "conversation_1" {
 		t.Fatalf("expected conversation header conversation_1, got %q", gotConversationID)
+	}
+	if gotFeatureType != "workflow" {
+		t.Fatalf("expected feature type header workflow, got %q", gotFeatureType)
+	}
+	if gotCanonicalFeatureType != "workflow" {
+		t.Fatalf("expected canonical feature type header workflow, got %q", gotCanonicalFeatureType)
 	}
 }
 

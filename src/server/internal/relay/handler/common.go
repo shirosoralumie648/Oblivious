@@ -108,6 +108,9 @@ func applyTrustedInternalIdentity(c *gin.Context) {
 	if userGroup != "" {
 		ctx = types.WithTrustedUserGroup(ctx, userGroup)
 	}
+	if featureType := trustedFeatureTypeFromHeaders(c); featureType != "" {
+		ctx = types.WithTrustedFeatureType(ctx, featureType)
+	}
 	if conversationID := strings.TrimSpace(c.GetHeader(types.HeaderInternalConversation)); conversationID != "" {
 		ctx = types.WithTrustedConversationID(ctx, conversationID)
 	}

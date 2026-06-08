@@ -31,6 +31,13 @@ func (a workflowLLMGatewayAdapter) Chat(ctx context.Context, req workflow.LLMCha
 	if maxTokens, ok := workflowIntOption(req.Options, "maxOutputTokens", "maxTokens"); ok {
 		config.MaxOutputTokens = maxTokens
 	}
+	ctx = chat.WithRelayRequestMetadata(ctx, chat.RelayRequestMetadata{
+		OrganizationID: req.OrganizationID,
+		UserID:         req.UserID,
+		WorkspaceID:    req.WorkspaceID,
+		RequestID:      req.RequestID,
+		FeatureType:    "workflow",
+	})
 
 	structured, ok := a.gateway.(chat.StructuredReplyGenerator)
 	if !ok {

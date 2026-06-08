@@ -357,19 +357,26 @@ func applyRelayRequestMetadata(req *http.Request) {
 		return
 	}
 	if metadata.UserID != "" {
+		req.Header.Set(relaytypes.HeaderInternalUserID, metadata.UserID)
 		req.Header.Set("X-Oblivious-Internal-User-ID", metadata.UserID)
 	}
 	if metadata.WorkspaceID != "" {
 		req.Header.Set("X-Oblivious-Internal-Workspace-ID", metadata.WorkspaceID)
 	}
 	if metadata.OrganizationID != "" {
+		req.Header.Set(relaytypes.HeaderInternalOrganization, metadata.OrganizationID)
 		req.Header.Set("X-Oblivious-Internal-Organization-ID", metadata.OrganizationID)
 	}
 	if metadata.UserGroup != "" {
+		req.Header.Set(relaytypes.HeaderInternalUserGroup, metadata.UserGroup)
 		req.Header.Set("X-Oblivious-Internal-User-Group", metadata.UserGroup)
 	}
 	if metadata.RequestID != "" {
 		req.Header.Set("X-Request-ID", metadata.RequestID)
+	}
+	if metadata.FeatureType != "" {
+		req.Header.Set(relaytypes.HeaderInternalFeatureType, metadata.FeatureType)
+		req.Header.Set("X-Oblivious-Internal-Feature-Type", metadata.FeatureType)
 	}
 
 	// Set internal auth token so the Relay handler can verify this is
