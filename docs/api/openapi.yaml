@@ -2308,6 +2308,205 @@ components:
           type: string
           format: date-time
 
+    AdminObservabilityAlertSeverity:
+      type: string
+      enum: [debug, info, warning, critical]
+
+    AdminObservabilityAlertStatus:
+      type: string
+      enum: [open, acknowledged, resolved]
+
+    AdminObservabilityAlertDeliveryChannel:
+      type: string
+      enum: [email, im, sms, third_party, phone, in_app]
+
+    AdminObservabilityAlertProviderKind:
+      type: string
+      enum:
+        - smtp
+        - slack_webhook
+        - feishu_webhook
+        - dingtalk_webhook
+        - wecom_webhook
+        - twilio_sms
+        - aliyun_sms
+        - phone
+        - pagerduty
+        - opsgenie
+        - aliyun_monitor
+        - tencent_cloud_monitor
+
+    AdminObservabilityAlertProviderStatus:
+      type: string
+      enum: [active, disabled]
+
+    AdminObservabilityAlertRoutingRules:
+      type: object
+      description: Map of alert severity to delivery channels.
+      additionalProperties:
+        type: array
+        items:
+          $ref: "#/components/schemas/AdminObservabilityAlertDeliveryChannel"
+      example:
+        debug: []
+        info: [email]
+        warning: [email, im]
+        critical: [email, im, sms, third_party, phone]
+
+    UpdateAdminObservabilityAlertRoutingRulesRequest:
+      type: object
+      required: [rules]
+      properties:
+        rules:
+          $ref: "#/components/schemas/AdminObservabilityAlertRoutingRules"
+
+    AdminObservabilityAlertProviderConfig:
+      type: object
+      additionalProperties:
+        type: string
+      description: Provider-specific configuration. Secret values are redacted in responses.
+
+    AdminObservabilityAlertProvider:
+      type: object
+      properties:
+        id:
+          type: string
+        kind:
+          $ref: "#/components/schemas/AdminObservabilityAlertProviderKind"
+        channel:
+          $ref: "#/components/schemas/AdminObservabilityAlertDeliveryChannel"
+        name:
+          type: string
+        status:
+          $ref: "#/components/schemas/AdminObservabilityAlertProviderStatus"
+        config:
+          $ref: "#/components/schemas/AdminObservabilityAlertProviderConfig"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AdminObservabilityAlertProviderRequest:
+      type: object
+      required: [kind, name, status, config]
+      properties:
+        kind:
+          $ref: "#/components/schemas/AdminObservabilityAlertProviderKind"
+        name:
+          type: string
+        status:
+          $ref: "#/components/schemas/AdminObservabilityAlertProviderStatus"
+        config:
+          $ref: "#/components/schemas/AdminObservabilityAlertProviderConfig"
+
+    AdminObservabilityAlertProviderTestResult:
+      type: object
+      properties:
+        providerId:
+          type: string
+        kind:
+          $ref: "#/components/schemas/AdminObservabilityAlertProviderKind"
+        channel:
+          $ref: "#/components/schemas/AdminObservabilityAlertDeliveryChannel"
+        ok:
+          type: boolean
+        message:
+          type: string
+        testedAt:
+          type: string
+          format: date-time
+
+    AdminObservabilityAlertState:
+      type: object
+      description: Alert state response from the Go observability store.
+      properties:
+        Key:
+          type: string
+        Status:
+          $ref: "#/components/schemas/AdminObservabilityAlertStatus"
+        Severity:
+          $ref: "#/components/schemas/AdminObservabilityAlertSeverity"
+        OriginalSeverity:
+          $ref: "#/components/schemas/AdminObservabilityAlertSeverity"
+        Escalated:
+          type: boolean
+        Title:
+          type: string
+        Component:
+          type: string
+        OpenedAt:
+          type: string
+          format: date-time
+        LastOccurredAt:
+          type: string
+          format: date-time
+        OccurrenceCount:
+          type: integer
+        AcknowledgedAt:
+          type: string
+          format: date-time
+        ResolvedAt:
+          type: string
+          format: date-time
+
+    AdminObservabilityAlertDeliveryAttempt:
+      type: object
+      properties:
+        id:
+          type: string
+        alertKey:
+          type: string
+        severity:
+          $ref: "#/components/schemas/AdminObservabilityAlertSeverity"
+        component:
+          type: string
+        channel:
+          $ref: "#/components/schemas/AdminObservabilityAlertDeliveryChannel"
+        providerId:
+          type: string
+        providerKind:
+          $ref: "#/components/schemas/AdminObservabilityAlertProviderKind"
+        delivered:
+          type: boolean
+        error:
+          type: string
+        attemptedAt:
+          type: string
+          format: date-time
+
+    AdminObservabilityRecoveryAction:
+      type: object
+      description: Recovery action response from the Go observability store.
+      properties:
+        ID:
+          type: string
+        PolicyName:
+          type: string
+        AlertKey:
+          type: string
+        Severity:
+          $ref: "#/components/schemas/AdminObservabilityAlertSeverity"
+        Component:
+          type: string
+        Type:
+          type: string
+          enum: [restart, scale_out, failover]
+        Status:
+          type: string
+          enum: [recorded, exhausted]
+        Reason:
+          type: string
+        Attempt:
+          type: integer
+        NextAttemptAt:
+          type: string
+          format: date-time
+        CreatedAt:
+          type: string
+          format: date-time
+
     AccessSummary:
       type: object
       properties:
@@ -7143,6 +7342,461 @@ paths:
                 $ref: "#/components/schemas/Envelope"
         "404":
           $ref: "#/components/responses/NotFound"
+
+  # ---- Admin observability alerts ----
+  /api/v1/admin/observability/alert-routing:
+    get:
+      summary: 获取告警路由规则
+      operationId: getAdminObservabilityAlertRouting
+      tags: [Admin, Observability]
+      responses:
+        "200":
+          description: 当前告警严重级别到投递渠道的路由规则
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminObservabilityAlertRoutingRules"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 当前用户不是管理员
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+    put:
+      summary: 更新告警路由规则
+      operationId: updateAdminObservabilityAlertRouting
+      tags: [Admin, Observability]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAdminObservabilityAlertRoutingRulesRequest"
+      responses:
+        "200":
+          description: 更新后的告警路由规则
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminObservabilityAlertRoutingRules"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 当前用户不是管理员
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+
+  /api/v1/admin/observability/alert-providers:
+    get:
+      summary: 获取告警投递 provider 配置
+      operationId: listAdminObservabilityAlertProviders
+      tags: [Admin, Observability]
+      responses:
+        "200":
+          description: Provider 配置列表，敏感字段已脱敏
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/AdminObservabilityAlertProvider"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 当前用户不是管理员
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+    post:
+      summary: 创建告警投递 provider 配置
+      operationId: createAdminObservabilityAlertProvider
+      tags: [Admin, Observability]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminObservabilityAlertProviderRequest"
+      responses:
+        "201":
+          description: 创建后的 provider 配置，敏感字段已脱敏
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminObservabilityAlertProvider"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 当前用户不是管理员
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+
+  /api/v1/admin/observability/alert-providers/{providerId}:
+    put:
+      summary: 更新告警投递 provider 配置
+      operationId: updateAdminObservabilityAlertProvider
+      tags: [Admin, Observability]
+      parameters:
+        - name: providerId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminObservabilityAlertProviderRequest"
+      responses:
+        "200":
+          description: 更新后的 provider 配置，敏感字段已脱敏
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminObservabilityAlertProvider"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 当前用户不是管理员
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/admin/observability/alert-providers/{providerId}/test:
+    post:
+      summary: 测试告警投递 provider 配置
+      operationId: testAdminObservabilityAlertProvider
+      tags: [Admin, Observability]
+      parameters:
+        - name: providerId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Provider 配置测试结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminObservabilityAlertProviderTestResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 当前用户不是管理员
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/admin/observability/alerts:
+    get:
+      summary: 获取告警状态列表
+      operationId: listAdminObservabilityAlerts
+      tags: [Admin, Observability]
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/AdminObservabilityAlertStatus"
+        - name: severity
+          in: query
+          schema:
+            $ref: "#/components/schemas/AdminObservabilityAlertSeverity"
+        - name: component
+          in: query
+          schema:
+            type: string
+        - name: keyPrefix
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: 告警状态列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/AdminObservabilityAlertState"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 当前用户不是管理员
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+
+  /api/v1/admin/observability/alerts/{alertKey}:
+    get:
+      summary: 获取单个告警状态
+      operationId: getAdminObservabilityAlert
+      tags: [Admin, Observability]
+      parameters:
+        - name: alertKey
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 告警状态详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminObservabilityAlertState"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 当前用户不是管理员
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/admin/observability/alerts/{alertKey}/acknowledge:
+    post:
+      summary: 确认告警
+      operationId: acknowledgeAdminObservabilityAlert
+      tags: [Admin, Observability]
+      parameters:
+        - name: alertKey
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 确认后的告警状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminObservabilityAlertState"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 当前用户不是管理员
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/admin/observability/alerts/{alertKey}/resolve:
+    post:
+      summary: 解决告警
+      operationId: resolveAdminObservabilityAlert
+      tags: [Admin, Observability]
+      parameters:
+        - name: alertKey
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 解决后的告警状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminObservabilityAlertState"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 当前用户不是管理员
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/admin/observability/alerts/{alertKey}/deliveries:
+    get:
+      summary: 获取告警投递历史
+      operationId: listAdminObservabilityAlertDeliveries
+      tags: [Admin, Observability]
+      parameters:
+        - name: alertKey
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: 告警投递尝试列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/AdminObservabilityAlertDeliveryAttempt"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 当前用户不是管理员
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+
+  /api/v1/admin/observability/recovery-actions:
+    get:
+      summary: 获取自动恢复动作记录
+      operationId: listAdminObservabilityRecoveryActions
+      tags: [Admin, Observability]
+      parameters:
+        - name: alertKey
+          in: query
+          schema:
+            type: string
+        - name: policyName
+          in: query
+          schema:
+            type: string
+        - name: component
+          in: query
+          schema:
+            type: string
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [restart, scale_out, failover]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: 自动恢复动作记录列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/AdminObservabilityRecoveryAction"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 当前用户不是管理员
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
 
   # ---- 控制台 (Console / Billing) ----
   /api/v1/console/usage:

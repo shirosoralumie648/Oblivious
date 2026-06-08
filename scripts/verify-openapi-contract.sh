@@ -119,6 +119,16 @@ required_paths=(
   "/api/v1/admin/organizations/{organizationId}"
   "/api/v1/admin/organizations/{organizationId}/archive"
   "/api/v1/admin/organizations/{organizationId}/members"
+  "/api/v1/admin/observability/alert-routing"
+  "/api/v1/admin/observability/alert-providers"
+  "/api/v1/admin/observability/alert-providers/{providerId}"
+  "/api/v1/admin/observability/alert-providers/{providerId}/test"
+  "/api/v1/admin/observability/alerts"
+  "/api/v1/admin/observability/alerts/{alertKey}"
+  "/api/v1/admin/observability/alerts/{alertKey}/acknowledge"
+  "/api/v1/admin/observability/alerts/{alertKey}/resolve"
+  "/api/v1/admin/observability/alerts/{alertKey}/deliveries"
+  "/api/v1/admin/observability/recovery-actions"
 )
 
 for path in "${required_paths[@]}"; do
@@ -131,4 +141,4 @@ require_public_security_empty "/api/v1/billing/stripe/webhook"
 require_public_security_empty "/api/v1/billing/alipay/webhook"
 require_public_security_empty "/api/v1/billing/wechatpay/webhook"
 
-echo "[openapi-contract] required Agent, Memory, MCP, Tenant, Notification, publishing channel, Workflow, and Billing paths are documented."
+echo "[openapi-contract] required Agent, Memory, MCP, Tenant, Notification, Observability, publishing channel, Workflow, and Billing paths are documented."
