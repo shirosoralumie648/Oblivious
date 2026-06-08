@@ -11,6 +11,7 @@ import (
 
 	"oblivious/server/internal/auth"
 	"oblivious/server/internal/knowledge"
+	knowledgedocument "oblivious/server/internal/knowledge/document"
 )
 
 type knowledgeHandler struct {
@@ -401,12 +402,7 @@ func (h knowledgeHandler) uploadKnowledgeDocument(w stdhttp.ResponseWriter, r *s
 		contentType = header.Header.Get("Content-Type")
 		filename = header.Filename
 	}
-	parsed, err := knowledge.ParseUploadedDocument(r.Context(), knowledge.UploadedDocumentInput{
-		ContentType: contentType,
-		Filename:    filename,
-		MaxBytes:    knowledgeDocumentUploadMaxBytes,
-		Reader:      file,
-	})
+	parsed, err := knowledgedocument.NewParser().Parse(r.Context(), file, filename, contentType, knowledgeDocumentUploadMaxBytes)
 	if err != nil {
 		writeKnowledgeUploadError(w, err)
 		return
@@ -707,11 +703,11 @@ func (h knowledgeHandler) knowledgeBaseRerankTopK(ctx context.Context, session a
 
 func writeKnowledgeUploadError(w stdhttp.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, knowledge.ErrUnsupportedKnowledgeDocumentFormat):
+	case errors.Is(err, knowledge.ErrUnsupportedKnowledgeDocumentFormat), errors.Is(err, knowledgedocument.ErrUnsupportedDocumentFormat):
 		writeError(w, stdhttp.StatusBadRequest, "unsupported_document_format", err.Error())
-	case errors.Is(err, knowledge.ErrKnowledgeDocumentTooLarge):
+	case errors.Is(err, knowledge.ErrKnowledgeDocumentTooLarge), errors.Is(err, knowledgedocument.ErrDocumentTooLarge):
 		writeError(w, stdhttp.StatusRequestEntityTooLarge, "document_too_large", err.Error())
-	case errors.Is(err, knowledge.ErrEmptyKnowledgeDocument):
+	case errors.Is(err, knowledge.ErrEmptyKnowledgeDocument), errors.Is(err, knowledgedocument.ErrEmptyDocument):
 		writeError(w, stdhttp.StatusBadRequest, "empty_document", err.Error())
 	case errors.Is(err, io.ErrUnexpectedEOF):
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "invalid uploaded file")

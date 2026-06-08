@@ -851,9 +851,84 @@ func TestKnowledgeHandlerUploadDocumentPersistsSourceMetadataOnChunks(t *testing
 	}
 }
 
+func TestKnowledgeHandlerUploadDocumentCreatesParsedCSVKnowledgeDocument(t *testing.T) {
+	store := &knowledgeFakeStore{
+		createdDoc: knowledge.KnowledgeDocument{
+			Content:   "title | owner\nDeploy | Ops",
+			ID:        "doc_csv",
+			Title:     "matrix.csv",
+			UpdatedAt: time.Date(2026, time.April, 3, 13, 15, 0, 0, time.UTC),
+		},
+	}
+	handler := newKnowledgeTestHandler(store)
+	body, contentType := knowledgeUploadMultipartBody(t, nil, "file", " matrix.csv ", "text/csv", "title,owner\nDeploy,Ops")
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_2/documents/upload", body).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+	}))
+	request.Header.Set("Content-Type", contentType)
+	recorder := httptest.NewRecorder()
+
+	handler.uploadKnowledgeDocument(recorder, request, "kb_2")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if store.requestedDoc.Title != "matrix.csv" {
+		t.Fatalf("expected title from csv filename, got %q", store.requestedDoc.Title)
+	}
+	if store.requestedDoc.Content != "title | owner\nDeploy | Ops" {
+		t.Fatalf("expected parsed csv rows, got %q", store.requestedDoc.Content)
+	}
+	if !strings.Contains(recorder.Body.String(), `"id":"doc_csv"`) {
+		t.Fatalf("expected created csv document response, got %s", recorder.Body.String())
+	}
+}
+
+func TestKnowledgeHandlerUploadDocumentCreatesParsedHTMLKnowledgeDocument(t *testing.T) {
+	store := &knowledgeFakeStore{
+		createdDoc: knowledge.KnowledgeDocument{
+			Content:   "Deploy Plan\nRollback safely",
+			ID:        "doc_html",
+			Title:     "runbook.html",
+			UpdatedAt: time.Date(2026, time.April, 3, 13, 30, 0, 0, time.UTC),
+		},
+	}
+	handler := newKnowledgeTestHandler(store)
+	body, contentType := knowledgeUploadMultipartBody(
+		t,
+		map[string]string{"title": " HTML Runbook "},
+		"file",
+		"runbook.html",
+		"text/html",
+		"<html><head><style>.hidden{display:none}</style><script>alert('x')</script></head><body><h1>Deploy Plan</h1><p>Rollback safely</p></body></html>",
+	)
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_2/documents/upload", body).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+	}))
+	request.Header.Set("Content-Type", contentType)
+	recorder := httptest.NewRecorder()
+
+	handler.uploadKnowledgeDocument(recorder, request, "kb_2")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if store.requestedDoc.Title != "HTML Runbook" {
+		t.Fatalf("expected explicit title, got %q", store.requestedDoc.Title)
+	}
+	if store.requestedDoc.Content != "Deploy Plan\nRollback safely" {
+		t.Fatalf("expected parsed html text, got %q", store.requestedDoc.Content)
+	}
+	if strings.Contains(store.requestedDoc.Content, "alert") || strings.Contains(store.requestedDoc.Content, "hidden") {
+		t.Fatalf("expected script/style content to be stripped, got %q", store.requestedDoc.Content)
+	}
+}
+
 func TestKnowledgeHandlerUploadDocumentRejectsUnsupportedFormat(t *testing.T) {
 	handler := newKnowledgeTestHandler(&knowledgeFakeStore{})
-	body, contentType := knowledgeUploadMultipartBody(t, nil, "file", "manual.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "word document bytes")
+	body, contentType := knowledgeUploadMultipartBody(t, nil, "file", "manual.doc", "application/msword", "word document bytes")
 	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_2/documents/upload", body).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
 		OrganizationID: "org_1",
 		WorkspaceID:    "workspace_1",

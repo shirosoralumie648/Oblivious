@@ -32,8 +32,10 @@ const defaultChunkOverlap = 50;
 const defaultEmbeddingModel = 'text-embedding-3-small';
 const defaultRerankerModel = 'bge-reranker-large';
 const defaultRerankTopK = 5;
-const supportedUploadAccept = '.txt,.text,.md,.markdown,.pdf,.docx,text/plain,text/markdown,text/x-markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-const unsupportedUploadFormatMessage = 'Knowledge document uploads currently support .txt, .md, PDF, and DOCX files. Legacy .doc parsing is not available yet.';
+const supportedUploadAccept =
+  '.txt,.text,.md,.markdown,.pdf,.docx,.html,.htm,.csv,.xlsx,.xls,.pptx,.json,.xml,text/plain,text/markdown,text/x-markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/html,application/xhtml+xml,text/csv,application/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/json,text/json,application/xml,text/xml';
+const unsupportedUploadFormatMessage =
+  'Knowledge document uploads currently support .txt, .md, PDF, DOCX, HTML, CSV, XLSX/XLS, PPTX, JSON, and XML files. Legacy .doc parsing is not available yet.';
 const chunkOverlayPalette = ['#2563eb', '#16a34a', '#f59e0b', '#dc2626', '#7c3aed', '#0891b2'];
 const retrievalBenchmarkModes: KnowledgeRetrievalMode[] = ['vector_only', 'hybrid', 'hybrid_rerank'];
 
@@ -248,11 +250,29 @@ function isSupportedUploadDocumentFile(file: File) {
     name.endsWith('.markdown') ||
     name.endsWith('.pdf') ||
     name.endsWith('.docx') ||
+    name.endsWith('.html') ||
+    name.endsWith('.htm') ||
+    name.endsWith('.csv') ||
+    name.endsWith('.xlsx') ||
+    name.endsWith('.xls') ||
+    name.endsWith('.pptx') ||
+    name.endsWith('.json') ||
+    name.endsWith('.xml') ||
     type === 'text/plain' ||
     type === 'text/markdown' ||
     type === 'text/x-markdown' ||
     type === 'application/pdf' ||
-    type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    type === 'text/html' ||
+    type === 'application/xhtml+xml' ||
+    type === 'text/csv' ||
+    type === 'application/csv' ||
+    type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+    type === 'application/vnd.openxmlformats-officedocument.presentationml.presentation' ||
+    type === 'application/json' ||
+    type === 'text/json' ||
+    type === 'application/xml' ||
+    type === 'text/xml'
   );
 }
 

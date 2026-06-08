@@ -1,6 +1,9 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const expandedSupportedUploadAccept =
+  '.txt,.text,.md,.markdown,.pdf,.docx,.html,.htm,.csv,.xlsx,.xls,.pptx,.json,.xml,text/plain,text/markdown,text/x-markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/html,application/xhtml+xml,text/csv,application/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/json,text/json,application/xml,text/xml';
+
 const createKnowledgeBase = vi.fn();
 const createKnowledgeDocument = vi.fn();
 const createRetrievalTestCase = vi.fn();
@@ -403,10 +406,7 @@ describe('KnowledgePage', () => {
 
     await screen.findByRole('heading', { name: 'Architecture Notes' });
     const fileInput = screen.getByLabelText('Document file');
-    expect(fileInput).toHaveAttribute(
-      'accept',
-      '.txt,.text,.md,.markdown,.pdf,.docx,text/plain,text/markdown,text/x-markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-    );
+    expect(fileInput).toHaveAttribute('accept', expandedSupportedUploadAccept);
 
     const file = new File(['docx body'], 'runbook.docx', {
       type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
@@ -429,6 +429,48 @@ describe('KnowledgePage', () => {
     expect(screen.getByText('DOCX Runbook')).toBeInTheDocument();
   });
 
+  it('uploads a CSV document file through the expanded parser path', async () => {
+    routeState.knowledgeBaseId = 'kb_9';
+    getKnowledgeBase.mockResolvedValue({
+      documentCount: 1,
+      id: 'kb_9',
+      name: 'Architecture Notes',
+      updatedAt: '2026-04-03T11:30:00Z'
+    });
+    listKnowledgeDocuments.mockResolvedValue([]);
+    uploadKnowledgeDocument.mockResolvedValue({
+      content: 'title | owner\nDeploy | Ops',
+      documentVersion: 'v6',
+      id: 'doc_csv',
+      title: 'CSV Matrix',
+      updateStrategy: 'incremental',
+      updatedAt: '2026-04-03T13:30:00Z'
+    });
+
+    render(<KnowledgePage />);
+
+    await screen.findByRole('heading', { name: 'Architecture Notes' });
+    const file = new File(['title,owner\nDeploy,Ops'], 'matrix.csv', {
+      type: 'text/csv'
+    });
+    fireEvent.change(screen.getByLabelText('Document file'), { target: { files: [file] } });
+    fireEvent.change(screen.getByLabelText('Upload title'), { target: { value: 'CSV Matrix' } });
+    fireEvent.change(screen.getByLabelText('Upload document version'), { target: { value: 'v6' } });
+    fireEvent.change(screen.getByLabelText('Upload update strategy'), { target: { value: 'incremental' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Upload document' }));
+
+    await waitFor(() => {
+      expect(uploadKnowledgeDocument).toHaveBeenCalledWith('kb_9', {
+        documentVersion: 'v6',
+        file,
+        title: 'CSV Matrix',
+        updateStrategy: 'incremental'
+      });
+    });
+    expect(screen.queryByText(/Legacy \.doc parsing is not available yet/)).not.toBeInTheDocument();
+    expect(screen.getByText('CSV Matrix')).toBeInTheDocument();
+  });
+
   it('blocks unsupported document upload formats before calling the API', async () => {
     routeState.knowledgeBaseId = 'kb_9';
     getKnowledgeBase.mockResolvedValue({
@@ -443,10 +485,7 @@ describe('KnowledgePage', () => {
 
     await screen.findByRole('heading', { name: 'Architecture Notes' });
     const fileInput = screen.getByLabelText('Document file');
-    expect(fileInput).toHaveAttribute(
-      'accept',
-      '.txt,.text,.md,.markdown,.pdf,.docx,text/plain,text/markdown,text/x-markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-    );
+    expect(fileInput).toHaveAttribute('accept', expandedSupportedUploadAccept);
 
     fireEvent.change(fileInput, {
       target: {
@@ -458,7 +497,11 @@ describe('KnowledgePage', () => {
       }
     });
 
-    expect(await screen.findByText('Knowledge document uploads currently support .txt, .md, PDF, and DOCX files. Legacy .doc parsing is not available yet.')).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        'Knowledge document uploads currently support .txt, .md, PDF, DOCX, HTML, CSV, XLSX/XLS, PPTX, JSON, and XML files. Legacy .doc parsing is not available yet.'
+      )
+    ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Upload document' })).toBeDisabled();
     expect(uploadKnowledgeDocument).not.toHaveBeenCalled();
   });

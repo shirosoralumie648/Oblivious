@@ -5,6 +5,8 @@ package knowledge
 const (
 	KnowledgeDocumentFormatCSV  = "csv"
 	KnowledgeDocumentFormatHTML = "html"
+	KnowledgeDocumentFormatJSON = "json"
+	KnowledgeDocumentFormatXML  = "xml"
 	KnowledgeDocumentFormatXLSX = "xlsx"
 	KnowledgeDocumentFormatPPTX = "pptx"
 )

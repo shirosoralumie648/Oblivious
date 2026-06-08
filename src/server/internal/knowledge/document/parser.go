@@ -121,6 +121,10 @@ func detectFormat(filename, contentType string) (string, string, error) {
 		return knowledge.KnowledgeDocumentFormatHTML, mediaType, nil
 	case "text/csv", "application/csv":
 		return knowledge.KnowledgeDocumentFormatCSV, mediaType, nil
+	case "application/json", "text/json":
+		return knowledge.KnowledgeDocumentFormatJSON, mediaType, nil
+	case "application/xml", "text/xml":
+		return knowledge.KnowledgeDocumentFormatXML, mediaType, nil
 	case "application/msword":
 		return "", mediaType, fmt.Errorf("%w: %s", ErrUnsupportedDocumentFormat, mediaType)
 	}
@@ -143,6 +147,10 @@ func detectFormat(filename, contentType string) (string, string, error) {
 		return knowledge.KnowledgeDocumentFormatHTML, mediaType, nil
 	case ".csv":
 		return knowledge.KnowledgeDocumentFormatCSV, mediaType, nil
+	case ".json":
+		return knowledge.KnowledgeDocumentFormatJSON, mediaType, nil
+	case ".xml":
+		return knowledge.KnowledgeDocumentFormatXML, mediaType, nil
 	case ".doc":
 		return "", mediaType, fmt.Errorf("%w: %s", ErrUnsupportedDocumentFormat, ext)
 	}
