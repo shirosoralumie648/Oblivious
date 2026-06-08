@@ -910,6 +910,26 @@ components:
           items:
             $ref: "#/components/schemas/Message"
 
+    AgentRunDetail:
+      type: object
+      properties:
+        run:
+          $ref: "#/components/schemas/AgentRun"
+        toolRuns:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentToolRun"
+        planSteps:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentPlanStep"
+
+    AgentToolRunDecisionRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+
     AgentToolDecisionRequest:
       type: object
       properties:
@@ -3600,6 +3620,172 @@ paths:
                 $ref: "#/components/schemas/Envelope"
         "404":
           $ref: "#/components/responses/NotFound"
+
+  /api/v1/app/agents/runs/{runId}:
+    get:
+      summary: 获取 workspace Agent 运行详情
+      operationId: getWorkspaceAgentRun
+      tags: [Agent]
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Agent run、工具调用和计划步骤详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AgentRunDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Run 不属于当前用户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/app/agents/tool-runs/{toolRunId}/approve:
+    post:
+      summary: 审批 workspace Agent 工具调用
+      operationId: approveWorkspaceAgentToolRun
+      tags: [Agent]
+      parameters:
+        - name: toolRunId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentToolRunDecisionRequest"
+      responses:
+        "200":
+          description: 更新后的工具调用状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AgentToolRun"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 工具调用不属于当前用户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: 工具调用当前状态不允许审批
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+
+  /api/v1/app/agents/tool-runs/{toolRunId}/reject:
+    post:
+      summary: 拒绝 workspace Agent 工具调用
+      operationId: rejectWorkspaceAgentToolRun
+      tags: [Agent]
+      parameters:
+        - name: toolRunId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentToolRunDecisionRequest"
+      responses:
+        "200":
+          description: 更新后的工具调用状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AgentToolRun"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 工具调用不属于当前用户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: 工具调用当前状态不允许拒绝
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+
+  /api/v1/app/agents/tool-runs/{toolRunId}/retry:
+    post:
+      summary: 重试 workspace Agent 工具调用
+      operationId: retryWorkspaceAgentToolRun
+      tags: [Agent]
+      parameters:
+        - name: toolRunId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 更新后的工具调用状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AgentToolRun"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 工具调用不属于当前用户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: 工具调用当前状态不允许重试
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
 
   # ---- Agent tools and runs ----
   /api/v1/agent/tools:
