@@ -1169,6 +1169,13 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 		}
 		writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
 	})))
+	mux.Handle("/api/v1/admin/marketplace/abuse-reports", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.Method != stdhttp.MethodGet {
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		marketplaceHandler.listAbuseReports(w, r)
+	})))
 	mux.Handle("/api/v1/admin/marketplace/abuse-reports/", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/admin/marketplace/abuse-reports/"), "/"), "/")
 		if len(parts) != 2 || parts[0] == "" {
@@ -1223,6 +1230,46 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 		}
 		marketplaceHandler.searchAgents(w, r)
 	})
+	mux.HandleFunc("/api/v1/marketplace/templates", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		switch r.Method {
+		case stdhttp.MethodGet:
+			marketplaceHandler.listTemplates(w, r)
+		case stdhttp.MethodPost:
+			serveWithSession(w, r, marketplaceHandler.createTemplate)
+		default:
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		}
+	})
+	mux.HandleFunc("/api/v1/marketplace/templates/", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/marketplace/templates/"), "/"), "/")
+		if len(parts) == 0 || parts[0] == "" {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
+			return
+		}
+
+		templateID := parts[0]
+		if len(parts) == 1 {
+			if r.Method != stdhttp.MethodGet {
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+				return
+			}
+			marketplaceHandler.getTemplate(w, r, templateID)
+			return
+		}
+
+		if len(parts) == 2 && parts[1] == "install" {
+			if r.Method != stdhttp.MethodPost {
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+				return
+			}
+			serveWithSession(w, r, func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+				marketplaceHandler.installTemplate(w, r, templateID)
+			})
+			return
+		}
+
+		writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
+	})
 	mux.HandleFunc("/api/v1/marketplace/agents", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		switch r.Method {
 		case stdhttp.MethodGet:
@@ -1260,6 +1307,16 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 		serveWithSession(w, r, func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 			marketplaceHandler.uninstallAgent(w, r, agentID)
 		})
+	})
+	mux.HandleFunc("/api/v1/marketplace/publisher/settlement-preferences", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		switch r.Method {
+		case stdhttp.MethodGet:
+			serveWithSession(w, r, marketplaceHandler.getPublisherSettlementPreferences)
+		case stdhttp.MethodPut:
+			serveWithSession(w, r, marketplaceHandler.updatePublisherSettlementPreferences)
+		default:
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		}
 	})
 	mux.HandleFunc("/api/v1/marketplace/publisher/stats", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		if r.Method != stdhttp.MethodGet {

@@ -8006,6 +8006,791 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/marketplace/featured:
+    get:
+      summary: 获取 Marketplace 推荐 Agent
+      operationId: getMarketplaceFeaturedAgents
+      tags: [Marketplace]
+      responses:
+        "200":
+          description: 推荐 Agent 列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+  /api/v1/marketplace/curated:
+    get:
+      summary: 获取 Marketplace 分组推荐
+      operationId: getMarketplaceCuratedSections
+      tags: [Marketplace]
+      responses:
+        "200":
+          description: 热门、高评分和最新 Agent 分组
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+  /api/v1/marketplace/categories:
+    get:
+      summary: 获取 Marketplace 分类
+      operationId: listMarketplaceCategories
+      tags: [Marketplace]
+      responses:
+        "200":
+          description: 分类列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+  /api/v1/marketplace/search:
+    get:
+      summary: 搜索 Marketplace Agent
+      operationId: searchMarketplaceAgents
+      tags: [Marketplace]
+      parameters:
+        - name: query
+          in: query
+          schema:
+            type: string
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: categorySlug
+          in: query
+          schema:
+            type: string
+        - name: tags
+          in: query
+          schema:
+            type: string
+          description: Comma-separated tag list.
+        - name: minRating
+          in: query
+          schema:
+            type: integer
+        - name: maxRating
+          in: query
+          schema:
+            type: integer
+        - name: pricingType
+          in: query
+          schema:
+            type: string
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [recommended, popular, rating, newest, installs, featured, relevance]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: 搜索结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+  /api/v1/marketplace/agents:
+    get:
+      summary: 列出 Marketplace Agent
+      operationId: listMarketplaceAgents
+      tags: [Marketplace]
+      responses:
+        "200":
+          description: Agent 列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+    post:
+      summary: 发布 Marketplace Agent
+      operationId: publishMarketplaceAgent
+      tags: [Marketplace]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "201":
+          description: Agent 已进入审核
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/marketplace/agents/{agentId}:
+    parameters:
+      - name: agentId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: 获取 Marketplace Agent 详情
+      operationId: getMarketplaceAgent
+      tags: [Marketplace]
+      responses:
+        "200":
+          description: Agent 详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      summary: 更新当前发布者的 Marketplace Agent
+      operationId: updateMarketplaceAgent
+      tags: [Marketplace]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Agent 更新后重新进入审核
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      summary: 删除当前发布者的 Marketplace Agent
+      operationId: deleteMarketplaceAgent
+      tags: [Marketplace]
+      responses:
+        "200":
+          description: Agent 已删除
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/marketplace/agents/{agentId}/install:
+    parameters:
+      - name: agentId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      summary: 安装 Marketplace Agent 或创建付费安装 checkout
+      operationId: installMarketplaceAgent
+      tags: [Marketplace]
+      parameters:
+        - name: versionID
+          in: query
+          schema:
+            type: string
+        - name: provider
+          in: query
+          schema:
+            type: string
+      responses:
+        "201":
+          description: 免费安装记录或付费 checkout
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    delete:
+      summary: 卸载 Marketplace Agent
+      operationId: uninstallMarketplaceAgentByInstallEndpoint
+      tags: [Marketplace]
+      responses:
+        "200":
+          description: Agent 已卸载
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/marketplace/agents/{agentId}/reviews:
+    parameters:
+      - name: agentId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: 获取 Marketplace Agent 评论
+      operationId: listMarketplaceAgentReviews
+      tags: [Marketplace]
+      responses:
+        "200":
+          description: 评论列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+    post:
+      summary: 提交或更新 Marketplace Agent 评论
+      operationId: submitMarketplaceAgentReview
+      tags: [Marketplace]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                rating:
+                  type: integer
+                  minimum: 1
+                  maximum: 5
+                body:
+                  type: string
+      responses:
+        "201":
+          description: 评论已保存
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/marketplace/agents/{agentId}/appeal:
+    parameters:
+      - name: agentId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      summary: 对被治理的 Marketplace Agent 发起申诉
+      operationId: appealMarketplaceAgent
+      tags: [Marketplace]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+      responses:
+        "200":
+          description: Agent 申诉已记录
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/marketplace/agents/{agentId}/abuse-reports:
+    parameters:
+      - name: agentId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      summary: 举报 Marketplace Agent
+      operationId: reportMarketplaceAgentAbuse
+      tags: [Marketplace]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                details:
+                  type: string
+      responses:
+        "201":
+          description: Abuse report 已创建
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/marketplace/agents/{agentId}/versions:
+    parameters:
+      - name: agentId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: 获取 Marketplace Agent 版本
+      operationId: listMarketplaceAgentVersions
+      tags: [Marketplace]
+      responses:
+        "200":
+          description: 版本列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+
+  /api/v1/marketplace/agents/{agentId}/stats:
+    parameters:
+      - name: agentId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: 获取发布者视角的 Agent 统计
+      operationId: getMarketplaceAgentStats
+      tags: [Marketplace]
+      responses:
+        "200":
+          description: Agent 统计
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/marketplace/my-agents:
+    get:
+      summary: 获取当前发布者的 Agent
+      operationId: listMyMarketplaceAgents
+      tags: [Marketplace]
+      responses:
+        "200":
+          description: 当前发布者 Agent 列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/marketplace/installs:
+    get:
+      summary: 获取当前用户安装的 Marketplace Agent
+      operationId: listMarketplaceInstalls
+      tags: [Marketplace]
+      responses:
+        "200":
+          description: 安装列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/marketplace/installs/{agentId}:
+    parameters:
+      - name: agentId
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      summary: 通过安装列表端点卸载 Marketplace Agent
+      operationId: uninstallMarketplaceAgent
+      tags: [Marketplace]
+      responses:
+        "200":
+          description: Agent 已卸载
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/marketplace/publisher/stats:
+    get:
+      summary: 获取 Marketplace 发布者统计
+      operationId: getMarketplacePublisherStats
+      tags: [Marketplace]
+      responses:
+        "200":
+          description: 发布者统计
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/marketplace/publisher/settlement-preferences:
+    get:
+      summary: 获取 Marketplace 发布者结算偏好
+      operationId: getMarketplaceSettlementPreferences
+      tags: [Marketplace]
+      responses:
+        "200":
+          description: 结算偏好
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    put:
+      summary: 更新 Marketplace 发布者结算偏好
+      operationId: updateMarketplaceSettlementPreferences
+      tags: [Marketplace]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cycle]
+              properties:
+                cycle:
+                  type: string
+                  enum: [weekly, monthly, quarterly]
+      responses:
+        "200":
+          description: 结算偏好已更新
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/marketplace/templates:
+    get:
+      summary: 搜索 Marketplace 模板
+      operationId: listMarketplaceTemplates
+      tags: [Marketplace]
+      parameters:
+        - name: query
+          in: query
+          schema:
+            type: string
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [agent, workflow, plugin]
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: tags
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: 模板列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+    post:
+      summary: 创建 Marketplace 模板
+      operationId: createMarketplaceTemplate
+      tags: [Marketplace]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, name, templateData]
+              properties:
+                type:
+                  type: string
+                  enum: [agent, workflow, plugin]
+                name:
+                  type: string
+                description:
+                  type: string
+                templateData:
+                  type: object
+                  additionalProperties: true
+                category:
+                  type: string
+                tags:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "201":
+          description: 模板已创建
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/marketplace/templates/{templateId}:
+    parameters:
+      - name: templateId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: 获取 Marketplace 模板详情
+      operationId: getMarketplaceTemplate
+      tags: [Marketplace]
+      responses:
+        "200":
+          description: 模板详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/marketplace/templates/{templateId}/install:
+    parameters:
+      - name: templateId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      summary: 安装 Marketplace 模板
+      operationId: installMarketplaceTemplate
+      tags: [Marketplace]
+      responses:
+        "201":
+          description: 模板已安装到当前组织
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/admin/marketplace/agents/{agentId}/takedown:
+    parameters:
+      - name: agentId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      summary: 管理员下架 Marketplace Agent
+      operationId: takedownMarketplaceAgent
+      tags: [Admin, Marketplace]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+      responses:
+        "200":
+          description: Agent 已下架
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/admin/marketplace/agents/{agentId}/reinstate:
+    parameters:
+      - name: agentId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      summary: 管理员恢复 Marketplace Agent
+      operationId: reinstateMarketplaceAgent
+      tags: [Admin, Marketplace]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+      responses:
+        "200":
+          description: Agent 已恢复
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/admin/marketplace/abuse-reports:
+    get:
+      summary: 管理员列出 Marketplace abuse reports
+      operationId: listMarketplaceAbuseReports
+      tags: [Admin, Marketplace]
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [open, resolved, dismissed]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: abuse report 列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/admin/marketplace/abuse-reports/{reportId}/resolve:
+    parameters:
+      - name: reportId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      summary: 管理员解决 Marketplace abuse report
+      operationId: resolveMarketplaceAbuseReport
+      tags: [Admin, Marketplace]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                resolution:
+                  type: string
+      responses:
+        "200":
+          description: abuse report 已解决
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/admin/marketplace/abuse-reports/{reportId}/dismiss:
+    parameters:
+      - name: reportId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      summary: 管理员驳回 Marketplace abuse report
+      operationId: dismissMarketplaceAbuseReport
+      tags: [Admin, Marketplace]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                resolution:
+                  type: string
+      responses:
+        "200":
+          description: abuse report 已驳回
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   /api/v1/billing/checkout:
     post:
       summary: 创建订阅或余额充值 checkout
