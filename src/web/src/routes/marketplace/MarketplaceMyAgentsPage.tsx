@@ -281,7 +281,7 @@ export function MarketplaceMyAgentsPage() {
           data={state.myAgents}
           loading={state.loading}
           error={null}
-          emptyMessage="No published agents -- Publish your first agent to start the review process."
+          emptyMessage="No published agents found. Publish your first agent to start the review process."
           renderActions={(agent) => (
             <Button type="button" variant="ghost" size="icon" aria-label={`Open agent ${agent.name}`} asChild>
               <Link to={`/marketplace/agents/${agent.id}`}>
@@ -299,7 +299,7 @@ export function MarketplaceMyAgentsPage() {
           data={state.installs}
           loading={state.loading}
           error={null}
-          emptyMessage="No installed agents -- Install agents from the marketplace to use them in your workspace."
+          emptyMessage="No installed agents found. Install agents from the marketplace to use them in your workspace."
           renderActions={(install) => (
             <Button
               type="button"

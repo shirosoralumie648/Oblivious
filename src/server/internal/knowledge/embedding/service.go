@@ -14,7 +14,7 @@ import (
 
 const (
 	defaultModel        = "text-embedding-3-small"
-	defaultBaseURL      = "https://api.openai.com/v1"
+	defaultBaseURL      = ""
 	embeddingEndpoint   = "/embeddings"
 	maxBatchSize        = 2048
 	defaultHTTPTimeout  = 30 * time.Second
