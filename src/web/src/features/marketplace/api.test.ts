@@ -183,23 +183,23 @@ describe('createMarketplaceApi', () => {
     const post = vi.fn().mockResolvedValueOnce({ id: 'tpl_new' }).mockResolvedValueOnce({ id: 'install_1', templateID: 'tpl_1' });
     const api = createMarketplaceApi(createClient({ get, post }));
 
-    await expect(api.listTemplates({ type: 'workflow', query: 'lead' })).resolves.toEqual({
+    await expect(api.listTemplates({ type: 'agent', query: 'lead' })).resolves.toEqual({
       templates: [{ id: 'tpl_1', name: 'Lead Intake' }],
       total: 1,
     });
     await expect(api.getTemplate('tpl_1')).resolves.toEqual({ id: 'tpl_1', name: 'Lead Intake' });
     await api.createTemplate({
-      type: 'workflow',
+      type: 'agent',
       name: 'Lead Intake',
       templateData: { nodes: [] },
       tags: ['crm'],
     });
     await api.installTemplate('tpl_1');
 
-    expect(get).toHaveBeenNthCalledWith(1, '/api/v1/marketplace/templates?type=workflow&query=lead');
+    expect(get).toHaveBeenNthCalledWith(1, '/api/v1/marketplace/templates?type=agent&query=lead');
     expect(get).toHaveBeenNthCalledWith(2, '/api/v1/marketplace/templates/tpl_1');
     expect(post).toHaveBeenNthCalledWith(1, '/api/v1/marketplace/templates', {
-      type: 'workflow',
+      type: 'agent',
       name: 'Lead Intake',
       templateData: { nodes: [] },
       tags: ['crm'],

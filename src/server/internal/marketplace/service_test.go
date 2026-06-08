@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -442,9 +443,9 @@ func TestServiceCreatesAndInstallsMarketplaceTemplate(t *testing.T) {
 	service := NewService(store, nil)
 
 	created, err := service.CreateTemplate(context.Background(), "org_1", TemplateCreateRequest{
-		Type:         "workflow",
+		Type:         "agent",
 		Name:         "Launch Checklist",
-		Description:  "Reusable launch workflow for GTM handoffs.",
+		Description:  "Reusable launch agent for GTM handoffs.",
 		TemplateData: json.RawMessage(`{"steps":["brief","review"]}`),
 		Category:     "operations",
 		Tags:         []string{"launch"},
@@ -452,7 +453,7 @@ func TestServiceCreatesAndInstallsMarketplaceTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create template: %v", err)
 	}
-	if created.ID == "" || created.OrganizationID != "org_1" || created.Type != "workflow" {
+	if created.ID == "" || created.OrganizationID != "org_1" || created.Type != "agent" {
 		t.Fatalf("unexpected created template: %+v", created)
 	}
 
@@ -472,12 +473,12 @@ func TestServiceRejectsInvalidMarketplaceTemplate(t *testing.T) {
 	service := NewService(newMarketplaceServiceStore(), nil)
 
 	_, err := service.CreateTemplate(context.Background(), "org_1", TemplateCreateRequest{
-		Type:         "channel",
+		Type:         "bot",
 		Name:         "Bad",
-		TemplateData: json.RawMessage(`not-json`),
+		TemplateData: json.RawMessage(`{"nodes":[]}`),
 	})
-	if err == nil {
-		t.Fatal("expected invalid marketplace template to be rejected")
+	if err == nil || !strings.Contains(err.Error(), "agent, workflow, plugin") {
+		t.Fatalf("expected legacy bot template type to be rejected against public contract, got %v", err)
 	}
 }
 

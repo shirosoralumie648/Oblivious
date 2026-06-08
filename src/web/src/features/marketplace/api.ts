@@ -153,7 +153,7 @@ export type AutomatedReviewRejectionError = Error & {
 export type MarketplaceTemplate = {
   id: string;
   organizationId?: string;
-  type: 'workflow' | 'bot' | 'plugin';
+  type: 'agent' | 'workflow' | 'plugin';
   name: string;
   description?: string;
   templateData: unknown;
@@ -166,7 +166,7 @@ export type MarketplaceTemplate = {
 };
 
 export type TemplateCreateRequest = {
-  type: 'workflow' | 'bot' | 'plugin';
+  type: 'agent' | 'workflow' | 'plugin';
   name: string;
   description?: string;
   templateData: unknown;
@@ -177,7 +177,7 @@ export type TemplateCreateRequest = {
 export type TemplateSearchParams = {
   query?: string;
   q?: string;
-  type?: 'workflow' | 'bot' | 'plugin';
+  type?: 'agent' | 'workflow' | 'plugin';
   category?: string;
   tags?: string | string[];
   limit?: number;
@@ -190,7 +190,7 @@ export type TemplateInstall = {
   templateId?: string;
   organizationId?: string;
   userID?: string;
-  type: 'workflow' | 'bot' | 'plugin';
+  type: 'agent' | 'workflow' | 'plugin';
   name: string;
   templateData: unknown;
   installedAt?: string;

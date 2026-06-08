@@ -300,7 +300,7 @@ export function MarketplaceHomePage() {
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <h2 id="marketplace-templates-title" className="font-heading text-lg font-semibold text-foreground">Templates</h2>
-                  <p className="text-sm text-muted-foreground">Reusable Bot, workflow, and plugin starting points.</p>
+                  <p className="text-sm text-muted-foreground">Reusable agent, workflow, and plugin starting points.</p>
                 </div>
               </div>
               {state.templateStatus ? (

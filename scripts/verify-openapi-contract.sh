@@ -181,6 +181,37 @@ require_marketplace_paid_install_contract() {
   ' "$openapi_file"
 }
 
+require_marketplace_template_type_contract() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+    paths = spec.fetch("paths", {})
+    missing = []
+
+    list_enum = paths.dig("/api/v1/marketplace/templates", "get", "parameters")&.
+      find { |param| param["name"] == "type" }&.dig("schema", "enum") || []
+    create_enum = paths.dig("/api/v1/marketplace/templates", "post", "requestBody", "content", "application/json", "schema", "properties", "type", "enum") || []
+
+    [
+      ["GET /api/v1/marketplace/templates type query", list_enum],
+      ["POST /api/v1/marketplace/templates type body", create_enum],
+    ].each do |label, enum_values|
+      unless ["agent", "workflow", "plugin"].all? { |value| enum_values.include?(value) }
+        missing << "#{label} must enumerate agent, workflow, and plugin"
+      end
+      if enum_values.include?("bot")
+        missing << "#{label} must not expose legacy bot template type"
+      end
+    end
+
+    unless missing.empty?
+      warn "[openapi-contract] Marketplace template type contract is incomplete:"
+      missing.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 require_relay_alias_bearer_contract() {
   ruby -ryaml -e '
     file = ARGV.shift
@@ -385,5 +416,6 @@ require_relay_alias_bearer_contract "${relay_alias_paths[@]}"
 require_api_json_responses_use_envelope
 require_session_csrf_contract
 require_marketplace_paid_install_contract
+require_marketplace_template_type_contract
 
 echo "[openapi-contract] required Relay alias, Agent, Memory, MCP, Tenant, Notification, Observability, publishing channel, Workflow, Billing, and Marketplace paths are documented."

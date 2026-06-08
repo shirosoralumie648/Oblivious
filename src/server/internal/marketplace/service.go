@@ -637,9 +637,9 @@ func (s *Service) InstallTemplate(ctx context.Context, userID, organizationID, t
 
 func validateTemplateCreateRequest(input TemplateCreateRequest) error {
 	switch input.Type {
-	case "workflow", "bot", "plugin":
+	case "agent", "workflow", "plugin":
 	default:
-		return fmt.Errorf("type must be one of: workflow, bot, plugin")
+		return fmt.Errorf("type must be one of: agent, workflow, plugin")
 	}
 	if len(input.Name) < 3 || len(input.Name) > 200 {
 		return fmt.Errorf("name must be 3-200 characters")

@@ -303,7 +303,7 @@ type Category struct {
 	AgentCount   int    `json:"agentCount,omitempty"`
 }
 
-// MarketplaceTemplate represents a reusable bot, workflow, or plugin template.
+// MarketplaceTemplate represents a reusable agent, workflow, or plugin template.
 type MarketplaceTemplate struct {
 	ID             string          `json:"id"`
 	OrganizationID string          `json:"organizationId"`
