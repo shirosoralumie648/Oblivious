@@ -15,6 +15,30 @@ function createClient(overrides: Partial<HttpClient> = {}) {
   return client;
 }
 
+function agentRunPayload(
+  planSteps: unknown[],
+  {
+    error,
+    status = 'planning',
+    toolRuns = []
+  }: { error?: string; status?: string; toolRuns?: unknown[] } = {}
+) {
+  return {
+    data: {
+      planSteps,
+      run: {
+        ...(error !== undefined ? { error } : {}),
+        id: 'run_1',
+        iterationCount: 2,
+        mode: 'planning',
+        status,
+        toolCallCount: toolRuns.length
+      },
+      toolRuns
+    }
+  };
+}
+
 describe('createAgentPlanStepsApi', () => {
   it('loads run detail and normalizes run status with plan steps', async () => {
     const get = vi.fn().mockResolvedValue({
@@ -68,15 +92,25 @@ describe('createAgentPlanStepsApi', () => {
     expect(get).toHaveBeenCalledWith('/api/v1/agent/runs/run_1');
   });
 
-  it('approves a run plan step through the agent run endpoint', async () => {
-    const post = vi.fn().mockResolvedValue({
-      planSteps: [{ id: 'step_1', runId: 'run_1', status: 'approved', title: 'Inspect workspace' }]
-    });
+  it('approves a run plan step and preserves run detail metadata', async () => {
+    const post = vi.fn().mockResolvedValue(agentRunPayload(
+      [{ id: 'step_1', runId: 'run_1', status: 'approved', title: 'Inspect workspace' }],
+      {
+        status: 'pending_approval',
+        toolRuns: [{ approvalStatus: 'pending', id: 'tool_run_1', status: 'pending_approval', toolName: 'write_file' }]
+      }
+    ));
     const api = createAgentPlanStepsApi(createClient({ post }));
 
-    await expect(api.approvePlanStep('run_1', 'step_1', 'Looks good')).resolves.toEqual([
-      { id: 'step_1', runId: 'run_1', status: 'approved', title: 'Inspect workspace' }
-    ]);
+    await expect(api.approvePlanStep('run_1', 'step_1', 'Looks good')).resolves.toMatchObject({
+      id: 'run_1',
+      iterationCount: 2,
+      mode: 'planning',
+      planSteps: [{ id: 'step_1', runId: 'run_1', status: 'approved', title: 'Inspect workspace' }],
+      status: 'pending_approval',
+      toolCallCount: 1,
+      toolRuns: [{ approvalStatus: 'pending', id: 'tool_run_1', status: 'pending_approval', toolName: 'write_file' }]
+    });
 
     expect(post).toHaveBeenCalledWith('/api/v1/agent/runs/run_1/approve-plan-step', {
       planStepId: 'step_1',
@@ -117,34 +151,38 @@ describe('createAgentPlanStepsApi', () => {
     });
   });
 
-  it('executes a run plan step and returns refreshed plan steps', async () => {
-    const post = vi.fn().mockResolvedValue({
-      data: {
-        planSteps: [{ id: 'step_1', runId: 'run_1', resultContent: 'done', status: 'completed', title: 'Inspect workspace' }]
-      }
-    });
+  it('executes a run plan step and returns refreshed run detail', async () => {
+    const post = vi.fn().mockResolvedValue(agentRunPayload(
+      [{ id: 'step_1', runId: 'run_1', resultContent: 'done', status: 'completed', title: 'Inspect workspace' }],
+      { status: 'completed' }
+    ));
     const api = createAgentPlanStepsApi(createClient({ post }));
 
-    await expect(api.executePlanStep('run_1', 'step_1')).resolves.toEqual([
-      { id: 'step_1', runId: 'run_1', resultContent: 'done', status: 'completed', title: 'Inspect workspace' }
-    ]);
+    await expect(api.executePlanStep('run_1', 'step_1')).resolves.toMatchObject({
+      id: 'run_1',
+      planSteps: [{ id: 'step_1', runId: 'run_1', resultContent: 'done', status: 'completed', title: 'Inspect workspace' }],
+      status: 'completed',
+      toolRuns: []
+    });
 
     expect(post).toHaveBeenCalledWith('/api/v1/agent/runs/run_1/execute-plan-step', {
       planStepId: 'step_1'
     });
   });
 
-  it('skips a run plan step and returns refreshed plan steps', async () => {
-    const post = vi.fn().mockResolvedValue({
-      data: {
-        planSteps: [{ error: 'not needed', id: 'step_1', runId: 'run_1', status: 'skipped', title: 'Inspect workspace' }]
-      }
-    });
+  it('skips a run plan step and returns refreshed run detail', async () => {
+    const post = vi.fn().mockResolvedValue(agentRunPayload(
+      [{ error: 'not needed', id: 'step_1', runId: 'run_1', status: 'skipped', title: 'Inspect workspace' }],
+      { status: 'completed' }
+    ));
     const api = createAgentPlanStepsApi(createClient({ post }));
 
-    await expect(api.skipPlanStep('run_1', 'step_1', 'not needed')).resolves.toEqual([
-      { error: 'not needed', id: 'step_1', runId: 'run_1', status: 'skipped', title: 'Inspect workspace' }
-    ]);
+    await expect(api.skipPlanStep('run_1', 'step_1', 'not needed')).resolves.toMatchObject({
+      id: 'run_1',
+      planSteps: [{ error: 'not needed', id: 'step_1', runId: 'run_1', status: 'skipped', title: 'Inspect workspace' }],
+      status: 'completed',
+      toolRuns: []
+    });
 
     expect(post).toHaveBeenCalledWith('/api/v1/agent/runs/run_1/skip-plan-step', {
       planStepId: 'step_1',
@@ -152,17 +190,19 @@ describe('createAgentPlanStepsApi', () => {
     });
   });
 
-  it('retries a failed run plan step and returns refreshed plan steps', async () => {
-    const post = vi.fn().mockResolvedValue({
-      data: {
-        planSteps: [{ id: 'step_1', resultContent: 'done', runId: 'run_1', status: 'completed', title: 'Inspect workspace' }]
-      }
-    });
+  it('retries a failed run plan step and returns refreshed run detail', async () => {
+    const post = vi.fn().mockResolvedValue(agentRunPayload(
+      [{ id: 'step_1', resultContent: 'done', runId: 'run_1', status: 'completed', title: 'Inspect workspace' }],
+      { status: 'running' }
+    ));
     const api = createAgentPlanStepsApi(createClient({ post }));
 
-    await expect(api.retryPlanStep('run_1', 'step_1')).resolves.toEqual([
-      { id: 'step_1', resultContent: 'done', runId: 'run_1', status: 'completed', title: 'Inspect workspace' }
-    ]);
+    await expect(api.retryPlanStep('run_1', 'step_1')).resolves.toMatchObject({
+      id: 'run_1',
+      planSteps: [{ id: 'step_1', resultContent: 'done', runId: 'run_1', status: 'completed', title: 'Inspect workspace' }],
+      status: 'running',
+      toolRuns: []
+    });
 
     expect(post).toHaveBeenCalledWith('/api/v1/agent/runs/run_1/retry-plan-step', {
       planStepId: 'step_1'
@@ -170,28 +210,7 @@ describe('createAgentPlanStepsApi', () => {
   });
 
   it('updates a run plan step draft through the agent run endpoint', async () => {
-    const request = vi.fn().mockResolvedValue({
-      data: {
-        planSteps: [
-          {
-            approvalStatus: 'pending',
-            id: 'step_1',
-            input: { path: 'new.go' },
-            runId: 'run_1',
-            status: 'pending',
-            title: 'Read safer file',
-            toolName: 'read_file'
-          }
-        ]
-      }
-    });
-    const api = createAgentPlanStepsApi(createClient({ request }));
-
-    await expect(api.updatePlanStep('run_1', 'step_1', {
-      input: { path: 'new.go' },
-      title: 'Read safer file',
-      toolName: 'read_file'
-    })).resolves.toEqual([
+    const request = vi.fn().mockResolvedValue(agentRunPayload([
       {
         approvalStatus: 'pending',
         id: 'step_1',
@@ -201,7 +220,28 @@ describe('createAgentPlanStepsApi', () => {
         title: 'Read safer file',
         toolName: 'read_file'
       }
-    ]);
+    ]));
+    const api = createAgentPlanStepsApi(createClient({ request }));
+
+    await expect(api.updatePlanStep('run_1', 'step_1', {
+      input: { path: 'new.go' },
+      title: 'Read safer file',
+      toolName: 'read_file'
+    })).resolves.toMatchObject({
+      id: 'run_1',
+      planSteps: [
+        {
+          approvalStatus: 'pending',
+          id: 'step_1',
+          input: { path: 'new.go' },
+          runId: 'run_1',
+          status: 'pending',
+          title: 'Read safer file',
+          toolName: 'read_file'
+        }
+      ],
+      status: 'planning'
+    });
 
     expect(request).toHaveBeenCalledWith('/api/v1/agent/runs/run_1/update-plan-step', expect.objectContaining({
       headers: { 'Content-Type': 'application/json' },
@@ -217,14 +257,10 @@ describe('createAgentPlanStepsApi', () => {
   });
 
   it('creates a run plan step draft through the agent run endpoint', async () => {
-    const post = vi.fn().mockResolvedValue({
-      data: {
-        planSteps: [
-          { id: 'step_1', index: 1, runId: 'run_1', status: 'pending', title: 'Draft patch' },
-          { id: 'step_new', index: 2, runId: 'run_1', status: 'pending', title: 'Run checks', toolName: 'execute_code' }
-        ]
-      }
-    });
+    const post = vi.fn().mockResolvedValue(agentRunPayload([
+      { id: 'step_1', index: 1, runId: 'run_1', status: 'pending', title: 'Draft patch' },
+      { id: 'step_new', index: 2, runId: 'run_1', status: 'pending', title: 'Run checks', toolName: 'execute_code' }
+    ]));
     const api = createAgentPlanStepsApi(createClient({ post }));
 
     await expect(api.createPlanStep('run_1', {
@@ -232,10 +268,14 @@ describe('createAgentPlanStepsApi', () => {
       input: { command: 'go test ./internal/agent' },
       title: 'Run checks',
       toolName: 'execute_code'
-    })).resolves.toEqual([
-      { id: 'step_1', index: 1, runId: 'run_1', status: 'pending', title: 'Draft patch' },
-      { id: 'step_new', index: 2, runId: 'run_1', status: 'pending', title: 'Run checks', toolName: 'execute_code' }
-    ]);
+    })).resolves.toMatchObject({
+      id: 'run_1',
+      planSteps: [
+        { id: 'step_1', index: 1, runId: 'run_1', status: 'pending', title: 'Draft patch' },
+        { id: 'step_new', index: 2, runId: 'run_1', status: 'pending', title: 'Run checks', toolName: 'execute_code' }
+      ],
+      status: 'planning'
+    });
 
     expect(post).toHaveBeenCalledWith('/api/v1/agent/runs/run_1/create-plan-step', {
       afterPlanStepId: 'step_1',
@@ -246,20 +286,20 @@ describe('createAgentPlanStepsApi', () => {
   });
 
   it('moves a run plan step through the agent run endpoint', async () => {
-    const post = vi.fn().mockResolvedValue({
-      data: {
-        planSteps: [
-          { id: 'step_2', index: 1, runId: 'run_1', status: 'pending', title: 'Verify patch' },
-          { id: 'step_1', index: 2, runId: 'run_1', status: 'pending', title: 'Draft patch' }
-        ]
-      }
-    });
-    const api = createAgentPlanStepsApi(createClient({ post }));
-
-    await expect(api.movePlanStep('run_1', 'step_2', 'up')).resolves.toEqual([
+    const post = vi.fn().mockResolvedValue(agentRunPayload([
       { id: 'step_2', index: 1, runId: 'run_1', status: 'pending', title: 'Verify patch' },
       { id: 'step_1', index: 2, runId: 'run_1', status: 'pending', title: 'Draft patch' }
-    ]);
+    ]));
+    const api = createAgentPlanStepsApi(createClient({ post }));
+
+    await expect(api.movePlanStep('run_1', 'step_2', 'up')).resolves.toMatchObject({
+      id: 'run_1',
+      planSteps: [
+        { id: 'step_2', index: 1, runId: 'run_1', status: 'pending', title: 'Verify patch' },
+        { id: 'step_1', index: 2, runId: 'run_1', status: 'pending', title: 'Draft patch' }
+      ],
+      status: 'planning'
+    });
 
     expect(post).toHaveBeenCalledWith('/api/v1/agent/runs/run_1/move-plan-step', {
       direction: 'up',
@@ -268,20 +308,20 @@ describe('createAgentPlanStepsApi', () => {
   });
 
   it('deletes a run plan step draft through the agent run endpoint', async () => {
-    const post = vi.fn().mockResolvedValue({
-      data: {
-        planSteps: [
-          { id: 'step_1', index: 1, runId: 'run_1', status: 'pending', title: 'Draft patch' },
-          { id: 'step_3', index: 2, runId: 'run_1', status: 'pending', title: 'Verify patch' }
-        ]
-      }
-    });
-    const api = createAgentPlanStepsApi(createClient({ post }));
-
-    await expect(api.deletePlanStep('run_1', 'step_2')).resolves.toEqual([
+    const post = vi.fn().mockResolvedValue(agentRunPayload([
       { id: 'step_1', index: 1, runId: 'run_1', status: 'pending', title: 'Draft patch' },
       { id: 'step_3', index: 2, runId: 'run_1', status: 'pending', title: 'Verify patch' }
-    ]);
+    ]));
+    const api = createAgentPlanStepsApi(createClient({ post }));
+
+    await expect(api.deletePlanStep('run_1', 'step_2')).resolves.toMatchObject({
+      id: 'run_1',
+      planSteps: [
+        { id: 'step_1', index: 1, runId: 'run_1', status: 'pending', title: 'Draft patch' },
+        { id: 'step_3', index: 2, runId: 'run_1', status: 'pending', title: 'Verify patch' }
+      ],
+      status: 'planning'
+    });
 
     expect(post).toHaveBeenCalledWith('/api/v1/agent/runs/run_1/delete-plan-step', {
       planStepId: 'step_2'

@@ -217,9 +217,8 @@ export function AgentPlanStepsPage() {
         title,
         toolName: newToolName.trim()
       });
-      setPlanSteps(refreshed);
+      applyRunDetail(refreshed);
       cancelCreatingStep();
-      void refreshRunDetail();
     } catch (caughtError) {
       setError(errorMessage(caughtError, 'Unable to add plan step.'));
     } finally {
@@ -253,9 +252,8 @@ export function AgentPlanStepsPage() {
         title,
         toolName: editToolName.trim()
       });
-      setPlanSteps(refreshed);
+      applyRunDetail(refreshed);
       cancelEditingStep();
-      void refreshRunDetail();
     } catch (caughtError) {
       setError(errorMessage(caughtError, 'Unable to update plan step.'));
     } finally {
@@ -285,8 +283,7 @@ export function AgentPlanStepsPage() {
             : action === 'skip'
               ? await api.skipPlanStep(runId, step.id)
               : await api.retryPlanStep(runId, step.id);
-      setPlanSteps(refreshed);
-      void refreshRunDetail();
+      applyRunDetail(refreshed);
     } catch (caughtError) {
       setError(errorMessage(caughtError, `Unable to ${action} plan step.`));
     } finally {
@@ -305,8 +302,7 @@ export function AgentPlanStepsPage() {
 
     try {
       const refreshed = await api.movePlanStep(runId, step.id, direction);
-      setPlanSteps(refreshed);
-      void refreshRunDetail();
+      applyRunDetail(refreshed);
     } catch (caughtError) {
       setError(errorMessage(caughtError, `Unable to move plan step ${direction}.`));
     } finally {
@@ -325,8 +321,7 @@ export function AgentPlanStepsPage() {
 
     try {
       const refreshed = await api.deletePlanStep(runId, step.id);
-      setPlanSteps(refreshed);
-      void refreshRunDetail();
+      applyRunDetail(refreshed);
     } catch (caughtError) {
       setError(errorMessage(caughtError, 'Unable to delete plan step.'));
     } finally {

@@ -72,6 +72,36 @@ function renderDirectPage() {
   );
 }
 
+function runDetail(
+  planSteps: unknown[],
+  {
+    error,
+    iterationCount = 2,
+    mode = 'planning',
+    status = 'planning',
+    toolCallCount = 0,
+    toolRuns = []
+  }: {
+    error?: string;
+    iterationCount?: number;
+    mode?: string;
+    status?: string;
+    toolCallCount?: number;
+    toolRuns?: unknown[];
+  } = {}
+) {
+  return {
+    ...(error !== undefined ? { error } : {}),
+    id: 'run_1',
+    iterationCount,
+    mode,
+    planSteps,
+    status,
+    toolCallCount,
+    toolRuns
+  };
+}
+
 describe('AgentPlanStepsPage', () => {
   beforeEach(() => {
     approvePlanStep.mockReset();
@@ -213,7 +243,7 @@ describe('AgentPlanStepsPage', () => {
     expect(screen.getByRole('heading', { name: 'Inspect workspace' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Patch web page' })).toBeInTheDocument();
 
-    approvePlanStep.mockResolvedValueOnce([
+    approvePlanStep.mockResolvedValueOnce(runDetail([
       {
         approvalStatus: 'approved',
         id: 'step_1',
@@ -230,7 +260,21 @@ describe('AgentPlanStepsPage', () => {
         status: 'approved',
         title: 'Patch web page'
       }
-    ]);
+    ], {
+      status: 'pending_approval',
+      toolCallCount: 1,
+      toolRuns: [
+        {
+          approvalStatus: 'pending',
+          id: 'tool_run_1',
+          riskLevel: 'dangerous',
+          runId: 'run_1',
+          status: 'pending_approval',
+          toolName: 'write_file',
+          toolType: 'builtin'
+        }
+      ]
+    }));
 
     fireEvent.click(screen.getByRole('button', { name: 'Approve Inspect workspace' }));
 
@@ -238,8 +282,12 @@ describe('AgentPlanStepsPage', () => {
     await waitFor(() => {
       expect(within(screen.getByLabelText('Plan step Inspect workspace')).getAllByText('approved').length).toBeGreaterThan(0);
     });
+    expect(screen.getByText('Status: pending_approval')).toBeInTheDocument();
+    expect(screen.getByLabelText('Agent run execution controls')).toHaveTextContent('Tool calls 1');
+    expect(screen.getByLabelText('Tool run write_file')).toHaveTextContent('dangerous');
+    expect(getRunDetail).toHaveBeenCalledTimes(1);
 
-    executePlanStep.mockResolvedValueOnce([
+    executePlanStep.mockResolvedValueOnce(runDetail([
       {
         approvalStatus: 'approved',
         id: 'step_1',
@@ -257,13 +305,24 @@ describe('AgentPlanStepsPage', () => {
         status: 'approved',
         title: 'Patch web page'
       }
-    ]);
+    ], {
+      error: 'model_stop',
+      iterationCount: 3,
+      status: 'completed',
+      toolCallCount: 1,
+      toolRuns: []
+    }));
 
     const firstStep = screen.getByLabelText('Plan step Inspect workspace');
     fireEvent.click(within(firstStep).getByRole('button', { name: 'Execute Inspect workspace' }));
 
     await waitFor(() => expect(executePlanStep).toHaveBeenCalledWith('run_1', 'step_1'));
     expect(await screen.findByText('Workspace inspected.')).toBeInTheDocument();
+    expect(screen.getByText('Status: completed')).toBeInTheDocument();
+    expect(screen.getByLabelText('Agent run execution controls')).toHaveTextContent('Iterations 3');
+    expect(screen.getByLabelText('Agent run execution controls')).toHaveTextContent('Stop reason model_stop');
+    expect(screen.queryByLabelText('Tool run write_file')).not.toBeInTheDocument();
+    expect(getRunDetail).toHaveBeenCalledTimes(1);
   });
 
   it('surfaces operation failures without dropping current plan steps', async () => {
@@ -320,7 +379,7 @@ describe('AgentPlanStepsPage', () => {
         title: 'Completed implementation'
       }
     ]);
-    skipPlanStep.mockResolvedValueOnce([
+    skipPlanStep.mockResolvedValueOnce(runDetail([
       {
         approvalStatus: 'pending',
         id: 'step_1',
@@ -353,7 +412,7 @@ describe('AgentPlanStepsPage', () => {
         status: 'completed',
         title: 'Completed implementation'
       }
-    ]);
+    ]));
 
     expect(screen.getByRole('button', { name: 'Skip Approved verification' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Skip Failed verification' })).toBeEnabled();
@@ -387,7 +446,7 @@ describe('AgentPlanStepsPage', () => {
         title: 'Completed implementation'
       }
     ]);
-    retryPlanStep.mockResolvedValueOnce([
+    retryPlanStep.mockResolvedValueOnce(runDetail([
       {
         approvalStatus: 'approved',
         id: 'step_1',
@@ -405,7 +464,7 @@ describe('AgentPlanStepsPage', () => {
         status: 'completed',
         title: 'Completed implementation'
       }
-    ]);
+    ], { status: 'running' }));
 
     expect(screen.getByRole('button', { name: 'Retry Verify patch' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Retry Completed implementation' })).toBeDisabled();
@@ -432,7 +491,7 @@ describe('AgentPlanStepsPage', () => {
         toolName: 'write_file'
       }
     ]);
-    updatePlanStep.mockResolvedValueOnce([
+    updatePlanStep.mockResolvedValueOnce(runDetail([
       {
         approvalStatus: 'pending',
         id: 'step_1',
@@ -443,7 +502,7 @@ describe('AgentPlanStepsPage', () => {
         title: 'Read safer file',
         toolName: 'read_file'
       }
-    ]);
+    ]));
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit Patch original file' }));
     fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Read safer file' } });
@@ -490,7 +549,7 @@ describe('AgentPlanStepsPage', () => {
         title: 'Verify patch'
       }
     ]);
-    movePlanStep.mockResolvedValueOnce([
+    movePlanStep.mockResolvedValueOnce(runDetail([
       {
         approvalStatus: 'pending',
         id: 'step_1',
@@ -516,7 +575,7 @@ describe('AgentPlanStepsPage', () => {
         status: 'pending',
         title: 'Draft patch'
       }
-    ]);
+    ]));
 
     expect(screen.getByRole('button', { name: 'Move up Draft patch' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Move down Draft patch' })).toBeEnabled();
@@ -552,7 +611,7 @@ describe('AgentPlanStepsPage', () => {
         title: 'Verify patch'
       }
     ]);
-    createPlanStep.mockResolvedValueOnce([
+    createPlanStep.mockResolvedValueOnce(runDetail([
       {
         approvalStatus: 'pending',
         id: 'step_1',
@@ -579,8 +638,8 @@ describe('AgentPlanStepsPage', () => {
         status: 'pending',
         title: 'Verify patch'
       }
-    ]);
-    deletePlanStep.mockResolvedValueOnce([
+    ]));
+    deletePlanStep.mockResolvedValueOnce(runDetail([
       {
         approvalStatus: 'pending',
         id: 'step_1',
@@ -597,7 +656,7 @@ describe('AgentPlanStepsPage', () => {
         status: 'pending',
         title: 'Verify patch'
       }
-    ]);
+    ]));
 
     fireEvent.click(screen.getByRole('button', { name: 'Insert after Draft patch' }));
     fireEvent.change(screen.getByLabelText('New step title'), { target: { value: 'Run checks' } });
@@ -623,7 +682,7 @@ describe('AgentPlanStepsPage', () => {
 
   it('opens the add-plan-step form without an anchor', async () => {
     renderPage([]);
-    createPlanStep.mockResolvedValueOnce([
+    createPlanStep.mockResolvedValueOnce(runDetail([
       {
         approvalStatus: 'pending',
         id: 'step_new',
@@ -632,7 +691,7 @@ describe('AgentPlanStepsPage', () => {
         status: 'pending',
         title: 'Draft first step'
       }
-    ]);
+    ]));
 
     fireEvent.click(screen.getByRole('button', { name: 'Add plan step' }));
     fireEvent.change(screen.getByLabelText('New step title'), { target: { value: 'Draft first step' } });

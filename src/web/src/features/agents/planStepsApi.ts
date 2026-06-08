@@ -126,14 +126,14 @@ function runDetailFromPayload(payload: AgentRunDetailPayload): AgentRunDetail {
 export type AgentPlanStepsApi = {
   getRunDetail: (runId: string) => Promise<AgentRunDetail>;
   continueRunWithBudget: (runId: string, tokenBudget: number) => Promise<AgentRunDetail>;
-  approvePlanStep: (runId: string, planStepId: string, reason?: string) => Promise<AgentPlanStep[]>;
-  createPlanStep: (runId: string, payload: CreateAgentPlanStepRequest) => Promise<AgentPlanStep[]>;
-  updatePlanStep: (runId: string, planStepId: string, payload: UpdateAgentPlanStepRequest) => Promise<AgentPlanStep[]>;
-  movePlanStep: (runId: string, planStepId: string, direction: MoveAgentPlanStepDirection) => Promise<AgentPlanStep[]>;
-  deletePlanStep: (runId: string, planStepId: string) => Promise<AgentPlanStep[]>;
-  executePlanStep: (runId: string, planStepId: string) => Promise<AgentPlanStep[]>;
-  skipPlanStep: (runId: string, planStepId: string, reason?: string) => Promise<AgentPlanStep[]>;
-  retryPlanStep: (runId: string, planStepId: string) => Promise<AgentPlanStep[]>;
+  approvePlanStep: (runId: string, planStepId: string, reason?: string) => Promise<AgentRunDetail>;
+  createPlanStep: (runId: string, payload: CreateAgentPlanStepRequest) => Promise<AgentRunDetail>;
+  updatePlanStep: (runId: string, planStepId: string, payload: UpdateAgentPlanStepRequest) => Promise<AgentRunDetail>;
+  movePlanStep: (runId: string, planStepId: string, direction: MoveAgentPlanStepDirection) => Promise<AgentRunDetail>;
+  deletePlanStep: (runId: string, planStepId: string) => Promise<AgentRunDetail>;
+  executePlanStep: (runId: string, planStepId: string) => Promise<AgentRunDetail>;
+  skipPlanStep: (runId: string, planStepId: string, reason?: string) => Promise<AgentRunDetail>;
+  retryPlanStep: (runId: string, planStepId: string) => Promise<AgentRunDetail>;
   approveToolRun: (runId: string, toolRunId: string, reason?: string) => Promise<AgentRunDetail>;
   rejectToolRun: (runId: string, toolRunId: string, reason?: string) => Promise<AgentRunDetail>;
   retryToolRun: (runId: string, toolRunId: string) => Promise<AgentRunDetail>;
@@ -151,15 +151,15 @@ export function createAgentPlanStepsApi(client: HttpClient): AgentPlanStepsApi {
         })
       ),
     approvePlanStep: async (runId, planStepId, reason) =>
-      planStepsFromPayload(
-        await client.post<AgentPlanStepsPayload>(`${runPath(runId)}/approve-plan-step`, {
+      runDetailFromPayload(
+        await client.post<AgentRunDetailPayload>(`${runPath(runId)}/approve-plan-step`, {
           planStepId,
           ...(reason ? { reason } : {})
         })
       ),
     createPlanStep: async (runId, payload) =>
-      planStepsFromPayload(
-        await client.post<AgentPlanStepsPayload>(`${runPath(runId)}/create-plan-step`, {
+      runDetailFromPayload(
+        await client.post<AgentRunDetailPayload>(`${runPath(runId)}/create-plan-step`, {
           title: payload.title,
           ...(payload.afterPlanStepId !== undefined ? { afterPlanStepId: payload.afterPlanStepId } : {}),
           ...(payload.toolName !== undefined ? { toolName: payload.toolName } : {}),
@@ -167,8 +167,8 @@ export function createAgentPlanStepsApi(client: HttpClient): AgentPlanStepsApi {
         })
       ),
     updatePlanStep: async (runId, planStepId, payload) =>
-      planStepsFromPayload(
-        await client.request<AgentPlanStepsPayload>(`${runPath(runId)}/update-plan-step`, {
+      runDetailFromPayload(
+        await client.request<AgentRunDetailPayload>(`${runPath(runId)}/update-plan-step`, {
           body: JSON.stringify({
             planStepId,
             ...(payload.title !== undefined ? { title: payload.title } : {}),
@@ -180,34 +180,34 @@ export function createAgentPlanStepsApi(client: HttpClient): AgentPlanStepsApi {
         })
       ),
     movePlanStep: async (runId, planStepId, direction) =>
-      planStepsFromPayload(
-        await client.post<AgentPlanStepsPayload>(`${runPath(runId)}/move-plan-step`, {
+      runDetailFromPayload(
+        await client.post<AgentRunDetailPayload>(`${runPath(runId)}/move-plan-step`, {
           direction,
           planStepId
         })
       ),
     deletePlanStep: async (runId, planStepId) =>
-      planStepsFromPayload(
-        await client.post<AgentPlanStepsPayload>(`${runPath(runId)}/delete-plan-step`, {
+      runDetailFromPayload(
+        await client.post<AgentRunDetailPayload>(`${runPath(runId)}/delete-plan-step`, {
           planStepId
         })
       ),
     executePlanStep: async (runId, planStepId) =>
-      planStepsFromPayload(
-        await client.post<AgentPlanStepsPayload>(`${runPath(runId)}/execute-plan-step`, {
+      runDetailFromPayload(
+        await client.post<AgentRunDetailPayload>(`${runPath(runId)}/execute-plan-step`, {
           planStepId
         })
       ),
     skipPlanStep: async (runId, planStepId, reason) =>
-      planStepsFromPayload(
-        await client.post<AgentPlanStepsPayload>(`${runPath(runId)}/skip-plan-step`, {
+      runDetailFromPayload(
+        await client.post<AgentRunDetailPayload>(`${runPath(runId)}/skip-plan-step`, {
           planStepId,
           ...(reason ? { reason } : {})
         })
       ),
     retryPlanStep: async (runId, planStepId) =>
-      planStepsFromPayload(
-        await client.post<AgentPlanStepsPayload>(`${runPath(runId)}/retry-plan-step`, {
+      runDetailFromPayload(
+        await client.post<AgentRunDetailPayload>(`${runPath(runId)}/retry-plan-step`, {
           planStepId
         })
       ),
