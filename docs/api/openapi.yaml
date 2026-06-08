@@ -663,6 +663,80 @@ components:
           type: string
           format: date-time
 
+    AgentConversation:
+      type: object
+      properties:
+        id:
+          type: string
+        agentId:
+          type: string
+        organizationId:
+          type: string
+        userId:
+          type: string
+        title:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AgentMessage:
+      type: object
+      properties:
+        id:
+          type: string
+        conversationId:
+          type: string
+        organizationId:
+          type: string
+        role:
+          type: string
+          enum: [user, assistant, tool]
+        content:
+          type: string
+        toolCalls:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+              arguments:
+                type: object
+                additionalProperties: true
+        toolCallId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    AgentSendMessageRequest:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+        mode:
+          type: string
+          enum: [react, planning]
+        max_iterations:
+          type: integer
+          minimum: 1
+        maxIterations:
+          type: integer
+          minimum: 1
+        token_budget:
+          type: integer
+          minimum: 1000
+        tokenBudget:
+          type: integer
+          minimum: 1000
+
     CreateAgentRequest:
       type: object
       required: [name]
@@ -3270,6 +3344,256 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           description: Agent 不属于当前用户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/app/agents/{agentId}/conversations:
+    get:
+      summary: 获取 Agent 对话列表
+      operationId: listWorkspaceAgentConversations
+      tags: [Agent]
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Agent 对话列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/AgentConversation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Agent 不属于当前用户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      summary: 创建 Agent 对话
+      operationId: createWorkspaceAgentConversation
+      tags: [Agent]
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "201":
+          description: 新创建的 Agent 对话
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AgentConversation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Agent 不属于当前用户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/app/agents/conversations/{conversationId}:
+    get:
+      summary: 获取 Agent 对话详情
+      operationId: getWorkspaceAgentConversation
+      tags: [Agent]
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Agent 对话详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AgentConversation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 对话不属于当前用户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      summary: 删除 Agent 对话
+      operationId: deleteWorkspaceAgentConversation
+      tags: [Agent]
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Agent 对话已删除
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          status:
+                            type: string
+                            example: deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 对话不属于当前用户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/app/agents/conversations/{conversationId}/messages:
+    get:
+      summary: 获取 Agent 对话消息
+      operationId: listWorkspaceAgentMessages
+      tags: [Agent]
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Agent 对话消息列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/AgentMessage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 对话不属于当前用户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      summary: 发送 Agent 对话消息
+      operationId: sendWorkspaceAgentMessage
+      tags: [Agent]
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentSendMessageRequest"
+      responses:
+        "200":
+          description: Agent 回合生成的消息
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AgentMessage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 对话不属于当前用户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/app/agents/conversations/{conversationId}/runs:
+    get:
+      summary: 获取 Agent 对话运行记录
+      operationId: listWorkspaceAgentRuns
+      tags: [Agent]
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Agent 对话运行记录列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/AgentRun"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 对话不属于当前用户
           content:
             application/json:
               schema:
