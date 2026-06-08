@@ -1271,6 +1271,9 @@ func (s *Service) ExecutePlanStep(ctx context.Context, session auth.Session, pla
 	if step.Status != PlanStepStatusApproved && !(step.Status == PlanStepStatusPending && step.ApprovalStatus == ApprovalStatusNotRequired) {
 		return nil, fmt.Errorf("plan step is not approved for execution")
 	}
+	if err := s.ensurePriorPlanStepsDone(ctx, session, step); err != nil {
+		return nil, err
+	}
 
 	startedAt := time.Now().UTC()
 	running, err := s.store.UpdatePlanStep(ctx, session.OrganizationID, planStepID, UpdatePlanStepRequest{
@@ -1385,6 +1388,26 @@ func (s *Service) ExecutePlanStep(ctx context.Context, session auth.Session, pla
 		return nil, err
 	}
 	return completed, nil
+}
+
+func (s *Service) ensurePriorPlanStepsDone(ctx context.Context, session auth.Session, step *PlanStep) error {
+	if step == nil {
+		return fmt.Errorf("plan step not found")
+	}
+	steps, err := s.store.ListPlanSteps(ctx, session.OrganizationID, step.RunID)
+	if err != nil {
+		return err
+	}
+	sortPlanSteps(steps)
+	for _, prior := range steps {
+		if prior == nil || prior.ID == step.ID || prior.Index >= step.Index {
+			continue
+		}
+		if prior.Status != PlanStepStatusCompleted && prior.Status != PlanStepStatusSkipped {
+			return fmt.Errorf("prior plan step %d must be completed or skipped before executing step %d", prior.Index, step.Index)
+		}
+	}
+	return nil
 }
 
 func copyPlanStepInput(input map[string]any) map[string]any {

@@ -2032,6 +2032,65 @@ func TestServiceExecutePlanStepCompletesPlanningRunAfterLastStep(t *testing.T) {
 	}
 }
 
+func TestServiceExecutePlanStepRejectsOutOfOrderStep(t *testing.T) {
+	now := time.Now().UTC()
+	store := &fakeStore{
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Status:         RunStatusPendingApproval,
+			StartedAt:      now,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+		planSteps: []*PlanStep{{
+			ID:             "step_1",
+			RunID:          "run_1",
+			OrganizationID: "org_1",
+			Index:          1,
+			Title:          "Gather requirements",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusNotRequired,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}, {
+			ID:             "step_2",
+			RunID:          "run_1",
+			OrganizationID: "org_1",
+			Index:          2,
+			Title:          "Verify implementation",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusNotRequired,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+	}
+	executor := &fakePlanStepExecutor{resultContent: "verification passed"}
+	service := NewService(store, &fakeGateway{})
+	service.SetPlanStepExecutor(executor)
+	session := auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}}
+
+	updated, err := service.ExecutePlanStep(context.Background(), session, "step_2")
+	if err == nil {
+		t.Fatal("expected ExecutePlanStep to reject out-of-order execution")
+	}
+	if updated != nil {
+		t.Fatalf("expected no updated step when execution is rejected, got %+v", updated)
+	}
+	if !strings.Contains(err.Error(), "prior plan step 1 must be completed or skipped before executing step 2") {
+		t.Fatalf("expected prior-step validation error, got %v", err)
+	}
+	if executor.calls != 0 {
+		t.Fatalf("expected executor not to run, got %d calls", executor.calls)
+	}
+	if store.planSteps[1].Status != PlanStepStatusPending || store.planSteps[1].StartedAt != nil || store.planSteps[1].CompletedAt != nil {
+		t.Fatalf("expected rejected step to remain untouched, got %+v", store.planSteps[1])
+	}
+}
+
 func TestStartPlanningRunPersistsStructuredToolSteps(t *testing.T) {
 	store := &fakeStore{
 		agent: &Agent{
