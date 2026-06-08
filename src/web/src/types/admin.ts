@@ -411,7 +411,7 @@ export type UsageAnalyticsFilter = {
   channelId?: string;
   provider?: string;
   status?: string;
-  granularity?: 'second' | 'minute' | 'hour' | 'day';
+  granularity?: 'second' | 'minute' | 'hour' | 'day' | 'week' | 'month';
   featureType?: string;
   quotaMode?: string;
   from?: string;

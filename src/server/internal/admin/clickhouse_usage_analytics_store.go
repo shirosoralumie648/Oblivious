@@ -137,6 +137,10 @@ func clickHouseUsageAnalyticsBucketExpression(granularity string) string {
 		return "toStartOfMinute(timestamp)"
 	case "hour":
 		return "toStartOfHour(timestamp)"
+	case "week":
+		return "toStartOfWeek(timestamp)"
+	case "month":
+		return "toStartOfMonth(timestamp)"
 	default:
 		return "toStartOfDay(timestamp)"
 	}

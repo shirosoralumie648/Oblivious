@@ -99,13 +99,22 @@ func usageDailyAggregateWhere(filter UsageAnalyticsFilter) (string, []any) {
 	return "WHERE " + strings.Join(conditions, " AND "), args
 }
 
-func usageDailyAggregateTimeExpressions() (string, string) {
-	return "to_char(usage_date, 'YYYY-MM-DD')", "usage_date::timestamptz"
+func usageDailyAggregateTimeExpressions(granularity string) (string, string) {
+	switch normalizeUsageAnalyticsGranularity(granularity) {
+	case "week":
+		startedAtExpression := "date_trunc('week', usage_date::timestamptz)"
+		return "to_char(" + startedAtExpression + ", 'IYYY-\"W\"IW')", startedAtExpression
+	case "month":
+		startedAtExpression := "date_trunc('month', usage_date::timestamptz)"
+		return "to_char(" + startedAtExpression + ", 'YYYY-MM')", startedAtExpression
+	default:
+		return "to_char(usage_date, 'YYYY-MM-DD')", "usage_date::timestamptz"
+	}
 }
 
 func (s *SQLStore) getDailyUsageAnalytics(ctx context.Context, filter UsageAnalyticsFilter) (UsageAnalytics, error) {
 	where, args := usageDailyAggregateWhere(filter)
-	timeKeyExpression, timeStartedAtExpression := usageDailyAggregateTimeExpressions()
+	timeKeyExpression, timeStartedAtExpression := usageDailyAggregateTimeExpressions(filter.Granularity)
 
 	byModel, err := s.queryUsageAnalyticsBucketsFrom(ctx, usageDailyAggregatesAnalyticsSource, "model", "model_id", "", where, args, filter.Limit)
 	if err != nil {

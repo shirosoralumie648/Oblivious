@@ -62,7 +62,7 @@ func normalizeUsageAnalyticsFilter(filter UsageAnalyticsFilter) UsageAnalyticsFi
 
 func normalizeUsageAnalyticsGranularity(granularity string) string {
 	switch strings.ToLower(strings.TrimSpace(granularity)) {
-	case "second", "minute", "hour", "day":
+	case "second", "minute", "hour", "day", "week", "month":
 		return strings.ToLower(strings.TrimSpace(granularity))
 	default:
 		return "day"

@@ -319,12 +319,12 @@ describe('createAdminApi', () => {
       channelID: 'ch_1',
       provider: 'openai',
       status: 'success',
-      granularity: 'hour',
+      granularity: 'week',
       limit: 8,
     });
 
     expect(get).toHaveBeenCalledWith(
-      '/api/v1/admin/usage-analytics?apiType=chat&model=gpt-4o&channelID=ch_1&provider=openai&status=success&granularity=hour&limit=8'
+      '/api/v1/admin/usage-analytics?apiType=chat&model=gpt-4o&channelID=ch_1&provider=openai&status=success&granularity=week&limit=8'
     );
   });
 

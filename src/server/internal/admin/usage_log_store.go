@@ -144,7 +144,7 @@ func (s *SQLStore) ListUsageLogs(ctx context.Context, filter UsageLogFilter) ([]
 
 func (s *SQLStore) GetUsageAnalytics(ctx context.Context, filter UsageAnalyticsFilter) (UsageAnalytics, error) {
 	filter = normalizeUsageAnalyticsFilter(filter)
-	if filter.Granularity == "day" {
+	if usageAnalyticsGranularityUsesDailyAggregates(filter.Granularity) {
 		return s.getDailyUsageAnalytics(ctx, filter)
 	}
 	where, args := usageAnalyticsWhere(filter)
@@ -241,8 +241,21 @@ func postgresUsageAnalyticsTimeExpressions(granularity string) (string, string) 
 		return fmt.Sprintf("to_char(%s, 'YYYY-MM-DD\"T\"HH24:MI:00\"Z\"')", startedAtExpression), startedAtExpression
 	case "hour":
 		return fmt.Sprintf("to_char(%s, 'YYYY-MM-DD\"T\"HH24:00:00\"Z\"')", startedAtExpression), startedAtExpression
+	case "week":
+		return fmt.Sprintf("to_char(%s, 'IYYY-\"W\"IW')", startedAtExpression), startedAtExpression
+	case "month":
+		return fmt.Sprintf("to_char(%s, 'YYYY-MM')", startedAtExpression), startedAtExpression
 	default:
 		return fmt.Sprintf("to_char(%s, 'YYYY-MM-DD')", startedAtExpression), startedAtExpression
+	}
+}
+
+func usageAnalyticsGranularityUsesDailyAggregates(granularity string) bool {
+	switch normalizeUsageAnalyticsGranularity(granularity) {
+	case "day", "week", "month":
+		return true
+	default:
+		return false
 	}
 }
 

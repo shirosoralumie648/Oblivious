@@ -178,7 +178,7 @@ describe('AdminUsageLogsPage', () => {
     fireEvent.change(screen.getByLabelText('Provider filter'), { target: { value: 'openai' } });
     fireEvent.change(screen.getByLabelText('Status filter'), { target: { value: 'success' } });
     fireEvent.change(screen.getByLabelText('Model filter'), { target: { value: 'gpt-4o' } });
-    fireEvent.change(screen.getByLabelText('Analytics granularity filter'), { target: { value: 'hour' } });
+    fireEvent.change(screen.getByLabelText('Analytics granularity filter'), { target: { value: 'month' } });
 
     await waitFor(() =>
       expect(listUsageLogs).toHaveBeenLastCalledWith(
@@ -209,7 +209,7 @@ describe('AdminUsageLogsPage', () => {
           provider: 'openai',
           status: 'success',
           model: 'gpt-4o',
-          granularity: 'hour',
+          granularity: 'month',
           limit: 8,
         })
       )

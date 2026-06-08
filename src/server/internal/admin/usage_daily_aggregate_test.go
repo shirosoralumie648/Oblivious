@@ -92,6 +92,63 @@ func TestSQLStoreUsageAnalyticsDayGranularityUsesDailyAggregateTable(t *testing.
 	}
 }
 
+func TestSQLStoreUsageAnalyticsWeekAndMonthGranularityRollsUpDailyAggregateTable(t *testing.T) {
+	tests := []struct {
+		granularity string
+		wantExpr    string
+		wantKey     string
+	}{
+		{granularity: "week", wantExpr: "date_trunc('week', usage_date::timestamptz)", wantKey: "2026-W23"},
+		{granularity: "month", wantExpr: "date_trunc('month', usage_date::timestamptz)", wantKey: "2026-06"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.granularity, func(t *testing.T) {
+			driverName := "admin_usage_daily_aggregate_analytics_" + tt.granularity
+			capture := &usageDailyAggregateCapture{timeBucketKey: tt.wantKey}
+			registerUsageDailyAggregateDriver(driverName, capture)
+
+			db, err := sql.Open(driverName, "")
+			if err != nil {
+				t.Fatalf("open capture db: %v", err)
+			}
+			defer db.Close()
+
+			from := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+			to := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+			analytics, err := NewSQLStore(db).GetUsageAnalytics(context.Background(), UsageAnalyticsFilter{
+				From:        from,
+				To:          to,
+				Granularity: tt.granularity,
+				Limit:       5,
+			})
+			if err != nil {
+				t.Fatalf("get %s aggregate usage analytics: %v", tt.granularity, err)
+			}
+
+			capture.mu.Lock()
+			queries := strings.Join(capture.queries, "\n")
+			capture.mu.Unlock()
+
+			if !strings.Contains(queries, "FROM usage_daily_aggregates") {
+				t.Fatalf("expected %s analytics to read daily aggregates, got %s", tt.granularity, queries)
+			}
+			if strings.Contains(queries, "FROM usage_records") {
+				t.Fatalf("%s analytics should not scan raw usage_records when daily aggregates are available, got %s", tt.granularity, queries)
+			}
+			if !strings.Contains(queries, tt.wantExpr) {
+				t.Fatalf("expected %s analytics query to include %q, got %s", tt.granularity, tt.wantExpr, queries)
+			}
+			if len(analytics.ByTime) != 1 || analytics.ByTime[0].Key != tt.wantKey || analytics.ByTime[0].TotalCost != 0.42 {
+				t.Fatalf("unexpected %s time analytics: %+v", tt.granularity, analytics.ByTime)
+			}
+			if !hasUsageAnalyticsCrossBucket(analytics.CrossDimensions, "model_time", "gpt-4o", tt.wantKey, 0.42) {
+				t.Fatalf("expected %s model_time cross bucket from daily aggregates, got %+v", tt.granularity, analytics.CrossDimensions)
+			}
+		})
+	}
+}
+
 func TestSQLStoreUsageDailyAggregatesPostgresRefreshAndAnalytics(t *testing.T) {
 	store, ctx := testUsageDailyAggregateSQLStore(t)
 
@@ -310,10 +367,11 @@ func registerUsageDailyAggregateDriver(name string, capture *usageDailyAggregate
 }
 
 type usageDailyAggregateCapture struct {
-	mu        sync.Mutex
-	execQuery string
-	execArgs  []driver.NamedValue
-	queries   []string
+	mu            sync.Mutex
+	execQuery     string
+	execArgs      []driver.NamedValue
+	queries       []string
+	timeBucketKey string
 }
 
 type usageDailyAggregateDriver struct {
@@ -352,16 +410,23 @@ func (c usageDailyAggregateConn) ExecContext(_ context.Context, query string, ar
 func (c usageDailyAggregateConn) QueryContext(_ context.Context, query string, _ []driver.NamedValue) (driver.Rows, error) {
 	c.capture.mu.Lock()
 	c.capture.queries = append(c.capture.queries, query)
+	timeBucketKey := c.capture.timeBucketKey
 	c.capture.mu.Unlock()
+	if timeBucketKey == "" {
+		timeBucketKey = "2026-06-01"
+	}
 
 	switch {
 	case strings.Contains(query, "AS primary_key"):
 		return usageDailyAggregateRows([]string{"primary_key", "secondary_key", "request_count", "total_tokens", "total_cost", "started_at"}, [][]driver.Value{
-			{"gpt-4o", "2026-06-01", int64(2), int64(1200), 0.42, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)},
+			{"gpt-4o", timeBucketKey, int64(2), int64(1200), 0.42, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)},
 		}), nil
-	case strings.Contains(query, "usage_date AS key") || strings.Contains(query, "to_char(usage_date"):
+	case strings.Contains(query, "usage_date AS key") ||
+		strings.Contains(query, "to_char(usage_date") ||
+		strings.Contains(query, "date_trunc('week', usage_date::timestamptz)") ||
+		strings.Contains(query, "date_trunc('month', usage_date::timestamptz)"):
 		return usageDailyAggregateRows([]string{"key", "request_count", "total_tokens", "total_cost", "started_at"}, [][]driver.Value{
-			{"2026-06-01", int64(2), int64(1200), 0.42, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)},
+			{timeBucketKey, int64(2), int64(1200), 0.42, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)},
 		}), nil
 	default:
 		return usageDailyAggregateRows([]string{"key", "request_count", "total_tokens", "total_cost", "started_at"}, [][]driver.Value{

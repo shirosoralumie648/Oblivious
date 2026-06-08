@@ -154,6 +154,8 @@ func TestClickHouseUsageAnalyticsStoreMapsGranularityFunctions(t *testing.T) {
 		"minute": "toStartOfMinute(timestamp)",
 		"hour":   "toStartOfHour(timestamp)",
 		"day":    "toStartOfDay(timestamp)",
+		"week":   "toStartOfWeek(timestamp)",
+		"month":  "toStartOfMonth(timestamp)",
 	} {
 		driverName := "admin_clickhouse_usage_analytics_" + granularity
 		queryer := &clickHouseUsageAnalyticsQueryer{}

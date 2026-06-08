@@ -177,13 +177,15 @@ func TestServiceGetUsageAnalyticsNormalizesGranularity(t *testing.T) {
 	store := &usageLogStoreSpy{}
 	service := NewService(store)
 
-	if _, err := service.GetUsageAnalytics(context.Background(), UsageAnalyticsFilter{
-		Granularity: " minute ",
-	}); err != nil {
-		t.Fatalf("GetUsageAnalytics returned error: %v", err)
-	}
-	if store.analyticsFilter.Granularity != "minute" {
-		t.Fatalf("expected trimmed analytics granularity, got %q", store.analyticsFilter.Granularity)
+	for _, granularity := range []string{" minute ", "week", " month "} {
+		if _, err := service.GetUsageAnalytics(context.Background(), UsageAnalyticsFilter{
+			Granularity: granularity,
+		}); err != nil {
+			t.Fatalf("GetUsageAnalytics returned error: %v", err)
+		}
+		if store.analyticsFilter.Granularity != strings.TrimSpace(granularity) {
+			t.Fatalf("expected trimmed analytics granularity, got %q for input %q", store.analyticsFilter.Granularity, granularity)
+		}
 	}
 
 	if _, err := service.GetUsageAnalytics(context.Background(), UsageAnalyticsFilter{
