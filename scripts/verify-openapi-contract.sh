@@ -299,6 +299,87 @@ require_marketplace_surface_payload_contract() {
   ' "$openapi_file"
 }
 
+require_marketplace_browse_payload_contract() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+    paths = spec.fetch("paths", {})
+    schemas = spec.fetch("components", {}).fetch("schemas", {})
+    missing = []
+
+    def response_data_ref(paths, path, method, status)
+      paths.dig(path, method, "responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "$ref") }&.
+        dig("properties", "data", "$ref")
+    end
+
+    expected_data_refs = {
+      ["/api/v1/marketplace/featured", "get", "200"] => "#/components/schemas/MarketplaceAgentListResponse",
+      ["/api/v1/marketplace/search", "get", "200"] => "#/components/schemas/MarketplaceAgentListResponse",
+      ["/api/v1/marketplace/agents", "get", "200"] => "#/components/schemas/MarketplaceAgentListResponse",
+      ["/api/v1/marketplace/my-agents", "get", "200"] => "#/components/schemas/MarketplaceAgentListResponse",
+      ["/api/v1/marketplace/curated", "get", "200"] => "#/components/schemas/MarketplaceCuratedSectionsResponse",
+      ["/api/v1/marketplace/categories", "get", "200"] => "#/components/schemas/MarketplaceCategoriesResponse",
+      ["/api/v1/marketplace/installs", "get", "200"] => "#/components/schemas/MarketplaceInstallsResponse",
+      ["/api/v1/marketplace/agents/{agentId}/reviews", "get", "200"] => "#/components/schemas/MarketplaceReviewsResponse",
+      ["/api/v1/marketplace/agents/{agentId}/versions", "get", "200"] => "#/components/schemas/MarketplaceVersionsResponse",
+    }
+
+    expected_data_refs.each do |(path, method, status), expected|
+      unless response_data_ref(paths, path, method, status) == expected
+        missing << "#{method.upcase} #{path} #{status} data must reference #{expected}"
+      end
+    end
+
+    response_collections = {
+      "MarketplaceAgentListResponse" => ["agents", "#/components/schemas/MarketplacePublishedAgent"],
+      "MarketplaceCategoriesResponse" => ["categories", "#/components/schemas/MarketplaceCategory"],
+      "MarketplaceInstallsResponse" => ["installs", "#/components/schemas/MarketplaceAgentInstall"],
+      "MarketplaceReviewsResponse" => ["reviews", "#/components/schemas/MarketplaceAgentReview"],
+      "MarketplaceVersionsResponse" => ["versions", "#/components/schemas/MarketplaceAgentVersion"],
+    }
+    response_collections.each do |schema_name, (collection, item_ref)|
+      schema = schemas[schema_name] || {}
+      unless schema.dig("properties", collection, "type") == "array" &&
+          schema.dig("properties", collection, "items", "$ref") == item_ref &&
+          schema.dig("properties", "total", "type") == "integer"
+        missing << "#{schema_name} must expose #{collection}[] as #{item_ref} plus integer total"
+      end
+    end
+
+    curated = schemas["MarketplaceCuratedSectionsResponse"] || {}
+    ["popular", "topRated", "recent"].each do |property|
+      unless curated.dig("properties", property, "type") == "array" &&
+          curated.dig("properties", property, "items", "$ref") == "#/components/schemas/MarketplacePublishedAgent"
+        missing << "MarketplaceCuratedSectionsResponse.#{property} must expose MarketplacePublishedAgent[]"
+      end
+    end
+
+    category = schemas["MarketplaceCategory"] || {}
+    ["id", "name", "slug"].each do |property|
+      unless category.dig("properties", property, "type") == "string"
+        missing << "MarketplaceCategory.#{property} must be documented as string"
+      end
+    end
+    unless category.dig("properties", "displayOrder", "type") == "integer" &&
+        category.dig("properties", "agentCount", "type") == "integer"
+      missing << "MarketplaceCategory must document displayOrder and agentCount integers"
+    end
+
+    review = schemas["MarketplaceAgentReview"] || {}
+    unless review.dig("properties", "rating", "type") == "integer" &&
+        review.dig("properties", "body", "type") == "string"
+      missing << "MarketplaceAgentReview must document rating integer and body string"
+    end
+
+    unless missing.empty?
+      warn "[openapi-contract] Marketplace browse payload contract is incomplete:"
+      missing.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 require_admin_billing_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
@@ -733,6 +814,7 @@ require_session_csrf_contract
 require_marketplace_paid_install_contract
 require_marketplace_template_type_contract
 require_marketplace_surface_payload_contract
+require_marketplace_browse_payload_contract
 require_admin_billing_contract
 require_domestic_payment_webhook_payout_contract
 

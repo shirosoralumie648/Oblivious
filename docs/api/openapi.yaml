@@ -1885,6 +1885,56 @@ components:
           items:
             $ref: "#/components/schemas/MarketplacePaymentProvider"
 
+    MarketplaceAgentListResponse:
+      type: object
+      properties:
+        agents:
+          type: array
+          items:
+            $ref: "#/components/schemas/MarketplacePublishedAgent"
+        total:
+          type: integer
+
+    MarketplaceCuratedSectionsResponse:
+      type: object
+      properties:
+        popular:
+          type: array
+          items:
+            $ref: "#/components/schemas/MarketplacePublishedAgent"
+        topRated:
+          type: array
+          items:
+            $ref: "#/components/schemas/MarketplacePublishedAgent"
+        recent:
+          type: array
+          items:
+            $ref: "#/components/schemas/MarketplacePublishedAgent"
+
+    MarketplaceCategory:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        slug:
+          type: string
+        displayOrder:
+          type: integer
+        agentCount:
+          type: integer
+
+    MarketplaceCategoriesResponse:
+      type: object
+      properties:
+        categories:
+          type: array
+          items:
+            $ref: "#/components/schemas/MarketplaceCategory"
+        total:
+          type: integer
+
     MarketplaceAgentInstall:
       type: object
       properties:
@@ -1899,6 +1949,60 @@ components:
         installedAt:
           type: string
           format: date-time
+
+    MarketplaceInstallsResponse:
+      type: object
+      properties:
+        installs:
+          type: array
+          items:
+            $ref: "#/components/schemas/MarketplaceAgentInstall"
+        total:
+          type: integer
+
+    MarketplaceAgentReview:
+      type: object
+      properties:
+        id:
+          type: string
+        agentID:
+          type: string
+        organizationId:
+          type: string
+        userID:
+          type: string
+        userName:
+          type: string
+        rating:
+          type: integer
+        body:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    MarketplaceReviewsResponse:
+      type: object
+      properties:
+        reviews:
+          type: array
+          items:
+            $ref: "#/components/schemas/MarketplaceAgentReview"
+        total:
+          type: integer
+
+    MarketplaceVersionsResponse:
+      type: object
+      properties:
+        versions:
+          type: array
+          items:
+            $ref: "#/components/schemas/MarketplaceAgentVersion"
+        total:
+          type: integer
 
     MarketplacePayout:
       type: object
@@ -10060,7 +10164,12 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplaceAgentListResponse"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
 
@@ -10075,7 +10184,12 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplaceCuratedSectionsResponse"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
 
@@ -10090,7 +10204,12 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplaceCategoriesResponse"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
 
@@ -10148,7 +10267,12 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplaceAgentListResponse"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
 
@@ -10163,7 +10287,12 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplaceAgentListResponse"
     post:
       summary: 发布 Marketplace Agent
       operationId: publishMarketplaceAgent
@@ -10325,7 +10454,12 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplaceReviewsResponse"
     post:
       summary: 提交或更新 Marketplace Agent 评论
       operationId: submitMarketplaceAgentReview
@@ -10438,7 +10572,12 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplaceVersionsResponse"
 
   /api/v1/marketplace/agents/{agentId}/stats:
     parameters:
@@ -10472,7 +10611,12 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplaceAgentListResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
 
@@ -10487,7 +10631,12 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplaceInstallsResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
 
