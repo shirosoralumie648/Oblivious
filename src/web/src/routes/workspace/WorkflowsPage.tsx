@@ -300,6 +300,8 @@ const emptyWebhookTriggerDraft: WebhookTriggerDraft = {
   secret: '',
 };
 
+const redactedWorkflowSecret = '********';
+
 const emptyConversationMatchId = '';
 const emptySemanticMatchMessage = '';
 
@@ -778,6 +780,10 @@ function hasConfiguredSecret(record: Record<string, unknown>) {
     const value = record[key];
     return typeof value === 'string' && value.trim() !== '';
   });
+}
+
+function isRedactedWorkflowSecret(value: string) {
+  return value.trim() === redactedWorkflowSecret;
 }
 
 function boolField(record: Record<string, unknown>, key: string) {
@@ -3688,7 +3694,9 @@ export function WorkflowsPage() {
                               onChange={(event) =>
                                 updateWebhookTriggerDraft(workflow, { secret: event.target.value })
                               }
-                              placeholder="shared secret"
+                              placeholder={
+                                isRedactedWorkflowSecret(webhookTriggerDraft.secret) ? 'configured secret' : 'shared secret'
+                              }
                               type="password"
                               value={webhookTriggerDraft.secret}
                             />

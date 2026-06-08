@@ -428,6 +428,7 @@ func normalizeWorkflowFailureDecisionAction(action workflow.FailureAction) workf
 }
 
 const workflowWebhookTimestampTolerance = 5 * time.Minute
+const workflowRedactedSecret = "********"
 
 type workflowWebhookReplayStore struct {
 	mu   sync.Mutex
@@ -469,7 +470,7 @@ func (h workflowHandler) listWorkflows(w stdhttp.ResponseWriter, r *stdhttp.Requ
 		writeWorkflowError(w, err)
 		return
 	}
-	writeSuccess(w, stdhttp.StatusOK, workflows)
+	writeSuccess(w, stdhttp.StatusOK, redactWorkflowDefinitions(workflows))
 }
 
 func (h workflowHandler) createWorkflow(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -496,7 +497,7 @@ func (h workflowHandler) createWorkflow(w stdhttp.ResponseWriter, r *stdhttp.Req
 		writeWorkflowError(w, err)
 		return
 	}
-	writeSuccess(w, stdhttp.StatusCreated, created)
+	writeSuccess(w, stdhttp.StatusCreated, redactWorkflowDefinition(created))
 }
 
 func (h workflowHandler) matchSemanticTriggers(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -568,7 +569,7 @@ func (h workflowHandler) getWorkflow(w stdhttp.ResponseWriter, r *stdhttp.Reques
 		writeWorkflowError(w, err)
 		return
 	}
-	writeSuccess(w, stdhttp.StatusOK, definition)
+	writeSuccess(w, stdhttp.StatusOK, redactWorkflowDefinition(definition))
 }
 
 func (h workflowHandler) listWorkflowVersions(w stdhttp.ResponseWriter, r *stdhttp.Request, workflowID string) {
@@ -583,7 +584,7 @@ func (h workflowHandler) listWorkflowVersions(w stdhttp.ResponseWriter, r *stdht
 		writeWorkflowError(w, err)
 		return
 	}
-	writeSuccess(w, stdhttp.StatusOK, versions)
+	writeSuccess(w, stdhttp.StatusOK, redactWorkflowDefinitions(versions))
 }
 
 func (h workflowHandler) updateWorkflow(w stdhttp.ResponseWriter, r *stdhttp.Request, workflowID string) {
@@ -606,6 +607,18 @@ func (h workflowHandler) updateWorkflow(w stdhttp.ResponseWriter, r *stdhttp.Req
 		trimmed := strings.TrimSpace(*payload.Description)
 		payload.Description = &trimmed
 	}
+	if payload.Definition != nil && workflowDefinitionHasRedactedSecret(payload.Definition) {
+		existing, err := h.service.GetWorkflow(r.Context(), session, workflowID)
+		if err != nil {
+			writeWorkflowError(w, err)
+			return
+		}
+		var existingDefinition map[string]any
+		if existing != nil {
+			existingDefinition = existing.Definition
+		}
+		payload.Definition = restoreRedactedWorkflowSecrets(payload.Definition, existingDefinition)
+	}
 
 	updated, err := h.service.UpdateWorkflow(r.Context(), session, workflow.UpdateWorkflowRequest{
 		WorkflowID:  workflowID,
@@ -619,7 +632,7 @@ func (h workflowHandler) updateWorkflow(w stdhttp.ResponseWriter, r *stdhttp.Req
 		writeWorkflowError(w, err)
 		return
 	}
-	writeSuccess(w, stdhttp.StatusOK, updated)
+	writeSuccess(w, stdhttp.StatusOK, redactWorkflowDefinition(updated))
 }
 
 func (h workflowHandler) rollbackWorkflow(w stdhttp.ResponseWriter, r *stdhttp.Request, workflowID string) {
@@ -643,7 +656,7 @@ func (h workflowHandler) rollbackWorkflow(w stdhttp.ResponseWriter, r *stdhttp.R
 		writeWorkflowError(w, err)
 		return
 	}
-	writeSuccess(w, stdhttp.StatusOK, rolledBack)
+	writeSuccess(w, stdhttp.StatusOK, redactWorkflowDefinition(rolledBack))
 }
 
 func (h workflowHandler) createWorkflowBranch(w stdhttp.ResponseWriter, r *stdhttp.Request, workflowID string) {
@@ -671,7 +684,7 @@ func (h workflowHandler) createWorkflowBranch(w stdhttp.ResponseWriter, r *stdht
 		writeWorkflowError(w, err)
 		return
 	}
-	writeSuccess(w, stdhttp.StatusCreated, branched)
+	writeSuccess(w, stdhttp.StatusCreated, redactWorkflowDefinition(branched))
 }
 
 func (h workflowHandler) publishWorkflowBranch(w stdhttp.ResponseWriter, r *stdhttp.Request, workflowID string, branchID string) {
@@ -698,7 +711,7 @@ func (h workflowHandler) publishWorkflowBranch(w stdhttp.ResponseWriter, r *stdh
 		writeWorkflowError(w, err)
 		return
 	}
-	writeSuccess(w, stdhttp.StatusCreated, published)
+	writeSuccess(w, stdhttp.StatusCreated, redactWorkflowDefinition(published))
 }
 
 func (h workflowHandler) mergeWorkflowBranch(w stdhttp.ResponseWriter, r *stdhttp.Request, workflowID string, branchID string) {
@@ -715,7 +728,7 @@ func (h workflowHandler) mergeWorkflowBranch(w stdhttp.ResponseWriter, r *stdhtt
 		writeWorkflowError(w, err)
 		return
 	}
-	writeSuccess(w, stdhttp.StatusOK, merged)
+	writeSuccess(w, stdhttp.StatusOK, redactWorkflowDefinition(merged))
 }
 
 func (h workflowHandler) deleteWorkflow(w stdhttp.ResponseWriter, r *stdhttp.Request, workflowID string) {
@@ -730,7 +743,7 @@ func (h workflowHandler) deleteWorkflow(w stdhttp.ResponseWriter, r *stdhttp.Req
 		writeWorkflowError(w, err)
 		return
 	}
-	writeSuccess(w, stdhttp.StatusOK, archived)
+	writeSuccess(w, stdhttp.StatusOK, redactWorkflowDefinition(archived))
 }
 
 func (h workflowHandler) startExecution(w stdhttp.ResponseWriter, r *stdhttp.Request, workflowID string) {
@@ -915,6 +928,158 @@ func workflowWebhookSecretFromTrigger(value any) string {
 		}
 	}
 	return ""
+}
+
+func redactWorkflowDefinitions(definitions []*workflow.WorkflowDefinition) []*workflow.WorkflowDefinition {
+	redacted := make([]*workflow.WorkflowDefinition, 0, len(definitions))
+	for _, definition := range definitions {
+		redacted = append(redacted, redactWorkflowDefinition(definition))
+	}
+	return redacted
+}
+
+func redactWorkflowDefinition(definition *workflow.WorkflowDefinition) *workflow.WorkflowDefinition {
+	if definition == nil {
+		return nil
+	}
+	clone := *definition
+	clone.Definition = redactWorkflowDefinitionMap(definition.Definition)
+	return &clone
+}
+
+func redactWorkflowDefinitionMap(definition map[string]any) map[string]any {
+	if definition == nil {
+		return nil
+	}
+	redacted := make(map[string]any, len(definition))
+	for key, value := range definition {
+		if isWorkflowSecretKey(key) && stringValue(value) != "" {
+			redacted[key] = workflowRedactedSecret
+			continue
+		}
+		redacted[key] = redactWorkflowDefinitionValue(value)
+	}
+	return redacted
+}
+
+func redactWorkflowDefinitionValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return redactWorkflowDefinitionMap(typed)
+	case []any:
+		redacted := make([]any, 0, len(typed))
+		for _, item := range typed {
+			redacted = append(redacted, redactWorkflowDefinitionValue(item))
+		}
+		return redacted
+	case []map[string]any:
+		redacted := make([]map[string]any, 0, len(typed))
+		for _, item := range typed {
+			redacted = append(redacted, redactWorkflowDefinitionMap(item))
+		}
+		return redacted
+	default:
+		return value
+	}
+}
+
+func restoreRedactedWorkflowSecrets(next map[string]any, existing map[string]any) map[string]any {
+	if next == nil {
+		return nil
+	}
+	restored := make(map[string]any, len(next))
+	for key, value := range next {
+		if isWorkflowSecretKey(key) && stringValue(value) == workflowRedactedSecret {
+			if existingSecret := stringValue(existingValue(existing, key)); existingSecret != "" {
+				restored[key] = existingSecret
+				continue
+			}
+		}
+		restored[key] = restoreRedactedWorkflowSecretValue(value, existingValue(existing, key))
+	}
+	return restored
+}
+
+func restoreRedactedWorkflowSecretValue(next any, existing any) any {
+	switch typed := next.(type) {
+	case map[string]any:
+		existingMap, _ := existing.(map[string]any)
+		return restoreRedactedWorkflowSecrets(typed, existingMap)
+	case []any:
+		restored := make([]any, 0, len(typed))
+		for index, item := range typed {
+			restored = append(restored, restoreRedactedWorkflowSecretValue(item, existingSequenceItem(existing, index)))
+		}
+		return restored
+	case []map[string]any:
+		restored := make([]map[string]any, 0, len(typed))
+		for index, item := range typed {
+			existingMap, _ := existingSequenceItem(existing, index).(map[string]any)
+			restored = append(restored, restoreRedactedWorkflowSecrets(item, existingMap))
+		}
+		return restored
+	default:
+		return next
+	}
+}
+
+func workflowDefinitionHasRedactedSecret(definition map[string]any) bool {
+	for key, value := range definition {
+		if isWorkflowSecretKey(key) && stringValue(value) == workflowRedactedSecret {
+			return true
+		}
+		switch typed := value.(type) {
+		case map[string]any:
+			if workflowDefinitionHasRedactedSecret(typed) {
+				return true
+			}
+		case []any:
+			for _, item := range typed {
+				if itemMap, ok := item.(map[string]any); ok && workflowDefinitionHasRedactedSecret(itemMap) {
+					return true
+				}
+			}
+		case []map[string]any:
+			for _, item := range typed {
+				if workflowDefinitionHasRedactedSecret(item) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func existingValue(existing map[string]any, key string) any {
+	if existing == nil {
+		return nil
+	}
+	return existing[key]
+}
+
+func existingSequenceItem(items any, index int) any {
+	if index < 0 {
+		return nil
+	}
+	switch typed := items.(type) {
+	case []any:
+		if index >= len(typed) {
+			return nil
+		}
+		return typed[index]
+	case []map[string]any:
+		if index >= len(typed) {
+			return nil
+		}
+		return typed[index]
+	default:
+		return nil
+	}
+}
+
+func isWorkflowSecretKey(key string) bool {
+	normalized := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(key), "_", ""))
+	return normalized == "secret" || normalized == "webhooksecret"
 }
 
 func stringValue(value any) string {

@@ -222,7 +222,7 @@ describe('WorkflowsPage', () => {
             conversation: { conversationId: 'conversation_incident' },
             schedule: { cron: '0 * * * *', timezone: 'Asia/Shanghai' },
             semantic: [{ id: 'urgent-ticket', keywords: ['incident', 'sev1'], semanticThreshold: 0.85 }],
-            webhook: { id: 'github', path: '/api/v1/workflows/webhooks/org_1/workflow_1', secret: 'top-secret' },
+            webhook: { id: 'github', path: '/api/v1/workflows/webhooks/org_1/workflow_1', secret: '********' },
           },
         },
         description: 'Existing workflow',
@@ -283,7 +283,7 @@ describe('WorkflowsPage', () => {
         '  "webhook": {\n' +
         '    "id": "github",\n' +
         '    "path": "/api/v1/workflows/webhooks/org_1/workflow_1",\n' +
-        '    "secret": "top-secret"\n' +
+        '    "secret": "********"\n' +
         '  }\n' +
         '}'
     );
@@ -878,7 +878,7 @@ describe('WorkflowsPage', () => {
         definition: {
           nodes: [{ id: 'manual-start', type: 'manual' }],
           triggers: {
-            webhook: { id: 'github', path: '/api/v1/workflows/webhooks/org_1/workflow_1', secret: 'top-secret' },
+            webhook: { id: 'github', path: '/api/v1/workflows/webhooks/org_1/workflow_1', secret: '********' },
           },
         },
         description: 'Existing workflow',
@@ -893,7 +893,7 @@ describe('WorkflowsPage', () => {
       definition: {
         nodes: [{ id: 'manual-start', type: 'manual' }],
         triggers: {
-          webhook: [{ id: 'linear', path: '/api/v1/workflows/webhooks/org_1/workflow_1', secret: 'new-secret' }],
+          webhook: [{ id: 'linear', path: '/api/v1/workflows/webhooks/org_1/workflow_1', secret: '********' }],
         },
       },
       description: 'Existing workflow',
@@ -909,7 +909,7 @@ describe('WorkflowsPage', () => {
     await screen.findByText('Incident triage');
     expect(screen.getByLabelText('Webhook trigger ID for Incident triage')).toHaveValue('github');
     expect(screen.getByLabelText('Webhook path for Incident triage')).toHaveValue('/api/v1/workflows/webhooks/org_1/workflow_1');
-    expect(screen.getByLabelText('Webhook secret for Incident triage')).toHaveValue('top-secret');
+    expect(screen.getByLabelText('Webhook secret for Incident triage')).toHaveValue('********');
 
     fireEvent.change(screen.getByLabelText('Webhook trigger ID for Incident triage'), {
       target: { value: 'linear' },
@@ -925,6 +925,62 @@ describe('WorkflowsPage', () => {
           nodes: [{ id: 'manual-start', type: 'manual' }],
           triggers: {
             webhook: [{ id: 'linear', path: '/api/v1/workflows/webhooks/org_1/workflow_1', secret: 'new-secret' }],
+          },
+        },
+        description: 'Existing workflow',
+        name: 'Incident triage',
+        status: 'draft',
+        variables: { owner: 'ops' },
+      });
+    });
+  });
+
+  it('preserves redacted webhook secrets when saving non-secret webhook fields', async () => {
+    listWorkflows.mockResolvedValue([
+      {
+        definition: {
+          nodes: [{ id: 'manual-start', type: 'manual' }],
+          triggers: {
+            webhook: { id: 'github', path: '/api/v1/workflows/webhooks/org_1/workflow_1', secret: '********' },
+          },
+        },
+        description: 'Existing workflow',
+        id: 'workflow_1',
+        name: 'Incident triage',
+        status: 'draft',
+        variables: { owner: 'ops' },
+        version: 1,
+      },
+    ]);
+    updateWorkflow.mockResolvedValue({
+      definition: {
+        nodes: [{ id: 'manual-start', type: 'manual' }],
+        triggers: {
+          webhook: [{ id: 'linear', path: '/api/v1/workflows/webhooks/org_1/workflow_1', secret: '********' }],
+        },
+      },
+      description: 'Existing workflow',
+      id: 'workflow_1',
+      name: 'Incident triage',
+      status: 'draft',
+      variables: { owner: 'ops' },
+      version: 2,
+    });
+
+    render(<WorkflowsPage />);
+
+    await screen.findByText('Incident triage');
+    fireEvent.change(screen.getByLabelText('Webhook trigger ID for Incident triage'), {
+      target: { value: 'linear' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save triggers for Incident triage' }));
+
+    await waitFor(() => {
+      expect(updateWorkflow).toHaveBeenCalledWith('workflow_1', {
+        definition: {
+          nodes: [{ id: 'manual-start', type: 'manual' }],
+          triggers: {
+            webhook: [{ id: 'linear', path: '/api/v1/workflows/webhooks/org_1/workflow_1', secret: '********' }],
           },
         },
         description: 'Existing workflow',
@@ -1025,8 +1081,8 @@ describe('WorkflowsPage', () => {
           nodes: [{ id: 'manual-start', type: 'manual' }],
           triggers: {
             webhook: [
-              { id: 'github', path: '/api/v1/workflows/webhooks/org_1/workflow_1', secret: 'top-secret' },
-              { id: 'stripe', path: '/api/v1/workflows/webhooks/org_1/workflow_1', secret: 'stripe-secret' },
+              { id: 'github', path: '/api/v1/workflows/webhooks/org_1/workflow_1', secret: '********' },
+              { id: 'stripe', path: '/api/v1/workflows/webhooks/org_1/workflow_1', secret: '********' },
             ],
           },
         },
@@ -1043,8 +1099,8 @@ describe('WorkflowsPage', () => {
         nodes: [{ id: 'manual-start', type: 'manual' }],
         triggers: {
           webhook: [
-            { id: 'linear', path: '/api/v1/workflows/webhooks/org_1/workflow_1', secret: 'linear-secret' },
-            { id: 'stripe', path: '/api/v1/workflows/webhooks/org_1/workflow_1', secret: 'stripe-secret' },
+            { id: 'linear', path: '/api/v1/workflows/webhooks/org_1/workflow_1', secret: '********' },
+            { id: 'stripe', path: '/api/v1/workflows/webhooks/org_1/workflow_1', secret: '********' },
           ],
         },
       },
@@ -1074,7 +1130,7 @@ describe('WorkflowsPage', () => {
           triggers: {
             webhook: [
               { id: 'linear', path: '/api/v1/workflows/webhooks/org_1/workflow_1', secret: 'linear-secret' },
-              { id: 'stripe', path: '/api/v1/workflows/webhooks/org_1/workflow_1', secret: 'stripe-secret' },
+              { id: 'stripe', path: '/api/v1/workflows/webhooks/org_1/workflow_1', secret: '********' },
             ],
           },
         },
@@ -1362,7 +1418,7 @@ describe('WorkflowsPage', () => {
             webhook: {
               id: 'github',
               path: '/api/v1/workflows/webhooks/org_1/workflow_1',
-              secret: 'top-secret',
+              secret: '********',
             },
           },
         },

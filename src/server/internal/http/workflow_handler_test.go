@@ -356,6 +356,86 @@ func TestWorkflowHandlerUpdateWorkflowPassesPatch(t *testing.T) {
 	}
 }
 
+func TestWorkflowHandlerRedactsWebhookSecretsFromDefinitionResponses(t *testing.T) {
+	workflowWithSecrets := &workflow.WorkflowDefinition{
+		ID:             "workflow_1",
+		OrganizationID: "org_1",
+		Name:           "Incident triage",
+		Status:         workflow.WorkflowStatusDraft,
+		Version:        1,
+		Definition: map[string]any{
+			"nodes":          []any{map[string]any{"id": "manual-start"}},
+			"webhook_secret": "top-level-secret",
+			"triggers": map[string]any{
+				"webhook": []any{
+					map[string]any{
+						"id":     "github",
+						"path":   "/api/v1/workflows/webhooks/org_1/workflow_1",
+						"secret": "trigger-secret",
+					},
+				},
+			},
+		},
+	}
+	service := &workflowFakeService{
+		listed:         []*workflow.WorkflowDefinition{workflowWithSecrets},
+		workflowDetail: workflowWithSecrets,
+		updated:        workflowWithSecrets,
+	}
+	handler := newWorkflowHandler(service)
+
+	listRecorder := httptest.NewRecorder()
+	handler.listWorkflows(listRecorder, workflowTestRequest(stdhttp.MethodGet, "/api/v1/workflows", ""))
+	assertWorkflowResponseRedactsWebhookSecrets(t, listRecorder.Body.String())
+
+	getRecorder := httptest.NewRecorder()
+	handler.getWorkflow(getRecorder, workflowTestRequest(stdhttp.MethodGet, "/api/v1/workflows/workflow_1", ""), "workflow_1")
+	assertWorkflowResponseRedactsWebhookSecrets(t, getRecorder.Body.String())
+
+	updateRecorder := httptest.NewRecorder()
+	handler.updateWorkflow(updateRecorder, workflowTestRequest(stdhttp.MethodPut, "/api/v1/workflows/workflow_1", `{
+		"definition": {
+			"triggers": {
+				"webhook": {"secret": "updated-secret"}
+			}
+		}
+	}`), "workflow_1")
+	assertWorkflowResponseRedactsWebhookSecrets(t, updateRecorder.Body.String())
+	if service.updateReq.Definition["triggers"].(map[string]any)["webhook"].(map[string]any)["secret"] != "updated-secret" {
+		t.Fatalf("expected workflow update request to retain raw webhook secret, got %+v", service.updateReq.Definition)
+	}
+
+	if workflowWithSecrets.Definition["webhook_secret"] != "top-level-secret" {
+		t.Fatalf("expected original workflow definition to remain unmodified, got %+v", workflowWithSecrets.Definition)
+	}
+
+	preserveRecorder := httptest.NewRecorder()
+	handler.updateWorkflow(preserveRecorder, workflowTestRequest(stdhttp.MethodPut, "/api/v1/workflows/workflow_1", `{
+		"definition": {
+			"nodes": [{"id": "manual-start"}],
+			"webhook_secret": "********",
+			"triggers": {
+				"webhook": [
+					{
+						"id": "github",
+						"path": "/api/v1/workflows/webhooks/org_1/workflow_1",
+						"secret": "********"
+					}
+				]
+			}
+		}
+	}`), "workflow_1")
+	assertWorkflowResponseRedactsWebhookSecrets(t, preserveRecorder.Body.String())
+	if service.updateReq.Definition["webhook_secret"] != "top-level-secret" {
+		t.Fatalf("expected top-level redacted webhook secret marker to preserve existing secret, got %+v", service.updateReq.Definition)
+	}
+	webhookTriggers := service.updateReq.Definition["triggers"].(map[string]any)["webhook"].([]any)
+	firstWebhookTrigger := webhookTriggers[0].(map[string]any)
+	if firstWebhookTrigger["secret"] != "trigger-secret" {
+		t.Fatalf("expected redacted webhook trigger marker to preserve existing secret, got %+v", service.updateReq.Definition)
+	}
+}
+
 func TestWorkflowHandlerListWorkflowVersionsReturnsHistory(t *testing.T) {
 	service := &workflowFakeService{
 		versions: []*workflow.WorkflowDefinition{
@@ -1515,5 +1595,17 @@ func TestWorkflowHandlerMapsServiceErrors(t *testing.T) {
 				t.Fatalf("expected error code %q, got %+v", tc.wantCode, response.Error)
 			}
 		})
+	}
+}
+
+func assertWorkflowResponseRedactsWebhookSecrets(t *testing.T, body string) {
+	t.Helper()
+	for _, leaked := range []string{"top-level-secret", "trigger-secret", "updated-secret"} {
+		if strings.Contains(body, leaked) {
+			t.Fatalf("workflow response leaked webhook secret %q: %s", leaked, body)
+		}
+	}
+	if strings.Count(body, workflowRedactedSecret) == 0 {
+		t.Fatalf("expected workflow response to include redacted webhook secret marker, got %s", body)
 	}
 }
