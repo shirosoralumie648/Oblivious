@@ -1451,6 +1451,60 @@ require_notification_mutation_csrf_contract() {
   ' "$openapi_file"
 }
 
+require_preferences_mutation_csrf_contract() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+    paths = spec.fetch("paths", {})
+    missing = []
+
+    def operation(paths, path, method, missing)
+      op = paths.dig(path, method)
+      unless op
+        missing << "#{method.upcase} #{path} must be documented"
+        return {}
+      end
+      op
+    end
+
+    def requires_cookie_and_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
+    end
+
+    def request_body_ref(operation)
+      operation.dig("requestBody", "content", "application/json", "schema", "$ref")
+    end
+
+    def response_data_ref(operation, status)
+      operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "$ref") }&.
+        dig("properties", "data", "$ref")
+    end
+
+    preferences = operation(paths, "/api/v1/app/me/preferences", "put", missing)
+    unless requires_cookie_and_csrf?(preferences)
+      missing << "PUT /api/v1/app/me/preferences must require cookieAuth and csrfHeader"
+    end
+    unless preferences.fetch("tags", []).include?("Preferences")
+      missing << "PUT /api/v1/app/me/preferences must be tagged Preferences"
+    end
+    unless preferences.dig("requestBody", "required") == true &&
+        request_body_ref(preferences) == "#/components/schemas/UpdatePreferencesRequest"
+      missing << "PUT /api/v1/app/me/preferences request body must require UpdatePreferencesRequest"
+    end
+    unless response_data_ref(preferences, "200") == "#/components/schemas/Preferences"
+      missing << "PUT /api/v1/app/me/preferences 200 data must reference Preferences"
+    end
+
+    unless missing.empty?
+      warn "[openapi-contract] Preferences mutation CSRF contract is incomplete:"
+      missing.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 require_admin_core_management_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
@@ -2032,6 +2086,7 @@ require_workflow_execution_control_csrf_contract
 require_console_api_token_csrf_contract
 require_task_mutation_csrf_contract
 require_notification_mutation_csrf_contract
+require_preferences_mutation_csrf_contract
 require_admin_core_management_contract
 require_admin_billing_contract
 require_domestic_payment_webhook_payout_contract

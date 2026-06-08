@@ -4581,6 +4581,9 @@ paths:
       summary: 更新用户偏好设置
       operationId: updatePreferences
       tags: [Preferences]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       requestBody:
         required: true
         content:

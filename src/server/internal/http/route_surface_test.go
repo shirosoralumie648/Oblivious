@@ -220,6 +220,23 @@ func TestRouteSurfaceNotificationMutationsRejectCookieWithoutCSRFWithoutDatabase
 	}
 }
 
+func TestRouteSurfacePreferencesMutationRejectsCookieWithoutCSRFWithoutDatabase(t *testing.T) {
+	session := routeSurfaceUserSession()
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}})
+	cookie := routeSurfaceSignedSessionCookie(t, session)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(stdhttp.MethodPut, "/api/v1/app/me/preferences", strings.NewReader(`{"defaultMode":"solo"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(cookie)
+
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusForbidden {
+		t.Fatalf("expected missing csrf to be rejected with 403 for PUT /api/v1/app/me/preferences, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestRouteSurfaceRefreshesWorkflowHealthBeforeMetricsScrape(t *testing.T) {
 	source, err := os.ReadFile("router.go")
 	if err != nil {
