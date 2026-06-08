@@ -33,6 +33,11 @@ Status values:
 | Security and tenant isolation | Part 3 11.x | Auth middleware, session/CSRF, tenant, quota, marketplace governance, tool approval and admin authorization paths exist. Focused automated evidence covers cross-tenant denial for core chat/knowledge/marketplace/Agent run and tool-run paths, admin-only review SLA enforcement, request/observability log secret redaction, alert-provider secret redaction, MCP auth-token response sanitization, and publishing-channel config secret redaction while preserving stored secrets for execution. Tool approval bypass coverage now proves approve/reject decisions return 409 and do not mutate completed or rejected tool runs; the DB-backed route test also asserts the real `/api/v1/app/agents/tool-runs/*` endpoints preserve guarded tool-run state when a test database is available. | Partial | Continue focused audit for remaining data-isolation surfaces, provider/channel secret response paths beyond covered publishing and observability providers, additional approval bypass variants, and admin-only surfaces. |
 | Migration strategy and release readiness | Part 3 12.x-15.x | Release, rollback, RC, blocker escalation, owner matrix, and evidence docs exist. | Partial | Produce final evidence pack: tests, docs checks, deployment validation, requirement-by-requirement audit, and unresolved-risk list. |
 
+## 2026-06-09 Matrix Row Updates
+
+- Billing row 26: Admin Billing inspection is now documented in OpenAPI for summary, sessions, payment intents, webhook events, subscriptions, top-ups, invoices, refunds, Marketplace settlements, Marketplace payouts, top-up refund recording, and payout-paid marking. The contract gate verifies response wrapper schemas, query filters, mutation request bodies, CSRF requirements, and the runtime payout-paid response schema.
+- API contract row 31: `scripts/verify-openapi-contract.sh` now guards Admin Billing route/schema parity instead of only path presence, including the summary schema, all list response collection wrappers, `AdminTopupRefundRequest`, `AdminMarketplacePayoutPaidRequest`, and `MarketplacePayout` response shape.
+
 ## Verified Evidence Already Collected
 
 - `go test ./... -count=1` passed on the current working tree during the 2026-06-07 alert-provider work.
@@ -73,6 +78,10 @@ Status values:
 - `bash scripts/check.sh docs` passed after wiring the deployment/operations contract into docs checks.
 - `pnpm --dir src/web test src/routes/workspace/WorkflowsPage.test.tsx -- --runInBand` and `pnpm --dir src/web exec tsc --noEmit` passed after adding the Workflow node context-menu single-node test path.
 - `GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/http -run 'TestBuildPaymentCheckoutProvidersEnablesDomesticHostedProviders|TestMarketplacePaidInstallCheckoutUsesSelectedProviderAndReturnsCheckoutSession' -count=1 -v` passed after adding domestic hosted checkout Marketplace metadata propagation.
+- `bash scripts/verify-openapi-contract.sh` passed after adding the Admin Billing route/schema parity contract for summary, list surfaces, top-up refund, and payout-paid marking.
+- `bash scripts/check.sh docs` passed after wiring the Admin Billing OpenAPI assertions through the docs check path.
+- `GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/http -run 'TestAdminBilling(ListsExposeAllRequiredSurfaces|MarksMarketplacePayoutPaid|ListsApplyRecoveryFilters|SummaryAppliesFailedStatusFilter)' -count=1 -v` completed with PASS but all four DB-backed Admin Billing tests were skipped locally because `TEST_DATABASE_URL` was not set.
+- `git diff --check` passed after the Admin Billing OpenAPI contract slice.
 
 These checks prove only the covered surfaces. They do not prove full project completion.
 

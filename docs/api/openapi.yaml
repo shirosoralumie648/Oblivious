@@ -1900,6 +1900,33 @@ components:
           type: string
           format: date-time
 
+    MarketplacePayout:
+      type: object
+      properties:
+        id:
+          type: string
+        publisherOrganizationId:
+          type: string
+        publisherUserId:
+          type: string
+        amount:
+          type: number
+          format: double
+        currency:
+          type: string
+        provider:
+          type: string
+        providerPayoutId:
+          type: string
+        status:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
     MarketplaceInstallRequest:
       type: object
       properties:
@@ -2081,6 +2108,486 @@ components:
         updatedAt:
           type: string
           format: date-time
+
+    AdminBillingAmountSummary:
+      type: object
+      properties:
+        count:
+          type: integer
+        totalAmount:
+          type: number
+          format: double
+        preAuthorizedAmount:
+          type: number
+          format: double
+        settledAmount:
+          type: number
+          format: double
+        refundedAmount:
+          type: number
+          format: double
+        paidAmount:
+          type: number
+          format: double
+        amountDue:
+          type: number
+          format: double
+        amountPaid:
+          type: number
+          format: double
+        grossAmount:
+          type: number
+          format: double
+        platformFeeAmount:
+          type: number
+          format: double
+        publisherNetAmount:
+          type: number
+          format: double
+        failedCount:
+          type: integer
+        activeCount:
+          type: integer
+
+    AdminBillingInspectionSummary:
+      type: object
+      properties:
+        billingSessions:
+          $ref: "#/components/schemas/AdminBillingAmountSummary"
+        paymentIntents:
+          $ref: "#/components/schemas/AdminBillingAmountSummary"
+        webhookEvents:
+          $ref: "#/components/schemas/AdminBillingAmountSummary"
+        subscriptions:
+          $ref: "#/components/schemas/AdminBillingAmountSummary"
+        topups:
+          $ref: "#/components/schemas/AdminBillingAmountSummary"
+        invoices:
+          $ref: "#/components/schemas/AdminBillingAmountSummary"
+        refunds:
+          $ref: "#/components/schemas/AdminBillingAmountSummary"
+        settlements:
+          $ref: "#/components/schemas/AdminBillingAmountSummary"
+        payouts:
+          $ref: "#/components/schemas/AdminBillingAmountSummary"
+
+    AdminBillingSessionInspection:
+      type: object
+      properties:
+        id:
+          type: string
+        organizationId:
+          type: string
+        userId:
+          type: string
+        channelId:
+          type: string
+        model:
+          type: string
+        apiType:
+          type: string
+        idempotencyKey:
+          type: string
+        preAuthorizedAmount:
+          type: number
+          format: double
+        settledAmount:
+          type: number
+          format: double
+        status:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        settledAt:
+          type: string
+          format: date-time
+
+    AdminPaymentIntentInspection:
+      type: object
+      properties:
+        id:
+          type: string
+        provider:
+          type: string
+        providerCheckoutSessionId:
+          type: string
+        providerPaymentIntentId:
+          type: string
+        organizationId:
+          type: string
+        userId:
+          type: string
+        packageId:
+          type: string
+        kind:
+          type: string
+          enum: [subscription, topup, marketplace_install]
+        amount:
+          type: number
+          format: double
+        currency:
+          type: string
+        status:
+          type: string
+        refundedAmount:
+          type: number
+          format: double
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AdminWebhookEventInspection:
+      type: object
+      properties:
+        id:
+          type: string
+        provider:
+          type: string
+        eventId:
+          type: string
+        eventType:
+          type: string
+        status:
+          type: string
+        organizationId:
+          type: string
+        userId:
+          type: string
+        paymentIntentId:
+          type: string
+        error:
+          type: string
+        receivedAt:
+          type: string
+          format: date-time
+        processedAt:
+          type: string
+          format: date-time
+
+    AdminSubscriptionInspection:
+      type: object
+      properties:
+        id:
+          type: string
+        organizationId:
+          type: string
+        userId:
+          type: string
+        packageId:
+          type: string
+        status:
+          type: string
+        providerSubscriptionId:
+          type: string
+        providerCustomerId:
+          type: string
+        providerCheckoutSessionId:
+          type: string
+        providerLatestInvoiceId:
+          type: string
+        currentPeriodStart:
+          type: string
+          format: date-time
+        currentPeriodEnd:
+          type: string
+          format: date-time
+        cancelAtPeriodEnd:
+          type: boolean
+        failedPaymentAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AdminTopupInspection:
+      type: object
+      properties:
+        id:
+          type: string
+        organizationId:
+          type: string
+        userId:
+          type: string
+        paymentIntentId:
+          type: string
+        providerCheckoutSessionId:
+          type: string
+        amount:
+          type: number
+          format: double
+        money:
+          type: number
+          format: double
+        status:
+          type: string
+        tradeNo:
+          type: string
+        refundedAmount:
+          type: number
+          format: double
+        paidAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    AdminInvoiceInspection:
+      type: object
+      properties:
+        id:
+          type: string
+        provider:
+          type: string
+        providerInvoiceId:
+          type: string
+        providerSubscriptionId:
+          type: string
+        providerPaymentIntentId:
+          type: string
+        organizationId:
+          type: string
+        userId:
+          type: string
+        subscriptionId:
+          type: string
+        paymentIntentId:
+          type: string
+        status:
+          type: string
+        amountDue:
+          type: number
+          format: double
+        amountPaid:
+          type: number
+          format: double
+        currency:
+          type: string
+        hostedInvoiceUrl:
+          type: string
+          format: uri
+        invoicePdf:
+          type: string
+          format: uri
+        periodStart:
+          type: string
+          format: date-time
+        periodEnd:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AdminRefundInspection:
+      type: object
+      properties:
+        id:
+          type: string
+        provider:
+          type: string
+        providerRefundId:
+          type: string
+        providerChargeId:
+          type: string
+        providerPaymentIntentId:
+          type: string
+        organizationId:
+          type: string
+        userId:
+          type: string
+        paymentIntentId:
+          type: string
+        topupOrderId:
+          type: string
+        amount:
+          type: number
+          format: double
+        currency:
+          type: string
+        status:
+          type: string
+        reason:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AdminMarketplaceSettlementInspection:
+      type: object
+      properties:
+        id:
+          type: string
+        orderId:
+          type: string
+        publisherOrganizationId:
+          type: string
+        publisherUserId:
+          type: string
+        agentId:
+          type: string
+        grossAmount:
+          type: number
+          format: double
+        platformFeeAmount:
+          type: number
+          format: double
+        publisherNetAmount:
+          type: number
+          format: double
+        refundedAmount:
+          type: number
+          format: double
+        payoutId:
+          type: string
+        status:
+          type: string
+        holdUntil:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AdminMarketplacePayoutInspection:
+      type: object
+      properties:
+        id:
+          type: string
+        publisherOrganizationId:
+          type: string
+        publisherUserId:
+          type: string
+        amount:
+          type: number
+          format: double
+        currency:
+          type: string
+        provider:
+          type: string
+        providerPayoutId:
+          type: string
+        status:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AdminBillingSessionsResponse:
+      type: object
+      properties:
+        sessions:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminBillingSessionInspection"
+        total:
+          type: integer
+
+    AdminPaymentIntentsResponse:
+      type: object
+      properties:
+        paymentIntents:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminPaymentIntentInspection"
+        total:
+          type: integer
+
+    AdminWebhookEventsResponse:
+      type: object
+      properties:
+        webhookEvents:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminWebhookEventInspection"
+        total:
+          type: integer
+
+    AdminSubscriptionsResponse:
+      type: object
+      properties:
+        subscriptions:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminSubscriptionInspection"
+        total:
+          type: integer
+
+    AdminTopupsResponse:
+      type: object
+      properties:
+        topups:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminTopupInspection"
+        total:
+          type: integer
+
+    AdminInvoicesResponse:
+      type: object
+      properties:
+        invoices:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminInvoiceInspection"
+        total:
+          type: integer
+
+    AdminRefundsResponse:
+      type: object
+      properties:
+        refunds:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminRefundInspection"
+        total:
+          type: integer
+
+    AdminMarketplaceSettlementsResponse:
+      type: object
+      properties:
+        settlements:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminMarketplaceSettlementInspection"
+        total:
+          type: integer
+
+    AdminMarketplacePayoutsResponse:
+      type: object
+      properties:
+        payouts:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminMarketplacePayoutInspection"
+        total:
+          type: integer
+
+    AdminMarketplacePayoutPaidRequest:
+      type: object
+      properties:
+        providerPayoutID:
+          type: string
 
     DomesticPaymentWebhookEvent:
       type: object
@@ -8062,7 +8569,304 @@ paths:
               schema:
                 $ref: "#/components/schemas/Envelope"
 
-  # ---- Admin organizations ----
+  # ---- Admin billing inspection ----
+  /api/v1/admin/billing/summary:
+    get:
+      summary: 管理员获取账务巡检汇总
+      operationId: getAdminBillingSummary
+      tags: [Admin, Billing]
+      parameters:
+        - name: organizationID
+          in: query
+          schema:
+            type: string
+        - name: organizationId
+          in: query
+          schema:
+            type: string
+        - name: userID
+          in: query
+          schema:
+            type: string
+        - name: userId
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: kind
+          in: query
+          schema:
+            type: string
+        - name: provider
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Billing sessions, payment intents, webhook events, subscriptions, top-ups, invoices, refunds, settlements, and payouts summary.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminBillingInspectionSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/billing/sessions:
+    get:
+      summary: 管理员获取 Relay billing session 列表
+      operationId: listAdminBillingSessions
+      tags: [Admin, Billing]
+      parameters: &adminBillingInspectionFilters
+        - name: organizationID
+          in: query
+          schema:
+            type: string
+        - name: organizationId
+          in: query
+          schema:
+            type: string
+        - name: userID
+          in: query
+          schema:
+            type: string
+        - name: userId
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: kind
+          in: query
+          schema:
+            type: string
+        - name: provider
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: Relay billing sessions and total count.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminBillingSessionsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/billing/payment-intents:
+    get:
+      summary: 管理员获取 payment intent 列表
+      operationId: listAdminPaymentIntents
+      tags: [Admin, Billing]
+      parameters: *adminBillingInspectionFilters
+      responses:
+        "200":
+          description: Payment intents and total count.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminPaymentIntentsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/billing/webhook-events:
+    get:
+      summary: 管理员获取支付 webhook 事件列表
+      operationId: listAdminBillingWebhookEvents
+      tags: [Admin, Billing]
+      parameters: *adminBillingInspectionFilters
+      responses:
+        "200":
+          description: Webhook events and total count.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminWebhookEventsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/billing/subscriptions:
+    get:
+      summary: 管理员获取订阅列表
+      operationId: listAdminSubscriptions
+      tags: [Admin, Billing]
+      parameters: *adminBillingInspectionFilters
+      responses:
+        "200":
+          description: Subscriptions and total count.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminSubscriptionsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/billing/topups:
+    get:
+      summary: 管理员获取 top-up 订单列表
+      operationId: listAdminTopups
+      tags: [Admin, Billing]
+      parameters: *adminBillingInspectionFilters
+      responses:
+        "200":
+          description: Top-up orders and total count.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminTopupsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/billing/invoices:
+    get:
+      summary: 管理员获取发票列表
+      operationId: listAdminInvoices
+      tags: [Admin, Billing]
+      parameters: *adminBillingInspectionFilters
+      responses:
+        "200":
+          description: Billing invoices and total count.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminInvoicesResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/billing/refunds:
+    get:
+      summary: 管理员获取退款列表
+      operationId: listAdminRefunds
+      tags: [Admin, Billing]
+      parameters: *adminBillingInspectionFilters
+      responses:
+        "200":
+          description: Refund records and total count.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminRefundsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/billing/settlements:
+    get:
+      summary: 管理员获取 Marketplace settlement 列表
+      operationId: listAdminMarketplaceSettlements
+      tags: [Admin, Billing, Marketplace]
+      parameters: *adminBillingInspectionFilters
+      responses:
+        "200":
+          description: Marketplace settlements and total count.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminMarketplaceSettlementsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/billing/payouts:
+    get:
+      summary: 管理员获取 Marketplace payout 列表
+      operationId: listAdminMarketplacePayouts
+      tags: [Admin, Billing, Marketplace]
+      parameters: *adminBillingInspectionFilters
+      responses:
+        "200":
+          description: Marketplace payouts and total count.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminMarketplacePayoutsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
   /api/v1/admin/billing/topups/{topupId}/refund:
     post:
       summary: 记录管理员确认的 top-up 退款
@@ -8094,7 +8898,7 @@ paths:
                   - type: object
                     properties:
                       data:
-                        $ref: "#/components/schemas/AdminBillingInspectionRecord"
+                        $ref: "#/components/schemas/AdminRefundInspection"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -8104,6 +8908,46 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/v1/admin/billing/payouts/{payoutId}/paid:
+    post:
+      summary: 标记 Marketplace payout 为已由 provider 打款
+      operationId: markAdminMarketplacePayoutPaid
+      tags: [Admin, Billing, Marketplace]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      parameters:
+        - name: payoutId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminMarketplacePayoutPaidRequest"
+      responses:
+        "200":
+          description: 更新后的 Marketplace payout 状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplacePayout"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  # ---- Admin organizations ----
   /api/v1/admin/organizations:
     get:
       summary: 管理员获取组织列表

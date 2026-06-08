@@ -212,6 +212,133 @@ require_marketplace_template_type_contract() {
   ' "$openapi_file"
 }
 
+require_admin_billing_contract() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+    paths = spec.fetch("paths", {})
+    schemas = spec.fetch("components", {}).fetch("schemas", {})
+    missing = []
+
+    def operation(paths, path, method, missing)
+      op = paths.dig(path, method)
+      unless op
+        missing << "#{method.upcase} #{path} must be documented"
+        return {}
+      end
+      op
+    end
+
+    def response_data_ref(operation, status)
+      operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "$ref") }&.
+        dig("properties", "data", "$ref")
+    end
+
+    def request_body_ref(operation)
+      operation.dig("requestBody", "content", "application/json", "schema", "$ref")
+    end
+
+    def requires_cookie_and_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
+    end
+
+    expected_data_refs = {
+      ["/api/v1/admin/billing/summary", "get"] => "#/components/schemas/AdminBillingInspectionSummary",
+      ["/api/v1/admin/billing/sessions", "get"] => "#/components/schemas/AdminBillingSessionsResponse",
+      ["/api/v1/admin/billing/payment-intents", "get"] => "#/components/schemas/AdminPaymentIntentsResponse",
+      ["/api/v1/admin/billing/webhook-events", "get"] => "#/components/schemas/AdminWebhookEventsResponse",
+      ["/api/v1/admin/billing/subscriptions", "get"] => "#/components/schemas/AdminSubscriptionsResponse",
+      ["/api/v1/admin/billing/topups", "get"] => "#/components/schemas/AdminTopupsResponse",
+      ["/api/v1/admin/billing/invoices", "get"] => "#/components/schemas/AdminInvoicesResponse",
+      ["/api/v1/admin/billing/refunds", "get"] => "#/components/schemas/AdminRefundsResponse",
+      ["/api/v1/admin/billing/settlements", "get"] => "#/components/schemas/AdminMarketplaceSettlementsResponse",
+      ["/api/v1/admin/billing/payouts", "get"] => "#/components/schemas/AdminMarketplacePayoutsResponse",
+      ["/api/v1/admin/billing/topups/{topupId}/refund", "post"] => "#/components/schemas/AdminRefundInspection",
+      ["/api/v1/admin/billing/payouts/{payoutId}/paid", "post"] => "#/components/schemas/MarketplacePayout",
+    }
+
+    expected_data_refs.each do |(path, method), expected|
+      op = operation(paths, path, method, missing)
+      actual = response_data_ref(op, "200")
+      unless actual == expected
+        missing << "#{method.upcase} #{path} 200 data must reference #{expected}"
+      end
+      tags = op.fetch("tags", [])
+      unless tags.include?("Admin") && tags.include?("Billing")
+        missing << "#{method.upcase} #{path} must be tagged Admin and Billing"
+      end
+    end
+
+    list_paths = expected_data_refs.keys.select { |path, method| method == "get" && path != "/api/v1/admin/billing/summary" }.map(&:first)
+    list_paths.each do |path|
+      names = (paths.dig(path, "get", "parameters") || []).map { |param| param["name"] }
+      ["organizationID", "organizationId", "userID", "userId", "status", "kind", "provider", "limit", "offset"].each do |name|
+        missing << "GET #{path} must document #{name} query filter" unless names.include?(name)
+      end
+    end
+
+    summary_names = (paths.dig("/api/v1/admin/billing/summary", "get", "parameters") || []).map { |param| param["name"] }
+    ["organizationID", "organizationId", "userID", "userId", "status", "kind", "provider"].each do |name|
+      missing << "GET /api/v1/admin/billing/summary must document #{name} query filter" unless summary_names.include?(name)
+    end
+
+    refund = operation(paths, "/api/v1/admin/billing/topups/{topupId}/refund", "post", missing)
+    unless request_body_ref(refund) == "#/components/schemas/AdminTopupRefundRequest"
+      missing << "POST /api/v1/admin/billing/topups/{topupId}/refund must document AdminTopupRefundRequest body"
+    end
+    unless requires_cookie_and_csrf?(refund)
+      missing << "POST /api/v1/admin/billing/topups/{topupId}/refund must require cookieAuth and csrfHeader"
+    end
+
+    paid = operation(paths, "/api/v1/admin/billing/payouts/{payoutId}/paid", "post", missing)
+    unless request_body_ref(paid) == "#/components/schemas/AdminMarketplacePayoutPaidRequest"
+      missing << "POST /api/v1/admin/billing/payouts/{payoutId}/paid must document AdminMarketplacePayoutPaidRequest body"
+    end
+    unless requires_cookie_and_csrf?(paid)
+      missing << "POST /api/v1/admin/billing/payouts/{payoutId}/paid must require cookieAuth and csrfHeader"
+    end
+
+    response_collections = {
+      "AdminBillingSessionsResponse" => ["sessions", "#/components/schemas/AdminBillingSessionInspection"],
+      "AdminPaymentIntentsResponse" => ["paymentIntents", "#/components/schemas/AdminPaymentIntentInspection"],
+      "AdminWebhookEventsResponse" => ["webhookEvents", "#/components/schemas/AdminWebhookEventInspection"],
+      "AdminSubscriptionsResponse" => ["subscriptions", "#/components/schemas/AdminSubscriptionInspection"],
+      "AdminTopupsResponse" => ["topups", "#/components/schemas/AdminTopupInspection"],
+      "AdminInvoicesResponse" => ["invoices", "#/components/schemas/AdminInvoiceInspection"],
+      "AdminRefundsResponse" => ["refunds", "#/components/schemas/AdminRefundInspection"],
+      "AdminMarketplaceSettlementsResponse" => ["settlements", "#/components/schemas/AdminMarketplaceSettlementInspection"],
+      "AdminMarketplacePayoutsResponse" => ["payouts", "#/components/schemas/AdminMarketplacePayoutInspection"],
+    }
+    response_collections.each do |schema_name, (collection, item_ref)|
+      schema = schemas[schema_name] || {}
+      unless schema.dig("properties", collection, "type") == "array" &&
+          schema.dig("properties", collection, "items", "$ref") == item_ref &&
+          schema.dig("properties", "total", "type") == "integer"
+        missing << "#{schema_name} must expose #{collection}[] as #{item_ref} plus integer total"
+      end
+    end
+
+    summary = schemas["AdminBillingInspectionSummary"] || {}
+    ["billingSessions", "paymentIntents", "webhookEvents", "subscriptions", "topups", "invoices", "refunds", "settlements", "payouts"].each do |property|
+      unless summary.dig("properties", property, "$ref") == "#/components/schemas/AdminBillingAmountSummary"
+        missing << "AdminBillingInspectionSummary.#{property} must reference AdminBillingAmountSummary"
+      end
+    end
+
+    unless schemas.key?("MarketplacePayout")
+      missing << "MarketplacePayout schema must document the payout paid runtime response"
+    end
+
+    unless missing.empty?
+      warn "[openapi-contract] Admin Billing route/schema contract is incomplete:"
+      missing.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 require_relay_alias_bearer_contract() {
   ruby -ryaml -e '
     file = ARGV.shift
@@ -309,7 +436,18 @@ required_paths=(
   "/api/v1/workflows/{workflowId}/executions/{executionId}/pause"
   "/api/v1/workflows/{workflowId}/executions/{executionId}/resume"
   "/api/v1/workflows/{workflowId}/executions/{executionId}/cancel"
+  "/api/v1/admin/billing/summary"
+  "/api/v1/admin/billing/sessions"
+  "/api/v1/admin/billing/payment-intents"
+  "/api/v1/admin/billing/webhook-events"
+  "/api/v1/admin/billing/subscriptions"
+  "/api/v1/admin/billing/topups"
+  "/api/v1/admin/billing/invoices"
+  "/api/v1/admin/billing/refunds"
+  "/api/v1/admin/billing/settlements"
+  "/api/v1/admin/billing/payouts"
   "/api/v1/admin/billing/topups/{topupId}/refund"
+  "/api/v1/admin/billing/payouts/{payoutId}/paid"
   "/api/v1/app/agents"
   "/api/v1/app/agents/{agentId}"
   "/api/v1/app/agents/{agentId}/tools"
@@ -420,5 +558,6 @@ require_api_json_responses_use_envelope
 require_session_csrf_contract
 require_marketplace_paid_install_contract
 require_marketplace_template_type_contract
+require_admin_billing_contract
 
 echo "[openapi-contract] required Relay alias, Agent, Memory, MCP, Tenant, Notification, Observability, publishing channel, Workflow, Billing, and Marketplace paths are documented."
