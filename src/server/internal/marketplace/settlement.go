@@ -20,7 +20,7 @@ const (
 	defaultPlatformFeeBPS = 2000
 )
 
-// MarketplaceFeeTierBasis selects the amount used to choose a platform fee tier.
+// MarketplaceFeeTierBasis selects the sales interval used for segmented platform fees.
 type MarketplaceFeeTierBasis string
 
 const (
@@ -1106,11 +1106,10 @@ func (s *SettlementService) calculateOrderAmounts(orderAmount float64, publisher
 	if gross <= 0 {
 		return marketplaceOrderAmounts{}, fmt.Errorf("order amount must be positive")
 	}
-	tier, err := s.selectPlatformFeeTier(gross, publisherCumulativeSales)
+	platformFee, err := s.calculateSegmentedPlatformFee(gross, publisherCumulativeSales)
 	if err != nil {
 		return marketplaceOrderAmounts{}, err
 	}
-	platformFee := roundAmount(gross * float64(tier.FeeBPS) / 10000)
 	return marketplaceOrderAmounts{
 		GrossAmount:        gross,
 		PlatformFeeAmount:  platformFee,
@@ -1118,40 +1117,48 @@ func (s *SettlementService) calculateOrderAmounts(orderAmount float64, publisher
 	}, nil
 }
 
-func (s *SettlementService) selectPlatformFeeTier(orderAmount float64, publisherCumulativeSales float64) (MarketplacePlatformFeeTier, error) {
+func (s *SettlementService) calculateSegmentedPlatformFee(orderAmount float64, publisherCumulativeSales float64) (float64, error) {
 	tiers := normalizePlatformFeeTiers(s.platformFeeTiers)
 	if len(tiers) == 0 {
 		tiers = []MarketplacePlatformFeeTier{{MinimumAmount: 0, FeeBPS: defaultPlatformFeeBPS}}
 	}
-	basisAmount := orderAmount
-	switch s.platformFeeTierBasis {
-	case MarketplaceFeeTierBasisCurrentOrderAmount, MarketplaceFeeTierBasisOrderAmount, "":
-		basisAmount = orderAmount
-	case MarketplaceFeeTierBasisPublisherCumulativeSales:
-		basisAmount = publisherCumulativeSales
-	default:
-		return MarketplacePlatformFeeTier{}, fmt.Errorf("unsupported platform fee tier basis %q", s.platformFeeTierBasis)
-	}
-
-	var selected MarketplacePlatformFeeTier
-	matched := false
-	for i := range tiers {
-		tier := tiers[i]
+	for _, tier := range tiers {
 		if tier.MinimumAmount < 0 {
-			return MarketplacePlatformFeeTier{}, fmt.Errorf("platform fee tier minimum amount must be non-negative")
+			return 0, fmt.Errorf("platform fee tier minimum amount must be non-negative")
 		}
 		if tier.FeeBPS < 0 || tier.FeeBPS > 10000 {
-			return MarketplacePlatformFeeTier{}, fmt.Errorf("platform fee tier fee bps must be between 0 and 10000")
-		}
-		if basisAmount >= tier.MinimumAmount {
-			selected = tier
-			matched = true
+			return 0, fmt.Errorf("platform fee tier fee bps must be between 0 and 10000")
 		}
 	}
-	if !matched {
-		return MarketplacePlatformFeeTier{}, fmt.Errorf("no platform fee tier matches amount %.2f", basisAmount)
+
+	startAmount := 0.0
+	switch s.platformFeeTierBasis {
+	case MarketplaceFeeTierBasisCurrentOrderAmount, MarketplaceFeeTierBasisOrderAmount, "":
+		startAmount = 0
+	case MarketplaceFeeTierBasisPublisherCumulativeSales:
+		startAmount = roundAmount(math.Max(publisherCumulativeSales, 0))
+	default:
+		return 0, fmt.Errorf("unsupported platform fee tier basis %q", s.platformFeeTierBasis)
 	}
-	return selected, nil
+
+	endAmount := roundAmount(startAmount + orderAmount)
+	if endAmount <= startAmount {
+		return 0, nil
+	}
+	total := 0.0
+	for i, tier := range tiers {
+		nextMinimum := math.Inf(1)
+		if i+1 < len(tiers) {
+			nextMinimum = tiers[i+1].MinimumAmount
+		}
+		segmentStart := math.Max(startAmount, tier.MinimumAmount)
+		segmentEnd := math.Min(endAmount, nextMinimum)
+		if segmentEnd <= segmentStart {
+			continue
+		}
+		total += (segmentEnd - segmentStart) * float64(tier.FeeBPS) / 10000
+	}
+	return roundAmount(total), nil
 }
 
 func (s *SettlementService) publisherCumulativeSales(ctx context.Context, tx *sql.Tx, publisherOrganizationID string, publisherUserID string) (float64, error) {

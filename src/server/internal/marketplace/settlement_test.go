@@ -155,7 +155,7 @@ func TestPaymentIntentKindMigrationAllowsMarketplaceInstall(t *testing.T) {
 	}
 }
 
-func TestSettlementAppliesTieredPlatformFees(t *testing.T) {
+func TestSettlementAppliesSegmentedPlatformFees(t *testing.T) {
 	tiers := []MarketplacePlatformFeeTier{
 		{MinimumAmount: 0, FeeBPS: 2000},
 		{MinimumAmount: 100, FeeBPS: 1500},
@@ -167,8 +167,8 @@ func TestSettlementAppliesTieredPlatformFees(t *testing.T) {
 	if err != nil {
 		t.Fatalf("calculate order amount tier: %v", err)
 	}
-	if orderAmounts.GrossAmount != 150 || orderAmounts.PlatformFeeAmount != 22.5 || orderAmounts.PublisherNetAmount != 127.5 {
-		t.Fatalf("expected order-amount tier to apply 15%% fee, got %#v", orderAmounts)
+	if orderAmounts.GrossAmount != 150 || orderAmounts.PlatformFeeAmount != 27.5 || orderAmounts.PublisherNetAmount != 122.5 {
+		t.Fatalf("expected order-amount tier to apply segmented 20%%/15%% fees, got %#v", orderAmounts)
 	}
 
 	cumulativeService := NewSettlementService(nil, WithMarketplacePlatformFeeTiers(MarketplaceFeeTierBasisPublisherCumulativeSales, tiers))
@@ -177,7 +177,25 @@ func TestSettlementAppliesTieredPlatformFees(t *testing.T) {
 		t.Fatalf("calculate cumulative sales tier: %v", err)
 	}
 	if cumulativeAmounts.GrossAmount != 25 || cumulativeAmounts.PlatformFeeAmount != 3.75 || cumulativeAmounts.PublisherNetAmount != 21.25 {
-		t.Fatalf("expected cumulative sales tier to apply 15%% fee, got %#v", cumulativeAmounts)
+		t.Fatalf("expected cumulative sales tier to apply only the 125-150 segment at 15%%, got %#v", cumulativeAmounts)
+	}
+}
+
+func TestSettlementAppliesSpecSegmentedRevenueTiers(t *testing.T) {
+	tiers := []MarketplacePlatformFeeTier{
+		{MinimumAmount: 0, FeeBPS: 3000},
+		{MinimumAmount: 1000, FeeBPS: 2000},
+		{MinimumAmount: 10000, FeeBPS: 1500},
+		{MinimumAmount: 100000, FeeBPS: 1000},
+	}
+	service := NewSettlementService(nil, WithMarketplacePlatformFeeTiers(MarketplaceFeeTierBasisCurrentOrderAmount, tiers))
+
+	amounts, err := service.calculateOrderAmounts(15000, 0)
+	if err != nil {
+		t.Fatalf("calculate segmented revenue tiers: %v", err)
+	}
+	if amounts.GrossAmount != 15000 || amounts.PlatformFeeAmount != 2850 || amounts.PublisherNetAmount != 12150 {
+		t.Fatalf("expected spec segmented fee 2850 and net 12150, got %#v", amounts)
 	}
 }
 
