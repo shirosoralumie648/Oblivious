@@ -11782,6 +11782,9 @@ paths:
       summary: 创建 Relay API token
       operationId: createConsoleAPIToken
       tags: [Billing]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       requestBody:
         required: true
         content:
@@ -11810,6 +11813,9 @@ paths:
       summary: 撤销 Relay API token
       operationId: revokeConsoleAPIToken
       tags: [Billing]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: tokenId
           in: path
