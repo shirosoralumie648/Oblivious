@@ -12719,6 +12719,9 @@ paths:
       summary: 管理员下架 Marketplace Agent
       operationId: takedownMarketplaceAgent
       tags: [Admin, Marketplace]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       requestBody:
         required: false
         content:
@@ -12751,6 +12754,9 @@ paths:
       summary: 管理员恢复 Marketplace Agent
       operationId: reinstateMarketplaceAgent
       tags: [Admin, Marketplace]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       requestBody:
         required: false
         content:
@@ -12817,6 +12823,9 @@ paths:
       summary: 管理员解决 Marketplace abuse report
       operationId: resolveMarketplaceAbuseReport
       tags: [Admin, Marketplace]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       requestBody:
         required: true
         content:
@@ -12851,6 +12860,9 @@ paths:
       summary: 管理员驳回 Marketplace abuse report
       operationId: dismissMarketplaceAbuseReport
       tags: [Admin, Marketplace]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       requestBody:
         required: true
         content:
