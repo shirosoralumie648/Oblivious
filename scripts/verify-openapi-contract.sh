@@ -1185,6 +1185,73 @@ require_tenant_organization_mutation_csrf_contract() {
   ' "$openapi_file"
 }
 
+require_workflow_execution_control_csrf_contract() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+    paths = spec.fetch("paths", {})
+    missing = []
+
+    def operation(paths, path, method, missing)
+      op = paths.dig(path, method)
+      unless op
+        missing << "#{method.upcase} #{path} must be documented"
+        return {}
+      end
+      op
+    end
+
+    def requires_cookie_and_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
+    end
+
+    def request_body_ref(operation)
+      operation.dig("requestBody", "content", "application/json", "schema", "$ref")
+    end
+
+    def response_ref(operation, status)
+      operation.dig("responses", status, "content", "application/json", "schema", "$ref")
+    end
+
+    [
+      ["/api/v1/workflows/{workflowId}/executions/{executionId}/resource-check", "post"],
+      ["/api/v1/workflows/{workflowId}/executions/{executionId}/decision", "post"],
+      ["/api/v1/workflows/{workflowId}/executions/{executionId}/pause", "post"],
+      ["/api/v1/workflows/{workflowId}/executions/{executionId}/resume", "post"],
+      ["/api/v1/workflows/{workflowId}/executions/{executionId}/cancel", "post"],
+    ].each do |path, method|
+      op = operation(paths, path, method, missing)
+      unless requires_cookie_and_csrf?(op)
+        missing << "#{method.upcase} #{path} must require cookieAuth and csrfHeader"
+      end
+      unless op.fetch("tags", []).include?("Workflow")
+        missing << "#{method.upcase} #{path} must be tagged Workflow"
+      end
+      unless response_ref(op, "200") == "#/components/schemas/WorkflowExecutionEnvelope"
+        missing << "#{method.upcase} #{path} 200 response must reference WorkflowExecutionEnvelope"
+      end
+    end
+
+    {
+      ["/api/v1/workflows/{workflowId}/executions/{executionId}/resource-check", "post"] => "#/components/schemas/WorkflowResourceCheckRequest",
+      ["/api/v1/workflows/{workflowId}/executions/{executionId}/decision", "post"] => "#/components/schemas/WorkflowFailureDecisionRequest",
+      ["/api/v1/workflows/{workflowId}/executions/{executionId}/resume", "post"] => "#/components/schemas/WorkflowResumeExecutionRequest",
+    }.each do |(path, method), expected|
+      op = operation(paths, path, method, missing)
+      unless request_body_ref(op) == expected
+        missing << "#{method.upcase} #{path} request body must reference #{expected}"
+      end
+    end
+
+    unless missing.empty?
+      warn "[openapi-contract] Workflow execution control CSRF contract is incomplete:"
+      missing.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 require_admin_core_management_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
@@ -1762,6 +1829,7 @@ require_admin_marketplace_review_csrf_contract
 require_agent_run_mutation_csrf_contract
 require_billing_checkout_contract
 require_tenant_organization_mutation_csrf_contract
+require_workflow_execution_control_csrf_contract
 require_admin_core_management_contract
 require_admin_billing_contract
 require_domestic_payment_webhook_payout_contract

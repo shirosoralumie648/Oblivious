@@ -9024,6 +9024,9 @@ paths:
       summary: 检查工作流执行资源限制
       operationId: checkWorkflowExecutionResources
       tags: [Workflow]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: workflowId
           in: path
@@ -9066,6 +9069,9 @@ paths:
       summary: 处理暂停失败的工作流执行
       operationId: decideWorkflowExecutionFailure
       tags: [Workflow]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: workflowId
           in: path
@@ -9108,6 +9114,9 @@ paths:
       summary: 暂停工作流执行
       operationId: pauseWorkflowExecution
       tags: [Workflow]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: workflowId
           in: path
@@ -9142,6 +9151,9 @@ paths:
       summary: 恢复工作流执行
       operationId: resumeWorkflowExecution
       tags: [Workflow]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: workflowId
           in: path
@@ -9183,6 +9195,9 @@ paths:
       summary: 取消工作流执行
       operationId: cancelWorkflowExecution
       tags: [Workflow]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: workflowId
           in: path
