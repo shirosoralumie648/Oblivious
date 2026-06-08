@@ -3475,6 +3475,81 @@ func TestServiceRetryToolRunReexecutesFailedToolAndRestoresRunDetail(t *testing.
 	}
 }
 
+func TestServiceRetryToolRunReopensPendingApprovalWithoutExecuting(t *testing.T) {
+	now := time.Now().UTC()
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+			Tools: []Tool{
+				{Name: "write_file", Type: "builtin", Enabled: true, RequiresApproval: true},
+			},
+		},
+		conversation: &Conversation{
+			ID:             "conv_1",
+			AgentID:        "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+		},
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Status:         RunStatusFailed,
+			Error:          "tool write_file failed: review required",
+			IterationCount: 1,
+			ToolCallCount:  1,
+			StartedAt:      now,
+			CompletedAt:    &now,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+		toolRuns: []*ToolRun{{
+			ID:             "tool_run_failed_pending",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			ToolCallID:     "call_write",
+			ToolName:       "write_file",
+			ToolType:       "builtin",
+			RiskLevel:      ToolRiskDangerous,
+			Arguments:      map[string]any{"path": "/tmp/forbidden", "content": "no"},
+			Status:         ToolRunStatusFailed,
+			ApprovalStatus: ApprovalStatusPending,
+			AttemptCount:   0,
+			Error:          "review required",
+			StartedAt:      &now,
+			CompletedAt:    &now,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+	}
+	service := NewService(store, &fakeGateway{})
+	session := auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}}
+
+	reopened, err := service.RetryToolRun(context.Background(), session, "tool_run_failed_pending")
+	if err != nil {
+		t.Fatalf("RetryToolRun returned error: %v", err)
+	}
+	if reopened.Status != ToolRunStatusPendingApproval || reopened.ApprovalStatus != ApprovalStatusPending {
+		t.Fatalf("expected retry to reopen pending approval, got %+v", reopened)
+	}
+	if reopened.AttemptCount != 0 || reopened.ResultContent != "" || reopened.Error != "" || reopened.CompletedAt != nil {
+		t.Fatalf("pending-approval retry should clear stale evidence without executing, got %+v", reopened)
+	}
+	if len(store.messages) != 0 {
+		t.Fatalf("pending-approval retry should not create tool messages before approval, got %+v", store.messages)
+	}
+	if store.runs[0].Status != RunStatusPendingApproval || store.runs[0].Error != "" || store.runs[0].CompletedAt != nil {
+		t.Fatalf("expected run to reopen pending approval, got %+v", store.runs[0])
+	}
+}
+
 func TestRunWithToolsPersistsFailedToolRun(t *testing.T) {
 	store := &fakeStore{
 		agent: &Agent{

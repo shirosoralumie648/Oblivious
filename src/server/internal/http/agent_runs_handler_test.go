@@ -1096,6 +1096,72 @@ func TestAgentRunsHandlerRetryToolAcceptsSnakeCaseID(t *testing.T) {
 	}
 }
 
+func TestAgentRunsHandlerRetryToolReopensPendingApprovalDetail(t *testing.T) {
+	now := time.Now().UTC()
+	store := newFakeAgentRunsStore()
+	store.agent = &agent.Agent{
+		ID:             "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		Model:          "test-model",
+		Tools:          []agent.Tool{{Name: "write_file", Type: "builtin", Enabled: true, RequiresApproval: true}},
+	}
+	store.runs = []*agent.Run{{
+		ID:             "run_1",
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		Status:         agent.RunStatusFailed,
+		Error:          "approval required",
+		CompletedAt:    &now,
+	}}
+	store.toolRuns = []*agent.ToolRun{{
+		ID:             "tool_run_failed_pending",
+		OrganizationID: "org_1",
+		RunID:          "run_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		ToolCallID:     "call_write",
+		ToolName:       "write_file",
+		ToolType:       "builtin",
+		RiskLevel:      agent.ToolRiskDangerous,
+		Arguments:      map[string]any{"path": "/tmp/forbidden", "content": "no"},
+		Status:         agent.ToolRunStatusFailed,
+		ApprovalStatus: agent.ApprovalStatusPending,
+		AttemptCount:   0,
+		Error:          "approval required",
+		CompletedAt:    &now,
+	}}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{}))
+
+	recorder := httptest.NewRecorder()
+	handler.retryTool(recorder, newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/retry-tool", `{"toolRunId":"tool_run_failed_pending"}`), "run_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Data agentRunResponse `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Data.Run == nil || response.Data.Run.Status != agent.RunStatusPendingApproval || response.Data.Run.Error != "" || response.Data.Run.CompletedAt != nil {
+		t.Fatalf("expected run detail to reopen pending approval, got %+v", response.Data.Run)
+	}
+	if len(response.Data.ToolRuns) != 1 {
+		t.Fatalf("expected one tool run detail, got %+v", response.Data.ToolRuns)
+	}
+	toolRun := response.Data.ToolRuns[0]
+	if toolRun.ID != "tool_run_failed_pending" || toolRun.Status != agent.ToolRunStatusPendingApproval || toolRun.ApprovalStatus != agent.ApprovalStatusPending || toolRun.AttemptCount != 0 || toolRun.Error != "" || toolRun.CompletedAt != nil {
+		t.Fatalf("expected failed pending approval tool to reopen without execution, got %+v", toolRun)
+	}
+	if len(response.Data.Messages) != 0 {
+		t.Fatalf("pending approval retry should not emit tool messages, got %+v", response.Data.Messages)
+	}
+}
+
 func TestAgentRunsHandlerApproveToolReturnsRecoverableRunDetail(t *testing.T) {
 	now := time.Now().UTC()
 	store := newFakeAgentRunsStore()

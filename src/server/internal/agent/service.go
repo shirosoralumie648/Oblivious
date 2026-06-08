@@ -1797,6 +1797,23 @@ func (s *Service) RetryToolRun(ctx context.Context, session auth.Session, toolRu
 	if toolRun.Status != ToolRunStatusFailed {
 		return nil, fmt.Errorf("tool run is not failed")
 	}
+	if toolRun.ApprovalStatus == ApprovalStatusPending {
+		if _, err := s.store.UpdateRun(ctx, session.OrganizationID, toolRun.RunID, UpdateRunRequest{
+			Status:           stringPointer(RunStatusPendingApproval),
+			Error:            stringPointer(""),
+			ClearCompletedAt: true,
+		}); err != nil {
+			return nil, err
+		}
+		empty := ""
+		return s.store.UpdateToolRun(ctx, session.OrganizationID, toolRunID, UpdateToolRunRequest{
+			Status:           stringPointer(ToolRunStatusPendingApproval),
+			ApprovalStatus:   stringPointer(ApprovalStatusPending),
+			ResultContent:    &empty,
+			Error:            &empty,
+			ClearCompletedAt: true,
+		})
+	}
 	now := time.Now().UTC()
 	empty := ""
 	toolRun, err = s.store.UpdateToolRun(ctx, session.OrganizationID, toolRunID, UpdateToolRunRequest{
