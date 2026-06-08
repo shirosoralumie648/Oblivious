@@ -249,6 +249,11 @@ required_paths=(
   "/api/v1/admin/observability/alerts/{alertKey}/resolve"
   "/api/v1/admin/observability/alerts/{alertKey}/deliveries"
   "/api/v1/admin/observability/recovery-actions"
+  "/api/v1/admin/reviews"
+  "/api/v1/admin/reviews/sla/enforce"
+  "/api/v1/admin/reviews/{agentId}/approve"
+  "/api/v1/admin/reviews/{agentId}/reject"
+  "/api/v1/admin/reviews/{agentId}/needs-changes"
 )
 
 for path in "${required_paths[@]}"; do

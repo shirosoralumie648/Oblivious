@@ -1682,6 +1682,135 @@ components:
               items:
                 $ref: "#/components/schemas/WorkflowConversationTriggerMatch"
 
+    MarketplaceReviewSLA:
+      type: object
+      properties:
+        submittedAt:
+          type: string
+          format: date-time
+        automatedReviewDeadlineAt:
+          type: string
+          format: date-time
+        automatedReviewSlaMinutes:
+          type: integer
+        automatedReviewSlaStatus:
+          type: string
+          enum: [within_sla, due_soon, overdue]
+        manualDeadlineAt:
+          type: string
+          format: date-time
+        manualSlaHours:
+          type: integer
+        manualSlaStatus:
+          type: string
+          enum: [within_sla, due_soon, overdue]
+        minutesUntilDeadline:
+          type: integer
+        vipPublisher:
+          type: boolean
+        publisherTier:
+          type: string
+        publisherTierSource:
+          type: string
+
+    MarketplacePublishedAgent:
+      type: object
+      properties:
+        id:
+          type: string
+        organizationId:
+          type: string
+        ownerID:
+          type: string
+        ownerName:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        iconURL:
+          type: string
+        categoryID:
+          type: string
+        categoryName:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        tools:
+          type: string
+          description: JSON string containing the published tool manifest.
+        exampleConversations:
+          type: string
+          description: JSON string containing example conversations.
+        systemPrompt:
+          type: string
+        visibility:
+          type: string
+          enum: [public, private, unlisted]
+        status:
+          type: string
+          enum: [draft, pending_review, approved, rejected, needs_changes, takedown]
+        reviewReason:
+          type: string
+        pricingType:
+          type: string
+          enum: [free, one_time, subscription]
+        pricingAmount:
+          type: number
+          format: double
+        currentVersion:
+          type: string
+        installCount:
+          type: integer
+        ratingAvg:
+          type: number
+          format: double
+        ratingCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        publisherReviewTier:
+          type: string
+        reviewSLA:
+          $ref: "#/components/schemas/MarketplaceReviewSLA"
+
+    AdminReviewListResponse:
+      type: object
+      properties:
+        reviews:
+          type: array
+          items:
+            $ref: "#/components/schemas/MarketplacePublishedAgent"
+        total:
+          type: integer
+
+    MarketplaceReviewDecisionRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+
+    MarketplaceReviewStatusResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [approved, rejected, needs_changes]
+
+    MarketplaceReviewSLAEnforcementResult:
+      type: object
+      properties:
+        scanned:
+          type: integer
+        alerted:
+          type: integer
+
     UsageSummary:
       type: object
       properties:
@@ -8644,6 +8773,200 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+
+  /api/v1/admin/reviews:
+    get:
+      summary: 管理员列出 Marketplace 审核队列
+      operationId: listAdminMarketplaceReviews
+      tags: [Admin, Marketplace]
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, pending_review]
+          description: 当前实现只返回待审核队列；其他状态返回空列表。
+      responses:
+        "200":
+          description: 待审核 Marketplace Agent 列表和 SLA 元数据
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminReviewListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 当前用户不是管理员
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+
+  /api/v1/admin/reviews/sla/enforce:
+    post:
+      summary: 管理员触发 Marketplace 审核 SLA 扫描
+      operationId: enforceAdminMarketplaceReviewSLA
+      tags: [Admin, Marketplace]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: SLA 扫描和告警数量
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplaceReviewSLAEnforcementResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 当前用户不是管理员
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+
+  /api/v1/admin/reviews/{agentId}/approve:
+    parameters:
+      - name: agentId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      summary: 管理员批准 Marketplace Agent
+      operationId: approveAdminMarketplaceReview
+      tags: [Admin, Marketplace]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      responses:
+        "200":
+          description: Agent 已批准
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplaceReviewStatusResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 当前用户不是管理员
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+
+  /api/v1/admin/reviews/{agentId}/reject:
+    parameters:
+      - name: agentId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      summary: 管理员拒绝 Marketplace Agent
+      operationId: rejectAdminMarketplaceReview
+      tags: [Admin, Marketplace]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarketplaceReviewDecisionRequest"
+      responses:
+        "200":
+          description: Agent 已拒绝
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplaceReviewStatusResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 当前用户不是管理员
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+
+  /api/v1/admin/reviews/{agentId}/needs-changes:
+    parameters:
+      - name: agentId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      summary: 管理员要求 Marketplace Agent 发布者修改
+      operationId: requestChangesForAdminMarketplaceReview
+      tags: [Admin, Marketplace]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarketplaceReviewDecisionRequest"
+      responses:
+        "200":
+          description: Agent 已标记为需要修改
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplaceReviewStatusResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 当前用户不是管理员
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
 
   /api/v1/admin/marketplace/agents/{agentId}/takedown:
     parameters:
