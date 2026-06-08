@@ -207,6 +207,61 @@ func TestRouteSurfaceAdminRoutesRequireAdmin(t *testing.T) {
 	}
 }
 
+func TestRouteSurfaceAdminSubRoutesRequireAdminWithoutDatabase(t *testing.T) {
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{})
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{"billing summary", stdhttp.MethodGet, "/api/v1/admin/billing/summary"},
+		{"billing sessions", stdhttp.MethodGet, "/api/v1/admin/billing/sessions"},
+		{"billing payment intents", stdhttp.MethodGet, "/api/v1/admin/billing/payment-intents"},
+		{"billing webhook events", stdhttp.MethodGet, "/api/v1/admin/billing/webhook-events"},
+		{"billing subscriptions", stdhttp.MethodGet, "/api/v1/admin/billing/subscriptions"},
+		{"billing topups", stdhttp.MethodGet, "/api/v1/admin/billing/topups"},
+		{"billing invoices", stdhttp.MethodGet, "/api/v1/admin/billing/invoices"},
+		{"billing refunds", stdhttp.MethodGet, "/api/v1/admin/billing/refunds"},
+		{"billing settlements", stdhttp.MethodGet, "/api/v1/admin/billing/settlements"},
+		{"billing payouts", stdhttp.MethodGet, "/api/v1/admin/billing/payouts"},
+		{"billing topup refund", stdhttp.MethodPost, "/api/v1/admin/billing/topups/topup_1/refund"},
+		{"billing payout paid", stdhttp.MethodPost, "/api/v1/admin/billing/payouts/payout_1/paid"},
+		{"observability alert routing get", stdhttp.MethodGet, "/api/v1/admin/observability/alert-routing"},
+		{"observability alert routing update", stdhttp.MethodPut, "/api/v1/admin/observability/alert-routing"},
+		{"observability providers list", stdhttp.MethodGet, "/api/v1/admin/observability/alert-providers"},
+		{"observability providers create", stdhttp.MethodPost, "/api/v1/admin/observability/alert-providers"},
+		{"observability provider update", stdhttp.MethodPut, "/api/v1/admin/observability/alert-providers/provider_1"},
+		{"observability provider test", stdhttp.MethodPost, "/api/v1/admin/observability/alert-providers/provider_1/test"},
+		{"observability alerts list", stdhttp.MethodGet, "/api/v1/admin/observability/alerts"},
+		{"observability alert get", stdhttp.MethodGet, "/api/v1/admin/observability/alerts/relay-backlog"},
+		{"observability alert acknowledge", stdhttp.MethodPost, "/api/v1/admin/observability/alerts/relay-backlog/acknowledge"},
+		{"observability alert resolve", stdhttp.MethodPost, "/api/v1/admin/observability/alerts/relay-backlog/resolve"},
+		{"observability alert deliveries", stdhttp.MethodGet, "/api/v1/admin/observability/alerts/relay-backlog/deliveries"},
+		{"observability recovery actions", stdhttp.MethodGet, "/api/v1/admin/observability/recovery-actions"},
+		{"marketplace takedown", stdhttp.MethodPost, "/api/v1/admin/marketplace/agents/agent_1/takedown"},
+		{"marketplace reinstate", stdhttp.MethodPost, "/api/v1/admin/marketplace/agents/agent_1/reinstate"},
+		{"marketplace abuse reports", stdhttp.MethodGet, "/api/v1/admin/marketplace/abuse-reports"},
+		{"marketplace abuse resolve", stdhttp.MethodPost, "/api/v1/admin/marketplace/abuse-reports/report_1/resolve"},
+		{"marketplace abuse dismiss", stdhttp.MethodPost, "/api/v1/admin/marketplace/abuse-reports/report_1/dismiss"},
+		{"marketplace review sla enforce", stdhttp.MethodPost, "/api/v1/admin/reviews/sla/enforce"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(`{}`))
+			request.Header.Set("Content-Type", "application/json")
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusUnauthorized {
+				t.Fatalf("expected 401 for anonymous %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
 func TestRouteSurfaceKeepsAuthRoutesPublic(t *testing.T) {
 	router := NewRouter(testConfig(), testDatabase(t))
 
