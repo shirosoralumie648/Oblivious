@@ -134,9 +134,9 @@ export type AgentPlanStepsApi = {
   executePlanStep: (runId: string, planStepId: string) => Promise<AgentPlanStep[]>;
   skipPlanStep: (runId: string, planStepId: string, reason?: string) => Promise<AgentPlanStep[]>;
   retryPlanStep: (runId: string, planStepId: string) => Promise<AgentPlanStep[]>;
-  approveToolRun: (runId: string, toolRunId: string, reason?: string) => Promise<AgentToolRun[]>;
-  rejectToolRun: (runId: string, toolRunId: string, reason?: string) => Promise<AgentToolRun[]>;
-  retryToolRun: (runId: string, toolRunId: string) => Promise<AgentToolRun[]>;
+  approveToolRun: (runId: string, toolRunId: string, reason?: string) => Promise<AgentRunDetail>;
+  rejectToolRun: (runId: string, toolRunId: string, reason?: string) => Promise<AgentRunDetail>;
+  retryToolRun: (runId: string, toolRunId: string) => Promise<AgentRunDetail>;
 };
 
 export function createAgentPlanStepsApi(client: HttpClient): AgentPlanStepsApi {
@@ -212,22 +212,22 @@ export function createAgentPlanStepsApi(client: HttpClient): AgentPlanStepsApi {
         })
       ),
     approveToolRun: async (runId, toolRunId, reason) =>
-      toolRunsFromPayload(
-        await client.post<AgentPlanStepsPayload>(`${runPath(runId)}/approve-tool`, {
+      runDetailFromPayload(
+        await client.post<AgentRunDetailPayload>(`${runPath(runId)}/approve-tool`, {
           toolRunId,
           ...(reason ? { reason } : {})
         })
       ),
     rejectToolRun: async (runId, toolRunId, reason) =>
-      toolRunsFromPayload(
-        await client.post<AgentPlanStepsPayload>(`${runPath(runId)}/reject-tool`, {
+      runDetailFromPayload(
+        await client.post<AgentRunDetailPayload>(`${runPath(runId)}/reject-tool`, {
           toolRunId,
           ...(reason ? { reason } : {})
         })
       ),
     retryToolRun: async (runId, toolRunId) =>
-      toolRunsFromPayload(
-        await client.post<AgentPlanStepsPayload>(`${runPath(runId)}/retry-tool`, {
+      runDetailFromPayload(
+        await client.post<AgentRunDetailPayload>(`${runPath(runId)}/retry-tool`, {
           toolRunId
         })
       )

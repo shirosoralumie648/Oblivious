@@ -703,86 +703,141 @@ describe('AgentPlanStepsPage', () => {
         }
       ]
     });
-    approveToolRun.mockResolvedValueOnce([
-      {
-        approvalStatus: 'approved',
-        id: 'tool_run_1',
-        riskLevel: 'dangerous',
-        runId: 'run_1',
-        status: 'running',
-        toolName: 'write_file',
-        toolType: 'builtin'
-      },
-      {
-        approvalStatus: 'not_required',
-        error: 'search endpoint timed out',
-        id: 'tool_run_2',
-        riskLevel: 'medium',
-        runId: 'run_1',
-        status: 'failed',
-        toolName: 'web_search',
-        toolType: 'mcp'
-      },
-      {
-        approvalStatus: 'pending',
-        id: 'tool_run_3',
-        riskLevel: 'dangerous',
-        runId: 'run_1',
-        status: 'pending_approval',
-        toolName: 'delete_file',
-        toolType: 'builtin'
-      }
-    ]);
-    rejectToolRun.mockResolvedValueOnce([
-      {
-        approvalStatus: 'approved',
-        id: 'tool_run_1',
-        riskLevel: 'dangerous',
-        runId: 'run_1',
-        status: 'running',
-        toolName: 'write_file',
-        toolType: 'builtin'
-      },
-      {
-        approvalStatus: 'not_required',
-        error: 'search endpoint timed out',
-        id: 'tool_run_2',
-        riskLevel: 'medium',
-        runId: 'run_1',
-        status: 'failed',
-        toolName: 'web_search',
-        toolType: 'mcp'
-      },
-      {
-        approvalStatus: 'rejected',
-        id: 'tool_run_3',
-        riskLevel: 'dangerous',
-        runId: 'run_1',
-        status: 'rejected',
-        toolName: 'delete_file',
-        toolType: 'builtin'
-      }
-    ]);
-    retryToolRun.mockResolvedValueOnce([
-      {
-        approvalStatus: 'approved',
-        id: 'tool_run_1',
-        riskLevel: 'dangerous',
-        runId: 'run_1',
-        status: 'running',
-        toolName: 'write_file',
-        toolType: 'builtin'
-      },
-      {
-        approvalStatus: 'not_required',
-        id: 'tool_run_2',
-        riskLevel: 'medium',
-        runId: 'run_1',
-        status: 'running',
-        toolName: 'web_search',
-        toolType: 'mcp'
-      }
-    ]);
+    approveToolRun.mockResolvedValueOnce({
+      id: 'run_1',
+      iterationCount: 3,
+      mode: 'planning',
+      planSteps: [
+        {
+          approvalStatus: 'not_required',
+          id: 'step_done',
+          index: 1,
+          resultContent: 'Tool approval resumed the run.',
+          runId: 'run_1',
+          status: 'completed',
+          title: 'Resume after tool approval'
+        }
+      ],
+      status: 'completed',
+      toolCallCount: 3,
+      toolRuns: [
+        {
+          approvalStatus: 'approved',
+          id: 'tool_run_1',
+          riskLevel: 'dangerous',
+          runId: 'run_1',
+          status: 'completed',
+          toolName: 'write_file',
+          toolType: 'builtin'
+        },
+        {
+          approvalStatus: 'not_required',
+          error: 'search endpoint timed out',
+          id: 'tool_run_2',
+          riskLevel: 'medium',
+          runId: 'run_1',
+          status: 'failed',
+          toolName: 'web_search',
+          toolType: 'mcp'
+        },
+        {
+          approvalStatus: 'pending',
+          id: 'tool_run_3',
+          riskLevel: 'dangerous',
+          runId: 'run_1',
+          status: 'pending_approval',
+          toolName: 'delete_file',
+          toolType: 'builtin'
+        }
+      ]
+    });
+    rejectToolRun.mockResolvedValueOnce({
+      error: 'Rejected by operator',
+      id: 'run_1',
+      iterationCount: 4,
+      mode: 'planning',
+      planSteps: [
+        {
+          approvalStatus: 'not_required',
+          id: 'step_done',
+          index: 1,
+          resultContent: 'Tool approval resumed the run.',
+          runId: 'run_1',
+          status: 'completed',
+          title: 'Resume after tool approval'
+        }
+      ],
+      status: 'failed',
+      toolCallCount: 3,
+      toolRuns: [
+        {
+          approvalStatus: 'approved',
+          id: 'tool_run_1',
+          riskLevel: 'dangerous',
+          runId: 'run_1',
+          status: 'completed',
+          toolName: 'write_file',
+          toolType: 'builtin'
+        },
+        {
+          approvalStatus: 'not_required',
+          error: 'search endpoint timed out',
+          id: 'tool_run_2',
+          riskLevel: 'medium',
+          runId: 'run_1',
+          status: 'failed',
+          toolName: 'web_search',
+          toolType: 'mcp'
+        },
+        {
+          approvalStatus: 'rejected',
+          id: 'tool_run_3',
+          riskLevel: 'dangerous',
+          runId: 'run_1',
+          status: 'rejected',
+          toolName: 'delete_file',
+          toolType: 'builtin'
+        }
+      ]
+    });
+    retryToolRun.mockResolvedValueOnce({
+      id: 'run_1',
+      iterationCount: 5,
+      mode: 'planning',
+      planSteps: [
+        {
+          approvalStatus: 'not_required',
+          id: 'step_verify',
+          index: 1,
+          resultContent: 'Retry resumed search and verified the result.',
+          runId: 'run_1',
+          status: 'completed',
+          title: 'Verify retried search'
+        }
+      ],
+      status: 'running',
+      toolCallCount: 4,
+      toolRuns: [
+        {
+          approvalStatus: 'approved',
+          id: 'tool_run_1',
+          riskLevel: 'dangerous',
+          runId: 'run_1',
+          status: 'completed',
+          toolName: 'write_file',
+          toolType: 'builtin'
+        },
+        {
+          approvalStatus: 'not_required',
+          id: 'tool_run_2',
+          riskLevel: 'medium',
+          runId: 'run_1',
+          status: 'running',
+          toolName: 'web_search',
+          toolType: 'mcp'
+        }
+      ]
+    });
 
     renderDirectPage();
 
@@ -805,7 +860,10 @@ describe('AgentPlanStepsPage', () => {
       )
     );
     await waitFor(() => {
-      expect(within(screen.getByLabelText('Tool run write_file')).getByText('running')).toBeInTheDocument();
+      expect(screen.getByText('Status: completed')).toBeInTheDocument();
+      expect(screen.getByLabelText('Agent run execution controls')).toHaveTextContent('Iterations 3');
+      expect(screen.getByRole('heading', { name: 'Resume after tool approval' })).toBeInTheDocument();
+      expect(within(screen.getByLabelText('Tool run write_file')).getByText('completed')).toBeInTheDocument();
     });
 
     fireEvent.change(screen.getByLabelText('Operator decision reason for delete_file'), {
@@ -821,6 +879,8 @@ describe('AgentPlanStepsPage', () => {
       )
     );
     await waitFor(() => {
+      expect(screen.getByText('Status: failed')).toBeInTheDocument();
+      expect(screen.getByLabelText('Agent run execution controls')).toHaveTextContent('Stop reason Rejected by operator');
       expect(within(screen.getByLabelText('Tool run delete_file')).getByText('rejected')).toBeInTheDocument();
     });
 
@@ -828,6 +888,8 @@ describe('AgentPlanStepsPage', () => {
 
     await waitFor(() => expect(retryToolRun).toHaveBeenCalledWith('run_1', 'tool_run_2'));
     await waitFor(() => {
+      expect(screen.getByText('Status: running')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Verify retried search' })).toBeInTheDocument();
       expect(within(screen.getByLabelText('Tool run web_search')).getByText('running')).toBeInTheDocument();
     });
   });

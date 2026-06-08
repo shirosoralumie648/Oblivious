@@ -292,28 +292,72 @@ describe('createAgentPlanStepsApi', () => {
     const post = vi.fn()
       .mockResolvedValueOnce({
         data: {
-          toolRuns: [{ approvalStatus: 'approved', id: 'tool_run_1', runId: 'run_1', status: 'running', toolName: 'execute_code' }]
+          planSteps: [{ id: 'step_1', runId: 'run_1', status: 'completed', title: 'Inspect workspace' }],
+          run: {
+            id: 'run_1',
+            iterationCount: 3,
+            mode: 'planning',
+            status: 'completed',
+            toolCallCount: 1
+          },
+          toolRuns: [{ approvalStatus: 'approved', id: 'tool_run_1', runId: 'run_1', status: 'completed', toolName: 'execute_code' }]
         }
       })
       .mockResolvedValueOnce({
         data: {
+          planSteps: [],
+          run: {
+            error: 'Rejected by operator',
+            id: 'run_1',
+            iterationCount: 2,
+            mode: 'planning',
+            status: 'failed',
+            toolCallCount: 1
+          },
           toolRuns: [{ approvalStatus: 'rejected', id: 'tool_run_3', runId: 'run_1', status: 'rejected', toolName: 'write_file' }]
         }
       })
       .mockResolvedValueOnce({
+        id: 'run_1',
+        iterationCount: 4,
+        mode: 'react',
+        planSteps: [],
+        status: 'running',
+        toolCallCount: 2,
         toolRuns: [{ approvalStatus: 'not_required', id: 'tool_run_2', runId: 'run_1', status: 'running', toolName: 'web_search' }]
       });
     const api = createAgentPlanStepsApi(createClient({ post }));
 
-    await expect(api.approveToolRun('run_1', 'tool_run_1', 'Reviewed command')).resolves.toEqual([
-      { approvalStatus: 'approved', id: 'tool_run_1', runId: 'run_1', status: 'running', toolName: 'execute_code' }
-    ]);
-    await expect(api.rejectToolRun('run_1', 'tool_run_3', 'Unsafe command')).resolves.toEqual([
-      { approvalStatus: 'rejected', id: 'tool_run_3', runId: 'run_1', status: 'rejected', toolName: 'write_file' }
-    ]);
-    await expect(api.retryToolRun('run_1', 'tool_run_2')).resolves.toEqual([
-      { approvalStatus: 'not_required', id: 'tool_run_2', runId: 'run_1', status: 'running', toolName: 'web_search' }
-    ]);
+    await expect(api.approveToolRun('run_1', 'tool_run_1', 'Reviewed command')).resolves.toEqual({
+      error: undefined,
+      id: 'run_1',
+      iterationCount: 3,
+      mode: 'planning',
+      planSteps: [{ id: 'step_1', runId: 'run_1', status: 'completed', title: 'Inspect workspace' }],
+      status: 'completed',
+      toolCallCount: 1,
+      toolRuns: [{ approvalStatus: 'approved', id: 'tool_run_1', runId: 'run_1', status: 'completed', toolName: 'execute_code' }]
+    });
+    await expect(api.rejectToolRun('run_1', 'tool_run_3', 'Unsafe command')).resolves.toEqual({
+      error: 'Rejected by operator',
+      id: 'run_1',
+      iterationCount: 2,
+      mode: 'planning',
+      planSteps: [],
+      status: 'failed',
+      toolCallCount: 1,
+      toolRuns: [{ approvalStatus: 'rejected', id: 'tool_run_3', runId: 'run_1', status: 'rejected', toolName: 'write_file' }]
+    });
+    await expect(api.retryToolRun('run_1', 'tool_run_2')).resolves.toEqual({
+      error: undefined,
+      id: 'run_1',
+      iterationCount: 4,
+      mode: 'react',
+      planSteps: [],
+      status: 'running',
+      toolCallCount: 2,
+      toolRuns: [{ approvalStatus: 'not_required', id: 'tool_run_2', runId: 'run_1', status: 'running', toolName: 'web_search' }]
+    });
 
     expect(post).toHaveBeenNthCalledWith(1, '/api/v1/agent/runs/run_1/approve-tool', {
       reason: 'Reviewed command',

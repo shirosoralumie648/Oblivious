@@ -354,7 +354,7 @@ export function AgentPlanStepsPage() {
           : action === 'reject'
             ? await api.rejectToolRun(runId, toolRun.id, decisionReason)
           : await api.retryToolRun(runId, toolRun.id);
-      setToolRuns(refreshed);
+      applyRunDetail(refreshed);
       if (action !== 'retry') {
         setToolRunDecisionReasons((current) => {
           const next = { ...current };

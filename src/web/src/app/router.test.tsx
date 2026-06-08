@@ -149,9 +149,10 @@ vi.mock('../features/publishingChannels/publishingChannelsApi', () => ({
 vi.mock('../features/agents/planStepsApi', () => ({
   createAgentPlanStepsApi: () => ({
     approvePlanStep: () => Promise.resolve([]),
-    approveToolRun: () => Promise.resolve([]),
+    approveToolRun: () => Promise.resolve({ id: 'run_1', planSteps: [], status: 'running', toolRuns: [] }),
     getRunDetail: () => Promise.resolve({ id: 'run_1', planSteps: [], status: 'running', toolRuns: [] }),
-    retryToolRun: () => Promise.resolve([]),
+    rejectToolRun: () => Promise.resolve({ id: 'run_1', planSteps: [], status: 'failed', toolRuns: [] }),
+    retryToolRun: () => Promise.resolve({ id: 'run_1', planSteps: [], status: 'running', toolRuns: [] }),
     executePlanStep: () => Promise.resolve([])
   })
 }));
