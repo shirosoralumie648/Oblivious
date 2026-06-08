@@ -42,11 +42,26 @@ func (c hostedCheckoutCreator) CreateCheckoutSession(_ context.Context, _ stripe
 	query.Set("amount", fmt.Sprintf("%.2f", req.PlanPrice))
 	query.Set("currency", currency)
 	query.Set("session_id", sessionID)
+	addHostedCheckoutMarketplaceMetadata(query, req)
 	base.RawQuery = query.Encode()
 	return &stripeapi.CheckoutSession{
 		ID:  sessionID,
 		URL: base.String(),
 	}, nil
+}
+
+func addHostedCheckoutMarketplaceMetadata(query url.Values, req stripebilling.CheckoutSessionRequest) {
+	for key, value := range map[string]string{
+		"marketplace_order_id":      req.MarketplaceOrderID,
+		"agent_id":                  req.AgentID,
+		"version_id":                req.VersionID,
+		"publisher_user_id":         req.PublisherUserID,
+		"publisher_organization_id": req.PublisherOrganizationID,
+	} {
+		if strings.TrimSpace(value) != "" {
+			query.Set(key, strings.TrimSpace(value))
+		}
+	}
 }
 
 func hostedCheckoutSessionID(provider string, paymentIntentID string) string {

@@ -38,13 +38,18 @@ func TestBuildPaymentCheckoutProvidersEnablesDomesticHostedProviders(t *testing.
 		SuccessURL: "https://app.oblivious.test/billing/success",
 		CancelURL:  "https://app.oblivious.test/billing/cancel",
 	}, stripebilling.CheckoutSessionRequest{
-		OrganizationID:  "org_domestic",
-		UserID:          "user_domestic",
-		PaymentIntentID: "pi_domestic",
-		PlanName:        "Quota top-up",
-		PlanPrice:       25,
-		Currency:        "cny",
-		CheckoutKind:    "topup",
+		OrganizationID:          "org_domestic",
+		UserID:                  "user_domestic",
+		PaymentIntentID:         "pi_domestic",
+		PlanName:                "Quota top-up",
+		PlanPrice:               25,
+		Currency:                "cny",
+		CheckoutKind:            "marketplace_install",
+		MarketplaceOrderID:      "order_domestic",
+		AgentID:                 "agent_paid",
+		VersionID:               "version_paid_1",
+		PublisherUserID:         "publisher_1",
+		PublisherOrganizationID: "org_publisher",
 	})
 	if err != nil {
 		t.Fatalf("create alipay hosted checkout session: %v", err)
@@ -62,5 +67,17 @@ func TestBuildPaymentCheckoutProvidersEnablesDomesticHostedProviders(t *testing.
 	}
 	if query.Get("provider") != "alipay" || query.Get("currency") != "cny" || query.Get("amount") != "25.00" || query.Get("payment_intent_id") != "pi_domestic" {
 		t.Fatalf("expected alipay checkout query to carry provider/currency/amount/intent, got %s", session.URL)
+	}
+	for key, want := range map[string]string{
+		"checkout_kind":             "marketplace_install",
+		"marketplace_order_id":      "order_domestic",
+		"agent_id":                  "agent_paid",
+		"version_id":                "version_paid_1",
+		"publisher_user_id":         "publisher_1",
+		"publisher_organization_id": "org_publisher",
+	} {
+		if got := query.Get(key); got != want {
+			t.Fatalf("expected alipay checkout query %s=%q, got %q in %s", key, want, got, session.URL)
+		}
 	}
 }
