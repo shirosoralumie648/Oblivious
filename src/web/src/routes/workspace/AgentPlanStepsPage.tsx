@@ -70,6 +70,10 @@ function canRetryToolRun(toolRun: AgentToolRun) {
   return toolRun.status === 'failed';
 }
 
+function defaultToolRunDecisionReason(action: 'approve' | 'reject') {
+  return action === 'approve' ? 'Approved from Agent Plan Steps' : 'Rejected from Agent Plan Steps';
+}
+
 export function AgentPlanStepsPage() {
   const { runId = '' } = useParams();
   const location = useLocation();
@@ -93,6 +97,7 @@ export function AgentPlanStepsPage() {
   const [runMode, setRunMode] = useState<string | null>(null);
   const [runStatus, setRunStatus] = useState<string | null>(null);
   const [runToolCallCount, setRunToolCallCount] = useState<number | null>(null);
+  const [toolRunDecisionReasons, setToolRunDecisionReasons] = useState<Record<string, string>>({});
   const [toolRuns, setToolRuns] = useState<AgentToolRun[]>([]);
 
   const refreshRunDetail = useCallback(async () => {
@@ -320,18 +325,36 @@ export function AgentPlanStepsPage() {
     setError(null);
 
     try {
+      const decisionReason =
+        action === 'retry'
+          ? undefined
+          : toolRunDecisionReasons[toolRun.id]?.trim() || defaultToolRunDecisionReason(action);
       const refreshed =
         action === 'approve'
-          ? await api.approveToolRun(runId, toolRun.id, 'Approved from Agent Plan Steps')
+          ? await api.approveToolRun(runId, toolRun.id, decisionReason)
           : action === 'reject'
-            ? await api.rejectToolRun(runId, toolRun.id, 'Rejected from Agent Plan Steps')
+            ? await api.rejectToolRun(runId, toolRun.id, decisionReason)
           : await api.retryToolRun(runId, toolRun.id);
       setToolRuns(refreshed);
+      if (action !== 'retry') {
+        setToolRunDecisionReasons((current) => {
+          const next = { ...current };
+          delete next[toolRun.id];
+          return next;
+        });
+      }
     } catch (caughtError) {
       setError(errorMessage(caughtError, `Unable to ${action} tool run.`));
     } finally {
       setOperatingToolRunId(null);
     }
+  };
+
+  const updateToolRunDecisionReason = (toolRunId: string, reason: string) => {
+    setToolRunDecisionReasons((current) => ({
+      ...current,
+      [toolRunId]: reason,
+    }));
   };
 
   return (
@@ -394,6 +417,8 @@ export function AgentPlanStepsPage() {
         {toolRuns.length === 0 ? <p className="text-sm text-[#625b4f]">No tool runs need operator action.</p> : null}
         {toolRuns.map((toolRun) => {
           const toolArguments = readableJSON(toolRun.arguments);
+          const decisionReason =
+            toolRunDecisionReasons[toolRun.id] ?? toolRun.approvalDecisionReason ?? '';
           return (
             <article
               aria-label={`Tool run ${toolRun.toolName}`}
@@ -416,6 +441,20 @@ export function AgentPlanStepsPage() {
                   ) : null}
                   {toolRun.resultContent ? <p className="text-sm leading-6 text-[#2f5f3a]">{toolRun.resultContent}</p> : null}
                   {toolRun.error ? <p className="text-sm leading-6 text-red-700">{toolRun.error}</p> : null}
+                  {toolRun.approvalDecisionReason ? (
+                    <p className="text-sm leading-6 text-[#625b4f]">Decision reason: {toolRun.approvalDecisionReason}</p>
+                  ) : null}
+                  {canApproveToolRun(toolRun) || canRejectToolRun(toolRun) ? (
+                    <label className="grid gap-1 text-sm font-medium text-[#3f3a31]">
+                      Operator decision reason for {toolRun.toolName}
+                      <textarea
+                        className="min-h-20 rounded-lg border border-[#d7d2c4] px-3 py-2 text-sm leading-5"
+                        onChange={(event) => updateToolRunDecisionReason(toolRun.id, event.target.value)}
+                        placeholder="Risk, scope, and operator judgment"
+                        value={decisionReason}
+                      />
+                    </label>
+                  ) : null}
                 </div>
 
                 <div className="flex shrink-0 flex-wrap gap-2">

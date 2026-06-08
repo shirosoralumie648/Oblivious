@@ -615,16 +615,34 @@ describe('AgentPlanStepsPage', () => {
     expect(screen.getByLabelText('Tool run web_search')).toHaveTextContent('search endpoint timed out');
     expect(screen.getByLabelText('Tool run delete_file')).toHaveTextContent('"command": "rm -rf /tmp/build"');
 
+    fireEvent.change(screen.getByLabelText('Operator decision reason for write_file'), {
+      target: { value: 'Reviewed scoped file write and path is inside the repository.' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Approve tool write_file' }));
 
-    await waitFor(() => expect(approveToolRun).toHaveBeenCalledWith('run_1', 'tool_run_1', 'Approved from Agent Plan Steps'));
+    await waitFor(() =>
+      expect(approveToolRun).toHaveBeenCalledWith(
+        'run_1',
+        'tool_run_1',
+        'Reviewed scoped file write and path is inside the repository.'
+      )
+    );
     await waitFor(() => {
       expect(within(screen.getByLabelText('Tool run write_file')).getByText('running')).toBeInTheDocument();
     });
 
+    fireEvent.change(screen.getByLabelText('Operator decision reason for delete_file'), {
+      target: { value: 'Rejecting destructive command until a safer cleanup plan is provided.' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Reject tool delete_file' }));
 
-    await waitFor(() => expect(rejectToolRun).toHaveBeenCalledWith('run_1', 'tool_run_3', 'Rejected from Agent Plan Steps'));
+    await waitFor(() =>
+      expect(rejectToolRun).toHaveBeenCalledWith(
+        'run_1',
+        'tool_run_3',
+        'Rejecting destructive command until a safer cleanup plan is provided.'
+      )
+    );
     await waitFor(() => {
       expect(within(screen.getByLabelText('Tool run delete_file')).getByText('rejected')).toBeInTheDocument();
     });
