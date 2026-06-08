@@ -1564,16 +1564,25 @@ func (s *Service) RetryPlanStep(ctx context.Context, session auth.Session, planS
 	}
 
 	retryStatus := PlanStepStatusPending
+	retryApprovalStatus := ApprovalStatusPending
 	if step.ApprovalStatus == ApprovalStatusApproved {
 		retryStatus = PlanStepStatusApproved
+		retryApprovalStatus = ApprovalStatusApproved
+	} else if step.ApprovalStatus == ApprovalStatusNotRequired {
+		retryApprovalStatus = ApprovalStatusNotRequired
 	}
-	if _, err := s.store.UpdatePlanStep(ctx, session.OrganizationID, planStepID, UpdatePlanStepRequest{
+	reopened, err := s.store.UpdatePlanStep(ctx, session.OrganizationID, planStepID, UpdatePlanStepRequest{
 		Status:           stringPointer(retryStatus),
+		ApprovalStatus:   stringPointer(retryApprovalStatus),
 		ResultContent:    stringPointer(""),
 		Error:            stringPointer(""),
 		ClearCompletedAt: true,
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, err
+	}
+	if retryStatus != PlanStepStatusApproved && step.ApprovalStatus != ApprovalStatusNotRequired {
+		return reopened, nil
 	}
 	return s.ExecutePlanStep(ctx, session, planStepID)
 }

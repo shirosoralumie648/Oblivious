@@ -629,6 +629,56 @@ func TestRegisterAgentRunRoutesDispatchesRetryPlanStep(t *testing.T) {
 	}
 }
 
+func TestRegisterAgentRunRoutesRetryPlanStepReopensPendingApprovalWithoutExecuting(t *testing.T) {
+	now := time.Now().UTC()
+	completedAt := now.Add(time.Minute)
+	store := newFakeAgentRunsStore()
+	store.runs = []*agent.Run{{
+		ID:             "run_1",
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		Status:         agent.RunStatusFailed,
+		Error:          "approval step failed",
+		CompletedAt:    &completedAt,
+	}}
+	store.planSteps = []*agent.PlanStep{{
+		ID:             "step_1",
+		RunID:          "run_1",
+		OrganizationID: "org_1",
+		Index:          1,
+		Title:          "Needs fresh approval",
+		Status:         agent.PlanStepStatusFailed,
+		ApprovalStatus: agent.ApprovalStatusPending,
+		ResultContent:  "stale output",
+		Error:          "old failure",
+		StartedAt:      &now,
+		CompletedAt:    &completedAt,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{reply: "should not execute"}))
+	mux := stdhttp.NewServeMux()
+	registerAgentRunRoutes(mux, passThroughAuthMiddleware{}, handler)
+
+	request := newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/retry-plan-step", `{"planStepId":"step_1"}`)
+	recorder := httptest.NewRecorder()
+
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, `"status":"pending_approval"`) || !strings.Contains(body, `"title":"Needs fresh approval"`) || !strings.Contains(body, `"approvalStatus":"pending"`) {
+		t.Fatalf("expected retry to reopen failed step for approval, got %s", body)
+	}
+	if strings.Contains(body, "should not execute") || strings.Contains(body, "old failure") || strings.Contains(body, "stale output") {
+		t.Fatalf("expected pending-approval retry to clear stale execution state without running, got %s", body)
+	}
+}
+
 func TestRegisterAgentRunRoutesDispatchesContinueBudget(t *testing.T) {
 	now := time.Now().UTC()
 	completedAt := now.Add(time.Minute)

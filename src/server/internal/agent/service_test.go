@@ -1151,6 +1151,63 @@ func TestServiceRetryPlanStepReopensRunAndExecutesFailedStep(t *testing.T) {
 	}
 }
 
+func TestServiceRetryPlanStepReopensPendingApprovalStepWithoutExecuting(t *testing.T) {
+	now := time.Now().UTC()
+	completedAt := now.Add(time.Minute)
+	store := &fakeStore{
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Status:         RunStatusFailed,
+			Error:          "approval step failed",
+			StartedAt:      now,
+			CompletedAt:    &completedAt,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+		planSteps: []*PlanStep{{
+			ID:             "step_1",
+			RunID:          "run_1",
+			OrganizationID: "org_1",
+			Index:          1,
+			Title:          "Needs fresh approval",
+			Status:         PlanStepStatusFailed,
+			ApprovalStatus: ApprovalStatusPending,
+			ResultContent:  "stale output",
+			Error:          "old failure",
+			StartedAt:      &now,
+			CompletedAt:    &completedAt,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+	}
+	executor := &fakePlanStepExecutor{resultContent: "should not run without approval"}
+	service := NewService(store, &fakeGateway{})
+	service.SetPlanStepExecutor(executor)
+	session := auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}}
+
+	reopened, err := service.RetryPlanStep(context.Background(), session, "step_1")
+	if err != nil {
+		t.Fatalf("RetryPlanStep returned error: %v", err)
+	}
+	if executor.calls != 0 {
+		t.Fatalf("expected pending approval retry not to execute, got %d calls", executor.calls)
+	}
+	if reopened.Status != PlanStepStatusPending || reopened.ApprovalStatus != ApprovalStatusPending || reopened.ResultContent != "" || reopened.Error != "" || reopened.CompletedAt != nil {
+		t.Fatalf("expected failed pending-approval step to reopen for approval, got %+v", reopened)
+	}
+	run, err := store.GetRun(context.Background(), "org_1", "run_1")
+	if err != nil {
+		t.Fatalf("GetRun returned error: %v", err)
+	}
+	if run.Status != RunStatusPendingApproval || run.Error != "" || run.CompletedAt != nil {
+		t.Fatalf("expected run to reopen pending approval, got %+v", run)
+	}
+}
+
 func TestServiceRetryPlanStepRejectsNonFailedStep(t *testing.T) {
 	now := time.Now().UTC()
 	store := &fakeStore{
