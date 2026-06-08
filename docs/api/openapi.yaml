@@ -8856,7 +8856,12 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/WebhookReceivedResponse"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/WebhookReceivedResponse"
         "400":
           description: 签名或 payload 无效
           content:

@@ -70,6 +70,7 @@ gitignore_file="$repo_root/.gitignore"
 package_file="$repo_root/package.json"
 readme_file="$repo_root/README.md"
 api_file="$repo_root/docs/API.md"
+openapi_file="$repo_root/docs/api/openapi.yaml"
 contracts_file="$repo_root/docs/architecture/current-system-contracts.md"
 release_checklist_file="$repo_root/docs/release/rc-checklist.md"
 commercial_gates_file="$repo_root/docs/release/commercial-gates.md"
@@ -840,6 +841,10 @@ assert_file_contains "$check_script" 'pnpm --dir "$web_dir" build'
 assert_file_contains "$check_script" "docs/architecture/current-system-contracts.md"
 assert_file_contains "$check_script" "config/.env.example"
 assert_file_contains "$check_script" "go test ./... -count=1"
+assert_file_contains "$repo_root/scripts/verify-openapi-contract.sh" "require_api_json_responses_use_envelope"
+assert_file_contains "$repo_root/scripts/verify-openapi-contract.sh" '#/components/schemas/Envelope'
+assert_file_contains "$repo_root/docs/reports/2026-06-07-fusion-spec-completion-matrix.md" "does not resolve to `#/components/schemas/Envelope`"
+assert_file_contains "$openapi_file" "/api/v1/billing/stripe/webhook"
 
 assert_file_contains "$test_script" "Running server unit tests."
 assert_file_contains "$test_script" "Running server integration tests."

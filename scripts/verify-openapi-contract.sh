@@ -26,6 +26,69 @@ require_public_security_empty() {
   ' "$openapi_file" "$path"
 }
 
+require_api_json_responses_use_envelope() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+
+    def resolve_ref(spec, ref)
+      ref.sub(%r{\A#/}, "").split("/").reduce(spec) { |node, part| node.fetch(part) }
+    end
+
+    def schema_refs_envelope?(spec, schema, seen = {})
+      return false unless schema.is_a?(Hash) || schema.is_a?(Array)
+      return schema.any? { |item| schema_refs_envelope?(spec, item, seen) } if schema.is_a?(Array)
+
+      ref = schema["$ref"]
+      if ref
+        return true if ref == "#/components/schemas/Envelope"
+        return false if seen[ref]
+
+        seen[ref] = true
+        return schema_refs_envelope?(spec, resolve_ref(spec, ref), seen)
+      end
+
+      schema.any? { |_key, value| schema_refs_envelope?(spec, value, seen.dup) }
+    end
+
+    def response_refs_envelope?(spec, response, seen = {})
+      ref = response["$ref"] if response.is_a?(Hash)
+      if ref
+        return false if seen[ref]
+
+        seen[ref] = true
+        return response_refs_envelope?(spec, resolve_ref(spec, ref), seen)
+      end
+
+      json = response.fetch("content", {}).fetch("application/json", nil)
+      return true unless json
+
+      schema_refs_envelope?(spec, json["schema"])
+    end
+
+    missing = []
+    spec.fetch("paths", {}).each do |path, operations|
+      next unless path.start_with?("/api/")
+
+      operations.each do |method, operation|
+        next unless operation.is_a?(Hash)
+
+        operation.fetch("responses", {}).each do |status, response|
+          next if response_refs_envelope?(spec, response)
+
+          missing << "#{method.upcase} #{path} #{status}"
+        end
+      end
+    end
+
+    unless missing.empty?
+      warn "[openapi-contract] /api JSON responses must reference #/components/schemas/Envelope:"
+      missing.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 required_paths=(
   "/api/v1/agent/tools"
   "/api/v1/agent/runs"
@@ -165,5 +228,6 @@ require_public_security_empty "/api/v1/workflows/webhooks/{organizationId}/{work
 require_public_security_empty "/api/v1/billing/stripe/webhook"
 require_public_security_empty "/api/v1/billing/alipay/webhook"
 require_public_security_empty "/api/v1/billing/wechatpay/webhook"
+require_api_json_responses_use_envelope
 
 echo "[openapi-contract] required Agent, Memory, MCP, Tenant, Notification, Observability, publishing channel, Workflow, Billing, and Marketplace paths are documented."

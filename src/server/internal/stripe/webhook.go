@@ -26,6 +26,17 @@ type LifecycleApplier interface {
 	ApplyStripeEvent(ctx context.Context, event stripeapi.Event, payload []byte) error
 }
 
+type webhookErrorPayload struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+type webhookEnvelope struct {
+	OK    bool                 `json:"ok"`
+	Data  any                  `json:"data"`
+	Error *webhookErrorPayload `json:"error"`
+}
+
 // NewWebhookHandler creates a new WebhookHandler.
 func NewWebhookHandler(ledger WebhookLedger, webhookSecret string, lifecycle ...LifecycleApplier) *WebhookHandler {
 	handler := &WebhookHandler{
@@ -49,14 +60,14 @@ func (h *WebhookHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	payload, err := io.ReadAll(r.Body)
 	if err != nil {
 		metrics.RecordStripeWebhookFailure("invalid_payload")
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid payload"})
+		writeError(w, http.StatusBadRequest, "invalid_payload", "invalid payload")
 		return
 	}
 
 	event, err := webhook.ConstructEvent(payload, r.Header.Get("Stripe-Signature"), h.secret)
 	if err != nil {
 		metrics.RecordStripeWebhookFailure("invalid_signature")
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid signature"})
+		writeError(w, http.StatusBadRequest, "invalid_signature", "invalid signature")
 		return
 	}
 
@@ -65,20 +76,20 @@ func (h *WebhookHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		metrics.RecordStripeWebhookEvent(string(event.Type), "record_failed")
 		metrics.RecordStripeWebhookFailure("ledger_record_failed")
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "record webhook event failed"})
+		writeError(w, http.StatusInternalServerError, "webhook_record_failed", "record webhook event failed")
 		return
 	}
 	if h.lifecycle != nil {
 		if err := h.lifecycle.ApplyStripeEvent(ctx, event, payload); err != nil {
 			metrics.RecordStripeWebhookEvent(string(event.Type), "lifecycle_failed")
 			metrics.RecordStripeWebhookFailure("lifecycle_apply_failed")
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "apply webhook lifecycle failed"})
+			writeError(w, http.StatusInternalServerError, "webhook_lifecycle_failed", "apply webhook lifecycle failed")
 			return
 		}
 	}
 
 	metrics.RecordStripeWebhookEvent(string(event.Type), record.Status)
-	writeJSON(w, http.StatusOK, map[string]bool{"received": true})
+	writeSuccess(w, http.StatusOK, map[string]bool{"received": true})
 }
 
 func webhookEventRecord(event stripeapi.Event, payload []byte) WebhookEvent {
@@ -132,4 +143,23 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+func writeSuccess(w http.ResponseWriter, status int, data any) {
+	writeJSON(w, status, webhookEnvelope{
+		OK:    true,
+		Data:  data,
+		Error: nil,
+	})
+}
+
+func writeError(w http.ResponseWriter, status int, code, message string) {
+	writeJSON(w, status, webhookEnvelope{
+		OK:   false,
+		Data: nil,
+		Error: &webhookErrorPayload{
+			Code:    code,
+			Message: message,
+		},
+	})
 }

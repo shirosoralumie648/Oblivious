@@ -18,6 +18,15 @@ type memoryWebhookLedger struct {
 	events map[string]WebhookEvent
 }
 
+type webhookResponseEnvelope struct {
+	OK    bool            `json:"ok"`
+	Data  json.RawMessage `json:"data"`
+	Error *struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	} `json:"error"`
+}
+
 func newMemoryWebhookLedger() *memoryWebhookLedger {
 	return &memoryWebhookLedger{events: map[string]WebhookEvent{}}
 }
@@ -42,6 +51,16 @@ func TestWebhookRejectsInvalidSignature(t *testing.T) {
 
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("expected invalid signature to return 400, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response webhookResponseEnvelope
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("expected invalid signature response envelope, got body %s: %v", recorder.Body.String(), err)
+	}
+	if response.OK {
+		t.Fatalf("expected invalid signature response ok=false, got body %s", recorder.Body.String())
+	}
+	if response.Error == nil || response.Error.Code != "invalid_signature" || response.Error.Message != "invalid signature" {
+		t.Fatalf("expected invalid_signature envelope error, got %+v with body %s", response.Error, recorder.Body.String())
 	}
 	if len(ledger.events) != 0 {
 		t.Fatalf("invalid signature should not record webhook events, got %d", len(ledger.events))
@@ -78,6 +97,22 @@ func TestWebhookRecordsSignedEventOnce(t *testing.T) {
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected signed webhook to return 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response webhookResponseEnvelope
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("expected signed webhook response envelope, got body %s: %v", recorder.Body.String(), err)
+	}
+	if !response.OK || response.Error != nil {
+		t.Fatalf("expected signed webhook response ok=true with no error, got body %s", recorder.Body.String())
+	}
+	var data struct {
+		Received bool `json:"received"`
+	}
+	if err := json.Unmarshal(response.Data, &data); err != nil {
+		t.Fatalf("expected signed webhook envelope data, got %s: %v", string(response.Data), err)
+	}
+	if !data.Received {
+		t.Fatalf("expected signed webhook response data.received=true, got body %s", recorder.Body.String())
 	}
 	event, ok := ledger.events["evt_phase17_checkout"]
 	if !ok {
