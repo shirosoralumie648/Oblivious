@@ -264,6 +264,83 @@ describe('PublishingChannelsPage', () => {
     expect(screen.getByText('Last send: recorded')).toBeInTheDocument();
   });
 
+  it('loads and displays message visibility for the manually selected channel', async () => {
+    const fallbackChannel = {
+      ...opsChannel,
+      config: { secret: 'fallback-secret', url: 'https://hooks.example/fallback' },
+      id: 'channel_2',
+      name: 'Fallback Webhook',
+      status: 'active'
+    };
+    listChannels.mockResolvedValue([opsChannel, fallbackChannel]);
+    listChannelMessages
+      .mockResolvedValueOnce([
+        {
+          created_at: '2026-06-04T12:40:00Z',
+          direction: 'outbound',
+          id: 'ops_recent_message',
+          raw_message: { text: 'ops route response' },
+          retry_count: 0,
+          status: 'recorded'
+        }
+      ])
+      .mockResolvedValueOnce([
+        {
+          created_at: '2026-06-04T12:45:00Z',
+          direction: 'inbound',
+          id: 'fallback_recent_message',
+          raw_message: { text: 'fallback user message' },
+          retry_count: 0,
+          status: 'recorded'
+        }
+      ]);
+    listFailedChannelMessages
+      .mockResolvedValueOnce([
+        {
+          created_at: '2026-06-04T12:39:00Z',
+          direction: 'outbound',
+          failure_reason: 'ops upstream 503',
+          id: 'ops_failed_message',
+          raw_message: { text: 'ops failed delivery' },
+          retry_count: 2,
+          status: 'retry_pending'
+        }
+      ])
+      .mockResolvedValueOnce([
+        {
+          created_at: '2026-06-04T12:44:00Z',
+          direction: 'outbound',
+          failure_reason: 'fallback signature mismatch',
+          id: 'fallback_failed_message',
+          raw_message: { text: 'fallback failed delivery' },
+          retry_count: 1,
+          status: 'retry_pending'
+        }
+      ]);
+
+    render(<PublishingChannelsPage />);
+
+    expect(await screen.findByText('ops_recent_message')).toBeInTheDocument();
+    expect(screen.getByText('ops_failed_message')).toBeInTheDocument();
+    expect(screen.getByText('ops upstream 503')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(listChannelMessages).toHaveBeenCalledWith('channel_1');
+      expect(listFailedChannelMessages).toHaveBeenCalledWith('channel_1');
+    });
+
+    fireEvent.change(screen.getByLabelText('Channel'), { target: { value: 'channel_2' } });
+
+    expect(await screen.findByText('fallback_recent_message')).toBeInTheDocument();
+    expect(screen.getByText('fallback_failed_message')).toBeInTheDocument();
+    expect(screen.getByText('fallback signature mismatch')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(listChannelMessages).toHaveBeenCalledWith('channel_2');
+      expect(listFailedChannelMessages).toHaveBeenCalledWith('channel_2');
+    });
+    expect(screen.queryByText('ops_recent_message')).not.toBeInTheDocument();
+    expect(screen.queryByText('ops_failed_message')).not.toBeInTheDocument();
+  });
+
   it('retries the failed queue with a fallback channel, limit, refreshed failures, and result summary', async () => {
     const fallbackChannel = {
       ...opsChannel,
