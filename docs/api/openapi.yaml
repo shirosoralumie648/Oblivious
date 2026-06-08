@@ -6492,6 +6492,72 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /api/v1/agent/runs/{runId}/skip-plan-step:
+    post:
+      summary: 跳过 Agent planning 步骤
+      operationId: skipAgentPlanStep
+      tags: [Agent]
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentPlanStepDecisionRequest"
+      responses:
+        "200":
+          description: 刷新后的 Agent run 状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AgentRunResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/agent/runs/{runId}/retry-plan-step:
+    post:
+      summary: 重试失败的 Agent planning 步骤
+      operationId: retryAgentPlanStep
+      tags: [Agent]
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentPlanStepDecisionRequest"
+      responses:
+        "200":
+          description: 刷新后的 Agent run 状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AgentRunResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   /api/v1/agent/runs/{runId}/update-plan-step:
     patch:
       summary: 调整 Agent planning 步骤草稿

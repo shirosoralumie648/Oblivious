@@ -558,6 +558,77 @@ func TestRegisterAgentRunRoutesDispatchesSkipPlanStep(t *testing.T) {
 	}
 }
 
+func TestRegisterAgentRunRoutesDispatchesRetryPlanStep(t *testing.T) {
+	now := time.Now().UTC()
+	completedAt := now.Add(time.Minute)
+	store := newFakeAgentRunsStore()
+	store.agent = &agent.Agent{
+		ID:             "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		Name:           "Implementation Agent",
+		Model:          "test-model",
+	}
+	store.conversation = &agent.Conversation{
+		ID:             "conv_1",
+		AgentID:        "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+	}
+	store.runs = []*agent.Run{{
+		ID:             "run_1",
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		Status:         agent.RunStatusFailed,
+		Error:          "old failure",
+		CompletedAt:    &completedAt,
+	}}
+	store.planSteps = []*agent.PlanStep{{
+		ID:             "step_1",
+		RunID:          "run_1",
+		OrganizationID: "org_1",
+		Index:          1,
+		Title:          "Retry patch",
+		Status:         agent.PlanStepStatusFailed,
+		ApprovalStatus: agent.ApprovalStatusApproved,
+		ResultContent:  "stale output",
+		Error:          "old failure",
+		StartedAt:      &now,
+		CompletedAt:    &completedAt,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}}
+	store.messages = []*agent.Message{{
+		ID:             "msg_1",
+		ConversationID: "conv_1",
+		OrganizationID: "org_1",
+		Role:           "user",
+		Content:        "retry the failed step",
+		CreatedAt:      now,
+	}}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{reply: "retry passed"}))
+	mux := stdhttp.NewServeMux()
+	registerAgentRunRoutes(mux, passThroughAuthMiddleware{}, handler)
+
+	request := newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/retry-plan-step", `{"planStepId":"step_1"}`)
+	recorder := httptest.NewRecorder()
+
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, `"status":"completed"`) || !strings.Contains(body, `"title":"Retry patch"`) || !strings.Contains(body, `"resultContent":"retry passed"`) {
+		t.Fatalf("expected retried plan step and completed run detail, got %s", body)
+	}
+	if strings.Contains(body, `"error":"old failure"`) {
+		t.Fatalf("expected old retry failure to be cleared, got %s", body)
+	}
+}
+
 func TestRegisterAgentRunRoutesDispatchesExecutePlanStep(t *testing.T) {
 	now := time.Now().UTC()
 	store := newFakeAgentRunsStore()

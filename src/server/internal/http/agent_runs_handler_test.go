@@ -572,6 +572,84 @@ func TestAgentRunsHandlerSkipPlanStepReturnsUpdatedRunDetail(t *testing.T) {
 	}
 }
 
+func TestAgentRunsHandlerRetryPlanStepReturnsUpdatedRunDetail(t *testing.T) {
+	now := time.Now().UTC()
+	completedAt := now.Add(time.Minute)
+	store := newFakeAgentRunsStore()
+	store.agent = &agent.Agent{
+		ID:             "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		Name:           "Implementation Agent",
+		Model:          "test-model",
+	}
+	store.conversation = &agent.Conversation{
+		ID:             "conv_1",
+		AgentID:        "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+	}
+	store.runs = []*agent.Run{{
+		ID:             "run_1",
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		Status:         agent.RunStatusTokenBudgetExceeded,
+		Error:          "token_budget_exceeded: old budget",
+		CompletedAt:    &completedAt,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}}
+	store.planSteps = []*agent.PlanStep{{
+		ID:             "step_1",
+		RunID:          "run_1",
+		OrganizationID: "org_1",
+		Index:          1,
+		Title:          "Retry implementation",
+		Status:         agent.PlanStepStatusFailed,
+		ApprovalStatus: agent.ApprovalStatusApproved,
+		ResultContent:  "stale output",
+		Error:          "old failure",
+		StartedAt:      &now,
+		CompletedAt:    &completedAt,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}}
+	store.messages = []*agent.Message{{
+		ID:             "msg_1",
+		ConversationID: "conv_1",
+		OrganizationID: "org_1",
+		Role:           "user",
+		Content:        "retry the failed step",
+		CreatedAt:      now,
+	}}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{reply: "retry passed"}))
+
+	recorder := httptest.NewRecorder()
+	handler.retryPlanStep(recorder, newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/retry-plan-step", `{"plan_step_id":"step_1"}`), "run_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Data agentRunResponse `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Data.Run == nil || response.Data.Run.Status != agent.RunStatusCompleted || response.Data.Run.Error != "" || response.Data.Run.CompletedAt == nil {
+		t.Fatalf("expected retried run to complete cleanly, got %+v", response.Data.Run)
+	}
+	if len(response.Data.PlanSteps) != 1 {
+		t.Fatalf("expected plan step detail, got %+v", response.Data)
+	}
+	step := response.Data.PlanSteps[0]
+	if step.ID != "step_1" || step.Status != agent.PlanStepStatusCompleted || step.ResultContent != "retry passed" || step.Error != "" {
+		t.Fatalf("expected retried plan step result, got %+v", step)
+	}
+}
+
 func TestAgentRunsHandlerApproveToolSelectsOnlyPendingApprovalWhenOmitted(t *testing.T) {
 	store := newFakeAgentRunsStore()
 	store.agent = &agent.Agent{
@@ -1203,7 +1281,9 @@ func (s *fakeAgentRunsStore) UpdateRun(ctx context.Context, organizationID, id s
 	if req.Error != nil {
 		run.Error = *req.Error
 	}
-	if req.CompletedAt != nil {
+	if req.ClearCompletedAt {
+		run.CompletedAt = nil
+	} else if req.CompletedAt != nil {
 		run.CompletedAt = req.CompletedAt
 	}
 	run.UpdatedAt = time.Now().UTC()

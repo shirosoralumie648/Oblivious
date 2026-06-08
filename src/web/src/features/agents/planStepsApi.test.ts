@@ -119,6 +119,23 @@ describe('createAgentPlanStepsApi', () => {
     });
   });
 
+  it('retries a failed run plan step and returns refreshed plan steps', async () => {
+    const post = vi.fn().mockResolvedValue({
+      data: {
+        planSteps: [{ id: 'step_1', resultContent: 'done', runId: 'run_1', status: 'completed', title: 'Inspect workspace' }]
+      }
+    });
+    const api = createAgentPlanStepsApi(createClient({ post }));
+
+    await expect(api.retryPlanStep('run_1', 'step_1')).resolves.toEqual([
+      { id: 'step_1', resultContent: 'done', runId: 'run_1', status: 'completed', title: 'Inspect workspace' }
+    ]);
+
+    expect(post).toHaveBeenCalledWith('/api/v1/agent/runs/run_1/retry-plan-step', {
+      planStepId: 'step_1'
+    });
+  });
+
   it('updates a run plan step draft through the agent run endpoint', async () => {
     const request = vi.fn().mockResolvedValue({
       data: {

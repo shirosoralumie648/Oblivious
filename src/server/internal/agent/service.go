@@ -1547,6 +1547,37 @@ func (s *Service) SkipPlanStep(ctx context.Context, session auth.Session, planSt
 	return skipped, nil
 }
 
+func (s *Service) RetryPlanStep(ctx context.Context, session auth.Session, planStepID string) (*PlanStep, error) {
+	step, err := s.getPlanStepForSession(ctx, session, planStepID)
+	if err != nil {
+		return nil, err
+	}
+	if step.Status != PlanStepStatusFailed {
+		return nil, fmt.Errorf("plan step is not failed")
+	}
+	if _, err := s.store.UpdateRun(ctx, session.OrganizationID, step.RunID, UpdateRunRequest{
+		Status:           stringPointer(RunStatusPendingApproval),
+		Error:            stringPointer(""),
+		ClearCompletedAt: true,
+	}); err != nil {
+		return nil, err
+	}
+
+	retryStatus := PlanStepStatusPending
+	if step.ApprovalStatus == ApprovalStatusApproved {
+		retryStatus = PlanStepStatusApproved
+	}
+	if _, err := s.store.UpdatePlanStep(ctx, session.OrganizationID, planStepID, UpdatePlanStepRequest{
+		Status:           stringPointer(retryStatus),
+		ResultContent:    stringPointer(""),
+		Error:            stringPointer(""),
+		ClearCompletedAt: true,
+	}); err != nil {
+		return nil, err
+	}
+	return s.ExecutePlanStep(ctx, session, planStepID)
+}
+
 func canSkipPlanStep(step *PlanStep) bool {
 	if step == nil {
 		return false

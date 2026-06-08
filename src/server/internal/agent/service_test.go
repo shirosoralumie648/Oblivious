@@ -288,7 +288,9 @@ func (s *fakeStore) UpdateRun(ctx context.Context, organizationID, id string, re
 	if req.Error != nil {
 		run.Error = *req.Error
 	}
-	if req.CompletedAt != nil {
+	if req.ClearCompletedAt {
+		run.CompletedAt = nil
+	} else if req.CompletedAt != nil {
 		run.CompletedAt = req.CompletedAt
 	} else if req.Status != nil && *req.Status != RunStatusCompleted && *req.Status != RunStatusFailed && *req.Status != RunStatusMaxIterationsReached && *req.Status != RunStatusTokenBudgetExceeded {
 		run.CompletedAt = nil
@@ -1086,6 +1088,108 @@ func TestServiceExecutePlanStepMarksFailedWhenExecutorErrors(t *testing.T) {
 	}
 	if !strings.Contains(updated.Error, "executor failed") || updated.CompletedAt == nil {
 		t.Fatalf("expected failure error and completion timestamp, got %+v", updated)
+	}
+}
+
+func TestServiceRetryPlanStepReopensRunAndExecutesFailedStep(t *testing.T) {
+	now := time.Now().UTC()
+	completedAt := now.Add(time.Minute)
+	store := &fakeStore{
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Status:         RunStatusTokenBudgetExceeded,
+			Error:          "token_budget_exceeded: old budget",
+			StartedAt:      now,
+			CompletedAt:    &completedAt,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+		planSteps: []*PlanStep{{
+			ID:             "step_1",
+			RunID:          "run_1",
+			OrganizationID: "org_1",
+			Index:          1,
+			Title:          "Retry failed implementation",
+			Status:         PlanStepStatusFailed,
+			ApprovalStatus: ApprovalStatusApproved,
+			ResultContent:  "stale output",
+			Error:          "old failure",
+			StartedAt:      &now,
+			CompletedAt:    &completedAt,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+	}
+	executor := &fakePlanStepExecutor{resultContent: "retry passed"}
+	service := NewService(store, &fakeGateway{})
+	service.SetPlanStepExecutor(executor)
+	session := auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}}
+
+	completed, err := service.RetryPlanStep(context.Background(), session, "step_1")
+	if err != nil {
+		t.Fatalf("RetryPlanStep returned error: %v", err)
+	}
+	if executor.calls != 1 {
+		t.Fatalf("expected retry to execute once, got %d calls", executor.calls)
+	}
+	if completed.Status != PlanStepStatusCompleted || completed.ResultContent != "retry passed" || completed.Error != "" {
+		t.Fatalf("expected retried plan step to complete cleanly, got %+v", completed)
+	}
+	if executor.seenStep == nil || executor.seenStep.Status != PlanStepStatusRunning || executor.seenStep.Error != "" || executor.seenStep.ResultContent != "" || executor.seenStep.CompletedAt != nil {
+		t.Fatalf("expected executor to receive reset running step, got %+v", executor.seenStep)
+	}
+	run, err := store.GetRun(context.Background(), "org_1", "run_1")
+	if err != nil {
+		t.Fatalf("GetRun returned error: %v", err)
+	}
+	if run.Status != RunStatusCompleted || run.Error != "" || run.CompletedAt == nil {
+		t.Fatalf("expected retried final step to complete reopened run, got %+v", run)
+	}
+}
+
+func TestServiceRetryPlanStepRejectsNonFailedStep(t *testing.T) {
+	now := time.Now().UTC()
+	store := &fakeStore{
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Status:         RunStatusPendingApproval,
+			StartedAt:      now,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+		planSteps: []*PlanStep{{
+			ID:             "step_1",
+			RunID:          "run_1",
+			OrganizationID: "org_1",
+			Index:          1,
+			Title:          "Not failed",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusNotRequired,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+	}
+	executor := &fakePlanStepExecutor{resultContent: "should not run"}
+	service := NewService(store, &fakeGateway{})
+	service.SetPlanStepExecutor(executor)
+
+	updated, err := service.RetryPlanStep(context.Background(), auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}}, "step_1")
+	if err == nil || !strings.Contains(err.Error(), "plan step is not failed") {
+		t.Fatalf("expected non-failed retry rejection, got step=%+v err=%v", updated, err)
+	}
+	if executor.calls != 0 {
+		t.Fatalf("expected executor not to run, got %d calls", executor.calls)
+	}
+	if store.planSteps[0].Status != PlanStepStatusPending {
+		t.Fatalf("expected non-failed step to remain unchanged, got %+v", store.planSteps[0])
 	}
 }
 

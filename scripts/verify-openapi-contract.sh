@@ -271,6 +271,8 @@ required_paths=(
   "/api/v1/agent/runs/{runId}/reject-tool"
   "/api/v1/agent/runs/{runId}/retry-tool"
   "/api/v1/agent/runs/{runId}/approve-plan-step"
+  "/api/v1/agent/runs/{runId}/skip-plan-step"
+  "/api/v1/agent/runs/{runId}/retry-plan-step"
   "/api/v1/agent/runs/{runId}/update-plan-step"
   "/api/v1/agent/runs/{runId}/create-plan-step"
   "/api/v1/agent/runs/{runId}/move-plan-step"

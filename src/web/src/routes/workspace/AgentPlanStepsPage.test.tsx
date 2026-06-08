@@ -10,6 +10,7 @@ const executePlanStep = vi.fn();
 const getRunDetail = vi.fn();
 const movePlanStep = vi.fn();
 const rejectToolRun = vi.fn();
+const retryPlanStep = vi.fn();
 const retryToolRun = vi.fn();
 const skipPlanStep = vi.fn();
 const updatePlanStep = vi.fn();
@@ -24,6 +25,7 @@ vi.mock('../../features/agents/planStepsApi', () => ({
     getRunDetail,
     movePlanStep,
     rejectToolRun,
+    retryPlanStep,
     retryToolRun,
     skipPlanStep,
     updatePlanStep
@@ -78,6 +80,7 @@ describe('AgentPlanStepsPage', () => {
     getRunDetail.mockReset();
     movePlanStep.mockReset();
     rejectToolRun.mockReset();
+    retryPlanStep.mockReset();
     retryToolRun.mockReset();
     skipPlanStep.mockReset();
     updatePlanStep.mockReset();
@@ -324,6 +327,58 @@ describe('AgentPlanStepsPage', () => {
     await waitFor(() => expect(skipPlanStep).toHaveBeenCalledWith('run_1', 'step_1'));
     await waitFor(() => {
       expect(within(screen.getByLabelText('Plan step Optional discovery')).getAllByText('skipped').length).toBeGreaterThan(0);
+    });
+  });
+
+  it('retries failed plan steps from the planning page', async () => {
+    renderPage([
+      {
+        approvalStatus: 'approved',
+        error: 'old failure',
+        id: 'step_1',
+        index: 1,
+        runId: 'run_1',
+        status: 'failed',
+        title: 'Verify patch'
+      },
+      {
+        approvalStatus: 'not_required',
+        id: 'step_2',
+        index: 2,
+        runId: 'run_1',
+        status: 'completed',
+        title: 'Completed implementation'
+      }
+    ]);
+    retryPlanStep.mockResolvedValueOnce([
+      {
+        approvalStatus: 'approved',
+        id: 'step_1',
+        index: 1,
+        resultContent: 'retry passed',
+        runId: 'run_1',
+        status: 'completed',
+        title: 'Verify patch'
+      },
+      {
+        approvalStatus: 'not_required',
+        id: 'step_2',
+        index: 2,
+        runId: 'run_1',
+        status: 'completed',
+        title: 'Completed implementation'
+      }
+    ]);
+
+    expect(screen.getByRole('button', { name: 'Retry Verify patch' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Retry Completed implementation' })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry Verify patch' }));
+
+    await waitFor(() => expect(retryPlanStep).toHaveBeenCalledWith('run_1', 'step_1'));
+    expect(await screen.findByText('retry passed')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(within(screen.getByLabelText('Plan step Verify patch')).getAllByText('completed').length).toBeGreaterThan(0);
     });
   });
 

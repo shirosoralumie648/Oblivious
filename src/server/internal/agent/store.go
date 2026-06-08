@@ -251,6 +251,7 @@ type UpdateRunRequest struct {
 	FinalMessageID    *string
 	Error             *string
 	CompletedAt       *time.Time
+	ClearCompletedAt  bool
 }
 
 type CreateToolRunRequest struct {
@@ -851,7 +852,9 @@ func (s *SQLStore) UpdateRun(ctx context.Context, organizationID, id string, req
 	if req.Error != nil {
 		run.Error = *req.Error
 	}
-	if req.CompletedAt != nil {
+	if req.ClearCompletedAt {
+		run.CompletedAt = nil
+	} else if req.CompletedAt != nil {
 		run.CompletedAt = req.CompletedAt
 	}
 
@@ -865,11 +868,11 @@ func (s *SQLStore) UpdateRun(ctx context.Context, organizationID, id string, req
 			tool_call_count = $8,
 			final_message_id = NULLIF($9, ''),
 			error = $10,
-			completed_at = $11,
-			updated_at = $12
+			completed_at = CASE WHEN $11 THEN NULL::timestamptz ELSE $12::timestamptz END,
+			updated_at = $13
 		WHERE id = $1 AND organization_id = $2
 	`, id, organizationID, run.Status, run.MemoryEnabled, run.MemorySearched, run.MemoryResultCount,
-		run.IterationCount, run.ToolCallCount, run.FinalMessageID, run.Error, run.CompletedAt, time.Now())
+		run.IterationCount, run.ToolCallCount, run.FinalMessageID, run.Error, req.ClearCompletedAt, run.CompletedAt, time.Now())
 	if err != nil {
 		return nil, fmt.Errorf("update agent run: %w", err)
 	}

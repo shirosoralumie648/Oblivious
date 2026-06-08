@@ -52,6 +52,10 @@ function canSkip(step: AgentPlanStep) {
   return step.status === 'pending' || step.status === 'approved' || step.status === 'failed';
 }
 
+function canRetry(step: AgentPlanStep) {
+  return step.status === 'failed';
+}
+
 function canEdit(step: AgentPlanStep) {
   return step.status === 'pending' || step.status === 'approved';
 }
@@ -256,7 +260,7 @@ export function AgentPlanStepsPage() {
     void refreshRunDetail();
   }, [refreshRunDetail]);
 
-  const updatePlanStep = async (step: AgentPlanStep, action: 'approve' | 'execute' | 'skip') => {
+  const updatePlanStep = async (step: AgentPlanStep, action: 'approve' | 'execute' | 'skip' | 'retry') => {
     if (!runId) {
       setError('Run ID is required.');
       return;
@@ -271,7 +275,9 @@ export function AgentPlanStepsPage() {
           ? await api.approvePlanStep(runId, step.id)
           : action === 'execute'
             ? await api.executePlanStep(runId, step.id)
-            : await api.skipPlanStep(runId, step.id);
+            : action === 'skip'
+              ? await api.skipPlanStep(runId, step.id)
+              : await api.retryPlanStep(runId, step.id);
       setPlanSteps(refreshed);
       void refreshRunDetail();
     } catch (caughtError) {
@@ -716,6 +722,16 @@ export function AgentPlanStepsPage() {
                         type="button"
                       >
                         Skip
+                        <span className="sr-only"> {step.title}</span>
+                      </button>
+                      <button
+                        aria-label={`Retry ${step.title}`}
+                        className="min-h-10 rounded-lg bg-[#181611] px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={!canRetry(step) || operatingStepId === step.id}
+                        onClick={() => void updatePlanStep(step, 'retry')}
+                        type="button"
+                      >
+                        Retry
                         <span className="sr-only"> {step.title}</span>
                       </button>
                       <button
