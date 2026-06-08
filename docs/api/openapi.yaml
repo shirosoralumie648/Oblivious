@@ -29,6 +29,11 @@ components:
       in: header
       name: X-CSRF-Token
       description: 对带会话 cookie 的非 GET/HEAD/OPTIONS 变更请求，传入会话响应 data.csrfToken
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Relay API token
+      description: Relay OpenAI-compatible aliases use the raw token returned once by POST /api/v1/console/api-tokens.
 
   schemas:
     Envelope:
@@ -2674,6 +2679,45 @@ components:
           type: string
           example: ok
 
+    RelayOpenAIRequest:
+      type: object
+      additionalProperties: true
+      description: OpenAI-compatible request payload forwarded to the configured relay provider.
+
+    RelayOpenAIResponse:
+      type: object
+      additionalProperties: true
+      description: OpenAI-compatible JSON response returned by the relay provider.
+
+    RelayModelsResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        object:
+          type: string
+          example: list
+        data:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+
+    RelayErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          additionalProperties: true
+          properties:
+            code:
+              type: string
+              example: relay_identity_required
+            message:
+              type: string
+              example: relay API token is not authorized for this request
+
   responses:
     Unauthorized:
       description: 未认证或会话已过期
@@ -2950,6 +2994,346 @@ paths:
                           $ref: "#/components/schemas/Model"
         "401":
           $ref: "#/components/responses/Unauthorized"
+
+  # ---- Relay aliases (OpenAI-compatible) ----
+  /api/v1/relay/chat/completions:
+    post:
+      summary: OpenAI-compatible chat completions relay
+      operationId: relayCreateChatCompletion
+      tags: [Relay]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RelayOpenAIRequest"
+      responses:
+        "200":
+          description: OpenAI-compatible chat completion response. Streaming requests return provider SSE.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelayOpenAIResponse"
+            text/event-stream:
+              schema:
+                type: string
+        "400":
+          description: Invalid relay request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelayErrorResponse"
+        "401":
+          description: Relay API token is missing or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelayErrorResponse"
+
+  /api/v1/relay/embeddings:
+    post:
+      summary: OpenAI-compatible embeddings relay
+      operationId: relayCreateEmbedding
+      tags: [Relay]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RelayOpenAIRequest"
+      responses:
+        "200":
+          description: OpenAI-compatible embeddings response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelayOpenAIResponse"
+        "400":
+          description: Invalid relay request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelayErrorResponse"
+        "401":
+          description: Relay API token is missing or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelayErrorResponse"
+
+  /api/v1/relay/responses:
+    post:
+      summary: OpenAI-compatible responses relay
+      operationId: relayCreateResponse
+      tags: [Relay]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RelayOpenAIRequest"
+      responses:
+        "200":
+          description: OpenAI-compatible responses API response. Streaming requests return provider SSE.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelayOpenAIResponse"
+            text/event-stream:
+              schema:
+                type: string
+        "400":
+          description: Invalid relay request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelayErrorResponse"
+        "401":
+          description: Relay API token is missing or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelayErrorResponse"
+
+  /api/v1/relay/images/generations:
+    post:
+      summary: OpenAI-compatible image generation relay
+      operationId: relayCreateImageGeneration
+      tags: [Relay]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RelayOpenAIRequest"
+      responses:
+        "200":
+          description: OpenAI-compatible image generation response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelayOpenAIResponse"
+        "400":
+          description: Invalid relay request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelayErrorResponse"
+        "401":
+          description: Relay API token is missing or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelayErrorResponse"
+
+  /api/v1/relay/images/edits:
+    post:
+      summary: OpenAI-compatible image edit relay
+      operationId: relayCreateImageEdit
+      tags: [Relay]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: OpenAI-compatible image edit response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelayOpenAIResponse"
+        "400":
+          description: Invalid relay request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelayErrorResponse"
+        "401":
+          description: Relay API token is missing or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelayErrorResponse"
+
+  /api/v1/relay/images/variations:
+    post:
+      summary: OpenAI-compatible image variation relay
+      operationId: relayCreateImageVariation
+      tags: [Relay]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: OpenAI-compatible image variation response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelayOpenAIResponse"
+        "400":
+          description: Invalid relay request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelayErrorResponse"
+        "401":
+          description: Relay API token is missing or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelayErrorResponse"
+
+  /api/v1/relay/audio/speech:
+    post:
+      summary: OpenAI-compatible speech relay
+      operationId: relayCreateAudioSpeech
+      tags: [Relay]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RelayOpenAIRequest"
+      responses:
+        "200":
+          description: OpenAI-compatible generated audio response.
+          content:
+            audio/mpeg:
+              schema:
+                type: string
+                format: binary
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: Invalid relay request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelayErrorResponse"
+        "401":
+          description: Relay API token is missing or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelayErrorResponse"
+
+  /api/v1/relay/audio/transcriptions:
+    post:
+      summary: OpenAI-compatible audio transcription relay
+      operationId: relayCreateAudioTranscription
+      tags: [Relay]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: OpenAI-compatible transcription response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelayOpenAIResponse"
+            text/plain:
+              schema:
+                type: string
+        "400":
+          description: Invalid relay request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelayErrorResponse"
+        "401":
+          description: Relay API token is missing or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelayErrorResponse"
+
+  /api/v1/relay/audio/translations:
+    post:
+      summary: OpenAI-compatible audio translation relay
+      operationId: relayCreateAudioTranslation
+      tags: [Relay]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: OpenAI-compatible translation response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelayOpenAIResponse"
+            text/plain:
+              schema:
+                type: string
+        "400":
+          description: Invalid relay request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelayErrorResponse"
+        "401":
+          description: Relay API token is missing or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelayErrorResponse"
+
+  /api/v1/relay/models:
+    get:
+      summary: OpenAI-compatible model list relay
+      operationId: relayListModels
+      tags: [Relay]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: OpenAI-compatible model list response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelayModelsResponse"
+        "401":
+          description: Relay API token is missing or invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelayErrorResponse"
 
   # ---- 对话 (Chat) ----
   /api/v1/app/conversations:

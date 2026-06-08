@@ -69,6 +69,7 @@ require_api_json_responses_use_envelope() {
     missing = []
     spec.fetch("paths", {}).each do |path, operations|
       next unless path.start_with?("/api/")
+      next if path.start_with?("/api/v1/relay/")
 
       operations.each do |method, operation|
         next unless operation.is_a?(Hash)
@@ -121,7 +122,58 @@ require_session_csrf_contract() {
   ' "$openapi_file"
 }
 
+require_relay_alias_bearer_contract() {
+  ruby -ryaml -e '
+    file = ARGV.shift
+    paths = ARGV
+    spec = YAML.load_file(file)
+    schemes = spec.fetch("components", {}).fetch("securitySchemes", {})
+    bearer = schemes["bearerAuth"]
+    missing = []
+
+    unless bearer && bearer["type"] == "http" && bearer["scheme"] == "bearer"
+      missing << "components.securitySchemes.bearerAuth must document Relay bearer tokens"
+    end
+
+    paths.each do |path|
+      operations = spec.fetch("paths", {}).fetch(path, {})
+      operations.each do |method, operation|
+        next unless operation.is_a?(Hash)
+
+        tags = operation.fetch("tags", [])
+        security = operation.fetch("security", spec.fetch("security", []))
+        unless tags.include?("Relay")
+          missing << "#{method.upcase} #{path} must use the Relay tag"
+        end
+        unless security.any? { |entry| entry.is_a?(Hash) && entry.key?("bearerAuth") }
+          missing << "#{method.upcase} #{path} must require bearerAuth"
+        end
+      end
+    end
+
+    unless missing.empty?
+      warn "[openapi-contract] Relay alias bearer contract is incomplete:"
+      missing.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file" "$@"
+}
+
+relay_alias_paths=(
+  "/api/v1/relay/chat/completions"
+  "/api/v1/relay/embeddings"
+  "/api/v1/relay/responses"
+  "/api/v1/relay/images/generations"
+  "/api/v1/relay/images/edits"
+  "/api/v1/relay/images/variations"
+  "/api/v1/relay/audio/speech"
+  "/api/v1/relay/audio/transcriptions"
+  "/api/v1/relay/audio/translations"
+  "/api/v1/relay/models"
+)
+
 required_paths=(
+  "${relay_alias_paths[@]}"
   "/api/v1/agent/tools"
   "/api/v1/agent/runs"
   "/api/v1/agent/runs/{runId}"
@@ -265,7 +317,8 @@ require_public_security_empty "/api/v1/workflows/webhooks/{organizationId}/{work
 require_public_security_empty "/api/v1/billing/stripe/webhook"
 require_public_security_empty "/api/v1/billing/alipay/webhook"
 require_public_security_empty "/api/v1/billing/wechatpay/webhook"
+require_relay_alias_bearer_contract "${relay_alias_paths[@]}"
 require_api_json_responses_use_envelope
 require_session_csrf_contract
 
-echo "[openapi-contract] required Agent, Memory, MCP, Tenant, Notification, Observability, publishing channel, Workflow, Billing, and Marketplace paths are documented."
+echo "[openapi-contract] required Relay alias, Agent, Memory, MCP, Tenant, Notification, Observability, publishing channel, Workflow, Billing, and Marketplace paths are documented."
