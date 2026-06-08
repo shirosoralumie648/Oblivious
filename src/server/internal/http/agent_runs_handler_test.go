@@ -680,6 +680,80 @@ func TestAgentRunsHandlerApproveToolVerifiesToolBelongsToRun(t *testing.T) {
 	}
 }
 
+func TestAgentRunsHandlerToolApprovalDecisionsRejectNonPendingToolRuns(t *testing.T) {
+	tests := []struct {
+		name            string
+		call            func(agentRunsHandler, stdhttp.ResponseWriter, *stdhttp.Request, string)
+		body            string
+		initialStatus   string
+		initialApproval string
+	}{
+		{
+			name:            "approve completed",
+			call:            agentRunsHandler.approveTool,
+			body:            `{"toolRunId":"tool_run_guarded","reason":"late approval"}`,
+			initialStatus:   agent.ToolRunStatusCompleted,
+			initialApproval: agent.ApprovalStatusApproved,
+		},
+		{
+			name:            "reject completed",
+			call:            agentRunsHandler.rejectTool,
+			body:            `{"toolRunId":"tool_run_guarded","reason":"late rejection"}`,
+			initialStatus:   agent.ToolRunStatusCompleted,
+			initialApproval: agent.ApprovalStatusApproved,
+		},
+		{
+			name:            "approve rejected",
+			call:            agentRunsHandler.approveTool,
+			body:            `{"toolRunId":"tool_run_guarded","reason":"override rejection"}`,
+			initialStatus:   agent.ToolRunStatusRejected,
+			initialApproval: agent.ApprovalStatusRejected,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newFakeAgentRunsStore()
+			store.runs = []*agent.Run{{
+				ID:             "run_1",
+				OrganizationID: "org_1",
+				ConversationID: "conv_1",
+				AgentID:        "agent_1",
+				UserID:         "user_1",
+				Status:         agent.RunStatusCompleted,
+			}}
+			store.toolRuns = []*agent.ToolRun{{
+				ID:                     "tool_run_guarded",
+				OrganizationID:         "org_1",
+				RunID:                  "run_1",
+				ConversationID:         "conv_1",
+				AgentID:                "agent_1",
+				ToolCallID:             "call_guarded",
+				ToolName:               "datetime",
+				ToolType:               "builtin",
+				Arguments:              map[string]any{},
+				Status:                 tt.initialStatus,
+				ApprovalStatus:         tt.initialApproval,
+				ApprovedByUserID:       "reviewer_1",
+				ApprovalDecisionReason: "original decision",
+			}}
+			handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{}))
+
+			recorder := httptest.NewRecorder()
+			tt.call(handler, recorder, newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/tool-decision", tt.body), "run_1")
+
+			if recorder.Code != stdhttp.StatusConflict {
+				t.Fatalf("expected 409 for non-pending tool approval decision, got %d with body %s", recorder.Code, recorder.Body.String())
+			}
+			toolRun := store.toolRuns[0]
+			if toolRun.Status != tt.initialStatus || toolRun.ApprovalStatus != tt.initialApproval ||
+				toolRun.ApprovedByUserID != "reviewer_1" || toolRun.ApprovalDecisionReason != "original decision" {
+				t.Fatalf("non-pending approval decision mutated guarded tool run: %+v", toolRun)
+			}
+		})
+	}
+}
+
 func TestAgentRunsHandlerRetryToolAcceptsSnakeCaseID(t *testing.T) {
 	store := newFakeAgentRunsStore()
 	store.agent = &agent.Agent{

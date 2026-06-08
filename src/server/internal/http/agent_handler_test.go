@@ -511,6 +511,60 @@ func TestAgentToolRunApprovalRejectRetryEndpointsAreTenantScoped(t *testing.T) {
 		t.Fatalf("retry non-failed tool run expected 409/400, got %d with body %s", completedRetryRecorder.Code, completedRetryRecorder.Body.String())
 	}
 
+	completedApproveRecorder := httptest.NewRecorder()
+	completedApproveRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/agents/tool-runs/"+pendingToolRun.ID+"/approve", strings.NewReader(`{"reason":"second approval"}`))
+	completedApproveRequest.Header.Set("Content-Type", "application/json")
+	completedApproveRequest.AddCookie(cookie)
+	addCSRF(completedApproveRequest, csrfToken)
+	router.ServeHTTP(completedApproveRecorder, completedApproveRequest)
+	if completedApproveRecorder.Code != stdhttp.StatusConflict {
+		t.Fatalf("approve completed tool run expected 409, got %d with body %s", completedApproveRecorder.Code, completedApproveRecorder.Body.String())
+	}
+
+	completedRejectRecorder := httptest.NewRecorder()
+	completedRejectRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/agents/tool-runs/"+pendingToolRun.ID+"/reject", strings.NewReader(`{"reason":"late reject"}`))
+	completedRejectRequest.Header.Set("Content-Type", "application/json")
+	completedRejectRequest.AddCookie(cookie)
+	addCSRF(completedRejectRequest, csrfToken)
+	router.ServeHTTP(completedRejectRecorder, completedRejectRequest)
+	if completedRejectRecorder.Code != stdhttp.StatusConflict {
+		t.Fatalf("reject completed tool run expected 409, got %d with body %s", completedRejectRecorder.Code, completedRejectRecorder.Body.String())
+	}
+
+	rejectedApproveRecorder := httptest.NewRecorder()
+	rejectedApproveRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/agents/tool-runs/"+rejectToolRun.ID+"/approve", strings.NewReader(`{"reason":"override rejection"}`))
+	rejectedApproveRequest.Header.Set("Content-Type", "application/json")
+	rejectedApproveRequest.AddCookie(cookie)
+	addCSRF(rejectedApproveRequest, csrfToken)
+	router.ServeHTTP(rejectedApproveRecorder, rejectedApproveRequest)
+	if rejectedApproveRecorder.Code != stdhttp.StatusConflict {
+		t.Fatalf("approve rejected tool run expected 409, got %d with body %s", rejectedApproveRecorder.Code, rejectedApproveRecorder.Body.String())
+	}
+
+	var guardedStatus, guardedApprovalStatus, guardedApprovedBy, guardedReason string
+	if err := database.QueryRow(`
+		SELECT status, approval_status, COALESCE(approved_by_user_id, ''), approval_decision_reason
+		FROM agent_tool_runs
+		WHERE id = $1
+	`, pendingToolRun.ID).Scan(&guardedStatus, &guardedApprovalStatus, &guardedApprovedBy, &guardedReason); err != nil {
+		t.Fatalf("query guarded completed tool run: %v", err)
+	}
+	if guardedStatus != agent.ToolRunStatusCompleted || guardedApprovalStatus != agent.ApprovalStatusApproved || guardedApprovedBy != userID || guardedReason != "reviewed" {
+		t.Fatalf("completed approval bypass mutated tool run state: status=%q approval=%q approvedBy=%q reason=%q", guardedStatus, guardedApprovalStatus, guardedApprovedBy, guardedReason)
+	}
+
+	var rejectedStatus, rejectedApprovalStatus, rejectedReason string
+	if err := database.QueryRow(`
+		SELECT status, approval_status, approval_decision_reason
+		FROM agent_tool_runs
+		WHERE id = $1
+	`, rejectToolRun.ID).Scan(&rejectedStatus, &rejectedApprovalStatus, &rejectedReason); err != nil {
+		t.Fatalf("query guarded rejected tool run: %v", err)
+	}
+	if rejectedStatus != agent.ToolRunStatusRejected || rejectedApprovalStatus != agent.ApprovalStatusRejected || rejectedReason != "unsafe" {
+		t.Fatalf("rejected approval bypass mutated tool run state: status=%q approval=%q reason=%q", rejectedStatus, rejectedApprovalStatus, rejectedReason)
+	}
+
 	otherCookie, otherCSRF, _ := registerHTTPUser(t, router, "agent-tool-runs-other@example.com")
 	crossRecorder := httptest.NewRecorder()
 	crossRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/agents/tool-runs/"+failedToolRun.ID+"/retry", nil)
