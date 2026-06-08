@@ -75,7 +75,7 @@ export type PublishingChannelsApi = {
   retryFailedChannelMessages: (id: string, payload: RetryFailedChannelMessagesRequest) => Promise<RetryProcessResult>;
   sendChannelMessage: (id: string, message: SendPublishingChannelMessageRequest) => Promise<PublishingChannelMessageLog>;
   testChannel: (id: string) => Promise<PublishingChannelTestResult>;
-  updateChannelStatus: (channel: PublishingChannel, status: PublishingChannelStatus) => Promise<PublishingChannel>;
+  updateChannelStatus: (id: string, status: PublishingChannelStatus) => Promise<PublishingChannel>;
 };
 
 export function createPublishingChannelsApi(client: HttpClient): PublishingChannelsApi {
@@ -97,12 +97,10 @@ export function createPublishingChannelsApi(client: HttpClient): PublishingChann
     },
     sendChannelMessage: (id, message) => client.post<PublishingChannelMessageLog>(`${path}/${encodeURIComponent(id)}/send`, { message }),
     testChannel: (id) => client.post<PublishingChannelTestResult>(`${path}/${encodeURIComponent(id)}/test`),
-    updateChannelStatus: (channel, status) =>
-      client.put<PublishingChannel>(`${path}/${encodeURIComponent(channel.id)}`, {
-        config: channel.config ?? {},
-        name: channel.name,
-        status,
-        type: channel.type
+    updateChannelStatus: (id, status) =>
+      client.request<PublishingChannel>(`${path}/${encodeURIComponent(id)}/status`, {
+        body: JSON.stringify({ status }),
+        method: 'PATCH'
       })
   };
 }

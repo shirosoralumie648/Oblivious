@@ -26,7 +26,7 @@ vi.mock('../../features/publishingChannels/publishingChannelsApi', () => ({
 import { PublishingChannelsPage } from './PublishingChannelsPage';
 
 const opsChannel = {
-  config: { secret: 'shared-secret', url: 'https://hooks.example/ops' },
+  config: { secret: '********', url: 'https://hooks.example/ops' },
   created_at: '2026-06-04T12:00:00Z',
   id: 'channel_1',
   name: 'Ops Webhook',
@@ -247,7 +247,7 @@ describe('PublishingChannelsPage', () => {
     expect(screen.getByText('channel adapter is available')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Activate Ops Webhook' }));
-    await waitFor(() => expect(updateChannelStatus).toHaveBeenCalledWith(opsChannel, 'active'));
+    await waitFor(() => expect(updateChannelStatus).toHaveBeenCalledWith('channel_1', 'active'));
     expect(screen.getByText('Active')).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('Conversation ID'), { target: { value: ' conversation_1 ' } });

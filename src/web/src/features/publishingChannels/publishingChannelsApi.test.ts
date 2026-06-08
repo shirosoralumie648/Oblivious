@@ -16,7 +16,7 @@ function createClient(overrides: Partial<HttpClient> = {}) {
 }
 
 const channel: PublishingChannel = {
-  config: { secret: 'shared-secret', url: 'https://hooks.example/ops' },
+  config: { secret: '********', url: 'https://hooks.example/ops' },
   id: 'channel_1',
   name: 'Ops Webhook',
   organization_id: 'org_1',
@@ -48,18 +48,18 @@ describe('createPublishingChannelsApi', () => {
     expect(post).toHaveBeenCalledWith('/api/v1/channels', payload);
   });
 
-  it('updates status through the full channel update endpoint', async () => {
+  it('updates status through the status endpoint without resending redacted config', async () => {
     const put = vi.fn().mockResolvedValue({ ...channel, status: 'active' });
-    const api = createPublishingChannelsApi(createClient({ put }));
+    const request = vi.fn().mockResolvedValue({ ...channel, status: 'active' });
+    const api = createPublishingChannelsApi(createClient({ put, request }));
 
-    await expect(api.updateChannelStatus(channel, 'active')).resolves.toEqual(expect.objectContaining({ status: 'active' }));
+    await expect(api.updateChannelStatus('channel_1', 'active')).resolves.toEqual(expect.objectContaining({ status: 'active' }));
 
-    expect(put).toHaveBeenCalledWith('/api/v1/channels/channel_1', {
-      config: channel.config,
-      name: channel.name,
-      status: 'active',
-      type: channel.type
+    expect(request).toHaveBeenCalledWith('/api/v1/channels/channel_1/status', {
+      body: JSON.stringify({ status: 'active' }),
+      method: 'PATCH'
     });
+    expect(put).not.toHaveBeenCalled();
   });
 
   it('tests and sends channel messages through channel action routes', async () => {

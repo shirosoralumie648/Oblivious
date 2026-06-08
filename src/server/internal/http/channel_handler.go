@@ -138,6 +138,18 @@ func (h channelHandler) updateChannel(w stdhttp.ResponseWriter, r *stdhttp.Reque
 	if !decodeChannelJSON(w, r, &payload) {
 		return
 	}
+	if payload.Config != nil && channelConfigHasRedactedSecret(payload.Config) {
+		existing, err := h.store.GetConfig(r.Context(), session.OrganizationID, channelID)
+		if err != nil {
+			writeError(w, stdhttp.StatusInternalServerError, "internal_error", "get channel failed")
+			return
+		}
+		if existing == nil {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "channel not found")
+			return
+		}
+		payload.Config = restoreRedactedChannelConfigSecrets(payload.Config, existing.Config)
+	}
 	updated, err := h.store.UpdateConfig(r.Context(), session.OrganizationID, channelID, publishingchannel.ConfigUpdate{
 		Type:   payload.Type,
 		Name:   strings.TrimSpace(payload.Name),
@@ -698,6 +710,29 @@ func redactChannelConfigMap(config map[string]any) map[string]any {
 		redacted[key] = value
 	}
 	return redacted
+}
+
+func restoreRedactedChannelConfigSecrets(next map[string]any, existing map[string]any) map[string]any {
+	restored := make(map[string]any, len(next))
+	for key, value := range next {
+		if isChannelSecretKey(key) && strings.TrimSpace(fmt.Sprint(value)) == channelRedactedSecret {
+			if existingValue, ok := existing[key]; ok && strings.TrimSpace(fmt.Sprint(existingValue)) != "" {
+				restored[key] = existing[key]
+				continue
+			}
+		}
+		restored[key] = value
+	}
+	return restored
+}
+
+func channelConfigHasRedactedSecret(config map[string]any) bool {
+	for key, value := range config {
+		if isChannelSecretKey(key) && strings.TrimSpace(fmt.Sprint(value)) == channelRedactedSecret {
+			return true
+		}
+	}
+	return false
 }
 
 func isChannelSecretKey(key string) bool {

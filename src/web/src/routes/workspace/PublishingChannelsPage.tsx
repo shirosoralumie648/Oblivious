@@ -344,7 +344,7 @@ export function PublishingChannelsPage() {
   const switchStatus = async (channel: PublishingChannel, status: PublishingChannelStatus) => {
     setError(null);
     try {
-      const updated = await channelsApi.updateChannelStatus(channel, status);
+      const updated = await channelsApi.updateChannelStatus(channel.id, status);
       setChannels((current) => current.map((item) => (item.id === updated.id ? updated : item)));
     } catch (caughtError) {
       setError(errorMessage(caughtError, 'Unable to update publishing channel status. Retry the request or check permissions.'));
