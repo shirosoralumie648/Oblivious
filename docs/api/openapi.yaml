@@ -3443,6 +3443,273 @@ components:
           type: string
           format: date-time
 
+    AdminChannel:
+      type: object
+      description: Admin Relay channel response. API keys are accepted only on create/update requests and are never returned here.
+      required: [id, name, provider, baseURL, models, groups, rpm, tpm, priority, weight, enabled, status, latency, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        provider:
+          type: string
+        baseURL:
+          type: string
+        models:
+          type: array
+          items:
+            type: string
+        groups:
+          type: array
+          items:
+            type: string
+        rpm:
+          type: integer
+        tpm:
+          type: integer
+        priority:
+          type: integer
+        weight:
+          type: integer
+        estimatedCostPer1K:
+          type: number
+          format: double
+        costMultiplier:
+          type: number
+          format: double
+        enabled:
+          type: boolean
+        status:
+          type: string
+          enum: [online, degraded, offline]
+        latency:
+          type: integer
+          format: int64
+          description: Last observed latency in milliseconds.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AdminChannelListResponse:
+      type: object
+      required: [channels, total]
+      properties:
+        channels:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminChannel"
+        total:
+          type: integer
+
+    AdminChannelProvider:
+      type: object
+      required: [id, displayName, kind, status, defaultBaseURL]
+      properties:
+        id:
+          type: string
+        displayName:
+          type: string
+        kind:
+          type: string
+        status:
+          type: string
+        defaultBaseURL:
+          type: string
+
+    AdminChannelProviderListResponse:
+      type: object
+      required: [providers]
+      properties:
+        providers:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminChannelProvider"
+
+    AdminChannelCreateRequest:
+      type: object
+      required: [name, provider]
+      properties:
+        name:
+          type: string
+        provider:
+          type: string
+        baseURL:
+          type: string
+        apiKey:
+          type: string
+          writeOnly: true
+          description: Provider credential. Stored for relay execution and redacted from all channel responses.
+        models:
+          type: array
+          items:
+            type: string
+        groups:
+          type: array
+          items:
+            type: string
+        rpmLimit:
+          type: integer
+        tpmLimit:
+          type: integer
+        priority:
+          type: integer
+        weight:
+          type: integer
+        estimatedCostPer1K:
+          type: number
+          format: double
+        costMultiplier:
+          type: number
+          format: double
+
+    AdminChannelUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        baseURL:
+          type: string
+        apiKey:
+          type: string
+          writeOnly: true
+          description: Optional replacement provider credential. Never returned by channel response APIs.
+        models:
+          type: array
+          items:
+            type: string
+        groups:
+          type: array
+          items:
+            type: string
+        rpmLimit:
+          type: integer
+        tpmLimit:
+          type: integer
+        priority:
+          type: integer
+        weight:
+          type: integer
+        estimatedCostPer1K:
+          type: number
+          format: double
+        costMultiplier:
+          type: number
+          format: double
+        enabled:
+          type: boolean
+
+    AdminChannelBatchUpdateRequest:
+      type: object
+      required: [ids]
+      properties:
+        ids:
+          type: array
+          items:
+            type: string
+        action:
+          type: string
+          enum: [enable, disable]
+        enabled:
+          type: boolean
+          description: Compatibility input; true maps to enable, false maps to disable when action is omitted.
+
+    AdminChannelBatchUpdateResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [updated]
+
+    AdminChannelDeleteResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [deleted]
+
+    AdminChannelBalance:
+      type: object
+      required: [amount, currency]
+      properties:
+        amount:
+          type: number
+          format: double
+        currency:
+          type: string
+        source:
+          type: string
+
+    AdminChannelHealthDetail:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+        message:
+          type: string
+        checkedAt:
+          type: string
+          format: date-time
+
+    AdminChannelTestResult:
+      type: object
+      required: [success, latency]
+      properties:
+        success:
+          type: boolean
+        latency:
+          type: integer
+          format: int64
+          description: Probe latency in milliseconds.
+        provider:
+          type: string
+        models:
+          type: array
+          items:
+            type: string
+        balance:
+          $ref: "#/components/schemas/AdminChannelBalance"
+        balanceError:
+          type: string
+        health:
+          $ref: "#/components/schemas/AdminChannelHealthDetail"
+        error:
+          type: string
+
+    AdminChannelHealth:
+      type: object
+      required: [id, status, latency, checkedAt]
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [online, degraded, offline]
+        latency:
+          type: integer
+          format: int64
+        models:
+          type: array
+          items:
+            type: string
+        balance:
+          $ref: "#/components/schemas/AdminChannelBalance"
+        balanceError:
+          type: string
+        health:
+          $ref: "#/components/schemas/AdminChannelHealthDetail"
+        error:
+          type: string
+        checkedAt:
+          type: string
+          format: date-time
+
     AdminObservabilityAlertSeverity:
       type: string
       enum: [debug, info, warning, critical]
@@ -9235,6 +9502,303 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+
+  # ---- Admin Relay channels ----
+  /api/v1/admin/channel-providers:
+    get:
+      summary: 获取 Relay channel provider catalog
+      operationId: listAdminChannelProviders
+      tags: [Admin, Relay]
+      responses:
+        "200":
+          description: Relay channel provider catalog for admin channel forms
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminChannelProviderListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/channels:
+    get:
+      summary: 管理员获取 Relay channel 列表
+      operationId: listAdminChannels
+      tags: [Admin, Relay]
+      parameters:
+        - name: provider
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [online, degraded, offline]
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: Relay channel list. Provider credentials are never included.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminChannelListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      summary: 管理员创建 Relay channel
+      operationId: createAdminChannel
+      tags: [Admin, Relay]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminChannelCreateRequest"
+      responses:
+        "201":
+          description: Created Relay channel. The submitted apiKey is not returned.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminChannel"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/channels/batch:
+    post:
+      summary: 批量启用或禁用 Relay channels
+      operationId: batchUpdateAdminChannels
+      tags: [Admin, Relay]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminChannelBatchUpdateRequest"
+      responses:
+        "200":
+          description: Batch channel update completed
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminChannelBatchUpdateResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/channels/{channelId}:
+    get:
+      summary: 管理员获取 Relay channel 详情
+      operationId: getAdminChannel
+      tags: [Admin, Relay]
+      parameters:
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Relay channel detail without provider credentials
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminChannel"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      summary: 管理员更新 Relay channel
+      operationId: updateAdminChannel
+      tags: [Admin, Relay]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      parameters:
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminChannelUpdateRequest"
+      responses:
+        "200":
+          description: Updated Relay channel. The submitted apiKey is not returned.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminChannel"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      summary: 管理员删除 Relay channel
+      operationId: deleteAdminChannel
+      tags: [Admin, Relay]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      parameters:
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Channel deleted
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminChannelDeleteResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/admin/channels/{channelId}/test:
+    post:
+      summary: 测试 Relay channel 连通性
+      operationId: testAdminChannel
+      tags: [Admin, Relay]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      parameters:
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Provider probe result without stored provider credentials
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminChannelTestResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/admin/channels/{channelId}/health:
+    get:
+      summary: 获取 Relay channel 健康状态
+      operationId: getAdminChannelHealth
+      tags: [Admin, Relay]
+      parameters:
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Channel health summary without stored provider credentials
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminChannelHealth"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   # ---- Admin organizations ----
   /api/v1/admin/organizations:

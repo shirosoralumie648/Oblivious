@@ -380,6 +380,118 @@ require_marketplace_browse_payload_contract() {
   ' "$openapi_file"
 }
 
+require_admin_channel_secret_response_contract() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+    paths = spec.fetch("paths", {})
+    schemas = spec.fetch("components", {}).fetch("schemas", {})
+    missing = []
+
+    def operation(paths, path, method, missing)
+      op = paths.dig(path, method)
+      unless op
+        missing << "#{method.upcase} #{path} must be documented"
+        return {}
+      end
+      op
+    end
+
+    def response_data_ref(operation, status)
+      operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "$ref") }&.
+        dig("properties", "data", "$ref")
+    end
+
+    def request_body_ref(operation)
+      operation.dig("requestBody", "content", "application/json", "schema", "$ref")
+    end
+
+    def requires_cookie_and_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
+    end
+
+    expected_data_refs = {
+      ["/api/v1/admin/channels", "get", "200"] => "#/components/schemas/AdminChannelListResponse",
+      ["/api/v1/admin/channels", "post", "201"] => "#/components/schemas/AdminChannel",
+      ["/api/v1/admin/channels/{channelId}", "get", "200"] => "#/components/schemas/AdminChannel",
+      ["/api/v1/admin/channels/{channelId}", "put", "200"] => "#/components/schemas/AdminChannel",
+      ["/api/v1/admin/channels/{channelId}/test", "post", "200"] => "#/components/schemas/AdminChannelTestResult",
+      ["/api/v1/admin/channels/{channelId}/health", "get", "200"] => "#/components/schemas/AdminChannelHealth",
+    }
+
+    expected_data_refs.each do |(path, method, status), expected|
+      op = operation(paths, path, method, missing)
+      unless response_data_ref(op, status) == expected
+        missing << "#{method.upcase} #{path} #{status} data must reference #{expected}"
+      end
+      unless op.fetch("tags", []).include?("Admin") && op.fetch("tags", []).include?("Relay")
+        missing << "#{method.upcase} #{path} must be tagged Admin and Relay"
+      end
+    end
+
+    ["/api/v1/admin/channels", "/api/v1/admin/channels/{channelId}", "/api/v1/admin/channels/batch", "/api/v1/admin/channels/{channelId}/test"].each do |path|
+      methods = paths.fetch(path, {}).keys.select { |method| ["post", "put", "delete"].include?(method) }
+      methods.each do |method|
+        op = operation(paths, path, method, missing)
+        unless requires_cookie_and_csrf?(op)
+          missing << "#{method.upcase} #{path} must require cookieAuth and csrfHeader"
+        end
+      end
+    end
+
+    create = operation(paths, "/api/v1/admin/channels", "post", missing)
+    update = operation(paths, "/api/v1/admin/channels/{channelId}", "put", missing)
+    unless request_body_ref(create) == "#/components/schemas/AdminChannelCreateRequest"
+      missing << "POST /api/v1/admin/channels request body must reference AdminChannelCreateRequest"
+    end
+    unless request_body_ref(update) == "#/components/schemas/AdminChannelUpdateRequest"
+      missing << "PUT /api/v1/admin/channels/{channelId} request body must reference AdminChannelUpdateRequest"
+    end
+
+    channel = schemas["AdminChannel"] || {}
+    channel_properties = channel.fetch("properties", {})
+    if channel_properties.key?("apiKey") || channel_properties.key?("api_key") || channel_properties.key?("apiKeyEncrypted") || channel_properties.key?("api_key_encrypted")
+      missing << "AdminChannel response schema must not expose API key fields"
+    end
+    ["id", "name", "provider", "baseURL", "status"].each do |property|
+      unless channel_properties.dig(property, "type") == "string"
+        missing << "AdminChannel.#{property} must be documented as string"
+      end
+    end
+    ["models", "groups"].each do |property|
+      unless channel_properties.dig(property, "type") == "array" &&
+          channel_properties.dig(property, "items", "type") == "string"
+        missing << "AdminChannel.#{property} must be documented as string[]"
+      end
+    end
+
+    list = schemas["AdminChannelListResponse"] || {}
+    unless list.dig("properties", "channels", "items", "$ref") == "#/components/schemas/AdminChannel" &&
+        list.dig("properties", "total", "type") == "integer"
+      missing << "AdminChannelListResponse must expose channels[] as AdminChannel plus integer total"
+    end
+
+    create_req = schemas["AdminChannelCreateRequest"] || {}
+    update_req = schemas["AdminChannelUpdateRequest"] || {}
+    unless create_req.dig("properties", "apiKey", "type") == "string" &&
+        update_req.dig("properties", "apiKey", "type") == "string"
+      missing << "Admin channel create/update request schemas must document write-only apiKey input"
+    end
+    unless create_req.dig("properties", "apiKey", "writeOnly") == true &&
+        update_req.dig("properties", "apiKey", "writeOnly") == true
+      missing << "Admin channel apiKey request fields must be writeOnly"
+    end
+
+    unless missing.empty?
+      warn "[openapi-contract] Admin channel secret response contract is incomplete:"
+      missing.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 require_admin_billing_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
@@ -815,6 +927,7 @@ require_marketplace_paid_install_contract
 require_marketplace_template_type_contract
 require_marketplace_surface_payload_contract
 require_marketplace_browse_payload_contract
+require_admin_channel_secret_response_contract
 require_admin_billing_contract
 require_domestic_payment_webhook_payout_contract
 
