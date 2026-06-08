@@ -161,6 +161,37 @@ func TestRouteSurfaceConsoleAPITokenMutationsRejectCookieWithoutCSRFWithoutDatab
 	}
 }
 
+func TestRouteSurfaceTaskMutationsRejectCookieWithoutCSRFWithoutDatabase(t *testing.T) {
+	session := routeSurfaceUserSession()
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}})
+	cookie := routeSurfaceSignedSessionCookie(t, session)
+
+	tests := []routeSurfaceCase{
+		{"create task", stdhttp.MethodPost, "/api/v1/app/tasks"},
+		{"start task", stdhttp.MethodPost, "/api/v1/app/tasks/task_1/start"},
+		{"approve task", stdhttp.MethodPost, "/api/v1/app/tasks/task_1/approve"},
+		{"pause task", stdhttp.MethodPost, "/api/v1/app/tasks/task_1/pause"},
+		{"resume task", stdhttp.MethodPost, "/api/v1/app/tasks/task_1/resume"},
+		{"cancel task", stdhttp.MethodPost, "/api/v1/app/tasks/task_1/cancel"},
+		{"update task budget", stdhttp.MethodPost, "/api/v1/app/tasks/task_1/budget"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(`{}`))
+			request.Header.Set("Content-Type", "application/json")
+			request.AddCookie(cookie)
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusForbidden {
+				t.Fatalf("expected missing csrf to be rejected with 403 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
 func TestRouteSurfaceRefreshesWorkflowHealthBeforeMetricsScrape(t *testing.T) {
 	source, err := os.ReadFile("router.go")
 	if err != nil {

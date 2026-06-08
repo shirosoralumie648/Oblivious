@@ -6319,6 +6319,9 @@ paths:
       summary: 创建任务
       operationId: createTask
       tags: [Task]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       requestBody:
         required: true
         content:
@@ -6373,6 +6376,9 @@ paths:
       summary: 启动任务
       operationId: startTask
       tags: [Task]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: taskId
           in: path
@@ -6399,6 +6405,9 @@ paths:
       summary: 审批任务
       operationId: approveTask
       tags: [Task]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: taskId
           in: path
@@ -6425,6 +6434,9 @@ paths:
       summary: 暂停任务
       operationId: pauseTask
       tags: [Task]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: taskId
           in: path
@@ -6451,6 +6463,9 @@ paths:
       summary: 恢复任务
       operationId: resumeTask
       tags: [Task]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: taskId
           in: path
@@ -6477,6 +6492,9 @@ paths:
       summary: 取消任务
       operationId: cancelTask
       tags: [Task]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: taskId
           in: path
@@ -6503,6 +6521,9 @@ paths:
       summary: 更新任务预算
       operationId: updateTaskBudget
       tags: [Task]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: taskId
           in: path
