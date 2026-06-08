@@ -353,13 +353,15 @@ type TemplateInstall struct {
 
 // MarketplaceSearchFilter contains filter parameters for searching the marketplace (D-30).
 type MarketplaceSearchFilter struct {
-	Query        string
-	CategorySlug string
-	Tags         []string
-	MinRating    int
-	MaxRating    int
-	PricingType  string
-	Sort         string
-	Limit        int
-	Offset       int
+	Query                   string
+	CategorySlug            string
+	Tags                    []string
+	MinRating               int
+	MaxRating               int
+	PricingType             string
+	Sort                    string
+	RequesterOrganizationID string
+	RequesterUserID         string
+	Limit                   int
+	Offset                  int
 }

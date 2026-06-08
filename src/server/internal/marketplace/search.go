@@ -48,13 +48,15 @@ func (s *SearchService) SearchAgents(ctx context.Context, filter MarketplaceSear
 
 	// Full-text search (D-30)
 	hasQuery := false
+	queryParam := 0
 	if strings.TrimSpace(filter.Query) != "" {
 		hasQuery = true
-		paramIdx++
+		queryParam = paramIdx
 		clauses = append(clauses, searchClause{
-			cond: fmt.Sprintf("(to_tsvector('english', a.name || ' ' || a.description) @@ plainto_tsquery('english', $%d))", paramIdx-1),
+			cond: fmt.Sprintf("(to_tsvector('english', a.name || ' ' || a.description) @@ plainto_tsquery('english', $%d))", queryParam),
 			args: []interface{}{filter.Query},
 		})
+		paramIdx++
 	}
 
 	// Category filter
@@ -100,14 +102,32 @@ func (s *SearchService) SearchAgents(ctx context.Context, filter MarketplaceSear
 		paramIdx++
 	}
 
-	// Build ORDER BY clause
-	orderBy := buildOrderBy(filter.Sort, recommendationSignals(hasQuery, filter.CategorySlug != "", len(filter.Tags) > 0))
-
 	// Build args list
-	var args []interface{}
+	var filterArgs []interface{}
 	for _, c := range clauses {
-		args = append(args, c.args...)
+		filterArgs = append(filterArgs, c.args...)
 	}
+
+	// Build ORDER BY clause. The count query must not receive requester
+	// parameters because they are only used by data-query recommendation order.
+	dataArgs := append([]interface{}{}, filterArgs...)
+	orderOptions := recommendationOrderOptions{
+		Signals:    recommendationSignals(hasQuery, filter.CategorySlug != "", len(filter.Tags) > 0),
+		QueryParam: queryParam,
+	}
+	requesterUserID := strings.TrimSpace(filter.RequesterUserID)
+	requesterOrganizationID := strings.TrimSpace(filter.RequesterOrganizationID)
+	if filter.Sort == "recommended" && requesterUserID != "" {
+		orderOptions.RequesterUserParam = paramIdx
+		dataArgs = append(dataArgs, requesterUserID)
+		paramIdx++
+		if requesterOrganizationID != "" {
+			orderOptions.RequesterOrganizationParam = paramIdx
+			dataArgs = append(dataArgs, requesterOrganizationID)
+			paramIdx++
+		}
+	}
+	orderBy := buildOrderByWithOptions(filter.Sort, orderOptions)
 
 	// Build WHERE string
 	var conds []string
@@ -125,7 +145,7 @@ func (s *SearchService) SearchAgents(ctx context.Context, filter MarketplaceSear
 	`, whereClause)
 
 	var total int
-	if err := s.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
+	if err := s.db.QueryRowContext(ctx, countQuery, filterArgs...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("search agents: count: %w", err)
 	}
 
@@ -141,7 +161,7 @@ func (s *SearchService) SearchAgents(ctx context.Context, filter MarketplaceSear
 		LIMIT $%d OFFSET $%d
 	`, selectAgentColumns, whereClause, orderBy, paramIdx, paramIdx+1)
 
-	dataArgs := append(args, limit, offset)
+	dataArgs = append(dataArgs, limit, offset)
 
 	// Execute data query
 	rows, err := s.db.QueryContext(ctx, dataQuery, dataArgs...)
@@ -279,7 +299,18 @@ func recommendationSignals(hasQuery, hasCategory, hasTags bool) string {
 }
 
 // buildOrderBy returns the SQL ORDER BY clause for the given sort option (D-29, D-30).
+type recommendationOrderOptions struct {
+	Signals                    string
+	QueryParam                 int
+	RequesterUserParam         int
+	RequesterOrganizationParam int
+}
+
 func buildOrderBy(sort string, signals string) string {
+	return buildOrderByWithOptions(sort, recommendationOrderOptions{Signals: signals, QueryParam: 1})
+}
+
+func buildOrderByWithOptions(sort string, options recommendationOrderOptions) string {
 	switch sort {
 	case "popular", "installs":
 		return "ORDER BY a.install_count DESC, a.rating_avg DESC, a.id ASC"
@@ -289,46 +320,91 @@ func buildOrderBy(sort string, signals string) string {
 		return "ORDER BY a.created_at DESC, a.id ASC"
 	case "recommended":
 		rankScore := "0"
-		if strings.Contains(signals, "rank") {
-			rankScore = "ts_rank(to_tsvector('english', a.name || ' ' || a.description), plainto_tsquery('english', $1))"
+		if strings.Contains(options.Signals, "rank") {
+			queryParam := options.QueryParam
+			if queryParam <= 0 {
+				queryParam = 1
+			}
+			rankScore = fmt.Sprintf("ts_rank(to_tsvector('english', a.name || ' ' || a.description), plainto_tsquery('english', $%d))", queryParam)
 		}
 		categoryScore := "0"
-		if strings.Contains(signals, "category_match") {
+		if strings.Contains(options.Signals, "category_match") {
 			categoryScore = "1"
 		}
 		tagScore := "0"
-		if strings.Contains(signals, "tag_match") {
+		if strings.Contains(options.Signals, "tag_match") {
 			tagScore = "1"
+		}
+		hotScore := `(
+			(COALESCE(a.rating_avg, 0)::float / 5.0) * 0.45 +
+			(COALESCE(a.install_count, 0)::float / GREATEST((SELECT COALESCE(MAX(install_count), 0) FROM published_agents WHERE status = 'approved' AND visibility = 'public'), 1)) * 0.55
+		)`
+		contentScore := `(
+			(` + rankScore + `) * 0.60 +
+			(` + categoryScore + `) * 0.20 +
+			(` + tagScore + `) * 0.20
+		)`
+		operationalScore := `(
+			(LEAST(COALESCE(mars.click_count, 0)::float / GREATEST(COALESCE(mars.impression_count, 0), 1), 1.0)) * 0.45 +
+			(LEAST(COALESCE(mars.install_conversion_count, 0)::float / GREATEST(COALESCE(mars.impression_count, 0), 1), 1.0)) * 0.55
+		)`
+		explorationScore := `(
+			(('x' || substr(md5(a.id), 1, 8))::bit(32)::bigint)::float / 4294967295.0
+		)`
+		baseScore := `(
+				/* hot_score */ ` + hotScore + ` * 0.45 +
+				/* content_score rank category_match tag_match */ ` + contentScore + ` * 0.30 +
+				/* operational_score from marketplace_agent_ranking_signals: click_count/impression_count and install_conversion_count/impression_count */ ` + operationalScore + ` * 0.15 +
+				/* exploration_score: deterministic 10% exploration, no runtime RNG needed. */ ` + explorationScore + ` * 0.10
+			)`
+		operationalModifier := "1.0"
+		collaborativeScore := "0"
+		if options.RequesterUserParam > 0 {
+			requesterScope := fmt.Sprintf("requester_install.user_id = $%d", options.RequesterUserParam)
+			if options.RequesterOrganizationParam > 0 {
+				requesterScope += fmt.Sprintf(" AND requester_install.organization_id = $%d", options.RequesterOrganizationParam)
+			}
+			collaborativeScore = `LEAST((
+				SELECT COUNT(DISTINCT peer_install.user_id)::float
+				FROM agent_installs requester_install
+				JOIN agent_installs peer_seed
+					ON peer_seed.agent_id = requester_install.agent_id
+					AND peer_seed.user_id <> requester_install.user_id
+				JOIN agent_installs peer_install
+					ON peer_install.user_id = peer_seed.user_id
+					AND peer_install.agent_id = a.id
+				WHERE ` + requesterScope + `
+					AND a.id <> requester_install.agent_id
+					AND NOT EXISTS (
+						SELECT 1
+						FROM agent_installs existing_requester_install
+						WHERE existing_requester_install.agent_id = a.id
+							AND ` + strings.ReplaceAll(requesterScope, "requester_install.", "existing_requester_install.") + `
+					)
+			) / 10.0, 1.0)`
+			baseScore = `(
+				/* hot_score */ ` + hotScore + ` * 0.30 +
+				/* collaborative_filter_score from user-agent co-install matrix */ (` + collaborativeScore + `) * 0.30 +
+				/* content_score rank category_match tag_match */ ` + contentScore + ` * 0.30 +
+				/* exploration_score: deterministic 10% exploration, no runtime RNG needed. */ ` + explorationScore + ` * 0.10
+			)`
+			operationalModifier = `(1.0 + (` + operationalScore + `) * 0.15)`
 		}
 
 		// Hybrid recommendation score:
-		// hot score (installs + rating), content score (query/category/tag),
-		// marketplace_agent_ranking_signals operational score, deterministic
-		// exploration score, and stable fallback tie breakers.
+		// anonymous search keeps the existing hot/content/operational/exploration
+		// blend; signed-in search adds user-based collaborative filtering.
 		return `ORDER BY (
-			(
-				/* hot_score */ (
-					(COALESCE(a.rating_avg, 0)::float / 5.0) * 0.45 +
-					(COALESCE(a.install_count, 0)::float / GREATEST((SELECT COALESCE(MAX(install_count), 0) FROM published_agents WHERE status = 'approved' AND visibility = 'public'), 1)) * 0.55
-				) * 0.45 +
-				/* content_score rank category_match tag_match */ (
-					(` + rankScore + `) * 0.60 +
-					(` + categoryScore + `) * 0.20 +
-					(` + tagScore + `) * 0.20
-				) * 0.30 +
-				/* operational_score from marketplace_agent_ranking_signals: click_count/impression_count and install_conversion_count/impression_count */ (
-					(LEAST(COALESCE(mars.click_count, 0)::float / GREATEST(COALESCE(mars.impression_count, 0), 1), 1.0)) * 0.45 +
-					(LEAST(COALESCE(mars.install_conversion_count, 0)::float / GREATEST(COALESCE(mars.impression_count, 0), 1), 1.0)) * 0.55
-				) * 0.15 +
-				/* exploration_score: deterministic 10% exploration, no runtime RNG needed. */ (
-					(('x' || substr(md5(a.id), 1, 8))::bit(32)::bigint)::float / 4294967295.0
-				) * 0.10
-			) * GREATEST(COALESCE(mars.curated_weight, 1.0), 0.0) * GREATEST(COALESCE(mars.governance_weight, 1.0), 0.0)
+			` + baseScore + ` * ` + operationalModifier + ` * GREATEST(COALESCE(mars.curated_weight, 1.0), 0.0) * GREATEST(COALESCE(mars.governance_weight, 1.0), 0.0)
 		) DESC, a.rating_avg DESC, a.install_count DESC, a.id ASC`
 	default:
 		// Default: relevance (FTS rank) then rating
-		if strings.Contains(signals, "rank") {
-			return "ORDER BY ts_rank(to_tsvector('english', a.name || ' ' || a.description), plainto_tsquery('english', $1)) DESC, a.rating_avg DESC, a.id ASC"
+		if strings.Contains(options.Signals, "rank") {
+			queryParam := options.QueryParam
+			if queryParam <= 0 {
+				queryParam = 1
+			}
+			return fmt.Sprintf("ORDER BY ts_rank(to_tsvector('english', a.name || ' ' || a.description), plainto_tsquery('english', $%d)) DESC, a.rating_avg DESC, a.id ASC", queryParam)
 		}
 		return "ORDER BY a.rating_avg DESC, a.rating_count DESC, a.id ASC"
 	}

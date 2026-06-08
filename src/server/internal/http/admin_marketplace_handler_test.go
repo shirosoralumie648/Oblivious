@@ -783,6 +783,33 @@ func TestMarketplaceHandlerPublicBrowseAndSessionGuards(t *testing.T) {
 	}
 }
 
+func TestMarketplaceSearchFilterIncludesRequesterScopeWhenSessionExists(t *testing.T) {
+	session := testAdminSession()
+	session.OrganizationID = "org_marketplace_recs"
+	session.User.ID = "user_marketplace_recs"
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/marketplace/search?query=invoice&sort=featured&limit=6", nil).
+		WithContext(context.WithValue(context.Background(), sessionContextKey, session))
+
+	filter := marketplaceSearchFilter(request)
+
+	if filter.Sort != "recommended" {
+		t.Fatalf("expected featured alias to normalize to recommended, got %q", filter.Sort)
+	}
+	if filter.RequesterOrganizationID != "org_marketplace_recs" || filter.RequesterUserID != "user_marketplace_recs" {
+		t.Fatalf("expected requester scope from session, got org=%q user=%q", filter.RequesterOrganizationID, filter.RequesterUserID)
+	}
+}
+
+func TestMarketplaceSearchFilterKeepsAnonymousRequesterScopeEmpty(t *testing.T) {
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/marketplace/search?query=invoice&sort=recommended", nil)
+
+	filter := marketplaceSearchFilter(request)
+
+	if filter.RequesterOrganizationID != "" || filter.RequesterUserID != "" {
+		t.Fatalf("anonymous marketplace search must not set requester scope, got org=%q user=%q", filter.RequesterOrganizationID, filter.RequesterUserID)
+	}
+}
+
 func TestMarketplaceHandlerRejectsUnconfiguredPaidInstallProviderBeforeSettlement(t *testing.T) {
 	store := &fakeMarketplaceStore{
 		agent: &marketplace.PublishedAgent{

@@ -380,8 +380,10 @@ func (h marketplaceHandler) getFeaturedAgents(w stdhttp.ResponseWriter, r *stdht
 	}
 
 	agents, total, err := h.searchService.SearchAgents(r.Context(), marketplace.MarketplaceSearchFilter{
-		Sort:  "recommended",
-		Limit: 6,
+		Sort:                    "recommended",
+		RequesterOrganizationID: marketplaceRequesterOrganizationID(r),
+		RequesterUserID:         marketplaceRequesterUserID(r),
+		Limit:                   6,
 	})
 	if err != nil {
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
@@ -781,16 +783,34 @@ func marketplaceSearchFilter(r *stdhttp.Request) marketplace.MarketplaceSearchFi
 	}
 
 	return marketplace.MarketplaceSearchFilter{
-		Query:        firstNonEmpty(query.Get("query"), query.Get("q")),
-		CategorySlug: category,
-		Tags:         splitQueryCSV(r, "tags"),
-		MinRating:    parseQueryInt(r, "minRating", 0, 5),
-		MaxRating:    parseQueryInt(r, "maxRating", 0, 5),
-		PricingType:  strings.TrimSpace(query.Get("pricingType")),
-		Sort:         sort,
-		Limit:        parseQueryInt(r, "limit", 20, 50),
-		Offset:       parseQueryInt(r, "offset", 0, 0),
+		Query:                   firstNonEmpty(query.Get("query"), query.Get("q")),
+		CategorySlug:            category,
+		Tags:                    splitQueryCSV(r, "tags"),
+		MinRating:               parseQueryInt(r, "minRating", 0, 5),
+		MaxRating:               parseQueryInt(r, "maxRating", 0, 5),
+		PricingType:             strings.TrimSpace(query.Get("pricingType")),
+		Sort:                    sort,
+		RequesterOrganizationID: marketplaceRequesterOrganizationID(r),
+		RequesterUserID:         marketplaceRequesterUserID(r),
+		Limit:                   parseQueryInt(r, "limit", 20, 50),
+		Offset:                  parseQueryInt(r, "offset", 0, 0),
 	}
+}
+
+func marketplaceRequesterOrganizationID(r *stdhttp.Request) string {
+	session, ok := sessionFromContext(r)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(session.OrganizationID)
+}
+
+func marketplaceRequesterUserID(r *stdhttp.Request) string {
+	session, ok := sessionFromContext(r)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(session.User.ID)
 }
 
 func marketplaceTemplateFilter(r *stdhttp.Request) marketplace.TemplateFilter {

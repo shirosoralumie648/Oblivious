@@ -1223,6 +1223,13 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	serveWithSession := func(w stdhttp.ResponseWriter, r *stdhttp.Request, handler stdhttp.HandlerFunc) {
 		authMiddleware.requireSession(handler).ServeHTTP(w, r)
 	}
+	serveWithOptionalSession := func(w stdhttp.ResponseWriter, r *stdhttp.Request, handler stdhttp.HandlerFunc) {
+		if session, ok := authMiddleware.currentSession(r); ok {
+			attachSessionToObservabilityScope(r, session)
+			r = r.WithContext(context.WithValue(r.Context(), sessionContextKey, session))
+		}
+		handler(w, r)
+	}
 
 	// Marketplace routes
 	mux.HandleFunc("/api/v1/marketplace/featured", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -1230,7 +1237,7 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			return
 		}
-		marketplaceHandler.getFeaturedAgents(w, r)
+		serveWithOptionalSession(w, r, marketplaceHandler.getFeaturedAgents)
 	})
 	mux.HandleFunc("/api/v1/marketplace/curated", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		if r.Method != stdhttp.MethodGet {
@@ -1251,7 +1258,7 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			return
 		}
-		marketplaceHandler.searchAgents(w, r)
+		serveWithOptionalSession(w, r, marketplaceHandler.searchAgents)
 	})
 	mux.HandleFunc("/api/v1/marketplace/templates", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		switch r.Method {

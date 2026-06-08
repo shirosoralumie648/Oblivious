@@ -33,6 +33,47 @@ func TestBuildOrderByRecommendedUsesHybridRecommendationSignals(t *testing.T) {
 	}
 }
 
+func TestBuildOrderByRecommendedUsesCollaborativeFilteringForRequester(t *testing.T) {
+	orderBy := buildOrderByWithOptions("recommended", recommendationOrderOptions{
+		Signals:                    "rank,category_match,tag_match",
+		QueryParam:                 1,
+		RequesterUserParam:         4,
+		RequesterOrganizationParam: 5,
+	})
+
+	for _, fragment := range []string{
+		"collaborative_filter_score",
+		"agent_installs requester_install",
+		"agent_installs peer_seed",
+		"agent_installs peer_install",
+		"requester_install.user_id = $4",
+		"requester_install.organization_id = $5",
+		"peer_seed.user_id <> requester_install.user_id",
+		"peer_install.agent_id = a.id",
+		"existing_requester_install.agent_id = a.id",
+		"existing_requester_install.user_id = $4",
+		"* 0.30",
+	} {
+		if !strings.Contains(orderBy, fragment) {
+			t.Fatalf("expected collaborative recommended order to include %q, got: %s", fragment, orderBy)
+		}
+	}
+}
+
+func TestBuildOrderByRecommendedOmitsCollaborativeFilteringForAnonymousSearch(t *testing.T) {
+	orderBy := buildOrderByWithOptions("recommended", recommendationOrderOptions{
+		Signals:    "rank",
+		QueryParam: 1,
+	})
+
+	if strings.Contains(orderBy, "collaborative_filter_score") || strings.Contains(orderBy, "agent_installs requester_install") {
+		t.Fatalf("anonymous recommended order should not include requester collaborative filtering, got: %s", orderBy)
+	}
+	if !strings.Contains(orderBy, "operational_score") || !strings.Contains(orderBy, "exploration_score") {
+		t.Fatalf("anonymous recommended order should keep existing operational and exploration signals, got: %s", orderBy)
+	}
+}
+
 func TestBuildOrderByInstallsAliasMatchesPopular(t *testing.T) {
 	if buildOrderBy("installs", "") != buildOrderBy("popular", "") {
 		t.Fatalf("expected sort=installs to match sort=popular")
@@ -152,6 +193,48 @@ func TestSearchAgentsRecommendedUsesRankingSignals(t *testing.T) {
 	}
 	if len(agents) < 2 || agents[0].ID != "agent_invoice_explorer" {
 		t.Fatalf("expected curated high-conversion explorer first, got %v", agentIDs(agents))
+	}
+}
+
+func TestSearchAgentsRecommendedUsesCollaborativeFilteringForRequester(t *testing.T) {
+	database := searchTestDB(t)
+	seedSearchMarketplace(t, database)
+	service := NewSearchService(database)
+
+	if _, err := database.Exec(`
+		INSERT INTO agent_installs (id, agent_id, user_id, organization_id)
+		VALUES ('install_requester_seed', 'agent_invoice_relevant', 'user_search', 'org_search')
+	`); err != nil {
+		t.Fatalf("insert requester install: %v", err)
+	}
+	for i := 0; i < 10; i++ {
+		peerID := "peer_search_" + string(rune('a'+i))
+		if _, err := database.Exec(`
+			INSERT INTO users (id, email, password_hash, name, created_at)
+			VALUES ($1, $2, 'hash', $1, NOW())
+		`, peerID, peerID+"@example.com"); err != nil {
+			t.Fatalf("insert peer user %s: %v", peerID, err)
+		}
+		if _, err := database.Exec(`
+			INSERT INTO agent_installs (id, agent_id, user_id, organization_id)
+			VALUES ($1, 'agent_invoice_relevant', $2, 'org_search'),
+			       ($3, 'agent_invoice_explorer', $2, 'org_search')
+		`, "install_"+peerID+"_seed", peerID, "install_"+peerID+"_candidate"); err != nil {
+			t.Fatalf("insert peer installs %s: %v", peerID, err)
+		}
+	}
+
+	agents, _, err := service.SearchAgents(context.Background(), MarketplaceSearchFilter{
+		Sort:                    "recommended",
+		RequesterOrganizationID: "org_search",
+		RequesterUserID:         "user_search",
+		Limit:                   4,
+	})
+	if err != nil {
+		t.Fatalf("SearchAgents returned error: %v", err)
+	}
+	if len(agents) == 0 || agents[0].ID != "agent_invoice_explorer" {
+		t.Fatalf("expected collaborative candidate first for requester, got %v", agentIDs(agents))
 	}
 }
 
