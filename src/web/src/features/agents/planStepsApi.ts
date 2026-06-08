@@ -53,6 +53,13 @@ export type UpdateAgentPlanStepRequest = {
   toolName?: string;
 };
 
+export type CreateAgentPlanStepRequest = {
+  afterPlanStepId?: string;
+  input?: Record<string, unknown>;
+  title: string;
+  toolName?: string;
+};
+
 export type MoveAgentPlanStepDirection = 'up' | 'down';
 
 type AgentPlanStepsPayload = {
@@ -119,8 +126,10 @@ function runDetailFromPayload(payload: AgentRunDetailPayload): AgentRunDetail {
 export type AgentPlanStepsApi = {
   getRunDetail: (runId: string) => Promise<AgentRunDetail>;
   approvePlanStep: (runId: string, planStepId: string, reason?: string) => Promise<AgentPlanStep[]>;
+  createPlanStep: (runId: string, payload: CreateAgentPlanStepRequest) => Promise<AgentPlanStep[]>;
   updatePlanStep: (runId: string, planStepId: string, payload: UpdateAgentPlanStepRequest) => Promise<AgentPlanStep[]>;
   movePlanStep: (runId: string, planStepId: string, direction: MoveAgentPlanStepDirection) => Promise<AgentPlanStep[]>;
+  deletePlanStep: (runId: string, planStepId: string) => Promise<AgentPlanStep[]>;
   executePlanStep: (runId: string, planStepId: string) => Promise<AgentPlanStep[]>;
   approveToolRun: (runId: string, toolRunId: string, reason?: string) => Promise<AgentToolRun[]>;
   rejectToolRun: (runId: string, toolRunId: string, reason?: string) => Promise<AgentToolRun[]>;
@@ -137,6 +146,15 @@ export function createAgentPlanStepsApi(client: HttpClient): AgentPlanStepsApi {
         await client.post<AgentPlanStepsPayload>(`${runPath(runId)}/approve-plan-step`, {
           planStepId,
           ...(reason ? { reason } : {})
+        })
+      ),
+    createPlanStep: async (runId, payload) =>
+      planStepsFromPayload(
+        await client.post<AgentPlanStepsPayload>(`${runPath(runId)}/create-plan-step`, {
+          title: payload.title,
+          ...(payload.afterPlanStepId !== undefined ? { afterPlanStepId: payload.afterPlanStepId } : {}),
+          ...(payload.toolName !== undefined ? { toolName: payload.toolName } : {}),
+          ...(payload.input !== undefined ? { input: payload.input } : {})
         })
       ),
     updatePlanStep: async (runId, planStepId, payload) =>
@@ -156,6 +174,12 @@ export function createAgentPlanStepsApi(client: HttpClient): AgentPlanStepsApi {
       planStepsFromPayload(
         await client.post<AgentPlanStepsPayload>(`${runPath(runId)}/move-plan-step`, {
           direction,
+          planStepId
+        })
+      ),
+    deletePlanStep: async (runId, planStepId) =>
+      planStepsFromPayload(
+        await client.post<AgentPlanStepsPayload>(`${runPath(runId)}/delete-plan-step`, {
           planStepId
         })
       ),

@@ -452,6 +452,16 @@ func (s *fakeStore) UpdatePlanStep(ctx context.Context, organizationID, id strin
 	return step, nil
 }
 
+func (s *fakeStore) DeletePlanStep(ctx context.Context, organizationID, id string) (*PlanStep, error) {
+	for index, step := range s.planSteps {
+		if step.ID == id && step.OrganizationID == organizationID {
+			s.planSteps = append(s.planSteps[:index], s.planSteps[index+1:]...)
+			return step, nil
+		}
+	}
+	return nil, errors.New("agent plan step not found")
+}
+
 type fakePlanStepExecutor struct {
 	calls         int
 	err           error
@@ -652,6 +662,209 @@ func TestServiceMovePlanStepRejectsMovingAcrossCompletedBoundary(t *testing.T) {
 
 	if _, err := service.MovePlanStep(context.Background(), session, "step_2", MovePlanStepDirectionUp); err == nil || !strings.Contains(err.Error(), "cannot move across") {
 		t.Fatalf("expected move across completed step rejection, got %v", err)
+	}
+}
+
+func TestServiceCreatePlanStepDraftInsertsAfterDraftAndResetsShiftedApproval(t *testing.T) {
+	session := auth.Session{
+		User:           auth.User{ID: "user_1"},
+		OrganizationID: "org_1",
+	}
+	now := time.Now().UTC()
+	store := &fakeStore{
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Status:         RunStatusPendingApproval,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+		planSteps: []*PlanStep{{
+			ID:             "step_1",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			Index:          1,
+			Title:          "Draft patch",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusPending,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}, {
+			ID:             "step_2",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			Index:          2,
+			Title:          "Verify patch",
+			Status:         PlanStepStatusApproved,
+			ApprovalStatus: ApprovalStatusApproved,
+			CreatedAt:      now.Add(time.Second),
+			UpdatedAt:      now.Add(time.Second),
+		}},
+	}
+	service := NewService(store, &fakeGateway{})
+	afterID := "step_1"
+
+	steps, err := service.CreatePlanStepDraft(context.Background(), session, "run_1", CreatePlanStepDraftRequest{
+		AfterPlanStepID: &afterID,
+		Title:           "Run static checks",
+		ToolName:        "execute_code",
+		Input:           map[string]any{"command": "go test ./internal/agent"},
+	})
+	if err != nil {
+		t.Fatalf("CreatePlanStepDraft returned error: %v", err)
+	}
+
+	if len(steps) != 3 {
+		t.Fatalf("expected three steps, got %+v", steps)
+	}
+	if steps[0].ID != "step_1" || steps[0].Index != 1 {
+		t.Fatalf("expected original first step to stay first, got %+v", steps[0])
+	}
+	if steps[1].Title != "Run static checks" || steps[1].Index != 2 || steps[1].Status != PlanStepStatusPending || steps[1].ApprovalStatus != ApprovalStatusPending {
+		t.Fatalf("expected inserted pending step at index 2, got %+v", steps[1])
+	}
+	if steps[1].ToolName != "execute_code" || steps[1].Input["command"] != "go test ./internal/agent" {
+		t.Fatalf("expected inserted step tool/input, got %+v", steps[1])
+	}
+	if steps[2].ID != "step_2" || steps[2].Index != 3 || steps[2].Status != PlanStepStatusPending || steps[2].ApprovalStatus != ApprovalStatusPending {
+		t.Fatalf("expected shifted approved step to require fresh review, got %+v", steps[2])
+	}
+}
+
+func TestServiceCreatePlanStepDraftRejectsInsertAfterExecutedStep(t *testing.T) {
+	session := auth.Session{
+		User:           auth.User{ID: "user_1"},
+		OrganizationID: "org_1",
+	}
+	now := time.Now().UTC()
+	store := &fakeStore{
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Status:         RunStatusPendingApproval,
+		}},
+		planSteps: []*PlanStep{{
+			ID:             "step_1",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			Index:          1,
+			Title:          "Gather requirements",
+			Status:         PlanStepStatusCompleted,
+			ApprovalStatus: ApprovalStatusNotRequired,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+	}
+	service := NewService(store, &fakeGateway{})
+	afterID := "step_1"
+
+	if _, err := service.CreatePlanStepDraft(context.Background(), session, "run_1", CreatePlanStepDraftRequest{
+		AfterPlanStepID: &afterID,
+		Title:           "Too late",
+	}); err == nil || !strings.Contains(err.Error(), "cannot be inserted after executed step") {
+		t.Fatalf("expected executed anchor rejection, got %v", err)
+	}
+}
+
+func TestServiceDeletePlanStepDraftRemovesStepAndReindexesDrafts(t *testing.T) {
+	session := auth.Session{
+		User:           auth.User{ID: "user_1"},
+		OrganizationID: "org_1",
+	}
+	now := time.Now().UTC()
+	store := &fakeStore{
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Status:         RunStatusPendingApproval,
+		}},
+		planSteps: []*PlanStep{{
+			ID:             "step_1",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			Index:          1,
+			Title:          "Draft patch",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusPending,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}, {
+			ID:             "step_2",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			Index:          2,
+			Title:          "Run checks",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusPending,
+			CreatedAt:      now.Add(time.Second),
+			UpdatedAt:      now.Add(time.Second),
+		}, {
+			ID:             "step_3",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			Index:          3,
+			Title:          "Verify patch",
+			Status:         PlanStepStatusApproved,
+			ApprovalStatus: ApprovalStatusApproved,
+			CreatedAt:      now.Add(2 * time.Second),
+			UpdatedAt:      now.Add(2 * time.Second),
+		}},
+	}
+	service := NewService(store, &fakeGateway{})
+
+	steps, err := service.DeletePlanStepDraft(context.Background(), session, "step_2")
+	if err != nil {
+		t.Fatalf("DeletePlanStepDraft returned error: %v", err)
+	}
+
+	if len(steps) != 2 {
+		t.Fatalf("expected two remaining steps, got %+v", steps)
+	}
+	if steps[0].ID != "step_1" || steps[0].Index != 1 {
+		t.Fatalf("expected first step unchanged, got %+v", steps[0])
+	}
+	if steps[1].ID != "step_3" || steps[1].Index != 2 || steps[1].Status != PlanStepStatusPending || steps[1].ApprovalStatus != ApprovalStatusPending {
+		t.Fatalf("expected shifted approved step to require fresh review, got %+v", steps[1])
+	}
+}
+
+func TestServiceDeletePlanStepDraftRejectsExecutedStep(t *testing.T) {
+	session := auth.Session{
+		User:           auth.User{ID: "user_1"},
+		OrganizationID: "org_1",
+	}
+	store := &fakeStore{
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Status:         RunStatusPendingApproval,
+		}},
+		planSteps: []*PlanStep{{
+			ID:             "step_1",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			Index:          1,
+			Title:          "Already completed",
+			Status:         PlanStepStatusCompleted,
+			ApprovalStatus: ApprovalStatusNotRequired,
+		}},
+	}
+	service := NewService(store, &fakeGateway{})
+
+	if _, err := service.DeletePlanStepDraft(context.Background(), session, "step_1"); err == nil || !strings.Contains(err.Error(), "cannot be deleted") {
+		t.Fatalf("expected executed step delete rejection, got %v", err)
 	}
 }
 

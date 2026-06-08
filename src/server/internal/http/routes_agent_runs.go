@@ -65,9 +65,21 @@ func registerAgentRunRoutes(mux *stdhttp.ServeMux, authMiddleware sessionMiddlew
 				} else {
 					writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 				}
+			case "create-plan-step":
+				if r.Method == stdhttp.MethodPost {
+					handler.createPlanStep(w, r, runID)
+				} else {
+					writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+				}
 			case "move-plan-step":
 				if r.Method == stdhttp.MethodPost {
 					handler.movePlanStep(w, r, runID)
+				} else {
+					writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+				}
+			case "delete-plan-step":
+				if r.Method == stdhttp.MethodPost {
+					handler.deletePlanStep(w, r, runID)
 				} else {
 					writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 				}

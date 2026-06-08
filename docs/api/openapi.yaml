@@ -1091,6 +1091,24 @@ components:
           type: object
           additionalProperties: true
 
+    AgentPlanStepCreateRequest:
+      type: object
+      required: [title]
+      properties:
+        afterPlanStepId:
+          type: string
+        after_plan_step_id:
+          type: string
+        title:
+          type: string
+        toolName:
+          type: string
+        tool_name:
+          type: string
+        input:
+          type: object
+          additionalProperties: true
+
     AgentPlanStepMoveRequest:
       type: object
       properties:
@@ -6355,6 +6373,40 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /api/v1/agent/runs/{runId}/create-plan-step:
+    post:
+      summary: 新增 Agent planning 步骤草稿
+      operationId: createAgentPlanStep
+      tags: [Agent]
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentPlanStepCreateRequest"
+      responses:
+        "201":
+          description: 刷新后的 Agent run 状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AgentRunResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   /api/v1/agent/runs/{runId}/move-plan-step:
     post:
       summary: 移动 Agent planning 步骤顺序
@@ -6371,6 +6423,39 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/AgentPlanStepMoveRequest"
+      responses:
+        "200":
+          description: 刷新后的 Agent run 状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AgentRunResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/agent/runs/{runId}/delete-plan-step:
+    post:
+      summary: 删除 Agent planning 步骤草稿
+      operationId: deleteAgentPlanStep
+      tags: [Agent]
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentPlanStepDecisionRequest"
       responses:
         "200":
           description: 刷新后的 Agent run 状态

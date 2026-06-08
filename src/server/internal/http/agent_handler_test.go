@@ -279,6 +279,10 @@ func (s *agentHTTPConfigStore) UpdatePlanStep(ctx context.Context, organizationI
 	return nil, nil
 }
 
+func (s *agentHTTPConfigStore) DeletePlanStep(ctx context.Context, organizationID, id string) (*agent.PlanStep, error) {
+	return nil, nil
+}
+
 func (s *agentHTTPConfigStore) CreateMemory(ctx context.Context, req *agent.CreateMemoryStoreRequest) (*agent.Memory, error) {
 	return nil, nil
 }

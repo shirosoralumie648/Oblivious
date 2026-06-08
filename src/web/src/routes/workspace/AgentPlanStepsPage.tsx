@@ -80,6 +80,11 @@ export function AgentPlanStepsPage() {
   const [editInput, setEditInput] = useState('');
   const [editTitle, setEditTitle] = useState('');
   const [editToolName, setEditToolName] = useState('');
+  const [isCreatingStep, setIsCreatingStep] = useState(false);
+  const [newAfterStepId, setNewAfterStepId] = useState<string | null>(null);
+  const [newInput, setNewInput] = useState('');
+  const [newTitle, setNewTitle] = useState('');
+  const [newToolName, setNewToolName] = useState('');
   const [operatingStepId, setOperatingStepId] = useState<string | null>(null);
   const [operatingToolRunId, setOperatingToolRunId] = useState<string | null>(null);
   const [planSteps, setPlanSteps] = useState<AgentPlanStep[]>(() => statePlanSteps(location.state));
@@ -130,6 +135,78 @@ export function AgentPlanStepsPage() {
     setEditInput('');
   };
 
+  const startCreatingStep = (afterStepId: string | null = null) => {
+    setIsCreatingStep(true);
+    setNewAfterStepId(afterStepId);
+    setNewTitle('');
+    setNewToolName('');
+    setNewInput('');
+    setError(null);
+  };
+
+  const cancelCreatingStep = () => {
+    setIsCreatingStep(false);
+    setNewAfterStepId(null);
+    setNewTitle('');
+    setNewToolName('');
+    setNewInput('');
+  };
+
+  const parsePlanStepInput = (value: string, label = 'Plan step input') => {
+    if (value.trim() === '') {
+      return {};
+    }
+
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        setError(`${label} must be a JSON object.`);
+        return null;
+      }
+      return parsed as Record<string, unknown>;
+    } catch {
+      setError(`${label} must be valid JSON.`);
+      return null;
+    }
+  };
+
+  const createPlanStep = async () => {
+    if (!runId) {
+      setError('Run ID is required.');
+      return;
+    }
+
+    const title = newTitle.trim();
+    if (!title) {
+      setError('New plan step title is required.');
+      return;
+    }
+
+    const parsedInput = parsePlanStepInput(newInput, 'New step input');
+    if (parsedInput === null) {
+      return;
+    }
+
+    setOperatingStepId(newAfterStepId ?? '__new_plan_step__');
+    setError(null);
+
+    try {
+      const refreshed = await api.createPlanStep(runId, {
+        ...(newAfterStepId ? { afterPlanStepId: newAfterStepId } : {}),
+        input: parsedInput,
+        title,
+        toolName: newToolName.trim()
+      });
+      setPlanSteps(refreshed);
+      cancelCreatingStep();
+      void refreshRunDetail();
+    } catch (caughtError) {
+      setError(errorMessage(caughtError, 'Unable to add plan step.'));
+    } finally {
+      setOperatingStepId(null);
+    }
+  };
+
   const savePlanStep = async (step: AgentPlanStep) => {
     if (!runId) {
       setError('Run ID is required.');
@@ -142,21 +219,9 @@ export function AgentPlanStepsPage() {
       return;
     }
 
-    let parsedInput: Record<string, unknown> | undefined;
-    if (editInput.trim() !== '') {
-      try {
-        const parsed = JSON.parse(editInput) as unknown;
-        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-          setError('Plan step input must be a JSON object.');
-          return;
-        }
-        parsedInput = parsed as Record<string, unknown>;
-      } catch {
-        setError('Plan step input must be valid JSON.');
-        return;
-      }
-    } else {
-      parsedInput = {};
+    const parsedInput = parsePlanStepInput(editInput);
+    if (parsedInput === null) {
+      return;
     }
 
     setOperatingStepId(step.id);
@@ -220,6 +285,26 @@ export function AgentPlanStepsPage() {
       void refreshRunDetail();
     } catch (caughtError) {
       setError(errorMessage(caughtError, `Unable to move plan step ${direction}.`));
+    } finally {
+      setOperatingStepId(null);
+    }
+  };
+
+  const deletePlanStep = async (step: AgentPlanStep) => {
+    if (!runId) {
+      setError('Run ID is required.');
+      return;
+    }
+
+    setOperatingStepId(step.id);
+    setError(null);
+
+    try {
+      const refreshed = await api.deletePlanStep(runId, step.id);
+      setPlanSteps(refreshed);
+      void refreshRunDetail();
+    } catch (caughtError) {
+      setError(errorMessage(caughtError, 'Unable to delete plan step.'));
     } finally {
       setOperatingStepId(null);
     }
@@ -372,6 +457,65 @@ export function AgentPlanStepsPage() {
       </section>
 
       <section aria-label="Plan steps" className="space-y-3">
+        <div className="rounded-lg border border-[#d7d2c4] bg-white p-4">
+          {!isCreatingStep ? (
+            <button
+              className="min-h-10 rounded-lg border border-[#181611] px-3 text-sm font-semibold"
+              onClick={() => startCreatingStep(null)}
+              type="button"
+            >
+              Add plan step
+            </button>
+          ) : (
+            <div className="grid gap-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-[#181611]">
+                  {newAfterStepId ? 'Insert plan step' : 'Add plan step'}
+                </p>
+                <button
+                  className="min-h-10 rounded-lg border border-[#181611] px-3 text-sm font-semibold"
+                  onClick={cancelCreatingStep}
+                  type="button"
+                >
+                  Cancel new step
+                </button>
+              </div>
+              <label className="grid gap-1 text-sm font-medium text-[#3f3a31]">
+                New step title
+                <input
+                  className="min-h-10 rounded-lg border border-[#d7d2c4] px-3 text-sm"
+                  onChange={(event) => setNewTitle(event.target.value)}
+                  value={newTitle}
+                />
+              </label>
+              <label className="grid gap-1 text-sm font-medium text-[#3f3a31]">
+                New step tool
+                <input
+                  className="min-h-10 rounded-lg border border-[#d7d2c4] px-3 text-sm"
+                  onChange={(event) => setNewToolName(event.target.value)}
+                  placeholder="Optional built-in tool"
+                  value={newToolName}
+                />
+              </label>
+              <label className="grid gap-1 text-sm font-medium text-[#3f3a31]">
+                New step input
+                <textarea
+                  className="min-h-28 rounded-lg border border-[#d7d2c4] px-3 py-2 font-mono text-xs leading-5"
+                  onChange={(event) => setNewInput(event.target.value)}
+                  value={newInput}
+                />
+              </label>
+              <button
+                className="min-h-10 rounded-lg bg-[#181611] px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={operatingStepId === (newAfterStepId ?? '__new_plan_step__')}
+                onClick={() => void createPlanStep()}
+                type="button"
+              >
+                Add plan step
+              </button>
+            </div>
+          )}
+        </div>
         {planSteps.length === 0 ? <p className="text-sm text-[#625b4f]">No plan steps to show yet.</p> : null}
         {planSteps.map((step, stepPosition) => {
           const isEditing = editingStepId === step.id;
@@ -470,6 +614,16 @@ export function AgentPlanStepsPage() {
                         <span className="sr-only"> {step.title}</span>
                       </button>
                       <button
+                        aria-label={`Insert after ${step.title}`}
+                        className="min-h-10 rounded-lg border border-[#181611] px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={!canEdit(step) || operatingStepId === step.id}
+                        onClick={() => startCreatingStep(step.id)}
+                        type="button"
+                      >
+                        Insert after
+                        <span className="sr-only"> {step.title}</span>
+                      </button>
+                      <button
                         aria-label={`Move up ${step.title}`}
                         className="min-h-10 rounded-lg border border-[#181611] px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
                         disabled={!canMoveUp || operatingStepId === step.id}
@@ -507,6 +661,16 @@ export function AgentPlanStepsPage() {
                         type="button"
                       >
                         Execute
+                        <span className="sr-only"> {step.title}</span>
+                      </button>
+                      <button
+                        aria-label={`Delete ${step.title}`}
+                        className="min-h-10 rounded-lg border border-red-700 px-3 text-sm font-semibold text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={!canEdit(step) || operatingStepId === step.id}
+                        onClick={() => void deletePlanStep(step)}
+                        type="button"
+                      >
+                        Delete
                         <span className="sr-only"> {step.title}</span>
                       </button>
                     </>

@@ -1266,6 +1266,16 @@ func (s *fakeAgentRunsStore) UpdatePlanStep(ctx context.Context, organizationID,
 	return step, nil
 }
 
+func (s *fakeAgentRunsStore) DeletePlanStep(ctx context.Context, organizationID, id string) (*agent.PlanStep, error) {
+	for index, step := range s.planSteps {
+		if step.ID == id && step.OrganizationID == organizationID {
+			s.planSteps = append(s.planSteps[:index], s.planSteps[index+1:]...)
+			return step, nil
+		}
+	}
+	return nil, errors.New("agent plan step not found")
+}
+
 func (s *fakeAgentRunsStore) CreateMemory(ctx context.Context, req *agent.CreateMemoryStoreRequest) (*agent.Memory, error) {
 	now := time.Now().UTC()
 	metadata := map[string]any{}

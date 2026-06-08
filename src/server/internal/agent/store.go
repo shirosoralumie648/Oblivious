@@ -422,6 +422,7 @@ type Store interface {
 	GetPlanStep(ctx context.Context, organizationID, id string) (*PlanStep, error)
 	ListPlanSteps(ctx context.Context, organizationID, runID string) ([]*PlanStep, error)
 	UpdatePlanStep(ctx context.Context, organizationID, id string, req UpdatePlanStepRequest) (*PlanStep, error)
+	DeletePlanStep(ctx context.Context, organizationID, id string) (*PlanStep, error)
 
 	// Agent memories
 	CreateMemory(ctx context.Context, req *CreateMemoryStoreRequest) (*Memory, error)
@@ -1128,6 +1129,32 @@ func (s *SQLStore) UpdatePlanStep(ctx context.Context, organizationID, id string
 		return nil, fmt.Errorf("update agent plan step: %w", err)
 	}
 	return s.GetPlanStep(ctx, organizationID, id)
+}
+
+func (s *SQLStore) DeletePlanStep(ctx context.Context, organizationID, id string) (*PlanStep, error) {
+	step, err := s.GetPlanStep(ctx, organizationID, id)
+	if err != nil {
+		return nil, err
+	}
+	if step == nil {
+		return nil, fmt.Errorf("agent plan step not found")
+	}
+
+	result, err := s.db.ExecContext(ctx, `
+		DELETE FROM agent_plan_steps
+		WHERE id = $1 AND organization_id = $2
+	`, id, organizationID)
+	if err != nil {
+		return nil, fmt.Errorf("delete agent plan step: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("delete agent plan step rows: %w", err)
+	}
+	if rowsAffected == 0 {
+		return nil, fmt.Errorf("agent plan step not found")
+	}
+	return step, nil
 }
 
 func (s *SQLStore) UpdateToolRun(ctx context.Context, organizationID, id string, req UpdateToolRunRequest) (*ToolRun, error) {

@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const approvePlanStep = vi.fn();
 const approveToolRun = vi.fn();
+const createPlanStep = vi.fn();
+const deletePlanStep = vi.fn();
 const executePlanStep = vi.fn();
 const getRunDetail = vi.fn();
 const movePlanStep = vi.fn();
@@ -15,6 +17,8 @@ vi.mock('../../features/agents/planStepsApi', () => ({
   createAgentPlanStepsApi: () => ({
     approvePlanStep,
     approveToolRun,
+    createPlanStep,
+    deletePlanStep,
     executePlanStep,
     getRunDetail,
     movePlanStep,
@@ -66,6 +70,8 @@ describe('AgentPlanStepsPage', () => {
   beforeEach(() => {
     approvePlanStep.mockReset();
     approveToolRun.mockReset();
+    createPlanStep.mockReset();
+    deletePlanStep.mockReset();
     executePlanStep.mockReset();
     getRunDetail.mockReset();
     movePlanStep.mockReset();
@@ -348,6 +354,119 @@ describe('AgentPlanStepsPage', () => {
       'Draft patch'
     ]);
     expect(screen.getByLabelText('Plan step Draft patch')).toHaveTextContent('Approval: pending');
+  });
+
+  it('adds and deletes draft plan steps from the planning page', async () => {
+    renderPage([
+      {
+        approvalStatus: 'pending',
+        id: 'step_1',
+        index: 1,
+        runId: 'run_1',
+        status: 'pending',
+        title: 'Draft patch'
+      },
+      {
+        approvalStatus: 'approved',
+        id: 'step_2',
+        index: 2,
+        runId: 'run_1',
+        status: 'approved',
+        title: 'Verify patch'
+      }
+    ]);
+    createPlanStep.mockResolvedValueOnce([
+      {
+        approvalStatus: 'pending',
+        id: 'step_1',
+        index: 1,
+        runId: 'run_1',
+        status: 'pending',
+        title: 'Draft patch'
+      },
+      {
+        approvalStatus: 'pending',
+        id: 'step_new',
+        index: 2,
+        input: { command: 'go test ./internal/agent' },
+        runId: 'run_1',
+        status: 'pending',
+        title: 'Run checks',
+        toolName: 'execute_code'
+      },
+      {
+        approvalStatus: 'pending',
+        id: 'step_2',
+        index: 3,
+        runId: 'run_1',
+        status: 'pending',
+        title: 'Verify patch'
+      }
+    ]);
+    deletePlanStep.mockResolvedValueOnce([
+      {
+        approvalStatus: 'pending',
+        id: 'step_1',
+        index: 1,
+        runId: 'run_1',
+        status: 'pending',
+        title: 'Draft patch'
+      },
+      {
+        approvalStatus: 'pending',
+        id: 'step_2',
+        index: 2,
+        runId: 'run_1',
+        status: 'pending',
+        title: 'Verify patch'
+      }
+    ]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Insert after Draft patch' }));
+    fireEvent.change(screen.getByLabelText('New step title'), { target: { value: 'Run checks' } });
+    fireEvent.change(screen.getByLabelText('New step tool'), { target: { value: 'execute_code' } });
+    fireEvent.change(screen.getByLabelText('New step input'), { target: { value: '{\"command\":\"go test ./internal/agent\"}' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add plan step' }));
+
+    await waitFor(() => expect(createPlanStep).toHaveBeenCalledWith('run_1', {
+      afterPlanStepId: 'step_1',
+      input: { command: 'go test ./internal/agent' },
+      title: 'Run checks',
+      toolName: 'execute_code'
+    }));
+    expect(await screen.findByRole('heading', { name: 'Run checks' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Plan step Verify patch')).toHaveTextContent('Approval: pending');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Run checks' }));
+
+    await waitFor(() => expect(deletePlanStep).toHaveBeenCalledWith('run_1', 'step_new'));
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Run checks' })).not.toBeInTheDocument());
+    expect(screen.getByLabelText('Plan step Verify patch')).toHaveTextContent('Step 2');
+  });
+
+  it('opens the add-plan-step form without an anchor', async () => {
+    renderPage([]);
+    createPlanStep.mockResolvedValueOnce([
+      {
+        approvalStatus: 'pending',
+        id: 'step_new',
+        index: 1,
+        runId: 'run_1',
+        status: 'pending',
+        title: 'Draft first step'
+      }
+    ]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add plan step' }));
+    fireEvent.change(screen.getByLabelText('New step title'), { target: { value: 'Draft first step' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add plan step' }));
+
+    await waitFor(() => expect(createPlanStep).toHaveBeenCalledWith('run_1', {
+      input: {},
+      title: 'Draft first step',
+      toolName: ''
+    }));
+    expect(await screen.findByRole('heading', { name: 'Draft first step' })).toBeInTheDocument();
   });
 
   it('rejects invalid JSON when editing a plan step input', async () => {

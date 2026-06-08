@@ -148,6 +148,35 @@ describe('createAgentPlanStepsApi', () => {
     });
   });
 
+  it('creates a run plan step draft through the agent run endpoint', async () => {
+    const post = vi.fn().mockResolvedValue({
+      data: {
+        planSteps: [
+          { id: 'step_1', index: 1, runId: 'run_1', status: 'pending', title: 'Draft patch' },
+          { id: 'step_new', index: 2, runId: 'run_1', status: 'pending', title: 'Run checks', toolName: 'execute_code' }
+        ]
+      }
+    });
+    const api = createAgentPlanStepsApi(createClient({ post }));
+
+    await expect(api.createPlanStep('run_1', {
+      afterPlanStepId: 'step_1',
+      input: { command: 'go test ./internal/agent' },
+      title: 'Run checks',
+      toolName: 'execute_code'
+    })).resolves.toEqual([
+      { id: 'step_1', index: 1, runId: 'run_1', status: 'pending', title: 'Draft patch' },
+      { id: 'step_new', index: 2, runId: 'run_1', status: 'pending', title: 'Run checks', toolName: 'execute_code' }
+    ]);
+
+    expect(post).toHaveBeenCalledWith('/api/v1/agent/runs/run_1/create-plan-step', {
+      afterPlanStepId: 'step_1',
+      input: { command: 'go test ./internal/agent' },
+      title: 'Run checks',
+      toolName: 'execute_code'
+    });
+  });
+
   it('moves a run plan step through the agent run endpoint', async () => {
     const post = vi.fn().mockResolvedValue({
       data: {
@@ -166,6 +195,27 @@ describe('createAgentPlanStepsApi', () => {
 
     expect(post).toHaveBeenCalledWith('/api/v1/agent/runs/run_1/move-plan-step', {
       direction: 'up',
+      planStepId: 'step_2'
+    });
+  });
+
+  it('deletes a run plan step draft through the agent run endpoint', async () => {
+    const post = vi.fn().mockResolvedValue({
+      data: {
+        planSteps: [
+          { id: 'step_1', index: 1, runId: 'run_1', status: 'pending', title: 'Draft patch' },
+          { id: 'step_3', index: 2, runId: 'run_1', status: 'pending', title: 'Verify patch' }
+        ]
+      }
+    });
+    const api = createAgentPlanStepsApi(createClient({ post }));
+
+    await expect(api.deletePlanStep('run_1', 'step_2')).resolves.toEqual([
+      { id: 'step_1', index: 1, runId: 'run_1', status: 'pending', title: 'Draft patch' },
+      { id: 'step_3', index: 2, runId: 'run_1', status: 'pending', title: 'Verify patch' }
+    ]);
+
+    expect(post).toHaveBeenCalledWith('/api/v1/agent/runs/run_1/delete-plan-step', {
       planStepId: 'step_2'
     });
   });

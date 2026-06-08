@@ -1155,10 +1155,102 @@ type UpdatePlanStepDraftRequest struct {
 	Input    map[string]any
 }
 
+type CreatePlanStepDraftRequest struct {
+	AfterPlanStepID *string
+	Title           string
+	ToolName        string
+	Input           map[string]any
+}
+
 const (
 	MovePlanStepDirectionUp   = "up"
 	MovePlanStepDirectionDown = "down"
 )
+
+func (s *Service) CreatePlanStepDraft(ctx context.Context, session auth.Session, runID string, req CreatePlanStepDraftRequest) ([]*PlanStep, error) {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return nil, fmt.Errorf("run id is required")
+	}
+	if _, err := s.getRunForSession(ctx, session, runID); err != nil {
+		return nil, err
+	}
+
+	title := strings.TrimSpace(req.Title)
+	if title == "" {
+		return nil, fmt.Errorf("plan step title is required")
+	}
+	toolName := strings.TrimSpace(req.ToolName)
+	input := req.Input
+	if input == nil {
+		input = map[string]any{}
+	}
+
+	steps, err := s.store.ListPlanSteps(ctx, session.OrganizationID, runID)
+	if err != nil {
+		return nil, err
+	}
+	sortPlanSteps(steps)
+
+	insertIndex := maxPlanStepIndex(steps) + 1
+	afterPlanStepID := ""
+	if req.AfterPlanStepID != nil {
+		afterPlanStepID = strings.TrimSpace(*req.AfterPlanStepID)
+	}
+	if afterPlanStepID != "" {
+		var anchor *PlanStep
+		for _, step := range steps {
+			if step != nil && step.ID == afterPlanStepID {
+				anchor = step
+				break
+			}
+		}
+		if anchor == nil {
+			return nil, fmt.Errorf("after plan step not found")
+		}
+		if !isPlanStepDraftAdjustable(anchor) {
+			return nil, fmt.Errorf("plan step cannot be inserted after executed step")
+		}
+		insertIndex = anchor.Index + 1
+	} else if len(steps) > 0 {
+		last := steps[len(steps)-1]
+		if !isPlanStepDraftAdjustable(last) {
+			return nil, fmt.Errorf("plan step cannot be appended after executed step")
+		}
+	}
+
+	shiftCandidates, originalIndices, err := planStepShiftCandidates(steps, insertIndex, func(index int) bool {
+		return index >= insertIndex
+	})
+	if err != nil {
+		return nil, fmt.Errorf("plan step cannot be inserted across executed step")
+	}
+	if err := s.movePlanStepsToBuffer(ctx, session, steps, shiftCandidates); err != nil {
+		return nil, err
+	}
+
+	if _, err := s.store.CreatePlanStep(ctx, &CreatePlanStepRequest{
+		OrganizationID: session.OrganizationID,
+		RunID:          runID,
+		Index:          insertIndex,
+		Title:          title,
+		Status:         PlanStepStatusPending,
+		ApprovalStatus: ApprovalStatusPending,
+		ToolName:       toolName,
+		Input:          copyPlanStepInput(input),
+	}); err != nil {
+		return nil, err
+	}
+
+	for _, candidate := range shiftCandidates {
+		nextIndex := originalIndices[candidate.ID] + 1
+		if _, err := s.store.UpdatePlanStep(ctx, session.OrganizationID, candidate.ID, planStepMoveUpdateRequest(nextIndex, candidate)); err != nil {
+			return nil, err
+		}
+	}
+
+	return s.listSortedPlanSteps(ctx, session.OrganizationID, runID)
+}
 
 func (s *Service) UpdatePlanStepDraft(ctx context.Context, session auth.Session, planStepID string, req UpdatePlanStepDraftRequest) (*PlanStep, error) {
 	step, err := s.getPlanStepForSession(ctx, session, planStepID)
@@ -1261,6 +1353,43 @@ func (s *Service) MovePlanStep(ctx context.Context, session auth.Session, planSt
 	}
 	sortPlanSteps(steps)
 	return steps, nil
+}
+
+func (s *Service) DeletePlanStepDraft(ctx context.Context, session auth.Session, planStepID string) ([]*PlanStep, error) {
+	step, err := s.getPlanStepForSession(ctx, session, planStepID)
+	if err != nil {
+		return nil, err
+	}
+	if !isPlanStepDraftAdjustable(step) {
+		return nil, fmt.Errorf("plan step cannot be deleted after execution starts")
+	}
+
+	steps, err := s.store.ListPlanSteps(ctx, session.OrganizationID, step.RunID)
+	if err != nil {
+		return nil, err
+	}
+	sortPlanSteps(steps)
+	shiftCandidates, originalIndices, err := planStepShiftCandidates(steps, step.Index+1, func(index int) bool {
+		return index > step.Index
+	})
+	if err != nil {
+		return nil, fmt.Errorf("plan step cannot be deleted before executed step")
+	}
+
+	if _, err := s.store.DeletePlanStep(ctx, session.OrganizationID, step.ID); err != nil {
+		return nil, err
+	}
+	if err := s.movePlanStepsToBuffer(ctx, session, steps, shiftCandidates); err != nil {
+		return nil, err
+	}
+	for _, candidate := range shiftCandidates {
+		nextIndex := originalIndices[candidate.ID] - 1
+		if _, err := s.store.UpdatePlanStep(ctx, session.OrganizationID, candidate.ID, planStepMoveUpdateRequest(nextIndex, candidate)); err != nil {
+			return nil, err
+		}
+	}
+
+	return s.listSortedPlanSteps(ctx, session.OrganizationID, step.RunID)
 }
 
 func (s *Service) ExecutePlanStep(ctx context.Context, session auth.Session, planStepID string) (*PlanStep, error) {
@@ -1423,6 +1552,43 @@ func isPlanStepDraftAdjustable(step *PlanStep) bool {
 		return false
 	}
 	return step.Status == PlanStepStatusPending || step.Status == PlanStepStatusApproved
+}
+
+func planStepShiftCandidates(steps []*PlanStep, fromIndex int, match func(int) bool) ([]*PlanStep, map[string]int, error) {
+	candidates := make([]*PlanStep, 0)
+	originalIndices := make(map[string]int)
+	for _, step := range steps {
+		if step == nil || !match(step.Index) {
+			continue
+		}
+		if !isPlanStepDraftAdjustable(step) {
+			return nil, nil, fmt.Errorf("plan step %d cannot be shifted after execution starts", step.Index)
+		}
+		if step.Index >= fromIndex {
+			candidates = append(candidates, step)
+			originalIndices[step.ID] = step.Index
+		}
+	}
+	return candidates, originalIndices, nil
+}
+
+func (s *Service) movePlanStepsToBuffer(ctx context.Context, session auth.Session, steps, candidates []*PlanStep) error {
+	bufferIndex := maxPlanStepIndex(steps) + 1
+	for offset, candidate := range candidates {
+		if _, err := s.store.UpdatePlanStep(ctx, session.OrganizationID, candidate.ID, planStepMoveUpdateRequest(bufferIndex+offset, candidate)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) listSortedPlanSteps(ctx context.Context, organizationID, runID string) ([]*PlanStep, error) {
+	steps, err := s.store.ListPlanSteps(ctx, organizationID, runID)
+	if err != nil {
+		return nil, err
+	}
+	sortPlanSteps(steps)
+	return steps, nil
 }
 
 func planStepMoveUpdateRequest(index int, step *PlanStep) UpdatePlanStepRequest {

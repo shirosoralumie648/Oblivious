@@ -336,6 +336,59 @@ func TestRegisterAgentRunRoutesDispatchesUpdatePlanStep(t *testing.T) {
 	}
 }
 
+func TestRegisterAgentRunRoutesDispatchesCreatePlanStep(t *testing.T) {
+	now := time.Now().UTC()
+	store := newFakeAgentRunsStore()
+	store.runs = []*agent.Run{{
+		ID:             "run_1",
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		Status:         agent.RunStatusPendingApproval,
+	}}
+	store.planSteps = []*agent.PlanStep{{
+		ID:             "step_1",
+		RunID:          "run_1",
+		OrganizationID: "org_1",
+		Index:          1,
+		Title:          "Draft patch",
+		Status:         agent.PlanStepStatusPending,
+		ApprovalStatus: agent.ApprovalStatusPending,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}, {
+		ID:             "step_2",
+		RunID:          "run_1",
+		OrganizationID: "org_1",
+		Index:          2,
+		Title:          "Verify patch",
+		Status:         agent.PlanStepStatusApproved,
+		ApprovalStatus: agent.ApprovalStatusApproved,
+		CreatedAt:      now.Add(time.Second),
+		UpdatedAt:      now.Add(time.Second),
+	}}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{}))
+	mux := stdhttp.NewServeMux()
+	registerAgentRunRoutes(mux, passThroughAuthMiddleware{}, handler)
+
+	request := newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/create-plan-step", `{"afterPlanStepId":"step_1","title":"Run checks","toolName":"execute_code","input":{"command":"go test ./internal/agent"}}`)
+	recorder := httptest.NewRecorder()
+
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusCreated {
+		t.Fatalf("expected 201, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, `"title":"Run checks"`) || !strings.Contains(body, `"index":2`) || !strings.Contains(body, `"toolName":"execute_code"`) {
+		t.Fatalf("expected inserted plan step response, got %s", body)
+	}
+	if !strings.Contains(body, `"title":"Verify patch"`) || !strings.Contains(body, `"index":3`) || !strings.Contains(body, `"approvalStatus":"pending"`) {
+		t.Fatalf("expected shifted step to require fresh review, got %s", body)
+	}
+}
+
 func TestRegisterAgentRunRoutesDispatchesMovePlanStep(t *testing.T) {
 	now := time.Now().UTC()
 	store := newFakeAgentRunsStore()
@@ -386,6 +439,69 @@ func TestRegisterAgentRunRoutesDispatchesMovePlanStep(t *testing.T) {
 	}
 	if !strings.Contains(body, `"title":"Draft patch"`) || !strings.Contains(body, `"approvalStatus":"pending"`) {
 		t.Fatalf("expected moved approved neighbor to require fresh review, got %s", body)
+	}
+}
+
+func TestRegisterAgentRunRoutesDispatchesDeletePlanStep(t *testing.T) {
+	now := time.Now().UTC()
+	store := newFakeAgentRunsStore()
+	store.runs = []*agent.Run{{
+		ID:             "run_1",
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		Status:         agent.RunStatusPendingApproval,
+	}}
+	store.planSteps = []*agent.PlanStep{{
+		ID:             "step_1",
+		RunID:          "run_1",
+		OrganizationID: "org_1",
+		Index:          1,
+		Title:          "Draft patch",
+		Status:         agent.PlanStepStatusPending,
+		ApprovalStatus: agent.ApprovalStatusPending,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}, {
+		ID:             "step_2",
+		RunID:          "run_1",
+		OrganizationID: "org_1",
+		Index:          2,
+		Title:          "Run checks",
+		Status:         agent.PlanStepStatusPending,
+		ApprovalStatus: agent.ApprovalStatusPending,
+		CreatedAt:      now.Add(time.Second),
+		UpdatedAt:      now.Add(time.Second),
+	}, {
+		ID:             "step_3",
+		RunID:          "run_1",
+		OrganizationID: "org_1",
+		Index:          3,
+		Title:          "Verify patch",
+		Status:         agent.PlanStepStatusApproved,
+		ApprovalStatus: agent.ApprovalStatusApproved,
+		CreatedAt:      now.Add(2 * time.Second),
+		UpdatedAt:      now.Add(2 * time.Second),
+	}}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{}))
+	mux := stdhttp.NewServeMux()
+	registerAgentRunRoutes(mux, passThroughAuthMiddleware{}, handler)
+
+	request := newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/delete-plan-step", `{"planStepId":"step_2"}`)
+	recorder := httptest.NewRecorder()
+
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	if strings.Contains(body, `"title":"Run checks"`) {
+		t.Fatalf("expected deleted step to be absent, got %s", body)
+	}
+	if !strings.Contains(body, `"title":"Verify patch"`) || !strings.Contains(body, `"index":2`) || !strings.Contains(body, `"approvalStatus":"pending"`) {
+		t.Fatalf("expected shifted step to require fresh review, got %s", body)
 	}
 }
 
