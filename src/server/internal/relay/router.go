@@ -101,7 +101,7 @@ func (r *Router) selectChannelForBilling(ctx context.Context, apiType, model str
 	conversationID, _ := types.TrustedConversationIDFromContext(ctx)
 	if conversationID != "" && r.affinityStore != nil {
 		if channelID, err := r.affinityStore.GetConversationAffinity(ctx, conversationID); err == nil && channelID != "" && !excluded[channelID] {
-			if ch := r.loadBalancer.SelectChannelByID(apiType, channelID); ch != nil {
+			if ch := r.loadBalancer.SelectModelChannelByID(apiType, model, channelID); ch != nil {
 				if cb, ok := r.circuitBreakers[routeChannelID(ch)]; !ok || cb.State() != StateOpen {
 					return ch
 				}
@@ -111,9 +111,9 @@ func (r *Router) selectChannelForBilling(ctx context.Context, apiType, model str
 
 	var ch *types.RouteChannel
 	if r.rateLimiter != nil {
-		ch = r.loadBalancer.SelectExcludingWithWeights(apiType, excluded, r.localRateLimitWeightAdjuster(ctx, model, usage))
+		ch = r.loadBalancer.SelectModelExcludingWithWeights(apiType, model, excluded, r.localRateLimitWeightAdjuster(ctx, model, usage))
 	} else {
-		ch = r.loadBalancer.SelectExcluding(apiType, excluded)
+		ch = r.loadBalancer.SelectModelExcluding(apiType, model, excluded)
 	}
 	if ch == nil {
 		return nil

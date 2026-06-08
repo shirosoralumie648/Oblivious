@@ -9,6 +9,8 @@ import (
 	"oblivious/server/internal/relay/types"
 )
 
+const defaultModelRoute = ""
+
 type LoadBalancer struct {
 	pool           *ChannelPool
 	strategy       string
@@ -31,10 +33,14 @@ func NewLoadBalancer(pool *ChannelPool, strategy string) *LoadBalancer {
 }
 
 func (lb *LoadBalancer) Select(apiType string) *types.RouteChannel {
+	return lb.SelectModel(apiType, defaultModelRoute)
+}
+
+func (lb *LoadBalancer) SelectModel(apiType, model string) *types.RouteChannel {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 
-	candidates := lb.filterHealthy(apiType)
+	candidates := lb.filterHealthy(apiType, model)
 	if len(candidates) == 0 {
 		return nil
 	}
@@ -54,10 +60,14 @@ func (lb *LoadBalancer) Select(apiType string) *types.RouteChannel {
 }
 
 func (lb *LoadBalancer) SelectExcluding(apiType string, excluded map[string]bool) *types.RouteChannel {
+	return lb.SelectModelExcluding(apiType, defaultModelRoute, excluded)
+}
+
+func (lb *LoadBalancer) SelectModelExcluding(apiType, model string, excluded map[string]bool) *types.RouteChannel {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 
-	candidates := lb.filterHealthy(apiType)
+	candidates := lb.filterHealthy(apiType, model)
 	if len(excluded) > 0 {
 		filtered := candidates[:0]
 		for _, ch := range candidates {
@@ -74,10 +84,14 @@ func (lb *LoadBalancer) SelectExcluding(apiType string, excluded map[string]bool
 }
 
 func (lb *LoadBalancer) SelectExcludingWithWeights(apiType string, excluded map[string]bool, adjuster func(*types.RouteChannel) int) *types.RouteChannel {
+	return lb.SelectModelExcludingWithWeights(apiType, defaultModelRoute, excluded, adjuster)
+}
+
+func (lb *LoadBalancer) SelectModelExcludingWithWeights(apiType, model string, excluded map[string]bool, adjuster func(*types.RouteChannel) int) *types.RouteChannel {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 
-	candidates := lb.filterHealthy(apiType)
+	candidates := lb.filterHealthy(apiType, model)
 	if len(excluded) > 0 {
 		filtered := candidates[:0]
 		for _, ch := range candidates {
@@ -95,10 +109,14 @@ func (lb *LoadBalancer) SelectExcludingWithWeights(apiType string, excluded map[
 }
 
 func (lb *LoadBalancer) SelectChannelByID(apiType, channelID string) *types.RouteChannel {
+	return lb.SelectModelChannelByID(apiType, defaultModelRoute, channelID)
+}
+
+func (lb *LoadBalancer) SelectModelChannelByID(apiType, model, channelID string) *types.RouteChannel {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 
-	for _, ch := range lb.filterHealthy(apiType) {
+	for _, ch := range lb.filterHealthy(apiType, model) {
 		if routeChannelID(ch) == channelID {
 			return ch
 		}
@@ -106,10 +124,12 @@ func (lb *LoadBalancer) SelectChannelByID(apiType, channelID string) *types.Rout
 	return nil
 }
 
-func (lb *LoadBalancer) filterHealthy(apiType string) []*types.RouteChannel {
-	// apiType maps to a model route, but all API types share channel pool
-	// Use ListChannels and construct RouteChannel list from default route
-	routeChannels := lb.pool.GetChannelsByModel("")
+func (lb *LoadBalancer) filterHealthy(apiType, model string) []*types.RouteChannel {
+	_ = apiType
+	routeChannels := lb.modelRouteChannels(model)
+	if len(routeChannels) == 0 && model != defaultModelRoute {
+		routeChannels = lb.modelRouteChannels(defaultModelRoute)
+	}
 	if len(routeChannels) == 0 {
 		// Fall back to listing all channels and filtering
 		channels := lb.pool.ListChannels()
@@ -140,6 +160,28 @@ func (lb *LoadBalancer) filterHealthy(apiType string) []*types.RouteChannel {
 		if ch.Healthy {
 			result = append(result, ch)
 		}
+	}
+	return result
+}
+
+func (lb *LoadBalancer) modelRouteChannels(model string) []*types.RouteChannel {
+	routeChannels := lb.pool.GetChannelsByModel(model)
+	if len(routeChannels) == 0 {
+		return nil
+	}
+	result := make([]*types.RouteChannel, 0, len(routeChannels))
+	for _, ch := range routeChannels {
+		if ch == nil {
+			continue
+		}
+		if ch.Channel == nil && ch.ChannelID != "" {
+			if channel, ok := lb.pool.GetChannel(ch.ChannelID); ok {
+				copyCh := *ch
+				copyCh.Channel = channel
+				ch = &copyCh
+			}
+		}
+		result = append(result, ch)
 	}
 	return result
 }

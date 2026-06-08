@@ -192,6 +192,128 @@ func TestRouterRouteWithBillingRetriesBare502ProviderResponseAcrossChannels(t *t
 	assertAttemptedChannels(t, attempts, []string{"primary", "backup"})
 }
 
+func TestRouterRouteWithBillingUsesModelRoute(t *testing.T) {
+	pool := NewChannelPool()
+	defaultChannel := &types.Channel{
+		ID:       "default",
+		Name:     "Default",
+		Provider: "openai",
+		BaseURL:  "https://default.example",
+		APIKey:   "sk-default",
+		Models:   []string{"gpt-3.5"},
+		Enabled:  true,
+	}
+	modelChannel := &types.Channel{
+		ID:       "gpt4",
+		Name:     "GPT4",
+		Provider: "openai",
+		BaseURL:  "https://gpt4.example",
+		APIKey:   "sk-gpt4",
+		Models:   []string{"gpt-4o"},
+		Enabled:  true,
+	}
+	pool.AddChannel(defaultChannel, 100)
+	pool.UpdateChannel(modelChannel)
+	pool.UpdateRoute(&types.ModelRoute{
+		Model:    "gpt-4o",
+		Strategy: "weighted",
+		Channels: []types.RouteChannel{{
+			Channel:   modelChannel,
+			ChannelID: modelChannel.ID,
+			Weight:    1,
+			Enabled:   true,
+			Healthy:   true,
+		}},
+	})
+	router := NewRouterWithBilling(
+		pool,
+		NewLoadBalancer(pool, "weighted"),
+		nil,
+		nil,
+		NewHealthChecker(HealthCheckDisabled, time.Second),
+		nil,
+		"",
+	)
+
+	var attempts []string
+	resp, err := router.RouteWithBilling(context.Background(), types.APITypeChat, "gpt-4o", "", "idem_model_route", &types.Usage{TotalTokens: 20}, func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
+		attempts = append(attempts, routeChannelID(ch))
+		return types.NewOKResponse([]byte(`{"ok":true}`), &types.Usage{TotalTokens: 20}), nil
+	})
+
+	if err != nil {
+		t.Fatalf("RouteWithBilling returned error: %v", err)
+	}
+	if resp == nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected successful response, got %+v", resp)
+	}
+	assertAttemptedChannels(t, attempts, []string{"gpt4"})
+}
+
+func TestRouterRouteWithBillingDoesNotUseCrossModelAffinity(t *testing.T) {
+	pool := NewChannelPool()
+	defaultChannel := &types.Channel{
+		ID:       "default",
+		Name:     "Default",
+		Provider: "openai",
+		BaseURL:  "https://default.example",
+		APIKey:   "sk-default",
+		Models:   []string{"gpt-3.5"},
+		Enabled:  true,
+	}
+	modelChannel := &types.Channel{
+		ID:       "gpt4",
+		Name:     "GPT4",
+		Provider: "openai",
+		BaseURL:  "https://gpt4.example",
+		APIKey:   "sk-gpt4",
+		Models:   []string{"gpt-4o"},
+		Enabled:  true,
+	}
+	pool.AddChannel(defaultChannel, 100)
+	pool.UpdateChannel(modelChannel)
+	pool.UpdateRoute(&types.ModelRoute{
+		Model:    "gpt-4o",
+		Strategy: "weighted",
+		Channels: []types.RouteChannel{{
+			Channel:   modelChannel,
+			ChannelID: modelChannel.ID,
+			Weight:    1,
+			Enabled:   true,
+			Healthy:   true,
+		}},
+	})
+	router := NewRouterWithBilling(
+		pool,
+		NewLoadBalancer(pool, "weighted"),
+		nil,
+		nil,
+		NewHealthChecker(HealthCheckDisabled, time.Second),
+		nil,
+		"",
+	)
+	affinityStore := newMemoryConversationAffinityStore()
+	if err := affinityStore.SaveConversationAffinity(context.Background(), "conv_model", "default"); err != nil {
+		t.Fatalf("save affinity: %v", err)
+	}
+	router.affinityStore = affinityStore
+	ctx := types.WithTrustedConversationID(context.Background(), "conv_model")
+
+	var attempts []string
+	resp, err := router.RouteWithBilling(ctx, types.APITypeChat, "gpt-4o", "", "idem_cross_model_affinity", &types.Usage{TotalTokens: 20}, func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
+		attempts = append(attempts, routeChannelID(ch))
+		return types.NewOKResponse([]byte(`{"ok":true}`), &types.Usage{TotalTokens: 20}), nil
+	})
+
+	if err != nil {
+		t.Fatalf("RouteWithBilling returned error: %v", err)
+	}
+	if resp == nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected successful response, got %+v", resp)
+	}
+	assertAttemptedChannels(t, attempts, []string{"gpt4"})
+}
+
 func TestRouterRouteWithBillingAllowsThreeCrossChannelRetries(t *testing.T) {
 	router, _ := newRetryAffinityTestRouter()
 	router.pool.AddChannel(&types.Channel{

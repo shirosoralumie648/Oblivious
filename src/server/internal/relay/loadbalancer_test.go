@@ -209,6 +209,51 @@ func TestLoadBalancer_SkipsForbiddenChannel(t *testing.T) {
 	}
 }
 
+func TestLoadBalancerSelectModelUsesConfiguredModelRoute(t *testing.T) {
+	pool := NewChannelPool()
+	defaultChannel := &types.Channel{ID: "default", BaseURL: "http://default", Enabled: true}
+	modelChannel := &types.Channel{ID: "gpt4", BaseURL: "http://gpt4", Enabled: true}
+	pool.AddChannel(defaultChannel, 100)
+	pool.UpdateChannel(modelChannel)
+	pool.UpdateRoute(&types.ModelRoute{
+		Model:    "gpt-4o",
+		Strategy: "weighted",
+		Channels: []types.RouteChannel{{
+			Channel:   modelChannel,
+			ChannelID: modelChannel.ID,
+			Weight:    1,
+			Enabled:   true,
+			Healthy:   true,
+		}},
+	})
+
+	lb := NewLoadBalancer(pool, "weighted")
+	for i := 0; i < 3; i++ {
+		ch := lb.SelectModel("chat", "gpt-4o")
+		if ch == nil {
+			t.Fatal("expected model route channel")
+		}
+		if ch.Channel.ID != "gpt4" {
+			t.Fatalf("expected gpt4 channel from model route, got %s", ch.Channel.ID)
+		}
+	}
+}
+
+func TestLoadBalancerSelectModelFallsBackToDefaultRoute(t *testing.T) {
+	pool := NewChannelPool()
+	defaultChannel := &types.Channel{ID: "default", BaseURL: "http://default", Enabled: true}
+	pool.AddChannel(defaultChannel, 1)
+
+	lb := NewLoadBalancer(pool, "weighted")
+	ch := lb.SelectModel("chat", "unconfigured-model")
+	if ch == nil {
+		t.Fatal("expected default route fallback channel")
+	}
+	if ch.Channel.ID != "default" {
+		t.Fatalf("expected default fallback channel, got %s", ch.Channel.ID)
+	}
+}
+
 type sequenceRandom struct {
 	ints     []int
 	floats   []float64
