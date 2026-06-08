@@ -525,6 +525,117 @@ components:
         total:
           type: integer
 
+    MemoryDocument:
+      type: object
+      properties:
+        id:
+          type: string
+        organizationId:
+          type: string
+        userId:
+          type: string
+        title:
+          type: string
+        content:
+          type: string
+        sourceType:
+          type: string
+        sourceUrl:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        totalChunks:
+          type: integer
+        embeddingModel:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    MemoryDocumentRequest:
+      type: object
+      required: [content]
+      properties:
+        title:
+          type: string
+        content:
+          type: string
+        sourceType:
+          type: string
+        sourceUrl:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+
+    UpdateMemoryDocumentRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        content:
+          type: string
+
+    MemoryChunk:
+      type: object
+      properties:
+        id:
+          type: string
+        documentId:
+          type: string
+        organizationId:
+          type: string
+        userId:
+          type: string
+        content:
+          type: string
+        chunkIndex:
+          type: integer
+        embedding:
+          type: array
+          items:
+            type: number
+            format: float
+        metadata:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+
+    MemorySearchRequest:
+      type: object
+      required: [query]
+      properties:
+        query:
+          type: string
+        topK:
+          type: integer
+          minimum: 1
+          maximum: 20
+        minScore:
+          type: number
+          format: double
+
+    MemorySearchResult:
+      type: object
+      properties:
+        documentId:
+          type: string
+        documentTitle:
+          type: string
+        chunkContent:
+          type: string
+        chunkIndex:
+          type: integer
+        score:
+          type: number
+          format: double
+
     AgentRunCreateRequest:
       type: object
       required: [agent_id, conversation_id, input]
@@ -3786,6 +3897,243 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Envelope"
+
+  # ---- Workspace memory documents ----
+  /api/v1/app/memory/documents:
+    get:
+      summary: 获取 workspace memory 文档列表
+      operationId: listMemoryDocuments
+      tags: [Memory]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: 当前用户的 memory 文档列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/MemoryDocument"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      summary: 创建 workspace memory 文档并分块嵌入
+      operationId: createMemoryDocument
+      tags: [Memory]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MemoryDocumentRequest"
+      responses:
+        "201":
+          description: 新创建的 memory 文档
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MemoryDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/app/memory/documents/{documentId}:
+    get:
+      summary: 获取 workspace memory 文档详情
+      operationId: getMemoryDocument
+      tags: [Memory]
+      parameters:
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: memory 文档详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MemoryDocument"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 文档不属于当前用户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      summary: 更新 workspace memory 文档
+      operationId: updateMemoryDocument
+      tags: [Memory]
+      parameters:
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMemoryDocumentRequest"
+      responses:
+        "200":
+          description: 更新后的 memory 文档
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MemoryDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 文档不属于当前用户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      summary: 删除 workspace memory 文档
+      operationId: deleteMemoryDocument
+      tags: [Memory]
+      parameters:
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: memory 文档已删除
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          status:
+                            type: string
+                            example: deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 文档不属于当前用户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/app/memory/documents/{documentId}/chunks:
+    get:
+      summary: 获取 workspace memory 文档分块
+      operationId: listMemoryDocumentChunks
+      tags: [Memory]
+      parameters:
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: memory 文档分块列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/MemoryChunk"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: 文档不属于当前用户
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/app/memory/search:
+    post:
+      summary: 搜索 workspace memory 文档分块
+      operationId: searchMemoryDocuments
+      tags: [Memory]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MemorySearchRequest"
+      responses:
+        "200":
+          description: memory 向量搜索结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/MemorySearchResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
   # ---- Agent tools and runs ----
   /api/v1/agent/tools:
