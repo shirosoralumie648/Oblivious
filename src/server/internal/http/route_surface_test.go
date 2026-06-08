@@ -530,6 +530,37 @@ func TestRouteSurfaceBillingCheckoutRejectsCookieWithoutCSRFWithoutDatabase(t *t
 	}
 }
 
+func TestRouteSurfaceTenantOrganizationMutationsRejectCookieWithoutCSRFWithoutDatabase(t *testing.T) {
+	session := routeSurfaceUserSession()
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}})
+	cookie := routeSurfaceSignedSessionCookie(t, session)
+
+	tests := []routeSurfaceCase{
+		{"select organization", stdhttp.MethodPost, "/api/v1/app/organizations/org_1/select"},
+		{"update member role", stdhttp.MethodPut, "/api/v1/app/organizations/org_1/members/user_1"},
+		{"remove member", stdhttp.MethodDelete, "/api/v1/app/organizations/org_1/members/user_1"},
+		{"invite member", stdhttp.MethodPost, "/api/v1/app/organizations/org_1/invitations"},
+		{"revoke invitation", stdhttp.MethodPost, "/api/v1/app/organizations/org_1/invitations/invitation_1/revoke"},
+		{"transfer ownership", stdhttp.MethodPost, "/api/v1/app/organizations/org_1/ownership-transfer"},
+		{"accept invitation", stdhttp.MethodPost, "/api/v1/app/organization-invitations/token_1/accept"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(`{}`))
+			request.Header.Set("Content-Type", "application/json")
+			request.AddCookie(cookie)
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusForbidden {
+				t.Fatalf("expected missing csrf to be rejected with 403 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
 func routeSurfaceRegisterUser(t *testing.T, router stdhttp.Handler, email string) *stdhttp.Cookie {
 	t.Helper()
 

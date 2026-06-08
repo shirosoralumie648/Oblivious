@@ -5769,6 +5769,9 @@ paths:
       summary: 切换当前会话的活动组织
       operationId: selectOrganization
       tags: [Tenant]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: organizationId
           in: path
@@ -5842,6 +5845,9 @@ paths:
       summary: 更新组织成员角色
       operationId: updateOrganizationMemberRole
       tags: [Tenant]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: organizationId
           in: path
@@ -5893,6 +5899,9 @@ paths:
       summary: 移除组织成员
       operationId: removeOrganizationMember
       tags: [Tenant]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: organizationId
           in: path
@@ -5929,6 +5938,9 @@ paths:
       summary: 邀请用户加入组织
       operationId: inviteOrganizationMember
       tags: [Tenant]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: organizationId
           in: path
@@ -5975,6 +5987,9 @@ paths:
       summary: 撤销待处理的组织邀请
       operationId: revokeOrganizationInvitation
       tags: [Tenant]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: organizationId
           in: path
@@ -6020,6 +6035,9 @@ paths:
       summary: 转移组织所有权
       operationId: transferOrganizationOwnership
       tags: [Tenant]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: organizationId
           in: path
@@ -6071,6 +6089,9 @@ paths:
       summary: 接受组织邀请
       operationId: acceptOrganizationInvitation
       tags: [Tenant]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: token
           in: path

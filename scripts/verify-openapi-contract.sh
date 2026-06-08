@@ -1123,6 +1123,68 @@ require_billing_checkout_contract() {
   ' "$openapi_file"
 }
 
+require_tenant_organization_mutation_csrf_contract() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+    paths = spec.fetch("paths", {})
+    missing = []
+
+    def operation(paths, path, method, missing)
+      op = paths.dig(path, method)
+      unless op
+        missing << "#{method.upcase} #{path} must be documented"
+        return {}
+      end
+      op
+    end
+
+    def requires_cookie_and_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
+    end
+
+    def request_body_ref(operation)
+      operation.dig("requestBody", "content", "application/json", "schema", "$ref")
+    end
+
+    [
+      ["/api/v1/app/organizations/{organizationId}/select", "post"],
+      ["/api/v1/app/organizations/{organizationId}/members/{userId}", "put"],
+      ["/api/v1/app/organizations/{organizationId}/members/{userId}", "delete"],
+      ["/api/v1/app/organizations/{organizationId}/invitations", "post"],
+      ["/api/v1/app/organizations/{organizationId}/invitations/{invitationId}/revoke", "post"],
+      ["/api/v1/app/organizations/{organizationId}/ownership-transfer", "post"],
+      ["/api/v1/app/organization-invitations/{token}/accept", "post"],
+    ].each do |path, method|
+      op = operation(paths, path, method, missing)
+      unless requires_cookie_and_csrf?(op)
+        missing << "#{method.upcase} #{path} must require cookieAuth and csrfHeader"
+      end
+      unless op.fetch("tags", []).include?("Tenant")
+        missing << "#{method.upcase} #{path} must be tagged Tenant"
+      end
+    end
+
+    {
+      ["/api/v1/app/organizations/{organizationId}/members/{userId}", "put"] => "#/components/schemas/UpdateOrganizationMemberRoleRequest",
+      ["/api/v1/app/organizations/{organizationId}/invitations", "post"] => "#/components/schemas/InviteOrganizationMemberRequest",
+      ["/api/v1/app/organizations/{organizationId}/ownership-transfer", "post"] => "#/components/schemas/TransferOrganizationOwnershipRequest",
+    }.each do |(path, method), expected|
+      op = operation(paths, path, method, missing)
+      unless op.dig("requestBody", "required") == true && request_body_ref(op) == expected
+        missing << "#{method.upcase} #{path} request body must require #{expected}"
+      end
+    end
+
+    unless missing.empty?
+      warn "[openapi-contract] Tenant organization mutation CSRF contract is incomplete:"
+      missing.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 require_admin_core_management_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
@@ -1699,6 +1761,7 @@ require_admin_marketplace_governance_csrf_contract
 require_admin_marketplace_review_csrf_contract
 require_agent_run_mutation_csrf_contract
 require_billing_checkout_contract
+require_tenant_organization_mutation_csrf_contract
 require_admin_core_management_contract
 require_admin_billing_contract
 require_domestic_payment_webhook_payout_contract
