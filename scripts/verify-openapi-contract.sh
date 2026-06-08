@@ -972,6 +972,51 @@ require_admin_marketplace_governance_csrf_contract() {
   ' "$openapi_file"
 }
 
+require_admin_marketplace_review_csrf_contract() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+    paths = spec.fetch("paths", {})
+    missing = []
+
+    def operation(paths, path, method, missing)
+      op = paths.dig(path, method)
+      unless op
+        missing << "#{method.upcase} #{path} must be documented"
+        return {}
+      end
+      op
+    end
+
+    def requires_cookie_and_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
+    end
+
+    [
+      ["/api/v1/admin/reviews/sla/enforce", "post"],
+      ["/api/v1/admin/reviews/{agentId}/approve", "post"],
+      ["/api/v1/admin/reviews/{agentId}/reject", "post"],
+      ["/api/v1/admin/reviews/{agentId}/needs-changes", "post"],
+    ].each do |path, method|
+      op = operation(paths, path, method, missing)
+      unless requires_cookie_and_csrf?(op)
+        missing << "#{method.upcase} #{path} must require cookieAuth and csrfHeader"
+      end
+      tags = op.fetch("tags", [])
+      unless tags.include?("Admin") && tags.include?("Marketplace")
+        missing << "#{method.upcase} #{path} must be tagged Admin and Marketplace"
+      end
+    end
+
+    unless missing.empty?
+      warn "[openapi-contract] Admin Marketplace review CSRF contract is incomplete:"
+      missing.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 require_admin_core_management_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
@@ -1545,6 +1590,7 @@ require_admin_observability_provider_secret_csrf_contract
 require_mcp_auth_token_response_contract
 require_marketplace_user_mutation_csrf_contract
 require_admin_marketplace_governance_csrf_contract
+require_admin_marketplace_review_csrf_contract
 require_admin_core_management_contract
 require_admin_billing_contract
 require_domestic_payment_webhook_payout_contract
