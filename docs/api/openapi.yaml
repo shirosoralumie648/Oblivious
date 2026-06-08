@@ -1170,6 +1170,7 @@ components:
         config:
           type: object
           additionalProperties: true
+          description: Raw channel adapter configuration. Credential fields such as secret, token, apiKey, and password are accepted on create/update, preserved when the redacted marker ******** is submitted, and are redacted from ChannelConfig responses.
         status:
           type: string
           enum: [active, degraded, disabled]
@@ -9152,6 +9153,9 @@ paths:
       summary: 创建发布渠道
       operationId: createPublishingChannel
       tags: [Publishing]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       requestBody:
         required: true
         content:
@@ -9206,6 +9210,9 @@ paths:
       summary: 更新发布渠道配置
       operationId: updatePublishingChannel
       tags: [Publishing]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: channelId
           in: path
@@ -9238,6 +9245,9 @@ paths:
       summary: 禁用发布渠道
       operationId: deletePublishingChannel
       tags: [Publishing]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: channelId
           in: path
@@ -9266,6 +9276,9 @@ paths:
       summary: 更新发布渠道状态
       operationId: updatePublishingChannelStatus
       tags: [Publishing]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: channelId
           in: path
@@ -9300,6 +9313,9 @@ paths:
       summary: 测试发布渠道连接
       operationId: testPublishingChannel
       tags: [Publishing]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: channelId
           in: path
@@ -9323,6 +9339,9 @@ paths:
       summary: 通过发布渠道发送消息
       operationId: sendPublishingChannelMessage
       tags: [Publishing]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: channelId
           in: path
@@ -9421,6 +9440,9 @@ paths:
       summary: 重试发布渠道失败消息
       operationId: retryPublishingChannelFailedMessages
       tags: [Publishing]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: channelId
           in: path

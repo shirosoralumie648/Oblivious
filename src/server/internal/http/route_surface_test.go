@@ -291,6 +291,37 @@ func TestRouteSurfaceRejectsCookieMutationWithoutCSRF(t *testing.T) {
 	}
 }
 
+func TestRouteSurfacePublishingChannelMutationsRejectCookieWithoutCSRFWithoutDatabase(t *testing.T) {
+	session := routeSurfaceUserSession()
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}})
+	cookie := routeSurfaceSignedSessionCookie(t, session)
+
+	tests := []routeSurfaceCase{
+		{"create channel", stdhttp.MethodPost, "/api/v1/channels"},
+		{"update channel", stdhttp.MethodPut, "/api/v1/channels/channel_1"},
+		{"delete channel", stdhttp.MethodDelete, "/api/v1/channels/channel_1"},
+		{"update channel status", stdhttp.MethodPatch, "/api/v1/channels/channel_1/status"},
+		{"test channel", stdhttp.MethodPost, "/api/v1/channels/channel_1/test"},
+		{"send channel message", stdhttp.MethodPost, "/api/v1/channels/channel_1/send"},
+		{"retry failed messages", stdhttp.MethodPost, "/api/v1/channels/channel_1/retry-failed-messages"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(`{}`))
+			request.Header.Set("Content-Type", "application/json")
+			request.AddCookie(cookie)
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusForbidden {
+				t.Fatalf("expected missing csrf to be rejected with 403 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
 func routeSurfaceRegisterUser(t *testing.T, router stdhttp.Handler, email string) *stdhttp.Cookie {
 	t.Helper()
 

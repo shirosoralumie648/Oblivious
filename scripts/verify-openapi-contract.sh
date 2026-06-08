@@ -492,6 +492,139 @@ require_admin_channel_secret_response_contract() {
   ' "$openapi_file"
 }
 
+require_publishing_channel_secret_csrf_contract() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+    paths = spec.fetch("paths", {})
+    schemas = spec.fetch("components", {}).fetch("schemas", {})
+    missing = []
+
+    def operation(paths, path, method, missing)
+      op = paths.dig(path, method)
+      unless op
+        missing << "#{method.upcase} #{path} must be documented"
+        return {}
+      end
+      op
+    end
+
+    def response_data_ref(operation, status)
+      operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "$ref") }&.
+        dig("properties", "data", "$ref")
+    end
+
+    def response_data_array_ref(operation, status)
+      operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "items", "$ref") }&.
+        dig("properties", "data", "items", "$ref")
+    end
+
+    def request_body_ref(operation)
+      operation.dig("requestBody", "content", "application/json", "schema", "$ref")
+    end
+
+    def requires_cookie_and_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
+    end
+
+    expected_data_refs = {
+      ["/api/v1/channels/{channelId}", "get", "200"] => "#/components/schemas/ChannelConfig",
+      ["/api/v1/channels", "post", "201"] => "#/components/schemas/ChannelConfig",
+      ["/api/v1/channels/{channelId}", "put", "200"] => "#/components/schemas/ChannelConfig",
+      ["/api/v1/channels/{channelId}", "delete", "200"] => "#/components/schemas/ChannelConfig",
+      ["/api/v1/channels/{channelId}/status", "patch", "200"] => "#/components/schemas/ChannelConfig",
+      ["/api/v1/channels/{channelId}/send", "post", "200"] => "#/components/schemas/ChannelMessageLog",
+      ["/api/v1/channels/{channelId}/retry-failed-messages", "post", "200"] => "#/components/schemas/ChannelRetryProcessResult",
+      ["/api/v1/channels/webhook/{channelId}", "post", "200"] => "#/components/schemas/ChannelMessageLog",
+    }
+
+    expected_data_refs.each do |(path, method, status), expected|
+      op = operation(paths, path, method, missing)
+      unless response_data_ref(op, status) == expected
+        missing << "#{method.upcase} #{path} #{status} data must reference #{expected}"
+      end
+      unless op.fetch("tags", []).include?("Publishing")
+        missing << "#{method.upcase} #{path} must be tagged Publishing"
+      end
+    end
+
+    ["/api/v1/channels", "/api/v1/channels/{channelId}/messages", "/api/v1/channels/{channelId}/failed-messages"].each do |path|
+      op = operation(paths, path, "get", missing)
+      unless response_data_array_ref(op, "200") == "#/components/schemas/#{path == "/api/v1/channels" ? "ChannelConfig" : "ChannelMessageLog"}"
+        missing << "GET #{path} 200 data must return the documented Publishing collection item schema"
+      end
+      unless op.fetch("tags", []).include?("Publishing")
+        missing << "GET #{path} must be tagged Publishing"
+      end
+    end
+
+    [
+      ["/api/v1/channels", "post"],
+      ["/api/v1/channels/{channelId}", "put"],
+      ["/api/v1/channels/{channelId}", "delete"],
+      ["/api/v1/channels/{channelId}/status", "patch"],
+      ["/api/v1/channels/{channelId}/test", "post"],
+      ["/api/v1/channels/{channelId}/send", "post"],
+      ["/api/v1/channels/{channelId}/retry-failed-messages", "post"],
+    ].each do |path, method|
+      op = operation(paths, path, method, missing)
+      unless requires_cookie_and_csrf?(op)
+        missing << "#{method.upcase} #{path} must require cookieAuth and csrfHeader"
+      end
+    end
+
+    {
+      ["/api/v1/channels", "post"] => "#/components/schemas/ChannelConfigRequest",
+      ["/api/v1/channels/{channelId}", "put"] => "#/components/schemas/ChannelConfigRequest",
+      ["/api/v1/channels/{channelId}/status", "patch"] => "#/components/schemas/ChannelStatusRequest",
+      ["/api/v1/channels/{channelId}/send", "post"] => "#/components/schemas/SendChannelMessageRequest",
+      ["/api/v1/channels/{channelId}/retry-failed-messages", "post"] => "#/components/schemas/RetryFailedChannelMessagesRequest",
+    }.each do |(path, method), expected|
+      op = operation(paths, path, method, missing)
+      unless request_body_ref(op) == expected
+        missing << "#{method.upcase} #{path} request body must reference #{expected}"
+      end
+    end
+
+    webhook = operation(paths, "/api/v1/channels/webhook/{channelId}", "post", missing)
+    unless webhook["security"] == []
+      missing << "POST /api/v1/channels/webhook/{channelId} must remain public with security: []"
+    end
+    webhook_headers = (webhook["parameters"] || []).select { |param| param["in"] == "header" }.map { |param| param["name"] }
+    ["X-Oblivious-Timestamp", "X-Oblivious-Signature"].each do |header|
+      missing << "POST /api/v1/channels/webhook/{channelId} must document #{header}" unless webhook_headers.include?(header)
+    end
+
+    channel = schemas["ChannelConfig"] || {}
+    config = channel.dig("properties", "config") || {}
+    unless config["type"] == "object" && config["additionalProperties"] == true &&
+        config.fetch("description", "").include?("redacted")
+      missing << "ChannelConfig.config must document redacted response secrets"
+    end
+    channel.fetch("properties", {}).each_key do |property|
+      normalized = property.downcase.delete("_-")
+      if ["secret", "token", "apikey", "password"].any? { |needle| normalized.include?(needle) }
+        missing << "ChannelConfig response schema must not expose #{property} as a top-level credential field"
+      end
+    end
+
+    request_config = schemas.dig("ChannelConfigRequest", "properties", "config") || {}
+    unless request_config["type"] == "object" && request_config["additionalProperties"] == true &&
+        ["secret", "token", "apiKey", "password"].all? { |word| request_config.fetch("description", "").include?(word) }
+      missing << "ChannelConfigRequest.config must document credential input and redacted-marker preservation"
+    end
+
+    unless missing.empty?
+      warn "[openapi-contract] Publishing channel secret/CSRF contract is incomplete:"
+      missing.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 require_admin_core_management_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
@@ -1059,6 +1192,7 @@ require_marketplace_paid_install_contract
 require_marketplace_template_type_contract
 require_marketplace_surface_payload_contract
 require_marketplace_browse_payload_contract
+require_publishing_channel_secret_csrf_contract
 require_admin_channel_secret_response_contract
 require_admin_core_management_contract
 require_admin_billing_contract
