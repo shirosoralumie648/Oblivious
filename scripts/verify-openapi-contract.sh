@@ -492,6 +492,128 @@ require_admin_channel_secret_response_contract() {
   ' "$openapi_file"
 }
 
+require_admin_core_management_contract() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+    paths = spec.fetch("paths", {})
+    schemas = spec.fetch("components", {}).fetch("schemas", {})
+    missing = []
+
+    def operation(paths, path, method, missing)
+      op = paths.dig(path, method)
+      unless op
+        missing << "#{method.upcase} #{path} must be documented"
+        return {}
+      end
+      op
+    end
+
+    def response_data_ref(operation, status)
+      operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "$ref") }&.
+        dig("properties", "data", "$ref")
+    end
+
+    def request_body_ref(operation)
+      operation.dig("requestBody", "content", "application/json", "schema", "$ref")
+    end
+
+    def requires_cookie_and_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
+    end
+
+    expected_data_refs = {
+      ["/api/v1/admin/stats", "get", "200"] => "#/components/schemas/AdminStats",
+      ["/api/v1/admin/routes", "get", "200"] => "#/components/schemas/AdminRouteListResponse",
+      ["/api/v1/admin/routes", "post", "201"] => "#/components/schemas/AdminRoute",
+      ["/api/v1/admin/routes/{routeId}", "get", "200"] => "#/components/schemas/AdminRoute",
+      ["/api/v1/admin/routes/{routeId}", "put", "200"] => "#/components/schemas/AdminRoute",
+      ["/api/v1/admin/routes/{routeId}", "delete", "200"] => "#/components/schemas/AdminDeleteStatusResponse",
+      ["/api/v1/admin/plans", "get", "200"] => "#/components/schemas/AdminPlanListResponse",
+      ["/api/v1/admin/plans", "post", "201"] => "#/components/schemas/AdminPlan",
+      ["/api/v1/admin/plans/{planId}", "get", "200"] => "#/components/schemas/AdminPlan",
+      ["/api/v1/admin/plans/{planId}", "put", "200"] => "#/components/schemas/AdminPlan",
+      ["/api/v1/admin/plans/{planId}", "delete", "200"] => "#/components/schemas/AdminDeactivateStatusResponse",
+      ["/api/v1/admin/users", "get", "200"] => "#/components/schemas/AdminUserListResponse",
+      ["/api/v1/admin/users/{userId}", "get", "200"] => "#/components/schemas/AdminUser",
+      ["/api/v1/admin/users/{userId}", "put", "200"] => "#/components/schemas/AdminUser",
+      ["/api/v1/admin/users/{userId}", "patch", "200"] => "#/components/schemas/AdminUser",
+      ["/api/v1/admin/users/{userId}", "delete", "200"] => "#/components/schemas/AdminDeleteStatusResponse",
+      ["/api/v1/admin/users/{userId}/disable", "post", "200"] => "#/components/schemas/AdminUserStatusResponse",
+      ["/api/v1/admin/users/{userId}/enable", "post", "200"] => "#/components/schemas/AdminUserStatusResponse",
+      ["/api/v1/admin/audit-logs", "get", "200"] => "#/components/schemas/AdminAuditLogListResponse",
+    }
+
+    expected_data_refs.each do |(path, method, status), expected|
+      op = operation(paths, path, method, missing)
+      unless response_data_ref(op, status) == expected
+        missing << "#{method.upcase} #{path} #{status} data must reference #{expected}"
+      end
+      unless op.fetch("tags", []).include?("Admin")
+        missing << "#{method.upcase} #{path} must be tagged Admin"
+      end
+    end
+
+    ["/api/v1/admin/routes", "/api/v1/admin/routes/{routeId}", "/api/v1/admin/plans", "/api/v1/admin/plans/{planId}", "/api/v1/admin/users/{userId}", "/api/v1/admin/users/{userId}/disable", "/api/v1/admin/users/{userId}/enable"].each do |path|
+      methods = paths.fetch(path, {}).keys.select { |method| ["post", "put", "patch", "delete"].include?(method) }
+      methods.each do |method|
+        op = operation(paths, path, method, missing)
+        unless requires_cookie_and_csrf?(op)
+          missing << "#{method.upcase} #{path} must require cookieAuth and csrfHeader"
+        end
+      end
+    end
+
+    {
+      ["/api/v1/admin/routes", "post"] => "#/components/schemas/AdminRouteCreateRequest",
+      ["/api/v1/admin/routes/{routeId}", "put"] => "#/components/schemas/AdminRouteUpdateRequest",
+      ["/api/v1/admin/plans", "post"] => "#/components/schemas/AdminPlanCreateRequest",
+      ["/api/v1/admin/plans/{planId}", "put"] => "#/components/schemas/AdminPlanUpdateRequest",
+      ["/api/v1/admin/users/{userId}", "put"] => "#/components/schemas/AdminUserUpdateRequest",
+      ["/api/v1/admin/users/{userId}", "patch"] => "#/components/schemas/AdminUserQuotaUpdateRequest",
+    }.each do |(path, method), expected|
+      op = operation(paths, path, method, missing)
+      unless request_body_ref(op) == expected
+        missing << "#{method.upcase} #{path} request body must reference #{expected}"
+      end
+    end
+
+    {
+      "AdminStats" => ["users", "quotas", "channelsTotal", "apiCalls24h"],
+      "AdminRoute" => ["id", "model", "strategy", "channels", "createdAt"],
+      "AdminPlan" => ["id", "name", "quotaAmount", "tokenQuota", "maxTokensPerRequest", "isActive"],
+      "AdminUser" => ["id", "email", "role", "status", "createdAt"],
+      "AdminAuditLogEntry" => ["id", "actorID", "actorEmail", "action", "resourceType", "createdAt"],
+    }.each do |schema_name, properties|
+      props = schemas.fetch(schema_name, {}).fetch("properties", {})
+      properties.each do |property|
+        missing << "#{schema_name}.#{property} must be documented" unless props.key?(property)
+      end
+    end
+
+    {
+      "AdminRouteListResponse" => ["routes", "#/components/schemas/AdminRoute"],
+      "AdminPlanListResponse" => ["plans", "#/components/schemas/AdminPlan"],
+      "AdminUserListResponse" => ["users", "#/components/schemas/AdminUser"],
+      "AdminAuditLogListResponse" => ["entries", "#/components/schemas/AdminAuditLogEntry"],
+    }.each do |schema_name, (collection_property, item_ref)|
+      schema = schemas[schema_name] || {}
+      unless schema.dig("properties", collection_property, "items", "$ref") == item_ref &&
+          schema.dig("properties", "total", "type") == "integer"
+        missing << "#{schema_name} must expose #{collection_property}[] plus integer total"
+      end
+    end
+
+    unless missing.empty?
+      warn "[openapi-contract] Admin core management contract is incomplete:"
+      missing.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 require_admin_billing_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
@@ -815,6 +937,16 @@ required_paths=(
   "/api/v1/admin/billing/payouts"
   "/api/v1/admin/billing/topups/{topupId}/refund"
   "/api/v1/admin/billing/payouts/{payoutId}/paid"
+  "/api/v1/admin/stats"
+  "/api/v1/admin/routes"
+  "/api/v1/admin/routes/{routeId}"
+  "/api/v1/admin/plans"
+  "/api/v1/admin/plans/{planId}"
+  "/api/v1/admin/users"
+  "/api/v1/admin/users/{userId}"
+  "/api/v1/admin/users/{userId}/disable"
+  "/api/v1/admin/users/{userId}/enable"
+  "/api/v1/admin/audit-logs"
   "/api/v1/app/agents"
   "/api/v1/app/agents/{agentId}"
   "/api/v1/app/agents/{agentId}/tools"
@@ -928,6 +1060,7 @@ require_marketplace_template_type_contract
 require_marketplace_surface_payload_contract
 require_marketplace_browse_payload_contract
 require_admin_channel_secret_response_contract
+require_admin_core_management_contract
 require_admin_billing_contract
 require_domestic_payment_webhook_payout_contract
 

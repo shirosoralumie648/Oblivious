@@ -3710,6 +3710,378 @@ components:
           type: string
           format: date-time
 
+    AdminUserStats:
+      type: object
+      properties:
+        totalUsers:
+          type: integer
+        activeUsers:
+          type: integer
+        newUsersToday:
+          type: integer
+        newUsersWeek:
+          type: integer
+
+    AdminQuotaStats:
+      type: object
+      properties:
+        totalBalance:
+          type: number
+          format: double
+        totalUsed:
+          type: number
+          format: double
+        activeTopups:
+          type: integer
+
+    AdminStats:
+      type: object
+      properties:
+        users:
+          $ref: "#/components/schemas/AdminUserStats"
+        quotas:
+          $ref: "#/components/schemas/AdminQuotaStats"
+        conversations:
+          type: integer
+        agents:
+          type: integer
+        tasks:
+          type: integer
+        mcpServers:
+          type: integer
+        channelsTotal:
+          type: integer
+        channelsOnline:
+          type: integer
+        activeAgents:
+          type: integer
+        apiCalls24h:
+          type: integer
+
+    AdminRouteChannel:
+      type: object
+      properties:
+        channelID:
+          type: string
+        channelName:
+          type: string
+        weight:
+          type: integer
+        priority:
+          type: integer
+        enabled:
+          type: boolean
+
+    AdminRouteChannelInput:
+      type: object
+      required: [channelID, weight, priority, enabled]
+      properties:
+        channelID:
+          type: string
+        weight:
+          type: integer
+        priority:
+          type: integer
+        enabled:
+          type: boolean
+
+    AdminRoute:
+      type: object
+      properties:
+        id:
+          type: string
+        model:
+          type: string
+        strategy:
+          type: string
+          enum: [adaptive, weighted, priority, cost_aware]
+        channels:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminRouteChannel"
+        createdAt:
+          type: string
+          format: date-time
+
+    AdminRouteListResponse:
+      type: object
+      properties:
+        routes:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminRoute"
+        total:
+          type: integer
+
+    AdminRouteCreateRequest:
+      type: object
+      required: [model, strategy, channels]
+      properties:
+        model:
+          type: string
+        strategy:
+          type: string
+          enum: [adaptive, weighted, priority, cost_aware]
+        channels:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminRouteChannelInput"
+
+    AdminRouteUpdateRequest:
+      type: object
+      properties:
+        model:
+          type: string
+        strategy:
+          type: string
+          enum: [adaptive, weighted, priority, cost_aware]
+        channels:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminRouteChannelInput"
+
+    AdminPlan:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        quotaAmount:
+          type: number
+          format: double
+        tokenQuota:
+          type: integer
+        price:
+          type: number
+          format: double
+        modelAccess:
+          type: array
+          items:
+            type: string
+        agentLimit:
+          type: integer
+        maxTokensPerRequest:
+          type: integer
+        durationDays:
+          type: integer
+          nullable: true
+        isActive:
+          type: boolean
+        isPublic:
+          type: boolean
+        sortOrder:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AdminPlanListResponse:
+      type: object
+      properties:
+        plans:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminPlan"
+        total:
+          type: integer
+
+    AdminPlanCreateRequest:
+      type: object
+      required: [name, quotaAmount, tokenQuota, price, modelAccess, agentLimit, maxTokensPerRequest, isPublic, sortOrder]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        quotaAmount:
+          type: number
+          format: double
+        tokenQuota:
+          type: integer
+        price:
+          type: number
+          format: double
+        modelAccess:
+          type: array
+          items:
+            type: string
+        agentLimit:
+          type: integer
+        maxTokensPerRequest:
+          type: integer
+        durationDays:
+          type: integer
+          nullable: true
+        isPublic:
+          type: boolean
+        sortOrder:
+          type: integer
+
+    AdminPlanUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        quotaAmount:
+          type: number
+          format: double
+        tokenQuota:
+          type: integer
+        price:
+          type: number
+          format: double
+        modelAccess:
+          type: array
+          items:
+            type: string
+        agentLimit:
+          type: integer
+        maxTokensPerRequest:
+          type: integer
+        isActive:
+          type: boolean
+        isPublic:
+          type: boolean
+
+    AdminUserUsageStats:
+      type: object
+      properties:
+        totalTokens:
+          type: integer
+        totalAPICalls:
+          type: integer
+        totalCost:
+          type: number
+          format: double
+
+    AdminUser:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        role:
+          type: string
+          enum: [admin, moderator, user]
+        planID:
+          type: string
+          nullable: true
+        planName:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [active, disabled]
+        createdAt:
+          type: string
+          format: date-time
+        lastLoginAt:
+          type: string
+          format: date-time
+          nullable: true
+        usageStats:
+          $ref: "#/components/schemas/AdminUserUsageStats"
+
+    AdminUserListResponse:
+      type: object
+      properties:
+        users:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminUser"
+        total:
+          type: integer
+
+    AdminUserUpdateRequest:
+      type: object
+      properties:
+        role:
+          type: string
+          enum: [admin, moderator, user]
+        planID:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [active, disabled]
+
+    AdminUserQuotaUpdateRequest:
+      type: object
+      required: [balance]
+      properties:
+        balance:
+          type: number
+          format: double
+
+    AdminUserStatusResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [enabled, disabled]
+
+    AdminDeleteStatusResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [deleted]
+
+    AdminDeactivateStatusResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [deactivated]
+
+    AdminAuditLogEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        organizationId:
+          type: string
+        actorID:
+          type: string
+        actorEmail:
+          type: string
+        action:
+          type: string
+        resourceType:
+          type: string
+        resourceID:
+          type: string
+        changes:
+          type: string
+          description: JSON string describing the audited change.
+        ipAddress:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    AdminAuditLogListResponse:
+      type: object
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminAuditLogEntry"
+        total:
+          type: integer
+
     AdminObservabilityAlertSeverity:
       type: string
       enum: [debug, info, warning, critical]
@@ -9799,6 +10171,644 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+
+  # ---- Admin core management ----
+  /api/v1/admin/stats:
+    get:
+      summary: 获取管理员仪表盘统计
+      operationId: getAdminStats
+      tags: [Admin]
+      responses:
+        "200":
+          description: Admin dashboard aggregate stats
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminStats"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/routes:
+    get:
+      summary: 获取 Relay model routes
+      operationId: listAdminRoutes
+      tags: [Admin, Relay]
+      responses:
+        "200":
+          description: Relay model routes and total count
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminRouteListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      summary: 创建 Relay model route
+      operationId: createAdminRoute
+      tags: [Admin, Relay]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminRouteCreateRequest"
+      responses:
+        "201":
+          description: Created Relay model route
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminRoute"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/routes/{routeId}:
+    parameters:
+      - name: routeId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: 获取 Relay model route 详情
+      operationId: getAdminRoute
+      tags: [Admin, Relay]
+      responses:
+        "200":
+          description: Relay model route detail
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminRoute"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      summary: 更新 Relay model route
+      operationId: updateAdminRoute
+      tags: [Admin, Relay]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminRouteUpdateRequest"
+      responses:
+        "200":
+          description: Updated Relay model route
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminRoute"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      summary: 删除 Relay model route
+      operationId: deleteAdminRoute
+      tags: [Admin, Relay]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      responses:
+        "200":
+          description: Route deleted
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminDeleteStatusResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/admin/plans:
+    get:
+      summary: 获取订阅套餐列表
+      operationId: listAdminPlans
+      tags: [Admin, Billing]
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, inactive]
+        - name: isPublic
+          in: query
+          schema:
+            type: boolean
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: Subscription plans and total count
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminPlanListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      summary: 创建订阅套餐
+      operationId: createAdminPlan
+      tags: [Admin, Billing]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminPlanCreateRequest"
+      responses:
+        "201":
+          description: Created subscription plan
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminPlan"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/plans/{planId}:
+    parameters:
+      - name: planId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: 获取订阅套餐详情
+      operationId: getAdminPlan
+      tags: [Admin, Billing]
+      responses:
+        "200":
+          description: Subscription plan detail
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminPlan"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      summary: 更新订阅套餐
+      operationId: updateAdminPlan
+      tags: [Admin, Billing]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminPlanUpdateRequest"
+      responses:
+        "200":
+          description: Updated subscription plan
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminPlan"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      summary: 停用订阅套餐
+      operationId: deactivateAdminPlan
+      tags: [Admin, Billing]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      responses:
+        "200":
+          description: Plan deactivated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminDeactivateStatusResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/admin/users:
+    get:
+      summary: 获取用户列表
+      operationId: listAdminUsers
+      tags: [Admin]
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: role
+          in: query
+          schema:
+            type: string
+            enum: [admin, moderator, user]
+        - name: planID
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, disabled]
+        - name: sort
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: Users and total count
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminUserListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/users/{userId}:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: 获取用户详情
+      operationId: getAdminUser
+      tags: [Admin]
+      responses:
+        "200":
+          description: User detail
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminUser"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      summary: 更新用户属性
+      operationId: updateAdminUser
+      tags: [Admin]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminUserUpdateRequest"
+      responses:
+        "200":
+          description: Updated user detail
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminUser"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      summary: 更新用户余额配额
+      operationId: updateAdminUserQuota
+      tags: [Admin, Billing]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminUserQuotaUpdateRequest"
+      responses:
+        "200":
+          description: User detail after quota update
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminUser"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      summary: 删除用户
+      operationId: deleteAdminUser
+      tags: [Admin]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      responses:
+        "200":
+          description: User deleted
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminDeleteStatusResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/admin/users/{userId}/disable:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      summary: 禁用用户
+      operationId: disableAdminUser
+      tags: [Admin]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      responses:
+        "200":
+          description: User disabled
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminUserStatusResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/users/{userId}/enable:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      summary: 启用用户
+      operationId: enableAdminUser
+      tags: [Admin]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      responses:
+        "200":
+          description: User enabled
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminUserStatusResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/audit-logs:
+    get:
+      summary: 获取审计日志列表
+      operationId: listAdminAuditLogs
+      tags: [Admin]
+      parameters:
+        - name: actorID
+          in: query
+          schema:
+            type: string
+        - name: action
+          in: query
+          schema:
+            type: string
+        - name: organizationID
+          in: query
+          schema:
+            type: string
+        - name: organizationId
+          in: query
+          schema:
+            type: string
+        - name: resourceType
+          in: query
+          schema:
+            type: string
+        - name: resourceID
+          in: query
+          schema:
+            type: string
+        - name: startDate
+          in: query
+          schema:
+            type: string
+        - name: endDate
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: Audit log entries and total count
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminAuditLogListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   # ---- Admin organizations ----
   /api/v1/admin/organizations:
