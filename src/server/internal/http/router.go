@@ -51,6 +51,7 @@ type RouterOptions struct {
 	AlertStateStore             observability.AlertStateStore
 	AlertRoutingRuleStore       observability.AlertRoutingRuleStore
 	AlertProviderConfigStore    observability.AlertProviderConfigStore
+	AuthStore                   auth.Store
 }
 
 type stripeMarketplaceSettlementAdapter struct {
@@ -98,7 +99,11 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	// workflowMetricsHandler calls RefreshExecutionHealthMetrics before serving the Prometheus scrape.
 	mux.Handle("/metrics", workflowMetricsHandler(workflowService))
 
-	authService := auth.NewService(auth.NewSQLStore(database))
+	authStore := options.AuthStore
+	if authStore == nil {
+		authStore = auth.NewSQLStore(database)
+	}
+	authService := auth.NewService(authStore)
 	authMiddleware := newAuthMiddleware(cfg, authService)
 	preferencesService := userprefs.NewService(userprefs.NewSQLStore(database))
 	authHandler := newAuthHandler(authService, authMiddleware, preferencesService)
