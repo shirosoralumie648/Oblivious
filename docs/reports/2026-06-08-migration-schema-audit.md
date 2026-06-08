@@ -49,6 +49,21 @@ Verification:
 - `bash scripts/verify-migration-replay.sh`
 - Result: first run applied 88 migrations, second run applied 0 and skipped 88, and `schema_migrations` reported 88 migrations recorded.
 
+## Legacy Tenant Backfill Fixture
+
+`TestApplyMigrationsBackfillsLegacyTenantScopeData` covers the high-risk non-empty legacy migration path:
+
+1. Apply migrations through `0026_membership_auth_security.sql`.
+2. Seed legacy user/workspace/session/chat/message/config/binding, Knowledge, Agent, memory, MCP, usage/quota/billing/subscription/top-up, Marketplace, and audit rows without `organization_id`.
+3. Apply the full migration directory.
+4. Assert all tenant-scoped legacy tables have non-null `organization_id`.
+5. Rerun the full migrator and assert no migrations are reapplied.
+
+Verification:
+
+- `TEST_DATABASE_URL=<temporary pgvector PostgreSQL> go test ./cmd/migrate -run TestApplyMigrationsBackfillsLegacyTenantScopeData -count=1 -v`
+- Result: passed.
+
 ## Historical Duplicate Prefix Boundary
 
 The current tree has accepted historical duplicate prefix pairs from `0013-0022`:
@@ -68,9 +83,8 @@ Do not rename historical migration files in-place. Their full filenames are alre
 
 ## Current Completion Assessment
 
-This slice moves the Database schema and migrations row forward by making migration ordering inputs explicit, preventing future malformed or ambiguous file additions, requiring checked-in migration evidence for every Part 3 core schema family, and proving a fresh PostgreSQL migration replay plus ledger skip rerun in the current Docker-capable environment. It does not by itself prove semantic idempotence for every data backfill path under non-empty legacy production datasets.
+This slice moves the Database schema and migrations row forward by making migration ordering inputs explicit, preventing future malformed or ambiguous file additions, requiring checked-in migration evidence for every Part 3 core schema family, proving a fresh PostgreSQL migration replay plus ledger skip rerun in the current Docker-capable environment, and covering the highest-risk non-empty legacy tenant backfill path with a DB-backed fixture. It does not by itself prove every possible production data-shape variant.
 
 Remaining repository-owned work:
 
-- Add focused idempotence checks for high-risk table families that still rely on direct migration application in package tests.
 - Decide whether historical duplicate prefixes need a future forward-only ledger compatibility migration, instead of in-place renames.
