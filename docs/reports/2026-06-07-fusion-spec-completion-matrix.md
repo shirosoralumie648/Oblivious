@@ -36,6 +36,7 @@ Status values:
 ## 2026-06-09 Matrix Row Updates
 
 - Billing row 26: Admin Billing inspection is now documented in OpenAPI for summary, sessions, payment intents, webhook events, subscriptions, top-ups, invoices, refunds, Marketplace settlements, Marketplace payouts, top-up refund recording, and payout-paid marking. The contract gate verifies response wrapper schemas, query filters, mutation request bodies, CSRF requirements, and the runtime payout-paid response schema.
+- Marketplace row 27 / API contract row 31: domestic payout-provider webhooks now have an OpenAPI contract gate for Alipay and WeChat Pay public webhook security, signature headers, `DomesticPaymentWebhookEvent` payout enums/fields, and `WebhookReceivedResponse` data refs, protecting the payout lifecycle payload surface from schema drift.
 - Agent row 24: Workspace Agent plan-step UI now consumes full run-detail responses from tool approve/reject/retry decisions, so approval resume updates run status, stop reason, iteration/tool-call counts, plan steps, and tool runs in one state sync instead of only replacing the tool queue.
 - API contract row 31: `scripts/verify-openapi-contract.sh` now guards Admin Billing route/schema parity instead of only path presence, including the summary schema, all list response collection wrappers, `AdminTopupRefundRequest`, `AdminMarketplacePayoutPaidRequest`, and `MarketplacePayout` response shape.
 - API contract row 31: Marketplace templates, publisher settlement preferences, and abuse-report routes now have explicit OpenAPI request/response schemas, and the contract gate verifies those `data` schema refs plus template type and settlement-cycle enums.
@@ -45,6 +46,7 @@ Status values:
 - `go test ./... -count=1` passed on the current working tree during the 2026-06-07 alert-provider work.
 - `pnpm --dir src/web exec tsc --noEmit` passed during the same run.
 - `pnpm --dir src/web test src/features/admin/api.test.ts src/routes/admin/AdminAlertsPage.test.tsx -- --runInBand` passed.
+- `bash scripts/verify-openapi-contract.sh` and `bash scripts/check.sh docs` passed during the domestic payout webhook contract-gate slice.
 - `go test ./internal/observability -count=1` passed.
 - `go test ./internal/http -run 'TestObservabilityAlertAdminRoute|TestConfigureHTTPAlerting|TestBuildRelayConfigWiresHealthAlertingAndRecovery' -count=1` passed.
 - `go test ./internal/relay -run 'TestLoadBalancer_SkipsForbiddenChannel|TestRouterRouteWithBillingDoesNotRetry(Unauthorized|Forbidden)ProviderResponse|TestRouterRouteWithBillingRecordsRuntimeMetricsForTerminalProviderError' -count=1 -v` passed during the Relay forbidden-state slice.

@@ -426,6 +426,93 @@ require_admin_billing_contract() {
   ' "$openapi_file"
 }
 
+require_domestic_payment_webhook_payout_contract() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+    paths = spec.fetch("paths", {})
+    schemas = spec.fetch("components", {}).fetch("schemas", {})
+    missing = []
+
+    def operation(paths, path, method, missing)
+      op = paths.dig(path, method)
+      unless op
+        missing << "#{method.upcase} #{path} must be documented"
+        return {}
+      end
+      op
+    end
+
+    def response_data_ref(operation, status)
+      operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "$ref") }&.
+        dig("properties", "data", "$ref")
+    end
+
+    [
+      "/api/v1/billing/alipay/webhook",
+      "/api/v1/billing/wechatpay/webhook",
+    ].each do |path|
+      post = operation(paths, path, "post", missing)
+      unless post["security"] == []
+        missing << "POST #{path} must declare security: []"
+      end
+
+      headers = (post["parameters"] || []).
+        select { |param| param["in"] == "header" }.
+        map { |param| [param["name"], param] }.
+        to_h
+      ["Oblivious-Payment-Timestamp", "Oblivious-Payment-Signature"].each do |header|
+        param = headers[header]
+        unless param && param["required"] == true && param.dig("schema", "type") == "string"
+          missing << "POST #{path} must document required #{header} string header"
+        end
+      end
+
+      unless post.dig("requestBody", "required") == true
+        missing << "POST #{path} must require a request body"
+      end
+      unless post.dig("requestBody", "content", "application/json", "schema", "$ref") == "#/components/schemas/DomesticPaymentWebhookEvent"
+        missing << "POST #{path} request body must reference DomesticPaymentWebhookEvent"
+      end
+      unless response_data_ref(post, "200") == "#/components/schemas/WebhookReceivedResponse"
+        missing << "POST #{path} 200 data must reference WebhookReceivedResponse"
+      end
+    end
+
+    event = schemas["DomesticPaymentWebhookEvent"] || {}
+    event_type = event.dig("properties", "type", "enum") || []
+    ["payout.paid", "payout.failed"].each do |value|
+      unless event_type.include?(value)
+        missing << "DomesticPaymentWebhookEvent.type must enumerate #{value}"
+      end
+    end
+
+    ["payout_id", "provider_payout_id", "status", "reason"].each do |property|
+      unless event.dig("properties", property, "type") == "string"
+        missing << "DomesticPaymentWebhookEvent.#{property} must be documented as a string"
+      end
+    end
+
+    required = event.fetch("required", [])
+    ["id", "type"].each do |property|
+      unless required.include?(property)
+        missing << "DomesticPaymentWebhookEvent must require #{property}"
+      end
+    end
+
+    unless schemas.dig("WebhookReceivedResponse", "properties", "received", "type") == "boolean"
+      missing << "WebhookReceivedResponse.received must be documented as a boolean"
+    end
+
+    unless missing.empty?
+      warn "[openapi-contract] Domestic payment webhook payout contract is incomplete:"
+      missing.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 require_relay_alias_bearer_contract() {
   ruby -ryaml -e '
     file = ARGV.shift
@@ -647,5 +734,6 @@ require_marketplace_paid_install_contract
 require_marketplace_template_type_contract
 require_marketplace_surface_payload_contract
 require_admin_billing_contract
+require_domestic_payment_webhook_payout_contract
 
 echo "[openapi-contract] required Relay alias, Agent, Memory, MCP, Tenant, Notification, Observability, publishing channel, Workflow, Billing, and Marketplace paths are documented."
