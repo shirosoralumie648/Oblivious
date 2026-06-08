@@ -280,6 +280,11 @@ type memoryVectorSearchStore interface {
 	SearchMemories(ctx context.Context, organizationID, userID string, req SearchMemoriesRequest) ([]*MemorySearchResult, error)
 }
 
+type memoryUpdateStore interface {
+	ListMemories(ctx context.Context, organizationID, userID string, req ListMemoriesRequest) ([]*Memory, error)
+	UpdateMemory(ctx context.Context, organizationID, userID, id string, req UpdateMemoryStoreRequest) (*Memory, error)
+}
+
 // NewRunner 创建 Agent Runner
 func NewRunner(store Store, gateway chat.ChatGateway, executor *ToolExecutor, memory MemorySearcher, config RunnerConfig) *Runner {
 	return &Runner{
@@ -1154,7 +1159,46 @@ func (r *Runner) storeLongTermInteractionMemory(ctx context.Context, session aut
 		}
 		req.Embedding = embedding
 	}
+	if r.refreshDuplicateLongTermInteractionMemory(ctx, session, agent, content, req.Embedding) {
+		return
+	}
 	_, _ = r.store.CreateMemory(ctx, req)
+}
+
+func (r *Runner) refreshDuplicateLongTermInteractionMemory(ctx context.Context, session auth.Session, agent *Agent, content string, embedding []float32) bool {
+	store, ok := r.store.(memoryUpdateStore)
+	if !ok {
+		return false
+	}
+	memories, err := store.ListMemories(ctx, session.OrganizationID, session.User.ID, ListMemoriesRequest{
+		AgentID: agent.ID,
+		Type:    MemoryTypeLongTerm,
+		Limit:   20,
+	})
+	if err != nil {
+		return false
+	}
+	normalizedContent := normalizeMemoryContent(content)
+	for _, memory := range memories {
+		if memory == nil || normalizeMemoryContent(memory.Content) != normalizedContent {
+			continue
+		}
+		importance := memory.Importance
+		if importance <= 0 {
+			importance = 3
+		}
+		_, err := store.UpdateMemory(ctx, session.OrganizationID, session.User.ID, memory.ID, UpdateMemoryStoreRequest{
+			Content:    stringPointer(content),
+			Embedding:  append([]float32(nil), embedding...),
+			Importance: intPointer(importance),
+		})
+		return err == nil
+	}
+	return false
+}
+
+func normalizeMemoryContent(content string) string {
+	return strings.Join(strings.Fields(strings.ToLower(strings.TrimSpace(content))), " ")
 }
 
 func lastUserMessageContent(messages []*Message) string {

@@ -729,8 +729,10 @@ func (s *fakeStore) ListMemories(ctx context.Context, organizationID, userID str
 	s.listMemoryOrganizationID = organizationID
 	s.listMemoryUserID = userID
 	s.listMemoryAgentID = req.AgentID
-	s.listMemoryQuery = req.Query
-	s.listMemoryLimit = req.Limit
+	if req.Query != "" {
+		s.listMemoryQuery = req.Query
+		s.listMemoryLimit = req.Limit
+	}
 
 	var memories []*Memory
 	for _, memory := range s.memories {
@@ -3214,6 +3216,75 @@ func TestRunWithToolsStoresLongTermInteractionMemoryWhenEnabled(t *testing.T) {
 	}
 	if len(embedder.texts) == 0 || embedder.texts[len(embedder.texts)-1] != created.Content {
 		t.Fatalf("expected automatic memory content to be embedded, got %+v", embedder.texts)
+	}
+}
+
+func TestRunWithToolsDeduplicatesAutomaticLongTermInteractionMemory(t *testing.T) {
+	content := "User: What should we remember about migrations?\nAssistant: Use the tenant-safe migration guard."
+	oldUpdatedAt := time.Date(2026, 6, 8, 10, 0, 0, 0, time.UTC)
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+			Config:         Config{EnableMemory: true},
+		},
+		conversation: &Conversation{
+			ID:             "conv_1",
+			AgentID:        "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+		},
+		memories: []*Memory{{
+			ID:             "memory_existing",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			AgentID:        "agent_1",
+			Type:           MemoryTypeLongTerm,
+			Content:        content,
+			Importance:     3,
+			Metadata: map[string]any{
+				"source":          "agent_run",
+				"conversation_id": "conv_1",
+			},
+			CreatedAt: oldUpdatedAt,
+			UpdatedAt: oldUpdatedAt,
+		}},
+	}
+	gateway := &fakeGateway{
+		structured: []*chat.CompletionResponse{
+			{Content: "Use the tenant-safe migration guard.", FinishReason: "stop"},
+		},
+	}
+	embedder := &fakeAgentMemoryEmbedder{
+		embeddings: map[string][]float32{
+			content: {0.4, 0.6},
+		},
+	}
+	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+	runner.SetMemoryEmbedder(embedder)
+
+	_, err := runner.RunWithTools(
+		context.Background(),
+		auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}},
+		store.agent,
+		store.conversation.ID,
+		"What should we remember about migrations?",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("RunWithTools returned error: %v", err)
+	}
+	if len(store.memories) != 1 {
+		t.Fatalf("expected existing automatic memory to be updated instead of duplicated, got %+v", store.memories)
+	}
+	updated := store.memories[0]
+	if updated.ID != "memory_existing" || updated.UpdatedAt.Equal(oldUpdatedAt) {
+		t.Fatalf("expected existing memory to be refreshed, got %+v", updated)
+	}
+	if !reflect.DeepEqual(store.updateMemoryEmbedding, []float32{0.4, 0.6}) {
+		t.Fatalf("expected duplicate memory refresh to update embedding, got %+v", store.updateMemoryEmbedding)
 	}
 }
 
