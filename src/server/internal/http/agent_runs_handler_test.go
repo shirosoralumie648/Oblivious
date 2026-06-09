@@ -964,6 +964,86 @@ func TestAgentRunsHandlerContinueBudgetReturnsConflictWhenBudgetStillExceeded(t 
 	}
 }
 
+func TestAgentRunsHandlerContinueBudgetReturnsPendingApprovalDetail(t *testing.T) {
+	now := time.Now().UTC()
+	completedAt := now.Add(time.Minute)
+	store := newFakeAgentRunsStore()
+	store.agent = &agent.Agent{
+		ID:             "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		Name:           "Implementation Agent",
+		Model:          "test-model",
+		Config:         agent.Config{TokenBudget: 1000},
+		Tools:          []agent.Tool{{Name: "write_file", Type: "builtin", Enabled: true, RequiresApproval: true}},
+	}
+	store.runs = []*agent.Run{{
+		ID:             "run_1",
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		Status:         agent.RunStatusTokenBudgetExceeded,
+		IterationCount: 1,
+		ToolCallCount:  1,
+		Error:          "token_budget_exceeded: used 1200 tokens exceeds budget 1000",
+		CompletedAt:    &completedAt,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}}
+	store.messages = []*agent.Message{{
+		ID:             "msg_user",
+		ConversationID: "conv_1",
+		OrganizationID: "org_1",
+		Role:           "user",
+		Content:        "continue and write the result",
+		CreatedAt:      now,
+	}, {
+		ID:             "msg_tool",
+		ConversationID: "conv_1",
+		OrganizationID: "org_1",
+		Role:           "tool",
+		Content:        "Result ready",
+		ToolCallID:     "call_previous",
+		CreatedAt:      now,
+	}}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{structured: []*chat.CompletionResponse{
+		{
+			ToolCalls: []chat.ToolCall{
+				{ID: "call_write_file", Type: "function", Function: chat.ToolFunction{Name: "write_file", Arguments: `{"path":"result.md","content":"ready"}`}},
+			},
+			FinishReason: "tool_calls",
+			Usage:        &chat.CompletionUsage{TotalTokens: 300},
+		},
+	}}))
+
+	recorder := httptest.NewRecorder()
+	handler.continueBudget(recorder, newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/continue-budget", `{"tokenBudget":2500}`), "run_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Data agentRunResponse `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Data.Run == nil || response.Data.Run.Status != agent.RunStatusPendingApproval || response.Data.Run.Error != "" || response.Data.Run.CompletedAt != nil {
+		t.Fatalf("expected pending approval run detail, got %+v", response.Data.Run)
+	}
+	if len(response.Data.ToolRuns) != 1 {
+		t.Fatalf("expected one pending tool run in response, got %+v", response.Data.ToolRuns)
+	}
+	toolRun := response.Data.ToolRuns[0]
+	if toolRun.ToolName != "write_file" || toolRun.Status != agent.ToolRunStatusPendingApproval || toolRun.ApprovalStatus != agent.ApprovalStatusPending || toolRun.AttemptCount != 0 {
+		t.Fatalf("expected write_file approval detail, got %+v", toolRun)
+	}
+	if len(response.Data.Messages) == 0 || len(response.Data.Messages[len(response.Data.Messages)-1].ToolCalls) != 1 {
+		t.Fatalf("expected assistant tool-call message in response, got %+v", response.Data.Messages)
+	}
+}
+
 func TestAgentRunsHandlerApproveToolSelectsOnlyPendingApprovalWhenOmitted(t *testing.T) {
 	store := newFakeAgentRunsStore()
 	store.agent = &agent.Agent{

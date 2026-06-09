@@ -1870,7 +1870,14 @@ func (s *Service) ContinueRunWithTokenBudget(ctx context.Context, session auth.S
 	run.Error = ""
 	run.CompletedAt = nil
 
-	return s.runner.ResumeAfterApprovedToolWithTokenBudget(ctx, session, agent, run, &normalizedBudget)
+	result, err := s.runner.ResumeAfterApprovedToolWithTokenBudget(ctx, session, agent, run, &normalizedBudget)
+	if errors.Is(err, ErrToolApprovalRequired) {
+		if result != nil {
+			return result, nil
+		}
+		return &RunResult{}, nil
+	}
+	return result, err
 }
 
 func (s *Service) executePersistedToolRun(ctx context.Context, session auth.Session, toolRun *ToolRun) (*ToolRun, error) {

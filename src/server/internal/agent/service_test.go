@@ -3333,6 +3333,102 @@ func TestServiceContinueRunWithTokenBudgetResumesTokenBudgetExceededRun(t *testi
 	}
 }
 
+func TestServiceContinueRunWithTokenBudgetReturnsPendingApprovalWhenResumeNeedsToolApproval(t *testing.T) {
+	now := time.Now().UTC()
+	completedAt := now.Add(time.Minute)
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+			Config: Config{
+				TokenBudget: 1000,
+			},
+			Tools: []Tool{
+				{Name: "write_file", Type: "builtin", Enabled: true, RequiresApproval: true},
+			},
+		},
+		conversation: &Conversation{
+			ID:             "conv_1",
+			AgentID:        "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+		},
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Status:         RunStatusTokenBudgetExceeded,
+			IterationCount: 1,
+			ToolCallCount:  1,
+			Error:          "token_budget_exceeded: used 1200 tokens exceeds budget 1000",
+			CompletedAt:    &completedAt,
+			StartedAt:      now,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+		messages: []*Message{
+			{
+				ID:             "user_1",
+				ConversationID: "conv_1",
+				OrganizationID: "org_1",
+				Role:           "user",
+				Content:        "write the summary after continuing",
+				CreatedAt:      now,
+			},
+			{
+				ID:             "tool_1",
+				ConversationID: "conv_1",
+				OrganizationID: "org_1",
+				Role:           "tool",
+				Content:        "Summary ready.",
+				ToolCallID:     "call_summary",
+				CreatedAt:      now,
+			},
+		},
+	}
+	gateway := &fakeGateway{
+		structured: []*chat.CompletionResponse{
+			{
+				ToolCalls: []chat.ToolCall{
+					{ID: "call_write_file", Type: "function", Function: chat.ToolFunction{Name: "write_file", Arguments: `{"path":"summary.md","content":"ready"}`}},
+				},
+				FinishReason: "tool_calls",
+				Usage:        &chat.CompletionUsage{TotalTokens: 300},
+			},
+		},
+	}
+	service := NewService(store, gateway)
+
+	result, err := service.ContinueRunWithTokenBudget(context.Background(), auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}}, "run_1", 2500)
+	if err != nil {
+		t.Fatalf("ContinueRunWithTokenBudget returned error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result for pending approval resume")
+	}
+	if gateway.structuredCalls != 1 {
+		t.Fatalf("expected one resumed structured call, got %d", gateway.structuredCalls)
+	}
+	if len(store.toolRuns) != 1 {
+		t.Fatalf("expected pending approval tool run to be persisted, got %+v", store.toolRuns)
+	}
+	toolRun := store.toolRuns[0]
+	if toolRun.ToolName != "write_file" || toolRun.Status != ToolRunStatusPendingApproval || toolRun.ApprovalStatus != ApprovalStatusPending || toolRun.AttemptCount != 0 {
+		t.Fatalf("expected resumed budget run to pause on write_file approval, got %+v", toolRun)
+	}
+	run := store.runs[0]
+	if run.Status != RunStatusPendingApproval || run.Error != "" || run.CompletedAt != nil || run.IterationCount != 2 || run.ToolCallCount != 2 {
+		t.Fatalf("expected continued run to pause cleanly for approval, got %+v", run)
+	}
+	if store.messages[len(store.messages)-1].Role != "assistant" || len(store.messages[len(store.messages)-1].ToolCalls) != 1 {
+		t.Fatalf("expected assistant tool-call message to be persisted, got %+v", store.messages)
+	}
+}
+
 func TestServiceContinueRunWithTokenBudgetRejectsNonBudgetExceededRun(t *testing.T) {
 	now := time.Now().UTC()
 	store := &fakeStore{
