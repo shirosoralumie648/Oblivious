@@ -477,6 +477,180 @@ vi.mock('../features/admin/api', () => ({
           }
         ]
       }),
+    listChannels: () =>
+      Promise.resolve({
+        data: [
+          {
+            id: 'ch_router_1',
+            name: 'OpenAI Primary',
+            provider: 'openai',
+            baseURL: 'https://api.openai.com/v1',
+            models: ['gpt-4o', 'gpt-4o-mini', 'text-embedding-3-small'],
+            groups: ['default', 'vip'],
+            rpm: 120,
+            tpm: 120000,
+            priority: 1,
+            estimatedCostPer1K: 0.02,
+            costMultiplier: 1.1,
+            weight: 80,
+            enabled: true,
+            status: 'online',
+            latency: 118,
+            createdAt: '2026-06-01T00:00:00Z',
+            updatedAt: '2026-06-09T00:00:00Z'
+          }
+        ],
+        total: 1
+      }),
+    listChannelProviders: () =>
+      Promise.resolve([
+        {
+          id: 'openai',
+          displayName: 'OpenAI',
+          kind: 'openai_compatible',
+          status: 'supported',
+          defaultBaseURL: 'https://api.openai.com/v1'
+        },
+        {
+          id: 'anthropic',
+          displayName: 'Claude',
+          kind: 'native',
+          status: 'supported',
+          defaultBaseURL: 'https://api.anthropic.com'
+        }
+      ]),
+    listChannelStats: () =>
+      Promise.resolve([
+        {
+          channelID: 'ch_router_1',
+          channelId: 'ch_router_1',
+          totalRequests: 240,
+          successCount: 230,
+          failureCount: 10,
+          rpmCurrent: 24,
+          tpmCurrent: 4800,
+          avgLatencyMs: 132,
+          affinityConversationCount: 7
+        }
+      ]),
+    getChannelHealth: () =>
+      Promise.resolve({
+        id: 'ch_router_1',
+        status: 'online',
+        latency: 118,
+        models: ['gpt-4o', 'gpt-4o-mini'],
+        balance: { amount: 12.5, currency: 'USD', source: 'openai_credit_grants' }
+      }),
+    testChannel: () =>
+      Promise.resolve({
+        success: true,
+        latency: 118,
+        provider: 'openai',
+        models: ['gpt-4o-mini', 'text-embedding-3-small'],
+        balance: { amount: 12.5, currency: 'USD', source: 'openai_credit_grants' },
+        health: { status: 'online', checkedAt: '2026-06-09T00:00:00Z' }
+      }),
+    syncChannelModels: () =>
+      Promise.resolve({
+        channel: {
+          id: 'ch_router_1',
+          name: 'OpenAI Primary',
+          provider: 'openai',
+          baseURL: 'https://api.openai.com/v1',
+          models: ['gpt-4o', 'gpt-4o-mini', 'text-embedding-3-small'],
+          groups: ['default', 'vip'],
+          rpm: 120,
+          tpm: 120000,
+          priority: 1,
+          estimatedCostPer1K: 0.02,
+          costMultiplier: 1.1,
+          weight: 80,
+          enabled: true,
+          status: 'online',
+          latency: 118,
+          createdAt: '2026-06-01T00:00:00Z',
+          updatedAt: '2026-06-09T00:00:00Z'
+        },
+        testResult: {
+          success: true,
+          latency: 121,
+          provider: 'openai',
+          models: ['gpt-4o-mini', 'text-embedding-3-small'],
+          balance: { amount: 12.5, currency: 'USD' },
+          health: { status: 'online' }
+        }
+      }),
+    detectChannelModelUpdates: () =>
+      Promise.resolve({
+        id: 'ch_router_1',
+        currentModels: ['gpt-4o'],
+        upstreamModels: ['gpt-4o', 'gpt-4o-mini', 'text-embedding-3-small'],
+        added: ['gpt-4o-mini', 'text-embedding-3-small'],
+        removed: [],
+        unchanged: ['gpt-4o'],
+        testResult: {
+          success: true,
+          latency: 121,
+          provider: 'openai',
+          models: ['gpt-4o-mini', 'text-embedding-3-small'],
+          balance: { amount: 12.5, currency: 'USD' },
+          health: { status: 'online' }
+        }
+      }),
+    applyChannelModelUpdates: () =>
+      Promise.resolve({
+        mode: 'merge',
+        appliedModels: ['gpt-4o', 'gpt-4o-mini', 'text-embedding-3-small'],
+        preview: {
+          id: 'ch_router_1',
+          currentModels: ['gpt-4o', 'gpt-4o-mini', 'text-embedding-3-small'],
+          upstreamModels: ['gpt-4o', 'gpt-4o-mini', 'text-embedding-3-small'],
+          added: [],
+          removed: [],
+          unchanged: ['gpt-4o', 'gpt-4o-mini', 'text-embedding-3-small']
+        }
+      }),
+    refreshChannelBalance: () =>
+      Promise.resolve({
+        id: 'ch_router_1',
+        status: 'online',
+        balance: { amount: 12.5, currency: 'USD', source: 'openai_credit_grants' },
+        channelHealth: { status: 'online', checkedAt: '2026-06-09T00:00:00Z' },
+        testResult: {
+          success: true,
+          latency: 118,
+          provider: 'openai',
+          models: ['gpt-4o-mini'],
+          balance: { amount: 12.5, currency: 'USD' },
+          health: { status: 'online' }
+        },
+        checkedAt: '2026-06-09T00:00:00Z'
+      }),
+    batchUpdateChannels: () => Promise.resolve(),
+    createChannel: (input: Record<string, unknown>) => Promise.resolve({ id: 'ch_router_created', ...input }),
+    updateChannel: (id: string, input: Record<string, unknown>) => Promise.resolve({ id, ...input }),
+    deleteChannel: () => Promise.resolve(),
+    listRoutes: () =>
+      Promise.resolve([
+        {
+          id: 'route_router_gpt4',
+          model: 'gpt-4o*',
+          strategy: 'weighted',
+          channels: [
+            {
+              channelID: 'ch_router_1',
+              channelName: 'OpenAI Primary',
+              priority: 1,
+              weight: 80,
+              enabled: true
+            }
+          ],
+          createdAt: '2026-06-01T00:00:00Z'
+        }
+      ]),
+    createRoute: (input: Record<string, unknown>) => Promise.resolve({ id: 'route_router_created', ...input }),
+    updateRoute: (id: string, input: Record<string, unknown>) => Promise.resolve({ id, ...input }),
+    deleteRoute: () => Promise.resolve(),
     listObservabilityAlerts: () =>
       Promise.resolve([
         {
@@ -2163,6 +2337,75 @@ describe('app router', () => {
     expect(screen.getByRole('tab', { name: 'Payouts' })).toBeInTheDocument();
     expect(screen.getByLabelText('Organization ID filter')).toBeInTheDocument();
     expect(screen.getByLabelText('Provider filter')).toBeInTheDocument();
+  });
+
+  it('keeps admin channels route-level provider, runtime, and operator controls reachable', async () => {
+    const router = createAppRouter(['/admin/channels']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    const adminNavigation = await screen.findByRole('complementary', { name: 'Admin navigation' });
+    expect(document.querySelector('[data-gsap-scope="admin"]')).toBeInTheDocument();
+    expect(within(adminNavigation).getByRole('link', { name: 'Channels' })).toHaveAttribute('href', '/admin/channels');
+    expect(await screen.findByRole('heading', { name: 'Channels' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add Channel' })).toBeEnabled();
+    expect(screen.getByPlaceholderText('Search channels...')).toBeInTheDocument();
+    expect(screen.getByLabelText('Provider filter')).toHaveValue('all');
+    expect(await screen.findByRole('option', { name: 'OpenAI' })).toBeInTheDocument();
+    expect(screen.getAllByText('OpenAI Primary').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText('openai')).toBeInTheDocument();
+    expect(screen.getByText('gpt-4o')).toBeInTheDocument();
+    expect(screen.getByText('gpt-4o-mini')).toBeInTheDocument();
+    expect(screen.getByText('0.0200')).toBeInTheDocument();
+    expect(screen.getByText('24 RPM')).toBeInTheDocument();
+    expect(screen.getByText('4,800 TPM')).toBeInTheDocument();
+    expect(screen.getAllByText('132ms avg').length).toBeGreaterThanOrEqual(2);
+    const runtimeDiagnostics = await screen.findByLabelText('Runtime diagnostics');
+    expect(within(runtimeDiagnostics).getByText('240 requests')).toBeInTheDocument();
+    expect(within(runtimeDiagnostics).getByText('230 ok / 10 failed')).toBeInTheDocument();
+    expect(within(runtimeDiagnostics).getByText('7 active')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Edit channel OpenAI Primary' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Delete channel OpenAI Primary' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Test connection for OpenAI Primary' }));
+    const channelDiagnostics = await screen.findByLabelText('OpenAI Primary diagnostics');
+    expect(within(channelDiagnostics).getByText('USD 12.50')).toBeInTheDocument();
+    expect(within(channelDiagnostics).getByText('Health online')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Detect model updates for OpenAI Primary' }));
+    const modelUpdates = await screen.findByLabelText('Model updates for OpenAI Primary');
+    expect(within(modelUpdates).getByText(/3\s+upstream models checked/)).toBeInTheDocument();
+    expect(within(modelUpdates).getByText('Added 2')).toBeInTheDocument();
+    expect(within(modelUpdates).getByText('gpt-4o-mini')).toBeInTheDocument();
+    expect(within(modelUpdates).getByRole('button', { name: 'Apply model updates for OpenAI Primary' })).toBeEnabled();
+  });
+
+  it('keeps admin routes route-level weighted strategy and target controls reachable', async () => {
+    const router = createAppRouter(['/admin/routes']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    const adminNavigation = await screen.findByRole('complementary', { name: 'Admin navigation' });
+    expect(document.querySelector('[data-gsap-scope="admin"]')).toBeInTheDocument();
+    expect(within(adminNavigation).getByRole('link', { name: 'Model Routes' })).toHaveAttribute('href', '/admin/routes');
+    expect(await screen.findByRole('heading', { name: 'Model Routes' })).toBeInTheDocument();
+    expect(await screen.findByText('gpt-4o*')).toBeInTheDocument();
+    expect(screen.getByText('weighted')).toBeInTheDocument();
+    expect(screen.getByText('OpenAI Primary')).toBeInTheDocument();
+    expect(screen.getByText('p1 w80')).toBeInTheDocument();
+    expect(screen.getByText('Active')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Edit route gpt-4o*' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Delete route gpt-4o*' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Add Route' }));
+    expect(await screen.findByRole('heading', { name: 'Add Route' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Model Pattern')).toBeInTheDocument();
+    expect(screen.getByLabelText('Strategy')).toHaveTextContent('Adaptive');
+    expect(screen.getByLabelText('Strategy')).toHaveTextContent('Weighted');
+    expect(screen.getByLabelText('Strategy')).toHaveTextContent('Priority');
+    expect(screen.getByLabelText('Strategy')).toHaveTextContent('Cost aware');
+    expect(screen.getByLabelText('Target Channel 1')).toHaveTextContent('OpenAI Primary');
+    expect(screen.getByLabelText('Priority 1')).toHaveValue(1);
+    expect(screen.getByLabelText('Weight 1')).toHaveValue(100);
+    expect(screen.getByText('Enabled 1')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Create Route' })).toBeEnabled();
   });
 
   it('keeps marketplace agent detail route-level install and review controls reachable', async () => {
