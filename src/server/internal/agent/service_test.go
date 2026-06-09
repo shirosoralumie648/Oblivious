@@ -3552,6 +3552,18 @@ func TestServiceRetryToolRunReexecutesFailedToolAndRestoresRunDetail(t *testing.
 	if updated.Status != ToolRunStatusCompleted || updated.AttemptCount != 2 || updated.Error != "" || updated.ResultContent == "" {
 		t.Fatalf("expected failed tool to be re-executed successfully, got %+v", updated)
 	}
+	foundReopen := false
+	for _, req := range store.updateRunRequests {
+		if req.Status != nil && *req.Status == RunStatusRunning {
+			foundReopen = true
+			if !req.ClearCompletedAt || req.Error == nil || *req.Error != "" {
+				t.Fatalf("expected retry to reopen run with stale terminal evidence cleared, got %+v", req)
+			}
+		}
+	}
+	if !foundReopen {
+		t.Fatalf("expected retry to reopen the failed run before resume, got %+v", store.updateRunRequests)
+	}
 
 	detail, err := service.GetRunWithMessages(context.Background(), session, "run_1")
 	if err != nil {
