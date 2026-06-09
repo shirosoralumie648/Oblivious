@@ -268,24 +268,28 @@ vi.mock('../features/tasks/api', () => {
           status: 'draft',
           title: 'Draft launch checklist'
         }),
-      getTask: () =>
-        Promise.resolve({
-          authorizationScope: 'workspace_tools',
-          budgetConsumed: 12,
-          budgetLimit: 12,
-          executionMode: 'standard',
-          finishedAt: '2026-06-09T10:20:00Z',
-          goal: 'Review launch plan',
-          id: 'task_completed',
-          knowledgeBaseIds: ['kb_router'],
-          resultArtifacts: [{ label: 'Report', value: 'solo-result.md' }],
-          resultSummary: 'Completed a starter SOLO run for: Review launch plan',
-          status: 'completed',
-          steps: [{ id: 'step_done', status: 'completed', stepIndex: 1, title: 'Understand the goal' }],
-          title: 'Review launch plan',
-          toolAllowList: ['browser'],
-          toolDenyList: ['email']
-        }),
+      getTask: (taskId?: string) =>
+        Promise.resolve(
+          taskId === 'task_router_new'
+            ? runningTaskDetail()
+            : {
+                authorizationScope: 'workspace_tools',
+                budgetConsumed: 12,
+                budgetLimit: 12,
+                executionMode: 'standard',
+                finishedAt: '2026-06-09T10:20:00Z',
+                goal: 'Review launch plan',
+                id: 'task_completed',
+                knowledgeBaseIds: ['kb_router'],
+                resultArtifacts: [{ label: 'Report', value: 'solo-result.md' }],
+                resultSummary: 'Completed a starter SOLO run for: Review launch plan',
+                status: 'completed',
+                steps: [{ id: 'step_done', status: 'completed', stepIndex: 1, title: 'Understand the goal' }],
+                title: 'Review launch plan',
+                toolAllowList: ['browser'],
+                toolDenyList: ['email']
+              }
+        ),
       listTasks: () =>
         Promise.resolve([
           {
@@ -1925,6 +1929,22 @@ describe('app router', () => {
 
     expect(await screen.findByText('Workspace')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Onboarding' })).toBeInTheDocument();
+  });
+
+  it('routes onboarding solo selection into the real solo creation route', async () => {
+    const router = createAppRouter(['/onboarding']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    expect(await screen.findByRole('heading', { name: 'Onboarding' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Start with SOLO' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue to workspace' }));
+
+    expect(await screen.findByRole('heading', { name: 'New SOLO task' })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/solo/new');
+    expect(screen.getByText('Define the task boundary before handing execution over to SOLO.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Back to tasks' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Running tasks' })).not.toBeInTheDocument();
   });
 
   it('renders solo route inside the workspace shell', async () => {

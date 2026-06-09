@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import { useAppContext } from '../../app/providers';
 import { createChatApi } from '../../features/chat/api';
@@ -127,9 +127,10 @@ function downloadTaskResult(task: TaskDetail, knowledgeBaseNames: string[]) {
 
 export function SoloPage() {
   const { authState } = useAppContext();
+  const location = useLocation();
   const navigate = useNavigate();
-  const isTaskCreationView = window.location.pathname === '/solo/new';
-  const returnTo = new URLSearchParams(window.location.search).get('returnTo');
+  const isTaskCreationView = location.pathname === '/solo/new';
+  const returnTo = new URLSearchParams(location.search).get('returnTo');
   const httpClient = useMemo(() => createHttpClient(), []);
   const chatApi = useMemo(() => createChatApi(httpClient), [httpClient]);
   const knowledgeApi = useMemo(() => createKnowledgeApi(httpClient), [httpClient]);
@@ -201,7 +202,7 @@ export function SoloPage() {
   }, [knowledgeApi, tasksApi]);
 
   useEffect(() => {
-    const taskID = taskIDFromSearch(window.location.search);
+    const taskID = taskIDFromSearch(location.search);
     if (taskID === '') {
       return;
     }
@@ -235,7 +236,7 @@ export function SoloPage() {
     return () => {
       cancelled = true;
     };
-  }, [tasksApi]);
+  }, [location.search, tasksApi]);
 
   const toggleKnowledgeBase = (knowledgeBaseID: string) => {
     setSelectedKnowledgeBaseIDs((current) =>

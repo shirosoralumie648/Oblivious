@@ -35,6 +35,13 @@ vi.mock('../../app/providers', () => ({
 }));
 
 vi.mock('react-router-dom', () => ({
+  useLocation: () => ({
+    hash: window.location.hash,
+    key: 'test',
+    pathname: window.location.pathname,
+    search: window.location.search,
+    state: null
+  }),
   useNavigate: () => navigate
 }));
 
