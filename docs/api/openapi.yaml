@@ -133,6 +133,12 @@ components:
           type: string
           example: "新对话"
 
+    UpdateConversationRequest:
+      type: object
+      properties:
+        title:
+          type: string
+
     Conversation:
       type: object
       properties:
@@ -143,6 +149,13 @@ components:
         createdAt:
           type: string
           format: date-time
+
+    ConversationDeleteResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [deleted]
 
     SendMessageRequest:
       type: object
@@ -6095,6 +6108,93 @@ paths:
                     properties:
                       data:
                         $ref: "#/components/schemas/Conversation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/app/conversations/{conversationId}:
+    get:
+      summary: 获取对话详情
+      operationId: getConversation
+      tags: [Chat]
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 对话详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Conversation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    put:
+      summary: 更新对话
+      operationId: updateConversation
+      tags: [Chat]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateConversationRequest"
+      responses:
+        "200":
+          description: 更新后的对话
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Conversation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    delete:
+      summary: 删除对话
+      operationId: deleteConversation
+      tags: [Chat]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 对话已删除
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/ConversationDeleteResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
 

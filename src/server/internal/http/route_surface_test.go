@@ -373,6 +373,8 @@ func TestRouteSurfaceChatMutationsRejectCookieWithoutCSRFWithoutDatabase(t *test
 
 	tests := []routeSurfaceCase{
 		{"create conversation", stdhttp.MethodPost, "/api/v1/app/conversations"},
+		{"update conversation", stdhttp.MethodPut, "/api/v1/app/conversations/conversation_1"},
+		{"delete conversation", stdhttp.MethodDelete, "/api/v1/app/conversations/conversation_1"},
 		{"send message", stdhttp.MethodPost, "/api/v1/app/conversations/conversation_1/messages"},
 		{"update message", stdhttp.MethodPut, "/api/v1/app/conversations/conversation_1/messages/message_1"},
 		{"delete message", stdhttp.MethodDelete, "/api/v1/app/conversations/conversation_1/messages/message_1"},

@@ -2417,6 +2417,8 @@ require_chat_mutation_csrf_contract() {
 
     expected_responses = {
       ["/api/v1/app/conversations", "post"] => ["200", "#/components/schemas/Conversation", :ref],
+      ["/api/v1/app/conversations/{conversationId}", "put"] => ["200", "#/components/schemas/Conversation", :ref],
+      ["/api/v1/app/conversations/{conversationId}", "delete"] => ["200", "#/components/schemas/ConversationDeleteResponse", :ref],
       ["/api/v1/app/conversations/{conversationId}/messages", "post"] => ["200", "#/components/schemas/Message", :array_ref],
       ["/api/v1/app/conversations/{conversationId}/messages/{messageId}", "put"] => ["200", "#/components/schemas/Message", :ref],
       ["/api/v1/app/conversations/{conversationId}/messages/{messageId}", "delete"] => ["200", "#/components/schemas/MessageDeleteResponse", :ref],
@@ -2446,6 +2448,7 @@ require_chat_mutation_csrf_contract() {
 
     {
       ["/api/v1/app/conversations", "post"] => "#/components/schemas/CreateConversationRequest",
+      ["/api/v1/app/conversations/{conversationId}", "put"] => "#/components/schemas/UpdateConversationRequest",
       ["/api/v1/app/conversations/{conversationId}/messages", "post"] => "#/components/schemas/SendMessageRequest",
       ["/api/v1/app/conversations/{conversationId}/messages/{messageId}", "put"] => "#/components/schemas/UpdateMessageRequest",
       ["/api/v1/app/conversations/{conversationId}/messages/{messageId}/bookmark", "post"] => "#/components/schemas/BookmarkMessageRequest",
@@ -2474,6 +2477,7 @@ require_chat_mutation_csrf_contract() {
     end
 
     {
+      ["/api/v1/app/conversations/{conversationId}", "get"] => "#/components/schemas/Conversation",
       ["/api/v1/app/personas/{personaId}", "get"] => "#/components/schemas/Persona",
     }.each do |(path, method), expected|
       op = operation(paths, path, method, missing)
@@ -2509,6 +2513,12 @@ require_chat_mutation_csrf_contract() {
     end
     unless schemas.key?("TaskDraft")
       missing << "TaskDraft schema must be documented"
+    end
+    unless schemas.dig("UpdateConversationRequest", "properties", "title", "type") == "string"
+      missing << "UpdateConversationRequest.title must be documented as string"
+    end
+    unless schemas.dig("ConversationDeleteResponse", "properties", "status", "enum")&.include?("deleted")
+      missing << "ConversationDeleteResponse.status must document deleted"
     end
     unless schemas.dig("Message", "properties", "bookmarked", "type") == "boolean"
       missing << "Message.bookmarked must be documented as boolean"
