@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"oblivious/server/internal/config"
 	"oblivious/server/internal/marketplace"
 	"oblivious/server/internal/payment"
 	stripebilling "oblivious/server/internal/stripe"
@@ -58,6 +59,62 @@ func TestMarketplaceAgentDetailExposesOnlyConfiguredPaymentProviders(t *testing.
 	}
 	if len(response.Data.PaymentProviders) != 1 || response.Data.PaymentProviders[0].Name != "stripe" {
 		t.Fatalf("expected only configured stripe provider, got %+v", response.Data.PaymentProviders)
+	}
+}
+
+func TestMarketplaceAgentDetailExposesConfiguredDomesticPaymentProviders(t *testing.T) {
+	store := &fakeMarketplaceStore{
+		agent: &marketplace.PublishedAgent{
+			ID:             "agent_paid",
+			OrganizationID: "org_publisher",
+			OwnerID:        "publisher_1",
+			Name:           "Paid Agent",
+			Status:         "approved",
+			Visibility:     "public",
+			PricingType:    "one_time",
+			PricingAmount:  25,
+		},
+	}
+	providerRegistry, checkoutCreators := buildPaymentCheckoutProviders(config.Config{
+		AlipayCheckoutBaseURL:    "https://checkout.alipay.test/session",
+		WeChatPayCheckoutBaseURL: "https://checkout.wechatpay.test/session",
+	}, &fakeCheckoutCreator{}, nil, nil)
+	handler := newMarketplaceHandler(
+		marketplace.NewService(store, nil),
+		nil,
+		withMarketplaceCheckout(&fakeMarketplaceSettlementService{}, nil, stripebilling.CheckoutConfig{}, providerRegistry, checkoutCreators),
+	)
+
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/marketplace/agents/agent_paid", nil).
+		WithContext(context.Background())
+	recorder := httptest.NewRecorder()
+
+	handler.getAgent(recorder, request, "agent_paid")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected agent detail 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Data struct {
+			PaymentProviders []struct {
+				Name string `json:"name"`
+			} `json:"paymentProviders"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	got := map[string]bool{}
+	for _, provider := range response.Data.PaymentProviders {
+		got[provider.Name] = true
+	}
+	for _, providerName := range []string{"stripe", "alipay", "wechatpay"} {
+		if !got[providerName] {
+			t.Fatalf("expected configured marketplace provider %q in detail payload, got %+v", providerName, response.Data.PaymentProviders)
+		}
+	}
+	if len(response.Data.PaymentProviders) != 3 {
+		t.Fatalf("expected exactly configured marketplace checkout providers, got %+v", response.Data.PaymentProviders)
 	}
 }
 
