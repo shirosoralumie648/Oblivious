@@ -131,6 +131,29 @@ func TestAdminBillingSummaryIncludesMoneyMovementState(t *testing.T) {
 	if response.Data.Payouts.Count != 1 || response.Data.Payouts.TotalAmount != 40 {
 		t.Fatalf("expected payout totals, got %+v", response.Data.Payouts)
 	}
+
+	filteredRecorder := httptest.NewRecorder()
+	filteredRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/admin/billing/summary?organizationID="+organizationID+"&provider=missing-provider", nil)
+	filteredRequest.AddCookie(cookie)
+	router.ServeHTTP(filteredRecorder, filteredRequest)
+	if filteredRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected provider-filtered billing summary 200, got %d with body %s", filteredRecorder.Code, filteredRecorder.Body.String())
+	}
+	var filteredResponse struct {
+		Data struct {
+			Topups struct {
+				Count          int     `json:"count"`
+				PaidAmount     float64 `json:"paidAmount"`
+				RefundedAmount float64 `json:"refundedAmount"`
+			} `json:"topups"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(filteredRecorder.Body.Bytes(), &filteredResponse); err != nil {
+		t.Fatalf("decode provider-filtered billing summary: %v", err)
+	}
+	if filteredResponse.Data.Topups.Count != 0 || filteredResponse.Data.Topups.PaidAmount != 0 || filteredResponse.Data.Topups.RefundedAmount != 0 {
+		t.Fatalf("expected missing provider filter to exclude topups from summary, got %+v", filteredResponse.Data.Topups)
+	}
 }
 
 func TestAdminBillingListsExposeAllRequiredSurfaces(t *testing.T) {

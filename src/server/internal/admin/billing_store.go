@@ -100,6 +100,20 @@ func appendLimitOffset(args []any, filter BillingInspectionFilter) []any {
 	return args
 }
 
+func topupSummaryQuery(filter BillingInspectionFilter) (string, []any) {
+	columns := billingColumnMap{
+		OrganizationID: "topup_orders.organization_id",
+		UserID:         "topup_orders.user_id",
+		Status:         "topup_orders.status",
+		Provider:       "payment_intents.provider",
+	}
+	where, args := billingWhere(filter, columns)
+	return `
+		SELECT COUNT(*), COALESCE(SUM(CASE WHEN topup_orders.status = 'paid' THEN topup_orders.money ELSE 0 END), 0), COALESCE(SUM(topup_orders.refunded_amount), 0)
+		FROM topup_orders
+		LEFT JOIN payment_intents ON payment_intents.id = topup_orders.payment_intent_id ` + where, args
+}
+
 func (s *SQLStore) GetBillingInspectionSummary(ctx context.Context, filter BillingInspectionFilter) (*BillingInspectionSummary, error) {
 	filter = normalizeBillingFilter(filter)
 	summary := &BillingInspectionSummary{}
@@ -132,10 +146,8 @@ func (s *SQLStore) GetBillingInspectionSummary(ctx context.Context, filter Billi
 		return nil, fmt.Errorf("billing summary subscriptions: %w", err)
 	}
 
-	where, args = billingWhere(filter, billingColumnMap{OrganizationID: "organization_id", UserID: "user_id", Status: "status"})
-	if err := s.db.QueryRowContext(ctx, `
-		SELECT COUNT(*), COALESCE(SUM(CASE WHEN status = 'paid' THEN money ELSE 0 END), 0), COALESCE(SUM(refunded_amount), 0)
-		FROM topup_orders `+where, args...).Scan(&summary.Topups.Count, &summary.Topups.PaidAmount, &summary.Topups.RefundedAmount); err != nil {
+	query, args := topupSummaryQuery(filter)
+	if err := s.db.QueryRowContext(ctx, query, args...).Scan(&summary.Topups.Count, &summary.Topups.PaidAmount, &summary.Topups.RefundedAmount); err != nil {
 		return nil, fmt.Errorf("billing summary topups: %w", err)
 	}
 
