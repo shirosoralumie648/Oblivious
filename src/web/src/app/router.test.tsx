@@ -477,6 +477,113 @@ vi.mock('../features/admin/api', () => ({
           }
         ]
       }),
+    listObservabilityAlerts: () =>
+      Promise.resolve([
+        {
+          key: 'relay-backlog',
+          title: 'Relay backlog',
+          severity: 'critical',
+          status: 'open',
+          summary: 'Relay queue exceeded recovery threshold',
+          component: 'relay',
+          lastOccurredAt: '2026-06-05T08:30:00Z',
+          occurrenceCount: 3
+        }
+      ]),
+    getObservabilityAlertRoutingRules: () =>
+      Promise.resolve({
+        debug: [],
+        info: ['email'],
+        warning: ['email', 'im'],
+        critical: ['email', 'im', 'sms', 'third_party']
+      }),
+    updateObservabilityAlertRoutingRules: (rules: unknown) => Promise.resolve(rules),
+    listObservabilityAlertProviders: () =>
+      Promise.resolve([
+        {
+          id: 'alert_provider_slack_ops',
+          kind: 'slack_webhook',
+          channel: 'im',
+          name: 'Slack Ops',
+          status: 'active',
+          config: {
+            webhook_url: '********',
+            default_channel: '#ops'
+          },
+          createdAt: '2026-06-05T08:00:00Z'
+        }
+      ]),
+    createObservabilityAlertProvider: (input: Record<string, unknown>) =>
+      Promise.resolve({
+        id: 'alert_provider_created',
+        channel: 'im',
+        ...input
+      }),
+    updateObservabilityAlertProvider: (id: string, input: Record<string, unknown>) =>
+      Promise.resolve({
+        id,
+        channel: 'im',
+        ...input
+      }),
+    testObservabilityAlertProvider: () =>
+      Promise.resolve({
+        providerId: 'alert_provider_slack_ops',
+        kind: 'slack_webhook',
+        channel: 'im',
+        ok: true,
+        message: 'Provider test delivered.',
+        testedAt: '2026-06-05T08:35:00Z'
+      }),
+    acknowledgeObservabilityAlert: () =>
+      Promise.resolve({
+        key: 'relay-backlog',
+        title: 'Relay backlog',
+        severity: 'critical',
+        status: 'acknowledged',
+        component: 'relay'
+      }),
+    resolveObservabilityAlert: () =>
+      Promise.resolve({
+        key: 'relay-backlog',
+        title: 'Relay backlog',
+        severity: 'critical',
+        status: 'resolved',
+        component: 'relay'
+      }),
+    listObservabilityAlertDeliveries: () =>
+      Promise.resolve([
+        {
+          alertKey: 'relay-backlog',
+          channel: 'email',
+          providerId: 'smtp_primary',
+          providerKind: 'smtp',
+          delivered: true,
+          attemptedAt: '2026-06-05T08:31:00Z'
+        },
+        {
+          alertKey: 'relay-backlog',
+          channel: 'im',
+          providerId: 'alert_provider_slack_ops',
+          providerKind: 'slack_webhook',
+          delivered: false,
+          error: 'im webhook failed',
+          attemptedAt: '2026-06-05T08:32:00Z'
+        }
+      ]),
+    listObservabilityRecoveryActions: () =>
+      Promise.resolve([
+        {
+          id: 'restart-relay:relay-backlog:1',
+          policyName: 'restart-relay',
+          alertKey: 'relay-backlog',
+          severity: 'critical',
+          component: 'relay',
+          type: 'restart',
+          status: 'recorded',
+          reason: 'Relay backlog',
+          createdAt: '2026-06-05T09:00:00Z'
+        }
+      ]),
     listReviews: () =>
       Promise.resolve({
         data: [
@@ -2200,6 +2307,56 @@ describe('app router', () => {
     expect(screen.getAllByText('gpt-4o').length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText('openai / ch_router_1')).toBeInTheDocument();
     expect(screen.getByLabelText('Success')).toBeInTheDocument();
+  });
+
+  it('keeps admin alerts route-level routing, provider, recovery, and delivery controls reachable', async () => {
+    const router = createAppRouter(['/admin/alerts']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    const adminNavigation = await screen.findByRole('complementary', { name: 'Admin navigation' });
+    expect(document.querySelector('[data-gsap-scope="admin"]')).toBeInTheDocument();
+    expect(within(adminNavigation).getByRole('link', { name: 'Alerts' })).toHaveAttribute('href', '/admin/alerts');
+    expect(await screen.findByRole('heading', { name: 'Alerts' })).toBeInTheDocument();
+    expect(await screen.findByLabelText('Alert filters')).toBeInTheDocument();
+    expect(screen.getByLabelText('Severity')).toBeInTheDocument();
+    expect(screen.getByLabelText('Status')).toBeInTheDocument();
+    expect(screen.getByLabelText('Component')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Apply alert filters' })).toBeEnabled();
+    expect(await screen.findByLabelText('Notification routing')).toBeInTheDocument();
+    expect(screen.getByText('Critical alerts')).toBeInTheDocument();
+    expect(screen.getByText('email + im + sms + third party')).toBeInTheDocument();
+    expect(screen.getByLabelText('Route critical alerts to sms')).toBeChecked();
+    expect(screen.getByRole('button', { name: 'Save notification routing' })).toBeEnabled();
+    const providers = await screen.findByLabelText('Alert notification providers');
+    expect(within(providers).getByText('Slack Ops')).toBeInTheDocument();
+    expect(within(providers).getByText('alert_provider_slack_ops')).toBeInTheDocument();
+    expect(within(providers).getAllByText('slack webhook').length).toBeGreaterThanOrEqual(2);
+    expect(within(providers).getByRole('button', { name: 'Test provider Slack Ops' })).toBeEnabled();
+    fireEvent.click(within(providers).getByRole('button', { name: 'Test provider Slack Ops' }));
+    expect(await screen.findByText('Slack Ops: Provider test delivered.')).toBeInTheDocument();
+    const recoveryActions = await screen.findByLabelText('Recovery actions');
+    expect(within(recoveryActions).getByText('restart-relay')).toBeInTheDocument();
+    expect(within(recoveryActions).getByText('relay-backlog')).toBeInTheDocument();
+    expect(within(recoveryActions).getByText('restart')).toBeInTheDocument();
+    expect(within(recoveryActions).getByText('recorded')).toBeInTheDocument();
+    const alertList = await screen.findByLabelText('Alert list');
+    expect(within(alertList).getByRole('heading', { name: 'Relay backlog' })).toBeInTheDocument();
+    expect(within(alertList).getByText('Relay queue exceeded recovery threshold')).toBeInTheDocument();
+    expect(within(alertList).getByText('critical')).toBeInTheDocument();
+    expect(within(alertList).getByText('open')).toBeInTheDocument();
+    expect(within(alertList).getByText('relay')).toBeInTheDocument();
+    expect(within(alertList).getByRole('button', { name: 'Acknowledge Relay backlog' })).toBeEnabled();
+    expect(within(alertList).getByRole('button', { name: 'Resolve Relay backlog' })).toBeEnabled();
+    fireEvent.click(within(alertList).getByRole('button', { name: 'View deliveries Relay backlog' }));
+    const deliveryHistory = await screen.findByLabelText('Notification delivery history');
+    expect(within(deliveryHistory).getByText('email')).toBeInTheDocument();
+    expect(within(deliveryHistory).getByText('delivered')).toBeInTheDocument();
+    expect(within(deliveryHistory).getByText('im')).toBeInTheDocument();
+    expect(within(deliveryHistory).getByText('failed')).toBeInTheDocument();
+    expect(within(deliveryHistory).getByText('alert_provider_slack_ops')).toBeInTheDocument();
+    expect(within(deliveryHistory).getByText('slack_webhook')).toBeInTheDocument();
+    expect(within(deliveryHistory).getByText('im webhook failed')).toBeInTheDocument();
   });
 
   it('renders admin API tokens route inside the admin shell', async () => {
