@@ -617,6 +617,82 @@ func signedHTTPMarketplaceRefundPayload(secret string, eventID string, metadata 
 	})
 }
 
+func insertHTTPMarketplacePayoutFixture(t *testing.T, database *sql.DB, router http.Handler, suffix string) (string, string, string) {
+	t.Helper()
+
+	_, _, buyerUserID := registerHTTPUser(t, router, "marketplace-payout-"+suffix+"-buyer@example.com")
+	_, buyerOrganizationID := queryHTTPUserScope(t, database, buyerUserID)
+	_, _, publisherUserID := registerHTTPUser(t, router, "marketplace-payout-"+suffix+"-publisher@example.com")
+	_, publisherOrganizationID := queryHTTPUserScope(t, database, publisherUserID)
+
+	agentID := "agent_domestic_payout_" + suffix
+	versionID := "version_domestic_payout_" + suffix
+	paymentIntentID := "pi_domestic_payout_" + suffix
+	orderID := "order_domestic_payout_" + suffix
+	payoutID := "payout_domestic_" + suffix
+	providerPayoutID := "alipay_payout_" + suffix
+	settlementID := "settlement_domestic_payout_" + suffix
+
+	if _, err := database.Exec(`
+		INSERT INTO published_agents (
+			id, owner_id, organization_id, name, description, tools, example_conversations,
+			visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at
+		)
+		VALUES ($1, $2, $3, 'Domestic Payout Agent', 'Domestic payout bridge test agent.',
+		        '{"tools":[{"name":"paid"}]}'::jsonb, '[]'::jsonb, 'public', 'approved',
+		        'one_time', 50, 0, 0, 0, NOW(), NOW())
+	`, agentID, publisherUserID, publisherOrganizationID); err != nil {
+		t.Fatalf("insert domestic payout marketplace agent: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO agent_versions (id, agent_id, organization_id, version, changelog, metadata, status, created_at)
+		VALUES ($1, $2, $3, '1.0.0', 'initial', '{}', 'approved', NOW())
+	`, versionID, agentID, publisherOrganizationID); err != nil {
+		t.Fatalf("insert domestic payout marketplace version: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO payment_intents (
+			id, provider, organization_id, user_id, package_id, kind, amount,
+			currency, status, metadata, created_at, updated_at, provider_payment_intent_id
+		)
+		VALUES ($1, 'alipay', $2, $3, NULL, 'marketplace_install', 50, 'usd', 'completed', '{}', NOW(), NOW(), $4)
+	`, paymentIntentID, buyerOrganizationID, buyerUserID, "alipay_trade_"+suffix); err != nil {
+		t.Fatalf("insert domestic payout payment intent: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO marketplace_orders (
+			id, buyer_organization_id, buyer_user_id, publisher_organization_id, publisher_user_id,
+			agent_id, version_id, payment_intent_id, provider_payment_intent_id,
+			gross_amount, platform_fee_amount, publisher_net_amount, refunded_amount,
+			currency, status, created_at, updated_at, paid_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 50, 10, 40, 0, 'usd', 'paid', NOW(), NOW(), NOW())
+	`, orderID, buyerOrganizationID, buyerUserID, publisherOrganizationID, publisherUserID, agentID, versionID, paymentIntentID, "alipay_trade_"+suffix); err != nil {
+		t.Fatalf("insert domestic payout marketplace order: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO marketplace_payouts (
+			id, publisher_organization_id, publisher_user_id, amount, currency,
+			provider, provider_payout_id, status, metadata, created_at, updated_at
+		)
+		VALUES ($1, $2, $3, 40, 'usd', 'alipay', $4, 'payout_pending', '{}', NOW(), NOW())
+	`, payoutID, publisherOrganizationID, publisherUserID, providerPayoutID); err != nil {
+		t.Fatalf("insert domestic payout marketplace payout: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO marketplace_settlements (
+			id, order_id, publisher_organization_id, publisher_user_id, agent_id,
+			gross_amount, platform_fee_amount, publisher_net_amount, refunded_amount,
+			payout_id, status, hold_until, created_at, updated_at
+		)
+		VALUES ($1, $2, $3, $4, $5, 50, 10, 40, 0, $6, 'payout_pending', NOW() - INTERVAL '1 hour', NOW(), NOW())
+	`, settlementID, orderID, publisherOrganizationID, publisherUserID, agentID, payoutID); err != nil {
+		t.Fatalf("insert domestic payout marketplace settlement: %v", err)
+	}
+
+	return payoutID, providerPayoutID, settlementID
+}
+
 func TestBillingCheckoutPersistsTenantPaymentIntent(t *testing.T) {
 	database := testDatabase(t)
 	fakeCreator := &fakeCheckoutCreator{database: database}
@@ -1265,6 +1341,128 @@ func TestDomesticPaymentWebhookRouteAppliesMarketplaceRefundOnce(t *testing.T) {
 		orderRefunded != 10 || settlementRefunded != 10 || refundCount != 1 || refundProvider != "alipay" {
 		t.Fatalf("expected one alipay marketplace partial refund, got order=%s %.2f settlement=%s %.2f refunds=%d provider=%s",
 			orderStatus, orderRefunded, settlementStatus, settlementRefunded, refundCount, refundProvider)
+	}
+}
+
+func TestDomesticPaymentWebhookRouteAppliesMarketplacePayoutPaidOnce(t *testing.T) {
+	database := testDatabase(t)
+	cfg := testConfig()
+	cfg.AlipayWebhookSecret = "alipay_marketplace_payout_paid_secret"
+	router := NewRouterWithOptions(cfg, database, RouterOptions{})
+	payoutID, providerPayoutID, settlementID := insertHTTPMarketplacePayoutFixture(t, database, router, "paid")
+
+	payload := []byte(fmt.Sprintf(`{
+		"id": "evt_alipay_marketplace_payout_paid",
+		"type": "payout.paid",
+		"payout_id": %q,
+		"provider_payout_id": %q,
+		"status": "paid"
+	}`, payoutID, providerPayoutID))
+	timestamp := "1760000000"
+	for i := 0; i < 2; i++ {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/billing/alipay/webhook", strings.NewReader(string(payload)))
+		request.Header.Set("Oblivious-Payment-Timestamp", timestamp)
+		request.Header.Set("Oblivious-Payment-Signature", domesticWebhookSignature(cfg.AlipayWebhookSecret, timestamp, payload))
+		router.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("paid payout attempt %d expected 200, got %d with body %s", i+1, recorder.Code, recorder.Body.String())
+		}
+	}
+
+	var payoutStatus, storedProviderPayoutID, settlementStatus, transitionState string
+	var webhookEventCount, transitionCount int
+	if err := database.QueryRow(`
+		SELECT status, COALESCE(provider_payout_id, '')
+		FROM marketplace_payouts
+		WHERE id = $1
+	`, payoutID).Scan(&payoutStatus, &storedProviderPayoutID); err != nil {
+		t.Fatalf("query paid domestic payout: %v", err)
+	}
+	if err := database.QueryRow(`SELECT status FROM marketplace_settlements WHERE id = $1`, settlementID).Scan(&settlementStatus); err != nil {
+		t.Fatalf("query paid domestic settlement: %v", err)
+	}
+	if err := database.QueryRow(`
+		SELECT COUNT(*)
+		FROM stripe_webhook_events
+		WHERE provider = 'alipay' AND event_id = 'evt_alipay_marketplace_payout_paid'
+	`).Scan(&webhookEventCount); err != nil {
+		t.Fatalf("count paid domestic payout webhook events: %v", err)
+	}
+	if err := database.QueryRow(`
+		SELECT COUNT(*), COALESCE(MAX(to_state), '')
+		FROM billing_lifecycle_events
+		WHERE provider = 'alipay' AND provider_event_id = 'evt_alipay_marketplace_payout_paid'
+	`).Scan(&transitionCount, &transitionState); err != nil {
+		t.Fatalf("count paid domestic payout lifecycle transitions: %v", err)
+	}
+	if payoutStatus != "paid_out" || storedProviderPayoutID != providerPayoutID || settlementStatus != "paid_out" ||
+		webhookEventCount != 1 || transitionCount != 1 || transitionState != "paid_out" {
+		t.Fatalf("expected one paid domestic payout bridge transition, got payout=%s providerPayout=%s settlement=%s webhookEvents=%d transitions=%d state=%s",
+			payoutStatus, storedProviderPayoutID, settlementStatus, webhookEventCount, transitionCount, transitionState)
+	}
+}
+
+func TestDomesticPaymentWebhookRouteAppliesMarketplacePayoutFailedOnce(t *testing.T) {
+	database := testDatabase(t)
+	cfg := testConfig()
+	cfg.AlipayWebhookSecret = "alipay_marketplace_payout_failed_secret"
+	router := NewRouterWithOptions(cfg, database, RouterOptions{})
+	payoutID, providerPayoutID, settlementID := insertHTTPMarketplacePayoutFixture(t, database, router, "failed")
+
+	payload := []byte(fmt.Sprintf(`{
+		"id": "evt_alipay_marketplace_payout_failed",
+		"type": "payout.failed",
+		"provider_payout_id": %q,
+		"status": "failed",
+		"reason": "bank_account_closed"
+	}`, providerPayoutID))
+	timestamp := "1760000000"
+	for i := 0; i < 2; i++ {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/billing/alipay/webhook", strings.NewReader(string(payload)))
+		request.Header.Set("Oblivious-Payment-Timestamp", timestamp)
+		request.Header.Set("Oblivious-Payment-Signature", domesticWebhookSignature(cfg.AlipayWebhookSecret, timestamp, payload))
+		router.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("failed payout attempt %d expected 200, got %d with body %s", i+1, recorder.Code, recorder.Body.String())
+		}
+	}
+
+	var payoutStatus, storedProviderPayoutID, providerReason, settlementStatus, settlementPayoutID string
+	var webhookEventCount, transitionCount int
+	if err := database.QueryRow(`
+		SELECT status, COALESCE(provider_payout_id, ''), COALESCE(metadata->>'provider_reason', '')
+		FROM marketplace_payouts
+		WHERE id = $1
+	`, payoutID).Scan(&payoutStatus, &storedProviderPayoutID, &providerReason); err != nil {
+		t.Fatalf("query failed domestic payout: %v", err)
+	}
+	if err := database.QueryRow(`
+		SELECT status, COALESCE(payout_id, '')
+		FROM marketplace_settlements
+		WHERE id = $1
+	`, settlementID).Scan(&settlementStatus, &settlementPayoutID); err != nil {
+		t.Fatalf("query failed domestic settlement: %v", err)
+	}
+	if err := database.QueryRow(`
+		SELECT COUNT(*)
+		FROM stripe_webhook_events
+		WHERE provider = 'alipay' AND event_id = 'evt_alipay_marketplace_payout_failed'
+	`).Scan(&webhookEventCount); err != nil {
+		t.Fatalf("count failed domestic payout webhook events: %v", err)
+	}
+	if err := database.QueryRow(`
+		SELECT COUNT(*)
+		FROM billing_lifecycle_events
+		WHERE provider = 'alipay' AND provider_event_id = 'evt_alipay_marketplace_payout_failed'
+	`).Scan(&transitionCount); err != nil {
+		t.Fatalf("count failed domestic payout lifecycle transitions: %v", err)
+	}
+	if payoutStatus != "failed" || storedProviderPayoutID != providerPayoutID || providerReason != "bank_account_closed" ||
+		settlementStatus != "available" || settlementPayoutID != "" || webhookEventCount != 1 || transitionCount != 1 {
+		t.Fatalf("expected one failed domestic payout bridge transition, got payout=%s providerPayout=%s reason=%q settlement=%s settlementPayout=%q webhookEvents=%d transitions=%d",
+			payoutStatus, storedProviderPayoutID, providerReason, settlementStatus, settlementPayoutID, webhookEventCount, transitionCount)
 	}
 }
 
