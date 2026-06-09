@@ -21,6 +21,12 @@ type PayoutPaidDraft = {
   providerPayoutId: string;
 };
 
+type PayoutFailedDraft = {
+  payoutId: string;
+  providerPayoutId: string;
+  reason: string;
+};
+
 type TopupRefundDraft = {
   topupId: string;
   provider: string;
@@ -42,6 +48,7 @@ type BillingState = {
   actionError: string | null;
   actioningRecordId: string | null;
   payoutPaidDraft: PayoutPaidDraft | null;
+  payoutFailedDraft: PayoutFailedDraft | null;
   topupRefundDraft: TopupRefundDraft | null;
   surface: BillingSurface;
   filters: {
@@ -61,9 +68,11 @@ type BillingAction =
   | { type: 'ACTION_DONE' }
   | { type: 'ACTION_ERROR'; error: string }
   | { type: 'OPEN_PAYOUT_PAID'; record: BillingInspectionRecord }
+  | { type: 'OPEN_PAYOUT_FAILED'; record: BillingInspectionRecord }
   | { type: 'OPEN_TOPUP_REFUND'; record: BillingInspectionRecord }
   | { type: 'CLOSE_ACTION_FORM' }
   | { type: 'SET_PAYOUT_FIELD'; field: keyof PayoutPaidDraft; value: string }
+  | { type: 'SET_PAYOUT_FAILED_FIELD'; field: keyof PayoutFailedDraft; value: string }
   | { type: 'SET_TOPUP_REFUND_FIELD'; field: keyof TopupRefundDraft; value: string }
   | { type: 'SET_SURFACE'; surface: BillingSurface }
   | { type: 'SET_FILTER'; field: keyof BillingState['filters']; value: string }
@@ -78,6 +87,7 @@ const initialState: BillingState = {
   actionError: null,
   actioningRecordId: null,
   payoutPaidDraft: null,
+  payoutFailedDraft: null,
   topupRefundDraft: null,
   surface: 'sessions',
   filters: {
@@ -93,6 +103,14 @@ function payoutPaidDraftFromRecord(record: BillingInspectionRecord): PayoutPaidD
   return {
     payoutId: record.id,
     providerPayoutId: record.providerPayoutId ?? '',
+  };
+}
+
+function payoutFailedDraftFromRecord(record: BillingInspectionRecord): PayoutFailedDraft {
+  return {
+    payoutId: record.id,
+    providerPayoutId: record.providerPayoutId ?? '',
+    reason: '',
   };
 }
 
@@ -122,7 +140,7 @@ function reducer(state: BillingState, action: BillingAction): BillingState {
     case 'ACTION_START':
       return { ...state, actionError: null, actioningRecordId: action.recordId };
     case 'ACTION_DONE':
-      return { ...state, actioningRecordId: null, payoutPaidDraft: null, topupRefundDraft: null };
+      return { ...state, actioningRecordId: null, payoutPaidDraft: null, payoutFailedDraft: null, topupRefundDraft: null };
     case 'ACTION_ERROR':
       return { ...state, actioningRecordId: null, actionError: action.error };
     case 'OPEN_PAYOUT_PAID':
@@ -130,6 +148,15 @@ function reducer(state: BillingState, action: BillingAction): BillingState {
         ...state,
         actionError: null,
         payoutPaidDraft: payoutPaidDraftFromRecord(action.record),
+        payoutFailedDraft: null,
+        topupRefundDraft: null,
+      };
+    case 'OPEN_PAYOUT_FAILED':
+      return {
+        ...state,
+        actionError: null,
+        payoutPaidDraft: null,
+        payoutFailedDraft: payoutFailedDraftFromRecord(action.record),
         topupRefundDraft: null,
       };
     case 'OPEN_TOPUP_REFUND':
@@ -137,22 +164,27 @@ function reducer(state: BillingState, action: BillingAction): BillingState {
         ...state,
         actionError: null,
         payoutPaidDraft: null,
+        payoutFailedDraft: null,
         topupRefundDraft: topupRefundDraftFromRecord(action.record),
       };
     case 'CLOSE_ACTION_FORM':
-      return { ...state, actionError: null, payoutPaidDraft: null, topupRefundDraft: null };
+      return { ...state, actionError: null, payoutPaidDraft: null, payoutFailedDraft: null, topupRefundDraft: null };
     case 'SET_PAYOUT_FIELD':
       return state.payoutPaidDraft
         ? { ...state, payoutPaidDraft: { ...state.payoutPaidDraft, [action.field]: action.value } }
+        : state;
+    case 'SET_PAYOUT_FAILED_FIELD':
+      return state.payoutFailedDraft
+        ? { ...state, payoutFailedDraft: { ...state.payoutFailedDraft, [action.field]: action.value } }
         : state;
     case 'SET_TOPUP_REFUND_FIELD':
       return state.topupRefundDraft
         ? { ...state, topupRefundDraft: { ...state.topupRefundDraft, [action.field]: action.value } }
         : state;
     case 'SET_SURFACE':
-      return { ...state, surface: action.surface, actionError: null, payoutPaidDraft: null, topupRefundDraft: null };
+      return { ...state, surface: action.surface, actionError: null, payoutPaidDraft: null, payoutFailedDraft: null, topupRefundDraft: null };
     case 'SET_FILTER':
-      return { ...state, filters: { ...state.filters, [action.field]: action.value }, actionError: null, payoutPaidDraft: null, topupRefundDraft: null };
+      return { ...state, filters: { ...state.filters, [action.field]: action.value }, actionError: null, payoutPaidDraft: null, payoutFailedDraft: null, topupRefundDraft: null };
     case 'OPEN_FAILED_WEBHOOKS':
       return {
         ...state,
@@ -160,6 +192,7 @@ function reducer(state: BillingState, action: BillingAction): BillingState {
         filters: { ...state.filters, status: 'failed' },
         actionError: null,
         payoutPaidDraft: null,
+        payoutFailedDraft: null,
         topupRefundDraft: null,
       };
     default:
@@ -398,6 +431,30 @@ export function AdminBillingPage() {
     }
   };
 
+  const handleMarkPayoutFailed = async () => {
+    if (!state.payoutFailedDraft) {
+      return;
+    }
+    const providerPayoutId = state.payoutFailedDraft.providerPayoutId.trim();
+    const reason = state.payoutFailedDraft.reason.trim();
+    if (!providerPayoutId) {
+      dispatch({ type: 'ACTION_ERROR', error: 'Provider payout ID is required.' });
+      return;
+    }
+    if (!reason) {
+      dispatch({ type: 'ACTION_ERROR', error: 'Failure reason is required.' });
+      return;
+    }
+    dispatch({ type: 'ACTION_START', recordId: state.payoutFailedDraft.payoutId });
+    try {
+      await api.markMarketplacePayoutFailed(state.payoutFailedDraft.payoutId, providerPayoutId, reason);
+      dispatch({ type: 'ACTION_DONE' });
+      await loadBilling();
+    } catch (error) {
+      dispatch({ type: 'ACTION_ERROR', error: error instanceof Error ? error.message : 'Unable to mark payout failed.' });
+    }
+  };
+
   const handleRefundTopup = async () => {
     if (!state.topupRefundDraft) {
       return;
@@ -458,7 +515,7 @@ export function AdminBillingPage() {
   const refundedPaymentAmount = state.summary.paymentIntents?.refundedAmount ?? 0;
   const refundedTopupAmount = state.summary.topups?.refundedAmount ?? 0;
   const refundedRefundAmount = state.summary.refunds?.refundedAmount ?? 0;
-  const actionFormOpen = state.payoutPaidDraft !== null || state.topupRefundDraft !== null;
+  const actionFormOpen = state.payoutPaidDraft !== null || state.payoutFailedDraft !== null || state.topupRefundDraft !== null;
 
   return (
     <div className="space-y-6">
@@ -596,6 +653,47 @@ export function AdminBillingPage() {
               </div>
             </div>
           ) : null}
+          {state.payoutFailedDraft ? (
+            <div className="space-y-4">
+              <div>
+                <h2 className="text-base font-semibold text-foreground">Payout failure</h2>
+                <p className="mt-1 font-mono text-xs text-muted-foreground">{state.payoutFailedDraft.payoutId}</p>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-2">
+                  <label htmlFor="billing-failed-provider-payout-id" className="text-sm font-medium">Provider payout ID</label>
+                  <Input
+                    id="billing-failed-provider-payout-id"
+                    value={state.payoutFailedDraft.providerPayoutId}
+                    className="min-h-[44px]"
+                    onChange={(event) => dispatch({ type: 'SET_PAYOUT_FAILED_FIELD', field: 'providerPayoutId', value: event.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="billing-payout-failure-reason" className="text-sm font-medium">Failure reason</label>
+                  <Input
+                    id="billing-payout-failure-reason"
+                    value={state.payoutFailedDraft.reason}
+                    className="min-h-[44px]"
+                    onChange={(event) => dispatch({ type: 'SET_PAYOUT_FAILED_FIELD', field: 'reason', value: event.target.value })}
+                  />
+                </div>
+              </div>
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button type="button" variant="outline" className="min-h-[44px]" onClick={() => dispatch({ type: 'CLOSE_ACTION_FORM' })}>
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  className="min-h-[44px]"
+                  disabled={state.actioningRecordId === state.payoutFailedDraft.payoutId}
+                  onClick={() => void handleMarkPayoutFailed()}
+                >
+                  Confirm failed payout
+                </Button>
+              </div>
+            </div>
+          ) : null}
           {state.topupRefundDraft ? (
             <div className="space-y-4">
               <div>
@@ -698,16 +796,28 @@ export function AdminBillingPage() {
           state.surface === 'payouts'
             ? (record) =>
                 record.status === 'payout_pending' ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="min-h-[36px]"
-                    disabled={state.actioningRecordId === record.id}
-                    aria-label={`Mark payout ${record.id} paid`}
-                    onClick={() => dispatch({ type: 'OPEN_PAYOUT_PAID', record })}
-                  >
-                    Mark paid
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="min-h-[36px]"
+                      disabled={state.actioningRecordId === record.id}
+                      aria-label={`Mark payout ${record.id} paid`}
+                      onClick={() => dispatch({ type: 'OPEN_PAYOUT_PAID', record })}
+                    >
+                      Mark paid
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="min-h-[36px]"
+                      disabled={state.actioningRecordId === record.id}
+                      aria-label={`Mark payout ${record.id} failed`}
+                      onClick={() => dispatch({ type: 'OPEN_PAYOUT_FAILED', record })}
+                    >
+                      Mark failed
+                    </Button>
+                  </div>
                 ) : null
             : state.surface === 'topups'
               ? (record) => {

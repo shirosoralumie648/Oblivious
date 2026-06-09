@@ -3491,6 +3491,14 @@ components:
       properties:
         providerPayoutID:
           type: string
+    AdminMarketplacePayoutFailedRequest:
+      type: object
+      required: [providerPayoutID, reason]
+      properties:
+        providerPayoutID:
+          type: string
+        reason:
+          type: string
 
     DomesticPaymentWebhookEvent:
       type: object
@@ -11439,6 +11447,45 @@ paths:
       responses:
         "200":
           description: 更新后的 Marketplace payout 状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplacePayout"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/billing/payouts/{payoutId}/failed:
+    post:
+      summary: 标记 Marketplace payout provider 打款失败并释放结算
+      operationId: markAdminMarketplacePayoutFailed
+      tags: [Admin, Billing, Marketplace]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      parameters:
+        - name: payoutId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminMarketplacePayoutFailedRequest"
+      responses:
+        "200":
+          description: 更新后的 Marketplace payout 失败状态
           content:
             application/json:
               schema:

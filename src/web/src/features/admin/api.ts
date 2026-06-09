@@ -396,6 +396,7 @@ export type AdminApi = {
   listBillingSurface: (surface: BillingSurface, params?: BillingFilter) => Promise<PaginatedResponse<BillingInspectionRecord>>;
   refundTopup: (topupId: string, input: TopupRefundRequest) => Promise<BillingInspectionRecord>;
   markMarketplacePayoutPaid: (payoutId: string, providerPayoutId: string) => Promise<BillingInspectionRecord>;
+  markMarketplacePayoutFailed: (payoutId: string, providerPayoutId: string, reason: string) => Promise<BillingInspectionRecord>;
   listObservabilityAlerts: (params?: AdminObservabilityAlertFilter) => Promise<AdminObservabilityAlertState[]>;
   getObservabilityAlert: (key: string) => Promise<AdminObservabilityAlertState>;
   acknowledgeObservabilityAlert: (key: string) => Promise<AdminObservabilityAlertState>;
@@ -658,6 +659,8 @@ export function createAdminApi(client: HttpClient): AdminApi {
     },
     markMarketplacePayoutPaid: (payoutId, providerPayoutId) =>
       client.post<BillingInspectionRecord>(`${apiPrefix}/billing/payouts/${payoutId}/paid`, { providerPayoutID: providerPayoutId }),
+    markMarketplacePayoutFailed: (payoutId, providerPayoutId, reason) =>
+      client.post<BillingInspectionRecord>(`${apiPrefix}/billing/payouts/${payoutId}/failed`, { providerPayoutID: providerPayoutId, reason }),
 
     listObservabilityAlerts: async (params) => {
       const payload = await client.get<ObservabilityAlertsPayload>(`${observabilityAlertsPrefix}${buildQuery(params)}`);

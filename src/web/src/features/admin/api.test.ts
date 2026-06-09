@@ -270,6 +270,12 @@ describe('createAdminApi', () => {
       status: 'paid_out',
       providerPayoutId: 'provider-paid-1',
     });
+    post.mockResolvedValueOnce({ id: 'payout_1', status: 'failed', providerPayoutId: 'provider-failed-1' });
+    await expect(api.markMarketplacePayoutFailed('payout_1', 'provider-failed-1', 'bank account closed')).resolves.toEqual({
+      id: 'payout_1',
+      status: 'failed',
+      providerPayoutId: 'provider-failed-1',
+    });
     post.mockResolvedValueOnce({ id: 'refund_1', status: 'succeeded', providerRefundId: 're_1' });
     await expect(
       api.refundTopup('topup_1', {
@@ -288,7 +294,11 @@ describe('createAdminApi', () => {
     expect(get).toHaveBeenNthCalledWith(3, '/api/v1/admin/billing/payment-intents?kind=subscription');
     expect(get).toHaveBeenNthCalledWith(4, '/api/v1/admin/billing/topups?provider=stripe');
     expect(post).toHaveBeenNthCalledWith(1, '/api/v1/admin/billing/payouts/payout_1/paid', { providerPayoutID: 'provider-paid-1' });
-    expect(post).toHaveBeenNthCalledWith(2, '/api/v1/admin/billing/topups/topup_1/refund', {
+    expect(post).toHaveBeenNthCalledWith(2, '/api/v1/admin/billing/payouts/payout_1/failed', {
+      providerPayoutID: 'provider-failed-1',
+      reason: 'bank account closed',
+    });
+    expect(post).toHaveBeenNthCalledWith(3, '/api/v1/admin/billing/topups/topup_1/refund', {
       provider: 'stripe',
       providerRefundID: 're_1',
       providerChargeID: 'ch_1',

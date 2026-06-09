@@ -22,6 +22,7 @@ type adminQuotaSettingsService interface {
 
 type adminMarketplacePayoutService interface {
 	MarkPayoutPaid(ctx context.Context, payoutID string, providerPayoutID string) (*marketplace.MarketplacePayout, error)
+	MarkPayoutFailed(ctx context.Context, payoutID string, providerPayoutID string, reason string) (*marketplace.MarketplacePayout, error)
 }
 
 type adminReviewSLAEnforcer interface {
@@ -1037,6 +1038,36 @@ func (h adminHandler) markMarketplacePayoutPaid(w stdhttp.ResponseWriter, r *std
 		return
 	}
 	payout, err := h.payoutService.MarkPayoutPaid(r.Context(), payoutID, providerPayoutID)
+	if err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, payout)
+}
+
+func (h adminHandler) markMarketplacePayoutFailed(w stdhttp.ResponseWriter, r *stdhttp.Request, payoutID string) {
+	if h.payoutService == nil {
+		writeError(w, stdhttp.StatusServiceUnavailable, "service_unavailable", "marketplace payout service is not configured")
+		return
+	}
+	var request struct {
+		ProviderPayoutID string `json:"providerPayoutID"`
+		Reason           string `json:"reason"`
+	}
+	if !decodeRequestJSON(w, r, &request) {
+		return
+	}
+	providerPayoutID := strings.TrimSpace(request.ProviderPayoutID)
+	if providerPayoutID == "" {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "providerPayoutID is required")
+		return
+	}
+	reason := strings.TrimSpace(request.Reason)
+	if reason == "" {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "reason is required")
+		return
+	}
+	payout, err := h.payoutService.MarkPayoutFailed(r.Context(), payoutID, providerPayoutID, reason)
 	if err != nil {
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
 		return

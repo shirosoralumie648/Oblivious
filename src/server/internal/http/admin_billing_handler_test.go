@@ -240,6 +240,53 @@ func TestAdminBillingMarksMarketplacePayoutPaid(t *testing.T) {
 	}
 }
 
+func TestAdminBillingMarksMarketplacePayoutFailedAndReleasesSettlements(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+	cookie, csrfToken, userID := registerHTTPUser(t, router, "billing-payout-failed@example.com")
+	promoteHTTPUserToAdmin(t, database, userID)
+	_, organizationID := queryHTTPUserScope(t, database, userID)
+	seedAdminBillingState(t, database, organizationID, userID)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(
+		stdhttp.MethodPost,
+		"/api/v1/admin/billing/payouts/payout_admin_phase20/failed",
+		strings.NewReader(`{"providerPayoutID":"provider-failed-admin-1","reason":"bank_account_closed"}`),
+	)
+	request.AddCookie(cookie)
+	addCSRF(request, csrfToken)
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected mark payout failed 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"status":"failed"`) || !strings.Contains(recorder.Body.String(), `"providerPayoutId":"provider-failed-admin-1"`) {
+		t.Fatalf("expected failed payout response, got %s", recorder.Body.String())
+	}
+
+	var payoutStatus, providerPayoutID, providerReason string
+	if err := database.QueryRow(`
+		SELECT status, COALESCE(provider_payout_id, ''), COALESCE(metadata->>'provider_reason', '')
+		FROM marketplace_payouts
+		WHERE id = 'payout_admin_phase20'
+	`).Scan(&payoutStatus, &providerPayoutID, &providerReason); err != nil {
+		t.Fatalf("query failed payout state: %v", err)
+	}
+	var settlementStatus, settlementPayoutID string
+	if err := database.QueryRow(`
+		SELECT status, COALESCE(payout_id, '')
+		FROM marketplace_settlements
+		WHERE id = 'settlement_admin_phase20'
+	`).Scan(&settlementStatus, &settlementPayoutID); err != nil {
+		t.Fatalf("query released settlement state: %v", err)
+	}
+	if payoutStatus != "failed" || providerPayoutID != "provider-failed-admin-1" || providerReason != "bank_account_closed" ||
+		settlementStatus != "available" || settlementPayoutID != "" {
+		t.Fatalf("expected failed payout and released settlement, got payout=%s provider=%s reason=%q settlement=%s settlementPayout=%q",
+			payoutStatus, providerPayoutID, providerReason, settlementStatus, settlementPayoutID)
+	}
+}
+
 func TestAdminBillingRecordsTopupRefundAndAdjustsQuota(t *testing.T) {
 	database := testDatabase(t)
 	router := NewRouter(testConfig(), database)
@@ -357,6 +404,73 @@ func TestAdminBillingMarkPayoutPaidHandlerRejectsMissingProviderPayoutID(t *test
 	}
 	if !strings.Contains(recorder.Body.String(), "providerPayoutID is required") {
 		t.Fatalf("expected providerPayoutID validation message, got %s", recorder.Body.String())
+	}
+}
+
+func TestAdminBillingMarkPayoutFailedHandlerCallsSettlementService(t *testing.T) {
+	payoutService := &fakeMarketplacePayoutAdminService{}
+	handler := newAdminHandlerWithPayouts(admin.NewService(&fakeAdminStore{}), payoutService)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(
+		stdhttp.MethodPost,
+		"/api/v1/admin/billing/payouts/payout_1/failed",
+		strings.NewReader(`{"providerPayoutID":"provider-failed-1","reason":"bank account closed"}`),
+	)
+	handler.markMarketplacePayoutFailed(recorder, request, "payout_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected handler 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if payoutService.failedPayoutID != "payout_1" || payoutService.failedProviderPayoutID != "provider-failed-1" || payoutService.failedReason != "bank account closed" {
+		t.Fatalf("expected failed payout request to reach service, got payout=%q provider=%q reason=%q", payoutService.failedPayoutID, payoutService.failedProviderPayoutID, payoutService.failedReason)
+	}
+	if !strings.Contains(recorder.Body.String(), `"status":"failed"`) {
+		t.Fatalf("expected failed payout response, got %s", recorder.Body.String())
+	}
+}
+
+func TestAdminBillingMarkPayoutFailedHandlerRejectsMissingOperatorEvidence(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "provider payout id",
+			body: `{"reason":"bank account closed"}`,
+			want: "providerPayoutID is required",
+		},
+		{
+			name: "reason",
+			body: `{"providerPayoutID":"provider-failed-1"}`,
+			want: "reason is required",
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			payoutService := &fakeMarketplacePayoutAdminService{}
+			handler := newAdminHandlerWithPayouts(admin.NewService(&fakeAdminStore{}), payoutService)
+
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(
+				stdhttp.MethodPost,
+				"/api/v1/admin/billing/payouts/payout_1/failed",
+				strings.NewReader(tt.body),
+			)
+			handler.markMarketplacePayoutFailed(recorder, request, "payout_1")
+
+			if recorder.Code != stdhttp.StatusBadRequest {
+				t.Fatalf("expected handler 400, got %d with body %s", recorder.Code, recorder.Body.String())
+			}
+			if payoutService.failedPayoutID != "" {
+				t.Fatalf("invalid failed-payout evidence should stop before payout service, got payout=%q", payoutService.failedPayoutID)
+			}
+			if !strings.Contains(recorder.Body.String(), tt.want) {
+				t.Fatalf("expected validation message %q, got %s", tt.want, recorder.Body.String())
+			}
+		})
 	}
 }
 
@@ -639,8 +753,11 @@ func (s *fakeAdminStore) ListMarketplacePayouts(ctx context.Context, filter admi
 }
 
 type fakeMarketplacePayoutAdminService struct {
-	payoutID         string
-	providerPayoutID string
+	payoutID               string
+	providerPayoutID       string
+	failedPayoutID         string
+	failedProviderPayoutID string
+	failedReason           string
 }
 
 func (s *fakeMarketplacePayoutAdminService) MarkPayoutPaid(ctx context.Context, payoutID string, providerPayoutID string) (*marketplace.MarketplacePayout, error) {
@@ -651,5 +768,17 @@ func (s *fakeMarketplacePayoutAdminService) MarkPayoutPaid(ctx context.Context, 
 		Provider:         "local",
 		ProviderPayoutID: providerPayoutID,
 		Status:           "paid_out",
+	}, nil
+}
+
+func (s *fakeMarketplacePayoutAdminService) MarkPayoutFailed(ctx context.Context, payoutID string, providerPayoutID string, reason string) (*marketplace.MarketplacePayout, error) {
+	s.failedPayoutID = payoutID
+	s.failedProviderPayoutID = providerPayoutID
+	s.failedReason = reason
+	return &marketplace.MarketplacePayout{
+		ID:               payoutID,
+		Provider:         "local",
+		ProviderPayoutID: providerPayoutID,
+		Status:           "failed",
 	}, nil
 }

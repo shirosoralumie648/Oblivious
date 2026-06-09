@@ -575,6 +575,29 @@ func (s *SettlementService) MarkPayoutPaid(ctx context.Context, payoutID string,
 	return s.loadPayout(ctx, payoutID)
 }
 
+func (s *SettlementService) MarkPayoutFailed(ctx context.Context, payoutID string, providerPayoutID string, reason string) (*MarketplacePayout, error) {
+	payoutID = strings.TrimSpace(payoutID)
+	providerPayoutID = strings.TrimSpace(providerPayoutID)
+	reason = strings.TrimSpace(reason)
+	if payoutID == "" {
+		return nil, fmt.Errorf("mark payout failed: payout id is required")
+	}
+	if providerPayoutID == "" {
+		return nil, fmt.Errorf("mark payout failed: provider payout id is required")
+	}
+	if reason == "" {
+		return nil, fmt.Errorf("mark payout failed: reason is required")
+	}
+	return s.ApplyProviderPayoutLifecycle(ctx, ProviderPayoutLifecycleEvent{
+		EventID:          "admin:payout.failed:" + payoutID + ":" + providerPayoutID,
+		EventType:        "payout.failed",
+		PayoutID:         payoutID,
+		ProviderPayoutID: providerPayoutID,
+		Status:           "failed",
+		Reason:           reason,
+	})
+}
+
 func (s *SettlementService) ApplyProviderPayoutLifecycle(ctx context.Context, input ProviderPayoutLifecycleEvent) (*MarketplacePayout, error) {
 	ctx, span := observability.StartSpan(ctx, "marketplace.provider_payout_lifecycle")
 	defer span.End()

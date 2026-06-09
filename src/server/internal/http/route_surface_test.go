@@ -1431,6 +1431,7 @@ func routeSurfaceAdminSubRouteCases() []routeSurfaceCase {
 		{"billing payouts", stdhttp.MethodGet, "/api/v1/admin/billing/payouts"},
 		{"billing topup refund", stdhttp.MethodPost, "/api/v1/admin/billing/topups/topup_1/refund"},
 		{"billing payout paid", stdhttp.MethodPost, "/api/v1/admin/billing/payouts/payout_1/paid"},
+		{"billing payout failed", stdhttp.MethodPost, "/api/v1/admin/billing/payouts/payout_1/failed"},
 		{"core stats", stdhttp.MethodGet, "/api/v1/admin/stats"},
 		{"core routes list", stdhttp.MethodGet, "/api/v1/admin/routes"},
 		{"core routes create", stdhttp.MethodPost, "/api/v1/admin/routes"},

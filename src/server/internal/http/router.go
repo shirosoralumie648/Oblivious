@@ -819,6 +819,14 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 			adminHandler.markMarketplacePayoutPaid(w, r, parts[0])
 			return
 		}
+		if len(parts) == 2 && parts[0] != "" && parts[1] == "failed" {
+			if r.Method != stdhttp.MethodPost {
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+				return
+			}
+			adminHandler.markMarketplacePayoutFailed(w, r, parts[0])
+			return
+		}
 		writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
 	})))
 	mux.Handle("/api/v1/admin/channel-providers", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {

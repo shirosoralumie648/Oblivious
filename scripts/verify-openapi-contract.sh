@@ -2712,6 +2712,7 @@ require_admin_billing_contract() {
       ["/api/v1/admin/billing/payouts", "get"] => "#/components/schemas/AdminMarketplacePayoutsResponse",
       ["/api/v1/admin/billing/topups/{topupId}/refund", "post"] => "#/components/schemas/AdminRefundInspection",
       ["/api/v1/admin/billing/payouts/{payoutId}/paid", "post"] => "#/components/schemas/MarketplacePayout",
+      ["/api/v1/admin/billing/payouts/{payoutId}/failed", "post"] => "#/components/schemas/MarketplacePayout",
     }
 
     expected_data_refs.each do |(path, method), expected|
@@ -2765,6 +2766,18 @@ require_admin_billing_contract() {
     paid_schema = schemas["AdminMarketplacePayoutPaidRequest"] || {}
     unless paid_schema.fetch("required", []).include?("providerPayoutID")
       missing << "AdminMarketplacePayoutPaidRequest must require providerPayoutID"
+    end
+
+    failed = operation(paths, "/api/v1/admin/billing/payouts/{payoutId}/failed", "post", missing)
+    unless request_body_ref(failed) == "#/components/schemas/AdminMarketplacePayoutFailedRequest"
+      missing << "POST /api/v1/admin/billing/payouts/{payoutId}/failed must document AdminMarketplacePayoutFailedRequest body"
+    end
+    unless requires_cookie_and_csrf?(failed)
+      missing << "POST /api/v1/admin/billing/payouts/{payoutId}/failed must require cookieAuth and csrfHeader"
+    end
+    failed_schema = schemas["AdminMarketplacePayoutFailedRequest"] || {}
+    ["providerPayoutID", "reason"].each do |field|
+      missing << "AdminMarketplacePayoutFailedRequest must require #{field}" unless failed_schema.fetch("required", []).include?(field)
     end
 
     response_collections = {
@@ -3009,6 +3022,7 @@ required_paths=(
   "/api/v1/admin/billing/payouts"
   "/api/v1/admin/billing/topups/{topupId}/refund"
   "/api/v1/admin/billing/payouts/{payoutId}/paid"
+  "/api/v1/admin/billing/payouts/{payoutId}/failed"
   "/api/v1/admin/stats"
   "/api/v1/admin/routes"
   "/api/v1/admin/routes/{routeId}"

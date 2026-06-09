@@ -608,3 +608,9 @@ export type TopupRefundRequest = {
   currency?: string;
   reason?: string;
 };
+
+export type MarketplacePayoutFailedRequest = {
+  providerPayoutID?: string;
+  providerPayoutId?: string;
+  reason: string;
+};

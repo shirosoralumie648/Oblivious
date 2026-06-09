@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const getBillingSummary = vi.fn();
 const listBillingSurface = vi.fn();
 const markMarketplacePayoutPaid = vi.fn();
+const markMarketplacePayoutFailed = vi.fn();
 const refundTopup = vi.fn();
 
 vi.mock('../../features/admin/api', () => ({
@@ -11,6 +12,7 @@ vi.mock('../../features/admin/api', () => ({
     getBillingSummary,
     listBillingSurface,
     markMarketplacePayoutPaid,
+    markMarketplacePayoutFailed,
     refundTopup,
   }),
 }));
@@ -22,6 +24,7 @@ describe('AdminBillingPage', () => {
     getBillingSummary.mockReset();
     listBillingSurface.mockReset();
     markMarketplacePayoutPaid.mockReset();
+    markMarketplacePayoutFailed.mockReset();
     refundTopup.mockReset();
   });
 
@@ -173,6 +176,79 @@ describe('AdminBillingPage', () => {
 
     await waitFor(() => expect(markMarketplacePayoutPaid).toHaveBeenCalledWith('payout_1', 'provider-paid-operator-1'));
     expect(await screen.findByText('Paid Out')).toBeInTheDocument();
+  });
+
+  it('marks payout pending rows as failed from the payouts surface', async () => {
+    getBillingSummary.mockResolvedValue({});
+    markMarketplacePayoutFailed.mockResolvedValue({ id: 'payout_1', status: 'failed', providerPayoutId: 'provider-failed-1' });
+    listBillingSurface
+      .mockResolvedValueOnce({ data: [], total: 0 })
+      .mockResolvedValueOnce({
+        data: [
+          {
+            id: 'payout_1',
+            provider: 'stripe_connect',
+            providerPayoutId: 'manual-batch-1',
+            amount: 40,
+            status: 'payout_pending',
+            createdAt: '2026-06-04T00:00:00Z',
+          },
+        ],
+        total: 1,
+      })
+      .mockResolvedValueOnce({
+        data: [
+          {
+            id: 'payout_1',
+            provider: 'stripe_connect',
+            providerPayoutId: 'provider-failed-1',
+            amount: 40,
+            status: 'failed',
+            createdAt: '2026-06-04T00:00:00Z',
+          },
+        ],
+        total: 1,
+      });
+
+    render(<AdminBillingPage />);
+
+    fireEvent.click(await screen.findByRole('tab', { name: 'Payouts' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Mark payout payout_1 failed' }));
+    expect(await screen.findByRole('heading', { name: 'Payout failure' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Provider payout ID'), { target: { value: 'provider-failed-operator-1' } });
+    fireEvent.change(screen.getByLabelText('Failure reason'), { target: { value: 'bank account closed' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm failed payout' }));
+
+    await waitFor(() => expect(markMarketplacePayoutFailed).toHaveBeenCalledWith('payout_1', 'provider-failed-operator-1', 'bank account closed'));
+    expect(await screen.findByText('Failed')).toBeInTheDocument();
+  });
+
+  it('requires failure reason before marking payouts failed', async () => {
+    getBillingSummary.mockResolvedValue({});
+    listBillingSurface
+      .mockResolvedValueOnce({ data: [], total: 0 })
+      .mockResolvedValueOnce({
+        data: [
+          {
+            id: 'payout_1',
+            provider: 'stripe_connect',
+            providerPayoutId: 'provider-pending-1',
+            amount: 40,
+            status: 'payout_pending',
+            createdAt: '2026-06-04T00:00:00Z',
+          },
+        ],
+        total: 1,
+      });
+
+    render(<AdminBillingPage />);
+
+    fireEvent.click(await screen.findByRole('tab', { name: 'Payouts' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Mark payout payout_1 failed' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Confirm failed payout' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Failure reason is required.');
+    expect(markMarketplacePayoutFailed).not.toHaveBeenCalled();
   });
 
   it('records a provider-confirmed top-up refund from the top-ups surface', async () => {
