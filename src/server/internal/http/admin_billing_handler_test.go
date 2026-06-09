@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"oblivious/server/internal/admin"
 	"oblivious/server/internal/marketplace"
@@ -287,6 +288,94 @@ func TestAdminBillingMarksMarketplacePayoutFailedAndReleasesSettlements(t *testi
 	}
 }
 
+func TestAdminBillingCreateDueMarketplacePayoutsDispatchesConfiguredProvider(t *testing.T) {
+	database := testDatabase(t)
+	provider := &fakeHTTPMarketplacePayoutProvider{name: "stripe_connect", providerPayoutID: "po_admin_due_1"}
+	router := NewRouterWithOptions(testConfig(), database, RouterOptions{MarketplacePayoutProvider: provider})
+	cookie, csrfToken, userID := registerHTTPUser(t, router, "billing-create-due-payouts@example.com")
+	promoteHTTPUserToAdmin(t, database, userID)
+	_, organizationID := queryHTTPUserScope(t, database, userID)
+
+	if _, err := database.Exec(`
+		INSERT INTO published_agents (id, owner_id, organization_id, name, description, visibility, status, pricing_type, pricing_amount, install_count, created_at, updated_at)
+		VALUES ('agent_admin_due_payout', $1, $2, 'Admin Due Payout Agent', 'Due payout dispatch test agent', 'public', 'approved', 'one_time', 50, 1, NOW(), NOW())
+	`, userID, organizationID); err != nil {
+		t.Fatalf("insert due payout agent: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO payment_intents (id, provider, provider_checkout_session_id, organization_id, user_id, package_id, kind, amount, currency, status, metadata, created_at, updated_at, provider_payment_intent_id, refunded_amount)
+		VALUES ('pi_admin_due_payout', 'stripe', 'cs_admin_due_payout', $1, $2, NULL, 'marketplace_install', 100, 'usd', 'completed', '{}', NOW(), NOW(), 'pi_provider_admin_due_payout', 0)
+	`, organizationID, userID); err != nil {
+		t.Fatalf("insert due payout payment intent: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO marketplace_orders (
+			id, buyer_organization_id, buyer_user_id, publisher_organization_id, publisher_user_id,
+			agent_id, version_id, payment_intent_id, provider_checkout_session_id, provider_payment_intent_id,
+			install_id, gross_amount, platform_fee_amount, publisher_net_amount, refunded_amount,
+			currency, status, created_at, updated_at, paid_at
+		)
+		VALUES ('order_admin_due_payout', $1, $2, $1, $2, 'agent_admin_due_payout', NULL, 'pi_admin_due_payout',
+		        'cs_admin_due_payout', 'pi_provider_admin_due_payout', NULL, 100, 20, 80, 0,
+		        'usd', 'paid', NOW(), NOW(), NOW())
+	`, organizationID, userID); err != nil {
+		t.Fatalf("insert due payout order: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO marketplace_settlements (
+			id, order_id, publisher_organization_id, publisher_user_id, agent_id,
+			gross_amount, platform_fee_amount, publisher_net_amount, refunded_amount,
+			payout_id, status, hold_until, created_at, updated_at
+		)
+		VALUES ('settlement_admin_due_payout', 'order_admin_due_payout', $1, $2, 'agent_admin_due_payout',
+		        100, 20, 80, 0, NULL, 'available', NOW() - INTERVAL '1 hour', NOW() - INTERVAL '2 hours', NOW())
+	`, organizationID, userID); err != nil {
+		t.Fatalf("insert due payout settlement: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/admin/billing/payouts/create-due", nil)
+	request.AddCookie(cookie)
+	addCSRF(request, csrfToken)
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected create due payouts 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if provider.callCount != 1 {
+		t.Fatalf("expected configured payout provider to be dispatched once, got %d", provider.callCount)
+	}
+	if provider.lastRequest.Amount != 80 || provider.lastRequest.Currency != "usd" ||
+		provider.lastRequest.PublisherOrganizationID != organizationID || provider.lastRequest.PublisherUserID != userID ||
+		len(provider.lastRequest.SettlementIDs) != 1 || provider.lastRequest.SettlementIDs[0] != "settlement_admin_due_payout" {
+		t.Fatalf("unexpected provider payout dispatch request: %+v", provider.lastRequest)
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, `"provider":"stripe_connect"`) || !strings.Contains(body, `"providerPayoutId":"po_admin_due_1"`) || !strings.Contains(body, `"total":1`) {
+		t.Fatalf("expected provider-dispatched payout response, got %s", body)
+	}
+
+	var payoutStatus, payoutProvider, providerPayoutID, settlementStatus, settlementPayoutID string
+	if err := database.QueryRow(`
+		SELECT status, provider, COALESCE(provider_payout_id, '')
+		FROM marketplace_payouts
+		WHERE publisher_organization_id = $1 AND publisher_user_id = $2
+	`, organizationID, userID).Scan(&payoutStatus, &payoutProvider, &providerPayoutID); err != nil {
+		t.Fatalf("query created due payout: %v", err)
+	}
+	if err := database.QueryRow(`
+		SELECT status, COALESCE(payout_id, '')
+		FROM marketplace_settlements
+		WHERE id = 'settlement_admin_due_payout'
+	`).Scan(&settlementStatus, &settlementPayoutID); err != nil {
+		t.Fatalf("query created due payout settlement: %v", err)
+	}
+	if payoutStatus != "payout_pending" || payoutProvider != "stripe_connect" || providerPayoutID != "po_admin_due_1" ||
+		settlementStatus != "payout_pending" || settlementPayoutID == "" {
+		t.Fatalf("expected payout pending state with provider dispatch, got payout=%s provider=%s providerPayout=%s settlement=%s settlementPayout=%s",
+			payoutStatus, payoutProvider, providerPayoutID, settlementStatus, settlementPayoutID)
+	}
+}
+
 func TestAdminBillingRecordsTopupRefundAndAdjustsQuota(t *testing.T) {
 	database := testDatabase(t)
 	router := NewRouter(testConfig(), database)
@@ -427,6 +516,26 @@ func TestAdminBillingMarkPayoutFailedHandlerCallsSettlementService(t *testing.T)
 	}
 	if !strings.Contains(recorder.Body.String(), `"status":"failed"`) {
 		t.Fatalf("expected failed payout response, got %s", recorder.Body.String())
+	}
+}
+
+func TestAdminBillingCreateDueMarketplacePayoutsHandlerCallsSettlementService(t *testing.T) {
+	payoutService := &fakeMarketplacePayoutAdminService{}
+	handler := newAdminHandlerWithPayouts(admin.NewService(&fakeAdminStore{}), payoutService)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/admin/billing/payouts/create-due", nil)
+	handler.createDueMarketplacePayouts(recorder, request)
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected handler 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if !payoutService.createDueCalled || payoutService.createDueNow.IsZero() {
+		t.Fatalf("expected create due payouts to receive a non-zero timestamp, called=%v now=%v", payoutService.createDueCalled, payoutService.createDueNow)
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, `"payouts"`) || !strings.Contains(body, `"total":1`) || !strings.Contains(body, `"provider":"stripe_connect"`) {
+		t.Fatalf("expected create due payout response with provider-dispatched payout, got %s", body)
 	}
 }
 
@@ -910,6 +1019,8 @@ type fakeMarketplacePayoutAdminService struct {
 	failedPayoutID         string
 	failedProviderPayoutID string
 	failedReason           string
+	createDueCalled        bool
+	createDueNow           time.Time
 }
 
 func (s *fakeMarketplacePayoutAdminService) MarkPayoutPaid(ctx context.Context, payoutID string, providerPayoutID string) (*marketplace.MarketplacePayout, error) {
@@ -933,4 +1044,38 @@ func (s *fakeMarketplacePayoutAdminService) MarkPayoutFailed(ctx context.Context
 		ProviderPayoutID: providerPayoutID,
 		Status:           "failed",
 	}, nil
+}
+
+func (s *fakeMarketplacePayoutAdminService) CreateDuePayouts(ctx context.Context, now time.Time) ([]*marketplace.MarketplacePayout, error) {
+	s.createDueCalled = true
+	s.createDueNow = now
+	return []*marketplace.MarketplacePayout{{
+		ID:                      "payout_due_1",
+		PublisherOrganizationID: "org_publisher",
+		PublisherUserID:         "user_publisher",
+		Amount:                  80,
+		Currency:                "usd",
+		Provider:                "stripe_connect",
+		ProviderPayoutID:        "po_due_1",
+		Status:                  "payout_pending",
+		CreatedAt:               now,
+		UpdatedAt:               now,
+	}}, nil
+}
+
+type fakeHTTPMarketplacePayoutProvider struct {
+	name             string
+	providerPayoutID string
+	callCount        int
+	lastRequest      marketplace.MarketplacePayoutDispatchRequest
+}
+
+func (p *fakeHTTPMarketplacePayoutProvider) Name() string {
+	return p.name
+}
+
+func (p *fakeHTTPMarketplacePayoutProvider) CreatePayout(ctx context.Context, request marketplace.MarketplacePayoutDispatchRequest) (marketplace.MarketplacePayoutDispatchResult, error) {
+	p.callCount++
+	p.lastRequest = request
+	return marketplace.MarketplacePayoutDispatchResult{ProviderPayoutID: p.providerPayoutID}, nil
 }

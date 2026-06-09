@@ -395,6 +395,7 @@ export type AdminApi = {
   getBillingSummary: (params?: BillingFilter) => Promise<BillingSummary>;
   listBillingSurface: (surface: BillingSurface, params?: BillingFilter) => Promise<PaginatedResponse<BillingInspectionRecord>>;
   refundTopup: (topupId: string, input: TopupRefundRequest) => Promise<BillingInspectionRecord>;
+  createDueMarketplacePayouts: () => Promise<PaginatedResponse<BillingInspectionRecord>>;
   markMarketplacePayoutPaid: (payoutId: string, providerPayoutId: string) => Promise<BillingInspectionRecord>;
   markMarketplacePayoutFailed: (payoutId: string, providerPayoutId: string, reason: string) => Promise<BillingInspectionRecord>;
   listObservabilityAlerts: (params?: AdminObservabilityAlertFilter) => Promise<AdminObservabilityAlertState[]>;
@@ -656,6 +657,10 @@ export function createAdminApi(client: HttpClient): AdminApi {
       delete body.providerChargeId;
       delete body.providerPaymentIntentId;
       return client.post<BillingInspectionRecord>(`${apiPrefix}/billing/topups/${topupId}/refund`, body);
+    },
+    createDueMarketplacePayouts: async () => {
+      const payload = await client.post<BillingListPayload>(`${apiPrefix}/billing/payouts/create-due`);
+      return collection(payload.payouts ?? payload.data, payload.total);
     },
     markMarketplacePayoutPaid: (payoutId, providerPayoutId) =>
       client.post<BillingInspectionRecord>(`${apiPrefix}/billing/payouts/${payoutId}/paid`, { providerPayoutID: providerPayoutId }),

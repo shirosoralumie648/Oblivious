@@ -12623,6 +12623,33 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
 
+  /api/v1/admin/billing/payouts/create-due:
+    post:
+      summary: 触发创建到期 Marketplace provider payout
+      operationId: createDueAdminMarketplacePayouts
+      tags: [Admin, Billing, Marketplace]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      responses:
+        "200":
+          description: Created due Marketplace payouts and total count.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminMarketplacePayoutsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
   /api/v1/admin/billing/topups/{topupId}/refund:
     post:
       summary: 记录管理员确认的 top-up 退款

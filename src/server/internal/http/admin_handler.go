@@ -23,6 +23,7 @@ type adminQuotaSettingsService interface {
 type adminMarketplacePayoutService interface {
 	MarkPayoutPaid(ctx context.Context, payoutID string, providerPayoutID string) (*marketplace.MarketplacePayout, error)
 	MarkPayoutFailed(ctx context.Context, payoutID string, providerPayoutID string, reason string) (*marketplace.MarketplacePayout, error)
+	CreateDuePayouts(ctx context.Context, now time.Time) ([]*marketplace.MarketplacePayout, error)
 }
 
 type adminReviewSLAEnforcer interface {
@@ -1023,6 +1024,19 @@ func (h adminHandler) listMarketplacePayouts(w stdhttp.ResponseWriter, r *stdhtt
 		return
 	}
 	writeSuccess(w, stdhttp.StatusOK, map[string]any{"payouts": items, "total": total})
+}
+
+func (h adminHandler) createDueMarketplacePayouts(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if h.payoutService == nil {
+		writeError(w, stdhttp.StatusServiceUnavailable, "service_unavailable", "marketplace payout service is not configured")
+		return
+	}
+	payouts, err := h.payoutService.CreateDuePayouts(r.Context(), time.Now().UTC())
+	if err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, map[string]any{"payouts": payouts, "total": len(payouts)})
 }
 
 func (h adminHandler) markMarketplacePayoutPaid(w stdhttp.ResponseWriter, r *stdhttp.Request, payoutID string) {

@@ -3393,6 +3393,7 @@ require_admin_billing_contract() {
       ["/api/v1/admin/billing/settlements", "get"] => "#/components/schemas/AdminMarketplaceSettlementsResponse",
       ["/api/v1/admin/billing/payouts", "get"] => "#/components/schemas/AdminMarketplacePayoutsResponse",
       ["/api/v1/admin/billing/topups/{topupId}/refund", "post"] => "#/components/schemas/AdminRefundInspection",
+      ["/api/v1/admin/billing/payouts/create-due", "post"] => "#/components/schemas/AdminMarketplacePayoutsResponse",
       ["/api/v1/admin/billing/payouts/{payoutId}/paid", "post"] => "#/components/schemas/MarketplacePayout",
       ["/api/v1/admin/billing/payouts/{payoutId}/failed", "post"] => "#/components/schemas/MarketplacePayout",
     }
@@ -3436,6 +3437,11 @@ require_admin_billing_contract() {
     end
     unless refund_schema.dig("properties", "amount", "minimum").to_f > 0
       missing << "AdminTopupRefundRequest.amount must document a positive minimum"
+    end
+
+    create_due = operation(paths, "/api/v1/admin/billing/payouts/create-due", "post", missing)
+    unless requires_cookie_and_csrf?(create_due)
+      missing << "POST /api/v1/admin/billing/payouts/create-due must require cookieAuth and csrfHeader"
     end
 
     paid = operation(paths, "/api/v1/admin/billing/payouts/{payoutId}/paid", "post", missing)
@@ -3737,6 +3743,7 @@ required_paths=(
   "/api/v1/admin/billing/settlements"
   "/api/v1/admin/billing/payouts"
   "/api/v1/admin/billing/topups/{topupId}/refund"
+  "/api/v1/admin/billing/payouts/create-due"
   "/api/v1/admin/billing/payouts/{payoutId}/paid"
   "/api/v1/admin/billing/payouts/{payoutId}/failed"
   "/api/v1/admin/stats"

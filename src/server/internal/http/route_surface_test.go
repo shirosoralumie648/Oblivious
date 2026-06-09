@@ -1129,6 +1129,32 @@ func TestRouteSurfaceAdminAPITokenRevokeRejectsAdminCookieWithoutCSRFWithoutData
 	}
 }
 
+func TestRouteSurfaceAdminBillingPayoutMutationsRejectAdminCookieWithoutCSRFWithoutDatabase(t *testing.T) {
+	session := routeSurfaceAdminSession()
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}})
+	cookie := routeSurfaceSignedSessionCookie(t, session)
+
+	tests := []routeSurfaceCase{
+		{"create due payouts", stdhttp.MethodPost, "/api/v1/admin/billing/payouts/create-due"},
+		{"mark payout paid", stdhttp.MethodPost, "/api/v1/admin/billing/payouts/payout_1/paid"},
+		{"mark payout failed", stdhttp.MethodPost, "/api/v1/admin/billing/payouts/payout_1/failed"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(`{"providerPayoutID":"provider_1","reason":"operator check"}`))
+			request.Header.Set("Content-Type", "application/json")
+			request.AddCookie(cookie)
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusForbidden {
+				t.Fatalf("expected missing csrf to be rejected with 403 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
 func TestRouteSurfaceAdminSettingsDispatchWithCSRFWithoutDatabase(t *testing.T) {
 	session := routeSurfaceAdminSession()
 	session.OrganizationID = "org_settings_route"
@@ -1868,6 +1894,7 @@ func routeSurfaceAdminSubRouteCases() []routeSurfaceCase {
 		{"billing settlements", stdhttp.MethodGet, "/api/v1/admin/billing/settlements"},
 		{"billing payouts", stdhttp.MethodGet, "/api/v1/admin/billing/payouts"},
 		{"billing topup refund", stdhttp.MethodPost, "/api/v1/admin/billing/topups/topup_1/refund"},
+		{"billing payout create due", stdhttp.MethodPost, "/api/v1/admin/billing/payouts/create-due"},
 		{"billing payout paid", stdhttp.MethodPost, "/api/v1/admin/billing/payouts/payout_1/paid"},
 		{"billing payout failed", stdhttp.MethodPost, "/api/v1/admin/billing/payouts/payout_1/failed"},
 		{"settings relay pricing get", stdhttp.MethodGet, "/api/v1/admin/settings/relay-pricing"},

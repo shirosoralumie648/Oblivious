@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const getBillingSummary = vi.fn();
 const listBillingSurface = vi.fn();
+const createDueMarketplacePayouts = vi.fn();
 const markMarketplacePayoutPaid = vi.fn();
 const markMarketplacePayoutFailed = vi.fn();
 const refundTopup = vi.fn();
@@ -11,6 +12,7 @@ vi.mock('../../features/admin/api', () => ({
   createAdminApi: () => ({
     getBillingSummary,
     listBillingSurface,
+    createDueMarketplacePayouts,
     markMarketplacePayoutPaid,
     markMarketplacePayoutFailed,
     refundTopup,
@@ -23,6 +25,7 @@ describe('AdminBillingPage', () => {
   beforeEach(() => {
     getBillingSummary.mockReset();
     listBillingSurface.mockReset();
+    createDueMarketplacePayouts.mockReset();
     markMarketplacePayoutPaid.mockReset();
     markMarketplacePayoutFailed.mockReset();
     refundTopup.mockReset();
@@ -103,6 +106,30 @@ describe('AdminBillingPage', () => {
         expect.objectContaining({ status: 'failed', limit: 50 })
       )
     );
+  });
+
+  it('creates due marketplace payouts from the payouts surface', async () => {
+    getBillingSummary.mockResolvedValue({});
+    createDueMarketplacePayouts.mockResolvedValue({
+      data: [{ id: 'payout_created_1', status: 'payout_pending', provider: 'stripe_connect' }],
+      total: 1,
+    });
+    listBillingSurface
+      .mockResolvedValueOnce({ data: [], total: 0 })
+      .mockResolvedValueOnce({ data: [], total: 0 })
+      .mockResolvedValueOnce({
+        data: [{ id: 'payout_created_1', status: 'payout_pending', provider: 'stripe_connect', amount: 40 }],
+        total: 1,
+      });
+
+    render(<AdminBillingPage />);
+
+    fireEvent.click(await screen.findByRole('tab', { name: 'Payouts' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Create due payouts' }));
+
+    await waitFor(() => expect(createDueMarketplacePayouts).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(listBillingSurface).toHaveBeenLastCalledWith('payouts', expect.objectContaining({ limit: 50 })));
+    expect(await screen.findByText('payout_created_1')).toBeInTheDocument();
   });
 
   it('renders refund recovery investigation fields in the refunds table', async () => {

@@ -46,6 +46,7 @@ type RouterOptions struct {
 	RelayPricingStore           *relay.PricingStore
 	ChannelRuntimeStatsProvider admin.ChannelRuntimeStatsProvider
 	RelayConfigApplier          admin.RelayConfigApplier
+	MarketplacePayoutProvider   marketplace.MarketplacePayoutProvider
 	AdminService                *admin.Service
 	WorkflowService             *workflow.Service
 	ScheduleService             *schedule.Service
@@ -167,7 +168,11 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	quotaService := quota.NewService(quota.NewSQLStore(database))
 	quotaHandler := newQuotaHandler(quotaService)
 	marketplaceStore := marketplace.NewSQLStore(database)
-	marketplaceSettlementService := marketplace.NewSettlementService(marketplaceStore)
+	marketplaceSettlementOptions := []marketplace.SettlementServiceOption{}
+	if options.MarketplacePayoutProvider != nil {
+		marketplaceSettlementOptions = append(marketplaceSettlementOptions, marketplace.WithMarketplacePayoutProvider(options.MarketplacePayoutProvider))
+	}
+	marketplaceSettlementService := marketplace.NewSettlementService(marketplaceStore, marketplaceSettlementOptions...)
 	checkoutCreator := options.CheckoutCreator
 	if checkoutCreator == nil {
 		checkoutCreator = stripebilling.CheckoutCreatorFunc(stripebilling.CreateCheckoutSession)
@@ -857,6 +862,14 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	})))
 	mux.Handle("/api/v1/admin/billing/payouts/", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/admin/billing/payouts/"), "/"), "/")
+		if len(parts) == 1 && parts[0] == "create-due" {
+			if r.Method != stdhttp.MethodPost {
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+				return
+			}
+			adminHandler.createDueMarketplacePayouts(w, r)
+			return
+		}
 		if len(parts) == 2 && parts[0] != "" && parts[1] == "paid" {
 			if r.Method != stdhttp.MethodPost {
 				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")

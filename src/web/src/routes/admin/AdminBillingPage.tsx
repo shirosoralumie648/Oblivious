@@ -1,3 +1,4 @@
+import { RiMoneyDollarCircleLine } from '@remixicon/react';
 import { useCallback, useEffect, useMemo, useReducer } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -377,6 +378,8 @@ const summaryTiles: Array<{ label: string; metric: keyof BillingSummary; value: 
   { label: 'Payouts', metric: 'payouts', value: (metric) => money(metric?.totalAmount), subvalue: (metric) => `${numberLabel(metric?.count)} records` },
 ];
 
+const createDueMarketplacePayoutsActionId = 'create-due-marketplace-payouts';
+
 function currentSurface(id: BillingSurface) {
   return surfaces.find((surface) => surface.id === id) ?? surfaces[0];
 }
@@ -511,6 +514,17 @@ export function AdminBillingPage() {
     }
   };
 
+  const handleCreateDuePayouts = async () => {
+    dispatch({ type: 'ACTION_START', recordId: createDueMarketplacePayoutsActionId });
+    try {
+      await api.createDueMarketplacePayouts();
+      dispatch({ type: 'ACTION_DONE' });
+      await loadBilling();
+    } catch (error) {
+      dispatch({ type: 'ACTION_ERROR', error: error instanceof Error ? error.message : 'Unable to create due payouts.' });
+    }
+  };
+
   const failedWebhookCount = state.summary.webhookEvents?.failedCount ?? 0;
   const refundedPaymentAmount = state.summary.paymentIntents?.refundedAmount ?? 0;
   const refundedTopupAmount = state.summary.topups?.refundedAmount ?? 0;
@@ -620,6 +634,20 @@ export function AdminBillingPage() {
           onChange={(event) => dispatch({ type: 'SET_FILTER', field: 'provider', value: event.target.value })}
         />
       </div>
+
+      {state.surface === 'payouts' ? (
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            className="min-h-[44px]"
+            disabled={state.actioningRecordId === createDueMarketplacePayoutsActionId}
+            onClick={() => void handleCreateDuePayouts()}
+          >
+            <RiMoneyDollarCircleLine data-icon="inline-start" className="size-4" aria-hidden="true" />
+            Create due payouts
+          </Button>
+        </div>
+      ) : null}
 
       {actionFormOpen ? (
         <div className="rounded-lg border border-border bg-card p-4">

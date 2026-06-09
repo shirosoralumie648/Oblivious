@@ -247,7 +247,12 @@ describe('createAdminApi', () => {
         topups: [{ id: 'topup_1', provider: 'stripe', providerPaymentIntentId: 'pi_provider_1', currency: 'usd' }],
         total: 1,
       });
-    const post = vi.fn().mockResolvedValue({ id: 'payout_1', status: 'paid_out', providerPayoutId: 'provider-paid-1' });
+    const post = vi
+      .fn()
+      .mockResolvedValueOnce({ id: 'payout_1', status: 'paid_out', providerPayoutId: 'provider-paid-1' })
+      .mockResolvedValueOnce({ id: 'payout_1', status: 'failed', providerPayoutId: 'provider-failed-1' })
+      .mockResolvedValueOnce({ payouts: [{ id: 'payout_due_1', status: 'payout_pending', providerPayoutId: 'provider-due-1' }], total: 1 })
+      .mockResolvedValueOnce({ id: 'refund_1', status: 'succeeded', providerRefundId: 're_1' });
     const api = createAdminApi(createClient({ get, post }));
 
     await expect(api.getBillingSummary({ organizationID: 'org_1' })).resolves.toEqual({
@@ -270,13 +275,15 @@ describe('createAdminApi', () => {
       status: 'paid_out',
       providerPayoutId: 'provider-paid-1',
     });
-    post.mockResolvedValueOnce({ id: 'payout_1', status: 'failed', providerPayoutId: 'provider-failed-1' });
     await expect(api.markMarketplacePayoutFailed('payout_1', 'provider-failed-1', 'bank account closed')).resolves.toEqual({
       id: 'payout_1',
       status: 'failed',
       providerPayoutId: 'provider-failed-1',
     });
-    post.mockResolvedValueOnce({ id: 'refund_1', status: 'succeeded', providerRefundId: 're_1' });
+    await expect(api.createDueMarketplacePayouts()).resolves.toEqual({
+      data: [{ id: 'payout_due_1', status: 'payout_pending', providerPayoutId: 'provider-due-1' }],
+      total: 1,
+    });
     await expect(
       api.refundTopup('topup_1', {
         provider: 'stripe',
@@ -298,7 +305,8 @@ describe('createAdminApi', () => {
       providerPayoutID: 'provider-failed-1',
       reason: 'bank account closed',
     });
-    expect(post).toHaveBeenNthCalledWith(3, '/api/v1/admin/billing/topups/topup_1/refund', {
+    expect(post).toHaveBeenNthCalledWith(3, '/api/v1/admin/billing/payouts/create-due');
+    expect(post).toHaveBeenNthCalledWith(4, '/api/v1/admin/billing/topups/topup_1/refund', {
       provider: 'stripe',
       providerRefundID: 're_1',
       providerChargeID: 'ch_1',
