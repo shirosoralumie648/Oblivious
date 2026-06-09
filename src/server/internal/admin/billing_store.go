@@ -314,17 +314,29 @@ func (s *SQLStore) ListSubscriptions(ctx context.Context, filter BillingInspecti
 
 func (s *SQLStore) ListTopups(ctx context.Context, filter BillingInspectionFilter) ([]*TopupInspection, int, error) {
 	filter = normalizeBillingFilter(filter)
-	columns := billingColumnMap{OrganizationID: "organization_id", UserID: "user_id", Status: "status"}
-	total, err := countRows(ctx, s.db, "topup_orders", filter, columns)
-	if err != nil {
-		return nil, 0, fmt.Errorf("count topups: %w", err)
+	columns := billingColumnMap{
+		OrganizationID: "topup_orders.organization_id",
+		UserID:         "topup_orders.user_id",
+		Status:         "topup_orders.status",
+		Provider:       "payment_intents.provider",
 	}
 	where, args := billingWhere(filter, columns)
+	var total int
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM topup_orders
+		LEFT JOIN payment_intents ON payment_intents.id = topup_orders.payment_intent_id `+where, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count topups: %w", err)
+	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, organization_id, user_id, payment_intent_id, provider_checkout_session_id,
-		       amount, money, status, trade_no, refunded_amount, paid_at, created_at
-		FROM topup_orders `+where+`
-		ORDER BY created_at DESC
+		SELECT topup_orders.id, topup_orders.organization_id, topup_orders.user_id, topup_orders.payment_intent_id,
+		       topup_orders.provider_checkout_session_id, COALESCE(payment_intents.provider, ''),
+		       COALESCE(payment_intents.provider_payment_intent_id, ''), COALESCE(payment_intents.currency, ''),
+		       topup_orders.amount, topup_orders.money, topup_orders.status, topup_orders.trade_no,
+		       topup_orders.refunded_amount, topup_orders.paid_at, topup_orders.created_at
+		FROM topup_orders
+		LEFT JOIN payment_intents ON payment_intents.id = topup_orders.payment_intent_id `+where+`
+		ORDER BY topup_orders.created_at DESC
 		LIMIT $`+fmt.Sprint(len(args)+1)+` OFFSET $`+fmt.Sprint(len(args)+2), appendLimitOffset(args, filter)...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list topups: %w", err)
@@ -334,14 +346,18 @@ func (s *SQLStore) ListTopups(ctx context.Context, filter BillingInspectionFilte
 	var items []*TopupInspection
 	for rows.Next() {
 		var item TopupInspection
-		var paymentIntentID, providerCheckoutSessionID, tradeNo sql.NullString
+		var paymentIntentID, providerCheckoutSessionID, provider, providerPaymentIntentID, currency, tradeNo sql.NullString
 		var paidAt sql.NullTime
 		if err := rows.Scan(&item.ID, &item.OrganizationID, &item.UserID, &paymentIntentID, &providerCheckoutSessionID,
-			&item.Amount, &item.Money, &item.Status, &tradeNo, &item.RefundedAmount, &paidAt, &item.CreatedAt); err != nil {
+			&provider, &providerPaymentIntentID, &currency, &item.Amount, &item.Money, &item.Status, &tradeNo,
+			&item.RefundedAmount, &paidAt, &item.CreatedAt); err != nil {
 			return nil, 0, fmt.Errorf("scan topup: %w", err)
 		}
 		item.PaymentIntentID = nullStringValue(paymentIntentID)
 		item.ProviderCheckoutSessionID = nullStringValue(providerCheckoutSessionID)
+		item.Provider = nullStringValue(provider)
+		item.ProviderPaymentIntentID = nullStringValue(providerPaymentIntentID)
+		item.Currency = nullStringValue(currency)
 		item.TradeNo = nullStringValue(tradeNo)
 		item.PaidAt = nullTimePtr(paidAt)
 		items = append(items, &item)

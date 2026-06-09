@@ -567,6 +567,7 @@ export type BillingInspectionRecord = {
   eventType?: string;
   packageId?: string;
   paymentIntentId?: string;
+  providerChargeId?: string;
   topupOrderId?: string;
   providerPaymentIntentId?: string;
   providerCheckoutSessionId?: string;

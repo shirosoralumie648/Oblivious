@@ -615,9 +615,12 @@ type TopupInspection struct {
 	OrganizationID            string     `json:"organizationId"`
 	UserID                    string     `json:"userId"`
 	PaymentIntentID           string     `json:"paymentIntentId,omitempty"`
+	Provider                  string     `json:"provider,omitempty"`
 	ProviderCheckoutSessionID string     `json:"providerCheckoutSessionId,omitempty"`
+	ProviderPaymentIntentID   string     `json:"providerPaymentIntentId,omitempty"`
 	Amount                    float64    `json:"amount"`
 	Money                     float64    `json:"money"`
+	Currency                  string     `json:"currency,omitempty"`
 	Status                    string     `json:"status"`
 	TradeNo                   string     `json:"tradeNo,omitempty"`
 	RefundedAmount            float64    `json:"refundedAmount"`

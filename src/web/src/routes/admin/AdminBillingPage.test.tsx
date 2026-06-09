@@ -190,6 +190,7 @@ describe('AdminBillingPage', () => {
         data: [
           {
             id: 'topup_1',
+            provider: 'stripe',
             amount: 25,
             money: 25,
             refundedAmount: 10,
@@ -229,7 +230,7 @@ describe('AdminBillingPage', () => {
 
     await waitFor(() =>
       expect(refundTopup).toHaveBeenCalledWith('topup_1', {
-        provider: 'manual',
+        provider: 'stripe',
         providerRefundID: 're_provider_operator_1',
         providerChargeID: 'ch_provider_operator_1',
         providerPaymentIntentID: 'pi_provider_topup_1',
@@ -249,10 +250,12 @@ describe('AdminBillingPage', () => {
         data: [
           {
             id: 'topup_1',
+            provider: 'alipay',
             amount: 25,
             money: 25,
             refundedAmount: 10,
             status: 'paid',
+            currency: 'cny',
             createdAt: '2026-06-04T00:00:00Z',
           },
         ],
@@ -266,6 +269,75 @@ describe('AdminBillingPage', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Confirm top-up refund' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Provider refund ID is required.');
+    expect(refundTopup).not.toHaveBeenCalled();
+  });
+
+  it('requires complete provider evidence before recording stripe top-up refunds', async () => {
+    getBillingSummary.mockResolvedValue({});
+    listBillingSurface
+      .mockResolvedValueOnce({ data: [], total: 0 })
+      .mockResolvedValueOnce({
+        data: [
+          {
+            id: 'topup_stripe_missing_evidence',
+            provider: 'stripe',
+            amount: 25,
+            money: 25,
+            refundedAmount: 10,
+            status: 'paid',
+            paymentIntentId: 'pi_topup_stripe_missing_evidence',
+            currency: 'usd',
+            createdAt: '2026-06-04T00:00:00Z',
+          },
+        ],
+        total: 1,
+      });
+
+    render(<AdminBillingPage />);
+
+    fireEvent.click(await screen.findByRole('tab', { name: 'Top-ups' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Record refund for top-up topup_stripe_missing_evidence' }));
+    fireEvent.change(await screen.findByLabelText('Provider refund ID'), { target: { value: 're_provider_operator_2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm top-up refund' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Stripe refunds require a provider charge ID or provider payment intent ID.');
+    expect(refundTopup).not.toHaveBeenCalled();
+  });
+
+  it('requires provider and currency before recording top-up refunds', async () => {
+    getBillingSummary.mockResolvedValue({});
+    listBillingSurface
+      .mockResolvedValueOnce({ data: [], total: 0 })
+      .mockResolvedValueOnce({
+        data: [
+          {
+            id: 'topup_missing_provider',
+            provider: '',
+            amount: 25,
+            money: 25,
+            refundedAmount: 10,
+            status: 'paid',
+            currency: '',
+            createdAt: '2026-06-04T00:00:00Z',
+          },
+        ],
+        total: 1,
+      });
+
+    render(<AdminBillingPage />);
+
+    fireEvent.click(await screen.findByRole('tab', { name: 'Top-ups' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Record refund for top-up topup_missing_provider' }));
+    fireEvent.change(await screen.findByLabelText('Provider refund ID'), { target: { value: 're_provider_operator_3' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm top-up refund' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Provider is required.');
+    expect(refundTopup).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'alipay' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm top-up refund' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Currency is required.');
     expect(refundTopup).not.toHaveBeenCalled();
   });
 });

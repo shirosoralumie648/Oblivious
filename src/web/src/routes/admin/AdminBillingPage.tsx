@@ -100,13 +100,13 @@ function topupRefundDraftFromRecord(record: BillingInspectionRecord): TopupRefun
   const refundableAmount = Math.max((record.amount ?? record.money ?? 0) - (record.refundedAmount ?? 0), 0);
   return {
     topupId: record.id,
-    provider: record.provider || 'manual',
+    provider: record.provider ?? '',
     providerRefundID: '',
-    providerChargeID: '',
+    providerChargeID: record.providerChargeId ?? '',
     providerPaymentIntentID: record.providerPaymentIntentId ?? '',
     amount: refundableAmount.toFixed(2),
     refundableAmount,
-    currency: record.currency || 'usd',
+    currency: record.currency ?? '',
     reason: 'admin recorded provider refund',
   };
 }
@@ -403,13 +403,29 @@ export function AdminBillingPage() {
       return;
     }
     const providerRefundID = state.topupRefundDraft.providerRefundID.trim();
+    const provider = state.topupRefundDraft.provider.trim();
+    const providerChargeID = state.topupRefundDraft.providerChargeID.trim();
+    const providerPaymentIntentID = state.topupRefundDraft.providerPaymentIntentID.trim();
+    const currency = state.topupRefundDraft.currency.trim();
     const amount = Number(state.topupRefundDraft.amount);
+    if (!provider) {
+      dispatch({ type: 'ACTION_ERROR', error: 'Provider is required.' });
+      return;
+    }
     if (!providerRefundID) {
       dispatch({ type: 'ACTION_ERROR', error: 'Provider refund ID is required.' });
       return;
     }
+    if (provider.toLowerCase() === 'stripe' && !providerChargeID && !providerPaymentIntentID) {
+      dispatch({ type: 'ACTION_ERROR', error: 'Stripe refunds require a provider charge ID or provider payment intent ID.' });
+      return;
+    }
     if (!Number.isFinite(amount) || amount <= 0) {
       dispatch({ type: 'ACTION_ERROR', error: 'Refund amount must be greater than zero.' });
+      return;
+    }
+    if (!currency) {
+      dispatch({ type: 'ACTION_ERROR', error: 'Currency is required.' });
       return;
     }
     if (amount > state.topupRefundDraft.refundableAmount) {
@@ -423,12 +439,12 @@ export function AdminBillingPage() {
     dispatch({ type: 'ACTION_START', recordId: state.topupRefundDraft.topupId });
     try {
       await api.refundTopup(state.topupRefundDraft.topupId, {
-        provider: state.topupRefundDraft.provider.trim() || 'manual',
+        provider,
         providerRefundID,
-        providerChargeID: state.topupRefundDraft.providerChargeID.trim() || undefined,
-        providerPaymentIntentID: state.topupRefundDraft.providerPaymentIntentID.trim() || undefined,
+        providerChargeID: providerChargeID || undefined,
+        providerPaymentIntentID: providerPaymentIntentID || undefined,
         amount,
-        currency: state.topupRefundDraft.currency.trim() || 'usd',
+        currency,
         reason: state.topupRefundDraft.reason.trim() || undefined,
       });
       dispatch({ type: 'ACTION_DONE' });

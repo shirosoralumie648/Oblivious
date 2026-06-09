@@ -171,6 +171,12 @@ func TestAdminBillingListsExposeAllRequiredSurfaces(t *testing.T) {
 			if !strings.Contains(body, `"`+tt.collection+`"`) || !strings.Contains(body, tt.expectedText) || !strings.Contains(body, `"total":`+strconv.Itoa(tt.expectedTotal)) {
 				t.Fatalf("expected %s response to contain collection %q, id %q, and total=%d; body=%s", tt.path, tt.collection, tt.expectedText, tt.expectedTotal, body)
 			}
+			if tt.collection == "topups" &&
+				(!strings.Contains(body, `"provider":"stripe"`) ||
+					!strings.Contains(body, `"providerPaymentIntentId":"pi_provider_admin_phase20"`) ||
+					!strings.Contains(body, `"currency":"usd"`)) {
+				t.Fatalf("expected topup response to expose provider refund evidence, body=%s", body)
+			}
 		})
 	}
 }
