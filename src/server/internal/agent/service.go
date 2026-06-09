@@ -1563,6 +1563,9 @@ func (s *Service) SkipPlanStep(ctx context.Context, session auth.Session, planSt
 	if !canSkipPlanStep(step) {
 		return nil, fmt.Errorf("plan step cannot be skipped after execution starts")
 	}
+	if err := s.ensurePriorPlanStepsDone(ctx, session, step); err != nil {
+		return nil, err
+	}
 
 	completedAt := time.Now().UTC()
 	skipped, err := s.store.UpdatePlanStep(ctx, session.OrganizationID, planStepID, UpdatePlanStepRequest{

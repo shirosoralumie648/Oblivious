@@ -2670,6 +2670,64 @@ func TestServiceSkipPlanStepAllowsLaterExecution(t *testing.T) {
 	}
 }
 
+func TestServiceSkipPlanStepRejectsOutOfOrderSkip(t *testing.T) {
+	now := time.Now().UTC()
+	store := &fakeStore{
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Status:         RunStatusPendingApproval,
+			StartedAt:      now,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+		planSteps: []*PlanStep{{
+			ID:             "step_1",
+			RunID:          "run_1",
+			OrganizationID: "org_1",
+			Index:          1,
+			Title:          "Still pending",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusNotRequired,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}, {
+			ID:             "step_2",
+			RunID:          "run_1",
+			OrganizationID: "org_1",
+			Index:          2,
+			Title:          "Future optional cleanup",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusNotRequired,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+	}
+	service := NewService(store, &fakeGateway{})
+	session := auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}}
+
+	skipped, err := service.SkipPlanStep(context.Background(), session, "step_2", "not needed")
+	if err == nil || !strings.Contains(err.Error(), "prior plan step 1 must be completed or skipped before executing step 2") {
+		t.Fatalf("expected out-of-order skip rejection, got step=%+v err=%v", skipped, err)
+	}
+	if skipped != nil {
+		t.Fatalf("expected rejected skip not to return an updated step, got %+v", skipped)
+	}
+	if store.planSteps[1].Status != PlanStepStatusPending || store.planSteps[1].Error != "" || store.planSteps[1].CompletedAt != nil {
+		t.Fatalf("expected rejected skip to preserve future step evidence, got %+v", store.planSteps[1])
+	}
+	run, err := store.GetRun(context.Background(), "org_1", "run_1")
+	if err != nil {
+		t.Fatalf("GetRun returned error: %v", err)
+	}
+	if run.Status != RunStatusPendingApproval || run.CompletedAt != nil {
+		t.Fatalf("expected rejected skip to preserve run state, got %+v", run)
+	}
+}
+
 func TestServiceSkipPlanStepCompletesRunWhenAllStepsAreDoneOrSkipped(t *testing.T) {
 	now := time.Now().UTC()
 	store := &fakeStore{
