@@ -108,6 +108,45 @@ require_session_csrf_contract() {
       missing << "components.schemas.SessionResponse.csrfToken must document reuse as X-CSRF-Token"
     end
 
+    def response_data_ref(operation, status)
+      operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "$ref") }&.
+        dig("properties", "data", "$ref")
+    end
+
+    public_auth_routes = {
+      "/api/v1/auth/register" => ["#/components/schemas/CredentialsRequest", "#/components/schemas/SessionResponse"],
+      "/api/v1/auth/login" => ["#/components/schemas/CredentialsRequest", "#/components/schemas/SessionResponse"],
+      "/api/v1/auth/password-reset/request" => ["#/components/schemas/PasswordResetRequest", "#/components/schemas/PasswordResetRequestResponse"],
+      "/api/v1/auth/password-reset/confirm" => ["#/components/schemas/PasswordResetConfirmRequest", "#/components/schemas/PasswordResetConfirmResponse"],
+    }
+    public_auth_routes.each do |path, (request_ref, response_ref)|
+      operation = spec.fetch("paths", {}).fetch(path, {}).fetch("post", {})
+      unless operation["security"] == []
+        missing << "POST #{path} must declare security: []"
+      end
+      unless operation.dig("requestBody", "content", "application/json", "schema", "$ref") == request_ref
+        missing << "POST #{path} request body must reference #{request_ref}"
+      end
+      unless response_data_ref(operation, "200") == response_ref
+        missing << "POST #{path} 200 data must reference #{response_ref}"
+      end
+    end
+
+    schemas = spec.fetch("components", {}).fetch("schemas", {})
+    unless schemas.dig("PasswordResetRequest", "required")&.include?("email") &&
+        schemas.dig("PasswordResetRequest", "properties", "email", "format") == "email"
+      missing << "PasswordResetRequest must require email"
+    end
+    unless schemas.dig("PasswordResetConfirmRequest", "required")&.include?("token") &&
+        schemas.dig("PasswordResetConfirmRequest", "required")&.include?("password")
+      missing << "PasswordResetConfirmRequest must require token and password"
+    end
+    unless schemas.dig("PasswordResetRequestResponse", "properties", "requested", "type") == "boolean" &&
+        schemas.dig("PasswordResetConfirmResponse", "properties", "reset", "type") == "boolean"
+      missing << "Password reset responses must document requested/reset booleans"
+    end
+
     logout = spec.fetch("paths", {}).fetch("/api/v1/auth/logout", {}).fetch("post", {})
     security = logout.fetch("security", spec.fetch("security", []))
     unless security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }

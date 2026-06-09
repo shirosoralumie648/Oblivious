@@ -961,6 +961,29 @@ func TestRouteSurfaceKeepsAuthRoutesPublic(t *testing.T) {
 	}
 }
 
+func TestRouteSurfaceAuthPasswordResetPublicRoutesWithoutDatabase(t *testing.T) {
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{})
+
+	tests := []routeSurfaceCase{
+		{"request password reset", stdhttp.MethodPost, "/api/v1/auth/password-reset/request"},
+		{"confirm password reset", stdhttp.MethodPost, "/api/v1/auth/password-reset/confirm"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(`{`))
+			request.Header.Set("Content-Type", "application/json")
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusBadRequest {
+				t.Fatalf("expected public password reset route to dispatch to JSON validation with 400 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
 func TestRouteSurfaceRejectsCookieMutationWithoutCSRF(t *testing.T) {
 	router := NewRouter(testConfig(), testDatabase(t))
 	cookie, _ := routeSurfaceRegisterUserWithCSRF(t, router, "csrf-user@example.com")
