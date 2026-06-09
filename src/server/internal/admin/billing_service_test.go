@@ -6,17 +6,80 @@ import (
 )
 
 func TestValidateTopupRefundRequestRejectsIncompleteOperatorEvidence(t *testing.T) {
-	err := ValidateTopupRefundRequest(TopupRefundRequest{
-		Provider:                "stripe",
-		ProviderRefundID:        "re_1",
-		ProviderPaymentIntentID: "",
-		Amount:                  10,
-		Currency:                "usd",
-	})
-	if err == nil {
-		t.Fatal("expected missing stripe provider charge/payment intent evidence to be rejected")
+	cases := []struct {
+		name    string
+		request TopupRefundRequest
+		want    string
+	}{
+		{
+			name: "stripe charge or payment intent",
+			request: TopupRefundRequest{
+				Provider:                "stripe",
+				ProviderRefundID:        "re_1",
+				ProviderPaymentIntentID: "",
+				Amount:                  10,
+				Currency:                "usd",
+			},
+			want: "providerChargeID or providerPaymentIntentID is required for stripe refunds",
+		},
+		{
+			name: "alipay payment intent",
+			request: TopupRefundRequest{
+				Provider:         "alipay",
+				ProviderRefundID: "alipay_refund_1",
+				Amount:           10,
+				Currency:         "cny",
+			},
+			want: "providerPaymentIntentID is required for domestic provider refunds",
+		},
+		{
+			name: "wechatpay payment intent",
+			request: TopupRefundRequest{
+				Provider:         "wechatpay",
+				ProviderRefundID: "wechatpay_refund_1",
+				Amount:           10,
+				Currency:         "cny",
+			},
+			want: "providerPaymentIntentID is required for domestic provider refunds",
+		},
 	}
-	if !strings.Contains(err.Error(), "providerChargeID or providerPaymentIntentID is required for stripe refunds") {
-		t.Fatalf("unexpected validation error: %v", err)
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateTopupRefundRequest(tt.request)
+			if err == nil {
+				t.Fatal("expected missing operator evidence to be rejected")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("unexpected validation error: %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateTopupRefundRequestAcceptsDomesticOperatorEvidence(t *testing.T) {
+	cases := []TopupRefundRequest{
+		{
+			Provider:                "alipay",
+			ProviderRefundID:        "alipay_refund_1",
+			ProviderPaymentIntentID: "alipay_payment_1",
+			Amount:                  10,
+			Currency:                "cny",
+		},
+		{
+			Provider:                "wechatpay",
+			ProviderRefundID:        "wechatpay_refund_1",
+			ProviderPaymentIntentID: "wechatpay_payment_1",
+			Amount:                  10,
+			Currency:                "cny",
+		},
+	}
+
+	for _, request := range cases {
+		t.Run(request.Provider, func(t *testing.T) {
+			if err := ValidateTopupRefundRequest(request); err != nil {
+				t.Fatalf("expected domestic refund evidence to be accepted: %v", err)
+			}
+		})
 	}
 }

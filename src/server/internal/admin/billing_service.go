@@ -63,6 +63,9 @@ func ValidateTopupRefundRequest(request TopupRefundRequest) error {
 	if provider == "stripe" && strings.TrimSpace(request.ProviderChargeID) == "" && strings.TrimSpace(request.ProviderPaymentIntentID) == "" {
 		return fmt.Errorf("providerChargeID or providerPaymentIntentID is required for stripe refunds")
 	}
+	if (provider == "alipay" || provider == "wechatpay") && strings.TrimSpace(request.ProviderPaymentIntentID) == "" {
+		return fmt.Errorf("providerPaymentIntentID is required for domestic provider refunds")
+	}
 	return nil
 }
 

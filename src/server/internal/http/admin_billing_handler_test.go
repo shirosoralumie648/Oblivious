@@ -499,6 +499,31 @@ func TestAdminBillingRecordTopupRefundHandlerCallsAdminService(t *testing.T) {
 	}
 }
 
+func TestAdminBillingRecordTopupRefundHandlerPassesDomesticPaymentIntentEvidence(t *testing.T) {
+	store := &fakeAdminStore{}
+	handler := newAdminHandler(admin.NewService(store))
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(
+		stdhttp.MethodPost,
+		"/api/v1/admin/billing/topups/topup_1/refund",
+		strings.NewReader(`{"provider":"alipay","providerRefundID":"alipay_re_1","providerPaymentIntentID":"alipay_pi_1","amount":10,"currency":"cny","reason":"operator confirmed refund"}`),
+	)
+	handler.recordTopupRefund(recorder, request, "topup_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected handler 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if store.recordedTopupRefundID != "topup_1" ||
+		store.recordedTopupRefund.Provider != "alipay" ||
+		store.recordedTopupRefund.ProviderRefundID != "alipay_re_1" ||
+		store.recordedTopupRefund.ProviderPaymentIntentID != "alipay_pi_1" ||
+		store.recordedTopupRefund.Amount != 10 ||
+		store.recordedTopupRefund.Currency != "cny" {
+		t.Fatalf("expected domestic topup refund evidence to reach store, got id=%q input=%+v", store.recordedTopupRefundID, store.recordedTopupRefund)
+	}
+}
+
 func TestAdminBillingRecordTopupRefundHandlerRejectsMissingOperatorEvidence(t *testing.T) {
 	cases := []struct {
 		name string
@@ -529,6 +554,11 @@ func TestAdminBillingRecordTopupRefundHandlerRejectsMissingOperatorEvidence(t *t
 			name: "stripe provider object",
 			body: `{"provider":"stripe","providerRefundID":"re_1","amount":10,"currency":"usd"}`,
 			want: "providerChargeID or providerPaymentIntentID is required for stripe refunds",
+		},
+		{
+			name: "domestic provider payment intent",
+			body: `{"provider":"alipay","providerRefundID":"re_1","amount":10,"currency":"cny"}`,
+			want: "providerPaymentIntentID is required for domestic provider refunds",
 		},
 	}
 
