@@ -3300,6 +3300,40 @@ require_relay_alias_bearer_contract() {
   ' "$openapi_file" "$@"
 }
 
+require_websocket_contract() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+    op = spec.fetch("paths", {}).fetch("/api/v1/ws", {}).fetch("get", {})
+    missing = []
+
+    missing << "GET /api/v1/ws must be documented" if op.empty?
+    unless op.fetch("tags", []).include?("Realtime")
+      missing << "GET /api/v1/ws must be tagged Realtime"
+    end
+
+    security = op.fetch("security", spec.fetch("security", []))
+    unless security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && !entry.key?("csrfHeader") }
+      missing << "GET /api/v1/ws must require cookieAuth without csrfHeader"
+    end
+    unless op.dig("responses", "101")
+      missing << "GET /api/v1/ws must document 101 WebSocket upgrade"
+    end
+    unless op.dig("responses", "401", "$ref") == "#/components/responses/Unauthorized"
+      missing << "GET /api/v1/ws 401 must reference Unauthorized"
+    end
+    unless op.dig("responses", "405", "$ref") == "#/components/responses/MethodNotAllowed"
+      missing << "GET /api/v1/ws 405 must reference MethodNotAllowed"
+    end
+
+    unless missing.empty?
+      warn "[openapi-contract] WebSocket contract is incomplete:"
+      missing.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 relay_alias_paths=(
   "/api/v1/relay/chat/completions"
   "/api/v1/relay/embeddings"
@@ -3436,6 +3470,7 @@ required_paths=(
   "/api/v1/app/quota/topup"
   "/api/v1/app/personas"
   "/api/v1/app/personas/{personaId}"
+  "/api/v1/ws"
   "/api/v1/app/conversations/{conversationId}/share"
   "/api/v1/app/conversations/{conversationId}/messages/{messageId}/share"
   "/api/v1/app/message-shares/{shareId}"
@@ -3512,6 +3547,7 @@ require_public_security_empty "/api/v1/billing/stripe/webhook"
 require_public_security_empty "/api/v1/billing/alipay/webhook"
 require_public_security_empty "/api/v1/billing/wechatpay/webhook"
 require_relay_alias_bearer_contract "${relay_alias_paths[@]}"
+require_websocket_contract
 require_api_json_responses_use_envelope
 require_session_csrf_contract
 require_marketplace_paid_install_contract

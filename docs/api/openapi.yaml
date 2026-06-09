@@ -5685,6 +5685,21 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /api/v1/ws:
+    get:
+      summary: 建立工作区实时事件 WebSocket
+      operationId: connectWorkspaceWebSocket
+      tags: [Realtime]
+      security:
+        - cookieAuth: []
+      responses:
+        "101":
+          description: WebSocket 连接已升级
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
   /api/v1/app/personas:
     get:
       summary: 获取对话人格列表

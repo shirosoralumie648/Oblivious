@@ -56,6 +56,32 @@ func TestRouteSurfaceRequiresSessionForAppRoutes(t *testing.T) {
 	}
 }
 
+func TestRouteSurfaceWebSocketRequiresSessionWithoutDatabase(t *testing.T) {
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/ws", nil)
+
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusUnauthorized {
+		t.Fatalf("expected websocket route to require session with 401, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestRouteSurfaceWebSocketRejectsUnsupportedMethodsWithoutDatabase(t *testing.T) {
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/ws", nil)
+
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusMethodNotAllowed {
+		t.Fatalf("expected websocket route to reject POST with 405, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestRouteSurfaceRegistersCanonicalKnowledgeRoutesThroughRegistrar(t *testing.T) {
 	source, err := os.ReadFile("router.go")
 	if err != nil {
