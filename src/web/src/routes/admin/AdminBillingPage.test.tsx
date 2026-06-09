@@ -167,8 +167,11 @@ describe('AdminBillingPage', () => {
 
     fireEvent.click(await screen.findByRole('tab', { name: 'Payouts' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Mark payout payout_1 paid' }));
+    expect(await screen.findByRole('heading', { name: 'Payout confirmation' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Provider payout ID'), { target: { value: 'provider-paid-operator-1' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm paid payout' }));
 
-    await waitFor(() => expect(markMarketplacePayoutPaid).toHaveBeenCalledWith('payout_1', 'manual-batch-1'));
+    await waitFor(() => expect(markMarketplacePayoutPaid).toHaveBeenCalledWith('payout_1', 'provider-paid-operator-1'));
     expect(await screen.findByText('Paid Out')).toBeInTheDocument();
   });
 
@@ -217,17 +220,52 @@ describe('AdminBillingPage', () => {
 
     fireEvent.click(await screen.findByRole('tab', { name: 'Top-ups' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Record refund for top-up topup_1' }));
+    expect(await screen.findByRole('heading', { name: 'Top-up refund' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Provider refund ID'), { target: { value: 're_provider_operator_1' } });
+    fireEvent.change(screen.getByLabelText('Provider charge ID'), { target: { value: 'ch_provider_operator_1' } });
+    fireEvent.change(screen.getByLabelText('Refund amount'), { target: { value: '12.5' } });
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'duplicate provider capture' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm top-up refund' }));
 
     await waitFor(() =>
       expect(refundTopup).toHaveBeenCalledWith('topup_1', {
         provider: 'manual',
-        providerRefundID: 'admin-topup_1',
+        providerRefundID: 're_provider_operator_1',
+        providerChargeID: 'ch_provider_operator_1',
         providerPaymentIntentID: 'pi_provider_topup_1',
-        amount: 15,
+        amount: 12.5,
         currency: 'usd',
-        reason: 'admin recorded provider refund',
+        reason: 'duplicate provider capture',
       })
     );
     await waitFor(() => expect(listBillingSurface).toHaveBeenLastCalledWith('topups', expect.objectContaining({ limit: 50 })));
+  });
+
+  it('requires provider evidence before submitting billing operator actions', async () => {
+    getBillingSummary.mockResolvedValue({});
+    listBillingSurface
+      .mockResolvedValueOnce({ data: [], total: 0 })
+      .mockResolvedValueOnce({
+        data: [
+          {
+            id: 'topup_1',
+            amount: 25,
+            money: 25,
+            refundedAmount: 10,
+            status: 'paid',
+            createdAt: '2026-06-04T00:00:00Z',
+          },
+        ],
+        total: 1,
+      });
+
+    render(<AdminBillingPage />);
+
+    fireEvent.click(await screen.findByRole('tab', { name: 'Top-ups' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Record refund for top-up topup_1' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Confirm top-up refund' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Provider refund ID is required.');
+    expect(refundTopup).not.toHaveBeenCalled();
   });
 });

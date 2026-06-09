@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 
 import { DataTable, type DataTableColumn } from '../../components/shared/DataTable';
 import { StatusBadge, type StatusBadgeStatus } from '../../components/shared/StatusBadge';
@@ -15,6 +16,23 @@ type SurfaceConfig = {
   columns: DataTableColumn<BillingInspectionRecord>[];
 };
 
+type PayoutPaidDraft = {
+  payoutId: string;
+  providerPayoutId: string;
+};
+
+type TopupRefundDraft = {
+  topupId: string;
+  provider: string;
+  providerRefundID: string;
+  providerChargeID: string;
+  providerPaymentIntentID: string;
+  amount: string;
+  refundableAmount: number;
+  currency: string;
+  reason: string;
+};
+
 type BillingState = {
   summary: BillingSummary;
   rows: BillingInspectionRecord[];
@@ -23,6 +41,8 @@ type BillingState = {
   error: string | null;
   actionError: string | null;
   actioningRecordId: string | null;
+  payoutPaidDraft: PayoutPaidDraft | null;
+  topupRefundDraft: TopupRefundDraft | null;
   surface: BillingSurface;
   filters: {
     organizationID: string;
@@ -40,6 +60,11 @@ type BillingAction =
   | { type: 'ACTION_START'; recordId: string }
   | { type: 'ACTION_DONE' }
   | { type: 'ACTION_ERROR'; error: string }
+  | { type: 'OPEN_PAYOUT_PAID'; record: BillingInspectionRecord }
+  | { type: 'OPEN_TOPUP_REFUND'; record: BillingInspectionRecord }
+  | { type: 'CLOSE_ACTION_FORM' }
+  | { type: 'SET_PAYOUT_FIELD'; field: keyof PayoutPaidDraft; value: string }
+  | { type: 'SET_TOPUP_REFUND_FIELD'; field: keyof TopupRefundDraft; value: string }
   | { type: 'SET_SURFACE'; surface: BillingSurface }
   | { type: 'SET_FILTER'; field: keyof BillingState['filters']; value: string }
   | { type: 'OPEN_FAILED_WEBHOOKS' };
@@ -52,6 +77,8 @@ const initialState: BillingState = {
   error: null,
   actionError: null,
   actioningRecordId: null,
+  payoutPaidDraft: null,
+  topupRefundDraft: null,
   surface: 'sessions',
   filters: {
     organizationID: '',
@@ -61,6 +88,28 @@ const initialState: BillingState = {
     provider: '',
   },
 };
+
+function payoutPaidDraftFromRecord(record: BillingInspectionRecord): PayoutPaidDraft {
+  return {
+    payoutId: record.id,
+    providerPayoutId: record.providerPayoutId ?? '',
+  };
+}
+
+function topupRefundDraftFromRecord(record: BillingInspectionRecord): TopupRefundDraft {
+  const refundableAmount = Math.max((record.amount ?? record.money ?? 0) - (record.refundedAmount ?? 0), 0);
+  return {
+    topupId: record.id,
+    provider: record.provider || 'manual',
+    providerRefundID: '',
+    providerChargeID: '',
+    providerPaymentIntentID: record.providerPaymentIntentId ?? '',
+    amount: refundableAmount.toFixed(2),
+    refundableAmount,
+    currency: record.currency || 'usd',
+    reason: 'admin recorded provider refund',
+  };
+}
 
 function reducer(state: BillingState, action: BillingAction): BillingState {
   switch (action.type) {
@@ -73,15 +122,46 @@ function reducer(state: BillingState, action: BillingAction): BillingState {
     case 'ACTION_START':
       return { ...state, actionError: null, actioningRecordId: action.recordId };
     case 'ACTION_DONE':
-      return { ...state, actioningRecordId: null };
+      return { ...state, actioningRecordId: null, payoutPaidDraft: null, topupRefundDraft: null };
     case 'ACTION_ERROR':
       return { ...state, actioningRecordId: null, actionError: action.error };
+    case 'OPEN_PAYOUT_PAID':
+      return {
+        ...state,
+        actionError: null,
+        payoutPaidDraft: payoutPaidDraftFromRecord(action.record),
+        topupRefundDraft: null,
+      };
+    case 'OPEN_TOPUP_REFUND':
+      return {
+        ...state,
+        actionError: null,
+        payoutPaidDraft: null,
+        topupRefundDraft: topupRefundDraftFromRecord(action.record),
+      };
+    case 'CLOSE_ACTION_FORM':
+      return { ...state, actionError: null, payoutPaidDraft: null, topupRefundDraft: null };
+    case 'SET_PAYOUT_FIELD':
+      return state.payoutPaidDraft
+        ? { ...state, payoutPaidDraft: { ...state.payoutPaidDraft, [action.field]: action.value } }
+        : state;
+    case 'SET_TOPUP_REFUND_FIELD':
+      return state.topupRefundDraft
+        ? { ...state, topupRefundDraft: { ...state.topupRefundDraft, [action.field]: action.value } }
+        : state;
     case 'SET_SURFACE':
-      return { ...state, surface: action.surface };
+      return { ...state, surface: action.surface, actionError: null, payoutPaidDraft: null, topupRefundDraft: null };
     case 'SET_FILTER':
-      return { ...state, filters: { ...state.filters, [action.field]: action.value } };
+      return { ...state, filters: { ...state.filters, [action.field]: action.value }, actionError: null, payoutPaidDraft: null, topupRefundDraft: null };
     case 'OPEN_FAILED_WEBHOOKS':
-      return { ...state, surface: 'webhookEvents', filters: { ...state.filters, status: 'failed' } };
+      return {
+        ...state,
+        surface: 'webhookEvents',
+        filters: { ...state.filters, status: 'failed' },
+        actionError: null,
+        payoutPaidDraft: null,
+        topupRefundDraft: null,
+      };
     default:
       return state;
   }
@@ -299,11 +379,18 @@ export function AdminBillingPage() {
     void loadBilling();
   }, [loadBilling]);
 
-  const handleMarkPayoutPaid = async (record: BillingInspectionRecord) => {
-    const providerPayoutId = record.providerPayoutId || record.id;
-    dispatch({ type: 'ACTION_START', recordId: record.id });
+  const handleMarkPayoutPaid = async () => {
+    if (!state.payoutPaidDraft) {
+      return;
+    }
+    const providerPayoutId = state.payoutPaidDraft.providerPayoutId.trim();
+    if (!providerPayoutId) {
+      dispatch({ type: 'ACTION_ERROR', error: 'Provider payout ID is required.' });
+      return;
+    }
+    dispatch({ type: 'ACTION_START', recordId: state.payoutPaidDraft.payoutId });
     try {
-      await api.markMarketplacePayoutPaid(record.id, providerPayoutId);
+      await api.markMarketplacePayoutPaid(state.payoutPaidDraft.payoutId, providerPayoutId);
       dispatch({ type: 'ACTION_DONE' });
       await loadBilling();
     } catch (error) {
@@ -311,21 +398,38 @@ export function AdminBillingPage() {
     }
   };
 
-  const handleRefundTopup = async (record: BillingInspectionRecord) => {
-    const remainingAmount = Math.max((record.amount ?? record.money ?? 0) - (record.refundedAmount ?? 0), 0);
-    if (remainingAmount <= 0) {
+  const handleRefundTopup = async () => {
+    if (!state.topupRefundDraft) {
+      return;
+    }
+    const providerRefundID = state.topupRefundDraft.providerRefundID.trim();
+    const amount = Number(state.topupRefundDraft.amount);
+    if (!providerRefundID) {
+      dispatch({ type: 'ACTION_ERROR', error: 'Provider refund ID is required.' });
+      return;
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      dispatch({ type: 'ACTION_ERROR', error: 'Refund amount must be greater than zero.' });
+      return;
+    }
+    if (amount > state.topupRefundDraft.refundableAmount) {
+      dispatch({ type: 'ACTION_ERROR', error: 'Refund amount cannot exceed refundable balance.' });
+      return;
+    }
+    if (state.topupRefundDraft.refundableAmount <= 0) {
       dispatch({ type: 'ACTION_ERROR', error: 'No refundable top-up balance remains.' });
       return;
     }
-    dispatch({ type: 'ACTION_START', recordId: record.id });
+    dispatch({ type: 'ACTION_START', recordId: state.topupRefundDraft.topupId });
     try {
-      await api.refundTopup(record.id, {
-        provider: record.provider || 'manual',
-        providerRefundID: record.providerRefundId || `admin-${record.id}`,
-        providerPaymentIntentID: record.providerPaymentIntentId,
-        amount: remainingAmount,
-        currency: record.currency || 'usd',
-        reason: 'admin recorded provider refund',
+      await api.refundTopup(state.topupRefundDraft.topupId, {
+        provider: state.topupRefundDraft.provider.trim() || 'manual',
+        providerRefundID,
+        providerChargeID: state.topupRefundDraft.providerChargeID.trim() || undefined,
+        providerPaymentIntentID: state.topupRefundDraft.providerPaymentIntentID.trim() || undefined,
+        amount,
+        currency: state.topupRefundDraft.currency.trim() || 'usd',
+        reason: state.topupRefundDraft.reason.trim() || undefined,
       });
       dispatch({ type: 'ACTION_DONE' });
       await loadBilling();
@@ -338,6 +442,7 @@ export function AdminBillingPage() {
   const refundedPaymentAmount = state.summary.paymentIntents?.refundedAmount ?? 0;
   const refundedTopupAmount = state.summary.topups?.refundedAmount ?? 0;
   const refundedRefundAmount = state.summary.refunds?.refundedAmount ?? 0;
+  const actionFormOpen = state.payoutPaidDraft !== null || state.topupRefundDraft !== null;
 
   return (
     <div className="space-y-6">
@@ -443,6 +548,129 @@ export function AdminBillingPage() {
         />
       </div>
 
+      {actionFormOpen ? (
+        <div className="rounded-lg border border-border bg-card p-4">
+          {state.payoutPaidDraft ? (
+            <div className="space-y-4">
+              <div>
+                <h2 className="text-base font-semibold text-foreground">Payout confirmation</h2>
+                <p className="mt-1 font-mono text-xs text-muted-foreground">{state.payoutPaidDraft.payoutId}</p>
+              </div>
+              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto_auto] md:items-end">
+                <div className="space-y-2">
+                  <label htmlFor="billing-provider-payout-id" className="text-sm font-medium">Provider payout ID</label>
+                  <Input
+                    id="billing-provider-payout-id"
+                    value={state.payoutPaidDraft.providerPayoutId}
+                    className="min-h-[44px]"
+                    onChange={(event) => dispatch({ type: 'SET_PAYOUT_FIELD', field: 'providerPayoutId', value: event.target.value })}
+                  />
+                </div>
+                <Button
+                  type="button"
+                  className="min-h-[44px]"
+                  disabled={state.actioningRecordId === state.payoutPaidDraft.payoutId}
+                  onClick={() => void handleMarkPayoutPaid()}
+                >
+                  Confirm paid payout
+                </Button>
+                <Button type="button" variant="outline" className="min-h-[44px]" onClick={() => dispatch({ type: 'CLOSE_ACTION_FORM' })}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : null}
+          {state.topupRefundDraft ? (
+            <div className="space-y-4">
+              <div>
+                <h2 className="text-base font-semibold text-foreground">Top-up refund</h2>
+                <p className="mt-1 font-mono text-xs text-muted-foreground">{state.topupRefundDraft.topupId}</p>
+              </div>
+              <div className="grid gap-3 lg:grid-cols-3">
+                <div className="space-y-2">
+                  <label htmlFor="billing-refund-provider" className="text-sm font-medium">Provider</label>
+                  <Input
+                    id="billing-refund-provider"
+                    value={state.topupRefundDraft.provider}
+                    className="min-h-[44px]"
+                    onChange={(event) => dispatch({ type: 'SET_TOPUP_REFUND_FIELD', field: 'provider', value: event.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="billing-provider-refund-id" className="text-sm font-medium">Provider refund ID</label>
+                  <Input
+                    id="billing-provider-refund-id"
+                    value={state.topupRefundDraft.providerRefundID}
+                    className="min-h-[44px]"
+                    onChange={(event) => dispatch({ type: 'SET_TOPUP_REFUND_FIELD', field: 'providerRefundID', value: event.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="billing-provider-charge-id" className="text-sm font-medium">Provider charge ID</label>
+                  <Input
+                    id="billing-provider-charge-id"
+                    value={state.topupRefundDraft.providerChargeID}
+                    className="min-h-[44px]"
+                    onChange={(event) => dispatch({ type: 'SET_TOPUP_REFUND_FIELD', field: 'providerChargeID', value: event.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="billing-provider-payment-intent-id" className="text-sm font-medium">Provider payment intent ID</label>
+                  <Input
+                    id="billing-provider-payment-intent-id"
+                    value={state.topupRefundDraft.providerPaymentIntentID}
+                    className="min-h-[44px]"
+                    onChange={(event) => dispatch({ type: 'SET_TOPUP_REFUND_FIELD', field: 'providerPaymentIntentID', value: event.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="billing-refund-amount" className="text-sm font-medium">Refund amount</label>
+                  <Input
+                    id="billing-refund-amount"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={state.topupRefundDraft.amount}
+                    className="min-h-[44px]"
+                    onChange={(event) => dispatch({ type: 'SET_TOPUP_REFUND_FIELD', field: 'amount', value: event.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="billing-refund-currency" className="text-sm font-medium">Currency</label>
+                  <Input
+                    id="billing-refund-currency"
+                    value={state.topupRefundDraft.currency}
+                    className="min-h-[44px]"
+                    onChange={(event) => dispatch({ type: 'SET_TOPUP_REFUND_FIELD', field: 'currency', value: event.target.value })}
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="billing-refund-reason" className="text-sm font-medium">Reason</label>
+                <Textarea
+                  id="billing-refund-reason"
+                  value={state.topupRefundDraft.reason}
+                  onChange={(event) => dispatch({ type: 'SET_TOPUP_REFUND_FIELD', field: 'reason', value: event.target.value })}
+                />
+              </div>
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button type="button" variant="outline" className="min-h-[44px]" onClick={() => dispatch({ type: 'CLOSE_ACTION_FORM' })}>
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  className="min-h-[44px]"
+                  disabled={state.actioningRecordId === state.topupRefundDraft.topupId}
+                  onClick={() => void handleRefundTopup()}
+                >
+                  Confirm top-up refund
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       <DataTable
         columns={activeSurface.columns}
         data={state.rows}
@@ -460,7 +688,7 @@ export function AdminBillingPage() {
                     className="min-h-[36px]"
                     disabled={state.actioningRecordId === record.id}
                     aria-label={`Mark payout ${record.id} paid`}
-                    onClick={() => void handleMarkPayoutPaid(record)}
+                    onClick={() => dispatch({ type: 'OPEN_PAYOUT_PAID', record })}
                   >
                     Mark paid
                   </Button>
@@ -475,7 +703,7 @@ export function AdminBillingPage() {
                       className="min-h-[36px]"
                       disabled={state.actioningRecordId === record.id}
                       aria-label={`Record refund for top-up ${record.id}`}
-                      onClick={() => void handleRefundTopup(record)}
+                      onClick={() => dispatch({ type: 'OPEN_TOPUP_REFUND', record })}
                     >
                       Record refund
                     </Button>
