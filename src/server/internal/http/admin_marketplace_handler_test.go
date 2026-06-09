@@ -339,6 +339,82 @@ func TestAdminHandlerListsChannelRuntimeStats(t *testing.T) {
 	}
 }
 
+func TestAdminChannelOperatorRoutesDispatchThroughRouter(t *testing.T) {
+	session := routeSurfaceAdminSession()
+	store := &fakeAdminStore{
+		currentChannelModels: []string{"gpt-4o", "legacy-model"},
+		channelTestResult: &admin.ChannelTestResult{
+			Success: true,
+			Latency: 37,
+			Models:  []string{"gpt-4o", "gpt-4.1"},
+			Balance: &admin.ChannelBalance{Amount: 12.5, Currency: "USD", Source: "provider_balance"},
+			Health:  &admin.ChannelHealthDetail{Status: "online", CheckedAt: time.Date(2026, 6, 4, 12, 30, 0, 0, time.UTC)},
+		},
+	}
+	service := admin.NewService(store, admin.WithChannelRuntimeStatsProvider(fakeRuntimeStatsProvider{
+		stats: map[string]*relaytypes.ChannelStats{
+			"ch_1": {
+				ChannelID:     "ch_1",
+				RPMCurrent:    4,
+				TPMCurrent:    128,
+				TotalRequests: 9,
+				SuccessCount:  8,
+				FailureCount:  1,
+			},
+		},
+	}))
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{
+		AdminService: service,
+		AuthStore:    stubAuthStore{session: session},
+	})
+	cookie := routeSurfaceSignedSessionCookie(t, session)
+	csrfToken := routeSurfaceCSRFToken(session)
+
+	tests := []struct {
+		name     string
+		method   string
+		path     string
+		body     string
+		expected []string
+	}{
+		{"stats", stdhttp.MethodGet, "/api/v1/admin/channels/stats", "", []string{`"channelID":"ch_1"`, `"rpmCurrent":4`}},
+		{"sync models", stdhttp.MethodPost, "/api/v1/admin/channels/ch_1/sync-models", "", []string{`"testResult"`, `"models":["gpt-4o","gpt-4.1"]`}},
+		{"detect model updates", stdhttp.MethodPost, "/api/v1/admin/channels/ch_1/model-updates/detect", "", []string{`"added":["gpt-4.1"]`, `"removed":["legacy-model"]`}},
+		{"apply model updates", stdhttp.MethodPost, "/api/v1/admin/channels/ch_1/model-updates/apply", `{"mode":"replace"}`, []string{`"mode":"replace"`, `"appliedModels":["gpt-4o","gpt-4.1"]`}},
+		{"refresh balance", stdhttp.MethodPost, "/api/v1/admin/channels/ch_1/refresh-balance", "", []string{`"balance"`, `"amount":12.5`}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
+			request.Header.Set("Content-Type", "application/json")
+			if tt.method != stdhttp.MethodGet {
+				addCSRF(request, csrfToken)
+			}
+			request.AddCookie(cookie)
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusOK {
+				t.Fatalf("expected %s %s to dispatch with 200, got %d: %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+			body := recorder.Body.String()
+			for _, expected := range tt.expected {
+				if !strings.Contains(body, expected) {
+					t.Fatalf("expected response to contain %s, got %s", expected, body)
+				}
+			}
+		})
+	}
+	if !equalStrings(store.updatedChannelModels, []string{"gpt-4o", "gpt-4.1"}) {
+		t.Fatalf("expected apply route to persist replaced models, got %#v", store.updatedChannelModels)
+	}
+	if store.channelDiagnostics == nil || store.channelDiagnostics.Balance == nil || store.channelDiagnostics.Balance.Amount != 12.5 {
+		t.Fatalf("expected refresh-balance route to persist diagnostics, got %#v", store.channelDiagnostics)
+	}
+}
+
 func TestAdminHandlerUpdatesRelayPricingSettings(t *testing.T) {
 	store := &fakeAdminStore{}
 	var applied admin.RelayPricingSettings

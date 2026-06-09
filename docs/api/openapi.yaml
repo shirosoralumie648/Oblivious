@@ -4077,6 +4077,68 @@ components:
           type: string
           enum: [deleted]
 
+    AdminChannelModelSyncResponse:
+      type: object
+      required: [channel, testResult]
+      properties:
+        channel:
+          $ref: "#/components/schemas/AdminChannel"
+        testResult:
+          $ref: "#/components/schemas/AdminChannelTestResult"
+
+    AdminChannelModelUpdatePreview:
+      type: object
+      required: [id, currentModels, upstreamModels, added, removed, unchanged, testResult]
+      properties:
+        id:
+          type: string
+        currentModels:
+          type: array
+          items:
+            type: string
+        upstreamModels:
+          type: array
+          items:
+            type: string
+        added:
+          type: array
+          items:
+            type: string
+        removed:
+          type: array
+          items:
+            type: string
+        unchanged:
+          type: array
+          items:
+            type: string
+        testResult:
+          $ref: "#/components/schemas/AdminChannelTestResult"
+
+    AdminChannelModelUpdateApplyRequest:
+      type: object
+      properties:
+        mode:
+          type: string
+          enum: [merge, replace]
+          description: Empty or omitted mode defaults to merge.
+
+    AdminChannelModelUpdateApplyResponse:
+      type: object
+      required: [channel, preview, mode, appliedModels]
+      properties:
+        channel:
+          $ref: "#/components/schemas/AdminChannel"
+        preview:
+          $ref: "#/components/schemas/AdminChannelModelUpdatePreview"
+        mode:
+          type: string
+          enum: [merge, replace]
+        appliedModels:
+          type: array
+          items:
+            type: string
+
     AdminChannelBalance:
       type: object
       required: [amount, currency]
@@ -4153,6 +4215,63 @@ components:
         checkedAt:
           type: string
           format: date-time
+
+    AdminChannelBalanceRefreshResponse:
+      type: object
+      required: [id, status, testResult, checkedAt]
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+        balance:
+          $ref: "#/components/schemas/AdminChannelBalance"
+        balanceError:
+          type: string
+        channelHealth:
+          $ref: "#/components/schemas/AdminChannelHealthDetail"
+        testResult:
+          $ref: "#/components/schemas/AdminChannelTestResult"
+        checkedAt:
+          type: string
+          format: date-time
+
+    AdminChannelRuntimeStats:
+      type: object
+      required: [channelID, rpmCurrent, tpmCurrent, totalRequests, successCount, failureCount, avgLatencyMs, affinityConversationCount]
+      properties:
+        channelID:
+          type: string
+        rpmCurrent:
+          type: integer
+        tpmCurrent:
+          type: integer
+        totalRequests:
+          type: integer
+          format: int64
+        successCount:
+          type: integer
+          format: int64
+        failureCount:
+          type: integer
+          format: int64
+        avgLatencyMs:
+          type: number
+          format: double
+        rateLimitedUntil:
+          type: string
+          format: date-time
+        affinityConversationCount:
+          type: integer
+
+    AdminChannelRuntimeStatsResponse:
+      type: object
+      required: [stats]
+      properties:
+        stats:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminChannelRuntimeStats"
 
     AdminUserStats:
       type: object
@@ -11136,6 +11255,28 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
 
+  /api/v1/admin/channels/stats:
+    get:
+      summary: 获取 Relay channel 运行时统计
+      operationId: listAdminChannelRuntimeStats
+      tags: [Admin, Relay]
+      responses:
+        "200":
+          description: In-memory Relay channel runtime counters
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminChannelRuntimeStatsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
   /api/v1/admin/channels/{channelId}:
     get:
       summary: 管理员获取 Relay channel 详情
@@ -11262,6 +11403,152 @@ paths:
                     properties:
                       data:
                         $ref: "#/components/schemas/AdminChannelTestResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/admin/channels/{channelId}/sync-models:
+    post:
+      summary: 探测并同步 Relay channel 模型列表
+      operationId: syncAdminChannelModels
+      tags: [Admin, Relay]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      parameters:
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Persisted channel model list and provider probe result
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminChannelModelSyncResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/admin/channels/{channelId}/model-updates/detect:
+    post:
+      summary: 探测 Relay channel 模型列表变更
+      operationId: detectAdminChannelModelUpdates
+      tags: [Admin, Relay]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      parameters:
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Upstream model diff without persisting changes
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminChannelModelUpdatePreview"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/admin/channels/{channelId}/model-updates/apply:
+    post:
+      summary: 应用 Relay channel 模型列表变更
+      operationId: applyAdminChannelModelUpdates
+      tags: [Admin, Relay]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      parameters:
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminChannelModelUpdateApplyRequest"
+      responses:
+        "200":
+          description: Persisted channel model update result
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminChannelModelUpdateApplyResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/admin/channels/{channelId}/refresh-balance:
+    post:
+      summary: 刷新并保存 Relay channel 余额和健康诊断
+      operationId: refreshAdminChannelBalance
+      tags: [Admin, Relay]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      parameters:
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Persisted channel balance and health diagnostics
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminChannelBalanceRefreshResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":

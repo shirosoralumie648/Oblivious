@@ -420,6 +420,11 @@ require_admin_channel_secret_response_contract() {
       ["/api/v1/admin/channels/{channelId}", "put", "200"] => "#/components/schemas/AdminChannel",
       ["/api/v1/admin/channels/{channelId}/test", "post", "200"] => "#/components/schemas/AdminChannelTestResult",
       ["/api/v1/admin/channels/{channelId}/health", "get", "200"] => "#/components/schemas/AdminChannelHealth",
+      ["/api/v1/admin/channels/stats", "get", "200"] => "#/components/schemas/AdminChannelRuntimeStatsResponse",
+      ["/api/v1/admin/channels/{channelId}/sync-models", "post", "200"] => "#/components/schemas/AdminChannelModelSyncResponse",
+      ["/api/v1/admin/channels/{channelId}/model-updates/detect", "post", "200"] => "#/components/schemas/AdminChannelModelUpdatePreview",
+      ["/api/v1/admin/channels/{channelId}/model-updates/apply", "post", "200"] => "#/components/schemas/AdminChannelModelUpdateApplyResponse",
+      ["/api/v1/admin/channels/{channelId}/refresh-balance", "post", "200"] => "#/components/schemas/AdminChannelBalanceRefreshResponse",
     }
 
     expected_data_refs.each do |(path, method, status), expected|
@@ -432,7 +437,16 @@ require_admin_channel_secret_response_contract() {
       end
     end
 
-    ["/api/v1/admin/channels", "/api/v1/admin/channels/{channelId}", "/api/v1/admin/channels/batch", "/api/v1/admin/channels/{channelId}/test"].each do |path|
+    [
+      "/api/v1/admin/channels",
+      "/api/v1/admin/channels/{channelId}",
+      "/api/v1/admin/channels/batch",
+      "/api/v1/admin/channels/{channelId}/test",
+      "/api/v1/admin/channels/{channelId}/sync-models",
+      "/api/v1/admin/channels/{channelId}/model-updates/detect",
+      "/api/v1/admin/channels/{channelId}/model-updates/apply",
+      "/api/v1/admin/channels/{channelId}/refresh-balance",
+    ].each do |path|
       methods = paths.fetch(path, {}).keys.select { |method| ["post", "put", "delete"].include?(method) }
       methods.each do |method|
         op = operation(paths, path, method, missing)
@@ -495,6 +509,57 @@ require_admin_channel_secret_response_contract() {
     unless create_req.dig("properties", "apiKey", "writeOnly") == true &&
         update_req.dig("properties", "apiKey", "writeOnly") == true
       missing << "Admin channel apiKey request fields must be writeOnly"
+    end
+
+    sync_response = schemas["AdminChannelModelSyncResponse"] || {}
+    unless sync_response.dig("properties", "channel", "$ref") == "#/components/schemas/AdminChannel" &&
+        sync_response.dig("properties", "testResult", "$ref") == "#/components/schemas/AdminChannelTestResult"
+      missing << "AdminChannelModelSyncResponse must expose channel and testResult"
+    end
+
+    preview = schemas["AdminChannelModelUpdatePreview"] || {}
+    ["currentModels", "upstreamModels", "added", "removed", "unchanged"].each do |property|
+      unless preview.dig("properties", property, "type") == "array" &&
+          preview.dig("properties", property, "items", "type") == "string"
+        missing << "AdminChannelModelUpdatePreview.#{property} must be documented as string[]"
+      end
+    end
+    unless preview.dig("properties", "testResult", "$ref") == "#/components/schemas/AdminChannelTestResult"
+      missing << "AdminChannelModelUpdatePreview.testResult must reference AdminChannelTestResult"
+    end
+
+    apply_request = schemas["AdminChannelModelUpdateApplyRequest"] || {}
+    apply_enum = apply_request.dig("properties", "mode", "enum") || []
+    unless ["merge", "replace"].all? { |mode| apply_enum.include?(mode) }
+      missing << "AdminChannelModelUpdateApplyRequest.mode must enumerate merge and replace"
+    end
+    apply = schemas["AdminChannelModelUpdateApplyResponse"] || {}
+    unless apply.dig("properties", "channel", "$ref") == "#/components/schemas/AdminChannel" &&
+        apply.dig("properties", "preview", "$ref") == "#/components/schemas/AdminChannelModelUpdatePreview" &&
+        apply.dig("properties", "appliedModels", "items", "type") == "string"
+      missing << "AdminChannelModelUpdateApplyResponse must expose channel, preview, and appliedModels[]"
+    end
+    apply_op = operation(paths, "/api/v1/admin/channels/{channelId}/model-updates/apply", "post", missing)
+    unless request_body_ref(apply_op) == "#/components/schemas/AdminChannelModelUpdateApplyRequest"
+      missing << "POST /api/v1/admin/channels/{channelId}/model-updates/apply request body must reference AdminChannelModelUpdateApplyRequest"
+    end
+
+    refresh = schemas["AdminChannelBalanceRefreshResponse"] || {}
+    unless refresh.dig("properties", "balance", "$ref") == "#/components/schemas/AdminChannelBalance" &&
+        refresh.dig("properties", "channelHealth", "$ref") == "#/components/schemas/AdminChannelHealthDetail" &&
+        refresh.dig("properties", "testResult", "$ref") == "#/components/schemas/AdminChannelTestResult"
+      missing << "AdminChannelBalanceRefreshResponse must expose balance, channelHealth, and testResult"
+    end
+
+    runtime_stats_response = schemas["AdminChannelRuntimeStatsResponse"] || {}
+    runtime_stats = schemas["AdminChannelRuntimeStats"] || {}
+    unless runtime_stats_response.dig("properties", "stats", "items", "$ref") == "#/components/schemas/AdminChannelRuntimeStats"
+      missing << "AdminChannelRuntimeStatsResponse must expose stats[] as AdminChannelRuntimeStats"
+    end
+    ["channelID", "rpmCurrent", "tpmCurrent", "totalRequests", "successCount", "failureCount", "avgLatencyMs", "affinityConversationCount"].each do |property|
+      unless runtime_stats.dig("properties", property)
+        missing << "AdminChannelRuntimeStats.#{property} must be documented"
+      end
     end
 
     unless missing.empty?

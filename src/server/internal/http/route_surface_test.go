@@ -1362,6 +1362,11 @@ func routeSurfaceAdminSubRouteCases() []routeSurfaceCase {
 		{"core user enable", stdhttp.MethodPost, "/api/v1/admin/users/user_1/enable"},
 		{"core audit logs", stdhttp.MethodGet, "/api/v1/admin/audit-logs"},
 		{"channel provider catalog", stdhttp.MethodGet, "/api/v1/admin/channel-providers"},
+		{"channel runtime stats", stdhttp.MethodGet, "/api/v1/admin/channels/stats"},
+		{"channel sync models", stdhttp.MethodPost, "/api/v1/admin/channels/channel_1/sync-models"},
+		{"channel model update detect", stdhttp.MethodPost, "/api/v1/admin/channels/channel_1/model-updates/detect"},
+		{"channel model update apply", stdhttp.MethodPost, "/api/v1/admin/channels/channel_1/model-updates/apply"},
+		{"channel refresh balance", stdhttp.MethodPost, "/api/v1/admin/channels/channel_1/refresh-balance"},
 		{"observability alert routing get", stdhttp.MethodGet, "/api/v1/admin/observability/alert-routing"},
 		{"observability alert routing update", stdhttp.MethodPut, "/api/v1/admin/observability/alert-routing"},
 		{"observability providers list", stdhttp.MethodGet, "/api/v1/admin/observability/alert-providers"},
@@ -1380,6 +1385,34 @@ func routeSurfaceAdminSubRouteCases() []routeSurfaceCase {
 		{"marketplace abuse resolve", stdhttp.MethodPost, "/api/v1/admin/marketplace/abuse-reports/report_1/resolve"},
 		{"marketplace abuse dismiss", stdhttp.MethodPost, "/api/v1/admin/marketplace/abuse-reports/report_1/dismiss"},
 		{"marketplace review sla enforce", stdhttp.MethodPost, "/api/v1/admin/reviews/sla/enforce"},
+	}
+}
+
+func TestRouteSurfaceAdminChannelOperationsRejectAdminCookieWithoutCSRFWithoutDatabase(t *testing.T) {
+	session := routeSurfaceAdminSession()
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}})
+	cookie := routeSurfaceSignedSessionCookie(t, session)
+
+	tests := []routeSurfaceCase{
+		{"sync models", stdhttp.MethodPost, "/api/v1/admin/channels/channel_1/sync-models"},
+		{"detect model updates", stdhttp.MethodPost, "/api/v1/admin/channels/channel_1/model-updates/detect"},
+		{"apply model updates", stdhttp.MethodPost, "/api/v1/admin/channels/channel_1/model-updates/apply"},
+		{"refresh balance", stdhttp.MethodPost, "/api/v1/admin/channels/channel_1/refresh-balance"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(`{"mode":"merge"}`))
+			request.Header.Set("Content-Type", "application/json")
+			request.AddCookie(cookie)
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusForbidden {
+				t.Fatalf("expected missing csrf to be rejected with 403 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
 	}
 }
 

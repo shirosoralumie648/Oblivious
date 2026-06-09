@@ -46,6 +46,7 @@ type RouterOptions struct {
 	RelayPricingStore           *relay.PricingStore
 	ChannelRuntimeStatsProvider admin.ChannelRuntimeStatsProvider
 	RelayConfigApplier          admin.RelayConfigApplier
+	AdminService                *admin.Service
 	WorkflowService             *workflow.Service
 	ScheduleService             *schedule.Service
 	AlertStateStore             observability.AlertStateStore
@@ -197,7 +198,10 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 			options.RelayPricingStore.ApplyMultipliers(settings.ModelMultipliers, settings.GroupMultipliers)
 		}))
 	}
-	adminService := admin.NewService(admin.NewSQLStore(database), adminOptions...)
+	adminService := options.AdminService
+	if adminService == nil {
+		adminService = admin.NewService(admin.NewSQLStore(database), adminOptions...)
+	}
 	tenantHandler := newTenantHandler(tenant.NewService(tenant.NewSQLStore(database)), authService, authMiddleware)
 	sensitiveActionRateLimit := auth.RateLimitPolicy{Limit: 5, Window: time.Minute, BlockDuration: 15 * time.Minute}
 
@@ -892,6 +896,13 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 		}
 		adminHandler.batchUpdateChannels(w, r)
 	})))
+	mux.Handle("/api/v1/admin/channels/stats", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.Method != stdhttp.MethodGet {
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		adminHandler.listChannelRuntimeStats(w, r)
+	})))
 	mux.Handle("/api/v1/admin/channels/", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/admin/channels/"), "/"), "/")
 		if len(parts) == 0 || parts[0] == "" {
@@ -923,6 +934,27 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 		case "health":
 			if r.Method == stdhttp.MethodGet {
 				adminHandler.getChannelHealth(w, r, channelID)
+				return
+			}
+		case "sync-models":
+			if r.Method == stdhttp.MethodPost {
+				adminHandler.syncChannelModels(w, r, channelID)
+				return
+			}
+		case "model-updates":
+			if len(parts) == 3 && r.Method == stdhttp.MethodPost {
+				switch parts[2] {
+				case "detect":
+					adminHandler.detectChannelModelUpdates(w, r, channelID)
+					return
+				case "apply":
+					adminHandler.applyChannelModelUpdates(w, r, channelID)
+					return
+				}
+			}
+		case "refresh-balance":
+			if r.Method == stdhttp.MethodPost {
+				adminHandler.refreshChannelBalance(w, r, channelID)
 				return
 			}
 		}
