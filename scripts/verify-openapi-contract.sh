@@ -1351,6 +1351,10 @@ require_memory_mutation_csrf_contract() {
         dig("properties", "data", "items", "$ref")
     end
 
+    def schema_props(schema)
+      schema.fetch("properties", {})
+    end
+
     {
       ["/api/v1/app/memory/documents", "post"] => "Memory",
       ["/api/v1/app/memory/documents/{documentId}", "put"] => "Memory",
@@ -1466,6 +1470,10 @@ require_billing_checkout_contract() {
         dig("properties", "data", "items", "$ref")
     end
 
+    def schema_props(schema)
+      schema.fetch("properties", {})
+    end
+
     checkout = paths.dig("/api/v1/billing/checkout", "post")
     unless checkout
       missing << "POST /api/v1/billing/checkout must be documented"
@@ -1500,6 +1508,24 @@ require_billing_checkout_contract() {
       missing << "GET /api/v1/console/billing 200 data must reference BillingSummary"
     end
 
+    console_usage = paths.dig("/api/v1/console/usage", "get")
+    unless console_usage
+      missing << "GET /api/v1/console/usage must be documented"
+      console_usage = {}
+    end
+    unless response_data_ref(console_usage, "200") == "#/components/schemas/UsageSummary"
+      missing << "GET /api/v1/console/usage 200 data must reference UsageSummary"
+    end
+
+    console_access = paths.dig("/api/v1/console/access", "get")
+    unless console_access
+      missing << "GET /api/v1/console/access must be documented"
+      console_access = {}
+    end
+    unless response_data_ref(console_access, "200") == "#/components/schemas/AccessSummary"
+      missing << "GET /api/v1/console/access 200 data must reference AccessSummary"
+    end
+
     console_models = paths.dig("/api/v1/console/models", "get")
     unless console_models
       missing << "GET /api/v1/console/models must be documented"
@@ -1507,6 +1533,33 @@ require_billing_checkout_contract() {
     end
     unless response_array_item_ref(console_models, "200") == "#/components/schemas/ModelSummary"
       missing << "GET /api/v1/console/models 200 data items must reference ModelSummary"
+    end
+
+    console_invoices = paths.dig("/api/v1/console/invoices", "get")
+    unless console_invoices
+      missing << "GET /api/v1/console/invoices must be documented"
+      console_invoices = {}
+    end
+    unless response_array_item_ref(console_invoices, "200") == "#/components/schemas/BillingInvoiceSummary"
+      missing << "GET /api/v1/console/invoices 200 data items must reference BillingInvoiceSummary"
+    end
+
+    console_api_tokens = paths.dig("/api/v1/console/api-tokens", "get")
+    unless console_api_tokens
+      missing << "GET /api/v1/console/api-tokens must be documented"
+      console_api_tokens = {}
+    end
+    unless response_array_item_ref(console_api_tokens, "200") == "#/components/schemas/RelayAPIToken"
+      missing << "GET /api/v1/console/api-tokens 200 data items must reference RelayAPIToken"
+    end
+
+    console_api_token_usage = paths.dig("/api/v1/console/api-tokens/{tokenId}/usage", "get")
+    unless console_api_token_usage
+      missing << "GET /api/v1/console/api-tokens/{tokenId}/usage must be documented"
+      console_api_token_usage = {}
+    end
+    unless response_array_item_ref(console_api_token_usage, "200") == "#/components/schemas/RelayAPITokenUsageItem"
+      missing << "GET /api/v1/console/api-tokens/{tokenId}/usage 200 data items must reference RelayAPITokenUsageItem"
     end
 
     model_summary = schemas["ModelSummary"] || {}
@@ -1528,6 +1581,80 @@ require_billing_checkout_contract() {
     unless provider.fetch("required", []).include?("name") &&
         provider.dig("properties", "name", "enum") == ["stripe", "alipay", "wechatpay"]
       missing << "BillingPaymentProvider.name must require and enumerate stripe, alipay, and wechatpay"
+    end
+
+    usage_summary = schemas["UsageSummary"] || {}
+    usage_props = schema_props(usage_summary)
+    unless usage_summary.fetch("required", []).include?("period") &&
+        usage_summary.fetch("required", []).include?("requests") &&
+        usage_props.dig("period", "type") == "string" &&
+        usage_props.dig("requests", "type") == "integer" &&
+        usage_props.dig("byModel", "items", "$ref") == "#/components/schemas/UsageDimensionSummary" &&
+        usage_props.dig("byFeature", "items", "$ref") == "#/components/schemas/UsageDimensionSummary" &&
+        usage_props.dig("byUser", "items", "$ref") == "#/components/schemas/UsageDimensionSummary" &&
+        usage_props.dig("timeSeries", "items", "$ref") == "#/components/schemas/UsageTimeSeriesSummary" &&
+        usage_props.dig("recent", "items", "$ref") == "#/components/schemas/RelayAPITokenUsageItem"
+      missing << "UsageSummary must document period, requests, usage dimensions, time series, and recent token usage"
+    end
+
+    dimension = schema_props(schemas["UsageDimensionSummary"] || {})
+    unless dimension.dig("key", "type") == "string" &&
+        dimension.dig("requestCount", "type") == "integer" &&
+        dimension.dig("totalTokens", "type") == "integer" &&
+        dimension.dig("totalCost", "type") == "number"
+      missing << "UsageDimensionSummary must document key, requestCount, totalTokens, and totalCost"
+    end
+
+    series = schema_props(schemas["UsageTimeSeriesSummary"] || {})
+    unless series.dig("bucket", "type") == "string" &&
+        series.dig("requestCount", "type") == "integer" &&
+        series.dig("totalTokens", "type") == "integer" &&
+        series.dig("totalCost", "type") == "number"
+      missing << "UsageTimeSeriesSummary must document bucket, requestCount, totalTokens, and totalCost"
+    end
+
+    access = schemas["AccessSummary"] || {}
+    access_props = schema_props(access)
+    [
+      ["defaultMode", "string"],
+      ["modelStrategy", "string"],
+      ["networkEnabledHint", "boolean"],
+      ["onboardingCompleted", "boolean"],
+      ["sessionExpiresAt", "string"],
+      ["sessionId", "string"],
+      ["userEmail", "string"],
+      ["userId", "string"],
+      ["workspaceId", "string"],
+    ].each do |field, type|
+      unless access.fetch("required", []).include?(field) && access_props.dig(field, "type") == type
+        missing << "AccessSummary must require #{field} as #{type}"
+      end
+    end
+
+    token = schemas["RelayAPIToken"] || {}
+    if token.fetch("properties", {}).key?("rawToken")
+      missing << "RelayAPIToken list schema must not expose rawToken"
+    end
+    token_usage = schema_props(schemas["RelayAPITokenUsageItem"] || {})
+    [
+      ["apiTokenId", "string"],
+      ["requestId", "string"],
+      ["apiType", "string"],
+      ["model", "string"],
+      ["channelId", "string"],
+      ["provider", "string"],
+      ["status", "string"],
+      ["statusCode", "integer"],
+      ["latencyMs", "integer"],
+      ["cost", "number"],
+      ["promptTokens", "integer"],
+      ["completionTokens", "integer"],
+      ["totalTokens", "integer"],
+      ["createdAt", "string"],
+    ].each do |field, type|
+      unless token_usage.dig(field, "type") == type
+        missing << "RelayAPITokenUsageItem must document #{field} as #{type}"
+      end
     end
 
     unless missing.empty?

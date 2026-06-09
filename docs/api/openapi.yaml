@@ -2858,12 +2858,66 @@ components:
 
     UsageSummary:
       type: object
+      required: [period, requests, byModel, byFeature, byUser, timeSeries, recent]
       properties:
+        period:
+          type: string
+        requests:
+          type: integer
+        byModel:
+          type: array
+          items:
+            $ref: "#/components/schemas/UsageDimensionSummary"
+        byFeature:
+          type: array
+          items:
+            $ref: "#/components/schemas/UsageDimensionSummary"
+        byUser:
+          type: array
+          items:
+            $ref: "#/components/schemas/UsageDimensionSummary"
+        timeSeries:
+          type: array
+          items:
+            $ref: "#/components/schemas/UsageTimeSeriesSummary"
+        recent:
+          type: array
+          items:
+            $ref: "#/components/schemas/RelayAPITokenUsageItem"
+
+    UsageDimensionSummary:
+      type: object
+      required: [key, requestCount, totalTokens, totalCost]
+      properties:
+        key:
+          type: string
+        requestCount:
+          type: integer
+          minimum: 0
         totalTokens:
           type: integer
+          minimum: 0
         totalCost:
           type: number
           format: double
+          minimum: 0
+
+    UsageTimeSeriesSummary:
+      type: object
+      required: [bucket, requestCount, totalTokens, totalCost]
+      properties:
+        bucket:
+          type: string
+        requestCount:
+          type: integer
+          minimum: 0
+        totalTokens:
+          type: integer
+          minimum: 0
+        totalCost:
+          type: number
+          format: double
+          minimum: 0
 
     ModelSummary:
       type: object
@@ -5055,9 +5109,37 @@ components:
 
     AccessSummary:
       type: object
+      required:
+        - defaultMode
+        - modelStrategy
+        - networkEnabledHint
+        - onboardingCompleted
+        - sessionExpiresAt
+        - sessionId
+        - userEmail
+        - userId
+        - workspaceId
       properties:
-        features:
-          type: object
+        defaultMode:
+          type: string
+        modelStrategy:
+          type: string
+        networkEnabledHint:
+          type: boolean
+        onboardingCompleted:
+          type: boolean
+        sessionExpiresAt:
+          type: string
+          format: date-time
+        sessionId:
+          type: string
+        userEmail:
+          type: string
+          format: email
+        userId:
+          type: string
+        workspaceId:
+          type: string
 
     HealthResponse:
       type: object
