@@ -209,3 +209,56 @@ func TestMarketplacePaidInstallCheckoutRejectsMissingProviderBeforeSettlement(t 
 		t.Fatalf("checkout creator must not be called before provider evidence is supplied, got %+v", checkoutCreator.request)
 	}
 }
+
+func TestMarketplacePaidInstallCheckoutRejectsUnsupportedProviderBeforeSettlement(t *testing.T) {
+	store := &fakeMarketplaceStore{
+		agent: &marketplace.PublishedAgent{
+			ID:             "agent_paid",
+			OrganizationID: "org_publisher",
+			OwnerID:        "publisher_1",
+			Name:           "Paid Agent",
+			Status:         "approved",
+			Visibility:     "public",
+			PricingType:    "one_time",
+			PricingAmount:  25,
+		},
+	}
+	settlement := &fakeMarketplaceSettlementService{}
+	checkoutCreator := &fakeCheckoutCreator{}
+	providerRegistry := payment.NewRegistry("stripe")
+	providerRegistry.Register(payment.Provider{Name: "stripe", Configured: true})
+	handler := newMarketplaceHandler(
+		marketplace.NewService(store, nil),
+		nil,
+		withMarketplaceCheckout(settlement, checkoutCreator, stripebilling.CheckoutConfig{}, providerRegistry, nil),
+	)
+	session := testAdminSession()
+	session.User.ID = "buyer_1"
+	session.OrganizationID = "org_buyer"
+
+	request := httptest.NewRequest(
+		stdhttp.MethodPost,
+		"/api/v1/marketplace/agents/agent_paid/install",
+		strings.NewReader(`{"versionID":"version_paid_1","provider":"paypal"}`),
+	).WithContext(context.WithValue(context.Background(), sessionContextKey, session))
+	recorder := httptest.NewRecorder()
+
+	handler.installAgent(recorder, request, "agent_paid")
+
+	if recorder.Code != stdhttp.StatusBadRequest {
+		t.Fatalf("expected unsupported provider to return 400, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var response Envelope
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Error == nil || response.Error.Code != payment.CodeUnsupportedProvider || !strings.Contains(response.Error.Message, "payment provider is not supported") {
+		t.Fatalf("expected unsupported_provider response, got %+v", response.Error)
+	}
+	if settlement.createCalls != 0 {
+		t.Fatalf("settlement must not be called for unsupported provider, got %d calls", settlement.createCalls)
+	}
+	if checkoutCreator.request.PaymentIntentID != "" {
+		t.Fatalf("checkout creator must not be called for unsupported provider, got %+v", checkoutCreator.request)
+	}
+}
