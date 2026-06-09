@@ -512,6 +512,96 @@ func TestAgentRunsHandlerApprovePlanStepVerifiesStepBelongsToRun(t *testing.T) {
 	}
 }
 
+func TestAgentRunsHandlerPlanStepActionsRejectExplicitNonMatchingStepIDs(t *testing.T) {
+	now := time.Now().UTC()
+	completedAt := now.Add(time.Minute)
+	tests := []struct {
+		name string
+		call func(agentRunsHandler, stdhttp.ResponseWriter, *stdhttp.Request, string)
+		body string
+	}{
+		{
+			name: "approve completed",
+			call: agentRunsHandler.approvePlanStep,
+			body: `{"planStepId":"step_completed","reason":"late approval"}`,
+		},
+		{
+			name: "skip completed",
+			call: agentRunsHandler.skipPlanStep,
+			body: `{"planStepId":"step_completed","reason":"late skip"}`,
+		},
+		{
+			name: "retry completed",
+			call: agentRunsHandler.retryPlanStep,
+			body: `{"planStepId":"step_completed"}`,
+		},
+		{
+			name: "update completed",
+			call: agentRunsHandler.updatePlanStep,
+			body: `{"planStepId":"step_completed","title":"mutated title"}`,
+		},
+		{
+			name: "delete completed",
+			call: agentRunsHandler.deletePlanStep,
+			body: `{"planStepId":"step_completed"}`,
+		},
+		{
+			name: "execute completed",
+			call: agentRunsHandler.executePlanStep,
+			body: `{"planStepId":"step_completed"}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newFakeAgentRunsStore()
+			store.runs = []*agent.Run{{
+				ID:             "run_1",
+				OrganizationID: "org_1",
+				ConversationID: "conv_1",
+				AgentID:        "agent_1",
+				UserID:         "user_1",
+				Status:         agent.RunStatusCompleted,
+				CreatedAt:      now,
+				UpdatedAt:      now,
+			}}
+			store.planSteps = []*agent.PlanStep{{
+				ID:             "step_completed",
+				RunID:          "run_1",
+				OrganizationID: "org_1",
+				Index:          1,
+				Title:          "Already completed",
+				Status:         agent.PlanStepStatusCompleted,
+				ApprovalStatus: agent.ApprovalStatusApproved,
+				ResultContent:  "verified output",
+				Error:          "",
+				CompletedAt:    &completedAt,
+				CreatedAt:      now,
+				UpdatedAt:      now,
+			}}
+			handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{reply: "should not execute"}))
+
+			recorder := httptest.NewRecorder()
+			tt.call(handler, recorder, newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/plan-step-action", tt.body), "run_1")
+
+			if recorder.Code != stdhttp.StatusConflict {
+				t.Fatalf("expected 409 for explicit non-matching plan step, got %d with body %s", recorder.Code, recorder.Body.String())
+			}
+			if !strings.Contains(recorder.Body.String(), "planStepId is not valid for this action") {
+				t.Fatalf("expected explicit plan-step state gate error, got %s", recorder.Body.String())
+			}
+			if len(store.planSteps) != 1 {
+				t.Fatalf("explicit non-matching plan-step action deleted guarded step: %+v", store.planSteps)
+			}
+			step := store.planSteps[0]
+			if step.Status != agent.PlanStepStatusCompleted || step.ApprovalStatus != agent.ApprovalStatusApproved ||
+				step.Title != "Already completed" || step.ResultContent != "verified output" || step.CompletedAt != &completedAt {
+				t.Fatalf("explicit non-matching plan-step action mutated guarded evidence: %+v", step)
+			}
+		})
+	}
+}
+
 func TestAgentRunsHandlerSkipPlanStepReturnsUpdatedRunDetail(t *testing.T) {
 	now := time.Now().UTC()
 	store := newFakeAgentRunsStore()
@@ -1071,6 +1161,13 @@ func TestAgentRunsHandlerToolApprovalDecisionsRejectNonPendingToolRuns(t *testin
 			initialStatus:   agent.ToolRunStatusRejected,
 			initialApproval: agent.ApprovalStatusRejected,
 		},
+		{
+			name:            "retry completed",
+			call:            agentRunsHandler.retryTool,
+			body:            `{"toolRunId":"tool_run_guarded"}`,
+			initialStatus:   agent.ToolRunStatusCompleted,
+			initialApproval: agent.ApprovalStatusApproved,
+		},
 	}
 
 	for _, tt := range tests {
@@ -1106,6 +1203,9 @@ func TestAgentRunsHandlerToolApprovalDecisionsRejectNonPendingToolRuns(t *testin
 
 			if recorder.Code != stdhttp.StatusConflict {
 				t.Fatalf("expected 409 for non-pending tool approval decision, got %d with body %s", recorder.Code, recorder.Body.String())
+			}
+			if !strings.Contains(recorder.Body.String(), "toolRunId is not valid for this action") {
+				t.Fatalf("expected explicit tool-run state gate error, got %s", recorder.Body.String())
 			}
 			toolRun := store.toolRuns[0]
 			if toolRun.Status != tt.initialStatus || toolRun.ApprovalStatus != tt.initialApproval ||

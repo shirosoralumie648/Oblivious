@@ -605,6 +605,10 @@ func (h agentRunsHandler) resolveToolRunID(w stdhttp.ResponseWriter, r *stdhttp.
 	if requestedToolRunID != "" {
 		for _, toolRun := range detail.ToolRuns {
 			if toolRun.ID == requestedToolRunID {
+				if !match(toolRun) {
+					writeError(w, stdhttp.StatusConflict, "invalid_state", "toolRunId is not valid for this action")
+					return "", false
+				}
 				return requestedToolRunID, true
 			}
 		}
@@ -641,6 +645,10 @@ func (h agentRunsHandler) resolvePlanStepID(w stdhttp.ResponseWriter, r *stdhttp
 	if requestedPlanStepID != "" {
 		for _, step := range detail.PlanSteps {
 			if step.ID == requestedPlanStepID {
+				if !match(step) {
+					writeError(w, stdhttp.StatusConflict, "invalid_state", "planStepId is not valid for this action")
+					return "", false
+				}
 				return requestedPlanStepID, true
 			}
 		}
