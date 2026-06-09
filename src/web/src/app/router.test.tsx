@@ -477,10 +477,48 @@ vi.mock('../features/agents/planStepsApi', () => ({
 
 vi.mock('../features/agents/agentsApi', () => ({
   createAgentsApi: () => ({
+    createAgent: (agent: unknown) => Promise.resolve(agent),
+    createRun: () =>
+      Promise.resolve({
+        id: 'run_router_agent',
+        planSteps: [],
+        status: 'pending_approval',
+        toolRuns: []
+      }),
+    deleteAgent: () => Promise.resolve(),
+    getAgent: () =>
+      Promise.resolve({
+        config: { approvalMode: 'tiered', defaultExecutionMode: 'planning' },
+        id: 'agent_1',
+        isPublic: false,
+        model: 'gpt-4o-mini',
+        name: 'Research Agent',
+        tools: []
+      }),
+    getAgentTools: () =>
+      Promise.resolve([
+        {
+          description: 'Search the web with tenant policy controls.',
+          inputSchema: { type: 'object' },
+          name: 'web_search',
+          requiresApproval: true,
+          riskLevel: 'medium',
+          toolType: 'builtin'
+        }
+      ]),
     listAgents: () =>
       Promise.resolve([
         {
-          config: { approvalMode: 'tiered' },
+          config: {
+            approvalMode: 'tiered',
+            defaultExecutionMode: 'planning',
+            longTermMemoryExtractionPolicy: 'deterministic',
+            longTermMemoryUpdatePolicy: 'exact_refresh',
+            longTermMemoryWritePolicy: 'interaction_and_explicit',
+            maxIterations: 8,
+            tokenBudget: 30000
+          },
+          description: 'Router-level research automation.',
           id: 'agent_1',
           isPublic: false,
           model: 'gpt-4o-mini',
@@ -618,6 +656,55 @@ describe('app router', () => {
 
     expect(await screen.findByText('Workspace')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Agents' })).toBeInTheDocument();
+  });
+
+  it('keeps agents route-level policy, run, and tool catalog controls reachable', async () => {
+    const router = createAppRouter(['/agents']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    const workspaceNavigation = await screen.findByRole('navigation', { name: 'Workspace navigation' });
+    expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
+    expect(within(workspaceNavigation).getByRole('link', { name: 'Agents' })).toHaveAttribute('href', '/agents');
+    expect(await screen.findByRole('heading', { name: 'Agents' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Research Agent' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getAllByText('gpt-4o-mini').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('Router-level research automation.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Approval mode')).toHaveValue('tiered');
+    expect(screen.getByRole('heading', { name: 'Execution limits' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Default execution mode')).toHaveValue('planning');
+    expect(screen.getByLabelText('Max iterations')).toHaveValue(8);
+    expect(screen.getByLabelText('Token budget')).toHaveValue(30000);
+    expect(screen.getByLabelText('Long-term memory writes')).toHaveValue('interaction_and_explicit');
+    expect(screen.getByLabelText('Long-term memory extraction')).toHaveValue('deterministic');
+    expect(screen.getByLabelText('Long-term memory update')).toHaveValue('exact_refresh');
+    expect(screen.getByRole('heading', { name: 'Start run' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Run conversation ID')).toBeInTheDocument();
+    expect(screen.getByLabelText('Run mode')).toHaveValue('planning');
+    expect(screen.getByLabelText('Run goal')).toBeInTheDocument();
+    expect(screen.getByLabelText('Run max iterations')).toHaveValue(8);
+    expect(screen.getByLabelText('Run token budget')).toHaveValue(30000);
+    expect(screen.getByRole('button', { name: 'Start run' })).toBeDisabled();
+    expect(screen.getByRole('heading', { name: 'Tool approval policy' })).toBeInTheDocument();
+    expect(screen.getByText('No tools enabled for this agent.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add custom API tool' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Available tool catalog' })).toBeInTheDocument();
+    expect(screen.getByText('Tool definitions load on demand for the selected agent.')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load tool catalog' }));
+    expect(await screen.findByText('web_search')).toBeInTheDocument();
+    expect(screen.getByText('builtin / medium / approval required')).toBeInTheDocument();
+    expect(screen.getByText('Search the web with tenant policy controls.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Enable tool web_search' })).toBeEnabled();
+
+    fireEvent.change(screen.getByLabelText('Run conversation ID'), { target: { value: 'conv_router_agent' } });
+    fireEvent.change(screen.getByLabelText('Run goal'), { target: { value: 'Plan a release readiness review.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Start run' }));
+
+    expect(await screen.findByRole('link', { name: 'Open run plan steps' })).toHaveAttribute(
+      'href',
+      '/agent-runs/run_router_agent/plan-steps'
+    );
   });
 
   it('renders MCP servers route inside the workspace shell', async () => {
