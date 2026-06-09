@@ -4112,6 +4112,14 @@ components:
         token:
           $ref: "#/components/schemas/RelayAPIToken"
 
+    RelayAPITokenRevokeResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [revoked]
+
     RelayAPITokenUsageItem:
       type: object
       properties:
@@ -13604,11 +13612,7 @@ paths:
                   - type: object
                     properties:
                       data:
-                        type: object
-                        properties:
-                          status:
-                            type: string
-                            enum: [revoked]
+                        $ref: "#/components/schemas/RelayAPITokenRevokeResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":

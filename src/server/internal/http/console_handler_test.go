@@ -274,6 +274,37 @@ func TestConsoleHandlerListAPITokenUsageReturnsTypedUsageItems(t *testing.T) {
 	}
 }
 
+func TestConsoleHandlerRevokeAPITokenReturnsTypedRevokedStatus(t *testing.T) {
+	apiTokenStore := &consoleHandlerAPITokenStore{}
+	handler := newConsoleHandler(console.NewServiceWithAPITokens(&consoleHandlerFakeStore{}, apiTokenStore), nil)
+	request := httptest.NewRequest(stdhttp.MethodDelete, "/api/v1/console/api-tokens/tok_1", nil).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		OrganizationID: "org_1",
+		User:           auth.User{ID: "user_1"},
+	}))
+	recorder := httptest.NewRecorder()
+
+	handler.revokeAPIToken(recorder, request)
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Data struct {
+			Status string `json:"status"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode revoke response: %v", err)
+	}
+	if response.Data.Status != "revoked" {
+		t.Fatalf("expected revoked status, got %+v", response.Data)
+	}
+	if apiTokenStore.revokeOrganizationID != "org_1" || apiTokenStore.revokeUserID != "user_1" || apiTokenStore.revokedTokenID != "tok_1" {
+		t.Fatalf("expected scoped revoke, got org=%s user=%s token=%s",
+			apiTokenStore.revokeOrganizationID, apiTokenStore.revokeUserID, apiTokenStore.revokedTokenID)
+	}
+}
+
 func TestConsoleHandlerGetBillingReturnsConfiguredPaymentProviders(t *testing.T) {
 	store := &consoleHandlerFakeStore{
 		billing: console.BillingSummary{
@@ -393,16 +424,18 @@ func (s *consoleHandlerPreferencesStore) UpsertByUserID(_ context.Context, userI
 }
 
 type consoleHandlerAPITokenStore struct {
-	created             relay.CreatedRelayAPIToken
-	input               relay.CreateRelayAPITokenInput
-	listOrganizationID  string
-	listUserID          string
-	revokedTokenID      string
-	tokens              []relay.RelayAPITokenListItem
-	usage               []relay.RelayAPITokenUsageItem
-	usageOrganizationID string
-	usageUserID         string
-	usageTokenID        string
+	created              relay.CreatedRelayAPIToken
+	input                relay.CreateRelayAPITokenInput
+	listOrganizationID   string
+	listUserID           string
+	revokeOrganizationID string
+	revokeUserID         string
+	revokedTokenID       string
+	tokens               []relay.RelayAPITokenListItem
+	usage                []relay.RelayAPITokenUsageItem
+	usageOrganizationID  string
+	usageUserID          string
+	usageTokenID         string
 }
 
 func (s *consoleHandlerAPITokenStore) CreateRelayAPIToken(_ context.Context, input relay.CreateRelayAPITokenInput) (relay.CreatedRelayAPIToken, error) {
@@ -423,7 +456,9 @@ func (s *consoleHandlerAPITokenStore) ListRelayAPITokenUsage(_ context.Context, 
 	return s.usage, nil
 }
 
-func (s *consoleHandlerAPITokenStore) RevokeRelayAPIToken(_ context.Context, _, _, tokenID string) error {
+func (s *consoleHandlerAPITokenStore) RevokeRelayAPIToken(_ context.Context, organizationID, userID, tokenID string) error {
+	s.revokeOrganizationID = organizationID
+	s.revokeUserID = userID
 	s.revokedTokenID = tokenID
 	return nil
 }

@@ -2020,6 +2020,7 @@ require_console_api_token_csrf_contract() {
     file = ARGV.fetch(0)
     spec = YAML.load_file(file)
     paths = spec.fetch("paths", {})
+    schemas = spec.fetch("components", {}).fetch("schemas", {})
     missing = []
 
     def operation(paths, path, method, missing)
@@ -2067,6 +2068,16 @@ require_console_api_token_csrf_contract() {
     end
     unless response_data_ref(create, "201") == "#/components/schemas/CreatedRelayAPIToken"
       missing << "POST /api/v1/console/api-tokens 201 data must reference CreatedRelayAPIToken"
+    end
+    unless response_data_ref(revoke, "200") == "#/components/schemas/RelayAPITokenRevokeResponse"
+      missing << "DELETE /api/v1/console/api-tokens/{tokenId} 200 data must reference RelayAPITokenRevokeResponse"
+    end
+
+    revoke_schema = schemas["RelayAPITokenRevokeResponse"] || {}
+    unless revoke_schema.fetch("required", []).include?("status") &&
+        revoke_schema.dig("properties", "status", "type") == "string" &&
+        revoke_schema.dig("properties", "status", "enum") == ["revoked"]
+      missing << "RelayAPITokenRevokeResponse.status must be required and enumerate revoked"
     end
 
     unless missing.empty?
