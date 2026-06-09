@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { ComponentType, ReactNode } from 'react';
 import { RouterProvider } from 'react-router-dom';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@xyflow/react', () => {
   const passthrough = ({ children }: { children?: ReactNode }) => <>{children}</>;
@@ -195,6 +195,134 @@ vi.mock('../app/providers', () => ({
     updatePreferences: (preferences: unknown) => Promise.resolve(preferences)
   })
 }));
+
+vi.mock('../features/chat/api', () => ({
+  createChatApi: () => ({
+    createConversation: () => Promise.resolve({ id: 'conversation_router_solo', title: 'SOLO continuation' }),
+    getConversationConfig: () =>
+      Promise.resolve({
+        knowledgeBaseIds: ['kb_router'],
+        maxOutputTokens: 800,
+        modelId: 'gpt-4o-mini',
+        systemPromptOverride: '',
+        temperature: 0.2,
+        toolsEnabled: true
+      }),
+    sendMessage: () => Promise.resolve([]),
+    updateConversationConfig: (conversationId: string, config: Record<string, unknown>) => Promise.resolve({ conversationId, ...config })
+  })
+}));
+
+vi.mock('../features/knowledge/api', () => ({
+  createKnowledgeApi: () => ({
+    listKnowledgeBases: () =>
+      Promise.resolve([
+        {
+          documentCount: 4,
+          id: 'kb_router',
+          name: 'Research Vault'
+        }
+      ])
+  })
+}));
+
+vi.mock('../features/tasks/api', () => {
+  const runningTaskDetail = () => ({
+    authorizationScope: 'full_access',
+    budgetConsumed: 6,
+    budgetLimit: 20,
+    createdAt: '2026-06-09T10:00:00Z',
+    currentStep: 'Review workspace context',
+    events: [
+      { createdAt: '2026-06-09T10:01:00Z', message: 'Task execution started', type: 'started' },
+      { createdAt: '2026-06-09T10:02:00Z', message: 'Executing Review workspace context', type: 'running' }
+    ],
+    executionMode: 'safe',
+    goal: 'Draft launch checklist',
+    id: 'task_router_new',
+    knowledgeBaseIds: ['kb_router'],
+    startedAt: '2026-06-09T10:01:00Z',
+    status: 'running',
+    steps: [
+      { id: 'step_router_1', status: 'completed', stepIndex: 1, title: 'Understand the goal' },
+      { id: 'step_router_2', status: 'running', stepIndex: 2, title: 'Review workspace context' },
+      { id: 'step_router_3', status: 'pending', stepIndex: 3, title: 'Deliver starter result' }
+    ],
+    title: 'Draft launch checklist',
+    toolAllowList: ['browser', 'shell'],
+    toolDenyList: ['email']
+  });
+
+  return {
+    createTasksApi: () => ({
+      approveTask: () => Promise.resolve(runningTaskDetail()),
+      cancelTask: () => Promise.resolve({ ...runningTaskDetail(), status: 'cancelled' }),
+      createTask: () =>
+        Promise.resolve({
+          authorizationScope: 'full_access',
+          budgetLimit: 20,
+          executionMode: 'safe',
+          goal: 'Draft launch checklist',
+          id: 'task_router_new',
+          knowledgeBaseIds: ['kb_router'],
+          status: 'draft',
+          title: 'Draft launch checklist'
+        }),
+      getTask: () =>
+        Promise.resolve({
+          authorizationScope: 'workspace_tools',
+          budgetConsumed: 12,
+          budgetLimit: 12,
+          executionMode: 'standard',
+          finishedAt: '2026-06-09T10:20:00Z',
+          goal: 'Review launch plan',
+          id: 'task_completed',
+          knowledgeBaseIds: ['kb_router'],
+          resultArtifacts: [{ label: 'Report', value: 'solo-result.md' }],
+          resultSummary: 'Completed a starter SOLO run for: Review launch plan',
+          status: 'completed',
+          steps: [{ id: 'step_done', status: 'completed', stepIndex: 1, title: 'Understand the goal' }],
+          title: 'Review launch plan',
+          toolAllowList: ['browser'],
+          toolDenyList: ['email']
+        }),
+      listTasks: () =>
+        Promise.resolve([
+          {
+            authorizationScope: 'workspace_tools',
+            budgetLimit: 20,
+            executionMode: 'standard',
+            goal: 'Watch live rollout',
+            id: 'task_running',
+            status: 'running',
+            title: 'Watch live rollout'
+          },
+          {
+            authorizationScope: 'workspace_tools',
+            budgetLimit: 12,
+            executionMode: 'standard',
+            goal: 'Review launch plan',
+            id: 'task_completed',
+            status: 'completed',
+            title: 'Review launch plan'
+          },
+          {
+            authorizationScope: 'workspace_tools',
+            budgetLimit: 8,
+            executionMode: 'safe',
+            goal: 'Abort risky task',
+            id: 'task_cancelled',
+            status: 'cancelled',
+            title: 'Abort risky task'
+          }
+        ]),
+      pauseTask: () => Promise.resolve({ ...runningTaskDetail(), status: 'paused' }),
+      resumeTask: () => Promise.resolve(runningTaskDetail()),
+      startTask: () => Promise.resolve(runningTaskDetail()),
+      updateTaskBudget: () => Promise.resolve({ ...runningTaskDetail(), budgetLimit: 30 })
+    })
+  };
+});
 
 vi.mock('../features/admin/api', () => ({
   createAdminApi: () => ({
@@ -1013,6 +1141,10 @@ import { createAppRouter } from './router';
 import { routerFuture } from './routerFuture';
 
 describe('app router', () => {
+  afterEach(() => {
+    window.history.replaceState({}, '', '/');
+  });
+
   it('renders home content on /', async () => {
     const router = createAppRouter(['/']);
 
@@ -1283,6 +1415,95 @@ describe('app router', () => {
 
     expect(await screen.findByText('Workspace')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'SOLO' })).toBeInTheDocument();
+  });
+
+  it('keeps solo route-level task launch and existing task controls reachable', async () => {
+    const router = createAppRouter(['/solo']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    const workspaceNavigation = await screen.findByRole('navigation', { name: 'Workspace navigation' });
+    expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
+    expect(within(workspaceNavigation).getByRole('link', { name: 'SOLO' })).toHaveAttribute('href', '/solo');
+    expect(await screen.findByRole('heading', { name: 'SOLO' })).toBeInTheDocument();
+    expect(screen.getByText('Launch a focused autonomous run with a clear goal, bounded execution mode, and selected workspace knowledge.')).toBeInTheDocument();
+    expect(await screen.findByText('Default mode: chat')).toBeInTheDocument();
+    expect(screen.getByText('Model strategy: balanced')).toBeInTheDocument();
+    expect(screen.getByText('Web suggestions: Disabled')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'New task' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Task goal')).toBeInTheDocument();
+    expect(screen.getByLabelText('Execution mode')).toHaveValue('standard');
+    expect(screen.getByLabelText('Authorization scope')).toHaveValue('workspace_tools');
+    expect(screen.getByLabelText('Budget limit')).toHaveValue(10);
+    expect(screen.getByLabelText('Allowed tools')).toBeInTheDocument();
+    expect(screen.getByLabelText('Blocked tools')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Knowledge sources' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Use knowledge base Research Vault')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Running tasks' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Completed tasks' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Stopped tasks' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open task Watch live rollout' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open task Review launch plan' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open task Abort risky task' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open task Review launch plan' }));
+
+    expect(await screen.findByRole('heading', { name: 'Latest result' })).toBeInTheDocument();
+    expect(screen.getByText('Completed a starter SOLO run for: Review launch plan')).toBeInTheDocument();
+    expect(screen.getByText('Report')).toBeInTheDocument();
+    expect(screen.getByText('solo-result.md')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry run' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Continue in Chat' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Export result' })).toBeInTheDocument();
+  });
+
+  it('keeps solo new route-level task creation and live execution controls reachable', async () => {
+    window.history.replaceState({}, '', '/solo/new');
+    const router = createAppRouter(['/solo/new']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    const workspaceNavigation = await screen.findByRole('navigation', { name: 'Workspace navigation' });
+    expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
+    expect(within(workspaceNavigation).getByRole('link', { name: 'SOLO' })).toHaveAttribute('href', '/solo');
+    expect(await screen.findByRole('heading', { name: 'New SOLO task' })).toBeInTheDocument();
+    expect(screen.getByText('Define the task boundary before handing execution over to SOLO.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Back to tasks' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Running tasks' })).not.toBeInTheDocument();
+
+    await screen.findByLabelText('Use knowledge base Research Vault');
+    fireEvent.change(screen.getByLabelText('Task goal'), { target: { value: 'Draft launch checklist' } });
+    fireEvent.change(screen.getByLabelText('Execution mode'), { target: { value: 'safe' } });
+    fireEvent.change(screen.getByLabelText('Authorization scope'), { target: { value: 'full_access' } });
+    fireEvent.change(screen.getByLabelText('Budget limit'), { target: { value: '20' } });
+    fireEvent.change(screen.getByLabelText('Allowed tools'), { target: { value: 'browser, shell' } });
+    fireEvent.change(screen.getByLabelText('Blocked tools'), { target: { value: 'email' } });
+    fireEvent.click(screen.getByLabelText('Use knowledge base Research Vault'));
+    fireEvent.click(screen.getByRole('button', { name: 'Start solo run' }));
+
+    expect(await screen.findByRole('heading', { name: 'Execution view' })).toBeInTheDocument();
+    expect(screen.getByText('Status: running')).toBeInTheDocument();
+    expect(screen.getByText('Execution mode: safe')).toBeInTheDocument();
+    expect(screen.getByText('Authorization scope: full_access')).toBeInTheDocument();
+    expect(screen.getByText('Budget consumed: 6 / 20')).toBeInTheDocument();
+    expect(screen.getByText('Current step: Review workspace context')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Current knowledge sources' })).toBeInTheDocument();
+    expect(screen.getByText('Research Vault')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Current enabled tools' })).toBeInTheDocument();
+    expect(screen.getByText('browser')).toBeInTheDocument();
+    expect(screen.getByText('shell')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Blocked tools' })).toBeInTheDocument();
+    expect(screen.getByText('email')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Execution timeline' })).toBeInTheDocument();
+    expect(screen.getByText('Task execution started')).toBeInTheDocument();
+    expect(screen.getByText('Executing Review workspace context')).toBeInTheDocument();
+    expect(screen.getByText('Understand the goal')).toBeInTheDocument();
+    expect(screen.getByText('Deliver starter result')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Continue run' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Pause run' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancel run' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Active budget limit')).toHaveValue(20);
+    expect(screen.getByRole('button', { name: 'Update budget' })).toBeEnabled();
   });
 
   it('renders workflows route inside the workspace shell', async () => {
