@@ -1092,6 +1092,25 @@ func (s *Service) SendMessageStream(ctx context.Context, session auth.Session, c
 		return fmt.Errorf("agent not found")
 	}
 
+	if NormalizeExecutionMode(agent.Config.DefaultExecutionMode) == ExecutionModePlanning {
+		result, err := s.StartPlanningRun(ctx, session, StartRunRequest{
+			AgentID:        agent.ID,
+			ConversationID: conversationID,
+			Input:          content,
+		})
+		if err != nil {
+			return err
+		}
+		if onChunk == nil {
+			return nil
+		}
+		reply := ""
+		if message := lastAssistantMessage(result); message != nil {
+			reply = message.Content
+		}
+		return streamContent(reply, onChunk)
+	}
+
 	if hasEnabledTools(agent) {
 		_, err = s.runner.RunWithTools(ctx, session, agent, conversationID, content, onChunk)
 		return err

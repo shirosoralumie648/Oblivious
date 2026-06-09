@@ -6138,6 +6138,69 @@ func (t *recordingBuiltinTool) Execute(ctx context.Context, args map[string]any)
 }
 
 // TestSendMessageStreamPlainPath verifies streaming for non-tool agents.
+func TestServiceSendMessageStreamUsesDefaultPlanningMode(t *testing.T) {
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_stream_plan",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+			Config: Config{
+				DefaultExecutionMode: ExecutionModePlanning,
+			},
+			Tools: []Tool{
+				{Name: "datetime", Type: "builtin", Enabled: true},
+			},
+		},
+		conversation: &Conversation{
+			ID:             "conv_stream_plan",
+			AgentID:        "agent_stream_plan",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+		},
+	}
+	gateway := &fakeGateway{
+		plainReply: "Plan:\n1. Inspect stream behavior\n2. Verify planning evidence",
+		structured: []*chat.CompletionResponse{{
+			Content:      "react path should not run",
+			FinishReason: "stop",
+		}},
+	}
+	service := NewService(store, gateway)
+
+	var chunks []string
+	err := service.SendMessageStream(context.Background(), auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+		User:           auth.User{ID: "user_1"},
+	}, "conv_stream_plan", "make a streamed plan", func(chunk string) error {
+		chunks = append(chunks, chunk)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("SendMessageStream returned error: %v", err)
+	}
+	if streamed := strings.Join(chunks, ""); !strings.Contains(streamed, "Verify planning evidence") {
+		t.Fatalf("expected planning reply to be streamed, got chunks=%v", chunks)
+	}
+	if gateway.plainCalls != 1 || gateway.streamCalls != 0 || gateway.structuredCalls != 0 {
+		t.Fatalf("expected stream default planning to use one planning reply and no ReAct/tool stream, got plain=%d stream=%d structured=%d", gateway.plainCalls, gateway.streamCalls, gateway.structuredCalls)
+	}
+	if len(store.runs) != 1 {
+		t.Fatalf("expected one durable planning run, got %+v", store.runs)
+	}
+	run := store.runs[0]
+	if run.Mode != ExecutionModePlanning || run.Status != RunStatusPendingApproval || run.FinalMessageID == "" || run.CompletedAt != nil {
+		t.Fatalf("expected open planning run evidence, got %+v", run)
+	}
+	if len(store.toolRuns) != 0 {
+		t.Fatalf("planning stream should not execute tools before plan-step approval, got %+v", store.toolRuns)
+	}
+	if len(store.planSteps) != 2 || store.planSteps[1].Title != "Verify planning evidence" {
+		t.Fatalf("expected parsed planning steps from streamed planning reply, got %+v", store.planSteps)
+	}
+}
+
 func TestSendMessageStreamPlainPath(t *testing.T) {
 	store := &fakeStore{
 		agent: &Agent{
