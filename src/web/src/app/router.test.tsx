@@ -515,8 +515,62 @@ vi.mock('../features/admin/api', () => ({
         ],
         total: 1
       }),
-    listAPITokens: () => Promise.resolve({ data: [], total: 0 }),
-    listModelInventory: () => Promise.resolve({ data: [], total: 0 }),
+    listAPITokens: () =>
+      Promise.resolve({
+        data: [
+          {
+            createdAt: '2026-05-31T10:00:00Z',
+            id: 'tok_admin_router',
+            lastUsedAt: '2026-06-01T10:00:00Z',
+            modelLimits: ['gpt-4o', 'claude-3-5-sonnet'],
+            modelLimitsEnabled: true,
+            name: 'Production key',
+            organizationId: 'org_router',
+            quotaLimit: 50,
+            requestCount: 12,
+            status: 'active',
+            tokenPrefix: 'sk-oblv',
+            totalCost: 1.23,
+            usedQuota: 12.5,
+            userEmail: 'user@example.com',
+            userGroup: 'vip',
+            userId: 'user_router'
+          }
+        ],
+        total: 1
+      }),
+    listModelInventory: () =>
+      Promise.resolve({
+        data: [
+          {
+            avgCostMultiplier: 1.2,
+            channelCount: 2,
+            channels: [
+              {
+                costMultiplier: 1.1,
+                enabled: true,
+                estimatedCostPer1K: 0.02,
+                groups: ['default', 'vip'],
+                id: 'ch_router_primary',
+                name: 'OpenAI primary',
+                priority: 10,
+                provider: 'openai'
+              }
+            ],
+            disabledChannelCount: 1,
+            enabledChannelCount: 1,
+            groups: ['default', 'vip'],
+            maxEstimatedCostPer1K: 0.05,
+            minEstimatedCostPer1K: 0.02,
+            model: 'gpt-4o',
+            providers: ['openai', 'azure'],
+            requestCount: 30,
+            totalChannelCost: 0.61,
+            totalCost: 1.23
+          }
+        ],
+        total: 1
+      }),
     approveAgent: () => Promise.resolve(),
     rejectAgent: () => Promise.resolve(),
     requestAgentChanges: () => Promise.resolve(),
@@ -1996,6 +2050,36 @@ describe('app router', () => {
     expect(await screen.findByRole('heading', { name: 'API Tokens' })).toBeInTheDocument();
   });
 
+  it('keeps admin API tokens route-level filters and revoke controls reachable', async () => {
+    const router = createAppRouter(['/admin/api-tokens']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    const adminNavigation = await screen.findByRole('complementary', { name: 'Admin navigation' });
+    expect(document.querySelector('[data-gsap-scope="admin"]')).toBeInTheDocument();
+    expect(within(adminNavigation).getByRole('link', { name: 'API Tokens' })).toHaveAttribute(
+      'href',
+      '/admin/api-tokens'
+    );
+    expect(await screen.findByRole('heading', { name: 'API Tokens' })).toBeInTheDocument();
+    expect(await screen.findByText('1 relay keys matched')).toBeInTheDocument();
+    expect(screen.getByLabelText('Organization ID filter')).toBeInTheDocument();
+    expect(screen.getByLabelText('User ID filter')).toBeInTheDocument();
+    expect(screen.getByLabelText('Status filter')).toBeInTheDocument();
+    expect(screen.getByLabelText('User group filter')).toBeInTheDocument();
+    expect(screen.getByLabelText('Search tokens')).toBeInTheDocument();
+    expect(screen.getByLabelText('Model filter')).toBeInTheDocument();
+    expect(await screen.findByText('Production key')).toBeInTheDocument();
+    expect(screen.getByText('sk-oblv')).toBeInTheDocument();
+    expect(screen.getByText('user@example.com')).toBeInTheDocument();
+    expect(screen.getByText('vip')).toBeInTheDocument();
+    expect(screen.getByText('Active')).toBeInTheDocument();
+    expect(screen.getByText('gpt-4o, claude-3-5-sonnet')).toBeInTheDocument();
+    expect(screen.getByText('$12.5000 / $50.0000')).toBeInTheDocument();
+    expect(screen.getByText('$1.2300')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Revoke Production key' })).toBeEnabled();
+  });
+
   it('renders admin models route inside the admin shell', async () => {
     const router = createAppRouter(['/admin/models']);
 
@@ -2003,6 +2087,35 @@ describe('app router', () => {
 
     expect(await screen.findByRole('complementary', { name: 'Admin navigation' })).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Models' })).toBeInTheDocument();
+  });
+
+  it('keeps admin models route-level filters, ranking, and cost evidence reachable', async () => {
+    const router = createAppRouter(['/admin/models']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    const adminNavigation = await screen.findByRole('complementary', { name: 'Admin navigation' });
+    expect(document.querySelector('[data-gsap-scope="admin"]')).toBeInTheDocument();
+    expect(within(adminNavigation).getByRole('link', { name: 'Models' })).toHaveAttribute('href', '/admin/models');
+    expect(await screen.findByRole('heading', { name: 'Models' })).toBeInTheDocument();
+    expect(await screen.findByText('1 relay models matched')).toBeInTheDocument();
+    expect(screen.getByLabelText('Provider filter')).toBeInTheDocument();
+    expect(screen.getByLabelText('Group filter')).toBeInTheDocument();
+    expect(screen.getByLabelText('Status filter')).toBeInTheDocument();
+    expect(screen.getByLabelText('Search models')).toBeInTheDocument();
+    expect(await screen.findByText('gpt-4o')).toBeInTheDocument();
+    expect(screen.getByText('openai')).toBeInTheDocument();
+    expect(screen.getByText('azure')).toBeInTheDocument();
+    expect(screen.getByText('default')).toBeInTheDocument();
+    expect(screen.getByText('vip')).toBeInTheDocument();
+    expect(screen.getByText('OpenAI primary')).toBeInTheDocument();
+    expect(screen.getByText('1 / 2 enabled')).toBeInTheDocument();
+    expect(screen.getByText('$0.0200 - $0.0500')).toBeInTheDocument();
+    expect(screen.getByText('1.20x')).toBeInTheDocument();
+    expect(screen.getByText('$0.6100')).toBeInTheDocument();
+    expect(screen.getByText('$0.6200')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sort by Requests' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sort by Spend' })).toBeInTheDocument();
   });
 
   it('renders admin settings route inside the admin shell', async () => {
