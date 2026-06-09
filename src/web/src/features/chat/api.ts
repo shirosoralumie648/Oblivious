@@ -11,6 +11,7 @@ import type {
   ForkConversationRequest,
   MessageShareResponse,
   ModelOption,
+  PersonaRequest,
   PersonaSummary,
   SendMessageRequest,
   UpdateConversationMessageRequest,
@@ -29,6 +30,7 @@ export type CreateConversationShareOptions = {
 
 export type ChatApi = {
   createConversation: (payload: CreateConversationRequest) => Promise<ConversationSummary>;
+  createPersona: (payload: PersonaRequest) => Promise<PersonaSummary>;
   createConversationShare: (
     conversationId: string,
     options?: CreateConversationShareOptions
@@ -41,6 +43,7 @@ export type ChatApi = {
   convertConversationToTask: (conversationId: string) => Promise<ConvertConversationToTaskResponse>;
   deleteConversation: (conversationId: string) => Promise<void>;
   deleteMessage: (conversationId: string, messageId: string) => Promise<void>;
+  deletePersona: (personaId: string) => Promise<void>;
   exportConversationMarkdown: (conversationId: string) => Promise<string>;
   forkConversation: (conversationId: string, payload: ForkConversationRequest) => Promise<ConversationSummary>;
   bookmarkMessage: (
@@ -54,6 +57,7 @@ export type ChatApi = {
   listMessages: (conversationId: string) => Promise<ConversationMessage[]>;
   listModels: () => Promise<ModelOption[]>;
   listPersonas: () => Promise<PersonaSummary[]>;
+  updatePersona: (personaId: string, payload: PersonaRequest) => Promise<PersonaSummary>;
   sendMessage: (conversationId: string, payload: SendMessageRequest) => Promise<ConversationMessage[]>;
   sendMessageStream: (
     conversationId: string,
@@ -71,6 +75,10 @@ export type ChatApi = {
 
 export type ChatApiOptions = {
   fetchFn?: typeof fetch;
+};
+
+type RawPersonaSummary = Omit<PersonaSummary, 'suggestedQuestions'> & {
+  suggestedQuestions?: string[] | string;
 };
 
 export function createChatApi(client: HttpClient, options: ChatApiOptions = {}): ChatApi {
@@ -91,9 +99,20 @@ export function createChatApi(client: HttpClient, options: ChatApiOptions = {}):
     ...conversation,
     parentId: conversation.parentId ?? conversation.parent_id
   });
+  const normalizePersona = (persona: RawPersonaSummary): PersonaSummary => ({
+    ...persona,
+    suggestedQuestions:
+      typeof persona.suggestedQuestions === 'string'
+        ? persona.suggestedQuestions
+            .split('\n')
+            .map((question) => question.trim())
+            .filter(Boolean)
+        : persona.suggestedQuestions
+  });
 
   return {
     createConversation: (payload) => client.post<ConversationSummary>('/api/v1/app/conversations', payload),
+    createPersona: async (payload) => normalizePersona(await client.post<RawPersonaSummary>('/api/v1/app/personas', payload)),
     createConversationShare: async (conversationId, options) => {
       const path = `/api/v1/app/conversations/${conversationId}/share`;
       const share =
@@ -114,6 +133,9 @@ export function createChatApi(client: HttpClient, options: ChatApiOptions = {}):
       client.post<ConvertConversationToTaskResponse>(`/api/v1/app/conversations/${conversationId}/convert-to-task`),
     deleteConversation: (conversationId) => client.delete<void>(`/api/v1/app/conversations/${conversationId}`),
     deleteMessage: (conversationId, messageId) => client.delete<void>(messagePath(conversationId, messageId)),
+    deletePersona: async (personaId) => {
+      await client.delete<unknown>(`/api/v1/app/personas/${encodeURIComponent(personaId)}`);
+    },
     exportConversationMarkdown: (conversationId) =>
       client.get<string>(`/api/v1/app/conversations/${encodeURIComponent(conversationId)}/export.md`),
     forkConversation: async (conversationId, payload) =>
@@ -127,7 +149,7 @@ export function createChatApi(client: HttpClient, options: ChatApiOptions = {}):
     listConversations: () => client.get<ConversationSummary[]>('/api/v1/app/conversations'),
     listMessages: (conversationId) => client.get<ConversationMessage[]>(`/api/v1/app/conversations/${conversationId}/messages`),
     listModels: () => client.get<ModelOption[]>('/api/v1/app/models'),
-    listPersonas: () => client.get<PersonaSummary[]>('/api/v1/app/personas'),
+    listPersonas: async () => (await client.get<RawPersonaSummary[]>('/api/v1/app/personas')).map(normalizePersona),
     sendMessage: (conversationId, payload) =>
       client.post<ConversationMessage[]>(`/api/v1/app/conversations/${conversationId}/messages`, payload),
     sendMessageStream: (conversationId, payload, handlers) =>
@@ -149,6 +171,8 @@ export function createChatApi(client: HttpClient, options: ChatApiOptions = {}):
     updateConversation: async (conversationId, payload) =>
       normalizeConversationSummary(await client.put<ConversationSummary>(`/api/v1/app/conversations/${conversationId}`, payload)),
     updateConversationConfig: (conversationId, payload) =>
-      client.put<ConversationConfig>(`/api/v1/app/conversations/${conversationId}/config`, payload)
+      client.put<ConversationConfig>(`/api/v1/app/conversations/${conversationId}/config`, payload),
+    updatePersona: async (personaId, payload) =>
+      normalizePersona(await client.put<RawPersonaSummary>(`/api/v1/app/personas/${encodeURIComponent(personaId)}`, payload))
   };
 }

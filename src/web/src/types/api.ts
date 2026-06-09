@@ -105,14 +105,26 @@ export type ConversationConfig = {
 };
 
 export type PersonaSummary = {
+  createdAt?: string;
   id: string;
   name: string;
+  workspaceId?: string;
   role?: string;
   style?: string;
   tone?: string;
   constraints?: string;
   openingMessage?: string;
-  suggestedQuestions?: string;
+  suggestedQuestions?: string[];
+};
+
+export type PersonaRequest = {
+  constraints?: string;
+  name: string;
+  openingMessage?: string;
+  role?: string;
+  style?: string;
+  suggestedQuestions?: string[];
+  tone?: string;
 };
 
 export type UpdateConversationConfigRequest = {

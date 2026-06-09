@@ -15,6 +15,7 @@ import type {
   KnowledgeBaseSummary,
   KnowledgeCitation,
   MessageAttachment,
+  PersonaRequest,
   PersonaSummary,
   TaskSummary,
   UpdateConversationConfigRequest
@@ -33,6 +34,16 @@ type ActionError = {
 };
 
 type ConversationRailFilter = 'all' | 'starred' | 'archived';
+
+type PersonaDraft = {
+  constraints: string;
+  name: string;
+  openingMessage: string;
+  role: string;
+  style: string;
+  suggestedQuestionsText: string;
+  tone: string;
+};
 
 type MessageContentBlock =
   | {
@@ -105,6 +116,43 @@ function attachmentFromFile(file: File): MessageAttachment {
     name: file.name,
     sizeBytes: file.size,
     type: file.type.startsWith('image/') ? 'image' : 'file'
+  };
+}
+
+const emptyPersonaDraft: PersonaDraft = {
+  constraints: '',
+  name: '',
+  openingMessage: '',
+  role: '',
+  style: '',
+  suggestedQuestionsText: '',
+  tone: ''
+};
+
+function personaDraftFromPersona(persona: PersonaSummary): PersonaDraft {
+  return {
+    constraints: persona.constraints ?? '',
+    name: persona.name,
+    openingMessage: persona.openingMessage ?? '',
+    role: persona.role ?? '',
+    style: persona.style ?? '',
+    suggestedQuestionsText: (persona.suggestedQuestions ?? []).join('\n'),
+    tone: persona.tone ?? ''
+  };
+}
+
+function personaPayloadFromDraft(draft: PersonaDraft): PersonaRequest {
+  return {
+    constraints: draft.constraints.trim(),
+    name: draft.name.trim(),
+    openingMessage: draft.openingMessage.trim(),
+    role: draft.role.trim(),
+    style: draft.style.trim(),
+    suggestedQuestions: draft.suggestedQuestionsText
+      .split('\n')
+      .map((question) => question.trim())
+      .filter(Boolean),
+    tone: draft.tone.trim()
   };
 }
 
@@ -436,6 +484,8 @@ export function ChatPage() {
   const [messageShares, setMessageShares] = useState<Record<string, string>>({});
   const [modelOptions, setModelOptions] = useState<Array<{ id: string; label: string }>>([]);
   const [personaOptions, setPersonaOptions] = useState<PersonaSummary[]>([]);
+  const [personaDraft, setPersonaDraft] = useState<PersonaDraft>(emptyPersonaDraft);
+  const [editingPersonaId, setEditingPersonaId] = useState<string | null>(null);
   const [conversationSearch, setConversationSearch] = useState('');
   const [conversationFilter, setConversationFilter] = useState<ConversationRailFilter>('all');
   const [isConversationRailOpen, setIsConversationRailOpen] = useState(false);
@@ -448,6 +498,8 @@ export function ChatPage() {
   const [isCreatingConversation, setIsCreatingConversation] = useState(false);
   const [isExportingMarkdown, setIsExportingMarkdown] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSavingPersona, setIsSavingPersona] = useState(false);
+  const [deletingPersonaId, setDeletingPersonaId] = useState<string | null>(null);
   const [isPreparingHandoff, setIsPreparingHandoff] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [isStartingSolo, setIsStartingSolo] = useState(false);
@@ -510,6 +562,8 @@ export function ChatPage() {
           setMessageShares({});
           setModelOptions(nextModels);
           setPersonaOptions(nextPersonas);
+          setPersonaDraft(emptyPersonaDraft);
+          setEditingPersonaId(null);
           setMessageDraft('');
           setMessageAttachments([]);
           setMarkdownExportUrl('');
@@ -542,6 +596,8 @@ export function ChatPage() {
         setMessageShares({});
         setModelOptions(nextModels);
         setPersonaOptions(nextPersonas);
+        setPersonaDraft(emptyPersonaDraft);
+        setEditingPersonaId(null);
         setMessageDraft('');
         setMessageAttachments([]);
         setMarkdownExportUrl('');
@@ -563,6 +619,8 @@ export function ChatPage() {
           setMessageShares({});
           setModelOptions([]);
           setPersonaOptions([]);
+          setPersonaDraft(emptyPersonaDraft);
+          setEditingPersonaId(null);
           setMessageDraft('');
           setMessageAttachments([]);
           setMarkdownExportUrl('');
@@ -648,6 +706,25 @@ export function ChatPage() {
     });
   };
 
+  const updatePersonaDraft = (patch: Partial<PersonaDraft>) => {
+    setPersonaDraft((current) => ({
+      ...current,
+      ...patch
+    }));
+  };
+
+  const startEditingPersona = (persona: PersonaSummary) => {
+    setActionError(null);
+    setEditingPersonaId(persona.id);
+    setPersonaDraft(personaDraftFromPersona(persona));
+  };
+
+  const cancelPersonaEditing = () => {
+    setActionError(null);
+    setEditingPersonaId(null);
+    setPersonaDraft(emptyPersonaDraft);
+  };
+
   const conversationOverrides = () => {
     if (conversationConfig === null) {
       return undefined;
@@ -662,20 +739,26 @@ export function ChatPage() {
     };
   };
 
+  const conversationConfigRequest = (
+    config: ConversationConfig,
+    patch: Partial<UpdateConversationConfigRequest> = {}
+  ): UpdateConversationConfigRequest => ({
+    knowledgeBaseIds: config.knowledgeBaseIds,
+    maxOutputTokens: config.maxOutputTokens,
+    modelId: config.modelId,
+    personaId: config.personaId ?? '',
+    systemPromptOverride: config.systemPromptOverride,
+    temperature: config.temperature,
+    toolsEnabled: config.toolsEnabled,
+    ...patch
+  });
+
   const saveConversationSettings = async () => {
     if (!conversationId || conversationConfig === null) {
       return;
     }
 
-    const nextConfig: UpdateConversationConfigRequest = {
-      knowledgeBaseIds: conversationConfig.knowledgeBaseIds,
-      maxOutputTokens: conversationConfig.maxOutputTokens,
-      modelId: conversationConfig.modelId,
-      personaId: conversationConfig.personaId ?? '',
-      systemPromptOverride: conversationConfig.systemPromptOverride,
-      temperature: conversationConfig.temperature,
-      toolsEnabled: conversationConfig.toolsEnabled
-    };
+    const nextConfig = conversationConfigRequest(conversationConfig);
     setActionError(null);
     setIsUpdatingConversationSettings(true);
     try {
@@ -687,6 +770,76 @@ export function ChatPage() {
       setActionError(toActionError('Unable to save conversation settings.', caughtError));
     } finally {
       setIsUpdatingConversationSettings(false);
+    }
+  };
+
+  const savePersona = async () => {
+    const payload = personaPayloadFromDraft(personaDraft);
+
+    if (payload.name === '') {
+      setActionError({ title: 'Persona name is required.' });
+      return;
+    }
+
+    setActionError(null);
+    setIsSavingPersona(true);
+    try {
+      if (editingPersonaId !== null) {
+        const updatedPersona = await chatApi.updatePersona(editingPersonaId, payload);
+        setPersonaOptions((currentPersonas) =>
+          currentPersonas.map((persona) => (persona.id === updatedPersona.id ? updatedPersona : persona))
+        );
+        setEditingPersonaId(null);
+        setPersonaDraft(emptyPersonaDraft);
+        return;
+      }
+
+      const createdPersona = await chatApi.createPersona(payload);
+      setPersonaOptions((currentPersonas) => [createdPersona, ...currentPersonas]);
+      setConversationConfig((currentConfig) =>
+        currentConfig === null
+          ? currentConfig
+          : {
+              ...currentConfig,
+              personaId: createdPersona.id
+            }
+      );
+      setPersonaDraft(emptyPersonaDraft);
+    } catch (caughtError) {
+      setActionError(toActionError(editingPersonaId ? 'Unable to update persona.' : 'Unable to create persona.', caughtError));
+    } finally {
+      setIsSavingPersona(false);
+    }
+  };
+
+  const deletePersona = async (persona: PersonaSummary) => {
+    setActionError(null);
+    setDeletingPersonaId(persona.id);
+    try {
+      await chatApi.deletePersona(persona.id);
+      setPersonaOptions((currentPersonas) => currentPersonas.filter((currentPersona) => currentPersona.id !== persona.id));
+      if (editingPersonaId === persona.id) {
+        setEditingPersonaId(null);
+        setPersonaDraft(emptyPersonaDraft);
+      }
+      if (conversationId && conversationConfig?.personaId === persona.id) {
+        const savedConfig = await chatApi.updateConversationConfig(conversationId, conversationConfigRequest(conversationConfig, { personaId: '' }));
+        setConversationConfig(savedConfig);
+        setSelectedKnowledgeBaseIds(savedConfig.knowledgeBaseIds);
+      } else {
+        setConversationConfig((currentConfig) =>
+          currentConfig?.personaId === persona.id
+            ? {
+                ...currentConfig,
+                personaId: ''
+              }
+            : currentConfig
+        );
+      }
+    } catch (caughtError) {
+      setActionError(toActionError('Unable to delete persona.', caughtError));
+    } finally {
+      setDeletingPersonaId(null);
     }
   };
 
@@ -1384,6 +1537,92 @@ export function ChatPage() {
                   ))}
                 </select>
               </label>
+              <section aria-label="Persona manager">
+                <h3>Personas</h3>
+                {personaOptions.length > 0 ? (
+                  <ul aria-label="Available personas">
+                    {personaOptions.map((persona) => (
+                      <li key={persona.id}>
+                        <span>{persona.name || persona.role || persona.id}</span>
+                        {persona.role ? <span>{persona.role}</span> : null}
+                        <button onClick={() => startEditingPersona(persona)} type="button">
+                          {`Edit persona ${persona.id}`}
+                        </button>
+                        <button
+                          disabled={deletingPersonaId === persona.id}
+                          onClick={() => void deletePersona(persona)}
+                          type="button"
+                        >
+                          {`Delete persona ${persona.id}`}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p>No personas configured.</p>
+                )}
+                <label>
+                  Persona name
+                  <input
+                    onChange={(event) => updatePersonaDraft({ name: event.target.value })}
+                    type="text"
+                    value={personaDraft.name}
+                  />
+                </label>
+                <label>
+                  Persona role
+                  <input
+                    onChange={(event) => updatePersonaDraft({ role: event.target.value })}
+                    type="text"
+                    value={personaDraft.role}
+                  />
+                </label>
+                <label>
+                  Persona style
+                  <input
+                    onChange={(event) => updatePersonaDraft({ style: event.target.value })}
+                    type="text"
+                    value={personaDraft.style}
+                  />
+                </label>
+                <label>
+                  Persona tone
+                  <input
+                    onChange={(event) => updatePersonaDraft({ tone: event.target.value })}
+                    type="text"
+                    value={personaDraft.tone}
+                  />
+                </label>
+                <label>
+                  Persona constraints
+                  <textarea
+                    onChange={(event) => updatePersonaDraft({ constraints: event.target.value })}
+                    value={personaDraft.constraints}
+                  />
+                </label>
+                <label>
+                  Persona opening message
+                  <textarea
+                    onChange={(event) => updatePersonaDraft({ openingMessage: event.target.value })}
+                    value={personaDraft.openingMessage}
+                  />
+                </label>
+                <label>
+                  Persona suggested questions
+                  <textarea
+                    onChange={(event) => updatePersonaDraft({ suggestedQuestionsText: event.target.value })}
+                    value={personaDraft.suggestedQuestionsText}
+                  />
+                </label>
+                <button disabled={isSavingPersona || personaDraft.name.trim() === ''} onClick={() => void savePersona()} type="button">
+                  {editingPersonaId ? 'Update persona' : 'Create persona'}
+                </button>
+                {editingPersonaId ? (
+                  <button onClick={cancelPersonaEditing} type="button">
+                    Cancel persona editing
+                  </button>
+                ) : null}
+              </section>
               <label>
                 Temperature
                 <input

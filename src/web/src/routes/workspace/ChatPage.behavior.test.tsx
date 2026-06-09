@@ -11,6 +11,7 @@ const exportConversationMarkdown = vi.fn();
 const getConversationConfig = vi.fn();
 const forkConversation = vi.fn();
 const bookmarkMessage = vi.fn();
+const createPersona = vi.fn();
 const listConversations = vi.fn();
 const listMessages = vi.fn();
 const listModels = vi.fn();
@@ -18,8 +19,10 @@ const listPersonas = vi.fn();
 const startTask = vi.fn();
 const sendMessage = vi.fn();
 const sendMessageStream = vi.fn();
+const deletePersona = vi.fn();
 const updateMessage = vi.fn();
 const updateConversationConfig = vi.fn();
+const updatePersona = vi.fn();
 const listKnowledgeBases = vi.fn();
 const navigate = vi.fn();
 const routeState = vi.hoisted(() => ({
@@ -57,8 +60,10 @@ vi.mock('../../features/chat/api', () => ({
   createChatApi: () => ({
     createConversation,
     createConversationShare,
+    createPersona,
     convertConversationToTask,
     createMessageShare,
+    deletePersona,
     deleteMessage,
     exportConversationMarkdown,
     forkConversation,
@@ -71,7 +76,8 @@ vi.mock('../../features/chat/api', () => ({
     sendMessage,
     sendMessageStream,
     updateMessage,
-    updateConversationConfig
+    updateConversationConfig,
+    updatePersona
   })
 }));
 
@@ -124,9 +130,11 @@ describe('ChatPage', () => {
     };
     createConversation.mockReset();
     createConversationShare.mockReset();
+    createPersona.mockReset();
     createTask.mockReset();
     convertConversationToTask.mockReset();
     createMessageShare.mockReset();
+    deletePersona.mockReset();
     deleteMessage.mockReset();
     exportConversationMarkdown.mockReset();
     getConversationConfig.mockReset();
@@ -142,6 +150,7 @@ describe('ChatPage', () => {
     sendMessageStream.mockReset();
     updateMessage.mockReset();
     updateConversationConfig.mockReset();
+    updatePersona.mockReset();
     listKnowledgeBases.mockReset();
     navigate.mockReset();
     routeState.conversationId = undefined;
@@ -773,6 +782,190 @@ describe('ChatPage', () => {
         toolsEnabled: false
       });
     });
+  });
+
+  it('creates a persona from conversation settings and selects it locally', async () => {
+    routeState.conversationId = 'conversation_1';
+    listConversations.mockResolvedValue([{ id: 'conversation_1', title: 'Research thread' }]);
+    listKnowledgeBases.mockResolvedValue([]);
+    listMessages.mockResolvedValue([{ id: 'm1', role: 'assistant', content: 'Ready when you are.' }]);
+    listModels.mockResolvedValue([{ id: 'balanced-chat', label: 'Balanced chat' }]);
+    listPersonas.mockResolvedValue([]);
+    getConversationConfig.mockResolvedValue({
+      conversationId: 'conversation_1',
+      knowledgeBaseIds: [],
+      maxOutputTokens: 1024,
+      modelId: 'balanced-chat',
+      personaId: '',
+      systemPromptOverride: '',
+      temperature: 1,
+      toolsEnabled: false
+    });
+    createPersona.mockResolvedValue({
+      constraints: 'Call out rollout risk.',
+      id: 'persona_launch',
+      name: 'Launch reviewer',
+      openingMessage: 'Ready to review.',
+      role: 'Reviewer',
+      style: 'Direct',
+      suggestedQuestions: ['What is risky?', 'What changed?'],
+      tone: 'Precise'
+    });
+
+    render(<ChatPage />);
+
+    await screen.findByLabelText('Persona name');
+    fireEvent.change(screen.getByLabelText('Persona name'), { target: { value: 'Launch reviewer' } });
+    fireEvent.change(screen.getByLabelText('Persona role'), { target: { value: 'Reviewer' } });
+    fireEvent.change(screen.getByLabelText('Persona style'), { target: { value: 'Direct' } });
+    fireEvent.change(screen.getByLabelText('Persona tone'), { target: { value: 'Precise' } });
+    fireEvent.change(screen.getByLabelText('Persona constraints'), { target: { value: 'Call out rollout risk.' } });
+    fireEvent.change(screen.getByLabelText('Persona opening message'), { target: { value: 'Ready to review.' } });
+    fireEvent.change(screen.getByLabelText('Persona suggested questions'), {
+      target: { value: 'What is risky?\n\nWhat changed?' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create persona' }));
+
+    await waitFor(() => {
+      expect(createPersona).toHaveBeenCalledWith({
+        constraints: 'Call out rollout risk.',
+        name: 'Launch reviewer',
+        openingMessage: 'Ready to review.',
+        role: 'Reviewer',
+        style: 'Direct',
+        suggestedQuestions: ['What is risky?', 'What changed?'],
+        tone: 'Precise'
+      });
+    });
+    expect(await screen.findByRole('option', { name: 'Launch reviewer' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Conversation persona')).toHaveValue('persona_launch');
+  });
+
+  it('edits a persona from conversation settings', async () => {
+    routeState.conversationId = 'conversation_1';
+    listConversations.mockResolvedValue([{ id: 'conversation_1', title: 'Research thread' }]);
+    listKnowledgeBases.mockResolvedValue([]);
+    listMessages.mockResolvedValue([{ id: 'm1', role: 'assistant', content: 'Ready when you are.' }]);
+    listModels.mockResolvedValue([{ id: 'balanced-chat', label: 'Balanced chat' }]);
+    listPersonas.mockResolvedValue([
+      {
+        constraints: 'Call out rollout risk.',
+        id: 'persona_launch',
+        name: 'Launch reviewer',
+        openingMessage: 'Ready to review.',
+        role: 'Reviewer',
+        style: 'Direct',
+        suggestedQuestions: ['What changed?'],
+        tone: 'Precise'
+      }
+    ]);
+    getConversationConfig.mockResolvedValue({
+      conversationId: 'conversation_1',
+      knowledgeBaseIds: [],
+      maxOutputTokens: 1024,
+      modelId: 'balanced-chat',
+      personaId: '',
+      systemPromptOverride: '',
+      temperature: 1,
+      toolsEnabled: false
+    });
+    updatePersona.mockResolvedValue({
+      constraints: 'Focus on release blockers.',
+      id: 'persona_launch',
+      name: 'Launch critic',
+      openingMessage: 'Ready to review.',
+      role: 'Reviewer',
+      style: 'Direct',
+      suggestedQuestions: ['What changed?', 'What can slip?'],
+      tone: 'Precise'
+    });
+
+    render(<ChatPage />);
+
+    await screen.findByRole('button', { name: 'Edit persona persona_launch' });
+    fireEvent.click(screen.getByRole('button', { name: 'Edit persona persona_launch' }));
+    expect(screen.getByLabelText('Persona suggested questions')).toHaveValue('What changed?');
+    fireEvent.change(screen.getByLabelText('Persona name'), { target: { value: 'Launch critic' } });
+    fireEvent.change(screen.getByLabelText('Persona constraints'), { target: { value: 'Focus on release blockers.' } });
+    fireEvent.change(screen.getByLabelText('Persona suggested questions'), {
+      target: { value: 'What changed?\nWhat can slip?' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Update persona' }));
+
+    await waitFor(() => {
+      expect(updatePersona).toHaveBeenCalledWith('persona_launch', {
+        constraints: 'Focus on release blockers.',
+        name: 'Launch critic',
+        openingMessage: 'Ready to review.',
+        role: 'Reviewer',
+        style: 'Direct',
+        suggestedQuestions: ['What changed?', 'What can slip?'],
+        tone: 'Precise'
+      });
+    });
+    expect(await screen.findByRole('option', { name: 'Launch critic' })).toBeInTheDocument();
+  });
+
+  it('deletes a selected persona and clears conversation settings', async () => {
+    routeState.conversationId = 'conversation_1';
+    listConversations.mockResolvedValue([{ id: 'conversation_1', title: 'Research thread' }]);
+    listKnowledgeBases.mockResolvedValue([]);
+    listMessages.mockResolvedValue([{ id: 'm1', role: 'assistant', content: 'Ready when you are.' }]);
+    listModels.mockResolvedValue([{ id: 'balanced-chat', label: 'Balanced chat' }]);
+    listPersonas.mockResolvedValue([
+      {
+        constraints: 'Call out rollout risk.',
+        id: 'persona_launch',
+        name: 'Launch reviewer',
+        role: 'Reviewer',
+        style: 'Direct',
+        tone: 'Precise'
+      }
+    ]);
+    getConversationConfig.mockResolvedValue({
+      conversationId: 'conversation_1',
+      knowledgeBaseIds: [],
+      maxOutputTokens: 1024,
+      modelId: 'balanced-chat',
+      personaId: 'persona_launch',
+      systemPromptOverride: '',
+      temperature: 1,
+      toolsEnabled: false
+    });
+    deletePersona.mockResolvedValue(undefined);
+    updateConversationConfig.mockResolvedValue({
+      conversationId: 'conversation_1',
+      knowledgeBaseIds: [],
+      maxOutputTokens: 1024,
+      modelId: 'balanced-chat',
+      personaId: '',
+      systemPromptOverride: '',
+      temperature: 1,
+      toolsEnabled: false
+    });
+
+    render(<ChatPage />);
+
+    await screen.findByRole('button', { name: 'Delete persona persona_launch' });
+    expect(screen.getByLabelText('Conversation persona')).toHaveValue('persona_launch');
+    fireEvent.click(screen.getByRole('button', { name: 'Delete persona persona_launch' }));
+
+    await waitFor(() => {
+      expect(deletePersona).toHaveBeenCalledWith('persona_launch');
+    });
+    await waitFor(() => {
+      expect(updateConversationConfig).toHaveBeenCalledWith('conversation_1', {
+        knowledgeBaseIds: [],
+        maxOutputTokens: 1024,
+        modelId: 'balanced-chat',
+        personaId: '',
+        systemPromptOverride: '',
+        temperature: 1,
+        toolsEnabled: false
+      });
+    });
+    expect(screen.getByLabelText('Conversation persona')).toHaveValue('');
+    expect(screen.queryByRole('option', { name: 'Launch reviewer' })).not.toBeInTheDocument();
   });
 
   it('renders a conversation rail for the active conversation and routes between conversations', async () => {

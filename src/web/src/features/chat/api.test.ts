@@ -164,6 +164,83 @@ describe('createChatApi', () => {
     expect(get).toHaveBeenCalledWith('/api/v1/app/personas');
   });
 
+  it('creates, updates, and deletes chat personas through app persona endpoints', async () => {
+    const post = vi.fn().mockResolvedValue({
+      id: 'persona_1',
+      name: 'Launch reviewer',
+      suggestedQuestions: ['What is risky?']
+    });
+    const put = vi.fn().mockResolvedValue({
+      id: 'persona_1',
+      name: 'Launch reviewer updated',
+      suggestedQuestions: ['What changed?']
+    });
+    const deleteRequest = vi.fn().mockResolvedValue({ status: 'deleted' });
+    const api = createChatApi(createClient({ delete: deleteRequest, post, put }));
+
+    await expect(
+      api.createPersona({
+        constraints: 'Call out rollout risk.',
+        name: 'Launch reviewer',
+        openingMessage: 'Ready to review.',
+        role: 'Reviewer',
+        style: 'Direct',
+        suggestedQuestions: ['What is risky?'],
+        tone: 'Precise'
+      })
+    ).resolves.toMatchObject({
+      id: 'persona_1',
+      suggestedQuestions: ['What is risky?']
+    });
+    await expect(
+      api.updatePersona('persona_1', {
+        constraints: 'Focus on release blockers.',
+        name: 'Launch reviewer updated',
+        suggestedQuestions: ['What changed?']
+      })
+    ).resolves.toMatchObject({
+      id: 'persona_1',
+      name: 'Launch reviewer updated',
+      suggestedQuestions: ['What changed?']
+    });
+    await expect(api.deletePersona('persona_1')).resolves.toBeUndefined();
+
+    expect(post).toHaveBeenCalledWith('/api/v1/app/personas', {
+      constraints: 'Call out rollout risk.',
+      name: 'Launch reviewer',
+      openingMessage: 'Ready to review.',
+      role: 'Reviewer',
+      style: 'Direct',
+      suggestedQuestions: ['What is risky?'],
+      tone: 'Precise'
+    });
+    expect(put).toHaveBeenCalledWith('/api/v1/app/personas/persona_1', {
+      constraints: 'Focus on release blockers.',
+      name: 'Launch reviewer updated',
+      suggestedQuestions: ['What changed?']
+    });
+    expect(deleteRequest).toHaveBeenCalledWith('/api/v1/app/personas/persona_1');
+  });
+
+  it('normalizes legacy newline persona questions into arrays', async () => {
+    const get = vi.fn().mockResolvedValue([
+      {
+        id: 'persona_legacy',
+        name: 'Legacy reviewer',
+        suggestedQuestions: 'What changed?\n\nWhat is risky?'
+      }
+    ]);
+    const api = createChatApi(createClient({ get }));
+
+    await expect(api.listPersonas()).resolves.toEqual([
+      {
+        id: 'persona_legacy',
+        name: 'Legacy reviewer',
+        suggestedQuestions: ['What changed?', 'What is risky?']
+      }
+    ]);
+  });
+
   it('streams a chat message through the message stream endpoint', async () => {
     const fetchFn = vi.fn(async () =>
       new Response(
