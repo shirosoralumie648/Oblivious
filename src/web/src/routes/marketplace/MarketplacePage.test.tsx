@@ -178,9 +178,16 @@ function resetMarketplaceMocks() {
   getPublisherStats.mockResolvedValue({
     totalAgents: 1,
     totalInstalls: 120,
+    activeUsers: 64,
+    totalAPICalls: 900,
     grossRevenue: 15000,
     platformFees: 2850,
     netRevenue: 12150,
+    refundedAmount: 350,
+    pendingSettlementAmount: 1200,
+    availableAmount: 10950,
+    payoutPendingAmount: 640,
+    paidOutAmount: 8000,
     revenueTier: {
       currentTier: 'tier_3',
       label: 'Tier 3',
@@ -192,6 +199,15 @@ function resetMarketplaceMocks() {
       salesToNextTier: 85000,
       estimatedPublisherNetIncreaseAtNextTier: 72250,
     },
+    perAgentStats: [
+      {
+        agentID: 'agent_1',
+        agentName: 'Research Agent',
+        installCount: 120,
+        activeUsers: 64,
+        apiCallCount: 900,
+      },
+    ],
   });
   submitReview.mockResolvedValue({ id: 'rev_2', agentID: 'agent_1', userID: 'user_1', rating: 5, body: 'Useful', createdAt: '2026-01-05T00:00:00Z' });
   listTemplates.mockResolvedValue({ templates: [workflowTemplate], total: 1 });
@@ -470,7 +486,28 @@ describe('Marketplace pages', () => {
     expect(screen.getByText('15% current platform fee')).toBeInTheDocument();
     expect(screen.getByText('$85,000 to next tier')).toBeInTheDocument();
     expect(screen.getByText('$72,250 projected net increase')).toBeInTheDocument();
-    expect(await screen.findAllByText('Research Agent')).toHaveLength(2);
+    expect(screen.getByRole('heading', { name: 'Settlement Summary' })).toBeInTheDocument();
+    expect(screen.getByText('Gross revenue')).toBeInTheDocument();
+    expect(screen.getByText('$15,000')).toBeInTheDocument();
+    expect(screen.getByText('Platform fees')).toBeInTheDocument();
+    expect(screen.getByText('$2,850')).toBeInTheDocument();
+    expect(screen.getByText('Net revenue')).toBeInTheDocument();
+    expect(screen.getByText('$12,150')).toBeInTheDocument();
+    expect(screen.getByText('Refunded')).toBeInTheDocument();
+    expect(screen.getByText('$350')).toBeInTheDocument();
+    expect(screen.getByText('Pending settlement')).toBeInTheDocument();
+    expect(screen.getByText('$1,200')).toBeInTheDocument();
+    expect(screen.getByText('Available payout')).toBeInTheDocument();
+    expect(screen.getByText('$10,950')).toBeInTheDocument();
+    expect(screen.getByText('Payout pending')).toBeInTheDocument();
+    expect(screen.getByText('$640')).toBeInTheDocument();
+    expect(screen.getByText('Paid out')).toBeInTheDocument();
+    expect(screen.getByText('$8,000')).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Active Users' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'API Calls' })).toBeInTheDocument();
+    expect(screen.getByText('64')).toBeInTheDocument();
+    expect(screen.getByText('900')).toBeInTheDocument();
+    expect(await screen.findAllByText('Research Agent')).toHaveLength(3);
     fireEvent.click(screen.getByRole('button', { name: 'Uninstall Research Agent' }));
 
     await waitFor(() => expect(uninstallAgent).toHaveBeenCalledWith('install_1'));
@@ -494,11 +531,11 @@ describe('Marketplace pages', () => {
     renderRoute(<MarketplaceMyAgentsPage />);
 
     expect(await screen.findByRole('heading', { name: 'My Agents' })).toBeInTheDocument();
-    expect(await screen.findAllByText('Research Agent')).toHaveLength(2);
+    expect(await screen.findAllByText('Research Agent')).toHaveLength(3);
     fireEvent.click(screen.getByRole('button', { name: 'Uninstall Research Agent' }));
 
     expect(await screen.findByText('Unable to uninstall agent.')).toBeInTheDocument();
     expect(screen.getByText('install settlement still pending')).toBeInTheDocument();
-    expect(screen.getAllByText('Research Agent')).toHaveLength(2);
+    expect(screen.getAllByText('Research Agent')).toHaveLength(3);
   });
 });

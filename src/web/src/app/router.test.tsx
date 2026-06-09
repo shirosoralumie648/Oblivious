@@ -122,6 +122,25 @@ vi.mock('../features/console/api', () => ({
           status: 'paid'
         }
       ]),
+    listPackages: () =>
+      Promise.resolve([
+        {
+          agentLimit: 25,
+          createdAt: '2026-06-01T00:00:00Z',
+          durationDays: 30,
+          id: 'pkg_router_pro',
+          isActive: true,
+          isPublic: true,
+          maxTokensPerRequest: 32000,
+          modelAccess: ['gpt-4.1'],
+          name: 'Router Pro',
+          price: 29,
+          quotaAmount: 150,
+          sortOrder: 10,
+          tokenQuota: 1500000,
+          updatedAt: '2026-06-01T00:00:00Z'
+        }
+      ]),
     getModels: () =>
       Promise.resolve([{ id: 'balanced-chat', label: 'balanced-chat', requests: 2 }]),
     getUsage: () =>
@@ -1082,10 +1101,10 @@ vi.mock('../features/marketplace/api', () => {
           grossRevenue: 15000,
           platformFees: 2850,
           netRevenue: 12150,
-          refundedAmount: 0,
+          refundedAmount: 350,
           pendingSettlementAmount: 1200,
           availableAmount: 10950,
-          payoutPendingAmount: 0,
+          payoutPendingAmount: 640,
           paidOutAmount: 8000,
           revenueTier: {
             currentTier: 'tier_3',
@@ -1099,7 +1118,16 @@ vi.mock('../features/marketplace/api', () => {
             nextTierAt: 100000,
             salesToNextTier: 85000,
             estimatedPublisherNetIncreaseAtNextTier: 72250
-          }
+          },
+          perAgentStats: [
+            {
+              agentID: 'agent_1',
+              agentName: 'Research Agent',
+              installCount: 120,
+              activeUsers: 64,
+              apiCallCount: 900
+            }
+          ]
         }),
       publishAgent: () =>
         Promise.resolve({
@@ -2317,9 +2345,13 @@ describe('app router', () => {
     expect(await screen.findByRole('heading', { name: 'Billing' })).toBeInTheDocument();
     expect(await screen.findByRole('link', { name: 'Back to overview' })).toHaveAttribute('href', '/console');
     expect(await screen.findByRole('link', { name: 'Open usage' })).toHaveAttribute('href', '/console/usage');
+    expect(await screen.findByRole('heading', { name: 'Subscription packages' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Package')).toHaveValue('pkg_router_pro');
+    expect(screen.getByRole('option', { name: 'Router Pro - $29.00 - 30 days' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start subscription checkout' })).toBeEnabled();
     expect(await screen.findByLabelText('Top-up amount USD')).toHaveValue(25);
     expect(await screen.findByLabelText('Payment provider')).toHaveValue('stripe');
-    expect(screen.getByRole('option', { name: 'Alipay' })).toBeInTheDocument();
+    expect(screen.getAllByRole('option', { name: 'Alipay' })).toHaveLength(2);
     expect(screen.getByRole('button', { name: 'Start top-up checkout' })).toBeEnabled();
     expect(screen.getByText('Invoice history')).toBeInTheDocument();
   });
@@ -2740,15 +2772,32 @@ describe('app router', () => {
     expect(screen.getByText('15% current platform fee')).toBeInTheDocument();
     expect(screen.getByText('$85,000 to next tier')).toBeInTheDocument();
     expect(screen.getByText('$72,250 projected net increase')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Settlement Summary' })).toBeInTheDocument();
+    expect(screen.getByText('Gross revenue')).toBeInTheDocument();
+    expect(screen.getByText('$15,000')).toBeInTheDocument();
+    expect(screen.getByText('Available payout')).toBeInTheDocument();
+    expect(screen.getByText('$10,950')).toBeInTheDocument();
+    expect(screen.getByText('Pending settlement')).toBeInTheDocument();
+    expect(screen.getByText('$1,200')).toBeInTheDocument();
+    expect(screen.getByText('Refunded')).toBeInTheDocument();
+    expect(screen.getByText('$350')).toBeInTheDocument();
+    expect(screen.getByText('Payout pending')).toBeInTheDocument();
+    expect(screen.getByText('$640')).toBeInTheDocument();
+    expect(screen.getByText('Paid out')).toBeInTheDocument();
+    expect(screen.getByText('$8,000')).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Active Users' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'API Calls' })).toBeInTheDocument();
+    expect(screen.getByText('64')).toBeInTheDocument();
+    expect(screen.getByText('900')).toBeInTheDocument();
     expect(screen.getByLabelText('Settlement cycle')).toHaveValue('monthly');
     fireEvent.change(screen.getByLabelText('Settlement cycle'), { target: { value: 'weekly' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save Settlement Cycle' }));
     expect(await screen.findByText('2% processing fee')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Published Agents' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Installed Agents' })).toBeInTheDocument();
-    expect(await screen.findAllByText('Research Agent')).toHaveLength(2);
+    expect(await screen.findAllByText('Research Agent')).toHaveLength(3);
     expect(screen.getByText('1.0.0')).toBeInTheDocument();
-    expect(screen.getByText('120')).toBeInTheDocument();
+    expect(screen.getAllByText('120')).toHaveLength(2);
     expect(screen.getByRole('link', { name: 'Open agent Research Agent' })).toHaveAttribute(
       'href',
       '/marketplace/agents/agent_1'

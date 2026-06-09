@@ -128,6 +128,10 @@ function formatUSD(amount: number | undefined) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(amount ?? 0);
 }
 
+function formatNumber(value: number | undefined) {
+  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(value ?? 0);
+}
+
 export function MarketplaceMyAgentsPage() {
   const [state, dispatch] = useReducer(reducer, initialState);
   const api = useMemo(() => createMarketplaceApi(createHttpClient()), []);
@@ -201,6 +205,23 @@ export function MarketplaceMyAgentsPage() {
     { key: 'installedAt', header: 'Installed', render: (install) => new Date(install.installedAt).toLocaleDateString() },
   ];
   const revenueTier = state.publisherStats?.revenueTier;
+  const settlementSummary = [
+    { label: 'Gross revenue', value: formatUSD(state.publisherStats?.grossRevenue) },
+    { label: 'Platform fees', value: formatUSD(state.publisherStats?.platformFees) },
+    { label: 'Net revenue', value: formatUSD(state.publisherStats?.netRevenue) },
+    { label: 'Refunded', value: formatUSD(state.publisherStats?.refundedAmount) },
+    { label: 'Pending settlement', value: formatUSD(state.publisherStats?.pendingSettlementAmount) },
+    { label: 'Available payout', value: formatUSD(state.publisherStats?.availableAmount) },
+    { label: 'Payout pending', value: formatUSD(state.publisherStats?.payoutPendingAmount) },
+    { label: 'Paid out', value: formatUSD(state.publisherStats?.paidOutAmount) },
+  ];
+
+  const perAgentStatsColumns: DataTableColumn<NonNullable<PublisherStats['perAgentStats']>[number]>[] = [
+    { key: 'agentName', header: 'Agent', render: (agent) => agent.agentName },
+    { key: 'installCount', header: 'Installs', render: (agent) => formatNumber(agent.installCount) },
+    { key: 'activeUsers', header: 'Active Users', render: (agent) => formatNumber(agent.activeUsers) },
+    { key: 'apiCallCount', header: 'API Calls', render: (agent) => formatNumber(agent.apiCallCount) },
+  ];
 
   return (
     <div className="space-y-8">
@@ -273,6 +294,28 @@ export function MarketplaceMyAgentsPage() {
           </div>
         </CardContent>
       </Card>
+
+      <section className="space-y-4" aria-label="Settlement summary">
+        <div>
+          <h2 className="font-heading text-xl font-semibold text-foreground">Settlement Summary</h2>
+          <p className="text-sm text-muted-foreground">Track publisher revenue, payout availability, and per-agent usage signals.</p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {settlementSummary.map((item) => (
+            <div key={item.label} className="rounded-lg border border-border bg-card p-4">
+              <p className="text-xs font-medium uppercase text-muted-foreground">{item.label}</p>
+              <p className="mt-2 text-lg font-semibold text-foreground">{item.value}</p>
+            </div>
+          ))}
+        </div>
+        <DataTable
+          columns={perAgentStatsColumns}
+          data={state.publisherStats?.perAgentStats ?? []}
+          loading={state.loading}
+          error={null}
+          emptyMessage="No per-agent settlement activity yet."
+        />
+      </section>
 
       <section className="space-y-4">
         <h2 className="font-heading text-xl font-semibold text-foreground">Published Agents</h2>
