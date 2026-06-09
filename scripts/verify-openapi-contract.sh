@@ -2154,6 +2154,9 @@ require_chat_mutation_csrf_contract() {
       ["/api/v1/app/conversations/{conversationId}/convert-to-task", "post"] => ["200", "#/components/schemas/TaskDraft", :ref],
       ["/api/v1/app/conversations/{conversationId}/share", "post"] => ["201", "#/components/schemas/ConversationShareResponse", :ref],
       ["/api/v1/app/conversations/{conversationId}/messages/{messageId}/share", "post"] => ["201", "#/components/schemas/MessageShareResponse", :ref],
+      ["/api/v1/app/personas", "post"] => ["200", "#/components/schemas/Persona", :ref],
+      ["/api/v1/app/personas/{personaId}", "put"] => ["200", "#/components/schemas/Persona", :ref],
+      ["/api/v1/app/personas/{personaId}", "delete"] => ["200", "#/components/schemas/PersonaDeleteResponse", :ref],
     }
 
     expected_responses.each do |(path, method), (status, expected, shape)|
@@ -2176,10 +2179,36 @@ require_chat_mutation_csrf_contract() {
       ["/api/v1/app/conversations/{conversationId}/config", "put"] => "#/components/schemas/UpdateConversationConfigRequest",
       ["/api/v1/app/conversations/{conversationId}/share", "post"] => "#/components/schemas/CreateConversationShareRequest",
       ["/api/v1/app/conversations/{conversationId}/messages/{messageId}/share", "post"] => "#/components/schemas/CreateMessageShareRequest",
+      ["/api/v1/app/personas", "post"] => "#/components/schemas/PersonaRequest",
+      ["/api/v1/app/personas/{personaId}", "put"] => "#/components/schemas/PersonaRequest",
     }.each do |(path, method), expected|
       op = operation(paths, path, method, missing)
       unless request_body_ref(op) == expected
         missing << "#{method.upcase} #{path} request body must reference #{expected}"
+      end
+    end
+
+    {
+      ["/api/v1/app/personas", "get"] => "#/components/schemas/Persona",
+    }.each do |(path, method), expected|
+      op = operation(paths, path, method, missing)
+      unless op.fetch("tags", []).include?("Chat")
+        missing << "#{method.upcase} #{path} must be tagged Chat"
+      end
+      unless response_data_array_ref(op, "200") == expected
+        missing << "#{method.upcase} #{path} 200 data array must reference #{expected}"
+      end
+    end
+
+    {
+      ["/api/v1/app/personas/{personaId}", "get"] => "#/components/schemas/Persona",
+    }.each do |(path, method), expected|
+      op = operation(paths, path, method, missing)
+      unless op.fetch("tags", []).include?("Chat")
+        missing << "#{method.upcase} #{path} must be tagged Chat"
+      end
+      unless response_data_ref(op, "200") == expected
+        missing << "#{method.upcase} #{path} 200 data must reference #{expected}"
       end
     end
 
@@ -2207,6 +2236,29 @@ require_chat_mutation_csrf_contract() {
     end
     unless schemas.key?("TaskDraft")
       missing << "TaskDraft schema must be documented"
+    end
+    persona = schemas["Persona"] || {}
+    persona_props = persona.fetch("properties", {})
+    ["id", "workspaceId", "name", "role", "style", "tone", "constraints", "openingMessage"].each do |property|
+      unless persona_props.dig(property, "type") == "string"
+        missing << "Persona.#{property} must be documented as string"
+      end
+    end
+    unless persona_props.dig("createdAt", "format") == "date-time"
+      missing << "Persona.createdAt must be documented as date-time"
+    end
+    unless persona_props.dig("suggestedQuestions", "items", "type") == "string"
+      missing << "Persona.suggestedQuestions must be documented as string[]"
+    end
+    persona_request = schemas["PersonaRequest"] || {}
+    unless persona_request.fetch("required", []).include?("name") && persona_request.dig("properties", "name", "type") == "string"
+      missing << "PersonaRequest.name must be required and documented as string"
+    end
+    unless persona_request.dig("properties", "suggestedQuestions", "items", "type") == "string"
+      missing << "PersonaRequest.suggestedQuestions must be documented as string[]"
+    end
+    unless schemas.dig("PersonaDeleteResponse", "properties", "status", "type") == "string"
+      missing << "PersonaDeleteResponse.status must be documented as string"
     end
     unless schemas.dig("CreateMessageShareRequest", "properties", "expiresAt", "format") == "date-time"
       missing << "CreateMessageShareRequest.expiresAt must be documented as date-time"
@@ -2967,6 +3019,8 @@ required_paths=(
   "/api/v1/app/quota"
   "/api/v1/app/packages"
   "/api/v1/app/quota/topup"
+  "/api/v1/app/personas"
+  "/api/v1/app/personas/{personaId}"
   "/api/v1/app/conversations/{conversationId}/share"
   "/api/v1/app/conversations/{conversationId}/messages/{messageId}/share"
   "/api/v1/app/message-shares/{shareId}"

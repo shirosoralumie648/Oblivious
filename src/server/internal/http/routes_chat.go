@@ -38,11 +38,31 @@ func registerChatRoutes(mux *stdhttp.ServeMux, authMiddleware authMiddleware, ch
 		chatHandler.listModels(w, r)
 	})))
 	mux.Handle("/api/v1/app/personas", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
-		if r.Method != stdhttp.MethodGet {
+		switch r.Method {
+		case stdhttp.MethodGet:
+			chatHandler.listPersonas(w, r)
+		case stdhttp.MethodPost:
+			chatHandler.createPersona(w, r)
+		default:
 			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		}
+	})))
+	mux.Handle("/api/v1/app/personas/", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		personaID := strings.TrimPrefix(r.URL.Path, "/api/v1/app/personas/")
+		if personaID == "" || strings.Contains(personaID, "/") {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
 			return
 		}
-		chatHandler.listPersonas(w, r)
+		switch r.Method {
+		case stdhttp.MethodGet:
+			chatHandler.getPersona(w, r, personaID)
+		case stdhttp.MethodPut:
+			chatHandler.updatePersona(w, r, personaID)
+		case stdhttp.MethodDelete:
+			chatHandler.deletePersona(w, r, personaID)
+		default:
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		}
 	})))
 	mux.Handle("/api/v1/app/conversations", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		switch r.Method {

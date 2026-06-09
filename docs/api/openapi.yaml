@@ -340,6 +340,60 @@ components:
         name:
           type: string
 
+    Persona:
+      type: object
+      properties:
+        createdAt:
+          type: string
+          format: date-time
+        id:
+          type: string
+        workspaceId:
+          type: string
+        name:
+          type: string
+        role:
+          type: string
+        style:
+          type: string
+        tone:
+          type: string
+        constraints:
+          type: string
+        openingMessage:
+          type: string
+        suggestedQuestions:
+          type: array
+          items:
+            type: string
+
+    PersonaRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        role:
+          type: string
+        style:
+          type: string
+        tone:
+          type: string
+        constraints:
+          type: string
+        openingMessage:
+          type: string
+        suggestedQuestions:
+          type: array
+          items:
+            type: string
+
+    PersonaDeleteResponse:
+      type: object
+      properties:
+        status:
+          type: string
+
     KnowledgeBase:
       type: object
       properties:
@@ -5282,6 +5336,151 @@ paths:
                           $ref: "#/components/schemas/Model"
         "401":
           $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/app/personas:
+    get:
+      summary: 获取对话人格列表
+      operationId: listPersonas
+      tags: [Chat]
+      responses:
+        "200":
+          description: 对话人格列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Persona"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      summary: 创建对话人格
+      operationId: createPersona
+      tags: [Chat]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PersonaRequest"
+      responses:
+        "200":
+          description: 新创建的对话人格
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Persona"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/app/personas/{personaId}:
+    get:
+      summary: 获取对话人格详情
+      operationId: getPersona
+      tags: [Chat]
+      parameters:
+        - name: personaId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 对话人格详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Persona"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      summary: 更新对话人格
+      operationId: updatePersona
+      tags: [Chat]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      parameters:
+        - name: personaId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PersonaRequest"
+      responses:
+        "200":
+          description: 更新后的对话人格
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Persona"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      summary: 删除对话人格
+      operationId: deletePersona
+      tags: [Chat]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      parameters:
+        - name: personaId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 对话人格已删除
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/PersonaDeleteResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   # ---- Relay aliases (OpenAI-compatible) ----
   /api/v1/relay/chat/completions:

@@ -412,6 +412,10 @@ func (h chatHandler) updatePersona(w stdhttp.ResponseWriter, r *stdhttp.Request,
 
 	updated, err := h.service.UpdatePersona(r.Context(), session, personaID, persona)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "persona not found")
+			return
+		}
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "update persona failed")
 		return
 	}
@@ -427,6 +431,10 @@ func (h chatHandler) deletePersona(w stdhttp.ResponseWriter, r *stdhttp.Request,
 	}
 
 	if err := h.service.DeletePersona(r.Context(), session, personaID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "persona not found")
+			return
+		}
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "delete persona failed")
 		return
 	}

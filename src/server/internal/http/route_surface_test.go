@@ -65,6 +65,17 @@ func TestRouteSurfaceRegistersCanonicalKnowledgeRoutesThroughRegistrar(t *testin
 	}
 }
 
+func TestRouteSurfaceRegistersCanonicalChatRoutesThroughRegistrar(t *testing.T) {
+	source, err := os.ReadFile("router.go")
+	if err != nil {
+		t.Fatalf("read router.go: %v", err)
+	}
+
+	if !strings.Contains(string(source), "registerChatRoutes(mux, authMiddleware, chatHandler)") {
+		t.Fatal("expected NewRouterWithOptions to register canonical app Chat routes through registerChatRoutes")
+	}
+}
+
 func TestRouteSurfaceKnowledgeRoutesRequireSessionWithoutDatabase(t *testing.T) {
 	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{})
 
@@ -327,6 +338,32 @@ func TestRouteSurfacePreferencesMutationRejectsCookieWithoutCSRFWithoutDatabase(
 	}
 }
 
+func TestRouteSurfaceChatPersonaRoutesRequireSessionWithoutDatabase(t *testing.T) {
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{})
+
+	tests := []routeSurfaceCase{
+		{"list personas", stdhttp.MethodGet, "/api/v1/app/personas"},
+		{"create persona", stdhttp.MethodPost, "/api/v1/app/personas"},
+		{"get persona", stdhttp.MethodGet, "/api/v1/app/personas/persona_1"},
+		{"update persona", stdhttp.MethodPut, "/api/v1/app/personas/persona_1"},
+		{"delete persona", stdhttp.MethodDelete, "/api/v1/app/personas/persona_1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(`{"name":"Helpful Assistant"}`))
+			request.Header.Set("Content-Type", "application/json")
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusUnauthorized {
+				t.Fatalf("expected registered Chat persona route to require session with 401 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
 func TestRouteSurfaceChatMutationsRejectCookieWithoutCSRFWithoutDatabase(t *testing.T) {
 	session := routeSurfaceUserSession()
 	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}})
@@ -339,6 +376,9 @@ func TestRouteSurfaceChatMutationsRejectCookieWithoutCSRFWithoutDatabase(t *test
 		{"convert conversation to task", stdhttp.MethodPost, "/api/v1/app/conversations/conversation_1/convert-to-task"},
 		{"create conversation share", stdhttp.MethodPost, "/api/v1/app/conversations/conversation_1/share"},
 		{"create message share", stdhttp.MethodPost, "/api/v1/app/conversations/conversation_1/messages/message_1/share"},
+		{"create persona", stdhttp.MethodPost, "/api/v1/app/personas"},
+		{"update persona", stdhttp.MethodPut, "/api/v1/app/personas/persona_1"},
+		{"delete persona", stdhttp.MethodDelete, "/api/v1/app/personas/persona_1"},
 	}
 
 	for _, tt := range tests {
@@ -352,6 +392,55 @@ func TestRouteSurfaceChatMutationsRejectCookieWithoutCSRFWithoutDatabase(t *test
 
 			if recorder.Code != stdhttp.StatusForbidden {
 				t.Fatalf("expected missing csrf to be rejected with 403 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestRouteSurfaceChatPersonasDispatchWithCSRFWithoutDatabase(t *testing.T) {
+	session := routeSurfaceUserSession()
+	store := &chatFakeStore{}
+	handler := newChatHandler(chat.NewService(store, noopReplyGenerator{}, "demo-reply", nil))
+	mux := stdhttp.NewServeMux()
+	authMiddleware := newAuthMiddleware(testConfig(), auth.NewService(stubAuthStore{session: session}))
+	registerChatRoutes(mux, authMiddleware, handler)
+	router := authMiddleware.securityGuard(mux)
+	cookie := routeSurfaceSignedSessionCookie(t, session)
+	csrfToken := routeSurfaceCSRFToken(session)
+
+	tests := []routeSurfaceCase{
+		{"list personas", stdhttp.MethodGet, "/api/v1/app/personas"},
+		{"create persona", stdhttp.MethodPost, "/api/v1/app/personas"},
+		{"get persona", stdhttp.MethodGet, "/api/v1/app/personas/persona_1"},
+		{"update persona", stdhttp.MethodPut, "/api/v1/app/personas/persona_1"},
+		{"delete persona", stdhttp.MethodDelete, "/api/v1/app/personas/persona_1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store.lastPersonaID = ""
+			store.lastWorkspaceID = ""
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(`{"name":"Helpful Assistant","role":"Tutor"}`))
+			request.Header.Set("Content-Type", "application/json")
+			if !isSafeMethod(tt.method) {
+				request.Header.Set(csrfHeaderName, csrfToken)
+			}
+			request.AddCookie(cookie)
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusOK {
+				t.Fatalf("expected Chat persona route to dispatch with 200 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+			if store.lastWorkspaceID != session.OrganizationID {
+				t.Fatalf("expected persona route to use active organization scope %s, got %s", session.OrganizationID, store.lastWorkspaceID)
+			}
+			if strings.Contains(tt.path, "/persona_1") && store.lastPersonaID != "persona_1" {
+				t.Fatalf("expected persona id persona_1, got %s", store.lastPersonaID)
+			}
+			if !strings.Contains(recorder.Body.String(), `"ok":true`) {
+				t.Fatalf("expected success envelope, got %s", recorder.Body.String())
 			}
 		})
 	}

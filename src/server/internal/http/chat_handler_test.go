@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	stdhttp "net/http"
 	"net/http/httptest"
@@ -24,6 +25,8 @@ type chatFakeStore struct {
 	messages              []chat.Message
 	lastWorkspaceID       string
 	lastKnowledgeBaseIDs  []string
+	personaUpdateErr      error
+	personaDeleteErr      error
 }
 
 func (f *chatFakeStore) CreateConversation(ctx context.Context, workspaceID string, args ...string) (chat.Conversation, error) {
@@ -138,24 +141,41 @@ func (f *chatFakeStore) ListConversationBranches(ctx context.Context, conversati
 }
 
 func (f *chatFakeStore) CreatePersona(ctx context.Context, workspaceID string, persona chat.Persona) (chat.Persona, error) {
+	f.lastWorkspaceID = workspaceID
 	persona.ID = "persona_1"
+	persona.WorkspaceID = workspaceID
+	f.lastPersonaID = persona.ID
 	return persona, nil
 }
 
 func (f *chatFakeStore) GetPersona(ctx context.Context, personaID, workspaceID string) (chat.Persona, error) {
+	f.lastPersonaID = personaID
+	f.lastWorkspaceID = workspaceID
 	return chat.Persona{ID: personaID, WorkspaceID: workspaceID}, nil
 }
 
 func (f *chatFakeStore) ListPersonas(ctx context.Context, workspaceID string) ([]chat.Persona, error) {
-	return nil, nil
+	f.lastWorkspaceID = workspaceID
+	return []chat.Persona{{ID: "persona_1", WorkspaceID: workspaceID, Name: "Helpful Assistant"}}, nil
 }
 
 func (f *chatFakeStore) UpdatePersona(ctx context.Context, personaID, workspaceID string, persona chat.Persona) (chat.Persona, error) {
+	if f.personaUpdateErr != nil {
+		return chat.Persona{}, f.personaUpdateErr
+	}
+	f.lastPersonaID = personaID
+	f.lastWorkspaceID = workspaceID
 	persona.ID = personaID
+	persona.WorkspaceID = workspaceID
 	return persona, nil
 }
 
 func (f *chatFakeStore) DeletePersona(ctx context.Context, personaID, workspaceID string) error {
+	if f.personaDeleteErr != nil {
+		return f.personaDeleteErr
+	}
+	f.lastPersonaID = personaID
+	f.lastWorkspaceID = workspaceID
 	return nil
 }
 
@@ -373,6 +393,45 @@ func TestChatHandlerCreatePersonaRequiresName(t *testing.T) {
 
 	if recorder.Code != stdhttp.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", recorder.Code)
+	}
+}
+
+func TestChatHandlerUpdatePersonaReturnsNotFound(t *testing.T) {
+	store := &chatFakeStore{personaUpdateErr: sql.ErrNoRows}
+	handler := newChatHandler(chat.NewService(store, noopReplyGenerator{}, "demo-reply", nil))
+	request := httptest.NewRequest(
+		stdhttp.MethodPut,
+		"/api/v1/app/personas/persona_missing",
+		strings.NewReader(`{"name":"Helpful Assistant"}`),
+	).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		WorkspaceID: "workspace_1",
+	}))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.updatePersona(recorder, request, "persona_missing")
+
+	if recorder.Code != stdhttp.StatusNotFound {
+		t.Fatalf("expected 404, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestChatHandlerDeletePersonaReturnsNotFound(t *testing.T) {
+	store := &chatFakeStore{personaDeleteErr: sql.ErrNoRows}
+	handler := newChatHandler(chat.NewService(store, noopReplyGenerator{}, "demo-reply", nil))
+	request := httptest.NewRequest(
+		stdhttp.MethodDelete,
+		"/api/v1/app/personas/persona_missing",
+		nil,
+	).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		WorkspaceID: "workspace_1",
+	}))
+	recorder := httptest.NewRecorder()
+
+	handler.deletePersona(recorder, request, "persona_missing")
+
+	if recorder.Code != stdhttp.StatusNotFound {
+		t.Fatalf("expected 404, got %d with body %s", recorder.Code, recorder.Body.String())
 	}
 }
 
