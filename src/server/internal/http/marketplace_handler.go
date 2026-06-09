@@ -249,6 +249,11 @@ func (h marketplaceHandler) installAgent(w stdhttp.ResponseWriter, r *stdhttp.Re
 }
 
 func (h marketplaceHandler) createPaidInstallCheckout(w stdhttp.ResponseWriter, r *stdhttp.Request, userID string, organizationID string, agent *marketplace.PublishedAgent, versionID string, providerName string) {
+	if strings.TrimSpace(providerName) == "" {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_provider", "payment provider is required for paid marketplace installs")
+		return
+	}
+
 	providerRegistry := h.providerRegistry
 	if providerRegistry == nil {
 		providerRegistry = payment.DefaultRegistry()

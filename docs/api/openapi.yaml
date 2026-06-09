@@ -2605,13 +2605,26 @@ components:
           format: date-time
 
     MarketplaceInstallRequest:
+      anyOf:
+        - $ref: "#/components/schemas/MarketplaceFreeInstallRequest"
+        - $ref: "#/components/schemas/MarketplacePaidInstallRequest"
+
+    MarketplaceFreeInstallRequest:
       type: object
+      properties:
+        versionID:
+          type: string
+
+    MarketplacePaidInstallRequest:
+      type: object
+      required: [provider]
       properties:
         versionID:
           type: string
         provider:
           type: string
           enum: [stripe, alipay, wechatpay]
+          description: Required payment provider for paid marketplace installs.
 
     MarketplaceInstallResponse:
       oneOf:

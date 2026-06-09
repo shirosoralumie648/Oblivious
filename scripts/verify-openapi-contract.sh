@@ -133,6 +133,8 @@ require_marketplace_paid_install_contract() {
     detail = schemas["MarketplaceAgentDetailResponse"] || {}
     payment_provider = schemas["MarketplacePaymentProvider"] || {}
     install_request = schemas["MarketplaceInstallRequest"] || {}
+    free_install_request = schemas["MarketplaceFreeInstallRequest"] || {}
+    paid_install_request = schemas["MarketplacePaidInstallRequest"] || {}
     install_response = schemas["MarketplaceInstallResponse"] || {}
 
     unless detail.dig("properties", "paymentProviders", "items", "$ref") == "#/components/schemas/MarketplacePaymentProvider"
@@ -144,13 +146,20 @@ require_marketplace_paid_install_contract() {
       missing << "MarketplacePaymentProvider.name must enumerate stripe, alipay, and wechatpay"
     end
 
-    unless install_request.dig("properties", "versionID", "type") == "string"
-      missing << "MarketplaceInstallRequest.versionID must be documented"
+    install_request_refs = install_request.fetch("anyOf", []).filter_map { |entry| entry["$ref"] }
+    unless install_request_refs.include?("#/components/schemas/MarketplaceFreeInstallRequest") && install_request_refs.include?("#/components/schemas/MarketplacePaidInstallRequest")
+      missing << "MarketplaceInstallRequest must document free and paid Marketplace install request bodies"
     end
 
-    request_provider_enum = install_request.dig("properties", "provider", "enum") || []
-    unless ["stripe", "alipay", "wechatpay"].all? { |provider| request_provider_enum.include?(provider) }
-      missing << "MarketplaceInstallRequest.provider must enumerate paid-install providers"
+    unless free_install_request.dig("properties", "versionID", "type") == "string"
+      missing << "MarketplaceFreeInstallRequest.versionID must be documented"
+    end
+    paid_request_provider_enum = paid_install_request.dig("properties", "provider", "enum") || []
+    unless paid_install_request.fetch("required", []).include?("provider")
+      missing << "MarketplacePaidInstallRequest must require provider"
+    end
+    unless ["stripe", "alipay", "wechatpay"].all? { |provider| paid_request_provider_enum.include?(provider) }
+      missing << "MarketplacePaidInstallRequest.provider must enumerate paid-install providers"
     end
 
     refs = install_response.fetch("oneOf", []).filter_map { |entry| entry["$ref"] }
