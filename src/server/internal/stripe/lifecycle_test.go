@@ -67,6 +67,19 @@ func (s *fakeMarketplaceSettlementApplier) ApplyMarketplaceRefund(_ context.Cont
 	return nil
 }
 
+func TestApplyRefundUpdatesTopupOrderStatusAndRefundedAmount(t *testing.T) {
+	requiredFragments := []string{
+		"UPDATE topup_orders",
+		"SET status = $2, refunded_amount = $3",
+		"WHERE id = $1",
+	}
+	for _, fragment := range requiredFragments {
+		if !strings.Contains(applyRefundUpdateTopupOrderSQL, fragment) {
+			t.Fatalf("expected refund lifecycle topup update SQL to contain %q, got %s", fragment, applyRefundUpdateTopupOrderSQL)
+		}
+	}
+}
+
 func TestLifecycleObservabilityRecordsCheckoutCompleted(t *testing.T) {
 	service := NewLifecycleService(&fakeLifecycleStore{})
 	event := lifecycleCheckoutCompletedEvent("evt_obs_checkout", map[string]string{
@@ -620,7 +633,7 @@ func TestLifecycleApplyRefundRecordsRefundAndAdjustsTopup(t *testing.T) {
 	}
 
 	var refundCount int
-	var intentStatus string
+	var intentStatus, topupStatus string
 	var intentRefunded, topupRefunded, balance float64
 	if err := database.QueryRow(`SELECT COUNT(*) FROM billing_refunds WHERE provider_refund_id = 're_partial'`).Scan(&refundCount); err != nil {
 		t.Fatalf("query refund count: %v", err)
@@ -628,14 +641,14 @@ func TestLifecycleApplyRefundRecordsRefundAndAdjustsTopup(t *testing.T) {
 	if err := database.QueryRow(`SELECT status, refunded_amount FROM payment_intents WHERE id = 'pi_refund'`).Scan(&intentStatus, &intentRefunded); err != nil {
 		t.Fatalf("query refund payment intent: %v", err)
 	}
-	if err := database.QueryRow(`SELECT refunded_amount FROM topup_orders WHERE id = 'topup_refund'`).Scan(&topupRefunded); err != nil {
+	if err := database.QueryRow(`SELECT status, refunded_amount FROM topup_orders WHERE id = 'topup_refund'`).Scan(&topupStatus, &topupRefunded); err != nil {
 		t.Fatalf("query refunded topup: %v", err)
 	}
 	if err := database.QueryRow(`SELECT balance FROM quotas WHERE organization_id = 'org_refund' AND scope = 'organization'`).Scan(&balance); err != nil {
 		t.Fatalf("query refund quota: %v", err)
 	}
-	if refundCount != 1 || intentStatus != "partially_refunded" || intentRefunded != 10 || topupRefunded != 10 || balance != 15 {
-		t.Fatalf("expected one partial refund and quota reversal, got count=%d intent=%s intentRefund=%.2f topupRefund=%.2f balance=%.2f", refundCount, intentStatus, intentRefunded, topupRefunded, balance)
+	if refundCount != 1 || intentStatus != "partially_refunded" || topupStatus != "partially_refunded" || intentRefunded != 10 || topupRefunded != 10 || balance != 15 {
+		t.Fatalf("expected one partial refund and quota reversal, got count=%d intent=%s topup=%s intentRefund=%.2f topupRefund=%.2f balance=%.2f", refundCount, intentStatus, topupStatus, intentRefunded, topupRefunded, balance)
 	}
 }
 

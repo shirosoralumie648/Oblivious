@@ -341,7 +341,7 @@ func TestAdminBillingRecordsTopupRefundAndAdjustsQuota(t *testing.T) {
 	}
 
 	var refundCount int
-	var intentStatus string
+	var intentStatus, topupStatus string
 	var intentRefunded, topupRefunded, quotaBalance float64
 	if err := database.QueryRow(`SELECT COUNT(*) FROM billing_refunds WHERE provider = 'stripe' AND provider_refund_id = 're_admin_operator_1'`).Scan(&refundCount); err != nil {
 		t.Fatalf("query topup refund count: %v", err)
@@ -349,15 +349,15 @@ func TestAdminBillingRecordsTopupRefundAndAdjustsQuota(t *testing.T) {
 	if err := database.QueryRow(`SELECT status, refunded_amount FROM payment_intents WHERE id = 'pi_topup_admin_refund'`).Scan(&intentStatus, &intentRefunded); err != nil {
 		t.Fatalf("query topup refund payment intent: %v", err)
 	}
-	if err := database.QueryRow(`SELECT refunded_amount FROM topup_orders WHERE id = 'topup_admin_refund'`).Scan(&topupRefunded); err != nil {
+	if err := database.QueryRow(`SELECT status, refunded_amount FROM topup_orders WHERE id = 'topup_admin_refund'`).Scan(&topupStatus, &topupRefunded); err != nil {
 		t.Fatalf("query topup refunded amount: %v", err)
 	}
 	if err := database.QueryRow(`SELECT balance FROM quotas WHERE organization_id = $1 AND scope = 'organization'`, organizationID).Scan(&quotaBalance); err != nil {
 		t.Fatalf("query topup refund quota balance: %v", err)
 	}
-	if refundCount != 1 || intentStatus != "partially_refunded" || intentRefunded != 10 || topupRefunded != 10 || quotaBalance != 15 {
-		t.Fatalf("expected idempotent partial topup refund and quota reversal, got count=%d intent=%s intentRefund=%.2f topupRefund=%.2f quota=%.2f",
-			refundCount, intentStatus, intentRefunded, topupRefunded, quotaBalance)
+	if refundCount != 1 || intentStatus != "partially_refunded" || topupStatus != "partially_refunded" || intentRefunded != 10 || topupRefunded != 10 || quotaBalance != 15 {
+		t.Fatalf("expected idempotent partial topup refund and quota reversal, got count=%d intent=%s topup=%s intentRefund=%.2f topupRefund=%.2f quota=%.2f",
+			refundCount, intentStatus, topupStatus, intentRefunded, topupRefunded, quotaBalance)
 	}
 }
 

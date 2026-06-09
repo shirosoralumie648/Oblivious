@@ -33,6 +33,12 @@ type billingColumnMap struct {
 	Provider       string
 }
 
+const recordTopupRefundUpdateTopupOrderSQL = `
+	UPDATE topup_orders
+	SET status = $2, refunded_amount = $3
+	WHERE id = $1
+`
+
 func normalizeBillingFilter(filter BillingInspectionFilter) BillingInspectionFilter {
 	if filter.Limit <= 0 {
 		filter.Limit = 50
@@ -595,11 +601,7 @@ func (s *SQLStore) RecordTopupRefund(ctx context.Context, topupID string, reques
 	`, topup.PaymentIntentID, refundStatus, refundedTotal, now); err != nil {
 		return nil, fmt.Errorf("update topup refund payment intent: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE topup_orders
-		SET refunded_amount = $2
-		WHERE id = $1
-	`, topup.ID, topup.RefundedAmount+request.Amount); err != nil {
+	if _, err := tx.ExecContext(ctx, recordTopupRefundUpdateTopupOrderSQL, topup.ID, refundStatus, topup.RefundedAmount+request.Amount); err != nil {
 		return nil, fmt.Errorf("update refunded topup: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `

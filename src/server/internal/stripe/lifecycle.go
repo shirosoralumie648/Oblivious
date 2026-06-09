@@ -14,6 +14,12 @@ import (
 	"oblivious/server/internal/observability"
 )
 
+const applyRefundUpdateTopupOrderSQL = `
+	UPDATE topup_orders
+	SET status = $2, refunded_amount = $3
+	WHERE id = $1
+`
+
 // LifecycleService applies verified provider events to local billing state.
 type LifecycleService struct {
 	store              LifecycleStore
@@ -1044,9 +1050,7 @@ func (s *SQLLifecycleStore) ApplyRefund(ctx context.Context, eventID string, inp
 			if topupRefundedTotal > intentAmount {
 				topupRefundedTotal = intentAmount
 			}
-			if _, err := tx.ExecContext(ctx, `
-				UPDATE topup_orders SET refunded_amount = $2 WHERE id = $1
-			`, topupOrderID, topupRefundedTotal); err != nil {
+			if _, err := tx.ExecContext(ctx, applyRefundUpdateTopupOrderSQL, topupOrderID, refundStatus, topupRefundedTotal); err != nil {
 				return fmt.Errorf("update topup refunded amount: %w", err)
 			}
 			if _, err := tx.ExecContext(ctx, `

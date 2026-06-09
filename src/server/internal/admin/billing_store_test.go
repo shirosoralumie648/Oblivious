@@ -30,3 +30,16 @@ func TestTopupSummaryQueryUsesPaymentIntentProviderFilter(t *testing.T) {
 		t.Fatalf("expected normalized topup summary args [org_1 paid stripe], got %#v", args)
 	}
 }
+
+func TestRecordTopupRefundUpdatesOrderStatusAndRefundedAmount(t *testing.T) {
+	requiredFragments := []string{
+		"UPDATE topup_orders",
+		"SET status = $2, refunded_amount = $3",
+		"WHERE id = $1",
+	}
+	for _, fragment := range requiredFragments {
+		if !strings.Contains(recordTopupRefundUpdateTopupOrderSQL, fragment) {
+			t.Fatalf("expected topup refund update SQL to contain %q, got %s", fragment, recordTopupRefundUpdateTopupOrderSQL)
+		}
+	}
+}

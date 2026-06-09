@@ -776,7 +776,7 @@ func TestDomesticPaymentWebhookRouteAppliesTopupRefundOnce(t *testing.T) {
 	}
 
 	var refundCount int
-	var paymentStatus, refundProvider string
+	var paymentStatus, topupStatus, refundProvider string
 	var intentRefunded, topupRefunded, quotaBalance float64
 	if err := database.QueryRow(`
 		SELECT COUNT(*), COALESCE(MAX(provider), '')
@@ -788,16 +788,16 @@ func TestDomesticPaymentWebhookRouteAppliesTopupRefundOnce(t *testing.T) {
 	if err := database.QueryRow(`SELECT status, refunded_amount FROM payment_intents WHERE id = 'pi_alipay_refund'`).Scan(&paymentStatus, &intentRefunded); err != nil {
 		t.Fatalf("query domestic refund payment intent: %v", err)
 	}
-	if err := database.QueryRow(`SELECT refunded_amount FROM topup_orders WHERE id = 'topup_alipay_refund'`).Scan(&topupRefunded); err != nil {
+	if err := database.QueryRow(`SELECT status, refunded_amount FROM topup_orders WHERE id = 'topup_alipay_refund'`).Scan(&topupStatus, &topupRefunded); err != nil {
 		t.Fatalf("query domestic refund topup: %v", err)
 	}
 	if err := database.QueryRow(`SELECT balance FROM quotas WHERE organization_id = $1 AND scope = 'organization'`, organizationID).Scan(&quotaBalance); err != nil {
 		t.Fatalf("query domestic refund quota: %v", err)
 	}
-	if refundCount != 1 || refundProvider != "alipay" || paymentStatus != "partially_refunded" ||
+	if refundCount != 1 || refundProvider != "alipay" || paymentStatus != "partially_refunded" || topupStatus != "partially_refunded" ||
 		intentRefunded != 10 || topupRefunded != 10 || quotaBalance != 15 {
-		t.Fatalf("expected one alipay partial refund and quota reversal, got refunds=%d provider=%s payment=%s intentRefund=%.2f topupRefund=%.2f balance=%.2f",
-			refundCount, refundProvider, paymentStatus, intentRefunded, topupRefunded, quotaBalance)
+		t.Fatalf("expected one alipay partial refund and quota reversal, got refunds=%d provider=%s payment=%s topup=%s intentRefund=%.2f topupRefund=%.2f balance=%.2f",
+			refundCount, refundProvider, paymentStatus, topupStatus, intentRefunded, topupRefunded, quotaBalance)
 	}
 }
 
