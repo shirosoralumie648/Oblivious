@@ -1220,6 +1220,9 @@ components:
         defaultExecutionMode:
           type: string
           enum: [react, planning]
+        longTermMemoryWritePolicy:
+          type: string
+          enum: [interaction_and_explicit, explicit_only, interaction_only, manual_only]
         temperature:
           type: number
           format: double

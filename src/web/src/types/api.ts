@@ -609,6 +609,7 @@ export type AgentConfig = {
   maxTokens?: number;
   tokenBudget?: number;
   defaultExecutionMode?: string;
+  longTermMemoryWritePolicy?: string;
   temperature?: number;
   topP?: number;
   knowledgeBaseIds?: string[];

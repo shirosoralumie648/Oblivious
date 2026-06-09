@@ -49,6 +49,11 @@ const (
 	ApprovalModeNone   = "none"
 	ApprovalModeCustom = "custom"
 
+	LongTermMemoryWritePolicyInteractionAndExplicit = "interaction_and_explicit"
+	LongTermMemoryWritePolicyExplicitOnly           = "explicit_only"
+	LongTermMemoryWritePolicyInteractionOnly        = "interaction_only"
+	LongTermMemoryWritePolicyManualOnly             = "manual_only"
+
 	ToolRiskSafe      = "safe"
 	ToolRiskMedium    = "medium"
 	ToolRiskDangerous = "dangerous"
@@ -68,6 +73,7 @@ func NormalizeConfig(config Config) Config {
 	config.TokenBudget = normalizeTokenBudget(config.TokenBudget)
 	config.DefaultExecutionMode = NormalizeExecutionMode(config.DefaultExecutionMode)
 	config.ApprovalMode = normalizeApprovalMode(config.ApprovalMode)
+	config.LongTermMemoryWritePolicy = normalizeLongTermMemoryWritePolicy(config.LongTermMemoryWritePolicy)
 	return config
 }
 
@@ -110,6 +116,19 @@ func normalizeApprovalMode(value string) string {
 		return ApprovalModeCustom
 	default:
 		return ApprovalModeTiered
+	}
+}
+
+func normalizeLongTermMemoryWritePolicy(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case LongTermMemoryWritePolicyExplicitOnly:
+		return LongTermMemoryWritePolicyExplicitOnly
+	case LongTermMemoryWritePolicyInteractionOnly:
+		return LongTermMemoryWritePolicyInteractionOnly
+	case LongTermMemoryWritePolicyManualOnly:
+		return LongTermMemoryWritePolicyManualOnly
+	default:
+		return LongTermMemoryWritePolicyInteractionAndExplicit
 	}
 }
 
@@ -1211,14 +1230,30 @@ func (r *Runner) storeLongTermInteractionMemory(ctx context.Context, session aut
 	if userContent == "" || assistantContent == "" {
 		return
 	}
-	content := fmt.Sprintf("User: %s\nAssistant: %s", userContent, assistantContent)
-	r.storeLongTermMemory(ctx, session, agent, content, 3, map[string]any{
-		"source":          "agent_run",
-		"memory_category": "interaction",
-		"conversation_id": conversationID,
-	})
-	for _, derived := range deriveLongTermMemories(userContent, conversationID) {
-		r.storeLongTermMemory(ctx, session, agent, derived.content, derived.importance, derived.metadata)
+	switch normalizeLongTermMemoryWritePolicy(agent.Config.LongTermMemoryWritePolicy) {
+	case LongTermMemoryWritePolicyManualOnly:
+		return
+	case LongTermMemoryWritePolicyExplicitOnly:
+		for _, derived := range deriveLongTermMemories(userContent, conversationID) {
+			r.storeLongTermMemory(ctx, session, agent, derived.content, derived.importance, derived.metadata)
+		}
+	case LongTermMemoryWritePolicyInteractionOnly:
+		content := fmt.Sprintf("User: %s\nAssistant: %s", userContent, assistantContent)
+		r.storeLongTermMemory(ctx, session, agent, content, 3, map[string]any{
+			"source":          "agent_run",
+			"memory_category": "interaction",
+			"conversation_id": conversationID,
+		})
+	default:
+		content := fmt.Sprintf("User: %s\nAssistant: %s", userContent, assistantContent)
+		r.storeLongTermMemory(ctx, session, agent, content, 3, map[string]any{
+			"source":          "agent_run",
+			"memory_category": "interaction",
+			"conversation_id": conversationID,
+		})
+		for _, derived := range deriveLongTermMemories(userContent, conversationID) {
+			r.storeLongTermMemory(ctx, session, agent, derived.content, derived.importance, derived.metadata)
+		}
 	}
 }
 

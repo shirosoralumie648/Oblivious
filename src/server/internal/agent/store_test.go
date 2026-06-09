@@ -271,6 +271,51 @@ func TestAgentSQLStorePersistsDefaultExecutionModeConfig(t *testing.T) {
 	}
 }
 
+func TestAgentSQLStorePersistsLongTermMemoryWritePolicyConfig(t *testing.T) {
+	store, ctx := testAgentRunSQLStore(t)
+
+	created, err := store.CreateAgent(ctx, "user_1", "org_1", &CreateAgentRequest{
+		Name:  "Memory Policy Agent",
+		Model: "gpt-4o-mini",
+		Config: Config{
+			EnableMemory:              true,
+			LongTermMemoryWritePolicy: LongTermMemoryWritePolicyExplicitOnly,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateAgent returned error: %v", err)
+	}
+
+	got, err := store.GetAgent(ctx, created.ID, "org_1")
+	if err != nil {
+		t.Fatalf("GetAgent returned error: %v", err)
+	}
+	if got.Config.LongTermMemoryWritePolicy != LongTermMemoryWritePolicyExplicitOnly {
+		t.Fatalf("long-term memory write policy = %q, want %q", got.Config.LongTermMemoryWritePolicy, LongTermMemoryWritePolicyExplicitOnly)
+	}
+
+	updated, err := store.UpdateAgent(ctx, created.ID, "org_1", &UpdateAgentRequest{
+		Config: &Config{
+			EnableMemory:              true,
+			LongTermMemoryWritePolicy: LongTermMemoryWritePolicyManualOnly,
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateAgent returned error: %v", err)
+	}
+	if updated.Config.LongTermMemoryWritePolicy != LongTermMemoryWritePolicyManualOnly {
+		t.Fatalf("updated long-term memory write policy = %q, want %q", updated.Config.LongTermMemoryWritePolicy, LongTermMemoryWritePolicyManualOnly)
+	}
+
+	got, err = store.GetAgent(ctx, created.ID, "org_1")
+	if err != nil {
+		t.Fatalf("GetAgent after update returned error: %v", err)
+	}
+	if got.Config.LongTermMemoryWritePolicy != LongTermMemoryWritePolicyManualOnly {
+		t.Fatalf("persisted long-term memory write policy after update = %q, want %q", got.Config.LongTermMemoryWritePolicy, LongTermMemoryWritePolicyManualOnly)
+	}
+}
+
 func TestAgentToolRunStorePersistsToolLifecycle(t *testing.T) {
 	store, ctx := testAgentRunSQLStore(t)
 

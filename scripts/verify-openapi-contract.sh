@@ -1293,8 +1293,9 @@ require_workspace_agent_mutation_csrf_contract() {
     end
     unless schemas.dig("CreateAgentRequest", "properties", "config", "$ref") == "#/components/schemas/AgentConfig" &&
         schemas.dig("UpdateAgentRequest", "properties", "config", "$ref") == "#/components/schemas/AgentConfig" &&
-        schemas.dig("AgentConfig", "properties", "defaultExecutionMode", "enum")&.include?("planning")
-      missing << "Agent create/update request schemas must reference AgentConfig with execution mode"
+        schemas.dig("AgentConfig", "properties", "defaultExecutionMode", "enum")&.include?("planning") &&
+        schemas.dig("AgentConfig", "properties", "longTermMemoryWritePolicy", "enum")&.include?("manual_only")
+      missing << "Agent create/update request schemas must reference AgentConfig with execution mode and long-term memory policy"
     end
 
     unless missing.empty?

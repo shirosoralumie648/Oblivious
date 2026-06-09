@@ -43,16 +43,17 @@ type Tool struct {
 
 // Config 表示 Agent 配置
 type Config struct {
-	EnableMemory          bool                            `json:"enableMemory,omitempty"`
-	MaxTokens             int                             `json:"maxTokens,omitempty"`
-	MaxIterations         int                             `json:"maxIterations,omitempty"`
-	TokenBudget           int                             `json:"tokenBudget,omitempty"`
-	DefaultExecutionMode  string                          `json:"defaultExecutionMode,omitempty"`
-	Temperature           float64                         `json:"temperature,omitempty"`
-	TopP                  float64                         `json:"topP,omitempty"`
-	KnowledgeBaseIDs      []string                        `json:"knowledgeBaseIds,omitempty"`
-	ApprovalMode          string                          `json:"approvalMode,omitempty"`
-	ToolApprovalOverrides map[string]ToolApprovalOverride `json:"toolApprovalOverrides,omitempty"`
+	EnableMemory              bool                            `json:"enableMemory,omitempty"`
+	MaxTokens                 int                             `json:"maxTokens,omitempty"`
+	MaxIterations             int                             `json:"maxIterations,omitempty"`
+	TokenBudget               int                             `json:"tokenBudget,omitempty"`
+	DefaultExecutionMode      string                          `json:"defaultExecutionMode,omitempty"`
+	LongTermMemoryWritePolicy string                          `json:"longTermMemoryWritePolicy,omitempty"`
+	Temperature               float64                         `json:"temperature,omitempty"`
+	TopP                      float64                         `json:"topP,omitempty"`
+	KnowledgeBaseIDs          []string                        `json:"knowledgeBaseIds,omitempty"`
+	ApprovalMode              string                          `json:"approvalMode,omitempty"`
+	ToolApprovalOverrides     map[string]ToolApprovalOverride `json:"toolApprovalOverrides,omitempty"`
 }
 
 type ToolApprovalOverride struct {

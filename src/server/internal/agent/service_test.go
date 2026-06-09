@@ -4270,6 +4270,140 @@ func TestRunWithToolsDerivesPreferenceAndFactLongTermMemories(t *testing.T) {
 	}
 }
 
+func TestRunWithToolsLongTermMemoryExplicitOnlySkipsInteractionMemory(t *testing.T) {
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+			Config: Config{
+				EnableMemory:              true,
+				LongTermMemoryWritePolicy: LongTermMemoryWritePolicyExplicitOnly,
+			},
+		},
+		conversation: &Conversation{
+			ID:             "conv_1",
+			AgentID:        "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+		},
+	}
+	gateway := &fakeGateway{
+		structured: []*chat.CompletionResponse{
+			{Content: "I will remember only explicit details.", FinishReason: "stop"},
+		},
+	}
+	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+
+	_, err := runner.RunWithTools(
+		context.Background(),
+		auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}},
+		store.agent,
+		store.conversation.ID,
+		"I prefer concise answers. My company is Acme Labs.",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("RunWithTools returned error: %v", err)
+	}
+	if len(store.memories) != 2 {
+		t.Fatalf("expected only explicit preference and fact memories, got %+v", store.memories)
+	}
+	for _, memory := range store.memories {
+		if memory.Metadata["memory_category"] == "interaction" {
+			t.Fatalf("explicit_only policy should not write interaction memory, got %+v", memory)
+		}
+	}
+}
+
+func TestRunWithToolsLongTermMemoryInteractionOnlySkipsExplicitMemories(t *testing.T) {
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+			Config: Config{
+				EnableMemory:              true,
+				LongTermMemoryWritePolicy: LongTermMemoryWritePolicyInteractionOnly,
+			},
+		},
+		conversation: &Conversation{
+			ID:             "conv_1",
+			AgentID:        "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+		},
+	}
+	gateway := &fakeGateway{
+		structured: []*chat.CompletionResponse{
+			{Content: "I will keep the conversation as one interaction.", FinishReason: "stop"},
+		},
+	}
+	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+
+	_, err := runner.RunWithTools(
+		context.Background(),
+		auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}},
+		store.agent,
+		store.conversation.ID,
+		"I prefer concise answers. My company is Acme Labs.",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("RunWithTools returned error: %v", err)
+	}
+	if len(store.memories) != 1 {
+		t.Fatalf("expected only one interaction memory, got %+v", store.memories)
+	}
+	if store.memories[0].Metadata["memory_category"] != "interaction" {
+		t.Fatalf("interaction_only policy should write only interaction memory, got %+v", store.memories[0])
+	}
+}
+
+func TestRunWithToolsLongTermMemoryManualOnlySkipsAutomaticWrites(t *testing.T) {
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+			Config: Config{
+				EnableMemory:              true,
+				LongTermMemoryWritePolicy: LongTermMemoryWritePolicyManualOnly,
+			},
+		},
+		conversation: &Conversation{
+			ID:             "conv_1",
+			AgentID:        "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+		},
+	}
+	gateway := &fakeGateway{
+		structured: []*chat.CompletionResponse{
+			{Content: "No automatic memory should be written.", FinishReason: "stop"},
+		},
+	}
+	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+
+	_, err := runner.RunWithTools(
+		context.Background(),
+		auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}},
+		store.agent,
+		store.conversation.ID,
+		"I prefer concise answers. My company is Acme Labs.",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("RunWithTools returned error: %v", err)
+	}
+	if len(store.memories) != 0 {
+		t.Fatalf("manual_only policy should not write automatic long-term memories, got %+v", store.memories)
+	}
+}
+
 func TestRunWithToolsDeduplicatesAutomaticLongTermInteractionMemory(t *testing.T) {
 	content := "User: What should we remember about migrations?\nAssistant: Use the tenant-safe migration guard."
 	oldUpdatedAt := time.Date(2026, 6, 8, 10, 0, 0, 0, time.UTC)

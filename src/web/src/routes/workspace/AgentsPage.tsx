@@ -8,11 +8,13 @@ import type { AgentConfig, AgentSummary, AgentTool, ToolApprovalOverride } from 
 type ApprovalMode = 'tiered' | 'all' | 'none' | 'custom';
 type AgentExecutionMode = 'react' | 'planning';
 type CustomToolRuntime = 'api' | 'python';
+type LongTermMemoryWritePolicy = 'interaction_and_explicit' | 'explicit_only' | 'interaction_only' | 'manual_only';
 type RiskLevel = 'safe' | 'medium' | 'dangerous';
 
 const approvalModes: ApprovalMode[] = ['tiered', 'all', 'none', 'custom'];
 const executionModes: AgentExecutionMode[] = ['react', 'planning'];
 const customToolRuntimes: CustomToolRuntime[] = ['api', 'python'];
+const longTermMemoryWritePolicies: LongTermMemoryWritePolicy[] = ['interaction_and_explicit', 'explicit_only', 'interaction_only', 'manual_only'];
 const riskLevels: RiskLevel[] = ['safe', 'medium', 'dangerous'];
 
 function errorMessage(error: unknown, fallback: string) {
@@ -31,6 +33,12 @@ function normalizeApprovalMode(value: unknown): ApprovalMode {
 
 function normalizeExecutionMode(value: unknown): AgentExecutionMode {
   return executionModes.includes(value as AgentExecutionMode) ? value as AgentExecutionMode : 'react';
+}
+
+function normalizeLongTermMemoryWritePolicy(value: unknown): LongTermMemoryWritePolicy {
+  return longTermMemoryWritePolicies.includes(value as LongTermMemoryWritePolicy)
+    ? value as LongTermMemoryWritePolicy
+    : 'interaction_and_explicit';
 }
 
 function normalizeCustomToolRuntime(value: unknown): CustomToolRuntime {
@@ -119,6 +127,7 @@ export function AgentsPage() {
   const [createSystemPrompt, setCreateSystemPrompt] = useState('');
   const [approvalMode, setApprovalMode] = useState<ApprovalMode>('tiered');
   const [defaultExecutionMode, setDefaultExecutionMode] = useState<AgentExecutionMode>('react');
+  const [longTermMemoryWritePolicy, setLongTermMemoryWritePolicy] = useState<LongTermMemoryWritePolicy>('interaction_and_explicit');
   const [maxIterations, setMaxIterations] = useState('');
   const [tokenBudget, setTokenBudget] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -154,6 +163,7 @@ export function AgentsPage() {
     setSelectedAgentId(agent?.id ?? '');
     setApprovalMode(normalizeApprovalMode(agent?.config?.approvalMode));
     setDefaultExecutionMode(normalizeExecutionMode(agent?.config?.defaultExecutionMode));
+    setLongTermMemoryWritePolicy(normalizeLongTermMemoryWritePolicy(agent?.config?.longTermMemoryWritePolicy));
     setMaxIterations(numberFieldValue(agent?.config?.maxIterations));
     setTokenBudget(numberFieldValue(agent?.config?.tokenBudget));
     setOverrides(initialOverrides(agent));
@@ -295,6 +305,7 @@ export function AgentsPage() {
       const nextConfig: AgentConfig = {
         ...(selectedAgent.config ?? {}),
         approvalMode,
+        longTermMemoryWritePolicy,
         toolApprovalOverrides: overrides
       };
       const initialExecutionMode = normalizeExecutionMode(selectedAgent.config?.defaultExecutionMode);
@@ -704,6 +715,23 @@ export function AgentsPage() {
                     type="number"
                     value={tokenBudget}
                   />
+                </label>
+                <label className="text-sm font-medium text-[#181611]">
+                  Long-term memory writes
+                  <select
+                    className="mt-2 min-h-10 w-full rounded-lg border border-[#d7d2c4] bg-[#fbfaf7] px-3 text-sm"
+                    onChange={(event) => {
+                      setLongTermMemoryWritePolicy(normalizeLongTermMemoryWritePolicy(event.target.value));
+                      setSavedMessage('');
+                    }}
+                    value={longTermMemoryWritePolicy}
+                  >
+                    {longTermMemoryWritePolicies.map((policy) => (
+                      <option key={policy} value={policy}>
+                        {policy}
+                      </option>
+                    ))}
+                  </select>
                 </label>
               </div>
             </section>
