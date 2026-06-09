@@ -8003,6 +8003,55 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  # ---- 知识库兼容别名 (Knowledge aliases) ----
+  /api/v1/knowledge-bases:
+    $ref: "#/paths/~1api~1v1~1app~1knowledge-bases"
+  /api/v1/knowledge-bases/{knowledgeBaseId}:
+    $ref: "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}"
+  /api/v1/knowledge-bases/{knowledgeBaseId}/documents:
+    $ref: "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1documents"
+  /api/v1/knowledge-bases/{knowledgeBaseId}/documents/upload:
+    $ref: "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1documents~1upload"
+  /api/v1/knowledge-bases/{knowledgeBaseId}/documents/{documentId}:
+    $ref: "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1documents~1{documentId}"
+  /api/v1/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/versions:
+    $ref: "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1documents~1{documentId}~1versions"
+  /api/v1/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks:
+    $ref: "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1documents~1{documentId}~1chunks"
+  /api/v1/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks/{chunkId}:
+    $ref: "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1documents~1{documentId}~1chunks~1{chunkId}"
+  /api/v1/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks/{chunkId}/split:
+    $ref: "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1documents~1{documentId}~1chunks~1{chunkId}~1split"
+  /api/v1/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks/{chunkId}/merge:
+    $ref: "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1documents~1{documentId}~1chunks~1{chunkId}~1merge"
+  /api/v1/knowledge-bases/{knowledgeBaseId}/retrieve:
+    $ref: "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1retrieve"
+  /api/v1/knowledge-bases/{knowledgeBaseId}/retrieval-test-cases:
+    $ref: "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1retrieval-test-cases"
+  /api/v1/knowledge-bases/{knowledgeBaseId}/retrieval-test-cases/run:
+    $ref: "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1retrieval-test-cases~1run"
+  /api/v1/documents/{documentId}:
+    delete:
+      summary: 通过文档 ID 删除知识库文档
+      operationId: deleteKnowledgeDocumentByID
+      tags: [Knowledge]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      parameters:
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: 删除成功
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   # ---- Quota and packages ----
   /api/v1/app/quota:
     get:

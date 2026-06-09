@@ -71,8 +71,20 @@ func registerKnowledgeAliasRoutes(mux *stdhttp.ServeMux, authMiddleware sessionM
 		}
 
 		if len(parts) == 2 && parts[1] == "retrieval-test-cases" {
-			if r.Method == stdhttp.MethodPost {
+			switch r.Method {
+			case stdhttp.MethodGet:
+				knowledgeHandler.listRetrievalTestCases(w, r, knowledgeBaseID)
+			case stdhttp.MethodPost:
 				knowledgeHandler.createRetrievalTestCase(w, r, knowledgeBaseID)
+			default:
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			}
+			return
+		}
+
+		if len(parts) == 3 && parts[1] == "retrieval-test-cases" && parts[2] == "run" {
+			if r.Method == stdhttp.MethodPost {
+				knowledgeHandler.runRetrievalTestCases(w, r, knowledgeBaseID)
 			} else {
 				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			}

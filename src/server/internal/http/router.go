@@ -268,6 +268,7 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 
 	registerAuthRoutes(mux, authMiddleware, authHandler)
 	registerKnowledgeRoutes(mux, authMiddleware, knowledgeHandler)
+	registerKnowledgeAliasRoutes(mux, authMiddleware, knowledgeHandler)
 	registerAgentMemoryRoutes(mux, authMiddleware, agentMemoryHandler)
 	registerAgentRunRoutes(mux, authMiddleware, agentRunsHandler)
 	registerWorkflowRoutes(mux, authMiddleware, workflowHandler)

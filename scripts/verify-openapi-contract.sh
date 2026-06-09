@@ -2967,15 +2967,48 @@ require_knowledge_mutation_csrf_contract() {
       ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/retrieval-test-cases", "get", "200"] => ["#/components/schemas/KnowledgeRetrievalTestCase", :array_ref],
       ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/retrieval-test-cases", "post", "201"] => ["#/components/schemas/KnowledgeRetrievalTestCase", :ref],
       ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/retrieval-test-cases/run", "post", "200"] => ["#/components/schemas/KnowledgeRetrievalTestRunReport", :ref],
-    }.each do |(path, method, status), (expected, shape)|
-      op = operation(paths, path, method, missing)
-      actual = shape == :array_ref ? response_data_array_ref(op, status) : response_data_ref(op, status)
-      unless actual == expected
-        missing << "#{method.upcase} #{path} #{status} data must reference #{expected}"
-      end
-    end
+	    }.each do |(path, method, status), (expected, shape)|
+	      op = operation(paths, path, method, missing)
+	      actual = shape == :array_ref ? response_data_array_ref(op, status) : response_data_ref(op, status)
+	      unless actual == expected
+	        missing << "#{method.upcase} #{path} #{status} data must reference #{expected}"
+	      end
+	    end
 
-    unless schemas.dig("KnowledgeBase", "properties", "retrievalMode", "enum")&.include?("hybrid_rerank") &&
+	    {
+	      "/api/v1/knowledge-bases" => "#/paths/~1api~1v1~1app~1knowledge-bases",
+	      "/api/v1/knowledge-bases/{knowledgeBaseId}" => "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}",
+	      "/api/v1/knowledge-bases/{knowledgeBaseId}/documents" => "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1documents",
+	      "/api/v1/knowledge-bases/{knowledgeBaseId}/documents/upload" => "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1documents~1upload",
+	      "/api/v1/knowledge-bases/{knowledgeBaseId}/documents/{documentId}" => "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1documents~1{documentId}",
+	      "/api/v1/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/versions" => "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1documents~1{documentId}~1versions",
+	      "/api/v1/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks" => "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1documents~1{documentId}~1chunks",
+	      "/api/v1/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks/{chunkId}" => "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1documents~1{documentId}~1chunks~1{chunkId}",
+	      "/api/v1/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks/{chunkId}/split" => "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1documents~1{documentId}~1chunks~1{chunkId}~1split",
+	      "/api/v1/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks/{chunkId}/merge" => "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1documents~1{documentId}~1chunks~1{chunkId}~1merge",
+	      "/api/v1/knowledge-bases/{knowledgeBaseId}/retrieve" => "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1retrieve",
+	      "/api/v1/knowledge-bases/{knowledgeBaseId}/retrieval-test-cases" => "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1retrieval-test-cases",
+	      "/api/v1/knowledge-bases/{knowledgeBaseId}/retrieval-test-cases/run" => "#/paths/~1api~1v1~1app~1knowledge-bases~1{knowledgeBaseId}~1retrieval-test-cases~1run",
+	    }.each do |alias_path, expected_ref|
+	      unless paths.dig(alias_path, "$ref") == expected_ref
+	        missing << "#{alias_path} must reference #{expected_ref}"
+	      end
+	    end
+	    root_document_delete = operation(paths, "/api/v1/documents/{documentId}", "delete", missing)
+	    unless requires_cookie_and_csrf?(root_document_delete)
+	      missing << "DELETE /api/v1/documents/{documentId} must require cookieAuth and csrfHeader"
+	    end
+	    unless root_document_delete.fetch("tags", []).include?("Knowledge")
+	      missing << "DELETE /api/v1/documents/{documentId} must be tagged Knowledge"
+	    end
+	    unless root_document_delete.fetch("parameters", []).any? { |param| param["name"] == "documentId" && param["in"] == "path" && param["required"] == true }
+	      missing << "DELETE /api/v1/documents/{documentId} must require documentId path parameter"
+	    end
+	    unless root_document_delete.dig("responses", "204", "description")
+	      missing << "DELETE /api/v1/documents/{documentId} must document 204 deletion"
+	    end
+
+	    unless schemas.dig("KnowledgeBase", "properties", "retrievalMode", "enum")&.include?("hybrid_rerank") &&
         schemas.dig("CreateKnowledgeBaseRequest", "properties", "chunkSize", "type") == "integer" &&
         schemas.dig("CreateKnowledgeBaseRequest", "properties", "embeddingModel", "type") == "string" &&
         schemas.dig("CreateKnowledgeBaseRequest", "properties", "vectorWeight", "format") == "double"
@@ -3678,6 +3711,20 @@ required_paths=(
   "/api/v1/app/knowledge-bases/{knowledgeBaseId}/retrieve"
   "/api/v1/app/knowledge-bases/{knowledgeBaseId}/retrieval-test-cases"
   "/api/v1/app/knowledge-bases/{knowledgeBaseId}/retrieval-test-cases/run"
+  "/api/v1/knowledge-bases"
+  "/api/v1/knowledge-bases/{knowledgeBaseId}"
+  "/api/v1/knowledge-bases/{knowledgeBaseId}/documents"
+  "/api/v1/knowledge-bases/{knowledgeBaseId}/documents/upload"
+  "/api/v1/knowledge-bases/{knowledgeBaseId}/documents/{documentId}"
+  "/api/v1/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/versions"
+  "/api/v1/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks"
+  "/api/v1/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks/{chunkId}"
+  "/api/v1/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks/{chunkId}/split"
+  "/api/v1/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks/{chunkId}/merge"
+  "/api/v1/knowledge-bases/{knowledgeBaseId}/retrieve"
+  "/api/v1/knowledge-bases/{knowledgeBaseId}/retrieval-test-cases"
+  "/api/v1/knowledge-bases/{knowledgeBaseId}/retrieval-test-cases/run"
+  "/api/v1/documents/{documentId}"
   "/api/v1/app/notifications"
   "/api/v1/app/notifications/unread-count"
   "/api/v1/app/notifications/mark-all-read"

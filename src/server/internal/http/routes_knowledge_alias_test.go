@@ -86,10 +86,22 @@ func TestRegisterKnowledgeAliasRoutesDispatchesRootKnowledgeBase(t *testing.T) {
 
 func TestRegisterKnowledgeAliasRoutesDispatchesDocumentsAndRetrieve(t *testing.T) {
 	store := &knowledgeFakeStore{
-		createdDoc:       knowledge.KnowledgeDocument{ID: "doc_1", Title: "Plan"},
-		createdTestCase:  knowledge.KnowledgeRetrievalTestCase{ID: "krtc_1", KnowledgeBaseID: "kb_2", Query: "deployment"},
-		documents:        []knowledge.KnowledgeDocument{{ID: "doc_1", Title: "Plan"}},
-		retrievalResults: []knowledge.KnowledgeRetrievalResult{},
+		createdDoc:      knowledge.KnowledgeDocument{ID: "doc_1", Title: "Plan"},
+		createdTestCase: knowledge.KnowledgeRetrievalTestCase{ID: "krtc_1", KnowledgeBaseID: "kb_2", Query: "deployment"},
+		detailBase:      knowledge.KnowledgeBase{ID: "kb_2", RetrievalLimit: 3, RetrievalMode: knowledge.KnowledgeRetrievalModeHybrid},
+		documents:       []knowledge.KnowledgeDocument{{ID: "doc_1", Title: "Plan"}},
+		listTestCases: []knowledge.KnowledgeRetrievalTestCase{{
+			ID:                 "krtc_1",
+			KnowledgeBaseID:    "kb_2",
+			Query:              "deployment",
+			ExpectedDocumentID: "doc_1",
+			ExpectedChunkID:    "chunk_1",
+		}},
+		retrievalResults: []knowledge.KnowledgeRetrievalResult{{
+			DocumentID: "doc_1",
+			ChunkID:    "chunk_1",
+			Snippet:    "deployment rollback",
+		}},
 	}
 	handler := newKnowledgeTestHandler(store)
 	mux := stdhttp.NewServeMux()
@@ -132,6 +144,24 @@ func TestRegisterKnowledgeAliasRoutesDispatchesDocumentsAndRetrieve(t *testing.T
 	}
 	if store.requestedID != "kb_2" || store.testCaseRequest.ExpectedResult.ChunkID != "kdc_1" {
 		t.Fatalf("expected retrieval test case kb_2/kdc_1, got id=%q req=%+v", store.requestedID, store.testCaseRequest)
+	}
+
+	listCases := httptest.NewRecorder()
+	mux.ServeHTTP(listCases, knowledgeAliasRequest(stdhttp.MethodGet, "/api/v1/knowledge-bases/kb_2/retrieval-test-cases", ""))
+	if listCases.Code != stdhttp.StatusOK {
+		t.Fatalf("retrieval test case list expected 200, got %d with body %s", listCases.Code, listCases.Body.String())
+	}
+	if store.requestedID != "kb_2" {
+		t.Fatalf("expected list retrieval test cases kb_2, got id=%q", store.requestedID)
+	}
+
+	runCases := httptest.NewRecorder()
+	mux.ServeHTTP(runCases, knowledgeAliasRequest(stdhttp.MethodPost, "/api/v1/knowledge-bases/kb_2/retrieval-test-cases/run", `{"mode":"hybrid","limit":3}`))
+	if runCases.Code != stdhttp.StatusOK {
+		t.Fatalf("retrieval test case run expected 200, got %d with body %s", runCases.Code, runCases.Body.String())
+	}
+	if store.retrievalOptions.Mode != knowledge.KnowledgeRetrievalModeHybrid || store.retrievalOptions.Limit != 3 {
+		t.Fatalf("expected hybrid retrieval test run options, got %+v", store.retrievalOptions)
 	}
 }
 
