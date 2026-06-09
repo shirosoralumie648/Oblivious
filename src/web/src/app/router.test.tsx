@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { RouterProvider } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -26,6 +26,7 @@ vi.mock('../features/console/api', () => ({
         balanceUsd: 42.5,
         creditLimitUsd: 100,
         currentSpendUsd: 0.0004,
+        paymentProviders: [{ name: 'stripe' }, { name: 'alipay' }],
         nextInvoice: {
           amountUsd: 0.0004,
           dueAt: '2026-04-30T00:00:00Z',
@@ -84,17 +85,78 @@ vi.mock('../features/admin/api', () => ({
     getBillingSummary: () =>
       Promise.resolve({
         billingSessions: { count: 1, settledAmount: 4.5 },
-        paymentIntents: { count: 1, totalAmount: 29 },
-        webhookEvents: { count: 1 },
+        paymentIntents: { count: 1, refundedAmount: 10, totalAmount: 29 },
+        webhookEvents: { count: 1, failedCount: 1 },
         settlements: { count: 1, grossAmount: 50 },
         payouts: { count: 1, totalAmount: 40 }
       }),
-    listBillingSurface: () => Promise.resolve({ data: [], total: 0 }),
+    listBillingSurface: (surface: string) =>
+      Promise.resolve({
+        data:
+          surface === 'sessions'
+            ? [
+                {
+                  id: 'bs_router_phase28',
+                  model: 'gpt-4o',
+                  settledAmount: 4.5,
+                  status: 'settled',
+                  createdAt: '2026-06-09T00:00:00Z'
+                }
+              ]
+            : [],
+        total: surface === 'sessions' ? 1 : 0
+      }),
     listUsageLogs: () => Promise.resolve({ data: [], total: 0 }),
     listAPITokens: () => Promise.resolve({ data: [], total: 0 }),
     listModelInventory: () => Promise.resolve({ data: [], total: 0 }),
     revokeAPIToken: () => Promise.resolve()
   })
+}));
+
+vi.mock('../features/marketplace/api', () => ({
+  createMarketplaceApi: () => ({
+    getAgent: () =>
+      Promise.resolve({
+        id: 'agent_1',
+        ownerID: 'owner_1',
+        ownerName: 'Publisher',
+        name: 'Research Agent',
+        description: 'Helps with research workflows',
+        categoryName: 'Productivity',
+        tags: ['research', 'writing'],
+        tools: '[{"name":"search"}]',
+        exampleConversations: 'User asks for a market scan.',
+        visibility: 'public',
+        status: 'approved',
+        pricingType: 'one_time',
+        pricingAmount: 19,
+        currentVersion: '1.0.0',
+        installCount: 120,
+        ratingAvg: 4.5,
+        ratingCount: 8,
+        paymentProviders: [{ name: 'stripe' }, { name: 'alipay' }],
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-02T00:00:00Z'
+      }),
+    getReviews: () =>
+      Promise.resolve([
+        {
+          id: 'review_1',
+          agentID: 'agent_1',
+          userID: 'user_1',
+          rating: 5,
+          body: 'Great for launch research.',
+          createdAt: '2026-01-03T00:00:00Z'
+        }
+      ]),
+    getVersions: () => Promise.resolve([{ id: 'ver_1', version: '1.0.0', createdAt: '2026-01-01T00:00:00Z' }]),
+    installAgent: () => Promise.resolve({ checkoutSessionId: 'cs_marketplace_1', url: 'https://checkout.example/session' }),
+    submitReview: () => Promise.resolve({ id: 'review_2', agentID: 'agent_1', userID: 'user_1', rating: 5, body: 'Useful' })
+  }),
+  getMarketplaceCheckoutUrl: (value: { url?: string; checkoutUrl?: string; checkoutURL?: string }) =>
+    value.url ?? value.checkoutUrl ?? value.checkoutURL ?? '',
+  isMarketplaceCheckoutResponse: (value: { checkoutSessionId?: string; checkoutSessionID?: string }) =>
+    Boolean(value.checkoutSessionId ?? value.checkoutSessionID)
 }));
 
 vi.mock('../features/scheduledTasks/scheduledTasksApi', () => ({
@@ -321,6 +383,24 @@ describe('app router', () => {
     expect(await screen.findByRole('heading', { name: 'Billing' })).toBeInTheDocument();
   });
 
+  it('keeps console billing route-level landmarks and top-up controls reachable', async () => {
+    const router = createAppRouter(['/console/billing']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    const consoleNavigation = await screen.findByRole('navigation', { name: 'Console navigation' });
+    expect(document.querySelector('[data-gsap-scope="console"]')).toBeInTheDocument();
+    expect(within(consoleNavigation).getByRole('link', { name: 'Usage' })).toHaveAttribute('href', '/console/usage');
+    expect(await screen.findByRole('heading', { name: 'Billing' })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Back to overview' })).toHaveAttribute('href', '/console');
+    expect(await screen.findByRole('link', { name: 'Open usage' })).toHaveAttribute('href', '/console/usage');
+    expect(await screen.findByLabelText('Top-up amount USD')).toHaveValue(25);
+    expect(await screen.findByLabelText('Payment provider')).toHaveValue('stripe');
+    expect(screen.getByRole('option', { name: 'Alipay' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start top-up checkout' })).toBeEnabled();
+    expect(screen.getByText('Invoice history')).toBeInTheDocument();
+  });
+
   it('renders notifications route inside the console shell', async () => {
     const router = createAppRouter(['/console/notifications']);
 
@@ -338,6 +418,41 @@ describe('app router', () => {
     expect(await screen.findByRole('complementary', { name: 'Admin navigation' })).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Billing' })).toBeInTheDocument();
     expect(document.querySelector('[data-gsap-scope="admin"]')).toBeInTheDocument();
+  });
+
+  it('keeps admin billing route-level recovery controls and filters reachable', async () => {
+    const router = createAppRouter(['/admin/billing']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    expect(await screen.findByRole('complementary', { name: 'Admin navigation' })).toBeInTheDocument();
+    expect(document.querySelector('[data-gsap-scope="admin"]')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Billing' })).toBeInTheDocument();
+    expect(await screen.findByText('bs_router_phase28')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Review failed webhooks' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Payment Intents' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Payouts' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Organization ID filter')).toBeInTheDocument();
+    expect(screen.getByLabelText('Provider filter')).toBeInTheDocument();
+  });
+
+  it('keeps marketplace agent detail route-level install and review controls reachable', async () => {
+    const router = createAppRouter(['/marketplace/agents/agent_1']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    const workspaceNavigation = await screen.findByRole('navigation', { name: 'Workspace navigation' });
+    expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
+    expect(within(workspaceNavigation).getByRole('link', { name: 'Agents' })).toHaveAttribute('href', '/agents');
+    expect(await screen.findByRole('heading', { name: 'Research Agent' })).toBeInTheDocument();
+    expect(await screen.findByText('Paid installs create a checkout-backed marketplace order before workspace installation.')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Agent version')).toHaveValue('ver_1');
+    expect(await screen.findByLabelText('Payment provider')).toHaveValue('stripe');
+    expect(screen.getByRole('option', { name: 'Alipay' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Install Agent' })).toBeEnabled();
+    expect(screen.getByText('Reviews')).toBeInTheDocument();
+    expect(screen.getByLabelText('Review text')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Submit Review' })).toBeEnabled();
   });
 
   it('renders admin usage logs route inside the admin shell', async () => {
