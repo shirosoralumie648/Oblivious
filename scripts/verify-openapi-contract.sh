@@ -246,6 +246,8 @@ require_marketplace_surface_payload_contract() {
       ["/api/v1/marketplace/templates", "post", "201"] => "#/components/schemas/MarketplaceTemplate",
       ["/api/v1/marketplace/templates/{templateId}", "get", "200"] => "#/components/schemas/MarketplaceTemplateDetailResponse",
       ["/api/v1/marketplace/templates/{templateId}/install", "post", "201"] => "#/components/schemas/MarketplaceTemplateInstall",
+      ["/api/v1/marketplace/agents/{agentId}/stats", "get", "200"] => "#/components/schemas/MarketplaceAgentStats",
+      ["/api/v1/marketplace/publisher/stats", "get", "200"] => "#/components/schemas/MarketplacePublisherStats",
       ["/api/v1/admin/marketplace/abuse-reports", "get", "200"] => "#/components/schemas/MarketplaceAbuseReportsResponse",
       ["/api/v1/admin/marketplace/abuse-reports/{reportId}/resolve", "post", "200"] => "#/components/schemas/MarketplaceAbuseReportStatusResponse",
       ["/api/v1/admin/marketplace/abuse-reports/{reportId}/dismiss", "post", "200"] => "#/components/schemas/MarketplaceAbuseReportStatusResponse",
@@ -289,6 +291,48 @@ require_marketplace_surface_payload_contract() {
     settlement_enum = schemas.dig("MarketplaceSettlementPreferences", "properties", "cycle", "enum") || []
     unless ["weekly", "monthly", "quarterly"].all? { |cycle| settlement_enum.include?(cycle) }
       missing << "MarketplaceSettlementPreferences.cycle must enumerate weekly, monthly, and quarterly"
+    end
+
+    agent_stats = schemas["MarketplaceAgentStats"] || {}
+    ["agentID", "agentName"].each do |property|
+      unless agent_stats.dig("properties", property, "type") == "string"
+        missing << "MarketplaceAgentStats.#{property} must be documented as string"
+      end
+    end
+    ["installCount", "activeUsers", "apiCallCount"].each do |property|
+      unless agent_stats.dig("properties", property, "type") == "integer"
+        missing << "MarketplaceAgentStats.#{property} must be documented as integer"
+      end
+    end
+
+    publisher_stats = schemas["MarketplacePublisherStats"] || {}
+    ["totalAgents", "totalInstalls", "activeUsers", "totalAPICalls"].each do |property|
+      unless publisher_stats.dig("properties", property, "type") == "integer"
+        missing << "MarketplacePublisherStats.#{property} must be documented as integer"
+      end
+    end
+    ["grossRevenue", "platformFees", "netRevenue", "refundedAmount", "pendingSettlementAmount", "availableAmount", "payoutPendingAmount", "paidOutAmount"].each do |property|
+      unless publisher_stats.dig("properties", property, "type") == "number"
+        missing << "MarketplacePublisherStats.#{property} must be documented as number"
+      end
+    end
+    unless publisher_stats.dig("properties", "revenueTier", "$ref") == "#/components/schemas/MarketplaceRevenueTierDisclosure"
+      missing << "MarketplacePublisherStats.revenueTier must reference MarketplaceRevenueTierDisclosure"
+    end
+    unless publisher_stats.dig("properties", "perAgentStats", "items", "$ref") == "#/components/schemas/MarketplaceAgentStats"
+      missing << "MarketplacePublisherStats.perAgentStats must expose MarketplaceAgentStats[]"
+    end
+
+    revenue_tier = schemas["MarketplaceRevenueTierDisclosure"] || {}
+    ["currentTier", "label"].each do |property|
+      unless revenue_tier.dig("properties", property, "type") == "string"
+        missing << "MarketplaceRevenueTierDisclosure.#{property} must be documented as string"
+      end
+    end
+    ["monthlySalesAmount", "platformFeeAmount", "publisherNetAmount", "platformFeePercent", "publisherSharePercent", "effectivePlatformFeePercent", "nextTierAt", "salesToNextTier", "estimatedPublisherNetAtNextTier", "estimatedPublisherNetIncreaseAtNextTier"].each do |property|
+      unless revenue_tier.dig("properties", property, "type") == "number"
+        missing << "MarketplaceRevenueTierDisclosure.#{property} must be documented as number"
+      end
     end
 
     unless missing.empty?

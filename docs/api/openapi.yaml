@@ -2429,6 +2429,100 @@ components:
         total:
           type: integer
 
+    MarketplaceAgentStats:
+      type: object
+      properties:
+        agentID:
+          type: string
+        agentName:
+          type: string
+        installCount:
+          type: integer
+        activeUsers:
+          type: integer
+        apiCallCount:
+          type: integer
+
+    MarketplaceRevenueTierDisclosure:
+      type: object
+      properties:
+        currentTier:
+          type: string
+        label:
+          type: string
+        monthlySalesAmount:
+          type: number
+          format: double
+        platformFeeAmount:
+          type: number
+          format: double
+        publisherNetAmount:
+          type: number
+          format: double
+        platformFeePercent:
+          type: number
+          format: double
+        publisherSharePercent:
+          type: number
+          format: double
+        effectivePlatformFeePercent:
+          type: number
+          format: double
+        nextTierAt:
+          type: number
+          format: double
+        salesToNextTier:
+          type: number
+          format: double
+        estimatedPublisherNetAtNextTier:
+          type: number
+          format: double
+        estimatedPublisherNetIncreaseAtNextTier:
+          type: number
+          format: double
+
+    MarketplacePublisherStats:
+      type: object
+      properties:
+        totalAgents:
+          type: integer
+        totalInstalls:
+          type: integer
+        activeUsers:
+          type: integer
+        totalAPICalls:
+          type: integer
+        grossRevenue:
+          type: number
+          format: double
+        platformFees:
+          type: number
+          format: double
+        netRevenue:
+          type: number
+          format: double
+        refundedAmount:
+          type: number
+          format: double
+        pendingSettlementAmount:
+          type: number
+          format: double
+        availableAmount:
+          type: number
+          format: double
+        payoutPendingAmount:
+          type: number
+          format: double
+        paidOutAmount:
+          type: number
+          format: double
+        revenueTier:
+          $ref: "#/components/schemas/MarketplaceRevenueTierDisclosure"
+        perAgentStats:
+          type: array
+          items:
+            $ref: "#/components/schemas/MarketplaceAgentStats"
+
     MarketplacePayout:
       type: object
       properties:
@@ -13629,7 +13723,12 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplaceAgentStats"
         "401":
           $ref: "#/components/responses/Unauthorized"
 
@@ -13708,7 +13807,12 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplacePublisherStats"
         "401":
           $ref: "#/components/responses/Unauthorized"
 
