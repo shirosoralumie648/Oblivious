@@ -8,12 +8,14 @@ import type { AgentConfig, AgentSummary, AgentTool, ToolApprovalOverride } from 
 type ApprovalMode = 'tiered' | 'all' | 'none' | 'custom';
 type AgentExecutionMode = 'react' | 'planning';
 type CustomToolRuntime = 'api' | 'python';
+type LongTermMemoryExtractionPolicy = 'deterministic' | 'llm_assisted';
 type LongTermMemoryWritePolicy = 'interaction_and_explicit' | 'explicit_only' | 'interaction_only' | 'manual_only';
 type RiskLevel = 'safe' | 'medium' | 'dangerous';
 
 const approvalModes: ApprovalMode[] = ['tiered', 'all', 'none', 'custom'];
 const executionModes: AgentExecutionMode[] = ['react', 'planning'];
 const customToolRuntimes: CustomToolRuntime[] = ['api', 'python'];
+const longTermMemoryExtractionPolicies: LongTermMemoryExtractionPolicy[] = ['deterministic', 'llm_assisted'];
 const longTermMemoryWritePolicies: LongTermMemoryWritePolicy[] = ['interaction_and_explicit', 'explicit_only', 'interaction_only', 'manual_only'];
 const riskLevels: RiskLevel[] = ['safe', 'medium', 'dangerous'];
 
@@ -39,6 +41,12 @@ function normalizeLongTermMemoryWritePolicy(value: unknown): LongTermMemoryWrite
   return longTermMemoryWritePolicies.includes(value as LongTermMemoryWritePolicy)
     ? value as LongTermMemoryWritePolicy
     : 'interaction_and_explicit';
+}
+
+function normalizeLongTermMemoryExtractionPolicy(value: unknown): LongTermMemoryExtractionPolicy {
+  return longTermMemoryExtractionPolicies.includes(value as LongTermMemoryExtractionPolicy)
+    ? value as LongTermMemoryExtractionPolicy
+    : 'deterministic';
 }
 
 function normalizeCustomToolRuntime(value: unknown): CustomToolRuntime {
@@ -127,6 +135,7 @@ export function AgentsPage() {
   const [createSystemPrompt, setCreateSystemPrompt] = useState('');
   const [approvalMode, setApprovalMode] = useState<ApprovalMode>('tiered');
   const [defaultExecutionMode, setDefaultExecutionMode] = useState<AgentExecutionMode>('react');
+  const [longTermMemoryExtractionPolicy, setLongTermMemoryExtractionPolicy] = useState<LongTermMemoryExtractionPolicy>('deterministic');
   const [longTermMemoryWritePolicy, setLongTermMemoryWritePolicy] = useState<LongTermMemoryWritePolicy>('interaction_and_explicit');
   const [maxIterations, setMaxIterations] = useState('');
   const [tokenBudget, setTokenBudget] = useState('');
@@ -163,6 +172,7 @@ export function AgentsPage() {
     setSelectedAgentId(agent?.id ?? '');
     setApprovalMode(normalizeApprovalMode(agent?.config?.approvalMode));
     setDefaultExecutionMode(normalizeExecutionMode(agent?.config?.defaultExecutionMode));
+    setLongTermMemoryExtractionPolicy(normalizeLongTermMemoryExtractionPolicy(agent?.config?.longTermMemoryExtractionPolicy));
     setLongTermMemoryWritePolicy(normalizeLongTermMemoryWritePolicy(agent?.config?.longTermMemoryWritePolicy));
     setMaxIterations(numberFieldValue(agent?.config?.maxIterations));
     setTokenBudget(numberFieldValue(agent?.config?.tokenBudget));
@@ -305,6 +315,7 @@ export function AgentsPage() {
       const nextConfig: AgentConfig = {
         ...(selectedAgent.config ?? {}),
         approvalMode,
+        longTermMemoryExtractionPolicy,
         longTermMemoryWritePolicy,
         toolApprovalOverrides: overrides
       };
@@ -727,6 +738,23 @@ export function AgentsPage() {
                     value={longTermMemoryWritePolicy}
                   >
                     {longTermMemoryWritePolicies.map((policy) => (
+                      <option key={policy} value={policy}>
+                        {policy}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-sm font-medium text-[#181611]">
+                  Long-term memory extraction
+                  <select
+                    className="mt-2 min-h-10 w-full rounded-lg border border-[#d7d2c4] bg-[#fbfaf7] px-3 text-sm"
+                    onChange={(event) => {
+                      setLongTermMemoryExtractionPolicy(normalizeLongTermMemoryExtractionPolicy(event.target.value));
+                      setSavedMessage('');
+                    }}
+                    value={longTermMemoryExtractionPolicy}
+                  >
+                    {longTermMemoryExtractionPolicies.map((policy) => (
                       <option key={policy} value={policy}>
                         {policy}
                       </option>

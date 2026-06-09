@@ -147,6 +147,7 @@ describe('AgentsPage', () => {
       expect(updateAgent).toHaveBeenCalledWith('agent_1', {
         config: {
           approvalMode: 'custom',
+          longTermMemoryExtractionPolicy: 'deterministic',
           longTermMemoryWritePolicy: 'interaction_and_explicit',
           toolApprovalOverrides: {
             web_search: { requiresApproval: true, riskLevel: 'medium' },
@@ -172,6 +173,7 @@ describe('AgentsPage', () => {
         config: {
           approvalMode: 'tiered',
           defaultExecutionMode: 'planning',
+          longTermMemoryExtractionPolicy: 'deterministic',
           longTermMemoryWritePolicy: 'interaction_and_explicit',
           maxIterations: 25,
           tokenBudget: 50000,
@@ -191,6 +193,7 @@ describe('AgentsPage', () => {
       config: {
         approvalMode: 'tiered',
         defaultExecutionMode: 'react',
+        longTermMemoryExtractionPolicy: 'llm_assisted',
         longTermMemoryWritePolicy: 'explicit_only',
         maxIterations: 40,
         tokenBudget: 75000,
@@ -210,11 +213,13 @@ describe('AgentsPage', () => {
 
     expect(await screen.findByLabelText('Default execution mode')).toHaveValue('planning');
     expect(screen.getByLabelText('Long-term memory writes')).toHaveValue('interaction_and_explicit');
+    expect(screen.getByLabelText('Long-term memory extraction')).toHaveValue('deterministic');
     expect(screen.getByLabelText('Max iterations')).toHaveValue(25);
     expect(screen.getByLabelText('Token budget')).toHaveValue(50000);
 
     fireEvent.change(screen.getByLabelText('Default execution mode'), { target: { value: 'react' } });
     fireEvent.change(screen.getByLabelText('Long-term memory writes'), { target: { value: 'explicit_only' } });
+    fireEvent.change(screen.getByLabelText('Long-term memory extraction'), { target: { value: 'llm_assisted' } });
     fireEvent.change(screen.getByLabelText('Max iterations'), { target: { value: '40' } });
     fireEvent.change(screen.getByLabelText('Token budget'), { target: { value: '75000' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save agent policy' }));
@@ -224,6 +229,7 @@ describe('AgentsPage', () => {
         config: {
           approvalMode: 'tiered',
           defaultExecutionMode: 'react',
+          longTermMemoryExtractionPolicy: 'llm_assisted',
           longTermMemoryWritePolicy: 'explicit_only',
           maxIterations: 40,
           tokenBudget: 75000,

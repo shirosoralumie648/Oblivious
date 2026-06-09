@@ -1220,6 +1220,9 @@ components:
         defaultExecutionMode:
           type: string
           enum: [react, planning]
+        longTermMemoryExtractionPolicy:
+          type: string
+          enum: [deterministic, llm_assisted]
         longTermMemoryWritePolicy:
           type: string
           enum: [interaction_and_explicit, explicit_only, interaction_only, manual_only]

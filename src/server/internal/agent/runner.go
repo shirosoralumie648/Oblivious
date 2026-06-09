@@ -54,6 +54,9 @@ const (
 	LongTermMemoryWritePolicyInteractionOnly        = "interaction_only"
 	LongTermMemoryWritePolicyManualOnly             = "manual_only"
 
+	LongTermMemoryExtractionPolicyDeterministic = "deterministic"
+	LongTermMemoryExtractionPolicyLLMAssisted   = "llm_assisted"
+
 	ToolRiskSafe      = "safe"
 	ToolRiskMedium    = "medium"
 	ToolRiskDangerous = "dangerous"
@@ -74,6 +77,7 @@ func NormalizeConfig(config Config) Config {
 	config.DefaultExecutionMode = NormalizeExecutionMode(config.DefaultExecutionMode)
 	config.ApprovalMode = normalizeApprovalMode(config.ApprovalMode)
 	config.LongTermMemoryWritePolicy = normalizeLongTermMemoryWritePolicy(config.LongTermMemoryWritePolicy)
+	config.LongTermMemoryExtractionPolicy = normalizeLongTermMemoryExtractionPolicy(config.LongTermMemoryExtractionPolicy)
 	return config
 }
 
@@ -129,6 +133,15 @@ func normalizeLongTermMemoryWritePolicy(value string) string {
 		return LongTermMemoryWritePolicyManualOnly
 	default:
 		return LongTermMemoryWritePolicyInteractionAndExplicit
+	}
+}
+
+func normalizeLongTermMemoryExtractionPolicy(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case LongTermMemoryExtractionPolicyLLMAssisted:
+		return LongTermMemoryExtractionPolicyLLMAssisted
+	default:
+		return LongTermMemoryExtractionPolicyDeterministic
 	}
 }
 
@@ -1234,26 +1247,27 @@ func (r *Runner) storeLongTermInteractionMemory(ctx context.Context, session aut
 	case LongTermMemoryWritePolicyManualOnly:
 		return
 	case LongTermMemoryWritePolicyExplicitOnly:
-		for _, derived := range deriveLongTermMemories(userContent, conversationID) {
-			r.storeLongTermMemory(ctx, session, agent, derived.content, derived.importance, derived.metadata)
-		}
+		r.storeDerivedLongTermMemories(ctx, session, agent, conversationID, userContent, assistantContent)
 	case LongTermMemoryWritePolicyInteractionOnly:
-		content := fmt.Sprintf("User: %s\nAssistant: %s", userContent, assistantContent)
-		r.storeLongTermMemory(ctx, session, agent, content, 3, map[string]any{
-			"source":          "agent_run",
-			"memory_category": "interaction",
-			"conversation_id": conversationID,
-		})
+		r.storeInteractionLongTermMemory(ctx, session, agent, conversationID, userContent, assistantContent)
 	default:
-		content := fmt.Sprintf("User: %s\nAssistant: %s", userContent, assistantContent)
-		r.storeLongTermMemory(ctx, session, agent, content, 3, map[string]any{
-			"source":          "agent_run",
-			"memory_category": "interaction",
-			"conversation_id": conversationID,
-		})
-		for _, derived := range deriveLongTermMemories(userContent, conversationID) {
-			r.storeLongTermMemory(ctx, session, agent, derived.content, derived.importance, derived.metadata)
-		}
+		r.storeInteractionLongTermMemory(ctx, session, agent, conversationID, userContent, assistantContent)
+		r.storeDerivedLongTermMemories(ctx, session, agent, conversationID, userContent, assistantContent)
+	}
+}
+
+func (r *Runner) storeInteractionLongTermMemory(ctx context.Context, session auth.Session, agent *Agent, conversationID, userContent, assistantContent string) {
+	content := fmt.Sprintf("User: %s\nAssistant: %s", userContent, assistantContent)
+	r.storeLongTermMemory(ctx, session, agent, content, 3, map[string]any{
+		"source":          "agent_run",
+		"memory_category": "interaction",
+		"conversation_id": conversationID,
+	})
+}
+
+func (r *Runner) storeDerivedLongTermMemories(ctx context.Context, session auth.Session, agent *Agent, conversationID, userContent, assistantContent string) {
+	for _, derived := range r.deriveLongTermMemories(ctx, session, agent, conversationID, userContent, assistantContent) {
+		r.storeLongTermMemory(ctx, session, agent, derived.content, derived.importance, derived.metadata)
 	}
 }
 
@@ -1290,7 +1304,40 @@ type derivedLongTermMemory struct {
 	metadata   map[string]any
 }
 
+func (r *Runner) deriveLongTermMemories(ctx context.Context, session auth.Session, agent *Agent, conversationID, userContent, assistantContent string) []derivedLongTermMemory {
+	memories := deriveDeterministicLongTermMemories(userContent, conversationID)
+	if agent == nil || normalizeLongTermMemoryExtractionPolicy(agent.Config.LongTermMemoryExtractionPolicy) != LongTermMemoryExtractionPolicyLLMAssisted {
+		return memories
+	}
+	assisted := r.deriveLLMAssistedLongTermMemories(ctx, session, agent, conversationID, userContent, assistantContent)
+	if len(assisted) == 0 {
+		return memories
+	}
+
+	seen := map[string]struct{}{}
+	merged := make([]derivedLongTermMemory, 0, len(memories)+len(assisted))
+	for _, memory := range append(memories, assisted...) {
+		normalized := normalizeMemoryContent(memory.content)
+		if normalized == "" {
+			continue
+		}
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		merged = append(merged, memory)
+		if len(merged) >= 5 {
+			break
+		}
+	}
+	return merged
+}
+
 func deriveLongTermMemories(userContent, conversationID string) []derivedLongTermMemory {
+	return deriveDeterministicLongTermMemories(userContent, conversationID)
+}
+
+func deriveDeterministicLongTermMemories(userContent, conversationID string) []derivedLongTermMemory {
 	userContent = strings.TrimSpace(userContent)
 	if userContent == "" {
 		return nil
@@ -1313,12 +1360,123 @@ func deriveLongTermMemories(userContent, conversationID string) []derivedLongTer
 	return memories
 }
 
+func (r *Runner) deriveLLMAssistedLongTermMemories(ctx context.Context, session auth.Session, agent *Agent, conversationID, userContent, assistantContent string) []derivedLongTermMemory {
+	if r == nil || r.gateway == nil || agent == nil {
+		return nil
+	}
+	reply, err := r.gateway.GenerateReply(withSessionRelayMetadata(ctx, session), []chat.Message{
+		{
+			Role: "system",
+			Content: strings.Join([]string{
+				"Extract durable long-term memories from the agent exchange.",
+				"Return strict JSON only: {\"memories\":[{\"category\":\"preference|fact|interaction\",\"content\":\"...\",\"importance\":1-5}]}",
+				"Only include stable user preferences, important user facts, or durable decisions that should help future conversations.",
+				"Do not include transient requests, assistant wording, secrets, credentials, or more than three memories.",
+				"Use concise standalone content. Return {\"memories\":[]} when nothing should be saved.",
+			}, " "),
+		},
+		{
+			Role:    "user",
+			Content: fmt.Sprintf("User message:\n%s\n\nAssistant response:\n%s", userContent, assistantContent),
+		},
+	}, chat.ConversationConfig{
+		ModelID:         agent.Model,
+		Temperature:     0,
+		MaxOutputTokens: 512,
+	})
+	if err != nil {
+		return nil
+	}
+	return parseLLMAssistedLongTermMemories(reply, conversationID)
+}
+
+func parseLLMAssistedLongTermMemories(reply, conversationID string) []derivedLongTermMemory {
+	reply = strings.TrimSpace(reply)
+	if reply == "" {
+		return nil
+	}
+	reply = strings.TrimPrefix(reply, "```json")
+	reply = strings.TrimPrefix(reply, "```")
+	reply = strings.TrimSuffix(reply, "```")
+	reply = strings.TrimSpace(reply)
+
+	var payload struct {
+		Memories []struct {
+			Category   string `json:"category"`
+			Content    string `json:"content"`
+			Importance int    `json:"importance"`
+		} `json:"memories"`
+	}
+	if err := json.Unmarshal([]byte(reply), &payload); err != nil {
+		return nil
+	}
+
+	memories := make([]derivedLongTermMemory, 0, len(payload.Memories))
+	seen := map[string]struct{}{}
+	for _, candidate := range payload.Memories {
+		content := sanitizeLLMAssistedMemoryContent(candidate.Content)
+		if content == "" {
+			continue
+		}
+		normalized := normalizeMemoryContent(content)
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		category := normalizeLLMAssistedMemoryCategory(candidate.Category)
+		importance := candidate.Importance
+		if importance < 1 {
+			importance = 1
+		}
+		if importance > 5 {
+			importance = 5
+		}
+		memories = append(memories, derivedLongTermMemory{
+			content:    content,
+			importance: importance,
+			metadata:   llmAssistedMemoryMetadata(category, conversationID),
+		})
+		seen[normalized] = struct{}{}
+		if len(memories) >= 3 {
+			break
+		}
+	}
+	return memories
+}
+
+func sanitizeLLMAssistedMemoryContent(content string) string {
+	content = strings.Join(strings.Fields(strings.TrimSpace(content)), " ")
+	if content == "" || utf8.RuneCountInString(content) > 300 {
+		return ""
+	}
+	return content
+}
+
+func normalizeLLMAssistedMemoryCategory(category string) string {
+	switch strings.ToLower(strings.TrimSpace(category)) {
+	case "preference":
+		return "preference"
+	case "fact":
+		return "fact"
+	case "interaction":
+		return "interaction"
+	default:
+		return "fact"
+	}
+}
+
 func derivedMemoryMetadata(category, conversationID string) map[string]any {
 	return map[string]any{
 		"source":          "agent_memory_policy",
 		"memory_category": category,
 		"conversation_id": conversationID,
 	}
+}
+
+func llmAssistedMemoryMetadata(category, conversationID string) map[string]any {
+	metadata := derivedMemoryMetadata(category, conversationID)
+	metadata["source"] = "agent_memory_llm_assisted"
+	metadata["extraction_policy"] = LongTermMemoryExtractionPolicyLLMAssisted
+	return metadata
 }
 
 func extractPreferenceMemory(content string) (string, bool) {

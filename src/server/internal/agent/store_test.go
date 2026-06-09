@@ -278,8 +278,9 @@ func TestAgentSQLStorePersistsLongTermMemoryWritePolicyConfig(t *testing.T) {
 		Name:  "Memory Policy Agent",
 		Model: "gpt-4o-mini",
 		Config: Config{
-			EnableMemory:              true,
-			LongTermMemoryWritePolicy: LongTermMemoryWritePolicyExplicitOnly,
+			EnableMemory:                   true,
+			LongTermMemoryExtractionPolicy: LongTermMemoryExtractionPolicyLLMAssisted,
+			LongTermMemoryWritePolicy:      LongTermMemoryWritePolicyExplicitOnly,
 		},
 	})
 	if err != nil {
@@ -293,11 +294,15 @@ func TestAgentSQLStorePersistsLongTermMemoryWritePolicyConfig(t *testing.T) {
 	if got.Config.LongTermMemoryWritePolicy != LongTermMemoryWritePolicyExplicitOnly {
 		t.Fatalf("long-term memory write policy = %q, want %q", got.Config.LongTermMemoryWritePolicy, LongTermMemoryWritePolicyExplicitOnly)
 	}
+	if got.Config.LongTermMemoryExtractionPolicy != LongTermMemoryExtractionPolicyLLMAssisted {
+		t.Fatalf("long-term memory extraction policy = %q, want %q", got.Config.LongTermMemoryExtractionPolicy, LongTermMemoryExtractionPolicyLLMAssisted)
+	}
 
 	updated, err := store.UpdateAgent(ctx, created.ID, "org_1", &UpdateAgentRequest{
 		Config: &Config{
-			EnableMemory:              true,
-			LongTermMemoryWritePolicy: LongTermMemoryWritePolicyManualOnly,
+			EnableMemory:                   true,
+			LongTermMemoryExtractionPolicy: LongTermMemoryExtractionPolicyDeterministic,
+			LongTermMemoryWritePolicy:      LongTermMemoryWritePolicyManualOnly,
 		},
 	})
 	if err != nil {
@@ -306,6 +311,9 @@ func TestAgentSQLStorePersistsLongTermMemoryWritePolicyConfig(t *testing.T) {
 	if updated.Config.LongTermMemoryWritePolicy != LongTermMemoryWritePolicyManualOnly {
 		t.Fatalf("updated long-term memory write policy = %q, want %q", updated.Config.LongTermMemoryWritePolicy, LongTermMemoryWritePolicyManualOnly)
 	}
+	if updated.Config.LongTermMemoryExtractionPolicy != LongTermMemoryExtractionPolicyDeterministic {
+		t.Fatalf("updated long-term memory extraction policy = %q, want %q", updated.Config.LongTermMemoryExtractionPolicy, LongTermMemoryExtractionPolicyDeterministic)
+	}
 
 	got, err = store.GetAgent(ctx, created.ID, "org_1")
 	if err != nil {
@@ -313,6 +321,9 @@ func TestAgentSQLStorePersistsLongTermMemoryWritePolicyConfig(t *testing.T) {
 	}
 	if got.Config.LongTermMemoryWritePolicy != LongTermMemoryWritePolicyManualOnly {
 		t.Fatalf("persisted long-term memory write policy after update = %q, want %q", got.Config.LongTermMemoryWritePolicy, LongTermMemoryWritePolicyManualOnly)
+	}
+	if got.Config.LongTermMemoryExtractionPolicy != LongTermMemoryExtractionPolicyDeterministic {
+		t.Fatalf("persisted long-term memory extraction policy after update = %q, want %q", got.Config.LongTermMemoryExtractionPolicy, LongTermMemoryExtractionPolicyDeterministic)
 	}
 }
 

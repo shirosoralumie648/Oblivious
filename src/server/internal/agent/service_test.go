@@ -4270,6 +4270,116 @@ func TestRunWithToolsDerivesPreferenceAndFactLongTermMemories(t *testing.T) {
 	}
 }
 
+func TestRunWithToolsLLMAssistedLongTermMemoryExtractionStoresModelCandidates(t *testing.T) {
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+			Config: Config{
+				EnableMemory:                   true,
+				LongTermMemoryExtractionPolicy: LongTermMemoryExtractionPolicyLLMAssisted,
+			},
+		},
+		conversation: &Conversation{
+			ID:             "conv_1",
+			AgentID:        "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+		},
+	}
+	gateway := &fakeGateway{
+		plainReply: `{"memories":[{"category":"fact","content":"Important fact: Launch checklist requires legal review","importance":5}]}`,
+		structured: []*chat.CompletionResponse{
+			{Content: "I will keep the launch checklist in mind.", FinishReason: "stop"},
+		},
+	}
+	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+
+	_, err := runner.RunWithTools(
+		context.Background(),
+		auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}},
+		store.agent,
+		store.conversation.ID,
+		"For launch readiness, legal review is part of the checklist.",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("RunWithTools returned error: %v", err)
+	}
+	if gateway.plainCalls != 1 {
+		t.Fatalf("expected one LLM-assisted extraction call, got %d", gateway.plainCalls)
+	}
+	if len(gateway.lastPlainMessages) != 2 || !strings.Contains(gateway.lastPlainMessages[0].Content, "Extract durable long-term memories") {
+		t.Fatalf("expected LLM-assisted extraction prompt, got %+v", gateway.lastPlainMessages)
+	}
+	if len(store.memories) != 2 {
+		t.Fatalf("expected interaction plus LLM-assisted memory, got %+v", store.memories)
+	}
+	byCategory := map[string]*Memory{}
+	for _, memory := range store.memories {
+		category, _ := memory.Metadata["memory_category"].(string)
+		byCategory[category] = memory
+	}
+	if byCategory["interaction"] == nil {
+		t.Fatalf("expected interaction memory, got %+v", store.memories)
+	}
+	assisted := byCategory["fact"]
+	if assisted == nil || assisted.Content != "Important fact: Launch checklist requires legal review" || assisted.Importance != 5 {
+		t.Fatalf("expected LLM-assisted fact memory, got %+v", assisted)
+	}
+	if assisted.Metadata["source"] != "agent_memory_llm_assisted" || assisted.Metadata["extraction_policy"] != LongTermMemoryExtractionPolicyLLMAssisted || assisted.Metadata["conversation_id"] != "conv_1" {
+		t.Fatalf("expected LLM-assisted metadata, got %+v", assisted.Metadata)
+	}
+}
+
+func TestRunWithToolsLLMAssistedLongTermMemoryExtractionIgnoresInvalidJSON(t *testing.T) {
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+			Config: Config{
+				EnableMemory:                   true,
+				LongTermMemoryExtractionPolicy: LongTermMemoryExtractionPolicyLLMAssisted,
+			},
+		},
+		conversation: &Conversation{
+			ID:             "conv_1",
+			AgentID:        "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+		},
+	}
+	gateway := &fakeGateway{
+		plainReply: "not json",
+		structured: []*chat.CompletionResponse{
+			{Content: "Done.", FinishReason: "stop"},
+		},
+	}
+	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+
+	_, err := runner.RunWithTools(
+		context.Background(),
+		auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}},
+		store.agent,
+		store.conversation.ID,
+		"Please answer the launch question.",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("RunWithTools returned error: %v", err)
+	}
+	if gateway.plainCalls != 1 {
+		t.Fatalf("expected one LLM-assisted extraction call, got %d", gateway.plainCalls)
+	}
+	if len(store.memories) != 1 || store.memories[0].Metadata["memory_category"] != "interaction" {
+		t.Fatalf("invalid LLM memory JSON should only leave interaction memory, got %+v", store.memories)
+	}
+}
+
 func TestRunWithToolsLongTermMemoryExplicitOnlySkipsInteractionMemory(t *testing.T) {
 	store := &fakeStore{
 		agent: &Agent{
