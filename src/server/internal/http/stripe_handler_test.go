@@ -1004,7 +1004,9 @@ func TestMarketplacePaidInstallDoesNotInstallBeforeWebhook(t *testing.T) {
 	}
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/marketplace/agents/agent_paid_http/install?versionID=version_agent_paid_http", nil)
+	installPayload := `{"paymentProvider": "stripe"}`
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/marketplace/agents/agent_paid_http/install?versionID=version_agent_paid_http", strings.NewReader(installPayload))
+	request.Header.Set("Content-Type", "application/json")
 	request.AddCookie(cookie)
 	addCSRF(request, csrfToken)
 	router.ServeHTTP(recorder, request)
@@ -1499,7 +1501,9 @@ func TestStripeWebhookRouteAppliesMarketplaceInstallSettlementOnce(t *testing.T)
 	}
 
 	installRecorder := httptest.NewRecorder()
-	installRequest := httptest.NewRequest(http.MethodPost, "/api/v1/marketplace/agents/agent_paid_webhook/install?versionID=version_agent_paid_webhook", nil)
+	installPayload2 := `{"paymentProvider": "stripe"}`
+	installRequest := httptest.NewRequest(http.MethodPost, "/api/v1/marketplace/agents/agent_paid_webhook/install?versionID=version_agent_paid_webhook", strings.NewReader(installPayload2))
+	installRequest.Header.Set("Content-Type", "application/json")
 	installRequest.AddCookie(cookie)
 	addCSRF(installRequest, csrfToken)
 	router.ServeHTTP(installRecorder, installRequest)
@@ -1585,7 +1589,9 @@ func TestStripeRefundUpdatesMarketplaceSettlementOnce(t *testing.T) {
 	}
 
 	installRecorder := httptest.NewRecorder()
-	installRequest := httptest.NewRequest(http.MethodPost, "/api/v1/marketplace/agents/agent_paid_refund/install?versionID=version_agent_paid_refund", nil)
+	installPayload3 := `{"paymentProvider": "stripe"}`
+	installRequest := httptest.NewRequest(http.MethodPost, "/api/v1/marketplace/agents/agent_paid_refund/install?versionID=version_agent_paid_refund", strings.NewReader(installPayload3))
+	installRequest.Header.Set("Content-Type", "application/json")
 	installRequest.AddCookie(cookie)
 	addCSRF(installRequest, csrfToken)
 	router.ServeHTTP(installRecorder, installRequest)
