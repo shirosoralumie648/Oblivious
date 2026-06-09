@@ -2462,8 +2462,19 @@ func TestGetPreferencesReturnsUserInitializationState(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected object data payload, got %T", payload["data"])
 	}
-	if data["defaultMode"] == nil || data["modelStrategy"] == nil || data["networkEnabledHint"] == nil {
-		t.Fatalf("expected defaultMode, modelStrategy, and networkEnabledHint in preferences data")
+	if data["defaultMode"] == nil || data["modelStrategy"] == nil || data["networkEnabledHint"] == nil ||
+		data["onboardingCompleted"] == nil || data["defaultAgentModel"] == nil || data["sidebarCollapsed"] == nil ||
+		data["notifications"] == nil {
+		t.Fatalf("expected full preferences fields in preferences data, got %#v", data)
+	}
+	if data["defaultAgentModel"] != "gpt-4o-mini" {
+		t.Fatalf("expected defaultAgentModel gpt-4o-mini, got %v", data["defaultAgentModel"])
+	}
+	if data["sidebarCollapsed"] != false {
+		t.Fatalf("expected sidebarCollapsed false, got %v", data["sidebarCollapsed"])
+	}
+	if notifications, ok := data["notifications"].(map[string]any); !ok || len(notifications) != 0 {
+		t.Fatalf("expected empty notifications object, got %#v", data["notifications"])
 	}
 }
 
@@ -2478,13 +2489,28 @@ func TestUpdatePreferencesPersistsOnboardingState(t *testing.T) {
 	csrfToken := csrfTokenFromRecorder(t, registerRecorder)
 
 	updateRecorder := httptest.NewRecorder()
-	updateRequest := httptest.NewRequest(stdhttp.MethodPut, "/api/v1/app/me/preferences", strings.NewReader(`{"onboardingCompleted":true,"defaultMode":"solo","modelStrategy":"high_quality","networkEnabledHint":true}`))
+	updateRequest := httptest.NewRequest(stdhttp.MethodPut, "/api/v1/app/me/preferences", strings.NewReader(`{"onboardingCompleted":true,"defaultMode":"solo","modelStrategy":"high_quality","networkEnabledHint":true,"defaultAgentModel":"gpt-4.1","sidebarCollapsed":true,"notifications":{"email":false,"desktop":true}}`))
 	updateRequest.Header.Set("Content-Type", "application/json")
 	updateRequest.AddCookie(cookie)
 	addCSRF(updateRequest, csrfToken)
 	router.ServeHTTP(updateRecorder, updateRequest)
 	if updateRecorder.Code != stdhttp.StatusOK {
 		t.Fatalf("update preferences expected 200, got %d with body %s", updateRecorder.Code, updateRecorder.Body.String())
+	}
+	var updatePayload map[string]any
+	if err := json.Unmarshal(updateRecorder.Body.Bytes(), &updatePayload); err != nil {
+		t.Fatalf("decode update preferences response: %v", err)
+	}
+	updateData := updatePayload["data"].(map[string]any)
+	if updateData["defaultAgentModel"] != "gpt-4.1" {
+		t.Fatalf("expected update response defaultAgentModel gpt-4.1, got %v", updateData["defaultAgentModel"])
+	}
+	if updateData["sidebarCollapsed"] != true {
+		t.Fatalf("expected update response sidebarCollapsed true, got %v", updateData["sidebarCollapsed"])
+	}
+	updateNotifications := updateData["notifications"].(map[string]any)
+	if updateNotifications["email"] != false || updateNotifications["desktop"] != true {
+		t.Fatalf("expected update response notifications to persist, got %#v", updateNotifications)
 	}
 
 	meRecorder := httptest.NewRecorder()
@@ -2506,6 +2532,16 @@ func TestUpdatePreferencesPersistsOnboardingState(t *testing.T) {
 	preferences := data["preferences"].(map[string]any)
 	if preferences["defaultMode"] != "solo" {
 		t.Fatalf("expected defaultMode solo, got %v", preferences["defaultMode"])
+	}
+	if preferences["defaultAgentModel"] != "gpt-4.1" {
+		t.Fatalf("expected defaultAgentModel gpt-4.1, got %v", preferences["defaultAgentModel"])
+	}
+	if preferences["sidebarCollapsed"] != true {
+		t.Fatalf("expected sidebarCollapsed true, got %v", preferences["sidebarCollapsed"])
+	}
+	notifications := preferences["notifications"].(map[string]any)
+	if notifications["email"] != false || notifications["desktop"] != true {
+		t.Fatalf("expected notifications to persist, got %#v", notifications)
 	}
 }
 

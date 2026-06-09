@@ -12,10 +12,13 @@ type preferencesHandler struct {
 }
 
 type updatePreferencesRequest struct {
-	DefaultMode         string `json:"defaultMode"`
-	ModelStrategy       string `json:"modelStrategy"`
-	NetworkEnabledHint  bool   `json:"networkEnabledHint"`
-	OnboardingCompleted bool   `json:"onboardingCompleted"`
+	DefaultMode         string         `json:"defaultMode"`
+	ModelStrategy       string         `json:"modelStrategy"`
+	NetworkEnabledHint  bool           `json:"networkEnabledHint"`
+	OnboardingCompleted bool           `json:"onboardingCompleted"`
+	DefaultAgentModel   string         `json:"defaultAgentModel"`
+	SidebarCollapsed    bool           `json:"sidebarCollapsed"`
+	Notifications       map[string]any `json:"notifications"`
 }
 
 func newPreferencesHandler(service *userprefs.Service) preferencesHandler {
@@ -56,6 +59,9 @@ func (h preferencesHandler) update(w http.ResponseWriter, r *http.Request) {
 		ModelStrategy:       payload.ModelStrategy,
 		NetworkEnabledHint:  payload.NetworkEnabledHint,
 		OnboardingCompleted: payload.OnboardingCompleted,
+		DefaultAgentModel:   payload.DefaultAgentModel,
+		SidebarCollapsed:    payload.SidebarCollapsed,
+		Notifications:       payload.Notifications,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "update preferences failed")

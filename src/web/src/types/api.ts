@@ -21,6 +21,9 @@ export type UserPreferences = {
   modelStrategy: string;
   networkEnabledHint: boolean;
   onboardingCompleted: boolean;
+  defaultAgentModel?: string;
+  sidebarCollapsed?: boolean;
+  notifications?: Record<string, unknown>;
 };
 
 export type ApiSession = {

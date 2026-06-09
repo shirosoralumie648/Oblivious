@@ -150,6 +150,13 @@ components:
           type: boolean
         onboardingCompleted:
           type: boolean
+        defaultAgentModel:
+          type: string
+        sidebarCollapsed:
+          type: boolean
+        notifications:
+          type: object
+          additionalProperties: true
 
     UpdatePreferencesRequest:
       type: object
@@ -162,6 +169,13 @@ components:
           type: boolean
         onboardingCompleted:
           type: boolean
+        defaultAgentModel:
+          type: string
+        sidebarCollapsed:
+          type: boolean
+        notifications:
+          type: object
+          additionalProperties: true
 
     CreateConversationRequest:
       type: object

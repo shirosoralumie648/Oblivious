@@ -2520,6 +2520,7 @@ require_preferences_mutation_csrf_contract() {
     file = ARGV.fetch(0)
     spec = YAML.load_file(file)
     paths = spec.fetch("paths", {})
+    schemas = spec.fetch("components", {}).fetch("schemas", {})
     missing = []
 
     def operation(paths, path, method, missing)
@@ -2547,6 +2548,10 @@ require_preferences_mutation_csrf_contract() {
     end
 
     preferences = operation(paths, "/api/v1/app/me/preferences", "put", missing)
+    get_preferences = operation(paths, "/api/v1/app/me/preferences", "get", missing)
+    unless response_data_ref(get_preferences, "200") == "#/components/schemas/Preferences"
+      missing << "GET /api/v1/app/me/preferences 200 data must reference Preferences"
+    end
     unless requires_cookie_and_csrf?(preferences)
       missing << "PUT /api/v1/app/me/preferences must require cookieAuth and csrfHeader"
     end
@@ -2559,6 +2564,26 @@ require_preferences_mutation_csrf_contract() {
     end
     unless response_data_ref(preferences, "200") == "#/components/schemas/Preferences"
       missing << "PUT /api/v1/app/me/preferences 200 data must reference Preferences"
+    end
+    expected_fields = {
+      "defaultMode" => "string",
+      "modelStrategy" => "string",
+      "networkEnabledHint" => "boolean",
+      "onboardingCompleted" => "boolean",
+      "defaultAgentModel" => "string",
+      "sidebarCollapsed" => "boolean",
+      "notifications" => "object"
+    }
+    ["Preferences", "UpdatePreferencesRequest"].each do |schema_name|
+      properties = schemas.dig(schema_name, "properties") || {}
+      expected_fields.each do |field, expected_type|
+        unless properties.dig(field, "type") == expected_type
+          missing << "#{schema_name}.#{field} must be documented as #{expected_type}"
+        end
+      end
+      unless properties.dig("notifications", "additionalProperties") == true
+        missing << "#{schema_name}.notifications must allow object properties"
+      end
     end
 
     unless missing.empty?
