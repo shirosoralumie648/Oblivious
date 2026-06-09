@@ -1070,7 +1070,7 @@ func (s *Service) GetRunWithMessages(ctx context.Context, session auth.Session, 
 }
 
 // SendMessageStream 流式发送消息
-func (s *Service) SendMessageStream(ctx context.Context, session auth.Session, conversationID string, content string, onChunk func(string) error) error {
+func (s *Service) SendMessageStream(ctx context.Context, session auth.Session, conversationID string, content string, onChunk func(string) error, options ...SendMessageOptions) error {
 	// 获取对话
 	conv, err := s.store.GetConversation(ctx, conversationID, session.OrganizationID)
 	if err != nil {
@@ -1092,11 +1092,32 @@ func (s *Service) SendMessageStream(ctx context.Context, session auth.Session, c
 		return fmt.Errorf("agent not found")
 	}
 
-	if NormalizeExecutionMode(agent.Config.DefaultExecutionMode) == ExecutionModePlanning {
+	runAgent := *agent
+	mode := NormalizeExecutionMode(runAgent.Config.DefaultExecutionMode)
+	if len(options) > 0 {
+		option := options[0]
+		overrideMode := strings.ToLower(strings.TrimSpace(option.Mode))
+		if overrideMode != "" {
+			if overrideMode != ExecutionModeReact && overrideMode != ExecutionModePlanning {
+				return fmt.Errorf("mode must be react or planning")
+			}
+			mode = overrideMode
+		}
+		if option.MaxIterations != nil {
+			runAgent.Config.MaxIterations = *option.MaxIterations
+		}
+		if option.TokenBudget != nil {
+			runAgent.Config.TokenBudget = *option.TokenBudget
+		}
+	}
+
+	if mode == ExecutionModePlanning {
 		result, err := s.StartPlanningRun(ctx, session, StartRunRequest{
-			AgentID:        agent.ID,
+			AgentID:        runAgent.ID,
 			ConversationID: conversationID,
 			Input:          content,
+			MaxIterations:  firstSendMessageIntPointer(options, func(option SendMessageOptions) *int { return option.MaxIterations }),
+			TokenBudget:    firstSendMessageIntPointer(options, func(option SendMessageOptions) *int { return option.TokenBudget }),
 		})
 		if err != nil {
 			return err
@@ -1111,12 +1132,12 @@ func (s *Service) SendMessageStream(ctx context.Context, session auth.Session, c
 		return streamContent(reply, onChunk)
 	}
 
-	if hasEnabledTools(agent) {
-		_, err = s.runner.RunWithTools(ctx, session, agent, conversationID, content, onChunk)
+	if hasEnabledTools(&runAgent) {
+		_, err = s.runner.RunWithTools(ctx, session, &runAgent, conversationID, content, onChunk)
 		return err
 	}
 
-	_, err = s.runner.RunStream(ctx, session, agent, conversationID, content, onChunk)
+	_, err = s.runner.RunStream(ctx, session, &runAgent, conversationID, content, onChunk)
 	return err
 }
 

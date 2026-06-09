@@ -6259,6 +6259,166 @@ func TestServiceSendMessageStreamUsesDefaultPlanningMode(t *testing.T) {
 	}
 }
 
+func TestServiceSendMessageStreamHonorsExplicitReactModeOverride(t *testing.T) {
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_stream_react_override",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+			Config: Config{
+				DefaultExecutionMode: ExecutionModePlanning,
+			},
+			Tools: []Tool{
+				{Name: "datetime", Type: "builtin", Enabled: true},
+			},
+		},
+		conversation: &Conversation{
+			ID:             "conv_stream_react_override",
+			AgentID:        "agent_stream_react_override",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+		},
+	}
+	gateway := &fakeGateway{
+		plainReply: "planning path should not run",
+		structured: []*chat.CompletionResponse{{
+			Content:      "react streamed answer",
+			FinishReason: "stop",
+		}},
+	}
+	service := NewService(store, gateway)
+
+	var chunks []string
+	err := service.SendMessageStream(context.Background(), auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+		User:           auth.User{ID: "user_1"},
+	}, "conv_stream_react_override", "use react now", func(chunk string) error {
+		chunks = append(chunks, chunk)
+		return nil
+	}, SendMessageOptions{Mode: ExecutionModeReact})
+	if err != nil {
+		t.Fatalf("SendMessageStream returned error: %v", err)
+	}
+	if streamed := strings.Join(chunks, ""); streamed != "react streamed answer" {
+		t.Fatalf("expected ReAct streamed answer, got %q from chunks=%v", streamed, chunks)
+	}
+	if gateway.plainCalls != 0 || gateway.streamCalls != 0 || gateway.structuredCalls != 1 {
+		t.Fatalf("expected explicit ReAct override to use structured ReAct path only, got plain=%d stream=%d structured=%d", gateway.plainCalls, gateway.streamCalls, gateway.structuredCalls)
+	}
+	if len(store.planSteps) != 0 {
+		t.Fatalf("explicit ReAct override should not create planning steps, got %+v", store.planSteps)
+	}
+	if len(store.runs) != 1 {
+		t.Fatalf("expected one ReAct run, got %+v", store.runs)
+	}
+	run := store.runs[0]
+	if run.Mode != ExecutionModeReact || run.Status != RunStatusCompleted || run.FinalMessageID == "" || run.CompletedAt == nil {
+		t.Fatalf("expected completed ReAct run evidence, got %+v", run)
+	}
+}
+
+func TestServiceSendMessageStreamHonorsExplicitPlanningModeOverride(t *testing.T) {
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_stream_planning_override",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+			Config: Config{
+				DefaultExecutionMode: ExecutionModeReact,
+			},
+			Tools: []Tool{
+				{Name: "datetime", Type: "builtin", Enabled: true},
+			},
+		},
+		conversation: &Conversation{
+			ID:             "conv_stream_planning_override",
+			AgentID:        "agent_stream_planning_override",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+		},
+	}
+	gateway := &fakeGateway{
+		plainReply: "Plan:\n1. Draft streaming plan\n2. Wait for approval",
+		structured: []*chat.CompletionResponse{{
+			Content:      "react path should not run",
+			FinishReason: "stop",
+		}},
+	}
+	service := NewService(store, gateway)
+
+	var chunks []string
+	err := service.SendMessageStream(context.Background(), auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+		User:           auth.User{ID: "user_1"},
+	}, "conv_stream_planning_override", "use planning now", func(chunk string) error {
+		chunks = append(chunks, chunk)
+		return nil
+	}, SendMessageOptions{Mode: ExecutionModePlanning})
+	if err != nil {
+		t.Fatalf("SendMessageStream returned error: %v", err)
+	}
+	if streamed := strings.Join(chunks, ""); !strings.Contains(streamed, "Wait for approval") {
+		t.Fatalf("expected planning reply to be streamed, got %q from chunks=%v", streamed, chunks)
+	}
+	if gateway.plainCalls != 1 || gateway.streamCalls != 0 || gateway.structuredCalls != 0 {
+		t.Fatalf("expected explicit planning override to use planning path only, got plain=%d stream=%d structured=%d", gateway.plainCalls, gateway.streamCalls, gateway.structuredCalls)
+	}
+	if len(store.toolRuns) != 0 {
+		t.Fatalf("planning override should not execute tools before approval, got %+v", store.toolRuns)
+	}
+	if len(store.runs) != 1 {
+		t.Fatalf("expected one planning run, got %+v", store.runs)
+	}
+	run := store.runs[0]
+	if run.Mode != ExecutionModePlanning || run.Status != RunStatusPendingApproval || run.FinalMessageID == "" || run.CompletedAt != nil {
+		t.Fatalf("expected open planning run evidence, got %+v", run)
+	}
+	if len(store.planSteps) != 2 || store.planSteps[1].Title != "Wait for approval" {
+		t.Fatalf("expected parsed planning steps from explicit override, got %+v", store.planSteps)
+	}
+}
+
+func TestServiceSendMessageStreamRejectsInvalidMode(t *testing.T) {
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_stream_invalid_mode",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+		},
+		conversation: &Conversation{
+			ID:             "conv_stream_invalid_mode",
+			AgentID:        "agent_stream_invalid_mode",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+		},
+	}
+	gateway := &fakeGateway{plainReply: "should not run"}
+	service := NewService(store, gateway)
+
+	err := service.SendMessageStream(context.Background(), auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+		User:           auth.User{ID: "user_1"},
+	}, "conv_stream_invalid_mode", "hello", func(chunk string) error {
+		t.Fatalf("unexpected streamed chunk for invalid mode: %q", chunk)
+		return nil
+	}, SendMessageOptions{Mode: "manual"})
+	if err == nil || err.Error() != "mode must be react or planning" {
+		t.Fatalf("expected invalid mode error, got %v", err)
+	}
+	if gateway.plainCalls != 0 || gateway.streamCalls != 0 || gateway.structuredCalls != 0 {
+		t.Fatalf("invalid mode should not call gateway, got plain=%d stream=%d structured=%d", gateway.plainCalls, gateway.streamCalls, gateway.structuredCalls)
+	}
+	if len(store.messages) != 0 || len(store.runs) != 0 || len(store.planSteps) != 0 || len(store.toolRuns) != 0 {
+		t.Fatalf("invalid mode should not persist run evidence, messages=%+v runs=%+v planSteps=%+v toolRuns=%+v", store.messages, store.runs, store.planSteps, store.toolRuns)
+	}
+}
+
 func TestSendMessageStreamPlainPath(t *testing.T) {
 	store := &fakeStore{
 		agent: &Agent{
