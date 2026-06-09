@@ -3,11 +3,12 @@ package memory
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
+	agentpkg "oblivious/server/internal/agent"
 	"oblivious/server/internal/auth"
 	"oblivious/server/internal/chat"
-	agentpkg "oblivious/server/internal/agent"
 	agentmemory "oblivious/server/internal/memory"
 )
 
@@ -46,10 +47,10 @@ func NewRetriever(searcher MemorySearcher, store MemoryStore, embedder MemoryEmb
 
 // RetrieveResult contains the memories found and the modified messages.
 type RetrieveResult struct {
-	Messages       []chat.Message `json:"-"`
-	MemoryCount    int            `json:"memoryCount"`
-	Searched       bool           `json:"searched"`
-	UsedVector     bool           `json:"usedVector"`
+	Messages    []chat.Message `json:"-"`
+	MemoryCount int            `json:"memoryCount"`
+	Searched    bool           `json:"searched"`
+	UsedVector  bool           `json:"usedVector"`
 }
 
 // RetrieveAndInject searches for relevant memories and injects the top-5
@@ -101,28 +102,30 @@ func (r *Retriever) RetrieveAndInject(
 			for _, vr := range vectorResults {
 				memories = append(memories, memoryItem{
 					content: vr.Content,
-					score:   vr.Score,
+					score:   scoreWithImportance(vr.Score, vr.Importance),
 					source:  "agent_memory_vector",
 				})
 			}
 		} else {
 			// Fallback to text search.
-			textResults, err := r.store.ListMemories(ctx, session.OrganizationID, session.User.ID, agentpkg.ListMemoriesRequest{
-				AgentID: agentInstance.ID,
-				Type:    agentpkg.MemoryTypeUserManaged,
-				Query:   userContent,
-				Limit:   5,
-			})
-			if err == nil {
-				for _, mem := range textResults {
-					if mem == nil {
-						continue
+			for _, memoryType := range agentManagedRetrievalTypes() {
+				textResults, err := r.store.ListMemories(ctx, session.OrganizationID, session.User.ID, agentpkg.ListMemoriesRequest{
+					AgentID: agentInstance.ID,
+					Type:    memoryType,
+					Query:   userContent,
+					Limit:   5,
+				})
+				if err == nil {
+					for _, mem := range textResults {
+						if mem == nil {
+							continue
+						}
+						memories = append(memories, memoryItem{
+							content: mem.Content,
+							score:   scoreWithImportance(1.0, mem.Importance),
+							source:  "agent_memory_text",
+						})
 					}
-					memories = append(memories, memoryItem{
-						content: mem.Content,
-						score:   1.0,
-						source:  "agent_memory_text",
-					})
 				}
 			}
 		}
@@ -134,8 +137,14 @@ func (r *Retriever) RetrieveAndInject(
 
 	result.Searched = true
 
-	// Deduplicate and take top 5.
+	// Deduplicate, rank, and take top 5.
 	memories = deduplicateMemories(memories)
+	sort.SliceStable(memories, func(i, j int) bool {
+		if memories[i].score == memories[j].score {
+			return memories[i].source < memories[j].source
+		}
+		return memories[i].score > memories[j].score
+	})
 	if len(memories) > 5 {
 		memories = memories[:5]
 	}
@@ -154,27 +163,47 @@ func (r *Retriever) vectorSearch(ctx context.Context, session auth.Session, agen
 	if err != nil || len(embedding) == 0 {
 		return nil
 	}
-	matches, err := r.store.SearchMemories(ctx, session.OrganizationID, session.User.ID, agentpkg.SearchMemoriesRequest{
-		AgentID:   agentInstance.ID,
-		Type:      agentpkg.MemoryTypeUserManaged,
-		Embedding: embedding,
-		Limit:     5,
-		MinScore:  0.5,
-	})
-	if err != nil || len(matches) == 0 {
-		return nil
-	}
-	items := make([]agentMemoryItem, 0, len(matches))
-	for _, m := range matches {
-		if m == nil {
+	items := make([]agentMemoryItem, 0, 5)
+	for _, memoryType := range agentManagedRetrievalTypes() {
+		matches, err := r.store.SearchMemories(ctx, session.OrganizationID, session.User.ID, agentpkg.SearchMemoriesRequest{
+			AgentID:   agentInstance.ID,
+			Type:      memoryType,
+			Embedding: embedding,
+			Limit:     5,
+			MinScore:  0.5,
+		})
+		if err != nil {
 			continue
 		}
-		items = append(items, agentMemoryItem{
-			Content: m.Memory.Content,
-			Score:   m.Score,
-		})
+		for _, m := range matches {
+			if m == nil {
+				continue
+			}
+			items = append(items, agentMemoryItem{
+				Content:    m.Memory.Content,
+				Score:      m.Score,
+				Importance: m.Memory.Importance,
+			})
+		}
 	}
 	return items
+}
+
+func agentManagedRetrievalTypes() []string {
+	return []string{agentpkg.MemoryTypeUserManaged, agentpkg.MemoryTypeLongTerm}
+}
+
+func scoreWithImportance(score float64, importance int) float64 {
+	if score <= 0 {
+		score = 0.5
+	}
+	if importance <= 0 {
+		importance = 3
+	}
+	if importance > 5 {
+		importance = 5
+	}
+	return score + float64(importance)*0.01
 }
 
 type memoryItem struct {
@@ -184,23 +213,33 @@ type memoryItem struct {
 }
 
 type agentMemoryItem struct {
-	Content string
-	Score   float64
+	Content    string
+	Score      float64
+	Importance int
 }
 
 // deduplicateMemories removes near-duplicate entries based on content.
 func deduplicateMemories(items []memoryItem) []memoryItem {
-	seen := make(map[string]bool)
-	result := make([]memoryItem, 0, len(items))
+	seen := make(map[string]memoryItem)
 	for _, item := range items {
-		key := strings.ToLower(strings.TrimSpace(item.content))
-		if seen[key] {
+		key := normalizeMemoryItemContent(item.content)
+		if key == "" {
 			continue
 		}
-		seen[key] = true
+		existing, ok := seen[key]
+		if !ok || item.score > existing.score {
+			seen[key] = item
+		}
+	}
+	result := make([]memoryItem, 0, len(seen))
+	for _, item := range seen {
 		result = append(result, item)
 	}
 	return result
+}
+
+func normalizeMemoryItemContent(content string) string {
+	return strings.Join(strings.Fields(strings.ToLower(strings.TrimSpace(content))), " ")
 }
 
 // injectMemories inserts a system message with memory context after the

@@ -86,25 +86,28 @@ func (e *fakeAgentMemoryEmbedder) Embed(ctx context.Context, text string) ([]flo
 }
 
 type fakeStore struct {
-	agent                    *Agent
-	conversation             *Conversation
-	createMemoryEmbedding    []float32
-	listMemoryAgentID        string
-	listMemoryLimit          int
-	listMemoryOrganizationID string
-	listMemoryQuery          string
-	searchMemoryAgentID      string
-	searchMemoryEmbedding    []float32
-	searchMemoryLimit        int
-	searchMemoryMinScore     float64
-	searchMemoryResults      []*MemorySearchResult
-	listMemoryUserID         string
-	memories                 []*Memory
-	messages                 []*Message
-	planSteps                []*PlanStep
-	runs                     []*Run
-	toolRuns                 []*ToolRun
-	updateMemoryEmbedding    []float32
+	agent                     *Agent
+	conversation              *Conversation
+	createMemoryEmbedding     []float32
+	listMemoryAgentID         string
+	listMemoryLimit           int
+	listMemoryOrganizationID  string
+	listMemoryQuery           string
+	listMemoryTypes           []string
+	searchMemoryAgentID       string
+	searchMemoryEmbedding     []float32
+	searchMemoryLimit         int
+	searchMemoryMinScore      float64
+	searchMemoryResults       []*MemorySearchResult
+	searchMemoryResultsByType map[string][]*MemorySearchResult
+	searchMemoryTypes         []string
+	listMemoryUserID          string
+	memories                  []*Memory
+	messages                  []*Message
+	planSteps                 []*PlanStep
+	runs                      []*Run
+	toolRuns                  []*ToolRun
+	updateMemoryEmbedding     []float32
 }
 
 func (s *fakeStore) CreateAgent(ctx context.Context, userID, organizationID string, req *CreateAgentRequest) (*Agent, error) {
@@ -944,6 +947,7 @@ func (s *fakeStore) ListMemories(ctx context.Context, organizationID, userID str
 	s.listMemoryOrganizationID = organizationID
 	s.listMemoryUserID = userID
 	s.listMemoryAgentID = req.AgentID
+	s.listMemoryTypes = append(s.listMemoryTypes, req.Type)
 	if req.Query != "" {
 		s.listMemoryQuery = req.Query
 		s.listMemoryLimit = req.Limit
@@ -976,6 +980,10 @@ func (s *fakeStore) SearchMemories(ctx context.Context, organizationID, userID s
 	s.searchMemoryEmbedding = append([]float32(nil), req.Embedding...)
 	s.searchMemoryLimit = req.Limit
 	s.searchMemoryMinScore = req.MinScore
+	s.searchMemoryTypes = append(s.searchMemoryTypes, req.Type)
+	if s.searchMemoryResultsByType != nil {
+		return s.searchMemoryResultsByType[req.Type], nil
+	}
 	return s.searchMemoryResults, nil
 }
 
@@ -4388,6 +4396,70 @@ func TestRunnerInjectsUserManagedAgentMemoriesIntoPrompt(t *testing.T) {
 	}
 }
 
+func TestRunnerInjectsLongTermAgentMemoriesFromTextFallback(t *testing.T) {
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+			Config:         Config{EnableMemory: true},
+		},
+		memories: []*Memory{
+			{
+				ID:             "memory_preference",
+				OrganizationID: "org_1",
+				UserID:         "user_1",
+				AgentID:        "agent_1",
+				Type:           MemoryTypeUserManaged,
+				Content:        "When asked about migration guard, prefer concise release-note bullets.",
+				Importance:     4,
+			},
+			{
+				ID:             "memory_interaction",
+				OrganizationID: "org_1",
+				UserID:         "user_1",
+				AgentID:        "agent_1",
+				Type:           MemoryTypeLongTerm,
+				Content:        "Previous migration guard answer: use the tenant-safe migration guard.",
+				Importance:     5,
+			},
+			{
+				ID:             "memory_short_term",
+				OrganizationID: "org_1",
+				UserID:         "user_1",
+				AgentID:        "agent_1",
+				Type:           MemoryTypeShortTerm,
+				Content:        "Short-term migration guard note should stay outside long-term retrieval.",
+				Importance:     5,
+			},
+		},
+	}
+	runner := NewRunner(store, &fakeGateway{}, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+
+	messages, evidence := runner.buildChatMessagesWithEvidence(
+		context.Background(),
+		auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}},
+		store.agent,
+		[]*Message{{Role: "user", Content: "migration guard"}},
+		"migration guard",
+	)
+
+	if !evidence.enabled || !evidence.searched || evidence.resultCount != 2 {
+		t.Fatalf("expected two layered memory results, got %+v", evidence)
+	}
+	if !reflect.DeepEqual(store.listMemoryTypes, []string{MemoryTypeUserManaged, MemoryTypeLongTerm}) {
+		t.Fatalf("expected text fallback to search user-managed and long-term memories, got %+v", store.listMemoryTypes)
+	}
+	prompt := chatMessagesContent(messages)
+	if !strings.Contains(prompt, "prefer concise release-note bullets") || !strings.Contains(prompt, "tenant-safe migration guard") {
+		t.Fatalf("expected user-managed and long-term memories in prompt, got %q", prompt)
+	}
+	if strings.Contains(prompt, "Short-term migration guard note") {
+		t.Fatalf("expected short-term memory to stay out of layered retrieval, got %q", prompt)
+	}
+}
+
 func TestRunnerPrefersVectorAgentMemorySearchWhenEmbedderConfigured(t *testing.T) {
 	store := &fakeStore{
 		agent: &Agent{
@@ -4461,6 +4533,79 @@ func TestRunnerPrefersVectorAgentMemorySearchWhenEmbedderConfigured(t *testing.T
 	}
 	if strings.Contains(prompt, "Fallback query memory should not be injected.") {
 		t.Fatalf("expected prompt to avoid fallback memory when vector search succeeds, got %q", prompt)
+	}
+}
+
+func TestRunnerVectorSearchCoversLongTermAgentMemories(t *testing.T) {
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+			Config:         Config{EnableMemory: true},
+		},
+		searchMemoryResultsByType: map[string][]*MemorySearchResult{
+			MemoryTypeUserManaged: {
+				{
+					Memory: Memory{
+						ID:             "memory_preference",
+						OrganizationID: "org_1",
+						UserID:         "user_1",
+						AgentID:        "agent_1",
+						Type:           MemoryTypeUserManaged,
+						Content:        "User preference: keep migration guard answers concise.",
+						Importance:     5,
+					},
+					Score: 0.82,
+				},
+			},
+			MemoryTypeLongTerm: {
+				{
+					Memory: Memory{
+						ID:             "memory_interaction",
+						OrganizationID: "org_1",
+						UserID:         "user_1",
+						AgentID:        "agent_1",
+						Type:           MemoryTypeLongTerm,
+						Content:        "Historical interaction: tenant-safe migration guard was accepted.",
+						Importance:     3,
+					},
+					Score: 0.94,
+				},
+			},
+		},
+	}
+	runner := NewRunner(store, &fakeGateway{}, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+	runner.SetMemoryEmbedder(&fakeAgentMemoryEmbedder{
+		embeddings: map[string][]float32{"migration guard": {0.25, 0.75}},
+	})
+
+	messages, evidence := runner.buildChatMessagesWithEvidence(
+		context.Background(),
+		auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}},
+		store.agent,
+		[]*Message{{Role: "user", Content: "migration guard"}},
+		"migration guard",
+	)
+
+	if !evidence.enabled || !evidence.searched || evidence.resultCount != 2 {
+		t.Fatalf("expected two vector memory results, got %+v", evidence)
+	}
+	if !reflect.DeepEqual(store.searchMemoryTypes, []string{MemoryTypeUserManaged, MemoryTypeLongTerm}) {
+		t.Fatalf("expected vector search to cover user-managed and long-term memories, got %+v", store.searchMemoryTypes)
+	}
+	if len(store.listMemoryTypes) != 0 {
+		t.Fatalf("expected vector results to avoid text fallback, got text lookups %+v", store.listMemoryTypes)
+	}
+	prompt := chatMessagesContent(messages)
+	longTermIndex := strings.Index(prompt, "tenant-safe migration guard was accepted")
+	preferenceIndex := strings.Index(prompt, "keep migration guard answers concise")
+	if longTermIndex < 0 || preferenceIndex < 0 {
+		t.Fatalf("expected both vector memory types in prompt, got %q", prompt)
+	}
+	if longTermIndex > preferenceIndex {
+		t.Fatalf("expected higher-scored long-term memory to rank before preference, got %q", prompt)
 	}
 }
 

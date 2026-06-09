@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -551,35 +552,16 @@ func (r *Runner) searchMemory(ctx context.Context, session auth.Session, agent *
 	}
 
 	if r.store != nil && agent != nil && agent.ID != "" {
-		if vectorResults, ok := r.searchUserManagedMemoriesByVector(ctx, session, agent, query); ok {
+		if vectorResults, ok := r.searchAgentManagedMemoriesByVector(ctx, session, agent, query); ok {
 			results = append(results, vectorResults...)
-			return results, true
-		}
-		managedMemories, err := r.store.ListMemories(ctx, session.OrganizationID, session.User.ID, ListMemoriesRequest{
-			AgentID: agent.ID,
-			Type:    MemoryTypeUserManaged,
-			Query:   query,
-			Limit:   5,
-		})
-		if err == nil {
-			for _, managedMemory := range managedMemories {
-				if managedMemory == nil {
-					continue
-				}
-				results = append(results, &memory.SearchResult{
-					DocumentID:    "agent_memory:" + managedMemory.ID,
-					DocumentTitle: "Agent memory",
-					ChunkContent:  managedMemory.Content,
-					ChunkIndex:    0,
-					Score:         1,
-				})
-			}
+		} else {
+			results = append(results, r.searchAgentManagedMemoriesByText(ctx, session, agent, query)...)
 		}
 	}
-	return results, true
+	return rankAndLimitMemoryResults(results, 5), true
 }
 
-func (r *Runner) searchUserManagedMemoriesByVector(ctx context.Context, session auth.Session, agent *Agent, query string) ([]*memory.SearchResult, bool) {
+func (r *Runner) searchAgentManagedMemoriesByVector(ctx context.Context, session auth.Session, agent *Agent, query string) ([]*memory.SearchResult, bool) {
 	if r.memoryEmbedder == nil || r.store == nil || agent == nil || strings.TrimSpace(query) == "" {
 		return nil, false
 	}
@@ -591,30 +573,112 @@ func (r *Runner) searchUserManagedMemoriesByVector(ctx context.Context, session 
 	if err != nil || len(embedding) == 0 {
 		return nil, false
 	}
-	matches, err := vectorStore.SearchMemories(ctx, session.OrganizationID, session.User.ID, SearchMemoriesRequest{
-		AgentID:   agent.ID,
-		Type:      MemoryTypeUserManaged,
-		Embedding: embedding,
-		Limit:     5,
-		MinScore:  0.5,
-	})
-	if err != nil || len(matches) == 0 {
-		return nil, false
-	}
-	results := make([]*memory.SearchResult, 0, len(matches))
-	for _, match := range matches {
-		if match == nil {
+
+	results := make([]*memory.SearchResult, 0, 5)
+	for _, memoryType := range agentManagedRetrievalTypes() {
+		matches, err := vectorStore.SearchMemories(ctx, session.OrganizationID, session.User.ID, SearchMemoriesRequest{
+			AgentID:   agent.ID,
+			Type:      memoryType,
+			Embedding: embedding,
+			Limit:     5,
+			MinScore:  0.5,
+		})
+		if err != nil {
 			continue
 		}
-		results = append(results, &memory.SearchResult{
-			DocumentID:    "agent_memory:" + match.Memory.ID,
-			DocumentTitle: "Agent memory",
-			ChunkContent:  match.Memory.Content,
-			ChunkIndex:    0,
-			Score:         match.Score,
-		})
+		for _, match := range matches {
+			if match == nil {
+				continue
+			}
+			results = append(results, agentMemorySearchResult(&match.Memory, match.Score))
+		}
 	}
 	return results, len(results) > 0
+}
+
+func (r *Runner) searchAgentManagedMemoriesByText(ctx context.Context, session auth.Session, agent *Agent, query string) []*memory.SearchResult {
+	results := make([]*memory.SearchResult, 0, 5)
+	for _, memoryType := range agentManagedRetrievalTypes() {
+		managedMemories, err := r.store.ListMemories(ctx, session.OrganizationID, session.User.ID, ListMemoriesRequest{
+			AgentID: agent.ID,
+			Type:    memoryType,
+			Query:   query,
+			Limit:   5,
+		})
+		if err != nil {
+			continue
+		}
+		for _, managedMemory := range managedMemories {
+			if managedMemory == nil {
+				continue
+			}
+			results = append(results, agentMemorySearchResult(managedMemory, 1))
+		}
+	}
+	return results
+}
+
+func agentManagedRetrievalTypes() []string {
+	return []string{MemoryTypeUserManaged, MemoryTypeLongTerm}
+}
+
+func agentMemorySearchResult(agentMemory *Memory, score float64) *memory.SearchResult {
+	if agentMemory == nil {
+		return nil
+	}
+	return &memory.SearchResult{
+		DocumentID:    "agent_memory:" + agentMemory.ID,
+		DocumentTitle: "Agent memory",
+		ChunkContent:  agentMemory.Content,
+		ChunkIndex:    0,
+		Score:         scoreWithImportance(score, agentMemory.Importance),
+	}
+}
+
+func scoreWithImportance(score float64, importance int) float64 {
+	if score <= 0 {
+		score = 0.5
+	}
+	if importance <= 0 {
+		importance = 3
+	}
+	if importance > 5 {
+		importance = 5
+	}
+	return score + float64(importance)*0.01
+}
+
+func rankAndLimitMemoryResults(results []*memory.SearchResult, limit int) []*memory.SearchResult {
+	if limit <= 0 {
+		limit = 5
+	}
+	byContent := make(map[string]*memory.SearchResult, len(results))
+	for _, result := range results {
+		if result == nil {
+			continue
+		}
+		key := normalizeMemoryContent(result.ChunkContent)
+		if key == "" {
+			continue
+		}
+		if existing, ok := byContent[key]; !ok || result.Score > existing.Score {
+			byContent[key] = result
+		}
+	}
+	ranked := make([]*memory.SearchResult, 0, len(byContent))
+	for _, result := range byContent {
+		ranked = append(ranked, result)
+	}
+	sort.SliceStable(ranked, func(i, j int) bool {
+		if ranked[i].Score == ranked[j].Score {
+			return ranked[i].DocumentID < ranked[j].DocumentID
+		}
+		return ranked[i].Score > ranked[j].Score
+	})
+	if len(ranked) > limit {
+		return ranked[:limit]
+	}
+	return ranked
 }
 
 // injectMemoryResults 注入相关记忆到消息上下文
