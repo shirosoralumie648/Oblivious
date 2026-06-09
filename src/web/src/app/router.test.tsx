@@ -1393,6 +1393,39 @@ describe('app router', () => {
     expect(screen.getByText('Invoice history')).toBeInTheDocument();
   });
 
+  it('keeps console home route-level KPI and drill-down controls reachable', async () => {
+    const router = createAppRouter(['/console']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    const consoleNavigation = await screen.findByRole('navigation', { name: 'Console navigation' });
+    expect(document.querySelector('[data-gsap-scope="console"]')).toBeInTheDocument();
+    expect(document.querySelector('[data-gsap-scope="console-home"]')).toBeInTheDocument();
+    expect(within(consoleNavigation).getByRole('link', { name: 'Overview' })).toHaveAttribute('href', '/console');
+    expect(within(consoleNavigation).getByRole('link', { name: 'Notifications' })).toHaveAttribute(
+      'href',
+      '/console/notifications'
+    );
+    expect(await screen.findByRole('heading', { name: 'Console Home' })).toBeInTheDocument();
+    expect(await screen.findByText('Current workspace scope: workspace_1')).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: 'Key performance indicators' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Estimated cost' })).toHaveAttribute('href', '/console/billing');
+    expect(screen.getByText('$0.0004')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Requests' })).toHaveAttribute('href', '/console/usage');
+    expect(screen.getByRole('link', { name: 'Top model' })).toHaveAttribute('href', '/console/models');
+    expect(screen.getByText('balanced-chat')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Access posture' })).toHaveAttribute('href', '/console/access');
+    expect(screen.getByText('Session session_1')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Cost and usage focus' })).toBeInTheDocument();
+    expect(screen.getByText('Billing requests: 5')).toBeInTheDocument();
+    expect(screen.getByText('Usage requests: 5')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open billing drill-down' })).toHaveAttribute('href', '/console/billing');
+    expect(screen.getByRole('link', { name: 'Open usage drill-down' })).toHaveAttribute('href', '/console/usage');
+    expect(screen.getByRole('region', { name: 'Supporting summaries' })).toBeInTheDocument();
+    expect(screen.getByText('Active user: user@example.com')).toBeInTheDocument();
+    expect(screen.getByText('Network access hint enabled')).toBeInTheDocument();
+  });
+
   it('renders notifications route inside the console shell', async () => {
     const router = createAppRouter(['/console/notifications']);
 
@@ -1400,6 +1433,30 @@ describe('app router', () => {
 
     expect(await screen.findByText('Console')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Notifications' })).toBeInTheDocument();
+  });
+
+  it('keeps console notifications route-level alert review controls reachable', async () => {
+    const router = createAppRouter(['/console/notifications']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    const consoleNavigation = await screen.findByRole('navigation', { name: 'Console navigation' });
+    expect(document.querySelector('[data-gsap-scope="console"]')).toBeInTheDocument();
+    expect(within(consoleNavigation).getByRole('link', { name: 'Notifications' })).toHaveAttribute(
+      'href',
+      '/console/notifications'
+    );
+    expect(within(consoleNavigation).getByRole('link', { name: 'Billing' })).toHaveAttribute('href', '/console/billing');
+    expect(await screen.findByRole('heading', { name: 'Notifications' })).toBeInTheDocument();
+    expect(screen.getByText('Review in-app alerts routed from workspace and system events.')).toBeInTheDocument();
+    expect(await screen.findByText('1 total')).toBeInTheDocument();
+    expect(screen.getByText('1 unread')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Database down' })).toBeInTheDocument();
+    expect(screen.getByText('Database connection failed')).toBeInTheDocument();
+    expect(screen.getByText('critical')).toBeInTheDocument();
+    expect(screen.getByText('Unread')).toBeInTheDocument();
+    expect(screen.getByText('system')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Mark Database down as read' })).toBeEnabled();
   });
 
   it('keeps console models route-level summary evidence reachable', async () => {
