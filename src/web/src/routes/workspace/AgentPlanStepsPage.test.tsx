@@ -426,6 +426,44 @@ describe('AgentPlanStepsPage', () => {
     });
   });
 
+  it('disables execution until prior plan steps are completed or skipped', async () => {
+    const planSteps = [
+      {
+        approvalStatus: 'not_required',
+        id: 'step_1',
+        index: 1,
+        runId: 'run_1',
+        status: 'pending',
+        title: 'Gather requirements'
+      },
+      {
+        approvalStatus: 'approved',
+        id: 'step_2',
+        index: 2,
+        runId: 'run_1',
+        status: 'approved',
+        title: 'Implement patch'
+      },
+      {
+        approvalStatus: 'not_required',
+        id: 'step_3',
+        index: 3,
+        runId: 'run_1',
+        status: 'pending',
+        title: 'Run checks'
+      }
+    ];
+    getRunDetail.mockResolvedValueOnce(runDetail(planSteps));
+
+    renderPage(planSteps);
+
+    expect(await screen.findByText('Status: planning')).toBeInTheDocument();
+
+    expect(screen.getByRole('button', { name: 'Execute Gather requirements' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Execute Implement patch' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Execute Run checks' })).toBeDisabled();
+  });
+
   it('retries failed plan steps from the planning page', async () => {
     renderPage([
       {
@@ -476,6 +514,78 @@ describe('AgentPlanStepsPage', () => {
     await waitFor(() => {
       expect(within(screen.getByLabelText('Plan step Verify patch')).getAllByText('completed').length).toBeGreaterThan(0);
     });
+  });
+
+  it('disables failed-step retry until prior plan steps are completed or skipped', async () => {
+    const planSteps = [
+      {
+        approvalStatus: 'not_required',
+        id: 'step_1',
+        index: 1,
+        runId: 'run_1',
+        status: 'skipped',
+        title: 'Optional discovery'
+      },
+      {
+        approvalStatus: 'not_required',
+        id: 'step_2',
+        index: 2,
+        runId: 'run_1',
+        status: 'pending',
+        title: 'Still pending'
+      },
+      {
+        approvalStatus: 'approved',
+        error: 'old failure',
+        id: 'step_3',
+        index: 3,
+        runId: 'run_1',
+        status: 'failed',
+        title: 'Retry target'
+      }
+    ];
+    getRunDetail.mockResolvedValueOnce(runDetail(planSteps));
+
+    renderPage(planSteps);
+
+    expect(await screen.findByText('Status: planning')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry Retry target' })).toBeDisabled();
+  });
+
+  it('allows failed-step retry when prior plan steps are completed or skipped', async () => {
+    const planSteps = [
+      {
+        approvalStatus: 'not_required',
+        id: 'step_1',
+        index: 1,
+        runId: 'run_1',
+        status: 'skipped',
+        title: 'Optional discovery'
+      },
+      {
+        approvalStatus: 'not_required',
+        id: 'step_2',
+        index: 2,
+        runId: 'run_1',
+        status: 'completed',
+        title: 'Completed prerequisite'
+      },
+      {
+        approvalStatus: 'approved',
+        error: 'old failure',
+        id: 'step_3',
+        index: 3,
+        runId: 'run_1',
+        status: 'failed',
+        title: 'Retry target'
+      }
+    ];
+    getRunDetail.mockResolvedValueOnce(runDetail(planSteps));
+
+    renderPage(planSteps);
+
+    expect(await screen.findByText('Status: planning')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry Retry target' })).toBeEnabled();
   });
 
   it('edits a pending or approved plan step and refreshes the draft', async () => {

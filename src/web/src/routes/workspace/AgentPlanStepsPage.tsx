@@ -57,6 +57,14 @@ function canRetry(step: AgentPlanStep) {
   return step.status === 'failed';
 }
 
+function isPlanStepDone(step: AgentPlanStep) {
+  return step.status === 'completed' || step.status === 'skipped';
+}
+
+function arePriorPlanStepsDone(planSteps: AgentPlanStep[], stepPosition: number) {
+  return planSteps.slice(0, stepPosition).every(isPlanStepDone);
+}
+
 function canEdit(step: AgentPlanStep) {
   return step.status === 'pending' || step.status === 'approved';
 }
@@ -622,6 +630,9 @@ export function AgentPlanStepsPage() {
           const stepInput = readableJSON(step.input);
           const canMoveUp = canMovePlanStep(planSteps, stepPosition, 'up');
           const canMoveDown = canMovePlanStep(planSteps, stepPosition, 'down');
+          const priorPlanStepsDone = arePriorPlanStepsDone(planSteps, stepPosition);
+          const canExecuteThisStep = canExecute(step) && priorPlanStepsDone;
+          const canRetryThisStep = canRetry(step) && priorPlanStepsDone;
           return (
             <article
               aria-label={`Plan step ${step.title}`}
@@ -756,7 +767,7 @@ export function AgentPlanStepsPage() {
                       <button
                         aria-label={`Execute ${step.title}`}
                         className="min-h-10 rounded-lg bg-[#181611] px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
-                        disabled={!canExecute(step) || operatingStepId === step.id}
+                        disabled={!canExecuteThisStep || operatingStepId === step.id}
                         onClick={() => void updatePlanStep(step, 'execute')}
                         type="button"
                       >
@@ -776,7 +787,7 @@ export function AgentPlanStepsPage() {
                       <button
                         aria-label={`Retry ${step.title}`}
                         className="min-h-10 rounded-lg bg-[#181611] px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
-                        disabled={!canRetry(step) || operatingStepId === step.id}
+                        disabled={!canRetryThisStep || operatingStepId === step.id}
                         onClick={() => void updatePlanStep(step, 'retry')}
                         type="button"
                       >
