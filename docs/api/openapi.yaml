@@ -4592,6 +4592,60 @@ components:
         apiCalls24h:
           type: integer
 
+    AdminRelayPricingSettings:
+      type: object
+      required: [modelMultipliers, groupMultipliers]
+      properties:
+        modelMultipliers:
+          type: object
+          additionalProperties:
+            type: number
+            format: double
+            minimum: 0
+        groupMultipliers:
+          type: object
+          additionalProperties:
+            type: number
+            format: double
+            minimum: 0
+
+    AdminUsageLimitSettings:
+      type: object
+      required: [organizationId, quotaMode, maxConcurrentRequests, windowSeconds, maxTokensPerWindow, maxTokensPerRequest]
+      properties:
+        organizationId:
+          type: string
+          description: Server responses include the organization scope; updates are forced to the admin session organization.
+        userId:
+          type: string
+        quotaMode:
+          type: string
+          enum: [organization, user]
+        maxConcurrentRequests:
+          type: integer
+          minimum: 0
+        windowSeconds:
+          type: integer
+          minimum: 0
+        maxTokensPerWindow:
+          type: integer
+          minimum: 0
+        maxTokensPerRequest:
+          type: integer
+          minimum: 0
+        updatedAt:
+          type: string
+          format: date-time
+
+    AdminUsageLimitSettingsListResponse:
+      type: object
+      required: [usageLimits]
+      properties:
+        usageLimits:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminUsageLimitSettings"
+
     AdminRouteChannel:
       type: object
       properties:
@@ -12087,6 +12141,112 @@ paths:
                     properties:
                       data:
                         $ref: "#/components/schemas/AdminStats"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/settings/relay-pricing:
+    get:
+      summary: 获取 Relay 计费倍率设置
+      operationId: getAdminRelayPricingSettings
+      tags: [Admin, Relay]
+      responses:
+        "200":
+          description: Relay pricing multipliers
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminRelayPricingSettings"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    put:
+      summary: 更新 Relay 计费倍率设置
+      operationId: updateAdminRelayPricingSettings
+      tags: [Admin, Relay]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminRelayPricingSettings"
+      responses:
+        "200":
+          description: Updated Relay pricing multipliers
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminRelayPricingSettings"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/settings/usage-limits:
+    get:
+      summary: 获取当前组织 Usage Limit 设置
+      operationId: listAdminUsageLimitSettings
+      tags: [Admin, Billing]
+      responses:
+        "200":
+          description: Usage limit settings scoped to the admin session organization
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminUsageLimitSettingsListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    put:
+      summary: 保存 Usage Limit 设置
+      operationId: updateAdminUsageLimitSettings
+      tags: [Admin, Billing]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminUsageLimitSettings"
+      responses:
+        "200":
+          description: Saved usage limit settings
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminUsageLimitSettings"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":

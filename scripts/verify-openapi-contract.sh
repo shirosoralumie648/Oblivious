@@ -2815,6 +2815,10 @@ require_admin_core_management_contract() {
 
     expected_data_refs = {
       ["/api/v1/admin/stats", "get", "200"] => "#/components/schemas/AdminStats",
+      ["/api/v1/admin/settings/relay-pricing", "get", "200"] => "#/components/schemas/AdminRelayPricingSettings",
+      ["/api/v1/admin/settings/relay-pricing", "put", "200"] => "#/components/schemas/AdminRelayPricingSettings",
+      ["/api/v1/admin/settings/usage-limits", "get", "200"] => "#/components/schemas/AdminUsageLimitSettingsListResponse",
+      ["/api/v1/admin/settings/usage-limits", "put", "200"] => "#/components/schemas/AdminUsageLimitSettings",
       ["/api/v1/admin/routes", "get", "200"] => "#/components/schemas/AdminRouteListResponse",
       ["/api/v1/admin/routes", "post", "201"] => "#/components/schemas/AdminRoute",
       ["/api/v1/admin/routes/{routeId}", "get", "200"] => "#/components/schemas/AdminRoute",
@@ -2845,7 +2849,7 @@ require_admin_core_management_contract() {
       end
     end
 
-    ["/api/v1/admin/routes", "/api/v1/admin/routes/{routeId}", "/api/v1/admin/plans", "/api/v1/admin/plans/{planId}", "/api/v1/admin/users/{userId}", "/api/v1/admin/users/{userId}/disable", "/api/v1/admin/users/{userId}/enable"].each do |path|
+    ["/api/v1/admin/settings/relay-pricing", "/api/v1/admin/settings/usage-limits", "/api/v1/admin/routes", "/api/v1/admin/routes/{routeId}", "/api/v1/admin/plans", "/api/v1/admin/plans/{planId}", "/api/v1/admin/users/{userId}", "/api/v1/admin/users/{userId}/disable", "/api/v1/admin/users/{userId}/enable"].each do |path|
       methods = paths.fetch(path, {}).keys.select { |method| ["post", "put", "patch", "delete"].include?(method) }
       methods.each do |method|
         op = operation(paths, path, method, missing)
@@ -2856,6 +2860,8 @@ require_admin_core_management_contract() {
     end
 
     {
+      ["/api/v1/admin/settings/relay-pricing", "put"] => "#/components/schemas/AdminRelayPricingSettings",
+      ["/api/v1/admin/settings/usage-limits", "put"] => "#/components/schemas/AdminUsageLimitSettings",
       ["/api/v1/admin/routes", "post"] => "#/components/schemas/AdminRouteCreateRequest",
       ["/api/v1/admin/routes/{routeId}", "put"] => "#/components/schemas/AdminRouteUpdateRequest",
       ["/api/v1/admin/plans", "post"] => "#/components/schemas/AdminPlanCreateRequest",
@@ -2871,6 +2877,8 @@ require_admin_core_management_contract() {
 
     {
       "AdminStats" => ["users", "quotas", "channelsTotal", "apiCalls24h"],
+      "AdminRelayPricingSettings" => ["modelMultipliers", "groupMultipliers"],
+      "AdminUsageLimitSettings" => ["organizationId", "userId", "quotaMode", "maxConcurrentRequests", "windowSeconds", "maxTokensPerWindow", "maxTokensPerRequest"],
       "AdminRoute" => ["id", "model", "strategy", "channels", "createdAt"],
       "AdminPlan" => ["id", "name", "quotaAmount", "tokenQuota", "maxTokensPerRequest", "isActive"],
       "AdminUser" => ["id", "email", "role", "status", "createdAt"],
@@ -2880,6 +2888,16 @@ require_admin_core_management_contract() {
       properties.each do |property|
         missing << "#{schema_name}.#{property} must be documented" unless props.key?(property)
       end
+    end
+
+    unless schemas.dig("AdminRelayPricingSettings", "properties", "modelMultipliers", "additionalProperties", "format") == "double" &&
+        schemas.dig("AdminRelayPricingSettings", "properties", "groupMultipliers", "additionalProperties", "format") == "double"
+      missing << "AdminRelayPricingSettings must document model/group multiplier maps"
+    end
+    unless schemas.dig("AdminUsageLimitSettings", "properties", "quotaMode", "enum")&.include?("user") &&
+        schemas.dig("AdminUsageLimitSettings", "properties", "maxTokensPerRequest", "type") == "integer" &&
+        schemas.dig("AdminUsageLimitSettingsListResponse", "properties", "usageLimits", "items", "$ref") == "#/components/schemas/AdminUsageLimitSettings"
+      missing << "AdminUsageLimitSettings schemas must document scoped usage limits and request-token cap"
     end
 
     {

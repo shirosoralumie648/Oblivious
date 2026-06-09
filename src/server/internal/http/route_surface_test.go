@@ -9,8 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"oblivious/server/internal/admin"
 	"oblivious/server/internal/auth"
 	"oblivious/server/internal/chat"
+	"oblivious/server/internal/quota"
 	"oblivious/server/internal/schedule"
 )
 
@@ -806,6 +808,124 @@ func TestRouteSurfaceAdminSubRoutesRejectNonAdminWithoutDatabase(t *testing.T) {
 	}
 }
 
+func TestRouteSurfaceAdminSettingsRejectAdminCookieWithoutCSRFWithoutDatabase(t *testing.T) {
+	session := routeSurfaceAdminSession()
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}})
+	cookie := routeSurfaceSignedSessionCookie(t, session)
+
+	tests := []routeSurfaceCase{
+		{"relay pricing settings", stdhttp.MethodPut, "/api/v1/admin/settings/relay-pricing"},
+		{"usage limit settings", stdhttp.MethodPut, "/api/v1/admin/settings/usage-limits"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(`{}`))
+			request.Header.Set("Content-Type", "application/json")
+			request.AddCookie(cookie)
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusForbidden {
+				t.Fatalf("expected missing csrf to be rejected with 403 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestRouteSurfaceAdminSettingsDispatchWithCSRFWithoutDatabase(t *testing.T) {
+	session := routeSurfaceAdminSession()
+	session.OrganizationID = "org_settings_route"
+	store := &fakeAdminStore{
+		relayPricingSettings: admin.RelayPricingSettings{
+			GroupMultipliers: map[string]float64{"standard": 1},
+			ModelMultipliers: map[string]float64{"gpt-4o-mini": 0.5},
+		},
+	}
+	quotaService := &fakeAdminQuotaSettingsService{
+		settings: []quota.UsageLimitSettings{{
+			OrganizationID:        "org_settings_route",
+			QuotaMode:             "organization",
+			MaxConcurrentRequests: 4,
+			WindowSeconds:         60,
+			MaxTokensPerWindow:    1000,
+			MaxTokensPerRequest:   250,
+		}},
+	}
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{
+		AdminQuotaSettingsService: quotaService,
+		AdminService:              admin.NewService(store),
+		AuthStore:                 stubAuthStore{session: session},
+	})
+	cookie := routeSurfaceSignedSessionCookie(t, session)
+	csrfToken := routeSurfaceCSRFToken(session)
+
+	getPricingRecorder := httptest.NewRecorder()
+	getPricingRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/admin/settings/relay-pricing", nil)
+	getPricingRequest.AddCookie(cookie)
+	router.ServeHTTP(getPricingRecorder, getPricingRequest)
+	if getPricingRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected relay pricing settings GET to dispatch, got %d with body %s", getPricingRecorder.Code, getPricingRecorder.Body.String())
+	}
+	if !strings.Contains(getPricingRecorder.Body.String(), `"gpt-4o-mini":0.5`) {
+		t.Fatalf("expected relay pricing settings response, got %s", getPricingRecorder.Body.String())
+	}
+
+	updatePricingRecorder := httptest.NewRecorder()
+	updatePricingRequest := httptest.NewRequest(stdhttp.MethodPut, "/api/v1/admin/settings/relay-pricing", strings.NewReader(`{
+		"modelMultipliers": {"gpt-4o": 1.25},
+		"groupMultipliers": {"vip": 0.75}
+	}`))
+	updatePricingRequest.Header.Set("Content-Type", "application/json")
+	updatePricingRequest.Header.Set(csrfHeaderName, csrfToken)
+	updatePricingRequest.AddCookie(cookie)
+	router.ServeHTTP(updatePricingRecorder, updatePricingRequest)
+	if updatePricingRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected relay pricing settings PUT to dispatch, got %d with body %s", updatePricingRecorder.Code, updatePricingRecorder.Body.String())
+	}
+	if store.relayPricingSettings.ModelMultipliers["gpt-4o"] != 1.25 || store.relayPricingSettings.GroupMultipliers["vip"] != 0.75 {
+		t.Fatalf("expected relay pricing settings to be saved through router, got %+v", store.relayPricingSettings)
+	}
+
+	getUsageRecorder := httptest.NewRecorder()
+	getUsageRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/admin/settings/usage-limits", nil)
+	getUsageRequest.AddCookie(cookie)
+	router.ServeHTTP(getUsageRecorder, getUsageRequest)
+	if getUsageRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected usage limits GET to dispatch, got %d with body %s", getUsageRecorder.Code, getUsageRecorder.Body.String())
+	}
+	if quotaService.listOrganizationID != "org_settings_route" ||
+		!strings.Contains(getUsageRecorder.Body.String(), `"usageLimits"`) ||
+		!strings.Contains(getUsageRecorder.Body.String(), `"maxTokensPerRequest":250`) {
+		t.Fatalf("expected usage limits response scoped to session org, listOrg=%q body=%s", quotaService.listOrganizationID, getUsageRecorder.Body.String())
+	}
+
+	updateUsageRecorder := httptest.NewRecorder()
+	updateUsageRequest := httptest.NewRequest(stdhttp.MethodPut, "/api/v1/admin/settings/usage-limits", strings.NewReader(`{
+		"organizationId": "org_untrusted",
+		"userId": "user_settings_route",
+		"quotaMode": "user",
+		"maxConcurrentRequests": 2,
+		"windowSeconds": 30,
+		"maxTokensPerWindow": 500,
+		"maxTokensPerRequest": 100
+	}`))
+	updateUsageRequest.Header.Set("Content-Type", "application/json")
+	updateUsageRequest.Header.Set(csrfHeaderName, csrfToken)
+	updateUsageRequest.AddCookie(cookie)
+	router.ServeHTTP(updateUsageRecorder, updateUsageRequest)
+	if updateUsageRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected usage limits PUT to dispatch, got %d with body %s", updateUsageRecorder.Code, updateUsageRecorder.Body.String())
+	}
+	if quotaService.saved.OrganizationID != "org_settings_route" ||
+		quotaService.saved.UserID != "user_settings_route" ||
+		quotaService.saved.QuotaMode != "user" ||
+		quotaService.saved.MaxTokensPerRequest != 100 {
+		t.Fatalf("expected usage limit save to preserve user fields and force session organization, got %+v", quotaService.saved)
+	}
+}
+
 func TestRouteSurfaceKeepsAuthRoutesPublic(t *testing.T) {
 	router := NewRouter(testConfig(), testDatabase(t))
 
@@ -1432,6 +1552,10 @@ func routeSurfaceAdminSubRouteCases() []routeSurfaceCase {
 		{"billing topup refund", stdhttp.MethodPost, "/api/v1/admin/billing/topups/topup_1/refund"},
 		{"billing payout paid", stdhttp.MethodPost, "/api/v1/admin/billing/payouts/payout_1/paid"},
 		{"billing payout failed", stdhttp.MethodPost, "/api/v1/admin/billing/payouts/payout_1/failed"},
+		{"settings relay pricing get", stdhttp.MethodGet, "/api/v1/admin/settings/relay-pricing"},
+		{"settings relay pricing update", stdhttp.MethodPut, "/api/v1/admin/settings/relay-pricing"},
+		{"settings usage limits get", stdhttp.MethodGet, "/api/v1/admin/settings/usage-limits"},
+		{"settings usage limits update", stdhttp.MethodPut, "/api/v1/admin/settings/usage-limits"},
 		{"core stats", stdhttp.MethodGet, "/api/v1/admin/stats"},
 		{"core routes list", stdhttp.MethodGet, "/api/v1/admin/routes"},
 		{"core routes create", stdhttp.MethodPost, "/api/v1/admin/routes"},

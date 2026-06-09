@@ -56,6 +56,10 @@ func newAdminHandlerWithPayoutsAndReviewSLA(service *admin.Service, payoutServic
 	return adminHandler{service: service, payoutService: payoutService, reviewSLAService: reviewSLAService}
 }
 
+func newAdminHandlerWithQuotaPayoutsAndReviewSLA(service *admin.Service, quotaService adminQuotaSettingsService, payoutService adminMarketplacePayoutService, reviewSLAService adminReviewSLAEnforcer) adminHandler {
+	return adminHandler{service: service, quotaService: quotaService, payoutService: payoutService, reviewSLAService: reviewSLAService}
+}
+
 func newAdminHandlerWithQuotaAndPayouts(service *admin.Service, quotaService adminQuotaSettingsService, payoutService adminMarketplacePayoutService) adminHandler {
 	return adminHandler{service: service, quotaService: quotaService, payoutService: payoutService}
 }

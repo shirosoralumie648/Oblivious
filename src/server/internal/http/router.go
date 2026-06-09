@@ -53,6 +53,7 @@ type RouterOptions struct {
 	AlertRoutingRuleStore       observability.AlertRoutingRuleStore
 	AlertProviderConfigStore    observability.AlertProviderConfigStore
 	AuthStore                   auth.Store
+	AdminQuotaSettingsService   adminQuotaSettingsService
 }
 
 type stripeMarketplaceSettlementAdapter struct {
@@ -220,7 +221,11 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 		marketplace.WithAutomatedReview(marketplaceGovernanceService),
 		marketplace.WithReviewSLAAlertSink(currentHTTPAlertSink()),
 	)
-	adminHandler := newAdminHandlerWithPayoutsAndReviewSLA(adminService, marketplaceSettlementService, marketplaceService)
+	adminQuotaSettingsService := options.AdminQuotaSettingsService
+	if adminQuotaSettingsService == nil {
+		adminQuotaSettingsService = quotaService
+	}
+	adminHandler := newAdminHandlerWithQuotaPayoutsAndReviewSLA(adminService, adminQuotaSettingsService, marketplaceSettlementService, marketplaceService)
 	marketplaceHandler := newMarketplaceHandler(
 		marketplaceService,
 		marketplace.NewSearchService(database),
@@ -746,6 +751,26 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 			return
 		}
 		adminHandler.getStats(w, r)
+	})))
+	mux.Handle("/api/v1/admin/settings/relay-pricing", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		switch r.Method {
+		case stdhttp.MethodGet:
+			adminHandler.getRelayPricingSettings(w, r)
+		case stdhttp.MethodPut:
+			adminHandler.updateRelayPricingSettings(w, r)
+		default:
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		}
+	})))
+	mux.Handle("/api/v1/admin/settings/usage-limits", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		switch r.Method {
+		case stdhttp.MethodGet:
+			adminHandler.listUsageLimitSettings(w, r)
+		case stdhttp.MethodPut:
+			adminHandler.updateUsageLimitSettings(w, r)
+		default:
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		}
 	})))
 	mux.Handle("/api/v1/admin/billing/summary", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		if r.Method != stdhttp.MethodGet {
