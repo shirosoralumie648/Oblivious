@@ -43,15 +43,16 @@ type ModelSummary struct {
 }
 
 type BillingSummary struct {
-	Period           string                 `json:"period"`
-	Requests         int                    `json:"requests"`
-	InputTokens      int                    `json:"inputTokens"`
-	OutputTokens     int                    `json:"outputTokens"`
-	EstimatedCostUSD float64                `json:"estimatedCostUsd"`
-	BalanceUSD       float64                `json:"balanceUsd"`
-	CreditLimitUSD   float64                `json:"creditLimitUsd"`
-	CurrentSpendUSD  float64                `json:"currentSpendUsd"`
-	NextInvoice      *BillingInvoiceSummary `json:"nextInvoice,omitempty"`
+	Period           string                          `json:"period"`
+	Requests         int                             `json:"requests"`
+	InputTokens      int                             `json:"inputTokens"`
+	OutputTokens     int                             `json:"outputTokens"`
+	EstimatedCostUSD float64                         `json:"estimatedCostUsd"`
+	BalanceUSD       float64                         `json:"balanceUsd"`
+	CreditLimitUSD   float64                         `json:"creditLimitUsd"`
+	CurrentSpendUSD  float64                         `json:"currentSpendUsd"`
+	PaymentProviders []BillingPaymentProviderSummary `json:"paymentProviders"`
+	NextInvoice      *BillingInvoiceSummary          `json:"nextInvoice,omitempty"`
 }
 
 type BillingInvoiceSummary struct {
@@ -59,6 +60,10 @@ type BillingInvoiceSummary struct {
 	Status    string  `json:"status"`
 	AmountUSD float64 `json:"amountUsd"`
 	DueAt     string  `json:"dueAt"`
+}
+
+type BillingPaymentProviderSummary struct {
+	Name string `json:"name"`
 }
 
 type AccessSummary struct {
@@ -97,16 +102,31 @@ type APITokenStore interface {
 }
 
 type Service struct {
-	apiTokenStore APITokenStore
-	store         Store
+	apiTokenStore    APITokenStore
+	paymentProviders []BillingPaymentProviderSummary
+	store            Store
 }
 
-func NewService(store Store) *Service {
-	return &Service{store: store}
+type ServiceOption func(*Service)
+
+func WithBillingPaymentProviders(providers []BillingPaymentProviderSummary) ServiceOption {
+	return func(service *Service) {
+		service.paymentProviders = cloneBillingPaymentProviders(providers)
+	}
 }
 
-func NewServiceWithAPITokens(store Store, apiTokenStore APITokenStore) *Service {
-	return &Service{store: store, apiTokenStore: apiTokenStore}
+func NewService(store Store, options ...ServiceOption) *Service {
+	service := &Service{store: store}
+	for _, option := range options {
+		option(service)
+	}
+	return service
+}
+
+func NewServiceWithAPITokens(store Store, apiTokenStore APITokenStore, options ...ServiceOption) *Service {
+	service := NewService(store, options...)
+	service.apiTokenStore = apiTokenStore
+	return service
 }
 
 func (s *Service) GetUsage(ctx context.Context, session auth.Session) (UsageSummary, error) {
@@ -118,7 +138,12 @@ func (s *Service) GetModels(ctx context.Context, session auth.Session) ([]ModelS
 }
 
 func (s *Service) GetBilling(ctx context.Context, session auth.Session) (BillingSummary, error) {
-	return s.store.GetBillingSummary(ctx, session.OrganizationID)
+	summary, err := s.store.GetBillingSummary(ctx, session.OrganizationID)
+	if err != nil {
+		return BillingSummary{}, err
+	}
+	summary.PaymentProviders = cloneBillingPaymentProviders(s.paymentProviders)
+	return summary, nil
 }
 
 func (s *Service) ListBillingInvoices(ctx context.Context, session auth.Session) ([]BillingInvoiceSummary, error) {
@@ -219,6 +244,18 @@ func normalizeModelLimits(modelLimits []string) []string {
 		normalized = append(normalized, model)
 	}
 	return normalized
+}
+
+func cloneBillingPaymentProviders(providers []BillingPaymentProviderSummary) []BillingPaymentProviderSummary {
+	cloned := make([]BillingPaymentProviderSummary, 0, len(providers))
+	for _, provider := range providers {
+		name := strings.ToLower(strings.TrimSpace(provider.Name))
+		if name == "" {
+			continue
+		}
+		cloned = append(cloned, BillingPaymentProviderSummary{Name: name})
+	}
+	return cloned
 }
 
 type SQLStore struct {

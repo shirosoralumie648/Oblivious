@@ -17,6 +17,11 @@ export function BillingPage() {
   const [isStartingCheckout, setIsStartingCheckout] = useState(false);
   const [topUpAmount, setTopUpAmount] = useState('25');
   const [topUpProvider, setTopUpProvider] = useState<BillingCheckoutProvider>('stripe');
+  const paymentProviders = useMemo(
+    () => normalizedBillingCheckoutProviders(billingSummary?.paymentProviders),
+    [billingSummary?.paymentProviders]
+  );
+  const hasPaymentProviders = paymentProviders.length > 0;
 
   useEffect(() => {
     let cancelled = false;
@@ -51,12 +56,26 @@ export function BillingPage() {
     };
   }, [consoleApi]);
 
+  useEffect(() => {
+    if (paymentProviders.length === 0) {
+      return;
+    }
+    if (!paymentProviders.includes(topUpProvider)) {
+      setTopUpProvider(paymentProviders[0]);
+    }
+  }, [paymentProviders, topUpProvider]);
+
   const handleTopUpCheckout = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const amount = Number(topUpAmount);
 
     if (!Number.isFinite(amount) || amount <= 0) {
       setCheckoutError('Enter a positive top-up amount.');
+      setCheckoutUrl(null);
+      return;
+    }
+    if (!hasPaymentProviders) {
+      setCheckoutError('No payment provider is configured for checkout.');
       setCheckoutUrl(null);
       return;
     }
@@ -113,15 +132,16 @@ export function BillingPage() {
               <select
                 id="billing-top-up-provider"
                 onChange={(event) => setTopUpProvider(event.target.value as BillingCheckoutProvider)}
+                disabled={!hasPaymentProviders}
                 value={topUpProvider}
               >
-                {billingCheckoutProviders.map((provider) => (
+                {paymentProviders.map((provider) => (
                   <option key={provider} value={provider}>
                     {billingCheckoutProviderLabel(provider)}
                   </option>
                 ))}
               </select>
-              <button disabled={isStartingCheckout} type="submit">
+              <button disabled={isStartingCheckout || !hasPaymentProviders} type="submit">
                 {isStartingCheckout ? 'Starting checkout…' : 'Start top-up checkout'}
               </button>
             </form>
@@ -166,7 +186,13 @@ export function BillingPage() {
   );
 }
 
-const billingCheckoutProviders: BillingCheckoutProvider[] = ['stripe', 'alipay', 'wechatpay'];
+function normalizedBillingCheckoutProviders(
+  providers: ConsoleBillingSummary['paymentProviders'] | undefined
+): BillingCheckoutProvider[] {
+  return (providers ?? [])
+    .map((provider) => provider.name.trim().toLowerCase())
+    .filter((provider, index, values) => provider !== '' && values.indexOf(provider) === index);
+}
 
 function billingCheckoutProviderLabel(provider: BillingCheckoutProvider) {
   switch (provider) {
@@ -174,8 +200,10 @@ function billingCheckoutProviderLabel(provider: BillingCheckoutProvider) {
       return 'Alipay';
     case 'wechatpay':
       return 'WeChat Pay';
-    default:
+    case 'stripe':
       return 'Stripe';
+    default:
+      return provider;
   }
 }
 

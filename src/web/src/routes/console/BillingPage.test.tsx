@@ -48,7 +48,8 @@ describe('BillingPage', () => {
       estimatedCostUsd: 0.0004,
       balanceUsd: 42.5,
       creditLimitUsd: 100,
-      currentSpendUsd: 0.0004
+      currentSpendUsd: 0.0004,
+      paymentProviders: [{ name: 'stripe' }]
     });
     listInvoices.mockResolvedValue([]);
     createBillingCheckout.mockResolvedValue({
@@ -98,7 +99,8 @@ describe('BillingPage', () => {
       estimatedCostUsd: 0.0004,
       balanceUsd: 42.5,
       creditLimitUsd: 100,
-      currentSpendUsd: 0.0004
+      currentSpendUsd: 0.0004,
+      paymentProviders: [{ name: 'stripe' }, { name: 'alipay' }]
     });
     listInvoices.mockResolvedValue([]);
     createBillingCheckout.mockResolvedValue({
@@ -128,6 +130,94 @@ describe('BillingPage', () => {
     );
   });
 
+  it('only renders configured checkout providers and defaults to the first available provider', async () => {
+    getAccess.mockResolvedValue({
+      defaultMode: 'solo',
+      modelStrategy: 'balanced',
+      networkEnabledHint: true,
+      onboardingCompleted: true,
+      sessionExpiresAt: '2026-04-03T00:00:00Z',
+      sessionId: 'session_1',
+      userEmail: 'user@example.com',
+      userId: 'user_1',
+      workspaceId: 'workspace_1'
+    });
+    getBilling.mockResolvedValue({
+      period: '30d',
+      requests: 5,
+      inputTokens: 120,
+      outputTokens: 80,
+      estimatedCostUsd: 0.0004,
+      balanceUsd: 42.5,
+      creditLimitUsd: 100,
+      currentSpendUsd: 0.0004,
+      paymentProviders: [{ name: 'alipay' }]
+    });
+    listInvoices.mockResolvedValue([]);
+    createBillingCheckout.mockResolvedValue({
+      checkoutSessionId: 'cs_topup_alipay_1',
+      url: 'https://checkout.alipay.test/session/cs_topup_alipay_1'
+    });
+
+    render(
+      <MemoryRouter future={routerFuture}>
+        <BillingPage />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByRole('option', { name: 'Alipay' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Stripe' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'WeChat Pay' })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Payment provider')).toHaveValue('alipay');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start top-up checkout' }));
+
+    await waitFor(() =>
+      expect(createBillingCheckout).toHaveBeenCalledWith({
+        amount: 25,
+        kind: 'topup',
+        provider: 'alipay'
+      })
+    );
+  });
+
+  it('disables top-up checkout when no provider is configured', async () => {
+    getAccess.mockResolvedValue({
+      defaultMode: 'solo',
+      modelStrategy: 'balanced',
+      networkEnabledHint: true,
+      onboardingCompleted: true,
+      sessionExpiresAt: '2026-04-03T00:00:00Z',
+      sessionId: 'session_1',
+      userEmail: 'user@example.com',
+      userId: 'user_1',
+      workspaceId: 'workspace_1'
+    });
+    getBilling.mockResolvedValue({
+      period: '30d',
+      requests: 5,
+      inputTokens: 120,
+      outputTokens: 80,
+      estimatedCostUsd: 0.0004,
+      balanceUsd: 42.5,
+      creditLimitUsd: 100,
+      currentSpendUsd: 0.0004,
+      paymentProviders: []
+    });
+    listInvoices.mockResolvedValue([]);
+
+    render(
+      <MemoryRouter future={routerFuture}>
+        <BillingPage />
+      </MemoryRouter>
+    );
+
+    await screen.findByLabelText('Payment provider');
+    expect(screen.getByLabelText('Payment provider')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Start top-up checkout' })).toBeDisabled();
+    expect(screen.queryByRole('option', { name: 'Stripe' })).not.toBeInTheDocument();
+  });
+
   it('renders billing inside a workbench layout with context rail and sibling links', async () => {
     getAccess.mockResolvedValue({
       defaultMode: 'solo',
@@ -149,6 +239,7 @@ describe('BillingPage', () => {
       balanceUsd: 42.5,
       creditLimitUsd: 100,
       currentSpendUsd: 0.0004,
+      paymentProviders: [{ name: 'stripe' }],
       nextInvoice: {
         id: 'draft-2026-06',
         status: 'draft',

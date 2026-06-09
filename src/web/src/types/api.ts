@@ -516,6 +516,11 @@ export type BillingSummary = {
   inputTokens: number;
   outputTokens: number;
   estimatedCostUsd: number;
+  paymentProviders?: BillingPaymentProviderSummary[];
+};
+
+export type BillingPaymentProviderSummary = {
+  name: 'stripe' | 'alipay' | 'wechatpay' | string;
 };
 
 export type AccessSummary = {

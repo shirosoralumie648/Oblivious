@@ -2866,8 +2866,20 @@ components:
         currentSpendUsd:
           type: number
           format: double
+        paymentProviders:
+          type: array
+          items:
+            $ref: "#/components/schemas/BillingPaymentProvider"
         nextInvoice:
           $ref: "#/components/schemas/BillingInvoiceSummary"
+
+    BillingPaymentProvider:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          enum: [stripe, alipay, wechatpay]
 
     BillingInvoiceSummary:
       type: object

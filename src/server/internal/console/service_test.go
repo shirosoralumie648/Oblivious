@@ -158,6 +158,40 @@ func TestGetBillingReturnsOrganizationSummary(t *testing.T) {
 	}
 }
 
+func TestGetBillingAddsConfiguredPaymentProviders(t *testing.T) {
+	store := &fakeStore{
+		billing: BillingSummary{
+			Period:           "30d",
+			Requests:         5,
+			InputTokens:      120,
+			OutputTokens:     80,
+			EstimatedCostUSD: 0.0004,
+		},
+	}
+	service := NewService(store, WithBillingPaymentProviders([]BillingPaymentProviderSummary{
+		{Name: " stripe "},
+		{Name: "ALIPAY"},
+		{Name: ""},
+	}))
+
+	summary, err := service.GetBilling(context.Background(), auth.Session{OrganizationID: "org_1", WorkspaceID: "workspace_1"})
+	if err != nil {
+		t.Fatalf("get billing: %v", err)
+	}
+	if len(summary.PaymentProviders) != 2 || summary.PaymentProviders[0].Name != "stripe" || summary.PaymentProviders[1].Name != "alipay" {
+		t.Fatalf("expected normalized configured providers, got %+v", summary.PaymentProviders)
+	}
+
+	summary.PaymentProviders[0].Name = "mutated"
+	reloaded, err := service.GetBilling(context.Background(), auth.Session{OrganizationID: "org_1", WorkspaceID: "workspace_1"})
+	if err != nil {
+		t.Fatalf("reload billing: %v", err)
+	}
+	if reloaded.PaymentProviders[0].Name != "stripe" {
+		t.Fatalf("expected provider list to be cloned, got %+v", reloaded.PaymentProviders)
+	}
+}
+
 func TestListBillingInvoicesReturnsOrganizationInvoices(t *testing.T) {
 	store := &fakeStore{
 		invoices: []BillingInvoiceSummary{{

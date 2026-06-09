@@ -11,6 +11,7 @@ import (
 	stripeapi "github.com/stripe/stripe-go/v83"
 
 	"oblivious/server/internal/config"
+	"oblivious/server/internal/console"
 	"oblivious/server/internal/payment"
 	stripebilling "oblivious/server/internal/stripe"
 )
@@ -116,6 +117,23 @@ func buildPaymentCheckoutProviders(cfg config.Config, stripeCreator stripebillin
 	registerHostedDomesticCheckout(providerRegistry, creators, "alipay", cfg.AlipayCheckoutBaseURL)
 	registerHostedDomesticCheckout(providerRegistry, creators, "wechatpay", cfg.WeChatPayCheckoutBaseURL)
 	return providerRegistry, creators
+}
+
+func consoleBillingPaymentProviders(registry *payment.Registry, checkoutCreators map[string]stripebilling.CheckoutCreator) []console.BillingPaymentProviderSummary {
+	if registry == nil {
+		registry = payment.DefaultRegistry()
+	}
+	if len(checkoutCreators) == 0 {
+		return []console.BillingPaymentProviderSummary{}
+	}
+	providers := registry.AvailableProviders()
+	available := make([]console.BillingPaymentProviderSummary, 0, len(providers))
+	for _, provider := range providers {
+		if checkoutCreators[provider.Name] != nil {
+			available = append(available, console.BillingPaymentProviderSummary{Name: provider.Name})
+		}
+	}
+	return available
 }
 
 func registerHostedDomesticCheckout(registry *payment.Registry, creators map[string]stripebilling.CheckoutCreator, providerName string, baseURL string) {

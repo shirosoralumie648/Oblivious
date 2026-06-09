@@ -130,7 +130,6 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	}
 	chatService := chat.NewService(chat.NewSQLStore(database), replyGenerator, cfg.ModelDefaultName, usage.NewSQLRecorder(database))
 	chatHandler := newChatHandler(chatService)
-	consoleHandler := newConsoleHandler(console.NewServiceWithAPITokens(console.NewSQLStore(database), relay.NewRelayAPITokenSQLStore(database)), preferencesService)
 	knowledgeStore := knowledge.NewSQLStore(database)
 	knowledgeService := newKnowledgeService(cfg, knowledgeStore)
 	knowledgeHandler := newKnowledgeHandler(knowledgeService)
@@ -173,6 +172,14 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 		checkoutCreator = stripebilling.CheckoutCreatorFunc(stripebilling.CreateCheckoutSession)
 	}
 	paymentProviderRegistry, checkoutCreators := buildPaymentCheckoutProviders(cfg, checkoutCreator, options.PaymentProviderRegistry, options.CheckoutCreators)
+	consoleHandler := newConsoleHandler(
+		console.NewServiceWithAPITokens(
+			console.NewSQLStore(database),
+			relay.NewRelayAPITokenSQLStore(database),
+			console.WithBillingPaymentProviders(consoleBillingPaymentProviders(paymentProviderRegistry, checkoutCreators)),
+		),
+		preferencesService,
+	)
 	billingHandler := newBillingHandler(checkoutCreator, stripebilling.CheckoutConfig{
 		SecretKey:     cfg.StripeSecretKey,
 		SuccessURL:    cfg.StripeSuccessURL,

@@ -47,6 +47,45 @@ func TestConsoleHandlerListInvoicesReturnsOrganizationInvoices(t *testing.T) {
 	}
 }
 
+func TestConsoleHandlerGetBillingReturnsConfiguredPaymentProviders(t *testing.T) {
+	store := &consoleHandlerFakeStore{
+		billing: console.BillingSummary{
+			Period:           "30d",
+			Requests:         5,
+			InputTokens:      120,
+			OutputTokens:     80,
+			EstimatedCostUSD: 0.0004,
+		},
+	}
+	handler := newConsoleHandler(console.NewService(store, console.WithBillingPaymentProviders([]console.BillingPaymentProviderSummary{
+		{Name: "stripe"},
+		{Name: "alipay"},
+	})), nil)
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/console/billing", nil).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		OrganizationID: "org_1",
+		User:           auth.User{ID: "user_1"},
+	}))
+	recorder := httptest.NewRecorder()
+
+	handler.getBilling(recorder, request)
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Data console.BillingSummary `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode billing response: %v", err)
+	}
+	if store.organizationID != "org_1" {
+		t.Fatalf("expected organization id org_1, got %s", store.organizationID)
+	}
+	if len(response.Data.PaymentProviders) != 2 || response.Data.PaymentProviders[0].Name != "stripe" || response.Data.PaymentProviders[1].Name != "alipay" {
+		t.Fatalf("expected configured payment providers, got %+v", response.Data.PaymentProviders)
+	}
+}
+
 type consoleHandlerFakeStore struct {
 	billing        console.BillingSummary
 	invoices       []console.BillingInvoiceSummary

@@ -1425,6 +1425,7 @@ require_billing_checkout_contract() {
     file = ARGV.fetch(0)
     spec = YAML.load_file(file)
     paths = spec.fetch("paths", {})
+    schemas = spec.fetch("components", {}).fetch("schemas", {})
     missing = []
 
     def requires_cookie_and_csrf?(operation)
@@ -1460,6 +1461,25 @@ require_billing_checkout_contract() {
     end
     unless response_data_ref(checkout, "201") == "#/components/schemas/BillingCheckoutSession"
       missing << "POST /api/v1/billing/checkout 201 data must reference BillingCheckoutSession"
+    end
+
+    console_billing = paths.dig("/api/v1/console/billing", "get")
+    unless console_billing
+      missing << "GET /api/v1/console/billing must be documented"
+      console_billing = {}
+    end
+    unless response_data_ref(console_billing, "200") == "#/components/schemas/BillingSummary"
+      missing << "GET /api/v1/console/billing 200 data must reference BillingSummary"
+    end
+
+    billing_summary = schemas["BillingSummary"] || {}
+    unless billing_summary.dig("properties", "paymentProviders", "items", "$ref") == "#/components/schemas/BillingPaymentProvider"
+      missing << "BillingSummary.paymentProviders must reference BillingPaymentProvider"
+    end
+    provider = schemas["BillingPaymentProvider"] || {}
+    unless provider.fetch("required", []).include?("name") &&
+        provider.dig("properties", "name", "enum") == ["stripe", "alipay", "wechatpay"]
+      missing << "BillingPaymentProvider.name must require and enumerate stripe, alipay, and wechatpay"
     end
 
     unless missing.empty?

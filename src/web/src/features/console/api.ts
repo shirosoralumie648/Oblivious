@@ -1,5 +1,5 @@
 import type { HttpClient } from '../../services/http/client';
-import type { AccessSummary, BillingSummary as BaseBillingSummary, CreatedRelayApiToken, CreateRelayApiTokenRequest, ModelSummary, RelayApiToken, RelayApiTokenUsageItem, UsageSummary } from '../../types/api';
+import type { AccessSummary, BillingPaymentProviderSummary, BillingSummary as BaseBillingSummary, CreatedRelayApiToken, CreateRelayApiTokenRequest, ModelSummary, RelayApiToken, RelayApiTokenUsageItem, UsageSummary } from '../../types/api';
 
 export type ConsoleBillingInvoiceSummary = {
   id: string;
@@ -13,9 +13,10 @@ export type ConsoleBillingSummary = BaseBillingSummary & {
   creditLimitUsd: number;
   currentSpendUsd: number;
   nextInvoice?: ConsoleBillingInvoiceSummary;
+  paymentProviders?: BillingPaymentProviderSummary[];
 };
 
-export type BillingCheckoutProvider = 'stripe' | 'alipay' | 'wechatpay';
+export type BillingCheckoutProvider = BillingPaymentProviderSummary['name'];
 
 export type BillingCheckoutRequest = {
   amount?: number;

@@ -8,6 +8,7 @@ import (
 
 	stripeapi "github.com/stripe/stripe-go/v83"
 	"oblivious/server/internal/config"
+	"oblivious/server/internal/payment"
 	stripebilling "oblivious/server/internal/stripe"
 )
 
@@ -79,5 +80,20 @@ func TestBuildPaymentCheckoutProvidersEnablesDomesticHostedProviders(t *testing.
 		if got := query.Get(key); got != want {
 			t.Fatalf("expected alipay checkout query %s=%q, got %q in %s", key, want, got, session.URL)
 		}
+	}
+}
+
+func TestConsoleBillingPaymentProvidersExposeConfiguredCheckoutProviders(t *testing.T) {
+	registry := payment.NewRegistry("stripe")
+	registry.Register(payment.Provider{Name: "stripe", Configured: true, Currency: "usd"})
+	registry.Register(payment.Provider{Name: "alipay", Configured: true, Currency: "cny"})
+	registry.Register(payment.Provider{Name: "wechatpay", Configured: false, Currency: "cny"})
+
+	providers := consoleBillingPaymentProviders(registry, map[string]stripebilling.CheckoutCreator{
+		"stripe": hostedCheckoutCreator{provider: "stripe", baseURL: "https://checkout.stripe.test/session"},
+	})
+
+	if len(providers) != 1 || providers[0].Name != "stripe" {
+		t.Fatalf("expected only configured providers with checkout creators, got %+v", providers)
 	}
 }
