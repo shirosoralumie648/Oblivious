@@ -448,7 +448,12 @@ func writeAgentWorkflowError(w stdhttp.ResponseWriter, err error) {
 		writeError(w, stdhttp.StatusConflict, "invalid_state", err.Error())
 		return
 	}
-	switch err.Error() {
+	message := err.Error()
+	if strings.HasPrefix(message, "prior plan step ") && strings.Contains(message, " must be completed or skipped before executing step ") {
+		writeError(w, stdhttp.StatusConflict, "invalid_state", message)
+		return
+	}
+	switch message {
 	case "agent not found", "conversation not found", "run not found", "tool run not found", "plan step not found":
 		writeError(w, stdhttp.StatusNotFound, "not_found", err.Error())
 	case "access denied":

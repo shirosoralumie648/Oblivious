@@ -650,6 +650,81 @@ func TestAgentRunsHandlerRetryPlanStepReturnsUpdatedRunDetail(t *testing.T) {
 	}
 }
 
+func TestAgentRunsHandlerRetryPlanStepRejectsOutOfOrderWithoutClearingFailure(t *testing.T) {
+	now := time.Now().UTC()
+	completedAt := now.Add(time.Minute)
+	store := newFakeAgentRunsStore()
+	store.agent = &agent.Agent{
+		ID:             "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		Name:           "Implementation Agent",
+		Model:          "test-model",
+	}
+	store.conversation = &agent.Conversation{
+		ID:             "conv_1",
+		AgentID:        "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+	}
+	store.runs = []*agent.Run{{
+		ID:             "run_1",
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		Status:         agent.RunStatusFailed,
+		Error:          "step 2 failed",
+		CompletedAt:    &completedAt,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}}
+	store.planSteps = []*agent.PlanStep{{
+		ID:             "step_1",
+		RunID:          "run_1",
+		OrganizationID: "org_1",
+		Index:          1,
+		Title:          "Still pending",
+		Status:         agent.PlanStepStatusPending,
+		ApprovalStatus: agent.ApprovalStatusNotRequired,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}, {
+		ID:             "step_2",
+		RunID:          "run_1",
+		OrganizationID: "org_1",
+		Index:          2,
+		Title:          "Failed retry target",
+		Status:         agent.PlanStepStatusFailed,
+		ApprovalStatus: agent.ApprovalStatusApproved,
+		ResultContent:  "partial output",
+		Error:          "old failure",
+		StartedAt:      &now,
+		CompletedAt:    &completedAt,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{reply: "should not run"}))
+
+	recorder := httptest.NewRecorder()
+	handler.retryPlanStep(recorder, newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/retry-plan-step", `{"plan_step_id":"step_2"}`), "run_1")
+
+	if recorder.Code != stdhttp.StatusConflict {
+		t.Fatalf("expected 409, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "prior plan step 1 must be completed or skipped before executing step 2") {
+		t.Fatalf("expected prior-step error body, got %s", recorder.Body.String())
+	}
+	if store.runs[0].Status != agent.RunStatusFailed || store.runs[0].Error != "step 2 failed" || store.runs[0].CompletedAt != &completedAt {
+		t.Fatalf("expected rejected HTTP retry to preserve run failure evidence, got %+v", store.runs[0])
+	}
+	step := store.planSteps[1]
+	if step.Status != agent.PlanStepStatusFailed || step.ApprovalStatus != agent.ApprovalStatusApproved ||
+		step.ResultContent != "partial output" || step.Error != "old failure" || step.CompletedAt != &completedAt {
+		t.Fatalf("expected rejected HTTP retry to preserve failed step evidence, got %+v", step)
+	}
+}
+
 func TestAgentRunsHandlerContinueBudgetReturnsUpdatedRunDetail(t *testing.T) {
 	now := time.Now().UTC()
 	completedAt := now.Add(time.Minute)
