@@ -15,6 +15,7 @@ import (
 type marketplaceSettlementCheckoutService interface {
 	CreatePaidInstallCheckout(ctx context.Context, input marketplace.PaidInstallCheckoutRequest) (*marketplace.MarketplaceOrder, error)
 	SetPaidInstallCheckoutSession(ctx context.Context, orderID, paymentIntentID, providerCheckoutSessionID string) error
+	MarkPaidInstallCheckoutFailed(ctx context.Context, orderID, paymentIntentID, reason string) error
 }
 
 type marketplaceHandler struct {
@@ -312,6 +313,10 @@ func (h marketplaceHandler) createPaidInstallCheckout(w stdhttp.ResponseWriter, 
 		PublisherOrganizationID: order.PublisherOrganizationID,
 	})
 	if err != nil {
+		if failErr := h.settlementService.MarkPaidInstallCheckoutFailed(r.Context(), order.ID, order.PaymentIntentID, err.Error()); failErr != nil {
+			writeError(w, stdhttp.StatusInternalServerError, "internal_error", "mark marketplace checkout failed state failed")
+			return
+		}
 		writeError(w, stdhttp.StatusBadGateway, "checkout_create_failed", "create checkout session failed")
 		return
 	}

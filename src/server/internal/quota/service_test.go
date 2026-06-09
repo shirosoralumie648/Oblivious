@@ -141,6 +141,9 @@ func (s *fakeStore) CreateTopupOrder(ctx context.Context, order *TopupOrder) (*T
 func (s *fakeStore) UpdateTopupOrderCheckoutSession(ctx context.Context, paymentIntentID string, providerCheckoutSessionID string) error {
 	return nil
 }
+func (s *fakeStore) MarkTopupOrderFailedByPaymentIntent(ctx context.Context, paymentIntentID string) error {
+	return nil
+}
 func (s *fakeStore) UpdateTopupOrderStatus(ctx context.Context, id string, status string, tradeNo string) error {
 	return nil
 }

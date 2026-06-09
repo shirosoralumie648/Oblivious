@@ -181,6 +181,11 @@ require_marketplace_paid_install_contract() {
     unless install_data.is_a?(Array) && install_data.any? { |entry| entry.dig("properties", "data", "$ref") == "#/components/schemas/MarketplaceInstallResponse" }
       missing << "POST /api/v1/marketplace/agents/{agentId}/install 201 must return MarketplaceInstallResponse data"
     end
+    ["501", "502"].each do |status|
+      unless install.dig("responses", status, "content", "application/json", "schema", "$ref") == "#/components/schemas/Envelope"
+        missing << "POST /api/v1/marketplace/agents/{agentId}/install #{status} response must reference Envelope"
+      end
+    end
 
     unless missing.empty?
       warn "[openapi-contract] Marketplace paid-install contract is incomplete:"
@@ -1479,6 +1484,11 @@ require_billing_checkout_contract() {
     end
     unless response_data_ref(checkout, "201") == "#/components/schemas/BillingCheckoutSession"
       missing << "POST /api/v1/billing/checkout 201 data must reference BillingCheckoutSession"
+    end
+    ["501", "502"].each do |status|
+      unless checkout.dig("responses", status, "content", "application/json", "schema", "$ref") == "#/components/schemas/Envelope"
+        missing << "POST /api/v1/billing/checkout #{status} response must reference Envelope"
+      end
     end
 
     console_billing = paths.dig("/api/v1/console/billing", "get")

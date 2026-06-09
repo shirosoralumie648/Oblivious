@@ -111,6 +111,7 @@ type Store interface {
 	// Topup
 	CreateTopupOrder(ctx context.Context, order *TopupOrder) (*TopupOrder, error)
 	UpdateTopupOrderCheckoutSession(ctx context.Context, paymentIntentID string, providerCheckoutSessionID string) error
+	MarkTopupOrderFailedByPaymentIntent(ctx context.Context, paymentIntentID string) error
 	UpdateTopupOrderStatus(ctx context.Context, id string, status string, tradeNo string) error
 
 	// Usage limits
@@ -537,6 +538,13 @@ func (s *Service) SetTopupCheckoutSession(ctx context.Context, paymentIntentID s
 		return fmt.Errorf("provider_checkout_session_id is required")
 	}
 	return s.store.UpdateTopupOrderCheckoutSession(ctx, paymentIntentID, providerCheckoutSessionID)
+}
+
+func (s *Service) MarkTopupCheckoutFailed(ctx context.Context, paymentIntentID string) error {
+	if paymentIntentID == "" {
+		return fmt.Errorf("payment_intent_id is required")
+	}
+	return s.store.MarkTopupOrderFailedByPaymentIntent(ctx, paymentIntentID)
 }
 
 // ListPackages 列出套餐
@@ -1066,6 +1074,25 @@ func (s *SQLStore) UpdateTopupOrderCheckoutSession(ctx context.Context, paymentI
 	rows, err := result.RowsAffected()
 	if err != nil {
 		return fmt.Errorf("topup checkout rows affected: %w", err)
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *SQLStore) MarkTopupOrderFailedByPaymentIntent(ctx context.Context, paymentIntentID string) error {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE topup_orders
+		SET status = 'failed'
+		WHERE payment_intent_id = $1 AND status = 'pending'
+	`, paymentIntentID)
+	if err != nil {
+		return fmt.Errorf("mark topup order failed: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("topup order failed rows affected: %w", err)
 	}
 	if rows == 0 {
 		return sql.ErrNoRows

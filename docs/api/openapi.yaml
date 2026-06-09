@@ -13844,6 +13844,18 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "501":
+          description: 支付 provider 未配置
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "502":
+          description: 创建 paid install checkout session 失败
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
     delete:
       summary: 卸载 Marketplace Agent
       operationId: uninstallMarketplaceAgentByInstallEndpoint
@@ -14707,6 +14719,12 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           description: subscription package 不存在
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+        "501":
+          description: 支付 provider 未配置
           content:
             application/json:
               schema:

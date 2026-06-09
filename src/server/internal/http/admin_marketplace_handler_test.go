@@ -1824,8 +1824,12 @@ type fakeMarketplaceSettlementService struct {
 	request                marketplace.PaidInstallCheckoutRequest
 	sessionID              string
 	sessionPaymentIntentID string
+	failedOrderID          string
+	failedPaymentIntentID  string
+	failureReason          string
 	createCalls            int
 	setSessionCalls        int
+	failCalls              int
 }
 
 func (s *fakeMarketplaceSettlementService) CreatePaidInstallCheckout(ctx context.Context, input marketplace.PaidInstallCheckoutRequest) (*marketplace.MarketplaceOrder, error) {
@@ -1852,6 +1856,14 @@ func (s *fakeMarketplaceSettlementService) SetPaidInstallCheckoutSession(ctx con
 	s.setSessionCalls++
 	s.sessionID = providerCheckoutSessionID
 	s.sessionPaymentIntentID = paymentIntentID
+	return nil
+}
+
+func (s *fakeMarketplaceSettlementService) MarkPaidInstallCheckoutFailed(ctx context.Context, orderID, paymentIntentID, reason string) error {
+	s.failCalls++
+	s.failedOrderID = orderID
+	s.failedPaymentIntentID = paymentIntentID
+	s.failureReason = reason
 	return nil
 }
 

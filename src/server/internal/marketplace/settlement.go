@@ -952,6 +952,61 @@ func (s *SettlementService) SetPaidInstallCheckoutSession(ctx context.Context, o
 	return tx.Commit()
 }
 
+func (s *SettlementService) MarkPaidInstallCheckoutFailed(ctx context.Context, orderID string, paymentIntentID string, reason string) error {
+	if orderID == "" || paymentIntentID == "" {
+		return fmt.Errorf("mark paid install checkout failed: order and payment intent are required")
+	}
+	tx, err := s.store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("mark paid install checkout failed: begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	now := time.Now().UTC()
+	result, err := tx.ExecContext(ctx, `
+		UPDATE marketplace_orders
+		SET status = 'failed', updated_at = $3
+		WHERE id = $1 AND payment_intent_id = $2 AND status = 'pending_payment'
+	`, orderID, paymentIntentID, now)
+	if err != nil {
+		return fmt.Errorf("mark paid install checkout failed: update order: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("mark paid install checkout failed: order rows affected: %w", err)
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+
+	metadata := map[string]string{}
+	if reason != "" {
+		metadata["checkout_failure_reason"] = reason
+	}
+	encodedMetadata, err := json.Marshal(metadata)
+	if err != nil {
+		return fmt.Errorf("mark paid install checkout failed: marshal metadata: %w", err)
+	}
+	result, err = tx.ExecContext(ctx, `
+		UPDATE payment_intents
+		SET status = 'failed',
+		    metadata = metadata || $2::jsonb,
+		    updated_at = $3
+		WHERE id = $1 AND status = 'pending'
+	`, paymentIntentID, string(encodedMetadata), now)
+	if err != nil {
+		return fmt.Errorf("mark paid install checkout failed: update payment intent: %w", err)
+	}
+	rows, err = result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("mark paid install checkout failed: payment intent rows affected: %w", err)
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return tx.Commit()
+}
+
 func (s *SettlementService) dispatchPayout(ctx context.Context, request MarketplacePayoutDispatchRequest) (string, MarketplacePayoutDispatchResult, error) {
 	if s == nil || s.payoutProvider == nil {
 		return "local", MarketplacePayoutDispatchResult{}, nil

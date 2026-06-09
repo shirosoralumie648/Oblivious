@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -185,6 +186,10 @@ func (h billingHandler) checkout(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 
 	checkoutSession, err := checkoutCreator.CreateCheckoutSession(r.Context(), h.checkoutConfig, checkoutReq)
 	if err != nil {
+		if failErr := h.markCheckoutCreationFailed(r.Context(), paymentIntentID, kind, err.Error()); failErr != nil {
+			writeError(w, stdhttp.StatusInternalServerError, "internal_error", "mark checkout failed state failed")
+			return
+		}
 		writeError(w, stdhttp.StatusBadGateway, "checkout_create_failed", "create checkout session failed")
 		return
 	}
@@ -213,4 +218,16 @@ func (h billingHandler) checkout(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		CheckoutSessionID: checkoutSession.ID,
 		URL:               checkoutSession.URL,
 	})
+}
+
+func (h billingHandler) markCheckoutCreationFailed(ctx context.Context, paymentIntentID string, kind string, reason string) error {
+	if err := h.paymentStore.MarkPaymentIntentFailed(ctx, paymentIntentID, reason); err != nil {
+		return err
+	}
+	if kind == "topup" {
+		if err := h.quotaService.MarkTopupCheckoutFailed(ctx, paymentIntentID); err != nil {
+			return err
+		}
+	}
+	return nil
 }

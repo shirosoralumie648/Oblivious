@@ -83,6 +83,50 @@ func TestSettlementCreatePaidInstallCheckoutRecordsSelectedProvider(t *testing.T
 	}
 }
 
+func TestSettlementMarkPaidInstallCheckoutFailedMarksOrderAndIntent(t *testing.T) {
+	database := settlementTestDB(t)
+	service := NewSettlementService(NewSQLStore(database))
+
+	insertSettlementUserOrg(t, database, "buyer_user", "buyer_org")
+	insertSettlementUserOrg(t, database, "publisher_user", "publisher_org")
+	insertSettlementAgent(t, database, "agent_paid", "publisher_user", "publisher_org", "one_time", 50)
+
+	order, err := service.CreatePaidInstallCheckout(context.Background(), PaidInstallCheckoutRequest{
+		BuyerOrganizationID: "buyer_org",
+		BuyerUserID:         "buyer_user",
+		AgentID:             "agent_paid",
+		VersionID:           "version_agent_paid",
+		Provider:            "alipay",
+	})
+	if err != nil {
+		t.Fatalf("CreatePaidInstallCheckout returned error: %v", err)
+	}
+	if err := service.MarkPaidInstallCheckoutFailed(context.Background(), order.ID, order.PaymentIntentID, "provider timeout"); err != nil {
+		t.Fatalf("MarkPaidInstallCheckoutFailed returned error: %v", err)
+	}
+
+	var orderStatus, intentStatus, failureReason string
+	if err := database.QueryRow(`
+		SELECT mo.status, pi.status, COALESCE(pi.metadata->>'checkout_failure_reason', '')
+		FROM marketplace_orders mo
+		JOIN payment_intents pi ON pi.id = mo.payment_intent_id
+		WHERE mo.id = $1
+	`, order.ID).Scan(&orderStatus, &intentStatus, &failureReason); err != nil {
+		t.Fatalf("query failed paid install checkout: %v", err)
+	}
+	var installCount, settlementCount int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM agent_installs WHERE agent_id = 'agent_paid'`).Scan(&installCount); err != nil {
+		t.Fatalf("count failed paid install installs: %v", err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM marketplace_settlements WHERE order_id = $1`, order.ID).Scan(&settlementCount); err != nil {
+		t.Fatalf("count failed paid install settlements: %v", err)
+	}
+	if orderStatus != "failed" || intentStatus != "failed" || failureReason != "provider timeout" || installCount != 0 || settlementCount != 0 {
+		t.Fatalf("expected failed order/intent only, got order=%s intent=%s reason=%q installs=%d settlements=%d",
+			orderStatus, intentStatus, failureReason, installCount, settlementCount)
+	}
+}
+
 func TestMarketplaceLifecycleTransitionKeyUsesSelectedProvider(t *testing.T) {
 	key := marketplaceLifecycleTransitionKey("alipay", "evt_1", "marketplace_checkout", "pi_1")
 	if key != "alipay:evt_1:marketplace_checkout:pi_1" {

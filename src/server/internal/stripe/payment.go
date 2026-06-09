@@ -29,6 +29,7 @@ type PaymentIntent struct {
 type PaymentIntentStore interface {
 	CreatePaymentIntent(ctx context.Context, intent PaymentIntent) (PaymentIntent, error)
 	SetCheckoutSession(ctx context.Context, id string, providerCheckoutSessionID string, metadata map[string]string) error
+	MarkPaymentIntentFailed(ctx context.Context, id string, reason string) error
 }
 
 type SQLPaymentIntentStore struct {
@@ -101,6 +102,36 @@ func (s *SQLPaymentIntentStore) SetCheckoutSession(ctx context.Context, id strin
 	rows, err := result.RowsAffected()
 	if err != nil {
 		return fmt.Errorf("payment intent checkout rows affected: %w", err)
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *SQLPaymentIntentStore) MarkPaymentIntentFailed(ctx context.Context, id string, reason string) error {
+	metadata := map[string]string{}
+	if reason != "" {
+		metadata["checkout_failure_reason"] = reason
+	}
+	encodedMetadata, err := json.Marshal(metadata)
+	if err != nil {
+		return fmt.Errorf("marshal failed payment intent metadata: %w", err)
+	}
+
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE payment_intents
+		SET status = 'failed',
+		    metadata = metadata || $2::jsonb,
+		    updated_at = $3
+		WHERE id = $1 AND status = 'pending'
+	`, id, string(encodedMetadata), time.Now().UTC())
+	if err != nil {
+		return fmt.Errorf("mark payment intent failed: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("payment intent failed rows affected: %w", err)
 	}
 	if rows == 0 {
 		return sql.ErrNoRows

@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -26,6 +27,7 @@ type fakeCheckoutCreator struct {
 	sessionID  string
 	sessionURL string
 	request    stripebilling.CheckoutSessionRequest
+	err        error
 }
 
 func (f *fakeCheckoutCreator) CreateCheckoutSession(_ context.Context, _ stripebilling.CheckoutConfig, req stripebilling.CheckoutSessionRequest) (*stripeapi.CheckoutSession, error) {
@@ -38,6 +40,9 @@ func (f *fakeCheckoutCreator) CreateCheckoutSession(_ context.Context, _ stripeb
 		if !exists {
 			return nil, fmt.Errorf("payment intent %s was not precreated", req.PaymentIntentID)
 		}
+	}
+	if f.err != nil {
+		return nil, f.err
 	}
 	sessionID := f.sessionID
 	if sessionID == "" {
@@ -863,6 +868,62 @@ func TestBillingCheckoutUnconfiguredProvidersDoNotCreateArtifacts(t *testing.T) 
 	}
 }
 
+func TestBillingCheckoutCreatorFailureMarksTopupFailed(t *testing.T) {
+	database := testDatabase(t)
+	fakeCreator := &fakeCheckoutCreator{database: database, err: errors.New("provider checkout unavailable")}
+	cfg := testConfig()
+	cfg.StripeSuccessURL = "https://app.oblivious.test/billing/success"
+	cfg.StripeCancelURL = "https://app.oblivious.test/billing/cancel"
+	router := NewRouterWithOptions(cfg, database, RouterOptions{CheckoutCreator: fakeCreator})
+
+	cookie, csrfToken, userID := registerHTTPUser(t, router, "stripe-topup-checkout-failed@example.com")
+	_, organizationID := queryHTTPUserScope(t, database, userID)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/billing/checkout", strings.NewReader(`{"kind":"topup","amount":25}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(cookie)
+	addCSRF(request, csrfToken)
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadGateway {
+		t.Fatalf("expected checkout creator failure to return 502, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response Envelope
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode checkout creator failure response: %v", err)
+	}
+	if response.Error == nil || response.Error.Code != "checkout_create_failed" {
+		t.Fatalf("expected checkout_create_failed response, got %+v", response.Error)
+	}
+	if fakeCreator.request.PaymentIntentID == "" || fakeCreator.request.CheckoutKind != "topup" {
+		t.Fatalf("checkout creator should see precreated topup intent, got %+v", fakeCreator.request)
+	}
+
+	var paymentStatus, topupStatus, providerCheckoutSessionID string
+	if err := database.QueryRow(`
+		SELECT status, COALESCE(provider_checkout_session_id, '')
+		FROM payment_intents
+		WHERE id = $1 AND organization_id = $2 AND user_id = $3
+	`, fakeCreator.request.PaymentIntentID, organizationID, userID).Scan(&paymentStatus, &providerCheckoutSessionID); err != nil {
+		t.Fatalf("query failed topup payment intent: %v", err)
+	}
+	if err := database.QueryRow(`
+		SELECT status
+		FROM topup_orders
+		WHERE payment_intent_id = $1 AND organization_id = $2 AND user_id = $3
+	`, fakeCreator.request.PaymentIntentID, organizationID, userID).Scan(&topupStatus); err != nil {
+		t.Fatalf("query failed topup order: %v", err)
+	}
+	var balance float64
+	if err := database.QueryRow(`SELECT COALESCE((SELECT balance FROM quotas WHERE organization_id = $1 AND scope = 'organization'), 0)`, organizationID).Scan(&balance); err != nil {
+		t.Fatalf("query failed topup quota balance: %v", err)
+	}
+	if paymentStatus != "failed" || topupStatus != "failed" || providerCheckoutSessionID != "" || balance != 0 {
+		t.Fatalf("expected failed local topup artifacts without quota credit, got payment=%s topup=%s session=%q balance=%.2f", paymentStatus, topupStatus, providerCheckoutSessionID, balance)
+	}
+}
+
 func TestBillingCheckoutUsesConfiguredProviderCheckoutCreator(t *testing.T) {
 	database := testDatabase(t)
 	stripeCreator := &fakeCheckoutCreator{database: database}
@@ -1004,7 +1065,7 @@ func TestMarketplacePaidInstallDoesNotInstallBeforeWebhook(t *testing.T) {
 	}
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/marketplace/agents/agent_paid_http/install?versionID=version_agent_paid_http", nil)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/marketplace/agents/agent_paid_http/install?versionID=version_agent_paid_http&provider=stripe", nil)
 	request.AddCookie(cookie)
 	addCSRF(request, csrfToken)
 	router.ServeHTTP(recorder, request)
@@ -1031,6 +1092,82 @@ func TestMarketplacePaidInstallDoesNotInstallBeforeWebhook(t *testing.T) {
 	}
 	if installCount != 0 || orderCount != 1 || intentCount != 1 {
 		t.Fatalf("expected no install and one pending order/intent, got installs=%d orders=%d intents=%d", installCount, orderCount, intentCount)
+	}
+}
+
+func TestMarketplacePaidInstallCheckoutCreatorFailureMarksOrderFailed(t *testing.T) {
+	database := testDatabase(t)
+	fakeCreator := &fakeCheckoutCreator{database: database, err: errors.New("provider checkout unavailable")}
+	cfg := testConfig()
+	cfg.StripeSuccessURL = "https://app.oblivious.test/marketplace/success"
+	cfg.StripeCancelURL = "https://app.oblivious.test/marketplace/cancel"
+	router := NewRouterWithOptions(cfg, database, RouterOptions{CheckoutCreator: fakeCreator})
+
+	cookie, csrfToken, buyerUserID := registerHTTPUser(t, router, "marketplace-failed-buyer@example.com")
+	_, buyerOrganizationID := queryHTTPUserScope(t, database, buyerUserID)
+	_, _, publisherUserID := registerHTTPUser(t, router, "marketplace-failed-publisher@example.com")
+	_, publisherOrganizationID := queryHTTPUserScope(t, database, publisherUserID)
+
+	if _, err := database.Exec(`
+		INSERT INTO published_agents (
+			id, owner_id, organization_id, name, description, tools, example_conversations,
+			visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at
+		)
+		VALUES ('agent_paid_failed_checkout', $1, $2, 'Paid Failed Checkout Agent', 'Paid marketplace fail-closed test agent.',
+		        '{"tools":[{"name":"paid"}]}'::jsonb, '[]'::jsonb, 'public', 'approved',
+		        'one_time', 50, 0, 0, 0, NOW(), NOW())
+	`, publisherUserID, publisherOrganizationID); err != nil {
+		t.Fatalf("insert failed checkout marketplace agent: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO agent_versions (id, agent_id, organization_id, version, changelog, metadata, status, created_at)
+		VALUES ('version_agent_paid_failed_checkout', 'agent_paid_failed_checkout', $1, '1.0.0', 'initial', '{}', 'approved', NOW())
+	`, publisherOrganizationID); err != nil {
+		t.Fatalf("insert failed checkout marketplace version: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/marketplace/agents/agent_paid_failed_checkout/install?versionID=version_agent_paid_failed_checkout&provider=stripe", nil)
+	request.AddCookie(cookie)
+	addCSRF(request, csrfToken)
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadGateway {
+		t.Fatalf("expected marketplace checkout creator failure to return 502, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response Envelope
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode marketplace checkout creator failure response: %v", err)
+	}
+	if response.Error == nil || response.Error.Code != "checkout_create_failed" {
+		t.Fatalf("expected checkout_create_failed response, got %+v", response.Error)
+	}
+	if fakeCreator.request.PaymentIntentID == "" || fakeCreator.request.MarketplaceOrderID == "" || fakeCreator.request.CheckoutKind != "marketplace_install" {
+		t.Fatalf("checkout creator should see precreated marketplace intent/order, got %+v", fakeCreator.request)
+	}
+
+	var orderStatus, paymentStatus, providerCheckoutSessionID string
+	if err := database.QueryRow(`
+		SELECT mo.status, pi.status, COALESCE(mo.provider_checkout_session_id, '')
+		FROM marketplace_orders mo
+		JOIN payment_intents pi ON pi.id = mo.payment_intent_id
+		WHERE mo.id = $1 AND mo.payment_intent_id = $2
+	`, fakeCreator.request.MarketplaceOrderID, fakeCreator.request.PaymentIntentID).Scan(&orderStatus, &paymentStatus, &providerCheckoutSessionID); err != nil {
+		t.Fatalf("query failed marketplace order: %v", err)
+	}
+	var installCount, settlementCount int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM agent_installs WHERE agent_id = 'agent_paid_failed_checkout'`).Scan(&installCount); err != nil {
+		t.Fatalf("count failed checkout installs: %v", err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM marketplace_settlements WHERE order_id = $1`, fakeCreator.request.MarketplaceOrderID).Scan(&settlementCount); err != nil {
+		t.Fatalf("count failed checkout settlements: %v", err)
+	}
+	if orderStatus != "failed" || paymentStatus != "failed" || providerCheckoutSessionID != "" || installCount != 0 || settlementCount != 0 {
+		t.Fatalf("expected failed marketplace artifacts without install/settlement, got order=%s payment=%s session=%q installs=%d settlements=%d",
+			orderStatus, paymentStatus, providerCheckoutSessionID, installCount, settlementCount)
+	}
+	if fakeCreator.request.OrganizationID != buyerOrganizationID || fakeCreator.request.UserID != buyerUserID {
+		t.Fatalf("checkout creator saw wrong buyer scope: %+v buyerOrg=%s buyerUser=%s", fakeCreator.request, buyerOrganizationID, buyerUserID)
 	}
 }
 
@@ -1499,7 +1636,7 @@ func TestStripeWebhookRouteAppliesMarketplaceInstallSettlementOnce(t *testing.T)
 	}
 
 	installRecorder := httptest.NewRecorder()
-	installRequest := httptest.NewRequest(http.MethodPost, "/api/v1/marketplace/agents/agent_paid_webhook/install?versionID=version_agent_paid_webhook", nil)
+	installRequest := httptest.NewRequest(http.MethodPost, "/api/v1/marketplace/agents/agent_paid_webhook/install?versionID=version_agent_paid_webhook&provider=stripe", nil)
 	installRequest.AddCookie(cookie)
 	addCSRF(installRequest, csrfToken)
 	router.ServeHTTP(installRecorder, installRequest)
@@ -1585,7 +1722,7 @@ func TestStripeRefundUpdatesMarketplaceSettlementOnce(t *testing.T) {
 	}
 
 	installRecorder := httptest.NewRecorder()
-	installRequest := httptest.NewRequest(http.MethodPost, "/api/v1/marketplace/agents/agent_paid_refund/install?versionID=version_agent_paid_refund", nil)
+	installRequest := httptest.NewRequest(http.MethodPost, "/api/v1/marketplace/agents/agent_paid_refund/install?versionID=version_agent_paid_refund&provider=stripe", nil)
 	installRequest.AddCookie(cookie)
 	addCSRF(installRequest, csrfToken)
 	router.ServeHTTP(installRecorder, installRequest)
