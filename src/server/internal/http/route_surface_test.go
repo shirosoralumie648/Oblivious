@@ -63,6 +63,94 @@ func TestRouteSurfaceRegistersCanonicalKnowledgeRoutesThroughRegistrar(t *testin
 	}
 }
 
+func TestRouteSurfaceKnowledgeRoutesRequireSessionWithoutDatabase(t *testing.T) {
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{})
+
+	tests := []routeSurfaceCase{
+		{"list knowledge bases", stdhttp.MethodGet, "/api/v1/app/knowledge-bases"},
+		{"create knowledge base", stdhttp.MethodPost, "/api/v1/app/knowledge-bases"},
+		{"get knowledge base", stdhttp.MethodGet, "/api/v1/app/knowledge-bases/kb_1"},
+		{"update knowledge base", stdhttp.MethodPut, "/api/v1/app/knowledge-bases/kb_1"},
+		{"delete knowledge base", stdhttp.MethodDelete, "/api/v1/app/knowledge-bases/kb_1"},
+		{"list documents", stdhttp.MethodGet, "/api/v1/app/knowledge-bases/kb_1/documents"},
+		{"create document", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/documents"},
+		{"upload document", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/documents/upload"},
+		{"update document", stdhttp.MethodPut, "/api/v1/app/knowledge-bases/kb_1/documents/doc_1"},
+		{"delete document", stdhttp.MethodDelete, "/api/v1/app/knowledge-bases/kb_1/documents/doc_1"},
+		{"list document versions", stdhttp.MethodGet, "/api/v1/app/knowledge-bases/kb_1/documents/doc_1/versions"},
+		{"list chunks", stdhttp.MethodGet, "/api/v1/app/knowledge-bases/kb_1/documents/doc_1/chunks"},
+		{"update chunk", stdhttp.MethodPut, "/api/v1/app/knowledge-bases/kb_1/documents/doc_1/chunks/chunk_1"},
+		{"split chunk", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/documents/doc_1/chunks/chunk_1/split"},
+		{"merge chunk", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/documents/doc_1/chunks/chunk_1/merge"},
+		{"retrieve", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/retrieve"},
+		{"list retrieval test cases", stdhttp.MethodGet, "/api/v1/app/knowledge-bases/kb_1/retrieval-test-cases"},
+		{"create retrieval test case", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/retrieval-test-cases"},
+		{"run retrieval test cases", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/retrieval-test-cases/run"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(`{}`))
+			request.Header.Set("Content-Type", "application/json")
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusUnauthorized {
+				t.Fatalf("expected registered Knowledge route to require session with 401 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestRouteSurfaceKnowledgeRoutesDispatchWithCSRFWithoutDatabase(t *testing.T) {
+	session := routeSurfaceUserSession()
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}})
+	cookie := routeSurfaceSignedSessionCookie(t, session)
+	csrfToken := routeSurfaceCSRFToken(session)
+
+	tests := []routeSurfaceCase{
+		{"list knowledge bases", stdhttp.MethodGet, "/api/v1/app/knowledge-bases"},
+		{"create knowledge base", stdhttp.MethodPost, "/api/v1/app/knowledge-bases"},
+		{"get knowledge base", stdhttp.MethodGet, "/api/v1/app/knowledge-bases/kb_1"},
+		{"update knowledge base", stdhttp.MethodPut, "/api/v1/app/knowledge-bases/kb_1"},
+		{"delete knowledge base", stdhttp.MethodDelete, "/api/v1/app/knowledge-bases/kb_1"},
+		{"list documents", stdhttp.MethodGet, "/api/v1/app/knowledge-bases/kb_1/documents"},
+		{"create document", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/documents"},
+		{"upload document", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/documents/upload"},
+		{"update document", stdhttp.MethodPut, "/api/v1/app/knowledge-bases/kb_1/documents/doc_1"},
+		{"delete document", stdhttp.MethodDelete, "/api/v1/app/knowledge-bases/kb_1/documents/doc_1"},
+		{"list document versions", stdhttp.MethodGet, "/api/v1/app/knowledge-bases/kb_1/documents/doc_1/versions"},
+		{"list chunks", stdhttp.MethodGet, "/api/v1/app/knowledge-bases/kb_1/documents/doc_1/chunks"},
+		{"update chunk", stdhttp.MethodPut, "/api/v1/app/knowledge-bases/kb_1/documents/doc_1/chunks/chunk_1"},
+		{"split chunk", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/documents/doc_1/chunks/chunk_1/split"},
+		{"merge chunk", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/documents/doc_1/chunks/chunk_1/merge"},
+		{"retrieve", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/retrieve"},
+		{"list retrieval test cases", stdhttp.MethodGet, "/api/v1/app/knowledge-bases/kb_1/retrieval-test-cases"},
+		{"create retrieval test case", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/retrieval-test-cases"},
+		{"run retrieval test cases", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/retrieval-test-cases/run"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(`{"name":"Docs","title":"Plan","content":"hello","query":"hello","expectedResult":{"documentId":"doc_1","documentTitle":"Plan","snippet":"hello"},"splitAt":1,"direction":"next"}`))
+			request.Header.Set("Content-Type", "application/json")
+			if !isSafeMethod(tt.method) {
+				request.Header.Set(csrfHeaderName, csrfToken)
+			}
+			request.AddCookie(cookie)
+
+			router.ServeHTTP(recorder, request)
+
+			switch recorder.Code {
+			case stdhttp.StatusUnauthorized, stdhttp.StatusForbidden, stdhttp.StatusNotFound, stdhttp.StatusMethodNotAllowed:
+				t.Fatalf("expected registered Knowledge route to pass auth/csrf and dispatch for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
 func TestRouteSurfaceRegistersConsoleInvoiceRoute(t *testing.T) {
 	routerSource, err := os.ReadFile("router.go")
 	if err != nil {
@@ -253,6 +341,43 @@ func TestRouteSurfaceChatMutationsRejectCookieWithoutCSRFWithoutDatabase(t *test
 		t.Run(tt.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(`{"content":"hello","modelId":"quality-chat"}`))
+			request.Header.Set("Content-Type", "application/json")
+			request.AddCookie(cookie)
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusForbidden {
+				t.Fatalf("expected missing csrf to be rejected with 403 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestRouteSurfaceKnowledgeMutationsRejectCookieWithoutCSRFWithoutDatabase(t *testing.T) {
+	session := routeSurfaceUserSession()
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}})
+	cookie := routeSurfaceSignedSessionCookie(t, session)
+
+	tests := []routeSurfaceCase{
+		{"create knowledge base", stdhttp.MethodPost, "/api/v1/app/knowledge-bases"},
+		{"update knowledge base", stdhttp.MethodPut, "/api/v1/app/knowledge-bases/kb_1"},
+		{"delete knowledge base", stdhttp.MethodDelete, "/api/v1/app/knowledge-bases/kb_1"},
+		{"create document", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/documents"},
+		{"upload document", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/documents/upload"},
+		{"update document", stdhttp.MethodPut, "/api/v1/app/knowledge-bases/kb_1/documents/doc_1"},
+		{"delete document", stdhttp.MethodDelete, "/api/v1/app/knowledge-bases/kb_1/documents/doc_1"},
+		{"update chunk", stdhttp.MethodPut, "/api/v1/app/knowledge-bases/kb_1/documents/doc_1/chunks/chunk_1"},
+		{"split chunk", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/documents/doc_1/chunks/chunk_1/split"},
+		{"merge chunk", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/documents/doc_1/chunks/chunk_1/merge"},
+		{"retrieve", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/retrieve"},
+		{"create retrieval test case", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/retrieval-test-cases"},
+		{"run retrieval test cases", stdhttp.MethodPost, "/api/v1/app/knowledge-bases/kb_1/retrieval-test-cases/run"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(`{"name":"Docs","title":"Plan","content":"hello","query":"hello","expectedResult":{"documentId":"doc_1","documentTitle":"Plan","snippet":"hello"},"splitAt":1,"direction":"next"}`))
 			request.Header.Set("Content-Type", "application/json")
 			request.AddCookie(cookie)
 
@@ -879,4 +1004,9 @@ func routeSurfaceSignedSessionCookie(t *testing.T, session auth.Session) *stdhtt
 		t.Fatalf("expected one signed session cookie, got %d", len(cookies))
 	}
 	return cookies[0]
+}
+
+func routeSurfaceCSRFToken(session auth.Session) string {
+	middleware := newAuthMiddleware(testConfig(), auth.NewService(stubAuthStore{session: session}))
+	return middleware.csrfToken(session.ID)
 }

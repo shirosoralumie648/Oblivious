@@ -269,6 +269,38 @@ components:
           type: string
         documentCount:
           type: integer
+        chunkOverlap:
+          type: integer
+        chunkSize:
+          type: integer
+        chunkStrategy:
+          type: string
+        embeddingModel:
+          type: string
+        keywordWeight:
+          type: number
+          format: double
+        minScore:
+          type: number
+          format: double
+        rerankTopK:
+          type: integer
+        rerankerModel:
+          type: string
+        retrievalLimit:
+          type: integer
+        retrievalMode:
+          type: string
+          enum: [vector_only, hybrid, hybrid_rerank]
+        updateStrategy:
+          type: string
+          enum: [full_replace, incremental, versioned]
+        updatedAt:
+          type: string
+          format: date-time
+        vectorWeight:
+          type: number
+          format: double
 
     CreateKnowledgeBaseRequest:
       type: object
@@ -277,6 +309,35 @@ components:
         name:
           type: string
           example: "产品文档"
+        chunkOverlap:
+          type: integer
+        chunkSize:
+          type: integer
+        chunkStrategy:
+          type: string
+        embeddingModel:
+          type: string
+        keywordWeight:
+          type: number
+          format: double
+        minScore:
+          type: number
+          format: double
+        rerankTopK:
+          type: integer
+        rerankerModel:
+          type: string
+        retrievalLimit:
+          type: integer
+        retrievalMode:
+          type: string
+          enum: [vector_only, hybrid, hybrid_rerank]
+        updateStrategy:
+          type: string
+          enum: [full_replace, incremental, versioned]
+        vectorWeight:
+          type: number
+          format: double
 
     Document:
       type: object
@@ -287,6 +348,14 @@ components:
           type: string
         content:
           type: string
+        documentVersion:
+          type: string
+        updateStrategy:
+          type: string
+          enum: [full_replace, incremental, versioned]
+        updatedAt:
+          type: string
+          format: date-time
 
     KnowledgeChunkMetadata:
       type: object
@@ -350,6 +419,35 @@ components:
           type: string
         content:
           type: string
+        documentVersion:
+          type: string
+        pageNumber:
+          type: integer
+        sourceUrl:
+          type: string
+        updateStrategy:
+          type: string
+          enum: [full_replace, incremental, versioned]
+
+    UploadKnowledgeDocumentRequest:
+      type: object
+      required: [file]
+      properties:
+        file:
+          type: string
+          format: binary
+          description: 支持 txt、markdown、pdf、docx 的知识库文档文件。
+        title:
+          type: string
+        documentVersion:
+          type: string
+        pageNumber:
+          type: integer
+        sourceUrl:
+          type: string
+        updateStrategy:
+          type: string
+          enum: [full_replace, incremental, versioned]
 
     UpdateKnowledgeDocumentChunkRequest:
       type: object
@@ -399,6 +497,68 @@ components:
         keywordWeight:
           type: number
           format: double
+
+    KnowledgeRetrievalResult:
+      type: object
+      properties:
+        chunkId:
+          type: string
+        chunkIndex:
+          type: integer
+        documentId:
+          type: string
+        documentTitle:
+          type: string
+        documentVersion:
+          type: string
+        retrievalMethod:
+          type: string
+        retrievalMode:
+          type: string
+          enum: [vector_only, hybrid, hybrid_rerank]
+        score:
+          type: number
+          format: double
+        similarity:
+          type: number
+          format: double
+        snippet:
+          type: string
+        source:
+          type: object
+
+    CreateKnowledgeRetrievalTestCaseRequest:
+      type: object
+      required: [query, expectedResult]
+      properties:
+        query:
+          type: string
+        expectedResult:
+          $ref: "#/components/schemas/KnowledgeRetrievalResult"
+
+    KnowledgeRetrievalTestCase:
+      type: object
+      properties:
+        id:
+          type: string
+        knowledgeBaseId:
+          type: string
+        query:
+          type: string
+        expectedDocumentId:
+          type: string
+        expectedDocumentTitle:
+          type: string
+        expectedDocumentVersion:
+          type: string
+        expectedChunkId:
+          type: string
+        expectedChunkIndex:
+          type: integer
+        expectedSnippet:
+          type: string
+        expectedResult:
+          $ref: "#/components/schemas/KnowledgeRetrievalResult"
 
     KnowledgeRetrievalTestRunRequest:
       type: object
@@ -461,7 +621,29 @@ components:
               results:
                 type: array
                 items:
-                  type: object
+                  $ref: "#/components/schemas/KnowledgeRetrievalTestRunResult"
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/KnowledgeRetrievalTestRunResult"
+
+    KnowledgeRetrievalTestRunResult:
+      type: object
+      properties:
+        testCaseId:
+          type: string
+        query:
+          type: string
+        passed:
+          type: boolean
+        rank:
+          type: integer
+        expectedResult:
+          $ref: "#/components/schemas/KnowledgeRetrievalResult"
+        actualResult:
+          $ref: "#/components/schemas/KnowledgeRetrievalResult"
+        reason:
+          type: string
 
     CreateTaskRequest:
       type: object
@@ -5259,6 +5441,9 @@ paths:
       summary: 创建知识库
       operationId: createKnowledgeBase
       tags: [Knowledge]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       requestBody:
         required: true
         content:
@@ -5311,6 +5496,9 @@ paths:
       summary: 更新知识库
       operationId: updateKnowledgeBase
       tags: [Knowledge]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: knowledgeBaseId
           in: path
@@ -5343,6 +5531,9 @@ paths:
       summary: 删除知识库
       operationId: deleteKnowledgeBase
       tags: [Knowledge]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: knowledgeBaseId
           in: path
@@ -5386,6 +5577,9 @@ paths:
       summary: 创建知识库文档
       operationId: createKnowledgeDocument
       tags: [Knowledge]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: knowledgeBaseId
           in: path
@@ -5415,11 +5609,53 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/upload:
+    post:
+      summary: 上传知识库文档
+      operationId: uploadKnowledgeDocument
+      tags: [Knowledge]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      parameters:
+        - name: knowledgeBaseId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/UploadKnowledgeDocumentRequest"
+      responses:
+        "200":
+          description: 上传并解析后的文档
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Document"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}:
     put:
       summary: 更新知识库文档
       operationId: updateKnowledgeDocument
       tags: [Knowledge]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: knowledgeBaseId
           in: path
@@ -5457,6 +5693,9 @@ paths:
       summary: 删除知识库文档
       operationId: deleteKnowledgeDocument
       tags: [Knowledge]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: knowledgeBaseId
           in: path
@@ -5549,6 +5788,9 @@ paths:
       summary: 更新知识库文档分块
       operationId: updateKnowledgeDocumentChunk
       tags: [Knowledge]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: knowledgeBaseId
           in: path
@@ -5595,6 +5837,9 @@ paths:
       summary: 拆分知识库文档分块
       operationId: splitKnowledgeDocumentChunk
       tags: [Knowledge]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: knowledgeBaseId
           in: path
@@ -5643,6 +5888,9 @@ paths:
       summary: 合并知识库文档分块
       operationId: mergeKnowledgeDocumentChunks
       tags: [Knowledge]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: knowledgeBaseId
           in: path
@@ -5691,6 +5939,9 @@ paths:
       summary: 知识库检索
       operationId: retrieveKnowledge
       tags: [Knowledge]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: knowledgeBaseId
           in: path
@@ -5709,17 +5960,94 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/KnowledgeRetrievalResult"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/app/knowledge-bases/{knowledgeBaseId}/retrieval-test-cases:
+    get:
+      summary: 获取知识库检索测试用例
+      operationId: listKnowledgeRetrievalTestCases
+      tags: [Knowledge]
+      parameters:
+        - name: knowledgeBaseId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 检索测试用例列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/KnowledgeRetrievalTestCase"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      summary: 创建知识库检索测试用例
+      operationId: createKnowledgeRetrievalTestCase
+      tags: [Knowledge]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      parameters:
+        - name: knowledgeBaseId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateKnowledgeRetrievalTestCaseRequest"
+      responses:
+        "201":
+          description: 新创建的检索测试用例
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/KnowledgeRetrievalTestCase"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /api/v1/app/knowledge-bases/{knowledgeBaseId}/retrieval-test-cases/run:
     post:
       summary: 运行知识库检索测试或跨模式质量基准
       operationId: runKnowledgeRetrievalTestCases
       tags: [Knowledge]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: knowledgeBaseId
           in: path

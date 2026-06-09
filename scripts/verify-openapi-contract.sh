@@ -1593,6 +1593,146 @@ require_chat_mutation_csrf_contract() {
   ' "$openapi_file"
 }
 
+require_knowledge_mutation_csrf_contract() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+    paths = spec.fetch("paths", {})
+    schemas = spec.fetch("components", {}).fetch("schemas", {})
+    missing = []
+
+    def operation(paths, path, method, missing)
+      op = paths.dig(path, method)
+      unless op
+        missing << "#{method.upcase} #{path} must be documented"
+        return {}
+      end
+      op
+    end
+
+    def requires_cookie_and_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
+    end
+
+    def request_body_ref(operation, content_type)
+      operation.dig("requestBody", "content", content_type, "schema", "$ref")
+    end
+
+    def response_data_ref(operation, status)
+      operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "$ref") }&.
+        dig("properties", "data", "$ref")
+    end
+
+    def response_data_array_ref(operation, status)
+      operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "items", "$ref") }&.
+        dig("properties", "data", "items", "$ref")
+    end
+
+    mutation_paths = [
+      ["/api/v1/app/knowledge-bases", "post"],
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}", "put"],
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}", "delete"],
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents", "post"],
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/upload", "post"],
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}", "put"],
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}", "delete"],
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks/{chunkId}", "put"],
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks/{chunkId}/split", "post"],
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks/{chunkId}/merge", "post"],
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/retrieve", "post"],
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/retrieval-test-cases", "post"],
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/retrieval-test-cases/run", "post"],
+    ]
+
+    mutation_paths.each do |path, method|
+      op = operation(paths, path, method, missing)
+      unless requires_cookie_and_csrf?(op)
+        missing << "#{method.upcase} #{path} must require cookieAuth and csrfHeader"
+      end
+      unless op.fetch("tags", []).include?("Knowledge")
+        missing << "#{method.upcase} #{path} must be tagged Knowledge"
+      end
+    end
+
+    {
+      ["/api/v1/app/knowledge-bases", "post", "application/json"] => "#/components/schemas/CreateKnowledgeBaseRequest",
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}", "put", "application/json"] => "#/components/schemas/CreateKnowledgeBaseRequest",
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents", "post", "application/json"] => "#/components/schemas/CreateDocumentRequest",
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/upload", "post", "multipart/form-data"] => "#/components/schemas/UploadKnowledgeDocumentRequest",
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}", "put", "application/json"] => "#/components/schemas/CreateDocumentRequest",
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks/{chunkId}", "put", "application/json"] => "#/components/schemas/UpdateKnowledgeDocumentChunkRequest",
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks/{chunkId}/split", "post", "application/json"] => "#/components/schemas/SplitKnowledgeDocumentChunkRequest",
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks/{chunkId}/merge", "post", "application/json"] => "#/components/schemas/MergeKnowledgeDocumentChunksRequest",
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/retrieve", "post", "application/json"] => "#/components/schemas/RetrieveKnowledgeRequest",
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/retrieval-test-cases", "post", "application/json"] => "#/components/schemas/CreateKnowledgeRetrievalTestCaseRequest",
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/retrieval-test-cases/run", "post", "application/json"] => "#/components/schemas/KnowledgeRetrievalTestRunRequest",
+    }.each do |(path, method, content_type), expected|
+      op = operation(paths, path, method, missing)
+      unless request_body_ref(op, content_type) == expected
+        missing << "#{method.upcase} #{path} #{content_type} request body must reference #{expected}"
+      end
+    end
+
+    {
+      ["/api/v1/app/knowledge-bases", "get", "200"] => ["#/components/schemas/KnowledgeBase", :array_ref],
+      ["/api/v1/app/knowledge-bases", "post", "200"] => ["#/components/schemas/KnowledgeBase", :ref],
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}", "get", "200"] => ["#/components/schemas/KnowledgeBase", :ref],
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}", "put", "200"] => ["#/components/schemas/KnowledgeBase", :ref],
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents", "get", "200"] => ["#/components/schemas/Document", :array_ref],
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents", "post", "200"] => ["#/components/schemas/Document", :ref],
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/upload", "post", "200"] => ["#/components/schemas/Document", :ref],
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}", "put", "200"] => ["#/components/schemas/Document", :ref],
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/versions", "get", "200"] => ["#/components/schemas/KnowledgeDocumentVersion", :array_ref],
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks", "get", "200"] => ["#/components/schemas/KnowledgeDocumentChunk", :array_ref],
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks/{chunkId}", "put", "200"] => ["#/components/schemas/KnowledgeDocumentChunk", :ref],
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks/{chunkId}/split", "post", "200"] => ["#/components/schemas/KnowledgeDocumentChunk", :array_ref],
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks/{chunkId}/merge", "post", "200"] => ["#/components/schemas/KnowledgeDocumentChunk", :array_ref],
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/retrieve", "post", "200"] => ["#/components/schemas/KnowledgeRetrievalResult", :array_ref],
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/retrieval-test-cases", "get", "200"] => ["#/components/schemas/KnowledgeRetrievalTestCase", :array_ref],
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/retrieval-test-cases", "post", "201"] => ["#/components/schemas/KnowledgeRetrievalTestCase", :ref],
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/retrieval-test-cases/run", "post", "200"] => ["#/components/schemas/KnowledgeRetrievalTestRunReport", :ref],
+    }.each do |(path, method, status), (expected, shape)|
+      op = operation(paths, path, method, missing)
+      actual = shape == :array_ref ? response_data_array_ref(op, status) : response_data_ref(op, status)
+      unless actual == expected
+        missing << "#{method.upcase} #{path} #{status} data must reference #{expected}"
+      end
+    end
+
+    unless schemas.dig("KnowledgeBase", "properties", "retrievalMode", "enum")&.include?("hybrid_rerank") &&
+        schemas.dig("CreateKnowledgeBaseRequest", "properties", "chunkSize", "type") == "integer" &&
+        schemas.dig("CreateKnowledgeBaseRequest", "properties", "embeddingModel", "type") == "string" &&
+        schemas.dig("CreateKnowledgeBaseRequest", "properties", "vectorWeight", "format") == "double"
+      missing << "KnowledgeBase and CreateKnowledgeBaseRequest must document retrieval/chunking config fields"
+    end
+    unless schemas.dig("CreateDocumentRequest", "properties", "documentVersion", "type") == "string" &&
+        schemas.dig("CreateDocumentRequest", "properties", "pageNumber", "type") == "integer" &&
+        schemas.dig("CreateDocumentRequest", "properties", "sourceUrl", "type") == "string" &&
+        schemas.dig("UploadKnowledgeDocumentRequest", "properties", "file", "format") == "binary"
+      missing << "Knowledge document create/upload schemas must document metadata and multipart file fields"
+    end
+    unless schemas.dig("KnowledgeRetrievalResult", "properties", "documentId", "type") == "string" &&
+        schemas.dig("KnowledgeRetrievalResult", "properties", "snippet", "type") == "string" &&
+        schemas.dig("KnowledgeRetrievalResult", "properties", "retrievalMode", "enum")&.include?("hybrid_rerank")
+      missing << "KnowledgeRetrievalResult schema must document result identity, snippet, and retrieval mode"
+    end
+    unless schemas.dig("CreateKnowledgeRetrievalTestCaseRequest", "properties", "expectedResult", "$ref") == "#/components/schemas/KnowledgeRetrievalResult" &&
+        schemas.dig("KnowledgeRetrievalTestCase", "properties", "expectedResult", "$ref") == "#/components/schemas/KnowledgeRetrievalResult" &&
+        schemas.dig("KnowledgeRetrievalTestRunReport", "properties", "results", "items", "$ref") == "#/components/schemas/KnowledgeRetrievalTestRunResult"
+      missing << "Knowledge retrieval test case schemas must reference typed retrieval results"
+    end
+
+    unless missing.empty?
+      warn "[openapi-contract] Knowledge mutation CSRF/schema contract is incomplete:"
+      missing.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 require_admin_organization_mutation_csrf_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
@@ -2167,6 +2307,19 @@ required_paths=(
   "/api/v1/app/organizations/{organizationId}/invitations/{invitationId}/revoke"
   "/api/v1/app/organizations/{organizationId}/ownership-transfer"
   "/api/v1/app/organization-invitations/{token}/accept"
+  "/api/v1/app/knowledge-bases"
+  "/api/v1/app/knowledge-bases/{knowledgeBaseId}"
+  "/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents"
+  "/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/upload"
+  "/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}"
+  "/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/versions"
+  "/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks"
+  "/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks/{chunkId}"
+  "/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks/{chunkId}/split"
+  "/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks/{chunkId}/merge"
+  "/api/v1/app/knowledge-bases/{knowledgeBaseId}/retrieve"
+  "/api/v1/app/knowledge-bases/{knowledgeBaseId}/retrieval-test-cases"
+  "/api/v1/app/knowledge-bases/{knowledgeBaseId}/retrieval-test-cases/run"
   "/api/v1/app/notifications"
   "/api/v1/app/notifications/unread-count"
   "/api/v1/app/notifications/mark-all-read"
@@ -2264,6 +2417,7 @@ require_task_mutation_csrf_contract
 require_notification_mutation_csrf_contract
 require_preferences_mutation_csrf_contract
 require_chat_mutation_csrf_contract
+require_knowledge_mutation_csrf_contract
 require_admin_organization_mutation_csrf_contract
 require_admin_core_management_contract
 require_admin_billing_contract
