@@ -74,12 +74,14 @@ vi.mock('@xyflow/react', () => {
       children,
       nodeTypes,
       nodes,
+      onNodeDrag,
       onNodeDragStop,
       snapToGrid,
     }: {
       children?: ReactNode;
       nodeTypes?: Record<string, ComponentType<any>>;
       nodes?: Array<any>;
+      onNodeDrag?: (event: { altKey: boolean }, node: any) => void;
       onNodeDragStop?: (event: { altKey: boolean }, node: any) => void;
       snapToGrid?: boolean;
     }) => {
@@ -96,6 +98,27 @@ vi.mock('@xyflow/react', () => {
                   aria-label={`Mock drag ${node.id} to 137 77`}
                   onClick={() =>
                     onNodeDragStop?.({ altKey: false }, { ...node, position: { x: 137, y: 77 } })
+                  }
+                  type="button"
+                />
+                <button
+                  aria-label={`Mock move ${node.id} near 320 80`}
+                  onClick={() =>
+                    onNodeDrag?.({ altKey: false }, { ...node, position: { x: 314, y: 86 } })
+                  }
+                  type="button"
+                />
+                <button
+                  aria-label={`Mock drop ${node.id} near 320 80`}
+                  onClick={() =>
+                    onNodeDragStop?.({ altKey: false }, { ...node, position: { x: 314, y: 86 } })
+                  }
+                  type="button"
+                />
+                <button
+                  aria-label={`Mock alt move ${node.id} near 320 80`}
+                  onClick={() =>
+                    onNodeDrag?.({ altKey: true }, { ...node, position: { x: 314, y: 86 } })
                   }
                   type="button"
                 />
@@ -1883,6 +1906,17 @@ describe('WorkflowsPage', () => {
 
     fireEvent.click(within(canvas).getByRole('button', { name: 'Mock drag manual-start to 137 77' }));
     expect(await within(canvas).findByRole('button', { name: 'Canvas node 1 manual-start manual at 140 80' })).toBeInTheDocument();
+
+    fireEvent.click(within(canvas).getByRole('button', { name: 'Mock move manual-start near 320 80' }));
+    expect(await within(canvas).findByLabelText('Alignment guide x 320 for classify-ticket')).toBeInTheDocument();
+    expect(within(canvas).getByLabelText('Alignment guide y 80 for classify-ticket')).toBeInTheDocument();
+    fireEvent.click(within(canvas).getByRole('button', { name: 'Mock drop manual-start near 320 80' }));
+    expect(await within(canvas).findByRole('button', { name: 'Canvas node 1 manual-start manual at 320 80' })).toBeInTheDocument();
+    expect(within(canvas).queryByLabelText('Alignment guide x 320 for classify-ticket')).not.toBeInTheDocument();
+
+    fireEvent.click(within(canvas).getByRole('button', { name: 'Mock alt move notify-team near 320 80' }));
+    expect(within(canvas).queryByLabelText('Alignment guide x 320 for manual-start')).not.toBeInTheDocument();
+    expect(within(canvas).queryByLabelText('Alignment guide y 80 for manual-start')).not.toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: 'Alt' });
     fireEvent.click(within(canvas).getByRole('button', { name: 'Mock alt drag classify-ticket to 137 77' }));

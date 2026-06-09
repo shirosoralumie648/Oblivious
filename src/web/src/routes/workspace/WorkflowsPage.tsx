@@ -154,6 +154,11 @@ type WorkflowNodeContextMenu = {
   x: number;
   y: number;
 };
+type WorkflowCanvasAlignmentGuide = {
+  axis: 'x' | 'y';
+  position: number;
+  targetNodeId: string;
+};
 
 type WorkflowNodeFailureStrategy = 'auto_retry' | 'failure_branch' | 'pause_on_failure' | 'skip_on_failure';
 type StructuredTriggerDraftKind = 'conversation' | 'schedule' | 'semantic' | 'webhook';
@@ -180,6 +185,7 @@ const workflowCanvasLayoutOrigin: WorkflowCanvasPosition = { x: 80, y: 80 };
 const workflowCanvasColumnGap = 240;
 const workflowCanvasRowGap = 140;
 const workflowReactFlowSnapGrid: [number, number] = [workflowCanvasGridSize, workflowCanvasGridSize];
+const workflowCanvasAlignmentThreshold = 8;
 
 function WorkflowReactFlowNodeComponent({ data, selected }: NodeProps<WorkflowReactFlowNode>) {
   const nodeCardClass = visualNodeCardClass(data.nodeStatus, data.hasNodeExecution);
@@ -412,6 +418,48 @@ function fallbackCanvasPosition(index: number): WorkflowCanvasPosition {
 function visualCanvasNodePosition(node: VisualWorkflowNode, index: number, snapEnabled = true) {
   const position = node.position ?? fallbackCanvasPosition(index);
   return snapEnabled ? snapCanvasPosition(position) : position;
+}
+
+function workflowCanvasAlignmentTarget(
+  nodes: VisualWorkflowNode[],
+  activeNodeId: string,
+  position: WorkflowCanvasPosition,
+  snapEnabled = true,
+  freeformNodePositions: Record<string, boolean> = {}
+): { guides: WorkflowCanvasAlignmentGuide[]; position: WorkflowCanvasPosition } {
+  let xGuide: WorkflowCanvasAlignmentGuide | undefined;
+  let yGuide: WorkflowCanvasAlignmentGuide | undefined;
+  let nextX = position.x;
+  let nextY = position.y;
+  let closestXDistance = workflowCanvasAlignmentThreshold + 1;
+  let closestYDistance = workflowCanvasAlignmentThreshold + 1;
+
+  nodes.forEach((node, index) => {
+    if (node.id === activeNodeId) {
+      return;
+    }
+    const nodePosition = visualCanvasNodePosition(node, index, snapEnabled && !freeformNodePositions[node.id]);
+    const xDistance = Math.abs(nodePosition.x - position.x);
+    const yDistance = Math.abs(nodePosition.y - position.y);
+    if (xDistance <= workflowCanvasAlignmentThreshold && xDistance < closestXDistance) {
+      closestXDistance = xDistance;
+      nextX = nodePosition.x;
+      xGuide = { axis: 'x', position: nodePosition.x, targetNodeId: node.id };
+    }
+    if (yDistance <= workflowCanvasAlignmentThreshold && yDistance < closestYDistance) {
+      closestYDistance = yDistance;
+      nextY = nodePosition.y;
+      yGuide = { axis: 'y', position: nodePosition.y, targetNodeId: node.id };
+    }
+  });
+
+  return {
+    guides: [xGuide, yGuide].filter((guide): guide is WorkflowCanvasAlignmentGuide => guide !== undefined),
+    position: {
+      x: nextX,
+      y: nextY,
+    },
+  };
 }
 
 function formatRetryDelays(value: unknown) {
@@ -1698,6 +1746,9 @@ export function WorkflowsPage() {
   const [nodeFailureStrategyDrafts, setNodeFailureStrategyDrafts] = useState<Record<string, WorkflowNodeFailureStrategy>>(
     {}
   );
+  const [nodeAlignmentGuidesByWorkflow, setNodeAlignmentGuidesByWorkflow] = useState<
+    Record<string, WorkflowCanvasAlignmentGuide[]>
+  >({});
   const [nodeContextMenus, setNodeContextMenus] = useState<Record<string, WorkflowNodeContextMenu | undefined>>({});
   const [selectedNodeIds, setSelectedNodeIds] = useState<Record<string, string | undefined>>({});
   const [freeformNodePositionsByWorkflow, setFreeformNodePositionsByWorkflow] = useState<
@@ -2486,7 +2537,29 @@ export function WorkflowsPage() {
       delete next[nodeFailurePolicyDraftKey(workflow.id, node.id)];
       return next;
     });
+    setNodeAlignmentGuidesByWorkflow((current) => ({ ...current, [workflow.id]: [] }));
     setError(null);
+  };
+
+  const handleWorkflowCanvasNodeDrag = (
+    workflow: WorkflowDefinition,
+    nodeId: string,
+    position: WorkflowCanvasPosition,
+    bypassSnap = false
+  ) => {
+    if (bypassSnap || !(snapToGridByWorkflow[workflow.id] ?? true)) {
+      setNodeAlignmentGuidesByWorkflow((current) => ({ ...current, [workflow.id]: [] }));
+      return;
+    }
+
+    const alignment = workflowCanvasAlignmentTarget(
+      getWorkflowNodes(workflow),
+      nodeId,
+      position,
+      true,
+      freeformNodePositionsByWorkflow[workflow.id] ?? {}
+    );
+    setNodeAlignmentGuidesByWorkflow((current) => ({ ...current, [workflow.id]: alignment.guides }));
   };
 
   const handleWorkflowCanvasNodeDragStop = (
@@ -2496,13 +2569,24 @@ export function WorkflowsPage() {
     bypassSnap = false
   ) => {
     const shouldSnap = !bypassSnap && (snapToGridByWorkflow[workflow.id] ?? true);
-    const nextPosition = shouldSnap ? snapCanvasPosition(position) : position;
+    const alignment = shouldSnap
+      ? workflowCanvasAlignmentTarget(
+          getWorkflowNodes(workflow),
+          nodeId,
+          position,
+          true,
+          freeformNodePositionsByWorkflow[workflow.id] ?? {}
+        )
+      : undefined;
+    const alignedPosition = alignment && alignment.guides.length > 0 ? alignment.position : position;
+    const nextPosition = shouldSnap ? snapCanvasPosition(alignedPosition) : position;
     const definition = updateDefinitionNodePosition(workflow.definition, nodeId, nextPosition);
     if (!definition) {
       return;
     }
 
     replaceWorkflowDefinitionDraft(workflow, definition);
+    setNodeAlignmentGuidesByWorkflow((current) => ({ ...current, [workflow.id]: [] }));
     setFreeformNodePositionsByWorkflow((current) => ({
       ...current,
       [workflow.id]: {
@@ -3395,6 +3479,7 @@ export function WorkflowsPage() {
               const workflowNodeContextMenuNode = workflowNodeContextMenu
                 ? workflowNodes.find((node) => node.id === workflowNodeContextMenu.nodeId)
                 : undefined;
+              const workflowAlignmentGuides = nodeAlignmentGuidesByWorkflow[workflow.id] ?? [];
               const selectedNodeExecution = selectedNode ? nodeExecutionMap.get(selectedNode.id) : undefined;
               const selectedNodeStatus = selectedNode ? visualNodeStatus(selectedNode, selectedNodeExecution) : undefined;
               const selectedNodeFailureStrategy = selectedNode
@@ -4026,6 +4111,12 @@ export function WorkflowsPage() {
                                     onNodeContextMenu={(event, reactFlowNode) => {
                                       handleWorkflowNodeContextMenu(event, workflow.id, reactFlowNode.data.node);
                                     }}
+                                    onNodeDrag={(event, reactFlowNode) => {
+                                      handleWorkflowCanvasNodeDrag(workflow, reactFlowNode.data.node.id, {
+                                        x: reactFlowNode.position.x,
+                                        y: reactFlowNode.position.y,
+                                      }, event.altKey);
+                                    }}
                                     onNodeDragStop={(event, reactFlowNode) => {
                                       handleWorkflowCanvasNodeDragStop(workflow, reactFlowNode.data.node.id, {
                                         x: reactFlowNode.position.x,
@@ -4046,6 +4137,20 @@ export function WorkflowsPage() {
                                     />
                                   </ReactFlow>
                                 </ReactFlowProvider>
+                                {workflowAlignmentGuides.map((guide) => (
+                                  <span
+                                    aria-label={`Alignment guide ${guide.axis} ${guide.position} for ${guide.targetNodeId}`}
+                                    className={`pointer-events-none absolute bg-[#1a614f]/70 ${
+                                      guide.axis === 'x' ? 'top-0 h-full w-px' : 'left-0 h-px w-full'
+                                    }`}
+                                    key={`${guide.axis}-${guide.position}-${guide.targetNodeId}`}
+                                    style={
+                                      guide.axis === 'x'
+                                        ? { left: guide.position }
+                                        : { top: guide.position }
+                                    }
+                                  />
+                                ))}
                                 <div className="absolute bottom-3 left-3 right-3 flex flex-wrap gap-2">
                                   {activeWorkflowEdges.map((edge) => (
                                     <span
