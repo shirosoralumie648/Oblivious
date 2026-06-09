@@ -4380,6 +4380,201 @@ func TestRunWithToolsLLMAssistedLongTermMemoryExtractionIgnoresInvalidJSON(t *te
 	}
 }
 
+func TestRunWithToolsLongTermMemoryUpdatePolicyConsolidatesByMemoryKey(t *testing.T) {
+	oldUpdatedAt := time.Date(2026, 6, 8, 10, 0, 0, 0, time.UTC)
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+			Config: Config{
+				EnableMemory:               true,
+				LongTermMemoryWritePolicy:  LongTermMemoryWritePolicyExplicitOnly,
+				LongTermMemoryUpdatePolicy: LongTermMemoryUpdatePolicyMemoryKeyConsolidate,
+			},
+		},
+		conversation: &Conversation{
+			ID:             "conv_1",
+			AgentID:        "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+		},
+		memories: []*Memory{{
+			ID:             "memory_company",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			AgentID:        "agent_1",
+			Type:           MemoryTypeLongTerm,
+			Content:        "Important fact: My company is OldCo",
+			Importance:     3,
+			Metadata: map[string]any{
+				"source":          "agent_memory_policy",
+				"memory_category": "fact",
+				"memory_key":      "fact:company",
+				"conversation_id": "conv_old",
+			},
+			CreatedAt: oldUpdatedAt,
+			UpdatedAt: oldUpdatedAt,
+		}},
+	}
+	gateway := &fakeGateway{
+		structured: []*chat.CompletionResponse{
+			{Content: "Updated.", FinishReason: "stop"},
+		},
+	}
+	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+
+	_, err := runner.RunWithTools(
+		context.Background(),
+		auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}},
+		store.agent,
+		store.conversation.ID,
+		"My company is NewCo.",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("RunWithTools returned error: %v", err)
+	}
+	if len(store.memories) != 1 {
+		t.Fatalf("expected existing keyed memory to be consolidated, got %+v", store.memories)
+	}
+	updated := store.memories[0]
+	if updated.ID != "memory_company" || updated.Content != "Important fact: My company is NewCo" || updated.Importance != 4 {
+		t.Fatalf("expected keyed company fact memory to update, got %+v", updated)
+	}
+	if updated.UpdatedAt.Equal(oldUpdatedAt) {
+		t.Fatalf("expected keyed memory update timestamp to refresh, got %+v", updated)
+	}
+	if updated.Metadata["memory_key"] != "fact:company" || updated.Metadata["update_policy"] != LongTermMemoryUpdatePolicyMemoryKeyConsolidate || updated.Metadata["consolidated_from_memory_id"] != "memory_company" || updated.Metadata["conversation_id"] != "conv_1" {
+		t.Fatalf("expected consolidation metadata, got %+v", updated.Metadata)
+	}
+}
+
+func TestRunWithToolsLongTermMemoryDefaultUpdatePolicyDoesNotConsolidateByMemoryKey(t *testing.T) {
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+			Config: Config{
+				EnableMemory:              true,
+				LongTermMemoryWritePolicy: LongTermMemoryWritePolicyExplicitOnly,
+			},
+		},
+		conversation: &Conversation{
+			ID:             "conv_1",
+			AgentID:        "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+		},
+		memories: []*Memory{{
+			ID:             "memory_company",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			AgentID:        "agent_1",
+			Type:           MemoryTypeLongTerm,
+			Content:        "Important fact: My company is OldCo",
+			Importance:     3,
+			Metadata: map[string]any{
+				"source":          "agent_memory_policy",
+				"memory_category": "fact",
+				"memory_key":      "fact:company",
+				"conversation_id": "conv_old",
+			},
+		}},
+	}
+	gateway := &fakeGateway{
+		structured: []*chat.CompletionResponse{
+			{Content: "Updated.", FinishReason: "stop"},
+		},
+	}
+	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+
+	_, err := runner.RunWithTools(
+		context.Background(),
+		auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}},
+		store.agent,
+		store.conversation.ID,
+		"My company is NewCo.",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("RunWithTools returned error: %v", err)
+	}
+	if len(store.memories) != 2 {
+		t.Fatalf("default update policy should preserve existing keyed memory and create a new one, got %+v", store.memories)
+	}
+	if store.memories[0].Content != "Important fact: My company is OldCo" || store.memories[1].Content != "Important fact: My company is NewCo" {
+		t.Fatalf("unexpected memories after default update policy: %+v", store.memories)
+	}
+}
+
+func TestRunWithToolsLongTermMemoryUpdatePolicyDoesNotMergeDifferentPreferences(t *testing.T) {
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+			Config: Config{
+				EnableMemory:               true,
+				LongTermMemoryWritePolicy:  LongTermMemoryWritePolicyExplicitOnly,
+				LongTermMemoryUpdatePolicy: LongTermMemoryUpdatePolicyMemoryKeyConsolidate,
+			},
+		},
+		conversation: &Conversation{
+			ID:             "conv_1",
+			AgentID:        "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+		},
+		memories: []*Memory{{
+			ID:             "memory_preference",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			AgentID:        "agent_1",
+			Type:           MemoryTypeLongTerm,
+			Content:        "User preference: I prefer concise answers",
+			Importance:     4,
+			Metadata: map[string]any{
+				"source":          "agent_memory_policy",
+				"memory_category": "preference",
+				"memory_key":      "preference:i prefer concise answers",
+				"conversation_id": "conv_old",
+			},
+		}},
+	}
+	gateway := &fakeGateway{
+		structured: []*chat.CompletionResponse{
+			{Content: "Noted.", FinishReason: "stop"},
+		},
+	}
+	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+
+	_, err := runner.RunWithTools(
+		context.Background(),
+		auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}},
+		store.agent,
+		store.conversation.ID,
+		"I prefer detailed answers.",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("RunWithTools returned error: %v", err)
+	}
+	if len(store.memories) != 2 {
+		t.Fatalf("different preferences should not share a consolidation key, got %+v", store.memories)
+	}
+	if store.memories[0].Content != "User preference: I prefer concise answers" || store.memories[1].Content != "User preference: I prefer detailed answers" {
+		t.Fatalf("unexpected preferences after keyed update policy: %+v", store.memories)
+	}
+	if store.memories[1].Metadata["memory_key"] != "preference:i prefer detailed answers" {
+		t.Fatalf("expected content-derived preference memory key, got %+v", store.memories[1].Metadata)
+	}
+}
+
 func TestRunWithToolsLongTermMemoryExplicitOnlySkipsInteractionMemory(t *testing.T) {
 	store := &fakeStore{
 		agent: &Agent{

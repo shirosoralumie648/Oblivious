@@ -57,6 +57,9 @@ const (
 	LongTermMemoryExtractionPolicyDeterministic = "deterministic"
 	LongTermMemoryExtractionPolicyLLMAssisted   = "llm_assisted"
 
+	LongTermMemoryUpdatePolicyExactRefresh         = "exact_refresh"
+	LongTermMemoryUpdatePolicyMemoryKeyConsolidate = "memory_key_consolidate"
+
 	ToolRiskSafe      = "safe"
 	ToolRiskMedium    = "medium"
 	ToolRiskDangerous = "dangerous"
@@ -78,6 +81,7 @@ func NormalizeConfig(config Config) Config {
 	config.ApprovalMode = normalizeApprovalMode(config.ApprovalMode)
 	config.LongTermMemoryWritePolicy = normalizeLongTermMemoryWritePolicy(config.LongTermMemoryWritePolicy)
 	config.LongTermMemoryExtractionPolicy = normalizeLongTermMemoryExtractionPolicy(config.LongTermMemoryExtractionPolicy)
+	config.LongTermMemoryUpdatePolicy = normalizeLongTermMemoryUpdatePolicy(config.LongTermMemoryUpdatePolicy)
 	return config
 }
 
@@ -142,6 +146,15 @@ func normalizeLongTermMemoryExtractionPolicy(value string) string {
 		return LongTermMemoryExtractionPolicyLLMAssisted
 	default:
 		return LongTermMemoryExtractionPolicyDeterministic
+	}
+}
+
+func normalizeLongTermMemoryUpdatePolicy(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case LongTermMemoryUpdatePolicyMemoryKeyConsolidate:
+		return LongTermMemoryUpdatePolicyMemoryKeyConsolidate
+	default:
+		return LongTermMemoryUpdatePolicyExactRefresh
 	}
 }
 
@@ -1292,7 +1305,10 @@ func (r *Runner) storeLongTermMemory(ctx context.Context, session auth.Session, 
 		}
 		req.Embedding = embedding
 	}
-	if r.refreshDuplicateLongTermInteractionMemory(ctx, session, agent, content, req.Embedding) {
+	if r.refreshDuplicateLongTermInteractionMemory(ctx, session, agent, content, req.Importance, req.Metadata, req.Embedding) {
+		return
+	}
+	if r.consolidateLongTermMemoryByKey(ctx, session, agent, content, req.Importance, req.Metadata, req.Embedding) {
 		return
 	}
 	_, _ = r.store.CreateMemory(ctx, req)
@@ -1347,14 +1363,14 @@ func deriveDeterministicLongTermMemories(userContent, conversationID string) []d
 		memories = append(memories, derivedLongTermMemory{
 			content:    preference,
 			importance: 4,
-			metadata:   derivedMemoryMetadata("preference", conversationID),
+			metadata:   derivedMemoryMetadata("preference", conversationID, preference),
 		})
 	}
 	if fact, ok := extractFactMemory(userContent); ok {
 		memories = append(memories, derivedLongTermMemory{
 			content:    fact,
 			importance: 4,
-			metadata:   derivedMemoryMetadata("fact", conversationID),
+			metadata:   derivedMemoryMetadata("fact", conversationID, fact),
 		})
 	}
 	return memories
@@ -1433,7 +1449,7 @@ func parseLLMAssistedLongTermMemories(reply, conversationID string) []derivedLon
 		memories = append(memories, derivedLongTermMemory{
 			content:    content,
 			importance: importance,
-			metadata:   llmAssistedMemoryMetadata(category, conversationID),
+			metadata:   llmAssistedMemoryMetadata(category, conversationID, content),
 		})
 		seen[normalized] = struct{}{}
 		if len(memories) >= 3 {
@@ -1464,16 +1480,59 @@ func normalizeLLMAssistedMemoryCategory(category string) string {
 	}
 }
 
-func derivedMemoryMetadata(category, conversationID string) map[string]any {
-	return map[string]any{
+func memoryKeyForContent(category, content string) string {
+	category = normalizeLLMAssistedMemoryCategory(category)
+	content = strings.TrimSpace(content)
+	switch category {
+	case "preference":
+		content = strings.TrimPrefix(content, "User preference:")
+		normalized := normalizeMemoryContent(content)
+		if normalized == "" {
+			return ""
+		}
+	case "fact":
+		content = strings.TrimPrefix(content, "Important fact:")
+		normalized := normalizeMemoryContent(content)
+		switch {
+		case strings.Contains(normalized, "my company is"),
+			strings.Contains(normalized, "our company is"),
+			strings.Contains(normalized, "company name is"),
+			strings.Contains(content, "我的公司"),
+			strings.Contains(content, "公司名"),
+			strings.Contains(content, "公司名称"):
+			return "fact:company"
+		case strings.Contains(normalized, "my name is"),
+			strings.Contains(content, "我叫"):
+			return "fact:user_name"
+		}
+	default:
+		return ""
+	}
+	normalized := normalizeMemoryContent(content)
+	if normalized == "" {
+		return ""
+	}
+	if utf8.RuneCountInString(normalized) > 160 {
+		normalizedRunes := []rune(normalized)
+		normalized = string(normalizedRunes[:160])
+	}
+	return category + ":" + normalized
+}
+
+func derivedMemoryMetadata(category, conversationID, content string) map[string]any {
+	metadata := map[string]any{
 		"source":          "agent_memory_policy",
 		"memory_category": category,
 		"conversation_id": conversationID,
 	}
+	if key := memoryKeyForContent(category, content); key != "" {
+		metadata["memory_key"] = key
+	}
+	return metadata
 }
 
-func llmAssistedMemoryMetadata(category, conversationID string) map[string]any {
-	metadata := derivedMemoryMetadata(category, conversationID)
+func llmAssistedMemoryMetadata(category, conversationID, content string) map[string]any {
+	metadata := derivedMemoryMetadata(category, conversationID, content)
 	metadata["source"] = "agent_memory_llm_assisted"
 	metadata["extraction_policy"] = LongTermMemoryExtractionPolicyLLMAssisted
 	return metadata
@@ -1543,7 +1602,7 @@ func explicitMemoryClauses(content string) []string {
 	return result
 }
 
-func (r *Runner) refreshDuplicateLongTermInteractionMemory(ctx context.Context, session auth.Session, agent *Agent, content string, embedding []float32) bool {
+func (r *Runner) refreshDuplicateLongTermInteractionMemory(ctx context.Context, session auth.Session, agent *Agent, content string, importance int, metadata map[string]any, embedding []float32) bool {
 	store, ok := r.store.(memoryUpdateStore)
 	if !ok {
 		return false
@@ -1561,7 +1620,9 @@ func (r *Runner) refreshDuplicateLongTermInteractionMemory(ctx context.Context, 
 		if memory == nil || normalizeMemoryContent(memory.Content) != normalizedContent {
 			continue
 		}
-		importance := memory.Importance
+		if importance <= 0 {
+			importance = memory.Importance
+		}
 		if importance <= 0 {
 			importance = 3
 		}
@@ -1569,6 +1630,58 @@ func (r *Runner) refreshDuplicateLongTermInteractionMemory(ctx context.Context, 
 			Content:    stringPointer(content),
 			Embedding:  append([]float32(nil), embedding...),
 			Importance: intPointer(importance),
+			Metadata:   metadata,
+		})
+		return err == nil
+	}
+	return false
+}
+
+func (r *Runner) consolidateLongTermMemoryByKey(ctx context.Context, session auth.Session, agent *Agent, content string, importance int, metadata map[string]any, embedding []float32) bool {
+	if agent == nil || normalizeLongTermMemoryUpdatePolicy(agent.Config.LongTermMemoryUpdatePolicy) != LongTermMemoryUpdatePolicyMemoryKeyConsolidate {
+		return false
+	}
+	key, _ := metadata["memory_key"].(string)
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return false
+	}
+	store, ok := r.store.(memoryUpdateStore)
+	if !ok {
+		return false
+	}
+	memories, err := store.ListMemories(ctx, session.OrganizationID, session.User.ID, ListMemoriesRequest{
+		AgentID: agent.ID,
+		Type:    MemoryTypeLongTerm,
+		Limit:   100,
+	})
+	if err != nil {
+		return false
+	}
+	for _, memory := range memories {
+		if memory == nil || normalizeMemoryContent(memory.Content) == normalizeMemoryContent(content) {
+			continue
+		}
+		existingKey, _ := memory.Metadata["memory_key"].(string)
+		if strings.TrimSpace(existingKey) != key {
+			continue
+		}
+		if importance <= 0 {
+			importance = memory.Importance
+		}
+		if importance <= 0 {
+			importance = 3
+		}
+		nextMetadata := copyMetadata(metadata)
+		nextMetadata["update_policy"] = LongTermMemoryUpdatePolicyMemoryKeyConsolidate
+		if memory.ID != "" {
+			nextMetadata["consolidated_from_memory_id"] = memory.ID
+		}
+		_, err := store.UpdateMemory(ctx, session.OrganizationID, session.User.ID, memory.ID, UpdateMemoryStoreRequest{
+			Content:    stringPointer(content),
+			Embedding:  append([]float32(nil), embedding...),
+			Importance: intPointer(importance),
+			Metadata:   nextMetadata,
 		})
 		return err == nil
 	}

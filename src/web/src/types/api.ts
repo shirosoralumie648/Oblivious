@@ -610,6 +610,7 @@ export type AgentConfig = {
   tokenBudget?: number;
   defaultExecutionMode?: string;
   longTermMemoryExtractionPolicy?: string;
+  longTermMemoryUpdatePolicy?: string;
   longTermMemoryWritePolicy?: string;
   temperature?: number;
   topP?: number;

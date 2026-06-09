@@ -1223,6 +1223,9 @@ components:
         longTermMemoryExtractionPolicy:
           type: string
           enum: [deterministic, llm_assisted]
+        longTermMemoryUpdatePolicy:
+          type: string
+          enum: [exact_refresh, memory_key_consolidate]
         longTermMemoryWritePolicy:
           type: string
           enum: [interaction_and_explicit, explicit_only, interaction_only, manual_only]

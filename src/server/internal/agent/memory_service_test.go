@@ -105,6 +105,12 @@ func (s *fakeStore) UpdateMemory(ctx context.Context, organizationID, userID, id
 	if req.Importance != nil {
 		memory.Importance = *req.Importance
 	}
+	for key, value := range req.Metadata {
+		if memory.Metadata == nil {
+			memory.Metadata = map[string]any{}
+		}
+		memory.Metadata[key] = value
+	}
 	memory.UpdatedAt = time.Now().UTC()
 	return memory, nil
 }

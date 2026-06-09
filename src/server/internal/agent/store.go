@@ -49,6 +49,7 @@ type Config struct {
 	TokenBudget                    int                             `json:"tokenBudget,omitempty"`
 	DefaultExecutionMode           string                          `json:"defaultExecutionMode,omitempty"`
 	LongTermMemoryExtractionPolicy string                          `json:"longTermMemoryExtractionPolicy,omitempty"`
+	LongTermMemoryUpdatePolicy     string                          `json:"longTermMemoryUpdatePolicy,omitempty"`
 	LongTermMemoryWritePolicy      string                          `json:"longTermMemoryWritePolicy,omitempty"`
 	Temperature                    float64                         `json:"temperature,omitempty"`
 	TopP                           float64                         `json:"topP,omitempty"`
@@ -369,6 +370,7 @@ type UpdateMemoryStoreRequest struct {
 	Embedding      []float32
 	ClearEmbedding bool
 	Importance     *int
+	Metadata       map[string]any
 }
 
 // CreateAgentRequest 创建 Agent 请求
@@ -1408,6 +1410,12 @@ func (s *SQLStore) UpdateMemory(ctx context.Context, organizationID, userID, id 
 		memory.Importance = *req.Importance
 	}
 	metadata := copyMetadata(memory.Metadata)
+	for key, value := range req.Metadata {
+		if strings.TrimSpace(key) == "" {
+			continue
+		}
+		metadata[key] = value
+	}
 	metadata[memoryMetadataImportanceKey] = memory.Importance
 	metadataJSON, err := json.Marshal(metadata)
 	if err != nil {
