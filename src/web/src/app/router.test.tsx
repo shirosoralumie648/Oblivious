@@ -3,6 +3,29 @@ import type { ComponentType, ReactNode } from 'react';
 import { RouterProvider } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+const chatApiMocks = vi.hoisted(() => ({
+  createConversation: vi.fn(() => Promise.resolve({ id: 'conversation_router_solo', title: 'SOLO continuation' })),
+  getConversationConfig: vi.fn((conversationId = 'conversation_router') =>
+    Promise.resolve({
+      conversationId,
+      knowledgeBaseIds: ['kb_router'],
+      maxOutputTokens: 800,
+      modelId: 'gpt-4o-mini',
+      systemPromptOverride: '',
+      temperature: 0.2,
+      toolsEnabled: true
+    })
+  ),
+  listConversations: vi.fn(() => Promise.resolve([{ id: 'conversation_router', title: 'Router parameter thread' }])),
+  listMessages: vi.fn(() => Promise.resolve([{ id: 'message_router', role: 'assistant', content: 'Router parameter message.' }])),
+  listModels: vi.fn(() => Promise.resolve([{ id: 'gpt-4o-mini', label: 'gpt-4o-mini' }])),
+  listPersonas: vi.fn(() => Promise.resolve([])),
+  sendMessage: vi.fn(() => Promise.resolve([])),
+  updateConversationConfig: vi.fn((conversationId: string, config: Record<string, unknown>) =>
+    Promise.resolve({ conversationId, ...config })
+  )
+}));
+
 vi.mock('@xyflow/react', () => {
   const passthrough = ({ children }: { children?: ReactNode }) => <>{children}</>;
 
@@ -197,20 +220,7 @@ vi.mock('../app/providers', () => ({
 }));
 
 vi.mock('../features/chat/api', () => ({
-  createChatApi: () => ({
-    createConversation: () => Promise.resolve({ id: 'conversation_router_solo', title: 'SOLO continuation' }),
-    getConversationConfig: () =>
-      Promise.resolve({
-        knowledgeBaseIds: ['kb_router'],
-        maxOutputTokens: 800,
-        modelId: 'gpt-4o-mini',
-        systemPromptOverride: '',
-        temperature: 0.2,
-        toolsEnabled: true
-      }),
-    sendMessage: () => Promise.resolve([]),
-    updateConversationConfig: (conversationId: string, config: Record<string, unknown>) => Promise.resolve({ conversationId, ...config })
-  })
+  createChatApi: () => chatApiMocks
 }));
 
 vi.mock('../features/knowledge/api', () => ({
@@ -1665,6 +1675,7 @@ import { routerFuture } from './routerFuture';
 
 describe('app router', () => {
   afterEach(() => {
+    Object.values(chatApiMocks).forEach((mock) => mock.mockClear());
     window.history.replaceState({}, '', '/');
   });
 
@@ -1675,6 +1686,17 @@ describe('app router', () => {
 
     expect(await screen.findByText('Oblivious')).toBeInTheDocument();
     expect(await screen.findByText('AI workspace framework')).toBeInTheDocument();
+  });
+
+  it('passes chat conversation route params into the chat workspace API', async () => {
+    const router = createAppRouter(['/chat/conversation_router']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    expect(await screen.findByText('Router parameter message.')).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/chat/conversation_router');
+    expect(chatApiMocks.listMessages).toHaveBeenCalledWith('conversation_router');
+    expect(chatApiMocks.getConversationConfig).toHaveBeenCalledWith('conversation_router');
   });
 
   it('renders knowledge route inside the workspace shell', async () => {
