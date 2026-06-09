@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { RouterProvider } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -352,6 +352,69 @@ vi.mock('../features/scheduledTasks/scheduledTasksApi', () => ({
   })
 }));
 
+vi.mock('../features/agents/memoriesApi', () => ({
+  createAgentMemoriesApi: () => ({
+    createMemory: () =>
+      Promise.resolve({
+        agentId: 'agent_1',
+        content: 'Remember launch checklist owner.',
+        id: 'memory_created_router',
+        importance: 4,
+        metadata: { managedBy: 'workspace' },
+        type: 'user_managed'
+      }),
+    deleteMemory: () => Promise.resolve(),
+    exportMemories: () =>
+      Promise.resolve({
+        data: [
+          {
+            agentId: 'agent_1',
+            content: 'Router export memory.',
+            id: 'memory_export_router',
+            importance: 5,
+            metadata: { source: 'router-test' },
+            type: 'user_managed'
+          }
+        ],
+        total: 1
+      }),
+    importMemories: () =>
+      Promise.resolve([
+        {
+          agentId: 'agent_1',
+          content: 'Imported router memory.',
+          id: 'memory_import_router',
+          importance: 3,
+          metadata: { imported: true },
+          type: 'user_managed'
+        }
+      ]),
+    searchMemories: () =>
+      Promise.resolve({
+        data: [
+          {
+            agentId: 'agent_1',
+            content: 'Router search memory.',
+            id: 'memory_search_router',
+            importance: 5,
+            metadata: { source: 'router-test' },
+            type: 'user_managed'
+          }
+        ],
+        total: 1
+      }),
+    updateMemory: () =>
+      Promise.resolve({
+        agentId: 'agent_1',
+        content: 'Updated router memory.',
+        id: 'memory_search_router',
+        importance: 4,
+        metadata: { source: 'router-test' },
+        type: 'user_managed'
+      })
+  })
+}));
+
 vi.mock('../features/publishingChannels/publishingChannelsApi', () => ({
   createPublishingChannelsApi: () => ({
     createChannel: () =>
@@ -362,6 +425,16 @@ vi.mock('../features/publishingChannels/publishingChannelsApi', () => ({
         status: 'active',
         type: 'webhook'
       }),
+    listChannelMessages: () =>
+      Promise.resolve([
+        {
+          created_at: '2026-06-09T00:00:00Z',
+          direction: 'outbound',
+          id: 'log_router_recent',
+          status: 'delivered',
+          transform_success: true
+        }
+      ]),
     listChannels: () =>
       Promise.resolve([
         {
@@ -372,6 +445,19 @@ vi.mock('../features/publishingChannels/publishingChannelsApi', () => ({
           type: 'webhook'
         }
       ]),
+    listFailedChannelMessages: () =>
+      Promise.resolve([
+        {
+          created_at: '2026-06-09T00:01:00Z',
+          failure_reason: 'adapter timeout',
+          id: 'log_router_failed',
+          next_retry_at: '2026-06-09T00:05:00Z',
+          retry_count: 2,
+          status: 'failed',
+          transform_success: true
+        }
+      ]),
+    retryFailedChannelMessages: () => Promise.resolve({ claimed: 1, failed: 0, permanentFailures: 0, succeeded: 1 }),
     sendChannelMessage: () => Promise.resolve({ id: 'log_1', status: 'recorded', transform_success: true }),
     testChannel: () => Promise.resolve({ message: 'channel adapter is available', status: 'success' }),
     updateChannelStatus: (channel: unknown) => Promise.resolve(channel)
@@ -434,8 +520,24 @@ vi.mock('../features/mcp/mcpServersApi', () => ({
           toolCount: 2
         }
       ]),
-    listServerTools: () => Promise.resolve([]),
-    listServers: () => Promise.resolve([])
+    listServerTools: () =>
+      Promise.resolve([
+        {
+          description: 'Search tenant-safe docs',
+          inputSchema: { type: 'object' },
+          name: 'search_docs'
+        }
+      ]),
+    listServers: () =>
+      Promise.resolve([
+        {
+          hasAuthToken: true,
+          id: 'mcp_remote',
+          name: 'Remote MCP',
+          status: 'disconnected',
+          url: 'https://mcp.example/sse'
+        }
+      ])
   })
 }));
 
@@ -470,6 +572,35 @@ describe('app router', () => {
     expect(await screen.findByRole('heading', { name: 'Agent Memories' })).toBeInTheDocument();
   });
 
+  it('keeps agent memories route-level CRUD and import-export controls reachable', async () => {
+    const router = createAppRouter(['/memories']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    const workspaceNavigation = await screen.findByRole('navigation', { name: 'Workspace navigation' });
+    expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
+    expect(within(workspaceNavigation).getByRole('link', { name: 'Agents' })).toHaveAttribute('href', '/agents');
+    expect(await screen.findByRole('heading', { name: 'Agent Memories' })).toBeInTheDocument();
+    expect(await screen.findByLabelText('Optional agent ID')).toBeInTheDocument();
+    expect(screen.getByLabelText('Memory content')).toBeInTheDocument();
+    expect(screen.getByLabelText('Memory importance')).toHaveValue('3');
+    expect(screen.getByRole('button', { name: 'Create memory' })).toBeDisabled();
+    expect(screen.getByLabelText('Search query')).toBeInTheDocument();
+    expect(screen.getByLabelText('Memory type')).toHaveValue('');
+    expect(screen.getByLabelText('Result limit')).toHaveValue(10);
+    expect(screen.getByRole('button', { name: 'Export memories' })).toBeDisabled();
+    expect(screen.getByLabelText('Import memories JSON')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Search query'), { target: { value: 'router' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search memories' }));
+
+    expect(await screen.findByText('Router search memory.')).toBeInTheDocument();
+    expect(screen.getByText('Agent: agent_1')).toBeInTheDocument();
+    expect(screen.getByLabelText('Importance 5 of 5')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Edit memory' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Delete memory' })).toBeInTheDocument();
+  });
+
   it('renders agent plan steps route inside the workspace shell', async () => {
     const router = createAppRouter(['/agent-runs/run_1/plan-steps']);
 
@@ -497,6 +628,30 @@ describe('app router', () => {
     expect(await screen.findByText('Workspace')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'MCP Servers & Tools' })).toBeInTheDocument();
     expect(await screen.findByText('Oblivious Safe Builtins')).toBeInTheDocument();
+  });
+
+  it('keeps MCP route-level server and tool controls reachable', async () => {
+    const router = createAppRouter(['/mcp-servers']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    const workspaceNavigation = await screen.findByRole('navigation', { name: 'Workspace navigation' });
+    expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
+    expect(within(workspaceNavigation).getByRole('link', { name: 'Agents' })).toHaveAttribute('href', '/agents');
+    expect(await screen.findByRole('heading', { name: 'MCP Servers & Tools' })).toBeInTheDocument();
+    expect(await screen.findByText('Oblivious Safe Builtins')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Local MCP servers')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Server name')).toBeInTheDocument();
+    expect(screen.getByLabelText('Endpoint URL')).toBeInTheDocument();
+    expect(screen.getByLabelText('Auth token')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add MCP server' })).toBeDisabled();
+    expect(await screen.findByText('Remote MCP')).toBeInTheDocument();
+    expect(screen.getByText('Auth token configured')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Connect' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Disconnect' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Diagnose' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'List tools' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Delete Remote MCP' })).toBeInTheDocument();
   });
 
   it('renders onboarding inside the workspace shell', async () => {
@@ -542,6 +697,40 @@ describe('app router', () => {
 
     expect(await screen.findByText('Workspace')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Publishing Channels' })).toBeInTheDocument();
+  });
+
+  it('keeps publishing route-level delivery and failed-queue recovery controls reachable', async () => {
+    const router = createAppRouter(['/publishing']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    const workspaceNavigation = await screen.findByRole('navigation', { name: 'Workspace navigation' });
+    expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
+    expect(within(workspaceNavigation).getByRole('link', { name: 'Workflows' })).toHaveAttribute('href', '/workflows');
+    expect(await screen.findByRole('heading', { name: 'Publishing Channels' })).toBeInTheDocument();
+    expect(await screen.findByLabelText('Create publishing channel')).toBeInTheDocument();
+    expect(screen.getByLabelText('Channel name')).toBeInTheDocument();
+    expect(screen.getByLabelText('Channel type')).toHaveValue('webhook');
+    expect(screen.getByLabelText('Endpoint URL')).toBeInTheDocument();
+    expect(screen.getByLabelText('Shared secret')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Create channel' })).toBeDisabled();
+    expect(await screen.findByLabelText('Publishing channel send test')).toBeInTheDocument();
+    expect(screen.getByLabelText('Channel')).toHaveValue('channel_1');
+    expect(screen.getByLabelText('Conversation ID')).toBeInTheDocument();
+    expect(screen.getByLabelText('Message text')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled();
+    expect(await screen.findByLabelText('Publishing channel message visibility')).toBeInTheDocument();
+    expect(await screen.findByText('1 recent / 1 failed')).toBeInTheDocument();
+    expect(screen.getAllByText('log_router_recent').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('log_router_failed').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('adapter timeout')).toBeInTheDocument();
+    expect(screen.getByLabelText('Failed retry queue controls')).toBeInTheDocument();
+    expect(screen.getByLabelText('Fallback channel')).toHaveValue('');
+    expect(screen.getByLabelText('Retry limit')).toHaveValue(null);
+    expect(screen.getByRole('button', { name: 'Retry failed messages' })).toBeEnabled();
+    expect(screen.getByLabelText('Publishing channel list')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Test channel Ops Webhook' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Disable Ops Webhook' })).toBeInTheDocument();
   });
 
   it('renders billing route inside the console shell', async () => {
