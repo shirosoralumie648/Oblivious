@@ -2396,6 +2396,57 @@ func TestServiceStartPlanningRunCreatesDurablePlanWithoutExecutingTools(t *testi
 	}
 }
 
+func TestServiceStartPlanningRunStopsBeforePlanningReplyWhenTokenBudgetExceeded(t *testing.T) {
+	largeInput := strings.Repeat("planning risk evidence ", 900)
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+			Config: Config{
+				TokenBudget: 1000,
+			},
+		},
+		conversation: &Conversation{
+			ID:             "conv_1",
+			AgentID:        "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+		},
+	}
+	gateway := &fakeGateway{plainReply: "should not be called"}
+	service := NewService(store, gateway)
+
+	result, err := service.StartPlanningRun(
+		context.Background(),
+		auth.Session{OrganizationID: "org_1", WorkspaceID: "workspace_1", User: auth.User{ID: "user_1"}},
+		StartRunRequest{AgentID: "agent_1", ConversationID: "conv_1", Input: largeInput},
+	)
+	if !errors.Is(err, ErrTokenBudgetExceeded) {
+		t.Fatalf("expected ErrTokenBudgetExceeded, got result=%+v err=%v", result, err)
+	}
+	if gateway.plainCalls != 0 || gateway.streamCalls != 0 || gateway.structuredCalls != 0 {
+		t.Fatalf("expected planning token budget guard to stop before gateway call, got plain=%d stream=%d structured=%d", gateway.plainCalls, gateway.streamCalls, gateway.structuredCalls)
+	}
+	if len(store.messages) != 1 || store.messages[0].Role != "user" {
+		t.Fatalf("expected only the user planning request to be persisted, got %+v", store.messages)
+	}
+	if len(store.planSteps) != 0 {
+		t.Fatalf("expected no plan steps when initial planning prompt exceeds budget, got %+v", store.planSteps)
+	}
+	if len(store.runs) != 1 {
+		t.Fatalf("expected one durable token-budget run, got %+v", store.runs)
+	}
+	run := store.runs[0]
+	if run.Status != RunStatusTokenBudgetExceeded || !strings.Contains(run.Error, "token_budget_exceeded") || run.CompletedAt == nil {
+		t.Fatalf("expected token-budget-exceeded planning run evidence, got %+v", run)
+	}
+	if run.Mode != ExecutionModePlanning || run.IterationCount != 1 || run.ToolCallCount != 0 || run.FinalMessageID != "" {
+		t.Fatalf("expected planning budget stop before assistant message, got %+v", run)
+	}
+}
+
 func TestServiceStartPlanningRunRecordsPendingApprovalMetrics(t *testing.T) {
 	store := &fakeStore{
 		agent: &Agent{

@@ -894,6 +894,27 @@ func (s *Service) StartPlanningRun(ctx context.Context, session auth.Session, re
 		return nil, fmt.Errorf("create planning run: no row created")
 	}
 
+	tokenBudget := normalizeTokenBudget(runAgent.Config.TokenBudget)
+	estimatedTokens := estimateChatMessageTokens(chatMessages)
+	if tokenBudget > 0 && estimatedTokens > tokenBudget {
+		now := time.Now().UTC()
+		message := fmt.Sprintf("token_budget_exceeded: estimated %d prompt tokens exceeds budget %d", estimatedTokens, tokenBudget)
+		if _, updateErr := s.store.UpdateRun(ctx, session.OrganizationID, run.ID, UpdateRunRequest{
+			Status:            stringPointer(RunStatusTokenBudgetExceeded),
+			MemoryEnabled:     boolPointer(evidence.enabled),
+			MemorySearched:    boolPointer(evidence.searched),
+			MemoryResultCount: intPointer(evidence.resultCount),
+			IterationCount:    intPointer(1),
+			ToolCallCount:     intPointer(0),
+			Error:             stringPointer(message),
+			CompletedAt:       &now,
+		}); updateErr != nil {
+			return nil, updateErr
+		}
+		recordAgentRunMetrics(RunStatusTokenBudgetExceeded, 1)
+		return nil, fmt.Errorf("%w: estimated %d prompt tokens exceeds budget %d", ErrTokenBudgetExceeded, estimatedTokens, tokenBudget)
+	}
+
 	reply, err := s.gateway.GenerateReply(ctx, chatMessages, planningConversationConfig(&runAgent))
 	if err != nil {
 		now := time.Now().UTC()
