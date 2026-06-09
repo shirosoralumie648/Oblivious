@@ -1941,9 +1941,9 @@ func (s *Service) executePersistedToolRun(ctx context.Context, session auth.Sess
 	metrics.RecordAgentToolCall(toolRun.ToolName, string(ToolRunStatusCompleted))
 
 	if _, err := s.store.UpdateRun(ctx, session.OrganizationID, run.ID, UpdateRunRequest{
-		Status:      stringPointer(RunStatusRunning),
-		Error:       &empty,
-		CompletedAt: nil,
+		Status:           stringPointer(RunStatusRunning),
+		Error:            &empty,
+		ClearCompletedAt: true,
 	}); err != nil {
 		return nil, fmt.Errorf("resume agent run after tool %s: %w", toolRun.ToolName, err)
 	}
@@ -2302,8 +2302,8 @@ func (s *Service) ListAvailableTools(ctx context.Context, session auth.Session, 
 			Name:        builtin.Name,
 			Description: builtin.Description,
 			InputSchema: builtin.InputSchema,
-			ToolType:   "builtin",
-			RiskLevel:  inferToolRiskLevel(builtin.Name),
+			ToolType:    "builtin",
+			RiskLevel:   inferToolRiskLevel(builtin.Name),
 		})
 	}
 	if s.webSearchProvider != nil {
@@ -2312,8 +2312,8 @@ func (s *Service) ListAvailableTools(ctx context.Context, session auth.Session, 
 				Name:        builtin.Name(),
 				Description: builtin.Description(),
 				InputSchema: builtin.InputSchema(),
-				ToolType:   "builtin",
-				RiskLevel:  inferToolRiskLevel(builtin.Name()),
+				ToolType:    "builtin",
+				RiskLevel:   inferToolRiskLevel(builtin.Name()),
 			})
 		}
 	}

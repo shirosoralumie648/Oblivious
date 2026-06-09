@@ -108,6 +108,7 @@ type fakeStore struct {
 	runs                      []*Run
 	toolRuns                  []*ToolRun
 	updateMemoryEmbedding     []float32
+	updateRunRequests         []UpdateRunRequest
 }
 
 func (s *fakeStore) CreateAgent(ctx context.Context, userID, organizationID string, req *CreateAgentRequest) (*Agent, error) {
@@ -267,6 +268,7 @@ func (s *fakeStore) UpdateRun(ctx context.Context, organizationID, id string, re
 	if run == nil {
 		return nil, errors.New("agent run not found")
 	}
+	s.updateRunRequests = append(s.updateRunRequests, req)
 	if req.Status != nil {
 		run.Status = *req.Status
 	}
@@ -3058,9 +3060,11 @@ func TestServiceApproveToolRunResumePersistsNextPendingApprovalToolRun(t *testin
 			AgentID:        "agent_1",
 			UserID:         "user_1",
 			Status:         RunStatusPendingApproval,
+			Error:          "stale terminal evidence",
 			IterationCount: 1,
 			ToolCallCount:  1,
 			StartedAt:      now,
+			CompletedAt:    &now,
 			CreatedAt:      now,
 			UpdatedAt:      now,
 		}},
@@ -3116,6 +3120,18 @@ func TestServiceApproveToolRunResumePersistsNextPendingApprovalToolRun(t *testin
 	}
 	if updated.Status != ToolRunStatusCompleted || updated.ToolName != "datetime" {
 		t.Fatalf("expected first approved tool to complete before next pause, got %+v", updated)
+	}
+	foundReopen := false
+	for _, req := range store.updateRunRequests {
+		if req.Status != nil && *req.Status == RunStatusRunning {
+			foundReopen = true
+			if !req.ClearCompletedAt || req.Error == nil || *req.Error != "" {
+				t.Fatalf("expected successful tool execution to reopen run with stale terminal evidence cleared, got %+v", req)
+			}
+		}
+	}
+	if !foundReopen {
+		t.Fatalf("expected successful tool execution to reopen the run before resume, got %+v", store.updateRunRequests)
 	}
 	if len(store.toolRuns) != 2 {
 		t.Fatalf("expected second pending approval tool run, got %+v", store.toolRuns)
