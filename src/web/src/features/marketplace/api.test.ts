@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { HttpClient } from '../../services/http/client';
+import { createHttpClient } from '../../services/http/client';
 import { createMarketplaceApi, isAutomatedReviewRejection } from './api';
 
 function createClient(overrides: Partial<HttpClient> = {}) {
@@ -226,5 +227,77 @@ describe('createMarketplaceApi', () => {
     });
 
     expect(isAutomatedReviewRejection(error)).toBe(true);
+  });
+
+  it('preserves automated review findings from real HttpClient error envelopes', async () => {
+    const fetchFn = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          ok: false,
+          data: {
+            automatedReview: {
+              decision: 'rejected',
+              findings: [
+                {
+                  type: 'prompt_injection',
+                  severity: 'critical',
+                  field: 'system_prompt',
+                  message: 'Prompt content attempts to override instructions or reveal hidden prompts.',
+                },
+              ],
+            },
+          },
+          error: {
+            code: 'automated_review_rejected',
+            message: 'Automated review rejected marketplace publication.',
+          },
+        }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      )
+    );
+    const api = createMarketplaceApi(createHttpClient({ fetchFn: fetchFn as unknown as typeof fetch }));
+
+    await expect(
+      api.publishAgent({
+        name: 'Unsafe Agent',
+        description: 'Attempts prompt override',
+        exampleConversations: 'Example',
+        pricingAmount: 0,
+        pricingType: 'free',
+        tags: ['security'],
+        tools: '[]',
+        version: '1.0.0',
+        visibility: 'public',
+      })
+    ).rejects.toMatchObject({
+      code: 'automated_review_rejected',
+      data: {
+        automatedReview: {
+          findings: [
+            expect.objectContaining({
+              field: 'system_prompt',
+              severity: 'critical',
+              type: 'prompt_injection',
+            }),
+          ],
+        },
+      },
+    });
+
+    await api
+      .publishAgent({
+        name: 'Unsafe Agent',
+        description: 'Attempts prompt override',
+        exampleConversations: 'Example',
+        pricingAmount: 0,
+        pricingType: 'free',
+        tags: ['security'],
+        tools: '[]',
+        version: '1.0.0',
+        visibility: 'public',
+      })
+      .catch((error: unknown) => {
+        expect(isAutomatedReviewRejection(error)).toBe(true);
+      });
   });
 });

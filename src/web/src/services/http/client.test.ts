@@ -62,6 +62,52 @@ describe('http client', () => {
     await expect(client.get('/api/v1/console/usage')).rejects.toBeInstanceOf(HttpError);
   });
 
+  it('preserves structured error code and data from non-ok envelopes', async () => {
+    const fetchFn = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          ok: false,
+          data: {
+            automatedReview: {
+              decision: 'rejected',
+              findings: [
+                {
+                  type: 'prompt_injection',
+                  severity: 'critical',
+                  message: 'Prompt content attempts to override instructions.',
+                },
+              ],
+            },
+          },
+          error: {
+            code: 'automated_review_rejected',
+            message: 'Automated review rejected marketplace publication.',
+          },
+        }),
+        { status: 400, statusText: 'Bad Request', headers: { 'Content-Type': 'application/json' } }
+      )
+    );
+
+    const client = createHttpClient({ fetchFn: fetchFn as unknown as typeof fetch });
+
+    await expect(client.post('/api/v1/marketplace/agents', { name: 'Unsafe Agent' })).rejects.toMatchObject({
+      status: 400,
+      code: 'automated_review_rejected',
+      message: 'Automated review rejected marketplace publication.',
+      data: {
+        automatedReview: {
+          decision: 'rejected',
+          findings: [
+            expect.objectContaining({
+              severity: 'critical',
+              type: 'prompt_injection',
+            }),
+          ],
+        },
+      },
+    });
+  });
+
   it('sends multipart request bodies without JSON content type', async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify({ ok: true, data: { uploaded: true }, error: null }), { status: 200 }));
     const client = createHttpClient({ baseUrl: 'https://api.example.test', fetchFn: fetchFn as unknown as typeof fetch });
