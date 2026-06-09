@@ -326,6 +326,93 @@ vi.mock('../features/tasks/api', () => {
 
 vi.mock('../features/admin/api', () => ({
   createAdminApi: () => ({
+    getStats: () =>
+      Promise.resolve({
+        users: { totalUsers: 24, activeUsers: 12, newUsersToday: 2, newUsersWeek: 5 },
+        quotas: { totalBalance: 100, totalUsed: 25, activeTopups: 3 },
+        conversations: 8,
+        agents: 11,
+        tasks: 4,
+        mcpServers: 2,
+        channelsTotal: 4,
+        channelsOnline: 3,
+        activeAgents: 7,
+        apiCalls24h: 128
+      }),
+    listPlans: () =>
+      Promise.resolve([
+        {
+          id: 'plan_pro',
+          name: 'Pro',
+          description: 'Production plan',
+          quotaAmount: 500,
+          tokenQuota: 1000000,
+          price: 29,
+          modelAccess: ['gpt-4o', 'claude-3.5'],
+          agentLimit: 10,
+          maxTokensPerRequest: 32000,
+          durationDays: 30,
+          isActive: true,
+          isPublic: true,
+          sortOrder: 1,
+          subscriberCount: 42,
+          createdAt: '2026-01-01T00:00:00Z',
+          updatedAt: '2026-01-02T00:00:00Z'
+        }
+      ]),
+    createPlan: (input: Record<string, unknown>) =>
+      Promise.resolve({
+        id: 'plan_router_created',
+        createdAt: '2026-01-03T00:00:00Z',
+        updatedAt: '2026-01-03T00:00:00Z',
+        ...input
+      }),
+    updatePlan: (id: string, input: Record<string, unknown>) =>
+      Promise.resolve({
+        id,
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-03T00:00:00Z',
+        ...input
+      }),
+    deactivatePlan: () => Promise.resolve(),
+    listUsers: () =>
+      Promise.resolve({
+        data: [
+          {
+            id: 'user_1',
+            email: 'admin@example.com',
+            name: 'Admin User',
+            role: 'admin',
+            planID: 'plan_pro',
+            planName: 'Pro',
+            status: 'active',
+            lastLoginAt: '2026-01-01T00:00:00Z',
+            createdAt: '2025-01-01T00:00:00Z',
+            usageStats: { totalTokens: 1000, totalAPICalls: 20, totalCost: 1.5 }
+          }
+        ],
+        total: 1
+      }),
+    updateUser: (id: string, input: Record<string, unknown>) => Promise.resolve({ id, ...input }),
+    disableUser: () => Promise.resolve(),
+    enableUser: () => Promise.resolve(),
+    listAuditLogs: () =>
+      Promise.resolve({
+        data: [
+          {
+            id: 'audit_1',
+            actorID: 'user_1',
+            actorEmail: 'admin@example.com',
+            action: 'channel.create',
+            resourceType: 'channel',
+            resourceID: 'ch_1',
+            changes: '{"name":"OpenAI"}',
+            ipAddress: '127.0.0.1',
+            createdAt: '2026-01-01T00:00:00Z'
+          }
+        ],
+        total: 1
+      }),
     getBillingSummary: () =>
       Promise.resolve({
         billingSessions: { count: 1, settledAmount: 4.5 },
@@ -2313,6 +2400,36 @@ describe('app router', () => {
     expect(screen.getByText('openai / ch_router_1')).toBeInTheDocument();
   });
 
+  it('keeps admin dashboard route-level metrics and commercial operation links reachable', async () => {
+    const router = createAppRouter(['/admin']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    const adminNavigation = await screen.findByRole('complementary', { name: 'Admin navigation' });
+    expect(document.querySelector('[data-gsap-scope="admin"]')).toBeInTheDocument();
+    expect(within(adminNavigation).getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/admin');
+    expect(await screen.findByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
+    expect(screen.getAllByText('Channels').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText('Total Users')).toBeInTheDocument();
+    expect(screen.getByText('API Calls (24h)')).toBeInTheDocument();
+    expect(screen.getByText('Active Agents')).toBeInTheDocument();
+    expect(screen.getByText('API Call Volume (7 days)')).toBeInTheDocument();
+    expect(screen.getByText('Channel Uptime')).toBeInTheDocument();
+
+    const commercialOperations = screen.getByRole('region', { name: 'Commercial operations' });
+    expect(within(commercialOperations).getByRole('link', { name: /Channels/ })).toHaveAttribute('href', '/admin/channels');
+    expect(within(commercialOperations).getByRole('link', { name: /Routes/ })).toHaveAttribute('href', '/admin/routes');
+    expect(within(commercialOperations).getByRole('link', { name: /Plans/ })).toHaveAttribute('href', '/admin/plans');
+    expect(within(commercialOperations).getByRole('link', { name: /Billing/ })).toHaveAttribute('href', '/admin/billing');
+    expect(within(commercialOperations).getByRole('link', { name: /Users/ })).toHaveAttribute('href', '/admin/users');
+    expect(within(commercialOperations).getByRole('link', { name: /Audit Log/ })).toHaveAttribute('href', '/admin/audit-log');
+    expect(within(commercialOperations).getByRole('link', { name: /Alerts/ })).toHaveAttribute('href', '/admin/alerts');
+    expect(within(commercialOperations).getByRole('link', { name: /Review Queue/ })).toHaveAttribute(
+      'href',
+      '/admin/reviews'
+    );
+  });
+
   it('renders admin billing route inside the admin shell', async () => {
     const router = createAppRouter(['/admin/billing']);
 
@@ -2406,6 +2523,105 @@ describe('app router', () => {
     expect(screen.getByLabelText('Weight 1')).toHaveValue(100);
     expect(screen.getByText('Enabled 1')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Create Route' })).toBeEnabled();
+  });
+
+  it('keeps admin plans route-level quota, access, and request-cap controls reachable', async () => {
+    const router = createAppRouter(['/admin/plans']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    const adminNavigation = await screen.findByRole('complementary', { name: 'Admin navigation' });
+    expect(document.querySelector('[data-gsap-scope="admin"]')).toBeInTheDocument();
+    expect(within(adminNavigation).getByRole('link', { name: 'Plans' })).toHaveAttribute('href', '/admin/plans');
+    expect(await screen.findByRole('heading', { name: 'Plans' })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Search plans...')).toBeInTheDocument();
+    expect(screen.getByLabelText('Plan status filter')).toHaveValue('all');
+    expect(screen.getByLabelText('Plan visibility filter')).toHaveValue('all');
+    expect(screen.getByRole('button', { name: 'Add Plan' })).toBeEnabled();
+
+    const planRow = (await screen.findByText('$29.00')).closest('tr');
+    expect(planRow).not.toBeNull();
+    expect(within(planRow as HTMLElement).getByText('Pro')).toBeInTheDocument();
+    expect(within(planRow as HTMLElement).getByText('500 credits / 1,000,000 tokens')).toBeInTheDocument();
+    expect(within(planRow as HTMLElement).getByText('32,000 tokens')).toBeInTheDocument();
+    expect(within(planRow as HTMLElement).getByText('gpt-4o')).toBeInTheDocument();
+    expect(within(planRow as HTMLElement).getByText('claude-3.5')).toBeInTheDocument();
+    expect(within(planRow as HTMLElement).getByText('42')).toBeInTheDocument();
+    expect(within(planRow as HTMLElement).getByText('Public')).toBeInTheDocument();
+    expect(within(planRow as HTMLElement).getByText('Active')).toBeInTheDocument();
+    expect(within(planRow as HTMLElement).getByRole('button', { name: 'Edit plan Pro' })).toBeEnabled();
+    expect(within(planRow as HTMLElement).getByRole('button', { name: 'Deactivate plan Pro' })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Plan' }));
+    expect(await screen.findByRole('heading', { name: 'Add Plan' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Name')).toBeInTheDocument();
+    expect(screen.getByLabelText('Description')).toBeInTheDocument();
+    expect(screen.getByLabelText('Price')).toBeInTheDocument();
+    expect(screen.getByLabelText('Quota Amount')).toBeInTheDocument();
+    expect(screen.getByLabelText('Token Quota')).toBeInTheDocument();
+    expect(screen.getByLabelText('Agent Limit')).toBeInTheDocument();
+    expect(screen.getByLabelText('Request Token Cap')).toBeInTheDocument();
+    expect(screen.getByLabelText('Model Access')).toBeInTheDocument();
+    expect(screen.getByLabelText('Sort Order')).toBeInTheDocument();
+    expect(screen.getByLabelText('Public plan')).toBeChecked();
+    expect(screen.getByRole('button', { name: 'Create Plan' })).toBeEnabled();
+  });
+
+  it('keeps admin users route-level role, status, plan, and usage controls reachable', async () => {
+    const router = createAppRouter(['/admin/users']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    const adminNavigation = await screen.findByRole('complementary', { name: 'Admin navigation' });
+    expect(document.querySelector('[data-gsap-scope="admin"]')).toBeInTheDocument();
+    expect(within(adminNavigation).getByRole('link', { name: 'Users' })).toHaveAttribute('href', '/admin/users');
+    expect(await screen.findByRole('heading', { name: 'Users' })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Search users...')).toBeInTheDocument();
+    expect(screen.getByLabelText('Role filter')).toHaveValue('all');
+    expect(screen.getByLabelText('User status filter')).toHaveValue('all');
+
+    const userRow = (await screen.findByText('admin@example.com')).closest('tr');
+    expect(userRow).not.toBeNull();
+    expect(within(userRow as HTMLElement).getByText('Admin User')).toBeInTheDocument();
+    expect(within(userRow as HTMLElement).getByText('admin')).toBeInTheDocument();
+    expect(within(userRow as HTMLElement).getByText('Pro')).toBeInTheDocument();
+    expect(within(userRow as HTMLElement).getByText('Active')).toBeInTheDocument();
+    expect(within(userRow as HTMLElement).getByText('1,000 tokens / 20 calls / $1.50')).toBeInTheDocument();
+    expect(within(userRow as HTMLElement).getByRole('button', { name: 'Edit user admin@example.com' })).toBeEnabled();
+    expect(within(userRow as HTMLElement).getByRole('button', { name: 'Disable user admin@example.com' })).toBeEnabled();
+
+    fireEvent.click(within(userRow as HTMLElement).getByRole('button', { name: 'Edit user admin@example.com' }));
+    expect(await screen.findByRole('heading', { name: 'Edit User: admin@example.com' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Role')).toHaveValue('admin');
+    expect(screen.getByLabelText('Plan ID')).toHaveValue('plan_pro');
+    expect(screen.getByLabelText('Status')).toHaveValue('active');
+    expect(screen.getByRole('button', { name: 'Save User' })).toBeEnabled();
+  });
+
+  it('keeps admin audit-log route-level governance filters and table evidence reachable', async () => {
+    const router = createAppRouter(['/admin/audit-log']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    const adminNavigation = await screen.findByRole('complementary', { name: 'Admin navigation' });
+    expect(document.querySelector('[data-gsap-scope="admin"]')).toBeInTheDocument();
+    expect(within(adminNavigation).getByRole('link', { name: 'Audit Log' })).toHaveAttribute(
+      'href',
+      '/admin/audit-log'
+    );
+    expect(await screen.findByRole('heading', { name: 'Audit Log' })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Search actor...')).toBeInTheDocument();
+    expect(screen.getByLabelText('Action filter')).toBeInTheDocument();
+    expect(screen.getByLabelText('Resource type filter')).toBeInTheDocument();
+    expect(screen.getByLabelText('Start date')).toBeInTheDocument();
+    expect(screen.getByLabelText('End date')).toBeInTheDocument();
+
+    const auditRow = (await screen.findByText('channel.create')).closest('tr');
+    expect(auditRow).not.toBeNull();
+    expect(within(auditRow as HTMLElement).getByText('admin@example.com')).toBeInTheDocument();
+    expect(within(auditRow as HTMLElement).getByText('channel / ch_1')).toBeInTheDocument();
+    expect(within(auditRow as HTMLElement).getByText('name')).toBeInTheDocument();
+    expect(within(auditRow as HTMLElement).getByText('127.0.0.1')).toBeInTheDocument();
   });
 
   it('keeps marketplace agent detail route-level install and review controls reachable', async () => {
