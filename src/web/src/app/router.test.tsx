@@ -59,7 +59,34 @@ vi.mock('../features/console/api', () => ({
       ]),
     getModels: () =>
       Promise.resolve([{ id: 'balanced-chat', label: 'balanced-chat', requests: 2 }]),
-    getUsage: () => Promise.resolve({ period: '7d', requests: 3 }),
+    getUsage: () =>
+      Promise.resolve({
+        period: '7d',
+        requests: 5,
+        byModel: [{ key: 'gpt-4o', requestCount: 3, totalTokens: 300, totalCost: 0.09 }],
+        byFeature: [{ key: 'workflow', requestCount: 2, totalTokens: 180, totalCost: 0.04 }],
+        byUser: [{ key: 'user_router', requestCount: 2, totalTokens: 240, totalCost: 0.12 }],
+        timeSeries: [{ bucket: '2026-06-09', requestCount: 3, totalTokens: 280, totalCost: 0.09 }],
+        recent: [
+          {
+            id: 'usage_router_console',
+            apiTokenId: 'tok_router_1',
+            requestId: 'req_router_console',
+            apiType: 'chat',
+            model: 'gpt-4o',
+            channelId: 'ch_router_1',
+            provider: 'openai',
+            status: 'success',
+            statusCode: 200,
+            latencyMs: 42,
+            cost: 0.004,
+            promptTokens: 100,
+            completionTokens: 50,
+            totalTokens: 150,
+            createdAt: '2026-06-09T00:00:00Z'
+          }
+        ]
+      }),
     listApiTokenUsage: () =>
       Promise.resolve([
         {
@@ -154,7 +181,54 @@ vi.mock('../features/admin/api', () => ({
             : [],
         total: surface === 'sessions' ? 1 : 0
       }),
-    listUsageLogs: () => Promise.resolve({ data: [], total: 0 }),
+    listUsageLogs: () =>
+      Promise.resolve({
+        data: [
+          {
+            id: 'usage_admin_router',
+            organizationId: 'org_router',
+            userId: 'user_router',
+            apiTokenId: 'tok_router_1',
+            requestId: 'req_admin_router',
+            apiType: 'chat',
+            featureType: 'workspace_chat',
+            quotaMode: 'relay_billing',
+            model: 'gpt-4o',
+            channelId: 'ch_router_1',
+            provider: 'openai',
+            status: 'success',
+            statusCode: 200,
+            latencyMs: 42,
+            cost: 0.42,
+            channelCost: 0.21,
+            promptTokens: 100,
+            completionTokens: 20,
+            totalTokens: 120,
+            createdAt: '2026-06-09T00:00:00Z'
+          }
+        ],
+        total: 1
+      }),
+    getUsageAnalytics: () =>
+      Promise.resolve({
+        byModel: [{ dimension: 'model', key: 'gpt-4o', requestCount: 3, totalTokens: 150, totalCost: 0.0012 }],
+        byFeature: [{ dimension: 'feature', key: 'chat', requestCount: 2, totalTokens: 120, totalCost: 0.0009 }],
+        byUser: [{ dimension: 'user', key: 'user_router', requestCount: 4, totalTokens: 200, totalCost: 0.0015 }],
+        byTime: [{ dimension: 'time', key: '2026-06-09T00:00:00Z', requestCount: 5, totalTokens: 300, totalCost: 0.002 }],
+        byChannel: [{ dimension: 'channel', key: 'ch_router_1', requestCount: 6, totalTokens: 360, totalCost: 0.0025 }],
+        byProvider: [{ dimension: 'provider', key: 'openai', requestCount: 7, totalTokens: 420, totalCost: 0.003 }],
+        crossDimensions: [
+          {
+            dimension: 'model_time',
+            key: 'gpt-4o / 2026-06-09T00:00:00Z',
+            primary: 'gpt-4o',
+            secondary: '2026-06-09T00:00:00Z',
+            requestCount: 9,
+            totalTokens: 900,
+            totalCost: 0.009
+          }
+        ]
+      }),
     listReviews: () =>
       Promise.resolve({
         data: [
@@ -524,6 +598,28 @@ describe('app router', () => {
     expect(screen.getByRole('button', { name: 'View usage for Router gateway key' })).toBeInTheDocument();
   });
 
+  it('keeps console usage route-level analytics and recent relay evidence reachable', async () => {
+    const router = createAppRouter(['/console/usage']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    const consoleNavigation = await screen.findByRole('navigation', { name: 'Console navigation' });
+    expect(document.querySelector('[data-gsap-scope="console"]')).toBeInTheDocument();
+    expect(within(consoleNavigation).getByRole('link', { name: 'Usage' })).toHaveAttribute('href', '/console/usage');
+    expect(await screen.findByRole('heading', { name: 'Usage' })).toBeInTheDocument();
+    expect(await screen.findByRole('navigation', { name: 'Usage sibling navigation' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'By model' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'By feature' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Top users' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Daily trend' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Recent relay requests' })).toBeInTheDocument();
+    expect(screen.getAllByText('gpt-4o').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText('workflow')).toBeInTheDocument();
+    expect(screen.getByText('user_router')).toBeInTheDocument();
+    expect(screen.getByText('req_router_console')).toBeInTheDocument();
+    expect(screen.getByText('openai / ch_router_1')).toBeInTheDocument();
+  });
+
   it('renders admin billing route inside the admin shell', async () => {
     const router = createAppRouter(['/admin/billing']);
 
@@ -607,6 +703,27 @@ describe('app router', () => {
 
     expect(await screen.findByRole('complementary', { name: 'Admin navigation' })).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Usage Logs' })).toBeInTheDocument();
+  });
+
+  it('keeps admin usage logs route-level filters, analytics, and table evidence reachable', async () => {
+    const router = createAppRouter(['/admin/usage-logs']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    expect(await screen.findByRole('complementary', { name: 'Admin navigation' })).toBeInTheDocument();
+    expect(document.querySelector('[data-gsap-scope="admin"]')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Usage Logs' })).toBeInTheDocument();
+    expect(await screen.findByLabelText('Organization ID filter')).toBeInTheDocument();
+    expect(screen.getByLabelText('API token ID filter')).toBeInTheDocument();
+    expect(screen.getByLabelText('Analytics granularity filter')).toHaveValue('day');
+    expect(await screen.findByRole('heading', { name: 'Usage Analytics' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'By model' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Cross dimensions' })).toBeInTheDocument();
+    expect(screen.getByText('req_admin_router')).toBeInTheDocument();
+    expect(screen.getByText('tok_router_1')).toBeInTheDocument();
+    expect(screen.getAllByText('gpt-4o').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText('openai / ch_router_1')).toBeInTheDocument();
+    expect(screen.getByLabelText('Success')).toBeInTheDocument();
   });
 
   it('renders admin API tokens route inside the admin shell', async () => {
