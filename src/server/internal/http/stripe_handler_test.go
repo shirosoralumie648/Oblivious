@@ -281,6 +281,78 @@ func TestBillingCheckoutCreatorFailureMarksTopupFailedWithoutDatabase(t *testing
 	}
 }
 
+func TestBillingCheckoutRejectsUnconfiguredProviderBeforeArtifactsWithoutDatabase(t *testing.T) {
+	for _, provider := range []string{"alipay", "wechatpay"} {
+		t.Run(provider, func(t *testing.T) {
+			checkoutCreator := &fakeCheckoutCreator{}
+			paymentStore := &billingCheckoutPaymentIntentStore{}
+			quotaStore := &billingCheckoutQuotaStore{}
+			handler := newBillingHandler(checkoutCreator, stripebilling.CheckoutConfig{}, paymentStore, quota.NewService(quotaStore), nil, nil)
+			session := routeSurfaceUserSession()
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, "/api/v1/billing/checkout", strings.NewReader(fmt.Sprintf(`{"provider":%q,"kind":"topup","amount":25}`, provider))).
+				WithContext(context.WithValue(context.Background(), sessionContextKey, session))
+			request.Header.Set("Content-Type", "application/json")
+
+			handler.checkout(recorder, request)
+
+			if recorder.Code != http.StatusNotImplemented {
+				t.Fatalf("expected unconfigured provider checkout to return 501, got %d with body %s", recorder.Code, recorder.Body.String())
+			}
+			var response Envelope
+			if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+				t.Fatalf("decode unconfigured provider response: %v", err)
+			}
+			if response.Error == nil || response.Error.Code != payment.CodeProviderNotConfigured {
+				t.Fatalf("expected provider_not_configured response, got %+v", response.Error)
+			}
+			if paymentStore.created.ID != "" || paymentStore.failedID != "" || paymentStore.checkoutIntentID != "" {
+				t.Fatalf("provider rejection must not create or update payment artifacts, store=%+v", paymentStore)
+			}
+			if quotaStore.topupCreated || quotaStore.topupFailedPaymentID != "" || quotaStore.topupCheckoutIntentID != "" {
+				t.Fatalf("provider rejection must not create or update topup artifacts, store=%+v", quotaStore)
+			}
+			if checkoutCreator.request.PaymentIntentID != "" {
+				t.Fatalf("checkout creator must not be called for unconfigured provider, got %+v", checkoutCreator.request)
+			}
+		})
+	}
+}
+
+func TestBillingCheckoutRejectsUnsupportedProviderBeforeArtifactsWithoutDatabase(t *testing.T) {
+	checkoutCreator := &fakeCheckoutCreator{}
+	paymentStore := &billingCheckoutPaymentIntentStore{}
+	quotaStore := &billingCheckoutQuotaStore{}
+	handler := newBillingHandler(checkoutCreator, stripebilling.CheckoutConfig{}, paymentStore, quota.NewService(quotaStore), nil, nil)
+	session := routeSurfaceUserSession()
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/billing/checkout", strings.NewReader(`{"provider":"paypal","kind":"topup","amount":25}`)).
+		WithContext(context.WithValue(context.Background(), sessionContextKey, session))
+	request.Header.Set("Content-Type", "application/json")
+
+	handler.checkout(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected unsupported provider checkout to return 400, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response Envelope
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode unsupported provider response: %v", err)
+	}
+	if response.Error == nil || response.Error.Code != payment.CodeUnsupportedProvider {
+		t.Fatalf("expected unsupported_provider response, got %+v", response.Error)
+	}
+	if paymentStore.created.ID != "" || paymentStore.failedID != "" || paymentStore.checkoutIntentID != "" {
+		t.Fatalf("provider rejection must not create or update payment artifacts, store=%+v", paymentStore)
+	}
+	if quotaStore.topupCreated || quotaStore.topupFailedPaymentID != "" || quotaStore.topupCheckoutIntentID != "" {
+		t.Fatalf("provider rejection must not create or update topup artifacts, store=%+v", quotaStore)
+	}
+	if checkoutCreator.request.PaymentIntentID != "" {
+		t.Fatalf("checkout creator must not be called for unsupported provider, got %+v", checkoutCreator.request)
+	}
+}
+
 func TestStripeWebhookRouteRejectsInvalidSignature(t *testing.T) {
 	cfg := testConfig()
 	cfg.StripeWebhookSecret = "whsec_phase17"
