@@ -1450,6 +1450,7 @@ function buildWorkflowReactFlowNodes(
   nodeExecutionMap: Map<string, WorkflowNodeExecution>,
   selectedNodeId: string | undefined,
   snapEnabled: boolean,
+  freeformNodePositions: Record<string, boolean>,
   onSelect: (workflowId: string, node: VisualWorkflowNode) => void,
   onContextMenu: (event: MouseEvent, workflowId: string, node: VisualWorkflowNode) => void
 ): WorkflowReactFlowNode[] {
@@ -1457,7 +1458,7 @@ function buildWorkflowReactFlowNodes(
     const nodeExecution = nodeExecutionMap.get(node.id);
     const hasNodeExecution = nodeExecution !== undefined;
     const nodeStatus = visualNodeStatus(node, nodeExecution);
-    const position = visualCanvasNodePosition(node, index, snapEnabled);
+    const position = visualCanvasNodePosition(node, index, snapEnabled && !freeformNodePositions[node.id]);
 
     return {
       data: {
@@ -1699,6 +1700,10 @@ export function WorkflowsPage() {
   );
   const [nodeContextMenus, setNodeContextMenus] = useState<Record<string, WorkflowNodeContextMenu | undefined>>({});
   const [selectedNodeIds, setSelectedNodeIds] = useState<Record<string, string | undefined>>({});
+  const [freeformNodePositionsByWorkflow, setFreeformNodePositionsByWorkflow] = useState<
+    Record<string, Record<string, boolean>>
+  >({});
+  const [snapBypassActive, setSnapBypassActive] = useState(false);
   const [snapToGridByWorkflow, setSnapToGridByWorkflow] = useState<Record<string, boolean>>({});
   const [versionsByWorkflow, setVersionsByWorkflow] = useState<Record<string, WorkflowDefinition[]>>({});
   const [webhookTriggerDrafts, setWebhookTriggerDrafts] = useState<Record<string, WebhookTriggerDraft>>({});
@@ -1816,6 +1821,32 @@ export function WorkflowsPage() {
       cancelled = true;
     };
   }, [scheduledTasksApi, workflowsApi]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Alt') {
+        setSnapBypassActive(true);
+      }
+    };
+    const handleKeyUp = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Alt') {
+        setSnapBypassActive(false);
+      }
+    };
+    const handleWindowBlur = () => {
+      setSnapBypassActive(false);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', handleWindowBlur);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', handleWindowBlur);
+    };
+  }, []);
 
   const handleCreateDraft = async () => {
     const trimmedName = workflowName.trim();
@@ -2461,15 +2492,24 @@ export function WorkflowsPage() {
   const handleWorkflowCanvasNodeDragStop = (
     workflow: WorkflowDefinition,
     nodeId: string,
-    position: WorkflowCanvasPosition
+    position: WorkflowCanvasPosition,
+    bypassSnap = false
   ) => {
-    const nextPosition = snapToGridByWorkflow[workflow.id] ?? true ? snapCanvasPosition(position) : position;
+    const shouldSnap = !bypassSnap && (snapToGridByWorkflow[workflow.id] ?? true);
+    const nextPosition = shouldSnap ? snapCanvasPosition(position) : position;
     const definition = updateDefinitionNodePosition(workflow.definition, nodeId, nextPosition);
     if (!definition) {
       return;
     }
 
     replaceWorkflowDefinitionDraft(workflow, definition);
+    setFreeformNodePositionsByWorkflow((current) => ({
+      ...current,
+      [workflow.id]: {
+        ...(current[workflow.id] ?? {}),
+        [nodeId]: bypassSnap || !(snapToGridByWorkflow[workflow.id] ?? true),
+      },
+    }));
     setSelectedNodeIds((current) => ({ ...current, [workflow.id]: nodeId }));
     setError(null);
   };
@@ -3392,13 +3432,15 @@ export function WorkflowsPage() {
               const workflowResourcePolicyDraft =
                 workflowResourcePolicyDrafts[workflow.id] ??
                 workflowResourcePolicyDraftFromDefinition(workflow.definition);
-              const snapEnabled = snapToGridByWorkflow[workflow.id] ?? true;
+              const freeformNodePositions = freeformNodePositionsByWorkflow[workflow.id] ?? {};
+              const snapEnabled = (snapToGridByWorkflow[workflow.id] ?? true) && !snapBypassActive;
               const reactFlowNodes = buildWorkflowReactFlowNodes(
                 workflow.id,
                 workflowNodes,
                 nodeExecutionMap,
                 selectedNode?.id,
                 snapEnabled,
+                freeformNodePositions,
                 handleSelectNode,
                 handleWorkflowNodeContextMenu
               );
@@ -3984,11 +4026,11 @@ export function WorkflowsPage() {
                                     onNodeContextMenu={(event, reactFlowNode) => {
                                       handleWorkflowNodeContextMenu(event, workflow.id, reactFlowNode.data.node);
                                     }}
-                                    onNodeDragStop={(_event, reactFlowNode) => {
+                                    onNodeDragStop={(event, reactFlowNode) => {
                                       handleWorkflowCanvasNodeDragStop(workflow, reactFlowNode.data.node.id, {
                                         x: reactFlowNode.position.x,
                                         y: reactFlowNode.position.y,
-                                      });
+                                      }, event.altKey);
                                     }}
                                     snapGrid={workflowReactFlowSnapGrid}
                                     snapToGrid={snapEnabled}

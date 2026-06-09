@@ -1,4 +1,5 @@
 import { createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import type { ComponentType, ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const cancelExecution = vi.fn();
@@ -59,6 +60,61 @@ vi.mock('../../features/scheduledTasks/scheduledTasksApi', () => ({
     runScheduledTaskNow,
   }),
 }));
+
+vi.mock('@xyflow/react', () => {
+  const passthrough = ({ children }: { children?: ReactNode }) => <>{children}</>;
+
+  return {
+    Background: () => <div aria-hidden="true" data-xyflow-background="true" />,
+    Controls: () => <div aria-hidden="true" data-xyflow-controls="true" />,
+    MarkerType: { ArrowClosed: 'arrowclosed' },
+    MiniMap: () => <div aria-hidden="true" data-xyflow-minimap="true" />,
+    ReactFlowProvider: passthrough,
+    ReactFlow: ({
+      children,
+      nodeTypes,
+      nodes,
+      onNodeDragStop,
+      snapToGrid,
+    }: {
+      children?: ReactNode;
+      nodeTypes?: Record<string, ComponentType<any>>;
+      nodes?: Array<any>;
+      onNodeDragStop?: (event: { altKey: boolean }, node: any) => void;
+      snapToGrid?: boolean;
+    }) => {
+      const renderedNodes = nodes ?? [];
+      const workflowId = renderedNodes[0]?.data?.workflowId ?? 'unknown';
+      return (
+        <div aria-label={`React Flow mock for ${workflowId}`} data-snap-to-grid={snapToGrid ? 'true' : 'false'}>
+          {renderedNodes.map((node) => {
+            const NodeComponent = nodeTypes?.[node.type];
+            return (
+              <div data-node-id={node.id} key={node.id}>
+                {NodeComponent ? <NodeComponent data={node.data} selected={node.selected} /> : null}
+                <button
+                  aria-label={`Mock drag ${node.id} to 137 77`}
+                  onClick={() =>
+                    onNodeDragStop?.({ altKey: false }, { ...node, position: { x: 137, y: 77 } })
+                  }
+                  type="button"
+                />
+                <button
+                  aria-label={`Mock alt drag ${node.id} to 137 77`}
+                  onClick={() =>
+                    onNodeDragStop?.({ altKey: true }, { ...node, position: { x: 137, y: 77 } })
+                  }
+                  type="button"
+                />
+              </div>
+            );
+          })}
+          {children}
+        </div>
+      );
+    },
+  };
+});
 
 import { WorkflowsPage } from './WorkflowsPage';
 
@@ -1814,6 +1870,25 @@ describe('WorkflowsPage', () => {
     expect(within(canvas).getByRole('button', { name: 'Canvas node 1 manual-start manual at 20 20' })).toBeInTheDocument();
     expect(within(canvas).getByRole('button', { name: 'Canvas node 2 classify-ticket llm at 320 80' })).toBeInTheDocument();
     expect(within(canvas).getByLabelText('Canvas edge manual-start to classify-ticket')).toBeInTheDocument();
+    expect(within(canvas).getByLabelText('React Flow mock for workflow_1')).toHaveAttribute('data-snap-to-grid', 'true');
+
+    fireEvent.keyDown(window, { key: 'Alt' });
+    await waitFor(() => {
+      expect(within(canvas).getByLabelText('React Flow mock for workflow_1')).toHaveAttribute('data-snap-to-grid', 'false');
+    });
+    fireEvent.keyUp(window, { key: 'Alt' });
+    await waitFor(() => {
+      expect(within(canvas).getByLabelText('React Flow mock for workflow_1')).toHaveAttribute('data-snap-to-grid', 'true');
+    });
+
+    fireEvent.click(within(canvas).getByRole('button', { name: 'Mock drag manual-start to 137 77' }));
+    expect(await within(canvas).findByRole('button', { name: 'Canvas node 1 manual-start manual at 140 80' })).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: 'Alt' });
+    fireEvent.click(within(canvas).getByRole('button', { name: 'Mock alt drag classify-ticket to 137 77' }));
+    expect(await within(canvas).findByRole('button', { name: 'Canvas node 2 classify-ticket llm at 137 77' })).toBeInTheDocument();
+    fireEvent.keyUp(window, { key: 'Alt' });
+    expect(await within(canvas).findByRole('button', { name: 'Canvas node 2 classify-ticket llm at 137 77' })).toBeInTheDocument();
 
     fireEvent.click(within(visualEditor).getByRole('button', { name: 'Auto arrange nodes for Incident triage' }));
 
