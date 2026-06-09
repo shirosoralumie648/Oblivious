@@ -366,6 +366,32 @@ func TestRouteSurfaceChatPersonaRoutesRequireSessionWithoutDatabase(t *testing.T
 	}
 }
 
+func TestRouteSurfaceChatPrivateReadRoutesRequireSessionWithoutDatabase(t *testing.T) {
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{})
+
+	tests := []routeSurfaceCase{
+		{"models", stdhttp.MethodGet, "/api/v1/app/models"},
+		{"list conversations", stdhttp.MethodGet, "/api/v1/app/conversations"},
+		{"get conversation", stdhttp.MethodGet, "/api/v1/app/conversations/conversation_1"},
+		{"list messages", stdhttp.MethodGet, "/api/v1/app/conversations/conversation_1/messages"},
+		{"get conversation config", stdhttp.MethodGet, "/api/v1/app/conversations/conversation_1/config"},
+		{"export conversation", stdhttp.MethodGet, "/api/v1/app/conversations/conversation_1/export.md"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, nil)
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusUnauthorized {
+				t.Fatalf("expected registered Chat private read route to require session with 401 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
 func TestRouteSurfaceChatMutationsRejectCookieWithoutCSRFWithoutDatabase(t *testing.T) {
 	session := routeSurfaceUserSession()
 	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}})
