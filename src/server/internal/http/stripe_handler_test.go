@@ -85,6 +85,7 @@ func (s *billingCheckoutPaymentIntentStore) MarkPaymentIntentFailed(_ context.Co
 type billingCheckoutQuotaStore struct {
 	packages              map[string]*quota.Package
 	topupCreated          bool
+	createdTopup          *quota.TopupOrder
 	topupFailedPaymentID  string
 	topupCheckoutIntentID string
 }
@@ -135,6 +136,8 @@ func (s *billingCheckoutQuotaStore) ListActiveSubscriptions(context.Context, str
 
 func (s *billingCheckoutQuotaStore) CreateTopupOrder(_ context.Context, order *quota.TopupOrder) (*quota.TopupOrder, error) {
 	s.topupCreated = true
+	copied := *order
+	s.createdTopup = &copied
 	return order, nil
 }
 
@@ -216,6 +219,65 @@ func TestBillingCheckoutCreatorFailureMarksSubscriptionPaymentIntentFailed(t *te
 	}
 	if quotaStore.topupCreated || quotaStore.topupFailedPaymentID != "" || quotaStore.topupCheckoutIntentID != "" {
 		t.Fatalf("subscription checkout failure must not touch topup lifecycle, store=%+v", quotaStore)
+	}
+}
+
+func TestBillingCheckoutCreatorFailureMarksTopupFailedWithoutDatabase(t *testing.T) {
+	checkoutCreator := &fakeCheckoutCreator{err: errors.New("provider checkout unavailable")}
+	paymentStore := &billingCheckoutPaymentIntentStore{}
+	quotaStore := &billingCheckoutQuotaStore{}
+	handler := newBillingHandler(checkoutCreator, stripebilling.CheckoutConfig{}, paymentStore, quota.NewService(quotaStore), nil, nil)
+	session := routeSurfaceUserSession()
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/billing/checkout", strings.NewReader(`{"provider":"stripe","kind":"topup","amount":25}`)).
+		WithContext(context.WithValue(context.Background(), sessionContextKey, session))
+	request.Header.Set("Content-Type", "application/json")
+
+	handler.checkout(recorder, request)
+
+	if recorder.Code != http.StatusBadGateway {
+		t.Fatalf("expected topup checkout failure to return 502, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response Envelope
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode topup checkout failure response: %v", err)
+	}
+	if response.Error == nil || response.Error.Code != "checkout_create_failed" {
+		t.Fatalf("expected checkout_create_failed response, got %+v", response.Error)
+	}
+	if paymentStore.created.ID == "" || paymentStore.created.Status != "pending" || paymentStore.created.Kind != "topup" {
+		t.Fatalf("expected pending topup payment intent before checkout, got %+v", paymentStore.created)
+	}
+	if paymentStore.created.OrganizationID != session.OrganizationID || paymentStore.created.UserID != session.User.ID {
+		t.Fatalf("expected tenant-scoped topup payment intent, got %+v", paymentStore.created)
+	}
+	if paymentStore.created.PackageID != "" || paymentStore.created.Amount != 25 || paymentStore.created.Metadata["topup_amount"] != "25.000000" {
+		t.Fatalf("expected topup metadata in payment intent, got %+v", paymentStore.created)
+	}
+	if quotaStore.createdTopup == nil {
+		t.Fatal("expected pending topup order to be created before checkout")
+	}
+	if quotaStore.createdTopup.PaymentIntentID != paymentStore.created.ID ||
+		quotaStore.createdTopup.OrganizationID != session.OrganizationID ||
+		quotaStore.createdTopup.UserID != session.User.ID ||
+		quotaStore.createdTopup.Amount != 25 ||
+		quotaStore.createdTopup.Status != "pending" {
+		t.Fatalf("expected tenant-scoped pending topup order, got %+v", quotaStore.createdTopup)
+	}
+	if checkoutCreator.request.PaymentIntentID != paymentStore.created.ID ||
+		checkoutCreator.request.CheckoutKind != "topup" ||
+		checkoutCreator.request.PlanName != "Quota top-up" ||
+		checkoutCreator.request.PlanPrice != 25 {
+		t.Fatalf("checkout creator should receive precreated topup intent, got %+v", checkoutCreator.request)
+	}
+	if paymentStore.failedID != paymentStore.created.ID || !strings.Contains(paymentStore.failedReason, "provider checkout unavailable") {
+		t.Fatalf("expected created topup payment intent to be marked failed, failedID=%q reason=%q", paymentStore.failedID, paymentStore.failedReason)
+	}
+	if quotaStore.topupFailedPaymentID != paymentStore.created.ID {
+		t.Fatalf("expected topup order to be marked failed for payment intent %q, got %q", paymentStore.created.ID, quotaStore.topupFailedPaymentID)
+	}
+	if paymentStore.checkoutIntentID != "" || quotaStore.topupCheckoutIntentID != "" {
+		t.Fatalf("checkout session must not be recorded after provider failure, paymentIntent=%q topupIntent=%q", paymentStore.checkoutIntentID, quotaStore.topupCheckoutIntentID)
 	}
 }
 
