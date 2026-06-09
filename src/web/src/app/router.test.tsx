@@ -578,58 +578,155 @@ vi.mock('../features/admin/api', () => ({
   })
 }));
 
-vi.mock('../features/marketplace/api', () => ({
-  createMarketplaceApi: () => ({
-    getCategories: () => Promise.resolve([{ id: 'cat_1', name: 'Productivity', slug: 'productivity', agentCount: 1 }]),
-    getAgent: () =>
-      Promise.resolve({
-        id: 'agent_1',
-        ownerID: 'owner_1',
-        ownerName: 'Publisher',
-        name: 'Research Agent',
-        description: 'Helps with research workflows',
-        categoryName: 'Productivity',
-        tags: ['research', 'writing'],
-        tools: '[{"name":"search"}]',
-        exampleConversations: 'User asks for a market scan.',
-        visibility: 'public',
-        status: 'approved',
-        pricingType: 'one_time',
-        pricingAmount: 19,
-        currentVersion: '1.0.0',
-        installCount: 120,
-        ratingAvg: 4.5,
-        ratingCount: 8,
-        paymentProviders: [{ name: 'stripe' }, { name: 'alipay' }],
-        createdAt: '2026-01-01T00:00:00Z',
-        updatedAt: '2026-01-02T00:00:00Z'
-      }),
-    getReviews: () =>
-      Promise.resolve([
-        {
-          id: 'review_1',
-          agentID: 'agent_1',
-          userID: 'user_1',
-          rating: 5,
-          body: 'Great for launch research.',
-          createdAt: '2026-01-03T00:00:00Z'
-        }
-      ]),
-    getVersions: () => Promise.resolve([{ id: 'ver_1', version: '1.0.0', createdAt: '2026-01-01T00:00:00Z' }]),
-    installAgent: () => Promise.resolve({ checkoutSessionId: 'cs_marketplace_1', url: 'https://checkout.example/session' }),
-    publishAgent: () =>
-      Promise.resolve({
-        id: 'agent_published_router',
-        name: 'Published Router Agent',
-        status: 'pending_review'
-      }),
-    submitReview: () => Promise.resolve({ id: 'review_2', agentID: 'agent_1', userID: 'user_1', rating: 5, body: 'Useful' })
-  }),
-  getMarketplaceCheckoutUrl: (value: { url?: string; checkoutUrl?: string; checkoutURL?: string }) =>
-    value.url ?? value.checkoutUrl ?? value.checkoutURL ?? '',
-  isMarketplaceCheckoutResponse: (value: { checkoutSessionId?: string; checkoutSessionID?: string }) =>
-    Boolean(value.checkoutSessionId ?? value.checkoutSessionID)
-}));
+vi.mock('../features/marketplace/api', () => {
+  const marketplaceAgent = {
+    id: 'agent_1',
+    ownerID: 'owner_1',
+    ownerName: 'Publisher',
+    name: 'Research Agent',
+    description: 'Helps with research workflows',
+    categoryID: 'cat_1',
+    categoryName: 'Productivity',
+    categorySlug: 'productivity',
+    tags: ['research', 'writing'],
+    tools: '[{"name":"search"}]',
+    exampleConversations: 'User asks for a market scan.',
+    visibility: 'public',
+    status: 'approved',
+    pricingType: 'one_time',
+    pricingAmount: 19,
+    currentVersion: '1.0.0',
+    installCount: 120,
+    ratingAvg: 4.5,
+    ratingCount: 8,
+    paymentProviders: [{ name: 'stripe' }, { name: 'alipay' }],
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-02T00:00:00Z'
+  };
+
+  return {
+    createMarketplaceApi: () => ({
+      getCategories: () => Promise.resolve([{ id: 'cat_1', name: 'Productivity', slug: 'productivity', agentCount: 1 }]),
+      searchAgents: () => Promise.resolve({ agents: [marketplaceAgent], total: 1 }),
+      listTemplates: () =>
+        Promise.resolve({
+          templates: [
+            {
+              id: 'tpl_1',
+              type: 'workflow',
+              name: 'Lead Intake Template',
+              description: 'Reusable workflow template for lead qualification.',
+              templateData: { nodes: [{ id: 'start' }] },
+              category: 'Sales',
+              tags: ['crm', 'lead'],
+              downloadsCount: 12,
+              ratingAvg: 4.7,
+              createdAt: '2026-01-06T00:00:00Z'
+            }
+          ],
+          total: 1
+        }),
+      installTemplate: () =>
+        Promise.resolve({
+          id: 'tpl_install_1',
+          templateID: 'tpl_1',
+          type: 'workflow',
+          name: 'Lead Intake Template',
+          templateData: { nodes: [{ id: 'start' }] },
+          installedAt: '2026-01-07T00:00:00Z'
+        }),
+      getCuratedSections: () =>
+        Promise.resolve({
+          popular: [{ ...marketplaceAgent, id: 'agent_popular', name: 'Popular Ops Agent', installCount: 420 }],
+          topRated: [{ ...marketplaceAgent, id: 'agent_top_rated', name: 'Top Rated QA Agent', ratingAvg: 4.9 }],
+          recent: [{ ...marketplaceAgent, id: 'agent_recent', name: 'New Arrival Agent', createdAt: '2026-01-08T00:00:00Z' }]
+        }),
+      getAgent: () => Promise.resolve(marketplaceAgent),
+      getReviews: () =>
+        Promise.resolve([
+          {
+            id: 'review_1',
+            agentID: 'agent_1',
+            userID: 'user_1',
+            rating: 5,
+            body: 'Great for launch research.',
+            createdAt: '2026-01-03T00:00:00Z'
+          }
+        ]),
+      getVersions: () => Promise.resolve([{ id: 'ver_1', version: '1.0.0', createdAt: '2026-01-01T00:00:00Z' }]),
+      installAgent: () => Promise.resolve({ checkoutSessionId: 'cs_marketplace_1', url: 'https://checkout.example/session' }),
+      uninstallAgent: () => Promise.resolve(),
+      getMyAgents: () => Promise.resolve([marketplaceAgent]),
+      getInstalledAgents: () =>
+        Promise.resolve([
+          {
+            id: 'install_1',
+            agentID: 'agent_1',
+            agentName: 'Research Agent',
+            version: '1.0.0',
+            installedAt: '2026-01-04T00:00:00Z'
+          }
+        ]),
+      getSettlementPreferences: () =>
+        Promise.resolve({
+          cycle: 'monthly',
+          label: 'Monthly',
+          payoutBusinessDays: 5,
+          processingFeePercent: 1,
+          minimumPayoutAmount: 100,
+          effectiveFrom: 'next_settlement_cycle'
+        }),
+      updateSettlementPreferences: () =>
+        Promise.resolve({
+          cycle: 'weekly',
+          label: 'Weekly',
+          payoutBusinessDays: 3,
+          processingFeePercent: 2,
+          minimumPayoutAmount: 100,
+          effectiveFrom: 'next_settlement_cycle'
+        }),
+      getPublisherStats: () =>
+        Promise.resolve({
+          totalAgents: 1,
+          totalInstalls: 120,
+          activeUsers: 64,
+          totalAPICalls: 900,
+          grossRevenue: 15000,
+          platformFees: 2850,
+          netRevenue: 12150,
+          refundedAmount: 0,
+          pendingSettlementAmount: 1200,
+          availableAmount: 10950,
+          payoutPendingAmount: 0,
+          paidOutAmount: 8000,
+          revenueTier: {
+            currentTier: 'tier_3',
+            label: 'Tier 3',
+            monthlySalesAmount: 15000,
+            platformFeeAmount: 2850,
+            publisherNetAmount: 12150,
+            platformFeePercent: 15,
+            publisherSharePercent: 85,
+            effectivePlatformFeePercent: 19,
+            nextTierAt: 100000,
+            salesToNextTier: 85000,
+            estimatedPublisherNetIncreaseAtNextTier: 72250
+          }
+        }),
+      publishAgent: () =>
+        Promise.resolve({
+          id: 'agent_published_router',
+          name: 'Published Router Agent',
+          status: 'pending_review'
+        }),
+      submitReview: () => Promise.resolve({ id: 'review_2', agentID: 'agent_1', userID: 'user_1', rating: 5, body: 'Useful' })
+    }),
+    getMarketplaceCheckoutUrl: (value: { url?: string; checkoutUrl?: string; checkoutURL?: string }) =>
+      value.url ?? value.checkoutUrl ?? value.checkoutURL ?? '',
+    isMarketplaceCheckoutResponse: (value: { checkoutSessionId?: string; checkoutSessionID?: string }) =>
+      Boolean(value.checkoutSessionId ?? value.checkoutSessionID)
+  };
+});
 
 vi.mock('../features/scheduledTasks/scheduledTasksApi', () => ({
   createScheduledTasksApi: () => ({
@@ -1978,6 +2075,70 @@ describe('app router', () => {
     expect(screen.getByText('Reviews')).toBeInTheDocument();
     expect(screen.getByLabelText('Review text')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Submit Review' })).toBeEnabled();
+  });
+
+  it('keeps marketplace home route-level browse, curation, and template controls reachable', async () => {
+    const router = createAppRouter(['/marketplace']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Marketplace' })).toHaveAttribute('href', '/marketplace');
+    expect(await screen.findByRole('heading', { name: 'Agent Marketplace' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'My Agents' })).toHaveAttribute('href', '/marketplace/my-agents');
+    expect(screen.getByRole('link', { name: 'Publish Agent' })).toHaveAttribute('href', '/marketplace/publish');
+    expect(screen.getByPlaceholderText('Search agents...')).toBeInTheDocument();
+    expect(screen.getByLabelText('Marketplace sort')).toHaveValue('recommended');
+    expect(screen.getByText('Filters')).toBeInTheDocument();
+    expect(screen.getAllByText('Productivity').length).toBeGreaterThanOrEqual(1);
+    expect(await screen.findByRole('heading', { name: 'Popular' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Top rated' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'New arrivals' })).toBeInTheDocument();
+    expect(screen.getByText('Popular Ops Agent')).toBeInTheDocument();
+    expect(screen.getByText('Top Rated QA Agent')).toBeInTheDocument();
+    expect(screen.getByText('New Arrival Agent')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Templates' })).toBeInTheDocument();
+    expect(screen.getByText('Lead Intake Template')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Use Lead Intake Template' }));
+    expect(await screen.findByText('Template ready to use.')).toBeInTheDocument();
+    expect(await screen.findByText('Research Agent')).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: 'View Agent' })[0]).toHaveAttribute(
+      'href',
+      '/marketplace/agents/agent_popular'
+    );
+  });
+
+  it('keeps marketplace my-agents route-level settlement and inventory controls reachable', async () => {
+    const router = createAppRouter(['/marketplace/my-agents']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'My Agents' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Publish Agent' })).toHaveAttribute('href', '/marketplace/publish');
+    expect(await screen.findByRole('heading', { name: 'Settlement Cycle' })).toBeInTheDocument();
+    expect(screen.getByText('Current cycle: Monthly')).toBeInTheDocument();
+    expect(screen.getByText('5 business days')).toBeInTheDocument();
+    expect(screen.getByText('1% processing fee')).toBeInTheDocument();
+    expect(screen.getByText('$100 minimum payout')).toBeInTheDocument();
+    expect(screen.getByText('Tier 3')).toBeInTheDocument();
+    expect(screen.getByText('15% current platform fee')).toBeInTheDocument();
+    expect(screen.getByText('$85,000 to next tier')).toBeInTheDocument();
+    expect(screen.getByText('$72,250 projected net increase')).toBeInTheDocument();
+    expect(screen.getByLabelText('Settlement cycle')).toHaveValue('monthly');
+    fireEvent.change(screen.getByLabelText('Settlement cycle'), { target: { value: 'weekly' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Settlement Cycle' }));
+    expect(await screen.findByText('2% processing fee')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Published Agents' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Installed Agents' })).toBeInTheDocument();
+    expect(await screen.findAllByText('Research Agent')).toHaveLength(2);
+    expect(screen.getByText('1.0.0')).toBeInTheDocument();
+    expect(screen.getByText('120')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open agent Research Agent' })).toHaveAttribute(
+      'href',
+      '/marketplace/agents/agent_1'
+    );
+    expect(screen.getByRole('button', { name: 'Uninstall Research Agent' })).toBeEnabled();
   });
 
   it('keeps marketplace publish route-level submission controls reachable', async () => {
