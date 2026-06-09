@@ -448,28 +448,74 @@ func draftTaskGoalFromMessages(messages []Message) string {
 }
 
 func (s *Service) SendMessage(ctx context.Context, session auth.Session, conversationID, content string, overrides *MessageOverrides) ([]Message, error) {
-	scopeID := chatSessionScopeID(session)
-	if strings.TrimSpace(session.OrganizationID) != "" {
-		if _, err := s.store.CreateMessage(ctx, conversationID, session.OrganizationID, "user", content); err != nil {
-			return nil, err
-		}
-	} else if _, err := s.store.CreateMessage(ctx, conversationID, "user", content); err != nil {
+	scopeID, messages, effectiveConfig, err := s.prepareAssistantReply(ctx, session, conversationID, content, overrides)
+	if err != nil {
 		return nil, err
+	}
+
+	reply, err := s.replyGenerator.GenerateReply(withRelayMetadata(ctx, session, "chat"), messages, effectiveConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.persistAssistantReply(ctx, session, conversationID, content, reply, effectiveConfig); err != nil {
+		return nil, err
+	}
+
+	return s.store.ListMessages(ctx, conversationID, scopeID)
+}
+
+func (s *Service) SendMessageStream(ctx context.Context, session auth.Session, conversationID, content string, overrides *MessageOverrides, onChunk func(string) error) error {
+	_, messages, effectiveConfig, err := s.prepareAssistantReply(ctx, session, conversationID, content, overrides)
+	if err != nil {
+		return err
+	}
+
+	var replyBuilder strings.Builder
+	emit := func(chunk string) error {
+		replyBuilder.WriteString(chunk)
+		if onChunk == nil {
+			return nil
+		}
+		return onChunk(chunk)
+	}
+
+	if streamGenerator, ok := s.replyGenerator.(interface {
+		GenerateReplyStream(context.Context, []Message, ConversationConfig, func(string) error) error
+	}); ok {
+		if err := streamGenerator.GenerateReplyStream(withRelayMetadata(ctx, session, "chat"), messages, effectiveConfig, emit); err != nil {
+			return err
+		}
+	} else {
+		reply, err := s.replyGenerator.GenerateReply(withRelayMetadata(ctx, session, "chat"), messages, effectiveConfig)
+		if err != nil {
+			return err
+		}
+		if err := emit(reply); err != nil {
+			return err
+		}
+	}
+
+	return s.persistAssistantReply(ctx, session, conversationID, content, replyBuilder.String(), effectiveConfig)
+}
+
+func (s *Service) prepareAssistantReply(ctx context.Context, session auth.Session, conversationID, content string, overrides *MessageOverrides) (string, []Message, ConversationConfig, error) {
+	scopeID := chatSessionScopeID(session)
+	if err := s.createScopedMessage(ctx, session, conversationID, "user", content); err != nil {
+		return "", nil, ConversationConfig{}, err
 	}
 
 	messages, err := s.store.ListMessages(ctx, conversationID, scopeID)
 	if err != nil {
-		return nil, err
+		return "", nil, ConversationConfig{}, err
 	}
 
 	conversationConfig, err := s.store.GetConversationConfig(ctx, conversationID, scopeID, s.defaultModelID)
 	if err != nil {
-		return nil, err
+		return "", nil, ConversationConfig{}, err
 	}
 
 	effectiveConfig := mergeConversationConfig(conversationConfig, overrides, s.defaultModelID)
-
-	// Resolve persona system prompt if a persona is configured
 	if effectiveConfig.PersonaID != "" {
 		persona, personaErr := s.store.GetPersona(ctx, effectiveConfig.PersonaID, scopeID)
 		if personaErr == nil && persona.ID != "" {
@@ -482,17 +528,12 @@ func (s *Service) SendMessage(ctx context.Context, session auth.Session, convers
 		}
 	}
 
-	reply, err := s.replyGenerator.GenerateReply(withRelayMetadata(ctx, session, "chat"), messages, effectiveConfig)
-	if err != nil {
-		return nil, err
-	}
+	return scopeID, messages, effectiveConfig, nil
+}
 
-	if strings.TrimSpace(session.OrganizationID) != "" {
-		if _, err := s.store.CreateMessage(ctx, conversationID, session.OrganizationID, "assistant", reply); err != nil {
-			return nil, err
-		}
-	} else if _, err := s.store.CreateMessage(ctx, conversationID, "assistant", reply); err != nil {
-		return nil, err
+func (s *Service) persistAssistantReply(ctx context.Context, session auth.Session, conversationID, content, reply string, effectiveConfig ConversationConfig) error {
+	if err := s.createScopedMessage(ctx, session, conversationID, "assistant", reply); err != nil {
+		return err
 	}
 
 	if s.usageRecorder != nil {
@@ -506,7 +547,7 @@ func (s *Service) SendMessage(ctx context.Context, session auth.Session, convers
 			UserID:         session.User.ID,
 			WorkspaceID:    session.WorkspaceID,
 		}); err != nil {
-			return nil, err
+			return err
 		}
 	}
 
@@ -518,11 +559,20 @@ func (s *Service) SendMessage(ctx context.Context, session auth.Session, convers
 			UserID:         session.User.ID,
 			WorkspaceID:    session.WorkspaceID,
 		}); err != nil {
-			return nil, err
+			return err
 		}
 	}
 
-	return s.store.ListMessages(ctx, conversationID, scopeID)
+	return nil
+}
+
+func (s *Service) createScopedMessage(ctx context.Context, session auth.Session, conversationID, role, content string) error {
+	if strings.TrimSpace(session.OrganizationID) != "" {
+		_, err := s.store.CreateMessage(ctx, conversationID, session.OrganizationID, role, content)
+		return err
+	}
+	_, err := s.store.CreateMessage(ctx, conversationID, role, content)
+	return err
 }
 
 func chatSessionScopeID(session auth.Session) string {

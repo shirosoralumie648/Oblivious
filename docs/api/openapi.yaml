@@ -6315,6 +6315,59 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /api/v1/app/conversations/{conversationId}/messages/stream:
+    post:
+      summary: 流式发送消息
+      operationId: streamMessage
+      tags: [Chat]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendMessageRequest"
+      responses:
+        "200":
+          description: "SSE 文本增量，结束帧为 data: [DONE]"
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/app/conversations/{conversationId}/export.md:
+    get:
+      summary: 导出对话 Markdown
+      operationId: exportConversationMarkdown
+      tags: [Chat]
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Markdown 文本导出
+          content:
+            text/markdown:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   /api/v1/app/conversations/{conversationId}/config:
     get:
       summary: 获取对话配置

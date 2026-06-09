@@ -2452,6 +2452,7 @@ require_chat_mutation_csrf_contract() {
       ["/api/v1/app/conversations/{conversationId}", "put"] => "#/components/schemas/UpdateConversationRequest",
       ["/api/v1/app/conversations/{conversationId}/fork", "post"] => "#/components/schemas/ForkConversationRequest",
       ["/api/v1/app/conversations/{conversationId}/messages", "post"] => "#/components/schemas/SendMessageRequest",
+      ["/api/v1/app/conversations/{conversationId}/messages/stream", "post"] => "#/components/schemas/SendMessageRequest",
       ["/api/v1/app/conversations/{conversationId}/messages/{messageId}", "put"] => "#/components/schemas/UpdateMessageRequest",
       ["/api/v1/app/conversations/{conversationId}/messages/{messageId}/bookmark", "post"] => "#/components/schemas/BookmarkMessageRequest",
       ["/api/v1/app/conversations/{conversationId}/config", "put"] => "#/components/schemas/UpdateConversationConfigRequest",
@@ -2505,6 +2506,25 @@ require_chat_mutation_csrf_contract() {
       unless response_data_ref(op, "200") == expected
         missing << "#{method.upcase} #{path} 200 data must reference #{expected}"
       end
+    end
+
+    stream = operation(paths, "/api/v1/app/conversations/{conversationId}/messages/stream", "post", missing)
+    unless requires_cookie_and_csrf?(stream)
+      missing << "POST /api/v1/app/conversations/{conversationId}/messages/stream must require cookieAuth and csrfHeader"
+    end
+    unless stream.fetch("tags", []).include?("Chat")
+      missing << "POST /api/v1/app/conversations/{conversationId}/messages/stream must be tagged Chat"
+    end
+    unless stream.dig("responses", "200", "content", "text/event-stream", "schema", "type") == "string"
+      missing << "POST /api/v1/app/conversations/{conversationId}/messages/stream 200 response must document text/event-stream"
+    end
+
+    export = operation(paths, "/api/v1/app/conversations/{conversationId}/export.md", "get", missing)
+    unless export.fetch("tags", []).include?("Chat")
+      missing << "GET /api/v1/app/conversations/{conversationId}/export.md must be tagged Chat"
+    end
+    unless export.dig("responses", "200", "content", "text/markdown", "schema", "type") == "string"
+      missing << "GET /api/v1/app/conversations/{conversationId}/export.md 200 response must document text/markdown"
     end
 
     unless schemas.dig("UpdateConversationConfigRequest", "properties", "personaId", "type") == "string"

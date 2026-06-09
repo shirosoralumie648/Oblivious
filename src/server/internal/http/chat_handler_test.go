@@ -224,6 +224,23 @@ func (noopReplyGenerator) GenerateReply(ctx context.Context, messages []chat.Mes
 	return "", nil
 }
 
+type streamingReplyGenerator struct {
+	chunks []string
+}
+
+func (g streamingReplyGenerator) GenerateReply(ctx context.Context, messages []chat.Message, config chat.ConversationConfig) (string, error) {
+	return strings.Join(g.chunks, ""), nil
+}
+
+func (g streamingReplyGenerator) GenerateReplyStream(ctx context.Context, messages []chat.Message, config chat.ConversationConfig, onChunk func(string) error) error {
+	for _, chunk := range g.chunks {
+		if err := onChunk(chunk); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func TestChatHandlerGetConversationConfigReturnsKnowledgeBaseIDs(t *testing.T) {
 	store := &chatFakeStore{
 		config: chat.ConversationConfig{

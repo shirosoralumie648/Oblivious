@@ -226,7 +226,72 @@ func (h chatHandler) exportConversationMarkdown(w stdhttp.ResponseWriter, r *std
 }
 
 func (h chatHandler) streamMessage(w stdhttp.ResponseWriter, r *stdhttp.Request, conversationID string) {
-	h.sendMessage(w, r, conversationID)
+	session, ok := sessionFromContext(r)
+	if !ok {
+		writeError(w, stdhttp.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+
+	var payload sendMessageRequest
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "invalid json body")
+		return
+	}
+	if strings.TrimSpace(payload.Content) == "" {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "content is required")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(stdhttp.StatusOK)
+	flusher, _ := w.(stdhttp.Flusher)
+
+	err := h.service.SendMessageStream(
+		r.Context(),
+		session,
+		conversationID,
+		strings.TrimSpace(payload.Content),
+		toMessageOverrides(payload.Overrides),
+		func(chunk string) error {
+			if err := writeSSEFrame(w, "", chunk); err != nil {
+				return err
+			}
+			if flusher != nil {
+				flusher.Flush()
+			}
+			return nil
+		},
+	)
+	if err != nil {
+		_ = writeSSEFrame(w, "error", "send message failed")
+		if flusher != nil {
+			flusher.Flush()
+		}
+		return
+	}
+	_ = writeSSEFrame(w, "", "[DONE]")
+	if flusher != nil {
+		flusher.Flush()
+	}
+}
+
+func writeSSEFrame(w stdhttp.ResponseWriter, event string, data string) error {
+	if strings.TrimSpace(event) != "" {
+		if _, err := fmt.Fprintf(w, "event: %s\n", strings.TrimSpace(event)); err != nil {
+			return err
+		}
+	}
+	normalized := strings.ReplaceAll(data, "\r\n", "\n")
+	lines := strings.Split(normalized, "\n")
+	for _, line := range lines {
+		if _, err := fmt.Fprintf(w, "data: %s\n", line); err != nil {
+			return err
+		}
+	}
+	_, err := fmt.Fprint(w, "\n")
+	return err
 }
 
 func parseOptionalShareExpiration(w stdhttp.ResponseWriter, value string) (*time.Time, bool) {

@@ -95,6 +95,26 @@ func (g *metadataRecordingGenerator) GenerateReply(ctx context.Context, messages
 	return "assistant reply", nil
 }
 
+type streamingGenerator struct {
+	chunks   []string
+	metadata RelayRequestMetadata
+	ok       bool
+}
+
+func (g *streamingGenerator) GenerateReply(ctx context.Context, messages []Message, config ConversationConfig) (string, error) {
+	return strings.Join(g.chunks, ""), nil
+}
+
+func (g *streamingGenerator) GenerateReplyStream(ctx context.Context, messages []Message, config ConversationConfig, onChunk func(string) error) error {
+	g.metadata, g.ok = RelayRequestMetadataFromContext(ctx)
+	for _, chunk := range g.chunks {
+		if err := onChunk(chunk); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 type fakeUsageRecorder struct {
 	records []UsageRecord
 }
@@ -312,6 +332,61 @@ func TestSendMessageRecordsUsage(t *testing.T) {
 	}
 	if record.RequestCount != 1 {
 		t.Fatalf("expected request count 1, got %d", record.RequestCount)
+	}
+}
+
+func TestSendMessageStreamEmitsAndPersistsAssistantReply(t *testing.T) {
+	store := &recordingStore{
+		config: ConversationConfig{
+			ConversationID:  "conversation_1",
+			ModelID:         "quality-chat",
+			Temperature:     1,
+			MaxOutputTokens: 1024,
+		},
+	}
+	recorder := &fakeUsageRecorder{}
+	triggerer := &fakeSemanticWorkflowTriggerer{}
+	generator := &streamingGenerator{chunks: []string{"assistant", " reply"}}
+	service := NewService(store, generator, "demo-reply", recorder)
+	service.SetSemanticWorkflowTriggerer(triggerer)
+	var chunks []string
+
+	err := service.SendMessageStream(
+		context.Background(),
+		auth.Session{
+			OrganizationID: "org_1",
+			WorkspaceID:    "workspace_1",
+			User: auth.User{
+				ID:   "user_1",
+				Role: "admin",
+			},
+		},
+		"conversation_1",
+		"stream this",
+		nil,
+		func(chunk string) error {
+			chunks = append(chunks, chunk)
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("send message stream: %v", err)
+	}
+
+	if strings.Join(chunks, "") != "assistant reply" {
+		t.Fatalf("expected streamed chunks to compose assistant reply, got %+v", chunks)
+	}
+	if len(store.messages) != 2 || store.messages[0].Role != "user" || store.messages[0].Content != "stream this" || store.messages[1].Role != "assistant" || store.messages[1].Content != "assistant reply" {
+		t.Fatalf("expected user and assistant messages to be persisted, got %+v", store.messages)
+	}
+	if len(recorder.records) != 1 || recorder.records[0].ModelID != "quality-chat" || recorder.records[0].OutputTokens == 0 {
+		t.Fatalf("expected streamed usage record, got %+v", recorder.records)
+	}
+	if len(triggerer.requests) != 1 || triggerer.requests[0].Message != "stream this" {
+		t.Fatalf("expected semantic workflow trigger after streamed reply, got %+v", triggerer.requests)
+	}
+	if !generator.ok || generator.metadata.FeatureType != "chat" || generator.metadata.OrganizationID != "org_1" || generator.metadata.UserID != "user_1" {
+		t.Fatalf("expected relay metadata on stream generator context, got ok=%v metadata=%+v", generator.ok, generator.metadata)
 	}
 }
 
