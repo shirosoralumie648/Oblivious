@@ -7,6 +7,7 @@ import { routerFuture } from '../../app/routerFuture';
 const getAccess = vi.fn();
 const getBilling = vi.fn();
 const listInvoices = vi.fn();
+const listPackages = vi.fn();
 const createBillingCheckout = vi.fn();
 
 vi.mock('../../features/console/api', () => ({
@@ -14,6 +15,7 @@ vi.mock('../../features/console/api', () => ({
     createBillingCheckout,
     getAccess,
     getBilling,
+    listPackages,
     listInvoices
   })
 }));
@@ -25,6 +27,7 @@ describe('BillingPage', () => {
     getAccess.mockReset();
     getBilling.mockReset();
     listInvoices.mockReset();
+    listPackages.mockReset();
     createBillingCheckout.mockReset();
   });
 
@@ -52,6 +55,7 @@ describe('BillingPage', () => {
       paymentProviders: [{ name: 'stripe' }]
     });
     listInvoices.mockResolvedValue([]);
+    listPackages.mockResolvedValue([]);
     createBillingCheckout.mockResolvedValue({
       checkoutSessionId: 'cs_topup_1',
       url: 'https://checkout.stripe.test/session/cs_topup_1'
@@ -103,6 +107,7 @@ describe('BillingPage', () => {
       paymentProviders: [{ name: 'stripe' }, { name: 'alipay' }]
     });
     listInvoices.mockResolvedValue([]);
+    listPackages.mockResolvedValue([]);
     createBillingCheckout.mockResolvedValue({
       checkoutSessionId: 'cs_topup_alipay_1',
       url: 'https://checkout.alipay.test/session/cs_topup_alipay_1'
@@ -154,6 +159,7 @@ describe('BillingPage', () => {
       paymentProviders: [{ name: 'alipay' }]
     });
     listInvoices.mockResolvedValue([]);
+    listPackages.mockResolvedValue([]);
     createBillingCheckout.mockResolvedValue({
       checkoutSessionId: 'cs_topup_alipay_1',
       url: 'https://checkout.alipay.test/session/cs_topup_alipay_1'
@@ -205,6 +211,7 @@ describe('BillingPage', () => {
       paymentProviders: []
     });
     listInvoices.mockResolvedValue([]);
+    listPackages.mockResolvedValue([]);
 
     render(
       <MemoryRouter future={routerFuture}>
@@ -216,6 +223,100 @@ describe('BillingPage', () => {
     expect(screen.getByLabelText('Payment provider')).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Start top-up checkout' })).toBeDisabled();
     expect(screen.queryByRole('option', { name: 'Stripe' })).not.toBeInTheDocument();
+  });
+
+  it('starts a subscription package checkout with the selected package and provider', async () => {
+    getAccess.mockResolvedValue({
+      defaultMode: 'solo',
+      modelStrategy: 'balanced',
+      networkEnabledHint: true,
+      onboardingCompleted: true,
+      sessionExpiresAt: '2026-04-03T00:00:00Z',
+      sessionId: 'session_1',
+      userEmail: 'user@example.com',
+      userId: 'user_1',
+      workspaceId: 'workspace_1'
+    });
+    getBilling.mockResolvedValue({
+      period: '30d',
+      requests: 5,
+      inputTokens: 120,
+      outputTokens: 80,
+      estimatedCostUsd: 0.0004,
+      balanceUsd: 42.5,
+      creditLimitUsd: 100,
+      currentSpendUsd: 0.0004,
+      paymentProviders: [{ name: 'stripe' }, { name: 'wechatpay' }]
+    });
+    listInvoices.mockResolvedValue([]);
+    listPackages.mockResolvedValue([
+      {
+        agentLimit: 10,
+        createdAt: '2026-06-01T00:00:00Z',
+        durationDays: 30,
+        id: 'pkg_starter',
+        isActive: true,
+        isPublic: true,
+        maxTokensPerRequest: 16000,
+        modelAccess: ['gpt-4.1-mini'],
+        name: 'Starter',
+        price: 12,
+        quotaAmount: 50,
+        sortOrder: 1,
+        tokenQuota: 500000,
+        updatedAt: '2026-06-01T00:00:00Z'
+      },
+      {
+        agentLimit: 25,
+        createdAt: '2026-06-01T00:00:00Z',
+        durationDays: 30,
+        id: 'pkg_pro',
+        isActive: true,
+        isPublic: true,
+        maxTokensPerRequest: 32000,
+        modelAccess: ['gpt-4.1', 'gpt-4.1-mini'],
+        name: 'Pro',
+        price: 29,
+        quotaAmount: 150,
+        sortOrder: 2,
+        tokenQuota: 1500000,
+        updatedAt: '2026-06-01T00:00:00Z'
+      }
+    ]);
+    createBillingCheckout.mockResolvedValue({
+      checkoutSessionId: 'cs_subscription_wechatpay_1',
+      url: 'https://checkout.wechatpay.test/session/cs_subscription_wechatpay_1'
+    });
+
+    render(
+      <MemoryRouter future={routerFuture}>
+        <BillingPage />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByLabelText('Package')).toHaveValue('pkg_starter');
+    expect(screen.getByRole('option', { name: 'Starter - $12.00 - 30 days' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Pro - $29.00 - 30 days' })).toBeInTheDocument();
+    expect(screen.getByText('Quota credit: $50.00')).toBeInTheDocument();
+    expect(screen.getByText('Token quota: 500,000')).toBeInTheDocument();
+    expect(screen.getByText('Agent limit: 10')).toBeInTheDocument();
+    expect(screen.getByText('Max tokens per request: 16,000')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Package'), { target: { value: 'pkg_pro' } });
+    fireEvent.change(screen.getByLabelText('Subscription payment provider'), { target: { value: 'wechatpay' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Start subscription checkout' }));
+
+    await waitFor(() =>
+      expect(createBillingCheckout).toHaveBeenCalledWith({
+        kind: 'subscription',
+        packageId: 'pkg_pro',
+        provider: 'wechatpay'
+      })
+    );
+    expect(await screen.findByRole('link', { name: 'Continue WeChat Pay checkout' })).toHaveAttribute(
+      'href',
+      'https://checkout.wechatpay.test/session/cs_subscription_wechatpay_1'
+    );
   });
 
   it('renders billing inside a workbench layout with context rail and sibling links', async () => {
@@ -261,6 +362,7 @@ describe('BillingPage', () => {
         dueAt: '2026-06-30T00:00:00Z'
       }
     ]);
+    listPackages.mockResolvedValue([]);
 
     render(
       <MemoryRouter future={routerFuture}>

@@ -1,5 +1,5 @@
 import type { HttpClient } from '../../services/http/client';
-import type { AccessSummary, BillingPaymentProviderSummary, BillingSummary as BaseBillingSummary, CreatedRelayApiToken, CreateRelayApiTokenRequest, ModelSummary, RelayApiToken, RelayApiTokenUsageItem, UsageSummary } from '../../types/api';
+import type { AccessSummary, BillingPaymentProviderSummary, BillingSummary as BaseBillingSummary, CreatedRelayApiToken, CreateRelayApiTokenRequest, ModelSummary, PackageOption, RelayApiToken, RelayApiTokenUsageItem, UsageSummary } from '../../types/api';
 
 export type ConsoleBillingInvoiceSummary = {
   id: string;
@@ -37,6 +37,7 @@ export type ConsoleApi = {
   getBilling: () => Promise<ConsoleBillingSummary>;
   getModels: () => Promise<ModelSummary[]>;
   getUsage: () => Promise<UsageSummary>;
+  listPackages: () => Promise<PackageOption[]>;
   listInvoices: () => Promise<ConsoleBillingInvoiceSummary[]>;
   listApiTokens: () => Promise<RelayApiToken[]>;
   listApiTokenUsage: (tokenId: string) => Promise<RelayApiTokenUsageItem[]>;
@@ -51,6 +52,7 @@ export function createConsoleApi(client: HttpClient): ConsoleApi {
     getBilling: () => client.get<ConsoleBillingSummary>('/api/v1/console/billing'),
     getModels: () => client.get<ModelSummary[]>('/api/v1/console/models'),
     getUsage: () => client.get<UsageSummary>('/api/v1/console/usage'),
+    listPackages: () => client.get<PackageOption[]>('/api/v1/app/packages'),
     listInvoices: () => client.get<ConsoleBillingInvoiceSummary[]>('/api/v1/console/invoices'),
     listApiTokens: () => client.get<RelayApiToken[]>('/api/v1/console/api-tokens'),
     listApiTokenUsage: (tokenId) => client.get<RelayApiTokenUsageItem[]>(`/api/v1/console/api-tokens/${tokenId}/usage`),

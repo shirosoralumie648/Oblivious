@@ -3,34 +3,45 @@ import { type FormEvent, useEffect, useMemo, useState } from 'react';
 import { createConsoleApi, type BillingCheckoutProvider, type ConsoleBillingInvoiceSummary, type ConsoleBillingSummary } from '../../features/console/api';
 import { ConsoleWorkbenchLayout } from '../../features/console/components/ConsoleWorkbenchLayout';
 import { createHttpClient } from '../../services/http/client';
-import type { AccessSummary } from '../../types/api';
+import type { AccessSummary, PackageOption } from '../../types/api';
 
 export function BillingPage() {
   const consoleApi = useMemo(() => createConsoleApi(createHttpClient()), []);
   const [accessSummary, setAccessSummary] = useState<AccessSummary | null>(null);
   const [billingSummary, setBillingSummary] = useState<ConsoleBillingSummary | null>(null);
   const [invoices, setInvoices] = useState<ConsoleBillingInvoiceSummary[]>([]);
+  const [packages, setPackages] = useState<PackageOption[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [checkoutError, setCheckoutError] = useState<string | null>(null);
-  const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
+  const [topUpCheckoutError, setTopUpCheckoutError] = useState<string | null>(null);
+  const [topUpCheckoutUrl, setTopUpCheckoutUrl] = useState<string | null>(null);
+  const [subscriptionCheckoutError, setSubscriptionCheckoutError] = useState<string | null>(null);
+  const [subscriptionCheckoutUrl, setSubscriptionCheckoutUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isStartingCheckout, setIsStartingCheckout] = useState(false);
+  const [isStartingTopUpCheckout, setIsStartingTopUpCheckout] = useState(false);
+  const [isStartingSubscriptionCheckout, setIsStartingSubscriptionCheckout] = useState(false);
   const [topUpAmount, setTopUpAmount] = useState('25');
   const [topUpProvider, setTopUpProvider] = useState<BillingCheckoutProvider>('stripe');
+  const [subscriptionProvider, setSubscriptionProvider] = useState<BillingCheckoutProvider>('stripe');
+  const [selectedPackageId, setSelectedPackageId] = useState('');
   const paymentProviders = useMemo(
     () => normalizedBillingCheckoutProviders(billingSummary?.paymentProviders),
     [billingSummary?.paymentProviders]
   );
   const hasPaymentProviders = paymentProviders.length > 0;
+  const selectedPackage = useMemo(
+    () => packages.find((packageOption) => packageOption.id === selectedPackageId) ?? packages[0] ?? null,
+    [packages, selectedPackageId]
+  );
 
   useEffect(() => {
     let cancelled = false;
 
     const loadBilling = async () => {
-      const [access, billing, invoiceList] = await Promise.allSettled([
+      const [access, billing, invoiceList, packageList] = await Promise.allSettled([
         consoleApi.getAccess(),
         consoleApi.getBilling(),
-        consoleApi.listInvoices()
+        consoleApi.listInvoices(),
+        consoleApi.listPackages()
       ]);
 
       if (cancelled) {
@@ -46,6 +57,7 @@ export function BillingPage() {
         setErrorMessage('Unable to load billing summary.');
       }
       setInvoices(invoiceList.status === 'fulfilled' ? invoiceList.value : []);
+      setPackages(packageList.status === 'fulfilled' && Array.isArray(packageList.value) ? packageList.value : []);
       setIsLoading(false);
     };
 
@@ -63,37 +75,83 @@ export function BillingPage() {
     if (!paymentProviders.includes(topUpProvider)) {
       setTopUpProvider(paymentProviders[0]);
     }
-  }, [paymentProviders, topUpProvider]);
+    if (!paymentProviders.includes(subscriptionProvider)) {
+      setSubscriptionProvider(paymentProviders[0]);
+    }
+  }, [paymentProviders, subscriptionProvider, topUpProvider]);
+
+  useEffect(() => {
+    if (packages.length === 0) {
+      if (selectedPackageId !== '') {
+        setSelectedPackageId('');
+      }
+      return;
+    }
+    if (!packages.some((packageOption) => packageOption.id === selectedPackageId)) {
+      setSelectedPackageId(packages[0].id);
+    }
+  }, [packages, selectedPackageId]);
 
   const handleTopUpCheckout = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const amount = Number(topUpAmount);
 
     if (!Number.isFinite(amount) || amount <= 0) {
-      setCheckoutError('Enter a positive top-up amount.');
-      setCheckoutUrl(null);
+      setTopUpCheckoutError('Enter a positive top-up amount.');
+      setTopUpCheckoutUrl(null);
       return;
     }
     if (!hasPaymentProviders) {
-      setCheckoutError('No payment provider is configured for checkout.');
-      setCheckoutUrl(null);
+      setTopUpCheckoutError('No payment provider is configured for checkout.');
+      setTopUpCheckoutUrl(null);
       return;
     }
 
-    setCheckoutError(null);
-    setCheckoutUrl(null);
-    setIsStartingCheckout(true);
+    setTopUpCheckoutError(null);
+    setTopUpCheckoutUrl(null);
+    setIsStartingTopUpCheckout(true);
     try {
       const checkout = await consoleApi.createBillingCheckout({
         amount,
         kind: 'topup',
         provider: topUpProvider
       });
-      setCheckoutUrl(checkout.url);
+      setTopUpCheckoutUrl(checkout.url);
     } catch {
-      setCheckoutError('Unable to start top-up checkout.');
+      setTopUpCheckoutError('Unable to start top-up checkout.');
     } finally {
-      setIsStartingCheckout(false);
+      setIsStartingTopUpCheckout(false);
+    }
+  };
+
+  const handleSubscriptionCheckout = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!selectedPackage) {
+      setSubscriptionCheckoutError('No subscription package is available.');
+      setSubscriptionCheckoutUrl(null);
+      return;
+    }
+    if (!hasPaymentProviders) {
+      setSubscriptionCheckoutError('No payment provider is configured for checkout.');
+      setSubscriptionCheckoutUrl(null);
+      return;
+    }
+
+    setSubscriptionCheckoutError(null);
+    setSubscriptionCheckoutUrl(null);
+    setIsStartingSubscriptionCheckout(true);
+    try {
+      const checkout = await consoleApi.createBillingCheckout({
+        kind: 'subscription',
+        packageId: selectedPackage.id,
+        provider: subscriptionProvider
+      });
+      setSubscriptionCheckoutUrl(checkout.url);
+    } catch {
+      setSubscriptionCheckoutError('Unable to start subscription checkout.');
+    } finally {
+      setIsStartingSubscriptionCheckout(false);
     }
   };
 
@@ -116,6 +174,49 @@ export function BillingPage() {
           <p>{`Balance: $${billingSummary.balanceUsd.toFixed(2)}`}</p>
           <p>{`Credit limit: $${billingSummary.creditLimitUsd.toFixed(2)}`}</p>
           <p>{`Current spend: $${billingSummary.currentSpendUsd.toFixed(4)}`}</p>
+          <section aria-label="Subscription packages">
+            <h2>Subscription packages</h2>
+            {packages.length > 0 && selectedPackage ? (
+              <form onSubmit={handleSubscriptionCheckout}>
+                <label htmlFor="billing-subscription-package">Package</label>
+                <select
+                  id="billing-subscription-package"
+                  onChange={(event) => setSelectedPackageId(event.target.value)}
+                  value={selectedPackage.id}
+                >
+                  {packages.map((packageOption) => (
+                    <option key={packageOption.id} value={packageOption.id}>
+                      {formatPackageOptionLabel(packageOption)}
+                    </option>
+                  ))}
+                </select>
+                <p>{`Quota credit: $${selectedPackage.quotaAmount.toFixed(2)}`}</p>
+                <p>{`Token quota: ${formatInteger(selectedPackage.tokenQuota)}`}</p>
+                <p>{`Agent limit: ${formatInteger(selectedPackage.agentLimit)}`}</p>
+                <p>{`Max tokens per request: ${formatInteger(selectedPackage.maxTokensPerRequest)}`}</p>
+                <label htmlFor="billing-subscription-provider">Subscription payment provider</label>
+                <select
+                  id="billing-subscription-provider"
+                  onChange={(event) => setSubscriptionProvider(event.target.value as BillingCheckoutProvider)}
+                  disabled={!hasPaymentProviders}
+                  value={subscriptionProvider}
+                >
+                  {paymentProviders.map((provider) => (
+                    <option key={provider} value={provider}>
+                      {billingCheckoutProviderLabel(provider)}
+                    </option>
+                  ))}
+                </select>
+                <button disabled={isStartingSubscriptionCheckout || !hasPaymentProviders} type="submit">
+                  {isStartingSubscriptionCheckout ? 'Starting checkout…' : 'Start subscription checkout'}
+                </button>
+              </form>
+            ) : (
+              <p>No subscription packages available.</p>
+            )}
+            {subscriptionCheckoutError ? <p role="alert">{subscriptionCheckoutError}</p> : null}
+            {subscriptionCheckoutUrl ? <a href={subscriptionCheckoutUrl}>{checkoutLinkLabel(subscriptionProvider)}</a> : null}
+          </section>
           <section aria-label="Quota top-up checkout">
             <h2>Add balance</h2>
             <form onSubmit={handleTopUpCheckout}>
@@ -141,12 +242,12 @@ export function BillingPage() {
                   </option>
                 ))}
               </select>
-              <button disabled={isStartingCheckout || !hasPaymentProviders} type="submit">
-                {isStartingCheckout ? 'Starting checkout…' : 'Start top-up checkout'}
+              <button disabled={isStartingTopUpCheckout || !hasPaymentProviders} type="submit">
+                {isStartingTopUpCheckout ? 'Starting checkout…' : 'Start top-up checkout'}
               </button>
             </form>
-            {checkoutError ? <p role="alert">{checkoutError}</p> : null}
-            {checkoutUrl ? <a href={checkoutUrl}>{checkoutLinkLabel(topUpProvider)}</a> : null}
+            {topUpCheckoutError ? <p role="alert">{topUpCheckoutError}</p> : null}
+            {topUpCheckoutUrl ? <a href={topUpCheckoutUrl}>{checkoutLinkLabel(topUpProvider)}</a> : null}
           </section>
           {billingSummary.nextInvoice ? (
             <p>{`Next invoice: ${billingSummary.nextInvoice.status} - $${billingSummary.nextInvoice.amountUsd.toFixed(4)} - due ${formatInvoiceDueDate(billingSummary.nextInvoice.dueAt)}`}</p>
@@ -209,6 +310,18 @@ function billingCheckoutProviderLabel(provider: BillingCheckoutProvider) {
 
 function checkoutLinkLabel(provider: BillingCheckoutProvider) {
   return provider === 'stripe' ? 'Continue to checkout' : `Continue ${billingCheckoutProviderLabel(provider)} checkout`;
+}
+
+function formatPackageOptionLabel(packageOption: PackageOption) {
+  return `${packageOption.name} - $${packageOption.price.toFixed(2)} - ${formatPackageDuration(packageOption.durationDays)}`;
+}
+
+function formatPackageDuration(durationDays: number | undefined) {
+  return durationDays && durationDays > 0 ? `${durationDays} days` : 'ongoing';
+}
+
+function formatInteger(value: number) {
+  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(value);
 }
 
 function formatInvoiceDueDate(value: string) {

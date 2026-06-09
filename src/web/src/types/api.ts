@@ -759,11 +759,17 @@ export type PackageOption = {
   name: string;
   description?: string;
   quotaAmount: number;
+  tokenQuota: number;
   price: number;
+  modelAccess?: string[];
+  agentLimit: number;
+  maxTokensPerRequest: number;
   durationDays?: number;
   isActive: boolean;
+  isPublic: boolean;
   sortOrder: number;
   createdAt: string;
+  updatedAt: string;
 };
 
 export type QuotaTopupRequest = {
