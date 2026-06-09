@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"oblivious/server/internal/auth"
+	"oblivious/server/internal/schedule"
 )
 
 const routeSurfaceStrongPassword = "StrongerPass1!"
@@ -1161,6 +1162,97 @@ func TestRouteSurfaceWorkflowManagementMutationsDispatchWithCSRFWithoutDatabase(
 				t.Fatalf("expected registered Workflow route to pass auth/csrf and dispatch for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
 			}
 		})
+	}
+}
+
+func TestRouteSurfaceScheduledTaskMutationsRejectCookieWithoutCSRFWithoutDatabase(t *testing.T) {
+	session := routeSurfaceUserSession()
+	scheduleService := schedule.NewService(&scheduleRouteFakeStore{})
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{
+		AuthStore:       stubAuthStore{session: session},
+		ScheduleService: scheduleService,
+	})
+	cookie := routeSurfaceSignedSessionCookie(t, session)
+
+	tests := []routeSurfaceCase{
+		{"create scheduled task", stdhttp.MethodPost, "/api/v1/scheduled-tasks"},
+		{"update scheduled task status", stdhttp.MethodPatch, "/api/v1/scheduled-tasks/sched_1/status"},
+		{"run scheduled task now", stdhttp.MethodPost, "/api/v1/scheduled-tasks/sched_1/run"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(`{"name":"Daily workflow","targetType":"workflow","targetId":"workflow_1","cronExpression":"0 9 * * *","enabled":true}`))
+			request.Header.Set("Content-Type", "application/json")
+			request.AddCookie(cookie)
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusForbidden {
+				t.Fatalf("expected missing csrf to be rejected with 403 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestRouteSurfaceScheduledTaskMutationsDispatchWithCSRFWithoutDatabase(t *testing.T) {
+	session := routeSurfaceUserSession()
+	store := &scheduleRouteFakeStore{
+		gotTask: schedule.ScheduledTask{
+			ID:             "sched_1",
+			OrganizationID: session.OrganizationID,
+			TargetType:     schedule.TargetTypeWorkflow,
+			TargetID:       "workflow_1",
+			CronExpression: "0 * * * *",
+			Enabled:        false,
+		},
+		recordedRun: schedule.ScheduledTaskRun{
+			ID:              "schedrun_1",
+			OrganizationID:  session.OrganizationID,
+			ScheduledTaskID: "sched_1",
+			Status:          schedule.RunStatusQueued,
+		},
+	}
+	scheduleService := schedule.NewService(store)
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{
+		AuthStore:       stubAuthStore{session: session},
+		ScheduleService: scheduleService,
+	})
+	cookie := routeSurfaceSignedSessionCookie(t, session)
+	csrfToken := routeSurfaceCSRFToken(session)
+
+	tests := []routeSurfaceCase{
+		{"create scheduled task", stdhttp.MethodPost, "/api/v1/scheduled-tasks"},
+		{"update scheduled task status", stdhttp.MethodPatch, "/api/v1/scheduled-tasks/sched_1/status"},
+		{"run scheduled task now", stdhttp.MethodPost, "/api/v1/scheduled-tasks/sched_1/run"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(`{"name":"Daily workflow","targetType":"workflow","targetId":"workflow_1","cronExpression":"0 9 * * *","enabled":true}`))
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set(csrfHeaderName, csrfToken)
+			request.AddCookie(cookie)
+
+			router.ServeHTTP(recorder, request)
+
+			switch recorder.Code {
+			case stdhttp.StatusUnauthorized, stdhttp.StatusForbidden, stdhttp.StatusNotFound, stdhttp.StatusMethodNotAllowed:
+				t.Fatalf("expected registered Scheduled Task route to pass auth/csrf and dispatch for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+
+	if store.createdInput.OrganizationID != session.OrganizationID || store.createdInput.Name != "Daily workflow" {
+		t.Fatalf("expected create route to dispatch with session org and normalized name, got %+v", store.createdInput)
+	}
+	if store.updateEnabledTaskID != "sched_1" || !store.updateEnabledInput.Enabled {
+		t.Fatalf("expected status route to dispatch update for sched_1, task=%q input=%+v", store.updateEnabledTaskID, store.updateEnabledInput)
+	}
+	if store.recordedRunInput.ScheduledTaskID != "sched_1" || store.recordedRunInput.Status != schedule.RunStatusRunning {
+		t.Fatalf("expected run-now route to dispatch running run for sched_1, got %+v", store.recordedRunInput)
 	}
 }
 

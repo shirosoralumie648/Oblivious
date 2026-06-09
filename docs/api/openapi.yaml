@@ -695,6 +695,94 @@ components:
         budgetLimit:
           type: integer
 
+    CreateScheduledTaskRequest:
+      type: object
+      required: [name, targetType, targetId, cronExpression]
+      properties:
+        name:
+          type: string
+        targetType:
+          type: string
+          enum: [workflow, agent]
+        targetId:
+          type: string
+        cronExpression:
+          type: string
+          example: "0 9 * * *"
+        enabled:
+          type: boolean
+
+    UpdateScheduledTaskStatusRequest:
+      type: object
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean
+
+    ScheduledTask:
+      type: object
+      properties:
+        id:
+          type: string
+        organizationId:
+          type: string
+        name:
+          type: string
+        targetType:
+          type: string
+          enum: [workflow, agent]
+        targetId:
+          type: string
+        workflowTriggerId:
+          type: string
+        cronExpression:
+          type: string
+        enabled:
+          type: boolean
+        lastRunAt:
+          type: string
+          format: date-time
+          nullable: true
+        nextRunAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ScheduledTaskRun:
+      type: object
+      properties:
+        id:
+          type: string
+        organizationId:
+          type: string
+        scheduledTaskId:
+          type: string
+        status:
+          type: string
+          enum: [queued, running, completed, failed, cancelled]
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        finishedAt:
+          type: string
+          format: date-time
+          nullable: true
+        error:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
     AgentMemory:
       type: object
       properties:
@@ -7010,6 +7098,160 @@ paths:
                         $ref: "#/components/schemas/Task"
         "401":
           $ref: "#/components/responses/Unauthorized"
+
+  # ---- Scheduled Tasks ----
+  /api/v1/scheduled-tasks:
+    get:
+      summary: 获取计划任务列表
+      operationId: listScheduledTasks
+      tags: [ScheduledTask]
+      responses:
+        "200":
+          description: 当前组织的计划任务列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/ScheduledTask"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      summary: 创建计划任务
+      operationId: createScheduledTask
+      tags: [ScheduledTask]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateScheduledTaskRequest"
+      responses:
+        "201":
+          description: 新创建的计划任务
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/ScheduledTask"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/scheduled-tasks/{scheduledTaskId}/runs:
+    get:
+      summary: 获取计划任务运行记录
+      operationId: listScheduledTaskRuns
+      tags: [ScheduledTask]
+      parameters:
+        - name: scheduledTaskId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 计划任务运行记录列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/ScheduledTaskRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/scheduled-tasks/{scheduledTaskId}/status:
+    patch:
+      summary: 更新计划任务启用状态
+      operationId: updateScheduledTaskStatus
+      tags: [ScheduledTask]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      parameters:
+        - name: scheduledTaskId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateScheduledTaskStatusRequest"
+      responses:
+        "200":
+          description: 计划任务状态已更新
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/ScheduledTask"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/scheduled-tasks/{scheduledTaskId}/run:
+    post:
+      summary: 立即运行计划任务
+      operationId: runScheduledTaskNow
+      tags: [ScheduledTask]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      parameters:
+        - name: scheduledTaskId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "202":
+          description: 计划任务运行已排队或已启动
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/ScheduledTaskRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   # ---- Workspace Agent management ----
   /api/v1/app/agents:

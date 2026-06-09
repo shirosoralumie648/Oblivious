@@ -1835,6 +1835,104 @@ require_notification_mutation_csrf_contract() {
   ' "$openapi_file"
 }
 
+require_scheduled_task_contract() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+    paths = spec.fetch("paths", {})
+    schemas = spec.fetch("components", {}).fetch("schemas", {})
+    missing = []
+
+    def operation(paths, path, method, missing)
+      op = paths.dig(path, method)
+      unless op
+        missing << "#{method.upcase} #{path} must be documented"
+        return {}
+      end
+      op
+    end
+
+    def requires_cookie_and_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
+    end
+
+    def request_body_ref(operation)
+      operation.dig("requestBody", "content", "application/json", "schema", "$ref")
+    end
+
+    def response_data_ref(operation, status)
+      operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "$ref") }&.
+        dig("properties", "data", "$ref")
+    end
+
+    def response_array_item_ref(operation, status)
+      operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "items", "$ref") }&.
+        dig("properties", "data", "items", "$ref")
+    end
+
+    unless schemas.dig("ScheduledTask", "properties", "targetType", "enum") == ["workflow", "agent"]
+      missing << "ScheduledTask.targetType must enumerate workflow and agent"
+    end
+    unless schemas.dig("ScheduledTaskRun", "properties", "status", "enum") == ["queued", "running", "completed", "failed", "cancelled"]
+      missing << "ScheduledTaskRun.status must enumerate queued, running, completed, failed, and cancelled"
+    end
+    unless schemas.dig("CreateScheduledTaskRequest", "required")&.include?("name") &&
+        schemas.dig("CreateScheduledTaskRequest", "required")&.include?("targetType") &&
+        schemas.dig("CreateScheduledTaskRequest", "required")&.include?("targetId") &&
+        schemas.dig("CreateScheduledTaskRequest", "required")&.include?("cronExpression")
+      missing << "CreateScheduledTaskRequest must require name, targetType, targetId, and cronExpression"
+    end
+    unless schemas.dig("UpdateScheduledTaskStatusRequest", "required")&.include?("enabled")
+      missing << "UpdateScheduledTaskStatusRequest must require enabled"
+    end
+
+    list = operation(paths, "/api/v1/scheduled-tasks", "get", missing)
+    unless list.fetch("tags", []).include?("ScheduledTask") &&
+        response_array_item_ref(list, "200") == "#/components/schemas/ScheduledTask"
+      missing << "GET /api/v1/scheduled-tasks must be tagged ScheduledTask and return ScheduledTask[] data"
+    end
+
+    runs = operation(paths, "/api/v1/scheduled-tasks/{scheduledTaskId}/runs", "get", missing)
+    unless runs.fetch("tags", []).include?("ScheduledTask") &&
+        response_array_item_ref(runs, "200") == "#/components/schemas/ScheduledTaskRun"
+      missing << "GET /api/v1/scheduled-tasks/{scheduledTaskId}/runs must be tagged ScheduledTask and return ScheduledTaskRun[] data"
+    end
+
+    expected_mutations = {
+      ["/api/v1/scheduled-tasks", "post"] => ["201", "#/components/schemas/CreateScheduledTaskRequest", "#/components/schemas/ScheduledTask"],
+      ["/api/v1/scheduled-tasks/{scheduledTaskId}/status", "patch"] => ["200", "#/components/schemas/UpdateScheduledTaskStatusRequest", "#/components/schemas/ScheduledTask"],
+      ["/api/v1/scheduled-tasks/{scheduledTaskId}/run", "post"] => ["202", nil, "#/components/schemas/ScheduledTaskRun"],
+    }
+
+    expected_mutations.each do |(path, method), (status, request_ref, response_ref)|
+      op = operation(paths, path, method, missing)
+      unless requires_cookie_and_csrf?(op)
+        missing << "#{method.upcase} #{path} must require cookieAuth and csrfHeader"
+      end
+      unless op.fetch("tags", []).include?("ScheduledTask")
+        missing << "#{method.upcase} #{path} must be tagged ScheduledTask"
+      end
+      if request_ref
+        unless op.dig("requestBody", "required") == true && request_body_ref(op) == request_ref
+          missing << "#{method.upcase} #{path} request body must require #{request_ref}"
+        end
+      end
+      unless response_data_ref(op, status) == response_ref
+        missing << "#{method.upcase} #{path} #{status} data must reference #{response_ref}"
+      end
+    end
+
+    unless missing.empty?
+      warn "[openapi-contract] Scheduled Task route/schema contract is incomplete:"
+      missing.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 require_preferences_mutation_csrf_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
@@ -2711,6 +2809,10 @@ required_paths=(
   "/api/v1/app/quota"
   "/api/v1/app/packages"
   "/api/v1/app/quota/topup"
+  "/api/v1/scheduled-tasks"
+  "/api/v1/scheduled-tasks/{scheduledTaskId}/runs"
+  "/api/v1/scheduled-tasks/{scheduledTaskId}/status"
+  "/api/v1/scheduled-tasks/{scheduledTaskId}/run"
   "/api/v1/console/usage"
   "/api/v1/console/access"
   "/api/v1/console/models"
@@ -2803,6 +2905,7 @@ require_workflow_execution_control_csrf_contract
 require_console_api_token_csrf_contract
 require_task_mutation_csrf_contract
 require_notification_mutation_csrf_contract
+require_scheduled_task_contract
 require_preferences_mutation_csrf_contract
 require_chat_mutation_csrf_contract
 require_knowledge_mutation_csrf_contract
@@ -2811,4 +2914,4 @@ require_admin_core_management_contract
 require_admin_billing_contract
 require_domestic_payment_webhook_payout_contract
 
-echo "[openapi-contract] required Relay alias, Agent, Memory, MCP, Tenant, Notification, Observability, publishing channel, Workflow, Billing, and Marketplace paths are documented."
+echo "[openapi-contract] required Relay alias, Agent, Memory, MCP, Tenant, Notification, Scheduled Task, Observability, publishing channel, Workflow, Billing, and Marketplace paths are documented."
