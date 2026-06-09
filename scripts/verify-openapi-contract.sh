@@ -1073,6 +1073,107 @@ require_agent_run_mutation_csrf_contract() {
   ' "$openapi_file"
 }
 
+require_workspace_agent_mutation_csrf_contract() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+    paths = spec.fetch("paths", {})
+    schemas = spec.fetch("components", {}).fetch("schemas", {})
+    missing = []
+
+    def operation(paths, path, method, missing)
+      op = paths.dig(path, method)
+      unless op
+        missing << "#{method.upcase} #{path} must be documented"
+        return {}
+      end
+      op
+    end
+
+    def requires_cookie_and_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
+    end
+
+    def request_body_ref(operation)
+      operation.dig("requestBody", "content", "application/json", "schema", "$ref")
+    end
+
+    def response_data_ref(operation, status)
+      operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "$ref") }&.
+        dig("properties", "data", "$ref")
+    end
+
+    mutation_paths = [
+      ["/api/v1/app/agents", "post"],
+      ["/api/v1/app/agents/{agentId}", "put"],
+      ["/api/v1/app/agents/{agentId}", "delete"],
+      ["/api/v1/app/agents/{agentId}/conversations", "post"],
+      ["/api/v1/app/agents/conversations/{conversationId}", "delete"],
+      ["/api/v1/app/agents/conversations/{conversationId}/messages", "post"],
+    ]
+
+    mutation_paths.each do |path, method|
+      op = operation(paths, path, method, missing)
+      unless requires_cookie_and_csrf?(op)
+        missing << "#{method.upcase} #{path} must require cookieAuth and csrfHeader"
+      end
+      unless op.fetch("tags", []).include?("Agent")
+        missing << "#{method.upcase} #{path} must be tagged Agent"
+      end
+    end
+
+    {
+      ["/api/v1/app/agents", "post"] => "#/components/schemas/CreateAgentRequest",
+      ["/api/v1/app/agents/{agentId}", "put"] => "#/components/schemas/UpdateAgentRequest",
+      ["/api/v1/app/agents/conversations/{conversationId}/messages", "post"] => "#/components/schemas/AgentSendMessageRequest",
+    }.each do |(path, method), expected|
+      op = operation(paths, path, method, missing)
+      unless request_body_ref(op) == expected
+        missing << "#{method.upcase} #{path} request body must reference #{expected}"
+      end
+    end
+
+    {
+      ["/api/v1/app/agents", "post", "201"] => "#/components/schemas/AgentWorkspaceAgent",
+      ["/api/v1/app/agents/{agentId}", "put", "200"] => "#/components/schemas/AgentWorkspaceAgent",
+      ["/api/v1/app/agents/{agentId}", "delete", "200"] => "#/components/schemas/AgentDeleteStatusResponse",
+      ["/api/v1/app/agents/{agentId}/conversations", "post", "201"] => "#/components/schemas/AgentConversation",
+      ["/api/v1/app/agents/conversations/{conversationId}", "delete", "200"] => "#/components/schemas/AgentDeleteStatusResponse",
+      ["/api/v1/app/agents/conversations/{conversationId}/messages", "post", "200"] => "#/components/schemas/AgentMessage",
+    }.each do |(path, method, status), expected|
+      op = operation(paths, path, method, missing)
+      unless response_data_ref(op, status) == expected
+        missing << "#{method.upcase} #{path} #{status} data must reference #{expected}"
+      end
+    end
+
+    unless schemas.dig("AgentDeleteStatusResponse", "properties", "status", "type") == "string"
+      missing << "AgentDeleteStatusResponse must expose status string"
+    end
+    unless schemas.dig("AgentSendMessageRequest", "properties", "content", "type") == "string" &&
+        schemas.dig("AgentSendMessageRequest", "properties", "mode", "enum")&.include?("planning") &&
+        schemas.dig("AgentSendMessageRequest", "properties", "max_iterations", "type") == "integer" &&
+        schemas.dig("AgentSendMessageRequest", "properties", "maxIterations", "type") == "integer" &&
+        schemas.dig("AgentSendMessageRequest", "properties", "token_budget", "type") == "integer" &&
+        schemas.dig("AgentSendMessageRequest", "properties", "tokenBudget", "type") == "integer"
+      missing << "AgentSendMessageRequest must document content, mode, and snake/camel budget controls"
+    end
+    unless schemas.dig("CreateAgentRequest", "properties", "config", "$ref") == "#/components/schemas/AgentConfig" &&
+        schemas.dig("UpdateAgentRequest", "properties", "config", "$ref") == "#/components/schemas/AgentConfig" &&
+        schemas.dig("AgentConfig", "properties", "defaultExecutionMode", "enum")&.include?("planning")
+      missing << "Agent create/update request schemas must reference AgentConfig with execution mode"
+    end
+
+    unless missing.empty?
+      warn "[openapi-contract] Workspace Agent mutation CSRF/schema contract is incomplete:"
+      missing.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 require_billing_checkout_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
@@ -2408,6 +2509,7 @@ require_mcp_auth_token_response_contract
 require_marketplace_user_mutation_csrf_contract
 require_admin_marketplace_governance_csrf_contract
 require_admin_marketplace_review_csrf_contract
+require_workspace_agent_mutation_csrf_contract
 require_agent_run_mutation_csrf_contract
 require_billing_checkout_contract
 require_tenant_organization_mutation_csrf_contract

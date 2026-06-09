@@ -390,6 +390,69 @@ func TestRouteSurfaceKnowledgeMutationsRejectCookieWithoutCSRFWithoutDatabase(t 
 	}
 }
 
+func TestRouteSurfaceWorkspaceAgentMutationsRejectCookieWithoutCSRFWithoutDatabase(t *testing.T) {
+	session := routeSurfaceUserSession()
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}})
+	cookie := routeSurfaceSignedSessionCookie(t, session)
+
+	tests := []routeSurfaceCase{
+		{"create agent", stdhttp.MethodPost, "/api/v1/app/agents"},
+		{"update agent", stdhttp.MethodPut, "/api/v1/app/agents/agent_1"},
+		{"delete agent", stdhttp.MethodDelete, "/api/v1/app/agents/agent_1"},
+		{"create conversation", stdhttp.MethodPost, "/api/v1/app/agents/agent_1/conversations"},
+		{"delete conversation", stdhttp.MethodDelete, "/api/v1/app/agents/conversations/conversation_1"},
+		{"send message", stdhttp.MethodPost, "/api/v1/app/agents/conversations/conversation_1/messages"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(`{"name":"Agent","content":"hello"}`))
+			request.Header.Set("Content-Type", "application/json")
+			request.AddCookie(cookie)
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusForbidden {
+				t.Fatalf("expected missing csrf to be rejected with 403 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestRouteSurfaceWorkspaceAgentMutationsDispatchWithCSRFWithoutDatabase(t *testing.T) {
+	session := routeSurfaceUserSession()
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}})
+	cookie := routeSurfaceSignedSessionCookie(t, session)
+	csrfToken := routeSurfaceCSRFToken(session)
+
+	tests := []routeSurfaceCase{
+		{"create agent", stdhttp.MethodPost, "/api/v1/app/agents"},
+		{"update agent", stdhttp.MethodPut, "/api/v1/app/agents/agent_1"},
+		{"delete agent", stdhttp.MethodDelete, "/api/v1/app/agents/agent_1"},
+		{"create conversation", stdhttp.MethodPost, "/api/v1/app/agents/agent_1/conversations"},
+		{"delete conversation", stdhttp.MethodDelete, "/api/v1/app/agents/conversations/conversation_1"},
+		{"send message", stdhttp.MethodPost, "/api/v1/app/agents/conversations/conversation_1/messages"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(`{"name":"Agent","content":"hello"}`))
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set(csrfHeaderName, csrfToken)
+			request.AddCookie(cookie)
+
+			router.ServeHTTP(recorder, request)
+
+			switch recorder.Code {
+			case stdhttp.StatusUnauthorized, stdhttp.StatusForbidden, stdhttp.StatusNotFound, stdhttp.StatusMethodNotAllowed:
+				t.Fatalf("expected registered workspace Agent route to pass auth/csrf and dispatch for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
 func TestRouteSurfaceRefreshesWorkflowHealthBeforeMetricsScrape(t *testing.T) {
 	source, err := os.ReadFile("router.go")
 	if err != nil {

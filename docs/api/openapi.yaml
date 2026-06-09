@@ -1083,6 +1083,13 @@ components:
           type: string
           format: date-time
 
+    AgentDeleteStatusResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: deleted
+
     AgentSendMessageRequest:
       type: object
       required: [content]
@@ -7010,6 +7017,9 @@ paths:
       summary: 创建 Agent
       operationId: createWorkspaceAgent
       tags: [Agent]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       requestBody:
         required: true
         content:
@@ -7070,6 +7080,9 @@ paths:
       summary: 更新 Agent
       operationId: updateWorkspaceAgent
       tags: [Agent]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: agentId
           in: path
@@ -7110,6 +7123,9 @@ paths:
       summary: 删除 Agent
       operationId: deleteWorkspaceAgent
       tags: [Agent]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: agentId
           in: path
@@ -7127,11 +7143,7 @@ paths:
                   - type: object
                     properties:
                       data:
-                        type: object
-                        properties:
-                          status:
-                            type: string
-                            example: deleted
+                        $ref: "#/components/schemas/AgentDeleteStatusResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -7218,6 +7230,9 @@ paths:
       summary: 创建 Agent 对话
       operationId: createWorkspaceAgentConversation
       tags: [Agent]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: agentId
           in: path
@@ -7284,6 +7299,9 @@ paths:
       summary: 删除 Agent 对话
       operationId: deleteWorkspaceAgentConversation
       tags: [Agent]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: conversationId
           in: path
@@ -7301,11 +7319,7 @@ paths:
                   - type: object
                     properties:
                       data:
-                        type: object
-                        properties:
-                          status:
-                            type: string
-                            example: deleted
+                        $ref: "#/components/schemas/AgentDeleteStatusResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -7356,6 +7370,9 @@ paths:
       summary: 发送 Agent 对话消息
       operationId: sendWorkspaceAgentMessage
       tags: [Agent]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: conversationId
           in: path
