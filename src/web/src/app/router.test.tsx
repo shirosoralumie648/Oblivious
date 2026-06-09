@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ComponentType, ReactNode } from 'react';
 import { RouterProvider } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -24,6 +24,12 @@ const chatApiMocks = vi.hoisted(() => ({
   updateConversationConfig: vi.fn((conversationId: string, config: Record<string, unknown>) =>
     Promise.resolve({ conversationId, ...config })
   )
+}));
+
+const adminApiMocks = vi.hoisted(() => ({
+  approveAgent: vi.fn(() => Promise.resolve()),
+  rejectAgent: vi.fn(() => Promise.resolve()),
+  requestAgentChanges: vi.fn(() => Promise.resolve())
 }));
 
 vi.mock('@xyflow/react', () => {
@@ -953,9 +959,9 @@ vi.mock('../features/admin/api', () => ({
         ],
         total: 1
       }),
-    approveAgent: () => Promise.resolve(),
-    rejectAgent: () => Promise.resolve(),
-    requestAgentChanges: () => Promise.resolve(),
+    approveAgent: adminApiMocks.approveAgent,
+    rejectAgent: adminApiMocks.rejectAgent,
+    requestAgentChanges: adminApiMocks.requestAgentChanges,
     revokeAPIToken: () => Promise.resolve()
   })
 }));
@@ -1676,6 +1682,7 @@ import { routerFuture } from './routerFuture';
 describe('app router', () => {
   afterEach(() => {
     Object.values(chatApiMocks).forEach((mock) => mock.mockClear());
+    Object.values(adminApiMocks).forEach((mock) => mock.mockClear());
     window.history.replaceState({}, '', '/');
   });
 
@@ -2778,6 +2785,31 @@ describe('app router', () => {
     expect(screen.getByRole('button', { name: 'Approve agent Research Agent' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Reject agent Research Agent' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Request changes for agent Research Agent' })).toBeInTheDocument();
+  });
+
+  it('requests admin review changes through the real admin router flow', async () => {
+    const router = createAppRouter(['/admin/reviews']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Request changes for agent Research Agent' }));
+    expect(await screen.findByText('Request Changes: Research Agent')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Request Changes' }));
+    expect(await screen.findByText('A change request reason is required.')).toBeInTheDocument();
+    expect(adminApiMocks.requestAgentChanges).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText('Change Request Reason'), {
+      target: { value: 'Add screenshots and clarify pricing.' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Request Changes' }));
+
+    await waitFor(() =>
+      expect(adminApiMocks.requestAgentChanges).toHaveBeenCalledWith(
+        'agent_review_router',
+        'Add screenshots and clarify pricing.'
+      )
+    );
   });
 
   it('renders admin usage logs route inside the admin shell', async () => {
