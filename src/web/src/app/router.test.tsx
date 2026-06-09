@@ -336,19 +336,56 @@ vi.mock('../features/scheduledTasks/scheduledTasksApi', () => ({
         cronExpression: '0 9 * * 1',
         enabled: true,
         id: 'schedule_2',
+        name: 'Created workflow schedule',
         targetId: 'workflow_2',
         targetType: 'workflow'
       }),
+    listRuns: () =>
+      Promise.resolve([
+        {
+          createdAt: '2026-06-09T09:00:00Z',
+          finishedAt: '2026-06-09T09:02:00Z',
+          id: 'run_schedule_router_list',
+          scheduledTaskId: 'schedule_1',
+          startedAt: '2026-06-09T09:00:00Z',
+          status: 'completed',
+          updatedAt: '2026-06-09T09:02:00Z'
+        }
+      ]),
     listScheduledTasks: () =>
       Promise.resolve([
         {
           cronExpression: '0 9 * * 1',
           enabled: true,
           id: 'schedule_1',
+          lastRunAt: '2026-06-02T09:00:00Z',
+          name: 'Weekly workflow schedule',
+          nextRunAt: '2026-06-09T09:00:00Z',
           targetId: 'workflow_1',
           targetType: 'workflow'
         }
-      ])
+      ]),
+    runScheduledTaskNow: () =>
+      Promise.resolve({
+        createdAt: '2026-06-09T10:00:00Z',
+        finishedAt: null,
+        id: 'run_schedule_router_now',
+        scheduledTaskId: 'schedule_1',
+        startedAt: '2026-06-09T10:00:00Z',
+        status: 'running',
+        updatedAt: '2026-06-09T10:00:00Z'
+      }),
+    updateScheduledTaskEnabled: () =>
+      Promise.resolve({
+        cronExpression: '0 9 * * 1',
+        enabled: false,
+        id: 'schedule_1',
+        lastRunAt: '2026-06-02T09:00:00Z',
+        name: 'Weekly workflow schedule',
+        nextRunAt: null,
+        targetId: 'workflow_1',
+        targetType: 'workflow'
+      })
   })
 }));
 
@@ -775,6 +812,55 @@ describe('app router', () => {
 
     expect(await screen.findByText('Workspace')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Scheduled Tasks' })).toBeInTheDocument();
+  });
+
+  it('keeps scheduled tasks route-level creation and run controls reachable', async () => {
+    const router = createAppRouter(['/scheduled-tasks']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    const workspaceNavigation = await screen.findByRole('navigation', { name: 'Workspace navigation' });
+    expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
+    expect(within(workspaceNavigation).getByRole('link', { name: 'Workflows' })).toHaveAttribute('href', '/workflows');
+    expect(await screen.findByRole('heading', { name: 'Scheduled Tasks' })).toBeInTheDocument();
+    expect(await screen.findByLabelText('Create scheduled task')).toBeInTheDocument();
+    expect(screen.getByLabelText('Schedule name')).toBeInTheDocument();
+    expect(screen.getByLabelText('Target type')).toHaveValue('workflow');
+    expect(screen.getByLabelText('Target ID')).toBeInTheDocument();
+    expect(screen.getByLabelText('Cron expression')).toBeInTheDocument();
+    expect(screen.getByLabelText('Enabled')).toBeChecked();
+    expect(screen.getByRole('button', { name: 'Create schedule' })).toBeDisabled();
+    expect(await screen.findByLabelText('Scheduled task list')).toBeInTheDocument();
+    expect(await screen.findByText('Weekly workflow schedule')).toBeInTheDocument();
+    expect(screen.getByText('workflow_1')).toBeInTheDocument();
+    expect(screen.getByText('0 9 * * 1')).toBeInTheDocument();
+    expect(screen.getByText('Next: 2026-06-09 09:00')).toBeInTheDocument();
+    expect(screen.getByText('Last: 2026-06-02 09:00')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Disable workflow_1 schedule' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Run workflow_1 schedule now' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Show recent runs for workflow_1' })).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show recent runs for workflow_1' }));
+
+    expect(await screen.findByLabelText('Recent runs for workflow_1')).toBeInTheDocument();
+    expect(await screen.findByText('run_schedule_router_list')).toBeInTheDocument();
+    expect(screen.getByText('Started: 2026-06-09 09:00')).toBeInTheDocument();
+    expect(screen.getByText('Finished: 2026-06-09 09:02')).toBeInTheDocument();
+    expect(screen.getByText('Error: None')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Refresh recent runs for workflow_1' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Hide recent runs for workflow_1' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run workflow_1 schedule now' }));
+
+    expect(await screen.findByText('run_schedule_router_now')).toBeInTheDocument();
+    expect(screen.getByText('Started: 2026-06-09 10:00')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Disable workflow_1 schedule' }));
+
+    expect(await screen.findByText('Disabled')).toBeInTheDocument();
   });
 
   it('renders publishing channels route inside the workspace shell', async () => {
