@@ -184,7 +184,12 @@ vi.mock('../app/providers', () => ({
     authState: {
       status: 'authenticated',
       user: { id: 'admin_1', email: 'admin@example.com', role: 'admin' },
-      preferences: { onboardingCompleted: false }
+      preferences: {
+        defaultMode: 'chat',
+        modelStrategy: 'balanced',
+        networkEnabledHint: false,
+        onboardingCompleted: false
+      }
     },
     bootstrapAuth: () => Promise.resolve(),
     updatePreferences: (preferences: unknown) => Promise.resolve(preferences)
@@ -1082,6 +1087,44 @@ describe('app router', () => {
     expect(screen.getByRole('button', { name: 'Delete Remote MCP' })).toBeInTheDocument();
   });
 
+  it('keeps settings route-level preferences and MCP controls reachable', async () => {
+    const router = createAppRouter(['/settings']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    const workspaceNavigation = await screen.findByRole('navigation', { name: 'Workspace navigation' });
+    expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
+    expect(within(workspaceNavigation).getByRole('link', { name: 'Settings' })).toHaveAttribute('href', '/settings');
+    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Default mode')).toHaveValue('chat');
+    expect(screen.getByLabelText('Model strategy')).toHaveValue('balanced');
+    expect(screen.getByLabelText('Enable web suggestions')).not.toBeChecked();
+    expect(screen.getByText('Onboarding pending')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save preferences' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Return to chat' })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Default mode'), { target: { value: 'solo' } });
+    fireEvent.change(screen.getByLabelText('Model strategy'), { target: { value: 'cost' } });
+    fireEvent.click(screen.getByLabelText('Enable web suggestions'));
+    fireEvent.click(screen.getByRole('button', { name: 'Save preferences' }));
+
+    expect(await screen.findByText('Preferences saved.')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'MCP Servers' })).toBeInTheDocument();
+    expect(await screen.findByLabelText('Local MCP servers')).toBeInTheDocument();
+    expect(await screen.findByText('Oblivious Safe Builtins')).toBeInTheDocument();
+    expect(screen.getByLabelText('Server name')).toBeInTheDocument();
+    expect(screen.getByLabelText('Endpoint URL')).toBeInTheDocument();
+    expect(screen.getByLabelText('Auth token')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add MCP server' })).toBeDisabled();
+    expect(await screen.findByText('Remote MCP')).toBeInTheDocument();
+    expect(screen.getByText('Auth token configured')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Connect' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Disconnect' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Diagnose' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'List tools' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Delete Remote MCP' })).toBeInTheDocument();
+  });
+
   it('renders onboarding inside the workspace shell', async () => {
     const router = createAppRouter(['/onboarding']);
 
@@ -1357,6 +1400,25 @@ describe('app router', () => {
 
     expect(await screen.findByText('Console')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Notifications' })).toBeInTheDocument();
+  });
+
+  it('keeps console models route-level summary evidence reachable', async () => {
+    const router = createAppRouter(['/console/models']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    const consoleNavigation = await screen.findByRole('navigation', { name: 'Console navigation' });
+    expect(document.querySelector('[data-gsap-scope="console"]')).toBeInTheDocument();
+    expect(within(consoleNavigation).getByRole('link', { name: 'Models' })).toHaveAttribute('href', '/console/models');
+    expect(within(consoleNavigation).getByRole('link', { name: 'Access' })).toHaveAttribute('href', '/console/access');
+    expect(await screen.findByRole('heading', { name: 'Models' })).toBeInTheDocument();
+    expect(await screen.findByText('Review the current workspace model mix and relative request volume.')).toBeInTheDocument();
+    expect(screen.getAllByText('Current workspace scope').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('Default mode: chat').length).toBeGreaterThanOrEqual(1);
+    expect(await screen.findByRole('navigation', { name: 'Models sibling navigation' })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Open access' })).toHaveAttribute('href', '/console/access');
+    expect(await screen.findByText('balanced-chat')).toBeInTheDocument();
+    expect(screen.getByText('Requests: 2')).toBeInTheDocument();
   });
 
   it('keeps console access route-level API token controls reachable', async () => {
