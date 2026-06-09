@@ -588,6 +588,36 @@ func TestAdminBillingRecordTopupRefundHandlerRejectsMissingOperatorEvidence(t *t
 	}
 }
 
+func TestAdminBillingPaymentIntentsHandlerPassesBillingFilterWithoutDatabase(t *testing.T) {
+	store := &fakeAdminStore{}
+	handler := newAdminHandler(admin.NewService(store))
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(
+		stdhttp.MethodGet,
+		"/api/v1/admin/billing/payment-intents?organizationId=org_alias&userID=user_upper&status=completed&kind=marketplace_install&provider=alipay&limit=250&offset=7",
+		nil,
+	)
+
+	handler.listPaymentIntents(recorder, request)
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected payment-intents handler 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if store.billingFilter.OrganizationID != "org_alias" ||
+		store.billingFilter.UserID != "user_upper" ||
+		store.billingFilter.Status != "completed" ||
+		store.billingFilter.Kind != "marketplace_install" ||
+		store.billingFilter.Provider != "alipay" ||
+		store.billingFilter.Limit != 100 ||
+		store.billingFilter.Offset != 7 {
+		t.Fatalf("expected billing filter query parameters to pass through with limit clamp, got %+v", store.billingFilter)
+	}
+	if !strings.Contains(recorder.Body.String(), `"paymentIntents"`) || !strings.Contains(recorder.Body.String(), `"total":1`) {
+		t.Fatalf("expected payment-intents response wrapper, got %s", recorder.Body.String())
+	}
+}
+
 func TestAdminBillingListsApplyRecoveryFilters(t *testing.T) {
 	database := testDatabase(t)
 	router := NewRouter(testConfig(), database)
@@ -738,6 +768,7 @@ func (s *fakeAdminStore) ListBillingSessions(ctx context.Context, filter admin.B
 }
 
 func (s *fakeAdminStore) ListPaymentIntents(ctx context.Context, filter admin.BillingInspectionFilter) ([]*admin.PaymentIntentInspection, int, error) {
+	s.billingFilter = filter
 	return []*admin.PaymentIntentInspection{{ID: "pi_1"}}, 1, nil
 }
 

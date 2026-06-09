@@ -1425,6 +1425,7 @@ type fakeAdminStore struct {
 	usageAnalyticsFilter  admin.UsageAnalyticsFilter
 	apiTokenFilter        admin.APITokenFilter
 	modelInventoryFilter  admin.ModelInventoryFilter
+	billingFilter         admin.BillingInspectionFilter
 	pendingReviews        []*marketplace.PublishedAgent
 	batchAction           string
 	routeUpdate           admin.RouteUpdateRequest
