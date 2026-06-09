@@ -891,6 +891,85 @@ func TestAgentRunsHandlerContinueBudgetReturnsUpdatedRunDetail(t *testing.T) {
 	}
 }
 
+func TestAgentRunsHandlerContinueBudgetRetriesPlanningStepAndReturnsRunDetail(t *testing.T) {
+	now := time.Now().UTC()
+	completedAt := now.Add(time.Minute)
+	largeContext := strings.Repeat("tenant migration risk ", 900)
+	store := newFakeAgentRunsStore()
+	store.agent = &agent.Agent{
+		ID:             "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		Name:           "Planning Agent",
+		Model:          "test-model",
+		Config:         agent.Config{TokenBudget: 1000},
+	}
+	store.runs = []*agent.Run{{
+		ID:             "run_1",
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		Mode:           agent.ExecutionModePlanning,
+		Status:         agent.RunStatusTokenBudgetExceeded,
+		IterationCount: 1,
+		Error:          "token_budget_exceeded: estimated 1800 prompt tokens exceeds budget 1000",
+		CompletedAt:    &completedAt,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}}
+	store.messages = []*agent.Message{{
+		ID:             "msg_user",
+		ConversationID: "conv_1",
+		OrganizationID: "org_1",
+		Role:           "user",
+		Content:        largeContext,
+		CreatedAt:      now,
+	}}
+	store.planSteps = []*agent.PlanStep{{
+		ID:             "step_1",
+		RunID:          "run_1",
+		OrganizationID: "org_1",
+		Index:          1,
+		Title:          "Summarize oversized context",
+		Status:         agent.PlanStepStatusFailed,
+		ApprovalStatus: agent.ApprovalStatusApproved,
+		ResultContent:  "stale oversized result",
+		Error:          "token_budget_exceeded: estimated 1800 prompt tokens exceeds budget 1000",
+		StartedAt:      &now,
+		CompletedAt:    &completedAt,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{reply: "Completed plan step after budget increase."}))
+
+	recorder := httptest.NewRecorder()
+	handler.continueBudget(recorder, newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/continue-budget", `{"tokenBudget":100000}`), "run_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Data agentRunResponse `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Data.Run == nil || response.Data.Run.Status != agent.RunStatusCompleted || response.Data.Run.Error != "" || response.Data.Run.CompletedAt == nil {
+		t.Fatalf("expected planning continuation to complete run detail, got %+v", response.Data.Run)
+	}
+	if len(response.Data.PlanSteps) != 1 {
+		t.Fatalf("expected one plan step in response, got %+v", response.Data.PlanSteps)
+	}
+	step := response.Data.PlanSteps[0]
+	if step.ID != "step_1" || step.Status != agent.PlanStepStatusCompleted || step.ResultContent != "Completed plan step after budget increase." || step.Error != "" {
+		t.Fatalf("expected completed planning step detail, got %+v", step)
+	}
+	if store.agent.Config.TokenBudget != 1000 {
+		t.Fatalf("continue budget should not mutate agent config, got %d", store.agent.Config.TokenBudget)
+	}
+}
+
 func TestAgentRunsHandlerContinueBudgetRejectsOutOfRangeBudget(t *testing.T) {
 	handler := newAgentRunsHandler(agent.NewService(newFakeAgentRunsStore(), &fakeAgentRunsGateway{}))
 

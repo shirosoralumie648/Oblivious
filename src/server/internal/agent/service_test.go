@@ -3429,6 +3429,91 @@ func TestServiceContinueRunWithTokenBudgetReturnsPendingApprovalWhenResumeNeedsT
 	}
 }
 
+func TestServiceContinueRunWithTokenBudgetRetriesPlanningStepWithTemporaryBudget(t *testing.T) {
+	now := time.Now().UTC()
+	completedAt := now.Add(time.Minute)
+	largeContext := strings.Repeat("tenant migration risk ", 900)
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+			Config: Config{
+				TokenBudget: 1000,
+			},
+		},
+		conversation: &Conversation{
+			ID:             "conv_1",
+			AgentID:        "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+		},
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
+			Status:         RunStatusTokenBudgetExceeded,
+			IterationCount: 1,
+			Error:          "token_budget_exceeded: estimated 1800 prompt tokens exceeds budget 1000",
+			CompletedAt:    &completedAt,
+			StartedAt:      now,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+		messages: []*Message{{
+			ID:             "msg_user",
+			ConversationID: "conv_1",
+			OrganizationID: "org_1",
+			Role:           "user",
+			Content:        largeContext,
+			CreatedAt:      now,
+		}},
+		planSteps: []*PlanStep{{
+			ID:             "step_1",
+			RunID:          "run_1",
+			OrganizationID: "org_1",
+			Index:          1,
+			Title:          "Summarize oversized context",
+			Status:         PlanStepStatusFailed,
+			ApprovalStatus: ApprovalStatusApproved,
+			ResultContent:  "stale oversized result",
+			Error:          "token_budget_exceeded: estimated 1800 prompt tokens exceeds budget 1000",
+			StartedAt:      &now,
+			CompletedAt:    &completedAt,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+	}
+	gateway := &fakeGateway{plainReply: "Completed after budget increase."}
+	service := NewService(store, gateway)
+
+	result, err := service.ContinueRunWithTokenBudget(context.Background(), auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}}, "run_1", 100000)
+	if err != nil {
+		t.Fatalf("ContinueRunWithTokenBudget returned error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil planning continuation result")
+	}
+	if gateway.plainCalls != 1 || gateway.structuredCalls != 0 {
+		t.Fatalf("expected planning continuation to retry the plain plan-step executor, got plain=%d structured=%d", gateway.plainCalls, gateway.structuredCalls)
+	}
+	if store.agent.Config.TokenBudget != 1000 {
+		t.Fatalf("continue budget override should not mutate agent config, got %d", store.agent.Config.TokenBudget)
+	}
+	step := store.planSteps[0]
+	if step.Status != PlanStepStatusCompleted || step.ResultContent != "Completed after budget increase." || step.Error != "" || step.CompletedAt == nil {
+		t.Fatalf("expected planning step to complete with fresh result, got %+v", step)
+	}
+	run := store.runs[0]
+	if run.Status != RunStatusCompleted || run.Error != "" || run.CompletedAt == nil {
+		t.Fatalf("expected planning run to complete cleanly after budget continuation, got %+v", run)
+	}
+}
+
 func TestServiceContinueRunWithTokenBudgetRejectsNonBudgetExceededRun(t *testing.T) {
 	now := time.Now().UTC()
 	store := &fakeStore{

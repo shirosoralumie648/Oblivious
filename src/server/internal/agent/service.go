@@ -53,6 +53,17 @@ type PlanStepExecutor interface {
 	ExecutePlanStep(ctx context.Context, step *PlanStep) (*PlanStepExecutionResult, error)
 }
 
+type planStepTokenBudgetOverrideContextKey struct{}
+
+func withPlanStepTokenBudgetOverride(ctx context.Context, tokenBudget int) context.Context {
+	return context.WithValue(ctx, planStepTokenBudgetOverrideContextKey{}, tokenBudget)
+}
+
+func planStepTokenBudgetOverrideFromContext(ctx context.Context) (int, bool) {
+	tokenBudget, ok := ctx.Value(planStepTokenBudgetOverrideContextKey{}).(int)
+	return tokenBudget, ok
+}
+
 type defaultPlanStepExecutor struct {
 	executor *ToolExecutor
 	store    Store
@@ -125,6 +136,9 @@ func (e defaultPlanStepExecutor) ExecutePlanStep(ctx context.Context, step *Plan
 	}
 	chatMessages := buildPlanStepExecutionMessages(run, agent, step, messages, steps)
 	tokenBudget := normalizeTokenBudget(agent.Config.TokenBudget)
+	if override, ok := planStepTokenBudgetOverrideFromContext(ctx); ok {
+		tokenBudget = normalizeTokenBudget(override)
+	}
 	estimatedTokens := estimateChatMessageTokens(chatMessages)
 	if tokenBudget > 0 && estimatedTokens > tokenBudget {
 		return nil, fmt.Errorf("%w: estimated %d prompt tokens exceeds budget %d", ErrTokenBudgetExceeded, estimatedTokens, tokenBudget)
@@ -1859,6 +1873,10 @@ func (s *Service) ContinueRunWithTokenBudget(ctx context.Context, session auth.S
 		return nil, fmt.Errorf("access denied")
 	}
 
+	if NormalizeExecutionMode(run.Mode) == ExecutionModePlanning {
+		return s.continuePlanningRunWithTokenBudget(ctx, session, run, normalizedBudget)
+	}
+
 	if _, err := s.store.UpdateRun(ctx, session.OrganizationID, run.ID, UpdateRunRequest{
 		Status:           stringPointer(RunStatusRunning),
 		Error:            stringPointer(""),
@@ -1878,6 +1896,29 @@ func (s *Service) ContinueRunWithTokenBudget(ctx context.Context, session auth.S
 		return &RunResult{}, nil
 	}
 	return result, err
+}
+
+func (s *Service) continuePlanningRunWithTokenBudget(ctx context.Context, session auth.Session, run *Run, tokenBudget int) (*RunResult, error) {
+	steps, err := s.store.ListPlanSteps(ctx, session.OrganizationID, run.ID)
+	if err != nil {
+		return nil, err
+	}
+	sortPlanSteps(steps)
+	var target *PlanStep
+	for _, step := range steps {
+		if step.Status == PlanStepStatusFailed && strings.Contains(step.Error, "token_budget_exceeded") {
+			target = step
+			break
+		}
+	}
+	if target == nil {
+		return nil, fmt.Errorf("token-budget-exceeded planning run has no failed token-budget plan step")
+	}
+
+	if _, err := s.RetryPlanStep(withPlanStepTokenBudgetOverride(ctx, tokenBudget), session, target.ID); err != nil {
+		return nil, err
+	}
+	return &RunResult{}, nil
 }
 
 func (s *Service) executePersistedToolRun(ctx context.Context, session auth.Session, toolRun *ToolRun) (*ToolRun, error) {
