@@ -217,8 +217,86 @@ vi.mock('../features/admin/api', () => ({
             : [],
         total: surface === 'sessions' ? 1 : 0
       }),
-    listUsageLogs: () =>
+    getRelayPricingSettings: () =>
       Promise.resolve({
+        groupMultipliers: { enterprise: 0.85 },
+        modelMultipliers: { 'gpt-4o': 1.2, 'gpt-4o-mini': 0.7 }
+      }),
+    updateRelayPricingSettings: (settings: unknown) => Promise.resolve(settings),
+    getUsageLimitSettings: () =>
+      Promise.resolve([
+        {
+          enabled: true,
+          id: 'limit_router_org_hour',
+          limitType: 'request_tokens',
+          limitValue: 250,
+          maxConcurrentRequests: 5,
+          maxTokensPerRequest: 250,
+          maxTokensPerWindow: 1000,
+          organizationId: 'org_router',
+          period: 'hour',
+          quotaMode: 'organization',
+          scopeId: 'org_router',
+          scopeType: 'organization',
+          windowSeconds: 3600
+        }
+      ]),
+    updateUsageLimitSettings: (settings: Record<string, unknown>) =>
+      Promise.resolve({
+        ...settings,
+        id: typeof settings.id === 'string' && settings.id !== '' ? settings.id : 'limit_router_saved'
+      }),
+    listUsageLogs: (filter?: { status?: string; limit?: number }) => {
+      if (filter?.status === 'error') {
+        return Promise.resolve({
+          data: [
+            {
+              id: 'usage_router_limited',
+              organizationId: 'org_router',
+              userId: 'user_router',
+              requestId: 'req_settings_limited',
+              apiType: 'chat',
+              featureType: 'workspace_chat',
+              model: 'gpt-4o',
+              status: 'error',
+              statusCode: 429,
+              errorCode: 'relay_rate_limited',
+              cost: 0,
+              channelCost: 0,
+              promptTokens: 0,
+              completionTokens: 0,
+              totalTokens: 0,
+              createdAt: '2026-06-09T00:00:00Z'
+            }
+          ],
+          total: 1
+        });
+      }
+      if (filter?.status === 'success' && filter.limit === 1) {
+        return Promise.resolve({
+          data: [
+            {
+              id: 'usage_router_recovered',
+              organizationId: 'org_router',
+              userId: 'user_router',
+              requestId: 'req_settings_recovered',
+              apiType: 'chat',
+              featureType: 'workspace_chat',
+              model: 'gpt-4o',
+              status: 'success',
+              statusCode: 200,
+              cost: 0.01,
+              channelCost: 0.004,
+              promptTokens: 20,
+              completionTokens: 10,
+              totalTokens: 30,
+              createdAt: '2026-06-09T00:05:00Z'
+            }
+          ],
+          total: 1
+        });
+      }
+      return Promise.resolve({
         data: [
           {
             id: 'usage_admin_router',
@@ -244,7 +322,8 @@ vi.mock('../features/admin/api', () => ({
           }
         ],
         total: 1
-      }),
+      });
+    },
     getUsageAnalytics: () =>
       Promise.resolve({
         byModel: [{ dimension: 'model', key: 'gpt-4o', requestCount: 3, totalTokens: 150, totalCost: 0.0012 }],
@@ -1442,5 +1521,73 @@ describe('app router', () => {
 
     expect(await screen.findByRole('complementary', { name: 'Admin navigation' })).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Models' })).toBeInTheDocument();
+  });
+
+  it('renders admin settings route inside the admin shell', async () => {
+    const router = createAppRouter(['/admin/settings']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    expect(await screen.findByRole('complementary', { name: 'Admin navigation' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+    expect(document.querySelector('[data-gsap-scope="admin"]')).toBeInTheDocument();
+  });
+
+  it('keeps admin settings route-level pricing and usage-limit controls reachable', async () => {
+    const router = createAppRouter(['/admin/settings']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    const adminNavigation = await screen.findByRole('complementary', { name: 'Admin navigation' });
+    expect(document.querySelector('[data-gsap-scope="admin"]')).toBeInTheDocument();
+    expect(within(adminNavigation).getByRole('link', { name: 'Usage Logs' })).toHaveAttribute(
+      'href',
+      '/admin/usage-logs'
+    );
+    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+    expect(await screen.findByText('Relay pricing')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Model multipliers JSON')).toHaveValue(
+      '{\n  "gpt-4o": 1.2,\n  "gpt-4o-mini": 0.7\n}'
+    );
+    expect(screen.getByLabelText('Group multipliers JSON')).toHaveValue('{\n  "enterprise": 0.85\n}');
+    expect(screen.getByRole('button', { name: 'Refresh' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Save Settings' })).toBeEnabled();
+
+    fireEvent.change(screen.getByLabelText('Model multipliers JSON'), {
+      target: { value: '{ "gpt-4o": 1.25, "gpt-4o-mini": 0.7 }' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Settings' }));
+    expect(await screen.findByText('Settings saved.')).toBeInTheDocument();
+
+    expect(await screen.findByRole('heading', { name: 'Usage limits' })).toBeInTheDocument();
+    expect(screen.getByText('organization org_router')).toBeInTheDocument();
+    expect(screen.getByText('Mode: organization')).toBeInTheDocument();
+    expect(screen.getAllByText('request_tokens').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('Recovered')).toBeInTheDocument();
+    expect(screen.getByText('1 recent hit - relay_rate_limited')).toBeInTheDocument();
+    expect(screen.getByText('Recovery: req_settings_recovered')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Edit organization org_router request_tokens hour' })).toBeEnabled();
+    expect(screen.getByRole('heading', { name: 'Edit limit' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Scope type')).toHaveValue('organization');
+    expect(screen.getByLabelText('Scope ID')).toHaveValue('');
+    expect(screen.getByLabelText('Limit type')).toHaveValue('tokens');
+    expect(screen.getByLabelText('Period')).toHaveValue('minute');
+    expect(screen.getByLabelText('Limit value')).toHaveValue(1000);
+    expect(screen.getByLabelText('Enabled')).toBeChecked();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit organization org_router request_tokens hour' }));
+
+    expect(screen.getByLabelText('Scope type')).toHaveValue('organization');
+    expect(screen.getByLabelText('Scope ID')).toHaveValue('org_router');
+    expect(screen.getByLabelText('Limit type')).toHaveValue('request_tokens');
+    expect(screen.getByLabelText('Period')).toHaveValue('hour');
+    expect(screen.getByLabelText('Limit value')).toHaveValue(250);
+    expect(screen.getByLabelText('Enabled')).toBeChecked();
+    expect(screen.getByRole('button', { name: 'Save Usage Limit' })).toBeEnabled();
+
+    fireEvent.change(screen.getByLabelText('Limit value'), { target: { value: '300' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Usage Limit' }));
+
+    expect(await screen.findByText('Usage limit saved.')).toBeInTheDocument();
   });
 });
