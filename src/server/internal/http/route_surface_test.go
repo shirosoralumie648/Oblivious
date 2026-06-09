@@ -538,6 +538,33 @@ func TestRouteSurfaceAdminMarketplaceReviewMutationsRejectAdminCookieWithoutCSRF
 	}
 }
 
+func TestRouteSurfaceAdminOrganizationMutationsRejectAdminCookieWithoutCSRFWithoutDatabase(t *testing.T) {
+	session := routeSurfaceAdminSession()
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}})
+	cookie := routeSurfaceSignedSessionCookie(t, session)
+
+	tests := []routeSurfaceCase{
+		{"create organization", stdhttp.MethodPost, "/api/v1/admin/organizations"},
+		{"update organization", stdhttp.MethodPut, "/api/v1/admin/organizations/org_1"},
+		{"archive organization", stdhttp.MethodPost, "/api/v1/admin/organizations/org_1/archive"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(`{"name":"Acme","slug":"acme"}`))
+			request.Header.Set("Content-Type", "application/json")
+			request.AddCookie(cookie)
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusForbidden {
+				t.Fatalf("expected missing csrf to be rejected with 403 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
 func TestRouteSurfaceMCPMutationsRejectCookieWithoutCSRFWithoutDatabase(t *testing.T) {
 	session := routeSurfaceUserSession()
 	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}})

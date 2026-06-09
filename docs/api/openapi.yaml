@@ -3171,6 +3171,24 @@ components:
           type: string
           format: date-time
 
+    AdminOrganizationListResponse:
+      type: object
+      properties:
+        organizations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Organization"
+        total:
+          type: integer
+
+    AdminOrganizationMembersResponse:
+      type: object
+      properties:
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrganizationMembership"
+
     OrganizationInvitation:
       type: object
       properties:
@@ -11078,14 +11096,7 @@ paths:
                   - type: object
                     properties:
                       data:
-                        type: object
-                        properties:
-                          organizations:
-                            type: array
-                            items:
-                              $ref: "#/components/schemas/Organization"
-                          total:
-                            type: integer
+                        $ref: "#/components/schemas/AdminOrganizationListResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -11098,6 +11109,9 @@ paths:
       summary: 管理员创建组织
       operationId: createAdminOrganization
       tags: [Admin]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       requestBody:
         required: true
         content:
@@ -11170,6 +11184,9 @@ paths:
       summary: 管理员更新组织
       operationId: updateAdminOrganization
       tags: [Admin]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: organizationId
           in: path
@@ -11218,6 +11235,9 @@ paths:
       summary: 管理员归档组织
       operationId: archiveAdminOrganization
       tags: [Admin]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: organizationId
           in: path
@@ -11277,12 +11297,7 @@ paths:
                   - type: object
                     properties:
                       data:
-                        type: object
-                        properties:
-                          members:
-                            type: array
-                            items:
-                              $ref: "#/components/schemas/OrganizationMembership"
+                        $ref: "#/components/schemas/AdminOrganizationMembersResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":

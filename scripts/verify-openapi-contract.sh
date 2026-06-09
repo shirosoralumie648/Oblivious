@@ -1593,6 +1593,94 @@ require_chat_mutation_csrf_contract() {
   ' "$openapi_file"
 }
 
+require_admin_organization_mutation_csrf_contract() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+    paths = spec.fetch("paths", {})
+    schemas = spec.fetch("components", {}).fetch("schemas", {})
+    missing = []
+
+    def operation(paths, path, method, missing)
+      op = paths.dig(path, method)
+      unless op
+        missing << "#{method.upcase} #{path} must be documented"
+        return {}
+      end
+      op
+    end
+
+    def requires_cookie_and_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
+    end
+
+    def request_body_ref(operation)
+      operation.dig("requestBody", "content", "application/json", "schema", "$ref")
+    end
+
+    def response_data_ref(operation, status)
+      operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "$ref") }&.
+        dig("properties", "data", "$ref")
+    end
+
+    expected_data_refs = {
+      ["/api/v1/admin/organizations", "get", "200"] => "#/components/schemas/AdminOrganizationListResponse",
+      ["/api/v1/admin/organizations", "post", "201"] => "#/components/schemas/Organization",
+      ["/api/v1/admin/organizations/{organizationId}", "get", "200"] => "#/components/schemas/Organization",
+      ["/api/v1/admin/organizations/{organizationId}", "put", "200"] => "#/components/schemas/Organization",
+      ["/api/v1/admin/organizations/{organizationId}/archive", "post", "200"] => "#/components/schemas/Organization",
+      ["/api/v1/admin/organizations/{organizationId}/members", "get", "200"] => "#/components/schemas/AdminOrganizationMembersResponse",
+    }
+
+    expected_data_refs.each do |(path, method, status), expected|
+      op = operation(paths, path, method, missing)
+      unless response_data_ref(op, status) == expected
+        missing << "#{method.upcase} #{path} #{status} data must reference #{expected}"
+      end
+      unless op.fetch("tags", []).include?("Admin")
+        missing << "#{method.upcase} #{path} must be tagged Admin"
+      end
+    end
+
+    [
+      ["/api/v1/admin/organizations", "post"],
+      ["/api/v1/admin/organizations/{organizationId}", "put"],
+      ["/api/v1/admin/organizations/{organizationId}/archive", "post"],
+    ].each do |path, method|
+      op = operation(paths, path, method, missing)
+      unless requires_cookie_and_csrf?(op)
+        missing << "#{method.upcase} #{path} must require cookieAuth and csrfHeader"
+      end
+    end
+
+    {
+      ["/api/v1/admin/organizations", "post"] => "#/components/schemas/CreateOrganizationRequest",
+      ["/api/v1/admin/organizations/{organizationId}", "put"] => "#/components/schemas/UpdateOrganizationRequest",
+    }.each do |(path, method), expected|
+      op = operation(paths, path, method, missing)
+      unless op.dig("requestBody", "required") == true && request_body_ref(op) == expected
+        missing << "#{method.upcase} #{path} request body must require #{expected}"
+      end
+    end
+
+    unless schemas.dig("AdminOrganizationListResponse", "properties", "organizations", "items", "$ref") == "#/components/schemas/Organization" &&
+        schemas.dig("AdminOrganizationListResponse", "properties", "total", "type") == "integer"
+      missing << "AdminOrganizationListResponse must expose organizations[] plus integer total"
+    end
+    unless schemas.dig("AdminOrganizationMembersResponse", "properties", "members", "items", "$ref") == "#/components/schemas/OrganizationMembership"
+      missing << "AdminOrganizationMembersResponse must expose members[]"
+    end
+
+    unless missing.empty?
+      warn "[openapi-contract] Admin organization mutation CSRF contract is incomplete:"
+      missing.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 require_admin_core_management_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
@@ -2176,6 +2264,7 @@ require_task_mutation_csrf_contract
 require_notification_mutation_csrf_contract
 require_preferences_mutation_csrf_contract
 require_chat_mutation_csrf_contract
+require_admin_organization_mutation_csrf_contract
 require_admin_core_management_contract
 require_admin_billing_contract
 require_domestic_payment_webhook_payout_contract
