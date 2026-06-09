@@ -216,6 +216,7 @@ func (e *PlanningEngine) ExecutePlan(ctx context.Context, agentInstance *agent.A
 					Status: "skipped",
 					Error:  fmt.Sprintf("dependency step %d not completed", dep),
 				})
+				result.IterationCount = len(result.StepResults)
 				completed[step.Index] = false
 				skip = true
 				break
@@ -253,10 +254,14 @@ func (e *PlanningEngine) ExecutePlan(ctx context.Context, agentInstance *agent.A
 	// Determine if all steps completed.
 	allDone := true
 	for _, sr := range result.StepResults {
-		if sr.Status != "completed" && sr.Status != "skipped" {
-			allDone = false
-			break
+		if sr.Status == "completed" {
+			continue
 		}
+		if sr.Status == "skipped" && sr.Error == "" {
+			continue
+		}
+		allDone = false
+		break
 	}
 	if allDone {
 		result.StopReason = "plan_completed"

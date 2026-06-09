@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -11,6 +12,7 @@ import (
 
 type planningRuntimeFakeGateway struct {
 	responses    []*chat.CompletionResponse
+	errors       []error
 	calls        int
 	lastMessages []chat.Message
 }
@@ -18,6 +20,9 @@ type planningRuntimeFakeGateway struct {
 func (g *planningRuntimeFakeGateway) GenerateStructuredReply(ctx context.Context, messages []chat.Message, config chat.ConversationConfig, tools []map[string]any) (*chat.CompletionResponse, error) {
 	g.calls++
 	g.lastMessages = append([]chat.Message(nil), messages...)
+	if g.calls <= len(g.errors) && g.errors[g.calls-1] != nil {
+		return nil, g.errors[g.calls-1]
+	}
 	if g.calls <= len(g.responses) {
 		return g.responses[g.calls-1], nil
 	}
@@ -192,5 +197,123 @@ func TestPlanningEngineExecutePlanStopsWhenStepExceedsTokenBudget(t *testing.T) 
 	}
 	if gateway.calls != 1 {
 		t.Fatalf("expected one step gateway call, got %d", gateway.calls)
+	}
+}
+
+func TestPlanningEngineExecutePlanMarksDependencyFailureIncomplete(t *testing.T) {
+	gateway := &planningRuntimeFakeGateway{
+		errors: []error{errors.New("gateway offline")},
+	}
+	engine := NewPlanningEngine(gateway, nil)
+	plan := Plan{
+		Goal: "do dependent work",
+		Steps: []PlanStep{
+			{
+				Index: 1,
+				Title: "Fetch source",
+			},
+			{
+				Index:     2,
+				Title:     "Use source",
+				DependsOn: []int{1},
+			},
+		},
+	}
+
+	result, err := engine.ExecutePlan(context.Background(), &agent.Agent{Model: "gpt-4o-mini"}, "conv_1", nil, plan, PlanningConfig{})
+	if err != nil {
+		t.Fatalf("ExecutePlan returned error: %v", err)
+	}
+	if result.StopReason != "plan_incomplete" || result.FinalAnswer != "" {
+		t.Fatalf("expected incomplete plan without final answer, got %+v", result)
+	}
+	if result.IterationCount != 2 {
+		t.Fatalf("expected failed step and skipped dependent step to be counted, got %+v", result)
+	}
+	if len(result.StepResults) != 2 {
+		t.Fatalf("expected two step results, got %+v", result.StepResults)
+	}
+	if result.StepResults[0].Index != 1 || result.StepResults[0].Status != "failed" || !strings.Contains(result.StepResults[0].Error, "gateway offline") {
+		t.Fatalf("expected failed dependency evidence, got %+v", result.StepResults[0])
+	}
+	if result.StepResults[1].Index != 2 || result.StepResults[1].Status != "skipped" || !strings.Contains(result.StepResults[1].Error, "dependency step 1 not completed") {
+		t.Fatalf("expected skipped dependent-step evidence, got %+v", result.StepResults[1])
+	}
+	if gateway.calls != 1 {
+		t.Fatalf("expected only the failed dependency to call the gateway, got %d", gateway.calls)
+	}
+}
+
+func TestPlanningEngineExecutePlanMarksMissingDependencyIncomplete(t *testing.T) {
+	gateway := &planningRuntimeFakeGateway{}
+	engine := NewPlanningEngine(gateway, nil)
+	plan := Plan{
+		Goal: "skip missing dependency",
+		Steps: []PlanStep{{
+			Index:     2,
+			Title:     "Use missing dependency",
+			DependsOn: []int{1},
+		}},
+	}
+
+	result, err := engine.ExecutePlan(context.Background(), &agent.Agent{Model: "gpt-4o-mini"}, "conv_1", nil, plan, PlanningConfig{})
+	if err != nil {
+		t.Fatalf("ExecutePlan returned error: %v", err)
+	}
+	if result.StopReason != "plan_incomplete" || result.FinalAnswer != "" {
+		t.Fatalf("expected missing dependency to keep plan incomplete, got %+v", result)
+	}
+	if result.IterationCount != 1 || len(result.StepResults) != 1 {
+		t.Fatalf("expected one skipped step result, got %+v", result)
+	}
+	if result.StepResults[0].Index != 2 || result.StepResults[0].Status != "skipped" || !strings.Contains(result.StepResults[0].Error, "dependency step 1 not completed") {
+		t.Fatalf("expected missing dependency skip evidence, got %+v", result.StepResults[0])
+	}
+	if gateway.calls != 0 {
+		t.Fatalf("expected missing dependency to avoid gateway calls, got %d", gateway.calls)
+	}
+}
+
+func TestPlanningEngineGenerateAndExecutePlanAppliesConfig(t *testing.T) {
+	gateway := &planningRuntimeFakeGateway{responses: []*chat.CompletionResponse{
+		{
+			Content: `{
+				"goal": "ship the configured runtime",
+				"steps": [
+					{"index": 1, "title": "Inspect"},
+					{"index": 2, "title": "Patch"},
+					{"index": 3, "title": "Verify"}
+				]
+			}`,
+		},
+		{
+			Content: "expensive inspect complete",
+			Usage:   &chat.CompletionUsage{TotalTokens: 1200},
+		},
+		{
+			Content: "patch should not run after budget stop",
+			Usage:   &chat.CompletionUsage{TotalTokens: 100},
+		},
+	}}
+	engine := NewPlanningEngine(gateway, nil)
+
+	result, err := engine.GenerateAndExecutePlan(context.Background(), &agent.Agent{Model: "gpt-4o-mini"}, "conv_1", nil, "ship it", PlanningConfig{
+		MaxSteps:    2,
+		TokenBudget: 1000,
+	})
+	if err != nil {
+		t.Fatalf("GenerateAndExecutePlan returned error: %v", err)
+	}
+	if len(result.Plan.Steps) != 2 {
+		t.Fatalf("expected generated plan to honor max-step config, got %+v", result.Plan.Steps)
+	}
+	if result.StopReason != "token_budget_exceeded" || result.TotalTokens != 1200 {
+		t.Fatalf("expected execution to honor token-budget config, got %+v", result)
+	}
+	if len(result.StepResults) != 1 || result.StepResults[0].Index != 1 {
+		t.Fatalf("expected execution to stop after first over-budget step, got %+v", result.StepResults)
+	}
+	if gateway.calls != 2 {
+		t.Fatalf("expected one planning call and one execution call, got %d", gateway.calls)
 	}
 }
