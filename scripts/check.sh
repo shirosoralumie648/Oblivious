@@ -57,6 +57,9 @@ run_docs_checks() {
   echo "[check] Verifying workflow success-rate evidence."
   bash "$repo_root/scripts/verify-workflow-success-rate-evidence.sh"
 
+  echo "[check] Verifying fusion evidence pack."
+  bash "$repo_root/scripts/verify-fusion-evidence-pack.sh"
+
   echo "[check] Verifying docs and env consistency."
   contracts_file="$repo_root/docs/architecture/current-system-contracts.md"
   frontend_vars=(
