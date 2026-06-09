@@ -1,6 +1,42 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
+import type { ComponentType, ReactNode } from 'react';
 import { RouterProvider } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('@xyflow/react', () => {
+  const passthrough = ({ children }: { children?: ReactNode }) => <>{children}</>;
+
+  return {
+    Background: () => <div aria-hidden="true" data-xyflow-background="true" />,
+    Controls: () => <div aria-hidden="true" data-xyflow-controls="true" />,
+    MarkerType: { ArrowClosed: 'arrowclosed' },
+    MiniMap: () => <div aria-hidden="true" data-xyflow-minimap="true" />,
+    ReactFlowProvider: passthrough,
+    ReactFlow: ({
+      children,
+      nodeTypes,
+      nodes,
+      snapToGrid,
+    }: {
+      children?: ReactNode;
+      nodeTypes?: Record<string, ComponentType<any>>;
+      nodes?: Array<any>;
+      snapToGrid?: boolean;
+    }) => (
+      <div aria-label="React Flow router mock" data-snap-to-grid={snapToGrid ? 'true' : 'false'}>
+        {(nodes ?? []).map((node) => {
+          const NodeComponent = nodeTypes?.[node.type];
+          return (
+            <div data-node-id={node.id} key={node.id}>
+              {NodeComponent ? <NodeComponent data={node.data} selected={node.selected} /> : null}
+            </div>
+          );
+        })}
+        {children}
+      </div>
+    ),
+  };
+});
 
 vi.mock('../features/console/api', () => ({
   createConsoleApi: () => ({
@@ -388,6 +424,195 @@ vi.mock('../features/scheduledTasks/scheduledTasksApi', () => ({
       })
   })
 }));
+
+vi.mock('../features/workflows/workflowsApi', () => {
+  const workflowFixture = () => ({
+    definition: {
+      concurrency_overflow: 'queue',
+      edges: [
+        { id: 'edge-start-classify', source: 'manual-start', target: 'classify' },
+        { branch: 'true', id: 'edge-classify-notify', source: 'classify', target: 'notify-team' }
+      ],
+      max_concurrent_executions: 2,
+      max_execution_duration_seconds: 600,
+      max_node_executions: 40,
+      max_tokens_budget: 12000,
+      nodes: [
+        { id: 'manual-start', input: { ticketId: 'INC-42' }, position: { x: 80, y: 80 }, type: 'manual' },
+        {
+          failurePolicy: { maxRetries: 2, retryDelays: ['1s', '5s'], strategy: 'pause_on_failure' },
+          id: 'classify',
+          input: { model: 'gpt-4o-mini' },
+          position: { x: 320, y: 80 },
+          type: 'llm'
+        },
+        {
+          failurePolicy: { failureBranchNodeId: 'manual-start', strategy: 'failure_branch' },
+          id: 'notify-team',
+          input: { channel: '#ops' },
+          position: { x: 560, y: 80 },
+          type: 'notification'
+        }
+      ],
+      triggers: {
+        conversation: [{ conversationId: 'conversation_router', id: 'conversation-main' }],
+        schedule: [{ cronExpression: '*/15 * * * *', enabled: true, id: 'quarter-hour-triage' }],
+        semantic: [{ id: 'urgent-ticket', keywords: ['incident', 'sev1'], semanticThreshold: 0.86 }],
+        webhook: {
+          id: 'github',
+          path: '/api/v1/workflows/webhooks/org_router/workflow_1',
+          secret: '********'
+        }
+      }
+    },
+    description: 'Route-level incident workflow.',
+    id: 'workflow_1',
+    name: 'Incident triage workflow',
+    organizationId: 'org_router',
+    status: 'draft',
+    variables: { owner: 'ops' },
+    version: 3
+  });
+
+  const executionFixture = () => ({
+    id: 'exec_router_paused',
+    input: { ticketId: 'INC-42' },
+    nodeExecutions: [
+      {
+        completedAt: '2026-06-09T10:00:01Z',
+        durationMs: 1200,
+        nodeId: 'manual-start',
+        nodeType: 'manual',
+        output: { ticketId: 'INC-42' },
+        status: 'succeeded'
+      },
+      {
+        attempt: 2,
+        durationMs: 3400,
+        error: { message: 'provider timeout' },
+        input: { severity: 'sev1' },
+        nodeId: 'classify',
+        nodeType: 'llm',
+        status: 'failed'
+      },
+      {
+        context: { waitReason: 'approval_required' },
+        input: { channel: '#ops' },
+        nodeId: 'notify-team',
+        nodeType: 'approval',
+        status: 'pending'
+      }
+    ],
+    output: { summary: 'needs operator review' },
+    status: 'paused',
+    workflowId: 'workflow_1'
+  });
+
+  return {
+    createWorkflowsApi: () => ({
+      cancelExecution: () => Promise.resolve({ ...executionFixture(), status: 'cancelled' }),
+      checkWorkflowResourceLimits: () => Promise.resolve(executionFixture()),
+      createWorkflow: () => Promise.resolve(workflowFixture()),
+      createWorkflowBranch: () =>
+        Promise.resolve({
+          ...workflowFixture(),
+          definition: {
+            ...workflowFixture().definition,
+            branch: { sourceWorkflowId: 'workflow_1' }
+          },
+          id: 'workflow_1_branch_canary',
+          name: 'Incident triage workflow v2 branch',
+          version: 4
+        }),
+      deleteWorkflow: () => Promise.resolve({ ...workflowFixture(), status: 'archived' }),
+      executeWorkflow: () => Promise.resolve({ ...executionFixture(), id: 'exec_router_run', status: 'running' }),
+      getExecution: () => Promise.resolve(executionFixture()),
+      getExecutionDebugSnapshot: () =>
+        Promise.resolve({
+          executionId: 'exec_router_paused',
+          logs: [{ level: 'warn', message: 'Provider timeout', nodeId: 'classify', timestamp: '2026-06-09T10:00:03Z' }],
+          outputs: { 'manual-start': { ticketId: 'INC-42' } },
+          performance: { bottleneckNodeId: 'classify', nodeDurationsMs: { classify: 3400 }, totalDurationMs: 4600 },
+          status: 'paused',
+          trace: [
+            { durationMs: 1200, nodeId: 'manual-start', nodeType: 'manual', status: 'succeeded' },
+            {
+              durationMs: 3400,
+              error: { message: 'provider timeout' },
+              nodeId: 'classify',
+              nodeType: 'llm',
+              status: 'failed'
+            }
+          ],
+          variableSnapshot: {
+            context: { owner: 'ops' },
+            input: { ticketId: 'INC-42' },
+            nodeOutputs: { 'manual-start': { ticketId: 'INC-42' } }
+          },
+          workflowId: 'workflow_1'
+        }),
+      listExecutions: () => Promise.resolve([executionFixture()]),
+      listWorkflowVersions: () =>
+        Promise.resolve([
+          workflowFixture(),
+          { ...workflowFixture(), definition: { ...workflowFixture().definition, nodes: [{ id: 'manual-start', type: 'manual' }] }, version: 2 },
+          {
+            ...workflowFixture(),
+            definition: {
+              ...workflowFixture().definition,
+              branch: { sourceWorkflowId: 'workflow_1' }
+            },
+            id: 'workflow_1_branch_canary',
+            name: 'Incident triage workflow v2 branch',
+            status: 'draft',
+            version: 4
+          }
+        ]),
+      listWorkflows: () => Promise.resolve([workflowFixture()]),
+      matchConversationTriggers: () =>
+        Promise.resolve([
+          {
+            conversationId: 'conversation_router',
+            triggerId: 'conversation-main',
+            workflowId: 'workflow_1',
+            workflowName: 'Incident triage workflow',
+            workflowVersion: 3
+          }
+        ]),
+      matchSemanticTriggers: () =>
+        Promise.resolve([
+          {
+            keyword: 'sev1',
+            matchMethod: 'semantic',
+            score: 0.91,
+            semanticThreshold: 0.86,
+            triggerId: 'urgent-ticket',
+            workflowId: 'workflow_1',
+            workflowName: 'Incident triage workflow',
+            workflowVersion: 3
+          }
+        ]),
+      mergeWorkflowBranch: () => Promise.resolve({ ...workflowFixture(), version: 5 }),
+      pauseExecution: () => Promise.resolve(executionFixture()),
+      publishWorkflowBranch: () => Promise.resolve({ ...workflowFixture(), status: 'published', version: 5 }),
+      resolvePausedFailure: () => Promise.resolve(executionFixture()),
+      resumeExecution: () => Promise.resolve({ ...executionFixture(), status: 'running' }),
+      rollbackWorkflow: () => Promise.resolve({ ...workflowFixture(), version: 2 }),
+      testNode: () =>
+        Promise.resolve({
+          durationMs: 42,
+          input: { ticketId: 'INC-42' },
+          nodeId: 'classify',
+          output: { severity: 'sev1' },
+          status: 'succeeded',
+          workflowId: 'workflow_1'
+        }),
+      triggerWorkflowWebhook: () =>
+        Promise.resolve({ ...executionFixture(), id: 'exec_router_webhook', status: 'queued' }),
+      updateWorkflow: () => Promise.resolve({ ...workflowFixture(), version: 4 })
+    })
+  };
+});
 
 vi.mock('../features/agents/memoriesApi', () => ({
   createAgentMemoriesApi: () => ({
@@ -803,6 +1028,119 @@ describe('app router', () => {
 
     expect(await screen.findByText('Workspace')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Workflows' })).toBeInTheDocument();
+  });
+
+  it('keeps workflows route-level trigger, editor, branch, and execution controls reachable', async () => {
+    const router = createAppRouter(['/workflows']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    const workspaceNavigation = await screen.findByRole('navigation', { name: 'Workspace navigation' });
+    expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
+    expect(within(workspaceNavigation).getByRole('link', { name: 'Scheduled Tasks' })).toHaveAttribute(
+      'href',
+      '/scheduled-tasks'
+    );
+    expect(await screen.findByRole('heading', { name: 'Workflows' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Create workflow')).toBeInTheDocument();
+    expect(screen.getByLabelText('Workflow name')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Create draft workflow' })).toBeDisabled();
+    expect(screen.getByLabelText('Conversation trigger matching')).toBeInTheDocument();
+    expect(screen.getByLabelText('Semantic trigger matching')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Conversation match ID'), { target: { value: 'conversation_router' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Check conversation matches' }));
+    expect(await screen.findByLabelText('Conversation trigger match results')).toBeInTheDocument();
+    expect(await screen.findByText('conversation-main | conversation_router')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Semantic match message'), { target: { value: 'sev1 incident' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Check semantic matches' }));
+    expect(await screen.findByLabelText('Semantic trigger match results')).toBeInTheDocument();
+    expect(await screen.findByText('urgent-ticket | sev1 | score 0.91 | threshold 0.86 | semantic')).toBeInTheDocument();
+
+    expect(await screen.findByText('Incident triage workflow')).toBeInTheDocument();
+    expect(screen.getByText('Route-level incident workflow.')).toBeInTheDocument();
+    expect(screen.getByText('Status: draft')).toBeInTheDocument();
+    expect(screen.getByText('Version: 3')).toBeInTheDocument();
+    expect(screen.getByText('Nodes: 3')).toBeInTheDocument();
+    expect(screen.getByLabelText('Run input JSON for Incident triage workflow')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Run Incident triage workflow' })).toBeEnabled();
+    expect(screen.getByLabelText('Webhook payload JSON for Incident triage workflow')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Trigger webhook for Incident triage workflow' })).toBeEnabled();
+    expect(screen.getByLabelText('Variables Incident triage workflow')).toBeInTheDocument();
+    expect(screen.getByLabelText('Triggers Incident triage workflow')).toBeInTheDocument();
+    expect(screen.getByText('Conversation: conversation_router')).toBeInTheDocument();
+    expect(screen.getByText('Schedule: */15 * * * *')).toBeInTheDocument();
+    expect(screen.getByText('Semantic: urgent-ticket incident, sev1 threshold 0.86')).toBeInTheDocument();
+    expect(
+      screen.getByText('Webhook: github /api/v1/workflows/webhooks/org_router/workflow_1 secret configured')
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText('Conversation trigger ID for Incident triage workflow')).toHaveValue(
+      'conversation-main'
+    );
+    expect(screen.getByLabelText('Schedule cron for Incident triage workflow')).toHaveValue('*/15 * * * *');
+    expect(screen.getByLabelText('Semantic threshold for Incident triage workflow')).toHaveValue('0.86');
+    expect(screen.getByLabelText('Signed webhook helper for Incident triage workflow')).toBeInTheDocument();
+    expect(screen.getByText('/api/v1/workflows/webhooks/org_router/workflow_1')).toBeInTheDocument();
+    expect(screen.getByLabelText('Scheduled tasks for Incident triage workflow')).toBeInTheDocument();
+    expect(screen.getByText('schedule_1')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Run scheduled task schedule_1 now' })).toBeEnabled();
+
+    expect(screen.getByLabelText('Visual editor for Incident triage workflow')).toBeInTheDocument();
+    expect(screen.getByLabelText('Node palette for Incident triage workflow')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add LLM node template to Incident triage workflow' })).toBeInTheDocument();
+    expect(screen.getByLabelText('React Flow canvas for Incident triage workflow')).toBeInTheDocument();
+    expect(screen.getByLabelText('React Flow router mock')).toHaveAttribute('data-snap-to-grid', 'true');
+    expect(screen.getByLabelText('Canvas node 2 classify llm at 320 80')).toBeInTheDocument();
+    expect(screen.getByLabelText('Canvas edge classify to notify-team branch true')).toBeInTheDocument();
+    expect(screen.getByLabelText('Node sequence for Incident triage workflow')).toBeInTheDocument();
+    expect(screen.getByLabelText('Edges for Incident triage workflow')).toBeInTheDocument();
+    expect(screen.getByLabelText('Resource policy Incident triage workflow')).toBeInTheDocument();
+    expect(screen.getByLabelText('Max concurrent executions for Incident triage workflow')).toHaveValue(2);
+    expect(screen.getByLabelText('Max tokens budget for Incident triage workflow')).toHaveValue(12000);
+    expect(screen.getByLabelText('Add node to Incident triage workflow')).toBeInTheDocument();
+    expect(screen.getByLabelText('Add edge to Incident triage workflow')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load versions for Incident triage workflow' }));
+    expect(await screen.findByText('Version 2')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Rollback Incident triage workflow to version 2' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Create branch from Incident triage workflow version 2' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Publish branch Incident triage workflow v2 branch' })).toBeEnabled();
+    expect(
+      screen.getByRole('button', { name: 'Merge branch Incident triage workflow v2 branch into Incident triage workflow' })
+    ).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create branch from Incident triage workflow version 2' }));
+    expect(await screen.findByLabelText('Branch Incident triage workflow version 2')).toBeInTheDocument();
+    expect(screen.getByLabelText('Branch name for Incident triage workflow version 2')).toHaveValue(
+      'Incident triage workflow v2 branch'
+    );
+    expect(screen.getByRole('button', { name: 'Submit branch for Incident triage workflow version 2' })).toBeEnabled();
+
+    expect(screen.getByLabelText('Debug Incident triage workflow')).toBeInTheDocument();
+    expect(screen.getByText('Known nodes: manual-start, classify, notify-team')).toBeInTheDocument();
+    expect(screen.getByLabelText('Node ID')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Test node' })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Node ID'), { target: { value: 'classify' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Test node' }));
+    expect(await screen.findByText('Node classify returned succeeded')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load executions' }));
+    expect(await screen.findByText('exec_router_paused')).toBeInTheDocument();
+    expect(screen.getByLabelText('Workflow execution exec_router_paused status')).toHaveTextContent('Paused');
+    expect(screen.getByRole('button', { name: 'Pause exec_router_paused' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Resume exec_router_paused' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Cancel exec_router_paused' })).toBeEnabled();
+    expect(screen.getByLabelText('Debug and performance summary for exec_router_paused')).toBeInTheDocument();
+    expect(screen.getByLabelText('Paused input for exec_router_paused')).toBeInTheDocument();
+    expect(screen.getByLabelText('Paused failure decisions for exec_router_paused')).toBeInTheDocument();
+    expect(screen.getByLabelText('Resource limits for exec_router_paused')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'View details for exec_router_paused' }));
+    const executionDebugDetails = await screen.findByLabelText('Execution debug details for exec_router_paused');
+    expect(within(executionDebugDetails).getByText('manual-start -> classify')).toBeInTheDocument();
+    expect(within(executionDebugDetails).getByText('Bottleneck: classify (3400ms)')).toBeInTheDocument();
   });
 
   it('renders scheduled tasks route inside the workspace shell', async () => {
