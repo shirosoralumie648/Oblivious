@@ -1129,6 +1129,20 @@ require_admin_marketplace_review_csrf_contract() {
       security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
     end
 
+    def response_data_ref(operation, status)
+      operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "$ref") }&.
+        dig("properties", "data", "$ref")
+    end
+
+    def request_body_ref(operation)
+      operation.dig("requestBody", "content", "application/json", "schema", "$ref")
+    end
+
+    def schema_props(schema)
+      schema.fetch("properties", {})
+    end
+
     [
       ["/api/v1/admin/reviews/sla/enforce", "post"],
       ["/api/v1/admin/reviews/{agentId}/approve", "post"],
@@ -1145,8 +1159,56 @@ require_admin_marketplace_review_csrf_contract() {
       end
     end
 
+    expected_response_refs = {
+      ["/api/v1/admin/reviews", "get"] => "#/components/schemas/AdminReviewListResponse",
+      ["/api/v1/admin/reviews/sla/enforce", "post"] => "#/components/schemas/MarketplaceReviewSLAEnforcementResult",
+      ["/api/v1/admin/reviews/{agentId}/approve", "post"] => "#/components/schemas/MarketplaceReviewStatusResponse",
+      ["/api/v1/admin/reviews/{agentId}/reject", "post"] => "#/components/schemas/MarketplaceReviewStatusResponse",
+      ["/api/v1/admin/reviews/{agentId}/needs-changes", "post"] => "#/components/schemas/MarketplaceReviewStatusResponse",
+    }
+    expected_response_refs.each do |(path, method), expected|
+      op = operation(paths, path, method, missing)
+      unless response_data_ref(op, "200") == expected
+        missing << "#{method.upcase} #{path} 200 data must reference #{expected}"
+      end
+    end
+
+    {
+      ["/api/v1/admin/reviews/{agentId}/reject", "post"] => "#/components/schemas/MarketplaceReviewDecisionRequest",
+      ["/api/v1/admin/reviews/{agentId}/needs-changes", "post"] => "#/components/schemas/MarketplaceReviewDecisionRequest",
+    }.each do |(path, method), expected|
+      op = operation(paths, path, method, missing)
+      unless op.dig("requestBody", "required") == true && request_body_ref(op) == expected
+        missing << "#{method.upcase} #{path} request body must require #{expected}"
+      end
+    end
+
+    schemas = spec.fetch("components", {}).fetch("schemas", {})
+    review_list = schema_props(schemas["AdminReviewListResponse"] || {})
+    unless review_list.dig("reviews", "type") == "array" &&
+        review_list.dig("reviews", "items", "$ref") == "#/components/schemas/MarketplacePublishedAgent" &&
+        review_list.dig("total", "type") == "integer"
+      missing << "AdminReviewListResponse must expose MarketplacePublishedAgent reviews[] plus integer total"
+    end
+
+    decision = schema_props(schemas["MarketplaceReviewDecisionRequest"] || {})
+    unless decision.dig("reason", "type") == "string"
+      missing << "MarketplaceReviewDecisionRequest.reason must be documented as string"
+    end
+
+    status = schema_props(schemas["MarketplaceReviewStatusResponse"] || {})
+    unless status.dig("status", "type") == "string" &&
+        status.dig("status", "enum")&.sort == ["approved", "needs_changes", "rejected"]
+      missing << "MarketplaceReviewStatusResponse.status must enumerate approved, rejected, and needs_changes"
+    end
+
+    sla = schema_props(schemas["MarketplaceReviewSLAEnforcementResult"] || {})
+    unless sla.dig("scanned", "type") == "integer" && sla.dig("alerted", "type") == "integer"
+      missing << "MarketplaceReviewSLAEnforcementResult must expose integer scanned and alerted counts"
+    end
+
     unless missing.empty?
-      warn "[openapi-contract] Admin Marketplace review CSRF contract is incomplete:"
+      warn "[openapi-contract] Admin Marketplace review CSRF/schema contract is incomplete:"
       missing.each { |entry| warn "  - #{entry}" }
       exit 1
     end
