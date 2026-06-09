@@ -1174,6 +1174,130 @@ require_workspace_agent_mutation_csrf_contract() {
   ' "$openapi_file"
 }
 
+require_memory_mutation_csrf_contract() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+    paths = spec.fetch("paths", {})
+    schemas = spec.fetch("components", {}).fetch("schemas", {})
+    missing = []
+
+    def operation(paths, path, method, missing)
+      op = paths.dig(path, method)
+      unless op
+        missing << "#{method.upcase} #{path} must be documented"
+        return {}
+      end
+      op
+    end
+
+    def requires_cookie_and_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
+    end
+
+    def request_body_ref(operation)
+      operation.dig("requestBody", "content", "application/json", "schema", "$ref")
+    end
+
+    def response_data_ref(operation, status)
+      operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "$ref") }&.
+        dig("properties", "data", "$ref")
+    end
+
+    def response_array_item_ref(operation, status)
+      operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "items", "$ref") }&.
+        dig("properties", "data", "items", "$ref")
+    end
+
+    {
+      ["/api/v1/app/memory/documents", "post"] => "Memory",
+      ["/api/v1/app/memory/documents/{documentId}", "put"] => "Memory",
+      ["/api/v1/app/memory/documents/{documentId}", "delete"] => "Memory",
+      ["/api/v1/app/memory/search", "post"] => "Memory",
+      ["/api/v1/agent/memories", "post"] => "Agent",
+      ["/api/v1/agent/memories/import", "post"] => "Agent",
+      ["/api/v1/agent/memories/{memoryId}", "patch"] => "Agent",
+      ["/api/v1/agent/memories/{memoryId}", "delete"] => "Agent",
+    }.each do |(path, method), expected_tag|
+      op = operation(paths, path, method, missing)
+      unless requires_cookie_and_csrf?(op)
+        missing << "#{method.upcase} #{path} must require cookieAuth and csrfHeader"
+      end
+      unless op.fetch("tags", []).include?(expected_tag)
+        missing << "#{method.upcase} #{path} must be tagged #{expected_tag}"
+      end
+    end
+
+    {
+      ["/api/v1/app/memory/documents", "post"] => "#/components/schemas/MemoryDocumentRequest",
+      ["/api/v1/app/memory/documents/{documentId}", "put"] => "#/components/schemas/UpdateMemoryDocumentRequest",
+      ["/api/v1/app/memory/search", "post"] => "#/components/schemas/MemorySearchRequest",
+      ["/api/v1/agent/memories", "post"] => "#/components/schemas/AgentMemoryRequest",
+      ["/api/v1/agent/memories/import", "post"] => "#/components/schemas/AgentMemoryImportRequest",
+      ["/api/v1/agent/memories/{memoryId}", "patch"] => "#/components/schemas/AgentMemoryUpdateRequest",
+    }.each do |(path, method), expected|
+      op = operation(paths, path, method, missing)
+      unless request_body_ref(op) == expected
+        missing << "#{method.upcase} #{path} request body must reference #{expected}"
+      end
+    end
+
+    {
+      ["/api/v1/app/memory/documents", "post", "201"] => "#/components/schemas/MemoryDocument",
+      ["/api/v1/app/memory/documents/{documentId}", "put", "200"] => "#/components/schemas/MemoryDocument",
+      ["/api/v1/app/memory/documents/{documentId}", "delete", "200"] => "#/components/schemas/MemoryDeleteStatusResponse",
+      ["/api/v1/agent/memories", "post", "201"] => "#/components/schemas/AgentMemory",
+      ["/api/v1/agent/memories/{memoryId}", "patch", "200"] => "#/components/schemas/AgentMemory",
+    }.each do |(path, method, status), expected|
+      op = operation(paths, path, method, missing)
+      unless response_data_ref(op, status) == expected
+        missing << "#{method.upcase} #{path} #{status} data must reference #{expected}"
+      end
+    end
+
+    search_op = operation(paths, "/api/v1/app/memory/search", "post", missing)
+    unless response_array_item_ref(search_op, "200") == "#/components/schemas/MemorySearchResult"
+      missing << "POST /api/v1/app/memory/search 200 data items must reference MemorySearchResult"
+    end
+
+    import_op = operation(paths, "/api/v1/agent/memories/import", "post", missing)
+    unless response_array_item_ref(import_op, "201") == "#/components/schemas/AgentMemory"
+      missing << "POST /api/v1/agent/memories/import 201 data items must reference AgentMemory"
+    end
+
+    delete_op = operation(paths, "/api/v1/agent/memories/{memoryId}", "delete", missing)
+    unless delete_op.dig("responses", "204", "description")
+      missing << "DELETE /api/v1/agent/memories/{memoryId} must document 204 delete response"
+    end
+
+    unless schemas.dig("MemoryDeleteStatusResponse", "properties", "status", "type") == "string"
+      missing << "MemoryDeleteStatusResponse must expose status string"
+    end
+    unless schemas.dig("AgentMemoryUpdateRequest", "properties", "content", "type") == "string" &&
+        schemas.dig("AgentMemoryUpdateRequest", "properties", "importance", "type") == "integer" &&
+        schemas.dig("AgentMemoryUpdateRequest", "properties", "importance", "minimum") == 1 &&
+        schemas.dig("AgentMemoryUpdateRequest", "properties", "importance", "maximum") == 5
+      missing << "AgentMemoryUpdateRequest must document content and bounded importance"
+    end
+    unless schemas.dig("MemorySearchRequest", "properties", "query", "type") == "string" &&
+        schemas.dig("AgentMemoryRequest", "properties", "content", "type") == "string" &&
+        schemas.dig("AgentMemoryRequest", "properties", "agentId", "type") == "string" &&
+        schemas.dig("AgentMemoryRequest", "properties", "agent_id", "type") == "string" &&
+        schemas.dig("AgentMemoryImportRequest", "properties", "memories", "items", "$ref") == "#/components/schemas/AgentMemoryRequest"
+      missing << "Memory and Agent memory request schemas must expose query/content and import item refs"
+    end
+
+    unless missing.empty?
+      warn "[openapi-contract] Memory mutation CSRF/schema contract is incomplete:"
+      missing.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 require_billing_checkout_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
@@ -2510,6 +2634,7 @@ require_marketplace_user_mutation_csrf_contract
 require_admin_marketplace_governance_csrf_contract
 require_admin_marketplace_review_csrf_contract
 require_workspace_agent_mutation_csrf_contract
+require_memory_mutation_csrf_contract
 require_agent_run_mutation_csrf_contract
 require_billing_checkout_contract
 require_tenant_organization_mutation_csrf_contract

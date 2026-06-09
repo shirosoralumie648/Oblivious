@@ -760,6 +760,16 @@ components:
           items:
             $ref: "#/components/schemas/AgentMemoryRequest"
 
+    AgentMemoryUpdateRequest:
+      type: object
+      properties:
+        content:
+          type: string
+        importance:
+          type: integer
+          minimum: 1
+          maximum: 5
+
     AgentMemoryListResponse:
       type: object
       properties:
@@ -824,6 +834,13 @@ components:
           type: string
         content:
           type: string
+
+    MemoryDeleteStatusResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: deleted
 
     MemoryChunk:
       type: object
@@ -7659,6 +7676,9 @@ paths:
       summary: 创建 workspace memory 文档并分块嵌入
       operationId: createMemoryDocument
       tags: [Memory]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       requestBody:
         required: true
         content:
@@ -7719,6 +7739,9 @@ paths:
       summary: 更新 workspace memory 文档
       operationId: updateMemoryDocument
       tags: [Memory]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: documentId
           in: path
@@ -7759,6 +7782,9 @@ paths:
       summary: 删除 workspace memory 文档
       operationId: deleteMemoryDocument
       tags: [Memory]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: documentId
           in: path
@@ -7776,11 +7802,7 @@ paths:
                   - type: object
                     properties:
                       data:
-                        type: object
-                        properties:
-                          status:
-                            type: string
-                            example: deleted
+                        $ref: "#/components/schemas/MemoryDeleteStatusResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -7833,6 +7855,9 @@ paths:
       summary: 搜索 workspace memory 文档分块
       operationId: searchMemoryDocuments
       tags: [Memory]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       requestBody:
         required: true
         content:
@@ -8788,6 +8813,9 @@ paths:
       summary: 创建用户管理的 Agent 记忆
       operationId: createAgentMemory
       tags: [Agent]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       requestBody:
         required: true
         content:
@@ -8818,6 +8846,9 @@ paths:
       summary: 批量导入 Agent 记忆
       operationId: importAgentMemories
       tags: [Agent]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       requestBody:
         required: true
         content:
@@ -8900,6 +8931,9 @@ paths:
       summary: 更新 Agent 记忆
       operationId: updateAgentMemory
       tags: [Agent]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: memoryId
           in: path
@@ -8911,14 +8945,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                content:
-                  type: string
-                importance:
-                  type: integer
-                  minimum: 1
-                  maximum: 5
+              $ref: "#/components/schemas/AgentMemoryUpdateRequest"
       responses:
         "200":
           description: 记忆已更新
@@ -8941,6 +8968,9 @@ paths:
       summary: 删除 Agent 记忆
       operationId: deleteAgentMemory
       tags: [Agent]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: memoryId
           in: path

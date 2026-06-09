@@ -453,6 +453,124 @@ func TestRouteSurfaceWorkspaceAgentMutationsDispatchWithCSRFWithoutDatabase(t *t
 	}
 }
 
+func TestRouteSurfaceMemoryMutationsRejectCookieWithoutCSRFWithoutDatabase(t *testing.T) {
+	session := routeSurfaceUserSession()
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}})
+	cookie := routeSurfaceSignedSessionCookie(t, session)
+
+	tests := []routeSurfaceCase{
+		{"create memory document", stdhttp.MethodPost, "/api/v1/app/memory/documents"},
+		{"update memory document", stdhttp.MethodPut, "/api/v1/app/memory/documents/document_1"},
+		{"delete memory document", stdhttp.MethodDelete, "/api/v1/app/memory/documents/document_1"},
+		{"search memory documents", stdhttp.MethodPost, "/api/v1/app/memory/search"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(`{"title":"Plan","content":"hello","query":"hello"}`))
+			request.Header.Set("Content-Type", "application/json")
+			request.AddCookie(cookie)
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusForbidden {
+				t.Fatalf("expected missing csrf to be rejected with 403 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestRouteSurfaceAgentMemoryMutationsRejectCookieWithoutCSRFWithoutDatabase(t *testing.T) {
+	session := routeSurfaceUserSession()
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}})
+	cookie := routeSurfaceSignedSessionCookie(t, session)
+
+	tests := []routeSurfaceCase{
+		{"create agent memory", stdhttp.MethodPost, "/api/v1/agent/memories"},
+		{"import agent memories", stdhttp.MethodPost, "/api/v1/agent/memories/import"},
+		{"update agent memory", stdhttp.MethodPatch, "/api/v1/agent/memories/memory_1"},
+		{"delete agent memory", stdhttp.MethodDelete, "/api/v1/agent/memories/memory_1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(`{"content":"hello","memories":[{"content":"hello"}]}`))
+			request.Header.Set("Content-Type", "application/json")
+			request.AddCookie(cookie)
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusForbidden {
+				t.Fatalf("expected missing csrf to be rejected with 403 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestRouteSurfaceMemoryMutationsDispatchWithCSRFWithoutDatabase(t *testing.T) {
+	session := routeSurfaceUserSession()
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}})
+	cookie := routeSurfaceSignedSessionCookie(t, session)
+	csrfToken := routeSurfaceCSRFToken(session)
+
+	tests := []routeSurfaceCase{
+		{"create memory document", stdhttp.MethodPost, "/api/v1/app/memory/documents"},
+		{"update memory document", stdhttp.MethodPut, "/api/v1/app/memory/documents/document_1"},
+		{"delete memory document", stdhttp.MethodDelete, "/api/v1/app/memory/documents/document_1"},
+		{"search memory documents", stdhttp.MethodPost, "/api/v1/app/memory/search"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(`{"title":"Plan","content":"hello","query":"hello"}`))
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set(csrfHeaderName, csrfToken)
+			request.AddCookie(cookie)
+
+			router.ServeHTTP(recorder, request)
+
+			switch recorder.Code {
+			case stdhttp.StatusUnauthorized, stdhttp.StatusForbidden, stdhttp.StatusNotFound, stdhttp.StatusMethodNotAllowed:
+				t.Fatalf("expected registered Memory route to pass auth/csrf and dispatch for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestRouteSurfaceAgentMemoryMutationsDispatchWithCSRFWithoutDatabase(t *testing.T) {
+	session := routeSurfaceUserSession()
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}})
+	cookie := routeSurfaceSignedSessionCookie(t, session)
+	csrfToken := routeSurfaceCSRFToken(session)
+
+	tests := []routeSurfaceCase{
+		{"create agent memory", stdhttp.MethodPost, "/api/v1/agent/memories"},
+		{"import agent memories", stdhttp.MethodPost, "/api/v1/agent/memories/import"},
+		{"update agent memory", stdhttp.MethodPatch, "/api/v1/agent/memories/memory_1"},
+		{"delete agent memory", stdhttp.MethodDelete, "/api/v1/agent/memories/memory_1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(`{"content":"hello","memories":[{"content":"hello"}]}`))
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set(csrfHeaderName, csrfToken)
+			request.AddCookie(cookie)
+
+			router.ServeHTTP(recorder, request)
+
+			switch recorder.Code {
+			case stdhttp.StatusUnauthorized, stdhttp.StatusForbidden, stdhttp.StatusNotFound, stdhttp.StatusMethodNotAllowed:
+				t.Fatalf("expected registered Agent memory route to pass auth/csrf and dispatch for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
 func TestRouteSurfaceRefreshesWorkflowHealthBeforeMetricsScrape(t *testing.T) {
 	source, err := os.ReadFile("router.go")
 	if err != nil {
