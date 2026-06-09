@@ -2784,6 +2784,13 @@ require_admin_billing_contract() {
       end
     end
 
+    topup_schema = schemas["AdminTopupInspection"] || {}
+    ["provider", "providerPaymentIntentId", "currency"].each do |property|
+      unless topup_schema.dig("properties", property, "type") == "string"
+        missing << "AdminTopupInspection must document #{property} as string provider refund evidence"
+      end
+    end
+
     summary = schemas["AdminBillingInspectionSummary"] || {}
     ["billingSessions", "paymentIntents", "webhookEvents", "subscriptions", "topups", "invoices", "refunds", "settlements", "payouts"].each do |property|
       unless summary.dig("properties", property, "$ref") == "#/components/schemas/AdminBillingAmountSummary"

@@ -3205,7 +3205,13 @@ components:
           type: string
         paymentIntentId:
           type: string
+        provider:
+          type: string
         providerCheckoutSessionId:
+          type: string
+        providerPaymentIntentId:
+          type: string
+        currency:
           type: string
         amount:
           type: number

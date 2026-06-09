@@ -242,7 +242,11 @@ describe('createAdminApi', () => {
       .fn()
       .mockResolvedValueOnce({ billingSessions: { count: 1, settledAmount: 4.5 } })
       .mockResolvedValueOnce({ sessions: [{ id: 'bs_1', status: 'settled' }], total: 1 })
-      .mockResolvedValueOnce({ paymentIntents: [{ id: 'pi_1', kind: 'subscription' }], total: 1 });
+      .mockResolvedValueOnce({ paymentIntents: [{ id: 'pi_1', kind: 'subscription' }], total: 1 })
+      .mockResolvedValueOnce({
+        topups: [{ id: 'topup_1', provider: 'stripe', providerPaymentIntentId: 'pi_provider_1', currency: 'usd' }],
+        total: 1,
+      });
     const post = vi.fn().mockResolvedValue({ id: 'payout_1', status: 'paid_out', providerPayoutId: 'provider-paid-1' });
     const api = createAdminApi(createClient({ get, post }));
 
@@ -255,6 +259,10 @@ describe('createAdminApi', () => {
     });
     await expect(api.listBillingSurface('paymentIntents', { kind: 'subscription' })).resolves.toEqual({
       data: [{ id: 'pi_1', kind: 'subscription' }],
+      total: 1,
+    });
+    await expect(api.listBillingSurface('topups', { provider: 'stripe' })).resolves.toEqual({
+      data: [{ id: 'topup_1', provider: 'stripe', providerPaymentIntentId: 'pi_provider_1', currency: 'usd' }],
       total: 1,
     });
     await expect(api.markMarketplacePayoutPaid('payout_1', 'provider-paid-1')).resolves.toEqual({
@@ -278,6 +286,7 @@ describe('createAdminApi', () => {
     expect(get).toHaveBeenNthCalledWith(1, '/api/v1/admin/billing/summary?organizationID=org_1');
     expect(get).toHaveBeenNthCalledWith(2, '/api/v1/admin/billing/sessions?status=settled&limit=10');
     expect(get).toHaveBeenNthCalledWith(3, '/api/v1/admin/billing/payment-intents?kind=subscription');
+    expect(get).toHaveBeenNthCalledWith(4, '/api/v1/admin/billing/topups?provider=stripe');
     expect(post).toHaveBeenNthCalledWith(1, '/api/v1/admin/billing/payouts/payout_1/paid', { providerPayoutID: 'provider-paid-1' });
     expect(post).toHaveBeenNthCalledWith(2, '/api/v1/admin/billing/topups/topup_1/refund', {
       provider: 'stripe',
