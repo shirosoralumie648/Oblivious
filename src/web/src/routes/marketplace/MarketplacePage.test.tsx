@@ -343,6 +343,24 @@ describe('Marketplace pages', () => {
     await waitFor(() => expect(installAgent).toHaveBeenCalledWith('agent_paid', 'ver_1', 'stripe'));
   });
 
+  it('explains when paid install checkout providers are not configured', async () => {
+    getAgent.mockResolvedValue({
+      ...paidAgent,
+      paymentProviders: [],
+    });
+
+    renderRoute(<MarketplaceAgentDetailPage />, '/marketplace/agents/:agentId', '/marketplace/agents/agent_paid');
+
+    expect(await screen.findByRole('heading', { name: 'Paid Research Agent' })).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Payment provider checkout is not configured for this paid agent.');
+    expect(screen.queryByLabelText('Payment provider')).not.toBeInTheDocument();
+
+    const installButton = screen.getByRole('button', { name: 'Install Agent' });
+    expect(installButton).toBeDisabled();
+    fireEvent.click(installButton);
+    expect(installAgent).not.toHaveBeenCalled();
+  });
+
   it('surfaces install failures without showing installed success', async () => {
     installAgent.mockRejectedValue(new Error('checkout session rejected'));
 
