@@ -305,17 +305,6 @@ func (r *Router) RouteWithBilling(
 		rateLimitChecks := rateLimitChecksForResolution(r.resolveRateLimit(ctx, ch, model, usage))
 		releaseRateLimit := func() {}
 		if r.rateLimiter != nil && len(rateLimitChecks) > 0 {
-			for _, check := range rateLimitChecks {
-				if rateLimitCheckEmpty(check) {
-					continue
-				}
-				if err := r.rateLimiter.Allow(ctx, check.Key, check.Limits, check.Usage); err != nil {
-					routeErr := rateLimitRouterError(err)
-					_ = r.recordUsage(ctx, r.errorUsageRecord(userID, organizationID, apiTokenID, requestID, apiType, model, ch, routeErr.Code, routeErr.ErrorCode, startedAt))
-					r.recordRelayRuntimeMetricsForChannel(ch, apiType, model, routeErr.Code, "miss", startedAt)
-					return nil, routeErr
-				}
-			}
 			begunRateLimitKeys := []ratelimit.Key{}
 			for _, check := range rateLimitChecks {
 				if rateLimitCheckEmpty(check) || check.Limits.MaxConcurrent <= 0 {
@@ -335,6 +324,18 @@ func (r *Router) RouteWithBilling(
 			releaseRateLimit = func() {
 				for i := len(begunRateLimitKeys) - 1; i >= 0; i-- {
 					_ = r.rateLimiter.End(ctx, begunRateLimitKeys[i])
+				}
+			}
+			for _, check := range rateLimitChecks {
+				if rateLimitCheckEmpty(check) {
+					continue
+				}
+				if err := r.rateLimiter.Allow(ctx, check.Key, allowOnlyLimits(check.Limits), check.Usage); err != nil {
+					releaseRateLimit()
+					routeErr := rateLimitRouterError(err)
+					_ = r.recordUsage(ctx, r.errorUsageRecord(userID, organizationID, apiTokenID, requestID, apiType, model, ch, routeErr.Code, routeErr.ErrorCode, startedAt))
+					r.recordRelayRuntimeMetricsForChannel(ch, apiType, model, routeErr.Code, "miss", startedAt)
+					return nil, routeErr
 				}
 			}
 		}
@@ -939,6 +940,11 @@ func rateLimitChecksForResolution(resolution RateLimitResolution) []RateLimitChe
 		}
 	}
 	return checks
+}
+
+func allowOnlyLimits(limits ratelimit.Limits) ratelimit.Limits {
+	limits.MaxConcurrent = 0
+	return limits
 }
 
 func rateLimitCheckEmpty(check RateLimitCheck) bool {

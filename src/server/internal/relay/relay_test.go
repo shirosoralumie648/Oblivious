@@ -440,8 +440,11 @@ func TestRouterRouteWithBillingRejectsRateLimitedRequestBeforeUpstream(t *testin
 	if upstreamCalls != 0 {
 		t.Fatalf("rate-limited request should not call upstream, got %d calls", upstreamCalls)
 	}
-	if limiter.allowCalls != 1 || limiter.beginCalls != 0 || limiter.endCalls != 0 {
+	if limiter.allowCalls != 1 || limiter.beginCalls != 1 || limiter.endCalls != 1 || limiter.lastEndKey != limiter.lastBeginKey {
 		t.Fatalf("unexpected limiter calls allow=%d begin=%d end=%d", limiter.allowCalls, limiter.beginCalls, limiter.endCalls)
+	}
+	if limiter.lastAllowLimits.MaxConcurrent != 0 {
+		t.Fatalf("Allow should not re-check concurrency after Begin reserves it, got limits=%+v", limiter.lastAllowLimits)
 	}
 	if len(usageLogger.records) != 1 || usageLogger.records[0].StatusCode != http.StatusTooManyRequests || usageLogger.records[0].ErrorCode != "relay_rate_limited" {
 		t.Fatalf("expected rate limit usage record, got %+v", usageLogger.records)
@@ -556,6 +559,262 @@ func TestRouterRouteWithBillingReleasesConcurrencyAfterUpstream(t *testing.T) {
 	}
 	if limiter.lastEndKey != limiter.lastBeginKey {
 		t.Fatalf("expected End to release Begin key, begin=%+v end=%+v", limiter.lastBeginKey, limiter.lastEndKey)
+	}
+}
+
+func TestRouterRouteWithBillingRejectsConcurrentBeginLimitBeforeUpstream(t *testing.T) {
+	pool := NewChannelPool()
+	pool.AddChannel(&types.Channel{
+		ID:       "ch_begin_limited",
+		Name:     "Begin Limited",
+		Provider: "openai",
+		BaseURL:  "https://upstream.example",
+		APIKey:   "sk-begin",
+		Models:   []string{"gpt-4o-mini"},
+		Enabled:  true,
+	}, 100)
+	router := NewRouterWithBilling(
+		pool,
+		NewLoadBalancer(pool, "weighted"),
+		map[string]*CircuitBreaker{"ch_begin_limited": NewCircuitBreaker("ch_begin_limited", 5, time.Second, time.Minute)},
+		nil,
+		NewHealthChecker(HealthCheckDisabled, time.Second),
+		nil,
+		"",
+	)
+	limiter := &recordingRelayRateLimiter{
+		beginErrByTokenID: map[string]error{
+			"tok_begin_org": &ratelimit.LimitError{
+				Key: ratelimit.Key{ChannelID: "ch_begin_limited", Model: "gpt-4o-mini", TokenID: "tok_begin_org"},
+				Decision: ratelimit.Decision{
+					Allowed:   false,
+					Dimension: ratelimit.DimensionConcurrent,
+					Limit:     1,
+					Current:   1,
+				},
+			},
+		},
+	}
+	router.rateLimiter = limiter
+	router.rateLimitResolver = func(ctx context.Context, ch *types.RouteChannel, model string, usage *types.Usage) RateLimitResolution {
+		return RateLimitResolution{
+			Key:    ratelimit.Key{ChannelID: routeChannelID(ch), Model: model, TokenID: "tok_begin_user"},
+			Limits: ratelimit.Limits{RPM: 10, TPM: 1000, MaxConcurrent: 1},
+			Additional: []RateLimitCheck{{
+				Key:    ratelimit.Key{ChannelID: routeChannelID(ch), Model: model, TokenID: "tok_begin_org"},
+				Limits: ratelimit.Limits{MaxConcurrent: 1},
+			}},
+		}
+	}
+	quotaManager := &stubQuotaManager{}
+	tokenQuota := &recordingAPITokenQuotaManager{}
+	usageLogger := &recordingUsageLogger{}
+	router.SetQuotaManager(quotaManager)
+	router.SetAPITokenQuotaManager(tokenQuota)
+	router.SetUsageLogger(usageLogger)
+
+	ctx := types.WithTrustedAPITokenID(context.Background(), "tok_begin_identity")
+	upstreamCalls := 0
+	resp, err := router.RouteWithBilling(ctx, types.APITypeChat, "gpt-4o-mini", "", "idem_begin_limit", &types.Usage{TotalTokens: 20}, func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
+		upstreamCalls++
+		return types.NewOKResponse([]byte(`{"ok":true}`), &types.Usage{TotalTokens: 20}), nil
+	})
+
+	if resp != nil {
+		t.Fatalf("expected no response on concurrent begin limit, got %+v", resp)
+	}
+	var routeErr *RouterError
+	if !errors.As(err, &routeErr) || routeErr.Code != http.StatusTooManyRequests || routeErr.ErrorCode != "relay_rate_limited" || !strings.Contains(routeErr.Message, string(ratelimit.DimensionConcurrent)) {
+		t.Fatalf("expected concurrent 429 router error, got %#v", err)
+	}
+	if upstreamCalls != 0 {
+		t.Fatalf("concurrent begin limit should not call upstream, got %d calls", upstreamCalls)
+	}
+	if quotaManager.preconsumeCalls != 0 || tokenQuota.preauthorizedTokenID != "" {
+		t.Fatalf("concurrent begin limit should happen before billing/API token preauth, quota=%+v token=%+v", quotaManager, tokenQuota)
+	}
+	if limiter.allowCalls != 0 || limiter.beginCalls != 2 || limiter.endCalls != 1 {
+		t.Fatalf("expected no allow after begin failure, two begin, and one rollback end, got allow=%d begin=%d end=%d", limiter.allowCalls, limiter.beginCalls, limiter.endCalls)
+	}
+	if len(limiter.endKeys) != 1 || limiter.endKeys[0].TokenID != "tok_begin_user" {
+		t.Fatalf("expected first begun key to be released after second begin failed, got %+v", limiter.endKeys)
+	}
+	if len(usageLogger.records) != 1 || usageLogger.records[0].StatusCode != http.StatusTooManyRequests || usageLogger.records[0].ErrorCode != "relay_rate_limited" {
+		t.Fatalf("expected concurrent limit usage record, got %+v", usageLogger.records)
+	}
+}
+
+func TestRouterRouteWithBillingReleasesConcurrencyOnQuotaPreConsumeFailure(t *testing.T) {
+	pool := NewChannelPool()
+	pool.AddChannel(&types.Channel{
+		ID:       "ch_quota_release",
+		Name:     "Quota Release",
+		Provider: "openai",
+		BaseURL:  "https://upstream.example",
+		APIKey:   "sk-quota-release",
+		Models:   []string{"gpt-4o-mini"},
+		Enabled:  true,
+	}, 100)
+	router := NewRouterWithBilling(
+		pool,
+		NewLoadBalancer(pool, "weighted"),
+		map[string]*CircuitBreaker{"ch_quota_release": NewCircuitBreaker("ch_quota_release", 5, time.Second, time.Minute)},
+		nil,
+		NewHealthChecker(HealthCheckDisabled, time.Second),
+		nil,
+		"",
+	)
+	limiter := &recordingRelayRateLimiter{}
+	router.rateLimiter = limiter
+	router.rateLimitResolver = func(ctx context.Context, ch *types.RouteChannel, model string, usage *types.Usage) RateLimitResolution {
+		return RateLimitResolution{
+			Key:    ratelimit.Key{ChannelID: routeChannelID(ch), Model: model, TokenID: "tok_quota_release"},
+			Limits: ratelimit.Limits{RPM: 10, TPM: 1000, MaxConcurrent: 1},
+		}
+	}
+	quotaManager := &preconsumeFailingQuotaManager{err: errors.New("insufficient balance")}
+	router.SetQuotaManager(quotaManager)
+	router.SetUsageLogger(&recordingUsageLogger{})
+
+	upstreamCalls := 0
+	resp, err := router.RouteWithBilling(context.Background(), types.APITypeChat, "gpt-4o-mini", "", "idem_quota_release", &types.Usage{TotalTokens: 20}, func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
+		upstreamCalls++
+		return types.NewOKResponse([]byte(`{"ok":true}`), &types.Usage{TotalTokens: 20}), nil
+	})
+
+	if resp != nil {
+		t.Fatalf("expected no response on quota preconsume failure, got %+v", resp)
+	}
+	var routeErr *RouterError
+	if !errors.As(err, &routeErr) || routeErr.Code != http.StatusPaymentRequired || routeErr.ErrorCode != "billing_pre_authorization_failed" {
+		t.Fatalf("expected billing preauthorization router error, got %#v", err)
+	}
+	if upstreamCalls != 0 || quotaManager.calls != 1 {
+		t.Fatalf("expected one quota preconsume and no upstream calls, quota=%d upstream=%d", quotaManager.calls, upstreamCalls)
+	}
+	if limiter.allowCalls != 1 || limiter.beginCalls != 1 || limiter.endCalls != 1 || limiter.lastEndKey != limiter.lastBeginKey {
+		t.Fatalf("expected concurrency lease release on quota failure, allow=%d begin=%d end=%d beginKey=%+v endKey=%+v", limiter.allowCalls, limiter.beginCalls, limiter.endCalls, limiter.lastBeginKey, limiter.lastEndKey)
+	}
+}
+
+func TestRouterRouteWithBillingReleasesConcurrencyOnAPITokenPreAuthorizeFailure(t *testing.T) {
+	pool := NewChannelPool()
+	pool.AddChannel(&types.Channel{
+		ID:       "ch_token_release",
+		Name:     "Token Release",
+		Provider: "openai",
+		BaseURL:  "https://upstream.example",
+		APIKey:   "sk-token-release",
+		Models:   []string{"gpt-4o-mini"},
+		Enabled:  true,
+	}, 100)
+	router := NewRouterWithBilling(
+		pool,
+		NewLoadBalancer(pool, "weighted"),
+		map[string]*CircuitBreaker{"ch_token_release": NewCircuitBreaker("ch_token_release", 5, time.Second, time.Minute)},
+		nil,
+		NewHealthChecker(HealthCheckDisabled, time.Second),
+		nil,
+		"",
+	)
+	limiter := &recordingRelayRateLimiter{}
+	router.rateLimiter = limiter
+	router.rateLimitResolver = func(ctx context.Context, ch *types.RouteChannel, model string, usage *types.Usage) RateLimitResolution {
+		return RateLimitResolution{
+			Key:    ratelimit.Key{ChannelID: routeChannelID(ch), Model: model, TokenID: "tok_token_release"},
+			Limits: ratelimit.Limits{RPM: 10, TPM: 1000, MaxConcurrent: 1},
+		}
+	}
+	quotaManager := &stubQuotaManager{}
+	tokenQuota := &preauthFailingAPITokenQuotaManager{err: types.ErrRelayAPITokenQuotaExceeded}
+	router.SetQuotaManager(quotaManager)
+	router.SetAPITokenQuotaManager(tokenQuota)
+	router.SetUsageLogger(&recordingUsageLogger{})
+
+	ctx := types.WithTrustedAPITokenID(context.Background(), "tok_token_release")
+	upstreamCalls := 0
+	resp, err := router.RouteWithBilling(ctx, types.APITypeChat, "gpt-4o-mini", "", "idem_token_release", &types.Usage{TotalTokens: 20}, func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
+		upstreamCalls++
+		return types.NewOKResponse([]byte(`{"ok":true}`), &types.Usage{TotalTokens: 20}), nil
+	})
+
+	if resp != nil {
+		t.Fatalf("expected no response on API token preauthorization failure, got %+v", resp)
+	}
+	var routeErr *RouterError
+	if !errors.As(err, &routeErr) || routeErr.Code != http.StatusPaymentRequired || routeErr.ErrorCode != "relay_api_token_quota_exceeded" {
+		t.Fatalf("expected API token quota router error, got %#v", err)
+	}
+	if upstreamCalls != 0 || quotaManager.preconsumeCalls != 1 || quotaManager.refundCalls != 1 || tokenQuota.tokenID != "tok_token_release" {
+		t.Fatalf("expected billing preconsume/refund, token preauth, and no upstream calls; upstream=%d quota=%+v token=%+v", upstreamCalls, quotaManager, tokenQuota)
+	}
+	if limiter.allowCalls != 1 || limiter.beginCalls != 1 || limiter.endCalls != 1 || limiter.lastEndKey != limiter.lastBeginKey {
+		t.Fatalf("expected concurrency lease release on API token failure, allow=%d begin=%d end=%d beginKey=%+v endKey=%+v", limiter.allowCalls, limiter.beginCalls, limiter.endCalls, limiter.lastBeginKey, limiter.lastEndKey)
+	}
+}
+
+func TestRouterRouteWithBillingReleasesConcurrencyOnUpstreamErrorRetry(t *testing.T) {
+	pool := NewChannelPool()
+	pool.AddChannel(&types.Channel{
+		ID:       "ch_retry_primary",
+		Name:     "Retry Primary",
+		Provider: "openai",
+		BaseURL:  "https://primary.example",
+		APIKey:   "sk-primary",
+		Models:   []string{"gpt-4o-mini"},
+		Enabled:  true,
+	}, 100)
+	pool.AddChannel(&types.Channel{
+		ID:       "ch_retry_backup",
+		Name:     "Retry Backup",
+		Provider: "openai",
+		BaseURL:  "https://backup.example",
+		APIKey:   "sk-backup",
+		Models:   []string{"gpt-4o-mini"},
+		Enabled:  true,
+	}, 100)
+	router := NewRouterWithBilling(
+		pool,
+		NewLoadBalancer(pool, "weighted"),
+		map[string]*CircuitBreaker{
+			"ch_retry_primary": NewCircuitBreaker("ch_retry_primary", 5, time.Second, time.Minute),
+			"ch_retry_backup":  NewCircuitBreaker("ch_retry_backup", 5, time.Second, time.Minute),
+		},
+		nil,
+		NewHealthChecker(HealthCheckDisabled, time.Second),
+		nil,
+		"",
+	)
+	router.retrySleep = func(time.Duration) {}
+	limiter := &recordingRelayRateLimiter{}
+	router.rateLimiter = limiter
+	router.rateLimitResolver = func(ctx context.Context, ch *types.RouteChannel, model string, usage *types.Usage) RateLimitResolution {
+		return RateLimitResolution{
+			Key:    ratelimit.Key{ChannelID: routeChannelID(ch), Model: model, TokenID: routeChannelID(ch)},
+			Limits: ratelimit.Limits{RPM: 10, TPM: 1000, MaxConcurrent: 1},
+		}
+	}
+
+	attempts := 0
+	resp, err := router.RouteWithBilling(context.Background(), types.APITypeChat, "gpt-4o-mini", "", "idem_upstream_release", &types.Usage{TotalTokens: 20}, func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
+		attempts++
+		if attempts == 1 {
+			return nil, errors.New("temporary upstream failure")
+		}
+		return types.NewOKResponse([]byte(`{"ok":true}`), &types.Usage{TotalTokens: 20}), nil
+	})
+
+	if err != nil {
+		t.Fatalf("RouteWithBilling returned error: %v", err)
+	}
+	if resp == nil || resp.StatusCode != http.StatusOK || attempts != 2 {
+		t.Fatalf("expected retry success on second attempt, attempts=%d response=%+v", attempts, resp)
+	}
+	if limiter.allowCalls != 2 || limiter.beginCalls != 2 || limiter.endCalls != 2 {
+		t.Fatalf("expected concurrency lease release on failed and retried attempts, allow=%d begin=%d end=%d", limiter.allowCalls, limiter.beginCalls, limiter.endCalls)
+	}
+	if len(limiter.beginKeys) != 2 || len(limiter.endKeys) != 2 || limiter.beginKeys[0] != limiter.endKeys[0] || limiter.beginKeys[1] != limiter.endKeys[1] {
+		t.Fatalf("expected each retry attempt to release its begin key, begin=%+v end=%+v", limiter.beginKeys, limiter.endKeys)
 	}
 }
 
@@ -1355,23 +1614,28 @@ func (a *recordingRelayAuthenticator) AuthenticateRelayAPIToken(_ context.Contex
 }
 
 type recordingRelayRateLimiter struct {
-	mu             sync.Mutex
-	allowErr       error
-	beginErr       error
-	checkDecisions map[string]ratelimit.Decision
-	allowCalls     int
-	beginCalls     int
-	endCalls       int
-	lastAllowKey   ratelimit.Key
-	lastBeginKey   ratelimit.Key
-	lastEndKey     ratelimit.Key
+	mu                sync.Mutex
+	allowErr          error
+	beginErr          error
+	beginErrByTokenID map[string]error
+	checkDecisions    map[string]ratelimit.Decision
+	allowCalls        int
+	beginCalls        int
+	endCalls          int
+	lastAllowKey      ratelimit.Key
+	lastAllowLimits   ratelimit.Limits
+	lastBeginKey      ratelimit.Key
+	lastEndKey        ratelimit.Key
+	beginKeys         []ratelimit.Key
+	endKeys           []ratelimit.Key
 }
 
-func (l *recordingRelayRateLimiter) Allow(_ context.Context, key ratelimit.Key, _ ratelimit.Limits, _ ratelimit.Usage) error {
+func (l *recordingRelayRateLimiter) Allow(_ context.Context, key ratelimit.Key, limits ratelimit.Limits, _ ratelimit.Usage) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.allowCalls++
 	l.lastAllowKey = key
+	l.lastAllowLimits = limits
 	return l.allowErr
 }
 
@@ -1380,6 +1644,12 @@ func (l *recordingRelayRateLimiter) Begin(_ context.Context, key ratelimit.Key, 
 	defer l.mu.Unlock()
 	l.beginCalls++
 	l.lastBeginKey = key
+	l.beginKeys = append(l.beginKeys, key)
+	if l.beginErrByTokenID != nil {
+		if err, ok := l.beginErrByTokenID[key.TokenID]; ok {
+			return err
+		}
+	}
 	return l.beginErr
 }
 
@@ -1388,6 +1658,7 @@ func (l *recordingRelayRateLimiter) End(_ context.Context, key ratelimit.Key) er
 	defer l.mu.Unlock()
 	l.endCalls++
 	l.lastEndKey = key
+	l.endKeys = append(l.endKeys, key)
 	return nil
 }
 
