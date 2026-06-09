@@ -186,12 +186,19 @@ func (e *PlanningEngine) ExecutePlan(ctx context.Context, agentInstance *agent.A
 	}
 	completed := make(map[int]bool)
 	totalTokens := 0
+	stepByIndex := make(map[int]PlanStep, len(plan.Steps))
+	for _, step := range plan.Steps {
+		stepByIndex[step.Index] = step
+	}
 
 	// Build an execution order respecting dependsOn.
 	order := topologicalOrder(plan.Steps)
 
-	for _, stepIdx := range order {
-		step := plan.Steps[stepIdx]
+	for _, stepIndex := range order {
+		step, ok := stepByIndex[stepIndex]
+		if !ok {
+			continue
+		}
 
 		// Check all dependencies are completed.
 		skip := false
@@ -223,14 +230,18 @@ func (e *PlanningEngine) ExecutePlan(ctx context.Context, agentInstance *agent.A
 		totalTokens += stepResult.TokensUsed
 		result.TotalTokens = totalTokens
 		result.StepResults = append(result.StepResults, stepResult)
+		result.IterationCount = len(result.StepResults)
+
+		if cfg.TokenBudget > 0 && totalTokens > cfg.TokenBudget {
+			result.StopReason = "token_budget_exceeded"
+			return result, nil
+		}
 
 		if stepResult.Status == "completed" {
 			completed[step.Index] = true
 		} else {
 			completed[step.Index] = false
 		}
-
-		result.IterationCount = len(result.StepResults)
 	}
 
 	// Determine if all steps completed.
