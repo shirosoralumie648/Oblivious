@@ -86,6 +86,39 @@ func TestConsoleHandlerGetBillingReturnsConfiguredPaymentProviders(t *testing.T)
 	}
 }
 
+func TestConsoleHandlerGetModelsReturnsTypedModelSummaries(t *testing.T) {
+	store := &consoleHandlerFakeStore{
+		models: []console.ModelSummary{
+			{ID: "gpt-4o", Label: "GPT-4o", Requests: 7},
+			{ID: "gpt-4o-mini", Label: "GPT-4o mini", Requests: 3},
+		},
+	}
+	handler := newConsoleHandler(console.NewService(store), nil)
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/console/models", nil).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		OrganizationID: "org_1",
+		User:           auth.User{ID: "user_1"},
+	}))
+	recorder := httptest.NewRecorder()
+
+	handler.getModels(recorder, request)
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Data []console.ModelSummary `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode models response: %v", err)
+	}
+	if store.organizationID != "org_1" {
+		t.Fatalf("expected organization id org_1, got %s", store.organizationID)
+	}
+	if len(response.Data) != 2 || response.Data[0].ID != "gpt-4o" || response.Data[0].Label != "GPT-4o" || response.Data[0].Requests != 7 {
+		t.Fatalf("unexpected model summaries: %+v", response.Data)
+	}
+}
+
 type consoleHandlerFakeStore struct {
 	billing        console.BillingSummary
 	invoices       []console.BillingInvoiceSummary

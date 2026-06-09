@@ -1455,6 +1455,12 @@ require_billing_checkout_contract() {
         dig("properties", "data", "$ref")
     end
 
+    def response_array_item_ref(operation, status)
+      operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "items", "$ref") }&.
+        dig("properties", "data", "items", "$ref")
+    end
+
     checkout = paths.dig("/api/v1/billing/checkout", "post")
     unless checkout
       missing << "POST /api/v1/billing/checkout must be documented"
@@ -1482,6 +1488,26 @@ require_billing_checkout_contract() {
     end
     unless response_data_ref(console_billing, "200") == "#/components/schemas/BillingSummary"
       missing << "GET /api/v1/console/billing 200 data must reference BillingSummary"
+    end
+
+    console_models = paths.dig("/api/v1/console/models", "get")
+    unless console_models
+      missing << "GET /api/v1/console/models must be documented"
+      console_models = {}
+    end
+    unless response_array_item_ref(console_models, "200") == "#/components/schemas/ModelSummary"
+      missing << "GET /api/v1/console/models 200 data items must reference ModelSummary"
+    end
+
+    model_summary = schemas["ModelSummary"] || {}
+    unless model_summary.fetch("required", []).include?("id") &&
+        model_summary.fetch("required", []).include?("label") &&
+        model_summary.fetch("required", []).include?("requests") &&
+        model_summary.dig("properties", "id", "type") == "string" &&
+        model_summary.dig("properties", "label", "type") == "string" &&
+        model_summary.dig("properties", "requests", "type") == "integer" &&
+        model_summary.dig("properties", "requests", "minimum") == 0
+      missing << "ModelSummary must require id, label, and non-negative integer requests"
     end
 
     billing_summary = schemas["BillingSummary"] || {}

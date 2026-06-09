@@ -2865,6 +2865,18 @@ components:
           type: number
           format: double
 
+    ModelSummary:
+      type: object
+      required: [id, label, requests]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        requests:
+          type: integer
+          minimum: 0
+
     BillingSummary:
       type: object
       properties:
@@ -13381,7 +13393,14 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/ModelSummary"
         "401":
           $ref: "#/components/responses/Unauthorized"
 
