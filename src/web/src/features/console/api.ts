@@ -15,11 +15,13 @@ export type ConsoleBillingSummary = BaseBillingSummary & {
   nextInvoice?: ConsoleBillingInvoiceSummary;
 };
 
+export type BillingCheckoutProvider = 'stripe' | 'alipay' | 'wechatpay';
+
 export type BillingCheckoutRequest = {
   amount?: number;
   kind: 'subscription' | 'topup';
   packageId?: string;
-  provider?: string;
+  provider?: BillingCheckoutProvider;
 };
 
 export type BillingCheckoutSession = {

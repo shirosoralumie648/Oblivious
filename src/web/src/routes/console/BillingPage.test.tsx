@@ -78,6 +78,56 @@ describe('BillingPage', () => {
     );
   });
 
+  it('passes the selected domestic provider when starting top-up checkout', async () => {
+    getAccess.mockResolvedValue({
+      defaultMode: 'solo',
+      modelStrategy: 'balanced',
+      networkEnabledHint: true,
+      onboardingCompleted: true,
+      sessionExpiresAt: '2026-04-03T00:00:00Z',
+      sessionId: 'session_1',
+      userEmail: 'user@example.com',
+      userId: 'user_1',
+      workspaceId: 'workspace_1'
+    });
+    getBilling.mockResolvedValue({
+      period: '30d',
+      requests: 5,
+      inputTokens: 120,
+      outputTokens: 80,
+      estimatedCostUsd: 0.0004,
+      balanceUsd: 42.5,
+      creditLimitUsd: 100,
+      currentSpendUsd: 0.0004
+    });
+    listInvoices.mockResolvedValue([]);
+    createBillingCheckout.mockResolvedValue({
+      checkoutSessionId: 'cs_topup_alipay_1',
+      url: 'https://checkout.alipay.test/session/cs_topup_alipay_1'
+    });
+
+    render(
+      <MemoryRouter future={routerFuture}>
+        <BillingPage />
+      </MemoryRouter>
+    );
+
+    fireEvent.change(await screen.findByLabelText('Payment provider'), { target: { value: 'alipay' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Start top-up checkout' }));
+
+    await waitFor(() =>
+      expect(createBillingCheckout).toHaveBeenCalledWith({
+        amount: 25,
+        kind: 'topup',
+        provider: 'alipay'
+      })
+    );
+    expect(await screen.findByRole('link', { name: 'Continue Alipay checkout' })).toHaveAttribute(
+      'href',
+      'https://checkout.alipay.test/session/cs_topup_alipay_1'
+    );
+  });
+
   it('renders billing inside a workbench layout with context rail and sibling links', async () => {
     getAccess.mockResolvedValue({
       defaultMode: 'solo',

@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
 
-import { createConsoleApi, type ConsoleBillingInvoiceSummary, type ConsoleBillingSummary } from '../../features/console/api';
+import { createConsoleApi, type BillingCheckoutProvider, type ConsoleBillingInvoiceSummary, type ConsoleBillingSummary } from '../../features/console/api';
 import { ConsoleWorkbenchLayout } from '../../features/console/components/ConsoleWorkbenchLayout';
 import { createHttpClient } from '../../services/http/client';
 import type { AccessSummary } from '../../types/api';
@@ -16,6 +16,7 @@ export function BillingPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isStartingCheckout, setIsStartingCheckout] = useState(false);
   const [topUpAmount, setTopUpAmount] = useState('25');
+  const [topUpProvider, setTopUpProvider] = useState<BillingCheckoutProvider>('stripe');
 
   useEffect(() => {
     let cancelled = false;
@@ -67,7 +68,7 @@ export function BillingPage() {
       const checkout = await consoleApi.createBillingCheckout({
         amount,
         kind: 'topup',
-        provider: 'stripe'
+        provider: topUpProvider
       });
       setCheckoutUrl(checkout.url);
     } catch {
@@ -108,12 +109,24 @@ export function BillingPage() {
                 type="number"
                 value={topUpAmount}
               />
+              <label htmlFor="billing-top-up-provider">Payment provider</label>
+              <select
+                id="billing-top-up-provider"
+                onChange={(event) => setTopUpProvider(event.target.value as BillingCheckoutProvider)}
+                value={topUpProvider}
+              >
+                {billingCheckoutProviders.map((provider) => (
+                  <option key={provider} value={provider}>
+                    {billingCheckoutProviderLabel(provider)}
+                  </option>
+                ))}
+              </select>
               <button disabled={isStartingCheckout} type="submit">
                 {isStartingCheckout ? 'Starting checkout…' : 'Start top-up checkout'}
               </button>
             </form>
             {checkoutError ? <p role="alert">{checkoutError}</p> : null}
-            {checkoutUrl ? <a href={checkoutUrl}>Continue to checkout</a> : null}
+            {checkoutUrl ? <a href={checkoutUrl}>{checkoutLinkLabel(topUpProvider)}</a> : null}
           </section>
           {billingSummary.nextInvoice ? (
             <p>{`Next invoice: ${billingSummary.nextInvoice.status} - $${billingSummary.nextInvoice.amountUsd.toFixed(4)} - due ${formatInvoiceDueDate(billingSummary.nextInvoice.dueAt)}`}</p>
@@ -151,6 +164,23 @@ export function BillingPage() {
       )}
     </ConsoleWorkbenchLayout>
   );
+}
+
+const billingCheckoutProviders: BillingCheckoutProvider[] = ['stripe', 'alipay', 'wechatpay'];
+
+function billingCheckoutProviderLabel(provider: BillingCheckoutProvider) {
+  switch (provider) {
+    case 'alipay':
+      return 'Alipay';
+    case 'wechatpay':
+      return 'WeChat Pay';
+    default:
+      return 'Stripe';
+  }
+}
+
+function checkoutLinkLabel(provider: BillingCheckoutProvider) {
+  return provider === 'stripe' ? 'Continue to checkout' : `Continue ${billingCheckoutProviderLabel(provider)} checkout`;
 }
 
 function formatInvoiceDueDate(value: string) {
