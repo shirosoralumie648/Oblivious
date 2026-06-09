@@ -16,6 +16,20 @@ vi.mock('../features/console/api', () => ({
         userId: 'user_1',
         workspaceId: 'workspace_1'
       }),
+    createApiToken: () =>
+      Promise.resolve({
+        rawToken: 'obv_router_secret',
+        token: {
+          id: 'tok_router_created',
+          modelLimits: ['gpt-4o-mini'],
+          modelLimitsEnabled: true,
+          name: 'Router key',
+          status: 'active',
+          tokenPrefix: 'obv_router_created',
+          usedQuota: 0,
+          createdAt: '2026-06-09T00:00:00Z'
+        }
+      }),
     getBilling: () =>
       Promise.resolve({
         period: '30d',
@@ -45,7 +59,41 @@ vi.mock('../features/console/api', () => ({
       ]),
     getModels: () =>
       Promise.resolve([{ id: 'balanced-chat', label: 'balanced-chat', requests: 2 }]),
-    getUsage: () => Promise.resolve({ period: '7d', requests: 3 })
+    getUsage: () => Promise.resolve({ period: '7d', requests: 3 }),
+    listApiTokenUsage: () =>
+      Promise.resolve([
+        {
+          id: 'usage_router_1',
+          apiTokenId: 'tok_router_1',
+          requestId: 'req_router_1',
+          apiType: 'chat',
+          model: 'gpt-4o',
+          channelId: 'ch_router_1',
+          provider: 'openai',
+          status: 'success',
+          statusCode: 200,
+          latencyMs: 42,
+          cost: 0.004,
+          promptTokens: 100,
+          completionTokens: 50,
+          totalTokens: 150,
+          createdAt: '2026-06-09T00:00:00Z'
+        }
+      ]),
+    listApiTokens: () =>
+      Promise.resolve([
+        {
+          id: 'tok_router_1',
+          modelLimits: ['gpt-4o'],
+          modelLimitsEnabled: true,
+          name: 'Router gateway key',
+          status: 'active',
+          tokenPrefix: 'obv_router',
+          usedQuota: 2.5,
+          createdAt: '2026-06-09T00:00:00Z'
+        }
+      ]),
+    revokeApiToken: () => Promise.resolve()
   })
 }));
 
@@ -107,14 +155,56 @@ vi.mock('../features/admin/api', () => ({
         total: surface === 'sessions' ? 1 : 0
       }),
     listUsageLogs: () => Promise.resolve({ data: [], total: 0 }),
+    listReviews: () =>
+      Promise.resolve({
+        data: [
+          {
+            id: 'agent_review_router',
+            name: 'Research Agent',
+            description: 'Helps with research',
+            ownerID: 'owner_1',
+            ownerName: 'Publisher',
+            status: 'pending_review',
+            visibility: 'public',
+            pricingType: 'one_time',
+            pricingAmount: 19,
+            categoryID: 'cat_1',
+            categoryName: 'Productivity',
+            tags: ['research'],
+            ratingAvg: 4.5,
+            ratingCount: 8,
+            installCount: 120,
+            reviewSLA: {
+              submittedAt: '2026-06-02T13:00:00Z',
+              manualDeadlineAt: '2026-06-05T13:00:00Z',
+              manualSlaHours: 72,
+              manualSlaStatus: 'due_soon',
+              minutesUntilDeadline: 60,
+              automatedReviewDeadlineAt: '2026-06-02T13:05:00Z',
+              automatedReviewSlaMinutes: 5,
+              automatedReviewSlaStatus: 'overdue',
+              vipPublisher: true,
+              publisherTier: 'vip',
+              publisherTierSource: 'organization_metadata'
+            },
+            createdAt: '2026-01-01T00:00:00Z',
+            updatedAt: '2026-01-02T00:00:00Z'
+          }
+        ],
+        total: 1
+      }),
     listAPITokens: () => Promise.resolve({ data: [], total: 0 }),
     listModelInventory: () => Promise.resolve({ data: [], total: 0 }),
+    approveAgent: () => Promise.resolve(),
+    rejectAgent: () => Promise.resolve(),
+    requestAgentChanges: () => Promise.resolve(),
     revokeAPIToken: () => Promise.resolve()
   })
 }));
 
 vi.mock('../features/marketplace/api', () => ({
   createMarketplaceApi: () => ({
+    getCategories: () => Promise.resolve([{ id: 'cat_1', name: 'Productivity', slug: 'productivity', agentCount: 1 }]),
     getAgent: () =>
       Promise.resolve({
         id: 'agent_1',
@@ -151,6 +241,12 @@ vi.mock('../features/marketplace/api', () => ({
       ]),
     getVersions: () => Promise.resolve([{ id: 'ver_1', version: '1.0.0', createdAt: '2026-01-01T00:00:00Z' }]),
     installAgent: () => Promise.resolve({ checkoutSessionId: 'cs_marketplace_1', url: 'https://checkout.example/session' }),
+    publishAgent: () =>
+      Promise.resolve({
+        id: 'agent_published_router',
+        name: 'Published Router Agent',
+        status: 'pending_review'
+      }),
     submitReview: () => Promise.resolve({ id: 'review_2', agentID: 'agent_1', userID: 'user_1', rating: 5, body: 'Useful' })
   }),
   getMarketplaceCheckoutUrl: (value: { url?: string; checkoutUrl?: string; checkoutURL?: string }) =>
@@ -410,6 +506,24 @@ describe('app router', () => {
     expect(await screen.findByRole('heading', { name: 'Notifications' })).toBeInTheDocument();
   });
 
+  it('keeps console access route-level API token controls reachable', async () => {
+    const router = createAppRouter(['/console/access']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    const consoleNavigation = await screen.findByRole('navigation', { name: 'Console navigation' });
+    expect(document.querySelector('[data-gsap-scope="console"]')).toBeInTheDocument();
+    expect(within(consoleNavigation).getByRole('link', { name: 'Access' })).toHaveAttribute('href', '/console/access');
+    expect(await screen.findByRole('heading', { name: 'Access' })).toBeInTheDocument();
+    expect(await screen.findByRole('navigation', { name: 'Access sibling navigation' })).toBeInTheDocument();
+    expect(await screen.findByText('API tokens')).toBeInTheDocument();
+    expect(await screen.findByText('Router gateway key')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Token name')).toBeInTheDocument();
+    expect(screen.getByLabelText('Allowed models')).toHaveValue('gpt-4o,gpt-4o-mini');
+    expect(screen.getByRole('button', { name: 'Create API token' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'View usage for Router gateway key' })).toBeInTheDocument();
+  });
+
   it('renders admin billing route inside the admin shell', async () => {
     const router = createAppRouter(['/admin/billing']);
 
@@ -453,6 +567,37 @@ describe('app router', () => {
     expect(screen.getByText('Reviews')).toBeInTheDocument();
     expect(screen.getByLabelText('Review text')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Submit Review' })).toBeEnabled();
+  });
+
+  it('keeps marketplace publish route-level submission controls reachable', async () => {
+    const router = createAppRouter(['/marketplace/publish']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Publish Agent' })).toBeInTheDocument();
+    expect(await screen.findByText('Submit an agent for marketplace review.')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Name')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Category')).toHaveTextContent('Productivity');
+    expect(screen.getByLabelText('Pricing')).toHaveValue('free');
+    expect(screen.getByLabelText('Version')).toHaveValue('1.0.0');
+    expect(screen.getByRole('button', { name: 'Publish Agent' })).toBeEnabled();
+  });
+
+  it('keeps admin review route-level SLA and decision controls reachable', async () => {
+    const router = createAppRouter(['/admin/reviews']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    expect(await screen.findByRole('complementary', { name: 'Admin navigation' })).toBeInTheDocument();
+    expect(document.querySelector('[data-gsap-scope="admin"]')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Review Queue' })).toBeInTheDocument();
+    expect(await screen.findByLabelText('Review status filter')).toHaveValue('pending_review');
+    expect(await screen.findByText('Research Agent')).toBeInTheDocument();
+    expect(screen.getByText('Manual SLA: Due soon by 2026-06-05 13:00 UTC')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Approve agent Research Agent' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reject agent Research Agent' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Request changes for agent Research Agent' })).toBeInTheDocument();
   });
 
   it('renders admin usage logs route inside the admin shell', async () => {
