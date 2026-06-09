@@ -276,6 +276,7 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	registerObservabilityAlertRoutes(mux, authMiddleware, observabilityAlertHandler)
 	registerConsoleRoutes(mux, authMiddleware, consoleHandler)
 	registerChatRoutes(mux, authMiddleware, chatHandler)
+	registerConversationAliasRoutes(mux, authMiddleware, chatHandler)
 
 	// Preferences routes
 	mux.Handle("/api/v1/app/me/preferences", authMiddleware.requireSession(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {

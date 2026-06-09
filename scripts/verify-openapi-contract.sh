@@ -2438,6 +2438,11 @@ require_chat_mutation_csrf_contract() {
       security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
     end
 
+    def requires_cookie_without_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && !entry.key?("csrfHeader") }
+    end
+
     def request_body_ref(operation)
       operation.dig("requestBody", "content", "application/json", "schema", "$ref")
     end
@@ -2467,6 +2472,15 @@ require_chat_mutation_csrf_contract() {
       ["/api/v1/app/conversations/{conversationId}/convert-to-task", "post"] => ["200", "#/components/schemas/TaskDraft", :ref],
       ["/api/v1/app/conversations/{conversationId}/share", "post"] => ["201", "#/components/schemas/ConversationShareResponse", :ref],
       ["/api/v1/app/conversations/{conversationId}/messages/{messageId}/share", "post"] => ["201", "#/components/schemas/MessageShareResponse", :ref],
+      ["/api/v1/conversations", "post"] => ["200", "#/components/schemas/Conversation", :ref],
+      ["/api/v1/conversations/{conversationId}", "put"] => ["200", "#/components/schemas/Conversation", :ref],
+      ["/api/v1/conversations/{conversationId}", "delete"] => ["200", "#/components/schemas/ConversationDeleteResponse", :ref],
+      ["/api/v1/conversations/{conversationId}/fork", "post"] => ["200", "#/components/schemas/Conversation", :ref],
+      ["/api/v1/conversations/{conversationId}/messages", "post"] => ["200", "#/components/schemas/Message", :array_ref],
+      ["/api/v1/conversations/{conversationId}/messages/{messageId}", "put"] => ["200", "#/components/schemas/Message", :ref],
+      ["/api/v1/conversations/{conversationId}/messages/{messageId}", "delete"] => ["200", "#/components/schemas/MessageDeleteResponse", :ref],
+      ["/api/v1/conversations/{conversationId}/messages/{messageId}/bookmark", "post"] => ["200", "#/components/schemas/Message", :ref],
+      ["/api/v1/conversations/{conversationId}/messages/{messageId}/share", "post"] => ["201", "#/components/schemas/MessageShareResponse", :ref],
       ["/api/v1/app/personas", "post"] => ["200", "#/components/schemas/Persona", :ref],
       ["/api/v1/app/personas/{personaId}", "put"] => ["200", "#/components/schemas/Persona", :ref],
       ["/api/v1/app/personas/{personaId}", "delete"] => ["200", "#/components/schemas/PersonaDeleteResponse", :ref],
@@ -2497,12 +2511,37 @@ require_chat_mutation_csrf_contract() {
       ["/api/v1/app/conversations/{conversationId}/config", "put"] => "#/components/schemas/UpdateConversationConfigRequest",
       ["/api/v1/app/conversations/{conversationId}/share", "post"] => "#/components/schemas/CreateConversationShareRequest",
       ["/api/v1/app/conversations/{conversationId}/messages/{messageId}/share", "post"] => "#/components/schemas/CreateMessageShareRequest",
+      ["/api/v1/conversations", "post"] => "#/components/schemas/CreateConversationRequest",
+      ["/api/v1/conversations/{conversationId}", "put"] => "#/components/schemas/UpdateConversationRequest",
+      ["/api/v1/conversations/{conversationId}/fork", "post"] => "#/components/schemas/ForkConversationRequest",
+      ["/api/v1/conversations/{conversationId}/messages", "post"] => "#/components/schemas/SendMessageRequest",
+      ["/api/v1/conversations/{conversationId}/messages/{messageId}", "put"] => "#/components/schemas/UpdateMessageRequest",
+      ["/api/v1/conversations/{conversationId}/messages/{messageId}/bookmark", "post"] => "#/components/schemas/BookmarkMessageRequest",
+      ["/api/v1/conversations/{conversationId}/messages/{messageId}/share", "post"] => "#/components/schemas/CreateMessageShareRequest",
       ["/api/v1/app/personas", "post"] => "#/components/schemas/PersonaRequest",
       ["/api/v1/app/personas/{personaId}", "put"] => "#/components/schemas/PersonaRequest",
     }.each do |(path, method), expected|
       op = operation(paths, path, method, missing)
       unless request_body_ref(op) == expected
         missing << "#{method.upcase} #{path} request body must reference #{expected}"
+      end
+    end
+
+    {
+      ["/api/v1/conversations", "get"] => ["#/components/schemas/Conversation", :array_ref],
+      ["/api/v1/conversations/{conversationId}", "get"] => ["#/components/schemas/Conversation", :ref],
+      ["/api/v1/conversations/{conversationId}/messages", "get"] => ["#/components/schemas/Message", :array_ref],
+    }.each do |(path, method), (expected, shape)|
+      op = operation(paths, path, method, missing)
+      unless requires_cookie_without_csrf?(op)
+        missing << "#{method.upcase} #{path} must require cookieAuth without csrfHeader"
+      end
+      unless op.fetch("tags", []).include?("Chat")
+        missing << "#{method.upcase} #{path} must be tagged Chat"
+      end
+      actual = shape == :array_ref ? response_data_array_ref(op, "200") : response_data_ref(op, "200")
+      unless actual == expected
+        missing << "#{method.upcase} #{path} 200 data must reference #{expected}"
       end
     end
 

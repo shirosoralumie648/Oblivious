@@ -102,6 +102,9 @@ func TestRouteSurfaceRegistersCanonicalChatRoutesThroughRegistrar(t *testing.T) 
 	if !strings.Contains(string(source), "registerChatRoutes(mux, authMiddleware, chatHandler)") {
 		t.Fatal("expected NewRouterWithOptions to register canonical app Chat routes through registerChatRoutes")
 	}
+	if !strings.Contains(string(source), "registerConversationAliasRoutes(mux, authMiddleware, chatHandler)") {
+		t.Fatal("expected NewRouterWithOptions to register Chat conversation alias routes through registerConversationAliasRoutes")
+	}
 }
 
 func TestRouteSurfaceKnowledgeRoutesRequireSessionWithoutDatabase(t *testing.T) {
@@ -413,6 +416,97 @@ func TestRouteSurfaceChatPrivateReadRoutesRequireSessionWithoutDatabase(t *testi
 
 			if recorder.Code != stdhttp.StatusUnauthorized {
 				t.Fatalf("expected registered Chat private read route to require session with 401 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestRouteSurfaceChatConversationAliasRoutesRequireSessionWithoutDatabase(t *testing.T) {
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{})
+
+	tests := []routeSurfaceCase{
+		{"list alias conversations", stdhttp.MethodGet, "/api/v1/conversations"},
+		{"get alias conversation", stdhttp.MethodGet, "/api/v1/conversations/conversation_1"},
+		{"list alias messages", stdhttp.MethodGet, "/api/v1/conversations/conversation_1/messages"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, nil)
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusUnauthorized {
+				t.Fatalf("expected registered Chat alias route to require session with 401 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestRouteSurfaceChatConversationAliasMutationsRejectCookieWithoutCSRFWithoutDatabase(t *testing.T) {
+	session := routeSurfaceUserSession()
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}})
+	cookie := routeSurfaceSignedSessionCookie(t, session)
+
+	tests := []routeSurfaceCase{
+		{"create alias conversation", stdhttp.MethodPost, "/api/v1/conversations"},
+		{"update alias conversation", stdhttp.MethodPut, "/api/v1/conversations/conversation_1"},
+		{"delete alias conversation", stdhttp.MethodDelete, "/api/v1/conversations/conversation_1"},
+		{"fork alias conversation", stdhttp.MethodPost, "/api/v1/conversations/conversation_1/fork"},
+		{"send alias message", stdhttp.MethodPost, "/api/v1/conversations/conversation_1/messages"},
+		{"update alias message", stdhttp.MethodPut, "/api/v1/conversations/conversation_1/messages/message_1"},
+		{"delete alias message", stdhttp.MethodDelete, "/api/v1/conversations/conversation_1/messages/message_1"},
+		{"bookmark alias message", stdhttp.MethodPost, "/api/v1/conversations/conversation_1/messages/message_1/bookmark"},
+		{"create alias message share", stdhttp.MethodPost, "/api/v1/conversations/conversation_1/messages/message_1/share"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(`{"content":"hello","bookmarked":true}`))
+			request.Header.Set("Content-Type", "application/json")
+			request.AddCookie(cookie)
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusForbidden {
+				t.Fatalf("expected missing csrf to be rejected with 403 for Chat alias %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestRouteSurfaceChatConversationAliasMutationsDispatchWithCSRFWithoutDatabase(t *testing.T) {
+	session := routeSurfaceUserSession()
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}})
+	cookie := routeSurfaceSignedSessionCookie(t, session)
+	csrfToken := routeSurfaceCSRFToken(session)
+
+	tests := []routeSurfaceCase{
+		{"create alias conversation", stdhttp.MethodPost, "/api/v1/conversations"},
+		{"update alias conversation", stdhttp.MethodPut, "/api/v1/conversations/conversation_1"},
+		{"fork alias conversation", stdhttp.MethodPost, "/api/v1/conversations/conversation_1/fork"},
+		{"send alias message", stdhttp.MethodPost, "/api/v1/conversations/conversation_1/messages"},
+		{"update alias message", stdhttp.MethodPut, "/api/v1/conversations/conversation_1/messages/message_1"},
+		{"create alias message share", stdhttp.MethodPost, "/api/v1/conversations/conversation_1/messages/message_1/share"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(`{`))
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set(csrfHeaderName, csrfToken)
+			request.AddCookie(cookie)
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusBadRequest {
+				t.Fatalf("expected Chat alias route to pass auth/csrf and dispatch to request validation for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+			if !strings.Contains(recorder.Body.String(), `"code":"invalid_request"`) {
+				t.Fatalf("expected invalid_request response from Chat alias handler, got %s", recorder.Body.String())
 			}
 		})
 	}
