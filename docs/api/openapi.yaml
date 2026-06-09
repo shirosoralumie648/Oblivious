@@ -1209,7 +1209,16 @@ components:
 
     AgentRunCreateRequest:
       type: object
-      required: [agent_id, conversation_id, input]
+      allOf:
+        - anyOf:
+            - required: [agent_id]
+            - required: [agentId]
+        - anyOf:
+            - required: [conversation_id]
+            - required: [conversationId]
+        - anyOf:
+            - required: [input]
+            - required: [message]
       properties:
         agent_id:
           type: string
@@ -1245,6 +1254,9 @@ components:
 
     AgentRunContinueBudgetRequest:
       type: object
+      anyOf:
+        - required: [token_budget]
+        - required: [tokenBudget]
       properties:
         token_budget:
           type: integer

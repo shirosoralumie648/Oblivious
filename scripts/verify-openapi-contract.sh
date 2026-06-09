@@ -1259,6 +1259,7 @@ require_agent_run_mutation_csrf_contract() {
     file = ARGV.fetch(0)
     spec = YAML.load_file(file)
     paths = spec.fetch("paths", {})
+    schemas = spec.fetch("components", {}).fetch("schemas", {})
     missing = []
 
     def operation(paths, path, method, missing)
@@ -1273,6 +1274,24 @@ require_agent_run_mutation_csrf_contract() {
     def requires_cookie_and_csrf?(operation)
       security = operation.fetch("security", [])
       security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
+    end
+
+    def request_body_ref(operation)
+      operation.dig("requestBody", "content", "application/json", "schema", "$ref")
+    end
+
+    def response_data_ref(operation, status)
+      operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "$ref") }&.
+        dig("properties", "data", "$ref")
+    end
+
+    def any_of_requires?(schema, field)
+      schema.fetch("anyOf", []).any? { |entry| entry.fetch("required", []).include?(field) }
+    end
+
+    def all_of_any_requires?(schema, field)
+      schema.fetch("allOf", []).any? { |entry| any_of_requires?(entry, field) }
     end
 
     [
@@ -1302,8 +1321,95 @@ require_agent_run_mutation_csrf_contract() {
       end
     end
 
+    {
+      ["/api/v1/agent/runs", "post"] => "#/components/schemas/AgentRunCreateRequest",
+      ["/api/v1/agent/runs/{runId}/approve-tool", "post"] => "#/components/schemas/AgentToolDecisionRequest",
+      ["/api/v1/agent/runs/{runId}/reject-tool", "post"] => "#/components/schemas/AgentToolDecisionRequest",
+      ["/api/v1/agent/runs/{runId}/retry-tool", "post"] => "#/components/schemas/AgentToolDecisionRequest",
+      ["/api/v1/agent/runs/{runId}/continue-budget", "post"] => "#/components/schemas/AgentRunContinueBudgetRequest",
+      ["/api/v1/agent/runs/{runId}/approve-plan-step", "post"] => "#/components/schemas/AgentPlanStepDecisionRequest",
+      ["/api/v1/agent/runs/{runId}/execute-plan-step", "post"] => "#/components/schemas/AgentPlanStepDecisionRequest",
+      ["/api/v1/agent/runs/{runId}/skip-plan-step", "post"] => "#/components/schemas/AgentPlanStepDecisionRequest",
+      ["/api/v1/agent/runs/{runId}/retry-plan-step", "post"] => "#/components/schemas/AgentPlanStepDecisionRequest",
+      ["/api/v1/agent/runs/{runId}/update-plan-step", "patch"] => "#/components/schemas/AgentPlanStepUpdateRequest",
+      ["/api/v1/agent/runs/{runId}/create-plan-step", "post"] => "#/components/schemas/AgentPlanStepCreateRequest",
+      ["/api/v1/agent/runs/{runId}/move-plan-step", "post"] => "#/components/schemas/AgentPlanStepMoveRequest",
+      ["/api/v1/agent/runs/{runId}/delete-plan-step", "post"] => "#/components/schemas/AgentPlanStepDecisionRequest",
+    }.each do |(path, method), expected|
+      op = operation(paths, path, method, missing)
+      unless request_body_ref(op) == expected
+        missing << "#{method.upcase} #{path} request body must reference #{expected}"
+      end
+    end
+
+    {
+      ["/api/v1/agent/runs", "post", "201"] => "#/components/schemas/AgentRunResponse",
+      ["/api/v1/agent/runs/{runId}", "get", "200"] => "#/components/schemas/AgentRunResponse",
+      ["/api/v1/agent/runs/{runId}/approve-tool", "post", "200"] => "#/components/schemas/AgentRunResponse",
+      ["/api/v1/agent/runs/{runId}/reject-tool", "post", "200"] => "#/components/schemas/AgentRunResponse",
+      ["/api/v1/agent/runs/{runId}/retry-tool", "post", "200"] => "#/components/schemas/AgentRunResponse",
+      ["/api/v1/agent/runs/{runId}/continue-budget", "post", "200"] => "#/components/schemas/AgentRunResponse",
+      ["/api/v1/agent/runs/{runId}/approve-plan-step", "post", "200"] => "#/components/schemas/AgentRunResponse",
+      ["/api/v1/agent/runs/{runId}/execute-plan-step", "post", "200"] => "#/components/schemas/AgentRunResponse",
+      ["/api/v1/agent/runs/{runId}/skip-plan-step", "post", "200"] => "#/components/schemas/AgentRunResponse",
+      ["/api/v1/agent/runs/{runId}/retry-plan-step", "post", "200"] => "#/components/schemas/AgentRunResponse",
+      ["/api/v1/agent/runs/{runId}/update-plan-step", "patch", "200"] => "#/components/schemas/AgentRunResponse",
+      ["/api/v1/agent/runs/{runId}/create-plan-step", "post", "201"] => "#/components/schemas/AgentRunResponse",
+      ["/api/v1/agent/runs/{runId}/move-plan-step", "post", "200"] => "#/components/schemas/AgentRunResponse",
+      ["/api/v1/agent/runs/{runId}/delete-plan-step", "post", "200"] => "#/components/schemas/AgentRunResponse",
+    }.each do |(path, method, status), expected|
+      op = operation(paths, path, method, missing)
+      unless response_data_ref(op, status) == expected
+        missing << "#{method.upcase} #{path} #{status} data must reference #{expected}"
+      end
+    end
+
+    create = schemas["AgentRunCreateRequest"] || {}
+    unless all_of_any_requires?(create, "agent_id") &&
+        all_of_any_requires?(create, "agentId") &&
+        all_of_any_requires?(create, "conversation_id") &&
+        all_of_any_requires?(create, "conversationId") &&
+        all_of_any_requires?(create, "input") &&
+        all_of_any_requires?(create, "message") &&
+        create.dig("properties", "mode", "enum")&.include?("planning") &&
+        create.dig("properties", "max_iterations", "maximum") == 100 &&
+        create.dig("properties", "maxIterations", "maximum") == 100 &&
+        create.dig("properties", "token_budget", "maximum") == 1000000 &&
+        create.dig("properties", "tokenBudget", "maximum") == 1000000
+      missing << "AgentRunCreateRequest must document snake/camel agent, conversation, input/message, mode, and execution-limit controls"
+    end
+
+    continue_budget = schemas["AgentRunContinueBudgetRequest"] || {}
+    unless any_of_requires?(continue_budget, "token_budget") &&
+        any_of_requires?(continue_budget, "tokenBudget") &&
+        continue_budget.dig("properties", "token_budget", "minimum") == 1000 &&
+        continue_budget.dig("properties", "token_budget", "maximum") == 1000000 &&
+        continue_budget.dig("properties", "tokenBudget", "minimum") == 1000 &&
+        continue_budget.dig("properties", "tokenBudget", "maximum") == 1000000
+      missing << "AgentRunContinueBudgetRequest must require snake/camel token budget aliases with bounded values"
+    end
+
+    run = schemas["AgentRun"] || {}
+    run_response = schemas["AgentRunResponse"] || {}
+    unless run.dig("properties", "mode", "enum")&.include?("planning") &&
+        run.dig("properties", "status", "enum")&.include?("token_budget_exceeded") &&
+        run_response.dig("properties", "run", "$ref") == "#/components/schemas/AgentRun" &&
+        run_response.dig("properties", "toolRuns", "items", "$ref") == "#/components/schemas/AgentToolRun" &&
+        run_response.dig("properties", "planSteps", "items", "$ref") == "#/components/schemas/AgentPlanStep" &&
+        run_response.dig("properties", "messages", "items", "$ref") == "#/components/schemas/Message"
+      missing << "AgentRunResponse must expose run, toolRuns, planSteps, messages, and planning/token-budget status fields"
+    end
+
+    unless schemas.dig("AgentToolDecisionRequest", "properties", "toolRunId", "type") == "string" &&
+        schemas.dig("AgentToolDecisionRequest", "properties", "tool_run_id", "type") == "string" &&
+        schemas.dig("AgentPlanStepDecisionRequest", "properties", "planStepId", "type") == "string" &&
+        schemas.dig("AgentPlanStepDecisionRequest", "properties", "plan_step_id", "type") == "string" &&
+        schemas.dig("AgentPlanStepMoveRequest", "properties", "direction", "enum")&.sort == ["down", "up"]
+      missing << "Agent decision request schemas must document snake/camel identifiers and move direction enum"
+    end
+
     unless missing.empty?
-      warn "[openapi-contract] Agent run mutation CSRF contract is incomplete:"
+      warn "[openapi-contract] Agent run mutation CSRF/schema contract is incomplete:"
       missing.each { |entry| warn "  - #{entry}" }
       exit 1
     end
