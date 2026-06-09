@@ -588,33 +588,116 @@ func TestAdminBillingRecordTopupRefundHandlerRejectsMissingOperatorEvidence(t *t
 	}
 }
 
-func TestAdminBillingPaymentIntentsHandlerPassesBillingFilterWithoutDatabase(t *testing.T) {
-	store := &fakeAdminStore{}
-	handler := newAdminHandler(admin.NewService(store))
-
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(
-		stdhttp.MethodGet,
-		"/api/v1/admin/billing/payment-intents?organizationId=org_alias&userID=user_upper&status=completed&kind=marketplace_install&provider=alipay&limit=250&offset=7",
-		nil,
-	)
-
-	handler.listPaymentIntents(recorder, request)
-
-	if recorder.Code != stdhttp.StatusOK {
-		t.Fatalf("expected payment-intents handler 200, got %d with body %s", recorder.Code, recorder.Body.String())
+func TestAdminBillingListHandlersPassBillingFiltersWithoutDatabase(t *testing.T) {
+	type billingListCase struct {
+		name       string
+		path       string
+		wrapper    string
+		wantOrgID  string
+		wantUserID string
+		call       func(adminHandler, stdhttp.ResponseWriter, *stdhttp.Request)
 	}
-	if store.billingFilter.OrganizationID != "org_alias" ||
-		store.billingFilter.UserID != "user_upper" ||
-		store.billingFilter.Status != "completed" ||
-		store.billingFilter.Kind != "marketplace_install" ||
-		store.billingFilter.Provider != "alipay" ||
-		store.billingFilter.Limit != 100 ||
-		store.billingFilter.Offset != 7 {
-		t.Fatalf("expected billing filter query parameters to pass through with limit clamp, got %+v", store.billingFilter)
+
+	cases := []billingListCase{
+		{
+			name:       "sessions",
+			path:       "/api/v1/admin/billing/sessions?organizationID=org_upper&userId=user_lower&status=completed&kind=marketplace_install&provider=alipay&limit=250&offset=7",
+			wrapper:    "sessions",
+			wantOrgID:  "org_upper",
+			wantUserID: "user_lower",
+			call:       func(h adminHandler, w stdhttp.ResponseWriter, r *stdhttp.Request) { h.listBillingSessions(w, r) },
+		},
+		{
+			name:       "payment intents",
+			path:       "/api/v1/admin/billing/payment-intents?organizationId=org_alias&userID=user_upper&status=completed&kind=marketplace_install&provider=alipay&limit=250&offset=7",
+			wrapper:    "paymentIntents",
+			wantOrgID:  "org_alias",
+			wantUserID: "user_upper",
+			call:       func(h adminHandler, w stdhttp.ResponseWriter, r *stdhttp.Request) { h.listPaymentIntents(w, r) },
+		},
+		{
+			name:       "webhook events",
+			path:       "/api/v1/admin/billing/webhook-events?organizationID=org_webhook&userId=user_webhook&status=completed&kind=marketplace_install&provider=alipay&limit=250&offset=7",
+			wrapper:    "webhookEvents",
+			wantOrgID:  "org_webhook",
+			wantUserID: "user_webhook",
+			call:       func(h adminHandler, w stdhttp.ResponseWriter, r *stdhttp.Request) { h.listWebhookEvents(w, r) },
+		},
+		{
+			name:       "subscriptions",
+			path:       "/api/v1/admin/billing/subscriptions?organizationId=org_sub&userID=user_sub&status=completed&kind=marketplace_install&provider=alipay&limit=250&offset=7",
+			wrapper:    "subscriptions",
+			wantOrgID:  "org_sub",
+			wantUserID: "user_sub",
+			call:       func(h adminHandler, w stdhttp.ResponseWriter, r *stdhttp.Request) { h.listSubscriptions(w, r) },
+		},
+		{
+			name:       "topups",
+			path:       "/api/v1/admin/billing/topups?organizationID=org_topup&userId=user_topup&status=completed&kind=marketplace_install&provider=alipay&limit=250&offset=7",
+			wrapper:    "topups",
+			wantOrgID:  "org_topup",
+			wantUserID: "user_topup",
+			call:       func(h adminHandler, w stdhttp.ResponseWriter, r *stdhttp.Request) { h.listTopups(w, r) },
+		},
+		{
+			name:       "invoices",
+			path:       "/api/v1/admin/billing/invoices?organizationId=org_invoice&userID=user_invoice&status=completed&kind=marketplace_install&provider=alipay&limit=250&offset=7",
+			wrapper:    "invoices",
+			wantOrgID:  "org_invoice",
+			wantUserID: "user_invoice",
+			call:       func(h adminHandler, w stdhttp.ResponseWriter, r *stdhttp.Request) { h.listInvoices(w, r) },
+		},
+		{
+			name:       "refunds",
+			path:       "/api/v1/admin/billing/refunds?organizationID=org_refund&userId=user_refund&status=completed&kind=marketplace_install&provider=alipay&limit=250&offset=7",
+			wrapper:    "refunds",
+			wantOrgID:  "org_refund",
+			wantUserID: "user_refund",
+			call:       func(h adminHandler, w stdhttp.ResponseWriter, r *stdhttp.Request) { h.listRefunds(w, r) },
+		},
+		{
+			name:       "settlements",
+			path:       "/api/v1/admin/billing/settlements?organizationId=org_settlement&userID=user_settlement&status=completed&kind=marketplace_install&provider=alipay&limit=250&offset=7",
+			wrapper:    "settlements",
+			wantOrgID:  "org_settlement",
+			wantUserID: "user_settlement",
+			call:       func(h adminHandler, w stdhttp.ResponseWriter, r *stdhttp.Request) { h.listMarketplaceSettlements(w, r) },
+		},
+		{
+			name:       "payouts",
+			path:       "/api/v1/admin/billing/payouts?organizationID=org_payout&userId=user_payout&status=completed&kind=marketplace_install&provider=alipay&limit=250&offset=7",
+			wrapper:    "payouts",
+			wantOrgID:  "org_payout",
+			wantUserID: "user_payout",
+			call:       func(h adminHandler, w stdhttp.ResponseWriter, r *stdhttp.Request) { h.listMarketplacePayouts(w, r) },
+		},
 	}
-	if !strings.Contains(recorder.Body.String(), `"paymentIntents"`) || !strings.Contains(recorder.Body.String(), `"total":1`) {
-		t.Fatalf("expected payment-intents response wrapper, got %s", recorder.Body.String())
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &fakeAdminStore{}
+			handler := newAdminHandler(admin.NewService(store))
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(stdhttp.MethodGet, tt.path, nil)
+
+			tt.call(handler, recorder, request)
+
+			if recorder.Code != stdhttp.StatusOK {
+				t.Fatalf("expected %s handler 200, got %d with body %s", tt.name, recorder.Code, recorder.Body.String())
+			}
+			if store.billingFilter.OrganizationID != tt.wantOrgID ||
+				store.billingFilter.UserID != tt.wantUserID ||
+				store.billingFilter.Status != "completed" ||
+				store.billingFilter.Kind != "marketplace_install" ||
+				store.billingFilter.Provider != "alipay" ||
+				store.billingFilter.Limit != 100 ||
+				store.billingFilter.Offset != 7 {
+				t.Fatalf("expected billing filter query parameters to pass through with limit clamp, got %+v", store.billingFilter)
+			}
+			if !strings.Contains(recorder.Body.String(), `"`+tt.wrapper+`"`) || !strings.Contains(recorder.Body.String(), `"total":1`) {
+				t.Fatalf("expected %s response wrapper, got %s", tt.wrapper, recorder.Body.String())
+			}
+		})
 	}
 }
 
@@ -764,6 +847,7 @@ func (s *fakeAdminStore) GetBillingInspectionSummary(ctx context.Context, filter
 }
 
 func (s *fakeAdminStore) ListBillingSessions(ctx context.Context, filter admin.BillingInspectionFilter) ([]*admin.BillingSessionInspection, int, error) {
+	s.billingFilter = filter
 	return []*admin.BillingSessionInspection{{ID: "bs_1"}}, 1, nil
 }
 
@@ -773,22 +857,27 @@ func (s *fakeAdminStore) ListPaymentIntents(ctx context.Context, filter admin.Bi
 }
 
 func (s *fakeAdminStore) ListWebhookEvents(ctx context.Context, filter admin.BillingInspectionFilter) ([]*admin.WebhookEventInspection, int, error) {
+	s.billingFilter = filter
 	return []*admin.WebhookEventInspection{{ID: "evt_1"}}, 1, nil
 }
 
 func (s *fakeAdminStore) ListSubscriptions(ctx context.Context, filter admin.BillingInspectionFilter) ([]*admin.SubscriptionInspection, int, error) {
+	s.billingFilter = filter
 	return []*admin.SubscriptionInspection{{ID: "sub_1"}}, 1, nil
 }
 
 func (s *fakeAdminStore) ListTopups(ctx context.Context, filter admin.BillingInspectionFilter) ([]*admin.TopupInspection, int, error) {
+	s.billingFilter = filter
 	return []*admin.TopupInspection{{ID: "topup_1"}}, 1, nil
 }
 
 func (s *fakeAdminStore) ListInvoices(ctx context.Context, filter admin.BillingInspectionFilter) ([]*admin.InvoiceInspection, int, error) {
+	s.billingFilter = filter
 	return []*admin.InvoiceInspection{{ID: "inv_1"}}, 1, nil
 }
 
 func (s *fakeAdminStore) ListRefunds(ctx context.Context, filter admin.BillingInspectionFilter) ([]*admin.RefundInspection, int, error) {
+	s.billingFilter = filter
 	return []*admin.RefundInspection{{ID: "refund_1"}}, 1, nil
 }
 
@@ -806,10 +895,12 @@ func (s *fakeAdminStore) RecordTopupRefund(ctx context.Context, topupID string, 
 }
 
 func (s *fakeAdminStore) ListMarketplaceSettlements(ctx context.Context, filter admin.BillingInspectionFilter) ([]*admin.MarketplaceSettlementInspection, int, error) {
+	s.billingFilter = filter
 	return []*admin.MarketplaceSettlementInspection{{ID: "settlement_1"}}, 1, nil
 }
 
 func (s *fakeAdminStore) ListMarketplacePayouts(ctx context.Context, filter admin.BillingInspectionFilter) ([]*admin.MarketplacePayoutInspection, int, error) {
+	s.billingFilter = filter
 	return []*admin.MarketplacePayoutInspection{{ID: "payout_1"}}, 1, nil
 }
 

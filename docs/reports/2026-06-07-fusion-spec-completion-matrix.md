@@ -37,6 +37,7 @@ Status values:
 
 - Release readiness row 34: `docs/release/fusion-spec-evidence-pack.md` now provides the current fusion-spec evidence pack for the four 2026-06-04 specs, including the current boundary, requirement evidence index, required final commands, and unresolved risk list. `scripts/verify-fusion-evidence-pack.sh` guards the pack, and `bash scripts/check.sh docs` now runs it after workflow success-rate evidence. The row remains `Partial` until target-environment proof and final no-skip release checks are recorded.
 - API contract row 31 / Security row 33: Chat `/api/v1/conversations*` compatibility aliases are now mounted through `NewRouterWithOptions`, documented in OpenAPI for the registrar-supported collection/detail/fork/messages/message-action/message-share routes, and guarded by `scripts/verify-openapi-contract.sh`. DB-free route-surface tests prove anonymous alias reads return 401, signed-cookie alias mutations without CSRF return 403, and valid-CSRF alias mutations dispatch into handler request validation instead of falling through to 404.
+- Billing row 26: Admin Billing money-movement list handlers now have DB-free filter and response-wrapper proof across sessions, payment intents, webhook events, subscriptions, top-ups, invoices, refunds, Marketplace settlements, and Marketplace payouts. The shared test proves `organizationID`/`organizationId`, `userID`/`userId`, `status`, `kind`, `provider`, clamped `limit`, and `offset` are forwarded into `BillingInspectionFilter` before the fake Admin store responds.
 
 ## 2026-06-09 Matrix Row Updates
 
@@ -282,6 +283,7 @@ Status values:
 - `pnpm --dir src/web test src/routes/marketing/PricingDownloadPages.test.tsx -- --runInBand`, `pnpm --dir src/web exec tsc --noEmit`, `bash scripts/check.sh docs`, and `git diff --check` passed after adding direct Pricing and Download page smoke coverage.
 - `bash scripts/verify-fusion-evidence-pack.sh`, `bash scripts/check.sh docs`, and `git diff --check` passed after adding the guarded fusion-spec evidence pack for release readiness row 34.
 - `GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/http -run 'TestRouteSurfaceChat|TestRegisterConversationAliasRoutes' -count=1 -v`, `bash scripts/verify-openapi-contract.sh`, `bash scripts/check.sh docs`, and `git diff --check` passed after mounting and contract-gating the Chat `/api/v1/conversations*` compatibility aliases.
+- `GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/http -run 'TestAdminBilling(ListHandlersPassBillingFiltersWithoutDatabase|PaymentIntentsHandlerPassesBillingFilterWithoutDatabase)' -count=1 -v`, `bash scripts/check.sh docs`, and `git diff --check` passed after expanding DB-free Admin Billing list filter/response-wrapper coverage across money-movement surfaces.
 
 These checks prove only the covered surfaces. They do not prove full project completion.
 
