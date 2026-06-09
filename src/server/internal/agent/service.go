@@ -2289,7 +2289,34 @@ func (s *Service) ListAvailableTools(ctx context.Context, session auth.Session, 
 		return nil, fmt.Errorf("access denied")
 	}
 
-	var tools []ToolDefinition
+	toolsByName := make(map[string]ToolDefinition)
+	addTool := func(def ToolDefinition) {
+		if strings.TrimSpace(def.Name) == "" {
+			return
+		}
+		toolsByName[def.Name] = def
+	}
+
+	for _, builtin := range mcp.ListDefaultCommercialBuiltinTools() {
+		addTool(ToolDefinition{
+			Name:        builtin.Name,
+			Description: builtin.Description,
+			InputSchema: builtin.InputSchema,
+			ToolType:   "builtin",
+			RiskLevel:  inferToolRiskLevel(builtin.Name),
+		})
+	}
+	if s.webSearchProvider != nil {
+		if builtin, ok := mcp.GetBuiltinTool("web_search"); ok {
+			addTool(ToolDefinition{
+				Name:        builtin.Name(),
+				Description: builtin.Description(),
+				InputSchema: builtin.InputSchema(),
+				ToolType:   "builtin",
+				RiskLevel:  inferToolRiskLevel(builtin.Name()),
+			})
+		}
+	}
 
 	// 添加启用的工具
 	for _, t := range agent.Tools {
@@ -2333,9 +2360,16 @@ func (s *Service) ListAvailableTools(ctx context.Context, session auth.Session, 
 			def.InputSchema = t.InputSchema
 		}
 
-		tools = append(tools, def)
+		addTool(def)
 	}
 
+	tools := make([]ToolDefinition, 0, len(toolsByName))
+	for _, def := range toolsByName {
+		tools = append(tools, def)
+	}
+	sort.Slice(tools, func(i, j int) bool {
+		return tools[i].Name < tools[j].Name
+	})
 	return tools, nil
 }
 

@@ -5230,6 +5230,43 @@ func TestListAvailableToolsFiltersDisabledCommercialBuiltins(t *testing.T) {
 	}
 }
 
+func TestListAvailableToolsIncludesDefaultCommercialBuiltinCatalog(t *testing.T) {
+	store := &fakeStore{
+		agent: &Agent{
+			ID:     "agent_catalog",
+			UserID: "user_1",
+			Tools:  []Tool{},
+		},
+	}
+	service := NewService(store, &fakeGateway{})
+
+	definitions, err := service.ListAvailableTools(context.Background(), auth.Session{
+		User: auth.User{ID: "user_1"},
+	}, "agent_catalog")
+	if err != nil {
+		t.Fatalf("ListAvailableTools returned error: %v", err)
+	}
+
+	byName := make(map[string]ToolDefinition, len(definitions))
+	for _, definition := range definitions {
+		byName[definition.Name] = definition
+	}
+	for _, builtin := range []string{"calculator", "datetime", "json_formatter", "text_transform"} {
+		definition, ok := byName[builtin]
+		if !ok {
+			t.Fatalf("expected default builtin catalog tool %s, got %+v", builtin, definitions)
+		}
+		if definition.ToolType != "builtin" || definition.InputSchema == nil || definition.RiskLevel == "" {
+			t.Fatalf("default builtin catalog definition missing metadata for %s: %+v", builtin, definition)
+		}
+	}
+	for _, disabled := range []string{"web_search", "http_request"} {
+		if _, ok := byName[disabled]; ok {
+			t.Fatalf("disabled builtin %s should not be advertised without provider/policy, got %+v", disabled, definitions)
+		}
+	}
+}
+
 func TestListAvailableToolsExposesCustomToolInputSchema(t *testing.T) {
 	schema := map[string]any{
 		"type": "object",
@@ -5262,15 +5299,23 @@ func TestListAvailableToolsExposesCustomToolInputSchema(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListAvailableTools returned error: %v", err)
 	}
-	if len(definitions) != 1 {
-		t.Fatalf("expected one custom tool definition, got %+v", definitions)
+	byName := make(map[string]ToolDefinition, len(definitions))
+	for _, definition := range definitions {
+		byName[definition.Name] = definition
 	}
-	if definitions[0].ToolType != "custom" || definitions[0].InputSchema == nil {
-		t.Fatalf("custom available tool missing type/schema: %+v", definitions[0])
+	customDefinition, ok := byName["crm_lookup"]
+	if !ok {
+		t.Fatalf("expected custom crm_lookup tool definition, got %+v", definitions)
 	}
-	properties, ok := definitions[0].InputSchema.(map[string]any)["properties"].(map[string]any)
+	if customDefinition.ToolType != "custom" || customDefinition.InputSchema == nil {
+		t.Fatalf("custom available tool missing type/schema: %+v", customDefinition)
+	}
+	properties, ok := customDefinition.InputSchema.(map[string]any)["properties"].(map[string]any)
 	if !ok || properties["customer_id"] == nil {
-		t.Fatalf("custom input schema was not preserved: %+v", definitions[0].InputSchema)
+		t.Fatalf("custom input schema was not preserved: %+v", customDefinition.InputSchema)
+	}
+	if _, ok := byName["calculator"]; !ok {
+		t.Fatalf("expected default builtin catalog to remain available with custom tools, got %+v", definitions)
 	}
 }
 
@@ -5295,8 +5340,15 @@ func TestListAvailableToolsAllowsWebSearchWhenProviderConfigured(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListAvailableTools returned error: %v", err)
 	}
-	if len(definitions) != 1 || definitions[0].Name != "web_search" {
+	byName := make(map[string]ToolDefinition, len(definitions))
+	for _, definition := range definitions {
+		byName[definition.Name] = definition
+	}
+	if _, ok := byName["web_search"]; !ok {
 		t.Fatalf("expected web_search to be exposed with provider configured, got %+v", definitions)
+	}
+	if _, ok := byName["calculator"]; !ok {
+		t.Fatalf("expected default builtin catalog to remain available with web_search provider, got %+v", definitions)
 	}
 
 	result, err := service.ExecuteTool(context.Background(), auth.Session{
