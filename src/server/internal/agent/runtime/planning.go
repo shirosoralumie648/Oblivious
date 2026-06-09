@@ -83,6 +83,12 @@ func NormalizePlanningConfig(cfg PlanningConfig) PlanningConfig {
 	if cfg.TokenBudget < 0 {
 		cfg.TokenBudget = 0
 	}
+	if cfg.TokenBudget > 0 && cfg.TokenBudget < 1000 {
+		cfg.TokenBudget = 1000
+	}
+	if cfg.TokenBudget > 1_000_000 {
+		cfg.TokenBudget = 1_000_000
+	}
 	return cfg
 }
 

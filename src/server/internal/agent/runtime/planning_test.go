@@ -24,6 +24,44 @@ func (g *planningRuntimeFakeGateway) GenerateStructuredReply(ctx context.Context
 	return &chat.CompletionResponse{Content: "done"}, nil
 }
 
+func TestNormalizePlanningConfigClampsTokenBudget(t *testing.T) {
+	tests := []struct {
+		name string
+		in   PlanningConfig
+		want PlanningConfig
+	}{
+		{
+			name: "defaults",
+			in:   PlanningConfig{},
+			want: PlanningConfig{MaxSteps: 20, MaxIterations: 10, TokenBudget: 0},
+		},
+		{
+			name: "negative budget is unlimited",
+			in:   PlanningConfig{MaxSteps: 5, MaxIterations: 3, TokenBudget: -1},
+			want: PlanningConfig{MaxSteps: 5, MaxIterations: 3, TokenBudget: 0},
+		},
+		{
+			name: "low positive budget clamps to minimum",
+			in:   PlanningConfig{MaxSteps: 5, MaxIterations: 3, TokenBudget: 1},
+			want: PlanningConfig{MaxSteps: 5, MaxIterations: 3, TokenBudget: 1000},
+		},
+		{
+			name: "oversized budget clamps to maximum",
+			in:   PlanningConfig{MaxSteps: 100, MaxIterations: 200, TokenBudget: 2_000_000},
+			want: PlanningConfig{MaxSteps: 50, MaxIterations: 100, TokenBudget: 1_000_000},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := NormalizePlanningConfig(tt.in)
+			if got != tt.want {
+				t.Fatalf("NormalizePlanningConfig() = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestPlanningEngineGeneratePlanClampsMaxSteps(t *testing.T) {
 	gateway := &planningRuntimeFakeGateway{responses: []*chat.CompletionResponse{{
 		Content: `{
