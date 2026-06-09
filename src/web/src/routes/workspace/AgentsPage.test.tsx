@@ -473,6 +473,86 @@ describe('AgentsPage', () => {
     expect(screen.getByText('Search workspace and web sources')).toBeInTheDocument();
   });
 
+  it('enables a catalog tool for the selected agent', async () => {
+    listAgents.mockResolvedValueOnce([
+      {
+        config: { approvalMode: 'tiered', defaultExecutionMode: 'react' },
+        description: 'Research and summarize workspace materials.',
+        id: 'agent_1',
+        isPublic: false,
+        model: 'gpt-4o-mini',
+        name: 'Research Agent',
+        systemPrompt: 'Prefer cited answers.',
+        tools: [{ enabled: true, name: 'web_search', riskLevel: 'medium', type: 'builtin' }]
+      }
+    ]);
+    getAgentTools.mockResolvedValueOnce([
+      {
+        description: 'Lookup customer records',
+        inputSchema: { properties: { customer_id: { type: 'string' } }, type: 'object' },
+        name: 'crm_lookup',
+        requiresApproval: true,
+        riskLevel: 'medium',
+        toolType: 'mcp'
+      }
+    ]);
+    updateAgent.mockResolvedValueOnce({
+      config: { approvalMode: 'tiered', defaultExecutionMode: 'react' },
+      description: 'Research and summarize workspace materials.',
+      id: 'agent_1',
+      isPublic: false,
+      model: 'gpt-4o-mini',
+      name: 'Research Agent',
+      systemPrompt: 'Prefer cited answers.',
+      tools: [
+        { enabled: true, name: 'web_search', riskLevel: 'medium', type: 'builtin' },
+        {
+          description: 'Lookup customer records',
+          enabled: true,
+          inputSchema: { properties: { customer_id: { type: 'string' } }, type: 'object' },
+          name: 'crm_lookup',
+          requiresApproval: true,
+          riskLevel: 'medium',
+          type: 'mcp'
+        }
+      ]
+    });
+
+    render(<AgentsPage />);
+
+    expect(await screen.findByRole('button', { name: 'Research Agent' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Load tool catalog' }));
+    expect(await screen.findByRole('button', { name: 'Enable tool crm_lookup' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Enable tool crm_lookup' }));
+
+    await waitFor(() => {
+      expect(updateAgent).toHaveBeenCalledWith('agent_1', {
+        config: { approvalMode: 'tiered', defaultExecutionMode: 'react' },
+        description: 'Research and summarize workspace materials.',
+        model: 'gpt-4o-mini',
+        name: 'Research Agent',
+        systemPrompt: 'Prefer cited answers.',
+        tools: [
+          { enabled: true, name: 'web_search', riskLevel: 'medium', type: 'builtin' },
+          {
+            description: 'Lookup customer records',
+            enabled: true,
+            inputSchema: { properties: { customer_id: { type: 'string' } }, type: 'object' },
+            name: 'crm_lookup',
+            requiresApproval: true,
+            riskLevel: 'medium',
+            type: 'mcp'
+          }
+        ]
+      });
+    });
+
+    expect(await screen.findByText('Tool enabled for agent.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Tool policy crm_lookup')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Tool crm_lookup enabled' })).toBeDisabled();
+  });
+
   it('starts a planning run for the selected agent and links to plan steps', async () => {
     listAgents.mockResolvedValueOnce([
       {

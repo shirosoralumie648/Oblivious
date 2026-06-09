@@ -79,6 +79,18 @@ function readableJSON(value: unknown) {
   }
 }
 
+function toolFromCatalogDefinition(tool: AgentToolDefinition): AgentTool {
+  return {
+    enabled: true,
+    ...(tool.description ? { description: tool.description } : {}),
+    ...(tool.inputSchema !== undefined ? { inputSchema: tool.inputSchema } : {}),
+    name: tool.name,
+    requiresApproval: tool.requiresApproval ?? false,
+    riskLevel: normalizeRiskLevel(tool.riskLevel),
+    type: tool.toolType ?? 'builtin'
+  };
+}
+
 function initialOverrides(agent: AgentSummary | null) {
   const overrides: Record<string, ToolApprovalOverride> = {
     ...(agent?.config?.toolApprovalOverrides ?? {})
@@ -123,6 +135,7 @@ export function AgentsPage() {
   const [runTokenBudget, setRunTokenBudget] = useState('');
   const [savedMessage, setSavedMessage] = useState('');
   const [toolCatalog, setToolCatalog] = useState<AgentToolDefinition[]>([]);
+  const [enablingCatalogToolName, setEnablingCatalogToolName] = useState('');
   const [isCustomToolOpen, setIsCustomToolOpen] = useState(false);
   const [isSavingCustomTool, setIsSavingCustomTool] = useState(false);
   const [customToolName, setCustomToolName] = useState('');
@@ -150,6 +163,7 @@ export function AgentsPage() {
     setRunTokenBudget(numberFieldValue(agent?.config?.tokenBudget));
     setSavedMessage('');
     setToolCatalog([]);
+    setEnablingCatalogToolName('');
     setIsCustomToolOpen(false);
     setCustomToolName('');
     setCustomToolRuntime('api');
@@ -337,6 +351,42 @@ export function AgentsPage() {
       setError(errorMessage(caughtError, 'Unable to load tool catalog.'));
     } finally {
       setIsLoadingTools(false);
+    }
+  };
+
+  const enableCatalogTool = async (tool: AgentToolDefinition) => {
+    if (!selectedAgent) {
+      return;
+    }
+
+    if ((selectedAgent.tools ?? []).some((agentTool) => agentTool.name === tool.name)) {
+      setError('Tool already enabled for this agent.');
+      return;
+    }
+
+    const nextTool = toolFromCatalogDefinition(tool);
+    const currentCatalog = toolCatalog;
+    setEnablingCatalogToolName(tool.name);
+    setError(null);
+    setSavedMessage('');
+
+    try {
+      const updated = await api.updateAgent(selectedAgent.id, {
+        config: selectedAgent.config ?? {},
+        description: selectedAgent.description ?? '',
+        model: selectedAgent.model,
+        name: selectedAgent.name,
+        systemPrompt: selectedAgent.systemPrompt ?? '',
+        tools: [...(selectedAgent.tools ?? []), nextTool]
+      });
+      setAgents((current) => current.map((agent) => (agent.id === updated.id ? updated : agent)));
+      applySelectedAgent(updated);
+      setToolCatalog(currentCatalog);
+      setSavedMessage('Tool enabled for agent.');
+    } catch (caughtError) {
+      setError(errorMessage(caughtError, 'Unable to enable tool.'));
+    } finally {
+      setEnablingCatalogToolName('');
     }
   };
 
@@ -999,11 +1049,30 @@ export function AgentsPage() {
                 <div className="divide-y divide-[#e8e2d3]">
                   {toolCatalog.map((tool) => {
                     const inputSchema = readableJSON(tool.inputSchema);
+                    const isEnabled = (selectedAgent?.tools ?? []).some((agentTool) => agentTool.name === tool.name);
+                    const isEnabling = enablingCatalogToolName === tool.name;
+                    const isCatalogToolSaving = enablingCatalogToolName !== '';
                     return (
                       <article className="grid gap-3 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_minmax(260px,420px)]" key={tool.name}>
                         <div className="min-w-0">
                           <h3 className="text-sm font-semibold text-[#181611]">{tool.name}</h3>
+                          <p className="mt-1 text-xs text-[#625b4f]">
+                            {tool.toolType ?? 'builtin'} / {normalizeRiskLevel(tool.riskLevel)}
+                            {tool.requiresApproval ? ' / approval required' : ' / no approval required'}
+                          </p>
                           {tool.description ? <p className="mt-2 text-sm leading-6 text-[#625b4f]">{tool.description}</p> : null}
+                          <button
+                            className="mt-3 inline-flex min-h-9 items-center gap-2 rounded-lg border border-[#181611] px-3 text-sm font-semibold text-[#181611] disabled:cursor-not-allowed disabled:opacity-50"
+                            disabled={isEnabled || isCatalogToolSaving}
+                            onClick={() => void enableCatalogTool(tool)}
+                            type="button"
+                          >
+                            {isEnabled
+                              ? `Tool ${tool.name} enabled`
+                              : isEnabling
+                                ? `Enabling tool ${tool.name}`
+                                : `Enable tool ${tool.name}`}
+                          </button>
                         </div>
                         {inputSchema ? (
                           <pre className="max-h-52 overflow-auto rounded-lg bg-[#f6f1e6] p-3 text-xs leading-5 text-[#3f3a31]">
