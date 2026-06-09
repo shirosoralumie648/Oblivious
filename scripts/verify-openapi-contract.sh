@@ -413,6 +413,7 @@ require_admin_channel_secret_response_contract() {
     end
 
     expected_data_refs = {
+      ["/api/v1/admin/channel-providers", "get", "200"] => "#/components/schemas/AdminChannelProviderListResponse",
       ["/api/v1/admin/channels", "get", "200"] => "#/components/schemas/AdminChannelListResponse",
       ["/api/v1/admin/channels", "post", "201"] => "#/components/schemas/AdminChannel",
       ["/api/v1/admin/channels/{channelId}", "get", "200"] => "#/components/schemas/AdminChannel",
@@ -471,6 +472,18 @@ require_admin_channel_secret_response_contract() {
     unless list.dig("properties", "channels", "items", "$ref") == "#/components/schemas/AdminChannel" &&
         list.dig("properties", "total", "type") == "integer"
       missing << "AdminChannelListResponse must expose channels[] as AdminChannel plus integer total"
+    end
+
+    provider = schemas["AdminChannelProvider"] || {}
+    provider_properties = provider.fetch("properties", {})
+    ["id", "displayName", "kind", "status", "defaultBaseURL"].each do |property|
+      unless provider_properties.dig(property, "type") == "string"
+        missing << "AdminChannelProvider.#{property} must be documented as string"
+      end
+    end
+    provider_list = schemas["AdminChannelProviderListResponse"] || {}
+    unless provider_list.dig("properties", "providers", "items", "$ref") == "#/components/schemas/AdminChannelProvider"
+      missing << "AdminChannelProviderListResponse must expose providers[] as AdminChannelProvider"
     end
 
     create_req = schemas["AdminChannelCreateRequest"] || {}
