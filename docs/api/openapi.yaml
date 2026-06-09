@@ -6153,6 +6153,9 @@ paths:
       summary: 旧版配额充值入口
       operationId: topupQuota
       tags: [Billing]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       description: |
         This compatibility endpoint validates the amount and returns
         `payment_required`; production top-up checkout should use

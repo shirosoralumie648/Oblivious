@@ -993,6 +993,42 @@ func TestRouteSurfaceBillingCheckoutRejectsCookieWithoutCSRFWithoutDatabase(t *t
 	}
 }
 
+func TestRouteSurfaceQuotaTopupRejectsCookieWithoutCSRFWithoutDatabase(t *testing.T) {
+	session := routeSurfaceUserSession()
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}})
+	cookie := routeSurfaceSignedSessionCookie(t, session)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/quota/topup", strings.NewReader(`{"amount":25}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(cookie)
+
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusForbidden {
+		t.Fatalf("expected missing csrf to be rejected with 403 for POST /api/v1/app/quota/topup, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestRouteSurfaceQuotaTopupDispatchWithCSRFWithoutDatabase(t *testing.T) {
+	session := routeSurfaceUserSession()
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}})
+	cookie := routeSurfaceSignedSessionCookie(t, session)
+	csrfToken := routeSurfaceCSRFToken(session)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/quota/topup", strings.NewReader(`{"amount":25}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set(csrfHeaderName, csrfToken)
+	request.AddCookie(cookie)
+
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusPaymentRequired {
+		t.Fatalf("expected quota top-up compatibility route to dispatch and return 402, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestRouteSurfaceTenantOrganizationMutationsRejectCookieWithoutCSRFWithoutDatabase(t *testing.T) {
 	session := routeSurfaceUserSession()
 	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}})

@@ -1348,6 +1348,47 @@ require_billing_checkout_contract() {
   ' "$openapi_file"
 }
 
+require_quota_topup_csrf_contract() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+    paths = spec.fetch("paths", {})
+    schemas = spec.fetch("components", {}).fetch("schemas", {})
+    missing = []
+
+    operation = paths.dig("/api/v1/app/quota/topup", "post")
+    unless operation
+      missing << "POST /api/v1/app/quota/topup must be documented"
+      operation = {}
+    end
+
+    security = operation.fetch("security", [])
+    unless security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
+      missing << "POST /api/v1/app/quota/topup must require cookieAuth and csrfHeader"
+    end
+    unless operation.fetch("tags", []).include?("Billing")
+      missing << "POST /api/v1/app/quota/topup must be tagged Billing"
+    end
+    unless operation.dig("requestBody", "content", "application/json", "schema", "$ref") == "#/components/schemas/QuotaTopupRequest"
+      missing << "POST /api/v1/app/quota/topup request body must reference QuotaTopupRequest"
+    end
+    unless operation.dig("responses", "402", "content", "application/json", "schema", "$ref") == "#/components/schemas/Envelope"
+      missing << "POST /api/v1/app/quota/topup 402 response must reference Envelope"
+    end
+    unless schemas.dig("QuotaTopupRequest", "required")&.include?("amount") &&
+        schemas.dig("QuotaTopupRequest", "properties", "amount", "type") == "number" &&
+        schemas.dig("QuotaTopupRequest", "properties", "amount", "exclusiveMinimum") == 0
+      missing << "QuotaTopupRequest must require a positive numeric amount"
+    end
+
+    unless missing.empty?
+      warn "[openapi-contract] Quota top-up CSRF/schema contract is incomplete:"
+      missing.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 require_tenant_organization_mutation_csrf_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
@@ -2637,6 +2678,7 @@ require_workspace_agent_mutation_csrf_contract
 require_memory_mutation_csrf_contract
 require_agent_run_mutation_csrf_contract
 require_billing_checkout_contract
+require_quota_topup_csrf_contract
 require_tenant_organization_mutation_csrf_contract
 require_workflow_execution_control_csrf_contract
 require_console_api_token_csrf_contract
