@@ -18,6 +18,7 @@ import (
 	"github.com/stripe/stripe-go/v83/webhook"
 	"oblivious/server/internal/config"
 	"oblivious/server/internal/payment"
+	"oblivious/server/internal/quota"
 
 	stripebilling "oblivious/server/internal/stripe"
 )
@@ -56,6 +57,166 @@ func (f *fakeCheckoutCreator) CreateCheckoutSession(_ context.Context, _ stripeb
 		ID:  sessionID,
 		URL: sessionURL,
 	}, nil
+}
+
+type billingCheckoutPaymentIntentStore struct {
+	created          stripebilling.PaymentIntent
+	failedID         string
+	failedReason     string
+	checkoutIntentID string
+}
+
+func (s *billingCheckoutPaymentIntentStore) CreatePaymentIntent(_ context.Context, intent stripebilling.PaymentIntent) (stripebilling.PaymentIntent, error) {
+	s.created = intent
+	return intent, nil
+}
+
+func (s *billingCheckoutPaymentIntentStore) SetCheckoutSession(_ context.Context, id string, _ string, _ map[string]string) error {
+	s.checkoutIntentID = id
+	return nil
+}
+
+func (s *billingCheckoutPaymentIntentStore) MarkPaymentIntentFailed(_ context.Context, id string, reason string) error {
+	s.failedID = id
+	s.failedReason = reason
+	return nil
+}
+
+type billingCheckoutQuotaStore struct {
+	packages              map[string]*quota.Package
+	topupCreated          bool
+	topupFailedPaymentID  string
+	topupCheckoutIntentID string
+}
+
+func (s *billingCheckoutQuotaStore) GetOrCreateQuota(_ context.Context, userID, organizationID string) (*quota.Quota, error) {
+	return &quota.Quota{UserID: userID, OrganizationID: organizationID}, nil
+}
+
+func (s *billingCheckoutQuotaStore) UpdateQuotaBalance(context.Context, string, string, float64) error {
+	return nil
+}
+
+func (s *billingCheckoutQuotaStore) CreateBillingSession(_ context.Context, session *quota.BillingSession) (*quota.BillingSession, error) {
+	return session, nil
+}
+
+func (s *billingCheckoutQuotaStore) GetBillingSessionByIdempotencyKey(context.Context, string, string) (*quota.BillingSession, error) {
+	return nil, sql.ErrNoRows
+}
+
+func (s *billingCheckoutQuotaStore) SettleBillingSession(context.Context, string, float64) error {
+	return nil
+}
+
+func (s *billingCheckoutQuotaStore) RefundBillingSession(context.Context, string) error {
+	return nil
+}
+
+func (s *billingCheckoutQuotaStore) ListPackages(context.Context, bool) ([]*quota.Package, error) {
+	packages := make([]*quota.Package, 0, len(s.packages))
+	for _, pkg := range s.packages {
+		packages = append(packages, pkg)
+	}
+	return packages, nil
+}
+
+func (s *billingCheckoutQuotaStore) GetPackage(_ context.Context, id string) (*quota.Package, error) {
+	return s.packages[id], nil
+}
+
+func (s *billingCheckoutQuotaStore) CreateSubscription(_ context.Context, sub *quota.Subscription) (*quota.Subscription, error) {
+	return sub, nil
+}
+
+func (s *billingCheckoutQuotaStore) ListActiveSubscriptions(context.Context, string, string) ([]*quota.Subscription, error) {
+	return nil, nil
+}
+
+func (s *billingCheckoutQuotaStore) CreateTopupOrder(_ context.Context, order *quota.TopupOrder) (*quota.TopupOrder, error) {
+	s.topupCreated = true
+	return order, nil
+}
+
+func (s *billingCheckoutQuotaStore) UpdateTopupOrderCheckoutSession(_ context.Context, paymentIntentID string, _ string) error {
+	s.topupCheckoutIntentID = paymentIntentID
+	return nil
+}
+
+func (s *billingCheckoutQuotaStore) MarkTopupOrderFailedByPaymentIntent(_ context.Context, paymentIntentID string) error {
+	s.topupFailedPaymentID = paymentIntentID
+	return nil
+}
+
+func (s *billingCheckoutQuotaStore) UpdateTopupOrderStatus(context.Context, string, string, string) error {
+	return nil
+}
+
+func (s *billingCheckoutQuotaStore) SaveUsageLimitSettings(_ context.Context, settings quota.UsageLimitSettings) (*quota.UsageLimitSettings, error) {
+	return &settings, nil
+}
+
+func (s *billingCheckoutQuotaStore) ResolveUsageLimitSettings(context.Context, string, string) (quota.UsageLimitSettings, error) {
+	return quota.UsageLimitSettings{}, nil
+}
+
+func (s *billingCheckoutQuotaStore) ListUsageLimitSettings(context.Context, string) ([]quota.UsageLimitSettings, error) {
+	return nil, nil
+}
+
+func TestBillingCheckoutCreatorFailureMarksSubscriptionPaymentIntentFailed(t *testing.T) {
+	durationDays := 30
+	checkoutCreator := &fakeCheckoutCreator{err: errors.New("provider checkout unavailable")}
+	paymentStore := &billingCheckoutPaymentIntentStore{}
+	quotaStore := &billingCheckoutQuotaStore{packages: map[string]*quota.Package{
+		"pkg_subscription_failed": {
+			ID:           "pkg_subscription_failed",
+			Name:         "Subscription Failure Plan",
+			Price:        29,
+			DurationDays: &durationDays,
+			IsActive:     true,
+		},
+	}}
+	handler := newBillingHandler(checkoutCreator, stripebilling.CheckoutConfig{}, paymentStore, quota.NewService(quotaStore), nil, nil)
+	session := routeSurfaceUserSession()
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/billing/checkout", strings.NewReader(`{"provider":"stripe","packageId":"pkg_subscription_failed","kind":"subscription"}`)).
+		WithContext(context.WithValue(context.Background(), sessionContextKey, session))
+	request.Header.Set("Content-Type", "application/json")
+
+	handler.checkout(recorder, request)
+
+	if recorder.Code != http.StatusBadGateway {
+		t.Fatalf("expected subscription checkout failure to return 502, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response Envelope
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode subscription checkout failure response: %v", err)
+	}
+	if response.Error == nil || response.Error.Code != "checkout_create_failed" {
+		t.Fatalf("expected checkout_create_failed response, got %+v", response.Error)
+	}
+	if paymentStore.created.ID == "" || paymentStore.created.Status != "pending" || paymentStore.created.Kind != "subscription" {
+		t.Fatalf("expected pending subscription payment intent before checkout, got %+v", paymentStore.created)
+	}
+	if paymentStore.created.OrganizationID != session.OrganizationID || paymentStore.created.UserID != session.User.ID {
+		t.Fatalf("expected tenant-scoped payment intent, got %+v", paymentStore.created)
+	}
+	if paymentStore.created.PackageID != "pkg_subscription_failed" || paymentStore.created.Amount != 29 {
+		t.Fatalf("expected subscription package metadata in payment intent, got %+v", paymentStore.created)
+	}
+	if checkoutCreator.request.PaymentIntentID != paymentStore.created.ID || checkoutCreator.request.CheckoutKind != "subscription" {
+		t.Fatalf("checkout creator should receive precreated subscription intent, got %+v", checkoutCreator.request)
+	}
+	if paymentStore.failedID != paymentStore.created.ID || !strings.Contains(paymentStore.failedReason, "provider checkout unavailable") {
+		t.Fatalf("expected created subscription payment intent to be marked failed, failedID=%q reason=%q", paymentStore.failedID, paymentStore.failedReason)
+	}
+	if paymentStore.checkoutIntentID != "" {
+		t.Fatalf("checkout session must not be recorded after provider failure, got intent %q", paymentStore.checkoutIntentID)
+	}
+	if quotaStore.topupCreated || quotaStore.topupFailedPaymentID != "" || quotaStore.topupCheckoutIntentID != "" {
+		t.Fatalf("subscription checkout failure must not touch topup lifecycle, store=%+v", quotaStore)
+	}
 }
 
 func TestStripeWebhookRouteRejectsInvalidSignature(t *testing.T) {
