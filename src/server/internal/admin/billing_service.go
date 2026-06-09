@@ -1,6 +1,10 @@
 package admin
 
-import "context"
+import (
+	"context"
+	"fmt"
+	"strings"
+)
 
 // GetBillingInspectionSummary returns aggregate money-movement evidence for Admin billing inspection.
 func (s *Service) GetBillingInspectionSummary(ctx context.Context, filter BillingInspectionFilter) (*BillingInspectionSummary, error) {
@@ -36,7 +40,30 @@ func (s *Service) ListRefunds(ctx context.Context, filter BillingInspectionFilte
 }
 
 func (s *Service) RecordTopupRefund(ctx context.Context, topupID string, request TopupRefundRequest) (*RefundInspection, error) {
+	if err := ValidateTopupRefundRequest(request); err != nil {
+		return nil, err
+	}
 	return s.store.RecordTopupRefund(ctx, topupID, request)
+}
+
+func ValidateTopupRefundRequest(request TopupRefundRequest) error {
+	provider := strings.ToLower(strings.TrimSpace(request.Provider))
+	if provider == "" {
+		return fmt.Errorf("provider is required")
+	}
+	if strings.TrimSpace(request.ProviderRefundID) == "" {
+		return fmt.Errorf("providerRefundID is required")
+	}
+	if request.Amount <= 0 {
+		return fmt.Errorf("amount must be positive")
+	}
+	if strings.TrimSpace(request.Currency) == "" {
+		return fmt.Errorf("currency is required")
+	}
+	if provider == "stripe" && strings.TrimSpace(request.ProviderChargeID) == "" && strings.TrimSpace(request.ProviderPaymentIntentID) == "" {
+		return fmt.Errorf("providerChargeID or providerPaymentIntentID is required for stripe refunds")
+	}
+	return nil
 }
 
 func (s *Service) ListMarketplaceSettlements(ctx context.Context, filter BillingInspectionFilter) ([]*MarketplaceSettlementInspection, int, error) {

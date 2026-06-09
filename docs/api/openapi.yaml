@@ -2923,7 +2923,7 @@ components:
 
     AdminTopupRefundRequest:
       type: object
-      required: [providerRefundID, amount]
+      required: [provider, providerRefundID, amount, currency]
       properties:
         provider:
           type: string
@@ -2939,7 +2939,7 @@ components:
         amount:
           type: number
           format: double
-          minimum: 0
+          minimum: 0.01
         currency:
           type: string
           example: usd
@@ -3459,6 +3459,7 @@ components:
 
     AdminMarketplacePayoutPaidRequest:
       type: object
+      required: [providerPayoutID]
       properties:
         providerPayoutID:
           type: string

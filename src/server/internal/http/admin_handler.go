@@ -986,6 +986,10 @@ func (h adminHandler) recordTopupRefund(w stdhttp.ResponseWriter, r *stdhttp.Req
 	if !decodeRequestJSON(w, r, &request) {
 		return
 	}
+	if err := admin.ValidateTopupRefundRequest(request); err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
 	refund, err := h.service.RecordTopupRefund(r.Context(), topupID, request)
 	if err != nil {
 		if isNotFoundError(err) || strings.Contains(err.Error(), "not found") {
@@ -1027,7 +1031,12 @@ func (h adminHandler) markMarketplacePayoutPaid(w stdhttp.ResponseWriter, r *std
 	if !decodeRequestJSON(w, r, &request) {
 		return
 	}
-	payout, err := h.payoutService.MarkPayoutPaid(r.Context(), payoutID, request.ProviderPayoutID)
+	providerPayoutID := strings.TrimSpace(request.ProviderPayoutID)
+	if providerPayoutID == "" {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "providerPayoutID is required")
+		return
+	}
+	payout, err := h.payoutService.MarkPayoutPaid(r.Context(), payoutID, providerPayoutID)
 	if err != nil {
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
 		return

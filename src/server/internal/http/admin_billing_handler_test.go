@@ -250,7 +250,7 @@ func TestAdminBillingRecordsTopupRefundAndAdjustsQuota(t *testing.T) {
 		request := httptest.NewRequest(
 			stdhttp.MethodPost,
 			"/api/v1/admin/billing/topups/topup_admin_refund/refund",
-			strings.NewReader(`{"provider":"stripe","providerRefundID":"re_admin_operator_1","providerChargeID":"ch_admin_operator_1","amount":10,"reason":"duplicate charge"}`),
+			strings.NewReader(`{"provider":"stripe","providerRefundID":"re_admin_operator_1","providerChargeID":"ch_admin_operator_1","amount":10,"currency":"usd","reason":"duplicate charge"}`),
 		)
 		request.AddCookie(cookie)
 		addCSRF(request, csrfToken)
@@ -308,6 +308,29 @@ func TestAdminBillingMarkPayoutPaidHandlerCallsSettlementService(t *testing.T) {
 	}
 }
 
+func TestAdminBillingMarkPayoutPaidHandlerRejectsMissingProviderPayoutID(t *testing.T) {
+	payoutService := &fakeMarketplacePayoutAdminService{}
+	handler := newAdminHandlerWithPayouts(admin.NewService(&fakeAdminStore{}), payoutService)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(
+		stdhttp.MethodPost,
+		"/api/v1/admin/billing/payouts/payout_1/paid",
+		strings.NewReader(`{"providerPayoutID":"   "}`),
+	)
+	handler.markMarketplacePayoutPaid(recorder, request, "payout_1")
+
+	if recorder.Code != stdhttp.StatusBadRequest {
+		t.Fatalf("expected handler 400, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if payoutService.payoutID != "" || payoutService.providerPayoutID != "" {
+		t.Fatalf("missing provider payout id should stop before payout service, got payout=%q provider=%q", payoutService.payoutID, payoutService.providerPayoutID)
+	}
+	if !strings.Contains(recorder.Body.String(), "providerPayoutID is required") {
+		t.Fatalf("expected providerPayoutID validation message, got %s", recorder.Body.String())
+	}
+}
+
 func TestAdminBillingRecordTopupRefundHandlerCallsAdminService(t *testing.T) {
 	store := &fakeAdminStore{}
 	handler := newAdminHandler(admin.NewService(store))
@@ -330,6 +353,65 @@ func TestAdminBillingRecordTopupRefundHandlerCallsAdminService(t *testing.T) {
 	if !strings.Contains(recorder.Body.String(), `"topupOrderId":"topup_1"`) ||
 		!strings.Contains(recorder.Body.String(), `"providerRefundId":"re_1"`) {
 		t.Fatalf("expected topup refund response, got %s", recorder.Body.String())
+	}
+}
+
+func TestAdminBillingRecordTopupRefundHandlerRejectsMissingOperatorEvidence(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "provider",
+			body: `{"providerRefundID":"re_1","providerChargeID":"ch_1","amount":10,"currency":"usd"}`,
+			want: "provider is required",
+		},
+		{
+			name: "provider refund id",
+			body: `{"provider":"stripe","providerChargeID":"ch_1","amount":10,"currency":"usd"}`,
+			want: "providerRefundID is required",
+		},
+		{
+			name: "amount",
+			body: `{"provider":"stripe","providerRefundID":"re_1","providerChargeID":"ch_1","amount":0,"currency":"usd"}`,
+			want: "amount must be positive",
+		},
+		{
+			name: "currency",
+			body: `{"provider":"stripe","providerRefundID":"re_1","providerChargeID":"ch_1","amount":10}`,
+			want: "currency is required",
+		},
+		{
+			name: "stripe provider object",
+			body: `{"provider":"stripe","providerRefundID":"re_1","amount":10,"currency":"usd"}`,
+			want: "providerChargeID or providerPaymentIntentID is required for stripe refunds",
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &fakeAdminStore{}
+			handler := newAdminHandler(admin.NewService(store))
+
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(
+				stdhttp.MethodPost,
+				"/api/v1/admin/billing/topups/topup_1/refund",
+				strings.NewReader(tt.body),
+			)
+			handler.recordTopupRefund(recorder, request, "topup_1")
+
+			if recorder.Code != stdhttp.StatusBadRequest {
+				t.Fatalf("expected handler 400, got %d with body %s", recorder.Code, recorder.Body.String())
+			}
+			if store.recordedTopupRefundID != "" {
+				t.Fatalf("invalid refund evidence should stop before admin store, got id=%q input=%+v", store.recordedTopupRefundID, store.recordedTopupRefund)
+			}
+			if !strings.Contains(recorder.Body.String(), tt.want) {
+				t.Fatalf("expected validation message %q, got %s", tt.want, recorder.Body.String())
+			}
+		})
 	}
 }
 

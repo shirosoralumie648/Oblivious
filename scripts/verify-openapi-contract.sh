@@ -2734,6 +2734,14 @@ require_admin_billing_contract() {
     unless requires_cookie_and_csrf?(refund)
       missing << "POST /api/v1/admin/billing/topups/{topupId}/refund must require cookieAuth and csrfHeader"
     end
+    refund_schema = schemas["AdminTopupRefundRequest"] || {}
+    refund_required = refund_schema.fetch("required", [])
+    ["provider", "providerRefundID", "amount", "currency"].each do |field|
+      missing << "AdminTopupRefundRequest must require #{field}" unless refund_required.include?(field)
+    end
+    unless refund_schema.dig("properties", "amount", "minimum").to_f > 0
+      missing << "AdminTopupRefundRequest.amount must document a positive minimum"
+    end
 
     paid = operation(paths, "/api/v1/admin/billing/payouts/{payoutId}/paid", "post", missing)
     unless request_body_ref(paid) == "#/components/schemas/AdminMarketplacePayoutPaidRequest"
@@ -2741,6 +2749,10 @@ require_admin_billing_contract() {
     end
     unless requires_cookie_and_csrf?(paid)
       missing << "POST /api/v1/admin/billing/payouts/{payoutId}/paid must require cookieAuth and csrfHeader"
+    end
+    paid_schema = schemas["AdminMarketplacePayoutPaidRequest"] || {}
+    unless paid_schema.fetch("required", []).include?("providerPayoutID")
+      missing << "AdminMarketplacePayoutPaidRequest must require providerPayoutID"
     end
 
     response_collections = {
