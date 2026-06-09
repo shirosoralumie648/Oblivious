@@ -810,16 +810,100 @@ vi.mock('../features/publishingChannels/publishingChannelsApi', () => ({
   })
 }));
 
-vi.mock('../features/agents/planStepsApi', () => ({
-  createAgentPlanStepsApi: () => ({
-    approvePlanStep: () => Promise.resolve([]),
-    approveToolRun: () => Promise.resolve({ id: 'run_1', planSteps: [], status: 'running', toolRuns: [] }),
-    getRunDetail: () => Promise.resolve({ id: 'run_1', planSteps: [], status: 'running', toolRuns: [] }),
-    rejectToolRun: () => Promise.resolve({ id: 'run_1', planSteps: [], status: 'failed', toolRuns: [] }),
-    retryToolRun: () => Promise.resolve({ id: 'run_1', planSteps: [], status: 'running', toolRuns: [] }),
-    executePlanStep: () => Promise.resolve([])
-  })
-}));
+vi.mock('../features/agents/planStepsApi', () => {
+  const runDetailFixture = (overrides: Record<string, unknown> = {}) => ({
+    error: 'token_budget_exceeded: used 1200 tokens exceeds budget 1000',
+    id: 'run_1',
+    iterationCount: 4,
+    mode: 'planning',
+    planSteps: [
+      {
+        approvalStatus: 'approved',
+        id: 'step_inspect',
+        index: 1,
+        input: { scope: 'workspace' },
+        resultContent: 'Workspace inspected.',
+        runId: 'run_1',
+        status: 'completed',
+        title: 'Inspect workspace'
+      },
+      {
+        approvalStatus: 'pending',
+        id: 'step_patch',
+        index: 2,
+        input: { file: 'router.test.tsx' },
+        runId: 'run_1',
+        status: 'pending',
+        title: 'Patch router coverage',
+        toolName: 'editor'
+      },
+      {
+        approvalStatus: 'not_required',
+        error: 'tsc failed',
+        id: 'step_verify',
+        index: 3,
+        input: { command: 'pnpm test' },
+        runId: 'run_1',
+        status: 'failed',
+        title: 'Run verification'
+      }
+    ],
+    status: 'token_budget_exceeded',
+    toolCallCount: 2,
+    toolRuns: [
+      {
+        approvalStatus: 'pending',
+        arguments: { query: 'route coverage' },
+        id: 'tool_search',
+        riskLevel: 'medium',
+        status: 'pending_approval',
+        toolName: 'web_search',
+        toolType: 'builtin'
+      },
+      {
+        approvalStatus: 'approved',
+        arguments: { command: 'pnpm test' },
+        error: 'exit 1',
+        id: 'tool_shell',
+        status: 'failed',
+        toolName: 'shell',
+        toolType: 'builtin'
+      }
+    ],
+    ...overrides
+  });
+
+  return {
+    createAgentPlanStepsApi: () => ({
+      approvePlanStep: () =>
+        Promise.resolve(
+          runDetailFixture({
+            error: '',
+            status: 'planning'
+          })
+        ),
+      approveToolRun: () => Promise.resolve(runDetailFixture({ error: '', status: 'running' })),
+      continueRunWithBudget: () =>
+        Promise.resolve(
+          runDetailFixture({
+            error: '',
+            status: 'completed',
+            toolRuns: []
+          })
+        ),
+      createPlanStep: () => Promise.resolve(runDetailFixture()),
+      deletePlanStep: () => Promise.resolve(runDetailFixture()),
+      executePlanStep: () => Promise.resolve(runDetailFixture({ error: '', status: 'running' })),
+      getRunDetail: () => Promise.resolve(runDetailFixture()),
+      movePlanStep: () => Promise.resolve(runDetailFixture()),
+      rejectToolRun: () => Promise.resolve(runDetailFixture({ status: 'failed' })),
+      retryPlanStep: () => Promise.resolve(runDetailFixture({ error: '', status: 'running' })),
+      retryToolRun: () => Promise.resolve(runDetailFixture({ error: '', status: 'running' })),
+      skipPlanStep: () => Promise.resolve(runDetailFixture()),
+      updatePlanStep: () => Promise.resolve(runDetailFixture())
+    })
+  };
+});
 
 vi.mock('../features/agents/agentsApi', () => ({
   createAgentsApi: () => ({
@@ -993,6 +1077,64 @@ describe('app router', () => {
     expect(await screen.findByText('Workspace')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Agent Plan Steps' })).toBeInTheDocument();
     expect(await screen.findByText('Run run_1')).toBeInTheDocument();
+  });
+
+  it('keeps agent plan steps route-level run, approval, and editing controls reachable', async () => {
+    const router = createAppRouter(['/agent-runs/run_1/plan-steps']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    const workspaceNavigation = await screen.findByRole('navigation', { name: 'Workspace navigation' });
+    expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
+    expect(within(workspaceNavigation).getByRole('link', { name: 'Agents' })).toHaveAttribute('href', '/agents');
+    expect(await screen.findByRole('heading', { name: 'Agent Plan Steps' })).toBeInTheDocument();
+    expect(await screen.findByText('Run run_1')).toBeInTheDocument();
+    expect(await screen.findByText('Status: token_budget_exceeded')).toBeInTheDocument();
+    expect(screen.getByLabelText('Agent run execution controls')).toHaveTextContent('Mode planning');
+    expect(screen.getByLabelText('Agent run execution controls')).toHaveTextContent('Iterations 4');
+    expect(screen.getByLabelText('Agent run execution controls')).toHaveTextContent('Tool calls 2');
+    expect(screen.getByLabelText('Agent run execution controls')).toHaveTextContent(
+      'Stop reason token_budget_exceeded: used 1200 tokens exceeds budget 1000'
+    );
+    expect(screen.getByRole('button', { name: 'Refresh plan steps' })).toBeEnabled();
+    expect(screen.getByLabelText('Increased token budget')).toHaveValue(2500);
+    expect(screen.getByRole('button', { name: 'Continue with budget' })).toBeEnabled();
+
+    expect(screen.getByRole('heading', { name: 'Tool Approval Queue' })).toBeInTheDocument();
+    const pendingToolRun = screen.getByLabelText('Tool run web_search');
+    expect(within(pendingToolRun).getByText('pending_approval')).toBeInTheDocument();
+    expect(within(pendingToolRun).getByText('Approval: pending')).toBeInTheDocument();
+    expect(within(pendingToolRun).getByText('Risk: medium')).toBeInTheDocument();
+    expect(screen.getByLabelText('Operator decision reason for web_search')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Approve tool web_search' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Reject tool web_search' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Retry tool web_search' })).toBeDisabled();
+    const failedToolRun = screen.getByLabelText('Tool run shell');
+    expect(within(failedToolRun).getByText('failed')).toBeInTheDocument();
+    expect(within(failedToolRun).getByText('exit 1')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry tool shell' })).toBeEnabled();
+
+    expect(screen.getByLabelText('Plan steps')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Inspect workspace' })).toBeInTheDocument();
+    expect(screen.getByText('Workspace inspected.')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Patch router coverage' })).toBeInTheDocument();
+    expect(screen.getByText('Tool: editor')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Edit Patch router coverage' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Insert after Patch router coverage' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Approve Patch router coverage' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Execute Patch router coverage' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Skip Patch router coverage' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Delete Patch router coverage' })).toBeEnabled();
+    expect(screen.getByRole('heading', { name: 'Run verification' })).toBeInTheDocument();
+    expect(screen.getByText('tsc failed')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry Run verification' })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add plan step' }));
+
+    expect(screen.getByLabelText('New step title')).toBeInTheDocument();
+    expect(screen.getByLabelText('New step tool')).toBeInTheDocument();
+    expect(screen.getByLabelText('New step input')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancel new step' })).toBeInTheDocument();
   });
 
   it('renders agents route inside the workspace shell', async () => {
