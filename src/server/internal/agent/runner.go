@@ -1212,17 +1212,29 @@ func (r *Runner) storeLongTermInteractionMemory(ctx context.Context, session aut
 		return
 	}
 	content := fmt.Sprintf("User: %s\nAssistant: %s", userContent, assistantContent)
+	r.storeLongTermMemory(ctx, session, agent, content, 3, map[string]any{
+		"source":          "agent_run",
+		"memory_category": "interaction",
+		"conversation_id": conversationID,
+	})
+	for _, derived := range deriveLongTermMemories(userContent, conversationID) {
+		r.storeLongTermMemory(ctx, session, agent, derived.content, derived.importance, derived.metadata)
+	}
+}
+
+func (r *Runner) storeLongTermMemory(ctx context.Context, session auth.Session, agent *Agent, content string, importance int, metadata map[string]any) {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return
+	}
 	req := &CreateMemoryStoreRequest{
 		OrganizationID: session.OrganizationID,
 		UserID:         session.User.ID,
 		AgentID:        agent.ID,
 		Type:           MemoryTypeLongTerm,
 		Content:        content,
-		Importance:     3,
-		Metadata: map[string]any{
-			"source":          "agent_run",
-			"conversation_id": conversationID,
-		},
+		Importance:     importance,
+		Metadata:       copyMetadata(metadata),
 	}
 	if r.memoryEmbedder != nil {
 		embedding, err := r.memoryEmbedder.Embed(withSessionRelayMetadata(ctx, session), content)
@@ -1235,6 +1247,107 @@ func (r *Runner) storeLongTermInteractionMemory(ctx context.Context, session aut
 		return
 	}
 	_, _ = r.store.CreateMemory(ctx, req)
+}
+
+type derivedLongTermMemory struct {
+	content    string
+	importance int
+	metadata   map[string]any
+}
+
+func deriveLongTermMemories(userContent, conversationID string) []derivedLongTermMemory {
+	userContent = strings.TrimSpace(userContent)
+	if userContent == "" {
+		return nil
+	}
+	var memories []derivedLongTermMemory
+	if preference, ok := extractPreferenceMemory(userContent); ok {
+		memories = append(memories, derivedLongTermMemory{
+			content:    preference,
+			importance: 4,
+			metadata:   derivedMemoryMetadata("preference", conversationID),
+		})
+	}
+	if fact, ok := extractFactMemory(userContent); ok {
+		memories = append(memories, derivedLongTermMemory{
+			content:    fact,
+			importance: 4,
+			metadata:   derivedMemoryMetadata("fact", conversationID),
+		})
+	}
+	return memories
+}
+
+func derivedMemoryMetadata(category, conversationID string) map[string]any {
+	return map[string]any{
+		"source":          "agent_memory_policy",
+		"memory_category": category,
+		"conversation_id": conversationID,
+	}
+}
+
+func extractPreferenceMemory(content string) (string, bool) {
+	prefixes := []string{
+		"i prefer ",
+		"i like ",
+		"i want you to ",
+		"please always ",
+		"我喜欢",
+		"我偏好",
+		"我希望你",
+		"请始终",
+		"请总是",
+	}
+	for _, clause := range explicitMemoryClauses(content) {
+		normalized := strings.ToLower(clause)
+		for _, prefix := range prefixes {
+			if strings.HasPrefix(normalized, prefix) || strings.HasPrefix(clause, prefix) {
+				return "User preference: " + clause, true
+			}
+		}
+	}
+	return "", false
+}
+
+func extractFactMemory(content string) (string, bool) {
+	factMarkers := []string{
+		"my company is ",
+		"our company is ",
+		"company name is ",
+		"my name is ",
+		"我的公司",
+		"公司名",
+		"公司名称",
+		"我叫",
+	}
+	for _, clause := range explicitMemoryClauses(content) {
+		normalized := strings.ToLower(clause)
+		for _, marker := range factMarkers {
+			if strings.Contains(normalized, marker) || strings.Contains(clause, marker) {
+				return "Important fact: " + clause, true
+			}
+		}
+	}
+	return "", false
+}
+
+func explicitMemoryClauses(content string) []string {
+	clauses := strings.FieldsFunc(content, func(r rune) bool {
+		switch r {
+		case '\n', '\r', '.', '。', '!', '！', '?', '？':
+			return true
+		default:
+			return false
+		}
+	})
+	result := make([]string, 0, len(clauses))
+	for _, clause := range clauses {
+		clause = strings.TrimSpace(clause)
+		if clause != "" {
+			result = append(result, clause)
+		}
+	}
+	return result
 }
 
 func (r *Runner) refreshDuplicateLongTermInteractionMemory(ctx context.Context, session auth.Session, agent *Agent, content string, embedding []float32) bool {

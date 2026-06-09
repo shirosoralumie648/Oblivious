@@ -4123,6 +4123,78 @@ func TestRunWithToolsStoresLongTermInteractionMemoryWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestRunWithToolsDerivesPreferenceAndFactLongTermMemories(t *testing.T) {
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+			Config:         Config{EnableMemory: true},
+		},
+		conversation: &Conversation{
+			ID:             "conv_1",
+			AgentID:        "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+		},
+	}
+	gateway := &fakeGateway{
+		structured: []*chat.CompletionResponse{
+			{Content: "I will remember that.", FinishReason: "stop"},
+		},
+	}
+	embedder := &fakeAgentMemoryEmbedder{
+		embeddings: map[string][]float32{
+			"User: I prefer concise answers. My company is Acme Labs.\nAssistant: I will remember that.": {0.1, 0.2},
+			"User preference: I prefer concise answers":                                                  {0.3, 0.4},
+			"Important fact: My company is Acme Labs":                                                    {0.5, 0.6},
+		},
+	}
+	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+	runner.SetMemoryEmbedder(embedder)
+
+	_, err := runner.RunWithTools(
+		context.Background(),
+		auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}},
+		store.agent,
+		store.conversation.ID,
+		"I prefer concise answers. My company is Acme Labs.",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("RunWithTools returned error: %v", err)
+	}
+	if len(store.memories) != 3 {
+		t.Fatalf("expected interaction, preference, and fact memories, got %+v", store.memories)
+	}
+	byCategory := map[string]*Memory{}
+	for _, memory := range store.memories {
+		category, _ := memory.Metadata["memory_category"].(string)
+		byCategory[category] = memory
+		if memory.Type != MemoryTypeLongTerm || memory.AgentID != "agent_1" || memory.UserID != "user_1" || memory.OrganizationID != "org_1" {
+			t.Fatalf("expected scoped long-term memory, got %+v", memory)
+		}
+		if memory.Metadata["conversation_id"] != "conv_1" {
+			t.Fatalf("expected conversation metadata, got %+v", memory.Metadata)
+		}
+	}
+	if byCategory["interaction"] == nil || byCategory["interaction"].Metadata["source"] != "agent_run" {
+		t.Fatalf("expected historical interaction memory, got %+v", byCategory)
+	}
+	if byCategory["preference"] == nil || byCategory["preference"].Content != "User preference: I prefer concise answers" || byCategory["preference"].Importance != 4 || byCategory["preference"].Metadata["source"] != "agent_memory_policy" {
+		t.Fatalf("expected derived preference memory, got %+v", byCategory["preference"])
+	}
+	if byCategory["fact"] == nil || byCategory["fact"].Content != "Important fact: My company is Acme Labs" || byCategory["fact"].Importance != 4 || byCategory["fact"].Metadata["source"] != "agent_memory_policy" {
+		t.Fatalf("expected derived fact memory, got %+v", byCategory["fact"])
+	}
+	if !containsString(embedder.texts, byCategory["interaction"].Content) ||
+		!containsString(embedder.texts, byCategory["preference"].Content) ||
+		!containsString(embedder.texts, byCategory["fact"].Content) {
+		t.Fatalf("expected all long-term memories to be embedded, got %+v", embedder.texts)
+	}
+}
+
 func TestRunWithToolsDeduplicatesAutomaticLongTermInteractionMemory(t *testing.T) {
 	content := "User: What should we remember about migrations?\nAssistant: Use the tenant-safe migration guard."
 	oldUpdatedAt := time.Date(2026, 6, 8, 10, 0, 0, 0, time.UTC)
@@ -4189,6 +4261,77 @@ func TestRunWithToolsDeduplicatesAutomaticLongTermInteractionMemory(t *testing.T
 	}
 	if !reflect.DeepEqual(store.updateMemoryEmbedding, []float32{0.4, 0.6}) {
 		t.Fatalf("expected duplicate memory refresh to update embedding, got %+v", store.updateMemoryEmbedding)
+	}
+}
+
+func TestRunWithToolsRefreshesDuplicateDerivedPreferenceMemory(t *testing.T) {
+	preferenceContent := "User preference: I prefer concise answers"
+	oldUpdatedAt := time.Date(2026, 6, 8, 10, 0, 0, 0, time.UTC)
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+			Config:         Config{EnableMemory: true},
+		},
+		conversation: &Conversation{
+			ID:             "conv_1",
+			AgentID:        "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+		},
+		memories: []*Memory{{
+			ID:             "memory_preference",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			AgentID:        "agent_1",
+			Type:           MemoryTypeLongTerm,
+			Content:        preferenceContent,
+			Importance:     4,
+			Metadata: map[string]any{
+				"source":          "agent_memory_policy",
+				"memory_category": "preference",
+				"conversation_id": "conv_1",
+			},
+			CreatedAt: oldUpdatedAt,
+			UpdatedAt: oldUpdatedAt,
+		}},
+	}
+	gateway := &fakeGateway{
+		structured: []*chat.CompletionResponse{
+			{Content: "Noted.", FinishReason: "stop"},
+		},
+	}
+	embedder := &fakeAgentMemoryEmbedder{
+		embeddings: map[string][]float32{
+			"User: I prefer concise answers.\nAssistant: Noted.": {0.1, 0.2},
+			preferenceContent: {0.3, 0.4},
+		},
+	}
+	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+	runner.SetMemoryEmbedder(embedder)
+
+	_, err := runner.RunWithTools(
+		context.Background(),
+		auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}},
+		store.agent,
+		store.conversation.ID,
+		"I prefer concise answers.",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("RunWithTools returned error: %v", err)
+	}
+	if len(store.memories) != 2 {
+		t.Fatalf("expected one refreshed preference plus one new interaction memory, got %+v", store.memories)
+	}
+	preference := store.memories[0]
+	if preference.ID != "memory_preference" || preference.UpdatedAt.Equal(oldUpdatedAt) || preference.Importance != 4 {
+		t.Fatalf("expected duplicate preference memory to be refreshed, got %+v", preference)
+	}
+	if !reflect.DeepEqual(store.updateMemoryEmbedding, []float32{0.3, 0.4}) {
+		t.Fatalf("expected duplicate preference refresh to update embedding, got %+v", store.updateMemoryEmbedding)
 	}
 }
 
@@ -4661,6 +4804,15 @@ func chatMessagesContent(messages []chat.Message) string {
 		builder.WriteString("\n")
 	}
 	return builder.String()
+}
+
+func containsString(values []string, expected string) bool {
+	for _, value := range values {
+		if value == expected {
+			return true
+		}
+	}
+	return false
 }
 
 // TestRunnerExhaustsIterationCap verifies that the Runner returns
