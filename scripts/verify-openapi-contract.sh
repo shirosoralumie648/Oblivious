@@ -2419,6 +2419,7 @@ require_chat_mutation_csrf_contract() {
       ["/api/v1/app/conversations", "post"] => ["200", "#/components/schemas/Conversation", :ref],
       ["/api/v1/app/conversations/{conversationId}", "put"] => ["200", "#/components/schemas/Conversation", :ref],
       ["/api/v1/app/conversations/{conversationId}", "delete"] => ["200", "#/components/schemas/ConversationDeleteResponse", :ref],
+      ["/api/v1/app/conversations/{conversationId}/fork", "post"] => ["200", "#/components/schemas/Conversation", :ref],
       ["/api/v1/app/conversations/{conversationId}/messages", "post"] => ["200", "#/components/schemas/Message", :array_ref],
       ["/api/v1/app/conversations/{conversationId}/messages/{messageId}", "put"] => ["200", "#/components/schemas/Message", :ref],
       ["/api/v1/app/conversations/{conversationId}/messages/{messageId}", "delete"] => ["200", "#/components/schemas/MessageDeleteResponse", :ref],
@@ -2449,6 +2450,7 @@ require_chat_mutation_csrf_contract() {
     {
       ["/api/v1/app/conversations", "post"] => "#/components/schemas/CreateConversationRequest",
       ["/api/v1/app/conversations/{conversationId}", "put"] => "#/components/schemas/UpdateConversationRequest",
+      ["/api/v1/app/conversations/{conversationId}/fork", "post"] => "#/components/schemas/ForkConversationRequest",
       ["/api/v1/app/conversations/{conversationId}/messages", "post"] => "#/components/schemas/SendMessageRequest",
       ["/api/v1/app/conversations/{conversationId}/messages/{messageId}", "put"] => "#/components/schemas/UpdateMessageRequest",
       ["/api/v1/app/conversations/{conversationId}/messages/{messageId}/bookmark", "post"] => "#/components/schemas/BookmarkMessageRequest",
@@ -2519,6 +2521,13 @@ require_chat_mutation_csrf_contract() {
     end
     unless schemas.dig("ConversationDeleteResponse", "properties", "status", "enum")&.include?("deleted")
       missing << "ConversationDeleteResponse.status must document deleted"
+    end
+    fork = schemas["ForkConversationRequest"] || {}
+    unless fork.fetch("required", []).include?("branchFromMessageId") &&
+        fork.dig("properties", "branchFromMessageId", "type") == "string" &&
+        fork.dig("properties", "messageId", "deprecated") == true &&
+        fork.dig("properties", "sourceConversationId", "type") == "string"
+      missing << "ForkConversationRequest must require branchFromMessageId, document legacy messageId, and allow sourceConversationId"
     end
     unless schemas.dig("Message", "properties", "bookmarked", "type") == "boolean"
       missing << "Message.bookmarked must be documented as boolean"

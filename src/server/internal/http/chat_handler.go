@@ -22,6 +22,7 @@ type createConversationRequest struct {
 type forkConversationRequest struct {
 	SourceConversationID string `json:"sourceConversationId"`
 	BranchFromMessageID  string `json:"branchFromMessageId"`
+	MessageID            string `json:"messageId"`
 	Title                string `json:"title"`
 }
 
@@ -121,7 +122,11 @@ func (h chatHandler) forkConversationFromSource(w stdhttp.ResponseWriter, r *std
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "sourceConversationId is required")
 		return
 	}
-	if strings.TrimSpace(payload.BranchFromMessageID) == "" {
+	branchFromMessageID := strings.TrimSpace(payload.BranchFromMessageID)
+	if branchFromMessageID == "" {
+		branchFromMessageID = strings.TrimSpace(payload.MessageID)
+	}
+	if branchFromMessageID == "" {
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "branchFromMessageId is required")
 		return
 	}
@@ -130,7 +135,7 @@ func (h chatHandler) forkConversationFromSource(w stdhttp.ResponseWriter, r *std
 		r.Context(),
 		session,
 		strings.TrimSpace(sourceConversationID),
-		strings.TrimSpace(payload.BranchFromMessageID),
+		branchFromMessageID,
 		strings.TrimSpace(payload.Title),
 	)
 	if err != nil {

@@ -142,6 +142,7 @@ export type CreateConversationRequest = {
 };
 
 export type ForkConversationRequest = {
+  branchFromMessageId?: string;
   messageId?: string;
   title?: string;
 };

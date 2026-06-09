@@ -22,6 +22,7 @@ type chatFakeStore struct {
 	lastMessageID         string
 	lastOrganizationID    string
 	lastPersonaID         string
+	lastBranchMessageID   string
 	messages              []chat.Message
 	lastWorkspaceID       string
 	lastKnowledgeBaseIDs  []string
@@ -133,6 +134,7 @@ func (f *chatFakeStore) ForkConversation(ctx context.Context, organizationID, wo
 	f.lastOrganizationID = organizationID
 	f.lastWorkspaceID = workspaceID
 	f.lastConversationID = sourceConversationID
+	f.lastBranchMessageID = branchFromMessageID
 	return chat.Conversation{ID: "forked_1", ParentID: sourceConversationID, Title: title}, nil
 }
 
@@ -465,6 +467,33 @@ func TestChatHandlerForkConversationReturnsFork(t *testing.T) {
 	}
 	if response.Data.ParentID != "conv_1" {
 		t.Fatalf("expected parent conv_1, got %s", response.Data.ParentID)
+	}
+	if store.lastBranchMessageID != "msg_3" {
+		t.Fatalf("expected branch message msg_3, got %s", store.lastBranchMessageID)
+	}
+}
+
+func TestChatHandlerForkConversationAcceptsLegacyMessageID(t *testing.T) {
+	store := &chatFakeStore{}
+	handler := newChatHandler(chat.NewService(store, noopReplyGenerator{}, "demo-reply", nil))
+	request := httptest.NewRequest(
+		stdhttp.MethodPost,
+		"/api/v1/app/conversations/conv_1/fork",
+		strings.NewReader(`{"messageId":"msg_legacy","title":"Legacy branch"}`),
+	).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+	}))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.forkConversationFromSource(recorder, request, "conv_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if store.lastConversationID != "conv_1" || store.lastBranchMessageID != "msg_legacy" {
+		t.Fatalf("expected source conv_1 and legacy branch message msg_legacy, got source=%s branch=%s", store.lastConversationID, store.lastBranchMessageID)
 	}
 }
 

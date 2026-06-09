@@ -138,8 +138,15 @@ export function createChatApi(client: HttpClient, options: ChatApiOptions = {}):
     },
     exportConversationMarkdown: (conversationId) =>
       client.get<string>(`/api/v1/app/conversations/${encodeURIComponent(conversationId)}/export.md`),
-    forkConversation: async (conversationId, payload) =>
-      normalizeConversationSummary(await client.post<ConversationSummary>(`/api/v1/app/conversations/${conversationId}/fork`, payload)),
+    forkConversation: async (conversationId, payload) => {
+      const { branchFromMessageId, messageId, ...rest } = payload;
+      return normalizeConversationSummary(
+        await client.post<ConversationSummary>(`/api/v1/app/conversations/${conversationId}/fork`, {
+          ...rest,
+          branchFromMessageId: branchFromMessageId ?? messageId
+        })
+      );
+    },
     bookmarkMessage: (conversationId, messageId, payload) =>
       client.post<ConversationMessage>(`${messagePath(conversationId, messageId)}/bookmark`, payload),
     getConversation: async (conversationId) =>

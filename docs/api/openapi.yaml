@@ -139,6 +139,21 @@ components:
         title:
           type: string
 
+    ForkConversationRequest:
+      type: object
+      required: [branchFromMessageId]
+      properties:
+        branchFromMessageId:
+          type: string
+        messageId:
+          type: string
+          deprecated: true
+          description: Legacy alias for branchFromMessageId.
+        title:
+          type: string
+        sourceConversationId:
+          type: string
+
     Conversation:
       type: object
       properties:
@@ -6195,6 +6210,43 @@ paths:
                     properties:
                       data:
                         $ref: "#/components/schemas/ConversationDeleteResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/app/conversations/{conversationId}/fork:
+    post:
+      summary: 从指定消息分叉对话
+      operationId: forkConversation
+      tags: [Chat]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ForkConversationRequest"
+      responses:
+        "200":
+          description: 分叉后的新对话
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Conversation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
 

@@ -73,3 +73,37 @@ func TestRegisterChatRoutesDispatchesAppConversationDetailCRUD(t *testing.T) {
 		})
 	}
 }
+
+func TestRegisterChatRoutesDispatchesAppConversationFork(t *testing.T) {
+	store := &chatFakeStore{}
+	handler := newChatHandler(chat.NewService(store, noopReplyGenerator{}, "demo-reply", nil))
+	session := auth.Session{
+		ID:             "session_1",
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+		User:           auth.User{ID: "user_1", Email: "user@example.com"},
+		ExpiresAt:      time.Date(2026, time.June, 5, 10, 0, 0, 0, time.UTC),
+	}
+	authMiddleware := newAuthMiddleware(config.Config{
+		SessionCookieName: "oblivious_session",
+		SessionSecret:     "test-secret",
+	}, auth.NewService(stubAuthStore{session: session}))
+	mux := stdhttp.NewServeMux()
+	registerChatRoutes(mux, authMiddleware, handler)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/conversations/conversation_1/fork", strings.NewReader(`{"branchFromMessageId":"message_3","title":"Branch"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(&stdhttp.Cookie{
+		Name:  "oblivious_session",
+		Value: authMiddleware.writeSessionCookieValue("session_1"),
+	})
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if store.lastConversationID != "conversation_1" || store.lastBranchMessageID != "message_3" || store.lastOrganizationID != "org_1" {
+		t.Fatalf("unexpected fork route target: conversation=%s branch=%s organization=%s", store.lastConversationID, store.lastBranchMessageID, store.lastOrganizationID)
+	}
+}

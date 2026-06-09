@@ -86,7 +86,7 @@ describe('createChatApi', () => {
     });
 
     expect(post).toHaveBeenCalledWith('/api/v1/app/conversations/conversation_1/fork', {
-      messageId: 'message_3',
+      branchFromMessageId: 'message_3',
       title: 'Forked launch review'
     });
   });
