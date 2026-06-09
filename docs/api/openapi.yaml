@@ -238,6 +238,86 @@ components:
         suggestedExecutionMode:
           type: string
 
+    CreateMessageShareRequest:
+      type: object
+      properties:
+        expiresAt:
+          type: string
+          format: date-time
+
+    CreateConversationShareRequest:
+      type: object
+      properties:
+        startMessageId:
+          type: string
+        endMessageId:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+
+    MessageShareResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        conversationId:
+          type: string
+        messageId:
+          type: string
+        organizationId:
+          type: string
+        url:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    MessageShareDetailResponse:
+      allOf:
+        - $ref: "#/components/schemas/MessageShareResponse"
+        - type: object
+          properties:
+            message:
+              $ref: "#/components/schemas/Message"
+
+    ConversationShareResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        conversationId:
+          type: string
+        organizationId:
+          type: string
+        startMessageId:
+          type: string
+        endMessageId:
+          type: string
+        url:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    ConversationShareDetailResponse:
+      allOf:
+        - $ref: "#/components/schemas/ConversationShareResponse"
+        - type: object
+          properties:
+            conversation:
+              $ref: "#/components/schemas/Conversation"
+            messages:
+              type: array
+              items:
+                $ref: "#/components/schemas/Message"
+
     Message:
       type: object
       properties:
@@ -5526,6 +5606,149 @@ paths:
                         $ref: "#/components/schemas/TaskDraft"
         "401":
           $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/app/conversations/{conversationId}/share:
+    post:
+      summary: 创建对话分享
+      operationId: createConversationShare
+      tags: [Chat]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateConversationShareRequest"
+      responses:
+        "201":
+          description: 对话分享已创建
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/ConversationShareResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/app/conversations/{conversationId}/messages/{messageId}/share:
+    post:
+      summary: 创建单条消息分享
+      operationId: createMessageShare
+      tags: [Chat]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: messageId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMessageShareRequest"
+      responses:
+        "201":
+          description: 消息分享已创建
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MessageShareResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/app/message-shares/{shareId}:
+    get:
+      summary: 公开读取消息分享
+      operationId: getMessageShare
+      tags: [Chat]
+      security: []
+      parameters:
+        - name: shareId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 消息分享详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MessageShareDetailResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "410":
+          description: 分享已过期
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+
+  /api/v1/app/conversation-shares/{shareId}:
+    get:
+      summary: 公开读取对话分享
+      operationId: getConversationShare
+      tags: [Chat]
+      security: []
+      parameters:
+        - name: shareId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 对话分享详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/ConversationShareDetailResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "410":
+          description: 分享已过期
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
 
   # ---- 知识库 (Knowledge) ----
   /api/v1/app/knowledge-bases:

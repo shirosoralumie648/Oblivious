@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"oblivious/server/internal/auth"
+	"oblivious/server/internal/chat"
 	"oblivious/server/internal/schedule"
 )
 
@@ -336,6 +337,8 @@ func TestRouteSurfaceChatMutationsRejectCookieWithoutCSRFWithoutDatabase(t *test
 		{"send message", stdhttp.MethodPost, "/api/v1/app/conversations/conversation_1/messages"},
 		{"update conversation config", stdhttp.MethodPut, "/api/v1/app/conversations/conversation_1/config"},
 		{"convert conversation to task", stdhttp.MethodPost, "/api/v1/app/conversations/conversation_1/convert-to-task"},
+		{"create conversation share", stdhttp.MethodPost, "/api/v1/app/conversations/conversation_1/share"},
+		{"create message share", stdhttp.MethodPost, "/api/v1/app/conversations/conversation_1/messages/message_1/share"},
 	}
 
 	for _, tt := range tests {
@@ -349,6 +352,34 @@ func TestRouteSurfaceChatMutationsRejectCookieWithoutCSRFWithoutDatabase(t *test
 
 			if recorder.Code != stdhttp.StatusForbidden {
 				t.Fatalf("expected missing csrf to be rejected with 403 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestRouteSurfaceChatPublicShareReadsDispatchWithoutSession(t *testing.T) {
+	handler := newChatHandler(chat.NewService(&chatFakeStore{}, noopReplyGenerator{}, "demo-reply", nil))
+	mux := stdhttp.NewServeMux()
+	authMiddleware := newAuthMiddleware(testConfig(), auth.NewService(stubAuthStore{}))
+	registerChatRoutes(mux, authMiddleware, handler)
+
+	tests := []routeSurfaceCase{
+		{"message share", stdhttp.MethodGet, "/api/v1/app/message-shares/msgshare_1"},
+		{"conversation share", stdhttp.MethodGet, "/api/v1/app/conversation-shares/convshare_1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, nil)
+
+			mux.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusOK {
+				t.Fatalf("expected public share route to dispatch without session for %s, got %d with body %s", tt.path, recorder.Code, recorder.Body.String())
+			}
+			if !strings.Contains(recorder.Body.String(), `"id":"`) {
+				t.Fatalf("expected share response payload, got %s", recorder.Body.String())
 			}
 		})
 	}

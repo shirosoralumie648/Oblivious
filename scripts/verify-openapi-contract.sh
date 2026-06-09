@@ -2030,6 +2030,8 @@ require_chat_mutation_csrf_contract() {
       ["/api/v1/app/conversations/{conversationId}/messages", "post"] => ["200", "#/components/schemas/Message", :array_ref],
       ["/api/v1/app/conversations/{conversationId}/config", "put"] => ["200", "#/components/schemas/ConversationConfig", :ref],
       ["/api/v1/app/conversations/{conversationId}/convert-to-task", "post"] => ["200", "#/components/schemas/TaskDraft", :ref],
+      ["/api/v1/app/conversations/{conversationId}/share", "post"] => ["201", "#/components/schemas/ConversationShareResponse", :ref],
+      ["/api/v1/app/conversations/{conversationId}/messages/{messageId}/share", "post"] => ["201", "#/components/schemas/MessageShareResponse", :ref],
     }
 
     expected_responses.each do |(path, method), (status, expected, shape)|
@@ -2050,10 +2052,28 @@ require_chat_mutation_csrf_contract() {
       ["/api/v1/app/conversations", "post"] => "#/components/schemas/CreateConversationRequest",
       ["/api/v1/app/conversations/{conversationId}/messages", "post"] => "#/components/schemas/SendMessageRequest",
       ["/api/v1/app/conversations/{conversationId}/config", "put"] => "#/components/schemas/UpdateConversationConfigRequest",
+      ["/api/v1/app/conversations/{conversationId}/share", "post"] => "#/components/schemas/CreateConversationShareRequest",
+      ["/api/v1/app/conversations/{conversationId}/messages/{messageId}/share", "post"] => "#/components/schemas/CreateMessageShareRequest",
     }.each do |(path, method), expected|
       op = operation(paths, path, method, missing)
       unless request_body_ref(op) == expected
         missing << "#{method.upcase} #{path} request body must reference #{expected}"
+      end
+    end
+
+    {
+      ["/api/v1/app/message-shares/{shareId}", "get"] => "#/components/schemas/MessageShareDetailResponse",
+      ["/api/v1/app/conversation-shares/{shareId}", "get"] => "#/components/schemas/ConversationShareDetailResponse",
+    }.each do |(path, method), expected|
+      op = operation(paths, path, method, missing)
+      unless op["security"] == []
+        missing << "#{method.upcase} #{path} must declare security: []"
+      end
+      unless op.fetch("tags", []).include?("Chat")
+        missing << "#{method.upcase} #{path} must be tagged Chat"
+      end
+      unless response_data_ref(op, "200") == expected
+        missing << "#{method.upcase} #{path} 200 data must reference #{expected}"
       end
     end
 
@@ -2065,6 +2085,22 @@ require_chat_mutation_csrf_contract() {
     end
     unless schemas.key?("TaskDraft")
       missing << "TaskDraft schema must be documented"
+    end
+    unless schemas.dig("CreateMessageShareRequest", "properties", "expiresAt", "format") == "date-time"
+      missing << "CreateMessageShareRequest.expiresAt must be documented as date-time"
+    end
+    unless schemas.dig("CreateConversationShareRequest", "properties", "startMessageId", "type") == "string" &&
+        schemas.dig("CreateConversationShareRequest", "properties", "endMessageId", "type") == "string" &&
+        schemas.dig("CreateConversationShareRequest", "properties", "expiresAt", "format") == "date-time"
+      missing << "CreateConversationShareRequest must document range fields and expiresAt"
+    end
+    unless schemas.dig("MessageShareResponse", "properties", "url", "type") == "string" &&
+        schemas.dig("ConversationShareResponse", "properties", "url", "type") == "string"
+      missing << "share response schemas must document url"
+    end
+    unless schemas.dig("MessageShareDetailResponse", "allOf")&.any? { |entry| entry.dig("properties", "message", "$ref") == "#/components/schemas/Message" } &&
+        schemas.dig("ConversationShareDetailResponse", "allOf")&.any? { |entry| entry.dig("properties", "messages", "items", "$ref") == "#/components/schemas/Message" }
+      missing << "share detail schemas must document message payloads"
     end
 
     unless missing.empty?
@@ -2809,6 +2845,10 @@ required_paths=(
   "/api/v1/app/quota"
   "/api/v1/app/packages"
   "/api/v1/app/quota/topup"
+  "/api/v1/app/conversations/{conversationId}/share"
+  "/api/v1/app/conversations/{conversationId}/messages/{messageId}/share"
+  "/api/v1/app/message-shares/{shareId}"
+  "/api/v1/app/conversation-shares/{shareId}"
   "/api/v1/scheduled-tasks"
   "/api/v1/scheduled-tasks/{scheduledTaskId}/runs"
   "/api/v1/scheduled-tasks/{scheduledTaskId}/status"
