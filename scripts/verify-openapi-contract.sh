@@ -2238,6 +2238,7 @@ require_task_mutation_csrf_contract() {
     file = ARGV.fetch(0)
     spec = YAML.load_file(file)
     paths = spec.fetch("paths", {})
+    schemas = spec.fetch("components", {}).fetch("schemas", {})
     missing = []
 
     def operation(paths, path, method, missing)
@@ -2264,15 +2265,17 @@ require_task_mutation_csrf_contract() {
         dig("properties", "data", "$ref")
     end
 
-    [
-      ["/api/v1/app/tasks", "post"],
-      ["/api/v1/app/tasks/{taskId}/start", "post"],
-      ["/api/v1/app/tasks/{taskId}/approve", "post"],
-      ["/api/v1/app/tasks/{taskId}/pause", "post"],
-      ["/api/v1/app/tasks/{taskId}/resume", "post"],
-      ["/api/v1/app/tasks/{taskId}/cancel", "post"],
-      ["/api/v1/app/tasks/{taskId}/budget", "post"],
-    ].each do |path, method|
+    expected_mutation_responses = {
+      ["/api/v1/app/tasks", "post"] => "#/components/schemas/Task",
+      ["/api/v1/app/tasks/{taskId}/start", "post"] => "#/components/schemas/TaskDetail",
+      ["/api/v1/app/tasks/{taskId}/approve", "post"] => "#/components/schemas/TaskDetail",
+      ["/api/v1/app/tasks/{taskId}/pause", "post"] => "#/components/schemas/TaskDetail",
+      ["/api/v1/app/tasks/{taskId}/resume", "post"] => "#/components/schemas/TaskDetail",
+      ["/api/v1/app/tasks/{taskId}/cancel", "post"] => "#/components/schemas/TaskDetail",
+      ["/api/v1/app/tasks/{taskId}/budget", "post"] => "#/components/schemas/TaskDetail",
+    }
+
+    expected_mutation_responses.each do |(path, method), expected_response|
       op = operation(paths, path, method, missing)
       unless requires_cookie_and_csrf?(op)
         missing << "#{method.upcase} #{path} must require cookieAuth and csrfHeader"
@@ -2280,9 +2283,15 @@ require_task_mutation_csrf_contract() {
       unless op.fetch("tags", []).include?("Task")
         missing << "#{method.upcase} #{path} must be tagged Task"
       end
-      unless response_data_ref(op, "200") == "#/components/schemas/Task"
-        missing << "#{method.upcase} #{path} 200 data must reference Task"
+      unless response_data_ref(op, "200") == expected_response
+        missing << "#{method.upcase} #{path} 200 data must reference #{expected_response}"
       end
+    end
+
+    detail = operation(paths, "/api/v1/app/tasks/{taskId}", "get", missing)
+    unless detail.fetch("tags", []).include?("Task") &&
+        response_data_ref(detail, "200") == "#/components/schemas/TaskDetail"
+      missing << "GET /api/v1/app/tasks/{taskId} 200 data must reference TaskDetail"
     end
 
     create = operation(paths, "/api/v1/app/tasks", "post", missing)
@@ -2295,6 +2304,44 @@ require_task_mutation_csrf_contract() {
     unless budget.dig("requestBody", "required") == true &&
         request_body_ref(budget) == "#/components/schemas/UpdateTaskBudgetRequest"
       missing << "POST /api/v1/app/tasks/{taskId}/budget request body must require UpdateTaskBudgetRequest"
+    end
+
+    create_request = schemas["CreateTaskRequest"] || {}
+    create_mode_enum = create_request.dig("properties", "executionMode", "enum") || []
+    unless ["standard", "safe", "auto"].all? { |mode| create_mode_enum.include?(mode) } &&
+        !["semi-auto", "manual"].any? { |mode| create_mode_enum.include?(mode) }
+      missing << "CreateTaskRequest.executionMode must enumerate runtime modes standard, safe, and auto only"
+    end
+    create_scope_enum = create_request.dig("properties", "authorizationScope", "enum") || []
+    unless ["knowledge_only", "workspace_tools", "full_access"].all? { |scope| create_scope_enum.include?(scope) }
+      missing << "CreateTaskRequest.authorizationScope must enumerate runtime scopes"
+    end
+
+    task = schemas["Task"] || {}
+    task_mode_enum = task.dig("properties", "executionMode", "enum") || []
+    unless ["standard", "safe", "auto"].all? { |mode| task_mode_enum.include?(mode) }
+      missing << "Task.executionMode must enumerate standard, safe, and auto"
+    end
+    task_status_enum = task.dig("properties", "status", "enum") || []
+    unless ["draft", "running", "paused", "awaiting_confirmation", "completed", "cancelled"].all? { |status| task_status_enum.include?(status) }
+      missing << "Task.status must document runtime lifecycle statuses"
+    end
+    unless task.dig("properties", "authorizationScope", "enum")&.include?("workspace_tools") &&
+        task.dig("properties", "budgetConsumed", "type") == "integer"
+      missing << "Task must expose authorizationScope and budgetConsumed runtime fields"
+    end
+
+    task_detail = schemas["TaskDetail"] || {}
+    detail_refs = task_detail.fetch("allOf", []).filter_map { |entry| entry["$ref"] }
+    detail_properties = task_detail.fetch("allOf", []).find { |entry| entry["properties"].is_a?(Hash) }&.fetch("properties", {}) || {}
+    unless detail_refs.include?("#/components/schemas/Task") &&
+        detail_properties.dig("steps", "items", "$ref") == "#/components/schemas/TaskStep" &&
+        detail_properties.dig("events", "items", "$ref") == "#/components/schemas/TaskEvent" &&
+        detail_properties.dig("resultArtifacts", "items", "$ref") == "#/components/schemas/TaskResultArtifact" &&
+        detail_properties.dig("knowledgeBaseIds", "items", "type") == "string" &&
+        detail_properties.dig("toolAllowList", "items", "type") == "string" &&
+        detail_properties.dig("toolDenyList", "items", "type") == "string"
+      missing << "TaskDetail must extend Task and expose steps, events, resultArtifacts, knowledgeBaseIds, and tool rule arrays"
     end
 
     unless missing.empty?

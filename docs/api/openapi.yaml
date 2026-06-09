@@ -877,9 +877,10 @@ components:
           example: "分析最近一个月的销售数据"
         executionMode:
           type: string
-          enum: [auto, semi-auto, manual]
+          enum: [standard, safe, auto]
         authorizationScope:
           type: string
+          enum: [knowledge_only, workspace_tools, full_access]
         budgetLimit:
           type: integer
         knowledgeBaseIds:
@@ -906,9 +907,108 @@ components:
           type: string
         status:
           type: string
-          enum: [draft, running, paused, completed, cancelled, failed]
+          enum: [draft, running, paused, awaiting_confirmation, completed, cancelled, failed, stopped]
+        executionMode:
+          type: string
+          enum: [standard, safe, auto]
+        authorizationScope:
+          type: string
+          enum: [knowledge_only, workspace_tools, full_access]
         budgetLimit:
           type: integer
+        budgetConsumed:
+          type: integer
+        resultSummary:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    TaskStep:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, paused, awaiting_confirmation, completed, cancelled, failed]
+        stepIndex:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    TaskEvent:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [started, running, paused, awaiting_confirmation, completed, cancelled, failed]
+        message:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    TaskResultArtifact:
+      type: object
+      properties:
+        label:
+          type: string
+        value:
+          type: string
+
+    TaskDetail:
+      allOf:
+        - $ref: "#/components/schemas/Task"
+        - type: object
+          properties:
+            currentStep:
+              type: string
+            events:
+              type: array
+              items:
+                $ref: "#/components/schemas/TaskEvent"
+            knowledgeBaseIds:
+              type: array
+              items:
+                type: string
+            resultArtifacts:
+              type: array
+              items:
+                $ref: "#/components/schemas/TaskResultArtifact"
+            steps:
+              type: array
+              items:
+                $ref: "#/components/schemas/TaskStep"
+            toolAllowList:
+              type: array
+              items:
+                type: string
+            toolDenyList:
+              type: array
+              items:
+                type: string
 
     UpdateTaskBudgetRequest:
       type: object
@@ -8615,7 +8715,7 @@ paths:
                   - type: object
                     properties:
                       data:
-                        $ref: "#/components/schemas/Task"
+                        $ref: "#/components/schemas/TaskDetail"
         "401":
           $ref: "#/components/responses/Unauthorized"
 
@@ -8644,7 +8744,7 @@ paths:
                   - type: object
                     properties:
                       data:
-                        $ref: "#/components/schemas/Task"
+                        $ref: "#/components/schemas/TaskDetail"
         "401":
           $ref: "#/components/responses/Unauthorized"
 
@@ -8673,7 +8773,7 @@ paths:
                   - type: object
                     properties:
                       data:
-                        $ref: "#/components/schemas/Task"
+                        $ref: "#/components/schemas/TaskDetail"
         "401":
           $ref: "#/components/responses/Unauthorized"
 
@@ -8702,7 +8802,7 @@ paths:
                   - type: object
                     properties:
                       data:
-                        $ref: "#/components/schemas/Task"
+                        $ref: "#/components/schemas/TaskDetail"
         "401":
           $ref: "#/components/responses/Unauthorized"
 
@@ -8731,7 +8831,7 @@ paths:
                   - type: object
                     properties:
                       data:
-                        $ref: "#/components/schemas/Task"
+                        $ref: "#/components/schemas/TaskDetail"
         "401":
           $ref: "#/components/responses/Unauthorized"
 
@@ -8760,7 +8860,7 @@ paths:
                   - type: object
                     properties:
                       data:
-                        $ref: "#/components/schemas/Task"
+                        $ref: "#/components/schemas/TaskDetail"
         "401":
           $ref: "#/components/responses/Unauthorized"
 
@@ -8795,7 +8895,7 @@ paths:
                   - type: object
                     properties:
                       data:
-                        $ref: "#/components/schemas/Task"
+                        $ref: "#/components/schemas/TaskDetail"
         "401":
           $ref: "#/components/responses/Unauthorized"
 

@@ -179,6 +179,53 @@ func TestCreateNormalizesGoalKnowledgeBaseIDsAndToolRules(t *testing.T) {
 	}
 }
 
+func TestCreateNormalizesExecutionModeRuntimeEnums(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{input: "auto", want: "auto"},
+		{input: "safe", want: "safe"},
+		{input: "standard", want: "standard"},
+		{input: "manual", want: "standard"},
+		{input: "semi-auto", want: "standard"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			store := &fakeStore{
+				createdTask: Task{
+					ExecutionMode: tt.want,
+					Goal:          "Review runtime mode",
+					ID:            "task_mode",
+					Status:        "draft",
+					Title:         "Review runtime mode",
+				},
+			}
+			service := NewService(store)
+
+			if _, err := service.Create(
+				context.Background(),
+				auth.Session{WorkspaceID: "workspace_1"},
+				"",
+				"Review runtime mode",
+				tt.input,
+				"",
+				0,
+				nil,
+				nil,
+				nil,
+			); err != nil {
+				t.Fatalf("create task: %v", err)
+			}
+
+			if store.createdExecutionMode != tt.want {
+				t.Fatalf("expected execution mode %q, got %q", tt.want, store.createdExecutionMode)
+			}
+		})
+	}
+}
+
 func TestStartReturnsTaskDetailForWorkspace(t *testing.T) {
 	startedAt := time.Date(2026, time.April, 3, 19, 0, 0, 0, time.UTC)
 	store := &fakeStore{
