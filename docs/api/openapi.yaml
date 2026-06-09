@@ -328,9 +328,31 @@ components:
           enum: [user, assistant, system]
         content:
           type: string
+        bookmarked:
+          type: boolean
         createdAt:
           type: string
           format: date-time
+
+    UpdateMessageRequest:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+
+    BookmarkMessageRequest:
+      type: object
+      properties:
+        bookmarked:
+          type: boolean
+
+    MessageDeleteResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [deleted]
 
     Model:
       type: object
@@ -6298,6 +6320,119 @@ paths:
                         $ref: "#/components/schemas/MessageShareResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/app/conversations/{conversationId}/messages/{messageId}:
+    put:
+      summary: 更新消息内容
+      operationId: updateMessage
+      tags: [Chat]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: messageId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMessageRequest"
+      responses:
+        "200":
+          description: 更新后的消息
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Message"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    delete:
+      summary: 删除消息
+      operationId: deleteMessage
+      tags: [Chat]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: messageId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 消息已删除
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MessageDeleteResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/app/conversations/{conversationId}/messages/{messageId}/bookmark:
+    post:
+      summary: 收藏或取消收藏消息
+      operationId: bookmarkMessage
+      tags: [Chat]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: messageId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BookmarkMessageRequest"
+      responses:
+        "200":
+          description: 更新后的消息
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Message"
         "401":
           $ref: "#/components/responses/Unauthorized"
 

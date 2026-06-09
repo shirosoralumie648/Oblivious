@@ -2418,6 +2418,9 @@ require_chat_mutation_csrf_contract() {
     expected_responses = {
       ["/api/v1/app/conversations", "post"] => ["200", "#/components/schemas/Conversation", :ref],
       ["/api/v1/app/conversations/{conversationId}/messages", "post"] => ["200", "#/components/schemas/Message", :array_ref],
+      ["/api/v1/app/conversations/{conversationId}/messages/{messageId}", "put"] => ["200", "#/components/schemas/Message", :ref],
+      ["/api/v1/app/conversations/{conversationId}/messages/{messageId}", "delete"] => ["200", "#/components/schemas/MessageDeleteResponse", :ref],
+      ["/api/v1/app/conversations/{conversationId}/messages/{messageId}/bookmark", "post"] => ["200", "#/components/schemas/Message", :ref],
       ["/api/v1/app/conversations/{conversationId}/config", "put"] => ["200", "#/components/schemas/ConversationConfig", :ref],
       ["/api/v1/app/conversations/{conversationId}/convert-to-task", "post"] => ["200", "#/components/schemas/TaskDraft", :ref],
       ["/api/v1/app/conversations/{conversationId}/share", "post"] => ["201", "#/components/schemas/ConversationShareResponse", :ref],
@@ -2444,6 +2447,8 @@ require_chat_mutation_csrf_contract() {
     {
       ["/api/v1/app/conversations", "post"] => "#/components/schemas/CreateConversationRequest",
       ["/api/v1/app/conversations/{conversationId}/messages", "post"] => "#/components/schemas/SendMessageRequest",
+      ["/api/v1/app/conversations/{conversationId}/messages/{messageId}", "put"] => "#/components/schemas/UpdateMessageRequest",
+      ["/api/v1/app/conversations/{conversationId}/messages/{messageId}/bookmark", "post"] => "#/components/schemas/BookmarkMessageRequest",
       ["/api/v1/app/conversations/{conversationId}/config", "put"] => "#/components/schemas/UpdateConversationConfigRequest",
       ["/api/v1/app/conversations/{conversationId}/share", "post"] => "#/components/schemas/CreateConversationShareRequest",
       ["/api/v1/app/conversations/{conversationId}/messages/{messageId}/share", "post"] => "#/components/schemas/CreateMessageShareRequest",
@@ -2504,6 +2509,19 @@ require_chat_mutation_csrf_contract() {
     end
     unless schemas.key?("TaskDraft")
       missing << "TaskDraft schema must be documented"
+    end
+    unless schemas.dig("Message", "properties", "bookmarked", "type") == "boolean"
+      missing << "Message.bookmarked must be documented as boolean"
+    end
+    update_message = schemas["UpdateMessageRequest"] || {}
+    unless update_message.fetch("required", []).include?("content") && update_message.dig("properties", "content", "type") == "string"
+      missing << "UpdateMessageRequest.content must be required and documented as string"
+    end
+    unless schemas.dig("BookmarkMessageRequest", "properties", "bookmarked", "type") == "boolean"
+      missing << "BookmarkMessageRequest.bookmarked must be documented as boolean"
+    end
+    unless schemas.dig("MessageDeleteResponse", "properties", "status", "enum")&.include?("deleted")
+      missing << "MessageDeleteResponse.status must document deleted"
     end
     persona = schemas["Persona"] || {}
     persona_props = persona.fetch("properties", {})
