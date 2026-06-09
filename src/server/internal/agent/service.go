@@ -1555,14 +1555,6 @@ func (s *Service) RetryPlanStep(ctx context.Context, session auth.Session, planS
 	if step.Status != PlanStepStatusFailed {
 		return nil, fmt.Errorf("plan step is not failed")
 	}
-	if _, err := s.store.UpdateRun(ctx, session.OrganizationID, step.RunID, UpdateRunRequest{
-		Status:           stringPointer(RunStatusPendingApproval),
-		Error:            stringPointer(""),
-		ClearCompletedAt: true,
-	}); err != nil {
-		return nil, err
-	}
-
 	retryStatus := PlanStepStatusPending
 	retryApprovalStatus := ApprovalStatusPending
 	if step.ApprovalStatus == ApprovalStatusApproved {
@@ -1571,6 +1563,19 @@ func (s *Service) RetryPlanStep(ctx context.Context, session auth.Session, planS
 	} else if step.ApprovalStatus == ApprovalStatusNotRequired {
 		retryApprovalStatus = ApprovalStatusNotRequired
 	}
+	if retryStatus == PlanStepStatusApproved || step.ApprovalStatus == ApprovalStatusNotRequired {
+		if err := s.ensurePriorPlanStepsDone(ctx, session, step); err != nil {
+			return nil, err
+		}
+	}
+	if _, err := s.store.UpdateRun(ctx, session.OrganizationID, step.RunID, UpdateRunRequest{
+		Status:           stringPointer(RunStatusPendingApproval),
+		Error:            stringPointer(""),
+		ClearCompletedAt: true,
+	}); err != nil {
+		return nil, err
+	}
+
 	reopened, err := s.store.UpdatePlanStep(ctx, session.OrganizationID, planStepID, UpdatePlanStepRequest{
 		Status:           stringPointer(retryStatus),
 		ApprovalStatus:   stringPointer(retryApprovalStatus),

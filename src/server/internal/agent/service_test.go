@@ -1216,6 +1216,81 @@ func TestServiceRetryPlanStepReopensPendingApprovalStepWithoutExecuting(t *testi
 	}
 }
 
+func TestServiceRetryPlanStepRejectsOutOfOrderRetryWithoutClearingFailure(t *testing.T) {
+	now := time.Now().UTC()
+	completedAt := now.Add(time.Minute)
+	store := &fakeStore{
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Status:         RunStatusFailed,
+			Error:          "step 2 failed",
+			StartedAt:      now,
+			CompletedAt:    &completedAt,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+		planSteps: []*PlanStep{
+			{
+				ID:             "step_1",
+				RunID:          "run_1",
+				OrganizationID: "org_1",
+				Index:          1,
+				Title:          "Still pending",
+				Status:         PlanStepStatusPending,
+				ApprovalStatus: ApprovalStatusNotRequired,
+				CreatedAt:      now,
+				UpdatedAt:      now,
+			},
+			{
+				ID:             "step_2",
+				RunID:          "run_1",
+				OrganizationID: "org_1",
+				Index:          2,
+				Title:          "Failed after being approved",
+				Status:         PlanStepStatusFailed,
+				ApprovalStatus: ApprovalStatusApproved,
+				ResultContent:  "partial output",
+				Error:          "old failure",
+				StartedAt:      &now,
+				CompletedAt:    &completedAt,
+				CreatedAt:      now,
+				UpdatedAt:      now,
+			},
+		},
+	}
+	executor := &fakePlanStepExecutor{resultContent: "should not run out of order"}
+	service := NewService(store, &fakeGateway{})
+	service.SetPlanStepExecutor(executor)
+	session := auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}}
+
+	reopened, err := service.RetryPlanStep(context.Background(), session, "step_2")
+	if err == nil || !strings.Contains(err.Error(), "prior plan step 1 must be completed or skipped before executing step 2") {
+		t.Fatalf("expected out-of-order retry rejection, got step=%+v err=%v", reopened, err)
+	}
+	if executor.calls != 0 {
+		t.Fatalf("expected executor not to run after out-of-order retry, got %d calls", executor.calls)
+	}
+	run, err := store.GetRun(context.Background(), "org_1", "run_1")
+	if err != nil {
+		t.Fatalf("GetRun returned error: %v", err)
+	}
+	if run.Status != RunStatusFailed || run.Error != "step 2 failed" || run.CompletedAt != &completedAt {
+		t.Fatalf("expected out-of-order retry to preserve run failure evidence, got %+v", run)
+	}
+	step, err := store.GetPlanStep(context.Background(), "org_1", "step_2")
+	if err != nil {
+		t.Fatalf("GetPlanStep returned error: %v", err)
+	}
+	if step.Status != PlanStepStatusFailed || step.ApprovalStatus != ApprovalStatusApproved ||
+		step.ResultContent != "partial output" || step.Error != "old failure" || step.CompletedAt != &completedAt {
+		t.Fatalf("expected out-of-order retry to preserve failed step evidence, got %+v", step)
+	}
+}
+
 func TestServiceRetryPlanStepRejectsNonFailedStep(t *testing.T) {
 	now := time.Now().UTC()
 	store := &fakeStore{
