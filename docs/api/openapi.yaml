@@ -4295,6 +4295,67 @@ components:
           type: string
           format: date-time
 
+    AdminAPIToken:
+      type: object
+      properties:
+        id:
+          type: string
+        organizationId:
+          type: string
+        userId:
+          type: string
+        userEmail:
+          type: string
+        name:
+          type: string
+        tokenPrefix:
+          type: string
+          description: Token prefix only; raw token and hashes are never returned by admin list APIs.
+        status:
+          type: string
+          enum: [active, revoked]
+        userGroup:
+          type: string
+        modelLimitsEnabled:
+          type: boolean
+        modelLimits:
+          type: array
+          items:
+            type: string
+        quotaLimit:
+          type: number
+          format: double
+        usedQuota:
+          type: number
+          format: double
+        requestCount:
+          type: integer
+        totalCost:
+          type: number
+          format: double
+        expiresAt:
+          type: string
+          format: date-time
+        lastUsedAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        revokedAt:
+          type: string
+          format: date-time
+
+    AdminAPITokenListResponse:
+      type: object
+      properties:
+        apiTokens:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminAPIToken"
+        total:
+          type: integer
+
     CreateRelayAPITokenRequest:
       type: object
       required: [name]
@@ -13168,6 +13229,95 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/api-tokens:
+    get:
+      summary: 检索全局 Relay API token 运行视图
+      operationId: listAdminAPITokens
+      tags: [Admin, Relay]
+      parameters:
+        - name: organizationID
+          in: query
+          schema:
+            type: string
+        - name: userID
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, revoked]
+        - name: userGroup
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: model
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Admin-wide token inspection rows; only token prefixes and operational fields are returned.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminAPITokenListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/api-tokens/{tokenId}/revoke:
+    post:
+      summary: 管理员撤销 Relay API token
+      operationId: revokeAdminAPIToken
+      tags: [Admin, Relay]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      parameters:
+        - name: tokenId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: token 已撤销
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/RelayAPITokenRevokeResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /api/v1/admin/settings/relay-pricing:
     get:

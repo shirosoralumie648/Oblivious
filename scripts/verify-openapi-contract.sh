@@ -2233,6 +2233,88 @@ require_console_api_token_csrf_contract() {
   ' "$openapi_file"
 }
 
+require_admin_api_token_contract() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+    paths = spec.fetch("paths", {})
+    schemas = spec.fetch("components", {}).fetch("schemas", {})
+    missing = []
+
+    def operation(paths, path, method, missing)
+      op = paths.dig(path, method)
+      unless op
+        missing << "#{method.upcase} #{path} must be documented"
+        return {}
+      end
+      op
+    end
+
+    def requires_cookie_and_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
+    end
+
+    def response_data_ref(operation, status)
+      operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "$ref") }&.
+        dig("properties", "data", "$ref")
+    end
+
+    list = operation(paths, "/api/v1/admin/api-tokens", "get", missing)
+    revoke = operation(paths, "/api/v1/admin/api-tokens/{tokenId}/revoke", "post", missing)
+
+    {
+      "GET /api/v1/admin/api-tokens" => list,
+      "POST /api/v1/admin/api-tokens/{tokenId}/revoke" => revoke,
+    }.each do |label, op|
+      tags = op.fetch("tags", [])
+      missing << "#{label} must be tagged Admin" unless tags.include?("Admin")
+      missing << "#{label} must be tagged Relay" unless tags.include?("Relay")
+    end
+
+    unless requires_cookie_and_csrf?(revoke)
+      missing << "POST /api/v1/admin/api-tokens/{tokenId}/revoke must require cookieAuth and csrfHeader"
+    end
+    unless response_data_ref(list, "200") == "#/components/schemas/AdminAPITokenListResponse"
+      missing << "GET /api/v1/admin/api-tokens 200 data must reference AdminAPITokenListResponse"
+    end
+    unless response_data_ref(revoke, "200") == "#/components/schemas/RelayAPITokenRevokeResponse"
+      missing << "POST /api/v1/admin/api-tokens/{tokenId}/revoke 200 data must reference RelayAPITokenRevokeResponse"
+    end
+
+    parameter_names = list.fetch("parameters", []).map { |param| param["name"] }
+    ["organizationID", "userID", "status", "userGroup", "search", "model", "limit", "offset"].each do |name|
+      missing << "GET /api/v1/admin/api-tokens must document #{name} query parameter" unless parameter_names.include?(name)
+    end
+
+    list_schema = schemas["AdminAPITokenListResponse"] || {}
+    unless list_schema.dig("properties", "apiTokens", "items", "$ref") == "#/components/schemas/AdminAPIToken" &&
+        list_schema.dig("properties", "total", "type") == "integer"
+      missing << "AdminAPITokenListResponse must expose apiTokens[] plus integer total"
+    end
+
+    admin_token_props = schemas.fetch("AdminAPIToken", {}).fetch("properties", {})
+    ["id", "organizationId", "userId", "userEmail", "name", "tokenPrefix", "status", "modelLimitsEnabled", "modelLimits", "quotaLimit", "usedQuota", "requestCount", "totalCost", "createdAt"].each do |field|
+      missing << "AdminAPIToken.#{field} must be documented" unless admin_token_props.key?(field)
+    end
+    ["rawToken", "tokenHash", "token_hash"].each do |field|
+      missing << "AdminAPIToken must not expose #{field}" if admin_token_props.key?(field)
+    end
+
+    relay_token_props = schemas.fetch("RelayAPIToken", {}).fetch("properties", {})
+    ["rawToken", "tokenHash", "token_hash"].each do |field|
+      missing << "RelayAPIToken list schema must not expose #{field}" if relay_token_props.key?(field)
+    end
+
+    unless missing.empty?
+      warn "[openapi-contract] Admin API token contract is incomplete:"
+      missing.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 require_task_mutation_csrf_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
@@ -3658,6 +3740,8 @@ required_paths=(
   "/api/v1/admin/billing/payouts/{payoutId}/paid"
   "/api/v1/admin/billing/payouts/{payoutId}/failed"
   "/api/v1/admin/stats"
+  "/api/v1/admin/api-tokens"
+  "/api/v1/admin/api-tokens/{tokenId}/revoke"
   "/api/v1/admin/routes"
   "/api/v1/admin/routes/{routeId}"
   "/api/v1/admin/plans"
@@ -3834,6 +3918,7 @@ require_tenant_organization_mutation_csrf_contract
 require_workflow_management_csrf_contract
 require_workflow_execution_control_csrf_contract
 require_console_api_token_csrf_contract
+require_admin_api_token_contract
 require_task_mutation_csrf_contract
 require_notification_mutation_csrf_contract
 require_scheduled_task_contract

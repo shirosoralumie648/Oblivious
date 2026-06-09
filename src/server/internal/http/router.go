@@ -754,6 +754,25 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 		}
 		adminHandler.getStats(w, r)
 	})))
+	mux.Handle("/api/v1/admin/api-tokens", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.Method != stdhttp.MethodGet {
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		adminHandler.listAPITokens(w, r)
+	})))
+	mux.Handle("/api/v1/admin/api-tokens/", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/admin/api-tokens/"), "/"), "/")
+		if len(parts) == 2 && parts[0] != "" && parts[1] == "revoke" {
+			if r.Method != stdhttp.MethodPost {
+				writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+				return
+			}
+			adminHandler.revokeAPIToken(w, r, parts[0])
+			return
+		}
+		writeError(w, stdhttp.StatusNotFound, "not_found", "route not found")
+	})))
 	mux.Handle("/api/v1/admin/settings/relay-pricing", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		switch r.Method {
 		case stdhttp.MethodGet:

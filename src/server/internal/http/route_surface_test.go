@@ -326,6 +326,25 @@ func TestRouteSurfaceRegistersConsoleAPITokenRoutes(t *testing.T) {
 	}
 }
 
+func TestRouteSurfaceRegistersAdminAPITokenRoutes(t *testing.T) {
+	source, err := os.ReadFile("router.go")
+	if err != nil {
+		t.Fatalf("read router.go: %v", err)
+	}
+	text := string(source)
+
+	for _, expected := range []string{
+		`mux.Handle("/api/v1/admin/api-tokens"`,
+		`mux.Handle("/api/v1/admin/api-tokens/"`,
+		"adminHandler.listAPITokens",
+		"adminHandler.revokeAPIToken",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("expected NewRouterWithOptions to expose Admin API token route surface containing %q", expected)
+		}
+	}
+}
+
 func TestRouteSurfaceRequiresSessionForConsoleAPITokenRoutesWithoutDatabase(t *testing.T) {
 	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{})
 
@@ -1094,6 +1113,22 @@ func TestRouteSurfaceAdminSettingsRejectAdminCookieWithoutCSRFWithoutDatabase(t 
 	}
 }
 
+func TestRouteSurfaceAdminAPITokenRevokeRejectsAdminCookieWithoutCSRFWithoutDatabase(t *testing.T) {
+	session := routeSurfaceAdminSession()
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}})
+	cookie := routeSurfaceSignedSessionCookie(t, session)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/admin/api-tokens/tok_1/revoke", nil)
+	request.AddCookie(cookie)
+
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusForbidden {
+		t.Fatalf("expected missing csrf to be rejected with 403 for admin API token revoke, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestRouteSurfaceAdminSettingsDispatchWithCSRFWithoutDatabase(t *testing.T) {
 	session := routeSurfaceAdminSession()
 	session.OrganizationID = "org_settings_route"
@@ -1840,6 +1875,8 @@ func routeSurfaceAdminSubRouteCases() []routeSurfaceCase {
 		{"settings usage limits get", stdhttp.MethodGet, "/api/v1/admin/settings/usage-limits"},
 		{"settings usage limits update", stdhttp.MethodPut, "/api/v1/admin/settings/usage-limits"},
 		{"core stats", stdhttp.MethodGet, "/api/v1/admin/stats"},
+		{"core api tokens list", stdhttp.MethodGet, "/api/v1/admin/api-tokens"},
+		{"core api token revoke", stdhttp.MethodPost, "/api/v1/admin/api-tokens/tok_1/revoke"},
 		{"core routes list", stdhttp.MethodGet, "/api/v1/admin/routes"},
 		{"core routes create", stdhttp.MethodPost, "/api/v1/admin/routes"},
 		{"core route get", stdhttp.MethodGet, "/api/v1/admin/routes/route_1"},
