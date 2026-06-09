@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"oblivious/server/internal/agent"
@@ -9,12 +10,14 @@ import (
 )
 
 type planningRuntimeFakeGateway struct {
-	responses []*chat.CompletionResponse
-	calls     int
+	responses    []*chat.CompletionResponse
+	calls        int
+	lastMessages []chat.Message
 }
 
 func (g *planningRuntimeFakeGateway) GenerateStructuredReply(ctx context.Context, messages []chat.Message, config chat.ConversationConfig, tools []map[string]any) (*chat.CompletionResponse, error) {
 	g.calls++
+	g.lastMessages = append([]chat.Message(nil), messages...)
 	if g.calls <= len(g.responses) {
 		return g.responses[g.calls-1], nil
 	}
@@ -75,6 +78,50 @@ func TestPlanningEngineExecutePlanHandlesOneBasedStepIndexes(t *testing.T) {
 	}
 	if gateway.calls != 1 {
 		t.Fatalf("expected one step gateway call, got %d", gateway.calls)
+	}
+}
+
+func TestPlanningEngineAdjustPlanClampsMaxSteps(t *testing.T) {
+	gateway := &planningRuntimeFakeGateway{responses: []*chat.CompletionResponse{{
+		Content: `{
+			"goal": "finish remaining work",
+			"steps": [
+				{"index": 1, "title": "Recover"},
+				{"index": 2, "title": "Verify"},
+				{"index": 3, "title": "Report"}
+			]
+		}`,
+	}}}
+	engine := NewPlanningEngine(gateway, nil)
+	original := Plan{
+		Goal: "ship dynamic planning",
+		Steps: []PlanStep{{
+			Index: 1,
+			Title: "Inspect",
+		}},
+	}
+	completed := []StepResult{{
+		Index:  1,
+		Title:  "Inspect",
+		Status: "completed",
+		Result: "found a budget boundary",
+	}}
+
+	plan, err := engine.AdjustPlan(context.Background(), &agent.Agent{Model: "gpt-4o-mini"}, original, completed, "step budget changed", PlanningConfig{MaxSteps: 2})
+	if err != nil {
+		t.Fatalf("AdjustPlan returned error: %v", err)
+	}
+	if gateway.calls != 1 {
+		t.Fatalf("expected one adjustment gateway call, got %d", gateway.calls)
+	}
+	if len(plan.Steps) != 2 {
+		t.Fatalf("expected adjusted plan to be clamped to 2 steps, got %+v", plan.Steps)
+	}
+	if plan.Steps[0].Title != "Recover" || plan.Steps[1].Title != "Verify" {
+		t.Fatalf("expected adjusted plan to preserve the first two revised steps, got %+v", plan.Steps)
+	}
+	if len(gateway.lastMessages) != 1 || !strings.Contains(gateway.lastMessages[0].Content, "step budget changed") || !strings.Contains(gateway.lastMessages[0].Content, "found a budget boundary") {
+		t.Fatalf("expected adjustment prompt to include reason and completed-step evidence, got %+v", gateway.lastMessages)
 	}
 }
 

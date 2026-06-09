@@ -273,10 +273,15 @@ func (e *PlanningEngine) GenerateAndExecutePlan(ctx context.Context, agentInstan
 }
 
 // AdjustPlan dynamically re-plans based on current execution state.
-func (e *PlanningEngine) AdjustPlan(ctx context.Context, agentInstance *agent.Agent, originalPlan Plan, completedSteps []StepResult, reason string) (*Plan, error) {
+func (e *PlanningEngine) AdjustPlan(ctx context.Context, agentInstance *agent.Agent, originalPlan Plan, completedSteps []StepResult, reason string, configs ...PlanningConfig) (*Plan, error) {
 	if e.gateway == nil {
 		return nil, fmt.Errorf("planning engine: gateway not configured")
 	}
+	cfg := PlanningConfig{}
+	if len(configs) > 0 {
+		cfg = configs[0]
+	}
+	cfg = NormalizePlanningConfig(cfg)
 
 	adjustmentPrompt := fmt.Sprintf("The original plan has been partially executed and needs adjustment. Reason: %s\n\nOriginal plan: %s\n\nCompleted steps: %s\n\nProduce a revised plan for the remaining work only.", reason, mustJSON(originalPlan), mustJSON(completedSteps))
 
@@ -307,6 +312,9 @@ func (e *PlanningEngine) AdjustPlan(ctx context.Context, agentInstance *agent.Ag
 	newPlan, err := parsePlan(reply.Content)
 	if err != nil {
 		return nil, fmt.Errorf("planning engine: parse adjusted plan: %w", err)
+	}
+	if len(newPlan.Steps) > cfg.MaxSteps {
+		newPlan.Steps = newPlan.Steps[:cfg.MaxSteps]
 	}
 	return &newPlan, nil
 }
