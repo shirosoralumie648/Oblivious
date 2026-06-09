@@ -1089,6 +1089,81 @@ func TestRouteSurfaceWorkflowExecutionControlMutationsRejectCookieWithoutCSRFWit
 	}
 }
 
+func TestRouteSurfaceWorkflowManagementMutationsRejectCookieWithoutCSRFWithoutDatabase(t *testing.T) {
+	session := routeSurfaceUserSession()
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}})
+	cookie := routeSurfaceSignedSessionCookie(t, session)
+
+	tests := []routeSurfaceCase{
+		{"create workflow", stdhttp.MethodPost, "/api/v1/workflows"},
+		{"semantic matches", stdhttp.MethodPost, "/api/v1/workflows/semantic-matches"},
+		{"conversation matches", stdhttp.MethodPost, "/api/v1/workflows/conversation-matches"},
+		{"update workflow", stdhttp.MethodPut, "/api/v1/workflows/workflow_1"},
+		{"delete workflow", stdhttp.MethodDelete, "/api/v1/workflows/workflow_1"},
+		{"execute workflow", stdhttp.MethodPost, "/api/v1/workflows/workflow_1/execute"},
+		{"session webhook", stdhttp.MethodPost, "/api/v1/workflows/workflow_1/webhook"},
+		{"create branch", stdhttp.MethodPost, "/api/v1/workflows/workflow_1/branches"},
+		{"publish branch", stdhttp.MethodPost, "/api/v1/workflows/workflow_1/branches/branch_1/publish"},
+		{"merge branch", stdhttp.MethodPost, "/api/v1/workflows/workflow_1/branches/branch_1/merge"},
+		{"rollback workflow", stdhttp.MethodPost, "/api/v1/workflows/workflow_1/rollback"},
+		{"test node", stdhttp.MethodPost, "/api/v1/workflows/workflow_1/test-node"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(`{"name":"Workflow","definition":{"nodes":[{"id":"start"}]},"message":"hello","conversationId":"conversation_1","version":1,"nodeId":"start"}`))
+			request.Header.Set("Content-Type", "application/json")
+			request.AddCookie(cookie)
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusForbidden {
+				t.Fatalf("expected missing csrf to be rejected with 403 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestRouteSurfaceWorkflowManagementMutationsDispatchWithCSRFWithoutDatabase(t *testing.T) {
+	session := routeSurfaceUserSession()
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}})
+	cookie := routeSurfaceSignedSessionCookie(t, session)
+	csrfToken := routeSurfaceCSRFToken(session)
+
+	tests := []routeSurfaceCase{
+		{"create workflow", stdhttp.MethodPost, "/api/v1/workflows"},
+		{"semantic matches", stdhttp.MethodPost, "/api/v1/workflows/semantic-matches"},
+		{"conversation matches", stdhttp.MethodPost, "/api/v1/workflows/conversation-matches"},
+		{"update workflow", stdhttp.MethodPut, "/api/v1/workflows/workflow_1"},
+		{"delete workflow", stdhttp.MethodDelete, "/api/v1/workflows/workflow_1"},
+		{"execute workflow", stdhttp.MethodPost, "/api/v1/workflows/workflow_1/execute"},
+		{"session webhook", stdhttp.MethodPost, "/api/v1/workflows/workflow_1/webhook"},
+		{"create branch", stdhttp.MethodPost, "/api/v1/workflows/workflow_1/branches"},
+		{"publish branch", stdhttp.MethodPost, "/api/v1/workflows/workflow_1/branches/branch_1/publish"},
+		{"merge branch", stdhttp.MethodPost, "/api/v1/workflows/workflow_1/branches/branch_1/merge"},
+		{"rollback workflow", stdhttp.MethodPost, "/api/v1/workflows/workflow_1/rollback"},
+		{"test node", stdhttp.MethodPost, "/api/v1/workflows/workflow_1/test-node"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(`{"name":"Workflow","definition":{"nodes":[{"id":"start"}]},"message":"hello","conversationId":"conversation_1","version":1,"nodeId":"start"}`))
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set(csrfHeaderName, csrfToken)
+			request.AddCookie(cookie)
+
+			router.ServeHTTP(recorder, request)
+
+			switch recorder.Code {
+			case stdhttp.StatusUnauthorized, stdhttp.StatusForbidden, stdhttp.StatusNotFound, stdhttp.StatusMethodNotAllowed:
+				t.Fatalf("expected registered Workflow route to pass auth/csrf and dispatch for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
 func routeSurfaceRegisterUser(t *testing.T, router stdhttp.Handler, email string) *stdhttp.Cookie {
 	t.Helper()
 

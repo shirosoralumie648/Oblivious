@@ -1518,6 +1518,124 @@ require_workflow_execution_control_csrf_contract() {
   ' "$openapi_file"
 }
 
+require_workflow_management_csrf_contract() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+    paths = spec.fetch("paths", {})
+    schemas = spec.fetch("components", {}).fetch("schemas", {})
+    missing = []
+
+    def operation(paths, path, method, missing)
+      op = paths.dig(path, method)
+      unless op
+        missing << "#{method.upcase} #{path} must be documented"
+        return {}
+      end
+      op
+    end
+
+    def requires_cookie_and_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
+    end
+
+    def request_body_ref(operation)
+      operation.dig("requestBody", "content", "application/json", "schema", "$ref")
+    end
+
+    def response_ref(operation, status)
+      operation.dig("responses", status, "content", "application/json", "schema", "$ref")
+    end
+
+    workflow_mutations = [
+      ["/api/v1/workflows", "post"],
+      ["/api/v1/workflows/semantic-matches", "post"],
+      ["/api/v1/workflows/conversation-matches", "post"],
+      ["/api/v1/workflows/{workflowId}", "put"],
+      ["/api/v1/workflows/{workflowId}", "delete"],
+      ["/api/v1/workflows/{workflowId}/execute", "post"],
+      ["/api/v1/workflows/{workflowId}/webhook", "post"],
+      ["/api/v1/workflows/{workflowId}/branches", "post"],
+      ["/api/v1/workflows/{workflowId}/branches/{branchId}/publish", "post"],
+      ["/api/v1/workflows/{workflowId}/branches/{branchId}/merge", "post"],
+      ["/api/v1/workflows/{workflowId}/rollback", "post"],
+      ["/api/v1/workflows/{workflowId}/test-node", "post"],
+    ]
+
+    workflow_mutations.each do |path, method|
+      op = operation(paths, path, method, missing)
+      unless requires_cookie_and_csrf?(op)
+        missing << "#{method.upcase} #{path} must require cookieAuth and csrfHeader"
+      end
+      unless op.fetch("tags", []).include?("Workflow")
+        missing << "#{method.upcase} #{path} must be tagged Workflow"
+      end
+    end
+
+    expected_request_refs = {
+      ["/api/v1/workflows", "post"] => "#/components/schemas/CreateWorkflowRequest",
+      ["/api/v1/workflows/semantic-matches", "post"] => "#/components/schemas/WorkflowSemanticMatchRequest",
+      ["/api/v1/workflows/conversation-matches", "post"] => "#/components/schemas/WorkflowConversationMatchRequest",
+      ["/api/v1/workflows/{workflowId}", "put"] => "#/components/schemas/UpdateWorkflowRequest",
+      ["/api/v1/workflows/{workflowId}/execute", "post"] => "#/components/schemas/ExecuteWorkflowRequest",
+      ["/api/v1/workflows/{workflowId}/branches", "post"] => "#/components/schemas/CreateWorkflowBranchRequest",
+      ["/api/v1/workflows/{workflowId}/branches/{branchId}/publish", "post"] => "#/components/schemas/PublishWorkflowBranchRequest",
+      ["/api/v1/workflows/{workflowId}/rollback", "post"] => "#/components/schemas/RollbackWorkflowRequest",
+      ["/api/v1/workflows/{workflowId}/test-node", "post"] => "#/components/schemas/WorkflowNodeTestRequest",
+    }
+    expected_request_refs.each do |(path, method), expected|
+      op = operation(paths, path, method, missing)
+      unless request_body_ref(op) == expected
+        missing << "#{method.upcase} #{path} request body must reference #{expected}"
+      end
+    end
+
+    expected_response_refs = {
+      ["/api/v1/workflows", "post", "201"] => "#/components/schemas/WorkflowDefinitionEnvelope",
+      ["/api/v1/workflows/semantic-matches", "post", "200"] => "#/components/schemas/WorkflowSemanticMatchesEnvelope",
+      ["/api/v1/workflows/conversation-matches", "post", "200"] => "#/components/schemas/WorkflowConversationMatchesEnvelope",
+      ["/api/v1/workflows/{workflowId}", "put", "200"] => "#/components/schemas/WorkflowDefinitionEnvelope",
+      ["/api/v1/workflows/{workflowId}", "delete", "200"] => "#/components/schemas/WorkflowDefinitionEnvelope",
+      ["/api/v1/workflows/{workflowId}/execute", "post", "201"] => "#/components/schemas/WorkflowExecutionEnvelope",
+      ["/api/v1/workflows/{workflowId}/webhook", "post", "201"] => "#/components/schemas/WorkflowExecutionEnvelope",
+      ["/api/v1/workflows/{workflowId}/branches", "post", "201"] => "#/components/schemas/WorkflowDefinitionEnvelope",
+      ["/api/v1/workflows/{workflowId}/branches/{branchId}/publish", "post", "201"] => "#/components/schemas/WorkflowDefinitionEnvelope",
+      ["/api/v1/workflows/{workflowId}/branches/{branchId}/merge", "post", "200"] => "#/components/schemas/WorkflowDefinitionEnvelope",
+      ["/api/v1/workflows/{workflowId}/rollback", "post", "200"] => "#/components/schemas/WorkflowDefinitionEnvelope",
+      ["/api/v1/workflows/{workflowId}/test-node", "post", "200"] => "#/components/schemas/WorkflowNodeTestResultEnvelope",
+    }
+    expected_response_refs.each do |(path, method, status), expected|
+      op = operation(paths, path, method, missing)
+      unless response_ref(op, status) == expected
+        missing << "#{method.upcase} #{path} #{status} response must reference #{expected}"
+      end
+    end
+
+    signed_webhook = operation(paths, "/api/v1/workflows/webhooks/{organizationId}/{workflowId}", "post", missing)
+    unless signed_webhook["security"] == []
+      missing << "POST /api/v1/workflows/webhooks/{organizationId}/{workflowId} must remain explicitly public with security: []"
+    end
+    unless signed_webhook.dig("responses", "201", "content", "application/json", "schema", "$ref") == "#/components/schemas/WorkflowExecutionEnvelope"
+      missing << "POST /api/v1/workflows/webhooks/{organizationId}/{workflowId} 201 response must reference WorkflowExecutionEnvelope"
+    end
+
+    unless schemas.dig("CreateWorkflowRequest", "required")&.include?("name") &&
+        schemas.dig("CreateWorkflowRequest", "required")&.include?("definition") &&
+        schemas.dig("RollbackWorkflowRequest", "required")&.include?("version") &&
+        schemas.dig("CreateWorkflowBranchRequest", "required")&.include?("name") &&
+        schemas.dig("CreateWorkflowBranchRequest", "required")&.include?("version")
+      missing << "Workflow create, rollback, and branch request schemas must preserve required fields"
+    end
+
+    unless missing.empty?
+      warn "[openapi-contract] Workflow management CSRF/schema contract is incomplete:"
+      missing.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 require_console_api_token_csrf_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
@@ -2680,6 +2798,7 @@ require_agent_run_mutation_csrf_contract
 require_billing_checkout_contract
 require_quota_topup_csrf_contract
 require_tenant_organization_mutation_csrf_contract
+require_workflow_management_csrf_contract
 require_workflow_execution_control_csrf_contract
 require_console_api_token_csrf_contract
 require_task_mutation_csrf_contract

@@ -9007,6 +9007,9 @@ paths:
       summary: 创建工作流
       operationId: createWorkflow
       tags: [Workflow]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       requestBody:
         required: true
         content:
@@ -9030,6 +9033,9 @@ paths:
       summary: 匹配语义触发器
       operationId: matchWorkflowSemanticTriggers
       tags: [Workflow]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       requestBody:
         required: true
         content:
@@ -9053,6 +9059,9 @@ paths:
       summary: 匹配会话触发器
       operationId: matchWorkflowConversationTriggers
       tags: [Workflow]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       requestBody:
         required: true
         content:
@@ -9157,6 +9166,9 @@ paths:
       summary: 更新工作流
       operationId: updateWorkflow
       tags: [Workflow]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: workflowId
           in: path
@@ -9186,6 +9198,9 @@ paths:
       summary: 删除或归档工作流
       operationId: deleteWorkflow
       tags: [Workflow]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: workflowId
           in: path
@@ -9209,6 +9224,9 @@ paths:
       summary: 启动工作流执行
       operationId: executeWorkflow
       tags: [Workflow]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: workflowId
           in: path
@@ -9239,6 +9257,9 @@ paths:
       summary: 通过登录会话触发工作流 webhook
       operationId: triggerWorkflowWebhook
       tags: [Workflow]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: workflowId
           in: path
@@ -9293,6 +9314,9 @@ paths:
       summary: 创建工作流分支
       operationId: createWorkflowBranch
       tags: [Workflow]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: workflowId
           in: path
@@ -9324,6 +9348,9 @@ paths:
       summary: 将工作流分支发布为新工作流
       operationId: publishWorkflowBranch
       tags: [Workflow]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: workflowId
           in: path
@@ -9359,6 +9386,9 @@ paths:
       summary: 合并工作流分支回主线
       operationId: mergeWorkflowBranch
       tags: [Workflow]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: workflowId
           in: path
@@ -9387,6 +9417,9 @@ paths:
       summary: 回滚工作流版本
       operationId: rollbackWorkflow
       tags: [Workflow]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: workflowId
           in: path
@@ -9418,6 +9451,9 @@ paths:
       summary: 测试单个工作流节点
       operationId: testWorkflowNode
       tags: [Workflow]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
       parameters:
         - name: workflowId
           in: path
