@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useCallback, useMemo, type ReactNode } from 'react';
 import { RiArrowDownLine, RiArrowUpLine, RiErrorWarningLine, RiRefreshLine } from '@remixicon/react';
 
 import { Button } from '@/components/ui/button';
@@ -72,14 +72,17 @@ export function DataTable<T>({
   idKey = 'id',
   className,
 }: DataTableProps<T>) {
-  const selectableRows = data.map((item) => rowId(item, idKey)).filter(Boolean);
-  const selectedCount = selectableRows.filter((id) => selectedIds.has(id)).length;
+  const selectableRows = useMemo(() => data.map((item) => rowId(item, idKey)).filter(Boolean), [data, idKey]);
+  const selectedCount = useMemo(() => selectableRows.filter((id) => selectedIds.has(id)).length, [selectableRows, selectedIds]);
   const allSelected = selectableRows.length > 0 && selectedCount === selectableRows.length;
   const partiallySelected = selectedCount > 0 && !allSelected;
 
-  const handleSelectAll = (checked: boolean | 'indeterminate') => {
-    selectableRows.forEach((id) => onSelectChange?.(id, checked === true));
-  };
+  const handleSelectAll = useCallback(
+    (checked: boolean | 'indeterminate') => {
+      selectableRows.forEach((id) => onSelectChange?.(id, checked === true));
+    },
+    [selectableRows, onSelectChange]
+  );
 
   if (error) {
     return (
