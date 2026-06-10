@@ -6,11 +6,13 @@ import { routerFuture } from '../../app/routerFuture';
 
 const listNotifications = vi.fn();
 const getUnreadCount = vi.fn();
+const deleteNotification = vi.fn();
 const markAllRead = vi.fn();
 const markRead = vi.fn();
 
 vi.mock('../../features/notifications/notificationsApi', () => ({
   createNotificationsApi: () => ({
+    deleteNotification,
     getUnreadCount,
     listNotifications,
     markAllRead,
@@ -24,6 +26,7 @@ describe('NotificationsPage', () => {
   afterEach(() => {
     listNotifications.mockReset();
     getUnreadCount.mockReset();
+    deleteNotification.mockReset();
     markAllRead.mockReset();
     markRead.mockReset();
   });
@@ -134,6 +137,64 @@ describe('NotificationsPage', () => {
 
     expect(await screen.findByText('0 unread')).toBeInTheDocument();
     expect(markAllRead).toHaveBeenCalledTimes(1);
+    expect(listNotifications).toHaveBeenNthCalledWith(1, { limit: 50 });
+    expect(listNotifications).toHaveBeenNthCalledWith(2, { limit: 50 });
+    expect(getUnreadCount).toHaveBeenCalledTimes(2);
+  });
+
+  it('deletes one notification and refreshes the server unread count', async () => {
+    listNotifications
+      .mockResolvedValueOnce([
+        {
+          category: 'system',
+          createdAt: '2026-06-06T08:00:00Z',
+          id: 'notif_critical',
+          isRead: false,
+          message: 'Database connection failed',
+          title: 'Database down',
+          type: 'critical',
+          userId: 'user_1'
+        },
+        {
+          category: 'billing',
+          createdAt: '2026-06-06T07:30:00Z',
+          id: 'notif_info',
+          isRead: true,
+          message: 'Monthly usage summary is ready',
+          title: 'Usage report ready',
+          type: 'info',
+          userId: 'user_1'
+        }
+      ])
+      .mockResolvedValueOnce([
+        {
+          category: 'billing',
+          createdAt: '2026-06-06T07:30:00Z',
+          id: 'notif_info',
+          isRead: true,
+          message: 'Monthly usage summary is ready',
+          title: 'Usage report ready',
+          type: 'info',
+          userId: 'user_1'
+        }
+      ]);
+    getUnreadCount.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 });
+    deleteNotification.mockResolvedValue({ status: 'deleted' });
+
+    render(
+      <MemoryRouter future={routerFuture}>
+        <NotificationsPage />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('2 total')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Database down' }));
+
+    expect(await screen.findByText('1 total')).toBeInTheDocument();
+    expect(screen.getByText('0 unread')).toBeInTheDocument();
+    expect(screen.queryByText('Database down')).not.toBeInTheDocument();
+    expect(deleteNotification).toHaveBeenCalledWith('notif_critical');
     expect(listNotifications).toHaveBeenNthCalledWith(1, { limit: 50 });
     expect(listNotifications).toHaveBeenNthCalledWith(2, { limit: 50 });
     expect(getUnreadCount).toHaveBeenCalledTimes(2);

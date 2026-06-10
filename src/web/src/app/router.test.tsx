@@ -354,6 +354,7 @@ vi.mock('../features/console/api', () => ({
 
 vi.mock('../features/notifications/notificationsApi', () => ({
   createNotificationsApi: () => ({
+    deleteNotification: () => Promise.resolve({ status: 'deleted' }),
     getUnreadCount: () => Promise.resolve({ count: 1 }),
     listNotifications: () =>
       Promise.resolve([

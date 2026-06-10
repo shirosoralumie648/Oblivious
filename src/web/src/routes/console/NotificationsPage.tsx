@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { RiCheckLine } from '@remixicon/react';
+import { RiCheckLine, RiDeleteBinLine } from '@remixicon/react';
 
 import { createNotificationsApi, type AppNotification } from '../../features/notifications/notificationsApi';
 import { createHttpClient } from '../../services/http/client';
@@ -34,6 +34,7 @@ export function NotificationsPage() {
   const [isMarkingAllRead, setIsMarkingAllRead] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   const loadNotifications = async () => {
@@ -102,6 +103,18 @@ export function NotificationsPage() {
     }
   };
 
+  const deleteNotification = async (notification: AppNotification) => {
+    setDeletingId(notification.id);
+    try {
+      await notificationsApi.deleteNotification(notification.id);
+      await loadNotifications();
+    } catch {
+      setErrorMessage('Unable to delete notification.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   return (
     <section>
       <header className="flex flex-col gap-3 border-b border-[#d7d2c4] pb-4 md:flex-row md:items-end md:justify-between">
@@ -147,16 +160,27 @@ export function NotificationsPage() {
                 <p className="mt-2 text-sm text-[#4b453b]">{notification.message}</p>
                 <p className="mt-2 text-xs uppercase tracking-wide text-[#7a7163]">{notification.category}</p>
               </div>
-              {!notification.isRead ? (
+              <div className="flex flex-wrap gap-2 md:justify-end">
+                {!notification.isRead ? (
+                  <button
+                    className="inline-flex min-h-[40px] items-center justify-center rounded-lg border border-[#1a614f] px-3 text-sm font-semibold text-[#1a614f] transition hover:bg-[#e9f2ee] disabled:opacity-60"
+                    disabled={updatingId === notification.id || deletingId === notification.id}
+                    onClick={() => void markNotificationRead(notification)}
+                    type="button"
+                  >
+                    {updatingId === notification.id ? 'Marking read...' : `Mark ${notification.title} as read`}
+                  </button>
+                ) : null}
                 <button
-                  className="inline-flex min-h-[40px] items-center justify-center rounded-lg border border-[#1a614f] px-3 text-sm font-semibold text-[#1a614f] transition hover:bg-[#e9f2ee] disabled:opacity-60"
-                  disabled={updatingId === notification.id}
-                  onClick={() => void markNotificationRead(notification)}
+                  className="inline-flex min-h-[40px] items-center justify-center gap-2 rounded-lg border border-[#8e1f1f] px-3 text-sm font-semibold text-[#8e1f1f] transition hover:bg-[#fff0ed] disabled:opacity-60"
+                  disabled={deletingId === notification.id || updatingId === notification.id}
+                  onClick={() => void deleteNotification(notification)}
                   type="button"
                 >
-                  {updatingId === notification.id ? 'Marking read...' : `Mark ${notification.title} as read`}
+                  <RiDeleteBinLine className="size-4" aria-hidden="true" />
+                  {deletingId === notification.id ? 'Deleting...' : `Delete ${notification.title}`}
                 </button>
-              ) : null}
+              </div>
             </li>
           ))}
         </ul>
