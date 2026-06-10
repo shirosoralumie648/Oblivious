@@ -388,6 +388,7 @@ Status values:
 - `bash scripts/verify-openapi-contract.sh`, `bash scripts/check.sh docs`, and `git diff --check` passed after adding the repository-wide OpenAPI gate that rejects unnamed inline object `data` payloads on non-Relay `/api/` JSON success responses.
 - `bash scripts/verify-openapi-contract.sh`, `bash scripts/check.sh docs`, and `git diff --check` passed after adding the repository-wide OpenAPI gate that rejects unnamed JSON request bodies except the approved arbitrary webhook payload surfaces.
 - `bash scripts/verify-openapi-contract.sh`, `bash scripts/check.sh docs`, and `git diff --check` passed after adding the repository-wide OpenAPI security-surface gate that requires every `/api/` operation to declare `security`, requires non-Relay non-public mutating APIs to use `cookieAuth` plus `csrfHeader`, keeps Relay aliases on bearer-token auth, and keeps approved public auth/webhook mutations on `security: []`.
+- `bash scripts/verify-openapi-contract.sh`, `bash scripts/check.sh docs`, and `git diff --check` passed after adding the repository-wide OpenAPI path-parameter gate that requires every `/api/` path template variable to have a matching `in: path`, `required: true` parameter with a schema, and rejects extra path parameters that do not appear in the route template.
 
 These checks prove only the covered surfaces. They do not prove full project completion.
 

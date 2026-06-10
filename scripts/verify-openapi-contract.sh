@@ -255,6 +255,71 @@ require_api_security_surface_contract() {
   ' "$openapi_file"
 }
 
+require_api_path_parameter_contract() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+
+    def resolve_ref(spec, ref)
+      ref.sub(%r{\A#/}, "").split("/").reduce(spec) { |node, part| node.fetch(part) }
+    end
+
+    def resolve_parameter(spec, parameter)
+      return parameter unless parameter.is_a?(Hash) && parameter["$ref"]
+
+      resolve_ref(spec, parameter["$ref"])
+    end
+
+    missing = []
+    malformed = []
+    extra = []
+
+    spec.fetch("paths", {}).each do |path, operations|
+      next unless path.start_with?("/api/")
+
+      expected_names = path.scan(/\{([^}]+)\}/).flatten
+      shared_parameters = operations.fetch("parameters", [])
+
+      operations.each do |method, operation|
+        next unless operation.is_a?(Hash)
+
+        parameters = (shared_parameters + operation.fetch("parameters", [])).map { |parameter| resolve_parameter(spec, parameter) }
+        path_parameters = parameters.select { |parameter| parameter.is_a?(Hash) && parameter["in"] == "path" }
+
+        expected_names.each do |name|
+          parameter = path_parameters.find { |candidate| candidate["name"] == name }
+          if parameter.nil?
+            missing << "#{method.upcase} #{path} missing path parameter #{name}"
+            next
+          end
+
+          unless parameter["required"] == true
+            malformed << "#{method.upcase} #{path} path parameter #{name} must set required: true"
+          end
+
+          schema = parameter["schema"]
+          unless schema.is_a?(Hash) && (schema["type"] || schema["$ref"])
+            malformed << "#{method.upcase} #{path} path parameter #{name} must declare a schema type or ref"
+          end
+        end
+
+        path_parameters.each do |parameter|
+          name = parameter["name"]
+          extra << "#{method.upcase} #{path} declares extra path parameter #{name}" unless expected_names.include?(name)
+        end
+      end
+    end
+
+    unless missing.empty? && malformed.empty? && extra.empty?
+      warn "[openapi-contract] /api path parameter contract failed:"
+      missing.each { |entry| warn "  - #{entry}" }
+      malformed.each { |entry| warn "  - #{entry}" }
+      extra.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 require_session_csrf_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
@@ -4747,6 +4812,7 @@ require_api_json_responses_use_envelope
 require_api_success_data_uses_named_schema
 require_api_json_request_bodies_use_named_schemas
 require_api_security_surface_contract
+require_api_path_parameter_contract
 require_session_csrf_contract
 require_marketplace_paid_install_contract
 require_marketplace_template_type_contract
