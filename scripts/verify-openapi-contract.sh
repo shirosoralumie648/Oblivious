@@ -318,6 +318,8 @@ require_marketplace_surface_payload_contract() {
     end
 
     expected_data_refs = {
+      ["/api/v1/marketplace/agents", "post", "201"] => "#/components/schemas/MarketplacePublishedAgent",
+      ["/api/v1/marketplace/agents/{agentId}", "put", "200"] => "#/components/schemas/MarketplacePublishedAgent",
       ["/api/v1/marketplace/agents/{agentId}/abuse-reports", "post", "201"] => "#/components/schemas/MarketplaceAbuseReport",
       ["/api/v1/marketplace/publisher/settlement-preferences", "get", "200"] => "#/components/schemas/MarketplaceSettlementPreferences",
       ["/api/v1/marketplace/publisher/settlement-preferences", "put", "200"] => "#/components/schemas/MarketplaceSettlementPreferences",
@@ -339,6 +341,8 @@ require_marketplace_surface_payload_contract() {
     end
 
     expected_body_refs = {
+      ["/api/v1/marketplace/agents", "post"] => "#/components/schemas/MarketplaceAgentPublishRequest",
+      ["/api/v1/marketplace/agents/{agentId}", "put"] => "#/components/schemas/MarketplaceAgentPublishRequest",
       ["/api/v1/marketplace/agents/{agentId}/abuse-reports", "post"] => "#/components/schemas/MarketplaceAbuseReportRequest",
       ["/api/v1/marketplace/publisher/settlement-preferences", "put"] => "#/components/schemas/MarketplaceSettlementPreferencesRequest",
       ["/api/v1/marketplace/templates", "post"] => "#/components/schemas/MarketplaceTemplateCreateRequest",
@@ -353,6 +357,35 @@ require_marketplace_surface_payload_contract() {
       unless request_body_required?(paths, path, method)
         missing << "#{method.upcase} #{path} request body must be required"
       end
+    end
+
+    publish_request = schemas["MarketplaceAgentPublishRequest"] || {}
+    required_publish_fields = publish_request.fetch("required", [])
+    ["name", "description", "tools", "pricingType", "version"].each do |property|
+      unless required_publish_fields.include?(property)
+        missing << "MarketplaceAgentPublishRequest must require #{property}"
+      end
+    end
+    ["name", "description", "iconURL", "categoryID", "tools", "exampleConversations", "systemPrompt", "pricingType", "version", "changelog"].each do |property|
+      unless publish_request.dig("properties", property, "type") == "string"
+        missing << "MarketplaceAgentPublishRequest.#{property} must be documented as string"
+      end
+    end
+    unless publish_request.dig("properties", "tags", "type") == "array" &&
+        publish_request.dig("properties", "tags", "items", "type") == "string"
+      missing << "MarketplaceAgentPublishRequest.tags must be documented as string[]"
+    end
+    unless publish_request.dig("properties", "pricingAmount", "type") == "number" &&
+        publish_request.dig("properties", "pricingAmount", "format") == "double"
+      missing << "MarketplaceAgentPublishRequest.pricingAmount must be documented as double"
+    end
+    visibility_enum = publish_request.dig("properties", "visibility", "enum") || []
+    unless ["public", "private", "unlisted"].all? { |value| visibility_enum.include?(value) }
+      missing << "MarketplaceAgentPublishRequest.visibility must enumerate public, private, and unlisted"
+    end
+    pricing_enum = publish_request.dig("properties", "pricingType", "enum") || []
+    unless ["free", "one_time", "subscription"].all? { |value| pricing_enum.include?(value) }
+      missing << "MarketplaceAgentPublishRequest.pricingType must enumerate free, one_time, and subscription"
     end
 
     template_list = schemas["MarketplaceTemplatesResponse"] || {}

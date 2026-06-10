@@ -2485,6 +2485,48 @@ components:
         publisherTierSource:
           type: string
 
+    MarketplaceAgentPublishRequest:
+      type: object
+      required: [name, description, tools, pricingType, version]
+      properties:
+        name:
+          type: string
+          minLength: 3
+          maxLength: 100
+        description:
+          type: string
+          minLength: 10
+          maxLength: 2000
+        iconURL:
+          type: string
+        categoryID:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        tools:
+          type: string
+          description: JSON string containing the published tool manifest.
+        exampleConversations:
+          type: string
+          description: JSON string containing example conversations.
+        systemPrompt:
+          type: string
+        visibility:
+          type: string
+          enum: [public, private, unlisted]
+        pricingType:
+          type: string
+          enum: [free, one_time, subscription]
+        pricingAmount:
+          type: number
+          format: double
+        version:
+          type: string
+        changelog:
+          type: string
+
     MarketplacePublishedAgent:
       type: object
       properties:
@@ -15449,15 +15491,19 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties: true
+              $ref: "#/components/schemas/MarketplaceAgentPublishRequest"
       responses:
         "201":
           description: Agent 已进入审核
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplacePublishedAgent"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -15501,15 +15547,19 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties: true
+              $ref: "#/components/schemas/MarketplaceAgentPublishRequest"
       responses:
         "200":
           description: Agent 更新后重新进入审核
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplacePublishedAgent"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
