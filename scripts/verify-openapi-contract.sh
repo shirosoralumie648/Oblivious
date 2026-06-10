@@ -2416,6 +2416,11 @@ require_task_mutation_csrf_contract() {
       security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
     end
 
+    def requires_cookie_without_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && !entry.key?("csrfHeader") }
+    end
+
     def request_body_ref(operation)
       operation.dig("requestBody", "content", "application/json", "schema", "$ref")
     end
@@ -2424,6 +2429,31 @@ require_task_mutation_csrf_contract() {
       operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
         find { |entry| entry.dig("properties", "data", "$ref") }&.
         dig("properties", "data", "$ref")
+    end
+
+    def response_array_item_ref(operation, status)
+      operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "items", "$ref") }&.
+        dig("properties", "data", "items", "$ref")
+    end
+
+    expected_read_responses = {
+      ["/api/v1/app/tasks", "get"] => [:array, "#/components/schemas/Task"],
+      ["/api/v1/app/tasks/{taskId}", "get"] => [:object, "#/components/schemas/TaskDetail"],
+    }
+
+    expected_read_responses.each do |(path, method), (shape, expected_response)|
+      op = operation(paths, path, method, missing)
+      unless requires_cookie_without_csrf?(op)
+        missing << "#{method.upcase} #{path} must require cookieAuth without csrfHeader"
+      end
+      unless op.fetch("tags", []).include?("Task")
+        missing << "#{method.upcase} #{path} must be tagged Task"
+      end
+      actual_response = shape == :array ? response_array_item_ref(op, "200") : response_data_ref(op, "200")
+      unless actual_response == expected_response
+        missing << "#{method.upcase} #{path} 200 data must reference #{expected_response}"
+      end
     end
 
     expected_mutation_responses = {
@@ -2447,12 +2477,6 @@ require_task_mutation_csrf_contract() {
       unless response_data_ref(op, "200") == expected_response
         missing << "#{method.upcase} #{path} 200 data must reference #{expected_response}"
       end
-    end
-
-    detail = operation(paths, "/api/v1/app/tasks/{taskId}", "get", missing)
-    unless detail.fetch("tags", []).include?("Task") &&
-        response_data_ref(detail, "200") == "#/components/schemas/TaskDetail"
-      missing << "GET /api/v1/app/tasks/{taskId} 200 data must reference TaskDetail"
     end
 
     create = operation(paths, "/api/v1/app/tasks", "post", missing)
@@ -2600,6 +2624,11 @@ require_scheduled_task_contract() {
       security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
     end
 
+    def requires_cookie_without_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && !entry.key?("csrfHeader") }
+    end
+
     def request_body_ref(operation)
       operation.dig("requestBody", "content", "application/json", "schema", "$ref")
     end
@@ -2633,12 +2662,18 @@ require_scheduled_task_contract() {
     end
 
     list = operation(paths, "/api/v1/scheduled-tasks", "get", missing)
+    unless requires_cookie_without_csrf?(list)
+      missing << "GET /api/v1/scheduled-tasks must require cookieAuth without csrfHeader"
+    end
     unless list.fetch("tags", []).include?("ScheduledTask") &&
         response_array_item_ref(list, "200") == "#/components/schemas/ScheduledTask"
       missing << "GET /api/v1/scheduled-tasks must be tagged ScheduledTask and return ScheduledTask[] data"
     end
 
     runs = operation(paths, "/api/v1/scheduled-tasks/{scheduledTaskId}/runs", "get", missing)
+    unless requires_cookie_without_csrf?(runs)
+      missing << "GET /api/v1/scheduled-tasks/{scheduledTaskId}/runs must require cookieAuth without csrfHeader"
+    end
     unless runs.fetch("tags", []).include?("ScheduledTask") &&
         response_array_item_ref(runs, "200") == "#/components/schemas/ScheduledTaskRun"
       missing << "GET /api/v1/scheduled-tasks/{scheduledTaskId}/runs must be tagged ScheduledTask and return ScheduledTaskRun[] data"

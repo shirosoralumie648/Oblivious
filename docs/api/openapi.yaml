@@ -8779,6 +8779,8 @@ paths:
       summary: 获取任务列表
       operationId: listTasks
       tags: [Task]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: 任务列表
@@ -8830,6 +8832,8 @@ paths:
       summary: 获取任务详情
       operationId: getTask
       tags: [Task]
+      security:
+        - cookieAuth: []
       parameters:
         - name: taskId
           in: path
@@ -9037,6 +9041,8 @@ paths:
       summary: 获取计划任务列表
       operationId: listScheduledTasks
       tags: [ScheduledTask]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: 当前组织的计划任务列表
@@ -9088,6 +9094,8 @@ paths:
       summary: 获取计划任务运行记录
       operationId: listScheduledTaskRuns
       tags: [ScheduledTask]
+      security:
+        - cookieAuth: []
       parameters:
         - name: scheduledTaskId
           in: path

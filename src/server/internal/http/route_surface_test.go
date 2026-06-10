@@ -429,6 +429,28 @@ func TestRouteSurfaceTaskMutationsRejectCookieWithoutCSRFWithoutDatabase(t *test
 	}
 }
 
+func TestRouteSurfaceTaskReadRoutesRequireSessionWithoutDatabase(t *testing.T) {
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{})
+
+	tests := []routeSurfaceCase{
+		{"list tasks", stdhttp.MethodGet, "/api/v1/app/tasks"},
+		{"get task", stdhttp.MethodGet, "/api/v1/app/tasks/task_1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, nil)
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusUnauthorized {
+				t.Fatalf("expected registered Task read route to require session with 401 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
 func TestRouteSurfaceNotificationMutationsRejectCookieWithoutCSRFWithoutDatabase(t *testing.T) {
 	session := routeSurfaceUserSession()
 	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}})
@@ -1825,6 +1847,30 @@ func TestRouteSurfaceScheduledTaskMutationsRejectCookieWithoutCSRFWithoutDatabas
 
 			if recorder.Code != stdhttp.StatusForbidden {
 				t.Fatalf("expected missing csrf to be rejected with 403 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestRouteSurfaceScheduledTaskReadRoutesRequireSessionWithoutDatabase(t *testing.T) {
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{
+		ScheduleService: schedule.NewService(&scheduleRouteFakeStore{}),
+	})
+
+	tests := []routeSurfaceCase{
+		{"list scheduled tasks", stdhttp.MethodGet, "/api/v1/scheduled-tasks"},
+		{"list scheduled task runs", stdhttp.MethodGet, "/api/v1/scheduled-tasks/sched_1/runs"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, nil)
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusUnauthorized {
+				t.Fatalf("expected registered Scheduled Task read route to require session with 401 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
 			}
 		})
 	}
