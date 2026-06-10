@@ -90,6 +90,60 @@ require_api_json_responses_use_envelope() {
   ' "$openapi_file"
 }
 
+require_api_success_data_uses_named_schema() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+
+    def resolve_ref(spec, ref)
+      ref.sub(%r{\A#/}, "").split("/").reduce(spec) { |node, part| node.fetch(part) }
+    end
+
+    def resolve_response(spec, response)
+      return response unless response.is_a?(Hash) && response["$ref"]
+
+      resolve_ref(spec, response["$ref"])
+    end
+
+    def envelope_data_schema(schema)
+      return nil unless schema.is_a?(Hash)
+
+      schema.fetch("allOf", []).find { |entry| entry.dig("properties", "data") }&.
+        dig("properties", "data")
+    end
+
+    missing = []
+    spec.fetch("paths", {}).each do |path, operations|
+      next unless path.start_with?("/api/")
+      next if path.start_with?("/api/v1/relay/")
+
+      operations.each do |method, operation|
+        next unless operation.is_a?(Hash)
+
+        operation.fetch("responses", {}).each do |status, response|
+          next unless status.to_s.start_with?("2")
+
+          json = resolve_response(spec, response).fetch("content", {}).fetch("application/json", nil)
+          next unless json
+
+          data = envelope_data_schema(json["schema"])
+          next unless data.is_a?(Hash)
+          next if data["$ref"]
+          next if data["type"] == "array" && (data.dig("items", "$ref") || data.dig("items", "type"))
+
+          missing << "#{method.upcase} #{path} #{status}"
+        end
+      end
+    end
+
+    unless missing.empty?
+      warn "[openapi-contract] /api 2xx JSON response data objects must use named component schemas:"
+      missing.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 require_session_csrf_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
@@ -4579,6 +4633,7 @@ require_public_security_empty "/api/v1/billing/wechatpay/webhook"
 require_relay_alias_bearer_contract "${relay_alias_paths[@]}"
 require_websocket_contract
 require_api_json_responses_use_envelope
+require_api_success_data_uses_named_schema
 require_session_csrf_contract
 require_marketplace_paid_install_contract
 require_marketplace_template_type_contract
