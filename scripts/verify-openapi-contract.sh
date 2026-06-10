@@ -920,6 +920,7 @@ require_publishing_channel_secret_csrf_contract() {
       ["/api/v1/channels/{channelId}", "put", "200"] => "#/components/schemas/ChannelConfig",
       ["/api/v1/channels/{channelId}", "delete", "200"] => "#/components/schemas/ChannelConfig",
       ["/api/v1/channels/{channelId}/status", "patch", "200"] => "#/components/schemas/ChannelConfig",
+      ["/api/v1/channels/{channelId}/test", "post", "200"] => "#/components/schemas/ChannelTestResult",
       ["/api/v1/channels/{channelId}/send", "post", "200"] => "#/components/schemas/ChannelMessageLog",
       ["/api/v1/channels/{channelId}/retry-failed-messages", "post", "200"] => "#/components/schemas/ChannelRetryProcessResult",
       ["/api/v1/channels/webhook/{channelId}", "post", "200"] => "#/components/schemas/ChannelMessageLog",
@@ -1011,6 +1012,17 @@ require_publishing_channel_secret_csrf_contract() {
     unless request_config["type"] == "object" && request_config["additionalProperties"] == true &&
         ["secret", "token", "apiKey", "password"].all? { |word| request_config.fetch("description", "").include?(word) }
       missing << "ChannelConfigRequest.config must document credential input and redacted-marker preservation"
+    end
+
+    test_result = schemas["ChannelTestResult"] || {}
+    ["channel_id", "type", "message"].each do |property|
+      unless test_result.dig("properties", property, "type") == "string"
+        missing << "ChannelTestResult.#{property} must be documented as string"
+      end
+    end
+    status_enum = test_result.dig("properties", "status", "enum") || []
+    unless ["success", "failed"].all? { |status| status_enum.include?(status) }
+      missing << "ChannelTestResult.status must enumerate success and failed"
     end
 
     unless missing.empty?

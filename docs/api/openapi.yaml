@@ -1891,6 +1891,19 @@ components:
           type: string
           enum: [active, degraded, disabled]
 
+    ChannelTestResult:
+      type: object
+      properties:
+        channel_id:
+          type: string
+        type:
+          type: string
+        status:
+          type: string
+          enum: [success, failed]
+        message:
+          type: string
+
     ChannelMessage:
       type: object
       properties:
@@ -12397,7 +12410,12 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/ChannelTestResult"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
