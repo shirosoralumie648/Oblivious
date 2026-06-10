@@ -1345,6 +1345,125 @@ func TestAgentRunsHandlerApproveToolVerifiesToolBelongsToRun(t *testing.T) {
 	}
 }
 
+func TestAgentRunsHandlerToolDecisionsVerifyToolRunBelongsToURLRun(t *testing.T) {
+	tests := []struct {
+		name            string
+		call            func(agentRunsHandler, stdhttp.ResponseWriter, *stdhttp.Request, string)
+		path            string
+		body            string
+		initialStatus   string
+		initialApproval string
+		initialError    string
+	}{
+		{
+			name:            "reject",
+			call:            agentRunsHandler.rejectTool,
+			path:            "/api/v1/agent/runs/run_1/reject-tool",
+			body:            `{"toolRunId":"tool_run_other","reason":"wrong run"}`,
+			initialStatus:   agent.ToolRunStatusPendingApproval,
+			initialApproval: agent.ApprovalStatusPending,
+		},
+		{
+			name:            "retry",
+			call:            agentRunsHandler.retryTool,
+			path:            "/api/v1/agent/runs/run_1/retry-tool",
+			body:            `{"toolRunId":"tool_run_other"}`,
+			initialStatus:   agent.ToolRunStatusFailed,
+			initialApproval: agent.ApprovalStatusNotRequired,
+			initialError:    "temporary failure",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newFakeAgentRunsStore()
+			store.runs = []*agent.Run{
+				{ID: "run_1", OrganizationID: "org_1", UserID: "user_1"},
+				{ID: "run_2", OrganizationID: "org_1", UserID: "user_1"},
+			}
+			store.toolRuns = []*agent.ToolRun{{
+				ID:             "tool_run_other",
+				OrganizationID: "org_1",
+				RunID:          "run_2",
+				Status:         tt.initialStatus,
+				ApprovalStatus: tt.initialApproval,
+				Error:          tt.initialError,
+			}}
+			handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{}))
+
+			recorder := httptest.NewRecorder()
+			tt.call(handler, recorder, newAgentRunsRequest(stdhttp.MethodPost, tt.path, tt.body), "run_1")
+
+			if recorder.Code != stdhttp.StatusBadRequest {
+				t.Fatalf("expected 400, got %d with body %s", recorder.Code, recorder.Body.String())
+			}
+			if !strings.Contains(recorder.Body.String(), "toolRunId does not belong to run") {
+				t.Fatalf("expected membership error, got %s", recorder.Body.String())
+			}
+			toolRun := store.toolRuns[0]
+			if toolRun.RunID != "run_2" || toolRun.Status != tt.initialStatus || toolRun.ApprovalStatus != tt.initialApproval || toolRun.Error != tt.initialError {
+				t.Fatalf("cross-run tool decision mutated guarded tool run: %+v", toolRun)
+			}
+		})
+	}
+}
+
+func TestAgentRunsHandlerToolDecisionsRejectAmbiguousOmittedToolRunID(t *testing.T) {
+	tests := []struct {
+		name            string
+		call            func(agentRunsHandler, stdhttp.ResponseWriter, *stdhttp.Request, string)
+		path            string
+		initialStatus   string
+		initialApproval string
+	}{
+		{
+			name:            "reject",
+			call:            agentRunsHandler.rejectTool,
+			path:            "/api/v1/agent/runs/run_1/reject-tool",
+			initialStatus:   agent.ToolRunStatusPendingApproval,
+			initialApproval: agent.ApprovalStatusPending,
+		},
+		{
+			name:            "retry",
+			call:            agentRunsHandler.retryTool,
+			path:            "/api/v1/agent/runs/run_1/retry-tool",
+			initialStatus:   agent.ToolRunStatusFailed,
+			initialApproval: agent.ApprovalStatusNotRequired,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newFakeAgentRunsStore()
+			store.runs = []*agent.Run{{
+				ID:             "run_1",
+				OrganizationID: "org_1",
+				UserID:         "user_1",
+			}}
+			store.toolRuns = []*agent.ToolRun{
+				{ID: "tool_run_1", OrganizationID: "org_1", RunID: "run_1", Status: tt.initialStatus, ApprovalStatus: tt.initialApproval},
+				{ID: "tool_run_2", OrganizationID: "org_1", RunID: "run_1", Status: tt.initialStatus, ApprovalStatus: tt.initialApproval},
+			}
+			handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{}))
+
+			recorder := httptest.NewRecorder()
+			tt.call(handler, recorder, newAgentRunsRequest(stdhttp.MethodPost, tt.path, `{}`), "run_1")
+
+			if recorder.Code != stdhttp.StatusBadRequest {
+				t.Fatalf("expected 400, got %d with body %s", recorder.Code, recorder.Body.String())
+			}
+			if !strings.Contains(recorder.Body.String(), "toolRunId is required when multiple matching tool runs exist") {
+				t.Fatalf("expected ambiguous tool id message, got %s", recorder.Body.String())
+			}
+			for _, toolRun := range store.toolRuns {
+				if toolRun.Status != tt.initialStatus || toolRun.ApprovalStatus != tt.initialApproval {
+					t.Fatalf("ambiguous omitted tool decision mutated guarded tool run: %+v", toolRun)
+				}
+			}
+		})
+	}
+}
+
 func TestAgentRunsHandlerToolApprovalDecisionsRejectNonPendingToolRuns(t *testing.T) {
 	tests := []struct {
 		name            string
