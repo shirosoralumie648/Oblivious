@@ -345,6 +345,66 @@ func TestMarketplacePaidInstallCheckoutRejectsMissingProviderBeforeSettlement(t 
 	}
 }
 
+func TestMarketplacePaidInstallCheckoutRejectsConfiguredProviderWithoutCheckoutCreatorBeforeSettlement(t *testing.T) {
+	store := &fakeMarketplaceStore{
+		agent: &marketplace.PublishedAgent{
+			ID:             "agent_paid",
+			OrganizationID: "org_publisher",
+			OwnerID:        "publisher_1",
+			Name:           "Paid Agent",
+			Status:         "approved",
+			Visibility:     "public",
+			PricingType:    "one_time",
+			PricingAmount:  25,
+		},
+	}
+	settlement := &fakeMarketplaceSettlementService{}
+	stripeCreator := &fakeCheckoutCreator{}
+	providerRegistry := payment.NewRegistry("stripe")
+	providerRegistry.Register(payment.Provider{Name: "stripe", Configured: true})
+	providerRegistry.Register(payment.Provider{Name: "alipay", Configured: true})
+	handler := newMarketplaceHandler(
+		marketplace.NewService(store, nil),
+		nil,
+		withMarketplaceCheckout(
+			settlement,
+			stripeCreator,
+			stripebilling.CheckoutConfig{},
+			providerRegistry,
+			map[string]stripebilling.CheckoutCreator{"stripe": stripeCreator},
+		),
+	)
+	session := testAdminSession()
+	session.User.ID = "buyer_1"
+	session.OrganizationID = "org_buyer"
+
+	request := httptest.NewRequest(
+		stdhttp.MethodPost,
+		"/api/v1/marketplace/agents/agent_paid/install",
+		strings.NewReader(`{"versionID":"version_paid_1","provider":"alipay"}`),
+	).WithContext(context.WithValue(context.Background(), sessionContextKey, session))
+	recorder := httptest.NewRecorder()
+
+	handler.installAgent(recorder, request, "agent_paid")
+
+	if recorder.Code != stdhttp.StatusNotImplemented {
+		t.Fatalf("expected configured provider without checkout creator to return 501, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var response Envelope
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Error == nil || response.Error.Code != payment.CodeProviderNotConfigured || !strings.Contains(response.Error.Message, "payment provider checkout is not configured") {
+		t.Fatalf("expected provider_not_configured checkout response, got %+v", response.Error)
+	}
+	if settlement.createCalls != 0 || settlement.setSessionCalls != 0 || settlement.failCalls != 0 {
+		t.Fatalf("settlement must not be touched before checkout creator is configured, create=%d setSession=%d fail=%d", settlement.createCalls, settlement.setSessionCalls, settlement.failCalls)
+	}
+	if stripeCreator.request.PaymentIntentID != "" {
+		t.Fatalf("fallback stripe checkout creator must not be called for alipay, got %+v", stripeCreator.request)
+	}
+}
+
 func TestMarketplacePaidInstallCheckoutRejectsUnsupportedProviderBeforeSettlement(t *testing.T) {
 	store := &fakeMarketplaceStore{
 		agent: &marketplace.PublishedAgent{
