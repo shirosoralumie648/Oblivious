@@ -481,7 +481,7 @@ describe('AgentPlanStepsPage', () => {
     expect(screen.getByRole('heading', { name: 'Inspect workspace' })).toBeInTheDocument();
   });
 
-  it('skips pending, approved, or failed plan steps from the planning page', async () => {
+  it('disables skip until prior plan steps are completed or skipped', async () => {
     renderPage([
       {
         approvalStatus: 'pending',
@@ -551,8 +551,9 @@ describe('AgentPlanStepsPage', () => {
       }
     ]));
 
-    expect(screen.getByRole('button', { name: 'Skip Approved verification' })).toBeEnabled();
-    expect(screen.getByRole('button', { name: 'Skip Failed verification' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Skip Optional discovery' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Skip Approved verification' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Skip Failed verification' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Skip Completed implementation' })).toBeDisabled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Skip Optional discovery' }));
@@ -561,6 +562,44 @@ describe('AgentPlanStepsPage', () => {
     await waitFor(() => {
       expect(within(screen.getByLabelText('Plan step Optional discovery')).getAllByText('skipped').length).toBeGreaterThan(0);
     });
+    expect(screen.getByRole('button', { name: 'Skip Approved verification' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Skip Failed verification' })).toBeDisabled();
+  });
+
+  it('allows failed plan step skip when prior plan steps are completed or skipped', async () => {
+    const planSteps = [
+      {
+        approvalStatus: 'not_required',
+        id: 'step_1',
+        index: 1,
+        runId: 'run_1',
+        status: 'skipped',
+        title: 'Optional discovery'
+      },
+      {
+        approvalStatus: 'not_required',
+        id: 'step_2',
+        index: 2,
+        runId: 'run_1',
+        status: 'completed',
+        title: 'Completed prerequisite'
+      },
+      {
+        approvalStatus: 'approved',
+        error: 'old failure',
+        id: 'step_3',
+        index: 3,
+        runId: 'run_1',
+        status: 'failed',
+        title: 'Failed verification'
+      }
+    ];
+    getRunDetail.mockResolvedValueOnce(runDetail(planSteps));
+
+    renderPage(planSteps);
+
+    expect(await screen.findByText('Status: planning')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Skip Failed verification' })).toBeEnabled();
   });
 
   it('disables execution until prior plan steps are completed or skipped', async () => {

@@ -706,6 +706,7 @@ export function AgentPlanStepsPage() {
           const canMoveDown = canMovePlanStep(planSteps, stepPosition, 'down');
           const priorPlanStepsDone = arePriorPlanStepsDone(planSteps, stepPosition);
           const canExecuteThisStep = canExecute(step) && priorPlanStepsDone;
+          const canSkipThisStep = canSkip(step) && priorPlanStepsDone;
           const canRetryThisStep = canRetry(step) && priorPlanStepsDone;
           return (
             <article
@@ -851,7 +852,7 @@ export function AgentPlanStepsPage() {
                       <button
                         aria-label={`Skip ${step.title}`}
                         className="min-h-10 rounded-lg border border-[#181611] px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
-                        disabled={!canSkip(step) || operatingStepId === step.id}
+                        disabled={!canSkipThisStep || operatingStepId === step.id}
                         onClick={() => void updatePlanStep(step, 'skip')}
                         type="button"
                       >
