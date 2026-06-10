@@ -14933,6 +14933,8 @@ paths:
       summary: 获取使用量概览
       operationId: getUsage
       tags: [Billing]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: 使用量汇总
@@ -14953,6 +14955,8 @@ paths:
       summary: 获取访问权限概览
       operationId: getAccess
       tags: [Billing]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: 权限概览
@@ -14973,6 +14977,8 @@ paths:
       summary: 获取模型概览（控制台）
       operationId: getConsoleModels
       tags: [Billing]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: 模型摘要列表
@@ -14995,6 +15001,8 @@ paths:
       summary: 获取账单概览
       operationId: getBilling
       tags: [Billing]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: 账单汇总
@@ -15015,6 +15023,8 @@ paths:
       summary: 获取账单发票摘要列表
       operationId: listConsoleBillingInvoices
       tags: [Billing]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: 当前组织的账单发票摘要
@@ -15037,6 +15047,8 @@ paths:
       summary: 获取当前用户的 Relay API tokens
       operationId: listConsoleAPITokens
       tags: [Billing]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: 当前用户可见的 API token 列表，不包含 raw token
@@ -15119,6 +15131,8 @@ paths:
       summary: 获取 Relay API token 使用记录
       operationId: listConsoleAPITokenUsage
       tags: [Billing]
+      security:
+        - cookieAuth: []
       parameters:
         - name: tokenId
           in: path

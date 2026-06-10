@@ -1786,6 +1786,11 @@ require_billing_checkout_contract() {
       security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
     end
 
+    def requires_cookie_without_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && !entry.key?("csrfHeader") }
+    end
+
     def request_body_ref(operation)
       operation.dig("requestBody", "content", "application/json", "schema", "$ref")
     end
@@ -1892,6 +1897,23 @@ require_billing_checkout_contract() {
     end
     unless response_array_item_ref(console_api_token_usage, "200") == "#/components/schemas/RelayAPITokenUsageItem"
       missing << "GET /api/v1/console/api-tokens/{tokenId}/usage 200 data items must reference RelayAPITokenUsageItem"
+    end
+
+    {
+      "GET /api/v1/console/usage" => console_usage,
+      "GET /api/v1/console/access" => console_access,
+      "GET /api/v1/console/models" => console_models,
+      "GET /api/v1/console/billing" => console_billing,
+      "GET /api/v1/console/invoices" => console_invoices,
+      "GET /api/v1/console/api-tokens" => console_api_tokens,
+      "GET /api/v1/console/api-tokens/{tokenId}/usage" => console_api_token_usage,
+    }.each do |route, op|
+      unless requires_cookie_without_csrf?(op)
+        missing << "#{route} must require cookieAuth without csrfHeader"
+      end
+      unless op.fetch("tags", []).include?("Billing")
+        missing << "#{route} must be tagged Billing"
+      end
     end
 
     model_summary = schemas["ModelSummary"] || {}

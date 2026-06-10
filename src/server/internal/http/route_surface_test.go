@@ -345,6 +345,33 @@ func TestRouteSurfaceRegistersAdminAPITokenRoutes(t *testing.T) {
 	}
 }
 
+func TestRouteSurfaceConsoleReadRoutesRequireSessionWithoutDatabase(t *testing.T) {
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{})
+
+	tests := []routeSurfaceCase{
+		{"get usage", stdhttp.MethodGet, "/api/v1/console/usage"},
+		{"get access", stdhttp.MethodGet, "/api/v1/console/access"},
+		{"get models", stdhttp.MethodGet, "/api/v1/console/models"},
+		{"get billing", stdhttp.MethodGet, "/api/v1/console/billing"},
+		{"list invoices", stdhttp.MethodGet, "/api/v1/console/invoices"},
+		{"list api tokens", stdhttp.MethodGet, "/api/v1/console/api-tokens"},
+		{"list api token usage", stdhttp.MethodGet, "/api/v1/console/api-tokens/tok_1/usage"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, nil)
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusUnauthorized {
+				t.Fatalf("expected registered Console read route to require session with 401 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
 func TestRouteSurfaceRequiresSessionForConsoleAPITokenRoutesWithoutDatabase(t *testing.T) {
 	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{})
 
