@@ -1649,6 +1649,14 @@ vi.mock('../features/publishingChannels/publishingChannelsApi', () => ({
         status: 'active',
         type: 'webhook'
       }),
+    deleteChannel: () =>
+      Promise.resolve({
+        config: { endpointUrl: 'https://hooks.example/ops-renamed', secret: '********' },
+        id: 'channel_1',
+        name: 'Ops Webhook Renamed',
+        status: 'disabled',
+        type: 'webhook'
+      }),
     listChannelMessages: () =>
       Promise.resolve([
         {
@@ -1684,6 +1692,14 @@ vi.mock('../features/publishingChannels/publishingChannelsApi', () => ({
     retryFailedChannelMessages: () => Promise.resolve({ claimed: 1, failed: 0, permanentFailures: 0, succeeded: 1 }),
     sendChannelMessage: () => Promise.resolve({ id: 'log_1', status: 'recorded', transform_success: true }),
     testChannel: () => Promise.resolve({ message: 'channel adapter is available', status: 'success' }),
+    updateChannel: () =>
+      Promise.resolve({
+        config: { endpointUrl: 'https://hooks.example/ops-renamed', secret: '********' },
+        id: 'channel_1',
+        name: 'Ops Webhook Renamed',
+        status: 'active',
+        type: 'webhook'
+      }),
     updateChannelStatus: (channel: unknown) => Promise.resolve(channel)
   })
 }));
@@ -2614,6 +2630,29 @@ describe('app router', () => {
     expect(screen.getByLabelText('Publishing channel list')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Test channel Ops Webhook' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Disable Ops Webhook' })).toBeInTheDocument();
+  });
+
+  it('keeps publishing route-level channel edit and delete workflows reachable', async () => {
+    const router = createAppRouter(['/publishing']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    const list = await screen.findByLabelText('Publishing channel list');
+    expect(await within(list).findByRole('heading', { name: 'Ops Webhook' })).toBeInTheDocument();
+
+    fireEvent.click(within(list).getByRole('button', { name: 'Edit Ops Webhook' }));
+    const editForm = await screen.findByLabelText('Edit Ops Webhook');
+    fireEvent.change(within(editForm).getByLabelText('Channel name'), { target: { value: 'Ops Webhook Renamed' } });
+    fireEvent.change(within(editForm).getByLabelText('Endpoint URL'), { target: { value: 'https://hooks.example/ops-renamed' } });
+    fireEvent.click(within(editForm).getByRole('button', { name: 'Save channel' }));
+
+    expect(await within(list).findByRole('heading', { name: 'Ops Webhook Renamed' })).toBeInTheDocument();
+    expect(await screen.findByText('Channel updated.')).toBeInTheDocument();
+
+    fireEvent.click(within(list).getByRole('button', { name: 'Delete Ops Webhook Renamed' }));
+
+    expect(await screen.findByText('Channel disabled.')).toBeInTheDocument();
+    expect(within(list).getByText('Disabled')).toBeInTheDocument();
   });
 
   it('renders billing route inside the console shell', async () => {
