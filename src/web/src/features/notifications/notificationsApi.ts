@@ -23,7 +23,9 @@ export type ListNotificationsParams = {
 };
 
 export type NotificationsApi = {
+  getUnreadCount: () => Promise<{ count: number }>;
   listNotifications: (params?: ListNotificationsParams) => Promise<AppNotification[]>;
+  markAllRead: () => Promise<{ status: string }>;
   markRead: (notificationId: string) => Promise<{ status: string }>;
 };
 
@@ -46,7 +48,9 @@ function buildListPath(params: ListNotificationsParams = {}) {
 
 export function createNotificationsApi(client: HttpClient): NotificationsApi {
   return {
+    getUnreadCount: () => client.get<{ count: number }>('/api/v1/app/notifications/unread-count'),
     listNotifications: (params) => client.get<AppNotification[]>(buildListPath(params)),
+    markAllRead: () => client.post<{ status: string }>('/api/v1/app/notifications/mark-all-read'),
     markRead: (notificationId) =>
       client.request<{ status: string }>(`/api/v1/app/notifications/${notificationId}`, { method: 'PATCH' })
   };

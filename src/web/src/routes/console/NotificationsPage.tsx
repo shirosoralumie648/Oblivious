@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { RiCheckLine } from '@remixicon/react';
 
 import { createNotificationsApi, type AppNotification } from '../../features/notifications/notificationsApi';
 import { createHttpClient } from '../../services/http/client';
@@ -30,12 +31,18 @@ export function NotificationsPage() {
   const notificationsApi = useMemo(() => createNotificationsApi(createHttpClient()), []);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isMarkingAllRead, setIsMarkingAllRead] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   const loadNotifications = async () => {
-    const items = await notificationsApi.listNotifications({ limit: 50 });
+    const [items, unread] = await Promise.all([
+      notificationsApi.listNotifications({ limit: 50 }),
+      notificationsApi.getUnreadCount()
+    ]);
     setNotifications(items);
+    setUnreadCount(unread.count);
     setErrorMessage(null);
   };
 
@@ -44,9 +51,13 @@ export function NotificationsPage() {
 
     const load = async () => {
       try {
-        const items = await notificationsApi.listNotifications({ limit: 50 });
+        const [items, unread] = await Promise.all([
+          notificationsApi.listNotifications({ limit: 50 }),
+          notificationsApi.getUnreadCount()
+        ]);
         if (!cancelled) {
           setNotifications(items);
+          setUnreadCount(unread.count);
           setErrorMessage(null);
         }
       } catch {
@@ -67,8 +78,6 @@ export function NotificationsPage() {
     };
   }, [notificationsApi]);
 
-  const unreadCount = notifications.filter((notification) => !notification.isRead).length;
-
   const markNotificationRead = async (notification: AppNotification) => {
     setUpdatingId(notification.id);
     try {
@@ -78,6 +87,18 @@ export function NotificationsPage() {
       setErrorMessage('Unable to mark notification read.');
     } finally {
       setUpdatingId(null);
+    }
+  };
+
+  const markAllNotificationsRead = async () => {
+    setIsMarkingAllRead(true);
+    try {
+      await notificationsApi.markAllRead();
+      await loadNotifications();
+    } catch {
+      setErrorMessage('Unable to mark all notifications read.');
+    } finally {
+      setIsMarkingAllRead(false);
     }
   };
 
@@ -91,6 +112,15 @@ export function NotificationsPage() {
         <div className="flex flex-wrap gap-2 text-sm">
           <span className="rounded-lg border border-[#d7d2c4] bg-[#f8f6ef] px-3 py-2">{`${notifications.length} total`}</span>
           <span className="rounded-lg border border-[#d7d2c4] bg-[#f8f6ef] px-3 py-2">{`${unreadCount} unread`}</span>
+          <button
+            className="inline-flex min-h-[38px] items-center justify-center gap-2 rounded-lg border border-[#1a614f] px-3 font-semibold text-[#1a614f] transition hover:bg-[#e9f2ee] disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={unreadCount === 0 || isMarkingAllRead}
+            onClick={() => void markAllNotificationsRead()}
+            type="button"
+          >
+            <RiCheckLine className="size-4" aria-hidden="true" />
+            {isMarkingAllRead ? 'Marking all read...' : 'Mark all read'}
+          </button>
         </div>
       </header>
 

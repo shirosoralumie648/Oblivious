@@ -16,8 +16,8 @@ function createClient(overrides: Partial<HttpClient> = {}) {
 }
 
 describe('createNotificationsApi', () => {
-  it('lists notifications with filters and marks one notification read', async () => {
-    const get = vi.fn().mockResolvedValue([
+  it('lists notifications, reads unread count, and marks notifications read', async () => {
+    const notifications = [
       {
         category: 'system',
         createdAt: '2026-06-06T08:00:00Z',
@@ -28,16 +28,26 @@ describe('createNotificationsApi', () => {
         type: 'critical',
         userId: 'user_1'
       }
-    ]);
+    ];
+    const getCalls: string[] = [];
+    const get: HttpClient['get'] = async <T,>(path: string): Promise<T> => {
+      getCalls.push(path);
+      return (path === '/api/v1/app/notifications/unread-count' ? { count: 1 } : notifications) as T;
+    };
+    const post = vi.fn().mockResolvedValue({ status: 'ok' });
     const request = vi.fn().mockResolvedValue({ status: 'ok' });
-    const api = createNotificationsApi(createClient({ get, request }));
+    const api = createNotificationsApi(createClient({ get, post, request }));
 
     await expect(api.listNotifications({ limit: 10, offset: 20, unreadOnly: true })).resolves.toEqual([
       expect.objectContaining({ id: 'notif_1', type: 'critical', isRead: false })
     ]);
+    await expect(api.getUnreadCount()).resolves.toEqual({ count: 1 });
+    await expect(api.markAllRead()).resolves.toEqual({ status: 'ok' });
     await expect(api.markRead('notif_1')).resolves.toEqual({ status: 'ok' });
 
-    expect(get).toHaveBeenCalledWith('/api/v1/app/notifications?unread=true&limit=10&offset=20');
+    expect(getCalls).toContain('/api/v1/app/notifications?unread=true&limit=10&offset=20');
+    expect(getCalls).toContain('/api/v1/app/notifications/unread-count');
+    expect(post).toHaveBeenCalledWith('/api/v1/app/notifications/mark-all-read');
     expect(request).toHaveBeenCalledWith('/api/v1/app/notifications/notif_1', { method: 'PATCH' });
   });
 });

@@ -354,6 +354,7 @@ vi.mock('../features/console/api', () => ({
 
 vi.mock('../features/notifications/notificationsApi', () => ({
   createNotificationsApi: () => ({
+    getUnreadCount: () => Promise.resolve({ count: 1 }),
     listNotifications: () =>
       Promise.resolve([
         {
@@ -367,6 +368,7 @@ vi.mock('../features/notifications/notificationsApi', () => ({
           userId: 'user_1'
         }
       ]),
+    markAllRead: () => Promise.resolve({ status: 'ok' }),
     markRead: () => Promise.resolve({ id: 'notif_1', isRead: true })
   })
 }));

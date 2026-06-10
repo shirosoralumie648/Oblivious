@@ -5,11 +5,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { routerFuture } from '../../app/routerFuture';
 
 const listNotifications = vi.fn();
+const getUnreadCount = vi.fn();
+const markAllRead = vi.fn();
 const markRead = vi.fn();
 
 vi.mock('../../features/notifications/notificationsApi', () => ({
   createNotificationsApi: () => ({
+    getUnreadCount,
     listNotifications,
+    markAllRead,
     markRead
   })
 }));
@@ -19,6 +23,8 @@ import { NotificationsPage } from './NotificationsPage';
 describe('NotificationsPage', () => {
   afterEach(() => {
     listNotifications.mockReset();
+    getUnreadCount.mockReset();
+    markAllRead.mockReset();
     markRead.mockReset();
   });
 
@@ -59,6 +65,7 @@ describe('NotificationsPage', () => {
           userId: 'user_1'
         }
       ]);
+    getUnreadCount.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 });
     markRead.mockResolvedValue({ id: 'notif_critical', isRead: true });
 
     render(
@@ -82,5 +89,53 @@ describe('NotificationsPage', () => {
     expect(markRead).toHaveBeenCalledWith('notif_critical');
     expect(listNotifications).toHaveBeenNthCalledWith(1, { limit: 50 });
     expect(listNotifications).toHaveBeenNthCalledWith(2, { limit: 50 });
+    expect(getUnreadCount).toHaveBeenCalledTimes(2);
+  });
+
+  it('marks all notifications read and refreshes the server unread count', async () => {
+    listNotifications
+      .mockResolvedValueOnce([
+        {
+          category: 'system',
+          createdAt: '2026-06-06T08:00:00Z',
+          id: 'notif_critical',
+          isRead: false,
+          message: 'Database connection failed',
+          title: 'Database down',
+          type: 'critical',
+          userId: 'user_1'
+        }
+      ])
+      .mockResolvedValueOnce([
+        {
+          category: 'system',
+          createdAt: '2026-06-06T08:00:00Z',
+          id: 'notif_critical',
+          isRead: true,
+          message: 'Database connection failed',
+          readAt: '2026-06-06T08:05:00Z',
+          title: 'Database down',
+          type: 'critical',
+          userId: 'user_1'
+        }
+      ]);
+    getUnreadCount.mockResolvedValueOnce({ count: 3 }).mockResolvedValueOnce({ count: 0 });
+    markAllRead.mockResolvedValue({ status: 'ok' });
+
+    render(
+      <MemoryRouter future={routerFuture}>
+        <NotificationsPage />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('3 unread')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mark all read' }));
+
+    expect(await screen.findByText('0 unread')).toBeInTheDocument();
+    expect(markAllRead).toHaveBeenCalledTimes(1);
+    expect(listNotifications).toHaveBeenNthCalledWith(1, { limit: 50 });
+    expect(listNotifications).toHaveBeenNthCalledWith(2, { limit: 50 });
+    expect(getUnreadCount).toHaveBeenCalledTimes(2);
   });
 });
