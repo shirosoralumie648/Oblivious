@@ -2735,6 +2735,17 @@ components:
           type: string
           format: date-time
 
+    MarketplaceReviewSubmitRequest:
+      type: object
+      required: [rating]
+      properties:
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+        body:
+          type: string
+
     MarketplaceReviewsResponse:
       type: object
       properties:
@@ -15719,21 +15730,19 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                rating:
-                  type: integer
-                  minimum: 1
-                  maximum: 5
-                body:
-                  type: string
+              $ref: "#/components/schemas/MarketplaceReviewSubmitRequest"
       responses:
         "201":
           description: 评论已保存
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplaceAgentReview"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":

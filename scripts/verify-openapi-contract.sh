@@ -324,6 +324,7 @@ require_marketplace_surface_payload_contract() {
       ["/api/v1/marketplace/agents/{agentId}/install", "delete", "200"] => "#/components/schemas/MarketplaceActionStatusResponse",
       ["/api/v1/marketplace/agents/{agentId}/appeal", "post", "200"] => "#/components/schemas/MarketplaceActionStatusResponse",
       ["/api/v1/marketplace/agents/{agentId}/abuse-reports", "post", "201"] => "#/components/schemas/MarketplaceAbuseReport",
+      ["/api/v1/marketplace/agents/{agentId}/reviews", "post", "201"] => "#/components/schemas/MarketplaceAgentReview",
       ["/api/v1/marketplace/installs/{agentId}", "delete", "200"] => "#/components/schemas/MarketplaceActionStatusResponse",
       ["/api/v1/marketplace/publisher/settlement-preferences", "get", "200"] => "#/components/schemas/MarketplaceSettlementPreferences",
       ["/api/v1/marketplace/publisher/settlement-preferences", "put", "200"] => "#/components/schemas/MarketplaceSettlementPreferences",
@@ -351,6 +352,7 @@ require_marketplace_surface_payload_contract() {
       ["/api/v1/marketplace/agents/{agentId}", "put"] => "#/components/schemas/MarketplaceAgentPublishRequest",
       ["/api/v1/marketplace/agents/{agentId}/appeal", "post"] => "#/components/schemas/MarketplaceGovernanceActionRequest",
       ["/api/v1/marketplace/agents/{agentId}/abuse-reports", "post"] => "#/components/schemas/MarketplaceAbuseReportRequest",
+      ["/api/v1/marketplace/agents/{agentId}/reviews", "post"] => "#/components/schemas/MarketplaceReviewSubmitRequest",
       ["/api/v1/marketplace/publisher/settlement-preferences", "put"] => "#/components/schemas/MarketplaceSettlementPreferencesRequest",
       ["/api/v1/marketplace/templates", "post"] => "#/components/schemas/MarketplaceTemplateCreateRequest",
       ["/api/v1/admin/marketplace/agents/{agentId}/takedown", "post"] => "#/components/schemas/MarketplaceGovernanceActionRequest",
@@ -408,6 +410,19 @@ require_marketplace_surface_payload_contract() {
     end
     unless governance_request.dig("properties", "reason", "type") == "string"
       missing << "MarketplaceGovernanceActionRequest.reason must be documented as string"
+    end
+
+    review_submit = schemas["MarketplaceReviewSubmitRequest"] || {}
+    unless review_submit.fetch("required", []).include?("rating")
+      missing << "MarketplaceReviewSubmitRequest must require rating"
+    end
+    unless review_submit.dig("properties", "rating", "type") == "integer" &&
+        review_submit.dig("properties", "rating", "minimum") == 1 &&
+        review_submit.dig("properties", "rating", "maximum") == 5
+      missing << "MarketplaceReviewSubmitRequest.rating must be documented as integer 1..5"
+    end
+    unless review_submit.dig("properties", "body", "type") == "string"
+      missing << "MarketplaceReviewSubmitRequest.body must be documented as string"
     end
 
     template_list = schemas["MarketplaceTemplatesResponse"] || {}
