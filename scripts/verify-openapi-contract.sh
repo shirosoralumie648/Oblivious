@@ -1005,6 +1005,11 @@ require_mcp_auth_token_response_contract() {
       security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
     end
 
+    def requires_cookie_without_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && !entry.key?("csrfHeader") }
+    end
+
     list = operation(paths, "/api/v1/app/mcp-servers", "get", missing)
     unless response_data_array_ref(list, "200") == "#/components/schemas/McpServer"
       missing << "GET /api/v1/app/mcp-servers 200 data must return McpServer[]"
@@ -1037,6 +1042,22 @@ require_mcp_auth_token_response_contract() {
     tools = operation(paths, "/api/v1/app/mcp-servers/{serverId}/tools", "get", missing)
     unless response_data_array_ref(tools, "200") == "#/components/schemas/McpToolDefinition"
       missing << "GET /api/v1/app/mcp-servers/{serverId}/tools 200 data must return McpToolDefinition[]"
+    end
+
+    [
+      ["/api/v1/app/mcp-local-servers", "get"],
+      ["/api/v1/app/mcp-servers", "get"],
+      ["/api/v1/app/mcp-servers/{serverId}", "get"],
+      ["/api/v1/app/mcp-servers/{serverId}/tools", "get"],
+      ["/api/v1/app/mcp-servers/{serverId}/status", "get"],
+    ].each do |path, method|
+      op = operation(paths, path, method, missing)
+      unless requires_cookie_without_csrf?(op)
+        missing << "#{method.upcase} #{path} must require cookieAuth without csrfHeader"
+      end
+      unless op.fetch("tags", []).include?("MCP")
+        missing << "#{method.upcase} #{path} must be tagged MCP"
+      end
     end
 
     {

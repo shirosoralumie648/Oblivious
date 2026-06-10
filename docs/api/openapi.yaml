@@ -10088,6 +10088,8 @@ paths:
       summary: 获取内置本地 MCP server catalog
       operationId: listLocalMcpServers
       tags: [MCP]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: 当前可用的 tenant-safe 本地 MCP server 列表
@@ -10110,6 +10112,8 @@ paths:
       summary: 获取当前用户的 MCP server 列表
       operationId: listMcpServers
       tags: [MCP]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: 当前用户配置的 MCP server 列表
@@ -10161,6 +10165,8 @@ paths:
       summary: 获取 MCP server 详情
       operationId: getMcpServer
       tags: [MCP]
+      security:
+        - cookieAuth: []
       parameters:
         - name: serverId
           in: path
@@ -10304,6 +10310,8 @@ paths:
       summary: 获取 MCP server 工具定义
       operationId: listMcpServerTools
       tags: [MCP]
+      security:
+        - cookieAuth: []
       parameters:
         - name: serverId
           in: path
@@ -10340,6 +10348,8 @@ paths:
       summary: 获取 MCP server 连接状态
       operationId: getMcpServerStatus
       tags: [MCP]
+      security:
+        - cookieAuth: []
       parameters:
         - name: serverId
           in: path
