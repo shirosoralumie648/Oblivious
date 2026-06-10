@@ -3022,6 +3022,16 @@ func TestServiceAdjustPlanStepsReplacesRemainingSuffix(t *testing.T) {
 	if result.Run == nil || result.Run.Status != RunStatusPendingApproval || result.Run.Error != "" || result.Run.CompletedAt != nil {
 		t.Fatalf("expected run reopened for pending approval, got %+v", result.Run)
 	}
+	if result.Run.FinalMessageID == "" {
+		t.Fatalf("expected adjusted planning reply to become final message, got %+v", result.Run)
+	}
+	if len(result.Messages) != 2 {
+		t.Fatalf("expected user request plus adjusted assistant reply, got %+v", result.Messages)
+	}
+	adjustedReply := result.Messages[1]
+	if adjustedReply.ID != result.Run.FinalMessageID || adjustedReply.Role != "assistant" || adjustedReply.Content != gateway.plainReply {
+		t.Fatalf("expected adjusted assistant reply to be persisted and referenced, run=%+v messages=%+v", result.Run, result.Messages)
+	}
 	if gateway.plainCalls != 1 {
 		t.Fatalf("expected one model call, got %d", gateway.plainCalls)
 	}

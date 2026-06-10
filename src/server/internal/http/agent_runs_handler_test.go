@@ -449,6 +449,16 @@ func TestAgentRunsHandlerAdjustPlanReturnsUpdatedRunDetail(t *testing.T) {
 	if response.Data.Run == nil || response.Data.Run.Status != agent.RunStatusPendingApproval || response.Data.Run.Error != "" || response.Data.Run.CompletedAt != nil {
 		t.Fatalf("expected reopened run detail, got %+v", response.Data.Run)
 	}
+	if response.Data.Run.FinalMessageID == "" {
+		t.Fatalf("expected adjusted planning reply final message, got %+v", response.Data.Run)
+	}
+	if len(response.Data.Messages) != 2 {
+		t.Fatalf("expected refreshed messages to include adjusted planning reply, got %+v", response.Data.Messages)
+	}
+	adjustedReply := response.Data.Messages[1]
+	if adjustedReply.ID != response.Data.Run.FinalMessageID || adjustedReply.Role != "assistant" || adjustedReply.Content != `[{"title":"Adjusted implementation"},{"title":"Adjusted verification"}]` {
+		t.Fatalf("expected persisted adjusted assistant reply, run=%+v messages=%+v", response.Data.Run, response.Data.Messages)
+	}
 	if len(response.Data.PlanSteps) != 3 {
 		t.Fatalf("expected preserved prefix plus adjusted suffix, got %+v", response.Data.PlanSteps)
 	}

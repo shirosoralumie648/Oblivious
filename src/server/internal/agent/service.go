@@ -1298,6 +1298,10 @@ func (s *Service) AdjustPlanSteps(ctx context.Context, session auth.Session, run
 	if len(specs) == 0 {
 		return nil, fmt.Errorf("adjusted plan did not include any remaining steps")
 	}
+	assistantMsg, err := s.store.CreateMessage(ctx, run.ConversationID, session.OrganizationID, "assistant", reply, nil, "")
+	if err != nil {
+		return nil, fmt.Errorf("save adjusted planning reply: %w", err)
+	}
 
 	completedPrefixIDs := make(map[string]struct{}, len(completedPrefix))
 	for _, step := range completedPrefix {
@@ -1320,6 +1324,7 @@ func (s *Service) AdjustPlanSteps(ctx context.Context, session auth.Session, run
 	if _, err := s.store.UpdateRun(ctx, session.OrganizationID, run.ID, UpdateRunRequest{
 		Status:           stringPointer(RunStatusPendingApproval),
 		Error:            stringPointer(""),
+		FinalMessageID:   stringPointer(assistantMsg.ID),
 		ClearCompletedAt: true,
 	}); err != nil {
 		return nil, err
