@@ -1699,6 +1699,9 @@ require_memory_mutation_csrf_contract() {
     end
 
     {
+      ["/api/v1/app/memory/documents", "get"] => "Memory",
+      ["/api/v1/app/memory/documents/{documentId}", "get"] => "Memory",
+      ["/api/v1/app/memory/documents/{documentId}/chunks", "get"] => "Memory",
       ["/api/v1/agent/memories", "get"] => "Agent",
       ["/api/v1/agent/memories/export", "get"] => "Agent",
     }.each do |(path, method), expected_tag|
@@ -1760,6 +1763,21 @@ require_memory_mutation_csrf_contract() {
     search_op = operation(paths, "/api/v1/app/memory/search", "post", missing)
     unless response_array_item_ref(search_op, "200") == "#/components/schemas/MemorySearchResult"
       missing << "POST /api/v1/app/memory/search 200 data items must reference MemorySearchResult"
+    end
+
+    list_memory_documents_op = operation(paths, "/api/v1/app/memory/documents", "get", missing)
+    unless response_array_item_ref(list_memory_documents_op, "200") == "#/components/schemas/MemoryDocument"
+      missing << "GET /api/v1/app/memory/documents 200 data items must reference MemoryDocument"
+    end
+
+    get_memory_document_op = operation(paths, "/api/v1/app/memory/documents/{documentId}", "get", missing)
+    unless response_data_ref(get_memory_document_op, "200") == "#/components/schemas/MemoryDocument"
+      missing << "GET /api/v1/app/memory/documents/{documentId} 200 data must reference MemoryDocument"
+    end
+
+    list_memory_document_chunks_op = operation(paths, "/api/v1/app/memory/documents/{documentId}/chunks", "get", missing)
+    unless response_array_item_ref(list_memory_document_chunks_op, "200") == "#/components/schemas/MemoryChunk"
+      missing << "GET /api/v1/app/memory/documents/{documentId}/chunks 200 data items must reference MemoryChunk"
     end
 
     list_agent_memories_op = operation(paths, "/api/v1/agent/memories", "get", missing)

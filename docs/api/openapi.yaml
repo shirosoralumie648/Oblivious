@@ -9887,6 +9887,8 @@ paths:
       summary: 获取 workspace memory 文档列表
       operationId: listMemoryDocuments
       tags: [Memory]
+      security:
+        - cookieAuth: []
       parameters:
         - name: limit
           in: query
@@ -9950,6 +9952,8 @@ paths:
       summary: 获取 workspace memory 文档详情
       operationId: getMemoryDocument
       tags: [Memory]
+      security:
+        - cookieAuth: []
       parameters:
         - name: documentId
           in: path
@@ -10062,6 +10066,8 @@ paths:
       summary: 获取 workspace memory 文档分块
       operationId: listMemoryDocumentChunks
       tags: [Memory]
+      security:
+        - cookieAuth: []
       parameters:
         - name: documentId
           in: path
