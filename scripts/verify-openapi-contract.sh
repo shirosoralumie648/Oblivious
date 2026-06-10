@@ -1293,6 +1293,11 @@ require_agent_run_mutation_csrf_contract() {
       security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
     end
 
+    def requires_cookie_without_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && !entry.key?("csrfHeader") }
+    end
+
     def request_body_ref(operation)
       operation.dig("requestBody", "content", "application/json", "schema", "$ref")
     end
@@ -1301,6 +1306,12 @@ require_agent_run_mutation_csrf_contract() {
       operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
         find { |entry| entry.dig("properties", "data", "$ref") }&.
         dig("properties", "data", "$ref")
+    end
+
+    def response_array_item_ref(operation, status)
+      operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "items", "$ref") }&.
+        dig("properties", "data", "items", "$ref")
     end
 
     def any_of_requires?(schema, field)
@@ -1338,6 +1349,24 @@ require_agent_run_mutation_csrf_contract() {
       unless op.fetch("tags", []).include?("Agent")
         missing << "#{method.upcase} #{path} must be tagged Agent"
       end
+    end
+
+    [
+      ["/api/v1/agent/tools", "get"],
+      ["/api/v1/agent/runs/{runId}", "get"],
+    ].each do |path, method|
+      op = operation(paths, path, method, missing)
+      unless requires_cookie_without_csrf?(op)
+        missing << "#{method.upcase} #{path} must require cookieAuth without csrfHeader"
+      end
+      unless op.fetch("tags", []).include?("Agent")
+        missing << "#{method.upcase} #{path} must be tagged Agent"
+      end
+    end
+
+    tools_op = operation(paths, "/api/v1/agent/tools", "get", missing)
+    unless response_array_item_ref(tools_op, "200") == "#/components/schemas/AgentToolDefinition"
+      missing << "GET /api/v1/agent/tools 200 data items must reference AgentToolDefinition"
     end
 
     {
@@ -1564,6 +1593,11 @@ require_memory_mutation_csrf_contract() {
       security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
     end
 
+    def requires_cookie_without_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && !entry.key?("csrfHeader") }
+    end
+
     def request_body_ref(operation)
       operation.dig("requestBody", "content", "application/json", "schema", "$ref")
     end
@@ -1582,6 +1616,19 @@ require_memory_mutation_csrf_contract() {
 
     def schema_props(schema)
       schema.fetch("properties", {})
+    end
+
+    {
+      ["/api/v1/agent/memories", "get"] => "Agent",
+      ["/api/v1/agent/memories/export", "get"] => "Agent",
+    }.each do |(path, method), expected_tag|
+      op = operation(paths, path, method, missing)
+      unless requires_cookie_without_csrf?(op)
+        missing << "#{method.upcase} #{path} must require cookieAuth without csrfHeader"
+      end
+      unless op.fetch("tags", []).include?(expected_tag)
+        missing << "#{method.upcase} #{path} must be tagged #{expected_tag}"
+      end
     end
 
     {
@@ -1633,6 +1680,16 @@ require_memory_mutation_csrf_contract() {
     search_op = operation(paths, "/api/v1/app/memory/search", "post", missing)
     unless response_array_item_ref(search_op, "200") == "#/components/schemas/MemorySearchResult"
       missing << "POST /api/v1/app/memory/search 200 data items must reference MemorySearchResult"
+    end
+
+    list_agent_memories_op = operation(paths, "/api/v1/agent/memories", "get", missing)
+    unless response_array_item_ref(list_agent_memories_op, "200") == "#/components/schemas/AgentMemory"
+      missing << "GET /api/v1/agent/memories 200 data items must reference AgentMemory"
+    end
+
+    export_agent_memories_op = operation(paths, "/api/v1/agent/memories/export", "get", missing)
+    unless response_data_ref(export_agent_memories_op, "200") == "#/components/schemas/AgentMemoryListResponse"
+      missing << "GET /api/v1/agent/memories/export 200 data must reference AgentMemoryListResponse"
     end
 
     import_op = operation(paths, "/api/v1/agent/memories/import", "post", missing)

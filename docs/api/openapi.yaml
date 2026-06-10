@@ -10398,6 +10398,8 @@ paths:
       summary: 获取 Agent 可用工具定义
       operationId: listAgentTools
       tags: [Agent]
+      security:
+        - cookieAuth: []
       parameters:
         - name: agentId
           in: query
@@ -10474,6 +10476,8 @@ paths:
       summary: 获取 Agent run 详情
       operationId: getAgentRun
       tags: [Agent]
+      security:
+        - cookieAuth: []
       parameters:
         - name: runId
           in: path
@@ -11023,6 +11027,8 @@ paths:
       summary: 搜索或列出 Agent 记忆
       operationId: listAgentMemories
       tags: [Agent]
+      security:
+        - cookieAuth: []
       parameters:
         - name: agentId
           in: query
@@ -11136,6 +11142,8 @@ paths:
       summary: 导出当前用户可访问的 Agent 记忆
       operationId: exportAgentMemories
       tags: [Agent]
+      security:
+        - cookieAuth: []
       parameters:
         - name: agentId
           in: query
