@@ -1345,6 +1345,9 @@ func (s *Service) ContinuePlanningRun(ctx context.Context, session auth.Session,
 	if NormalizeExecutionMode(run.Mode) != ExecutionModePlanning {
 		return nil, fmt.Errorf("agent run is not in planning mode")
 	}
+	if !isPlanningRunContinuable(run) {
+		return nil, fmt.Errorf("planning run cannot be continued from status %s", run.Status)
+	}
 
 	for {
 		detail, err := s.GetRunWithMessages(ctx, session, run.ID)
@@ -1861,6 +1864,13 @@ func isPlanStepExecutable(step *PlanStep) bool {
 		return false
 	}
 	return step.Status == PlanStepStatusApproved || (step.Status == PlanStepStatusPending && step.ApprovalStatus == ApprovalStatusNotRequired)
+}
+
+func isPlanningRunContinuable(run *Run) bool {
+	if run == nil {
+		return false
+	}
+	return run.Status == RunStatusPendingApproval
 }
 
 func isPlanningExecutionStopAfterError(detail *RunWithMessages, planStepID string) bool {

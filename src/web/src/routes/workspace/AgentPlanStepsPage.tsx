@@ -121,6 +121,7 @@ export function AgentPlanStepsPage() {
   const [runToolCallCount, setRunToolCallCount] = useState<number | null>(null);
   const [toolRunDecisionReasons, setToolRunDecisionReasons] = useState<Record<string, string>>({});
   const [toolRuns, setToolRuns] = useState<AgentToolRun[]>([]);
+  const canContinuePlan = runStatus === 'pending_approval';
 
   const applyRunDetail = useCallback((detail: AgentRunDetail) => {
     setPlanSteps(detail.planSteps);
@@ -494,7 +495,7 @@ export function AgentPlanStepsPage() {
           </button>
           <button
             className="min-h-10 rounded-lg bg-[#181611] px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={isContinuingPlan || !runId}
+            disabled={isContinuingPlan || !runId || !canContinuePlan}
             onClick={() => void continuePlanningRun()}
             type="button"
           >

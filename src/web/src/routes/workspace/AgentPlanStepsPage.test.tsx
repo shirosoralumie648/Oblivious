@@ -331,6 +331,30 @@ describe('AgentPlanStepsPage', () => {
     expect(within(screen.getByLabelText('Plan step Review UI')).getAllByText('pending').length).toBeGreaterThan(0);
   });
 
+  it('does not continue completed planning runs from the planning page', async () => {
+    getRunDetail.mockResolvedValueOnce(runDetail([
+      {
+        approvalStatus: 'not_required',
+        id: 'step_1',
+        index: 1,
+        resultContent: 'Already completed.',
+        runId: 'run_1',
+        status: 'completed',
+        title: 'Completed implementation'
+      }
+    ], { status: 'completed' }));
+
+    renderDirectPage();
+
+    expect(await screen.findByRole('heading', { name: 'Completed implementation' })).toBeInTheDocument();
+    const continueButton = screen.getByRole('button', { name: 'Continue plan' });
+    expect(continueButton).toBeDisabled();
+
+    fireEvent.click(continueButton);
+
+    expect(continuePlan).not.toHaveBeenCalled();
+  });
+
   it('renders plan steps from navigation state and refreshes them after approve and execute actions', async () => {
     renderPage([
       {

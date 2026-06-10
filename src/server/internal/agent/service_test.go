@@ -3286,6 +3286,63 @@ func TestServiceContinuePlanningRunReturnsDetailWhenPlanStepFails(t *testing.T) 
 	}
 }
 
+func TestServiceContinuePlanningRunRejectsNonContinuableStatuses(t *testing.T) {
+	now := time.Now().UTC()
+
+	for _, status := range []string{
+		RunStatusCompleted,
+		RunStatusFailed,
+		RunStatusMaxIterationsReached,
+		RunStatusTokenBudgetExceeded,
+	} {
+		t.Run(status, func(t *testing.T) {
+			store := &fakeStore{
+				runs: []*Run{{
+					ID:             "run_1",
+					OrganizationID: "org_1",
+					ConversationID: "conv_1",
+					AgentID:        "agent_1",
+					UserID:         "user_1",
+					Mode:           ExecutionModePlanning,
+					Status:         status,
+					StartedAt:      now,
+					CompletedAt:    &now,
+					CreatedAt:      now,
+					UpdatedAt:      now,
+				}},
+				planSteps: []*PlanStep{{
+					ID:             "step_1",
+					RunID:          "run_1",
+					OrganizationID: "org_1",
+					Index:          1,
+					Title:          "Should not execute",
+					Status:         PlanStepStatusPending,
+					ApprovalStatus: ApprovalStatusNotRequired,
+					CreatedAt:      now,
+				}},
+			}
+			executor := &fakePlanStepExecutor{resultContent: "unexpected execution"}
+			service := NewService(store, &fakeGateway{})
+			service.SetPlanStepExecutor(executor)
+
+			result, err := service.ContinuePlanningRun(
+				context.Background(),
+				auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}},
+				"run_1",
+			)
+			if err == nil || !strings.Contains(err.Error(), "planning run cannot be continued from status "+status) {
+				t.Fatalf("expected invalid continuation error for status %s, got result=%+v err=%v", status, result, err)
+			}
+			if executor.calls != 0 {
+				t.Fatalf("non-continuable status %s should not execute plan steps, got %d calls", status, executor.calls)
+			}
+			if store.planSteps[0].Status != PlanStepStatusPending || store.planSteps[0].StartedAt != nil || store.planSteps[0].CompletedAt != nil {
+				t.Fatalf("non-continuable status %s mutated plan step: %+v", status, store.planSteps[0])
+			}
+		})
+	}
+}
+
 func TestServiceStartRunWithoutToolsMarksDurableRunFailedOnRunnerError(t *testing.T) {
 	store := &fakeStore{
 		agent: &Agent{

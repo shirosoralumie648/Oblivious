@@ -569,6 +569,49 @@ func TestAgentRunsHandlerContinuePlanReturnsUpdatedRunDetail(t *testing.T) {
 	}
 }
 
+func TestAgentRunsHandlerContinuePlanRejectsCompletedRun(t *testing.T) {
+	now := time.Now().UTC()
+	store := newFakeAgentRunsStore()
+	store.runs = []*agent.Run{{
+		ID:             "run_1",
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		Mode:           agent.ExecutionModePlanning,
+		Status:         agent.RunStatusCompleted,
+		StartedAt:      now,
+		CompletedAt:    &now,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}}
+	store.planSteps = []*agent.PlanStep{{
+		ID:             "step_1",
+		RunID:          "run_1",
+		OrganizationID: "org_1",
+		Index:          1,
+		Title:          "Should not execute",
+		Status:         agent.PlanStepStatusPending,
+		ApprovalStatus: agent.ApprovalStatusNotRequired,
+		CreatedAt:      now,
+	}}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{reply: "unexpected execution"}))
+
+	recorder := httptest.NewRecorder()
+	handler.continuePlan(recorder, newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/continue-plan", `{}`), "run_1")
+
+	if recorder.Code != stdhttp.StatusConflict {
+		t.Fatalf("expected 409, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, `"code":"invalid_state"`) || !strings.Contains(body, "planning run cannot be continued from status completed") {
+		t.Fatalf("expected invalid_state completed-run error, got body %s", body)
+	}
+	if store.planSteps[0].Status != agent.PlanStepStatusPending || store.planSteps[0].StartedAt != nil || store.planSteps[0].CompletedAt != nil {
+		t.Fatalf("completed run continuation should not mutate plan step, got %+v", store.planSteps[0])
+	}
+}
+
 func TestAgentRunsHandlerUpdatePlanStepReturnsUpdatedRunDetail(t *testing.T) {
 	now := time.Now().UTC()
 	store := newFakeAgentRunsStore()
