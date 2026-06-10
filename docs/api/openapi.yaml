@@ -16038,6 +16038,8 @@ paths:
       summary: 管理员列出 Marketplace 审核队列
       operationId: listAdminMarketplaceReviews
       tags: [Admin, Marketplace]
+      security:
+        - cookieAuth: []
       parameters:
         - name: status
           in: query
@@ -16302,6 +16304,8 @@ paths:
       summary: 管理员列出 Marketplace abuse reports
       operationId: listMarketplaceAbuseReports
       tags: [Admin, Marketplace]
+      security:
+        - cookieAuth: []
       parameters:
         - name: status
           in: query

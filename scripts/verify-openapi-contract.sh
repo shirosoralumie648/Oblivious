@@ -1209,6 +1209,11 @@ require_admin_marketplace_governance_csrf_contract() {
       security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
     end
 
+    def requires_cookie_without_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && !entry.key?("csrfHeader") }
+    end
+
     [
       ["/api/v1/admin/marketplace/agents/{agentId}/takedown", "post"],
       ["/api/v1/admin/marketplace/agents/{agentId}/reinstate", "post"],
@@ -1223,6 +1228,15 @@ require_admin_marketplace_governance_csrf_contract() {
       unless tags.include?("Admin") && tags.include?("Marketplace")
         missing << "#{method.upcase} #{path} must be tagged Admin and Marketplace"
       end
+    end
+
+    abuse_reports = operation(paths, "/api/v1/admin/marketplace/abuse-reports", "get", missing)
+    unless requires_cookie_without_csrf?(abuse_reports)
+      missing << "GET /api/v1/admin/marketplace/abuse-reports must require cookieAuth without csrfHeader"
+    end
+    abuse_tags = abuse_reports.fetch("tags", [])
+    unless abuse_tags.include?("Admin") && abuse_tags.include?("Marketplace")
+      missing << "GET /api/v1/admin/marketplace/abuse-reports must be tagged Admin and Marketplace"
     end
 
     unless missing.empty?
@@ -1252,6 +1266,11 @@ require_admin_marketplace_review_csrf_contract() {
     def requires_cookie_and_csrf?(operation)
       security = operation.fetch("security", [])
       security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
+    end
+
+    def requires_cookie_without_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && !entry.key?("csrfHeader") }
     end
 
     def response_data_ref(operation, status)
@@ -1295,6 +1314,9 @@ require_admin_marketplace_review_csrf_contract() {
       op = operation(paths, path, method, missing)
       unless response_data_ref(op, "200") == expected
         missing << "#{method.upcase} #{path} 200 data must reference #{expected}"
+      end
+      if method == "get" && !requires_cookie_without_csrf?(op)
+        missing << "#{method.upcase} #{path} must require cookieAuth without csrfHeader"
       end
     end
 

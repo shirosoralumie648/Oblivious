@@ -2242,6 +2242,7 @@ func routeSurfaceAdminSubRouteCases() []routeSurfaceCase {
 		{"marketplace abuse reports", stdhttp.MethodGet, "/api/v1/admin/marketplace/abuse-reports"},
 		{"marketplace abuse resolve", stdhttp.MethodPost, "/api/v1/admin/marketplace/abuse-reports/report_1/resolve"},
 		{"marketplace abuse dismiss", stdhttp.MethodPost, "/api/v1/admin/marketplace/abuse-reports/report_1/dismiss"},
+		{"marketplace review list", stdhttp.MethodGet, "/api/v1/admin/reviews"},
 		{"marketplace review sla enforce", stdhttp.MethodPost, "/api/v1/admin/reviews/sla/enforce"},
 	}
 }
