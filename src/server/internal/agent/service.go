@@ -2101,6 +2101,9 @@ func (s *Service) ApproveToolRun(ctx context.Context, session auth.Session, tool
 	if err != nil {
 		return nil, err
 	}
+	if _, err := s.requireToolRunParentStatus(ctx, session, toolRun, "approve", RunStatusPendingApproval); err != nil {
+		return nil, err
+	}
 	if toolRun.ApprovalStatus != ApprovalStatusPending || toolRun.Status != ToolRunStatusPendingApproval {
 		return nil, fmt.Errorf("tool run is not pending approval")
 	}
@@ -2125,12 +2128,12 @@ func (s *Service) RejectToolRun(ctx context.Context, session auth.Session, toolR
 	if err != nil {
 		return nil, err
 	}
-	if toolRun.ApprovalStatus != ApprovalStatusPending || toolRun.Status != ToolRunStatusPendingApproval {
-		return nil, fmt.Errorf("tool run is not pending approval")
-	}
-	run, err := s.getRunForSession(ctx, session, toolRun.RunID)
+	run, err := s.requireToolRunParentStatus(ctx, session, toolRun, "reject", RunStatusPendingApproval)
 	if err != nil {
 		return nil, err
+	}
+	if toolRun.ApprovalStatus != ApprovalStatusPending || toolRun.Status != ToolRunStatusPendingApproval {
+		return nil, fmt.Errorf("tool run is not pending approval")
 	}
 	completedAt := time.Now().UTC()
 	updated, err := s.store.UpdateToolRun(ctx, session.OrganizationID, toolRunID, UpdateToolRunRequest{
@@ -2158,6 +2161,9 @@ func (s *Service) RejectToolRun(ctx context.Context, session auth.Session, toolR
 func (s *Service) RetryToolRun(ctx context.Context, session auth.Session, toolRunID string) (*ToolRun, error) {
 	toolRun, err := s.getToolRunForSession(ctx, session, toolRunID)
 	if err != nil {
+		return nil, err
+	}
+	if _, err := s.requireToolRunParentStatus(ctx, session, toolRun, "retry", RunStatusFailed, RunStatusPendingApproval); err != nil {
 		return nil, err
 	}
 	if toolRun.Status != ToolRunStatusFailed {
@@ -2195,6 +2201,22 @@ func (s *Service) RetryToolRun(ctx context.Context, session auth.Session, toolRu
 		return nil, err
 	}
 	return s.executePersistedToolRun(ctx, session, toolRun)
+}
+
+func (s *Service) requireToolRunParentStatus(ctx context.Context, session auth.Session, toolRun *ToolRun, action string, allowedStatuses ...string) (*Run, error) {
+	if toolRun == nil {
+		return nil, fmt.Errorf("tool run not found")
+	}
+	run, err := s.getRunForSession(ctx, session, toolRun.RunID)
+	if err != nil {
+		return nil, err
+	}
+	for _, status := range allowedStatuses {
+		if run.Status == status {
+			return run, nil
+		}
+	}
+	return nil, fmt.Errorf("agent run cannot %s tool run from status %s", action, run.Status)
 }
 
 func (s *Service) ContinueRunWithTokenBudget(ctx context.Context, session auth.Session, runID string, tokenBudget int) (*RunResult, error) {

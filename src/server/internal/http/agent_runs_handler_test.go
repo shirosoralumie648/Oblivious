@@ -331,6 +331,7 @@ func TestAgentRunsHandlerApprovePlanStepReturnsUpdatedRunDetail(t *testing.T) {
 		ConversationID: "conv_1",
 		AgentID:        "agent_1",
 		UserID:         "user_1",
+		Mode:           agent.ExecutionModePlanning,
 		Status:         agent.RunStatusCompleted,
 	}}
 	store.planSteps = []*agent.PlanStep{{
@@ -802,6 +803,7 @@ func TestAgentRunsHandlerUpdatePlanStepReturnsUpdatedRunDetail(t *testing.T) {
 		ConversationID: "conv_1",
 		AgentID:        "agent_1",
 		UserID:         "user_1",
+		Mode:           agent.ExecutionModePlanning,
 		Status:         agent.RunStatusRunning,
 	}}
 	store.planSteps = []*agent.PlanStep{{
@@ -865,6 +867,7 @@ func TestAgentRunsHandlerExecutePlanStepAcceptsSnakeCaseID(t *testing.T) {
 		ConversationID: "conv_1",
 		AgentID:        "agent_1",
 		UserID:         "user_1",
+		Mode:           agent.ExecutionModePlanning,
 		Status:         agent.RunStatusCompleted,
 	}}
 	store.planSteps = []*agent.PlanStep{{
@@ -1241,6 +1244,7 @@ func TestAgentRunsHandlerSkipPlanStepReturnsUpdatedRunDetail(t *testing.T) {
 		ConversationID: "conv_1",
 		AgentID:        "agent_1",
 		UserID:         "user_1",
+		Mode:           agent.ExecutionModePlanning,
 		Status:         agent.RunStatusPendingApproval,
 		CreatedAt:      now,
 		UpdatedAt:      now,
@@ -1301,6 +1305,7 @@ func TestAgentRunsHandlerSkipPlanStepRejectsOutOfOrderWithoutClearingEvidence(t 
 		ConversationID: "conv_1",
 		AgentID:        "agent_1",
 		UserID:         "user_1",
+		Mode:           agent.ExecutionModePlanning,
 		Status:         agent.RunStatusPendingApproval,
 		CreatedAt:      now,
 		UpdatedAt:      now,
@@ -1369,6 +1374,7 @@ func TestAgentRunsHandlerRetryPlanStepReturnsUpdatedRunDetail(t *testing.T) {
 		ConversationID: "conv_1",
 		AgentID:        "agent_1",
 		UserID:         "user_1",
+		Mode:           agent.ExecutionModePlanning,
 		Status:         agent.RunStatusTokenBudgetExceeded,
 		Error:          "token_budget_exceeded: old budget",
 		CompletedAt:    &completedAt,
@@ -1447,6 +1453,7 @@ func TestAgentRunsHandlerRetryPlanStepRejectsOutOfOrderWithoutClearingFailure(t 
 		ConversationID: "conv_1",
 		AgentID:        "agent_1",
 		UserID:         "user_1",
+		Mode:           agent.ExecutionModePlanning,
 		Status:         agent.RunStatusFailed,
 		Error:          "step 2 failed",
 		CompletedAt:    &completedAt,
@@ -2173,6 +2180,102 @@ func TestAgentRunsHandlerToolApprovalDecisionsRejectNonPendingToolRuns(t *testin
 			if toolRun.Status != tt.initialStatus || toolRun.ApprovalStatus != tt.initialApproval ||
 				toolRun.ApprovedByUserID != "reviewer_1" || toolRun.ApprovalDecisionReason != "original decision" {
 				t.Fatalf("non-pending approval decision mutated guarded tool run: %+v", toolRun)
+			}
+		})
+	}
+}
+
+func TestAgentRunsHandlerToolActionsRejectTerminalParentRunState(t *testing.T) {
+	tests := []struct {
+		name            string
+		action          string
+		call            func(agentRunsHandler, stdhttp.ResponseWriter, *stdhttp.Request, string)
+		path            string
+		body            string
+		initialStatus   string
+		initialApproval string
+	}{
+		{
+			name:            "approve stale pending tool",
+			action:          "approve",
+			call:            agentRunsHandler.approveTool,
+			path:            "/api/v1/agent/runs/run_1/approve-tool",
+			body:            `{"toolRunId":"tool_run_guarded","reason":"late approval"}`,
+			initialStatus:   agent.ToolRunStatusPendingApproval,
+			initialApproval: agent.ApprovalStatusPending,
+		},
+		{
+			name:            "reject stale pending tool",
+			action:          "reject",
+			call:            agentRunsHandler.rejectTool,
+			path:            "/api/v1/agent/runs/run_1/reject-tool",
+			body:            `{"toolRunId":"tool_run_guarded","reason":"late rejection"}`,
+			initialStatus:   agent.ToolRunStatusPendingApproval,
+			initialApproval: agent.ApprovalStatusPending,
+		},
+		{
+			name:            "retry stale failed tool",
+			action:          "retry",
+			call:            agentRunsHandler.retryTool,
+			path:            "/api/v1/agent/runs/run_1/retry-tool",
+			body:            `{"toolRunId":"tool_run_guarded"}`,
+			initialStatus:   agent.ToolRunStatusFailed,
+			initialApproval: agent.ApprovalStatusNotRequired,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			now := time.Now().UTC()
+			store := newFakeAgentRunsStore()
+			store.runs = []*agent.Run{{
+				ID:             "run_1",
+				OrganizationID: "org_1",
+				ConversationID: "conv_1",
+				AgentID:        "agent_1",
+				UserID:         "user_1",
+				Status:         agent.RunStatusCompleted,
+				Error:          "completed evidence must stay",
+				CompletedAt:    &now,
+			}}
+			store.toolRuns = []*agent.ToolRun{{
+				ID:                     "tool_run_guarded",
+				OrganizationID:         "org_1",
+				RunID:                  "run_1",
+				ConversationID:         "conv_1",
+				AgentID:                "agent_1",
+				ToolCallID:             "call_guarded",
+				ToolName:               "datetime",
+				ToolType:               "builtin",
+				Arguments:              map[string]any{},
+				Status:                 tt.initialStatus,
+				ApprovalStatus:         tt.initialApproval,
+				ApprovedByUserID:       "reviewer_1",
+				ApprovalDecisionReason: "original decision",
+				Error:                  "old tool evidence",
+			}}
+			handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{}))
+
+			recorder := httptest.NewRecorder()
+			tt.call(handler, recorder, newAgentRunsRequest(stdhttp.MethodPost, tt.path, tt.body), "run_1")
+
+			if recorder.Code != stdhttp.StatusConflict {
+				t.Fatalf("expected 409 for terminal parent run, got %d with body %s", recorder.Code, recorder.Body.String())
+			}
+			if !strings.Contains(recorder.Body.String(), "agent run cannot "+tt.action+" tool run from status completed") {
+				t.Fatalf("expected parent run status guard error, got %s", recorder.Body.String())
+			}
+			if store.runs[0].Status != agent.RunStatusCompleted || store.runs[0].Error != "completed evidence must stay" || store.runs[0].CompletedAt != &now {
+				t.Fatalf("terminal parent run was mutated: %+v", store.runs[0])
+			}
+			toolRun := store.toolRuns[0]
+			if toolRun.Status != tt.initialStatus || toolRun.ApprovalStatus != tt.initialApproval ||
+				toolRun.ApprovedByUserID != "reviewer_1" || toolRun.ApprovalDecisionReason != "original decision" ||
+				toolRun.Error != "old tool evidence" {
+				t.Fatalf("terminal parent run guard mutated tool evidence: %+v", toolRun)
+			}
+			if len(store.messages) != 0 {
+				t.Fatalf("terminal parent run guard should not create messages, got %+v", store.messages)
 			}
 		})
 	}

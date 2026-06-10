@@ -4922,6 +4922,114 @@ func TestServiceRejectToolRunRecordsRejectedToolAndFailedRunMetrics(t *testing.T
 	}
 }
 
+func TestServiceToolRunActionsRejectNonRecoverableParentRunStates(t *testing.T) {
+	invalidRunStatuses := []string{
+		RunStatusRunning,
+		RunStatusCompleted,
+		RunStatusMaxIterationsReached,
+		RunStatusTokenBudgetExceeded,
+	}
+	tests := []struct {
+		name           string
+		action         string
+		toolStatus     string
+		approvalStatus string
+		call           func(*Service, auth.Session, string) (*ToolRun, error)
+	}{
+		{
+			name:           "approve",
+			action:         "approve",
+			toolStatus:     ToolRunStatusPendingApproval,
+			approvalStatus: ApprovalStatusPending,
+			call: func(service *Service, session auth.Session, toolRunID string) (*ToolRun, error) {
+				return service.ApproveToolRun(context.Background(), session, toolRunID, "late approval")
+			},
+		},
+		{
+			name:           "reject",
+			action:         "reject",
+			toolStatus:     ToolRunStatusPendingApproval,
+			approvalStatus: ApprovalStatusPending,
+			call: func(service *Service, session auth.Session, toolRunID string) (*ToolRun, error) {
+				return service.RejectToolRun(context.Background(), session, toolRunID, "late rejection")
+			},
+		},
+		{
+			name:           "retry",
+			action:         "retry",
+			toolStatus:     ToolRunStatusFailed,
+			approvalStatus: ApprovalStatusNotRequired,
+			call: func(service *Service, session auth.Session, toolRunID string) (*ToolRun, error) {
+				return service.RetryToolRun(context.Background(), session, toolRunID)
+			},
+		},
+	}
+
+	for _, runStatus := range invalidRunStatuses {
+		for _, tt := range tests {
+			t.Run(tt.name+"_"+runStatus, func(t *testing.T) {
+				now := time.Now().UTC()
+				completedAt := now.Add(time.Minute)
+				store := &fakeStore{
+					runs: []*Run{{
+						ID:             "run_1",
+						OrganizationID: "org_1",
+						ConversationID: "conv_1",
+						AgentID:        "agent_1",
+						UserID:         "user_1",
+						Status:         runStatus,
+						Error:          "parent run evidence must stay",
+						CompletedAt:    &completedAt,
+						CreatedAt:      now,
+						UpdatedAt:      now,
+					}},
+					toolRuns: []*ToolRun{{
+						ID:                     "tool_run_guarded",
+						OrganizationID:         "org_1",
+						RunID:                  "run_1",
+						ConversationID:         "conv_1",
+						AgentID:                "agent_1",
+						ToolCallID:             "call_guarded",
+						ToolName:               "datetime",
+						ToolType:               "builtin",
+						Arguments:              map[string]any{},
+						Status:                 tt.toolStatus,
+						ApprovalStatus:         tt.approvalStatus,
+						ApprovedByUserID:       "reviewer_1",
+						ApprovalDecisionReason: "original decision",
+						AttemptCount:           3,
+						ResultContent:          "old result",
+						Error:                  "old error",
+						CompletedAt:            &completedAt,
+						CreatedAt:              now,
+						UpdatedAt:              now,
+					}},
+				}
+				service := NewService(store, &fakeGateway{})
+
+				result, err := tt.call(service, auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}}, "tool_run_guarded")
+				if err == nil || !strings.Contains(err.Error(), "agent run cannot "+tt.action+" tool run from status "+runStatus) {
+					t.Fatalf("expected parent run status rejection, got result=%+v err=%v", result, err)
+				}
+				run := store.runs[0]
+				if run.Status != runStatus || run.Error != "parent run evidence must stay" || run.CompletedAt != &completedAt {
+					t.Fatalf("rejected %s mutated parent run evidence: %+v", tt.action, run)
+				}
+				toolRun := store.toolRuns[0]
+				if toolRun.Status != tt.toolStatus || toolRun.ApprovalStatus != tt.approvalStatus ||
+					toolRun.ApprovedByUserID != "reviewer_1" || toolRun.ApprovalDecisionReason != "original decision" ||
+					toolRun.AttemptCount != 3 || toolRun.ResultContent != "old result" || toolRun.Error != "old error" ||
+					toolRun.CompletedAt != &completedAt {
+					t.Fatalf("rejected %s mutated guarded tool run: %+v", tt.action, toolRun)
+				}
+				if len(store.updateRunRequests) != 0 || len(store.messages) != 0 {
+					t.Fatalf("rejected %s should not write run/messages, updates=%+v messages=%+v", tt.action, store.updateRunRequests, store.messages)
+				}
+			})
+		}
+	}
+}
+
 func TestToolApprovalPolicyModesAndRiskLevels(t *testing.T) {
 	tests := []struct {
 		name             string

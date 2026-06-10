@@ -267,6 +267,7 @@ func TestRegisterAgentRunRoutesDispatchesApprovePlanStep(t *testing.T) {
 		ConversationID: "conv_1",
 		AgentID:        "agent_1",
 		UserID:         "user_1",
+		Mode:           agent.ExecutionModePlanning,
 		Status:         agent.RunStatusCompleted,
 	}}
 	store.planSteps = []*agent.PlanStep{{
@@ -303,6 +304,7 @@ func TestRegisterAgentRunRoutesDispatchesUpdatePlanStep(t *testing.T) {
 		ConversationID: "conv_1",
 		AgentID:        "agent_1",
 		UserID:         "user_1",
+		Mode:           agent.ExecutionModePlanning,
 		Status:         agent.RunStatusRunning,
 	}}
 	store.planSteps = []*agent.PlanStep{{
@@ -345,6 +347,7 @@ func TestRegisterAgentRunRoutesDispatchesCreatePlanStep(t *testing.T) {
 		ConversationID: "conv_1",
 		AgentID:        "agent_1",
 		UserID:         "user_1",
+		Mode:           agent.ExecutionModePlanning,
 		Status:         agent.RunStatusPendingApproval,
 	}}
 	store.planSteps = []*agent.PlanStep{{
@@ -398,6 +401,7 @@ func TestRegisterAgentRunRoutesDispatchesMovePlanStep(t *testing.T) {
 		ConversationID: "conv_1",
 		AgentID:        "agent_1",
 		UserID:         "user_1",
+		Mode:           agent.ExecutionModePlanning,
 		Status:         agent.RunStatusPendingApproval,
 	}}
 	store.planSteps = []*agent.PlanStep{{
@@ -451,6 +455,7 @@ func TestRegisterAgentRunRoutesDispatchesDeletePlanStep(t *testing.T) {
 		ConversationID: "conv_1",
 		AgentID:        "agent_1",
 		UserID:         "user_1",
+		Mode:           agent.ExecutionModePlanning,
 		Status:         agent.RunStatusPendingApproval,
 	}}
 	store.planSteps = []*agent.PlanStep{{
@@ -514,6 +519,7 @@ func TestRegisterAgentRunRoutesDispatchesSkipPlanStep(t *testing.T) {
 		ConversationID: "conv_1",
 		AgentID:        "agent_1",
 		UserID:         "user_1",
+		Mode:           agent.ExecutionModePlanning,
 		Status:         agent.RunStatusPendingApproval,
 	}}
 	store.planSteps = []*agent.PlanStep{{
@@ -581,6 +587,7 @@ func TestRegisterAgentRunRoutesDispatchesRetryPlanStep(t *testing.T) {
 		ConversationID: "conv_1",
 		AgentID:        "agent_1",
 		UserID:         "user_1",
+		Mode:           agent.ExecutionModePlanning,
 		Status:         agent.RunStatusFailed,
 		Error:          "old failure",
 		CompletedAt:    &completedAt,
@@ -639,6 +646,7 @@ func TestRegisterAgentRunRoutesRetryPlanStepReopensPendingApprovalWithoutExecuti
 		ConversationID: "conv_1",
 		AgentID:        "agent_1",
 		UserID:         "user_1",
+		Mode:           agent.ExecutionModePlanning,
 		Status:         agent.RunStatusFailed,
 		Error:          "approval step failed",
 		CompletedAt:    &completedAt,
@@ -773,7 +781,7 @@ func TestRegisterAgentRunRoutesDispatchesAdjustPlan(t *testing.T) {
 		AgentID:        "agent_1",
 		UserID:         "user_1",
 		Mode:           agent.ExecutionModePlanning,
-		Status:         agent.RunStatusFailed,
+		Status:         agent.RunStatusPendingApproval,
 		Error:          "old failure",
 		CompletedAt:    &completedAt,
 	}}
@@ -924,6 +932,7 @@ func TestRegisterAgentRunRoutesDispatchesExecutePlanStep(t *testing.T) {
 		ConversationID: "conv_1",
 		AgentID:        "agent_1",
 		UserID:         "user_1",
+		Mode:           agent.ExecutionModePlanning,
 		Status:         agent.RunStatusCompleted,
 	}}
 	store.planSteps = []*agent.PlanStep{{
