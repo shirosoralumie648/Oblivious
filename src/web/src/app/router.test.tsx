@@ -260,7 +260,9 @@ vi.mock('../features/console/api', () => ({
         {
           amountUsd: 0.0004,
           dueAt: '2026-04-30T00:00:00Z',
+          hostedInvoiceUrl: 'https://billing.stripe.test/invoices/invoice_paid',
           id: 'invoice_paid',
+          invoicePdf: 'https://billing.stripe.test/invoices/invoice_paid.pdf',
           status: 'paid'
         }
       ]),
@@ -2594,6 +2596,14 @@ describe('app router', () => {
     expect(screen.getAllByRole('option', { name: 'Alipay' })).toHaveLength(2);
     expect(screen.getByRole('button', { name: 'Start top-up checkout' })).toBeEnabled();
     expect(screen.getByText('Invoice history')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'View invoice' })).toHaveAttribute(
+      'href',
+      'https://billing.stripe.test/invoices/invoice_paid'
+    );
+    expect(screen.getByRole('link', { name: 'Download PDF' })).toHaveAttribute(
+      'href',
+      'https://billing.stripe.test/invoices/invoice_paid.pdf'
+    );
   });
 
   it('keeps console home route-level KPI and drill-down controls reachable', async () => {
