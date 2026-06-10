@@ -880,6 +880,11 @@ require_admin_observability_provider_secret_csrf_contract() {
       security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
     end
 
+    def requires_cookie_without_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && !entry.key?("csrfHeader") }
+    end
+
     expected_data_refs = {
       ["/api/v1/admin/observability/alert-routing", "get", "200"] => "#/components/schemas/AdminObservabilityAlertRoutingRules",
       ["/api/v1/admin/observability/alert-routing", "put", "200"] => "#/components/schemas/AdminObservabilityAlertRoutingRules",
@@ -905,6 +910,24 @@ require_admin_observability_provider_secret_csrf_contract() {
     end
     unless list.fetch("tags", []).include?("Admin") && list.fetch("tags", []).include?("Observability")
       missing << "GET /api/v1/admin/observability/alert-providers must be tagged Admin and Observability"
+    end
+
+    [
+      ["/api/v1/admin/observability/alert-routing", "get"],
+      ["/api/v1/admin/observability/alert-providers", "get"],
+      ["/api/v1/admin/observability/alerts", "get"],
+      ["/api/v1/admin/observability/alerts/{alertKey}", "get"],
+      ["/api/v1/admin/observability/alerts/{alertKey}/deliveries", "get"],
+      ["/api/v1/admin/observability/recovery-actions", "get"],
+    ].each do |path, method|
+      op = operation(paths, path, method, missing)
+      unless requires_cookie_without_csrf?(op)
+        missing << "#{method.upcase} #{path} must require cookieAuth without csrfHeader"
+      end
+      tags = op.fetch("tags", [])
+      unless tags.include?("Admin") && tags.include?("Observability")
+        missing << "#{method.upcase} #{path} must be tagged Admin and Observability"
+      end
     end
 
     {

@@ -14570,6 +14570,8 @@ paths:
       summary: 获取告警路由规则
       operationId: getAdminObservabilityAlertRouting
       tags: [Admin, Observability]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: 当前告警严重级别到投递渠道的路由规则
@@ -14631,6 +14633,8 @@ paths:
       summary: 获取告警投递 provider 配置
       operationId: listAdminObservabilityAlertProviders
       tags: [Admin, Observability]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: Provider 配置列表，敏感字段已脱敏
@@ -14776,6 +14780,8 @@ paths:
       summary: 获取告警状态列表
       operationId: listAdminObservabilityAlerts
       tags: [Admin, Observability]
+      security:
+        - cookieAuth: []
       parameters:
         - name: status
           in: query
@@ -14832,6 +14838,8 @@ paths:
       summary: 获取单个告警状态
       operationId: getAdminObservabilityAlert
       tags: [Admin, Observability]
+      security:
+        - cookieAuth: []
       parameters:
         - name: alertKey
           in: path
@@ -14940,6 +14948,8 @@ paths:
       summary: 获取告警投递历史
       operationId: listAdminObservabilityAlertDeliveries
       tags: [Admin, Observability]
+      security:
+        - cookieAuth: []
       parameters:
         - name: alertKey
           in: path
@@ -14985,6 +14995,8 @@ paths:
       summary: 获取自动恢复动作记录
       operationId: listAdminObservabilityRecoveryActions
       tags: [Admin, Observability]
+      security:
+        - cookieAuth: []
       parameters:
         - name: alertKey
           in: query
