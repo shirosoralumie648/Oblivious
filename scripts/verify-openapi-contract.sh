@@ -2073,8 +2073,35 @@ require_tenant_organization_mutation_csrf_contract() {
       security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
     end
 
+    def requires_cookie_without_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && !entry.key?("csrfHeader") }
+    end
+
     def request_body_ref(operation)
       operation.dig("requestBody", "content", "application/json", "schema", "$ref")
+    end
+
+    def response_nested_array_item_ref(operation, status, field)
+      operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "properties", field, "items", "$ref") }&.
+        dig("properties", "data", "properties", field, "items", "$ref")
+    end
+
+    {
+      ["/api/v1/app/organizations", "get"] => "memberships",
+      ["/api/v1/app/organizations/{organizationId}/members", "get"] => "members",
+    }.each do |(path, method), response_field|
+      op = operation(paths, path, method, missing)
+      unless requires_cookie_without_csrf?(op)
+        missing << "#{method.upcase} #{path} must require cookieAuth without csrfHeader"
+      end
+      unless op.fetch("tags", []).include?("Tenant")
+        missing << "#{method.upcase} #{path} must be tagged Tenant"
+      end
+      unless response_nested_array_item_ref(op, "200", response_field) == "#/components/schemas/OrganizationMembership"
+        missing << "#{method.upcase} #{path} 200 data.#{response_field} items must reference OrganizationMembership"
+      end
     end
 
     [

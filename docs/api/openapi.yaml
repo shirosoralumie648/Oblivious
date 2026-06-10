@@ -8218,6 +8218,8 @@ paths:
       summary: 获取当前用户的组织成员身份
       operationId: listMyOrganizations
       tags: [Tenant]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: 当前用户可访问的组织成员身份列表
@@ -8280,6 +8282,8 @@ paths:
       summary: 获取组织成员列表
       operationId: listOrganizationMembers
       tags: [Tenant]
+      security:
+        - cookieAuth: []
       parameters:
         - name: organizationId
           in: path
