@@ -21,6 +21,13 @@ export type CreatePublishingChannelRequest = {
   type: PublishingChannelType;
 };
 
+export type UpdatePublishingChannelRequest = {
+  config?: Record<string, unknown>;
+  name: string;
+  status?: PublishingChannelStatus;
+  type: PublishingChannelType;
+};
+
 export type SendPublishingChannelMessageRequest = {
   conversation_id: string;
   role: PublishingMessageRole;
@@ -69,12 +76,14 @@ type RetryProcessResultResponse = Omit<RetryProcessResult, 'permanentFailures'> 
 
 export type PublishingChannelsApi = {
   createChannel: (payload: CreatePublishingChannelRequest) => Promise<PublishingChannel>;
+  deleteChannel: (id: string) => Promise<PublishingChannel>;
   listChannelMessages: (id: string) => Promise<PublishingChannelMessageLog[]>;
   listChannels: () => Promise<PublishingChannel[]>;
   listFailedChannelMessages: (id: string) => Promise<PublishingChannelMessageLog[]>;
   retryFailedChannelMessages: (id: string, payload: RetryFailedChannelMessagesRequest) => Promise<RetryProcessResult>;
   sendChannelMessage: (id: string, message: SendPublishingChannelMessageRequest) => Promise<PublishingChannelMessageLog>;
   testChannel: (id: string) => Promise<PublishingChannelTestResult>;
+  updateChannel: (id: string, payload: UpdatePublishingChannelRequest) => Promise<PublishingChannel>;
   updateChannelStatus: (id: string, status: PublishingChannelStatus) => Promise<PublishingChannel>;
 };
 
@@ -83,6 +92,7 @@ export function createPublishingChannelsApi(client: HttpClient): PublishingChann
 
   return {
     createChannel: (payload) => client.post<PublishingChannel>(path, payload),
+    deleteChannel: (id) => client.delete<PublishingChannel>(`${path}/${encodeURIComponent(id)}`),
     listChannelMessages: (id) => client.get<PublishingChannelMessageLog[]>(`${path}/${encodeURIComponent(id)}/messages`),
     listChannels: () => client.get<PublishingChannel[]>(path),
     listFailedChannelMessages: (id) => client.get<PublishingChannelMessageLog[]>(`${path}/${encodeURIComponent(id)}/failed-messages`),
@@ -97,6 +107,7 @@ export function createPublishingChannelsApi(client: HttpClient): PublishingChann
     },
     sendChannelMessage: (id, message) => client.post<PublishingChannelMessageLog>(`${path}/${encodeURIComponent(id)}/send`, { message }),
     testChannel: (id) => client.post<PublishingChannelTestResult>(`${path}/${encodeURIComponent(id)}/test`),
+    updateChannel: (id, payload) => client.put<PublishingChannel>(`${path}/${encodeURIComponent(id)}`, payload),
     updateChannelStatus: (id, status) =>
       client.request<PublishingChannel>(`${path}/${encodeURIComponent(id)}/status`, {
         body: JSON.stringify({ status }),

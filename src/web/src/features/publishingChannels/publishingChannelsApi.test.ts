@@ -48,6 +48,24 @@ describe('createPublishingChannelsApi', () => {
     expect(post).toHaveBeenCalledWith('/api/v1/channels', payload);
   });
 
+  it('updates and deletes publishing channel configs through item routes', async () => {
+    const put = vi.fn().mockResolvedValue({ ...channel, name: 'Ops Webhook Renamed', status: 'active' });
+    const deleteRequest = vi.fn().mockResolvedValue({ ...channel, status: 'disabled' });
+    const api = createPublishingChannelsApi(createClient({ delete: deleteRequest, put }));
+    const payload = {
+      config: { secret: '********', url: 'https://hooks.example/ops-renamed' },
+      name: 'Ops Webhook Renamed',
+      status: 'active' as const,
+      type: 'webhook' as const
+    };
+
+    await expect(api.updateChannel('channel_1', payload)).resolves.toEqual(expect.objectContaining({ name: 'Ops Webhook Renamed' }));
+    await expect(api.deleteChannel('channel_1')).resolves.toEqual(expect.objectContaining({ status: 'disabled' }));
+
+    expect(put).toHaveBeenCalledWith('/api/v1/channels/channel_1', payload);
+    expect(deleteRequest).toHaveBeenCalledWith('/api/v1/channels/channel_1');
+  });
+
   it('updates status through the status endpoint without resending redacted config', async () => {
     const put = vi.fn().mockResolvedValue({ ...channel, status: 'active' });
     const request = vi.fn().mockResolvedValue({ ...channel, status: 'active' });

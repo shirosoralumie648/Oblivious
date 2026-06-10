@@ -12,6 +12,18 @@ import {
 import { createHttpClient } from '../../services/http/client';
 
 const channelTypes: PublishingChannelType[] = ['webhook', 'feishu', 'wechat', 'discord', 'slack', 'telegram', 'web_embed', 'api'];
+type ChannelFormState = {
+  allowedOrigin: string;
+  botToken: string;
+  embedMode: 'iframe' | 'web_sdk';
+  endpointUrl: string;
+  name: string;
+  sdkKey: string;
+  sharedSecret: string;
+  signingSecret: string;
+  status: PublishingChannelStatus;
+  type: PublishingChannelType;
+};
 
 function errorMessage(error: unknown, fallback: string) {
   if (error instanceof Error && error.message.trim() !== '') {
@@ -50,14 +62,47 @@ function statusClass(status: PublishingChannelStatus) {
 }
 
 function endpointLabel(channel: PublishingChannel) {
-  const endpoint = channel.config?.allowedOrigin ?? channel.config?.endpointUrl ?? channel.config?.url ?? channel.config?.webhookUrl;
+  const endpoint =
+    channel.config?.allowedOrigin ??
+    channel.config?.origin ??
+    channel.config?.endpointUrl ??
+    channel.config?.url ??
+    channel.config?.webhookUrl ??
+    channel.config?.webhook_url;
   return typeof endpoint === 'string' && endpoint.trim() !== '' ? endpoint : 'No endpoint configured';
+}
+
+function stringConfigValue(config: Record<string, unknown> | undefined, keys: string[]) {
+  for (const key of keys) {
+    const value = config?.[key];
+    if (typeof value === 'string' && value.trim() !== '') {
+      return value;
+    }
+  }
+  return '';
+}
+
+function channelFormStateFromChannel(channel: PublishingChannel): ChannelFormState {
+  const embedMode = stringConfigValue(channel.config, ['embedMode', 'embed_mode']);
+  return {
+    allowedOrigin: stringConfigValue(channel.config, ['allowedOrigin', 'origin']),
+    botToken: stringConfigValue(channel.config, ['botToken', 'bot_token']),
+    embedMode: embedMode === 'web_sdk' ? 'web_sdk' : 'iframe',
+    endpointUrl: stringConfigValue(channel.config, ['endpointUrl', 'url', 'webhookUrl', 'webhook_url']),
+    name: channel.name,
+    sdkKey: stringConfigValue(channel.config, ['sdkKey', 'sdk_key']),
+    sharedSecret: stringConfigValue(channel.config, ['secret', 'webhookSecret', 'webhook_secret']),
+    signingSecret: stringConfigValue(channel.config, ['signingSecret', 'signing_secret']),
+    status: channel.status,
+    type: channel.type
+  };
 }
 
 function createChannelConfig({
   allowedOrigin,
   botToken,
   channelType,
+  existingConfig,
   embedMode,
   endpointUrl,
   sdkKey,
@@ -67,12 +112,14 @@ function createChannelConfig({
   allowedOrigin: string;
   botToken: string;
   channelType: PublishingChannelType;
+  existingConfig?: Record<string, unknown>;
   embedMode: 'iframe' | 'web_sdk';
   endpointUrl: string;
   sdkKey: string;
   sharedSecret: string;
   signingSecret: string;
 }) {
+  const config = { ...(existingConfig ?? {}) };
   const endpoint = endpointUrl.trim();
   const secret = sharedSecret.trim();
   const token = botToken.trim();
@@ -82,14 +129,16 @@ function createChannelConfig({
 
   if (channelType === 'web_embed') {
     return {
-      ...(origin ? { allowedOrigin: origin } : {}),
+      ...config,
+      ...(origin ? { allowedOrigin: origin, ...(existingConfig ? { origin } : {}) } : {}),
       embedMode,
       ...(key ? { sdkKey: key } : {})
     };
   }
 
   return {
-    ...(endpoint ? { url: endpoint } : {}),
+    ...config,
+    ...(endpoint ? { url: endpoint, ...(existingConfig ? { endpointUrl: endpoint, webhookUrl: endpoint, webhook_url: endpoint } : {}) } : {}),
     ...(secret ? { secret } : {}),
     ...(token ? { botToken: token } : {}),
     ...(signing ? { signingSecret: signing } : {})
@@ -216,6 +265,10 @@ export function PublishingChannelsPage() {
   const [retryResults, setRetryResults] = useState<Record<string, RetryProcessResult>>({});
   const [retryingFailedChannelID, setRetryingFailedChannelID] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, PublishingChannelTestResult>>({});
+  const [deletingChannelID, setDeletingChannelID] = useState<string | null>(null);
+  const [editingChannelID, setEditingChannelID] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<ChannelFormState | null>(null);
+  const [savingChannelID, setSavingChannelID] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -338,6 +391,73 @@ export function PublishingChannelsPage() {
       setTestResults((current) => ({ ...current, [channel.id]: result }));
     } catch (caughtError) {
       setError(errorMessage(caughtError, 'Unable to test publishing channel. Retry the request or check the channel config.'));
+    }
+  };
+
+  const startEditingChannel = (channel: PublishingChannel) => {
+    setError(null);
+    setEditingChannelID(channel.id);
+    setEditForm(channelFormStateFromChannel(channel));
+  };
+
+  const updateEditForm = <Key extends keyof ChannelFormState>(key: Key, value: ChannelFormState[Key]) => {
+    setEditForm((current) => (current ? { ...current, [key]: value } : current));
+  };
+
+  const saveChannel = async (channel: PublishingChannel) => {
+    if (!editForm) {
+      return;
+    }
+    const name = editForm.name.trim();
+    if (name === '') {
+      return;
+    }
+
+    setSavingChannelID(channel.id);
+    setError(null);
+    try {
+      const updated = await channelsApi.updateChannel(channel.id, {
+        config: createChannelConfig({
+          allowedOrigin: editForm.allowedOrigin,
+          botToken: editForm.botToken,
+          channelType: editForm.type,
+          existingConfig: channel.config,
+          embedMode: editForm.embedMode,
+          endpointUrl: editForm.endpointUrl,
+          sdkKey: editForm.sdkKey,
+          sharedSecret: editForm.sharedSecret,
+          signingSecret: editForm.signingSecret
+        }),
+        name,
+        status: editForm.status,
+        type: editForm.type
+      });
+      setChannels((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      setActionResults((current) => ({ ...current, [updated.id]: 'Channel updated.' }));
+      setEditingChannelID(null);
+      setEditForm(null);
+    } catch (caughtError) {
+      setError(errorMessage(caughtError, 'Unable to update publishing channel. Retry the request or check the channel config.'));
+    } finally {
+      setSavingChannelID(null);
+    }
+  };
+
+  const deleteChannel = async (channel: PublishingChannel) => {
+    setDeletingChannelID(channel.id);
+    setError(null);
+    try {
+      const updated = await channelsApi.deleteChannel(channel.id);
+      setChannels((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      setActionResults((current) => ({ ...current, [updated.id]: 'Channel disabled.' }));
+      if (editingChannelID === channel.id) {
+        setEditingChannelID(null);
+        setEditForm(null);
+      }
+    } catch (caughtError) {
+      setError(errorMessage(caughtError, 'Unable to delete publishing channel. Retry the request or check permissions.'));
+    } finally {
+      setDeletingChannelID(null);
     }
   };
 
@@ -714,6 +834,13 @@ export function PublishingChannelsPage() {
                   <div className="flex flex-wrap gap-2">
                     <button
                       className="rounded-lg border border-[#d7d2c4] px-3 py-2 text-sm font-medium"
+                      onClick={() => startEditingChannel(channel)}
+                      type="button"
+                    >
+                      Edit {channel.name}
+                    </button>
+                    <button
+                      className="rounded-lg border border-[#d7d2c4] px-3 py-2 text-sm font-medium"
                       onClick={() => void testChannel(channel)}
                       type="button"
                     >
@@ -736,8 +863,168 @@ export function PublishingChannelsPage() {
                         Disable {channel.name}
                       </button>
                     )}
+                    <button
+                      className="rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-700 disabled:opacity-60"
+                      disabled={deletingChannelID === channel.id}
+                      onClick={() => void deleteChannel(channel)}
+                      type="button"
+                    >
+                      {deletingChannelID === channel.id ? `Deleting ${channel.name}...` : `Delete ${channel.name}`}
+                    </button>
                   </div>
                 </div>
+                {editingChannelID === channel.id && editForm ? (
+                  <form
+                    aria-label={`Edit ${channel.name}`}
+                    className="mt-4 grid gap-4 border-t border-[#eee8dc] pt-4 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_160px_140px_minmax(0,1fr)_minmax(0,1fr)]"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void saveChannel(channel);
+                    }}
+                  >
+                    <label className="block text-sm font-medium">
+                      Channel name
+                      <input
+                        className="mt-2 w-full rounded-lg border border-[#d7d2c4] bg-white px-3 py-2 text-sm"
+                        onChange={(event) => updateEditForm('name', event.target.value)}
+                        value={editForm.name}
+                      />
+                    </label>
+                    <label className="block text-sm font-medium">
+                      Channel type
+                      <select
+                        className="mt-2 w-full rounded-lg border border-[#d7d2c4] bg-white px-3 py-2 text-sm"
+                        onChange={(event) => updateEditForm('type', event.target.value as PublishingChannelType)}
+                        value={editForm.type}
+                      >
+                        {channelTypes.map((type) => (
+                          <option key={type} value={type}>
+                            {type}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="block text-sm font-medium">
+                      Channel status
+                      <select
+                        className="mt-2 w-full rounded-lg border border-[#d7d2c4] bg-white px-3 py-2 text-sm"
+                        onChange={(event) => updateEditForm('status', event.target.value as PublishingChannelStatus)}
+                        value={editForm.status}
+                      >
+                        {(['active', 'degraded', 'disabled'] as PublishingChannelStatus[]).map((status) => (
+                          <option key={status} value={status}>
+                            {statusLabel(status)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {editForm.type === 'web_embed' ? (
+                      <>
+                        <label className="block text-sm font-medium">
+                          Allowed origin
+                          <input
+                            className="mt-2 w-full rounded-lg border border-[#d7d2c4] bg-white px-3 py-2 text-sm"
+                            onChange={(event) => updateEditForm('allowedOrigin', event.target.value)}
+                            placeholder="https://app.example"
+                            value={editForm.allowedOrigin}
+                          />
+                        </label>
+                        <label className="block text-sm font-medium">
+                          SDK key
+                          <input
+                            className="mt-2 w-full rounded-lg border border-[#d7d2c4] bg-white px-3 py-2 text-sm"
+                            onChange={(event) => updateEditForm('sdkKey', event.target.value)}
+                            value={editForm.sdkKey}
+                          />
+                        </label>
+                        <fieldset className="block text-sm font-medium md:col-span-2 xl:col-span-1">
+                          Embed mode
+                          <div className="mt-2 flex rounded-lg border border-[#d7d2c4] bg-white p-1">
+                            {[
+                              ['iframe', 'iframe'],
+                              ['web_sdk', 'Web SDK']
+                            ].map(([value, label]) => (
+                              <label className="flex-1" key={value}>
+                                <input
+                                  checked={editForm.embedMode === value}
+                                  className="sr-only"
+                                  onChange={() => updateEditForm('embedMode', value as 'iframe' | 'web_sdk')}
+                                  type="radio"
+                                  value={value}
+                                />
+                                <span className={`block rounded-md px-3 py-1.5 text-center text-xs font-semibold ${editForm.embedMode === value ? 'bg-[#181611] text-white' : 'text-[#625b4f]'}`}>
+                                  {label}
+                                </span>
+                              </label>
+                            ))}
+                          </div>
+                        </fieldset>
+                      </>
+                    ) : (
+                      <>
+                        <label className="block text-sm font-medium">
+                          Endpoint URL
+                          <input
+                            className="mt-2 w-full rounded-lg border border-[#d7d2c4] bg-white px-3 py-2 text-sm"
+                            onChange={(event) => updateEditForm('endpointUrl', event.target.value)}
+                            placeholder="https://hooks.example/channel"
+                            value={editForm.endpointUrl}
+                          />
+                        </label>
+                        <label className="block text-sm font-medium">
+                          Shared secret
+                          <input
+                            className="mt-2 w-full rounded-lg border border-[#d7d2c4] bg-white px-3 py-2 text-sm"
+                            onChange={(event) => updateEditForm('sharedSecret', event.target.value)}
+                            type="password"
+                            value={editForm.sharedSecret}
+                          />
+                        </label>
+                        {editForm.type === 'slack' || editForm.type === 'telegram' ? (
+                          <label className="block text-sm font-medium">
+                            Bot token
+                            <input
+                              className="mt-2 w-full rounded-lg border border-[#d7d2c4] bg-white px-3 py-2 text-sm"
+                              onChange={(event) => updateEditForm('botToken', event.target.value)}
+                              type="password"
+                              value={editForm.botToken}
+                            />
+                          </label>
+                        ) : null}
+                        {editForm.type === 'slack' ? (
+                          <label className="block text-sm font-medium">
+                            Signing secret
+                            <input
+                              className="mt-2 w-full rounded-lg border border-[#d7d2c4] bg-white px-3 py-2 text-sm"
+                              onChange={(event) => updateEditForm('signingSecret', event.target.value)}
+                              type="password"
+                              value={editForm.signingSecret}
+                            />
+                          </label>
+                        ) : null}
+                      </>
+                    )}
+                    <div className="flex items-end gap-2 md:col-span-2 xl:col-span-5">
+                      <button
+                        className="rounded-lg bg-[#181611] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                        disabled={savingChannelID === channel.id || editForm.name.trim() === ''}
+                        type="submit"
+                      >
+                        {savingChannelID === channel.id ? 'Saving...' : 'Save channel'}
+                      </button>
+                      <button
+                        className="rounded-lg border border-[#d7d2c4] px-4 py-2 text-sm font-medium"
+                        onClick={() => {
+                          setEditingChannelID(null);
+                          setEditForm(null);
+                        }}
+                        type="button"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                ) : null}
               </li>
             ))}
           </ul>

@@ -2,23 +2,27 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const createChannel = vi.fn();
+const deleteChannel = vi.fn();
 const listChannelMessages = vi.fn();
 const listChannels = vi.fn();
 const listFailedChannelMessages = vi.fn();
 const retryFailedChannelMessages = vi.fn();
 const sendChannelMessage = vi.fn();
 const testChannel = vi.fn();
+const updateChannel = vi.fn();
 const updateChannelStatus = vi.fn();
 
 vi.mock('../../features/publishingChannels/publishingChannelsApi', () => ({
   createPublishingChannelsApi: () => ({
     createChannel,
+    deleteChannel,
     listChannelMessages,
     listChannels,
     listFailedChannelMessages,
     retryFailedChannelMessages,
     sendChannelMessage,
     testChannel,
+    updateChannel,
     updateChannelStatus
   })
 }));
@@ -39,12 +43,14 @@ const opsChannel = {
 describe('PublishingChannelsPage', () => {
   beforeEach(() => {
     createChannel.mockReset();
+    deleteChannel.mockReset();
     listChannelMessages.mockReset();
     listChannels.mockReset();
     listFailedChannelMessages.mockReset();
     retryFailedChannelMessages.mockReset();
     sendChannelMessage.mockReset();
     testChannel.mockReset();
+    updateChannel.mockReset();
     updateChannelStatus.mockReset();
   });
 
@@ -262,6 +268,66 @@ describe('PublishingChannelsPage', () => {
       });
     });
     expect(screen.getByText('Last send: recorded')).toBeInTheDocument();
+  });
+
+  it('updates channel config through the full channel edit route', async () => {
+    listChannels.mockResolvedValue([
+      {
+        ...opsChannel,
+        config: { secret: '********', webhook_url: 'https://hooks.example/ops' }
+      }
+    ]);
+    listChannelMessages.mockResolvedValue([]);
+    listFailedChannelMessages.mockResolvedValue([]);
+    updateChannel.mockResolvedValue({
+      ...opsChannel,
+      config: { secret: '********', url: 'https://hooks.example/ops-renamed' },
+      name: 'Ops Webhook Renamed',
+      status: 'active'
+    });
+
+    render(<PublishingChannelsPage />);
+
+    const list = await screen.findByLabelText('Publishing channel list');
+    fireEvent.click(within(list).getByRole('button', { name: 'Edit Ops Webhook' }));
+    const editForm = screen.getByLabelText('Edit Ops Webhook');
+    fireEvent.change(within(editForm).getByLabelText('Channel name'), { target: { value: ' Ops Webhook Renamed ' } });
+    fireEvent.change(within(editForm).getByLabelText('Channel status'), { target: { value: 'active' } });
+    fireEvent.change(within(editForm).getByLabelText('Endpoint URL'), { target: { value: ' https://hooks.example/ops-renamed ' } });
+    fireEvent.click(within(editForm).getByRole('button', { name: 'Save channel' }));
+
+    await waitFor(() => {
+      expect(updateChannel).toHaveBeenCalledWith('channel_1', {
+        config: {
+          endpointUrl: 'https://hooks.example/ops-renamed',
+          secret: '********',
+          url: 'https://hooks.example/ops-renamed',
+          webhookUrl: 'https://hooks.example/ops-renamed',
+          webhook_url: 'https://hooks.example/ops-renamed'
+        },
+        name: 'Ops Webhook Renamed',
+        status: 'active',
+        type: 'webhook'
+      });
+    });
+    expect(within(list).getByRole('heading', { name: 'Ops Webhook Renamed' })).toBeInTheDocument();
+    expect(screen.getByText('Channel updated.')).toBeInTheDocument();
+  });
+
+  it('deletes a channel by consuming the backend disabled-channel response', async () => {
+    listChannels.mockResolvedValue([opsChannel]);
+    listChannelMessages.mockResolvedValue([]);
+    listFailedChannelMessages.mockResolvedValue([]);
+    deleteChannel.mockResolvedValue({ ...opsChannel, status: 'disabled' });
+
+    render(<PublishingChannelsPage />);
+
+    const list = await screen.findByLabelText('Publishing channel list');
+    fireEvent.click(within(list).getByRole('button', { name: 'Delete Ops Webhook' }));
+
+    await waitFor(() => expect(deleteChannel).toHaveBeenCalledWith('channel_1'));
+    expect(within(list).getByText('Disabled')).toBeInTheDocument();
+    expect(screen.getByText('Channel disabled.')).toBeInTheDocument();
   });
 
   it('loads and displays message visibility for the manually selected channel', async () => {
