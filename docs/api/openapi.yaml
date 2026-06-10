@@ -8129,6 +8129,8 @@ paths:
       summary: 获取当前用户配额余额
       operationId: getQuota
       tags: [Billing]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: 当前用户在当前组织下的配额余额
@@ -8151,6 +8153,8 @@ paths:
       summary: 获取可购买套餐
       operationId: listPackages
       tags: [Billing]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: 当前可用套餐列表

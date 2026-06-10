@@ -1984,6 +1984,41 @@ require_quota_topup_csrf_contract() {
     schemas = spec.fetch("components", {}).fetch("schemas", {})
     missing = []
 
+    def response_data_ref(operation, status)
+      operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "$ref") }&.
+        dig("properties", "data", "$ref")
+    end
+
+    def response_array_item_ref(operation, status)
+      operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "items", "$ref") }&.
+        dig("properties", "data", "items", "$ref")
+    end
+
+    app_read_routes = {
+      ["/api/v1/app/quota", "get"] => [:object, "#/components/schemas/QuotaSnapshot"],
+      ["/api/v1/app/packages", "get"] => [:array, "#/components/schemas/PackageOption"],
+    }
+    app_read_routes.each do |(path, method), (shape, expected_response)|
+      op = paths.dig(path, method)
+      unless op
+        missing << "#{method.upcase} #{path} must be documented"
+        op = {}
+      end
+      security = op.fetch("security", [])
+      unless security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && !entry.key?("csrfHeader") }
+        missing << "#{method.upcase} #{path} must require cookieAuth without csrfHeader"
+      end
+      unless op.fetch("tags", []).include?("Billing")
+        missing << "#{method.upcase} #{path} must be tagged Billing"
+      end
+      actual_response = shape == :array ? response_array_item_ref(op, "200") : response_data_ref(op, "200")
+      unless actual_response == expected_response
+        missing << "#{method.upcase} #{path} 200 data must reference #{expected_response}"
+      end
+    end
+
     operation = paths.dig("/api/v1/app/quota/topup", "post")
     unless operation
       missing << "POST /api/v1/app/quota/topup must be documented"
