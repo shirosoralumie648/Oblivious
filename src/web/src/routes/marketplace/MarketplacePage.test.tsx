@@ -19,6 +19,8 @@ const getSettlementPreferences = vi.fn();
 const updateSettlementPreferences = vi.fn();
 const getPublisherStats = vi.fn();
 const submitReview = vi.fn();
+const appealAgent = vi.fn();
+const reportAbuse = vi.fn();
 const listTemplates = vi.fn();
 const installTemplate = vi.fn();
 const getCuratedSections = vi.fn();
@@ -42,6 +44,8 @@ vi.mock('../../features/marketplace/api', async () => {
       updateSettlementPreferences,
       getPublisherStats,
       submitReview,
+      appealAgent,
+      reportAbuse,
       listTemplates,
       installTemplate,
       getCuratedSections,
@@ -145,6 +149,8 @@ function resetMarketplaceMocks() {
   updateSettlementPreferences.mockReset();
   getPublisherStats.mockReset();
   submitReview.mockReset();
+  appealAgent.mockReset();
+  reportAbuse.mockReset();
   listTemplates.mockReset();
   installTemplate.mockReset();
   getCuratedSections.mockReset();
@@ -210,6 +216,18 @@ function resetMarketplaceMocks() {
     ],
   });
   submitReview.mockResolvedValue({ id: 'rev_2', agentID: 'agent_1', userID: 'user_1', rating: 5, body: 'Useful', createdAt: '2026-01-05T00:00:00Z' });
+  appealAgent.mockResolvedValue({ status: 'appealed' });
+  reportAbuse.mockResolvedValue({
+    id: 'report_1',
+    reporterOrganizationId: 'org_1',
+    reporterUserId: 'user_1',
+    agentId: 'agent_1',
+    reason: 'malware',
+    details: 'attempted credential exfiltration',
+    status: 'open',
+    createdAt: '2026-01-07T00:00:00Z',
+    updatedAt: '2026-01-07T00:00:00Z',
+  });
   listTemplates.mockResolvedValue({ templates: [workflowTemplate], total: 1 });
   installTemplate.mockResolvedValue({ id: 'tpl_install_1', templateID: 'tpl_1', templateData: workflowTemplate.templateData });
   getCuratedSections.mockResolvedValue({ popular: [popularAgent], topRated: [topRatedAgent], recent: [recentAgent] });
@@ -402,6 +420,57 @@ describe('Marketplace pages', () => {
     expect(await screen.findByText('Unable to submit review.')).toBeInTheDocument();
     expect(screen.getByText('review moderation queue unavailable')).toBeInTheDocument();
     expect(screen.getByLabelText('Review text')).toHaveValue('Useful for launch research.');
+  });
+
+  it('submits marketplace governance appeals from the detail page', async () => {
+    renderRoute(<MarketplaceAgentDetailPage />, '/marketplace/agents/:agentId', '/marketplace/agents/agent_1');
+
+    expect(await screen.findByRole('heading', { name: 'Research Agent' })).toBeInTheDocument();
+    const submitButton = screen.getByRole('button', { name: 'Submit Appeal' });
+    expect(submitButton).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText('Appeal reason'), { target: { value: 'Fixed the review finding.' } });
+    fireEvent.click(submitButton);
+
+    await waitFor(() => expect(appealAgent).toHaveBeenCalledWith('agent_1', { reason: 'Fixed the review finding.' }));
+    expect(await screen.findByText('Appeal submitted.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Appeal reason')).toHaveValue('');
+  });
+
+  it('submits marketplace abuse reports from the detail page', async () => {
+    renderRoute(<MarketplaceAgentDetailPage />, '/marketplace/agents/:agentId', '/marketplace/agents/agent_1');
+
+    expect(await screen.findByRole('heading', { name: 'Research Agent' })).toBeInTheDocument();
+    const reportButton = screen.getByRole('button', { name: 'Report Abuse' });
+    expect(reportButton).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText('Abuse reason'), { target: { value: 'malware' } });
+    fireEvent.change(screen.getByLabelText('Abuse details'), { target: { value: 'attempted credential exfiltration' } });
+    fireEvent.click(reportButton);
+
+    await waitFor(() =>
+      expect(reportAbuse).toHaveBeenCalledWith('agent_1', {
+        reason: 'malware',
+        details: 'attempted credential exfiltration',
+      })
+    );
+    expect(await screen.findByText('Abuse report submitted.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Abuse reason')).toHaveValue('');
+    expect(screen.getByLabelText('Abuse details')).toHaveValue('');
+  });
+
+  it('surfaces marketplace governance failures and keeps appeal input', async () => {
+    appealAgent.mockRejectedValue(new Error('only the publisher organization can appeal'));
+
+    renderRoute(<MarketplaceAgentDetailPage />, '/marketplace/agents/:agentId', '/marketplace/agents/agent_1');
+
+    expect(await screen.findByRole('heading', { name: 'Research Agent' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Appeal reason'), { target: { value: 'Fixed the takedown issue.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Submit Appeal' }));
+
+    expect(await screen.findByText('Unable to submit appeal.')).toBeInTheDocument();
+    expect(screen.getByText('only the publisher organization can appeal')).toBeInTheDocument();
+    expect(screen.getByLabelText('Appeal reason')).toHaveValue('Fixed the takedown issue.');
   });
 
   it('submits a publish payload', async () => {

@@ -28,11 +28,16 @@ type DetailState = {
   paymentProvider: string;
   reviewRating: number;
   reviewText: string;
+  appealReason: string;
+  abuseReason: string;
+  abuseDetails: string;
   actionMessage: string | null;
   checkoutUrl: string | null;
   actionError: { title: string; message?: string } | null;
   installing: boolean;
   submittingReview: boolean;
+  submittingAppeal: boolean;
+  submittingAbuseReport: boolean;
 };
 
 type Action =
@@ -43,11 +48,16 @@ type Action =
   | { type: 'SET_PAYMENT_PROVIDER'; value: string }
   | { type: 'SET_RATING'; value: number }
   | { type: 'SET_REVIEW'; value: string }
+  | { type: 'SET_APPEAL_REASON'; value: string }
+  | { type: 'SET_ABUSE_REASON'; value: string }
+  | { type: 'SET_ABUSE_DETAILS'; value: string }
   | { type: 'SET_MESSAGE'; value: string | null }
   | { type: 'SET_CHECKOUT'; url: string }
   | { type: 'SET_ACTION_ERROR'; title: string; message?: string }
   | { type: 'SET_INSTALLING'; value: boolean }
-  | { type: 'SET_SUBMITTING_REVIEW'; value: boolean };
+  | { type: 'SET_SUBMITTING_REVIEW'; value: boolean }
+  | { type: 'SET_SUBMITTING_APPEAL'; value: boolean }
+  | { type: 'SET_SUBMITTING_ABUSE_REPORT'; value: boolean };
 
 const initialState: DetailState = {
   agent: null,
@@ -59,11 +69,16 @@ const initialState: DetailState = {
   paymentProvider: 'stripe',
   reviewRating: 5,
   reviewText: '',
+  appealReason: '',
+  abuseReason: '',
+  abuseDetails: '',
   actionMessage: null,
   checkoutUrl: null,
   actionError: null,
   installing: false,
   submittingReview: false,
+  submittingAppeal: false,
+  submittingAbuseReport: false,
 };
 
 function reducer(state: DetailState, action: Action): DetailState {
@@ -90,6 +105,12 @@ function reducer(state: DetailState, action: Action): DetailState {
       return { ...state, reviewRating: action.value };
     case 'SET_REVIEW':
       return { ...state, reviewText: action.value };
+    case 'SET_APPEAL_REASON':
+      return { ...state, appealReason: action.value };
+    case 'SET_ABUSE_REASON':
+      return { ...state, abuseReason: action.value };
+    case 'SET_ABUSE_DETAILS':
+      return { ...state, abuseDetails: action.value };
     case 'SET_MESSAGE':
       return { ...state, actionError: null, actionMessage: action.value, checkoutUrl: null };
     case 'SET_CHECKOUT':
@@ -100,6 +121,10 @@ function reducer(state: DetailState, action: Action): DetailState {
       return { ...state, installing: action.value };
     case 'SET_SUBMITTING_REVIEW':
       return { ...state, submittingReview: action.value };
+    case 'SET_SUBMITTING_APPEAL':
+      return { ...state, submittingAppeal: action.value };
+    case 'SET_SUBMITTING_ABUSE_REPORT':
+      return { ...state, submittingAbuseReport: action.value };
     default:
       return state;
   }
@@ -229,6 +254,61 @@ export function MarketplaceAgentDetailPage() {
       });
     } finally {
       dispatch({ type: 'SET_SUBMITTING_REVIEW', value: false });
+    }
+  };
+
+  const handleAppeal = async () => {
+    if (!agentId) {
+      return;
+    }
+    const reason = state.appealReason.trim();
+    if (reason === '') {
+      return;
+    }
+
+    dispatch({ type: 'SET_SUBMITTING_APPEAL', value: true });
+    dispatch({ type: 'SET_MESSAGE', value: null });
+    try {
+      await api.appealAgent(agentId, { reason });
+      dispatch({ type: 'SET_APPEAL_REASON', value: '' });
+      dispatch({ type: 'SET_MESSAGE', value: 'Appeal submitted.' });
+      await loadAgent();
+    } catch (error) {
+      dispatch({
+        type: 'SET_ACTION_ERROR',
+        title: 'Unable to submit appeal.',
+        message: getErrorMessage(error, 'Retry after marketplace governance is available.'),
+      });
+    } finally {
+      dispatch({ type: 'SET_SUBMITTING_APPEAL', value: false });
+    }
+  };
+
+  const handleReportAbuse = async () => {
+    if (!agentId) {
+      return;
+    }
+    const reason = state.abuseReason.trim();
+    if (reason === '') {
+      return;
+    }
+    const details = state.abuseDetails.trim();
+
+    dispatch({ type: 'SET_SUBMITTING_ABUSE_REPORT', value: true });
+    dispatch({ type: 'SET_MESSAGE', value: null });
+    try {
+      await api.reportAbuse(agentId, { reason, ...(details === '' ? {} : { details }) });
+      dispatch({ type: 'SET_ABUSE_REASON', value: '' });
+      dispatch({ type: 'SET_ABUSE_DETAILS', value: '' });
+      dispatch({ type: 'SET_MESSAGE', value: 'Abuse report submitted.' });
+    } catch (error) {
+      dispatch({
+        type: 'SET_ACTION_ERROR',
+        title: 'Unable to report abuse.',
+        message: getErrorMessage(error, 'Retry after marketplace governance is available.'),
+      });
+    } finally {
+      dispatch({ type: 'SET_SUBMITTING_ABUSE_REPORT', value: false });
     }
   };
 
@@ -363,6 +443,52 @@ export function MarketplaceAgentDetailPage() {
                   <p className="mt-2 text-sm text-muted-foreground">{review.body ?? review.text ?? 'No review text.'}</p>
                 </div>
               ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-lg">
+          <CardHeader>
+            <CardTitle>Marketplace Governance</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="space-y-3">
+              <Textarea
+                aria-label="Appeal reason"
+                value={state.appealReason}
+                onChange={(event) => dispatch({ type: 'SET_APPEAL_REASON', value: event.target.value })}
+                placeholder="Describe the change that resolves the takedown or review issue."
+              />
+              <Button
+                type="button"
+                className="min-h-[44px]"
+                disabled={state.submittingAppeal || state.appealReason.trim() === ''}
+                onClick={() => void handleAppeal()}
+              >
+                Submit Appeal
+              </Button>
+            </div>
+            <div className="space-y-3">
+              <Textarea
+                aria-label="Abuse reason"
+                value={state.abuseReason}
+                onChange={(event) => dispatch({ type: 'SET_ABUSE_REASON', value: event.target.value })}
+                placeholder="Summarize the policy or safety issue."
+              />
+              <Textarea
+                aria-label="Abuse details"
+                value={state.abuseDetails}
+                onChange={(event) => dispatch({ type: 'SET_ABUSE_DETAILS', value: event.target.value })}
+                placeholder="Add evidence or reproduction details."
+              />
+              <Button
+                type="button"
+                className="min-h-[44px]"
+                disabled={state.submittingAbuseReport || state.abuseReason.trim() === ''}
+                onClick={() => void handleReportAbuse()}
+              >
+                Report Abuse
+              </Button>
             </div>
           </CardContent>
         </Card>

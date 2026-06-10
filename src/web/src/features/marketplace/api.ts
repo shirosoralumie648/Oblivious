@@ -194,6 +194,24 @@ export type TemplateInstall = {
   installedAt?: string;
 };
 
+export type MarketplaceActionStatus = {
+  status: 'deleted' | 'uninstalled' | 'appealed' | 'takedown' | 'approved';
+};
+
+export type MarketplaceAbuseReport = {
+  id: string;
+  reporterOrganizationId: string;
+  reporterUserId: string;
+  agentId: string;
+  reason: string;
+  details?: string;
+  status: 'open' | 'resolved' | 'dismissed';
+  resolution?: string;
+  reviewerUserId?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type MarketplaceHomeData = {
   featured: MarketplaceAgent[];
   popular: MarketplaceAgent[];
@@ -237,6 +255,8 @@ export type MarketplaceApi = {
   updateSettlementPreferences: (cycle: SettlementCycle) => Promise<MarketplaceSettlementPreferences>;
   getReviews: (agentId: string, limit?: number, offset?: number) => Promise<AgentReview[]>;
   submitReview: (agentId: string, input: { rating: number; body?: string; text?: string }) => Promise<AgentReview>;
+  appealAgent: (agentId: string, input: { reason: string }) => Promise<MarketplaceActionStatus>;
+  reportAbuse: (agentId: string, input: { reason: string; details?: string }) => Promise<MarketplaceAbuseReport>;
   getVersions: (agentId: string) => Promise<AgentVersion[]>;
   listTemplates: (params?: TemplateSearchParams) => Promise<{ templates: MarketplaceTemplate[]; total: number }>;
   getTemplate: (id: string) => Promise<MarketplaceTemplate>;
@@ -421,6 +441,8 @@ export function createMarketplaceApi(client: HttpClient): MarketplaceApi {
       rating: input.rating,
       body: input.body ?? input.text ?? '',
     }),
+    appealAgent: (agentId, input) => client.post<MarketplaceActionStatus>(`${apiPrefix}/agents/${agentId}/appeal`, input),
+    reportAbuse: (agentId, input) => client.post<MarketplaceAbuseReport>(`${apiPrefix}/agents/${agentId}/abuse-reports`, input),
 
     getVersions: async (agentId) => {
       const payload = await client.get<VersionListPayload>(`${apiPrefix}/agents/${agentId}/versions`);

@@ -209,6 +209,36 @@ describe('createMarketplaceApi', () => {
     expect(put).toHaveBeenCalledWith('/api/v1/marketplace/publisher/settlement-preferences', { cycle: 'weekly' });
   });
 
+  it('supports marketplace user governance routes', async () => {
+    const abuseReport = {
+      id: 'report_1',
+      reporterOrganizationId: 'org_1',
+      reporterUserId: 'user_1',
+      agentId: 'agent_1',
+      reason: 'malware',
+      details: 'attempted credential exfiltration',
+      status: 'open',
+      createdAt: '2026-01-07T00:00:00Z',
+      updatedAt: '2026-01-07T00:00:00Z',
+    };
+    const post = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 'appealed' })
+      .mockResolvedValueOnce(abuseReport);
+    const api = createMarketplaceApi(createClient({ post }));
+
+    await expect(api.appealAgent('agent_1', { reason: 'fixed issue' })).resolves.toEqual({ status: 'appealed' });
+    await expect(
+      api.reportAbuse('agent_1', { reason: 'malware', details: 'attempted credential exfiltration' })
+    ).resolves.toEqual(abuseReport);
+
+    expect(post).toHaveBeenNthCalledWith(1, '/api/v1/marketplace/agents/agent_1/appeal', { reason: 'fixed issue' });
+    expect(post).toHaveBeenNthCalledWith(2, '/api/v1/marketplace/agents/agent_1/abuse-reports', {
+      reason: 'malware',
+      details: 'attempted credential exfiltration',
+    });
+  });
+
   it('supports marketplace template list detail create and install routes', async () => {
     const get = vi
       .fn()
