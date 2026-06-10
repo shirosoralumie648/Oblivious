@@ -158,13 +158,13 @@ func TestAdminReviewSLAEnforceRouteScansPendingReviewsAndAlerts(t *testing.T) {
 	promoteHTTPUserToAdmin(t, database, adminUserID)
 	_, organizationID := queryHTTPUserScope(t, database, adminUserID)
 	if _, err := database.Exec(`
-		INSERT INTO published_agents (
-			id, owner_id, organization_id, name, description, tools, example_conversations,
-			visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at
-		)
-		VALUES ('agent_sla_overdue_http', $1, $2, 'SLA Overdue HTTP', 'Pending review past manual SLA.',
-		        '{"tools":[{"name":"sla"}]}'::jsonb, '[]'::jsonb, 'public', 'pending_review',
-		        'free', 0, 0, 0, 0, NOW() - INTERVAL '80 hours', NOW() - INTERVAL '80 hours')
+			INSERT INTO published_agents (
+				id, owner_id, organization_id, name, description, category_id, tools, example_conversations,
+				visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at
+			)
+			VALUES ('agent_sla_overdue_http', $1, $2, 'SLA Overdue HTTP', 'Pending review past manual SLA.',
+			        'cat_productivity', '{"tools":[{"name":"sla"}]}'::jsonb, '[]'::jsonb, 'public', 'pending_review',
+			        'free', 0, 0, 0, 0, NOW() - INTERVAL '80 hours', NOW() - INTERVAL '80 hours')
 	`, adminUserID, organizationID); err != nil {
 		t.Fatalf("insert pending review agent: %v", err)
 	}
@@ -1393,13 +1393,13 @@ func TestMarketplacePublisherStatsIncludesSettlementAmounts(t *testing.T) {
 func insertHTTPMarketplaceAgent(t *testing.T, database *sql.DB, agentID, publisherUserID, publisherOrganizationID, pricingType string, pricingAmount float64) {
 	t.Helper()
 	if _, err := database.Exec(`
-		INSERT INTO published_agents (
-			id, owner_id, organization_id, name, description, tools, example_conversations,
-			visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at
-		)
-		VALUES ($1, $2, $3, $4, 'Phase 19 HTTP test agent.',
-		        '{"tools":[{"name":"governance"}]}'::jsonb, '[]'::jsonb, 'public', 'approved',
-		        $5, $6, 0, 0, 0, NOW(), NOW())
+			INSERT INTO published_agents (
+				id, owner_id, organization_id, name, description, category_id, tools, example_conversations,
+				visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at
+			)
+			VALUES ($1, $2, $3, $4, 'Phase 19 HTTP test agent.',
+			        'cat_productivity', '{"tools":[{"name":"governance"}]}'::jsonb, '[]'::jsonb, 'public', 'approved',
+			        $5, $6, 0, 0, 0, NOW(), NOW())
 	`, agentID, publisherUserID, publisherOrganizationID, agentID, pricingType, pricingAmount); err != nil {
 		t.Fatalf("insert marketplace agent %s: %v", agentID, err)
 	}

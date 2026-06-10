@@ -76,7 +76,11 @@ assert_schema_evidence "marketplace" \
   "CREATE TABLE IF NOT EXISTS agent_reviews" \
   "CREATE TABLE IF NOT EXISTS marketplace_orders" \
   "CREATE TABLE IF NOT EXISTS marketplace_settlements" \
-  "CREATE TABLE IF NOT EXISTS marketplace_templates"
+  "CREATE TABLE IF NOT EXISTS marketplace_templates" \
+  "ALTER COLUMN category_id SET NOT NULL" \
+  "published_agents_category_id_fkey" \
+  "FOREIGN KEY \(category_id\) REFERENCES categories\(id\)" \
+  "idx_published_agents_category_id"
 
 assert_schema_evidence "channel" \
   "CREATE TABLE IF NOT EXISTS channel_configs" \

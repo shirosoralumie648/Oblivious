@@ -174,6 +174,38 @@ WHERE user_id = 'legacy_user' AND role = 'owner' AND removed_at IS NULL
 	}
 }
 
+func TestApplyMigrationsBackfillsMarketplaceCategoryIDs(t *testing.T) {
+	database := testMigrationDatabase(t)
+	resetPublicSchema(t, database)
+
+	migrationsDir := filepath.Join("..", "..", "migrations")
+	legacyDir := copyMigrationsThrough(t, migrationsDir, "0078_marketplace_order_failed_status.sql")
+	if _, err := applyMigrations(context.Background(), database, legacyDir); err != nil {
+		t.Fatalf("apply migrations through 0078: %v", err)
+	}
+
+	seedMarketplaceCategoryIDFixture(t, database)
+
+	full, err := applyMigrations(context.Background(), database, migrationsDir)
+	if err != nil {
+		t.Fatalf("apply full migrations after marketplace category fixture: %v", err)
+	}
+	if full.Applied == 0 {
+		t.Fatalf("expected marketplace category integrity migration to apply, got %+v", full)
+	}
+
+	assertMarketplaceCategoryIDsBackfilled(t, database)
+	assertMarketplaceCategoryIDConstraints(t, database)
+
+	second, err := applyMigrations(context.Background(), database, migrationsDir)
+	if err != nil {
+		t.Fatalf("replay full migrations after marketplace category backfill: %v", err)
+	}
+	if second.Applied != 0 {
+		t.Fatalf("expected second full run to apply 0 migrations, got %+v", second)
+	}
+}
+
 func testMigrationDatabase(t *testing.T) *sql.DB {
 	t.Helper()
 
@@ -324,6 +356,113 @@ func seedLegacyTenantScopeFixture(t *testing.T, database *sql.DB) {
 		if _, err := database.Exec(statement); err != nil {
 			t.Fatalf("seed legacy fixture statement %q: %v", statement, err)
 		}
+	}
+}
+
+func seedMarketplaceCategoryIDFixture(t *testing.T, database *sql.DB) {
+	t.Helper()
+
+	for _, statement := range []string{
+		`INSERT INTO users (id, email, password_hash, name, role, status)
+		 VALUES ('category_owner', 'category-owner@example.test', 'hash', 'Category Owner', 'user', 'active')`,
+		`INSERT INTO organizations (id, slug, name, status, metadata, created_by_user_id)
+		 VALUES ('org_category_owner', 'category-owner-org', 'Category Owner Org', 'active', '{}', 'category_owner')`,
+		`INSERT INTO organization_memberships (id, organization_id, user_id, role, created_by_user_id)
+		 VALUES ('membership_category_owner', 'org_category_owner', 'category_owner', 'owner', 'category_owner')`,
+		`INSERT INTO published_agents (id, owner_id, organization_id, name, description, category_id, tags, visibility, status, pricing_type)
+		 VALUES
+		     ('agent_category_slug', 'category_owner', 'org_category_owner', 'Slug Category Agent', 'Uses a legacy category slug.', 'productivity', ARRAY['legacy'], 'public', 'approved', 'free'),
+		     ('agent_category_blank', 'category_owner', 'org_category_owner', 'Blank Category Agent', 'Uses a blank category value.', '', ARRAY['legacy'], 'public', 'approved', 'free'),
+		     ('agent_category_missing', 'category_owner', 'org_category_owner', 'Missing Category Agent', 'Uses an unknown category value.', 'missing-category', ARRAY['legacy'], 'public', 'approved', 'free'),
+		     ('agent_category_valid', 'category_owner', 'org_category_owner', 'Valid Category Agent', 'Already uses a category ID.', 'cat_chat', ARRAY['legacy'], 'public', 'approved', 'free')`,
+	} {
+		if _, err := database.Exec(statement); err != nil {
+			t.Fatalf("seed marketplace category fixture statement %q: %v", statement, err)
+		}
+	}
+}
+
+func assertMarketplaceCategoryIDsBackfilled(t *testing.T, database *sql.DB) {
+	t.Helper()
+
+	expected := map[string]string{
+		"agent_category_slug":    "cat_productivity",
+		"agent_category_blank":   "cat_productivity",
+		"agent_category_missing": "cat_productivity",
+		"agent_category_valid":   "cat_chat",
+	}
+	for agentID, expectedCategoryID := range expected {
+		var categoryID string
+		if err := database.QueryRow(`SELECT category_id FROM published_agents WHERE id = $1`, agentID).Scan(&categoryID); err != nil {
+			t.Fatalf("query category_id for %s: %v", agentID, err)
+		}
+		if categoryID != expectedCategoryID {
+			t.Fatalf("expected %s category_id %q, got %q", agentID, expectedCategoryID, categoryID)
+		}
+	}
+
+	var invalidCount int
+	if err := database.QueryRow(`
+SELECT COUNT(*)
+FROM published_agents pa
+WHERE pa.category_id IS NULL
+   OR btrim(pa.category_id) = ''
+   OR NOT EXISTS (
+       SELECT 1
+       FROM categories c
+       WHERE c.id = pa.category_id
+   )
+`).Scan(&invalidCount); err != nil {
+		t.Fatalf("count invalid marketplace category IDs: %v", err)
+	}
+	if invalidCount != 0 {
+		t.Fatalf("expected every published agent category_id to reference categories.id, found %d invalid rows", invalidCount)
+	}
+}
+
+func assertMarketplaceCategoryIDConstraints(t *testing.T, database *sql.DB) {
+	t.Helper()
+
+	var constraintCount int
+	if err := database.QueryRow(`
+SELECT COUNT(*)
+FROM pg_constraint
+WHERE conname = 'published_agents_category_id_fkey'
+  AND conrelid = 'published_agents'::regclass
+`).Scan(&constraintCount); err != nil {
+		t.Fatalf("query marketplace category foreign key: %v", err)
+	}
+	if constraintCount != 1 {
+		t.Fatalf("expected published_agents_category_id_fkey to exist, found %d", constraintCount)
+	}
+
+	var isNullable string
+	if err := database.QueryRow(`
+SELECT is_nullable
+FROM information_schema.columns
+WHERE table_name = 'published_agents'
+  AND column_name = 'category_id'
+`).Scan(&isNullable); err != nil {
+		t.Fatalf("query published_agents.category_id nullability: %v", err)
+	}
+	if isNullable != "NO" {
+		t.Fatalf("expected published_agents.category_id to be NOT NULL, got is_nullable=%q", isNullable)
+	}
+
+	_, err := database.Exec(`
+INSERT INTO published_agents (id, owner_id, organization_id, name, description, category_id, tags, visibility, status, pricing_type)
+VALUES ('agent_category_invalid_after_fk', 'category_owner', 'org_category_owner', 'Invalid Category Agent', 'Should fail after FK.', 'missing-category', ARRAY['legacy'], 'public', 'approved', 'free')
+`)
+	if err == nil {
+		t.Fatal("expected invalid marketplace category ID insert to fail after FK")
+	}
+
+	_, err = database.Exec(`
+INSERT INTO published_agents (id, owner_id, organization_id, name, description, category_id, tags, visibility, status, pricing_type)
+VALUES ('agent_category_null_after_not_null', 'category_owner', 'org_category_owner', 'Null Category Agent', 'Should fail after NOT NULL.', NULL, ARRAY['legacy'], 'public', 'approved', 'free')
+`)
+	if err == nil {
+		t.Fatal("expected null marketplace category ID insert to fail after NOT NULL")
 	}
 }
 

@@ -24,7 +24,7 @@ This audit covers the repository-owned migration contract for the 2026-06-04 fus
 | Knowledge and RAG | `knowledge_bases`, `knowledge_documents`, `knowledge_document_chunks`, `vector` extension |
 | Agent | `agent_runs`, `agent_tool_runs`, `agent_memories`, `agent_plan_steps` |
 | Billing | `subscriptions`, `payment_intents`, `quotas`, `concurrency_limits`, `token_rate_limits`, billing lifecycle/invoice/refund tables |
-| Marketplace | `published_agents`, `agent_installs`, `agent_reviews`, `marketplace_orders`, `marketplace_settlements`, `marketplace_templates` |
+| Marketplace | `published_agents`, `agent_installs`, `agent_reviews`, `marketplace_orders`, `marketplace_settlements`, `marketplace_templates`, `published_agents.category_id` NOT NULL and `categories(id)` FK |
 | Channel | `channel_configs`, `channel_messages` |
 | Task | `scheduled_tasks`, `task_executions` |
 | Observability | ClickHouse `request_logs`, PostgreSQL alert state and delivery attempt tables |
@@ -43,11 +43,12 @@ The fix is forward-only and avoids renaming historical files:
 - `0000_tenant_prerequisites.sql` creates the minimal `organizations` prerequisite table before service migrations that reference it.
 - `0016_000_knowledge_enhanced_prerequisites.sql` backfills enhanced `knowledge_bases` columns before `0016_knowledge_enhanced.sql` creates organization-scoped indexes.
 - `0076_organization_created_by_fk.sql` adds the `organizations.created_by_user_id` foreign key after `users` is guaranteed to exist.
+- `0079_marketplace_category_id_fk.sql` normalizes legacy Marketplace category slugs, blank values, and unknown values to stable `categories.id` values before enforcing the `published_agents.category_id` NOT NULL foreign key.
 
 Verification:
 
 - `bash scripts/verify-migration-replay.sh`
-- Result: first run applied 88 migrations, second run applied 0 and skipped 88, and `schema_migrations` reported 88 migrations recorded.
+- Result: first run applied 91 migrations, second run applied 0 and skipped 91, and `schema_migrations` reported 91 migrations recorded.
 
 ## Legacy Tenant Backfill Fixture
 
@@ -63,6 +64,21 @@ Verification:
 
 - `TEST_DATABASE_URL=<temporary pgvector PostgreSQL> go test ./cmd/migrate -run TestApplyMigrationsBackfillsLegacyTenantScopeData -count=1 -v`
 - Result: passed.
+
+## Marketplace Category ID Backfill Fixture
+
+`TestApplyMigrationsBackfillsMarketplaceCategoryIDs` covers the Marketplace-specific legacy data-shape introduced before publishing required stable category IDs:
+
+1. Apply migrations through `0078_marketplace_order_failed_status.sql`.
+2. Seed published agents whose `category_id` values contain a legacy slug, a blank string, an unknown value, and an already-valid category ID.
+3. Apply the full migration directory, including `0079_marketplace_category_id_fk.sql`.
+4. Assert the legacy slug, blank value, and unknown value are backfilled to a valid productivity category ID while the already-valid ID is preserved.
+5. Assert no invalid category references remain, the `published_agents_category_id_fkey` constraint exists, `published_agents.category_id` is NOT NULL, invalid inserts fail, null inserts fail, and a second full migrator run applies zero migrations.
+
+Verification:
+
+- `TEST_DATABASE_URL=<temporary pgvector PostgreSQL> go test ./cmd/migrate -run TestApplyMigrationsBackfillsMarketplaceCategoryIDs -count=1 -v`
+- Local no-database runs compile the test but skip the DB-backed assertions when `TEST_DATABASE_URL` is unset.
 
 ## Historical Duplicate Prefix Boundary
 
@@ -83,7 +99,7 @@ Do not rename historical migration files in-place. Their full filenames are alre
 
 ## Current Completion Assessment
 
-This slice moves the Database schema and migrations row forward by making migration ordering inputs explicit, preventing future malformed or ambiguous file additions, requiring checked-in migration evidence for every Part 3 core schema family, proving a fresh PostgreSQL migration replay plus ledger skip rerun in the current Docker-capable environment, and covering the highest-risk non-empty legacy tenant backfill path with a DB-backed fixture. It does not by itself prove every possible production data-shape variant.
+This slice moves the Database schema and migrations row forward by making migration ordering inputs explicit, preventing future malformed or ambiguous file additions, requiring checked-in migration evidence for every Part 3 core schema family, proving a fresh PostgreSQL migration replay plus ledger skip rerun in the current Docker-capable environment, covering the highest-risk non-empty legacy tenant backfill path with a DB-backed fixture, and enforcing Marketplace category IDs at the database layer after a compatibility backfill. It does not by itself prove every possible production data-shape variant.
 
 Remaining repository-owned work:
 

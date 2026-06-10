@@ -297,8 +297,8 @@ func TestAdminBillingCreateDueMarketplacePayoutsDispatchesConfiguredProvider(t *
 	_, organizationID := queryHTTPUserScope(t, database, userID)
 
 	if _, err := database.Exec(`
-		INSERT INTO published_agents (id, owner_id, organization_id, name, description, visibility, status, pricing_type, pricing_amount, install_count, created_at, updated_at)
-		VALUES ('agent_admin_due_payout', $1, $2, 'Admin Due Payout Agent', 'Due payout dispatch test agent', 'public', 'approved', 'one_time', 50, 1, NOW(), NOW())
+			INSERT INTO published_agents (id, owner_id, organization_id, name, description, category_id, visibility, status, pricing_type, pricing_amount, install_count, created_at, updated_at)
+			VALUES ('agent_admin_due_payout', $1, $2, 'Admin Due Payout Agent', 'Due payout dispatch test agent', 'cat_productivity', 'public', 'approved', 'one_time', 50, 1, NOW(), NOW())
 	`, userID, organizationID); err != nil {
 		t.Fatalf("insert due payout agent: %v", err)
 	}
@@ -927,8 +927,8 @@ func seedAdminBillingState(t *testing.T, database *sql.DB, organizationID, userI
 		 VALUES ('inv_admin_phase20', 'stripe', 'in_provider_admin_phase20', 'sub_provider_admin_phase20', 'pi_provider_admin_phase20', $2, $1, 'sub_admin_phase20', 'pi_admin_phase20', 'paid', 29, 29, 'usd', 'https://invoice.test/admin', 'https://invoice.test/admin.pdf', NOW(), NOW() + INTERVAL '30 days', '{}', NOW(), NOW())`,
 		`INSERT INTO billing_refunds (id, provider, provider_refund_id, provider_charge_id, provider_payment_intent_id, organization_id, user_id, payment_intent_id, topup_order_id, amount, currency, status, reason, payload, created_at, updated_at)
 		 VALUES ('refund_admin_phase20', 'stripe', 're_admin_phase20', 'ch_admin_phase20', 'pi_provider_admin_phase20', $2, $1, 'pi_admin_phase20', 'topup_admin_phase20', 5, 'usd', 'succeeded', 'requested_by_customer', '{}', NOW(), NOW())`,
-		`INSERT INTO published_agents (id, owner_id, organization_id, name, description, visibility, status, pricing_type, pricing_amount, install_count, created_at, updated_at)
-		 VALUES ('agent_admin_phase20', $1, $2, 'Admin Billing Agent', 'Settlement test agent', 'public', 'approved', 'one_time', 50, 1, NOW(), NOW())`,
+		`INSERT INTO published_agents (id, owner_id, organization_id, name, description, category_id, visibility, status, pricing_type, pricing_amount, install_count, created_at, updated_at)
+			 VALUES ('agent_admin_phase20', $1, $2, 'Admin Billing Agent', 'Settlement test agent', 'cat_productivity', 'public', 'approved', 'one_time', 50, 1, NOW(), NOW())`,
 		`INSERT INTO payment_intents (id, provider, provider_checkout_session_id, organization_id, user_id, package_id, kind, amount, currency, status, metadata, created_at, updated_at, provider_payment_intent_id, refunded_amount)
 		 VALUES ('pi_market_admin_phase20', 'stripe', 'cs_market_admin_phase20', $2, $1, NULL, 'marketplace_install', 50, 'usd', 'completed', '{}', NOW(), NOW(), 'pi_provider_market_admin_phase20', 5)`,
 		`INSERT INTO marketplace_orders (id, buyer_organization_id, buyer_user_id, publisher_organization_id, publisher_user_id, agent_id, version_id, payment_intent_id, provider_checkout_session_id, provider_payment_intent_id, install_id, gross_amount, platform_fee_amount, publisher_net_amount, refunded_amount, currency, status, created_at, updated_at, paid_at)

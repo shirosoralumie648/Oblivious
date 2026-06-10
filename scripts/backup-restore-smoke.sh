@@ -176,8 +176,8 @@ INSERT INTO billing_refunds (id, provider, provider_refund_id, provider_charge_i
 VALUES ('phase22_refund', 'stripe', 'phase22_refund_provider', 'phase22_charge', 'phase22_pi_topup', 'phase22_org_publisher', 'phase22_owner', 'phase22_payment_topup', 'phase22_topup', 2.000000, 'usd', 'succeeded', 'requested_by_customer', '{"fixture":"phase22"}')
 ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO published_agents (id, owner_id, organization_id, name, description, tags, tools, example_conversations, system_prompt, visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, reviewed_at)
-VALUES ('phase22_agent', 'phase22_owner', 'phase22_org_publisher', 'Phase 22 Agent', 'Backup restore marketplace fixture', ARRAY['phase22'], '{"tools":["calculator"]}', '[]', 'You are a fixture.', 'public', 'approved', 'paid', 50.00, 1, 5.00, 1, NOW())
+INSERT INTO published_agents (id, owner_id, organization_id, name, description, category_id, tags, tools, example_conversations, system_prompt, visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, reviewed_at)
+VALUES ('phase22_agent', 'phase22_owner', 'phase22_org_publisher', 'Phase 22 Agent', 'Backup restore marketplace fixture', 'cat_productivity', ARRAY['phase22'], '{"tools":["calculator"]}', '[]', 'You are a fixture.', 'public', 'approved', 'paid', 50.00, 1, 5.00, 1, NOW())
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO agent_versions (id, agent_id, organization_id, version, changelog, metadata, status)

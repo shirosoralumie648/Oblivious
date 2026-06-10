@@ -863,7 +863,8 @@ func settlementTestDB(t *testing.T) *sql.DB {
 		`CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'user', name TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE organizations (id TEXT PRIMARY KEY, slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', metadata JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE categories (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, slug TEXT NOT NULL UNIQUE, display_order INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
-		`CREATE TABLE published_agents (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, name TEXT NOT NULL, description TEXT NOT NULL, icon_url TEXT, category_id TEXT REFERENCES categories(id), tags TEXT[] NOT NULL DEFAULT '{}', tools JSONB, example_conversations JSONB, system_prompt TEXT, visibility TEXT NOT NULL DEFAULT 'public', status TEXT NOT NULL DEFAULT 'approved', review_reason TEXT, pricing_type TEXT NOT NULL DEFAULT 'free', pricing_amount DECIMAL(10,2) DEFAULT 0, install_count INTEGER NOT NULL DEFAULT 0, rating_avg DECIMAL(3,2) DEFAULT 0, rating_count INTEGER NOT NULL DEFAULT 0, reviewed_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`INSERT INTO categories (id, name, slug, display_order) VALUES ('cat_productivity', 'Productivity', 'productivity', 6)`,
+		`CREATE TABLE published_agents (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, name TEXT NOT NULL, description TEXT NOT NULL, icon_url TEXT, category_id TEXT NOT NULL REFERENCES categories(id), tags TEXT[] NOT NULL DEFAULT '{}', tools JSONB, example_conversations JSONB, system_prompt TEXT, visibility TEXT NOT NULL DEFAULT 'public', status TEXT NOT NULL DEFAULT 'approved', review_reason TEXT, pricing_type TEXT NOT NULL DEFAULT 'free', pricing_amount DECIMAL(10,2) DEFAULT 0, install_count INTEGER NOT NULL DEFAULT 0, rating_avg DECIMAL(3,2) DEFAULT 0, rating_count INTEGER NOT NULL DEFAULT 0, reviewed_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE agent_versions (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL REFERENCES published_agents(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, version TEXT NOT NULL, changelog TEXT, metadata JSONB, status TEXT NOT NULL DEFAULT 'approved', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE(agent_id, version))`,
 		`CREATE TABLE agent_installs (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL REFERENCES published_agents(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, version_id TEXT REFERENCES agent_versions(id), installed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE(organization_id, agent_id, user_id))`,
 		`CREATE TABLE payment_intents (id TEXT PRIMARY KEY, provider TEXT NOT NULL DEFAULT 'stripe', provider_checkout_session_id TEXT UNIQUE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, package_id TEXT, kind TEXT NOT NULL, amount DECIMAL(15,6) NOT NULL, currency TEXT NOT NULL DEFAULT 'usd', status TEXT NOT NULL DEFAULT 'pending', metadata JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), provider_payment_intent_id TEXT, provider_subscription_id TEXT, provider_invoice_id TEXT, refunded_amount DECIMAL(15,6) NOT NULL DEFAULT 0, CONSTRAINT payment_intents_kind_check CHECK (kind IN ('subscription', 'topup', 'marketplace_install')))`,
@@ -902,12 +903,12 @@ func insertSettlementUserOrg(t *testing.T, database *sql.DB, userID, organizatio
 func insertSettlementAgent(t *testing.T, database *sql.DB, agentID, ownerID, organizationID, pricingType string, pricingAmount float64) {
 	t.Helper()
 	if _, err := database.Exec(`
-		INSERT INTO published_agents (
-			id, owner_id, organization_id, name, description, tools, example_conversations,
-			visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at
-		)
-		VALUES ($1, $2, $3, 'Paid Agent', 'A paid marketplace agent.', '{"tools":[{"name":"paid"}]}'::jsonb,
-		        '[]'::jsonb, 'public', 'approved', $4, $5, 0, 0, 0, NOW(), NOW())
+			INSERT INTO published_agents (
+				id, owner_id, organization_id, name, description, category_id, tools, example_conversations,
+				visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at
+			)
+			VALUES ($1, $2, $3, 'Paid Agent', 'A paid marketplace agent.', 'cat_productivity', '{"tools":[{"name":"paid"}]}'::jsonb,
+			        '[]'::jsonb, 'public', 'approved', $4, $5, 0, 0, 0, NOW(), NOW())
 	`, agentID, ownerID, organizationID, pricingType, pricingAmount); err != nil {
 		t.Fatalf("insert settlement agent: %v", err)
 	}

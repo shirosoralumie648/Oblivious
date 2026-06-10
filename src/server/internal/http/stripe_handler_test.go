@@ -934,13 +934,13 @@ func insertHTTPMarketplacePayoutFixture(t *testing.T, database *sql.DB, router h
 	settlementID := "settlement_domestic_payout_" + suffix
 
 	if _, err := database.Exec(`
-		INSERT INTO published_agents (
-			id, owner_id, organization_id, name, description, tools, example_conversations,
-			visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at
-		)
-		VALUES ($1, $2, $3, 'Domestic Payout Agent', 'Domestic payout bridge test agent.',
-		        '{"tools":[{"name":"paid"}]}'::jsonb, '[]'::jsonb, 'public', 'approved',
-		        'one_time', 50, 0, 0, 0, NOW(), NOW())
+			INSERT INTO published_agents (
+				id, owner_id, organization_id, name, description, category_id, tools, example_conversations,
+				visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at
+			)
+			VALUES ($1, $2, $3, 'Domestic Payout Agent', 'Domestic payout bridge test agent.',
+			        'cat_productivity', '{"tools":[{"name":"paid"}]}'::jsonb, '[]'::jsonb, 'public', 'approved',
+			        'one_time', 50, 0, 0, 0, NOW(), NOW())
 	`, agentID, publisherUserID, publisherOrganizationID); err != nil {
 		t.Fatalf("insert domestic payout marketplace agent: %v", err)
 	}
@@ -1342,13 +1342,13 @@ func TestMarketplacePaidInstallDoesNotInstallBeforeWebhook(t *testing.T) {
 	_ = publisherCSRF
 
 	if _, err := database.Exec(`
-		INSERT INTO published_agents (
-			id, owner_id, organization_id, name, description, tools, example_conversations,
-			visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at
-		)
-		VALUES ('agent_paid_http', $1, $2, 'Paid HTTP Agent', 'Paid marketplace route test agent.',
-		        '{"tools":[{"name":"paid"}]}'::jsonb, '[]'::jsonb, 'public', 'approved',
-		        'one_time', 50, 0, 0, 0, NOW(), NOW())
+			INSERT INTO published_agents (
+				id, owner_id, organization_id, name, description, category_id, tools, example_conversations,
+				visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at
+			)
+			VALUES ('agent_paid_http', $1, $2, 'Paid HTTP Agent', 'Paid marketplace route test agent.',
+			        'cat_productivity', '{"tools":[{"name":"paid"}]}'::jsonb, '[]'::jsonb, 'public', 'approved',
+			        'one_time', 50, 0, 0, 0, NOW(), NOW())
 	`, publisherUserID, publisherOrganizationID); err != nil {
 		t.Fatalf("insert paid marketplace agent: %v", err)
 	}
@@ -1404,13 +1404,13 @@ func TestMarketplacePaidInstallCheckoutCreatorFailureMarksOrderFailed(t *testing
 	_, publisherOrganizationID := queryHTTPUserScope(t, database, publisherUserID)
 
 	if _, err := database.Exec(`
-		INSERT INTO published_agents (
-			id, owner_id, organization_id, name, description, tools, example_conversations,
-			visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at
-		)
-		VALUES ('agent_paid_failed_checkout', $1, $2, 'Paid Failed Checkout Agent', 'Paid marketplace fail-closed test agent.',
-		        '{"tools":[{"name":"paid"}]}'::jsonb, '[]'::jsonb, 'public', 'approved',
-		        'one_time', 50, 0, 0, 0, NOW(), NOW())
+			INSERT INTO published_agents (
+				id, owner_id, organization_id, name, description, category_id, tools, example_conversations,
+				visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at
+			)
+			VALUES ('agent_paid_failed_checkout', $1, $2, 'Paid Failed Checkout Agent', 'Paid marketplace fail-closed test agent.',
+			        'cat_productivity', '{"tools":[{"name":"paid"}]}'::jsonb, '[]'::jsonb, 'public', 'approved',
+			        'one_time', 50, 0, 0, 0, NOW(), NOW())
 	`, publisherUserID, publisherOrganizationID); err != nil {
 		t.Fatalf("insert failed checkout marketplace agent: %v", err)
 	}
@@ -1493,13 +1493,13 @@ func TestMarketplacePaidInstallUsesConfiguredProviderCheckoutCreator(t *testing.
 	_, publisherOrganizationID := queryHTTPUserScope(t, database, publisherUserID)
 
 	if _, err := database.Exec(`
-		INSERT INTO published_agents (
-			id, owner_id, organization_id, name, description, tools, example_conversations,
-			visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at
-		)
-		VALUES ('agent_paid_alipay', $1, $2, 'Paid Alipay Agent', 'Paid marketplace provider routing test agent.',
-		        '{"tools":[{"name":"paid"}]}'::jsonb, '[]'::jsonb, 'public', 'approved',
-		        'one_time', 50, 0, 0, 0, NOW(), NOW())
+			INSERT INTO published_agents (
+				id, owner_id, organization_id, name, description, category_id, tools, example_conversations,
+				visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at
+			)
+			VALUES ('agent_paid_alipay', $1, $2, 'Paid Alipay Agent', 'Paid marketplace provider routing test agent.',
+			        'cat_productivity', '{"tools":[{"name":"paid"}]}'::jsonb, '[]'::jsonb, 'public', 'approved',
+			        'one_time', 50, 0, 0, 0, NOW(), NOW())
 	`, publisherUserID, publisherOrganizationID); err != nil {
 		t.Fatalf("insert paid alipay marketplace agent: %v", err)
 	}
@@ -1567,13 +1567,13 @@ func TestDomesticPaymentWebhookRouteAppliesMarketplaceInstallSettlementOnce(t *t
 	_, publisherOrganizationID := queryHTTPUserScope(t, database, publisherUserID)
 
 	if _, err := database.Exec(`
-		INSERT INTO published_agents (
-			id, owner_id, organization_id, name, description, tools, example_conversations,
-			visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at
-		)
-		VALUES ('agent_paid_alipay_webhook', $1, $2, 'Paid Alipay Webhook Agent', 'Paid marketplace domestic webhook test agent.',
-		        '{"tools":[{"name":"paid"}]}'::jsonb, '[]'::jsonb, 'public', 'approved',
-		        'one_time', 50, 0, 0, 0, NOW(), NOW())
+			INSERT INTO published_agents (
+				id, owner_id, organization_id, name, description, category_id, tools, example_conversations,
+				visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at
+			)
+			VALUES ('agent_paid_alipay_webhook', $1, $2, 'Paid Alipay Webhook Agent', 'Paid marketplace domestic webhook test agent.',
+			        'cat_productivity', '{"tools":[{"name":"paid"}]}'::jsonb, '[]'::jsonb, 'public', 'approved',
+			        'one_time', 50, 0, 0, 0, NOW(), NOW())
 	`, publisherUserID, publisherOrganizationID); err != nil {
 		t.Fatalf("insert paid alipay webhook marketplace agent: %v", err)
 	}
@@ -1680,13 +1680,13 @@ func TestDomesticPaymentWebhookRouteAppliesMarketplaceRefundOnce(t *testing.T) {
 	_, publisherOrganizationID := queryHTTPUserScope(t, database, publisherUserID)
 
 	if _, err := database.Exec(`
-		INSERT INTO published_agents (
-			id, owner_id, organization_id, name, description, tools, example_conversations,
-			visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at
-		)
-		VALUES ('agent_paid_alipay_refund', $1, $2, 'Paid Alipay Refund Agent', 'Paid marketplace domestic refund test agent.',
-		        '{"tools":[{"name":"paid"}]}'::jsonb, '[]'::jsonb, 'public', 'approved',
-		        'one_time', 50, 0, 0, 0, NOW(), NOW())
+			INSERT INTO published_agents (
+				id, owner_id, organization_id, name, description, category_id, tools, example_conversations,
+				visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at
+			)
+			VALUES ('agent_paid_alipay_refund', $1, $2, 'Paid Alipay Refund Agent', 'Paid marketplace domestic refund test agent.',
+			        'cat_productivity', '{"tools":[{"name":"paid"}]}'::jsonb, '[]'::jsonb, 'public', 'approved',
+			        'one_time', 50, 0, 0, 0, NOW(), NOW())
 	`, publisherUserID, publisherOrganizationID); err != nil {
 		t.Fatalf("insert paid alipay refund marketplace agent: %v", err)
 	}
@@ -1913,13 +1913,13 @@ func TestStripeWebhookRouteAppliesMarketplaceInstallSettlementOnce(t *testing.T)
 	_, publisherOrganizationID := queryHTTPUserScope(t, database, publisherUserID)
 
 	if _, err := database.Exec(`
-		INSERT INTO published_agents (
-			id, owner_id, organization_id, name, description, tools, example_conversations,
-			visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at
-		)
-		VALUES ('agent_paid_webhook', $1, $2, 'Paid Webhook Agent', 'Paid marketplace webhook test agent.',
-		        '{"tools":[{"name":"paid"}]}'::jsonb, '[]'::jsonb, 'public', 'approved',
-		        'one_time', 50, 0, 0, 0, NOW(), NOW())
+			INSERT INTO published_agents (
+				id, owner_id, organization_id, name, description, category_id, tools, example_conversations,
+				visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at
+			)
+			VALUES ('agent_paid_webhook', $1, $2, 'Paid Webhook Agent', 'Paid marketplace webhook test agent.',
+			        'cat_productivity', '{"tools":[{"name":"paid"}]}'::jsonb, '[]'::jsonb, 'public', 'approved',
+			        'one_time', 50, 0, 0, 0, NOW(), NOW())
 	`, publisherUserID, publisherOrganizationID); err != nil {
 		t.Fatalf("insert paid webhook agent: %v", err)
 	}
@@ -1999,13 +1999,13 @@ func TestStripeRefundUpdatesMarketplaceSettlementOnce(t *testing.T) {
 	_, publisherOrganizationID := queryHTTPUserScope(t, database, publisherUserID)
 
 	if _, err := database.Exec(`
-		INSERT INTO published_agents (
-			id, owner_id, organization_id, name, description, tools, example_conversations,
-			visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at
-		)
-		VALUES ('agent_paid_refund', $1, $2, 'Paid Refund Agent', 'Paid marketplace refund test agent.',
-		        '{"tools":[{"name":"paid"}]}'::jsonb, '[]'::jsonb, 'public', 'approved',
-		        'one_time', 50, 0, 0, 0, NOW(), NOW())
+			INSERT INTO published_agents (
+				id, owner_id, organization_id, name, description, category_id, tools, example_conversations,
+				visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at
+			)
+			VALUES ('agent_paid_refund', $1, $2, 'Paid Refund Agent', 'Paid marketplace refund test agent.',
+			        'cat_productivity', '{"tools":[{"name":"paid"}]}'::jsonb, '[]'::jsonb, 'public', 'approved',
+			        'one_time', 50, 0, 0, 0, NOW(), NOW())
 	`, publisherUserID, publisherOrganizationID); err != nil {
 		t.Fatalf("insert paid refund agent: %v", err)
 	}

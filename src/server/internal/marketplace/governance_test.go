@@ -401,14 +401,14 @@ func insertReviewCandidate(t *testing.T, database *sql.DB, candidate reviewCandi
 		tools = "[]"
 	}
 	if _, err := database.Exec(`
-		INSERT INTO published_agents (
-			id, owner_id, organization_id, name, description, tools, example_conversations,
-			system_prompt, visibility, status, pricing_type, pricing_amount,
-			install_count, rating_avg, rating_count, created_at, updated_at
-		)
-		VALUES ($1, $2, $3, 'Review Candidate', 'A candidate submitted for marketplace review.',
-		        $4::jsonb, '[]'::jsonb, $5, 'public', 'pending_review',
-		        'free', 0, 0, 0, 0, NOW(), NOW())
+			INSERT INTO published_agents (
+				id, owner_id, organization_id, name, description, category_id, tools, example_conversations,
+				system_prompt, visibility, status, pricing_type, pricing_amount,
+				install_count, rating_avg, rating_count, created_at, updated_at
+			)
+			VALUES ($1, $2, $3, 'Review Candidate', 'A candidate submitted for marketplace review.',
+			        'cat_productivity', $4::jsonb, '[]'::jsonb, $5, 'public', 'pending_review',
+			        'free', 0, 0, 0, 0, NOW(), NOW())
 	`, candidate.ID, candidate.OwnerID, candidate.OrganizationID, tools, candidate.SystemPrompt); err != nil {
 		t.Fatalf("insert review candidate: %v", err)
 	}

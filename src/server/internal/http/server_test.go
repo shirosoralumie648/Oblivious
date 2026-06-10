@@ -168,7 +168,8 @@ func testDatabase(t *testing.T) *sql.DB {
 		`CREATE TABLE memory_chunks (id TEXT PRIMARY KEY, document_id TEXT NOT NULL REFERENCES memory_documents(id) ON DELETE CASCADE, user_id TEXT NOT NULL, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, content TEXT NOT NULL, chunk_index INTEGER NOT NULL, embedding TEXT, metadata JSONB DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE (document_id, chunk_index))`,
 		`CREATE TABLE mcp_servers (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT REFERENCES organizations(id) ON DELETE SET NULL, name TEXT NOT NULL, url TEXT NOT NULL, auth_token_encrypted TEXT, status TEXT DEFAULT 'disconnected', last_connected_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE categories (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, slug TEXT NOT NULL UNIQUE, display_order INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
-		`CREATE TABLE published_agents (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, name TEXT NOT NULL, description TEXT NOT NULL, icon_url TEXT, category_id TEXT REFERENCES categories(id), tags TEXT[] NOT NULL DEFAULT '{}', tools JSONB, example_conversations JSONB, system_prompt TEXT, visibility TEXT NOT NULL DEFAULT 'private', status TEXT NOT NULL DEFAULT 'draft', review_reason TEXT, pricing_type TEXT NOT NULL DEFAULT 'free', pricing_amount DECIMAL(10,2) DEFAULT 0, install_count INTEGER NOT NULL DEFAULT 0, rating_avg DECIMAL(3,2) DEFAULT 0, rating_count INTEGER NOT NULL DEFAULT 0, reviewed_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`INSERT INTO categories (id, name, slug, display_order) VALUES ('cat_productivity', 'Productivity', 'productivity', 6)`,
+		`CREATE TABLE published_agents (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, name TEXT NOT NULL, description TEXT NOT NULL, icon_url TEXT, category_id TEXT NOT NULL REFERENCES categories(id), tags TEXT[] NOT NULL DEFAULT '{}', tools JSONB, example_conversations JSONB, system_prompt TEXT, visibility TEXT NOT NULL DEFAULT 'private', status TEXT NOT NULL DEFAULT 'draft', review_reason TEXT, pricing_type TEXT NOT NULL DEFAULT 'free', pricing_amount DECIMAL(10,2) DEFAULT 0, install_count INTEGER NOT NULL DEFAULT 0, rating_avg DECIMAL(3,2) DEFAULT 0, rating_count INTEGER NOT NULL DEFAULT 0, reviewed_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE TABLE agent_versions (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL REFERENCES published_agents(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, version TEXT NOT NULL, changelog TEXT, metadata JSONB, status TEXT NOT NULL DEFAULT 'pending_review', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE(agent_id, version))`,
 		`CREATE TABLE agent_installs (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL REFERENCES published_agents(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, version_id TEXT REFERENCES agent_versions(id), installed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE(organization_id, agent_id, user_id))`,
 		`CREATE TABLE agent_reviews (id TEXT PRIMARY KEY, agent_id TEXT NOT NULL REFERENCES published_agents(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5), body TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE(organization_id, agent_id, user_id))`,
@@ -1516,10 +1517,10 @@ func TestCrossTenantMarketplacePublisherScopeUsesActiveOrganization(t *testing.T
 	otherOrganizationID := createHTTPOrganization(t, router, cookie, csrfToken, "Other Marketplace Org", "other-marketplace-org")
 
 	if _, err := database.Exec(`
-		INSERT INTO published_agents (id, owner_id, organization_id, name, description, tools, example_conversations, visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at)
-		VALUES
-			('agent_active_org', $1, $2, 'Active Org Agent', 'Agent owned by active organization.', '{"tools":[{"name":"active"}]}'::jsonb, '[]'::jsonb, 'public', 'approved', 'free', 0, 5, 0, 0, NOW(), NOW()),
-			('agent_other_org', $1, $3, 'Other Org Agent', 'Agent owned by another organization.', '{"tools":[{"name":"other"}]}'::jsonb, '[]'::jsonb, 'public', 'approved', 'free', 0, 7, 0, 0, NOW(), NOW())
+			INSERT INTO published_agents (id, owner_id, organization_id, name, description, category_id, tools, example_conversations, visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at)
+			VALUES
+				('agent_active_org', $1, $2, 'Active Org Agent', 'Agent owned by active organization.', 'cat_productivity', '{"tools":[{"name":"active"}]}'::jsonb, '[]'::jsonb, 'public', 'approved', 'free', 0, 5, 0, 0, NOW(), NOW()),
+				('agent_other_org', $1, $3, 'Other Org Agent', 'Agent owned by another organization.', 'cat_productivity', '{"tools":[{"name":"other"}]}'::jsonb, '[]'::jsonb, 'public', 'approved', 'free', 0, 7, 0, 0, NOW(), NOW())
 	`, userID, activeOrganizationID, otherOrganizationID); err != nil {
 		t.Fatalf("insert marketplace agents: %v", err)
 	}
@@ -1555,7 +1556,7 @@ func TestCrossTenantMarketplacePublisherScopeUsesActiveOrganization(t *testing.T
 		t.Fatalf("expected active organization id on my-agent, got %q", myAgentsResponse.Data.Agents[0].OrganizationID)
 	}
 
-	updateBody := `{"name":"Other Org Updated","description":"This update must not cross tenant boundaries.","categoryID":"cat_1","tools":"{\"tools\":[{\"name\":\"updated\"}]}","exampleConversations":"[]","visibility":"public","pricingType":"free","version":"1.0.1"}`
+	updateBody := `{"name":"Other Org Updated","description":"This update must not cross tenant boundaries.","categoryID":"cat_productivity","tools":"{\"tools\":[{\"name\":\"updated\"}]}","exampleConversations":"[]","visibility":"public","pricingType":"free","version":"1.0.1"}`
 	updateRecorder := httptest.NewRecorder()
 	updateRequest := httptest.NewRequest(stdhttp.MethodPut, "/api/v1/marketplace/agents/agent_other_org", strings.NewReader(updateBody))
 	updateRequest.Header.Set("Content-Type", "application/json")
@@ -1689,8 +1690,8 @@ func TestMarketplaceAdminReviewAuditCarriesAgentOrganization(t *testing.T) {
 	promoteHTTPUserToAdmin(t, database, userID)
 
 	if _, err := database.Exec(`
-		INSERT INTO published_agents (id, owner_id, organization_id, name, description, tools, example_conversations, visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at)
-		VALUES ('agent_pending_review_org', $1, $2, 'Pending Review Org Agent', 'Agent waiting for tenant-aware review.', '{"tools":[{"name":"review"}]}'::jsonb, '[]'::jsonb, 'public', 'pending_review', 'free', 0, 0, 0, 0, NOW(), NOW())
+			INSERT INTO published_agents (id, owner_id, organization_id, name, description, category_id, tools, example_conversations, visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at)
+			VALUES ('agent_pending_review_org', $1, $2, 'Pending Review Org Agent', 'Agent waiting for tenant-aware review.', 'cat_productivity', '{"tools":[{"name":"review"}]}'::jsonb, '[]'::jsonb, 'public', 'pending_review', 'free', 0, 0, 0, 0, NOW(), NOW())
 	`, userID, organizationID); err != nil {
 		t.Fatalf("insert pending marketplace agent: %v", err)
 	}
@@ -1747,8 +1748,8 @@ func TestMarketplaceAdminReviewNeedsChangesRoute(t *testing.T) {
 	promoteHTTPUserToAdmin(t, database, userID)
 
 	if _, err := database.Exec(`
-		INSERT INTO published_agents (id, owner_id, organization_id, name, description, tools, example_conversations, visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at)
-		VALUES ('agent_needs_changes_route', $1, $2, 'Needs Changes Agent', 'Agent waiting for manual review.', '{"tools":[{"name":"review"}]}'::jsonb, '[]'::jsonb, 'public', 'pending_review', 'free', 0, 0, 0, 0, NOW(), NOW())
+			INSERT INTO published_agents (id, owner_id, organization_id, name, description, category_id, tools, example_conversations, visibility, status, pricing_type, pricing_amount, install_count, rating_avg, rating_count, created_at, updated_at)
+			VALUES ('agent_needs_changes_route', $1, $2, 'Needs Changes Agent', 'Agent waiting for manual review.', 'cat_productivity', '{"tools":[{"name":"review"}]}'::jsonb, '[]'::jsonb, 'public', 'pending_review', 'free', 0, 0, 0, 0, NOW(), NOW())
 	`, userID, organizationID); err != nil {
 		t.Fatalf("insert pending marketplace agent: %v", err)
 	}
