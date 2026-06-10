@@ -20,6 +20,7 @@ import type {
   ChannelRuntimeStats,
   ChannelTestResult,
   ChannelUpdateRequest,
+  MarketplaceAbuseReport,
   ModelInventoryEntry,
   ModelInventoryFilter,
   PaginatedResponse,
@@ -280,6 +281,12 @@ type ReviewListPayload = {
   total?: number;
 };
 
+type MarketplaceAbuseReportsPayload = {
+  reports?: MarketplaceAbuseReport[];
+  data?: MarketplaceAbuseReport[];
+  total?: number;
+};
+
 type BillingListPayload = {
   sessions?: BillingInspectionRecord[];
   paymentIntents?: BillingInspectionRecord[];
@@ -392,6 +399,9 @@ export type AdminApi = {
   approveAgent: (id: string) => Promise<void>;
   rejectAgent: (id: string, reason: string) => Promise<void>;
   requestAgentChanges: (id: string, reason: string) => Promise<void>;
+  listMarketplaceAbuseReports: (params?: { status?: string; limit?: number; offset?: number }) => Promise<PaginatedResponse<MarketplaceAbuseReport>>;
+  resolveMarketplaceAbuseReport: (id: string, resolution: string) => Promise<{ status: 'resolved' | 'dismissed' | string }>;
+  dismissMarketplaceAbuseReport: (id: string, resolution: string) => Promise<{ status: 'resolved' | 'dismissed' | string }>;
   getBillingSummary: (params?: BillingFilter) => Promise<BillingSummary>;
   listBillingSurface: (surface: BillingSurface, params?: BillingFilter) => Promise<PaginatedResponse<BillingInspectionRecord>>;
   refundTopup: (topupId: string, input: TopupRefundRequest) => Promise<BillingInspectionRecord>;
@@ -624,6 +634,14 @@ export function createAdminApi(client: HttpClient): AdminApi {
     requestAgentChanges: async (id, reason) => {
       await client.post<{ status: string }>(`${apiPrefix}/reviews/${id}/needs-changes`, { reason });
     },
+    listMarketplaceAbuseReports: async (params) => {
+      const payload = await client.get<MarketplaceAbuseReportsPayload>(`${apiPrefix}/marketplace/abuse-reports${buildQuery(params)}`);
+      return collection(payload.reports ?? payload.data, payload.total);
+    },
+    resolveMarketplaceAbuseReport: (id, resolution) =>
+      client.post<{ status: string }>(`${apiPrefix}/marketplace/abuse-reports/${id}/resolve`, { resolution }),
+    dismissMarketplaceAbuseReport: (id, resolution) =>
+      client.post<{ status: string }>(`${apiPrefix}/marketplace/abuse-reports/${id}/dismiss`, { resolution }),
 
     getBillingSummary: (params) => {
       const queryParams = {

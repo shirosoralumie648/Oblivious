@@ -213,6 +213,7 @@ Status values:
 - API contract row 31 / Security row 33: Admin Marketplace review OpenAPI contracts now have a gate for `cookieAuth` plus `csrfHeader` on review SLA enforcement, approve, reject, and needs-changes routes; DB-free route-surface tests prove signed-admin-cookie review mutations without CSRF are rejected before handler/database execution.
 - API contract row 31: `scripts/verify-openapi-contract.sh` now guards Admin Billing route/schema parity instead of only path presence, including the summary schema, all list response collection wrappers, `AdminTopupRefundRequest`, `AdminMarketplacePayoutPaidRequest`, and `MarketplacePayout` response shape.
 - API contract row 31: Marketplace templates, publisher settlement preferences, and abuse-report routes now have explicit OpenAPI request/response schemas, and the contract gate verifies those `data` schema refs plus template type and settlement-cycle enums.
+- Marketplace row 27 / Frontend row 28 / API contract row 31 / Security row 33: Admin Reviews now consumes the existing Admin Marketplace abuse-report management routes. The frontend API exposes `GET /api/v1/admin/marketplace/abuse-reports`, `POST /api/v1/admin/marketplace/abuse-reports/{reportId}/resolve`, and `POST /api/v1/admin/marketplace/abuse-reports/{reportId}/dismiss`; the Admin Reviews page renders a filtered abuse-report queue with resolve/dismiss actions and required resolution evidence while preserving the existing backend admin, CSRF, and OpenAPI contract gates.
 
 ## Verified Evidence Already Collected
 

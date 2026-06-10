@@ -9,6 +9,9 @@ export type StatusBadgeStatus =
   | 'pending'
   | 'pending_review'
   | 'needs_changes'
+  | 'open'
+  | 'resolved'
+  | 'dismissed'
   | 'approved'
   | 'rejected'
   | 'public'
@@ -27,14 +30,17 @@ const statusTone: Record<StatusBadgeStatus, string> = {
   active: 'bg-[oklch(0.723_0.219_149.579)]',
   approved: 'bg-[oklch(0.723_0.219_149.579)]',
   public: 'bg-[oklch(0.723_0.219_149.579)]',
+  resolved: 'bg-[oklch(0.723_0.219_149.579)]',
   degraded: 'bg-[oklch(0.795_0.184_86.047)]',
   pending: 'bg-[oklch(0.795_0.184_86.047)]',
   pending_review: 'bg-[oklch(0.795_0.184_86.047)]',
   needs_changes: 'bg-[oklch(0.795_0.184_86.047)]',
+  open: 'bg-[oklch(0.795_0.184_86.047)]',
   offline: 'bg-[oklch(0.704_0.191_22.216)]',
   disabled: 'bg-[oklch(0.704_0.191_22.216)]',
   rejected: 'bg-[oklch(0.704_0.191_22.216)]',
   private: 'bg-[oklch(0.704_0.191_22.216)]',
+  dismissed: 'bg-[oklch(0.704_0.191_22.216)]',
   unlisted: 'bg-[oklch(0.795_0.184_86.047)]',
 };
 

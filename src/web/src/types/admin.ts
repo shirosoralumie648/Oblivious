@@ -496,6 +496,20 @@ export type PublishedAgent = {
   reviewSLA?: ReviewSLA;
 };
 
+export type MarketplaceAbuseReport = {
+  id: string;
+  reporterOrganizationId: string;
+  reporterUserId: string;
+  agentId: string;
+  reason: string;
+  details?: string;
+  status: 'open' | 'resolved' | 'dismissed';
+  resolution?: string;
+  reviewerUserId?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type PaginatedResponse<T> = {
   data: T[];
   total: number;

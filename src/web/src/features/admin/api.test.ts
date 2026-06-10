@@ -105,6 +105,45 @@ describe('createAdminApi', () => {
     });
   });
 
+  it('supports admin marketplace abuse report list and resolution routes', async () => {
+    const get = vi.fn().mockResolvedValue({
+      reports: [
+        {
+          id: 'report_1',
+          reporterOrganizationId: 'org_1',
+          reporterUserId: 'user_1',
+          agentId: 'agent_1',
+          reason: 'malware',
+          details: 'attempted credential exfiltration',
+          status: 'open',
+          createdAt: '2026-01-07T00:00:00Z',
+          updatedAt: '2026-01-07T00:00:00Z',
+        },
+      ],
+      total: 1,
+    });
+    const post = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 'resolved' })
+      .mockResolvedValueOnce({ status: 'dismissed' });
+    const api = createAdminApi(createClient({ get, post }));
+
+    await expect(api.listMarketplaceAbuseReports({ status: 'open', limit: 20 })).resolves.toEqual({
+      data: [expect.objectContaining({ id: 'report_1', status: 'open' })],
+      total: 1,
+    });
+    await expect(api.resolveMarketplaceAbuseReport('report_1', 'agent removed')).resolves.toEqual({ status: 'resolved' });
+    await expect(api.dismissMarketplaceAbuseReport('report_2', 'not reproducible')).resolves.toEqual({ status: 'dismissed' });
+
+    expect(get).toHaveBeenCalledWith('/api/v1/admin/marketplace/abuse-reports?status=open&limit=20');
+    expect(post).toHaveBeenNthCalledWith(1, '/api/v1/admin/marketplace/abuse-reports/report_1/resolve', {
+      resolution: 'agent removed',
+    });
+    expect(post).toHaveBeenNthCalledWith(2, '/api/v1/admin/marketplace/abuse-reports/report_2/dismiss', {
+      resolution: 'not reproducible',
+    });
+  });
+
   it('uses the backend action payload for channel batch updates', async () => {
     const post = vi.fn().mockResolvedValue(undefined);
     const api = createAdminApi(createClient({ post }));

@@ -10,13 +10,27 @@ import { DrawerForm } from '../../components/shared/DrawerForm';
 import { StatusBadge } from '../../components/shared/StatusBadge';
 import { createAdminApi } from '../../features/admin/api';
 import { createHttpClient } from '../../services/http/client';
-import type { PublishedAgent } from '../../types/admin';
+import type { MarketplaceAbuseReport, PublishedAgent } from '../../types/admin';
+
+type AbuseReportAction = {
+  action: 'dismiss' | 'resolve';
+  report: MarketplaceAbuseReport;
+};
 
 type ReviewsState = {
   reviews: PublishedAgent[];
   loading: boolean;
   error: string | null;
   statusFilter: string;
+  abuseReports: MarketplaceAbuseReport[];
+  abuseLoading: boolean;
+  abuseError: string | null;
+  abuseStatusFilter: string;
+  abuseAction: AbuseReportAction | null;
+  abuseResolution: string;
+  abuseActionLoading: boolean;
+  abuseFormError: string | null;
+  abuseActionMessage: string | null;
   confirmApprove: PublishedAgent | null;
   changesAgent: PublishedAgent | null;
   rejectAgent: PublishedAgent | null;
@@ -30,6 +44,16 @@ type Action =
   | { type: 'LOAD_SUCCESS'; reviews: PublishedAgent[] }
   | { type: 'LOAD_ERROR'; error: string }
   | { type: 'SET_STATUS'; value: string }
+  | { type: 'ABUSE_LOAD_START' }
+  | { type: 'ABUSE_LOAD_SUCCESS'; reports: MarketplaceAbuseReport[] }
+  | { type: 'ABUSE_LOAD_ERROR'; error: string }
+  | { type: 'SET_ABUSE_STATUS'; value: string }
+  | { type: 'OPEN_ABUSE_ACTION'; report: MarketplaceAbuseReport; action: 'dismiss' | 'resolve' }
+  | { type: 'CLOSE_ABUSE_ACTION' }
+  | { type: 'SET_ABUSE_RESOLUTION'; value: string }
+  | { type: 'ABUSE_ACTION_START' }
+  | { type: 'ABUSE_ACTION_DONE'; message: string }
+  | { type: 'ABUSE_FORM_ERROR'; error: string }
   | { type: 'CONFIRM_APPROVE'; agent: PublishedAgent | null }
   | { type: 'OPEN_CHANGES'; agent: PublishedAgent }
   | { type: 'CLOSE_CHANGES' }
@@ -45,6 +69,15 @@ const initialState: ReviewsState = {
   loading: true,
   error: null,
   statusFilter: 'pending_review',
+  abuseReports: [],
+  abuseLoading: true,
+  abuseError: null,
+  abuseStatusFilter: 'open',
+  abuseAction: null,
+  abuseResolution: '',
+  abuseActionLoading: false,
+  abuseFormError: null,
+  abuseActionMessage: null,
   confirmApprove: null,
   changesAgent: null,
   rejectAgent: null,
@@ -63,6 +96,33 @@ function reducer(state: ReviewsState, action: Action): ReviewsState {
       return { ...state, loading: false, error: action.error };
     case 'SET_STATUS':
       return { ...state, statusFilter: action.value };
+    case 'ABUSE_LOAD_START':
+      return { ...state, abuseLoading: true, abuseError: null };
+    case 'ABUSE_LOAD_SUCCESS':
+      return { ...state, abuseLoading: false, abuseError: null, abuseReports: action.reports };
+    case 'ABUSE_LOAD_ERROR':
+      return { ...state, abuseLoading: false, abuseError: action.error };
+    case 'SET_ABUSE_STATUS':
+      return { ...state, abuseStatusFilter: action.value };
+    case 'OPEN_ABUSE_ACTION':
+      return { ...state, abuseAction: { action: action.action, report: action.report }, abuseResolution: '', abuseFormError: null };
+    case 'CLOSE_ABUSE_ACTION':
+      return { ...state, abuseAction: null, abuseResolution: '', abuseFormError: null, abuseActionLoading: false };
+    case 'SET_ABUSE_RESOLUTION':
+      return { ...state, abuseResolution: action.value };
+    case 'ABUSE_ACTION_START':
+      return { ...state, abuseActionLoading: true, abuseFormError: null, abuseActionMessage: null };
+    case 'ABUSE_ACTION_DONE':
+      return {
+        ...state,
+        abuseAction: null,
+        abuseResolution: '',
+        abuseActionLoading: false,
+        abuseFormError: null,
+        abuseActionMessage: action.message,
+      };
+    case 'ABUSE_FORM_ERROR':
+      return { ...state, abuseActionLoading: false, abuseFormError: action.error };
     case 'CONFIRM_APPROVE':
       return { ...state, confirmApprove: action.agent };
     case 'OPEN_CHANGES':
@@ -184,6 +244,23 @@ export function AdminReviewsPage() {
     void loadReviews();
   }, [loadReviews]);
 
+  const loadAbuseReports = useCallback(async () => {
+    dispatch({ type: 'ABUSE_LOAD_START' });
+    try {
+      const result = await api.listMarketplaceAbuseReports({
+        status: state.abuseStatusFilter === 'all' ? undefined : state.abuseStatusFilter,
+        limit: 50,
+      });
+      dispatch({ type: 'ABUSE_LOAD_SUCCESS', reports: result.data });
+    } catch (error) {
+      dispatch({ type: 'ABUSE_LOAD_ERROR', error: error instanceof Error ? error.message : 'Something went wrong while loading this data.' });
+    }
+  }, [api, state.abuseStatusFilter]);
+
+  useEffect(() => {
+    void loadAbuseReports();
+  }, [loadAbuseReports]);
+
   const handleApprove = async () => {
     if (!state.confirmApprove) {
       return;
@@ -232,6 +309,30 @@ export function AdminReviewsPage() {
     }
   };
 
+  const handleAbuseReportAction = async () => {
+    if (!state.abuseAction) {
+      return;
+    }
+    const resolution = state.abuseResolution.trim();
+    if (!resolution) {
+      dispatch({ type: 'ABUSE_FORM_ERROR', error: 'Resolution is required.' });
+      return;
+    }
+    dispatch({ type: 'ABUSE_ACTION_START' });
+    try {
+      if (state.abuseAction.action === 'resolve') {
+        await api.resolveMarketplaceAbuseReport(state.abuseAction.report.id, resolution);
+        dispatch({ type: 'ABUSE_ACTION_DONE', message: 'Abuse report resolved.' });
+      } else {
+        await api.dismissMarketplaceAbuseReport(state.abuseAction.report.id, resolution);
+        dispatch({ type: 'ABUSE_ACTION_DONE', message: 'Abuse report dismissed.' });
+      }
+      await loadAbuseReports();
+    } catch (error) {
+      dispatch({ type: 'ABUSE_FORM_ERROR', error: error instanceof Error ? error.message : 'Unable to update abuse report.' });
+    }
+  };
+
   const columns: DataTableColumn<PublishedAgent>[] = [
     { key: 'name', header: 'Agent', sortable: true },
     { key: 'ownerName', header: 'Owner', render: (agent) => agent.ownerName || agent.ownerID || agent.ownerId || '-' },
@@ -261,6 +362,37 @@ export function AdminReviewsPage() {
     { key: 'installCount', header: 'Installs', render: (agent) => agent.installCount.toLocaleString() },
     { key: 'updatedAt', header: 'Updated', render: updatedAt },
   ];
+
+  const abuseColumns: DataTableColumn<MarketplaceAbuseReport>[] = [
+    { key: 'agentId', header: 'Agent', render: (report) => report.agentId },
+    {
+      key: 'reason',
+      header: 'Reason',
+      render: (report) => (
+        <div className="min-w-64 space-y-1">
+          <div>{report.reason}</div>
+          {report.details ? <div className="text-xs text-muted-foreground">{report.details}</div> : null}
+        </div>
+      ),
+    },
+    {
+      key: 'reporterUserId',
+      header: 'Reporter',
+      render: (report) => (
+        <div className="min-w-48 space-y-1 text-xs text-muted-foreground">
+          <div>{`User: ${report.reporterUserId}`}</div>
+          <div>{`Org: ${report.reporterOrganizationId}`}</div>
+        </div>
+      ),
+    },
+    { key: 'status', header: 'Status', render: (report) => <StatusBadge status={report.status} /> },
+    { key: 'updatedAt', header: 'Updated', render: (report) => utcDateTime(report.updatedAt) },
+  ];
+
+  const abuseActionTitle = state.abuseAction
+    ? `${state.abuseAction.action === 'resolve' ? 'Resolve' : 'Dismiss'} Abuse Report: ${state.abuseAction.report.id}`
+    : 'Update Abuse Report';
+  const abuseSubmitLabel = state.abuseAction?.action === 'resolve' ? 'Resolve Report' : 'Dismiss Report';
 
   return (
     <div className="space-y-6">
@@ -304,6 +436,60 @@ export function AdminReviewsPage() {
           </div>
         )}
       />
+
+      <section className="space-y-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <h2 className="font-heading text-xl font-semibold text-foreground">Marketplace Abuse Reports</h2>
+          <select
+            aria-label="Abuse report status filter"
+            value={state.abuseStatusFilter}
+            onChange={(event) => dispatch({ type: 'SET_ABUSE_STATUS', value: event.target.value })}
+            className="min-h-[44px] rounded-lg border border-input bg-input/30 px-3 text-sm text-foreground"
+          >
+            <option value="open">Open</option>
+            <option value="resolved">Resolved</option>
+            <option value="dismissed">Dismissed</option>
+            <option value="all">All statuses</option>
+          </select>
+        </div>
+
+        {state.abuseActionMessage ? (
+          <p className="rounded-lg border border-border bg-card px-4 py-3 text-sm text-foreground">{state.abuseActionMessage}</p>
+        ) : null}
+
+        <DataTable
+          columns={abuseColumns}
+          data={state.abuseReports}
+          loading={state.abuseLoading}
+          error={state.abuseError}
+          emptyMessage="No marketplace abuse reports match this filter."
+          onRetry={loadAbuseReports}
+          renderActions={(report) =>
+            report.status === 'open' ? (
+              <div className="flex justify-end gap-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`Resolve abuse report ${report.id}`}
+                  onClick={() => dispatch({ type: 'OPEN_ABUSE_ACTION', report, action: 'resolve' })}
+                >
+                  <RiCheckLine className="size-4" aria-hidden="true" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`Dismiss abuse report ${report.id}`}
+                  onClick={() => dispatch({ type: 'OPEN_ABUSE_ACTION', report, action: 'dismiss' })}
+                >
+                  <RiCloseLine className="size-4" aria-hidden="true" />
+                </Button>
+              </div>
+            ) : null
+          }
+        />
+      </section>
 
       <ConfirmDialog
         open={state.confirmApprove !== null}
@@ -364,6 +550,30 @@ export function AdminReviewsPage() {
             value={state.rejectionReason}
             onChange={(event) => dispatch({ type: 'SET_REASON', value: event.target.value })}
             placeholder="Explain what the publisher needs to fix."
+          />
+        </div>
+      </DrawerForm>
+
+      <DrawerForm
+        open={state.abuseAction !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            dispatch({ type: 'CLOSE_ABUSE_ACTION' });
+          }
+        }}
+        title={abuseActionTitle}
+        submitLabel={abuseSubmitLabel}
+        onSubmit={handleAbuseReportAction}
+        loading={state.abuseActionLoading}
+        error={state.abuseFormError}
+      >
+        <div className="space-y-2">
+          <label htmlFor="abuse-resolution" className="text-sm font-medium">Resolution</label>
+          <Textarea
+            id="abuse-resolution"
+            value={state.abuseResolution}
+            onChange={(event) => dispatch({ type: 'SET_ABUSE_RESOLUTION', value: event.target.value })}
+            placeholder="Record the moderation decision and follow-up evidence."
           />
         </div>
       </DrawerForm>
