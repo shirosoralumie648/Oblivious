@@ -906,6 +906,213 @@ func TestAgentRunsHandlerPlanStepActionsRejectExplicitNonMatchingStepIDs(t *test
 	}
 }
 
+func TestAgentRunsHandlerPlanStepActionsRejectCrossRunStepIDs(t *testing.T) {
+	tests := []struct {
+		name            string
+		call            func(agentRunsHandler, stdhttp.ResponseWriter, *stdhttp.Request, string)
+		path            string
+		body            string
+		initialStatus   string
+		initialApproval string
+		initialError    string
+	}{
+		{
+			name:            "skip",
+			call:            agentRunsHandler.skipPlanStep,
+			path:            "/api/v1/agent/runs/run_1/skip-plan-step",
+			body:            `{"planStepId":"step_other","reason":"wrong run"}`,
+			initialStatus:   agent.PlanStepStatusPending,
+			initialApproval: agent.ApprovalStatusNotRequired,
+		},
+		{
+			name:            "retry",
+			call:            agentRunsHandler.retryPlanStep,
+			path:            "/api/v1/agent/runs/run_1/retry-plan-step",
+			body:            `{"planStepId":"step_other"}`,
+			initialStatus:   agent.PlanStepStatusFailed,
+			initialApproval: agent.ApprovalStatusNotRequired,
+			initialError:    "temporary failure",
+		},
+		{
+			name:            "update",
+			call:            agentRunsHandler.updatePlanStep,
+			path:            "/api/v1/agent/runs/run_1/update-plan-step",
+			body:            `{"planStepId":"step_other","title":"mutated title"}`,
+			initialStatus:   agent.PlanStepStatusPending,
+			initialApproval: agent.ApprovalStatusPending,
+		},
+		{
+			name:            "move",
+			call:            agentRunsHandler.movePlanStep,
+			path:            "/api/v1/agent/runs/run_1/move-plan-step",
+			body:            `{"planStepId":"step_other","direction":"up"}`,
+			initialStatus:   agent.PlanStepStatusApproved,
+			initialApproval: agent.ApprovalStatusApproved,
+		},
+		{
+			name:            "delete",
+			call:            agentRunsHandler.deletePlanStep,
+			path:            "/api/v1/agent/runs/run_1/delete-plan-step",
+			body:            `{"planStepId":"step_other"}`,
+			initialStatus:   agent.PlanStepStatusPending,
+			initialApproval: agent.ApprovalStatusPending,
+		},
+		{
+			name:            "execute",
+			call:            agentRunsHandler.executePlanStep,
+			path:            "/api/v1/agent/runs/run_1/execute-plan-step",
+			body:            `{"planStepId":"step_other"}`,
+			initialStatus:   agent.PlanStepStatusApproved,
+			initialApproval: agent.ApprovalStatusApproved,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newFakeAgentRunsStore()
+			store.runs = []*agent.Run{
+				{ID: "run_1", OrganizationID: "org_1", UserID: "user_1"},
+				{ID: "run_2", OrganizationID: "org_1", UserID: "user_1"},
+			}
+			store.planSteps = []*agent.PlanStep{{
+				ID:             "step_other",
+				RunID:          "run_2",
+				OrganizationID: "org_1",
+				Index:          1,
+				Title:          "Guarded step",
+				Status:         tt.initialStatus,
+				ApprovalStatus: tt.initialApproval,
+				Error:          tt.initialError,
+				ResultContent:  "existing evidence",
+			}}
+			handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{reply: "should not execute"}))
+
+			recorder := httptest.NewRecorder()
+			tt.call(handler, recorder, newAgentRunsRequest(stdhttp.MethodPost, tt.path, tt.body), "run_1")
+
+			if recorder.Code != stdhttp.StatusBadRequest {
+				t.Fatalf("expected 400, got %d with body %s", recorder.Code, recorder.Body.String())
+			}
+			if !strings.Contains(recorder.Body.String(), "planStepId does not belong to run") {
+				t.Fatalf("expected membership error, got %s", recorder.Body.String())
+			}
+			if len(store.planSteps) != 1 {
+				t.Fatalf("cross-run plan-step action deleted guarded step: %+v", store.planSteps)
+			}
+			step := store.planSteps[0]
+			if step.RunID != "run_2" || step.Status != tt.initialStatus || step.ApprovalStatus != tt.initialApproval ||
+				step.Title != "Guarded step" || step.Error != tt.initialError || step.ResultContent != "existing evidence" {
+				t.Fatalf("cross-run plan-step action mutated guarded step: %+v", step)
+			}
+		})
+	}
+}
+
+func TestAgentRunsHandlerPlanStepActionsRejectOmittedAmbiguousStepIDs(t *testing.T) {
+	tests := []struct {
+		name            string
+		call            func(agentRunsHandler, stdhttp.ResponseWriter, *stdhttp.Request, string)
+		path            string
+		body            string
+		initialStatus   string
+		initialApproval string
+	}{
+		{
+			name:            "approve",
+			call:            agentRunsHandler.approvePlanStep,
+			path:            "/api/v1/agent/runs/run_1/approve-plan-step",
+			body:            `{}`,
+			initialStatus:   agent.PlanStepStatusPending,
+			initialApproval: agent.ApprovalStatusPending,
+		},
+		{
+			name:            "skip",
+			call:            agentRunsHandler.skipPlanStep,
+			path:            "/api/v1/agent/runs/run_1/skip-plan-step",
+			body:            `{}`,
+			initialStatus:   agent.PlanStepStatusPending,
+			initialApproval: agent.ApprovalStatusNotRequired,
+		},
+		{
+			name:            "retry",
+			call:            agentRunsHandler.retryPlanStep,
+			path:            "/api/v1/agent/runs/run_1/retry-plan-step",
+			body:            `{}`,
+			initialStatus:   agent.PlanStepStatusFailed,
+			initialApproval: agent.ApprovalStatusNotRequired,
+		},
+		{
+			name:            "update",
+			call:            agentRunsHandler.updatePlanStep,
+			path:            "/api/v1/agent/runs/run_1/update-plan-step",
+			body:            `{"title":"mutated title"}`,
+			initialStatus:   agent.PlanStepStatusPending,
+			initialApproval: agent.ApprovalStatusPending,
+		},
+		{
+			name:            "move",
+			call:            agentRunsHandler.movePlanStep,
+			path:            "/api/v1/agent/runs/run_1/move-plan-step",
+			body:            `{"direction":"down"}`,
+			initialStatus:   agent.PlanStepStatusApproved,
+			initialApproval: agent.ApprovalStatusApproved,
+		},
+		{
+			name:            "delete",
+			call:            agentRunsHandler.deletePlanStep,
+			path:            "/api/v1/agent/runs/run_1/delete-plan-step",
+			body:            `{}`,
+			initialStatus:   agent.PlanStepStatusPending,
+			initialApproval: agent.ApprovalStatusPending,
+		},
+		{
+			name:            "execute",
+			call:            agentRunsHandler.executePlanStep,
+			path:            "/api/v1/agent/runs/run_1/execute-plan-step",
+			body:            `{}`,
+			initialStatus:   agent.PlanStepStatusApproved,
+			initialApproval: agent.ApprovalStatusApproved,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newFakeAgentRunsStore()
+			store.runs = []*agent.Run{{
+				ID:             "run_1",
+				OrganizationID: "org_1",
+				UserID:         "user_1",
+			}}
+			store.planSteps = []*agent.PlanStep{
+				{ID: "step_1", RunID: "run_1", OrganizationID: "org_1", Index: 1, Title: "First guarded step", Status: tt.initialStatus, ApprovalStatus: tt.initialApproval, ResultContent: "first evidence"},
+				{ID: "step_2", RunID: "run_1", OrganizationID: "org_1", Index: 2, Title: "Second guarded step", Status: tt.initialStatus, ApprovalStatus: tt.initialApproval, ResultContent: "second evidence"},
+			}
+			handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{reply: "should not execute"}))
+
+			recorder := httptest.NewRecorder()
+			tt.call(handler, recorder, newAgentRunsRequest(stdhttp.MethodPost, tt.path, tt.body), "run_1")
+
+			if recorder.Code != stdhttp.StatusBadRequest {
+				t.Fatalf("expected 400, got %d with body %s", recorder.Code, recorder.Body.String())
+			}
+			if !strings.Contains(recorder.Body.String(), "planStepId is required when multiple matching plan steps exist") {
+				t.Fatalf("expected ambiguous plan-step id message, got %s", recorder.Body.String())
+			}
+			if len(store.planSteps) != 2 {
+				t.Fatalf("ambiguous omitted plan-step action deleted guarded steps: %+v", store.planSteps)
+			}
+			for index, step := range store.planSteps {
+				expectedTitle := []string{"First guarded step", "Second guarded step"}[index]
+				expectedResult := []string{"first evidence", "second evidence"}[index]
+				if step.Status != tt.initialStatus || step.ApprovalStatus != tt.initialApproval ||
+					step.Title != expectedTitle || step.ResultContent != expectedResult {
+					t.Fatalf("ambiguous omitted plan-step action mutated guarded step: %+v", step)
+				}
+			}
+		})
+	}
+}
+
 func TestAgentRunsHandlerSkipPlanStepReturnsUpdatedRunDetail(t *testing.T) {
 	now := time.Now().UTC()
 	store := newFakeAgentRunsStore()
