@@ -4109,6 +4109,28 @@ components:
           type: string
           format: date-time
 
+    OrganizationMembershipListResponse:
+      type: object
+      properties:
+        memberships:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrganizationMembership"
+
+    OrganizationMembersResponse:
+      type: object
+      properties:
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrganizationMembership"
+
+    OrganizationOwnershipTransferResponse:
+      type: object
+      properties:
+        transferred:
+          type: boolean
+
     AdminOrganizationListResponse:
       type: object
       properties:
@@ -8346,12 +8368,7 @@ paths:
                   - type: object
                     properties:
                       data:
-                        type: object
-                        properties:
-                          memberships:
-                            type: array
-                            items:
-                              $ref: "#/components/schemas/OrganizationMembership"
+                        $ref: "#/components/schemas/OrganizationMembershipListResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
 
@@ -8416,12 +8433,7 @@ paths:
                   - type: object
                     properties:
                       data:
-                        type: object
-                        properties:
-                          members:
-                            type: array
-                            items:
-                              $ref: "#/components/schemas/OrganizationMembership"
+                        $ref: "#/components/schemas/OrganizationMembersResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -8654,10 +8666,7 @@ paths:
                   - type: object
                     properties:
                       data:
-                        type: object
-                        properties:
-                          transferred:
-                            type: boolean
+                        $ref: "#/components/schemas/OrganizationOwnershipTransferResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":

@@ -2388,6 +2388,7 @@ require_tenant_organization_mutation_csrf_contract() {
     file = ARGV.fetch(0)
     spec = YAML.load_file(file)
     paths = spec.fetch("paths", {})
+    schemas = spec.fetch("components", {}).fetch("schemas", {})
     missing = []
 
     def operation(paths, path, method, missing)
@@ -2413,16 +2414,16 @@ require_tenant_organization_mutation_csrf_contract() {
       operation.dig("requestBody", "content", "application/json", "schema", "$ref")
     end
 
-    def response_nested_array_item_ref(operation, status, field)
+    def response_data_ref(operation, status)
       operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
-        find { |entry| entry.dig("properties", "data", "properties", field, "items", "$ref") }&.
-        dig("properties", "data", "properties", field, "items", "$ref")
+        find { |entry| entry.dig("properties", "data", "$ref") }&.
+        dig("properties", "data", "$ref")
     end
 
     {
-      ["/api/v1/app/organizations", "get"] => "memberships",
-      ["/api/v1/app/organizations/{organizationId}/members", "get"] => "members",
-    }.each do |(path, method), response_field|
+      ["/api/v1/app/organizations", "get"] => "#/components/schemas/OrganizationMembershipListResponse",
+      ["/api/v1/app/organizations/{organizationId}/members", "get"] => "#/components/schemas/OrganizationMembersResponse",
+    }.each do |(path, method), expected|
       op = operation(paths, path, method, missing)
       unless requires_cookie_without_csrf?(op)
         missing << "#{method.upcase} #{path} must require cookieAuth without csrfHeader"
@@ -2430,8 +2431,8 @@ require_tenant_organization_mutation_csrf_contract() {
       unless op.fetch("tags", []).include?("Tenant")
         missing << "#{method.upcase} #{path} must be tagged Tenant"
       end
-      unless response_nested_array_item_ref(op, "200", response_field) == "#/components/schemas/OrganizationMembership"
-        missing << "#{method.upcase} #{path} 200 data.#{response_field} items must reference OrganizationMembership"
+      unless response_data_ref(op, "200") == expected
+        missing << "#{method.upcase} #{path} 200 data must reference #{expected}"
       end
     end
 
@@ -2462,6 +2463,21 @@ require_tenant_organization_mutation_csrf_contract() {
       unless op.dig("requestBody", "required") == true && request_body_ref(op) == expected
         missing << "#{method.upcase} #{path} request body must require #{expected}"
       end
+    end
+
+    transfer = operation(paths, "/api/v1/app/organizations/{organizationId}/ownership-transfer", "post", missing)
+    unless response_data_ref(transfer, "200") == "#/components/schemas/OrganizationOwnershipTransferResponse"
+      missing << "POST /api/v1/app/organizations/{organizationId}/ownership-transfer 200 data must reference OrganizationOwnershipTransferResponse"
+    end
+
+    unless schemas.dig("OrganizationMembershipListResponse", "properties", "memberships", "items", "$ref") == "#/components/schemas/OrganizationMembership"
+      missing << "OrganizationMembershipListResponse must expose memberships[]"
+    end
+    unless schemas.dig("OrganizationMembersResponse", "properties", "members", "items", "$ref") == "#/components/schemas/OrganizationMembership"
+      missing << "OrganizationMembersResponse must expose members[]"
+    end
+    unless schemas.dig("OrganizationOwnershipTransferResponse", "properties", "transferred", "type") == "boolean"
+      missing << "OrganizationOwnershipTransferResponse.transferred must be boolean"
     end
 
     unless missing.empty?
