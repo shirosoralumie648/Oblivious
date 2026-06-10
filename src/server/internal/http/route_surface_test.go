@@ -577,6 +577,8 @@ func TestRouteSurfaceChatPrivateReadRoutesRequireSessionWithoutDatabase(t *testi
 
 	tests := []routeSurfaceCase{
 		{"models", stdhttp.MethodGet, "/api/v1/app/models"},
+		{"list personas", stdhttp.MethodGet, "/api/v1/app/personas"},
+		{"get persona", stdhttp.MethodGet, "/api/v1/app/personas/persona_1"},
 		{"list conversations", stdhttp.MethodGet, "/api/v1/app/conversations"},
 		{"get conversation", stdhttp.MethodGet, "/api/v1/app/conversations/conversation_1"},
 		{"list messages", stdhttp.MethodGet, "/api/v1/app/conversations/conversation_1/messages"},

@@ -5865,6 +5865,8 @@ paths:
       summary: 获取可用模型列表
       operationId: listModels
       tags: [Chat]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: 模型列表
@@ -5902,6 +5904,8 @@ paths:
       summary: 获取对话人格列表
       operationId: listPersonas
       tags: [Chat]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: 对话人格列表
@@ -5953,6 +5957,8 @@ paths:
       summary: 获取对话人格详情
       operationId: getPersona
       tags: [Chat]
+      security:
+        - cookieAuth: []
       parameters:
         - name: personaId
           in: path
@@ -6388,6 +6394,8 @@ paths:
       summary: 获取对话列表
       operationId: listConversations
       tags: [Chat]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: 对话列表
@@ -6436,6 +6444,8 @@ paths:
       summary: 获取对话详情
       operationId: getConversation
       tags: [Chat]
+      security:
+        - cookieAuth: []
       parameters:
         - name: conversationId
           in: path
@@ -6560,6 +6570,8 @@ paths:
       summary: 获取对话消息列表
       operationId: listMessages
       tags: [Chat]
+      security:
+        - cookieAuth: []
       parameters:
         - name: conversationId
           in: path
@@ -6657,6 +6669,8 @@ paths:
       summary: 导出对话 Markdown
       operationId: exportConversationMarkdown
       tags: [Chat]
+      security:
+        - cookieAuth: []
       parameters:
         - name: conversationId
           in: path
@@ -6678,6 +6692,8 @@ paths:
       summary: 获取对话配置
       operationId: getConversationConfig
       tags: [Chat]
+      security:
+        - cookieAuth: []
       parameters:
         - name: conversationId
           in: path

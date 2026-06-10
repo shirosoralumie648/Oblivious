@@ -3050,9 +3050,30 @@ require_chat_mutation_csrf_contract() {
     end
 
     {
+      ["/api/v1/app/models", "get"] => ["#/components/schemas/Model", :array_ref],
+      ["/api/v1/app/conversations", "get"] => ["#/components/schemas/Conversation", :array_ref],
+      ["/api/v1/app/conversations/{conversationId}/messages", "get"] => ["#/components/schemas/Message", :array_ref],
+    }.each do |(path, method), (expected, shape)|
+      op = operation(paths, path, method, missing)
+      unless requires_cookie_without_csrf?(op)
+        missing << "#{method.upcase} #{path} must require cookieAuth without csrfHeader"
+      end
+      unless op.fetch("tags", []).include?("Chat")
+        missing << "#{method.upcase} #{path} must be tagged Chat"
+      end
+      actual = shape == :array_ref ? response_data_array_ref(op, "200") : response_data_ref(op, "200")
+      unless actual == expected
+        missing << "#{method.upcase} #{path} 200 data must reference #{expected}"
+      end
+    end
+
+    {
       ["/api/v1/app/personas", "get"] => "#/components/schemas/Persona",
     }.each do |(path, method), expected|
       op = operation(paths, path, method, missing)
+      unless requires_cookie_without_csrf?(op)
+        missing << "#{method.upcase} #{path} must require cookieAuth without csrfHeader"
+      end
       unless op.fetch("tags", []).include?("Chat")
         missing << "#{method.upcase} #{path} must be tagged Chat"
       end
@@ -3066,6 +3087,9 @@ require_chat_mutation_csrf_contract() {
       ["/api/v1/app/personas/{personaId}", "get"] => "#/components/schemas/Persona",
     }.each do |(path, method), expected|
       op = operation(paths, path, method, missing)
+      unless requires_cookie_without_csrf?(op)
+        missing << "#{method.upcase} #{path} must require cookieAuth without csrfHeader"
+      end
       unless op.fetch("tags", []).include?("Chat")
         missing << "#{method.upcase} #{path} must be tagged Chat"
       end
@@ -3102,11 +3126,25 @@ require_chat_mutation_csrf_contract() {
     end
 
     export = operation(paths, "/api/v1/app/conversations/{conversationId}/export.md", "get", missing)
+    unless requires_cookie_without_csrf?(export)
+      missing << "GET /api/v1/app/conversations/{conversationId}/export.md must require cookieAuth without csrfHeader"
+    end
     unless export.fetch("tags", []).include?("Chat")
       missing << "GET /api/v1/app/conversations/{conversationId}/export.md must be tagged Chat"
     end
     unless export.dig("responses", "200", "content", "text/markdown", "schema", "type") == "string"
       missing << "GET /api/v1/app/conversations/{conversationId}/export.md 200 response must document text/markdown"
+    end
+
+    config = operation(paths, "/api/v1/app/conversations/{conversationId}/config", "get", missing)
+    unless requires_cookie_without_csrf?(config)
+      missing << "GET /api/v1/app/conversations/{conversationId}/config must require cookieAuth without csrfHeader"
+    end
+    unless config.fetch("tags", []).include?("Chat")
+      missing << "GET /api/v1/app/conversations/{conversationId}/config must be tagged Chat"
+    end
+    unless config.dig("responses", "200", "content", "application/json", "schema", "$ref") == "#/components/schemas/Envelope"
+      missing << "GET /api/v1/app/conversations/{conversationId}/config 200 response must reference Envelope"
     end
 
     unless schemas.dig("UpdateConversationConfigRequest", "properties", "personaId", "type") == "string"
