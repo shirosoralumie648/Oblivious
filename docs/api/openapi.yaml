@@ -12993,6 +12993,8 @@ paths:
       summary: 获取 Relay channel provider catalog
       operationId: listAdminChannelProviders
       tags: [Admin, Relay]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: Relay channel provider catalog for admin channel forms
@@ -13015,6 +13017,8 @@ paths:
       summary: 管理员获取 Relay channel 列表
       operationId: listAdminChannels
       tags: [Admin, Relay]
+      security:
+        - cookieAuth: []
       parameters:
         - name: provider
           in: query
@@ -13126,6 +13130,8 @@ paths:
       summary: 获取 Relay channel 运行时统计
       operationId: listAdminChannelRuntimeStats
       tags: [Admin, Relay]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: In-memory Relay channel runtime counters
@@ -13148,6 +13154,8 @@ paths:
       summary: 管理员获取 Relay channel 详情
       operationId: getAdminChannel
       tags: [Admin, Relay]
+      security:
+        - cookieAuth: []
       parameters:
         - name: channelId
           in: path
@@ -13427,6 +13435,8 @@ paths:
       summary: 获取 Relay channel 健康状态
       operationId: getAdminChannelHealth
       tags: [Admin, Relay]
+      security:
+        - cookieAuth: []
       parameters:
         - name: channelId
           in: path

@@ -534,6 +534,11 @@ require_admin_channel_secret_response_contract() {
       security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
     end
 
+    def requires_cookie_without_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && !entry.key?("csrfHeader") }
+    end
+
     expected_data_refs = {
       ["/api/v1/admin/channel-providers", "get", "200"] => "#/components/schemas/AdminChannelProviderListResponse",
       ["/api/v1/admin/channels", "get", "200"] => "#/components/schemas/AdminChannelListResponse",
@@ -556,6 +561,19 @@ require_admin_channel_secret_response_contract() {
       end
       unless op.fetch("tags", []).include?("Admin") && op.fetch("tags", []).include?("Relay")
         missing << "#{method.upcase} #{path} must be tagged Admin and Relay"
+      end
+    end
+
+    [
+      "/api/v1/admin/channel-providers",
+      "/api/v1/admin/channels",
+      "/api/v1/admin/channels/stats",
+      "/api/v1/admin/channels/{channelId}",
+      "/api/v1/admin/channels/{channelId}/health",
+    ].each do |path|
+      op = operation(paths, path, "get", missing)
+      unless requires_cookie_without_csrf?(op)
+        missing << "GET #{path} must require cookieAuth without csrfHeader"
       end
     end
 
