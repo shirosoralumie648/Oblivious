@@ -848,6 +848,11 @@ func TestMarketplaceHandlerPublicBrowseAndSessionGuards(t *testing.T) {
 			call: handler.listCategories,
 		},
 		{
+			name: "curated",
+			path: "/api/v1/marketplace/curated",
+			call: handler.getCuratedSections,
+		},
+		{
 			name: "search",
 			path: "/api/v1/marketplace/search?query=agent",
 			call: handler.searchAgents,
@@ -856,6 +861,39 @@ func TestMarketplaceHandlerPublicBrowseAndSessionGuards(t *testing.T) {
 			name: "agents",
 			path: "/api/v1/marketplace/agents?query=agent",
 			call: handler.listAgents,
+		},
+		{
+			name: "agent detail",
+			path: "/api/v1/marketplace/agents/agent_1",
+			call: func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+				handler.getAgent(w, r, "agent_1")
+			},
+		},
+		{
+			name: "agent reviews",
+			path: "/api/v1/marketplace/agents/agent_1/reviews",
+			call: func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+				handler.listReviews(w, r, "agent_1")
+			},
+		},
+		{
+			name: "agent versions",
+			path: "/api/v1/marketplace/agents/agent_1/versions",
+			call: func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+				handler.getAgentVersions(w, r, "agent_1")
+			},
+		},
+		{
+			name: "templates",
+			path: "/api/v1/marketplace/templates",
+			call: handler.listTemplates,
+		},
+		{
+			name: "template detail",
+			path: "/api/v1/marketplace/templates/tpl_1",
+			call: func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+				handler.getTemplate(w, r, "tpl_1")
+			},
 		},
 	}
 

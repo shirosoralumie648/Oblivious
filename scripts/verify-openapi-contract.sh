@@ -548,6 +548,51 @@ require_marketplace_private_read_auth_contract() {
   ' "$openapi_file"
 }
 
+require_marketplace_public_read_contract() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+    paths = spec.fetch("paths", {})
+    missing = []
+
+    def operation(paths, path, method, missing)
+      op = paths.dig(path, method)
+      unless op
+        missing << "#{method.upcase} #{path} must be documented"
+        return {}
+      end
+      op
+    end
+
+    [
+      "/api/v1/marketplace/featured",
+      "/api/v1/marketplace/curated",
+      "/api/v1/marketplace/categories",
+      "/api/v1/marketplace/search",
+      "/api/v1/marketplace/agents",
+      "/api/v1/marketplace/agents/{agentId}",
+      "/api/v1/marketplace/agents/{agentId}/reviews",
+      "/api/v1/marketplace/agents/{agentId}/versions",
+      "/api/v1/marketplace/templates",
+      "/api/v1/marketplace/templates/{templateId}",
+    ].each do |path|
+      op = operation(paths, path, "get", missing)
+      unless op["security"] == []
+        missing << "GET #{path} must declare security: []"
+      end
+      unless op.fetch("tags", []).include?("Marketplace")
+        missing << "GET #{path} must be tagged Marketplace"
+      end
+    end
+
+    unless missing.empty?
+      warn "[openapi-contract] Marketplace public read contract is incomplete:"
+      missing.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 require_admin_channel_secret_response_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
@@ -4435,6 +4480,7 @@ require_marketplace_template_type_contract
 require_marketplace_surface_payload_contract
 require_marketplace_browse_payload_contract
 require_marketplace_private_read_auth_contract
+require_marketplace_public_read_contract
 require_publishing_channel_secret_csrf_contract
 require_admin_channel_secret_response_contract
 require_admin_observability_provider_secret_csrf_contract

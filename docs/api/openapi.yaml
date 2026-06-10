@@ -15297,6 +15297,7 @@ paths:
       summary: 获取 Marketplace 推荐 Agent
       operationId: getMarketplaceFeaturedAgents
       tags: [Marketplace]
+      security: []
       responses:
         "200":
           description: 推荐 Agent 列表
@@ -15317,6 +15318,7 @@ paths:
       summary: 获取 Marketplace 分组推荐
       operationId: getMarketplaceCuratedSections
       tags: [Marketplace]
+      security: []
       responses:
         "200":
           description: 热门、高评分和最新 Agent 分组
@@ -15337,6 +15339,7 @@ paths:
       summary: 获取 Marketplace 分类
       operationId: listMarketplaceCategories
       tags: [Marketplace]
+      security: []
       responses:
         "200":
           description: 分类列表
@@ -15357,6 +15360,7 @@ paths:
       summary: 搜索 Marketplace Agent
       operationId: searchMarketplaceAgents
       tags: [Marketplace]
+      security: []
       parameters:
         - name: query
           in: query
@@ -15420,6 +15424,7 @@ paths:
       summary: 列出 Marketplace Agent
       operationId: listMarketplaceAgents
       tags: [Marketplace]
+      security: []
       responses:
         "200":
           description: Agent 列表
@@ -15469,6 +15474,7 @@ paths:
       summary: 获取 Marketplace Agent 详情
       operationId: getMarketplaceAgent
       tags: [Marketplace]
+      security: []
       responses:
         "200":
           description: Agent 详情
@@ -15614,6 +15620,7 @@ paths:
       summary: 获取 Marketplace Agent 评论
       operationId: listMarketplaceAgentReviews
       tags: [Marketplace]
+      security: []
       responses:
         "200":
           description: 评论列表
@@ -15741,6 +15748,7 @@ paths:
       summary: 获取 Marketplace Agent 版本
       operationId: listMarketplaceAgentVersions
       tags: [Marketplace]
+      security: []
       responses:
         "200":
           description: 版本列表
@@ -15928,6 +15936,7 @@ paths:
       summary: 搜索 Marketplace 模板
       operationId: listMarketplaceTemplates
       tags: [Marketplace]
+      security: []
       parameters:
         - name: query
           in: query
@@ -16009,6 +16018,7 @@ paths:
       summary: 获取 Marketplace 模板详情
       operationId: getMarketplaceTemplate
       tags: [Marketplace]
+      security: []
       responses:
         "200":
           description: 模板详情
