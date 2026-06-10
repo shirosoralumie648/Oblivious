@@ -320,6 +320,91 @@ require_api_path_parameter_contract() {
   ' "$openapi_file"
 }
 
+require_api_operation_metadata_contract() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+
+    def resolve_ref(spec, ref)
+      ref.sub(%r{\A#/}, "").split("/").reduce(spec) { |node, part| node.fetch(part) }
+    end
+
+    def resolve_parameter(spec, parameter)
+      return parameter unless parameter.is_a?(Hash) && parameter["$ref"]
+
+      resolve_ref(spec, parameter["$ref"])
+    end
+
+    missing_operation_id = []
+    duplicate_operation_id = Hash.new { |hash, key| hash[key] = [] }
+    missing_tags = []
+    malformed_parameters = []
+    duplicate_parameters = []
+
+    spec.fetch("paths", {}).each do |path, operations|
+      next unless path.start_with?("/api/")
+
+      shared_parameters = operations.fetch("parameters", [])
+
+      operations.each do |method, operation|
+        next unless operation.is_a?(Hash)
+
+        operation_id = operation["operationId"]
+        if operation_id.to_s.strip.empty?
+          missing_operation_id << "#{method.upcase} #{path}"
+        else
+          duplicate_operation_id[operation_id] << "#{method.upcase} #{path}"
+        end
+
+        unless operation["tags"].is_a?(Array) && operation["tags"].any?
+          missing_tags << "#{method.upcase} #{path}"
+        end
+
+        seen_parameters = {}
+        (shared_parameters + operation.fetch("parameters", [])).each do |parameter|
+          parameter = resolve_parameter(spec, parameter)
+          unless parameter.is_a?(Hash)
+            malformed_parameters << "#{method.upcase} #{path} has a non-object parameter"
+            next
+          end
+
+          name = parameter["name"]
+          location = parameter["in"]
+          unless name.is_a?(String) && !name.strip.empty? && %w[path query header cookie].include?(location)
+            malformed_parameters << "#{method.upcase} #{path} has malformed parameter name=#{name.inspect} in=#{location.inspect}"
+            next
+          end
+
+          key = [location, name]
+          if seen_parameters[key]
+            duplicate_parameters << "#{method.upcase} #{path} declares duplicate parameter #{location}:#{name}"
+          end
+          seen_parameters[key] = true
+
+          schema = parameter["schema"]
+          unless schema.is_a?(Hash) && (schema["type"] || schema["$ref"])
+            malformed_parameters << "#{method.upcase} #{path} parameter #{location}:#{name} must declare a schema type or ref"
+          end
+        end
+      end
+    end
+
+    duplicate_operation_id.select! { |_operation_id, entries| entries.length > 1 }
+
+    unless missing_operation_id.empty? && duplicate_operation_id.empty? && missing_tags.empty? && malformed_parameters.empty? && duplicate_parameters.empty?
+      warn "[openapi-contract] /api operation metadata contract failed:"
+      missing_operation_id.each { |entry| warn "  - #{entry} must declare operationId" }
+      duplicate_operation_id.each do |operation_id, entries|
+        warn "  - operationId #{operation_id} is duplicated by #{entries.join(", ")}"
+      end
+      missing_tags.each { |entry| warn "  - #{entry} must declare at least one tag" }
+      malformed_parameters.each { |entry| warn "  - #{entry}" }
+      duplicate_parameters.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 require_session_csrf_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
@@ -4813,6 +4898,7 @@ require_api_success_data_uses_named_schema
 require_api_json_request_bodies_use_named_schemas
 require_api_security_surface_contract
 require_api_path_parameter_contract
+require_api_operation_metadata_contract
 require_session_csrf_contract
 require_marketplace_paid_install_contract
 require_marketplace_template_type_contract
