@@ -12,6 +12,7 @@ const getVersions = vi.fn();
 const getReviews = vi.fn();
 const installAgent = vi.fn();
 const publishAgent = vi.fn();
+const deleteAgent = vi.fn();
 const getMyAgents = vi.fn();
 const getInstalledAgents = vi.fn();
 const uninstallAgent = vi.fn();
@@ -38,6 +39,7 @@ vi.mock('../../features/marketplace/api', async () => {
       getReviews,
       installAgent,
       publishAgent,
+      deleteAgent,
       getMyAgents,
       getInstalledAgents,
       uninstallAgent,
@@ -144,6 +146,7 @@ function resetMarketplaceMocks() {
   getReviews.mockReset();
   installAgent.mockReset();
   publishAgent.mockReset();
+  deleteAgent.mockReset();
   getMyAgents.mockReset();
   getInstalledAgents.mockReset();
   uninstallAgent.mockReset();
@@ -165,6 +168,7 @@ function resetMarketplaceMocks() {
   getReviews.mockResolvedValue([{ id: 'rev_1', agentID: 'agent_1', userID: 'user_1', rating: 5, body: 'Great', createdAt: '2026-01-03T00:00:00Z' }]);
   installAgent.mockResolvedValue({ id: 'install_1', agentID: 'agent_1', installedAt: '2026-01-04T00:00:00Z' });
   publishAgent.mockResolvedValue(agent);
+  deleteAgent.mockResolvedValue(undefined);
   getMyAgents.mockResolvedValue([agent]);
   getInstalledAgents.mockResolvedValue([{ id: 'install_1', agentID: 'agent_1', agentName: 'Research Agent', version: '1.0.0', installedAt: '2026-01-04T00:00:00Z' }]);
   uninstallAgent.mockResolvedValue(undefined);
@@ -614,6 +618,30 @@ describe('Marketplace pages', () => {
     await waitFor(() => expect(updateSettlementPreferences).toHaveBeenCalledWith('weekly'));
     expect(await screen.findByText('Weekly')).toBeInTheDocument();
     expect(screen.getByText('2% processing fee')).toBeInTheDocument();
+  });
+
+  it('deletes published marketplace agents from my agents', async () => {
+    renderRoute(<MarketplaceMyAgentsPage />);
+
+    expect(await screen.findByRole('heading', { name: 'My Agents' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete agent Research Agent' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete Agent' }));
+
+    await waitFor(() => expect(deleteAgent).toHaveBeenCalledWith('agent_1'));
+    await waitFor(() => expect(getMyAgents).toHaveBeenCalledTimes(2));
+  });
+
+  it('surfaces published agent delete failures on my agents', async () => {
+    deleteAgent.mockRejectedValue(new Error('agent has pending settlement activity'));
+
+    renderRoute(<MarketplaceMyAgentsPage />);
+
+    expect(await screen.findByRole('heading', { name: 'My Agents' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete agent Research Agent' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete Agent' }));
+
+    expect(await screen.findByText('Unable to delete agent.')).toBeInTheDocument();
+    expect(screen.getByText('agent has pending settlement activity')).toBeInTheDocument();
   });
 
   it('creates marketplace templates from my agents', async () => {

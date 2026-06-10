@@ -118,6 +118,15 @@ describe('createMarketplaceApi', () => {
     expect(del).toHaveBeenCalledWith('/api/v1/marketplace/installs/agent_1');
   });
 
+  it('matches the backend publisher delete route for marketplace agents', async () => {
+    const del = vi.fn().mockResolvedValue(undefined);
+    const api = createMarketplaceApi(createClient({ delete: del }));
+
+    await api.deleteAgent('agent_1');
+
+    expect(del).toHaveBeenCalledWith('/api/v1/marketplace/agents/agent_1');
+  });
+
   it('returns paid install checkout sessions from the install route', async () => {
     const post = vi.fn().mockResolvedValue({
       checkoutSessionId: 'cs_marketplace_1',

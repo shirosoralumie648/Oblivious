@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 
+import { ConfirmDialog } from '../../components/shared/ConfirmDialog';
 import { DataTable, type DataTableColumn } from '../../components/shared/DataTable';
 import { RatingStars } from '../../components/shared/RatingStars';
 import { StatusBadge } from '../../components/shared/StatusBadge';
@@ -36,6 +37,8 @@ type MyAgentsState = {
   loading: boolean;
   error: string | null;
   actionError: { title: string; message?: string } | null;
+  deletingAgent: MarketplaceAgent | null;
+  deletingAgentID: string | null;
   uninstallingID: string | null;
 };
 
@@ -48,6 +51,9 @@ type Action =
   | { type: 'CREATE_TEMPLATE_START' }
   | { type: 'CREATE_TEMPLATE_SUCCESS'; templateName: string }
   | { type: 'CREATE_TEMPLATE_ERROR'; error: string }
+  | { type: 'SET_DELETE_AGENT'; agent: MarketplaceAgent | null }
+  | { type: 'DELETE_AGENT_START'; agentID: string }
+  | { type: 'DELETE_AGENT_DONE' }
   | { type: 'SET_UNINSTALLING'; installID: string | null }
   | { type: 'SET_SETTLEMENT_CYCLE_DRAFT'; cycle: SettlementCycle }
   | { type: 'SAVE_SETTLEMENT_CYCLE_START' }
@@ -85,6 +91,8 @@ const initialState: MyAgentsState = {
   loading: true,
   error: null,
   actionError: null,
+  deletingAgent: null,
+  deletingAgentID: null,
   uninstallingID: null,
 };
 
@@ -127,6 +135,12 @@ function reducer(state: MyAgentsState, action: Action): MyAgentsState {
       };
     case 'CREATE_TEMPLATE_ERROR':
       return { ...state, creatingTemplate: false, templateError: action.error };
+    case 'SET_DELETE_AGENT':
+      return { ...state, actionError: null, deletingAgent: action.agent };
+    case 'DELETE_AGENT_START':
+      return { ...state, actionError: null, deletingAgentID: action.agentID };
+    case 'DELETE_AGENT_DONE':
+      return { ...state, deletingAgent: null, deletingAgentID: null };
     case 'SET_UNINSTALLING':
       return { ...state, actionError: action.installID ? null : state.actionError, uninstallingID: action.installID };
     case 'SET_SETTLEMENT_CYCLE_DRAFT':
@@ -227,6 +241,25 @@ export function MarketplaceMyAgentsPage() {
       });
     } finally {
       dispatch({ type: 'SET_UNINSTALLING', installID: null });
+    }
+  };
+
+  const handleDeleteAgent = async () => {
+    if (!state.deletingAgent) {
+      return;
+    }
+    dispatch({ type: 'DELETE_AGENT_START', agentID: state.deletingAgent.id });
+    try {
+      await api.deleteAgent(state.deletingAgent.id);
+      dispatch({ type: 'DELETE_AGENT_DONE' });
+      await loadAgents();
+    } catch (error) {
+      dispatch({ type: 'DELETE_AGENT_DONE' });
+      dispatch({
+        type: 'SET_ACTION_ERROR',
+        title: 'Unable to delete agent.',
+        message: getErrorMessage(error, 'Retry after marketplace governance or settlement state clears.'),
+      });
     }
   };
 
@@ -508,11 +541,23 @@ export function MarketplaceMyAgentsPage() {
           error={null}
           emptyMessage="No published agents -- Publish your first agent to start the review process."
           renderActions={(agent) => (
-            <Button type="button" variant="ghost" size="icon" aria-label={`Open agent ${agent.name}`} asChild>
-              <Link to={`/marketplace/agents/${agent.id}`}>
-                <RiExternalLinkLine className="size-4" aria-hidden="true" />
-              </Link>
-            </Button>
+            <div className="flex justify-end gap-1">
+              <Button type="button" variant="ghost" size="icon" aria-label={`Open agent ${agent.name}`} asChild>
+                <Link to={`/marketplace/agents/${agent.id}`}>
+                  <RiExternalLinkLine className="size-4" aria-hidden="true" />
+                </Link>
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label={`Delete agent ${agent.name}`}
+                disabled={state.deletingAgentID === agent.id}
+                onClick={() => dispatch({ type: 'SET_DELETE_AGENT', agent })}
+              >
+                <RiDeleteBinLine className="size-4" aria-hidden="true" />
+              </Button>
+            </div>
           )}
         />
       </section>
@@ -539,6 +584,21 @@ export function MarketplaceMyAgentsPage() {
           )}
         />
       </section>
+
+      <ConfirmDialog
+        open={state.deletingAgent !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            dispatch({ type: 'SET_DELETE_AGENT', agent: null });
+          }
+        }}
+        title="Delete Agent"
+        description={state.deletingAgent ? `Delete ${state.deletingAgent.name} from the marketplace publisher inventory.` : 'Delete this marketplace agent.'}
+        confirmLabel="Delete Agent"
+        onConfirm={() => void handleDeleteAgent()}
+        variant="destructive"
+        loading={state.deletingAgentID !== null}
+      />
     </div>
   );
 }
