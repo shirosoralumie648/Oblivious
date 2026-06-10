@@ -394,9 +394,8 @@ func TestAgentRunsHandlerAdjustPlanReturnsUpdatedRunDetail(t *testing.T) {
 		AgentID:        "agent_1",
 		UserID:         "user_1",
 		Mode:           agent.ExecutionModePlanning,
-		Status:         agent.RunStatusFailed,
+		Status:         agent.RunStatusPendingApproval,
 		Error:          "old failure",
-		CompletedAt:    &completedAt,
 	}}
 	store.messages = []*agent.Message{{
 		ID:             "msg_1",
@@ -470,6 +469,69 @@ func TestAgentRunsHandlerAdjustPlanReturnsUpdatedRunDetail(t *testing.T) {
 	}
 	if response.Data.PlanSteps[2].Title != "Adjusted verification" || response.Data.PlanSteps[2].Index != 3 {
 		t.Fatalf("expected adjusted second remaining step, got %+v", response.Data.PlanSteps[2])
+	}
+}
+
+func TestAgentRunsHandlerAdjustPlanRejectsTerminalRun(t *testing.T) {
+	now := time.Now().UTC()
+	store := newFakeAgentRunsStore()
+	store.agent = &agent.Agent{
+		ID:             "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		Name:           "Planning Agent",
+		Model:          "test-model",
+	}
+	store.runs = []*agent.Run{{
+		ID:             "run_1",
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		Mode:           agent.ExecutionModePlanning,
+		Status:         agent.RunStatusCompleted,
+		Error:          "completed evidence must stay",
+		CompletedAt:    &now,
+	}}
+	store.messages = []*agent.Message{{
+		ID:             "msg_1",
+		ConversationID: "conv_1",
+		OrganizationID: "org_1",
+		Role:           "user",
+		Content:        "adjust this completed plan",
+		CreatedAt:      now,
+	}}
+	store.planSteps = []*agent.PlanStep{{
+		ID:             "step_1",
+		RunID:          "run_1",
+		OrganizationID: "org_1",
+		Index:          1,
+		Title:          "Preserve completed state",
+		Status:         agent.PlanStepStatusPending,
+		ApprovalStatus: agent.ApprovalStatusNotRequired,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{reply: `[{"title":"Unexpected replacement"}]`}))
+
+	recorder := httptest.NewRecorder()
+	handler.adjustPlan(recorder, newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/adjust-plan", `{"reason":"operator tries late adjustment"}`), "run_1")
+
+	if recorder.Code != stdhttp.StatusConflict {
+		t.Fatalf("expected 409, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, `"code":"invalid_state"`) || !strings.Contains(body, "planning run cannot be adjusted from status completed") {
+		t.Fatalf("expected invalid_state completed-run adjustment error, got body %s", body)
+	}
+	if len(store.messages) != 1 {
+		t.Fatalf("adjust-plan rejection should not append assistant messages, got %+v", store.messages)
+	}
+	if len(store.planSteps) != 1 || store.planSteps[0].ID != "step_1" || store.planSteps[0].Title != "Preserve completed state" {
+		t.Fatalf("adjust-plan rejection mutated plan steps: %+v", store.planSteps)
+	}
+	if store.runs[0].Status != agent.RunStatusCompleted || store.runs[0].Error != "completed evidence must stay" || store.runs[0].CompletedAt == nil {
+		t.Fatalf("adjust-plan rejection mutated completed run evidence: %+v", store.runs[0])
 	}
 }
 

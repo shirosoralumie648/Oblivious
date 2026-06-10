@@ -122,6 +122,7 @@ export function AgentPlanStepsPage() {
   const [toolRunDecisionReasons, setToolRunDecisionReasons] = useState<Record<string, string>>({});
   const [toolRuns, setToolRuns] = useState<AgentToolRun[]>([]);
   const canContinuePlan = runStatus === 'pending_approval';
+  const canAdjustPlan = runStatus === 'pending_approval';
 
   const applyRunDetail = useCallback((detail: AgentRunDetail) => {
     setPlanSteps(detail.planSteps);
@@ -434,6 +435,10 @@ export function AgentPlanStepsPage() {
       setError('Adjustment reason is required.');
       return;
     }
+    if (!canAdjustPlan) {
+      setError('Plan adjustment is only available while the run is pending approval.');
+      return;
+    }
 
     setIsAdjustingPlan(true);
     setError(null);
@@ -531,13 +536,14 @@ export function AgentPlanStepsPage() {
             Adjustment reason
             <textarea
               className="min-h-20 rounded-lg border border-[#d7d2c4] px-3 py-2 text-sm leading-5"
+              disabled={!canAdjustPlan}
               onChange={(event) => setAdjustPlanReason(event.target.value)}
               value={adjustPlanReason}
             />
           </label>
           <button
             className="min-h-10 rounded-lg bg-[#181611] px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={isAdjustingPlan || adjustPlanReason.trim() === ''}
+            disabled={isAdjustingPlan || !runId || !canAdjustPlan || adjustPlanReason.trim() === ''}
             onClick={() => void adjustRemainingPlan()}
             type="button"
           >

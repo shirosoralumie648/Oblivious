@@ -1244,6 +1244,9 @@ func (s *Service) AdjustPlanSteps(ctx context.Context, session auth.Session, run
 	if NormalizeExecutionMode(run.Mode) != ExecutionModePlanning {
 		return nil, fmt.Errorf("agent run is not in planning mode")
 	}
+	if !isPlanningRunAdjustable(run) {
+		return nil, fmt.Errorf("planning run cannot be adjusted from status %s", run.Status)
+	}
 
 	agent, err := s.store.GetAgent(ctx, run.AgentID, session.OrganizationID)
 	if err != nil {
@@ -1867,6 +1870,13 @@ func isPlanStepExecutable(step *PlanStep) bool {
 }
 
 func isPlanningRunContinuable(run *Run) bool {
+	if run == nil {
+		return false
+	}
+	return run.Status == RunStatusPendingApproval
+}
+
+func isPlanningRunAdjustable(run *Run) bool {
 	if run == nil {
 		return false
 	}

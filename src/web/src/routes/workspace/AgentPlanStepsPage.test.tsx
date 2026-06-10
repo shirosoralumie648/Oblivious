@@ -244,7 +244,7 @@ describe('AgentPlanStepsPage', () => {
         status: 'failed',
         title: 'Old failed suffix'
       }
-    ], { status: 'failed' }));
+    ], { status: 'pending_approval' }));
     adjustPlan.mockResolvedValueOnce(runDetail([
       {
         approvalStatus: 'not_required',
@@ -279,6 +279,32 @@ describe('AgentPlanStepsPage', () => {
     expect(screen.getByRole('heading', { name: 'Adjusted remaining work' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Old failed suffix' })).not.toBeInTheDocument();
     expect(screen.getByLabelText('Adjustment reason')).toHaveValue('');
+  });
+
+  it('does not adjust completed planning runs from the planning page', async () => {
+    getRunDetail.mockResolvedValueOnce(runDetail([
+      {
+        approvalStatus: 'not_required',
+        id: 'step_1',
+        index: 1,
+        resultContent: 'Already completed.',
+        runId: 'run_1',
+        status: 'completed',
+        title: 'Completed implementation'
+      }
+    ], { status: 'completed' }));
+
+    renderDirectPage();
+
+    expect(await screen.findByRole('heading', { name: 'Completed implementation' })).toBeInTheDocument();
+    const reasonInput = screen.getByLabelText('Adjustment reason');
+    const adjustButton = screen.getByRole('button', { name: 'Adjust remaining plan' });
+    expect(reasonInput).toBeDisabled();
+    expect(adjustButton).toBeDisabled();
+
+    fireEvent.click(adjustButton);
+
+    expect(adjustPlan).not.toHaveBeenCalled();
   });
 
   it('continues executable planning steps from the planning page', async () => {

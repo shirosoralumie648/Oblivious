@@ -2955,9 +2955,8 @@ func TestServiceAdjustPlanStepsReplacesRemainingSuffix(t *testing.T) {
 			AgentID:        "agent_1",
 			UserID:         "user_1",
 			Mode:           ExecutionModePlanning,
-			Status:         RunStatusFailed,
+			Status:         RunStatusPendingApproval,
 			Error:          "old suffix failed",
-			CompletedAt:    &completedAt,
 		}},
 		messages: []*Message{{
 			ID:             "msg_1",
@@ -3064,6 +3063,85 @@ func TestServiceAdjustPlanStepsReplacesRemainingSuffix(t *testing.T) {
 	}
 	if len(result.PlanSteps) != 3 || result.PlanSteps[1].Title != "Implement adjusted backend contract" {
 		t.Fatalf("expected refreshed run detail with adjusted steps, got %+v", result.PlanSteps)
+	}
+}
+
+func TestServiceAdjustPlanStepsRejectsNonAdjustableRunStatuses(t *testing.T) {
+	now := time.Now().UTC()
+
+	for _, status := range []string{
+		RunStatusRunning,
+		RunStatusCompleted,
+		RunStatusFailed,
+		RunStatusMaxIterationsReached,
+		RunStatusTokenBudgetExceeded,
+	} {
+		t.Run(status, func(t *testing.T) {
+			store := &fakeStore{
+				agent: &Agent{
+					ID:             "agent_1",
+					OrganizationID: "org_1",
+					UserID:         "user_1",
+					Model:          "gpt-4o-mini",
+				},
+				runs: []*Run{{
+					ID:             "run_1",
+					OrganizationID: "org_1",
+					ConversationID: "conv_1",
+					AgentID:        "agent_1",
+					UserID:         "user_1",
+					Mode:           ExecutionModePlanning,
+					Status:         status,
+					Error:          "terminal evidence must stay",
+					StartedAt:      now,
+					CompletedAt:    &now,
+					CreatedAt:      now,
+					UpdatedAt:      now,
+				}},
+				messages: []*Message{{
+					ID:             "msg_1",
+					ConversationID: "conv_1",
+					OrganizationID: "org_1",
+					Role:           "user",
+					Content:        "adjust this plan",
+					CreatedAt:      now,
+				}},
+				planSteps: []*PlanStep{{
+					ID:             "step_1",
+					RunID:          "run_1",
+					OrganizationID: "org_1",
+					Index:          1,
+					Title:          "Do not replace",
+					Status:         PlanStepStatusPending,
+					ApprovalStatus: ApprovalStatusNotRequired,
+					CreatedAt:      now,
+				}},
+			}
+			gateway := &fakeGateway{plainReply: `[{"title":"Unexpected adjusted step"}]`}
+			service := NewService(store, gateway)
+
+			result, err := service.AdjustPlanSteps(
+				context.Background(),
+				auth.Session{OrganizationID: "org_1", WorkspaceID: "workspace_1", User: auth.User{ID: "user_1"}},
+				"run_1",
+				"operator wants to adjust terminal run",
+			)
+			if err == nil || !strings.Contains(err.Error(), "planning run cannot be adjusted from status "+status) {
+				t.Fatalf("expected invalid adjustment error for status %s, got result=%+v err=%v", status, result, err)
+			}
+			if gateway.plainCalls != 0 {
+				t.Fatalf("adjust-plan should fail before model call for status %s, got %d calls", status, gateway.plainCalls)
+			}
+			if len(store.planSteps) != 1 || store.planSteps[0].ID != "step_1" || store.planSteps[0].Title != "Do not replace" {
+				t.Fatalf("adjust-plan rejection mutated plan steps for status %s: %+v", status, store.planSteps)
+			}
+			if len(store.messages) != 1 {
+				t.Fatalf("adjust-plan rejection should not append assistant messages for status %s: %+v", status, store.messages)
+			}
+			if store.runs[0].Status != status || store.runs[0].Error != "terminal evidence must stay" || store.runs[0].CompletedAt == nil {
+				t.Fatalf("adjust-plan rejection mutated run evidence for status %s: %+v", status, store.runs[0])
+			}
+		})
 	}
 }
 
