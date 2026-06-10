@@ -144,6 +144,50 @@ require_api_success_data_uses_named_schema() {
   ' "$openapi_file"
 }
 
+require_api_json_request_bodies_use_named_schemas() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+    allowed_inline_bodies = {
+      ["post", "/api/v1/workflows/webhooks/{organizationId}/{workflowId}"] => "public workflow webhook payload",
+      ["post", "/api/v1/workflows/{workflowId}/webhook"] => "session workflow webhook payload",
+      ["post", "/api/v1/channels/webhook/{channelId}"] => "public channel webhook payload",
+      ["post", "/api/v1/billing/stripe/webhook"] => "Stripe provider webhook payload",
+    }
+
+    missing = []
+    malformed_allowed = []
+    spec.fetch("paths", {}).each do |path, operations|
+      next unless path.start_with?("/api/")
+
+      operations.each do |method, operation|
+        next unless operation.is_a?(Hash)
+
+        schema = operation.dig("requestBody", "content", "application/json", "schema")
+        next unless schema
+        next if schema["$ref"]
+
+        key = [method, path]
+        if allowed_inline_bodies.key?(key)
+          unless schema["type"] == "object" && schema["additionalProperties"] == true
+            malformed_allowed << "#{method.upcase} #{path} must remain an object with additionalProperties: true for #{allowed_inline_bodies.fetch(key)}"
+          end
+          next
+        end
+
+        missing << "#{method.upcase} #{path}"
+      end
+    end
+
+    unless missing.empty? && malformed_allowed.empty?
+      warn "[openapi-contract] /api JSON request bodies must use named component schemas except approved webhook payloads:"
+      missing.each { |entry| warn "  - #{entry}" }
+      malformed_allowed.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 require_session_csrf_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
@@ -4634,6 +4678,7 @@ require_relay_alias_bearer_contract "${relay_alias_paths[@]}"
 require_websocket_contract
 require_api_json_responses_use_envelope
 require_api_success_data_uses_named_schema
+require_api_json_request_bodies_use_named_schemas
 require_session_csrf_contract
 require_marketplace_paid_install_contract
 require_marketplace_template_type_contract
