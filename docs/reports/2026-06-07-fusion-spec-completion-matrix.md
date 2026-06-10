@@ -387,6 +387,7 @@ Status values:
 - `GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/http -run 'TestRouteSurface(AuthPasswordResetPublicRoutesWithoutDatabase|AuthMeRequiresSessionWithoutDatabase)' -count=1 -v`, `bash scripts/verify-openapi-contract.sh`, `bash scripts/check.sh docs`, and `git diff --check` passed after typing the Auth logout response contract.
 - `bash scripts/verify-openapi-contract.sh`, `bash scripts/check.sh docs`, and `git diff --check` passed after adding the repository-wide OpenAPI gate that rejects unnamed inline object `data` payloads on non-Relay `/api/` JSON success responses.
 - `bash scripts/verify-openapi-contract.sh`, `bash scripts/check.sh docs`, and `git diff --check` passed after adding the repository-wide OpenAPI gate that rejects unnamed JSON request bodies except the approved arbitrary webhook payload surfaces.
+- `bash scripts/verify-openapi-contract.sh`, `bash scripts/check.sh docs`, and `git diff --check` passed after adding the repository-wide OpenAPI security-surface gate that requires every `/api/` operation to declare `security`, requires non-Relay non-public mutating APIs to use `cookieAuth` plus `csrfHeader`, keeps Relay aliases on bearer-token auth, and keeps approved public auth/webhook mutations on `security: []`.
 
 These checks prove only the covered surfaces. They do not prove full project completion.
 

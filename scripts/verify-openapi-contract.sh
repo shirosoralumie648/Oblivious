@@ -188,6 +188,73 @@ require_api_json_request_bodies_use_named_schemas() {
   ' "$openapi_file"
 }
 
+require_api_security_surface_contract() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+    public_mutations = {
+      ["post", "/api/v1/auth/register"] => "public auth registration",
+      ["post", "/api/v1/auth/login"] => "public auth login",
+      ["post", "/api/v1/auth/password-reset/request"] => "public password reset request",
+      ["post", "/api/v1/auth/password-reset/confirm"] => "public password reset confirmation",
+      ["post", "/api/v1/workflows/webhooks/{organizationId}/{workflowId}"] => "public workflow webhook",
+      ["post", "/api/v1/channels/webhook/{channelId}"] => "public channel webhook",
+      ["post", "/api/v1/billing/stripe/webhook"] => "Stripe provider webhook",
+      ["post", "/api/v1/billing/alipay/webhook"] => "Alipay provider webhook",
+      ["post", "/api/v1/billing/wechatpay/webhook"] => "WeChat Pay provider webhook",
+    }
+
+    missing_security = []
+    missing_csrf = []
+    malformed_public = []
+    malformed_relay = []
+
+    spec.fetch("paths", {}).each do |path, operations|
+      next unless path.start_with?("/api/")
+
+      operations.each do |method, operation|
+        next unless operation.is_a?(Hash)
+
+        security = operation["security"]
+        if security.nil?
+          missing_security << "#{method.upcase} #{path}"
+          next
+        end
+
+        next unless %w[post put patch delete].include?(method)
+
+        key = [method, path]
+        if public_mutations.key?(key)
+          unless security == []
+            malformed_public << "#{method.upcase} #{path} must declare security: [] for #{public_mutations.fetch(key)}"
+          end
+          next
+        end
+
+        if path.start_with?("/api/v1/relay/")
+          unless security.any? { |entry| entry.is_a?(Hash) && entry.key?("bearerAuth") }
+            malformed_relay << "#{method.upcase} #{path} must use bearerAuth for OpenAI-compatible Relay aliases"
+          end
+          next
+        end
+
+        unless security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
+          missing_csrf << "#{method.upcase} #{path}"
+        end
+      end
+    end
+
+    unless missing_security.empty? && missing_csrf.empty? && malformed_public.empty? && malformed_relay.empty?
+      warn "[openapi-contract] /api security surface contract failed:"
+      missing_security.each { |entry| warn "  - #{entry} must declare a security field" }
+      missing_csrf.each { |entry| warn "  - #{entry} must require cookieAuth plus csrfHeader" }
+      malformed_public.each { |entry| warn "  - #{entry}" }
+      malformed_relay.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 require_session_csrf_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
@@ -4679,6 +4746,7 @@ require_websocket_contract
 require_api_json_responses_use_envelope
 require_api_success_data_uses_named_schema
 require_api_json_request_bodies_use_named_schemas
+require_api_security_surface_contract
 require_session_csrf_contract
 require_marketplace_paid_install_contract
 require_marketplace_template_type_contract
