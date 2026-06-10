@@ -134,6 +134,7 @@ require_session_csrf_contract() {
     end
 
     cookie_only_get_routes = {
+      "/api/v1/auth/me" => ["Auth", "#/components/schemas/SessionResponse"],
       "/api/v1/app/me/preferences" => ["Preferences", "#/components/schemas/Preferences"],
       "/api/v1/app/notifications" => ["Notification", "#/components/schemas/Notification"],
       "/api/v1/app/notifications/unread-count" => ["Notification", "#/components/schemas/NotificationUnreadCount"],

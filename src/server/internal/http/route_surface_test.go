@@ -1447,6 +1447,19 @@ func TestRouteSurfaceAuthPasswordResetPublicRoutesWithoutDatabase(t *testing.T) 
 	}
 }
 
+func TestRouteSurfaceAuthMeRequiresSessionWithoutDatabase(t *testing.T) {
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/auth/me", nil)
+
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusUnauthorized {
+		t.Fatalf("expected auth me to require a session with 401, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestRouteSurfaceRejectsCookieMutationWithoutCSRF(t *testing.T) {
 	router := NewRouter(testConfig(), testDatabase(t))
 	cookie, _ := routeSurfaceRegisterUserWithCSRF(t, router, "csrf-user@example.com")
