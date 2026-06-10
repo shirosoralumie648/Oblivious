@@ -22,6 +22,7 @@ const submitReview = vi.fn();
 const appealAgent = vi.fn();
 const reportAbuse = vi.fn();
 const listTemplates = vi.fn();
+const createTemplate = vi.fn();
 const installTemplate = vi.fn();
 const getCuratedSections = vi.fn();
 
@@ -47,6 +48,7 @@ vi.mock('../../features/marketplace/api', async () => {
       appealAgent,
       reportAbuse,
       listTemplates,
+      createTemplate,
       installTemplate,
       getCuratedSections,
     }),
@@ -152,6 +154,7 @@ function resetMarketplaceMocks() {
   appealAgent.mockReset();
   reportAbuse.mockReset();
   listTemplates.mockReset();
+  createTemplate.mockReset();
   installTemplate.mockReset();
   getCuratedSections.mockReset();
 
@@ -229,6 +232,15 @@ function resetMarketplaceMocks() {
     updatedAt: '2026-01-07T00:00:00Z',
   });
   listTemplates.mockResolvedValue({ templates: [workflowTemplate], total: 1 });
+  createTemplate.mockResolvedValue({
+    id: 'tpl_new',
+    type: 'workflow',
+    name: 'Launch Workflow Template',
+    templateData: { nodes: [{ id: 'start' }] },
+    category: 'Operations',
+    tags: ['launch', 'ops'],
+    downloadsCount: 0,
+  });
   installTemplate.mockResolvedValue({ id: 'tpl_install_1', templateID: 'tpl_1', templateData: workflowTemplate.templateData });
   getCuratedSections.mockResolvedValue({ popular: [popularAgent], topRated: [topRatedAgent], recent: [recentAgent] });
 }
@@ -602,6 +614,43 @@ describe('Marketplace pages', () => {
     await waitFor(() => expect(updateSettlementPreferences).toHaveBeenCalledWith('weekly'));
     expect(await screen.findByText('Weekly')).toBeInTheDocument();
     expect(screen.getByText('2% processing fee')).toBeInTheDocument();
+  });
+
+  it('creates marketplace templates from my agents', async () => {
+    renderRoute(<MarketplaceMyAgentsPage />);
+
+    expect(await screen.findByRole('heading', { name: 'Template Factory' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Template name'), { target: { value: 'Launch Workflow Template' } });
+    fireEvent.change(screen.getByLabelText('Template type'), { target: { value: 'workflow' } });
+    fireEvent.change(screen.getByLabelText('Template category'), { target: { value: 'Operations' } });
+    fireEvent.change(screen.getByLabelText('Template tags'), { target: { value: 'launch, ops' } });
+    fireEvent.change(screen.getByLabelText('Template description'), { target: { value: 'Reusable launch workflow.' } });
+    fireEvent.change(screen.getByLabelText('Template JSON'), { target: { value: '{"nodes":[{"id":"start"}]}' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create Template' }));
+
+    await waitFor(() =>
+      expect(createTemplate).toHaveBeenCalledWith({
+        type: 'workflow',
+        name: 'Launch Workflow Template',
+        description: 'Reusable launch workflow.',
+        category: 'Operations',
+        tags: ['launch', 'ops'],
+        templateData: { nodes: [{ id: 'start' }] },
+      })
+    );
+    expect(await screen.findByText('Template created: Launch Workflow Template.')).toBeInTheDocument();
+  });
+
+  it('rejects invalid marketplace template JSON before creating', async () => {
+    renderRoute(<MarketplaceMyAgentsPage />);
+
+    expect(await screen.findByRole('heading', { name: 'Template Factory' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Template name'), { target: { value: 'Broken Template' } });
+    fireEvent.change(screen.getByLabelText('Template JSON'), { target: { value: '{bad json' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create Template' }));
+
+    expect(await screen.findByText('Template data must be valid JSON object.')).toBeInTheDocument();
+    expect(createTemplate).not.toHaveBeenCalled();
   });
 
   it('surfaces uninstall failures on my agents', async () => {
