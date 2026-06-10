@@ -229,7 +229,9 @@ func (s *SQLStore) ListBillingInvoices(ctx context.Context, organizationID strin
 				WHEN amount_paid > 0 THEN amount_paid
 				ELSE amount_due
 			END AS amount_usd,
-			COALESCE(period_end, updated_at, created_at) AS due_at
+			COALESCE(period_end, updated_at, created_at) AS due_at,
+			COALESCE(hosted_invoice_url, '') AS hosted_invoice_url,
+			COALESCE(invoice_pdf, '') AS invoice_pdf
 		FROM billing_invoices
 		WHERE organization_id = $1
 		ORDER BY created_at DESC
@@ -244,7 +246,7 @@ func (s *SQLStore) ListBillingInvoices(ctx context.Context, organizationID strin
 	for rows.Next() {
 		var invoice BillingInvoiceSummary
 		var dueAt time.Time
-		if err := rows.Scan(&invoice.ID, &invoice.Status, &invoice.AmountUSD, &dueAt); err != nil {
+		if err := rows.Scan(&invoice.ID, &invoice.Status, &invoice.AmountUSD, &dueAt, &invoice.HostedInvoiceURL, &invoice.InvoicePDF); err != nil {
 			return nil, err
 		}
 		invoice.DueAt = dueAt.UTC().Format(time.RFC3339)

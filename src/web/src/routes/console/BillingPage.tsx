@@ -262,6 +262,7 @@ export function BillingPage() {
                     <th scope="col">Status</th>
                     <th scope="col">Amount</th>
                     <th scope="col">Due date</th>
+                    <th scope="col">Documents</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -271,6 +272,17 @@ export function BillingPage() {
                       <td>{invoice.status}</td>
                       <td>{`$${invoice.amountUsd.toFixed(4)}`}</td>
                       <td>{formatInvoiceDueDate(invoice.dueAt)}</td>
+                      <td>
+                        {invoice.hostedInvoiceUrl || invoice.invoicePdf ? (
+                          <>
+                            {invoice.hostedInvoiceUrl ? <a href={invoice.hostedInvoiceUrl}>View invoice</a> : null}
+                            {invoice.hostedInvoiceUrl && invoice.invoicePdf ? ' ' : null}
+                            {invoice.invoicePdf ? <a href={invoice.invoicePdf}>Download PDF</a> : null}
+                          </>
+                        ) : (
+                          '-'
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

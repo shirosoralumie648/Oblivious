@@ -139,10 +139,12 @@ func TestConsoleHandlerGetAccessReturnsTypedAccessSummary(t *testing.T) {
 func TestConsoleHandlerListInvoicesReturnsOrganizationInvoices(t *testing.T) {
 	store := &consoleHandlerFakeStore{
 		invoices: []console.BillingInvoiceSummary{{
-			ID:        "inv_paid_1",
-			Status:    "paid",
-			AmountUSD: 29,
-			DueAt:     "2026-05-31T00:00:00Z",
+			ID:               "inv_paid_1",
+			Status:           "paid",
+			AmountUSD:        29,
+			DueAt:            "2026-05-31T00:00:00Z",
+			HostedInvoiceURL: "https://billing.stripe.test/invoices/inv_paid_1",
+			InvoicePDF:       "https://billing.stripe.test/invoices/inv_paid_1.pdf",
 		}},
 	}
 	handler := newConsoleHandler(console.NewService(store), nil)
@@ -168,6 +170,9 @@ func TestConsoleHandlerListInvoicesReturnsOrganizationInvoices(t *testing.T) {
 	}
 	if len(response.Data) != 1 || response.Data[0].ID != "inv_paid_1" || response.Data[0].Status != "paid" {
 		t.Fatalf("unexpected invoices: %+v", response.Data)
+	}
+	if response.Data[0].HostedInvoiceURL != "https://billing.stripe.test/invoices/inv_paid_1" || response.Data[0].InvoicePDF != "https://billing.stripe.test/invoices/inv_paid_1.pdf" {
+		t.Fatalf("expected invoice document links in response, got %+v", response.Data[0])
 	}
 }
 

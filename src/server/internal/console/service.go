@@ -56,10 +56,12 @@ type BillingSummary struct {
 }
 
 type BillingInvoiceSummary struct {
-	ID        string  `json:"id"`
-	Status    string  `json:"status"`
-	AmountUSD float64 `json:"amountUsd"`
-	DueAt     string  `json:"dueAt"`
+	ID               string  `json:"id"`
+	Status           string  `json:"status"`
+	AmountUSD        float64 `json:"amountUsd"`
+	DueAt            string  `json:"dueAt"`
+	HostedInvoiceURL string  `json:"hostedInvoiceUrl,omitempty"`
+	InvoicePDF       string  `json:"invoicePdf,omitempty"`
 }
 
 type BillingPaymentProviderSummary struct {

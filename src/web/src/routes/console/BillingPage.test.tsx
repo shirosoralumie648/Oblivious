@@ -353,7 +353,9 @@ describe('BillingPage', () => {
         id: 'inv_paid_1',
         status: 'paid',
         amountUsd: 29,
-        dueAt: '2026-05-31T00:00:00Z'
+        dueAt: '2026-05-31T00:00:00Z',
+        hostedInvoiceUrl: 'https://billing.stripe.test/invoices/inv_paid_1',
+        invoicePdf: 'https://billing.stripe.test/invoices/inv_paid_1.pdf'
       },
       {
         id: 'draft-2026-06',
@@ -384,5 +386,14 @@ describe('BillingPage', () => {
     expect(await screen.findByText('paid')).toBeInTheDocument();
     expect(await screen.findByText('$29.0000')).toBeInTheDocument();
     expect(await screen.findByText('May 31, 2026')).toBeInTheDocument();
+    expect(await screen.findByRole('columnheader', { name: 'Documents' })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'View invoice' })).toHaveAttribute(
+      'href',
+      'https://billing.stripe.test/invoices/inv_paid_1'
+    );
+    expect(await screen.findByRole('link', { name: 'Download PDF' })).toHaveAttribute(
+      'href',
+      'https://billing.stripe.test/invoices/inv_paid_1.pdf'
+    );
   });
 });

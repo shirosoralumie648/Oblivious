@@ -85,4 +85,29 @@ describe('createConsoleApi', () => {
 
     expect(get).toHaveBeenCalledWith('/api/v1/app/packages');
   });
+
+  it('lists invoices with provider document links', async () => {
+    const get = vi.fn().mockResolvedValue([
+      {
+        id: 'inv_paid_1',
+        status: 'paid',
+        amountUsd: 29,
+        dueAt: '2026-05-31T00:00:00Z',
+        hostedInvoiceUrl: 'https://billing.stripe.test/invoices/inv_paid_1',
+        invoicePdf: 'https://billing.stripe.test/invoices/inv_paid_1.pdf',
+      },
+    ]);
+    const api = createConsoleApi(createClient({ get }));
+
+    await expect(api.listInvoices()).resolves.toEqual([
+      expect.objectContaining({
+        hostedInvoiceUrl: 'https://billing.stripe.test/invoices/inv_paid_1',
+        id: 'inv_paid_1',
+        invoicePdf: 'https://billing.stripe.test/invoices/inv_paid_1.pdf',
+        status: 'paid',
+      }),
+    ]);
+
+    expect(get).toHaveBeenCalledWith('/api/v1/console/invoices');
+  });
 });

@@ -3290,6 +3290,12 @@ components:
           format: double
         dueAt:
           type: string
+        hostedInvoiceUrl:
+          type: string
+          format: uri
+        invoicePdf:
+          type: string
+          format: uri
 
     BillingCheckoutRequest:
       type: object

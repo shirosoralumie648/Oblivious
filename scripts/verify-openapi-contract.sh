@@ -2546,6 +2546,14 @@ require_billing_checkout_contract() {
         provider.dig("properties", "name", "enum") == ["stripe", "alipay", "wechatpay"]
       missing << "BillingPaymentProvider.name must require and enumerate stripe, alipay, and wechatpay"
     end
+    invoice = schemas["BillingInvoiceSummary"] || {}
+    invoice_props = schema_props(invoice)
+    unless invoice_props.dig("hostedInvoiceUrl", "type") == "string" &&
+        invoice_props.dig("hostedInvoiceUrl", "format") == "uri" &&
+        invoice_props.dig("invoicePdf", "type") == "string" &&
+        invoice_props.dig("invoicePdf", "format") == "uri"
+      missing << "BillingInvoiceSummary must document hostedInvoiceUrl and invoicePdf URI fields"
+    end
 
     usage_summary = schemas["UsageSummary"] || {}
     usage_props = schema_props(usage_summary)

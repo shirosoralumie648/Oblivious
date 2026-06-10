@@ -6,6 +6,8 @@ export type ConsoleBillingInvoiceSummary = {
   status: string;
   amountUsd: number;
   dueAt: string;
+  hostedInvoiceUrl?: string;
+  invoicePdf?: string;
 };
 
 export type ConsoleBillingSummary = BaseBillingSummary & {

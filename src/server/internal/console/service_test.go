@@ -195,10 +195,12 @@ func TestGetBillingAddsConfiguredPaymentProviders(t *testing.T) {
 func TestListBillingInvoicesReturnsOrganizationInvoices(t *testing.T) {
 	store := &fakeStore{
 		invoices: []BillingInvoiceSummary{{
-			ID:        "inv_paid_1",
-			Status:    "paid",
-			AmountUSD: 29,
-			DueAt:     "2026-05-31T00:00:00Z",
+			ID:               "inv_paid_1",
+			Status:           "paid",
+			AmountUSD:        29,
+			DueAt:            "2026-05-31T00:00:00Z",
+			HostedInvoiceURL: "https://billing.stripe.test/invoices/inv_paid_1",
+			InvoicePDF:       "https://billing.stripe.test/invoices/inv_paid_1.pdf",
 		}},
 	}
 	service := NewService(store)
@@ -213,6 +215,9 @@ func TestListBillingInvoicesReturnsOrganizationInvoices(t *testing.T) {
 	}
 	if len(invoices) != 1 || invoices[0].ID != "inv_paid_1" || invoices[0].Status != "paid" || invoices[0].AmountUSD != 29 {
 		t.Fatalf("unexpected invoice summaries: %+v", invoices)
+	}
+	if invoices[0].HostedInvoiceURL != "https://billing.stripe.test/invoices/inv_paid_1" || invoices[0].InvoicePDF != "https://billing.stripe.test/invoices/inv_paid_1.pdf" {
+		t.Fatalf("expected invoice document links to be preserved, got %+v", invoices[0])
 	}
 }
 
