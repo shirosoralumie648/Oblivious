@@ -9241,6 +9241,8 @@ paths:
       summary: 获取当前用户的 Agent 列表
       operationId: listWorkspaceAgents
       tags: [Agent]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: 当前组织和用户可访问的 Agent 列表
@@ -9292,6 +9294,8 @@ paths:
       summary: 获取 Agent 详情
       operationId: getWorkspaceAgent
       tags: [Agent]
+      security:
+        - cookieAuth: []
       parameters:
         - name: agentId
           in: path
@@ -9404,6 +9408,8 @@ paths:
       summary: 获取 Agent 可用工具定义
       operationId: listWorkspaceAgentTools
       tags: [Agent]
+      security:
+        - cookieAuth: []
       parameters:
         - name: agentId
           in: path
@@ -9440,6 +9446,8 @@ paths:
       summary: 获取 Agent 对话列表
       operationId: listWorkspaceAgentConversations
       tags: [Agent]
+      security:
+        - cookieAuth: []
       parameters:
         - name: agentId
           in: path
@@ -9511,6 +9519,8 @@ paths:
       summary: 获取 Agent 对话详情
       operationId: getWorkspaceAgentConversation
       tags: [Agent]
+      security:
+        - cookieAuth: []
       parameters:
         - name: conversationId
           in: path
@@ -9580,6 +9590,8 @@ paths:
       summary: 获取 Agent 对话消息
       operationId: listWorkspaceAgentMessages
       tags: [Agent]
+      security:
+        - cookieAuth: []
       parameters:
         - name: conversationId
           in: path
@@ -9659,6 +9671,8 @@ paths:
       summary: 获取 Agent 对话运行记录
       operationId: listWorkspaceAgentRuns
       tags: [Agent]
+      security:
+        - cookieAuth: []
       parameters:
         - name: conversationId
           in: path
@@ -9695,6 +9709,8 @@ paths:
       summary: 获取 workspace Agent 运行详情
       operationId: getWorkspaceAgentRun
       tags: [Agent]
+      security:
+        - cookieAuth: []
       parameters:
         - name: runId
           in: path

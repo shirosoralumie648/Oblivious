@@ -866,6 +866,34 @@ func TestRouteSurfaceKnowledgeAliasMutationsRejectCookieWithoutCSRFWithoutDataba
 	}
 }
 
+func TestRouteSurfaceWorkspaceAgentReadRoutesRequireSessionWithoutDatabase(t *testing.T) {
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{})
+
+	tests := []routeSurfaceCase{
+		{"list agents", stdhttp.MethodGet, "/api/v1/app/agents"},
+		{"get agent", stdhttp.MethodGet, "/api/v1/app/agents/agent_1"},
+		{"list agent tools", stdhttp.MethodGet, "/api/v1/app/agents/agent_1/tools"},
+		{"list agent conversations", stdhttp.MethodGet, "/api/v1/app/agents/agent_1/conversations"},
+		{"get agent conversation", stdhttp.MethodGet, "/api/v1/app/agents/conversations/conversation_1"},
+		{"list agent messages", stdhttp.MethodGet, "/api/v1/app/agents/conversations/conversation_1/messages"},
+		{"list agent runs", stdhttp.MethodGet, "/api/v1/app/agents/conversations/conversation_1/runs"},
+		{"get agent run", stdhttp.MethodGet, "/api/v1/app/agents/runs/run_1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, nil)
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusUnauthorized {
+				t.Fatalf("expected registered workspace Agent read route to require session with 401 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
 func TestRouteSurfaceWorkspaceAgentMutationsRejectCookieWithoutCSRFWithoutDatabase(t *testing.T) {
 	session := routeSurfaceUserSession()
 	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}})

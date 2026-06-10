@@ -1535,6 +1535,11 @@ require_workspace_agent_mutation_csrf_contract() {
       security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
     end
 
+    def requires_cookie_without_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && !entry.key?("csrfHeader") }
+    end
+
     def request_body_ref(operation)
       operation.dig("requestBody", "content", "application/json", "schema", "$ref")
     end
@@ -1543,6 +1548,12 @@ require_workspace_agent_mutation_csrf_contract() {
       operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
         find { |entry| entry.dig("properties", "data", "$ref") }&.
         dig("properties", "data", "$ref")
+    end
+
+    def response_data_array_ref(operation, status)
+      operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "items", "$ref") }&.
+        dig("properties", "data", "items", "$ref")
     end
 
     mutation_paths = [
@@ -1561,6 +1572,29 @@ require_workspace_agent_mutation_csrf_contract() {
       end
       unless op.fetch("tags", []).include?("Agent")
         missing << "#{method.upcase} #{path} must be tagged Agent"
+      end
+    end
+
+    {
+      ["/api/v1/app/agents", "get", "200"] => ["#/components/schemas/AgentWorkspaceAgent", :array_ref],
+      ["/api/v1/app/agents/{agentId}", "get", "200"] => ["#/components/schemas/AgentWorkspaceAgent", :ref],
+      ["/api/v1/app/agents/{agentId}/tools", "get", "200"] => ["#/components/schemas/AgentToolDefinition", :array_ref],
+      ["/api/v1/app/agents/{agentId}/conversations", "get", "200"] => ["#/components/schemas/AgentConversation", :array_ref],
+      ["/api/v1/app/agents/conversations/{conversationId}", "get", "200"] => ["#/components/schemas/AgentConversation", :ref],
+      ["/api/v1/app/agents/conversations/{conversationId}/messages", "get", "200"] => ["#/components/schemas/AgentMessage", :array_ref],
+      ["/api/v1/app/agents/conversations/{conversationId}/runs", "get", "200"] => ["#/components/schemas/AgentRun", :array_ref],
+      ["/api/v1/app/agents/runs/{runId}", "get", "200"] => ["#/components/schemas/AgentRunDetail", :ref],
+    }.each do |(path, method, status), (expected, shape)|
+      op = operation(paths, path, method, missing)
+      unless requires_cookie_without_csrf?(op)
+        missing << "#{method.upcase} #{path} must require cookieAuth without csrfHeader"
+      end
+      unless op.fetch("tags", []).include?("Agent")
+        missing << "#{method.upcase} #{path} must be tagged Agent"
+      end
+      actual = shape == :array_ref ? response_data_array_ref(op, status) : response_data_ref(op, status)
+      unless actual == expected
+        missing << "#{method.upcase} #{path} #{status} data must reference #{expected}"
       end
     end
 
