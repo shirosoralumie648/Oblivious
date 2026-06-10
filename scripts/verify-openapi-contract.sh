@@ -3252,6 +3252,11 @@ require_knowledge_mutation_csrf_contract() {
       security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
     end
 
+    def requires_cookie_without_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && !entry.key?("csrfHeader") }
+    end
+
     def request_body_ref(operation, content_type)
       operation.dig("requestBody", "content", content_type, "schema", "$ref")
     end
@@ -3288,6 +3293,23 @@ require_knowledge_mutation_csrf_contract() {
       op = operation(paths, path, method, missing)
       unless requires_cookie_and_csrf?(op)
         missing << "#{method.upcase} #{path} must require cookieAuth and csrfHeader"
+      end
+      unless op.fetch("tags", []).include?("Knowledge")
+        missing << "#{method.upcase} #{path} must be tagged Knowledge"
+      end
+    end
+
+    [
+      ["/api/v1/app/knowledge-bases", "get"],
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}", "get"],
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents", "get"],
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/versions", "get"],
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/documents/{documentId}/chunks", "get"],
+      ["/api/v1/app/knowledge-bases/{knowledgeBaseId}/retrieval-test-cases", "get"],
+    ].each do |path, method|
+      op = operation(paths, path, method, missing)
+      unless requires_cookie_without_csrf?(op)
+        missing << "#{method.upcase} #{path} must require cookieAuth without csrfHeader"
       end
       unless op.fetch("tags", []).include?("Knowledge")
         missing << "#{method.upcase} #{path} must be tagged Knowledge"

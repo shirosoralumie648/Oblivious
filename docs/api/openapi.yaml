@@ -7434,6 +7434,8 @@ paths:
       summary: 获取知识库列表
       operationId: listKnowledgeBases
       tags: [Knowledge]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: 知识库列表
@@ -7485,6 +7487,8 @@ paths:
       summary: 获取知识库详情
       operationId: getKnowledgeBase
       tags: [Knowledge]
+      security:
+        - cookieAuth: []
       parameters:
         - name: knowledgeBaseId
           in: path
@@ -7564,6 +7568,8 @@ paths:
       summary: 获取知识库文档列表
       operationId: listKnowledgeDocuments
       tags: [Knowledge]
+      security:
+        - cookieAuth: []
       parameters:
         - name: knowledgeBaseId
           in: path
@@ -7731,6 +7737,8 @@ paths:
       summary: 获取知识库文档版本历史
       operationId: listKnowledgeDocumentVersions
       tags: [Knowledge]
+      security:
+        - cookieAuth: []
       parameters:
         - name: knowledgeBaseId
           in: path
@@ -7766,6 +7774,8 @@ paths:
       summary: 获取知识库文档分块
       operationId: listKnowledgeDocumentChunks
       tags: [Knowledge]
+      security:
+        - cookieAuth: []
       parameters:
         - name: knowledgeBaseId
           in: path
@@ -7991,6 +8001,8 @@ paths:
       summary: 获取知识库检索测试用例
       operationId: listKnowledgeRetrievalTestCases
       tags: [Knowledge]
+      security:
+        - cookieAuth: []
       parameters:
         - name: knowledgeBaseId
           in: path
