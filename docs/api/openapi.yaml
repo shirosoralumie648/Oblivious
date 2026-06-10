@@ -5815,6 +5815,8 @@ paths:
       summary: 获取用户偏好设置
       operationId: getPreferences
       tags: [Preferences]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: 用户偏好
@@ -8595,6 +8597,8 @@ paths:
       summary: 获取当前用户通知列表
       operationId: listNotifications
       tags: [Notification]
+      security:
+        - cookieAuth: []
       parameters:
         - name: unread
           in: query
@@ -8663,6 +8667,8 @@ paths:
       summary: 获取当前用户未读通知数
       operationId: getNotificationUnreadCount
       tags: [Notification]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: 未读通知数

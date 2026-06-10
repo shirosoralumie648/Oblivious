@@ -133,6 +133,31 @@ require_session_csrf_contract() {
       end
     end
 
+    cookie_only_get_routes = {
+      "/api/v1/app/me/preferences" => ["Preferences", "#/components/schemas/Preferences"],
+      "/api/v1/app/notifications" => ["Notification", "#/components/schemas/Notification"],
+      "/api/v1/app/notifications/unread-count" => ["Notification", "#/components/schemas/NotificationUnreadCount"],
+    }
+    cookie_only_get_routes.each do |path, (expected_tag, response_ref)|
+      operation = spec.fetch("paths", {}).fetch(path, {}).fetch("get", {})
+      unless operation.fetch("security", []).any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && !entry.key?("csrfHeader") }
+        missing << "GET #{path} must declare cookieAuth without csrfHeader"
+      end
+      unless operation.fetch("tags", []).include?(expected_tag)
+        missing << "GET #{path} must be tagged #{expected_tag}"
+      end
+      actual_response = if path == "/api/v1/app/notifications"
+        operation.dig("responses", "200", "content", "application/json", "schema", "allOf")&.
+          find { |entry| entry.dig("properties", "data", "items", "$ref") }&.
+          dig("properties", "data", "items", "$ref")
+      else
+        response_data_ref(operation, "200")
+      end
+      unless actual_response == response_ref
+        missing << "GET #{path} 200 data must reference #{response_ref}"
+      end
+    end
+
     schemas = spec.fetch("components", {}).fetch("schemas", {})
     unless schemas.dig("PasswordResetRequest", "required")&.include?("email") &&
         schemas.dig("PasswordResetRequest", "properties", "email", "format") == "email"

@@ -496,6 +496,29 @@ func TestRouteSurfacePreferencesMutationRejectsCookieWithoutCSRFWithoutDatabase(
 	}
 }
 
+func TestRouteSurfacePreferencesAndNotificationReadRoutesRequireSessionWithoutDatabase(t *testing.T) {
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{})
+
+	tests := []routeSurfaceCase{
+		{"get preferences", stdhttp.MethodGet, "/api/v1/app/me/preferences"},
+		{"list notifications", stdhttp.MethodGet, "/api/v1/app/notifications"},
+		{"get unread notification count", stdhttp.MethodGet, "/api/v1/app/notifications/unread-count"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, nil)
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusUnauthorized {
+				t.Fatalf("expected registered Preferences/Notification read route to require session with 401 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
 func TestRouteSurfaceChatPersonaRoutesRequireSessionWithoutDatabase(t *testing.T) {
 	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{})
 
