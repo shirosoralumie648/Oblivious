@@ -46,6 +46,7 @@ type Store interface {
 
 	// Categories (D-28)
 	ListCategories(ctx context.Context) ([]*Category, error)
+	GetCategoryByID(ctx context.Context, id string) (*Category, error)
 	GetCategoryBySlug(ctx context.Context, slug string) (*Category, error)
 
 	// Templates
@@ -949,6 +950,15 @@ func (s *SQLStore) ListCategories(ctx context.Context) ([]*Category, error) {
 
 // GetCategoryBySlug retrieves a category by its slug with agent count.
 func (s *SQLStore) GetCategoryBySlug(ctx context.Context, slug string) (*Category, error) {
+	return s.getCategory(ctx, "c.slug = $1", slug)
+}
+
+// GetCategoryByID retrieves a category by its stable ID with agent count.
+func (s *SQLStore) GetCategoryByID(ctx context.Context, id string) (*Category, error) {
+	return s.getCategory(ctx, "c.id = $1", id)
+}
+
+func (s *SQLStore) getCategory(ctx context.Context, predicate string, value string) (*Category, error) {
 	var cat Category
 	err := s.db.QueryRowContext(ctx, `
 		SELECT c.id, c.name, c.slug, c.display_order,
@@ -956,15 +966,15 @@ func (s *SQLStore) GetCategoryBySlug(ctx context.Context, slug string) (*Categor
 		FROM categories c
 		LEFT JOIN published_agents pa ON c.id = pa.category_id
 			AND pa.status = 'approved' AND pa.visibility = 'public'
-		WHERE c.slug = $1
+		WHERE `+predicate+`
 		GROUP BY c.id
-	`, slug).Scan(&cat.ID, &cat.Name, &cat.Slug, &cat.DisplayOrder,
+	`, value).Scan(&cat.ID, &cat.Name, &cat.Slug, &cat.DisplayOrder,
 		&cat.AgentCount)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("get category by slug: %w", err)
+		return nil, fmt.Errorf("get category: %w", err)
 	}
 	return &cat, nil
 }

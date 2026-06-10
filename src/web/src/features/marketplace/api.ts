@@ -113,9 +113,7 @@ export type AgentPublishRequest = {
   description: string;
   iconURL?: string;
   iconUrl?: string;
-  categoryID?: string;
-  categoryId?: string;
-  categorySlug?: string;
+  categoryID: string;
   tags: string[];
   tools: string;
   exampleConversations: string;
@@ -227,7 +225,7 @@ export type MarketplaceApi = {
   getCategories: () => Promise<Category[]>;
   getAgent: (id: string) => Promise<MarketplaceAgent>;
   publishAgent: (input: AgentPublishRequest) => Promise<MarketplaceAgent>;
-  updateAgent: (id: string, input: Partial<AgentPublishRequest>) => Promise<MarketplaceAgent>;
+  updateAgent: (id: string, input: AgentPublishRequest) => Promise<MarketplaceAgent>;
   deleteAgent: (id: string) => Promise<void>;
   searchAgents: (params: MarketplaceSearchParams) => Promise<{ agents: MarketplaceAgent[]; total: number }>;
   installAgent: (agentId: string, versionId?: string, paymentProvider?: string) => Promise<MarketplaceInstallResult>;
@@ -274,16 +272,15 @@ function buildQuery(params?: Record<string, string | number | boolean | string[]
   return serialized ? `?${serialized}` : '';
 }
 
-function publishPayload(input: Partial<AgentPublishRequest>) {
-  const payload = {
+function publishPayload(input: Partial<AgentPublishRequest> & Record<string, unknown>): Partial<AgentPublishRequest> {
+  const payload: Record<string, unknown> = {
     ...input,
     iconURL: input.iconURL ?? input.iconUrl,
-    categoryID: input.categoryID ?? input.categoryId ?? input.categorySlug,
   };
   delete payload.iconUrl;
   delete payload.categoryId;
   delete payload.categorySlug;
-  return payload;
+  return payload as Partial<AgentPublishRequest>;
 }
 
 function searchParams(params: MarketplaceSearchParams) {

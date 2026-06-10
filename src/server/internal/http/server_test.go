@@ -1555,7 +1555,7 @@ func TestCrossTenantMarketplacePublisherScopeUsesActiveOrganization(t *testing.T
 		t.Fatalf("expected active organization id on my-agent, got %q", myAgentsResponse.Data.Agents[0].OrganizationID)
 	}
 
-	updateBody := `{"name":"Other Org Updated","description":"This update must not cross tenant boundaries.","tools":"{\"tools\":[{\"name\":\"updated\"}]}","exampleConversations":"[]","visibility":"public","pricingType":"free","version":"1.0.1"}`
+	updateBody := `{"name":"Other Org Updated","description":"This update must not cross tenant boundaries.","categoryID":"cat_1","tools":"{\"tools\":[{\"name\":\"updated\"}]}","exampleConversations":"[]","visibility":"public","pricingType":"free","version":"1.0.1"}`
 	updateRecorder := httptest.NewRecorder()
 	updateRequest := httptest.NewRequest(stdhttp.MethodPut, "/api/v1/marketplace/agents/agent_other_org", strings.NewReader(updateBody))
 	updateRequest.Header.Set("Content-Type", "application/json")

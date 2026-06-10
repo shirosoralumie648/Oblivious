@@ -82,20 +82,15 @@ type ReviewSLAEnforcementResult struct {
 
 // PublishAgent validates and creates a new published agent (D-17, D-18).
 func (s *Service) PublishAgent(ctx context.Context, userID, organizationID, userEmail string, input AgentPublishRequest, ip string) (*PublishedAgent, error) {
+	input = normalizePublishRequest(input)
+
 	// Validate required fields
 	if err := validatePublishRequest(input); err != nil {
 		return nil, fmt.Errorf("publish agent: %w", err)
 	}
 
-	// Verify category exists if provided
-	if input.CategoryID != "" {
-		cat, err := s.store.GetCategoryBySlug(ctx, input.CategoryID)
-		if err != nil {
-			return nil, fmt.Errorf("publish agent: %w", err)
-		}
-		if cat == nil {
-			return nil, fmt.Errorf("publish agent: category %q not found", input.CategoryID)
-		}
+	if err := s.validateCategoryID(ctx, input.CategoryID); err != nil {
+		return nil, fmt.Errorf("publish agent: %w", err)
 	}
 
 	agent, err := s.store.CreateAgent(ctx, userID, organizationID, input)
@@ -149,6 +144,9 @@ func validatePublishRequest(input AgentPublishRequest) error {
 	if len(input.Description) < 10 || len(input.Description) > 2000 {
 		return fmt.Errorf("description must be 10-2000 characters")
 	}
+	if input.CategoryID == "" {
+		return fmt.Errorf("category_id is required")
+	}
 	if input.Tools == "" {
 		return fmt.Errorf("tools is required")
 	}
@@ -184,6 +182,35 @@ func validatePublishRequest(input AgentPublishRequest) error {
 	return nil
 }
 
+func normalizePublishRequest(input AgentPublishRequest) AgentPublishRequest {
+	input.Name = strings.TrimSpace(input.Name)
+	input.Description = strings.TrimSpace(input.Description)
+	input.IconURL = strings.TrimSpace(input.IconURL)
+	input.CategoryID = strings.TrimSpace(input.CategoryID)
+	input.Tools = strings.TrimSpace(input.Tools)
+	input.ExampleConversations = strings.TrimSpace(input.ExampleConversations)
+	input.SystemPrompt = strings.TrimSpace(input.SystemPrompt)
+	input.Visibility = strings.TrimSpace(input.Visibility)
+	input.PricingType = strings.TrimSpace(input.PricingType)
+	input.Version = strings.TrimSpace(input.Version)
+	input.Changelog = strings.TrimSpace(input.Changelog)
+	for index, tag := range input.Tags {
+		input.Tags[index] = strings.TrimSpace(tag)
+	}
+	return input
+}
+
+func (s *Service) validateCategoryID(ctx context.Context, categoryID string) error {
+	cat, err := s.store.GetCategoryByID(ctx, categoryID)
+	if err != nil {
+		return err
+	}
+	if cat == nil {
+		return fmt.Errorf("category %q not found", categoryID)
+	}
+	return nil
+}
+
 // GetAgent retrieves a published agent by ID.
 func (s *Service) GetAgent(ctx context.Context, id string) (*PublishedAgent, error) {
 	if id == "" {
@@ -197,6 +224,7 @@ func (s *Service) UpdateAgent(ctx context.Context, userID, organizationID, userE
 	if id == "" {
 		return nil, fmt.Errorf("update agent: id is required")
 	}
+	input = normalizePublishRequest(input)
 
 	// Verify ownership
 	existing, err := s.store.GetAgent(ctx, id)
@@ -210,11 +238,11 @@ func (s *Service) UpdateAgent(ctx context.Context, userID, organizationID, userE
 		return nil, fmt.Errorf("update agent: only the owner can update this agent")
 	}
 
-	// Apply same validation as publish
-	if input.Name != "" || input.Description != "" || input.Tools != "" {
-		if err := validatePublishRequest(input); err != nil {
-			return nil, fmt.Errorf("update agent: %w", err)
-		}
+	if err := validatePublishRequest(input); err != nil {
+		return nil, fmt.Errorf("update agent: %w", err)
+	}
+	if err := s.validateCategoryID(ctx, input.CategoryID); err != nil {
+		return nil, fmt.Errorf("update agent: %w", err)
 	}
 
 	agent, err := s.store.UpdateAgent(ctx, id, organizationID, input)

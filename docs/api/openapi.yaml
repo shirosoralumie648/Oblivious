@@ -2508,7 +2508,7 @@ components:
 
     MarketplaceAgentPublishRequest:
       type: object
-      required: [name, description, tools, pricingType, version]
+      required: [name, description, categoryID, tools, pricingType, version]
       properties:
         name:
           type: string

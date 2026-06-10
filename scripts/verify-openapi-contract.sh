@@ -694,7 +694,7 @@ require_marketplace_surface_payload_contract() {
 
     publish_request = schemas["MarketplaceAgentPublishRequest"] || {}
     required_publish_fields = publish_request.fetch("required", [])
-    ["name", "description", "tools", "pricingType", "version"].each do |property|
+    ["name", "description", "categoryID", "tools", "pricingType", "version"].each do |property|
       unless required_publish_fields.include?(property)
         missing << "MarketplaceAgentPublishRequest must require #{property}"
       end

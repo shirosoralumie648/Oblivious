@@ -145,6 +145,39 @@ describe('createMarketplaceApi', () => {
     expect(post).toHaveBeenCalledWith('/api/v1/marketplace/agents/agent_paid/install?versionID=ver_paid&provider=alipay');
   });
 
+  it('serializes Marketplace publish requests with category IDs only', async () => {
+    const post = vi.fn().mockResolvedValue({ id: 'agent_1' });
+    const api = createMarketplaceApi(createClient({ post }));
+
+    await api.publishAgent({
+      name: 'Research Agent',
+      description: 'Helps with research workflows',
+      iconUrl: 'https://cdn.example.test/icon.png',
+      categoryID: 'cat_1',
+      tags: ['research'],
+      tools: '[{"name":"search"}]',
+      exampleConversations: '[]',
+      visibility: 'public',
+      pricingType: 'free',
+      pricingAmount: 0,
+      version: '1.0.0',
+      categoryId: 'cat_legacy',
+      categorySlug: 'productivity',
+    } as Parameters<typeof api.publishAgent>[0] & { categoryId: string; categorySlug: string });
+
+    expect(post).toHaveBeenCalledWith(
+      '/api/v1/marketplace/agents',
+      expect.objectContaining({
+        categoryID: 'cat_1',
+        iconURL: 'https://cdn.example.test/icon.png',
+      })
+    );
+    const payload = post.mock.calls[0][1] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty('categoryId');
+    expect(payload).not.toHaveProperty('categorySlug');
+    expect(payload).not.toHaveProperty('iconUrl');
+  });
+
   it('supports publisher settlement preference routes', async () => {
     const get = vi
       .fn()
@@ -261,6 +294,7 @@ describe('createMarketplaceApi', () => {
       api.publishAgent({
         name: 'Unsafe Agent',
         description: 'Attempts prompt override',
+        categoryID: 'cat_1',
         exampleConversations: 'Example',
         pricingAmount: 0,
         pricingType: 'free',
@@ -288,6 +322,7 @@ describe('createMarketplaceApi', () => {
       .publishAgent({
         name: 'Unsafe Agent',
         description: 'Attempts prompt override',
+        categoryID: 'cat_1',
         exampleConversations: 'Example',
         pricingAmount: 0,
         pricingType: 'free',

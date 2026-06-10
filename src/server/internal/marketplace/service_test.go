@@ -80,6 +80,7 @@ func (s *marketplaceServiceStore) CreateAgent(ctx context.Context, ownerID, orga
 		OwnerID:        ownerID,
 		Name:           input.Name,
 		Description:    input.Description,
+		CategoryID:     input.CategoryID,
 		Tools:          input.Tools,
 		Visibility:     input.Visibility,
 		Status:         "pending_review",
@@ -213,6 +214,13 @@ func (s *marketplaceServiceStore) ListCategories(ctx context.Context) ([]*Catego
 	return []*Category{{ID: "cat_1", Name: "Productivity", Slug: "productivity"}}, nil
 }
 
+func (s *marketplaceServiceStore) GetCategoryByID(ctx context.Context, id string) (*Category, error) {
+	if id == "cat_1" {
+		return &Category{ID: "cat_1", Name: "Productivity", Slug: "productivity"}, nil
+	}
+	return nil, nil
+}
+
 func (s *marketplaceServiceStore) GetCategoryBySlug(ctx context.Context, slug string) (*Category, error) {
 	if slug == "productivity" {
 		return &Category{ID: "cat_1", Name: "Productivity", Slug: "productivity"}, nil
@@ -314,12 +322,42 @@ func validAgentPublishRequest() AgentPublishRequest {
 	return AgentPublishRequest{
 		Name:                 "Release Helper",
 		Description:          "Helps release managers prepare release candidates.",
-		CategoryID:           "productivity",
+		CategoryID:           "cat_1",
 		Tools:                `{"tools":[{"name":"checklist"}]}`,
 		ExampleConversations: "[]",
 		Visibility:           "public",
 		PricingType:          "free",
 		Version:              "1.0.0",
+	}
+}
+
+func TestServicePublishAgentRequiresCategoryID(t *testing.T) {
+	store := newMarketplaceServiceStore()
+	service := NewService(store, nil)
+	req := validAgentPublishRequest()
+	req.CategoryID = " "
+
+	_, err := service.PublishAgent(context.Background(), "owner_1", "org_1", "owner@example.com", req, "127.0.0.1")
+	if err == nil || !strings.Contains(err.Error(), "category_id is required") {
+		t.Fatalf("expected missing category_id to be rejected, got %v", err)
+	}
+	if store.lastOwnerID != "" || store.lastOrgID != "" {
+		t.Fatalf("expected missing category to fail before create, owner=%q org=%q", store.lastOwnerID, store.lastOrgID)
+	}
+}
+
+func TestServicePublishAgentRejectsUnknownCategoryID(t *testing.T) {
+	store := newMarketplaceServiceStore()
+	service := NewService(store, nil)
+	req := validAgentPublishRequest()
+	req.CategoryID = "cat_missing"
+
+	_, err := service.PublishAgent(context.Background(), "owner_1", "org_1", "owner@example.com", req, "127.0.0.1")
+	if err == nil || !strings.Contains(err.Error(), `category "cat_missing" not found`) {
+		t.Fatalf("expected unknown category to be rejected, got %v", err)
+	}
+	if store.lastOwnerID != "" || store.lastOrgID != "" {
+		t.Fatalf("expected unknown category to fail before create, owner=%q org=%q", store.lastOwnerID, store.lastOrgID)
 	}
 }
 
@@ -343,6 +381,9 @@ func TestServicePublishAgentCreatesPendingReviewAndAudit(t *testing.T) {
 	}
 	if store.lastOrgID != "org_1" || agent.OrganizationID != "org_1" {
 		t.Fatalf("expected org_1 to be passed through, store=%q agent=%q", store.lastOrgID, agent.OrganizationID)
+	}
+	if agent.CategoryID != "cat_1" {
+		t.Fatalf("expected category ID to be passed through, got %q", agent.CategoryID)
 	}
 	if len(audit.actions) != 1 || audit.actions[0] != "agent.publish" {
 		t.Fatalf("expected agent.publish audit action, got %v", audit.actions)

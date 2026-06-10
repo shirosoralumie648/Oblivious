@@ -77,6 +77,7 @@ function publishPayload(form: PublishForm): AgentPublishRequest {
     ...form,
     name: form.name.trim(),
     description: form.description.trim(),
+    categoryID: (form.categoryID ?? '').trim(),
     tags: form.tags.map((tag) => tag.trim()).filter(Boolean),
     pricingAmount: Number(form.pricingAmount) || 0,
     version: form.version.trim(),
@@ -100,6 +101,10 @@ export function MarketplacePublishPage() {
     const payload = publishPayload(state.form);
     if (!payload.name || !payload.description || !payload.version) {
       dispatch({ type: 'SUBMIT_ERROR', error: 'Name, description, and version are required.' });
+      return;
+    }
+    if (!payload.categoryID) {
+      dispatch({ type: 'SUBMIT_ERROR', error: 'Category is required for marketplace discovery and review.' });
       return;
     }
     if (payload.pricingAmount < 0) {

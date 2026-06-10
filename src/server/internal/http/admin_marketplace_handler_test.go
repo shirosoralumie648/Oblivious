@@ -2001,6 +2001,13 @@ func (s *fakeMarketplaceStore) ListCategories(ctx context.Context) ([]*marketpla
 	return []*marketplace.Category{{ID: "cat_1", Name: "Productivity", Slug: "productivity"}}, nil
 }
 
+func (s *fakeMarketplaceStore) GetCategoryByID(ctx context.Context, id string) (*marketplace.Category, error) {
+	if id == "cat_1" {
+		return &marketplace.Category{ID: "cat_1", Name: "Productivity", Slug: "productivity"}, nil
+	}
+	return nil, nil
+}
+
 func (s *fakeMarketplaceStore) GetCategoryBySlug(ctx context.Context, slug string) (*marketplace.Category, error) {
 	return &marketplace.Category{ID: "cat_1", Name: "Productivity", Slug: slug}, nil
 }
