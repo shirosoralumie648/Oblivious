@@ -13458,6 +13458,8 @@ paths:
       summary: 获取管理员仪表盘统计
       operationId: getAdminStats
       tags: [Admin]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: Admin dashboard aggregate stats
@@ -13480,6 +13482,8 @@ paths:
       summary: 检索全局 Relay API token 运行视图
       operationId: listAdminAPITokens
       tags: [Admin, Relay]
+      security:
+        - cookieAuth: []
       parameters:
         - name: organizationID
           in: query
@@ -13569,6 +13573,8 @@ paths:
       summary: 获取 Relay 计费倍率设置
       operationId: getAdminRelayPricingSettings
       tags: [Admin, Relay]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: Relay pricing multipliers
@@ -13622,6 +13628,8 @@ paths:
       summary: 获取当前组织 Usage Limit 设置
       operationId: listAdminUsageLimitSettings
       tags: [Admin, Billing]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: Usage limit settings scoped to the admin session organization
@@ -13675,6 +13683,8 @@ paths:
       summary: 获取 Relay model routes
       operationId: listAdminRoutes
       tags: [Admin, Relay]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: Relay model routes and total count
@@ -13734,6 +13744,8 @@ paths:
       summary: 获取 Relay model route 详情
       operationId: getAdminRoute
       tags: [Admin, Relay]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: Relay model route detail
@@ -13816,6 +13828,8 @@ paths:
       summary: 获取订阅套餐列表
       operationId: listAdminPlans
       tags: [Admin, Billing]
+      security:
+        - cookieAuth: []
       parameters:
         - name: status
           in: query
@@ -13900,6 +13914,8 @@ paths:
       summary: 获取订阅套餐详情
       operationId: getAdminPlan
       tags: [Admin, Billing]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: Subscription plan detail
@@ -13982,6 +13998,8 @@ paths:
       summary: 获取用户列表
       operationId: listAdminUsers
       tags: [Admin]
+      security:
+        - cookieAuth: []
       parameters:
         - name: search
           in: query
@@ -14043,6 +14061,8 @@ paths:
       summary: 获取用户详情
       operationId: getAdminUser
       tags: [Admin]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: User detail
@@ -14224,6 +14244,8 @@ paths:
       summary: 获取审计日志列表
       operationId: listAdminAuditLogs
       tags: [Admin]
+      security:
+        - cookieAuth: []
       parameters:
         - name: actorID
           in: query

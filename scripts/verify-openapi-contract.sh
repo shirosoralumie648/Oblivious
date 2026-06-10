@@ -2543,6 +2543,11 @@ require_admin_api_token_contract() {
       security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
     end
 
+    def requires_cookie_without_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && !entry.key?("csrfHeader") }
+    end
+
     def response_data_ref(operation, status)
       operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
         find { |entry| entry.dig("properties", "data", "$ref") }&.
@@ -2563,6 +2568,9 @@ require_admin_api_token_contract() {
 
     unless requires_cookie_and_csrf?(revoke)
       missing << "POST /api/v1/admin/api-tokens/{tokenId}/revoke must require cookieAuth and csrfHeader"
+    end
+    unless requires_cookie_without_csrf?(list)
+      missing << "GET /api/v1/admin/api-tokens must require cookieAuth without csrfHeader"
     end
     unless response_data_ref(list, "200") == "#/components/schemas/AdminAPITokenListResponse"
       missing << "GET /api/v1/admin/api-tokens 200 data must reference AdminAPITokenListResponse"
@@ -3624,6 +3632,11 @@ require_admin_core_management_contract() {
       security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
     end
 
+    def requires_cookie_without_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && !entry.key?("csrfHeader") }
+    end
+
     expected_data_refs = {
       ["/api/v1/admin/stats", "get", "200"] => "#/components/schemas/AdminStats",
       ["/api/v1/admin/settings/relay-pricing", "get", "200"] => "#/components/schemas/AdminRelayPricingSettings",
@@ -3657,6 +3670,9 @@ require_admin_core_management_contract() {
       end
       unless op.fetch("tags", []).include?("Admin")
         missing << "#{method.upcase} #{path} must be tagged Admin"
+      end
+      if method == "get" && !requires_cookie_without_csrf?(op)
+        missing << "#{method.upcase} #{path} must require cookieAuth without csrfHeader"
       end
     end
 
