@@ -502,6 +502,51 @@ require_marketplace_browse_payload_contract() {
   ' "$openapi_file"
 }
 
+require_marketplace_private_read_auth_contract() {
+  ruby -ryaml -e '
+    file = ARGV.fetch(0)
+    spec = YAML.load_file(file)
+    paths = spec.fetch("paths", {})
+    missing = []
+
+    def operation(paths, path, method, missing)
+      op = paths.dig(path, method)
+      unless op
+        missing << "#{method.upcase} #{path} must be documented"
+        return {}
+      end
+      op
+    end
+
+    def requires_cookie_without_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && !entry.key?("csrfHeader") }
+    end
+
+    [
+      "/api/v1/marketplace/agents/{agentId}/stats",
+      "/api/v1/marketplace/my-agents",
+      "/api/v1/marketplace/installs",
+      "/api/v1/marketplace/publisher/stats",
+      "/api/v1/marketplace/publisher/settlement-preferences",
+    ].each do |path|
+      op = operation(paths, path, "get", missing)
+      unless requires_cookie_without_csrf?(op)
+        missing << "GET #{path} must require cookieAuth without csrfHeader"
+      end
+      unless op.fetch("tags", []).include?("Marketplace")
+        missing << "GET #{path} must be tagged Marketplace"
+      end
+    end
+
+    unless missing.empty?
+      warn "[openapi-contract] Marketplace private read auth contract is incomplete:"
+      missing.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file"
+}
+
 require_admin_channel_secret_response_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
@@ -4388,6 +4433,7 @@ require_marketplace_paid_install_contract
 require_marketplace_template_type_contract
 require_marketplace_surface_payload_contract
 require_marketplace_browse_payload_contract
+require_marketplace_private_read_auth_contract
 require_publishing_channel_secret_csrf_contract
 require_admin_channel_secret_response_contract
 require_admin_observability_provider_secret_csrf_contract

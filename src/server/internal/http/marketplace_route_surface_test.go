@@ -43,6 +43,30 @@ func TestMarketplaceRouterRegistersTemplateAndPublisherPreferenceRoutes(t *testi
 			want:   stdhttp.StatusUnauthorized,
 		},
 		{
+			name:   "publisher stats route requires a session",
+			method: stdhttp.MethodGet,
+			path:   "/api/v1/marketplace/publisher/stats",
+			want:   stdhttp.StatusUnauthorized,
+		},
+		{
+			name:   "my agents route requires a session",
+			method: stdhttp.MethodGet,
+			path:   "/api/v1/marketplace/my-agents",
+			want:   stdhttp.StatusUnauthorized,
+		},
+		{
+			name:   "installs route requires a session",
+			method: stdhttp.MethodGet,
+			path:   "/api/v1/marketplace/installs",
+			want:   stdhttp.StatusUnauthorized,
+		},
+		{
+			name:   "agent stats route requires a session",
+			method: stdhttp.MethodGet,
+			path:   "/api/v1/marketplace/agents/agent_route/stats",
+			want:   stdhttp.StatusUnauthorized,
+		},
+		{
 			name:   "publisher settlement preferences PUT route requires a session",
 			method: stdhttp.MethodPut,
 			path:   "/api/v1/marketplace/publisher/settlement-preferences",

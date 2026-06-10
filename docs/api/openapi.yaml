@@ -15763,6 +15763,8 @@ paths:
       summary: 获取发布者视角的 Agent 统计
       operationId: getMarketplaceAgentStats
       tags: [Marketplace]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: Agent 统计
@@ -15783,6 +15785,8 @@ paths:
       summary: 获取当前发布者的 Agent
       operationId: listMyMarketplaceAgents
       tags: [Marketplace]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: 当前发布者 Agent 列表
@@ -15803,6 +15807,8 @@ paths:
       summary: 获取当前用户安装的 Marketplace Agent
       operationId: listMarketplaceInstalls
       tags: [Marketplace]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: 安装列表
@@ -15847,6 +15853,8 @@ paths:
       summary: 获取 Marketplace 发布者统计
       operationId: getMarketplacePublisherStats
       tags: [Marketplace]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: 发布者统计
@@ -15867,6 +15875,8 @@ paths:
       summary: 获取 Marketplace 发布者结算偏好
       operationId: getMarketplaceSettlementPreferences
       tags: [Marketplace]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: 结算偏好
