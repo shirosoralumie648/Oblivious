@@ -12529,6 +12529,8 @@ paths:
       summary: 管理员获取账务巡检汇总
       operationId: getAdminBillingSummary
       tags: [Admin, Billing]
+      security:
+        - cookieAuth: []
       parameters:
         - name: organizationID
           in: query
@@ -12580,6 +12582,8 @@ paths:
       summary: 管理员获取 Relay billing session 列表
       operationId: listAdminBillingSessions
       tags: [Admin, Billing]
+      security:
+        - cookieAuth: []
       parameters: &adminBillingInspectionFilters
         - name: organizationID
           in: query
@@ -12642,6 +12646,8 @@ paths:
       summary: 管理员获取 payment intent 列表
       operationId: listAdminPaymentIntents
       tags: [Admin, Billing]
+      security:
+        - cookieAuth: []
       parameters: *adminBillingInspectionFilters
       responses:
         "200":
@@ -12665,6 +12671,8 @@ paths:
       summary: 管理员获取支付 webhook 事件列表
       operationId: listAdminBillingWebhookEvents
       tags: [Admin, Billing]
+      security:
+        - cookieAuth: []
       parameters: *adminBillingInspectionFilters
       responses:
         "200":
@@ -12688,6 +12696,8 @@ paths:
       summary: 管理员获取订阅列表
       operationId: listAdminSubscriptions
       tags: [Admin, Billing]
+      security:
+        - cookieAuth: []
       parameters: *adminBillingInspectionFilters
       responses:
         "200":
@@ -12711,6 +12721,8 @@ paths:
       summary: 管理员获取 top-up 订单列表
       operationId: listAdminTopups
       tags: [Admin, Billing]
+      security:
+        - cookieAuth: []
       parameters: *adminBillingInspectionFilters
       responses:
         "200":
@@ -12734,6 +12746,8 @@ paths:
       summary: 管理员获取发票列表
       operationId: listAdminInvoices
       tags: [Admin, Billing]
+      security:
+        - cookieAuth: []
       parameters: *adminBillingInspectionFilters
       responses:
         "200":
@@ -12757,6 +12771,8 @@ paths:
       summary: 管理员获取退款列表
       operationId: listAdminRefunds
       tags: [Admin, Billing]
+      security:
+        - cookieAuth: []
       parameters: *adminBillingInspectionFilters
       responses:
         "200":
@@ -12780,6 +12796,8 @@ paths:
       summary: 管理员获取 Marketplace settlement 列表
       operationId: listAdminMarketplaceSettlements
       tags: [Admin, Billing, Marketplace]
+      security:
+        - cookieAuth: []
       parameters: *adminBillingInspectionFilters
       responses:
         "200":
@@ -12803,6 +12821,8 @@ paths:
       summary: 管理员获取 Marketplace payout 列表
       operationId: listAdminMarketplacePayouts
       tags: [Admin, Billing, Marketplace]
+      security:
+        - cookieAuth: []
       parameters: *adminBillingInspectionFilters
       responses:
         "200":

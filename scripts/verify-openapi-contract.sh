@@ -3764,6 +3764,11 @@ require_admin_billing_contract() {
       security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
     end
 
+    def requires_cookie_without_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && !entry.key?("csrfHeader") }
+    end
+
     expected_data_refs = {
       ["/api/v1/admin/billing/summary", "get"] => "#/components/schemas/AdminBillingInspectionSummary",
       ["/api/v1/admin/billing/sessions", "get"] => "#/components/schemas/AdminBillingSessionsResponse",
@@ -3790,6 +3795,9 @@ require_admin_billing_contract() {
       tags = op.fetch("tags", [])
       unless tags.include?("Admin") && tags.include?("Billing")
         missing << "#{method.upcase} #{path} must be tagged Admin and Billing"
+      end
+      if method == "get" && !requires_cookie_without_csrf?(op)
+        missing << "#{method.upcase} #{path} must require cookieAuth without csrfHeader"
       end
     end
 
