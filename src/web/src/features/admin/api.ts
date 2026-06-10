@@ -32,6 +32,7 @@ import type {
   RouteCreateRequest,
   RouteInfo,
   RouteUpdateRequest,
+  ReviewSLAEnforcementResult,
   TopupRefundRequest,
   UsageAnalyticsFilter,
   UsageAnalyticsResponse,
@@ -396,6 +397,7 @@ export type AdminApi = {
   listAPITokens: (params?: APITokenFilter) => Promise<PaginatedResponse<APITokenEntry>>;
   revokeAPIToken: (id: string) => Promise<void>;
   listReviews: (params?: { status?: string; limit?: number; offset?: number }) => Promise<PaginatedResponse<PublishedAgent>>;
+  enforceReviewSLA: (params?: { limit?: number; offset?: number }) => Promise<ReviewSLAEnforcementResult>;
   approveAgent: (id: string) => Promise<void>;
   rejectAgent: (id: string, reason: string) => Promise<void>;
   requestAgentChanges: (id: string, reason: string) => Promise<void>;
@@ -625,6 +627,8 @@ export function createAdminApi(client: HttpClient): AdminApi {
       const payload = await client.get<ReviewListPayload>(`${apiPrefix}/reviews${buildQuery(params)}`);
       return collection(payload.reviews ?? payload.data, payload.total);
     },
+    enforceReviewSLA: (params) =>
+      client.post<ReviewSLAEnforcementResult>(`${apiPrefix}/reviews/sla/enforce${buildQuery(params)}`),
     approveAgent: async (id) => {
       await client.post<{ status: string }>(`${apiPrefix}/reviews/${id}/approve`);
     },

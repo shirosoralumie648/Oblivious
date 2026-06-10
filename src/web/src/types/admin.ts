@@ -467,6 +467,11 @@ export type ReviewSLA = {
   publisherTierSource: string;
 };
 
+export type ReviewSLAEnforcementResult = {
+  scanned: number;
+  alerted: number;
+};
+
 export type PublishedAgent = {
   id: string;
   name: string;

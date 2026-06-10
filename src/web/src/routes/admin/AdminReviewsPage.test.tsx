@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const listReviews = vi.fn();
+const enforceReviewSLA = vi.fn();
 const approveAgent = vi.fn();
 const rejectAgent = vi.fn();
 const requestAgentChanges = vi.fn();
@@ -12,6 +13,7 @@ const dismissMarketplaceAbuseReport = vi.fn();
 vi.mock('../../features/admin/api', () => ({
   createAdminApi: () => ({
     listReviews,
+    enforceReviewSLA,
     approveAgent,
     rejectAgent,
     requestAgentChanges,
@@ -58,6 +60,7 @@ const openAbuseReport = {
 describe('AdminReviewsPage', () => {
   beforeEach(() => {
     listReviews.mockReset();
+    enforceReviewSLA.mockReset();
     approveAgent.mockReset();
     rejectAgent.mockReset();
     requestAgentChanges.mockReset();
@@ -117,6 +120,19 @@ describe('AdminReviewsPage', () => {
     expect(await screen.findByText('Manual SLA: Due soon by 2026-06-05 13:00 UTC')).toBeInTheDocument();
     expect(screen.getByText('Automated SLA: Overdue')).toBeInTheDocument();
     expect(screen.getByText('Publisher tier: vip')).toBeInTheDocument();
+  });
+
+  it('triggers review SLA enforcement and refreshes the queue', async () => {
+    listReviews.mockResolvedValue({ data: [pendingAgent], total: 1 });
+    enforceReviewSLA.mockResolvedValue({ scanned: 3, alerted: 2 });
+
+    render(<AdminReviewsPage />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Enforce SLA' }));
+
+    await waitFor(() => expect(enforceReviewSLA).toHaveBeenCalledWith({ limit: 100 }));
+    expect(await screen.findByText('Review SLA scan complete: 3 scanned, 2 alerted.')).toBeInTheDocument();
+    await waitFor(() => expect(listReviews).toHaveBeenCalledWith({ status: 'pending_review', limit: 100 }));
   });
 
   it('approves agents through confirmation', async () => {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer } from 'react';
-import { RiCheckLine, RiCloseLine, RiEdit2Line } from '@remixicon/react';
+import { RiAlarmWarningLine, RiCheckLine, RiCloseLine, RiEdit2Line } from '@remixicon/react';
 
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -22,6 +22,9 @@ type ReviewsState = {
   loading: boolean;
   error: string | null;
   statusFilter: string;
+  slaLoading: boolean;
+  slaMessage: string | null;
+  slaError: string | null;
   abuseReports: MarketplaceAbuseReport[];
   abuseLoading: boolean;
   abuseError: string | null;
@@ -44,6 +47,9 @@ type Action =
   | { type: 'LOAD_SUCCESS'; reviews: PublishedAgent[] }
   | { type: 'LOAD_ERROR'; error: string }
   | { type: 'SET_STATUS'; value: string }
+  | { type: 'SLA_START' }
+  | { type: 'SLA_DONE'; message: string }
+  | { type: 'SLA_ERROR'; error: string }
   | { type: 'ABUSE_LOAD_START' }
   | { type: 'ABUSE_LOAD_SUCCESS'; reports: MarketplaceAbuseReport[] }
   | { type: 'ABUSE_LOAD_ERROR'; error: string }
@@ -69,6 +75,9 @@ const initialState: ReviewsState = {
   loading: true,
   error: null,
   statusFilter: 'pending_review',
+  slaLoading: false,
+  slaMessage: null,
+  slaError: null,
   abuseReports: [],
   abuseLoading: true,
   abuseError: null,
@@ -96,6 +105,12 @@ function reducer(state: ReviewsState, action: Action): ReviewsState {
       return { ...state, loading: false, error: action.error };
     case 'SET_STATUS':
       return { ...state, statusFilter: action.value };
+    case 'SLA_START':
+      return { ...state, slaLoading: true, slaMessage: null, slaError: null };
+    case 'SLA_DONE':
+      return { ...state, slaLoading: false, slaMessage: action.message, slaError: null };
+    case 'SLA_ERROR':
+      return { ...state, slaLoading: false, slaError: action.error };
     case 'ABUSE_LOAD_START':
       return { ...state, abuseLoading: true, abuseError: null };
     case 'ABUSE_LOAD_SUCCESS':
@@ -309,6 +324,17 @@ export function AdminReviewsPage() {
     }
   };
 
+  const handleEnforceSLA = async () => {
+    dispatch({ type: 'SLA_START' });
+    try {
+      const result = await api.enforceReviewSLA({ limit: 100 });
+      dispatch({ type: 'SLA_DONE', message: `Review SLA scan complete: ${result.scanned} scanned, ${result.alerted} alerted.` });
+      await loadReviews();
+    } catch (error) {
+      dispatch({ type: 'SLA_ERROR', error: error instanceof Error ? error.message : 'Unable to enforce review SLA.' });
+    }
+  };
+
   const handleAbuseReportAction = async () => {
     if (!state.abuseAction) {
       return;
@@ -398,7 +424,18 @@ export function AdminReviewsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4">
         <h1 className="font-heading text-2xl font-semibold text-foreground">Review Queue</h1>
+        <Button type="button" variant="outline" className="min-h-[44px]" disabled={state.slaLoading} onClick={() => void handleEnforceSLA()}>
+          <RiAlarmWarningLine className="size-4" aria-hidden="true" />
+          {state.slaLoading ? 'Enforcing SLA' : 'Enforce SLA'}
+        </Button>
       </div>
+
+      {state.slaMessage ? (
+        <p className="rounded-lg border border-border bg-card px-4 py-3 text-sm text-foreground">{state.slaMessage}</p>
+      ) : null}
+      {state.slaError ? (
+        <p className="rounded-lg border border-destructive/30 bg-card px-4 py-3 text-sm text-destructive" role="alert">{state.slaError}</p>
+      ) : null}
 
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
         <select

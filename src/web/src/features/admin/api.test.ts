@@ -94,6 +94,15 @@ describe('createAdminApi', () => {
     expect(get).toHaveBeenCalledWith('/api/v1/admin/reviews?status=pending_review&limit=100');
   });
 
+  it('triggers marketplace review SLA enforcement through the admin endpoint', async () => {
+    const post = vi.fn().mockResolvedValue({ scanned: 3, alerted: 2 });
+    const api = createAdminApi(createClient({ post }));
+
+    await expect(api.enforceReviewSLA({ limit: 50 })).resolves.toEqual({ scanned: 3, alerted: 2 });
+
+    expect(post).toHaveBeenCalledWith('/api/v1/admin/reviews/sla/enforce?limit=50');
+  });
+
   it('requests publisher changes through the admin marketplace review endpoint', async () => {
     const post = vi.fn().mockResolvedValue({ status: 'needs_changes' });
     const api = createAdminApi(createClient({ post }));
