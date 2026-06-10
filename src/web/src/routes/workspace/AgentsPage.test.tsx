@@ -65,7 +65,15 @@ describe('AgentsPage', () => {
   it('creates a new agent from the workspace page', async () => {
     listAgents.mockResolvedValueOnce([]);
     createAgent.mockResolvedValueOnce({
-      config: { approvalMode: 'tiered', defaultExecutionMode: 'react' },
+      config: {
+        approvalMode: 'all',
+        defaultExecutionMode: 'planning',
+        longTermMemoryExtractionPolicy: 'llm_assisted',
+        longTermMemoryUpdatePolicy: 'memory_key_consolidate',
+        longTermMemoryWritePolicy: 'explicit_only',
+        maxIterations: 30,
+        tokenBudget: 60000
+      },
       description: 'Research and summarize workspace materials.',
       id: 'agent_created',
       isPublic: false,
@@ -84,11 +92,26 @@ describe('AgentsPage', () => {
     fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'gpt-4o-mini' } });
     fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Research and summarize workspace materials.' } });
     fireEvent.change(screen.getByLabelText('System prompt'), { target: { value: 'Prefer cited answers.' } });
+    fireEvent.change(screen.getByLabelText('Approval mode'), { target: { value: 'all' } });
+    fireEvent.change(screen.getByLabelText('Default execution mode'), { target: { value: 'planning' } });
+    fireEvent.change(screen.getByLabelText('Long-term memory writes'), { target: { value: 'explicit_only' } });
+    fireEvent.change(screen.getByLabelText('Long-term memory extraction'), { target: { value: 'llm_assisted' } });
+    fireEvent.change(screen.getByLabelText('Long-term memory update'), { target: { value: 'memory_key_consolidate' } });
+    fireEvent.change(screen.getByLabelText('Max iterations'), { target: { value: '30' } });
+    fireEvent.change(screen.getByLabelText('Token budget'), { target: { value: '60000' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save agent' }));
 
     await waitFor(() => {
       expect(createAgent).toHaveBeenCalledWith({
-        config: { approvalMode: 'tiered', defaultExecutionMode: 'react' },
+        config: {
+          approvalMode: 'all',
+          defaultExecutionMode: 'planning',
+          longTermMemoryExtractionPolicy: 'llm_assisted',
+          longTermMemoryUpdatePolicy: 'memory_key_consolidate',
+          longTermMemoryWritePolicy: 'explicit_only',
+          maxIterations: 30,
+          tokenBudget: 60000
+        },
         description: 'Research and summarize workspace materials.',
         isPublic: false,
         model: 'gpt-4o-mini',

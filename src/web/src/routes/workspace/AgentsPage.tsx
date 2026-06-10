@@ -141,6 +141,13 @@ export function AgentsPage() {
   const [createDescription, setCreateDescription] = useState('');
   const [createModel, setCreateModel] = useState('gpt-4o-mini');
   const [createSystemPrompt, setCreateSystemPrompt] = useState('');
+  const [createApprovalMode, setCreateApprovalMode] = useState<ApprovalMode>('tiered');
+  const [createDefaultExecutionMode, setCreateDefaultExecutionMode] = useState<AgentExecutionMode>('react');
+  const [createLongTermMemoryExtractionPolicy, setCreateLongTermMemoryExtractionPolicy] = useState<LongTermMemoryExtractionPolicy>('deterministic');
+  const [createLongTermMemoryUpdatePolicy, setCreateLongTermMemoryUpdatePolicy] = useState<LongTermMemoryUpdatePolicy>('exact_refresh');
+  const [createLongTermMemoryWritePolicy, setCreateLongTermMemoryWritePolicy] = useState<LongTermMemoryWritePolicy>('interaction_and_explicit');
+  const [createMaxIterations, setCreateMaxIterations] = useState('');
+  const [createTokenBudget, setCreateTokenBudget] = useState('');
   const [approvalMode, setApprovalMode] = useState<ApprovalMode>('tiered');
   const [defaultExecutionMode, setDefaultExecutionMode] = useState<AgentExecutionMode>('react');
   const [longTermMemoryExtractionPolicy, setLongTermMemoryExtractionPolicy] = useState<LongTermMemoryExtractionPolicy>('deterministic');
@@ -237,6 +244,13 @@ export function AgentsPage() {
     setCreateDescription('');
     setCreateModel('gpt-4o-mini');
     setCreateSystemPrompt('');
+    setCreateApprovalMode('tiered');
+    setCreateDefaultExecutionMode('react');
+    setCreateLongTermMemoryExtractionPolicy('deterministic');
+    setCreateLongTermMemoryUpdatePolicy('exact_refresh');
+    setCreateLongTermMemoryWritePolicy('interaction_and_explicit');
+    setCreateMaxIterations('');
+    setCreateTokenBudget('');
   };
 
   const resetCustomToolForm = () => {
@@ -256,6 +270,8 @@ export function AgentsPage() {
     const model = createModel.trim() || 'gpt-4o-mini';
     const description = createDescription.trim();
     const systemPrompt = createSystemPrompt.trim();
+    const parsedMaxIterations = optionalPositiveInteger(createMaxIterations);
+    const parsedTokenBudget = optionalPositiveInteger(createTokenBudget);
 
     if (!name) {
       setError('Agent name is required.');
@@ -267,8 +283,22 @@ export function AgentsPage() {
     setSavedMessage('');
 
     try {
+      const config: AgentConfig = {
+        approvalMode: createApprovalMode,
+        defaultExecutionMode: createDefaultExecutionMode,
+        longTermMemoryExtractionPolicy: createLongTermMemoryExtractionPolicy,
+        longTermMemoryUpdatePolicy: createLongTermMemoryUpdatePolicy,
+        longTermMemoryWritePolicy: createLongTermMemoryWritePolicy
+      };
+      if (parsedMaxIterations !== undefined) {
+        config.maxIterations = parsedMaxIterations;
+      }
+      if (parsedTokenBudget !== undefined) {
+        config.tokenBudget = parsedTokenBudget;
+      }
+
       const created = await api.createAgent({
-        config: { approvalMode: 'tiered', defaultExecutionMode: 'react' },
+        config,
         description,
         isPublic: false,
         model,
@@ -610,6 +640,102 @@ export function AgentsPage() {
                 onChange={(event) => setCreateSystemPrompt(event.target.value)}
                 value={createSystemPrompt}
               />
+            </label>
+          </div>
+          <div className="grid gap-4 border-t border-[#d7d2c4] px-5 py-4 md:grid-cols-3">
+            <label className="text-sm font-medium text-[#181611]">
+              Approval mode
+              <select
+                className="mt-2 min-h-10 w-full rounded-lg border border-[#d7d2c4] bg-[#fbfaf7] px-3 text-sm"
+                onChange={(event) => setCreateApprovalMode(normalizeApprovalMode(event.target.value))}
+                value={createApprovalMode}
+              >
+                {approvalModes.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {mode}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-sm font-medium text-[#181611]">
+              Default execution mode
+              <select
+                className="mt-2 min-h-10 w-full rounded-lg border border-[#d7d2c4] bg-[#fbfaf7] px-3 text-sm"
+                onChange={(event) => setCreateDefaultExecutionMode(normalizeExecutionMode(event.target.value))}
+                value={createDefaultExecutionMode}
+              >
+                {executionModes.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {mode}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-sm font-medium text-[#181611]">
+              Max iterations
+              <input
+                className="mt-2 min-h-10 w-full rounded-lg border border-[#d7d2c4] bg-[#fbfaf7] px-3 text-sm"
+                min={1}
+                max={100}
+                onChange={(event) => setCreateMaxIterations(event.target.value)}
+                step={1}
+                type="number"
+                value={createMaxIterations}
+              />
+            </label>
+            <label className="text-sm font-medium text-[#181611]">
+              Token budget
+              <input
+                className="mt-2 min-h-10 w-full rounded-lg border border-[#d7d2c4] bg-[#fbfaf7] px-3 text-sm"
+                min={1000}
+                max={1000000}
+                onChange={(event) => setCreateTokenBudget(event.target.value)}
+                step={1000}
+                type="number"
+                value={createTokenBudget}
+              />
+            </label>
+            <label className="text-sm font-medium text-[#181611]">
+              Long-term memory writes
+              <select
+                className="mt-2 min-h-10 w-full rounded-lg border border-[#d7d2c4] bg-[#fbfaf7] px-3 text-sm"
+                onChange={(event) => setCreateLongTermMemoryWritePolicy(normalizeLongTermMemoryWritePolicy(event.target.value))}
+                value={createLongTermMemoryWritePolicy}
+              >
+                {longTermMemoryWritePolicies.map((policy) => (
+                  <option key={policy} value={policy}>
+                    {policy}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-sm font-medium text-[#181611]">
+              Long-term memory extraction
+              <select
+                className="mt-2 min-h-10 w-full rounded-lg border border-[#d7d2c4] bg-[#fbfaf7] px-3 text-sm"
+                onChange={(event) => setCreateLongTermMemoryExtractionPolicy(normalizeLongTermMemoryExtractionPolicy(event.target.value))}
+                value={createLongTermMemoryExtractionPolicy}
+              >
+                {longTermMemoryExtractionPolicies.map((policy) => (
+                  <option key={policy} value={policy}>
+                    {policy}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-sm font-medium text-[#181611]">
+              Long-term memory update
+              <select
+                className="mt-2 min-h-10 w-full rounded-lg border border-[#d7d2c4] bg-[#fbfaf7] px-3 text-sm"
+                onChange={(event) => setCreateLongTermMemoryUpdatePolicy(normalizeLongTermMemoryUpdatePolicy(event.target.value))}
+                value={createLongTermMemoryUpdatePolicy}
+              >
+                {longTermMemoryUpdatePolicies.map((policy) => (
+                  <option key={policy} value={policy}>
+                    {policy}
+                  </option>
+                ))}
+              </select>
             </label>
           </div>
           <div className="flex flex-wrap items-center gap-3 border-t border-[#d7d2c4] px-5 py-4">
