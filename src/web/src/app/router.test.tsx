@@ -26,6 +26,148 @@ const chatApiMocks = vi.hoisted(() => ({
   )
 }));
 
+const knowledgeApiMocks = vi.hoisted(() => {
+  const retrievalResult = {
+    chunkId: 'chunk_router_1',
+    chunkIndex: 0,
+    documentId: 'doc_router_overview',
+    documentTitle: 'Router Retrieval Runbook',
+    documentVersion: 'v2',
+    retrievalMethod: 'hybrid_rerank',
+    similarity: 0.94,
+    snippet: 'Deployment rollback needs cited context.',
+    source: {
+      chunkId: 'chunk_router_1',
+      chunkIndex: 0,
+      documentId: 'doc_router_overview',
+      documentTitle: 'Router Retrieval Runbook',
+      documentVersion: 'v2',
+      highlightPositions: [{ end: 19, start: 11 }],
+      matchedSnippet: 'rollback',
+      originalText: 'Deployment rollback needs cited context.',
+      pageNumber: 7,
+      sourceUrl: 'https://docs.example/router.pdf'
+    }
+  };
+
+  return {
+    getKnowledgeBase: vi.fn((knowledgeBaseId = 'kb_router') =>
+      Promise.resolve({
+        chunkOverlap: 75,
+        chunkSize: 800,
+        chunkStrategy: 'semantic',
+        documentCount: 2,
+        embeddingModel: 'text-embedding-3-large',
+        id: knowledgeBaseId,
+        name: 'Research Vault',
+        rerankTopK: 8,
+        rerankerModel: 'bge-reranker-large',
+        retrievalMode: 'hybrid_rerank',
+        updatedAt: '2026-06-09T00:00:00Z'
+      })
+    ),
+    listKnowledgeBases: vi.fn(() =>
+      Promise.resolve([
+        {
+          documentCount: 4,
+          id: 'kb_router',
+          name: 'Research Vault'
+        }
+      ])
+    ),
+    listKnowledgeDocumentChunks: vi.fn(() =>
+      Promise.resolve([
+        {
+          charCount: 41,
+          chunkId: 'chunk_router_1',
+          chunkIndex: 0,
+          content: 'Deployment rollback needs cited context.',
+          documentVersion: 'v2',
+          estimatedTokenCount: 8,
+          metadata: {
+            documentVersion: 'v2',
+            endRune: 41,
+            pageNumber: 7,
+            sourceUrl: 'https://docs.example/router.pdf',
+            startRune: 0
+          }
+        },
+        {
+          charCount: 38,
+          chunkId: 'chunk_router_2',
+          chunkIndex: 1,
+          content: 'Release signoff keeps owners aligned.',
+          documentVersion: 'v2',
+          estimatedTokenCount: 7,
+          metadata: {
+            documentVersion: 'v2',
+            endRune: 79,
+            pageNumber: 8,
+            sourceUrl: 'https://docs.example/router.pdf',
+            startRune: 41
+          }
+        }
+      ])
+    ),
+    listKnowledgeDocumentVersions: vi.fn(() =>
+      Promise.resolve([
+        {
+          chunkCount: 2,
+          content: 'Version 2 runbook content.',
+          documentId: 'doc_router_overview',
+          documentVersion: 'v2',
+          title: 'Router Retrieval Runbook',
+          updateStrategy: 'versioned'
+        }
+      ])
+    ),
+    listKnowledgeDocuments: vi.fn(() =>
+      Promise.resolve([
+        {
+          content: 'Deployment controls include rollback and citation checks.',
+          documentVersion: 'v2',
+          id: 'doc_router_overview',
+          title: 'Router Retrieval Runbook',
+          updateStrategy: 'versioned',
+          updatedAt: '2026-06-09T00:00:00Z'
+        }
+      ])
+    ),
+    listRetrievalTestCases: vi.fn(() =>
+      Promise.resolve([
+        {
+          expectedChunkId: 'chunk_router_1',
+          expectedChunkIndex: 0,
+          expectedDocumentId: 'doc_router_overview',
+          expectedDocumentTitle: 'Router Retrieval Runbook',
+          id: 'case_router_1',
+          knowledgeBaseId: 'kb_router',
+          query: 'deployment rollback'
+        }
+      ])
+    ),
+    retrieveKnowledge: vi.fn(() => Promise.resolve([retrievalResult])),
+    runRetrievalTestCases: vi.fn(() =>
+      Promise.resolve({
+        failed: 0,
+        knowledgeBaseId: 'kb_router',
+        passed: 1,
+        results: [
+          {
+            actualResult: retrievalResult,
+            expectedResult: retrievalResult,
+            passed: true,
+            query: 'deployment rollback',
+            rank: 1,
+            testCaseId: 'case_router_1'
+          }
+        ],
+        total: 1
+      })
+    )
+  };
+});
+
 const adminApiMocks = vi.hoisted(() => ({
   approveAgent: vi.fn(() => Promise.resolve()),
   rejectAgent: vi.fn(() => Promise.resolve()),
@@ -249,16 +391,7 @@ vi.mock('../features/chat/api', () => ({
 }));
 
 vi.mock('../features/knowledge/api', () => ({
-  createKnowledgeApi: () => ({
-    listKnowledgeBases: () =>
-      Promise.resolve([
-        {
-          documentCount: 4,
-          id: 'kb_router',
-          name: 'Research Vault'
-        }
-      ])
-  })
+  createKnowledgeApi: () => knowledgeApiMocks
 }));
 
 vi.mock('../features/tasks/api', () => {
@@ -1710,6 +1843,7 @@ import { routerFuture } from './routerFuture';
 describe('app router', () => {
   afterEach(() => {
     Object.values(chatApiMocks).forEach((mock) => mock.mockClear());
+    Object.values(knowledgeApiMocks).forEach((mock) => mock.mockClear());
     Object.values(adminApiMocks).forEach((mock) => mock.mockClear());
     window.history.replaceState({}, '', '/');
   });
@@ -1741,6 +1875,112 @@ describe('app router', () => {
 
     expect(await screen.findByText('Workspace')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Knowledge' })).toBeInTheDocument();
+  });
+
+  it('keeps knowledge detail route-level RAG, document, chunk, and evaluation controls reachable', async () => {
+    const router = createAppRouter(['/knowledge/kb_router']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    const workspaceNavigation = await screen.findByRole('navigation', { name: 'Workspace navigation' });
+    expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
+    expect(within(workspaceNavigation).getByRole('link', { name: 'Knowledge' })).toHaveAttribute('href', '/knowledge');
+    expect(await screen.findByRole('heading', { name: 'Research Vault' })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/knowledge/kb_router');
+
+    await waitFor(() => {
+      expect(knowledgeApiMocks.getKnowledgeBase).toHaveBeenCalledWith('kb_router');
+      expect(knowledgeApiMocks.listKnowledgeDocuments).toHaveBeenCalledWith('kb_router');
+      expect(knowledgeApiMocks.listRetrievalTestCases).toHaveBeenCalledWith('kb_router');
+    });
+
+    expect(screen.getByText('Knowledge base ID: kb_router')).toBeInTheDocument();
+    expect(screen.getByText('Retrieval strategy: hybrid_rerank')).toBeInTheDocument();
+    expect(screen.getByText('Chunking: semantic · 800 chars · 75 overlap')).toBeInTheDocument();
+    expect(screen.getByText('Reranking: bge-reranker-large · top 8')).toBeInTheDocument();
+    expect(screen.getByLabelText('Default retrieval strategy')).toHaveValue('hybrid_rerank');
+    expect(screen.getByLabelText('Chunking strategy')).toHaveValue('semantic');
+    expect(screen.getByLabelText('Chunk size')).toHaveValue(800);
+    expect(screen.getByLabelText('Chunk overlap')).toHaveValue(75);
+    expect(screen.getByLabelText('Embedding model')).toHaveValue('text-embedding-3-large');
+    expect(screen.getByLabelText('Rerank top K')).toHaveValue(8);
+
+    expect(screen.getByText('Router Retrieval Runbook')).toBeInTheDocument();
+    expect(screen.getByText('Deployment controls include rollback and citation checks.')).toBeInTheDocument();
+    expect(screen.getByText('Version: v2')).toBeInTheDocument();
+    expect(screen.getByText('Update strategy: versioned')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'View chunks for Router Retrieval Runbook' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'View version history for Router Retrieval Runbook' })).toBeEnabled();
+
+    expect(screen.getByLabelText('Retrieval test set')).toBeInTheDocument();
+    expect(screen.getByText('Saved cases: 1')).toBeInTheDocument();
+    expect(screen.getByText('deployment rollback')).toBeInTheDocument();
+    expect(screen.getByText('Expected: Router Retrieval Runbook · chunk 1 · chunk_router_1')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Retrieval query'), { target: { value: 'deployment rollback' } });
+    fireEvent.change(screen.getByLabelText('Retrieval mode'), { target: { value: 'hybrid' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search knowledge' }));
+
+    await waitFor(() => {
+      expect(knowledgeApiMocks.retrieveKnowledge).toHaveBeenCalledWith('kb_router', {
+        mode: 'hybrid',
+        query: 'deployment rollback'
+      });
+    });
+    expect(await screen.findByText('Deployment rollback needs cited context.')).toBeInTheDocument();
+    expect(screen.getByText('Score: 94%')).toBeInTheDocument();
+    expect(screen.getByText('Method: hybrid_rerank')).toBeInTheDocument();
+    expect(screen.getByText('Source: Router Retrieval Runbook · chunk 1 · chunk_router_1')).toBeInTheDocument();
+    expect(screen.getByText('Page: 7')).toBeInTheDocument();
+    expect(screen.getByText('Original text: Deployment rollback needs cited context.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Similarity score for chunk_router_1')).toHaveValue(0.94);
+    expect(screen.getByLabelText('Highlight positions for chunk_router_1')).toHaveTextContent('Highlight: 11-19');
+
+    fireEvent.click(screen.getByRole('button', { name: 'View chunk chunk_router_1' }));
+
+    await waitFor(() => {
+      expect(knowledgeApiMocks.listKnowledgeDocumentChunks).toHaveBeenCalledWith(
+        'kb_router',
+        'doc_router_overview'
+      );
+    });
+    expect(await screen.findByRole('heading', { name: 'Chunks for Router Retrieval Runbook' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Chunk 1 chunk_router_1 selected' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+    expect(screen.getByLabelText('Original document preview')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open PDF page 7' })).toHaveAttribute(
+      'href',
+      'https://docs.example/router.pdf#page=7'
+    );
+    expect(screen.getByLabelText('Chunk content editor')).toHaveValue('Deployment rollback needs cited context.');
+    fireEvent.change(screen.getByLabelText('Chunk split position'), { target: { value: '20' } });
+    expect(screen.getByRole('button', { name: 'Split chunk' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Merge with previous chunk' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Merge with next chunk' })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'View version history for Router Retrieval Runbook' }));
+
+    await waitFor(() => {
+      expect(knowledgeApiMocks.listKnowledgeDocumentVersions).toHaveBeenCalledWith(
+        'kb_router',
+        'doc_router_overview'
+      );
+    });
+    expect(await screen.findByRole('heading', { name: 'Version history for Router Retrieval Runbook' })).toBeInTheDocument();
+    expect(screen.getByText('Version v2 · chunks 2')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Restore version v2 for Router Retrieval Runbook' })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run retrieval tests' }));
+
+    await waitFor(() => {
+      expect(knowledgeApiMocks.runRetrievalTestCases).toHaveBeenCalledWith('kb_router', {
+        mode: 'hybrid'
+      });
+    });
+    expect(await screen.findByText('Evaluation: 1 passed / 0 failed / 1 total')).toBeInTheDocument();
+    expect(screen.getByText('case_router_1 passed at rank 1')).toBeInTheDocument();
   });
 
   it('renders memories route inside the workspace shell', async () => {
