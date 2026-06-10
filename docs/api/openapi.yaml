@@ -14313,6 +14313,8 @@ paths:
       summary: 管理员获取组织列表
       operationId: listAdminOrganizations
       tags: [Admin]
+      security:
+        - cookieAuth: []
       parameters:
         - name: status
           in: query
@@ -14401,6 +14403,8 @@ paths:
       summary: 管理员获取组织详情
       operationId: getAdminOrganization
       tags: [Admin]
+      security:
+        - cookieAuth: []
       parameters:
         - name: organizationId
           in: path
@@ -14529,6 +14533,8 @@ paths:
       summary: 管理员获取组织成员列表
       operationId: listAdminOrganizationMembers
       tags: [Admin]
+      security:
+        - cookieAuth: []
       parameters:
         - name: organizationId
           in: path

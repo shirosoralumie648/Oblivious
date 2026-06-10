@@ -3534,6 +3534,11 @@ require_admin_organization_mutation_csrf_contract() {
       security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
     end
 
+    def requires_cookie_without_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && !entry.key?("csrfHeader") }
+    end
+
     def request_body_ref(operation)
       operation.dig("requestBody", "content", "application/json", "schema", "$ref")
     end
@@ -3560,6 +3565,9 @@ require_admin_organization_mutation_csrf_contract() {
       end
       unless op.fetch("tags", []).include?("Admin")
         missing << "#{method.upcase} #{path} must be tagged Admin"
+      end
+      if method == "get" && !requires_cookie_without_csrf?(op)
+        missing << "#{method.upcase} #{path} must require cookieAuth without csrfHeader"
       end
     end
 
