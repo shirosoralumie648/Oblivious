@@ -3044,6 +3044,11 @@ require_console_api_token_csrf_contract() {
       security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
     end
 
+    def requires_cookie_without_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && !entry.key?("csrfHeader") }
+    end
+
     def request_body_ref(operation)
       operation.dig("requestBody", "content", "application/json", "schema", "$ref")
     end
@@ -3054,8 +3059,16 @@ require_console_api_token_csrf_contract() {
         dig("properties", "data", "$ref")
     end
 
+    def response_array_item_ref(operation, status)
+      operation.dig("responses", status, "content", "application/json", "schema", "allOf")&.
+        find { |entry| entry.dig("properties", "data", "items", "$ref") }&.
+        dig("properties", "data", "items", "$ref")
+    end
+
+    list = operation(paths, "/api/v1/console/api-tokens", "get", missing)
     create = operation(paths, "/api/v1/console/api-tokens", "post", missing)
     revoke = operation(paths, "/api/v1/console/api-tokens/{tokenId}", "delete", missing)
+    usage = operation(paths, "/api/v1/console/api-tokens/{tokenId}/usage", "get", missing)
 
     {
       "POST /api/v1/console/api-tokens" => create,
@@ -3069,6 +3082,24 @@ require_console_api_token_csrf_contract() {
       end
     end
 
+    {
+      "GET /api/v1/console/api-tokens" => list,
+      "GET /api/v1/console/api-tokens/{tokenId}/usage" => usage,
+    }.each do |label, op|
+      unless requires_cookie_without_csrf?(op)
+        missing << "#{label} must require cookieAuth without csrfHeader"
+      end
+      unless op.fetch("tags", []).include?("Billing")
+        missing << "#{label} must be tagged Billing"
+      end
+    end
+
+    unless response_array_item_ref(list, "200") == "#/components/schemas/RelayAPIToken"
+      missing << "GET /api/v1/console/api-tokens 200 data items must reference RelayAPIToken"
+    end
+    unless response_array_item_ref(usage, "200") == "#/components/schemas/RelayAPITokenUsageItem"
+      missing << "GET /api/v1/console/api-tokens/{tokenId}/usage 200 data items must reference RelayAPITokenUsageItem"
+    end
     unless create.dig("requestBody", "required") == true &&
         request_body_ref(create) == "#/components/schemas/CreateRelayAPITokenRequest"
       missing << "POST /api/v1/console/api-tokens request body must require CreateRelayAPITokenRequest"
@@ -3085,6 +3116,27 @@ require_console_api_token_csrf_contract() {
         revoke_schema.dig("properties", "status", "type") == "string" &&
         revoke_schema.dig("properties", "status", "enum") == ["revoked"]
       missing << "RelayAPITokenRevokeResponse.status must be required and enumerate revoked"
+    end
+
+    relay_token_props = schemas.fetch("RelayAPIToken", {}).fetch("properties", {})
+    ["id", "name", "tokenPrefix", "status", "modelLimitsEnabled", "modelLimits", "usedQuota", "createdAt"].each do |field|
+      missing << "RelayAPIToken.#{field} must be documented for console list responses" unless relay_token_props.key?(field)
+    end
+    ["rawToken", "tokenHash", "token_hash"].each do |field|
+      missing << "RelayAPIToken list schema must not expose #{field}" if relay_token_props.key?(field)
+    end
+
+    created_props = schemas.fetch("CreatedRelayAPIToken", {}).fetch("properties", {})
+    unless created_props.key?("rawToken") && created_props.dig("token", "$ref") == "#/components/schemas/RelayAPIToken"
+      missing << "CreatedRelayAPIToken must expose one-time rawToken plus RelayAPIToken token"
+    end
+
+    usage_props = schemas.fetch("RelayAPITokenUsageItem", {}).fetch("properties", {})
+    ["id", "apiTokenId", "requestId", "apiType", "model", "provider", "status", "statusCode", "totalTokens", "createdAt"].each do |field|
+      missing << "RelayAPITokenUsageItem.#{field} must be documented for console usage responses" unless usage_props.key?(field)
+    end
+    ["rawToken", "tokenHash", "token_hash"].each do |field|
+      missing << "RelayAPITokenUsageItem must not expose #{field}" if usage_props.key?(field)
     end
 
     unless missing.empty?

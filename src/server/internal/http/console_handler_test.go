@@ -171,7 +171,7 @@ func TestConsoleHandlerListInvoicesReturnsOrganizationInvoices(t *testing.T) {
 	}
 }
 
-func TestConsoleHandlerListAPITokensReturnsTypedTokensWithoutRawToken(t *testing.T) {
+func TestConsoleHandlerListAPITokensReturnsTypedTokensWithoutSecrets(t *testing.T) {
 	quotaLimit := 100.0
 	createdAt := time.Date(2026, 6, 9, 9, 0, 0, 0, time.UTC)
 	apiTokenStore := &consoleHandlerAPITokenStore{
@@ -200,9 +200,7 @@ func TestConsoleHandlerListAPITokensReturnsTypedTokensWithoutRawToken(t *testing
 	if recorder.Code != stdhttp.StatusOK {
 		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
 	}
-	if body := recorder.Body.String(); jsonContainsKey(body, "rawToken") {
-		t.Fatalf("list api tokens must not expose rawToken: %s", body)
-	}
+	assertNoTokenSecretKeys(t, recorder.Body.String(), "list api tokens")
 	var response struct {
 		Data []relay.RelayAPITokenListItem `json:"data"`
 	}
@@ -254,6 +252,7 @@ func TestConsoleHandlerListAPITokenUsageReturnsTypedUsageItems(t *testing.T) {
 	if recorder.Code != stdhttp.StatusOK {
 		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
 	}
+	assertNoTokenSecretKeys(t, recorder.Body.String(), "api token usage")
 	var response struct {
 		Data []relay.RelayAPITokenUsageItem `json:"data"`
 	}
@@ -461,6 +460,15 @@ func (s *consoleHandlerAPITokenStore) RevokeRelayAPIToken(_ context.Context, org
 	s.revokeUserID = userID
 	s.revokedTokenID = tokenID
 	return nil
+}
+
+func assertNoTokenSecretKeys(t *testing.T, body string, surface string) {
+	t.Helper()
+	for _, key := range []string{"rawToken", "tokenHash", "token_hash"} {
+		if jsonContainsKey(body, key) {
+			t.Fatalf("%s must not expose %s: %s", surface, key, body)
+		}
+	}
 }
 
 func jsonContainsKey(body string, key string) bool {
