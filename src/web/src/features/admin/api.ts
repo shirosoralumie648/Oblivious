@@ -404,6 +404,8 @@ export type AdminApi = {
   listMarketplaceAbuseReports: (params?: { status?: string; limit?: number; offset?: number }) => Promise<PaginatedResponse<MarketplaceAbuseReport>>;
   resolveMarketplaceAbuseReport: (id: string, resolution: string) => Promise<{ status: 'resolved' | 'dismissed' | string }>;
   dismissMarketplaceAbuseReport: (id: string, resolution: string) => Promise<{ status: 'resolved' | 'dismissed' | string }>;
+  takedownMarketplaceAgent: (id: string, reason: string) => Promise<{ status: string }>;
+  reinstateMarketplaceAgent: (id: string, reason: string) => Promise<{ status: string }>;
   getBillingSummary: (params?: BillingFilter) => Promise<BillingSummary>;
   listBillingSurface: (surface: BillingSurface, params?: BillingFilter) => Promise<PaginatedResponse<BillingInspectionRecord>>;
   refundTopup: (topupId: string, input: TopupRefundRequest) => Promise<BillingInspectionRecord>;
@@ -646,6 +648,10 @@ export function createAdminApi(client: HttpClient): AdminApi {
       client.post<{ status: string }>(`${apiPrefix}/marketplace/abuse-reports/${id}/resolve`, { resolution }),
     dismissMarketplaceAbuseReport: (id, resolution) =>
       client.post<{ status: string }>(`${apiPrefix}/marketplace/abuse-reports/${id}/dismiss`, { resolution }),
+    takedownMarketplaceAgent: (id, reason) =>
+      client.post<{ status: string }>(`${apiPrefix}/marketplace/agents/${id}/takedown`, { reason }),
+    reinstateMarketplaceAgent: (id, reason) =>
+      client.post<{ status: string }>(`${apiPrefix}/marketplace/agents/${id}/reinstate`, { reason }),
 
     getBillingSummary: (params) => {
       const queryParams = {

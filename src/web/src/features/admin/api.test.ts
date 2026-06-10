@@ -153,6 +153,24 @@ describe('createAdminApi', () => {
     });
   });
 
+  it('supports admin marketplace takedown and reinstate routes', async () => {
+    const post = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 'takedown' })
+      .mockResolvedValueOnce({ status: 'approved' });
+    const api = createAdminApi(createClient({ post }));
+
+    await expect(api.takedownMarketplaceAgent('agent_1', 'policy violation')).resolves.toEqual({ status: 'takedown' });
+    await expect(api.reinstateMarketplaceAgent('agent_1', 'appeal accepted')).resolves.toEqual({ status: 'approved' });
+
+    expect(post).toHaveBeenNthCalledWith(1, '/api/v1/admin/marketplace/agents/agent_1/takedown', {
+      reason: 'policy violation',
+    });
+    expect(post).toHaveBeenNthCalledWith(2, '/api/v1/admin/marketplace/agents/agent_1/reinstate', {
+      reason: 'appeal accepted',
+    });
+  });
+
   it('uses the backend action payload for channel batch updates', async () => {
     const post = vi.fn().mockResolvedValue(undefined);
     const api = createAdminApi(createClient({ post }));

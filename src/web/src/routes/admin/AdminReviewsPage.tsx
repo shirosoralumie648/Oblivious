@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useReducer } from 'react';
-import { RiAlarmWarningLine, RiCheckLine, RiCloseLine, RiEdit2Line } from '@remixicon/react';
+import { RiAlarmWarningLine, RiCheckLine, RiCloseLine, RiEdit2Line, RiShieldCheckLine } from '@remixicon/react';
 
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 
 import { ConfirmDialog } from '../../components/shared/ConfirmDialog';
@@ -16,6 +17,8 @@ type AbuseReportAction = {
   action: 'dismiss' | 'resolve';
   report: MarketplaceAbuseReport;
 };
+
+type GovernanceAction = 'reinstate' | 'takedown';
 
 type ReviewsState = {
   reviews: PublishedAgent[];
@@ -34,6 +37,12 @@ type ReviewsState = {
   abuseActionLoading: boolean;
   abuseFormError: string | null;
   abuseActionMessage: string | null;
+  governanceAgentID: string;
+  governanceAction: GovernanceAction;
+  governanceReason: string;
+  governanceLoading: boolean;
+  governanceMessage: string | null;
+  governanceError: string | null;
   confirmApprove: PublishedAgent | null;
   changesAgent: PublishedAgent | null;
   rejectAgent: PublishedAgent | null;
@@ -60,6 +69,12 @@ type Action =
   | { type: 'ABUSE_ACTION_START' }
   | { type: 'ABUSE_ACTION_DONE'; message: string }
   | { type: 'ABUSE_FORM_ERROR'; error: string }
+  | { type: 'SET_GOVERNANCE_AGENT_ID'; value: string }
+  | { type: 'SET_GOVERNANCE_ACTION'; value: GovernanceAction }
+  | { type: 'SET_GOVERNANCE_REASON'; value: string }
+  | { type: 'GOVERNANCE_START' }
+  | { type: 'GOVERNANCE_DONE'; message: string }
+  | { type: 'GOVERNANCE_ERROR'; error: string }
   | { type: 'CONFIRM_APPROVE'; agent: PublishedAgent | null }
   | { type: 'OPEN_CHANGES'; agent: PublishedAgent }
   | { type: 'CLOSE_CHANGES' }
@@ -87,6 +102,12 @@ const initialState: ReviewsState = {
   abuseActionLoading: false,
   abuseFormError: null,
   abuseActionMessage: null,
+  governanceAgentID: '',
+  governanceAction: 'takedown',
+  governanceReason: '',
+  governanceLoading: false,
+  governanceMessage: null,
+  governanceError: null,
   confirmApprove: null,
   changesAgent: null,
   rejectAgent: null,
@@ -138,6 +159,24 @@ function reducer(state: ReviewsState, action: Action): ReviewsState {
       };
     case 'ABUSE_FORM_ERROR':
       return { ...state, abuseActionLoading: false, abuseFormError: action.error };
+    case 'SET_GOVERNANCE_AGENT_ID':
+      return { ...state, governanceAgentID: action.value, governanceError: null, governanceMessage: null };
+    case 'SET_GOVERNANCE_ACTION':
+      return { ...state, governanceAction: action.value, governanceError: null, governanceMessage: null };
+    case 'SET_GOVERNANCE_REASON':
+      return { ...state, governanceReason: action.value, governanceError: null, governanceMessage: null };
+    case 'GOVERNANCE_START':
+      return { ...state, governanceLoading: true, governanceError: null, governanceMessage: null };
+    case 'GOVERNANCE_DONE':
+      return {
+        ...state,
+        governanceLoading: false,
+        governanceReason: '',
+        governanceMessage: action.message,
+        governanceError: null,
+      };
+    case 'GOVERNANCE_ERROR':
+      return { ...state, governanceLoading: false, governanceError: action.error };
     case 'CONFIRM_APPROVE':
       return { ...state, confirmApprove: action.agent };
     case 'OPEN_CHANGES':
@@ -359,6 +398,32 @@ export function AdminReviewsPage() {
     }
   };
 
+  const handleGovernanceAction = async () => {
+    const agentID = state.governanceAgentID.trim();
+    const reason = state.governanceReason.trim();
+    if (!agentID) {
+      dispatch({ type: 'GOVERNANCE_ERROR', error: 'Agent ID is required.' });
+      return;
+    }
+    if (!reason) {
+      dispatch({ type: 'GOVERNANCE_ERROR', error: 'Governance reason is required.' });
+      return;
+    }
+
+    dispatch({ type: 'GOVERNANCE_START' });
+    try {
+      if (state.governanceAction === 'takedown') {
+        await api.takedownMarketplaceAgent(agentID, reason);
+        dispatch({ type: 'GOVERNANCE_DONE', message: 'Marketplace agent taken down.' });
+      } else {
+        await api.reinstateMarketplaceAgent(agentID, reason);
+        dispatch({ type: 'GOVERNANCE_DONE', message: 'Marketplace agent reinstated.' });
+      }
+    } catch (error) {
+      dispatch({ type: 'GOVERNANCE_ERROR', error: error instanceof Error ? error.message : 'Unable to update marketplace governance.' });
+    }
+  };
+
   const columns: DataTableColumn<PublishedAgent>[] = [
     { key: 'name', header: 'Agent', sortable: true },
     { key: 'ownerName', header: 'Owner', render: (agent) => agent.ownerName || agent.ownerID || agent.ownerId || '-' },
@@ -526,6 +591,55 @@ export function AdminReviewsPage() {
             ) : null
           }
         />
+      </section>
+
+      <section className="space-y-4 rounded-lg border border-border bg-card p-4">
+        <h2 className="font-heading text-xl font-semibold text-foreground">Marketplace Governance</h2>
+
+        {state.governanceMessage ? (
+          <p className="rounded-lg border border-border bg-background px-4 py-3 text-sm text-foreground">{state.governanceMessage}</p>
+        ) : null}
+        {state.governanceError ? (
+          <p className="rounded-lg border border-destructive/30 bg-background px-4 py-3 text-sm text-destructive" role="alert">{state.governanceError}</p>
+        ) : null}
+
+        <div className="grid gap-4 lg:grid-cols-[minmax(180px,1fr)_180px]">
+          <div className="space-y-2">
+            <label htmlFor="governance-agent-id" className="text-sm font-medium">Agent ID</label>
+            <Input
+              id="governance-agent-id"
+              className="min-h-[44px] rounded-lg"
+              value={state.governanceAgentID}
+              onChange={(event) => dispatch({ type: 'SET_GOVERNANCE_AGENT_ID', value: event.target.value })}
+            />
+          </div>
+          <div className="space-y-2">
+            <label htmlFor="governance-action" className="text-sm font-medium">Action</label>
+            <select
+              id="governance-action"
+              aria-label="Governance action"
+              className="min-h-[44px] w-full rounded-lg border border-input bg-input/30 px-3 text-sm text-foreground"
+              value={state.governanceAction}
+              onChange={(event) => dispatch({ type: 'SET_GOVERNANCE_ACTION', value: event.target.value as GovernanceAction })}
+            >
+              <option value="takedown">Takedown</option>
+              <option value="reinstate">Reinstate</option>
+            </select>
+          </div>
+          <div className="space-y-2 lg:col-span-2">
+            <label htmlFor="governance-reason" className="text-sm font-medium">Reason</label>
+            <Textarea
+              id="governance-reason"
+              value={state.governanceReason}
+              onChange={(event) => dispatch({ type: 'SET_GOVERNANCE_REASON', value: event.target.value })}
+            />
+          </div>
+        </div>
+
+        <Button type="button" className="min-h-[44px]" disabled={state.governanceLoading} onClick={() => void handleGovernanceAction()}>
+          <RiShieldCheckLine className="size-4" aria-hidden="true" />
+          {state.governanceLoading ? 'Applying Governance' : 'Apply Governance'}
+        </Button>
       </section>
 
       <ConfirmDialog

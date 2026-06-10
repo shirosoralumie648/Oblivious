@@ -9,6 +9,8 @@ const requestAgentChanges = vi.fn();
 const listMarketplaceAbuseReports = vi.fn();
 const resolveMarketplaceAbuseReport = vi.fn();
 const dismissMarketplaceAbuseReport = vi.fn();
+const takedownMarketplaceAgent = vi.fn();
+const reinstateMarketplaceAgent = vi.fn();
 
 vi.mock('../../features/admin/api', () => ({
   createAdminApi: () => ({
@@ -20,6 +22,8 @@ vi.mock('../../features/admin/api', () => ({
     listMarketplaceAbuseReports,
     resolveMarketplaceAbuseReport,
     dismissMarketplaceAbuseReport,
+    takedownMarketplaceAgent,
+    reinstateMarketplaceAgent,
   }),
 }));
 
@@ -67,6 +71,8 @@ describe('AdminReviewsPage', () => {
     listMarketplaceAbuseReports.mockReset();
     resolveMarketplaceAbuseReport.mockReset();
     dismissMarketplaceAbuseReport.mockReset();
+    takedownMarketplaceAgent.mockReset();
+    reinstateMarketplaceAgent.mockReset();
     listMarketplaceAbuseReports.mockResolvedValue({ data: [], total: 0 });
   });
 
@@ -229,5 +235,40 @@ describe('AdminReviewsPage', () => {
 
     await waitFor(() => expect(dismissMarketplaceAbuseReport).toHaveBeenCalledWith('report_1', 'not reproducible'));
     expect(await screen.findByText('Abuse report dismissed.')).toBeInTheDocument();
+  });
+
+  it('requires governance evidence and takes down marketplace agents', async () => {
+    listReviews.mockResolvedValue({ data: [], total: 0 });
+    takedownMarketplaceAgent.mockResolvedValue({ status: 'takedown' });
+
+    render(<AdminReviewsPage />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Apply Governance' }));
+    expect(await screen.findByText('Agent ID is required.')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Agent ID'), { target: { value: 'agent_1' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply Governance' }));
+    expect(await screen.findByText('Governance reason is required.')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'policy violation' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply Governance' }));
+
+    await waitFor(() => expect(takedownMarketplaceAgent).toHaveBeenCalledWith('agent_1', 'policy violation'));
+    expect(await screen.findByText('Marketplace agent taken down.')).toBeInTheDocument();
+  });
+
+  it('reinstates marketplace agents from the governance panel', async () => {
+    listReviews.mockResolvedValue({ data: [], total: 0 });
+    reinstateMarketplaceAgent.mockResolvedValue({ status: 'approved' });
+
+    render(<AdminReviewsPage />);
+
+    fireEvent.change(await screen.findByLabelText('Agent ID'), { target: { value: 'agent_1' } });
+    fireEvent.change(screen.getByLabelText('Governance action'), { target: { value: 'reinstate' } });
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'appeal accepted' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply Governance' }));
+
+    await waitFor(() => expect(reinstateMarketplaceAgent).toHaveBeenCalledWith('agent_1', 'appeal accepted'));
+    expect(await screen.findByText('Marketplace agent reinstated.')).toBeInTheDocument();
   });
 });
