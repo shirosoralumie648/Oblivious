@@ -172,11 +172,18 @@ require_session_csrf_contract() {
         schemas.dig("PasswordResetConfirmResponse", "properties", "reset", "type") == "boolean"
       missing << "Password reset responses must document requested/reset booleans"
     end
+    unless schemas.dig("AuthLogoutResponse", "required")&.include?("loggedOut") &&
+        schemas.dig("AuthLogoutResponse", "properties", "loggedOut", "type") == "boolean"
+      missing << "AuthLogoutResponse must require loggedOut boolean"
+    end
 
     logout = spec.fetch("paths", {}).fetch("/api/v1/auth/logout", {}).fetch("post", {})
     security = logout.fetch("security", spec.fetch("security", []))
     unless security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
       missing << "POST /api/v1/auth/logout must require both cookieAuth and csrfHeader"
+    end
+    unless response_data_ref(logout, "200") == "#/components/schemas/AuthLogoutResponse"
+      missing << "POST /api/v1/auth/logout 200 data must reference AuthLogoutResponse"
     end
 
     unless missing.empty?

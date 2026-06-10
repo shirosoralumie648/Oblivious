@@ -108,6 +108,14 @@ components:
         reset:
           type: boolean
 
+    AuthLogoutResponse:
+      type: object
+      required: [loggedOut]
+      properties:
+        loggedOut:
+          type: boolean
+          example: true
+
     SessionResponse:
       type: object
       properties:
@@ -5905,11 +5913,7 @@ paths:
                   - type: object
                     properties:
                       data:
-                        type: object
-                        properties:
-                          loggedOut:
-                            type: boolean
-                            example: true
+                        $ref: "#/components/schemas/AuthLogoutResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
 
