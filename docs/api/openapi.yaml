@@ -3082,6 +3082,20 @@ components:
           type: string
           enum: [resolved, dismissed]
 
+    MarketplaceActionStatusResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [deleted, uninstalled, appealed, takedown, approved]
+
+    MarketplaceGovernanceActionRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+
     MarketplaceAbuseReportResolutionRequest:
       type: object
       properties:
@@ -15579,7 +15593,12 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplaceActionStatusResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -15655,7 +15674,12 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplaceActionStatusResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
 
@@ -15730,21 +15754,23 @@ paths:
         - cookieAuth: []
           csrfHeader: []
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                reason:
-                  type: string
+              $ref: "#/components/schemas/MarketplaceGovernanceActionRequest"
       responses:
         "200":
           description: Agent 申诉已记录
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplaceActionStatusResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -15904,7 +15930,12 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplaceActionStatusResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
 
@@ -16326,21 +16357,23 @@ paths:
         - cookieAuth: []
           csrfHeader: []
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                reason:
-                  type: string
+              $ref: "#/components/schemas/MarketplaceGovernanceActionRequest"
       responses:
         "200":
           description: Agent 已下架
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplaceActionStatusResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -16361,21 +16394,23 @@ paths:
         - cookieAuth: []
           csrfHeader: []
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                reason:
-                  type: string
+              $ref: "#/components/schemas/MarketplaceGovernanceActionRequest"
       responses:
         "200":
           description: Agent 已恢复
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Envelope"
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/MarketplaceActionStatusResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":

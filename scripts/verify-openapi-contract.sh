@@ -320,7 +320,11 @@ require_marketplace_surface_payload_contract() {
     expected_data_refs = {
       ["/api/v1/marketplace/agents", "post", "201"] => "#/components/schemas/MarketplacePublishedAgent",
       ["/api/v1/marketplace/agents/{agentId}", "put", "200"] => "#/components/schemas/MarketplacePublishedAgent",
+      ["/api/v1/marketplace/agents/{agentId}", "delete", "200"] => "#/components/schemas/MarketplaceActionStatusResponse",
+      ["/api/v1/marketplace/agents/{agentId}/install", "delete", "200"] => "#/components/schemas/MarketplaceActionStatusResponse",
+      ["/api/v1/marketplace/agents/{agentId}/appeal", "post", "200"] => "#/components/schemas/MarketplaceActionStatusResponse",
       ["/api/v1/marketplace/agents/{agentId}/abuse-reports", "post", "201"] => "#/components/schemas/MarketplaceAbuseReport",
+      ["/api/v1/marketplace/installs/{agentId}", "delete", "200"] => "#/components/schemas/MarketplaceActionStatusResponse",
       ["/api/v1/marketplace/publisher/settlement-preferences", "get", "200"] => "#/components/schemas/MarketplaceSettlementPreferences",
       ["/api/v1/marketplace/publisher/settlement-preferences", "put", "200"] => "#/components/schemas/MarketplaceSettlementPreferences",
       ["/api/v1/marketplace/templates", "get", "200"] => "#/components/schemas/MarketplaceTemplatesResponse",
@@ -329,6 +333,8 @@ require_marketplace_surface_payload_contract() {
       ["/api/v1/marketplace/templates/{templateId}/install", "post", "201"] => "#/components/schemas/MarketplaceTemplateInstall",
       ["/api/v1/marketplace/agents/{agentId}/stats", "get", "200"] => "#/components/schemas/MarketplaceAgentStats",
       ["/api/v1/marketplace/publisher/stats", "get", "200"] => "#/components/schemas/MarketplacePublisherStats",
+      ["/api/v1/admin/marketplace/agents/{agentId}/takedown", "post", "200"] => "#/components/schemas/MarketplaceActionStatusResponse",
+      ["/api/v1/admin/marketplace/agents/{agentId}/reinstate", "post", "200"] => "#/components/schemas/MarketplaceActionStatusResponse",
       ["/api/v1/admin/marketplace/abuse-reports", "get", "200"] => "#/components/schemas/MarketplaceAbuseReportsResponse",
       ["/api/v1/admin/marketplace/abuse-reports/{reportId}/resolve", "post", "200"] => "#/components/schemas/MarketplaceAbuseReportStatusResponse",
       ["/api/v1/admin/marketplace/abuse-reports/{reportId}/dismiss", "post", "200"] => "#/components/schemas/MarketplaceAbuseReportStatusResponse",
@@ -343,9 +349,12 @@ require_marketplace_surface_payload_contract() {
     expected_body_refs = {
       ["/api/v1/marketplace/agents", "post"] => "#/components/schemas/MarketplaceAgentPublishRequest",
       ["/api/v1/marketplace/agents/{agentId}", "put"] => "#/components/schemas/MarketplaceAgentPublishRequest",
+      ["/api/v1/marketplace/agents/{agentId}/appeal", "post"] => "#/components/schemas/MarketplaceGovernanceActionRequest",
       ["/api/v1/marketplace/agents/{agentId}/abuse-reports", "post"] => "#/components/schemas/MarketplaceAbuseReportRequest",
       ["/api/v1/marketplace/publisher/settlement-preferences", "put"] => "#/components/schemas/MarketplaceSettlementPreferencesRequest",
       ["/api/v1/marketplace/templates", "post"] => "#/components/schemas/MarketplaceTemplateCreateRequest",
+      ["/api/v1/admin/marketplace/agents/{agentId}/takedown", "post"] => "#/components/schemas/MarketplaceGovernanceActionRequest",
+      ["/api/v1/admin/marketplace/agents/{agentId}/reinstate", "post"] => "#/components/schemas/MarketplaceGovernanceActionRequest",
       ["/api/v1/admin/marketplace/abuse-reports/{reportId}/resolve", "post"] => "#/components/schemas/MarketplaceAbuseReportResolutionRequest",
       ["/api/v1/admin/marketplace/abuse-reports/{reportId}/dismiss", "post"] => "#/components/schemas/MarketplaceAbuseReportResolutionRequest",
     }
@@ -386,6 +395,19 @@ require_marketplace_surface_payload_contract() {
     pricing_enum = publish_request.dig("properties", "pricingType", "enum") || []
     unless ["free", "one_time", "subscription"].all? { |value| pricing_enum.include?(value) }
       missing << "MarketplaceAgentPublishRequest.pricingType must enumerate free, one_time, and subscription"
+    end
+
+    action_status_enum = schemas.dig("MarketplaceActionStatusResponse", "properties", "status", "enum") || []
+    unless ["deleted", "uninstalled", "appealed", "takedown", "approved"].all? { |value| action_status_enum.include?(value) }
+      missing << "MarketplaceActionStatusResponse.status must enumerate Marketplace action statuses"
+    end
+
+    governance_request = schemas["MarketplaceGovernanceActionRequest"] || {}
+    unless governance_request.fetch("required", []).include?("reason")
+      missing << "MarketplaceGovernanceActionRequest must require reason"
+    end
+    unless governance_request.dig("properties", "reason", "type") == "string"
+      missing << "MarketplaceGovernanceActionRequest.reason must be documented as string"
     end
 
     template_list = schemas["MarketplaceTemplatesResponse"] || {}
