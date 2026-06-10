@@ -12027,6 +12027,8 @@ paths:
       summary: 获取发布渠道列表
       operationId: listPublishingChannels
       tags: [Publishing]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: 当前组织的渠道配置列表，敏感配置字段会被脱敏
@@ -12078,6 +12080,8 @@ paths:
       summary: 获取发布渠道配置
       operationId: getPublishingChannel
       tags: [Publishing]
+      security:
+        - cookieAuth: []
       parameters:
         - name: channelId
           in: path
@@ -12270,6 +12274,8 @@ paths:
       summary: 获取发布渠道消息日志
       operationId: listPublishingChannelMessages
       tags: [Publishing]
+      security:
+        - cookieAuth: []
       parameters:
         - name: channelId
           in: path
@@ -12302,6 +12308,8 @@ paths:
       summary: 获取发布渠道失败重试队列
       operationId: listPublishingChannelFailedMessages
       tags: [Publishing]
+      security:
+        - cookieAuth: []
       parameters:
         - name: channelId
           in: path

@@ -1312,6 +1312,30 @@ func TestRouteSurfaceRejectsCookieMutationWithoutCSRF(t *testing.T) {
 	}
 }
 
+func TestRouteSurfacePublishingChannelReadRoutesRequireSessionWithoutDatabase(t *testing.T) {
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{})
+
+	tests := []routeSurfaceCase{
+		{"list channels", stdhttp.MethodGet, "/api/v1/channels"},
+		{"get channel", stdhttp.MethodGet, "/api/v1/channels/channel_1"},
+		{"list channel messages", stdhttp.MethodGet, "/api/v1/channels/channel_1/messages"},
+		{"list failed channel messages", stdhttp.MethodGet, "/api/v1/channels/channel_1/failed-messages"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, nil)
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusUnauthorized {
+				t.Fatalf("expected publishing channel read route to require session with 401 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
 func TestRouteSurfacePublishingChannelMutationsRejectCookieWithoutCSRFWithoutDatabase(t *testing.T) {
 	session := routeSurfaceUserSession()
 	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}})

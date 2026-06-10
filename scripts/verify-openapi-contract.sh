@@ -705,6 +705,11 @@ require_publishing_channel_secret_csrf_contract() {
       security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
     end
 
+    def requires_cookie_without_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && !entry.key?("csrfHeader") }
+    end
+
     expected_data_refs = {
       ["/api/v1/channels/{channelId}", "get", "200"] => "#/components/schemas/ChannelConfig",
       ["/api/v1/channels", "post", "201"] => "#/components/schemas/ChannelConfig",
@@ -733,6 +738,18 @@ require_publishing_channel_secret_csrf_contract() {
       end
       unless op.fetch("tags", []).include?("Publishing")
         missing << "GET #{path} must be tagged Publishing"
+      end
+    end
+
+    [
+      "/api/v1/channels",
+      "/api/v1/channels/{channelId}",
+      "/api/v1/channels/{channelId}/messages",
+      "/api/v1/channels/{channelId}/failed-messages",
+    ].each do |path|
+      op = operation(paths, path, "get", missing)
+      unless requires_cookie_without_csrf?(op)
+        missing << "GET #{path} must require cookieAuth without csrfHeader"
       end
     end
 
