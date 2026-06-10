@@ -170,8 +170,45 @@ const knowledgeApiMocks = vi.hoisted(() => {
 
 const adminApiMocks = vi.hoisted(() => ({
   approveAgent: vi.fn(() => Promise.resolve()),
+  dismissMarketplaceAbuseReport: vi.fn(() => Promise.resolve({ status: 'dismissed' })),
+  enforceReviewSLA: vi.fn(() => Promise.resolve({ scanned: 3, alerted: 2 })),
+  listMarketplaceAbuseReports: vi.fn(() =>
+    Promise.resolve({
+      data: [
+        {
+          id: 'report_router',
+          reporterOrganizationId: 'org_router',
+          reporterUserId: 'user_router',
+          agentId: 'agent_review_router',
+          reason: 'malware',
+          details: 'attempted credential exfiltration',
+          status: 'open',
+          createdAt: '2026-06-04T10:00:00Z',
+          updatedAt: '2026-06-04T10:00:00Z'
+        }
+      ],
+      total: 1
+    })
+  ),
+  reinstateMarketplaceAgent: vi.fn(() => Promise.resolve({ status: 'approved' })),
   rejectAgent: vi.fn(() => Promise.resolve()),
+  resolveMarketplaceAbuseReport: vi.fn(() => Promise.resolve({ status: 'resolved' })),
+  takedownMarketplaceAgent: vi.fn(() => Promise.resolve({ status: 'takedown' })),
   requestAgentChanges: vi.fn(() => Promise.resolve())
+}));
+
+const marketplaceApiMocks = vi.hoisted(() => ({
+  createTemplate: vi.fn(() =>
+    Promise.resolve({
+      id: 'tpl_router_created',
+      type: 'workflow',
+      name: 'Router Template',
+      templateData: { nodes: [{ id: 'start' }] },
+      tags: ['router'],
+      downloadsCount: 0
+    })
+  ),
+  deleteAgent: vi.fn(() => Promise.resolve())
 }));
 
 vi.mock('@xyflow/react', () => {
@@ -1117,7 +1154,13 @@ vi.mock('../features/admin/api', () => ({
         total: 1
       }),
     approveAgent: adminApiMocks.approveAgent,
+    dismissMarketplaceAbuseReport: adminApiMocks.dismissMarketplaceAbuseReport,
+    enforceReviewSLA: adminApiMocks.enforceReviewSLA,
+    listMarketplaceAbuseReports: adminApiMocks.listMarketplaceAbuseReports,
+    reinstateMarketplaceAgent: adminApiMocks.reinstateMarketplaceAgent,
     rejectAgent: adminApiMocks.rejectAgent,
+    resolveMarketplaceAbuseReport: adminApiMocks.resolveMarketplaceAbuseReport,
+    takedownMarketplaceAgent: adminApiMocks.takedownMarketplaceAgent,
     requestAgentChanges: adminApiMocks.requestAgentChanges,
     revokeAPIToken: () => Promise.resolve()
   })
@@ -1180,6 +1223,7 @@ vi.mock('../features/marketplace/api', () => {
           templateData: { nodes: [{ id: 'start' }] },
           installedAt: '2026-01-07T00:00:00Z'
         }),
+      createTemplate: marketplaceApiMocks.createTemplate,
       getCuratedSections: () =>
         Promise.resolve({
           popular: [{ ...marketplaceAgent, id: 'agent_popular', name: 'Popular Ops Agent', installCount: 420 }],
@@ -1201,6 +1245,7 @@ vi.mock('../features/marketplace/api', () => {
       getVersions: () => Promise.resolve([{ id: 'ver_1', version: '1.0.0', createdAt: '2026-01-01T00:00:00Z' }]),
       installAgent: () => Promise.resolve({ checkoutSessionId: 'cs_marketplace_1', url: 'https://checkout.example/session' }),
       uninstallAgent: () => Promise.resolve(),
+      deleteAgent: marketplaceApiMocks.deleteAgent,
       getMyAgents: () => Promise.resolve([marketplaceAgent]),
       getInstalledAgents: () =>
         Promise.resolve([
@@ -1850,6 +1895,7 @@ describe('app router', () => {
     Object.values(chatApiMocks).forEach((mock) => mock.mockClear());
     Object.values(knowledgeApiMocks).forEach((mock) => mock.mockClear());
     Object.values(adminApiMocks).forEach((mock) => mock.mockClear());
+    Object.values(marketplaceApiMocks).forEach((mock) => mock.mockClear());
     window.history.replaceState({}, '', '/');
   });
 
@@ -3016,6 +3062,21 @@ describe('app router', () => {
     expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'My Agents' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Publish Agent' })).toHaveAttribute('href', '/marketplace/publish');
+    expect(screen.getByRole('heading', { name: 'Template Factory' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Template name'), { target: { value: 'Router Template' } });
+    fireEvent.change(screen.getByLabelText('Template type'), { target: { value: 'workflow' } });
+    fireEvent.change(screen.getByLabelText('Template JSON'), { target: { value: '{"nodes":[{"id":"start"}]}' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create Template' }));
+    await waitFor(() =>
+      expect(marketplaceApiMocks.createTemplate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'Router Template',
+          templateData: { nodes: [{ id: 'start' }] },
+          type: 'workflow'
+        })
+      )
+    );
+    expect(await screen.findByText('Template created: Router Template.')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Settlement Cycle' })).toBeInTheDocument();
     expect(screen.getByText('Current cycle: Monthly')).toBeInTheDocument();
     expect(screen.getByText('5 business days')).toBeInTheDocument();
@@ -3055,6 +3116,11 @@ describe('app router', () => {
       'href',
       '/marketplace/agents/agent_1'
     );
+    fireEvent.click(screen.getByRole('button', { name: 'Delete agent Research Agent' }));
+    const deleteDialog = await screen.findByRole('dialog', { name: 'Delete Agent' });
+    expect(within(deleteDialog).getByText('Delete Research Agent from the marketplace publisher inventory.')).toBeInTheDocument();
+    fireEvent.click(within(deleteDialog).getByRole('button', { name: 'Delete Agent' }));
+    await waitFor(() => expect(marketplaceApiMocks.deleteAgent).toHaveBeenCalledWith('agent_1'));
     expect(screen.getByRole('button', { name: 'Uninstall Research Agent' })).toBeEnabled();
   });
 
@@ -3087,6 +3153,38 @@ describe('app router', () => {
     expect(screen.getByRole('button', { name: 'Approve agent Research Agent' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Reject agent Research Agent' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Request changes for agent Research Agent' })).toBeInTheDocument();
+  });
+
+  it('keeps admin review route-level marketplace governance actions reachable', async () => {
+    const router = createAppRouter(['/admin/reviews']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    expect(await screen.findByRole('heading', { name: 'Review Queue' })).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: 'Enforce SLA' }));
+    await waitFor(() => expect(adminApiMocks.enforceReviewSLA).toHaveBeenCalledWith({ limit: 100 }));
+    expect(await screen.findByText('Review SLA scan complete: 3 scanned, 2 alerted.')).toBeInTheDocument();
+
+    expect(await screen.findByRole('heading', { name: 'Marketplace Abuse Reports' })).toBeInTheDocument();
+    expect(await screen.findByText('agent_review_router')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Resolve abuse report report_router' }));
+    fireEvent.change(await screen.findByLabelText('Resolution'), { target: { value: 'agent removed' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Resolve Report' }));
+    await waitFor(() => expect(adminApiMocks.resolveMarketplaceAbuseReport).toHaveBeenCalledWith('report_router', 'agent removed'));
+    expect(await screen.findByText('Abuse report resolved.')).toBeInTheDocument();
+
+    expect(screen.getByRole('heading', { name: 'Marketplace Governance' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Agent ID'), { target: { value: 'agent_review_router' } });
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'policy violation' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply Governance' }));
+    await waitFor(() => expect(adminApiMocks.takedownMarketplaceAgent).toHaveBeenCalledWith('agent_review_router', 'policy violation'));
+    expect(await screen.findByText('Marketplace agent taken down.')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Governance action'), { target: { value: 'reinstate' } });
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'appeal accepted' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply Governance' }));
+    await waitFor(() => expect(adminApiMocks.reinstateMarketplaceAgent).toHaveBeenCalledWith('agent_review_router', 'appeal accepted'));
+    expect(await screen.findByText('Marketplace agent reinstated.')).toBeInTheDocument();
   });
 
   it('requests admin review changes through the real admin router flow', async () => {
