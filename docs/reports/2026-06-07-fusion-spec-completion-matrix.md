@@ -36,6 +36,7 @@ Status values:
 ## 2026-06-11 Matrix Row Updates
 
 - Agent row 24 / Security row 33: Agent planning-only run actions now fail closed for ReAct-mode runs at the HTTP boundary. `AdjustPlanSteps` and `ContinuePlanningRun` already reject non-planning runs before model calls, plan-step execution, assistant-message writes, plan-step replacement, or run mutation; `writeAgentWorkflowError` now maps that rejection to `409 invalid_state` instead of an internal error. Focused service and handler tests cover `adjust-plan` and `continue-plan` against a pending-approval ReAct run and prove the guarded run/message/step evidence remains unchanged.
+- Agent row 24 / Security row 33: Concrete Agent plan-step actions now fail closed for ReAct-mode runs at the shared service boundary. Approve, update, move, delete, execute, skip, retry, and create plan-step paths reject non-planning runs before model/tool execution, tool-run creation, run updates, or plan-step mutation; focused service coverage proves stale/synthetic ReAct plan steps remain unchanged while existing planning-mode edit, execution, retry, and skip behavior remains intact.
 
 ## 2026-06-10 Matrix Row Updates
 

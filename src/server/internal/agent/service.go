@@ -1428,7 +1428,7 @@ func (s *Service) CreatePlanStepDraft(ctx context.Context, session auth.Session,
 	if runID == "" {
 		return nil, fmt.Errorf("run id is required")
 	}
-	if _, err := s.getRunForSession(ctx, session, runID); err != nil {
+	if _, err := s.getPlanningRunForSession(ctx, session, runID); err != nil {
 		return nil, err
 	}
 
@@ -2384,7 +2384,21 @@ func (s *Service) getPlanStepForSession(ctx context.Context, session auth.Sessio
 	if run.ID != step.RunID {
 		return nil, fmt.Errorf("plan step not found")
 	}
+	if NormalizeExecutionMode(run.Mode) != ExecutionModePlanning {
+		return nil, fmt.Errorf("agent run is not in planning mode")
+	}
 	return step, nil
+}
+
+func (s *Service) getPlanningRunForSession(ctx context.Context, session auth.Session, runID string) (*Run, error) {
+	run, err := s.getRunForSession(ctx, session, runID)
+	if err != nil {
+		return nil, err
+	}
+	if NormalizeExecutionMode(run.Mode) != ExecutionModePlanning {
+		return nil, fmt.Errorf("agent run is not in planning mode")
+	}
+	return run, nil
 }
 
 func (s *Service) getRunForSession(ctx context.Context, session auth.Session, runID string) (*Run, error) {

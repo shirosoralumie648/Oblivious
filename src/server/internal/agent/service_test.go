@@ -476,6 +476,22 @@ type fakePlanStepExecutor struct {
 	seenStep      *PlanStep
 }
 
+func clonePlanStepSnapshots(steps []*PlanStep) []*PlanStep {
+	snapshots := make([]*PlanStep, 0, len(steps))
+	for _, step := range steps {
+		if step == nil {
+			snapshots = append(snapshots, nil)
+			continue
+		}
+		copied := *step
+		if step.Input != nil {
+			copied.Input = copyPlanStepInput(step.Input)
+		}
+		snapshots = append(snapshots, &copied)
+	}
+	return snapshots
+}
+
 func TestServiceUpdatePlanStepDraftResetsApprovedStepForReview(t *testing.T) {
 	session := auth.Session{
 		User:           auth.User{ID: "user_1"},
@@ -488,6 +504,7 @@ func TestServiceUpdatePlanStepDraftResetsApprovedStepForReview(t *testing.T) {
 			ConversationID: "conv_1",
 			AgentID:        "agent_1",
 			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
 			Status:         RunStatusRunning,
 		}},
 		planSteps: []*PlanStep{{
@@ -533,6 +550,7 @@ func TestServiceUpdatePlanStepDraftRejectsRunningStep(t *testing.T) {
 			ConversationID: "conv_1",
 			AgentID:        "agent_1",
 			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
 			Status:         RunStatusRunning,
 		}},
 		planSteps: []*PlanStep{{
@@ -566,6 +584,7 @@ func TestServiceMovePlanStepSwapsPendingStepsAndResetsApproval(t *testing.T) {
 			ConversationID: "conv_1",
 			AgentID:        "agent_1",
 			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
 			Status:         RunStatusPendingApproval,
 			CreatedAt:      now,
 			UpdatedAt:      now,
@@ -639,6 +658,7 @@ func TestServiceMovePlanStepRejectsMovingAcrossCompletedBoundary(t *testing.T) {
 			ConversationID: "conv_1",
 			AgentID:        "agent_1",
 			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
 			Status:         RunStatusPendingApproval,
 			CreatedAt:      now,
 			UpdatedAt:      now,
@@ -685,6 +705,7 @@ func TestServiceCreatePlanStepDraftInsertsAfterDraftAndResetsShiftedApproval(t *
 			ConversationID: "conv_1",
 			AgentID:        "agent_1",
 			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
 			Status:         RunStatusPendingApproval,
 			CreatedAt:      now,
 			UpdatedAt:      now,
@@ -754,6 +775,7 @@ func TestServiceCreatePlanStepDraftRejectsInsertAfterExecutedStep(t *testing.T) 
 			ConversationID: "conv_1",
 			AgentID:        "agent_1",
 			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
 			Status:         RunStatusPendingApproval,
 		}},
 		planSteps: []*PlanStep{{
@@ -792,6 +814,7 @@ func TestServiceDeletePlanStepDraftRemovesStepAndReindexesDrafts(t *testing.T) {
 			ConversationID: "conv_1",
 			AgentID:        "agent_1",
 			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
 			Status:         RunStatusPendingApproval,
 		}},
 		planSteps: []*PlanStep{{
@@ -856,6 +879,7 @@ func TestServiceDeletePlanStepDraftRejectsExecutedStep(t *testing.T) {
 			ConversationID: "conv_1",
 			AgentID:        "agent_1",
 			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
 			Status:         RunStatusPendingApproval,
 		}},
 		planSteps: []*PlanStep{{
@@ -998,6 +1022,7 @@ func TestServiceApproveAndExecutePlanStepCompletesWithExecutorResult(t *testing.
 			ConversationID: "conv_1",
 			AgentID:        "agent_1",
 			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
 			Status:         RunStatusCompleted,
 			StartedAt:      now,
 			CreatedAt:      now,
@@ -1063,6 +1088,7 @@ func TestServiceExecutePlanStepMarksFailedWhenExecutorErrors(t *testing.T) {
 			ConversationID: "conv_1",
 			AgentID:        "agent_1",
 			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
 			Status:         RunStatusCompleted,
 			StartedAt:      now,
 			CreatedAt:      now,
@@ -1111,6 +1137,7 @@ func TestServiceRetryPlanStepReopensRunAndExecutesFailedStep(t *testing.T) {
 			ConversationID: "conv_1",
 			AgentID:        "agent_1",
 			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
 			Status:         RunStatusTokenBudgetExceeded,
 			Error:          "token_budget_exceeded: old budget",
 			StartedAt:      now,
@@ -1171,6 +1198,7 @@ func TestServiceRetryPlanStepReopensPendingApprovalStepWithoutExecuting(t *testi
 			ConversationID: "conv_1",
 			AgentID:        "agent_1",
 			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
 			Status:         RunStatusFailed,
 			Error:          "approval step failed",
 			StartedAt:      now,
@@ -1228,6 +1256,7 @@ func TestServiceRetryPlanStepRejectsOutOfOrderRetryWithoutClearingFailure(t *tes
 			ConversationID: "conv_1",
 			AgentID:        "agent_1",
 			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
 			Status:         RunStatusFailed,
 			Error:          "step 2 failed",
 			StartedAt:      now,
@@ -1302,6 +1331,7 @@ func TestServiceRetryPlanStepRejectsNonFailedStep(t *testing.T) {
 			ConversationID: "conv_1",
 			AgentID:        "agent_1",
 			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
 			Status:         RunStatusPendingApproval,
 			StartedAt:      now,
 			CreatedAt:      now,
@@ -1344,6 +1374,7 @@ func TestExecutePlanStepRunsBuiltinTool(t *testing.T) {
 			ConversationID: "conv_1",
 			AgentID:        "agent_1",
 			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
 			Status:         RunStatusCompleted,
 			StartedAt:      now,
 			CreatedAt:      now,
@@ -1449,6 +1480,7 @@ func TestExecutePlanStepRunsPlainLLMStepWithPlanningContext(t *testing.T) {
 			ConversationID: "conv_1",
 			AgentID:        "agent_1",
 			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
 			Status:         RunStatusPendingApproval,
 			StartedAt:      now,
 			CreatedAt:      now,
@@ -1555,6 +1587,7 @@ func TestExecutePlanStepStopsBeforePlainLLMWhenTokenBudgetExceeded(t *testing.T)
 			ConversationID: "conv_1",
 			AgentID:        "agent_1",
 			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
 			Status:         RunStatusPendingApproval,
 			StartedAt:      now,
 			CreatedAt:      now,
@@ -2548,6 +2581,7 @@ func TestServiceExecutePlanStepCompletesPlanningRunAfterLastStep(t *testing.T) {
 			ConversationID: "conv_1",
 			AgentID:        "agent_1",
 			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
 			Status:         RunStatusPendingApproval,
 			StartedAt:      now,
 			CreatedAt:      now,
@@ -2606,6 +2640,7 @@ func TestServiceExecutePlanStepRejectsOutOfOrderStep(t *testing.T) {
 			ConversationID: "conv_1",
 			AgentID:        "agent_1",
 			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
 			Status:         RunStatusPendingApproval,
 			StartedAt:      now,
 			CreatedAt:      now,
@@ -2665,6 +2700,7 @@ func TestServiceSkipPlanStepAllowsLaterExecution(t *testing.T) {
 			ConversationID: "conv_1",
 			AgentID:        "agent_1",
 			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
 			Status:         RunStatusPendingApproval,
 			StartedAt:      now,
 			CreatedAt:      now,
@@ -2730,6 +2766,7 @@ func TestServiceSkipPlanStepRejectsOutOfOrderSkip(t *testing.T) {
 			ConversationID: "conv_1",
 			AgentID:        "agent_1",
 			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
 			Status:         RunStatusPendingApproval,
 			StartedAt:      now,
 			CreatedAt:      now,
@@ -2788,6 +2825,7 @@ func TestServiceSkipPlanStepCompletesRunWhenAllStepsAreDoneOrSkipped(t *testing.
 			ConversationID: "conv_1",
 			AgentID:        "agent_1",
 			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
 			Status:         RunStatusPendingApproval,
 			StartedAt:      now,
 			CreatedAt:      now,
@@ -2854,6 +2892,7 @@ func TestServiceSkipPlanStepRejectsStartedOrTerminalSteps(t *testing.T) {
 					ConversationID: "conv_1",
 					AgentID:        "agent_1",
 					UserID:         "user_1",
+					Mode:           ExecutionModePlanning,
 					Status:         RunStatusPendingApproval,
 					StartedAt:      now,
 					CreatedAt:      now,
@@ -3217,6 +3256,159 @@ func TestServicePlanningOnlyActionsRejectReactRunWithoutMutation(t *testing.T) {
 	}
 	if store.runs[0].Mode != ExecutionModeReact || store.runs[0].Status != RunStatusPendingApproval || store.runs[0].Error != "react approval evidence must stay" {
 		t.Fatalf("react run evidence changed after planning-only rejection: %+v", store.runs[0])
+	}
+}
+
+func TestServicePlanStepActionsRejectReactRunWithoutMutation(t *testing.T) {
+	tests := []struct {
+		name      string
+		configure func(*fakeStore, time.Time)
+		act       func(*Service, auth.Session) error
+	}{
+		{
+			name: "approve",
+			configure: func(store *fakeStore, now time.Time) {
+				store.planSteps[0].ApprovalStatus = ApprovalStatusPending
+			},
+			act: func(service *Service, session auth.Session) error {
+				_, err := service.ApprovePlanStep(context.Background(), session, "step_1", "ready")
+				return err
+			},
+		},
+		{
+			name: "update",
+			act: func(service *Service, session auth.Session) error {
+				_, err := service.UpdatePlanStepDraft(context.Background(), session, "step_1", UpdatePlanStepDraftRequest{
+					Title: stringPointer("mutated title"),
+				})
+				return err
+			},
+		},
+		{
+			name: "move",
+			act: func(service *Service, session auth.Session) error {
+				_, err := service.MovePlanStep(context.Background(), session, "step_2", MovePlanStepDirectionUp)
+				return err
+			},
+		},
+		{
+			name: "delete",
+			act: func(service *Service, session auth.Session) error {
+				_, err := service.DeletePlanStepDraft(context.Background(), session, "step_1")
+				return err
+			},
+		},
+		{
+			name: "execute",
+			act: func(service *Service, session auth.Session) error {
+				_, err := service.ExecutePlanStep(context.Background(), session, "step_1")
+				return err
+			},
+		},
+		{
+			name: "skip",
+			act: func(service *Service, session auth.Session) error {
+				_, err := service.SkipPlanStep(context.Background(), session, "step_1", "not needed")
+				return err
+			},
+		},
+		{
+			name: "retry",
+			configure: func(store *fakeStore, now time.Time) {
+				completedAt := now.Add(time.Minute)
+				store.planSteps[0].Status = PlanStepStatusFailed
+				store.planSteps[0].Error = "old failure"
+				store.planSteps[0].CompletedAt = &completedAt
+			},
+			act: func(service *Service, session auth.Session) error {
+				_, err := service.RetryPlanStep(context.Background(), session, "step_1")
+				return err
+			},
+		},
+		{
+			name: "create",
+			act: func(service *Service, session auth.Session) error {
+				_, err := service.CreatePlanStepDraft(context.Background(), session, "run_1", CreatePlanStepDraftRequest{
+					Title: "Unexpected new planning step",
+				})
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			now := time.Now().UTC()
+			store := &fakeStore{
+				runs: []*Run{{
+					ID:             "run_1",
+					OrganizationID: "org_1",
+					ConversationID: "conv_1",
+					AgentID:        "agent_1",
+					UserID:         "user_1",
+					Mode:           ExecutionModeReact,
+					Status:         RunStatusPendingApproval,
+					Error:          "react approval evidence must stay",
+					StartedAt:      now,
+					CreatedAt:      now,
+					UpdatedAt:      now,
+				}},
+				planSteps: []*PlanStep{
+					{
+						ID:             "step_1",
+						RunID:          "run_1",
+						OrganizationID: "org_1",
+						Index:          1,
+						Title:          "Synthetic stale plan step",
+						Status:         PlanStepStatusPending,
+						ApprovalStatus: ApprovalStatusNotRequired,
+						ToolName:       "calculator",
+						Input:          map[string]any{"expression": "2 + 3"},
+						CreatedAt:      now,
+						UpdatedAt:      now,
+					},
+					{
+						ID:             "step_2",
+						RunID:          "run_1",
+						OrganizationID: "org_1",
+						Index:          2,
+						Title:          "Second stale plan step",
+						Status:         PlanStepStatusPending,
+						ApprovalStatus: ApprovalStatusNotRequired,
+						CreatedAt:      now,
+						UpdatedAt:      now,
+					},
+				},
+			}
+			if tt.configure != nil {
+				tt.configure(store, now)
+			}
+			originalSteps := clonePlanStepSnapshots(store.planSteps)
+			executor := &fakePlanStepExecutor{resultContent: "unexpected execution"}
+			service := NewService(store, &fakeGateway{plainReply: `[{"title":"unexpected"}]`})
+			service.SetPlanStepExecutor(executor)
+			session := auth.Session{OrganizationID: "org_1", WorkspaceID: "workspace_1", User: auth.User{ID: "user_1"}}
+
+			err := tt.act(service, session)
+			if err == nil || err.Error() != "agent run is not in planning mode" {
+				t.Fatalf("expected non-planning plan-step rejection, got %v", err)
+			}
+			if executor.calls != 0 {
+				t.Fatalf("plan-step rejection should not execute tools/model work, got %d calls", executor.calls)
+			}
+			if len(store.toolRuns) != 0 {
+				t.Fatalf("plan-step rejection should not create tool runs, got %+v", store.toolRuns)
+			}
+			if len(store.updateRunRequests) != 0 {
+				t.Fatalf("plan-step rejection should not update run, got %+v", store.updateRunRequests)
+			}
+			if len(store.runs) != 1 || store.runs[0].Mode != ExecutionModeReact || store.runs[0].Status != RunStatusPendingApproval || store.runs[0].Error != "react approval evidence must stay" {
+				t.Fatalf("plan-step rejection mutated React run evidence: %+v", store.runs)
+			}
+			if !reflect.DeepEqual(originalSteps, clonePlanStepSnapshots(store.planSteps)) {
+				t.Fatalf("plan-step rejection mutated stale React plan steps: before=%+v after=%+v", originalSteps, store.planSteps)
+			}
+		})
 	}
 }
 
