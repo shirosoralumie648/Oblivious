@@ -3067,6 +3067,225 @@ func TestServiceAdjustPlanStepsReplacesRemainingSuffix(t *testing.T) {
 	}
 }
 
+func TestServiceContinuePlanningRunExecutesUntilNextApproval(t *testing.T) {
+	now := time.Now().UTC()
+	store := &fakeStore{
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
+			Status:         RunStatusPendingApproval,
+			StartedAt:      now,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+		messages: []*Message{{
+			ID:             "msg_1",
+			ConversationID: "conv_1",
+			OrganizationID: "org_1",
+			Role:           "user",
+			Content:        "finish the plan",
+			CreatedAt:      now,
+		}},
+		planSteps: []*PlanStep{
+			{
+				ID:             "step_1",
+				RunID:          "run_1",
+				OrganizationID: "org_1",
+				Index:          1,
+				Title:          "Already done",
+				Status:         PlanStepStatusCompleted,
+				ApprovalStatus: ApprovalStatusNotRequired,
+				ResultContent:  "done",
+				CompletedAt:    &now,
+				CreatedAt:      now,
+			},
+			{
+				ID:             "step_2",
+				RunID:          "run_1",
+				OrganizationID: "org_1",
+				Index:          2,
+				Title:          "Run without approval",
+				Status:         PlanStepStatusPending,
+				ApprovalStatus: ApprovalStatusNotRequired,
+				CreatedAt:      now,
+			},
+			{
+				ID:             "step_3",
+				RunID:          "run_1",
+				OrganizationID: "org_1",
+				Index:          3,
+				Title:          "Run approved step",
+				Status:         PlanStepStatusApproved,
+				ApprovalStatus: ApprovalStatusApproved,
+				CreatedAt:      now,
+			},
+			{
+				ID:             "step_4",
+				RunID:          "run_1",
+				OrganizationID: "org_1",
+				Index:          4,
+				Title:          "Wait for approval",
+				Status:         PlanStepStatusPending,
+				ApprovalStatus: ApprovalStatusPending,
+				CreatedAt:      now,
+			},
+		},
+	}
+	executor := &fakePlanStepExecutor{resultContent: "continued step result"}
+	service := NewService(store, &fakeGateway{})
+	service.SetPlanStepExecutor(executor)
+
+	result, err := service.ContinuePlanningRun(
+		context.Background(),
+		auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}},
+		"run_1",
+	)
+	if err != nil {
+		t.Fatalf("ContinuePlanningRun returned error: %v", err)
+	}
+	if executor.calls != 2 {
+		t.Fatalf("expected two executable steps to run, got %d calls", executor.calls)
+	}
+	if result.Run == nil || result.Run.Status != RunStatusPendingApproval || result.Run.CompletedAt != nil {
+		t.Fatalf("expected run to stop at next approval, got %+v", result.Run)
+	}
+	steps := result.PlanSteps
+	sortPlanSteps(steps)
+	if steps[1].Status != PlanStepStatusCompleted || steps[1].ResultContent != "continued step result" {
+		t.Fatalf("expected step 2 completed, got %+v", steps[1])
+	}
+	if steps[2].Status != PlanStepStatusCompleted || steps[2].ResultContent != "continued step result" {
+		t.Fatalf("expected step 3 completed, got %+v", steps[2])
+	}
+	if steps[3].Status != PlanStepStatusPending || steps[3].ApprovalStatus != ApprovalStatusPending || steps[3].StartedAt != nil {
+		t.Fatalf("expected step 4 untouched as next approval gate, got %+v", steps[3])
+	}
+}
+
+func TestServiceContinuePlanningRunCompletesRunWhenAllExecutableStepsDone(t *testing.T) {
+	now := time.Now().UTC()
+	store := &fakeStore{
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
+			Status:         RunStatusPendingApproval,
+			StartedAt:      now,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+		planSteps: []*PlanStep{{
+			ID:             "step_1",
+			RunID:          "run_1",
+			OrganizationID: "org_1",
+			Index:          1,
+			Title:          "Implement",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusNotRequired,
+			CreatedAt:      now,
+		}, {
+			ID:             "step_2",
+			RunID:          "run_1",
+			OrganizationID: "org_1",
+			Index:          2,
+			Title:          "Verify",
+			Status:         PlanStepStatusApproved,
+			ApprovalStatus: ApprovalStatusApproved,
+			CreatedAt:      now,
+		}},
+	}
+	executor := &fakePlanStepExecutor{resultContent: "done"}
+	service := NewService(store, &fakeGateway{})
+	service.SetPlanStepExecutor(executor)
+
+	result, err := service.ContinuePlanningRun(
+		context.Background(),
+		auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}},
+		"run_1",
+	)
+	if err != nil {
+		t.Fatalf("ContinuePlanningRun returned error: %v", err)
+	}
+	if executor.calls != 2 {
+		t.Fatalf("expected both steps to execute, got %d calls", executor.calls)
+	}
+	if result.Run == nil || result.Run.Status != RunStatusCompleted || result.Run.CompletedAt == nil {
+		t.Fatalf("expected planning run to complete, got %+v", result.Run)
+	}
+	for _, step := range result.PlanSteps {
+		if step.Status != PlanStepStatusCompleted || step.ResultContent != "done" {
+			t.Fatalf("expected every step completed with executor result, got %+v", result.PlanSteps)
+		}
+	}
+}
+
+func TestServiceContinuePlanningRunReturnsDetailWhenPlanStepFails(t *testing.T) {
+	now := time.Now().UTC()
+	store := &fakeStore{
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
+			Status:         RunStatusPendingApproval,
+			StartedAt:      now,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+		planSteps: []*PlanStep{{
+			ID:             "step_1",
+			RunID:          "run_1",
+			OrganizationID: "org_1",
+			Index:          1,
+			Title:          "Failing step",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusNotRequired,
+			CreatedAt:      now,
+		}, {
+			ID:             "step_2",
+			RunID:          "run_1",
+			OrganizationID: "org_1",
+			Index:          2,
+			Title:          "Future step",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusNotRequired,
+			CreatedAt:      now,
+		}},
+	}
+	executor := &fakePlanStepExecutor{err: errors.New("executor failed")}
+	service := NewService(store, &fakeGateway{})
+	service.SetPlanStepExecutor(executor)
+
+	result, err := service.ContinuePlanningRun(
+		context.Background(),
+		auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}},
+		"run_1",
+	)
+	if err != nil {
+		t.Fatalf("ContinuePlanningRun should return refreshed failure detail instead of surfacing executor error, got %v", err)
+	}
+	if executor.calls != 1 {
+		t.Fatalf("expected execution to stop after first failed step, got %d calls", executor.calls)
+	}
+	steps := result.PlanSteps
+	sortPlanSteps(steps)
+	if steps[0].Status != PlanStepStatusFailed || !strings.Contains(steps[0].Error, "executor failed") || steps[0].CompletedAt == nil {
+		t.Fatalf("expected first step failure evidence, got %+v", steps[0])
+	}
+	if steps[1].Status != PlanStepStatusPending || steps[1].StartedAt != nil {
+		t.Fatalf("expected future step untouched after failure, got %+v", steps[1])
+	}
+}
+
 func TestServiceStartRunWithoutToolsMarksDurableRunFailedOnRunnerError(t *testing.T) {
 	store := &fakeStore{
 		agent: &Agent{

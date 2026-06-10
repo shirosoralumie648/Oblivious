@@ -1301,6 +1301,7 @@ require_agent_run_mutation_csrf_contract() {
       ["/api/v1/agent/runs/{runId}/retry-tool", "post"],
       ["/api/v1/agent/runs/{runId}/continue-budget", "post"],
       ["/api/v1/agent/runs/{runId}/adjust-plan", "post"],
+      ["/api/v1/agent/runs/{runId}/continue-plan", "post"],
       ["/api/v1/agent/runs/{runId}/approve-plan-step", "post"],
       ["/api/v1/agent/runs/{runId}/execute-plan-step", "post"],
       ["/api/v1/agent/runs/{runId}/skip-plan-step", "post"],
@@ -1352,6 +1353,7 @@ require_agent_run_mutation_csrf_contract() {
       ["/api/v1/agent/runs/{runId}/retry-tool", "post", "200"] => "#/components/schemas/AgentRunResponse",
       ["/api/v1/agent/runs/{runId}/continue-budget", "post", "200"] => "#/components/schemas/AgentRunResponse",
       ["/api/v1/agent/runs/{runId}/adjust-plan", "post", "200"] => "#/components/schemas/AgentRunResponse",
+      ["/api/v1/agent/runs/{runId}/continue-plan", "post", "200"] => "#/components/schemas/AgentRunResponse",
       ["/api/v1/agent/runs/{runId}/approve-plan-step", "post", "200"] => "#/components/schemas/AgentRunResponse",
       ["/api/v1/agent/runs/{runId}/execute-plan-step", "post", "200"] => "#/components/schemas/AgentRunResponse",
       ["/api/v1/agent/runs/{runId}/skip-plan-step", "post", "200"] => "#/components/schemas/AgentRunResponse",
@@ -3697,6 +3699,7 @@ required_paths=(
   "/api/v1/agent/runs/{runId}/reject-tool"
   "/api/v1/agent/runs/{runId}/retry-tool"
   "/api/v1/agent/runs/{runId}/continue-budget"
+  "/api/v1/agent/runs/{runId}/continue-plan"
   "/api/v1/agent/runs/{runId}/approve-plan-step"
   "/api/v1/agent/runs/{runId}/skip-plan-step"
   "/api/v1/agent/runs/{runId}/retry-plan-step"

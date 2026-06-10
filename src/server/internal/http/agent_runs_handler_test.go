@@ -473,6 +473,102 @@ func TestAgentRunsHandlerAdjustPlanReturnsUpdatedRunDetail(t *testing.T) {
 	}
 }
 
+func TestAgentRunsHandlerContinuePlanReturnsUpdatedRunDetail(t *testing.T) {
+	now := time.Now().UTC()
+	store := newFakeAgentRunsStore()
+	store.agent = &agent.Agent{
+		ID:             "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		Name:           "Planning Agent",
+		Model:          "test-model",
+	}
+	store.conversation = &agent.Conversation{
+		ID:             "conv_1",
+		AgentID:        "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+	}
+	store.runs = []*agent.Run{{
+		ID:             "run_1",
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		Mode:           agent.ExecutionModePlanning,
+		Status:         agent.RunStatusPendingApproval,
+	}}
+	store.messages = []*agent.Message{{
+		ID:             "msg_1",
+		ConversationID: "conv_1",
+		OrganizationID: "org_1",
+		Role:           "user",
+		Content:        "continue the approved work",
+		CreatedAt:      now,
+	}}
+	store.planSteps = []*agent.PlanStep{
+		{
+			ID:             "step_1",
+			RunID:          "run_1",
+			OrganizationID: "org_1",
+			Index:          1,
+			Title:          "Implement backend",
+			Status:         agent.PlanStepStatusPending,
+			ApprovalStatus: agent.ApprovalStatusNotRequired,
+			CreatedAt:      now,
+		},
+		{
+			ID:             "step_2",
+			RunID:          "run_1",
+			OrganizationID: "org_1",
+			Index:          2,
+			Title:          "Verify backend",
+			Status:         agent.PlanStepStatusApproved,
+			ApprovalStatus: agent.ApprovalStatusApproved,
+			CreatedAt:      now,
+		},
+		{
+			ID:             "step_3",
+			RunID:          "run_1",
+			OrganizationID: "org_1",
+			Index:          3,
+			Title:          "Review UI",
+			Status:         agent.PlanStepStatusPending,
+			ApprovalStatus: agent.ApprovalStatusPending,
+			CreatedAt:      now,
+		},
+	}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{reply: "step executed"}))
+
+	recorder := httptest.NewRecorder()
+	handler.continuePlan(recorder, newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/continue-plan", `{}`), "run_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Data agentRunResponse `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Data.Run == nil || response.Data.Run.Status != agent.RunStatusPendingApproval || response.Data.Run.CompletedAt != nil {
+		t.Fatalf("expected planning run to stop at next approval, got %+v", response.Data.Run)
+	}
+	if len(response.Data.PlanSteps) != 3 {
+		t.Fatalf("expected refreshed plan step detail, got %+v", response.Data.PlanSteps)
+	}
+	if response.Data.PlanSteps[0].Status != agent.PlanStepStatusCompleted || response.Data.PlanSteps[0].ResultContent != "step executed" {
+		t.Fatalf("expected first executable step completed, got %+v", response.Data.PlanSteps[0])
+	}
+	if response.Data.PlanSteps[1].Status != agent.PlanStepStatusCompleted || response.Data.PlanSteps[1].ResultContent != "step executed" {
+		t.Fatalf("expected second executable step completed, got %+v", response.Data.PlanSteps[1])
+	}
+	if response.Data.PlanSteps[2].Status != agent.PlanStepStatusPending || response.Data.PlanSteps[2].ApprovalStatus != agent.ApprovalStatusPending || response.Data.PlanSteps[2].StartedAt != nil {
+		t.Fatalf("expected third step to remain pending approval, got %+v", response.Data.PlanSteps[2])
+	}
+}
+
 func TestAgentRunsHandlerUpdatePlanStepReturnsUpdatedRunDetail(t *testing.T) {
 	now := time.Now().UTC()
 	store := newFakeAgentRunsStore()

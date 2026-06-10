@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const approvePlanStep = vi.fn();
 const approveToolRun = vi.fn();
 const adjustPlan = vi.fn();
+const continuePlan = vi.fn();
 const continueRunWithBudget = vi.fn();
 const createPlanStep = vi.fn();
 const deletePlanStep = vi.fn();
@@ -22,6 +23,7 @@ vi.mock('../../features/agents/planStepsApi', () => ({
     approvePlanStep,
     approveToolRun,
     adjustPlan,
+    continuePlan,
     continueRunWithBudget,
     createPlanStep,
     deletePlanStep,
@@ -109,6 +111,7 @@ describe('AgentPlanStepsPage', () => {
     approvePlanStep.mockReset();
     approveToolRun.mockReset();
     adjustPlan.mockReset();
+    continuePlan.mockReset();
     continueRunWithBudget.mockReset();
     createPlanStep.mockReset();
     deletePlanStep.mockReset();
@@ -276,6 +279,56 @@ describe('AgentPlanStepsPage', () => {
     expect(screen.getByRole('heading', { name: 'Adjusted remaining work' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Old failed suffix' })).not.toBeInTheDocument();
     expect(screen.getByLabelText('Adjustment reason')).toHaveValue('');
+  });
+
+  it('continues executable planning steps from the planning page', async () => {
+    getRunDetail.mockResolvedValueOnce(runDetail([
+      {
+        approvalStatus: 'not_required',
+        id: 'step_1',
+        index: 1,
+        runId: 'run_1',
+        status: 'pending',
+        title: 'Implement backend'
+      },
+      {
+        approvalStatus: 'pending',
+        id: 'step_2',
+        index: 2,
+        runId: 'run_1',
+        status: 'pending',
+        title: 'Review UI'
+      }
+    ], { status: 'pending_approval' }));
+    continuePlan.mockResolvedValueOnce(runDetail([
+      {
+        approvalStatus: 'not_required',
+        id: 'step_1',
+        index: 1,
+        resultContent: 'Backend implemented.',
+        runId: 'run_1',
+        status: 'completed',
+        title: 'Implement backend'
+      },
+      {
+        approvalStatus: 'pending',
+        id: 'step_2',
+        index: 2,
+        runId: 'run_1',
+        status: 'pending',
+        title: 'Review UI'
+      }
+    ], { status: 'pending_approval' }));
+
+    renderDirectPage();
+
+    expect(await screen.findByRole('heading', { name: 'Implement backend' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Continue plan' }));
+
+    await waitFor(() => expect(continuePlan).toHaveBeenCalledWith('run_1'));
+    expect(await screen.findByText('Backend implemented.')).toBeInTheDocument();
+    expect(screen.getByText('Status: pending_approval')).toBeInTheDocument();
+    expect(within(screen.getByLabelText('Plan step Review UI')).getAllByText('pending').length).toBeGreaterThan(0);
   });
 
   it('renders plan steps from navigation state and refreshes them after approve and execute actions', async () => {

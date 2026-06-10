@@ -339,6 +339,26 @@ func (h agentRunsHandler) adjustPlan(w stdhttp.ResponseWriter, r *stdhttp.Reques
 	writeSuccess(w, stdhttp.StatusOK, newAgentRunResponse(result))
 }
 
+func (h agentRunsHandler) continuePlan(w stdhttp.ResponseWriter, r *stdhttp.Request, runID string) {
+	session, ok := sessionFromContext(r)
+	if !ok {
+		writeError(w, stdhttp.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+
+	var req struct{}
+	if err := decodeOptionalAgentRunJSONBody(r, &req); err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "invalid json body")
+		return
+	}
+	result, err := h.service.ContinuePlanningRun(r.Context(), session, strings.TrimSpace(runID))
+	if err != nil {
+		writeAgentWorkflowError(w, err)
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, newAgentRunResponse(result))
+}
+
 func (h agentRunsHandler) approvePlanStep(w stdhttp.ResponseWriter, r *stdhttp.Request, runID string) {
 	session, ok := sessionFromContext(r)
 	if !ok {

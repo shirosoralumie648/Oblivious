@@ -10691,6 +10691,43 @@ paths:
               schema:
                 $ref: "#/components/schemas/Envelope"
 
+  /api/v1/agent/runs/{runId}/continue-plan:
+    post:
+      summary: 连续执行 Agent planning 中已批准或免审批的步骤
+      operationId: continueAgentRunPlan
+      tags: [Agent]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 刷新后的 Agent planning run 状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AgentRunResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: Agent planning run 当前状态不允许连续执行
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+
   /api/v1/agent/runs/{runId}/approve-plan-step:
     post:
       summary: 审批 Agent planning 步骤

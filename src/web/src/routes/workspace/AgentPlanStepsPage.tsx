@@ -105,6 +105,7 @@ export function AgentPlanStepsPage() {
   const [isAdjustingPlan, setIsAdjustingPlan] = useState(false);
   const [continueBudget, setContinueBudget] = useState('2500');
   const [isContinuingBudget, setIsContinuingBudget] = useState(false);
+  const [isContinuingPlan, setIsContinuingPlan] = useState(false);
   const [isCreatingStep, setIsCreatingStep] = useState(false);
   const [newAfterStepId, setNewAfterStepId] = useState<string | null>(null);
   const [newInput, setNewInput] = useState('');
@@ -404,6 +405,24 @@ export function AgentPlanStepsPage() {
     }
   };
 
+  const continuePlanningRun = async () => {
+    if (!runId) {
+      setError('Run ID is required.');
+      return;
+    }
+
+    setIsContinuingPlan(true);
+    setError(null);
+    try {
+      const detail = await api.continuePlan(runId);
+      applyRunDetail(detail);
+    } catch (caughtError) {
+      setError(errorMessage(caughtError, 'Unable to continue planning run.'));
+    } finally {
+      setIsContinuingPlan(false);
+    }
+  };
+
   const adjustRemainingPlan = async () => {
     if (!runId) {
       setError('Run ID is required.');
@@ -464,14 +483,24 @@ export function AgentPlanStepsPage() {
             </div>
           ) : null}
         </dl>
-        <button
-          className="min-h-10 rounded-lg border border-[#181611] px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
-          disabled={isRefreshing}
-          onClick={() => void refreshRunDetail()}
-          type="button"
-        >
-          {isRefreshing ? 'Refreshing plan steps' : 'Refresh plan steps'}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            className="min-h-10 rounded-lg border border-[#181611] px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={isRefreshing}
+            onClick={() => void refreshRunDetail()}
+            type="button"
+          >
+            {isRefreshing ? 'Refreshing plan steps' : 'Refresh plan steps'}
+          </button>
+          <button
+            className="min-h-10 rounded-lg bg-[#181611] px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={isContinuingPlan || !runId}
+            onClick={() => void continuePlanningRun()}
+            type="button"
+          >
+            {isContinuingPlan ? 'Continuing plan' : 'Continue plan'}
+          </button>
+        </div>
         {runStatus === 'token_budget_exceeded' ? (
           <div className="flex flex-col gap-2 rounded-lg border border-[#d7d2c4] bg-white p-3 sm:flex-row sm:items-end">
             <label className="grid gap-1 text-sm font-medium text-[#3f3a31]">

@@ -826,6 +826,82 @@ func TestRegisterAgentRunRoutesDispatchesAdjustPlan(t *testing.T) {
 	}
 }
 
+func TestRegisterAgentRunRoutesDispatchesContinuePlan(t *testing.T) {
+	now := time.Now().UTC()
+	store := newFakeAgentRunsStore()
+	store.agent = &agent.Agent{
+		ID:             "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		Name:           "Planning Agent",
+		Model:          "test-model",
+	}
+	store.conversation = &agent.Conversation{
+		ID:             "conv_1",
+		AgentID:        "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+	}
+	store.runs = []*agent.Run{{
+		ID:             "run_1",
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		Mode:           agent.ExecutionModePlanning,
+		Status:         agent.RunStatusPendingApproval,
+	}}
+	store.messages = []*agent.Message{{
+		ID:             "msg_1",
+		ConversationID: "conv_1",
+		OrganizationID: "org_1",
+		Role:           "user",
+		Content:        "continue the plan",
+		CreatedAt:      now,
+	}}
+	store.planSteps = []*agent.PlanStep{
+		{
+			ID:             "step_1",
+			RunID:          "run_1",
+			OrganizationID: "org_1",
+			Index:          1,
+			Title:          "Implement backend",
+			Status:         agent.PlanStepStatusPending,
+			ApprovalStatus: agent.ApprovalStatusNotRequired,
+			CreatedAt:      now,
+		},
+		{
+			ID:             "step_2",
+			RunID:          "run_1",
+			OrganizationID: "org_1",
+			Index:          2,
+			Title:          "Wait for UI approval",
+			Status:         agent.PlanStepStatusPending,
+			ApprovalStatus: agent.ApprovalStatusPending,
+			CreatedAt:      now,
+		},
+	}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{reply: "step executed"}))
+	mux := stdhttp.NewServeMux()
+	registerAgentRunRoutes(mux, passThroughAuthMiddleware{}, handler)
+
+	request := newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/continue-plan", `{}`)
+	recorder := httptest.NewRecorder()
+
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, `"status":"pending_approval"`) || !strings.Contains(body, `"title":"Implement backend"`) || !strings.Contains(body, `"resultContent":"step executed"`) {
+		t.Fatalf("expected continued plan detail, got %s", body)
+	}
+	if !strings.Contains(body, `"title":"Wait for UI approval"`) || strings.Contains(body, `"status":"completed","approvalStatus":"pending"`) {
+		t.Fatalf("expected run to stop before pending approval step, got %s", body)
+	}
+}
+
 func TestRegisterAgentRunRoutesDispatchesExecutePlanStep(t *testing.T) {
 	now := time.Now().UTC()
 	store := newFakeAgentRunsStore()

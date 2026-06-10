@@ -176,6 +176,29 @@ describe('createAgentPlanStepsApi', () => {
     });
   });
 
+  it('continues executable planning steps and returns refreshed run detail', async () => {
+    const post = vi.fn().mockResolvedValue(agentRunPayload(
+      [
+        { id: 'step_1', index: 1, resultContent: 'done', runId: 'run_1', status: 'completed', title: 'Implement backend' },
+        { approvalStatus: 'pending', id: 'step_2', index: 2, runId: 'run_1', status: 'pending', title: 'Review UI' }
+      ],
+      { status: 'pending_approval' }
+    ));
+    const api = createAgentPlanStepsApi(createClient({ post }));
+
+    await expect(api.continuePlan('run_1')).resolves.toMatchObject({
+      id: 'run_1',
+      planSteps: [
+        { id: 'step_1', index: 1, resultContent: 'done', runId: 'run_1', status: 'completed', title: 'Implement backend' },
+        { approvalStatus: 'pending', id: 'step_2', index: 2, runId: 'run_1', status: 'pending', title: 'Review UI' }
+      ],
+      status: 'pending_approval',
+      toolRuns: []
+    });
+
+    expect(post).toHaveBeenCalledWith('/api/v1/agent/runs/run_1/continue-plan', {});
+  });
+
   it('executes a run plan step and returns refreshed run detail', async () => {
     const post = vi.fn().mockResolvedValue(agentRunPayload(
       [{ id: 'step_1', runId: 'run_1', resultContent: 'done', status: 'completed', title: 'Inspect workspace' }],

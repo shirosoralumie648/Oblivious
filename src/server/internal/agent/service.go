@@ -1333,6 +1333,54 @@ func (s *Service) AdjustPlanSteps(ctx context.Context, session auth.Session, run
 	return s.GetRunWithMessages(ctx, session, run.ID)
 }
 
+func (s *Service) ContinuePlanningRun(ctx context.Context, session auth.Session, runID string) (*RunWithMessages, error) {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return nil, fmt.Errorf("run id is required")
+	}
+	run, err := s.getRunForSession(ctx, session, runID)
+	if err != nil {
+		return nil, err
+	}
+	if NormalizeExecutionMode(run.Mode) != ExecutionModePlanning {
+		return nil, fmt.Errorf("agent run is not in planning mode")
+	}
+
+	for {
+		detail, err := s.GetRunWithMessages(ctx, session, run.ID)
+		if err != nil {
+			return nil, err
+		}
+		steps := append([]*PlanStep(nil), detail.PlanSteps...)
+		sortPlanSteps(steps)
+
+		executed := false
+		for _, step := range steps {
+			if step == nil || isPlanStepDone(step) {
+				continue
+			}
+			if !isPlanStepExecutable(step) {
+				return detail, nil
+			}
+			if _, err := s.ExecutePlanStep(ctx, session, step.ID); err != nil {
+				refreshed, refreshErr := s.GetRunWithMessages(ctx, session, run.ID)
+				if refreshErr != nil {
+					return nil, err
+				}
+				if isPlanningExecutionStopAfterError(refreshed, step.ID) {
+					return refreshed, nil
+				}
+				return nil, err
+			}
+			executed = true
+			break
+		}
+		if !executed {
+			return detail, nil
+		}
+	}
+}
+
 func (s *Service) ApprovePlanStep(ctx context.Context, session auth.Session, planStepID, reason string) (*PlanStep, error) {
 	step, err := s.getPlanStepForSession(ctx, session, planStepID)
 	if err != nil {
@@ -1806,6 +1854,28 @@ func isPlanStepDone(step *PlanStep) bool {
 		return false
 	}
 	return step.Status == PlanStepStatusCompleted || step.Status == PlanStepStatusSkipped
+}
+
+func isPlanStepExecutable(step *PlanStep) bool {
+	if step == nil {
+		return false
+	}
+	return step.Status == PlanStepStatusApproved || (step.Status == PlanStepStatusPending && step.ApprovalStatus == ApprovalStatusNotRequired)
+}
+
+func isPlanningExecutionStopAfterError(detail *RunWithMessages, planStepID string) bool {
+	if detail == nil {
+		return false
+	}
+	if detail.Run != nil && (detail.Run.Status == RunStatusFailed || detail.Run.Status == RunStatusTokenBudgetExceeded) {
+		return true
+	}
+	for _, step := range detail.PlanSteps {
+		if step != nil && step.ID == planStepID && step.Status == PlanStepStatusFailed {
+			return true
+		}
+	}
+	return false
 }
 
 func isPlanStepReplaceableForAdjustment(step *PlanStep) bool {
