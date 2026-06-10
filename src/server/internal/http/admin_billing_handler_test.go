@@ -108,7 +108,7 @@ func TestAdminBillingSummaryIncludesMoneyMovementState(t *testing.T) {
 	if response.Data.BillingSessions.Count != 1 || response.Data.BillingSessions.SettledAmount != 4.5 {
 		t.Fatalf("expected one settled billing session with settled amount 4.5, got %+v", response.Data.BillingSessions)
 	}
-	if response.Data.PaymentIntents.Count != 2 || response.Data.PaymentIntents.TotalAmount != 79 || response.Data.PaymentIntents.RefundedAmount != 10 {
+	if response.Data.PaymentIntents.Count != 3 || response.Data.PaymentIntents.TotalAmount != 139 || response.Data.PaymentIntents.RefundedAmount != 10 {
 		t.Fatalf("expected payment intent totals, got %+v", response.Data.PaymentIntents)
 	}
 	if response.Data.WebhookEvents.Count != 2 || response.Data.WebhookEvents.FailedCount != 1 {
@@ -126,7 +126,7 @@ func TestAdminBillingSummaryIncludesMoneyMovementState(t *testing.T) {
 	if response.Data.Refunds.Count != 1 || response.Data.Refunds.TotalAmount != 5 {
 		t.Fatalf("expected refund totals, got %+v", response.Data.Refunds)
 	}
-	if response.Data.Settlements.Count != 1 || response.Data.Settlements.GrossAmount != 50 || response.Data.Settlements.PlatformFeeAmount != 10 || response.Data.Settlements.PublisherNetAmount != 40 || response.Data.Settlements.RefundedAmount != 5 {
+	if response.Data.Settlements.Count != 2 || response.Data.Settlements.GrossAmount != 110 || response.Data.Settlements.PlatformFeeAmount != 22 || response.Data.Settlements.PublisherNetAmount != 88 || response.Data.Settlements.RefundedAmount != 5 {
 		t.Fatalf("expected settlement totals, got %+v", response.Data.Settlements)
 	}
 	if response.Data.Payouts.Count != 1 || response.Data.Payouts.TotalAmount != 40 {
@@ -147,6 +147,13 @@ func TestAdminBillingSummaryIncludesMoneyMovementState(t *testing.T) {
 				PaidAmount     float64 `json:"paidAmount"`
 				RefundedAmount float64 `json:"refundedAmount"`
 			} `json:"topups"`
+			Settlements struct {
+				Count              int     `json:"count"`
+				GrossAmount        float64 `json:"grossAmount"`
+				PlatformFeeAmount  float64 `json:"platformFeeAmount"`
+				PublisherNetAmount float64 `json:"publisherNetAmount"`
+				RefundedAmount     float64 `json:"refundedAmount"`
+			} `json:"settlements"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(filteredRecorder.Body.Bytes(), &filteredResponse); err != nil {
@@ -154,6 +161,38 @@ func TestAdminBillingSummaryIncludesMoneyMovementState(t *testing.T) {
 	}
 	if filteredResponse.Data.Topups.Count != 0 || filteredResponse.Data.Topups.PaidAmount != 0 || filteredResponse.Data.Topups.RefundedAmount != 0 {
 		t.Fatalf("expected missing provider filter to exclude topups from summary, got %+v", filteredResponse.Data.Topups)
+	}
+	if filteredResponse.Data.Settlements.Count != 0 || filteredResponse.Data.Settlements.GrossAmount != 0 ||
+		filteredResponse.Data.Settlements.PlatformFeeAmount != 0 || filteredResponse.Data.Settlements.PublisherNetAmount != 0 ||
+		filteredResponse.Data.Settlements.RefundedAmount != 0 {
+		t.Fatalf("expected missing provider filter to exclude settlements from summary, got %+v", filteredResponse.Data.Settlements)
+	}
+
+	stripeRecorder := httptest.NewRecorder()
+	stripeRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/admin/billing/summary?organizationID="+organizationID+"&kind=marketplace_install&provider=stripe", nil)
+	stripeRequest.AddCookie(cookie)
+	router.ServeHTTP(stripeRecorder, stripeRequest)
+	if stripeRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected stripe-filtered billing summary 200, got %d with body %s", stripeRecorder.Code, stripeRecorder.Body.String())
+	}
+	var stripeResponse struct {
+		Data struct {
+			Settlements struct {
+				Count              int     `json:"count"`
+				GrossAmount        float64 `json:"grossAmount"`
+				PlatformFeeAmount  float64 `json:"platformFeeAmount"`
+				PublisherNetAmount float64 `json:"publisherNetAmount"`
+				RefundedAmount     float64 `json:"refundedAmount"`
+			} `json:"settlements"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(stripeRecorder.Body.Bytes(), &stripeResponse); err != nil {
+		t.Fatalf("decode stripe-filtered billing summary: %v", err)
+	}
+	if stripeResponse.Data.Settlements.Count != 1 || stripeResponse.Data.Settlements.GrossAmount != 50 ||
+		stripeResponse.Data.Settlements.PlatformFeeAmount != 10 || stripeResponse.Data.Settlements.PublisherNetAmount != 40 ||
+		stripeResponse.Data.Settlements.RefundedAmount != 5 {
+		t.Fatalf("expected stripe provider filter to include only stripe settlement totals, got %+v", stripeResponse.Data.Settlements)
 	}
 }
 
@@ -172,13 +211,13 @@ func TestAdminBillingListsExposeAllRequiredSurfaces(t *testing.T) {
 		expectedTotal int
 	}{
 		{"/api/v1/admin/billing/sessions", "sessions", "bs_admin_phase20", 1},
-		{"/api/v1/admin/billing/payment-intents", "paymentIntents", "pi_admin_phase20", 2},
+		{"/api/v1/admin/billing/payment-intents", "paymentIntents", "pi_admin_phase20", 3},
 		{"/api/v1/admin/billing/webhook-events", "webhookEvents", "evt_admin_phase20_ok", 2},
 		{"/api/v1/admin/billing/subscriptions", "subscriptions", "sub_admin_phase20", 1},
 		{"/api/v1/admin/billing/topups", "topups", "topup_admin_phase20", 1},
 		{"/api/v1/admin/billing/invoices", "invoices", "inv_admin_phase20", 1},
 		{"/api/v1/admin/billing/refunds", "refunds", "refund_admin_phase20", 1},
-		{"/api/v1/admin/billing/settlements", "settlements", "settlement_admin_phase20", 1},
+		{"/api/v1/admin/billing/settlements", "settlements", "settlement_admin_phase20", 2},
 		{"/api/v1/admin/billing/payouts", "payouts", "payout_admin_phase20", 1},
 	}
 
@@ -842,6 +881,12 @@ func TestAdminBillingListsApplyRecoveryFilters(t *testing.T) {
 			expectedText: "refund_admin_phase20",
 			unwantedText: "evt_admin_phase20_failed",
 		},
+		{
+			path:         "/api/v1/admin/billing/settlements?organizationID=" + organizationID + "&kind=marketplace_install&provider=stripe",
+			collection:   "settlements",
+			expectedText: "settlement_admin_phase20",
+			unwantedText: "settlement_admin_phase20_alipay",
+		},
 	}
 
 	for _, tt := range cases {
@@ -931,12 +976,18 @@ func seedAdminBillingState(t *testing.T, database *sql.DB, organizationID, userI
 			 VALUES ('agent_admin_phase20', $1, $2, 'Admin Billing Agent', 'Settlement test agent', 'cat_productivity', 'public', 'approved', 'one_time', 50, 1, NOW(), NOW())`,
 		`INSERT INTO payment_intents (id, provider, provider_checkout_session_id, organization_id, user_id, package_id, kind, amount, currency, status, metadata, created_at, updated_at, provider_payment_intent_id, refunded_amount)
 		 VALUES ('pi_market_admin_phase20', 'stripe', 'cs_market_admin_phase20', $2, $1, NULL, 'marketplace_install', 50, 'usd', 'completed', '{}', NOW(), NOW(), 'pi_provider_market_admin_phase20', 5)`,
+		`INSERT INTO payment_intents (id, provider, provider_checkout_session_id, organization_id, user_id, package_id, kind, amount, currency, status, metadata, created_at, updated_at, provider_payment_intent_id, refunded_amount)
+		 VALUES ('pi_market_admin_phase20_alipay', 'alipay', 'cs_market_admin_phase20_alipay', $2, $1, NULL, 'marketplace_install', 60, 'cny', 'completed', '{}', NOW(), NOW(), 'pi_provider_market_admin_phase20_alipay', 0)`,
 		`INSERT INTO marketplace_orders (id, buyer_organization_id, buyer_user_id, publisher_organization_id, publisher_user_id, agent_id, version_id, payment_intent_id, provider_checkout_session_id, provider_payment_intent_id, install_id, gross_amount, platform_fee_amount, publisher_net_amount, refunded_amount, currency, status, created_at, updated_at, paid_at)
 		 VALUES ('order_admin_phase20', $2, $1, $2, $1, 'agent_admin_phase20', NULL, 'pi_market_admin_phase20', 'cs_market_admin_phase20', 'pi_provider_market_admin_phase20', NULL, 50, 10, 40, 5, 'usd', 'partially_refunded', NOW(), NOW(), NOW())`,
+		`INSERT INTO marketplace_orders (id, buyer_organization_id, buyer_user_id, publisher_organization_id, publisher_user_id, agent_id, version_id, payment_intent_id, provider_checkout_session_id, provider_payment_intent_id, install_id, gross_amount, platform_fee_amount, publisher_net_amount, refunded_amount, currency, status, created_at, updated_at, paid_at)
+		 VALUES ('order_admin_phase20_alipay', $2, $1, $2, $1, 'agent_admin_phase20', NULL, 'pi_market_admin_phase20_alipay', 'cs_market_admin_phase20_alipay', 'pi_provider_market_admin_phase20_alipay', NULL, 60, 12, 48, 0, 'cny', 'paid', NOW(), NOW(), NOW())`,
 		`INSERT INTO marketplace_payouts (id, publisher_organization_id, publisher_user_id, amount, currency, provider, provider_payout_id, status, metadata, created_at, updated_at)
 		 VALUES ('payout_admin_phase20', $2, $1, 40, 'usd', 'local', 'po_admin_phase20', 'payout_pending', '{}', NOW(), NOW())`,
 		`INSERT INTO marketplace_settlements (id, order_id, publisher_organization_id, publisher_user_id, agent_id, gross_amount, platform_fee_amount, publisher_net_amount, refunded_amount, payout_id, status, hold_until, created_at, updated_at)
 		 VALUES ('settlement_admin_phase20', 'order_admin_phase20', $2, $1, 'agent_admin_phase20', 50, 10, 40, 5, 'payout_admin_phase20', 'payout_pending', NOW() + INTERVAL '7 days', NOW(), NOW())`,
+		`INSERT INTO marketplace_settlements (id, order_id, publisher_organization_id, publisher_user_id, agent_id, gross_amount, platform_fee_amount, publisher_net_amount, refunded_amount, payout_id, status, hold_until, created_at, updated_at)
+		 VALUES ('settlement_admin_phase20_alipay', 'order_admin_phase20_alipay', $2, $1, 'agent_admin_phase20', 60, 12, 48, 0, NULL, 'available', NOW() + INTERVAL '7 days', NOW(), NOW())`,
 	}
 	for _, statement := range statements {
 		var err error

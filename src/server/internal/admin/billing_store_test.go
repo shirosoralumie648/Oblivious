@@ -31,6 +31,66 @@ func TestTopupSummaryQueryUsesPaymentIntentProviderFilter(t *testing.T) {
 	}
 }
 
+func TestMarketplaceSettlementQueriesUsePaymentIntentProviderFilter(t *testing.T) {
+	filter := normalizeBillingFilter(BillingInspectionFilter{
+		OrganizationID: " org_1 ",
+		UserID:         " user_1 ",
+		Status:         " payout_pending ",
+		Kind:           " marketplace_install ",
+		Provider:       " stripe ",
+		Limit:          25,
+		Offset:         5,
+	})
+	summarySQL, summaryArgs := marketplaceSettlementSummaryQuery(filter)
+	countSQL, countArgs := marketplaceSettlementCountQuery(filter)
+	listSQL, listArgs := marketplaceSettlementListQuery(filter)
+	queries := []struct {
+		name string
+		sql  string
+		args []any
+	}{
+		{"summary", summarySQL, summaryArgs},
+		{"count", countSQL, countArgs},
+		{"list", listSQL, listArgs},
+	}
+	for _, tt := range queries {
+		t.Run(tt.name, func(t *testing.T) {
+			requiredFragments := []string{
+				"FROM marketplace_settlements",
+				"JOIN marketplace_orders ON marketplace_orders.id = marketplace_settlements.order_id",
+				"JOIN payment_intents ON payment_intents.id = marketplace_orders.payment_intent_id",
+				"marketplace_settlements.publisher_organization_id = $1",
+				"marketplace_settlements.publisher_user_id = $2",
+				"marketplace_settlements.status = $3",
+				"payment_intents.kind = $4",
+				"payment_intents.provider = $5",
+			}
+			for _, fragment := range requiredFragments {
+				if !strings.Contains(tt.sql, fragment) {
+					t.Fatalf("expected %s settlement query to contain %q, got %s", tt.name, fragment, tt.sql)
+				}
+			}
+			if tt.name == "list" {
+				if !strings.Contains(tt.sql, "ORDER BY marketplace_settlements.created_at DESC") ||
+					!strings.Contains(tt.sql, "LIMIT $6 OFFSET $7") {
+					t.Fatalf("expected list settlement query to order and paginate after filters, got %s", tt.sql)
+				}
+				if len(tt.args) != 7 || tt.args[5] != 25 || tt.args[6] != 5 {
+					t.Fatalf("expected list args to include limit/offset after filter args, got %#v", tt.args)
+				}
+			} else if len(tt.args) != 5 {
+				t.Fatalf("expected %s args to include only filter args, got %#v", tt.name, tt.args)
+			}
+			want := []any{"org_1", "user_1", "payout_pending", "marketplace_install", "stripe"}
+			for i, value := range want {
+				if tt.args[i] != value {
+					t.Fatalf("expected %s arg %d to be %q, got %#v", tt.name, i, value, tt.args)
+				}
+			}
+		})
+	}
+}
+
 func TestRecordTopupRefundUpdatesOrderStatusAndRefundedAmount(t *testing.T) {
 	requiredFragments := []string{
 		"UPDATE topup_orders",

@@ -120,6 +120,48 @@ func topupSummaryQuery(filter BillingInspectionFilter) (string, []any) {
 		LEFT JOIN payment_intents ON payment_intents.id = topup_orders.payment_intent_id ` + where, args
 }
 
+func marketplaceSettlementColumns() billingColumnMap {
+	return billingColumnMap{
+		OrganizationID: "marketplace_settlements.publisher_organization_id",
+		UserID:         "marketplace_settlements.publisher_user_id",
+		Status:         "marketplace_settlements.status",
+		Kind:           "payment_intents.kind",
+		Provider:       "payment_intents.provider",
+	}
+}
+
+const marketplaceSettlementProviderJoinSQL = `
+		FROM marketplace_settlements
+		JOIN marketplace_orders ON marketplace_orders.id = marketplace_settlements.order_id
+		JOIN payment_intents ON payment_intents.id = marketplace_orders.payment_intent_id `
+
+func marketplaceSettlementSummaryQuery(filter BillingInspectionFilter) (string, []any) {
+	where, args := billingWhere(filter, marketplaceSettlementColumns())
+	return `
+		SELECT COUNT(*), COALESCE(SUM(marketplace_settlements.gross_amount), 0), COALESCE(SUM(marketplace_settlements.platform_fee_amount), 0),
+		       COALESCE(SUM(marketplace_settlements.publisher_net_amount), 0), COALESCE(SUM(marketplace_settlements.refunded_amount), 0)` +
+		marketplaceSettlementProviderJoinSQL + where, args
+}
+
+func marketplaceSettlementCountQuery(filter BillingInspectionFilter) (string, []any) {
+	where, args := billingWhere(filter, marketplaceSettlementColumns())
+	return `SELECT COUNT(*)` + marketplaceSettlementProviderJoinSQL + where, args
+}
+
+func marketplaceSettlementListQuery(filter BillingInspectionFilter) (string, []any) {
+	where, args := billingWhere(filter, marketplaceSettlementColumns())
+	query := `
+		SELECT marketplace_settlements.id, marketplace_settlements.order_id, marketplace_settlements.publisher_organization_id,
+		       marketplace_settlements.publisher_user_id, marketplace_settlements.agent_id, marketplace_settlements.gross_amount,
+		       marketplace_settlements.platform_fee_amount, marketplace_settlements.publisher_net_amount,
+		       marketplace_settlements.refunded_amount, marketplace_settlements.payout_id, marketplace_settlements.status,
+		       marketplace_settlements.hold_until, marketplace_settlements.created_at, marketplace_settlements.updated_at` +
+		marketplaceSettlementProviderJoinSQL + where + `
+		ORDER BY marketplace_settlements.created_at DESC
+		LIMIT $` + fmt.Sprint(len(args)+1) + ` OFFSET $` + fmt.Sprint(len(args)+2)
+	return query, appendLimitOffset(args, filter)
+}
+
 func (s *SQLStore) GetBillingInspectionSummary(ctx context.Context, filter BillingInspectionFilter) (*BillingInspectionSummary, error) {
 	filter = normalizeBillingFilter(filter)
 	summary := &BillingInspectionSummary{}
@@ -171,11 +213,8 @@ func (s *SQLStore) GetBillingInspectionSummary(ctx context.Context, filter Billi
 		return nil, fmt.Errorf("billing summary refunds: %w", err)
 	}
 
-	where, args = billingWhere(filter, billingColumnMap{OrganizationID: "publisher_organization_id", UserID: "publisher_user_id", Status: "status"})
-	if err := s.db.QueryRowContext(ctx, `
-		SELECT COUNT(*), COALESCE(SUM(gross_amount), 0), COALESCE(SUM(platform_fee_amount), 0),
-		       COALESCE(SUM(publisher_net_amount), 0), COALESCE(SUM(refunded_amount), 0)
-		FROM marketplace_settlements `+where, args...).Scan(&summary.Settlements.Count, &summary.Settlements.GrossAmount,
+	query, args = marketplaceSettlementSummaryQuery(filter)
+	if err := s.db.QueryRowContext(ctx, query, args...).Scan(&summary.Settlements.Count, &summary.Settlements.GrossAmount,
 		&summary.Settlements.PlatformFeeAmount, &summary.Settlements.PublisherNetAmount, &summary.Settlements.RefundedAmount); err != nil {
 		return nil, fmt.Errorf("billing summary settlements: %w", err)
 	}
@@ -643,18 +682,13 @@ func (s *SQLStore) getRefundByProviderID(ctx context.Context, tx *sql.Tx, provid
 
 func (s *SQLStore) ListMarketplaceSettlements(ctx context.Context, filter BillingInspectionFilter) ([]*MarketplaceSettlementInspection, int, error) {
 	filter = normalizeBillingFilter(filter)
-	columns := billingColumnMap{OrganizationID: "publisher_organization_id", UserID: "publisher_user_id", Status: "status"}
-	total, err := countRows(ctx, s.db, "marketplace_settlements", filter, columns)
-	if err != nil {
+	countQuery, countArgs := marketplaceSettlementCountQuery(filter)
+	var total int
+	if err := s.db.QueryRowContext(ctx, countQuery, countArgs...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count marketplace settlements: %w", err)
 	}
-	where, args := billingWhere(filter, columns)
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, order_id, publisher_organization_id, publisher_user_id, agent_id, gross_amount,
-		       platform_fee_amount, publisher_net_amount, refunded_amount, payout_id, status, hold_until, created_at, updated_at
-		FROM marketplace_settlements `+where+`
-		ORDER BY created_at DESC
-		LIMIT $`+fmt.Sprint(len(args)+1)+` OFFSET $`+fmt.Sprint(len(args)+2), appendLimitOffset(args, filter)...)
+	query, args := marketplaceSettlementListQuery(filter)
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list marketplace settlements: %w", err)
 	}
