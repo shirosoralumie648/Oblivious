@@ -32,12 +32,12 @@ describe('WorkspaceLayout', () => {
     const router = createMemoryRouter(
       [
         {
-          path: '/',
+          path: '/knowledge/:knowledgeBaseId',
           element: <WorkspaceLayout />,
-          children: [{ index: true, element: <p>Workspace child</p> }]
+          children: [{ index: true, element: <h1>Knowledge detail child</h1> }]
         }
       ],
-      { future: routerFuture, initialEntries: ['/'] }
+      { future: routerFuture, initialEntries: ['/knowledge/kb_router'] }
     );
 
     render(<RouterProvider future={routerFuture} router={router} />);
@@ -54,7 +54,10 @@ describe('WorkspaceLayout', () => {
     expect(await screen.findByRole('link', { name: 'Scheduled Tasks' })).toBeInTheDocument();
     expect(await screen.findByRole('link', { name: 'Publishing' })).toBeInTheDocument();
     expect(await screen.findByRole('link', { name: 'Console' })).toBeInTheDocument();
-    expect(await screen.findByText('Workspace child')).toBeInTheDocument();
+    expect(await screen.findByText('Knowledge detail child')).toBeInTheDocument();
+    expect(await screen.findByRole('main')).toContainElement(screen.getByRole('heading', { name: 'Knowledge detail child' }));
+    expect(await screen.findByRole('link', { name: 'Knowledge' })).toHaveAttribute('aria-current', 'page');
+    expect(await screen.findByRole('link', { name: 'Chat' })).not.toHaveAttribute('aria-current');
     expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
     expect(document.querySelectorAll('[data-gsap-item]').length).toBeGreaterThan(4);
   });

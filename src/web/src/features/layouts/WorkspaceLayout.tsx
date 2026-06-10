@@ -1,4 +1,4 @@
-import { Link, Outlet } from 'react-router-dom';
+import { Link, NavLink, Outlet } from 'react-router-dom';
 import {
   RiBillLine,
   RiBrainLine,
@@ -29,6 +29,12 @@ const workspaceLinks = [
 ];
 
 export function WorkspaceLayout() {
+  const workspaceLinkClassName = ({ isActive }: { isActive: boolean }) =>
+    [
+      'flex min-h-[44px] items-center gap-3 rounded-lg px-3 text-sm transition hover:bg-white/10 hover:text-white',
+      isActive ? 'bg-white/15 text-white' : 'text-[#d8d3c8]'
+    ].join(' ');
+
   return (
     <div className="min-h-screen bg-[#f4f3ee] text-[#181611] lg:grid lg:grid-cols-[244px_minmax(0,1fr)_280px]" data-gsap-scope="workspace">
       <aside className="border-b border-[#d7d2c4] bg-[#15130f] p-5 text-[#f7f4ea] lg:min-h-screen lg:border-b-0 lg:border-r" data-gsap-item>
@@ -44,30 +50,35 @@ export function WorkspaceLayout() {
         </div>
         <nav aria-label="Workspace navigation" className="mt-6 space-y-1">
           {workspaceLinks.map((item) => (
-            <Link
+            <NavLink
               key={item.to}
               to={item.to}
-              className="flex min-h-[44px] items-center gap-3 rounded-lg px-3 text-sm text-[#d8d3c8] transition hover:bg-white/10 hover:text-white"
+              className={workspaceLinkClassName}
               data-gsap-item
             >
               {item.icon}
               {item.label}
-            </Link>
+            </NavLink>
           ))}
         </nav>
-        <Link
+        <NavLink
           to="/marketplace"
-          className="mt-6 flex min-h-[44px] items-center gap-3 rounded-lg border border-cyan-200/20 bg-cyan-200/10 px-3 text-sm text-cyan-100 transition hover:bg-cyan-200/15"
+          className={({ isActive }) =>
+            [
+              'mt-6 flex min-h-[44px] items-center gap-3 rounded-lg border border-cyan-200/20 bg-cyan-200/10 px-3 text-sm text-cyan-100 transition hover:bg-cyan-200/15',
+              isActive ? 'ring-2 ring-cyan-100/50' : ''
+            ].join(' ')
+          }
           data-gsap-item
           data-gsap-magnetic
         >
           <RiStore2Line className="size-4" aria-hidden="true" />
           Marketplace
-        </Link>
+        </NavLink>
       </aside>
-      <section className="workspace-canvas min-h-screen overflow-auto p-5 lg:p-8" data-gsap-item>
+      <main className="workspace-canvas min-h-screen overflow-auto p-5 lg:p-8" data-gsap-item>
         <Outlet />
-      </section>
+      </main>
       <aside className="hidden border-l border-[#d7d2c4] bg-white/70 p-5 lg:block" data-gsap-item>
         <div className="sticky top-5 space-y-4">
           <div data-gsap-item>

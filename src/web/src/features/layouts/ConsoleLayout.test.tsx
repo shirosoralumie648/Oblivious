@@ -28,12 +28,12 @@ describe('ConsoleLayout', () => {
     const router = createMemoryRouter(
       [
         {
-          path: '/console',
+          path: '/console/usage',
           element: <ConsoleLayout />,
-          children: [{ index: true, element: <p>Overview page</p> }]
+          children: [{ index: true, element: <h1>Usage page</h1> }]
         }
       ],
-      { future: routerFuture, initialEntries: ['/console'] }
+      { future: routerFuture, initialEntries: ['/console/usage'] }
     );
 
     render(<RouterProvider future={routerFuture} router={router} />);
@@ -44,7 +44,10 @@ describe('ConsoleLayout', () => {
     expect(await screen.findByText('Default mode: solo')).toBeInTheDocument();
     expect(await screen.findByRole('link', { name: 'Workspace settings' })).toHaveAttribute('href', '/settings');
     expect(await screen.findByRole('link', { name: 'Return to workspace' })).toHaveAttribute('href', '/chat');
-    expect(await screen.findByText('Overview page')).toBeInTheDocument();
+    expect(await screen.findByText('Usage page')).toBeInTheDocument();
+    expect(await screen.findByRole('main')).toContainElement(screen.getByRole('heading', { name: 'Usage page' }));
+    expect(await screen.findByRole('link', { name: 'Usage' })).toHaveAttribute('aria-current', 'page');
+    expect(await screen.findByRole('link', { name: 'Overview' })).not.toHaveAttribute('aria-current');
     expect(document.querySelector('[data-gsap-scope="console"]')).toBeInTheDocument();
     expect(document.querySelectorAll('[data-gsap-item]').length).toBeGreaterThan(5);
   });
