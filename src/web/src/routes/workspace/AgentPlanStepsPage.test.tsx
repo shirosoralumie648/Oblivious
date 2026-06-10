@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const approvePlanStep = vi.fn();
 const approveToolRun = vi.fn();
+const adjustPlan = vi.fn();
 const continueRunWithBudget = vi.fn();
 const createPlanStep = vi.fn();
 const deletePlanStep = vi.fn();
@@ -20,6 +21,7 @@ vi.mock('../../features/agents/planStepsApi', () => ({
   createAgentPlanStepsApi: () => ({
     approvePlanStep,
     approveToolRun,
+    adjustPlan,
     continueRunWithBudget,
     createPlanStep,
     deletePlanStep,
@@ -106,6 +108,7 @@ describe('AgentPlanStepsPage', () => {
   beforeEach(() => {
     approvePlanStep.mockReset();
     approveToolRun.mockReset();
+    adjustPlan.mockReset();
     continueRunWithBudget.mockReset();
     createPlanStep.mockReset();
     deletePlanStep.mockReset();
@@ -216,6 +219,63 @@ describe('AgentPlanStepsPage', () => {
     expect(await screen.findByText('Status: completed')).toBeInTheDocument();
     expect(screen.getByLabelText('Agent run execution controls')).toHaveTextContent('Iterations 3');
     expect(screen.queryByRole('button', { name: 'Continue with budget' })).not.toBeInTheDocument();
+  });
+
+  it('adjusts remaining plan steps from the planning page', async () => {
+    getRunDetail.mockResolvedValueOnce(runDetail([
+      {
+        approvalStatus: 'not_required',
+        id: 'step_done',
+        index: 1,
+        resultContent: 'evidence collected',
+        runId: 'run_1',
+        status: 'completed',
+        title: 'Gather evidence'
+      },
+      {
+        approvalStatus: 'approved',
+        error: 'old failure',
+        id: 'step_failed',
+        index: 2,
+        runId: 'run_1',
+        status: 'failed',
+        title: 'Old failed suffix'
+      }
+    ], { status: 'failed' }));
+    adjustPlan.mockResolvedValueOnce(runDetail([
+      {
+        approvalStatus: 'not_required',
+        id: 'step_done',
+        index: 1,
+        resultContent: 'evidence collected',
+        runId: 'run_1',
+        status: 'completed',
+        title: 'Gather evidence'
+      },
+      {
+        approvalStatus: 'not_required',
+        id: 'step_adjusted',
+        index: 2,
+        runId: 'run_1',
+        status: 'pending',
+        title: 'Adjusted remaining work'
+      }
+    ], { status: 'pending_approval' }));
+
+    renderDirectPage();
+
+    expect(await screen.findByRole('heading', { name: 'Old failed suffix' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Adjustment reason'), {
+      target: { value: 'new result changed the remaining path' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Adjust remaining plan' }));
+
+    await waitFor(() => expect(adjustPlan).toHaveBeenCalledWith('run_1', 'new result changed the remaining path'));
+    expect(await screen.findByText('Status: pending_approval')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Gather evidence' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Adjusted remaining work' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Old failed suffix' })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Adjustment reason')).toHaveValue('');
   });
 
   it('renders plan steps from navigation state and refreshes them after approve and execute actions', async () => {

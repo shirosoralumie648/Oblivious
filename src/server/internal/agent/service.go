@@ -994,12 +994,16 @@ var (
 
 func (s *Service) persistPlanningSteps(ctx context.Context, organizationID, runID, reply string) ([]*PlanStep, error) {
 	specs := parsePlanStepSpecs(reply)
+	return s.createPlanStepsFromSpecs(ctx, organizationID, runID, 1, specs)
+}
+
+func (s *Service) createPlanStepsFromSpecs(ctx context.Context, organizationID, runID string, startIndex int, specs []parsedPlanStepSpec) ([]*PlanStep, error) {
 	steps := make([]*PlanStep, 0, len(specs))
 	for i, spec := range specs {
 		step, err := s.store.CreatePlanStep(ctx, &CreatePlanStepRequest{
 			OrganizationID: organizationID,
 			RunID:          runID,
-			Index:          i + 1,
+			Index:          startIndex + i,
 			Title:          spec.Title,
 			Status:         PlanStepStatusPending,
 			ApprovalStatus: ApprovalStatusNotRequired,
@@ -1023,18 +1027,16 @@ type parsedPlanStepSpec struct {
 func parsePlanStepSpecs(reply string) []parsedPlanStepSpec {
 	var structured []parsedPlanStepSpec
 	if err := json.Unmarshal([]byte(strings.TrimSpace(reply)), &structured); err == nil {
-		steps := make([]parsedPlanStepSpec, 0, len(structured))
-		for _, step := range structured {
-			step.Title = strings.TrimSpace(step.Title)
-			step.ToolName = strings.TrimSpace(step.ToolName)
-			if step.Title == "" {
-				continue
-			}
-			if step.Input == nil {
-				step.Input = map[string]any{}
-			}
-			steps = append(steps, step)
+		steps := normalizeParsedPlanStepSpecs(structured)
+		if len(steps) > 0 {
+			return steps
 		}
+	}
+	var wrapped struct {
+		Steps []parsedPlanStepSpec `json:"steps"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(reply)), &wrapped); err == nil {
+		steps := normalizeParsedPlanStepSpecs(wrapped.Steps)
 		if len(steps) > 0 {
 			return steps
 		}
@@ -1047,6 +1049,22 @@ func parsePlanStepSpecs(reply string) []parsedPlanStepSpec {
 			Title: title,
 			Input: map[string]any{},
 		})
+	}
+	return steps
+}
+
+func normalizeParsedPlanStepSpecs(structured []parsedPlanStepSpec) []parsedPlanStepSpec {
+	steps := make([]parsedPlanStepSpec, 0, len(structured))
+	for _, step := range structured {
+		step.Title = strings.TrimSpace(step.Title)
+		step.ToolName = strings.TrimSpace(step.ToolName)
+		if step.Title == "" {
+			continue
+		}
+		if step.Input == nil {
+			step.Input = map[string]any{}
+		}
+		steps = append(steps, step)
 	}
 	return steps
 }
@@ -1207,6 +1225,107 @@ func (s *Service) GetRunDetail(ctx context.Context, session auth.Session, runID 
 		return nil, err
 	}
 	return &RunDetail{Run: run, ToolRuns: toolRuns, PlanSteps: planSteps}, nil
+}
+
+func (s *Service) AdjustPlanSteps(ctx context.Context, session auth.Session, runID, reason string) (*RunWithMessages, error) {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return nil, fmt.Errorf("run id is required")
+	}
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return nil, fmt.Errorf("reason is required")
+	}
+
+	run, err := s.getRunForSession(ctx, session, runID)
+	if err != nil {
+		return nil, err
+	}
+	if NormalizeExecutionMode(run.Mode) != ExecutionModePlanning {
+		return nil, fmt.Errorf("agent run is not in planning mode")
+	}
+
+	agent, err := s.store.GetAgent(ctx, run.AgentID, session.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	if agent == nil {
+		return nil, fmt.Errorf("agent not found")
+	}
+	if agent.UserID != session.User.ID && !agent.IsPublic {
+		return nil, fmt.Errorf("access denied")
+	}
+
+	steps, err := s.store.ListPlanSteps(ctx, session.OrganizationID, run.ID)
+	if err != nil {
+		return nil, err
+	}
+	sortPlanSteps(steps)
+
+	completedPrefix := make([]*PlanStep, 0, len(steps))
+	seenRemaining := false
+	for _, step := range steps {
+		if step == nil {
+			continue
+		}
+		if isPlanStepDone(step) {
+			if seenRemaining {
+				return nil, fmt.Errorf("plan cannot be adjusted across completed later step")
+			}
+			completedPrefix = append(completedPrefix, step)
+			continue
+		}
+		seenRemaining = true
+		if !isPlanStepReplaceableForAdjustment(step) {
+			return nil, fmt.Errorf("plan step %d cannot be adjusted while %s", step.Index, step.Status)
+		}
+	}
+	if !seenRemaining {
+		return nil, fmt.Errorf("no remaining plan steps to adjust")
+	}
+
+	ctx = withSessionRelayMetadata(ctx, session)
+	prompt := buildAdjustedPlanPrompt(steps, completedPrefix, reason)
+	reply, err := s.gateway.GenerateReply(ctx, []chat.Message{{
+		Role:    "user",
+		Content: prompt,
+	}}, planningConversationConfig(agent))
+	if err != nil {
+		return nil, fmt.Errorf("generate adjusted plan: %w", err)
+	}
+
+	specs := parsePlanStepSpecs(reply)
+	if len(specs) == 0 {
+		return nil, fmt.Errorf("adjusted plan did not include any remaining steps")
+	}
+
+	completedPrefixIDs := make(map[string]struct{}, len(completedPrefix))
+	for _, step := range completedPrefix {
+		completedPrefixIDs[step.ID] = struct{}{}
+	}
+	for _, step := range steps {
+		if step == nil {
+			continue
+		}
+		if _, ok := completedPrefixIDs[step.ID]; ok {
+			continue
+		}
+		if _, err := s.store.DeletePlanStep(ctx, session.OrganizationID, step.ID); err != nil {
+			return nil, err
+		}
+	}
+	if _, err := s.createPlanStepsFromSpecs(ctx, session.OrganizationID, run.ID, len(completedPrefix)+1, specs); err != nil {
+		return nil, err
+	}
+	if _, err := s.store.UpdateRun(ctx, session.OrganizationID, run.ID, UpdateRunRequest{
+		Status:           stringPointer(RunStatusPendingApproval),
+		Error:            stringPointer(""),
+		ClearCompletedAt: true,
+	}); err != nil {
+		return nil, err
+	}
+
+	return s.GetRunWithMessages(ctx, session, run.ID)
 }
 
 func (s *Service) ApprovePlanStep(ctx context.Context, session auth.Session, planStepID, reason string) (*PlanStep, error) {
@@ -1675,6 +1794,75 @@ func canSkipPlanStep(step *PlanStep) bool {
 		return false
 	}
 	return step.Status == PlanStepStatusPending || step.Status == PlanStepStatusApproved || step.Status == PlanStepStatusFailed
+}
+
+func isPlanStepDone(step *PlanStep) bool {
+	if step == nil {
+		return false
+	}
+	return step.Status == PlanStepStatusCompleted || step.Status == PlanStepStatusSkipped
+}
+
+func isPlanStepReplaceableForAdjustment(step *PlanStep) bool {
+	if step == nil {
+		return false
+	}
+	return step.Status == PlanStepStatusPending || step.Status == PlanStepStatusApproved || step.Status == PlanStepStatusFailed
+}
+
+type planStepAdjustmentEvidence struct {
+	Index          int            `json:"index"`
+	Title          string         `json:"title"`
+	Status         string         `json:"status"`
+	ApprovalStatus string         `json:"approvalStatus"`
+	ToolName       string         `json:"toolName,omitempty"`
+	Input          map[string]any `json:"input,omitempty"`
+	ResultContent  string         `json:"resultContent,omitempty"`
+	Error          string         `json:"error,omitempty"`
+}
+
+func buildAdjustedPlanPrompt(allSteps, completedSteps []*PlanStep, reason string) string {
+	original := planStepsAdjustmentEvidence(allSteps)
+	completed := planStepsAdjustmentEvidence(completedSteps)
+	return fmt.Sprintf(strings.Join([]string{
+		"The original plan has been partially executed and needs adjustment.",
+		"Reason: %s",
+		"",
+		"Original plan: %s",
+		"",
+		"Completed or skipped steps: %s",
+		"",
+		"Produce a revised plan for the remaining work only.",
+		"Return only a JSON array of remaining steps. Each item must include title, optional toolName, and optional input.",
+	}, "\n"), reason, marshalPlanAdjustmentEvidence(original), marshalPlanAdjustmentEvidence(completed))
+}
+
+func planStepsAdjustmentEvidence(steps []*PlanStep) []planStepAdjustmentEvidence {
+	evidence := make([]planStepAdjustmentEvidence, 0, len(steps))
+	for _, step := range steps {
+		if step == nil {
+			continue
+		}
+		evidence = append(evidence, planStepAdjustmentEvidence{
+			Index:          step.Index,
+			Title:          step.Title,
+			Status:         step.Status,
+			ApprovalStatus: step.ApprovalStatus,
+			ToolName:       step.ToolName,
+			Input:          step.Input,
+			ResultContent:  step.ResultContent,
+			Error:          step.Error,
+		})
+	}
+	return evidence
+}
+
+func marshalPlanAdjustmentEvidence(value any) string {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return "[]"
+	}
+	return string(data)
 }
 
 func (s *Service) ensurePriorPlanStepsDone(ctx context.Context, session auth.Session, step *PlanStep) error {

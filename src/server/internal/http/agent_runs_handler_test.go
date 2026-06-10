@@ -370,6 +370,99 @@ func TestAgentRunsHandlerApprovePlanStepReturnsUpdatedRunDetail(t *testing.T) {
 	}
 }
 
+func TestAgentRunsHandlerAdjustPlanReturnsUpdatedRunDetail(t *testing.T) {
+	now := time.Now().UTC()
+	completedAt := now.Add(-time.Minute)
+	store := newFakeAgentRunsStore()
+	store.agent = &agent.Agent{
+		ID:             "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		Name:           "Planning Agent",
+		Model:          "test-model",
+	}
+	store.conversation = &agent.Conversation{
+		ID:             "conv_1",
+		AgentID:        "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+	}
+	store.runs = []*agent.Run{{
+		ID:             "run_1",
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		Mode:           agent.ExecutionModePlanning,
+		Status:         agent.RunStatusFailed,
+		Error:          "old failure",
+		CompletedAt:    &completedAt,
+	}}
+	store.messages = []*agent.Message{{
+		ID:             "msg_1",
+		ConversationID: "conv_1",
+		OrganizationID: "org_1",
+		Role:           "user",
+		Content:        "adjust this plan",
+		CreatedAt:      now.Add(-2 * time.Minute),
+	}}
+	store.planSteps = []*agent.PlanStep{
+		{
+			ID:             "step_done",
+			RunID:          "run_1",
+			OrganizationID: "org_1",
+			Index:          1,
+			Title:          "Gather evidence",
+			Status:         agent.PlanStepStatusCompleted,
+			ApprovalStatus: agent.ApprovalStatusNotRequired,
+			ResultContent:  "evidence collected",
+			CompletedAt:    &completedAt,
+			CreatedAt:      now.Add(-3 * time.Minute),
+			UpdatedAt:      now.Add(-3 * time.Minute),
+		},
+		{
+			ID:             "step_pending",
+			RunID:          "run_1",
+			OrganizationID: "org_1",
+			Index:          2,
+			Title:          "Old remaining step",
+			Status:         agent.PlanStepStatusPending,
+			ApprovalStatus: agent.ApprovalStatusPending,
+			CreatedAt:      now.Add(-2 * time.Minute),
+			UpdatedAt:      now.Add(-2 * time.Minute),
+		},
+	}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{reply: `[{"title":"Adjusted implementation"},{"title":"Adjusted verification"}]`}))
+
+	recorder := httptest.NewRecorder()
+	handler.adjustPlan(recorder, newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/adjust-plan", `{"reason":"new result changed next steps"}`), "run_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Data agentRunResponse `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Data.Run == nil || response.Data.Run.Status != agent.RunStatusPendingApproval || response.Data.Run.Error != "" || response.Data.Run.CompletedAt != nil {
+		t.Fatalf("expected reopened run detail, got %+v", response.Data.Run)
+	}
+	if len(response.Data.PlanSteps) != 3 {
+		t.Fatalf("expected preserved prefix plus adjusted suffix, got %+v", response.Data.PlanSteps)
+	}
+	if response.Data.PlanSteps[0].ID != "step_done" || response.Data.PlanSteps[0].ResultContent != "evidence collected" {
+		t.Fatalf("expected completed prefix to remain, got %+v", response.Data.PlanSteps[0])
+	}
+	if response.Data.PlanSteps[1].Title != "Adjusted implementation" || response.Data.PlanSteps[1].Index != 2 {
+		t.Fatalf("expected adjusted first remaining step, got %+v", response.Data.PlanSteps[1])
+	}
+	if response.Data.PlanSteps[2].Title != "Adjusted verification" || response.Data.PlanSteps[2].Index != 3 {
+		t.Fatalf("expected adjusted second remaining step, got %+v", response.Data.PlanSteps[2])
+	}
+}
+
 func TestAgentRunsHandlerUpdatePlanStepReturnsUpdatedRunDetail(t *testing.T) {
 	now := time.Now().UTC()
 	store := newFakeAgentRunsStore()

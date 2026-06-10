@@ -84,6 +84,10 @@ type agentRunPlanStepMoveRequest struct {
 	Direction       string `json:"direction"`
 }
 
+type agentRunAdjustPlanRequest struct {
+	Reason string `json:"reason"`
+}
+
 type agentRunContinueBudgetRequest struct {
 	TokenBudget      *int `json:"token_budget"`
 	TokenBudgetCamel *int `json:"tokenBudget"`
@@ -303,6 +307,31 @@ func (h agentRunsHandler) continueBudget(w stdhttp.ResponseWriter, r *stdhttp.Re
 		return
 	}
 	result, err := h.service.GetRunWithMessages(r.Context(), session, strings.TrimSpace(runID))
+	if err != nil {
+		writeAgentWorkflowError(w, err)
+		return
+	}
+	writeSuccess(w, stdhttp.StatusOK, newAgentRunResponse(result))
+}
+
+func (h agentRunsHandler) adjustPlan(w stdhttp.ResponseWriter, r *stdhttp.Request, runID string) {
+	session, ok := sessionFromContext(r)
+	if !ok {
+		writeError(w, stdhttp.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+
+	var req agentRunAdjustPlanRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "invalid json body")
+		return
+	}
+	if strings.TrimSpace(req.Reason) == "" {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "reason is required")
+		return
+	}
+
+	result, err := h.service.AdjustPlanSteps(r.Context(), session, strings.TrimSpace(runID), req.Reason)
 	if err != nil {
 		writeAgentWorkflowError(w, err)
 		return

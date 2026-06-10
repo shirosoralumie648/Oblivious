@@ -101,6 +101,8 @@ export function AgentPlanStepsPage() {
   const [editInput, setEditInput] = useState('');
   const [editTitle, setEditTitle] = useState('');
   const [editToolName, setEditToolName] = useState('');
+  const [adjustPlanReason, setAdjustPlanReason] = useState('');
+  const [isAdjustingPlan, setIsAdjustingPlan] = useState(false);
   const [continueBudget, setContinueBudget] = useState('2500');
   const [isContinuingBudget, setIsContinuingBudget] = useState(false);
   const [isCreatingStep, setIsCreatingStep] = useState(false);
@@ -402,6 +404,30 @@ export function AgentPlanStepsPage() {
     }
   };
 
+  const adjustRemainingPlan = async () => {
+    if (!runId) {
+      setError('Run ID is required.');
+      return;
+    }
+    const reason = adjustPlanReason.trim();
+    if (!reason) {
+      setError('Adjustment reason is required.');
+      return;
+    }
+
+    setIsAdjustingPlan(true);
+    setError(null);
+    try {
+      const detail = await api.adjustPlan(runId, reason);
+      applyRunDetail(detail);
+      setAdjustPlanReason('');
+    } catch (caughtError) {
+      setError(errorMessage(caughtError, 'Unable to adjust remaining plan.'));
+    } finally {
+      setIsAdjustingPlan(false);
+    }
+  };
+
   return (
     <section className="mx-auto max-w-5xl space-y-6">
       <header className="space-y-2">
@@ -470,6 +496,24 @@ export function AgentPlanStepsPage() {
             </button>
           </div>
         ) : null}
+        <div className="flex flex-col gap-2 rounded-lg border border-[#d7d2c4] bg-white p-3 sm:flex-row sm:items-end">
+          <label className="grid flex-1 gap-1 text-sm font-medium text-[#3f3a31]">
+            Adjustment reason
+            <textarea
+              className="min-h-20 rounded-lg border border-[#d7d2c4] px-3 py-2 text-sm leading-5"
+              onChange={(event) => setAdjustPlanReason(event.target.value)}
+              value={adjustPlanReason}
+            />
+          </label>
+          <button
+            className="min-h-10 rounded-lg bg-[#181611] px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={isAdjustingPlan || adjustPlanReason.trim() === ''}
+            onClick={() => void adjustRemainingPlan()}
+            type="button"
+          >
+            {isAdjustingPlan ? 'Adjusting plan' : 'Adjust remaining plan'}
+          </button>
+        </div>
       </header>
 
       {error ? (

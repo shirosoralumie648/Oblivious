@@ -151,6 +151,31 @@ describe('createAgentPlanStepsApi', () => {
     });
   });
 
+  it('adjusts the remaining plan steps and returns refreshed run detail', async () => {
+    const post = vi.fn().mockResolvedValue(agentRunPayload(
+      [
+        { id: 'step_done', index: 1, resultContent: 'evidence collected', runId: 'run_1', status: 'completed', title: 'Gather evidence' },
+        { id: 'step_adjusted', index: 2, runId: 'run_1', status: 'pending', title: 'Adjusted remaining work' }
+      ],
+      { status: 'pending_approval' }
+    ));
+    const api = createAgentPlanStepsApi(createClient({ post }));
+
+    await expect(api.adjustPlan('run_1', 'new result changed the remaining path')).resolves.toMatchObject({
+      id: 'run_1',
+      planSteps: [
+        { id: 'step_done', index: 1, resultContent: 'evidence collected', runId: 'run_1', status: 'completed', title: 'Gather evidence' },
+        { id: 'step_adjusted', index: 2, runId: 'run_1', status: 'pending', title: 'Adjusted remaining work' }
+      ],
+      status: 'pending_approval',
+      toolRuns: []
+    });
+
+    expect(post).toHaveBeenCalledWith('/api/v1/agent/runs/run_1/adjust-plan', {
+      reason: 'new result changed the remaining path'
+    });
+  });
+
   it('executes a run plan step and returns refreshed run detail', async () => {
     const post = vi.fn().mockResolvedValue(agentRunPayload(
       [{ id: 'step_1', runId: 'run_1', resultContent: 'done', status: 'completed', title: 'Inspect workspace' }],

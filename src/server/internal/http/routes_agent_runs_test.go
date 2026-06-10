@@ -749,6 +749,83 @@ func TestRegisterAgentRunRoutesDispatchesContinueBudget(t *testing.T) {
 	}
 }
 
+func TestRegisterAgentRunRoutesDispatchesAdjustPlan(t *testing.T) {
+	now := time.Now().UTC()
+	completedAt := now.Add(-time.Minute)
+	store := newFakeAgentRunsStore()
+	store.agent = &agent.Agent{
+		ID:             "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		Name:           "Planning Agent",
+		Model:          "test-model",
+	}
+	store.conversation = &agent.Conversation{
+		ID:             "conv_1",
+		AgentID:        "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+	}
+	store.runs = []*agent.Run{{
+		ID:             "run_1",
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		Mode:           agent.ExecutionModePlanning,
+		Status:         agent.RunStatusFailed,
+		Error:          "old failure",
+		CompletedAt:    &completedAt,
+	}}
+	store.planSteps = []*agent.PlanStep{
+		{
+			ID:             "step_done",
+			RunID:          "run_1",
+			OrganizationID: "org_1",
+			Index:          1,
+			Title:          "Gather evidence",
+			Status:         agent.PlanStepStatusCompleted,
+			ApprovalStatus: agent.ApprovalStatusNotRequired,
+			ResultContent:  "evidence collected",
+			CompletedAt:    &completedAt,
+			CreatedAt:      now.Add(-2 * time.Minute),
+			UpdatedAt:      now.Add(-2 * time.Minute),
+		},
+		{
+			ID:             "step_failed",
+			RunID:          "run_1",
+			OrganizationID: "org_1",
+			Index:          2,
+			Title:          "Old failed suffix",
+			Status:         agent.PlanStepStatusFailed,
+			ApprovalStatus: agent.ApprovalStatusApproved,
+			Error:          "old failure",
+			CompletedAt:    &completedAt,
+			CreatedAt:      now.Add(-time.Minute),
+			UpdatedAt:      now.Add(-time.Minute),
+		},
+	}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{reply: `[{"title":"Adjusted remaining work"}]`}))
+	mux := stdhttp.NewServeMux()
+	registerAgentRunRoutes(mux, passThroughAuthMiddleware{}, handler)
+
+	request := newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/adjust-plan", `{"reason":"failed suffix needs a new path"}`)
+	recorder := httptest.NewRecorder()
+
+	mux.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, `"status":"pending_approval"`) || !strings.Contains(body, `"title":"Gather evidence"`) || !strings.Contains(body, `"title":"Adjusted remaining work"`) {
+		t.Fatalf("expected adjusted plan detail, got %s", body)
+	}
+	if strings.Contains(body, "Old failed suffix") || strings.Contains(body, "old failure") {
+		t.Fatalf("expected old remaining suffix state to be replaced and run error cleared, got %s", body)
+	}
+}
+
 func TestRegisterAgentRunRoutesDispatchesExecutePlanStep(t *testing.T) {
 	now := time.Now().UTC()
 	store := newFakeAgentRunsStore()

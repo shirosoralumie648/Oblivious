@@ -1381,6 +1381,14 @@ components:
           minimum: 1000
           maximum: 1000000
 
+    AgentRunAdjustPlanRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 1
+
     AgentWorkspaceTool:
       type: object
       properties:
@@ -10635,6 +10643,49 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "409":
           description: Agent run 当前状态不允许续跑或新增预算仍不足
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Envelope"
+
+  /api/v1/agent/runs/{runId}/adjust-plan:
+    post:
+      summary: 根据已完成结果调整 Agent planning 剩余步骤
+      operationId: adjustAgentRunPlan
+      tags: [Agent]
+      security:
+        - cookieAuth: []
+          csrfHeader: []
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentRunAdjustPlanRequest"
+      responses:
+        "200":
+          description: 刷新后的 Agent run 状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AgentRunResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: Agent planning run 当前状态或步骤顺序不允许调整
           content:
             application/json:
               schema:

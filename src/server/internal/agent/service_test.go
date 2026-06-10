@@ -2932,6 +2932,131 @@ func TestStartPlanningRunPersistsStructuredToolSteps(t *testing.T) {
 	}
 }
 
+func TestServiceAdjustPlanStepsReplacesRemainingSuffix(t *testing.T) {
+	completedAt := time.Now().UTC()
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+			SystemPrompt:   "Follow project constraints.",
+		},
+		conversation: &Conversation{
+			ID:             "conv_1",
+			AgentID:        "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+		},
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
+			Status:         RunStatusFailed,
+			Error:          "old suffix failed",
+			CompletedAt:    &completedAt,
+		}},
+		messages: []*Message{{
+			ID:             "msg_1",
+			ConversationID: "conv_1",
+			OrganizationID: "org_1",
+			Role:           "user",
+			Content:        "ship the feature",
+			CreatedAt:      completedAt.Add(-time.Minute),
+		}},
+		planSteps: []*PlanStep{
+			{
+				ID:             "step_done",
+				RunID:          "run_1",
+				OrganizationID: "org_1",
+				Index:          1,
+				Title:          "Collect current evidence",
+				Status:         PlanStepStatusCompleted,
+				ApprovalStatus: ApprovalStatusNotRequired,
+				ResultContent:  "matrix says row 24 is partial",
+				CompletedAt:    &completedAt,
+				CreatedAt:      completedAt.Add(-3 * time.Minute),
+			},
+			{
+				ID:             "step_pending",
+				RunID:          "run_1",
+				OrganizationID: "org_1",
+				Index:          2,
+				Title:          "Implement stale next step",
+				Status:         PlanStepStatusPending,
+				ApprovalStatus: ApprovalStatusPending,
+				CreatedAt:      completedAt.Add(-2 * time.Minute),
+			},
+			{
+				ID:             "step_failed",
+				RunID:          "run_1",
+				OrganizationID: "org_1",
+				Index:          3,
+				Title:          "Retry old failing check",
+				Status:         PlanStepStatusFailed,
+				ApprovalStatus: ApprovalStatusApproved,
+				Error:          "old failure",
+				CompletedAt:    &completedAt,
+				CreatedAt:      completedAt.Add(-time.Minute),
+			},
+		},
+	}
+	gateway := &fakeGateway{plainReply: `[
+		{"title":"Implement adjusted backend contract","toolName":"write_file","input":{"path":"src/server/internal/agent/service.go"}},
+		{"title":"Verify adjusted planning flow","input":{"command":"go test ./internal/agent"}}
+	]`}
+	service := NewService(store, gateway)
+
+	result, err := service.AdjustPlanSteps(
+		context.Background(),
+		auth.Session{OrganizationID: "org_1", WorkspaceID: "workspace_1", User: auth.User{ID: "user_1"}},
+		"run_1",
+		"scope changed after completed evidence",
+	)
+	if err != nil {
+		t.Fatalf("AdjustPlanSteps returned error: %v", err)
+	}
+	if result.Run == nil || result.Run.Status != RunStatusPendingApproval || result.Run.Error != "" || result.Run.CompletedAt != nil {
+		t.Fatalf("expected run reopened for pending approval, got %+v", result.Run)
+	}
+	if gateway.plainCalls != 1 {
+		t.Fatalf("expected one model call, got %d", gateway.plainCalls)
+	}
+	prompt := chatMessagesContent(gateway.lastPlainMessages)
+	for _, want := range []string{"scope changed after completed evidence", "Collect current evidence", "matrix says row 24 is partial", "Implement stale next step", "Retry old failing check"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("adjust prompt missing %q:\n%s", want, prompt)
+		}
+	}
+
+	steps := store.planSteps
+	sortPlanSteps(steps)
+	if len(steps) != 3 {
+		t.Fatalf("expected completed prefix plus two adjusted steps, got %+v", steps)
+	}
+	if steps[0].ID != "step_done" || steps[0].Index != 1 || steps[0].ResultContent != "matrix says row 24 is partial" {
+		t.Fatalf("completed prefix was not preserved: %+v", steps[0])
+	}
+	if steps[1].ID == "step_pending" || steps[2].ID == "step_failed" {
+		t.Fatalf("old suffix steps should have been replaced, got %+v", steps)
+	}
+	if steps[1].Index != 2 || steps[1].Title != "Implement adjusted backend contract" || steps[1].Status != PlanStepStatusPending || steps[1].ApprovalStatus != ApprovalStatusNotRequired {
+		t.Fatalf("first adjusted step mismatch: %+v", steps[1])
+	}
+	if steps[1].ToolName != "write_file" || steps[1].Input["path"] != "src/server/internal/agent/service.go" {
+		t.Fatalf("structured tool metadata was not preserved: %+v", steps[1])
+	}
+	if steps[2].Index != 3 || steps[2].Title != "Verify adjusted planning flow" || steps[2].Status != PlanStepStatusPending || steps[2].ApprovalStatus != ApprovalStatusNotRequired {
+		t.Fatalf("second adjusted step mismatch: %+v", steps[2])
+	}
+	if len(result.PlanSteps) != 3 || result.PlanSteps[1].Title != "Implement adjusted backend contract" {
+		t.Fatalf("expected refreshed run detail with adjusted steps, got %+v", result.PlanSteps)
+	}
+}
+
 func TestServiceStartRunWithoutToolsMarksDurableRunFailedOnRunnerError(t *testing.T) {
 	store := &fakeStore{
 		agent: &Agent{
