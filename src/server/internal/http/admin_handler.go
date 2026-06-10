@@ -754,17 +754,38 @@ func (h adminHandler) enableUser(w stdhttp.ResponseWriter, r *stdhttp.Request, u
 }
 
 type updateUserQuotaRequest struct {
-	Balance float64 `json:"balance"`
+	Balance *float64 `json:"balance"`
 }
 
 func (h adminHandler) updateUserQuota(w stdhttp.ResponseWriter, r *stdhttp.Request, userID string) {
+	session, ok := sessionOrUnauthorized(w, r)
+	if !ok {
+		return
+	}
+
 	var req updateUserQuotaRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "invalid json body")
 		return
 	}
+	if req.Balance == nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "balance is required")
+		return
+	}
 
-	if err := h.service.UpdateUserQuota(r.Context(), userID, req.Balance); err != nil {
+	if err := h.service.UpdateUserQuota(r.Context(), session.User.ID, session.User.Email, userID, *req.Balance, requestClientIP(r)); err != nil {
+		if isNotFoundError(err) {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "user not found")
+			return
+		}
+		if strings.Contains(err.Error(), "not found") {
+			writeError(w, stdhttp.StatusNotFound, "not_found", err.Error())
+			return
+		}
+		if strings.Contains(err.Error(), "required") || strings.Contains(err.Error(), "balance must") {
+			writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
 		return
 	}

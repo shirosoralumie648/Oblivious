@@ -5304,6 +5304,7 @@ components:
         balance:
           type: number
           format: double
+          minimum: 0
 
     AdminUserStatusResponse:
       type: object

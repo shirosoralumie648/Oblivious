@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"errors"
 	"net/http/httptest"
 	"reflect"
 	"strings"
@@ -84,6 +85,83 @@ func TestListUsersPagination(t *testing.T) {
 		if limit != tt.expected {
 			t.Errorf("input %d: expected %d, got %d", tt.input, tt.expected, limit)
 		}
+	}
+}
+
+func TestUpdateUserQuotaValidatesTargetAndAudits(t *testing.T) {
+	store := &userQuotaAdminStore{
+		user: &UserDetail{ID: "user_1", Email: "user@example.com", Role: "user", Status: "active"},
+	}
+	service := NewService(store)
+
+	err := service.UpdateUserQuota(context.Background(), "admin_1", "admin@example.com", " user_1 ", 42.5, "203.0.113.9")
+	if err != nil {
+		t.Fatalf("UpdateUserQuota returned error: %v", err)
+	}
+
+	if store.quotaUserID != "user_1" || store.quotaBalance != 42.5 {
+		t.Fatalf("expected user quota update to be forwarded, got user=%q balance=%f", store.quotaUserID, store.quotaBalance)
+	}
+	if len(store.auditEntries) != 1 {
+		t.Fatalf("expected one audit entry, got %#v", store.auditEntries)
+	}
+	entry := store.auditEntries[0]
+	if entry.ActorID != "admin_1" || entry.ActorEmail != "admin@example.com" ||
+		entry.Action != "user.quota.update" || entry.ResourceType != "user" || entry.ResourceID != "user_1" ||
+		entry.IPAddress != "203.0.113.9" || !strings.Contains(entry.Changes, `"balance":42.5`) {
+		t.Fatalf("unexpected quota audit entry: %#v", entry)
+	}
+}
+
+func TestUpdateUserQuotaRejectsInvalidOrMissingTarget(t *testing.T) {
+	tests := []struct {
+		name      string
+		userID    string
+		balance   float64
+		userError error
+		want      string
+	}{
+		{
+			name:    "blank user",
+			userID:  " ",
+			balance: 10,
+			want:    "user id is required",
+		},
+		{
+			name:    "negative balance",
+			userID:  "user_1",
+			balance: -1,
+			want:    "balance must be a non-negative finite number",
+		},
+		{
+			name:      "missing user",
+			userID:    "user_missing",
+			balance:   10,
+			userError: errors.New("user not found: user_missing"),
+			want:      "user not found",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &userQuotaAdminStore{
+				user:        &UserDetail{ID: "user_1", Email: "user@example.com", Role: "user", Status: "active"},
+				userErr:     tt.userError,
+				quotaUserID: "",
+			}
+			service := NewService(store)
+
+			err := service.UpdateUserQuota(context.Background(), "admin_1", "admin@example.com", tt.userID, tt.balance, "203.0.113.9")
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("expected error containing %q, got %v", tt.want, err)
+			}
+			if store.quotaUserID != "" {
+				t.Fatalf("invalid quota update should not reach store, got user=%q balance=%f", store.quotaUserID, store.quotaBalance)
+			}
+			if len(store.auditEntries) != 0 {
+				t.Fatalf("invalid quota update should not audit, got %#v", store.auditEntries)
+			}
+		})
 	}
 }
 
@@ -463,6 +541,36 @@ type relayConfigApplyStore struct {
 	createdAPIKey string
 	updatedAPIKey *string
 	auditEntries  []*AuditEntry
+}
+
+type userQuotaAdminStore struct {
+	Store
+	user         *UserDetail
+	userErr      error
+	quotaUserID  string
+	quotaBalance float64
+	auditEntries []*AuditEntry
+}
+
+func (s *userQuotaAdminStore) GetUserByID(ctx context.Context, id string) (*UserDetail, error) {
+	if s.userErr != nil {
+		return nil, s.userErr
+	}
+	if s.user != nil && s.user.ID == id {
+		return s.user, nil
+	}
+	return nil, errors.New("user not found: " + id)
+}
+
+func (s *userQuotaAdminStore) UpdateUserQuota(ctx context.Context, userID string, balance float64) error {
+	s.quotaUserID = userID
+	s.quotaBalance = balance
+	return nil
+}
+
+func (s *userQuotaAdminStore) CreateAuditEntry(ctx context.Context, entry *AuditEntry) error {
+	s.auditEntries = append(s.auditEntries, entry)
+	return nil
 }
 
 func (s *relayConfigApplyStore) CreateChannel(ctx context.Context, input ChannelCreateRequest) (*ChannelInfo, error) {

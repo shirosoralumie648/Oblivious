@@ -502,6 +502,110 @@ func TestAdminHandlerManagesUsageLimitSettings(t *testing.T) {
 	}
 }
 
+func TestAdminHandlerUpdateUserQuotaValidatesAndAudits(t *testing.T) {
+	store := &fakeAdminStore{}
+	handler := newAdminHandler(admin.NewService(store))
+	adminSession := testAdminSession()
+
+	request := httptest.NewRequest(stdhttp.MethodPatch, "/api/v1/admin/users/user_1", strings.NewReader(`{"balance":42.5}`)).
+		WithContext(context.WithValue(context.Background(), sessionContextKey, adminSession))
+	request.Header.Set("X-Forwarded-For", "203.0.113.10, 198.51.100.2")
+	recorder := httptest.NewRecorder()
+
+	handler.updateUserQuota(recorder, request, "user_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected quota update 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if store.updatedQuotaUserID != "user_1" || store.updatedQuotaBalance != 42.5 {
+		t.Fatalf("expected quota update forwarded to store, got user=%q balance=%f", store.updatedQuotaUserID, store.updatedQuotaBalance)
+	}
+	if len(store.auditEntries) != 1 {
+		t.Fatalf("expected one quota audit entry, got %#v", store.auditEntries)
+	}
+	entry := store.auditEntries[0]
+	if entry.ActorID != adminSession.User.ID || entry.ActorEmail != adminSession.User.Email ||
+		entry.Action != "user.quota.update" || entry.ResourceID != "user_1" ||
+		entry.IPAddress != "203.0.113.10" || !strings.Contains(entry.Changes, `"balance":42.5`) {
+		t.Fatalf("unexpected quota audit entry: %#v", entry)
+	}
+	if !strings.Contains(recorder.Body.String(), `"id":"user_1"`) {
+		t.Fatalf("expected updated user detail response, got %s", recorder.Body.String())
+	}
+}
+
+func TestAdminHandlerUpdateUserQuotaRejectsInvalidRequests(t *testing.T) {
+	tests := []struct {
+		name          string
+		userID        string
+		body          string
+		withSession   bool
+		missingUserID string
+		wantStatus    int
+		wantMessage   string
+	}{
+		{
+			name:        "missing session",
+			userID:      "user_1",
+			body:        `{"balance":42.5}`,
+			wantStatus:  stdhttp.StatusUnauthorized,
+			wantMessage: "authentication required",
+		},
+		{
+			name:        "negative balance",
+			userID:      "user_1",
+			body:        `{"balance":-1}`,
+			withSession: true,
+			wantStatus:  stdhttp.StatusBadRequest,
+			wantMessage: "balance must be a non-negative finite number",
+		},
+		{
+			name:        "missing balance",
+			userID:      "user_1",
+			body:        `{}`,
+			withSession: true,
+			wantStatus:  stdhttp.StatusBadRequest,
+			wantMessage: "balance is required",
+		},
+		{
+			name:          "missing user",
+			userID:        "missing_user",
+			body:          `{"balance":10}`,
+			withSession:   true,
+			missingUserID: "missing_user",
+			wantStatus:    stdhttp.StatusNotFound,
+			wantMessage:   "user not found",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &fakeAdminStore{missingUserID: tt.missingUserID}
+			handler := newAdminHandler(admin.NewService(store))
+			request := httptest.NewRequest(stdhttp.MethodPatch, "/api/v1/admin/users/"+tt.userID, strings.NewReader(tt.body))
+			if tt.withSession {
+				request = request.WithContext(context.WithValue(context.Background(), sessionContextKey, testAdminSession()))
+			}
+			recorder := httptest.NewRecorder()
+
+			handler.updateUserQuota(recorder, request, tt.userID)
+
+			if recorder.Code != tt.wantStatus {
+				t.Fatalf("expected %d, got %d: %s", tt.wantStatus, recorder.Code, recorder.Body.String())
+			}
+			if !strings.Contains(recorder.Body.String(), tt.wantMessage) {
+				t.Fatalf("expected response to contain %q, got %s", tt.wantMessage, recorder.Body.String())
+			}
+			if store.updatedQuotaUserID != "" {
+				t.Fatalf("invalid quota update should not reach store, got user=%q balance=%f", store.updatedQuotaUserID, store.updatedQuotaBalance)
+			}
+			if len(store.auditEntries) != 0 {
+				t.Fatalf("invalid quota update should not audit, got %#v", store.auditEntries)
+			}
+		})
+	}
+}
+
 func TestAdminHandlerListsUsageLogsWithFilters(t *testing.T) {
 	store := &fakeAdminStore{}
 	handler := newAdminHandler(admin.NewService(store))
@@ -1479,6 +1583,9 @@ type fakeAdminStore struct {
 	createdPlan           admin.PlanCreateRequest
 	recordedTopupRefundID string
 	recordedTopupRefund   admin.TopupRefundRequest
+	updatedQuotaUserID    string
+	updatedQuotaBalance   float64
+	missingUserID         string
 	createdChannelAPIKey  string
 	updatedChannelAPIKey  *string
 	auditEntries          []*admin.AuditEntry
@@ -1489,6 +1596,8 @@ func (s *fakeAdminStore) GetSystemStats(ctx context.Context) (*admin.SystemStats
 }
 
 func (s *fakeAdminStore) UpdateUserQuota(ctx context.Context, userID string, balance float64) error {
+	s.updatedQuotaUserID = userID
+	s.updatedQuotaBalance = balance
 	return nil
 }
 
@@ -1680,6 +1789,9 @@ func (s *fakeAdminStore) ListUsers(ctx context.Context, filter admin.UserListFil
 }
 
 func (s *fakeAdminStore) GetUserByID(ctx context.Context, id string) (*admin.UserDetail, error) {
+	if s.missingUserID != "" && id == s.missingUserID {
+		return nil, sql.ErrNoRows
+	}
 	return &admin.UserDetail{ID: id, Email: "user@example.com", Role: "user", Status: "active"}, nil
 }
 

@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -187,8 +189,27 @@ func (s *Service) applyRelayConfigChange(ctx context.Context, change RelayConfig
 
 // --- User Management (quota/account — enhanced lifecycle methods in user_service.go) ---
 
-func (s *Service) UpdateUserQuota(ctx context.Context, userID string, balance float64) error {
-	return s.store.UpdateUserQuota(ctx, userID, balance)
+func (s *Service) UpdateUserQuota(ctx context.Context, actorID, actorEmail, userID string, balance float64, ipAddress string) error {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return fmt.Errorf("user id is required")
+	}
+	if balance < 0 || math.IsNaN(balance) || math.IsInf(balance, 0) {
+		return fmt.Errorf("balance must be a non-negative finite number")
+	}
+	user, err := s.store.GetUserByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if user == nil {
+		return fmt.Errorf("user not found: %s", userID)
+	}
+	if err := s.store.UpdateUserQuota(ctx, userID, balance); err != nil {
+		return err
+	}
+
+	_ = s.LogAction(ctx, actorID, actorEmail, "user.quota.update", "user", userID, toJSON(map[string]any{"balance": balance}), ipAddress)
+	return nil
 }
 
 func (s *Service) DeleteUser(ctx context.Context, userID string) error {

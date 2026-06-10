@@ -4360,6 +4360,10 @@ require_admin_core_management_contract() {
         schemas.dig("AdminUsageLimitSettingsListResponse", "properties", "usageLimits", "items", "$ref") == "#/components/schemas/AdminUsageLimitSettings"
       missing << "AdminUsageLimitSettings schemas must document scoped usage limits and request-token cap"
     end
+    unless schemas.dig("AdminUserQuotaUpdateRequest", "required")&.include?("balance") &&
+        schemas.dig("AdminUserQuotaUpdateRequest", "properties", "balance", "minimum") == 0
+      missing << "AdminUserQuotaUpdateRequest.balance must be required and non-negative"
+    end
 
     {
       "AdminRouteListResponse" => ["routes", "#/components/schemas/AdminRoute"],
