@@ -3145,6 +3145,81 @@ func TestServiceAdjustPlanStepsRejectsNonAdjustableRunStatuses(t *testing.T) {
 	}
 }
 
+func TestServicePlanningOnlyActionsRejectReactRunWithoutMutation(t *testing.T) {
+	now := time.Now().UTC()
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+		},
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Mode:           ExecutionModeReact,
+			Status:         RunStatusPendingApproval,
+			Error:          "react approval evidence must stay",
+			StartedAt:      now,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+		messages: []*Message{{
+			ID:             "msg_1",
+			ConversationID: "conv_1",
+			OrganizationID: "org_1",
+			Role:           "assistant",
+			Content:        "react tool approval pending",
+			CreatedAt:      now,
+		}},
+		planSteps: []*PlanStep{{
+			ID:             "step_1",
+			RunID:          "run_1",
+			OrganizationID: "org_1",
+			Index:          1,
+			Title:          "Synthetic stale plan step",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusNotRequired,
+			CreatedAt:      now,
+		}},
+	}
+	gateway := &fakeGateway{plainReply: `[{"title":"Unexpected plan"}]`}
+	executor := &fakePlanStepExecutor{resultContent: "unexpected execution"}
+	service := NewService(store, gateway)
+	service.SetPlanStepExecutor(executor)
+	session := auth.Session{OrganizationID: "org_1", WorkspaceID: "workspace_1", User: auth.User{ID: "user_1"}}
+
+	adjusted, adjustErr := service.AdjustPlanSteps(context.Background(), session, "run_1", "operator tries planning action")
+	if adjustErr == nil || adjustErr.Error() != "agent run is not in planning mode" {
+		t.Fatalf("expected planning-mode adjustment rejection, got result=%+v err=%v", adjusted, adjustErr)
+	}
+	continued, continueErr := service.ContinuePlanningRun(context.Background(), session, "run_1")
+	if continueErr == nil || continueErr.Error() != "agent run is not in planning mode" {
+		t.Fatalf("expected planning-mode continuation rejection, got result=%+v err=%v", continued, continueErr)
+	}
+	if gateway.plainCalls != 0 {
+		t.Fatalf("react run planning-only rejection should not call model, got %d calls", gateway.plainCalls)
+	}
+	if executor.calls != 0 {
+		t.Fatalf("react run planning-only rejection should not execute plan steps, got %d calls", executor.calls)
+	}
+	if len(store.messages) != 1 {
+		t.Fatalf("react run planning-only rejection should not append messages, got %+v", store.messages)
+	}
+	if len(store.planSteps) != 1 || store.planSteps[0].ID != "step_1" || store.planSteps[0].Title != "Synthetic stale plan step" {
+		t.Fatalf("react run planning-only rejection should not replace plan steps, got %+v", store.planSteps)
+	}
+	if len(store.updateRunRequests) != 0 {
+		t.Fatalf("react run planning-only rejection should not update run, got %+v", store.updateRunRequests)
+	}
+	if store.runs[0].Mode != ExecutionModeReact || store.runs[0].Status != RunStatusPendingApproval || store.runs[0].Error != "react approval evidence must stay" {
+		t.Fatalf("react run evidence changed after planning-only rejection: %+v", store.runs[0])
+	}
+}
+
 func TestServiceContinuePlanningRunExecutesUntilNextApproval(t *testing.T) {
 	now := time.Now().UTC()
 	store := &fakeStore{

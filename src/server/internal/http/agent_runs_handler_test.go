@@ -535,6 +535,69 @@ func TestAgentRunsHandlerAdjustPlanRejectsTerminalRun(t *testing.T) {
 	}
 }
 
+func TestAgentRunsHandlerAdjustPlanRejectsReactRun(t *testing.T) {
+	now := time.Now().UTC()
+	store := newFakeAgentRunsStore()
+	store.agent = &agent.Agent{
+		ID:             "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		Name:           "React Agent",
+		Model:          "test-model",
+	}
+	store.runs = []*agent.Run{{
+		ID:             "run_1",
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		Mode:           agent.ExecutionModeReact,
+		Status:         agent.RunStatusPendingApproval,
+		Error:          "react approval evidence must stay",
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}}
+	store.messages = []*agent.Message{{
+		ID:             "msg_1",
+		ConversationID: "conv_1",
+		OrganizationID: "org_1",
+		Role:           "assistant",
+		Content:        "react tool approval pending",
+		CreatedAt:      now,
+	}}
+	store.planSteps = []*agent.PlanStep{{
+		ID:             "step_1",
+		RunID:          "run_1",
+		OrganizationID: "org_1",
+		Index:          1,
+		Title:          "Synthetic stale plan step",
+		Status:         agent.PlanStepStatusPending,
+		ApprovalStatus: agent.ApprovalStatusNotRequired,
+		CreatedAt:      now,
+	}}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{reply: `[{"title":"Unexpected replacement"}]`}))
+
+	recorder := httptest.NewRecorder()
+	handler.adjustPlan(recorder, newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/adjust-plan", `{"reason":"operator tries planning action"}`), "run_1")
+
+	if recorder.Code != stdhttp.StatusConflict {
+		t.Fatalf("expected 409, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, `"code":"invalid_state"`) || !strings.Contains(body, "agent run is not in planning mode") {
+		t.Fatalf("expected invalid_state non-planning adjustment error, got body %s", body)
+	}
+	if len(store.messages) != 1 {
+		t.Fatalf("adjust-plan rejection should not append assistant messages, got %+v", store.messages)
+	}
+	if len(store.planSteps) != 1 || store.planSteps[0].ID != "step_1" || store.planSteps[0].Title != "Synthetic stale plan step" {
+		t.Fatalf("adjust-plan rejection mutated React run plan steps: %+v", store.planSteps)
+	}
+	if store.runs[0].Mode != agent.ExecutionModeReact || store.runs[0].Status != agent.RunStatusPendingApproval || store.runs[0].Error != "react approval evidence must stay" {
+		t.Fatalf("adjust-plan rejection mutated React run evidence: %+v", store.runs[0])
+	}
+}
+
 func TestAgentRunsHandlerContinuePlanReturnsUpdatedRunDetail(t *testing.T) {
 	now := time.Now().UTC()
 	store := newFakeAgentRunsStore()
@@ -671,6 +734,62 @@ func TestAgentRunsHandlerContinuePlanRejectsCompletedRun(t *testing.T) {
 	}
 	if store.planSteps[0].Status != agent.PlanStepStatusPending || store.planSteps[0].StartedAt != nil || store.planSteps[0].CompletedAt != nil {
 		t.Fatalf("completed run continuation should not mutate plan step, got %+v", store.planSteps[0])
+	}
+}
+
+func TestAgentRunsHandlerContinuePlanRejectsReactRun(t *testing.T) {
+	now := time.Now().UTC()
+	store := newFakeAgentRunsStore()
+	store.runs = []*agent.Run{{
+		ID:             "run_1",
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		Mode:           agent.ExecutionModeReact,
+		Status:         agent.RunStatusPendingApproval,
+		Error:          "react approval evidence must stay",
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}}
+	store.messages = []*agent.Message{{
+		ID:             "msg_1",
+		ConversationID: "conv_1",
+		OrganizationID: "org_1",
+		Role:           "assistant",
+		Content:        "react tool approval pending",
+		CreatedAt:      now,
+	}}
+	store.planSteps = []*agent.PlanStep{{
+		ID:             "step_1",
+		RunID:          "run_1",
+		OrganizationID: "org_1",
+		Index:          1,
+		Title:          "Should not execute",
+		Status:         agent.PlanStepStatusPending,
+		ApprovalStatus: agent.ApprovalStatusNotRequired,
+		CreatedAt:      now,
+	}}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{reply: "unexpected execution"}))
+
+	recorder := httptest.NewRecorder()
+	handler.continuePlan(recorder, newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/continue-plan", `{}`), "run_1")
+
+	if recorder.Code != stdhttp.StatusConflict {
+		t.Fatalf("expected 409, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, `"code":"invalid_state"`) || !strings.Contains(body, "agent run is not in planning mode") {
+		t.Fatalf("expected invalid_state non-planning continuation error, got body %s", body)
+	}
+	if len(store.messages) != 1 {
+		t.Fatalf("continue-plan rejection should not append messages, got %+v", store.messages)
+	}
+	if store.planSteps[0].Status != agent.PlanStepStatusPending || store.planSteps[0].StartedAt != nil || store.planSteps[0].CompletedAt != nil {
+		t.Fatalf("continue-plan rejection mutated React run plan step, got %+v", store.planSteps[0])
+	}
+	if store.runs[0].Mode != agent.ExecutionModeReact || store.runs[0].Status != agent.RunStatusPendingApproval || store.runs[0].Error != "react approval evidence must stay" {
+		t.Fatalf("continue-plan rejection mutated React run evidence: %+v", store.runs[0])
 	}
 }
 
