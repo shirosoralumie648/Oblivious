@@ -11338,6 +11338,8 @@ paths:
       summary: 获取工作流列表
       operationId: listWorkflows
       tags: [Workflow]
+      security:
+        - cookieAuth: []
       responses:
         "200":
           description: 当前组织的工作流列表
@@ -11489,6 +11491,8 @@ paths:
       summary: 获取工作流详情
       operationId: getWorkflow
       tags: [Workflow]
+      security:
+        - cookieAuth: []
       parameters:
         - name: workflowId
           in: path
@@ -11635,6 +11639,8 @@ paths:
       summary: 获取工作流版本历史
       operationId: listWorkflowVersions
       tags: [Workflow]
+      security:
+        - cookieAuth: []
       parameters:
         - name: workflowId
           in: path
@@ -11829,6 +11835,8 @@ paths:
       summary: 获取工作流执行列表
       operationId: listWorkflowExecutions
       tags: [Workflow]
+      security:
+        - cookieAuth: []
       parameters:
         - name: workflowId
           in: path
@@ -11852,6 +11860,8 @@ paths:
       summary: 获取工作流执行详情
       operationId: getWorkflowExecution
       tags: [Workflow]
+      security:
+        - cookieAuth: []
       parameters:
         - name: workflowId
           in: path
@@ -11880,6 +11890,8 @@ paths:
       summary: 获取工作流执行调试快照
       operationId: getWorkflowExecutionDebugSnapshot
       tags: [Workflow]
+      security:
+        - cookieAuth: []
       parameters:
         - name: workflowId
           in: path

@@ -2325,6 +2325,11 @@ require_workflow_management_csrf_contract() {
       security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
     end
 
+    def requires_cookie_without_csrf?(operation)
+      security = operation.fetch("security", [])
+      security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && !entry.key?("csrfHeader") }
+    end
+
     def request_body_ref(operation)
       operation.dig("requestBody", "content", "application/json", "schema", "$ref")
     end
@@ -2347,6 +2352,28 @@ require_workflow_management_csrf_contract() {
       ["/api/v1/workflows/{workflowId}/rollback", "post"],
       ["/api/v1/workflows/{workflowId}/test-node", "post"],
     ]
+
+    workflow_reads = {
+      ["/api/v1/workflows", "get", "200"] => "#/components/schemas/WorkflowDefinitionsEnvelope",
+      ["/api/v1/workflows/{workflowId}", "get", "200"] => "#/components/schemas/WorkflowDefinitionEnvelope",
+      ["/api/v1/workflows/{workflowId}/versions", "get", "200"] => "#/components/schemas/WorkflowDefinitionsEnvelope",
+      ["/api/v1/workflows/{workflowId}/executions", "get", "200"] => "#/components/schemas/WorkflowExecutionsEnvelope",
+      ["/api/v1/workflows/{workflowId}/executions/{executionId}", "get", "200"] => "#/components/schemas/WorkflowExecutionEnvelope",
+      ["/api/v1/workflows/{workflowId}/executions/{executionId}/debug-snapshot", "get", "200"] => "#/components/schemas/WorkflowExecutionDebugSnapshotEnvelope",
+    }
+
+    workflow_reads.each do |(path, method, status), expected|
+      op = operation(paths, path, method, missing)
+      unless requires_cookie_without_csrf?(op)
+        missing << "#{method.upcase} #{path} must require cookieAuth without csrfHeader"
+      end
+      unless op.fetch("tags", []).include?("Workflow")
+        missing << "#{method.upcase} #{path} must be tagged Workflow"
+      end
+      unless response_ref(op, status) == expected
+        missing << "#{method.upcase} #{path} #{status} response must reference #{expected}"
+      end
+    end
 
     workflow_mutations.each do |path, method|
       op = operation(paths, path, method, missing)

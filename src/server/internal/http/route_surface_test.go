@@ -1889,6 +1889,32 @@ func TestRouteSurfaceTenantOrganizationMutationsRejectCookieWithoutCSRFWithoutDa
 	}
 }
 
+func TestRouteSurfaceWorkflowReadRoutesRequireSessionWithoutDatabase(t *testing.T) {
+	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{})
+
+	tests := []routeSurfaceCase{
+		{"list workflows", stdhttp.MethodGet, "/api/v1/workflows"},
+		{"get workflow", stdhttp.MethodGet, "/api/v1/workflows/workflow_1"},
+		{"list workflow versions", stdhttp.MethodGet, "/api/v1/workflows/workflow_1/versions"},
+		{"list workflow executions", stdhttp.MethodGet, "/api/v1/workflows/workflow_1/executions"},
+		{"get workflow execution", stdhttp.MethodGet, "/api/v1/workflows/workflow_1/executions/wexec_1"},
+		{"get workflow execution debug snapshot", stdhttp.MethodGet, "/api/v1/workflows/workflow_1/executions/wexec_1/debug-snapshot"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, nil)
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != stdhttp.StatusUnauthorized {
+				t.Fatalf("expected registered Workflow read route to require session with 401 for %s %s, got %d with body %s", tt.method, tt.path, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
 func TestRouteSurfaceWorkflowExecutionControlMutationsRejectCookieWithoutCSRFWithoutDatabase(t *testing.T) {
 	session := routeSurfaceUserSession()
 	router := NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}})
