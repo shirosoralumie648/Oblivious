@@ -3466,8 +3466,8 @@ require_chat_mutation_csrf_contract() {
     unless config.fetch("tags", []).include?("Chat")
       missing << "GET /api/v1/app/conversations/{conversationId}/config must be tagged Chat"
     end
-    unless config.dig("responses", "200", "content", "application/json", "schema", "$ref") == "#/components/schemas/Envelope"
-      missing << "GET /api/v1/app/conversations/{conversationId}/config 200 response must reference Envelope"
+    unless response_data_ref(config, "200") == "#/components/schemas/ConversationConfig"
+      missing << "GET /api/v1/app/conversations/{conversationId}/config 200 data must reference ConversationConfig"
     end
 
     unless schemas.dig("UpdateConversationConfigRequest", "properties", "personaId", "type") == "string"
