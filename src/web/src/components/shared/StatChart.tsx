@@ -1,4 +1,5 @@
 import { RiErrorWarningLine, RiRefreshLine } from '@remixicon/react';
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, AreaChart, Area } from 'recharts';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -17,8 +18,6 @@ export type StatChartProps = {
 };
 
 export function StatChart({ title, data, type = 'bar', loading = false, error = null, onRetry, height = 200, className }: StatChartProps) {
-  const max = Math.max(...data.map((item) => item.value), 1);
-
   return (
     <Card className={cn('rounded-lg', className)}>
       <CardHeader>
@@ -45,26 +44,25 @@ export function StatChart({ title, data, type = 'bar', loading = false, error = 
             ) : null}
           </div>
         ) : (
-          <div className="flex items-end gap-3" style={{ height }}>
-            {data.map((item) => {
-              const percent = Math.max((item.value / max) * 100, 4);
-              return (
-                <div key={item.label} className="flex h-full min-w-0 flex-1 flex-col justify-end gap-2">
-                  <div className="flex flex-1 items-end">
-                    <div
-                      title={`${item.label}: ${item.value.toLocaleString()}`}
-                      className={cn(
-                        'w-full rounded-t-sm bg-primary transition-all hover:bg-primary/80',
-                        type === 'area' && 'bg-primary/60 shadow-[0_-24px_32px_rgba(59,130,246,0.16)_inset]'
-                      )}
-                      style={{ height: `${percent}%` }}
-                    />
-                  </div>
-                  <span className="truncate text-center text-xs text-muted-foreground">{item.label}</span>
-                </div>
-              );
-            })}
-          </div>
+          <ResponsiveContainer width="100%" height={height}>
+            {type === 'area' ? (
+              <AreaChart data={data}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="label" />
+                <YAxis />
+                <Tooltip />
+                <Area type="monotone" dataKey="value" stroke="hsl(var(--primary))" fill="hsl(var(--primary))" fillOpacity={0.6} />
+              </AreaChart>
+            ) : (
+              <BarChart data={data}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="label" />
+                <YAxis />
+                <Tooltip />
+                <Bar dataKey="value" fill="hsl(var(--primary))" />
+              </BarChart>
+            )}
+          </ResponsiveContainer>
         )}
       </CardContent>
     </Card>

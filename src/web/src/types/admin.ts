@@ -18,6 +18,8 @@ export type AdminStats = {
   channelsOnline: number;
   activeAgents: number;
   apiCalls24h: number;
+  dailyStats?: Array<{ date: string; calls: number }>;
+  modelBreakdown?: Array<{ model: string; count: number }>;
 };
 
 export type ChannelStatus = 'online' | 'degraded' | 'offline';
