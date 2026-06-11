@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package oblivious.billing.v1;
+
+option go_package = "oblivious/api/proto/billing/v1;billingv1";
+
+service BillingService {
+  rpc RecordUsage(RecordUsageRequest) returns (RecordUsageResponse);
+  rpc GetQuota(GetQuotaRequest) returns (GetQuotaResponse);
+}
+
+message RecordUsageRequest {
+  string organization_id = 1;
+  string user_id = 2;
+  string resource_type = 3;
+  int64 amount = 4;
+  map<string, string> metadata = 5;
+}
+
+message RecordUsageResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message GetQuotaRequest {
+  string organization_id = 1;
+  string user_id = 2;
+  string resource_type = 3;
+}
+
+message GetQuotaResponse {
+  int64 total = 1;
+  int64 used = 2;
+  int64 remaining = 3;
+}

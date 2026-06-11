@@ -9,6 +9,7 @@ import (
 
 	"oblivious/server/internal/channel/adapter"
 	"oblivious/server/internal/channel/message"
+	"oblivious/server/pkg/events"
 )
 
 // ChannelService provides CRUD operations and connectivity testing for channels.
@@ -16,6 +17,7 @@ type ChannelService struct {
 	store       ChannelStore
 	transformer *message.Transformer
 	adapters    map[string]adapter.ChannelAdapter
+	eventBus    *events.Bus
 }
 
 // ChannelStore defines the persistence operations required by ChannelService.
@@ -44,6 +46,7 @@ func NewChannelService(store ChannelStore) *ChannelService {
 		store:       store,
 		transformer: message.NewTransformer(),
 		adapters:    adapters,
+		eventBus:    events.NewBus(),
 	}
 }
 
@@ -74,7 +77,24 @@ func (s *ChannelService) CreateChannel(ctx context.Context, input CreateChannelI
 		return nil, err
 	}
 
-	return s.store.Create(ctx, input)
+	config, err := s.store.Create(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+
+	if s.eventBus != nil {
+		s.eventBus.Publish(ctx, events.Event{
+			Type: events.ChannelCreated,
+			Payload: events.ChannelConfigPayload{
+				ChannelID:      config.ID,
+				OrganizationID: config.OrganizationID,
+				Type:           string(config.Type),
+				Status:         string(config.Status),
+			},
+		})
+	}
+
+	return config, nil
 }
 
 // GetChannel retrieves a single channel by organization and ID.
@@ -205,12 +225,36 @@ func (s *ChannelService) ReceiveMessage(channelType string, raw []byte) (Channel
 	if !transformResult.Success {
 		log.TransformSuccess = false
 		log.TransformError = transformResult.Error
+
+		if s.eventBus != nil {
+			s.eventBus.Publish(context.Background(), events.Event{
+				Type: events.ChannelMessageFailed,
+				Payload: events.ChannelMessagePayload{
+					Direction: string(DirectionInbound),
+					Status:    string(MessageStatusRecorded),
+					Error:     transformResult.Error,
+				},
+			})
+		}
 		return log, nil
 	}
 
 	log.ConversationID = transformResult.Message.ConversationID
 	log.TransformedMessage = toChannelMessage(transformResult.Message)
 	log.TransformSuccess = true
+
+	if s.eventBus != nil {
+		s.eventBus.Publish(context.Background(), events.Event{
+			Type: events.ChannelMessageReceived,
+			Payload: events.ChannelMessagePayload{
+				MessageID:      transformResult.Message.ID,
+				ConversationID: transformResult.Message.ConversationID,
+				Direction:      string(DirectionInbound),
+				Status:         string(MessageStatusRecorded),
+			},
+		})
+	}
+
 	return log, nil
 }
 
@@ -236,12 +280,37 @@ func (s *ChannelService) SendMessage(channelType string, message InternalMessage
 	if !transformResult.Success {
 		log.TransformSuccess = false
 		log.TransformError = transformResult.Error
+
+		if s.eventBus != nil {
+			s.eventBus.Publish(context.Background(), events.Event{
+				Type: events.ChannelMessageFailed,
+				Payload: events.ChannelMessagePayload{
+					ConversationID: message.ConversationID,
+					Direction:      string(DirectionOutbound),
+					Status:         string(MessageStatusRecorded),
+					Error:          transformResult.Error,
+				},
+			})
+		}
 		return log, nil
 	}
 
 	log.RawMessage = append(json.RawMessage(nil), transformResult.Raw...)
 	log.TransformedMessage = message
 	log.TransformSuccess = true
+
+	if s.eventBus != nil {
+		s.eventBus.Publish(context.Background(), events.Event{
+			Type: events.ChannelMessageSent,
+			Payload: events.ChannelMessagePayload{
+				MessageID:      message.ID,
+				ConversationID: message.ConversationID,
+				Direction:      string(DirectionOutbound),
+				Status:         string(MessageStatusRecorded),
+			},
+		})
+	}
+
 	return log, nil
 }
 
@@ -249,6 +318,11 @@ func (s *ChannelService) SendMessage(channelType string, message InternalMessage
 func (s *ChannelService) GetAdapter(channelType string) (adapter.ChannelAdapter, bool) {
 	adp, ok := s.adapters[channelType]
 	return adp, ok
+}
+
+// EventBus returns the event bus for subscribing to channel events.
+func (s *ChannelService) EventBus() *events.Bus {
+	return s.eventBus
 }
 
 func (s *ChannelService) validateChannelType(channelType string) error {

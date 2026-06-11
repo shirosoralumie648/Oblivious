@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package oblivious.task;
+
+option go_package = "github.com/oblivious/api/proto/task";
+
+service TaskService {
+  rpc Schedule(ScheduleRequest) returns (ScheduleResponse);
+  rpc Cancel(CancelRequest) returns (CancelResponse);
+}
+
+message ScheduleRequest {
+  string task_id = 1;
+  string cron_expr = 2;
+  bytes payload = 3;
+}
+
+message ScheduleResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message CancelRequest {
+  string task_id = 1;
+}
+
+message CancelResponse {
+  bool success = 1;
+  string message = 2;
+}

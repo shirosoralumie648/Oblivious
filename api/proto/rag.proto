@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package oblivious.rag.v1;
+
+option go_package = "oblivious/api/proto/rag/v1;ragv1";
+
+service RAGService {
+  rpc CreateKnowledgeBase(CreateKnowledgeBaseRequest) returns (CreateKnowledgeBaseResponse);
+  rpc UploadDocument(UploadDocumentRequest) returns (UploadDocumentResponse);
+  rpc Retrieve(RetrieveRequest) returns (RetrieveResponse);
+}
+
+message CreateKnowledgeBaseRequest {
+  string name = 1;
+  string description = 2;
+  string organization_id = 3;
+}
+
+message CreateKnowledgeBaseResponse {
+  string kb_id = 1;
+  string status = 2;
+}
+
+message UploadDocumentRequest {
+  string kb_id = 1;
+  string document_name = 2;
+  bytes content = 3;
+  string organization_id = 4;
+}
+
+message UploadDocumentResponse {
+  string document_id = 1;
+  string status = 2;
+}
+
+message RetrieveRequest {
+  string kb_id = 1;
+  string query = 2;
+  int32 top_k = 3;
+  string organization_id = 4;
+}
+
+message RetrieveResponse {
+  repeated RetrievedChunk chunks = 1;
+}
+
+message RetrievedChunk {
+  string document_id = 1;
+  string content = 2;
+  float score = 3;
+}

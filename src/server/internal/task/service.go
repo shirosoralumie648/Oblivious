@@ -10,6 +10,7 @@ import (
 	"oblivious/server/internal/auth"
 	"oblivious/server/internal/metrics"
 	"oblivious/server/internal/observability"
+	"oblivious/server/internal/queue"
 )
 
 var ErrInvalidGoal = errors.New("goal is required")
@@ -87,11 +88,27 @@ type Store interface {
 }
 
 type Service struct {
-	store Store
+	store     Store
+	publisher *queue.Publisher
 }
 
 func NewService(store Store) *Service {
 	return &Service{store: store}
+}
+
+func (s *Service) SetPublisher(publisher *queue.Publisher) {
+	s.publisher = publisher
+}
+
+func (s *Service) publish(ctx context.Context, taskID, workspaceID, event, status string) {
+	if s.publisher != nil {
+		s.publisher.Publish(ctx, queue.TaskEvent{
+			TaskID:      taskID,
+			WorkspaceID: workspaceID,
+			Event:       event,
+			Status:      status,
+		})
+	}
 }
 
 func (s *Service) List(ctx context.Context, session auth.Session) ([]Task, error) {
@@ -167,6 +184,7 @@ func (s *Service) Create(
 		metrics.RecordJobEvent("task.create", "failed")
 		return Task{}, err
 	}
+	s.publish(ctx, task.ID, session.WorkspaceID, "created", task.Status)
 	metrics.RecordJobEvent("task.create", task.Status)
 	return task, nil
 }
@@ -188,6 +206,7 @@ func (s *Service) Start(ctx context.Context, session auth.Session, taskID string
 	}
 
 	normalized := normalizeTaskDetail(detail)
+	s.publish(ctx, trimmedTaskID, session.WorkspaceID, "started", normalized.Status)
 	metrics.RecordJobEvent("task.start", normalized.Status)
 	return normalized, nil
 }
@@ -248,6 +267,7 @@ func (s *Service) Cancel(ctx context.Context, session auth.Session, taskID strin
 	}
 
 	normalized := normalizeTaskDetail(detail)
+	s.publish(ctx, strings.TrimSpace(taskID), session.WorkspaceID, "cancelled", normalized.Status)
 	metrics.RecordJobEvent("task.cancel", normalized.Status)
 	return normalized, nil
 }

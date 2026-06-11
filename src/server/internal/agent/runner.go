@@ -320,6 +320,7 @@ type Runner struct {
 	memory         MemorySearcher
 	memoryEmbedder MemoryEmbedder
 	config         RunnerConfig
+	eventPublisher *EventPublisher
 }
 
 type memoryVectorSearchStore interface {
@@ -344,6 +345,10 @@ func NewRunner(store Store, gateway chat.ChatGateway, executor *ToolExecutor, me
 
 func (r *Runner) SetMemoryEmbedder(embedder MemoryEmbedder) {
 	r.memoryEmbedder = embedder
+}
+
+func (r *Runner) SetEventPublisher(publisher *EventPublisher) {
+	r.eventPublisher = publisher
 }
 
 // RunResult 运行结果
@@ -1232,6 +1237,10 @@ func completionTotalTokens(reply *chat.CompletionResponse) int {
 }
 
 func (r *Runner) completeRun(ctx context.Context, organizationID, runID string, iterationCount, toolCallCount int, finalMessageID string) error {
+	return r.completeRunWithEvent(ctx, organizationID, "", "", "", runID, iterationCount, toolCallCount, finalMessageID, 0, 0)
+}
+
+func (r *Runner) completeRunWithEvent(ctx context.Context, organizationID, userID, agentID, conversationID, runID string, iterationCount, toolCallCount int, finalMessageID string, inputTokens, outputTokens int) error {
 	completedAt := time.Now().UTC()
 	_, err := r.store.UpdateRun(ctx, organizationID, runID, UpdateRunRequest{
 		Status:         stringPointer(RunStatusCompleted),
@@ -1244,6 +1253,22 @@ func (r *Runner) completeRun(ctx context.Context, organizationID, runID string, 
 		return fmt.Errorf("complete agent run: %w", err)
 	}
 	recordAgentRunMetrics(RunStatusCompleted, iterationCount)
+	if r.eventPublisher != nil && userID != "" {
+		_ = r.eventPublisher.PublishRunCompleted(ctx, AgentRunEvent{
+			EventID:        runID,
+			Timestamp:      completedAt,
+			OrganizationID: organizationID,
+			UserID:         userID,
+			AgentID:        agentID,
+			ConversationID: conversationID,
+			RunID:          runID,
+			Status:         RunStatusCompleted,
+			IterationCount: iterationCount,
+			ToolCallCount:  toolCallCount,
+			InputTokens:    inputTokens,
+			OutputTokens:   outputTokens,
+		})
+	}
 	return nil
 }
 

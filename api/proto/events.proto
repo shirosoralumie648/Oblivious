@@ -1,0 +1,59 @@
+syntax = "proto3";
+package events;
+option go_package = "oblivious/server/pkg/event/proto";
+
+message BillingEvent {
+  string org_id = 1;
+  string user_id = 2;
+  int32 token_count = 3;
+  double cost_usd = 4;
+  string feature_type = 5;
+  int64 timestamp = 6;
+}
+
+message TaskEvent {
+  string task_id = 1;
+  string type = 2;
+  bytes payload = 3;
+  int64 scheduled_time = 4;
+  string org_id = 5;
+}
+
+message LogEvent {
+  string service = 1;
+  string trace_id = 2;
+  string level = 3;
+  string message = 4;
+  bytes metadata = 5;
+  int64 timestamp = 6;
+}
+
+message MetricEvent {
+  string service = 1;
+  string metric_name = 2;
+  double value = 3;
+  map<string, string> tags = 4;
+  int64 timestamp = 5;
+}
+
+message WorkflowEvent {
+  string workflow_id = 1;
+  string execution_id = 2;
+  string event_type = 3;
+  int64 timestamp = 4;
+}
+
+message AgentEvent {
+  string agent_run_id = 1;
+  string tool_name = 2;
+  int32 tokens_used = 3;
+  string status = 4;
+  int64 timestamp = 5;
+}
+
+message ChannelEvent {
+  string channel_id = 1;
+  string message_id = 2;
+  string direction = 3;
+  int64 timestamp = 4;
+}

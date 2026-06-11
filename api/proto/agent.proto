@@ -6,14 +6,17 @@ option go_package = "oblivious/api/proto/agent/v1;agentv1";
 
 // AgentService 处理 Agent 执行
 service AgentService {
-  // StartRun 启动 Agent 运行
-  rpc StartRun(StartRunRequest) returns (StartRunResponse);
+  // CreateRun 创建 Agent 运行
+  rpc CreateRun(CreateRunRequest) returns (CreateRunResponse);
 
-  // GetRunStatus 查询运行状态
-  rpc GetRunStatus(GetRunStatusRequest) returns (GetRunStatusResponse);
+  // ExecuteReAct 执行 ReAct 循环
+  rpc ExecuteReAct(ExecuteReActRequest) returns (ExecuteReActResponse);
+
+  // ApproveToolCall 批准工具调用
+  rpc ApproveToolCall(ApproveToolCallRequest) returns (ApproveToolCallResponse);
 }
 
-message StartRunRequest {
+message CreateRunRequest {
   string agent_id = 1;
   string conversation_id = 2;
   string user_content = 3;
@@ -21,18 +24,39 @@ message StartRunRequest {
   string user_id = 5;
 }
 
-message StartRunResponse {
+message CreateRunResponse {
   string run_id = 1;
   string status = 2;
 }
 
-message GetRunStatusRequest {
+message ExecuteReActRequest {
   string run_id = 1;
   string organization_id = 2;
 }
 
-message GetRunStatusResponse {
+message ExecuteReActResponse {
   string run_id = 1;
   string status = 2;
   string result = 3;
+  repeated ToolCall pending_tool_calls = 4;
+}
+
+message ApproveToolCallRequest {
+  string run_id = 1;
+  string tool_call_id = 2;
+  bool approved = 3;
+  string organization_id = 4;
+}
+
+message ApproveToolCallResponse {
+  string run_id = 1;
+  string tool_call_id = 2;
+  string status = 3;
+}
+
+message ToolCall {
+  string id = 1;
+  string name = 2;
+  string input = 3;
+  string status = 4;
 }

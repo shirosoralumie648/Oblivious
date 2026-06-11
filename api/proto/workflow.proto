@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package oblivious.workflow.v1;
+
+option go_package = "oblivious/api/proto/workflow/v1;workflowv1";
+
+service WorkflowService {
+  rpc Execute(ExecuteRequest) returns (ExecuteResponse);
+  rpc TestNode(TestNodeRequest) returns (TestNodeResponse);
+}
+
+message ExecuteRequest {
+  string workflow_id = 1;
+  string organization_id = 2;
+  string user_id = 3;
+  map<string, string> inputs = 4;
+}
+
+message ExecuteResponse {
+  string execution_id = 1;
+  string status = 2;
+  map<string, string> outputs = 3;
+}
+
+message TestNodeRequest {
+  string node_id = 1;
+  string node_type = 2;
+  map<string, string> inputs = 3;
+  string organization_id = 4;
+}
+
+message TestNodeResponse {
+  string status = 1;
+  map<string, string> outputs = 2;
+  string error = 3;
+}

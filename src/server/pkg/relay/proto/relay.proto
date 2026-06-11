@@ -1,0 +1,60 @@
+syntax = "proto3";
+
+package relay;
+
+option go_package = "oblivious/server/pkg/relay/proto";
+
+service RelayService {
+  rpc Complete(CompletionRequest) returns (CompletionResponse);
+  rpc CompleteStream(CompletionRequest) returns (stream CompletionResponse);
+  rpc Embed(EmbeddingRequest) returns (EmbeddingResponse);
+}
+
+message CompletionRequest {
+  string model = 1;
+  repeated Message messages = 2;
+  optional float temperature = 3;
+  optional int32 max_tokens = 4;
+  optional bool stream = 5;
+  map<string, string> metadata = 6;
+}
+
+message Message {
+  string role = 1;
+  string content = 2;
+}
+
+message CompletionResponse {
+  string id = 1;
+  string model = 2;
+  repeated Choice choices = 3;
+  Usage usage = 4;
+}
+
+message Choice {
+  int32 index = 1;
+  Message message = 2;
+  string finish_reason = 3;
+}
+
+message EmbeddingRequest {
+  string model = 1;
+  repeated string inputs = 2;
+}
+
+message EmbeddingResponse {
+  repeated Embedding data = 1;
+  string model = 2;
+  Usage usage = 3;
+}
+
+message Embedding {
+  int32 index = 1;
+  repeated float vector = 2;
+}
+
+message Usage {
+  int32 prompt_tokens = 1;
+  int32 completion_tokens = 2;
+  int32 total_tokens = 3;
+}
