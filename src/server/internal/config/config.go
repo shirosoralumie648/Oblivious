@@ -27,6 +27,9 @@ type Config struct {
 	AgentWebSearchEndpoint    string
 	AgentWebSearchAPIKey      string
 	AgentWebSearchResultLimit int
+	// AgentWebSearchGoogleCSEID is the Programmable Search Engine ID required
+	// by the google_cse web search provider.
+	AgentWebSearchGoogleCSEID string
 
 	// Qdrant vector database configuration. Disabled unless QDRANT_URL is set.
 	QdrantURL        string
@@ -75,6 +78,15 @@ type Config struct {
 	WorkflowSystemMaxConcurrent          int
 	WorkflowGlobalMaxExecutionsPerMinute int
 	WorkflowRelayBaseURL                 string
+
+	// Workflow code-interpreter sandbox configuration. The docker-backed
+	// sandbox stays disabled unless WORKFLOW_SANDBOX_ENABLED=true.
+	WorkflowSandboxEnabled          bool
+	WorkflowSandboxAllowedLanguages string
+	WorkflowSandboxMemoryMB         int
+	WorkflowSandboxCPUs             int
+	WorkflowSandboxDefaultTimeoutMS int
+	WorkflowSandboxMaxTimeoutMS     int
 
 	// Channel message log archive configuration. Disabled unless a file root or
 	// S3-compatible object storage target is configured.
@@ -166,6 +178,7 @@ func Load() (Config, error) {
 	agentWebSearchProvider := strings.ToLower(strings.TrimSpace(os.Getenv("AGENT_WEB_SEARCH_PROVIDER")))
 	agentWebSearchEndpoint := strings.TrimSpace(os.Getenv("AGENT_WEB_SEARCH_ENDPOINT"))
 	agentWebSearchAPIKey := strings.TrimSpace(os.Getenv("AGENT_WEB_SEARCH_API_KEY"))
+	agentWebSearchGoogleCSEID := strings.TrimSpace(os.Getenv("AGENT_WEB_SEARCH_GOOGLE_CSE_ID"))
 	agentWebSearchResultLimit := 5
 	agentWebSearchResultLimitRaw := strings.TrimSpace(os.Getenv("AGENT_WEB_SEARCH_RESULT_LIMIT"))
 	if agentWebSearchResultLimitRaw != "" {
@@ -312,6 +325,40 @@ func Load() (Config, error) {
 		workflowGlobalMaxExecutionsPerMinute = parsedLimit
 	}
 	workflowRelayBaseURL := strings.TrimSpace(os.Getenv("WORKFLOW_RELAY_BASE_URL"))
+	workflowSandboxEnabled := strings.EqualFold(strings.TrimSpace(os.Getenv("WORKFLOW_SANDBOX_ENABLED")), "true")
+	workflowSandboxAllowedLanguages := strings.TrimSpace(os.Getenv("WORKFLOW_SANDBOX_ALLOWED_LANGUAGES"))
+	workflowSandboxMemoryMB := 0
+	if raw := strings.TrimSpace(os.Getenv("WORKFLOW_SANDBOX_MEMORY_MB")); raw != "" {
+		parsed, parseErr := strconv.Atoi(raw)
+		if parseErr != nil || parsed < 1 {
+			return Config{}, fmt.Errorf("invalid WORKFLOW_SANDBOX_MEMORY_MB: %q", raw)
+		}
+		workflowSandboxMemoryMB = parsed
+	}
+	workflowSandboxCPUs := 0
+	if raw := strings.TrimSpace(os.Getenv("WORKFLOW_SANDBOX_CPUS")); raw != "" {
+		parsed, parseErr := strconv.Atoi(raw)
+		if parseErr != nil || parsed < 1 {
+			return Config{}, fmt.Errorf("invalid WORKFLOW_SANDBOX_CPUS: %q", raw)
+		}
+		workflowSandboxCPUs = parsed
+	}
+	workflowSandboxDefaultTimeoutMS := 0
+	if raw := strings.TrimSpace(os.Getenv("WORKFLOW_SANDBOX_DEFAULT_TIMEOUT_MS")); raw != "" {
+		parsed, parseErr := strconv.Atoi(raw)
+		if parseErr != nil || parsed < 1 {
+			return Config{}, fmt.Errorf("invalid WORKFLOW_SANDBOX_DEFAULT_TIMEOUT_MS: %q", raw)
+		}
+		workflowSandboxDefaultTimeoutMS = parsed
+	}
+	workflowSandboxMaxTimeoutMS := 0
+	if raw := strings.TrimSpace(os.Getenv("WORKFLOW_SANDBOX_MAX_TIMEOUT_MS")); raw != "" {
+		parsed, parseErr := strconv.Atoi(raw)
+		if parseErr != nil || parsed < 1 {
+			return Config{}, fmt.Errorf("invalid WORKFLOW_SANDBOX_MAX_TIMEOUT_MS: %q", raw)
+		}
+		workflowSandboxMaxTimeoutMS = parsed
+	}
 	channelMessageLogArchiveRoot := strings.TrimSpace(os.Getenv("CHANNEL_MESSAGE_LOG_ARCHIVE_ROOT"))
 	channelMessageLogArchiveBackend := strings.ToLower(strings.TrimSpace(os.Getenv("CHANNEL_MESSAGE_LOG_ARCHIVE_BACKEND")))
 	channelMessageLogArchiveS3Endpoint := strings.TrimSpace(os.Getenv("CHANNEL_MESSAGE_LOG_ARCHIVE_S3_ENDPOINT"))
@@ -425,6 +472,7 @@ func Load() (Config, error) {
 		AgentWebSearchEndpoint:       agentWebSearchEndpoint,
 		AgentWebSearchAPIKey:         agentWebSearchAPIKey,
 		AgentWebSearchResultLimit:    agentWebSearchResultLimit,
+		AgentWebSearchGoogleCSEID:    agentWebSearchGoogleCSEID,
 		QdrantURL:                    qdrantURL,
 		QdrantAPIKey:                 qdrantAPIKey,
 		QdrantVectorSize:             qdrantVectorSize,
@@ -458,6 +506,12 @@ func Load() (Config, error) {
 		WorkflowSystemMaxConcurrent:          workflowSystemMaxConcurrent,
 		WorkflowGlobalMaxExecutionsPerMinute: workflowGlobalMaxExecutionsPerMinute,
 		WorkflowRelayBaseURL:                 workflowRelayBaseURL,
+		WorkflowSandboxEnabled:               workflowSandboxEnabled,
+		WorkflowSandboxAllowedLanguages:      workflowSandboxAllowedLanguages,
+		WorkflowSandboxMemoryMB:              workflowSandboxMemoryMB,
+		WorkflowSandboxCPUs:                  workflowSandboxCPUs,
+		WorkflowSandboxDefaultTimeoutMS:      workflowSandboxDefaultTimeoutMS,
+		WorkflowSandboxMaxTimeoutMS:          workflowSandboxMaxTimeoutMS,
 
 		ChannelMessageLogArchiveEnabled:     channelMessageLogArchiveEnabled,
 		ChannelMessageLogArchiveBackend:     channelMessageLogArchiveBackend,
