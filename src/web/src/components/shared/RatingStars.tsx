@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { RiStarFill, RiStarHalfFill, RiStarLine } from '@remixicon/react';
 
 import { cn } from '@/lib/utils';
@@ -34,7 +34,7 @@ function clampRating(value: number) {
   return Math.max(0, Math.min(5, Math.round(value * 2) / 2));
 }
 
-export function RatingStars({ value, onChange, readonly = onChange === undefined, size = 'md', showValue = false, count, className }: RatingStarsProps) {
+export const RatingStars = memo(function RatingStars({ value, onChange, readonly = onChange === undefined, size = 'md', showValue = false, count, className }: RatingStarsProps) {
   const [preview, setPreview] = useState<number | null>(null);
   const displayValue = clampRating(preview ?? value);
   const interactive = !readonly && onChange !== undefined;
@@ -98,4 +98,4 @@ export function RatingStars({ value, onChange, readonly = onChange === undefined
       ) : null}
     </div>
   );
-}
+});
