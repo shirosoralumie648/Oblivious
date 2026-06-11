@@ -31,11 +31,12 @@
 
 ## 阶段拆分
 
-### Stage A — 内置工具扩充（P1）
-- A1 ☐ 工具目录设计：从 part2 §3.4.1 映射 150+ 工具到 ~10-12 类（文本/编码/哈希/日期/数学/数据格式/正则/URL/颜色/单位/随机/网络类）。
-- A2 ☐ 注册机制：`registerBuiltins()` 帮助函数，各类别文件 `builtin_<cat>.go` 经 `init()` 注册，避免并行实现冲突。
-- A3 ☐ 并行实现：每类一个实现 agent（sonnet），真实逻辑 + 单测；**禁止占位实现**（项目反占位门禁）；网络类默认禁用（沿用 `defaultCommercialBuiltinEnabled` 商业策略）。
-- A4 ☐ 全套件验证 + commit + push。
+### Stage A — 内置工具扩充（P1）✅ 完成（2026-06-11）
+- A1 ☑ 工具目录设计：164 个工具 / 15 类（`.tmp/audit/tool-catalog.json`）。
+- A2 ☑ 注册机制：`registerBuiltins()`（31c26ca）。
+- A3 ☑ 实现：15 类全部落地（12 类并行 31edfc9 + 3 类串行收尾），**注册工具总数 170 ≥ 150**；全部真实 stdlib 实现，网络类默认禁用。
+- A4 ☑ 全套件验证（go test ./... exit 0、vet/gofmt 干净）。
+- 教训：同包并行实现引发 agent 互相禁用文件的事故；已改为串行/隔离策略（见进度日志）。
 
 ### Stage B — Agent/RAG 高级能力（P2）
 - B1 ☐ 代码解释器：沙箱 Runner 接口已存在；实现容器化执行器（默认禁用，策略门控），8 语言。
@@ -44,7 +45,7 @@
 - B4 ☐ deepdoc：版面分析/表格抽取管线（接口 + 可用实现 + 测试）。
 
 ### Stage C — 微服务架构重写（按规格）
-- C0 ☐ PgBouncer / MinIO / Kafka 部署清单（K8s + docker-compose profile）。
+- C0 ☑ PgBouncer / MinIO / Kafka 部署清单（K8s + docker-compose `infra-extras` profile + `scripts/verify-infra-manifests.sh` 静态验证；platform contract 文档同步更新）（2026-06-11）。
 - C1 ☐ 重写 ADR + 服务边界与接口契约冻结（12 服务，gRPC proto 定义）。
 - C2 ☐ Database per Service：12 个逻辑库 + 各服务独立连接 + 迁移拆分。
 - C3 ☐ 服务可独立部署：每服务 cmd 入口 + Dockerfile target + K8s Deployment（副本数按 §9.2）。
@@ -61,3 +62,4 @@
 
 ## 进度日志
 - 2026-06-11：审计完成；测试基线全绿（web 602/602、Go 全包、quality gates exit 0）；修复 React Flow 真实画布测试（9c5e351）。
+- 2026-06-11：Stage A 完成 — 内置工具 6→170（31c26ca、31edfc9 + 收尾提交），全部真实实现+测试；Stage C0 完成 — PgBouncer/MinIO/Kafka 参考清单与验证脚本。事故记录：12 类并行实现时 agent 互相禁用文件，损失 3 类后改串行收尾；后续同包工作必须串行或 worktree 隔离。下一步：Stage B（代码解释器沙箱、Web 搜索多提供商、子 Agent/动态路由、deepdoc）。
