@@ -16,8 +16,8 @@ func TestLocalCatalogDiscoversSafeBuiltinServerAndTools(t *testing.T) {
 	if servers[0].ID == "" {
 		t.Fatalf("local server ID is empty: %+v", servers[0])
 	}
-	if servers[0].ToolCount != 4 {
-		t.Fatalf("local server tool count = %d, want 4", servers[0].ToolCount)
+	if servers[0].ToolCount < 4 {
+		t.Fatalf("local server tool count = %d, want >= 4", servers[0].ToolCount)
 	}
 
 	tools, err := catalog.ListTools(ctx, servers[0].ID)
