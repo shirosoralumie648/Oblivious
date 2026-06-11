@@ -24,6 +24,7 @@ type Config struct {
 	// Agent web search configuration. Provider stays disabled unless a supported
 	// provider, endpoint, and API key are all configured.
 	AgentWebSearchProvider    string
+	AgentWebSearchFallback    []string
 	AgentWebSearchEndpoint    string
 	AgentWebSearchAPIKey      string
 	AgentWebSearchResultLimit int
@@ -192,6 +193,15 @@ func Load() (Config, error) {
 		modelDefaultName = "demo-reply"
 	}
 	agentWebSearchProvider := strings.ToLower(strings.TrimSpace(os.Getenv("AGENT_WEB_SEARCH_PROVIDER")))
+	agentWebSearchFallbackRaw := strings.TrimSpace(os.Getenv("AGENT_WEB_SEARCH_FALLBACK"))
+	var agentWebSearchFallback []string
+	if agentWebSearchFallbackRaw != "" {
+		for _, part := range strings.Split(agentWebSearchFallbackRaw, ",") {
+			if value := strings.TrimSpace(part); value != "" {
+				agentWebSearchFallback = append(agentWebSearchFallback, value)
+			}
+		}
+	}
 	agentWebSearchEndpoint := strings.TrimSpace(os.Getenv("AGENT_WEB_SEARCH_ENDPOINT"))
 	agentWebSearchAPIKey := strings.TrimSpace(os.Getenv("AGENT_WEB_SEARCH_API_KEY"))
 	agentWebSearchGoogleCSEID := strings.TrimSpace(os.Getenv("AGENT_WEB_SEARCH_GOOGLE_CSE_ID"))
@@ -507,6 +517,7 @@ func Load() (Config, error) {
 		LLMTimeoutMS:                 llmTimeoutMS,
 		ModelDefaultName:             modelDefaultName,
 		AgentWebSearchProvider:       agentWebSearchProvider,
+		AgentWebSearchFallback:       agentWebSearchFallback,
 		AgentWebSearchEndpoint:       agentWebSearchEndpoint,
 		AgentWebSearchAPIKey:         agentWebSearchAPIKey,
 		AgentWebSearchResultLimit:    agentWebSearchResultLimit,

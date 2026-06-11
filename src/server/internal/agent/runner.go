@@ -321,6 +321,8 @@ type Runner struct {
 	memoryEmbedder MemoryEmbedder
 	config         RunnerConfig
 	eventPublisher *EventPublisher
+	ModelRouter    *ModelRouter
+	SkillSelector  *SkillSelector
 }
 
 type memoryVectorSearchStore interface {
@@ -1874,4 +1876,247 @@ func streamContent(content string, onChunk func(string) error) error {
 		}
 	}
 	return nil
+}
+
+// RunRequest encapsulates the parameters for an agent execution run.
+type RunRequest struct {
+	Session           auth.Session
+	Agent             *Agent
+	ConversationID    string
+	InputText         string
+	OnChunk           func(string) error
+	ModelRoutingRules []ModelRoutingRule
+	Skills            []Skill
+	MaxSkills         int
+}
+
+// ExecuteReAct executes a ReAct-style agent loop with dynamic model routing.
+func (r *Runner) ExecuteReAct(ctx context.Context, req *RunRequest) (*RunResult, error) {
+	result := &RunResult{}
+
+	_, err := r.store.CreateMessage(ctx, req.ConversationID, req.Session.OrganizationID, "user", req.InputText, nil, "")
+	if err != nil {
+		return nil, fmt.Errorf("save user message: %w", err)
+	}
+
+	messages, err := r.store.ListMessages(ctx, req.ConversationID, req.Session.OrganizationID)
+	if err != nil {
+		return nil, fmt.Errorf("get messages: %w", err)
+	}
+
+	ctx = withSessionRelayMetadata(ctx, req.Session)
+
+	chatMessages, evidence := r.buildChatMessagesWithEvidence(ctx, req.Session, req.Agent, messages, req.InputText)
+	result.UsedMemory = evidence.enabled
+	result.MemorySearched = evidence.searched
+	result.MemoryResultCount = evidence.resultCount
+
+	currentModel := req.Agent.Model
+
+	config := chat.ConversationConfig{
+		ModelID:              currentModel,
+		SystemPromptOverride: req.Agent.SystemPrompt,
+		Temperature:          req.Agent.Config.Temperature,
+		MaxOutputTokens:      req.Agent.Config.MaxTokens,
+		ToolsEnabled:         true,
+	}
+	if config.Temperature == 0 {
+		config.Temperature = 1.0
+	}
+	if config.MaxOutputTokens == 0 {
+		config.MaxOutputTokens = 2048
+	}
+
+	metadata, _ := chat.RelayRequestMetadataFromContext(ctx)
+	run, err := r.store.CreateRun(ctx, &CreateRunRequest{
+		OrganizationID:    req.Session.OrganizationID,
+		ConversationID:    req.ConversationID,
+		AgentID:           req.Agent.ID,
+		UserID:            req.Session.User.ID,
+		RequestID:         metadata.RequestID,
+		Mode:              ExecutionModeReact,
+		Status:            RunStatusRunning,
+		MemoryEnabled:     evidence.enabled,
+		MemorySearched:    evidence.searched,
+		MemoryResultCount: evidence.resultCount,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create agent run: %w", err)
+	}
+
+	structuredGateway, ok := r.gateway.(chat.StructuredReplyGenerator)
+	if !ok {
+		reply, err := r.gateway.GenerateReply(ctx, chatMessages, config)
+		if err != nil {
+			_ = r.failRun(ctx, req.Session.OrganizationID, run.ID, err.Error(), 1, result.ToolCalls)
+			return nil, fmt.Errorf("generate reply: %w", err)
+		}
+		assistantMsg, err := r.store.CreateMessage(ctx, req.ConversationID, req.Session.OrganizationID, "assistant", reply, nil, "")
+		if err != nil {
+			_ = r.failRun(ctx, req.Session.OrganizationID, run.ID, err.Error(), 1, result.ToolCalls)
+			return nil, fmt.Errorf("save assistant message: %w", err)
+		}
+		if err := r.completeRun(ctx, req.Session.OrganizationID, run.ID, 1, result.ToolCalls, assistantMsg.ID); err != nil {
+			return nil, err
+		}
+		result.Message = assistantMsg
+		r.storeLongTermInteractionMemory(ctx, req.Session, req.Agent, req.ConversationID, req.InputText, reply)
+		return result, nil
+	}
+
+	tools, err := r.BuildOpenAITools(ctx, req.Agent)
+	if err != nil {
+		_ = r.failRun(ctx, req.Session.OrganizationID, run.ID, err.Error(), 0, result.ToolCalls)
+		return nil, fmt.Errorf("build tools: %w", err)
+	}
+
+	maxIterations := r.maxIterationsFor(req.Agent)
+	tokenBudget := normalizeTokenBudget(req.Agent.Config.TokenBudget)
+	usedTokens := 0
+	executedTools := make([]string, 0)
+
+	for iteration := 0; iteration < maxIterations; iteration++ {
+		// === Skill Selection ===
+		var activeSkills []Skill
+		if r.SkillSelector != nil && len(req.Skills) > 0 {
+			maxSkills := req.MaxSkills
+			if maxSkills == 0 {
+				maxSkills = 3 // 默认 top-3
+			}
+			scoredSkills := r.SkillSelector.SelectSkills(req.InputText, req.Skills, maxSkills)
+			if len(scoredSkills) > 0 {
+				activeSkills = make([]Skill, len(scoredSkills))
+				for i, ss := range scoredSkills {
+					activeSkills[i] = *ss.Skill
+				}
+			}
+		}
+
+		// Inject skills into tools and system prompt
+		iterationTools := tools
+		iterationConfig := config
+		if len(activeSkills) > 0 {
+			iterationTools = buildToolsFromSkills(req.Agent, activeSkills, tools)
+			iterationConfig = injectSkillInstructions(config, activeSkills)
+		}
+
+		// === Dynamic Model Routing ===
+		if r.ModelRouter != nil && len(req.ModelRoutingRules) > 0 {
+			selectedModel := r.ModelRouter.SelectModel(IterationContext{
+				Iteration:       iteration + 1,
+				InputText:       req.InputText,
+				InputCharLength: len(req.InputText),
+				HasToolResult:   len(executedTools) > 0,
+			})
+
+			if selectedModel != "" && selectedModel != currentModel {
+				currentModel = selectedModel
+				iterationConfig.ModelID = currentModel
+				fmt.Printf("ModelRouter selected: %s (iteration %d)\n", selectedModel, iteration+1)
+			}
+		}
+
+		reply, err := structuredGateway.GenerateStructuredReply(ctx, chatMessages, iterationConfig, iterationTools)
+		if err != nil {
+			_ = r.failRun(ctx, req.Session.OrganizationID, run.ID, err.Error(), iteration+1, result.ToolCalls)
+			return nil, fmt.Errorf("generate structured reply: %w", err)
+		}
+		usedTokens += completionTotalTokens(reply)
+		if tokenBudget > 0 && usedTokens > tokenBudget {
+			message := fmt.Sprintf("token_budget_exceeded: used %d tokens exceeds budget %d", usedTokens, tokenBudget)
+			_ = r.failRunWithStatus(ctx, req.Session.OrganizationID, run.ID, RunStatusTokenBudgetExceeded, message, iteration+1, result.ToolCalls)
+			return nil, fmt.Errorf("%w: used %d tokens exceeds budget %d", ErrTokenBudgetExceeded, usedTokens, tokenBudget)
+		}
+
+		toolCalls := chatToolCallsToAgent(reply.ToolCalls)
+		if len(toolCalls) > 0 {
+			for _, tc := range toolCalls {
+				executedTools = append(executedTools, tc.Name)
+			}
+			result.ToolCalls, err = r.handleStructuredToolCalls(ctx, req.Session, req.Agent, run, req.ConversationID, reply.Content, toolCalls, iteration+1, result.ToolCalls)
+			if err != nil {
+				return nil, err
+			}
+
+			messages, err = r.store.ListMessages(ctx, req.ConversationID, req.Session.OrganizationID)
+			if err != nil {
+				_ = r.failRun(ctx, req.Session.OrganizationID, run.ID, err.Error(), iteration+1, result.ToolCalls)
+				return nil, fmt.Errorf("refresh messages: %w", err)
+			}
+			chatMessages = r.buildChatMessages(ctx, req.Session, req.Agent, messages, req.InputText)
+			continue
+		}
+
+		assistantMsg, err := r.store.CreateMessage(ctx, req.ConversationID, req.Session.OrganizationID, "assistant", reply.Content, nil, "")
+		if err != nil {
+			_ = r.failRun(ctx, req.Session.OrganizationID, run.ID, err.Error(), iteration+1, result.ToolCalls)
+			return nil, fmt.Errorf("save assistant message: %w", err)
+		}
+		result.Message = assistantMsg
+		if err := r.completeRun(ctx, req.Session.OrganizationID, run.ID, iteration+1, result.ToolCalls, assistantMsg.ID); err != nil {
+			return nil, err
+		}
+		r.storeLongTermInteractionMemory(ctx, req.Session, req.Agent, req.ConversationID, req.InputText, reply.Content)
+
+		if req.OnChunk != nil && reply.Content != "" {
+			if err := streamContent(reply.Content, req.OnChunk); err != nil {
+				_ = r.failRun(ctx, req.Session.OrganizationID, run.ID, err.Error(), iteration+1, result.ToolCalls)
+				return nil, err
+			}
+		}
+		return result, nil
+	}
+
+	_ = r.failRunWithStatus(ctx, req.Session.OrganizationID, run.ID, RunStatusMaxIterationsReached, ErrMaxIterationsExceeded.Error(), maxIterations, result.ToolCalls)
+	return nil, fmt.Errorf("%w (%d)", ErrMaxIterationsExceeded, maxIterations)
+}
+
+// buildToolsFromSkills filters tools based on active skills' ToolNames and returns
+// the filtered OpenAI tool definitions.
+func buildToolsFromSkills(agent *Agent, activeSkills []Skill, baseTools []map[string]any) []map[string]any {
+	if len(activeSkills) == 0 {
+		return baseTools
+	}
+	enabledToolNames := make(map[string]bool)
+	for _, skill := range activeSkills {
+		for _, toolName := range skill.ToolNames {
+			enabledToolNames[toolName] = true
+		}
+	}
+	if len(enabledToolNames) == 0 {
+		return baseTools
+	}
+	filtered := make([]map[string]any, 0, len(baseTools))
+	for _, tool := range baseTools {
+		if fn, ok := tool["function"].(map[string]any); ok {
+			if name, ok := fn["name"].(string); ok && enabledToolNames[name] {
+				filtered = append(filtered, tool)
+			}
+		}
+	}
+	return filtered
+}
+
+// injectSkillInstructions appends skill instructions to the system prompt.
+func injectSkillInstructions(config chat.ConversationConfig, activeSkills []Skill) chat.ConversationConfig {
+	if len(activeSkills) == 0 {
+		return config
+	}
+	var instructions strings.Builder
+	instructions.WriteString(config.SystemPromptOverride)
+	if instructions.Len() > 0 {
+		instructions.WriteString("\n\n")
+	}
+	instructions.WriteString("Active Skills:\n")
+	for _, skill := range activeSkills {
+		if skill.Instructions != "" {
+			instructions.WriteString("- ")
+			instructions.WriteString(skill.Name)
+			instructions.WriteString(": ")
+			instructions.WriteString(skill.Instructions)
+			instructions.WriteString("\n")
+		}
+	}
+	config.SystemPromptOverride = instructions.String()
+	return config
 }

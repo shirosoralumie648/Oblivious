@@ -22,6 +22,8 @@ message CreateRunRequest {
   string user_content = 3;
   string organization_id = 4;
   string user_id = 5;
+  int32 recursion_depth = 6;
+  int32 max_depth = 7;
 }
 
 message CreateRunResponse {

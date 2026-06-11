@@ -287,6 +287,8 @@ type CreateRunRequest struct {
 	MemoryEnabled     bool
 	MemorySearched    bool
 	MemoryResultCount int
+	RecursionDepth    int
+	MaxDepth          int
 	StartedAt         time.Time
 }
 
