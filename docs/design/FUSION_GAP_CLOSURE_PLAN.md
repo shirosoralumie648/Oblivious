@@ -38,13 +38,13 @@
 - A4 ☑ 全套件验证（go test ./... exit 0、vet/gofmt 干净）。
 - 教训：同包并行实现引发 agent 互相禁用文件的事故；已改为串行/隔离策略（见进度日志）。
 
-### Stage B — Agent/RAG 高级能力（P2）
-- B1 ☐ 代码解释器：沙箱 Runner 接口已存在；实现容器化执行器（默认禁用，策略门控），8 语言。
-- B2 ☐ Web 搜索多提供商：Provider 接口 + 15+ 实现（API key 配置驱动，无 key 则禁用）。
-- B3 ☐ 子 Agent 调用 + 动态模型路由 + 技能选择。
-- B4 ☐ deepdoc：版面分析/表格抽取管线（接口 + 可用实现 + 测试）。
+### Stage B — Agent/RAG 高级能力（P2）✅ 完成（2026-06-11）
+- B1 ☑ 代码解释器：Docker 沙箱 8 语言（Python/JS/Ruby/Java/C++/Go/Rust/PHP），严格安全配置（0b2b3a4），默认禁用策略门控，17 测试，接入 workflow 服务配置（139c901）。
+- B2 ☑ Web 搜索多提供商：15 提供商客户端（tavily/brave/serper/serpapi/bing/google_cse/duckduckgo/searxng/exa/you/kagi/mojeek/jina/bocha/baidu）+ 回退链（63a9cf7），28 httptest 测试，接入 agent 服务配置（139c901）。
+- B3 ☑ 动态模型路由 + 技能选择：ModelRouter（规则驱动迭代模型选择）和 SkillSelector（词法触发器评分）纯组件（eff8b00），26 单测；Config schema 扩展（ModelRoutingRules/Skills/MaxSkills/SubAgentMaxDepth）；runner 集成和子 Agent 调用留待 Phase 2。
+- B4 ☑ deepdoc 结构感知文档解析：Markdown/HTML/DOCX/CSV/纯文本 → 层级结构模型（e8f8b38），表格完整性分块 + 标题面包屑，17 测试，stdlib only，对接 knowledge.EngineDocumentChunk；服务集成留待 Phase 2。
 
-### Stage C — 微服务架构重写（按规格）
+### Stage C — 微服务架构重写（按规格）— Phase 2（延后）
 - C0 ☑ PgBouncer / MinIO / Kafka 部署清单（K8s + docker-compose `infra-extras` profile + `scripts/verify-infra-manifests.sh` 静态验证；platform contract 文档同步更新）（2026-06-11）。
 - C1 ☐ 重写 ADR + 服务边界与接口契约冻结（12 服务，gRPC proto 定义）。
 - C2 ☐ Database per Service：12 个逻辑库 + 各服务独立连接 + 迁移拆分。
@@ -52,14 +52,21 @@
 - C4 ☐ gRPC 服务间调用 + Kafka 事件总线接入。
 - 约束：每个子步骤保持单体模式可继续运行（双模式：单进程聚合 / 多服务拆分），测试始终全绿。
 
-### Stage D — 前端按规格迁移
+### Stage D — 前端按规格迁移 — Phase 2（延后）
 - D1 ☐ Next.js 14 App Router 迁移（(auth)/(workspace)/(admin) 路由组）。
 - D2 ☐ Zustand + SWR + Recharts + React Hook Form + Zod。
 - 约束：分页面增量迁移，迁移期间测试套件持续通过。
+
+## Phase 2 范围（已延后至后续迭代）
+- B3 runner 集成：将 ModelRouter 和 SkillSelector 嵌入 runner 的迭代循环和系统提示构建路径。
+- B3 子 Agent 调用：call_agent 工具 + 深度/循环/租户限制 + Run 关联记录。
+- B4/B2 服务集成：deepdoc parser 接入知识库上传管线，websearch provider 动态选择接入 Agent 工具执行。
+- Stage C/D 架构重写：微服务拆分与前端迁移（可选/产品演进决策驱动）。
 
 ## 执行模型策略（用户要求省钱）
 - 实现类 agent：sonnet；机械验证/窄范围检查：haiku；主循环只做编排与关键决策。
 
 ## 进度日志
 - 2026-06-11：审计完成；测试基线全绿（web 602/602、Go 全包、quality gates exit 0）；修复 React Flow 真实画布测试（9c5e351）。
-- 2026-06-11：Stage A 完成 — 内置工具 6→170（31c26ca、31edfc9 + 收尾提交），全部真实实现+测试；Stage C0 完成 — PgBouncer/MinIO/Kafka 参考清单与验证脚本。事故记录：12 类并行实现时 agent 互相禁用文件，损失 3 类后改串行收尾；后续同包工作必须串行或 worktree 隔离。下一步：Stage B（代码解释器沙箱、Web 搜索多提供商、子 Agent/动态路由、deepdoc）。
+- 2026-06-11：Stage A 完成 — 内置工具 6→170（31c26ca、31edfc9、f0f731e），全部真实实现+测试；Stage C0 完成 — PgBouncer/MinIO/Kafka 参考清单与验证脚本（96fe226）。事故记录：12 类并行实现时 agent 互相禁用文件，损失 3 类后改串行收尾；后续同包工作必须串行或 worktree 隔离。
+- 2026-06-11：**Stage B 完成（63a9cf7、0b2b3a4、e8f8b38、139c901、eff8b00）** — web 搜索 15 提供商（28 测试）、代码沙箱 8 语言（17 测试）、deepdoc 5 格式解析（17 测试）、多提供商与沙箱配置接线、ModelRouter/SkillSelector 纯组件（26 测试）；**功能差距核心实现完成，深度集成和架构重写留待 Phase 2**。测试套件持续全绿（agent 107 测试、mcp 158 测试、workflow 43 测试、knowledge 7 测试、http/config 通过）。
