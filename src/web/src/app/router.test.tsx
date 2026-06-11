@@ -170,8 +170,66 @@ const knowledgeApiMocks = vi.hoisted(() => {
 
 const adminApiMocks = vi.hoisted(() => ({
   approveAgent: vi.fn(() => Promise.resolve()),
+  createDueMarketplacePayouts: vi.fn(() =>
+    Promise.resolve({
+      data: [{ id: 'payout_router_created', status: 'payout_pending', provider: 'stripe_connect' }],
+      total: 1
+    })
+  ),
   dismissMarketplaceAbuseReport: vi.fn(() => Promise.resolve({ status: 'dismissed' })),
   enforceReviewSLA: vi.fn(() => Promise.resolve({ scanned: 3, alerted: 2 })),
+  getBillingSummary: vi.fn(() =>
+    Promise.resolve({
+      billingSessions: { count: 1, settledAmount: 4.5 },
+      paymentIntents: { count: 1, refundedAmount: 10, totalAmount: 29 },
+      webhookEvents: { count: 1, failedCount: 1 },
+      settlements: { count: 1, grossAmount: 50 },
+      payouts: { count: 1, totalAmount: 40 }
+    })
+  ),
+  listBillingSurface: vi.fn((surface: string) =>
+    Promise.resolve({
+      data:
+        surface === 'sessions'
+          ? [
+              {
+                id: 'bs_router_phase28',
+                model: 'gpt-4o',
+                settledAmount: 4.5,
+                status: 'settled',
+                createdAt: '2026-06-09T00:00:00Z'
+              }
+            ]
+          : surface === 'payouts'
+            ? [
+                {
+                  id: 'payout_router_pending',
+                  provider: 'stripe_connect',
+                  providerPayoutId: 'provider-router-existing',
+                  amount: 40,
+                  status: 'payout_pending',
+                  createdAt: '2026-06-09T00:00:00Z'
+                }
+              ]
+            : surface === 'topups'
+              ? [
+                  {
+                    id: 'topup_router_refund',
+                    provider: 'stripe',
+                    amount: 25,
+                    money: 25,
+                    refundedAmount: 5,
+                    status: 'paid',
+                    paymentIntentId: 'pi_router_topup',
+                    providerPaymentIntentId: 'pi_provider_router_topup',
+                    currency: 'usd',
+                    createdAt: '2026-06-09T00:00:00Z'
+                  }
+                ]
+              : [],
+      total: surface === 'sessions' || surface === 'payouts' || surface === 'topups' ? 1 : 0
+    })
+  ),
   listMarketplaceAbuseReports: vi.fn(() =>
     Promise.resolve({
       data: [
@@ -190,9 +248,12 @@ const adminApiMocks = vi.hoisted(() => ({
       total: 1
     })
   ),
+  markMarketplacePayoutFailed: vi.fn(() => Promise.resolve({ id: 'payout_router_pending', status: 'failed', providerPayoutId: 'provider-router-failed' })),
+  markMarketplacePayoutPaid: vi.fn(() => Promise.resolve({ id: 'payout_router_pending', status: 'paid_out', providerPayoutId: 'provider-router-paid' })),
   reinstateMarketplaceAgent: vi.fn(() => Promise.resolve({ status: 'approved' })),
   rejectAgent: vi.fn(() => Promise.resolve()),
   resolveMarketplaceAbuseReport: vi.fn(() => Promise.resolve({ status: 'resolved' })),
+  refundTopup: vi.fn(() => Promise.resolve({ id: 'refund_router_topup', status: 'succeeded', providerRefundId: 're_router_topup' })),
   takedownMarketplaceAgent: vi.fn(() => Promise.resolve({ status: 'takedown' })),
   requestAgentChanges: vi.fn(() => Promise.resolve())
 }));
@@ -627,30 +688,8 @@ vi.mock('../features/admin/api', () => ({
         ],
         total: 1
       }),
-    getBillingSummary: () =>
-      Promise.resolve({
-        billingSessions: { count: 1, settledAmount: 4.5 },
-        paymentIntents: { count: 1, refundedAmount: 10, totalAmount: 29 },
-        webhookEvents: { count: 1, failedCount: 1 },
-        settlements: { count: 1, grossAmount: 50 },
-        payouts: { count: 1, totalAmount: 40 }
-      }),
-    listBillingSurface: (surface: string) =>
-      Promise.resolve({
-        data:
-          surface === 'sessions'
-            ? [
-                {
-                  id: 'bs_router_phase28',
-                  model: 'gpt-4o',
-                  settledAmount: 4.5,
-                  status: 'settled',
-                  createdAt: '2026-06-09T00:00:00Z'
-                }
-              ]
-            : [],
-        total: surface === 'sessions' ? 1 : 0
-      }),
+    getBillingSummary: adminApiMocks.getBillingSummary,
+    listBillingSurface: adminApiMocks.listBillingSurface,
     getRelayPricingSettings: () =>
       Promise.resolve({
         groupMultipliers: { enterprise: 0.85 },
@@ -1154,12 +1193,16 @@ vi.mock('../features/admin/api', () => ({
         total: 1
       }),
     approveAgent: adminApiMocks.approveAgent,
+    createDueMarketplacePayouts: adminApiMocks.createDueMarketplacePayouts,
     dismissMarketplaceAbuseReport: adminApiMocks.dismissMarketplaceAbuseReport,
     enforceReviewSLA: adminApiMocks.enforceReviewSLA,
     listMarketplaceAbuseReports: adminApiMocks.listMarketplaceAbuseReports,
+    markMarketplacePayoutFailed: adminApiMocks.markMarketplacePayoutFailed,
+    markMarketplacePayoutPaid: adminApiMocks.markMarketplacePayoutPaid,
     reinstateMarketplaceAgent: adminApiMocks.reinstateMarketplaceAgent,
     rejectAgent: adminApiMocks.rejectAgent,
     resolveMarketplaceAbuseReport: adminApiMocks.resolveMarketplaceAbuseReport,
+    refundTopup: adminApiMocks.refundTopup,
     takedownMarketplaceAgent: adminApiMocks.takedownMarketplaceAgent,
     requestAgentChanges: adminApiMocks.requestAgentChanges,
     revokeAPIToken: () => Promise.resolve()
@@ -2873,6 +2916,74 @@ describe('app router', () => {
     expect(screen.getByRole('tab', { name: 'Payouts' })).toBeInTheDocument();
     expect(screen.getByLabelText('Organization ID filter')).toBeInTheDocument();
     expect(screen.getByLabelText('Provider filter')).toBeInTheDocument();
+  });
+
+  it('executes admin billing payout operator actions inside the admin shell', async () => {
+    const router = createAppRouter(['/admin/billing']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    expect(await screen.findByRole('heading', { name: 'Billing' })).toBeInTheDocument();
+    expect(document.querySelector('[data-gsap-scope="admin"]')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Payouts' }));
+    expect(await screen.findByText('payout_router_pending')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create due payouts' }));
+    await waitFor(() => expect(adminApiMocks.createDueMarketplacePayouts).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(adminApiMocks.listBillingSurface).toHaveBeenLastCalledWith('payouts', expect.objectContaining({ limit: 50 })));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mark payout payout_router_pending paid' }));
+    expect(await screen.findByRole('heading', { name: 'Payout confirmation' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Provider payout ID'), { target: { value: 'provider-router-paid' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm paid payout' }));
+    await waitFor(() => expect(adminApiMocks.markMarketplacePayoutPaid).toHaveBeenCalledWith('payout_router_pending', 'provider-router-paid'));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Mark payout payout_router_pending failed' }));
+    expect(await screen.findByRole('heading', { name: 'Payout failure' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Provider payout ID'), { target: { value: 'provider-router-failed' } });
+    fireEvent.change(screen.getByLabelText('Failure reason'), { target: { value: 'bank account closed' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm failed payout' }));
+    await waitFor(() =>
+      expect(adminApiMocks.markMarketplacePayoutFailed).toHaveBeenCalledWith(
+        'payout_router_pending',
+        'provider-router-failed',
+        'bank account closed'
+      )
+    );
+  });
+
+  it('executes admin billing top-up refund recovery inside the admin shell', async () => {
+    const router = createAppRouter(['/admin/billing']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    expect(await screen.findByRole('heading', { name: 'Billing' })).toBeInTheDocument();
+    expect(document.querySelector('[data-gsap-scope="admin"]')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Top-ups' }));
+    expect(await screen.findByText('topup_router_refund')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Record refund for top-up topup_router_refund' }));
+
+    expect(await screen.findByRole('heading', { name: 'Top-up refund' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Provider refund ID'), { target: { value: 're_router_topup' } });
+    fireEvent.change(screen.getByLabelText('Provider charge ID'), { target: { value: 'ch_router_topup' } });
+    fireEvent.change(screen.getByLabelText('Refund amount'), { target: { value: '12.5' } });
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'duplicate provider capture' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm top-up refund' }));
+
+    await waitFor(() =>
+      expect(adminApiMocks.refundTopup).toHaveBeenCalledWith('topup_router_refund', {
+        provider: 'stripe',
+        providerRefundID: 're_router_topup',
+        providerChargeID: 'ch_router_topup',
+        providerPaymentIntentID: 'pi_provider_router_topup',
+        amount: 12.5,
+        currency: 'usd',
+        reason: 'duplicate provider capture'
+      })
+    );
+    await waitFor(() => expect(adminApiMocks.listBillingSurface).toHaveBeenLastCalledWith('topups', expect.objectContaining({ limit: 50 })));
   });
 
   it('keeps admin channels route-level provider, runtime, and operator controls reachable', async () => {
