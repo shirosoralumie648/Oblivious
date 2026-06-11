@@ -12,6 +12,7 @@ import (
 	"oblivious/server/internal/notification"
 	"oblivious/server/internal/observability"
 	"oblivious/server/internal/workflow"
+	"oblivious/server/internal/workflow/sandbox"
 )
 
 func newConfiguredWorkflowService(cfg config.Config, database *sql.DB, notifier ...workflowFailurePauseNotifier) *workflow.Service {
@@ -35,7 +36,38 @@ func configuredWorkflowServiceOptions(cfg config.Config, notifier workflowFailur
 }
 
 func newConfiguredWorkflowServiceWithStoreNotifierAndAlerts(cfg config.Config, store workflow.Store, notifier workflowFailurePauseNotifier, alertSink observability.AlertSink) *workflow.Service {
-	return workflow.NewService(store, configuredWorkflowServiceOptionsWithAlerts(cfg, notifier, alertSink)...)
+	service := workflow.NewService(store, configuredWorkflowServiceOptionsWithAlerts(cfg, notifier, alertSink)...)
+	if runner := buildWorkflowSandboxCodeRunner(cfg); runner != nil {
+		// RegisterNodeExecutors only replaces the executor for the "code"
+		// node type inside the existing registry; every other default
+		// executor stays registered.
+		service.RegisterNodeExecutors(workflow.NewCodeNodeExecutor(workflow.WithCodeRunner(runner)))
+	}
+	return service
+}
+
+// buildWorkflowSandboxCodeRunner constructs the docker-backed code
+// interpreter when WORKFLOW_SANDBOX_ENABLED=true. It returns nil otherwise so
+// the default JavaScript code-node behavior stays unchanged.
+func buildWorkflowSandboxCodeRunner(cfg config.Config) workflow.CodeRunner {
+	if !cfg.WorkflowSandboxEnabled {
+		return nil
+	}
+	var allowedLanguages []string
+	for _, language := range strings.Split(cfg.WorkflowSandboxAllowedLanguages, ",") {
+		language = strings.TrimSpace(language)
+		if language != "" {
+			allowedLanguages = append(allowedLanguages, language)
+		}
+	}
+	return sandbox.NewDockerSandboxRunner(sandbox.Config{
+		Enabled:          true,
+		AllowedLanguages: allowedLanguages,
+		MemoryMB:         cfg.WorkflowSandboxMemoryMB,
+		CPUs:             float64(cfg.WorkflowSandboxCPUs),
+		DefaultTimeoutMS: cfg.WorkflowSandboxDefaultTimeoutMS,
+		MaxTimeoutMS:     cfg.WorkflowSandboxMaxTimeoutMS,
+	})
 }
 
 func configuredWorkflowServiceOptionsWithAlerts(cfg config.Config, notifier workflowFailurePauseNotifier, alertSink observability.AlertSink) []workflow.ServiceOption {

@@ -1,3 +1,4 @@
+import { create } from 'zustand';
 import type { ApiUser, UserPreferences } from '../../types/api';
 
 export type AuthStatus = 'idle' | 'loading' | 'authenticated' | 'unauthenticated';
@@ -8,11 +9,10 @@ export type AuthState = {
   preferences: UserPreferences | null;
 };
 
-type Listener = () => void;
-
 export type AuthStore = {
   getState: () => AuthState;
-  subscribe: (listener: Listener) => () => void;
+  subscribe: (listener: () => void) => () => void;
+  useStore: () => AuthState;
   startLoading: () => void;
   setAuthenticatedSession: (user: ApiUser, preferences: UserPreferences) => void;
   setAuthenticatedUser: (user: ApiUser) => void;
@@ -22,55 +22,23 @@ export type AuthStore = {
 export function createAuthStore(
   initialState: AuthState = { status: 'idle', user: null, preferences: null }
 ): AuthStore {
-  let state = initialState;
-  const listeners = new Set<Listener>();
-
-  const notify = () => {
-    for (const listener of listeners) {
-      listener();
-    }
-  };
-
-  const setState = (nextState: AuthState) => {
-    state = nextState;
-    notify();
-  };
+  const useStore = create<AuthState>(() => initialState);
 
   return {
-    getState: () => state,
-    subscribe: (listener) => {
-      listeners.add(listener);
-
-      return () => {
-        listeners.delete(listener);
-      };
-    },
+    getState: useStore.getState,
+    subscribe: useStore.subscribe,
+    useStore,
     startLoading: () => {
-      setState({
-        ...state,
-        status: 'loading'
-      });
+      useStore.setState((state) => ({ ...state, status: 'loading' }));
     },
     setAuthenticatedSession: (user, preferences) => {
-      setState({
-        status: 'authenticated',
-        user,
-        preferences
-      });
+      useStore.setState({ status: 'authenticated', user, preferences });
     },
     setAuthenticatedUser: (user) => {
-      setState({
-        status: 'authenticated',
-        user,
-        preferences: state.preferences
-      });
+      useStore.setState((state) => ({ status: 'authenticated', user, preferences: state.preferences }));
     },
     clearUser: () => {
-      setState({
-        status: 'unauthenticated',
-        user: null,
-        preferences: null
-      });
+      useStore.setState({ status: 'unauthenticated', user: null, preferences: null });
     }
   };
 }

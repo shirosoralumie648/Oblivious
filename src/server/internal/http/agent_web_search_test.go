@@ -91,3 +91,85 @@ func TestBuildAgentWebSearchProviderFailClosedWhenIncomplete(t *testing.T) {
 		t.Fatalf("web_search disabled content = %q, want disabled without placeholder", result.Content)
 	}
 }
+
+func TestBuildAgentWebSearchProviderSupportsMultiProviderRegistry(t *testing.T) {
+	cases := []struct {
+		name    string
+		cfg     config.Config
+		wantNil bool
+	}{
+		{
+			name:    "brave with key",
+			cfg:     config.Config{AgentWebSearchProvider: "brave", AgentWebSearchAPIKey: "brave-secret"},
+			wantNil: false,
+		},
+		{
+			name:    "brave without key fails closed",
+			cfg:     config.Config{AgentWebSearchProvider: "brave"},
+			wantNil: true,
+		},
+		{
+			name:    "duckduckgo without key",
+			cfg:     config.Config{AgentWebSearchProvider: "duckduckgo"},
+			wantNil: false,
+		},
+		{
+			name:    "google_cse with key and cse id",
+			cfg:     config.Config{AgentWebSearchProvider: "google_cse", AgentWebSearchAPIKey: "cse-key", AgentWebSearchGoogleCSEID: "cse-id"},
+			wantNil: false,
+		},
+		{
+			name:    "google_cse missing cse id fails closed",
+			cfg:     config.Config{AgentWebSearchProvider: "google_cse", AgentWebSearchAPIKey: "cse-key"},
+			wantNil: true,
+		},
+		{
+			name:    "fallback chain",
+			cfg:     config.Config{AgentWebSearchProvider: "brave,duckduckgo", AgentWebSearchAPIKey: "brave-secret"},
+			wantNil: false,
+		},
+		{
+			name:    "unknown provider fails closed",
+			cfg:     config.Config{AgentWebSearchProvider: "unknown_provider", AgentWebSearchAPIKey: "secret"},
+			wantNil: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			provider := buildAgentWebSearchProvider(tc.cfg)
+			if tc.wantNil && provider != nil {
+				t.Fatalf("expected nil provider, got %#v", provider)
+			}
+			if !tc.wantNil && provider == nil {
+				t.Fatal("expected configured provider, got nil")
+			}
+		})
+	}
+}
+
+func TestBuildAgentWebSearchProviderMultiProviderSearches(t *testing.T) {
+	upstream := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if got := r.Header.Get("X-Subscription-Token"); got != "brave-secret" {
+			t.Errorf("brave auth header = %q, want brave-secret", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"web":{"results":[{"title":"Brave wired","url":"https://brave.example.test","description":"multi provider"}]}}`))
+	}))
+	defer upstream.Close()
+
+	provider := buildAgentWebSearchProvider(config.Config{
+		AgentWebSearchProvider: "brave",
+		AgentWebSearchAPIKey:   "brave-secret",
+		AgentWebSearchEndpoint: upstream.URL,
+	})
+	if provider == nil {
+		t.Fatal("expected brave provider, got nil")
+	}
+	results, err := provider.Search(t.Context(), "multi provider search")
+	if err != nil {
+		t.Fatalf("brave search returned error: %v", err)
+	}
+	if len(results) != 1 || results[0].Title != "Brave wired" {
+		t.Fatalf("brave search results = %+v, want Brave wired", results)
+	}
+}

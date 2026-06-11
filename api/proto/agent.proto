@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package oblivious.agent.v1;
+
+option go_package = "oblivious/api/proto/agent/v1;agentv1";
+
+// AgentService 处理 Agent 执行
+service AgentService {
+  // StartRun 启动 Agent 运行
+  rpc StartRun(StartRunRequest) returns (StartRunResponse);
+
+  // GetRunStatus 查询运行状态
+  rpc GetRunStatus(GetRunStatusRequest) returns (GetRunStatusResponse);
+}
+
+message StartRunRequest {
+  string agent_id = 1;
+  string conversation_id = 2;
+  string user_content = 3;
+  string organization_id = 4;
+  string user_id = 5;
+}
+
+message StartRunResponse {
+  string run_id = 1;
+  string status = 2;
+}
+
+message GetRunStatusRequest {
+  string run_id = 1;
+  string organization_id = 2;
+}
+
+message GetRunStatusResponse {
+  string run_id = 1;
+  string status = 2;
+  string result = 3;
+}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, type ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import {
   RiAlarmWarningLine,
   RiBarChartLine,
@@ -10,11 +10,14 @@ import {
   RiShieldCheckLine,
   RiUserLine,
 } from '@remixicon/react';
+import useSWR from 'swr';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, LineChart, Line, XAxis, YAxis, CartesianGrid } from 'recharts';
 
 import { createAdminApi } from '../../features/admin/api';
 import { EmptyState } from '../../components/shared/EmptyState';
 import { MetricCard } from '../../components/shared/MetricCard';
 import { StatChart } from '../../components/shared/StatChart';
+import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { createHttpClient } from '../../services/http/client';
 import type { AdminStats } from '../../types/admin';
 
@@ -28,27 +31,6 @@ type CommercialOperation = {
   href: string;
   description: string;
   icon: ReactNode;
-};
-
-type State = {
-  stats: AdminStats | null;
-  apiCallsData: ChartPoint[];
-  uptimeData: ChartPoint[];
-  loading: boolean;
-  error: string | null;
-};
-
-type Action =
-  | { type: 'LOADING' }
-  | { type: 'SUCCESS'; stats: AdminStats; apiCallsData: ChartPoint[]; uptimeData: ChartPoint[] }
-  | { type: 'ERROR'; error: string };
-
-const initialState: State = {
-  stats: null,
-  apiCallsData: [],
-  uptimeData: [],
-  loading: true,
-  error: null,
 };
 
 const commercialOperations: CommercialOperation[] = [
@@ -102,25 +84,6 @@ const commercialOperations: CommercialOperation[] = [
   },
 ];
 
-function reducer(state: State, action: Action): State {
-  switch (action.type) {
-    case 'LOADING':
-      return { ...state, loading: true, error: null };
-    case 'SUCCESS':
-      return {
-        stats: action.stats,
-        apiCallsData: action.apiCallsData,
-        uptimeData: action.uptimeData,
-        loading: false,
-        error: null,
-      };
-    case 'ERROR':
-      return { ...state, loading: false, error: action.error };
-    default:
-      return state;
-  }
-}
-
 function buildApiCallsData(stats: AdminStats): ChartPoint[] {
   return [
     { label: 'Calls', value: stats.apiCalls24h },
@@ -142,34 +105,18 @@ function hasNoActivity(stats: AdminStats) {
   return stats.channelsTotal === 0 && stats.users.totalUsers === 0 && stats.apiCalls24h === 0 && stats.activeAgents === 0;
 }
 
+const COLORS = ['hsl(var(--primary))', 'hsl(var(--chart-2))', 'hsl(var(--chart-3))', 'hsl(var(--chart-4))', 'hsl(var(--chart-5))'];
+
 export function AdminHomePage() {
-  const [state, dispatch] = useReducer(reducer, initialState);
   const api = useMemo(() => createAdminApi(createHttpClient()), []);
+  const { data: stats, error, isLoading, mutate } = useSWR('/api/v1/admin/stats', () => api.getStats());
 
-  const loadStats = useCallback(async () => {
-    dispatch({ type: 'LOADING' });
+  const apiCallsData = useMemo(() => (stats ? buildApiCallsData(stats) : []), [stats]);
+  const uptimeData = useMemo(() => (stats ? buildUptimeData(stats) : []), [stats]);
+  const dailyTrendData = useMemo(() => stats?.dailyStats?.map(d => ({ label: d.date, value: d.calls })) || [], [stats]);
+  const modelData = useMemo(() => stats?.modelBreakdown?.map(m => ({ name: m.model, value: m.count })) || [], [stats]);
 
-    try {
-      const stats = await api.getStats();
-      dispatch({
-        type: 'SUCCESS',
-        stats,
-        apiCallsData: buildApiCallsData(stats),
-        uptimeData: buildUptimeData(stats),
-      });
-    } catch (error) {
-      dispatch({
-        type: 'ERROR',
-        error: error instanceof Error ? error.message : 'Unable to load dashboard.',
-      });
-    }
-  }, [api]);
-
-  useEffect(() => {
-    void loadStats();
-  }, [loadStats]);
-
-  if (state.loading) {
+  if (isLoading) {
     return (
       <div aria-busy="true" className="space-y-8">
         <h1 className="font-heading text-2xl font-semibold text-foreground">Dashboard</h1>
@@ -179,33 +126,34 @@ export function AdminHomePage() {
           ))}
         </div>
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <StatChart title="API Call Volume (7 days)" data={[]} loading />
-          <StatChart title="Channel Uptime" data={[]} loading />
+          {Array.from({ length: 4 }, (_, index) => (
+            <StatChart key={index} title="Loading" data={[]} loading />
+          ))}
         </div>
       </div>
     );
   }
 
-  if (state.error) {
+  if (error) {
     return (
       <EmptyState
         title="Something went wrong while loading this data. Please try again or contact support if the issue persists."
-        description={state.error}
-        action={{ label: 'Try Again', onClick: loadStats }}
+        description={error instanceof Error ? error.message : 'Unable to load dashboard.'}
+        action={{ label: 'Try Again', onClick: () => mutate() }}
       />
     );
   }
 
-  if (!state.stats || hasNoActivity(state.stats)) {
+  if (!stats || hasNoActivity(stats)) {
     return (
       <EmptyState
         title="No activity yet -- System metrics will appear here once users start interacting."
-        action={{ label: 'Refresh', onClick: loadStats }}
+        action={{ label: 'Refresh', onClick: () => mutate() }}
       />
     );
   }
 
-  const onlinePercent = state.stats.channelsTotal > 0 ? Math.round((state.stats.channelsOnline / state.stats.channelsTotal) * 100) : 0;
+  const onlinePercent = stats.channelsTotal > 0 ? Math.round((stats.channelsOnline / stats.channelsTotal) * 100) : 0;
 
   return (
     <div className="space-y-8">
@@ -217,32 +165,65 @@ export function AdminHomePage() {
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
         <MetricCard
           label="Channels"
-          value={state.stats.channelsTotal}
-          trend={state.stats.channelsTotal > 0 ? { direction: 'up', value: `${onlinePercent}% online` } : undefined}
+          value={stats.channelsTotal}
+          trend={stats.channelsTotal > 0 ? { direction: 'up', value: `${onlinePercent}% online` } : undefined}
           icon={<RiRouterLine className="size-5" aria-hidden="true" />}
         />
         <MetricCard
           label="Total Users"
-          value={state.stats.users.totalUsers}
-          trend={{ direction: 'up', value: `+${state.stats.users.newUsersWeek} this week` }}
+          value={stats.users.totalUsers}
+          trend={{ direction: 'up', value: `+${stats.users.newUsersWeek} this week` }}
           icon={<RiUserLine className="size-5" aria-hidden="true" />}
         />
         <MetricCard
           label="API Calls (24h)"
-          value={state.stats.apiCalls24h}
+          value={stats.apiCalls24h}
           format="number"
           icon={<RiBarChartLine className="size-5" aria-hidden="true" />}
         />
         <MetricCard
           label="Active Agents"
-          value={state.stats.activeAgents}
+          value={stats.activeAgents}
           icon={<RiRobot2Line className="size-5" aria-hidden="true" />}
         />
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <StatChart title="API Call Volume (7 days)" data={state.apiCallsData} type="bar" />
-        <StatChart title="Channel Uptime" data={state.uptimeData} type="bar" />
+        <StatChart title="API Call Volume (7 days)" data={apiCallsData} type="bar" />
+        <StatChart title="Channel Uptime" data={uptimeData} type="bar" />
+        <Card>
+          <CardHeader>
+            <CardTitle>API 调用趋势（最近 7 天）</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={200}>
+              <LineChart data={dailyTrendData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="label" />
+                <YAxis />
+                <Tooltip />
+                <Line type="monotone" dataKey="value" stroke="hsl(var(--primary))" strokeWidth={2} />
+              </LineChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>模型使用占比</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={200}>
+              <PieChart>
+                <Pie data={modelData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
+                  {modelData.map((_, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
       </div>
 
       <section className="space-y-4" aria-labelledby="commercial-operations-heading">

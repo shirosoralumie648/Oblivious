@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useSyncExternalStore, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useRef, type ReactNode } from 'react';
 
 import { createAuthApi, type AuthApi } from '../features/auth/api';
 import { createAuthStore, type AuthState } from '../features/auth/store';
@@ -38,7 +38,8 @@ export function AppContextProvider({
 }: AppContextProviderProps) {
   const storeRef = useRef(createAuthStore({ status: 'loading', user: null, preferences: null }));
   const bootstrapControllerRef = useRef(createAuthBootstrapController(authApi, storeRef.current));
-  const authState = useSyncExternalStore(storeRef.current.subscribe, storeRef.current.getState, storeRef.current.getState);
+
+  const authState = storeRef.current.useStore();
 
   useEffect(() => {
     void bootstrapControllerRef.current.bootstrap();

@@ -56,6 +56,52 @@ type Config struct {
 	KnowledgeBaseIDs               []string                        `json:"knowledgeBaseIds,omitempty"`
 	ApprovalMode                   string                          `json:"approvalMode,omitempty"`
 	ToolApprovalOverrides          map[string]ToolApprovalOverride `json:"toolApprovalOverrides,omitempty"`
+	// ModelRoutingRules selects the model per iteration based on task
+	// signals. When empty the agent's static Model is always used.
+	ModelRoutingRules []ModelRoutingRule `json:"modelRoutingRules,omitempty"`
+	// Skills are named instruction+tool bundles. When set, the skill
+	// selector scores them against the user input and injects the
+	// top-scoring skills' instructions and tools into the run.
+	Skills []Skill `json:"skills,omitempty"`
+	// MaxSkills caps how many skills the selector activates per run
+	// (default 3 when Skills is non-empty).
+	MaxSkills int `json:"maxSkills,omitempty"`
+	// SubAgentMaxDepth bounds nested call_agent invocations (default 3).
+	SubAgentMaxDepth int `json:"subAgentMaxDepth,omitempty"`
+}
+
+// ModelRoutingRule maps task signals to a target model. The first rule
+// whose conditions all match wins; unmatched runs fall back to the static
+// agent model.
+type ModelRoutingRule struct {
+	// TargetModel is the model id selected when this rule matches.
+	TargetModel string `json:"targetModel"`
+	// MinInputChars matches when the iteration input length is >= this.
+	MinInputChars int `json:"minInputChars,omitempty"`
+	// MaxInputChars matches when the iteration input length is <= this
+	// (0 means no upper bound).
+	MaxInputChars int `json:"maxInputChars,omitempty"`
+	// MinIteration matches when the 1-based iteration index is >= this.
+	MinIteration int `json:"minIteration,omitempty"`
+	// RequiresToolResult matches only when a prior tool result exists in
+	// the iteration context.
+	RequiresToolResult bool `json:"requiresToolResult,omitempty"`
+	// Keywords matches when any keyword (case-insensitive) is present in
+	// the input.
+	Keywords []string `json:"keywords,omitempty"`
+}
+
+// Skill is a named instruction+tool bundle the skill selector can activate.
+type Skill struct {
+	Name string `json:"name"`
+	// Instructions are appended to the system prompt when the skill is
+	// selected.
+	Instructions string `json:"instructions,omitempty"`
+	// Triggers are keywords/phrases used for lexical scoring against the
+	// user input.
+	Triggers []string `json:"triggers,omitempty"`
+	// ToolNames lists tools this skill enables when active.
+	ToolNames []string `json:"toolNames,omitempty"`
 }
 
 type ToolApprovalOverride struct {
