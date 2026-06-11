@@ -1079,6 +1079,49 @@ func TestServiceApproveAndExecutePlanStepCompletesWithExecutorResult(t *testing.
 	}
 }
 
+func TestServiceExecutePlanStepRejectsPendingApprovalStep(t *testing.T) {
+	now := time.Now().UTC()
+	store := &fakeStore{
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
+			Status:         RunStatusPendingApproval,
+			StartedAt:      now,
+		}},
+		planSteps: []*PlanStep{{
+			ID:             "step_1",
+			RunID:          "run_1",
+			OrganizationID: "org_1",
+			Index:          1,
+			Title:          "Write code",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusPending,
+			ToolName:       "write_file",
+		}},
+	}
+	service := NewService(store, &fakeGateway{})
+
+	_, err := service.ExecutePlanStep(
+		context.Background(),
+		auth.Session{OrganizationID: "org_1", WorkspaceID: "workspace_1", User: auth.User{ID: "user_1"}},
+		"step_1",
+	)
+	if err == nil {
+		t.Fatal("expected error when executing pending-approval plan step")
+	}
+	if !strings.Contains(err.Error(), "not approved") {
+		t.Fatalf("expected 'not approved' error, got: %v", err)
+	}
+	// Verify step was not mutated
+	if store.planSteps[0].Status != PlanStepStatusPending {
+		t.Fatalf("pending-approval step should remain pending: %+v", store.planSteps[0])
+	}
+}
+
 func TestServiceExecutePlanStepMarksFailedWhenExecutorErrors(t *testing.T) {
 	now := time.Now().UTC()
 	store := &fakeStore{
