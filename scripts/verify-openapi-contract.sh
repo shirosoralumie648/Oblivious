@@ -3,6 +3,7 @@ set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 openapi_file="$repo_root/docs/api/openapi.yaml"
+route_surface_manifest_file="$repo_root/docs/api/route-surface-manifest.json"
 
 require_path() {
   local path="$1"
@@ -403,6 +404,116 @@ require_api_operation_metadata_contract() {
       exit 1
     end
   ' "$openapi_file"
+}
+
+require_route_surface_manifest_contract() {
+  ruby -rjson -ryaml -e '
+    openapi_file = ARGV.fetch(0)
+    manifest_file = ARGV.fetch(1)
+    spec = YAML.load_file(openapi_file)
+    manifest = JSON.parse(File.read(manifest_file))
+
+    def resolve_ref(spec, ref)
+      ref.sub(%r{\A#/}, "").split("/").map { |part| part.gsub("~1", "/").gsub("~0", "~") }.
+        reduce(spec) { |node, part| node.fetch(part) }
+    end
+
+    def resolve_path_item(spec, item)
+      return item unless item.is_a?(Hash) && item["$ref"]
+
+      resolve_ref(spec, item["$ref"])
+    end
+
+    def security_kind(operation, spec)
+      security = operation.fetch("security", spec.fetch("security", nil))
+      return "public" if security == []
+      return "bearer" if security.is_a?(Array) && security.any? { |entry| entry.is_a?(Hash) && entry.key?("bearerAuth") }
+      return "cookie+csrf" if security.is_a?(Array) && security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") && entry.key?("csrfHeader") }
+      return "cookie" if security.is_a?(Array) && security.any? { |entry| entry.is_a?(Hash) && entry.key?("cookieAuth") }
+
+      "unknown"
+    end
+
+    http_methods = %w[get post put patch delete]
+    openapi_routes = {}
+    spec.fetch("paths", {}).each do |path, raw_item|
+      next unless path.start_with?("/api/")
+
+      item = resolve_path_item(spec, raw_item)
+      http_methods.each do |method|
+        operation = item[method]
+        next unless operation.is_a?(Hash)
+
+        openapi_routes[[method.upcase, path]] = {
+          "security" => security_kind(operation, spec),
+          "csrf" => security_kind(operation, spec) == "cookie+csrf",
+          "operationId" => operation["operationId"],
+          "tags" => operation.fetch("tags", [])
+        }
+      end
+    end
+
+    manifest_routes = {}
+    duplicate_manifest = []
+    malformed_manifest = []
+    manifest.fetch("routes", []).each do |route|
+      method = route["method"]
+      path = route["path"]
+      sample_path = route["samplePath"]
+      key = [method, path]
+
+      unless method.is_a?(String) && http_methods.map(&:upcase).include?(method)
+        malformed_manifest << "#{method.inspect} #{path.inspect} has an unsupported method"
+      end
+      unless path.is_a?(String) && path.start_with?("/api/")
+        malformed_manifest << "#{method} #{path.inspect} path must start with /api/"
+      end
+      unless sample_path.is_a?(String) && sample_path.start_with?("/api/") && !sample_path.include?("{") && !sample_path.include?("}")
+        malformed_manifest << "#{method} #{path} must provide a concrete /api/ samplePath"
+      end
+      unless %w[public cookie cookie+csrf bearer].include?(route["security"])
+        malformed_manifest << "#{method} #{path} has unsupported security #{route["security"].inspect}"
+      end
+      unless route["csrf"] == (route["security"] == "cookie+csrf")
+        malformed_manifest << "#{method} #{path} csrf must match cookie+csrf security"
+      end
+
+      duplicate_manifest << "#{method} #{path}" if manifest_routes.key?(key)
+      manifest_routes[key] = route
+    end
+
+    missing_manifest = openapi_routes.keys - manifest_routes.keys
+    stale_manifest = manifest_routes.keys - openapi_routes.keys
+    contract_mismatch = []
+
+    (openapi_routes.keys & manifest_routes.keys).each do |key|
+      openapi_route = openapi_routes.fetch(key)
+      manifest_route = manifest_routes.fetch(key)
+      method, path = key
+      if manifest_route["security"] != openapi_route.fetch("security")
+        contract_mismatch << "#{method} #{path} security manifest=#{manifest_route["security"].inspect} openapi=#{openapi_route.fetch("security").inspect}"
+      end
+      if manifest_route["csrf"] != openapi_route.fetch("csrf")
+        contract_mismatch << "#{method} #{path} csrf manifest=#{manifest_route["csrf"].inspect} openapi=#{openapi_route.fetch("csrf").inspect}"
+      end
+      if manifest_route["operationId"].to_s.strip.empty? || manifest_route["operationId"] != openapi_route.fetch("operationId")
+        contract_mismatch << "#{method} #{path} operationId must match OpenAPI"
+      end
+      if !manifest_route["tags"].is_a?(Array) || manifest_route["tags"].empty? || manifest_route["tags"] != openapi_route.fetch("tags")
+        contract_mismatch << "#{method} #{path} tags must match OpenAPI"
+      end
+    end
+
+    unless missing_manifest.empty? && stale_manifest.empty? && duplicate_manifest.empty? && malformed_manifest.empty? && contract_mismatch.empty?
+      warn "[openapi-contract] route-surface manifest parity failed:"
+      missing_manifest.each { |method, path| warn "  - manifest missing #{method} #{path}" }
+      stale_manifest.each { |method, path| warn "  - manifest has stale #{method} #{path}" }
+      duplicate_manifest.each { |entry| warn "  - manifest duplicates #{entry}" }
+      malformed_manifest.each { |entry| warn "  - #{entry}" }
+      contract_mismatch.each { |entry| warn "  - #{entry}" }
+      exit 1
+    end
+  ' "$openapi_file" "$route_surface_manifest_file"
 }
 
 require_session_csrf_contract() {
@@ -4963,6 +5074,7 @@ require_api_json_request_bodies_use_named_schemas
 require_api_security_surface_contract
 require_api_path_parameter_contract
 require_api_operation_metadata_contract
+require_route_surface_manifest_contract
 require_session_csrf_contract
 require_marketplace_paid_install_contract
 require_marketplace_template_type_contract

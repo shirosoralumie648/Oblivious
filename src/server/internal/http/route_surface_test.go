@@ -5,6 +5,7 @@ import (
 	stdhttp "net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -2186,6 +2187,97 @@ type routeSurfaceCase struct {
 	name   string
 	method string
 	path   string
+}
+
+type routeSurfaceManifest struct {
+	Routes []routeSurfaceManifestRoute `json:"routes"`
+}
+
+type routeSurfaceManifestRoute struct {
+	Method     string `json:"method"`
+	Path       string `json:"path"`
+	SamplePath string `json:"samplePath"`
+	Security   string `json:"security"`
+}
+
+func TestRouteSurfaceManifestRoutesAreRegisteredWithoutDatabase(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "docs", "api", "route-surface-manifest.json"))
+	if err != nil {
+		t.Fatalf("read route surface manifest: %v", err)
+	}
+
+	var manifest routeSurfaceManifest
+	if err := json.Unmarshal(content, &manifest); err != nil {
+		t.Fatalf("parse route surface manifest: %v", err)
+	}
+	if len(manifest.Routes) == 0 {
+		t.Fatal("expected route surface manifest to include routes")
+	}
+
+	userSession := routeSurfaceUserSession()
+	adminSession := routeSurfaceAdminSession()
+	router := combineHandlers(
+		NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: userSession}}),
+		stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, _ *stdhttp.Request) {
+			writeError(w, stdhttp.StatusUnauthorized, "relay_identity_required", "relay identity required")
+		}),
+	)
+	userCookie := routeSurfaceSignedSessionCookie(t, userSession)
+	adminCookie := routeSurfaceSignedSessionCookie(t, adminSession)
+	userCSRF := routeSurfaceCSRFToken(userSession)
+	adminCSRF := routeSurfaceCSRFToken(adminSession)
+
+	for _, route := range manifest.Routes {
+		route := route
+		t.Run(route.Method+" "+route.Path, func(t *testing.T) {
+			body := strings.NewReader(`{}`)
+			if route.Method == stdhttp.MethodGet || route.Method == stdhttp.MethodDelete {
+				body = strings.NewReader("")
+			}
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(route.Method, route.SamplePath, body)
+			request.Header.Set("Content-Type", "application/json")
+
+			switch route.Security {
+			case "bearer":
+				request.Header.Set("Authorization", "Bearer route_surface_token")
+			case "cookie":
+				if strings.HasPrefix(route.Path, "/api/v1/admin/") {
+					request.AddCookie(adminCookie)
+				} else {
+					request.AddCookie(userCookie)
+				}
+			case "cookie+csrf":
+				if strings.HasPrefix(route.Path, "/api/v1/admin/") {
+					request.AddCookie(adminCookie)
+					request.Header.Set("X-CSRF-Token", adminCSRF)
+				} else {
+					request.AddCookie(userCookie)
+					request.Header.Set("X-CSRF-Token", userCSRF)
+				}
+			case "public":
+			default:
+				t.Fatalf("unsupported route manifest security %q for %s %s", route.Security, route.Method, route.Path)
+			}
+
+			router.ServeHTTP(recorder, request)
+
+			if routeSurfaceLooksUnregistered(recorder.Code, recorder.Body.String()) {
+				t.Fatalf("manifest route %s %s sample %s was not registered: got %d with body %s", route.Method, route.Path, route.SamplePath, recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
+func routeSurfaceLooksUnregistered(status int, body string) bool {
+	if status == stdhttp.StatusMethodNotAllowed {
+		return true
+	}
+	if status != stdhttp.StatusNotFound {
+		return false
+	}
+	trimmed := strings.TrimSpace(body)
+	return trimmed == "404 page not found" || strings.Contains(trimmed, `"message":"route not found"`)
 }
 
 func routeSurfaceAdminSubRouteCases() []routeSurfaceCase {
