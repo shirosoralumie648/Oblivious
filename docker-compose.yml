@@ -103,7 +103,7 @@ services:
         done
 
   # ---------------------------------------------------------------------------
-  # Oblivious Application Server
+  # Oblivious Application Server (Monolith - default profile)
   # ---------------------------------------------------------------------------
   oblivious-server:
     build:
@@ -148,6 +148,289 @@ services:
       - LLM_TIMEOUT_MS=30000
       - MODEL_DEFAULT_NAME=${MODEL_DEFAULT_NAME:-demo-reply}
       - RELAY_ENABLED=${RELAY_ENABLED:-true}
+      - LOG_LEVEL=${LOG_LEVEL:-debug}
+
+  # ---------------------------------------------------------------------------
+  # Microservices Architecture (enable with: docker compose --profile microservices up)
+  # ---------------------------------------------------------------------------
+  gateway:
+    profiles: ["microservices"]
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.gateway
+      args:
+        GOPROXY: ${OBLIVIOUS_GOPROXY:-https://proxy.golang.org,direct}
+        GOSUMDB: ${OBLIVIOUS_GOSUMDB:-sum.golang.org}
+    image: ${OBLIVIOUS_GATEWAY_IMAGE:-oblivious-gateway:local}
+    container_name: oblivious-gateway
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "${OBLIVIOUS_GATEWAY_PORT:-8080}:8080"
+    environment:
+      - SERVER_PORT=8080
+      - APP_ENV=development
+      - OBLIVIOUS_DB_MODE=microservices
+      - DB_URL_RELAY=postgres://oblivious:oblivious@postgres:5432/oblivious_relay?sslmode=disable
+      - DB_URL_USER=postgres://oblivious:oblivious@postgres:5432/oblivious_user?sslmode=disable
+      - DB_URL_SESSION=postgres://oblivious:oblivious@postgres:5432/oblivious_session?sslmode=disable
+      - DB_URL_MODEL=postgres://oblivious:oblivious@postgres:5432/oblivious_model?sslmode=disable
+      - DB_URL_USAGE=postgres://oblivious:oblivious@postgres:5432/oblivious_usage?sslmode=disable
+      - DB_URL_CREDIT=postgres://oblivious:oblivious@postgres:5432/oblivious_credit?sslmode=disable
+      - DB_URL_IDEMPOTENCY=postgres://oblivious:oblivious@postgres:5432/oblivious_idempotency?sslmode=disable
+      - DB_URL_OBSERVABILITY=postgres://oblivious:oblivious@postgres:5432/oblivious_observability?sslmode=disable
+      - DB_URL_VECTOR=postgres://oblivious:oblivious@postgres:5432/oblivious_vector?sslmode=disable
+      - DB_URL_ATTACHMENT=postgres://oblivious:oblivious@postgres:5432/oblivious_attachment?sslmode=disable
+      - DB_URL_WORKFLOW=postgres://oblivious:oblivious@postgres:5432/oblivious_workflow?sslmode=disable
+      - DB_URL_AUDIT=postgres://oblivious:oblivious@postgres:5432/oblivious_audit?sslmode=disable
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - SESSION_SECRET=${SESSION_SECRET:-dev-session-secret-change-in-prod}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+      - LOG_LEVEL=${LOG_LEVEL:-debug}
+
+  relay:
+    profiles: ["microservices"]
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.relay
+      args:
+        GOPROXY: ${OBLIVIOUS_GOPROXY:-https://proxy.golang.org,direct}
+        GOSUMDB: ${OBLIVIOUS_GOSUMDB:-sum.golang.org}
+    image: ${OBLIVIOUS_RELAY_IMAGE:-oblivious-relay:local}
+    container_name: oblivious-relay
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgres://oblivious:oblivious@postgres:5432/oblivious_relay?sslmode=disable
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - GRPC_PORT=50051
+      - LOG_LEVEL=${LOG_LEVEL:-debug}
+
+  user:
+    profiles: ["microservices"]
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.user
+      args:
+        GOPROXY: ${OBLIVIOUS_GOPROXY:-https://proxy.golang.org,direct}
+        GOSUMDB: ${OBLIVIOUS_GOSUMDB:-sum.golang.org}
+    image: ${OBLIVIOUS_USER_IMAGE:-oblivious-user:local}
+    container_name: oblivious-user
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgres://oblivious:oblivious@postgres:5432/oblivious_user?sslmode=disable
+      - GRPC_PORT=50052
+      - LOG_LEVEL=${LOG_LEVEL:-debug}
+
+  session:
+    profiles: ["microservices"]
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.session
+      args:
+        GOPROXY: ${OBLIVIOUS_GOPROXY:-https://proxy.golang.org,direct}
+        GOSUMDB: ${OBLIVIOUS_GOSUMDB:-sum.golang.org}
+    image: ${OBLIVIOUS_SESSION_IMAGE:-oblivious-session:local}
+    container_name: oblivious-session
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgres://oblivious:oblivious@postgres:5432/oblivious_session?sslmode=disable
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - GRPC_PORT=50053
+      - LOG_LEVEL=${LOG_LEVEL:-debug}
+
+  model:
+    profiles: ["microservices"]
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.model
+      args:
+        GOPROXY: ${OBLIVIOUS_GOPROXY:-https://proxy.golang.org,direct}
+        GOSUMDB: ${OBLIVIOUS_GOSUMDB:-sum.golang.org}
+    image: ${OBLIVIOUS_MODEL_IMAGE:-oblivious-model:local}
+    container_name: oblivious-model
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgres://oblivious:oblivious@postgres:5432/oblivious_model?sslmode=disable
+      - GRPC_PORT=50054
+      - LOG_LEVEL=${LOG_LEVEL:-debug}
+
+  usage:
+    profiles: ["microservices"]
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.usage
+      args:
+        GOPROXY: ${OBLIVIOUS_GOPROXY:-https://proxy.golang.org,direct}
+        GOSUMDB: ${OBLIVIOUS_GOSUMDB:-sum.golang.org}
+    image: ${OBLIVIOUS_USAGE_IMAGE:-oblivious-usage:local}
+    container_name: oblivious-usage
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgres://oblivious:oblivious@postgres:5432/oblivious_usage?sslmode=disable
+      - GRPC_PORT=50055
+      - LOG_LEVEL=${LOG_LEVEL:-debug}
+
+  credit:
+    profiles: ["microservices"]
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.credit
+      args:
+        GOPROXY: ${OBLIVIOUS_GOPROXY:-https://proxy.golang.org,direct}
+        GOSUMDB: ${OBLIVIOUS_GOSUMDB:-sum.golang.org}
+    image: ${OBLIVIOUS_CREDIT_IMAGE:-oblivious-credit:local}
+    container_name: oblivious-credit
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgres://oblivious:oblivious@postgres:5432/oblivious_credit?sslmode=disable
+      - GRPC_PORT=50056
+      - LOG_LEVEL=${LOG_LEVEL:-debug}
+
+  idempotency:
+    profiles: ["microservices"]
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.idempotency
+      args:
+        GOPROXY: ${OBLIVIOUS_GOPROXY:-https://proxy.golang.org,direct}
+        GOSUMDB: ${OBLIVIOUS_GOSUMDB:-sum.golang.org}
+    image: ${OBLIVIOUS_IDEMPOTENCY_IMAGE:-oblivious-idempotency:local}
+    container_name: oblivious-idempotency
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgres://oblivious:oblivious@postgres:5432/oblivious_idempotency?sslmode=disable
+      - GRPC_PORT=50057
+      - LOG_LEVEL=${LOG_LEVEL:-debug}
+
+  observability:
+    profiles: ["microservices"]
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.observability
+      args:
+        GOPROXY: ${OBLIVIOUS_GOPROXY:-https://proxy.golang.org,direct}
+        GOSUMDB: ${OBLIVIOUS_GOSUMDB:-sum.golang.org}
+    image: ${OBLIVIOUS_OBSERVABILITY_IMAGE:-oblivious-observability:local}
+    container_name: oblivious-observability
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse-init:
+        condition: service_completed_successfully
+    environment:
+      - DATABASE_URL=postgres://oblivious:oblivious@postgres:5432/oblivious_observability?sslmode=disable
+      - CLICKHOUSE_DSN=${CLICKHOUSE_DSN:-tcp://clickhouse:9000?database=oblivious}
+      - GRPC_PORT=50058
+      - LOG_LEVEL=${LOG_LEVEL:-debug}
+
+  vector:
+    profiles: ["microservices"]
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.vector
+      args:
+        GOPROXY: ${OBLIVIOUS_GOPROXY:-https://proxy.golang.org,direct}
+        GOSUMDB: ${OBLIVIOUS_GOSUMDB:-sum.golang.org}
+    image: ${OBLIVIOUS_VECTOR_IMAGE:-oblivious-vector:local}
+    container_name: oblivious-vector
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgres://oblivious:oblivious@postgres:5432/oblivious_vector?sslmode=disable
+      - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
+      - QDRANT_API_KEY=${QDRANT_API_KEY:-}
+      - GRPC_PORT=50059
+      - LOG_LEVEL=${LOG_LEVEL:-debug}
+
+  attachment:
+    profiles: ["microservices"]
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.attachment
+      args:
+        GOPROXY: ${OBLIVIOUS_GOPROXY:-https://proxy.golang.org,direct}
+        GOSUMDB: ${OBLIVIOUS_GOSUMDB:-sum.golang.org}
+    image: ${OBLIVIOUS_ATTACHMENT_IMAGE:-oblivious-attachment:local}
+    container_name: oblivious-attachment
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgres://oblivious:oblivious@postgres:5432/oblivious_attachment?sslmode=disable
+      - GRPC_PORT=50060
+      - LOG_LEVEL=${LOG_LEVEL:-debug}
+
+  workflow:
+    profiles: ["microservices"]
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.workflow
+      args:
+        GOPROXY: ${OBLIVIOUS_GOPROXY:-https://proxy.golang.org,direct}
+        GOSUMDB: ${OBLIVIOUS_GOSUMDB:-sum.golang.org}
+    image: ${OBLIVIOUS_WORKFLOW_IMAGE:-oblivious-workflow:local}
+    container_name: oblivious-workflow
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgres://oblivious:oblivious@postgres:5432/oblivious_workflow?sslmode=disable
+      - GRPC_PORT=50061
+      - LOG_LEVEL=${LOG_LEVEL:-debug}
+
+  audit:
+    profiles: ["microservices"]
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.audit
+      args:
+        GOPROXY: ${OBLIVIOUS_GOPROXY:-https://proxy.golang.org,direct}
+        GOSUMDB: ${OBLIVIOUS_GOSUMDB:-sum.golang.org}
+    image: ${OBLIVIOUS_AUDIT_IMAGE:-oblivious-audit:local}
+    container_name: oblivious-audit
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgres://oblivious:oblivious@postgres:5432/oblivious_audit?sslmode=disable
+      - GRPC_PORT=50062
       - LOG_LEVEL=${LOG_LEVEL:-debug}
 
   # ---------------------------------------------------------------------------

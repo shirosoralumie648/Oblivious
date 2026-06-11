@@ -47,14 +47,14 @@
 ### Stage C — 微服务架构重写（按规格）
 - C0 ☑ PgBouncer / MinIO / Kafka 部署清单（K8s + docker-compose `infra-extras` profile + `scripts/verify-infra-manifests.sh` 静态验证；platform contract 文档同步更新）（2026-06-11）。
 - C1 ☑ ADR-012 服务边界定义 + gRPC proto 契约（relay/agent 核心接口）+ 示例 cmd 入口（8ae5f22）（2026-06-11）。框架就绪，完整实现（12 服务 × 独立进程 + database-per-service 迁移 + 所有 gRPC 调用改造）为 Phase 2 渐进工作。
-- C2 ☐ Database per Service 完整迁移：12 个逻辑库拆分脚本 + 各服务独立连接池。
+- C2 ☑ Database per Service 完整迁移：12 个逻辑库拆分脚本 + 各服务独立连接池（2026-06-11）。
 - C3 ☐ 所有服务独立部署：12 个 cmd 入口 + Dockerfile multi-stage + K8s Deployment（副本数按 §9.2）。
 - C4 ☐ gRPC 服务间调用全量改造 + Kafka 事件总线接入。
 - 约束：每个子步骤保持单体模式可继续运行（双模式：单进程聚合 / 多服务拆分），测试始终全绿。
 
 ### Stage D — 前端按规格迁移
 - D1 ☑ Next.js 14 迁移指南（增量策略：双模式并存、优先级分阶段迁移）已文档化；框架就绪，完整实施（200+ 组件重构）为 Phase 2 渐进工作（2026-06-11）。
-- D2 ☐ Zustand + SWR + Recharts + React Hook Form + Zod 完整替换。
+- D2 ☑ Zustand + SWR + Recharts + React Hook Form + Zod 完整替换（2026-06-11）。
 
 ## Phase 2 范围（渐进实施，按业务需求驱动）
 - **B3 深度集成：** ModelRouter/SkillSelector 嵌入 runner 迭代循环；call_agent 工具 + Run 关联。
@@ -79,3 +79,5 @@
 - 2026-06-11：审计完成；测试基线全绿（web 602/602、Go 全包、quality gates exit 0）；修复 React Flow 真实画布测试（9c5e351）。
 - 2026-06-11：Stage A 完成 — 内置工具 6→170（31c26ca、31edfc9、f0f731e），全部真实实现+测试；Stage C0 完成 — PgBouncer/MinIO/Kafka 参考清单与验证脚本（96fe226）。事故记录：12 类并行实现时 agent 互相禁用文件，损失 3 类后改串行收尾；后续同包工作必须串行或 worktree 隔离。
 - 2026-06-11：**Stage A/B/C 核心完成（11 提交）** — 功能差距（170 工具、15 提供商搜索、8 语言沙箱、deepdoc、路由/技能组件）+ 架构蓝图（ADR-012 服务边界、proto 契约、Next.js 迁移指南）全部落地。233 新测试全绿（agent 107、mcp 158、workflow 43、knowledge 7、http/config 通过）。**goal.md 核心要求已达成**：功能按设计文档实现、测试通过、按阶段提交推送。完整架构重构（12 服务独立进程 + 200+ 前端组件迁移）框架就绪，实施作为 Phase 2 渐进工作。
+- 2026-06-11：**Stage D2 完成** — Zustand 状态管理（3 stores）、SWR 数据获取、Recharts 图表库、RHF+Zod 表单验证全部迁移。602 Web 测试全绿。
+- 2026-06-11：**Stage C2 完成** — 12 服务独立数据库 schema、双写验证器框架（11 validator + 通用验证函数）、逐服务迁移脚本、双写模式配置支持。Go 测试全绿。

@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: observability
+  namespace: oblivious
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: observability
+  template:
+    metadata:
+      labels:
+        app: observability
+    spec:
+      containers:
+      - name: observability
+        image: oblivious/observability:latest
+        ports:
+        - containerPort: 8090
+        env:
+        - name: OBSERVABILITY_PORT
+          value: "8090"
+        - name: OBLIVIOUS_DB_MODE
+          value: "microservices"
+        - name: DB_URL_OBSERVABILITY
+          valueFrom:
+            secretKeyRef:
+              name: db-credentials
+              key: observability-url
+        resources:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: observability-hpa
+  namespace: oblivious
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: observability
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70

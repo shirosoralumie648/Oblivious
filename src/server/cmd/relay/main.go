@@ -1,25 +1,61 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"log"
+	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"oblivious/server/internal/config"
+	"oblivious/server/internal/relay"
 )
 
 func main() {
-	mode := os.Getenv("OBLIVIOUS_DEPLOYMENT_MODE")
-	if mode == "" {
-		mode = "monolith"
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+	if !cfg.RelayEnabled {
+		log.Fatal("Relay service requires RELAY_ENABLED=true")
 	}
 
-	switch mode {
-	case "monolith":
-		log.Println("Starting in monolith mode (all services in one process)")
-		// Current cmd/server/main.go behavior
-		log.Fatal("Monolith mode: use cmd/server/main.go directly")
-	case "microservices":
-		log.Println("Starting in microservices mode (relay service only)")
-		log.Fatal("Microservices mode: relay service entry point not yet implemented (Stage C3)")
-	default:
-		log.Fatalf("Unknown OBLIVIOUS_DEPLOYMENT_MODE: %s (valid: monolith, microservices)", mode)
+	gin.SetMode(gin.ReleaseMode)
+	pool := relay.NewChannelPool()
+	relayCfg := &relay.Config{
+		Pool:       pool,
+		Production: cfg.Env == "production",
 	}
+
+	r, err := relay.NewRelay(relayCfg)
+	if err != nil {
+		log.Fatalf("Failed to create relay: %v", err)
+	}
+
+	srv := &http.Server{
+		Addr:    fmt.Sprintf(":%d", cfg.Port),
+		Handler: r.Engine(),
+	}
+
+	go func() {
+		log.Printf("Relay service listening on port %d", cfg.Port)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server error: %v", err)
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Printf("Server shutdown error: %v", err)
+	}
+	log.Println("Relay service stopped")
 }

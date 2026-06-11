@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: relay
+  namespace: oblivious
+spec:
+  replicas: 5
+  selector:
+    matchLabels:
+      app: relay
+  template:
+    metadata:
+      labels:
+        app: relay
+    spec:
+      containers:
+      - name: relay
+        image: oblivious/relay:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: PORT
+          value: "8080"
+        - name: ENV
+          value: "production"
+        - name: RELAY_ENABLED
+          value: "true"
+        - name: RELAY_DEFAULT_MODEL
+          valueFrom:
+            configMapKeyRef:
+              name: oblivious-config
+              key: relay_default_model
+              optional: true
+        - name: RELAY_RATE_LIMIT_BACKEND
+          valueFrom:
+            configMapKeyRef:
+              name: oblivious-config
+              key: relay_rate_limit_backend
+              optional: true
+        - name: RELAY_SEMANTIC_CACHE_BACKEND
+          valueFrom:
+            configMapKeyRef:
+              name: oblivious-config
+              key: relay_semantic_cache_backend
+              optional: true
+        resources:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: relay-hpa
+  namespace: oblivious
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: relay
+  minReplicas: 5
+  maxReplicas: 20
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: relay
+  namespace: oblivious
+spec:
+  selector:
+    app: relay
+  ports:
+  - protocol: TCP
+    port: 8080
+    targetPort: 8080
+  type: ClusterIP
