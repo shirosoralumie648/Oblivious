@@ -268,7 +268,7 @@ func TestRegisterAgentRunRoutesDispatchesApprovePlanStep(t *testing.T) {
 		AgentID:        "agent_1",
 		UserID:         "user_1",
 		Mode:           agent.ExecutionModePlanning,
-		Status:         agent.RunStatusCompleted,
+		Status:         agent.RunStatusPendingApproval,
 	}}
 	store.planSteps = []*agent.PlanStep{{
 		ID:             "step_1",
@@ -305,7 +305,7 @@ func TestRegisterAgentRunRoutesDispatchesUpdatePlanStep(t *testing.T) {
 		AgentID:        "agent_1",
 		UserID:         "user_1",
 		Mode:           agent.ExecutionModePlanning,
-		Status:         agent.RunStatusRunning,
+		Status:         agent.RunStatusPendingApproval,
 	}}
 	store.planSteps = []*agent.PlanStep{{
 		ID:             "step_1",
@@ -933,7 +933,7 @@ func TestRegisterAgentRunRoutesDispatchesExecutePlanStep(t *testing.T) {
 		AgentID:        "agent_1",
 		UserID:         "user_1",
 		Mode:           agent.ExecutionModePlanning,
-		Status:         agent.RunStatusCompleted,
+		Status:         agent.RunStatusPendingApproval,
 	}}
 	store.planSteps = []*agent.PlanStep{{
 		ID:             "step_1",

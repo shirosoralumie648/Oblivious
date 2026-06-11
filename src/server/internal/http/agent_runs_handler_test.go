@@ -169,6 +169,59 @@ func TestAgentRunsHandlerCreateRunStartsPlanningRun(t *testing.T) {
 	}
 }
 
+func TestAgentRunsHandlerPlanningRunAppliesToolApprovalToStructuredSteps(t *testing.T) {
+	store := newFakeAgentRunsStore()
+	store.agent = &agent.Agent{
+		ID:             "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		Name:           "Planning Agent",
+		Model:          "test-model",
+	}
+	store.conversation = &agent.Conversation{
+		ID:             "conv_1",
+		AgentID:        "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+	}
+	structuredReply := `[{"title":"Read config","toolName":"read_file","input":{"path":"config.yaml"}},{"title":"Update config","toolName":"write_file","input":{"path":"config.yaml"}},{"title":"Summarize results"}]`
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{reply: structuredReply}))
+
+	recorder := httptest.NewRecorder()
+	request := newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs", `{
+		"agent_id":"agent_1",
+		"conversation_id":"conv_1",
+		"input":"refactor config",
+		"mode":"planning"
+	}`)
+	handler.createRun(recorder, request)
+
+	if recorder.Code != stdhttp.StatusCreated {
+		t.Fatalf("expected 201, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Data agentRunResponse `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(response.Data.PlanSteps) != 3 {
+		t.Fatalf("expected 3 plan steps, got %+v", response.Data.PlanSteps)
+	}
+	// Safe tool (read_file) → not required
+	if response.Data.PlanSteps[0].ApprovalStatus != agent.ApprovalStatusNotRequired {
+		t.Fatalf("safe tool step should not require approval: %+v", response.Data.PlanSteps[0])
+	}
+	// Medium tool (write_file) → pending
+	if response.Data.PlanSteps[1].ApprovalStatus != agent.ApprovalStatusPending {
+		t.Fatalf("medium tool step should require approval: %+v", response.Data.PlanSteps[1])
+	}
+	// No tool → not required
+	if response.Data.PlanSteps[2].ApprovalStatus != agent.ApprovalStatusNotRequired {
+		t.Fatalf("no-tool step should not require approval: %+v", response.Data.PlanSteps[2])
+	}
+}
+
 func TestAgentRunsHandlerCreateRunUsesAgentDefaultExecutionModePlanning(t *testing.T) {
 	store := newFakeAgentRunsStore()
 	store.agent = &agent.Agent{
