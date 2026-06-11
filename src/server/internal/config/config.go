@@ -115,6 +115,22 @@ type Config struct {
 	// does not execute infrastructure mutations.
 	ObservabilityHTTPRecoveryEnabled    bool
 	ObservabilityHTTPRecoveryCooldownMS int
+
+	// Database mode: "monolith" (default) | "dual_write" | "microservices"
+	DBMode string
+
+	// Microservices database URLs (only used in dual_write/microservices mode)
+	DBURLRelay         string
+	DBURLChat          string
+	DBURLWorkflow      string
+	DBURLRAG           string
+	DBURLAgent         string
+	DBURLBilling       string
+	DBURLMarketplace   string
+	DBURLAdmin         string
+	DBURLChannel       string
+	DBURLTask          string
+	DBURLObservability string
 }
 
 func Load() (Config, error) {
@@ -456,6 +472,28 @@ func Load() (Config, error) {
 		observabilityHTTPRecoveryCooldownMS = parsedCooldown
 	}
 
+	dbMode := strings.ToLower(strings.TrimSpace(os.Getenv("OBLIVIOUS_DB_MODE")))
+	if dbMode == "" {
+		dbMode = "monolith"
+	}
+	switch dbMode {
+	case "monolith", "dual_write", "microservices":
+	default:
+		return Config{}, fmt.Errorf("invalid OBLIVIOUS_DB_MODE: %q (must be monolith, dual_write, or microservices)", dbMode)
+	}
+
+	dbURLRelay := strings.TrimSpace(os.Getenv("DB_URL_RELAY"))
+	dbURLChat := strings.TrimSpace(os.Getenv("DB_URL_CHAT"))
+	dbURLWorkflow := strings.TrimSpace(os.Getenv("DB_URL_WORKFLOW"))
+	dbURLRAG := strings.TrimSpace(os.Getenv("DB_URL_RAG"))
+	dbURLAgent := strings.TrimSpace(os.Getenv("DB_URL_AGENT"))
+	dbURLBilling := strings.TrimSpace(os.Getenv("DB_URL_BILLING"))
+	dbURLMarketplace := strings.TrimSpace(os.Getenv("DB_URL_MARKETPLACE"))
+	dbURLAdmin := strings.TrimSpace(os.Getenv("DB_URL_ADMIN"))
+	dbURLChannel := strings.TrimSpace(os.Getenv("DB_URL_CHANNEL"))
+	dbURLTask := strings.TrimSpace(os.Getenv("DB_URL_TASK"))
+	dbURLObservability := strings.TrimSpace(os.Getenv("DB_URL_OBSERVABILITY"))
+
 	return Config{
 		Port:                         port,
 		Env:                          env,
@@ -534,6 +572,19 @@ func Load() (Config, error) {
 
 		ObservabilityHTTPRecoveryEnabled:    observabilityHTTPRecoveryEnabled,
 		ObservabilityHTTPRecoveryCooldownMS: observabilityHTTPRecoveryCooldownMS,
+
+		DBMode:               dbMode,
+		DBURLRelay:           dbURLRelay,
+		DBURLChat:            dbURLChat,
+		DBURLWorkflow:        dbURLWorkflow,
+		DBURLRAG:             dbURLRAG,
+		DBURLAgent:           dbURLAgent,
+		DBURLBilling:         dbURLBilling,
+		DBURLMarketplace:     dbURLMarketplace,
+		DBURLAdmin:           dbURLAdmin,
+		DBURLChannel:         dbURLChannel,
+		DBURLTask:            dbURLTask,
+		DBURLObservability:   dbURLObservability,
 	}, nil
 }
 

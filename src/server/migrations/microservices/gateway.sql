@@ -1,0 +1,5 @@
+-- Gateway Service Schema
+--
+-- The gateway service does not use PostgreSQL for persistence.
+-- All session data, rate limiting, and routing state is stored in Redis.
+-- This file is intentionally empty to maintain migration consistency across services.

@@ -1,0 +1,120 @@
+{
+  "gateway": [
+    "auth_rate_limits",
+    "rate_limit_counters",
+    "token_rate_limits",
+    "circuit_breaker_state",
+    "concurrency_limits"
+  ],
+  "relay": [
+    "channels",
+    "channel_configs",
+    "model_routes",
+    "model_channel_weights",
+    "relay_api_tokens",
+    "relay_semantic_cache",
+    "relay_metrics",
+    "relay_pricing_settings",
+    "relay_file_mappings",
+    "relay_conversation_affinity",
+    "relay_channel_affinity"
+  ],
+  "chat": [
+    "conversations",
+    "messages",
+    "personas",
+    "conversation_configs",
+    "conversation_knowledge_bindings",
+    "conversation_shares",
+    "message_shares"
+  ],
+  "workflow": [
+    "workflows",
+    "workflow_versions",
+    "workflow_executions",
+    "workflow_node_executions"
+  ],
+  "rag": [
+    "knowledge_bases",
+    "knowledge_documents",
+    "knowledge_document_chunks",
+    "knowledge_document_versions",
+    "knowledge_retrieval_test_cases",
+    "documents",
+    "document_chunks",
+    "memory_documents",
+    "memory_chunks"
+  ],
+  "agent": [
+    "agents",
+    "agent_versions",
+    "agent_runs",
+    "agent_conversations",
+    "agent_messages",
+    "agent_memories",
+    "agent_plan_steps",
+    "agent_tool_runs",
+    "agent_installs",
+    "agent_reviews",
+    "agent_tags"
+  ],
+  "billing": [
+    "subscriptions",
+    "billing_invoices",
+    "billing_refunds",
+    "billing_sessions",
+    "billing_lifecycle_events",
+    "payment_intents",
+    "stripe_webhook_events",
+    "topup_orders",
+    "quotas",
+    "usage_records",
+    "usage_daily_aggregates",
+    "packages"
+  ],
+  "marketplace": [
+    "published_agents",
+    "marketplace_orders",
+    "marketplace_settlements",
+    "marketplace_payouts",
+    "marketplace_governance_events",
+    "marketplace_abuse_reports",
+    "marketplace_templates",
+    "marketplace_agent_ranking_signals",
+    "categories"
+  ],
+  "admin": [
+    "organizations",
+    "organization_memberships",
+    "organization_invitations",
+    "users",
+    "sessions",
+    "password_reset_tokens",
+    "workspaces",
+    "user_preferences",
+    "audit_logs",
+    "notifications"
+  ],
+  "channel": [
+    "channel_messages",
+    "mcp_servers"
+  ],
+  "task": [
+    "tasks",
+    "task_steps",
+    "task_executions",
+    "task_knowledge_bindings",
+    "scheduled_tasks",
+    "scheduled_task_runs"
+  ],
+  "observability": [
+    "alert_rules",
+    "observability_alert_states",
+    "observability_alert_occurrences",
+    "observability_alert_delivery_attempts",
+    "observability_alert_provider_configs",
+    "observability_alert_routing_rules",
+    "observability_notification_states",
+    "observability_recovery_actions"
+  ]
+}
