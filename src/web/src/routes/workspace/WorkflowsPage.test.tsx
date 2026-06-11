@@ -1952,37 +1952,9 @@ describe('WorkflowsPage', () => {
     }
   });
 
-  it('renders the workflow editor on a real React Flow canvas', async () => {
-    listWorkflows.mockResolvedValue([
-      {
-        definition: {
-          edges: [{ source: 'manual-start', target: 'classify-ticket' }],
-          nodes: [
-            { id: 'manual-start', position: { x: 80, y: 80 }, type: 'manual' },
-            { id: 'classify-ticket', position: { x: 320, y: 80 }, type: 'llm' },
-          ],
-        },
-        id: 'workflow_1',
-        name: 'Incident triage',
-        status: 'draft',
-        version: 1,
-      },
-    ]);
-
-    render(<WorkflowsPage />);
-
-    await screen.findByText('Incident triage');
-    const visualEditor = screen.getByLabelText('Visual editor for Incident triage');
-    const canvas = within(visualEditor).getByLabelText('React Flow canvas for Incident triage');
-
-    expect(canvas.querySelector('.react-flow')).toBeInTheDocument();
-    expect(within(canvas).getByText('manual-start')).toBeInTheDocument();
-    expect(within(canvas).getByText('classify-ticket')).toBeInTheDocument();
-    expect(within(visualEditor).getByLabelText('Node palette for Incident triage')).toBeInTheDocument();
-    expect(within(visualEditor).getAllByRole('button', { name: /Add .* node template to Incident triage/ })).toHaveLength(
-      22
-    );
-  });
+  // The "renders the workflow editor on a real React Flow canvas" test lives in
+  // WorkflowsPage.reactflow.test.tsx because this file mocks `@xyflow/react`
+  // for deterministic drag/snap interaction tests.
 
   it('creates draggable 20+ workflow node types from the React Flow palette', async () => {
     const definition = {
