@@ -1392,6 +1392,9 @@ func (s *Service) ApprovePlanStep(ctx context.Context, session auth.Session, pla
 	if err != nil {
 		return nil, err
 	}
+	if _, err := s.requirePlanStepParentStatus(ctx, session, step, "approve", RunStatusPendingApproval); err != nil {
+		return nil, err
+	}
 	if step.Status != PlanStepStatusPending {
 		return nil, fmt.Errorf("plan step is not pending")
 	}
@@ -1428,7 +1431,11 @@ func (s *Service) CreatePlanStepDraft(ctx context.Context, session auth.Session,
 	if runID == "" {
 		return nil, fmt.Errorf("run id is required")
 	}
-	if _, err := s.getPlanningRunForSession(ctx, session, runID); err != nil {
+	run, err := s.getPlanningRunForSession(ctx, session, runID)
+	if err != nil {
+		return nil, err
+	}
+	if err := requirePlanningRunStatus(run, "create", RunStatusPendingApproval); err != nil {
 		return nil, err
 	}
 
@@ -1513,6 +1520,9 @@ func (s *Service) UpdatePlanStepDraft(ctx context.Context, session auth.Session,
 	if err != nil {
 		return nil, err
 	}
+	if _, err := s.requirePlanStepParentStatus(ctx, session, step, "update", RunStatusPendingApproval); err != nil {
+		return nil, err
+	}
 	if step.Status != PlanStepStatusPending && step.Status != PlanStepStatusApproved {
 		return nil, fmt.Errorf("plan step cannot be adjusted after execution starts")
 	}
@@ -1547,6 +1557,9 @@ func (s *Service) UpdatePlanStepDraft(ctx context.Context, session auth.Session,
 func (s *Service) MovePlanStep(ctx context.Context, session auth.Session, planStepID, direction string) ([]*PlanStep, error) {
 	step, err := s.getPlanStepForSession(ctx, session, planStepID)
 	if err != nil {
+		return nil, err
+	}
+	if _, err := s.requirePlanStepParentStatus(ctx, session, step, "move", RunStatusPendingApproval); err != nil {
 		return nil, err
 	}
 	if !isPlanStepDraftAdjustable(step) {
@@ -1616,6 +1629,9 @@ func (s *Service) DeletePlanStepDraft(ctx context.Context, session auth.Session,
 	if err != nil {
 		return nil, err
 	}
+	if _, err := s.requirePlanStepParentStatus(ctx, session, step, "delete", RunStatusPendingApproval); err != nil {
+		return nil, err
+	}
 	if !isPlanStepDraftAdjustable(step) {
 		return nil, fmt.Errorf("plan step cannot be deleted after execution starts")
 	}
@@ -1651,6 +1667,9 @@ func (s *Service) DeletePlanStepDraft(ctx context.Context, session auth.Session,
 func (s *Service) ExecutePlanStep(ctx context.Context, session auth.Session, planStepID string) (*PlanStep, error) {
 	step, err := s.getPlanStepForSession(ctx, session, planStepID)
 	if err != nil {
+		return nil, err
+	}
+	if _, err := s.requirePlanStepParentStatus(ctx, session, step, "execute", RunStatusPendingApproval); err != nil {
 		return nil, err
 	}
 	if step.Status != PlanStepStatusApproved && !(step.Status == PlanStepStatusPending && step.ApprovalStatus == ApprovalStatusNotRequired) {
@@ -1780,6 +1799,9 @@ func (s *Service) SkipPlanStep(ctx context.Context, session auth.Session, planSt
 	if err != nil {
 		return nil, err
 	}
+	if _, err := s.requirePlanStepParentStatus(ctx, session, step, "skip", RunStatusPendingApproval); err != nil {
+		return nil, err
+	}
 	if !canSkipPlanStep(step) {
 		return nil, fmt.Errorf("plan step cannot be skipped after execution starts")
 	}
@@ -1806,6 +1828,9 @@ func (s *Service) SkipPlanStep(ctx context.Context, session auth.Session, planSt
 func (s *Service) RetryPlanStep(ctx context.Context, session auth.Session, planStepID string) (*PlanStep, error) {
 	step, err := s.getPlanStepForSession(ctx, session, planStepID)
 	if err != nil {
+		return nil, err
+	}
+	if _, err := s.requirePlanStepParentStatus(ctx, session, step, "retry", RunStatusPendingApproval, RunStatusFailed, RunStatusTokenBudgetExceeded); err != nil {
 		return nil, err
 	}
 	if step.Status != PlanStepStatusFailed {
@@ -2217,6 +2242,35 @@ func (s *Service) requireToolRunParentStatus(ctx context.Context, session auth.S
 		}
 	}
 	return nil, fmt.Errorf("agent run cannot %s tool run from status %s", action, run.Status)
+}
+
+func (s *Service) requirePlanStepParentStatus(ctx context.Context, session auth.Session, step *PlanStep, action string, allowedStatuses ...string) (*Run, error) {
+	if step == nil {
+		return nil, fmt.Errorf("plan step not found")
+	}
+	run, err := s.getRunForSession(ctx, session, step.RunID)
+	if err != nil {
+		return nil, err
+	}
+	if NormalizeExecutionMode(run.Mode) != ExecutionModePlanning {
+		return nil, fmt.Errorf("agent run is not in planning mode")
+	}
+	if err := requirePlanningRunStatus(run, action, allowedStatuses...); err != nil {
+		return nil, err
+	}
+	return run, nil
+}
+
+func requirePlanningRunStatus(run *Run, action string, allowedStatuses ...string) error {
+	if run == nil {
+		return fmt.Errorf("run not found")
+	}
+	for _, status := range allowedStatuses {
+		if run.Status == status {
+			return nil
+		}
+	}
+	return fmt.Errorf("planning run cannot %s plan step from status %s", action, run.Status)
 }
 
 func (s *Service) ContinueRunWithTokenBudget(ctx context.Context, session auth.Session, runID string, tokenBudget int) (*RunResult, error) {

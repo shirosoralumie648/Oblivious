@@ -505,7 +505,7 @@ func TestServiceUpdatePlanStepDraftResetsApprovedStepForReview(t *testing.T) {
 			AgentID:        "agent_1",
 			UserID:         "user_1",
 			Mode:           ExecutionModePlanning,
-			Status:         RunStatusRunning,
+			Status:         RunStatusPendingApproval,
 		}},
 		planSteps: []*PlanStep{{
 			ID:             "step_1",
@@ -551,7 +551,7 @@ func TestServiceUpdatePlanStepDraftRejectsRunningStep(t *testing.T) {
 			AgentID:        "agent_1",
 			UserID:         "user_1",
 			Mode:           ExecutionModePlanning,
-			Status:         RunStatusRunning,
+			Status:         RunStatusPendingApproval,
 		}},
 		planSteps: []*PlanStep{{
 			ID:             "step_1",
@@ -1023,7 +1023,7 @@ func TestServiceApproveAndExecutePlanStepCompletesWithExecutorResult(t *testing.
 			AgentID:        "agent_1",
 			UserID:         "user_1",
 			Mode:           ExecutionModePlanning,
-			Status:         RunStatusCompleted,
+			Status:         RunStatusPendingApproval,
 			StartedAt:      now,
 			CreatedAt:      now,
 			UpdatedAt:      now,
@@ -1089,7 +1089,7 @@ func TestServiceExecutePlanStepMarksFailedWhenExecutorErrors(t *testing.T) {
 			AgentID:        "agent_1",
 			UserID:         "user_1",
 			Mode:           ExecutionModePlanning,
-			Status:         RunStatusCompleted,
+			Status:         RunStatusPendingApproval,
 			StartedAt:      now,
 			CreatedAt:      now,
 			UpdatedAt:      now,
@@ -1375,7 +1375,7 @@ func TestExecutePlanStepRunsBuiltinTool(t *testing.T) {
 			AgentID:        "agent_1",
 			UserID:         "user_1",
 			Mode:           ExecutionModePlanning,
-			Status:         RunStatusCompleted,
+			Status:         RunStatusPendingApproval,
 			StartedAt:      now,
 			CreatedAt:      now,
 			UpdatedAt:      now,
@@ -3409,6 +3409,191 @@ func TestServicePlanStepActionsRejectReactRunWithoutMutation(t *testing.T) {
 				t.Fatalf("plan-step rejection mutated stale React plan steps: before=%+v after=%+v", originalSteps, store.planSteps)
 			}
 		})
+	}
+}
+
+func TestServicePlanStepActionsRejectNonRecoverableParentRunStatesWithoutMutation(t *testing.T) {
+	terminalOrBusyStatuses := []string{
+		RunStatusRunning,
+		RunStatusCompleted,
+		RunStatusFailed,
+		RunStatusMaxIterationsReached,
+		RunStatusTokenBudgetExceeded,
+	}
+	tests := []struct {
+		name      string
+		action    string
+		statuses  []string
+		configure func(*fakeStore, time.Time)
+		act       func(*Service, auth.Session) error
+	}{
+		{
+			name:     "approve",
+			action:   "approve",
+			statuses: terminalOrBusyStatuses,
+			configure: func(store *fakeStore, now time.Time) {
+				store.planSteps[0].Status = PlanStepStatusPending
+				store.planSteps[0].ApprovalStatus = ApprovalStatusPending
+			},
+			act: func(service *Service, session auth.Session) error {
+				_, err := service.ApprovePlanStep(context.Background(), session, "step_1", "late approval")
+				return err
+			},
+		},
+		{
+			name:     "create",
+			action:   "create",
+			statuses: terminalOrBusyStatuses,
+			act: func(service *Service, session auth.Session) error {
+				_, err := service.CreatePlanStepDraft(context.Background(), session, "run_1", CreatePlanStepDraftRequest{
+					Title: "Unexpected new step",
+				})
+				return err
+			},
+		},
+		{
+			name:     "update",
+			action:   "update",
+			statuses: terminalOrBusyStatuses,
+			act: func(service *Service, session auth.Session) error {
+				_, err := service.UpdatePlanStepDraft(context.Background(), session, "step_1", UpdatePlanStepDraftRequest{
+					Title: stringPointer("Unexpected edited step"),
+				})
+				return err
+			},
+		},
+		{
+			name:     "move",
+			action:   "move",
+			statuses: terminalOrBusyStatuses,
+			act: func(service *Service, session auth.Session) error {
+				_, err := service.MovePlanStep(context.Background(), session, "step_2", MovePlanStepDirectionUp)
+				return err
+			},
+		},
+		{
+			name:     "delete",
+			action:   "delete",
+			statuses: terminalOrBusyStatuses,
+			act: func(service *Service, session auth.Session) error {
+				_, err := service.DeletePlanStepDraft(context.Background(), session, "step_1")
+				return err
+			},
+		},
+		{
+			name:     "execute",
+			action:   "execute",
+			statuses: terminalOrBusyStatuses,
+			configure: func(store *fakeStore, now time.Time) {
+				store.planSteps[0].Status = PlanStepStatusApproved
+				store.planSteps[0].ApprovalStatus = ApprovalStatusApproved
+			},
+			act: func(service *Service, session auth.Session) error {
+				_, err := service.ExecutePlanStep(context.Background(), session, "step_1")
+				return err
+			},
+		},
+		{
+			name:     "skip",
+			action:   "skip",
+			statuses: terminalOrBusyStatuses,
+			act: func(service *Service, session auth.Session) error {
+				_, err := service.SkipPlanStep(context.Background(), session, "step_1", "late skip")
+				return err
+			},
+		},
+		{
+			name:     "retry",
+			action:   "retry",
+			statuses: []string{RunStatusRunning, RunStatusCompleted, RunStatusMaxIterationsReached},
+			configure: func(store *fakeStore, now time.Time) {
+				completedAt := now.Add(time.Minute)
+				store.planSteps[0].Status = PlanStepStatusFailed
+				store.planSteps[0].ApprovalStatus = ApprovalStatusApproved
+				store.planSteps[0].Error = "failed evidence must stay"
+				store.planSteps[0].ResultContent = "partial evidence"
+				store.planSteps[0].CompletedAt = &completedAt
+			},
+			act: func(service *Service, session auth.Session) error {
+				_, err := service.RetryPlanStep(context.Background(), session, "step_1")
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		for _, runStatus := range tt.statuses {
+			t.Run(tt.name+"_"+runStatus, func(t *testing.T) {
+				now := time.Now().UTC()
+				completedAt := now.Add(time.Minute)
+				store := &fakeStore{
+					runs: []*Run{{
+						ID:             "run_1",
+						OrganizationID: "org_1",
+						ConversationID: "conv_1",
+						AgentID:        "agent_1",
+						UserID:         "user_1",
+						Mode:           ExecutionModePlanning,
+						Status:         runStatus,
+						Error:          "parent run evidence must stay",
+						CompletedAt:    &completedAt,
+						CreatedAt:      now,
+						UpdatedAt:      now,
+					}},
+					planSteps: []*PlanStep{{
+						ID:             "step_1",
+						RunID:          "run_1",
+						OrganizationID: "org_1",
+						Index:          1,
+						Title:          "Guarded step",
+						Status:         PlanStepStatusPending,
+						ApprovalStatus: ApprovalStatusNotRequired,
+						ToolName:       "calculator",
+						Input:          map[string]any{"expression": "2 + 3"},
+						CreatedAt:      now,
+						UpdatedAt:      now,
+					}, {
+						ID:             "step_2",
+						RunID:          "run_1",
+						OrganizationID: "org_1",
+						Index:          2,
+						Title:          "Second guarded step",
+						Status:         PlanStepStatusApproved,
+						ApprovalStatus: ApprovalStatusApproved,
+						CreatedAt:      now,
+						UpdatedAt:      now,
+					}},
+				}
+				if tt.configure != nil {
+					tt.configure(store, now)
+				}
+				originalSteps := clonePlanStepSnapshots(store.planSteps)
+				executor := &fakePlanStepExecutor{resultContent: "unexpected execution"}
+				service := NewService(store, &fakeGateway{})
+				service.SetPlanStepExecutor(executor)
+				session := auth.Session{OrganizationID: "org_1", WorkspaceID: "workspace_1", User: auth.User{ID: "user_1"}}
+
+				err := tt.act(service, session)
+				if err == nil || !strings.Contains(err.Error(), "planning run cannot "+tt.action+" plan step from status "+runStatus) {
+					t.Fatalf("expected parent status rejection for %s from %s, got %v", tt.action, runStatus, err)
+				}
+				if executor.calls != 0 {
+					t.Fatalf("parent status rejection should not execute plan steps, got %d calls", executor.calls)
+				}
+				if len(store.toolRuns) != 0 {
+					t.Fatalf("parent status rejection should not create tool runs, got %+v", store.toolRuns)
+				}
+				if len(store.updateRunRequests) != 0 {
+					t.Fatalf("parent status rejection should not update run, got %+v", store.updateRunRequests)
+				}
+				if store.runs[0].Status != runStatus || store.runs[0].Error != "parent run evidence must stay" || store.runs[0].CompletedAt != &completedAt {
+					t.Fatalf("parent status rejection mutated run evidence: %+v", store.runs[0])
+				}
+				if !reflect.DeepEqual(originalSteps, clonePlanStepSnapshots(store.planSteps)) {
+					t.Fatalf("parent status rejection mutated plan steps: before=%+v after=%+v", originalSteps, store.planSteps)
+				}
+			})
+		}
 	}
 }
 

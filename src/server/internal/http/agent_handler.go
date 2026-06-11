@@ -461,6 +461,10 @@ func writeAgentWorkflowError(w stdhttp.ResponseWriter, err error) {
 		writeError(w, stdhttp.StatusConflict, "invalid_state", message)
 		return
 	}
+	if strings.HasPrefix(message, "planning run cannot ") && strings.Contains(message, " plan step from status ") {
+		writeError(w, stdhttp.StatusConflict, "invalid_state", message)
+		return
+	}
 	if strings.HasPrefix(message, "agent run cannot ") && strings.Contains(message, " tool run from status ") {
 		writeError(w, stdhttp.StatusConflict, "invalid_state", message)
 		return
