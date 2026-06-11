@@ -68,6 +68,23 @@ var defaultCommercialBuiltinEnabled = map[string]bool{
 	"http_request":   false,
 }
 
+// registerBuiltins merges category tool maps into BuiltinTools and the
+// default commercial policy table. Category files (builtin_<category>.go)
+// call it from init() so parallel implementations never edit shared maps.
+// Tools that reach the network or other external systems must register with
+// defaultCommercialEnabled=false, matching the existing commercial policy.
+func registerBuiltins(tools map[string]BuiltinTool, defaultCommercialEnabled map[string]bool) {
+	for name, tool := range tools {
+		if _, exists := BuiltinTools[name]; exists {
+			panic("mcp: duplicate builtin tool " + name)
+		}
+		BuiltinTools[name] = tool
+	}
+	for name, enabled := range defaultCommercialEnabled {
+		defaultCommercialBuiltinEnabled[name] = enabled
+	}
+}
+
 // IsDefaultCommercialBuiltin reports whether a builtin is safe and real enough
 // to expose by default in commercial Agent tool definitions.
 func IsDefaultCommercialBuiltin(name string) bool {
