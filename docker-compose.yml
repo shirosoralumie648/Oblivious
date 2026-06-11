@@ -165,8 +165,86 @@ services:
     ports:
       - "${OBLIVIOUS_WEB_HOST_PORT:-4173}:80"
 
+  # ---------------------------------------------------------------------------
+  # Optional infra extras (enable with: docker compose --profile infra-extras up)
+  # Reference shapes for fusion spec part3 §9.1/§9.3; production-grade HA stays
+  # a platform responsibility (docs/release/recovery-platform-contract.md).
+  # ---------------------------------------------------------------------------
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.23.1-p2
+    container_name: oblivious-pgbouncer
+    restart: unless-stopped
+    profiles: ["infra-extras"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${POSTGRES_DB:-oblivious}
+      DB_USER: ${POSTGRES_USER:-oblivious}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-oblivious}
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: "500"
+      DEFAULT_POOL_SIZE: "20"
+      AUTH_TYPE: scram-sha-256
+    ports:
+      - "${PGBOUNCER_PORT:-6432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 5432 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+    container_name: oblivious-minio
+    restart: unless-stopped
+    profiles: ["infra-extras"]
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-oblivious}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-oblivious-minio}
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local || curl -sf http://localhost:9000/minio/health/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kafka:
+    image: bitnami/kafka:3.7.1
+    container_name: oblivious-kafka
+    restart: unless-stopped
+    profiles: ["infra-extras"]
+    environment:
+      KAFKA_KRAFT_CLUSTER_ID: oblivious-kafka-cluster-0001
+      KAFKA_CFG_NODE_ID: "0"
+      KAFKA_CFG_PROCESS_ROLES: controller,broker
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 0@kafka:9093
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+    ports:
+      - "${KAFKA_PORT:-9092}:9092"
+    volumes:
+      - kafka_data:/bitnami/kafka
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
 volumes:
   postgres_data:
   redis_data:
   qdrant_data:
   clickhouse_data:
+  minio_data:
+  kafka_data:

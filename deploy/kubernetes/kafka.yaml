@@ -1,0 +1,136 @@
+# Kafka cluster in KRaft combined mode (fusion spec part3 §9.1: 3 brokers,
+# replication=3).
+# Reference manifest: production leader-election/failover validation remains a
+# platform responsibility per docs/release/recovery-platform-contract.md.
+apiVersion: v1
+kind: Service
+metadata:
+  name: oblivious-kafka-headless
+  namespace: oblivious
+  labels:
+    app.kubernetes.io/name: oblivious
+    app.kubernetes.io/component: kafka
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: oblivious
+    app.kubernetes.io/component: kafka
+  ports:
+    - name: client
+      port: 9092
+      targetPort: client
+    - name: controller
+      port: 9093
+      targetPort: controller
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oblivious-kafka
+  namespace: oblivious
+  labels:
+    app.kubernetes.io/name: oblivious
+    app.kubernetes.io/component: kafka
+spec:
+  selector:
+    app.kubernetes.io/name: oblivious
+    app.kubernetes.io/component: kafka
+  ports:
+    - name: client
+      port: 9092
+      targetPort: client
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka
+  namespace: oblivious
+  labels:
+    app.kubernetes.io/name: oblivious
+    app.kubernetes.io/component: kafka
+spec:
+  serviceName: oblivious-kafka-headless
+  replicas: 3
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: oblivious
+      app.kubernetes.io/component: kafka
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: oblivious
+        app.kubernetes.io/component: kafka
+    spec:
+      containers:
+        - name: kafka
+          image: bitnami/kafka:3.7.1
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              export KAFKA_CFG_NODE_ID="${HOSTNAME##*-}"
+              export KAFKA_CFG_ADVERTISED_LISTENERS="PLAINTEXT://${HOSTNAME}.oblivious-kafka-headless.oblivious.svc.cluster.local:9092"
+              exec /opt/bitnami/scripts/kafka/entrypoint.sh /opt/bitnami/scripts/kafka/run.sh
+          ports:
+            - containerPort: 9092
+              name: client
+            - containerPort: 9093
+              name: controller
+          env:
+            - name: KAFKA_KRAFT_CLUSTER_ID
+              value: oblivious-kafka-cluster-0001
+            - name: KAFKA_CFG_PROCESS_ROLES
+              value: controller,broker
+            - name: KAFKA_CFG_CONTROLLER_QUORUM_VOTERS
+              value: 0@kafka-0.oblivious-kafka-headless.oblivious.svc.cluster.local:9093,1@kafka-1.oblivious-kafka-headless.oblivious.svc.cluster.local:9093,2@kafka-2.oblivious-kafka-headless.oblivious.svc.cluster.local:9093
+            - name: KAFKA_CFG_LISTENERS
+              value: PLAINTEXT://:9092,CONTROLLER://:9093
+            - name: KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP
+              value: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+            - name: KAFKA_CFG_CONTROLLER_LISTENER_NAMES
+              value: CONTROLLER
+            - name: KAFKA_CFG_INTER_BROKER_LISTENER_NAME
+              value: PLAINTEXT
+            - name: KAFKA_CFG_DEFAULT_REPLICATION_FACTOR
+              value: "3"
+            - name: KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR
+              value: "3"
+            - name: KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+              value: "3"
+            - name: KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR
+              value: "2"
+            - name: KAFKA_CFG_MIN_INSYNC_REPLICAS
+              value: "2"
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          readinessProbe:
+            tcpSocket:
+              port: client
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: client
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          volumeMounts:
+            - name: data
+              mountPath: /bitnami/kafka
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app.kubernetes.io/name: oblivious
+          app.kubernetes.io/component: kafka
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 20Gi

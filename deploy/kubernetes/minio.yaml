@@ -1,0 +1,125 @@
+# MinIO distributed object storage (fusion spec part3 §9.3: 4-node distributed
+# mode; production sizing 2 vCPU / 4GB RAM / 2TB per node).
+# Reference manifest: storage request is sized for reference clusters; raise the
+# volumeClaimTemplate to 2Ti per node for spec-scale production. Production HA
+# remains a platform responsibility per docs/release/recovery-platform-contract.md.
+apiVersion: v1
+kind: Service
+metadata:
+  name: oblivious-minio-headless
+  namespace: oblivious
+  labels:
+    app.kubernetes.io/name: oblivious
+    app.kubernetes.io/component: minio
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: oblivious
+    app.kubernetes.io/component: minio
+  ports:
+    - name: api
+      port: 9000
+      targetPort: api
+    - name: console
+      port: 9001
+      targetPort: console
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oblivious-minio
+  namespace: oblivious
+  labels:
+    app.kubernetes.io/name: oblivious
+    app.kubernetes.io/component: minio
+spec:
+  selector:
+    app.kubernetes.io/name: oblivious
+    app.kubernetes.io/component: minio
+  ports:
+    - name: api
+      port: 9000
+      targetPort: api
+    - name: console
+      port: 9001
+      targetPort: console
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: minio
+  namespace: oblivious
+  labels:
+    app.kubernetes.io/name: oblivious
+    app.kubernetes.io/component: minio
+spec:
+  serviceName: oblivious-minio-headless
+  replicas: 4
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: oblivious
+      app.kubernetes.io/component: minio
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: oblivious
+        app.kubernetes.io/component: minio
+    spec:
+      containers:
+        - name: minio
+          image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+          args:
+            - server
+            - http://minio-{0...3}.oblivious-minio-headless.oblivious.svc.cluster.local/data
+            - --console-address
+            - :9001
+          ports:
+            - containerPort: 9000
+              name: api
+            - containerPort: 9001
+              name: console
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: oblivious-secrets
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: oblivious-secrets
+                  key: MINIO_ROOT_PASSWORD
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: api
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: api
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app.kubernetes.io/name: oblivious
+          app.kubernetes.io/component: minio
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 50Gi

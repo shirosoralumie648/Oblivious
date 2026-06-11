@@ -14,7 +14,7 @@ This contract maps Functional Logic 9.3 recovery requirements to repository-owne
 
 ## Platform Responsibilities
 
-The repository does not ship a full production PostgreSQL/Redis/Kafka cluster. A production deployment that claims Functional Logic 9.3 failover must provide and validate these platform components outside this application repo:
+The repository ships reference manifests for PgBouncer, MinIO, and Kafka (`deploy/kubernetes/pgbouncer.yaml`, `deploy/kubernetes/minio.yaml`, `deploy/kubernetes/kafka.yaml`, plus the optional `infra-extras` docker-compose profile; statically validated by `scripts/verify-infra-manifests.sh`). These reference shapes follow fusion spec part3 §9.1/§9.3 (PgBouncer 500 max client connections, MinIO 4-node distributed mode, Kafka 3 brokers with replication factor 3), but the repository still does not ship a full production PostgreSQL/Redis/Kafka cluster. A production deployment that claims Functional Logic 9.3 failover must provide and validate these platform components outside this application repo:
 
 - PostgreSQL high availability through Patroni or an equivalent managed PostgreSQL failover service.
 - Redis high availability through Redis Sentinel, Redis Cluster, or an equivalent managed Redis failover service.
