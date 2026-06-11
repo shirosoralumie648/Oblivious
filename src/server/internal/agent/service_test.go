@@ -2572,6 +2572,63 @@ func TestServiceStartPlanningRunPersistsParsedPlanSteps(t *testing.T) {
 	}
 }
 
+func TestServiceStartPlanningRunAppliesToolApprovalToStructuredSteps(t *testing.T) {
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+		},
+		conversation: &Conversation{
+			ID:             "conv_1",
+			AgentID:        "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+		},
+	}
+	gateway := &fakeGateway{plainReply: `[
+		{"title":"Read config","toolName":"read_file","input":{"path":"config.yaml"}},
+		{"title":"Update config","toolName":"write_file","input":{"path":"config.yaml"}},
+		{"title":"Delete cache","toolName":"delete_file","input":{"path":"cache/"}},
+		{"title":"Summarize results"}
+	]`}
+	service := NewService(store, gateway)
+
+	result, err := service.StartPlanningRun(
+		context.Background(),
+		auth.Session{OrganizationID: "org_1", WorkspaceID: "workspace_1", User: auth.User{ID: "user_1"}},
+		StartRunRequest{AgentID: "agent_1", ConversationID: "conv_1", Input: "refactor config"},
+	)
+	if err != nil {
+		t.Fatalf("StartPlanningRun returned error: %v", err)
+	}
+	if len(store.planSteps) != 4 {
+		t.Fatalf("expected 4 persisted plan steps, got %+v", store.planSteps)
+	}
+
+	// Safe tool (read) → not required
+	if store.planSteps[0].ApprovalStatus != ApprovalStatusNotRequired {
+		t.Fatalf("safe tool step should not require approval: %+v", store.planSteps[0])
+	}
+	// Medium tool (write) → pending
+	if store.planSteps[1].ApprovalStatus != ApprovalStatusPending {
+		t.Fatalf("medium tool step should require approval: %+v", store.planSteps[1])
+	}
+	// Dangerous tool (delete) → pending
+	if store.planSteps[2].ApprovalStatus != ApprovalStatusPending {
+		t.Fatalf("dangerous tool step should require approval: %+v", store.planSteps[2])
+	}
+	// No tool → not required
+	if store.planSteps[3].ApprovalStatus != ApprovalStatusNotRequired {
+		t.Fatalf("no-tool step should not require approval: %+v", store.planSteps[3])
+	}
+
+	if len(result.PlanSteps) != 4 {
+		t.Fatalf("expected returned RunWithMessages to include 4 plan steps, got %+v", result.PlanSteps)
+	}
+}
+
 func TestServiceExecutePlanStepCompletesPlanningRunAfterLastStep(t *testing.T) {
 	now := time.Now().UTC()
 	store := &fakeStore{
