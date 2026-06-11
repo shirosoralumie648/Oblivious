@@ -3091,7 +3091,7 @@ func TestServiceAdjustPlanStepsReplacesRemainingSuffix(t *testing.T) {
 	if steps[1].ID == "step_pending" || steps[2].ID == "step_failed" {
 		t.Fatalf("old suffix steps should have been replaced, got %+v", steps)
 	}
-	if steps[1].Index != 2 || steps[1].Title != "Implement adjusted backend contract" || steps[1].Status != PlanStepStatusPending || steps[1].ApprovalStatus != ApprovalStatusNotRequired {
+	if steps[1].Index != 2 || steps[1].Title != "Implement adjusted backend contract" || steps[1].Status != PlanStepStatusPending || steps[1].ApprovalStatus != ApprovalStatusPending {
 		t.Fatalf("first adjusted step mismatch: %+v", steps[1])
 	}
 	if steps[1].ToolName != "write_file" || steps[1].Input["path"] != "src/server/internal/agent/service.go" {

@@ -949,7 +949,7 @@ func (s *Service) StartPlanningRun(ctx context.Context, session auth.Session, re
 		return nil, fmt.Errorf("save planning reply: %w", err)
 	}
 
-	planSteps, err := s.persistPlanningSteps(ctx, session.OrganizationID, run.ID, reply)
+	planSteps, err := s.persistPlanningSteps(ctx, session.OrganizationID, run.ID, conv.ID, &runAgent, reply)
 	if err != nil {
 		now := time.Now().UTC()
 		if _, updateErr := s.store.UpdateRun(ctx, session.OrganizationID, run.ID, UpdateRunRequest{
@@ -992,21 +992,22 @@ var (
 	bulletedPlanStepPattern = regexp.MustCompile(`^\s*[-*+]\s+(.+?)\s*$`)
 )
 
-func (s *Service) persistPlanningSteps(ctx context.Context, organizationID, runID, reply string) ([]*PlanStep, error) {
+func (s *Service) persistPlanningSteps(ctx context.Context, organizationID, runID, conversationID string, agent *Agent, reply string) ([]*PlanStep, error) {
 	specs := parsePlanStepSpecs(reply)
-	return s.createPlanStepsFromSpecs(ctx, organizationID, runID, 1, specs)
+	return s.createPlanStepsFromSpecs(ctx, organizationID, runID, conversationID, agent, 1, specs)
 }
 
-func (s *Service) createPlanStepsFromSpecs(ctx context.Context, organizationID, runID string, startIndex int, specs []parsedPlanStepSpec) ([]*PlanStep, error) {
+func (s *Service) createPlanStepsFromSpecs(ctx context.Context, organizationID, runID, conversationID string, agent *Agent, startIndex int, specs []parsedPlanStepSpec) ([]*PlanStep, error) {
 	steps := make([]*PlanStep, 0, len(specs))
 	for i, spec := range specs {
+		approvalStatus := s.initialPlanStepApprovalStatus(ctx, organizationID, conversationID, agent, spec.ToolName)
 		step, err := s.store.CreatePlanStep(ctx, &CreatePlanStepRequest{
 			OrganizationID: organizationID,
 			RunID:          runID,
 			Index:          startIndex + i,
 			Title:          spec.Title,
 			Status:         PlanStepStatusPending,
-			ApprovalStatus: ApprovalStatusNotRequired,
+			ApprovalStatus: approvalStatus,
 			ToolName:       spec.ToolName,
 			Input:          spec.Input,
 		})
@@ -1016,6 +1017,21 @@ func (s *Service) createPlanStepsFromSpecs(ctx context.Context, organizationID, 
 		steps = append(steps, step)
 	}
 	return steps, nil
+}
+
+func (s *Service) initialPlanStepApprovalStatus(ctx context.Context, organizationID, conversationID string, agent *Agent, toolName string) string {
+	toolName = strings.TrimSpace(toolName)
+	if toolName == "" {
+		return ApprovalStatusNotRequired
+	}
+	if s.runner == nil {
+		return ApprovalStatusPending
+	}
+	decision := s.runner.decideToolApproval(ctx, organizationID, conversationID, agent, findEnabledTool(agent, toolName), ToolCall{Name: toolName})
+	if decision.RequiresApproval {
+		return ApprovalStatusPending
+	}
+	return ApprovalStatusNotRequired
 }
 
 type parsedPlanStepSpec struct {
@@ -1321,7 +1337,7 @@ func (s *Service) AdjustPlanSteps(ctx context.Context, session auth.Session, run
 			return nil, err
 		}
 	}
-	if _, err := s.createPlanStepsFromSpecs(ctx, session.OrganizationID, run.ID, len(completedPrefix)+1, specs); err != nil {
+	if _, err := s.createPlanStepsFromSpecs(ctx, session.OrganizationID, run.ID, run.ConversationID, agent, len(completedPrefix)+1, specs); err != nil {
 		return nil, err
 	}
 	if _, err := s.store.UpdateRun(ctx, session.OrganizationID, run.ID, UpdateRunRequest{

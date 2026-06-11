@@ -269,6 +269,16 @@ const marketplaceApiMocks = vi.hoisted(() => ({
       downloadsCount: 0
     })
   ),
+  installAgent: vi.fn((_agentID?: string, _versionID?: string, provider?: string) =>
+    Promise.resolve(
+      provider === 'alipay'
+        ? {
+            checkoutSessionId: 'cs_marketplace_alipay_router',
+            url: 'https://checkout.alipay.test/session/cs_marketplace_alipay_router'
+          }
+        : { checkoutSessionId: 'cs_marketplace_1', url: 'https://checkout.example/session' }
+    )
+  ),
   deleteAgent: vi.fn(() => Promise.resolve())
 }));
 
@@ -1286,7 +1296,7 @@ vi.mock('../features/marketplace/api', () => {
           }
         ]),
       getVersions: () => Promise.resolve([{ id: 'ver_1', version: '1.0.0', createdAt: '2026-01-01T00:00:00Z' }]),
-      installAgent: () => Promise.resolve({ checkoutSessionId: 'cs_marketplace_1', url: 'https://checkout.example/session' }),
+      installAgent: marketplaceApiMocks.installAgent,
       uninstallAgent: () => Promise.resolve(),
       deleteAgent: marketplaceApiMocks.deleteAgent,
       getMyAgents: () => Promise.resolve([marketplaceAgent]),
@@ -3171,6 +3181,28 @@ describe('app router', () => {
     expect(screen.getByText('Reviews')).toBeInTheDocument();
     expect(screen.getByLabelText('Review text')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Submit Review' })).toBeEnabled();
+  });
+
+  it('executes marketplace paid-install Alipay checkout flow inside the workspace shell', async () => {
+    const router = createAppRouter(['/marketplace/agents/agent_1']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    const workspaceNavigation = await screen.findByRole('navigation', { name: 'Workspace navigation' });
+    expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
+    expect(within(workspaceNavigation).getByRole('link', { name: 'Agents' })).toHaveAttribute('href', '/agents');
+    expect(await screen.findByRole('heading', { name: 'Research Agent' })).toBeInTheDocument();
+
+    fireEvent.change(await screen.findByLabelText('Payment provider'), { target: { value: 'alipay' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Install Agent' }));
+
+    await waitFor(() =>
+      expect(marketplaceApiMocks.installAgent).toHaveBeenCalledWith('agent_1', 'ver_1', 'alipay')
+    );
+    expect(await screen.findByRole('link', { name: 'Continue Alipay checkout' })).toHaveAttribute(
+      'href',
+      'https://checkout.alipay.test/session/cs_marketplace_alipay_router'
+    );
   });
 
   it('keeps marketplace home route-level browse, curation, and template controls reachable', async () => {
