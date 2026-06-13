@@ -2,11 +2,11 @@
 
 ## Current Truth
 
-- Branch: `main`; scanned implementation baseline is `5288222 test(frontend): cover chat router journey`. This report is a docs checkpoint committed after that baseline.
+- Branch: `main`; this report refreshes the June 14 scan after the Chat router checkpoint and Scheduled Task DB evidence slice.
 - Worktree status at scan time: clean against `origin/main`.
 - The project is still **not complete** against the four 2026-06-04 fusion specs.
 - The current completion matrix remains `4 Proven / 10 Partial / 0 Gap / 0 Unverified`.
-- Current progress estimate after this rescan: **74/100**. The repository owns most core product surfaces and has strong focused evidence. Recent Agent and Chat app-router proof narrows frontend risk, but the remaining progress is still dominated by target-environment proof, broader DB-backed commercial reruns, security/tenant-isolation depth, production deployment validation, and final no-skip release readiness.
+- Current progress estimate after this rescan: **75/100**. The repository owns most core product surfaces and has strong focused evidence. Recent Agent, Chat, and Scheduled Task runtime proof narrows frontend and DB-backed workflow risk, but the remaining progress is still dominated by target-environment proof, broader DB-backed commercial reruns, security/tenant-isolation depth, production deployment validation, and final no-skip release readiness.
 
 ## What Changed Since The Previous Rescan
 
@@ -21,6 +21,7 @@
 - The slice was independently verified, committed, and pushed as `634b674`.
 - Real Workspace app-router coverage now proves the Agent planning route journey from `/agents` into `/agent-runs/:runId/plan-steps`, including tool approval, plan-step approval/execution, and continue-plan refresh behavior. This was committed and pushed as `c82abda`.
 - Real Workspace app-router coverage now proves `/chat/:conversationId` beyond route parameter loading: conversation settings save, streamed message send, final message refresh, conversion to SOLO draft, SOLO task creation/start, and navigation to `/solo?taskId=task_router_new&returnTo=%2Fchat%2Fconversation_router`. This was committed and pushed as `5288222`.
+- `scripts/verify-commercial-db-evidence.sh scheduled-task-runtime` now provides no-skip PostgreSQL evidence for Scheduled Task SQL runtime persistence, route dispatch, and Workflow schedule-trigger sync.
 
 ## Repository Inventory
 
@@ -75,23 +76,26 @@ This scan does not reclassify any Partial row to Proven. The Agent and Frontend 
 git status --short --branch
 git log --oneline -n 6
 git diff --check
+COREPACK_HOME=/tmp/codex-corepack GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh scheduled-task-runtime
 bash scripts/check.sh docs
 ```
 
 Result:
 
 - All commands passed during this report refresh.
+- `scheduled-task-runtime` used a disposable pgvector PostgreSQL container and reported `skipped tests: none`.
 - The previous Agent structured-plan slice remains covered by `agent-runtime-memory` evidence recorded in the matrix.
 - The previous Agent and Chat router slices remain covered by their focused Vitest/TypeScript/diff checks recorded in the matrix.
 
 ## Notable Scan Findings
 
 - `scripts/check.sh` still exposes the main gates: `all`, `docs`, `relay-security`, `security`, `web`, and `server`.
-- `scripts/verify-commercial-db-evidence.sh` now has four no-skip DB evidence profiles:
+- `scripts/verify-commercial-db-evidence.sh` now has five no-skip DB evidence profiles:
   - `backend-journey`
   - `marketplace-money-movement`
   - `app-stateful-routes`
   - `agent-runtime-memory`
+  - `scheduled-task-runtime`
 - Active source TODO/stub scan still does not reveal a new broad implementation gap. Most matches are test stubs, generated gRPC `Unimplemented*` boilerplate, placeholder-secret/runbook language, and explicit tests that assert placeholder output is not used.
 - First-party active TODO boundaries are narrow and already documented as future or non-release proof:
   - `src/server/internal/relay/handler/realtime.go` has auth/prebill/settlement TODOs, while `docs/release/relay-route-table.md` marks Realtime `DisabledInProduction`.
@@ -103,8 +107,8 @@ Result:
 
 ## Recommended Next Slices
 
-1. Scheduled-task or tenant DB coverage: add a no-skip PostgreSQL profile for a currently Partial row that still depends on DB-backed proof.
-2. Broader commercial verifier rerun: run the remaining `verify-commercial-db-evidence.sh` profiles and record any environment-specific residual risk.
+1. Broader commercial verifier rerun: run all `verify-commercial-db-evidence.sh` profiles and record any environment-specific residual risk.
+2. Tenant DB coverage: add a no-skip PostgreSQL profile for remaining tenant/member/invitation edge cases if the existing `app-stateful-routes` profile is too narrow.
 3. Browser/E2E route proof: extend from focused app-router tests into Playwright coverage for the most important commercial workflows.
 4. Observability and recovery proof: strengthen the gap between static dashboard/policy checks and target-environment recovery behavior.
 5. Deployment validation: only after repo-owned rows are narrowed further, run deploy/Kubernetes/backup-restore proof on the target installation.

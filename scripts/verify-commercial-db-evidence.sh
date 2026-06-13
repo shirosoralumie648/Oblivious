@@ -15,7 +15,7 @@ output_files=()
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/verify-commercial-db-evidence.sh [backend-journey|marketplace-money-movement|app-stateful-routes|agent-runtime-memory]
+Usage: bash scripts/verify-commercial-db-evidence.sh [backend-journey|marketplace-money-movement|app-stateful-routes|agent-runtime-memory|scheduled-task-runtime]
 
 Runs narrow DB-backed commercial evidence without silently accepting skipped tests.
 
@@ -28,6 +28,8 @@ Profiles:
   agent-runtime-memory         Run focused Agent runtime, approval, execution
                                mode, structured plan-step, and memory policy
                                PostgreSQL tests.
+  scheduled-task-runtime       Run focused Scheduled Task SQL store, route, and
+                               Workflow trigger sync PostgreSQL tests.
 
 Environment:
   TEST_DATABASE_URL        Optional PostgreSQL URL. If unset, a disposable pgvector
@@ -152,6 +154,12 @@ case "$profile" in
   agent-runtime-memory)
     agent_runtime_memory_pattern="^(TestAgentRunStorePersistsRunLifecycle|TestAgentPlanStepStore(RoundTripsStepsInOrder|UpdatesStatusAndExecutionResult)|TestAgentSQLStorePersists(ApprovalConfigAndToolRiskLevels|DefaultExecutionModeConfig|LongTermMemoryWritePolicyConfig))$"
     run_go_test_no_skips "agent runtime and memory policy persistence" "./internal/agent" "$agent_runtime_memory_pattern"
+    ;;
+  scheduled-task-runtime)
+    scheduled_task_store_pattern="^TestSQLStore(CreatesAndListsScheduledTasksByOrganization|SyncsWorkflowTriggerBackedScheduledTasksWithoutTouchingManualTasks|GetsAndUpdatesScheduledTaskEnabledState|RecordsAndListsScheduledTaskRunsByOrganizationAndTask|ClaimsDueScheduledTaskRunsOnceAndRecordsRunningRuns|CompletesManualScheduledTaskRunWithoutAdvancingNextRun|CompletesScheduledTaskRunAndAdvancesTask)$"
+    scheduled_task_routes_pattern="^(TestScheduledTasksRoute(CreatesAndListsTasks|ListsRunsForTaskWithinSessionOrganization)|TestDefaultRouterSyncsWorkflowScheduleTriggersToScheduledTasks)$"
+    run_go_test_no_skips "scheduled task SQL runtime persistence" "./internal/schedule" "$scheduled_task_store_pattern"
+    run_go_test_no_skips "scheduled task route and workflow sync persistence" "./internal/http" "$scheduled_task_routes_pattern"
     ;;
   *)
     usage >&2
