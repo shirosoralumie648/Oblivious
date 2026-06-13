@@ -1229,7 +1229,7 @@ func TestBillingCheckoutUsesConfiguredProviderCheckoutCreator(t *testing.T) {
 	}
 	providerRegistry := payment.NewRegistry("stripe")
 	providerRegistry.Register(payment.Provider{Name: "stripe", Configured: true})
-	providerRegistry.Register(payment.Provider{Name: "alipay", Configured: true})
+	providerRegistry.Register(payment.Provider{Name: "alipay", Configured: true, Currency: "cny"})
 
 	cfg := testConfig()
 	cfg.StripeSuccessURL = "https://app.oblivious.test/billing/success"
@@ -1476,7 +1476,7 @@ func TestMarketplacePaidInstallUsesConfiguredProviderCheckoutCreator(t *testing.
 	}
 	providerRegistry := payment.NewRegistry("stripe")
 	providerRegistry.Register(payment.Provider{Name: "stripe", Configured: true})
-	providerRegistry.Register(payment.Provider{Name: "alipay", Configured: true})
+	providerRegistry.Register(payment.Provider{Name: "alipay", Configured: true, Currency: "cny"})
 
 	cfg := testConfig()
 	cfg.StripeSuccessURL = "https://app.oblivious.test/marketplace/success"
@@ -1522,20 +1522,22 @@ func TestMarketplacePaidInstallUsesConfiguredProviderCheckoutCreator(t *testing.
 	if stripeCreator.request.PaymentIntentID != "" {
 		t.Fatalf("stripe checkout creator must not be used for alipay marketplace install, got %+v", stripeCreator.request)
 	}
-	if alipayCreator.request.CheckoutKind != "marketplace_install" || alipayCreator.request.AgentID != "agent_paid_alipay" || alipayCreator.request.MarketplaceOrderID == "" {
+	if alipayCreator.request.CheckoutKind != "marketplace_install" || alipayCreator.request.AgentID != "agent_paid_alipay" ||
+		alipayCreator.request.Currency != "cny" || alipayCreator.request.MarketplaceOrderID == "" {
 		t.Fatalf("alipay checkout creator saw wrong marketplace metadata: %+v", alipayCreator.request)
 	}
 
-	var storedProvider string
+	var storedProvider, paymentIntentCurrency, orderCurrency string
 	if err := database.QueryRow(`
-		SELECT provider
-		FROM payment_intents
-		WHERE id = $1 AND kind = 'marketplace_install' AND organization_id = $2
-	`, alipayCreator.request.PaymentIntentID, buyerOrganizationID).Scan(&storedProvider); err != nil {
-		t.Fatalf("query alipay marketplace payment intent: %v", err)
+		SELECT pi.provider, pi.currency, mo.currency
+		FROM payment_intents pi
+		JOIN marketplace_orders mo ON mo.payment_intent_id = pi.id
+		WHERE pi.id = $1 AND pi.kind = 'marketplace_install' AND pi.organization_id = $2
+	`, alipayCreator.request.PaymentIntentID, buyerOrganizationID).Scan(&storedProvider, &paymentIntentCurrency, &orderCurrency); err != nil {
+		t.Fatalf("query alipay marketplace payment intent/order: %v", err)
 	}
-	if storedProvider != "alipay" {
-		t.Fatalf("expected alipay marketplace payment intent, got provider %q", storedProvider)
+	if storedProvider != "alipay" || paymentIntentCurrency != "cny" || orderCurrency != "cny" {
+		t.Fatalf("expected alipay/cny marketplace payment intent and order, got provider=%q intentCurrency=%q orderCurrency=%q", storedProvider, paymentIntentCurrency, orderCurrency)
 	}
 }
 
@@ -1549,7 +1551,7 @@ func TestDomesticPaymentWebhookRouteAppliesMarketplaceInstallSettlementOnce(t *t
 	}
 	providerRegistry := payment.NewRegistry("stripe")
 	providerRegistry.Register(payment.Provider{Name: "stripe", Configured: true})
-	providerRegistry.Register(payment.Provider{Name: "alipay", Configured: true})
+	providerRegistry.Register(payment.Provider{Name: "alipay", Configured: true, Currency: "cny"})
 
 	cfg := testConfig()
 	cfg.AlipayWebhookSecret = "alipay_marketplace_secret"
@@ -1662,7 +1664,7 @@ func TestDomesticPaymentWebhookRouteAppliesMarketplaceRefundOnce(t *testing.T) {
 	}
 	providerRegistry := payment.NewRegistry("stripe")
 	providerRegistry.Register(payment.Provider{Name: "stripe", Configured: true})
-	providerRegistry.Register(payment.Provider{Name: "alipay", Configured: true})
+	providerRegistry.Register(payment.Provider{Name: "alipay", Configured: true, Currency: "cny"})
 
 	cfg := testConfig()
 	cfg.AlipayWebhookSecret = "alipay_marketplace_refund_secret"

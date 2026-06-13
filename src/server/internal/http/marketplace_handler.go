@@ -291,6 +291,7 @@ func (h marketplaceHandler) createPaidInstallCheckout(w stdhttp.ResponseWriter, 
 		AgentID:             agent.ID,
 		VersionID:           versionID,
 		Provider:            provider.Name,
+		Currency:            provider.Currency,
 	})
 	if err != nil {
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())

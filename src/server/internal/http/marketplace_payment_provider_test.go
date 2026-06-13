@@ -142,7 +142,7 @@ func TestMarketplacePaidInstallCheckoutUsesSelectedProviderAndReturnsCheckoutSes
 			VersionID:               "version_paid_1",
 			PaymentIntentID:         "pi_alipay_marketplace",
 			GrossAmount:             25,
-			Currency:                "usd",
+			Currency:                "cny",
 		},
 	}
 	alipayCreator := &fakeCheckoutCreator{
@@ -151,7 +151,7 @@ func TestMarketplacePaidInstallCheckoutUsesSelectedProviderAndReturnsCheckoutSes
 	}
 	providerRegistry := payment.NewRegistry("stripe")
 	providerRegistry.Register(payment.Provider{Name: "stripe", Configured: true})
-	providerRegistry.Register(payment.Provider{Name: "alipay", Configured: true})
+	providerRegistry.Register(payment.Provider{Name: "alipay", Configured: true, Currency: "cny"})
 	handler := newMarketplaceHandler(
 		marketplace.NewService(store, nil),
 		nil,
@@ -182,13 +182,14 @@ func TestMarketplacePaidInstallCheckoutUsesSelectedProviderAndReturnsCheckoutSes
 	if settlement.createCalls != 1 {
 		t.Fatalf("expected one settlement checkout call, got %d", settlement.createCalls)
 	}
-	if settlement.request.Provider != "alipay" || settlement.request.VersionID != "version_paid_1" ||
+	if settlement.request.Provider != "alipay" || settlement.request.Currency != "cny" || settlement.request.VersionID != "version_paid_1" ||
 		settlement.request.AgentID != "agent_paid" || settlement.request.BuyerOrganizationID != "org_buyer" ||
 		settlement.request.BuyerUserID != "buyer_1" {
 		t.Fatalf("unexpected paid install settlement request: %+v", settlement.request)
 	}
 	if alipayCreator.request.PaymentIntentID != "pi_alipay_marketplace" ||
 		alipayCreator.request.CheckoutKind != "marketplace_install" ||
+		alipayCreator.request.Currency != "cny" ||
 		alipayCreator.request.MarketplaceOrderID != "order_alipay" ||
 		alipayCreator.request.AgentID != "agent_paid" ||
 		alipayCreator.request.VersionID != "version_paid_1" ||

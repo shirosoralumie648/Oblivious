@@ -180,6 +180,7 @@ func (s *SettlementService) CreatePaidInstallCheckout(ctx context.Context, input
 	if provider == "" {
 		provider = "stripe"
 	}
+	currency := normalizeMarketplaceCurrency(input.Currency)
 	publisherCumulativeSales := 0.0
 	if s.platformFeeTierBasis == MarketplaceFeeTierBasisPublisherCumulativeSales {
 		publisherCumulativeSales, err = s.publisherCumulativeSales(ctx, tx, agent.OrganizationID, agent.OwnerID)
@@ -215,12 +216,12 @@ func (s *SettlementService) CreatePaidInstallCheckout(ctx context.Context, input
 		return nil, fmt.Errorf("create paid install checkout: marshal metadata: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO payment_intents (
-			id, provider, organization_id, user_id, package_id, kind, amount,
-			currency, status, metadata, created_at, updated_at
-		)
-		VALUES ($1, $2, $3, $4, NULL, 'marketplace_install', $5, 'usd', 'pending', $6, $7, $7)
-	`, paymentIntentID, provider, input.BuyerOrganizationID, input.BuyerUserID, gross, encodedMetadata, now); err != nil {
+			INSERT INTO payment_intents (
+				id, provider, organization_id, user_id, package_id, kind, amount,
+				currency, status, metadata, created_at, updated_at
+			)
+			VALUES ($1, $2, $3, $4, NULL, 'marketplace_install', $5, $6, 'pending', $7, $8, $8)
+		`, paymentIntentID, provider, input.BuyerOrganizationID, input.BuyerUserID, gross, currency, encodedMetadata, now); err != nil {
 		metrics.RecordMarketplaceSettlementEvent("paid_install_checkout", "failed")
 		return nil, fmt.Errorf("create paid install checkout: insert payment intent: %w", err)
 	}
@@ -228,12 +229,12 @@ func (s *SettlementService) CreatePaidInstallCheckout(ctx context.Context, input
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO marketplace_orders (
 			id, buyer_organization_id, buyer_user_id, publisher_organization_id, publisher_user_id,
-			agent_id, version_id, payment_intent_id, gross_amount, platform_fee_amount,
-			publisher_net_amount, refunded_amount, currency, status, created_at, updated_at
-		)
-		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8, $9, $10, $11, 0, 'usd', 'pending_payment', $12, $12)
-	`, orderID, input.BuyerOrganizationID, input.BuyerUserID, agent.OrganizationID, agent.OwnerID,
-		agent.ID, orderVersionID, paymentIntentID, gross, platformFee, publisherNet, now)
+				agent_id, version_id, payment_intent_id, gross_amount, platform_fee_amount,
+				publisher_net_amount, refunded_amount, currency, status, created_at, updated_at
+			)
+			VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8, $9, $10, $11, 0, $12, 'pending_payment', $13, $13)
+		`, orderID, input.BuyerOrganizationID, input.BuyerUserID, agent.OrganizationID, agent.OwnerID,
+		agent.ID, orderVersionID, paymentIntentID, gross, platformFee, publisherNet, currency, now)
 	if err != nil {
 		metrics.RecordMarketplaceSettlementEvent("paid_install_checkout", "failed")
 		return nil, fmt.Errorf("create paid install checkout: insert order: %w", err)
@@ -245,6 +246,14 @@ func (s *SettlementService) CreatePaidInstallCheckout(ctx context.Context, input
 	}
 	metrics.RecordMarketplaceSettlementEvent("paid_install_checkout", "pending_payment")
 	return s.loadOrder(ctx, orderID)
+}
+
+func normalizeMarketplaceCurrency(currency string) string {
+	currency = strings.ToLower(strings.TrimSpace(currency))
+	if currency == "" {
+		return "usd"
+	}
+	return currency
 }
 
 func (s *SettlementService) ApplyPaidInstallCheckoutCompleted(ctx context.Context, input PaidInstallCheckoutCompleted) (*MarketplaceSettlement, error) {

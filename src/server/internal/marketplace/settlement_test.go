@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	_ "github.com/lib/pq"
 )
 
@@ -69,17 +70,72 @@ func TestSettlementCreatePaidInstallCheckoutRecordsSelectedProvider(t *testing.T
 		AgentID:             "agent_paid",
 		VersionID:           "version_agent_paid",
 		Provider:            " alipay ",
+		Currency:            " CNY ",
 	})
 	if err != nil {
 		t.Fatalf("CreatePaidInstallCheckout returned error: %v", err)
 	}
 
-	var provider string
-	if err := database.QueryRow(`SELECT provider FROM payment_intents WHERE id = $1`, order.PaymentIntentID).Scan(&provider); err != nil {
-		t.Fatalf("query payment intent provider: %v", err)
+	var provider, paymentIntentCurrency string
+	if err := database.QueryRow(`SELECT provider, currency FROM payment_intents WHERE id = $1`, order.PaymentIntentID).Scan(&provider, &paymentIntentCurrency); err != nil {
+		t.Fatalf("query payment intent provider/currency: %v", err)
 	}
-	if provider != "alipay" {
-		t.Fatalf("expected marketplace install payment provider alipay, got %q", provider)
+	var orderCurrency string
+	if err := database.QueryRow(`SELECT currency FROM marketplace_orders WHERE id = $1`, order.ID).Scan(&orderCurrency); err != nil {
+		t.Fatalf("query marketplace order currency: %v", err)
+	}
+	if provider != "alipay" || paymentIntentCurrency != "cny" || orderCurrency != "cny" || order.Currency != "cny" {
+		t.Fatalf("expected alipay/cny marketplace install records, got provider=%q intentCurrency=%q orderCurrency=%q loadedOrderCurrency=%q", provider, paymentIntentCurrency, orderCurrency, order.Currency)
+	}
+}
+
+func TestSettlementCreatePaidInstallCheckoutSQLUsesRequestedCurrency(t *testing.T) {
+	database, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer database.Close()
+
+	service := NewSettlementService(NewSQLStore(database))
+	now := time.Now().UTC()
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT a.id, a.organization_id").
+		WithArgs("agent_paid", "version_agent_paid").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "organization_id", "owner_id", "name", "visibility", "status", "pricing_type", "pricing_amount", "version_id",
+		}).AddRow("agent_paid", "publisher_org", "publisher_user", "Paid Agent", "public", "approved", "one_time", 50.0, "version_agent_paid"))
+	mock.ExpectExec("INSERT INTO payment_intents").
+		WithArgs(sqlmock.AnyArg(), "alipay", "buyer_org", "buyer_user", 50.0, "cny", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("INSERT INTO marketplace_orders").
+		WithArgs(sqlmock.AnyArg(), "buyer_org", "buyer_user", "publisher_org", "publisher_user", "agent_paid", "version_agent_paid", sqlmock.AnyArg(), 50.0, 10.0, 40.0, "cny", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+	mock.ExpectQuery("SELECT mo.id, mo.buyer_organization_id").
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "buyer_organization_id", "buyer_user_id", "publisher_organization_id", "publisher_user_id",
+			"agent_id", "version_id", "provider", "payment_intent_id", "provider_checkout_session_id", "provider_payment_intent_id",
+			"install_id", "gross_amount", "platform_fee_amount", "publisher_net_amount", "refunded_amount", "currency", "status", "created_at", "updated_at",
+		}).AddRow("order_alipay", "buyer_org", "buyer_user", "publisher_org", "publisher_user", "agent_paid", "version_agent_paid", "alipay", "pi_alipay", "", "", "", 50.0, 10.0, 40.0, 0.0, "cny", "pending_payment", now, now))
+
+	order, err := service.CreatePaidInstallCheckout(context.Background(), PaidInstallCheckoutRequest{
+		BuyerOrganizationID: "buyer_org",
+		BuyerUserID:         "buyer_user",
+		AgentID:             "agent_paid",
+		VersionID:           "version_agent_paid",
+		Provider:            "alipay",
+		Currency:            "cny",
+	})
+	if err != nil {
+		t.Fatalf("CreatePaidInstallCheckout returned error: %v", err)
+	}
+	if order.Provider != "alipay" || order.Currency != "cny" {
+		t.Fatalf("expected loaded alipay/cny order, got %+v", order)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
 	}
 }
 

@@ -163,6 +163,7 @@ type PaidInstallCheckoutRequest struct {
 	AgentID             string
 	VersionID           string
 	Provider            string
+	Currency            string
 }
 
 // PaidInstallCheckoutCompleted applies verified provider checkout evidence.

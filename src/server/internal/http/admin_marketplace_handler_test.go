@@ -1158,7 +1158,7 @@ func TestMarketplaceHandlerUsesConfiguredPaidInstallProviderCheckoutCreator(t *t
 			VersionID:               "ver_1",
 			PaymentIntentID:         "pi_alipay",
 			GrossAmount:             25,
-			Currency:                "usd",
+			Currency:                "cny",
 		},
 	}
 	stripeCreator := &fakeCheckoutCreator{}
@@ -1168,7 +1168,7 @@ func TestMarketplaceHandlerUsesConfiguredPaidInstallProviderCheckoutCreator(t *t
 	}
 	providerRegistry := payment.NewRegistry("stripe")
 	providerRegistry.Register(payment.Provider{Name: "stripe", Configured: true})
-	providerRegistry.Register(payment.Provider{Name: "alipay", Configured: true})
+	providerRegistry.Register(payment.Provider{Name: "alipay", Configured: true, Currency: "cny"})
 	handler := newMarketplaceHandler(
 		marketplace.NewService(store, nil),
 		nil,
@@ -1195,13 +1195,14 @@ func TestMarketplaceHandlerUsesConfiguredPaidInstallProviderCheckoutCreator(t *t
 	if settlement.createCalls != 1 {
 		t.Fatalf("expected one settlement checkout call, got %d", settlement.createCalls)
 	}
-	if settlement.request.Provider != "alipay" {
-		t.Fatalf("expected settlement provider alipay, got %q", settlement.request.Provider)
+	if settlement.request.Provider != "alipay" || settlement.request.Currency != "cny" {
+		t.Fatalf("expected settlement provider alipay/cny, got %+v", settlement.request)
 	}
 	if stripeCreator.request.PaymentIntentID != "" {
 		t.Fatalf("stripe checkout creator must not be called for alipay, got %+v", stripeCreator.request)
 	}
-	if alipayCreator.request.PaymentIntentID != "pi_alipay" || alipayCreator.request.CheckoutKind != "marketplace_install" || alipayCreator.request.AgentID != "agent_paid" {
+	if alipayCreator.request.PaymentIntentID != "pi_alipay" || alipayCreator.request.CheckoutKind != "marketplace_install" ||
+		alipayCreator.request.Currency != "cny" || alipayCreator.request.AgentID != "agent_paid" {
 		t.Fatalf("alipay checkout creator saw wrong marketplace request: %+v", alipayCreator.request)
 	}
 	if settlement.sessionID != "alipay_marketplace_session" || settlement.sessionPaymentIntentID != "pi_alipay" {
@@ -1999,7 +2000,7 @@ func (s *fakeMarketplaceSettlementService) CreatePaidInstallCheckout(ctx context
 		VersionID:               input.VersionID,
 		PaymentIntentID:         "pi_marketplace",
 		GrossAmount:             25,
-		Currency:                "usd",
+		Currency:                firstNonEmptyString(input.Currency, "usd"),
 	}, nil
 }
 
