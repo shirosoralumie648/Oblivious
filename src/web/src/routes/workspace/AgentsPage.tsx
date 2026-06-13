@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { RiAddLine, RiPlayCircleLine, RiRefreshLine, RiSave3Line, RiTerminalBoxLine } from '@remixicon/react';
+import { Link } from 'react-router-dom';
 
 import { createAgentsApi, type AgentToolDefinition } from '../../features/agents/agentsApi';
 import { createHttpClient } from '../../services/http/client';
@@ -1006,9 +1007,9 @@ export function AgentsPage() {
                   Start run
                 </button>
                 {runLink ? (
-                  <a className="text-sm font-semibold text-[#181611] underline" href={runLink}>
+                  <Link className="text-sm font-semibold text-[#181611] underline" to={runLink}>
                     Open run plan steps
-                  </a>
+                  </Link>
                 ) : null}
               </div>
             </section>

@@ -1,5 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { routerFuture } from '../../app/routerFuture';
 
 const listAgents = vi.fn();
 const createAgent = vi.fn();
@@ -18,6 +20,14 @@ vi.mock('../../features/agents/agentsApi', () => ({
 }));
 
 import { AgentsPage } from './AgentsPage';
+
+function renderAgentsPage() {
+  return render(
+    <MemoryRouter future={routerFuture}>
+      <AgentsPage />
+    </MemoryRouter>
+  );
+}
 
 describe('AgentsPage', () => {
   beforeEach(() => {
@@ -49,7 +59,7 @@ describe('AgentsPage', () => {
       }
     ]);
 
-    render(<AgentsPage />);
+    renderAgentsPage();
 
     expect(await screen.findByRole('heading', { name: 'Agents' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Research Agent' })).toBeInTheDocument();
@@ -83,7 +93,7 @@ describe('AgentsPage', () => {
       tools: []
     });
 
-    render(<AgentsPage />);
+    renderAgentsPage();
 
     expect(await screen.findByText('No agents configured.')).toBeInTheDocument();
 
@@ -157,7 +167,7 @@ describe('AgentsPage', () => {
       ]
     });
 
-    render(<AgentsPage />);
+    renderAgentsPage();
 
     expect(await screen.findByLabelText('Approval mode')).toHaveValue('tiered');
 
@@ -235,7 +245,7 @@ describe('AgentsPage', () => {
       tools: [{ enabled: true, name: 'web_search', riskLevel: 'medium', type: 'builtin' }]
     });
 
-    render(<AgentsPage />);
+    renderAgentsPage();
 
     expect(await screen.findByLabelText('Default execution mode')).toHaveValue('planning');
     expect(screen.getByLabelText('Long-term memory writes')).toHaveValue('interaction_and_explicit');
@@ -317,7 +327,7 @@ describe('AgentsPage', () => {
       ]
     });
 
-    render(<AgentsPage />);
+    renderAgentsPage();
 
     expect(await screen.findByRole('button', { name: 'Research Agent' })).toBeInTheDocument();
 
@@ -405,7 +415,7 @@ describe('AgentsPage', () => {
       ]
     });
 
-    render(<AgentsPage />);
+    renderAgentsPage();
 
     expect(await screen.findByRole('button', { name: 'Research Agent' })).toBeInTheDocument();
 
@@ -468,7 +478,7 @@ describe('AgentsPage', () => {
       ])
       .mockRejectedValueOnce(new Error('agent API unavailable'));
 
-    render(<AgentsPage />);
+    renderAgentsPage();
 
     expect(await screen.findByRole('button', { name: 'Support Agent' })).toBeInTheDocument();
 
@@ -499,7 +509,7 @@ describe('AgentsPage', () => {
       ])
       .mockRejectedValueOnce(new Error('tool catalog unavailable'));
 
-    render(<AgentsPage />);
+    renderAgentsPage();
 
     expect(await screen.findByRole('button', { name: 'Research Agent' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Load tool catalog' }));
@@ -559,7 +569,7 @@ describe('AgentsPage', () => {
       ]
     });
 
-    render(<AgentsPage />);
+    renderAgentsPage();
 
     expect(await screen.findByRole('button', { name: 'Research Agent' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Load tool catalog' }));
@@ -617,7 +627,7 @@ describe('AgentsPage', () => {
       toolRuns: []
     });
 
-    render(<AgentsPage />);
+    renderAgentsPage();
 
     expect(await screen.findByRole('button', { name: 'Research Agent' })).toBeInTheDocument();
 

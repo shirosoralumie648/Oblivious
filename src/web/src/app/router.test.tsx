@@ -282,6 +282,243 @@ const marketplaceApiMocks = vi.hoisted(() => ({
   deleteAgent: vi.fn(() => Promise.resolve())
 }));
 
+const agentPlanStepsApiMocks = vi.hoisted(() => {
+  const runDetailFixture = (runId = 'run_1', overrides: Record<string, unknown> = {}) => ({
+    error: 'token_budget_exceeded: used 1200 tokens exceeds budget 1000',
+    id: runId,
+    iterationCount: 4,
+    mode: 'planning',
+    planSteps: [
+      {
+        approvalStatus: 'approved',
+        id: 'step_inspect',
+        index: 1,
+        input: { scope: 'workspace' },
+        resultContent: 'Workspace inspected.',
+        runId,
+        status: 'completed',
+        title: 'Inspect workspace'
+      },
+      {
+        approvalStatus: 'pending',
+        id: 'step_patch',
+        index: 2,
+        input: { file: 'router.test.tsx' },
+        runId,
+        status: 'pending',
+        title: 'Patch router coverage',
+        toolName: 'editor'
+      },
+      {
+        approvalStatus: 'not_required',
+        error: 'tsc failed',
+        id: 'step_verify',
+        index: 3,
+        input: { command: 'pnpm test' },
+        runId,
+        status: 'failed',
+        title: 'Run verification'
+      }
+    ],
+    status: 'token_budget_exceeded',
+    toolCallCount: 2,
+    toolRuns: [
+      {
+        approvalStatus: 'pending',
+        arguments: { query: 'route coverage' },
+        id: 'tool_search',
+        riskLevel: 'medium',
+        status: 'pending_approval',
+        toolName: 'web_search',
+        toolType: 'builtin'
+      },
+      {
+        approvalStatus: 'approved',
+        arguments: { command: 'pnpm test' },
+        error: 'exit 1',
+        id: 'tool_shell',
+        status: 'failed',
+        toolName: 'shell',
+        toolType: 'builtin'
+      }
+    ],
+    ...overrides
+  });
+  const journeyPlanSteps = (runId = 'run_router_agent') => [
+    {
+      approvalStatus: 'approved',
+      id: 'step_scope',
+      index: 1,
+      resultContent: 'Release scope inspected.',
+      runId,
+      status: 'completed',
+      title: 'Inspect release scope'
+    },
+    {
+      approvalStatus: 'pending',
+      dependsOn: [1],
+      description: 'Patch the router coverage after the release scope is known.',
+      id: 'step_patch',
+      index: 2,
+      input: { file: 'src/web/src/app/router.test.tsx' },
+      runId,
+      status: 'pending',
+      title: 'Patch router coverage',
+      toolName: 'editor'
+    }
+  ];
+  const journeyDetail = (runId = 'run_router_agent', overrides: Record<string, unknown> = {}) =>
+    runDetailFixture(runId, {
+      error: '',
+      iterationCount: 2,
+      planSteps: journeyPlanSteps(runId),
+      status: 'pending_approval',
+      toolCallCount: 1,
+      toolRuns: [
+        {
+          approvalStatus: 'pending',
+          arguments: { query: 'agent planning route journey' },
+          id: 'tool_search',
+          riskLevel: 'medium',
+          status: 'pending_approval',
+          toolName: 'web_search',
+          toolType: 'builtin'
+        }
+      ],
+      ...overrides
+    });
+
+  return {
+    adjustPlan: vi.fn((runId = 'run_1') => Promise.resolve(runDetailFixture(runId))),
+    approvePlanStep: vi.fn((runId = 'run_1') =>
+      Promise.resolve(
+        journeyDetail(runId, {
+          planSteps: journeyPlanSteps(runId).map((step) =>
+            step.id === 'step_patch' ? { ...step, approvalStatus: 'approved', status: 'approved' } : step
+          ),
+          toolRuns: []
+        })
+      )
+    ),
+    approveToolRun: vi.fn((runId = 'run_1') =>
+      Promise.resolve(
+        journeyDetail(runId, {
+          toolRuns: [
+            {
+              approvalDecisionReason: 'Route-level operator approval.',
+              approvalStatus: 'approved',
+              id: 'tool_search',
+              resultContent: 'Search approved.',
+              status: 'completed',
+              toolName: 'web_search',
+              toolType: 'builtin'
+            }
+          ]
+        })
+      )
+    ),
+    continuePlan: vi.fn((runId = 'run_1') =>
+      Promise.resolve(
+        journeyDetail(runId, {
+          iterationCount: 5,
+          planSteps: journeyPlanSteps(runId).map((step) => ({ ...step, approvalStatus: 'approved', status: 'completed' })),
+          status: 'completed',
+          toolRuns: []
+        })
+      )
+    ),
+    continueRunWithBudget: vi.fn((runId = 'run_1') =>
+      Promise.resolve(
+        runDetailFixture(runId, {
+          error: '',
+          status: 'completed',
+          toolRuns: []
+        })
+      )
+    ),
+    createPlanStep: vi.fn((runId = 'run_1') => Promise.resolve(runDetailFixture(runId))),
+    deletePlanStep: vi.fn((runId = 'run_1') => Promise.resolve(runDetailFixture(runId))),
+    executePlanStep: vi.fn((runId = 'run_1') =>
+      Promise.resolve(
+        journeyDetail(runId, {
+          planSteps: journeyPlanSteps(runId).map((step) =>
+            step.id === 'step_patch'
+              ? { ...step, approvalStatus: 'approved', resultContent: 'Router coverage patched.', status: 'completed' }
+              : step
+          ),
+          toolRuns: []
+        })
+      )
+    ),
+    getRunDetail: vi.fn((runId = 'run_1') =>
+      Promise.resolve(runId === 'run_router_agent' ? journeyDetail(runId) : runDetailFixture(runId))
+    ),
+    movePlanStep: vi.fn((runId = 'run_1') => Promise.resolve(runDetailFixture(runId))),
+    rejectToolRun: vi.fn((runId = 'run_1') => Promise.resolve(runDetailFixture(runId, { status: 'failed' }))),
+    retryPlanStep: vi.fn((runId = 'run_1') => Promise.resolve(runDetailFixture(runId, { error: '', status: 'running' }))),
+    retryToolRun: vi.fn((runId = 'run_1') => Promise.resolve(runDetailFixture(runId, { error: '', status: 'running' }))),
+    skipPlanStep: vi.fn((runId = 'run_1') => Promise.resolve(runDetailFixture(runId))),
+    updatePlanStep: vi.fn((runId = 'run_1') => Promise.resolve(runDetailFixture(runId)))
+  };
+});
+
+const agentsApiMocks = vi.hoisted(() => ({
+  createAgent: vi.fn((agent: unknown) => Promise.resolve(agent)),
+  createRun: vi.fn(() =>
+    Promise.resolve({
+      id: 'run_router_agent',
+      planSteps: [],
+      status: 'pending_approval',
+      toolRuns: []
+    })
+  ),
+  deleteAgent: vi.fn(() => Promise.resolve()),
+  getAgent: vi.fn(() =>
+    Promise.resolve({
+      config: { approvalMode: 'tiered', defaultExecutionMode: 'planning' },
+      id: 'agent_1',
+      isPublic: false,
+      model: 'gpt-4o-mini',
+      name: 'Research Agent',
+      tools: []
+    })
+  ),
+  getAgentTools: vi.fn(() =>
+    Promise.resolve([
+      {
+        description: 'Search the web with tenant policy controls.',
+        inputSchema: { type: 'object' },
+        name: 'web_search',
+        requiresApproval: true,
+        riskLevel: 'medium',
+        toolType: 'builtin'
+      }
+    ])
+  ),
+  listAgents: vi.fn(() =>
+    Promise.resolve([
+      {
+        config: {
+          approvalMode: 'tiered',
+          defaultExecutionMode: 'planning',
+          longTermMemoryExtractionPolicy: 'deterministic',
+          longTermMemoryUpdatePolicy: 'exact_refresh',
+          longTermMemoryWritePolicy: 'interaction_and_explicit',
+          maxIterations: 8,
+          tokenBudget: 30000
+        },
+        description: 'Router-level research automation.',
+        id: 'agent_1',
+        isPublic: false,
+        model: 'gpt-4o-mini',
+        name: 'Research Agent',
+        tools: []
+      }
+    ])
+  ),
+  updateAgent: vi.fn((agent: unknown) => Promise.resolve(agent))
+}));
+
 vi.mock('@xyflow/react', () => {
   const passthrough = ({ children }: { children?: ReactNode }) => <>{children}</>;
 
@@ -1757,154 +1994,12 @@ vi.mock('../features/publishingChannels/publishingChannelsApi', () => ({
   })
 }));
 
-vi.mock('../features/agents/planStepsApi', () => {
-  const runDetailFixture = (overrides: Record<string, unknown> = {}) => ({
-    error: 'token_budget_exceeded: used 1200 tokens exceeds budget 1000',
-    id: 'run_1',
-    iterationCount: 4,
-    mode: 'planning',
-    planSteps: [
-      {
-        approvalStatus: 'approved',
-        id: 'step_inspect',
-        index: 1,
-        input: { scope: 'workspace' },
-        resultContent: 'Workspace inspected.',
-        runId: 'run_1',
-        status: 'completed',
-        title: 'Inspect workspace'
-      },
-      {
-        approvalStatus: 'pending',
-        id: 'step_patch',
-        index: 2,
-        input: { file: 'router.test.tsx' },
-        runId: 'run_1',
-        status: 'pending',
-        title: 'Patch router coverage',
-        toolName: 'editor'
-      },
-      {
-        approvalStatus: 'not_required',
-        error: 'tsc failed',
-        id: 'step_verify',
-        index: 3,
-        input: { command: 'pnpm test' },
-        runId: 'run_1',
-        status: 'failed',
-        title: 'Run verification'
-      }
-    ],
-    status: 'token_budget_exceeded',
-    toolCallCount: 2,
-    toolRuns: [
-      {
-        approvalStatus: 'pending',
-        arguments: { query: 'route coverage' },
-        id: 'tool_search',
-        riskLevel: 'medium',
-        status: 'pending_approval',
-        toolName: 'web_search',
-        toolType: 'builtin'
-      },
-      {
-        approvalStatus: 'approved',
-        arguments: { command: 'pnpm test' },
-        error: 'exit 1',
-        id: 'tool_shell',
-        status: 'failed',
-        toolName: 'shell',
-        toolType: 'builtin'
-      }
-    ],
-    ...overrides
-  });
-
-  return {
-    createAgentPlanStepsApi: () => ({
-      approvePlanStep: () =>
-        Promise.resolve(
-          runDetailFixture({
-            error: '',
-            status: 'planning'
-          })
-        ),
-      approveToolRun: () => Promise.resolve(runDetailFixture({ error: '', status: 'running' })),
-      continueRunWithBudget: () =>
-        Promise.resolve(
-          runDetailFixture({
-            error: '',
-            status: 'completed',
-            toolRuns: []
-          })
-        ),
-      createPlanStep: () => Promise.resolve(runDetailFixture()),
-      deletePlanStep: () => Promise.resolve(runDetailFixture()),
-      executePlanStep: () => Promise.resolve(runDetailFixture({ error: '', status: 'running' })),
-      getRunDetail: () => Promise.resolve(runDetailFixture()),
-      movePlanStep: () => Promise.resolve(runDetailFixture()),
-      rejectToolRun: () => Promise.resolve(runDetailFixture({ status: 'failed' })),
-      retryPlanStep: () => Promise.resolve(runDetailFixture({ error: '', status: 'running' })),
-      retryToolRun: () => Promise.resolve(runDetailFixture({ error: '', status: 'running' })),
-      skipPlanStep: () => Promise.resolve(runDetailFixture()),
-      updatePlanStep: () => Promise.resolve(runDetailFixture())
-    })
-  };
-});
+vi.mock('../features/agents/planStepsApi', () => ({
+  createAgentPlanStepsApi: () => agentPlanStepsApiMocks
+}));
 
 vi.mock('../features/agents/agentsApi', () => ({
-  createAgentsApi: () => ({
-    createAgent: (agent: unknown) => Promise.resolve(agent),
-    createRun: () =>
-      Promise.resolve({
-        id: 'run_router_agent',
-        planSteps: [],
-        status: 'pending_approval',
-        toolRuns: []
-      }),
-    deleteAgent: () => Promise.resolve(),
-    getAgent: () =>
-      Promise.resolve({
-        config: { approvalMode: 'tiered', defaultExecutionMode: 'planning' },
-        id: 'agent_1',
-        isPublic: false,
-        model: 'gpt-4o-mini',
-        name: 'Research Agent',
-        tools: []
-      }),
-    getAgentTools: () =>
-      Promise.resolve([
-        {
-          description: 'Search the web with tenant policy controls.',
-          inputSchema: { type: 'object' },
-          name: 'web_search',
-          requiresApproval: true,
-          riskLevel: 'medium',
-          toolType: 'builtin'
-        }
-      ]),
-    listAgents: () =>
-      Promise.resolve([
-        {
-          config: {
-            approvalMode: 'tiered',
-            defaultExecutionMode: 'planning',
-            longTermMemoryExtractionPolicy: 'deterministic',
-            longTermMemoryUpdatePolicy: 'exact_refresh',
-            longTermMemoryWritePolicy: 'interaction_and_explicit',
-            maxIterations: 8,
-            tokenBudget: 30000
-          },
-          description: 'Router-level research automation.',
-          id: 'agent_1',
-          isPublic: false,
-          model: 'gpt-4o-mini',
-          name: 'Research Agent',
-          tools: []
-        }
-      ]),
-    updateAgent: (agent: unknown) => Promise.resolve(agent)
-  })
+  createAgentsApi: () => agentsApiMocks
 }));
 
 vi.mock('../features/mcp/mcpServersApi', () => ({
@@ -1965,6 +2060,8 @@ describe('app router', () => {
     Object.values(knowledgeApiMocks).forEach((mock) => mock.mockClear());
     Object.values(adminApiMocks).forEach((mock) => mock.mockClear());
     Object.values(marketplaceApiMocks).forEach((mock) => mock.mockClear());
+    Object.values(agentPlanStepsApiMocks).forEach((mock) => mock.mockClear());
+    Object.values(agentsApiMocks).forEach((mock) => mock.mockClear());
     window.history.replaceState({}, '', '/');
   });
 
@@ -2265,6 +2362,90 @@ describe('app router', () => {
       'href',
       '/agent-runs/run_router_agent/plan-steps'
     );
+  });
+
+  it('executes an agent planning journey from /agents into plan-step operations inside the workspace shell', async () => {
+    const router = createAppRouter(['/agents']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    const workspaceNavigation = await screen.findByRole('navigation', { name: 'Workspace navigation' });
+    expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
+    expect(within(workspaceNavigation).getByRole('link', { name: 'Agents' })).toHaveAttribute('href', '/agents');
+    expect(await screen.findByRole('heading', { name: 'Agents' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Research Agent' })).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.change(screen.getByLabelText('Run conversation ID'), { target: { value: 'conv_router_agent' } });
+    fireEvent.change(screen.getByLabelText('Run goal'), { target: { value: 'Plan a release readiness review.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Start run' }));
+
+    await waitFor(() => {
+      expect(agentsApiMocks.createRun).toHaveBeenCalledWith({
+        agentId: 'agent_1',
+        conversationId: 'conv_router_agent',
+        input: 'Plan a release readiness review.',
+        maxIterations: 8,
+        mode: 'planning',
+        tokenBudget: 30000
+      });
+    });
+
+    fireEvent.click(await screen.findByRole('link', { name: 'Open run plan steps' }));
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe('/agent-runs/run_router_agent/plan-steps');
+    });
+    expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Agent Plan Steps' })).toBeInTheDocument();
+    expect(await screen.findByText('Run run_router_agent')).toBeInTheDocument();
+    expect(await screen.findByText('Status: pending_approval')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(agentPlanStepsApiMocks.getRunDetail).toHaveBeenCalledWith('run_router_agent');
+    });
+
+    expect(screen.getByLabelText('Agent run execution controls')).toHaveTextContent('Mode planning');
+    expect(screen.getByLabelText('Agent run execution controls')).toHaveTextContent('Iterations 2');
+    expect(screen.getByRole('heading', { name: 'Tool Approval Queue' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Inspect release scope' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Patch router coverage' })).toBeInTheDocument();
+    expect(screen.getByText('Patch the router coverage after the release scope is known.')).toBeInTheDocument();
+    expect(screen.getByText('Depends on: 1')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Operator decision reason for web_search'), {
+      target: { value: 'Route-level operator approval.' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Approve tool web_search' }));
+
+    await waitFor(() => {
+      expect(agentPlanStepsApiMocks.approveToolRun).toHaveBeenCalledWith(
+        'run_router_agent',
+        'tool_search',
+        'Route-level operator approval.'
+      );
+    });
+    expect(await screen.findByText('Search approved.')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Approve Patch router coverage' }));
+
+    await waitFor(() => {
+      expect(agentPlanStepsApiMocks.approvePlanStep).toHaveBeenCalledWith('run_router_agent', 'step_patch');
+    });
+    expect(await screen.findByRole('button', { name: 'Execute Patch router coverage' })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Execute Patch router coverage' }));
+
+    await waitFor(() => {
+      expect(agentPlanStepsApiMocks.executePlanStep).toHaveBeenCalledWith('run_router_agent', 'step_patch');
+    });
+    expect(await screen.findByText('Router coverage patched.')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue plan' }));
+
+    await waitFor(() => {
+      expect(agentPlanStepsApiMocks.continuePlan).toHaveBeenCalledWith('run_router_agent');
+    });
+    expect(await screen.findByText('Status: completed')).toBeInTheDocument();
+    expect(screen.getByLabelText('Agent run execution controls')).toHaveTextContent('Iterations 5');
   });
 
   it('renders MCP servers route inside the workspace shell', async () => {
