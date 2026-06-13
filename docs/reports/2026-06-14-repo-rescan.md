@@ -2,7 +2,7 @@
 
 ## Current Truth
 
-- Branch: `main`; current pushed `HEAD` is `5288222 test(frontend): cover chat router journey`.
+- Branch: `main`; scanned implementation baseline is `5288222 test(frontend): cover chat router journey`. This report is a docs checkpoint committed after that baseline.
 - Worktree status at scan time: clean against `origin/main`.
 - The project is still **not complete** against the four 2026-06-04 fusion specs.
 - The current completion matrix remains `4 Proven / 10 Partial / 0 Gap / 0 Unverified`.
