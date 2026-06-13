@@ -381,6 +381,73 @@ describe('AgentPlanStepsPage', () => {
     expect(continuePlan).not.toHaveBeenCalled();
   });
 
+  it('disables planning-only controls for React runs while keeping tool approvals actionable', async () => {
+    getRunDetail.mockResolvedValueOnce(runDetail([
+      {
+        approvalStatus: 'not_required',
+        id: 'step_done',
+        index: 1,
+        resultContent: 'Setup finished.',
+        runId: 'run_1',
+        status: 'completed',
+        title: 'Completed setup'
+      },
+      {
+        approvalStatus: 'not_required',
+        id: 'step_pending',
+        index: 2,
+        runId: 'run_1',
+        status: 'pending',
+        title: 'Draft patch'
+      },
+      {
+        approvalStatus: 'approved',
+        id: 'step_approved',
+        index: 3,
+        runId: 'run_1',
+        status: 'approved',
+        title: 'Review patch'
+      }
+    ], {
+      mode: 'react',
+      status: 'pending_approval',
+      toolRuns: [
+        {
+          approvalStatus: 'pending',
+          arguments: { path: 'src/server/main.go' },
+          id: 'tool_run_1',
+          riskLevel: 'dangerous',
+          runId: 'run_1',
+          status: 'pending_approval',
+          toolName: 'write_file',
+          toolType: 'builtin'
+        }
+      ]
+    }));
+
+    renderDirectPage();
+
+    expect(await screen.findByText('Status: pending_approval')).toBeInTheDocument();
+    expect(screen.getByLabelText('Agent run execution controls')).toHaveTextContent('Mode react');
+    expect(screen.getByRole('button', { name: 'Continue plan' })).toBeDisabled();
+    expect(screen.getByLabelText('Adjustment reason')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Adjust remaining plan' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Add plan step' })).toBeDisabled();
+
+    const draftStep = screen.getByLabelText('Plan step Draft patch');
+    expect(within(draftStep).getByRole('button', { name: 'Edit Draft patch' })).toBeDisabled();
+    expect(within(draftStep).getByRole('button', { name: 'Insert after Draft patch' })).toBeDisabled();
+    expect(within(draftStep).getByRole('button', { name: 'Move down Draft patch' })).toBeDisabled();
+    expect(within(draftStep).getByRole('button', { name: 'Approve Draft patch' })).toBeDisabled();
+    expect(within(draftStep).getByRole('button', { name: 'Execute Draft patch' })).toBeDisabled();
+    expect(within(draftStep).getByRole('button', { name: 'Skip Draft patch' })).toBeDisabled();
+    expect(within(draftStep).getByRole('button', { name: 'Delete Draft patch' })).toBeDisabled();
+
+    const toolRun = screen.getByLabelText('Tool run write_file');
+    expect(within(toolRun).getByRole('button', { name: 'Approve tool write_file' })).toBeEnabled();
+    expect(within(toolRun).getByRole('button', { name: 'Reject tool write_file' })).toBeEnabled();
+  });
+
   it('renders plan steps from navigation state and refreshes them after approve and execute actions', async () => {
     renderPage([
       {

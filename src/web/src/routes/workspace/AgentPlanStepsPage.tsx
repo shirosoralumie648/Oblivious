@@ -121,8 +121,10 @@ export function AgentPlanStepsPage() {
   const [runToolCallCount, setRunToolCallCount] = useState<number | null>(null);
   const [toolRunDecisionReasons, setToolRunDecisionReasons] = useState<Record<string, string>>({});
   const [toolRuns, setToolRuns] = useState<AgentToolRun[]>([]);
-  const canContinuePlan = runStatus === 'pending_approval';
-  const canAdjustPlan = runStatus === 'pending_approval';
+  const canUsePlanningControls = runMode === null || runMode === 'planning';
+  const canContinuePlan = canUsePlanningControls && runStatus === 'pending_approval';
+  const canAdjustPlan = canUsePlanningControls && runStatus === 'pending_approval';
+  const planningControlsUnavailableMessage = 'Plan-step controls are only available for planning runs.';
 
   const applyRunDetail = useCallback((detail: AgentRunDetail) => {
     setPlanSteps(detail.planSteps);
@@ -208,6 +210,10 @@ export function AgentPlanStepsPage() {
       setError('Run ID is required.');
       return;
     }
+    if (!canUsePlanningControls) {
+      setError(planningControlsUnavailableMessage);
+      return;
+    }
 
     const title = newTitle.trim();
     if (!title) {
@@ -242,6 +248,10 @@ export function AgentPlanStepsPage() {
   const savePlanStep = async (step: AgentPlanStep) => {
     if (!runId) {
       setError('Run ID is required.');
+      return;
+    }
+    if (!canUsePlanningControls) {
+      setError(planningControlsUnavailableMessage);
       return;
     }
 
@@ -283,6 +293,10 @@ export function AgentPlanStepsPage() {
       setError('Run ID is required.');
       return;
     }
+    if (!canUsePlanningControls) {
+      setError(planningControlsUnavailableMessage);
+      return;
+    }
 
     setOperatingStepId(step.id);
     setError(null);
@@ -309,6 +323,10 @@ export function AgentPlanStepsPage() {
       setError('Run ID is required.');
       return;
     }
+    if (!canUsePlanningControls) {
+      setError(planningControlsUnavailableMessage);
+      return;
+    }
 
     setOperatingStepId(step.id);
     setError(null);
@@ -326,6 +344,10 @@ export function AgentPlanStepsPage() {
   const deletePlanStep = async (step: AgentPlanStep) => {
     if (!runId) {
       setError('Run ID is required.');
+      return;
+    }
+    if (!canUsePlanningControls) {
+      setError(planningControlsUnavailableMessage);
       return;
     }
 
@@ -412,6 +434,10 @@ export function AgentPlanStepsPage() {
       setError('Run ID is required.');
       return;
     }
+    if (!canUsePlanningControls) {
+      setError(planningControlsUnavailableMessage);
+      return;
+    }
 
     setIsContinuingPlan(true);
     setError(null);
@@ -433,6 +459,10 @@ export function AgentPlanStepsPage() {
     const reason = adjustPlanReason.trim();
     if (!reason) {
       setError('Adjustment reason is required.');
+      return;
+    }
+    if (!canUsePlanningControls) {
+      setError(planningControlsUnavailableMessage);
       return;
     }
     if (!canAdjustPlan) {
@@ -648,7 +678,8 @@ export function AgentPlanStepsPage() {
         <div className="rounded-lg border border-[#d7d2c4] bg-white p-4">
           {!isCreatingStep ? (
             <button
-              className="min-h-10 rounded-lg border border-[#181611] px-3 text-sm font-semibold"
+              className="min-h-10 rounded-lg border border-[#181611] px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={!canUsePlanningControls}
               onClick={() => startCreatingStep(null)}
               type="button"
             >
@@ -695,7 +726,7 @@ export function AgentPlanStepsPage() {
               </label>
               <button
                 className="min-h-10 rounded-lg bg-[#181611] px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={operatingStepId === (newAfterStepId ?? '__new_plan_step__')}
+                disabled={!canUsePlanningControls || operatingStepId === (newAfterStepId ?? '__new_plan_step__')}
                 onClick={() => void createPlanStep()}
                 type="button"
               >
@@ -776,7 +807,7 @@ export function AgentPlanStepsPage() {
                       <button
                         aria-label={`Save ${step.title}`}
                         className="min-h-10 rounded-lg bg-[#181611] px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
-                        disabled={operatingStepId === step.id}
+                        disabled={!canUsePlanningControls || operatingStepId === step.id}
                         onClick={() => void savePlanStep(step)}
                         type="button"
                       >
@@ -798,7 +829,7 @@ export function AgentPlanStepsPage() {
                       <button
                         aria-label={`Edit ${step.title}`}
                         className="min-h-10 rounded-lg border border-[#181611] px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
-                        disabled={!canEdit(step) || operatingStepId === step.id}
+                        disabled={!canUsePlanningControls || !canEdit(step) || operatingStepId === step.id}
                         onClick={() => startEditingStep(step)}
                         type="button"
                       >
@@ -808,7 +839,7 @@ export function AgentPlanStepsPage() {
                       <button
                         aria-label={`Insert after ${step.title}`}
                         className="min-h-10 rounded-lg border border-[#181611] px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
-                        disabled={!canEdit(step) || operatingStepId === step.id}
+                        disabled={!canUsePlanningControls || !canEdit(step) || operatingStepId === step.id}
                         onClick={() => startCreatingStep(step.id)}
                         type="button"
                       >
@@ -818,7 +849,7 @@ export function AgentPlanStepsPage() {
                       <button
                         aria-label={`Move up ${step.title}`}
                         className="min-h-10 rounded-lg border border-[#181611] px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
-                        disabled={!canMoveUp || operatingStepId === step.id}
+                        disabled={!canUsePlanningControls || !canMoveUp || operatingStepId === step.id}
                         onClick={() => void movePlanStep(step, 'up')}
                         type="button"
                       >
@@ -828,7 +859,7 @@ export function AgentPlanStepsPage() {
                       <button
                         aria-label={`Move down ${step.title}`}
                         className="min-h-10 rounded-lg border border-[#181611] px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
-                        disabled={!canMoveDown || operatingStepId === step.id}
+                        disabled={!canUsePlanningControls || !canMoveDown || operatingStepId === step.id}
                         onClick={() => void movePlanStep(step, 'down')}
                         type="button"
                       >
@@ -838,7 +869,7 @@ export function AgentPlanStepsPage() {
                       <button
                         aria-label={`Approve ${step.title}`}
                         className="min-h-10 rounded-lg border border-[#181611] px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
-                        disabled={!canApprove(step) || operatingStepId === step.id}
+                        disabled={!canUsePlanningControls || !canApprove(step) || operatingStepId === step.id}
                         onClick={() => void updatePlanStep(step, 'approve')}
                         type="button"
                       >
@@ -848,7 +879,7 @@ export function AgentPlanStepsPage() {
                       <button
                         aria-label={`Execute ${step.title}`}
                         className="min-h-10 rounded-lg bg-[#181611] px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
-                        disabled={!canExecuteThisStep || operatingStepId === step.id}
+                        disabled={!canUsePlanningControls || !canExecuteThisStep || operatingStepId === step.id}
                         onClick={() => void updatePlanStep(step, 'execute')}
                         type="button"
                       >
@@ -858,7 +889,7 @@ export function AgentPlanStepsPage() {
                       <button
                         aria-label={`Skip ${step.title}`}
                         className="min-h-10 rounded-lg border border-[#181611] px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
-                        disabled={!canSkipThisStep || operatingStepId === step.id}
+                        disabled={!canUsePlanningControls || !canSkipThisStep || operatingStepId === step.id}
                         onClick={() => void updatePlanStep(step, 'skip')}
                         type="button"
                       >
@@ -868,7 +899,7 @@ export function AgentPlanStepsPage() {
                       <button
                         aria-label={`Retry ${step.title}`}
                         className="min-h-10 rounded-lg bg-[#181611] px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
-                        disabled={!canRetryThisStep || operatingStepId === step.id}
+                        disabled={!canUsePlanningControls || !canRetryThisStep || operatingStepId === step.id}
                         onClick={() => void updatePlanStep(step, 'retry')}
                         type="button"
                       >
@@ -878,7 +909,7 @@ export function AgentPlanStepsPage() {
                       <button
                         aria-label={`Delete ${step.title}`}
                         className="min-h-10 rounded-lg border border-red-700 px-3 text-sm font-semibold text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
-                        disabled={!canEdit(step) || operatingStepId === step.id}
+                        disabled={!canUsePlanningControls || !canEdit(step) || operatingStepId === step.id}
                         onClick={() => void deletePlanStep(step)}
                         type="button"
                       >
