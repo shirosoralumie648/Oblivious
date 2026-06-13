@@ -6232,6 +6232,77 @@ func TestRunWithToolsLongTermMemoryUpdatePolicyDoesNotMergeDifferentPreferences(
 	}
 }
 
+func TestRunWithToolsLongTermMemoryUpdatePolicyConsolidatesResponseLanguagePreference(t *testing.T) {
+	oldUpdatedAt := time.Date(2026, 6, 8, 10, 0, 0, 0, time.UTC)
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+			Config: Config{
+				EnableMemory:               true,
+				LongTermMemoryWritePolicy:  LongTermMemoryWritePolicyExplicitOnly,
+				LongTermMemoryUpdatePolicy: LongTermMemoryUpdatePolicyMemoryKeyConsolidate,
+			},
+		},
+		conversation: &Conversation{
+			ID:             "conv_1",
+			AgentID:        "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+		},
+		memories: []*Memory{{
+			ID:             "memory_language",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			AgentID:        "agent_1",
+			Type:           MemoryTypeLongTerm,
+			Content:        "User preference: Please always answer in English",
+			Importance:     4,
+			Metadata: map[string]any{
+				"source":          "agent_memory_policy",
+				"memory_category": "preference",
+				"memory_key":      "preference:please always answer in english",
+				"conversation_id": "conv_old",
+			},
+			CreatedAt: oldUpdatedAt,
+			UpdatedAt: oldUpdatedAt,
+		}},
+	}
+	gateway := &fakeGateway{
+		structured: []*chat.CompletionResponse{
+			{Content: "我会用中文回复。", FinishReason: "stop"},
+		},
+	}
+	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+
+	_, err := runner.RunWithTools(
+		context.Background(),
+		auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}},
+		store.agent,
+		store.conversation.ID,
+		"请始终用中文回复。",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("RunWithTools returned error: %v", err)
+	}
+	if len(store.memories) != 1 {
+		t.Fatalf("expected response-language preference to consolidate, got %+v", store.memories)
+	}
+	updated := store.memories[0]
+	if updated.ID != "memory_language" || updated.Content != "User preference: 请始终用中文回复" || updated.Importance != 4 {
+		t.Fatalf("expected language preference memory to update in place, got %+v", updated)
+	}
+	if updated.UpdatedAt.Equal(oldUpdatedAt) {
+		t.Fatalf("expected language preference timestamp to refresh, got %+v", updated)
+	}
+	if updated.Metadata["memory_key"] != "preference:response_language" || updated.Metadata["update_policy"] != LongTermMemoryUpdatePolicyMemoryKeyConsolidate || updated.Metadata["consolidated_from_memory_id"] != "memory_language" || updated.Metadata["conversation_id"] != "conv_1" {
+		t.Fatalf("expected response-language consolidation metadata, got %+v", updated.Metadata)
+	}
+}
+
 func TestRunWithToolsLongTermMemoryExplicitOnlySkipsInteractionMemory(t *testing.T) {
 	store := &fakeStore{
 		agent: &Agent{

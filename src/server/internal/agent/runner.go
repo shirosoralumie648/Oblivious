@@ -1513,6 +1513,9 @@ func memoryKeyForContent(category, content string) string {
 	switch category {
 	case "preference":
 		content = strings.TrimPrefix(content, "User preference:")
+		if isResponseLanguagePreference(content) {
+			return "preference:response_language"
+		}
 		normalized := normalizeMemoryContent(content)
 		if normalized == "" {
 			return ""
@@ -1544,6 +1547,29 @@ func memoryKeyForContent(category, content string) string {
 		normalized = string(normalizedRunes[:160])
 	}
 	return category + ":" + normalized
+}
+
+func isResponseLanguagePreference(content string) bool {
+	normalized := normalizeMemoryContent(content)
+	if normalized == "" {
+		return false
+	}
+	languageMentioned := strings.Contains(normalized, "chinese") ||
+		strings.Contains(normalized, "english") ||
+		strings.Contains(content, "中文") ||
+		strings.Contains(content, "英文") ||
+		strings.Contains(content, "英语")
+	if !languageMentioned {
+		return false
+	}
+	return strings.Contains(normalized, "answer") ||
+		strings.Contains(normalized, "reply") ||
+		strings.Contains(normalized, "respond") ||
+		strings.Contains(normalized, "use ") ||
+		strings.Contains(content, "回复") ||
+		strings.Contains(content, "回答") ||
+		strings.Contains(content, "使用") ||
+		strings.Contains(content, "用")
 }
 
 func derivedMemoryMetadata(category, conversationID, content string) map[string]any {
@@ -1689,8 +1715,8 @@ func (r *Runner) consolidateLongTermMemoryByKey(ctx context.Context, session aut
 		if memory == nil || normalizeMemoryContent(memory.Content) == normalizeMemoryContent(content) {
 			continue
 		}
-		existingKey, _ := memory.Metadata["memory_key"].(string)
-		if strings.TrimSpace(existingKey) != key {
+		existingKey := memoryConsolidationKey(memory)
+		if existingKey != key {
 			continue
 		}
 		if importance <= 0 {
@@ -1713,6 +1739,33 @@ func (r *Runner) consolidateLongTermMemoryByKey(ctx context.Context, session aut
 		return err == nil
 	}
 	return false
+}
+
+func memoryConsolidationKey(memory *Memory) string {
+	if memory == nil {
+		return ""
+	}
+	existingKey, _ := memory.Metadata["memory_key"].(string)
+	existingKey = strings.TrimSpace(existingKey)
+	if existingKey != "" {
+		category, _ := memory.Metadata["memory_category"].(string)
+		recomputed := memoryKeyForContent(category, memory.Content)
+		if recomputed != "" && recomputed != existingKey && isStableMemorySlotKey(recomputed) && !isStableMemorySlotKey(existingKey) {
+			return recomputed
+		}
+		return existingKey
+	}
+	category, _ := memory.Metadata["memory_category"].(string)
+	return memoryKeyForContent(category, memory.Content)
+}
+
+func isStableMemorySlotKey(key string) bool {
+	switch strings.TrimSpace(key) {
+	case "fact:company", "fact:user_name", "preference:response_language":
+		return true
+	default:
+		return false
+	}
 }
 
 func normalizeMemoryContent(content string) string {
