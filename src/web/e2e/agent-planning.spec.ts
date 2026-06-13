@@ -1,0 +1,62 @@
+import { expect, test } from '@playwright/test';
+
+import { registerAgentPlanningRoutes } from './fixtures/agentPlanning';
+
+test.beforeEach(async ({ page }) => {
+  await registerAgentPlanningRoutes(page);
+});
+
+test('agent planning browser journey covers tool approval plan-step execution and continue plan', async ({ page }) => {
+  await page.goto('/agents');
+
+  await expect(page.getByRole('heading', { name: 'Agents' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Agents' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('button', { name: 'Browser Planning Agent' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByText('Exercises planning-mode approval and plan-step controls through the browser router.')).toBeVisible();
+  await expect(page.getByLabel('Run mode')).toHaveValue('planning');
+  await expect(page.getByLabel('Run max iterations')).toHaveValue('8');
+  await expect(page.getByLabel('Run token budget')).toHaveValue('30000');
+  await expect(page.getByLabel('Require approval for web_search')).toBeChecked();
+
+  await page.getByRole('button', { name: 'Load tool catalog' }).click();
+  await expect(page.getByRole('button', { name: 'Tool web_search enabled' })).toBeVisible();
+
+  await page.getByLabel('Run conversation ID').fill('conv_browser_agent');
+  await page.getByLabel('Run goal').fill('Plan a browser route proof for Agent planning.');
+  await page.getByRole('button', { name: 'Start run' }).click();
+
+  await expect(page.getByRole('link', { name: 'Open run plan steps' })).toHaveAttribute(
+    'href',
+    '/agent-runs/run_browser_agent/plan-steps'
+  );
+  await page.getByRole('link', { name: 'Open run plan steps' }).click();
+
+  await expect(page).toHaveURL(/\/agent-runs\/run_browser_agent\/plan-steps$/);
+  await expect(page.getByRole('heading', { name: 'Agent Plan Steps' })).toBeVisible();
+  await expect(page.getByText('Run run_browser_agent')).toBeVisible();
+  await expect(page.getByText('Status: pending_approval')).toBeVisible();
+  await expect(page.getByLabel('Agent run execution controls')).toContainText('Mode planning');
+  await expect(page.getByLabel('Agent run execution controls')).toContainText('Iterations 2');
+  await expect(page.getByLabel('Agent run execution controls')).toContainText('Tool calls 1');
+  await expect(page.getByRole('heading', { name: 'Tool Approval Queue' })).toBeVisible();
+  const scopeStep = page.getByRole('article', { name: 'Plan step Inspect browser route scope' });
+  const patchStep = page.getByRole('article', { name: 'Plan step Patch browser route proof' });
+  await expect(scopeStep).toContainText('Inspect browser route scope');
+  await expect(scopeStep).toContainText('completed');
+  await expect(patchStep).toContainText('Patch browser route proof');
+  await expect(patchStep).toContainText('Patch the browser route proof after the release scope is known.');
+  await expect(patchStep).toContainText('Depends on: 1');
+
+  await page.getByLabel('Operator decision reason for web_search').fill('Browser route operator approval.');
+  await page.getByRole('button', { name: 'Approve tool web_search' }).click();
+  await expect(page.getByRole('article', { name: 'Tool run web_search' })).toContainText('Search approved.');
+
+  await page.getByRole('button', { name: 'Approve Patch browser route proof' }).click();
+  await expect(page.getByRole('button', { name: 'Execute Patch browser route proof' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Execute Patch browser route proof' }).click();
+  await expect(patchStep).toContainText('Browser route proof patched.');
+
+  await page.getByRole('button', { name: 'Continue plan' }).click();
+  await expect(page.getByText('Status: completed')).toBeVisible();
+  await expect(page.getByLabel('Agent run execution controls')).toContainText('Iterations 5');
+});
