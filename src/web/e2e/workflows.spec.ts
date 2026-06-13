@@ -6,6 +6,29 @@ test.beforeEach(async ({ page }) => {
   await registerWorkflowRoutes(page);
 });
 
+test('workflows mobile layout keeps landmarks and canvas scrolling contained', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/workflows');
+
+  await expect(page.getByRole('heading', { name: 'Workflows' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Workspace navigation' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Workflows' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('main')).toHaveCount(1);
+
+  const documentFitsViewport = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
+  expect(documentFitsViewport).toBe(true);
+
+  const canvas = page.getByLabel('React Flow canvas for Release automation');
+  await expect(canvas).toBeVisible();
+  const canvasUsesContainedScroll = await canvas.evaluate(
+    (element) => element.scrollWidth > element.clientWidth && element.clientWidth <= window.innerWidth
+  );
+  expect(canvasUsesContainedScroll).toBe(true);
+
+  await expect(page.getByLabel('Node sequence for Release automation')).toContainText('manual-start');
+  await expect(page.getByLabel('Signed webhook helper for Release automation')).toContainText('X-Oblivious-Signature');
+});
+
 test('workflows browser journey covers triggers execution webhook and debug evidence', async ({ page }) => {
   await page.goto('/workflows');
 
