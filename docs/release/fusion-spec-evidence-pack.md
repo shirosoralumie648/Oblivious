@@ -40,6 +40,7 @@ pnpm --dir src/web exec tsc --noEmit
 GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./... -count=1
 GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh backend-journey
 GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh marketplace-money-movement
+GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh app-stateful-routes
 TEST_DATABASE_URL="$TEST_DATABASE_URL" GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test -p 1 ./... -count=1
 bash scripts/deploy-validate.sh
 bash scripts/k8s-validate.sh
@@ -57,7 +58,7 @@ If a command is intentionally skipped because the target environment lacks Docke
 | External workflow success-rate proof | Deployed telemetry or load evidence from the target installation | Local deterministic workflow load evidence is repository proof only |
 | Billing and Marketplace payment rails | DB-backed lifecycle reruns plus configured provider checkout/refund/payout proof | Fake providers and DB-free handlers prove only local validation/fail-closed behavior |
 | Deployment platform recovery | `scripts/k8s-validate.sh` with real cluster access, real secrets, and failover/scale evidence | Static manifests and contract checks do not prove live failover |
-| Database-backed tenant isolation | `TEST_DATABASE_URL` integration tests in CI or target release evidence | DB-free route guards do not prove SQL persistence isolation |
+| Database-backed tenant isolation | Broader `TEST_DATABASE_URL` integration tests in CI or target release evidence | Focused disposable PostgreSQL app-stateful evidence covers selected tenant/session/ownership paths, but DB-free route guards do not prove all SQL persistence isolation |
 | Final release readiness | Strict final verifier with deploy and backup/restore enabled and no environment skips | Historical Phase 30 success does not automatically cover later fusion-spec changes |
 
 ## Update Rules

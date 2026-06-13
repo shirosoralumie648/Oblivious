@@ -67,6 +67,10 @@ func testDatabase(t *testing.T) *sql.DB {
 	statements := []string{
 		`DROP TABLE IF EXISTS organization_invitations CASCADE`,
 		`DROP TABLE IF EXISTS organization_memberships CASCADE`,
+		`DROP TABLE IF EXISTS workflow_node_executions CASCADE`,
+		`DROP TABLE IF EXISTS workflow_executions CASCADE`,
+		`DROP TABLE IF EXISTS workflow_versions CASCADE`,
+		`DROP TABLE IF EXISTS workflows CASCADE`,
 		`DROP TABLE IF EXISTS scheduled_task_runs CASCADE`,
 		`DROP TABLE IF EXISTS scheduled_tasks CASCADE`,
 		`DROP TABLE IF EXISTS relay_pricing_settings CASCADE`,
@@ -129,6 +133,18 @@ func testDatabase(t *testing.T) *sql.DB {
 		`CREATE TABLE organization_memberships (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, role TEXT NOT NULL, created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), removed_at TIMESTAMPTZ, CHECK (role IN ('owner', 'admin', 'member')))`,
 		`CREATE UNIQUE INDEX idx_org_memberships_active_user_http_test ON organization_memberships(organization_id, user_id) WHERE removed_at IS NULL`,
 		`CREATE UNIQUE INDEX idx_org_memberships_single_owner_http_test ON organization_memberships(organization_id) WHERE role = 'owner' AND removed_at IS NULL`,
+		`CREATE TABLE workflows (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'draft', version INTEGER NOT NULL DEFAULT 1, definition JSONB NOT NULL DEFAULT '{}', variables JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), CHECK (status IN ('draft', 'published', 'archived')), CHECK (version >= 1))`,
+		`CREATE INDEX idx_workflows_org_updated_http_test ON workflows(organization_id, updated_at DESC)`,
+		`CREATE INDEX idx_workflows_org_status_updated_http_test ON workflows(organization_id, status, updated_at DESC)`,
+		`CREATE TABLE workflow_versions (workflow_id TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, version INTEGER NOT NULL, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'draft', definition JSONB NOT NULL DEFAULT '{}', variables JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY (workflow_id, version), CHECK (status IN ('draft', 'published', 'archived')), CHECK (version >= 1))`,
+		`CREATE INDEX idx_workflow_versions_org_workflow_version_http_test ON workflow_versions(organization_id, workflow_id, version DESC)`,
+		`CREATE INDEX idx_workflow_versions_org_status_version_http_test ON workflow_versions(organization_id, workflow_id, status, version DESC)`,
+		`CREATE TABLE workflow_executions (id TEXT PRIMARY KEY, workflow_id TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE, workflow_version INTEGER NOT NULL DEFAULT 1, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, status TEXT NOT NULL, input JSONB NOT NULL DEFAULT '{}', output JSONB NOT NULL DEFAULT '{}', error JSONB NOT NULL DEFAULT '{}', context JSONB NOT NULL DEFAULT '{}', workflow_snapshot JSONB NOT NULL DEFAULT '{}', started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), completed_at TIMESTAMPTZ, duration_ms INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), CHECK (status IN ('queued', 'running', 'paused', 'succeeded', 'completed', 'failed', 'cancelled', 'partial_success', 'timeout', 'max_iterations')), CHECK (workflow_version >= 1), CHECK (duration_ms >= 0))`,
+		`CREATE INDEX idx_workflow_executions_org_workflow_started_http_test ON workflow_executions(organization_id, workflow_id, started_at DESC)`,
+		`CREATE INDEX idx_workflow_executions_org_status_started_http_test ON workflow_executions(organization_id, status, started_at DESC)`,
+		`CREATE TABLE workflow_node_executions (id TEXT PRIMARY KEY, execution_id TEXT NOT NULL REFERENCES workflow_executions(id) ON DELETE CASCADE, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, node_id TEXT NOT NULL, node_type TEXT NOT NULL DEFAULT '', status TEXT NOT NULL, attempt INTEGER NOT NULL DEFAULT 0, input JSONB NOT NULL DEFAULT '{}', output JSONB NOT NULL DEFAULT '{}', error JSONB NOT NULL DEFAULT '{}', context JSONB NOT NULL DEFAULT '{}', started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), completed_at TIMESTAMPTZ, duration_ms INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), CHECK (status IN ('pending', 'running', 'succeeded', 'completed', 'failed', 'skipped', 'paused', 'cancelled', 'timeout')), CHECK (attempt >= 0), CHECK (duration_ms >= 0))`,
+		`CREATE INDEX idx_workflow_node_executions_org_execution_created_http_test ON workflow_node_executions(organization_id, execution_id, created_at ASC)`,
+		`CREATE INDEX idx_workflow_node_executions_org_node_status_http_test ON workflow_node_executions(organization_id, node_id, status)`,
 		`CREATE TABLE scheduled_tasks (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, name TEXT NOT NULL, target_type TEXT NOT NULL, target_id TEXT NOT NULL, workflow_trigger_id TEXT, cron_expression TEXT NOT NULL, enabled BOOLEAN NOT NULL DEFAULT true, last_run_at TIMESTAMPTZ, next_run_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), CHECK (target_type IN ('workflow', 'agent')), CHECK (btrim(name) <> ''), CHECK (btrim(cron_expression) <> ''))`,
 		`CREATE UNIQUE INDEX idx_scheduled_tasks_workflow_trigger_unique_http_test ON scheduled_tasks(organization_id, target_type, target_id, workflow_trigger_id) WHERE target_type = 'workflow' AND workflow_trigger_id IS NOT NULL`,
 		`CREATE TABLE scheduled_task_runs (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, scheduled_task_id TEXT NOT NULL REFERENCES scheduled_tasks(id) ON DELETE CASCADE, status TEXT NOT NULL, started_at TIMESTAMPTZ, finished_at TIMESTAMPTZ, error TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), CHECK (status IN ('queued', 'running', 'completed', 'failed', 'cancelled')))`,
@@ -2110,7 +2126,7 @@ func TestConversationAndMessageFlow(t *testing.T) {
 	addCSRF(sendRequest, csrfToken)
 	router.ServeHTTP(sendRecorder, sendRequest)
 	if sendRecorder.Code != stdhttp.StatusOK {
-		t.Fatalf("send message expected 200, got %d", sendRecorder.Code)
+		t.Fatalf("send message expected 200, got %d with body %s", sendRecorder.Code, sendRecorder.Body.String())
 	}
 
 	messagesRecorder := httptest.NewRecorder()
@@ -2156,7 +2172,7 @@ func TestConsoleUsageReflectsRecordedChatRequests(t *testing.T) {
 	addCSRF(sendRequest, csrfToken)
 	router.ServeHTTP(sendRecorder, sendRequest)
 	if sendRecorder.Code != stdhttp.StatusOK {
-		t.Fatalf("send message expected 200, got %d", sendRecorder.Code)
+		t.Fatalf("send message expected 200, got %d with body %s", sendRecorder.Code, sendRecorder.Body.String())
 	}
 
 	var usageCount int

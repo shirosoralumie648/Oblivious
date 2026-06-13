@@ -15,7 +15,7 @@ output_files=()
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/verify-commercial-db-evidence.sh [backend-journey|marketplace-money-movement]
+Usage: bash scripts/verify-commercial-db-evidence.sh [backend-journey|marketplace-money-movement|app-stateful-routes]
 
 Runs narrow DB-backed commercial evidence without silently accepting skipped tests.
 
@@ -23,6 +23,8 @@ Profiles:
   backend-journey              Run TestCommercialHTTPJourney against PostgreSQL.
   marketplace-money-movement   Run focused Billing/Marketplace money movement
                                PostgreSQL lifecycle tests.
+  app-stateful-routes          Run focused app state, tenant, CSRF, and
+                               ownership PostgreSQL route tests.
 
 Environment:
   TEST_DATABASE_URL        Optional PostgreSQL URL. If unset, a disposable pgvector
@@ -139,6 +141,10 @@ case "$profile" in
     admin_money_movement_pattern="^Test(AdminBilling(SummaryIncludesMoneyMovementState|ListsExposeAllRequiredSurfaces|ListsApplyRecoveryFilters|SummaryAppliesFailedStatusFilter|MarksMarketplacePayoutPaid|MarksMarketplacePayoutFailedAndReleasesSettlements|CreateDueMarketplacePayoutsDispatchesConfiguredProvider|RecordsTopupRefundAndAdjustsQuota)|MarketplacePaidInstall(DoesNotInstallBeforeWebhook|CheckoutCreatorFailureMarksOrderFailed|UsesConfiguredProviderCheckoutCreator)|DomesticPaymentWebhookRouteAppliesMarketplace(InstallSettlementOnce|RefundOnce|PayoutPaidOnce|PayoutFailedOnce))$"
     run_go_test_no_skips "marketplace settlement money movement" "./internal/marketplace" "$marketplace_settlement_pattern"
     run_go_test_no_skips "admin billing and marketplace money movement routes" "./internal/http" "$admin_money_movement_pattern"
+    ;;
+  app-stateful-routes)
+    app_stateful_routes_pattern="^Test(ConsoleAPITokenCreateListAndRevoke|SelectOrganizationRequiresMembershipAndUpdatesSessionScope|OrganizationInvitationRevokeRejectsAcceptance|OrganizationSessionSecurityOnMembershipChanges|NotificationMutationRoutesEnforceOwnership|GetPreferencesReturnsUserInitializationState|UpdatePreferencesPersistsOnboardingState|ConversationAndMessageFlow|ConversationConfigFlow|RouteSurface(RequiresSessionForAppRoutes|RejectsCookieMutationWithoutCSRF))$"
+    run_go_test_no_skips "app stateful route persistence and ownership" "./internal/http" "$app_stateful_routes_pattern"
     ;;
   *)
     usage >&2
