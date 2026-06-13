@@ -43,6 +43,28 @@ test('marketplace browse detail and install workflow works', async ({ page }) =>
   await expect(page.getByText('Agent installed.')).toBeVisible();
 });
 
+test('marketplace paid install sends selected provider and exposes checkout continuation', async ({ page }) => {
+  await page.goto('/marketplace/agents/agent_paid_release_helper');
+
+  await expect(page.getByRole('link', { name: 'Marketplace' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('heading', { name: 'Paid Release Operator' })).toBeVisible();
+  await expect(page.getByText('Paid installs create a checkout-backed marketplace order before workspace installation.')).toBeVisible();
+  await expect(page.getByText('$75.00')).toBeVisible();
+  await expect(page.getByLabel('Agent version')).toHaveValue('version_paid_release_1');
+  await expect(page.getByLabel('Payment provider')).toHaveValue('stripe');
+  await expect(page.getByLabel('Payment provider')).toContainText('Alipay');
+
+  await page.getByLabel('Payment provider').selectOption('alipay');
+  await page.getByRole('button', { name: 'Install Agent' }).click();
+
+  await expect(page.getByText('Checkout session ready.')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Continue Alipay checkout' })).toHaveAttribute(
+    'href',
+    'https://checkout.alipay.test/session/cs_paid_release_browser'
+  );
+  await expect(page.getByText('Agent installed.')).toHaveCount(0);
+});
+
 test('marketplace publish and my agents workflow works', async ({ page }) => {
   await page.goto('/marketplace/publish');
   await expect(page.getByRole('heading', { name: 'Publish Agent' })).toBeVisible();

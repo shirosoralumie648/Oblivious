@@ -114,6 +114,21 @@ const submittedAgent = {
   ratingCount: 0,
 };
 
+const paidReleaseAgent = {
+  ...releaseAgent,
+  id: 'agent_paid_release_helper',
+  name: 'Paid Release Operator',
+  description: 'Runs paid release operations through checkout-backed Marketplace settlement.',
+  pricingType: 'one_time',
+  pricingAmount: 75,
+  currentVersion: '1.1.0',
+  installCount: 9,
+  ratingAvg: 4.9,
+  rating: 4.9,
+  ratingCount: 5,
+  paymentProviders: [{ name: 'stripe' }, { name: 'alipay' }],
+};
+
 const installedAgent = {
   id: 'install_release_helper',
   agentID: releaseAgent.id,
@@ -136,6 +151,18 @@ async function fulfillJSON(route: Route, data: unknown, status = 200) {
     status,
     contentType: 'application/json',
     body: JSON.stringify(envelope(data)),
+  });
+}
+
+async function fulfillError(route: Route, message: string, status = 422) {
+  await route.fulfill({
+    status,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      ok: false,
+      data: null,
+      error: { code: 'fixture_contract_mismatch', message },
+    }),
   });
 }
 
@@ -287,7 +314,7 @@ export async function registerAdminMarketplaceRoutes(page: Page): Promise<void> 
     }
 
     if (method === 'GET' && pathname === '/api/v1/marketplace/featured') {
-      await fulfillJSON(route, { agents: [releaseAgent], total: 1 });
+      await fulfillJSON(route, { agents: [releaseAgent, paidReleaseAgent], total: 2 });
       return;
     }
 
@@ -308,7 +335,7 @@ export async function registerAdminMarketplaceRoutes(page: Page): Promise<void> 
     }
 
     if (method === 'GET' && pathname === '/api/v1/marketplace/search') {
-      await fulfillJSON(route, { agents: [releaseAgent], total: 1 });
+      await fulfillJSON(route, { agents: [releaseAgent, paidReleaseAgent], total: 2 });
       return;
     }
 
@@ -319,7 +346,7 @@ export async function registerAdminMarketplaceRoutes(page: Page): Promise<void> 
 
     if (method === 'GET' && pathname === '/api/v1/marketplace/curated') {
       await fulfillJSON(route, {
-        popular: [releaseAgent],
+        popular: [releaseAgent, paidReleaseAgent],
         topRated: [releaseAgent],
         recent: [releaseAgent],
       });
@@ -350,8 +377,48 @@ export async function registerAdminMarketplaceRoutes(page: Page): Promise<void> 
       return;
     }
 
+    if (method === 'GET' && pathname === '/api/v1/marketplace/agents/agent_paid_release_helper') {
+      await fulfillJSON(route, {
+        agent: paidReleaseAgent,
+        versions: [{ id: 'version_paid_release_1', agentID: paidReleaseAgent.id, version: '1.1.0', status: 'approved', createdAt: now }],
+        paymentProviders: paidReleaseAgent.paymentProviders,
+      });
+      return;
+    }
+
+    if (method === 'GET' && pathname === '/api/v1/marketplace/agents/agent_paid_release_helper/versions') {
+      await fulfillJSON(route, {
+        versions: [{ id: 'version_paid_release_1', agentID: paidReleaseAgent.id, version: '1.1.0', status: 'approved', createdAt: now }],
+        total: 1,
+      });
+      return;
+    }
+
+    if (method === 'GET' && pathname === '/api/v1/marketplace/agents/agent_paid_release_helper/reviews') {
+      await fulfillJSON(route, {
+        reviews: [{ id: 'review_paid_release', agentID: paidReleaseAgent.id, userID: 'user_admin', userName: 'Release Admin', rating: 5, body: 'Checkout provider evidence is visible.', createdAt: now }],
+        total: 1,
+      });
+      return;
+    }
+
     if (method === 'POST' && pathname === '/api/v1/marketplace/agents/agent_release_helper/install') {
       await fulfillJSON(route, installedAgent, 201);
+      return;
+    }
+
+    if (method === 'POST' && pathname === '/api/v1/marketplace/agents/agent_paid_release_helper/install') {
+      const provider = url.searchParams.get('provider');
+      const versionID = url.searchParams.get('versionID');
+      if (provider !== 'alipay' || versionID !== 'version_paid_release_1') {
+        await fulfillError(route, 'paid install did not carry the selected Alipay provider and version');
+        return;
+      }
+
+      await fulfillJSON(route, {
+        checkoutSessionId: 'cs_paid_release_browser',
+        url: 'https://checkout.alipay.test/session/cs_paid_release_browser',
+      }, 201);
       return;
     }
 
