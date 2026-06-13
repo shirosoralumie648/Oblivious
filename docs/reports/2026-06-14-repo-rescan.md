@@ -33,7 +33,7 @@
 ## Repository Inventory
 
 - Tracked file distribution:
-  - `src`: 962 files
+  - `src`: 964 files
   - `.planning`: 210 files
   - `docs`: 91 files
   - `scripts`: 37 files
