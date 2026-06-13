@@ -190,6 +190,10 @@ func (e *PlanningEngine) ExecutePlan(ctx context.Context, agentInstance *agent.A
 	result := &PlanExecutionResult{
 		Plan: plan,
 	}
+	if cfg.RequireApproval {
+		result.StopReason = agent.RunStatusPendingApproval
+		return result, nil
+	}
 	completed := make(map[int]bool)
 	totalTokens := 0
 	stepByIndex := make(map[int]PlanStep, len(plan.Steps))

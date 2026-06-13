@@ -124,6 +124,42 @@ func TestPlanningEngineExecutePlanHandlesOneBasedStepIndexes(t *testing.T) {
 	}
 }
 
+func TestPlanningEngineExecutePlanStopsBeforeStepsWhenApprovalRequired(t *testing.T) {
+	gateway := &planningRuntimeFakeGateway{responses: []*chat.CompletionResponse{{
+		Content: "plain step should not execute",
+		Usage:   &chat.CompletionUsage{TotalTokens: 120},
+	}}}
+	engine := NewPlanningEngine(gateway, nil)
+	plan := Plan{
+		Goal: "approval required",
+		Steps: []PlanStep{
+			{
+				Index: 1,
+				Title: "Plain step",
+			},
+			{
+				Index:    2,
+				Title:    "Tool step",
+				ToolName: "web_search",
+			},
+		},
+	}
+
+	result, err := engine.ExecutePlan(context.Background(), &agent.Agent{Model: "gpt-4o-mini"}, "conv_1", nil, plan, PlanningConfig{RequireApproval: true})
+	if err != nil {
+		t.Fatalf("ExecutePlan returned error: %v", err)
+	}
+	if result.StopReason != agent.RunStatusPendingApproval {
+		t.Fatalf("expected pending approval stop, got %+v", result)
+	}
+	if len(result.StepResults) != 0 || result.IterationCount != 0 || result.TotalTokens != 0 || result.FinalAnswer != "" {
+		t.Fatalf("expected no execution evidence before approval, got %+v", result)
+	}
+	if gateway.calls != 0 {
+		t.Fatalf("expected approval guard to avoid step gateway calls, got %d", gateway.calls)
+	}
+}
+
 func TestPlanningEngineAdjustPlanClampsMaxSteps(t *testing.T) {
 	gateway := &planningRuntimeFakeGateway{responses: []*chat.CompletionResponse{{
 		Content: `{
@@ -315,5 +351,43 @@ func TestPlanningEngineGenerateAndExecutePlanAppliesConfig(t *testing.T) {
 	}
 	if gateway.calls != 2 {
 		t.Fatalf("expected one planning call and one execution call, got %d", gateway.calls)
+	}
+}
+
+func TestPlanningEngineGenerateAndExecutePlanStopsBeforeExecutionWhenApprovalRequired(t *testing.T) {
+	gateway := &planningRuntimeFakeGateway{responses: []*chat.CompletionResponse{
+		{
+			Content: `{
+				"goal": "ship the approval-gated runtime",
+				"steps": [
+					{"index": 1, "title": "Inspect"},
+					{"index": 2, "title": "Patch"}
+				]
+			}`,
+		},
+		{
+			Content: "execution should not run before approval",
+			Usage:   &chat.CompletionUsage{TotalTokens: 120},
+		},
+	}}
+	engine := NewPlanningEngine(gateway, nil)
+
+	result, err := engine.GenerateAndExecutePlan(context.Background(), &agent.Agent{Model: "gpt-4o-mini"}, "conv_1", nil, "ship it", PlanningConfig{
+		RequireApproval: true,
+	})
+	if err != nil {
+		t.Fatalf("GenerateAndExecutePlan returned error: %v", err)
+	}
+	if result.StopReason != agent.RunStatusPendingApproval {
+		t.Fatalf("expected pending approval stop, got %+v", result)
+	}
+	if len(result.Plan.Steps) != 2 {
+		t.Fatalf("expected generated plan to be preserved, got %+v", result.Plan.Steps)
+	}
+	if len(result.StepResults) != 0 || result.IterationCount != 0 || result.TotalTokens != 0 || result.FinalAnswer != "" {
+		t.Fatalf("expected generated plan without execution evidence before approval, got %+v", result)
+	}
+	if gateway.calls != 1 {
+		t.Fatalf("expected one planning call and no execution calls, got %d", gateway.calls)
 	}
 }
