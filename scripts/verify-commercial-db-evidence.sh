@@ -15,11 +15,13 @@ output_files=()
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/verify-commercial-db-evidence.sh [backend-journey|marketplace-money-movement|app-stateful-routes|agent-runtime-memory|scheduled-task-runtime]
+Usage: bash scripts/verify-commercial-db-evidence.sh [all|backend-journey|marketplace-money-movement|app-stateful-routes|agent-runtime-memory|scheduled-task-runtime]
 
 Runs narrow DB-backed commercial evidence without silently accepting skipped tests.
 
 Profiles:
+  all                          Run every DB-backed profile below in one
+                               disposable/configured PostgreSQL session.
   backend-journey              Run TestCommercialHTTPJourney against PostgreSQL.
   marketplace-money-movement   Run focused Billing/Marketplace money movement
                                PostgreSQL lifecycle tests.
@@ -131,6 +133,52 @@ run_go_test_no_skips() {
   echo "[commercial-db-evidence] PASS  $label"
 }
 
+run_backend_journey_profile() {
+  run_go_test_no_skips "backend commercial HTTP journey" "./internal/http" "^TestCommercialHTTPJourney$"
+}
+
+run_marketplace_money_movement_profile() {
+  local marketplace_settlement_pattern
+  local admin_money_movement_pattern
+
+  marketplace_settlement_pattern="^TestSettlement(CreatePaidInstallCheckoutCreatesPendingOrderAndIntent|CreatePaidInstallCheckoutRecordsSelectedProvider|CreatePaidInstallCheckoutSQLUsesRequestedCurrency|ApplyPaidInstallCheckoutCompletedRecordsSelectedProviderLifecycle|MarkPayoutPendingDispatchesConfiguredProvider|MarkPayoutPaidUpdatesPayoutAndSettlementsOnce|ProviderPayoutPaidWebhookMatchesProviderPayoutIDOnce|ProviderPayoutFailedWebhookReleasesSettlementsOnce|MarkPayoutFailedReleasesSettlementsOnce|CreateDuePayoutsAggregatesAvailableSettlementsOnce|CreateDuePayoutsDispatchesConfiguredProvider|PublisherStatsIncludesSettlementAmounts)$"
+  admin_money_movement_pattern="^Test(AdminBilling(SummaryIncludesMoneyMovementState|ListsExposeAllRequiredSurfaces|ListsApplyRecoveryFilters|SummaryAppliesFailedStatusFilter|MarksMarketplacePayoutPaid|MarksMarketplacePayoutFailedAndReleasesSettlements|CreateDueMarketplacePayoutsDispatchesConfiguredProvider|RecordsTopupRefundAndAdjustsQuota)|MarketplacePaidInstall(DoesNotInstallBeforeWebhook|CheckoutCreatorFailureMarksOrderFailed|UsesConfiguredProviderCheckoutCreator)|DomesticPaymentWebhookRouteAppliesMarketplace(InstallSettlementOnce|RefundOnce|PayoutPaidOnce|PayoutFailedOnce))$"
+  run_go_test_no_skips "marketplace settlement money movement" "./internal/marketplace" "$marketplace_settlement_pattern"
+  run_go_test_no_skips "admin billing and marketplace money movement routes" "./internal/http" "$admin_money_movement_pattern"
+}
+
+run_app_stateful_routes_profile() {
+  local app_stateful_routes_pattern
+
+  app_stateful_routes_pattern="^Test(ConsoleAPITokenCreateListAndRevoke|SelectOrganizationRequiresMembershipAndUpdatesSessionScope|OrganizationInvitationRevokeRejectsAcceptance|OrganizationSessionSecurityOnMembershipChanges|NotificationMutationRoutesEnforceOwnership|GetPreferencesReturnsUserInitializationState|UpdatePreferencesPersistsOnboardingState|ConversationAndMessageFlow|ConversationConfigFlow|RouteSurface(RequiresSessionForAppRoutes|RejectsCookieMutationWithoutCSRF))$"
+  run_go_test_no_skips "app stateful route persistence and ownership" "./internal/http" "$app_stateful_routes_pattern"
+}
+
+run_agent_runtime_memory_profile() {
+  local agent_runtime_memory_pattern
+
+  agent_runtime_memory_pattern="^(TestAgentRunStorePersistsRunLifecycle|TestAgentPlanStepStore(RoundTripsStepsInOrder|UpdatesStatusAndExecutionResult)|TestAgentSQLStorePersists(ApprovalConfigAndToolRiskLevels|DefaultExecutionModeConfig|LongTermMemoryWritePolicyConfig))$"
+  run_go_test_no_skips "agent runtime and memory policy persistence" "./internal/agent" "$agent_runtime_memory_pattern"
+}
+
+run_scheduled_task_runtime_profile() {
+  local scheduled_task_store_pattern
+  local scheduled_task_routes_pattern
+
+  scheduled_task_store_pattern="^TestSQLStore(CreatesAndListsScheduledTasksByOrganization|SyncsWorkflowTriggerBackedScheduledTasksWithoutTouchingManualTasks|GetsAndUpdatesScheduledTaskEnabledState|RecordsAndListsScheduledTaskRunsByOrganizationAndTask|ClaimsDueScheduledTaskRunsOnceAndRecordsRunningRuns|CompletesManualScheduledTaskRunWithoutAdvancingNextRun|CompletesScheduledTaskRunAndAdvancesTask)$"
+  scheduled_task_routes_pattern="^(TestScheduledTasksRoute(CreatesAndListsTasks|ListsRunsForTaskWithinSessionOrganization)|TestDefaultRouterSyncsWorkflowScheduleTriggersToScheduledTasks)$"
+  run_go_test_no_skips "scheduled task SQL runtime persistence" "./internal/schedule" "$scheduled_task_store_pattern"
+  run_go_test_no_skips "scheduled task route and workflow sync persistence" "./internal/http" "$scheduled_task_routes_pattern"
+}
+
+run_all_profiles() {
+  run_backend_journey_profile
+  run_marketplace_money_movement_profile
+  run_app_stateful_routes_profile
+  run_agent_runtime_memory_profile
+  run_scheduled_task_runtime_profile
+}
+
 if [[ -z "$database_url" ]]; then
   start_temporary_database
 else
@@ -138,28 +186,23 @@ else
 fi
 
 case "$profile" in
+  all)
+    run_all_profiles
+    ;;
   backend-journey)
-    run_go_test_no_skips "backend commercial HTTP journey" "./internal/http" "^TestCommercialHTTPJourney$"
+    run_backend_journey_profile
     ;;
   marketplace-money-movement)
-    marketplace_settlement_pattern="^TestSettlement(CreatePaidInstallCheckoutCreatesPendingOrderAndIntent|CreatePaidInstallCheckoutRecordsSelectedProvider|CreatePaidInstallCheckoutSQLUsesRequestedCurrency|ApplyPaidInstallCheckoutCompletedRecordsSelectedProviderLifecycle|MarkPayoutPendingDispatchesConfiguredProvider|MarkPayoutPaidUpdatesPayoutAndSettlementsOnce|ProviderPayoutPaidWebhookMatchesProviderPayoutIDOnce|ProviderPayoutFailedWebhookReleasesSettlementsOnce|MarkPayoutFailedReleasesSettlementsOnce|CreateDuePayoutsAggregatesAvailableSettlementsOnce|CreateDuePayoutsDispatchesConfiguredProvider|PublisherStatsIncludesSettlementAmounts)$"
-    admin_money_movement_pattern="^Test(AdminBilling(SummaryIncludesMoneyMovementState|ListsExposeAllRequiredSurfaces|ListsApplyRecoveryFilters|SummaryAppliesFailedStatusFilter|MarksMarketplacePayoutPaid|MarksMarketplacePayoutFailedAndReleasesSettlements|CreateDueMarketplacePayoutsDispatchesConfiguredProvider|RecordsTopupRefundAndAdjustsQuota)|MarketplacePaidInstall(DoesNotInstallBeforeWebhook|CheckoutCreatorFailureMarksOrderFailed|UsesConfiguredProviderCheckoutCreator)|DomesticPaymentWebhookRouteAppliesMarketplace(InstallSettlementOnce|RefundOnce|PayoutPaidOnce|PayoutFailedOnce))$"
-    run_go_test_no_skips "marketplace settlement money movement" "./internal/marketplace" "$marketplace_settlement_pattern"
-    run_go_test_no_skips "admin billing and marketplace money movement routes" "./internal/http" "$admin_money_movement_pattern"
+    run_marketplace_money_movement_profile
     ;;
   app-stateful-routes)
-    app_stateful_routes_pattern="^Test(ConsoleAPITokenCreateListAndRevoke|SelectOrganizationRequiresMembershipAndUpdatesSessionScope|OrganizationInvitationRevokeRejectsAcceptance|OrganizationSessionSecurityOnMembershipChanges|NotificationMutationRoutesEnforceOwnership|GetPreferencesReturnsUserInitializationState|UpdatePreferencesPersistsOnboardingState|ConversationAndMessageFlow|ConversationConfigFlow|RouteSurface(RequiresSessionForAppRoutes|RejectsCookieMutationWithoutCSRF))$"
-    run_go_test_no_skips "app stateful route persistence and ownership" "./internal/http" "$app_stateful_routes_pattern"
+    run_app_stateful_routes_profile
     ;;
   agent-runtime-memory)
-    agent_runtime_memory_pattern="^(TestAgentRunStorePersistsRunLifecycle|TestAgentPlanStepStore(RoundTripsStepsInOrder|UpdatesStatusAndExecutionResult)|TestAgentSQLStorePersists(ApprovalConfigAndToolRiskLevels|DefaultExecutionModeConfig|LongTermMemoryWritePolicyConfig))$"
-    run_go_test_no_skips "agent runtime and memory policy persistence" "./internal/agent" "$agent_runtime_memory_pattern"
+    run_agent_runtime_memory_profile
     ;;
   scheduled-task-runtime)
-    scheduled_task_store_pattern="^TestSQLStore(CreatesAndListsScheduledTasksByOrganization|SyncsWorkflowTriggerBackedScheduledTasksWithoutTouchingManualTasks|GetsAndUpdatesScheduledTaskEnabledState|RecordsAndListsScheduledTaskRunsByOrganizationAndTask|ClaimsDueScheduledTaskRunsOnceAndRecordsRunningRuns|CompletesManualScheduledTaskRunWithoutAdvancingNextRun|CompletesScheduledTaskRunAndAdvancesTask)$"
-    scheduled_task_routes_pattern="^(TestScheduledTasksRoute(CreatesAndListsTasks|ListsRunsForTaskWithinSessionOrganization)|TestDefaultRouterSyncsWorkflowScheduleTriggersToScheduledTasks)$"
-    run_go_test_no_skips "scheduled task SQL runtime persistence" "./internal/schedule" "$scheduled_task_store_pattern"
-    run_go_test_no_skips "scheduled task route and workflow sync persistence" "./internal/http" "$scheduled_task_routes_pattern"
+    run_scheduled_task_runtime_profile
     ;;
   *)
     usage >&2

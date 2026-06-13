@@ -15,7 +15,7 @@ This pack is the current release-readiness evidence index for the four 2026-06-0
 | Spec area | Current evidence source | Required final proof |
 | --- | --- | --- |
 | Relay and API gateway | `docs/reports/2026-06-07-relay-requirement-audit.md`, `scripts/verify-relay-security.sh`, Relay/OpenAPI contract gates | Focused Relay tests plus `bash scripts/check.sh relay-security` and `bash scripts/check.sh docs` on the release commit |
-| Workflow engine | `docs/reports/2026-06-07-workflow-requirement-audit.md`, `docs/reports/2026-06-08-workflow-success-rate-evidence.md`, `scripts/verify-workflow-success-rate-evidence.sh` | Repository load evidence plus target deployment telemetry for external success-rate claims |
+| Workflow engine | `docs/reports/2026-06-07-workflow-requirement-audit.md`, `docs/reports/2026-06-08-workflow-success-rate-evidence.md`, `scripts/verify-workflow-success-rate-evidence.sh`, `scripts/verify-commercial-db-evidence.sh scheduled-task-runtime` | Repository load evidence, scheduled-task DB runtime proof, plus target deployment telemetry for external success-rate claims |
 | Knowledge and RAG | `docs/reports/2026-06-07-knowledge-requirement-audit.md`, Knowledge/RAG backend and frontend tests | Focused retrieval, chunking, citation, versioning, and UI tests for changed surfaces |
 | Agent system | Agent service/store/runtime tests, structured plan-step `description`/`dependsOn` coverage, `scripts/verify-commercial-db-evidence.sh agent-runtime-memory`, Agent route and UI tests, matrix row 24 | ReAct and planning runtime tests, approval/resume tests, memory policy tests, structured plan-step dependency proof, DB-backed persistence proof under `TEST_DATABASE_URL` or disposable pgvector PostgreSQL, and route/UI tests for changed surfaces |
 | Publishing channels | Channel service/adapter/HTTP tests and matrix row 25 | Adapter, worker, retry, fallback, archive, and alert tests for changed surfaces |
@@ -38,10 +38,7 @@ bash scripts/check.sh relay-security
 bash scripts/check.sh security
 pnpm --dir src/web exec tsc --noEmit
 GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./... -count=1
-GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh backend-journey
-GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh marketplace-money-movement
-GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh app-stateful-routes
-GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh agent-runtime-memory
+GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh all
 TEST_DATABASE_URL="$TEST_DATABASE_URL" GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test -p 1 ./... -count=1
 bash scripts/deploy-validate.sh
 bash scripts/k8s-validate.sh

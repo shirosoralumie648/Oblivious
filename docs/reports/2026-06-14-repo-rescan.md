@@ -6,7 +6,7 @@
 - Worktree status at scan time: clean against `origin/main`.
 - The project is still **not complete** against the four 2026-06-04 fusion specs.
 - The current completion matrix remains `4 Proven / 10 Partial / 0 Gap / 0 Unverified`.
-- Current progress estimate after this rescan: **75/100**. The repository owns most core product surfaces and has strong focused evidence. Recent Agent, Chat, and Scheduled Task runtime proof narrows frontend and DB-backed workflow risk, but the remaining progress is still dominated by target-environment proof, broader DB-backed commercial reruns, security/tenant-isolation depth, production deployment validation, and final no-skip release readiness.
+- Current progress estimate after this rescan: **76/100**. The repository owns most core product surfaces and has strong focused evidence. Recent Agent, Chat, Scheduled Task runtime, and all-profile DB evidence proof narrows frontend, DB-backed workflow, and release-readiness risk, but the remaining progress is still dominated by target-environment proof, security/tenant-isolation depth, production deployment validation, and final no-skip release readiness.
 
 ## What Changed Since The Previous Rescan
 
@@ -22,6 +22,7 @@
 - Real Workspace app-router coverage now proves the Agent planning route journey from `/agents` into `/agent-runs/:runId/plan-steps`, including tool approval, plan-step approval/execution, and continue-plan refresh behavior. This was committed and pushed as `c82abda`.
 - Real Workspace app-router coverage now proves `/chat/:conversationId` beyond route parameter loading: conversation settings save, streamed message send, final message refresh, conversion to SOLO draft, SOLO task creation/start, and navigation to `/solo?taskId=task_router_new&returnTo=%2Fchat%2Fconversation_router`. This was committed and pushed as `5288222`.
 - `scripts/verify-commercial-db-evidence.sh scheduled-task-runtime` now provides no-skip PostgreSQL evidence for Scheduled Task SQL runtime persistence, route dispatch, and Workflow schedule-trigger sync.
+- `scripts/verify-commercial-db-evidence.sh all` now runs the full DB-backed commercial evidence profile set, and `scripts/verify-commercial-completion.sh` delegates its DB step to that aggregate instead of only `backend-journey`.
 
 ## Repository Inventory
 
@@ -77,6 +78,7 @@ git status --short --branch
 git log --oneline -n 6
 git diff --check
 COREPACK_HOME=/tmp/codex-corepack GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh scheduled-task-runtime
+COREPACK_HOME=/tmp/codex-corepack GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh all
 bash scripts/check.sh docs
 ```
 
@@ -84,6 +86,7 @@ Result:
 
 - All commands passed during this report refresh.
 - `scheduled-task-runtime` used a disposable pgvector PostgreSQL container and reported `skipped tests: none`.
+- `all` used a disposable pgvector PostgreSQL container and reported `skipped tests: none`.
 - The previous Agent structured-plan slice remains covered by `agent-runtime-memory` evidence recorded in the matrix.
 - The previous Agent and Chat router slices remain covered by their focused Vitest/TypeScript/diff checks recorded in the matrix.
 
@@ -107,9 +110,9 @@ Result:
 
 ## Recommended Next Slices
 
-1. Broader commercial verifier rerun: run all `verify-commercial-db-evidence.sh` profiles and record any environment-specific residual risk.
-2. Tenant DB coverage: add a no-skip PostgreSQL profile for remaining tenant/member/invitation edge cases if the existing `app-stateful-routes` profile is too narrow.
-3. Browser/E2E route proof: extend from focused app-router tests into Playwright coverage for the most important commercial workflows.
+1. Tenant DB coverage: add a no-skip PostgreSQL profile for remaining tenant/member/invitation edge cases if the existing `app-stateful-routes` profile is too narrow.
+2. Browser/E2E route proof: extend from focused app-router tests into Playwright coverage for the most important commercial workflows.
+3. Strict commercial verifier rerun on target infrastructure with deploy and backup/restore enabled.
 4. Observability and recovery proof: strengthen the gap between static dashboard/policy checks and target-environment recovery behavior.
 5. Deployment validation: only after repo-owned rows are narrowed further, run deploy/Kubernetes/backup-restore proof on the target installation.
 

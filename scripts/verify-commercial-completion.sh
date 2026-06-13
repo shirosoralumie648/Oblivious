@@ -87,8 +87,8 @@ run_step "commercial frontend focused suites" \
   pnpm --dir "$web_dir" test -- ChatPage SoloPage KnowledgePage MarketplacePage AdminHomePage AdminBillingPage AdminReviewsPage --runInBand
 run_step "browser commercial journey" \
   pnpm --dir "$web_dir" test:e2e --grep "commercial journey"
-run_step "backend DB commercial journey" \
-  env TEST_DATABASE_URL="$TEST_DATABASE_URL" bash "$repo_root/scripts/verify-commercial-db-evidence.sh" backend-journey
+run_step "DB-backed commercial evidence profiles" \
+  env TEST_DATABASE_URL="$TEST_DATABASE_URL" bash "$repo_root/scripts/verify-commercial-db-evidence.sh" all
 
 if [[ "$run_deploy" == "true" ]]; then
   run_step "deployment validation" bash "$repo_root/scripts/deploy-validate.sh"
