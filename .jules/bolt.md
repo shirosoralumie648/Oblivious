@@ -1,0 +1,3 @@
+## 2024-06-25 - Memoize array mapping in commonly used React components
+**Learning:** In reusable components like `DataTable` that may accept large datasets (`data` arrays), mapping or filtering the array inline during render (e.g. `const selectableRows = data.map(...)`) creates significant overhead on every re-render (such as when toggling a checkbox, which updates a `selectedIds` state and triggers a re-render of the entire table).
+**Action:** Use `useMemo` for derived data arrays in highly-reusable components, especially when they depend on props that change infrequently (like `data` or `idKey`) but the component re-renders frequently due to other state changes (like selection or hover states).
