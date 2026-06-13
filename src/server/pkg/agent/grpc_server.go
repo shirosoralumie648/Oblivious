@@ -9,12 +9,68 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+type RuntimeGateway interface {
+	CreateRun(context.Context, CreateRunInput) (RunState, error)
+	ExecuteReAct(context.Context, ExecuteReActInput) (RunExecutionState, error)
+	ApproveToolCall(context.Context, ToolApprovalInput) (ToolApprovalState, error)
+}
+
+type CreateRunInput struct {
+	AgentID        string
+	ConversationID string
+	UserContent    string
+	OrganizationID string
+	UserID         string
+}
+
+type ExecuteReActInput struct {
+	RunID          string
+	OrganizationID string
+}
+
+type ToolApprovalInput struct {
+	RunID          string
+	ToolCallID     string
+	Approved       bool
+	OrganizationID string
+}
+
+type RunState struct {
+	RunID  string
+	Status string
+}
+
+type RunExecutionState struct {
+	RunID            string
+	Status           string
+	Result           string
+	PendingToolCalls []PendingToolCall
+}
+
+type PendingToolCall struct {
+	ID     string
+	Name   string
+	Input  string
+	Status string
+}
+
+type ToolApprovalState struct {
+	RunID      string
+	ToolCallID string
+	Status     string
+}
+
 type Server struct {
 	agentv1.UnimplementedAgentServiceServer
+	runtime RuntimeGateway
 }
 
 func NewServer() *Server {
 	return &Server{}
+}
+
+func NewServerWithRuntime(runtime RuntimeGateway) *Server {
+	return &Server{runtime: runtime}
 }
 
 func (s *Server) CreateRun(ctx context.Context, req *agentv1.CreateRunRequest) (*agentv1.CreateRunResponse, error) {
@@ -27,10 +83,23 @@ func (s *Server) CreateRun(ctx context.Context, req *agentv1.CreateRunRequest) (
 	if req.OrganizationId == "" {
 		return nil, status.Error(codes.InvalidArgument, "organization_id is required")
 	}
+	if s.runtime == nil {
+		return nil, status.Error(codes.FailedPrecondition, "agent runtime is not configured")
+	}
 
+	run, err := s.runtime.CreateRun(ctx, CreateRunInput{
+		AgentID:        req.AgentId,
+		ConversationID: req.ConversationId,
+		UserContent:    req.UserContent,
+		OrganizationID: req.OrganizationId,
+		UserID:         req.UserId,
+	})
+	if err != nil {
+		return nil, err
+	}
 	return &agentv1.CreateRunResponse{
-		RunId:  "run_" + req.AgentId,
-		Status: "created",
+		RunId:  run.RunID,
+		Status: run.Status,
 	}, nil
 }
 
@@ -41,11 +110,31 @@ func (s *Server) ExecuteReAct(ctx context.Context, req *agentv1.ExecuteReActRequ
 	if req.OrganizationId == "" {
 		return nil, status.Error(codes.InvalidArgument, "organization_id is required")
 	}
+	if s.runtime == nil {
+		return nil, status.Error(codes.FailedPrecondition, "agent runtime is not configured")
+	}
 
+	run, err := s.runtime.ExecuteReAct(ctx, ExecuteReActInput{
+		RunID:          req.RunId,
+		OrganizationID: req.OrganizationId,
+	})
+	if err != nil {
+		return nil, err
+	}
+	pendingToolCalls := make([]*agentv1.ToolCall, 0, len(run.PendingToolCalls))
+	for _, toolCall := range run.PendingToolCalls {
+		pendingToolCalls = append(pendingToolCalls, &agentv1.ToolCall{
+			Id:     toolCall.ID,
+			Name:   toolCall.Name,
+			Input:  toolCall.Input,
+			Status: toolCall.Status,
+		})
+	}
 	return &agentv1.ExecuteReActResponse{
-		RunId:  req.RunId,
-		Status: "completed",
-		Result: "execution completed",
+		RunId:            run.RunID,
+		Status:           run.Status,
+		Result:           run.Result,
+		PendingToolCalls: pendingToolCalls,
 	}, nil
 }
 
@@ -59,15 +148,22 @@ func (s *Server) ApproveToolCall(ctx context.Context, req *agentv1.ApproveToolCa
 	if req.OrganizationId == "" {
 		return nil, status.Error(codes.InvalidArgument, "organization_id is required")
 	}
-
-	statusStr := "rejected"
-	if req.Approved {
-		statusStr = "approved"
+	if s.runtime == nil {
+		return nil, status.Error(codes.FailedPrecondition, "agent runtime is not configured")
 	}
 
+	approval, err := s.runtime.ApproveToolCall(ctx, ToolApprovalInput{
+		RunID:          req.RunId,
+		ToolCallID:     req.ToolCallId,
+		Approved:       req.Approved,
+		OrganizationID: req.OrganizationId,
+	})
+	if err != nil {
+		return nil, err
+	}
 	return &agentv1.ApproveToolCallResponse{
-		RunId:      req.RunId,
-		ToolCallId: req.ToolCallId,
-		Status:     statusStr,
+		RunId:      approval.RunID,
+		ToolCallId: approval.ToolCallID,
+		Status:     approval.Status,
 	}, nil
 }
