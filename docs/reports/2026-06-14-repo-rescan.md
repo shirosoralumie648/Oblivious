@@ -2,11 +2,11 @@
 
 ## Current Truth
 
-- Branch: `main`; current pushed `HEAD` is `634b674 feat(agent): persist structured plan step dependencies`.
+- Branch: `main`; current pushed `HEAD` is `5288222 test(frontend): cover chat router journey`.
 - Worktree status at scan time: clean against `origin/main`.
 - The project is still **not complete** against the four 2026-06-04 fusion specs.
 - The current completion matrix remains `4 Proven / 10 Partial / 0 Gap / 0 Unverified`.
-- Current progress estimate after this rescan: **73/100**. The repository owns most core product surfaces and has strong focused evidence, but the remaining progress is dominated by target-environment proof, broader DB-backed commercial reruns, security/tenant-isolation depth, production deployment validation, and final no-skip release readiness.
+- Current progress estimate after this rescan: **74/100**. The repository owns most core product surfaces and has strong focused evidence. Recent Agent and Chat app-router proof narrows frontend risk, but the remaining progress is still dominated by target-environment proof, broader DB-backed commercial reruns, security/tenant-isolation depth, production deployment validation, and final no-skip release readiness.
 
 ## What Changed Since The Previous Rescan
 
@@ -19,13 +19,15 @@
   - no explicit dependencies means all lower-index steps must be completed or skipped;
   - explicit dependencies require only the listed dependency step indexes to be completed or skipped.
 - The slice was independently verified, committed, and pushed as `634b674`.
+- Real Workspace app-router coverage now proves the Agent planning route journey from `/agents` into `/agent-runs/:runId/plan-steps`, including tool approval, plan-step approval/execution, and continue-plan refresh behavior. This was committed and pushed as `c82abda`.
+- Real Workspace app-router coverage now proves `/chat/:conversationId` beyond route parameter loading: conversation settings save, streamed message send, final message refresh, conversion to SOLO draft, SOLO task creation/start, and navigation to `/solo?taskId=task_router_new&returnTo=%2Fchat%2Fconversation_router`. This was committed and pushed as `5288222`.
 
 ## Repository Inventory
 
 - Tracked file distribution:
   - `src`: 960 files
   - `.planning`: 210 files
-  - `docs`: 90 files
+  - `docs`: 91 files
   - `scripts`: 37 files
   - `deploy`: 42 files
 - Server shape:
@@ -39,8 +41,9 @@
 - Test inventory:
   - Go test files: 225
   - Web component/API test files: 67
-  - Web E2E specs: 6
+  - Web Playwright specs: 3 specs, plus 3 E2E fixture files
 - Latest checked-in migration: `src/server/migrations/0080_agent_plan_step_structure.sql`.
+- Project-local `AGENTS.md`: none at the main repo root or under first-party source; discovered `AGENTS.md` files are in dependency caches or nested `reference/*` repositories.
 
 ## Completion Matrix Snapshot
 
@@ -64,24 +67,22 @@ Partial rows:
 - Security and tenant isolation
 - Migration strategy and release readiness
 
-This scan does not reclassify any Partial row to Proven. The Agent row gained structured plan-step persistence and DB-backed evidence, but still needs broader dual-engine runtime, resume, memory consolidation, and planning UX proof before it can be called complete.
+This scan does not reclassify any Partial row to Proven. The Agent and Frontend rows gained real app-router evidence, but still need broader browser/runtime/target-environment proof before either row can be called complete.
 
 ## Verification Run During This Rescan
 
 ```bash
+git status --short --branch
+git log --oneline -n 6
 git diff --check
-GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/agent ./internal/http -count=1
-COREPACK_HOME=/tmp/codex-corepack pnpm --dir src/web test src/routes/workspace/AgentPlanStepsPage.test.tsx -- --runInBand
-bash scripts/verify-openapi-contract.sh
-COREPACK_HOME=/tmp/codex-corepack pnpm --dir src/web exec tsc --noEmit
-COREPACK_HOME=/tmp/codex-corepack GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh agent-runtime-memory
+bash scripts/check.sh docs
 ```
 
 Result:
 
-- All commands passed.
-- `agent-runtime-memory` used a disposable pgvector PostgreSQL container.
-- The DB-backed profile reported no skipped tests.
+- All commands passed during this report refresh.
+- The previous Agent structured-plan slice remains covered by `agent-runtime-memory` evidence recorded in the matrix.
+- The previous Agent and Chat router slices remain covered by their focused Vitest/TypeScript/diff checks recorded in the matrix.
 
 ## Notable Scan Findings
 
@@ -91,16 +92,21 @@ Result:
   - `marketplace-money-movement`
   - `app-stateful-routes`
   - `agent-runtime-memory`
-- Active source TODO/stub scan did not reveal a new broad implementation gap. Most matches are test stubs, generated gRPC `Unimplemented*` boilerplate, one intentional duplicate-builtin panic guard, and one service-template TODO.
-- `docs/release/relay-route-table.md` still records production-disabled future OpenAI-compatible endpoints such as fine-tuning and Assistants/Threads/Runs. Those are documented future support boundaries rather than current fusion-spec completion blockers.
+- Active source TODO/stub scan still does not reveal a new broad implementation gap. Most matches are test stubs, generated gRPC `Unimplemented*` boilerplate, placeholder-secret/runbook language, and explicit tests that assert placeholder output is not used.
+- First-party active TODO boundaries are narrow and already documented as future or non-release proof:
+  - `src/server/internal/relay/handler/realtime.go` has auth/prebill/settlement TODOs, while `docs/release/relay-route-table.md` marks Realtime `DisabledInProduction`.
+  - `src/server/internal/relay/handler/policy.go` explicitly disables fine-tuning and Assistants/Threads/Runs as future commercial support.
+  - `scripts/migrate-service-template.sh` contains a service-template TODO.
+  - `src/server/internal/admin/channel_service.go` fails closed for unimplemented channel providers.
+- `src/server/internal/relay/handler_new/` contains stale/alternate handler code with TODOs, but current runtime registration imports `src/server/internal/relay/handler/*` through `src/server/internal/relay/relay.go`; do not use `handler_new` as completion evidence.
 - `.tmp/rescan-stale-artifacts/` remains a quarantine area from the previous cleanup and should not be treated as release source.
 
 ## Recommended Next Slices
 
-1. Agent browser journey: prove `/agents -> start planning run -> plan steps -> approve/execute/continue/tool decision` through the real app shell.
-2. Frontend Chat app-router regression: cover `/chat/:conversationId` through the actual router and shell, not just page-level APIs.
-3. Scheduled-task or tenant DB coverage: add a no-skip PostgreSQL profile for a currently Partial row that still depends on DB-backed proof.
-4. Broader commercial verifier rerun: run the remaining `verify-commercial-db-evidence.sh` profiles and record any environment-specific residual risk.
+1. Scheduled-task or tenant DB coverage: add a no-skip PostgreSQL profile for a currently Partial row that still depends on DB-backed proof.
+2. Broader commercial verifier rerun: run the remaining `verify-commercial-db-evidence.sh` profiles and record any environment-specific residual risk.
+3. Browser/E2E route proof: extend from focused app-router tests into Playwright coverage for the most important commercial workflows.
+4. Observability and recovery proof: strengthen the gap between static dashboard/policy checks and target-environment recovery behavior.
 5. Deployment validation: only after repo-owned rows are narrowed further, run deploy/Kubernetes/backup-restore proof on the target installation.
 
 ## Boundary
