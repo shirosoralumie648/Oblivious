@@ -538,6 +538,77 @@ func TestServiceUpdatePlanStepDraftResetsApprovedStepForReview(t *testing.T) {
 	}
 }
 
+func TestServiceUpdatePlanStepDraftRecomputesApprovalForPendingDraft(t *testing.T) {
+	session := auth.Session{
+		User:           auth.User{ID: "user_1"},
+		OrganizationID: "org_1",
+	}
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Config:         Config{ApprovalMode: ApprovalModeTiered},
+			Tools: []Tool{{
+				Name:      "write_file",
+				Type:      "builtin",
+				Enabled:   true,
+				RiskLevel: ToolRiskMedium,
+			}, {
+				Name:      "read_file",
+				Type:      "builtin",
+				Enabled:   true,
+				RiskLevel: ToolRiskSafe,
+			}},
+		},
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
+			Status:         RunStatusPendingApproval,
+		}},
+		planSteps: []*PlanStep{{
+			ID:             "step_1",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			Index:          1,
+			Title:          "Inspect config",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusNotRequired,
+			ToolName:       "read_file",
+			Input:          map[string]any{"path": "config.yaml"},
+		}},
+	}
+	service := NewService(store, &fakeGateway{})
+
+	writeFile := "write_file"
+	updated, err := service.UpdatePlanStepDraft(context.Background(), session, "step_1", UpdatePlanStepDraftRequest{
+		ToolName: &writeFile,
+		Input:    map[string]any{"path": "config.yaml", "content": "new"},
+	})
+	if err != nil {
+		t.Fatalf("UpdatePlanStepDraft returned error: %v", err)
+	}
+	if updated.Status != PlanStepStatusPending || updated.ApprovalStatus != ApprovalStatusPending {
+		t.Fatalf("write_file edit should require approval, got %+v", updated)
+	}
+
+	readFile := "read_file"
+	updated, err = service.UpdatePlanStepDraft(context.Background(), session, "step_1", UpdatePlanStepDraftRequest{
+		ToolName: &readFile,
+		Input:    map[string]any{"path": "config.yaml"},
+	})
+	if err != nil {
+		t.Fatalf("UpdatePlanStepDraft returned error on safe edit: %v", err)
+	}
+	if updated.Status != PlanStepStatusPending || updated.ApprovalStatus != ApprovalStatusNotRequired {
+		t.Fatalf("read_file edit should not require approval, got %+v", updated)
+	}
+}
+
 func TestServiceUpdatePlanStepDraftRejectsRunningStep(t *testing.T) {
 	session := auth.Session{
 		User:           auth.User{ID: "user_1"},
@@ -759,6 +830,69 @@ func TestServiceCreatePlanStepDraftInsertsAfterDraftAndResetsShiftedApproval(t *
 	}
 	if steps[2].ID != "step_2" || steps[2].Index != 3 || steps[2].Status != PlanStepStatusPending || steps[2].ApprovalStatus != ApprovalStatusPending {
 		t.Fatalf("expected shifted approved step to require fresh review, got %+v", steps[2])
+	}
+}
+
+func TestServiceCreatePlanStepDraftAppliesApprovalPolicy(t *testing.T) {
+	session := auth.Session{
+		User:           auth.User{ID: "user_1"},
+		OrganizationID: "org_1",
+	}
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Config:         Config{ApprovalMode: ApprovalModeTiered},
+			Tools: []Tool{{
+				Name:      "read_file",
+				Type:      "builtin",
+				Enabled:   true,
+				RiskLevel: ToolRiskSafe,
+			}, {
+				Name:      "write_file",
+				Type:      "builtin",
+				Enabled:   true,
+				RiskLevel: ToolRiskMedium,
+			}},
+		},
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
+			Status:         RunStatusPendingApproval,
+		}},
+	}
+	service := NewService(store, &fakeGateway{})
+
+	steps, err := service.CreatePlanStepDraft(context.Background(), session, "run_1", CreatePlanStepDraftRequest{
+		Title:    "Read config",
+		ToolName: "read_file",
+		Input:    map[string]any{"path": "config.yaml"},
+	})
+	if err != nil {
+		t.Fatalf("CreatePlanStepDraft safe tool returned error: %v", err)
+	}
+	if len(steps) != 1 || steps[0].ApprovalStatus != ApprovalStatusNotRequired {
+		t.Fatalf("safe manual step should not require approval, got %+v", steps)
+	}
+
+	steps, err = service.CreatePlanStepDraft(context.Background(), session, "run_1", CreatePlanStepDraftRequest{
+		Title:    "Write config",
+		ToolName: "write_file",
+		Input:    map[string]any{"path": "config.yaml", "content": "new"},
+	})
+	if err != nil {
+		t.Fatalf("CreatePlanStepDraft write tool returned error: %v", err)
+	}
+	if len(steps) != 2 {
+		t.Fatalf("expected two plan steps, got %+v", steps)
+	}
+	if steps[0].ApprovalStatus != ApprovalStatusNotRequired || steps[1].ApprovalStatus != ApprovalStatusPending {
+		t.Fatalf("manual plan-step approval statuses did not follow policy: %+v", steps)
 	}
 }
 
@@ -1119,6 +1253,62 @@ func TestServiceExecutePlanStepRejectsPendingApprovalStep(t *testing.T) {
 	// Verify step was not mutated
 	if store.planSteps[0].Status != PlanStepStatusPending {
 		t.Fatalf("pending-approval step should remain pending: %+v", store.planSteps[0])
+	}
+}
+
+func TestServiceExecutePlanStepRejectsStaleNotRequiredApproval(t *testing.T) {
+	session := auth.Session{
+		User:           auth.User{ID: "user_1"},
+		OrganizationID: "org_1",
+	}
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Config:         Config{ApprovalMode: ApprovalModeTiered},
+			Tools: []Tool{{
+				Name:      "write_file",
+				Type:      "builtin",
+				Enabled:   true,
+				RiskLevel: ToolRiskMedium,
+			}},
+		},
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
+			Status:         RunStatusPendingApproval,
+		}},
+		planSteps: []*PlanStep{{
+			ID:             "step_1",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			Index:          1,
+			Title:          "Write config",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusNotRequired,
+			ToolName:       "write_file",
+			Input:          map[string]any{"path": "config.yaml", "content": "new"},
+		}},
+	}
+	executor := &fakePlanStepExecutor{resultContent: "should not execute stale approval"}
+	service := NewService(store, &fakeGateway{})
+	service.SetPlanStepExecutor(executor)
+
+	_, err := service.ExecutePlanStep(context.Background(), session, "step_1")
+	if err == nil || !strings.Contains(err.Error(), "requires approval") {
+		t.Fatalf("expected stale not_required approval rejection, got %v", err)
+	}
+	if executor.calls != 0 {
+		t.Fatalf("stale not_required step should not execute, got %d calls", executor.calls)
+	}
+	step := store.planSteps[0]
+	if step.Status != PlanStepStatusPending || step.ApprovalStatus != ApprovalStatusPending {
+		t.Fatalf("stale not_required step should reopen for approval, got %+v", step)
 	}
 }
 

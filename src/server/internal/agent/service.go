@@ -1034,6 +1034,21 @@ func (s *Service) initialPlanStepApprovalStatus(ctx context.Context, organizatio
 	return ApprovalStatusNotRequired
 }
 
+func (s *Service) planStepApprovalStatusForRun(ctx context.Context, organizationID string, run *Run, toolName string) (string, error) {
+	if run == nil {
+		return ApprovalStatusPending, fmt.Errorf("run not found")
+	}
+	var agent *Agent
+	if strings.TrimSpace(run.AgentID) != "" {
+		loadedAgent, err := s.store.GetAgent(ctx, run.AgentID, organizationID)
+		if err != nil {
+			return ApprovalStatusPending, fmt.Errorf("get plan step agent: %w", err)
+		}
+		agent = loadedAgent
+	}
+	return s.initialPlanStepApprovalStatus(ctx, organizationID, run.ConversationID, agent, toolName), nil
+}
+
 type parsedPlanStepSpec struct {
 	Title    string         `json:"title"`
 	ToolName string         `json:"toolName"`
@@ -1508,13 +1523,17 @@ func (s *Service) CreatePlanStepDraft(ctx context.Context, session auth.Session,
 		return nil, err
 	}
 
+	approvalStatus, err := s.planStepApprovalStatusForRun(ctx, session.OrganizationID, run, toolName)
+	if err != nil {
+		return nil, err
+	}
 	if _, err := s.store.CreatePlanStep(ctx, &CreatePlanStepRequest{
 		OrganizationID: session.OrganizationID,
 		RunID:          runID,
 		Index:          insertIndex,
 		Title:          title,
 		Status:         PlanStepStatusPending,
-		ApprovalStatus: ApprovalStatusPending,
+		ApprovalStatus: approvalStatus,
 		ToolName:       toolName,
 		Input:          copyPlanStepInput(input),
 	}); err != nil {
@@ -1536,13 +1555,15 @@ func (s *Service) UpdatePlanStepDraft(ctx context.Context, session auth.Session,
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.requirePlanStepParentStatus(ctx, session, step, "update", RunStatusPendingApproval); err != nil {
+	run, err := s.requirePlanStepParentStatus(ctx, session, step, "update", RunStatusPendingApproval)
+	if err != nil {
 		return nil, err
 	}
 	if step.Status != PlanStepStatusPending && step.Status != PlanStepStatusApproved {
 		return nil, fmt.Errorf("plan step cannot be adjusted after execution starts")
 	}
 
+	nextToolName := strings.TrimSpace(step.ToolName)
 	updateReq := UpdatePlanStepRequest{
 		ResultContent:    stringPointer(""),
 		Error:            stringPointer(""),
@@ -1556,16 +1577,22 @@ func (s *Service) UpdatePlanStepDraft(ctx context.Context, session auth.Session,
 		updateReq.Title = &title
 	}
 	if req.ToolName != nil {
-		toolName := strings.TrimSpace(*req.ToolName)
-		updateReq.ToolName = &toolName
+		nextToolName = strings.TrimSpace(*req.ToolName)
+		updateReq.ToolName = &nextToolName
 	}
 	if req.Input != nil {
 		updateReq.Input = copyPlanStepInput(req.Input)
 		updateReq.ReplaceInput = true
 	}
-	if step.ApprovalStatus == ApprovalStatusApproved {
+	if step.Status == PlanStepStatusApproved || step.ApprovalStatus == ApprovalStatusApproved {
 		updateReq.Status = stringPointer(PlanStepStatusPending)
 		updateReq.ApprovalStatus = stringPointer(ApprovalStatusPending)
+	} else {
+		approvalStatus, err := s.planStepApprovalStatusForRun(ctx, session.OrganizationID, run, nextToolName)
+		if err != nil {
+			return nil, err
+		}
+		updateReq.ApprovalStatus = stringPointer(approvalStatus)
 	}
 	return s.store.UpdatePlanStep(ctx, session.OrganizationID, planStepID, updateReq)
 }
@@ -1685,11 +1712,26 @@ func (s *Service) ExecutePlanStep(ctx context.Context, session auth.Session, pla
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.requirePlanStepParentStatus(ctx, session, step, "execute", RunStatusPendingApproval); err != nil {
+	run, err := s.requirePlanStepParentStatus(ctx, session, step, "execute", RunStatusPendingApproval)
+	if err != nil {
 		return nil, err
 	}
 	if step.Status != PlanStepStatusApproved && !(step.Status == PlanStepStatusPending && step.ApprovalStatus == ApprovalStatusNotRequired) {
 		return nil, fmt.Errorf("plan step is not approved for execution")
+	}
+	if step.Status == PlanStepStatusPending && step.ApprovalStatus == ApprovalStatusNotRequired {
+		approvalStatus, err := s.planStepApprovalStatusForRun(ctx, session.OrganizationID, run, step.ToolName)
+		if err != nil {
+			return nil, err
+		}
+		if approvalStatus == ApprovalStatusPending {
+			if _, err := s.store.UpdatePlanStep(ctx, session.OrganizationID, planStepID, UpdatePlanStepRequest{
+				ApprovalStatus: stringPointer(ApprovalStatusPending),
+			}); err != nil {
+				return nil, err
+			}
+			return nil, fmt.Errorf("plan step requires approval")
+		}
 	}
 	if err := s.ensurePriorPlanStepsDone(ctx, session, step); err != nil {
 		return nil, err
