@@ -25,7 +25,7 @@ This pack is the current release-readiness evidence index for the four 2026-06-0
 | Observability and recovery | `docs/reports/2026-06-07-alert-requirement-audit.md`, `docs/release/recovery-platform-contract.md`, dashboard and deployment contract verifiers | Repository checks plus target platform proof for scale-down and failover claims |
 | API contract | `docs/api/openapi.yaml`, `scripts/verify-openapi-contract.sh`, route-surface tests | Contract gate plus focused route tests for every changed request/response family |
 | Deployment and operations | `docs/release/v07-operations-evidence.md`, `docs/release/rc-checklist.md`, deployment and backup/restore scripts | `scripts/deploy-validate.sh`, `scripts/k8s-validate.sh`, and `scripts/backup-restore-smoke.sh` on the target installation |
-| Security and tenant isolation | Security row 33, auth/CSRF route-surface tests, tenant isolation tests, secret-redaction contracts | DB-free guards where valid, DB-backed tenant-isolation proof where persistence is involved, and dependency scans |
+| Security and tenant isolation | Security row 33, auth/CSRF route-surface tests, tenant isolation tests, secret-redaction contracts, `scripts/verify-commercial-db-evidence.sh tenant-membership-lifecycle` | DB-free guards where valid, DB-backed tenant-isolation proof where persistence is involved, and dependency scans |
 | Migration and release readiness | `docs/reports/2026-06-08-migration-schema-audit.md`, migration verifiers, this evidence pack | Final strict verifier, release evidence logs, deployment validation, backup/restore smoke, unresolved-risk signoff |
 
 ## Required Final Commands
@@ -56,7 +56,7 @@ If a command is intentionally skipped because the target environment lacks Docke
 | External workflow success-rate proof | Deployed telemetry or load evidence from the target installation | Local deterministic workflow load evidence is repository proof only |
 | Billing and Marketplace payment rails | DB-backed lifecycle reruns plus configured provider checkout/refund/payout proof | Fake providers and DB-free handlers prove only local validation/fail-closed behavior |
 | Deployment platform recovery | `scripts/k8s-validate.sh` with real cluster access, real secrets, and failover/scale evidence | Static manifests and contract checks do not prove live failover |
-| Database-backed tenant isolation | Broader `TEST_DATABASE_URL` integration tests in CI or target release evidence | Focused disposable PostgreSQL app-stateful evidence covers selected tenant/session/ownership paths, but DB-free route guards do not prove all SQL persistence isolation |
+| Database-backed tenant isolation | Broader `TEST_DATABASE_URL` integration tests in CI or target release evidence | Focused disposable PostgreSQL app-stateful and tenant-membership lifecycle evidence covers selected tenant/session/ownership/member SQL paths, but DB-free route guards do not prove all SQL persistence isolation |
 | Final release readiness | Strict final verifier with deploy and backup/restore enabled and no environment skips | Historical Phase 30 success does not automatically cover later fusion-spec changes |
 
 ## Update Rules

@@ -2058,6 +2058,165 @@ func TestOrganizationSessionSecurityOnMembershipChanges(t *testing.T) {
 	}
 }
 
+func TestOrganizationMemberRoutesListTransferOwnershipAndRemove(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+
+	ownerCookie, ownerCSRF, ownerID := registerHTTPUser(t, router, "member-lifecycle-owner@example.com")
+	promoteHTTPUserToAdmin(t, database, ownerID)
+	organizationID := createHTTPOrganization(t, router, ownerCookie, ownerCSRF, "Member Lifecycle Org", "member-lifecycle-org")
+
+	newOwnerCookie, newOwnerCSRF, newOwnerID := registerHTTPUser(t, router, "member-lifecycle-new-owner@example.com")
+	removableCookie, removableCSRF, removableUserID := registerHTTPUser(t, router, "member-lifecycle-removable@example.com")
+
+	_, newOwnerToken := inviteHTTPMember(t, router, ownerCookie, ownerCSRF, organizationID, "member-lifecycle-new-owner@example.com")
+	newOwnerCookie = acceptHTTPInvitation(t, router, newOwnerCookie, newOwnerCSRF, newOwnerToken)
+	_, removableToken := inviteHTTPMember(t, router, ownerCookie, ownerCSRF, organizationID, "member-lifecycle-removable@example.com")
+	removableCookie = acceptHTTPInvitation(t, router, removableCookie, removableCSRF, removableToken)
+
+	listRecorder := httptest.NewRecorder()
+	listRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/app/organizations/"+organizationID+"/members", nil)
+	listRequest.AddCookie(ownerCookie)
+	router.ServeHTTP(listRecorder, listRequest)
+	if listRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("list organization members expected 200, got %d with body %s", listRecorder.Code, listRecorder.Body.String())
+	}
+	var listResponse struct {
+		Data struct {
+			Members []struct {
+				OrganizationID string `json:"organizationID"`
+				UserID         string `json:"userID"`
+				Role           string `json:"role"`
+			} `json:"members"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(listRecorder.Body.Bytes(), &listResponse); err != nil {
+		t.Fatalf("decode member list response: %v", err)
+	}
+	rolesByUserID := map[string]string{}
+	for _, member := range listResponse.Data.Members {
+		if member.OrganizationID != organizationID {
+			t.Fatalf("expected member organization %q, got %+v", organizationID, member)
+		}
+		rolesByUserID[member.UserID] = member.Role
+	}
+	if rolesByUserID[ownerID] != "owner" || rolesByUserID[newOwnerID] != "member" || rolesByUserID[removableUserID] != "member" {
+		t.Fatalf("expected owner/new owner/removable member roles, got %+v", rolesByUserID)
+	}
+
+	transferRecorder := httptest.NewRecorder()
+	transferRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/organizations/"+organizationID+"/ownership-transfer", strings.NewReader(`{"newOwnerUserID":"`+newOwnerID+`"}`))
+	transferRequest.Header.Set("Content-Type", "application/json")
+	transferRequest.AddCookie(ownerCookie)
+	addCSRF(transferRequest, ownerCSRF)
+	router.ServeHTTP(transferRecorder, transferRequest)
+	if transferRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("transfer ownership expected 200, got %d with body %s", transferRecorder.Code, transferRecorder.Body.String())
+	}
+
+	assertSessionRevoked := func(name string, cookie *stdhttp.Cookie) {
+		t.Helper()
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/auth/me", nil)
+		request.AddCookie(cookie)
+		router.ServeHTTP(recorder, request)
+		if recorder.Code != stdhttp.StatusUnauthorized {
+			t.Fatalf("expected %s session to be revoked, got %d with body %s", name, recorder.Code, recorder.Body.String())
+		}
+	}
+	assertSessionRevoked("old owner", ownerCookie)
+	assertSessionRevoked("new owner accepted", newOwnerCookie)
+
+	var ownerCount int
+	if err := database.QueryRow(`
+		SELECT COUNT(*)
+		FROM organization_memberships
+		WHERE organization_id = $1 AND role = 'owner' AND removed_at IS NULL
+	`, organizationID).Scan(&ownerCount); err != nil {
+		t.Fatalf("count active owners: %v", err)
+	}
+	if ownerCount != 1 {
+		t.Fatalf("expected exactly one active owner after transfer, got %d", ownerCount)
+	}
+
+	rows, err := database.Query(`
+		SELECT user_id, role
+		FROM organization_memberships
+		WHERE organization_id = $1 AND removed_at IS NULL
+	`, organizationID)
+	if err != nil {
+		t.Fatalf("query active member roles: %v", err)
+	}
+	rolesByUserID = map[string]string{}
+	for rows.Next() {
+		var userID string
+		var role string
+		if err := rows.Scan(&userID, &role); err != nil {
+			rows.Close()
+			t.Fatalf("scan active member role: %v", err)
+		}
+		rolesByUserID[userID] = role
+	}
+	if err := rows.Close(); err != nil {
+		t.Fatalf("close active member role rows: %v", err)
+	}
+	if rolesByUserID[ownerID] != "admin" || rolesByUserID[newOwnerID] != "owner" {
+		t.Fatalf("expected ownership transfer roles, got %+v", rolesByUserID)
+	}
+
+	newOwnerCookie, newOwnerCSRF, _ = loginHTTPUser(t, router, "member-lifecycle-new-owner@example.com", "StrongerPass1!")
+	deleteRecorder := httptest.NewRecorder()
+	deleteRequest := httptest.NewRequest(stdhttp.MethodDelete, "/api/v1/app/organizations/"+organizationID+"/members/"+removableUserID, nil)
+	deleteRequest.AddCookie(newOwnerCookie)
+	addCSRF(deleteRequest, newOwnerCSRF)
+	router.ServeHTTP(deleteRecorder, deleteRequest)
+	if deleteRecorder.Code != stdhttp.StatusNoContent {
+		t.Fatalf("remove member expected 204, got %d with body %s", deleteRecorder.Code, deleteRecorder.Body.String())
+	}
+
+	var removedAt sql.NullTime
+	if err := database.QueryRow(`
+		SELECT removed_at
+		FROM organization_memberships
+		WHERE organization_id = $1 AND user_id = $2
+	`, organizationID, removableUserID).Scan(&removedAt); err != nil {
+		t.Fatalf("query removed membership: %v", err)
+	}
+	if !removedAt.Valid {
+		t.Fatal("expected removed member to have removed_at evidence")
+	}
+	assertSessionRevoked("removed member", removableCookie)
+
+	postRemoveRecorder := httptest.NewRecorder()
+	postRemoveRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/app/organizations/"+organizationID+"/members", nil)
+	postRemoveRequest.AddCookie(newOwnerCookie)
+	router.ServeHTTP(postRemoveRecorder, postRemoveRequest)
+	if postRemoveRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("post-remove member list expected 200, got %d with body %s", postRemoveRecorder.Code, postRemoveRecorder.Body.String())
+	}
+	var postRemoveResponse struct {
+		Data struct {
+			Members []struct {
+				UserID string `json:"userID"`
+				Role   string `json:"role"`
+			} `json:"members"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(postRemoveRecorder.Body.Bytes(), &postRemoveResponse); err != nil {
+		t.Fatalf("decode post-remove member list response: %v", err)
+	}
+	rolesByUserID = map[string]string{}
+	for _, member := range postRemoveResponse.Data.Members {
+		rolesByUserID[member.UserID] = member.Role
+	}
+	if rolesByUserID[newOwnerID] != "owner" {
+		t.Fatalf("expected new owner to remain active owner, got %+v", rolesByUserID)
+	}
+	if _, ok := rolesByUserID[removableUserID]; ok {
+		t.Fatalf("expected removed member to be absent from active member list, got %+v", rolesByUserID)
+	}
+}
+
 func TestSensitiveOrganizationActionsAreRateLimited(t *testing.T) {
 	database := testDatabase(t)
 	router := NewRouter(testConfig(), database)
