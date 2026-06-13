@@ -28,7 +28,9 @@
 - The frontend toolchain moved from `vite@6.4.3` / `@vitejs/plugin-react@4.x` to `vite@8.0.16` / `@vitejs/plugin-react@6.0.2`, and both `pnpm-lock.yaml` and `src/web/package-lock.json` were synced to remove the previously audited `esbuild@0.25.x` path.
 - `npm --prefix src/web audit --audit-level=moderate --registry=https://registry.npmjs.org` passed with 0 vulnerabilities after syncing the tracked web npm lockfile.
 - The unused root `wireit` devDependency was removed from `package.json`, `package-lock.json`, and `pnpm-lock.yaml`, clearing the remaining `brace-expansion@4.0.1` advisory path.
+- GitHub Dependabot Go manifest alerts were addressed by upgrading `google.golang.org/grpc` to `v1.79.3` and `filippo.io/edwards25519` to `v1.1.1`; `google.golang.org/protobuf` moved to `v1.36.10` and `google.golang.org/genproto/googleapis/rpc` moved to `v0.0.0-20251202230838-ff82c1b0f217` through `go get`.
 - Regression gates passed after the dependency slice:
+  - `GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/check.sh server`
   - `COREPACK_HOME=/tmp/codex-corepack pnpm --dir src/web build`
   - `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/google-chrome COREPACK_HOME=/tmp/codex-corepack pnpm --dir src/web exec playwright test e2e/workflows.spec.ts --project=chromium`
   - `bash scripts/check.sh docs`
