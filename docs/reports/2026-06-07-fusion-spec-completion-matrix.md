@@ -35,6 +35,7 @@ Status values:
 
 ## 2026-06-14 Matrix Row Updates
 
+- Billing row 26 / API contract row 31 / Security row 33: `scripts/verify-commercial-db-evidence.sh marketplace-money-movement` now also reruns the Admin Billing recovery filter and failed-status summary PostgreSQL tests without accepting skips. This converts the earlier local skip notes for `TestAdminBillingListsApplyRecoveryFilters` and `TestAdminBillingSummaryAppliesFailedStatusFilter` into no-skip DB-backed evidence for Admin Billing inspection/filter behavior, while the row remains `Partial` until broader target-environment proof is complete.
 - Billing row 26 / Marketplace row 27 / Release readiness row 34: `scripts/verify-commercial-db-evidence.sh marketplace-money-movement` now supplies a second no-skip DB-backed commercial evidence profile. It runs focused PostgreSQL tests for Marketplace paid-install provider/currency/order/payment-intent recording, settlement payout paid/failed idempotency, configured payout dispatch, publisher money totals, Admin Billing payout paid/failed/create-due/top-up refund routes, and domestic Marketplace install/refund/payout webhook bridges. The runner now also fails when a profile regex matches no tests, so empty DB evidence cannot pass without `=== RUN` output.
 
 ## 2026-06-13 Matrix Row Updates
