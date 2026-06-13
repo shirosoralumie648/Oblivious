@@ -4,6 +4,14 @@ import { RouterProvider } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const chatApiMocks = vi.hoisted(() => ({
+  convertConversationToTask: vi.fn((conversationId = 'conversation_router') =>
+    Promise.resolve({
+      draftTaskGoal: `Create a SOLO follow-up from ${conversationId}.`,
+      relatedKnowledgeBaseIds: ['kb_router'],
+      suggestedBudget: 20,
+      suggestedExecutionMode: 'safe'
+    })
+  ),
   createConversation: vi.fn(() => Promise.resolve({ id: 'conversation_router_solo', title: 'SOLO continuation' })),
   getConversationConfig: vi.fn((conversationId = 'conversation_router') =>
     Promise.resolve({
@@ -21,10 +29,116 @@ const chatApiMocks = vi.hoisted(() => ({
   listModels: vi.fn(() => Promise.resolve([{ id: 'gpt-4o-mini', label: 'gpt-4o-mini' }])),
   listPersonas: vi.fn(() => Promise.resolve([])),
   sendMessage: vi.fn(() => Promise.resolve([])),
+  sendMessageStream: vi.fn(async (_conversationId: string, _payload: Record<string, unknown>, handlers: { onChunk: (chunk: string) => void }) => {
+    handlers.onChunk('Router streamed answer.');
+  }),
   updateConversationConfig: vi.fn((conversationId: string, config: Record<string, unknown>) =>
     Promise.resolve({ conversationId, ...config })
   )
 }));
+
+const taskApiMocks = vi.hoisted(() => {
+  const runningTaskDetail = () => ({
+    authorizationScope: 'full_access',
+    budgetConsumed: 6,
+    budgetLimit: 20,
+    createdAt: '2026-06-09T10:00:00Z',
+    currentStep: 'Review workspace context',
+    events: [
+      { createdAt: '2026-06-09T10:01:00Z', message: 'Task execution started', type: 'started' },
+      { createdAt: '2026-06-09T10:02:00Z', message: 'Executing Review workspace context', type: 'running' }
+    ],
+    executionMode: 'safe',
+    goal: 'Draft launch checklist',
+    id: 'task_router_new',
+    knowledgeBaseIds: ['kb_router'],
+    startedAt: '2026-06-09T10:01:00Z',
+    status: 'running',
+    steps: [
+      { id: 'step_router_1', status: 'completed', stepIndex: 1, title: 'Understand the goal' },
+      { id: 'step_router_2', status: 'running', stepIndex: 2, title: 'Review workspace context' },
+      { id: 'step_router_3', status: 'pending', stepIndex: 3, title: 'Deliver starter result' }
+    ],
+    title: 'Draft launch checklist',
+    toolAllowList: ['browser', 'shell'],
+    toolDenyList: ['email']
+  });
+
+  return {
+    approveTask: vi.fn(() => Promise.resolve(runningTaskDetail())),
+    cancelTask: vi.fn(() => Promise.resolve({ ...runningTaskDetail(), status: 'cancelled' })),
+    createTask: vi.fn(() =>
+      Promise.resolve({
+        authorizationScope: 'full_access',
+        budgetLimit: 20,
+        executionMode: 'safe',
+        goal: 'Draft launch checklist',
+        id: 'task_router_new',
+        knowledgeBaseIds: ['kb_router'],
+        status: 'draft',
+        title: 'Draft launch checklist'
+      })
+    ),
+    getTask: vi.fn((taskId?: string) =>
+      Promise.resolve(
+        taskId === 'task_router_new'
+          ? runningTaskDetail()
+          : {
+              authorizationScope: 'workspace_tools',
+              budgetConsumed: 12,
+              budgetLimit: 12,
+              executionMode: 'standard',
+              finishedAt: '2026-06-09T10:20:00Z',
+              goal: 'Review launch plan',
+              id: 'task_completed',
+              knowledgeBaseIds: ['kb_router'],
+              resultArtifacts: [{ label: 'Report', value: 'solo-result.md' }],
+              resultSummary: 'Completed a starter SOLO run for: Review launch plan',
+              status: 'completed',
+              steps: [{ id: 'step_done', status: 'completed', stepIndex: 1, title: 'Understand the goal' }],
+              title: 'Review launch plan',
+              toolAllowList: ['browser'],
+              toolDenyList: ['email']
+            }
+      )
+    ),
+    listTasks: vi.fn(() =>
+      Promise.resolve([
+        {
+          authorizationScope: 'workspace_tools',
+          budgetLimit: 20,
+          executionMode: 'standard',
+          goal: 'Watch live rollout',
+          id: 'task_running',
+          status: 'running',
+          title: 'Watch live rollout'
+        },
+        {
+          authorizationScope: 'workspace_tools',
+          budgetLimit: 12,
+          executionMode: 'standard',
+          goal: 'Review launch plan',
+          id: 'task_completed',
+          status: 'completed',
+          title: 'Review launch plan'
+        },
+        {
+          authorizationScope: 'workspace_tools',
+          budgetLimit: 8,
+          executionMode: 'safe',
+          goal: 'Abort risky task',
+          id: 'task_cancelled',
+          status: 'cancelled',
+          title: 'Abort risky task'
+        }
+      ])
+    ),
+    pauseTask: vi.fn(() => Promise.resolve({ ...runningTaskDetail(), status: 'paused' })),
+    resumeTask: vi.fn(() => Promise.resolve(runningTaskDetail())),
+    startTask: vi.fn(() => Promise.resolve(runningTaskDetail())),
+    updateTaskBudget: vi.fn(() => Promise.resolve({ ...runningTaskDetail(), budgetLimit: 30 }))
+  };
+});
 
 const knowledgeApiMocks = vi.hoisted(() => {
   const retrievalResult = {
@@ -744,107 +858,9 @@ vi.mock('../features/knowledge/api', () => ({
   createKnowledgeApi: () => knowledgeApiMocks
 }));
 
-vi.mock('../features/tasks/api', () => {
-  const runningTaskDetail = () => ({
-    authorizationScope: 'full_access',
-    budgetConsumed: 6,
-    budgetLimit: 20,
-    createdAt: '2026-06-09T10:00:00Z',
-    currentStep: 'Review workspace context',
-    events: [
-      { createdAt: '2026-06-09T10:01:00Z', message: 'Task execution started', type: 'started' },
-      { createdAt: '2026-06-09T10:02:00Z', message: 'Executing Review workspace context', type: 'running' }
-    ],
-    executionMode: 'safe',
-    goal: 'Draft launch checklist',
-    id: 'task_router_new',
-    knowledgeBaseIds: ['kb_router'],
-    startedAt: '2026-06-09T10:01:00Z',
-    status: 'running',
-    steps: [
-      { id: 'step_router_1', status: 'completed', stepIndex: 1, title: 'Understand the goal' },
-      { id: 'step_router_2', status: 'running', stepIndex: 2, title: 'Review workspace context' },
-      { id: 'step_router_3', status: 'pending', stepIndex: 3, title: 'Deliver starter result' }
-    ],
-    title: 'Draft launch checklist',
-    toolAllowList: ['browser', 'shell'],
-    toolDenyList: ['email']
-  });
-
-  return {
-    createTasksApi: () => ({
-      approveTask: () => Promise.resolve(runningTaskDetail()),
-      cancelTask: () => Promise.resolve({ ...runningTaskDetail(), status: 'cancelled' }),
-      createTask: () =>
-        Promise.resolve({
-          authorizationScope: 'full_access',
-          budgetLimit: 20,
-          executionMode: 'safe',
-          goal: 'Draft launch checklist',
-          id: 'task_router_new',
-          knowledgeBaseIds: ['kb_router'],
-          status: 'draft',
-          title: 'Draft launch checklist'
-        }),
-      getTask: (taskId?: string) =>
-        Promise.resolve(
-          taskId === 'task_router_new'
-            ? runningTaskDetail()
-            : {
-                authorizationScope: 'workspace_tools',
-                budgetConsumed: 12,
-                budgetLimit: 12,
-                executionMode: 'standard',
-                finishedAt: '2026-06-09T10:20:00Z',
-                goal: 'Review launch plan',
-                id: 'task_completed',
-                knowledgeBaseIds: ['kb_router'],
-                resultArtifacts: [{ label: 'Report', value: 'solo-result.md' }],
-                resultSummary: 'Completed a starter SOLO run for: Review launch plan',
-                status: 'completed',
-                steps: [{ id: 'step_done', status: 'completed', stepIndex: 1, title: 'Understand the goal' }],
-                title: 'Review launch plan',
-                toolAllowList: ['browser'],
-                toolDenyList: ['email']
-              }
-        ),
-      listTasks: () =>
-        Promise.resolve([
-          {
-            authorizationScope: 'workspace_tools',
-            budgetLimit: 20,
-            executionMode: 'standard',
-            goal: 'Watch live rollout',
-            id: 'task_running',
-            status: 'running',
-            title: 'Watch live rollout'
-          },
-          {
-            authorizationScope: 'workspace_tools',
-            budgetLimit: 12,
-            executionMode: 'standard',
-            goal: 'Review launch plan',
-            id: 'task_completed',
-            status: 'completed',
-            title: 'Review launch plan'
-          },
-          {
-            authorizationScope: 'workspace_tools',
-            budgetLimit: 8,
-            executionMode: 'safe',
-            goal: 'Abort risky task',
-            id: 'task_cancelled',
-            status: 'cancelled',
-            title: 'Abort risky task'
-          }
-        ]),
-      pauseTask: () => Promise.resolve({ ...runningTaskDetail(), status: 'paused' }),
-      resumeTask: () => Promise.resolve(runningTaskDetail()),
-      startTask: () => Promise.resolve(runningTaskDetail()),
-      updateTaskBudget: () => Promise.resolve({ ...runningTaskDetail(), budgetLimit: 30 })
-    })
-  };
-});
+vi.mock('../features/tasks/api', () => ({
+  createTasksApi: () => taskApiMocks
+}));
 
 vi.mock('../features/admin/api', () => ({
   createAdminApi: () => ({
@@ -2058,6 +2074,7 @@ describe('app router', () => {
   afterEach(() => {
     Object.values(chatApiMocks).forEach((mock) => mock.mockClear());
     Object.values(knowledgeApiMocks).forEach((mock) => mock.mockClear());
+    Object.values(taskApiMocks).forEach((mock) => mock.mockClear());
     Object.values(adminApiMocks).forEach((mock) => mock.mockClear());
     Object.values(marketplaceApiMocks).forEach((mock) => mock.mockClear());
     Object.values(agentPlanStepsApiMocks).forEach((mock) => mock.mockClear());
@@ -2083,6 +2100,94 @@ describe('app router', () => {
     expect(router.state.location.pathname).toBe('/chat/conversation_router');
     expect(chatApiMocks.listMessages).toHaveBeenCalledWith('conversation_router');
     expect(chatApiMocks.getConversationConfig).toHaveBeenCalledWith('conversation_router');
+  });
+
+  it('executes chat conversation settings, message streaming, and SOLO handoff inside the workspace shell', async () => {
+    chatApiMocks.listMessages
+      .mockResolvedValueOnce([{ id: 'message_router', role: 'assistant', content: 'Router parameter message.' }])
+      .mockResolvedValueOnce([
+        { id: 'message_router', role: 'assistant', content: 'Router parameter message.' },
+        { id: 'message_user_router', role: 'user', content: 'Summarize the launch risk.' },
+        { id: 'message_assistant_router', role: 'assistant', content: 'Router streamed final answer.' }
+      ]);
+    const router = createAppRouter(['/chat/conversation_router']);
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    const workspaceNavigation = await screen.findByRole('navigation', { name: 'Workspace navigation' });
+    expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
+    expect(within(workspaceNavigation).getByRole('link', { name: 'Chat' })).toHaveAttribute('aria-current', 'page');
+    expect(await screen.findByRole('heading', { name: 'Chat workspace' })).toBeInTheDocument();
+    expect(await screen.findByText('Router parameter message.')).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/chat/conversation_router');
+
+    fireEvent.change(screen.getByLabelText('Temperature'), { target: { value: '0.6' } });
+    fireEvent.change(screen.getByLabelText('Max output tokens'), { target: { value: '1200' } });
+    fireEvent.change(screen.getByLabelText('System prompt override'), { target: { value: 'Prefer release-risk bullets.' } });
+    fireEvent.click(screen.getByLabelText('Enable tools for this conversation'));
+    fireEvent.click(screen.getByRole('button', { name: 'Save conversation settings' }));
+
+    await waitFor(() => {
+      expect(chatApiMocks.updateConversationConfig).toHaveBeenCalledWith('conversation_router', {
+        knowledgeBaseIds: ['kb_router'],
+        maxOutputTokens: 1200,
+        modelId: 'gpt-4o-mini',
+        personaId: '',
+        systemPromptOverride: 'Prefer release-risk bullets.',
+        temperature: 0.6,
+        toolsEnabled: false
+      });
+    });
+
+    fireEvent.change(screen.getByLabelText('Message draft'), { target: { value: 'Summarize the launch risk.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+
+    await waitFor(() => {
+      expect(chatApiMocks.sendMessageStream).toHaveBeenCalledWith(
+        'conversation_router',
+        {
+          content: 'Summarize the launch risk.',
+          overrides: {
+            maxOutputTokens: 1200,
+            modelId: 'gpt-4o-mini',
+            systemPromptOverride: 'Prefer release-risk bullets.',
+            temperature: 0.6,
+            toolsEnabled: false
+          }
+        },
+        expect.objectContaining({ onChunk: expect.any(Function) })
+      );
+    });
+    expect(await screen.findByText('Router streamed final answer.')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hand off to SOLO' }));
+
+    expect(await screen.findByRole('heading', { name: 'Convert to SOLO task' })).toBeInTheDocument();
+    expect(screen.getByLabelText('SOLO task goal')).toHaveValue('Create a SOLO follow-up from conversation_router.');
+    expect(screen.getByLabelText('Use knowledge base Research Vault in SOLO')).toBeChecked();
+    fireEvent.change(screen.getByLabelText('Authorization scope for SOLO'), { target: { value: 'full_access' } });
+    fireEvent.change(screen.getByLabelText('Allowed tools for SOLO'), { target: { value: 'browser, shell' } });
+    fireEvent.change(screen.getByLabelText('Blocked tools for SOLO'), { target: { value: 'email' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Start in SOLO' }));
+
+    await waitFor(() => {
+      expect(taskApiMocks.createTask).toHaveBeenCalledWith({
+        authorizationScope: 'full_access',
+        budgetLimit: 20,
+        executionMode: 'safe',
+        goal: 'Create a SOLO follow-up from conversation_router.',
+        knowledgeBaseIds: ['kb_router'],
+        toolAllowList: ['browser', 'shell'],
+        toolDenyList: ['email']
+      });
+    });
+    await waitFor(() => {
+      expect(taskApiMocks.startTask).toHaveBeenCalledWith('task_router_new');
+    });
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe('/solo');
+      expect(router.state.location.search).toBe('?taskId=task_router_new&returnTo=%2Fchat%2Fconversation_router');
+    });
   });
 
   it('renders knowledge route inside the workspace shell', async () => {
