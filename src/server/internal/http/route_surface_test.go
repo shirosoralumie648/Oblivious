@@ -2200,7 +2200,9 @@ type routeSurfaceManifestRoute struct {
 	Security   string `json:"security"`
 }
 
-func TestRouteSurfaceManifestRoutesAreRegisteredWithoutDatabase(t *testing.T) {
+func loadRouteSurfaceManifest(t *testing.T) routeSurfaceManifest {
+	t.Helper()
+
 	content, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "docs", "api", "route-surface-manifest.json"))
 	if err != nil {
 		t.Fatalf("read route surface manifest: %v", err)
@@ -2213,15 +2215,34 @@ func TestRouteSurfaceManifestRoutesAreRegisteredWithoutDatabase(t *testing.T) {
 	if len(manifest.Routes) == 0 {
 		t.Fatal("expected route surface manifest to include routes")
 	}
+	return manifest
+}
 
-	userSession := routeSurfaceUserSession()
-	adminSession := routeSurfaceAdminSession()
-	router := combineHandlers(
-		NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: userSession}}),
+func routeSurfaceManifestHandler(session auth.Session) stdhttp.Handler {
+	return combineHandlers(
+		NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}}),
 		stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, _ *stdhttp.Request) {
 			writeError(w, stdhttp.StatusUnauthorized, "relay_identity_required", "relay identity required")
 		}),
 	)
+}
+
+func routeSurfaceManifestRequest(route routeSurfaceManifestRoute) *stdhttp.Request {
+	body := strings.NewReader(`{}`)
+	if route.Method == stdhttp.MethodGet || route.Method == stdhttp.MethodDelete {
+		body = strings.NewReader("")
+	}
+	request := httptest.NewRequest(route.Method, route.SamplePath, body)
+	request.Header.Set("Content-Type", "application/json")
+	return request
+}
+
+func TestRouteSurfaceManifestRoutesAreRegisteredWithoutDatabase(t *testing.T) {
+	manifest := loadRouteSurfaceManifest(t)
+
+	userSession := routeSurfaceUserSession()
+	adminSession := routeSurfaceAdminSession()
+	router := routeSurfaceManifestHandler(userSession)
 	userCookie := routeSurfaceSignedSessionCookie(t, userSession)
 	adminCookie := routeSurfaceSignedSessionCookie(t, adminSession)
 	userCSRF := routeSurfaceCSRFToken(userSession)
@@ -2230,13 +2251,8 @@ func TestRouteSurfaceManifestRoutesAreRegisteredWithoutDatabase(t *testing.T) {
 	for _, route := range manifest.Routes {
 		route := route
 		t.Run(route.Method+" "+route.Path, func(t *testing.T) {
-			body := strings.NewReader(`{}`)
-			if route.Method == stdhttp.MethodGet || route.Method == stdhttp.MethodDelete {
-				body = strings.NewReader("")
-			}
 			recorder := httptest.NewRecorder()
-			request := httptest.NewRequest(route.Method, route.SamplePath, body)
-			request.Header.Set("Content-Type", "application/json")
+			request := routeSurfaceManifestRequest(route)
 
 			switch route.Security {
 			case "bearer":
@@ -2266,6 +2282,94 @@ func TestRouteSurfaceManifestRoutesAreRegisteredWithoutDatabase(t *testing.T) {
 				t.Fatalf("manifest route %s %s sample %s was not registered: got %d with body %s", route.Method, route.Path, route.SamplePath, recorder.Code, recorder.Body.String())
 			}
 		})
+	}
+}
+
+func TestRouteSurfaceManifestSecurityGuardsWithoutDatabase(t *testing.T) {
+	manifest := loadRouteSurfaceManifest(t)
+
+	userSession := routeSurfaceUserSession()
+	adminSession := routeSurfaceAdminSession()
+	anonymousRouter := routeSurfaceManifestHandler(auth.Session{})
+	userRouter := routeSurfaceManifestHandler(userSession)
+	adminRouter := routeSurfaceManifestHandler(adminSession)
+	userCookie := routeSurfaceSignedSessionCookie(t, userSession)
+	adminCookie := routeSurfaceSignedSessionCookie(t, adminSession)
+	userCSRF := routeSurfaceCSRFToken(userSession)
+	checkedAnonymous := 0
+	checkedCSRF := 0
+	checkedAdmin := 0
+	checkedBearer := 0
+
+	for _, route := range manifest.Routes {
+		route := route
+
+		switch route.Security {
+		case "cookie", "cookie+csrf":
+			t.Run("anonymous "+route.Method+" "+route.Path, func(t *testing.T) {
+				recorder := httptest.NewRecorder()
+				anonymousRouter.ServeHTTP(recorder, routeSurfaceManifestRequest(route))
+
+				if recorder.Code != stdhttp.StatusUnauthorized {
+					t.Fatalf("expected anonymous protected route to return 401 for %s %s, got %d with body %s", route.Method, route.Path, recorder.Code, recorder.Body.String())
+				}
+			})
+			checkedAnonymous++
+		case "bearer":
+			t.Run("missing bearer "+route.Method+" "+route.Path, func(t *testing.T) {
+				recorder := httptest.NewRecorder()
+				userRouter.ServeHTTP(recorder, routeSurfaceManifestRequest(route))
+
+				if recorder.Code != stdhttp.StatusUnauthorized || !strings.Contains(recorder.Body.String(), "relay_identity_required") {
+					t.Fatalf("expected missing bearer route to return Relay 401 for %s %s, got %d with body %s", route.Method, route.Path, recorder.Code, recorder.Body.String())
+				}
+			})
+			checkedBearer++
+		case "public":
+		default:
+			t.Fatalf("unsupported route manifest security %q for %s %s", route.Security, route.Method, route.Path)
+		}
+
+		if route.Security == "cookie+csrf" {
+			t.Run("missing csrf "+route.Method+" "+route.Path, func(t *testing.T) {
+				recorder := httptest.NewRecorder()
+				request := routeSurfaceManifestRequest(route)
+				if strings.HasPrefix(route.Path, "/api/v1/admin/") {
+					request.AddCookie(adminCookie)
+					adminRouter.ServeHTTP(recorder, request)
+				} else {
+					request.AddCookie(userCookie)
+					userRouter.ServeHTTP(recorder, request)
+				}
+
+				if recorder.Code != stdhttp.StatusForbidden {
+					t.Fatalf("expected signed cookie without CSRF to return 403 for %s %s, got %d with body %s", route.Method, route.Path, recorder.Code, recorder.Body.String())
+				}
+			})
+			checkedCSRF++
+		}
+
+		if strings.HasPrefix(route.Path, "/api/v1/admin/") && (route.Security == "cookie" || route.Security == "cookie+csrf") {
+			t.Run("non admin "+route.Method+" "+route.Path, func(t *testing.T) {
+				recorder := httptest.NewRecorder()
+				request := routeSurfaceManifestRequest(route)
+				request.AddCookie(userCookie)
+				if route.Security == "cookie+csrf" {
+					request.Header.Set(csrfHeaderName, userCSRF)
+				}
+
+				userRouter.ServeHTTP(recorder, request)
+
+				if recorder.Code != stdhttp.StatusForbidden {
+					t.Fatalf("expected non-admin session to return 403 for %s %s, got %d with body %s", route.Method, route.Path, recorder.Code, recorder.Body.String())
+				}
+			})
+			checkedAdmin++
+		}
+	}
+
+	if checkedAnonymous == 0 || checkedCSRF == 0 || checkedAdmin == 0 || checkedBearer == 0 {
+		t.Fatalf("security guard test did not cover all guard classes: anonymous=%d csrf=%d admin=%d bearer=%d", checkedAnonymous, checkedCSRF, checkedAdmin, checkedBearer)
 	}
 }
 
