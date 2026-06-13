@@ -25,7 +25,8 @@
 ## Dependency Security Refresh
 
 - `bash scripts/check.sh security` passed after dependency cleanup: `pnpm audit` reported no known npm vulnerabilities, and `govulncheck v1.3.0` reported the code is affected by 0 vulnerabilities.
-- The frontend toolchain moved from `vite@6.4.3` / `@vitejs/plugin-react@4.x` to `vite@8.0.16` / `@vitejs/plugin-react@6.0.2`, removing the previously audited `esbuild@0.25.x` path.
+- The frontend toolchain moved from `vite@6.4.3` / `@vitejs/plugin-react@4.x` to `vite@8.0.16` / `@vitejs/plugin-react@6.0.2`, and both `pnpm-lock.yaml` and `src/web/package-lock.json` were synced to remove the previously audited `esbuild@0.25.x` path.
+- `npm --prefix src/web audit --audit-level=moderate --registry=https://registry.npmjs.org` passed with 0 vulnerabilities after syncing the tracked web npm lockfile.
 - The unused root `wireit` devDependency was removed from `package.json`, `package-lock.json`, and `pnpm-lock.yaml`, clearing the remaining `brace-expansion@4.0.1` advisory path.
 - Regression gates passed after the dependency slice:
   - `COREPACK_HOME=/tmp/codex-corepack pnpm --dir src/web build`
