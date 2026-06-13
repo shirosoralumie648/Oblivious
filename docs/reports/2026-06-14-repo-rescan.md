@@ -2,11 +2,11 @@
 
 ## Current Truth
 
-- Branch: `main`; this report refreshes the June 14 scan after the Chat router checkpoint, Scheduled Task DB evidence slice, Tenant membership DB evidence slice, and Agent planning Playwright browser proof.
+- Branch: `main`; this report refreshes the June 14 scan after the Chat router checkpoint, Scheduled Task DB evidence slice, Tenant membership DB evidence slice, Agent planning Playwright browser proof, and Chat-to-SOLO Playwright browser proof.
 - Worktree status at scan time: clean against `origin/main`.
 - The project is still **not complete** against the four 2026-06-04 fusion specs.
 - The current completion matrix remains `4 Proven / 10 Partial / 0 Gap / 0 Unverified`.
-- Current progress estimate after this rescan: **78/100**. The repository owns most core product surfaces and has strong focused evidence. Recent Agent planning browser proof, Chat, Tenant membership, Scheduled Task runtime, and all-profile DB evidence proof narrows frontend, DB-backed tenant/security, DB-backed workflow, and release-readiness risk, but the remaining progress is still dominated by target-environment proof, broader security/tenant-isolation depth, production deployment validation, and final no-skip release readiness.
+- Current progress estimate after this rescan: **79/100**. The repository owns most core product surfaces and has strong focused evidence. Recent Agent planning and Chat-to-SOLO browser proof, Tenant membership, Scheduled Task runtime, and all-profile DB evidence proof narrows frontend, DB-backed tenant/security, DB-backed workflow, and release-readiness risk, but the remaining progress is still dominated by target-environment proof, broader security/tenant-isolation depth, production deployment validation, and final no-skip release readiness.
 
 ## What Changed Since The Previous Rescan
 
@@ -22,6 +22,7 @@
 - Real Workspace app-router coverage now proves the Agent planning route journey from `/agents` into `/agent-runs/:runId/plan-steps`, including tool approval, plan-step approval/execution, and continue-plan refresh behavior. This was committed and pushed as `c82abda`.
 - Real Playwright browser coverage now proves the Agent planning journey from `/agents` into `/agent-runs/run_browser_agent/plan-steps`, including default planning-mode run settings, tool approval with operator reason, plan-step approval/execution, dependency evidence, and continue-plan completion. This was committed and pushed as `8079f8c`.
 - Real Workspace app-router coverage now proves `/chat/:conversationId` beyond route parameter loading: conversation settings save, streamed message send, final message refresh, conversion to SOLO draft, SOLO task creation/start, and navigation to `/solo?taskId=task_router_new&returnTo=%2Fchat%2Fconversation_router`. This was committed and pushed as `5288222`.
+- Real Playwright browser coverage now proves the Chat-to-SOLO journey from `/chat/conversation_browser_solo` into `/solo?taskId=task_browser_solo&returnTo=%2Fchat%2Fconversation_browser_solo`, including saved conversation settings carried into stream overrides, SOLO draft conversion, authorization scope, knowledge-base, allow-list, deny-list, task start, and Back-to-chat return behavior.
 - `scripts/verify-commercial-db-evidence.sh scheduled-task-runtime` now provides no-skip PostgreSQL evidence for Scheduled Task SQL runtime persistence, route dispatch, and Workflow schedule-trigger sync.
 - `scripts/verify-commercial-db-evidence.sh tenant-membership-lifecycle` now provides no-skip PostgreSQL evidence for Tenant SQL organization/member/invitation/ownership lifecycle plus HTTP member list, ownership transfer, remove-member, and session-revocation behavior.
 - `scripts/verify-commercial-db-evidence.sh all` now runs the full DB-backed commercial evidence profile set, and `scripts/verify-commercial-completion.sh` delegates its DB step to that aggregate instead of only `backend-journey`.
@@ -29,7 +30,7 @@
 ## Repository Inventory
 
 - Tracked file distribution:
-  - `src`: 960 files
+  - `src`: 962 files
   - `.planning`: 210 files
   - `docs`: 91 files
   - `scripts`: 37 files
@@ -45,7 +46,7 @@
 - Test inventory:
   - Go test files: 225
   - Web component/API test files: 67
-  - Web Playwright specs: 4 specs, plus 4 E2E fixture files
+  - Web Playwright specs: 5 specs, plus 5 E2E fixture files
 - Latest checked-in migration: `src/server/migrations/0080_agent_plan_step_structure.sql`.
 - Project-local `AGENTS.md`: none at the main repo root or under first-party source; discovered `AGENTS.md` files are in dependency caches or nested `reference/*` repositories.
 
@@ -71,7 +72,7 @@ Partial rows:
 - Security and tenant isolation
 - Migration strategy and release readiness
 
-This scan does not reclassify any Partial row to Proven. The Agent and Frontend rows gained real app-router and Playwright browser evidence, but still need broader runtime/target-environment proof before either row can be called complete.
+This scan does not reclassify any Partial row to Proven. The Agent and Frontend rows gained real app-router and Playwright browser evidence, but still need broader browser/runtime/target-environment proof before either row can be called complete.
 
 ## Verification Run During This Rescan
 
@@ -83,6 +84,7 @@ COREPACK_HOME=/tmp/codex-corepack GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tm
 COREPACK_HOME=/tmp/codex-corepack GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh tenant-membership-lifecycle
 COREPACK_HOME=/tmp/codex-corepack GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh all
 PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/google-chrome COREPACK_HOME=/tmp/codex-corepack pnpm --dir src/web exec playwright test e2e/agent-planning.spec.ts --project=chromium
+PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/google-chrome COREPACK_HOME=/tmp/codex-corepack pnpm --dir src/web exec playwright test e2e/chat-solo.spec.ts --project=chromium
 COREPACK_HOME=/tmp/codex-corepack pnpm --dir src/web exec tsc --noEmit
 bash scripts/check.sh docs
 ```
@@ -94,6 +96,7 @@ Result:
 - `tenant-membership-lifecycle` used a disposable pgvector PostgreSQL container and reported `skipped tests: none`.
 - `all` used a disposable pgvector PostgreSQL container and reported `skipped tests: none`.
 - The Agent planning Playwright browser journey passed against the managed Vite build/preview server with Chrome at `/usr/bin/google-chrome`.
+- The Chat-to-SOLO Playwright browser journey passed against the managed Vite build/preview server with Chrome at `/usr/bin/google-chrome`.
 - `pnpm --dir src/web exec tsc --noEmit` passed after adding the new E2E fixture and spec.
 - The previous Agent structured-plan slice remains covered by `agent-runtime-memory` evidence recorded in the matrix.
 - The previous Agent and Chat router slices remain covered by their focused Vitest/TypeScript/diff checks recorded in the matrix.
@@ -119,7 +122,7 @@ Result:
 
 ## Recommended Next Slices
 
-1. Broader Browser/E2E route proof: continue extending high-value commercial workflows beyond the new Agent planning browser journey.
+1. Broader Browser/E2E route proof: continue extending high-value commercial workflows beyond the new Agent planning and Chat-to-SOLO browser journeys.
 2. Strict commercial verifier rerun on target infrastructure with deploy and backup/restore enabled.
 3. Observability and recovery proof: strengthen the gap between static dashboard/policy checks and target-environment recovery behavior.
 4. Broader tenant/security proof: continue beyond the new tenant membership profile into remaining data-isolation and provider-secret response paths.
