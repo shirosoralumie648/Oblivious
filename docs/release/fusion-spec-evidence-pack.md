@@ -19,8 +19,8 @@ This pack is the current release-readiness evidence index for the four 2026-06-0
 | Knowledge and RAG | `docs/reports/2026-06-07-knowledge-requirement-audit.md`, Knowledge/RAG backend and frontend tests | Focused retrieval, chunking, citation, versioning, and UI tests for changed surfaces |
 | Agent system | Agent service/store/runtime tests, Agent route and UI tests, matrix row 24 | ReAct and planning runtime tests, approval/resume tests, memory policy tests, and route/UI tests for changed surfaces |
 | Publishing channels | Channel service/adapter/HTTP tests and matrix row 25 | Adapter, worker, retry, fallback, archive, and alert tests for changed surfaces |
-| Billing and monetization | Admin/Billing/Relay quota/payment tests, OpenAPI contract gates, matrix row 26 | DB-free handler proof where valid, DB-backed lifecycle proof under `TEST_DATABASE_URL`, and provider proof for external rails |
-| Marketplace ecosystem | Marketplace service/settlement/governance/search tests and matrix row 27 | Provider checkout, settlement, payout, review, governance, UI, and DB-backed lifecycle proof for changed surfaces |
+| Billing and monetization | Admin/Billing/Relay quota/payment tests, OpenAPI contract gates, `scripts/verify-commercial-db-evidence.sh`, matrix row 26 | DB-free handler proof where valid, DB-backed lifecycle proof under `TEST_DATABASE_URL` or disposable pgvector PostgreSQL, and provider proof for external rails |
+| Marketplace ecosystem | Marketplace service/settlement/governance/search tests, `scripts/verify-commercial-db-evidence.sh`, and matrix row 27 | Provider checkout, settlement, payout, review, governance, UI, and DB-backed lifecycle proof for changed surfaces |
 | Frontend shell and pages | Real app-router regression tests, page-focused Vitest suites, matrix row 28 | Route-level shell proof plus page-specific workflow tests, `pnpm --dir src/web exec tsc --noEmit`, and targeted Vitest |
 | Observability and recovery | `docs/reports/2026-06-07-alert-requirement-audit.md`, `docs/release/recovery-platform-contract.md`, dashboard and deployment contract verifiers | Repository checks plus target platform proof for scale-down and failover claims |
 | API contract | `docs/api/openapi.yaml`, `scripts/verify-openapi-contract.sh`, route-surface tests | Contract gate plus focused route tests for every changed request/response family |
@@ -38,6 +38,7 @@ bash scripts/check.sh relay-security
 bash scripts/check.sh security
 pnpm --dir src/web exec tsc --noEmit
 GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./... -count=1
+GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh backend-journey
 TEST_DATABASE_URL="$TEST_DATABASE_URL" GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test -p 1 ./... -count=1
 bash scripts/deploy-validate.sh
 bash scripts/k8s-validate.sh

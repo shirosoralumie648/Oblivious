@@ -88,7 +88,7 @@ run_step "commercial frontend focused suites" \
 run_step "browser commercial journey" \
   pnpm --dir "$web_dir" test:e2e --grep "commercial journey"
 run_step "backend DB commercial journey" \
-  bash -c 'cd "$1" && TEST_DATABASE_URL="$2" OBLIVIOUS_REQUIRE_TEST_DATABASE=true go test ./internal/http -run TestCommercialHTTPJourney -count=1' _ "$server_dir" "$TEST_DATABASE_URL"
+  env TEST_DATABASE_URL="$TEST_DATABASE_URL" bash "$repo_root/scripts/verify-commercial-db-evidence.sh" backend-journey
 
 if [[ "$run_deploy" == "true" ]]; then
   run_step "deployment validation" bash "$repo_root/scripts/deploy-validate.sh"

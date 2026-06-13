@@ -212,7 +212,8 @@ func TestCommercialHTTPJourney(t *testing.T) {
 		if !strings.Contains(string(body), "approved") {
 			t.Fatalf("expected approved tool run, body=%s", body)
 		}
-		body = commercialDoJSON(t, router, stdhttp.MethodPost, "/api/v1/app/agents/tool-runs/"+failedToolRun.ID+"/retry", "", cookie, csrfToken, stdhttp.StatusOK)
+		_, _, retryToolRun := prepareHTTPAgentWorkflowState(t, database, userID, organizationID)
+		body = commercialDoJSON(t, router, stdhttp.MethodPost, "/api/v1/app/agents/tool-runs/"+retryToolRun.ID+"/retry", "", cookie, csrfToken, stdhttp.StatusOK)
 		if !strings.Contains(string(body), `"attemptCount":2`) || !strings.Contains(string(body), "completed") {
 			t.Fatalf("expected retry attempt evidence, body=%s", body)
 		}
@@ -225,6 +226,7 @@ func TestCommercialHTTPJourney(t *testing.T) {
 			"name":"Commercial Journey Agent",
 			"description":"Commercial journey paid agent with settlement boundaries.",
 			"tags":["commercial"],
+			"categoryID":"cat_productivity",
 			"tools":"[{\"name\":\"datetime\",\"type\":\"builtin\"}]",
 			"exampleConversations":"[]",
 			"systemPrompt":"Help commercial operators.",
@@ -235,7 +237,7 @@ func TestCommercialHTTPJourney(t *testing.T) {
 			"changelog":"Initial commercial version"
 		}`, stdhttp.StatusCreated)
 		commercialDoJSON(t, router, stdhttp.MethodPost, "/api/v1/admin/reviews/"+agentID+"/approve", "", cookie, csrfToken, stdhttp.StatusOK)
-		commercialDoJSON(t, router, stdhttp.MethodPost, "/api/v1/marketplace/agents/"+agentID+"/install", "", cookie, csrfToken, stdhttp.StatusCreated)
+		commercialDoJSON(t, router, stdhttp.MethodPost, "/api/v1/marketplace/agents/"+agentID+"/install", `{"provider":"stripe"}`, cookie, csrfToken, stdhttp.StatusCreated)
 		marketplaceCheckout, marketplaceSessionID := checkoutCreator.requireLast(t)
 		if marketplaceCheckout.CheckoutKind != "marketplace_install" || marketplaceCheckout.AgentID != agentID || marketplaceCheckout.OrganizationID != organizationID || marketplaceCheckout.PublisherOrganizationID != publisherOrganizationID {
 			t.Fatalf("marketplace checkout did not preserve buyer/publisher metadata: %+v", marketplaceCheckout)
@@ -314,8 +316,12 @@ func applyCommercialJourneyMigrations(t *testing.T, database *sql.DB) {
 	t.Helper()
 	for _, path := range []string{
 		"../../migrations/0013_channels.sql",
+		"../../migrations/0035_channel_groups.sql",
+		"../../migrations/0039_channel_diagnostics.sql",
+		"../../migrations/0077_channel_default_weight.sql",
 		"../../migrations/0021_plan_extensions.sql",
 		"../../migrations/0032_knowledge_rag_index.sql",
+		"../../migrations/0042_workflows.sql",
 	} {
 		migration, err := os.ReadFile(path)
 		if err != nil {

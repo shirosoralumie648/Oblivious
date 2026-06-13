@@ -306,12 +306,23 @@ func (g *agentHTTPFakeGateway) GenerateReplyStream(ctx context.Context, messages
 func prepareHTTPAgentWorkflowState(t *testing.T, database *sql.DB, userID, organizationID string) (*agent.Run, *agent.ToolRun, *agent.ToolRun) {
 	t.Helper()
 
-	migration, err := os.ReadFile("../../migrations/0031_agent_workflow_runs.sql")
-	if err != nil {
-		t.Fatalf("read agent workflow migration: %v", err)
-	}
-	if _, err := database.Exec(string(migration)); err != nil {
-		t.Fatalf("apply agent workflow migration: %v", err)
+	for _, migration := range []struct {
+		path  string
+		label string
+	}{
+		{path: "../../migrations/0031_agent_workflow_runs.sql", label: "agent workflow"},
+		{path: "../../migrations/0070_agent_run_mode.sql", label: "agent run mode"},
+		{path: "../../migrations/0050_agent_tool_risk_level.sql", label: "agent tool risk"},
+		{path: "../../migrations/0051_agent_plan_steps.sql", label: "agent plan steps"},
+		{path: "../../migrations/0052_agent_plan_step_execution.sql", label: "agent plan step execution"},
+	} {
+		contents, err := os.ReadFile(migration.path)
+		if err != nil {
+			t.Fatalf("read %s migration: %v", migration.label, err)
+		}
+		if _, err := database.Exec(string(contents)); err != nil {
+			t.Fatalf("apply %s migration: %v", migration.label, err)
+		}
 	}
 
 	store := agent.NewSQLStore(database)
