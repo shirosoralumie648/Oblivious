@@ -84,6 +84,7 @@ describe('shared components', () => {
 
       fireEvent.click(screen.getByRole('button', { name: 'Clear search' }));
       expect(onChange).toHaveBeenCalledWith('');
+      expect(screen.getByPlaceholderText('Search...')).toHaveFocus();
     } finally {
       vi.useRealTimers();
     }
