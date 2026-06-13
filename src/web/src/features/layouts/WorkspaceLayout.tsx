@@ -60,21 +60,21 @@ export function WorkspaceLayout() {
               {item.label}
             </NavLink>
           ))}
+          <NavLink
+            to="/marketplace"
+            className={({ isActive }) =>
+              [
+                'mt-6 flex min-h-[44px] items-center gap-3 rounded-lg border border-cyan-200/20 bg-cyan-200/10 px-3 text-sm text-cyan-100 transition hover:bg-cyan-200/15',
+                isActive ? 'ring-2 ring-cyan-100/50' : ''
+              ].join(' ')
+            }
+            data-gsap-item
+            data-gsap-magnetic
+          >
+            <RiStore2Line className="size-4" aria-hidden="true" />
+            Marketplace
+          </NavLink>
         </nav>
-        <NavLink
-          to="/marketplace"
-          className={({ isActive }) =>
-            [
-              'mt-6 flex min-h-[44px] items-center gap-3 rounded-lg border border-cyan-200/20 bg-cyan-200/10 px-3 text-sm text-cyan-100 transition hover:bg-cyan-200/15',
-              isActive ? 'ring-2 ring-cyan-100/50' : ''
-            ].join(' ')
-          }
-          data-gsap-item
-          data-gsap-magnetic
-        >
-          <RiStore2Line className="size-4" aria-hidden="true" />
-          Marketplace
-        </NavLink>
       </aside>
       <main className="workspace-canvas min-h-screen overflow-auto p-5 lg:p-8" data-gsap-item>
         <Outlet />

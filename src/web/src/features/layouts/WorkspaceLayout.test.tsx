@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { RouterProvider, createMemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -94,5 +94,29 @@ describe('WorkspaceLayout', () => {
       'Console',
       'Marketplace'
     ]);
+  });
+
+  it('keeps marketplace detail navigation discoverable and active in the workspace landmark', async () => {
+    const router = createMemoryRouter(
+      [
+        {
+          path: '/marketplace/agents/:agentId',
+          element: <WorkspaceLayout />,
+          children: [{ index: true, element: <h1>Marketplace agent child</h1> }]
+        }
+      ],
+      { future: routerFuture, initialEntries: ['/marketplace/agents/agent_1'] }
+    );
+
+    render(<RouterProvider future={routerFuture} router={router} />);
+
+    const workspaceNavigation = await screen.findByRole('navigation', { name: 'Workspace navigation' });
+    const marketplaceLink = within(workspaceNavigation).getByRole('link', { name: 'Marketplace' });
+
+    expect(marketplaceLink).toHaveAttribute('href', '/marketplace');
+    expect(marketplaceLink).toHaveAttribute('aria-current', 'page');
+    expect(await screen.findByRole('main')).toContainElement(
+      screen.getByRole('heading', { name: 'Marketplace agent child' })
+    );
   });
 });

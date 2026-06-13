@@ -3171,7 +3171,9 @@ describe('app router', () => {
 
     const workspaceNavigation = await screen.findByRole('navigation', { name: 'Workspace navigation' });
     expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
-    expect(within(workspaceNavigation).getByRole('link', { name: 'Agents' })).toHaveAttribute('href', '/agents');
+    const marketplaceLink = within(workspaceNavigation).getByRole('link', { name: 'Marketplace' });
+    expect(marketplaceLink).toHaveAttribute('href', '/marketplace');
+    expect(marketplaceLink).toHaveAttribute('aria-current', 'page');
     expect(await screen.findByRole('heading', { name: 'Research Agent' })).toBeInTheDocument();
     expect(await screen.findByText('Paid installs create a checkout-backed marketplace order before workspace installation.')).toBeInTheDocument();
     expect(await screen.findByLabelText('Agent version')).toHaveValue('ver_1');
@@ -3190,7 +3192,7 @@ describe('app router', () => {
 
     const workspaceNavigation = await screen.findByRole('navigation', { name: 'Workspace navigation' });
     expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();
-    expect(within(workspaceNavigation).getByRole('link', { name: 'Agents' })).toHaveAttribute('href', '/agents');
+    expect(within(workspaceNavigation).getByRole('link', { name: 'Marketplace' })).toHaveAttribute('aria-current', 'page');
     expect(await screen.findByRole('heading', { name: 'Research Agent' })).toBeInTheDocument();
 
     fireEvent.change(await screen.findByLabelText('Payment provider'), { target: { value: 'alipay' } });
