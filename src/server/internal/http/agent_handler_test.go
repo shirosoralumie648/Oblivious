@@ -315,6 +315,7 @@ func prepareHTTPAgentWorkflowState(t *testing.T, database *sql.DB, userID, organ
 		{path: "../../migrations/0050_agent_tool_risk_level.sql", label: "agent tool risk"},
 		{path: "../../migrations/0051_agent_plan_steps.sql", label: "agent plan steps"},
 		{path: "../../migrations/0052_agent_plan_step_execution.sql", label: "agent plan step execution"},
+		{path: "../../migrations/0080_agent_plan_step_structure.sql", label: "agent plan step structure"},
 	} {
 		contents, err := os.ReadFile(migration.path)
 		if err != nil {

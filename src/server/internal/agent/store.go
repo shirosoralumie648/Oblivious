@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"time"
 )
@@ -221,10 +222,12 @@ type PlanStep struct {
 	OrganizationID string         `json:"organizationId"`
 	Index          int            `json:"index"`
 	Title          string         `json:"title"`
+	Description    string         `json:"description,omitempty"`
 	Status         string         `json:"status"`
 	ApprovalStatus string         `json:"approvalStatus"`
 	ToolName       string         `json:"toolName,omitempty"`
 	Input          map[string]any `json:"input,omitempty"`
+	DependsOn      []int          `json:"dependsOn,omitempty"`
 	ResultContent  string         `json:"resultContent,omitempty"`
 	Error          string         `json:"error,omitempty"`
 	StartedAt      *time.Time     `json:"startedAt,omitempty"`
@@ -332,10 +335,12 @@ type CreatePlanStepRequest struct {
 	RunID          string
 	Index          int
 	Title          string
+	Description    string
 	Status         string
 	ApprovalStatus string
 	ToolName       string
 	Input          map[string]any
+	DependsOn      []int
 }
 
 type UpdateToolRunRequest struct {
@@ -354,16 +359,47 @@ type UpdateToolRunRequest struct {
 type UpdatePlanStepRequest struct {
 	Index            *int
 	Title            *string
+	Description      *string
 	Status           *string
 	ApprovalStatus   *string
 	ToolName         *string
 	Input            map[string]any
 	ReplaceInput     bool
+	DependsOn        []int
+	ReplaceDependsOn bool
 	ResultContent    *string
 	Error            *string
 	StartedAt        *time.Time
 	CompletedAt      *time.Time
 	ClearCompletedAt bool
+}
+
+func normalizePlanStepDependsOn(dependsOn []int) []int {
+	if len(dependsOn) == 0 {
+		return nil
+	}
+	seen := make(map[int]struct{}, len(dependsOn))
+	normalized := make([]int, 0, len(dependsOn))
+	for _, index := range dependsOn {
+		if index <= 0 {
+			continue
+		}
+		if _, ok := seen[index]; ok {
+			continue
+		}
+		seen[index] = struct{}{}
+		normalized = append(normalized, index)
+	}
+	sort.Ints(normalized)
+	return normalized
+}
+
+func marshalPlanStepDependsOn(dependsOn []int) ([]byte, error) {
+	normalized := normalizePlanStepDependsOn(dependsOn)
+	if normalized == nil {
+		normalized = []int{}
+	}
+	return json.Marshal(normalized)
 }
 
 type CreateMemoryRequest struct {
@@ -1042,16 +1078,21 @@ func (s *SQLStore) CreatePlanStep(ctx context.Context, req *CreatePlanStepReques
 	if err != nil {
 		return nil, fmt.Errorf("marshal plan step input: %w", err)
 	}
+	dependsOn := normalizePlanStepDependsOn(req.DependsOn)
+	dependsOnJSON, err := marshalPlanStepDependsOn(dependsOn)
+	if err != nil {
+		return nil, fmt.Errorf("marshal plan step dependencies: %w", err)
+	}
 
 	result, err := s.db.ExecContext(ctx, `
 		INSERT INTO agent_plan_steps (
 			id, organization_id, run_id, step_index, title, status, approval_status,
-			tool_name, input, created_at, updated_at
+			tool_name, input, description, depends_on, created_at, updated_at
 		)
-		SELECT $1, r.organization_id, r.id, $4, $5, $6, $7, $8, $9, $10, $10
+		SELECT $1, r.organization_id, r.id, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12
 		FROM agent_runs r
 		WHERE r.id = $2 AND r.organization_id = $3
-	`, id, req.RunID, req.OrganizationID, req.Index, req.Title, status, approvalStatus, req.ToolName, inputJSON, now)
+	`, id, req.RunID, req.OrganizationID, req.Index, req.Title, status, approvalStatus, req.ToolName, inputJSON, req.Description, dependsOnJSON, now)
 	if err != nil {
 		return nil, fmt.Errorf("insert agent plan step: %w", err)
 	}
@@ -1078,7 +1119,7 @@ func (s *SQLStore) CreatePlanStep(ctx context.Context, req *CreatePlanStepReques
 func (s *SQLStore) ListPlanSteps(ctx context.Context, organizationID, runID string) ([]*PlanStep, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, organization_id, run_id, step_index, title, status, approval_status,
-			tool_name, input, result_content, error, started_at, completed_at, created_at, updated_at
+			tool_name, input, description, depends_on, result_content, error, started_at, completed_at, created_at, updated_at
 		FROM agent_plan_steps
 		WHERE organization_id = $1 AND run_id = $2
 		ORDER BY step_index ASC, created_at ASC
@@ -1102,7 +1143,7 @@ func (s *SQLStore) ListPlanSteps(ctx context.Context, organizationID, runID stri
 func (s *SQLStore) GetPlanStep(ctx context.Context, organizationID, id string) (*PlanStep, error) {
 	step, err := scanPlanStep(s.db.QueryRowContext(ctx, `
 		SELECT id, organization_id, run_id, step_index, title, status, approval_status,
-			tool_name, input, result_content, error, started_at, completed_at, created_at, updated_at
+			tool_name, input, description, depends_on, result_content, error, started_at, completed_at, created_at, updated_at
 		FROM agent_plan_steps
 		WHERE id = $1 AND organization_id = $2
 	`, id, organizationID))
@@ -1130,6 +1171,9 @@ func (s *SQLStore) UpdatePlanStep(ctx context.Context, organizationID, id string
 	if req.Title != nil {
 		step.Title = *req.Title
 	}
+	if req.Description != nil {
+		step.Description = *req.Description
+	}
 	if req.Status != nil {
 		step.Status = *req.Status
 	}
@@ -1144,6 +1188,9 @@ func (s *SQLStore) UpdatePlanStep(ctx context.Context, organizationID, id string
 		if req.Input != nil {
 			step.Input = req.Input
 		}
+	}
+	if req.ReplaceDependsOn {
+		step.DependsOn = normalizePlanStepDependsOn(req.DependsOn)
 	}
 	if req.ResultContent != nil {
 		step.ResultContent = *req.ResultContent
@@ -1163,23 +1210,29 @@ func (s *SQLStore) UpdatePlanStep(ctx context.Context, organizationID, id string
 	if err != nil {
 		return nil, fmt.Errorf("marshal plan step input: %w", err)
 	}
+	dependsOnJSON, err := marshalPlanStepDependsOn(step.DependsOn)
+	if err != nil {
+		return nil, fmt.Errorf("marshal plan step dependencies: %w", err)
+	}
 
 	_, err = s.db.ExecContext(ctx, `
 		UPDATE agent_plan_steps
 		SET step_index = $3,
 			title = $4,
-			status = $5,
-			approval_status = $6,
-			tool_name = $7,
-			input = $8,
-			result_content = $9,
-			error = $10,
-			started_at = $11,
-			completed_at = CASE WHEN $12 THEN NULL::timestamptz ELSE $13::timestamptz END,
-			updated_at = $14
+			description = $5,
+			status = $6,
+			approval_status = $7,
+			tool_name = $8,
+			input = $9,
+			depends_on = $10,
+			result_content = $11,
+			error = $12,
+			started_at = $13,
+			completed_at = CASE WHEN $14 THEN NULL::timestamptz ELSE $15::timestamptz END,
+			updated_at = $16
 		WHERE id = $1 AND organization_id = $2
-	`, id, organizationID, step.Index, step.Title, step.Status, step.ApprovalStatus, step.ToolName, inputJSON,
-		step.ResultContent, step.Error, step.StartedAt, req.ClearCompletedAt, step.CompletedAt, time.Now())
+	`, id, organizationID, step.Index, step.Title, step.Description, step.Status, step.ApprovalStatus, step.ToolName, inputJSON,
+		dependsOnJSON, step.ResultContent, step.Error, step.StartedAt, req.ClearCompletedAt, step.CompletedAt, time.Now())
 	if err != nil {
 		return nil, fmt.Errorf("update agent plan step: %w", err)
 	}
@@ -1599,6 +1652,7 @@ func scanToolRun(row scanner) (*ToolRun, error) {
 func scanPlanStep(row scanner) (*PlanStep, error) {
 	var step PlanStep
 	var inputJSON []byte
+	var dependsOnJSON []byte
 	var startedAt sql.NullTime
 	var completedAt sql.NullTime
 	err := row.Scan(
@@ -1611,6 +1665,8 @@ func scanPlanStep(row scanner) (*PlanStep, error) {
 		&step.ApprovalStatus,
 		&step.ToolName,
 		&inputJSON,
+		&step.Description,
+		&dependsOnJSON,
 		&step.ResultContent,
 		&step.Error,
 		&startedAt,
@@ -1627,6 +1683,10 @@ func scanPlanStep(row scanner) (*PlanStep, error) {
 	if step.Input == nil {
 		step.Input = map[string]any{}
 	}
+	if len(dependsOnJSON) > 0 {
+		_ = json.Unmarshal(dependsOnJSON, &step.DependsOn)
+	}
+	step.DependsOn = normalizePlanStepDependsOn(step.DependsOn)
 	if startedAt.Valid {
 		step.StartedAt = &startedAt.Time
 	}

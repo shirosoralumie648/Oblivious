@@ -385,10 +385,12 @@ func (s *fakeStore) CreatePlanStep(ctx context.Context, req *CreatePlanStepReque
 		OrganizationID: req.OrganizationID,
 		Index:          req.Index,
 		Title:          req.Title,
+		Description:    req.Description,
 		Status:         status,
 		ApprovalStatus: approvalStatus,
 		ToolName:       req.ToolName,
 		Input:          input,
+		DependsOn:      normalizePlanStepDependsOn(req.DependsOn),
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}
@@ -426,6 +428,9 @@ func (s *fakeStore) UpdatePlanStep(ctx context.Context, organizationID, id strin
 	if req.Title != nil {
 		step.Title = *req.Title
 	}
+	if req.Description != nil {
+		step.Description = *req.Description
+	}
 	if req.Status != nil {
 		step.Status = *req.Status
 	}
@@ -440,6 +445,9 @@ func (s *fakeStore) UpdatePlanStep(ctx context.Context, organizationID, id strin
 		for key, value := range req.Input {
 			step.Input[key] = value
 		}
+	}
+	if req.ReplaceDependsOn {
+		step.DependsOn = normalizePlanStepDependsOn(req.DependsOn)
 	}
 	if req.ResultContent != nil {
 		step.ResultContent = *req.ResultContent
@@ -2981,6 +2989,137 @@ func TestServiceExecutePlanStepRejectsOutOfOrderStep(t *testing.T) {
 	}
 }
 
+func TestServiceExecutePlanStepHonorsExplicitDependencies(t *testing.T) {
+	now := time.Now().UTC()
+	store := &fakeStore{
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
+			Status:         RunStatusPendingApproval,
+			StartedAt:      now,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+		planSteps: []*PlanStep{{
+			ID:             "step_1",
+			RunID:          "run_1",
+			OrganizationID: "org_1",
+			Index:          1,
+			Title:          "Collect migration evidence",
+			Status:         PlanStepStatusCompleted,
+			ApprovalStatus: ApprovalStatusNotRequired,
+			ResultContent:  "schema evidence",
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}, {
+			ID:             "step_2",
+			RunID:          "run_1",
+			OrganizationID: "org_1",
+			Index:          2,
+			Title:          "Optional docs cleanup",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusNotRequired,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}, {
+			ID:             "step_3",
+			RunID:          "run_1",
+			OrganizationID: "org_1",
+			Index:          3,
+			Title:          "Run dependent verification",
+			Description:    "This verification only needs migration evidence, not docs cleanup.",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusNotRequired,
+			DependsOn:      []int{1},
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+	}
+	executor := &fakePlanStepExecutor{resultContent: "verification passed"}
+	service := NewService(store, &fakeGateway{})
+	service.SetPlanStepExecutor(executor)
+	session := auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}}
+
+	completed, err := service.ExecutePlanStep(context.Background(), session, "step_3")
+	if err != nil {
+		t.Fatalf("ExecutePlanStep with satisfied explicit dependency returned error: %v", err)
+	}
+	if completed.Status != PlanStepStatusCompleted || completed.ResultContent != "verification passed" {
+		t.Fatalf("expected dependent step to complete, got %+v", completed)
+	}
+	if executor.calls != 1 || executor.seenStep == nil || executor.seenStep.Description == "" || len(executor.seenStep.DependsOn) != 1 {
+		t.Fatalf("expected executor to receive structured step metadata, calls=%d step=%+v", executor.calls, executor.seenStep)
+	}
+	if store.planSteps[1].Status != PlanStepStatusPending {
+		t.Fatalf("explicit dependencies should not require unrelated lower-index steps, got %+v", store.planSteps[1])
+	}
+}
+
+func TestServiceExecutePlanStepRejectsUnmetExplicitDependency(t *testing.T) {
+	now := time.Now().UTC()
+	store := &fakeStore{
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
+			Status:         RunStatusPendingApproval,
+			StartedAt:      now,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+		planSteps: []*PlanStep{{
+			ID:             "step_1",
+			RunID:          "run_1",
+			OrganizationID: "org_1",
+			Index:          1,
+			Title:          "Collect migration evidence",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusNotRequired,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}, {
+			ID:             "step_2",
+			RunID:          "run_1",
+			OrganizationID: "org_1",
+			Index:          2,
+			Title:          "Run dependent verification",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusNotRequired,
+			DependsOn:      []int{1},
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+	}
+	executor := &fakePlanStepExecutor{resultContent: "should not run"}
+	service := NewService(store, &fakeGateway{})
+	service.SetPlanStepExecutor(executor)
+	session := auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}}
+
+	updated, err := service.ExecutePlanStep(context.Background(), session, "step_2")
+	if err == nil {
+		t.Fatal("expected ExecutePlanStep to reject unmet explicit dependency")
+	}
+	if updated != nil {
+		t.Fatalf("expected no updated step when dependency is unmet, got %+v", updated)
+	}
+	if !strings.Contains(err.Error(), "dependency plan step 1 must be completed or skipped before executing step 2") {
+		t.Fatalf("expected dependency validation error, got %v", err)
+	}
+	if executor.calls != 0 {
+		t.Fatalf("expected executor not to run, got %d calls", executor.calls)
+	}
+	if store.planSteps[1].Status != PlanStepStatusPending || store.planSteps[1].StartedAt != nil || store.planSteps[1].CompletedAt != nil {
+		t.Fatalf("expected rejected step to remain untouched, got %+v", store.planSteps[1])
+	}
+}
+
 func TestServiceSkipPlanStepAllowsLaterExecution(t *testing.T) {
 	now := time.Now().UTC()
 	store := &fakeStore{
@@ -3232,7 +3371,10 @@ func TestStartPlanningRunPersistsStructuredToolSteps(t *testing.T) {
 			UserID:         "user_1",
 		},
 	}
-	gateway := &fakeGateway{plainReply: `[{"title":"计算","toolName":"calculator","input":{"expression":"2+3"}}]`}
+	gateway := &fakeGateway{plainReply: `[
+		{"title":"准备输入","description":"Gather the expression to calculate."},
+		{"title":"计算","description":"Use the calculator tool for exact arithmetic.","toolName":"calculator","input":{"expression":"2+3"},"dependsOn":[1,0,1]}
+	]`}
 	service := NewService(store, gateway)
 
 	result, err := service.StartPlanningRun(
@@ -3243,20 +3385,23 @@ func TestStartPlanningRunPersistsStructuredToolSteps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartPlanningRun returned error: %v", err)
 	}
-	if len(store.planSteps) != 1 {
-		t.Fatalf("expected 1 structured plan step, got %+v", store.planSteps)
+	if len(store.planSteps) != 2 {
+		t.Fatalf("expected 2 structured plan steps, got %+v", store.planSteps)
 	}
-	step := store.planSteps[0]
-	if step.RunID != result.Run.ID || step.Index != 1 || step.Title != "计算" {
+	step := store.planSteps[1]
+	if step.RunID != result.Run.ID || step.Index != 2 || step.Title != "计算" {
 		t.Fatalf("structured step scope/index/title mismatch: %+v", step)
 	}
 	if step.ToolName != "calculator" {
 		t.Fatalf("expected calculator tool name to persist, got %+v", step)
 	}
+	if step.Description != "Use the calculator tool for exact arithmetic." || len(step.DependsOn) != 1 || step.DependsOn[0] != 1 {
+		t.Fatalf("expected structured description/dependencies to persist, got %+v", step)
+	}
 	if step.Input["expression"] != "2+3" {
 		t.Fatalf("expected structured input to persist, got %+v", step.Input)
 	}
-	if len(result.PlanSteps) != 1 || result.PlanSteps[0].ToolName != "calculator" {
+	if len(result.PlanSteps) != 2 || result.PlanSteps[1].ToolName != "calculator" || result.PlanSteps[1].Description == "" || len(result.PlanSteps[1].DependsOn) != 1 {
 		t.Fatalf("expected returned plan steps to include structured tool metadata, got %+v", result.PlanSteps)
 	}
 }

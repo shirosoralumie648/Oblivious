@@ -1006,10 +1006,12 @@ func (s *Service) createPlanStepsFromSpecs(ctx context.Context, organizationID, 
 			RunID:          runID,
 			Index:          startIndex + i,
 			Title:          spec.Title,
+			Description:    spec.Description,
 			Status:         PlanStepStatusPending,
 			ApprovalStatus: approvalStatus,
 			ToolName:       spec.ToolName,
 			Input:          spec.Input,
+			DependsOn:      spec.DependsOn,
 		})
 		if err != nil {
 			return nil, err
@@ -1050,9 +1052,11 @@ func (s *Service) planStepApprovalStatusForRun(ctx context.Context, organization
 }
 
 type parsedPlanStepSpec struct {
-	Title    string         `json:"title"`
-	ToolName string         `json:"toolName"`
-	Input    map[string]any `json:"input"`
+	Title       string         `json:"title"`
+	Description string         `json:"description"`
+	ToolName    string         `json:"toolName"`
+	Input       map[string]any `json:"input"`
+	DependsOn   []int          `json:"dependsOn"`
 }
 
 func parsePlanStepSpecs(reply string) []parsedPlanStepSpec {
@@ -1088,6 +1092,7 @@ func normalizeParsedPlanStepSpecs(structured []parsedPlanStepSpec) []parsedPlanS
 	steps := make([]parsedPlanStepSpec, 0, len(structured))
 	for _, step := range structured {
 		step.Title = strings.TrimSpace(step.Title)
+		step.Description = strings.TrimSpace(step.Description)
 		step.ToolName = strings.TrimSpace(step.ToolName)
 		if step.Title == "" {
 			continue
@@ -1095,6 +1100,7 @@ func normalizeParsedPlanStepSpecs(structured []parsedPlanStepSpec) []parsedPlanS
 		if step.Input == nil {
 			step.Input = map[string]any{}
 		}
+		step.DependsOn = normalizePlanStepDependsOn(step.DependsOn)
 		steps = append(steps, step)
 	}
 	return steps
@@ -1440,16 +1446,21 @@ func (s *Service) ApprovePlanStep(ctx context.Context, session auth.Session, pla
 }
 
 type UpdatePlanStepDraftRequest struct {
-	Title    *string
-	ToolName *string
-	Input    map[string]any
+	Title            *string
+	Description      *string
+	ToolName         *string
+	Input            map[string]any
+	DependsOn        []int
+	ReplaceDependsOn bool
 }
 
 type CreatePlanStepDraftRequest struct {
 	AfterPlanStepID *string
 	Title           string
+	Description     string
 	ToolName        string
 	Input           map[string]any
+	DependsOn       []int
 }
 
 const (
@@ -1475,6 +1486,8 @@ func (s *Service) CreatePlanStepDraft(ctx context.Context, session auth.Session,
 		return nil, fmt.Errorf("plan step title is required")
 	}
 	toolName := strings.TrimSpace(req.ToolName)
+	description := strings.TrimSpace(req.Description)
+	dependsOn := normalizePlanStepDependsOn(req.DependsOn)
 	input := req.Input
 	if input == nil {
 		input = map[string]any{}
@@ -1532,10 +1545,12 @@ func (s *Service) CreatePlanStepDraft(ctx context.Context, session auth.Session,
 		RunID:          runID,
 		Index:          insertIndex,
 		Title:          title,
+		Description:    description,
 		Status:         PlanStepStatusPending,
 		ApprovalStatus: approvalStatus,
 		ToolName:       toolName,
 		Input:          copyPlanStepInput(input),
+		DependsOn:      dependsOn,
 	}); err != nil {
 		return nil, err
 	}
@@ -1576,6 +1591,10 @@ func (s *Service) UpdatePlanStepDraft(ctx context.Context, session auth.Session,
 		}
 		updateReq.Title = &title
 	}
+	if req.Description != nil {
+		description := strings.TrimSpace(*req.Description)
+		updateReq.Description = &description
+	}
 	if req.ToolName != nil {
 		nextToolName = strings.TrimSpace(*req.ToolName)
 		updateReq.ToolName = &nextToolName
@@ -1583,6 +1602,10 @@ func (s *Service) UpdatePlanStepDraft(ctx context.Context, session auth.Session,
 	if req.Input != nil {
 		updateReq.Input = copyPlanStepInput(req.Input)
 		updateReq.ReplaceInput = true
+	}
+	if req.ReplaceDependsOn {
+		updateReq.DependsOn = normalizePlanStepDependsOn(req.DependsOn)
+		updateReq.ReplaceDependsOn = true
 	}
 	if step.Status == PlanStepStatusApproved || step.ApprovalStatus == ApprovalStatusApproved {
 		updateReq.Status = stringPointer(PlanStepStatusPending)
@@ -1991,10 +2014,12 @@ func isPlanStepReplaceableForAdjustment(step *PlanStep) bool {
 type planStepAdjustmentEvidence struct {
 	Index          int            `json:"index"`
 	Title          string         `json:"title"`
+	Description    string         `json:"description,omitempty"`
 	Status         string         `json:"status"`
 	ApprovalStatus string         `json:"approvalStatus"`
 	ToolName       string         `json:"toolName,omitempty"`
 	Input          map[string]any `json:"input,omitempty"`
+	DependsOn      []int          `json:"dependsOn,omitempty"`
 	ResultContent  string         `json:"resultContent,omitempty"`
 	Error          string         `json:"error,omitempty"`
 }
@@ -2011,7 +2036,7 @@ func buildAdjustedPlanPrompt(allSteps, completedSteps []*PlanStep, reason string
 		"Completed or skipped steps: %s",
 		"",
 		"Produce a revised plan for the remaining work only.",
-		"Return only a JSON array of remaining steps. Each item must include title, optional toolName, and optional input.",
+		"Return only a JSON array of remaining steps. Each item must include title, optional description, optional toolName, optional input, and optional dependsOn step indexes.",
 	}, "\n"), reason, marshalPlanAdjustmentEvidence(original), marshalPlanAdjustmentEvidence(completed))
 }
 
@@ -2024,10 +2049,12 @@ func planStepsAdjustmentEvidence(steps []*PlanStep) []planStepAdjustmentEvidence
 		evidence = append(evidence, planStepAdjustmentEvidence{
 			Index:          step.Index,
 			Title:          step.Title,
+			Description:    step.Description,
 			Status:         step.Status,
 			ApprovalStatus: step.ApprovalStatus,
 			ToolName:       step.ToolName,
 			Input:          step.Input,
+			DependsOn:      step.DependsOn,
 			ResultContent:  step.ResultContent,
 			Error:          step.Error,
 		})
@@ -2052,6 +2079,28 @@ func (s *Service) ensurePriorPlanStepsDone(ctx context.Context, session auth.Ses
 		return err
 	}
 	sortPlanSteps(steps)
+	dependsOn := normalizePlanStepDependsOn(step.DependsOn)
+	if len(dependsOn) > 0 {
+		byIndex := make(map[int]*PlanStep, len(steps))
+		for _, candidate := range steps {
+			if candidate != nil {
+				byIndex[candidate.Index] = candidate
+			}
+		}
+		for _, dependencyIndex := range dependsOn {
+			if dependencyIndex == step.Index {
+				return fmt.Errorf("plan step %d cannot depend on itself", step.Index)
+			}
+			dependency := byIndex[dependencyIndex]
+			if dependency == nil {
+				return fmt.Errorf("dependency plan step %d was not found before executing step %d", dependencyIndex, step.Index)
+			}
+			if dependency.Status != PlanStepStatusCompleted && dependency.Status != PlanStepStatusSkipped {
+				return fmt.Errorf("dependency plan step %d must be completed or skipped before executing step %d", dependencyIndex, step.Index)
+			}
+		}
+		return nil
+	}
 	for _, prior := range steps {
 		if prior == nil || prior.ID == step.ID || prior.Index >= step.Index {
 			continue
@@ -2657,6 +2706,16 @@ func buildPlanStepExecutionMessages(run *Run, agent *Agent, currentStep *PlanSte
 		builder.WriteString("- Title: ")
 		builder.WriteString(strings.TrimSpace(currentStep.Title))
 		builder.WriteString("\n")
+		if strings.TrimSpace(currentStep.Description) != "" {
+			builder.WriteString("- Description: ")
+			builder.WriteString(strings.TrimSpace(currentStep.Description))
+			builder.WriteString("\n")
+		}
+		if len(currentStep.DependsOn) > 0 {
+			builder.WriteString("- Depends on steps: ")
+			builder.WriteString(fmt.Sprintf("%v", normalizePlanStepDependsOn(currentStep.DependsOn)))
+			builder.WriteString("\n")
+		}
 		if len(currentStep.Input) > 0 {
 			builder.WriteString("- Input: ")
 			builder.WriteString(formatPlanStepInput(currentStep.Input))

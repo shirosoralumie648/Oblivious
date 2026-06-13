@@ -41,6 +41,10 @@ function readableJSON(value: unknown) {
   }
 }
 
+function readableDependencies(step: AgentPlanStep) {
+  return Array.isArray(step.dependsOn) && step.dependsOn.length > 0 ? step.dependsOn.join(', ') : '';
+}
+
 function canApprove(step: AgentPlanStep) {
   return step.status === 'pending';
 }
@@ -63,6 +67,17 @@ function isPlanStepDone(step: AgentPlanStep) {
 
 function arePriorPlanStepsDone(planSteps: AgentPlanStep[], stepPosition: number) {
   return planSteps.slice(0, stepPosition).every(isPlanStepDone);
+}
+
+function areRequiredPlanStepsDone(planSteps: AgentPlanStep[], step: AgentPlanStep, stepPosition: number) {
+  const dependencies = Array.isArray(step.dependsOn) ? step.dependsOn.filter((index) => Number.isInteger(index) && index > 0) : [];
+  if (dependencies.length === 0) {
+    return arePriorPlanStepsDone(planSteps, stepPosition);
+  }
+  return dependencies.every((dependencyIndex) => {
+    const dependency = planSteps.find((candidate) => candidate.index === dependencyIndex);
+    return dependency !== undefined && isPlanStepDone(dependency);
+  });
 }
 
 function canEdit(step: AgentPlanStep) {
@@ -98,6 +113,8 @@ export function AgentPlanStepsPage() {
   const [error, setError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [editingStepId, setEditingStepId] = useState<string | null>(null);
+  const [editDescription, setEditDescription] = useState('');
+  const [editDependsOn, setEditDependsOn] = useState('');
   const [editInput, setEditInput] = useState('');
   const [editTitle, setEditTitle] = useState('');
   const [editToolName, setEditToolName] = useState('');
@@ -108,6 +125,8 @@ export function AgentPlanStepsPage() {
   const [isContinuingPlan, setIsContinuingPlan] = useState(false);
   const [isCreatingStep, setIsCreatingStep] = useState(false);
   const [newAfterStepId, setNewAfterStepId] = useState<string | null>(null);
+  const [newDescription, setNewDescription] = useState('');
+  const [newDependsOn, setNewDependsOn] = useState('');
   const [newInput, setNewInput] = useState('');
   const [newTitle, setNewTitle] = useState('');
   const [newToolName, setNewToolName] = useState('');
@@ -158,7 +177,9 @@ export function AgentPlanStepsPage() {
   const startEditingStep = (step: AgentPlanStep) => {
     setEditingStepId(step.id);
     setEditTitle(step.title);
+    setEditDescription(step.description ?? '');
     setEditToolName(step.toolName ?? '');
+    setEditDependsOn(readableDependencies(step));
     setEditInput(readableJSON(step.input));
     setError(null);
   };
@@ -166,7 +187,9 @@ export function AgentPlanStepsPage() {
   const cancelEditingStep = () => {
     setEditingStepId(null);
     setEditTitle('');
+    setEditDescription('');
     setEditToolName('');
+    setEditDependsOn('');
     setEditInput('');
   };
 
@@ -174,7 +197,9 @@ export function AgentPlanStepsPage() {
     setIsCreatingStep(true);
     setNewAfterStepId(afterStepId);
     setNewTitle('');
+    setNewDescription('');
     setNewToolName('');
+    setNewDependsOn('');
     setNewInput('');
     setError(null);
   };
@@ -183,7 +208,9 @@ export function AgentPlanStepsPage() {
     setIsCreatingStep(false);
     setNewAfterStepId(null);
     setNewTitle('');
+    setNewDescription('');
     setNewToolName('');
+    setNewDependsOn('');
     setNewInput('');
   };
 
@@ -203,6 +230,20 @@ export function AgentPlanStepsPage() {
       setError(`${label} must be valid JSON.`);
       return null;
     }
+  };
+
+  const parsePlanStepDependencies = (value: string, label = 'Plan step dependencies') => {
+    const trimmed = value.trim();
+    if (trimmed === '') {
+      return [];
+    }
+
+    const dependencies = trimmed.split(/[,\s]+/).map((token) => Number(token));
+    if (dependencies.some((dependency) => !Number.isInteger(dependency) || dependency <= 0)) {
+      setError(`${label} must be positive step numbers separated by commas.`);
+      return null;
+    }
+    return Array.from(new Set(dependencies)).sort((left, right) => left - right);
   };
 
   const createPlanStep = async () => {
@@ -225,6 +266,10 @@ export function AgentPlanStepsPage() {
     if (parsedInput === null) {
       return;
     }
+    const parsedDependencies = parsePlanStepDependencies(newDependsOn, 'New step dependencies');
+    if (parsedDependencies === null) {
+      return;
+    }
 
     setOperatingStepId(newAfterStepId ?? '__new_plan_step__');
     setError(null);
@@ -232,6 +277,8 @@ export function AgentPlanStepsPage() {
     try {
       const refreshed = await api.createPlanStep(runId, {
         ...(newAfterStepId ? { afterPlanStepId: newAfterStepId } : {}),
+        dependsOn: parsedDependencies,
+        description: newDescription.trim(),
         input: parsedInput,
         title,
         toolName: newToolName.trim()
@@ -265,12 +312,18 @@ export function AgentPlanStepsPage() {
     if (parsedInput === null) {
       return;
     }
+    const parsedDependencies = parsePlanStepDependencies(editDependsOn);
+    if (parsedDependencies === null) {
+      return;
+    }
 
     setOperatingStepId(step.id);
     setError(null);
 
     try {
       const refreshed = await api.updatePlanStep(runId, step.id, {
+        dependsOn: parsedDependencies,
+        description: editDescription.trim(),
         input: parsedInput,
         title,
         toolName: editToolName.trim()
@@ -708,12 +761,29 @@ export function AgentPlanStepsPage() {
                 />
               </label>
               <label className="grid gap-1 text-sm font-medium text-[#3f3a31]">
+                New step description
+                <textarea
+                  className="min-h-20 rounded-lg border border-[#d7d2c4] px-3 py-2 text-sm leading-5"
+                  onChange={(event) => setNewDescription(event.target.value)}
+                  value={newDescription}
+                />
+              </label>
+              <label className="grid gap-1 text-sm font-medium text-[#3f3a31]">
                 New step tool
                 <input
                   className="min-h-10 rounded-lg border border-[#d7d2c4] px-3 text-sm"
                   onChange={(event) => setNewToolName(event.target.value)}
                   placeholder="Optional built-in tool"
                   value={newToolName}
+                />
+              </label>
+              <label className="grid gap-1 text-sm font-medium text-[#3f3a31]">
+                New step dependencies
+                <input
+                  className="min-h-10 rounded-lg border border-[#d7d2c4] px-3 text-sm"
+                  onChange={(event) => setNewDependsOn(event.target.value)}
+                  placeholder="1, 2"
+                  value={newDependsOn}
                 />
               </label>
               <label className="grid gap-1 text-sm font-medium text-[#3f3a31]">
@@ -741,10 +811,10 @@ export function AgentPlanStepsPage() {
           const stepInput = readableJSON(step.input);
           const canMoveUp = canMovePlanStep(planSteps, stepPosition, 'up');
           const canMoveDown = canMovePlanStep(planSteps, stepPosition, 'down');
-          const priorPlanStepsDone = arePriorPlanStepsDone(planSteps, stepPosition);
-          const canExecuteThisStep = canExecute(step) && priorPlanStepsDone;
-          const canSkipThisStep = canSkip(step) && priorPlanStepsDone;
-          const canRetryThisStep = canRetry(step) && priorPlanStepsDone;
+          const requiredPlanStepsDone = areRequiredPlanStepsDone(planSteps, step, stepPosition);
+          const canExecuteThisStep = canExecute(step) && requiredPlanStepsDone;
+          const canSkipThisStep = canSkip(step) && requiredPlanStepsDone;
+          const canRetryThisStep = canRetry(step) && requiredPlanStepsDone;
           return (
             <article
               aria-label={`Plan step ${step.title}`}
@@ -758,6 +828,7 @@ export function AgentPlanStepsPage() {
                     <span>{step.status}</span>
                     {step.approvalStatus ? <span>Approval: {step.approvalStatus}</span> : null}
                     {step.toolName ? <span>Tool: {step.toolName}</span> : null}
+                    {readableDependencies(step) ? <span>Depends on: {readableDependencies(step)}</span> : null}
                   </div>
                   {isEditing ? (
                     <div className="mt-3 grid gap-3">
@@ -770,12 +841,29 @@ export function AgentPlanStepsPage() {
                         />
                       </label>
                       <label className="grid gap-1 text-sm font-medium text-[#3f3a31]">
+                        Description
+                        <textarea
+                          className="min-h-20 rounded-lg border border-[#d7d2c4] px-3 py-2 text-sm leading-5"
+                          onChange={(event) => setEditDescription(event.target.value)}
+                          value={editDescription}
+                        />
+                      </label>
+                      <label className="grid gap-1 text-sm font-medium text-[#3f3a31]">
                         Tool
                         <input
                           className="min-h-10 rounded-lg border border-[#d7d2c4] px-3 text-sm"
                           onChange={(event) => setEditToolName(event.target.value)}
                           placeholder="Optional built-in tool"
                           value={editToolName}
+                        />
+                      </label>
+                      <label className="grid gap-1 text-sm font-medium text-[#3f3a31]">
+                        Dependencies
+                        <input
+                          className="min-h-10 rounded-lg border border-[#d7d2c4] px-3 text-sm"
+                          onChange={(event) => setEditDependsOn(event.target.value)}
+                          placeholder="1, 2"
+                          value={editDependsOn}
                         />
                       </label>
                       <label className="grid gap-1 text-sm font-medium text-[#3f3a31]">
@@ -790,6 +878,7 @@ export function AgentPlanStepsPage() {
                   ) : (
                     <>
                       <h2 className="mt-2 text-base font-semibold text-[#181611]">{step.title}</h2>
+                      {step.description ? <p className="mt-2 text-sm leading-6 text-[#625b4f]">{step.description}</p> : null}
                       {stepInput ? (
                         <pre className="mt-2 max-h-40 overflow-auto rounded-lg bg-[#f6f1e6] p-3 text-xs leading-5 text-[#3f3a31]">
                           {stepInput}

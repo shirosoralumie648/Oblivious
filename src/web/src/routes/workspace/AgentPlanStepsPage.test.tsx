@@ -733,6 +733,46 @@ describe('AgentPlanStepsPage', () => {
     expect(screen.getByRole('button', { name: 'Execute Run checks' })).toBeDisabled();
   });
 
+  it('uses explicit plan step dependencies for execution controls', async () => {
+    const planSteps = [
+      {
+        approvalStatus: 'not_required',
+        id: 'step_1',
+        index: 1,
+        resultContent: 'Evidence gathered.',
+        runId: 'run_1',
+        status: 'completed',
+        title: 'Gather requirements'
+      },
+      {
+        approvalStatus: 'not_required',
+        id: 'step_2',
+        index: 2,
+        runId: 'run_1',
+        status: 'pending',
+        title: 'Optional docs cleanup'
+      },
+      {
+        approvalStatus: 'not_required',
+        dependsOn: [1],
+        description: 'Only the evidence step is required.',
+        id: 'step_3',
+        index: 3,
+        runId: 'run_1',
+        status: 'pending',
+        title: 'Run dependency-aware checks'
+      }
+    ];
+    getRunDetail.mockResolvedValueOnce(runDetail(planSteps));
+
+    renderPage(planSteps);
+
+    expect(await screen.findByText('Status: planning')).toBeInTheDocument();
+    expect(screen.getByLabelText('Plan step Run dependency-aware checks')).toHaveTextContent('Depends on: 1');
+    expect(screen.getByRole('button', { name: 'Execute Optional docs cleanup' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Execute Run dependency-aware checks' })).toBeEnabled();
+  });
+
   it('retries failed plan steps from the planning page', async () => {
     renderPage([
       {
@@ -861,6 +901,8 @@ describe('AgentPlanStepsPage', () => {
     renderPage([
       {
         approvalStatus: 'approved',
+        dependsOn: [1],
+        description: 'Write to the target file.',
         id: 'step_1',
         index: 1,
         input: { path: 'old.go' },
@@ -873,6 +915,8 @@ describe('AgentPlanStepsPage', () => {
     updatePlanStep.mockResolvedValueOnce(runDetail([
       {
         approvalStatus: 'pending',
+        dependsOn: [],
+        description: 'Inspect before writing.',
         id: 'step_1',
         index: 1,
         input: { path: 'new.go' },
@@ -885,11 +929,15 @@ describe('AgentPlanStepsPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit Patch original file' }));
     fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Read safer file' } });
+    fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Inspect before writing.' } });
     fireEvent.change(screen.getByLabelText('Tool'), { target: { value: 'read_file' } });
+    fireEvent.change(screen.getByLabelText('Dependencies'), { target: { value: '' } });
     fireEvent.change(screen.getByLabelText('Input'), { target: { value: '{\"path\":\"new.go\"}' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save Patch original file' }));
 
     await waitFor(() => expect(updatePlanStep).toHaveBeenCalledWith('run_1', 'step_1', {
+      dependsOn: [],
+      description: 'Inspect before writing.',
       input: { path: 'new.go' },
       title: 'Read safer file',
       toolName: 'read_file'
@@ -897,6 +945,7 @@ describe('AgentPlanStepsPage', () => {
     expect(await screen.findByRole('heading', { name: 'Read safer file' })).toBeInTheDocument();
     expect(screen.getByLabelText('Plan step Read safer file')).toHaveTextContent('pending');
     expect(screen.getByLabelText('Plan step Read safer file')).toHaveTextContent('Approval: pending');
+    expect(screen.getByLabelText('Plan step Read safer file')).toHaveTextContent('Inspect before writing.');
     expect(screen.getByLabelText('Plan step Read safer file')).toHaveTextContent('"path": "new.go"');
   });
 
@@ -1001,6 +1050,8 @@ describe('AgentPlanStepsPage', () => {
       },
       {
         approvalStatus: 'pending',
+        dependsOn: [1],
+        description: 'Run after the draft exists.',
         id: 'step_new',
         index: 2,
         input: { command: 'go test ./internal/agent' },
@@ -1039,12 +1090,16 @@ describe('AgentPlanStepsPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Insert after Draft patch' }));
     fireEvent.change(screen.getByLabelText('New step title'), { target: { value: 'Run checks' } });
+    fireEvent.change(screen.getByLabelText('New step description'), { target: { value: 'Run after the draft exists.' } });
     fireEvent.change(screen.getByLabelText('New step tool'), { target: { value: 'execute_code' } });
+    fireEvent.change(screen.getByLabelText('New step dependencies'), { target: { value: '1' } });
     fireEvent.change(screen.getByLabelText('New step input'), { target: { value: '{\"command\":\"go test ./internal/agent\"}' } });
     fireEvent.click(screen.getByRole('button', { name: 'Add plan step' }));
 
     await waitFor(() => expect(createPlanStep).toHaveBeenCalledWith('run_1', {
       afterPlanStepId: 'step_1',
+      dependsOn: [1],
+      description: 'Run after the draft exists.',
       input: { command: 'go test ./internal/agent' },
       title: 'Run checks',
       toolName: 'execute_code'
@@ -1077,6 +1132,8 @@ describe('AgentPlanStepsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add plan step' }));
 
     await waitFor(() => expect(createPlanStep).toHaveBeenCalledWith('run_1', {
+      dependsOn: [],
+      description: '',
       input: {},
       title: 'Draft first step',
       toolName: ''

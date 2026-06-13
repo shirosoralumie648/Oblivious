@@ -865,17 +865,19 @@ func TestAgentRunsHandlerUpdatePlanStepReturnsUpdatedRunDetail(t *testing.T) {
 		OrganizationID: "org_1",
 		Index:          1,
 		Title:          "Original step",
+		Description:    "Old implementation details.",
 		Status:         agent.PlanStepStatusApproved,
 		ApprovalStatus: agent.ApprovalStatusApproved,
 		ToolName:       "write_file",
 		Input:          map[string]any{"path": "old.go"},
+		DependsOn:      []int{1},
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}}
 	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{}))
 
 	recorder := httptest.NewRecorder()
-	handler.updatePlanStep(recorder, newAgentRunsRequest(stdhttp.MethodPatch, "/api/v1/agent/runs/run_1/update-plan-step", `{"planStepId":"step_1","title":"Read safer file","toolName":"read_file","input":{"path":"new.go"}}`), "run_1")
+	handler.updatePlanStep(recorder, newAgentRunsRequest(stdhttp.MethodPatch, "/api/v1/agent/runs/run_1/update-plan-step", `{"planStepId":"step_1","title":"Read safer file","description":"Use read-only inspection first.","toolName":"read_file","input":{"path":"new.go"},"dependsOn":[]}`), "run_1")
 
 	if recorder.Code != stdhttp.StatusOK {
 		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
@@ -890,11 +892,70 @@ func TestAgentRunsHandlerUpdatePlanStepReturnsUpdatedRunDetail(t *testing.T) {
 		t.Fatalf("expected plan step detail, got %+v", response.Data)
 	}
 	step := response.Data.PlanSteps[0]
-	if step.Title != "Read safer file" || step.ToolName != "read_file" || step.Input["path"] != "new.go" {
+	if step.Title != "Read safer file" || step.Description != "Use read-only inspection first." || step.ToolName != "read_file" || step.Input["path"] != "new.go" {
 		t.Fatalf("expected edited plan step payload, got %+v", step)
+	}
+	if len(step.DependsOn) != 0 {
+		t.Fatalf("expected update to clear explicit dependencies, got %+v", step)
 	}
 	if step.Status != agent.PlanStepStatusPending || step.ApprovalStatus != agent.ApprovalStatusPending {
 		t.Fatalf("expected edited approved step to require fresh review, got %+v", step)
+	}
+}
+
+func TestAgentRunsHandlerCreatePlanStepPersistsStructuredDraft(t *testing.T) {
+	now := time.Now().UTC()
+	store := newFakeAgentRunsStore()
+	store.agent = &agent.Agent{
+		ID:             "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		Name:           "Implementation Agent",
+		Model:          "test-model",
+	}
+	store.runs = []*agent.Run{{
+		ID:             "run_1",
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		Mode:           agent.ExecutionModePlanning,
+		Status:         agent.RunStatusPendingApproval,
+	}}
+	store.planSteps = []*agent.PlanStep{{
+		ID:             "step_1",
+		RunID:          "run_1",
+		OrganizationID: "org_1",
+		Index:          1,
+		Title:          "Gather evidence",
+		Status:         agent.PlanStepStatusPending,
+		ApprovalStatus: agent.ApprovalStatusNotRequired,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{}))
+
+	recorder := httptest.NewRecorder()
+	handler.createPlanStep(recorder, newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/create-plan-step", `{"afterPlanStepId":"step_1","title":"Verify structured plan","description":"Run only after evidence exists.","toolName":"read_file","input":{"path":"README.md"},"dependsOn":[1]}`), "run_1")
+
+	if recorder.Code != stdhttp.StatusCreated {
+		t.Fatalf("expected 201, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Data agentRunResponse `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(response.Data.PlanSteps) != 2 {
+		t.Fatalf("expected created plan step detail, got %+v", response.Data)
+	}
+	step := response.Data.PlanSteps[1]
+	if step.Title != "Verify structured plan" || step.Description != "Run only after evidence exists." || step.ToolName != "read_file" || step.Input["path"] != "README.md" {
+		t.Fatalf("expected structured created plan step payload, got %+v", step)
+	}
+	if len(step.DependsOn) != 1 || step.DependsOn[0] != 1 {
+		t.Fatalf("expected created plan step dependencies, got %+v", step)
 	}
 }
 
@@ -3069,10 +3130,12 @@ func (s *fakeAgentRunsStore) CreatePlanStep(ctx context.Context, req *agent.Crea
 		OrganizationID: req.OrganizationID,
 		Index:          req.Index,
 		Title:          req.Title,
+		Description:    req.Description,
 		Status:         status,
 		ApprovalStatus: approvalStatus,
 		ToolName:       req.ToolName,
 		Input:          input,
+		DependsOn:      append([]int(nil), req.DependsOn...),
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}
@@ -3110,6 +3173,9 @@ func (s *fakeAgentRunsStore) UpdatePlanStep(ctx context.Context, organizationID,
 	if req.Title != nil {
 		step.Title = *req.Title
 	}
+	if req.Description != nil {
+		step.Description = *req.Description
+	}
 	if req.Status != nil {
 		step.Status = *req.Status
 	}
@@ -3124,6 +3190,9 @@ func (s *fakeAgentRunsStore) UpdatePlanStep(ctx context.Context, organizationID,
 		for key, value := range req.Input {
 			step.Input[key] = value
 		}
+	}
+	if req.ReplaceDependsOn {
+		step.DependsOn = append([]int(nil), req.DependsOn...)
 	}
 	if req.ResultContent != nil {
 		step.ResultContent = *req.ResultContent

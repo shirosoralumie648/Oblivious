@@ -2174,6 +2174,20 @@ require_agent_run_mutation_csrf_contract() {
       missing << "Agent decision request schemas must document snake/camel identifiers and move direction enum"
     end
 
+    plan_step = schemas["AgentPlanStep"] || {}
+    plan_step_update = schemas["AgentPlanStepUpdateRequest"] || {}
+    plan_step_create = schemas["AgentPlanStepCreateRequest"] || {}
+    unless plan_step.dig("properties", "description", "type") == "string" &&
+        plan_step.dig("properties", "dependsOn", "items", "type") == "integer" &&
+        plan_step_update.dig("properties", "description", "type") == "string" &&
+        plan_step_update.dig("properties", "dependsOn", "items", "minimum") == 1 &&
+        plan_step_update.dig("properties", "depends_on", "items", "minimum") == 1 &&
+        plan_step_create.dig("properties", "description", "type") == "string" &&
+        plan_step_create.dig("properties", "dependsOn", "items", "minimum") == 1 &&
+        plan_step_create.dig("properties", "depends_on", "items", "minimum") == 1
+      missing << "Agent plan-step schemas must document structured description and dependsOn fields for response, update, and create requests"
+    end
+
     unless missing.empty?
       warn "[openapi-contract] Agent run mutation CSRF/schema contract is incomplete:"
       missing.each { |entry| warn "  - #{entry}" }

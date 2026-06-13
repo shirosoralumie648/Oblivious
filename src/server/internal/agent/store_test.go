@@ -109,6 +109,13 @@ func testAgentRunSQLStore(t *testing.T) (*SQLStore, context.Context) {
 	if _, err := database.Exec(string(planStepExecutionMigration)); err != nil {
 		t.Fatalf("apply agent plan step execution migration: %v", err)
 	}
+	planStepStructureMigration, err := os.ReadFile("../../migrations/0080_agent_plan_step_structure.sql")
+	if err != nil {
+		t.Fatalf("read agent plan step structure migration: %v", err)
+	}
+	if _, err := database.Exec(string(planStepStructureMigration)); err != nil {
+		t.Fatalf("apply agent plan step structure migration: %v", err)
+	}
 	agentMemoriesMigration, err := os.ReadFile("../../migrations/0044_agent_memories.sql")
 	if err != nil {
 		t.Fatalf("read agent memories migration: %v", err)
@@ -438,10 +445,12 @@ func TestAgentPlanStepStoreRoundTripsStepsInOrder(t *testing.T) {
 		RunID:          run.ID,
 		Index:          2,
 		Title:          "Draft implementation",
+		Description:    "Write the guarded migration patch.",
 		Status:         PlanStepStatusPending,
 		ApprovalStatus: ApprovalStatusNotRequired,
 		ToolName:       "write_file",
 		Input:          map[string]any{"path": "src/server/internal/agent/store.go"},
+		DependsOn:      []int{1},
 	})
 	if err != nil {
 		t.Fatalf("CreatePlanStep second returned error: %v", err)
@@ -462,6 +471,9 @@ func TestAgentPlanStepStoreRoundTripsStepsInOrder(t *testing.T) {
 	}
 	if steps[1].Index != 2 || steps[1].Title != "Draft implementation" || steps[1].ToolName != "write_file" {
 		t.Fatalf("unexpected second step: %+v", steps[1])
+	}
+	if steps[1].Description != "Write the guarded migration patch." || len(steps[1].DependsOn) != 1 || steps[1].DependsOn[0] != 1 {
+		t.Fatalf("expected structured plan metadata to round trip, got %+v", steps[1])
 	}
 	if steps[1].Input["path"] != "src/server/internal/agent/store.go" {
 		t.Fatalf("expected step input to round trip, got %+v", steps[1].Input)
@@ -524,18 +536,25 @@ func TestAgentPlanStepStoreUpdatesStatusAndExecutionResult(t *testing.T) {
 	}
 
 	updatedTitle := "Execute adjusted step"
+	updatedDescription := "Run the adjusted structured step."
 	updatedToolName := "read_file"
 	adjusted, err := store.UpdatePlanStep(ctx, "org_1", step.ID, UpdatePlanStepRequest{
-		Title:        &updatedTitle,
-		ToolName:     &updatedToolName,
-		Input:        map[string]any{"path": "new.go"},
-		ReplaceInput: true,
+		Title:            &updatedTitle,
+		Description:      &updatedDescription,
+		ToolName:         &updatedToolName,
+		Input:            map[string]any{"path": "new.go"},
+		ReplaceInput:     true,
+		DependsOn:        []int{1, 1, 0},
+		ReplaceDependsOn: true,
 	})
 	if err != nil {
 		t.Fatalf("UpdatePlanStep adjusted fields returned error: %v", err)
 	}
 	if adjusted.Title != "Execute adjusted step" || adjusted.ToolName != "read_file" || adjusted.Input["path"] != "new.go" {
 		t.Fatalf("expected updated plan step draft fields, got %+v", adjusted)
+	}
+	if adjusted.Description != "Run the adjusted structured step." || len(adjusted.DependsOn) != 1 || adjusted.DependsOn[0] != 1 {
+		t.Fatalf("expected updated structured fields to round trip, got %+v", adjusted)
 	}
 
 	completedAt := time.Now().UTC()

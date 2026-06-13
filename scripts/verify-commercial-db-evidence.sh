@@ -26,7 +26,8 @@ Profiles:
   app-stateful-routes          Run focused app state, tenant, CSRF, and
                                ownership PostgreSQL route tests.
   agent-runtime-memory         Run focused Agent runtime, approval, execution
-                               mode, and memory policy PostgreSQL tests.
+                               mode, structured plan-step, and memory policy
+                               PostgreSQL tests.
 
 Environment:
   TEST_DATABASE_URL        Optional PostgreSQL URL. If unset, a disposable pgvector
@@ -149,7 +150,7 @@ case "$profile" in
     run_go_test_no_skips "app stateful route persistence and ownership" "./internal/http" "$app_stateful_routes_pattern"
     ;;
   agent-runtime-memory)
-    agent_runtime_memory_pattern="^(TestAgentRunStorePersistsRunLifecycle|TestAgentSQLStorePersists(ApprovalConfigAndToolRiskLevels|DefaultExecutionModeConfig|LongTermMemoryWritePolicyConfig))$"
+    agent_runtime_memory_pattern="^(TestAgentRunStorePersistsRunLifecycle|TestAgentPlanStepStore(RoundTripsStepsInOrder|UpdatesStatusAndExecutionResult)|TestAgentSQLStorePersists(ApprovalConfigAndToolRiskLevels|DefaultExecutionModeConfig|LongTermMemoryWritePolicyConfig))$"
     run_go_test_no_skips "agent runtime and memory policy persistence" "./internal/agent" "$agent_runtime_memory_pattern"
     ;;
   *)

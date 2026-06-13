@@ -61,21 +61,41 @@ type agentRunPlanStepRequest struct {
 }
 
 type agentRunPlanStepUpdateRequest struct {
-	PlanStepID      string         `json:"plan_step_id"`
-	PlanStepIDCamel string         `json:"planStepId"`
-	Title           *string        `json:"title"`
-	ToolName        *string        `json:"tool_name"`
-	ToolNameCamel   *string        `json:"toolName"`
-	Input           map[string]any `json:"input"`
+	PlanStepID      string                         `json:"plan_step_id"`
+	PlanStepIDCamel string                         `json:"planStepId"`
+	Title           *string                        `json:"title"`
+	Description     *string                        `json:"description"`
+	ToolName        *string                        `json:"tool_name"`
+	ToolNameCamel   *string                        `json:"toolName"`
+	Input           map[string]any                 `json:"input"`
+	DependsOn       agentRunPlanStepDependsOnField `json:"dependsOn"`
+	DependsOnSnake  agentRunPlanStepDependsOnField `json:"depends_on"`
 }
 
 type agentRunPlanStepCreateRequest struct {
-	AfterPlanStepID      *string        `json:"after_plan_step_id"`
-	AfterPlanStepIDCamel *string        `json:"afterPlanStepId"`
-	Title                string         `json:"title"`
-	ToolName             string         `json:"tool_name"`
-	ToolNameCamel        string         `json:"toolName"`
-	Input                map[string]any `json:"input"`
+	AfterPlanStepID      *string                        `json:"after_plan_step_id"`
+	AfterPlanStepIDCamel *string                        `json:"afterPlanStepId"`
+	Title                string                         `json:"title"`
+	Description          string                         `json:"description"`
+	ToolName             string                         `json:"tool_name"`
+	ToolNameCamel        string                         `json:"toolName"`
+	Input                map[string]any                 `json:"input"`
+	DependsOn            agentRunPlanStepDependsOnField `json:"dependsOn"`
+	DependsOnSnake       agentRunPlanStepDependsOnField `json:"depends_on"`
+}
+
+type agentRunPlanStepDependsOnField struct {
+	Value []int
+	Set   bool
+}
+
+func (f *agentRunPlanStepDependsOnField) UnmarshalJSON(data []byte) error {
+	f.Set = true
+	if string(data) == "null" {
+		f.Value = nil
+		return nil
+	}
+	return json.Unmarshal(data, &f.Value)
 }
 
 type agentRunPlanStepMoveRequest struct {
@@ -467,11 +487,14 @@ func (h agentRunsHandler) createPlanStep(w stdhttp.ResponseWriter, r *stdhttp.Re
 
 	toolName := firstAgentRunNonEmpty(req.ToolName, req.ToolNameCamel)
 	afterPlanStepID := firstStringPointer(req.AfterPlanStepID, req.AfterPlanStepIDCamel)
+	dependsOn, _ := firstPlanStepDependsOn(req.DependsOnSnake, req.DependsOn)
 	if _, err := h.service.CreatePlanStepDraft(r.Context(), session, strings.TrimSpace(runID), agent.CreatePlanStepDraftRequest{
 		AfterPlanStepID: afterPlanStepID,
 		Title:           req.Title,
+		Description:     req.Description,
 		ToolName:        toolName,
 		Input:           req.Input,
+		DependsOn:       dependsOn,
 	}); err != nil {
 		writeAgentWorkflowError(w, err)
 		return
@@ -504,10 +527,14 @@ func (h agentRunsHandler) updatePlanStep(w stdhttp.ResponseWriter, r *stdhttp.Re
 	}
 
 	toolName := firstStringPointer(req.ToolName, req.ToolNameCamel)
+	dependsOn, replaceDependsOn := firstPlanStepDependsOn(req.DependsOnSnake, req.DependsOn)
 	if _, err := h.service.UpdatePlanStepDraft(r.Context(), session, planStepID, agent.UpdatePlanStepDraftRequest{
-		Title:    req.Title,
-		ToolName: toolName,
-		Input:    req.Input,
+		Title:            req.Title,
+		Description:      req.Description,
+		ToolName:         toolName,
+		Input:            req.Input,
+		DependsOn:        dependsOn,
+		ReplaceDependsOn: replaceDependsOn,
 	}); err != nil {
 		writeAgentWorkflowError(w, err)
 		return
@@ -778,4 +805,13 @@ func firstStringPointer(values ...*string) *string {
 		}
 	}
 	return nil
+}
+
+func firstPlanStepDependsOn(values ...agentRunPlanStepDependsOnField) ([]int, bool) {
+	for _, value := range values {
+		if value.Set {
+			return value.Value, true
+		}
+	}
+	return nil, false
 }

@@ -7,10 +7,12 @@ export type AgentPlanStep = {
   runId?: string;
   index?: number;
   title: string;
+  description?: string;
   status: AgentPlanStepStatus;
   approvalStatus?: string;
   toolName?: string;
   input?: Record<string, unknown>;
+  dependsOn?: number[];
   resultContent?: string;
   error?: string;
   createdAt?: string;
@@ -48,6 +50,8 @@ export type AgentRunDetail = {
 };
 
 export type UpdateAgentPlanStepRequest = {
+  dependsOn?: number[];
+  description?: string;
   input?: Record<string, unknown>;
   title?: string;
   toolName?: string;
@@ -55,6 +59,8 @@ export type UpdateAgentPlanStepRequest = {
 
 export type CreateAgentPlanStepRequest = {
   afterPlanStepId?: string;
+  dependsOn?: number[];
+  description?: string;
   input?: Record<string, unknown>;
   title: string;
   toolName?: string;
@@ -172,8 +178,10 @@ export function createAgentPlanStepsApi(client: HttpClient): AgentPlanStepsApi {
         await client.post<AgentRunDetailPayload>(`${runPath(runId)}/create-plan-step`, {
           title: payload.title,
           ...(payload.afterPlanStepId !== undefined ? { afterPlanStepId: payload.afterPlanStepId } : {}),
+          ...(payload.description !== undefined ? { description: payload.description } : {}),
           ...(payload.toolName !== undefined ? { toolName: payload.toolName } : {}),
-          ...(payload.input !== undefined ? { input: payload.input } : {})
+          ...(payload.input !== undefined ? { input: payload.input } : {}),
+          ...(payload.dependsOn !== undefined ? { dependsOn: payload.dependsOn } : {})
         })
       ),
     updatePlanStep: async (runId, planStepId, payload) =>
@@ -182,8 +190,10 @@ export function createAgentPlanStepsApi(client: HttpClient): AgentPlanStepsApi {
           body: JSON.stringify({
             planStepId,
             ...(payload.title !== undefined ? { title: payload.title } : {}),
+            ...(payload.description !== undefined ? { description: payload.description } : {}),
             ...(payload.toolName !== undefined ? { toolName: payload.toolName } : {}),
-            ...(payload.input !== undefined ? { input: payload.input } : {})
+            ...(payload.input !== undefined ? { input: payload.input } : {}),
+            ...(payload.dependsOn !== undefined ? { dependsOn: payload.dependsOn } : {})
           }),
           headers: { 'Content-Type': 'application/json' },
           method: 'PATCH'
