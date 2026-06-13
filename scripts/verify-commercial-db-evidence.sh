@@ -15,12 +15,14 @@ output_files=()
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/verify-commercial-db-evidence.sh [backend-journey]
+Usage: bash scripts/verify-commercial-db-evidence.sh [backend-journey|marketplace-money-movement]
 
 Runs narrow DB-backed commercial evidence without silently accepting skipped tests.
 
 Profiles:
-  backend-journey  Run TestCommercialHTTPJourney against PostgreSQL.
+  backend-journey              Run TestCommercialHTTPJourney against PostgreSQL.
+  marketplace-money-movement   Run focused Billing/Marketplace money movement
+                               PostgreSQL lifecycle tests.
 
 Environment:
   TEST_DATABASE_URL        Optional PostgreSQL URL. If unset, a disposable pgvector
@@ -113,6 +115,9 @@ run_go_test_no_skips() {
   if grep -Fq -- "--- SKIP:" "$output_file"; then
     fail "$label skipped at least one test; skipped DB-backed evidence is not accepted"
   fi
+  if ! grep -Fq -- "=== RUN" "$output_file"; then
+    fail "$label did not run any tests; empty DB-backed evidence is not accepted"
+  fi
   if [[ "$status" -ne 0 ]]; then
     fail "$label failed"
   fi
@@ -128,6 +133,10 @@ fi
 case "$profile" in
   backend-journey)
     run_go_test_no_skips "backend commercial HTTP journey" "./internal/http" "^TestCommercialHTTPJourney$"
+    ;;
+  marketplace-money-movement)
+    run_go_test_no_skips "marketplace settlement money movement" "./internal/marketplace" "^TestSettlement(CreatePaidInstallCheckoutCreatesPendingOrderAndIntent|CreatePaidInstallCheckoutRecordsSelectedProvider|CreatePaidInstallCheckoutSQLUsesRequestedCurrency|ApplyPaidInstallCheckoutCompletedRecordsSelectedProviderLifecycle|MarkPayoutPendingDispatchesConfiguredProvider|MarkPayoutPaidUpdatesPayoutAndSettlementsOnce|ProviderPayoutPaidWebhookMatchesProviderPayoutIDOnce|ProviderPayoutFailedWebhookReleasesSettlementsOnce|MarkPayoutFailedReleasesSettlementsOnce|CreateDuePayoutsAggregatesAvailableSettlementsOnce|CreateDuePayoutsDispatchesConfiguredProvider|PublisherStatsIncludesSettlementAmounts)$"
+    run_go_test_no_skips "admin billing and marketplace money movement routes" "./internal/http" "^Test(AdminBilling(SummaryIncludesMoneyMovementState|ListsExposeAllRequiredSurfaces|MarksMarketplacePayoutPaid|MarksMarketplacePayoutFailedAndReleasesSettlements|CreateDueMarketplacePayoutsDispatchesConfiguredProvider|RecordsTopupRefundAndAdjustsQuota)|MarketplacePaidInstall(DoesNotInstallBeforeWebhook|CheckoutCreatorFailureMarksOrderFailed|UsesConfiguredProviderCheckoutCreator)|DomesticPaymentWebhookRouteAppliesMarketplace(InstallSettlementOnce|RefundOnce|PayoutPaidOnce|PayoutFailedOnce))$"
     ;;
   *)
     usage >&2

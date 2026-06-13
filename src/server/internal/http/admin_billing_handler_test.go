@@ -292,7 +292,7 @@ func TestAdminBillingMarksMarketplacePayoutFailedAndReleasesSettlements(t *testi
 	request := httptest.NewRequest(
 		stdhttp.MethodPost,
 		"/api/v1/admin/billing/payouts/payout_admin_phase20/failed",
-		strings.NewReader(`{"providerPayoutID":"provider-failed-admin-1","reason":"bank_account_closed"}`),
+		strings.NewReader(`{"providerPayoutID":"po_admin_phase20","reason":"bank_account_closed"}`),
 	)
 	request.AddCookie(cookie)
 	addCSRF(request, csrfToken)
@@ -300,7 +300,7 @@ func TestAdminBillingMarksMarketplacePayoutFailedAndReleasesSettlements(t *testi
 	if recorder.Code != stdhttp.StatusOK {
 		t.Fatalf("expected mark payout failed 200, got %d with body %s", recorder.Code, recorder.Body.String())
 	}
-	if !strings.Contains(recorder.Body.String(), `"status":"failed"`) || !strings.Contains(recorder.Body.String(), `"providerPayoutId":"provider-failed-admin-1"`) {
+	if !strings.Contains(recorder.Body.String(), `"status":"failed"`) || !strings.Contains(recorder.Body.String(), `"providerPayoutId":"po_admin_phase20"`) {
 		t.Fatalf("expected failed payout response, got %s", recorder.Body.String())
 	}
 
@@ -320,7 +320,7 @@ func TestAdminBillingMarksMarketplacePayoutFailedAndReleasesSettlements(t *testi
 	`).Scan(&settlementStatus, &settlementPayoutID); err != nil {
 		t.Fatalf("query released settlement state: %v", err)
 	}
-	if payoutStatus != "failed" || providerPayoutID != "provider-failed-admin-1" || providerReason != "bank_account_closed" ||
+	if payoutStatus != "failed" || providerPayoutID != "po_admin_phase20" || providerReason != "bank_account_closed" ||
 		settlementStatus != "available" || settlementPayoutID != "" {
 		t.Fatalf("expected failed payout and released settlement, got payout=%s provider=%s reason=%q settlement=%s settlementPayout=%q",
 			payoutStatus, providerPayoutID, providerReason, settlementStatus, settlementPayoutID)

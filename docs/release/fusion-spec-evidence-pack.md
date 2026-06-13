@@ -39,6 +39,7 @@ bash scripts/check.sh security
 pnpm --dir src/web exec tsc --noEmit
 GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./... -count=1
 GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh backend-journey
+GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh marketplace-money-movement
 TEST_DATABASE_URL="$TEST_DATABASE_URL" GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test -p 1 ./... -count=1
 bash scripts/deploy-validate.sh
 bash scripts/k8s-validate.sh

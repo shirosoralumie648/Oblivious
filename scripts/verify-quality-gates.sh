@@ -645,6 +645,8 @@ assert_file_contains "$commercial_completion_verifier_file" "backup-restore-smok
 assert_file_contains "$commercial_completion_verifier_file" "COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS"
 assert_file_contains "$commercial_completion_verifier_file" "scripts/verify-commercial-db-evidence.sh"
 assert_file_contains "$commercial_db_evidence_verifier_file" "TestCommercialHTTPJourney"
+assert_file_contains "$commercial_db_evidence_verifier_file" "marketplace-money-movement"
+assert_file_contains "$commercial_db_evidence_verifier_file" "=== RUN"
 assert_file_contains "$commercial_db_evidence_verifier_file" "--- SKIP:"
 assert_file_contains "$commercial_db_evidence_verifier_file" "pgvector/pgvector:pg16"
 assert_file_contains "$commercial_completion_audit_file" "AUDIT-01"
