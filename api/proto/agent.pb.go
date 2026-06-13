@@ -169,6 +169,7 @@ type ExecuteReActRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	RunId          string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
 	OrganizationId string                 `protobuf:"bytes,2,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
+	UserId         string                 `protobuf:"bytes,3,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -213,6 +214,13 @@ func (x *ExecuteReActRequest) GetRunId() string {
 func (x *ExecuteReActRequest) GetOrganizationId() string {
 	if x != nil {
 		return x.OrganizationId
+	}
+	return ""
+}
+
+func (x *ExecuteReActRequest) GetUserId() string {
+	if x != nil {
+		return x.UserId
 	}
 	return ""
 }
@@ -291,6 +299,8 @@ type ApproveToolCallRequest struct {
 	ToolCallId     string                 `protobuf:"bytes,2,opt,name=tool_call_id,json=toolCallId,proto3" json:"tool_call_id,omitempty"`
 	Approved       bool                   `protobuf:"varint,3,opt,name=approved,proto3" json:"approved,omitempty"`
 	OrganizationId string                 `protobuf:"bytes,4,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
+	UserId         string                 `protobuf:"bytes,5,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Reason         string                 `protobuf:"bytes,6,opt,name=reason,proto3" json:"reason,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -349,6 +359,20 @@ func (x *ApproveToolCallRequest) GetApproved() bool {
 func (x *ApproveToolCallRequest) GetOrganizationId() string {
 	if x != nil {
 		return x.OrganizationId
+	}
+	return ""
+}
+
+func (x *ApproveToolCallRequest) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+func (x *ApproveToolCallRequest) GetReason() string {
+	if x != nil {
+		return x.Reason
 	}
 	return ""
 }
@@ -496,21 +520,24 @@ const file_api_proto_agent_proto_rawDesc = "" +
 	"\tmax_depth\x18\a \x01(\x05R\bmaxDepth\"B\n" +
 	"\x11CreateRunResponse\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x16\n" +
-	"\x06status\x18\x02 \x01(\tR\x06status\"U\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\"n\n" +
 	"\x13ExecuteReActRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12'\n" +
-	"\x0forganization_id\x18\x02 \x01(\tR\x0eorganizationId\"\xa9\x01\n" +
+	"\x0forganization_id\x18\x02 \x01(\tR\x0eorganizationId\x12\x17\n" +
+	"\auser_id\x18\x03 \x01(\tR\x06userId\"\xa9\x01\n" +
 	"\x14ExecuteReActResponse\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12\x16\n" +
 	"\x06result\x18\x03 \x01(\tR\x06result\x12J\n" +
-	"\x12pending_tool_calls\x18\x04 \x03(\v2\x1c.oblivious.agent.v1.ToolCallR\x10pendingToolCalls\"\x96\x01\n" +
+	"\x12pending_tool_calls\x18\x04 \x03(\v2\x1c.oblivious.agent.v1.ToolCallR\x10pendingToolCalls\"\xc7\x01\n" +
 	"\x16ApproveToolCallRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12 \n" +
 	"\ftool_call_id\x18\x02 \x01(\tR\n" +
 	"toolCallId\x12\x1a\n" +
 	"\bapproved\x18\x03 \x01(\bR\bapproved\x12'\n" +
-	"\x0forganization_id\x18\x04 \x01(\tR\x0eorganizationId\"j\n" +
+	"\x0forganization_id\x18\x04 \x01(\tR\x0eorganizationId\x12\x17\n" +
+	"\auser_id\x18\x05 \x01(\tR\x06userId\x12\x16\n" +
+	"\x06reason\x18\x06 \x01(\tR\x06reason\"j\n" +
 	"\x17ApproveToolCallResponse\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12 \n" +
 	"\ftool_call_id\x18\x02 \x01(\tR\n" +

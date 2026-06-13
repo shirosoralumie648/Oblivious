@@ -34,6 +34,7 @@ message CreateRunResponse {
 message ExecuteReActRequest {
   string run_id = 1;
   string organization_id = 2;
+  string user_id = 3;
 }
 
 message ExecuteReActResponse {
@@ -48,6 +49,8 @@ message ApproveToolCallRequest {
   string tool_call_id = 2;
   bool approved = 3;
   string organization_id = 4;
+  string user_id = 5;
+  string reason = 6;
 }
 
 message ApproveToolCallResponse {

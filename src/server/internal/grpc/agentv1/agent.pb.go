@@ -28,6 +28,8 @@ type CreateRunRequest struct {
 	UserContent    string                 `protobuf:"bytes,3,opt,name=user_content,json=userContent,proto3" json:"user_content,omitempty"`
 	OrganizationId string                 `protobuf:"bytes,4,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
 	UserId         string                 `protobuf:"bytes,5,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	RecursionDepth int32                  `protobuf:"varint,6,opt,name=recursion_depth,json=recursionDepth,proto3" json:"recursion_depth,omitempty"`
+	MaxDepth       int32                  `protobuf:"varint,7,opt,name=max_depth,json=maxDepth,proto3" json:"max_depth,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -97,6 +99,20 @@ func (x *CreateRunRequest) GetUserId() string {
 	return ""
 }
 
+func (x *CreateRunRequest) GetRecursionDepth() int32 {
+	if x != nil {
+		return x.RecursionDepth
+	}
+	return 0
+}
+
+func (x *CreateRunRequest) GetMaxDepth() int32 {
+	if x != nil {
+		return x.MaxDepth
+	}
+	return 0
+}
+
 type CreateRunResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
@@ -153,6 +169,7 @@ type ExecuteReActRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	RunId          string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
 	OrganizationId string                 `protobuf:"bytes,2,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
+	UserId         string                 `protobuf:"bytes,3,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -197,6 +214,13 @@ func (x *ExecuteReActRequest) GetRunId() string {
 func (x *ExecuteReActRequest) GetOrganizationId() string {
 	if x != nil {
 		return x.OrganizationId
+	}
+	return ""
+}
+
+func (x *ExecuteReActRequest) GetUserId() string {
+	if x != nil {
+		return x.UserId
 	}
 	return ""
 }
@@ -275,6 +299,8 @@ type ApproveToolCallRequest struct {
 	ToolCallId     string                 `protobuf:"bytes,2,opt,name=tool_call_id,json=toolCallId,proto3" json:"tool_call_id,omitempty"`
 	Approved       bool                   `protobuf:"varint,3,opt,name=approved,proto3" json:"approved,omitempty"`
 	OrganizationId string                 `protobuf:"bytes,4,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
+	UserId         string                 `protobuf:"bytes,5,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Reason         string                 `protobuf:"bytes,6,opt,name=reason,proto3" json:"reason,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -333,6 +359,20 @@ func (x *ApproveToolCallRequest) GetApproved() bool {
 func (x *ApproveToolCallRequest) GetOrganizationId() string {
 	if x != nil {
 		return x.OrganizationId
+	}
+	return ""
+}
+
+func (x *ApproveToolCallRequest) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+func (x *ApproveToolCallRequest) GetReason() string {
+	if x != nil {
+		return x.Reason
 	}
 	return ""
 }
@@ -469,30 +509,35 @@ var File_agent_proto protoreflect.FileDescriptor
 
 const file_agent_proto_rawDesc = "" +
 	"\n" +
-	"\vagent.proto\x12\x12oblivious.agent.v1\"\xbb\x01\n" +
+	"\vagent.proto\x12\x12oblivious.agent.v1\"\x81\x02\n" +
 	"\x10CreateRunRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12'\n" +
 	"\x0fconversation_id\x18\x02 \x01(\tR\x0econversationId\x12!\n" +
 	"\fuser_content\x18\x03 \x01(\tR\vuserContent\x12'\n" +
 	"\x0forganization_id\x18\x04 \x01(\tR\x0eorganizationId\x12\x17\n" +
-	"\auser_id\x18\x05 \x01(\tR\x06userId\"B\n" +
+	"\auser_id\x18\x05 \x01(\tR\x06userId\x12'\n" +
+	"\x0frecursion_depth\x18\x06 \x01(\x05R\x0erecursionDepth\x12\x1b\n" +
+	"\tmax_depth\x18\a \x01(\x05R\bmaxDepth\"B\n" +
 	"\x11CreateRunResponse\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x16\n" +
-	"\x06status\x18\x02 \x01(\tR\x06status\"U\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\"n\n" +
 	"\x13ExecuteReActRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12'\n" +
-	"\x0forganization_id\x18\x02 \x01(\tR\x0eorganizationId\"\xa9\x01\n" +
+	"\x0forganization_id\x18\x02 \x01(\tR\x0eorganizationId\x12\x17\n" +
+	"\auser_id\x18\x03 \x01(\tR\x06userId\"\xa9\x01\n" +
 	"\x14ExecuteReActResponse\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12\x16\n" +
 	"\x06result\x18\x03 \x01(\tR\x06result\x12J\n" +
-	"\x12pending_tool_calls\x18\x04 \x03(\v2\x1c.oblivious.agent.v1.ToolCallR\x10pendingToolCalls\"\x96\x01\n" +
+	"\x12pending_tool_calls\x18\x04 \x03(\v2\x1c.oblivious.agent.v1.ToolCallR\x10pendingToolCalls\"\xc7\x01\n" +
 	"\x16ApproveToolCallRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12 \n" +
 	"\ftool_call_id\x18\x02 \x01(\tR\n" +
 	"toolCallId\x12\x1a\n" +
 	"\bapproved\x18\x03 \x01(\bR\bapproved\x12'\n" +
-	"\x0forganization_id\x18\x04 \x01(\tR\x0eorganizationId\"j\n" +
+	"\x0forganization_id\x18\x04 \x01(\tR\x0eorganizationId\x12\x17\n" +
+	"\auser_id\x18\x05 \x01(\tR\x06userId\x12\x16\n" +
+	"\x06reason\x18\x06 \x01(\tR\x06reason\"j\n" +
 	"\x17ApproveToolCallResponse\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12 \n" +
 	"\ftool_call_id\x18\x02 \x01(\tR\n" +
