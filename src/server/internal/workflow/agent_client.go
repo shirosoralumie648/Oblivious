@@ -2,7 +2,6 @@ package workflow
 
 import (
 	"context"
-	"fmt"
 
 	"oblivious/server/internal/agent"
 	"oblivious/server/internal/auth"

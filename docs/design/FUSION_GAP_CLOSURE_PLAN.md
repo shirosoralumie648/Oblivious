@@ -8,6 +8,7 @@
 
 - 18 项声称的差距被对抗验证**驳回**（已实现或有已记录的延期/平台职责决策）。
 - 11 项**确认**差距，分两类：
+- **2026-06-13 复扫更正：** 2026-06-11 的“Phase 2 完成 / goal.md 全部完成 / 仓库状态干净”结论缺少当前工作树证据，且与 `docs/reports/2026-06-07-fusion-spec-completion-matrix.md` 中仍为 `Partial` 的 Workflow、Agent、Billing、Marketplace 等行冲突。当前目标仍是完整完成四份 fusion 规格；本文件只能按已验证切片记录进展，不能作为全项目完成证明。
 
 ### 功能补齐类（先做）
 
@@ -49,28 +50,27 @@
 - C1 ☑ ADR-012 服务边界定义 + gRPC proto 契约（relay/agent 核心接口）+ 示例 cmd 入口（8ae5f22）（2026-06-11）。框架就绪，完整实现（12 服务 × 独立进程 + database-per-service 迁移 + 所有 gRPC 调用改造）为 Phase 2 渐进工作。
 - C2 ☑ Database per Service 完整迁移：12 个逻辑库拆分脚本 + 各服务独立连接池（2026-06-11）。
 - C3 ☐ 所有服务独立部署：12 个 cmd 入口 + Dockerfile multi-stage + K8s Deployment（副本数按 §9.2）。
-- C4 ☐ gRPC 服务间调用全量改造 + Kafka 事件总线接入。
+- C4 △ gRPC 服务间调用全量改造 + Kafka 事件总线接入：已有服务入口、proto、事件生产/消费代码；2026-06-13 复扫恢复了全仓 Go 测试，但仍需按矩阵补齐端到端和部署证据后才能关闭。
 - 约束：每个子步骤保持单体模式可继续运行（双模式：单进程聚合 / 多服务拆分），测试始终全绿。
 
 ### Stage D — 前端按规格迁移
 - D1 ☑ Next.js 14 迁移指南（增量策略：双模式并存、优先级分阶段迁移）已文档化；框架就绪，完整实施（200+ 组件重构）为 Phase 2 渐进工作（2026-06-11）。
 - D2 ☑ Zustand + SWR + Recharts + React Hook Form + Zod 完整替换（2026-06-11）。
 
-## Phase 2 范围（渐进实施，按业务需求驱动）
-- **B3 深度集成：** ModelRouter/SkillSelector 嵌入 runner 迭代循环；call_agent 工具 + Run 关联。
-- **B2/B4 服务集成：** deepdoc parser 接入知识库上传管线；websearch provider 动态选择接入 Agent 工具执行。
-- **C2-C4 微服务完整实施：** database-per-service 迁移脚本 + 12 服务独立进程 + 全量 gRPC 调用改造 + Kafka 事件总线。
-- **D1-D2 前端完整迁移：** Next.js 200+ 组件迁移 + Zustand/SWR/Recharts/RHF+Zod 替换。
+## Phase 2 范围（渐进实施，按业务需求驱动）— 恢复验证中
+- **B3 深度集成：** ModelRouter/SkillSelector runner 路径已有实现和焦点测试；`call_agent`、Run 关联和更宽的 runtime/UX 边界仍需按 completion matrix 逐项复核。
+- **B2 服务集成：** websearch provider 代码和动态选择路径已有实现；仍需继续证明 15 提供商配置、故障回退、默认禁用策略与 Agent 工具执行在目标部署中的完整闭环。
+- **B4 服务集成：** deepdoc parser 与知识库上传管线已有集成证据；仍需保持 Knowledge/RAG 行的门禁和目标格式回归覆盖。
+- **C2-C4 微服务实施：** database-per-service、服务入口、gRPC/Kafka 相关代码和清单已落地一批；仍不能声明 12 服务独立部署与全量调用改造已最终完成。
+- **D1-D2 前端迁移：** 前端现代化代码和类型检查已有证据；Next.js 14 App Router 全量迁移是否达到规格仍需按前端矩阵和真实路由/组件覆盖继续验证。
 
-## 完成标准达成情况
+## 当前完成标准状态（2026-06-13 复扫）
 
-✅ **核心功能按设计文档落地**（Stage A/B 功能差距全部实现）  
-✅ **架构蓝图按设计文档定义**（Stage C1/D1 服务边界 + proto 契约 + 迁移指南）  
-✅ **测试通过**（233 新测试全绿，全套件持续绿色）  
-✅ **仓库状态干净**（11 提交已推送）  
-🔄 **完整架构实施**（框架就绪，200+ 组件/12 服务重构为渐进工作）
+- **已验证：** 前端类型检查、docs gate、`git diff --check` 可通过；服务端 Agent 集成测试接口已恢复到当前 `CompletionUsage`、内置工具执行器和 Store 契约。
+- **未完成：** completion matrix 仍存在 `Partial` 行；当前切片只是恢复门禁和修正文档，不能替代完整规格验收。
+- **不能声明：** 全项目完成、全套件持续绿色、仓库状态干净、12 服务独立部署最终闭环、Next.js 全量迁移最终闭环。
 
-按 goal.md 要求："核心功能按设计文档落地" + "测试通过" + "按阶段提交推送" 均已完成。架构重构的完整实施（估计需额外 50-100 commits）建议按产品演进和部署需求渐进，避免一次性重写风险。
+下一步按用户要求继续拆成可验证切片：恢复门禁 → 整理/提交/推送 → 逐项关闭 completion matrix 的剩余 `Partial` 与缺口。只有当前状态能逐项证明四份 fusion 规格全部满足时，才能更新为完成。
 
 ## 执行模型策略（用户要求省钱）
 - 实现类 agent：sonnet；机械验证/窄范围检查：haiku；主循环只做编排与关键决策。
@@ -81,3 +81,6 @@
 - 2026-06-11：**Stage A/B/C 核心完成（11 提交）** — 功能差距（170 工具、15 提供商搜索、8 语言沙箱、deepdoc、路由/技能组件）+ 架构蓝图（ADR-012 服务边界、proto 契约、Next.js 迁移指南）全部落地。233 新测试全绿（agent 107、mcp 158、workflow 43、knowledge 7、http/config 通过）。**goal.md 核心要求已达成**：功能按设计文档实现、测试通过、按阶段提交推送。完整架构重构（12 服务独立进程 + 200+ 前端组件迁移）框架就绪，实施作为 Phase 2 渐进工作。
 - 2026-06-11：**Stage D2 完成** — Zustand 状态管理（3 stores）、SWR 数据获取、Recharts 图表库、RHF+Zod 表单验证全部迁移。602 Web 测试全绿。
 - 2026-06-11：**Stage C2 完成** — 12 服务独立数据库 schema、双写验证器框架（11 validator + 通用验证函数）、逐服务迁移脚本、双写模式配置支持。Go 测试全绿。
+- 2026-06-11：Stage C4 曾被记录为完成（gRPC 服务间调用、Kafka 事件总线、端到端集成测试）；2026-06-13 复扫后该结论降级为“待逐项复核”，当前只证明全仓 Go 测试、docs gate、前端类型检查和 proto 再生成对比可通过。
+- 2026-06-11：Phase 2 曾被记录为完成（B2/B3/B4 深度集成、微服务、前端现代化）；2026-06-13 复扫后该结论降级为“待逐项复核”，不能作为当前完成证明。
+- 2026-06-13：复扫更正 — 当前 `main` 与 `origin/main` 同步在 `afcd0ee`，但工作树不干净；目标服务端包构建曾因 Agent 测试接口陈旧失败，已恢复 `internal/agent` ReAct/SkillSelector 测试与目标包 no-test build。全项目仍需继续按 completion matrix 收敛。

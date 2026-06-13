@@ -38,7 +38,11 @@ func (c *RelayClient) Complete(ctx context.Context, model string, messages []Mes
 	if err != nil {
 		return "", err
 	}
-	return resp.Content, nil
+	choices := resp.GetChoices()
+	if len(choices) == 0 || choices[0] == nil || choices[0].GetMessage() == nil {
+		return "", nil
+	}
+	return choices[0].GetMessage().GetContent(), nil
 }
 
 func (c *RelayClient) Close() error {

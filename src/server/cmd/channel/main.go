@@ -66,6 +66,18 @@ func registerRoutes(r *gin.Engine, service *channel.ChannelService) {
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
+
+	r.GET("/events/bus", func(c *gin.Context) {
+		bus := service.EventBus()
+		if bus == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "event bus not available"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "ready",
+			"message": "event bus available for subscription",
+		})
+	})
 }
 
 type storeAdapter struct {

@@ -3,7 +3,7 @@ package rag
 import (
 	"context"
 
-	ragv1 "oblivious/server/api/proto/rag/v1"
+	ragv1 "oblivious/server/internal/grpc/ragv1"
 )
 
 type Server struct {

@@ -8,22 +8,22 @@ import (
 	"oblivious/server/pkg/events"
 )
 
-type EventConsumer struct {
+type AgentEventConsumer struct {
 	reporter *MemoryReporter
 }
 
-func NewEventConsumer(reporter *MemoryReporter) *EventConsumer {
-	return &EventConsumer{
+func NewAgentEventConsumer(reporter *MemoryReporter) *AgentEventConsumer {
+	return &AgentEventConsumer{
 		reporter: reporter,
 	}
 }
 
-func (c *EventConsumer) Subscribe(bus *events.Bus) {
+func (c *AgentEventConsumer) Subscribe(bus *events.Bus) {
 	bus.Subscribe(agent.EventTypeRunCompleted, c.handleRunCompleted)
 	bus.Subscribe(agent.EventTypeToolExecuted, c.handleToolExecuted)
 }
 
-func (c *EventConsumer) handleRunCompleted(ctx context.Context, evt events.Event) {
+func (c *AgentEventConsumer) handleRunCompleted(ctx context.Context, evt events.Event) {
 	runEvt, ok := evt.Payload.(agent.AgentRunEvent)
 	if !ok {
 		return
@@ -33,7 +33,7 @@ func (c *EventConsumer) handleRunCompleted(ctx context.Context, evt events.Event
 		runEvt.InputTokens+runEvt.OutputTokens)
 }
 
-func (c *EventConsumer) handleToolExecuted(ctx context.Context, evt events.Event) {
+func (c *AgentEventConsumer) handleToolExecuted(ctx context.Context, evt events.Event) {
 	toolEvt, ok := evt.Payload.(agent.AgentToolEvent)
 	if !ok {
 		return

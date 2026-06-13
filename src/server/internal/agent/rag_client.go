@@ -4,13 +4,15 @@ import (
 	"context"
 	"time"
 
+	ragv1 "oblivious/server/internal/grpc/ragv1"
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
 type RAGClient struct {
 	conn   *grpc.ClientConn
-	client RAGServiceClient
+	client ragv1.RAGServiceClient
 }
 
 func NewRAGClient(addr string) (*RAGClient, error) {
@@ -24,12 +26,12 @@ func NewRAGClient(addr string) (*RAGClient, error) {
 
 	return &RAGClient{
 		conn:   conn,
-		client: NewRAGServiceClient(conn),
+		client: ragv1.NewRAGServiceClient(conn),
 	}, nil
 }
 
-func (c *RAGClient) Search(ctx context.Context, query string, topK int32) (*SearchResponse, error) {
-	return c.client.Search(ctx, &SearchRequest{
+func (c *RAGClient) Search(ctx context.Context, query string, topK int32) (*ragv1.RetrieveResponse, error) {
+	return c.client.Retrieve(ctx, &ragv1.RetrieveRequest{
 		Query: query,
 		TopK:  topK,
 	})

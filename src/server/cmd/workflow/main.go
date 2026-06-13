@@ -9,6 +9,7 @@ import (
 	"oblivious/server/pkg/config"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	_ "github.com/lib/pq"
@@ -28,6 +29,13 @@ func main() {
 
 	store := workflow.NewSQLStore(db)
 	svc := workflow.NewService(store)
+
+	kafkaBrokers := strings.Split(os.Getenv("KAFKA_BROKERS"), ",")
+	if len(kafkaBrokers) == 0 || kafkaBrokers[0] == "" {
+		kafkaBrokers = []string{"localhost:9092"}
+	}
+	eventPublisher := workflow.NewEventPublisher(kafkaBrokers, "workflow.events")
+	defer eventPublisher.Close()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -55,4 +63,5 @@ func main() {
 	log.Println("Shutting down workflow service...")
 	srv.Shutdown(context.Background())
 	_ = svc
+	_ = eventPublisher
 }

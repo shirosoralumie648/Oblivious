@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"oblivious/server/internal/auth"
@@ -264,20 +265,20 @@ func TestInjectSkillInstructions(t *testing.T) {
 }
 
 func TestRunnerSkillSelectorIntegration(t *testing.T) {
-	// Mock components
-	mockStore := &mockStore{}
-	mockGateway := &mockStructuredGateway{
+	store := &fakeStore{}
+	mockGateway := &skillMockStructuredGateway{
 		reply: &chat.CompletionResponse{
 			Content: "Mocked response",
-			Usage: &chat.Usage{
+			Usage: &chat.CompletionUsage{
 				TotalTokens: 100,
 			},
 		},
 	}
 
 	runner := &Runner{
-		store:         mockStore,
+		store:         store,
 		gateway:       mockGateway,
+		executor:      NewToolExecutor(nil),
 		config:        DefaultRunnerConfig(),
 		SkillSelector: &SkillSelector{},
 	}
@@ -308,64 +309,35 @@ func TestRunnerSkillSelectorIntegration(t *testing.T) {
 		MaxSkills:      3,
 	}
 
-	// Note: This will fail without a complete mock implementation
-	// but verifies the code structure compiles correctly
 	_, err := runner.ExecuteReAct(context.Background(), req)
-	if err == nil {
-		t.Log("Integration test passed with mock components")
-	} else {
-		// Expected to fail with mock - just verify it compiles
-		t.Logf("Expected error with minimal mocks: %v", err)
+	if err != nil {
+		t.Fatalf("ExecuteReAct returned error: %v", err)
+	}
+	if !strings.Contains(mockGateway.lastConfig.SystemPromptOverride, "Active Skills:") ||
+		!strings.Contains(mockGateway.lastConfig.SystemPromptOverride, "Weather: Weather information") {
+		t.Fatalf("expected selected skill instructions in prompt, got %q", mockGateway.lastConfig.SystemPromptOverride)
 	}
 }
 
-// Mock implementations
-type mockStore struct{}
-
-func (m *mockStore) CreateMessage(ctx context.Context, conversationID, organizationID, role, content string, toolCalls []ToolCall, toolCallID string) (*Message, error) {
-	return &Message{ID: "msg-1", Role: role, Content: content}, nil
+type skillMockStructuredGateway struct {
+	reply      *chat.CompletionResponse
+	lastConfig chat.ConversationConfig
+	lastTools  []map[string]any
 }
 
-func (m *mockStore) ListMessages(ctx context.Context, conversationID, organizationID string) ([]*Message, error) {
-	return []*Message{}, nil
-}
-
-func (m *mockStore) CreateRun(ctx context.Context, req *CreateRunRequest) (*Run, error) {
-	return &Run{ID: "run-1"}, nil
-}
-
-func (m *mockStore) UpdateRun(ctx context.Context, organizationID, runID string, req UpdateRunRequest) (*Run, error) {
-	return &Run{ID: runID}, nil
-}
-
-func (m *mockStore) ListRuns(ctx context.Context, organizationID, conversationID string) ([]*Run, error) {
-	return []*Run{}, nil
-}
-
-func (m *mockStore) ListToolRuns(ctx context.Context, organizationID, runID string) ([]*ToolRun, error) {
-	return []*ToolRun{}, nil
-}
-
-func (m *mockStore) CreateToolRun(ctx context.Context, req *CreateToolRunRequest) (*ToolRun, error) {
-	return &ToolRun{ID: "tool-run-1"}, nil
-}
-
-func (m *mockStore) UpdateToolRun(ctx context.Context, organizationID, toolRunID string, req UpdateToolRunRequest) (*ToolRun, error) {
-	return &ToolRun{ID: toolRunID}, nil
-}
-
-func (m *mockStore) CreateMemory(ctx context.Context, req *CreateMemoryStoreRequest) (*Memory, error) {
-	return &Memory{ID: "mem-1"}, nil
-}
-
-type mockStructuredGateway struct {
-	reply *chat.CompletionResponse
-}
-
-func (m *mockStructuredGateway) GenerateReply(ctx context.Context, messages []chat.Message, config chat.ConversationConfig) (string, error) {
+func (m *skillMockStructuredGateway) GenerateReply(ctx context.Context, messages []chat.Message, config chat.ConversationConfig) (string, error) {
 	return m.reply.Content, nil
 }
 
-func (m *mockStructuredGateway) GenerateStructuredReply(ctx context.Context, messages []chat.Message, config chat.ConversationConfig, tools []map[string]any) (*chat.CompletionResponse, error) {
+func (m *skillMockStructuredGateway) GenerateReplyStream(ctx context.Context, messages []chat.Message, config chat.ConversationConfig, onChunk func(string) error) error {
+	if onChunk == nil {
+		return nil
+	}
+	return onChunk(m.reply.Content)
+}
+
+func (m *skillMockStructuredGateway) GenerateStructuredReply(ctx context.Context, messages []chat.Message, config chat.ConversationConfig, tools []map[string]any) (*chat.CompletionResponse, error) {
+	m.lastConfig = config
+	m.lastTools = tools
 	return m.reply, nil
 }

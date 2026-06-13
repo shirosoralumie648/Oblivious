@@ -1,3 +1,5 @@
+//go:build integration_example
+
 package main
 
 import (

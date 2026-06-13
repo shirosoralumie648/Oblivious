@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	ragv1 "oblivious/server/api/proto/rag/v1"
+	ragv1 "oblivious/server/internal/grpc/ragv1"
 )
 
 func TestCreateKnowledgeBase(t *testing.T) {
