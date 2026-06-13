@@ -15,7 +15,7 @@ output_files=()
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/verify-commercial-db-evidence.sh [backend-journey|marketplace-money-movement|app-stateful-routes]
+Usage: bash scripts/verify-commercial-db-evidence.sh [backend-journey|marketplace-money-movement|app-stateful-routes|agent-runtime-memory]
 
 Runs narrow DB-backed commercial evidence without silently accepting skipped tests.
 
@@ -25,6 +25,8 @@ Profiles:
                                PostgreSQL lifecycle tests.
   app-stateful-routes          Run focused app state, tenant, CSRF, and
                                ownership PostgreSQL route tests.
+  agent-runtime-memory         Run focused Agent runtime, approval, execution
+                               mode, and memory policy PostgreSQL tests.
 
 Environment:
   TEST_DATABASE_URL        Optional PostgreSQL URL. If unset, a disposable pgvector
@@ -145,6 +147,10 @@ case "$profile" in
   app-stateful-routes)
     app_stateful_routes_pattern="^Test(ConsoleAPITokenCreateListAndRevoke|SelectOrganizationRequiresMembershipAndUpdatesSessionScope|OrganizationInvitationRevokeRejectsAcceptance|OrganizationSessionSecurityOnMembershipChanges|NotificationMutationRoutesEnforceOwnership|GetPreferencesReturnsUserInitializationState|UpdatePreferencesPersistsOnboardingState|ConversationAndMessageFlow|ConversationConfigFlow|RouteSurface(RequiresSessionForAppRoutes|RejectsCookieMutationWithoutCSRF))$"
     run_go_test_no_skips "app stateful route persistence and ownership" "./internal/http" "$app_stateful_routes_pattern"
+    ;;
+  agent-runtime-memory)
+    agent_runtime_memory_pattern="^(TestAgentRunStorePersistsRunLifecycle|TestAgentSQLStorePersists(ApprovalConfigAndToolRiskLevels|DefaultExecutionModeConfig|LongTermMemoryWritePolicyConfig))$"
+    run_go_test_no_skips "agent runtime and memory policy persistence" "./internal/agent" "$agent_runtime_memory_pattern"
     ;;
   *)
     usage >&2
