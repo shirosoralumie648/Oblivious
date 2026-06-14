@@ -74,3 +74,35 @@ test('admin billing records a provider-confirmed top-up refund in the browser', 
   await expect(topupRow.getByText('$22.50')).toBeVisible();
   await expect(page.getByText('Unable to record top-up refund.')).toHaveCount(0);
 });
+
+test('admin billing records a domestic top-up refund without stripe charge evidence in the browser', async ({ page }) => {
+  await page.goto('/admin/billing');
+
+  await expect(page.getByRole('heading', { name: 'Billing' })).toBeVisible();
+  await page.getByLabel('Organization ID filter').fill('org_billing_operator');
+  await page.getByLabel('User ID filter').fill('user_billing_operator');
+  await page.getByLabel('Status filter').fill('paid');
+  await page.getByLabel('Kind filter').fill('topup');
+  await page.getByLabel('Provider filter').fill('alipay');
+  await page.getByRole('tab', { name: 'Top-ups' }).click();
+
+  const topupRow = page.getByRole('row').filter({ hasText: 'topup_browser_domestic_refund' });
+  await expect(topupRow).toBeVisible();
+  await expect(topupRow.getByText('$5.00')).toBeVisible();
+  await expect(topupRow.getByLabel('Paid', { exact: true })).toBeVisible();
+
+  await topupRow.getByRole('button', { name: 'Record refund for top-up topup_browser_domestic_refund' }).click();
+  await expect(page.getByRole('heading', { name: 'Top-up refund' })).toBeVisible();
+  await expect(page.getByLabel('Provider', { exact: true })).toHaveValue('alipay');
+  await expect(page.getByLabel('Provider charge ID', { exact: true })).toHaveValue('');
+  await expect(page.getByLabel('Provider payment intent ID', { exact: true })).toHaveValue('alipay_pi_browser_refund_1');
+  await expect(page.getByLabel('Currency', { exact: true })).toHaveValue('cny');
+
+  await page.getByLabel('Provider refund ID', { exact: true }).fill('alipay_re_browser_refund_1');
+  await page.getByLabel('Refund amount', { exact: true }).fill('7.5');
+  await page.getByLabel('Reason', { exact: true }).fill('domestic refund confirmed by Alipay');
+  await page.getByRole('button', { name: 'Confirm top-up refund' }).click();
+
+  await expect(topupRow.getByText('$12.50')).toBeVisible();
+  await expect(page.getByText('Unable to record top-up refund.')).toHaveCount(0);
+});

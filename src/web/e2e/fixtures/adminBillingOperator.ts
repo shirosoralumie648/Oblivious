@@ -86,6 +86,22 @@ const topupToRefund = {
   createdAt: now,
 };
 
+const domesticTopupToRefund = {
+  id: 'topup_browser_domestic_refund',
+  organizationId: 'org_billing_operator',
+  userId: 'user_billing_operator',
+  provider: 'alipay',
+  providerChargeId: '',
+  providerPaymentIntentId: 'alipay_pi_browser_refund_1',
+  amount: 30,
+  money: 30,
+  refundedAmount: 5,
+  status: 'paid',
+  kind: 'topup',
+  currency: 'cny',
+  createdAt: now,
+};
+
 function envelope(data: unknown) {
   return {
     ok: true,
@@ -141,12 +157,12 @@ function payoutQueryMatches(url: URL) {
 }
 
 function topupQueryMatches(url: URL) {
-  return queryHas(url, {
+  const provider = url.searchParams.get('provider');
+  return (provider === 'stripe' || provider === 'alipay') && queryHas(url, {
     organizationID: 'org_billing_operator',
     userID: 'user_billing_operator',
     status: 'paid',
     kind: 'topup',
-    provider: 'stripe',
     limit: '50',
   });
 }
@@ -174,10 +190,24 @@ function refundPayloadMatches(payload: Record<string, unknown>) {
   );
 }
 
+function domesticRefundPayloadMatches(payload: Record<string, unknown>) {
+  return (
+    payload.provider === 'alipay' &&
+    payload.providerRefundID === 'alipay_re_browser_refund_1' &&
+    !Object.prototype.hasOwnProperty.call(payload, 'providerChargeID') &&
+    !Object.prototype.hasOwnProperty.call(payload, 'providerChargeId') &&
+    payload.providerPaymentIntentID === 'alipay_pi_browser_refund_1' &&
+    payload.amount === 7.5 &&
+    payload.currency === 'cny' &&
+    payload.reason === 'domestic refund confirmed by Alipay'
+  );
+}
+
 export async function registerAdminBillingOperatorRoutes(page: Page): Promise<void> {
   let paidPayoutConfirmed = false;
   let failedPayoutConfirmed = false;
   let topupRefundConfirmed = false;
+  let domesticTopupRefundConfirmed = false;
 
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request();
@@ -252,13 +282,19 @@ export async function registerAdminBillingOperatorRoutes(page: Page): Promise<vo
         return;
       }
 
+      const provider = url.searchParams.get('provider');
+      const topup = provider === 'alipay'
+        ? {
+          ...domesticTopupToRefund,
+          refundedAmount: domesticTopupRefundConfirmed ? 12.5 : domesticTopupToRefund.refundedAmount,
+        }
+        : {
+          ...topupToRefund,
+          refundedAmount: topupRefundConfirmed ? 22.5 : topupToRefund.refundedAmount,
+        };
+
       await fulfillJSON(route, {
-        topups: [
-          {
-            ...topupToRefund,
-            refundedAmount: topupRefundConfirmed ? 22.5 : topupToRefund.refundedAmount,
-          },
-        ],
+        topups: [topup],
         total: 1,
       });
       return;
@@ -278,6 +314,25 @@ export async function registerAdminBillingOperatorRoutes(page: Page): Promise<vo
         amount: 12.5,
         status: 'processed',
         reason: 'duplicate provider capture',
+      });
+      return;
+    }
+
+    if (method === 'POST' && pathname === '/api/v1/admin/billing/topups/topup_browser_domestic_refund/refund') {
+      const payload = request.postDataJSON() as Record<string, unknown>;
+      if (!domesticRefundPayloadMatches(payload)) {
+        await fulfillError(route, 'domestic top-up refund payload did not include CNY provider payment intent evidence without Stripe charge evidence');
+        return;
+      }
+      domesticTopupRefundConfirmed = true;
+      await fulfillJSON(route, {
+        id: 'refund_browser_domestic_topup',
+        providerRefundId: 'alipay_re_browser_refund_1',
+        topupOrderId: 'topup_browser_domestic_refund',
+        amount: 7.5,
+        currency: 'cny',
+        status: 'processed',
+        reason: 'domestic refund confirmed by Alipay',
       });
       return;
     }
