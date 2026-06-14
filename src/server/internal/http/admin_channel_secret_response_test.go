@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"oblivious/server/internal/admin"
+	relaytypes "oblivious/server/internal/relay/types"
 )
 
 func TestAdminRelayChannelHTTPRouteRedactsSQLStoreAPIKeysAndPreservesMarkers(t *testing.T) {
@@ -283,6 +284,102 @@ func TestAdminRelayChannelHTTPRouteEnforcesActiveOrganizationIsolation(t *testin
 	}
 	if !activeBatchEnabled {
 		t.Fatalf("expected denied mixed-organization batch not to mutate active channel")
+	}
+}
+
+func TestAdminRelayReadSurfacesScopeRuntimeStatsAndModelInventoryToActiveOrganization(t *testing.T) {
+	database := testDatabase(t)
+	applyCommercialJourneyMigrations(t, database)
+	router := NewRouterWithOptions(testConfig(), database, RouterOptions{
+		ChannelRuntimeStatsProvider: fakeRuntimeStatsProvider{
+			stats: map[string]*relaytypes.ChannelStats{
+				"channel_active_read": {
+					ChannelID:     "channel_active_read",
+					RPMCurrent:    5,
+					TPMCurrent:    150,
+					TotalRequests: 12,
+					SuccessCount:  11,
+				},
+				"channel_other_read": {
+					ChannelID:     "channel_other_read",
+					RPMCurrent:    99,
+					TPMCurrent:    900,
+					TotalRequests: 999,
+					FailureCount:  999,
+				},
+			},
+		},
+	})
+	cookie, csrfToken, userID := registerHTTPUser(t, router, "admin-relay-read-scope@example.com")
+	workspaceID, activeOrganizationID := queryHTTPUserScope(t, database, userID)
+	promoteHTTPUserToAdmin(t, database, userID)
+	otherOrganizationID := createHTTPOrganization(t, router, cookie, csrfToken, "Other Relay Read Org", "other-relay-read-org")
+
+	if _, err := database.Exec(`
+		INSERT INTO channels (
+			id, organization_id, name, provider, base_url, api_key_encrypted, models, groups,
+			rpm_limit, tpm_limit, priority, weight, estimated_cost_per_1k, cost_multiplier,
+			enabled, last_health_status, last_latency_ms, created_at, updated_at
+		)
+		VALUES
+			('channel_active_read', $1, 'Active read relay', 'openai', 'https://active-read.example.test', 'sk-active-read', ARRAY['gpt-4o-mini']::text[], ARRAY['default']::text[], 120, 120000, 10, 100, 0.02, 1.1, true, 'online', 41, NOW(), NOW()),
+			('channel_other_read', $2, 'Other read relay', 'openai', 'https://other-read.example.test', 'sk-other-read', ARRAY['gpt-4o-mini']::text[], ARRAY['default']::text[], 120, 120000, 20, 100, 0.02, 1.1, true, 'online', 42, NOW(), NOW())
+	`, activeOrganizationID, otherOrganizationID); err != nil {
+		t.Fatalf("insert admin relay read fixtures: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO usage_records (
+			id, user_id, workspace_id, organization_id, model_id, request_count, input_tokens, output_tokens,
+			channel_id, provider, cost, channel_cost, total_tokens, created_at
+		)
+		VALUES
+			('usage_active_read', $1, $2, $3, 'gpt-4o-mini', 3, 30, 12, 'channel_active_read', 'openai', 0.30, 0.12, 42, NOW()),
+			('usage_other_read', $1, NULL, $4, 'gpt-4o-mini', 99, 99, 99, 'channel_other_read', 'openai', 9.90, 4.95, 198, NOW())
+	`, userID, workspaceID, activeOrganizationID, otherOrganizationID); err != nil {
+		t.Fatalf("insert admin relay read usage fixtures: %v", err)
+	}
+
+	statsBody := commercialDoJSON(t, router, stdhttp.MethodGet, "/api/v1/admin/channels/stats", "", cookie, "", stdhttp.StatusOK)
+	if strings.Contains(string(statsBody), "channel_other_read") {
+		t.Fatalf("expected runtime stats to hide other organization channel, got %s", statsBody)
+	}
+	var statsResponse struct {
+		Data struct {
+			Stats []admin.ChannelRuntimeStats `json:"stats"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(statsBody, &statsResponse); err != nil {
+		t.Fatalf("decode admin relay runtime stats response: %v", err)
+	}
+	if len(statsResponse.Data.Stats) != 1 || statsResponse.Data.Stats[0].ChannelID != "channel_active_read" {
+		t.Fatalf("expected only active organization runtime stats, got %+v", statsResponse.Data.Stats)
+	}
+	if statsResponse.Data.Stats[0].RPMCurrent != 5 || statsResponse.Data.Stats[0].TotalRequests != 12 {
+		t.Fatalf("expected active runtime stats to be preserved, got %+v", statsResponse.Data.Stats[0])
+	}
+
+	modelBody := commercialDoJSON(t, router, stdhttp.MethodGet, "/api/v1/admin/models?provider=openai&sort=model:asc", "", cookie, "", stdhttp.StatusOK)
+	if strings.Contains(string(modelBody), "channel_other_read") || strings.Contains(string(modelBody), "other-read.example.test") {
+		t.Fatalf("expected model inventory to hide other organization channels, got %s", modelBody)
+	}
+	var modelResponse struct {
+		Data struct {
+			Models []admin.ModelInventoryEntry `json:"models"`
+			Total  int                         `json:"total"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(modelBody, &modelResponse); err != nil {
+		t.Fatalf("decode admin relay model inventory response: %v", err)
+	}
+	if modelResponse.Data.Total != 1 || len(modelResponse.Data.Models) != 1 {
+		t.Fatalf("expected one active organization model, got %+v", modelResponse.Data)
+	}
+	model := modelResponse.Data.Models[0]
+	if model.Model != "gpt-4o-mini" || model.RequestCount != 3 || model.TotalCost != 0.3 || model.TotalChannelCost != 0.12 {
+		t.Fatalf("expected active organization model inventory to ignore other org usage, got %+v", model)
+	}
+	if len(model.Channels) != 1 || model.Channels[0].ID != "channel_active_read" {
+		t.Fatalf("expected only active organization channels in model inventory, got %+v", model.Channels)
 	}
 }
 

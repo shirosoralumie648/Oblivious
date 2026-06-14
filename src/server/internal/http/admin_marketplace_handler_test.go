@@ -306,7 +306,8 @@ func TestAdminHandlerRefreshesChannelBalance(t *testing.T) {
 
 func TestAdminHandlerListsChannelRuntimeStats(t *testing.T) {
 	until := time.Date(2026, 6, 4, 12, 30, 0, 0, time.UTC)
-	handler := newAdminHandler(admin.NewService(&fakeAdminStore{}, admin.WithChannelRuntimeStatsProvider(fakeRuntimeStatsProvider{
+	store := &fakeAdminStore{}
+	handler := newAdminHandler(admin.NewService(store, admin.WithChannelRuntimeStatsProvider(fakeRuntimeStatsProvider{
 		stats: map[string]*relaytypes.ChannelStats{
 			"ch_1": {
 				ChannelID:        "ch_1",
@@ -322,7 +323,8 @@ func TestAdminHandlerListsChannelRuntimeStats(t *testing.T) {
 		},
 	})))
 
-	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/admin/channels/stats", nil)
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/admin/channels/stats", nil).
+		WithContext(context.WithValue(context.Background(), sessionContextKey, testAdminSession()))
 	recorder := httptest.NewRecorder()
 
 	handler.listChannelRuntimeStats(recorder, request)
@@ -336,6 +338,9 @@ func TestAdminHandlerListsChannelRuntimeStats(t *testing.T) {
 		!strings.Contains(recorder.Body.String(), `"avgLatencyMs":300`) ||
 		!strings.Contains(recorder.Body.String(), `"rateLimitedUntil":"2026-06-04T12:30:00Z"`) {
 		t.Fatalf("runtime stats response missing expected fields: %s", recorder.Body.String())
+	}
+	if store.channelFilter.OrganizationID != "org_1" {
+		t.Fatalf("expected runtime stats to use active organization scope, got %#v", store.channelFilter)
 	}
 }
 
@@ -724,7 +729,8 @@ func TestAdminHandlerListsModelInventoryWithFilters(t *testing.T) {
 	store := &fakeAdminStore{}
 	handler := newAdminHandler(admin.NewService(store))
 
-	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/admin/models?provider=openai&group=vip&status=enabled&search=gpt&sort=requestCount:desc&limit=250&offset=-1", nil)
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/admin/models?provider=openai&group=vip&status=enabled&search=gpt&sort=requestCount:desc&limit=250&offset=-1", nil).
+		WithContext(context.WithValue(context.Background(), sessionContextKey, testAdminSession()))
 	recorder := httptest.NewRecorder()
 
 	handler.listModelInventory(recorder, request)
@@ -734,6 +740,9 @@ func TestAdminHandlerListsModelInventoryWithFilters(t *testing.T) {
 	}
 	if store.modelInventoryFilter.Limit != 100 || store.modelInventoryFilter.Offset != 0 {
 		t.Fatalf("expected clamped model inventory pagination, got limit=%d offset=%d", store.modelInventoryFilter.Limit, store.modelInventoryFilter.Offset)
+	}
+	if store.modelInventoryFilter.OrganizationID != "org_1" {
+		t.Fatalf("expected model inventory to use active organization scope, got %#v", store.modelInventoryFilter)
 	}
 	if store.modelInventoryFilter.Provider != "openai" || store.modelInventoryFilter.Group != "vip" || store.modelInventoryFilter.Status != "enabled" || store.modelInventoryFilter.Search != "gpt" {
 		t.Fatalf("expected model inventory filters to be passed, got %#v", store.modelInventoryFilter)
@@ -1682,7 +1691,7 @@ func (s *fakeAdminQuotaSettingsService) SaveUsageLimitSettings(ctx context.Conte
 
 func (s *fakeAdminStore) ListChannels(ctx context.Context, filter admin.ChannelFilter) ([]*admin.ChannelInfo, error) {
 	s.channelFilter = filter
-	return []*admin.ChannelInfo{{ID: "ch_1", Name: "OpenAI", Provider: "openai"}}, nil
+	return []*admin.ChannelInfo{{ID: "ch_1", OrganizationID: filter.OrganizationID, Name: "OpenAI", Provider: "openai"}}, nil
 }
 
 func (s *fakeAdminStore) GetChannel(ctx context.Context, organizationID, id string) (*admin.ChannelInfo, error) {

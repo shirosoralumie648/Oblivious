@@ -314,7 +314,12 @@ func (h adminHandler) getChannelHealth(w stdhttp.ResponseWriter, r *stdhttp.Requ
 }
 
 func (h adminHandler) listChannelRuntimeStats(w stdhttp.ResponseWriter, r *stdhttp.Request) {
-	stats, err := h.service.ListChannelRuntimeStats(r.Context())
+	session, ok := sessionOrUnauthorized(w, r)
+	if !ok {
+		return
+	}
+
+	stats, err := h.service.ListChannelRuntimeStats(r.Context(), session.OrganizationID)
 	if err != nil {
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
 		return
@@ -536,14 +541,20 @@ func (h adminHandler) revokeAPIToken(w stdhttp.ResponseWriter, r *stdhttp.Reques
 }
 
 func (h adminHandler) listModelInventory(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	session, ok := sessionOrUnauthorized(w, r)
+	if !ok {
+		return
+	}
+
 	filter := admin.ModelInventoryFilter{
-		Provider: r.URL.Query().Get("provider"),
-		Group:    r.URL.Query().Get("group"),
-		Status:   r.URL.Query().Get("status"),
-		Search:   r.URL.Query().Get("search"),
-		Sort:     r.URL.Query().Get("sort"),
-		Limit:    parseQueryInt(r, "limit", 50, 100),
-		Offset:   parseQueryInt(r, "offset", 0, 0),
+		OrganizationID: session.OrganizationID,
+		Provider:       r.URL.Query().Get("provider"),
+		Group:          r.URL.Query().Get("group"),
+		Status:         r.URL.Query().Get("status"),
+		Search:         r.URL.Query().Get("search"),
+		Sort:           r.URL.Query().Get("sort"),
+		Limit:          parseQueryInt(r, "limit", 50, 100),
+		Offset:         parseQueryInt(r, "offset", 0, 0),
 	}
 
 	models, total, err := h.service.ListModelInventory(r.Context(), filter)

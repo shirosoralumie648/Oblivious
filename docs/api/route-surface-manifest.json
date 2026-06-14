@@ -224,6 +224,18 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/admin/models",
+      "samplePath": "/api/v1/admin/models",
+      "security": "cookie",
+      "csrf": false,
+      "operationId": "listAdminModelInventory",
+      "tags": [
+        "Admin",
+        "Relay"
+      ]
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/admin/channels",
       "samplePath": "/api/v1/admin/channels",
       "security": "cookie",

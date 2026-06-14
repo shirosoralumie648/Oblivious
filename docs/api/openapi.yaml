@@ -4971,6 +4971,84 @@ components:
           items:
             $ref: "#/components/schemas/AdminChannelRuntimeStats"
 
+    AdminModelInventoryChannel:
+      type: object
+      required: [id, name, provider, groups, enabled, priority, estimatedCostPer1K, costMultiplier]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        provider:
+          type: string
+        groups:
+          type: array
+          items:
+            type: string
+        enabled:
+          type: boolean
+        priority:
+          type: integer
+        estimatedCostPer1K:
+          type: number
+          format: double
+        costMultiplier:
+          type: number
+          format: double
+
+    AdminModelInventoryEntry:
+      type: object
+      required: [model, providers, groups, channelCount, enabledChannelCount, disabledChannelCount, minEstimatedCostPer1K, maxEstimatedCostPer1K, avgCostMultiplier, requestCount, totalCost, totalChannelCost, channels]
+      properties:
+        model:
+          type: string
+        providers:
+          type: array
+          items:
+            type: string
+        groups:
+          type: array
+          items:
+            type: string
+        channelCount:
+          type: integer
+        enabledChannelCount:
+          type: integer
+        disabledChannelCount:
+          type: integer
+        minEstimatedCostPer1K:
+          type: number
+          format: double
+        maxEstimatedCostPer1K:
+          type: number
+          format: double
+        avgCostMultiplier:
+          type: number
+          format: double
+        requestCount:
+          type: integer
+        totalCost:
+          type: number
+          format: double
+        totalChannelCost:
+          type: number
+          format: double
+        channels:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminModelInventoryChannel"
+
+    AdminModelInventoryListResponse:
+      type: object
+      required: [models, total]
+      properties:
+        models:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminModelInventoryEntry"
+        total:
+          type: integer
+
     AdminUserStats:
       type: object
       properties:
@@ -13148,6 +13226,64 @@ paths:
                     properties:
                       data:
                         $ref: "#/components/schemas/AdminChannelProviderListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/models:
+    get:
+      summary: 获取 active organization 的 Relay model inventory
+      operationId: listAdminModelInventory
+      tags: [Admin, Relay]
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: provider
+          in: query
+          schema:
+            type: string
+        - name: group
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [enabled, disabled, active, inactive, online, offline]
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [model:asc, model:desc, requests:asc, requests:desc, spend:asc, spend:desc, channelCost:asc, channelCost:desc, grossMargin:asc, grossMargin:desc]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: Organization-scoped Relay model inventory with usage and channel cost evidence
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Envelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/AdminModelInventoryListResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":

@@ -134,10 +134,20 @@ func (s *Service) GetSystemStats(ctx context.Context) (*SystemStats, error) {
 	return s.store.GetSystemStats(ctx)
 }
 
-func (s *Service) ListChannelRuntimeStats(ctx context.Context) ([]ChannelRuntimeStats, error) {
-	_ = ctx
+func (s *Service) ListChannelRuntimeStats(ctx context.Context, organizationID string) ([]ChannelRuntimeStats, error) {
+	organizationID = strings.TrimSpace(organizationID)
+	if organizationID == "" {
+		return nil, fmt.Errorf("organization id is required")
+	}
 	if s.channelRuntimeStatsProvider == nil {
 		return []ChannelRuntimeStats{}, nil
+	}
+	if s.store == nil {
+		return nil, fmt.Errorf("channel store is required")
+	}
+	allowedChannelIDs, err := s.channelIDsForOrganization(ctx, organizationID)
+	if err != nil {
+		return nil, err
 	}
 	allStats := s.channelRuntimeStatsProvider.GetAllStats()
 	channelIDs := make([]string, 0, len(allStats))
@@ -152,6 +162,15 @@ func (s *Service) ListChannelRuntimeStats(ctx context.Context) ([]ChannelRuntime
 		if stats == nil {
 			continue
 		}
+		channelIDValue := stats.ChannelID
+		if channelIDValue == "" {
+			channelIDValue = channelID
+		}
+		if _, ok := allowedChannelIDs[channelIDValue]; !ok {
+			if _, ok := allowedChannelIDs[channelID]; !ok {
+				continue
+			}
+		}
 		var rateLimitedUntil *time.Time
 		if !stats.RateLimitedUntil.IsZero() {
 			until := stats.RateLimitedUntil.UTC()
@@ -160,10 +179,6 @@ func (s *Service) ListChannelRuntimeStats(ctx context.Context) ([]ChannelRuntime
 		avgLatencyMS := 0.0
 		if stats.LatencyCount > 0 {
 			avgLatencyMS = float64(stats.LatencySumUs) / float64(stats.LatencyCount) / 1000.0
-		}
-		channelIDValue := stats.ChannelID
-		if channelIDValue == "" {
-			channelIDValue = channelID
 		}
 		result = append(result, ChannelRuntimeStats{
 			ChannelID:                 channelIDValue,
@@ -176,6 +191,29 @@ func (s *Service) ListChannelRuntimeStats(ctx context.Context) ([]ChannelRuntime
 			RateLimitedUntil:          rateLimitedUntil,
 			AffinityConversationCount: stats.AffinityConversationCount,
 		})
+	}
+	return result, nil
+}
+
+func (s *Service) channelIDsForOrganization(ctx context.Context, organizationID string) (map[string]struct{}, error) {
+	const pageSize = 100
+	result := map[string]struct{}{}
+	for offset := 0; ; offset += pageSize {
+		channels, err := s.listChannelsForOrganization(ctx, organizationID, ChannelFilter{
+			Limit:  pageSize,
+			Offset: offset,
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, channel := range channels {
+			if channel != nil && strings.TrimSpace(channel.ID) != "" {
+				result[channel.ID] = struct{}{}
+			}
+		}
+		if len(channels) < pageSize {
+			break
+		}
 	}
 	return result, nil
 }

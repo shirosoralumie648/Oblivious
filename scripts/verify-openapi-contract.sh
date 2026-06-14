@@ -1135,6 +1135,7 @@ require_admin_channel_secret_response_contract() {
 
     expected_data_refs = {
       ["/api/v1/admin/channel-providers", "get", "200"] => "#/components/schemas/AdminChannelProviderListResponse",
+      ["/api/v1/admin/models", "get", "200"] => "#/components/schemas/AdminModelInventoryListResponse",
       ["/api/v1/admin/channels", "get", "200"] => "#/components/schemas/AdminChannelListResponse",
       ["/api/v1/admin/channels", "post", "201"] => "#/components/schemas/AdminChannel",
       ["/api/v1/admin/channels/{channelId}", "get", "200"] => "#/components/schemas/AdminChannel",
@@ -1160,6 +1161,7 @@ require_admin_channel_secret_response_contract() {
 
     [
       "/api/v1/admin/channel-providers",
+      "/api/v1/admin/models",
       "/api/v1/admin/channels",
       "/api/v1/admin/channels/stats",
       "/api/v1/admin/channels/{channelId}",
@@ -1293,6 +1295,29 @@ require_admin_channel_secret_response_contract() {
     ["channelID", "rpmCurrent", "tpmCurrent", "totalRequests", "successCount", "failureCount", "avgLatencyMs", "affinityConversationCount"].each do |property|
       unless runtime_stats.dig("properties", property)
         missing << "AdminChannelRuntimeStats.#{property} must be documented"
+      end
+    end
+
+    model_inventory_response = schemas["AdminModelInventoryListResponse"] || {}
+    model_inventory_entry = schemas["AdminModelInventoryEntry"] || {}
+    model_inventory_channel = schemas["AdminModelInventoryChannel"] || {}
+    unless model_inventory_response.dig("properties", "models", "items", "$ref") == "#/components/schemas/AdminModelInventoryEntry"
+      missing << "AdminModelInventoryListResponse must expose models[] as AdminModelInventoryEntry"
+    end
+    unless model_inventory_response.dig("properties", "total")
+      missing << "AdminModelInventoryListResponse.total must be documented"
+    end
+    ["model", "providers", "groups", "channelCount", "enabledChannelCount", "disabledChannelCount", "requestCount", "totalCost", "totalChannelCost", "channels"].each do |property|
+      unless model_inventory_entry.dig("properties", property)
+        missing << "AdminModelInventoryEntry.#{property} must be documented"
+      end
+    end
+    unless model_inventory_entry.dig("properties", "channels", "items", "$ref") == "#/components/schemas/AdminModelInventoryChannel"
+      missing << "AdminModelInventoryEntry.channels must reference AdminModelInventoryChannel"
+    end
+    ["id", "name", "provider", "groups", "enabled", "priority", "estimatedCostPer1K", "costMultiplier"].each do |property|
+      unless model_inventory_channel.dig("properties", property)
+        missing << "AdminModelInventoryChannel.#{property} must be documented"
       end
     end
 

@@ -184,7 +184,13 @@ func TestValidateChannelProviderUsesRelayProviderCatalog(t *testing.T) {
 
 func TestListChannelRuntimeStatsFromRelayPool(t *testing.T) {
 	until := time.Now().UTC().Add(2 * time.Minute).Truncate(time.Second)
-	service := NewService(nil, WithChannelRuntimeStatsProvider(fakeChannelRuntimeStatsProvider{
+	store := &runtimeStatsChannelStore{
+		channels: []*ChannelInfo{
+			{ID: "ch_2", OrganizationID: "org_1"},
+			{ID: "ch_1", OrganizationID: "org_1"},
+		},
+	}
+	service := NewService(store, WithChannelRuntimeStatsProvider(fakeChannelRuntimeStatsProvider{
 		stats: map[string]*relaytypes.ChannelStats{
 			"ch_2": {
 				ChannelID:                 "ch_2",
@@ -203,10 +209,15 @@ func TestListChannelRuntimeStatsFromRelayPool(t *testing.T) {
 				TotalRequests: 1,
 				SuccessCount:  1,
 			},
+			"ch_other": {
+				ChannelID:     "ch_other",
+				TotalRequests: 99,
+				FailureCount:  99,
+			},
 		},
 	}))
 
-	stats, err := service.ListChannelRuntimeStats(context.Background())
+	stats, err := service.ListChannelRuntimeStats(context.Background(), " org_1 ")
 	if err != nil {
 		t.Fatalf("ListChannelRuntimeStats returned error: %v", err)
 	}
@@ -215,6 +226,9 @@ func TestListChannelRuntimeStatsFromRelayPool(t *testing.T) {
 	}
 	if stats[0].ChannelID != "ch_1" || stats[1].ChannelID != "ch_2" {
 		t.Fatalf("expected stats sorted by channel id, got %#v", stats)
+	}
+	if store.filter.OrganizationID != "org_1" || store.filter.Limit != 100 {
+		t.Fatalf("expected runtime stats to load current organization channel ids, got %#v", store.filter)
 	}
 	runtime := stats[1]
 	if runtime.RPMCurrent != 3 || runtime.TPMCurrent != 120 || runtime.SuccessCount != 8 || runtime.FailureCount != 2 {
@@ -279,6 +293,17 @@ type fakeChannelRuntimeStatsProvider struct {
 
 func (p fakeChannelRuntimeStatsProvider) GetAllStats() map[string]*relaytypes.ChannelStats {
 	return p.stats
+}
+
+type runtimeStatsChannelStore struct {
+	Store
+	filter   ChannelFilter
+	channels []*ChannelInfo
+}
+
+func (s *runtimeStatsChannelStore) ListChannels(_ context.Context, filter ChannelFilter) ([]*ChannelInfo, error) {
+	s.filter = filter
+	return s.channels, nil
 }
 
 func TestRefreshChannelBalanceProbesPersistsDiagnosticsAndAudits(t *testing.T) {

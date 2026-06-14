@@ -902,6 +902,13 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 		}
 		adminHandler.listChannelProviders(w, r)
 	})))
+	mux.Handle("/api/v1/admin/models", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.Method != stdhttp.MethodGet {
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+			return
+		}
+		adminHandler.listModelInventory(w, r)
+	})))
 	mux.Handle("/api/v1/admin/channels", authMiddleware.requireAdmin(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		switch r.Method {
 		case stdhttp.MethodGet:

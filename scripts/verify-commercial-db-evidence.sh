@@ -15,7 +15,7 @@ output_files=()
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/verify-commercial-db-evidence.sh [all|backend-journey|marketplace-money-movement|app-stateful-routes|tenant-membership-lifecycle|tenant-cross-surface|secret-response-safety|agent-runtime-memory|scheduled-task-runtime|auth-security-persistence|relay-file-mapping-tenant-ownership|relay-runtime-channel-isolation|workflow-sql-isolation|publishing-channel-isolation|admin-relay-channel-isolation|quota-sql-isolation]
+Usage: bash scripts/verify-commercial-db-evidence.sh [all|backend-journey|marketplace-money-movement|app-stateful-routes|tenant-membership-lifecycle|tenant-cross-surface|secret-response-safety|agent-runtime-memory|scheduled-task-runtime|auth-security-persistence|relay-file-mapping-tenant-ownership|relay-runtime-channel-isolation|workflow-sql-isolation|publishing-channel-isolation|admin-relay-channel-isolation|admin-relay-read-isolation|quota-sql-isolation]
 
 Runs narrow DB-backed commercial evidence without silently accepting skipped tests.
 
@@ -58,6 +58,9 @@ Profiles:
   admin-relay-channel-isolation
                                Run focused Admin Relay channel real-router
                                active-organization isolation PostgreSQL tests.
+  admin-relay-read-isolation   Run focused Admin Relay runtime stats and model
+                               inventory active-organization read isolation
+                               PostgreSQL tests.
   quota-sql-isolation          Run focused Quota SQL store tenant isolation and
                                HTTP active-organization isolation PostgreSQL
                                tests.
@@ -267,6 +270,10 @@ run_admin_relay_channel_isolation_profile() {
   run_go_test_no_skips "admin relay channel HTTP active-organization isolation" "./internal/http" "^TestAdminRelayChannelHTTPRouteEnforcesActiveOrganizationIsolation$"
 }
 
+run_admin_relay_read_isolation_profile() {
+  run_go_test_no_skips "admin relay read-surface HTTP active-organization isolation" "./internal/http" "^TestAdminRelayReadSurfacesScopeRuntimeStatsAndModelInventoryToActiveOrganization$"
+}
+
 run_quota_sql_isolation_profile() {
   local quota_store_pattern
   local quota_http_pattern
@@ -292,6 +299,7 @@ run_all_profiles() {
   run_workflow_sql_isolation_profile
   run_publishing_channel_isolation_profile
   run_admin_relay_channel_isolation_profile
+  run_admin_relay_read_isolation_profile
   run_quota_sql_isolation_profile
 }
 
@@ -346,6 +354,9 @@ case "$profile" in
     ;;
   admin-relay-channel-isolation)
     run_admin_relay_channel_isolation_profile
+    ;;
+  admin-relay-read-isolation)
+    run_admin_relay_read_isolation_profile
     ;;
   quota-sql-isolation)
     run_quota_sql_isolation_profile

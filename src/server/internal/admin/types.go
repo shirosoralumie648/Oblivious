@@ -66,13 +66,14 @@ type ModelInventoryChannel struct {
 
 // ModelInventoryFilter contains filter parameters for admin model inventory.
 type ModelInventoryFilter struct {
-	Provider string
-	Group    string
-	Status   string
-	Search   string
-	Sort     string
-	Limit    int
-	Offset   int
+	OrganizationID string
+	Provider       string
+	Group          string
+	Status         string
+	Search         string
+	Sort           string
+	Limit          int
+	Offset         int
 }
 
 // ChannelCreateRequest is the input for creating a new channel (D-02).

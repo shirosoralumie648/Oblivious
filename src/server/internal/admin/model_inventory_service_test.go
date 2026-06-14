@@ -36,13 +36,14 @@ func TestServiceListModelInventoryNormalizesFiltersAndReturnsOperationalFields(t
 	service := NewService(store)
 
 	entries, total, err := service.ListModelInventory(context.Background(), ModelInventoryFilter{
-		Provider: " openai ",
-		Group:    " vip ",
-		Status:   " ENABLED ",
-		Search:   " gpt ",
-		Sort:     " REQUESTS:DESC ",
-		Limit:    250,
-		Offset:   -10,
+		OrganizationID: " org_1 ",
+		Provider:       " openai ",
+		Group:          " vip ",
+		Status:         " ENABLED ",
+		Search:         " gpt ",
+		Sort:           " REQUESTS:DESC ",
+		Limit:          250,
+		Offset:         -10,
 	})
 	if err != nil {
 		t.Fatalf("list model inventory: %v", err)
@@ -53,6 +54,9 @@ func TestServiceListModelInventoryNormalizesFiltersAndReturnsOperationalFields(t
 	if store.filter.Limit != 100 || store.filter.Offset != 0 {
 		t.Fatalf("expected normalized limit=100 offset=0, got limit=%d offset=%d", store.filter.Limit, store.filter.Offset)
 	}
+	if store.filter.OrganizationID != "org_1" {
+		t.Fatalf("expected organization scope to be normalized, got %q", store.filter.OrganizationID)
+	}
 	if store.filter.Provider != "openai" || store.filter.Group != "vip" || store.filter.Status != "enabled" || store.filter.Search != "gpt" {
 		t.Fatalf("expected trimmed filters, got %#v", store.filter)
 	}
@@ -61,6 +65,15 @@ func TestServiceListModelInventoryNormalizesFiltersAndReturnsOperationalFields(t
 	}
 	if entries[0].Providers[0] != "openai" || entries[0].ChannelCount != 2 || entries[0].RequestCount != 30 || entries[0].TotalCost != 1.23 {
 		t.Fatalf("expected model operational fields, got %#v", entries[0])
+	}
+}
+
+func TestServiceListModelInventoryRequiresOrganizationScope(t *testing.T) {
+	service := NewService(&modelInventoryStoreSpy{})
+
+	_, _, err := service.ListModelInventory(context.Background(), ModelInventoryFilter{})
+	if err == nil {
+		t.Fatal("expected missing organization id to fail closed")
 	}
 }
 

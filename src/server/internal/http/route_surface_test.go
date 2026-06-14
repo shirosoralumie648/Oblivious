@@ -1174,6 +1174,7 @@ func TestRouteSurfaceAdminRoutesRequireAdmin(t *testing.T) {
 
 	adminRoutes := []string{
 		"/api/v1/admin/stats",
+		"/api/v1/admin/models",
 		"/api/v1/admin/channels",
 		"/api/v1/admin/routes",
 		"/api/v1/admin/plans",
@@ -2405,6 +2406,7 @@ func routeSurfaceAdminSubRouteCases() []routeSurfaceCase {
 		{"settings usage limits get", stdhttp.MethodGet, "/api/v1/admin/settings/usage-limits"},
 		{"settings usage limits update", stdhttp.MethodPut, "/api/v1/admin/settings/usage-limits"},
 		{"core stats", stdhttp.MethodGet, "/api/v1/admin/stats"},
+		{"core model inventory", stdhttp.MethodGet, "/api/v1/admin/models"},
 		{"core api tokens list", stdhttp.MethodGet, "/api/v1/admin/api-tokens"},
 		{"core api token revoke", stdhttp.MethodPost, "/api/v1/admin/api-tokens/tok_1/revoke"},
 		{"core routes list", stdhttp.MethodGet, "/api/v1/admin/routes"},

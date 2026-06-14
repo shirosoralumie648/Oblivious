@@ -17,6 +17,7 @@ type ModelInventoryStore interface {
 const modelInventoryCTE = `
 	SELECT
 		BTRIM(model_name.model) AS model,
+		ch.organization_id,
 		ch.id,
 		ch.name,
 		ch.provider,
@@ -34,12 +35,14 @@ func modelInventoryUsageStatsCTE() string {
 	return `
 		usage_stats AS (
 			SELECT
+				organization_id,
 				model_id AS model,
 				COALESCE(SUM(request_count), 0)::int AS request_count,
 				COALESCE(SUM(cost), 0)::double precision AS total_cost,
 				COALESCE(SUM(channel_cost), 0)::double precision AS total_channel_cost
 			FROM usage_records
-			GROUP BY model_id
+			WHERE organization_id IS NOT NULL
+			GROUP BY organization_id, model_id
 		)
 	`
 }
@@ -52,6 +55,9 @@ func modelInventoryWhere(filter ModelInventoryFilter) (string, []any) {
 		conditions = append(conditions, fmt.Sprintf(condition, len(args)))
 	}
 
+	if filter.OrganizationID != "" {
+		add("mc.organization_id = $%d", filter.OrganizationID)
+	}
 	if filter.Provider != "" {
 		add("mc.provider = $%d", filter.Provider)
 	}
@@ -116,6 +122,9 @@ func modelInventoryPageOrder(sort string) string {
 
 func (s *SQLStore) ListModelInventory(ctx context.Context, filter ModelInventoryFilter) ([]*ModelInventoryEntry, int, error) {
 	filter = normalizeModelInventoryFilter(filter)
+	if filter.OrganizationID == "" {
+		return nil, 0, fmt.Errorf("organization id is required")
+	}
 	where, args := modelInventoryWhere(filter)
 
 	var total int
@@ -138,7 +147,7 @@ func (s *SQLStore) ListModelInventory(ctx context.Context, filter ModelInventory
 			COALESCE(MAX(us.total_channel_cost), 0) AS total_channel_cost,
 			COALESCE(MAX(us.total_cost), 0) - COALESCE(MAX(us.total_channel_cost), 0) AS gross_margin
 		FROM model_channels mc
-		LEFT JOIN usage_stats us ON us.model = mc.model
+		LEFT JOIN usage_stats us ON us.organization_id = mc.organization_id AND us.model = mc.model
 		`+where+`
 		GROUP BY mc.model
 		ORDER BY `+modelInventoryPageOrder(filter.Sort)+`
@@ -184,7 +193,7 @@ func (s *SQLStore) ListModelInventory(ctx context.Context, filter ModelInventory
 			COALESCE(us.total_cost, 0),
 			COALESCE(us.total_channel_cost, 0)
 		FROM model_channels mc
-		LEFT JOIN usage_stats us ON us.model = mc.model
+		LEFT JOIN usage_stats us ON us.organization_id = mc.organization_id AND us.model = mc.model
 		`+detailWhere+`
 		ORDER BY mc.model ASC, mc.enabled DESC, mc.priority DESC, mc.name ASC
 	`, detailArgs...)

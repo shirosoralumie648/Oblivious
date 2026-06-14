@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"fmt"
 	"strings"
 )
 
@@ -15,6 +16,7 @@ func normalizeModelInventoryFilter(filter ModelInventoryFilter) ModelInventoryFi
 	if filter.Offset < 0 {
 		filter.Offset = 0
 	}
+	filter.OrganizationID = strings.TrimSpace(filter.OrganizationID)
 	filter.Provider = strings.TrimSpace(filter.Provider)
 	filter.Group = strings.TrimSpace(filter.Group)
 	filter.Status = strings.ToLower(strings.TrimSpace(filter.Status))
@@ -24,7 +26,11 @@ func normalizeModelInventoryFilter(filter ModelInventoryFilter) ModelInventoryFi
 }
 
 func (s *Service) ListModelInventory(ctx context.Context, filter ModelInventoryFilter) ([]*ModelInventoryEntry, int, error) {
-	return s.store.ListModelInventory(ctx, normalizeModelInventoryFilter(filter))
+	filter = normalizeModelInventoryFilter(filter)
+	if filter.OrganizationID == "" {
+		return nil, 0, fmt.Errorf("organization id is required")
+	}
+	return s.store.ListModelInventory(ctx, filter)
 }
 
 func normalizeModelInventorySort(sort string) string {
