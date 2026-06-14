@@ -2,14 +2,15 @@
 
 ## Current Truth
 
-- Branch: `main`; this refresh scan starts from pushed commit `a2cceaa test(security): encrypt publishing channel secrets at rest`.
-- Worktree status at refresh scan start: in sync with `origin/main` with the intended dirty files for the Workflow at-rest encryption slice: `secretbox`, the SQL Workflow store, shared workflow secret-key detection, the Workflow HTTP handler, and the focused SQL-backed HTTP test.
+- Branch: `main`; this refresh scan starts from pushed commit `743fa3c test(security): encrypt workflow secrets at rest`.
+- Worktree status at refresh scan start: in sync with `origin/main` plus the intended untracked Agent Memories browser proof files: `src/web/e2e/agent-memories.spec.ts` and `src/web/e2e/fixtures/agentMemories.ts`.
 - The project is still **not complete** against the four 2026-06-04 fusion specs.
 - The current completion matrix remains `4 Proven / 10 Partial / 0 Gap / 0 Unverified`.
-- Current progress estimate after this implementation scan is **88/100**. Admin Relay channel API-key, Observability alert-provider config, Publishing channel config, and Workflow definition/version/execution-snapshot/node-execution secret-like fields are now covered with repository-local PostgreSQL at-rest proof, but target-environment workflow telemetry, target secret audits, deployment validation, and final no-skip release readiness remain open.
+- Current progress estimate after this implementation scan is **89/100**. Admin Relay channel API-key, Observability alert-provider config, Publishing channel config, Workflow definition/version/execution-snapshot/node-execution secret-like fields, and Agent Memories browser CRUD/import-export are now covered with repository-local proof, but target-environment workflow telemetry, target secret audits, deployment validation, payment/provider live rails, and final no-skip release readiness remain open.
 
 ## What Changed In This Rescan
 
+- Agent Memories now has browser-level Workspace proof for `/memories`: active navigation, search filter propagation, export query propagation, blob download-link rendering, user-managed create/update/delete, JSON import, and memory-count state updates.
 - Admin Relay channel API keys now use a shared AES-GCM `secretbox` codec before writing `channels.api_key_encrypted`.
 - `OBLIVIOUS_SECRET_ENCRYPTION_KEY` is the preferred deployment key, with `SESSION_SECRET` fallback for compatibility; local, Docker, Kubernetes, and architecture env docs now list the variable.
 - Admin channel create/update protects API keys at rest, and Admin provider probes decrypt the stored key before calling upstream.
@@ -23,7 +24,7 @@
 ## Repository Inventory
 
 - First-party tracked file distribution after this slice is intended to be:
-  - `src`: 975 files
+  - `src`: 977 files
   - `.planning`: 210 files
   - `docs`: 92 files
   - `scripts`: 37 files
@@ -39,8 +40,8 @@
 - Test inventory after this slice:
   - Go test files: 228
   - Web component/API test files: 67
-  - Web Playwright specs: 8 specs
-  - Web E2E fixture files: 8 files
+  - Web Playwright specs: 9 specs
+  - Web E2E fixture files: 9 files
 - Latest checked-in top-level migration remains `src/server/migrations/0081_admin_relay_channel_organization_scope.sql`.
 - Project-local `AGENTS.md`: none at the main repo root or under first-party source; dependency caches and nested `reference/*` repositories are excluded from this first-party scan.
 
@@ -66,7 +67,7 @@ Partial rows remain:
 - Security and tenant isolation
 - Migration strategy and release readiness
 
-This scan does not reclassify any Partial row to Proven. Admin Relay API-key, Observability alert-provider, Publishing channel, and Workflow at-rest encryption improve Relay/Publishing/Workflow, Security, operations/env, and release evidence, but broader target-environment telemetry, target secret audits, and final release proof remain open.
+This scan does not reclassify any Partial row to Proven. Admin Relay API-key, Observability alert-provider, Publishing channel, Workflow at-rest encryption, and Agent Memories browser proof improve Relay/Publishing/Workflow, Agent, Frontend, API, Security, operations/env, and release evidence, but broader target-environment telemetry, target secret audits, live provider proof, and final release proof remain open.
 
 ## Verification Run During This Rescan
 
@@ -89,13 +90,16 @@ GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scri
 GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh relay-runtime-channel-isolation
 GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh admin-relay-channel-isolation
 COREPACK_HOME=/tmp/codex-corepack bash scripts/check.sh docs
+COREPACK_HOME=/tmp/codex-corepack pnpm --dir src/web test src/features/agents/memoriesApi.test.ts src/routes/workspace/AgentMemoriesPage.test.tsx -- --runInBand
+COREPACK_HOME=/tmp/codex-corepack pnpm --dir src/web exec tsc --noEmit
+PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/google-chrome COREPACK_HOME=/tmp/codex-corepack pnpm --dir src/web exec playwright test e2e/agent-memories.spec.ts --project=chromium
 git diff --check
 ```
 
 Result:
 
-- `git status --short --branch` showed `main...origin/main` plus the intended Workflow at-rest encryption slice files before this refresh was finalized.
-- The intended post-slice inventory counters are: `src=975`, `docs=92`, `scripts=37`, `deploy=42`, `.planning=210`, Go test files `228`, web component/API test files `67`, and Playwright specs `8`.
+- `git status --short --branch` showed `main...origin/main` plus the intended Agent Memories browser proof files before this refresh was finalized.
+- The intended post-slice inventory counters are: `src=977`, `docs=92`, `scripts=37`, `deploy=42`, `.planning=210`, Go test files `228`, web component/API test files `67`, Playwright specs `9`, and Playwright fixtures `9`.
 - `go test ./internal/secretbox -count=1 -v` passed.
 - `go test ./internal/workflow -count=1` passed.
 - `go test ./internal/channel -count=1` passed.
@@ -108,6 +112,9 @@ Result:
 - `scripts/verify-commercial-db-evidence.sh relay-runtime-channel-isolation` passed with disposable pgvector PostgreSQL and skipped tests: none, including the new runtime at-rest encryption test.
 - `scripts/verify-commercial-db-evidence.sh admin-relay-channel-isolation` passed with disposable pgvector PostgreSQL and skipped tests: none.
 - `bash scripts/check.sh docs` passed.
+- `pnpm --dir src/web test src/features/agents/memoriesApi.test.ts src/routes/workspace/AgentMemoriesPage.test.tsx -- --runInBand` passed.
+- `pnpm --dir src/web exec tsc --noEmit` passed.
+- `pnpm --dir src/web exec playwright test e2e/agent-memories.spec.ts --project=chromium` passed with `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/google-chrome`.
 - `git diff --check` passed.
 - The first-party AGENTS scan found no main-root or first-party source `AGENTS.md`.
 - The TODO/stub scan did not reveal a new broad implementation gap. Active first-party matches remain the known release-boundary items from the June 14 scan: disabled future Relay surfaces, generated gRPC `Unimplemented*` boilerplate, test stubs, placeholder-only release docs/config examples, and the service-template migration TODO.
@@ -123,10 +130,11 @@ Result:
 - `src/server/internal/http/channel_handler_test.go` now pairs Publishing response redaction with direct SQL ciphertext assertions and a SQL-backed signed webhook assertion that the decrypted channel secret remains usable.
 - `src/server/internal/http/workflow_secret_response_test.go` now pairs Workflow response redaction with direct SQL ciphertext assertions for definitions, versions, execution snapshots, and workflow node executions, plus a SQL-backed signed webhook assertion that the decrypted workflow secret remains usable.
 - Response safety and at-rest encryption remain separate. Admin Relay channel API keys, Observability alert-provider config secrets, Publishing channel config secrets, and Workflow definition/runtime secret-like payloads now have both response safety and at-rest encryption proof in repository-local PostgreSQL.
+- Agent Memories now has a built-app Playwright proof for the manual memory-management workflow. The fixture fails closed if browser search/export filters or create/update/import/delete payloads drift from the Workspace UI controls.
 
 ## Recommended Next Slices
 
-1. Expand browser/E2E proof to the next high-value commercial journey not already covered by the current local Playwright paths.
+1. Expand browser/E2E proof to the next high-value commercial journey not already covered by the current local Playwright paths, with Admin Billing operator paid/failed payout and top-up refund flows as the next strongest frontend candidate.
 2. Rerun the strict commercial verifier on target infrastructure with deploy and backup/restore enabled before renewing any final readiness claim.
 3. Extend Observability/recovery proof from repository-owned panic recovery into target-environment OOM/crash restart, scale, and failover evidence.
 4. Run target-environment secret audits against configured provider/payment/workflow secrets, not only repository-local disposable PostgreSQL.
