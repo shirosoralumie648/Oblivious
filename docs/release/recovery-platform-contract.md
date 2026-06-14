@@ -11,6 +11,7 @@ This contract maps Functional Logic 9.3 recovery requirements to repository-owne
 | Panic/OOM recovery signals can be matched by signal-specific restart policies | `src/server/internal/observability/recovery.go`, `TestRecoveryControllerMatchesPanicAndOOMRecoverySignals` |
 | Default HTTP recovery wiring records panic/OOM signals before generic critical HTTP recovery | `src/server/internal/http/server.go`, `TestConfigureHTTPAlertingRoutesPanicAndOOMRecoverySignals` |
 | Restart recovery records max 5 attempts per 10 minutes, backoff `10s, 30s, 60s, 120s, 300s`, and exhausted/manual-intervention state | `src/server/internal/observability/recovery.go`, `TestRecoveryControllerSchedulesRestartBackoffAndExhaustsAfterFiveAttempts` |
+| Alert routing, alert lifecycle, notification throttle, recovery cooldown, and delivery-history state persist in PostgreSQL | `src/server/internal/observability/alert_state_sql_store_test.go`, `scripts/verify-commercial-db-evidence.sh observability-alert-recovery-persistence` |
 | HPA scale-up on CPU 80%, memory 85%, and workflow queue backlog 100 | `deploy/kubernetes/hpa.yaml`, `scripts/verify-k8s-recovery-policy.sh` |
 | HPA scale-up by 50% with at least 1 pod and max replicas configured | `deploy/kubernetes/hpa.yaml`, `scripts/verify-k8s-recovery-policy.sh` |
 | HPA scale-down by 20% with minimum 3 replicas and 15-minute stabilization | `deploy/kubernetes/hpa.yaml`, `scripts/verify-k8s-recovery-policy.sh` |

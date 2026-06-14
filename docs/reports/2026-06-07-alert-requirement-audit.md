@@ -21,7 +21,7 @@ Status values:
 | Phone delivery supports critical escalation without harassment. | Proven | `PhoneAlertDeliverySink` supports Twilio calls; per-recipient phone limit is 1/hour in `AlertRecipientDeliveryLimiter`; `TestAlertProviderDeliveryResolverPostsSMSAndPhoneProvidersWithRecipientLimits` verifies the limit. |
 | SMS limit is 5/hour/person. | Proven | `smsHourlyRecipientLimit`; `TestAlertProviderDeliveryResolverPostsSMSAndPhoneProvidersWithRecipientLimits` verifies Twilio and Aliyun sends stop after 5/hour/person. |
 | Third-party integrations support PagerDuty, Opsgenie, Aliyun Monitor, and Tencent Cloud through API/webhook. | Proven | `ThirdPartyAlertDeliverySink`; `TestAlertProviderDeliveryResolverPostsThirdPartyProviders` covers PagerDuty, Opsgenie, Aliyun Monitor, and Tencent Cloud style payloads. |
-| Routing rules: debug logs only, info email, warning email + IM, critical email + IM + SMS + third party. | Proven | `DefaultAlertRoutingRules`; `TestDefaultAlertDeliveryPolicyRoutesBySeverity`. Current critical routing also includes `phone`, matching section 9.2's critical phone requirement. |
+| Routing rules: debug logs only, info email, warning email + IM, critical email + IM + SMS + third party. | Proven | `DefaultAlertRoutingRules`; `TestDefaultAlertDeliveryPolicyRoutesBySeverity`. Current critical routing also includes `phone`, matching section 9.2's critical phone requirement. `scripts/verify-commercial-db-evidence.sh observability-alert-recovery-persistence` now reruns SQL routing-rule persistence as no-skip PostgreSQL evidence. |
 
 ## 9.2 Four-Level Alert System
 
@@ -32,7 +32,7 @@ Status values:
 | Info logs and sends email as a one-hour digest. | Proven | `AlertRouter.Route` logs all routed alerts; `AlertDeliveryDispatcher` queues info/email alerts and `FlushInfoEmailDigests` sends one digest after the configured window; `TestAlertDeliveryDispatcherBatchesInfoEmailDigestForOneHour`. |
 | Warning records, attempts recovery, and notifies email + IM at most once every 15 minutes. | Proven | `normalizeAlertNotifyWindows` sets warning to 15 minutes; `TestAlertDeliveryDispatcherSuppressesRepeatedNotificationInsideWindow`; HTTP and publishing-channel paths call `RecoveryController.HandleAlert`. |
 | Critical immediately attempts recovery and notifies all channels including phone. | Proven | Critical notify window is zero; default routing includes email, IM, SMS, third-party, and phone; `configureHTTPAlerting` records restart/failover recovery policies for critical HTTP alerts. |
-| Same alert repeated 3 times within 5 minutes escalates one level. | Proven | `AlertEscalator` and alert state stores use a 5-minute/3-occurrence rule; `TestAlertEscalatorRaisesSeverityOnThirdRepeatWithinFiveMinutes` and `TestSQLAlertStateStorePersistsAlertLifecycleAndEscalation`. |
+| Same alert repeated 3 times within 5 minutes escalates one level. | Proven | `AlertEscalator` and alert state stores use a 5-minute/3-occurrence rule; `TestAlertEscalatorRaisesSeverityOnThirdRepeatWithinFiveMinutes` and `TestSQLAlertStateStorePersistsAlertLifecycleAndEscalation`. The commercial DB profile also reruns SQL lifecycle, filter, notification-throttle, recovery-cooldown, and repeated delivery-batch persistence without accepting skips. |
 | Warning open for 30 minutes escalates to critical. | Proven | `shouldEscalateSustainedWarning` in memory and SQL state stores; `TestAlertStateStoreEscalatesWarningOpenForThirtyMinutes`. |
 
 ## 9.3 Fully Automated Recovery
@@ -50,7 +50,7 @@ Status values:
 
 ## Current Conclusion
 
-Sections 9.1 and 9.2 are proven by focused tests after the 2026-06-07 alert notification work. Section 9.3 remains partial with an explicit platform boundary: the repository records bounded restart recovery actions, now includes panic/OOM signal-specific restart policy and default wiring proof, and validates Kubernetes probes/HPA behavior for the expressible 9.3 autoscaling rules. Exact `<30%` scale-down trigger behavior, true OOM/crash restart execution, and infrastructure failover must be proven by deployment-platform evidence described in `docs/release/recovery-platform-contract.md`.
+Sections 9.1 and 9.2 are proven by focused tests after the 2026-06-07 alert notification work, and `scripts/verify-commercial-db-evidence.sh observability-alert-recovery-persistence` now supplies no-skip PostgreSQL evidence for alert routing/state/delivery/recovery-cooldown persistence. Section 9.3 remains partial with an explicit platform boundary: the repository records bounded restart recovery actions, now includes panic/OOM signal-specific restart policy and default wiring proof, and validates Kubernetes probes/HPA behavior for the expressible 9.3 autoscaling rules. Exact `<30%` scale-down trigger behavior, true OOM/crash restart execution, and infrastructure failover must be proven by deployment-platform evidence described in `docs/release/recovery-platform-contract.md`.
 
 Next implementation order:
 

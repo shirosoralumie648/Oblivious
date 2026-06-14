@@ -8,6 +8,7 @@ Phase 23 closes `OPS-04` and `OPS-05` by adding structured logs, Prometheus metr
 - `cd src/server && go test ./internal/http ./internal/metrics -run 'Observability|Logging|Metrics|Request' -count=1`
 - `cd src/server && go test ./internal/relay ./internal/relay/handler -run 'Observability|RouteDecision|ProviderFailure' -count=1`
 - `cd src/server && go test ./internal/stripe ./internal/quota ./internal/marketplace ./internal/task ./cmd/migrate -run 'Observability|Metrics|Failure|Webhook|Settlement|Migration' -count=1`
+- `GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh observability-alert-recovery-persistence`
 - `bash scripts/check.sh docs`
 
 ## Signal Map
