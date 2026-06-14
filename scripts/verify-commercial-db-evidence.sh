@@ -15,7 +15,7 @@ output_files=()
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/verify-commercial-db-evidence.sh [all|backend-journey|marketplace-money-movement|app-stateful-routes|tenant-membership-lifecycle|tenant-cross-surface|secret-response-safety|agent-runtime-memory|scheduled-task-runtime|auth-security-persistence]
+Usage: bash scripts/verify-commercial-db-evidence.sh [all|backend-journey|marketplace-money-movement|app-stateful-routes|tenant-membership-lifecycle|tenant-cross-surface|secret-response-safety|agent-runtime-memory|scheduled-task-runtime|auth-security-persistence|relay-file-mapping-tenant-ownership]
 
 Runs narrow DB-backed commercial evidence without silently accepting skipped tests.
 
@@ -42,6 +42,10 @@ Profiles:
   auth-security-persistence    Run focused Auth password policy, reset,
                                session revocation, hash, and rate-limit
                                persistence PostgreSQL tests.
+  relay-file-mapping-tenant-ownership
+                               Run focused Relay file-mapping upload,
+                               passthrough, and tenant ownership PostgreSQL
+                               tests.
 
 Environment:
   TEST_DATABASE_URL        Optional PostgreSQL URL. If unset, a disposable pgvector
@@ -215,6 +219,13 @@ run_auth_security_persistence_profile() {
   run_go_test_no_skips "auth HTTP persistence and security routes" "./internal/http" "$auth_http_pattern"
 }
 
+run_relay_file_mapping_tenant_ownership_profile() {
+  local relay_file_mapping_pattern
+
+  relay_file_mapping_pattern="^(TestRelayStore(SaveFileMappingPersistsTenantOwnership|GetFileMappingRequiresTenantOwnership)|TestNewRelayFilesSQLRelayStoreUploadGetTenantFailClosed)$"
+  run_go_test_no_skips "relay file mapping tenant ownership" "./internal/relay" "$relay_file_mapping_pattern"
+}
+
 run_all_profiles() {
   run_backend_journey_profile
   run_marketplace_money_movement_profile
@@ -225,6 +236,7 @@ run_all_profiles() {
   run_agent_runtime_memory_profile
   run_scheduled_task_runtime_profile
   run_auth_security_persistence_profile
+  run_relay_file_mapping_tenant_ownership_profile
 }
 
 if [[ -z "$database_url" ]]; then
@@ -263,6 +275,9 @@ case "$profile" in
     ;;
   auth-security-persistence)
     run_auth_security_persistence_profile
+    ;;
+  relay-file-mapping-tenant-ownership)
+    run_relay_file_mapping_tenant_ownership_profile
     ;;
   *)
     usage >&2

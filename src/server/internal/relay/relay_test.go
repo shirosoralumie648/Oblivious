@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -218,6 +219,193 @@ func TestNewRelayFilesUploadUsesConfiguredChannelAndMappingStore(t *testing.T) {
 		mappingStore.records[0].OrganizationID != "org_files" ||
 		mappingStore.records[0].RequestID != "req_files" {
 		t.Fatalf("unexpected file mapping record: %+v", mappingStore.records[0])
+	}
+}
+
+func TestNewRelayFilesSQLRelayStoreUploadGetTenantFailClosed(t *testing.T) {
+	t.Setenv("OBLIVIOUS_INTERNAL_AUTH_TOKEN", types.SharedInternalToken)
+	previousRouter := handler.GetRouter()
+	t.Cleanup(func() {
+		handler.SetRouter(previousRouter)
+		if err := os.RemoveAll(".tmp/relay"); err != nil {
+			t.Fatalf("cleanup relay file storage: %v", err)
+		}
+	})
+	if err := os.RemoveAll(".tmp/relay"); err != nil {
+		t.Fatalf("cleanup stale relay file storage: %v", err)
+	}
+
+	store, database, ctx := testRelaySQLStore(t)
+
+	var mu sync.Mutex
+	var upstreamPaths []string
+	var upstreamAuth []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		upstreamPaths = append(upstreamPaths, r.URL.Path)
+		upstreamAuth = append(upstreamAuth, r.Header.Get("Authorization"))
+		mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/files":
+			if err := r.ParseMultipartForm(1 << 20); err != nil {
+				t.Errorf("parse upstream multipart: %v", err)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			file, header, err := r.FormFile("file")
+			if err != nil {
+				t.Errorf("upstream missing file: %v", err)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			_ = file.Close()
+			if header.Filename != "tenant.jsonl" {
+				t.Errorf("upstream filename = %q, want tenant.jsonl", header.Filename)
+			}
+			_, _ = w.Write([]byte(`{"id":"file_openai_sql","object":"file","bytes":5}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/files/file_openai_sql":
+			_, _ = w.Write([]byte(`{"id":"file_openai_sql","object":"file","purpose":"assistants"}`))
+		default:
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"error":{"code":"unexpected_upstream_call"}}`))
+		}
+	}))
+	t.Cleanup(upstream.Close)
+
+	pool := NewChannelPool()
+	pool.AddChannel(&types.Channel{
+		ID:          "ch_files_sql",
+		Name:        "Files SQL channel",
+		Provider:    "openai",
+		BaseURL:     upstream.URL,
+		APIKey:      "sk-files-sql",
+		Models:      []string{types.APITypeFiles.String()},
+		Enabled:     true,
+		CBThreshold: 5,
+	}, 100)
+	relayInstance, err := NewRelay(&Config{
+		Pool:              pool,
+		FilesMappingStore: store,
+	})
+	if err != nil {
+		t.Fatalf("new relay: %v", err)
+	}
+
+	addTrustedTenantHeaders := func(request *http.Request, userID, organizationID, requestID string) {
+		request.Header.Set(types.HeaderInternalAuth, types.SharedInternalToken)
+		request.Header.Set(types.HeaderInternalUserID, userID)
+		request.Header.Set(types.HeaderInternalOrganization, organizationID)
+		request.Header.Set(types.HeaderRequestID, requestID)
+	}
+
+	body, contentType := relayMultipartFileBody(t, "tenant.jsonl", "hello", "assistants")
+	uploadRequest := httptest.NewRequest(http.MethodPost, "/v1/files", body)
+	uploadRequest.Header.Set("Content-Type", contentType)
+	addTrustedTenantHeaders(uploadRequest, "user_files_sql", "org_files_sql", "req_files_upload_sql")
+	uploadRecorder := httptest.NewRecorder()
+
+	relayInstance.Engine().ServeHTTP(uploadRecorder, uploadRequest)
+
+	if uploadRecorder.Code != http.StatusOK {
+		t.Fatalf("upload status = %d, want %d; body=%s", uploadRecorder.Code, http.StatusOK, uploadRecorder.Body.String())
+	}
+	var uploadResponse struct {
+		ID             string `json:"id"`
+		ProviderFileID string `json:"provider_file_id"`
+	}
+	if err := json.Unmarshal(uploadRecorder.Body.Bytes(), &uploadResponse); err != nil {
+		t.Fatalf("decode upload response: %v", err)
+	}
+	if uploadResponse.ID == "" || uploadResponse.ID == "file_openai_sql" || uploadResponse.ProviderFileID != "file_openai_sql" {
+		t.Fatalf("unexpected upload response: %+v", uploadResponse)
+	}
+
+	var saved handler.FileMappingRecord
+	if err := database.QueryRowContext(ctx, `
+		SELECT local_file_id, openai_file_id, local_path, size_bytes,
+		       user_id, organization_id, request_id, created_at
+		FROM relay_file_mappings
+		WHERE local_file_id = $1
+	`, uploadResponse.ID).Scan(
+		&saved.LocalFileID,
+		&saved.OpenAIFileID,
+		&saved.LocalPath,
+		&saved.SizeBytes,
+		&saved.UserID,
+		&saved.OrganizationID,
+		&saved.RequestID,
+		&saved.CreatedAt,
+	); err != nil {
+		t.Fatalf("query uploaded file mapping: %v", err)
+	}
+	if saved.OpenAIFileID != "file_openai_sql" ||
+		saved.UserID != "user_files_sql" ||
+		saved.OrganizationID != "org_files_sql" ||
+		saved.RequestID != "req_files_upload_sql" ||
+		saved.SizeBytes <= 0 ||
+		!strings.Contains(saved.LocalPath, uploadResponse.ID) ||
+		saved.CreatedAt.IsZero() {
+		t.Fatalf("unexpected saved file mapping: %+v", saved)
+	}
+
+	getRequest := httptest.NewRequest(http.MethodGet, "/v1/files/"+uploadResponse.ID, nil)
+	addTrustedTenantHeaders(getRequest, "user_files_sql", "org_files_sql", "req_files_get_sql")
+	getRecorder := httptest.NewRecorder()
+	relayInstance.Engine().ServeHTTP(getRecorder, getRequest)
+	if getRecorder.Code != http.StatusOK {
+		t.Fatalf("get status = %d, want %d; body=%s", getRecorder.Code, http.StatusOK, getRecorder.Body.String())
+	}
+	var getResponse struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(getRecorder.Body.Bytes(), &getResponse); err != nil {
+		t.Fatalf("decode get response: %v", err)
+	}
+	if getResponse.ID != "file_openai_sql" {
+		t.Fatalf("get response id = %q, want provider file id", getResponse.ID)
+	}
+
+	mu.Lock()
+	callsAfterAuthorizedGet := len(upstreamPaths)
+	gotPaths := append([]string(nil), upstreamPaths...)
+	gotAuth := append([]string(nil), upstreamAuth...)
+	mu.Unlock()
+	if callsAfterAuthorizedGet != 2 ||
+		gotPaths[0] != "/v1/files" ||
+		gotPaths[1] != "/v1/files/file_openai_sql" ||
+		gotAuth[0] != "Bearer sk-files-sql" ||
+		gotAuth[1] != "Bearer sk-files-sql" {
+		t.Fatalf("unexpected upstream calls paths=%v auth=%v", gotPaths, gotAuth)
+	}
+
+	for _, tc := range []struct {
+		name           string
+		userID         string
+		organizationID string
+	}{
+		{name: "wrong user", userID: "user_files_other", organizationID: "org_files_sql"},
+		{name: "wrong org", userID: "user_files_sql", organizationID: "org_files_other"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "/v1/files/"+uploadResponse.ID, nil)
+			addTrustedTenantHeaders(request, tc.userID, tc.organizationID, "req_"+strings.ReplaceAll(tc.name, " ", "_"))
+			recorder := httptest.NewRecorder()
+			relayInstance.Engine().ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusNotFound {
+				t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusNotFound, recorder.Body.String())
+			}
+			if !strings.Contains(recorder.Body.String(), "relay_file_mapping_not_found") {
+				t.Fatalf("expected relay_file_mapping_not_found, got %s", recorder.Body.String())
+			}
+		})
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(upstreamPaths) != callsAfterAuthorizedGet {
+		t.Fatalf("tenant-mismatched lookup called upstream: before=%d after=%d paths=%v", callsAfterAuthorizedGet, len(upstreamPaths), upstreamPaths)
 	}
 }
 
