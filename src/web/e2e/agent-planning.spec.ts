@@ -60,3 +60,38 @@ test('agent planning browser journey covers tool approval plan-step execution an
   await expect(page.getByText('Status: completed')).toBeVisible();
   await expect(page.getByLabel('Agent run execution controls')).toContainText('Iterations 5');
 });
+
+test('agent planning browser journey adjusts remaining plan with operator reason', async ({ page }) => {
+  await page.goto('/agents');
+
+  await page.getByLabel('Run conversation ID').fill('conv_browser_agent');
+  await page.getByLabel('Run goal').fill('Adjust the remaining browser plan after scope changes.');
+  await page.getByRole('button', { name: 'Start run' }).click();
+  await page.getByRole('link', { name: 'Open run plan steps' }).click();
+
+  await expect(page).toHaveURL(/\/agent-runs\/run_browser_agent\/plan-steps$/);
+  await expect(page.getByText('Status: pending_approval')).toBeVisible();
+
+  const completedStep = page.getByRole('article', { name: 'Plan step Inspect browser route scope' });
+  const originalRemainingStep = page.getByRole('article', { name: 'Plan step Patch browser route proof' });
+  await expect(completedStep).toContainText('completed');
+  await expect(originalRemainingStep).toContainText('Depends on: 1');
+
+  await page.getByLabel('Adjustment reason').fill('Browser scope changed after operator review.');
+  await page.getByRole('button', { name: 'Adjust remaining plan' }).click();
+
+  const adjustedStep = page.getByRole('article', { name: 'Plan step Run adjusted browser checks' });
+  await expect(page.getByText('Status: pending_approval')).toBeVisible();
+  await expect(completedStep).toContainText('Workspace Agent route scope inspected.');
+  await expect(adjustedStep).toContainText('Run the adjusted browser checks after the route scope changed.');
+  await expect(adjustedStep).toContainText('Depends on: 1');
+  await expect(originalRemainingStep).not.toBeVisible();
+  await expect(page.getByLabel('Adjustment reason')).toHaveValue('');
+
+  await page.getByRole('button', { name: 'Continue plan' }).click();
+  await expect(page.getByText('Status: completed')).toBeVisible();
+  await expect(page.getByLabel('Agent run execution controls')).toContainText('Iterations 4');
+  await expect(adjustedStep).toContainText('Adjusted browser checks completed.');
+  await expect(page.getByLabel('Adjustment reason')).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Adjust remaining plan' })).toBeDisabled();
+});

@@ -2,6 +2,7 @@ import type { Page, Route } from '@playwright/test';
 
 const now = '2026-06-14T10:00:00Z';
 const runId = 'run_browser_agent';
+const expectedAdjustReason = 'Browser scope changed after operator review.';
 
 const session = {
   onboardingCompleted: true,
@@ -74,7 +75,40 @@ const toolCatalog = [
   },
 ];
 
-function planSteps(stepStatus: 'pending' | 'approved' | 'completed', resultContent = '') {
+type PlanVariant = 'initial' | 'adjusted';
+type PlanStepStatus = 'pending' | 'approved' | 'completed';
+
+function planSteps(stepStatus: PlanStepStatus, resultContent = '', variant: PlanVariant = 'initial') {
+  if (variant === 'adjusted') {
+    return [
+      {
+        id: 'step_scope',
+        runId,
+        index: 1,
+        title: 'Inspect browser route scope',
+        description: 'Confirm the workspace shell keeps Agent navigation active before editing plan steps.',
+        status: 'completed',
+        approvalStatus: 'not_required',
+        resultContent: 'Workspace Agent route scope inspected.',
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'step_adjusted',
+        runId,
+        index: 2,
+        title: 'Run adjusted browser checks',
+        description: 'Run the adjusted browser checks after the route scope changed.',
+        status: stepStatus,
+        approvalStatus: 'not_required',
+        dependsOn: [1],
+        ...(resultContent ? { resultContent } : {}),
+        createdAt: now,
+        updatedAt: now,
+      },
+    ];
+  }
+
   return [
     {
       id: 'step_scope',
@@ -137,10 +171,13 @@ function toolRuns(status: 'pending_approval' | 'completed') {
 
 function runDetail(options: {
   iterationCount?: number;
+  planVariant?: PlanVariant;
   status?: string;
-  stepStatus?: 'pending' | 'approved' | 'completed';
+  stepStatus?: PlanStepStatus;
   stepResult?: string;
+  toolCallCount?: number;
   toolStatus?: 'pending_approval' | 'completed';
+  toolRunsVisible?: boolean;
 } = {}) {
   const stepStatus = options.stepStatus ?? 'pending';
   const toolStatus = options.toolStatus ?? 'pending_approval';
@@ -150,9 +187,9 @@ function runDetail(options: {
     iterationCount: options.iterationCount ?? 2,
     mode: 'planning',
     status: options.status ?? 'pending_approval',
-    toolCallCount: 1,
-    planSteps: planSteps(stepStatus, options.stepResult),
-    toolRuns: toolRuns(toolStatus),
+    toolCallCount: options.toolCallCount ?? 1,
+    planSteps: planSteps(stepStatus, options.stepResult, options.planVariant),
+    toolRuns: options.toolRunsVisible === false ? [] : toolRuns(toolStatus),
   };
 }
 
@@ -186,6 +223,7 @@ async function fulfillNotFound(route: Route) {
 
 export async function registerAgentPlanningRoutes(page: Page): Promise<void> {
   let currentRunDetail = runDetail();
+  let currentPlanVariant: PlanVariant = 'initial';
 
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request();
@@ -209,6 +247,7 @@ export async function registerAgentPlanningRoutes(page: Page): Promise<void> {
     }
 
     if (method === 'POST' && pathname === '/api/v1/agent/runs') {
+      currentPlanVariant = 'initial';
       currentRunDetail = runDetail();
       await fulfillJSON(route, {
         id: runId,
@@ -216,6 +255,31 @@ export async function registerAgentPlanningRoutes(page: Page): Promise<void> {
         planSteps: currentRunDetail.planSteps,
         toolRuns: currentRunDetail.toolRuns,
       }, 201);
+      return;
+    }
+
+    if (method === 'POST' && pathname === `/api/v1/agent/runs/${runId}/adjust-plan`) {
+      const payload = request.postDataJSON() as { reason?: string };
+      if (payload.reason !== expectedAdjustReason) {
+        await route.fulfill({
+          status: 400,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: false,
+            data: null,
+            error: { code: 'invalid_request', message: 'unexpected adjust-plan reason' },
+          }),
+        });
+        return;
+      }
+
+      currentPlanVariant = 'adjusted';
+      currentRunDetail = runDetail({
+        iterationCount: 3,
+        planVariant: currentPlanVariant,
+        toolRunsVisible: false,
+      });
+      await fulfillJSON(route, currentRunDetail);
       return;
     }
 
@@ -247,13 +311,24 @@ export async function registerAgentPlanningRoutes(page: Page): Promise<void> {
     }
 
     if (method === 'POST' && pathname === `/api/v1/agent/runs/${runId}/continue-plan`) {
-      currentRunDetail = runDetail({
-        iterationCount: 5,
-        status: 'completed',
-        stepStatus: 'completed',
-        stepResult: 'Browser route proof patched.',
-        toolStatus: 'completed',
-      });
+      if (currentPlanVariant === 'adjusted') {
+        currentRunDetail = runDetail({
+          iterationCount: 4,
+          planVariant: currentPlanVariant,
+          status: 'completed',
+          stepStatus: 'completed',
+          stepResult: 'Adjusted browser checks completed.',
+          toolRunsVisible: false,
+        });
+      } else {
+        currentRunDetail = runDetail({
+          iterationCount: 5,
+          status: 'completed',
+          stepStatus: 'completed',
+          stepResult: 'Browser route proof patched.',
+          toolStatus: 'completed',
+        });
+      }
       await fulfillJSON(route, currentRunDetail);
       return;
     }
