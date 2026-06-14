@@ -394,3 +394,81 @@ func TestWithLoggingRoutesHTTP5xxToAlertDeliveryAndRecovery(t *testing.T) {
 		t.Fatalf("expected recorded recovery action, got %+v", actions)
 	}
 }
+
+func TestWithRecoverRoutesPanicToCriticalAlertAndRecovery(t *testing.T) {
+	store := observability.NewInMemoryAlertStateStore()
+	inApp := &captureMiddlewareAlertSink{channel: observability.AlertDeliveryChannelInApp}
+	dispatcher := observability.NewAlertDeliveryDispatcher(observability.AlertDeliveryDispatcherOptions{
+		Policy: observability.DeliveryPolicy{
+			Routes: map[observability.AlertSeverity][]observability.AlertDeliveryChannel{
+				observability.AlertSeverityCritical: {observability.AlertDeliveryChannelInApp},
+			},
+		},
+		Sinks:        []observability.AlertDeliverySink{inApp},
+		HistoryStore: store,
+	})
+	router := observability.NewAlertRouter(observability.AlertRouterOptions{
+		StateStore: store,
+		NotifySink: dispatcher,
+	})
+	recovery := observability.NewRecoveryController(observability.RecoveryControllerOptions{
+		StateStore: store,
+		Policies: []observability.RecoveryPolicy{
+			{
+				Name:         "record-http-panic",
+				Severity:     observability.AlertSeverityCritical,
+				Component:    observability.ComponentHTTP,
+				FieldMatches: map[string]string{"failure_kind": "panic"},
+				ActionType:   observability.RecoveryActionRestart,
+			},
+		},
+	})
+	restoreAlertRouter := setHTTPAlertRouterForTest(router)
+	defer restoreAlertRouter()
+	restoreRecovery := setHTTPRecoveryControllerForTest(recovery)
+	defer restoreRecovery()
+
+	handler := applyMiddleware(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		panic("simulated crash")
+	}), withRecover, withRequestID, withLogging)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/admin/relay/routes", nil)
+
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusInternalServerError {
+		t.Fatalf("expected panic to become 500, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "panic recovered") {
+		t.Fatalf("expected panic recovery response body, got %s", recorder.Body.String())
+	}
+	const alertKey = "http:/api/v1/admin/relay/routes:panic"
+	state, found, err := store.GetAlertState(context.Background(), alertKey)
+	if err != nil {
+		t.Fatalf("get panic alert state: %v", err)
+	}
+	if !found || state.Status != observability.AlertStatusOpen || state.Severity != observability.AlertSeverityCritical || state.Component != observability.ComponentHTTP {
+		t.Fatalf("expected open critical HTTP panic alert state, found=%v state=%+v", found, state)
+	}
+	if len(inApp.events) != 1 {
+		t.Fatalf("expected one critical in-app alert delivery, got %+v", inApp.events)
+	}
+	if inApp.events[0].Fields["failure_kind"] != "panic" || inApp.events[0].Fields["source"] != "http.recover" {
+		t.Fatalf("expected panic alert fields, got %+v", inApp.events[0].Fields)
+	}
+	if requestID, ok := inApp.events[0].Fields["request_id"].(string); !ok || requestID == "" {
+		t.Fatalf("expected panic alert to preserve request id evidence, got %+v", inApp.events[0].Fields)
+	}
+	actions, err := store.ListRecoveryActions(context.Background(), observability.RecoveryActionFilter{AlertKey: alertKey})
+	if err != nil {
+		t.Fatalf("list panic recovery actions: %v", err)
+	}
+	if len(actions) != 1 ||
+		actions[0].PolicyName != "record-http-panic" ||
+		actions[0].Type != observability.RecoveryActionRestart ||
+		actions[0].Status != observability.RecoveryActionRecorded ||
+		actions[0].Attempt != 1 {
+		t.Fatalf("expected recorded panic restart recovery action, got %+v", actions)
+	}
+}

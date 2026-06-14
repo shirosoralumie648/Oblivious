@@ -40,7 +40,7 @@ Status values:
 | Requirement | Status | Evidence / gap |
 | --- | --- | --- |
 | Automatic restart when health check fails 3 times. | Proven | `deploy/kubernetes/app-deployment.yaml` defines `/healthz` liveness/readiness probes with `failureThreshold: 3`; `scripts/verify-k8s-recovery-policy.sh` validates the probe contract; HTTP 5xx/panic paths record restart recovery actions. |
-| Restart on OOM and panic/crash. | Partial | Kubernetes liveness/startup behavior can recover crashed containers, and HTTP middleware routes panic/5xx into recovery action records. Missing: explicit OOM/panic policy tests and restart action execution semantics. |
+| Restart on OOM and panic/crash. | Partial with repository panic proof | Kubernetes liveness/startup behavior can recover crashed containers. HTTP middleware now routes recovered panics into critical alert state plus `restart` recovery actions through `record-http-panic`, and `RecoveryPolicy.FieldMatches` has focused panic/OOM signal coverage in `TestRecoveryControllerMatchesPanicAndOOMRecoverySignals`; `TestWithRecoverRoutesPanicToCriticalAlertAndRecovery` proves the real middleware chain records panic recovery evidence, and `TestConfigureHTTPAlertingRoutesPanicAndOOMRecoverySignals` proves default HTTP recovery wiring records panic/OOM signals before generic critical HTTP recovery. Remaining boundary: true OOM/crash restart execution still depends on Kubernetes/runtime evidence. |
 | Restart strategy max 5 restarts/10 minutes with 10s, 30s, 60s, 120s, 300s backoff, then mark failure for manual intervention. | Proven | `RecoveryController` counts restart attempts in a 10-minute window, assigns the default backoff sequence, persists `attempt` and `next_attempt_at`, and records `exhausted` on the sixth attempt; `TestRecoveryControllerSchedulesRestartBackoffAndExhaustsAfterFiveAttempts`. |
 | Kubernetes `restartPolicy: Always` + readiness probe. | Proven | Deployment pod templates rely on Kubernetes Deployment default `restartPolicy: Always`; readiness/liveness probes are validated by `scripts/verify-k8s-recovery-policy.sh`. |
 | Automatic scale out when CPU > 80% for 5 minutes, memory > 85% for 5 minutes, or queue backlog > 100. | Proven | `deploy/kubernetes/hpa.yaml` sets CPU 80%, memory 85%, queue backlog `workflow_queue_backlog` average value `100`, and 5-minute scale-up stabilization; `scripts/verify-k8s-recovery-policy.sh`. |
@@ -50,7 +50,7 @@ Status values:
 
 ## Current Conclusion
 
-Sections 9.1 and 9.2 are proven by focused tests after the 2026-06-07 alert notification work. Section 9.3 remains partial with an explicit platform boundary: the repository records bounded restart recovery actions and validates Kubernetes probes/HPA behavior for the expressible 9.3 autoscaling rules. Exact `<30%` scale-down trigger behavior and infrastructure failover must be proven by deployment-platform evidence described in `docs/release/recovery-platform-contract.md`.
+Sections 9.1 and 9.2 are proven by focused tests after the 2026-06-07 alert notification work. Section 9.3 remains partial with an explicit platform boundary: the repository records bounded restart recovery actions, now includes panic/OOM signal-specific restart policy and default wiring proof, and validates Kubernetes probes/HPA behavior for the expressible 9.3 autoscaling rules. Exact `<30%` scale-down trigger behavior, true OOM/crash restart execution, and infrastructure failover must be proven by deployment-platform evidence described in `docs/release/recovery-platform-contract.md`.
 
 Next implementation order:
 

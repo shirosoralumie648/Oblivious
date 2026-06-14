@@ -115,6 +115,78 @@ func TestRecoveryControllerSchedulesRestartBackoffAndExhaustsAfterFiveAttempts(t
 	}
 }
 
+func TestRecoveryControllerMatchesPanicAndOOMRecoverySignals(t *testing.T) {
+	ctx := context.Background()
+	store := NewInMemoryAlertStateStore()
+	controller := NewRecoveryController(RecoveryControllerOptions{
+		StateStore: store,
+		Policies: []RecoveryPolicy{
+			{
+				Name:         "record-http-panic",
+				Severity:     AlertSeverityCritical,
+				Component:    ComponentHTTP,
+				FieldMatches: map[string]string{"failure_kind": "panic"},
+				ActionType:   RecoveryActionRestart,
+			},
+			{
+				Name:         "record-runtime-oom",
+				Severity:     AlertSeverityCritical,
+				Component:    ComponentHTTP,
+				FieldMatches: map[string]string{"failure_kind": "oom"},
+				ActionType:   RecoveryActionRestart,
+			},
+		},
+	})
+
+	panicDecision, err := controller.HandleAlert(ctx, AlertEvent{
+		Key:       "http:/api/v1/agents:panic",
+		Severity:  AlertSeverityCritical,
+		Component: ComponentHTTP,
+		Title:     "HTTP panic recovered",
+		Fields: map[string]any{
+			"failure_kind": "panic",
+		},
+	})
+	if err != nil {
+		t.Fatalf("handle panic recovery signal: %v", err)
+	}
+	if !panicDecision.Created || panicDecision.Action.PolicyName != "record-http-panic" || panicDecision.Action.Type != RecoveryActionRestart {
+		t.Fatalf("expected panic signal to create restart recovery action, got %+v", panicDecision)
+	}
+
+	oomDecision, err := controller.HandleAlert(ctx, AlertEvent{
+		Key:       "runtime:server:oom",
+		Severity:  AlertSeverityCritical,
+		Component: ComponentHTTP,
+		Title:     "Container OOM kill observed",
+		Fields: map[string]any{
+			"failure_kind": "oom",
+		},
+	})
+	if err != nil {
+		t.Fatalf("handle OOM recovery signal: %v", err)
+	}
+	if !oomDecision.Created || oomDecision.Action.PolicyName != "record-runtime-oom" || oomDecision.Action.Type != RecoveryActionRestart {
+		t.Fatalf("expected OOM signal to create restart recovery action, got %+v", oomDecision)
+	}
+
+	ignored, err := controller.HandleAlert(ctx, AlertEvent{
+		Key:       "http:/api/v1/agents:critical",
+		Severity:  AlertSeverityCritical,
+		Component: ComponentHTTP,
+		Title:     "Critical HTTP without runtime signal",
+		Fields: map[string]any{
+			"failure_kind": "http_5xx",
+		},
+	})
+	if err != nil {
+		t.Fatalf("handle non-matching recovery signal: %v", err)
+	}
+	if ignored.Created {
+		t.Fatalf("expected non-matching failure_kind to be ignored by signal-specific policies, got %+v", ignored)
+	}
+}
+
 func TestAlertStateStoreListsRecoveryActionsWithFilters(t *testing.T) {
 	ctx := context.Background()
 	store := NewInMemoryAlertStateStore()

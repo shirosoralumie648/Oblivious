@@ -302,6 +302,22 @@ func configureHTTPAlerting(
 					Cooldown:   cooldown,
 				},
 				{
+					Name:         "record-http-panic",
+					Severity:     observability.AlertSeverityCritical,
+					Component:    observability.ComponentHTTP,
+					FieldMatches: map[string]string{"failure_kind": "panic"},
+					ActionType:   observability.RecoveryActionRestart,
+					Cooldown:     cooldown,
+				},
+				{
+					Name:         "record-runtime-oom",
+					Severity:     observability.AlertSeverityCritical,
+					Component:    observability.ComponentHTTP,
+					FieldMatches: map[string]string{"failure_kind": "oom"},
+					ActionType:   observability.RecoveryActionRestart,
+					Cooldown:     cooldown,
+				},
+				{
 					Name:       "record-http-critical-5xx",
 					Severity:   observability.AlertSeverityCritical,
 					Component:  observability.ComponentHTTP,

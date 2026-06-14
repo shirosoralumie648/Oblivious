@@ -7,6 +7,9 @@ This contract maps Functional Logic 9.3 recovery requirements to repository-owne
 | Capability | Repository evidence |
 | --- | --- |
 | HTTP health probes restart unhealthy server pods after 3 failed checks | `deploy/kubernetes/app-deployment.yaml`, `scripts/verify-k8s-recovery-policy.sh` |
+| Recovered HTTP panics create critical alert state and restart recovery action records | `src/server/internal/http/middleware.go`, `TestWithRecoverRoutesPanicToCriticalAlertAndRecovery` |
+| Panic/OOM recovery signals can be matched by signal-specific restart policies | `src/server/internal/observability/recovery.go`, `TestRecoveryControllerMatchesPanicAndOOMRecoverySignals` |
+| Default HTTP recovery wiring records panic/OOM signals before generic critical HTTP recovery | `src/server/internal/http/server.go`, `TestConfigureHTTPAlertingRoutesPanicAndOOMRecoverySignals` |
 | Restart recovery records max 5 attempts per 10 minutes, backoff `10s, 30s, 60s, 120s, 300s`, and exhausted/manual-intervention state | `src/server/internal/observability/recovery.go`, `TestRecoveryControllerSchedulesRestartBackoffAndExhaustsAfterFiveAttempts` |
 | HPA scale-up on CPU 80%, memory 85%, and workflow queue backlog 100 | `deploy/kubernetes/hpa.yaml`, `scripts/verify-k8s-recovery-policy.sh` |
 | HPA scale-up by 50% with at least 1 pod and max replicas configured | `deploy/kubernetes/hpa.yaml`, `scripts/verify-k8s-recovery-policy.sh` |

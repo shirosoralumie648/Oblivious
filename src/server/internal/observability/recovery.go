@@ -3,6 +3,8 @@ package observability
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -25,6 +27,7 @@ type RecoveryPolicy struct {
 	Name               string
 	Severity           AlertSeverity
 	Component          string
+	FieldMatches       map[string]string
 	ActionType         RecoveryActionType
 	Cooldown           time.Duration
 	RestartMaxAttempts int
@@ -175,6 +178,15 @@ func policyMatchesAlert(policy RecoveryPolicy, event AlertEvent) bool {
 	}
 	if policy.Component != "" && policy.Component != event.Component {
 		return false
+	}
+	for key, expected := range policy.FieldMatches {
+		if strings.TrimSpace(key) == "" {
+			return false
+		}
+		actual, ok := event.Fields[key]
+		if !ok || fmt.Sprint(actual) != expected {
+			return false
+		}
 	}
 	return true
 }

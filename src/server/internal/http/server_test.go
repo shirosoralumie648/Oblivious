@@ -413,6 +413,81 @@ func TestConfigureHTTPAlertingRoutes5xxToSignedWebhookAndRecovery(t *testing.T) 
 	}
 }
 
+func TestConfigureHTTPAlertingRoutesPanicAndOOMRecoverySignals(t *testing.T) {
+	store := observability.NewInMemoryAlertStateStore()
+	restore := configureHTTPAlerting(config.Config{
+		ObservabilityHTTPRecoveryEnabled:    true,
+		ObservabilityHTTPRecoveryCooldownMS: 1000,
+	}, store, nil, nil)
+	if restore == nil {
+		t.Fatal("expected HTTP recovery alerting to configure restore hook")
+	}
+	defer restore()
+
+	controller := currentHTTPRecoveryController()
+	if controller == nil {
+		t.Fatal("expected configured HTTP recovery controller")
+	}
+
+	tests := []struct {
+		name       string
+		event      observability.AlertEvent
+		wantPolicy string
+	}{
+		{
+			name: "panic signal",
+			event: observability.AlertEvent{
+				Key:       "http:admin-routes:panic",
+				Severity:  observability.AlertSeverityCritical,
+				Component: observability.ComponentHTTP,
+				Title:     "HTTP panic recovered",
+				Fields: map[string]any{
+					"failure_kind": "panic",
+				},
+			},
+			wantPolicy: "record-http-panic",
+		},
+		{
+			name: "oom signal",
+			event: observability.AlertEvent{
+				Key:       "runtime:http:oom",
+				Severity:  observability.AlertSeverityCritical,
+				Component: observability.ComponentHTTP,
+				Title:     "Container OOM observed",
+				Fields: map[string]any{
+					"failure_kind": "oom",
+				},
+			},
+			wantPolicy: "record-runtime-oom",
+		},
+		{
+			name: "generic critical http",
+			event: observability.AlertEvent{
+				Key:       "http:admin-routes:503",
+				Severity:  observability.AlertSeverityCritical,
+				Component: observability.ComponentHTTP,
+				Title:     "HTTP 503",
+				Fields: map[string]any{
+					"failure_kind": "http_5xx",
+				},
+			},
+			wantPolicy: "record-http-critical-5xx",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			decision, err := controller.HandleAlert(context.Background(), test.event)
+			if err != nil {
+				t.Fatalf("handle alert: %v", err)
+			}
+			if !decision.Created || decision.Action.PolicyName != test.wantPolicy || decision.Action.Type != observability.RecoveryActionRestart {
+				t.Fatalf("expected policy %s restart action, got %+v", test.wantPolicy, decision)
+			}
+		})
+	}
+}
+
 func TestConfigureHTTPAlertingRoutes5xxToSlackProviderConfig(t *testing.T) {
 	store := observability.NewInMemoryAlertStateStore()
 	routingStore := observability.NewInMemoryAlertRoutingRuleStore(observability.AlertRoutingRules{

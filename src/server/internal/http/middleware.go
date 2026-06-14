@@ -60,9 +60,15 @@ func applyMiddleware(handler stdhttp.Handler, middleware ...func(stdhttp.Handler
 
 func withRecover(next stdhttp.Handler) stdhttp.Handler {
 	return stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		startedAt := time.Now()
 		defer func() {
 			if recovered := recover(); recovered != nil {
 				writeError(w, stdhttp.StatusInternalServerError, "internal_error", fmt.Sprintf("panic recovered: %v", recovered))
+				requestID := w.Header().Get(requestIDHeader)
+				if requestID == "" {
+					requestID = requestIDFromContext(r.Context())
+				}
+				routeHTTPPanicAlert(r.Context(), r.Method, normalizeRoute(r.URL.Path), time.Since(startedAt), startedAt.UTC(), requestID, recovered)
 			}
 		}()
 
@@ -257,6 +263,38 @@ func routeHTTPAlert(ctx context.Context, method, route string, status int, laten
 		return
 	}
 	event := httpAlertEvent(method, route, status, latency, occurredAt, requestID)
+	if alertSink != nil {
+		_ = alertSink.Notify(ctx, event)
+	}
+	if recoveryController != nil {
+		_, _ = recoveryController.HandleAlert(ctx, event)
+	}
+}
+
+func routeHTTPPanicAlert(ctx context.Context, method, route string, latency time.Duration, occurredAt time.Time, requestID string, recovered any) {
+	alertSink := currentHTTPAlertSink()
+	recoveryController := currentHTTPRecoveryController()
+	if alertSink == nil && recoveryController == nil {
+		return
+	}
+	event := observability.AlertEvent{
+		Key:        fmt.Sprintf("http:%s:panic", route),
+		Severity:   observability.AlertSeverityCritical,
+		Title:      fmt.Sprintf("HTTP panic recovered on %s", route),
+		Message:    fmt.Sprintf("%s %s panic recovered in %dms: %v", method, route, latency.Milliseconds(), recovered),
+		Component:  observability.ComponentHTTP,
+		OccurredAt: occurredAt,
+		Fields: map[string]any{
+			"method":          method,
+			"route":           route,
+			"status":          stdhttp.StatusInternalServerError,
+			"latency_ms":      latency.Milliseconds(),
+			"request_id":      requestID,
+			"source":          "http.recover",
+			"failure_kind":    "panic",
+			"panic_recovered": true,
+		},
+	}
 	if alertSink != nil {
 		_ = alertSink.Notify(ctx, event)
 	}
