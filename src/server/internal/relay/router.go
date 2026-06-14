@@ -378,7 +378,7 @@ func (r *Router) RouteWithBilling(
 			if err := r.apiTokenQuotaManager.PreAuthorizeRelayAPITokenQuota(ctx, apiTokenID, tokenPreauthorizedAmount); err != nil {
 				releaseRateLimit()
 				if r.quotaManager != nil && billingSessionID != "" {
-					_ = r.quotaManager.Refund(ctx, billingSessionID)
+					_ = r.quotaManager.Refund(ctx, organizationID, billingSessionID)
 				}
 				status, code := relayAPITokenQuotaRouterError(err)
 				routeErr := &RouterError{Code: status, Message: "API token quota pre-authorization failed: " + err.Error(), ErrorCode: code}
@@ -393,7 +393,7 @@ func (r *Router) RouteWithBilling(
 		if err != nil {
 			r.recordSelectedFailure(selectedChannelID)
 			if r.quotaManager != nil && billingSessionID != "" {
-				_ = r.quotaManager.Refund(ctx, billingSessionID)
+				_ = r.quotaManager.Refund(ctx, organizationID, billingSessionID)
 			}
 			if r.apiTokenQuotaManager != nil && apiTokenID != "" {
 				_ = r.apiTokenQuotaManager.RefundRelayAPITokenQuota(ctx, apiTokenID, tokenPreauthorizedAmount)
@@ -412,7 +412,7 @@ func (r *Router) RouteWithBilling(
 			r.recordSelectedFailure(selectedChannelID)
 			r.markRetryableProviderFailure(ch, resp)
 			if r.quotaManager != nil && billingSessionID != "" {
-				_ = r.quotaManager.Refund(ctx, billingSessionID)
+				_ = r.quotaManager.Refund(ctx, organizationID, billingSessionID)
 			}
 			if r.apiTokenQuotaManager != nil && apiTokenID != "" {
 				_ = r.apiTokenQuotaManager.RefundRelayAPITokenQuota(ctx, apiTokenID, tokenPreauthorizedAmount)
@@ -450,7 +450,7 @@ func (r *Router) RouteWithBilling(
 		actualCost := r.estimatedUsageCost(model, apiType, actualUsage, ch)
 
 		if r.quotaManager != nil && billingSessionID != "" {
-			if err := r.quotaManager.Settle(ctx, billingSessionID, actualCost); err != nil {
+			if err := r.quotaManager.Settle(ctx, organizationID, billingSessionID, actualCost); err != nil {
 				if r.apiTokenQuotaManager != nil && apiTokenID != "" {
 					_ = r.apiTokenQuotaManager.RefundRelayAPITokenQuota(ctx, apiTokenID, tokenPreauthorizedAmount)
 				}
@@ -464,7 +464,7 @@ func (r *Router) RouteWithBilling(
 		if r.apiTokenQuotaManager != nil && apiTokenID != "" {
 			if err := r.apiTokenQuotaManager.SettleRelayAPITokenQuota(ctx, apiTokenID, tokenPreauthorizedAmount, actualCost); err != nil {
 				if r.quotaManager != nil && billingSessionID != "" {
-					_ = r.quotaManager.Refund(ctx, billingSessionID)
+					_ = r.quotaManager.Refund(ctx, organizationID, billingSessionID)
 				}
 				routeErr := &RouterError{Code: http.StatusInternalServerError, Message: "API token quota settlement failed: " + err.Error(), ErrorCode: "api_token_quota_settlement_failed"}
 				_ = r.recordUsage(ctx, r.errorUsageRecord(userID, organizationID, apiTokenID, requestID, apiType, model, ch, routeErr.Code, routeErr.ErrorCode, startedAt))

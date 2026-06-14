@@ -76,9 +76,12 @@ func (s *fakeStore) GetBillingSessionByIdempotencyKey(ctx context.Context, key, 
 	return nil, nil
 }
 
-func (s *fakeStore) SettleBillingSession(ctx context.Context, id string, settledAmt float64) error {
+func (s *fakeStore) SettleBillingSession(ctx context.Context, id, organizationID string, settledAmt float64) error {
 	session, ok := s.billingSessions[id]
 	if !ok {
+		return fmt.Errorf("session not found")
+	}
+	if session.OrganizationID != organizationID {
 		return fmt.Errorf("session not found")
 	}
 	if session.Status != "preauthorized" {
@@ -95,9 +98,12 @@ func (s *fakeStore) SettleBillingSession(ctx context.Context, id string, settled
 	return nil
 }
 
-func (s *fakeStore) RefundBillingSession(ctx context.Context, id string) error {
+func (s *fakeStore) RefundBillingSession(ctx context.Context, id, organizationID string) error {
 	session, ok := s.billingSessions[id]
 	if !ok {
+		return fmt.Errorf("session not found")
+	}
+	if session.OrganizationID != organizationID {
 		return fmt.Errorf("session not found")
 	}
 	if session.Status != "preauthorized" {
@@ -138,13 +144,13 @@ func (s *fakeStore) ListActiveSubscriptions(ctx context.Context, userID, organiz
 func (s *fakeStore) CreateTopupOrder(ctx context.Context, order *TopupOrder) (*TopupOrder, error) {
 	return nil, nil
 }
-func (s *fakeStore) UpdateTopupOrderCheckoutSession(ctx context.Context, paymentIntentID string, providerCheckoutSessionID string) error {
+func (s *fakeStore) UpdateTopupOrderCheckoutSession(ctx context.Context, organizationID, paymentIntentID string, providerCheckoutSessionID string) error {
 	return nil
 }
-func (s *fakeStore) MarkTopupOrderFailedByPaymentIntent(ctx context.Context, paymentIntentID string) error {
+func (s *fakeStore) MarkTopupOrderFailedByPaymentIntent(ctx context.Context, organizationID, paymentIntentID string) error {
 	return nil
 }
-func (s *fakeStore) UpdateTopupOrderStatus(ctx context.Context, id string, status string, tradeNo string) error {
+func (s *fakeStore) UpdateTopupOrderStatus(ctx context.Context, id, organizationID string, status string, tradeNo string) error {
 	return nil
 }
 func (s *fakeStore) SaveUsageLimitSettings(ctx context.Context, settings UsageLimitSettings) (*UsageLimitSettings, error) {
@@ -354,7 +360,7 @@ func TestSettle_FullAmount(t *testing.T) {
 
 	session, _ := svc.PreConsume(context.Background(), "user_1", "org_1", 10.0, "idem_settle", "ch_1", "gpt-4o", "chat")
 
-	err := svc.Settle(context.Background(), session.ID, 10.0)
+	err := svc.Settle(context.Background(), "org_1", session.ID, 10.0)
 	if err != nil {
 		t.Fatalf("Settle failed: %v", err)
 	}
@@ -380,7 +386,7 @@ func TestSettle_PartialAmountRefundsDifference(t *testing.T) {
 
 	session, _ := svc.PreConsume(context.Background(), "user_1", "org_1", 10.0, "idem_partial", "ch_1", "gpt-4o", "chat")
 
-	err := svc.Settle(context.Background(), session.ID, 3.0)
+	err := svc.Settle(context.Background(), "org_1", session.ID, 3.0)
 	if err != nil {
 		t.Fatalf("Settle failed: %v", err)
 	}
@@ -406,7 +412,7 @@ func TestRefund_FullRefund(t *testing.T) {
 
 	session, _ := svc.PreConsume(context.Background(), "user_1", "org_1", 10.0, "idem_refund", "ch_1", "gpt-4o", "chat")
 
-	err := svc.Refund(context.Background(), session.ID)
+	err := svc.Refund(context.Background(), "org_1", session.ID)
 	if err != nil {
 		t.Fatalf("Refund failed: %v", err)
 	}
@@ -428,9 +434,9 @@ func TestRefund_AlreadySettledSession(t *testing.T) {
 	svc := NewService(store)
 
 	session, _ := svc.PreConsume(context.Background(), "user_1", "org_1", 10.0, "idem_refund_settled", "ch_1", "gpt-4o", "chat")
-	svc.Settle(context.Background(), session.ID, 10.0)
+	svc.Settle(context.Background(), "org_1", session.ID, 10.0)
 
-	err := svc.Refund(context.Background(), session.ID)
+	err := svc.Refund(context.Background(), "org_1", session.ID)
 	if err == nil {
 		t.Fatal("expected error when refunding already settled session, got nil")
 	}
@@ -444,7 +450,7 @@ func TestQuotaObservabilityRecordsSettlementFailure(t *testing.T) {
 	svc := NewService(store)
 
 	before := testutil.ToFloat64(metrics.QuotaSettlementFailuresTotal.WithLabelValues("settlement"))
-	err := svc.Settle(context.Background(), "missing_session", 10)
+	err := svc.Settle(context.Background(), "org_1", "missing_session", 10)
 	if err == nil {
 		t.Fatal("expected missing session settlement error")
 	}
@@ -473,7 +479,7 @@ func TestPreConsume_Settle_Refund_Lifecycle(t *testing.T) {
 	}
 
 	// Step 2: Refund (simulating a failure before settle).
-	err = svc.Refund(context.Background(), session.ID)
+	err = svc.Refund(context.Background(), "org_1", session.ID)
 	if err != nil {
 		t.Fatalf("Refund failed: %v", err)
 	}
@@ -490,7 +496,7 @@ func TestPreConsume_Settle_Refund_Lifecycle(t *testing.T) {
 		t.Fatalf("expected balance 85.0 after second preconsume, got %f", q.Balance)
 	}
 
-	svc.Settle(context.Background(), session2.ID, 12.0)
+	svc.Settle(context.Background(), "org_1", session2.ID, 12.0)
 	q, _ = store.GetOrCreateQuota(context.Background(), "user_1", "org_1")
 	if q.Balance != 88.0 {
 		t.Fatalf("expected balance 88.0 after partial settle (85 + 3 refund), got %f", q.Balance)
@@ -871,6 +877,112 @@ func TestSQLStoreUserQuotaModeUsesUserScopedBalance(t *testing.T) {
 	}
 }
 
+func TestSQLStoreBillingSessionsAreOrganizationScoped(t *testing.T) {
+	store, ctx := testSQLQuotaStore(t)
+	svc := NewService(store)
+
+	if _, err := store.db.ExecContext(ctx, `INSERT INTO organizations (id, name) VALUES ('org_2', 'Org Two')`); err != nil {
+		t.Fatalf("insert second organization: %v", err)
+	}
+	if err := svc.Topup(ctx, "user_1", "org_1", 100); err != nil {
+		t.Fatalf("top up org_1 quota: %v", err)
+	}
+	if err := svc.Topup(ctx, "user_1", "org_2", 80); err != nil {
+		t.Fatalf("top up org_2 quota: %v", err)
+	}
+
+	org1Session, err := svc.PreConsume(ctx, "user_1", "org_1", 30, "shared_idempotency", "ch_1", "gpt-4o", "chat")
+	if err != nil {
+		t.Fatalf("preconsume org_1: %v", err)
+	}
+	org2Session, err := svc.PreConsume(ctx, "user_1", "org_2", 40, "shared_idempotency", "ch_2", "gpt-4o-mini", "chat")
+	if err != nil {
+		t.Fatalf("preconsume org_2: %v", err)
+	}
+	if org1Session.ID == org2Session.ID {
+		t.Fatal("same idempotency key in different organizations must create isolated billing sessions")
+	}
+
+	if got, err := store.GetBillingSessionByIdempotencyKey(ctx, "shared_idempotency", "org_1"); err != nil || got == nil || got.ID != org1Session.ID {
+		t.Fatalf("expected org_1 idempotency lookup to return org_1 session, got %+v err=%v", got, err)
+	}
+	if got, err := store.GetBillingSessionByIdempotencyKey(ctx, "shared_idempotency", "org_2"); err != nil || got == nil || got.ID != org2Session.ID {
+		t.Fatalf("expected org_2 idempotency lookup to return org_2 session, got %+v err=%v", got, err)
+	}
+
+	if err := svc.Settle(ctx, "org_2", org1Session.ID, 10); err == nil {
+		t.Fatal("expected wrong-organization settlement to fail")
+	}
+	assertSQLQuotaBalance(t, store, ctx, "org_1", 70)
+	assertSQLBillingSession(t, store, ctx, org1Session.ID, "org_1", "preauthorized", 0)
+
+	if err := svc.Settle(ctx, "org_1", org1Session.ID, 20); err != nil {
+		t.Fatalf("settle org_1 session: %v", err)
+	}
+	assertSQLQuotaBalance(t, store, ctx, "org_1", 80)
+	assertSQLBillingSession(t, store, ctx, org1Session.ID, "org_1", "settled", 20)
+
+	if err := svc.Refund(ctx, "org_1", org2Session.ID); err == nil {
+		t.Fatal("expected wrong-organization refund to fail")
+	}
+	assertSQLQuotaBalance(t, store, ctx, "org_2", 40)
+	assertSQLBillingSession(t, store, ctx, org2Session.ID, "org_2", "preauthorized", 0)
+
+	if err := svc.Refund(ctx, "org_2", org2Session.ID); err != nil {
+		t.Fatalf("refund org_2 session: %v", err)
+	}
+	assertSQLQuotaBalance(t, store, ctx, "org_2", 80)
+	assertSQLBillingSession(t, store, ctx, org2Session.ID, "org_2", "refunded", 0)
+}
+
+func TestSQLStoreTopupOrderMutationsRequireOrganizationScope(t *testing.T) {
+	store, ctx := testSQLQuotaStore(t)
+	svc := NewService(store)
+
+	if _, err := store.db.ExecContext(ctx, `INSERT INTO organizations (id, name) VALUES ('org_2', 'Org Two')`); err != nil {
+		t.Fatalf("insert second organization: %v", err)
+	}
+
+	org1Order, err := svc.CreatePendingTopup(ctx, "user_1", "org_1", "pi_quota_org1", 25, 25)
+	if err != nil {
+		t.Fatalf("create org_1 topup: %v", err)
+	}
+	org2Order, err := svc.CreatePendingTopup(ctx, "user_1", "org_2", "pi_quota_org2", 30, 30)
+	if err != nil {
+		t.Fatalf("create org_2 topup: %v", err)
+	}
+
+	if err := svc.SetTopupCheckoutSession(ctx, "org_2", "pi_quota_org1", "cs_wrong_org"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("expected wrong-organization checkout session update to fail closed, got %v", err)
+	}
+	assertSQLTopupOrder(t, store, ctx, org1Order.ID, "org_1", "pending", "", "")
+
+	if err := svc.SetTopupCheckoutSession(ctx, "org_1", "pi_quota_org1", "cs_org1"); err != nil {
+		t.Fatalf("set org_1 checkout session: %v", err)
+	}
+	assertSQLTopupOrder(t, store, ctx, org1Order.ID, "org_1", "pending", "cs_org1", "")
+
+	if err := svc.MarkTopupCheckoutFailed(ctx, "org_1", "pi_quota_org2"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("expected wrong-organization checkout failure update to fail closed, got %v", err)
+	}
+	assertSQLTopupOrder(t, store, ctx, org2Order.ID, "org_2", "pending", "", "")
+
+	if err := svc.MarkTopupCheckoutFailed(ctx, "org_2", "pi_quota_org2"); err != nil {
+		t.Fatalf("mark org_2 checkout failed: %v", err)
+	}
+	assertSQLTopupOrder(t, store, ctx, org2Order.ID, "org_2", "failed", "", "")
+
+	if err := store.UpdateTopupOrderStatus(ctx, org1Order.ID, "org_2", "paid", "trade_wrong_org"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("expected wrong-organization status update to fail closed, got %v", err)
+	}
+	assertSQLTopupOrder(t, store, ctx, org1Order.ID, "org_1", "pending", "cs_org1", "")
+
+	if err := store.UpdateTopupOrderStatus(ctx, org1Order.ID, "org_1", "paid", "trade_org1"); err != nil {
+		t.Fatalf("mark org_1 topup paid: %v", err)
+	}
+	assertSQLTopupOrder(t, store, ctx, org1Order.ID, "org_1", "paid", "cs_org1", "trade_org1")
+}
+
 func TestSQLStoreResolveUsageLimitFallsBackToActiveSubscriptionRequestCap(t *testing.T) {
 	store, ctx := testSQLQuotaStore(t)
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
@@ -948,6 +1060,51 @@ func TestSQLStoreListPackagesReturnsOnlyActivePublicHybridPlans(t *testing.T) {
 	}
 }
 
+func assertSQLQuotaBalance(t *testing.T, store *SQLStore, ctx context.Context, organizationID string, want float64) {
+	t.Helper()
+
+	var got float64
+	if err := store.db.QueryRowContext(ctx, `
+		SELECT balance FROM quotas
+		WHERE organization_id = $1 AND scope = 'organization'
+	`, organizationID).Scan(&got); err != nil {
+		t.Fatalf("query %s quota balance: %v", organizationID, err)
+	}
+	if got != want {
+		t.Fatalf("expected %s quota balance %.2f, got %.2f", organizationID, want, got)
+	}
+}
+
+func assertSQLBillingSession(t *testing.T, store *SQLStore, ctx context.Context, sessionID, organizationID, wantStatus string, wantSettled float64) {
+	t.Helper()
+
+	var gotOrganizationID, gotStatus string
+	var gotSettled float64
+	if err := store.db.QueryRowContext(ctx, `
+		SELECT organization_id, status, settled_amt FROM billing_sessions WHERE id = $1
+	`, sessionID).Scan(&gotOrganizationID, &gotStatus, &gotSettled); err != nil {
+		t.Fatalf("query billing session %s: %v", sessionID, err)
+	}
+	if gotOrganizationID != organizationID || gotStatus != wantStatus || gotSettled != wantSettled {
+		t.Fatalf("expected billing session %s org=%s status=%s settled=%.2f, got org=%s status=%s settled=%.2f", sessionID, organizationID, wantStatus, wantSettled, gotOrganizationID, gotStatus, gotSettled)
+	}
+}
+
+func assertSQLTopupOrder(t *testing.T, store *SQLStore, ctx context.Context, orderID, organizationID, wantStatus, wantCheckoutSessionID, wantTradeNo string) {
+	t.Helper()
+
+	var gotOrganizationID, gotStatus, gotCheckoutSessionID, gotTradeNo string
+	if err := store.db.QueryRowContext(ctx, `
+		SELECT organization_id, status, COALESCE(provider_checkout_session_id, ''), COALESCE(trade_no, '')
+		FROM topup_orders WHERE id = $1
+	`, orderID).Scan(&gotOrganizationID, &gotStatus, &gotCheckoutSessionID, &gotTradeNo); err != nil {
+		t.Fatalf("query topup order %s: %v", orderID, err)
+	}
+	if gotOrganizationID != organizationID || gotStatus != wantStatus || gotCheckoutSessionID != wantCheckoutSessionID || gotTradeNo != wantTradeNo {
+		t.Fatalf("expected topup order %s org=%s status=%s checkout=%q trade=%q, got org=%s status=%s checkout=%q trade=%q", orderID, organizationID, wantStatus, wantCheckoutSessionID, wantTradeNo, gotOrganizationID, gotStatus, gotCheckoutSessionID, gotTradeNo)
+	}
+}
+
 func testSQLQuotaStore(t *testing.T) (*SQLStore, context.Context) {
 	t.Helper()
 
@@ -986,6 +1143,7 @@ func testSQLQuotaStore(t *testing.T) (*SQLStore, context.Context) {
 		`DROP TABLE IF EXISTS token_rate_limits CASCADE`,
 		`DROP TABLE IF EXISTS concurrency_limits CASCADE`,
 		`DROP TABLE IF EXISTS billing_sessions CASCADE`,
+		`DROP TABLE IF EXISTS topup_orders CASCADE`,
 		`DROP TABLE IF EXISTS quotas CASCADE`,
 		`DROP TABLE IF EXISTS organization_memberships CASCADE`,
 		`DROP TABLE IF EXISTS organizations CASCADE`,
@@ -1037,6 +1195,21 @@ func testSQLQuotaStore(t *testing.T) (*SQLStore, context.Context) {
 			settled_at TIMESTAMPTZ
 		)`,
 		`CREATE UNIQUE INDEX idx_test_billing_sessions_unique_org_idempotency ON billing_sessions(organization_id, idempotency_key) WHERE idempotency_key <> ''`,
+		`CREATE TABLE topup_orders (
+			id TEXT PRIMARY KEY,
+			organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			amount DECIMAL(15,6) NOT NULL,
+			money DECIMAL(10,2) NOT NULL,
+			status TEXT NOT NULL DEFAULT 'pending',
+			trade_no TEXT,
+			paid_at TIMESTAMPTZ,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			payment_intent_id TEXT,
+			provider_checkout_session_id TEXT,
+			refunded_amount DECIMAL(15,6) NOT NULL DEFAULT 0
+		)`,
+		`CREATE UNIQUE INDEX idx_test_topup_orders_payment_intent ON topup_orders(payment_intent_id) WHERE payment_intent_id IS NOT NULL`,
 		`CREATE TABLE subscriptions (
 			id TEXT PRIMARY KEY,
 			organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,

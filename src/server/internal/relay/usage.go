@@ -49,6 +49,6 @@ type APITokenQuotaManager interface {
 
 type QuotaManager interface {
 	PreConsume(ctx context.Context, userID, organizationID string, amount float64, idempotencyKey string, channelID, model, apiType string) (*quota.BillingSession, error)
-	Settle(ctx context.Context, sessionID string, actualAmount float64) error
-	Refund(ctx context.Context, sessionID string) error
+	Settle(ctx context.Context, organizationID, sessionID string, actualAmount float64) error
+	Refund(ctx context.Context, organizationID, sessionID string) error
 }

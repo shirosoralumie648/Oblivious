@@ -86,7 +86,9 @@ type billingCheckoutQuotaStore struct {
 	packages              map[string]*quota.Package
 	topupCreated          bool
 	createdTopup          *quota.TopupOrder
+	topupFailedOrgID      string
 	topupFailedPaymentID  string
+	topupCheckoutOrgID    string
 	topupCheckoutIntentID string
 }
 
@@ -106,11 +108,11 @@ func (s *billingCheckoutQuotaStore) GetBillingSessionByIdempotencyKey(context.Co
 	return nil, sql.ErrNoRows
 }
 
-func (s *billingCheckoutQuotaStore) SettleBillingSession(context.Context, string, float64) error {
+func (s *billingCheckoutQuotaStore) SettleBillingSession(context.Context, string, string, float64) error {
 	return nil
 }
 
-func (s *billingCheckoutQuotaStore) RefundBillingSession(context.Context, string) error {
+func (s *billingCheckoutQuotaStore) RefundBillingSession(context.Context, string, string) error {
 	return nil
 }
 
@@ -141,17 +143,19 @@ func (s *billingCheckoutQuotaStore) CreateTopupOrder(_ context.Context, order *q
 	return order, nil
 }
 
-func (s *billingCheckoutQuotaStore) UpdateTopupOrderCheckoutSession(_ context.Context, paymentIntentID string, _ string) error {
+func (s *billingCheckoutQuotaStore) UpdateTopupOrderCheckoutSession(_ context.Context, organizationID string, paymentIntentID string, _ string) error {
+	s.topupCheckoutOrgID = organizationID
 	s.topupCheckoutIntentID = paymentIntentID
 	return nil
 }
 
-func (s *billingCheckoutQuotaStore) MarkTopupOrderFailedByPaymentIntent(_ context.Context, paymentIntentID string) error {
+func (s *billingCheckoutQuotaStore) MarkTopupOrderFailedByPaymentIntent(_ context.Context, organizationID string, paymentIntentID string) error {
+	s.topupFailedOrgID = organizationID
 	s.topupFailedPaymentID = paymentIntentID
 	return nil
 }
 
-func (s *billingCheckoutQuotaStore) UpdateTopupOrderStatus(context.Context, string, string, string) error {
+func (s *billingCheckoutQuotaStore) UpdateTopupOrderStatus(context.Context, string, string, string, string) error {
 	return nil
 }
 
@@ -275,6 +279,9 @@ func TestBillingCheckoutCreatorFailureMarksTopupFailedWithoutDatabase(t *testing
 	}
 	if quotaStore.topupFailedPaymentID != paymentStore.created.ID {
 		t.Fatalf("expected topup order to be marked failed for payment intent %q, got %q", paymentStore.created.ID, quotaStore.topupFailedPaymentID)
+	}
+	if quotaStore.topupFailedOrgID != session.OrganizationID {
+		t.Fatalf("expected topup failure update to use organization %q, got %q", session.OrganizationID, quotaStore.topupFailedOrgID)
 	}
 	if paymentStore.checkoutIntentID != "" || quotaStore.topupCheckoutIntentID != "" {
 		t.Fatalf("checkout session must not be recorded after provider failure, paymentIntent=%q topupIntent=%q", paymentStore.checkoutIntentID, quotaStore.topupCheckoutIntentID)

@@ -97,8 +97,8 @@ type Store interface {
 	// Billing Session
 	CreateBillingSession(ctx context.Context, session *BillingSession) (*BillingSession, error)
 	GetBillingSessionByIdempotencyKey(ctx context.Context, key, organizationID string) (*BillingSession, error)
-	SettleBillingSession(ctx context.Context, id string, settledAmt float64) error
-	RefundBillingSession(ctx context.Context, id string) error
+	SettleBillingSession(ctx context.Context, id, organizationID string, settledAmt float64) error
+	RefundBillingSession(ctx context.Context, id, organizationID string) error
 
 	// Package
 	ListPackages(ctx context.Context, activeOnly bool) ([]*Package, error)
@@ -110,9 +110,9 @@ type Store interface {
 
 	// Topup
 	CreateTopupOrder(ctx context.Context, order *TopupOrder) (*TopupOrder, error)
-	UpdateTopupOrderCheckoutSession(ctx context.Context, paymentIntentID string, providerCheckoutSessionID string) error
-	MarkTopupOrderFailedByPaymentIntent(ctx context.Context, paymentIntentID string) error
-	UpdateTopupOrderStatus(ctx context.Context, id string, status string, tradeNo string) error
+	UpdateTopupOrderCheckoutSession(ctx context.Context, organizationID, paymentIntentID string, providerCheckoutSessionID string) error
+	MarkTopupOrderFailedByPaymentIntent(ctx context.Context, organizationID, paymentIntentID string) error
+	UpdateTopupOrderStatus(ctx context.Context, id, organizationID string, status string, tradeNo string) error
 
 	// Usage limits
 	SaveUsageLimitSettings(ctx context.Context, settings UsageLimitSettings) (*UsageLimitSettings, error)
@@ -467,12 +467,17 @@ func (s *Service) PreConsume(ctx context.Context, userID, organizationID string,
 
 // Settle 结算计费
 // actualAmount 是实际消费金额，差额会退还
-func (s *Service) Settle(ctx context.Context, sessionID string, actualAmount float64) error {
+func (s *Service) Settle(ctx context.Context, organizationID, sessionID string, actualAmount float64) error {
 	ctx, span := observability.StartSpan(ctx, "quota.settlement", observability.String("quota.stage", "settlement"))
 	defer span.End()
 
+	if organizationID == "" {
+		metrics.RecordQuotaSettlementFailure("settlement")
+		return fmt.Errorf("organization_id is required")
+	}
+
 	// 结算 billing session
-	if err := s.store.SettleBillingSession(ctx, sessionID, actualAmount); err != nil {
+	if err := s.store.SettleBillingSession(ctx, sessionID, organizationID, actualAmount); err != nil {
 		metrics.RecordQuotaSettlementFailure("settlement")
 		return err
 	}
@@ -483,11 +488,16 @@ func (s *Service) Settle(ctx context.Context, sessionID string, actualAmount flo
 
 // Refund 退款
 // 全额退还预扣金额
-func (s *Service) Refund(ctx context.Context, sessionID string) error {
+func (s *Service) Refund(ctx context.Context, organizationID, sessionID string) error {
 	ctx, span := observability.StartSpan(ctx, "quota.refund", observability.String("quota.stage", "refund"))
 	defer span.End()
 
-	if err := s.store.RefundBillingSession(ctx, sessionID); err != nil {
+	if organizationID == "" {
+		metrics.RecordQuotaSettlementFailure("refund")
+		return fmt.Errorf("organization_id is required")
+	}
+
+	if err := s.store.RefundBillingSession(ctx, sessionID, organizationID); err != nil {
 		metrics.RecordQuotaSettlementFailure("refund")
 		return err
 	}
@@ -530,21 +540,27 @@ func (s *Service) CreatePendingTopup(ctx context.Context, userID, organizationID
 	return s.store.CreateTopupOrder(ctx, order)
 }
 
-func (s *Service) SetTopupCheckoutSession(ctx context.Context, paymentIntentID string, providerCheckoutSessionID string) error {
+func (s *Service) SetTopupCheckoutSession(ctx context.Context, organizationID, paymentIntentID string, providerCheckoutSessionID string) error {
+	if organizationID == "" {
+		return fmt.Errorf("organization_id is required")
+	}
 	if paymentIntentID == "" {
 		return fmt.Errorf("payment_intent_id is required")
 	}
 	if providerCheckoutSessionID == "" {
 		return fmt.Errorf("provider_checkout_session_id is required")
 	}
-	return s.store.UpdateTopupOrderCheckoutSession(ctx, paymentIntentID, providerCheckoutSessionID)
+	return s.store.UpdateTopupOrderCheckoutSession(ctx, organizationID, paymentIntentID, providerCheckoutSessionID)
 }
 
-func (s *Service) MarkTopupCheckoutFailed(ctx context.Context, paymentIntentID string) error {
+func (s *Service) MarkTopupCheckoutFailed(ctx context.Context, organizationID, paymentIntentID string) error {
+	if organizationID == "" {
+		return fmt.Errorf("organization_id is required")
+	}
 	if paymentIntentID == "" {
 		return fmt.Errorf("payment_intent_id is required")
 	}
-	return s.store.MarkTopupOrderFailedByPaymentIntent(ctx, paymentIntentID)
+	return s.store.MarkTopupOrderFailedByPaymentIntent(ctx, organizationID, paymentIntentID)
 }
 
 // ListPackages 列出套餐
@@ -708,14 +724,14 @@ func (s *SQLStore) GetBillingSessionByIdempotencyKey(ctx context.Context, key, o
 }
 
 // SettleBillingSession 结算会话
-func (s *SQLStore) SettleBillingSession(ctx context.Context, id string, settledAmt float64) error {
+func (s *SQLStore) SettleBillingSession(ctx context.Context, id, organizationID string, settledAmt float64) error {
 	now := time.Now().UTC()
 
 	// 获取会话信息
 	var session BillingSession
 	err := s.db.QueryRowContext(ctx, `
-		SELECT user_id, organization_id, pre_authorized_amt, status FROM billing_sessions WHERE id = $1
-	`, id).Scan(&session.UserID, &session.OrganizationID, &session.PreAuthorizedAmt, &session.Status)
+		SELECT user_id, organization_id, pre_authorized_amt, status FROM billing_sessions WHERE id = $1 AND organization_id = $2
+	`, id, organizationID).Scan(&session.UserID, &session.OrganizationID, &session.PreAuthorizedAmt, &session.Status)
 
 	if err != nil {
 		return fmt.Errorf("get session: %w", err)
@@ -730,8 +746,8 @@ func (s *SQLStore) SettleBillingSession(ctx context.Context, id string, settledA
 
 	// 更新会话状态
 	_, err = s.db.ExecContext(ctx, `
-		UPDATE billing_sessions SET status = 'settled', settled_amt = $2, settled_at = $3 WHERE id = $1
-	`, id, settledAmt, now)
+		UPDATE billing_sessions SET status = 'settled', settled_amt = $3, settled_at = $4 WHERE id = $1 AND organization_id = $2
+	`, id, organizationID, settledAmt, now)
 	if err != nil {
 		return fmt.Errorf("update session: %w", err)
 	}
@@ -747,14 +763,14 @@ func (s *SQLStore) SettleBillingSession(ctx context.Context, id string, settledA
 }
 
 // RefundBillingSession 退款会话
-func (s *SQLStore) RefundBillingSession(ctx context.Context, id string) error {
+func (s *SQLStore) RefundBillingSession(ctx context.Context, id, organizationID string) error {
 	now := time.Now().UTC()
 
 	// 获取会话信息
 	var session BillingSession
 	err := s.db.QueryRowContext(ctx, `
-		SELECT user_id, organization_id, pre_authorized_amt, status FROM billing_sessions WHERE id = $1
-	`, id).Scan(&session.UserID, &session.OrganizationID, &session.PreAuthorizedAmt, &session.Status)
+		SELECT user_id, organization_id, pre_authorized_amt, status FROM billing_sessions WHERE id = $1 AND organization_id = $2
+	`, id, organizationID).Scan(&session.UserID, &session.OrganizationID, &session.PreAuthorizedAmt, &session.Status)
 
 	if err != nil {
 		return fmt.Errorf("get session: %w", err)
@@ -766,8 +782,8 @@ func (s *SQLStore) RefundBillingSession(ctx context.Context, id string) error {
 
 	// 更新会话状态
 	_, err = s.db.ExecContext(ctx, `
-		UPDATE billing_sessions SET status = 'refunded', settled_at = $2 WHERE id = $1
-	`, id, now)
+		UPDATE billing_sessions SET status = 'refunded', settled_at = $3 WHERE id = $1 AND organization_id = $2
+	`, id, organizationID, now)
 	if err != nil {
 		return fmt.Errorf("update session: %w", err)
 	}
@@ -1062,12 +1078,12 @@ func (s *SQLStore) CreateTopupOrder(ctx context.Context, order *TopupOrder) (*To
 	return order, nil
 }
 
-func (s *SQLStore) UpdateTopupOrderCheckoutSession(ctx context.Context, paymentIntentID string, providerCheckoutSessionID string) error {
+func (s *SQLStore) UpdateTopupOrderCheckoutSession(ctx context.Context, organizationID, paymentIntentID string, providerCheckoutSessionID string) error {
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE topup_orders
-		SET provider_checkout_session_id = $2
-		WHERE payment_intent_id = $1
-	`, paymentIntentID, providerCheckoutSessionID)
+		SET provider_checkout_session_id = $3
+		WHERE organization_id = $1 AND payment_intent_id = $2
+	`, organizationID, paymentIntentID, providerCheckoutSessionID)
 	if err != nil {
 		return fmt.Errorf("update topup checkout session: %w", err)
 	}
@@ -1081,12 +1097,12 @@ func (s *SQLStore) UpdateTopupOrderCheckoutSession(ctx context.Context, paymentI
 	return nil
 }
 
-func (s *SQLStore) MarkTopupOrderFailedByPaymentIntent(ctx context.Context, paymentIntentID string) error {
+func (s *SQLStore) MarkTopupOrderFailedByPaymentIntent(ctx context.Context, organizationID, paymentIntentID string) error {
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE topup_orders
 		SET status = 'failed'
-		WHERE payment_intent_id = $1 AND status = 'pending'
-	`, paymentIntentID)
+		WHERE organization_id = $1 AND payment_intent_id = $2 AND status = 'pending'
+	`, organizationID, paymentIntentID)
 	if err != nil {
 		return fmt.Errorf("mark topup order failed: %w", err)
 	}
@@ -1101,7 +1117,7 @@ func (s *SQLStore) MarkTopupOrderFailedByPaymentIntent(ctx context.Context, paym
 }
 
 // UpdateTopupOrderStatus 更新充值订单状态
-func (s *SQLStore) UpdateTopupOrderStatus(ctx context.Context, id string, status string, tradeNo string) error {
+func (s *SQLStore) UpdateTopupOrderStatus(ctx context.Context, id, organizationID string, status string, tradeNo string) error {
 	now := time.Now().UTC()
 
 	var paidAt interface{}
@@ -1109,8 +1125,18 @@ func (s *SQLStore) UpdateTopupOrderStatus(ctx context.Context, id string, status
 		paidAt = now
 	}
 
-	_, err := s.db.ExecContext(ctx, `
-		UPDATE topup_orders SET status = $2, trade_no = $3, paid_at = $4 WHERE id = $1
-	`, id, status, tradeNo, paidAt)
-	return err
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE topup_orders SET status = $3, trade_no = $4, paid_at = $5 WHERE id = $1 AND organization_id = $2
+	`, id, organizationID, status, tradeNo, paidAt)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("topup order status rows affected: %w", err)
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }

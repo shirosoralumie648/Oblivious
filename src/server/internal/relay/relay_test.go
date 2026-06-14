@@ -1121,12 +1121,12 @@ func (m *stubQuotaManager) PreConsume(_ context.Context, userID, organizationID 
 	}, nil
 }
 
-func (m *stubQuotaManager) Settle(_ context.Context, _ string, _ float64) error {
+func (m *stubQuotaManager) Settle(_ context.Context, _, _ string, _ float64) error {
 	m.settleCalls++
 	return m.settleErr
 }
 
-func (m *stubQuotaManager) Refund(_ context.Context, _ string) error {
+func (m *stubQuotaManager) Refund(_ context.Context, _, _ string) error {
 	m.refundCalls++
 	return nil
 }
@@ -1930,11 +1930,11 @@ func (m *preconsumeFailingQuotaManager) PreConsume(ctx context.Context, userID, 
 	return nil, m.err
 }
 
-func (m *preconsumeFailingQuotaManager) Settle(ctx context.Context, sessionID string, actualAmount float64) error {
+func (m *preconsumeFailingQuotaManager) Settle(ctx context.Context, organizationID, sessionID string, actualAmount float64) error {
 	return nil
 }
 
-func (m *preconsumeFailingQuotaManager) Refund(ctx context.Context, sessionID string) error {
+func (m *preconsumeFailingQuotaManager) Refund(ctx context.Context, organizationID, sessionID string) error {
 	return nil
 }
 

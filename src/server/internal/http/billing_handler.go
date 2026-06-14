@@ -186,7 +186,7 @@ func (h billingHandler) checkout(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 
 	checkoutSession, err := checkoutCreator.CreateCheckoutSession(r.Context(), h.checkoutConfig, checkoutReq)
 	if err != nil {
-		if failErr := h.markCheckoutCreationFailed(r.Context(), paymentIntentID, kind, err.Error()); failErr != nil {
+		if failErr := h.markCheckoutCreationFailed(r.Context(), session.OrganizationID, paymentIntentID, kind, err.Error()); failErr != nil {
 			writeError(w, stdhttp.StatusInternalServerError, "internal_error", "mark checkout failed state failed")
 			return
 		}
@@ -208,7 +208,7 @@ func (h billingHandler) checkout(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		return
 	}
 	if kind == "topup" {
-		if err := h.quotaService.SetTopupCheckoutSession(r.Context(), paymentIntentID, checkoutSession.ID); err != nil {
+		if err := h.quotaService.SetTopupCheckoutSession(r.Context(), session.OrganizationID, paymentIntentID, checkoutSession.ID); err != nil {
 			writeError(w, stdhttp.StatusInternalServerError, "internal_error", "record topup checkout session failed")
 			return
 		}
@@ -220,12 +220,12 @@ func (h billingHandler) checkout(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	})
 }
 
-func (h billingHandler) markCheckoutCreationFailed(ctx context.Context, paymentIntentID string, kind string, reason string) error {
+func (h billingHandler) markCheckoutCreationFailed(ctx context.Context, organizationID string, paymentIntentID string, kind string, reason string) error {
 	if err := h.paymentStore.MarkPaymentIntentFailed(ctx, paymentIntentID, reason); err != nil {
 		return err
 	}
 	if kind == "topup" {
-		if err := h.quotaService.MarkTopupCheckoutFailed(ctx, paymentIntentID); err != nil {
+		if err := h.quotaService.MarkTopupCheckoutFailed(ctx, organizationID, paymentIntentID); err != nil {
 			return err
 		}
 	}

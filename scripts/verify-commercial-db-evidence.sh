@@ -15,7 +15,7 @@ output_files=()
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/verify-commercial-db-evidence.sh [all|backend-journey|marketplace-money-movement|app-stateful-routes|tenant-membership-lifecycle|tenant-cross-surface|secret-response-safety|agent-runtime-memory|scheduled-task-runtime|auth-security-persistence|relay-file-mapping-tenant-ownership|workflow-sql-isolation|publishing-channel-isolation]
+Usage: bash scripts/verify-commercial-db-evidence.sh [all|backend-journey|marketplace-money-movement|app-stateful-routes|tenant-membership-lifecycle|tenant-cross-surface|secret-response-safety|agent-runtime-memory|scheduled-task-runtime|auth-security-persistence|relay-file-mapping-tenant-ownership|workflow-sql-isolation|publishing-channel-isolation|quota-sql-isolation]
 
 Runs narrow DB-backed commercial evidence without silently accepting skipped tests.
 
@@ -50,6 +50,9 @@ Profiles:
                                active-organization isolation PostgreSQL tests.
   publishing-channel-isolation Run focused Publishing channel real-router
                                active-organization isolation PostgreSQL tests.
+  quota-sql-isolation          Run focused Quota SQL store tenant isolation and
+                               HTTP active-organization isolation PostgreSQL
+                               tests.
 
 Environment:
   TEST_DATABASE_URL        Optional PostgreSQL URL. If unset, a disposable pgvector
@@ -244,6 +247,16 @@ run_publishing_channel_isolation_profile() {
   run_go_test_no_skips "publishing channel HTTP active-organization isolation" "./internal/http" "^TestPublishingChannelHTTPRouteEnforcesActiveOrganizationIsolation$"
 }
 
+run_quota_sql_isolation_profile() {
+  local quota_store_pattern
+  local quota_http_pattern
+
+  quota_store_pattern="^TestSQLStore(BillingSessionsAreOrganizationScoped|TopupOrderMutationsRequireOrganizationScope)$"
+  quota_http_pattern="^TestCrossTenantQuotaScopeUsesActiveOrganization$"
+  run_go_test_no_skips "quota SQL tenant isolation" "./internal/quota" "$quota_store_pattern"
+  run_go_test_no_skips "quota HTTP active-organization isolation" "./internal/http" "$quota_http_pattern"
+}
+
 run_all_profiles() {
   run_backend_journey_profile
   run_marketplace_money_movement_profile
@@ -257,6 +270,7 @@ run_all_profiles() {
   run_relay_file_mapping_tenant_ownership_profile
   run_workflow_sql_isolation_profile
   run_publishing_channel_isolation_profile
+  run_quota_sql_isolation_profile
 }
 
 if [[ -z "$database_url" ]]; then
@@ -304,6 +318,9 @@ case "$profile" in
     ;;
   publishing-channel-isolation)
     run_publishing_channel_isolation_profile
+    ;;
+  quota-sql-isolation)
+    run_quota_sql_isolation_profile
     ;;
   *)
     usage >&2
