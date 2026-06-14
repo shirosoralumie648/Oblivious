@@ -14,6 +14,24 @@ service AgentService {
 
   // ApproveToolCall 批准工具调用
   rpc ApproveToolCall(ApproveToolCallRequest) returns (ApproveToolCallResponse);
+
+  // ContinuePlan 继续执行已批准的规划步骤
+  rpc ContinuePlan(PlanRunRequest) returns (PlanRunResponse);
+
+  // AdjustPlan 调整剩余规划步骤
+  rpc AdjustPlan(AdjustPlanRequest) returns (PlanRunResponse);
+
+  // ApprovePlanStep 批准规划步骤
+  rpc ApprovePlanStep(PlanStepActionRequest) returns (PlanStepActionResponse);
+
+  // ExecutePlanStep 执行规划步骤
+  rpc ExecutePlanStep(PlanStepActionRequest) returns (PlanStepActionResponse);
+
+  // SkipPlanStep 跳过规划步骤
+  rpc SkipPlanStep(PlanStepActionRequest) returns (PlanStepActionResponse);
+
+  // RetryPlanStep 重试失败的规划步骤
+  rpc RetryPlanStep(PlanStepActionRequest) returns (PlanStepActionResponse);
 }
 
 message CreateRunRequest {
@@ -64,4 +82,58 @@ message ToolCall {
   string name = 2;
   string input = 3;
   string status = 4;
+}
+
+message PlanRunRequest {
+  string run_id = 1;
+  string organization_id = 2;
+  string user_id = 3;
+}
+
+message AdjustPlanRequest {
+  string run_id = 1;
+  string organization_id = 2;
+  string user_id = 3;
+  string reason = 4;
+}
+
+message PlanRunResponse {
+  string run_id = 1;
+  string status = 2;
+  string result = 3;
+  repeated PlanStep plan_steps = 4;
+}
+
+message PlanStepActionRequest {
+  string run_id = 1;
+  string plan_step_id = 2;
+  string organization_id = 3;
+  string user_id = 4;
+  string reason = 5;
+}
+
+message PlanStepActionResponse {
+  string run_id = 1;
+  string plan_step_id = 2;
+  int32 index = 3;
+  string status = 4;
+  string approval_status = 5;
+  string result = 6;
+  string error = 7;
+  PlanRunResponse run_detail = 8;
+}
+
+message PlanStep {
+  string id = 1;
+  string run_id = 2;
+  int32 index = 3;
+  string title = 4;
+  string description = 5;
+  string status = 6;
+  string approval_status = 7;
+  string tool_name = 8;
+  string input = 9;
+  repeated int32 depends_on = 10;
+  string result = 11;
+  string error = 12;
 }

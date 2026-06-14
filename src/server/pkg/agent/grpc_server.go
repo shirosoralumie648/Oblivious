@@ -21,12 +21,24 @@ type AgentRuntimeService interface {
 	GetRunWithMessages(context.Context, auth.Session, string) (*internalagent.RunWithMessages, error)
 	ApproveToolRun(context.Context, auth.Session, string, string) (*internalagent.ToolRun, error)
 	RejectToolRun(context.Context, auth.Session, string, string) (*internalagent.ToolRun, error)
+	ContinuePlanningRun(context.Context, auth.Session, string) (*internalagent.RunWithMessages, error)
+	AdjustPlanSteps(context.Context, auth.Session, string, string) (*internalagent.RunWithMessages, error)
+	ApprovePlanStep(context.Context, auth.Session, string, string) (*internalagent.PlanStep, error)
+	ExecutePlanStep(context.Context, auth.Session, string) (*internalagent.PlanStep, error)
+	SkipPlanStep(context.Context, auth.Session, string, string) (*internalagent.PlanStep, error)
+	RetryPlanStep(context.Context, auth.Session, string) (*internalagent.PlanStep, error)
 }
 
 type RuntimeGateway interface {
 	CreateRun(context.Context, CreateRunInput) (RunState, error)
 	ExecuteReAct(context.Context, ExecuteReActInput) (RunExecutionState, error)
 	ApproveToolCall(context.Context, ToolApprovalInput) (ToolApprovalState, error)
+	ContinuePlan(context.Context, PlanRunInput) (PlanRunState, error)
+	AdjustPlan(context.Context, AdjustPlanInput) (PlanRunState, error)
+	ApprovePlanStep(context.Context, PlanStepActionInput) (PlanStepActionState, error)
+	ExecutePlanStep(context.Context, PlanStepActionInput) (PlanStepActionState, error)
+	SkipPlanStep(context.Context, PlanStepActionInput) (PlanStepActionState, error)
+	RetryPlanStep(context.Context, PlanStepActionInput) (PlanStepActionState, error)
 }
 
 type CreateRunInput struct {
@@ -49,6 +61,27 @@ type ToolApprovalInput struct {
 	RunID          string
 	ToolCallID     string
 	Approved       bool
+	OrganizationID string
+	UserID         string
+	Reason         string
+}
+
+type PlanRunInput struct {
+	RunID          string
+	OrganizationID string
+	UserID         string
+}
+
+type AdjustPlanInput struct {
+	RunID          string
+	OrganizationID string
+	UserID         string
+	Reason         string
+}
+
+type PlanStepActionInput struct {
+	RunID          string
+	PlanStepID     string
 	OrganizationID string
 	UserID         string
 	Reason         string
@@ -77,6 +110,39 @@ type ToolApprovalState struct {
 	RunID      string
 	ToolCallID string
 	Status     string
+}
+
+type PlanRunState struct {
+	RunID     string
+	Status    string
+	Result    string
+	PlanSteps []PlanStepState
+}
+
+type PlanStepState struct {
+	ID             string
+	RunID          string
+	Index          int32
+	Title          string
+	Description    string
+	Status         string
+	ApprovalStatus string
+	ToolName       string
+	Input          string
+	DependsOn      []int32
+	Result         string
+	Error          string
+}
+
+type PlanStepActionState struct {
+	RunID          string
+	PlanStepID     string
+	Index          int32
+	Status         string
+	ApprovalStatus string
+	Result         string
+	Error          string
+	RunDetail      PlanRunState
 }
 
 type Server struct {
@@ -206,6 +272,102 @@ func (s *Server) ApproveToolCall(ctx context.Context, req *agentv1.ApproveToolCa
 	}, nil
 }
 
+func (s *Server) ContinuePlan(ctx context.Context, req *agentv1.PlanRunRequest) (*agentv1.PlanRunResponse, error) {
+	input, err := planRunInputFromRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	if s.runtime == nil {
+		return nil, status.Error(codes.FailedPrecondition, "agent runtime is not configured")
+	}
+	run, err := s.runtime.ContinuePlan(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	return planRunResponse(run), nil
+}
+
+func (s *Server) AdjustPlan(ctx context.Context, req *agentv1.AdjustPlanRequest) (*agentv1.PlanRunResponse, error) {
+	if req.RunId == "" {
+		return nil, status.Error(codes.InvalidArgument, "run_id is required")
+	}
+	if req.OrganizationId == "" {
+		return nil, status.Error(codes.InvalidArgument, "organization_id is required")
+	}
+	if req.UserId == "" {
+		return nil, status.Error(codes.InvalidArgument, "user_id is required")
+	}
+	if strings.TrimSpace(req.Reason) == "" {
+		return nil, status.Error(codes.InvalidArgument, "reason is required")
+	}
+	if s.runtime == nil {
+		return nil, status.Error(codes.FailedPrecondition, "agent runtime is not configured")
+	}
+	run, err := s.runtime.AdjustPlan(ctx, AdjustPlanInput{
+		RunID:          req.RunId,
+		OrganizationID: req.OrganizationId,
+		UserID:         req.UserId,
+		Reason:         req.Reason,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return planRunResponse(run), nil
+}
+
+func (s *Server) ApprovePlanStep(ctx context.Context, req *agentv1.PlanStepActionRequest) (*agentv1.PlanStepActionResponse, error) {
+	return s.planStepAction(ctx, req, "approve")
+}
+
+func (s *Server) ExecutePlanStep(ctx context.Context, req *agentv1.PlanStepActionRequest) (*agentv1.PlanStepActionResponse, error) {
+	return s.planStepAction(ctx, req, "execute")
+}
+
+func (s *Server) SkipPlanStep(ctx context.Context, req *agentv1.PlanStepActionRequest) (*agentv1.PlanStepActionResponse, error) {
+	return s.planStepAction(ctx, req, "skip")
+}
+
+func (s *Server) RetryPlanStep(ctx context.Context, req *agentv1.PlanStepActionRequest) (*agentv1.PlanStepActionResponse, error) {
+	return s.planStepAction(ctx, req, "retry")
+}
+
+func (s *Server) planStepAction(ctx context.Context, req *agentv1.PlanStepActionRequest, action string) (*agentv1.PlanStepActionResponse, error) {
+	input, err := planStepActionInputFromRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	if s.runtime == nil {
+		return nil, status.Error(codes.FailedPrecondition, "agent runtime is not configured")
+	}
+
+	var state PlanStepActionState
+	switch action {
+	case "approve":
+		state, err = s.runtime.ApprovePlanStep(ctx, input)
+	case "execute":
+		state, err = s.runtime.ExecutePlanStep(ctx, input)
+	case "skip":
+		state, err = s.runtime.SkipPlanStep(ctx, input)
+	case "retry":
+		state, err = s.runtime.RetryPlanStep(ctx, input)
+	default:
+		err = status.Error(codes.Internal, "unknown plan step action")
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &agentv1.PlanStepActionResponse{
+		RunId:          state.RunID,
+		PlanStepId:     state.PlanStepID,
+		Index:          state.Index,
+		Status:         state.Status,
+		ApprovalStatus: state.ApprovalStatus,
+		Result:         state.Result,
+		Error:          state.Error,
+		RunDetail:      planRunResponse(state.RunDetail),
+	}, nil
+}
+
 type serviceRuntimeGateway struct {
 	service AgentRuntimeService
 }
@@ -293,6 +455,89 @@ func (g serviceRuntimeGateway) ApproveToolCall(ctx context.Context, input ToolAp
 	return ToolApprovalState{RunID: toolRun.RunID, ToolCallID: toolRun.ID, Status: toolRun.Status}, nil
 }
 
+func (g serviceRuntimeGateway) ContinuePlan(ctx context.Context, input PlanRunInput) (PlanRunState, error) {
+	if g.service == nil {
+		return PlanRunState{}, status.Error(codes.FailedPrecondition, "agent service is not configured")
+	}
+	result, err := g.service.ContinuePlanningRun(ctx, input.session(), input.RunID)
+	if err != nil {
+		return PlanRunState{}, mapAgentRuntimeError(err)
+	}
+	return planRunStateFromResult(result)
+}
+
+func (g serviceRuntimeGateway) AdjustPlan(ctx context.Context, input AdjustPlanInput) (PlanRunState, error) {
+	if g.service == nil {
+		return PlanRunState{}, status.Error(codes.FailedPrecondition, "agent service is not configured")
+	}
+	result, err := g.service.AdjustPlanSteps(ctx, input.session(), input.RunID, input.Reason)
+	if err != nil {
+		return PlanRunState{}, mapAgentRuntimeError(err)
+	}
+	return planRunStateFromResult(result)
+}
+
+func (g serviceRuntimeGateway) ApprovePlanStep(ctx context.Context, input PlanStepActionInput) (PlanStepActionState, error) {
+	if g.service == nil {
+		return PlanStepActionState{}, status.Error(codes.FailedPrecondition, "agent service is not configured")
+	}
+	step, err := g.service.ApprovePlanStep(ctx, input.session(), input.PlanStepID, input.Reason)
+	if err != nil {
+		return PlanStepActionState{}, mapAgentRuntimeError(err)
+	}
+	return g.planStepActionStateFromResult(ctx, input, step)
+}
+
+func (g serviceRuntimeGateway) ExecutePlanStep(ctx context.Context, input PlanStepActionInput) (PlanStepActionState, error) {
+	if g.service == nil {
+		return PlanStepActionState{}, status.Error(codes.FailedPrecondition, "agent service is not configured")
+	}
+	step, err := g.service.ExecutePlanStep(ctx, input.session(), input.PlanStepID)
+	if err != nil {
+		return PlanStepActionState{}, mapAgentRuntimeError(err)
+	}
+	return g.planStepActionStateFromResult(ctx, input, step)
+}
+
+func (g serviceRuntimeGateway) SkipPlanStep(ctx context.Context, input PlanStepActionInput) (PlanStepActionState, error) {
+	if g.service == nil {
+		return PlanStepActionState{}, status.Error(codes.FailedPrecondition, "agent service is not configured")
+	}
+	step, err := g.service.SkipPlanStep(ctx, input.session(), input.PlanStepID, input.Reason)
+	if err != nil {
+		return PlanStepActionState{}, mapAgentRuntimeError(err)
+	}
+	return g.planStepActionStateFromResult(ctx, input, step)
+}
+
+func (g serviceRuntimeGateway) RetryPlanStep(ctx context.Context, input PlanStepActionInput) (PlanStepActionState, error) {
+	if g.service == nil {
+		return PlanStepActionState{}, status.Error(codes.FailedPrecondition, "agent service is not configured")
+	}
+	step, err := g.service.RetryPlanStep(ctx, input.session(), input.PlanStepID)
+	if err != nil {
+		return PlanStepActionState{}, mapAgentRuntimeError(err)
+	}
+	return g.planStepActionStateFromResult(ctx, input, step)
+}
+
+func (g serviceRuntimeGateway) planStepActionStateFromResult(ctx context.Context, input PlanStepActionInput, step *internalagent.PlanStep) (PlanStepActionState, error) {
+	state, err := planStepActionStateFromResult(input.RunID, step)
+	if err != nil {
+		return PlanStepActionState{}, err
+	}
+	result, err := g.service.GetRunWithMessages(ctx, input.session(), step.RunID)
+	if err != nil {
+		return PlanStepActionState{}, mapAgentRuntimeError(err)
+	}
+	runState, err := planRunStateFromResult(result)
+	if err != nil {
+		return PlanStepActionState{}, err
+	}
+	state.RunDetail = runState
+	return state, nil
+}
+
 func (input CreateRunInput) session() auth.Session {
 	return auth.Session{OrganizationID: input.OrganizationID, User: auth.User{ID: input.UserID}}
 }
@@ -302,6 +547,18 @@ func (input ExecuteReActInput) session() auth.Session {
 }
 
 func (input ToolApprovalInput) session() auth.Session {
+	return auth.Session{OrganizationID: input.OrganizationID, User: auth.User{ID: input.UserID}}
+}
+
+func (input PlanRunInput) session() auth.Session {
+	return auth.Session{OrganizationID: input.OrganizationID, User: auth.User{ID: input.UserID}}
+}
+
+func (input AdjustPlanInput) session() auth.Session {
+	return auth.Session{OrganizationID: input.OrganizationID, User: auth.User{ID: input.UserID}}
+}
+
+func (input PlanStepActionInput) session() auth.Session {
 	return auth.Session{OrganizationID: input.OrganizationID, User: auth.User{ID: input.UserID}}
 }
 
@@ -340,7 +597,126 @@ func pendingToolCalls(toolRuns []*internalagent.ToolRun) []PendingToolCall {
 	return pending
 }
 
+func planRunInputFromRequest(req *agentv1.PlanRunRequest) (PlanRunInput, error) {
+	if req.RunId == "" {
+		return PlanRunInput{}, status.Error(codes.InvalidArgument, "run_id is required")
+	}
+	if req.OrganizationId == "" {
+		return PlanRunInput{}, status.Error(codes.InvalidArgument, "organization_id is required")
+	}
+	if req.UserId == "" {
+		return PlanRunInput{}, status.Error(codes.InvalidArgument, "user_id is required")
+	}
+	return PlanRunInput{RunID: req.RunId, OrganizationID: req.OrganizationId, UserID: req.UserId}, nil
+}
+
+func planStepActionInputFromRequest(req *agentv1.PlanStepActionRequest) (PlanStepActionInput, error) {
+	if req.RunId == "" {
+		return PlanStepActionInput{}, status.Error(codes.InvalidArgument, "run_id is required")
+	}
+	if req.PlanStepId == "" {
+		return PlanStepActionInput{}, status.Error(codes.InvalidArgument, "plan_step_id is required")
+	}
+	if req.OrganizationId == "" {
+		return PlanStepActionInput{}, status.Error(codes.InvalidArgument, "organization_id is required")
+	}
+	if req.UserId == "" {
+		return PlanStepActionInput{}, status.Error(codes.InvalidArgument, "user_id is required")
+	}
+	return PlanStepActionInput{
+		RunID:          req.RunId,
+		PlanStepID:     req.PlanStepId,
+		OrganizationID: req.OrganizationId,
+		UserID:         req.UserId,
+		Reason:         req.Reason,
+	}, nil
+}
+
+func planRunStateFromResult(result *internalagent.RunWithMessages) (PlanRunState, error) {
+	if result == nil || result.Run == nil {
+		return PlanRunState{}, status.Error(codes.Internal, "agent runtime did not return a run")
+	}
+	return PlanRunState{
+		RunID:     result.Run.ID,
+		Status:    result.Run.Status,
+		Result:    finalAssistantContent(result),
+		PlanSteps: planStepStates(result.PlanSteps),
+	}, nil
+}
+
+func planStepActionStateFromResult(requestRunID string, step *internalagent.PlanStep) (PlanStepActionState, error) {
+	if step == nil {
+		return PlanStepActionState{}, status.Error(codes.Internal, "agent runtime did not return a plan step")
+	}
+	if requestRunID != "" && step.RunID != requestRunID {
+		return PlanStepActionState{}, status.Error(codes.InvalidArgument, "plan_step_id does not belong to run_id")
+	}
+	return PlanStepActionState{
+		RunID:          step.RunID,
+		PlanStepID:     step.ID,
+		Index:          int32(step.Index),
+		Status:         step.Status,
+		ApprovalStatus: step.ApprovalStatus,
+		Result:         step.ResultContent,
+		Error:          step.Error,
+	}, nil
+}
+
+func planStepStates(steps []*internalagent.PlanStep) []PlanStepState {
+	states := make([]PlanStepState, 0, len(steps))
+	for _, step := range steps {
+		if step == nil {
+			continue
+		}
+		states = append(states, PlanStepState{
+			ID:             step.ID,
+			RunID:          step.RunID,
+			Index:          int32(step.Index),
+			Title:          step.Title,
+			Description:    step.Description,
+			Status:         step.Status,
+			ApprovalStatus: step.ApprovalStatus,
+			ToolName:       step.ToolName,
+			Input:          mapJSON(step.Input),
+			DependsOn:      intSliceToInt32(step.DependsOn),
+			Result:         step.ResultContent,
+			Error:          step.Error,
+		})
+	}
+	return states
+}
+
+func planRunResponse(state PlanRunState) *agentv1.PlanRunResponse {
+	steps := make([]*agentv1.PlanStep, 0, len(state.PlanSteps))
+	for _, step := range state.PlanSteps {
+		steps = append(steps, &agentv1.PlanStep{
+			Id:             step.ID,
+			RunId:          step.RunID,
+			Index:          step.Index,
+			Title:          step.Title,
+			Description:    step.Description,
+			Status:         step.Status,
+			ApprovalStatus: step.ApprovalStatus,
+			ToolName:       step.ToolName,
+			Input:          step.Input,
+			DependsOn:      step.DependsOn,
+			Result:         step.Result,
+			Error:          step.Error,
+		})
+	}
+	return &agentv1.PlanRunResponse{
+		RunId:     state.RunID,
+		Status:    state.Status,
+		Result:    state.Result,
+		PlanSteps: steps,
+	}
+}
+
 func toolRunArgumentsJSON(args map[string]any) string {
+	return mapJSON(args)
+}
+
+func mapJSON(args map[string]any) string {
 	if len(args) == 0 {
 		return "{}"
 	}
@@ -349,6 +725,17 @@ func toolRunArgumentsJSON(args map[string]any) string {
 		return "{}"
 	}
 	return string(encoded)
+}
+
+func intSliceToInt32(values []int) []int32 {
+	if len(values) == 0 {
+		return nil
+	}
+	converted := make([]int32, 0, len(values))
+	for _, value := range values {
+		converted = append(converted, int32(value))
+	}
+	return converted
 }
 
 func mapAgentRuntimeError(err error) error {
@@ -369,7 +756,13 @@ func mapAgentRuntimeError(err error) error {
 	case strings.Contains(message, "not pending approval"),
 		strings.Contains(message, "pending approval"),
 		strings.Contains(message, "invalid_state"),
-		strings.Contains(message, "not in planning mode"):
+		strings.Contains(message, "not in planning mode"),
+		strings.Contains(message, "not approved"),
+		strings.Contains(message, "requires approval"),
+		strings.Contains(message, "not failed"),
+		strings.Contains(message, "cannot be"),
+		strings.Contains(message, "cannot "),
+		strings.Contains(message, "prior plan step"):
 		return status.Error(codes.FailedPrecondition, message)
 	default:
 		return status.Error(codes.Internal, fmt.Sprintf("agent runtime failed: %s", message))

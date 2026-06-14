@@ -2,11 +2,11 @@
 
 ## Current Truth
 
-- Branch: `main`; this follow-up scan starts from pushed commit `9630167 test(frontend): prove admin review governance browser flow`.
-- Refresh base: `HEAD` and `origin/main` both resolved to `96301676f989105b45c032e63b8c8f7982a24764` before the Admin Alerts browser-proof slice was added.
+- Branch: `main`; this follow-up scan starts from pushed commit `1a83cff test(frontend): prove admin alerts browser flow`.
+- Refresh base: `HEAD` and `origin/main` both resolved to `1a83cff0339a7128b1240f24b00eba2dbdd49f9a` before the Agent gRPC planning-boundary slice was added.
 - The project is still **not complete** against the four 2026-06-04 fusion specs.
 - The current completion matrix remains `4 Proven / 10 Partial / 0 Gap / 0 Unverified`.
-- Current progress estimate after this slice is **96/100**. Admin Relay channel API-key, Observability alert-provider config, Observability alert/recovery SQL persistence, Publishing channel config, Workflow definition/version/execution-snapshot/node-execution secret-like fields, Agent Memories browser CRUD/import-export, Agent memory store PostgreSQL persistence, Billing provider lifecycle PostgreSQL transitions, Admin usage analytics daily aggregate PostgreSQL proof, Marketplace governance/review PostgreSQL proof, Admin Billing operator payout/refund browser proof, Admin Reviews browser moderation/governance proof, and Admin Alerts browser alert-management proof are now covered with repository-local proof, but target-environment workflow telemetry, target secret audits, deployment validation, payment/provider live rails, platform failover, live moderation/notification operations, and final no-skip release readiness remain open.
+- Current progress estimate after this slice is **97/100**. Admin Relay channel API-key, Observability alert-provider config, Observability alert/recovery SQL persistence, Publishing channel config, Workflow definition/version/execution-snapshot/node-execution secret-like fields, Agent Memories browser CRUD/import-export, Agent memory store PostgreSQL persistence, Agent gRPC planning continue/adjust plus plan-step action service-adapter proof, Billing provider lifecycle PostgreSQL transitions, Admin usage analytics daily aggregate PostgreSQL proof, Marketplace governance/review PostgreSQL proof, Admin Billing operator payout/refund browser proof, Admin Reviews browser moderation/governance proof, and Admin Alerts browser alert-management proof are now covered with repository-local proof, but target-environment workflow telemetry, target secret audits, deployment validation, payment/provider live rails, platform failover, live moderation/notification operations, deployed gRPC/client compatibility, and final no-skip release readiness remain open.
 
 ## What Changed In This Rescan
 
@@ -15,8 +15,9 @@
 - `scripts/verify-commercial-db-evidence.sh marketplace-governance-review` now supplies no-skip disposable PostgreSQL proof for Marketplace automated review, takedown/appeal/reinstate, abuse reports, publisher notifications, needs-changes review state, review SLA enforcement, and real HTTP route persistence.
 - `scripts/verify-commercial-db-evidence.sh agent-runtime-memory` now includes Agent memory store PostgreSQL create/list/filter/cross-tenant evidence in addition to durable run, plan-step, approval config, execution-mode, and memory-policy persistence.
 - `scripts/verify-commercial-db-evidence.sh all` now includes the Observability alert/recovery persistence, Admin usage analytics DB, Marketplace governance/review, and expanded Agent memory store profiles, so final commercial DB evidence cannot omit those state/accounting/governance/runtime-memory paths.
-- This slice improves Observability, Security, API contract, Frontend shell, and Release readiness evidence, but it does not reclassify any matrix row to Proven because target deployment, live provider rails, live moderation/notification operations, platform failover, and final no-skip release proof remain open.
+- These repository slices improve Observability, Security, API contract, Agent, Frontend shell, and Release readiness evidence, but they do not reclassify any matrix row to Proven because target deployment, live provider rails, live moderation/notification operations, platform failover, deployed gRPC/client compatibility, and final no-skip release proof remain open.
 - Agent Memories now has browser-level Workspace proof for `/memories`: active navigation, search filter propagation, export query propagation, blob download-link rendering, user-managed create/update/delete, JSON import, and memory-count state updates.
+- Agent gRPC now has package-level service-adapter proof for planning run continuation and adjustment plus plan-step approve/execute/skip/retry actions, including authenticated `auth.Session` forwarding, refreshed run detail, cross-run plan-step rejection, and approval-boundary `FailedPrecondition` mapping.
 - Admin Billing now has browser-level Admin-shell proof for `/admin/billing`: payout paid confirmation, payout failure with operator reason evidence, payout/top-up filter query propagation, and Stripe top-up refund payload/state propagation.
 - Admin Reviews now has browser-level Admin-shell proof for `/admin/reviews`: active Review Queue navigation, pending-review commercial/SLA context, SLA enforcement, approve/reject/needs-changes decisions, abuse-report resolve/dismiss triage, and takedown/reinstate governance payloads.
 - Admin Alerts now has browser-level Admin-shell proof for `/admin/alerts`: alert filter query propagation, recovery-action evidence, delivery-history inspection, acknowledge/resolve state mutation, severity routing updates, Slack webhook provider creation, and provider-test feedback.
@@ -34,7 +35,7 @@
 ## Repository Inventory
 
 - First-party tracked file distribution after this follow-up scan:
-  - `src`: 981 files
+  - `src`: 983 files
   - `.planning`: 210 files
   - `docs`: 92 files
   - `scripts`: 37 files
@@ -77,7 +78,7 @@ Partial rows remain:
 - Security and tenant isolation
 - Migration strategy and release readiness
 
-This scan does not reclassify any Partial row to Proven. Admin Relay API-key, Observability alert-provider, Observability alert/recovery persistence, Publishing channel, Workflow at-rest encryption, Agent Memories browser proof, Agent memory store DB proof, Billing provider lifecycle proof, Admin usage analytics DB proof, Marketplace governance/review DB proof, Admin Billing operator browser proof, Admin Reviews browser proof, and Admin Alerts browser proof improve Relay/Publishing/Workflow, Agent, Frontend, Billing, Marketplace, Observability, API, Security, operations/env, and release evidence, but broader target-environment telemetry, target secret audits, live provider proof, platform failover, live notification-provider proof, and final release proof remain open.
+This scan does not reclassify any Partial row to Proven. Admin Relay API-key, Observability alert-provider, Observability alert/recovery persistence, Publishing channel, Workflow at-rest encryption, Agent Memories browser proof, Agent memory store DB proof, Agent gRPC planning service-adapter proof, Billing provider lifecycle proof, Admin usage analytics DB proof, Marketplace governance/review DB proof, Admin Billing operator browser proof, Admin Reviews browser proof, and Admin Alerts browser proof improve Relay/Publishing/Workflow, Agent, Frontend, Billing, Marketplace, Observability, API, Security, operations/env, and release evidence, but broader target-environment telemetry, target secret audits, live provider proof, platform failover, live notification-provider proof, deployed gRPC/client compatibility, and final release proof remain open.
 
 ## Verification Evidence And Current Scan
 
@@ -103,6 +104,8 @@ GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scri
 GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh admin-usage-analytics-db
 GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh marketplace-governance-review
 GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh agent-runtime-memory
+GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./pkg/agent -count=1 -v
+GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/agent ./internal/http -run 'TestService(ContinuePlanningRun|RetryPlanStep|AdjustPlanSteps|StartPlanningRun|ExecutePlanStep)|TestAgentRunsHandler(ContinuePlan|PlanStepActions|RetryPlanStep)|TestRegisterAgentRunRoutesDispatches(ContinuePlan|AdjustPlan)' -count=1 -v
 PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/google-chrome COREPACK_HOME=/tmp/codex-corepack pnpm --dir src/web exec playwright test e2e/admin-reviews.spec.ts --project=chromium
 COREPACK_HOME=/tmp/codex-corepack pnpm --dir src/web test src/routes/admin/AdminReviewsPage.test.tsx src/features/admin/api.test.ts -- --runInBand
 PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/google-chrome COREPACK_HOME=/tmp/codex-corepack pnpm --dir src/web exec playwright test e2e/admin-alerts.spec.ts --project=chromium
@@ -151,10 +154,10 @@ git diff --check
 Result:
 
 - `pwd` showed `/media/shirosora/4A183E5C183E46EB/codestorage/Oblivious`.
-- `git status --short --branch` at this follow-up start showed `main...origin/main` at `9630167` with the Admin Alerts E2E files pending.
-- `git rev-parse HEAD origin/main` returned `96301676f989105b45c032e63b8c8f7982a24764` for both refs before the Admin Alerts slice commit.
+- `git status --short --branch` at this follow-up start showed `main...origin/main` at `1a83cff` with only the Agent gRPC planning-boundary files pending.
+- `git rev-parse HEAD origin/main` returned `1a83cff0339a7128b1240f24b00eba2dbdd49f9a` for both refs before the Agent gRPC planning-boundary slice commit.
 - The top-level matrix count remains 4 `Proven` and 10 `Partial`; the `Gap` and `Unverified` counts remain 0.
-- The current first-party inventory counters after this slice are: `src=981`, `docs=92`, `scripts=37`, `deploy=42`, `.planning=210`, Go test files `228`, web component/API test files `67`, Playwright specs `12`, and Playwright fixtures `12`.
+- The current first-party inventory counters after this slice are: `src=983`, `docs=92`, `scripts=37`, `deploy=42`, `.planning=210`, Go test files `228`, web component/API test files `67`, Playwright specs `12`, and Playwright fixtures `12`.
 - The current server-domain leaders are still `relay`, `http`, `mcp`, `admin`, `agent`, `workflow`, `knowledge`, `observability`, `channel`, `migration`, and `marketplace`.
 - The latest checked-in top-level migration remains `src/server/migrations/0081_admin_relay_channel_organization_scope.sql`.
 - The current first-party AGENTS scan found no `AGENTS.md` in the scanned first-party tree.
@@ -165,6 +168,8 @@ Result:
 - `scripts/verify-commercial-db-evidence.sh admin-usage-analytics-db` passed with disposable pgvector PostgreSQL and skipped tests: none. It ran `TestSQLStoreUsageDailyAggregatesPostgresRefreshAndAnalytics`, `TestSQLStoreUsageAnalyticsRawRecordsFallsBackFromZeroTotalTokens`, and `TestSQLStoreListUsageLogsFallsBackFromZeroTotalTokens`.
 - `scripts/verify-commercial-db-evidence.sh marketplace-governance-review` passed with disposable pgvector PostgreSQL and skipped tests: none. It ran Marketplace governance/automated-review persistence tests for takedown, appeal, reinstate, abuse-report lifecycle/listing/notification, automated review pass/reject, and needs-changes; it also ran HTTP route tests for review SLA enforcement, takedown/appeal/reinstate, abuse-report lifecycle/listing, publish-time automated review governance, and admin needs-changes.
 - `scripts/verify-commercial-db-evidence.sh agent-runtime-memory` passed with disposable pgvector PostgreSQL and skipped tests: none. It ran Agent durable run lifecycle, structured plan-step persistence/update, approval/tool-risk config persistence, default execution-mode persistence, long-term memory policy persistence, and Agent memory store persistence/filtering/cross-tenant isolation.
+- `go test ./pkg/agent -count=1 -v` passed with new Agent gRPC tests for `ContinuePlan`, `AdjustPlan`, plan-step approve/execute/skip/retry action forwarding, refreshed run detail mapping, request validation, nil-runtime failure, `auth.Session` forwarding into the internal Agent service, cross-run plan-step rejection, and approval-boundary error mapping.
+- `go test ./internal/agent ./internal/http -run 'TestService(ContinuePlanningRun|RetryPlanStep|AdjustPlanSteps|StartPlanningRun|ExecutePlanStep)|TestAgentRunsHandler(ContinuePlan|PlanStepActions|RetryPlanStep)|TestRegisterAgentRunRoutesDispatches(ContinuePlan|AdjustPlan)' -count=1 -v` passed, confirming the existing planning service and HTTP semantics still match the gRPC adapter assumptions.
 - `go test ./internal/secretbox -count=1 -v` passed.
 - `go test ./internal/workflow -count=1` passed.
 - `go test ./internal/channel -count=1` passed.
@@ -195,7 +200,7 @@ Result:
 
 ## Notable Scan Findings
 
-- This follow-up starts from `9630167`; previous scan text that referenced earlier slice starts such as `8e4f9fd`, `d7a91f0`, `0655515`, `79d6000`, or `b2fc74b` is stale after the Agent memory DB evidence, Admin Reviews browser-proof, and Admin Alerts browser-proof slices.
+- This follow-up starts from `1a83cff`; previous scan text that referenced earlier slice starts such as `9630167`, `8e4f9fd`, `d7a91f0`, `0655515`, `79d6000`, or `b2fc74b` is stale after the Agent memory DB evidence, Admin Reviews browser-proof, Admin Alerts browser-proof, and Agent gRPC planning-boundary slices.
 - Existing DB-backed tenant-isolation evidence remains stronger than target-environment evidence; this slice adds DB-backed at-rest encryption proof for the Workflow definition/runtime secret path on top of the prior Admin Relay, Observability, and Publishing secret paths.
 - Observability alert/routing SQL persistence is now a first-class commercial DB evidence profile. The profile rejects skips and empty regex matches while proving routing rules, alert lifecycle/escalation, alert-state filters, notification throttling, recovery cooldown reuse, and repeated delivery-batch history against PostgreSQL.
 - Admin usage analytics daily aggregate SQL persistence is now a first-class commercial DB evidence profile. The profile rejects skips and empty regex matches while proving daily aggregate refresh/query and zero-total-token fallback for both raw analytics and usage-log listing against PostgreSQL.
@@ -207,6 +212,7 @@ Result:
 - Response safety and at-rest encryption remain separate. Admin Relay channel API keys, Observability alert-provider config secrets, Publishing channel config secrets, and Workflow definition/runtime secret-like payloads now have both response safety and at-rest encryption proof in repository-local PostgreSQL.
 - Agent Memories now has a built-app Playwright proof for the manual memory-management workflow. The fixture fails closed if browser search/export filters or create/update/import/delete payloads drift from the Workspace UI controls.
 - Agent memory store persistence is now included in the no-skip DB profile. `TestAgentMemoryStorePersistsAndFiltersMemories` proves user-managed and long-term memory creation, metadata persistence, type/query filtering, and cross-tenant empty-list behavior against PostgreSQL.
+- Agent gRPC now exposes planning continuation/adjustment and plan-step approve/execute/skip/retry through generated proto bindings and `src/server/pkg/agent`. The adapter does not bypass the internal planning service; it forwards authenticated sessions, validates run/step ownership, returns refreshed run detail after single-step actions, and reuses existing approval-boundary error semantics.
 - Admin Billing now has a built-app Playwright proof for operator money-movement actions. The fixture fails closed if browser payout/top-up filters, payout paid/failed payloads, or top-up refund provider evidence drift from the Admin Billing UI controls.
 - Admin Reviews now has a built-app Playwright proof for moderation and governance actions. The fixture fails closed if browser review filters, SLA enforcement queries, approve/reject/needs-changes payloads, abuse-report resolve/dismiss payloads, or takedown/reinstate governance reasons drift from the Admin Reviews UI controls.
 - Admin Alerts now has a built-app Playwright proof for operational alert management. The fixture fails closed if browser alert filters, routing payloads, Slack provider creation payloads, acknowledge/resolve requests, provider tests, recovery-action rendering, or delivery-history inspection drift from the Admin Alerts UI controls.
@@ -214,9 +220,9 @@ Result:
 
 ## Recommended Next Slices
 
-1. Local: expand the Agent gRPC planning boundary beyond create/ReAct/tool approval into planning continue/approve/execute/retry/skip service-adapter evidence.
+1. Local: do one remaining-row audit pass for any non-target-bound gaps still hidden inside the `Partial` rows before starting another implementation slice.
 2. Target environment: rerun the strict commercial verifier with deploy and backup/restore enabled before renewing any final readiness claim.
-3. Target environment: extend Observability/recovery proof into true OOM/crash restart, scale, and failover evidence; run configured provider/payment/workflow secret audits and live provider rail checks.
+3. Target environment: extend Observability/recovery proof into true OOM/crash restart, scale, and failover evidence; run configured provider/payment/workflow secret audits, live provider rail checks, and deployed gRPC/client compatibility checks.
 
 ## Boundary
 

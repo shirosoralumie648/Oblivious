@@ -505,6 +505,510 @@ func (x *ToolCall) GetStatus() string {
 	return ""
 }
 
+type PlanRunRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	RunId          string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	OrganizationId string                 `protobuf:"bytes,2,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
+	UserId         string                 `protobuf:"bytes,3,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *PlanRunRequest) Reset() {
+	*x = PlanRunRequest{}
+	mi := &file_api_proto_agent_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PlanRunRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PlanRunRequest) ProtoMessage() {}
+
+func (x *PlanRunRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_agent_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PlanRunRequest.ProtoReflect.Descriptor instead.
+func (*PlanRunRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_agent_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *PlanRunRequest) GetRunId() string {
+	if x != nil {
+		return x.RunId
+	}
+	return ""
+}
+
+func (x *PlanRunRequest) GetOrganizationId() string {
+	if x != nil {
+		return x.OrganizationId
+	}
+	return ""
+}
+
+func (x *PlanRunRequest) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+type AdjustPlanRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	RunId          string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	OrganizationId string                 `protobuf:"bytes,2,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
+	UserId         string                 `protobuf:"bytes,3,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Reason         string                 `protobuf:"bytes,4,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *AdjustPlanRequest) Reset() {
+	*x = AdjustPlanRequest{}
+	mi := &file_api_proto_agent_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AdjustPlanRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AdjustPlanRequest) ProtoMessage() {}
+
+func (x *AdjustPlanRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_agent_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AdjustPlanRequest.ProtoReflect.Descriptor instead.
+func (*AdjustPlanRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_agent_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *AdjustPlanRequest) GetRunId() string {
+	if x != nil {
+		return x.RunId
+	}
+	return ""
+}
+
+func (x *AdjustPlanRequest) GetOrganizationId() string {
+	if x != nil {
+		return x.OrganizationId
+	}
+	return ""
+}
+
+func (x *AdjustPlanRequest) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+func (x *AdjustPlanRequest) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+type PlanRunResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	Status        string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
+	Result        string                 `protobuf:"bytes,3,opt,name=result,proto3" json:"result,omitempty"`
+	PlanSteps     []*PlanStep            `protobuf:"bytes,4,rep,name=plan_steps,json=planSteps,proto3" json:"plan_steps,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PlanRunResponse) Reset() {
+	*x = PlanRunResponse{}
+	mi := &file_api_proto_agent_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PlanRunResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PlanRunResponse) ProtoMessage() {}
+
+func (x *PlanRunResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_agent_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PlanRunResponse.ProtoReflect.Descriptor instead.
+func (*PlanRunResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_agent_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *PlanRunResponse) GetRunId() string {
+	if x != nil {
+		return x.RunId
+	}
+	return ""
+}
+
+func (x *PlanRunResponse) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *PlanRunResponse) GetResult() string {
+	if x != nil {
+		return x.Result
+	}
+	return ""
+}
+
+func (x *PlanRunResponse) GetPlanSteps() []*PlanStep {
+	if x != nil {
+		return x.PlanSteps
+	}
+	return nil
+}
+
+type PlanStepActionRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	RunId          string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	PlanStepId     string                 `protobuf:"bytes,2,opt,name=plan_step_id,json=planStepId,proto3" json:"plan_step_id,omitempty"`
+	OrganizationId string                 `protobuf:"bytes,3,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
+	UserId         string                 `protobuf:"bytes,4,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Reason         string                 `protobuf:"bytes,5,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *PlanStepActionRequest) Reset() {
+	*x = PlanStepActionRequest{}
+	mi := &file_api_proto_agent_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PlanStepActionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PlanStepActionRequest) ProtoMessage() {}
+
+func (x *PlanStepActionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_agent_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PlanStepActionRequest.ProtoReflect.Descriptor instead.
+func (*PlanStepActionRequest) Descriptor() ([]byte, []int) {
+	return file_api_proto_agent_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *PlanStepActionRequest) GetRunId() string {
+	if x != nil {
+		return x.RunId
+	}
+	return ""
+}
+
+func (x *PlanStepActionRequest) GetPlanStepId() string {
+	if x != nil {
+		return x.PlanStepId
+	}
+	return ""
+}
+
+func (x *PlanStepActionRequest) GetOrganizationId() string {
+	if x != nil {
+		return x.OrganizationId
+	}
+	return ""
+}
+
+func (x *PlanStepActionRequest) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+func (x *PlanStepActionRequest) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+type PlanStepActionResponse struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	RunId          string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	PlanStepId     string                 `protobuf:"bytes,2,opt,name=plan_step_id,json=planStepId,proto3" json:"plan_step_id,omitempty"`
+	Index          int32                  `protobuf:"varint,3,opt,name=index,proto3" json:"index,omitempty"`
+	Status         string                 `protobuf:"bytes,4,opt,name=status,proto3" json:"status,omitempty"`
+	ApprovalStatus string                 `protobuf:"bytes,5,opt,name=approval_status,json=approvalStatus,proto3" json:"approval_status,omitempty"`
+	Result         string                 `protobuf:"bytes,6,opt,name=result,proto3" json:"result,omitempty"`
+	Error          string                 `protobuf:"bytes,7,opt,name=error,proto3" json:"error,omitempty"`
+	RunDetail      *PlanRunResponse       `protobuf:"bytes,8,opt,name=run_detail,json=runDetail,proto3" json:"run_detail,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *PlanStepActionResponse) Reset() {
+	*x = PlanStepActionResponse{}
+	mi := &file_api_proto_agent_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PlanStepActionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PlanStepActionResponse) ProtoMessage() {}
+
+func (x *PlanStepActionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_agent_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PlanStepActionResponse.ProtoReflect.Descriptor instead.
+func (*PlanStepActionResponse) Descriptor() ([]byte, []int) {
+	return file_api_proto_agent_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *PlanStepActionResponse) GetRunId() string {
+	if x != nil {
+		return x.RunId
+	}
+	return ""
+}
+
+func (x *PlanStepActionResponse) GetPlanStepId() string {
+	if x != nil {
+		return x.PlanStepId
+	}
+	return ""
+}
+
+func (x *PlanStepActionResponse) GetIndex() int32 {
+	if x != nil {
+		return x.Index
+	}
+	return 0
+}
+
+func (x *PlanStepActionResponse) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *PlanStepActionResponse) GetApprovalStatus() string {
+	if x != nil {
+		return x.ApprovalStatus
+	}
+	return ""
+}
+
+func (x *PlanStepActionResponse) GetResult() string {
+	if x != nil {
+		return x.Result
+	}
+	return ""
+}
+
+func (x *PlanStepActionResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+func (x *PlanStepActionResponse) GetRunDetail() *PlanRunResponse {
+	if x != nil {
+		return x.RunDetail
+	}
+	return nil
+}
+
+type PlanStep struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Id             string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	RunId          string                 `protobuf:"bytes,2,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	Index          int32                  `protobuf:"varint,3,opt,name=index,proto3" json:"index,omitempty"`
+	Title          string                 `protobuf:"bytes,4,opt,name=title,proto3" json:"title,omitempty"`
+	Description    string                 `protobuf:"bytes,5,opt,name=description,proto3" json:"description,omitempty"`
+	Status         string                 `protobuf:"bytes,6,opt,name=status,proto3" json:"status,omitempty"`
+	ApprovalStatus string                 `protobuf:"bytes,7,opt,name=approval_status,json=approvalStatus,proto3" json:"approval_status,omitempty"`
+	ToolName       string                 `protobuf:"bytes,8,opt,name=tool_name,json=toolName,proto3" json:"tool_name,omitempty"`
+	Input          string                 `protobuf:"bytes,9,opt,name=input,proto3" json:"input,omitempty"`
+	DependsOn      []int32                `protobuf:"varint,10,rep,packed,name=depends_on,json=dependsOn,proto3" json:"depends_on,omitempty"`
+	Result         string                 `protobuf:"bytes,11,opt,name=result,proto3" json:"result,omitempty"`
+	Error          string                 `protobuf:"bytes,12,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *PlanStep) Reset() {
+	*x = PlanStep{}
+	mi := &file_api_proto_agent_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PlanStep) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PlanStep) ProtoMessage() {}
+
+func (x *PlanStep) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_agent_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PlanStep.ProtoReflect.Descriptor instead.
+func (*PlanStep) Descriptor() ([]byte, []int) {
+	return file_api_proto_agent_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *PlanStep) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *PlanStep) GetRunId() string {
+	if x != nil {
+		return x.RunId
+	}
+	return ""
+}
+
+func (x *PlanStep) GetIndex() int32 {
+	if x != nil {
+		return x.Index
+	}
+	return 0
+}
+
+func (x *PlanStep) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+func (x *PlanStep) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *PlanStep) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *PlanStep) GetApprovalStatus() string {
+	if x != nil {
+		return x.ApprovalStatus
+	}
+	return ""
+}
+
+func (x *PlanStep) GetToolName() string {
+	if x != nil {
+		return x.ToolName
+	}
+	return ""
+}
+
+func (x *PlanStep) GetInput() string {
+	if x != nil {
+		return x.Input
+	}
+	return ""
+}
+
+func (x *PlanStep) GetDependsOn() []int32 {
+	if x != nil {
+		return x.DependsOn
+	}
+	return nil
+}
+
+func (x *PlanStep) GetResult() string {
+	if x != nil {
+		return x.Result
+	}
+	return ""
+}
+
+func (x *PlanStep) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
 var File_api_proto_agent_proto protoreflect.FileDescriptor
 
 const file_api_proto_agent_proto_rawDesc = "" +
@@ -547,11 +1051,66 @@ const file_api_proto_agent_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x14\n" +
 	"\x05input\x18\x03 \x01(\tR\x05input\x12\x16\n" +
-	"\x06status\x18\x04 \x01(\tR\x06status2\xb7\x02\n" +
+	"\x06status\x18\x04 \x01(\tR\x06status\"i\n" +
+	"\x0ePlanRunRequest\x12\x15\n" +
+	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12'\n" +
+	"\x0forganization_id\x18\x02 \x01(\tR\x0eorganizationId\x12\x17\n" +
+	"\auser_id\x18\x03 \x01(\tR\x06userId\"\x84\x01\n" +
+	"\x11AdjustPlanRequest\x12\x15\n" +
+	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12'\n" +
+	"\x0forganization_id\x18\x02 \x01(\tR\x0eorganizationId\x12\x17\n" +
+	"\auser_id\x18\x03 \x01(\tR\x06userId\x12\x16\n" +
+	"\x06reason\x18\x04 \x01(\tR\x06reason\"\x95\x01\n" +
+	"\x0fPlanRunResponse\x12\x15\n" +
+	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\x12\x16\n" +
+	"\x06result\x18\x03 \x01(\tR\x06result\x12;\n" +
+	"\n" +
+	"plan_steps\x18\x04 \x03(\v2\x1c.oblivious.agent.v1.PlanStepR\tplanSteps\"\xaa\x01\n" +
+	"\x15PlanStepActionRequest\x12\x15\n" +
+	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12 \n" +
+	"\fplan_step_id\x18\x02 \x01(\tR\n" +
+	"planStepId\x12'\n" +
+	"\x0forganization_id\x18\x03 \x01(\tR\x0eorganizationId\x12\x17\n" +
+	"\auser_id\x18\x04 \x01(\tR\x06userId\x12\x16\n" +
+	"\x06reason\x18\x05 \x01(\tR\x06reason\"\x9a\x02\n" +
+	"\x16PlanStepActionResponse\x12\x15\n" +
+	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12 \n" +
+	"\fplan_step_id\x18\x02 \x01(\tR\n" +
+	"planStepId\x12\x14\n" +
+	"\x05index\x18\x03 \x01(\x05R\x05index\x12\x16\n" +
+	"\x06status\x18\x04 \x01(\tR\x06status\x12'\n" +
+	"\x0fapproval_status\x18\x05 \x01(\tR\x0eapprovalStatus\x12\x16\n" +
+	"\x06result\x18\x06 \x01(\tR\x06result\x12\x14\n" +
+	"\x05error\x18\a \x01(\tR\x05error\x12B\n" +
+	"\n" +
+	"run_detail\x18\b \x01(\v2#.oblivious.agent.v1.PlanRunResponseR\trunDetail\"\xc0\x02\n" +
+	"\bPlanStep\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
+	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x14\n" +
+	"\x05index\x18\x03 \x01(\x05R\x05index\x12\x14\n" +
+	"\x05title\x18\x04 \x01(\tR\x05title\x12 \n" +
+	"\vdescription\x18\x05 \x01(\tR\vdescription\x12\x16\n" +
+	"\x06status\x18\x06 \x01(\tR\x06status\x12'\n" +
+	"\x0fapproval_status\x18\a \x01(\tR\x0eapprovalStatus\x12\x1b\n" +
+	"\ttool_name\x18\b \x01(\tR\btoolName\x12\x14\n" +
+	"\x05input\x18\t \x01(\tR\x05input\x12\x1d\n" +
+	"\n" +
+	"depends_on\x18\n" +
+	" \x03(\x05R\tdependsOn\x12\x16\n" +
+	"\x06result\x18\v \x01(\tR\x06result\x12\x14\n" +
+	"\x05error\x18\f \x01(\tR\x05error2\x8d\a\n" +
 	"\fAgentService\x12X\n" +
 	"\tCreateRun\x12$.oblivious.agent.v1.CreateRunRequest\x1a%.oblivious.agent.v1.CreateRunResponse\x12a\n" +
 	"\fExecuteReAct\x12'.oblivious.agent.v1.ExecuteReActRequest\x1a(.oblivious.agent.v1.ExecuteReActResponse\x12j\n" +
-	"\x0fApproveToolCall\x12*.oblivious.agent.v1.ApproveToolCallRequest\x1a+.oblivious.agent.v1.ApproveToolCallResponseB&Z$oblivious/api/proto/agent/v1;agentv1b\x06proto3"
+	"\x0fApproveToolCall\x12*.oblivious.agent.v1.ApproveToolCallRequest\x1a+.oblivious.agent.v1.ApproveToolCallResponse\x12W\n" +
+	"\fContinuePlan\x12\".oblivious.agent.v1.PlanRunRequest\x1a#.oblivious.agent.v1.PlanRunResponse\x12X\n" +
+	"\n" +
+	"AdjustPlan\x12%.oblivious.agent.v1.AdjustPlanRequest\x1a#.oblivious.agent.v1.PlanRunResponse\x12h\n" +
+	"\x0fApprovePlanStep\x12).oblivious.agent.v1.PlanStepActionRequest\x1a*.oblivious.agent.v1.PlanStepActionResponse\x12h\n" +
+	"\x0fExecutePlanStep\x12).oblivious.agent.v1.PlanStepActionRequest\x1a*.oblivious.agent.v1.PlanStepActionResponse\x12e\n" +
+	"\fSkipPlanStep\x12).oblivious.agent.v1.PlanStepActionRequest\x1a*.oblivious.agent.v1.PlanStepActionResponse\x12f\n" +
+	"\rRetryPlanStep\x12).oblivious.agent.v1.PlanStepActionRequest\x1a*.oblivious.agent.v1.PlanStepActionResponseB&Z$oblivious/api/proto/agent/v1;agentv1b\x06proto3"
 
 var (
 	file_api_proto_agent_proto_rawDescOnce sync.Once
@@ -565,7 +1124,7 @@ func file_api_proto_agent_proto_rawDescGZIP() []byte {
 	return file_api_proto_agent_proto_rawDescData
 }
 
-var file_api_proto_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_api_proto_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_api_proto_agent_proto_goTypes = []any{
 	(*CreateRunRequest)(nil),        // 0: oblivious.agent.v1.CreateRunRequest
 	(*CreateRunResponse)(nil),       // 1: oblivious.agent.v1.CreateRunResponse
@@ -574,20 +1133,40 @@ var file_api_proto_agent_proto_goTypes = []any{
 	(*ApproveToolCallRequest)(nil),  // 4: oblivious.agent.v1.ApproveToolCallRequest
 	(*ApproveToolCallResponse)(nil), // 5: oblivious.agent.v1.ApproveToolCallResponse
 	(*ToolCall)(nil),                // 6: oblivious.agent.v1.ToolCall
+	(*PlanRunRequest)(nil),          // 7: oblivious.agent.v1.PlanRunRequest
+	(*AdjustPlanRequest)(nil),       // 8: oblivious.agent.v1.AdjustPlanRequest
+	(*PlanRunResponse)(nil),         // 9: oblivious.agent.v1.PlanRunResponse
+	(*PlanStepActionRequest)(nil),   // 10: oblivious.agent.v1.PlanStepActionRequest
+	(*PlanStepActionResponse)(nil),  // 11: oblivious.agent.v1.PlanStepActionResponse
+	(*PlanStep)(nil),                // 12: oblivious.agent.v1.PlanStep
 }
 var file_api_proto_agent_proto_depIdxs = []int32{
-	6, // 0: oblivious.agent.v1.ExecuteReActResponse.pending_tool_calls:type_name -> oblivious.agent.v1.ToolCall
-	0, // 1: oblivious.agent.v1.AgentService.CreateRun:input_type -> oblivious.agent.v1.CreateRunRequest
-	2, // 2: oblivious.agent.v1.AgentService.ExecuteReAct:input_type -> oblivious.agent.v1.ExecuteReActRequest
-	4, // 3: oblivious.agent.v1.AgentService.ApproveToolCall:input_type -> oblivious.agent.v1.ApproveToolCallRequest
-	1, // 4: oblivious.agent.v1.AgentService.CreateRun:output_type -> oblivious.agent.v1.CreateRunResponse
-	3, // 5: oblivious.agent.v1.AgentService.ExecuteReAct:output_type -> oblivious.agent.v1.ExecuteReActResponse
-	5, // 6: oblivious.agent.v1.AgentService.ApproveToolCall:output_type -> oblivious.agent.v1.ApproveToolCallResponse
-	4, // [4:7] is the sub-list for method output_type
-	1, // [1:4] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	6,  // 0: oblivious.agent.v1.ExecuteReActResponse.pending_tool_calls:type_name -> oblivious.agent.v1.ToolCall
+	12, // 1: oblivious.agent.v1.PlanRunResponse.plan_steps:type_name -> oblivious.agent.v1.PlanStep
+	9,  // 2: oblivious.agent.v1.PlanStepActionResponse.run_detail:type_name -> oblivious.agent.v1.PlanRunResponse
+	0,  // 3: oblivious.agent.v1.AgentService.CreateRun:input_type -> oblivious.agent.v1.CreateRunRequest
+	2,  // 4: oblivious.agent.v1.AgentService.ExecuteReAct:input_type -> oblivious.agent.v1.ExecuteReActRequest
+	4,  // 5: oblivious.agent.v1.AgentService.ApproveToolCall:input_type -> oblivious.agent.v1.ApproveToolCallRequest
+	7,  // 6: oblivious.agent.v1.AgentService.ContinuePlan:input_type -> oblivious.agent.v1.PlanRunRequest
+	8,  // 7: oblivious.agent.v1.AgentService.AdjustPlan:input_type -> oblivious.agent.v1.AdjustPlanRequest
+	10, // 8: oblivious.agent.v1.AgentService.ApprovePlanStep:input_type -> oblivious.agent.v1.PlanStepActionRequest
+	10, // 9: oblivious.agent.v1.AgentService.ExecutePlanStep:input_type -> oblivious.agent.v1.PlanStepActionRequest
+	10, // 10: oblivious.agent.v1.AgentService.SkipPlanStep:input_type -> oblivious.agent.v1.PlanStepActionRequest
+	10, // 11: oblivious.agent.v1.AgentService.RetryPlanStep:input_type -> oblivious.agent.v1.PlanStepActionRequest
+	1,  // 12: oblivious.agent.v1.AgentService.CreateRun:output_type -> oblivious.agent.v1.CreateRunResponse
+	3,  // 13: oblivious.agent.v1.AgentService.ExecuteReAct:output_type -> oblivious.agent.v1.ExecuteReActResponse
+	5,  // 14: oblivious.agent.v1.AgentService.ApproveToolCall:output_type -> oblivious.agent.v1.ApproveToolCallResponse
+	9,  // 15: oblivious.agent.v1.AgentService.ContinuePlan:output_type -> oblivious.agent.v1.PlanRunResponse
+	9,  // 16: oblivious.agent.v1.AgentService.AdjustPlan:output_type -> oblivious.agent.v1.PlanRunResponse
+	11, // 17: oblivious.agent.v1.AgentService.ApprovePlanStep:output_type -> oblivious.agent.v1.PlanStepActionResponse
+	11, // 18: oblivious.agent.v1.AgentService.ExecutePlanStep:output_type -> oblivious.agent.v1.PlanStepActionResponse
+	11, // 19: oblivious.agent.v1.AgentService.SkipPlanStep:output_type -> oblivious.agent.v1.PlanStepActionResponse
+	11, // 20: oblivious.agent.v1.AgentService.RetryPlanStep:output_type -> oblivious.agent.v1.PlanStepActionResponse
+	12, // [12:21] is the sub-list for method output_type
+	3,  // [3:12] is the sub-list for method input_type
+	3,  // [3:3] is the sub-list for extension type_name
+	3,  // [3:3] is the sub-list for extension extendee
+	0,  // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_api_proto_agent_proto_init() }
@@ -601,7 +1180,7 @@ func file_api_proto_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_proto_agent_proto_rawDesc), len(file_api_proto_agent_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

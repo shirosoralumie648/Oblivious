@@ -22,6 +22,12 @@ const (
 	AgentService_CreateRun_FullMethodName       = "/oblivious.agent.v1.AgentService/CreateRun"
 	AgentService_ExecuteReAct_FullMethodName    = "/oblivious.agent.v1.AgentService/ExecuteReAct"
 	AgentService_ApproveToolCall_FullMethodName = "/oblivious.agent.v1.AgentService/ApproveToolCall"
+	AgentService_ContinuePlan_FullMethodName    = "/oblivious.agent.v1.AgentService/ContinuePlan"
+	AgentService_AdjustPlan_FullMethodName      = "/oblivious.agent.v1.AgentService/AdjustPlan"
+	AgentService_ApprovePlanStep_FullMethodName = "/oblivious.agent.v1.AgentService/ApprovePlanStep"
+	AgentService_ExecutePlanStep_FullMethodName = "/oblivious.agent.v1.AgentService/ExecutePlanStep"
+	AgentService_SkipPlanStep_FullMethodName    = "/oblivious.agent.v1.AgentService/SkipPlanStep"
+	AgentService_RetryPlanStep_FullMethodName   = "/oblivious.agent.v1.AgentService/RetryPlanStep"
 )
 
 // AgentServiceClient is the client API for AgentService service.
@@ -36,6 +42,18 @@ type AgentServiceClient interface {
 	ExecuteReAct(ctx context.Context, in *ExecuteReActRequest, opts ...grpc.CallOption) (*ExecuteReActResponse, error)
 	// ApproveToolCall 批准工具调用
 	ApproveToolCall(ctx context.Context, in *ApproveToolCallRequest, opts ...grpc.CallOption) (*ApproveToolCallResponse, error)
+	// ContinuePlan 继续执行已批准的规划步骤
+	ContinuePlan(ctx context.Context, in *PlanRunRequest, opts ...grpc.CallOption) (*PlanRunResponse, error)
+	// AdjustPlan 调整剩余规划步骤
+	AdjustPlan(ctx context.Context, in *AdjustPlanRequest, opts ...grpc.CallOption) (*PlanRunResponse, error)
+	// ApprovePlanStep 批准规划步骤
+	ApprovePlanStep(ctx context.Context, in *PlanStepActionRequest, opts ...grpc.CallOption) (*PlanStepActionResponse, error)
+	// ExecutePlanStep 执行规划步骤
+	ExecutePlanStep(ctx context.Context, in *PlanStepActionRequest, opts ...grpc.CallOption) (*PlanStepActionResponse, error)
+	// SkipPlanStep 跳过规划步骤
+	SkipPlanStep(ctx context.Context, in *PlanStepActionRequest, opts ...grpc.CallOption) (*PlanStepActionResponse, error)
+	// RetryPlanStep 重试失败的规划步骤
+	RetryPlanStep(ctx context.Context, in *PlanStepActionRequest, opts ...grpc.CallOption) (*PlanStepActionResponse, error)
 }
 
 type agentServiceClient struct {
@@ -76,6 +94,66 @@ func (c *agentServiceClient) ApproveToolCall(ctx context.Context, in *ApproveToo
 	return out, nil
 }
 
+func (c *agentServiceClient) ContinuePlan(ctx context.Context, in *PlanRunRequest, opts ...grpc.CallOption) (*PlanRunResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PlanRunResponse)
+	err := c.cc.Invoke(ctx, AgentService_ContinuePlan_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) AdjustPlan(ctx context.Context, in *AdjustPlanRequest, opts ...grpc.CallOption) (*PlanRunResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PlanRunResponse)
+	err := c.cc.Invoke(ctx, AgentService_AdjustPlan_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) ApprovePlanStep(ctx context.Context, in *PlanStepActionRequest, opts ...grpc.CallOption) (*PlanStepActionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PlanStepActionResponse)
+	err := c.cc.Invoke(ctx, AgentService_ApprovePlanStep_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) ExecutePlanStep(ctx context.Context, in *PlanStepActionRequest, opts ...grpc.CallOption) (*PlanStepActionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PlanStepActionResponse)
+	err := c.cc.Invoke(ctx, AgentService_ExecutePlanStep_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) SkipPlanStep(ctx context.Context, in *PlanStepActionRequest, opts ...grpc.CallOption) (*PlanStepActionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PlanStepActionResponse)
+	err := c.cc.Invoke(ctx, AgentService_SkipPlanStep_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) RetryPlanStep(ctx context.Context, in *PlanStepActionRequest, opts ...grpc.CallOption) (*PlanStepActionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PlanStepActionResponse)
+	err := c.cc.Invoke(ctx, AgentService_RetryPlanStep_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AgentServiceServer is the server API for AgentService service.
 // All implementations must embed UnimplementedAgentServiceServer
 // for forward compatibility.
@@ -88,6 +166,18 @@ type AgentServiceServer interface {
 	ExecuteReAct(context.Context, *ExecuteReActRequest) (*ExecuteReActResponse, error)
 	// ApproveToolCall 批准工具调用
 	ApproveToolCall(context.Context, *ApproveToolCallRequest) (*ApproveToolCallResponse, error)
+	// ContinuePlan 继续执行已批准的规划步骤
+	ContinuePlan(context.Context, *PlanRunRequest) (*PlanRunResponse, error)
+	// AdjustPlan 调整剩余规划步骤
+	AdjustPlan(context.Context, *AdjustPlanRequest) (*PlanRunResponse, error)
+	// ApprovePlanStep 批准规划步骤
+	ApprovePlanStep(context.Context, *PlanStepActionRequest) (*PlanStepActionResponse, error)
+	// ExecutePlanStep 执行规划步骤
+	ExecutePlanStep(context.Context, *PlanStepActionRequest) (*PlanStepActionResponse, error)
+	// SkipPlanStep 跳过规划步骤
+	SkipPlanStep(context.Context, *PlanStepActionRequest) (*PlanStepActionResponse, error)
+	// RetryPlanStep 重试失败的规划步骤
+	RetryPlanStep(context.Context, *PlanStepActionRequest) (*PlanStepActionResponse, error)
 	mustEmbedUnimplementedAgentServiceServer()
 }
 
@@ -106,6 +196,24 @@ func (UnimplementedAgentServiceServer) ExecuteReAct(context.Context, *ExecuteReA
 }
 func (UnimplementedAgentServiceServer) ApproveToolCall(context.Context, *ApproveToolCallRequest) (*ApproveToolCallResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ApproveToolCall not implemented")
+}
+func (UnimplementedAgentServiceServer) ContinuePlan(context.Context, *PlanRunRequest) (*PlanRunResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ContinuePlan not implemented")
+}
+func (UnimplementedAgentServiceServer) AdjustPlan(context.Context, *AdjustPlanRequest) (*PlanRunResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method AdjustPlan not implemented")
+}
+func (UnimplementedAgentServiceServer) ApprovePlanStep(context.Context, *PlanStepActionRequest) (*PlanStepActionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ApprovePlanStep not implemented")
+}
+func (UnimplementedAgentServiceServer) ExecutePlanStep(context.Context, *PlanStepActionRequest) (*PlanStepActionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ExecutePlanStep not implemented")
+}
+func (UnimplementedAgentServiceServer) SkipPlanStep(context.Context, *PlanStepActionRequest) (*PlanStepActionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SkipPlanStep not implemented")
+}
+func (UnimplementedAgentServiceServer) RetryPlanStep(context.Context, *PlanStepActionRequest) (*PlanStepActionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RetryPlanStep not implemented")
 }
 func (UnimplementedAgentServiceServer) mustEmbedUnimplementedAgentServiceServer() {}
 func (UnimplementedAgentServiceServer) testEmbeddedByValue()                      {}
@@ -182,6 +290,114 @@ func _AgentService_ApproveToolCall_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentService_ContinuePlan_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PlanRunRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).ContinuePlan(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_ContinuePlan_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).ContinuePlan(ctx, req.(*PlanRunRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_AdjustPlan_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AdjustPlanRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).AdjustPlan(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_AdjustPlan_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).AdjustPlan(ctx, req.(*AdjustPlanRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_ApprovePlanStep_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PlanStepActionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).ApprovePlanStep(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_ApprovePlanStep_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).ApprovePlanStep(ctx, req.(*PlanStepActionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_ExecutePlanStep_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PlanStepActionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).ExecutePlanStep(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_ExecutePlanStep_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).ExecutePlanStep(ctx, req.(*PlanStepActionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_SkipPlanStep_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PlanStepActionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).SkipPlanStep(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_SkipPlanStep_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).SkipPlanStep(ctx, req.(*PlanStepActionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_RetryPlanStep_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PlanStepActionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).RetryPlanStep(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_RetryPlanStep_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).RetryPlanStep(ctx, req.(*PlanStepActionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AgentService_ServiceDesc is the grpc.ServiceDesc for AgentService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -200,6 +416,30 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ApproveToolCall",
 			Handler:    _AgentService_ApproveToolCall_Handler,
+		},
+		{
+			MethodName: "ContinuePlan",
+			Handler:    _AgentService_ContinuePlan_Handler,
+		},
+		{
+			MethodName: "AdjustPlan",
+			Handler:    _AgentService_AdjustPlan_Handler,
+		},
+		{
+			MethodName: "ApprovePlanStep",
+			Handler:    _AgentService_ApprovePlanStep_Handler,
+		},
+		{
+			MethodName: "ExecutePlanStep",
+			Handler:    _AgentService_ExecutePlanStep_Handler,
+		},
+		{
+			MethodName: "SkipPlanStep",
+			Handler:    _AgentService_SkipPlanStep_Handler,
+		},
+		{
+			MethodName: "RetryPlanStep",
+			Handler:    _AgentService_RetryPlanStep_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
