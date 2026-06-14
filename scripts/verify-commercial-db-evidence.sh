@@ -15,7 +15,7 @@ output_files=()
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/verify-commercial-db-evidence.sh [all|backend-journey|marketplace-money-movement|billing-provider-lifecycle|admin-usage-analytics-db|app-stateful-routes|tenant-membership-lifecycle|tenant-cross-surface|secret-response-safety|agent-runtime-memory|scheduled-task-runtime|auth-security-persistence|relay-file-mapping-tenant-ownership|relay-runtime-channel-isolation|workflow-sql-isolation|publishing-channel-isolation|admin-relay-channel-isolation|admin-relay-read-isolation|observability-alert-recovery-persistence|quota-sql-isolation]
+Usage: bash scripts/verify-commercial-db-evidence.sh [all|backend-journey|marketplace-money-movement|marketplace-governance-review|billing-provider-lifecycle|admin-usage-analytics-db|app-stateful-routes|tenant-membership-lifecycle|tenant-cross-surface|secret-response-safety|agent-runtime-memory|scheduled-task-runtime|auth-security-persistence|relay-file-mapping-tenant-ownership|relay-runtime-channel-isolation|workflow-sql-isolation|publishing-channel-isolation|admin-relay-channel-isolation|admin-relay-read-isolation|observability-alert-recovery-persistence|quota-sql-isolation]
 
 Runs narrow DB-backed commercial evidence without silently accepting skipped tests.
 
@@ -24,6 +24,10 @@ Profiles:
                                disposable/configured PostgreSQL session.
   backend-journey              Run TestCommercialHTTPJourney against PostgreSQL.
   marketplace-money-movement   Run focused Billing/Marketplace money movement
+                               PostgreSQL lifecycle tests.
+  marketplace-governance-review
+                               Run focused Marketplace governance, automated
+                               review, abuse-report, and review-SLA
                                PostgreSQL lifecycle tests.
   billing-provider-lifecycle   Run focused Stripe/shared checkout, invoice,
                                subscription, and refund lifecycle PostgreSQL
@@ -191,6 +195,16 @@ run_marketplace_money_movement_profile() {
   run_go_test_no_skips "admin billing and marketplace money movement routes" "./internal/http" "$admin_money_movement_pattern"
 }
 
+run_marketplace_governance_review_profile() {
+  local marketplace_governance_pattern
+  local marketplace_http_pattern
+
+  marketplace_governance_pattern="^Test(Governance(TakedownPreventsNewInstallsAndPreservesHistory|AppealAndReinstateRecordEvents|AbuseReportLifecycle|ListsOpenAbuseReportsForReviewQueue|AbuseReportNotifiesPublisher|RequestsPublisherChangesForPendingReview)|AutomatedReview(AllowsCleanAgentToWaitForManualReview|RejectsPromptInjectionAndSensitiveAPIFindings))$"
+  marketplace_http_pattern="^Test(AdminReviewSLAEnforceRouteScansPendingReviewsAndAlerts|Marketplace(GovernanceTakedownAppealAndReinstate|AbuseReportLifecycle|AdminReviewNeedsChangesRoute|PublishRunsAutomatedReviewGovernance)|AdminMarketplaceListsOpenAbuseReports)$"
+  run_go_test_no_skips "marketplace governance and automated review persistence" "./internal/marketplace" "$marketplace_governance_pattern"
+  run_go_test_no_skips "marketplace governance and review HTTP routes" "./internal/http" "$marketplace_http_pattern"
+}
+
 run_billing_provider_lifecycle_profile() {
   local billing_provider_lifecycle_pattern
 
@@ -320,6 +334,7 @@ run_quota_sql_isolation_profile() {
 run_all_profiles() {
   run_backend_journey_profile
   run_marketplace_money_movement_profile
+  run_marketplace_governance_review_profile
   run_billing_provider_lifecycle_profile
   run_admin_usage_analytics_db_profile
   run_app_stateful_routes_profile
@@ -354,6 +369,9 @@ case "$profile" in
     ;;
   marketplace-money-movement)
     run_marketplace_money_movement_profile
+    ;;
+  marketplace-governance-review)
+    run_marketplace_governance_review_profile
     ;;
   billing-provider-lifecycle)
     run_billing_provider_lifecycle_profile

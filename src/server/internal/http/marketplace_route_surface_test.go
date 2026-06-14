@@ -106,6 +106,7 @@ func TestMarketplacePublishRunsAutomatedReviewGovernance(t *testing.T) {
 		"name":"Automated Review Clean Agent",
 		"description":"Clean marketplace agent for automated review governance evidence.",
 		"tags":["review"],
+		"categoryID":"cat_productivity",
 		"tools":"[{\"name\":\"datetime\",\"type\":\"builtin\"}]",
 		"exampleConversations":"[]",
 		"systemPrompt":"Help operators summarize safe operational context.",
