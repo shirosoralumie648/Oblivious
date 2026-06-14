@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"oblivious/server/internal/observability"
+	"oblivious/server/internal/secretbox"
 )
 
 func TestObservabilityAlertAdminRouteGetsDefaultRoutingRules(t *testing.T) {
@@ -163,10 +164,17 @@ func TestObservabilityAlertAdminRouteCreatesAndListsRedactedProviderConfig(t *te
 }
 
 func TestObservabilityAlertAdminRouteSQLProviderSecretsAreRedacted(t *testing.T) {
+	t.Setenv("OBLIVIOUS_SECRET_ENCRYPTION_KEY", "test-observability-alert-provider-secret")
 	database := testDatabase(t)
 	router := NewRouter(testConfig(), database)
 	cookie, csrfToken, userID := registerHTTPUser(t, router, "observability-provider-redaction@example.com")
 	promoteHTTPUserToAdmin(t, database, userID)
+	var gotSlackTestPath string
+	slackUpstream := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		gotSlackTestPath = r.URL.Path
+		w.WriteHeader(stdhttp.StatusOK)
+	}))
+	t.Cleanup(slackUpstream.Close)
 
 	type providerSeed struct {
 		kind    observability.AlertProviderKind
@@ -192,9 +200,9 @@ func TestObservabilityAlertAdminRouteSQLProviderSecretsAreRedacted(t *testing.T)
 			kind: observability.AlertProviderKindSlackWebhook,
 			name: "Slack Ops",
 			config: map[string]string{
-				"webhook_url": "https://hooks.example/slack-secret",
+				"webhook_url": slackUpstream.URL + "/slack-secret",
 			},
-			secrets: map[string]string{"webhook_url": "https://hooks.example/slack-secret"},
+			secrets: map[string]string{"webhook_url": slackUpstream.URL + "/slack-secret"},
 		},
 		{
 			kind: observability.AlertProviderKindPagerDuty,
@@ -260,6 +268,19 @@ func TestObservabilityAlertAdminRouteSQLProviderSecretsAreRedacted(t *testing.T)
 			}
 			assertSQLAlertProviderConfigValue(t, database, response.Data.ID, key, secret)
 		}
+	}
+
+	slackID := createdIDsByName["Slack Ops"]
+	testRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/admin/observability/alert-providers/"+slackID+"/test", nil)
+	testRequest.AddCookie(cookie)
+	addCSRF(testRequest, csrfToken)
+	testRecorder := httptest.NewRecorder()
+	router.ServeHTTP(testRecorder, testRequest)
+	if testRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("test provider expected 200, got %d with body %s", testRecorder.Code, testRecorder.Body.String())
+	}
+	if gotSlackTestPath != "/slack-secret" {
+		t.Fatalf("expected SQL-backed provider test to use decrypted webhook URL path, got %q", gotSlackTestPath)
 	}
 
 	listRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/admin/observability/alert-providers", nil)
@@ -413,7 +434,29 @@ func assertSQLAlertProviderConfigValue(t *testing.T, database interface {
 		t.Fatalf("query stored alert provider config %s.%s: %v", providerID, key, err)
 	}
 	if got != want {
+		if observability.IsAlertProviderSecretConfigKey(key) {
+			if got == "" {
+				t.Fatalf("expected stored alert provider config %s.%s to be non-empty", providerID, key)
+			}
+			if got == want || strings.Contains(got, want) {
+				t.Fatalf("stored alert provider config %s.%s contains plaintext %q: %q", providerID, key, want, got)
+			}
+			if !secretbox.IsProtected(got) {
+				t.Fatalf("expected stored alert provider config %s.%s to be protected, got %q", providerID, key, got)
+			}
+			opened, err := secretbox.Open(secretbox.DomainObservabilityAlertProviderConfigKey, got)
+			if err != nil {
+				t.Fatalf("open stored alert provider config %s.%s: %v", providerID, key, err)
+			}
+			if opened != want {
+				t.Fatalf("opened alert provider config %s.%s=%q, want %q", providerID, key, opened, want)
+			}
+			return
+		}
 		t.Fatalf("expected stored alert provider config %s.%s=%q, got %q", providerID, key, want, got)
+	}
+	if observability.IsAlertProviderSecretConfigKey(key) {
+		t.Fatalf("expected stored alert provider config %s.%s to be protected, got plaintext %q", providerID, key, got)
 	}
 }
 

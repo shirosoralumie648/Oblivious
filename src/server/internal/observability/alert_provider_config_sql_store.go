@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"oblivious/server/internal/secretbox"
 )
 
 type SQLAlertProviderConfigStore struct {
@@ -70,7 +72,11 @@ func (s *SQLAlertProviderConfigStore) SaveAlertProviderConfig(ctx context.Contex
 	if err != nil {
 		return AlertProviderConfig{}, err
 	}
-	configJSON, err := json.Marshal(normalized.Config)
+	protectedConfig, err := protectAlertProviderSQLConfig(normalized.Config)
+	if err != nil {
+		return AlertProviderConfig{}, fmt.Errorf("protect alert provider config: %w", err)
+	}
+	configJSON, err := json.Marshal(protectedConfig)
 	if err != nil {
 		return AlertProviderConfig{}, fmt.Errorf("encode alert provider config: %w", err)
 	}
@@ -112,6 +118,11 @@ func scanAlertProviderConfig(scanner alertProviderConfigScanner) (AlertProviderC
 			return AlertProviderConfig{}, fmt.Errorf("decode alert provider config %s: %w", config.ID, err)
 		}
 	}
+	openedConfig, err := openAlertProviderSQLConfig(config.Config)
+	if err != nil {
+		return AlertProviderConfig{}, fmt.Errorf("open alert provider config %s: %w", config.ID, err)
+	}
+	config.Config = openedConfig
 	normalized, err := NormalizeAlertProviderConfig(config)
 	if err != nil {
 		return AlertProviderConfig{}, err
@@ -119,4 +130,36 @@ func scanAlertProviderConfig(scanner alertProviderConfigScanner) (AlertProviderC
 	normalized.CreatedAt = config.CreatedAt
 	normalized.UpdatedAt = config.UpdatedAt
 	return normalized, nil
+}
+
+func protectAlertProviderSQLConfig(config map[string]string) (map[string]string, error) {
+	protected := make(map[string]string, len(config))
+	for key, value := range config {
+		if IsAlertProviderSecretConfigKey(key) && value != "" {
+			stored, err := secretbox.Protect(secretbox.DomainObservabilityAlertProviderConfigKey, value)
+			if err != nil {
+				return nil, fmt.Errorf("protect %s: %w", key, err)
+			}
+			protected[key] = stored
+			continue
+		}
+		protected[key] = value
+	}
+	return protected, nil
+}
+
+func openAlertProviderSQLConfig(config map[string]string) (map[string]string, error) {
+	opened := make(map[string]string, len(config))
+	for key, value := range config {
+		if IsAlertProviderSecretConfigKey(key) && value != "" {
+			plaintext, err := secretbox.Open(secretbox.DomainObservabilityAlertProviderConfigKey, value)
+			if err != nil {
+				return nil, fmt.Errorf("open %s: %w", key, err)
+			}
+			opened[key] = plaintext
+			continue
+		}
+		opened[key] = value
+	}
+	return opened, nil
 }

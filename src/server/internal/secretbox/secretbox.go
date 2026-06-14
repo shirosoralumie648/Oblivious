@@ -14,8 +14,9 @@ import (
 
 const (
 	// CodecPrefix identifies values encrypted by this package.
-	CodecPrefix              = "obv:gcm:v1:"
-	DomainRelayChannelAPIKey = "relay-channel-api-key"
+	CodecPrefix                               = "obv:gcm:v1:"
+	DomainRelayChannelAPIKey                  = "relay-channel-api-key"
+	DomainObservabilityAlertProviderConfigKey = "observability-alert-provider-config-key"
 )
 
 // Protect encrypts plaintext with AES-GCM and binds it to the supplied domain.
