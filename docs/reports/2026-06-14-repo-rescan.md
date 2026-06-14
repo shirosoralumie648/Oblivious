@@ -2,11 +2,11 @@
 
 ## Current Truth
 
-- Branch: `main`; this report refreshes the June 14 scan after the Chat router checkpoint, Scheduled Task DB evidence slice, Workflow SQL active-organization isolation DB evidence slice, Publishing channel active-organization isolation DB evidence slice, Admin Relay channel active-organization isolation DB evidence slice, Admin Relay read-surface active-organization isolation DB evidence slice, Quota SQL tenant isolation DB evidence slice, Tenant membership DB evidence slice, Tenant cross-surface DB evidence slice, Auth security persistence plus reset-token replay/expiry/non-enumeration DB evidence slice, Relay file-mapping tenant ownership DB evidence slice, Relay runtime channel active-organization isolation DB evidence slice, Admin Observability provider secret-response DB evidence slice, Publishing channel secret-response DB evidence slice, Admin Relay channel secret-response DB evidence slice, Agent planning Playwright browser proof, Chat-to-SOLO Playwright browser proof, Marketplace paid-install provider browser proof, Workflows mobile responsive browser proof, Agent gRPC runtime-gateway proof, Agent gRPC authenticated service-adapter proof, HTTP panic recovery proof, Console API token usage sanitization proof, and the post-Admin-Relay-read-isolation rescan.
-- Worktree status at the start of this Admin Relay read-surface closeout: dirty with the current slice changes relative to `origin/main`; latest committed checkpoint before these changes was `1009190 docs: refresh repository rescan checkpoint`.
+- Branch: `main`; this report refreshes the June 14 scan after the Chat router checkpoint, Scheduled Task DB evidence slice, Workflow SQL active-organization isolation DB evidence slice, Publishing channel active-organization isolation DB evidence slice, Admin Relay channel active-organization isolation DB evidence slice, Admin Relay read-surface active-organization isolation DB evidence slice, Quota SQL tenant isolation DB evidence slice, Tenant membership DB evidence slice, Tenant cross-surface DB evidence slice, Auth security persistence plus reset-token replay/expiry/non-enumeration DB evidence slice, Relay file-mapping tenant ownership DB evidence slice, Relay runtime channel active-organization isolation DB evidence slice, Admin Observability provider secret-response DB evidence slice, Publishing channel secret-response DB evidence slice, Admin Relay channel secret-response DB evidence slice, Agent planning Playwright browser proof, Chat-to-SOLO Playwright browser proof, Marketplace paid-install provider browser proof, Workflows mobile responsive browser proof, Console Billing subscription checkout browser proof, Agent gRPC runtime-gateway proof, Agent gRPC authenticated service-adapter proof, HTTP panic recovery proof, Console API token usage sanitization proof, and the post-Console-Billing-browser-proof rescan.
+- Worktree status at the start of this Console Billing browser-proof closeout: dirty with the current slice changes relative to `origin/main`; latest committed checkpoint before these changes was `d49917a test(security): prove admin relay read tenant isolation`.
 - The project is still **not complete** against the four 2026-06-04 fusion specs.
 - The current completion matrix remains `4 Proven / 10 Partial / 0 Gap / 0 Unverified`.
-- Current progress estimate after this rescan: **84/100**. The repository owns most core product surfaces and has strong focused evidence. Recent Agent planning, Chat-to-SOLO, Marketplace paid-provider, Workflows mobile responsive browser proof, Agent gRPC runtime/service-adapter proof, HTTP panic recovery proof, Console API token usage sanitization proof, Tenant membership, Tenant cross-surface isolation, Auth security persistence and reset-token replay/expiry/non-enumeration depth, Relay file-mapping tenant ownership, Relay runtime channel active-organization isolation, Workflow SQL active-organization isolation, Publishing channel active-organization isolation, Admin Relay channel active-organization isolation, Admin Relay read-surface active-organization isolation, Quota SQL tenant isolation, Admin Observability provider secret-response safety, Publishing channel secret-response safety, Admin Relay channel secret-response safety, Scheduled Task runtime, and all-profile DB evidence narrows frontend, marketplace-provider wiring, Agent service-boundary, repository-owned recovery behavior, Console user-visible security posture, DB-backed tenant/security/quota and publishing-channel/Admin Relay route/read isolation, runtime Relay routing isolation, provider-secret response safety, DB-backed workflow, and release-readiness risk. The remaining progress is still dominated by target-environment proof, broader security/tenant-isolation depth, production deployment validation, and final no-skip release readiness.
+- Current progress estimate after this rescan: **84/100**. The repository owns most core product surfaces and has strong focused evidence. Recent Agent planning, Chat-to-SOLO, Marketplace paid-provider, Workflows mobile responsive browser proof, Console Billing subscription checkout browser proof, Agent gRPC runtime/service-adapter proof, HTTP panic recovery proof, Console API token usage sanitization proof, Tenant membership, Tenant cross-surface isolation, Auth security persistence and reset-token replay/expiry/non-enumeration depth, Relay file-mapping tenant ownership, Relay runtime channel active-organization isolation, Workflow SQL active-organization isolation, Publishing channel active-organization isolation, Admin Relay channel active-organization isolation, Admin Relay read-surface active-organization isolation, Quota SQL tenant isolation, Admin Observability provider secret-response safety, Publishing channel secret-response safety, Admin Relay channel secret-response safety, Scheduled Task runtime, and all-profile DB evidence narrows frontend, marketplace-provider wiring, billing checkout UX, Agent service-boundary, repository-owned recovery behavior, Console user-visible security posture, DB-backed tenant/security/quota and publishing-channel/Admin Relay route/read isolation, runtime Relay routing isolation, provider-secret response safety, DB-backed workflow, and release-readiness risk. The remaining progress is still dominated by target-environment proof, broader security/tenant-isolation depth, production deployment validation, and final no-skip release readiness.
 
 ## What Changed Since The Previous Rescan
 
@@ -22,6 +22,7 @@
 - Real Workspace app-router and Playwright browser coverage now prove Chat-to-SOLO continuity from `/chat/:conversationId` into `/solo`, including saved conversation settings carried into stream overrides, SOLO draft conversion, task start, and Back-to-chat return behavior.
 - Real Playwright browser coverage proves the Marketplace paid-install provider journey, including provider discovery, Alipay selection, provider/version propagation, hosted checkout link rendering, and no direct installed-success message for paid checkout.
 - Real Playwright browser coverage proves the `/workflows` mobile responsive/accessibility boundary at `390x844`, including active Workspace navigation, exactly one `main` landmark, no document-level horizontal overflow, contained React Flow canvas scrolling, node-sequence evidence, and signed-webhook signature header evidence.
+- Real Playwright browser coverage proves the `/console/billing` subscription checkout journey inside the Console shell, including active Billing navigation, active workspace scope, package loading from `/api/v1/app/packages`, selecting `pkg_pro`, selecting `wechatpay`, fixture-validated `POST /api/v1/billing/checkout` payload fields, and checkout continuation link rendering.
 - `src/server/pkg/agent` now fails closed without a configured runtime gateway, forwards create-run / execute / approval fields into an injected runtime boundary, and has a concrete adapter into the internal Agent service for create/run/detail/tool-approval operations.
 - HTTP recovered panics now create critical alert state plus `record-http-panic` restart recovery actions, and recovery policies can match panic/OOM signal fields before generic critical HTTP policies.
 - `scripts/verify-commercial-db-evidence.sh scheduled-task-runtime` now provides no-skip PostgreSQL evidence for Scheduled Task SQL runtime persistence, route dispatch, and Workflow schedule-trigger sync.
@@ -66,7 +67,7 @@
 - Test inventory:
   - Go test files: 226
   - Web component/API test files: 67
-  - Web Playwright specs: 5 specs, plus 5 E2E fixture files
+  - Web Playwright specs: 6 specs, plus 6 E2E fixture files
 - Latest checked-in top-level migration: `src/server/migrations/0081_admin_relay_channel_organization_scope.sql`.
 - Project-local `AGENTS.md`: none at the main repo root or under first-party source; discovered `AGENTS.md` files are in dependency caches or nested `reference/*` repositories.
 
@@ -92,7 +93,7 @@ Partial rows:
 - Security and tenant isolation
 - Migration strategy and release readiness
 
-This scan does not reclassify any Partial row to Proven. The Agent, Workflow, Frontend, Observability, API contract, Billing, and Security rows gained real app-router, Playwright browser, service-adapter, repository-owned recovery, DB-backed stateful-route, cross-surface tenant HTTP isolation, SQL-backed Relay runtime channel active-organization isolation, SQL-backed Publishing channel active-organization isolation, SQL-backed Admin Relay channel and read-surface active-organization isolation, SQL-backed Admin Observability, Publishing channel, and Admin Relay channel response redaction, and Console usage sanitization evidence, but still need broader browser/runtime/target-environment proof before any open row can be called complete.
+This scan does not reclassify any Partial row to Proven. The Agent, Workflow, Frontend, Observability, API contract, Billing, and Security rows gained real app-router, Playwright browser, service-adapter, repository-owned recovery, DB-backed stateful-route, cross-surface tenant HTTP isolation, SQL-backed Relay runtime channel active-organization isolation, SQL-backed Publishing channel active-organization isolation, SQL-backed Admin Relay channel and read-surface active-organization isolation, SQL-backed Admin Observability, Publishing channel, and Admin Relay channel response redaction, Console usage sanitization evidence, and Console Billing subscription-checkout browser evidence, but still need broader browser/runtime/target-environment proof before any open row can be called complete.
 
 ## Verification Run During This Rescan
 
@@ -135,6 +136,20 @@ Result:
 - `bash scripts/check.sh docs` passed.
 - `git diff --check` passed.
 
+Console Billing browser-proof continuation:
+
+```bash
+PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/google-chrome COREPACK_HOME=/tmp/codex-corepack pnpm --dir src/web exec playwright test e2e/console-billing.spec.ts --project=chromium
+COREPACK_HOME=/tmp/codex-corepack pnpm --dir src/web test src/routes/console/BillingPage.test.tsx -- --runInBand
+COREPACK_HOME=/tmp/codex-corepack pnpm --dir src/web exec tsc --noEmit
+```
+
+Result:
+
+- The Console Billing Playwright spec passed with Chromium, proving `/console/billing` subscription checkout in the built app. The fixture rejects mismatched checkout payloads, so the passing test proves the UI selected `pkg_pro`, selected `wechatpay`, and sent `kind=subscription`, `packageId=pkg_pro`, and `provider=wechatpay` to `/api/v1/billing/checkout`.
+- `BillingPage.test.tsx` passed with 6 tests.
+- `pnpm --dir src/web exec tsc --noEmit` passed.
+
 Continuation recheck:
 
 ```bash
@@ -173,6 +188,7 @@ Result:
   - `admin-relay-read-isolation`
   - `quota-sql-isolation`
 - `app-stateful-routes` now covers Console API token create/list/revoke and sanitized Console recent usage in the same DB-backed profile.
+- `/console/billing` now has fixture-backed browser proof for subscription package selection and checkout-provider payload propagation. This narrows Billing and Frontend browser-risk, but it is not live payment-provider proof.
 - `tenant-cross-surface` now covers active-organization isolation across Chat, Knowledge, Console, Agent, Memory, MCP, Quota, Marketplace publisher, Marketplace settlement preferences, Agent run detail, and Agent tool-run decision/retry routes.
 - Admin Observability provider, Publishing channel, and Admin Relay channel secret-response safety now have SQL-backed HTTP proof; Auth security persistence, Auth reset-token replay/expiry depth, Relay file-mapping tenant ownership, Relay runtime channel active-organization isolation, Workflow SQL active-organization isolation, Publishing channel active-organization isolation, Admin Relay channel and read-surface active-organization isolation, and Quota SQL tenant isolation now have no-skip DB evidence.
 - The post-Admin-Relay runtime isolation boundary is now covered at repository level: `RelayStore` loads `organization_id`, `ChannelPool` and `LoadBalancer` expose organization-scoped selection paths, `Router.RouteWithBilling` passes trusted organization scope into affinity/retry selection, and `/v1/models` scopes model discovery to trusted tenant channels. This does not reclassify the Relay routing semantics row or the broader Security row because target-environment tenant-isolation proof and broader security depth remain open.
@@ -189,7 +205,7 @@ Result:
 ## Recommended Next Slices
 
 1. DB-backed security depth: continue remaining tenant-isolation audits outside the covered Relay runtime, Admin Relay channel/read, Publishing channel, Workflow, Quota, Tenant, Auth, and cross-surface profiles; add equivalent response-safety proof for any newly added provider/channel secret surfaces.
-2. Broader Browser/E2E route proof: continue extending high-value commercial workflows beyond the current Agent planning, Chat-to-SOLO, Marketplace paid-provider, and Workflows mobile responsive browser journeys.
+2. Broader Browser/E2E route proof: continue extending high-value commercial workflows beyond the current Agent planning, Chat-to-SOLO, Marketplace paid-provider, Workflows mobile responsive, and Console Billing subscription checkout browser journeys.
 3. Strict commercial verifier rerun on target infrastructure with deploy and backup/restore enabled.
 4. Observability and recovery proof: continue from the panic recovery proof into target-environment OOM/crash restart execution, scale-down, and failover evidence.
 5. Deployment validation: only after repo-owned rows are narrowed further, run deploy/Kubernetes/backup-restore proof on the target installation.
