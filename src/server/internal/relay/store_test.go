@@ -11,6 +11,8 @@ import (
 	_ "github.com/lib/pq"
 
 	"oblivious/server/internal/relay/handler"
+	"oblivious/server/internal/relay/types"
+	"oblivious/server/internal/secretbox"
 )
 
 func testRelaySQLStore(t *testing.T) (*RelayStore, *sql.DB, context.Context) {
@@ -194,6 +196,120 @@ func TestRelayStoreLoadPoolPreservesChannelOrganizationScope(t *testing.T) {
 	}
 	if ch = lb.SelectModelForOrganization("chat", "gpt-4o-mini", "org_missing"); ch != nil {
 		t.Fatalf("expected DB-loaded route to fail closed for missing org, got %+v", ch)
+	}
+}
+
+func TestRelayStoreProtectsChannelAPIKeyAtRestAndHydratesRuntimeKey(t *testing.T) {
+	t.Setenv("OBLIVIOUS_SECRET_ENCRYPTION_KEY", "test-relay-runtime-channel-secret")
+	store, database, _ := testRelayChannelSQLStore(t)
+
+	if _, err := database.Exec(`
+		INSERT INTO organizations (id, slug, name, created_at, updated_at)
+		VALUES ('org_secret', 'relay-secret-runtime', 'Relay Secret Runtime', NOW(), NOW())
+	`); err != nil {
+		t.Fatalf("insert relay runtime organization: %v", err)
+	}
+
+	channel := &types.Channel{
+		ID:                 "relay_secret_channel",
+		OrganizationID:     "org_secret",
+		Name:               "Runtime Secret Channel",
+		Provider:           "openai",
+		BaseURL:            "https://runtime-secret.example.test",
+		APIKey:             "sk-runtime-secret",
+		Models:             []string{"gpt-4o-mini"},
+		Groups:             []string{"default"},
+		RPMLimit:           100,
+		TPMLimit:           100000,
+		CBThreshold:        5,
+		CBTimeout:          30,
+		Strategy:           "weighted",
+		Priority:           10,
+		Weight:             100,
+		EstimatedCostPer1K: 0.02,
+		CostMultiplier:     1.1,
+		Enabled:            true,
+	}
+	if err := store.CreateChannel(channel); err != nil {
+		t.Fatalf("CreateChannel returned error: %v", err)
+	}
+	assertRelayStoreProtectedAPIKey(t, database, channel.ID, "sk-runtime-secret")
+
+	got, err := store.GetChannel(channel.ID)
+	if err != nil {
+		t.Fatalf("GetChannel returned error: %v", err)
+	}
+	if got == nil || got.APIKey != "sk-runtime-secret" {
+		t.Fatalf("expected GetChannel to hydrate raw runtime API key, got %+v", got)
+	}
+
+	channel.APIKey = "sk-runtime-rotated"
+	channel.BaseURL = "https://runtime-secret-rotated.example.test"
+	if err := store.UpdateChannel(channel); err != nil {
+		t.Fatalf("UpdateChannel returned error: %v", err)
+	}
+	assertRelayStoreProtectedAPIKey(t, database, channel.ID, "sk-runtime-rotated")
+
+	channels, err := store.ListChannels()
+	if err != nil {
+		t.Fatalf("ListChannels returned error: %v", err)
+	}
+	found := false
+	for _, ch := range channels {
+		if ch.ID == channel.ID {
+			found = true
+			if ch.APIKey != "sk-runtime-rotated" {
+				t.Fatalf("expected ListChannels to hydrate raw runtime API key, got %+v", ch)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected ListChannels to include %s", channel.ID)
+	}
+
+	if _, err := database.Exec(`
+		INSERT INTO channels (
+			id, organization_id, name, provider, base_url, api_key_encrypted, models, groups,
+			rpm_limit, tpm_limit, cb_threshold, cb_timeout, strategy, priority, weight,
+			estimated_cost_per_1k, cost_multiplier, enabled, created_at, updated_at
+		)
+		VALUES (
+			'relay_legacy_plaintext_channel', 'org_secret', 'Legacy Plaintext Channel', 'openai',
+			'https://legacy-secret.example.test', 'sk-legacy-plaintext',
+			ARRAY['gpt-4o-mini']::text[], ARRAY['default']::text[],
+			100, 100000, 5, 30, 'weighted', 5, 100, 0.02, 1.1, true, NOW(), NOW()
+		)
+	`); err != nil {
+		t.Fatalf("insert legacy plaintext relay channel: %v", err)
+	}
+	legacy, err := store.GetChannel("relay_legacy_plaintext_channel")
+	if err != nil {
+		t.Fatalf("GetChannel legacy returned error: %v", err)
+	}
+	if legacy == nil || legacy.APIKey != "sk-legacy-plaintext" {
+		t.Fatalf("expected legacy plaintext channel to remain readable, got %+v", legacy)
+	}
+}
+
+func assertRelayStoreProtectedAPIKey(t *testing.T, database *sql.DB, channelID, want string) {
+	t.Helper()
+
+	var stored string
+	if err := database.QueryRow(`SELECT api_key_encrypted FROM channels WHERE id = $1`, channelID).Scan(&stored); err != nil {
+		t.Fatalf("query stored relay channel api key: %v", err)
+	}
+	if stored == "" || stored == want || strings.Contains(stored, want) {
+		t.Fatalf("expected stored relay channel api key to be protected, got %q", stored)
+	}
+	if !secretbox.IsProtected(stored) {
+		t.Fatalf("expected stored relay channel api key to use protected prefix, got %q", stored)
+	}
+	opened, err := secretbox.Open(secretbox.DomainRelayChannelAPIKey, stored)
+	if err != nil {
+		t.Fatalf("open stored relay channel api key: %v", err)
+	}
+	if opened != want {
+		t.Fatalf("opened relay channel api key = %q, want %q", opened, want)
 	}
 }
 

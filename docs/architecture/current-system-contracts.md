@@ -362,6 +362,7 @@ Functional Logic 9.3 infrastructure failover uses `docs/release/recovery-platfor
 | `CORS_ALLOWED_ORIGINS` | No | empty | Consumed by HTTP middleware |
 | `DATABASE_URL` | Yes | none | Consumed |
 | `SESSION_SECRET` | Yes | none | Consumed for HMAC session cookie signing |
+| `OBLIVIOUS_SECRET_ENCRYPTION_KEY` | No | `SESSION_SECRET` fallback | Consumed for repository-owned at-rest secret encryption; configure a distinct high-entropy key in production |
 | `SESSION_COOKIE_NAME` | No | `oblivious_session` | Consumed |
 | `SESSION_COOKIE_SECURE` | No | `false` | Consumed |
 | `LLM_BASE_URL` | No | empty | Consumed by non-commercial local reply configuration |

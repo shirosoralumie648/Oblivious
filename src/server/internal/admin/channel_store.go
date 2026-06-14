@@ -12,6 +12,7 @@ import (
 
 	"oblivious/server/internal/auth"
 	"oblivious/server/internal/relay/types"
+	"oblivious/server/internal/secretbox"
 )
 
 var ErrChannelNotFound = errors.New("channel not found")
@@ -160,6 +161,10 @@ func (s *SQLStore) CreateChannel(ctx context.Context, input ChannelCreateRequest
 	if groups == nil {
 		groups = []string{}
 	}
+	protectedAPIKey, err := secretbox.Protect(secretbox.DomainRelayChannelAPIKey, input.APIKey)
+	if err != nil {
+		return nil, fmt.Errorf("protect channel api key: %w", err)
+	}
 
 	var ch ChannelInfo
 	err = s.db.QueryRowContext(ctx, `
@@ -170,7 +175,7 @@ func (s *SQLStore) CreateChannel(ctx context.Context, input ChannelCreateRequest
 		          rpm_limit, tpm_limit, priority, weight, estimated_cost_per_1k, cost_multiplier, enabled,
 		          COALESCE(last_health_status, 'offline'), COALESCE(last_latency_ms, 0),
 		          created_at, updated_at
-	`, id, input.OrganizationID, input.Name, input.Provider, input.BaseURL, input.APIKey, pq.Array(models), pq.Array(groups),
+	`, id, input.OrganizationID, input.Name, input.Provider, input.BaseURL, protectedAPIKey, pq.Array(models), pq.Array(groups),
 		input.RpmLimit, input.TpmLimit, input.Priority, normalizeAdminChannelWeight(input.Weight), input.EstimatedCostPer1K, normalizeAdminCostMultiplier(input.CostMultiplier)).Scan(
 		&ch.ID, &ch.OrganizationID, &ch.Name, &ch.Provider, &ch.BaseURL, pq.Array(&models), pq.Array(&groups),
 		&ch.RPM, &ch.TPM, &ch.Priority, &ch.Weight, &ch.EstimatedCostPer1K, &ch.CostMultiplier, &ch.Enabled,
@@ -194,6 +199,15 @@ func (s *SQLStore) UpdateChannel(ctx context.Context, organizationID, id string,
 	var ch ChannelInfo
 	var models []string
 	var groups []string
+	apiKey := coalesceString(input.APIKey)
+	protectedAPIKey := apiKey
+	if apiKey != "" {
+		var err error
+		protectedAPIKey, err = secretbox.Protect(secretbox.DomainRelayChannelAPIKey, apiKey)
+		if err != nil {
+			return nil, fmt.Errorf("protect channel api key: %w", err)
+		}
+	}
 
 	err := s.db.QueryRowContext(ctx, `
 		UPDATE channels SET
@@ -218,7 +232,7 @@ func (s *SQLStore) UpdateChannel(ctx context.Context, organizationID, id string,
 	`,
 		coalesceString(input.Name),
 		coalesceString(input.BaseURL),
-		coalesceString(input.APIKey),
+		protectedAPIKey,
 		pq.Array(coalesceModels(input.Models)),
 		pq.Array(coalesceModels(input.Groups)),
 		coalesceInt(input.RpmLimit),
@@ -371,6 +385,10 @@ func (s *SQLStore) getRelayChannelForProbe(ctx context.Context, organizationID, 
 	}
 	if err != nil {
 		return nil, err
+	}
+	ch.APIKey, err = secretbox.Open(secretbox.DomainRelayChannelAPIKey, ch.APIKey)
+	if err != nil {
+		return nil, fmt.Errorf("open channel api key: %w", err)
 	}
 	ch.Models = models
 	ch.Groups = groups
