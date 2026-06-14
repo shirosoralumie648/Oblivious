@@ -138,6 +138,24 @@ const installedAgent = {
   installedAt: now,
 };
 
+const launchTemplate = {
+  id: 'template_launch_browser',
+  organizationId: 'workspace_release',
+  type: 'workflow',
+  name: 'Launch Browser Template',
+  description: 'Reusable browser launch workflow.',
+  category: 'Operations',
+  tags: ['launch', 'ops'],
+  templateData: {
+    nodes: [{ id: 'start', type: 'trigger' }],
+    edges: [],
+  },
+  downloadsCount: 0,
+  ratingAvg: 0,
+  createdAt: now,
+  updatedAt: now,
+};
+
 function envelope(data: unknown) {
   return {
     ok: true,
@@ -178,7 +196,37 @@ async function fulfillNotFound(route: Route) {
   });
 }
 
+function templatePayloadMatches(payload: Record<string, unknown>) {
+  const templateData = payload.templateData as Record<string, unknown> | undefined;
+  const nodes = templateData?.nodes as Array<Record<string, unknown>> | undefined;
+  return (
+    payload.type === 'workflow' &&
+    payload.name === 'Launch Browser Template' &&
+    payload.description === 'Reusable browser launch workflow.' &&
+    payload.category === 'Operations' &&
+    Array.isArray(payload.tags) &&
+    payload.tags.join(',') === 'launch,ops' &&
+    Array.isArray(nodes) &&
+    nodes[0]?.id === 'start' &&
+    nodes[0]?.type === 'trigger' &&
+    Array.isArray(templateData?.edges)
+  );
+}
+
 export async function registerAdminMarketplaceRoutes(page: Page): Promise<void> {
+  let myAgents = [submittedAgent];
+  let installs = [installedAgent];
+  let createdTemplate: typeof launchTemplate | null = null;
+  let settlementPreferences = {
+    cycle: 'monthly',
+    label: 'Monthly',
+    description: "Settles the previous month's Marketplace income on the first day of each month.",
+    payoutBusinessDays: 5,
+    processingFeePercent: 1,
+    minimumPayoutAmount: 100,
+    effectiveFrom: 'next_settlement_cycle',
+  };
+
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -340,7 +388,20 @@ export async function registerAdminMarketplaceRoutes(page: Page): Promise<void> 
     }
 
     if (method === 'GET' && pathname === '/api/v1/marketplace/templates') {
-      await fulfillJSON(route, { templates: [], total: 0 });
+      const templates = createdTemplate ? [createdTemplate] : [];
+      await fulfillJSON(route, { templates, total: templates.length });
+      return;
+    }
+
+    if (method === 'POST' && pathname === '/api/v1/marketplace/templates') {
+      const payload = request.postDataJSON() as Record<string, unknown>;
+      if (!templatePayloadMatches(payload)) {
+        await fulfillError(route, 'template create payload did not preserve type, tags, category, and JSON data');
+        return;
+      }
+
+      createdTemplate = launchTemplate;
+      await fulfillJSON(route, createdTemplate, 201);
       return;
     }
 
@@ -428,12 +489,19 @@ export async function registerAdminMarketplaceRoutes(page: Page): Promise<void> 
     }
 
     if (method === 'POST' && pathname === '/api/v1/marketplace/agents') {
+      myAgents = [submittedAgent];
       await fulfillJSON(route, submittedAgent, 201);
       return;
     }
 
     if (method === 'GET' && pathname === '/api/v1/marketplace/my-agents') {
-      await fulfillJSON(route, { agents: [submittedAgent], total: 1 });
+      await fulfillJSON(route, { agents: myAgents, total: myAgents.length });
+      return;
+    }
+
+    if (method === 'DELETE' && pathname === '/api/v1/marketplace/agents/agent_submitted_release_notes') {
+      myAgents = [];
+      await fulfillJSON(route, { status: 'deleted' });
       return;
     }
 
@@ -465,20 +533,38 @@ export async function registerAdminMarketplaceRoutes(page: Page): Promise<void> 
     }
 
     if (method === 'GET' && pathname === '/api/v1/marketplace/publisher/settlement-preferences') {
-      await fulfillJSON(route, {
-        cycle: 'monthly',
-        label: 'Monthly',
-        description: "Settles the previous month's Marketplace income on the first day of each month.",
-        payoutBusinessDays: 5,
-        processingFeePercent: 1,
-        minimumPayoutAmount: 100,
+      await fulfillJSON(route, settlementPreferences);
+      return;
+    }
+
+    if (method === 'PUT' && pathname === '/api/v1/marketplace/publisher/settlement-preferences') {
+      const payload = request.postDataJSON() as Record<string, unknown>;
+      if (payload.cycle !== 'weekly') {
+        await fulfillError(route, 'settlement preference payload did not preserve weekly cycle selection');
+        return;
+      }
+
+      settlementPreferences = {
+        cycle: 'weekly',
+        label: 'Weekly',
+        description: 'Settles Marketplace income every week after the configured review window.',
+        payoutBusinessDays: 2,
+        processingFeePercent: 2,
+        minimumPayoutAmount: 50,
         effectiveFrom: 'next_settlement_cycle',
-      });
+      };
+      await fulfillJSON(route, settlementPreferences);
       return;
     }
 
     if (method === 'GET' && pathname === '/api/v1/marketplace/installs') {
-      await fulfillJSON(route, { installs: [installedAgent], total: 1 });
+      await fulfillJSON(route, { installs, total: installs.length });
+      return;
+    }
+
+    if (method === 'DELETE' && pathname === '/api/v1/marketplace/installs/install_release_helper') {
+      installs = [];
+      await fulfillJSON(route, { status: 'uninstalled' });
       return;
     }
 

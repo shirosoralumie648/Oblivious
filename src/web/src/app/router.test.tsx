@@ -3155,7 +3155,7 @@ describe('app router', () => {
     expect(screen.getByText('workflow')).toBeInTheDocument();
     expect(screen.getByText('user_router')).toBeInTheDocument();
     expect(screen.getByText('req_router_console')).toBeInTheDocument();
-    expect(screen.getByText('openai / ch_router_1')).toBeInTheDocument();
+    expect(screen.queryByText('openai / ch_router_1')).not.toBeInTheDocument();
   });
 
   it('keeps admin dashboard route-level metrics and commercial operation links reachable', async () => {

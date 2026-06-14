@@ -88,3 +88,39 @@ test('marketplace publish and my agents workflow works', async ({ page }) => {
   await expect(page.getByText('Release Notes Drafter').first()).toBeVisible();
   await expect(page.getByText('Release Helper').first()).toBeVisible();
 });
+
+test('marketplace my agents preserves publisher mutation contracts in the browser', async ({ page }) => {
+  await page.goto('/marketplace/my-agents');
+
+  await expect(page.getByRole('heading', { name: 'My Agents' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Marketplace' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('heading', { name: 'Template Factory' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Settlement Cycle' })).toBeVisible();
+  await expect(page.getByText('Current cycle: Monthly')).toBeVisible();
+  await expect(page.getByText('Release Notes Drafter').first()).toBeVisible();
+  await expect(page.getByText('Release Helper').first()).toBeVisible();
+
+  await page.getByLabel('Template name').fill('Launch Browser Template');
+  await page.getByLabel('Template type').selectOption('workflow');
+  await page.getByLabel('Template category').fill('Operations');
+  await page.getByLabel('Template tags').fill('launch, ops');
+  await page.getByLabel('Template description').fill('Reusable browser launch workflow.');
+  await page.getByLabel('Template JSON').fill(JSON.stringify({ nodes: [{ id: 'start', type: 'trigger' }], edges: [] }, null, 2));
+  await page.getByRole('button', { name: 'Create Template' }).click();
+  await expect(page.getByText('Template created: Launch Browser Template.')).toBeVisible();
+
+  await page.getByLabel('Settlement cycle').selectOption('weekly');
+  await page.getByRole('button', { name: 'Save Settlement Cycle' }).click();
+  await expect(page.getByText('Current cycle: Weekly')).toBeVisible();
+  await expect(page.getByText('2% processing fee')).toBeVisible();
+  await expect(page.getByText('$50 minimum payout')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Delete agent Release Notes Drafter' }).click();
+  const deleteDialog = page.getByRole('dialog', { name: 'Delete Agent' });
+  await expect(deleteDialog).toBeVisible();
+  await deleteDialog.getByRole('button', { name: 'Delete Agent' }).click();
+  await expect(page.getByText('No published agents -- Publish your first agent to start the review process.')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Uninstall Release Helper' }).click();
+  await expect(page.getByText('No installed agents -- Install agents from the marketplace to use them in your workspace.')).toBeVisible();
+});
