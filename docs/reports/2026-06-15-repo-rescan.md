@@ -2,8 +2,8 @@
 
 ## Current Truth
 
-- Branch: `main`; this refresh scan starts from pushed commit `08ff744 test(frontend): prove agent memories browser workflow`.
-- Worktree status at refresh scan start: in sync with `origin/main` plus the intended Billing provider lifecycle evidence-runner/docs slice.
+- Branch: `main`; this post-push refresh scan starts from pushed commit `03b0a60 test(billing): add provider lifecycle db evidence`.
+- Worktree status at refresh scan start: clean and in sync with `origin/main`.
 - The project is still **not complete** against the four 2026-06-04 fusion specs.
 - The current completion matrix remains `4 Proven / 10 Partial / 0 Gap / 0 Unverified`.
 - Current progress estimate after this implementation scan is **90/100**. Admin Relay channel API-key, Observability alert-provider config, Publishing channel config, Workflow definition/version/execution-snapshot/node-execution secret-like fields, Agent Memories browser CRUD/import-export, and Billing provider lifecycle PostgreSQL transitions are now covered with repository-local proof, but target-environment workflow telemetry, target secret audits, deployment validation, payment/provider live rails, and final no-skip release readiness remain open.
@@ -24,7 +24,7 @@
 
 ## Repository Inventory
 
-- First-party tracked file distribution after this slice is intended to be:
+- First-party tracked file distribution at pushed commit `03b0a60`:
   - `src`: 977 files
   - `.planning`: 210 files
   - `docs`: 92 files
@@ -101,8 +101,8 @@ git diff --check
 
 Result:
 
-- `git status --short --branch` showed `main...origin/main` plus the intended Billing provider lifecycle evidence-runner/docs files before this refresh was finalized.
-- The intended post-slice inventory counters are: `src=977`, `docs=92`, `scripts=37`, `deploy=42`, `.planning=210`, Go test files `228`, web component/API test files `67`, Playwright specs `9`, and Playwright fixtures `9`.
+- `git status --short --branch` showed `main...origin/main` with no changed files at commit `03b0a60`.
+- The current first-party inventory counters are: `src=977`, `docs=92`, `scripts=37`, `deploy=42`, `.planning=210`, Go test files `228`, web component/API test files `67`, Playwright specs `9`, and Playwright fixtures `9`.
 - `go test ./internal/secretbox -count=1 -v` passed.
 - `go test ./internal/workflow -count=1` passed.
 - `go test ./internal/channel -count=1` passed.
@@ -127,7 +127,7 @@ Result:
 
 ## Notable Scan Findings
 
-- The live worktree before the Billing provider lifecycle evidence slice was clean at `08ff744`.
+- The current live worktree is clean at `03b0a60`; the pre-slice checkpoint before Billing provider lifecycle evidence was `08ff744`.
 - Existing DB-backed tenant-isolation evidence remains stronger than target-environment evidence; this slice adds DB-backed at-rest encryption proof for the Workflow definition/runtime secret path on top of the prior Admin Relay, Observability, and Publishing secret paths.
 - `src/server/internal/http/admin_channel_secret_response_test.go` now pairs response redaction with direct SQL ciphertext assertions and an upstream probe assertion that the decrypted rotated key is usable.
 - `src/server/internal/relay/store_test.go` now proves Relay runtime persistence writes protected channel API keys, hydrates raw keys for runtime callers, and preserves legacy plaintext compatibility.
