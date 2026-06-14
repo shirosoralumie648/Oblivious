@@ -3,7 +3,7 @@
 ## Current Truth
 
 - Branch: `main`; this report refreshes the June 14 scan after the Chat router checkpoint, Scheduled Task DB evidence slice, Tenant membership DB evidence slice, Tenant cross-surface DB evidence slice, Auth security persistence plus reset-token replay/expiry/non-enumeration DB evidence slice, Relay file-mapping tenant ownership DB evidence slice, Admin Observability provider secret-response DB evidence slice, Publishing channel secret-response DB evidence slice, Admin Relay channel secret-response DB evidence slice, Agent planning Playwright browser proof, Chat-to-SOLO Playwright browser proof, Marketplace paid-install provider browser proof, Workflows mobile responsive browser proof, Agent gRPC runtime-gateway proof, Agent gRPC authenticated service-adapter proof, HTTP panic recovery proof, and Console API token usage sanitization proof.
-- Worktree status at report close: clean against `origin/main` after the independently verified slice is committed and pushed.
+- Worktree status at continuation recheck: clean against `origin/main`; latest commit is `66f5830 test(security): prove auth reset token fail-closed behavior`.
 - The project is still **not complete** against the four 2026-06-04 fusion specs.
 - The current completion matrix remains `4 Proven / 10 Partial / 0 Gap / 0 Unverified`.
 - Current progress estimate after this rescan: **82/100**. The repository owns most core product surfaces and has strong focused evidence. Recent Agent planning, Chat-to-SOLO, Marketplace paid-provider, Workflows mobile responsive browser proof, Agent gRPC runtime/service-adapter proof, HTTP panic recovery proof, Console API token usage sanitization proof, Tenant membership, Tenant cross-surface isolation, Auth security persistence and reset-token replay/expiry/non-enumeration depth, Relay file-mapping tenant ownership, Admin Observability provider secret-response safety, Publishing channel secret-response safety, Admin Relay channel secret-response safety, Scheduled Task runtime, and all-profile DB evidence narrows frontend, marketplace-provider wiring, Agent service-boundary, repository-owned recovery behavior, Console user-visible security posture, DB-backed tenant/security, provider-secret response safety, DB-backed workflow, and release-readiness risk, but the remaining progress is still dominated by target-environment proof, broader security/tenant-isolation depth, production deployment validation, and final no-skip release readiness.
@@ -50,7 +50,7 @@
   - `scripts`: 37 files
   - `deploy`: 42 files
 - Server shape:
-  - `src/server/internal`: 586 tracked files
+  - `src/server/internal`: 587 tracked files
   - `src/server/migrations`: 105 tracked SQL migration files: 92 top-level versioned migrations plus 13 SQL files in `clickhouse/` and `microservices/`
   - largest active server domains are `relay`, `http`, `mcp`, `admin`, `agent`, `workflow`, `knowledge`, `observability`, `channel`, `migration`, and `marketplace`
 - Web shape:
@@ -59,7 +59,7 @@
   - route families are mostly `workspace`, `admin`, `console`, `marketing`, and `marketplace`
 - Test inventory:
   - Go test files: 226
-  - Web component/API test files: 67
+  - Web component/API test files: 68
   - Web Playwright specs: 5 specs, plus 5 E2E fixture files
 - Latest checked-in top-level migration: `src/server/migrations/0080_agent_plan_step_structure.sql`.
 - Project-local `AGENTS.md`: none at the main repo root or under first-party source; discovered `AGENTS.md` files are in dependency caches or nested `reference/*` repositories.
@@ -111,6 +111,23 @@ Result:
 - `bash scripts/check.sh docs` passed.
 - `git diff --check` passed.
 
+Continuation recheck:
+
+```bash
+git status --short --branch
+git log --oneline -n 12
+git ls-files | awk '...inventory counters...'
+rg -n "TODO|FIXME|XXX|stub|placeholder|Unimplemented|DisabledInProduction" src scripts deploy docs/release docs/reports
+rg -n "OrganizationID|ErrNotFound" src/server/internal/http/workflow_handler.go src/server/internal/workflow
+```
+
+Result:
+
+- The live worktree remained clean on `main...origin/main`.
+- Inventory counters now show `src/server/internal=587` and Web component/API test files `68`; the top-level matrix count did not change.
+- Workflow HTTP adapter calls still thread `session.OrganizationID` into list/get/update/delete/execute/execution-control paths, while `workflow.ErrNotFound` maps to HTTP `404`.
+- Workflow store tests already prove cross-organization workflow and execution reads return nil, but there is still no no-skip `verify-commercial-db-evidence.sh` profile proving the real HTTP router fails closed for another active organization.
+
 ## Notable Scan Findings
 
 - `scripts/check.sh` still exposes the main gates: `all`, `docs`, `relay-security`, `security`, `web`, and `server`.
@@ -127,7 +144,7 @@ Result:
   - `relay-file-mapping-tenant-ownership`
 - `app-stateful-routes` now covers Console API token create/list/revoke and sanitized Console recent usage in the same DB-backed profile.
 - `tenant-cross-surface` now covers active-organization isolation across Chat, Knowledge, Console, Agent, Memory, MCP, Quota, Marketplace publisher, Marketplace settlement preferences, Agent run detail, and Agent tool-run decision/retry routes.
-- Admin Observability provider, Publishing channel, and Admin Relay channel secret-response safety now have SQL-backed HTTP proof; Auth security persistence, Auth reset-token replay/expiry depth, and Relay file-mapping tenant ownership now have no-skip DB evidence. The next sharper Security slices are deeper SQL-store isolation for Workflow/Channel/Quota and equivalent response-safety proof for any newly added provider/channel secret surfaces.
+- Admin Observability provider, Publishing channel, and Admin Relay channel secret-response safety now have SQL-backed HTTP proof; Auth security persistence, Auth reset-token replay/expiry depth, and Relay file-mapping tenant ownership now have no-skip DB evidence. The next sharper Security slice is Workflow SQL active-organization isolation through the real HTTP router, followed by deeper Channel/Quota store isolation and equivalent response-safety proof for any newly added provider/channel secret surfaces.
 - Active source TODO/stub scan still does not reveal a new broad implementation gap. Most matches are test stubs, generated gRPC `Unimplemented*` boilerplate, placeholder-secret/runbook language, UI input placeholders, benign nil-return no-row paths, and explicit tests that assert placeholder output is not used.
 - First-party active TODO boundaries are narrow and already documented as future or non-release proof:
   - `src/server/internal/relay/handler/realtime.go` has auth/prebill/settlement TODOs, while `docs/release/relay-route-table.md` marks Realtime `DisabledInProduction`.
@@ -139,11 +156,12 @@ Result:
 
 ## Recommended Next Slices
 
-1. Broader Browser/E2E route proof: continue extending high-value commercial workflows beyond the current Agent planning, Chat-to-SOLO, Marketplace paid-provider, and Workflows mobile responsive browser journeys.
-2. Strict commercial verifier rerun on target infrastructure with deploy and backup/restore enabled.
-3. Observability and recovery proof: continue from the panic recovery proof into target-environment OOM/crash restart execution, scale-down, and failover evidence.
-4. DB-backed security depth: continue into deeper SQL-store isolation for Workflow/Channel/Quota and equivalent response-safety proof for any newly added provider/channel secret surfaces.
-5. Deployment validation: only after repo-owned rows are narrowed further, run deploy/Kubernetes/backup-restore proof on the target installation.
+1. Workflow SQL active-organization isolation: add real-router PostgreSQL evidence that another organization's workflow definitions, updates, executions, execution details, and debug snapshots fail closed, then add a `workflow-sql-isolation` no-skip DB evidence profile.
+2. Broader Browser/E2E route proof: continue extending high-value commercial workflows beyond the current Agent planning, Chat-to-SOLO, Marketplace paid-provider, and Workflows mobile responsive browser journeys.
+3. Strict commercial verifier rerun on target infrastructure with deploy and backup/restore enabled.
+4. Observability and recovery proof: continue from the panic recovery proof into target-environment OOM/crash restart execution, scale-down, and failover evidence.
+5. DB-backed security depth: after Workflow, continue into deeper Channel/Quota store isolation and equivalent response-safety proof for any newly added provider/channel secret surfaces.
+6. Deployment validation: only after repo-owned rows are narrowed further, run deploy/Kubernetes/backup-restore proof on the target installation.
 
 ## Boundary
 
