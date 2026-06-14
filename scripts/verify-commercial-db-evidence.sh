@@ -15,7 +15,7 @@ output_files=()
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/verify-commercial-db-evidence.sh [all|backend-journey|marketplace-money-movement|app-stateful-routes|tenant-membership-lifecycle|tenant-cross-surface|secret-response-safety|agent-runtime-memory|scheduled-task-runtime|auth-security-persistence|relay-file-mapping-tenant-ownership|relay-runtime-channel-isolation|workflow-sql-isolation|publishing-channel-isolation|admin-relay-channel-isolation|admin-relay-read-isolation|quota-sql-isolation]
+Usage: bash scripts/verify-commercial-db-evidence.sh [all|backend-journey|marketplace-money-movement|billing-provider-lifecycle|app-stateful-routes|tenant-membership-lifecycle|tenant-cross-surface|secret-response-safety|agent-runtime-memory|scheduled-task-runtime|auth-security-persistence|relay-file-mapping-tenant-ownership|relay-runtime-channel-isolation|workflow-sql-isolation|publishing-channel-isolation|admin-relay-channel-isolation|admin-relay-read-isolation|quota-sql-isolation]
 
 Runs narrow DB-backed commercial evidence without silently accepting skipped tests.
 
@@ -25,6 +25,9 @@ Profiles:
   backend-journey              Run TestCommercialHTTPJourney against PostgreSQL.
   marketplace-money-movement   Run focused Billing/Marketplace money movement
                                PostgreSQL lifecycle tests.
+  billing-provider-lifecycle   Run focused Stripe/shared checkout, invoice,
+                               subscription, and refund lifecycle PostgreSQL
+                               tests.
   app-stateful-routes          Run focused app state, tenant, CSRF, and
                                ownership PostgreSQL route tests.
   tenant-membership-lifecycle  Run focused Tenant SQL store and HTTP
@@ -180,6 +183,13 @@ run_marketplace_money_movement_profile() {
   run_go_test_no_skips "admin billing and marketplace money movement routes" "./internal/http" "$admin_money_movement_pattern"
 }
 
+run_billing_provider_lifecycle_profile() {
+  local billing_provider_lifecycle_pattern
+
+  billing_provider_lifecycle_pattern="^TestLifecycleApply(CheckoutSessionCompletedCreatesSubscriptionOnce|CheckoutSessionCompletedFulfillsTopupOnce|InvoicePaidAndPaymentFailedTransitions|SubscriptionUpdatedAndDeletedTransitions|RefundRecordsRefundAndAdjustsTopup)$"
+  run_go_test_no_skips "billing provider lifecycle" "./internal/stripe" "$billing_provider_lifecycle_pattern"
+}
+
 run_app_stateful_routes_profile() {
   local app_stateful_routes_pattern
 
@@ -288,6 +298,7 @@ run_quota_sql_isolation_profile() {
 run_all_profiles() {
   run_backend_journey_profile
   run_marketplace_money_movement_profile
+  run_billing_provider_lifecycle_profile
   run_app_stateful_routes_profile
   run_tenant_membership_lifecycle_profile
   run_tenant_cross_surface_profile
@@ -319,6 +330,9 @@ case "$profile" in
     ;;
   marketplace-money-movement)
     run_marketplace_money_movement_profile
+    ;;
+  billing-provider-lifecycle)
+    run_billing_provider_lifecycle_profile
     ;;
   app-stateful-routes)
     run_app_stateful_routes_profile

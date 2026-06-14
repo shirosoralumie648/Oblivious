@@ -2,15 +2,16 @@
 
 ## Current Truth
 
-- Branch: `main`; this refresh scan starts from pushed commit `743fa3c test(security): encrypt workflow secrets at rest`.
-- Worktree status at refresh scan start: in sync with `origin/main` plus the intended untracked Agent Memories browser proof files: `src/web/e2e/agent-memories.spec.ts` and `src/web/e2e/fixtures/agentMemories.ts`.
+- Branch: `main`; this refresh scan starts from pushed commit `08ff744 test(frontend): prove agent memories browser workflow`.
+- Worktree status at refresh scan start: in sync with `origin/main` plus the intended Billing provider lifecycle evidence-runner/docs slice.
 - The project is still **not complete** against the four 2026-06-04 fusion specs.
 - The current completion matrix remains `4 Proven / 10 Partial / 0 Gap / 0 Unverified`.
-- Current progress estimate after this implementation scan is **89/100**. Admin Relay channel API-key, Observability alert-provider config, Publishing channel config, Workflow definition/version/execution-snapshot/node-execution secret-like fields, and Agent Memories browser CRUD/import-export are now covered with repository-local proof, but target-environment workflow telemetry, target secret audits, deployment validation, payment/provider live rails, and final no-skip release readiness remain open.
+- Current progress estimate after this implementation scan is **90/100**. Admin Relay channel API-key, Observability alert-provider config, Publishing channel config, Workflow definition/version/execution-snapshot/node-execution secret-like fields, Agent Memories browser CRUD/import-export, and Billing provider lifecycle PostgreSQL transitions are now covered with repository-local proof, but target-environment workflow telemetry, target secret audits, deployment validation, payment/provider live rails, and final no-skip release readiness remain open.
 
 ## What Changed In This Rescan
 
 - Agent Memories now has browser-level Workspace proof for `/memories`: active navigation, search filter propagation, export query propagation, blob download-link rendering, user-managed create/update/delete, JSON import, and memory-count state updates.
+- `scripts/verify-commercial-db-evidence.sh billing-provider-lifecycle` now supplies no-skip disposable PostgreSQL proof for Stripe/shared checkout, invoice, subscription, and refund lifecycle transitions, and the `all` profile includes it.
 - Admin Relay channel API keys now use a shared AES-GCM `secretbox` codec before writing `channels.api_key_encrypted`.
 - `OBLIVIOUS_SECRET_ENCRYPTION_KEY` is the preferred deployment key, with `SESSION_SECRET` fallback for compatibility; local, Docker, Kubernetes, and architecture env docs now list the variable.
 - Admin channel create/update protects API keys at rest, and Admin provider probes decrypt the stored key before calling upstream.
@@ -67,7 +68,7 @@ Partial rows remain:
 - Security and tenant isolation
 - Migration strategy and release readiness
 
-This scan does not reclassify any Partial row to Proven. Admin Relay API-key, Observability alert-provider, Publishing channel, Workflow at-rest encryption, and Agent Memories browser proof improve Relay/Publishing/Workflow, Agent, Frontend, API, Security, operations/env, and release evidence, but broader target-environment telemetry, target secret audits, live provider proof, and final release proof remain open.
+This scan does not reclassify any Partial row to Proven. Admin Relay API-key, Observability alert-provider, Publishing channel, Workflow at-rest encryption, Agent Memories browser proof, and Billing provider lifecycle proof improve Relay/Publishing/Workflow, Agent, Frontend, Billing, API, Security, operations/env, and release evidence, but broader target-environment telemetry, target secret audits, live provider proof, and final release proof remain open.
 
 ## Verification Run During This Rescan
 
@@ -89,6 +90,8 @@ GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test .
 GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh secret-response-safety
 GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh relay-runtime-channel-isolation
 GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh admin-relay-channel-isolation
+GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh billing-provider-lifecycle
+GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh all
 COREPACK_HOME=/tmp/codex-corepack bash scripts/check.sh docs
 COREPACK_HOME=/tmp/codex-corepack pnpm --dir src/web test src/features/agents/memoriesApi.test.ts src/routes/workspace/AgentMemoriesPage.test.tsx -- --runInBand
 COREPACK_HOME=/tmp/codex-corepack pnpm --dir src/web exec tsc --noEmit
@@ -98,7 +101,7 @@ git diff --check
 
 Result:
 
-- `git status --short --branch` showed `main...origin/main` plus the intended Agent Memories browser proof files before this refresh was finalized.
+- `git status --short --branch` showed `main...origin/main` plus the intended Billing provider lifecycle evidence-runner/docs files before this refresh was finalized.
 - The intended post-slice inventory counters are: `src=977`, `docs=92`, `scripts=37`, `deploy=42`, `.planning=210`, Go test files `228`, web component/API test files `67`, Playwright specs `9`, and Playwright fixtures `9`.
 - `go test ./internal/secretbox -count=1 -v` passed.
 - `go test ./internal/workflow -count=1` passed.
@@ -111,6 +114,8 @@ Result:
 - `scripts/verify-commercial-db-evidence.sh secret-response-safety` passed with disposable pgvector PostgreSQL and skipped tests: none.
 - `scripts/verify-commercial-db-evidence.sh relay-runtime-channel-isolation` passed with disposable pgvector PostgreSQL and skipped tests: none, including the new runtime at-rest encryption test.
 - `scripts/verify-commercial-db-evidence.sh admin-relay-channel-isolation` passed with disposable pgvector PostgreSQL and skipped tests: none.
+- `scripts/verify-commercial-db-evidence.sh billing-provider-lifecycle` passed with disposable pgvector PostgreSQL and skipped tests: none.
+- `scripts/verify-commercial-db-evidence.sh all` passed with disposable pgvector PostgreSQL and skipped tests: none, including the new Billing provider lifecycle profile.
 - `bash scripts/check.sh docs` passed.
 - `pnpm --dir src/web test src/features/agents/memoriesApi.test.ts src/routes/workspace/AgentMemoriesPage.test.tsx -- --runInBand` passed.
 - `pnpm --dir src/web exec tsc --noEmit` passed.
@@ -122,7 +127,7 @@ Result:
 
 ## Notable Scan Findings
 
-- The live worktree before the Workflow refresh slice was clean at `a2cceaa`.
+- The live worktree before the Billing provider lifecycle evidence slice was clean at `08ff744`.
 - Existing DB-backed tenant-isolation evidence remains stronger than target-environment evidence; this slice adds DB-backed at-rest encryption proof for the Workflow definition/runtime secret path on top of the prior Admin Relay, Observability, and Publishing secret paths.
 - `src/server/internal/http/admin_channel_secret_response_test.go` now pairs response redaction with direct SQL ciphertext assertions and an upstream probe assertion that the decrypted rotated key is usable.
 - `src/server/internal/relay/store_test.go` now proves Relay runtime persistence writes protected channel API keys, hydrates raw keys for runtime callers, and preserves legacy plaintext compatibility.
@@ -131,6 +136,7 @@ Result:
 - `src/server/internal/http/workflow_secret_response_test.go` now pairs Workflow response redaction with direct SQL ciphertext assertions for definitions, versions, execution snapshots, and workflow node executions, plus a SQL-backed signed webhook assertion that the decrypted workflow secret remains usable.
 - Response safety and at-rest encryption remain separate. Admin Relay channel API keys, Observability alert-provider config secrets, Publishing channel config secrets, and Workflow definition/runtime secret-like payloads now have both response safety and at-rest encryption proof in repository-local PostgreSQL.
 - Agent Memories now has a built-app Playwright proof for the manual memory-management workflow. The fixture fails closed if browser search/export filters or create/update/import/delete payloads drift from the Workspace UI controls.
+- Billing provider lifecycle DB tests are now first-class commercial evidence. The profile rejects skips and empty regex matches while proving subscription checkout, top-up checkout, invoice paid/payment-failed, subscription update/delete, and refund/quota reversal transitions against PostgreSQL.
 
 ## Recommended Next Slices
 
