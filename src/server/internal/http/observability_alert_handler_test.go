@@ -3,6 +3,7 @@ package http
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	stdhttp "net/http"
 	"net/http/httptest"
@@ -161,6 +162,163 @@ func TestObservabilityAlertAdminRouteCreatesAndListsRedactedProviderConfig(t *te
 	}
 }
 
+func TestObservabilityAlertAdminRouteSQLProviderSecretsAreRedacted(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+	cookie, csrfToken, userID := registerHTTPUser(t, router, "observability-provider-redaction@example.com")
+	promoteHTTPUserToAdmin(t, database, userID)
+
+	type providerSeed struct {
+		kind    observability.AlertProviderKind
+		name    string
+		config  map[string]string
+		secrets map[string]string
+	}
+	seeds := []providerSeed{
+		{
+			kind: observability.AlertProviderKindSMTP,
+			name: "Primary SMTP",
+			config: map[string]string{
+				"smtp_host":  "smtp.example.com",
+				"smtp_port":  "587",
+				"username":   "alerts@example.com",
+				"password":   "smtp-secret",
+				"from_email": "alerts@example.com",
+				"recipients": "ops@example.com",
+			},
+			secrets: map[string]string{"password": "smtp-secret"},
+		},
+		{
+			kind: observability.AlertProviderKindSlackWebhook,
+			name: "Slack Ops",
+			config: map[string]string{
+				"webhook_url": "https://hooks.example/slack-secret",
+			},
+			secrets: map[string]string{"webhook_url": "https://hooks.example/slack-secret"},
+		},
+		{
+			kind: observability.AlertProviderKindPagerDuty,
+			name: "PagerDuty Ops",
+			config: map[string]string{
+				"routing_key": "pd-routing-key-secret",
+			},
+			secrets: map[string]string{"routing_key": "pd-routing-key-secret"},
+		},
+		{
+			kind: observability.AlertProviderKindOpsgenie,
+			name: "Opsgenie Ops",
+			config: map[string]string{
+				"api_key":     "opsgenie-api-secret",
+				"private_key": "opsgenie-private-secret",
+			},
+			secrets: map[string]string{
+				"api_key":     "opsgenie-api-secret",
+				"private_key": "opsgenie-private-secret",
+			},
+		},
+	}
+
+	createdIDsByName := map[string]string{}
+	allSecrets := []string{}
+	for _, seed := range seeds {
+		payload, err := json.Marshal(map[string]any{
+			"kind":   seed.kind,
+			"name":   seed.name,
+			"status": observability.AlertProviderStatusActive,
+			"config": seed.config,
+		})
+		if err != nil {
+			t.Fatalf("marshal provider payload: %v", err)
+		}
+		request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/admin/observability/alert-providers", bytes.NewReader(payload))
+		request.Header.Set("Content-Type", "application/json")
+		request.AddCookie(cookie)
+		addCSRF(request, csrfToken)
+		recorder := httptest.NewRecorder()
+
+		router.ServeHTTP(recorder, request)
+
+		if recorder.Code != stdhttp.StatusCreated {
+			t.Fatalf("create provider %s expected 201, got %d with body %s", seed.name, recorder.Code, recorder.Body.String())
+		}
+		assertResponseDoesNotExposeAlertProviderSecrets(t, recorder.Body.String(), seed.secrets)
+
+		var response struct {
+			Data observability.AlertProviderConfigView `json:"data"`
+		}
+		if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+			t.Fatalf("decode create response for %s: %v", seed.name, err)
+		}
+		if response.Data.ID == "" || response.Data.Name != seed.name {
+			t.Fatalf("expected created provider identity for %s, got %+v", seed.name, response.Data)
+		}
+		createdIDsByName[seed.name] = response.Data.ID
+		for key, secret := range seed.secrets {
+			allSecrets = append(allSecrets, secret)
+			if response.Data.Config[key] != observability.RedactedAlertProviderSecret {
+				t.Fatalf("expected create response to redact %s for %s, got %+v", key, seed.name, response.Data.Config)
+			}
+			assertSQLAlertProviderConfigValue(t, database, response.Data.ID, key, secret)
+		}
+	}
+
+	listRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/admin/observability/alert-providers", nil)
+	listRequest.AddCookie(cookie)
+	listRecorder := httptest.NewRecorder()
+
+	router.ServeHTTP(listRecorder, listRequest)
+
+	if listRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("list providers expected 200, got %d with body %s", listRecorder.Code, listRecorder.Body.String())
+	}
+	for _, secret := range allSecrets {
+		if strings.Contains(listRecorder.Body.String(), secret) {
+			t.Fatalf("expected list response to redact %q, got %s", secret, listRecorder.Body.String())
+		}
+	}
+	if strings.Contains(listRecorder.Body.String(), "api_key_encrypted") {
+		t.Fatalf("expected list response to omit encrypted secret columns, got %s", listRecorder.Body.String())
+	}
+
+	smtpID := createdIDsByName["Primary SMTP"]
+	updatePayload := []byte(`{
+		"kind": "smtp",
+		"name": "Primary SMTP EU",
+		"status": "active",
+		"config": {
+			"smtp_host": "smtp.eu.example.com",
+			"smtp_port": "587",
+			"username": "alerts-eu@example.com",
+			"password": "********",
+			"from_email": "alerts-eu@example.com",
+			"recipients": "ops-eu@example.com"
+		}
+	}`)
+	updateRequest := httptest.NewRequest(stdhttp.MethodPut, "/api/v1/admin/observability/alert-providers/"+smtpID, bytes.NewReader(updatePayload))
+	updateRequest.Header.Set("Content-Type", "application/json")
+	updateRequest.AddCookie(cookie)
+	addCSRF(updateRequest, csrfToken)
+	updateRecorder := httptest.NewRecorder()
+
+	router.ServeHTTP(updateRecorder, updateRequest)
+
+	if updateRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("update provider expected 200, got %d with body %s", updateRecorder.Code, updateRecorder.Body.String())
+	}
+	assertResponseDoesNotExposeAlertProviderSecrets(t, updateRecorder.Body.String(), map[string]string{"password": "smtp-secret"})
+	var updateResponse struct {
+		Data observability.AlertProviderConfigView `json:"data"`
+	}
+	if err := json.Unmarshal(updateRecorder.Body.Bytes(), &updateResponse); err != nil {
+		t.Fatalf("decode update response: %v", err)
+	}
+	if updateResponse.Data.Name != "Primary SMTP EU" || updateResponse.Data.Config["password"] != observability.RedactedAlertProviderSecret {
+		t.Fatalf("expected update response to redact preserved password, got %+v", updateResponse.Data)
+	}
+	assertSQLAlertProviderConfigValue(t, database, smtpID, "password", "smtp-secret")
+	assertSQLAlertProviderConfigValue(t, database, smtpID, "smtp_host", "smtp.eu.example.com")
+}
+
 func TestObservabilityAlertAdminRouteUpdatesProviderConfigWithoutReplacingRedactedSecret(t *testing.T) {
 	providerStore := observability.NewInMemoryAlertProviderConfigStore()
 	router := newObservabilityAlertRouter(
@@ -230,6 +388,32 @@ func TestObservabilityAlertAdminRouteUpdatesProviderConfigWithoutReplacingRedact
 	}
 	if stored.Config["smtp_host"] != "smtp.eu.example.com" {
 		t.Fatalf("expected update to replace non-secret fields, got %+v", stored.Config)
+	}
+}
+
+func assertResponseDoesNotExposeAlertProviderSecrets(t *testing.T, body string, secrets map[string]string) {
+	t.Helper()
+	for _, secret := range secrets {
+		if strings.Contains(body, secret) {
+			t.Fatalf("expected alert provider response to redact %q, got %s", secret, body)
+		}
+	}
+	if strings.Contains(body, "api_key_encrypted") {
+		t.Fatalf("expected alert provider response to omit encrypted secret columns, got %s", body)
+	}
+}
+
+func assertSQLAlertProviderConfigValue(t *testing.T, database interface {
+	QueryRow(query string, args ...any) *sql.Row
+}, providerID, key, want string) {
+	t.Helper()
+
+	var got string
+	if err := database.QueryRow(`SELECT config ->> $2 FROM observability_alert_provider_configs WHERE id = $1`, providerID, key).Scan(&got); err != nil {
+		t.Fatalf("query stored alert provider config %s.%s: %v", providerID, key, err)
+	}
+	if got != want {
+		t.Fatalf("expected stored alert provider config %s.%s=%q, got %q", providerID, key, want, got)
 	}
 }
 

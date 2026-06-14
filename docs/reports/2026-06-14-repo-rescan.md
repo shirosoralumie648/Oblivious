@@ -2,11 +2,11 @@
 
 ## Current Truth
 
-- Branch: `main`; this report refreshes the June 14 scan after the Chat router checkpoint, Scheduled Task DB evidence slice, Tenant membership DB evidence slice, Tenant cross-surface DB evidence slice, Agent planning Playwright browser proof, Chat-to-SOLO Playwright browser proof, Marketplace paid-install provider browser proof, Workflows mobile responsive browser proof, Agent gRPC runtime-gateway proof, Agent gRPC authenticated service-adapter proof, HTTP panic recovery proof, and Console API token usage sanitization proof.
+- Branch: `main`; this report refreshes the June 14 scan after the Chat router checkpoint, Scheduled Task DB evidence slice, Tenant membership DB evidence slice, Tenant cross-surface DB evidence slice, Admin Observability provider secret-response DB evidence slice, Agent planning Playwright browser proof, Chat-to-SOLO Playwright browser proof, Marketplace paid-install provider browser proof, Workflows mobile responsive browser proof, Agent gRPC runtime-gateway proof, Agent gRPC authenticated service-adapter proof, HTTP panic recovery proof, and Console API token usage sanitization proof.
 - Worktree status at report close: clean against `origin/main` after the independently verified slice is committed and pushed.
 - The project is still **not complete** against the four 2026-06-04 fusion specs.
 - The current completion matrix remains `4 Proven / 10 Partial / 0 Gap / 0 Unverified`.
-- Current progress estimate after this rescan: **81/100**. The repository owns most core product surfaces and has strong focused evidence. Recent Agent planning, Chat-to-SOLO, Marketplace paid-provider, Workflows mobile responsive browser proof, Agent gRPC runtime/service-adapter proof, HTTP panic recovery proof, Console API token usage sanitization proof, Tenant membership, Tenant cross-surface isolation, Scheduled Task runtime, and all-profile DB evidence narrows frontend, marketplace-provider wiring, Agent service-boundary, repository-owned recovery behavior, Console user-visible security posture, DB-backed tenant/security, DB-backed workflow, and release-readiness risk, but the remaining progress is still dominated by target-environment proof, broader security/tenant-isolation depth, production deployment validation, and final no-skip release readiness.
+- Current progress estimate after this rescan: **81/100**. The repository owns most core product surfaces and has strong focused evidence. Recent Agent planning, Chat-to-SOLO, Marketplace paid-provider, Workflows mobile responsive browser proof, Agent gRPC runtime/service-adapter proof, HTTP panic recovery proof, Console API token usage sanitization proof, Tenant membership, Tenant cross-surface isolation, Admin Observability provider secret-response safety, Scheduled Task runtime, and all-profile DB evidence narrows frontend, marketplace-provider wiring, Agent service-boundary, repository-owned recovery behavior, Console user-visible security posture, DB-backed tenant/security, provider-secret response safety, DB-backed workflow, and release-readiness risk, but the remaining progress is still dominated by target-environment proof, broader security/tenant-isolation depth, production deployment validation, and final no-skip release readiness.
 
 ## What Changed Since The Previous Rescan
 
@@ -29,6 +29,8 @@
 - `scripts/verify-commercial-db-evidence.sh tenant-cross-surface` now provides no-skip PostgreSQL evidence for active-organization isolation across Chat, Knowledge, Console, Agent, Memory, MCP, Quota, Marketplace publisher, Marketplace settlement preferences, Agent run detail, and Agent tool-run approve/reject/retry HTTP surfaces.
 - The HTTP test database bootstrap now includes `concurrency_limits` and `token_rate_limits`, so quota active-organization isolation can run inside the same disposable PostgreSQL cross-surface profile.
 - Agent tool-run approval/reject/retry tenant-scope coverage now prepares retry evidence from a separate failed workflow fixture, avoiding a false failure caused by approving a pending tool run and completing the original run before the retry assertion.
+- `scripts/verify-commercial-db-evidence.sh secret-response-safety` now provides no-skip PostgreSQL evidence for SQL-backed Admin Observability alert-provider secret redaction. The real admin HTTP router writes raw SMTP `password`, Slack `webhook_url`, PagerDuty `routing_key`, Opsgenie `api_key`, and `private_key` values into PostgreSQL, while create/list/update responses return only redacted markers and omit encrypted-secret column names.
+- Redacted-marker updates for Admin Observability provider configs now have DB-backed proof that the stored raw secret is preserved while non-secret fields update normally.
 - `scripts/verify-commercial-db-evidence.sh all` now runs the full DB-backed commercial evidence profile set, and `scripts/verify-commercial-completion.sh` delegates its DB step to that aggregate instead of only `backend-journey`.
 - Console API token usage and Console recent usage now use a Console-only `ConsoleAPITokenUsageItem` shape. User-facing Console responses preserve token/request/model/status/accounting evidence but omit internal provider/channel routing fields.
 - The OpenAPI contract gate now requires Console usage responses to reference `ConsoleAPITokenUsageItem` and fails if provider/channel fields reappear.
@@ -80,7 +82,7 @@ Partial rows:
 - Security and tenant isolation
 - Migration strategy and release readiness
 
-This scan does not reclassify any Partial row to Proven. The Agent, Workflow, Frontend, Observability, API contract, Billing, and Security rows gained real app-router, Playwright browser, service-adapter, repository-owned recovery, DB-backed stateful-route, cross-surface tenant HTTP isolation, and Console usage sanitization evidence, but still need broader browser/runtime/target-environment proof before any open row can be called complete.
+This scan does not reclassify any Partial row to Proven. The Agent, Workflow, Frontend, Observability, API contract, Billing, and Security rows gained real app-router, Playwright browser, service-adapter, repository-owned recovery, DB-backed stateful-route, cross-surface tenant HTTP isolation, SQL-backed Admin Observability provider response redaction, and Console usage sanitization evidence, but still need broader browser/runtime/target-environment proof before any open row can be called complete.
 
 ## Verification Run During This Rescan
 
@@ -88,7 +90,7 @@ This scan does not reclassify any Partial row to Proven. The Agent, Workflow, Fr
 git status --short --branch
 git log --oneline -n 5
 find . \( -path '*/node_modules/*' -o -path './.tmp/*' -o -path './reference/*' \) -prune -o -name AGENTS.md -print
-bash scripts/verify-commercial-db-evidence.sh tenant-cross-surface
+bash scripts/verify-commercial-db-evidence.sh secret-response-safety
 bash scripts/verify-commercial-db-evidence.sh all
 COREPACK_HOME=/tmp/codex-corepack bash scripts/check.sh docs
 git diff --check
@@ -96,25 +98,26 @@ git diff --check
 
 Result:
 
-- `scripts/verify-commercial-db-evidence.sh tenant-cross-surface` passed with disposable pgvector PostgreSQL and reported `skipped tests: none`.
-- `scripts/verify-commercial-db-evidence.sh all` passed with disposable pgvector PostgreSQL and reported `skipped tests: none`, including the new tenant cross-surface profile.
+- `scripts/verify-commercial-db-evidence.sh secret-response-safety` passed with disposable pgvector PostgreSQL and reported `skipped tests: none`.
+- `scripts/verify-commercial-db-evidence.sh all` passed with disposable pgvector PostgreSQL and reported `skipped tests: none`, including the new secret-response-safety profile.
 - `bash scripts/check.sh docs` passed.
 - `git diff --check` passed.
 
 ## Notable Scan Findings
 
 - `scripts/check.sh` still exposes the main gates: `all`, `docs`, `relay-security`, `security`, `web`, and `server`.
-- `scripts/verify-commercial-db-evidence.sh` has seven no-skip DB evidence profiles:
+- `scripts/verify-commercial-db-evidence.sh` has eight no-skip DB evidence profiles:
   - `backend-journey`
   - `marketplace-money-movement`
   - `app-stateful-routes`
   - `tenant-membership-lifecycle`
   - `tenant-cross-surface`
+  - `secret-response-safety`
   - `agent-runtime-memory`
   - `scheduled-task-runtime`
 - `app-stateful-routes` now covers Console API token create/list/revoke and sanitized Console recent usage in the same DB-backed profile.
 - `tenant-cross-surface` now covers active-organization isolation across Chat, Knowledge, Console, Agent, Memory, MCP, Quota, Marketplace publisher, Marketplace settlement preferences, Agent run detail, and Agent tool-run decision/retry routes.
-- Provider-secret response safety is the next sharper Security slice: OpenAPI gates already cover Admin Relay channel, Publishing channel, Admin Observability provider, MCP, Console token, and Billing/payment/webhook response boundaries, so the next useful proof is DB-backed SQL-store plus HTTP response redaction for Admin Observability provider secrets, Publishing channel config secrets, or Admin Relay channel API keys.
+- Admin Observability provider secret-response safety now has SQL-backed HTTP proof; the next sharper Security slices are equivalent DB-backed response redaction for Publishing channel config secrets and Admin Relay channel API keys.
 - Active source TODO/stub scan still does not reveal a new broad implementation gap. Most matches are test stubs, generated gRPC `Unimplemented*` boilerplate, placeholder-secret/runbook language, UI input placeholders, benign nil-return no-row paths, and explicit tests that assert placeholder output is not used.
 - First-party active TODO boundaries are narrow and already documented as future or non-release proof:
   - `src/server/internal/relay/handler/realtime.go` has auth/prebill/settlement TODOs, while `docs/release/relay-route-table.md` marks Realtime `DisabledInProduction`.
@@ -129,7 +132,7 @@ Result:
 1. Broader Browser/E2E route proof: continue extending high-value commercial workflows beyond the current Agent planning, Chat-to-SOLO, Marketplace paid-provider, and Workflows mobile responsive browser journeys.
 2. Strict commercial verifier rerun on target infrastructure with deploy and backup/restore enabled.
 3. Observability and recovery proof: continue from the panic recovery proof into target-environment OOM/crash restart execution, scale-down, and failover evidence.
-4. DB-backed secret response safety: prove real SQL-backed Admin Observability provider, Publishing channel, or Admin Relay channel routes persist raw secrets but never return raw secret fields or encrypted-secret columns in HTTP responses; then continue into auth-security persistence, Relay file-mapping tenant ownership, and deeper SQL-store isolation for Workflow/Channel/Quota.
+4. DB-backed secret response safety: continue with Publishing channel config secrets or Admin Relay channel API keys, proving real SQL-backed routes persist raw secrets but never return raw secret fields or encrypted-secret columns in HTTP responses; then continue into auth-security persistence, Relay file-mapping tenant ownership, and deeper SQL-store isolation for Workflow/Channel/Quota.
 5. Deployment validation: only after repo-owned rows are narrowed further, run deploy/Kubernetes/backup-restore proof on the target installation.
 
 ## Boundary
