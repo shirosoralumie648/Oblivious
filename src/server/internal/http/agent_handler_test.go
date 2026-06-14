@@ -454,7 +454,7 @@ func TestAgentToolRunApprovalRejectRetryEndpointsAreTenantScoped(t *testing.T) {
 	router := NewRouter(testConfig(), database)
 	cookie, csrfToken, userID := registerHTTPUser(t, router, "agent-tool-runs@example.com")
 	_, organizationID := queryHTTPUserScope(t, database, userID)
-	_, pendingToolRun, failedToolRun := prepareHTTPAgentWorkflowState(t, database, userID, organizationID)
+	_, pendingToolRun, _ := prepareHTTPAgentWorkflowState(t, database, userID, organizationID)
 
 	approveRecorder := httptest.NewRecorder()
 	approveRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/agents/tool-runs/"+pendingToolRun.ID+"/approve", strings.NewReader(`{"reason":"reviewed"}`))
@@ -496,6 +496,7 @@ func TestAgentToolRunApprovalRejectRetryEndpointsAreTenantScoped(t *testing.T) {
 		t.Fatalf("expected rejected tool run with reason, got %+v", rejectResponse.Data)
 	}
 
+	_, _, failedToolRun := prepareHTTPAgentWorkflowState(t, database, userID, organizationID)
 	retryRecorder := httptest.NewRecorder()
 	retryRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/agents/tool-runs/"+failedToolRun.ID+"/retry", nil)
 	retryRequest.AddCookie(cookie)

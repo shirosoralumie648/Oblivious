@@ -15,7 +15,7 @@ output_files=()
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/verify-commercial-db-evidence.sh [all|backend-journey|marketplace-money-movement|app-stateful-routes|tenant-membership-lifecycle|agent-runtime-memory|scheduled-task-runtime]
+Usage: bash scripts/verify-commercial-db-evidence.sh [all|backend-journey|marketplace-money-movement|app-stateful-routes|tenant-membership-lifecycle|tenant-cross-surface|agent-runtime-memory|scheduled-task-runtime]
 
 Runs narrow DB-backed commercial evidence without silently accepting skipped tests.
 
@@ -29,6 +29,9 @@ Profiles:
                                ownership PostgreSQL route tests.
   tenant-membership-lifecycle  Run focused Tenant SQL store and HTTP
                                membership/ownership lifecycle tests.
+  tenant-cross-surface         Run focused cross-tenant app surface isolation
+                               tests across Chat, Knowledge, Console, Agent,
+                               Memory, MCP, Quota, and Marketplace.
   agent-runtime-memory         Run focused Agent runtime, approval, execution
                                mode, structured plan-step, and memory policy
                                PostgreSQL tests.
@@ -166,6 +169,13 @@ run_tenant_membership_lifecycle_profile() {
   run_go_test_no_skips "tenant HTTP membership ownership lifecycle" "./internal/http" "$tenant_http_pattern"
 }
 
+run_tenant_cross_surface_profile() {
+  local tenant_cross_surface_pattern
+
+  tenant_cross_surface_pattern="^Test(CrossTenant(ChatScopeUsesActiveOrganization|KnowledgeScopeDeniesReadWriteAndAttach|ConsoleUsageUsesActiveOrganization|AgentScopeDeniesReadWriteAndConversation|MemoryScopeDeniesReadWrite|MCPScopeDeniesReadWriteAndConnect|QuotaScopeUsesActiveOrganization|MarketplacePublisherScopeUsesActiveOrganization)|MarketplacePublisherSettlementPreferencesUseActiveOrganization|AgentRunStatusEndpointsExposeTenantScopedRunDetail|AgentToolRunApprovalRejectRetryEndpointsAreTenantScoped)$"
+  run_go_test_no_skips "tenant cross-surface app isolation" "./internal/http" "$tenant_cross_surface_pattern"
+}
+
 run_agent_runtime_memory_profile() {
   local agent_runtime_memory_pattern
 
@@ -188,6 +198,7 @@ run_all_profiles() {
   run_marketplace_money_movement_profile
   run_app_stateful_routes_profile
   run_tenant_membership_lifecycle_profile
+  run_tenant_cross_surface_profile
   run_agent_runtime_memory_profile
   run_scheduled_task_runtime_profile
 }
@@ -213,6 +224,9 @@ case "$profile" in
     ;;
   tenant-membership-lifecycle)
     run_tenant_membership_lifecycle_profile
+    ;;
+  tenant-cross-surface)
+    run_tenant_cross_surface_profile
     ;;
   agent-runtime-memory)
     run_agent_runtime_memory_profile
