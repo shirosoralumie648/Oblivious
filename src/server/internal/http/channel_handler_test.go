@@ -1,11 +1,14 @@
 package http
 
 import (
+	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"io"
 	stdhttp "net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -385,6 +388,99 @@ func TestPublishingChannelHandlerRedactsConfigSecretsInResponses(t *testing.T) {
 	statusRecorder := httptest.NewRecorder()
 	handler.updateChannelStatus(statusRecorder, publishingChannelRequest(stdhttp.MethodPatch, "/api/v1/channels/channel_1/status", `{"status":"active"}`, "org_1"), "channel_1")
 	assertPublishingChannelResponseRedactsSecrets(t, statusRecorder.Body.String())
+}
+
+func TestPublishingChannelHTTPRouteRedactsSQLStoreConfigSecretsAndPreservesMarkers(t *testing.T) {
+	database := testDatabase(t)
+	applyPublishingChannelMigration(t, database)
+	router := NewRouter(testConfig(), database)
+	cookie, csrfToken, _ := registerHTTPUser(t, router, "publishing-channel-redaction@example.com")
+
+	secrets := map[string]string{
+		"secret":        "publishing-sql-secret",
+		"webhookSecret": "publishing-camel-secret",
+		"api_key":       "publishing-api-key-secret",
+		"password":      "publishing-password-secret",
+	}
+	createBody := doPublishingChannelRouteJSON(t, router, stdhttp.MethodPost, "/api/v1/channels", map[string]any{
+		"type":   channel.ChannelTypeWebhook,
+		"name":   "SQL Webhook",
+		"status": channel.ChannelStatusActive,
+		"config": map[string]any{
+			"secret":        secrets["secret"],
+			"webhookSecret": secrets["webhookSecret"],
+			"api_key":       secrets["api_key"],
+			"password":      secrets["password"],
+			"webhook_url":   "https://hooks.example.test/sql",
+		},
+	}, cookie, csrfToken, stdhttp.StatusCreated)
+	assertPublishingChannelHTTPResponseRedactsSQLSecrets(t, string(createBody), secrets)
+
+	var createResponse struct {
+		Data channel.ChannelConfig `json:"data"`
+	}
+	if err := json.Unmarshal(createBody, &createResponse); err != nil {
+		t.Fatalf("decode create channel response: %v", err)
+	}
+	channelID := createResponse.Data.ID
+	if channelID == "" || createResponse.Data.Name != "SQL Webhook" {
+		t.Fatalf("expected created publishing channel identity, got %+v", createResponse.Data)
+	}
+	assertPublishingChannelConfigHasSecretMarkers(t, createResponse.Data.Config, secrets)
+	for key, secret := range secrets {
+		assertSQLPublishingChannelConfigValue(t, database, channelID, key, secret)
+	}
+
+	getBody := doPublishingChannelRouteJSON(t, router, stdhttp.MethodGet, "/api/v1/channels/"+channelID, nil, cookie, "", stdhttp.StatusOK)
+	assertPublishingChannelHTTPResponseRedactsSQLSecrets(t, string(getBody), secrets)
+	var getResponse struct {
+		Data channel.ChannelConfig `json:"data"`
+	}
+	if err := json.Unmarshal(getBody, &getResponse); err != nil {
+		t.Fatalf("decode get channel response: %v", err)
+	}
+	assertPublishingChannelConfigHasSecretMarkers(t, getResponse.Data.Config, secrets)
+
+	listBody := doPublishingChannelRouteJSON(t, router, stdhttp.MethodGet, "/api/v1/channels", nil, cookie, "", stdhttp.StatusOK)
+	assertPublishingChannelHTTPResponseRedactsSQLSecrets(t, string(listBody), secrets)
+	var listResponse struct {
+		Data []channel.ChannelConfig `json:"data"`
+	}
+	if err := json.Unmarshal(listBody, &listResponse); err != nil {
+		t.Fatalf("decode list channel response: %v", err)
+	}
+	if len(listResponse.Data) != 1 || listResponse.Data[0].ID != channelID {
+		t.Fatalf("expected list response to contain created channel only, got %+v", listResponse.Data)
+	}
+	assertPublishingChannelConfigHasSecretMarkers(t, listResponse.Data[0].Config, secrets)
+
+	updateBody := doPublishingChannelRouteJSON(t, router, stdhttp.MethodPut, "/api/v1/channels/"+channelID, map[string]any{
+		"type":   channel.ChannelTypeWebhook,
+		"name":   "SQL Webhook EU",
+		"status": channel.ChannelStatusDegraded,
+		"config": map[string]any{
+			"secret":        channelRedactedSecret,
+			"webhookSecret": channelRedactedSecret,
+			"api_key":       channelRedactedSecret,
+			"password":      channelRedactedSecret,
+			"webhook_url":   "https://hooks.example.test/eu",
+		},
+	}, cookie, csrfToken, stdhttp.StatusOK)
+	assertPublishingChannelHTTPResponseRedactsSQLSecrets(t, string(updateBody), secrets)
+	var updateResponse struct {
+		Data channel.ChannelConfig `json:"data"`
+	}
+	if err := json.Unmarshal(updateBody, &updateResponse); err != nil {
+		t.Fatalf("decode update channel response: %v", err)
+	}
+	if updateResponse.Data.Name != "SQL Webhook EU" || updateResponse.Data.Status != channel.ChannelStatusDegraded {
+		t.Fatalf("expected updated publishing channel metadata, got %+v", updateResponse.Data)
+	}
+	assertPublishingChannelConfigHasSecretMarkers(t, updateResponse.Data.Config, secrets)
+	for key, secret := range secrets {
+		assertSQLPublishingChannelConfigValue(t, database, channelID, key, secret)
+	}
+	assertSQLPublishingChannelConfigValue(t, database, channelID, "webhook_url", "https://hooks.example.test/eu")
 }
 
 func TestPublishingChannelHandlerCreatesSupportedPublishingAdapterTypes(t *testing.T) {
@@ -1684,6 +1780,81 @@ func assertPublishingChannelResponseRedactsSecrets(t *testing.T, body string) {
 		!strings.Contains(body, `"webhookSecret":"********"`) &&
 		!strings.Contains(body, `"webhook_secret":"********"`) {
 		t.Fatalf("expected channel response to include a redaction marker, got %s", body)
+	}
+}
+
+func applyPublishingChannelMigration(t *testing.T, database *sql.DB) {
+	t.Helper()
+
+	migration, err := os.ReadFile("../../migrations/0043_channel_publishing.sql")
+	if err != nil {
+		t.Fatalf("read publishing channel migration: %v", err)
+	}
+	if _, err := database.Exec(string(migration)); err != nil {
+		t.Fatalf("apply publishing channel migration: %v", err)
+	}
+}
+
+func doPublishingChannelRouteJSON(t *testing.T, router stdhttp.Handler, method, path string, payload any, cookie *stdhttp.Cookie, csrfToken string, wantStatus int) []byte {
+	t.Helper()
+
+	var body *bytes.Reader
+	if payload == nil {
+		body = bytes.NewReader(nil)
+	} else {
+		payloadBytes, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatalf("marshal publishing channel payload: %v", err)
+		}
+		body = bytes.NewReader(payloadBytes)
+	}
+	request := httptest.NewRequest(method, path, body)
+	if payload != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	request.AddCookie(cookie)
+	if csrfToken != "" {
+		addCSRF(request, csrfToken)
+	}
+	recorder := httptest.NewRecorder()
+
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != wantStatus {
+		t.Fatalf("%s %s expected %d, got %d with body %s", method, path, wantStatus, recorder.Code, recorder.Body.String())
+	}
+	return recorder.Body.Bytes()
+}
+
+func assertPublishingChannelHTTPResponseRedactsSQLSecrets(t *testing.T, body string, secrets map[string]string) {
+	t.Helper()
+	for _, secret := range secrets {
+		if strings.Contains(body, secret) {
+			t.Fatalf("expected publishing channel response to redact %q, got %s", secret, body)
+		}
+	}
+}
+
+func assertPublishingChannelConfigHasSecretMarkers(t *testing.T, config map[string]any, secrets map[string]string) {
+	t.Helper()
+	for key := range secrets {
+		if config[key] != channelRedactedSecret {
+			t.Fatalf("expected publishing channel response config %s to be redacted, got %+v", key, config)
+		}
+	}
+}
+
+func assertSQLPublishingChannelConfigValue(t *testing.T, database interface {
+	QueryRow(query string, args ...any) *sql.Row
+}, channelID, key, want string) {
+	t.Helper()
+
+	var got string
+	if err := database.QueryRow(`SELECT config ->> $2 FROM channel_configs WHERE id = $1`, channelID, key).Scan(&got); err != nil {
+		t.Fatalf("query stored publishing channel config %s.%s: %v", channelID, key, err)
+	}
+	if got != want {
+		t.Fatalf("expected stored publishing channel config %s.%s=%q, got %q", channelID, key, want, got)
 	}
 }
 
