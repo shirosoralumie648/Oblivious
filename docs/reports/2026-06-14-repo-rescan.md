@@ -48,7 +48,7 @@
   - `deploy`: 42 files
 - Server shape:
   - `src/server/internal`: 586 tracked files
-  - `src/server/migrations`: 106 migration files
+  - `src/server/migrations`: 105 tracked SQL migration files: 92 top-level versioned migrations plus 13 SQL files in `clickhouse/` and `microservices/`
   - largest active server domains are `relay`, `http`, `mcp`, `admin`, `agent`, `workflow`, `knowledge`, `observability`, `channel`, `migration`, and `marketplace`
 - Web shape:
   - `src/web/src/routes`: 80 tracked files
