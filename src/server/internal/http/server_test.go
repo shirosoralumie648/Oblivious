@@ -1609,6 +1609,177 @@ func TestCrossTenantQuotaScopeUsesActiveOrganization(t *testing.T) {
 	}
 }
 
+func TestCrossTenantWorkflowScopeDeniesReadWriteAndExecution(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+
+	cookie, csrfToken, userID := registerHTTPUser(t, router, "cross-workflow@example.com")
+	_, activeOrganizationID := queryHTTPUserScope(t, database, userID)
+	promoteHTTPUserToAdmin(t, database, userID)
+	otherOrganizationID := createHTTPOrganization(t, router, cookie, csrfToken, "Other Workflow Org", "other-workflow-org")
+
+	insertHTTPWorkflowFixture(t, database, httpWorkflowFixture{
+		WorkflowID:      "workflow_other_org",
+		ExecutionID:     "workflow_execution_other_org",
+		NodeExecutionID: "workflow_node_execution_other_org",
+		OrganizationID:  otherOrganizationID,
+		Name:            "Other org workflow",
+	})
+
+	listRecorder := httptest.NewRecorder()
+	listRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/workflows", nil)
+	listRequest.AddCookie(cookie)
+	router.ServeHTTP(listRecorder, listRequest)
+	if listRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("list workflows expected 200, got %d with body %s", listRecorder.Code, listRecorder.Body.String())
+	}
+	var listResponse struct {
+		Data []struct {
+			ID             string `json:"id"`
+			OrganizationID string `json:"organizationId"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(listRecorder.Body.Bytes(), &listResponse); err != nil {
+		t.Fatalf("decode workflow list: %v", err)
+	}
+	for _, workflow := range listResponse.Data {
+		if workflow.ID == "workflow_other_org" {
+			t.Fatalf("active organization %s must not list workflow from organization %s", activeOrganizationID, otherOrganizationID)
+		}
+	}
+
+	crossTenantRequests := []struct {
+		name         string
+		method       string
+		path         string
+		body         string
+		wantStatus   int
+		requiresCSRF bool
+		contentType  bool
+	}{
+		{
+			name:       "get workflow",
+			method:     stdhttp.MethodGet,
+			path:       "/api/v1/workflows/workflow_other_org",
+			wantStatus: stdhttp.StatusNotFound,
+		},
+		{
+			name:         "update workflow",
+			method:       stdhttp.MethodPut,
+			path:         "/api/v1/workflows/workflow_other_org",
+			body:         `{"name":"Mutated other org workflow"}`,
+			wantStatus:   stdhttp.StatusNotFound,
+			requiresCSRF: true,
+			contentType:  true,
+		},
+		{
+			name:         "execute workflow",
+			method:       stdhttp.MethodPost,
+			path:         "/api/v1/workflows/workflow_other_org/execute",
+			body:         `{"input":{"attempt":"cross-tenant"}}`,
+			wantStatus:   stdhttp.StatusNotFound,
+			requiresCSRF: true,
+			contentType:  true,
+		},
+		{
+			name:       "list executions",
+			method:     stdhttp.MethodGet,
+			path:       "/api/v1/workflows/workflow_other_org/executions",
+			wantStatus: stdhttp.StatusNotFound,
+		},
+		{
+			name:       "get execution",
+			method:     stdhttp.MethodGet,
+			path:       "/api/v1/workflows/workflow_other_org/executions/workflow_execution_other_org",
+			wantStatus: stdhttp.StatusNotFound,
+		},
+		{
+			name:       "debug snapshot",
+			method:     stdhttp.MethodGet,
+			path:       "/api/v1/workflows/workflow_other_org/executions/workflow_execution_other_org/debug-snapshot",
+			wantStatus: stdhttp.StatusNotFound,
+		},
+	}
+	for _, requestCase := range crossTenantRequests {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(requestCase.method, requestCase.path, strings.NewReader(requestCase.body))
+		if requestCase.contentType {
+			request.Header.Set("Content-Type", "application/json")
+		}
+		request.AddCookie(cookie)
+		if requestCase.requiresCSRF {
+			addCSRF(request, csrfToken)
+		}
+		router.ServeHTTP(recorder, request)
+		if recorder.Code != requestCase.wantStatus {
+			t.Fatalf("%s expected %d, got %d with body %s", requestCase.name, requestCase.wantStatus, recorder.Code, recorder.Body.String())
+		}
+	}
+
+	var workflowName string
+	if err := database.QueryRow(`SELECT name FROM workflows WHERE id = 'workflow_other_org'`).Scan(&workflowName); err != nil {
+		t.Fatalf("query other org workflow name: %v", err)
+	}
+	if workflowName != "Other org workflow" {
+		t.Fatalf("expected denied update to preserve other org workflow name, got %q", workflowName)
+	}
+
+	var executionCount int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM workflow_executions WHERE workflow_id = 'workflow_other_org'`).Scan(&executionCount); err != nil {
+		t.Fatalf("count other org workflow executions: %v", err)
+	}
+	if executionCount != 1 {
+		t.Fatalf("expected denied execute to leave other org workflow execution count at 1, got %d", executionCount)
+	}
+}
+
+type httpWorkflowFixture struct {
+	WorkflowID      string
+	ExecutionID     string
+	NodeExecutionID string
+	OrganizationID  string
+	Name            string
+}
+
+func insertHTTPWorkflowFixture(t *testing.T, database *sql.DB, fixture httpWorkflowFixture) {
+	t.Helper()
+
+	definition := `{
+		"nodes":[{"id":"start","type":"start","input":{"message":"tenant scoped"}}],
+		"edges":[]
+	}`
+	if _, err := database.Exec(`
+		INSERT INTO workflows (id, organization_id, name, description, status, version, definition, variables, created_at, updated_at)
+		VALUES ($1, $2, $3, 'Cross-tenant workflow fixture', 'published', 1, $4::jsonb, '{}'::jsonb, NOW(), NOW())
+	`, fixture.WorkflowID, fixture.OrganizationID, fixture.Name, definition); err != nil {
+		t.Fatalf("insert workflow fixture definition: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO workflow_versions (workflow_id, organization_id, version, name, description, status, definition, variables, created_at, updated_at)
+		VALUES ($1, $2, 1, $3, 'Cross-tenant workflow fixture', 'published', $4::jsonb, '{}'::jsonb, NOW(), NOW())
+	`, fixture.WorkflowID, fixture.OrganizationID, fixture.Name, definition); err != nil {
+		t.Fatalf("insert workflow fixture version: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO workflow_executions (
+			id, workflow_id, workflow_version, organization_id, status, input, output, error, context, workflow_snapshot,
+			started_at, completed_at, duration_ms, created_at, updated_at
+		)
+		VALUES ($1, $2, 1, $3, 'running', '{"tenant":"other"}'::jsonb, '{}'::jsonb, '{}'::jsonb, '{"tenant":"other"}'::jsonb, $4::jsonb, NOW(), NULL, 0, NOW(), NOW())
+	`, fixture.ExecutionID, fixture.WorkflowID, fixture.OrganizationID, definition); err != nil {
+		t.Fatalf("insert workflow fixture execution: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO workflow_node_executions (
+			id, execution_id, organization_id, node_id, node_type, status, attempt,
+			input, output, error, context, started_at, completed_at, duration_ms, created_at, updated_at
+		)
+		VALUES ($1, $2, $3, 'start', 'start', 'running', 1, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, NOW(), NULL, 0, NOW(), NOW())
+	`, fixture.NodeExecutionID, fixture.ExecutionID, fixture.OrganizationID); err != nil {
+		t.Fatalf("insert workflow fixture node execution: %v", err)
+	}
+}
+
 func TestCrossTenantMarketplacePublisherScopeUsesActiveOrganization(t *testing.T) {
 	database := testDatabase(t)
 	router := NewRouter(testConfig(), database)

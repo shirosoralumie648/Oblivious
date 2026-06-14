@@ -201,6 +201,9 @@ func (a workflowServiceAdapter) TestNode(ctx context.Context, session auth.Sessi
 }
 
 func (a workflowServiceAdapter) ListExecutions(ctx context.Context, session auth.Session, workflowID string) ([]*workflow.WorkflowExecution, error) {
+	if _, err := a.service.GetWorkflow(ctx, session.OrganizationID, workflowID); err != nil {
+		return nil, err
+	}
 	return a.service.ListExecutions(ctx, session.OrganizationID, workflowID)
 }
 

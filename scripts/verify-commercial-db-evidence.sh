@@ -15,7 +15,7 @@ output_files=()
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/verify-commercial-db-evidence.sh [all|backend-journey|marketplace-money-movement|app-stateful-routes|tenant-membership-lifecycle|tenant-cross-surface|secret-response-safety|agent-runtime-memory|scheduled-task-runtime|auth-security-persistence|relay-file-mapping-tenant-ownership]
+Usage: bash scripts/verify-commercial-db-evidence.sh [all|backend-journey|marketplace-money-movement|app-stateful-routes|tenant-membership-lifecycle|tenant-cross-surface|secret-response-safety|agent-runtime-memory|scheduled-task-runtime|auth-security-persistence|relay-file-mapping-tenant-ownership|workflow-sql-isolation]
 
 Runs narrow DB-backed commercial evidence without silently accepting skipped tests.
 
@@ -46,6 +46,8 @@ Profiles:
                                Run focused Relay file-mapping upload,
                                passthrough, and tenant ownership PostgreSQL
                                tests.
+  workflow-sql-isolation       Run focused Workflow SQL store and HTTP router
+                               active-organization isolation PostgreSQL tests.
 
 Environment:
   TEST_DATABASE_URL        Optional PostgreSQL URL. If unset, a disposable pgvector
@@ -226,6 +228,16 @@ run_relay_file_mapping_tenant_ownership_profile() {
   run_go_test_no_skips "relay file mapping tenant ownership" "./internal/relay" "$relay_file_mapping_pattern"
 }
 
+run_workflow_sql_isolation_profile() {
+  local workflow_store_pattern
+  local workflow_http_pattern
+
+  workflow_store_pattern="^TestWorkflowStorePersists(DefinitionsAndExecutions|VersionHistoryAndExecutionVersion)$"
+  workflow_http_pattern="^TestCrossTenantWorkflowScopeDeniesReadWriteAndExecution$"
+  run_go_test_no_skips "workflow SQL store tenant isolation" "./internal/workflow" "$workflow_store_pattern"
+  run_go_test_no_skips "workflow HTTP active-organization isolation" "./internal/http" "$workflow_http_pattern"
+}
+
 run_all_profiles() {
   run_backend_journey_profile
   run_marketplace_money_movement_profile
@@ -237,6 +249,7 @@ run_all_profiles() {
   run_scheduled_task_runtime_profile
   run_auth_security_persistence_profile
   run_relay_file_mapping_tenant_ownership_profile
+  run_workflow_sql_isolation_profile
 }
 
 if [[ -z "$database_url" ]]; then
@@ -278,6 +291,9 @@ case "$profile" in
     ;;
   relay-file-mapping-tenant-ownership)
     run_relay_file_mapping_tenant_ownership_profile
+    ;;
+  workflow-sql-isolation)
+    run_workflow_sql_isolation_profile
     ;;
   *)
     usage >&2
