@@ -1,0 +1,4 @@
+## 2026-06-14 - Fix Tenant Scoping Bypass in SQL Runner
+**Vulnerability:** The workflow database SQL runner validated tenant scoping by naively checking for the presence of the string `"organization_id"` in the raw SQL query. This could be bypassed using SQL comments (`-- organization_id`) or string literals (`'organization_id'`), allowing cross-tenant data access.
+**Learning:** Naive substring matching for SQL validation is inherently insecure as it ignores the semantic structure of the query.
+**Prevention:** Use a regex to strip out comments, string literals, and quoted identifiers before performing string-based validation, or ideally use a proper SQL parser. Note that Postgres supports advanced string literals like dollar-quoting (`$$...$$`) which might require more complex stripping if heavily used.

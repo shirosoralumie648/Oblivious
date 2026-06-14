@@ -364,6 +364,46 @@ func TestWorkflowDatabaseSQLRunnerRejectsUnsafeQueries(t *testing.T) {
 			},
 		},
 		{
+			name: "tenant query bypass with escaped string literal",
+			req: workflow.WorkflowDatabaseRequest{
+				OrganizationID: "org_1",
+				Query:          "select id from workflows where col = 'some ''escaped'' string organization_id'",
+				ReadOnly:       true,
+			},
+		},
+		{
+			name: "tenant query bypass with double quotes",
+			req: workflow.WorkflowDatabaseRequest{
+				OrganizationID: "org_1",
+				Query:          "select id from workflows where col = \"organization_id\"",
+				ReadOnly:       true,
+			},
+		},
+		{
+			name: "tenant query bypass with comments",
+			req: workflow.WorkflowDatabaseRequest{
+				OrganizationID: "org_1",
+				Query:          "select id from workflows -- organization_id",
+				ReadOnly:       true,
+			},
+		},
+		{
+			name: "tenant query bypass with block comments",
+			req: workflow.WorkflowDatabaseRequest{
+				OrganizationID: "org_1",
+				Query:          "select id from workflows /* organization_id */",
+				ReadOnly:       true,
+			},
+		},
+		{
+			name: "tenant query bypass with string literal",
+			req: workflow.WorkflowDatabaseRequest{
+				OrganizationID: "org_1",
+				Query:          "select id from workflows where col = 'organization_id'",
+				ReadOnly:       true,
+			},
+		},
+		{
 			name: "write query",
 			req: workflow.WorkflowDatabaseRequest{
 				OrganizationID: "org_1",

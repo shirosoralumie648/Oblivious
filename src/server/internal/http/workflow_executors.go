@@ -101,6 +101,7 @@ type workflowDatabaseSQLRunner struct {
 }
 
 var workflowDatabaseWriteKeywordPattern = regexp.MustCompile(`(?i)\b(insert|update|delete|merge|create|alter|drop|truncate|grant|revoke|copy|call|do|vacuum|analyze|reindex|refresh|lock|set|reset|listen|notify|unlisten|comment|cluster)\b`)
+var workflowDatabaseQueryScrubPattern = regexp.MustCompile(`(?s)'(?:[^']|'')*'|"(?:[^"]|"")*"|/\*.*?\*/|--[^\n]*`)
 
 func (r workflowJavaScriptCodeRunner) RunWorkflowCode(ctx context.Context, req workflow.WorkflowCodeRequest) (*workflow.WorkflowCodeResult, error) {
 	language := strings.ToLower(strings.TrimSpace(req.Language))
@@ -267,7 +268,8 @@ func workflowDatabaseQueryIsReadOnly(query string) bool {
 }
 
 func workflowDatabaseQueryIsTenantScoped(query string) bool {
-	lowered := strings.ToLower(query)
+	scrubbed := workflowDatabaseQueryScrubPattern.ReplaceAllString(query, "")
+	lowered := strings.ToLower(scrubbed)
 	if !strings.Contains(lowered, " from ") && !strings.Contains(lowered, "\nfrom ") && !strings.Contains(lowered, "\tfrom ") && !strings.Contains(lowered, " join ") {
 		return true
 	}
