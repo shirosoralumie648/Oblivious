@@ -15,7 +15,7 @@ output_files=()
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/verify-commercial-db-evidence.sh [all|backend-journey|marketplace-money-movement|app-stateful-routes|tenant-membership-lifecycle|tenant-cross-surface|secret-response-safety|agent-runtime-memory|scheduled-task-runtime]
+Usage: bash scripts/verify-commercial-db-evidence.sh [all|backend-journey|marketplace-money-movement|app-stateful-routes|tenant-membership-lifecycle|tenant-cross-surface|secret-response-safety|agent-runtime-memory|scheduled-task-runtime|auth-security-persistence]
 
 Runs narrow DB-backed commercial evidence without silently accepting skipped tests.
 
@@ -39,6 +39,9 @@ Profiles:
                                PostgreSQL tests.
   scheduled-task-runtime       Run focused Scheduled Task SQL store, route, and
                                Workflow trigger sync PostgreSQL tests.
+  auth-security-persistence    Run focused Auth password policy, reset,
+                               session revocation, hash, and rate-limit
+                               persistence PostgreSQL tests.
 
 Environment:
   TEST_DATABASE_URL        Optional PostgreSQL URL. If unset, a disposable pgvector
@@ -202,6 +205,16 @@ run_scheduled_task_runtime_profile() {
   run_go_test_no_skips "scheduled task route and workflow sync persistence" "./internal/http" "$scheduled_task_routes_pattern"
 }
 
+run_auth_security_persistence_profile() {
+  local auth_store_pattern
+  local auth_http_pattern
+
+  auth_store_pattern="^(TestPasswordPolicyResetAndSessionRevocation|TestSQLRateLimiterPersistsBlocks)$"
+  auth_http_pattern="^Test(RegisterLoginMeLogoutFlow|AuthRateLimitRejectsRepeatedFailedLogin|PasswordResetRoutesConfirmAndRevokeSessions|RegisterStoresHashedPassword|LoginAcceptsRawPasswordAgainstStoredHash|MeRequiresSession|AuthResponsesExposeStableUserAndPreferenceContracts|SensitiveOrganizationActionsAreRateLimited)$"
+  run_go_test_no_skips "auth password reset and rate-limit persistence" "./internal/auth" "$auth_store_pattern"
+  run_go_test_no_skips "auth HTTP persistence and security routes" "./internal/http" "$auth_http_pattern"
+}
+
 run_all_profiles() {
   run_backend_journey_profile
   run_marketplace_money_movement_profile
@@ -211,6 +224,7 @@ run_all_profiles() {
   run_secret_response_safety_profile
   run_agent_runtime_memory_profile
   run_scheduled_task_runtime_profile
+  run_auth_security_persistence_profile
 }
 
 if [[ -z "$database_url" ]]; then
@@ -246,6 +260,9 @@ case "$profile" in
     ;;
   scheduled-task-runtime)
     run_scheduled_task_runtime_profile
+    ;;
+  auth-security-persistence)
+    run_auth_security_persistence_profile
     ;;
   *)
     usage >&2
