@@ -12,6 +12,9 @@ service AgentService {
   // ExecuteReAct 执行 ReAct 循环
   rpc ExecuteReAct(ExecuteReActRequest) returns (ExecuteReActResponse);
 
+  // ContinueBudget 使用新的 token budget 恢复运行
+  rpc ContinueBudget(ContinueBudgetRequest) returns (ContinueBudgetResponse);
+
   // ApproveToolCall 批准工具调用
   rpc ApproveToolCall(ApproveToolCallRequest) returns (ApproveToolCallResponse);
 
@@ -60,6 +63,21 @@ message ExecuteReActResponse {
   string status = 2;
   string result = 3;
   repeated ToolCall pending_tool_calls = 4;
+}
+
+message ContinueBudgetRequest {
+  string run_id = 1;
+  string organization_id = 2;
+  string user_id = 3;
+  int32 token_budget = 4;
+}
+
+message ContinueBudgetResponse {
+  string run_id = 1;
+  string status = 2;
+  string result = 3;
+  repeated ToolCall pending_tool_calls = 4;
+  repeated PlanStep plan_steps = 5;
 }
 
 message ApproveToolCallRequest {

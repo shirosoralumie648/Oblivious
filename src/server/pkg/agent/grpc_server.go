@@ -19,6 +19,7 @@ type AgentRuntimeService interface {
 	StartRun(context.Context, auth.Session, internalagent.StartRunRequest) (*internalagent.RunWithMessages, error)
 	ListRuns(context.Context, auth.Session, string) ([]*internalagent.Run, error)
 	GetRunWithMessages(context.Context, auth.Session, string) (*internalagent.RunWithMessages, error)
+	ContinueRunWithTokenBudget(context.Context, auth.Session, string, int) (*internalagent.RunResult, error)
 	ApproveToolRun(context.Context, auth.Session, string, string) (*internalagent.ToolRun, error)
 	RejectToolRun(context.Context, auth.Session, string, string) (*internalagent.ToolRun, error)
 	ContinuePlanningRun(context.Context, auth.Session, string) (*internalagent.RunWithMessages, error)
@@ -32,6 +33,7 @@ type AgentRuntimeService interface {
 type RuntimeGateway interface {
 	CreateRun(context.Context, CreateRunInput) (RunState, error)
 	ExecuteReAct(context.Context, ExecuteReActInput) (RunExecutionState, error)
+	ContinueBudget(context.Context, ContinueBudgetInput) (ContinueBudgetState, error)
 	ApproveToolCall(context.Context, ToolApprovalInput) (ToolApprovalState, error)
 	ContinuePlan(context.Context, PlanRunInput) (PlanRunState, error)
 	AdjustPlan(context.Context, AdjustPlanInput) (PlanRunState, error)
@@ -55,6 +57,13 @@ type ExecuteReActInput struct {
 	RunID          string
 	OrganizationID string
 	UserID         string
+}
+
+type ContinueBudgetInput struct {
+	RunID          string
+	OrganizationID string
+	UserID         string
+	TokenBudget    int32
 }
 
 type ToolApprovalInput struct {
@@ -97,6 +106,14 @@ type RunExecutionState struct {
 	Status           string
 	Result           string
 	PendingToolCalls []PendingToolCall
+}
+
+type ContinueBudgetState struct {
+	RunID            string
+	Status           string
+	Result           string
+	PendingToolCalls []PendingToolCall
+	PlanSteps        []PlanStepState
 }
 
 type PendingToolCall struct {
@@ -234,6 +251,50 @@ func (s *Server) ExecuteReAct(ctx context.Context, req *agentv1.ExecuteReActRequ
 		Status:           run.Status,
 		Result:           run.Result,
 		PendingToolCalls: pendingToolCalls,
+	}, nil
+}
+
+func (s *Server) ContinueBudget(ctx context.Context, req *agentv1.ContinueBudgetRequest) (*agentv1.ContinueBudgetResponse, error) {
+	if req.RunId == "" {
+		return nil, status.Error(codes.InvalidArgument, "run_id is required")
+	}
+	if req.OrganizationId == "" {
+		return nil, status.Error(codes.InvalidArgument, "organization_id is required")
+	}
+	if req.UserId == "" {
+		return nil, status.Error(codes.InvalidArgument, "user_id is required")
+	}
+	if req.TokenBudget < 1000 || req.TokenBudget > 1000000 {
+		return nil, status.Error(codes.InvalidArgument, "token_budget must be between 1000 and 1000000")
+	}
+	if s.runtime == nil {
+		return nil, status.Error(codes.FailedPrecondition, "agent runtime is not configured")
+	}
+
+	run, err := s.runtime.ContinueBudget(ctx, ContinueBudgetInput{
+		RunID:          req.RunId,
+		OrganizationID: req.OrganizationId,
+		UserID:         req.UserId,
+		TokenBudget:    req.TokenBudget,
+	})
+	if err != nil {
+		return nil, err
+	}
+	pendingToolCalls := make([]*agentv1.ToolCall, 0, len(run.PendingToolCalls))
+	for _, toolCall := range run.PendingToolCalls {
+		pendingToolCalls = append(pendingToolCalls, &agentv1.ToolCall{
+			Id:     toolCall.ID,
+			Name:   toolCall.Name,
+			Input:  toolCall.Input,
+			Status: toolCall.Status,
+		})
+	}
+	return &agentv1.ContinueBudgetResponse{
+		RunId:            run.RunID,
+		Status:           run.Status,
+		Result:           run.Result,
+		PendingToolCalls: pendingToolCalls,
+		PlanSteps:        planRunResponse(PlanRunState{PlanSteps: run.PlanSteps}).PlanSteps,
 	}, nil
 }
 
@@ -429,6 +490,30 @@ func (g serviceRuntimeGateway) ExecuteReAct(ctx context.Context, input ExecuteRe
 	}, nil
 }
 
+func (g serviceRuntimeGateway) ContinueBudget(ctx context.Context, input ContinueBudgetInput) (ContinueBudgetState, error) {
+	if g.service == nil {
+		return ContinueBudgetState{}, status.Error(codes.FailedPrecondition, "agent service is not configured")
+	}
+	session := input.session()
+	if _, err := g.service.ContinueRunWithTokenBudget(ctx, session, input.RunID, int(input.TokenBudget)); err != nil {
+		return ContinueBudgetState{}, mapAgentRuntimeError(err)
+	}
+	result, err := g.service.GetRunWithMessages(ctx, session, input.RunID)
+	if err != nil {
+		return ContinueBudgetState{}, mapAgentRuntimeError(err)
+	}
+	if result == nil || result.Run == nil {
+		return ContinueBudgetState{}, status.Error(codes.Internal, "agent runtime did not return a run")
+	}
+	return ContinueBudgetState{
+		RunID:            result.Run.ID,
+		Status:           result.Run.Status,
+		Result:           finalAssistantContent(result),
+		PendingToolCalls: pendingToolCalls(result.ToolRuns),
+		PlanSteps:        planStepStates(result.PlanSteps),
+	}, nil
+}
+
 func (g serviceRuntimeGateway) ApproveToolCall(ctx context.Context, input ToolApprovalInput) (ToolApprovalState, error) {
 	if g.service == nil {
 		return ToolApprovalState{}, status.Error(codes.FailedPrecondition, "agent service is not configured")
@@ -543,6 +628,10 @@ func (input CreateRunInput) session() auth.Session {
 }
 
 func (input ExecuteReActInput) session() auth.Session {
+	return auth.Session{OrganizationID: input.OrganizationID, User: auth.User{ID: input.UserID}}
+}
+
+func (input ContinueBudgetInput) session() auth.Session {
 	return auth.Session{OrganizationID: input.OrganizationID, User: auth.User{ID: input.UserID}}
 }
 

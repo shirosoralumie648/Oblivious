@@ -102,12 +102,31 @@ func TestRegisterAgentGRPCServiceServesGeneratedClient(t *testing.T) {
 	if step.GetId() != "step_1" || step.GetToolName() != "read_file" || step.GetDependsOn()[0] != 0 {
 		t.Fatalf("unexpected mapped plan step: %+v", step)
 	}
+
+	budgetResp, err := client.ContinueBudget(ctx, &agentv1.ContinueBudgetRequest{
+		RunId:          "run_1",
+		OrganizationId: "org_1",
+		UserId:         "user_1",
+		TokenBudget:    5000,
+	})
+	if err != nil {
+		t.Fatalf("ContinueBudget over generated client returned error: %v", err)
+	}
+	if runtime.continueBudgetRunID != "run_1" || runtime.continueBudgetValue != 5000 || runtime.continueBudgetSession.OrganizationID != "org_1" || runtime.continueBudgetSession.User.ID != "user_1" {
+		t.Fatalf("runtime did not receive budget resume session/run: run=%q budget=%d session=%+v", runtime.continueBudgetRunID, runtime.continueBudgetValue, runtime.continueBudgetSession)
+	}
+	if budgetResp.GetRunId() != "run_1" || budgetResp.GetStatus() != internalagent.RunStatusPendingApproval || len(budgetResp.GetPlanSteps()) != 1 {
+		t.Fatalf("unexpected ContinueBudget response: %+v", budgetResp)
+	}
 }
 
 type fakeAgentRuntimeService struct {
-	runDetail       *internalagent.RunWithMessages
-	continueSession auth.Session
-	continueRunID   string
+	runDetail             *internalagent.RunWithMessages
+	continueSession       auth.Session
+	continueRunID         string
+	continueBudgetSession auth.Session
+	continueBudgetRunID   string
+	continueBudgetValue   int
 }
 
 func (f *fakeAgentRuntimeService) StartRun(context.Context, auth.Session, internalagent.StartRunRequest) (*internalagent.RunWithMessages, error) {
@@ -120,6 +139,13 @@ func (f *fakeAgentRuntimeService) ListRuns(context.Context, auth.Session, string
 
 func (f *fakeAgentRuntimeService) GetRunWithMessages(context.Context, auth.Session, string) (*internalagent.RunWithMessages, error) {
 	return f.runDetail, nil
+}
+
+func (f *fakeAgentRuntimeService) ContinueRunWithTokenBudget(_ context.Context, session auth.Session, runID string, tokenBudget int) (*internalagent.RunResult, error) {
+	f.continueBudgetSession = session
+	f.continueBudgetRunID = runID
+	f.continueBudgetValue = tokenBudget
+	return &internalagent.RunResult{}, nil
 }
 
 func (f *fakeAgentRuntimeService) ApproveToolRun(context.Context, auth.Session, string, string) (*internalagent.ToolRun, error) {

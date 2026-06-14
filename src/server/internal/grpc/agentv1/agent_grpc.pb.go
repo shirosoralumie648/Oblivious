@@ -21,6 +21,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	AgentService_CreateRun_FullMethodName       = "/oblivious.agent.v1.AgentService/CreateRun"
 	AgentService_ExecuteReAct_FullMethodName    = "/oblivious.agent.v1.AgentService/ExecuteReAct"
+	AgentService_ContinueBudget_FullMethodName  = "/oblivious.agent.v1.AgentService/ContinueBudget"
 	AgentService_ApproveToolCall_FullMethodName = "/oblivious.agent.v1.AgentService/ApproveToolCall"
 	AgentService_ContinuePlan_FullMethodName    = "/oblivious.agent.v1.AgentService/ContinuePlan"
 	AgentService_AdjustPlan_FullMethodName      = "/oblivious.agent.v1.AgentService/AdjustPlan"
@@ -40,6 +41,8 @@ type AgentServiceClient interface {
 	CreateRun(ctx context.Context, in *CreateRunRequest, opts ...grpc.CallOption) (*CreateRunResponse, error)
 	// ExecuteReAct 执行 ReAct 循环
 	ExecuteReAct(ctx context.Context, in *ExecuteReActRequest, opts ...grpc.CallOption) (*ExecuteReActResponse, error)
+	// ContinueBudget 使用新的 token budget 恢复运行
+	ContinueBudget(ctx context.Context, in *ContinueBudgetRequest, opts ...grpc.CallOption) (*ContinueBudgetResponse, error)
 	// ApproveToolCall 批准工具调用
 	ApproveToolCall(ctx context.Context, in *ApproveToolCallRequest, opts ...grpc.CallOption) (*ApproveToolCallResponse, error)
 	// ContinuePlan 继续执行已批准的规划步骤
@@ -78,6 +81,16 @@ func (c *agentServiceClient) ExecuteReAct(ctx context.Context, in *ExecuteReActR
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ExecuteReActResponse)
 	err := c.cc.Invoke(ctx, AgentService_ExecuteReAct_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) ContinueBudget(ctx context.Context, in *ContinueBudgetRequest, opts ...grpc.CallOption) (*ContinueBudgetResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ContinueBudgetResponse)
+	err := c.cc.Invoke(ctx, AgentService_ContinueBudget_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -164,6 +177,8 @@ type AgentServiceServer interface {
 	CreateRun(context.Context, *CreateRunRequest) (*CreateRunResponse, error)
 	// ExecuteReAct 执行 ReAct 循环
 	ExecuteReAct(context.Context, *ExecuteReActRequest) (*ExecuteReActResponse, error)
+	// ContinueBudget 使用新的 token budget 恢复运行
+	ContinueBudget(context.Context, *ContinueBudgetRequest) (*ContinueBudgetResponse, error)
 	// ApproveToolCall 批准工具调用
 	ApproveToolCall(context.Context, *ApproveToolCallRequest) (*ApproveToolCallResponse, error)
 	// ContinuePlan 继续执行已批准的规划步骤
@@ -193,6 +208,9 @@ func (UnimplementedAgentServiceServer) CreateRun(context.Context, *CreateRunRequ
 }
 func (UnimplementedAgentServiceServer) ExecuteReAct(context.Context, *ExecuteReActRequest) (*ExecuteReActResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ExecuteReAct not implemented")
+}
+func (UnimplementedAgentServiceServer) ContinueBudget(context.Context, *ContinueBudgetRequest) (*ContinueBudgetResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ContinueBudget not implemented")
 }
 func (UnimplementedAgentServiceServer) ApproveToolCall(context.Context, *ApproveToolCallRequest) (*ApproveToolCallResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ApproveToolCall not implemented")
@@ -268,6 +286,24 @@ func _AgentService_ExecuteReAct_Handler(srv interface{}, ctx context.Context, de
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AgentServiceServer).ExecuteReAct(ctx, req.(*ExecuteReActRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_ContinueBudget_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ContinueBudgetRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).ContinueBudget(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_ContinueBudget_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).ContinueBudget(ctx, req.(*ContinueBudgetRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -412,6 +448,10 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ExecuteReAct",
 			Handler:    _AgentService_ExecuteReAct_Handler,
+		},
+		{
+			MethodName: "ContinueBudget",
+			Handler:    _AgentService_ContinueBudget_Handler,
 		},
 		{
 			MethodName: "ApproveToolCall",

@@ -16,6 +16,7 @@ import (
 type fakeRuntimeGateway struct {
 	createInput         CreateRunInput
 	executeInput        ExecuteReActInput
+	continueBudgetInput ContinueBudgetInput
 	approvalInput       ToolApprovalInput
 	continuePlanInput   PlanRunInput
 	adjustPlanInput     AdjustPlanInput
@@ -24,6 +25,7 @@ type fakeRuntimeGateway struct {
 
 	createResponse         RunState
 	executeResponse        RunExecutionState
+	continueBudgetResponse ContinueBudgetState
 	approvalResponse       ToolApprovalState
 	planRunResponse        PlanRunState
 	planStepActionResponse PlanStepActionState
@@ -44,6 +46,14 @@ func (f *fakeRuntimeGateway) ExecuteReAct(_ context.Context, input ExecuteReActI
 		return RunExecutionState{}, f.err
 	}
 	return f.executeResponse, nil
+}
+
+func (f *fakeRuntimeGateway) ContinueBudget(_ context.Context, input ContinueBudgetInput) (ContinueBudgetState, error) {
+	f.continueBudgetInput = input
+	if f.err != nil {
+		return ContinueBudgetState{}, f.err
+	}
+	return f.continueBudgetResponse, nil
 }
 
 func (f *fakeRuntimeGateway) ApproveToolCall(_ context.Context, input ToolApprovalInput) (ToolApprovalState, error) {
@@ -277,6 +287,143 @@ func TestExecuteReActValidationAndRuntimeConfiguration(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := NewServer().ExecuteReAct(context.Background(), tt.req)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if status.Code(err) != tt.code {
+				t.Fatalf("expected %v, got %v", tt.code, status.Code(err))
+			}
+		})
+	}
+}
+
+func TestContinueBudget(t *testing.T) {
+	runtime := &fakeRuntimeGateway{
+		continueBudgetResponse: ContinueBudgetState{
+			RunID:  "run1",
+			Status: internalagent.RunStatusPendingApproval,
+			Result: "resume paused on approval",
+			PendingToolCalls: []PendingToolCall{{
+				ID:     "tool_run_2",
+				Name:   "write_file",
+				Input:  `{"path":"release.md"}`,
+				Status: internalagent.ToolRunStatusPendingApproval,
+			}},
+			PlanSteps: []PlanStepState{{
+				ID:             "step_retry",
+				RunID:          "run1",
+				Index:          2,
+				Title:          "Retry planned step",
+				Status:         internalagent.PlanStepStatusPending,
+				ApprovalStatus: internalagent.ApprovalStatusPending,
+				ToolName:       "shell",
+				Input:          `{"cmd":"go test"}`,
+				DependsOn:      []int32{1},
+			}},
+		},
+	}
+	s := NewServerWithRuntime(runtime)
+
+	resp, err := s.ContinueBudget(context.Background(), &agentv1.ContinueBudgetRequest{
+		RunId:          "run1",
+		OrganizationId: "org1",
+		UserId:         "user1",
+		TokenBudget:    2500,
+	})
+	if err != nil {
+		t.Fatalf("ContinueBudget returned error: %v", err)
+	}
+	if runtime.continueBudgetInput.RunID != "run1" ||
+		runtime.continueBudgetInput.OrganizationID != "org1" ||
+		runtime.continueBudgetInput.UserID != "user1" ||
+		runtime.continueBudgetInput.TokenBudget != 2500 {
+		t.Fatalf("expected request fields to be forwarded, got %+v", runtime.continueBudgetInput)
+	}
+	if resp.RunId != "run1" || resp.Status != internalagent.RunStatusPendingApproval || resp.Result != "resume paused on approval" {
+		t.Fatalf("expected runtime resume response, got %+v", resp)
+	}
+	if len(resp.PendingToolCalls) != 1 ||
+		resp.PendingToolCalls[0].Id != "tool_run_2" ||
+		resp.PendingToolCalls[0].Name != "write_file" ||
+		resp.PendingToolCalls[0].Input != `{"path":"release.md"}` {
+		t.Fatalf("expected pending tool calls to round trip, got %+v", resp.PendingToolCalls)
+	}
+	if len(resp.PlanSteps) != 1 ||
+		resp.PlanSteps[0].Id != "step_retry" ||
+		resp.PlanSteps[0].Input != `{"cmd":"go test"}` ||
+		resp.PlanSteps[0].DependsOn[0] != 1 {
+		t.Fatalf("expected plan steps to round trip, got %+v", resp.PlanSteps)
+	}
+}
+
+func TestContinueBudgetValidationAndRuntimeConfiguration(t *testing.T) {
+	tests := []struct {
+		name string
+		req  *agentv1.ContinueBudgetRequest
+		code codes.Code
+	}{
+		{
+			name: "missing run_id",
+			req: &agentv1.ContinueBudgetRequest{
+				OrganizationId: "org1",
+				UserId:         "user1",
+				TokenBudget:    2500,
+			},
+			code: codes.InvalidArgument,
+		},
+		{
+			name: "missing organization_id",
+			req: &agentv1.ContinueBudgetRequest{
+				RunId:       "run1",
+				UserId:      "user1",
+				TokenBudget: 2500,
+			},
+			code: codes.InvalidArgument,
+		},
+		{
+			name: "missing user_id",
+			req: &agentv1.ContinueBudgetRequest{
+				RunId:          "run1",
+				OrganizationId: "org1",
+				TokenBudget:    2500,
+			},
+			code: codes.InvalidArgument,
+		},
+		{
+			name: "budget too small",
+			req: &agentv1.ContinueBudgetRequest{
+				RunId:          "run1",
+				OrganizationId: "org1",
+				UserId:         "user1",
+				TokenBudget:    999,
+			},
+			code: codes.InvalidArgument,
+		},
+		{
+			name: "budget too large",
+			req: &agentv1.ContinueBudgetRequest{
+				RunId:          "run1",
+				OrganizationId: "org1",
+				UserId:         "user1",
+				TokenBudget:    1000001,
+			},
+			code: codes.InvalidArgument,
+		},
+		{
+			name: "runtime not configured",
+			req: &agentv1.ContinueBudgetRequest{
+				RunId:          "run1",
+				OrganizationId: "org1",
+				UserId:         "user1",
+				TokenBudget:    2500,
+			},
+			code: codes.FailedPrecondition,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewServer().ContinueBudget(context.Background(), tt.req)
 			if err == nil {
 				t.Fatal("expected error, got nil")
 			}
@@ -630,40 +777,44 @@ func TestRuntimeErrorsPropagate(t *testing.T) {
 }
 
 type fakeAgentRuntimeService struct {
-	startSession      auth.Session
-	startRequest      internalagent.StartRunRequest
-	listSession       auth.Session
-	listConversation  string
-	detailSession     auth.Session
-	detailRunID       string
-	approveSession    auth.Session
-	approveToolRunID  string
-	approveReason     string
-	rejectSession     auth.Session
-	rejectToolRunID   string
-	rejectReason      string
-	continueSession   auth.Session
-	continueRunID     string
-	adjustSession     auth.Session
-	adjustRunID       string
-	adjustReason      string
-	planStepSession   auth.Session
-	planStepID        string
-	planStepReason    string
-	planStepAction    string
-	startResponse     *internalagent.RunWithMessages
-	startError        error
-	listResponse      []*internalagent.Run
-	detailResponse    *internalagent.RunWithMessages
-	detailError       error
-	approveResponse   *internalagent.ToolRun
-	rejectResponse    *internalagent.ToolRun
-	continueResponse  *internalagent.RunWithMessages
-	adjustResponse    *internalagent.RunWithMessages
-	planStepResponse  *internalagent.PlanStep
-	toolDecisionError error
-	planningError     error
-	planStepError     error
+	startSession          auth.Session
+	startRequest          internalagent.StartRunRequest
+	listSession           auth.Session
+	listConversation      string
+	detailSession         auth.Session
+	detailRunID           string
+	continueBudgetSession auth.Session
+	continueBudgetRunID   string
+	continueBudgetValue   int
+	approveSession        auth.Session
+	approveToolRunID      string
+	approveReason         string
+	rejectSession         auth.Session
+	rejectToolRunID       string
+	rejectReason          string
+	continueSession       auth.Session
+	continueRunID         string
+	adjustSession         auth.Session
+	adjustRunID           string
+	adjustReason          string
+	planStepSession       auth.Session
+	planStepID            string
+	planStepReason        string
+	planStepAction        string
+	startResponse         *internalagent.RunWithMessages
+	startError            error
+	listResponse          []*internalagent.Run
+	detailResponse        *internalagent.RunWithMessages
+	detailError           error
+	continueBudgetError   error
+	approveResponse       *internalagent.ToolRun
+	rejectResponse        *internalagent.ToolRun
+	continueResponse      *internalagent.RunWithMessages
+	adjustResponse        *internalagent.RunWithMessages
+	planStepResponse      *internalagent.PlanStep
+	toolDecisionError     error
+	planningError         error
+	planStepError         error
 }
 
 func (f *fakeAgentRuntimeService) StartRun(_ context.Context, session auth.Session, req internalagent.StartRunRequest) (*internalagent.RunWithMessages, error) {
@@ -682,6 +833,16 @@ func (f *fakeAgentRuntimeService) GetRunWithMessages(_ context.Context, session 
 	f.detailSession = session
 	f.detailRunID = runID
 	return f.detailResponse, f.detailError
+}
+
+func (f *fakeAgentRuntimeService) ContinueRunWithTokenBudget(_ context.Context, session auth.Session, runID string, tokenBudget int) (*internalagent.RunResult, error) {
+	f.continueBudgetSession = session
+	f.continueBudgetRunID = runID
+	f.continueBudgetValue = tokenBudget
+	if f.continueBudgetError != nil {
+		return nil, f.continueBudgetError
+	}
+	return &internalagent.RunResult{}, nil
 }
 
 func (f *fakeAgentRuntimeService) ApproveToolRun(_ context.Context, session auth.Session, toolRunID, reason string) (*internalagent.ToolRun, error) {
@@ -848,6 +1009,75 @@ func TestServiceRuntimeGatewayExecuteReActReturnsRunDetail(t *testing.T) {
 		state.PendingToolCalls[0].Name != "web_search" ||
 		state.PendingToolCalls[0].Input != `{"query":"release"}` {
 		t.Fatalf("expected one pending tool call, got %+v", state.PendingToolCalls)
+	}
+}
+
+func TestServiceRuntimeGatewayContinueBudgetUsesAgentServiceAndReloadsRunDetail(t *testing.T) {
+	service := &fakeAgentRuntimeService{
+		detailResponse: &internalagent.RunWithMessages{
+			Run: &internalagent.Run{
+				ID:             "run_budget",
+				Status:         internalagent.RunStatusPendingApproval,
+				FinalMessageID: "msg_final",
+			},
+			Messages: []*internalagent.Message{{
+				ID:      "msg_final",
+				Role:    "assistant",
+				Content: "budget resume paused on approval",
+			}},
+			ToolRuns: []*internalagent.ToolRun{{
+				ID:       "tool_run_pending",
+				ToolName: "write_file",
+				Arguments: map[string]any{
+					"path": "release.md",
+				},
+				Status: internalagent.ToolRunStatusPendingApproval,
+			}},
+			PlanSteps: []*internalagent.PlanStep{{
+				ID:             "step_budget",
+				RunID:          "run_budget",
+				Index:          1,
+				Title:          "Retry budgeted step",
+				Status:         internalagent.PlanStepStatusPending,
+				ApprovalStatus: internalagent.ApprovalStatusPending,
+				ToolName:       "shell",
+				Input: map[string]any{
+					"cmd": "go test",
+				},
+			}},
+		},
+	}
+
+	state, err := NewServiceRuntimeGateway(service).ContinueBudget(context.Background(), ContinueBudgetInput{
+		RunID:          "run_budget",
+		OrganizationID: "org1",
+		UserID:         "user1",
+		TokenBudget:    5000,
+	})
+	if err != nil {
+		t.Fatalf("ContinueBudget returned error: %v", err)
+	}
+	if service.continueBudgetSession.OrganizationID != "org1" ||
+		service.continueBudgetSession.User.ID != "user1" ||
+		service.continueBudgetRunID != "run_budget" ||
+		service.continueBudgetValue != 5000 {
+		t.Fatalf("expected continue-budget request forwarded, session=%+v runID=%q budget=%d", service.continueBudgetSession, service.continueBudgetRunID, service.continueBudgetValue)
+	}
+	if service.detailSession.OrganizationID != "org1" || service.detailSession.User.ID != "user1" || service.detailRunID != "run_budget" {
+		t.Fatalf("expected refreshed run detail request, session=%+v runID=%q", service.detailSession, service.detailRunID)
+	}
+	if state.RunID != "run_budget" || state.Status != internalagent.RunStatusPendingApproval || state.Result != "budget resume paused on approval" {
+		t.Fatalf("expected budget resume run state, got %+v", state)
+	}
+	if len(state.PendingToolCalls) != 1 ||
+		state.PendingToolCalls[0].ID != "tool_run_pending" ||
+		state.PendingToolCalls[0].Input != `{"path":"release.md"}` {
+		t.Fatalf("expected pending tool call from refreshed detail, got %+v", state.PendingToolCalls)
+	}
+	if len(state.PlanSteps) != 1 ||
+		state.PlanSteps[0].ID != "step_budget" ||
+		state.PlanSteps[0].Input != `{"cmd":"go test"}` {
+		t.Fatalf("expected plan-step detail from refreshed detail, got %+v", state.PlanSteps)
 	}
 }
 
