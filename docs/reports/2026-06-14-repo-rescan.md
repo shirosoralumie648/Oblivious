@@ -2,11 +2,11 @@
 
 ## Current Truth
 
-- Branch: `main`; this report refreshes the June 14 scan after the Chat router checkpoint, Scheduled Task DB evidence slice, Workflow SQL active-organization isolation DB evidence slice, Publishing channel active-organization isolation DB evidence slice, Admin Relay channel active-organization isolation DB evidence slice, Quota SQL tenant isolation DB evidence slice, Tenant membership DB evidence slice, Tenant cross-surface DB evidence slice, Auth security persistence plus reset-token replay/expiry/non-enumeration DB evidence slice, Relay file-mapping tenant ownership DB evidence slice, Admin Observability provider secret-response DB evidence slice, Publishing channel secret-response DB evidence slice, Admin Relay channel secret-response DB evidence slice, Agent planning Playwright browser proof, Chat-to-SOLO Playwright browser proof, Marketplace paid-install provider browser proof, Workflows mobile responsive browser proof, Agent gRPC runtime-gateway proof, Agent gRPC authenticated service-adapter proof, HTTP panic recovery proof, and Console API token usage sanitization proof.
-- Worktree status at continuation recheck before this Quota SQL isolation slice: clean against `origin/main`; latest committed checkpoint was `a92705b test(security): prove publishing channel tenant isolation`.
+- Branch: `main`; this report refreshes the June 14 scan after the Chat router checkpoint, Scheduled Task DB evidence slice, Workflow SQL active-organization isolation DB evidence slice, Publishing channel active-organization isolation DB evidence slice, Admin Relay channel active-organization isolation DB evidence slice, Quota SQL tenant isolation DB evidence slice, Tenant membership DB evidence slice, Tenant cross-surface DB evidence slice, Auth security persistence plus reset-token replay/expiry/non-enumeration DB evidence slice, Relay file-mapping tenant ownership DB evidence slice, Admin Observability provider secret-response DB evidence slice, Publishing channel secret-response DB evidence slice, Admin Relay channel secret-response DB evidence slice, Agent planning Playwright browser proof, Chat-to-SOLO Playwright browser proof, Marketplace paid-install provider browser proof, Workflows mobile responsive browser proof, Agent gRPC runtime-gateway proof, Agent gRPC authenticated service-adapter proof, HTTP panic recovery proof, Console API token usage sanitization proof, and the post-Admin-Relay runtime channel isolation code scan.
+- Worktree status at the latest live recheck: clean against `origin/main`; latest committed checkpoint is `15a725b test(security): prove admin relay channel tenant isolation`.
 - The project is still **not complete** against the four 2026-06-04 fusion specs.
 - The current completion matrix remains `4 Proven / 10 Partial / 0 Gap / 0 Unverified`.
-- Current progress estimate after this rescan: **83/100**. The repository owns most core product surfaces and has strong focused evidence. Recent Agent planning, Chat-to-SOLO, Marketplace paid-provider, Workflows mobile responsive browser proof, Agent gRPC runtime/service-adapter proof, HTTP panic recovery proof, Console API token usage sanitization proof, Tenant membership, Tenant cross-surface isolation, Auth security persistence and reset-token replay/expiry/non-enumeration depth, Relay file-mapping tenant ownership, Workflow SQL active-organization isolation, Publishing channel active-organization isolation, Admin Relay channel active-organization isolation, Quota SQL tenant isolation, Admin Observability provider secret-response safety, Publishing channel secret-response safety, Admin Relay channel secret-response safety, Scheduled Task runtime, and all-profile DB evidence narrows frontend, marketplace-provider wiring, Agent service-boundary, repository-owned recovery behavior, Console user-visible security posture, DB-backed tenant/security/quota and publishing-channel/Admin Relay route isolation, provider-secret response safety, DB-backed workflow, and release-readiness risk, but the remaining progress is still dominated by target-environment proof, broader security/tenant-isolation depth, production deployment validation, and final no-skip release readiness.
+- Current progress estimate after this rescan: **83/100**. The repository owns most core product surfaces and has strong focused evidence. Recent Agent planning, Chat-to-SOLO, Marketplace paid-provider, Workflows mobile responsive browser proof, Agent gRPC runtime/service-adapter proof, HTTP panic recovery proof, Console API token usage sanitization proof, Tenant membership, Tenant cross-surface isolation, Auth security persistence and reset-token replay/expiry/non-enumeration depth, Relay file-mapping tenant ownership, Workflow SQL active-organization isolation, Publishing channel active-organization isolation, Admin Relay channel active-organization isolation, Quota SQL tenant isolation, Admin Observability provider secret-response safety, Publishing channel secret-response safety, Admin Relay channel secret-response safety, Scheduled Task runtime, and all-profile DB evidence narrows frontend, marketplace-provider wiring, Agent service-boundary, repository-owned recovery behavior, Console user-visible security posture, DB-backed tenant/security/quota and publishing-channel/Admin Relay route isolation, provider-secret response safety, DB-backed workflow, and release-readiness risk. The next repository-owned security slice is runtime Relay channel selection by active organization; the remaining progress is still dominated by target-environment proof, broader security/tenant-isolation depth, production deployment validation, and final no-skip release readiness.
 
 ## What Changed Since The Previous Rescan
 
@@ -48,7 +48,7 @@
 ## Repository Inventory
 
 - Tracked file distribution:
-  - `src`: 965 files
+  - `src`: 966 files
   - `.planning`: 210 files
   - `docs`: 91 files
   - `scripts`: 37 files
@@ -63,7 +63,7 @@
   - route families are mostly `workspace`, `admin`, `console`, `marketing`, and `marketplace`
 - Test inventory:
   - Go test files: 226
-  - Web component/API test files: 68
+  - Web component/API test files: 67
   - Web Playwright specs: 5 specs, plus 5 E2E fixture files
 - Latest checked-in top-level migration: `src/server/migrations/0081_admin_relay_channel_organization_scope.sql`.
 - Project-local `AGENTS.md`: none at the main repo root or under first-party source; discovered `AGENTS.md` files are in dependency caches or nested `reference/*` repositories.
@@ -136,7 +136,7 @@ rg -n "OrganizationID|ErrNotFound" src/server/internal/http/workflow_handler.go 
 Result:
 
 - The live worktree remained clean on `main...origin/main`.
-- Inventory counters now show `src/server/internal=587` and Web component/API test files `68`; the top-level matrix count did not change.
+- Inventory counters now show `src=966`, `src/server/internal=587`, and Web component/API test files `67`; the top-level matrix count did not change.
 - Workflow HTTP adapter calls still thread `session.OrganizationID` into list/get/update/delete/execute/execution-control paths, while `workflow.ErrNotFound` maps to HTTP `404`.
 - Workflow store tests and `workflow-sql-isolation` now prove cross-organization workflow and execution reads fail closed through both SQL store and real HTTP router paths.
 
@@ -160,7 +160,8 @@ Result:
   - `quota-sql-isolation`
 - `app-stateful-routes` now covers Console API token create/list/revoke and sanitized Console recent usage in the same DB-backed profile.
 - `tenant-cross-surface` now covers active-organization isolation across Chat, Knowledge, Console, Agent, Memory, MCP, Quota, Marketplace publisher, Marketplace settlement preferences, Agent run detail, and Agent tool-run decision/retry routes.
-- Admin Observability provider, Publishing channel, and Admin Relay channel secret-response safety now have SQL-backed HTTP proof; Auth security persistence, Auth reset-token replay/expiry depth, Relay file-mapping tenant ownership, Workflow SQL active-organization isolation, Publishing channel active-organization isolation, Admin Relay channel active-organization isolation, and Quota SQL tenant isolation now have no-skip DB evidence. The next sharper Security slices are remaining Admin channel-provider ownership isolation and equivalent response-safety proof for any newly added provider/channel secret surfaces.
+- Admin Observability provider, Publishing channel, and Admin Relay channel secret-response safety now have SQL-backed HTTP proof; Auth security persistence, Auth reset-token replay/expiry depth, Relay file-mapping tenant ownership, Workflow SQL active-organization isolation, Publishing channel active-organization isolation, Admin Relay channel active-organization isolation, and Quota SQL tenant isolation now have no-skip DB evidence.
+- The post-Admin-Relay code scan found a sharper runtime isolation boundary: Admin channel CRUD/test/health/sync paths are scoped by active organization, but `RelayStore.ListChannels`, `RelayStore.GetModelRoute`, `ChannelPool.ListChannels`, and `LoadBalancer.filterHealthy` still load/select from the global channel pool; `Router.RouteWithBilling` reads the trusted organization ID for billing/logging but does not pass it into channel selection. This does not reclassify the Relay routing semantics row, but it keeps Security and tenant isolation open until runtime Relay channel selection and conversation affinity are proven organization-aware.
 - Active source TODO/stub scan still does not reveal a new broad implementation gap. Most matches are test stubs, generated gRPC `Unimplemented*` boilerplate, placeholder-secret/runbook language, UI input placeholders, benign nil-return no-row paths, and explicit tests that assert placeholder output is not used.
 - First-party active TODO boundaries are narrow and already documented as future or non-release proof:
   - `src/server/internal/relay/handler/realtime.go` has auth/prebill/settlement TODOs, while `docs/release/relay-route-table.md` marks Realtime `DisabledInProduction`.
@@ -172,11 +173,12 @@ Result:
 
 ## Recommended Next Slices
 
-1. DB-backed security depth: after Quota SQL tenant isolation, continue into Admin Relay/channel-provider ownership isolation and equivalent response-safety proof for any newly added provider/channel secret surfaces.
-2. Broader Browser/E2E route proof: continue extending high-value commercial workflows beyond the current Agent planning, Chat-to-SOLO, Marketplace paid-provider, and Workflows mobile responsive browser journeys.
-3. Strict commercial verifier rerun on target infrastructure with deploy and backup/restore enabled.
-4. Observability and recovery proof: continue from the panic recovery proof into target-environment OOM/crash restart execution, scale-down, and failover evidence.
-5. Deployment validation: only after repo-owned rows are narrowed further, run deploy/Kubernetes/backup-restore proof on the target installation.
+1. Runtime Relay channel isolation: make channel loading, model-route fallback, explicit channel affinity, and retry selection organization-aware, then prove cross-organization channels are never selected for trusted tenant requests.
+2. DB-backed security depth: continue into Admin Relay/channel-provider ownership isolation and equivalent response-safety proof for any newly added provider/channel secret surfaces.
+3. Broader Browser/E2E route proof: continue extending high-value commercial workflows beyond the current Agent planning, Chat-to-SOLO, Marketplace paid-provider, and Workflows mobile responsive browser journeys.
+4. Strict commercial verifier rerun on target infrastructure with deploy and backup/restore enabled.
+5. Observability and recovery proof: continue from the panic recovery proof into target-environment OOM/crash restart execution, scale-down, and failover evidence.
+6. Deployment validation: only after repo-owned rows are narrowed further, run deploy/Kubernetes/backup-restore proof on the target installation.
 
 ## Boundary
 
