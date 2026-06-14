@@ -57,7 +57,7 @@ If a command is intentionally skipped because the target environment lacks Docke
 | Billing and Marketplace payment rails | DB-backed lifecycle reruns plus configured provider checkout/refund/payout proof | Fake providers and DB-free handlers prove only local validation/fail-closed behavior |
 | Deployment platform recovery | `scripts/k8s-validate.sh` with real cluster access, real secrets, and failover/scale evidence | Static manifests and contract checks do not prove live failover |
 | Database-backed tenant isolation | Broader `TEST_DATABASE_URL` integration tests in CI or target release evidence | Focused disposable PostgreSQL app-stateful, tenant-membership lifecycle, and tenant-cross-surface evidence covers selected tenant/session/ownership/member and core app-surface SQL paths, but DB-free route guards do not prove all SQL persistence isolation |
-| Provider/channel secret responses | SQL-backed HTTP redaction proof for remaining provider/channel route families | Admin Observability alert-provider and Publishing channel SQL-backed responses are covered; Admin Relay channel SQL-backed response proof remains open |
+| Provider/channel secret responses | SQL-backed HTTP redaction proof for newly added provider/channel route families plus target-environment secret audits | Admin Observability alert-provider, Publishing channel, and Admin Relay channel SQL-backed HTTP responses are covered; at-rest encryption and target-environment secret audits remain open |
 | Final release readiness | Strict final verifier with deploy and backup/restore enabled and no environment skips | Historical Phase 30 success does not automatically cover later fusion-spec changes |
 
 ## Update Rules

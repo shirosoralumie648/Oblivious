@@ -1,0 +1,195 @@
+package http
+
+import (
+	"database/sql"
+	"encoding/json"
+	stdhttp "net/http"
+	"strings"
+	"testing"
+
+	"oblivious/server/internal/admin"
+)
+
+func TestAdminRelayChannelHTTPRouteRedactsSQLStoreAPIKeysAndPreservesMarkers(t *testing.T) {
+	database := testDatabase(t)
+	applyCommercialJourneyMigrations(t, database)
+	router := NewRouter(testConfig(), database)
+	cookie, csrfToken, userID := registerHTTPUser(t, router, "admin-relay-channel-redaction@example.com")
+	promoteHTTPUserToAdmin(t, database, userID)
+
+	secrets := struct {
+		create  string
+		updated string
+	}{
+		create:  "sk-admin-relay-create-secret",
+		updated: "sk-admin-relay-rotate-secret",
+	}
+
+	createBody := commercialDoJSON(t, router, stdhttp.MethodPost, "/api/v1/admin/channels", `{
+		"name": "Secret OpenAI",
+		"provider": "openai",
+		"baseURL": "https://api.openai.example",
+		"apiKey": "`+secrets.create+`",
+		"models": ["gpt-4o-mini"],
+		"groups": ["default"],
+		"rpmLimit": 120,
+		"tpmLimit": 120000,
+		"priority": 10,
+		"weight": 80,
+		"estimatedCostPer1K": 0.02,
+		"costMultiplier": 1.25
+	}`, cookie, csrfToken, stdhttp.StatusCreated)
+	assertAdminRelayChannelResponseRedactsSecrets(t, string(createBody), secrets.create)
+
+	var createResponse struct {
+		Data admin.ChannelInfo `json:"data"`
+	}
+	if err := json.Unmarshal(createBody, &createResponse); err != nil {
+		t.Fatalf("decode admin relay channel create response: %v", err)
+	}
+	channelID := createResponse.Data.ID
+	if channelID == "" || createResponse.Data.Name != "Secret OpenAI" || createResponse.Data.Provider != "openai" {
+		t.Fatalf("expected created admin relay channel identity, got %+v", createResponse.Data)
+	}
+	assertAdminRelayChannelStoredAPIKey(t, database, channelID, secrets.create)
+
+	listBody := commercialDoJSON(t, router, stdhttp.MethodGet, "/api/v1/admin/channels", "", cookie, "", stdhttp.StatusOK)
+	assertAdminRelayChannelResponseRedactsSecrets(t, string(listBody), secrets.create)
+	var listResponse struct {
+		Data struct {
+			Channels []admin.ChannelInfo `json:"channels"`
+			Total    int                 `json:"total"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(listBody, &listResponse); err != nil {
+		t.Fatalf("decode admin relay channel list response: %v", err)
+	}
+	if listResponse.Data.Total != 1 || len(listResponse.Data.Channels) != 1 || listResponse.Data.Channels[0].ID != channelID {
+		t.Fatalf("expected channel list to contain created channel only, got %+v", listResponse.Data)
+	}
+	if listResponse.Data.Channels[0].BaseURL != "https://api.openai.example" || listResponse.Data.Channels[0].Weight != 80 {
+		t.Fatalf("expected channel list to preserve non-secret config, got %+v", listResponse.Data.Channels[0])
+	}
+
+	getBody := commercialDoJSON(t, router, stdhttp.MethodGet, "/api/v1/admin/channels/"+channelID, "", cookie, "", stdhttp.StatusOK)
+	assertAdminRelayChannelResponseRedactsSecrets(t, string(getBody), secrets.create)
+	var getResponse struct {
+		Data admin.ChannelInfo `json:"data"`
+	}
+	if err := json.Unmarshal(getBody, &getResponse); err != nil {
+		t.Fatalf("decode admin relay channel get response: %v", err)
+	}
+	if getResponse.Data.ID != channelID || getResponse.Data.BaseURL != "https://api.openai.example" {
+		t.Fatalf("expected channel get to preserve non-secret config, got %+v", getResponse.Data)
+	}
+
+	updateBody := commercialDoJSON(t, router, stdhttp.MethodPut, "/api/v1/admin/channels/"+channelID, `{
+		"apiKey": "`+secrets.updated+`",
+		"baseURL": "https://api.openai.eu.example",
+		"models": ["gpt-4o-mini", "gpt-4.1"]
+	}`, cookie, csrfToken, stdhttp.StatusOK)
+	assertAdminRelayChannelResponseRedactsSecrets(t, string(updateBody), secrets.create, secrets.updated)
+	var updateResponse struct {
+		Data admin.ChannelInfo `json:"data"`
+	}
+	if err := json.Unmarshal(updateBody, &updateResponse); err != nil {
+		t.Fatalf("decode admin relay channel update response: %v", err)
+	}
+	if updateResponse.Data.ID != channelID || updateResponse.Data.BaseURL != "https://api.openai.eu.example" {
+		t.Fatalf("expected channel update to preserve non-secret config, got %+v", updateResponse.Data)
+	}
+	if len(updateResponse.Data.Models) != 2 || updateResponse.Data.Models[0] != "gpt-4o-mini" || updateResponse.Data.Models[1] != "gpt-4.1" {
+		t.Fatalf("expected channel update to persist models, got %+v", updateResponse.Data.Models)
+	}
+	assertAdminRelayChannelStoredAPIKey(t, database, channelID, secrets.updated)
+	assertAdminRelayChannelStoredBaseURL(t, database, channelID, "https://api.openai.eu.example")
+
+	auditBody := commercialDoJSON(t, router, stdhttp.MethodGet, "/api/v1/admin/audit-logs?resourceType=channel&resourceID="+channelID, "", cookie, "", stdhttp.StatusOK)
+	assertAdminRelayChannelAuditResponseRedactsSecrets(t, string(auditBody), secrets.create, secrets.updated)
+	var auditResponse struct {
+		Data struct {
+			Entries []admin.AuditEntry `json:"entries"`
+			Total   int                `json:"total"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(auditBody, &auditResponse); err != nil {
+		t.Fatalf("decode admin relay channel audit response: %v", err)
+	}
+	if auditResponse.Data.Total != 2 || len(auditResponse.Data.Entries) != 2 {
+		t.Fatalf("expected two admin relay channel audit entries, got %+v", auditResponse.Data)
+	}
+	redactedEntries := 0
+	for _, entry := range auditResponse.Data.Entries {
+		if entry.ResourceType != "channel" || entry.ResourceID != channelID {
+			t.Fatalf("expected channel audit entry for %s, got %+v", channelID, entry)
+		}
+		if adminRelayChannelAuditChangesRedactAPIKey(t, entry.Changes) {
+			redactedEntries++
+		}
+	}
+	if redactedEntries != 2 {
+		t.Fatalf("expected both admin relay channel audit entries to redact apiKey, got %+v", auditResponse.Data.Entries)
+	}
+}
+
+func adminRelayChannelAuditChangesRedactAPIKey(t *testing.T, changes string) bool {
+	t.Helper()
+
+	var fields map[string]any
+	if err := json.Unmarshal([]byte(changes), &fields); err != nil {
+		t.Fatalf("decode admin relay channel audit changes %q: %v", changes, err)
+	}
+	value, ok := fields["apiKey"].(string)
+	return ok && value == "********"
+}
+
+func assertAdminRelayChannelResponseRedactsSecrets(t *testing.T, body string, secrets ...string) {
+	t.Helper()
+	for _, secret := range secrets {
+		if secret != "" && strings.Contains(body, secret) {
+			t.Fatalf("expected admin relay channel response to redact %q, got %s", secret, body)
+		}
+	}
+	if strings.Contains(body, "api_key_encrypted") {
+		t.Fatalf("expected admin relay channel response to omit api_key_encrypted, got %s", body)
+	}
+	if strings.Contains(body, `"apiKey"`) {
+		t.Fatalf("expected admin relay channel response to omit apiKey, got %s", body)
+	}
+}
+
+func assertAdminRelayChannelAuditResponseRedactsSecrets(t *testing.T, body string, secrets ...string) {
+	t.Helper()
+	for _, secret := range secrets {
+		if secret != "" && strings.Contains(body, secret) {
+			t.Fatalf("expected admin relay channel audit response to redact %q, got %s", secret, body)
+		}
+	}
+	if strings.Contains(body, "api_key_encrypted") {
+		t.Fatalf("expected admin relay channel audit response to omit api_key_encrypted, got %s", body)
+	}
+}
+
+func assertAdminRelayChannelStoredAPIKey(t *testing.T, database *sql.DB, channelID, want string) {
+	t.Helper()
+
+	var got string
+	if err := database.QueryRow(`SELECT api_key_encrypted FROM channels WHERE id = $1`, channelID).Scan(&got); err != nil {
+		t.Fatalf("query stored admin relay channel api key: %v", err)
+	}
+	if got != want {
+		t.Fatalf("expected stored admin relay channel api key %q, got %q", want, got)
+	}
+}
+
+func assertAdminRelayChannelStoredBaseURL(t *testing.T, database *sql.DB, channelID, want string) {
+	t.Helper()
+
+	var got string
+	if err := database.QueryRow(`SELECT base_url FROM channels WHERE id = $1`, channelID).Scan(&got); err != nil {
+		t.Fatalf("query stored admin relay channel base URL: %v", err)
+	}
+	if got != want {
+		t.Fatalf("expected stored admin relay channel base URL %q, got %q", want, got)
+	}
+}
