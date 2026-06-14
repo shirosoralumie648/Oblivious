@@ -2,14 +2,17 @@
 
 ## Current Truth
 
-- Branch: `main`; this browser-proof refresh starts from pushed commit `1786c0c docs: refresh repo rescan status`.
+- Branch: `main`; this follow-up rescan starts from pushed commit `ea8efb0 test(billing): prove admin operator browser flows`.
 - Worktree status at refresh scan start: clean and in sync with `origin/main`.
 - The project is still **not complete** against the four 2026-06-04 fusion specs.
 - The current completion matrix remains `4 Proven / 10 Partial / 0 Gap / 0 Unverified`.
-- Current progress estimate after this implementation scan is **90/100**. Admin Relay channel API-key, Observability alert-provider config, Publishing channel config, Workflow definition/version/execution-snapshot/node-execution secret-like fields, Agent Memories browser CRUD/import-export, Billing provider lifecycle PostgreSQL transitions, and Admin Billing operator payout/refund browser proof are now covered with repository-local proof, but target-environment workflow telemetry, target secret audits, deployment validation, payment/provider live rails, and final no-skip release readiness remain open.
+- Current progress estimate after this rescan is **90/100**. Admin Relay channel API-key, Observability alert-provider config, Publishing channel config, Workflow definition/version/execution-snapshot/node-execution secret-like fields, Agent Memories browser CRUD/import-export, Billing provider lifecycle PostgreSQL transitions, and Admin Billing operator payout/refund browser proof are now covered with repository-local proof, but target-environment workflow telemetry, target secret audits, deployment validation, payment/provider live rails, and final no-skip release readiness remain open.
 
 ## What Changed In This Rescan
 
+- This follow-up scan is a scan/report refresh only. It does not add implementation evidence or reclassify any matrix row.
+- The current checkout is clean at `ea8efb0`, correcting older scan text that still referenced earlier commits.
+- The scan confirmed Observability SQL alert/routing persistence tests already exist, but `scripts/verify-commercial-db-evidence.sh` does not yet expose an Observability alert/recovery persistence profile or include it in `all`.
 - Agent Memories now has browser-level Workspace proof for `/memories`: active navigation, search filter propagation, export query propagation, blob download-link rendering, user-managed create/update/delete, JSON import, and memory-count state updates.
 - Admin Billing now has browser-level Admin-shell proof for `/admin/billing`: payout paid confirmation, payout failure with operator reason evidence, payout/top-up filter query propagation, and Stripe top-up refund payload/state propagation.
 - `scripts/verify-commercial-db-evidence.sh billing-provider-lifecycle` now supplies no-skip disposable PostgreSQL proof for Stripe/shared checkout, invoice, subscription, and refund lifecycle transitions, and the `all` profile includes it.
@@ -25,7 +28,7 @@
 
 ## Repository Inventory
 
-- First-party tracked file distribution after this browser-proof slice:
+- First-party tracked file distribution after this follow-up scan:
   - `src`: 979 files
   - `.planning`: 210 files
   - `docs`: 92 files
@@ -45,7 +48,7 @@
   - Web Playwright specs: 10 specs
   - Web E2E fixture files: 10 files
 - Latest checked-in top-level migration remains `src/server/migrations/0081_admin_relay_channel_organization_scope.sql`.
-- Project-local `AGENTS.md`: none at the main repo root or under first-party source; dependency caches and nested `reference/*` repositories are excluded from this first-party scan.
+- Project-local `AGENTS.md`: none found under the first-party scan scope; dependency caches and nested `reference/*` repositories are excluded.
 
 ## Completion Matrix Snapshot
 
@@ -71,7 +74,27 @@ Partial rows remain:
 
 This scan does not reclassify any Partial row to Proven. Admin Relay API-key, Observability alert-provider, Publishing channel, Workflow at-rest encryption, Agent Memories browser proof, Billing provider lifecycle proof, and Admin Billing operator browser proof improve Relay/Publishing/Workflow, Agent, Frontend, Billing, Marketplace, API, Security, operations/env, and release evidence, but broader target-environment telemetry, target secret audits, live provider proof, and final release proof remain open.
 
-## Verification Run During This Rescan
+## Verification Evidence And Current Scan
+
+Current follow-up scan commands:
+
+```bash
+git status --short --branch
+git log --oneline -8 --decorate
+git ls-files | awk '...inventory counters...'
+git ls-files src/server/internal | awk '...domain counters...'
+git ls-files src/server/migrations/*.sql | sort | tail -12
+find . \( -path '*/node_modules/*' -o -path './.tmp/*' -o -path './reference/*' -o -path './.git/*' \) -prune -o -name AGENTS.md -print
+rg -n "^## |^### |^# " docs/superpowers/specs/2026-06-04-*.md
+sed -n '21,34p' docs/reports/2026-06-07-fusion-spec-completion-matrix.md | rg -c "\| Proven \|"
+sed -n '21,34p' docs/reports/2026-06-07-fusion-spec-completion-matrix.md | rg -c "\| Partial \|"
+rg -n "^run_[a-z0-9_]+_profile\(\)|run_all_profiles|case \"\$profile\"" scripts/verify-commercial-db-evidence.sh
+rg -n "TODO|FIXME|XXX|stub|placeholder|Unimplemented|DisabledInProduction" src scripts deploy docs/release docs/reports -g '!src/web/test-results/**' -g '!src/web/playwright-report/**' -g '!**/*.pb.go' -g '!docs/reports/archive/**'
+rg -n "TestSQLAlert(RoutingRuleStorePersistsRoutingRules|StateStore(PersistsAlertLifecycleAndEscalation|ListsAlertStatesWithFilters|PersistsNotificationThrottleAndRecoveryCooldown|RecordsRepeatedDeliveryBatchesForSameAlert))" src/server/internal/observability/alert_state_sql_store_test.go
+rg -n "TEST_DATABASE_URL|OBLIVIOUS_REQUIRE_TEST_DATABASE|Skip|skip" src/server/internal/observability/alert_state_sql_store_test.go
+```
+
+Previously recorded implementation verification commands for the checked-in evidence set:
 
 ```bash
 git status --short --branch
@@ -104,8 +127,14 @@ git diff --check
 
 Result:
 
-- `git status --short --branch` showed `main...origin/main` before the Admin Billing browser-proof files were added.
+- `git status --short --branch` showed `main...origin/main` clean at `ea8efb0`.
+- The top-level matrix count remains 4 `Proven` and 10 `Partial`; the `Gap` and `Unverified` counts remain 0.
 - The current first-party inventory counters are: `src=979`, `docs=92`, `scripts=37`, `deploy=42`, `.planning=210`, Go test files `228`, web component/API test files `67`, Playwright specs `10`, and Playwright fixtures `10`.
+- The current server-domain leaders are still `relay`, `http`, `mcp`, `admin`, `agent`, `workflow`, `knowledge`, `observability`, `channel`, `migration`, and `marketplace`.
+- The latest checked-in top-level migration remains `src/server/migrations/0081_admin_relay_channel_organization_scope.sql`.
+- The current first-party AGENTS scan found no `AGENTS.md` in the scanned first-party tree.
+- `scripts/verify-commercial-db-evidence.sh` currently exposes `backend-journey`, `marketplace-money-movement`, `billing-provider-lifecycle`, `app-stateful-routes`, `tenant-membership-lifecycle`, `tenant-cross-surface`, `secret-response-safety`, `agent-runtime-memory`, `scheduled-task-runtime`, `auth-security-persistence`, `relay-file-mapping-tenant-ownership`, `relay-runtime-channel-isolation`, `workflow-sql-isolation`, `publishing-channel-isolation`, `admin-relay-channel-isolation`, `admin-relay-read-isolation`, and `quota-sql-isolation`.
+- Observability SQL alert/routing persistence tests exist and already fail closed when `OBLIVIOUS_REQUIRE_TEST_DATABASE=true` without `TEST_DATABASE_URL`, but no dedicated commercial DB evidence profile currently runs them.
 - `go test ./internal/secretbox -count=1 -v` passed.
 - `go test ./internal/workflow -count=1` passed.
 - `go test ./internal/channel -count=1` passed.
@@ -126,14 +155,15 @@ Result:
 - `pnpm --dir src/web exec playwright test e2e/agent-memories.spec.ts --project=chromium` passed with `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/google-chrome`.
 - `pnpm --dir src/web exec playwright test e2e/admin-billing-operator.spec.ts --project=chromium` passed with `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/google-chrome`.
 - `git diff --check` passed.
-- The first-party AGENTS scan found no main-root or first-party source `AGENTS.md`.
+- The previously recorded first-party AGENTS scan found no main-root or first-party source `AGENTS.md`.
 - The TODO/stub scan did not reveal a new broad implementation gap. Active first-party matches remain the known release-boundary items from the June 14 scan: disabled future Relay surfaces, generated gRPC `Unimplemented*` boilerplate, test stubs, placeholder-only release docs/config examples, and the service-template migration TODO.
 - The secret-storage scan now confirms MCP auth tokens, Admin Relay channel API keys, Observability alert-provider config secrets, Publishing channel config secrets, and Workflow definition/version/execution-snapshot/node-execution secret-like fields have repository-owned reversible at-rest protection. Target-environment secret audits remain the open secret-storage proof boundary.
 
 ## Notable Scan Findings
 
-- The current live worktree is clean at `03b0a60`; the pre-slice checkpoint before Billing provider lifecycle evidence was `08ff744`.
+- The current live worktree is clean at `ea8efb0`; the previous scan text that referenced `03b0a60` is stale after the Billing provider lifecycle, Agent Memories, and Admin Billing browser-proof slices.
 - Existing DB-backed tenant-isolation evidence remains stronger than target-environment evidence; this slice adds DB-backed at-rest encryption proof for the Workflow definition/runtime secret path on top of the prior Admin Relay, Observability, and Publishing secret paths.
+- Observability alert/routing SQL persistence has a clear next local evidence slice: add a no-skip `observability-alert-recovery-persistence` profile that runs `TestSQLAlertRoutingRuleStorePersistsRoutingRules` plus the four SQL alert-state lifecycle/filter/throttle/delivery-batch tests, then include it in `all`.
 - `src/server/internal/http/admin_channel_secret_response_test.go` now pairs response redaction with direct SQL ciphertext assertions and an upstream probe assertion that the decrypted rotated key is usable.
 - `src/server/internal/relay/store_test.go` now proves Relay runtime persistence writes protected channel API keys, hydrates raw keys for runtime callers, and preserves legacy plaintext compatibility.
 - `src/server/internal/http/observability_alert_handler_test.go` now pairs Observability response redaction with direct SQL ciphertext assertions and a SQL-backed `/test` assertion that the decrypted webhook URL remains usable.
@@ -146,11 +176,11 @@ Result:
 
 ## Recommended Next Slices
 
-1. Rerun the strict commercial verifier on target infrastructure with deploy and backup/restore enabled before renewing any final readiness claim.
-2. Extend Observability/recovery proof from repository-owned panic recovery into target-environment OOM/crash restart, scale, and failover evidence.
-3. Run target-environment secret audits against configured provider/payment/workflow secrets, not only repository-local disposable PostgreSQL.
-4. Keep Deployment and release readiness open until Kubernetes, backup/restore, migration replay, and provider/payment rails have target-environment proof.
-5. Continue browser/E2E proof for the next uncovered high-value journey only where it narrows a specific Partial row.
+1. Add and verify a no-skip `observability-alert-recovery-persistence` DB evidence profile, then include it in `scripts/verify-commercial-db-evidence.sh all`.
+2. Rerun the strict commercial verifier on target infrastructure with deploy and backup/restore enabled before renewing any final readiness claim.
+3. Extend Observability/recovery proof from repository-owned panic recovery into target-environment OOM/crash restart, scale, and failover evidence.
+4. Run target-environment secret audits against configured provider/payment/workflow secrets, not only repository-local disposable PostgreSQL.
+5. Keep Deployment and release readiness open until Kubernetes, backup/restore, migration replay, and provider/payment rails have target-environment proof.
 
 ## Boundary
 
