@@ -33,7 +33,8 @@ Profiles:
                                tests across Chat, Knowledge, Console, Agent,
                                Memory, MCP, Quota, and Marketplace.
   secret-response-safety       Run focused DB-backed response redaction tests
-                               for persisted provider and channel secrets.
+                               for persisted provider, channel, and workflow
+                               secrets.
   agent-runtime-memory         Run focused Agent runtime, approval, execution
                                mode, structured plan-step, and memory policy
                                PostgreSQL tests.
@@ -206,7 +207,7 @@ run_tenant_cross_surface_profile() {
 run_secret_response_safety_profile() {
   local secret_response_safety_pattern
 
-  secret_response_safety_pattern="^Test(ObservabilityAlertAdminRouteSQLProviderSecretsAreRedacted|PublishingChannelHTTPRouteRedactsSQLStoreConfigSecretsAndPreservesMarkers|AdminRelayChannelHTTPRouteRedactsSQLStoreAPIKeysAndPreservesMarkers)$"
+  secret_response_safety_pattern="^Test(ObservabilityAlertAdminRouteSQLProviderSecretsAreRedacted|PublishingChannelHTTPRouteRedactsSQLStoreConfigSecretsAndPreservesMarkers|AdminRelayChannelHTTPRouteRedactsSQLStoreAPIKeysAndPreservesMarkers|WorkflowHTTPRouteRedactsSQLStoreSecretsAndPreservesMarkers)$"
   run_go_test_no_skips "secret response safety" "./internal/http" "$secret_response_safety_pattern"
 }
 

@@ -2035,6 +2035,7 @@ components:
           type: integer
         definition:
           type: object
+          description: Workflow definition returned by read/create/update/version routes. Secret-like keys such as secret, webhook_secret, and webhookSecret are redacted as ******** in responses and preserved on update when the redacted marker is submitted.
           additionalProperties: true
         variables:
           type: object
@@ -2077,6 +2078,7 @@ components:
           enum: [draft, published, archived]
         definition:
           type: object
+          description: Workflow definition input. Secret-like keys such as secret, webhook_secret, and webhookSecret are accepted and stored for execution, then redacted from WorkflowDefinition responses.
           additionalProperties: true
         variables:
           type: object
@@ -2094,6 +2096,7 @@ components:
           enum: [draft, published, archived]
         definition:
           type: object
+          description: Workflow definition update input. Submitting ******** for secret-like keys preserves the existing stored secret.
           additionalProperties: true
         variables:
           type: object
@@ -2162,6 +2165,10 @@ components:
           additionalProperties: true
         context:
           type: object
+          additionalProperties: true
+        workflowSnapshot:
+          type: object
+          description: Persisted workflow definition snapshot used for execution. Secret-like keys are redacted as ******** in execution responses while remaining available to the workflow runtime in storage.
           additionalProperties: true
         nodeExecutions:
           type: array
