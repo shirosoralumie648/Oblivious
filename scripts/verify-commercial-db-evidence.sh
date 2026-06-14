@@ -40,8 +40,8 @@ Profiles:
   scheduled-task-runtime       Run focused Scheduled Task SQL store, route, and
                                Workflow trigger sync PostgreSQL tests.
   auth-security-persistence    Run focused Auth password policy, reset,
-                               session revocation, hash, and rate-limit
-                               persistence PostgreSQL tests.
+                               replay/expiry, session revocation, hash, and
+                               rate-limit persistence PostgreSQL tests.
   relay-file-mapping-tenant-ownership
                                Run focused Relay file-mapping upload,
                                passthrough, and tenant ownership PostgreSQL
@@ -213,8 +213,8 @@ run_auth_security_persistence_profile() {
   local auth_store_pattern
   local auth_http_pattern
 
-  auth_store_pattern="^(TestPasswordPolicyResetAndSessionRevocation|TestSQLRateLimiterPersistsBlocks)$"
-  auth_http_pattern="^Test(RegisterLoginMeLogoutFlow|AuthRateLimitRejectsRepeatedFailedLogin|PasswordResetRoutesConfirmAndRevokeSessions|RegisterStoresHashedPassword|LoginAcceptsRawPasswordAgainstStoredHash|MeRequiresSession|AuthResponsesExposeStableUserAndPreferenceContracts|SensitiveOrganizationActionsAreRateLimited)$"
+  auth_store_pattern="^(TestPasswordPolicyResetAndSessionRevocation|TestPasswordResetTokenReplayExpiryAndUnknownEmailFailClosed|TestSQLRateLimiterPersistsBlocks)$"
+  auth_http_pattern="^Test(RegisterLoginMeLogoutFlow|AuthRateLimitRejectsRepeatedFailedLogin|PasswordResetRoutesConfirmAndRevokeSessions|PasswordResetRequestDoesNotEnumerateEmailsOutsideTestEnv|RegisterStoresHashedPassword|LoginAcceptsRawPasswordAgainstStoredHash|MeRequiresSession|AuthResponsesExposeStableUserAndPreferenceContracts|SensitiveOrganizationActionsAreRateLimited)$"
   run_go_test_no_skips "auth password reset and rate-limit persistence" "./internal/auth" "$auth_store_pattern"
   run_go_test_no_skips "auth HTTP persistence and security routes" "./internal/http" "$auth_http_pattern"
 }

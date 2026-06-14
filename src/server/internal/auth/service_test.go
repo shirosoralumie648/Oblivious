@@ -59,6 +59,90 @@ func TestPasswordPolicyResetAndSessionRevocation(t *testing.T) {
 	}
 }
 
+func TestPasswordResetTokenReplayExpiryAndUnknownEmailFailClosed(t *testing.T) {
+	database := testAuthDatabase(t)
+	resetAuthSecurityTestTables(t, database)
+	service := NewService(NewSQLStore(database))
+	ctx := context.Background()
+
+	if resetToken, err := service.RequestPasswordReset(ctx, "missing@example.com"); err != nil || resetToken != "" {
+		t.Fatalf("unknown email reset token = %q, err = %v; want empty token without error", resetToken, err)
+	}
+	var resetTokenCount int
+	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM password_reset_tokens`).Scan(&resetTokenCount); err != nil {
+		t.Fatalf("count password reset tokens after unknown email request: %v", err)
+	}
+	if resetTokenCount != 0 {
+		t.Fatalf("unknown email created %d reset tokens, want 0", resetTokenCount)
+	}
+
+	session, err := service.Register(ctx, "reset-depth@example.com", "StrongerPass1!")
+	if err != nil {
+		t.Fatalf("register reset-depth user: %v", err)
+	}
+
+	resetToken, err := service.RequestPasswordReset(ctx, " RESET-DEPTH@example.com ")
+	if err != nil {
+		t.Fatalf("request password reset: %v", err)
+	}
+	if resetToken == "" {
+		t.Fatal("expected password reset token for existing user")
+	}
+	if err := service.ConfirmPasswordReset(ctx, resetToken, "ResetDepthPass2!"); err != nil {
+		t.Fatalf("confirm password reset: %v", err)
+	}
+	if err := service.ConfirmPasswordReset(ctx, resetToken, "ReplayShouldFail3!"); !errors.Is(err, ErrInvalidResetToken) {
+		t.Fatalf("expected replayed reset token to be rejected, got %v", err)
+	}
+	if _, err := service.Login(ctx, "reset-depth@example.com", "ReplayShouldFail3!"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("replayed reset changed password, got %v", err)
+	}
+	if _, err := service.Login(ctx, "reset-depth@example.com", "ResetDepthPass2!"); err != nil {
+		t.Fatalf("expected first reset password to remain valid: %v", err)
+	}
+	var usedTokenCount int
+	if err := database.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM password_reset_tokens
+		WHERE token_hash = $1 AND used_at IS NOT NULL
+	`, hashToken(resetToken)).Scan(&usedTokenCount); err != nil {
+		t.Fatalf("count used reset token: %v", err)
+	}
+	if usedTokenCount != 1 {
+		t.Fatalf("used reset token count = %d, want 1", usedTokenCount)
+	}
+	if _, err := service.Session(ctx, session.ID); !errors.Is(err, ErrSessionNotFound) {
+		t.Fatalf("expected original session to be revoked by successful reset, got %v", err)
+	}
+
+	activeSession, err := service.Login(ctx, "reset-depth@example.com", "ResetDepthPass2!")
+	if err != nil {
+		t.Fatalf("login before expired token attempt: %v", err)
+	}
+	expiredRawToken := "expired-reset-token"
+	expiredTokenID, err := NewID("reset")
+	if err != nil {
+		t.Fatalf("new expired reset token id: %v", err)
+	}
+	if _, err := database.ExecContext(ctx, `
+		INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at)
+		VALUES ($1, $2, $3, NOW() - INTERVAL '1 hour')
+	`, expiredTokenID, activeSession.User.ID, hashToken(expiredRawToken)); err != nil {
+		t.Fatalf("insert expired reset token: %v", err)
+	}
+	if err := service.ConfirmPasswordReset(ctx, expiredRawToken, "ExpiredShouldFail4!"); !errors.Is(err, ErrInvalidResetToken) {
+		t.Fatalf("expected expired reset token to be rejected, got %v", err)
+	}
+	if _, err := service.Session(ctx, activeSession.ID); err != nil {
+		t.Fatalf("expired reset token revoked active session: %v", err)
+	}
+	if _, err := service.Login(ctx, "reset-depth@example.com", "ExpiredShouldFail4!"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("expired reset token changed password, got %v", err)
+	}
+	if _, err := service.Login(ctx, "reset-depth@example.com", "ResetDepthPass2!"); err != nil {
+		t.Fatalf("expected current password to remain valid after expired token: %v", err)
+	}
+}
+
 func TestSQLRateLimiterPersistsBlocks(t *testing.T) {
 	database := testAuthDatabase(t)
 	resetAuthSecurityTestTables(t, database)

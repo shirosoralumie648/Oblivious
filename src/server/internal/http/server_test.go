@@ -2035,6 +2035,42 @@ func TestPasswordResetRoutesConfirmAndRevokeSessions(t *testing.T) {
 	}
 }
 
+func TestPasswordResetRequestDoesNotEnumerateEmailsOutsideTestEnv(t *testing.T) {
+	cfg := testConfig()
+	cfg.Env = "production"
+	router := NewRouter(cfg, testDatabase(t))
+
+	registerRecorder := httptest.NewRecorder()
+	registerRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/auth/register", strings.NewReader(`{"email":"nonenumerated@example.com","password":"StrongerPass1!"}`))
+	registerRequest.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(registerRecorder, registerRequest)
+	if registerRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("register expected 200, got %d with body %s", registerRecorder.Code, registerRecorder.Body.String())
+	}
+
+	for _, email := range []string{"nonenumerated@example.com", "missing-nonenumerated@example.com"} {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/auth/password-reset/request", strings.NewReader(`{"email":"`+email+`"}`))
+		request.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(recorder, request)
+		if recorder.Code != stdhttp.StatusOK {
+			t.Fatalf("password reset request for %s expected 200, got %d with body %s", email, recorder.Code, recorder.Body.String())
+		}
+		var response struct {
+			Data map[string]any `json:"data"`
+		}
+		if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+			t.Fatalf("decode password reset response for %s: %v", email, err)
+		}
+		if response.Data["requested"] != true {
+			t.Fatalf("expected requested=true for %s, got %+v", email, response.Data)
+		}
+		if _, ok := response.Data["token"]; ok {
+			t.Fatalf("password reset request for %s exposed token in non-test env: %s", email, recorder.Body.String())
+		}
+	}
+}
+
 func TestOrganizationInvitationRevokeRejectsAcceptance(t *testing.T) {
 	database := testDatabase(t)
 	router := NewRouter(testConfig(), database)
