@@ -15,7 +15,7 @@ output_files=()
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/verify-commercial-db-evidence.sh [all|backend-journey|marketplace-money-movement|billing-provider-lifecycle|app-stateful-routes|tenant-membership-lifecycle|tenant-cross-surface|secret-response-safety|agent-runtime-memory|scheduled-task-runtime|auth-security-persistence|relay-file-mapping-tenant-ownership|relay-runtime-channel-isolation|workflow-sql-isolation|publishing-channel-isolation|admin-relay-channel-isolation|admin-relay-read-isolation|observability-alert-recovery-persistence|quota-sql-isolation]
+Usage: bash scripts/verify-commercial-db-evidence.sh [all|backend-journey|marketplace-money-movement|billing-provider-lifecycle|admin-usage-analytics-db|app-stateful-routes|tenant-membership-lifecycle|tenant-cross-surface|secret-response-safety|agent-runtime-memory|scheduled-task-runtime|auth-security-persistence|relay-file-mapping-tenant-ownership|relay-runtime-channel-isolation|workflow-sql-isolation|publishing-channel-isolation|admin-relay-channel-isolation|admin-relay-read-isolation|observability-alert-recovery-persistence|quota-sql-isolation]
 
 Runs narrow DB-backed commercial evidence without silently accepting skipped tests.
 
@@ -27,6 +27,9 @@ Profiles:
                                PostgreSQL lifecycle tests.
   billing-provider-lifecycle   Run focused Stripe/shared checkout, invoice,
                                subscription, and refund lifecycle PostgreSQL
+                               tests.
+  admin-usage-analytics-db     Run focused Admin usage daily aggregate refresh,
+                               analytics, and zero-token fallback PostgreSQL
                                tests.
   app-stateful-routes          Run focused app state, tenant, CSRF, and
                                ownership PostgreSQL route tests.
@@ -195,6 +198,13 @@ run_billing_provider_lifecycle_profile() {
   run_go_test_no_skips "billing provider lifecycle" "./internal/stripe" "$billing_provider_lifecycle_pattern"
 }
 
+run_admin_usage_analytics_db_profile() {
+  local admin_usage_analytics_pattern
+
+  admin_usage_analytics_pattern="^TestSQLStore(UsageDailyAggregatesPostgresRefreshAndAnalytics|UsageAnalyticsRawRecordsFallsBackFromZeroTotalTokens|ListUsageLogsFallsBackFromZeroTotalTokens)$"
+  run_go_test_no_skips "admin usage analytics daily aggregate persistence" "./internal/admin" "$admin_usage_analytics_pattern"
+}
+
 run_app_stateful_routes_profile() {
   local app_stateful_routes_pattern
 
@@ -311,6 +321,7 @@ run_all_profiles() {
   run_backend_journey_profile
   run_marketplace_money_movement_profile
   run_billing_provider_lifecycle_profile
+  run_admin_usage_analytics_db_profile
   run_app_stateful_routes_profile
   run_tenant_membership_lifecycle_profile
   run_tenant_cross_surface_profile
@@ -346,6 +357,9 @@ case "$profile" in
     ;;
   billing-provider-lifecycle)
     run_billing_provider_lifecycle_profile
+    ;;
+  admin-usage-analytics-db)
+    run_admin_usage_analytics_db_profile
     ;;
   app-stateful-routes)
     run_app_stateful_routes_profile
