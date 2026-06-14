@@ -2374,6 +2374,43 @@ func TestRouteSurfaceManifestSecurityGuardsWithoutDatabase(t *testing.T) {
 	}
 }
 
+func TestRouteSurfaceManifestAdminRoutesDispatchWithAdminSessionWithoutDatabase(t *testing.T) {
+	manifest := loadRouteSurfaceManifest(t)
+
+	adminSession := routeSurfaceAdminSession()
+	router := routeSurfaceManifestHandler(adminSession)
+	adminCookie := routeSurfaceSignedSessionCookie(t, adminSession)
+	adminCSRF := routeSurfaceCSRFToken(adminSession)
+	checkedAdminRoutes := 0
+
+	for _, route := range manifest.Routes {
+		route := route
+		if !strings.HasPrefix(route.Path, "/api/v1/admin/") || (route.Security != "cookie" && route.Security != "cookie+csrf") {
+			continue
+		}
+
+		t.Run(route.Method+" "+route.Path, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := routeSurfaceManifestRequest(route)
+			request.AddCookie(adminCookie)
+			if route.Security == "cookie+csrf" {
+				request.Header.Set(csrfHeaderName, adminCSRF)
+			}
+
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code == stdhttp.StatusUnauthorized || recorder.Code == stdhttp.StatusForbidden || routeSurfaceLooksUnregistered(recorder.Code, recorder.Body.String()) {
+				t.Fatalf("expected admin manifest route to pass auth/csrf and dispatch for %s %s sample %s, got %d with body %s", route.Method, route.Path, route.SamplePath, recorder.Code, recorder.Body.String())
+			}
+		})
+		checkedAdminRoutes++
+	}
+
+	if checkedAdminRoutes == 0 {
+		t.Fatal("expected manifest admin dispatch test to cover admin routes")
+	}
+}
+
 func routeSurfaceLooksUnregistered(status int, body string) bool {
 	if status == stdhttp.StatusMethodNotAllowed {
 		return true
