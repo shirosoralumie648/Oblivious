@@ -2212,18 +2212,30 @@ func (s *Service) completeRunWhenAllPlanStepsDone(ctx context.Context, session a
 	if len(steps) == 0 {
 		return nil
 	}
+	doneStepCount := 0
 	for _, step := range steps {
 		if step.Status != PlanStepStatusCompleted && step.Status != PlanStepStatusSkipped {
 			return nil
 		}
+		doneStepCount++
+	}
+	toolRuns, err := s.store.ListToolRuns(ctx, session.OrganizationID, runID)
+	if err != nil {
+		return err
+	}
+	iterationCount := run.IterationCount
+	if doneStepCount > iterationCount {
+		iterationCount = doneStepCount
 	}
 	now := time.Now().UTC()
 	_, err = s.store.UpdateRun(ctx, session.OrganizationID, runID, UpdateRunRequest{
-		Status:      stringPointer(RunStatusCompleted),
-		CompletedAt: &now,
+		Status:         stringPointer(RunStatusCompleted),
+		IterationCount: intPointer(iterationCount),
+		ToolCallCount:  intPointer(len(toolRuns)),
+		CompletedAt:    &now,
 	})
 	if err == nil {
-		recordAgentRunMetrics(RunStatusCompleted, run.IterationCount)
+		recordAgentRunMetrics(RunStatusCompleted, iterationCount)
 	}
 	return err
 }

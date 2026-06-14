@@ -2881,6 +2881,8 @@ func TestServiceExecutePlanStepCompletesPlanningRunAfterLastStep(t *testing.T) {
 			UserID:         "user_1",
 			Mode:           ExecutionModePlanning,
 			Status:         RunStatusPendingApproval,
+			IterationCount: 1,
+			FinalMessageID: "msg_plan",
 			StartedAt:      now,
 			CreatedAt:      now,
 			UpdatedAt:      now,
@@ -2903,6 +2905,8 @@ func TestServiceExecutePlanStepCompletesPlanningRunAfterLastStep(t *testing.T) {
 			Title:          "Verify implementation",
 			Status:         PlanStepStatusPending,
 			ApprovalStatus: ApprovalStatusNotRequired,
+			ToolName:       "read_file",
+			Input:          map[string]any{"path": "config.yaml"},
 			CreatedAt:      now,
 			UpdatedAt:      now,
 		}},
@@ -2926,6 +2930,12 @@ func TestServiceExecutePlanStepCompletesPlanningRunAfterLastStep(t *testing.T) {
 	}
 	if run.Status != RunStatusCompleted || run.CompletedAt == nil {
 		t.Fatalf("expected planning run to complete after final step, got %+v", run)
+	}
+	if run.FinalMessageID != "msg_plan" {
+		t.Fatalf("expected planning run completion to preserve final message id, got %+v", run)
+	}
+	if run.IterationCount != 2 || run.ToolCallCount != 1 {
+		t.Fatalf("expected planning run completion evidence to converge counters, got iterations=%d toolCalls=%d", run.IterationCount, run.ToolCallCount)
 	}
 }
 
@@ -3256,7 +3266,23 @@ func TestServiceSkipPlanStepCompletesRunWhenAllStepsAreDoneOrSkipped(t *testing.
 			UserID:         "user_1",
 			Mode:           ExecutionModePlanning,
 			Status:         RunStatusPendingApproval,
+			IterationCount: 3,
+			ToolCallCount:  1,
+			FinalMessageID: "msg_plan",
 			StartedAt:      now,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+		toolRuns: []*ToolRun{{
+			ID:             "toolrun_existing",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			ToolCallID:     "plan_step_step_1",
+			ToolName:       "read_file",
+			Status:         ToolRunStatusCompleted,
+			ApprovalStatus: ApprovalStatusNotRequired,
 			CreatedAt:      now,
 			UpdatedAt:      now,
 		}},
@@ -3299,6 +3325,12 @@ func TestServiceSkipPlanStepCompletesRunWhenAllStepsAreDoneOrSkipped(t *testing.
 	}
 	if run.Status != RunStatusCompleted || run.CompletedAt == nil {
 		t.Fatalf("expected run to complete after final skip, got %+v", run)
+	}
+	if run.FinalMessageID != "msg_plan" {
+		t.Fatalf("expected skip completion to preserve final message id, got %+v", run)
+	}
+	if run.IterationCount != 3 || run.ToolCallCount != 1 {
+		t.Fatalf("expected skip completion to preserve higher iteration count and converge tool calls, got iterations=%d toolCalls=%d", run.IterationCount, run.ToolCallCount)
 	}
 }
 
@@ -4142,6 +4174,8 @@ func TestServiceContinuePlanningRunCompletesRunWhenAllExecutableStepsDone(t *tes
 			UserID:         "user_1",
 			Mode:           ExecutionModePlanning,
 			Status:         RunStatusPendingApproval,
+			IterationCount: 1,
+			FinalMessageID: "msg_plan",
 			StartedAt:      now,
 			CreatedAt:      now,
 			UpdatedAt:      now,
@@ -4163,6 +4197,8 @@ func TestServiceContinuePlanningRunCompletesRunWhenAllExecutableStepsDone(t *tes
 			Title:          "Verify",
 			Status:         PlanStepStatusApproved,
 			ApprovalStatus: ApprovalStatusApproved,
+			ToolName:       "write_file",
+			Input:          map[string]any{"path": "result.md"},
 			CreatedAt:      now,
 		}},
 	}
@@ -4183,6 +4219,12 @@ func TestServiceContinuePlanningRunCompletesRunWhenAllExecutableStepsDone(t *tes
 	}
 	if result.Run == nil || result.Run.Status != RunStatusCompleted || result.Run.CompletedAt == nil {
 		t.Fatalf("expected planning run to complete, got %+v", result.Run)
+	}
+	if result.Run.FinalMessageID != "msg_plan" {
+		t.Fatalf("expected continue completion to preserve final message id, got %+v", result.Run)
+	}
+	if result.Run.IterationCount != 2 || result.Run.ToolCallCount != 1 {
+		t.Fatalf("expected continue completion evidence to converge counters, got iterations=%d toolCalls=%d", result.Run.IterationCount, result.Run.ToolCallCount)
 	}
 	for _, step := range result.PlanSteps {
 		if step.Status != PlanStepStatusCompleted || step.ResultContent != "done" {
