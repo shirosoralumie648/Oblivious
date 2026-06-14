@@ -487,8 +487,8 @@ export function AdminSettingsPage() {
               <div className="px-3 py-4 text-sm text-muted-foreground">No usage limits configured.</div>
             ) : (
               state.usageLimits.map((settings) => (
-                <div key={usageScopeKey(settings)} className="grid gap-2 px-3 py-3 text-sm md:grid-cols-[minmax(0,1fr)_repeat(3,120px)_minmax(140px,180px)_80px]">
-                  <div>
+                <div key={usageScopeKey(settings)} className="grid gap-3 px-3 py-3 text-sm lg:grid-cols-[minmax(0,1.4fr)_repeat(3,minmax(96px,0.7fr))]">
+                  <div className="min-w-0">
                     <div className="font-medium">{usageScopeLabel(settings)}</div>
                     <div className="text-xs text-muted-foreground">{settings.organizationId ?? settings.organizationID}</div>
                     <div className="text-xs text-muted-foreground">{`Mode: ${usageQuotaModeLabel(settings)}`}</div>
@@ -505,7 +505,7 @@ export function AdminSettingsPage() {
                     <div className="text-xs text-muted-foreground">Limit</div>
                     <div>{usageLimitValue(settings)}</div>
                   </div>
-                  <div>
+                  <div className="lg:col-span-3">
                     <div className="text-xs text-muted-foreground">Runtime</div>
                     <div>{usageLimitRuntimeStatus(state.usageLimitSignals[usageScopeKey(settings)])}</div>
                     <div className="text-xs text-muted-foreground">{usageLimitRuntimeDetail(state.usageLimitSignals[usageScopeKey(settings)])}</div>
@@ -513,7 +513,7 @@ export function AdminSettingsPage() {
                       <div className="text-xs text-muted-foreground">{`Recovery: ${state.usageLimitSignals[usageScopeKey(settings)]?.latestRecovery?.requestId || state.usageLimitSignals[usageScopeKey(settings)]?.latestRecovery?.id}`}</div>
                     ) : null}
                   </div>
-                  <div className="flex items-center justify-end">
+                  <div className="flex items-center justify-end lg:col-span-1">
                     <Button type="button" variant="outline" size="sm" onClick={() => editUsageLimit(settings)} aria-label={usageEditLabel(settings)}>
                       Edit
                     </Button>
