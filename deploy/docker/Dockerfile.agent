@@ -8,5 +8,5 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /agent ./cmd/agent
 FROM alpine:3.19
 RUN apk --no-cache add ca-certificates
 COPY --from=builder /agent /agent
-EXPOSE 8083
+EXPOSE 8083 50063
 CMD ["/agent"]

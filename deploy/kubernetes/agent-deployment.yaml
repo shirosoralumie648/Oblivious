@@ -17,12 +17,57 @@ spec:
       - name: agent
         image: oblivious/agent:latest
         ports:
-        - containerPort: 8083
+        - name: http
+          containerPort: 8083
+        - name: grpc
+          containerPort: 50063
         env:
+        - name: APP_ENV
+          value: "production"
         - name: AGENT_PORT
           value: "8083"
+        - name: AGENT_GRPC_PORT
+          value: "50063"
+        - name: GRPC_PORT
+          value: "50063"
+        - name: SERVER_PORT
+          value: "8080"
         - name: OBLIVIOUS_DB_MODE
           value: "microservices"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: oblivious-secrets
+              key: DATABASE_URL
+        - name: SESSION_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: oblivious-secrets
+              key: SESSION_SECRET
+        - name: AGENT_RELAY_BASE_URL
+          value: "http://relay.oblivious.svc.cluster.local:8080/v1"
+        - name: RELAY_ENABLED
+          value: "true"
+        - name: RELAY_DEFAULT_MODEL
+          value: "gpt-4o-mini"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 10
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 5
+          failureThreshold: 12
         resources:
           requests:
             cpu: 500m
@@ -50,3 +95,22 @@ spec:
       target:
         type: Utilization
         averageUtilization: 70
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent
+  namespace: oblivious
+spec:
+  selector:
+    app: agent
+  ports:
+  - name: http
+    protocol: TCP
+    port: 8083
+    targetPort: http
+  - name: grpc
+    protocol: TCP
+    port: 50063
+    targetPort: grpc
+  type: ClusterIP

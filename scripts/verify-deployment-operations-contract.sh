@@ -48,6 +48,27 @@ ruby -ryaml -rjson -e '
     ctr.fetch("envFrom", []).any? { |entry| entry.dig(ref_kind, "name") == name }
   end
 
+  def env_value(ctr, name)
+    entry = ctr.fetch("env", []).find { |item| item["name"] == name }
+    return "" if entry.nil?
+    return "__valueFrom__" if entry.key?("valueFrom")
+    entry["value"].to_s
+  end
+
+  def has_named_container_port?(ctr, name, port)
+    ctr.fetch("ports", []).any? { |entry| entry["name"] == name && entry["containerPort"].to_i == port }
+  end
+
+  def service_with_port?(docs, service_name, port_name, port, target_port)
+    service = docs.find { |doc| doc["kind"] == "Service" && doc.dig("metadata", "name") == service_name }
+    return false if service.nil?
+    service.dig("spec", "ports").to_a.any? do |entry|
+      entry["name"] == port_name &&
+        entry["port"].to_i == port &&
+        entry["targetPort"].to_s == target_port.to_s
+    end
+  end
+
   app_deployment = read_yaml(File.join(repo, "deploy/kubernetes/app-deployment.yaml"))
   server = container(app_deployment, "server")
   missing << "app deployment must use RollingUpdate maxUnavailable=0" unless app_deployment.dig("spec", "strategy", "rollingUpdate", "maxUnavailable").to_s == "0"
@@ -91,6 +112,32 @@ ruby -ryaml -rjson -e '
   missing << "web deployment must define CPU/memory requests and limits" unless has_resources?(web)
   missing << "web deployment must define livenessProbe" unless has_probe?(web, "livenessProbe")
   missing << "web deployment must define readinessProbe" unless has_probe?(web, "readinessProbe")
+
+  agent_docs = read_yaml_stream(File.join(repo, "deploy/kubernetes/agent-deployment.yaml"))
+  agent_deployment = agent_docs.find { |doc| doc["kind"] == "Deployment" } || {}
+  agent = container(agent_deployment, "agent")
+  missing << "agent deployment must expose named http port 8083" unless has_named_container_port?(agent, "http", 8083)
+  missing << "agent deployment must expose named grpc port 50063" unless has_named_container_port?(agent, "grpc", 50063)
+  missing << "agent deployment must set AGENT_GRPC_PORT=50063" unless env_value(agent, "AGENT_GRPC_PORT") == "50063"
+  missing << "agent deployment must set GRPC_PORT=50063 for generated clients" unless env_value(agent, "GRPC_PORT") == "50063"
+  missing << "agent deployment must configure AGENT_RELAY_BASE_URL" unless env_value(agent, "AGENT_RELAY_BASE_URL") != ""
+  missing << "agent deployment must read DATABASE_URL from Secret" unless env_value(agent, "DATABASE_URL") == "__valueFrom__"
+  missing << "agent deployment must define livenessProbe" unless has_probe?(agent, "livenessProbe")
+  missing << "agent deployment must define readinessProbe" unless has_probe?(agent, "readinessProbe")
+  missing << "agent deployment must define startupProbe" unless has_probe?(agent, "startupProbe")
+  missing << "agent service must expose grpc port 50063" unless service_with_port?(agent_docs, "agent", "grpc", 50063, "grpc")
+
+  agent_dockerfile = File.read(File.join(repo, "deploy/docker/Dockerfile.agent"))
+  missing << "Dockerfile.agent must expose HTTP and gRPC ports" unless agent_dockerfile.include?("EXPOSE 8083 50063")
+
+  compose = read_yaml(File.join(repo, "docker-compose.yml"))
+  compose_agent = compose.dig("services", "agent") || {}
+  compose_env = compose_agent.fetch("environment", []).map(&:to_s)
+  missing << "docker compose microservices profile must include agent service" unless compose_agent.fetch("profiles", []).include?("microservices")
+  missing << "docker compose agent must build Dockerfile.agent" unless compose_agent.dig("build", "dockerfile") == "deploy/docker/Dockerfile.agent"
+  missing << "docker compose agent must publish gRPC port 50063" unless compose_agent.fetch("ports", []).map(&:to_s).any? { |value| value.include?(":50063") }
+  missing << "docker compose agent must set AGENT_GRPC_PORT=50063" unless compose_env.include?("AGENT_GRPC_PORT=50063")
+  missing << "docker compose agent must set AGENT_RELAY_BASE_URL" unless compose_env.any? { |value| value.start_with?("AGENT_RELAY_BASE_URL=") }
 
   local_server_deployment = deployment_doc(File.join(repo, "deploy/kubernetes/server.yaml"))
   local_server = first_container(local_server_deployment)

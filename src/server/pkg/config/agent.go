@@ -8,7 +8,8 @@ import (
 
 type AgentConfig struct {
 	CommonConfig
-	Port string
+	Port     string
+	GRPCPort string
 }
 
 func LoadAgentConfig() *AgentConfig {
@@ -21,9 +22,17 @@ func LoadAgentConfig() *AgentConfig {
 	if port == "" {
 		port = "8083"
 	}
+	grpcPort := strings.TrimSpace(os.Getenv("AGENT_GRPC_PORT"))
+	if grpcPort == "" {
+		grpcPort = strings.TrimSpace(os.Getenv("GRPC_PORT"))
+	}
+	if grpcPort == "" {
+		grpcPort = "50063"
+	}
 
 	return &AgentConfig{
 		CommonConfig: common,
 		Port:         port,
+		GRPCPort:     grpcPort,
 	}
 }

@@ -21,6 +21,10 @@ type Config struct {
 	LLMTimeoutMS        int
 	ModelDefaultName    string
 
+	// AgentRelayBaseURL points the standalone Agent runtime at the Relay/OpenAI-compatible API.
+	// It defaults in the runtime wiring when unset so monolith tests keep their historical env.
+	AgentRelayBaseURL string
+
 	// Agent web search configuration. Provider stays disabled unless a supported
 	// provider, endpoint, and API key are all configured.
 	AgentWebSearchProvider    string
@@ -192,6 +196,7 @@ func Load() (Config, error) {
 	if modelDefaultName == "" {
 		modelDefaultName = "demo-reply"
 	}
+	agentRelayBaseURL := strings.TrimSpace(os.Getenv("AGENT_RELAY_BASE_URL"))
 	agentWebSearchProvider := strings.ToLower(strings.TrimSpace(os.Getenv("AGENT_WEB_SEARCH_PROVIDER")))
 	agentWebSearchFallbackRaw := strings.TrimSpace(os.Getenv("AGENT_WEB_SEARCH_FALLBACK"))
 	var agentWebSearchFallback []string
@@ -516,6 +521,7 @@ func Load() (Config, error) {
 		LLMAPIKey:                    llmAPIKey,
 		LLMTimeoutMS:                 llmTimeoutMS,
 		ModelDefaultName:             modelDefaultName,
+		AgentRelayBaseURL:            agentRelayBaseURL,
 		AgentWebSearchProvider:       agentWebSearchProvider,
 		AgentWebSearchFallback:       agentWebSearchFallback,
 		AgentWebSearchEndpoint:       agentWebSearchEndpoint,
@@ -584,18 +590,18 @@ func Load() (Config, error) {
 		ObservabilityHTTPRecoveryEnabled:    observabilityHTTPRecoveryEnabled,
 		ObservabilityHTTPRecoveryCooldownMS: observabilityHTTPRecoveryCooldownMS,
 
-		DBMode:               dbMode,
-		DBURLRelay:           dbURLRelay,
-		DBURLChat:            dbURLChat,
-		DBURLWorkflow:        dbURLWorkflow,
-		DBURLRAG:             dbURLRAG,
-		DBURLAgent:           dbURLAgent,
-		DBURLBilling:         dbURLBilling,
-		DBURLMarketplace:     dbURLMarketplace,
-		DBURLAdmin:           dbURLAdmin,
-		DBURLChannel:         dbURLChannel,
-		DBURLTask:            dbURLTask,
-		DBURLObservability:   dbURLObservability,
+		DBMode:             dbMode,
+		DBURLRelay:         dbURLRelay,
+		DBURLChat:          dbURLChat,
+		DBURLWorkflow:      dbURLWorkflow,
+		DBURLRAG:           dbURLRAG,
+		DBURLAgent:         dbURLAgent,
+		DBURLBilling:       dbURLBilling,
+		DBURLMarketplace:   dbURLMarketplace,
+		DBURLAdmin:         dbURLAdmin,
+		DBURLChannel:       dbURLChannel,
+		DBURLTask:          dbURLTask,
+		DBURLObservability: dbURLObservability,
 	}, nil
 }
 

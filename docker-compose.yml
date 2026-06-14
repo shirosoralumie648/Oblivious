@@ -414,6 +414,45 @@ services:
       - GRPC_PORT=50061
       - LOG_LEVEL=${LOG_LEVEL:-debug}
 
+  agent:
+    profiles: ["microservices"]
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.agent
+      args:
+        GOPROXY: ${OBLIVIOUS_GOPROXY:-https://proxy.golang.org,direct}
+        GOSUMDB: ${OBLIVIOUS_GOSUMDB:-sum.golang.org}
+    image: ${OBLIVIOUS_AGENT_IMAGE:-oblivious-agent:local}
+    container_name: oblivious-agent
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      relay:
+        condition: service_started
+    ports:
+      - "${OBLIVIOUS_AGENT_HTTP_PORT:-8083}:8083"
+      - "${OBLIVIOUS_AGENT_GRPC_PORT:-50063}:50063"
+    environment:
+      - SERVER_PORT=8080
+      - APP_ENV=development
+      - DATABASE_URL=postgres://oblivious:oblivious@postgres:5432/oblivious?sslmode=disable
+      - DB_URL_AGENT=postgres://oblivious:oblivious@postgres:5432/oblivious_agent?sslmode=disable
+      - OBLIVIOUS_DB_MODE=microservices
+      - SESSION_SECRET=${SESSION_SECRET:-dev-session-secret-change-in-prod}
+      - AGENT_PORT=8083
+      - AGENT_GRPC_PORT=50063
+      - GRPC_PORT=50063
+      - AGENT_RELAY_BASE_URL=${AGENT_RELAY_BASE_URL:-http://relay:8080/v1}
+      - RELAY_ENABLED=${RELAY_ENABLED:-true}
+      - RELAY_DEFAULT_MODEL=${RELAY_DEFAULT_MODEL:-gpt-4o-mini}
+      - MODEL_DEFAULT_NAME=${MODEL_DEFAULT_NAME:-demo-reply}
+      - LLM_TIMEOUT_MS=30000
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - LOG_LEVEL=${LOG_LEVEL:-debug}
+
   audit:
     profiles: ["microservices"]
     build:

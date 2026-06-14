@@ -90,6 +90,7 @@ func TestLoadAgentWebSearchConfig(t *testing.T) {
 	t.Setenv("SERVER_PORT", "8080")
 	t.Setenv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/oblivious?sslmode=disable")
 	t.Setenv("SESSION_SECRET", "test-secret")
+	t.Setenv("AGENT_RELAY_BASE_URL", " http://gateway.internal:8080/v1 ")
 	t.Setenv("AGENT_WEB_SEARCH_PROVIDER", " TAVILY ")
 	t.Setenv("AGENT_WEB_SEARCH_ENDPOINT", " https://search.example.test/query ")
 	t.Setenv("AGENT_WEB_SEARCH_API_KEY", " web-search-secret ")
@@ -101,6 +102,9 @@ func TestLoadAgentWebSearchConfig(t *testing.T) {
 	}
 	if cfg.AgentWebSearchProvider != "tavily" {
 		t.Fatalf("expected normalized web search provider tavily, got %q", cfg.AgentWebSearchProvider)
+	}
+	if cfg.AgentRelayBaseURL != "http://gateway.internal:8080/v1" {
+		t.Fatalf("expected trimmed agent relay base URL, got %q", cfg.AgentRelayBaseURL)
 	}
 	if cfg.AgentWebSearchEndpoint != "https://search.example.test/query" {
 		t.Fatalf("expected trimmed web search endpoint, got %q", cfg.AgentWebSearchEndpoint)
