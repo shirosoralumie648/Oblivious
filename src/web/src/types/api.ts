@@ -561,6 +561,8 @@ export type ConsoleApiTokenUsageItem = {
   requestId: string;
   apiType: string;
   model: string;
+  provider?: string;
+  channelId?: string;
   status: string;
   statusCode: number;
   errorCode?: string;

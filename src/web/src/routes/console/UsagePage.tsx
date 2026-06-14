@@ -143,6 +143,7 @@ export function UsagePage() {
                     <span>{requestLabel(item)}</span>
                     <span>{item.apiTokenId || '-'}</span>
                     <span>{item.model || '-'}</span>
+                    <span>{item.provider || '-'} / {item.channelId || '-'}</span>
                     <span>{item.status || 'unknown'}</span>
                     <span>{`${item.totalTokens} tokens`}</span>
                     <span>{formatCurrency(item.cost)}</span>
