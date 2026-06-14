@@ -736,9 +736,5 @@ func channelConfigHasRedactedSecret(config map[string]any) bool {
 }
 
 func isChannelSecretKey(key string) bool {
-	normalized := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(key, "_", ""), "-", ""))
-	return strings.Contains(normalized, "secret") ||
-		strings.Contains(normalized, "token") ||
-		strings.Contains(normalized, "apikey") ||
-		strings.Contains(normalized, "password")
+	return publishingchannel.IsChannelSecretConfigKey(key)
 }

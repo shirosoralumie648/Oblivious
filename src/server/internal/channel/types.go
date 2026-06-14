@@ -2,6 +2,7 @@ package channel
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 )
 
@@ -77,6 +78,14 @@ type ChannelConfig struct {
 	UpdatedAt      time.Time      `json:"updated_at"`
 }
 
+func IsChannelSecretConfigKey(key string) bool {
+	normalized := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(key, "_", ""), "-", ""))
+	return strings.Contains(normalized, "secret") ||
+		strings.Contains(normalized, "token") ||
+		strings.Contains(normalized, "apikey") ||
+		strings.Contains(normalized, "password")
+}
+
 // Direction indicates whether a message is inbound or outbound.
 type Direction string
 
@@ -123,10 +132,10 @@ type CreateChannelInput struct {
 
 // UpdateChannelInput contains the optional fields for updating a channel.
 type UpdateChannelInput struct {
-	Name   string          `json:"name,omitempty"`
-	Type   *ChannelType    `json:"type,omitempty"`
-	Config map[string]any  `json:"config,omitempty"`
-	Status *ChannelStatus  `json:"status,omitempty"`
+	Name   string         `json:"name,omitempty"`
+	Type   *ChannelType   `json:"type,omitempty"`
+	Config map[string]any `json:"config,omitempty"`
+	Status *ChannelStatus `json:"status,omitempty"`
 }
 
 // ListChannelsInput contains filter and pagination parameters.

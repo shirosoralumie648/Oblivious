@@ -17,6 +17,7 @@ import (
 	"oblivious/server/internal/channel"
 	"oblivious/server/internal/notification"
 	"oblivious/server/internal/observability"
+	"oblivious/server/internal/secretbox"
 )
 
 type publishingChannelFakeStore struct {
@@ -391,6 +392,7 @@ func TestPublishingChannelHandlerRedactsConfigSecretsInResponses(t *testing.T) {
 }
 
 func TestPublishingChannelHTTPRouteRedactsSQLStoreConfigSecretsAndPreservesMarkers(t *testing.T) {
+	t.Setenv("OBLIVIOUS_SECRET_ENCRYPTION_KEY", "test-publishing-channel-config-secret")
 	database := testDatabase(t)
 	applyPublishingChannelMigration(t, database)
 	router := NewRouter(testConfig(), database)
@@ -481,6 +483,17 @@ func TestPublishingChannelHTTPRouteRedactsSQLStoreConfigSecretsAndPreservesMarke
 		assertSQLPublishingChannelConfigValue(t, database, channelID, key, secret)
 	}
 	assertSQLPublishingChannelConfigValue(t, database, channelID, "webhook_url", "https://hooks.example.test/eu")
+
+	webhookBody := `{"id":"msg_1","conversation_id":"conversation_1","role":"user","text":"hello from encrypted publishing secret"}`
+	timestamp := time.Now().UTC().Format(time.RFC3339)
+	webhookRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/channels/webhook/"+channelID, strings.NewReader(webhookBody))
+	webhookRequest.Header.Set("X-Oblivious-Timestamp", timestamp)
+	webhookRequest.Header.Set("X-Oblivious-Signature", "sha256="+workflowWebhookSignature(secrets["secret"], timestamp, webhookBody))
+	webhookRecorder := httptest.NewRecorder()
+	router.ServeHTTP(webhookRecorder, webhookRequest)
+	if webhookRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected SQL-backed webhook to accept decrypted signing secret, got %d with body %s", webhookRecorder.Code, webhookRecorder.Body.String())
+	}
 }
 
 func TestPublishingChannelHTTPRouteEnforcesActiveOrganizationIsolation(t *testing.T) {
@@ -2023,7 +2036,29 @@ func assertSQLPublishingChannelConfigValue(t *testing.T, database interface {
 		t.Fatalf("query stored publishing channel config %s.%s: %v", channelID, key, err)
 	}
 	if got != want {
+		if channel.IsChannelSecretConfigKey(key) {
+			if got == "" {
+				t.Fatalf("expected stored publishing channel config %s.%s to be non-empty", channelID, key)
+			}
+			if got == want || strings.Contains(got, want) {
+				t.Fatalf("stored publishing channel config %s.%s contains plaintext %q: %q", channelID, key, want, got)
+			}
+			if !secretbox.IsProtected(got) {
+				t.Fatalf("expected stored publishing channel config %s.%s to be protected, got %q", channelID, key, got)
+			}
+			opened, err := secretbox.Open(secretbox.DomainPublishingChannelConfigKey, got)
+			if err != nil {
+				t.Fatalf("open stored publishing channel config %s.%s: %v", channelID, key, err)
+			}
+			if opened != want {
+				t.Fatalf("opened publishing channel config %s.%s=%q, want %q", channelID, key, opened, want)
+			}
+			return
+		}
 		t.Fatalf("expected stored publishing channel config %s.%s=%q, got %q", channelID, key, want, got)
+	}
+	if channel.IsChannelSecretConfigKey(key) {
+		t.Fatalf("expected stored publishing channel config %s.%s to be protected, got plaintext %q", channelID, key, got)
 	}
 }
 

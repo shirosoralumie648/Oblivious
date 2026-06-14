@@ -17,6 +17,7 @@ const (
 	CodecPrefix                               = "obv:gcm:v1:"
 	DomainRelayChannelAPIKey                  = "relay-channel-api-key"
 	DomainObservabilityAlertProviderConfigKey = "observability-alert-provider-config-key"
+	DomainPublishingChannelConfigKey          = "publishing-channel-config-key"
 )
 
 // Protect encrypts plaintext with AES-GCM and binds it to the supplied domain.

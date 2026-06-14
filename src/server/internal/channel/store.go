@@ -10,6 +10,7 @@ import (
 	"github.com/lib/pq"
 
 	"oblivious/server/internal/notification"
+	"oblivious/server/internal/secretbox"
 )
 
 type Store interface {
@@ -174,7 +175,11 @@ func (s *SQLStore) CreateConfig(ctx context.Context, config *ChannelConfig) (*Ch
 	if status == "" {
 		status = ChannelStatusActive
 	}
-	configJSON, err := json.Marshal(config.Config)
+	protectedConfig, err := protectChannelSQLConfig(config.Config)
+	if err != nil {
+		return nil, fmt.Errorf("protect channel config: %w", err)
+	}
+	configJSON, err := json.Marshal(protectedConfig)
 	if err != nil {
 		return nil, fmt.Errorf("marshal channel config: %w", err)
 	}
@@ -261,7 +266,11 @@ func (s *SQLStore) UpdateConfigStatus(ctx context.Context, organizationID, id st
 }
 
 func (s *SQLStore) UpdateConfig(ctx context.Context, organizationID, id string, update ConfigUpdate) (*ChannelConfig, error) {
-	configJSON, err := json.Marshal(update.Config)
+	protectedConfig, err := protectChannelSQLConfig(update.Config)
+	if err != nil {
+		return nil, fmt.Errorf("protect channel config update: %w", err)
+	}
+	configJSON, err := json.Marshal(protectedConfig)
 	if err != nil {
 		return nil, fmt.Errorf("marshal channel config update: %w", err)
 	}
@@ -684,7 +693,48 @@ func scanChannelConfig(row rowScanner) (*ChannelConfig, error) {
 	if config.Config == nil {
 		config.Config = map[string]any{}
 	}
+	openedConfig, err := openChannelSQLConfig(config.Config)
+	if err != nil {
+		return nil, fmt.Errorf("open channel config %s: %w", config.ID, err)
+	}
+	config.Config = openedConfig
 	return &config, nil
+}
+
+func protectChannelSQLConfig(config map[string]any) (map[string]any, error) {
+	protected := make(map[string]any, len(config))
+	for key, value := range config {
+		if IsChannelSecretConfigKey(key) {
+			if plaintext, ok := value.(string); ok && plaintext != "" {
+				stored, err := secretbox.Protect(secretbox.DomainPublishingChannelConfigKey, plaintext)
+				if err != nil {
+					return nil, fmt.Errorf("protect %s: %w", key, err)
+				}
+				protected[key] = stored
+				continue
+			}
+		}
+		protected[key] = value
+	}
+	return protected, nil
+}
+
+func openChannelSQLConfig(config map[string]any) (map[string]any, error) {
+	opened := make(map[string]any, len(config))
+	for key, value := range config {
+		if IsChannelSecretConfigKey(key) {
+			if stored, ok := value.(string); ok && stored != "" {
+				plaintext, err := secretbox.Open(secretbox.DomainPublishingChannelConfigKey, stored)
+				if err != nil {
+					return nil, fmt.Errorf("open %s: %w", key, err)
+				}
+				opened[key] = plaintext
+				continue
+			}
+		}
+		opened[key] = value
+	}
+	return opened, nil
 }
 
 func normalizeMessageLogListInput(input ListMessageLogsInput) int {
