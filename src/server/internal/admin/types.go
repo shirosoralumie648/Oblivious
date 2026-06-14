@@ -5,6 +5,7 @@ import "time"
 // ChannelInfo represents a relay channel in the admin list (D-02, D-03).
 type ChannelInfo struct {
 	ID                 string    `json:"id"`
+	OrganizationID     string    `json:"organizationID"`
 	Name               string    `json:"name"`
 	Provider           string    `json:"provider"`
 	BaseURL            string    `json:"baseURL"`
@@ -76,6 +77,7 @@ type ModelInventoryFilter struct {
 
 // ChannelCreateRequest is the input for creating a new channel (D-02).
 type ChannelCreateRequest struct {
+	OrganizationID     string   `json:"-"`
 	Name               string   `json:"name"`
 	Provider           string   `json:"provider"`
 	BaseURL            string   `json:"baseURL"`

@@ -319,6 +319,7 @@ func applyCommercialJourneyMigrations(t *testing.T, database *sql.DB) {
 		"../../migrations/0035_channel_groups.sql",
 		"../../migrations/0039_channel_diagnostics.sql",
 		"../../migrations/0077_channel_default_weight.sql",
+		"../../migrations/0081_admin_relay_channel_organization_scope.sql",
 		"../../migrations/0021_plan_extensions.sql",
 		"../../migrations/0032_knowledge_rag_index.sql",
 		"../../migrations/0042_workflows.sql",

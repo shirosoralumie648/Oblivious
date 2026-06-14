@@ -14,22 +14,33 @@ import (
 )
 
 // ListChannels returns channels for admin display, applying limit bounds.
-func (s *Service) ListChannels(ctx context.Context, filter ChannelFilter) ([]*ChannelInfo, error) {
+func (s *Service) ListChannels(ctx context.Context, actor auth.Session, filter ChannelFilter) ([]*ChannelInfo, error) {
+	return s.listChannelsForOrganization(ctx, actor.OrganizationID, filter)
+}
+
+func (s *Service) listChannelsForOrganization(ctx context.Context, organizationID string, filter ChannelFilter) ([]*ChannelInfo, error) {
 	if filter.Limit < 1 {
 		filter.Limit = 20
 	}
 	if filter.Limit > 100 {
 		filter.Limit = 100
 	}
+	if strings.TrimSpace(organizationID) == "" {
+		return nil, fmt.Errorf("organization id is required")
+	}
+	filter.OrganizationID = organizationID
 	return s.store.ListChannels(ctx, filter)
 }
 
 // GetChannel returns a single channel by ID.
-func (s *Service) GetChannel(ctx context.Context, id string) (*ChannelInfo, error) {
+func (s *Service) GetChannel(ctx context.Context, organizationID, id string) (*ChannelInfo, error) {
 	if id == "" {
 		return nil, fmt.Errorf("channel id is required")
 	}
-	return s.store.GetChannel(ctx, id)
+	if strings.TrimSpace(organizationID) == "" {
+		return nil, fmt.Errorf("organization id is required")
+	}
+	return s.store.GetChannel(ctx, organizationID, id)
 }
 
 // CreateChannel creates a new channel and records an audit entry.
@@ -43,6 +54,10 @@ func (s *Service) CreateChannel(ctx context.Context, actor auth.Session, input C
 	if err := validateChannelProvider(input.Provider); err != nil {
 		return nil, err
 	}
+	if strings.TrimSpace(actor.OrganizationID) == "" {
+		return nil, fmt.Errorf("organization id is required")
+	}
+	input.OrganizationID = actor.OrganizationID
 
 	result, err := s.store.CreateChannel(ctx, input)
 	if err != nil {
@@ -93,8 +108,11 @@ func (s *Service) UpdateChannel(ctx context.Context, actor auth.Session, id stri
 	if id == "" {
 		return nil, fmt.Errorf("channel id is required")
 	}
+	if strings.TrimSpace(actor.OrganizationID) == "" {
+		return nil, fmt.Errorf("organization id is required")
+	}
 
-	result, err := s.store.UpdateChannel(ctx, id, input)
+	result, err := s.store.UpdateChannel(ctx, actor.OrganizationID, id, input)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +129,10 @@ func (s *Service) UpdateChannel(ctx context.Context, actor auth.Session, id stri
 
 // DeleteChannel deletes a channel and records an audit entry.
 func (s *Service) DeleteChannel(ctx context.Context, actor auth.Session, id string, r *http.Request) error {
-	if err := s.store.DeleteChannel(ctx, id); err != nil {
+	if strings.TrimSpace(actor.OrganizationID) == "" {
+		return fmt.Errorf("organization id is required")
+	}
+	if err := s.store.DeleteChannel(ctx, actor.OrganizationID, id); err != nil {
 		return err
 	}
 	if err := s.applyRelayConfigChange(ctx, RelayConfigChange{Kind: RelayConfigChangeChannel, Action: RelayConfigActionDelete, ID: id}); err != nil {
@@ -144,8 +165,11 @@ func redactChannelAuditSecret(value string) string {
 }
 
 // TestChannel performs a connectivity test on the channel.
-func (s *Service) TestChannel(ctx context.Context, id string) (*ChannelTestResult, error) {
-	return s.store.TestChannel(ctx, id)
+func (s *Service) TestChannel(ctx context.Context, organizationID, id string) (*ChannelTestResult, error) {
+	if strings.TrimSpace(organizationID) == "" {
+		return nil, fmt.Errorf("organization id is required")
+	}
+	return s.store.TestChannel(ctx, organizationID, id)
 }
 
 // SyncChannelModels probes a channel and persists the upstream model list.
@@ -153,8 +177,11 @@ func (s *Service) SyncChannelModels(ctx context.Context, actor auth.Session, id 
 	if id == "" {
 		return nil, fmt.Errorf("channel id is required")
 	}
+	if strings.TrimSpace(actor.OrganizationID) == "" {
+		return nil, fmt.Errorf("organization id is required")
+	}
 
-	result, err := s.store.TestChannel(ctx, id)
+	result, err := s.store.TestChannel(ctx, actor.OrganizationID, id)
 	if err != nil {
 		return nil, err
 	}
@@ -173,7 +200,7 @@ func (s *Service) SyncChannelModels(ctx context.Context, actor auth.Session, id 
 		return nil, fmt.Errorf("channel probe returned no models")
 	}
 
-	channel, err := s.store.UpdateChannel(ctx, id, ChannelUpdateRequest{Models: &models})
+	channel, err := s.store.UpdateChannel(ctx, actor.OrganizationID, id, ChannelUpdateRequest{Models: &models})
 	if err != nil {
 		return nil, err
 	}
@@ -192,20 +219,23 @@ func (s *Service) SyncChannelModels(ctx context.Context, actor auth.Session, id 
 
 // DetectChannelModelUpdates probes upstream and returns the model delta without
 // changing the persisted channel configuration.
-func (s *Service) DetectChannelModelUpdates(ctx context.Context, id string) (*ChannelModelUpdatePreview, error) {
+func (s *Service) DetectChannelModelUpdates(ctx context.Context, organizationID, id string) (*ChannelModelUpdatePreview, error) {
 	if id == "" {
 		return nil, fmt.Errorf("channel id is required")
 	}
+	if strings.TrimSpace(organizationID) == "" {
+		return nil, fmt.Errorf("organization id is required")
+	}
 
-	channel, err := s.store.GetChannel(ctx, id)
+	channel, err := s.store.GetChannel(ctx, organizationID, id)
 	if err != nil {
 		return nil, err
 	}
 	if channel == nil {
-		return nil, fmt.Errorf("channel not found")
+		return nil, ErrChannelNotFound
 	}
 
-	result, err := s.store.TestChannel(ctx, id)
+	result, err := s.store.TestChannel(ctx, organizationID, id)
 	if err != nil {
 		return nil, err
 	}
@@ -244,7 +274,7 @@ func (s *Service) DetectChannelModelUpdates(ctx context.Context, id string) (*Ch
 // keeps configured models and appends newly discovered upstream models, while
 // "replace" makes the channel model list match upstream exactly.
 func (s *Service) ApplyChannelModelUpdates(ctx context.Context, actor auth.Session, id string, input ChannelModelUpdateApplyRequest, r *http.Request) (*ChannelModelUpdateApplyResult, error) {
-	preview, err := s.DetectChannelModelUpdates(ctx, id)
+	preview, err := s.DetectChannelModelUpdates(ctx, actor.OrganizationID, id)
 	if err != nil {
 		return nil, err
 	}
@@ -264,7 +294,7 @@ func (s *Service) ApplyChannelModelUpdates(ctx context.Context, actor auth.Sessi
 		return nil, fmt.Errorf("model update mode must be 'merge' or 'replace'")
 	}
 
-	channel, err := s.store.UpdateChannel(ctx, id, ChannelUpdateRequest{Models: &appliedModels})
+	channel, err := s.store.UpdateChannel(ctx, actor.OrganizationID, id, ChannelUpdateRequest{Models: &appliedModels})
 	if err != nil {
 		return nil, err
 	}
@@ -296,8 +326,11 @@ func (s *Service) RefreshChannelBalance(ctx context.Context, actor auth.Session,
 	if id == "" {
 		return nil, fmt.Errorf("channel id is required")
 	}
+	if strings.TrimSpace(actor.OrganizationID) == "" {
+		return nil, fmt.Errorf("organization id is required")
+	}
 
-	result, err := s.store.TestChannel(ctx, id)
+	result, err := s.store.TestChannel(ctx, actor.OrganizationID, id)
 	if err != nil {
 		return nil, err
 	}
@@ -317,7 +350,7 @@ func (s *Service) RefreshChannelBalance(ctx context.Context, actor auth.Session,
 		checkedAt = result.Health.CheckedAt
 	}
 
-	health, persistErr := s.store.UpdateChannelDiagnostics(ctx, id, ChannelDiagnosticsUpdate{
+	health, persistErr := s.store.UpdateChannelDiagnostics(ctx, actor.OrganizationID, id, ChannelDiagnosticsUpdate{
 		Status:       status,
 		Latency:      result.Latency,
 		Balance:      result.Balance,
@@ -364,8 +397,8 @@ func (s *Service) RefreshChannelBalance(ctx context.Context, actor auth.Session,
 }
 
 // GetChannelHealth returns a status-oriented health payload for one channel.
-func (s *Service) GetChannelHealth(ctx context.Context, id string) (*ChannelHealth, error) {
-	result, err := s.TestChannel(ctx, id)
+func (s *Service) GetChannelHealth(ctx context.Context, organizationID, id string) (*ChannelHealth, error) {
+	result, err := s.TestChannel(ctx, organizationID, id)
 	if err != nil {
 		return nil, err
 	}
@@ -393,17 +426,24 @@ func (s *Service) BatchUpdateChannels(ctx context.Context, actor auth.Session, i
 	if action != "enable" && action != "disable" {
 		return fmt.Errorf("action must be 'enable' or 'disable'")
 	}
+	if strings.TrimSpace(actor.OrganizationID) == "" {
+		return fmt.Errorf("organization id is required")
+	}
+	uniqueIDs := uniqueChannelIDs(ids)
+	if len(uniqueIDs) == 0 {
+		return fmt.Errorf("channel ids are required")
+	}
 
-	if err := s.store.BatchUpdateChannels(ctx, ids, action); err != nil {
+	if err := s.store.BatchUpdateChannels(ctx, actor.OrganizationID, uniqueIDs, action); err != nil {
 		return err
 	}
-	for _, id := range ids {
+	for _, id := range uniqueIDs {
 		if err := s.applyRelayConfigChange(ctx, RelayConfigChange{Kind: RelayConfigChangeChannel, Action: RelayConfigActionUpsert, ID: id}); err != nil {
 			return err
 		}
 	}
 
-	changes, _ := json.Marshal(map[string]interface{}{"ids": ids, "action": action})
+	changes, _ := json.Marshal(map[string]interface{}{"ids": uniqueIDs, "action": action})
 	ip := extractIP(r)
 	_ = s.LogAction(ctx, actor.User.ID, actor.User.Email, "channel.batch_"+action, "channel", "", string(changes), ip)
 	return nil

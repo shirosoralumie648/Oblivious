@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -13,29 +14,36 @@ import (
 	"oblivious/server/internal/relay/types"
 )
 
+var ErrChannelNotFound = errors.New("channel not found")
+
 // ChannelStore defines operations on relay channels.
 type ChannelStore interface {
 	ListChannels(ctx context.Context, filter ChannelFilter) ([]*ChannelInfo, error)
-	GetChannel(ctx context.Context, id string) (*ChannelInfo, error)
+	GetChannel(ctx context.Context, organizationID, id string) (*ChannelInfo, error)
 	CreateChannel(ctx context.Context, input ChannelCreateRequest) (*ChannelInfo, error)
-	UpdateChannel(ctx context.Context, id string, input ChannelUpdateRequest) (*ChannelInfo, error)
-	UpdateChannelDiagnostics(ctx context.Context, id string, input ChannelDiagnosticsUpdate) (*ChannelHealth, error)
-	DeleteChannel(ctx context.Context, id string) error
-	TestChannel(ctx context.Context, id string) (*ChannelTestResult, error)
-	BatchUpdateChannels(ctx context.Context, ids []string, action string) error
+	UpdateChannel(ctx context.Context, organizationID, id string, input ChannelUpdateRequest) (*ChannelInfo, error)
+	UpdateChannelDiagnostics(ctx context.Context, organizationID, id string, input ChannelDiagnosticsUpdate) (*ChannelHealth, error)
+	DeleteChannel(ctx context.Context, organizationID, id string) error
+	TestChannel(ctx context.Context, organizationID, id string) (*ChannelTestResult, error)
+	BatchUpdateChannels(ctx context.Context, organizationID string, ids []string, action string) error
 }
 
 // ChannelFilter contains filter parameters for listing channels.
 type ChannelFilter struct {
-	Provider string
-	Status   string
-	Search   string
-	Limit    int
-	Offset   int
+	OrganizationID string
+	Provider       string
+	Status         string
+	Search         string
+	Limit          int
+	Offset         int
 }
 
 // ListChannels returns channels with optional filters.
 func (s *SQLStore) ListChannels(ctx context.Context, filter ChannelFilter) ([]*ChannelInfo, error) {
+	if strings.TrimSpace(filter.OrganizationID) == "" {
+		return nil, fmt.Errorf("organization id is required")
+	}
+
 	limit := filter.Limit
 	if limit <= 0 {
 		limit = 20
@@ -44,9 +52,9 @@ func (s *SQLStore) ListChannels(ctx context.Context, filter ChannelFilter) ([]*C
 		limit = 100
 	}
 
-	var conditions []string
-	var args []interface{}
-	argIdx := 1
+	conditions := []string{"organization_id = $1"}
+	args := []interface{}{filter.OrganizationID}
+	argIdx := 2
 
 	if filter.Provider != "" {
 		conditions = append(conditions, fmt.Sprintf("provider = $%d", argIdx))
@@ -58,14 +66,15 @@ func (s *SQLStore) ListChannels(ctx context.Context, filter ChannelFilter) ([]*C
 		args = append(args, "%"+filter.Search+"%")
 		argIdx++
 	}
-
-	where := ""
-	if len(conditions) > 0 {
-		where = "WHERE " + strings.Join(conditions, " AND ")
+	if filter.Status != "" {
+		conditions = append(conditions, fmt.Sprintf("COALESCE(last_health_status, 'offline') = $%d", argIdx))
+		args = append(args, filter.Status)
+		argIdx++
 	}
+	where := "WHERE " + strings.Join(conditions, " AND ")
 
 	query := fmt.Sprintf(`
-			SELECT id, name, provider, base_url, models, groups,
+			SELECT id, organization_id, name, provider, base_url, models, groups,
 			       rpm_limit, tpm_limit, priority, weight, estimated_cost_per_1k, cost_multiplier, enabled,
 			       COALESCE(last_health_status, 'offline'), COALESCE(last_latency_ms, 0),
 			       created_at, updated_at
@@ -87,7 +96,7 @@ func (s *SQLStore) ListChannels(ctx context.Context, filter ChannelFilter) ([]*C
 		var ch ChannelInfo
 		var models []string
 		var groups []string
-		if err := rows.Scan(&ch.ID, &ch.Name, &ch.Provider, &ch.BaseURL, pq.Array(&models), pq.Array(&groups),
+		if err := rows.Scan(&ch.ID, &ch.OrganizationID, &ch.Name, &ch.Provider, &ch.BaseURL, pq.Array(&models), pq.Array(&groups),
 			&ch.RPM, &ch.TPM, &ch.Priority, &ch.Weight, &ch.EstimatedCostPer1K, &ch.CostMultiplier, &ch.Enabled,
 			&ch.Status, &ch.Latency,
 			&ch.CreatedAt, &ch.UpdatedAt); err != nil {
@@ -101,19 +110,23 @@ func (s *SQLStore) ListChannels(ctx context.Context, filter ChannelFilter) ([]*C
 }
 
 // GetChannel returns a single channel by ID.
-func (s *SQLStore) GetChannel(ctx context.Context, id string) (*ChannelInfo, error) {
+func (s *SQLStore) GetChannel(ctx context.Context, organizationID, id string) (*ChannelInfo, error) {
+	if strings.TrimSpace(organizationID) == "" {
+		return nil, fmt.Errorf("organization id is required")
+	}
+
 	var ch ChannelInfo
 	var models []string
 	var groups []string
 
 	err := s.db.QueryRowContext(ctx, `
-			SELECT id, name, provider, base_url, models, groups,
+			SELECT id, organization_id, name, provider, base_url, models, groups,
 			       rpm_limit, tpm_limit, priority, weight, estimated_cost_per_1k, cost_multiplier, enabled,
 		       COALESCE(last_health_status, 'offline'), COALESCE(last_latency_ms, 0),
 		       created_at, updated_at
 		FROM channels
-		WHERE id = $1
-	`, id).Scan(&ch.ID, &ch.Name, &ch.Provider, &ch.BaseURL, pq.Array(&models), pq.Array(&groups),
+		WHERE organization_id = $1 AND id = $2
+	`, organizationID, id).Scan(&ch.ID, &ch.OrganizationID, &ch.Name, &ch.Provider, &ch.BaseURL, pq.Array(&models), pq.Array(&groups),
 		&ch.RPM, &ch.TPM, &ch.Priority, &ch.Weight, &ch.EstimatedCostPer1K, &ch.CostMultiplier, &ch.Enabled,
 		&ch.Status, &ch.Latency,
 		&ch.CreatedAt, &ch.UpdatedAt)
@@ -130,6 +143,10 @@ func (s *SQLStore) GetChannel(ctx context.Context, id string) (*ChannelInfo, err
 
 // CreateChannel inserts a new channel and returns it.
 func (s *SQLStore) CreateChannel(ctx context.Context, input ChannelCreateRequest) (*ChannelInfo, error) {
+	if strings.TrimSpace(input.OrganizationID) == "" {
+		return nil, fmt.Errorf("organization id is required")
+	}
+
 	id, err := auth.NewID("ch")
 	if err != nil {
 		return nil, fmt.Errorf("generate channel id: %w", err)
@@ -146,16 +163,16 @@ func (s *SQLStore) CreateChannel(ctx context.Context, input ChannelCreateRequest
 
 	var ch ChannelInfo
 	err = s.db.QueryRowContext(ctx, `
-		INSERT INTO channels (id, name, provider, base_url, api_key_encrypted, models, groups,
+		INSERT INTO channels (id, organization_id, name, provider, base_url, api_key_encrypted, models, groups,
 		                      rpm_limit, tpm_limit, priority, weight, estimated_cost_per_1k, cost_multiplier, enabled, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, true, NOW(), NOW())
-		RETURNING id, name, provider, base_url, models, groups,
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, true, NOW(), NOW())
+		RETURNING id, organization_id, name, provider, base_url, models, groups,
 		          rpm_limit, tpm_limit, priority, weight, estimated_cost_per_1k, cost_multiplier, enabled,
 		          COALESCE(last_health_status, 'offline'), COALESCE(last_latency_ms, 0),
 		          created_at, updated_at
-	`, id, input.Name, input.Provider, input.BaseURL, input.APIKey, pq.Array(models), pq.Array(groups),
+	`, id, input.OrganizationID, input.Name, input.Provider, input.BaseURL, input.APIKey, pq.Array(models), pq.Array(groups),
 		input.RpmLimit, input.TpmLimit, input.Priority, normalizeAdminChannelWeight(input.Weight), input.EstimatedCostPer1K, normalizeAdminCostMultiplier(input.CostMultiplier)).Scan(
-		&ch.ID, &ch.Name, &ch.Provider, &ch.BaseURL, pq.Array(&models), pq.Array(&groups),
+		&ch.ID, &ch.OrganizationID, &ch.Name, &ch.Provider, &ch.BaseURL, pq.Array(&models), pq.Array(&groups),
 		&ch.RPM, &ch.TPM, &ch.Priority, &ch.Weight, &ch.EstimatedCostPer1K, &ch.CostMultiplier, &ch.Enabled,
 		&ch.Status, &ch.Latency,
 		&ch.CreatedAt, &ch.UpdatedAt)
@@ -168,7 +185,11 @@ func (s *SQLStore) CreateChannel(ctx context.Context, input ChannelCreateRequest
 }
 
 // UpdateChannel updates an existing channel with optional fields.
-func (s *SQLStore) UpdateChannel(ctx context.Context, id string, input ChannelUpdateRequest) (*ChannelInfo, error) {
+func (s *SQLStore) UpdateChannel(ctx context.Context, organizationID, id string, input ChannelUpdateRequest) (*ChannelInfo, error) {
+	if strings.TrimSpace(organizationID) == "" {
+		return nil, fmt.Errorf("organization id is required")
+	}
+
 	// Build dynamic UPDATE with COALESCE/NULLIF for optional pointer fields
 	var ch ChannelInfo
 	var models []string
@@ -189,8 +210,8 @@ func (s *SQLStore) UpdateChannel(ctx context.Context, id string, input ChannelUp
 			cost_multiplier = COALESCE($11::double precision, cost_multiplier),
 			enabled = COALESCE($12::boolean, enabled),
 			updated_at = NOW()
-		WHERE id = $13
-		RETURNING id, name, provider, base_url, models, groups,
+		WHERE organization_id = $13 AND id = $14
+		RETURNING id, organization_id, name, provider, base_url, models, groups,
 		          rpm_limit, tpm_limit, priority, weight, estimated_cost_per_1k, cost_multiplier, enabled,
 		          COALESCE(last_health_status, 'offline'), COALESCE(last_latency_ms, 0),
 		          created_at, updated_at
@@ -207,11 +228,15 @@ func (s *SQLStore) UpdateChannel(ctx context.Context, id string, input ChannelUp
 		coalesceFloat(input.EstimatedCostPer1K),
 		coalesceCostMultiplier(input.CostMultiplier),
 		input.Enabled,
+		organizationID,
 		id,
-	).Scan(&ch.ID, &ch.Name, &ch.Provider, &ch.BaseURL, pq.Array(&models), pq.Array(&groups),
+	).Scan(&ch.ID, &ch.OrganizationID, &ch.Name, &ch.Provider, &ch.BaseURL, pq.Array(&models), pq.Array(&groups),
 		&ch.RPM, &ch.TPM, &ch.Priority, &ch.Weight, &ch.EstimatedCostPer1K, &ch.CostMultiplier, &ch.Enabled,
 		&ch.Status, &ch.Latency,
 		&ch.CreatedAt, &ch.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrChannelNotFound
+	}
 	if err != nil {
 		return nil, fmt.Errorf("update channel: %w", err)
 	}
@@ -221,7 +246,11 @@ func (s *SQLStore) UpdateChannel(ctx context.Context, id string, input ChannelUp
 }
 
 // UpdateChannelDiagnostics persists the latest provider probe diagnostics.
-func (s *SQLStore) UpdateChannelDiagnostics(ctx context.Context, id string, input ChannelDiagnosticsUpdate) (*ChannelHealth, error) {
+func (s *SQLStore) UpdateChannelDiagnostics(ctx context.Context, organizationID, id string, input ChannelDiagnosticsUpdate) (*ChannelHealth, error) {
+	if strings.TrimSpace(organizationID) == "" {
+		return nil, fmt.Errorf("organization id is required")
+	}
+
 	checkedAt := input.CheckedAt
 	if checkedAt.IsZero() {
 		checkedAt = time.Now().UTC()
@@ -258,14 +287,14 @@ func (s *SQLStore) UpdateChannelDiagnostics(ctx context.Context, id string, inpu
 			last_latency_ms = $9,
 			last_probe_error = $10,
 			updated_at = NOW()
-		WHERE id = $1
+		WHERE id = $1 AND organization_id = $11
 	`, id, balanceAmount, balanceCurrency, balanceSource, nullableString(input.BalanceError),
-		status, nullableString(message), checkedAt, input.Latency, nullableString(input.Error))
+		status, nullableString(message), checkedAt, input.Latency, nullableString(input.Error), organizationID)
 	if err != nil {
 		return nil, fmt.Errorf("update channel diagnostics: %w", err)
 	}
 	if rows, err := result.RowsAffected(); err == nil && rows == 0 {
-		return nil, fmt.Errorf("channel not found")
+		return nil, ErrChannelNotFound
 	}
 
 	health := input.Health
@@ -291,26 +320,40 @@ func (s *SQLStore) UpdateChannelDiagnostics(ctx context.Context, id string, inpu
 }
 
 // DeleteChannel deletes a channel by ID.
-func (s *SQLStore) DeleteChannel(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM channels WHERE id = $1`, id)
-	return err
+func (s *SQLStore) DeleteChannel(ctx context.Context, organizationID, id string) error {
+	if strings.TrimSpace(organizationID) == "" {
+		return fmt.Errorf("organization id is required")
+	}
+
+	result, err := s.db.ExecContext(ctx, `DELETE FROM channels WHERE organization_id = $1 AND id = $2`, organizationID, id)
+	if err != nil {
+		return err
+	}
+	if rows, err := result.RowsAffected(); err == nil && rows == 0 {
+		return ErrChannelNotFound
+	}
+	return nil
 }
 
 // TestChannel performs a provider-aware connectivity test using the stored
 // channel credentials and returns the upstream model list when available.
-func (s *SQLStore) TestChannel(ctx context.Context, id string) (*ChannelTestResult, error) {
-	ch, err := s.getRelayChannelForProbe(ctx, id)
+func (s *SQLStore) TestChannel(ctx context.Context, organizationID, id string) (*ChannelTestResult, error) {
+	ch, err := s.getRelayChannelForProbe(ctx, organizationID, id)
 	if err != nil {
 		return nil, fmt.Errorf("test channel: %w", err)
 	}
 	if ch == nil {
-		return &ChannelTestResult{Success: false, Error: "channel not found"}, nil
+		return nil, ErrChannelNotFound
 	}
 
 	return testRelayChannel(ctx, ch), nil
 }
 
-func (s *SQLStore) getRelayChannelForProbe(ctx context.Context, id string) (*types.Channel, error) {
+func (s *SQLStore) getRelayChannelForProbe(ctx context.Context, organizationID, id string) (*types.Channel, error) {
+	if strings.TrimSpace(organizationID) == "" {
+		return nil, fmt.Errorf("organization id is required")
+	}
+
 	ch := &types.Channel{}
 	var models []string
 	var groups []string
@@ -318,8 +361,8 @@ func (s *SQLStore) getRelayChannelForProbe(ctx context.Context, id string) (*typ
 			SELECT id, name, provider, base_url, api_key_encrypted, models, groups,
 			       rpm_limit, tpm_limit, priority, weight, estimated_cost_per_1k, cost_multiplier, enabled
 		FROM channels
-		WHERE id = $1
-	`, id).Scan(
+		WHERE organization_id = $1 AND id = $2
+	`, organizationID, id).Scan(
 		&ch.ID, &ch.Name, &ch.Provider, &ch.BaseURL, &ch.APIKey, pq.Array(&models), pq.Array(&groups),
 		&ch.RPMLimit, &ch.TPMLimit, &ch.Priority, &ch.Weight, &ch.EstimatedCostPer1K, &ch.CostMultiplier, &ch.Enabled,
 	)
@@ -335,7 +378,15 @@ func (s *SQLStore) getRelayChannelForProbe(ctx context.Context, id string) (*typ
 }
 
 // BatchUpdateChannels enables or disables multiple channels at once.
-func (s *SQLStore) BatchUpdateChannels(ctx context.Context, ids []string, action string) error {
+func (s *SQLStore) BatchUpdateChannels(ctx context.Context, organizationID string, ids []string, action string) error {
+	if strings.TrimSpace(organizationID) == "" {
+		return fmt.Errorf("organization id is required")
+	}
+	uniqueIDs := uniqueChannelIDs(ids)
+	if len(uniqueIDs) == 0 {
+		return fmt.Errorf("channel ids are required")
+	}
+
 	var enabled bool
 	switch action {
 	case "enable":
@@ -346,14 +397,45 @@ func (s *SQLStore) BatchUpdateChannels(ctx context.Context, ids []string, action
 		return fmt.Errorf("invalid batch action: %s", action)
 	}
 
-	_, err := s.db.ExecContext(ctx, `
+	var matched int
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM channels
+		WHERE organization_id = $1 AND id = ANY($2)
+	`, organizationID, pq.Array(uniqueIDs)).Scan(&matched); err != nil {
+		return fmt.Errorf("batch check channels: %w", err)
+	}
+	if matched != len(uniqueIDs) {
+		return ErrChannelNotFound
+	}
+
+	result, err := s.db.ExecContext(ctx, `
 		UPDATE channels SET enabled = $1, updated_at = NOW()
-		WHERE id = ANY($2)
-	`, enabled, pq.Array(ids))
+		WHERE organization_id = $2 AND id = ANY($3)
+	`, enabled, organizationID, pq.Array(uniqueIDs))
 	if err != nil {
 		return fmt.Errorf("batch update channels: %w", err)
 	}
+	if rows, err := result.RowsAffected(); err == nil && rows != int64(len(uniqueIDs)) {
+		return ErrChannelNotFound
+	}
 	return nil
+}
+
+func uniqueChannelIDs(ids []string) []string {
+	seen := make(map[string]struct{}, len(ids))
+	unique := make([]string, 0, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		unique = append(unique, id)
+	}
+	return unique
 }
 
 // --- pointer-to-scalar helpers for UPDATE ---

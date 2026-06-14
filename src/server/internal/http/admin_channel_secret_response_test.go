@@ -132,6 +132,160 @@ func TestAdminRelayChannelHTTPRouteRedactsSQLStoreAPIKeysAndPreservesMarkers(t *
 	}
 }
 
+func TestAdminRelayChannelHTTPRouteEnforcesActiveOrganizationIsolation(t *testing.T) {
+	database := testDatabase(t)
+	applyCommercialJourneyMigrations(t, database)
+	router := NewRouter(testConfig(), database)
+	cookie, csrfToken, userID := registerHTTPUser(t, router, "admin-relay-channel-isolation@example.com")
+	_, activeOrganizationID := queryHTTPUserScope(t, database, userID)
+	promoteHTTPUserToAdmin(t, database, userID)
+	otherOrganizationID := createHTTPOrganization(t, router, cookie, csrfToken, "Other Relay Org", "other-relay-org")
+
+	if _, err := database.Exec(`
+		INSERT INTO channels (
+			id, organization_id, name, provider, base_url, api_key_encrypted, models, groups,
+			rpm_limit, tpm_limit, priority, weight, estimated_cost_per_1k, cost_multiplier,
+			enabled, last_health_status, last_latency_ms, created_at, updated_at
+		)
+		VALUES
+			('channel_active_primary', $1, 'Active primary relay', 'openai', 'https://active-primary.example.test', 'sk-active-primary', ARRAY['gpt-4o-mini']::text[], ARRAY['default']::text[], 100, 100000, 10, 100, 0.02, 1.1, true, 'online', 42, NOW(), NOW()),
+			('channel_active_batch', $1, 'Active batch relay', 'openai', 'https://active-batch.example.test', 'sk-active-batch', ARRAY['gpt-4o-mini']::text[], ARRAY['default']::text[], 100, 100000, 20, 100, 0.02, 1.1, true, 'online', 43, NOW(), NOW()),
+			('channel_other_org', $2, 'Other org relay', 'openai', 'https://other-org.example.test', 'sk-other-org', ARRAY['gpt-4o-mini']::text[], ARRAY['default']::text[], 100, 100000, 30, 100, 0.02, 1.1, true, 'online', 44, NOW(), NOW())
+	`, activeOrganizationID, otherOrganizationID); err != nil {
+		t.Fatalf("insert admin relay channel fixtures: %v", err)
+	}
+
+	listBody := commercialDoJSON(t, router, stdhttp.MethodGet, "/api/v1/admin/channels", "", cookie, "", stdhttp.StatusOK)
+	var listResponse struct {
+		Data struct {
+			Channels []admin.ChannelInfo `json:"channels"`
+			Total    int                 `json:"total"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(listBody, &listResponse); err != nil {
+		t.Fatalf("decode admin relay channel list response: %v", err)
+	}
+	if listResponse.Data.Total != 2 || len(listResponse.Data.Channels) != 2 {
+		t.Fatalf("expected only active organization channels in list, got %+v", listResponse.Data)
+	}
+	for _, channel := range listResponse.Data.Channels {
+		if channel.ID == "channel_other_org" || channel.OrganizationID == otherOrganizationID {
+			t.Fatalf("active organization %s must not list other organization channel %+v", activeOrganizationID, channel)
+		}
+		if channel.OrganizationID != activeOrganizationID {
+			t.Fatalf("expected listed admin relay channel to carry active organization %s, got %+v", activeOrganizationID, channel)
+		}
+	}
+
+	crossTenantRequests := []struct {
+		name       string
+		method     string
+		path       string
+		body       string
+		csrf       bool
+		wantStatus int
+	}{
+		{
+			name:       "get channel",
+			method:     stdhttp.MethodGet,
+			path:       "/api/v1/admin/channels/channel_other_org",
+			wantStatus: stdhttp.StatusNotFound,
+		},
+		{
+			name:       "update channel",
+			method:     stdhttp.MethodPut,
+			path:       "/api/v1/admin/channels/channel_other_org",
+			body:       `{"name":"Mutated other org relay","enabled":false}`,
+			csrf:       true,
+			wantStatus: stdhttp.StatusNotFound,
+		},
+		{
+			name:       "delete channel",
+			method:     stdhttp.MethodDelete,
+			path:       "/api/v1/admin/channels/channel_other_org",
+			csrf:       true,
+			wantStatus: stdhttp.StatusNotFound,
+		},
+		{
+			name:       "test channel",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/admin/channels/channel_other_org/test",
+			csrf:       true,
+			wantStatus: stdhttp.StatusNotFound,
+		},
+		{
+			name:       "get health",
+			method:     stdhttp.MethodGet,
+			path:       "/api/v1/admin/channels/channel_other_org/health",
+			wantStatus: stdhttp.StatusNotFound,
+		},
+		{
+			name:       "sync models",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/admin/channels/channel_other_org/sync-models",
+			csrf:       true,
+			wantStatus: stdhttp.StatusNotFound,
+		},
+		{
+			name:       "detect model updates",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/admin/channels/channel_other_org/model-updates/detect",
+			csrf:       true,
+			wantStatus: stdhttp.StatusNotFound,
+		},
+		{
+			name:       "apply model updates",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/admin/channels/channel_other_org/model-updates/apply",
+			body:       `{"mode":"replace"}`,
+			csrf:       true,
+			wantStatus: stdhttp.StatusNotFound,
+		},
+		{
+			name:       "refresh balance",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/admin/channels/channel_other_org/refresh-balance",
+			csrf:       true,
+			wantStatus: stdhttp.StatusNotFound,
+		},
+		{
+			name:       "mixed organization batch",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/admin/channels/batch",
+			body:       `{"ids":["channel_active_batch","channel_other_org"],"action":"disable"}`,
+			csrf:       true,
+			wantStatus: stdhttp.StatusNotFound,
+		},
+	}
+	for _, requestCase := range crossTenantRequests {
+		token := ""
+		if requestCase.csrf {
+			token = csrfToken
+		}
+		body := commercialDoJSON(t, router, requestCase.method, requestCase.path, requestCase.body, cookie, token, requestCase.wantStatus)
+		if !strings.Contains(string(body), "not_found") {
+			t.Fatalf("%s expected fail-closed not_found response, got %s", requestCase.name, body)
+		}
+	}
+
+	var otherName string
+	var otherEnabled bool
+	if err := database.QueryRow(`SELECT name, enabled FROM channels WHERE id = 'channel_other_org'`).Scan(&otherName, &otherEnabled); err != nil {
+		t.Fatalf("query other organization admin relay channel after denied mutations: %v", err)
+	}
+	if otherName != "Other org relay" || !otherEnabled {
+		t.Fatalf("expected denied mutations to preserve other organization relay channel, got name=%q enabled=%v", otherName, otherEnabled)
+	}
+
+	var activeBatchEnabled bool
+	if err := database.QueryRow(`SELECT enabled FROM channels WHERE id = 'channel_active_batch'`).Scan(&activeBatchEnabled); err != nil {
+		t.Fatalf("query active batch relay channel after denied mixed batch: %v", err)
+	}
+	if !activeBatchEnabled {
+		t.Fatalf("expected denied mixed-organization batch not to mutate active channel")
+	}
+}
+
 func adminRelayChannelAuditChangesRedactAPIKey(t *testing.T, changes string) bool {
 	t.Helper()
 

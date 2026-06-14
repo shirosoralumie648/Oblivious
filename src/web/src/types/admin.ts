@@ -38,6 +38,8 @@ export type ChannelHealthDetail = {
 
 export type ChannelInfo = {
   id: string;
+  organizationID: string;
+  organizationId?: string;
   name: string;
   provider: string;
   baseURL: string;

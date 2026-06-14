@@ -4586,9 +4586,11 @@ components:
     AdminChannel:
       type: object
       description: Admin Relay channel response. API keys are accepted only on create/update requests and are never returned here.
-      required: [id, name, provider, baseURL, models, groups, rpm, tpm, priority, weight, enabled, status, latency, createdAt, updatedAt]
+      required: [id, organizationID, name, provider, baseURL, models, groups, rpm, tpm, priority, weight, enabled, status, latency, createdAt, updatedAt]
       properties:
         id:
+          type: string
+        organizationID:
           type: string
         name:
           type: string

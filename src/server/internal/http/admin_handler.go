@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	stdhttp "net/http"
 	"strconv"
@@ -75,6 +76,11 @@ func (h adminHandler) getStats(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 }
 
 func (h adminHandler) listChannels(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	session, ok := sessionOrUnauthorized(w, r)
+	if !ok {
+		return
+	}
+
 	filter := admin.ChannelFilter{
 		Provider: r.URL.Query().Get("provider"),
 		Status:   r.URL.Query().Get("status"),
@@ -83,7 +89,7 @@ func (h adminHandler) listChannels(w stdhttp.ResponseWriter, r *stdhttp.Request)
 		Offset:   parseQueryInt(r, "offset", 0, 0),
 	}
 
-	channels, err := h.service.ListChannels(r.Context(), filter)
+	channels, err := h.service.ListChannels(r.Context(), session, filter)
 	if err != nil {
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
 		return
@@ -108,7 +114,12 @@ func (h adminHandler) listChannelProviders(w stdhttp.ResponseWriter, r *stdhttp.
 }
 
 func (h adminHandler) getChannel(w stdhttp.ResponseWriter, r *stdhttp.Request, channelID string) {
-	channel, err := h.service.GetChannel(r.Context(), channelID)
+	session, ok := sessionOrUnauthorized(w, r)
+	if !ok {
+		return
+	}
+
+	channel, err := h.service.GetChannel(r.Context(), session.OrganizationID, channelID)
 	if err != nil {
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
 		return
@@ -154,6 +165,10 @@ func (h adminHandler) updateChannel(w stdhttp.ResponseWriter, r *stdhttp.Request
 
 	channel, err := h.service.UpdateChannel(r.Context(), session, channelID, req, r)
 	if err != nil {
+		if errors.Is(err, admin.ErrChannelNotFound) {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "channel not found")
+			return
+		}
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
@@ -168,6 +183,10 @@ func (h adminHandler) deleteChannel(w stdhttp.ResponseWriter, r *stdhttp.Request
 	}
 
 	if err := h.service.DeleteChannel(r.Context(), session, channelID, r); err != nil {
+		if errors.Is(err, admin.ErrChannelNotFound) {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "channel not found")
+			return
+		}
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
 		return
 	}
@@ -176,8 +195,17 @@ func (h adminHandler) deleteChannel(w stdhttp.ResponseWriter, r *stdhttp.Request
 }
 
 func (h adminHandler) testChannel(w stdhttp.ResponseWriter, r *stdhttp.Request, channelID string) {
-	result, err := h.service.TestChannel(r.Context(), channelID)
+	session, ok := sessionOrUnauthorized(w, r)
+	if !ok {
+		return
+	}
+
+	result, err := h.service.TestChannel(r.Context(), session.OrganizationID, channelID)
 	if err != nil {
+		if errors.Is(err, admin.ErrChannelNotFound) {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "channel not found")
+			return
+		}
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
 		return
 	}
@@ -193,6 +221,10 @@ func (h adminHandler) syncChannelModels(w stdhttp.ResponseWriter, r *stdhttp.Req
 
 	result, err := h.service.SyncChannelModels(r.Context(), session, channelID, r)
 	if err != nil {
+		if errors.Is(err, admin.ErrChannelNotFound) {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "channel not found")
+			return
+		}
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
@@ -201,8 +233,17 @@ func (h adminHandler) syncChannelModels(w stdhttp.ResponseWriter, r *stdhttp.Req
 }
 
 func (h adminHandler) detectChannelModelUpdates(w stdhttp.ResponseWriter, r *stdhttp.Request, channelID string) {
-	result, err := h.service.DetectChannelModelUpdates(r.Context(), channelID)
+	session, ok := sessionOrUnauthorized(w, r)
+	if !ok {
+		return
+	}
+
+	result, err := h.service.DetectChannelModelUpdates(r.Context(), session.OrganizationID, channelID)
 	if err != nil {
+		if errors.Is(err, admin.ErrChannelNotFound) {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "channel not found")
+			return
+		}
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
@@ -223,6 +264,10 @@ func (h adminHandler) applyChannelModelUpdates(w stdhttp.ResponseWriter, r *stdh
 
 	result, err := h.service.ApplyChannelModelUpdates(r.Context(), session, channelID, req, r)
 	if err != nil {
+		if errors.Is(err, admin.ErrChannelNotFound) {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "channel not found")
+			return
+		}
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
@@ -238,6 +283,10 @@ func (h adminHandler) refreshChannelBalance(w stdhttp.ResponseWriter, r *stdhttp
 
 	result, err := h.service.RefreshChannelBalance(r.Context(), session, channelID, r)
 	if err != nil {
+		if errors.Is(err, admin.ErrChannelNotFound) {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "channel not found")
+			return
+		}
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
@@ -246,8 +295,17 @@ func (h adminHandler) refreshChannelBalance(w stdhttp.ResponseWriter, r *stdhttp
 }
 
 func (h adminHandler) getChannelHealth(w stdhttp.ResponseWriter, r *stdhttp.Request, channelID string) {
-	health, err := h.service.GetChannelHealth(r.Context(), channelID)
+	session, ok := sessionOrUnauthorized(w, r)
+	if !ok {
+		return
+	}
+
+	health, err := h.service.GetChannelHealth(r.Context(), session.OrganizationID, channelID)
 	if err != nil {
+		if errors.Is(err, admin.ErrChannelNotFound) {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "channel not found")
+			return
+		}
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
 		return
 	}
@@ -296,6 +354,10 @@ func (h adminHandler) batchUpdateChannels(w stdhttp.ResponseWriter, r *stdhttp.R
 	}
 
 	if err := h.service.BatchUpdateChannels(r.Context(), session, req.IDs, action, r); err != nil {
+		if errors.Is(err, admin.ErrChannelNotFound) {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "channel not found")
+			return
+		}
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}

@@ -1557,8 +1557,9 @@ func testAdminSession() auth.Session {
 			Name:  "Admin",
 			Role:  "admin",
 		},
-		WorkspaceID: "workspace_1",
-		ExpiresAt:   time.Now().Add(time.Hour),
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+		ExpiresAt:      time.Now().Add(time.Hour),
 	}
 }
 
@@ -1684,7 +1685,7 @@ func (s *fakeAdminStore) ListChannels(ctx context.Context, filter admin.ChannelF
 	return []*admin.ChannelInfo{{ID: "ch_1", Name: "OpenAI", Provider: "openai"}}, nil
 }
 
-func (s *fakeAdminStore) GetChannel(ctx context.Context, id string) (*admin.ChannelInfo, error) {
+func (s *fakeAdminStore) GetChannel(ctx context.Context, organizationID, id string) (*admin.ChannelInfo, error) {
 	return &admin.ChannelInfo{ID: id, Name: "OpenAI", Provider: "openai", Models: append([]string{}, s.currentChannelModels...)}, nil
 }
 
@@ -1693,7 +1694,7 @@ func (s *fakeAdminStore) CreateChannel(ctx context.Context, input admin.ChannelC
 	return &admin.ChannelInfo{ID: "ch_1", Name: input.Name, Provider: input.Provider}, nil
 }
 
-func (s *fakeAdminStore) UpdateChannel(ctx context.Context, id string, input admin.ChannelUpdateRequest) (*admin.ChannelInfo, error) {
+func (s *fakeAdminStore) UpdateChannel(ctx context.Context, organizationID, id string, input admin.ChannelUpdateRequest) (*admin.ChannelInfo, error) {
 	if input.Models != nil {
 		s.updatedChannelModels = append([]string{}, (*input.Models)...)
 	}
@@ -1701,7 +1702,7 @@ func (s *fakeAdminStore) UpdateChannel(ctx context.Context, id string, input adm
 	return &admin.ChannelInfo{ID: id, Name: "OpenAI", Provider: "openai", Models: append([]string{}, s.updatedChannelModels...)}, nil
 }
 
-func (s *fakeAdminStore) UpdateChannelDiagnostics(ctx context.Context, id string, input admin.ChannelDiagnosticsUpdate) (*admin.ChannelHealth, error) {
+func (s *fakeAdminStore) UpdateChannelDiagnostics(ctx context.Context, organizationID, id string, input admin.ChannelDiagnosticsUpdate) (*admin.ChannelHealth, error) {
 	s.channelDiagnostics = &input
 	return &admin.ChannelHealth{
 		ID:           id,
@@ -1715,18 +1716,18 @@ func (s *fakeAdminStore) UpdateChannelDiagnostics(ctx context.Context, id string
 	}, nil
 }
 
-func (s *fakeAdminStore) DeleteChannel(ctx context.Context, id string) error {
+func (s *fakeAdminStore) DeleteChannel(ctx context.Context, organizationID, id string) error {
 	return nil
 }
 
-func (s *fakeAdminStore) TestChannel(ctx context.Context, id string) (*admin.ChannelTestResult, error) {
+func (s *fakeAdminStore) TestChannel(ctx context.Context, organizationID, id string) (*admin.ChannelTestResult, error) {
 	if s.channelTestResult != nil {
 		return s.channelTestResult, nil
 	}
 	return &admin.ChannelTestResult{Success: true, Latency: 12}, nil
 }
 
-func (s *fakeAdminStore) BatchUpdateChannels(ctx context.Context, ids []string, action string) error {
+func (s *fakeAdminStore) BatchUpdateChannels(ctx context.Context, organizationID string, ids []string, action string) error {
 	s.batchAction = action
 	return nil
 }

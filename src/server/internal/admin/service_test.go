@@ -239,7 +239,7 @@ func TestSyncChannelModelsProbesAndPersistsReturnedModels(t *testing.T) {
 		},
 	}
 	service := NewService(store)
-	actor := auth.Session{User: auth.User{ID: "user_admin", Email: "admin@example.com"}}
+	actor := testAdminActor()
 	request := httptest.NewRequest("POST", "/api/v1/admin/channels/ch_1/sync-models", nil)
 
 	result, err := service.SyncChannelModels(context.Background(), actor, "ch_1", request)
@@ -259,6 +259,17 @@ func TestSyncChannelModelsProbesAndPersistsReturnedModels(t *testing.T) {
 	}
 	if store.auditEntry == nil || store.auditEntry.Action != "channel.sync_models" || store.auditEntry.ResourceID != "ch_1" {
 		t.Fatalf("expected sync audit entry for ch_1, got %#v", store.auditEntry)
+	}
+}
+
+func testAdminActor() auth.Session {
+	return auth.Session{
+		OrganizationID: "org_1",
+		User: auth.User{
+			ID:    "user_admin",
+			Email: "admin@example.com",
+			Role:  "admin",
+		},
 	}
 }
 
@@ -290,7 +301,7 @@ func TestRefreshChannelBalanceProbesPersistsDiagnosticsAndAudits(t *testing.T) {
 		},
 	}
 	service := NewService(store)
-	actor := auth.Session{User: auth.User{ID: "user_admin", Email: "admin@example.com"}}
+	actor := testAdminActor()
 	request := httptest.NewRequest("POST", "/api/v1/admin/channels/ch_1/refresh-balance", nil)
 
 	result, err := service.RefreshChannelBalance(context.Background(), actor, "ch_1", request)
@@ -325,7 +336,7 @@ func TestDetectChannelModelUpdatesReturnsDiffWithoutPersisting(t *testing.T) {
 	}
 	service := NewService(store)
 
-	result, err := service.DetectChannelModelUpdates(context.Background(), "ch_1")
+	result, err := service.DetectChannelModelUpdates(context.Background(), "org_1", "ch_1")
 	if err != nil {
 		t.Fatalf("detect channel model updates should succeed: %v", err)
 	}
@@ -353,7 +364,7 @@ func TestApplyChannelModelUpdatesMergesAndAudits(t *testing.T) {
 		},
 	}
 	service := NewService(store)
-	actor := auth.Session{User: auth.User{ID: "user_admin", Email: "admin@example.com"}}
+	actor := testAdminActor()
 	request := httptest.NewRequest("POST", "/api/v1/admin/channels/ch_1/model-updates/apply", nil)
 
 	result, err := service.ApplyChannelModelUpdates(context.Background(), actor, "ch_1", ChannelModelUpdateApplyRequest{Mode: "merge"}, request)
@@ -383,7 +394,7 @@ func TestRelayConfigApplierRunsAfterChannelAndRouteMutations(t *testing.T) {
 		applied = append(applied, change)
 		return nil
 	}))
-	actor := auth.Session{User: auth.User{ID: "user_admin", Email: "admin@example.com"}}
+	actor := testAdminActor()
 	request := httptest.NewRequest("POST", "/api/v1/admin", nil)
 
 	if _, err := service.CreateChannel(context.Background(), actor, ChannelCreateRequest{Name: "OpenAI", Provider: "openai"}, request); err != nil {
@@ -428,7 +439,7 @@ func TestRelayConfigApplierRunsAfterChannelAndRouteMutations(t *testing.T) {
 func TestServiceRedactsChannelAPIKeyFromAuditChanges(t *testing.T) {
 	store := &relayConfigApplyStore{}
 	service := NewService(store)
-	actor := auth.Session{User: auth.User{ID: "user_admin", Email: "admin@example.com"}}
+	actor := testAdminActor()
 	request := httptest.NewRequest("POST", "/api/v1/admin/channels", nil)
 
 	_, err := service.CreateChannel(context.Background(), actor, ChannelCreateRequest{
@@ -470,7 +481,7 @@ func TestServiceRedactsChannelAPIKeyFromAuditChanges(t *testing.T) {
 func TestServicePassesChannelWeightThroughCreateAndUpdate(t *testing.T) {
 	store := &relayConfigApplyStore{}
 	service := NewService(store)
-	actor := auth.Session{User: auth.User{ID: "user_admin", Email: "admin@example.com"}}
+	actor := testAdminActor()
 	request := httptest.NewRequest("POST", "/api/v1/admin", nil)
 
 	created, err := service.CreateChannel(context.Background(), actor, ChannelCreateRequest{Name: "Weighted OpenAI", Provider: "openai", Weight: 25}, request)
@@ -500,22 +511,22 @@ type syncChannelModelsStore struct {
 	auditEntry    *AuditEntry
 }
 
-func (s *syncChannelModelsStore) GetChannel(ctx context.Context, id string) (*ChannelInfo, error) {
+func (s *syncChannelModelsStore) GetChannel(ctx context.Context, organizationID, id string) (*ChannelInfo, error) {
 	return &ChannelInfo{ID: id, Name: "OpenAI", Provider: "openai", Models: append([]string{}, s.currentModels...)}, nil
 }
 
-func (s *syncChannelModelsStore) TestChannel(ctx context.Context, id string) (*ChannelTestResult, error) {
+func (s *syncChannelModelsStore) TestChannel(ctx context.Context, organizationID, id string) (*ChannelTestResult, error) {
 	return s.testResult, nil
 }
 
-func (s *syncChannelModelsStore) UpdateChannel(ctx context.Context, id string, input ChannelUpdateRequest) (*ChannelInfo, error) {
+func (s *syncChannelModelsStore) UpdateChannel(ctx context.Context, organizationID, id string, input ChannelUpdateRequest) (*ChannelInfo, error) {
 	if input.Models != nil {
 		s.updatedModels = append([]string{}, (*input.Models)...)
 	}
 	return &ChannelInfo{ID: id, Name: "OpenAI", Provider: "openai", Models: append([]string{}, s.updatedModels...)}, nil
 }
 
-func (s *syncChannelModelsStore) UpdateChannelDiagnostics(ctx context.Context, id string, input ChannelDiagnosticsUpdate) (*ChannelHealth, error) {
+func (s *syncChannelModelsStore) UpdateChannelDiagnostics(ctx context.Context, organizationID, id string, input ChannelDiagnosticsUpdate) (*ChannelHealth, error) {
 	s.diagnostics = &input
 	return &ChannelHealth{
 		ID:           id,
@@ -579,7 +590,7 @@ func (s *relayConfigApplyStore) CreateChannel(ctx context.Context, input Channel
 	return &ChannelInfo{ID: "ch_1", Name: input.Name, Provider: input.Provider, Weight: input.Weight}, nil
 }
 
-func (s *relayConfigApplyStore) UpdateChannel(ctx context.Context, id string, input ChannelUpdateRequest) (*ChannelInfo, error) {
+func (s *relayConfigApplyStore) UpdateChannel(ctx context.Context, organizationID, id string, input ChannelUpdateRequest) (*ChannelInfo, error) {
 	s.updatedWeight = input.Weight
 	s.updatedAPIKey = input.APIKey
 	weight := 0
@@ -589,7 +600,7 @@ func (s *relayConfigApplyStore) UpdateChannel(ctx context.Context, id string, in
 	return &ChannelInfo{ID: id, Name: "OpenAI", Provider: "openai", Weight: weight}, nil
 }
 
-func (s *relayConfigApplyStore) DeleteChannel(ctx context.Context, id string) error {
+func (s *relayConfigApplyStore) DeleteChannel(ctx context.Context, organizationID, id string) error {
 	return nil
 }
 
