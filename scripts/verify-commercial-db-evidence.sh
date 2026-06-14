@@ -46,8 +46,8 @@ Profiles:
                                for persisted provider, channel, and workflow
                                secrets.
   agent-runtime-memory         Run focused Agent runtime, approval, execution
-                               mode, structured plan-step, and memory policy
-                               PostgreSQL tests.
+                               mode, structured plan-step, memory store, and
+                               memory policy PostgreSQL tests.
   scheduled-task-runtime       Run focused Scheduled Task SQL store, route, and
                                Workflow trigger sync PostgreSQL tests.
   auth-security-persistence    Run focused Auth password policy, reset,
@@ -253,8 +253,8 @@ run_secret_response_safety_profile() {
 run_agent_runtime_memory_profile() {
   local agent_runtime_memory_pattern
 
-  agent_runtime_memory_pattern="^(TestAgentRunStorePersistsRunLifecycle|TestAgentPlanStepStore(RoundTripsStepsInOrder|UpdatesStatusAndExecutionResult)|TestAgentSQLStorePersists(ApprovalConfigAndToolRiskLevels|DefaultExecutionModeConfig|LongTermMemoryWritePolicyConfig))$"
-  run_go_test_no_skips "agent runtime and memory policy persistence" "./internal/agent" "$agent_runtime_memory_pattern"
+  agent_runtime_memory_pattern="^(TestAgentRunStorePersistsRunLifecycle|TestAgentPlanStepStore(RoundTripsStepsInOrder|UpdatesStatusAndExecutionResult)|TestAgentSQLStorePersists(ApprovalConfigAndToolRiskLevels|DefaultExecutionModeConfig|LongTermMemoryWritePolicyConfig)|TestAgentMemoryStorePersistsAndFiltersMemories)$"
+  run_go_test_no_skips "agent runtime, memory store, and memory policy persistence" "./internal/agent" "$agent_runtime_memory_pattern"
 }
 
 run_scheduled_task_runtime_profile() {
