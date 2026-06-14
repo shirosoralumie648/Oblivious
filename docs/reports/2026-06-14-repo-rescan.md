@@ -2,11 +2,11 @@
 
 ## Current Truth
 
-- Branch: `main`; this report refreshes the June 14 scan after the Chat router checkpoint, Scheduled Task DB evidence slice, Workflow SQL active-organization isolation DB evidence slice, Publishing channel active-organization isolation DB evidence slice, Admin Relay channel active-organization isolation DB evidence slice, Quota SQL tenant isolation DB evidence slice, Tenant membership DB evidence slice, Tenant cross-surface DB evidence slice, Auth security persistence plus reset-token replay/expiry/non-enumeration DB evidence slice, Relay file-mapping tenant ownership DB evidence slice, Admin Observability provider secret-response DB evidence slice, Publishing channel secret-response DB evidence slice, Admin Relay channel secret-response DB evidence slice, Agent planning Playwright browser proof, Chat-to-SOLO Playwright browser proof, Marketplace paid-install provider browser proof, Workflows mobile responsive browser proof, Agent gRPC runtime-gateway proof, Agent gRPC authenticated service-adapter proof, HTTP panic recovery proof, Console API token usage sanitization proof, and the post-Admin-Relay runtime channel isolation code scan.
-- Worktree status at the latest live recheck: clean against `origin/main`; latest committed checkpoint is `15a725b test(security): prove admin relay channel tenant isolation`.
+- Branch: `main`; this report refreshes the June 14 scan after the Chat router checkpoint, Scheduled Task DB evidence slice, Workflow SQL active-organization isolation DB evidence slice, Publishing channel active-organization isolation DB evidence slice, Admin Relay channel active-organization isolation DB evidence slice, Quota SQL tenant isolation DB evidence slice, Tenant membership DB evidence slice, Tenant cross-surface DB evidence slice, Auth security persistence plus reset-token replay/expiry/non-enumeration DB evidence slice, Relay file-mapping tenant ownership DB evidence slice, Relay runtime channel active-organization isolation DB evidence slice, Admin Observability provider secret-response DB evidence slice, Publishing channel secret-response DB evidence slice, Admin Relay channel secret-response DB evidence slice, Agent planning Playwright browser proof, Chat-to-SOLO Playwright browser proof, Marketplace paid-install provider browser proof, Workflows mobile responsive browser proof, Agent gRPC runtime-gateway proof, Agent gRPC authenticated service-adapter proof, HTTP panic recovery proof, Console API token usage sanitization proof, and the post-runtime-channel-isolation rescan.
+- Worktree status at the start of this runtime Relay slice: clean against `origin/main`; latest committed checkpoint before these changes was `1009190 docs: refresh repository rescan checkpoint`.
 - The project is still **not complete** against the four 2026-06-04 fusion specs.
 - The current completion matrix remains `4 Proven / 10 Partial / 0 Gap / 0 Unverified`.
-- Current progress estimate after this rescan: **83/100**. The repository owns most core product surfaces and has strong focused evidence. Recent Agent planning, Chat-to-SOLO, Marketplace paid-provider, Workflows mobile responsive browser proof, Agent gRPC runtime/service-adapter proof, HTTP panic recovery proof, Console API token usage sanitization proof, Tenant membership, Tenant cross-surface isolation, Auth security persistence and reset-token replay/expiry/non-enumeration depth, Relay file-mapping tenant ownership, Workflow SQL active-organization isolation, Publishing channel active-organization isolation, Admin Relay channel active-organization isolation, Quota SQL tenant isolation, Admin Observability provider secret-response safety, Publishing channel secret-response safety, Admin Relay channel secret-response safety, Scheduled Task runtime, and all-profile DB evidence narrows frontend, marketplace-provider wiring, Agent service-boundary, repository-owned recovery behavior, Console user-visible security posture, DB-backed tenant/security/quota and publishing-channel/Admin Relay route isolation, provider-secret response safety, DB-backed workflow, and release-readiness risk. The next repository-owned security slice is runtime Relay channel selection by active organization; the remaining progress is still dominated by target-environment proof, broader security/tenant-isolation depth, production deployment validation, and final no-skip release readiness.
+- Current progress estimate after this rescan: **84/100**. The repository owns most core product surfaces and has strong focused evidence. Recent Agent planning, Chat-to-SOLO, Marketplace paid-provider, Workflows mobile responsive browser proof, Agent gRPC runtime/service-adapter proof, HTTP panic recovery proof, Console API token usage sanitization proof, Tenant membership, Tenant cross-surface isolation, Auth security persistence and reset-token replay/expiry/non-enumeration depth, Relay file-mapping tenant ownership, Relay runtime channel active-organization isolation, Workflow SQL active-organization isolation, Publishing channel active-organization isolation, Admin Relay channel active-organization isolation, Quota SQL tenant isolation, Admin Observability provider secret-response safety, Publishing channel secret-response safety, Admin Relay channel secret-response safety, Scheduled Task runtime, and all-profile DB evidence narrows frontend, marketplace-provider wiring, Agent service-boundary, repository-owned recovery behavior, Console user-visible security posture, DB-backed tenant/security/quota and publishing-channel/Admin Relay route isolation, runtime Relay routing isolation, provider-secret response safety, DB-backed workflow, and release-readiness risk. The remaining progress is still dominated by target-environment proof, broader security/tenant-isolation depth, production deployment validation, and final no-skip release readiness.
 
 ## What Changed Since The Previous Rescan
 
@@ -33,13 +33,14 @@
 - `scripts/verify-commercial-db-evidence.sh tenant-cross-surface` now provides no-skip PostgreSQL evidence for active-organization isolation across Chat, Knowledge, Console, Agent, Memory, MCP, Quota, Marketplace publisher, Marketplace settlement preferences, Agent run detail, and Agent tool-run approve/reject/retry HTTP surfaces.
 - `scripts/verify-commercial-db-evidence.sh auth-security-persistence` now provides no-skip PostgreSQL evidence for Auth password policy, password-reset token confirmation, reset-token replay rejection, expired-token rejection without password/session mutation, unknown-email no-token behavior, non-test HTTP reset-request responses that do not enumerate emails or expose raw tokens, session revocation, persisted rate-limit blocking, password hash storage, login hash verification, stable auth response contracts, unauthenticated `/me` rejection, and sensitive organization action rate limiting.
 - `scripts/verify-commercial-db-evidence.sh relay-file-mapping-tenant-ownership` now provides no-skip PostgreSQL evidence for the real Relay files upload route writing SQL file ownership mappings, mapped GET passthrough using the provider file ID, and wrong-user/wrong-organization lookup failing closed before any upstream call.
+- `scripts/verify-commercial-db-evidence.sh relay-runtime-channel-isolation` now provides no-skip PostgreSQL evidence for runtime Relay active-organization channel selection. It proves trusted organization requests select only same-organization channels across model-route candidates, default/fallback selection, explicit conversation affinity, retry selection, `/v1/models` discovery, and SQL pool loading; cross-organization configured route candidates fail closed rather than falling back to global channels.
 - The HTTP test database bootstrap now includes `concurrency_limits` and `token_rate_limits`, so quota active-organization isolation can run inside the same disposable PostgreSQL cross-surface profile.
 - Agent tool-run approval/reject/retry tenant-scope coverage now prepares retry evidence from a separate failed workflow fixture, avoiding a false failure caused by approving a pending tool run and completing the original run before the retry assertion.
 - `scripts/verify-commercial-db-evidence.sh secret-response-safety` now provides no-skip PostgreSQL evidence for SQL-backed Admin Observability alert-provider secret redaction. The real admin HTTP router writes raw SMTP `password`, Slack `webhook_url`, PagerDuty `routing_key`, Opsgenie `api_key`, and `private_key` values into PostgreSQL, while create/list/update responses return only redacted markers and omit encrypted-secret column names.
 - Redacted-marker updates for Admin Observability provider configs now have DB-backed proof that the stored raw secret is preserved while non-secret fields update normally.
 - The same `secret-response-safety` profile now proves SQL-backed Publishing channel response redaction. The real `/api/v1/channels` routes write raw `secret`, `webhookSecret`, `api_key`, and `password` config values into PostgreSQL while create/list/detail/update responses return only redacted markers; marker updates preserve the stored raw secret while non-secret config fields update normally.
 - The same `secret-response-safety` profile now proves SQL-backed Admin Relay channel response redaction. The real `/api/v1/admin/channels` routes write raw create/rotated API keys into PostgreSQL while create/list/detail/update responses omit raw keys, `apiKey`, and `api_key_encrypted`; audit-log responses retain only the redacted `apiKey` marker.
-- `scripts/verify-commercial-db-evidence.sh all` now runs the full DB-backed commercial evidence profile set, including Admin Relay channel active-organization isolation, and `scripts/verify-commercial-completion.sh` delegates its DB step to that aggregate instead of only `backend-journey`.
+- `scripts/verify-commercial-db-evidence.sh all` now runs the full DB-backed commercial evidence profile set, including Relay runtime channel active-organization isolation and Admin Relay channel active-organization isolation, and `scripts/verify-commercial-completion.sh` delegates its DB step to that aggregate instead of only `backend-journey`.
 - Console API token usage and Console recent usage now use a Console-only `ConsoleAPITokenUsageItem` shape. User-facing Console responses preserve token/request/model/status/accounting evidence but omit internal provider/channel routing fields.
 - The OpenAPI contract gate now requires Console usage responses to reference `ConsoleAPITokenUsageItem` and fails if provider/channel fields reappear.
 - The Console Access and Usage pages no longer render provider/channel labels for ordinary user usage history.
@@ -90,7 +91,7 @@ Partial rows:
 - Security and tenant isolation
 - Migration strategy and release readiness
 
-This scan does not reclassify any Partial row to Proven. The Agent, Workflow, Frontend, Observability, API contract, Billing, and Security rows gained real app-router, Playwright browser, service-adapter, repository-owned recovery, DB-backed stateful-route, cross-surface tenant HTTP isolation, SQL-backed Publishing channel active-organization isolation, SQL-backed Admin Relay channel active-organization isolation, SQL-backed Admin Observability, Publishing channel, and Admin Relay channel response redaction, and Console usage sanitization evidence, but still need broader browser/runtime/target-environment proof before any open row can be called complete.
+This scan does not reclassify any Partial row to Proven. The Agent, Workflow, Frontend, Observability, API contract, Billing, and Security rows gained real app-router, Playwright browser, service-adapter, repository-owned recovery, DB-backed stateful-route, cross-surface tenant HTTP isolation, SQL-backed Relay runtime channel active-organization isolation, SQL-backed Publishing channel active-organization isolation, SQL-backed Admin Relay channel active-organization isolation, SQL-backed Admin Observability, Publishing channel, and Admin Relay channel response redaction, and Console usage sanitization evidence, but still need broader browser/runtime/target-environment proof before any open row can be called complete.
 
 ## Verification Run During This Rescan
 
@@ -101,10 +102,12 @@ find . \( -path '*/node_modules/*' -o -path './.tmp/*' -o -path './reference/*' 
 bash scripts/verify-commercial-db-evidence.sh secret-response-safety
 bash scripts/verify-commercial-db-evidence.sh auth-security-persistence
 bash scripts/verify-commercial-db-evidence.sh relay-file-mapping-tenant-ownership
+bash scripts/verify-commercial-db-evidence.sh relay-runtime-channel-isolation
 bash scripts/verify-commercial-db-evidence.sh workflow-sql-isolation
 bash scripts/verify-commercial-db-evidence.sh publishing-channel-isolation
 bash scripts/verify-commercial-db-evidence.sh admin-relay-channel-isolation
 bash scripts/verify-commercial-db-evidence.sh quota-sql-isolation
+GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/relay/... -count=1
 bash scripts/verify-commercial-db-evidence.sh all
 COREPACK_HOME=/tmp/codex-corepack bash scripts/check.sh docs
 git diff --check
@@ -115,11 +118,13 @@ Result:
 - `scripts/verify-commercial-db-evidence.sh secret-response-safety` passed with disposable pgvector PostgreSQL and reported `skipped tests: none`, covering Admin Observability provider, Publishing channel, and Admin Relay channel SQL-backed response redaction.
 - `scripts/verify-commercial-db-evidence.sh auth-security-persistence` passed with disposable pgvector PostgreSQL and reported `skipped tests: none`, covering Auth SQL password reset/session revocation/rate-limit persistence, reset-token replay/expiry/unknown-email fail-closed behavior, non-test reset-request non-enumeration, plus HTTP auth route persistence and security behavior.
 - `scripts/verify-commercial-db-evidence.sh relay-file-mapping-tenant-ownership` passed with disposable pgvector PostgreSQL and reported `skipped tests: none`, covering real Relay files upload/passthrough behavior with SQL-backed tenant file ownership.
+- `scripts/verify-commercial-db-evidence.sh relay-runtime-channel-isolation` passed with disposable pgvector PostgreSQL and reported `skipped tests: none`, covering organization-scoped runtime Relay model-route/default/fallback selection, explicit channel affinity, retry selection, model discovery, and SQL pool loading.
 - `scripts/verify-commercial-db-evidence.sh workflow-sql-isolation` passed with disposable pgvector PostgreSQL and reported `skipped tests: none`, covering Workflow SQL store organization filtering plus real-router active-organization denial for cross-organization workflow read/update/execute/list-executions/execution-detail/debug-snapshot paths.
 - `scripts/verify-commercial-db-evidence.sh publishing-channel-isolation` passed with disposable pgvector PostgreSQL and reported `skipped tests: none`, covering real-router active-organization denial for cross-organization Publishing channel read/update/delete/status/test/send/message-log/failed-message/retry paths plus fallback-channel isolation.
 - `scripts/verify-commercial-db-evidence.sh admin-relay-channel-isolation` passed with disposable pgvector PostgreSQL and reported `skipped tests: none`, covering real-router active-organization denial for cross-organization Admin Relay channel read/update/delete/test/health/model-sync/model-detect/model-apply/balance-refresh paths plus mixed-organization batch rejection.
 - `scripts/verify-commercial-db-evidence.sh quota-sql-isolation` passed with disposable pgvector PostgreSQL and reported `skipped tests: none`, covering Quota SQL billing-session and top-up mutation tenant isolation plus real-router quota active-organization isolation.
-- `scripts/verify-commercial-db-evidence.sh all` passed with disposable pgvector PostgreSQL and reported `skipped tests: none`, including the expanded secret-response-safety, auth-security-persistence, relay-file-mapping-tenant-ownership, workflow-sql-isolation, publishing-channel-isolation, admin-relay-channel-isolation, and quota-sql-isolation profiles.
+- `go test ./internal/relay/... -count=1` passed, covering the full Relay package after the runtime channel isolation changes.
+- `scripts/verify-commercial-db-evidence.sh all` passed with disposable pgvector PostgreSQL and reported `skipped tests: none`, including the expanded secret-response-safety, auth-security-persistence, relay-file-mapping-tenant-ownership, relay-runtime-channel-isolation, workflow-sql-isolation, publishing-channel-isolation, admin-relay-channel-isolation, and quota-sql-isolation profiles.
 - `bash scripts/check.sh docs` passed.
 - `git diff --check` passed.
 
@@ -143,7 +148,7 @@ Result:
 ## Notable Scan Findings
 
 - `scripts/check.sh` still exposes the main gates: `all`, `docs`, `relay-security`, `security`, `web`, and `server`.
-- `scripts/verify-commercial-db-evidence.sh` has fourteen no-skip DB evidence profiles:
+- `scripts/verify-commercial-db-evidence.sh` has fifteen no-skip DB evidence profiles:
   - `backend-journey`
   - `marketplace-money-movement`
   - `app-stateful-routes`
@@ -154,14 +159,15 @@ Result:
   - `scheduled-task-runtime`
   - `auth-security-persistence`
   - `relay-file-mapping-tenant-ownership`
+  - `relay-runtime-channel-isolation`
   - `workflow-sql-isolation`
   - `publishing-channel-isolation`
   - `admin-relay-channel-isolation`
   - `quota-sql-isolation`
 - `app-stateful-routes` now covers Console API token create/list/revoke and sanitized Console recent usage in the same DB-backed profile.
 - `tenant-cross-surface` now covers active-organization isolation across Chat, Knowledge, Console, Agent, Memory, MCP, Quota, Marketplace publisher, Marketplace settlement preferences, Agent run detail, and Agent tool-run decision/retry routes.
-- Admin Observability provider, Publishing channel, and Admin Relay channel secret-response safety now have SQL-backed HTTP proof; Auth security persistence, Auth reset-token replay/expiry depth, Relay file-mapping tenant ownership, Workflow SQL active-organization isolation, Publishing channel active-organization isolation, Admin Relay channel active-organization isolation, and Quota SQL tenant isolation now have no-skip DB evidence.
-- The post-Admin-Relay code scan found a sharper runtime isolation boundary: Admin channel CRUD/test/health/sync paths are scoped by active organization, but `RelayStore.ListChannels`, `RelayStore.GetModelRoute`, `ChannelPool.ListChannels`, and `LoadBalancer.filterHealthy` still load/select from the global channel pool; `Router.RouteWithBilling` reads the trusted organization ID for billing/logging but does not pass it into channel selection. This does not reclassify the Relay routing semantics row, but it keeps Security and tenant isolation open until runtime Relay channel selection and conversation affinity are proven organization-aware.
+- Admin Observability provider, Publishing channel, and Admin Relay channel secret-response safety now have SQL-backed HTTP proof; Auth security persistence, Auth reset-token replay/expiry depth, Relay file-mapping tenant ownership, Relay runtime channel active-organization isolation, Workflow SQL active-organization isolation, Publishing channel active-organization isolation, Admin Relay channel active-organization isolation, and Quota SQL tenant isolation now have no-skip DB evidence.
+- The post-Admin-Relay runtime isolation boundary is now covered at repository level: `RelayStore` loads `organization_id`, `ChannelPool` and `LoadBalancer` expose organization-scoped selection paths, `Router.RouteWithBilling` passes trusted organization scope into affinity/retry selection, and `/v1/models` scopes model discovery to trusted tenant channels. This does not reclassify the Relay routing semantics row or the broader Security row because target-environment tenant-isolation proof and broader security depth remain open.
 - Active source TODO/stub scan still does not reveal a new broad implementation gap. Most matches are test stubs, generated gRPC `Unimplemented*` boilerplate, placeholder-secret/runbook language, UI input placeholders, benign nil-return no-row paths, and explicit tests that assert placeholder output is not used.
 - First-party active TODO boundaries are narrow and already documented as future or non-release proof:
   - `src/server/internal/relay/handler/realtime.go` has auth/prebill/settlement TODOs, while `docs/release/relay-route-table.md` marks Realtime `DisabledInProduction`.
@@ -173,12 +179,11 @@ Result:
 
 ## Recommended Next Slices
 
-1. Runtime Relay channel isolation: make channel loading, model-route fallback, explicit channel affinity, and retry selection organization-aware, then prove cross-organization channels are never selected for trusted tenant requests.
-2. DB-backed security depth: continue into Admin Relay/channel-provider ownership isolation and equivalent response-safety proof for any newly added provider/channel secret surfaces.
-3. Broader Browser/E2E route proof: continue extending high-value commercial workflows beyond the current Agent planning, Chat-to-SOLO, Marketplace paid-provider, and Workflows mobile responsive browser journeys.
-4. Strict commercial verifier rerun on target infrastructure with deploy and backup/restore enabled.
-5. Observability and recovery proof: continue from the panic recovery proof into target-environment OOM/crash restart execution, scale-down, and failover evidence.
-6. Deployment validation: only after repo-owned rows are narrowed further, run deploy/Kubernetes/backup-restore proof on the target installation.
+1. DB-backed security depth: continue into Admin Relay/channel-provider ownership isolation and equivalent response-safety proof for any newly added provider/channel secret surfaces.
+2. Broader Browser/E2E route proof: continue extending high-value commercial workflows beyond the current Agent planning, Chat-to-SOLO, Marketplace paid-provider, and Workflows mobile responsive browser journeys.
+3. Strict commercial verifier rerun on target infrastructure with deploy and backup/restore enabled.
+4. Observability and recovery proof: continue from the panic recovery proof into target-environment OOM/crash restart execution, scale-down, and failover evidence.
+5. Deployment validation: only after repo-owned rows are narrowed further, run deploy/Kubernetes/backup-restore proof on the target installation.
 
 ## Boundary
 

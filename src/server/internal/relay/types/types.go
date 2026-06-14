@@ -256,6 +256,7 @@ type Handler interface {
 // Channel 渠道配置
 type Channel struct {
 	ID                  string   `json:"id"`
+	OrganizationID      string   `json:"organization_id,omitempty"`
 	Name                string   `json:"name"`
 	Provider            string   `json:"provider"` // "openai"
 	BaseURL             string   `json:"base_url"`

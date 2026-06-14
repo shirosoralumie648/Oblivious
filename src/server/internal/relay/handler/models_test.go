@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -97,6 +98,45 @@ func TestModelsHandlerListsEnabledChannelModels(t *testing.T) {
 	}
 }
 
+func TestModelsHandlerScopesModelsToTrustedOrganization(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	pool := &fakeModelsPool{
+		channels: []*types.Channel{
+			{ID: "ch_org_a", OrganizationID: "org_a", Enabled: true, Models: []string{"gpt-org-a", "shared-model"}},
+			{ID: "ch_org_b", OrganizationID: "org_b", Enabled: true, Models: []string{"gpt-org-b", "shared-model"}},
+			{ID: "ch_global", Enabled: true, Models: []string{"legacy-global"}},
+		},
+	}
+	var poolInterface types.ChannelPoolInterface = pool
+	handler := NewModelsHandler(&poolInterface)
+	engine := gin.New()
+	engine.GET("/v1/models", func(c *gin.Context) {
+		_ = handler.Handle(c)
+	})
+
+	ctx := types.WithTrustedOrganizationID(context.Background(), "org_a")
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil).WithContext(ctx)
+	rec := httptest.NewRecorder()
+
+	engine.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, model := range []string{"gpt-org-a", "shared-model"} {
+		if !strings.Contains(body, `"id":"`+model+`"`) {
+			t.Fatalf("expected org_a model %q in response, got %s", model, body)
+		}
+	}
+	for _, leaked := range []string{"gpt-org-b", "legacy-global"} {
+		if strings.Contains(body, leaked) {
+			t.Fatalf("model %q from another scope leaked in response: %s", leaked, body)
+		}
+	}
+}
+
 type fakeModelsPool struct {
 	channels []*types.Channel
 }
@@ -119,6 +159,16 @@ func (p *fakeModelsPool) UpdateRoute(route *types.ModelRoute) {}
 
 func (p *fakeModelsPool) ListChannels() []*types.Channel {
 	return p.channels
+}
+
+func (p *fakeModelsPool) ListChannelsForOrganization(organizationID string) []*types.Channel {
+	filtered := make([]*types.Channel, 0, len(p.channels))
+	for _, ch := range p.channels {
+		if ch != nil && ch.OrganizationID == organizationID {
+			filtered = append(filtered, ch)
+		}
+	}
+	return filtered
 }
 
 func (p *fakeModelsPool) SetChannelHealthy(channelID string, healthy bool) {}

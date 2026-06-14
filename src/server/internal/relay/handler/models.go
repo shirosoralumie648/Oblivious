@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"sort"
 	"time"
@@ -13,12 +14,16 @@ type ModelsHandler struct {
 	pool *types.ChannelPoolInterface
 }
 
+type organizationChannelLister interface {
+	ListChannelsForOrganization(organizationID string) []*types.Channel
+}
+
 func NewModelsHandler(p *types.ChannelPoolInterface) *ModelsHandler {
 	return &ModelsHandler{pool: p}
 }
 
 func (h *ModelsHandler) Handle(c *gin.Context) error {
-	models := h.models()
+	models := h.models(c.Request.Context())
 	data := make([]gin.H, 0, len(models))
 	created := time.Now().Unix()
 	for _, model := range models {
@@ -37,12 +42,18 @@ func (h *ModelsHandler) HandleStream(c *gin.Context) error {
 	return h.Handle(c)
 }
 
-func (h *ModelsHandler) models() []string {
+func (h *ModelsHandler) models(ctx context.Context) []string {
 	if h == nil || h.pool == nil || *h.pool == nil {
 		return nil
 	}
+	channels := (*h.pool).ListChannels()
+	if organizationID, ok := types.TrustedOrganizationIDFromContext(ctx); ok && organizationID != "" {
+		if scoped, ok := (*h.pool).(organizationChannelLister); ok {
+			channels = scoped.ListChannelsForOrganization(organizationID)
+		}
+	}
 	seen := map[string]struct{}{}
-	for _, ch := range (*h.pool).ListChannels() {
+	for _, ch := range channels {
 		if ch == nil || !ch.Enabled {
 			continue
 		}

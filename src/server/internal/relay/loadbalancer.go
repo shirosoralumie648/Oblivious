@@ -33,14 +33,22 @@ func NewLoadBalancer(pool *ChannelPool, strategy string) *LoadBalancer {
 }
 
 func (lb *LoadBalancer) Select(apiType string) *types.RouteChannel {
-	return lb.SelectModel(apiType, defaultModelRoute)
+	return lb.SelectForOrganization(apiType, "")
+}
+
+func (lb *LoadBalancer) SelectForOrganization(apiType, organizationID string) *types.RouteChannel {
+	return lb.SelectModelForOrganization(apiType, defaultModelRoute, organizationID)
 }
 
 func (lb *LoadBalancer) SelectModel(apiType, model string) *types.RouteChannel {
+	return lb.SelectModelForOrganization(apiType, model, "")
+}
+
+func (lb *LoadBalancer) SelectModelForOrganization(apiType, model, organizationID string) *types.RouteChannel {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 
-	candidates := lb.filterHealthy(apiType, model)
+	candidates := lb.filterHealthyForOrganization(apiType, model, organizationID)
 	if len(candidates) == 0 {
 		return nil
 	}
@@ -64,10 +72,14 @@ func (lb *LoadBalancer) SelectExcluding(apiType string, excluded map[string]bool
 }
 
 func (lb *LoadBalancer) SelectModelExcluding(apiType, model string, excluded map[string]bool) *types.RouteChannel {
+	return lb.SelectModelExcludingForOrganization(apiType, model, "", excluded)
+}
+
+func (lb *LoadBalancer) SelectModelExcludingForOrganization(apiType, model, organizationID string, excluded map[string]bool) *types.RouteChannel {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 
-	candidates := lb.filterHealthy(apiType, model)
+	candidates := lb.filterHealthyForOrganization(apiType, model, organizationID)
 	if len(excluded) > 0 {
 		filtered := candidates[:0]
 		for _, ch := range candidates {
@@ -88,10 +100,14 @@ func (lb *LoadBalancer) SelectExcludingWithWeights(apiType string, excluded map[
 }
 
 func (lb *LoadBalancer) SelectModelExcludingWithWeights(apiType, model string, excluded map[string]bool, adjuster func(*types.RouteChannel) int) *types.RouteChannel {
+	return lb.SelectModelExcludingWithWeightsForOrganization(apiType, model, "", excluded, adjuster)
+}
+
+func (lb *LoadBalancer) SelectModelExcludingWithWeightsForOrganization(apiType, model, organizationID string, excluded map[string]bool, adjuster func(*types.RouteChannel) int) *types.RouteChannel {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 
-	candidates := lb.filterHealthy(apiType, model)
+	candidates := lb.filterHealthyForOrganization(apiType, model, organizationID)
 	if len(excluded) > 0 {
 		filtered := candidates[:0]
 		for _, ch := range candidates {
@@ -113,10 +129,14 @@ func (lb *LoadBalancer) SelectChannelByID(apiType, channelID string) *types.Rout
 }
 
 func (lb *LoadBalancer) SelectModelChannelByID(apiType, model, channelID string) *types.RouteChannel {
+	return lb.SelectModelChannelByIDForOrganization(apiType, model, channelID, "")
+}
+
+func (lb *LoadBalancer) SelectModelChannelByIDForOrganization(apiType, model, channelID, organizationID string) *types.RouteChannel {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 
-	for _, ch := range lb.filterHealthy(apiType, model) {
+	for _, ch := range lb.filterHealthyForOrganization(apiType, model, organizationID) {
 		if routeChannelID(ch) == channelID {
 			return ch
 		}
@@ -125,14 +145,17 @@ func (lb *LoadBalancer) SelectModelChannelByID(apiType, model, channelID string)
 }
 
 func (lb *LoadBalancer) filterHealthy(apiType, model string) []*types.RouteChannel {
+	return lb.filterHealthyForOrganization(apiType, model, "")
+}
+
+func (lb *LoadBalancer) filterHealthyForOrganization(apiType, model, organizationID string) []*types.RouteChannel {
 	_ = apiType
-	routeChannels := lb.modelRouteChannels(model)
-	if len(routeChannels) == 0 && model != defaultModelRoute {
-		routeChannels = lb.modelRouteChannels(defaultModelRoute)
+	routeChannels, hasRoute := lb.modelRouteChannelsForOrganization(model, organizationID)
+	if len(routeChannels) == 0 && model != defaultModelRoute && !hasRoute {
+		routeChannels, hasRoute = lb.modelRouteChannelsForOrganization(defaultModelRoute, organizationID)
 	}
-	if len(routeChannels) == 0 {
-		// Fall back to listing all channels and filtering
-		channels := lb.pool.ListChannels()
+	if len(routeChannels) == 0 && !hasRoute {
+		channels := lb.pool.ListChannelsForOrganization(organizationID)
 		for _, ch := range channels {
 			if ch.Enabled {
 				routeChannels = append(routeChannels, &types.RouteChannel{
@@ -169,25 +192,39 @@ func (lb *LoadBalancer) filterHealthy(apiType, model string) []*types.RouteChann
 }
 
 func (lb *LoadBalancer) modelRouteChannels(model string) []*types.RouteChannel {
+	channels, _ := lb.modelRouteChannelsForOrganization(model, "")
+	return channels
+}
+
+func (lb *LoadBalancer) modelRouteChannelsForOrganization(model, organizationID string) ([]*types.RouteChannel, bool) {
 	routeChannels := lb.pool.GetChannelsByModel(model)
-	if len(routeChannels) == 0 {
-		return nil
+	if routeChannels == nil {
+		return nil, false
 	}
 	result := make([]*types.RouteChannel, 0, len(routeChannels))
 	for _, ch := range routeChannels {
 		if ch == nil {
 			continue
 		}
-		if ch.Channel == nil && ch.ChannelID != "" {
-			if channel, ok := lb.pool.GetChannel(ch.ChannelID); ok {
-				copyCh := *ch
-				copyCh.Channel = channel
-				ch = &copyCh
+		copyCh := *ch
+		if copyCh.ChannelID == "" && copyCh.Channel != nil {
+			copyCh.ChannelID = copyCh.Channel.ID
+		}
+		if copyCh.ChannelID != "" {
+			if channel, ok := lb.pool.GetChannel(copyCh.ChannelID); ok {
+				if channelMatchesOrganization(channel, organizationID) {
+					copyCh.Channel = channel
+					result = append(result, &copyCh)
+				}
+				continue
 			}
 		}
-		result = append(result, ch)
+		if !channelMatchesOrganization(copyCh.Channel, organizationID) {
+			continue
+		}
+		result = append(result, &copyCh)
 	}
-	return result
+	return result, true
 }
 
 func defaultRouteChannelWeight(ch *types.Channel) int {

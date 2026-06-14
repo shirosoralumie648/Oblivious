@@ -52,6 +52,45 @@ func TestLoadBalancerFallbackUsesChannelDefaultWeight(t *testing.T) {
 	}
 }
 
+func TestLoadBalancerSelectModelForOrganizationFiltersModelRouteAndFallback(t *testing.T) {
+	pool := NewChannelPool()
+	orgAChannel := &types.Channel{ID: "org_a_channel", OrganizationID: "org_a", BaseURL: "http://org-a", Enabled: true, Weight: 1}
+	orgBChannel := &types.Channel{ID: "org_b_channel", OrganizationID: "org_b", BaseURL: "http://org-b", Enabled: true, Weight: 100}
+	pool.AddChannel(orgAChannel, 1)
+	pool.AddChannel(orgBChannel, 100)
+	pool.UpdateRoute(&types.ModelRoute{
+		Model:    "gpt-4o",
+		Strategy: "weighted",
+		Channels: []types.RouteChannel{
+			{ChannelID: orgBChannel.ID, Weight: 100, Enabled: true, Healthy: true},
+			{ChannelID: orgAChannel.ID, Weight: 1, Enabled: true, Healthy: true},
+		},
+	})
+
+	lb := NewLoadBalancer(pool, "weighted")
+
+	ch := lb.SelectModelForOrganization("chat", "gpt-4o", "org_a")
+	if ch == nil || ch.Channel == nil || ch.Channel.ID != orgAChannel.ID {
+		t.Fatalf("expected org_a channel from model route, got %+v", ch)
+	}
+	ch = lb.SelectModelForOrganization("chat", "gpt-4o", "org_b")
+	if ch == nil || ch.Channel == nil || ch.Channel.ID != orgBChannel.ID {
+		t.Fatalf("expected org_b channel from model route, got %+v", ch)
+	}
+	if ch = lb.SelectModelForOrganization("chat", "gpt-4o", "org_c"); ch != nil {
+		t.Fatalf("expected configured model route to fail closed for org_c, got %+v", ch)
+	}
+
+	ch = lb.SelectModelForOrganization("chat", "unconfigured-model", "org_a")
+	if ch == nil || ch.Channel == nil || ch.Channel.ID != orgAChannel.ID {
+		t.Fatalf("expected fallback to org_a default channel, got %+v", ch)
+	}
+	ch = lb.SelectModel("chat", "gpt-4o")
+	if ch == nil {
+		t.Fatal("expected legacy global model selection without organization")
+	}
+}
+
 func TestLoadBalancer_Priority(t *testing.T) {
 	pool := NewChannelPool()
 	pool.AddChannel(&types.Channel{ID: "a", BaseURL: "http://a", Enabled: true, Priority: 1}, 1)

@@ -503,6 +503,65 @@ func TestRouterRouteWithBillingUsesConversationAffinityBeforeLoadBalancer(t *tes
 	}
 }
 
+func TestRouterRouteWithBillingUsesTrustedOrganizationForChannelSelectionAndAffinity(t *testing.T) {
+	pool := NewChannelPool()
+	pool.AddChannel(&types.Channel{
+		ID:             "org_a_channel",
+		OrganizationID: "org_a",
+		Name:           "Org A",
+		Provider:       "openai",
+		BaseURL:        "https://org-a.example",
+		APIKey:         "sk-org-a",
+		Models:         []string{"gpt-4o-mini"},
+		Priority:       10,
+		Enabled:        true,
+	}, 1)
+	pool.AddChannel(&types.Channel{
+		ID:             "org_b_channel",
+		OrganizationID: "org_b",
+		Name:           "Org B",
+		Provider:       "openai",
+		BaseURL:        "https://org-b.example",
+		APIKey:         "sk-org-b",
+		Models:         []string{"gpt-4o-mini"},
+		Priority:       0,
+		Enabled:        true,
+	}, 100)
+	router := NewRouterWithBilling(
+		pool,
+		NewLoadBalancer(pool, "priority"),
+		nil,
+		nil,
+		NewHealthChecker(HealthCheckDisabled, time.Second),
+		nil,
+		"",
+	)
+	affinityStore := newMemoryConversationAffinityStore()
+	if err := affinityStore.SaveConversationAffinity(context.Background(), "conv_tenant", "org_b_channel"); err != nil {
+		t.Fatalf("seed affinity: %v", err)
+	}
+	router.affinityStore = affinityStore
+
+	ctx := types.WithTrustedOrganizationID(context.Background(), "org_a")
+	ctx = types.WithTrustedConversationID(ctx, "conv_tenant")
+	var attempts []string
+	resp, err := router.RouteWithBilling(ctx, types.APITypeChat, "gpt-4o-mini", "", "idem_tenant_channel", &types.Usage{TotalTokens: 20}, func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
+		attempts = append(attempts, routeChannelID(ch))
+		return types.NewOKResponse([]byte(`{"ok":true}`), &types.Usage{TotalTokens: 20}), nil
+	})
+
+	if err != nil {
+		t.Fatalf("RouteWithBilling returned error: %v", err)
+	}
+	if resp == nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected successful response, got %+v", resp)
+	}
+	assertAttemptedChannels(t, attempts, []string{"org_a_channel"})
+	if got := affinityStore.channelFor("conv_tenant"); got != "org_a_channel" {
+		t.Fatalf("expected cross-organization affinity to be replaced with org_a channel, got %q", got)
+	}
+}
+
 func TestRouterRouteWithBillingRecordsRuntimeMetricsForSuccess(t *testing.T) {
 	router, _ := newRetryAffinityTestRouter()
 	apiType := types.APITypeChat.String()

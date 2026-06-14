@@ -15,7 +15,7 @@ output_files=()
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/verify-commercial-db-evidence.sh [all|backend-journey|marketplace-money-movement|app-stateful-routes|tenant-membership-lifecycle|tenant-cross-surface|secret-response-safety|agent-runtime-memory|scheduled-task-runtime|auth-security-persistence|relay-file-mapping-tenant-ownership|workflow-sql-isolation|publishing-channel-isolation|admin-relay-channel-isolation|quota-sql-isolation]
+Usage: bash scripts/verify-commercial-db-evidence.sh [all|backend-journey|marketplace-money-movement|app-stateful-routes|tenant-membership-lifecycle|tenant-cross-surface|secret-response-safety|agent-runtime-memory|scheduled-task-runtime|auth-security-persistence|relay-file-mapping-tenant-ownership|relay-runtime-channel-isolation|workflow-sql-isolation|publishing-channel-isolation|admin-relay-channel-isolation|quota-sql-isolation]
 
 Runs narrow DB-backed commercial evidence without silently accepting skipped tests.
 
@@ -45,6 +45,11 @@ Profiles:
   relay-file-mapping-tenant-ownership
                                Run focused Relay file-mapping upload,
                                passthrough, and tenant ownership PostgreSQL
+                               tests.
+  relay-runtime-channel-isolation
+                               Run focused Relay runtime channel selection,
+                               model discovery, conversation affinity, and
+                               SQL pool-loading active-organization isolation
                                tests.
   workflow-sql-isolation       Run focused Workflow SQL store and HTTP router
                                active-organization isolation PostgreSQL tests.
@@ -236,6 +241,14 @@ run_relay_file_mapping_tenant_ownership_profile() {
   run_go_test_no_skips "relay file mapping tenant ownership" "./internal/relay" "$relay_file_mapping_pattern"
 }
 
+run_relay_runtime_channel_isolation_profile() {
+  local relay_runtime_pattern
+
+  relay_runtime_pattern="^Test(LoadBalancerSelectModelForOrganizationFiltersModelRouteAndFallback|RouterRouteWithBillingUsesTrustedOrganizationForChannelSelectionAndAffinity|RelayStoreLoadPoolPreservesChannelOrganizationScope)$"
+  run_go_test_no_skips "relay runtime channel active-organization isolation" "./internal/relay" "$relay_runtime_pattern"
+  run_go_test_no_skips "relay models active-organization isolation" "./internal/relay/handler" "^TestModelsHandlerScopesModelsToTrustedOrganization$"
+}
+
 run_workflow_sql_isolation_profile() {
   local workflow_store_pattern
   local workflow_http_pattern
@@ -275,6 +288,7 @@ run_all_profiles() {
   run_scheduled_task_runtime_profile
   run_auth_security_persistence_profile
   run_relay_file_mapping_tenant_ownership_profile
+  run_relay_runtime_channel_isolation_profile
   run_workflow_sql_isolation_profile
   run_publishing_channel_isolation_profile
   run_admin_relay_channel_isolation_profile
@@ -320,6 +334,9 @@ case "$profile" in
     ;;
   relay-file-mapping-tenant-ownership)
     run_relay_file_mapping_tenant_ownership_profile
+    ;;
+  relay-runtime-channel-isolation)
+    run_relay_runtime_channel_isolation_profile
     ;;
   workflow-sql-isolation)
     run_workflow_sql_isolation_profile

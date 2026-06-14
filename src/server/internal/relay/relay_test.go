@@ -176,14 +176,15 @@ func TestNewRelayFilesUploadUsesConfiguredChannelAndMappingStore(t *testing.T) {
 
 	pool := NewChannelPool()
 	pool.AddChannel(&types.Channel{
-		ID:          "ch_files",
-		Name:        "Files channel",
-		Provider:    "openai",
-		BaseURL:     upstream.URL,
-		APIKey:      "sk-files",
-		Models:      []string{types.APITypeFiles.String()},
-		Enabled:     true,
-		CBThreshold: 5,
+		ID:             "ch_files",
+		OrganizationID: "org_files",
+		Name:           "Files channel",
+		Provider:       "openai",
+		BaseURL:        upstream.URL,
+		APIKey:         "sk-files",
+		Models:         []string{types.APITypeFiles.String()},
+		Enabled:        true,
+		CBThreshold:    5,
 	}, 100)
 	mappingStore := &recordingRelayFilesMappingStore{}
 	relayInstance, err := NewRelay(&Config{
@@ -276,14 +277,15 @@ func TestNewRelayFilesSQLRelayStoreUploadGetTenantFailClosed(t *testing.T) {
 
 	pool := NewChannelPool()
 	pool.AddChannel(&types.Channel{
-		ID:          "ch_files_sql",
-		Name:        "Files SQL channel",
-		Provider:    "openai",
-		BaseURL:     upstream.URL,
-		APIKey:      "sk-files-sql",
-		Models:      []string{types.APITypeFiles.String()},
-		Enabled:     true,
-		CBThreshold: 5,
+		ID:             "ch_files_sql",
+		OrganizationID: "org_files_sql",
+		Name:           "Files SQL channel",
+		Provider:       "openai",
+		BaseURL:        upstream.URL,
+		APIKey:         "sk-files-sql",
+		Models:         []string{types.APITypeFiles.String()},
+		Enabled:        true,
+		CBThreshold:    5,
 	}, 100)
 	relayInstance, err := NewRelay(&Config{
 		Pool:              pool,
@@ -1144,14 +1146,15 @@ func TestNewRelayProductionChatReturnsQuotaCodeWhenAPITokenPreAuthorizationFails
 
 	pool := NewChannelPool()
 	pool.AddChannel(&types.Channel{
-		ID:          "ch_openai_quota",
-		Name:        "OpenAI quota test",
-		Provider:    "openai",
-		BaseURL:     upstream.URL,
-		APIKey:      "sk-upstream",
-		Models:      []string{"gpt-4o-mini"},
-		CBThreshold: 5,
-		Enabled:     true,
+		ID:             "ch_openai_quota",
+		OrganizationID: "org_quota",
+		Name:           "OpenAI quota test",
+		Provider:       "openai",
+		BaseURL:        upstream.URL,
+		APIKey:         "sk-upstream",
+		Models:         []string{"gpt-4o-mini"},
+		CBThreshold:    5,
+		Enabled:        true,
 	}, 100)
 	authenticator := &recordingRelayAuthenticator{
 		identity: types.RelayAPITokenIdentity{
@@ -1232,6 +1235,7 @@ func TestNewRelayProductionChatSettlesAPITokenQuotaAndRecordsUsageOnSuccess(t *t
 	pool := NewChannelPool()
 	pool.AddChannel(&types.Channel{
 		ID:                 "ch_openai_success",
+		OrganizationID:     "org_success",
 		Name:               "OpenAI success test",
 		Provider:           "openai",
 		BaseURL:            upstream.URL,
@@ -1329,14 +1333,15 @@ func TestNewRelayProductionChatRecordsTrustedFeatureTypeOnUsage(t *testing.T) {
 
 	pool := NewChannelPool()
 	pool.AddChannel(&types.Channel{
-		ID:          "ch_openai_workflow",
-		Name:        "OpenAI workflow attribution test",
-		Provider:    "openai",
-		BaseURL:     upstream.URL,
-		APIKey:      "sk-upstream-workflow",
-		Models:      []string{"gpt-4o-mini"},
-		CBThreshold: 5,
-		Enabled:     true,
+		ID:             "ch_openai_workflow",
+		OrganizationID: "org_workflow",
+		Name:           "OpenAI workflow attribution test",
+		Provider:       "openai",
+		BaseURL:        upstream.URL,
+		APIKey:         "sk-upstream-workflow",
+		Models:         []string{"gpt-4o-mini"},
+		CBThreshold:    5,
+		Enabled:        true,
 	}, 100)
 	relayInstance, err := NewRelay(&Config{
 		Pool:       pool,
@@ -1399,6 +1404,7 @@ func TestNewRelayProductionChatStreamsProviderSSEEndToEnd(t *testing.T) {
 	pool := NewChannelPool()
 	pool.AddChannel(&types.Channel{
 		ID:                 "ch_openai_stream",
+		OrganizationID:     "org_stream",
 		Name:               "OpenAI stream test",
 		Provider:           "openai",
 		BaseURL:            upstream.URL,
@@ -1481,14 +1487,15 @@ func TestNewRelayProductionChatUsesSharedSemanticCacheOnSecondRequest(t *testing
 
 	pool := NewChannelPool()
 	pool.AddChannel(&types.Channel{
-		ID:          "ch_openai_cache",
-		Name:        "OpenAI cache test",
-		Provider:    "openai",
-		BaseURL:     upstream.URL,
-		APIKey:      "sk-upstream-cache",
-		Models:      []string{"gpt-4o-mini"},
-		CBThreshold: 5,
-		Enabled:     true,
+		ID:             "ch_openai_cache",
+		OrganizationID: "org_cache",
+		Name:           "OpenAI cache test",
+		Provider:       "openai",
+		BaseURL:        upstream.URL,
+		APIKey:         "sk-upstream-cache",
+		Models:         []string{"gpt-4o-mini"},
+		CBThreshold:    5,
+		Enabled:        true,
 	}, 100)
 	authenticator := &recordingRelayAuthenticator{
 		identity: types.RelayAPITokenIdentity{
@@ -1565,14 +1572,15 @@ func TestNewRelayProductionChatReturnsCodeWhenAPITokenSettlementFails(t *testing
 
 	pool := NewChannelPool()
 	pool.AddChannel(&types.Channel{
-		ID:          "ch_openai_settlement",
-		Name:        "OpenAI settlement test",
-		Provider:    "openai",
-		BaseURL:     upstream.URL,
-		APIKey:      "sk-upstream-settlement",
-		Models:      []string{"gpt-4o-mini"},
-		CBThreshold: 5,
-		Enabled:     true,
+		ID:             "ch_openai_settlement",
+		OrganizationID: "org_settlement",
+		Name:           "OpenAI settlement test",
+		Provider:       "openai",
+		BaseURL:        upstream.URL,
+		APIKey:         "sk-upstream-settlement",
+		Models:         []string{"gpt-4o-mini"},
+		CBThreshold:    5,
+		Enabled:        true,
 	}, 100)
 	authenticator := &recordingRelayAuthenticator{
 		identity: types.RelayAPITokenIdentity{
@@ -1643,14 +1651,15 @@ func TestNewRelayProductionChatReturnsCodeWhenBillingSettlementFails(t *testing.
 
 	pool := NewChannelPool()
 	pool.AddChannel(&types.Channel{
-		ID:          "ch_openai_billing_settlement",
-		Name:        "OpenAI billing settlement test",
-		Provider:    "openai",
-		BaseURL:     upstream.URL,
-		APIKey:      "sk-upstream-billing-settlement",
-		Models:      []string{"gpt-4o-mini"},
-		CBThreshold: 5,
-		Enabled:     true,
+		ID:             "ch_openai_billing_settlement",
+		OrganizationID: "org_billing_settlement",
+		Name:           "OpenAI billing settlement test",
+		Provider:       "openai",
+		BaseURL:        upstream.URL,
+		APIKey:         "sk-upstream-billing-settlement",
+		Models:         []string{"gpt-4o-mini"},
+		CBThreshold:    5,
+		Enabled:        true,
 	}, 100)
 	authenticator := &recordingRelayAuthenticator{
 		identity: types.RelayAPITokenIdentity{
@@ -1722,14 +1731,15 @@ func TestNewRelayProductionChatReturnsCodeWhenBillingPreAuthorizationFails(t *te
 
 	pool := NewChannelPool()
 	pool.AddChannel(&types.Channel{
-		ID:          "ch_openai_billing_preauth",
-		Name:        "OpenAI billing preauth test",
-		Provider:    "openai",
-		BaseURL:     upstream.URL,
-		APIKey:      "sk-upstream-billing-preauth",
-		Models:      []string{"gpt-4o-mini"},
-		CBThreshold: 5,
-		Enabled:     true,
+		ID:             "ch_openai_billing_preauth",
+		OrganizationID: "org_billing_preauth",
+		Name:           "OpenAI billing preauth test",
+		Provider:       "openai",
+		BaseURL:        upstream.URL,
+		APIKey:         "sk-upstream-billing-preauth",
+		Models:         []string{"gpt-4o-mini"},
+		CBThreshold:    5,
+		Enabled:        true,
 	}, 100)
 	authenticator := &recordingRelayAuthenticator{
 		identity: types.RelayAPITokenIdentity{

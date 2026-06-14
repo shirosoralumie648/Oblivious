@@ -41,7 +41,7 @@ func normalizeChannelWeight(weight int) int {
 // ListChannels 列出所有渠道
 func (s *RelayStore) ListChannels() ([]*types.Channel, error) {
 	rows, err := s.db.Query(`
-		SELECT id, name, provider, base_url, api_key_encrypted, models, groups,
+		SELECT id, COALESCE(organization_id, ''), name, provider, base_url, api_key_encrypted, models, groups,
 		       rpm_limit, tpm_limit, cb_threshold, cb_timeout,
 		       health_check_strategy, probe_model, probe_prompt,
 		       strategy, priority, weight, estimated_cost_per_1k, cost_multiplier, enabled
@@ -62,7 +62,7 @@ func (s *RelayStore) ListChannels() ([]*types.Channel, error) {
 		var probeModel, probePrompt, healthCheckStrategy sql.NullString
 
 		err := rows.Scan(
-			&ch.ID, &ch.Name, &ch.Provider, &ch.BaseURL, &ch.APIKey,
+			&ch.ID, &ch.OrganizationID, &ch.Name, &ch.Provider, &ch.BaseURL, &ch.APIKey,
 			pq.Array(&models), pq.Array(&groups),
 			&ch.RPMLimit, &ch.TPMLimit, &ch.CBThreshold, &ch.CBTimeout,
 			&healthCheckStrategy, &probeModel, &probePrompt,
@@ -92,14 +92,14 @@ func (s *RelayStore) GetChannel(id string) (*types.Channel, error) {
 	var probeModel, probePrompt, healthCheckStrategy sql.NullString
 
 	err := s.db.QueryRow(`
-		SELECT id, name, provider, base_url, api_key_encrypted, models, groups,
+		SELECT id, COALESCE(organization_id, ''), name, provider, base_url, api_key_encrypted, models, groups,
 		       rpm_limit, tpm_limit, cb_threshold, cb_timeout,
 		       health_check_strategy, probe_model, probe_prompt,
 		       strategy, priority, weight, estimated_cost_per_1k, cost_multiplier, enabled
 		FROM channels
 		WHERE id = $1
 	`, id).Scan(
-		&ch.ID, &ch.Name, &ch.Provider, &ch.BaseURL, &ch.APIKey,
+		&ch.ID, &ch.OrganizationID, &ch.Name, &ch.Provider, &ch.BaseURL, &ch.APIKey,
 		pq.Array(&models), pq.Array(&groups),
 		&ch.RPMLimit, &ch.TPMLimit, &ch.CBThreshold, &ch.CBTimeout,
 		&healthCheckStrategy, &probeModel, &probePrompt,
@@ -124,13 +124,14 @@ func (s *RelayStore) GetChannel(id string) (*types.Channel, error) {
 // CreateChannel 创建渠道
 func (s *RelayStore) CreateChannel(ch *types.Channel) error {
 	now := time.Now()
+	organizationID := sql.NullString{String: strings.TrimSpace(ch.OrganizationID), Valid: strings.TrimSpace(ch.OrganizationID) != ""}
 	_, err := s.db.Exec(`
-		INSERT INTO channels (id, name, provider, base_url, api_key_encrypted, models, groups,
+		INSERT INTO channels (id, organization_id, name, provider, base_url, api_key_encrypted, models, groups,
 		                      rpm_limit, tpm_limit, cb_threshold, cb_timeout,
 		                      health_check_strategy, probe_model, probe_prompt,
 		                      strategy, priority, weight, estimated_cost_per_1k, cost_multiplier, enabled, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
-	`, ch.ID, ch.Name, ch.Provider, ch.BaseURL, ch.APIKey, pq.Array(ch.Models), pq.Array(ch.Groups),
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+	`, ch.ID, organizationID, ch.Name, ch.Provider, ch.BaseURL, ch.APIKey, pq.Array(ch.Models), pq.Array(ch.Groups),
 		ch.RPMLimit, ch.TPMLimit, ch.CBThreshold, ch.CBTimeout,
 		ch.HealthCheckStrategy, ch.ProbeModel, ch.ProbePrompt,
 		ch.Strategy, ch.Priority, normalizeChannelWeight(ch.Weight), ch.EstimatedCostPer1K, normalizeCostMultiplier(ch.CostMultiplier), ch.Enabled, now, now)
@@ -185,7 +186,7 @@ func (s *RelayStore) GetModelRoute(model string) (*types.ModelRoute, error) {
 	// Load channel weights
 	rows, err := s.db.Query(`
 		SELECT mcw.channel_id, mcw.weight, mcw.priority, mcw.enabled,
-		       c.name, c.provider, c.base_url, c.models, c.groups,
+		       COALESCE(c.organization_id, ''), c.name, c.provider, c.base_url, c.models, c.groups,
 		       c.estimated_cost_per_1k, c.cost_multiplier, c.enabled
 		FROM model_channel_weights mcw
 		JOIN channels c ON c.id = mcw.channel_id
@@ -205,7 +206,7 @@ func (s *RelayStore) GetModelRoute(model string) (*types.ModelRoute, error) {
 
 		err := rows.Scan(
 			&rc.ChannelID, &rc.Weight, &rc.Priority, &rc.Enabled,
-			&ch.Name, &ch.Provider, &ch.BaseURL, pq.Array(&chModels), pq.Array(&chGroups),
+			&ch.OrganizationID, &ch.Name, &ch.Provider, &ch.BaseURL, pq.Array(&chModels), pq.Array(&chGroups),
 			&ch.EstimatedCostPer1K, &ch.CostMultiplier, &ch.Enabled,
 		)
 		if err != nil {

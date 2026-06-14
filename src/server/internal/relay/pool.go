@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"strings"
 	"sync"
 
 	"oblivious/server/internal/relay/types"
@@ -32,6 +33,16 @@ func (p *ChannelPool) GetChannel(id string) (*types.Channel, bool) {
 	defer p.mu.RUnlock()
 	ch, ok := p.channels[id]
 	return ch, ok
+}
+
+func (p *ChannelPool) GetChannelForOrganization(id, organizationID string) (*types.Channel, bool) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	ch, ok := p.channels[id]
+	if !ok || !channelMatchesOrganization(ch, organizationID) {
+		return nil, false
+	}
+	return ch, true
 }
 
 // GetChannelsByModel 根据模型获取渠道路由
@@ -97,13 +108,28 @@ func (p *ChannelPool) ReplaceConfig(channels []*types.Channel, routes []*types.M
 
 // ListChannels 列出所有渠道
 func (p *ChannelPool) ListChannels() []*types.Channel {
+	return p.ListChannelsForOrganization("")
+}
+
+func (p *ChannelPool) ListChannelsForOrganization(organizationID string) []*types.Channel {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	result := make([]*types.Channel, 0, len(p.channels))
 	for _, ch := range p.channels {
+		if !channelMatchesOrganization(ch, organizationID) {
+			continue
+		}
 		result = append(result, ch)
 	}
 	return result
+}
+
+func channelMatchesOrganization(ch *types.Channel, organizationID string) bool {
+	organizationID = strings.TrimSpace(organizationID)
+	if organizationID == "" {
+		return true
+	}
+	return ch != nil && strings.TrimSpace(ch.OrganizationID) == organizationID
 }
 
 // SetChannelHealthy 设置渠道健康状态

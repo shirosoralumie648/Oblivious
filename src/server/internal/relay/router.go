@@ -77,7 +77,6 @@ func NewRouterWithBilling(
 }
 
 func (r *Router) SelectChannel(ctx context.Context, apiType string) *types.RouteChannel {
-	_ = ctx
 	if r.tokenBucket != nil {
 		ok, _ := r.tokenBucket.TryAcquire("rpm")
 		if !ok {
@@ -85,7 +84,8 @@ func (r *Router) SelectChannel(ctx context.Context, apiType string) *types.Route
 		}
 	}
 
-	ch := r.loadBalancer.Select(apiType)
+	organizationID, _ := types.TrustedOrganizationIDFromContext(ctx)
+	ch := r.loadBalancer.SelectForOrganization(apiType, organizationID)
 	if ch == nil {
 		return nil
 	}
@@ -98,10 +98,11 @@ func (r *Router) SelectChannel(ctx context.Context, apiType string) *types.Route
 }
 
 func (r *Router) selectChannelForBilling(ctx context.Context, apiType, model string, usage *types.Usage, excluded map[string]bool) *types.RouteChannel {
+	organizationID, _ := types.TrustedOrganizationIDFromContext(ctx)
 	conversationID, _ := types.TrustedConversationIDFromContext(ctx)
 	if conversationID != "" && r.affinityStore != nil {
 		if channelID, err := r.affinityStore.GetConversationAffinity(ctx, conversationID); err == nil && channelID != "" && !excluded[channelID] {
-			if ch := r.loadBalancer.SelectModelChannelByID(apiType, model, channelID); ch != nil {
+			if ch := r.loadBalancer.SelectModelChannelByIDForOrganization(apiType, model, channelID, organizationID); ch != nil {
 				if cb, ok := r.circuitBreakers[routeChannelID(ch)]; !ok || cb.State() != StateOpen {
 					return ch
 				}
@@ -111,9 +112,9 @@ func (r *Router) selectChannelForBilling(ctx context.Context, apiType, model str
 
 	var ch *types.RouteChannel
 	if r.rateLimiter != nil {
-		ch = r.loadBalancer.SelectModelExcludingWithWeights(apiType, model, excluded, r.localRateLimitWeightAdjuster(ctx, model, usage))
+		ch = r.loadBalancer.SelectModelExcludingWithWeightsForOrganization(apiType, model, organizationID, excluded, r.localRateLimitWeightAdjuster(ctx, model, usage))
 	} else {
-		ch = r.loadBalancer.SelectModelExcluding(apiType, model, excluded)
+		ch = r.loadBalancer.SelectModelExcludingForOrganization(apiType, model, organizationID, excluded)
 	}
 	if ch == nil {
 		return nil
