@@ -13,13 +13,30 @@ import (
 )
 
 type UsageSummary struct {
-	Period     string                         `json:"period"`
-	Requests   int                            `json:"requests"`
-	ByModel    []UsageDimensionSummary        `json:"byModel"`
-	ByFeature  []UsageDimensionSummary        `json:"byFeature"`
-	ByUser     []UsageDimensionSummary        `json:"byUser"`
-	TimeSeries []UsageTimeSeriesSummary       `json:"timeSeries"`
-	Recent     []relay.RelayAPITokenUsageItem `json:"recent"`
+	Period     string                   `json:"period"`
+	Requests   int                      `json:"requests"`
+	ByModel    []UsageDimensionSummary  `json:"byModel"`
+	ByFeature  []UsageDimensionSummary  `json:"byFeature"`
+	ByUser     []UsageDimensionSummary  `json:"byUser"`
+	TimeSeries []UsageTimeSeriesSummary `json:"timeSeries"`
+	Recent     []APITokenUsageItem      `json:"recent"`
+}
+
+type APITokenUsageItem struct {
+	ID               string    `json:"id"`
+	APITokenID       string    `json:"apiTokenId"`
+	RequestID        string    `json:"requestId"`
+	APIType          string    `json:"apiType"`
+	Model            string    `json:"model"`
+	Status           string    `json:"status"`
+	StatusCode       int       `json:"statusCode"`
+	ErrorCode        string    `json:"errorCode,omitempty"`
+	LatencyMS        int64     `json:"latencyMs"`
+	Cost             float64   `json:"cost"`
+	PromptTokens     int       `json:"promptTokens"`
+	CompletionTokens int       `json:"completionTokens"`
+	TotalTokens      int       `json:"totalTokens"`
+	CreatedAt        time.Time `json:"createdAt"`
 }
 
 type UsageDimensionSummary struct {
@@ -199,7 +216,7 @@ func (s *Service) ListAPITokens(ctx context.Context, session auth.Session) ([]re
 	return s.apiTokenStore.ListRelayAPITokens(ctx, session.OrganizationID, session.User.ID)
 }
 
-func (s *Service) ListAPITokenUsage(ctx context.Context, session auth.Session, tokenID string) ([]relay.RelayAPITokenUsageItem, error) {
+func (s *Service) ListAPITokenUsage(ctx context.Context, session auth.Session, tokenID string) ([]APITokenUsageItem, error) {
 	if s.apiTokenStore == nil {
 		return nil, errors.New("api token store is not configured")
 	}
@@ -221,7 +238,11 @@ func (s *Service) ListAPITokenUsage(ctx context.Context, session auth.Session, t
 	if !found {
 		return nil, sql.ErrNoRows
 	}
-	return s.apiTokenStore.ListRelayAPITokenUsage(ctx, session.OrganizationID, session.User.ID, tokenID)
+	usage, err := s.apiTokenStore.ListRelayAPITokenUsage(ctx, session.OrganizationID, session.User.ID, tokenID)
+	if err != nil {
+		return nil, err
+	}
+	return userVisibleAPITokenUsageItems(usage), nil
 }
 
 func (s *Service) RevokeAPIToken(ctx context.Context, session auth.Session, tokenID string) error {
@@ -258,6 +279,29 @@ func cloneBillingPaymentProviders(providers []BillingPaymentProviderSummary) []B
 		cloned = append(cloned, BillingPaymentProviderSummary{Name: name})
 	}
 	return cloned
+}
+
+func userVisibleAPITokenUsageItems(items []relay.RelayAPITokenUsageItem) []APITokenUsageItem {
+	visible := make([]APITokenUsageItem, 0, len(items))
+	for _, item := range items {
+		visible = append(visible, APITokenUsageItem{
+			ID:               item.ID,
+			APITokenID:       item.APITokenID,
+			RequestID:        item.RequestID,
+			APIType:          item.APIType,
+			Model:            item.Model,
+			Status:           item.Status,
+			StatusCode:       item.StatusCode,
+			ErrorCode:        item.ErrorCode,
+			LatencyMS:        item.LatencyMS,
+			Cost:             item.Cost,
+			PromptTokens:     item.PromptTokens,
+			CompletionTokens: item.CompletionTokens,
+			TotalTokens:      item.TotalTokens,
+			CreatedAt:        item.CreatedAt,
+		})
+	}
+	return visible
 }
 
 type SQLStore struct {

@@ -104,23 +104,23 @@ describe('AccessPage', () => {
     expect(await screen.findByText('CI gateway key')).toBeInTheDocument();
     expect(screen.getByText('obv_live_123')).toBeInTheDocument();
 
-	    fireEvent.change(screen.getByLabelText('Token name'), { target: { value: 'Browser key' } });
-	    fireEvent.change(screen.getByLabelText('Allowed models'), { target: { value: 'gpt-4o-mini' } });
-	    fireEvent.change(screen.getByLabelText('Routing group'), { target: { value: 'vip' } });
-	    fireEvent.change(screen.getByLabelText('Quota limit'), { target: { value: '25.5' } });
-	    fireEvent.change(screen.getByLabelText('Expires at'), { target: { value: '2026-06-30T00:00:00Z' } });
-	    fireEvent.click(screen.getByRole('button', { name: 'Create API token' }));
+    fireEvent.change(screen.getByLabelText('Token name'), { target: { value: 'Browser key' } });
+    fireEvent.change(screen.getByLabelText('Allowed models'), { target: { value: 'gpt-4o-mini' } });
+    fireEvent.change(screen.getByLabelText('Routing group'), { target: { value: 'vip' } });
+    fireEvent.change(screen.getByLabelText('Quota limit'), { target: { value: '25.5' } });
+    fireEvent.change(screen.getByLabelText('Expires at'), { target: { value: '2026-06-30T00:00:00Z' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create API token' }));
 
-	    expect(await screen.findByText('obv_new_secret')).toBeInTheDocument();
-	    expect(createApiToken).toHaveBeenCalledWith({
-	      modelLimits: ['gpt-4o-mini'],
-	      modelLimitsEnabled: true,
-	      name: 'Browser key',
-	      quotaLimit: 25.5,
-	      expiresAt: '2026-06-30T00:00:00Z',
-	      userGroup: 'vip'
-	    });
-	  });
+    expect(await screen.findByText('obv_new_secret')).toBeInTheDocument();
+    expect(createApiToken).toHaveBeenCalledWith({
+      modelLimits: ['gpt-4o-mini'],
+      modelLimitsEnabled: true,
+      name: 'Browser key',
+      quotaLimit: 25.5,
+      expiresAt: '2026-06-30T00:00:00Z',
+      userGroup: 'vip'
+    });
+  });
 
   it('loads API token usage details on demand', async () => {
     getAccess.mockResolvedValue({
@@ -152,14 +152,12 @@ describe('AccessPage', () => {
         id: 'usage_1',
         apiTokenId: 'tok_1',
         apiType: 'chat',
-        channelId: 'ch_1',
         completionTokens: 100,
         cost: 0.004,
         createdAt: '2026-05-30T00:00:00Z',
         latencyMs: 42,
         model: 'gpt-4o',
         promptTokens: 1000,
-        provider: 'openai',
         requestId: 'req_1',
         status: 'success',
         statusCode: 200,
@@ -179,7 +177,7 @@ describe('AccessPage', () => {
     expect(await screen.findByText('req_1')).toBeInTheDocument();
     expect(screen.getAllByText('gpt-4o')).toHaveLength(2);
     expect(screen.getByText('chat')).toBeInTheDocument();
-    expect(screen.getByText('openai / ch_1')).toBeInTheDocument();
+    expect(screen.queryByText('openai / ch_1')).not.toBeInTheDocument();
     expect(screen.getByText('42 ms')).toBeInTheDocument();
     expect(screen.getByText('$0.004')).toBeInTheDocument();
     expect(listApiTokenUsage).toHaveBeenCalledWith('tok_1');

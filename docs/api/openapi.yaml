@@ -3223,7 +3223,7 @@ components:
         recent:
           type: array
           items:
-            $ref: "#/components/schemas/RelayAPITokenUsageItem"
+            $ref: "#/components/schemas/ConsoleAPITokenUsageItem"
 
     UsageDimensionSummary:
       type: object
@@ -4549,7 +4549,7 @@ components:
           type: string
           enum: [revoked]
 
-    RelayAPITokenUsageItem:
+    ConsoleAPITokenUsageItem:
       type: object
       properties:
         id:
@@ -4561,10 +4561,6 @@ components:
         apiType:
           type: string
         model:
-          type: string
-        channelId:
-          type: string
-        provider:
           type: string
         status:
           type: string
@@ -15427,7 +15423,7 @@ paths:
                       data:
                         type: array
                         items:
-                          $ref: "#/components/schemas/RelayAPITokenUsageItem"
+                          $ref: "#/components/schemas/ConsoleAPITokenUsageItem"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":

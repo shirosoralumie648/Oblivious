@@ -3,8 +3,6 @@ package console
 import (
 	"context"
 	"time"
-
-	"oblivious/server/internal/relay"
 )
 
 func (s *SQLStore) GetUsageSummary(ctx context.Context, organizationID, userID string) (UsageSummary, error) {
@@ -30,8 +28,6 @@ func (s *SQLStore) GetUsageSummary(ctx context.Context, organizationID, userID s
 			COALESCE(request_id, ''),
 			COALESCE(api_type, ''),
 			model_id,
-			COALESCE(channel_id, ''),
-			COALESCE(provider, ''),
 			COALESCE(status, ''),
 			COALESCE(status_code, 0),
 			COALESCE(error_code, ''),
@@ -54,15 +50,13 @@ func (s *SQLStore) GetUsageSummary(ctx context.Context, organizationID, userID s
 	defer rows.Close()
 
 	for rows.Next() {
-		var item relay.RelayAPITokenUsageItem
+		var item APITokenUsageItem
 		if err := rows.Scan(
 			&item.ID,
 			&item.APITokenID,
 			&item.RequestID,
 			&item.APIType,
 			&item.Model,
-			&item.ChannelID,
-			&item.Provider,
 			&item.Status,
 			&item.StatusCode,
 			&item.ErrorCode,

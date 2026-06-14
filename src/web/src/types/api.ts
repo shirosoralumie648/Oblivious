@@ -503,7 +503,7 @@ export type UsageSummary = {
   byFeature?: UsageDimensionSummary[];
   byModel?: UsageDimensionSummary[];
   byUser?: UsageDimensionSummary[];
-  recent?: RelayApiTokenUsageItem[];
+  recent?: ConsoleApiTokenUsageItem[];
   requests: number;
   timeSeries?: UsageTimeSeriesSummary[];
 };
@@ -555,14 +555,12 @@ export type RelayApiToken = {
   revokedAt?: string;
 };
 
-export type RelayApiTokenUsageItem = {
+export type ConsoleApiTokenUsageItem = {
   id: string;
   apiTokenId: string;
   requestId: string;
   apiType: string;
   model: string;
-  channelId: string;
-  provider: string;
   status: string;
   statusCode: number;
   errorCode?: string;

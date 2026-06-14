@@ -5,7 +5,7 @@ import { ConsoleWorkbenchLayout } from '../../features/console/components/Consol
 import { createHttpClient } from '../../services/http/client';
 import type {
   AccessSummary,
-  RelayApiTokenUsageItem,
+  ConsoleApiTokenUsageItem,
   UsageDimensionSummary,
   UsageSummary,
   UsageTimeSeriesSummary
@@ -15,14 +15,7 @@ function formatCurrency(value: number) {
   return `$${value.toFixed(4)}`;
 }
 
-function providerChannelLabel(item: RelayApiTokenUsageItem) {
-  if (!item.provider && !item.channelId) {
-    return '-';
-  }
-  return `${item.provider || '-'} / ${item.channelId || '-'}`;
-}
-
-function requestLabel(item: RelayApiTokenUsageItem) {
+function requestLabel(item: ConsoleApiTokenUsageItem) {
   return item.requestId || item.id;
 }
 
@@ -150,7 +143,6 @@ export function UsagePage() {
                     <span>{requestLabel(item)}</span>
                     <span>{item.apiTokenId || '-'}</span>
                     <span>{item.model || '-'}</span>
-                    <span>{providerChannelLabel(item)}</span>
                     <span>{item.status || 'unknown'}</span>
                     <span>{`${item.totalTokens} tokens`}</span>
                     <span>{formatCurrency(item.cost)}</span>

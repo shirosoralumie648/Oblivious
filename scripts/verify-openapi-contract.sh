@@ -2630,8 +2630,8 @@ require_billing_checkout_contract() {
       missing << "GET /api/v1/console/api-tokens/{tokenId}/usage must be documented"
       console_api_token_usage = {}
     end
-    unless response_array_item_ref(console_api_token_usage, "200") == "#/components/schemas/RelayAPITokenUsageItem"
-      missing << "GET /api/v1/console/api-tokens/{tokenId}/usage 200 data items must reference RelayAPITokenUsageItem"
+    unless response_array_item_ref(console_api_token_usage, "200") == "#/components/schemas/ConsoleAPITokenUsageItem"
+      missing << "GET /api/v1/console/api-tokens/{tokenId}/usage 200 data items must reference ConsoleAPITokenUsageItem"
     end
 
     {
@@ -2690,7 +2690,7 @@ require_billing_checkout_contract() {
         usage_props.dig("byFeature", "items", "$ref") == "#/components/schemas/UsageDimensionSummary" &&
         usage_props.dig("byUser", "items", "$ref") == "#/components/schemas/UsageDimensionSummary" &&
         usage_props.dig("timeSeries", "items", "$ref") == "#/components/schemas/UsageTimeSeriesSummary" &&
-        usage_props.dig("recent", "items", "$ref") == "#/components/schemas/RelayAPITokenUsageItem"
+        usage_props.dig("recent", "items", "$ref") == "#/components/schemas/ConsoleAPITokenUsageItem"
       missing << "UsageSummary must document period, requests, usage dimensions, time series, and recent token usage"
     end
 
@@ -2732,14 +2732,12 @@ require_billing_checkout_contract() {
     if token.fetch("properties", {}).key?("rawToken")
       missing << "RelayAPIToken list schema must not expose rawToken"
     end
-    token_usage = schema_props(schemas["RelayAPITokenUsageItem"] || {})
+    token_usage = schema_props(schemas["ConsoleAPITokenUsageItem"] || {})
     [
       ["apiTokenId", "string"],
       ["requestId", "string"],
       ["apiType", "string"],
       ["model", "string"],
-      ["channelId", "string"],
-      ["provider", "string"],
       ["status", "string"],
       ["statusCode", "integer"],
       ["latencyMs", "integer"],
@@ -2750,7 +2748,12 @@ require_billing_checkout_contract() {
       ["createdAt", "string"],
     ].each do |field, type|
       unless token_usage.dig(field, "type") == type
-        missing << "RelayAPITokenUsageItem must document #{field} as #{type}"
+        missing << "ConsoleAPITokenUsageItem must document #{field} as #{type}"
+      end
+    end
+    ["provider", "channelId", "channel_id"].each do |field|
+      if token_usage.key?(field)
+        missing << "ConsoleAPITokenUsageItem must not expose #{field}"
       end
     end
 
@@ -3230,8 +3233,8 @@ require_console_api_token_csrf_contract() {
     unless response_array_item_ref(list, "200") == "#/components/schemas/RelayAPIToken"
       missing << "GET /api/v1/console/api-tokens 200 data items must reference RelayAPIToken"
     end
-    unless response_array_item_ref(usage, "200") == "#/components/schemas/RelayAPITokenUsageItem"
-      missing << "GET /api/v1/console/api-tokens/{tokenId}/usage 200 data items must reference RelayAPITokenUsageItem"
+    unless response_array_item_ref(usage, "200") == "#/components/schemas/ConsoleAPITokenUsageItem"
+      missing << "GET /api/v1/console/api-tokens/{tokenId}/usage 200 data items must reference ConsoleAPITokenUsageItem"
     end
     unless create.dig("requestBody", "required") == true &&
         request_body_ref(create) == "#/components/schemas/CreateRelayAPITokenRequest"
@@ -3264,12 +3267,15 @@ require_console_api_token_csrf_contract() {
       missing << "CreatedRelayAPIToken must expose one-time rawToken plus RelayAPIToken token"
     end
 
-    usage_props = schemas.fetch("RelayAPITokenUsageItem", {}).fetch("properties", {})
-    ["id", "apiTokenId", "requestId", "apiType", "model", "provider", "status", "statusCode", "totalTokens", "createdAt"].each do |field|
-      missing << "RelayAPITokenUsageItem.#{field} must be documented for console usage responses" unless usage_props.key?(field)
+    usage_props = schemas.fetch("ConsoleAPITokenUsageItem", {}).fetch("properties", {})
+    ["id", "apiTokenId", "requestId", "apiType", "model", "status", "statusCode", "totalTokens", "createdAt"].each do |field|
+      missing << "ConsoleAPITokenUsageItem.#{field} must be documented for console usage responses" unless usage_props.key?(field)
     end
     ["rawToken", "tokenHash", "token_hash"].each do |field|
-      missing << "RelayAPITokenUsageItem must not expose #{field}" if usage_props.key?(field)
+      missing << "ConsoleAPITokenUsageItem must not expose #{field}" if usage_props.key?(field)
+    end
+    ["provider", "channelId", "channel_id"].each do |field|
+      missing << "ConsoleAPITokenUsageItem must not expose #{field}" if usage_props.key?(field)
     end
 
     unless missing.empty?

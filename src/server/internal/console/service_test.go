@@ -46,7 +46,7 @@ func TestGetUsageReturnsOrganizationSummary(t *testing.T) {
 		summary: UsageSummary{
 			Period:   "7d",
 			Requests: 4,
-			Recent: []relay.RelayAPITokenUsageItem{{
+			Recent: []APITokenUsageItem{{
 				ID:          "usage_1",
 				APITokenID:  "tok_1",
 				RequestID:   "req_1",
@@ -367,6 +367,9 @@ func TestListAPITokenUsageScopesToSessionUserAndOrganization(t *testing.T) {
 	}
 	if len(usage) != 1 || usage[0].RequestID != "req_1" || usage[0].TotalTokens != 1100 {
 		t.Fatalf("unexpected usage items: %+v", usage)
+	}
+	if usage[0].Status != "success" || usage[0].StatusCode != 200 || usage[0].LatencyMS != 42 {
+		t.Fatalf("expected user-visible usage fields to be preserved, got %+v", usage[0])
 	}
 }
 

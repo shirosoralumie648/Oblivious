@@ -133,7 +133,7 @@ func (c consoleUsageConn) QueryContext(_ context.Context, query string, _ []driv
 		return &usageRows{columns: []string{"requests"}, rows: [][]driver.Value{{int64(5)}}}, nil
 	case strings.Contains(query, "ORDER BY created_at DESC"):
 		return &usageRows{columns: []string{
-			"id", "api_token_id", "request_id", "api_type", "model_id", "channel_id", "provider", "status", "status_code", "error_code", "latency_ms", "cost", "input_tokens", "output_tokens", "total_tokens", "created_at",
+			"id", "api_token_id", "request_id", "api_type", "model_id", "status", "status_code", "error_code", "latency_ms", "cost", "input_tokens", "output_tokens", "total_tokens", "created_at",
 		}}, nil
 	case strings.Contains(query, "GROUP BY model_id"):
 		return aggregateRows([][]driver.Value{

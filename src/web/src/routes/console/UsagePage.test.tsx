@@ -69,8 +69,6 @@ describe('UsagePage', () => {
           requestId: 'req_1',
           apiType: 'chat',
           model: 'gpt-4o',
-          channelId: 'ch_1',
-          provider: 'openai',
           status: 'success',
           statusCode: 200,
           latencyMs: 42,
@@ -93,7 +91,7 @@ describe('UsagePage', () => {
     expect(await screen.findByText('req_1')).toBeInTheDocument();
     expect(screen.getByText('tok_1')).toBeInTheDocument();
     expect(screen.getByText('gpt-4o')).toBeInTheDocument();
-    expect(screen.getByText('openai / ch_1')).toBeInTheDocument();
+    expect(screen.queryByText('openai / ch_1')).not.toBeInTheDocument();
     expect(screen.getByText('success')).toBeInTheDocument();
     expect(screen.getByText('120 tokens')).toBeInTheDocument();
     expect(screen.getByText('$0.4200')).toBeInTheDocument();

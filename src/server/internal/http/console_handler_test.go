@@ -44,14 +44,12 @@ func TestConsoleHandlerGetUsageReturnsTypedUsageSummary(t *testing.T) {
 				TotalTokens:  1800,
 				TotalCost:    0.55,
 			}},
-			Recent: []relay.RelayAPITokenUsageItem{{
+			Recent: []console.APITokenUsageItem{{
 				ID:               "usage_1",
 				APITokenID:       "tok_1",
 				RequestID:        "req_1",
 				APIType:          "chat",
 				Model:            "gpt-4o",
-				ChannelID:        "ch_1",
-				Provider:         "openai",
 				Status:           "success",
 				StatusCode:       200,
 				LatencyMS:        123,
@@ -75,6 +73,7 @@ func TestConsoleHandlerGetUsageReturnsTypedUsageSummary(t *testing.T) {
 	if recorder.Code != stdhttp.StatusOK {
 		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
 	}
+	assertNoConsoleProviderRouteKeys(t, recorder.Body.String(), "console usage summary")
 	var response struct {
 		Data console.UsageSummary `json:"data"`
 	}
@@ -258,8 +257,9 @@ func TestConsoleHandlerListAPITokenUsageReturnsTypedUsageItems(t *testing.T) {
 		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
 	}
 	assertNoTokenSecretKeys(t, recorder.Body.String(), "api token usage")
+	assertNoConsoleProviderRouteKeys(t, recorder.Body.String(), "api token usage")
 	var response struct {
-		Data []relay.RelayAPITokenUsageItem `json:"data"`
+		Data []console.APITokenUsageItem `json:"data"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode api token usage response: %v", err)
@@ -470,6 +470,15 @@ func (s *consoleHandlerAPITokenStore) RevokeRelayAPIToken(_ context.Context, org
 func assertNoTokenSecretKeys(t *testing.T, body string, surface string) {
 	t.Helper()
 	for _, key := range []string{"rawToken", "tokenHash", "token_hash"} {
+		if jsonContainsKey(body, key) {
+			t.Fatalf("%s must not expose %s: %s", surface, key, body)
+		}
+	}
+}
+
+func assertNoConsoleProviderRouteKeys(t *testing.T, body string, surface string) {
+	t.Helper()
+	for _, key := range []string{"provider", "channelId", "channel_id"} {
 		if jsonContainsKey(body, key) {
 			t.Fatalf("%s must not expose %s: %s", surface, key, body)
 		}

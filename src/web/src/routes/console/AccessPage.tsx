@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { createConsoleApi } from '../../features/console/api';
 import { ConsoleWorkbenchLayout } from '../../features/console/components/ConsoleWorkbenchLayout';
 import { createHttpClient } from '../../services/http/client';
-import type { AccessSummary, RelayApiToken, RelayApiTokenUsageItem } from '../../types/api';
+import type { AccessSummary, ConsoleApiTokenUsageItem, RelayApiToken } from '../../types/api';
 
 export function AccessPage() {
   const consoleApi = useMemo(() => createConsoleApi(createHttpClient()), []);
@@ -19,7 +19,7 @@ export function AccessPage() {
   const [tokenError, setTokenError] = useState<string | null>(null);
   const [tokenGroup, setTokenGroup] = useState('');
   const [tokenName, setTokenName] = useState('');
-  const [tokenUsage, setTokenUsage] = useState<Record<string, RelayApiTokenUsageItem[]>>({});
+  const [tokenUsage, setTokenUsage] = useState<Record<string, ConsoleApiTokenUsageItem[]>>({});
   const [usageLoadingTokenId, setUsageLoadingTokenId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -210,7 +210,7 @@ function formatTokenExpiry(token: RelayApiToken) {
   return `expires ${token.expiresAt}`;
 }
 
-function TokenUsageList({ isLoading, usage }: { isLoading: boolean; usage: RelayApiTokenUsageItem[] }) {
+function TokenUsageList({ isLoading, usage }: { isLoading: boolean; usage: ConsoleApiTokenUsageItem[] }) {
   if (isLoading) {
     return <p>Loading token usage…</p>;
   }
@@ -224,7 +224,6 @@ function TokenUsageList({ isLoading, usage }: { isLoading: boolean; usage: Relay
           <span>{item.requestId || item.id}</span>
           <span>{item.model}</span>
           <span>{item.apiType || 'unknown api'}</span>
-          <span>{formatProviderRoute(item)}</span>
           <span>{item.status}</span>
           <span>{`${item.totalTokens} tokens`}</span>
           <span>{formatCurrency(item.cost)}</span>
@@ -241,10 +240,4 @@ function formatNumber(value: number) {
 
 function formatCurrency(value: number) {
   return `$${value}`;
-}
-
-function formatProviderRoute(item: RelayApiTokenUsageItem) {
-  const provider = item.provider || 'unknown provider';
-  const channel = item.channelId || 'unknown channel';
-  return `${provider} / ${channel}`;
 }

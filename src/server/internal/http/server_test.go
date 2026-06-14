@@ -2474,16 +2474,15 @@ func TestConsoleUsageListsCurrentUserRecentRelayRequests(t *testing.T) {
 	if usageRecorder.Code != stdhttp.StatusOK {
 		t.Fatalf("console usage expected 200, got %d with body %s", usageRecorder.Code, usageRecorder.Body.String())
 	}
+	assertNoConsoleProviderRouteKeys(t, usageRecorder.Body.String(), "console usage recent")
 
 	var usageResponse struct {
 		Data struct {
 			Recent []struct {
 				APITokenID  string  `json:"apiTokenId"`
-				ChannelID   string  `json:"channelId"`
 				Cost        float64 `json:"cost"`
 				LatencyMS   int64   `json:"latencyMs"`
 				Model       string  `json:"model"`
-				Provider    string  `json:"provider"`
 				RequestID   string  `json:"requestId"`
 				Status      string  `json:"status"`
 				TotalTokens int     `json:"totalTokens"`
@@ -2504,8 +2503,8 @@ func TestConsoleUsageListsCurrentUserRecentRelayRequests(t *testing.T) {
 	if recent.RequestID != "req_1" || recent.APITokenID != "tok_1" || recent.Model != "gpt-4o" {
 		t.Fatalf("unexpected recent usage identity fields: %+v", recent)
 	}
-	if recent.Provider != "openai" || recent.ChannelID != "ch_1" || recent.Status != "success" {
-		t.Fatalf("unexpected recent usage route/status fields: %+v", recent)
+	if recent.Status != "success" {
+		t.Fatalf("unexpected recent usage status field: %+v", recent)
 	}
 	if recent.Cost != 0.42 || recent.LatencyMS != 42 || recent.TotalTokens != 120 {
 		t.Fatalf("unexpected recent usage accounting fields: %+v", recent)
@@ -2516,7 +2515,7 @@ func TestConsoleAPITokenCreateListAndRevoke(t *testing.T) {
 	database := testDatabase(t)
 	router := NewRouter(testConfig(), database)
 	cookie, csrfToken, userID := registerHTTPUser(t, router, "console-api-token@example.com")
-	_, organizationID := queryHTTPUserScope(t, database, userID)
+	workspaceID, organizationID := queryHTTPUserScope(t, database, userID)
 
 	createRecorder := httptest.NewRecorder()
 	createRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/console/api-tokens", strings.NewReader(`{
@@ -2573,6 +2572,51 @@ func TestConsoleAPITokenCreateListAndRevoke(t *testing.T) {
 	}
 	if strings.Contains(listRecorder.Body.String(), createResponse.Data.RawToken) {
 		t.Fatalf("list api tokens leaked raw token: %s", listRecorder.Body.String())
+	}
+
+	if _, err := database.Exec(`
+		INSERT INTO usage_records (
+			id, user_id, workspace_id, organization_id, model_id, request_count,
+			input_tokens, output_tokens, api_type, channel_id, provider, api_token_id,
+			status, status_code, latency_ms, cost, channel_cost, request_id, total_tokens, created_at
+		)
+		VALUES (
+			'usage_console_token', $1, $2, $3, 'gpt-4o', 1,
+			120, 80, 'chat', 'ch_console_private', 'openai', $4,
+			'success', 200, 55, 0.15, 0.07, 'req_console_token', 200, NOW()
+		)
+	`, userID, workspaceID, organizationID, createResponse.Data.Token.ID); err != nil {
+		t.Fatalf("insert console api token usage: %v", err)
+	}
+
+	usageRecorder := httptest.NewRecorder()
+	usageRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/console/api-tokens/"+createResponse.Data.Token.ID+"/usage", nil)
+	usageRequest.AddCookie(cookie)
+	router.ServeHTTP(usageRecorder, usageRequest)
+	if usageRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("list api token usage expected 200, got %d with body %s", usageRecorder.Code, usageRecorder.Body.String())
+	}
+	assertNoTokenSecretKeys(t, usageRecorder.Body.String(), "console api token usage")
+	assertNoConsoleProviderRouteKeys(t, usageRecorder.Body.String(), "console api token usage")
+	var usageResponse struct {
+		Data []struct {
+			APITokenID  string `json:"apiTokenId"`
+			Model       string `json:"model"`
+			RequestID   string `json:"requestId"`
+			Status      string `json:"status"`
+			TotalTokens int    `json:"totalTokens"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(usageRecorder.Body.Bytes(), &usageResponse); err != nil {
+		t.Fatalf("decode api token usage response: %v", err)
+	}
+	if len(usageResponse.Data) != 1 ||
+		usageResponse.Data[0].APITokenID != createResponse.Data.Token.ID ||
+		usageResponse.Data[0].RequestID != "req_console_token" ||
+		usageResponse.Data[0].Model != "gpt-4o" ||
+		usageResponse.Data[0].Status != "success" ||
+		usageResponse.Data[0].TotalTokens != 200 {
+		t.Fatalf("unexpected api token usage response: %+v", usageResponse.Data)
 	}
 
 	revokeRecorder := httptest.NewRecorder()
