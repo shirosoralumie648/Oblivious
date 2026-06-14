@@ -28,6 +28,8 @@ type APITokenUsageItem struct {
 	RequestID        string    `json:"requestId"`
 	APIType          string    `json:"apiType"`
 	Model            string    `json:"model"`
+	Provider         string    `json:"provider,omitempty"`
+	ChannelID        string    `json:"channelId,omitempty"`
 	Status           string    `json:"status"`
 	StatusCode       int       `json:"statusCode"`
 	ErrorCode        string    `json:"errorCode,omitempty"`

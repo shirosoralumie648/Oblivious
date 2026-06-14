@@ -2166,7 +2166,7 @@ func TestStripeWebhookRouteRetriesLifecycleForRecordedDuplicateEvent(t *testing.
 	}
 	if _, err := database.Exec(`
 		INSERT INTO payment_intents (id, provider, organization_id, user_id, package_id, kind, amount, currency, status, metadata, created_at, updated_at)
-		VALUES ('pi_http_lifecycle_retry', 'stripe', $1, $2, NULL, 'subscription', 29, 'usd', 'pending', '{}', NOW(), NOW())
+		VALUES ('pi_http_lifecycle_retry', 'stripe', $1, $2, 'pkg_phase18_retry', 'subscription', 29, 'usd', 'pending', '{}', NOW(), NOW())
 	`, organizationID, userID); err != nil {
 		t.Fatalf("insert payment intent: %v", err)
 	}
