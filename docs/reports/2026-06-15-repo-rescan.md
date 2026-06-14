@@ -2,8 +2,8 @@
 
 ## Current Truth
 
-- Branch: `main`; this follow-up scan starts from pushed commit `2f53af9 test(frontend): prove agent plan adjustment browser flow`.
-- Refresh base: `HEAD` and `origin/main` both resolved to `2f53af92dbb64c1e954a7dc04d17b309dbb617ea`; the worktree was clean at scan time.
+- Branch: `main`; this follow-up scan starts from pushed commit `0e61dcc test(frontend): prove domestic topup refund flow`.
+- Refresh base: `HEAD` and `origin/main` both resolved to `0e61dcc6f961e247bcf992e46b9ff67cfdda21ef`; the worktree was clean at scan time.
 - The project is still **not complete** against the four 2026-06-04 fusion specs.
 - The current completion matrix remains `4 Proven / 10 Partial / 0 Gap / 0 Unverified`.
 - Current progress estimate after this scan is **97/100**. Admin Relay channel API-key, Observability alert-provider config, Observability alert/recovery SQL persistence, Publishing channel config, Workflow definition/version/execution-snapshot/node-execution secret-like fields, Agent Memories browser CRUD/import-export, Agent memory store PostgreSQL persistence, Agent gRPC registration and planning continue/adjust plus plan-step action service-adapter proof, Billing provider lifecycle PostgreSQL transitions, Admin usage analytics daily aggregate PostgreSQL proof, Marketplace governance/review PostgreSQL proof, Admin Billing operator payout/refund browser proof, Admin commercial configuration browser proof, Marketplace publisher/My Agents browser proof, Admin route manifest dispatch proof, durable Agent planning completion evidence, Agent plan adjustment browser proof, Admin Reviews browser moderation/governance proof, and Admin Alerts browser alert-management proof are now covered with repository-local proof, but target-environment workflow telemetry, target secret audits, deployment validation, payment/provider live rails, platform failover, live moderation/notification operations, deployed gRPC/client compatibility, and final no-skip release readiness remain open.
@@ -82,7 +82,7 @@ This scan does not reclassify any Partial row to Proven. Admin Relay API-key, Ob
 
 ## Verification Evidence And Current Scan
 
-Current `2f53af9` refresh commands:
+Current `0e61dcc` refresh commands:
 
 ```bash
 pwd
@@ -171,8 +171,8 @@ git diff --check
 Result:
 
 - `pwd` showed `/media/shirosora/4A183E5C183E46EB/codestorage/Oblivious`.
-- `git status --short --branch` at this follow-up start showed `main...origin/main` at `2f53af9` with a clean worktree before this report refresh.
-- `git rev-parse HEAD origin/main` returned `2f53af92dbb64c1e954a7dc04d17b309dbb617ea` for both refs before this report refresh.
+- `git status --short --branch` at this follow-up start showed `main...origin/main` at `0e61dcc` with a clean worktree before this report refresh.
+- `git rev-parse HEAD origin/main` returned `0e61dcc6f961e247bcf992e46b9ff67cfdda21ef` for both refs before this report refresh.
 - The top-level matrix count remains 4 `Proven` and 10 `Partial`; the `Gap` and `Unverified` counts remain 0.
 - The current first-party inventory counters after this slice are: `src=987`, `docs=92`, `scripts=37`, `deploy=42`, `.planning=210`, Go test files `230`, web component/API test files `67`, Playwright specs `13`, and Playwright fixtures `13`.
 - The current server-domain leaders are still `relay`, `http`, `mcp`, `admin`, `agent`, `workflow`, `knowledge`, `observability`, `channel`, `migration`, and `marketplace`.
@@ -217,7 +217,7 @@ Result:
 
 ## Notable Scan Findings
 
-- This follow-up starts from `2f53af9`; previous scan text that referenced earlier slice starts such as `1a83cff`, `9630167`, `8e4f9fd`, `d7a91f0`, `0655515`, `79d6000`, or `b2fc74b` is stale after the Agent memory DB evidence, Admin Reviews browser-proof, Admin Alerts browser-proof, Agent gRPC planning-boundary, runtime registration, Admin commercial config, Marketplace publisher, durable planning completion, Admin manifest dispatch, and Agent plan-adjustment browser slices.
+- This follow-up starts from `0e61dcc`; previous scan text that referenced earlier slice starts such as `2f53af9`, `1a83cff`, `9630167`, `8e4f9fd`, `d7a91f0`, `0655515`, `79d6000`, or `b2fc74b` is stale after the Agent memory DB evidence, Admin Reviews browser-proof, Admin Alerts browser-proof, Agent gRPC planning-boundary, runtime registration, Admin commercial config, Marketplace publisher, durable planning completion, Admin manifest dispatch, Agent plan-adjustment browser, and domestic Admin Billing top-up refund browser slices.
 - Existing DB-backed tenant-isolation evidence remains stronger than target-environment evidence; this slice adds DB-backed at-rest encryption proof for the Workflow definition/runtime secret path on top of the prior Admin Relay, Observability, and Publishing secret paths.
 - Observability alert/routing SQL persistence is now a first-class commercial DB evidence profile. The profile rejects skips and empty regex matches while proving routing rules, alert lifecycle/escalation, alert-state filters, notification throttling, recovery cooldown reuse, and repeated delivery-batch history against PostgreSQL.
 - Admin usage analytics daily aggregate SQL persistence is now a first-class commercial DB evidence profile. The profile rejects skips and empty regex matches while proving daily aggregate refresh/query and zero-total-token fallback for both raw analytics and usage-log listing against PostgreSQL.
