@@ -15,7 +15,7 @@ output_files=()
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/verify-commercial-db-evidence.sh [all|backend-journey|marketplace-money-movement|app-stateful-routes|tenant-membership-lifecycle|tenant-cross-surface|secret-response-safety|agent-runtime-memory|scheduled-task-runtime|auth-security-persistence|relay-file-mapping-tenant-ownership|workflow-sql-isolation]
+Usage: bash scripts/verify-commercial-db-evidence.sh [all|backend-journey|marketplace-money-movement|app-stateful-routes|tenant-membership-lifecycle|tenant-cross-surface|secret-response-safety|agent-runtime-memory|scheduled-task-runtime|auth-security-persistence|relay-file-mapping-tenant-ownership|workflow-sql-isolation|publishing-channel-isolation]
 
 Runs narrow DB-backed commercial evidence without silently accepting skipped tests.
 
@@ -47,6 +47,8 @@ Profiles:
                                passthrough, and tenant ownership PostgreSQL
                                tests.
   workflow-sql-isolation       Run focused Workflow SQL store and HTTP router
+                               active-organization isolation PostgreSQL tests.
+  publishing-channel-isolation Run focused Publishing channel real-router
                                active-organization isolation PostgreSQL tests.
 
 Environment:
@@ -238,6 +240,10 @@ run_workflow_sql_isolation_profile() {
   run_go_test_no_skips "workflow HTTP active-organization isolation" "./internal/http" "$workflow_http_pattern"
 }
 
+run_publishing_channel_isolation_profile() {
+  run_go_test_no_skips "publishing channel HTTP active-organization isolation" "./internal/http" "^TestPublishingChannelHTTPRouteEnforcesActiveOrganizationIsolation$"
+}
+
 run_all_profiles() {
   run_backend_journey_profile
   run_marketplace_money_movement_profile
@@ -250,6 +256,7 @@ run_all_profiles() {
   run_auth_security_persistence_profile
   run_relay_file_mapping_tenant_ownership_profile
   run_workflow_sql_isolation_profile
+  run_publishing_channel_isolation_profile
 }
 
 if [[ -z "$database_url" ]]; then
@@ -294,6 +301,9 @@ case "$profile" in
     ;;
   workflow-sql-isolation)
     run_workflow_sql_isolation_profile
+    ;;
+  publishing-channel-isolation)
+    run_publishing_channel_isolation_profile
     ;;
   *)
     usage >&2

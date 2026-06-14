@@ -483,6 +483,170 @@ func TestPublishingChannelHTTPRouteRedactsSQLStoreConfigSecretsAndPreservesMarke
 	assertSQLPublishingChannelConfigValue(t, database, channelID, "webhook_url", "https://hooks.example.test/eu")
 }
 
+func TestPublishingChannelHTTPRouteEnforcesActiveOrganizationIsolation(t *testing.T) {
+	database := testDatabase(t)
+	applyPublishingChannelMigration(t, database)
+	router := NewRouter(testConfig(), database)
+	cookie, csrfToken, userID := registerHTTPUser(t, router, "publishing-channel-isolation@example.com")
+	_, activeOrganizationID := queryHTTPUserScope(t, database, userID)
+	promoteHTTPUserToAdmin(t, database, userID)
+	otherOrganizationID := createHTTPOrganization(t, router, cookie, csrfToken, "Other Publishing Org", "other-publishing-org")
+
+	nextRetryAt := time.Now().UTC().Add(-time.Minute)
+	if _, err := database.Exec(`
+		INSERT INTO channel_configs (id, organization_id, type, name, config, status, created_at, updated_at)
+		VALUES
+			('channel_active_primary', $1, 'webhook', 'Active primary channel', '{"webhook_url":"https://primary.example.test"}'::jsonb, 'degraded', NOW(), NOW()),
+			('channel_active_fallback', $1, 'webhook', 'Active fallback channel', '{"webhook_url":"https://fallback.example.test"}'::jsonb, 'active', NOW(), NOW()),
+			('channel_other_org', $2, 'webhook', 'Other org channel', '{"webhook_url":"https://other.example.test","secret":"other-secret"}'::jsonb, 'active', NOW(), NOW())
+	`, activeOrganizationID, otherOrganizationID); err != nil {
+		t.Fatalf("insert publishing channel fixtures: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO channel_messages (
+			id, channel_id, conversation_id, direction, raw_message, transformed_message,
+			transform_success, transform_error, status, retry_count, failure_reason, next_retry_at, created_at
+		)
+		VALUES
+			('message_active_retry', 'channel_active_primary', 'conversation_active', 'outbound', '{"text":"retry active"}'::jsonb, '{"id":"msg_active","role":"assistant","content":[{"type":"text","text":"retry active"}]}'::jsonb, false, 'primary degraded', 'retry_pending', 2, 'primary degraded', $1, NOW()),
+			('message_other_org', 'channel_other_org', 'conversation_other', 'outbound', '{"text":"other org"}'::jsonb, '{"id":"msg_other","role":"assistant","content":[{"type":"text","text":"other org"}]}'::jsonb, false, 'hidden', 'retry_pending', 1, 'hidden', $1, NOW())
+	`, nextRetryAt); err != nil {
+		t.Fatalf("insert publishing channel message fixtures: %v", err)
+	}
+
+	listBody := doPublishingChannelRouteJSON(t, router, stdhttp.MethodGet, "/api/v1/channels", nil, cookie, "", stdhttp.StatusOK)
+	var listResponse struct {
+		Data []channel.ChannelConfig `json:"data"`
+	}
+	if err := json.Unmarshal(listBody, &listResponse); err != nil {
+		t.Fatalf("decode channel list response: %v", err)
+	}
+	if len(listResponse.Data) != 2 {
+		t.Fatalf("expected only active organization channels in list, got %+v", listResponse.Data)
+	}
+	for _, config := range listResponse.Data {
+		if config.ID == "channel_other_org" || config.OrganizationID == otherOrganizationID {
+			t.Fatalf("active organization %s must not list other organization channel %+v", activeOrganizationID, config)
+		}
+	}
+
+	crossTenantRequests := []struct {
+		name       string
+		method     string
+		path       string
+		payload    any
+		csrf       bool
+		wantStatus int
+	}{
+		{
+			name:       "get channel",
+			method:     stdhttp.MethodGet,
+			path:       "/api/v1/channels/channel_other_org",
+			wantStatus: stdhttp.StatusNotFound,
+		},
+		{
+			name:       "update channel",
+			method:     stdhttp.MethodPut,
+			path:       "/api/v1/channels/channel_other_org",
+			payload:    map[string]any{"type": "webhook", "name": "Mutated other org channel", "status": "disabled", "config": map[string]any{"webhook_url": "https://mutated.example.test"}},
+			csrf:       true,
+			wantStatus: stdhttp.StatusNotFound,
+		},
+		{
+			name:       "delete channel",
+			method:     stdhttp.MethodDelete,
+			path:       "/api/v1/channels/channel_other_org",
+			csrf:       true,
+			wantStatus: stdhttp.StatusNotFound,
+		},
+		{
+			name:       "update status",
+			method:     stdhttp.MethodPatch,
+			path:       "/api/v1/channels/channel_other_org/status",
+			payload:    map[string]any{"status": "disabled"},
+			csrf:       true,
+			wantStatus: stdhttp.StatusNotFound,
+		},
+		{
+			name:       "test channel",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/channels/channel_other_org/test",
+			csrf:       true,
+			wantStatus: stdhttp.StatusNotFound,
+		},
+		{
+			name:       "send message",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/channels/channel_other_org/send",
+			payload:    map[string]any{"message": map[string]any{"conversation_id": "conversation_other", "role": "assistant", "text": "must not send"}},
+			csrf:       true,
+			wantStatus: stdhttp.StatusNotFound,
+		},
+		{
+			name:       "list messages",
+			method:     stdhttp.MethodGet,
+			path:       "/api/v1/channels/channel_other_org/messages",
+			wantStatus: stdhttp.StatusNotFound,
+		},
+		{
+			name:       "list failed messages",
+			method:     stdhttp.MethodGet,
+			path:       "/api/v1/channels/channel_other_org/failed-messages",
+			wantStatus: stdhttp.StatusNotFound,
+		},
+		{
+			name:       "retry failed messages",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/channels/channel_other_org/retry-failed-messages",
+			payload:    map[string]any{"limit": 10},
+			csrf:       true,
+			wantStatus: stdhttp.StatusNotFound,
+		},
+		{
+			name:       "retry with other organization fallback",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/channels/channel_active_primary/retry-failed-messages",
+			payload:    map[string]any{"fallback_channel_id": "channel_other_org", "limit": 10, "force": true},
+			csrf:       true,
+			wantStatus: stdhttp.StatusNotFound,
+		},
+	}
+	for _, requestCase := range crossTenantRequests {
+		token := ""
+		if requestCase.csrf {
+			token = csrfToken
+		}
+		body := doPublishingChannelRouteJSON(t, router, requestCase.method, requestCase.path, requestCase.payload, cookie, token, requestCase.wantStatus)
+		if !strings.Contains(string(body), "not_found") && !strings.Contains(string(body), "fallback_channel_not_found") {
+			t.Fatalf("%s expected fail-closed not_found response, got %s", requestCase.name, body)
+		}
+	}
+
+	var otherName, otherStatus string
+	if err := database.QueryRow(`SELECT name, status FROM channel_configs WHERE id = 'channel_other_org'`).Scan(&otherName, &otherStatus); err != nil {
+		t.Fatalf("query other organization channel after denied mutations: %v", err)
+	}
+	if otherName != "Other org channel" || otherStatus != string(channel.ChannelStatusActive) {
+		t.Fatalf("expected denied mutations to preserve other organization channel, got name=%q status=%q", otherName, otherStatus)
+	}
+
+	var otherMessageCount int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM channel_messages WHERE channel_id = 'channel_other_org'`).Scan(&otherMessageCount); err != nil {
+		t.Fatalf("count other organization channel messages: %v", err)
+	}
+	if otherMessageCount != 1 {
+		t.Fatalf("expected denied send/retry not to create other organization messages, got %d", otherMessageCount)
+	}
+
+	var activeRetryStatus string
+	if err := database.QueryRow(`SELECT status FROM channel_messages WHERE id = 'message_active_retry'`).Scan(&activeRetryStatus); err != nil {
+		t.Fatalf("query active retry status: %v", err)
+	}
+	if activeRetryStatus != string(channel.MessageStatusRetryPending) {
+		t.Fatalf("expected denied cross-organization fallback not to claim active retry message, got %q", activeRetryStatus)
+	}
+}
+
 func TestPublishingChannelHandlerCreatesSupportedPublishingAdapterTypes(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
@@ -1786,12 +1950,17 @@ func assertPublishingChannelResponseRedactsSecrets(t *testing.T, body string) {
 func applyPublishingChannelMigration(t *testing.T, database *sql.DB) {
 	t.Helper()
 
-	migration, err := os.ReadFile("../../migrations/0043_channel_publishing.sql")
-	if err != nil {
-		t.Fatalf("read publishing channel migration: %v", err)
-	}
-	if _, err := database.Exec(string(migration)); err != nil {
-		t.Fatalf("apply publishing channel migration: %v", err)
+	for _, migrationPath := range []string{
+		"../../migrations/0043_channel_publishing.sql",
+		"../../migrations/0053_channel_retry_claim_status.sql",
+	} {
+		migration, err := os.ReadFile(migrationPath)
+		if err != nil {
+			t.Fatalf("read publishing channel migration %s: %v", migrationPath, err)
+		}
+		if _, err := database.Exec(string(migration)); err != nil {
+			t.Fatalf("apply publishing channel migration %s: %v", migrationPath, err)
+		}
 	}
 }
 
