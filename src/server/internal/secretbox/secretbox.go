@@ -18,6 +18,7 @@ const (
 	DomainRelayChannelAPIKey                  = "relay-channel-api-key"
 	DomainObservabilityAlertProviderConfigKey = "observability-alert-provider-config-key"
 	DomainPublishingChannelConfigKey          = "publishing-channel-config-key"
+	DomainWorkflowDefinitionSecretValue       = "workflow-definition-secret-value"
 )
 
 // Protect encrypts plaintext with AES-GCM and binds it to the supplied domain.

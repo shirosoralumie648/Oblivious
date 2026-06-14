@@ -4,11 +4,16 @@ import (
 	"database/sql"
 	"encoding/json"
 	stdhttp "net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"oblivious/server/internal/secretbox"
 )
 
 func TestWorkflowHTTPRouteRedactsSQLStoreSecretsAndPreservesMarkers(t *testing.T) {
+	t.Setenv("OBLIVIOUS_SECRET_ENCRYPTION_KEY", "test-workflow-definition-secret")
 	database := testDatabase(t)
 	router := NewRouter(testConfig(), database)
 	cookie, csrfToken, userID := registerHTTPUser(t, router, "workflow-secret-redaction@example.com")
@@ -66,8 +71,8 @@ func TestWorkflowHTTPRouteRedactsSQLStoreSecretsAndPreservesMarkers(t *testing.T
 	if createResponse.Data.Variables["publicLabel"] != "visible" {
 		t.Fatalf("expected non-secret variables to be preserved, got %+v", createResponse.Data.Variables)
 	}
-	assertWorkflowSQLContainsSecrets(t, database, "workflows", "definition", "id = $1 AND organization_id = $2", []any{workflowID, organizationID}, secrets...)
-	assertWorkflowSQLContainsSecrets(t, database, "workflow_versions", "definition", "workflow_id = $1 AND organization_id = $2 AND version = 1", []any{workflowID, organizationID}, secrets...)
+	assertWorkflowSQLProtectsSecrets(t, database, "workflows", "definition", "id = $1 AND organization_id = $2", []any{workflowID, organizationID}, secrets...)
+	assertWorkflowSQLProtectsSecrets(t, database, "workflow_versions", "definition", "workflow_id = $1 AND organization_id = $2 AND version = 1", []any{workflowID, organizationID}, secrets...)
 
 	listBody := commercialDoJSON(t, router, stdhttp.MethodGet, "/api/v1/workflows", "", cookie, "", stdhttp.StatusOK)
 	assertWorkflowResponseRedactsSecrets(t, string(listBody), secrets...)
@@ -103,9 +108,39 @@ func TestWorkflowHTTPRouteRedactsSQLStoreSecretsAndPreservesMarkers(t *testing.T
 	}`, cookie, csrfToken, stdhttp.StatusOK)
 	assertWorkflowResponseRedactsSecrets(t, string(updateBody), secrets...)
 	assertWorkflowResponseContainsRedactedMarker(t, string(updateBody))
-	assertWorkflowSQLContainsSecrets(t, database, "workflows", "definition", "id = $1 AND organization_id = $2", []any{workflowID, organizationID}, secrets...)
-	assertWorkflowSQLContainsSecrets(t, database, "workflow_versions", "definition", "workflow_id = $1 AND organization_id = $2 AND version = 2", []any{workflowID, organizationID}, secrets...)
+	assertWorkflowSQLProtectsSecrets(t, database, "workflows", "definition", "id = $1 AND organization_id = $2", []any{workflowID, organizationID}, secrets...)
+	assertWorkflowSQLProtectsSecrets(t, database, "workflow_versions", "definition", "workflow_id = $1 AND organization_id = $2 AND version = 2", []any{workflowID, organizationID}, secrets...)
 	assertWorkflowSQLContainsText(t, database, "workflows", "definition", "id = $1 AND organization_id = $2", []any{workflowID, organizationID}, "updated without replacing secrets")
+
+	webhookBody := `{"event":"workflow.encrypted.secret"}`
+	webhookTimestamp := workflowWebhookTimestamp(time.Now())
+	webhookRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/workflows/webhooks/"+organizationID+"/"+workflowID, strings.NewReader(webhookBody))
+	webhookRequest.Header.Set("Content-Type", "application/json")
+	webhookRequest.Header.Set("X-Oblivious-Timestamp", webhookTimestamp)
+	webhookRequest.Header.Set("X-Oblivious-Signature", workflowWebhookSignature(secrets[0], webhookTimestamp, webhookBody))
+	webhookRecorder := httptest.NewRecorder()
+	router.ServeHTTP(webhookRecorder, webhookRequest)
+	if webhookRecorder.Code != stdhttp.StatusCreated {
+		t.Fatalf("expected SQL-backed signed webhook to accept decrypted workflow secret, got %d with body %s", webhookRecorder.Code, webhookRecorder.Body.String())
+	}
+	assertWorkflowResponseRedactsSecrets(t, webhookRecorder.Body.String(), secrets...)
+	assertWorkflowResponseContainsRedactedMarker(t, webhookRecorder.Body.String())
+	var webhookResponse struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(webhookRecorder.Body.Bytes(), &webhookResponse); err != nil {
+		t.Fatalf("decode workflow webhook execution response: %v", err)
+	}
+	if webhookResponse.Data.ID == "" {
+		t.Fatalf("expected webhook execution ID, got %s", webhookRecorder.Body.String())
+	}
+	assertWorkflowNodeExecutionSQLProtectsSecrets(t, database, organizationID, webhookResponse.Data.ID, "node-nested-secret")
+
+	webhookDebugBody := commercialDoJSON(t, router, stdhttp.MethodGet, "/api/v1/workflows/"+workflowID+"/executions/"+webhookResponse.Data.ID+"/debug-snapshot", "", cookie, "", stdhttp.StatusOK)
+	assertWorkflowResponseRedactsSecrets(t, string(webhookDebugBody), secrets...)
+	assertWorkflowResponseContainsRedactedMarker(t, string(webhookDebugBody))
 
 	versionsBody := commercialDoJSON(t, router, stdhttp.MethodGet, "/api/v1/workflows/"+workflowID+"/versions", "", cookie, "", stdhttp.StatusOK)
 	assertWorkflowResponseRedactsSecrets(t, string(versionsBody), secrets...)
@@ -143,7 +178,7 @@ func TestWorkflowHTTPRouteRedactsSQLStoreSecretsAndPreservesMarkers(t *testing.T
 	if !ok || trigger["type"] != "manual" {
 		t.Fatalf("expected execution context trigger to be preserved, got %+v", executionResponse.Data.Context)
 	}
-	assertWorkflowSQLContainsSecrets(t, database, "workflow_executions", "workflow_snapshot", "id = $1 AND organization_id = $2", []any{executionID, organizationID}, secrets...)
+	assertWorkflowSQLProtectsSecrets(t, database, "workflow_executions", "workflow_snapshot", "id = $1 AND organization_id = $2", []any{executionID, organizationID}, secrets...)
 
 	listExecutionsBody := commercialDoJSON(t, router, stdhttp.MethodGet, "/api/v1/workflows/"+workflowID+"/executions", "", cookie, "", stdhttp.StatusOK)
 	assertWorkflowResponseRedactsSecrets(t, string(listExecutionsBody), secrets...)
@@ -210,10 +245,98 @@ func assertWorkflowDefinitionSecretsRedacted(t *testing.T, definition map[string
 	}
 }
 
-func assertWorkflowSQLContainsSecrets(t *testing.T, database *sql.DB, table, column, where string, args []any, secrets ...string) {
+func assertWorkflowSQLProtectsSecrets(t *testing.T, database *sql.DB, table, column, where string, args []any, secrets ...string) {
 	t.Helper()
+	var payload string
+	query := "SELECT " + column + "::text FROM " + table + " WHERE " + where
+	if err := database.QueryRow(query, args...).Scan(&payload); err != nil {
+		t.Fatalf("query %s.%s: %v", table, column, err)
+	}
 	for _, secret := range secrets {
-		assertWorkflowSQLContainsText(t, database, table, column, where, args, secret)
+		if strings.Contains(payload, secret) {
+			t.Fatalf("expected %s.%s to protect raw secret %q, got %s", table, column, secret, payload)
+		}
+	}
+
+	var document map[string]any
+	if err := json.Unmarshal([]byte(payload), &document); err != nil {
+		t.Fatalf("decode %s.%s json: %v; payload=%s", table, column, err, payload)
+	}
+	openedSecrets := map[string]int{}
+	collectWorkflowProtectedSecrets(t, document, openedSecrets)
+	for _, secret := range secrets {
+		if openedSecrets[secret] == 0 {
+			t.Fatalf("expected %s.%s to contain protected secret decrypting to %q, got protected plaintexts %+v from %s", table, column, secret, openedSecrets, payload)
+		}
+	}
+}
+
+func assertWorkflowNodeExecutionSQLProtectsSecrets(t *testing.T, database *sql.DB, organizationID, executionID string, secrets ...string) {
+	t.Helper()
+	rows, err := database.Query(`
+		SELECT input::text, output::text, error::text, context::text
+		FROM workflow_node_executions
+		WHERE organization_id = $1 AND execution_id = $2
+	`, organizationID, executionID)
+	if err != nil {
+		t.Fatalf("query workflow_node_executions: %v", err)
+	}
+	defer rows.Close()
+
+	openedSecrets := map[string]int{}
+	rowCount := 0
+	for rows.Next() {
+		rowCount++
+		var payloads [4]string
+		if err := rows.Scan(&payloads[0], &payloads[1], &payloads[2], &payloads[3]); err != nil {
+			t.Fatalf("scan workflow_node_executions: %v", err)
+		}
+		for _, payload := range payloads {
+			for _, secret := range secrets {
+				if strings.Contains(payload, secret) {
+					t.Fatalf("expected workflow_node_executions to protect raw secret %q, got %s", secret, payload)
+				}
+			}
+			var document map[string]any
+			if err := json.Unmarshal([]byte(payload), &document); err != nil {
+				t.Fatalf("decode workflow_node_executions json: %v; payload=%s", err, payload)
+			}
+			collectWorkflowProtectedSecrets(t, document, openedSecrets)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate workflow_node_executions: %v", err)
+	}
+	if rowCount == 0 {
+		t.Fatalf("expected workflow_node_executions rows for %s", executionID)
+	}
+	for _, secret := range secrets {
+		if openedSecrets[secret] == 0 {
+			t.Fatalf("expected workflow_node_executions to contain protected secret decrypting to %q, got protected plaintexts %+v", secret, openedSecrets)
+		}
+	}
+}
+
+func collectWorkflowProtectedSecrets(t *testing.T, value any, openedSecrets map[string]int) {
+	t.Helper()
+	switch typed := value.(type) {
+	case map[string]any:
+		for _, item := range typed {
+			collectWorkflowProtectedSecrets(t, item, openedSecrets)
+		}
+	case []any:
+		for _, item := range typed {
+			collectWorkflowProtectedSecrets(t, item, openedSecrets)
+		}
+	case string:
+		if !secretbox.IsProtected(typed) {
+			return
+		}
+		opened, err := secretbox.Open(secretbox.DomainWorkflowDefinitionSecretValue, typed)
+		if err != nil {
+			t.Fatalf("open protected workflow secret: %v", err)
+		}
+		openedSecrets[opened]++
 	}
 }
 

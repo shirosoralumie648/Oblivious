@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"oblivious/server/internal/auth"
+	"oblivious/server/internal/secretbox"
 
 	"github.com/lib/pq"
 )
@@ -102,7 +103,7 @@ func (s *SQLStore) CreateWorkflow(ctx context.Context, req CreateWorkflowRequest
 		version = 1
 	}
 
-	definitionJSON, err := marshalJSONObject(req.Definition)
+	definitionJSON, err := marshalWorkflowDefinitionForSQL(req.Definition)
 	if err != nil {
 		return nil, fmt.Errorf("marshal workflow definition: %w", err)
 	}
@@ -217,7 +218,7 @@ func (s *SQLStore) GetWorkflowVersion(ctx context.Context, organizationID, workf
 }
 
 func (s *SQLStore) UpdateWorkflow(ctx context.Context, req UpdateWorkflowStoreRequest) (*WorkflowDefinition, error) {
-	definitionJSON, err := marshalJSONObject(req.Definition)
+	definitionJSON, err := marshalWorkflowDefinitionForSQL(req.Definition)
 	if err != nil {
 		return nil, fmt.Errorf("marshal workflow definition: %w", err)
 	}
@@ -308,7 +309,7 @@ func (s *SQLStore) CreateExecution(ctx context.Context, req CreateExecutionReque
 	if err != nil {
 		return nil, fmt.Errorf("marshal workflow execution context: %w", err)
 	}
-	workflowSnapshotJSON, err := marshalJSONObject(req.WorkflowSnapshot)
+	workflowSnapshotJSON, err := marshalWorkflowDefinitionForSQL(req.WorkflowSnapshot)
 	if err != nil {
 		return nil, fmt.Errorf("marshal workflow execution snapshot: %w", err)
 	}
@@ -491,19 +492,19 @@ func insertNodeExecution(ctx context.Context, tx *sql.Tx, organizationID, execut
 		startedAt = now
 	}
 
-	inputJSON, err := marshalJSONObject(req.Input)
+	inputJSON, err := marshalWorkflowNodePayloadForSQL(req.Input)
 	if err != nil {
 		return fmt.Errorf("marshal workflow node input: %w", err)
 	}
-	outputJSON, err := marshalJSONObject(req.Output)
+	outputJSON, err := marshalWorkflowNodePayloadForSQL(req.Output)
 	if err != nil {
 		return fmt.Errorf("marshal workflow node output: %w", err)
 	}
-	errorJSON, err := marshalJSONObject(req.Error)
+	errorJSON, err := marshalWorkflowNodePayloadForSQL(req.Error)
 	if err != nil {
 		return fmt.Errorf("marshal workflow node error: %w", err)
 	}
-	contextJSON, err := marshalJSONObject(req.Context)
+	contextJSON, err := marshalWorkflowNodePayloadForSQL(req.Context)
 	if err != nil {
 		return fmt.Errorf("marshal workflow node context: %w", err)
 	}
@@ -618,6 +619,11 @@ func scanWorkflow(row scanner) (*WorkflowDefinition, error) {
 	if err := unmarshalJSONObject(definitionJSON, &workflow.Definition); err != nil {
 		return nil, err
 	}
+	openedDefinition, err := openWorkflowDefinitionSecrets(workflow.Definition)
+	if err != nil {
+		return nil, fmt.Errorf("open workflow definition %s: %w", workflow.ID, err)
+	}
+	workflow.Definition = openedDefinition
 	if err := unmarshalJSONObject(variablesJSON, &workflow.Variables); err != nil {
 		return nil, err
 	}
@@ -664,6 +670,11 @@ func scanWorkflowVersion(row scanner) (*WorkflowDefinition, error) {
 	if err := unmarshalJSONObject(definitionJSON, &workflow.Definition); err != nil {
 		return nil, err
 	}
+	openedDefinition, err := openWorkflowDefinitionSecrets(workflow.Definition)
+	if err != nil {
+		return nil, fmt.Errorf("open workflow version %s:%d: %w", workflow.ID, workflow.Version, err)
+	}
+	workflow.Definition = openedDefinition
 	if err := unmarshalJSONObject(variablesJSON, &workflow.Variables); err != nil {
 		return nil, err
 	}
@@ -697,6 +708,11 @@ func scanExecution(row scanner) (*WorkflowExecution, error) {
 	if err := unmarshalJSONObject(workflowSnapshotJSON, &execution.WorkflowSnapshot); err != nil {
 		return nil, err
 	}
+	openedSnapshot, err := openWorkflowDefinitionSecrets(execution.WorkflowSnapshot)
+	if err != nil {
+		return nil, fmt.Errorf("open workflow execution snapshot %s: %w", execution.ID, err)
+	}
+	execution.WorkflowSnapshot = openedSnapshot
 	return &execution, nil
 }
 
@@ -715,15 +731,35 @@ func scanNodeExecution(row scanner) (*WorkflowNodeExecution, error) {
 	if err := unmarshalJSONObject(inputJSON, &node.Input); err != nil {
 		return nil, err
 	}
+	openedInput, err := openWorkflowDefinitionSecrets(node.Input)
+	if err != nil {
+		return nil, fmt.Errorf("open workflow node input %s: %w", node.ID, err)
+	}
+	node.Input = openedInput
 	if err := unmarshalJSONObject(outputJSON, &node.Output); err != nil {
 		return nil, err
 	}
+	openedOutput, err := openWorkflowDefinitionSecrets(node.Output)
+	if err != nil {
+		return nil, fmt.Errorf("open workflow node output %s: %w", node.ID, err)
+	}
+	node.Output = openedOutput
 	if err := unmarshalJSONObject(errorJSON, &node.Error); err != nil {
 		return nil, err
 	}
+	openedError, err := openWorkflowDefinitionSecrets(node.Error)
+	if err != nil {
+		return nil, fmt.Errorf("open workflow node error %s: %w", node.ID, err)
+	}
+	node.Error = openedError
 	if err := unmarshalJSONObject(contextJSON, &node.Context); err != nil {
 		return nil, err
 	}
+	openedContext, err := openWorkflowDefinitionSecrets(node.Context)
+	if err != nil {
+		return nil, fmt.Errorf("open workflow node context %s: %w", node.ID, err)
+	}
+	node.Context = openedContext
 	return &node, nil
 }
 
@@ -732,6 +768,142 @@ func marshalJSONObject(value map[string]any) ([]byte, error) {
 		value = map[string]any{}
 	}
 	return json.Marshal(value)
+}
+
+func marshalWorkflowDefinitionForSQL(definition map[string]any) ([]byte, error) {
+	protected, err := protectWorkflowDefinitionSecrets(definition)
+	if err != nil {
+		return nil, err
+	}
+	return marshalJSONObject(protected)
+}
+
+func marshalWorkflowNodePayloadForSQL(payload map[string]any) ([]byte, error) {
+	protected, err := protectWorkflowDefinitionSecrets(payload)
+	if err != nil {
+		return nil, err
+	}
+	return marshalJSONObject(protected)
+}
+
+func protectWorkflowDefinitionSecrets(definition map[string]any) (map[string]any, error) {
+	protected, err := protectWorkflowDefinitionSecretMap(definition)
+	if err != nil {
+		return nil, err
+	}
+	return protected, nil
+}
+
+func protectWorkflowDefinitionSecretMap(definition map[string]any) (map[string]any, error) {
+	if definition == nil {
+		return map[string]any{}, nil
+	}
+	protected := make(map[string]any, len(definition))
+	for key, value := range definition {
+		if IsWorkflowSecretDefinitionKey(key) {
+			if plaintext, ok := value.(string); ok && plaintext != "" {
+				stored, err := secretbox.Protect(secretbox.DomainWorkflowDefinitionSecretValue, plaintext)
+				if err != nil {
+					return nil, fmt.Errorf("protect %s: %w", key, err)
+				}
+				protected[key] = stored
+				continue
+			}
+		}
+		protectedValue, err := protectWorkflowDefinitionSecretValue(value)
+		if err != nil {
+			return nil, err
+		}
+		protected[key] = protectedValue
+	}
+	return protected, nil
+}
+
+func protectWorkflowDefinitionSecretValue(value any) (any, error) {
+	switch typed := value.(type) {
+	case map[string]any:
+		return protectWorkflowDefinitionSecretMap(typed)
+	case []any:
+		protected := make([]any, 0, len(typed))
+		for _, item := range typed {
+			protectedItem, err := protectWorkflowDefinitionSecretValue(item)
+			if err != nil {
+				return nil, err
+			}
+			protected = append(protected, protectedItem)
+		}
+		return protected, nil
+	case []map[string]any:
+		protected := make([]map[string]any, 0, len(typed))
+		for _, item := range typed {
+			protectedItem, err := protectWorkflowDefinitionSecretMap(item)
+			if err != nil {
+				return nil, err
+			}
+			protected = append(protected, protectedItem)
+		}
+		return protected, nil
+	default:
+		return value, nil
+	}
+}
+
+func openWorkflowDefinitionSecrets(definition map[string]any) (map[string]any, error) {
+	return openWorkflowDefinitionSecretMap(definition)
+}
+
+func openWorkflowDefinitionSecretMap(definition map[string]any) (map[string]any, error) {
+	if definition == nil {
+		return map[string]any{}, nil
+	}
+	opened := make(map[string]any, len(definition))
+	for key, value := range definition {
+		if IsWorkflowSecretDefinitionKey(key) {
+			if stored, ok := value.(string); ok && stored != "" {
+				plaintext, err := secretbox.Open(secretbox.DomainWorkflowDefinitionSecretValue, stored)
+				if err != nil {
+					return nil, fmt.Errorf("open %s: %w", key, err)
+				}
+				opened[key] = plaintext
+				continue
+			}
+		}
+		openedValue, err := openWorkflowDefinitionSecretValue(value)
+		if err != nil {
+			return nil, err
+		}
+		opened[key] = openedValue
+	}
+	return opened, nil
+}
+
+func openWorkflowDefinitionSecretValue(value any) (any, error) {
+	switch typed := value.(type) {
+	case map[string]any:
+		return openWorkflowDefinitionSecretMap(typed)
+	case []any:
+		opened := make([]any, 0, len(typed))
+		for _, item := range typed {
+			openedItem, err := openWorkflowDefinitionSecretValue(item)
+			if err != nil {
+				return nil, err
+			}
+			opened = append(opened, openedItem)
+		}
+		return opened, nil
+	case []map[string]any:
+		opened := make([]map[string]any, 0, len(typed))
+		for _, item := range typed {
+			openedItem, err := openWorkflowDefinitionSecretMap(item)
+			if err != nil {
+				return nil, err
+			}
+			opened = append(opened, openedItem)
+		}
+		return opened, nil
+	default:
+		return value, nil
+	}
 }
 
 func unmarshalJSONObject(data []byte, target *map[string]any) error {

@@ -956,7 +956,84 @@ func redactWorkflowExecution(execution *workflow.WorkflowExecution) *workflow.Wo
 	clone := *execution
 	clone.WorkflowSnapshot = redactWorkflowDefinitionMap(execution.WorkflowSnapshot)
 	if execution.NodeExecutions != nil {
-		clone.NodeExecutions = append([]workflow.WorkflowNodeExecution(nil), execution.NodeExecutions...)
+		clone.NodeExecutions = redactWorkflowNodeExecutions(execution.NodeExecutions)
+	}
+	return &clone
+}
+
+func redactWorkflowNodeExecutions(nodes []workflow.WorkflowNodeExecution) []workflow.WorkflowNodeExecution {
+	redacted := make([]workflow.WorkflowNodeExecution, 0, len(nodes))
+	for _, node := range nodes {
+		redacted = append(redacted, redactWorkflowNodeExecution(node))
+	}
+	return redacted
+}
+
+func redactWorkflowNodeExecution(node workflow.WorkflowNodeExecution) workflow.WorkflowNodeExecution {
+	clone := node
+	clone.Input = redactWorkflowDefinitionMap(node.Input)
+	clone.Output = redactWorkflowDefinitionMap(node.Output)
+	clone.Error = redactWorkflowDefinitionMap(node.Error)
+	clone.Context = redactWorkflowDefinitionMap(node.Context)
+	return clone
+}
+
+func redactWorkflowExecutionDebugSnapshot(snapshot *workflow.ExecutionDebugSnapshot) *workflow.ExecutionDebugSnapshot {
+	if snapshot == nil {
+		return nil
+	}
+	clone := *snapshot
+	clone.VariableSnapshot = workflow.ExecutionVariableSnapshot{
+		Input:       snapshot.VariableSnapshot.Input,
+		Context:     snapshot.VariableSnapshot.Context,
+		NodeOutputs: redactWorkflowNodeOutputMaps(snapshot.VariableSnapshot.NodeOutputs),
+	}
+	clone.Trace = redactWorkflowExecutionDebugTrace(snapshot.Trace)
+	clone.Outputs = redactWorkflowNodeOutputMaps(snapshot.Outputs)
+	return &clone
+}
+
+func redactWorkflowExecutionDebugTrace(trace []workflow.ExecutionDebugTraceEntry) []workflow.ExecutionDebugTraceEntry {
+	redacted := make([]workflow.ExecutionDebugTraceEntry, 0, len(trace))
+	for _, entry := range trace {
+		clone := entry
+		clone.Input = redactWorkflowDefinitionMap(entry.Input)
+		clone.Output = redactWorkflowDefinitionMap(entry.Output)
+		clone.Error = redactWorkflowDefinitionMap(entry.Error)
+		clone.Context = redactWorkflowDefinitionMap(entry.Context)
+		redacted = append(redacted, clone)
+	}
+	return redacted
+}
+
+func redactWorkflowNodeOutputMaps(outputs map[string]map[string]any) map[string]map[string]any {
+	if outputs == nil {
+		return nil
+	}
+	redacted := make(map[string]map[string]any, len(outputs))
+	for nodeID, output := range outputs {
+		redacted[nodeID] = redactWorkflowDefinitionMap(output)
+	}
+	return redacted
+}
+
+func redactWorkflowTestNodeResult(result *workflow.TestNodeResult) *workflow.TestNodeResult {
+	if result == nil {
+		return nil
+	}
+	clone := *result
+	clone.Input = redactWorkflowDefinitionMap(result.Input)
+	clone.Output = redactWorkflowDefinitionMap(result.Output)
+	clone.Error = redactWorkflowDefinitionMap(result.Error)
+	if result.Trace != nil {
+		clone.Trace = make([]map[string]any, 0, len(result.Trace))
+		for _, entry := range result.Trace {
+			redacted, ok := redactWorkflowDefinitionValue(entry).(map[string]any)
+			if !ok {
+				redacted = map[string]any{}
+			}
+			clone.Trace = append(clone.Trace, redacted)
+		}
 	}
 	return &clone
 }
@@ -1101,8 +1178,7 @@ func existingSequenceItem(items any, index int) any {
 }
 
 func isWorkflowSecretKey(key string) bool {
-	normalized := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(key), "_", ""))
-	return normalized == "secret" || normalized == "webhooksecret"
+	return workflow.IsWorkflowSecretDefinitionKey(key)
 }
 
 func stringValue(value any) string {
@@ -1176,13 +1252,13 @@ func (h workflowHandler) testNode(w stdhttp.ResponseWriter, r *stdhttp.Request, 
 	result, err := h.service.TestNode(r.Context(), session, workflowID, nodeID, payload.Input)
 	if err != nil {
 		if result != nil {
-			writeSuccess(w, stdhttp.StatusOK, result)
+			writeSuccess(w, stdhttp.StatusOK, redactWorkflowTestNodeResult(result))
 			return
 		}
 		writeWorkflowError(w, err)
 		return
 	}
-	writeSuccess(w, stdhttp.StatusOK, result)
+	writeSuccess(w, stdhttp.StatusOK, redactWorkflowTestNodeResult(result))
 }
 
 func (h workflowHandler) listExecutions(w stdhttp.ResponseWriter, r *stdhttp.Request, workflowID string) {
@@ -1227,7 +1303,7 @@ func (h workflowHandler) getExecutionDebugSnapshot(w stdhttp.ResponseWriter, r *
 		writeWorkflowError(w, err)
 		return
 	}
-	writeSuccess(w, stdhttp.StatusOK, snapshot)
+	writeSuccess(w, stdhttp.StatusOK, redactWorkflowExecutionDebugSnapshot(snapshot))
 }
 
 func (h workflowHandler) checkResourceLimits(w stdhttp.ResponseWriter, r *stdhttp.Request, workflowID string, executionID string) {

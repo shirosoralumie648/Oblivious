@@ -1,6 +1,9 @@
 package workflow
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 type WorkflowStatus string
 
@@ -47,6 +50,11 @@ const (
 	WorkflowTriggerWebhook      WorkflowTriggerType = "webhook"
 	WorkflowTriggerSemantic     WorkflowTriggerType = "semantic"
 )
+
+func IsWorkflowSecretDefinitionKey(key string) bool {
+	normalized := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(key), "_", ""))
+	return normalized == "secret" || normalized == "webhooksecret"
+}
 
 type FailureStrategy string
 
