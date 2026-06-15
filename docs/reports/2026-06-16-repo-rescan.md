@@ -3,13 +3,13 @@
 ## Current Truth
 
 - Branch: `main`.
-- Scan base commit before this Agent runtime product-path slice: `cfbecb376d14087a2c5a52f88ca66ff833f18120` (`fix(agent): apply runtime config in service runs`).
+- Scan base commit before this Agent token-budget browser proof slice: `bd92f91` (`test(chat): cover realtime websocket browser flow`).
 - Remote parity at scan start: `HEAD == origin/main`.
-- Working tree at scan start: clean at the pushed Agent runtime backend baseline.
+- Working tree at scan start: clean at the pushed Chat realtime WebSocket browser baseline.
 - The earlier same-day scans at `1c52194`, `53aaca0`, `d4fdc37`, `75ff216`, `98a1683`, `c6d9b34`, `5969e4b`, `1e7c6ef`, `e222967`, `0694b44`, `984b6a7`, and `cb18df4` are now older baselines for this report.
 - The project is still not complete against the four `docs/superpowers/specs/2026-06-04-*` specs.
 - Current matrix remains `4 Proven / 10 Partial / 0 Gap / 0 Unverified`.
-- Current progress estimate remains about `99/100`: repository-local evidence is broad, the Agent runtime-configuration backend and product paths are now closed locally, and final completion is still gated by target/live proof plus a strict no-skip release run.
+- Current progress estimate remains about `99/100`: repository-local evidence is broad, the Agent planning token-budget browser path is now closed locally, and final completion is still gated by target/live proof plus a strict no-skip release run.
 
 ## What Changed Since The Last Rescan
 
@@ -35,6 +35,7 @@
 - Workflow canvas context-menu test-node proof is now covered in the built Workspace browser journey. The Playwright fixture rejects `/api/v1/workflows/{workflowId}/test-node` payloads unless the selected canvas node ID and node input are preserved, and the browser test opens the real React Flow node context menu for `classify`, dispatches `Test this node`, and verifies the node-test result.
 - Admin model-route CRUD payload proof is now covered in the built Admin browser journey. The Admin Commercial Config Playwright fixture fails closed unless route create/update payloads preserve model pattern, strategy, channel IDs, weights, priorities, and enabled flags, while the browser test creates a weighted multi-channel route, edits it to cost-aware routing, and deletes it back to the empty state.
 - Chat realtime WebSocket proof is now covered in the built Chat browser journey. The Playwright fixture uses native `page.routeWebSocket` to intercept `/api/v1/ws` without connecting to a real backend, fails closed on unexpected socket paths, conversation IDs, client frame types, or malformed typing frames, and the browser test proves `chat_join`, `chat_typing`, server-pushed sync/update/delete events, and collaborator typing UI.
+- Agent planning token-budget recovery proof is now covered in the built Workspace browser journey. The Agent planning Playwright fixture exposes a `token_budget_exceeded` plan-step route, fails closed unless `/continue-budget` receives `tokenBudget=45000`, and the browser test proves the page renders the stop reason and failed dependency-aware step, submits the increased budget, and refreshes to completed step evidence.
 
 ## Repository Inventory
 
@@ -158,7 +159,14 @@ Closed this slice:
 
 Remaining local proof-depth candidates:
 
-- None currently separated from the target/live blockers in this rescan. Further local slices may still be found by later audits, but the known built-app Chat realtime WebSocket, Workflow canvas context-menu, and Admin model-route CRUD browser proof candidates are now closed.
+- Marketplace WeChat Pay paid-install provider parity: existing browser and HTTP proof primarily covers Alipay, while repository-local config and checkout creator wiring can prove `wechatpay` provider selection and checkout metadata without live provider rails.
+- Task approval bypass DB-backed proof: `SQLStore.ApproveTask` and `/api/v1/app/tasks/{taskId}/approve` should get no-skip PostgreSQL evidence that only current-workspace `awaiting_confirmation` tasks can advance, and completed/cancelled/running/draft/cross-workspace tasks fail without mutating `tasks` or `task_steps`.
+
+Closed in this continuation:
+
+- Agent planning token-budget browser recovery.
+  - Evidence: `src/web/e2e/agent-planning.spec.ts` now covers `/agent-runs/run_browser_agent_budget/plan-steps`, renders `token_budget_exceeded`, stop reason, counters, failed step, and dependency evidence, submits an increased token budget, and verifies completed refreshed step evidence.
+  - Boundary: this is repository-local built-app browser proof with a fail-closed fixture for the `/continue-budget` payload. It does not replace deployed Agent runtime, target gRPC, target database, or final no-skip release evidence.
 
 ## TODO And Placeholder Scan
 

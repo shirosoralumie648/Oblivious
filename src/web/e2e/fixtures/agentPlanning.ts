@@ -2,7 +2,9 @@ import type { Page, Route } from '@playwright/test';
 
 const now = '2026-06-14T10:00:00Z';
 const runId = 'run_browser_agent';
+const budgetRunId = 'run_browser_agent_budget';
 const expectedAdjustReason = 'Browser scope changed after operator review.';
+const expectedContinueBudget = 45000;
 
 const session = {
   onboardingCompleted: true,
@@ -193,6 +195,54 @@ function runDetail(options: {
   };
 }
 
+function budgetRunDetail(status: 'token_budget_exceeded' | 'completed' = 'token_budget_exceeded') {
+  const exceeded = status === 'token_budget_exceeded';
+  const stopReason = 'token_budget_exceeded: used 32500 tokens exceeds budget 30000';
+
+  return {
+    id: budgetRunId,
+    error: exceeded ? stopReason : undefined,
+    iterationCount: exceeded ? 2 : 3,
+    mode: 'planning',
+    status,
+    toolCallCount: 1,
+    planSteps: [
+      {
+        id: 'step_budget_scope',
+        runId: budgetRunId,
+        index: 1,
+        title: 'Inspect token budget stop',
+        description: 'Capture the browser-visible budget stop before retrying the failed plan step.',
+        status: 'completed',
+        approvalStatus: 'not_required',
+        resultContent: 'Token budget stop captured.',
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'step_budget_retry',
+        runId: budgetRunId,
+        index: 2,
+        title: 'Retry after increased budget',
+        description: 'Retry the stopped plan step after the operator increases the token budget.',
+        status: exceeded ? 'failed' : 'completed',
+        approvalStatus: 'not_required',
+        toolName: 'web_search',
+        input: {
+          query: 'agent planning token budget browser recovery',
+        },
+        dependsOn: [1],
+        ...(exceeded
+          ? { error: stopReason }
+          : { resultContent: 'Token-budget recovery completed in the browser.' }),
+        createdAt: now,
+        updatedAt: now,
+      },
+    ],
+    toolRuns: [],
+  };
+}
+
 function envelope(data: unknown) {
   return {
     ok: true,
@@ -224,6 +274,7 @@ async function fulfillNotFound(route: Route) {
 export async function registerAgentPlanningRoutes(page: Page): Promise<void> {
   let currentRunDetail = runDetail();
   let currentPlanVariant: PlanVariant = 'initial';
+  let currentBudgetRunDetail = budgetRunDetail();
 
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request();
@@ -288,6 +339,11 @@ export async function registerAgentPlanningRoutes(page: Page): Promise<void> {
       return;
     }
 
+    if (method === 'GET' && pathname === `/api/v1/agent/runs/${budgetRunId}`) {
+      await fulfillJSON(route, currentBudgetRunDetail);
+      return;
+    }
+
     if (method === 'POST' && pathname === `/api/v1/agent/runs/${runId}/approve-tool`) {
       currentRunDetail = runDetail({ toolStatus: 'completed' });
       await fulfillJSON(route, currentRunDetail);
@@ -330,6 +386,26 @@ export async function registerAgentPlanningRoutes(page: Page): Promise<void> {
         });
       }
       await fulfillJSON(route, currentRunDetail);
+      return;
+    }
+
+    if (method === 'POST' && pathname === `/api/v1/agent/runs/${budgetRunId}/continue-budget`) {
+      const payload = request.postDataJSON() as { tokenBudget?: number };
+      if (payload.tokenBudget !== expectedContinueBudget) {
+        await route.fulfill({
+          status: 400,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: false,
+            data: null,
+            error: { code: 'invalid_request', message: 'unexpected continue-budget payload' },
+          }),
+        });
+        return;
+      }
+
+      currentBudgetRunDetail = budgetRunDetail('completed');
+      await fulfillJSON(route, currentBudgetRunDetail);
       return;
     }
 

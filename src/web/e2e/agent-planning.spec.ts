@@ -95,3 +95,33 @@ test('agent planning browser journey adjusts remaining plan with operator reason
   await expect(page.getByLabel('Adjustment reason')).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Adjust remaining plan' })).toBeDisabled();
 });
+
+test('agent planning browser journey recovers from token budget stop', async ({ page }) => {
+  await page.goto('/agent-runs/run_browser_agent_budget/plan-steps');
+
+  await expect(page).toHaveURL(/\/agent-runs\/run_browser_agent_budget\/plan-steps$/);
+  await expect(page.getByRole('heading', { name: 'Agent Plan Steps' })).toBeVisible();
+  await expect(page.getByText('Run run_browser_agent_budget')).toBeVisible();
+  await expect(page.getByText('Status: token_budget_exceeded')).toBeVisible();
+  await expect(page.getByLabel('Agent run execution controls')).toContainText('Mode planning');
+  await expect(page.getByLabel('Agent run execution controls')).toContainText('Iterations 2');
+  await expect(page.getByLabel('Agent run execution controls')).toContainText('Tool calls 1');
+  await expect(page.getByLabel('Agent run execution controls')).toContainText(
+    'Stop reason token_budget_exceeded: used 32500 tokens exceeds budget 30000'
+  );
+
+  const retryStep = page.getByRole('article', { name: 'Plan step Retry after increased budget' });
+  await expect(retryStep).toContainText('failed');
+  await expect(retryStep).toContainText('Depends on: 1');
+  await expect(page.getByLabel('Increased token budget')).toHaveValue('2500');
+
+  await page.getByLabel('Increased token budget').fill('45000');
+  await page.getByRole('button', { name: 'Continue with budget' }).click();
+
+  await expect(page.getByText('Status: completed')).toBeVisible();
+  await expect(page.getByLabel('Agent run execution controls')).toContainText('Iterations 3');
+  await expect(page.getByLabel('Agent run execution controls')).not.toContainText('Stop reason');
+  await expect(retryStep).toContainText('completed');
+  await expect(retryStep).toContainText('Token-budget recovery completed in the browser.');
+  await expect(page.getByRole('button', { name: 'Continue with budget' })).toHaveCount(0);
+});
