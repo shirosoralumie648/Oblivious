@@ -6224,6 +6224,87 @@ func TestRunWithToolsLLMAssistedLongTermMemoryExtractionIgnoresInvalidJSON(t *te
 	}
 }
 
+func TestRunWithToolsLLMAssistedLongTermMemoryUpdatePolicyConsolidatesByMemoryKey(t *testing.T) {
+	oldUpdatedAt := time.Date(2026, 6, 8, 10, 0, 0, 0, time.UTC)
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+			Config: Config{
+				EnableMemory:                   true,
+				LongTermMemoryWritePolicy:      LongTermMemoryWritePolicyExplicitOnly,
+				LongTermMemoryExtractionPolicy: LongTermMemoryExtractionPolicyLLMAssisted,
+				LongTermMemoryUpdatePolicy:     LongTermMemoryUpdatePolicyMemoryKeyConsolidate,
+			},
+		},
+		conversation: &Conversation{
+			ID:             "conv_1",
+			AgentID:        "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+		},
+		memories: []*Memory{{
+			ID:             "memory_company",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			AgentID:        "agent_1",
+			Type:           MemoryTypeLongTerm,
+			Content:        "Important fact: My company is OldCo",
+			Importance:     3,
+			Metadata: map[string]any{
+				"source":          "agent_memory_policy",
+				"memory_category": "fact",
+				"memory_key":      "fact:company",
+				"conversation_id": "conv_old",
+			},
+			CreatedAt: oldUpdatedAt,
+			UpdatedAt: oldUpdatedAt,
+		}},
+	}
+	gateway := &fakeGateway{
+		plainReply: `{"memories":[{"category":"fact","content":"Important fact: My company is NewCo","importance":5}]}`,
+		structured: []*chat.CompletionResponse{
+			{Content: "I will use the updated company context.", FinishReason: "stop"},
+		},
+	}
+	runner := NewRunner(store, gateway, NewToolExecutor(nil), nil, DefaultRunnerConfig())
+
+	_, err := runner.RunWithTools(
+		context.Background(),
+		auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}},
+		store.agent,
+		store.conversation.ID,
+		"Use the updated launch context from the latest onboarding packet.",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("RunWithTools returned error: %v", err)
+	}
+	if gateway.plainCalls != 1 {
+		t.Fatalf("expected one LLM-assisted extraction call, got %d", gateway.plainCalls)
+	}
+	if len(store.memories) != 1 {
+		t.Fatalf("expected LLM-assisted keyed fact to update existing memory, got %+v", store.memories)
+	}
+	updated := store.memories[0]
+	if updated.ID != "memory_company" || updated.Content != "Important fact: My company is NewCo" || updated.Importance != 5 {
+		t.Fatalf("expected LLM-assisted company fact memory to update in place, got %+v", updated)
+	}
+	if updated.UpdatedAt.Equal(oldUpdatedAt) {
+		t.Fatalf("expected keyed memory update timestamp to refresh, got %+v", updated)
+	}
+	if updated.Metadata["source"] != "agent_memory_llm_assisted" ||
+		updated.Metadata["extraction_policy"] != LongTermMemoryExtractionPolicyLLMAssisted ||
+		updated.Metadata["memory_key"] != "fact:company" ||
+		updated.Metadata["update_policy"] != LongTermMemoryUpdatePolicyMemoryKeyConsolidate ||
+		updated.Metadata["consolidated_from_memory_id"] != "memory_company" ||
+		updated.Metadata["conversation_id"] != "conv_1" {
+		t.Fatalf("expected LLM-assisted consolidation metadata, got %+v", updated.Metadata)
+	}
+}
+
 func TestRunWithToolsLongTermMemoryUpdatePolicyConsolidatesByMemoryKey(t *testing.T) {
 	oldUpdatedAt := time.Date(2026, 6, 8, 10, 0, 0, 0, time.UTC)
 	store := &fakeStore{
