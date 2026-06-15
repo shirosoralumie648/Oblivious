@@ -2,8 +2,8 @@
 
 ## Current Truth
 
-- Branch: `main`; the earlier implementation scan baseline was pushed commit `26fe3be test(api): guard runtime route surface parity`.
-- This report may be committed after that baseline and can include follow-up repository evidence entries; report-only refresh commits do not change the completion matrix or feature evidence.
+- Branch: `main`; current checked scan head is `93c5086 test(admin): prove quota allocation persistence`, aligned with `origin/main`.
+- The earlier runtime route-surface scan baseline was `26fe3be test(api): guard runtime route surface parity`; this report now includes follow-up repository evidence through `93c5086`. Report-only refresh commits do not change the completion matrix or feature evidence.
 - The project is still **not complete** against the four 2026-06-04 fusion specs.
 - The current completion matrix remains `4 Proven / 10 Partial / 0 Gap / 0 Unverified`.
 - Current progress estimate after this scan is **97/100**. Admin Relay channel API-key, Observability alert-provider config, Observability alert/recovery SQL persistence, Publishing channel config, Workflow definition/version/execution-snapshot/node-execution secret-like fields, Workflow-to-Agent planning-control resume integration, Agent Memories browser CRUD/import-export, Agent memory store PostgreSQL persistence, Agent gRPC registration and planning continue/adjust plus plan-step action and token-budget resume service-adapter proof, Billing provider lifecycle PostgreSQL transitions, Admin usage analytics daily aggregate PostgreSQL proof, Marketplace governance/review PostgreSQL proof, Admin Organization real-router PostgreSQL lifecycle proof, Admin Users quota allocation browser/API and real-router PostgreSQL/audit proof, Admin Billing operator payout/refund browser proof, Admin commercial configuration browser proof, Marketplace publisher/My Agents browser proof, Admin route manifest dispatch proof, runtime API route-surface reverse parity proof, durable Agent planning completion evidence, Agent plan adjustment browser proof, Admin Reviews browser moderation/governance proof, and Admin Alerts browser alert-management proof are now covered with repository-local proof, but target-environment workflow telemetry, target secret audits, deployment validation, payment/provider live rails, platform failover, live moderation/notification operations, deployed gRPC/client compatibility, and final no-skip release readiness remain open.
@@ -88,20 +88,29 @@ This scan does not reclassify any Partial row to Proven. Admin Relay API-key, Ob
 
 ## Verification Evidence And Current Scan
 
-Current `26fe3be` refresh commands plus the already-pushed runtime route-surface parity verification and inventory checks:
+Current `93c5086` lightweight rescan commands plus the already-pushed implementation verification commands:
 
 ```bash
 pwd
 git status --short --branch
 git rev-parse HEAD origin/main
-git log --oneline -12 --decorate
+git log --oneline --decorate -8
 git ls-files | awk '...inventory counters...'
 git ls-files src/server/internal | awk '...domain counters...'
+git ls-files 'src/server/**/*_test.go' | wc -l
+git ls-files 'src/web/src/**/*.test.ts' 'src/web/src/**/*.test.tsx' | wc -l
+git ls-files 'src/web/e2e/*.spec.ts' | wc -l
+git ls-files 'src/web/e2e/fixtures/*' | wc -l
 git ls-files src/server/migrations/*.sql | sort | tail -12
 find . \( -path './node_modules' -o -path './src/web/node_modules' -o -path './.tmp' -o -path './reference' -o -path './.git' \) -prune -o -name AGENTS.md -print
 awk '...top-level completion matrix rows...' docs/reports/2026-06-07-fusion-spec-completion-matrix.md
+find src -maxdepth 4 -type f \( -name 'go.mod' -o -name 'package.json' -o -name 'vite.config.*' -o -name 'tsconfig.json' -o -name 'playwright.config.*' \) | sort
+find scripts -maxdepth 2 -type f | sort
 rg -n "^## |^### |^# " docs/superpowers/specs/2026-06-04-*.md
+rg -n "^run_[a-z0-9_]+_profile\(\)|run_all_profiles|case \"\$profile\"" scripts/verify-commercial-db-evidence.sh
 rg -n "TODO|FIXME|XXX|stub|placeholder|Unimplemented|DisabledInProduction" src scripts deploy docs/release docs/reports -g '!src/web/test-results/**' -g '!src/web/playwright-report/**' -g '!**/*.pb.go' -g '!docs/reports/archive/**'
+rg -n "recommendation|Recommended|recommended|topRated|popular" src/server/internal/marketplace src/server/internal/http docs/api/openapi.yaml src/web/src/features/marketplace src/web/src/routes/marketplace src/web/e2e -S
+rg -n "scheduled-tasks|ScheduledTasks|scheduledTasks|Schedule" src/web/src src/web/e2e docs/reports/2026-06-07-fusion-spec-completion-matrix.md docs/release/fusion-spec-evidence-pack.md -S
 rg -n "quotaBalance|updateUserQuota|Quota Balance|user quota allocation|AdminUserQuotaUpdateRequest" docs/api/openapi.yaml src/server/internal/admin src/server/internal/http src/web/src src/web/e2e -S
 GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/http -run 'TestRouteSurface(Manifest|RuntimeAPIRoutes)' -count=1 -v
 GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/admin ./internal/http -run 'Test(UpdateUserQuota|AdminHandlerUpdateUserQuota)' -count=1 -v
@@ -186,8 +195,9 @@ git diff --check
 Result:
 
 - `pwd` showed `/media/shirosora/4A183E5C183E46EB/codestorage/Oblivious`.
-- `git status --short --branch` in this rescan showed `main...origin/main` at `26fe3be` with a clean worktree.
-- `git rev-parse HEAD origin/main` returned `26fe3beee80edcb578d067ba9bd477681a631ed5` for both refs.
+- `git status --short --branch` in this rescan showed `main...origin/main` at `93c5086` with a clean worktree.
+- `git rev-parse HEAD origin/main` returned `93c508643ccb50e98016a53a2730ec936b79a9f5` for both refs.
+- `git log --oneline --decorate -8` showed `93c5086 test(admin): prove quota allocation persistence`, `ad6ec6e test(tenant): prove admin organization persistence`, `503f075 docs: clarify rescan baseline`, `bef7615 docs: refresh rescan baseline`, `26fe3be test(api): guard runtime route surface parity`, `a06e226 docs: refresh repo rescan at current head`, `c2c8ac1 test(admin): prove user quota allocation`, and `5af7c88 test(workflow): resume agent planning controls`.
 - The top-level matrix count remains 4 `Proven` and 10 `Partial`; the `Gap` and `Unverified` counts remain 0.
 - The current first-party inventory counters after this slice are: `src=987`, `docs=92`, `scripts=37`, `deploy=42`, `.planning=210`, Go test files `230`, web component/API test files `67`, Playwright specs `13`, and Playwright fixtures `13`.
 - The current server-domain leaders are still `relay`, `http`, `mcp`, `admin`, `agent`, `workflow`, `knowledge`, `observability`, `channel`, `migration`, and `marketplace`.
@@ -238,12 +248,12 @@ Result:
 - `pnpm --dir src/web exec playwright test e2e/admin-alerts.spec.ts --project=chromium` passed with `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/google-chrome`. It ran three browser tests covering alert filter query propagation, delivery/recovery inspection, acknowledge/resolve state changes, notification routing updates, Slack webhook provider creation, and provider-test feedback.
 - `git diff --check` passed.
 - The previously recorded first-party AGENTS scan found no main-root or first-party source `AGENTS.md`.
-- The TODO/stub scan did not reveal a new broad implementation gap. Active first-party matches remain the known release-boundary items from the June 14 scan: disabled future Relay surfaces, generated gRPC `Unimplemented*` boilerplate, test stubs, placeholder-only release docs/config examples, and the service-template migration TODO.
+- The TODO/stub scan did not reveal a new broad implementation gap. Active first-party matches remain known release-boundary items: disabled future Relay surfaces, stale/alternate `src/server/internal/relay/handler_new` TODOs, generated gRPC `Unimplemented*` boilerplate, test stubs, placeholder-only release docs/config examples, UI input placeholders, and the service-template migration TODO.
 - The secret-storage scan now confirms MCP auth tokens, Admin Relay channel API keys, Observability alert-provider config secrets, Publishing channel config secrets, and Workflow definition/version/execution-snapshot/node-execution secret-like fields have repository-owned reversible at-rest protection. Target-environment secret audits remain the open secret-storage proof boundary.
 
 ## Notable Scan Findings
 
-- Previous scan text that referenced earlier slice starts such as `f1aa0ab`, `6db760c`, `099cc56`, `0e61dcc`, `2f53af9`, `1a83cff`, `9630167`, `8e4f9fd`, `d7a91f0`, `0655515`, `79d6000`, or `b2fc74b` is stale after the Agent memory DB evidence, Admin Reviews browser-proof, Admin Alerts browser-proof, Agent gRPC planning-boundary and token-budget resume, Workflow-to-Agent planning-control resume integration, Admin Users quota allocation browser/API proof, runtime registration, Admin commercial config, Marketplace publisher, durable planning completion, Admin manifest dispatch, Agent plan-adjustment browser, domestic Admin Billing top-up refund browser slices, and the runtime route-surface parity slice already pushed at `26fe3be`.
+- Previous scan text that referenced earlier slice starts such as `f1aa0ab`, `6db760c`, `099cc56`, `0e61dcc`, `2f53af9`, `1a83cff`, `9630167`, `8e4f9fd`, `d7a91f0`, `0655515`, `79d6000`, or `b2fc74b` is stale after the Agent memory DB evidence, Admin Reviews browser-proof, Admin Alerts browser-proof, Agent gRPC planning-boundary and token-budget resume, Workflow-to-Agent planning-control resume integration, Admin Users quota allocation browser/API plus real-router PostgreSQL proof, Admin Organization HTTP PostgreSQL proof, runtime registration, Admin commercial config, Marketplace publisher, durable planning completion, Admin manifest dispatch, Agent plan-adjustment browser, domestic Admin Billing top-up refund browser slices, runtime route-surface parity, and quota allocation persistence slices pushed through `93c5086`.
 - Existing DB-backed tenant-isolation evidence remains stronger than target-environment evidence; this slice adds DB-backed at-rest encryption proof for the Workflow definition/runtime secret path on top of the prior Admin Relay, Observability, and Publishing secret paths.
 - Observability alert/routing SQL persistence is now a first-class commercial DB evidence profile. The profile rejects skips and empty regex matches while proving routing rules, alert lifecycle/escalation, alert-state filters, notification throttling, recovery cooldown reuse, and repeated delivery-batch history against PostgreSQL.
 - Admin usage analytics daily aggregate SQL persistence is now a first-class commercial DB evidence profile. The profile rejects skips and empty regex matches while proving daily aggregate refresh/query and zero-total-token fallback for both raw analytics and usage-log listing against PostgreSQL.
@@ -265,9 +275,10 @@ Result:
 
 ## Recommended Next Slices
 
-1. Local: do one remaining-row audit pass for any other non-target-bound gaps still hidden inside the `Partial` rows before starting target-environment verification.
-2. Target environment: rerun the strict commercial verifier with deploy and backup/restore enabled before renewing any final readiness claim.
-3. Target environment: extend Observability/recovery proof into true OOM/crash restart, scale, and failover evidence; run configured provider/payment/workflow secret audits, live provider rail checks, and deployed gRPC/client compatibility checks.
+1. Local: add a built-app Playwright proof for `/scheduled-tasks`. Current evidence covers API/route/component/runtime DB paths, but there is no dedicated `src/web/e2e/scheduled-tasks.spec.ts` browser journey for create, enable/disable, run-now, recent runs, Workspace shell state, and responsive overflow.
+2. Local: close Marketplace recommendation payload fidelity. Backend and frontend already handle `recommendation`, but `docs/api/openapi.yaml` `MarketplacePublishedAgent` does not yet document that metadata; add schema/contract/browser proof so recommended search cards cannot drift silently.
+3. Target environment: rerun the strict commercial verifier with deploy and backup/restore enabled before renewing any final readiness claim.
+4. Target environment: extend Observability/recovery proof into true OOM/crash restart, scale, and failover evidence; run configured provider/payment/workflow secret audits, live provider rail checks, and deployed gRPC/client compatibility checks.
 
 ## Boundary
 
