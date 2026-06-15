@@ -29,6 +29,7 @@
 - The current parallel read-only scan did not find a new broad product-area gap, but it did separate target/live blockers from local proof-depth candidates. The highest-priority local release-readiness gap from the prior baseline is now closed: Agent/Workflow/Task generated-client gRPC smoke has a first-class target helper, and Workflow/Task now expose real runtime gRPC listeners and deployment port contracts.
 - Workflow-to-Agent direct client parity is now closed as a local proof-depth candidate. The standalone Workflow `AgentClient.StartAgentRun` now uses workspace-scoped sessions, normalizes execution mode, dispatches planning requests to `StartPlanningRun` and default/ReAct requests to `StartRun`, preserves workspace scope for tool approvals, and maps Agent run results with the same nil-safe/final-message fallback boundary as the HTTP adapter.
 - Agent advanced runtime configuration is now closed locally for both the backend service run path and the formal product path. `RunWithTools`, approval resume, and the resumed tool loop apply persisted `Agent.Config.ModelRoutingRules`, `Skills`, and `MaxSkills` per iteration, while OpenAPI, web types, and Workspace Agents create/edit controls now expose the same config fields.
+- Marketplace paid-install checkout-failure settlement proof is now included in the no-skip money-movement profile. The profile now runs `TestSettlementMarkPaidInstallCheckoutFailedMarksOrderAndIntent` alongside the existing HTTP `TestMarketplacePaidInstallCheckoutCreatorFailureMarksOrderFailed`, so checkout-creator failure is covered at both settlement-state and route-state boundaries under disposable/configured PostgreSQL with skipped tests rejected.
 
 ## Repository Inventory
 
@@ -153,7 +154,7 @@ Closed this slice:
 Remaining local proof-depth candidates:
 
 1. DB-backed proof tightening for Billing, Marketplace, and Security.
-   - Candidates: Admin usage-limit SQL route persistence, Marketplace paid-install checkout-failure inclusion in the no-skip money-movement profile, and Admin Billing webhook-event raw-payload non-disclosure proof.
+   - Candidates: Admin usage-limit SQL route persistence and Admin Billing webhook-event raw-payload non-disclosure proof.
 2. Browser-level contract proof tightening.
    - Candidates: built-app Chat realtime WebSocket proof, Workflow canvas context-menu test-node proof, and Admin model-route CRUD payload proof.
 
@@ -203,6 +204,9 @@ Closed after this rescan:
   - `src/server/internal/http/chat_handler.go` and `src/server/internal/http/chat_actions_handler.go` publish message sync/update/delete events after successful Chat mutations while keeping `listMessages` read-only for realtime to avoid sync loops.
   - `src/web/src/features/chat/api.ts` and `src/web/src/routes/workspace/ChatPage.tsx` connect the active conversation to `/api/v1/ws`, send typing presence, and apply realtime transcript events.
   - `docs/api/openapi.yaml` and `scripts/verify-openapi-contract.sh` now document and guard Chat realtime WebSocket frame schemas.
+- Marketplace paid-install checkout-failure no-skip profile inclusion.
+  - `scripts/verify-commercial-db-evidence.sh marketplace-money-movement` now includes `TestSettlementMarkPaidInstallCheckoutFailedMarksOrderAndIntent`, complementing the existing HTTP route coverage for `TestMarketplacePaidInstallCheckoutCreatorFailureMarksOrderFailed`.
+  - Verification: `GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh marketplace-money-movement` passed with disposable pgvector PostgreSQL and skipped tests: none.
 
 The remaining pure external follow-up still does not have a repository-only substitute:
 
