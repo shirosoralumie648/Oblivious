@@ -836,6 +836,208 @@ func TestServiceResumeExecutionExecutesPendingAgentPlanStep(t *testing.T) {
 	}
 }
 
+func TestServiceResumeExecutionContinuesPendingAgentPlan(t *testing.T) {
+	store := newMemoryWorkflowStore()
+	agentRunner := &recordingWorkflowAgentRunner{
+		response: &WorkflowAgentRunResult{
+			RunID:  "run_continue",
+			Status: "pending_approval",
+			PlanSteps: []WorkflowAgentPlanStep{{
+				ID:             "step_pending",
+				Title:          "Continue verification",
+				Status:         "pending",
+				ApprovalStatus: "not_required",
+			}},
+		},
+		controlResponse: &WorkflowAgentRunResult{
+			RunID:          "run_continue",
+			Status:         "completed",
+			FinalMessageID: "msg_final",
+			FinalMessage:   "Continued plan completed",
+			PlanSteps: []WorkflowAgentPlanStep{{
+				ID:            "step_pending",
+				Title:         "Continue verification",
+				Status:        "completed",
+				ResultContent: "continued safely",
+			}},
+		},
+	}
+	service := NewService(store, WithNodeExecutors(NewNodeExecutorRegistry(
+		NewAgentNodeExecutor(agentRunner),
+		EchoNodeExecutor("end"),
+	)))
+	ctx := context.Background()
+	workflow, err := service.CreateWorkflow(ctx, CreateWorkflowRequest{
+		OrganizationID: "org_1",
+		Name:           "Agent Plan Continue Resume Flow",
+		Status:         WorkflowStatusPublished,
+		Definition: workflowDefinitionDAG(
+			[]map[string]any{
+				{
+					"id":   "call_agent",
+					"type": "agent",
+					"input": map[string]any{
+						"agentId":        "agent_1",
+						"conversationId": "conv_1",
+						"input":          "continue plan",
+						"mode":           "planning",
+					},
+				},
+				{"id": "done", "type": "end", "input": map[string]any{"agentText": "{{nodes.call_agent.output.text}}"}},
+			},
+			[]map[string]any{{"from": "call_agent", "to": "done"}},
+		),
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkflow returned error: %v", err)
+	}
+	execution, err := service.StartExecution(ctx, StartExecutionRequest{
+		OrganizationID: "org_1",
+		WorkflowID:     workflow.ID,
+		Context:        map[string]any{"userId": "user_1", "workspaceId": "workspace_1"},
+	})
+	if err != nil {
+		t.Fatalf("StartExecution returned error: %v", err)
+	}
+	if _, err := service.RunExecutionUntilBlocked(ctx, "org_1", execution.ID); !errors.Is(err, ErrWorkflowUserInputRequired) {
+		t.Fatalf("RunExecutionUntilBlocked err=%v, want ErrWorkflowUserInputRequired", err)
+	}
+
+	resumed, err := service.ResumeExecution(ctx, "org_1", execution.ID, ResumeExecutionRequest{
+		NodeID: "call_agent",
+		Input:  map[string]any{"action": "continue_plan"},
+	})
+	if err != nil {
+		t.Fatalf("ResumeExecution returned error: %v", err)
+	}
+	if agentRunner.controlAction != "continue_plan" ||
+		agentRunner.controlRequest.RunID != "run_continue" ||
+		agentRunner.controlRequest.UserID != "user_1" ||
+		agentRunner.controlRequest.WorkspaceID != "workspace_1" {
+		t.Fatalf("unexpected continue-plan control request: action=%q req=%+v", agentRunner.controlAction, agentRunner.controlRequest)
+	}
+	agentNodes := workflowNodeExecutionsByID(resumed.NodeExecutions, "call_agent")
+	if len(agentNodes) != 3 || agentNodes[len(agentNodes)-1].Status != NodeStatusSucceeded {
+		t.Fatalf("expected completed agent node after continue plan, got %+v", agentNodes)
+	}
+	if agentNodes[len(agentNodes)-1].Output["text"] != "Continued plan completed" {
+		t.Fatalf("expected continue-plan output, got %#v", agentNodes[len(agentNodes)-1].Output)
+	}
+
+	completed, err := service.RunExecutionUntilBlocked(ctx, "org_1", execution.ID)
+	if err != nil {
+		t.Fatalf("RunExecutionUntilBlocked after continue plan returned error: %v", err)
+	}
+	doneNodes := workflowNodeExecutionsByID(completed.NodeExecutions, "done")
+	if len(doneNodes) != 2 || doneNodes[len(doneNodes)-1].Input["agentText"] != "Continued plan completed" {
+		t.Fatalf("expected downstream node to receive continue-plan result, got %+v", doneNodes)
+	}
+}
+
+func TestServiceResumeExecutionAdjustsPendingAgentPlan(t *testing.T) {
+	store := newMemoryWorkflowStore()
+	agentRunner := &recordingWorkflowAgentRunner{
+		response: &WorkflowAgentRunResult{
+			RunID:  "run_adjust",
+			Status: "pending_approval",
+			PlanSteps: []WorkflowAgentPlanStep{{
+				ID:             "step_risky",
+				Title:          "Run risky command",
+				Status:         "pending",
+				ApprovalStatus: "pending",
+				ToolName:       "shell",
+			}},
+		},
+		controlResponse: &WorkflowAgentRunResult{
+			RunID:          "run_adjust",
+			Status:         "completed",
+			FinalMessageID: "msg_final",
+			FinalMessage:   "Adjusted plan completed",
+			PlanSteps: []WorkflowAgentPlanStep{{
+				ID:            "step_safe",
+				Title:         "Use safe command",
+				Status:        "completed",
+				ToolName:      "shell",
+				ResultContent: "used safe command",
+			}},
+		},
+	}
+	service := NewService(store, WithNodeExecutors(NewNodeExecutorRegistry(
+		NewAgentNodeExecutor(agentRunner),
+		EchoNodeExecutor("end"),
+	)))
+	ctx := context.Background()
+	workflow, err := service.CreateWorkflow(ctx, CreateWorkflowRequest{
+		OrganizationID: "org_1",
+		Name:           "Agent Plan Adjust Resume Flow",
+		Status:         WorkflowStatusPublished,
+		Definition: workflowDefinitionDAG(
+			[]map[string]any{
+				{
+					"id":   "call_agent",
+					"type": "agent",
+					"input": map[string]any{
+						"agentId":        "agent_1",
+						"conversationId": "conv_1",
+						"input":          "adjust plan",
+						"mode":           "planning",
+					},
+				},
+				{"id": "done", "type": "end", "input": map[string]any{"agentText": "{{nodes.call_agent.output.text}}"}},
+			},
+			[]map[string]any{{"from": "call_agent", "to": "done"}},
+		),
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkflow returned error: %v", err)
+	}
+	execution, err := service.StartExecution(ctx, StartExecutionRequest{
+		OrganizationID: "org_1",
+		WorkflowID:     workflow.ID,
+		Context:        map[string]any{"userId": "user_1", "workspaceId": "workspace_1"},
+	})
+	if err != nil {
+		t.Fatalf("StartExecution returned error: %v", err)
+	}
+	if _, err := service.RunExecutionUntilBlocked(ctx, "org_1", execution.ID); !errors.Is(err, ErrWorkflowUserInputRequired) {
+		t.Fatalf("RunExecutionUntilBlocked err=%v, want ErrWorkflowUserInputRequired", err)
+	}
+
+	resumed, err := service.ResumeExecution(ctx, "org_1", execution.ID, ResumeExecutionRequest{
+		NodeID: "call_agent",
+		Input: map[string]any{
+			"action": "adjust_plan",
+			"reason": "avoid risky command",
+		},
+	})
+	if err != nil {
+		t.Fatalf("ResumeExecution returned error: %v", err)
+	}
+	if agentRunner.controlAction != "adjust_plan" ||
+		agentRunner.controlRequest.RunID != "run_adjust" ||
+		agentRunner.controlRequest.UserID != "user_1" ||
+		agentRunner.controlRequest.WorkspaceID != "workspace_1" ||
+		agentRunner.controlRequest.Reason != "avoid risky command" {
+		t.Fatalf("unexpected adjust-plan control request: action=%q req=%+v", agentRunner.controlAction, agentRunner.controlRequest)
+	}
+	agentNodes := workflowNodeExecutionsByID(resumed.NodeExecutions, "call_agent")
+	if len(agentNodes) != 3 || agentNodes[len(agentNodes)-1].Status != NodeStatusSucceeded {
+		t.Fatalf("expected completed agent node after adjust plan, got %+v", agentNodes)
+	}
+	if agentNodes[len(agentNodes)-1].Output["text"] != "Adjusted plan completed" {
+		t.Fatalf("expected adjust-plan output, got %#v", agentNodes[len(agentNodes)-1].Output)
+	}
+
+	completed, err := service.RunExecutionUntilBlocked(ctx, "org_1", execution.ID)
+	if err != nil {
+		t.Fatalf("RunExecutionUntilBlocked after adjust plan returned error: %v", err)
+	}
+	doneNodes := workflowNodeExecutionsByID(completed.NodeExecutions, "done")
+	if len(doneNodes) != 2 || doneNodes[len(doneNodes)-1].Input["agentText"] != "Adjusted plan completed" {
+		t.Fatalf("expected downstream node to receive adjust-plan result, got %+v", doneNodes)
+	}
+}
+
 func TestServiceResumeExecutionContinuesAgentRunWithTokenBudget(t *testing.T) {
 	store := newMemoryWorkflowStore()
 	agentRunner := &recordingWorkflowAgentRunner{
