@@ -2,8 +2,8 @@
 
 ## Current Truth
 
-- Branch: `main`; this route-surface parity follow-up starts from pushed commit `a06e226 docs: refresh repo rescan at current head`.
-- Current refresh base before this slice: `HEAD` and `origin/main` both resolved to `a06e226750d04f5b9537599b2c9cb275e194efc9`; the worktree was clean before the API route-surface parity edit.
+- Branch: `main`; this rescan is anchored at pushed commit `26fe3be test(api): guard runtime route surface parity`.
+- Current refresh base before this scan: `HEAD` and `origin/main` both resolved to `26fe3beee80edcb578d067ba9bd477681a631ed5`; the worktree is clean.
 - The project is still **not complete** against the four 2026-06-04 fusion specs.
 - The current completion matrix remains `4 Proven / 10 Partial / 0 Gap / 0 Unverified`.
 - Current progress estimate after this scan is **97/100**. Admin Relay channel API-key, Observability alert-provider config, Observability alert/recovery SQL persistence, Publishing channel config, Workflow definition/version/execution-snapshot/node-execution secret-like fields, Workflow-to-Agent planning-control resume integration, Agent Memories browser CRUD/import-export, Agent memory store PostgreSQL persistence, Agent gRPC registration and planning continue/adjust plus plan-step action and token-budget resume service-adapter proof, Billing provider lifecycle PostgreSQL transitions, Admin usage analytics daily aggregate PostgreSQL proof, Marketplace governance/review PostgreSQL proof, Admin Billing operator payout/refund browser proof, Admin commercial configuration browser proof including Admin Users quota allocation, Marketplace publisher/My Agents browser proof, Admin route manifest dispatch proof, runtime API route-surface reverse parity proof, durable Agent planning completion evidence, Agent plan adjustment browser proof, Admin Reviews browser moderation/governance proof, and Admin Alerts browser alert-management proof are now covered with repository-local proof, but target-environment workflow telemetry, target secret audits, deployment validation, payment/provider live rails, platform failover, live moderation/notification operations, deployed gRPC/client compatibility, and final no-skip release readiness remain open.
@@ -86,7 +86,7 @@ This scan does not reclassify any Partial row to Proven. Admin Relay API-key, Ob
 
 ## Verification Evidence And Current Scan
 
-Current `c2c8ac1` refresh commands plus the already-pushed Admin Users quota allocation slice verification:
+Current `26fe3be` refresh commands plus the already-pushed runtime route-surface parity verification and inventory checks:
 
 ```bash
 pwd
@@ -184,8 +184,8 @@ git diff --check
 Result:
 
 - `pwd` showed `/media/shirosora/4A183E5C183E46EB/codestorage/Oblivious`.
-- `git status --short --branch` at this API route-surface parity slice start showed `main...origin/main` at `a06e226` with a clean worktree before the implementation edit.
-- `git rev-parse HEAD origin/main` returned `a06e226750d04f5b9537599b2c9cb275e194efc9` for both refs before the implementation edit.
+- `git status --short --branch` in this rescan showed `main...origin/main` at `26fe3be` with a clean worktree.
+- `git rev-parse HEAD origin/main` returned `26fe3beee80edcb578d067ba9bd477681a631ed5` for both refs.
 - The top-level matrix count remains 4 `Proven` and 10 `Partial`; the `Gap` and `Unverified` counts remain 0.
 - The current first-party inventory counters after this slice are: `src=987`, `docs=92`, `scripts=37`, `deploy=42`, `.planning=210`, Go test files `230`, web component/API test files `67`, Playwright specs `13`, and Playwright fixtures `13`.
 - The current server-domain leaders are still `relay`, `http`, `mcp`, `admin`, `agent`, `workflow`, `knowledge`, `observability`, `channel`, `migration`, and `marketplace`.
@@ -239,7 +239,7 @@ Result:
 
 ## Notable Scan Findings
 
-- This follow-up starts from `5af7c88`; previous scan text that referenced earlier slice starts such as `f1aa0ab`, `6db760c`, `099cc56`, `0e61dcc`, `2f53af9`, `1a83cff`, `9630167`, `8e4f9fd`, `d7a91f0`, `0655515`, `79d6000`, or `b2fc74b` is stale after the Agent memory DB evidence, Admin Reviews browser-proof, Admin Alerts browser-proof, Agent gRPC planning-boundary and token-budget resume, Workflow-to-Agent planning-control resume integration, Admin Users quota allocation browser/API proof, runtime registration, Admin commercial config, Marketplace publisher, durable planning completion, Admin manifest dispatch, Agent plan-adjustment browser, and domestic Admin Billing top-up refund browser slices.
+- Previous scan text that referenced earlier slice starts such as `f1aa0ab`, `6db760c`, `099cc56`, `0e61dcc`, `2f53af9`, `1a83cff`, `9630167`, `8e4f9fd`, `d7a91f0`, `0655515`, `79d6000`, or `b2fc74b` is stale after the Agent memory DB evidence, Admin Reviews browser-proof, Admin Alerts browser-proof, Agent gRPC planning-boundary and token-budget resume, Workflow-to-Agent planning-control resume integration, Admin Users quota allocation browser/API proof, runtime registration, Admin commercial config, Marketplace publisher, durable planning completion, Admin manifest dispatch, Agent plan-adjustment browser, domestic Admin Billing top-up refund browser slices, and the runtime route-surface parity slice already pushed at `26fe3be`.
 - Existing DB-backed tenant-isolation evidence remains stronger than target-environment evidence; this slice adds DB-backed at-rest encryption proof for the Workflow definition/runtime secret path on top of the prior Admin Relay, Observability, and Publishing secret paths.
 - Observability alert/routing SQL persistence is now a first-class commercial DB evidence profile. The profile rejects skips and empty regex matches while proving routing rules, alert lifecycle/escalation, alert-state filters, notification throttling, recovery cooldown reuse, and repeated delivery-batch history against PostgreSQL.
 - Admin usage analytics daily aggregate SQL persistence is now a first-class commercial DB evidence profile. The profile rejects skips and empty regex matches while proving daily aggregate refresh/query and zero-total-token fallback for both raw analytics and usage-log listing against PostgreSQL.
