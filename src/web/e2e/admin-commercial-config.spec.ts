@@ -87,3 +87,47 @@ test('admin settings save relay pricing and usage-limit runtime controls in the 
   await expect(page.getByText('Usage limit saved.')).toBeVisible();
   await expect(page.getByText('8192')).toBeVisible();
 });
+
+test('admin routes create, edit, and delete weighted multi-channel routing in the browser', async ({ page }) => {
+  await page.goto('/admin/routes');
+
+  await expect(page.getByRole('heading', { name: 'Model Routes', exact: true })).toBeVisible();
+  await expect(page.getByText('No model routes defined -- Create a route mapping to direct model requests to specific channels.')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Add Route' }).click();
+  await expect(page.getByRole('heading', { name: 'Add Route' })).toBeVisible();
+  await page.getByLabel('Model Pattern').fill('gpt-browser-commercial-*');
+  await page.getByLabel('Strategy').selectOption('weighted');
+  await page.getByLabel('Target Channel 1').selectOption('channel_browser_openai');
+  await page.getByLabel('Priority 1').fill('1');
+  await page.getByLabel('Weight 1').fill('70');
+  await page.getByRole('button', { name: 'Add channel target' }).click();
+  await page.getByLabel('Target Channel 2').selectOption('channel_browser_claude');
+  await page.getByLabel('Priority 2').fill('2');
+  await page.getByLabel('Weight 2').fill('30');
+  await page.getByRole('button', { name: 'Create Route' }).click();
+
+  await expect(page.getByText('gpt-browser-commercial-*')).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'weighted' })).toBeVisible();
+  await expect(page.getByText('OpenAI Browser Primary')).toBeVisible();
+  await expect(page.getByText('p1 w70')).toBeVisible();
+  await expect(page.getByText('Claude Browser Backup')).toBeVisible();
+  await expect(page.getByText('p2 w30')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Edit route gpt-browser-commercial-*' }).click();
+  await expect(page.getByRole('heading', { name: 'Edit Route' })).toBeVisible();
+  await page.getByLabel('Strategy').selectOption('cost_aware');
+  await page.getByLabel('Weight 1').fill('60');
+  await page.getByLabel('Weight 2').fill('40');
+  await page.getByLabel('Enabled 2').uncheck();
+  await page.getByRole('button', { name: 'Save Changes' }).click();
+
+  await expect(page.getByRole('cell', { name: 'cost_aware' })).toBeVisible();
+  await expect(page.getByText('p1 w60')).toBeVisible();
+  await expect(page.getByText('p2 w40')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Delete route gpt-browser-commercial-*' }).click();
+  await expect(page.getByRole('heading', { name: 'Delete Route' })).toBeVisible();
+  await page.getByRole('button', { name: 'Delete Route' }).click();
+  await expect(page.getByText('No model routes defined -- Create a route mapping to direct model requests to specific channels.')).toBeVisible();
+});

@@ -143,6 +143,71 @@ const recoveredLog = {
   createdAt: '2026-06-15T15:59:00Z',
 };
 
+const browserRouteChannels = [
+  {
+    id: 'channel_browser_openai',
+    organizationID: 'org_browser_settings',
+    organizationId: 'org_browser_settings',
+    name: 'OpenAI Browser Primary',
+    provider: 'openai',
+    baseURL: 'https://api.openai.com/v1',
+    baseUrl: 'https://api.openai.com/v1',
+    models: ['gpt-4o', 'gpt-4.1'],
+    groups: ['default', 'enterprise'],
+    rpm: 240,
+    tpm: 240000,
+    priority: 1,
+    estimatedCostPer1K: 0.003,
+    costMultiplier: 1,
+    weight: 70,
+    enabled: true,
+    status: 'online',
+    latency: 42,
+    createdAt: now,
+    updatedAt: now,
+  },
+  {
+    id: 'channel_browser_claude',
+    organizationID: 'org_browser_settings',
+    organizationId: 'org_browser_settings',
+    name: 'Claude Browser Backup',
+    provider: 'anthropic',
+    baseURL: 'https://api.anthropic.com/v1',
+    baseUrl: 'https://api.anthropic.com/v1',
+    models: ['claude-3-5-sonnet'],
+    groups: ['enterprise'],
+    rpm: 120,
+    tpm: 180000,
+    priority: 2,
+    estimatedCostPer1K: 0.006,
+    costMultiplier: 1.2,
+    weight: 30,
+    enabled: true,
+    status: 'online',
+    latency: 58,
+    createdAt: now,
+    updatedAt: now,
+  },
+];
+
+const createRoutePayload = {
+  model: 'gpt-browser-commercial-*',
+  strategy: 'weighted',
+  channels: [
+    { channelID: 'channel_browser_openai', priority: 1, weight: 70, enabled: true },
+    { channelID: 'channel_browser_claude', priority: 2, weight: 30, enabled: true },
+  ],
+};
+
+const updateRoutePayload = {
+  model: 'gpt-browser-commercial-*',
+  strategy: 'cost_aware',
+  channels: [
+    { channelID: 'channel_browser_openai', priority: 1, weight: 60, enabled: true },
+    { channelID: 'channel_browser_claude', priority: 2, weight: 40, enabled: false },
+  ],
+};
+
 function envelope(data: unknown) {
   return {
     ok: true,
@@ -272,10 +337,61 @@ function usageLimitPayloadMatches(payload: Record<string, unknown>) {
   );
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function routePayloadMatches(payload: Record<string, unknown>, expected: typeof createRoutePayload) {
+  if (Object.keys(payload).sort().join(',') !== 'channels,model,strategy') {
+    return false;
+  }
+
+  if (payload.model !== expected.model || payload.strategy !== expected.strategy || !Array.isArray(payload.channels)) {
+    return false;
+  }
+
+  if (payload.channels.length !== expected.channels.length) {
+    return false;
+  }
+
+  return payload.channels.every((channel, index) => {
+    if (!isRecord(channel) || Object.keys(channel).sort().join(',') !== 'channelID,enabled,priority,weight') {
+      return false;
+    }
+    const expectedChannel = expected.channels[index];
+    return (
+      channel.channelID === expectedChannel.channelID &&
+      channel.priority === expectedChannel.priority &&
+      channel.weight === expectedChannel.weight &&
+      channel.enabled === expectedChannel.enabled
+    );
+  });
+}
+
+function routeFromPayload(id: string, payload: typeof createRoutePayload) {
+  return {
+    id,
+    model: payload.model,
+    strategy: payload.strategy,
+    channels: payload.channels.map((channel) => {
+      const source = browserRouteChannels.find((candidate) => candidate.id === channel.channelID);
+      return {
+        channelID: channel.channelID,
+        channelName: source?.name ?? channel.channelID,
+        priority: channel.priority,
+        weight: channel.weight,
+        enabled: channel.enabled,
+      };
+    }),
+    createdAt: now,
+  };
+}
+
 export async function registerAdminCommercialConfigRoutes(page: Page): Promise<void> {
   let createdPlan: typeof growthPlan | null = null;
   let userState = { ...browserUser };
   let usageLimitState = { ...usageLimit };
+  let routeState: ReturnType<typeof routeFromPayload> | null = null;
   let pricingState = {
     modelMultipliers: { 'gpt-4.1-mini': 1, 'gpt-4o': 1.2 },
     groupMultipliers: { default: 1, enterprise: 0.9 },
@@ -289,6 +405,48 @@ export async function registerAdminCommercialConfigRoutes(page: Page): Promise<v
 
     if (method === 'GET' && pathname === '/api/v1/auth/me') {
       await fulfillJSON(route, adminSession);
+      return;
+    }
+
+    if (method === 'GET' && pathname === '/api/v1/admin/channels') {
+      if (url.searchParams.get('limit') !== '100') {
+        await fulfillError(route, 'admin routes page did not request the full channel option list');
+        return;
+      }
+      await fulfillJSON(route, { channels: browserRouteChannels, total: browserRouteChannels.length });
+      return;
+    }
+
+    if (method === 'GET' && pathname === '/api/v1/admin/routes') {
+      await fulfillJSON(route, { routes: routeState ? [routeState] : [], total: routeState ? 1 : 0 });
+      return;
+    }
+
+    if (method === 'POST' && pathname === '/api/v1/admin/routes') {
+      const payload = request.postDataJSON() as Record<string, unknown>;
+      if (!routePayloadMatches(payload, createRoutePayload)) {
+        await fulfillError(route, 'route create payload did not preserve model, strategy, channels, weight, priority, and enabled');
+        return;
+      }
+      routeState = routeFromPayload('route_browser_weighted', createRoutePayload);
+      await fulfillJSON(route, routeState, 201);
+      return;
+    }
+
+    if (method === 'PUT' && pathname === '/api/v1/admin/routes/route_browser_weighted') {
+      const payload = request.postDataJSON() as Record<string, unknown>;
+      if (!routePayloadMatches(payload, updateRoutePayload)) {
+        await fulfillError(route, 'route update payload did not preserve model, strategy, channels, weight, priority, and enabled');
+        return;
+      }
+      routeState = routeFromPayload('route_browser_weighted', updateRoutePayload);
+      await fulfillJSON(route, routeState);
+      return;
+    }
+
+    if (method === 'DELETE' && pathname === '/api/v1/admin/routes/route_browser_weighted') {
+      routeState = null;
+      await fulfillJSON(route, { status: 'deleted' });
       return;
     }
 
