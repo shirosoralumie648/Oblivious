@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const createConversation = vi.fn();
 const createConversationShare = vi.fn();
@@ -42,6 +42,45 @@ const appContext = vi.hoisted(() => ({
   }
 }));
 
+class MockWebSocket {
+  static CONNECTING = 0;
+  static OPEN = 1;
+  static CLOSING = 2;
+  static CLOSED = 3;
+  static instances: MockWebSocket[] = [];
+
+  onclose: ((event: CloseEvent) => void) | null = null;
+  onerror: ((event: Event) => void) | null = null;
+  onmessage: ((event: MessageEvent<string>) => void) | null = null;
+  onopen: ((event: Event) => void) | null = null;
+  readyState = MockWebSocket.CONNECTING;
+  sentMessages: string[] = [];
+  url: string;
+
+  constructor(url: string) {
+    this.url = url;
+    MockWebSocket.instances.push(this);
+  }
+
+  close() {
+    this.readyState = MockWebSocket.CLOSED;
+    this.onclose?.({} as CloseEvent);
+  }
+
+  emit(data: unknown) {
+    this.onmessage?.({ data: JSON.stringify(data) } as MessageEvent<string>);
+  }
+
+  open() {
+    this.readyState = MockWebSocket.OPEN;
+    this.onopen?.({} as Event);
+  }
+
+  send(data: string) {
+    this.sentMessages.push(data);
+  }
+}
+
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
 
@@ -56,30 +95,35 @@ vi.mock('../../app/providers', () => ({
   useAppContext: () => appContext
 }));
 
-vi.mock('../../features/chat/api', () => ({
-  createChatApi: () => ({
-    createConversation,
-    createConversationShare,
-    createPersona,
-    convertConversationToTask,
-    createMessageShare,
-    deletePersona,
-    deleteMessage,
-    exportConversationMarkdown,
-    forkConversation,
-    bookmarkMessage,
-    getConversationConfig,
-    listConversations,
-    listMessages,
-    listModels,
-    listPersonas,
-    sendMessage,
-    sendMessageStream,
-    updateMessage,
-    updateConversationConfig,
-    updatePersona
-  })
-}));
+vi.mock('../../features/chat/api', async () => {
+  const actual = await vi.importActual<typeof import('../../features/chat/api')>('../../features/chat/api');
+
+  return {
+    ...actual,
+    createChatApi: () => ({
+      createConversation,
+      createConversationShare,
+      createPersona,
+      convertConversationToTask,
+      createMessageShare,
+      deletePersona,
+      deleteMessage,
+      exportConversationMarkdown,
+      forkConversation,
+      bookmarkMessage,
+      getConversationConfig,
+      listConversations,
+      listMessages,
+      listModels,
+      listPersonas,
+      sendMessage,
+      sendMessageStream,
+      updateMessage,
+      updateConversationConfig,
+      updatePersona
+    })
+  };
+});
 
 vi.mock('../../features/tasks/api', () => ({
   createTasksApi: () => ({
@@ -153,7 +197,13 @@ describe('ChatPage', () => {
     updatePersona.mockReset();
     listKnowledgeBases.mockReset();
     navigate.mockReset();
+    MockWebSocket.instances = [];
+    vi.stubGlobal('WebSocket', MockWebSocket);
     routeState.conversationId = undefined;
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it('shows the shared conversation rail on /chat and creates the first conversation', async () => {
@@ -244,6 +294,103 @@ describe('ChatPage', () => {
     });
     expect(await screen.findByText('Drafted summary.')).toBeInTheDocument();
     expect(listMessages).toHaveBeenLastCalledWith('conversation_1');
+  });
+
+  it('joins the active realtime conversation and sends typing presence', async () => {
+    mockActiveConversation();
+
+    render(<ChatPage />);
+
+    await screen.findByText('Ready when you are.');
+    expect(MockWebSocket.instances).toHaveLength(1);
+    const socket = MockWebSocket.instances[0];
+    expect(socket.url).toMatch('/api/v1/ws');
+
+    act(() => socket.open());
+
+    expect(socket.sentMessages.map((message) => JSON.parse(message))).toContainEqual({
+      conversationId: 'conversation_1',
+      type: 'chat_join'
+    });
+
+    fireEvent.change(screen.getByLabelText('Message draft'), { target: { value: 'Co-edit this answer.' } });
+
+    await waitFor(() => {
+      expect(socket.sentMessages.map((message) => JSON.parse(message))).toContainEqual({
+        conversationId: 'conversation_1',
+        isTyping: true,
+        type: 'chat_typing'
+      });
+    });
+  });
+
+  it('applies realtime sync, update, delete, and typing events for the active conversation', async () => {
+    mockActiveConversation();
+
+    render(<ChatPage />);
+
+    await screen.findByText('Ready when you are.');
+    const socket = MockWebSocket.instances[0];
+    act(() => socket.open());
+
+    act(() => {
+      socket.emit({
+        category: 'chat',
+        payload: {
+          conversationId: 'conversation_1',
+          messages: [
+            { id: 'm1', role: 'assistant', content: 'Ready when you are.' },
+            { id: 'm2', role: 'user', content: 'Realtime draft.' }
+          ]
+        },
+        type: 'chat_messages_synced'
+      });
+    });
+
+    expect(await screen.findByText('Realtime draft.')).toBeInTheDocument();
+
+    act(() => {
+      socket.emit({
+        category: 'chat',
+        payload: {
+          conversationId: 'conversation_1',
+          isTyping: true,
+          userId: 'user_2'
+        },
+        type: 'chat_typing'
+      });
+    });
+
+    expect(await screen.findByRole('status')).toHaveTextContent('A collaborator is typing...');
+
+    act(() => {
+      socket.emit({
+        category: 'chat',
+        payload: {
+          conversationId: 'conversation_1',
+          message: { id: 'm2', role: 'user', content: 'Realtime draft updated.' },
+          messageId: 'm2'
+        },
+        type: 'chat_message_updated'
+      });
+    });
+
+    expect(await screen.findByText('Realtime draft updated.')).toBeInTheDocument();
+
+    act(() => {
+      socket.emit({
+        category: 'chat',
+        payload: {
+          conversationId: 'conversation_1',
+          messageId: 'm2'
+        },
+        type: 'chat_message_deleted'
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText('Realtime draft updated.')).not.toBeInTheDocument();
+    });
   });
 
   it('previews selected image attachments and sends attachment metadata with the stream payload', async () => {

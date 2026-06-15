@@ -25,6 +25,7 @@ func ServeWS(hub *Hub, w http.ResponseWriter, r *http.Request, userID string) {
 		userID: userID,
 		conn:   conn,
 		send:   make(chan []byte, 256),
+		rooms:  make(map[string]struct{}),
 	}
 
 	hub.register <- client

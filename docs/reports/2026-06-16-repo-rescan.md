@@ -3,10 +3,10 @@
 ## Current Truth
 
 - Branch: `main`.
-- Scan base commit: `0694b44ba95e11f48aff568516b473da54683dc3` (`test(quota): aggregate lifecycle db evidence`).
+- Scan base commit: `cb18df4c7409be5a7a037524ad48dad0338528bc` (`test(release): add target evidence manifest template`).
 - Remote parity at scan start: `HEAD == origin/main`.
-- Working tree at scan start: clean at pushed target live evidence manifest verifier baseline, then dirty with the target evidence template hardening slice in progress.
-- The earlier same-day scans at `1c52194`, `53aaca0`, `d4fdc37`, `75ff216`, `98a1683`, `c6d9b34`, `5969e4b`, `1e7c6ef`, and `e222967` are now older baselines for this report; they did not include the latest quota lifecycle aggregation or target/live evidence manifest verifier gate.
+- Working tree at scan start: clean at the pushed target live evidence manifest template baseline, then dirty with the Chat realtime collaboration slice in progress.
+- The earlier same-day scans at `1c52194`, `53aaca0`, `d4fdc37`, `75ff216`, `98a1683`, `c6d9b34`, `5969e4b`, `1e7c6ef`, `e222967`, `0694b44`, and `984b6a7` are now older baselines for this report; they did not include the latest target evidence template hardening or Chat realtime collaboration slice.
 - The project is still not complete against the four `docs/superpowers/specs/2026-06-04-*` specs.
 - Current matrix remains `4 Proven / 10 Partial / 0 Gap / 0 Unverified`.
 - Current progress estimate remains `99/100`: repository-local evidence is broad, but final completion is still gated by target/live proof and a strict no-skip release run.
@@ -25,6 +25,7 @@
 - Admin top-up refund operator evidence now has no-skip PostgreSQL route proof: duplicate Admin Stripe refund submissions persist one refund row and one lifecycle transition with provider charge/payment-intent evidence, while missing Stripe charge/payment-intent evidence returns 400 without mutating refund, lifecycle, payment-intent, top-up, or quota state.
 - Quota SQL isolation now aggregates quota lifecycle proof across quota store, HTTP route, Admin, and Stripe lifecycle tests in one no-skip PostgreSQL profile, including user-scoped balance mode, request-cap fallback, top-up no-credit-before-webhook, direct top-up rejection, Admin refund quota reversal, and Stripe top-up/refund accounting.
 - Target/live release evidence now has a machine-readable manifest verifier. The strict commercial verifier requires `COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true` for final readiness, and the manifest validator checks exact commit, strict no-skip verifier result, deployment/backup/migration evidence, Kubernetes validation/rollout/failover evidence, live provider checkout/refund/payout/reconciliation evidence, Agent/Workflow/Task generated-client gRPC smoke evidence, target secret audit, workflow telemetry `successRate >= 0.99`, no skip-like fields, no embedded secret material, and no placeholder artifact refs. `--print-template` now emits a current-commit external manifest skeleton that is intentionally rejected until every `TODO` artifact reference is replaced with concrete target-run evidence.
+- Chat realtime collaboration now has a repository-local implementation and proof slice. `/api/v1/ws` supports conversation-scoped Chat rooms, `chat_join`/`chat_leave`/`chat_typing` client frames, and server-side Chat sync/update/delete broadcasts; `ChatPage` opens the active-conversation socket, sends typing presence, renders collaborator typing state, and applies sync/update/delete events; OpenAPI documents and gates the Chat realtime WebSocket schemas.
 
 ## Repository Inventory
 
@@ -88,6 +89,7 @@ No rows are currently marked `Gap` or `Unverified`.
 
 - `docs/release/fusion-spec-evidence-pack.md` still states that the pack is not a final completion claim; any `Partial` row remains open until row-specific proof is recorded and rerun on the target environment where required.
 - `scripts/verify-target-release-evidence.sh` now provides the external target/live evidence manifest gate for proof that cannot be collected from repository-local tests.
+- Chat realtime repository proof is local and focused: `go test ./internal/ws`, Chat handler realtime publish tests, focused Chat Vitest, OpenAPI contract verification, web TypeScript, and docs gate cover this slice.
 - `scripts/verify-commercial-db-evidence.sh` currently exposes 24 focused profiles plus the `all` aggregator:
   - `backend-journey`
   - `marketplace-money-movement`
@@ -156,6 +158,11 @@ Closed after this rescan:
   - `scripts/verify-target-release-evidence.sh` now validates the external JSON evidence package required for live provider rails, deployed gRPC reachability, target secret audit, Kubernetes failover, workflow telemetry, and strict no-skip verifier proof, while rejecting embedded secret material and placeholder artifact refs.
 - Target/live release evidence template generation.
   - `scripts/verify-target-release-evidence.sh --print-template` now emits a current-commit manifest skeleton for an external file outside git. The generated template contains `TODO` artifact refs and is intentionally rejected by the verifier until real target-run evidence replaces those values.
+- Chat realtime collaboration repository slice.
+  - `src/server/internal/ws/hub.go` now tracks conversation rooms and broadcasts Chat events only to room subscribers, excluding the sender for client-originated typing.
+  - `src/server/internal/http/chat_handler.go` and `src/server/internal/http/chat_actions_handler.go` publish message sync/update/delete events after successful Chat mutations while keeping `listMessages` read-only for realtime to avoid sync loops.
+  - `src/web/src/features/chat/api.ts` and `src/web/src/routes/workspace/ChatPage.tsx` connect the active conversation to `/api/v1/ws`, send typing presence, and apply realtime transcript events.
+  - `docs/api/openapi.yaml` and `scripts/verify-openapi-contract.sh` now document and guard Chat realtime WebSocket frame schemas.
 
 The remaining follow-up is target/live evidence collection; it does not have a repository-only substitute:
 
@@ -168,6 +175,8 @@ The remaining follow-up is target/live evidence collection; it does not have a r
 ```bash
 git status --short --branch
 git rev-parse HEAD origin/main
+rg -n 'real-time|realtime|collaboration|typing|WebSocket|chat' docs/superpowers/specs docs/reports docs/release -g '*.md'
+rg -n 'COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE|target live|live evidence|verify-target-release-evidence|ChatRealtime|chat_' docs scripts src -g '*.md' -g '*.sh' -g '*.go' -g '*.tsx' -g '*.ts'
 git log --oneline --decorate -12
 git log --oneline --decorate -8
 find . \( -path './.git' -o -path './node_modules' -o -path './src/web/node_modules' -o -path './.tmp' -o -path './reference' \) -prune -o -name AGENTS.md -print
@@ -190,6 +199,11 @@ rg -n 'target|Kubernetes|secret|payment|provider|failover|gRPC|grpc|no-skip|live
 rg -n 'COMMERCIAL_COMPLETION_RUN_DEPLOY|COMMERCIAL_COMPLETION_RUN_K8S|COMMERCIAL_COMPLETION_RUN_BACKUP_RESTORE|COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE|verify-target-release-evidence|target live evidence' docs/release docs/reports scripts -S
 rg -n 'TODO|FIXME|XXX|stub|placeholder|Unimplemented|DisabledInProduction' src scripts deploy docs/release docs/reports -g '!src/web/test-results/**' -g '!src/web/playwright-report/**' -g '!**/*.pb.go' -g '!docs/reports/archive/**'
 sed -n '1,340p' scripts/verify-target-release-evidence.sh
+GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/ws -count=1 -v
+GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/http -run 'TestChatHandler(SendMessagePublishesRealtimeSync|ListMessagesDoesNotPublishRealtimeSync|MessageActionsPublishRealtimeEvents|StreamMessagePublishesRealtimeSyncAfterCompletion)' -count=1 -v
+COREPACK_HOME=/tmp/codex-corepack pnpm --dir src/web exec vitest run src/features/chat/api.test.ts src/routes/workspace/ChatPage.behavior.test.tsx
+bash scripts/verify-openapi-contract.sh
+COREPACK_HOME=/tmp/codex-corepack pnpm --dir src/web exec tsc --noEmit
 sed -n '1,180p' docs/release/commercial-completion-audit.md
 git diff --stat
 git diff -- scripts/verify-commercial-completion.sh scripts/verify-fusion-evidence-pack.sh scripts/verify-quality-gates.sh scripts/verify-target-release-evidence.sh docs/release/commercial-gates.md docs/release/fusion-spec-evidence-pack.md docs/release/rc-checklist.md docs/release/commercial-completion-audit.md docs/reports/2026-06-07-fusion-spec-completion-matrix.md docs/reports/2026-06-16-repo-rescan.md
@@ -228,9 +242,14 @@ sed -n '1,140p' docs/release/fusion-spec-evidence-pack.md
 
 ## Verification For This Report
 
-This report is documentation-only. It should be verified with:
+This report includes the Chat realtime repository slice. It should be verified with:
 
 ```bash
+GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/ws -count=1 -v
+GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/http -run 'TestChatHandler(SendMessagePublishesRealtimeSync|ListMessagesDoesNotPublishRealtimeSync|MessageActionsPublishRealtimeEvents|StreamMessagePublishesRealtimeSyncAfterCompletion)' -count=1 -v
+COREPACK_HOME=/tmp/codex-corepack pnpm --dir src/web exec vitest run src/features/chat/api.test.ts src/routes/workspace/ChatPage.behavior.test.tsx
+bash scripts/verify-openapi-contract.sh
+COREPACK_HOME=/tmp/codex-corepack pnpm --dir src/web exec tsc --noEmit
 bash -n scripts/verify-target-release-evidence.sh scripts/verify-commercial-completion.sh scripts/verify-fusion-evidence-pack.sh scripts/verify-quality-gates.sh
 bash scripts/verify-target-release-evidence.sh --help
 bash scripts/verify-target-release-evidence.sh --print-template

@@ -30,6 +30,12 @@ type chatFakeStore struct {
 	personaDeleteErr      error
 }
 
+type chatRealtimeNotification struct {
+	conversationID string
+	eventType      string
+	payload        any
+}
+
 func (f *chatFakeStore) CreateConversation(ctx context.Context, workspaceID string, args ...string) (chat.Conversation, error) {
 	f.lastWorkspaceID = workspaceID
 	return chat.Conversation{}, nil
@@ -569,5 +575,181 @@ func TestChatHandlerSearchMessagesRequiresQuery(t *testing.T) {
 
 	if recorder.Code != stdhttp.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", recorder.Code)
+	}
+}
+
+func TestChatHandlerSendMessagePublishesRealtimeSync(t *testing.T) {
+	expectedMessages := []chat.Message{
+		{ID: "message_1", Role: "user", Content: "Summarize the rollout."},
+		{ID: "message_2", Role: "assistant", Content: "Rollout summarized."},
+	}
+	store := &chatFakeStore{messages: expectedMessages}
+	handler := newChatHandler(chat.NewService(store, noopReplyGenerator{}, "demo-reply", nil))
+	var notifications []chatRealtimeNotification
+	handler.notifyConversation = func(conversationID, eventType string, payload any) {
+		notifications = append(notifications, chatRealtimeNotification{conversationID: conversationID, eventType: eventType, payload: payload})
+	}
+	request := httptest.NewRequest(
+		stdhttp.MethodPost,
+		"/api/v1/app/conversations/conversation_1/messages",
+		strings.NewReader(`{"content":"Summarize the rollout."}`),
+	).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		User:        auth.User{ID: "user_1"},
+		WorkspaceID: "workspace_1",
+	}))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.sendMessage(recorder, request, "conversation_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if len(notifications) != 1 {
+		t.Fatalf("expected one realtime notification, got %+v", notifications)
+	}
+	notification := notifications[0]
+	if notification.conversationID != "conversation_1" || notification.eventType != "chat_messages_synced" {
+		t.Fatalf("unexpected notification target/type: %+v", notification)
+	}
+	payload, ok := notification.payload.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map payload, got %#v", notification.payload)
+	}
+	if payload["conversationId"] != "conversation_1" || payload["userId"] != "user_1" {
+		t.Fatalf("unexpected sync payload identity fields: %+v", payload)
+	}
+	messages, ok := payload["messages"].([]chat.Message)
+	if !ok || len(messages) != len(expectedMessages) || messages[1].ID != "message_2" {
+		t.Fatalf("unexpected sync messages payload: %#v", payload["messages"])
+	}
+}
+
+func TestChatHandlerListMessagesDoesNotPublishRealtimeSync(t *testing.T) {
+	store := &chatFakeStore{messages: []chat.Message{{ID: "message_1", Role: "assistant", Content: "Ready."}}}
+	handler := newChatHandler(chat.NewService(store, noopReplyGenerator{}, "demo-reply", nil))
+	var notifications []chatRealtimeNotification
+	handler.notifyConversation = func(conversationID, eventType string, payload any) {
+		notifications = append(notifications, chatRealtimeNotification{conversationID: conversationID, eventType: eventType, payload: payload})
+	}
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/app/conversations/conversation_1/messages", nil).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		User:        auth.User{ID: "user_1"},
+		WorkspaceID: "workspace_1",
+	}))
+	recorder := httptest.NewRecorder()
+
+	handler.listMessages(recorder, request, "conversation_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if len(notifications) != 0 {
+		t.Fatalf("expected listMessages to be read-only for realtime, got %+v", notifications)
+	}
+}
+
+func TestChatHandlerMessageActionsPublishRealtimeEvents(t *testing.T) {
+	store := &chatFakeStore{}
+	handler := newChatHandler(chat.NewService(store, noopReplyGenerator{}, "demo-reply", nil))
+	var notifications []chatRealtimeNotification
+	handler.notifyConversation = func(conversationID, eventType string, payload any) {
+		notifications = append(notifications, chatRealtimeNotification{conversationID: conversationID, eventType: eventType, payload: payload})
+	}
+	session := auth.Session{User: auth.User{ID: "user_1"}, WorkspaceID: "workspace_1"}
+
+	updateRequest := httptest.NewRequest(
+		stdhttp.MethodPut,
+		"/api/v1/app/conversations/conversation_1/messages/message_1",
+		strings.NewReader(`{"content":"Edited message"}`),
+	).WithContext(context.WithValue(context.Background(), sessionContextKey, session))
+	updateRequest.Header.Set("Content-Type", "application/json")
+	updateRecorder := httptest.NewRecorder()
+	handler.updateMessage(updateRecorder, updateRequest, "conversation_1", "message_1")
+	if updateRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected update 200, got %d with body %s", updateRecorder.Code, updateRecorder.Body.String())
+	}
+
+	deleteRequest := httptest.NewRequest(
+		stdhttp.MethodDelete,
+		"/api/v1/app/conversations/conversation_1/messages/message_1",
+		nil,
+	).WithContext(context.WithValue(context.Background(), sessionContextKey, session))
+	deleteRecorder := httptest.NewRecorder()
+	handler.deleteMessage(deleteRecorder, deleteRequest, "conversation_1", "message_1")
+	if deleteRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected delete 200, got %d with body %s", deleteRecorder.Code, deleteRecorder.Body.String())
+	}
+
+	if len(notifications) != 2 {
+		t.Fatalf("expected two realtime notifications, got %+v", notifications)
+	}
+	if notifications[0].conversationID != "conversation_1" || notifications[0].eventType != "chat_message_updated" {
+		t.Fatalf("unexpected update notification: %+v", notifications[0])
+	}
+	updatePayload, ok := notifications[0].payload.(map[string]any)
+	if !ok {
+		t.Fatalf("expected update map payload, got %#v", notifications[0].payload)
+	}
+	if updatePayload["messageId"] != "message_1" || updatePayload["userId"] != "user_1" {
+		t.Fatalf("unexpected update payload: %+v", updatePayload)
+	}
+	if message, ok := updatePayload["message"].(chat.Message); !ok || message.Content != "Edited message" {
+		t.Fatalf("unexpected updated message payload: %#v", updatePayload["message"])
+	}
+
+	if notifications[1].conversationID != "conversation_1" || notifications[1].eventType != "chat_message_deleted" {
+		t.Fatalf("unexpected delete notification: %+v", notifications[1])
+	}
+	deletePayload, ok := notifications[1].payload.(map[string]any)
+	if !ok {
+		t.Fatalf("expected delete map payload, got %#v", notifications[1].payload)
+	}
+	if deletePayload["messageId"] != "message_1" || deletePayload["userId"] != "user_1" {
+		t.Fatalf("unexpected delete payload: %+v", deletePayload)
+	}
+}
+
+func TestChatHandlerStreamMessagePublishesRealtimeSyncAfterCompletion(t *testing.T) {
+	expectedMessages := []chat.Message{
+		{ID: "message_1", Role: "user", Content: "Draft a summary."},
+		{ID: "message_2", Role: "assistant", Content: "Summary drafted."},
+	}
+	store := &chatFakeStore{messages: expectedMessages}
+	handler := newChatHandler(chat.NewService(store, streamingReplyGenerator{chunks: []string{"Summary ", "drafted."}}, "demo-reply", nil))
+	var notifications []chatRealtimeNotification
+	handler.notifyConversation = func(conversationID, eventType string, payload any) {
+		notifications = append(notifications, chatRealtimeNotification{conversationID: conversationID, eventType: eventType, payload: payload})
+	}
+	request := httptest.NewRequest(
+		stdhttp.MethodPost,
+		"/api/v1/app/conversations/conversation_1/messages/stream",
+		strings.NewReader(`{"content":"Draft a summary."}`),
+	).WithContext(context.WithValue(context.Background(), sessionContextKey, auth.Session{
+		User:        auth.User{ID: "user_1"},
+		WorkspaceID: "workspace_1",
+	}))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	handler.streamMessage(recorder, request, "conversation_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected stream 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if len(notifications) != 1 {
+		t.Fatalf("expected one realtime notification, got %+v", notifications)
+	}
+	if notifications[0].conversationID != "conversation_1" || notifications[0].eventType != "chat_messages_synced" {
+		t.Fatalf("unexpected stream notification: %+v", notifications[0])
+	}
+	payload, ok := notifications[0].payload.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map payload, got %#v", notifications[0].payload)
+	}
+	if payload["userId"] != "user_1" {
+		t.Fatalf("unexpected stream payload: %+v", payload)
+	}
+	if messages, ok := payload["messages"].([]chat.Message); !ok || len(messages) != len(expectedMessages) {
+		t.Fatalf("unexpected stream messages payload: %#v", payload["messages"])
 	}
 }

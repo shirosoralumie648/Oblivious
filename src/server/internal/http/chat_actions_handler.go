@@ -95,6 +95,7 @@ func (h chatHandler) updateMessage(w stdhttp.ResponseWriter, r *stdhttp.Request,
 		writeChatActionError(w, err, "update message failed")
 		return
 	}
+	h.publishChatMessageUpdated(session.User.ID, conversationID, message)
 	writeSuccess(w, stdhttp.StatusOK, message)
 }
 
@@ -108,6 +109,7 @@ func (h chatHandler) deleteMessage(w stdhttp.ResponseWriter, r *stdhttp.Request,
 		writeChatActionError(w, err, "delete message failed")
 		return
 	}
+	h.publishChatMessageDeleted(session.User.ID, conversationID, messageID)
 	writeSuccess(w, stdhttp.StatusOK, map[string]string{"status": "deleted"})
 }
 
@@ -127,6 +129,7 @@ func (h chatHandler) bookmarkMessage(w stdhttp.ResponseWriter, r *stdhttp.Reques
 		writeChatActionError(w, err, "bookmark message failed")
 		return
 	}
+	h.publishChatMessageUpdated(session.User.ID, conversationID, message)
 	writeSuccess(w, stdhttp.StatusOK, message)
 }
 
@@ -270,6 +273,9 @@ func (h chatHandler) streamMessage(w stdhttp.ResponseWriter, r *stdhttp.Request,
 			flusher.Flush()
 		}
 		return
+	}
+	if messages, listErr := h.service.ListMessages(r.Context(), session, conversationID); listErr == nil {
+		h.publishChatMessagesSynced(session.User.ID, conversationID, messages)
 	}
 	_ = writeSSEFrame(w, "", "[DONE]")
 	if flusher != nil {

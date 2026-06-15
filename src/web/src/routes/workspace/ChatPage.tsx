@@ -1,12 +1,13 @@
 import { RiAddLine, RiCloseLine, RiMenuLine } from '@remixicon/react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { useAppContext } from '../../app/providers';
 import { createKnowledgeApi } from '../../features/knowledge/api';
-import { createChatApi } from '../../features/chat/api';
+import { createChatApi, createConversationRealtimeSocket } from '../../features/chat/api';
 import { createTasksApi } from '../../features/tasks/api';
 import { createHttpClient } from '../../services/http/client';
+import type { ChatRealtimeEvent, ConversationRealtimeSocket } from '../../features/chat/api';
 import type {
   ConversationConfig,
   ConversationMessage,
@@ -403,6 +404,29 @@ function citationMetadataItems(citation: KnowledgeCitation) {
   return items;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function realtimePayloadForConversation(event: ChatRealtimeEvent, conversationId: string) {
+  const payload = event.payload;
+  if (!isRecord(payload) || payload.conversationId !== conversationId) {
+    return null;
+  }
+  return payload;
+}
+
+function isConversationMessage(value: unknown): value is ConversationMessage {
+  return isRecord(value) && typeof value.id === 'string' && typeof value.role === 'string' && typeof value.content === 'string';
+}
+
+function conversationMessagesFromPayload(payload: Record<string, unknown>) {
+  if (!Array.isArray(payload.messages)) {
+    return null;
+  }
+  return payload.messages.every(isConversationMessage) ? payload.messages : null;
+}
+
 type KnowledgeCitationListProps = {
   citations: KnowledgeCitation[];
   messageId: string;
@@ -469,6 +493,9 @@ export function ChatPage() {
   const chatApi = useMemo(() => createChatApi(httpClient), [httpClient]);
   const knowledgeApi = useMemo(() => createKnowledgeApi(httpClient), [httpClient]);
   const tasksApi = useMemo(() => createTasksApi(httpClient), [httpClient]);
+  const editingMessageIdRef = useRef<string | null>(null);
+  const realtimeSocketRef = useRef<ConversationRealtimeSocket | null>(null);
+  const typingIdleTimerRef = useRef<number | null>(null);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [conversationConfig, setConversationConfig] = useState<ConversationConfig | null>(null);
   const [handoffDraft, setHandoffDraft] = useState<ConvertConversationToTaskResponse | null>(null);
@@ -476,6 +503,7 @@ export function ChatPage() {
   const [messageAttachments, setMessageAttachments] = useState<MessageAttachment[]>([]);
   const [messageDraft, setMessageDraft] = useState('');
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
+  const [collaboratorTypingUserIds, setCollaboratorTypingUserIds] = useState<string[]>([]);
   const [editingMessageDraft, setEditingMessageDraft] = useState('');
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [conversationShareExpiration, setConversationShareExpiration] = useState('');
@@ -527,6 +555,11 @@ export function ChatPage() {
 
     return visibleByFilter.filter((conversation) => conversation.title.toLowerCase().includes(normalizedConversationSearch));
   }, [conversationFilter, conversations, normalizedConversationSearch]);
+  const isCollaboratorTyping = collaboratorTypingUserIds.length > 0;
+
+  useEffect(() => {
+    editingMessageIdRef.current = editingMessageId;
+  }, [editingMessageId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -641,6 +674,123 @@ export function ChatPage() {
       cancelled = true;
     };
   }, [chatApi, conversationId, knowledgeApi, reloadToken]);
+
+  useEffect(() => {
+    if (!conversationId) {
+      realtimeSocketRef.current = null;
+      setCollaboratorTypingUserIds([]);
+      return undefined;
+    }
+
+    setCollaboratorTypingUserIds([]);
+    const currentUserId = authState.user?.id;
+    const socket = createConversationRealtimeSocket(conversationId, {
+      onEvent: (event) => {
+        if (event.category !== 'chat') {
+          return;
+        }
+        const payload = realtimePayloadForConversation(event, conversationId);
+        if (payload === null) {
+          return;
+        }
+
+        if (event.type === 'chat_typing') {
+          const userId = typeof payload.userId === 'string' && payload.userId.trim() !== '' ? payload.userId : 'collaborator';
+          if (userId === currentUserId) {
+            return;
+          }
+          const isTyping = payload.isTyping === true;
+          setCollaboratorTypingUserIds((currentUserIds) => {
+            if (isTyping) {
+              return currentUserIds.includes(userId) ? currentUserIds : [...currentUserIds, userId];
+            }
+            return currentUserIds.filter((currentId) => currentId !== userId);
+          });
+          return;
+        }
+
+        if (event.type === 'chat_messages_synced') {
+          const realtimeMessages = conversationMessagesFromPayload(payload);
+          if (realtimeMessages !== null) {
+            setMessages(realtimeMessages);
+            return;
+          }
+          void chatApi.listMessages(conversationId).then(setMessages).catch(() => undefined);
+          return;
+        }
+
+        if (event.type === 'chat_message_updated') {
+          const updatedMessage = payload.message;
+          if (!isConversationMessage(updatedMessage)) {
+            return;
+          }
+          setMessages((currentMessages) =>
+            currentMessages.map((currentMessage) => (currentMessage.id === updatedMessage.id ? updatedMessage : currentMessage))
+          );
+          return;
+        }
+
+        if (event.type === 'chat_message_deleted') {
+          if (typeof payload.messageId !== 'string' || payload.messageId.trim() === '') {
+            return;
+          }
+          const deletedMessageId = payload.messageId;
+          setMessages((currentMessages) => currentMessages.filter((currentMessage) => currentMessage.id !== deletedMessageId));
+          setMessageShares((currentShares) => {
+            const { [deletedMessageId]: _removedShare, ...nextShares } = currentShares;
+            return nextShares;
+          });
+          setMessageShareExpirations((currentExpirations) => {
+            const { [deletedMessageId]: _removedExpiration, ...nextExpirations } = currentExpirations;
+            return nextExpirations;
+          });
+          if (editingMessageIdRef.current === deletedMessageId) {
+            setEditingMessageDraft('');
+            setEditingMessageId(null);
+          }
+        }
+      }
+    });
+
+    realtimeSocketRef.current = socket;
+    return () => {
+      socket.sendTyping(false);
+      socket.close();
+      if (realtimeSocketRef.current === socket) {
+        realtimeSocketRef.current = null;
+      }
+      if (typingIdleTimerRef.current !== null) {
+        window.clearTimeout(typingIdleTimerRef.current);
+        typingIdleTimerRef.current = null;
+      }
+    };
+  }, [authState.user?.id, chatApi, conversationId]);
+
+  useEffect(() => {
+    if (!conversationId || realtimeSocketRef.current === null) {
+      return undefined;
+    }
+
+    const isTyping = messageDraft.trim() !== '';
+    realtimeSocketRef.current.sendTyping(isTyping);
+    if (typingIdleTimerRef.current !== null) {
+      window.clearTimeout(typingIdleTimerRef.current);
+      typingIdleTimerRef.current = null;
+    }
+    if (isTyping) {
+      typingIdleTimerRef.current = window.setTimeout(() => {
+        realtimeSocketRef.current?.sendTyping(false);
+        typingIdleTimerRef.current = null;
+      }, 1200);
+    }
+
+    return () => {
+      if (typingIdleTimerRef.current !== null) {
+        window.clearTimeout(typingIdleTimerRef.current);
+        typingIdleTimerRef.current = null;
+      }
+    };
+  }, [conversationId, messageDraft]);
 
   const handleCreateConversation = async () => {
     setActionError(null);
@@ -937,6 +1087,7 @@ export function ChatPage() {
 
     setActionError(null);
     setIsSending(true);
+    realtimeSocketRef.current?.sendTyping(false);
     setMessages((currentMessages) => [...currentMessages, optimisticUserMessage, optimisticAssistantMessage]);
     try {
       await chatApi.sendMessageStream(conversationId, payload, {
@@ -1456,6 +1607,7 @@ export function ChatPage() {
                   <p>No messages yet.</p>
                 )}
               </section>
+              {isCollaboratorTyping ? <p role="status">A collaborator is typing...</p> : null}
               <label>
                 Message draft
                 <textarea onChange={(event) => setMessageDraft(event.target.value)} value={messageDraft} />

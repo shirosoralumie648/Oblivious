@@ -4883,6 +4883,23 @@ require_websocket_contract() {
     unless op.dig("responses", "405", "$ref") == "#/components/responses/MethodNotAllowed"
       missing << "GET /api/v1/ws 405 must reference MethodNotAllowed"
     end
+    unless op.dig("x-websocket-client-message", "$ref") == "#/components/schemas/ChatRealtimeClientMessage"
+      missing << "GET /api/v1/ws must document ChatRealtimeClientMessage as the client frame"
+    end
+    unless op.dig("x-websocket-server-message", "$ref") == "#/components/schemas/ChatRealtimeEvent"
+      missing << "GET /api/v1/ws must document ChatRealtimeEvent as the server frame"
+    end
+    schemas = spec.fetch("components", {}).fetch("schemas", {})
+    %w[
+      ChatRealtimeClientMessage
+      ChatRealtimeEvent
+      ChatMessagesSyncedPayload
+      ChatMessageUpdatedPayload
+      ChatMessageDeletedPayload
+      ChatTypingPayload
+    ].each do |schema_name|
+      missing << "components.schemas.#{schema_name} must be documented for /api/v1/ws chat realtime" unless schemas.key?(schema_name)
+    end
 
     unless missing.empty?
       warn "[openapi-contract] WebSocket contract is incomplete:"

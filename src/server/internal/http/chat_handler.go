@@ -9,10 +9,12 @@ import (
 	"strings"
 
 	"oblivious/server/internal/chat"
+	"oblivious/server/internal/ws"
 )
 
 type chatHandler struct {
-	service *chat.Service
+	notifyConversation func(conversationID, eventType string, payload any)
+	service            *chat.Service
 }
 
 type createConversationRequest struct {
@@ -74,7 +76,44 @@ type createAttachmentRequest struct {
 }
 
 func newChatHandler(service *chat.Service) chatHandler {
-	return chatHandler{service: service}
+	return chatHandler{
+		notifyConversation: ws.NotifyConversation,
+		service:            service,
+	}
+}
+
+func (h chatHandler) publishChatMessagesSynced(sessionUserID, conversationID string, messages []chat.Message) {
+	if h.notifyConversation == nil || strings.TrimSpace(conversationID) == "" {
+		return
+	}
+	h.notifyConversation(conversationID, "chat_messages_synced", map[string]any{
+		"conversationId": conversationID,
+		"messages":       messages,
+		"userId":         strings.TrimSpace(sessionUserID),
+	})
+}
+
+func (h chatHandler) publishChatMessageUpdated(sessionUserID, conversationID string, message chat.Message) {
+	if h.notifyConversation == nil || strings.TrimSpace(conversationID) == "" {
+		return
+	}
+	h.notifyConversation(conversationID, "chat_message_updated", map[string]any{
+		"conversationId": conversationID,
+		"message":        message,
+		"messageId":      message.ID,
+		"userId":         strings.TrimSpace(sessionUserID),
+	})
+}
+
+func (h chatHandler) publishChatMessageDeleted(sessionUserID, conversationID, messageID string) {
+	if h.notifyConversation == nil || strings.TrimSpace(conversationID) == "" || strings.TrimSpace(messageID) == "" {
+		return
+	}
+	h.notifyConversation(conversationID, "chat_message_deleted", map[string]any{
+		"conversationId": conversationID,
+		"messageId":      strings.TrimSpace(messageID),
+		"userId":         strings.TrimSpace(sessionUserID),
+	})
 }
 
 func (h chatHandler) createConversation(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -304,6 +343,7 @@ func (h chatHandler) sendMessage(w stdhttp.ResponseWriter, r *stdhttp.Request, c
 		return
 	}
 
+	h.publishChatMessagesSynced(session.User.ID, conversationID, messages)
 	writeSuccess(w, stdhttp.StatusOK, messages)
 }
 

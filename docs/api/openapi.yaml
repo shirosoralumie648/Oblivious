@@ -421,6 +421,86 @@ components:
           type: string
           format: date-time
 
+    ChatRealtimeClientMessage:
+      type: object
+      required: [type, conversationId]
+      properties:
+        type:
+          type: string
+          enum: [chat_join, chat_leave, chat_typing]
+        conversationId:
+          type: string
+        isTyping:
+          type: boolean
+
+    ChatRealtimeEvent:
+      type: object
+      required: [type, category, payload, timestamp]
+      properties:
+        type:
+          type: string
+          enum: [chat_messages_synced, chat_message_deleted, chat_message_updated, chat_typing]
+        category:
+          type: string
+          enum: [chat]
+        payload:
+          oneOf:
+            - $ref: "#/components/schemas/ChatMessagesSyncedPayload"
+            - $ref: "#/components/schemas/ChatMessageUpdatedPayload"
+            - $ref: "#/components/schemas/ChatMessageDeletedPayload"
+            - $ref: "#/components/schemas/ChatTypingPayload"
+        timestamp:
+          type: string
+          format: date-time
+
+    ChatMessagesSyncedPayload:
+      type: object
+      required: [conversationId, messages]
+      properties:
+        conversationId:
+          type: string
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/Message"
+        userId:
+          type: string
+
+    ChatMessageUpdatedPayload:
+      type: object
+      required: [conversationId, message, messageId]
+      properties:
+        conversationId:
+          type: string
+        message:
+          $ref: "#/components/schemas/Message"
+        messageId:
+          type: string
+        userId:
+          type: string
+
+    ChatMessageDeletedPayload:
+      type: object
+      required: [conversationId, messageId]
+      properties:
+        conversationId:
+          type: string
+        messageId:
+          type: string
+        userId:
+          type: string
+
+    ChatTypingPayload:
+      type: object
+      required: [conversationId, isTyping, userId]
+      properties:
+        conversationId:
+          type: string
+        isTyping:
+          type: boolean
+        userId:
+          type: string
+
     UpdateMessageRequest:
       type: object
       required: [content]
@@ -6131,10 +6211,18 @@ paths:
   /api/v1/ws:
     get:
       summary: 建立工作区实时事件 WebSocket
+      description: |
+        Authenticated workspace WebSocket for notification, system, and chat realtime events.
+        Chat clients send ChatRealtimeClientMessage frames to join or leave a conversation room and publish typing presence.
+        The server emits ChatRealtimeEvent frames for conversation-scoped message sync, message update/delete, and typing presence.
       operationId: connectWorkspaceWebSocket
       tags: [Realtime]
       security:
         - cookieAuth: []
+      x-websocket-client-message:
+        $ref: "#/components/schemas/ChatRealtimeClientMessage"
+      x-websocket-server-message:
+        $ref: "#/components/schemas/ChatRealtimeEvent"
       responses:
         "101":
           description: WebSocket 连接已升级

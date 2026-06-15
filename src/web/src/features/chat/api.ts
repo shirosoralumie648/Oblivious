@@ -77,9 +77,97 @@ export type ChatApiOptions = {
   fetchFn?: typeof fetch;
 };
 
+export type ChatRealtimePayload = {
+  conversationId?: string;
+  isTyping?: boolean;
+  message?: ConversationMessage;
+  messageId?: string;
+  messages?: ConversationMessage[];
+  userId?: string;
+};
+
+export type ChatRealtimeEvent = {
+  category?: string;
+  payload?: ChatRealtimePayload;
+  timestamp?: string;
+  type: 'chat_messages_synced' | 'chat_message_deleted' | 'chat_message_updated' | 'chat_typing' | string;
+};
+
+export type ConversationRealtimeHandlers = {
+  onEvent: (event: ChatRealtimeEvent) => void;
+};
+
+export type ConversationRealtimeSocket = {
+  close: () => void;
+  sendTyping: (isTyping: boolean) => void;
+};
+
 type RawPersonaSummary = Omit<PersonaSummary, 'suggestedQuestions'> & {
   suggestedQuestions?: string[] | string;
 };
+
+function websocketURL(path: string) {
+  if (typeof window === 'undefined' || !window.location?.host) {
+    return path;
+  }
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${window.location.host}${path}`;
+}
+
+function noopConversationRealtimeSocket(): ConversationRealtimeSocket {
+  return {
+    close: () => undefined,
+    sendTyping: () => undefined
+  };
+}
+
+export function createConversationRealtimeSocket(
+  conversationId: string,
+  handlers: ConversationRealtimeHandlers
+): ConversationRealtimeSocket {
+  const normalizedConversationId = conversationId.trim();
+  if (normalizedConversationId === '' || typeof WebSocket === 'undefined') {
+    return noopConversationRealtimeSocket();
+  }
+
+  const socket = new WebSocket(websocketURL('/api/v1/ws'));
+  const sendClientMessage = (message: { conversationId: string; isTyping?: boolean; type: string }) => {
+    if (socket.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    socket.send(JSON.stringify(message));
+  };
+
+  socket.onopen = () => {
+    sendClientMessage({ conversationId: normalizedConversationId, type: 'chat_join' });
+  };
+  socket.onmessage = (event) => {
+    if (typeof event.data !== 'string') {
+      return;
+    }
+    event.data
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .forEach((line) => {
+        try {
+          handlers.onEvent(JSON.parse(line) as ChatRealtimeEvent);
+        } catch {
+          // Ignore malformed frames so one bad realtime payload does not tear down the chat page.
+        }
+      });
+  };
+
+  return {
+    close: () => {
+      sendClientMessage({ conversationId: normalizedConversationId, type: 'chat_leave' });
+      socket.close();
+    },
+    sendTyping: (isTyping) => {
+      sendClientMessage({ conversationId: normalizedConversationId, isTyping, type: 'chat_typing' });
+    }
+  };
+}
 
 export function createChatApi(client: HttpClient, options: ChatApiOptions = {}): ChatApi {
   const fetchFn = options.fetchFn ?? fetch;
