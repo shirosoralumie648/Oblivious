@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os/exec"
 	"strings"
 	"time"
@@ -123,10 +125,40 @@ func (e *ToolExecutor) executeMCP(ctx context.Context, organizationID, serverID 
 	}, nil
 }
 
+// isSafeSSRFURL 检查给定的 URL 是否安全，防止 SSRF 攻击
+func isSafeSSRFURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return err
+	}
+
+	host := u.Hostname()
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		return err
+	}
+
+	for _, ip := range ips {
+		if ip.IsPrivate() || ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+			return fmt.Errorf("URL resolves to private or restricted IP: %s", ip.String())
+		}
+	}
+
+	return nil
+}
+
+// Override for testing
+var ssrfBypassForTest bool
+
 // executeCustomAPI 执行自定义 API 工具
 func (e *ToolExecutor) executeCustomAPI(ctx context.Context, tool *Tool, toolCall *ToolCall) (*ExecuteResult, error) {
 	if tool.ServerID == "" {
 		return nil, fmt.Errorf("custom API endpoint not specified")
+	}
+	if !ssrfBypassForTest {
+		if err := isSafeSSRFURL(tool.ServerID); err != nil {
+			return nil, fmt.Errorf("custom API endpoint is not allowed (SSRF protection): %w", err)
+		}
 	}
 	arguments := toolCall.Arguments
 	if arguments == nil {
