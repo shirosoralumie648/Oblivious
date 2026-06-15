@@ -2,8 +2,8 @@
 
 ## Current Truth
 
-- Branch: `main`; this implementation slice starts from pushed commit `5af7c88 test(workflow): resume agent planning controls`.
-- Refresh base before this slice: `HEAD` and `origin/main` both resolved to `5af7c88a5db4bad0925e8087bae8c6e0b213ccff`; the worktree was clean before the Admin Users quota allocation edits.
+- Branch: `main`; this rescan now runs at pushed commit `c2c8ac1 test(admin): prove user quota allocation`.
+- Current refresh base: `HEAD` and `origin/main` both resolve to `c2c8ac11c7563a5fbc2f48c3da779e36e7191af2`; the worktree was clean before this report refresh.
 - The project is still **not complete** against the four 2026-06-04 fusion specs.
 - The current completion matrix remains `4 Proven / 10 Partial / 0 Gap / 0 Unverified`.
 - Current progress estimate after this scan is **97/100**. Admin Relay channel API-key, Observability alert-provider config, Observability alert/recovery SQL persistence, Publishing channel config, Workflow definition/version/execution-snapshot/node-execution secret-like fields, Workflow-to-Agent planning-control resume integration, Agent Memories browser CRUD/import-export, Agent memory store PostgreSQL persistence, Agent gRPC registration and planning continue/adjust plus plan-step action and token-budget resume service-adapter proof, Billing provider lifecycle PostgreSQL transitions, Admin usage analytics daily aggregate PostgreSQL proof, Marketplace governance/review PostgreSQL proof, Admin Billing operator payout/refund browser proof, Admin commercial configuration browser proof including Admin Users quota allocation, Marketplace publisher/My Agents browser proof, Admin route manifest dispatch proof, durable Agent planning completion evidence, Agent plan adjustment browser proof, Admin Reviews browser moderation/governance proof, and Admin Alerts browser alert-management proof are now covered with repository-local proof, but target-environment workflow telemetry, target secret audits, deployment validation, payment/provider live rails, platform failover, live moderation/notification operations, deployed gRPC/client compatibility, and final no-skip release readiness remain open.
@@ -85,7 +85,7 @@ This scan does not reclassify any Partial row to Proven. Admin Relay API-key, Ob
 
 ## Verification Evidence And Current Scan
 
-Current `5af7c88` refresh commands plus this Admin Users quota allocation slice verification:
+Current `c2c8ac1` refresh commands plus the already-pushed Admin Users quota allocation slice verification:
 
 ```bash
 pwd
@@ -182,8 +182,8 @@ git diff --check
 Result:
 
 - `pwd` showed `/media/shirosora/4A183E5C183E46EB/codestorage/Oblivious`.
-- `git status --short --branch` at this Admin Users quota allocation slice start showed `main...origin/main` at `5af7c88` with a clean worktree before the implementation edits.
-- `git rev-parse HEAD origin/main` returned `5af7c88a5db4bad0925e8087bae8c6e0b213ccff` for both refs before the implementation edits.
+- `git status --short --branch` in this refresh showed `main...origin/main` with a clean worktree at `c2c8ac1`.
+- `git rev-parse HEAD origin/main` returned `c2c8ac11c7563a5fbc2f48c3da779e36e7191af2` for both refs.
 - The top-level matrix count remains 4 `Proven` and 10 `Partial`; the `Gap` and `Unverified` counts remain 0.
 - The current first-party inventory counters after this slice are: `src=987`, `docs=92`, `scripts=37`, `deploy=42`, `.planning=210`, Go test files `230`, web component/API test files `67`, Playwright specs `13`, and Playwright fixtures `13`.
 - The current server-domain leaders are still `relay`, `http`, `mcp`, `admin`, `agent`, `workflow`, `knowledge`, `observability`, `channel`, `migration`, and `marketplace`.
