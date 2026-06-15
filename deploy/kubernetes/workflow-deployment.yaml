@@ -18,21 +18,21 @@ spec:
         image: oblivious/workflow:latest
         ports:
         - containerPort: 8082
+        envFrom:
+        - configMapRef:
+            name: oblivious-config
+        - secretRef:
+            name: oblivious-secrets
         env:
         - name: PORT
           value: "8082"
         - name: DATABASE_URL
           valueFrom:
             secretKeyRef:
-              name: oblivious-secret
-              key: database-url
-        - name: SESSION_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: oblivious-secret
-              key: session-secret
+              name: oblivious-secrets
+              key: DATABASE_URL
         - name: REDIS_ADDR
-          value: "redis:6379"
+          value: "oblivious-redis.oblivious.svc.cluster.local:6379"
         resources:
           requests:
             cpu: 1000m

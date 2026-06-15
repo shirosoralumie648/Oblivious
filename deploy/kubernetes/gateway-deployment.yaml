@@ -18,6 +18,11 @@ spec:
         image: oblivious/gateway:latest
         ports:
         - containerPort: 8080
+        envFrom:
+        - configMapRef:
+            name: oblivious-config
+        - secretRef:
+            name: oblivious-secrets
         env:
         - name: PORT
           value: "8080"

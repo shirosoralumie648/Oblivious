@@ -36,5 +36,7 @@ data:
 
   # LLM defaults (API key comes from Secret)
   RELAY_ENABLED: "true"
+  RELAY_DEFAULT_MODEL: "gpt-4o-mini"
   LLM_TIMEOUT_MS: "30000"
   MODEL_DEFAULT_NAME: "demo-reply"
+  RELAY_SEMANTIC_CACHE_BACKEND: "memory"

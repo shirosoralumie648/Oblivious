@@ -69,6 +69,20 @@ ruby -ryaml -rjson -e '
     end
   end
 
+  def each_node(value, path = [], &block)
+    yield value, path
+    case value
+    when Hash
+      value.each { |key, child| each_node(child, path + [key], &block) }
+    when Array
+      value.each_with_index { |child, index| each_node(child, path + [index], &block) }
+    end
+  end
+
+  def path_label(path)
+    path.map(&:to_s).join(".")
+  end
+
   app_deployment = read_yaml(File.join(repo, "deploy/kubernetes/app-deployment.yaml"))
   server = container(app_deployment, "server")
   missing << "app deployment must use RollingUpdate maxUnavailable=0" unless app_deployment.dig("spec", "strategy", "rollingUpdate", "maxUnavailable").to_s == "0"
@@ -82,14 +96,79 @@ ruby -ryaml -rjson -e '
   config_map = read_yaml(File.join(repo, "deploy/kubernetes/configmap.yaml"))
   missing << "configmap must set production APP_ENV" unless config_map.dig("data", "APP_ENV") == "production"
   missing << "configmap must enable Redis relay rate limiting" unless config_map.dig("data", "RELAY_RATE_LIMIT_BACKEND") == "redis"
+  missing << "configmap must document relay default model" unless config_map.dig("data", "RELAY_DEFAULT_MODEL").to_s != ""
+  missing << "configmap must document relay semantic cache backend" unless config_map.dig("data", "RELAY_SEMANTIC_CACHE_BACKEND").to_s != ""
   missing << "configmap must enable secure session cookies" unless config_map.dig("data", "SESSION_COOKIE_SECURE") == "true"
 
   secret_example = read_yaml(File.join(repo, "deploy/kubernetes/secret.example.yaml"))
+  missing << "secret example must define oblivious-secrets" unless secret_example.dig("metadata", "name") == "oblivious-secrets"
   secret_data = secret_example["stringData"] || {}
-  %w[DATABASE_URL SESSION_SECRET POSTGRES_PASSWORD LLM_API_KEY OPENAI_API_KEY].each do |key|
+  %w[DATABASE_URL SESSION_SECRET POSTGRES_PASSWORD LLM_API_KEY OPENAI_API_KEY DB_URL_CHAT DB_URL_MARKETPLACE DB_URL_OBSERVABILITY].each do |key|
     missing << "secret example must document #{key}" unless secret_data.key?(key)
   end
-  missing << "secret example must remain placeholder-only" unless secret_data.values.any? { |value| value.to_s.include?("REPLACE_ME") }
+  leaked_secret_keys = secret_data.select { |_key, value| value.to_s != "" && !value.to_s.include?("REPLACE_ME") }.keys
+  missing << "secret example must keep non-empty values as REPLACE_ME placeholders: #{leaked_secret_keys.join(", ")}" unless leaked_secret_keys.empty?
+
+  tracked_k8s_files = IO.popen(["git", "-C", repo, "ls-files", "deploy/kubernetes/*.yaml"], &:read).lines.map(&:strip).reject(&:empty?)
+  config_maps = {}
+  secrets = { "oblivious-secrets" => secret_data.keys }
+  tracked_k8s_files.each do |relative_path|
+    read_yaml_stream(File.join(repo, relative_path)).each do |doc|
+      name = doc.dig("metadata", "name").to_s
+      case doc["kind"]
+      when "ConfigMap"
+        config_maps[name] = (doc["data"] || {}).keys
+      when "Secret"
+        secrets[name] = ((doc["stringData"] || {}).keys + (doc["data"] || {}).keys).uniq
+      end
+    end
+  end
+
+  tracked_k8s_files.each do |relative_path|
+    read_yaml_stream(File.join(repo, relative_path)).each do |doc|
+      each_node(doc) do |node, path|
+        next unless node.is_a?(Hash)
+
+        if (secret_ref = node["secretKeyRef"]).is_a?(Hash)
+          ref_name = secret_ref["name"].to_s
+          ref_key = secret_ref["key"].to_s
+          missing << "#{relative_path} #{path_label(path)} secretKeyRef must name a tracked Secret" unless secrets.key?(ref_name)
+          if secrets.key?(ref_name) && !secrets.fetch(ref_name).include?(ref_key)
+            missing << "#{relative_path} #{path_label(path)} secretKeyRef #{ref_name}/#{ref_key} must be documented in secret.example.yaml"
+          end
+        end
+
+        if (config_ref = node["configMapKeyRef"]).is_a?(Hash)
+          ref_name = config_ref["name"].to_s
+          ref_key = config_ref["key"].to_s
+          missing << "#{relative_path} #{path_label(path)} configMapKeyRef must name a tracked ConfigMap" unless config_maps.key?(ref_name)
+          if config_maps.key?(ref_name) && !config_maps.fetch(ref_name).include?(ref_key)
+            missing << "#{relative_path} #{path_label(path)} configMapKeyRef #{ref_name}/#{ref_key} must be documented in configmap.yaml"
+          end
+        end
+
+        if (secret_ref = node["secretRef"]).is_a?(Hash)
+          ref_name = secret_ref["name"].to_s
+          missing << "#{relative_path} #{path_label(path)} secretRef must name a tracked Secret" unless secrets.key?(ref_name)
+        end
+
+        if (config_ref = node["configMapRef"]).is_a?(Hash)
+          ref_name = config_ref["name"].to_s
+          missing << "#{relative_path} #{path_label(path)} configMapRef must name a tracked ConfigMap" unless config_maps.key?(ref_name)
+        end
+      end
+
+      if doc["kind"] == "Ingress"
+        annotations = doc.dig("metadata", "annotations") || {}
+        cert_manager_managed = annotations.key?("cert-manager.io/cluster-issuer")
+        doc.dig("spec", "tls").to_a.each do |tls|
+          tls_secret = tls["secretName"].to_s
+          next if tls_secret == "" || cert_manager_managed || secrets.key?(tls_secret)
+          missing << "#{relative_path} Ingress TLS secret #{tls_secret} must be tracked or cert-manager managed"
+        end
+      end
+    end
+  end
 
   hpa = read_yaml(File.join(repo, "deploy/kubernetes/hpa.yaml"))
   metrics = hpa.dig("spec", "metrics").to_a

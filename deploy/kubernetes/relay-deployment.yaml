@@ -18,6 +18,11 @@ spec:
         image: oblivious/relay:latest
         ports:
         - containerPort: 8080
+        envFrom:
+        - configMapRef:
+            name: oblivious-config
+        - secretRef:
+            name: oblivious-secrets
         env:
         - name: PORT
           value: "8080"
@@ -29,19 +34,19 @@ spec:
           valueFrom:
             configMapKeyRef:
               name: oblivious-config
-              key: relay_default_model
+              key: RELAY_DEFAULT_MODEL
               optional: true
         - name: RELAY_RATE_LIMIT_BACKEND
           valueFrom:
             configMapKeyRef:
               name: oblivious-config
-              key: relay_rate_limit_backend
+              key: RELAY_RATE_LIMIT_BACKEND
               optional: true
         - name: RELAY_SEMANTIC_CACHE_BACKEND
           valueFrom:
             configMapKeyRef:
               name: oblivious-config
-              key: relay_semantic_cache_backend
+              key: RELAY_SEMANTIC_CACHE_BACKEND
               optional: true
         resources:
           requests:

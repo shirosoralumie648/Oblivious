@@ -199,10 +199,13 @@ kubectl apply -f /tmp/oblivious-secret.yaml
 kubectl apply -f deploy/kubernetes/configmap.yaml
 kubectl apply -f deploy/kubernetes/postgres.yaml
 kubectl apply -f deploy/kubernetes/redis.yaml
-kubectl apply -f deploy/kubernetes/server.yaml
-kubectl apply -f deploy/kubernetes/web.yaml
+kubectl apply -f deploy/kubernetes/qdrant.yaml
+kubectl apply -f deploy/kubernetes/app-deployment.yaml
+kubectl apply -f deploy/kubernetes/app-service.yaml
+kubectl apply -f deploy/kubernetes/hpa.yaml
+kubectl apply -f deploy/kubernetes/ingress.yaml
+kubectl -n oblivious rollout status deployment/oblivious-qdrant
 kubectl -n oblivious rollout status deployment/oblivious-server
-kubectl -n oblivious rollout status deployment/oblivious-web
 ```
 
 Then expose the server service as appropriate for the cluster and run:

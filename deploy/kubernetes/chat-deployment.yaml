@@ -18,6 +18,11 @@ spec:
         image: oblivious/chat:latest
         ports:
         - containerPort: 8080
+        envFrom:
+        - configMapRef:
+            name: oblivious-config
+        - secretRef:
+            name: oblivious-secrets
         env:
         - name: PORT
           value: "8080"
@@ -27,12 +32,7 @@ spec:
           valueFrom:
             secretKeyRef:
               name: oblivious-secrets
-              key: db-url-chat
-        - name: SESSION_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: oblivious-secrets
-              key: session-secret
+              key: DB_URL_CHAT
         resources:
           requests:
             cpu: 500m

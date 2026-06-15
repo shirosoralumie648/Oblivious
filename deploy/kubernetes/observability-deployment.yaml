@@ -18,6 +18,11 @@ spec:
         image: oblivious/observability:latest
         ports:
         - containerPort: 8090
+        envFrom:
+        - configMapRef:
+            name: oblivious-config
+        - secretRef:
+            name: oblivious-secrets
         env:
         - name: OBSERVABILITY_PORT
           value: "8090"
@@ -26,8 +31,8 @@ spec:
         - name: DB_URL_OBSERVABILITY
           valueFrom:
             secretKeyRef:
-              name: db-credentials
-              key: observability-url
+              name: oblivious-secrets
+              key: DB_URL_OBSERVABILITY
         resources:
           requests:
             cpu: 500m
