@@ -3,13 +3,13 @@
 ## Current Truth
 
 - Branch: `main`.
-- Scan base commit before this Agent token-budget browser proof slice: `bd92f91` (`test(chat): cover realtime websocket browser flow`).
-- Remote parity at scan start: `HEAD == origin/main`.
-- Working tree at scan start: clean at the pushed Chat realtime WebSocket browser baseline.
-- The earlier same-day scans at `1c52194`, `53aaca0`, `d4fdc37`, `75ff216`, `98a1683`, `c6d9b34`, `5969e4b`, `1e7c6ef`, `e222967`, `0694b44`, `984b6a7`, and `cb18df4` are now older baselines for this report.
+- Current rescan commit: `c0df1fa` (`test(task): prove approval state guard with postgres`).
+- Remote parity at rescan start: `HEAD == origin/main` (`c0df1fab2dd2ad20af33db6b9575172972cce2a9`).
+- Working tree at rescan start: clean at the pushed Task approval PostgreSQL proof baseline.
+- The earlier same-day scans at `1c52194`, `53aaca0`, `d4fdc37`, `75ff216`, `98a1683`, `c6d9b34`, `5969e4b`, `1e7c6ef`, `e222967`, `0694b44`, `984b6a7`, `cb18df4`, and `bd92f91` are now older baselines for this report.
 - The project is still not complete against the four `docs/superpowers/specs/2026-06-04-*` specs.
 - Current matrix remains `4 Proven / 10 Partial / 0 Gap / 0 Unverified`.
-- Current progress estimate remains about `99/100`: repository-local evidence is broad, the Agent planning token-budget browser path is now closed locally, and final completion is still gated by target/live proof plus a strict no-skip release run.
+- Current progress estimate remains about `99/100`: repository-local evidence is broad, the Agent planning token-budget browser path and Task approval state/workspace guard are now closed locally, and final completion is still gated by target/live proof plus a strict no-skip release run.
 
 ## What Changed Since The Last Rescan
 
@@ -36,6 +36,7 @@
 - Admin model-route CRUD payload proof is now covered in the built Admin browser journey. The Admin Commercial Config Playwright fixture fails closed unless route create/update payloads preserve model pattern, strategy, channel IDs, weights, priorities, and enabled flags, while the browser test creates a weighted multi-channel route, edits it to cost-aware routing, and deletes it back to the empty state.
 - Chat realtime WebSocket proof is now covered in the built Chat browser journey. The Playwright fixture uses native `page.routeWebSocket` to intercept `/api/v1/ws` without connecting to a real backend, fails closed on unexpected socket paths, conversation IDs, client frame types, or malformed typing frames, and the browser test proves `chat_join`, `chat_typing`, server-pushed sync/update/delete events, and collaborator typing UI.
 - Agent planning token-budget recovery proof is now covered in the built Workspace browser journey. The Agent planning Playwright fixture exposes a `token_budget_exceeded` plan-step route, fails closed unless `/continue-budget` receives `tokenBudget=45000`, and the browser test proves the page renders the stop reason and failed dependency-aware step, submits the increased budget, and refreshes to completed step evidence.
+- Task approval bypass proof is now covered in the no-skip PostgreSQL app-stateful route profile. The route test drives `POST /api/v1/app/tasks/{taskId}/approve` through the real router with cookie and CSRF, proves only current-workspace `awaiting_confirmation` tasks advance to `running`, and proves completed, cancelled, running, draft, and cross-workspace tasks preserve task and step state.
 
 ## Repository Inventory
 
@@ -100,6 +101,7 @@ No rows are currently marked `Gap` or `Unverified`.
 - `docs/release/fusion-spec-evidence-pack.md` still states that the pack is not a final completion claim; any `Partial` row remains open until row-specific proof is recorded and rerun on the target environment where required.
 - `scripts/verify-target-release-evidence.sh` now provides the external target/live evidence manifest gate for proof that cannot be collected from repository-local tests.
 - Chat realtime repository proof is local and focused: `go test ./internal/ws`, Chat handler realtime publish tests, focused Chat Vitest, built-app Playwright WebSocket proof, OpenAPI contract verification, web TypeScript, and docs gate cover this slice.
+- Task approval state/workspace proof is local and focused: `scripts/verify-commercial-db-evidence.sh app-stateful-routes` covers the real app router, cookie/CSRF, SQL store, allowed transition, denied terminal/draft/current-state cases, and cross-workspace no-mutation boundary.
 - `scripts/verify-commercial-db-evidence.sh` currently exposes 24 focused profiles plus the `all` aggregator:
   - `backend-journey`
   - `marketplace-money-movement`
@@ -140,7 +142,7 @@ Pure target/live blockers that still keep final status below `100/100`:
 - Target or CI `TEST_DATABASE_URL` runs broad enough to count as final release evidence, not only disposable local profile proof.
 - A final `scripts/verify-commercial-completion.sh` run with no environment skips and `COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true` pointing at an external, secret-free target evidence manifest for the exact release commit.
 
-Repository-local proof-depth candidates surfaced by this rescan after closing the gRPC release-readiness local blocker:
+Repository-local proof-depth candidates surfaced by this rescan after closing the gRPC release-readiness local blocker and the Task approval state guard:
 
 Closed this slice:
 
@@ -160,6 +162,7 @@ Closed this slice:
 Remaining local proof-depth candidates:
 
 - Marketplace WeChat Pay paid-install provider parity: existing browser and HTTP proof primarily covers Alipay, while repository-local config and checkout creator wiring can prove `wechatpay` provider selection and checkout metadata without live provider rails.
+- No additional broad product-area gap was found in this refresh. The matrix stays partial because of the target/live gates, not because a new repository-owned domain is unimplemented.
 
 Closed in this continuation:
 
@@ -251,6 +254,22 @@ The remaining pure external follow-up still does not have a repository-only subs
 ```bash
 git status --short --branch
 git rev-parse HEAD origin/main
+git log --oneline --decorate -12
+rg -o '\| (Proven|Partial|Gap|Unverified) \|' docs/reports/2026-06-07-fusion-spec-completion-matrix.md | sort | uniq -c
+find . -path './.git' -prune -o -path './node_modules' -prune -o -path './src/web/node_modules' -prune -o -path './.tmp' -prune -o -path './reference' -prune -o -name AGENTS.md -print
+git ls-files | awk '...tracked file distribution...'
+git ls-files src/server/internal | awk '...server domain counts...'
+git ls-files 'src/server/**/*_test.go' | wc -l
+git ls-files 'src/web/src/**/*.test.ts' 'src/web/src/**/*.test.tsx' 'src/web/src/**/*.spec.ts' 'src/web/src/**/*.spec.tsx' | sort -u | wc -l
+find src/server/migrations -maxdepth 1 -type f -name '*.sql' | wc -l
+find src/server/migrations/clickhouse -maxdepth 1 -type f -name '*.sql' | wc -l
+find src/server/migrations -mindepth 2 -type f -name '*.sql' ! -path 'src/server/migrations/clickhouse/*' | wc -l
+rg -n 'Remaining local proof-depth candidates|Current Blockers|Marketplace WeChat Pay|strict verifier|COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE|Current progress estimate' docs/reports/2026-06-16-repo-rescan.md docs/release/fusion-spec-evidence-pack.md docs/reports/2026-06-07-fusion-spec-completion-matrix.md scripts/verify-commercial-completion.sh scripts/verify-target-release-evidence.sh
+rg -n 'TODO|FIXME|XXX|panic\(|skip\(|t\.Skip|describe\.skip|test\.skip|it\.skip|\.only\(' src scripts docs/reports docs/release --glob '!**/node_modules/**' --glob '!**/.tmp/**' --glob '!**/generated/**' | head -n 200
+COREPACK_HOME=/tmp/codex-corepack bash scripts/check.sh docs
+git diff --check
+git status --short --branch
+git rev-parse HEAD origin/main
 git ls-files | awk '...tracked file distribution...'
 git ls-files src/server/internal | awk '...server domain counts...'
 GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/agent -run 'TestServiceStartRunUsesAgentConfig(ModelRoutingRules|SkillsAndMaxSkills)' -count=1 -v
@@ -330,7 +349,7 @@ sed -n '1,140p' docs/release/fusion-spec-evidence-pack.md
 
 ## Verification For This Report
 
-This report includes the Agent runtime-configuration backend service slice, the Agent runtime-configuration product path, the Chat realtime repository slice, the Workflow canvas context-menu browser proof slice, the Admin model-route CRUD browser proof slice, and the Chat realtime WebSocket browser proof slice. It should be verified with:
+This report includes the Agent runtime-configuration backend service slice, the Agent runtime-configuration product path, the Chat realtime repository slice, the Workflow canvas context-menu browser proof slice, the Admin model-route CRUD browser proof slice, the Chat realtime WebSocket browser proof slice, the Agent planning token-budget browser proof slice, and the Task approval PostgreSQL proof slice. The 2026-06-16 `c0df1fa` refresh itself is documentation-only and should be verified with the docs gate plus diff hygiene; the underlying slices should be verified with their focused commands:
 
 ```bash
 GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/agent -run 'TestServiceStartRunUsesAgentConfig(ModelRoutingRules|SkillsAndMaxSkills)' -count=1 -v
