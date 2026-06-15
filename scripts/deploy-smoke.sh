@@ -138,7 +138,14 @@ probe_relay_route() {
     404)
       fail "Relay route is not mounted: ${base_url}/v1/chat/completions status=404"
       ;;
-    502|503|504)
+    503)
+      if rg -q "no_available_channel|no healthy channel available" "$last_body_file"; then
+        echo "[deploy-smoke] relay route ok: ${base_url}/v1/chat/completions status=$last_status no_available_channel"
+      else
+        fail "Relay route reached an upstream/provider failure instead of local no-channel policy handling: status=$last_status"
+      fi
+      ;;
+    502|504)
       fail "Relay route reached an upstream/provider failure instead of local policy handling: status=$last_status"
       ;;
     000|"")

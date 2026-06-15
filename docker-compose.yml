@@ -25,7 +25,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./src/server/migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-oblivious}"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER:-oblivious} -d ${POSTGRES_DB:-oblivious}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -60,7 +60,7 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:6333/healthz || exit 1"]
+      test: ["CMD", "bash", "-ec", "exec 3<>/dev/tcp/127.0.0.1/6333; printf 'GET /healthz HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3; grep -q '200 OK' <&3"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -74,13 +74,15 @@ services:
     restart: unless-stopped
     environment:
       CLICKHOUSE_DB: ${CLICKHOUSE_DATABASE:-oblivious}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-oblivious}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-oblivious}
     ports:
       - "${CLICKHOUSE_HTTP_PORT:-8123}:8123"
       - "${CLICKHOUSE_NATIVE_PORT:-9000}:9000"
     volumes:
       - clickhouse_data:/var/lib/clickhouse
     healthcheck:
-      test: ["CMD-SHELL", "clickhouse-client --query 'SELECT 1' >/dev/null"]
+      test: ["CMD-SHELL", "clickhouse-client --user \"$${CLICKHOUSE_USER:-oblivious}\" --password \"$${CLICKHOUSE_PASSWORD:-oblivious}\" --query 'SELECT 1' >/dev/null"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -92,6 +94,10 @@ services:
     depends_on:
       clickhouse:
         condition: service_healthy
+    environment:
+      CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-oblivious}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-oblivious}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-oblivious}
     volumes:
       - ./src/server/migrations/clickhouse:/migrations/clickhouse:ro
     entrypoint:
@@ -99,7 +105,7 @@ services:
       - -ec
       - |
         for migration in /migrations/clickhouse/*.sql; do
-          clickhouse-client --host clickhouse --database "$${CLICKHOUSE_DATABASE:-oblivious}" --multiquery < "$$migration"
+          clickhouse-client --host clickhouse --user "$${CLICKHOUSE_USER:-oblivious}" --password "$${CLICKHOUSE_PASSWORD:-oblivious}" --database "$${CLICKHOUSE_DATABASE:-oblivious}" --multiquery < "$$migration"
         done
 
   # ---------------------------------------------------------------------------
@@ -141,7 +147,7 @@ services:
       - QDRANT_API_KEY=${QDRANT_API_KEY:-}
       - QDRANT_VECTOR_SIZE=${QDRANT_VECTOR_SIZE:-1536}
       - OBSERVABILITY_REQUEST_LOG_BACKEND=${OBSERVABILITY_REQUEST_LOG_BACKEND:-clickhouse}
-      - CLICKHOUSE_DSN=${CLICKHOUSE_DSN:-tcp://clickhouse:9000?database=oblivious}
+      - CLICKHOUSE_DSN=${CLICKHOUSE_DSN:-tcp://oblivious:oblivious@clickhouse:9000?database=oblivious}
       - CLICKHOUSE_DRIVER=${CLICKHOUSE_DRIVER:-clickhouse}
       - LLM_BASE_URL=${LLM_BASE_URL:-}
       - LLM_API_KEY=${LLM_API_KEY:-}
@@ -349,7 +355,7 @@ services:
         condition: service_completed_successfully
     environment:
       - DATABASE_URL=postgres://oblivious:oblivious@postgres:5432/oblivious_observability?sslmode=disable
-      - CLICKHOUSE_DSN=${CLICKHOUSE_DSN:-tcp://clickhouse:9000?database=oblivious}
+      - CLICKHOUSE_DSN=${CLICKHOUSE_DSN:-tcp://oblivious:oblivious@clickhouse:9000?database=oblivious}
       - GRPC_PORT=50058
       - LOG_LEVEL=${LOG_LEVEL:-debug}
 

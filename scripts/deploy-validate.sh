@@ -41,10 +41,10 @@ wait_for_compose_dependencies() {
   local sleep_seconds="${DEPLOY_VALIDATE_DEP_SLEEP_SECONDS:-2}"
 
   for attempt in $(seq 1 "$attempts"); do
-    if docker compose exec -T postgres pg_isready -U oblivious -d oblivious >/dev/null 2>&1 &&
+    if docker compose exec -T postgres pg_isready -h 127.0.0.1 -U oblivious -d oblivious >/dev/null 2>&1 &&
       [[ "$(docker compose exec -T redis redis-cli ping 2>/dev/null | tr -d '\r')" == "PONG" ]] &&
-      docker compose exec -T qdrant wget -qO- http://localhost:6333/healthz >/dev/null 2>&1 &&
-      docker compose exec -T clickhouse clickhouse-client --query "SELECT 1" >/dev/null 2>&1; then
+      docker compose exec -T qdrant bash -ec 'exec 3<>/dev/tcp/127.0.0.1/6333; printf "GET /healthz HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&3; grep -q "200 OK" <&3' >/dev/null 2>&1 &&
+      docker compose exec -T clickhouse sh -ec 'clickhouse-client --user "${CLICKHOUSE_USER:-oblivious}" --password "${CLICKHOUSE_PASSWORD:-oblivious}" --query "SELECT 1"' >/dev/null 2>&1; then
       echo "[deploy-validate] compose dependencies ready"
       return
     fi
