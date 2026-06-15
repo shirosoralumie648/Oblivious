@@ -3,10 +3,10 @@
 ## Current Truth
 
 - Branch: `main`.
-- Scan base commit: `1e7c6efb511fe4004322e885f147a59f709bfc60` (`test(schedule): prove cross-tenant route isolation`).
+- Scan base commit: `e2229675f222ab0bdcb00f55240a650d9b7c507d` (`test(billing): prove topup refund operator evidence`).
 - Remote parity at scan start: `HEAD == origin/main`.
-- Working tree at scan start: clean after the Scheduled Task HTTP cross-tenant isolation slice was committed and pushed.
-- The earlier same-day scans at `1c52194`, `53aaca0`, `d4fdc37`, `75ff216`, `98a1683`, `c6d9b34`, and `5969e4b` are now older baselines for this report; they did not include the latest Scheduled Task HTTP isolation evidence.
+- Working tree at scan start: clean after the Admin top-up refund operator-evidence slice was committed and pushed.
+- The earlier same-day scans at `1c52194`, `53aaca0`, `d4fdc37`, `75ff216`, `98a1683`, `c6d9b34`, `5969e4b`, and `1e7c6ef` are now older baselines for this report; they did not include the latest Admin top-up refund operator-evidence DB proof.
 - The project is still not complete against the four `docs/superpowers/specs/2026-06-04-*` specs.
 - Current matrix remains `4 Proven / 10 Partial / 0 Gap / 0 Unverified`.
 - Current progress estimate remains `99/100`: repository-local evidence is broad, but final completion is still gated by target/live proof and a strict no-skip release run.
@@ -23,6 +23,7 @@
 - Scheduled-task due-worker failures now advance `next_run_at` through a dedicated failure path, so a failed claimed run cannot be immediately reclaimed while its old due time remains in the past.
 - Scheduled Task HTTP routes now have active-organization isolation proof for run-history, status-update, and run-now paths. Cross-organization requests return 404, do not leak owner run evidence, do not mutate the owner task, and do not create extra owner runs.
 - Admin top-up refund operator evidence now has no-skip PostgreSQL route proof: duplicate Admin Stripe refund submissions persist one refund row and one lifecycle transition with provider charge/payment-intent evidence, while missing Stripe charge/payment-intent evidence returns 400 without mutating refund, lifecycle, payment-intent, top-up, or quota state.
+- Quota SQL isolation now aggregates quota lifecycle proof across quota store, HTTP route, Admin, and Stripe lifecycle tests in one no-skip PostgreSQL profile, including user-scoped balance mode, request-cap fallback, top-up no-credit-before-webhook, direct top-up rejection, Admin refund quota reversal, and Stripe top-up/refund accounting.
 
 ## Repository Inventory
 
@@ -147,15 +148,14 @@ Closed after this rescan:
   - `src/server/internal/schedule/service.go` now verifies task ownership before listing run history, `src/server/internal/http/schedule_handler.go` returns 404 for missing/cross-organization run-history requests, and `scripts/verify-commercial-db-evidence.sh tenant-cross-surface` now includes PostgreSQL proof for cross-organization list-runs, status-update, and run-now denial without leakage or mutation.
 - Admin top-up refund operator-evidence DB proof.
   - `src/server/internal/http/admin_billing_handler_test.go` now asserts persisted `billing_refunds` provider charge/payment-intent/top-up evidence, the exact operator lifecycle transition, idempotent duplicate submission behavior, and a real-router rejection path that preserves refund/lifecycle ledgers, payment intent, top-up order, and quota state. `scripts/verify-commercial-db-evidence.sh marketplace-money-movement` now includes the rejection-preservation test.
+- Quota lifecycle DB evidence aggregation.
+  - `scripts/verify-commercial-db-evidence.sh quota-sql-isolation` now runs quota SQL store lifecycle/isolation tests, quota/Admin/Billing HTTP route tests, and Stripe top-up/refund lifecycle balance-accounting tests in one no-skip PostgreSQL profile.
 
-These remaining slices are useful, but they do not replace target/live final proof:
+The remaining local follow-up is target/live evidence collection; it does not have a repository-only substitute:
 
 1. Target/live release evidence collection.
    - Risk: repository-local proof is broad but still cannot replace real Kubernetes, provider rails, deployed gRPC reachability, target secret audit, and a strict no-skip release run.
    - Likely files: release evidence attachments under `docs/release/` after target environment runs complete.
-2. Quota lifecycle DB evidence aggregation.
-   - Risk: quota lifecycle and isolation assertions already exist across quota/http/stripe/admin tests, but the `quota-sql-isolation` profile does not yet aggregate all of the strongest top-up/refund/subscription fallback evidence into one no-skip PostgreSQL runner.
-   - Likely files: `scripts/verify-commercial-db-evidence.sh`, release evidence docs.
 
 ## Commands Run For This Rescan
 
@@ -195,6 +195,7 @@ GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scri
 GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/schedule -run 'TestListScheduledTaskRunsUsesOrganizationScope' -count=1 -v
 GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/http -run '^TestAdminBilling(RecordsTopupRefundAndAdjustsQuota|RejectsTopupRefundWithoutOperatorEvidenceAndPreservesLedger)$' -count=1 -v
 GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh marketplace-money-movement
+GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh quota-sql-isolation
 COREPACK_HOME=/tmp/codex-corepack bash scripts/check.sh docs
 bash -n scripts/verify-commercial-db-evidence.sh
 git diff --check
