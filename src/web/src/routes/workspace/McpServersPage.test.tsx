@@ -95,26 +95,26 @@ describe('McpServersPage', () => {
       throw new Error('expected Research tools card');
     }
 
-    fireEvent.click(within(researchCard).getByRole('button', { name: 'Connect' }));
+    fireEvent.click(within(researchCard).getByRole('button', { name: /Connect to/i }));
     await waitFor(() => {
       expect(connectServer).toHaveBeenCalledWith('mcp_1');
       expect(within(researchCard).getByText('connected')).toBeInTheDocument();
     });
     expect(within(researchCard).getByText('Last connected: 2026-06-09T00:00:00Z')).toBeInTheDocument();
 
-    fireEvent.click(within(researchCard).getByRole('button', { name: 'Disconnect' }));
+    fireEvent.click(within(researchCard).getByRole('button', { name: /Disconnect from/i }));
     await waitFor(() => {
       expect(disconnectServer).toHaveBeenCalledWith('mcp_1');
       expect(within(researchCard).getByText('disconnected')).toBeInTheDocument();
     });
 
-    fireEvent.click(within(researchCard).getByRole('button', { name: 'Diagnose' }));
+    fireEvent.click(within(researchCard).getByRole('button', { name: /Diagnose/i }));
     await waitFor(() => {
       expect(getServerStatus).toHaveBeenCalledWith('mcp_1');
       expect(within(researchCard).getByText('Diagnostic: connected')).toBeInTheDocument();
     });
 
-    fireEvent.click(within(researchCard).getByRole('button', { name: 'List tools' }));
+    fireEvent.click(within(researchCard).getByRole('button', { name: /List tools for/i }));
     await waitFor(() => {
       expect(listServerTools).toHaveBeenCalledWith('mcp_1');
       expect(within(researchCard).getByText('search_docs')).toBeInTheDocument();

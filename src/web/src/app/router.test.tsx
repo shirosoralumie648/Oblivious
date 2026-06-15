@@ -2580,10 +2580,10 @@ describe('app router', () => {
     expect(screen.getByRole('button', { name: 'Add MCP server' })).toBeDisabled();
     expect(await screen.findByText('Remote MCP')).toBeInTheDocument();
     expect(screen.getByText('Auth token configured')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Connect' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Disconnect' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Diagnose' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'List tools' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Connect to/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Disconnect from/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Diagnose/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /List tools for/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Delete Remote MCP' })).toBeInTheDocument();
   });
 
@@ -2618,10 +2618,10 @@ describe('app router', () => {
     expect(screen.getByRole('button', { name: 'Add MCP server' })).toBeDisabled();
     expect(await screen.findByText('Remote MCP')).toBeInTheDocument();
     expect(screen.getByText('Auth token configured')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Connect' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Disconnect' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Diagnose' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'List tools' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Connect to/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Disconnect from/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Diagnose/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /List tools for/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Delete Remote MCP' })).toBeInTheDocument();
   });
 

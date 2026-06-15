@@ -353,6 +353,7 @@ export function McpServersPanel({ api }: McpServersPanelProps) {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <button
+                    aria-label={`Connect to ${server.name}`}
                     className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-input bg-input/30 px-3 py-2 text-sm font-semibold text-foreground"
                     disabled={loadingAction === `connect:${server.id}`}
                     onClick={() => void connectServer(server.id)}
@@ -362,6 +363,7 @@ export function McpServersPanel({ api }: McpServersPanelProps) {
                     Connect
                   </button>
                   <button
+                    aria-label={`Disconnect from ${server.name}`}
                     className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-input bg-input/30 px-3 py-2 text-sm font-semibold text-foreground"
                     disabled={loadingAction === `disconnect:${server.id}`}
                     onClick={() => void disconnectServer(server.id)}
@@ -371,6 +373,7 @@ export function McpServersPanel({ api }: McpServersPanelProps) {
                     Disconnect
                   </button>
                   <button
+                    aria-label={`Diagnose ${server.name}`}
                     className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-input bg-input/30 px-3 py-2 text-sm font-semibold text-foreground"
                     disabled={loadingAction === `diagnose:${server.id}`}
                     onClick={() => void diagnoseServer(server.id)}
@@ -380,6 +383,7 @@ export function McpServersPanel({ api }: McpServersPanelProps) {
                     Diagnose
                   </button>
                   <button
+                    aria-label={`List tools for ${server.name}`}
                     className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-input bg-input/30 px-3 py-2 text-sm font-semibold text-foreground"
                     disabled={loadingAction === `tools:${server.id}`}
                     onClick={() => void listTools(server.id)}

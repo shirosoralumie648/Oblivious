@@ -196,14 +196,14 @@ describe('SettingsPage', () => {
     });
     expect(screen.getByText('Internal MCP')).toBeInTheDocument();
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Connect' })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: /Connect to/i })[0]);
     await waitFor(() => expect(connectServer).toHaveBeenCalledWith('mcp_1'));
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Diagnose' })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: /Diagnose/i })[0]);
     await waitFor(() => expect(getServerStatus).toHaveBeenCalledWith('mcp_1'));
     expect(screen.getByText('Diagnostic: connected')).toBeInTheDocument();
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'List tools' })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: /List tools for/i })[0]);
     expect(await screen.findByText('search_docs')).toBeInTheDocument();
     expect(screen.getByText('Search workspace docs')).toBeInTheDocument();
 
@@ -219,10 +219,10 @@ describe('SettingsPage', () => {
     });
     expect(screen.getByText('{"matches":2}')).toBeInTheDocument();
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Disconnect' })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: /Disconnect from/i })[0]);
     await waitFor(() => expect(disconnectServer).toHaveBeenCalledWith('mcp_1'));
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Diagnose' })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: /Diagnose/i })[0]);
     expect(await screen.findByRole('alert')).toHaveTextContent('diagnostic timeout');
   });
 
