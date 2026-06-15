@@ -160,13 +160,15 @@ Closed this slice:
 Remaining local proof-depth candidates:
 
 - Marketplace WeChat Pay paid-install provider parity: existing browser and HTTP proof primarily covers Alipay, while repository-local config and checkout creator wiring can prove `wechatpay` provider selection and checkout metadata without live provider rails.
-- Task approval bypass DB-backed proof: `SQLStore.ApproveTask` and `/api/v1/app/tasks/{taskId}/approve` should get no-skip PostgreSQL evidence that only current-workspace `awaiting_confirmation` tasks can advance, and completed/cancelled/running/draft/cross-workspace tasks fail without mutating `tasks` or `task_steps`.
 
 Closed in this continuation:
 
 - Agent planning token-budget browser recovery.
   - Evidence: `src/web/e2e/agent-planning.spec.ts` now covers `/agent-runs/run_browser_agent_budget/plan-steps`, renders `token_budget_exceeded`, stop reason, counters, failed step, and dependency evidence, submits an increased token budget, and verifies completed refreshed step evidence.
   - Boundary: this is repository-local built-app browser proof with a fail-closed fixture for the `/continue-budget` payload. It does not replace deployed Agent runtime, target gRPC, target database, or final no-skip release evidence.
+- Task approval bypass PostgreSQL proof.
+  - Evidence: `src/server/internal/http/task_handler_test.go` now drives `POST /api/v1/app/tasks/{taskId}/approve` through the real router with cookie and CSRF, proves only current-workspace `awaiting_confirmation` tasks advance to `running`, and proves completed, cancelled, running, draft, and cross-workspace tasks do not mutate task or step rows. `scripts/verify-commercial-db-evidence.sh app-stateful-routes` now includes that test and rejects skips.
+  - Boundary: this is repository-local app-stateful route proof. It does not replace deployed Task runtime, target database, or final no-skip release evidence.
 
 ## TODO And Placeholder Scan
 

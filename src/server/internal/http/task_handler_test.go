@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	stdhttp "net/http"
 	"net/http/httptest"
@@ -415,6 +416,80 @@ func TestTaskHandlerApproveReturnsTaskDetail(t *testing.T) {
 	}
 }
 
+func TestTaskApproveRouteRequiresAwaitingConfirmationAndWorkspaceScope(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+
+	cookie, csrfToken, userID := registerHTTPUser(t, router, "task-approve-owner@example.com")
+	workspaceID, _ := queryHTTPUserScope(t, database, userID)
+	_, _, otherUserID := registerHTTPUser(t, router, "task-approve-other@example.com")
+	otherWorkspaceID, _ := queryHTTPUserScope(t, database, otherUserID)
+
+	validTaskID := "task_approve_valid"
+	seedTaskApprovalFixture(t, database, workspaceID, userID, validTaskID, task.TaskStatusAwaitingConfirmation, 0)
+
+	validRecorder := httptest.NewRecorder()
+	validRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/tasks/"+validTaskID+"/approve", nil)
+	validRequest.AddCookie(cookie)
+	addCSRF(validRequest, csrfToken)
+	router.ServeHTTP(validRecorder, validRequest)
+	if validRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("valid approve expected 200, got %d with body %s", validRecorder.Code, validRecorder.Body.String())
+	}
+
+	var validResponse struct {
+		Data task.TaskDetail `json:"data"`
+	}
+	if err := json.Unmarshal(validRecorder.Body.Bytes(), &validResponse); err != nil {
+		t.Fatalf("decode valid approve response: %v", err)
+	}
+	if validResponse.Data.Status != task.TaskStatusRunning || len(validResponse.Data.Steps) != 3 {
+		t.Fatalf("unexpected valid approve response: %+v", validResponse.Data)
+	}
+	assertTaskApprovalSnapshot(t, queryTaskApprovalSnapshot(t, database, validTaskID), taskApprovalSnapshot{
+		status:         task.TaskStatusRunning,
+		budgetConsumed: 10,
+		stepStatuses:   []string{task.TaskStepStatusCompleted, task.TaskStepStatusCompleted, task.TaskStepStatusRunning},
+	})
+
+	blockedCases := []struct {
+		name        string
+		taskID      string
+		workspaceID string
+		userID      string
+		status      string
+	}{
+		{name: "completed task", taskID: "task_approve_completed", workspaceID: workspaceID, userID: userID, status: task.TaskStatusCompleted},
+		{name: "cancelled task", taskID: "task_approve_cancelled", workspaceID: workspaceID, userID: userID, status: task.TaskStatusCancelled},
+		{name: "running task", taskID: "task_approve_running", workspaceID: workspaceID, userID: userID, status: task.TaskStatusRunning},
+		{name: "draft task", taskID: "task_approve_draft", workspaceID: workspaceID, userID: userID, status: task.TaskStatusDraft},
+		{name: "cross workspace task", taskID: "task_approve_cross_workspace", workspaceID: otherWorkspaceID, userID: otherUserID, status: task.TaskStatusAwaitingConfirmation},
+	}
+	wantUnchanged := taskApprovalSnapshot{
+		status:         "",
+		budgetConsumed: 7,
+		stepStatuses:   []string{task.TaskStepStatusCompleted, task.TaskStepStatusAwaitingConfirmation, task.TaskStepStatusPending},
+	}
+	for _, tc := range blockedCases {
+		t.Run(tc.name, func(t *testing.T) {
+			seedTaskApprovalFixture(t, database, tc.workspaceID, tc.userID, tc.taskID, tc.status, wantUnchanged.budgetConsumed)
+			want := wantUnchanged
+			want.status = tc.status
+
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/app/tasks/"+tc.taskID+"/approve", nil)
+			request.AddCookie(cookie)
+			addCSRF(request, csrfToken)
+			router.ServeHTTP(recorder, request)
+			if recorder.Code < 400 {
+				t.Fatalf("blocked approve expected non-success, got %d with body %s", recorder.Code, recorder.Body.String())
+			}
+
+			assertTaskApprovalSnapshot(t, queryTaskApprovalSnapshot(t, database, tc.taskID), want)
+		})
+	}
+}
+
 func TestTaskHandlerPauseReturnsTaskDetail(t *testing.T) {
 	store := &taskFakeStore{
 		detailTask: task.TaskDetail{
@@ -440,6 +515,107 @@ func TestTaskHandlerPauseReturnsTaskDetail(t *testing.T) {
 	}
 	if store.pausedTaskID != "task_1" {
 		t.Fatalf("expected paused task id task_1, got %s", store.pausedTaskID)
+	}
+}
+
+type taskApprovalSnapshot struct {
+	status         string
+	budgetConsumed int
+	stepStatuses   []string
+}
+
+func seedTaskApprovalFixture(t *testing.T, database *sql.DB, workspaceID, userID, taskID, status string, budgetConsumed int) {
+	t.Helper()
+
+	if _, err := database.Exec(`
+		INSERT INTO tasks (
+			id,
+			workspace_id,
+			user_id,
+			title,
+			goal,
+			execution_mode,
+			authorization_scope,
+			status,
+			budget_limit,
+			budget_consumed,
+			created_at,
+			updated_at
+		)
+		VALUES ($1, $2, $3, $4, $5, 'safe', 'full_access', $6, 40, $7, NOW(), NOW())
+	`, taskID, workspaceID, userID, taskID+" title", taskID+" goal", status, budgetConsumed); err != nil {
+		t.Fatalf("seed task %s: %v", taskID, err)
+	}
+
+	steps := []struct {
+		index  int
+		status string
+		title  string
+	}{
+		{index: 1, status: task.TaskStepStatusCompleted, title: "Understand the request"},
+		{index: 2, status: task.TaskStepStatusAwaitingConfirmation, title: "Confirm execution boundary"},
+		{index: 3, status: task.TaskStepStatusPending, title: "Execute the approved task"},
+	}
+	for _, step := range steps {
+		if _, err := database.Exec(`
+			INSERT INTO task_steps (
+				id,
+				task_id,
+				step_index,
+				title,
+				status,
+				created_at,
+				updated_at,
+				started_at,
+				finished_at
+			)
+			VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), CASE WHEN $5 = 'completed' THEN NOW() ELSE NULL END, CASE WHEN $5 = 'completed' THEN NOW() ELSE NULL END)
+		`, taskID+"_step_"+string(rune('0'+step.index)), taskID, step.index, step.title, step.status); err != nil {
+			t.Fatalf("seed task step %s.%d: %v", taskID, step.index, err)
+		}
+	}
+}
+
+func queryTaskApprovalSnapshot(t *testing.T, database *sql.DB, taskID string) taskApprovalSnapshot {
+	t.Helper()
+
+	var snapshot taskApprovalSnapshot
+	if err := database.QueryRow(`
+		SELECT status, budget_consumed
+		FROM tasks
+		WHERE id = $1
+	`, taskID).Scan(&snapshot.status, &snapshot.budgetConsumed); err != nil {
+		t.Fatalf("query task approval snapshot %s: %v", taskID, err)
+	}
+
+	rows, err := database.Query(`
+		SELECT status
+		FROM task_steps
+		WHERE task_id = $1
+		ORDER BY step_index ASC
+	`, taskID)
+	if err != nil {
+		t.Fatalf("query task step approval snapshot %s: %v", taskID, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var status string
+		if err := rows.Scan(&status); err != nil {
+			t.Fatalf("scan task step approval snapshot %s: %v", taskID, err)
+		}
+		snapshot.stepStatuses = append(snapshot.stepStatuses, status)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("read task step approval snapshot %s: %v", taskID, err)
+	}
+	return snapshot
+}
+
+func assertTaskApprovalSnapshot(t *testing.T, got, want taskApprovalSnapshot) {
+	t.Helper()
+
+	if got.status != want.status || got.budgetConsumed != want.budgetConsumed || strings.Join(got.stepStatuses, ",") != strings.Join(want.stepStatuses, ",") {
+		t.Fatalf("unexpected task approval snapshot:\n got: %+v\nwant: %+v", got, want)
 	}
 }
 
