@@ -3,10 +3,10 @@
 ## Current Truth
 
 - Branch: `main`.
-- Scan base commit: `53aaca006c7ad16379604629166cf67ad45cd898` (`fix(agent): preserve plan step dependencies on reorder`).
+- Scan base commit: `98a1683da13d76744185870f51028af35872ca5e` (`fix(marketplace): preserve paid audit on delete`).
 - Remote parity at scan start: `HEAD == origin/main`.
-- Working tree at scan start: clean after the Agent dependency-preservation slice was committed and pushed.
-- The earlier `2026-06-16` scan at `1c52194` is now an older same-day baseline; it did not include the latest plan-step dependency-index preservation evidence.
+- Working tree at scan start: clean after the Marketplace paid audit-retention slice was committed and pushed.
+- The earlier same-day scans at `1c52194`, `53aaca0`, `d4fdc37`, and `75ff216` are now older baselines; they did not include the latest Marketplace paid audit-retention evidence.
 - The project is still not complete against the four `docs/superpowers/specs/2026-06-04-*` specs.
 - Current matrix remains `4 Proven / 10 Partial / 0 Gap / 0 Unverified`.
 - Current progress estimate remains `99/100`: repository-local evidence is broad, but final completion is still gated by target/live proof and a strict no-skip release run.
@@ -19,6 +19,7 @@
 - Agent gRPC generated-client coverage and Workflow/Task generated-client proof remain in the checked-in evidence set.
 - The prior pushed memory slice proves LLM-assisted long-term memory extraction composes with `memory_key_consolidate`: generated keyed facts update the existing long-term memory in place instead of creating duplicates.
 - Manual Agent plan-step draft insert/move/delete now preserves `dependsOn` references by logical step. Deleting a draft step that another step depends on fails closed instead of silently loosening the plan.
+- Marketplace paid audit rows are now protected from publisher hard-delete, direct SQL cascade, and buyer uninstall regressions. `DeleteAgent` rejects hard deletion once marketplace order audit evidence exists for the agent in the publisher organization, and migration `0082_marketplace_audit_retention.sql` rebuilds paid audit foreign keys with non-cascading delete semantics.
 
 ## Repository Inventory
 
@@ -141,8 +142,8 @@ Closed after this rescan:
 These remaining slices are useful, but they do not replace target/live final proof:
 
 1. Scheduled task failure re-claim behavior.
-   - Risk: failed due runs may remain immediately claimable if failure handling does not advance `next_run_at`, causing repeated failure loops.
-   - Likely files: `src/server/internal/schedule/service.go`, `src/server/internal/schedule/store.go`, `src/server/internal/schedule/worker_test.go`, `src/server/internal/schedule/store_test.go`.
+   - Confirmed current-head risk: `failClaimedRunAt` marks the claimed run `failed` through `UpdateRun`, while only `completeClaimedRun` advances `scheduled_tasks.next_run_at`; `ClaimDueScheduledTaskRuns` excludes only existing `running` runs, so a failed due task can be claimed again while `next_run_at` remains in the past.
+   - Likely files: `src/server/internal/schedule/service.go`, `src/server/internal/schedule/store.go`, `src/server/internal/schedule/worker_test.go`, `src/server/internal/schedule/store_test.go`, and `scripts/verify-commercial-db-evidence.sh`.
 2. Target/live release evidence collection.
    - Risk: repository-local proof is broad but still cannot replace real Kubernetes, provider rails, deployed gRPC reachability, target secret audit, and a strict no-skip release run.
    - Likely files: release evidence attachments under `docs/release/` after target environment runs complete.
@@ -162,8 +163,9 @@ git ls-files 'src/server/**/*_test.go' | wc -l
 git ls-files 'src/web/src/**/*.test.ts' 'src/web/src/**/*.test.tsx' | wc -l
 git ls-files 'src/web/e2e/*.spec.ts' | wc -l
 git ls-files 'src/web/e2e/fixtures/*' | wc -l
-git ls-files 'src/server/migrations/*.sql' | wc -l
-git ls-files 'src/server/migrations/*.sql' | sort | tail -12
+git ls-files src/server/migrations | awk '...top-level/clickhouse/microservices migration counts...'
+git ls-files src/server/internal/relay/migrations/*.sql | wc -l
+git ls-files 'src/server/**/*.sql' | sed -n '1,220p'
 rg -o '\| (Proven|Partial|Gap|Unverified) \|' docs/reports/2026-06-07-fusion-spec-completion-matrix.md | sort | uniq -c
 rg -n '\| Proven \|' docs/reports/2026-06-07-fusion-spec-completion-matrix.md
 rg -n '\| Partial \|' docs/reports/2026-06-07-fusion-spec-completion-matrix.md
@@ -173,6 +175,11 @@ rg -n 'target|Kubernetes|secret|payment|provider|failover|gRPC|grpc|no-skip|live
 rg -n 'TODO|FIXME|XXX|stub|placeholder|Unimplemented|DisabledInProduction' src scripts deploy docs/release docs/reports -g '!src/web/test-results/**' -g '!src/web/playwright-report/**' -g '!**/*.pb.go' -g '!docs/reports/archive/**'
 nl -ba src/server/internal/marketplace/store.go | sed -n '330,390p;740,790p'
 nl -ba src/server/migrations/0030_marketplace_settlement_governance.sql | sed -n '1,180p'
+rg -n 'marketplace_audit_retention|AuditRetention|DeleteWithPaidOrder|BuyerUninstallPreserves|scheduled_task_store_pattern' scripts/verify-commercial-db-evidence.sh src/server/internal/marketplace/settlement_test.go src/server/internal/marketplace/store.go src/server/migrations/0082_marketplace_audit_retention.sql src/server/internal/schedule/worker_test.go src/server/internal/schedule/store_test.go
+nl -ba src/server/internal/schedule/worker.go | sed -n '1,260p'
+nl -ba src/server/internal/schedule/store.go | sed -n '250,520p'
+nl -ba src/server/internal/schedule/worker_test.go | sed -n '229,420p;520,760p'
+nl -ba src/server/internal/schedule/store_test.go | sed -n '360,620p'
 sed -n '1,180p' scripts/verify-commercial-completion.sh
 sed -n '1,140p' docs/release/fusion-spec-evidence-pack.md
 ```
