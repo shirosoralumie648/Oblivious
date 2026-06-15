@@ -605,6 +605,22 @@ export type ToolApprovalOverride = {
   riskLevel?: 'safe' | 'medium' | 'dangerous' | string;
 };
 
+export type AgentModelRoutingRule = {
+  targetModel: string;
+  minInputChars?: number;
+  maxInputChars?: number;
+  minIteration?: number;
+  requiresToolResult?: boolean;
+  keywords?: string[];
+};
+
+export type AgentSkill = {
+  name: string;
+  instructions?: string;
+  triggers?: string[];
+  toolNames?: string[];
+};
+
 export type AgentConfig = {
   enableMemory?: boolean;
   maxIterations?: number;
@@ -619,6 +635,9 @@ export type AgentConfig = {
   knowledgeBaseIds?: string[];
   approvalMode?: 'tiered' | 'all' | 'none' | 'custom' | string;
   toolApprovalOverrides?: Record<string, ToolApprovalOverride>;
+  modelRoutingRules?: AgentModelRoutingRule[];
+  skills?: AgentSkill[];
+  maxSkills?: number;
 };
 
 export type AgentSummary = {

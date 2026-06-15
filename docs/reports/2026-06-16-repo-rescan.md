@@ -3,13 +3,13 @@
 ## Current Truth
 
 - Branch: `main`.
-- Scan base commit before this Agent runtime backend slice: `2120bfd06263eed728b273153ecd0437e3a0ad36` (`fix(workflow): align direct agent client planning mode`).
+- Scan base commit before this Agent runtime product-path slice: `cfbecb376d14087a2c5a52f88ca66ff833f18120` (`fix(agent): apply runtime config in service runs`).
 - Remote parity at scan start: `HEAD == origin/main`.
-- Working tree at scan start: two Agent backend files modified for the runtime-configuration service path.
+- Working tree at scan start: clean at the pushed Agent runtime backend baseline.
 - The earlier same-day scans at `1c52194`, `53aaca0`, `d4fdc37`, `75ff216`, `98a1683`, `c6d9b34`, `5969e4b`, `1e7c6ef`, `e222967`, `0694b44`, `984b6a7`, and `cb18df4` are now older baselines for this report.
 - The project is still not complete against the four `docs/superpowers/specs/2026-06-04-*` specs.
 - Current matrix remains `4 Proven / 10 Partial / 0 Gap / 0 Unverified`.
-- Current progress estimate remains about `99/100`: repository-local evidence is broad, the Agent runtime-configuration backend service path is now closed locally, and final completion is still gated by target/live proof plus a strict no-skip release run.
+- Current progress estimate remains about `99/100`: repository-local evidence is broad, the Agent runtime-configuration backend and product paths are now closed locally, and final completion is still gated by target/live proof plus a strict no-skip release run.
 
 ## What Changed Since The Last Rescan
 
@@ -28,7 +28,7 @@
 - Chat realtime collaboration now has a repository-local implementation and proof slice. `/api/v1/ws` supports conversation-scoped Chat rooms, `chat_join`/`chat_leave`/`chat_typing` client frames, and server-side Chat sync/update/delete broadcasts; `ChatPage` opens the active-conversation socket, sends typing presence, renders collaborator typing state, and applies sync/update/delete events; OpenAPI documents and gates the Chat realtime WebSocket schemas.
 - The current parallel read-only scan did not find a new broad product-area gap, but it did separate target/live blockers from local proof-depth candidates. The highest-priority local release-readiness gap from the prior baseline is now closed: Agent/Workflow/Task generated-client gRPC smoke has a first-class target helper, and Workflow/Task now expose real runtime gRPC listeners and deployment port contracts.
 - Workflow-to-Agent direct client parity is now closed as a local proof-depth candidate. The standalone Workflow `AgentClient.StartAgentRun` now uses workspace-scoped sessions, normalizes execution mode, dispatches planning requests to `StartPlanningRun` and default/ReAct requests to `StartRun`, preserves workspace scope for tool approvals, and maps Agent run results with the same nil-safe/final-message fallback boundary as the HTTP adapter.
-- Agent advanced runtime configuration is now closed for the backend service run path. `RunWithTools`, approval resume, and the resumed tool loop apply persisted `Agent.Config.ModelRoutingRules`, `Skills`, and `MaxSkills` per iteration while preserving the mature approval, token-budget, and max-iteration behavior. Focused `Service.StartRun` tests prove model routing switches after a tool result and skill selection injects instructions while filtering tools under `maxSkills`.
+- Agent advanced runtime configuration is now closed locally for both the backend service run path and the formal product path. `RunWithTools`, approval resume, and the resumed tool loop apply persisted `Agent.Config.ModelRoutingRules`, `Skills`, and `MaxSkills` per iteration, while OpenAPI, web types, and Workspace Agents create/edit controls now expose the same config fields.
 
 ## Repository Inventory
 
@@ -145,15 +145,16 @@ Closed this slice:
   - Boundary: this is repository-local Workflow/Agent adapter proof; deployed Agent/Workflow compatibility, target workflow telemetry, and final no-skip release evidence remain external.
 - Agent advanced runtime configuration backend service path.
   - Evidence: `RunWithTools`, `ResumeAfterApprovedToolWithTokenBudget`, and `resumeToolLoop` now call the same runtime-configuration helper for each structured ReAct iteration. `TestServiceStartRunUsesAgentConfigModelRoutingRules` proves persisted model routing switches the second iteration after a completed tool result, and `TestServiceStartRunUsesAgentConfigSkillsAndMaxSkills` proves persisted skills are selected from the Agent config, injected into the system prompt, and used to filter tools under `maxSkills`.
-  - Boundary: this closes backend service execution for tool-enabled ReAct runs and approval resume. The formal product path still needs OpenAPI schema coverage, web TypeScript types, Workspace create/edit controls, and target release proof.
+  - Boundary: this closes backend service execution for tool-enabled ReAct runs and approval resume. Target release proof remains external.
+- Agent advanced runtime configuration product path.
+  - Evidence: `docs/api/openapi.yaml` now documents `AgentModelRoutingRule`, `AgentSkill`, and the `AgentConfig.modelRoutingRules` / `skills` / `maxSkills` fields, `scripts/verify-openapi-contract.sh` gates those schemas, `src/web/src/types/api.ts` exposes typed web config fields, and `src/web/src/routes/workspace/AgentsPage.tsx` can create/edit the fields through Workspace controls. `AgentsPage.test.tsx` and `agentsApi.test.ts` prove create/update payloads preserve the advanced runtime config.
+  - Boundary: this is repository-local product-path proof; deployed runtime compatibility, target/live evidence, and final no-skip release proof remain external.
 
 Remaining local proof-depth candidates:
 
-1. Agent advanced runtime configuration product path.
-   - Gap: Agent configs have `modelRoutingRules`, `skills`, and `maxSkills` shapes, runner-level logic, and backend service-run proof, but OpenAPI schemas, web TypeScript types, and product UI create/edit controls do not yet fully expose the same controls.
-2. DB-backed proof tightening for Billing, Marketplace, and Security.
+1. DB-backed proof tightening for Billing, Marketplace, and Security.
    - Candidates: Admin usage-limit SQL route persistence, Marketplace paid-install checkout-failure inclusion in the no-skip money-movement profile, and Admin Billing webhook-event raw-payload non-disclosure proof.
-3. Browser-level contract proof tightening.
+2. Browser-level contract proof tightening.
    - Candidates: built-app Chat realtime WebSocket proof, Workflow canvas context-menu test-node proof, and Admin model-route CRUD payload proof.
 
 ## TODO And Placeholder Scan
@@ -194,6 +195,9 @@ Closed after this rescan:
 - Agent advanced runtime configuration backend service path.
   - `src/server/internal/agent/runner.go` now applies persisted `modelRoutingRules`, `skills`, and `maxSkills` in the mature `RunWithTools` service path and in approval resume loops rather than relying only on the newer standalone `ExecuteReAct` path.
   - `src/server/internal/agent/service_test.go` locks the service-level behavior for model routing after a tool result and skill-selected tool/prompt narrowing.
+- Agent advanced runtime configuration product path.
+  - `docs/api/openapi.yaml`, `scripts/verify-openapi-contract.sh`, and `src/web/src/types/api.ts` now expose and guard Agent runtime model-routing and skill config fields.
+  - `src/web/src/routes/workspace/AgentsPage.tsx`, `src/web/src/routes/workspace/AgentsPage.test.tsx`, and `src/web/src/features/agents/agentsApi.test.ts` now prove create/edit payloads carry `modelRoutingRules`, `skills`, and `maxSkills`.
 - Chat realtime collaboration repository slice.
   - `src/server/internal/ws/hub.go` now tracks conversation rooms and broadcasts Chat events only to room subscribers, excluding the sender for client-originated typing.
   - `src/server/internal/http/chat_handler.go` and `src/server/internal/http/chat_actions_handler.go` publish message sync/update/delete events after successful Chat mutations while keeping `listMessages` read-only for realtime to avoid sync loops.
@@ -215,6 +219,9 @@ git ls-files | awk '...tracked file distribution...'
 git ls-files src/server/internal | awk '...server domain counts...'
 GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/agent -run 'TestServiceStartRunUsesAgentConfig(ModelRoutingRules|SkillsAndMaxSkills)' -count=1 -v
 GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/agent -count=1
+COREPACK_HOME=/tmp/codex-corepack pnpm --dir src/web exec vitest run src/routes/workspace/AgentsPage.test.tsx src/features/agents/agentsApi.test.ts
+bash scripts/verify-openapi-contract.sh
+COREPACK_HOME=/tmp/codex-corepack pnpm --dir src/web exec tsc --noEmit
 COREPACK_HOME=/tmp/codex-corepack bash scripts/check.sh docs
 git diff --check
 git diff -- src/server/internal/workflow/agent_client.go
@@ -287,11 +294,12 @@ sed -n '1,140p' docs/release/fusion-spec-evidence-pack.md
 
 ## Verification For This Report
 
-This report includes the Agent runtime-configuration backend service slice and the Chat realtime repository slice. It should be verified with:
+This report includes the Agent runtime-configuration backend service slice, the Agent runtime-configuration product path, and the Chat realtime repository slice. It should be verified with:
 
 ```bash
 GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/agent -run 'TestServiceStartRunUsesAgentConfig(ModelRoutingRules|SkillsAndMaxSkills)' -count=1 -v
 GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/agent -count=1
+COREPACK_HOME=/tmp/codex-corepack pnpm --dir src/web exec vitest run src/routes/workspace/AgentsPage.test.tsx src/features/agents/agentsApi.test.ts
 GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/ws -count=1 -v
 GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/http -run 'TestChatHandler(SendMessagePublishesRealtimeSync|ListMessagesDoesNotPublishRealtimeSync|MessageActionsPublishRealtimeEvents|StreamMessagePublishesRealtimeSyncAfterCompletion)' -count=1 -v
 COREPACK_HOME=/tmp/codex-corepack pnpm --dir src/web exec vitest run src/features/chat/api.test.ts src/routes/workspace/ChatPage.behavior.test.tsx

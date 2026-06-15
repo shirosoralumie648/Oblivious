@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 
 import { createAgentsApi, type AgentToolDefinition } from '../../features/agents/agentsApi';
 import { createHttpClient } from '../../services/http/client';
-import type { AgentConfig, AgentSummary, AgentTool, ToolApprovalOverride } from '../../types/api';
+import type { AgentConfig, AgentModelRoutingRule, AgentSkill, AgentSummary, AgentTool, ToolApprovalOverride } from '../../types/api';
 
 type ApprovalMode = 'tiered' | 'all' | 'none' | 'custom';
 type AgentExecutionMode = 'react' | 'planning';
@@ -70,6 +70,10 @@ function numberFieldValue(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? String(value) : '';
 }
 
+function arrayFieldValue(value: unknown) {
+  return Array.isArray(value) && value.length > 0 ? readableJSON(value) : '';
+}
+
 function optionalPositiveInteger(value: string) {
   if (value.trim() === '') {
     return undefined;
@@ -102,6 +106,61 @@ function readableJSON(value: unknown) {
   } catch {
     return String(value);
   }
+}
+
+function parseConfigArray(value: string, label: string): unknown[] | undefined {
+  const trimmed = value.trim();
+  if (trimmed === '') {
+    return undefined;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    throw new Error(`${label} must be valid JSON.`);
+  }
+
+  if (!Array.isArray(parsed)) {
+    throw new Error(`${label} must be a JSON array.`);
+  }
+  return parsed;
+}
+
+function parseModelRoutingRules(value: string): AgentModelRoutingRule[] | undefined {
+  const parsed = parseConfigArray(value, 'Model routing rules');
+  if (parsed === undefined) {
+    return undefined;
+  }
+  if (
+    parsed.some((rule) => (
+      typeof rule !== 'object' ||
+      rule === null ||
+      typeof (rule as Partial<AgentModelRoutingRule>).targetModel !== 'string' ||
+      (rule as Partial<AgentModelRoutingRule>).targetModel?.trim() === ''
+    ))
+  ) {
+    throw new Error('Model routing rules must include targetModel.');
+  }
+  return parsed as AgentModelRoutingRule[];
+}
+
+function parseAgentSkills(value: string): AgentSkill[] | undefined {
+  const parsed = parseConfigArray(value, 'Skills');
+  if (parsed === undefined) {
+    return undefined;
+  }
+  if (
+    parsed.some((skill) => (
+      typeof skill !== 'object' ||
+      skill === null ||
+      typeof (skill as Partial<AgentSkill>).name !== 'string' ||
+      (skill as Partial<AgentSkill>).name?.trim() === ''
+    ))
+  ) {
+    throw new Error('Skills must include name.');
+  }
+  return parsed as AgentSkill[];
 }
 
 function toolFromCatalogDefinition(tool: AgentToolDefinition): AgentTool {
@@ -149,6 +208,9 @@ export function AgentsPage() {
   const [createLongTermMemoryWritePolicy, setCreateLongTermMemoryWritePolicy] = useState<LongTermMemoryWritePolicy>('interaction_and_explicit');
   const [createMaxIterations, setCreateMaxIterations] = useState('');
   const [createTokenBudget, setCreateTokenBudget] = useState('');
+  const [createMaxSkills, setCreateMaxSkills] = useState('');
+  const [createModelRoutingRules, setCreateModelRoutingRules] = useState('');
+  const [createSkills, setCreateSkills] = useState('');
   const [approvalMode, setApprovalMode] = useState<ApprovalMode>('tiered');
   const [defaultExecutionMode, setDefaultExecutionMode] = useState<AgentExecutionMode>('react');
   const [longTermMemoryExtractionPolicy, setLongTermMemoryExtractionPolicy] = useState<LongTermMemoryExtractionPolicy>('deterministic');
@@ -156,6 +218,9 @@ export function AgentsPage() {
   const [longTermMemoryWritePolicy, setLongTermMemoryWritePolicy] = useState<LongTermMemoryWritePolicy>('interaction_and_explicit');
   const [maxIterations, setMaxIterations] = useState('');
   const [tokenBudget, setTokenBudget] = useState('');
+  const [maxSkills, setMaxSkills] = useState('');
+  const [modelRoutingRules, setModelRoutingRules] = useState('');
+  const [skills, setSkills] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -194,6 +259,9 @@ export function AgentsPage() {
     setLongTermMemoryWritePolicy(normalizeLongTermMemoryWritePolicy(agent?.config?.longTermMemoryWritePolicy));
     setMaxIterations(numberFieldValue(agent?.config?.maxIterations));
     setTokenBudget(numberFieldValue(agent?.config?.tokenBudget));
+    setMaxSkills(numberFieldValue(agent?.config?.maxSkills));
+    setModelRoutingRules(arrayFieldValue(agent?.config?.modelRoutingRules));
+    setSkills(arrayFieldValue(agent?.config?.skills));
     setOverrides(initialOverrides(agent));
     setRunLink('');
     setRunMaxIterations(numberFieldValue(agent?.config?.maxIterations));
@@ -252,6 +320,9 @@ export function AgentsPage() {
     setCreateLongTermMemoryWritePolicy('interaction_and_explicit');
     setCreateMaxIterations('');
     setCreateTokenBudget('');
+    setCreateMaxSkills('');
+    setCreateModelRoutingRules('');
+    setCreateSkills('');
   };
 
   const resetCustomToolForm = () => {
@@ -273,6 +344,7 @@ export function AgentsPage() {
     const systemPrompt = createSystemPrompt.trim();
     const parsedMaxIterations = optionalPositiveInteger(createMaxIterations);
     const parsedTokenBudget = optionalPositiveInteger(createTokenBudget);
+    const parsedMaxSkills = optionalPositiveInteger(createMaxSkills);
 
     if (!name) {
       setError('Agent name is required.');
@@ -296,6 +368,17 @@ export function AgentsPage() {
       }
       if (parsedTokenBudget !== undefined) {
         config.tokenBudget = parsedTokenBudget;
+      }
+      if (parsedMaxSkills !== undefined) {
+        config.maxSkills = parsedMaxSkills;
+      }
+      const parsedModelRoutingRules = parseModelRoutingRules(createModelRoutingRules);
+      if (parsedModelRoutingRules !== undefined) {
+        config.modelRoutingRules = parsedModelRoutingRules;
+      }
+      const parsedSkills = parseAgentSkills(createSkills);
+      if (parsedSkills !== undefined) {
+        config.skills = parsedSkills;
       }
 
       const created = await api.createAgent({
@@ -364,6 +447,9 @@ export function AgentsPage() {
       const initialExecutionMode = normalizeExecutionMode(selectedAgent.config?.defaultExecutionMode);
       const parsedMaxIterations = optionalPositiveInteger(maxIterations);
       const parsedTokenBudget = optionalPositiveInteger(tokenBudget);
+      const parsedMaxSkills = optionalPositiveInteger(maxSkills);
+      const parsedModelRoutingRules = parseModelRoutingRules(modelRoutingRules);
+      const parsedSkills = parseAgentSkills(skills);
 
       if (selectedAgent.config?.defaultExecutionMode !== undefined || defaultExecutionMode !== initialExecutionMode) {
         nextConfig.defaultExecutionMode = defaultExecutionMode;
@@ -381,6 +467,24 @@ export function AgentsPage() {
         delete nextConfig.tokenBudget;
       } else {
         nextConfig.tokenBudget = parsedTokenBudget;
+      }
+
+      if (parsedMaxSkills === undefined) {
+        delete nextConfig.maxSkills;
+      } else {
+        nextConfig.maxSkills = parsedMaxSkills;
+      }
+
+      if (parsedModelRoutingRules === undefined) {
+        delete nextConfig.modelRoutingRules;
+      } else {
+        nextConfig.modelRoutingRules = parsedModelRoutingRules;
+      }
+
+      if (parsedSkills === undefined) {
+        delete nextConfig.skills;
+      } else {
+        nextConfig.skills = parsedSkills;
       }
 
       const updated = await api.updateAgent(selectedAgent.id, {
@@ -697,6 +801,18 @@ export function AgentsPage() {
               />
             </label>
             <label className="text-sm font-medium text-[#181611]">
+              Max skills
+              <input
+                className="mt-2 min-h-10 w-full rounded-lg border border-[#d7d2c4] bg-[#fbfaf7] px-3 text-sm"
+                min={1}
+                max={20}
+                onChange={(event) => setCreateMaxSkills(event.target.value)}
+                step={1}
+                type="number"
+                value={createMaxSkills}
+              />
+            </label>
+            <label className="text-sm font-medium text-[#181611]">
               Long-term memory writes
               <select
                 className="mt-2 min-h-10 w-full rounded-lg border border-[#d7d2c4] bg-[#fbfaf7] px-3 text-sm"
@@ -737,6 +853,22 @@ export function AgentsPage() {
                   </option>
                 ))}
               </select>
+            </label>
+            <label className="text-sm font-medium text-[#181611] md:col-span-3">
+              Model routing rules JSON
+              <textarea
+                className="mt-2 min-h-28 w-full rounded-lg border border-[#d7d2c4] bg-[#fbfaf7] px-3 py-2 font-mono text-xs leading-5 text-[#181611]"
+                onChange={(event) => setCreateModelRoutingRules(event.target.value)}
+                value={createModelRoutingRules}
+              />
+            </label>
+            <label className="text-sm font-medium text-[#181611] md:col-span-3">
+              Skills JSON
+              <textarea
+                className="mt-2 min-h-28 w-full rounded-lg border border-[#d7d2c4] bg-[#fbfaf7] px-3 py-2 font-mono text-xs leading-5 text-[#181611]"
+                onChange={(event) => setCreateSkills(event.target.value)}
+                value={createSkills}
+              />
             </label>
           </div>
           <div className="flex flex-wrap items-center gap-3 border-t border-[#d7d2c4] px-5 py-4">
@@ -866,6 +998,21 @@ export function AgentsPage() {
                   />
                 </label>
                 <label className="text-sm font-medium text-[#181611]">
+                  Max skills
+                  <input
+                    className="mt-2 min-h-10 w-full rounded-lg border border-[#d7d2c4] bg-[#fbfaf7] px-3 text-sm"
+                    min={1}
+                    max={20}
+                    onChange={(event) => {
+                      setMaxSkills(event.target.value);
+                      setSavedMessage('');
+                    }}
+                    step={1}
+                    type="number"
+                    value={maxSkills}
+                  />
+                </label>
+                <label className="text-sm font-medium text-[#181611]">
                   Long-term memory writes
                   <select
                     className="mt-2 min-h-10 w-full rounded-lg border border-[#d7d2c4] bg-[#fbfaf7] px-3 text-sm"
@@ -915,6 +1062,28 @@ export function AgentsPage() {
                       </option>
                     ))}
                   </select>
+                </label>
+                <label className="text-sm font-medium text-[#181611] md:col-span-3">
+                  Model routing rules JSON
+                  <textarea
+                    className="mt-2 min-h-28 w-full rounded-lg border border-[#d7d2c4] bg-[#fbfaf7] px-3 py-2 font-mono text-xs leading-5 text-[#181611]"
+                    onChange={(event) => {
+                      setModelRoutingRules(event.target.value);
+                      setSavedMessage('');
+                    }}
+                    value={modelRoutingRules}
+                  />
+                </label>
+                <label className="text-sm font-medium text-[#181611] md:col-span-3">
+                  Skills JSON
+                  <textarea
+                    className="mt-2 min-h-28 w-full rounded-lg border border-[#d7d2c4] bg-[#fbfaf7] px-3 py-2 font-mono text-xs leading-5 text-[#181611]"
+                    onChange={(event) => {
+                      setSkills(event.target.value);
+                      setSavedMessage('');
+                    }}
+                    value={skills}
+                  />
                 </label>
               </div>
             </section>

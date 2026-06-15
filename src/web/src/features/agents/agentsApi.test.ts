@@ -58,7 +58,13 @@ describe('createAgentsApi', () => {
 
     await expect(
       api.createAgent({
-        config: { approvalMode: 'tiered', defaultExecutionMode: 'react' },
+        config: {
+          approvalMode: 'tiered',
+          defaultExecutionMode: 'react',
+          maxSkills: 1,
+          modelRoutingRules: [{ minIteration: 2, requiresToolResult: true, targetModel: 'gpt-4o' }],
+          skills: [{ instructions: 'Check weather sources.', name: 'Weather', toolNames: ['web_search'], triggers: ['weather'] }]
+        },
         description: 'Research and summarize workspace materials.',
         isPublic: false,
         model: 'gpt-4o-mini',
@@ -72,7 +78,13 @@ describe('createAgentsApi', () => {
     });
 
     expect(post).toHaveBeenCalledWith('/api/v1/app/agents', {
-      config: { approvalMode: 'tiered', defaultExecutionMode: 'react' },
+      config: {
+        approvalMode: 'tiered',
+        defaultExecutionMode: 'react',
+        maxSkills: 1,
+        modelRoutingRules: [{ minIteration: 2, requiresToolResult: true, targetModel: 'gpt-4o' }],
+        skills: [{ instructions: 'Check weather sources.', name: 'Weather', toolNames: ['web_search'], triggers: ['weather'] }]
+      },
       description: 'Research and summarize workspace materials.',
       isPublic: false,
       model: 'gpt-4o-mini',
@@ -104,6 +116,9 @@ describe('createAgentsApi', () => {
     const put = vi.fn().mockResolvedValue({
       config: {
         approvalMode: 'custom',
+        maxSkills: 2,
+        modelRoutingRules: [{ keywords: ['debug'], targetModel: 'gpt-4o' }],
+        skills: [{ instructions: 'Use debugging workflow.', name: 'Debugger', triggers: ['debug'] }],
         toolApprovalOverrides: {
           web_search: { requiresApproval: true, riskLevel: 'medium' }
         }
@@ -120,6 +135,9 @@ describe('createAgentsApi', () => {
       api.updateAgent('agent_1', {
         config: {
           approvalMode: 'custom',
+          maxSkills: 2,
+          modelRoutingRules: [{ keywords: ['debug'], targetModel: 'gpt-4o' }],
+          skills: [{ instructions: 'Use debugging workflow.', name: 'Debugger', triggers: ['debug'] }],
           toolApprovalOverrides: {
             web_search: { requiresApproval: true, riskLevel: 'medium' }
           }
@@ -131,6 +149,9 @@ describe('createAgentsApi', () => {
     ).resolves.toMatchObject({
       config: {
         approvalMode: 'custom',
+        maxSkills: 2,
+        modelRoutingRules: [{ keywords: ['debug'], targetModel: 'gpt-4o' }],
+        skills: [{ instructions: 'Use debugging workflow.', name: 'Debugger', triggers: ['debug'] }],
         toolApprovalOverrides: {
           web_search: { requiresApproval: true, riskLevel: 'medium' }
         }
@@ -141,6 +162,9 @@ describe('createAgentsApi', () => {
     expect(put).toHaveBeenCalledWith('/api/v1/app/agents/agent_1', {
       config: {
         approvalMode: 'custom',
+        maxSkills: 2,
+        modelRoutingRules: [{ keywords: ['debug'], targetModel: 'gpt-4o' }],
+        skills: [{ instructions: 'Use debugging workflow.', name: 'Debugger', triggers: ['debug'] }],
         toolApprovalOverrides: {
           web_search: { requiresApproval: true, riskLevel: 'medium' }
         }

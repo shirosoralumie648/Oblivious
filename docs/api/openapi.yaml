@@ -1515,6 +1515,47 @@ components:
           type: string
           enum: [safe, medium, dangerous]
 
+    AgentModelRoutingRule:
+      type: object
+      required: [targetModel]
+      properties:
+        targetModel:
+          type: string
+          minLength: 1
+        minInputChars:
+          type: integer
+          minimum: 1
+        maxInputChars:
+          type: integer
+          minimum: 1
+        minIteration:
+          type: integer
+          minimum: 1
+        requiresToolResult:
+          type: boolean
+        keywords:
+          type: array
+          items:
+            type: string
+
+    AgentSkill:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        instructions:
+          type: string
+        triggers:
+          type: array
+          items:
+            type: string
+        toolNames:
+          type: array
+          items:
+            type: string
+
     AgentConfig:
       type: object
       properties:
@@ -1555,6 +1596,17 @@ components:
           type: object
           additionalProperties:
             $ref: "#/components/schemas/AgentToolApprovalOverride"
+        modelRoutingRules:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentModelRoutingRule"
+        skills:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentSkill"
+        maxSkills:
+          type: integer
+          minimum: 1
 
     AgentWorkspaceAgent:
       type: object

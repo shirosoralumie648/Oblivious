@@ -2358,8 +2358,18 @@ require_workspace_agent_mutation_csrf_contract() {
         schemas.dig("AgentConfig", "properties", "defaultExecutionMode", "enum")&.include?("planning") &&
         schemas.dig("AgentConfig", "properties", "longTermMemoryExtractionPolicy", "enum")&.include?("llm_assisted") &&
         schemas.dig("AgentConfig", "properties", "longTermMemoryUpdatePolicy", "enum")&.include?("memory_key_consolidate") &&
-        schemas.dig("AgentConfig", "properties", "longTermMemoryWritePolicy", "enum")&.include?("manual_only")
-      missing << "Agent create/update request schemas must reference AgentConfig with execution mode and long-term memory policies"
+        schemas.dig("AgentConfig", "properties", "longTermMemoryWritePolicy", "enum")&.include?("manual_only") &&
+        schemas.dig("AgentConfig", "properties", "modelRoutingRules", "items", "$ref") == "#/components/schemas/AgentModelRoutingRule" &&
+        schemas.dig("AgentConfig", "properties", "skills", "items", "$ref") == "#/components/schemas/AgentSkill" &&
+        schemas.dig("AgentConfig", "properties", "maxSkills", "type") == "integer"
+      missing << "Agent create/update request schemas must reference AgentConfig with execution, memory, model routing, and skill policies"
+    end
+    unless schemas.dig("AgentModelRoutingRule", "required")&.include?("targetModel") &&
+        schemas.dig("AgentModelRoutingRule", "properties", "targetModel", "type") == "string" &&
+        schemas.dig("AgentModelRoutingRule", "properties", "keywords", "items", "type") == "string" &&
+        schemas.dig("AgentSkill", "required")&.include?("name") &&
+        schemas.dig("AgentSkill", "properties", "toolNames", "items", "type") == "string"
+      missing << "Agent runtime config schemas must document model routing rules and skill bundles"
     end
 
     unless missing.empty?

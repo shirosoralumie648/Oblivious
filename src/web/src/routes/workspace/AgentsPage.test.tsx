@@ -81,7 +81,10 @@ describe('AgentsPage', () => {
         longTermMemoryExtractionPolicy: 'llm_assisted',
         longTermMemoryUpdatePolicy: 'memory_key_consolidate',
         longTermMemoryWritePolicy: 'explicit_only',
+        maxSkills: 1,
         maxIterations: 30,
+        modelRoutingRules: [{ minIteration: 2, requiresToolResult: true, targetModel: 'gpt-4o' }],
+        skills: [{ instructions: 'Check weather sources.', name: 'Weather', toolNames: ['web_search'], triggers: ['weather'] }],
         tokenBudget: 60000
       },
       description: 'Research and summarize workspace materials.',
@@ -109,6 +112,17 @@ describe('AgentsPage', () => {
     fireEvent.change(screen.getByLabelText('Long-term memory update'), { target: { value: 'memory_key_consolidate' } });
     fireEvent.change(screen.getByLabelText('Max iterations'), { target: { value: '30' } });
     fireEvent.change(screen.getByLabelText('Token budget'), { target: { value: '60000' } });
+    fireEvent.change(screen.getByLabelText('Max skills'), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText('Model routing rules JSON'), {
+      target: { value: JSON.stringify([{ minIteration: 2, requiresToolResult: true, targetModel: 'gpt-4o' }]) }
+    });
+    fireEvent.change(screen.getByLabelText('Skills JSON'), {
+      target: {
+        value: JSON.stringify([
+          { instructions: 'Check weather sources.', name: 'Weather', toolNames: ['web_search'], triggers: ['weather'] }
+        ])
+      }
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Save agent' }));
 
     await waitFor(() => {
@@ -119,7 +133,10 @@ describe('AgentsPage', () => {
           longTermMemoryExtractionPolicy: 'llm_assisted',
           longTermMemoryUpdatePolicy: 'memory_key_consolidate',
           longTermMemoryWritePolicy: 'explicit_only',
+          maxSkills: 1,
           maxIterations: 30,
+          modelRoutingRules: [{ minIteration: 2, requiresToolResult: true, targetModel: 'gpt-4o' }],
+          skills: [{ instructions: 'Check weather sources.', name: 'Weather', toolNames: ['web_search'], triggers: ['weather'] }],
           tokenBudget: 60000
         },
         description: 'Research and summarize workspace materials.',
@@ -210,7 +227,10 @@ describe('AgentsPage', () => {
           longTermMemoryExtractionPolicy: 'deterministic',
           longTermMemoryUpdatePolicy: 'exact_refresh',
           longTermMemoryWritePolicy: 'interaction_and_explicit',
+          maxSkills: 2,
           maxIterations: 25,
+          modelRoutingRules: [{ keywords: ['debug'], targetModel: 'gpt-4o' }],
+          skills: [{ instructions: 'Use debugging workflow.', name: 'Debugger', triggers: ['debug'] }],
           tokenBudget: 50000,
           toolApprovalOverrides: {
             internal_tool: { requiresApproval: false, riskLevel: 'safe' },
@@ -231,7 +251,10 @@ describe('AgentsPage', () => {
         longTermMemoryExtractionPolicy: 'llm_assisted',
         longTermMemoryUpdatePolicy: 'memory_key_consolidate',
         longTermMemoryWritePolicy: 'explicit_only',
+        maxSkills: 3,
         maxIterations: 40,
+        modelRoutingRules: [{ minInputChars: 2000, targetModel: 'gpt-4.1' }],
+        skills: [{ instructions: 'Summarize with citations.', name: 'Summarizer', toolNames: ['web_search'] }],
         tokenBudget: 75000,
         toolApprovalOverrides: {
           internal_tool: { requiresApproval: false, riskLevel: 'safe' },
@@ -253,6 +276,9 @@ describe('AgentsPage', () => {
     expect(screen.getByLabelText('Long-term memory update')).toHaveValue('exact_refresh');
     expect(screen.getByLabelText('Max iterations')).toHaveValue(25);
     expect(screen.getByLabelText('Token budget')).toHaveValue(50000);
+    expect(screen.getByLabelText('Max skills')).toHaveValue(2);
+    expect(screen.getByLabelText('Model routing rules JSON')).toHaveValue(JSON.stringify([{ keywords: ['debug'], targetModel: 'gpt-4o' }], null, 2));
+    expect(screen.getByLabelText('Skills JSON')).toHaveValue(JSON.stringify([{ instructions: 'Use debugging workflow.', name: 'Debugger', triggers: ['debug'] }], null, 2));
 
     fireEvent.change(screen.getByLabelText('Default execution mode'), { target: { value: 'react' } });
     fireEvent.change(screen.getByLabelText('Long-term memory writes'), { target: { value: 'explicit_only' } });
@@ -260,6 +286,13 @@ describe('AgentsPage', () => {
     fireEvent.change(screen.getByLabelText('Long-term memory update'), { target: { value: 'memory_key_consolidate' } });
     fireEvent.change(screen.getByLabelText('Max iterations'), { target: { value: '40' } });
     fireEvent.change(screen.getByLabelText('Token budget'), { target: { value: '75000' } });
+    fireEvent.change(screen.getByLabelText('Max skills'), { target: { value: '3' } });
+    fireEvent.change(screen.getByLabelText('Model routing rules JSON'), {
+      target: { value: JSON.stringify([{ minInputChars: 2000, targetModel: 'gpt-4.1' }]) }
+    });
+    fireEvent.change(screen.getByLabelText('Skills JSON'), {
+      target: { value: JSON.stringify([{ instructions: 'Summarize with citations.', name: 'Summarizer', toolNames: ['web_search'] }]) }
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Save agent policy' }));
 
     await waitFor(() => {
@@ -270,7 +303,10 @@ describe('AgentsPage', () => {
           longTermMemoryExtractionPolicy: 'llm_assisted',
           longTermMemoryUpdatePolicy: 'memory_key_consolidate',
           longTermMemoryWritePolicy: 'explicit_only',
+          maxSkills: 3,
           maxIterations: 40,
+          modelRoutingRules: [{ minInputChars: 2000, targetModel: 'gpt-4.1' }],
+          skills: [{ instructions: 'Summarize with citations.', name: 'Summarizer', toolNames: ['web_search'] }],
           tokenBudget: 75000,
           toolApprovalOverrides: {
             internal_tool: { requiresApproval: false, riskLevel: 'safe' },
