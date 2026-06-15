@@ -724,6 +724,87 @@ func TestServiceMovePlanStepSwapsPendingStepsAndResetsApproval(t *testing.T) {
 	}
 }
 
+func TestServiceMovePlanStepRewritesDependenciesToMovedLogicalSteps(t *testing.T) {
+	session := auth.Session{
+		User:           auth.User{ID: "user_1"},
+		OrganizationID: "org_1",
+	}
+	now := time.Now().UTC()
+	store := &fakeStore{
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
+			Status:         RunStatusPendingApproval,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+		planSteps: []*PlanStep{{
+			ID:             "step_1",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			Index:          1,
+			Title:          "Collect evidence",
+			Status:         PlanStepStatusCompleted,
+			ApprovalStatus: ApprovalStatusNotRequired,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}, {
+			ID:             "step_2",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			Index:          2,
+			Title:          "Draft patch",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusPending,
+			DependsOn:      []int{1},
+			CreatedAt:      now.Add(time.Second),
+			UpdatedAt:      now.Add(time.Second),
+		}, {
+			ID:             "step_3",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			Index:          3,
+			Title:          "Verify patch",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusPending,
+			DependsOn:      []int{2},
+			CreatedAt:      now.Add(2 * time.Second),
+			UpdatedAt:      now.Add(2 * time.Second),
+		}, {
+			ID:             "step_4",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			Index:          4,
+			Title:          "Publish evidence",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusPending,
+			DependsOn:      []int{3},
+			CreatedAt:      now.Add(3 * time.Second),
+			UpdatedAt:      now.Add(3 * time.Second),
+		}},
+	}
+	service := NewService(store, &fakeGateway{})
+
+	steps, err := service.MovePlanStep(context.Background(), session, "step_3", MovePlanStepDirectionUp)
+	if err != nil {
+		t.Fatalf("MovePlanStep returned error: %v", err)
+	}
+
+	if steps[1].ID != "step_3" || steps[1].Index != 2 || !reflect.DeepEqual(steps[1].DependsOn, []int{3}) {
+		t.Fatalf("expected moved step_3 to depend on logical step_2 at new index 3, got %+v", steps[1])
+	}
+	if steps[2].ID != "step_2" || steps[2].Index != 3 || !reflect.DeepEqual(steps[2].DependsOn, []int{1}) {
+		t.Fatalf("expected step_2 to keep its logical dependency, got %+v", steps[2])
+	}
+	if steps[3].ID != "step_4" || steps[3].Index != 4 || !reflect.DeepEqual(steps[3].DependsOn, []int{2}) {
+		t.Fatalf("expected step_4 to keep depending on logical step_3 at new index 2, got %+v", steps[3])
+	}
+}
+
 func TestServiceMovePlanStepRejectsMovingAcrossCompletedBoundary(t *testing.T) {
 	session := auth.Session{
 		User:           auth.User{ID: "user_1"},
@@ -838,6 +919,84 @@ func TestServiceCreatePlanStepDraftInsertsAfterDraftAndResetsShiftedApproval(t *
 	}
 	if steps[2].ID != "step_2" || steps[2].Index != 3 || steps[2].Status != PlanStepStatusPending || steps[2].ApprovalStatus != ApprovalStatusPending {
 		t.Fatalf("expected shifted approved step to require fresh review, got %+v", steps[2])
+	}
+}
+
+func TestServiceCreatePlanStepDraftRewritesShiftedDependencies(t *testing.T) {
+	session := auth.Session{
+		User:           auth.User{ID: "user_1"},
+		OrganizationID: "org_1",
+	}
+	now := time.Now().UTC()
+	store := &fakeStore{
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
+			Status:         RunStatusPendingApproval,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+		planSteps: []*PlanStep{{
+			ID:             "step_1",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			Index:          1,
+			Title:          "Collect evidence",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusPending,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}, {
+			ID:             "step_2",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			Index:          2,
+			Title:          "Draft patch",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusPending,
+			DependsOn:      []int{1},
+			CreatedAt:      now.Add(time.Second),
+			UpdatedAt:      now.Add(time.Second),
+		}, {
+			ID:             "step_3",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			Index:          3,
+			Title:          "Verify patch",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusPending,
+			DependsOn:      []int{2},
+			CreatedAt:      now.Add(2 * time.Second),
+			UpdatedAt:      now.Add(2 * time.Second),
+		}},
+	}
+	service := NewService(store, &fakeGateway{})
+	afterID := "step_1"
+
+	steps, err := service.CreatePlanStepDraft(context.Background(), session, "run_1", CreatePlanStepDraftRequest{
+		AfterPlanStepID: &afterID,
+		Title:           "Review old draft before verification",
+		DependsOn:       []int{2},
+	})
+	if err != nil {
+		t.Fatalf("CreatePlanStepDraft returned error: %v", err)
+	}
+
+	if len(steps) != 4 {
+		t.Fatalf("expected four steps, got %+v", steps)
+	}
+	if steps[1].Title != "Review old draft before verification" || steps[1].Index != 2 || !reflect.DeepEqual(steps[1].DependsOn, []int{3}) {
+		t.Fatalf("expected inserted step dependency on logical old step_2 at new index 3, got %+v", steps[1])
+	}
+	if steps[2].ID != "step_2" || steps[2].Index != 3 || !reflect.DeepEqual(steps[2].DependsOn, []int{1}) {
+		t.Fatalf("expected old step_2 to keep dependency on step_1, got %+v", steps[2])
+	}
+	if steps[3].ID != "step_3" || steps[3].Index != 4 || !reflect.DeepEqual(steps[3].DependsOn, []int{3}) {
+		t.Fatalf("expected old step_3 to keep depending on logical step_2 at new index 3, got %+v", steps[3])
 	}
 }
 
@@ -1006,6 +1165,148 @@ func TestServiceDeletePlanStepDraftRemovesStepAndReindexesDrafts(t *testing.T) {
 	}
 	if steps[1].ID != "step_3" || steps[1].Index != 2 || steps[1].Status != PlanStepStatusPending || steps[1].ApprovalStatus != ApprovalStatusPending {
 		t.Fatalf("expected shifted approved step to require fresh review, got %+v", steps[1])
+	}
+}
+
+func TestServiceDeletePlanStepDraftRewritesShiftedDependencies(t *testing.T) {
+	session := auth.Session{
+		User:           auth.User{ID: "user_1"},
+		OrganizationID: "org_1",
+	}
+	now := time.Now().UTC()
+	store := &fakeStore{
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
+			Status:         RunStatusPendingApproval,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+		planSteps: []*PlanStep{{
+			ID:             "step_1",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			Index:          1,
+			Title:          "Collect evidence",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusPending,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}, {
+			ID:             "step_2",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			Index:          2,
+			Title:          "Optional cleanup",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusPending,
+			CreatedAt:      now.Add(time.Second),
+			UpdatedAt:      now.Add(time.Second),
+		}, {
+			ID:             "step_3",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			Index:          3,
+			Title:          "Draft patch",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusPending,
+			DependsOn:      []int{1},
+			CreatedAt:      now.Add(2 * time.Second),
+			UpdatedAt:      now.Add(2 * time.Second),
+		}, {
+			ID:             "step_4",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			Index:          4,
+			Title:          "Verify patch",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusPending,
+			DependsOn:      []int{3},
+			CreatedAt:      now.Add(3 * time.Second),
+			UpdatedAt:      now.Add(3 * time.Second),
+		}},
+	}
+	service := NewService(store, &fakeGateway{})
+
+	steps, err := service.DeletePlanStepDraft(context.Background(), session, "step_2")
+	if err != nil {
+		t.Fatalf("DeletePlanStepDraft returned error: %v", err)
+	}
+
+	if len(steps) != 3 {
+		t.Fatalf("expected three remaining steps, got %+v", steps)
+	}
+	if steps[1].ID != "step_3" || steps[1].Index != 2 || !reflect.DeepEqual(steps[1].DependsOn, []int{1}) {
+		t.Fatalf("expected old step_3 dependency to remain on step_1, got %+v", steps[1])
+	}
+	if steps[2].ID != "step_4" || steps[2].Index != 3 || !reflect.DeepEqual(steps[2].DependsOn, []int{2}) {
+		t.Fatalf("expected old step_4 to keep depending on logical step_3 at new index 2, got %+v", steps[2])
+	}
+}
+
+func TestServiceDeletePlanStepDraftRejectsDeletingDependencyTarget(t *testing.T) {
+	session := auth.Session{
+		User:           auth.User{ID: "user_1"},
+		OrganizationID: "org_1",
+	}
+	now := time.Now().UTC()
+	store := &fakeStore{
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
+			Status:         RunStatusPendingApproval,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+		planSteps: []*PlanStep{{
+			ID:             "step_1",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			Index:          1,
+			Title:          "Collect evidence",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusPending,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}, {
+			ID:             "step_2",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			Index:          2,
+			Title:          "Draft patch",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusPending,
+			CreatedAt:      now.Add(time.Second),
+			UpdatedAt:      now.Add(time.Second),
+		}, {
+			ID:             "step_3",
+			OrganizationID: "org_1",
+			RunID:          "run_1",
+			Index:          3,
+			Title:          "Verify patch",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusPending,
+			DependsOn:      []int{2},
+			CreatedAt:      now.Add(2 * time.Second),
+			UpdatedAt:      now.Add(2 * time.Second),
+		}},
+	}
+	service := NewService(store, &fakeGateway{})
+
+	_, err := service.DeletePlanStepDraft(context.Background(), session, "step_2")
+	if err == nil || !strings.Contains(err.Error(), "step 3 depends on it") {
+		t.Fatalf("expected dependency-target delete rejection, got %v", err)
+	}
+	if len(store.planSteps) != 3 || store.planSteps[1].Index != 2 || store.planSteps[2].Index != 3 || !reflect.DeepEqual(store.planSteps[2].DependsOn, []int{2}) {
+		t.Fatalf("delete rejection should leave plan steps unchanged, got %+v", store.planSteps)
 	}
 }
 

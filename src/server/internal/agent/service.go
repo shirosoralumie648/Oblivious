@@ -1487,7 +1487,6 @@ func (s *Service) CreatePlanStepDraft(ctx context.Context, session auth.Session,
 	}
 	toolName := strings.TrimSpace(req.ToolName)
 	description := strings.TrimSpace(req.Description)
-	dependsOn := normalizePlanStepDependsOn(req.DependsOn)
 	input := req.Input
 	if input == nil {
 		input = map[string]any{}
@@ -1535,6 +1534,11 @@ func (s *Service) CreatePlanStepDraft(ctx context.Context, session auth.Session,
 	if err := s.movePlanStepsToBuffer(ctx, session, steps, shiftCandidates); err != nil {
 		return nil, err
 	}
+	dependencyIndexMap := make(map[int]int, len(shiftCandidates))
+	for _, candidate := range shiftCandidates {
+		dependencyIndexMap[originalIndices[candidate.ID]] = originalIndices[candidate.ID] + 1
+	}
+	dependsOn := rewritePlanStepDependsOn(req.DependsOn, dependencyIndexMap)
 
 	approvalStatus, err := s.planStepApprovalStatusForRun(ctx, session.OrganizationID, run, toolName)
 	if err != nil {
@@ -1560,6 +1564,9 @@ func (s *Service) CreatePlanStepDraft(ctx context.Context, session auth.Session,
 		if _, err := s.store.UpdatePlanStep(ctx, session.OrganizationID, candidate.ID, planStepMoveUpdateRequest(nextIndex, candidate)); err != nil {
 			return nil, err
 		}
+	}
+	if err := s.rewritePlanStepDependencies(ctx, session, steps, dependencyIndexMap); err != nil {
+		return nil, err
 	}
 
 	return s.listSortedPlanSteps(ctx, session.OrganizationID, runID)
@@ -1671,6 +1678,10 @@ func (s *Service) MovePlanStep(ctx context.Context, session auth.Session, planSt
 	stepIndex := step.Index
 	targetIndex := target.Index
 	bufferIndex := maxPlanStepIndex(steps) + 1
+	dependencyIndexMap := map[int]int{
+		stepIndex:   targetIndex,
+		targetIndex: stepIndex,
+	}
 
 	if _, err := s.store.UpdatePlanStep(ctx, session.OrganizationID, step.ID, planStepMoveUpdateRequest(bufferIndex, step)); err != nil {
 		return nil, err
@@ -1679,6 +1690,9 @@ func (s *Service) MovePlanStep(ctx context.Context, session auth.Session, planSt
 		return nil, err
 	}
 	if _, err := s.store.UpdatePlanStep(ctx, session.OrganizationID, step.ID, planStepMoveUpdateRequest(targetIndex, step)); err != nil {
+		return nil, err
+	}
+	if err := s.rewritePlanStepDependencies(ctx, session, steps, dependencyIndexMap); err != nil {
 		return nil, err
 	}
 
@@ -1713,6 +1727,14 @@ func (s *Service) DeletePlanStepDraft(ctx context.Context, session auth.Session,
 	if err != nil {
 		return nil, fmt.Errorf("plan step cannot be deleted before executed step")
 	}
+	if err := rejectDeletingPlanStepDependencyTarget(steps, step); err != nil {
+		return nil, err
+	}
+	dependencyIndexMap := make(map[int]int, len(shiftCandidates))
+	for _, candidate := range shiftCandidates {
+		dependencyIndexMap[originalIndices[candidate.ID]] = originalIndices[candidate.ID] - 1
+	}
+	remainingSteps := planStepsExcept(steps, step.ID)
 
 	if _, err := s.store.DeletePlanStep(ctx, session.OrganizationID, step.ID); err != nil {
 		return nil, err
@@ -1725,6 +1747,9 @@ func (s *Service) DeletePlanStepDraft(ctx context.Context, session auth.Session,
 		if _, err := s.store.UpdatePlanStep(ctx, session.OrganizationID, candidate.ID, planStepMoveUpdateRequest(nextIndex, candidate)); err != nil {
 			return nil, err
 		}
+	}
+	if err := s.rewritePlanStepDependencies(ctx, session, remainingSteps, dependencyIndexMap); err != nil {
+		return nil, err
 	}
 
 	return s.listSortedPlanSteps(ctx, session.OrganizationID, step.RunID)
@@ -2162,6 +2187,83 @@ func (s *Service) listSortedPlanSteps(ctx context.Context, organizationID, runID
 	}
 	sortPlanSteps(steps)
 	return steps, nil
+}
+
+func (s *Service) rewritePlanStepDependencies(ctx context.Context, session auth.Session, steps []*PlanStep, indexMap map[int]int) error {
+	if len(indexMap) == 0 {
+		return nil
+	}
+	for _, step := range steps {
+		if step == nil {
+			continue
+		}
+		nextDependsOn := rewritePlanStepDependsOn(step.DependsOn, indexMap)
+		if intSlicesEqual(normalizePlanStepDependsOn(step.DependsOn), nextDependsOn) {
+			continue
+		}
+		if _, err := s.store.UpdatePlanStep(ctx, session.OrganizationID, step.ID, UpdatePlanStepRequest{
+			DependsOn:        nextDependsOn,
+			ReplaceDependsOn: true,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func rewritePlanStepDependsOn(dependsOn []int, indexMap map[int]int) []int {
+	normalized := normalizePlanStepDependsOn(dependsOn)
+	if len(normalized) == 0 || len(indexMap) == 0 {
+		return normalized
+	}
+	rewritten := make([]int, 0, len(normalized))
+	for _, index := range normalized {
+		if next, ok := indexMap[index]; ok {
+			index = next
+		}
+		rewritten = append(rewritten, index)
+	}
+	return normalizePlanStepDependsOn(rewritten)
+}
+
+func rejectDeletingPlanStepDependencyTarget(steps []*PlanStep, deleted *PlanStep) error {
+	if deleted == nil {
+		return nil
+	}
+	for _, step := range steps {
+		if step == nil || step.ID == deleted.ID {
+			continue
+		}
+		for _, dependencyIndex := range normalizePlanStepDependsOn(step.DependsOn) {
+			if dependencyIndex == deleted.Index {
+				return fmt.Errorf("plan step %d cannot be deleted because step %d depends on it", deleted.Index, step.Index)
+			}
+		}
+	}
+	return nil
+}
+
+func planStepsExcept(steps []*PlanStep, excludedID string) []*PlanStep {
+	filtered := make([]*PlanStep, 0, len(steps))
+	for _, step := range steps {
+		if step == nil || step.ID == excludedID {
+			continue
+		}
+		filtered = append(filtered, step)
+	}
+	return filtered
+}
+
+func intSlicesEqual(left, right []int) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func planStepMoveUpdateRequest(index int, step *PlanStep) UpdatePlanStepRequest {
