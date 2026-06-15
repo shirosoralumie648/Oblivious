@@ -155,7 +155,7 @@ describe('AdminUsageLogsPage', () => {
     render(<AdminUsageLogsPage />);
 
     expect(await screen.findByText('model_time')).toBeInTheDocument();
-        expect(screen.getByText('user_feature')).toBeInTheDocument();
+    expect(screen.getByText('user_feature')).toBeInTheDocument();
     expect(screen.getByText('feature_time')).toBeInTheDocument();
     expect(screen.getByText('gpt-4o / 2026-06-04T00:00:00Z')).toBeInTheDocument();
     expect(screen.getByText('user_1 / workspace_chat')).toBeInTheDocument();
