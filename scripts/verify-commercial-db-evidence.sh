@@ -50,9 +50,9 @@ Profiles:
   tenant-cross-surface         Run focused cross-tenant app surface isolation
                                tests across Chat, Knowledge, Console, Agent,
                                Memory, MCP, Quota, and Marketplace.
-  secret-response-safety       Run focused DB-backed response redaction tests
-                               for persisted provider, channel, and workflow
-                               secrets.
+  secret-response-safety       Run focused DB-backed response redaction and
+                               at-rest protection tests for persisted provider,
+                               channel, workflow, and MCP auth-token secrets.
   agent-runtime-memory         Run focused Agent runtime, approval, execution
                                mode, structured plan-step, memory store, and
                                memory policy PostgreSQL tests.
@@ -277,6 +277,7 @@ run_secret_response_safety_profile() {
 
   secret_response_safety_pattern="^Test(ObservabilityAlertAdminRouteSQLProviderSecretsAreRedacted|PublishingChannelHTTPRouteRedactsSQLStoreConfigSecretsAndPreservesMarkers|AdminRelayChannelHTTPRouteRedactsSQLStoreAPIKeysAndPreservesMarkers|WorkflowHTTPRouteRedactsSQLStoreSecretsAndPreservesMarkers)$"
   run_go_test_no_skips "secret response safety" "./internal/http" "$secret_response_safety_pattern"
+  run_go_test_no_skips "MCP auth token at-rest and response-listing safety" "./internal/mcp" "^TestSQLStoreProtectsAuthTokenWithPostgres$"
 }
 
 run_agent_runtime_memory_profile() {

@@ -10,10 +10,13 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	_ "github.com/lib/pq"
 )
 
 func TestClientRehydratesPersistedServerOnConnectListToolsAndCallTool(t *testing.T) {
@@ -162,6 +165,102 @@ func TestSQLStoreListServersDoesNotHydrateAuthToken(t *testing.T) {
 	if servers[0].AuthToken != "" {
 		t.Fatalf("ListServers AuthToken = %q, want empty", servers[0].AuthToken)
 	}
+}
+
+func TestSQLStoreProtectsAuthTokenWithPostgres(t *testing.T) {
+	t.Setenv("MCP_AUTH_TOKEN_ENCRYPTION_KEY", "test-mcp-token-encryption-key")
+	ctx := context.Background()
+	db := openMCPPostgresTestDB(t)
+	store := NewSQLStore(db)
+
+	created, err := store.CreateServer(ctx, "user_1", "org_1", &Server{
+		Name:      "private postgres mcp",
+		URL:       "https://mcp.example.test",
+		AuthToken: "postgres-secret-token",
+	})
+	if err != nil {
+		t.Fatalf("CreateServer returned error: %v", err)
+	}
+
+	var persistedToken string
+	if err := db.QueryRowContext(ctx, `SELECT auth_token_encrypted FROM mcp_servers WHERE id = $1`, created.ID).Scan(&persistedToken); err != nil {
+		t.Fatalf("query persisted auth token: %v", err)
+	}
+	if persistedToken == "" {
+		t.Fatalf("auth_token_encrypted persisted empty token")
+	}
+	if persistedToken == "postgres-secret-token" || strings.Contains(persistedToken, "postgres-secret-token") {
+		t.Fatalf("auth_token_encrypted leaked plaintext token: %q", persistedToken)
+	}
+	if !strings.HasPrefix(persistedToken, mcpAuthTokenGCMCodecPrefix) {
+		t.Fatalf("auth_token_encrypted = %q, want protected GCM prefix", persistedToken)
+	}
+
+	got, err := store.GetServer(ctx, created.ID, "org_1")
+	if err != nil {
+		t.Fatalf("GetServer returned error: %v", err)
+	}
+	if got == nil || got.AuthToken != "postgres-secret-token" || !got.HasAuthToken {
+		t.Fatalf("GetServer returned %+v, want hydrated usable auth token", got)
+	}
+
+	servers, err := store.ListServers(ctx, "user_1", "org_1")
+	if err != nil {
+		t.Fatalf("ListServers returned error: %v", err)
+	}
+	if len(servers) != 1 {
+		t.Fatalf("ListServers returned %d servers, want 1", len(servers))
+	}
+	if servers[0].AuthToken != "" {
+		t.Fatalf("ListServers AuthToken = %q, want empty token for response-safe listing", servers[0].AuthToken)
+	}
+	if !servers[0].HasAuthToken {
+		t.Fatalf("ListServers HasAuthToken = false, want credential presence marker")
+	}
+}
+
+func openMCPPostgresTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+
+	databaseURL := strings.TrimSpace(os.Getenv("TEST_DATABASE_URL"))
+	if databaseURL == "" {
+		if strings.EqualFold(os.Getenv("OBLIVIOUS_REQUIRE_TEST_DATABASE"), "true") {
+			t.Fatal("TEST_DATABASE_URL is required for DB-backed MCP auth token tests")
+		}
+		t.Skip("TEST_DATABASE_URL is required for DB-backed MCP auth token tests")
+	}
+
+	db, err := sql.Open("postgres", databaseURL)
+	if err != nil {
+		t.Fatalf("open postgres database: %v", err)
+	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	if err := db.Ping(); err != nil {
+		t.Fatalf("ping postgres database: %v", err)
+	}
+	t.Cleanup(func() {
+		db.Close()
+	})
+
+	if _, err := db.Exec(`
+		DROP TABLE IF EXISTS mcp_servers;
+		CREATE TABLE mcp_servers (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL,
+			organization_id TEXT,
+			name TEXT NOT NULL,
+			url TEXT NOT NULL,
+			auth_token_encrypted TEXT,
+			status TEXT DEFAULT 'disconnected',
+			last_connected_at TIMESTAMPTZ,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		);
+	`); err != nil {
+		t.Fatalf("prepare mcp_servers table: %v", err)
+	}
+	return db
 }
 
 type memoryMCPStore struct {
