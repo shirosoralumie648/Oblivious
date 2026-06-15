@@ -3,13 +3,13 @@
 ## Current Truth
 
 - Branch: `main`.
-- Scan base commit: `cb18df4c7409be5a7a037524ad48dad0338528bc` (`test(release): add target evidence manifest template`).
+- Scan base commit: `6fedf6b6fd30e007d83ce3295675215a1c469e14` (`feat(chat): add realtime collaboration sync`).
 - Remote parity at scan start: `HEAD == origin/main`.
-- Working tree at scan start: clean at the pushed target live evidence manifest template baseline, then dirty with the Chat realtime collaboration slice in progress.
-- The earlier same-day scans at `1c52194`, `53aaca0`, `d4fdc37`, `75ff216`, `98a1683`, `c6d9b34`, `5969e4b`, `1e7c6ef`, `e222967`, `0694b44`, and `984b6a7` are now older baselines for this report; they did not include the latest target evidence template hardening or Chat realtime collaboration slice.
+- Working tree at scan start: clean at the pushed Chat realtime collaboration baseline.
+- The earlier same-day scans at `1c52194`, `53aaca0`, `d4fdc37`, `75ff216`, `98a1683`, `c6d9b34`, `5969e4b`, `1e7c6ef`, `e222967`, `0694b44`, `984b6a7`, and `cb18df4` are now older baselines for this report.
 - The project is still not complete against the four `docs/superpowers/specs/2026-06-04-*` specs.
 - Current matrix remains `4 Proven / 10 Partial / 0 Gap / 0 Unverified`.
-- Current progress estimate remains `99/100`: repository-local evidence is broad, but final completion is still gated by target/live proof and a strict no-skip release run.
+- Current progress estimate remains about `99/100`: repository-local evidence is broad, but final completion is still gated by target/live proof, one high-priority gRPC release-readiness slice, and a strict no-skip release run.
 
 ## What Changed Since The Last Rescan
 
@@ -26,10 +26,11 @@
 - Quota SQL isolation now aggregates quota lifecycle proof across quota store, HTTP route, Admin, and Stripe lifecycle tests in one no-skip PostgreSQL profile, including user-scoped balance mode, request-cap fallback, top-up no-credit-before-webhook, direct top-up rejection, Admin refund quota reversal, and Stripe top-up/refund accounting.
 - Target/live release evidence now has a machine-readable manifest verifier. The strict commercial verifier requires `COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true` for final readiness, and the manifest validator checks exact commit, strict no-skip verifier result, deployment/backup/migration evidence, Kubernetes validation/rollout/failover evidence, live provider checkout/refund/payout/reconciliation evidence, Agent/Workflow/Task generated-client gRPC smoke evidence, target secret audit, workflow telemetry `successRate >= 0.99`, no skip-like fields, no embedded secret material, and no placeholder artifact refs. `--print-template` now emits a current-commit external manifest skeleton that is intentionally rejected until every `TODO` artifact reference is replaced with concrete target-run evidence.
 - Chat realtime collaboration now has a repository-local implementation and proof slice. `/api/v1/ws` supports conversation-scoped Chat rooms, `chat_join`/`chat_leave`/`chat_typing` client frames, and server-side Chat sync/update/delete broadcasts; `ChatPage` opens the active-conversation socket, sends typing presence, renders collaborator typing state, and applies sync/update/delete events; OpenAPI documents and gates the Chat realtime WebSocket schemas.
+- The current parallel read-only scan did not find a new broad product-area gap, but it did separate target/live blockers from local proof-depth candidates. The highest-priority local release-readiness gap is that target evidence requires Agent/Workflow/Task generated-client gRPC smoke, while Workflow and Task do not yet expose real gRPC listeners or deployment ports and there is no first-class target gRPC smoke helper.
 
 ## Repository Inventory
 
-- First-party tracked files after this target-evidence verifier slice:
+- First-party tracked files after this current rescan:
   - `src`: 994
   - `docs`: 93
   - `scripts`: 38
@@ -120,15 +121,29 @@ No rows are currently marked `Gap` or `Unverified`.
 
 ## Current Blockers
 
-These are still outside repository-local proof and keep the final status at `99/100`:
+Pure target/live blockers that still keep final status below `100/100`:
 
 - Target Kubernetes validation with reachable cluster access and a filled untracked `OBLIVIOUS_K8S_SECRET_FILE`.
 - Target deployment failover/recovery evidence, including real platform restart, scale, and failover behavior.
 - Live billing and Marketplace provider rails for checkout, refund, payout, and reconciliation.
-- Target Agent/Workflow/Task gRPC reachability using generated clients against running service endpoints.
+- Target Agent/Workflow/Task gRPC reachability using generated clients against running service endpoints, after the repository exposes and documents the required runtime gRPC surfaces.
 - Target secret audit for deployed provider/channel/workflow/runtime secrets.
 - Target or CI `TEST_DATABASE_URL` runs broad enough to count as final release evidence, not only disposable local profile proof.
 - A final `scripts/verify-commercial-completion.sh` run with no environment skips and `COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true` pointing at an external, secret-free target evidence manifest for the exact release commit.
+
+Repository-local blockers or proof-depth candidates surfaced by this rescan:
+
+1. Target gRPC release-readiness slice.
+   - Gap: `scripts/verify-target-release-evidence.sh` requires `agent`, `workflow`, and `task` gRPC generated-client evidence, but only Agent has a real command listener and deployment port contract. Workflow and Task currently have package-level bufconn generated-client proof without a target-runner surface.
+   - Likely work: add Workflow/Task gRPC listeners, align `WORKFLOW_GRPC_PORT` and `TASK_GRPC_PORT` deployment contracts, add a `cmd/grpc-smoke` or `scripts/target-grpc-smoke.sh` helper that calls checked-in generated clients, and extend deployment contract checks.
+2. Workflow-to-Agent direct client parity.
+   - Gap: the HTTP Workflow adapter handles planning mode, but the standalone Workflow `AgentClient.StartAgentRun` path still needs planning/ReAct split and workspace-scoped session proof.
+3. Agent advanced runtime configuration product path.
+   - Gap: Agent configs have `modelRoutingRules`, `skills`, and `maxSkills` shapes and runner-level logic, but the service run path, OpenAPI/TS types, and product UI do not yet fully expose the same controls.
+4. DB-backed proof tightening for Billing, Marketplace, and Security.
+   - Candidates: Admin usage-limit SQL route persistence, Marketplace paid-install checkout-failure inclusion in the no-skip money-movement profile, and Admin Billing webhook-event raw-payload non-disclosure proof.
+5. Browser-level contract proof tightening.
+   - Candidates: built-app Chat realtime WebSocket proof, Workflow canvas context-menu test-node proof, and Admin model-route CRUD payload proof.
 
 ## TODO And Placeholder Scan
 
@@ -164,7 +179,7 @@ Closed after this rescan:
   - `src/web/src/features/chat/api.ts` and `src/web/src/routes/workspace/ChatPage.tsx` connect the active conversation to `/api/v1/ws`, send typing presence, and apply realtime transcript events.
   - `docs/api/openapi.yaml` and `scripts/verify-openapi-contract.sh` now document and guard Chat realtime WebSocket frame schemas.
 
-The remaining follow-up is target/live evidence collection; it does not have a repository-only substitute:
+The remaining pure external follow-up still does not have a repository-only substitute:
 
 1. Target/live release evidence collection.
    - Risk: repository-local proof is broad but still cannot replace real Kubernetes, provider rails, deployed gRPC reachability, target secret audit, and a strict no-skip release run.
