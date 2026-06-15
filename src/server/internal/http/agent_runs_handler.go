@@ -220,7 +220,11 @@ func (h agentRunsHandler) approveTool(w stdhttp.ResponseWriter, r *stdhttp.Reque
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "invalid json body")
 		return
 	}
-	toolRunID, ok := h.resolveToolRunID(w, r, session, runID, firstAgentRunNonEmpty(req.ToolRunID, req.ToolRunIDCamel), func(toolRun *agent.ToolRun) bool {
+	requestedToolRunID, ok := resolveAgentRunAliasID(w, req.ToolRunID, req.ToolRunIDCamel, "toolRunId")
+	if !ok {
+		return
+	}
+	toolRunID, ok := h.resolveToolRunID(w, r, session, runID, requestedToolRunID, func(toolRun *agent.ToolRun) bool {
 		return toolRun.Status == agent.ToolRunStatusPendingApproval && toolRun.ApprovalStatus == agent.ApprovalStatusPending
 	})
 	if !ok {
@@ -251,7 +255,11 @@ func (h agentRunsHandler) rejectTool(w stdhttp.ResponseWriter, r *stdhttp.Reques
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "invalid json body")
 		return
 	}
-	toolRunID, ok := h.resolveToolRunID(w, r, session, runID, firstAgentRunNonEmpty(req.ToolRunID, req.ToolRunIDCamel), func(toolRun *agent.ToolRun) bool {
+	requestedToolRunID, ok := resolveAgentRunAliasID(w, req.ToolRunID, req.ToolRunIDCamel, "toolRunId")
+	if !ok {
+		return
+	}
+	toolRunID, ok := h.resolveToolRunID(w, r, session, runID, requestedToolRunID, func(toolRun *agent.ToolRun) bool {
 		return toolRun.Status == agent.ToolRunStatusPendingApproval && toolRun.ApprovalStatus == agent.ApprovalStatusPending
 	})
 	if !ok {
@@ -282,7 +290,11 @@ func (h agentRunsHandler) retryTool(w stdhttp.ResponseWriter, r *stdhttp.Request
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "invalid json body")
 		return
 	}
-	toolRunID, ok := h.resolveToolRunID(w, r, session, runID, firstAgentRunNonEmpty(req.ToolRunID, req.ToolRunIDCamel), func(toolRun *agent.ToolRun) bool {
+	requestedToolRunID, ok := resolveAgentRunAliasID(w, req.ToolRunID, req.ToolRunIDCamel, "toolRunId")
+	if !ok {
+		return
+	}
+	toolRunID, ok := h.resolveToolRunID(w, r, session, runID, requestedToolRunID, func(toolRun *agent.ToolRun) bool {
 		return toolRun.Status == agent.ToolRunStatusFailed
 	})
 	if !ok {
@@ -391,7 +403,11 @@ func (h agentRunsHandler) approvePlanStep(w stdhttp.ResponseWriter, r *stdhttp.R
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "invalid json body")
 		return
 	}
-	planStepID, ok := h.resolvePlanStepID(w, r, session, runID, firstAgentRunNonEmpty(req.PlanStepID, req.PlanStepIDCamel), func(step *agent.PlanStep) bool {
+	requestedPlanStepID, ok := resolveAgentRunAliasID(w, req.PlanStepID, req.PlanStepIDCamel, "planStepId")
+	if !ok {
+		return
+	}
+	planStepID, ok := h.resolvePlanStepID(w, r, session, runID, requestedPlanStepID, func(step *agent.PlanStep) bool {
 		return step.Status == agent.PlanStepStatusPending
 	})
 	if !ok {
@@ -422,7 +438,11 @@ func (h agentRunsHandler) skipPlanStep(w stdhttp.ResponseWriter, r *stdhttp.Requ
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "invalid json body")
 		return
 	}
-	planStepID, ok := h.resolvePlanStepID(w, r, session, runID, firstAgentRunNonEmpty(req.PlanStepID, req.PlanStepIDCamel), func(step *agent.PlanStep) bool {
+	requestedPlanStepID, ok := resolveAgentRunAliasID(w, req.PlanStepID, req.PlanStepIDCamel, "planStepId")
+	if !ok {
+		return
+	}
+	planStepID, ok := h.resolvePlanStepID(w, r, session, runID, requestedPlanStepID, func(step *agent.PlanStep) bool {
 		return step.Status == agent.PlanStepStatusPending || step.Status == agent.PlanStepStatusApproved || step.Status == agent.PlanStepStatusFailed
 	})
 	if !ok {
@@ -453,7 +473,11 @@ func (h agentRunsHandler) retryPlanStep(w stdhttp.ResponseWriter, r *stdhttp.Req
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "invalid json body")
 		return
 	}
-	planStepID, ok := h.resolvePlanStepID(w, r, session, runID, firstAgentRunNonEmpty(req.PlanStepID, req.PlanStepIDCamel), func(step *agent.PlanStep) bool {
+	requestedPlanStepID, ok := resolveAgentRunAliasID(w, req.PlanStepID, req.PlanStepIDCamel, "planStepId")
+	if !ok {
+		return
+	}
+	planStepID, ok := h.resolvePlanStepID(w, r, session, runID, requestedPlanStepID, func(step *agent.PlanStep) bool {
 		return step.Status == agent.PlanStepStatusFailed
 	})
 	if !ok {
@@ -519,7 +543,11 @@ func (h agentRunsHandler) updatePlanStep(w stdhttp.ResponseWriter, r *stdhttp.Re
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "invalid json body")
 		return
 	}
-	planStepID, ok := h.resolvePlanStepID(w, r, session, runID, firstAgentRunNonEmpty(req.PlanStepID, req.PlanStepIDCamel), func(step *agent.PlanStep) bool {
+	requestedPlanStepID, ok := resolveAgentRunAliasID(w, req.PlanStepID, req.PlanStepIDCamel, "planStepId")
+	if !ok {
+		return
+	}
+	planStepID, ok := h.resolvePlanStepID(w, r, session, runID, requestedPlanStepID, func(step *agent.PlanStep) bool {
 		return step.Status == agent.PlanStepStatusPending || step.Status == agent.PlanStepStatusApproved
 	})
 	if !ok {
@@ -559,7 +587,11 @@ func (h agentRunsHandler) movePlanStep(w stdhttp.ResponseWriter, r *stdhttp.Requ
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "invalid json body")
 		return
 	}
-	planStepID, ok := h.resolvePlanStepID(w, r, session, runID, firstAgentRunNonEmpty(req.PlanStepID, req.PlanStepIDCamel), func(step *agent.PlanStep) bool {
+	requestedPlanStepID, ok := resolveAgentRunAliasID(w, req.PlanStepID, req.PlanStepIDCamel, "planStepId")
+	if !ok {
+		return
+	}
+	planStepID, ok := h.resolvePlanStepID(w, r, session, runID, requestedPlanStepID, func(step *agent.PlanStep) bool {
 		return step.Status == agent.PlanStepStatusPending || step.Status == agent.PlanStepStatusApproved
 	})
 	if !ok {
@@ -590,7 +622,11 @@ func (h agentRunsHandler) deletePlanStep(w stdhttp.ResponseWriter, r *stdhttp.Re
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "invalid json body")
 		return
 	}
-	planStepID, ok := h.resolvePlanStepID(w, r, session, runID, firstAgentRunNonEmpty(req.PlanStepID, req.PlanStepIDCamel), func(step *agent.PlanStep) bool {
+	requestedPlanStepID, ok := resolveAgentRunAliasID(w, req.PlanStepID, req.PlanStepIDCamel, "planStepId")
+	if !ok {
+		return
+	}
+	planStepID, ok := h.resolvePlanStepID(w, r, session, runID, requestedPlanStepID, func(step *agent.PlanStep) bool {
 		return step.Status == agent.PlanStepStatusPending || step.Status == agent.PlanStepStatusApproved
 	})
 	if !ok {
@@ -621,7 +657,11 @@ func (h agentRunsHandler) executePlanStep(w stdhttp.ResponseWriter, r *stdhttp.R
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "invalid json body")
 		return
 	}
-	planStepID, ok := h.resolvePlanStepID(w, r, session, runID, firstAgentRunNonEmpty(req.PlanStepID, req.PlanStepIDCamel), func(step *agent.PlanStep) bool {
+	requestedPlanStepID, ok := resolveAgentRunAliasID(w, req.PlanStepID, req.PlanStepIDCamel, "planStepId")
+	if !ok {
+		return
+	}
+	planStepID, ok := h.resolvePlanStepID(w, r, session, runID, requestedPlanStepID, func(step *agent.PlanStep) bool {
 		return step.Status == agent.PlanStepStatusApproved || (step.Status == agent.PlanStepStatusPending && step.ApprovalStatus == agent.ApprovalStatusNotRequired)
 	})
 	if !ok {
@@ -778,6 +818,19 @@ func decodeOptionalAgentRunJSONBody(r *stdhttp.Request, target any) error {
 		return err
 	}
 	return nil
+}
+
+func resolveAgentRunAliasID(w stdhttp.ResponseWriter, snake, camel, fieldName string) (string, bool) {
+	snake = strings.TrimSpace(snake)
+	camel = strings.TrimSpace(camel)
+	if snake != "" && camel != "" && snake != camel {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", fieldName+" aliases conflict")
+		return "", false
+	}
+	if snake != "" {
+		return snake, true
+	}
+	return camel, true
 }
 
 func firstAgentRunNonEmpty(values ...string) string {

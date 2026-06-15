@@ -1244,6 +1244,99 @@ func TestAgentRunsHandlerPlanStepActionsRejectCrossRunStepIDs(t *testing.T) {
 	}
 }
 
+func TestAgentRunsHandlerPlanStepActionsRejectConflictingPlanStepIDAliases(t *testing.T) {
+	tests := []struct {
+		name string
+		call func(agentRunsHandler, stdhttp.ResponseWriter, *stdhttp.Request, string)
+		path string
+		body string
+	}{
+		{
+			name: "approve",
+			call: agentRunsHandler.approvePlanStep,
+			path: "/api/v1/agent/runs/run_1/approve-plan-step",
+			body: `{"plan_step_id":"step_guarded","planStepId":"step_other","reason":"ready"}`,
+		},
+		{
+			name: "skip",
+			call: agentRunsHandler.skipPlanStep,
+			path: "/api/v1/agent/runs/run_1/skip-plan-step",
+			body: `{"plan_step_id":"step_guarded","planStepId":"step_other","reason":"not needed"}`,
+		},
+		{
+			name: "retry",
+			call: agentRunsHandler.retryPlanStep,
+			path: "/api/v1/agent/runs/run_1/retry-plan-step",
+			body: `{"plan_step_id":"step_guarded","planStepId":"step_other"}`,
+		},
+		{
+			name: "update",
+			call: agentRunsHandler.updatePlanStep,
+			path: "/api/v1/agent/runs/run_1/update-plan-step",
+			body: `{"plan_step_id":"step_guarded","planStepId":"step_other","title":"mutated title"}`,
+		},
+		{
+			name: "move",
+			call: agentRunsHandler.movePlanStep,
+			path: "/api/v1/agent/runs/run_1/move-plan-step",
+			body: `{"plan_step_id":"step_guarded","planStepId":"step_other","direction":"down"}`,
+		},
+		{
+			name: "delete",
+			call: agentRunsHandler.deletePlanStep,
+			path: "/api/v1/agent/runs/run_1/delete-plan-step",
+			body: `{"plan_step_id":"step_guarded","planStepId":"step_other"}`,
+		},
+		{
+			name: "execute",
+			call: agentRunsHandler.executePlanStep,
+			path: "/api/v1/agent/runs/run_1/execute-plan-step",
+			body: `{"plan_step_id":"step_guarded","planStepId":"step_other"}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newFakeAgentRunsStore()
+			store.runs = []*agent.Run{{
+				ID:             "run_1",
+				OrganizationID: "org_1",
+				UserID:         "user_1",
+			}}
+			store.planSteps = []*agent.PlanStep{{
+				ID:             "step_guarded",
+				RunID:          "run_1",
+				OrganizationID: "org_1",
+				Index:          1,
+				Title:          "Guarded step",
+				Status:         agent.PlanStepStatusPending,
+				ApprovalStatus: agent.ApprovalStatusPending,
+				ResultContent:  "existing evidence",
+				Error:          "existing error",
+			}}
+			handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{reply: "should not execute"}))
+
+			recorder := httptest.NewRecorder()
+			tt.call(handler, recorder, newAgentRunsRequest(stdhttp.MethodPost, tt.path, tt.body), "run_1")
+
+			if recorder.Code != stdhttp.StatusBadRequest {
+				t.Fatalf("expected 400, got %d with body %s", recorder.Code, recorder.Body.String())
+			}
+			if !strings.Contains(recorder.Body.String(), "planStepId aliases conflict") {
+				t.Fatalf("expected alias conflict error, got %s", recorder.Body.String())
+			}
+			if len(store.planSteps) != 1 {
+				t.Fatalf("conflicting alias request deleted guarded step: %+v", store.planSteps)
+			}
+			step := store.planSteps[0]
+			if step.ID != "step_guarded" || step.Title != "Guarded step" || step.Status != agent.PlanStepStatusPending ||
+				step.ApprovalStatus != agent.ApprovalStatusPending || step.ResultContent != "existing evidence" || step.Error != "existing error" {
+				t.Fatalf("conflicting alias request mutated guarded step: %+v", step)
+			}
+		})
+	}
+}
+
 func TestAgentRunsHandlerPlanStepActionsRejectOmittedAmbiguousStepIDs(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -2225,6 +2318,49 @@ func TestAgentRunsHandlerApproveToolRejectsAmbiguousOmittedToolRunID(t *testing.
 	}
 }
 
+func TestAgentRunsHandlerApproveToolAcceptsMatchingToolRunIDAliases(t *testing.T) {
+	store := newFakeAgentRunsStore()
+	store.agent = &agent.Agent{
+		ID:             "agent_1",
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		Model:          "test-model",
+		Tools:          []agent.Tool{{Name: "datetime", Type: "builtin", Enabled: true, RequiresApproval: true}},
+	}
+	store.runs = []*agent.Run{{
+		ID:             "run_1",
+		OrganizationID: "org_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		UserID:         "user_1",
+		Status:         agent.RunStatusPendingApproval,
+	}}
+	store.toolRuns = []*agent.ToolRun{{
+		ID:             "tool_run_pending",
+		OrganizationID: "org_1",
+		RunID:          "run_1",
+		ConversationID: "conv_1",
+		AgentID:        "agent_1",
+		ToolCallID:     "call_datetime_pending",
+		ToolName:       "datetime",
+		ToolType:       "builtin",
+		Arguments:      map[string]any{},
+		Status:         agent.ToolRunStatusPendingApproval,
+		ApprovalStatus: agent.ApprovalStatusPending,
+	}}
+	handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{}))
+
+	recorder := httptest.NewRecorder()
+	handler.approveTool(recorder, newAgentRunsRequest(stdhttp.MethodPost, "/api/v1/agent/runs/run_1/approve-tool", `{"tool_run_id":"tool_run_pending","toolRunId":"tool_run_pending","reason":"reviewed"}`), "run_1")
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if store.toolRuns[0].Status != agent.ToolRunStatusCompleted || store.toolRuns[0].ApprovalStatus != agent.ApprovalStatusApproved {
+		t.Fatalf("expected matching aliases to approve tool run, got %+v", store.toolRuns[0])
+	}
+}
+
 func TestAgentRunsHandlerApproveToolVerifiesToolBelongsToRun(t *testing.T) {
 	store := newFakeAgentRunsStore()
 	store.runs = []*agent.Run{
@@ -2248,6 +2384,90 @@ func TestAgentRunsHandlerApproveToolVerifiesToolBelongsToRun(t *testing.T) {
 	}
 	if !strings.Contains(recorder.Body.String(), "does not belong to run") {
 		t.Fatalf("expected membership error, got %s", recorder.Body.String())
+	}
+}
+
+func TestAgentRunsHandlerToolActionsRejectConflictingToolRunIDAliases(t *testing.T) {
+	tests := []struct {
+		name            string
+		call            func(agentRunsHandler, stdhttp.ResponseWriter, *stdhttp.Request, string)
+		path            string
+		body            string
+		initialStatus   string
+		initialApproval string
+		initialError    string
+	}{
+		{
+			name:            "approve",
+			call:            agentRunsHandler.approveTool,
+			path:            "/api/v1/agent/runs/run_1/approve-tool",
+			body:            `{"tool_run_id":"tool_run_guarded","toolRunId":"tool_run_other","reason":"ok"}`,
+			initialStatus:   agent.ToolRunStatusPendingApproval,
+			initialApproval: agent.ApprovalStatusPending,
+		},
+		{
+			name:            "reject",
+			call:            agentRunsHandler.rejectTool,
+			path:            "/api/v1/agent/runs/run_1/reject-tool",
+			body:            `{"tool_run_id":"tool_run_guarded","toolRunId":"tool_run_other","reason":"unsafe"}`,
+			initialStatus:   agent.ToolRunStatusPendingApproval,
+			initialApproval: agent.ApprovalStatusPending,
+		},
+		{
+			name:            "retry",
+			call:            agentRunsHandler.retryTool,
+			path:            "/api/v1/agent/runs/run_1/retry-tool",
+			body:            `{"tool_run_id":"tool_run_guarded","toolRunId":"tool_run_other"}`,
+			initialStatus:   agent.ToolRunStatusFailed,
+			initialApproval: agent.ApprovalStatusNotRequired,
+			initialError:    "temporary failure",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newFakeAgentRunsStore()
+			store.runs = []*agent.Run{{
+				ID:             "run_1",
+				OrganizationID: "org_1",
+				ConversationID: "conv_1",
+				AgentID:        "agent_1",
+				UserID:         "user_1",
+				Status:         agent.RunStatusPendingApproval,
+			}}
+			store.toolRuns = []*agent.ToolRun{{
+				ID:                     "tool_run_guarded",
+				OrganizationID:         "org_1",
+				RunID:                  "run_1",
+				ConversationID:         "conv_1",
+				AgentID:                "agent_1",
+				ToolCallID:             "call_guarded",
+				ToolName:               "datetime",
+				ToolType:               "builtin",
+				Arguments:              map[string]any{},
+				Status:                 tt.initialStatus,
+				ApprovalStatus:         tt.initialApproval,
+				ApprovedByUserID:       "reviewer_1",
+				ApprovalDecisionReason: "original decision",
+				Error:                  tt.initialError,
+			}}
+			handler := newAgentRunsHandler(agent.NewService(store, &fakeAgentRunsGateway{reply: "should not execute"}))
+
+			recorder := httptest.NewRecorder()
+			tt.call(handler, recorder, newAgentRunsRequest(stdhttp.MethodPost, tt.path, tt.body), "run_1")
+
+			if recorder.Code != stdhttp.StatusBadRequest {
+				t.Fatalf("expected 400, got %d with body %s", recorder.Code, recorder.Body.String())
+			}
+			if !strings.Contains(recorder.Body.String(), "toolRunId aliases conflict") {
+				t.Fatalf("expected alias conflict error, got %s", recorder.Body.String())
+			}
+			toolRun := store.toolRuns[0]
+			if toolRun.ID != "tool_run_guarded" || toolRun.Status != tt.initialStatus || toolRun.ApprovalStatus != tt.initialApproval ||
+				toolRun.ApprovedByUserID != "reviewer_1" || toolRun.ApprovalDecisionReason != "original decision" || toolRun.Error != tt.initialError {
+				t.Fatalf("conflicting alias request mutated guarded tool run: %+v", toolRun)
+			}
+		})
 	}
 }
 
