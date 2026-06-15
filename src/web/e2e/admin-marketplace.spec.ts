@@ -31,9 +31,15 @@ test('marketplace browse detail and install workflow works', async ({ page }) =>
   await page.goto('/marketplace');
   await expect(page.getByRole('heading', { name: 'Agent Marketplace' })).toBeVisible();
   await expect(page.getByText('Release Helper').first()).toBeVisible();
+  const releaseRecommendation = page.getByRole('note', { name: 'Recommendation for Release Helper' }).first();
+  await expect(releaseRecommendation.getByText('Recommended')).toBeVisible();
+  await expect(releaseRecommendation.getByText('92% match')).toBeVisible();
+  await expect(releaseRecommendation.getByText('Matches "release"; Productivity category; release and ops tags; 4.8 rating')).toBeVisible();
 
   await page.getByPlaceholder('Search agents...').fill('release');
   await expect(page.getByText('Release Helper').first()).toBeVisible();
+  await expect(releaseRecommendation.getByText('92% match')).toBeVisible();
+  await expect(releaseRecommendation.getByText('Matches "release"; Productivity category; release and ops tags; 4.8 rating')).toBeVisible();
 
   await page.goto('/marketplace/agents/agent_release_helper');
   await expect(page.getByRole('heading', { name: 'Release Helper' })).toBeVisible();

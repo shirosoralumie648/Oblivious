@@ -973,6 +973,17 @@ require_marketplace_browse_payload_contract() {
       end
     end
 
+    published_agent = schemas["MarketplacePublishedAgent"] || {}
+    unless published_agent.dig("properties", "recommendation", "$ref") == "#/components/schemas/MarketplaceRecommendationMetadata"
+      missing << "MarketplacePublishedAgent.recommendation must reference MarketplaceRecommendationMetadata"
+    end
+    recommendation = schemas["MarketplaceRecommendationMetadata"] || {}
+    unless recommendation.dig("properties", "score", "type") == "number" &&
+        recommendation.dig("properties", "score", "format") == "double" &&
+        recommendation.dig("properties", "reason", "type") == "string"
+      missing << "MarketplaceRecommendationMetadata must document score double and reason string"
+    end
+
     curated = schemas["MarketplaceCuratedSectionsResponse"] || {}
     ["popular", "topRated", "recent"].each do |property|
       unless curated.dig("properties", property, "type") == "array" &&

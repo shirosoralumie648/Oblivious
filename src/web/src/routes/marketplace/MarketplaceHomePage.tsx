@@ -132,7 +132,11 @@ function AgentCard({ agent, compact = false }: { agent: MarketplaceAgent; compac
           {agent.description}
         </p>
         {agent.recommendation ? (
-          <div className="rounded-lg border border-border bg-muted/30 px-3 py-2">
+          <div
+            aria-label={`Recommendation for ${agent.name}`}
+            className="rounded-lg border border-border bg-muted/30 px-3 py-2"
+            role="note"
+          >
             <div className="flex items-center justify-between gap-3">
               <span className="text-xs font-medium text-foreground">Recommended</span>
               {recommendationScore !== null ? <span className="text-xs text-muted-foreground">{recommendationScore}% match</span> : null}

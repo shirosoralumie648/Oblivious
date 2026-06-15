@@ -103,6 +103,14 @@ const releaseAgent = {
   updatedAt: now,
 };
 
+const recommendedReleaseAgent = {
+  ...releaseAgent,
+  recommendation: {
+    score: 0.92,
+    reason: 'Matches "release"; Productivity category; release and ops tags; 4.8 rating',
+  },
+};
+
 const submittedAgent = {
   ...releaseAgent,
   id: 'agent_submitted_release_notes',
@@ -383,7 +391,15 @@ export async function registerAdminMarketplaceRoutes(page: Page): Promise<void> 
     }
 
     if (method === 'GET' && pathname === '/api/v1/marketplace/search') {
-      await fulfillJSON(route, { agents: [releaseAgent, paidReleaseAgent], total: 2 });
+      if (url.searchParams.get('sort') !== 'recommended') {
+        await fulfillError(route, 'marketplace browser search did not preserve recommended sort');
+        return;
+      }
+      if (url.searchParams.get('query') === 'release') {
+        await fulfillJSON(route, { agents: [recommendedReleaseAgent, paidReleaseAgent], total: 2 });
+        return;
+      }
+      await fulfillJSON(route, { agents: [recommendedReleaseAgent, paidReleaseAgent], total: 2 });
       return;
     }
 
