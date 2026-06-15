@@ -25,6 +25,11 @@ Required for strict final readiness:
     Requires kubectl, a reachable Kubernetes context, and OBLIVIOUS_K8S_SECRET_FILE.
   COMMERCIAL_COMPLETION_RUN_BACKUP_RESTORE=true
     Run bash scripts/backup-restore-smoke.sh as part of the final verifier.
+  COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true
+    Run bash scripts/verify-target-release-evidence.sh as part of the final verifier.
+    Requires OBLIVIOUS_TARGET_EVIDENCE_FILE pointing at an external JSON evidence manifest
+    for live provider rails, deployed gRPC reachability, target secret audit, failover,
+    and production workflow telemetry.
 
 Optional:
   COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS=true
@@ -53,6 +58,7 @@ allow_env_skips="${COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS:-false}"
 run_deploy="${COMMERCIAL_COMPLETION_RUN_DEPLOY:-false}"
 run_k8s="${COMMERCIAL_COMPLETION_RUN_K8S:-false}"
 run_backup_restore="${COMMERCIAL_COMPLETION_RUN_BACKUP_RESTORE:-false}"
+run_target_evidence="${COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE:-false}"
 skipped_checks=()
 
 fail() {
@@ -117,6 +123,12 @@ if [[ "$run_backup_restore" == "true" ]]; then
   run_step "backup and restore smoke" bash "$repo_root/scripts/backup-restore-smoke.sh"
 else
   skip_or_fail "backup and restore smoke" "COMMERCIAL_COMPLETION_RUN_BACKUP_RESTORE"
+fi
+
+if [[ "$run_target_evidence" == "true" ]]; then
+  run_step "target live evidence manifest" bash "$repo_root/scripts/verify-target-release-evidence.sh"
+else
+  skip_or_fail "target live evidence manifest" "COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE"
 fi
 
 run_step "diff hygiene" git -C "$repo_root" diff --check

@@ -3,10 +3,10 @@
 ## Current Truth
 
 - Branch: `main`.
-- Scan base commit: `e2229675f222ab0bdcb00f55240a650d9b7c507d` (`test(billing): prove topup refund operator evidence`).
+- Scan base commit: `0694b44ba95e11f48aff568516b473da54683dc3` (`test(quota): aggregate lifecycle db evidence`).
 - Remote parity at scan start: `HEAD == origin/main`.
-- Working tree at scan start: clean after the Admin top-up refund operator-evidence slice was committed and pushed.
-- The earlier same-day scans at `1c52194`, `53aaca0`, `d4fdc37`, `75ff216`, `98a1683`, `c6d9b34`, `5969e4b`, and `1e7c6ef` are now older baselines for this report; they did not include the latest Admin top-up refund operator-evidence DB proof.
+- Working tree at scan start: dirty with the target live evidence manifest verifier slice in progress.
+- The earlier same-day scans at `1c52194`, `53aaca0`, `d4fdc37`, `75ff216`, `98a1683`, `c6d9b34`, `5969e4b`, `1e7c6ef`, and `e222967` are now older baselines for this report; they did not include the latest quota lifecycle aggregation or target/live evidence manifest verifier gate.
 - The project is still not complete against the four `docs/superpowers/specs/2026-06-04-*` specs.
 - Current matrix remains `4 Proven / 10 Partial / 0 Gap / 0 Unverified`.
 - Current progress estimate remains `99/100`: repository-local evidence is broad, but final completion is still gated by target/live proof and a strict no-skip release run.
@@ -24,17 +24,18 @@
 - Scheduled Task HTTP routes now have active-organization isolation proof for run-history, status-update, and run-now paths. Cross-organization requests return 404, do not leak owner run evidence, do not mutate the owner task, and do not create extra owner runs.
 - Admin top-up refund operator evidence now has no-skip PostgreSQL route proof: duplicate Admin Stripe refund submissions persist one refund row and one lifecycle transition with provider charge/payment-intent evidence, while missing Stripe charge/payment-intent evidence returns 400 without mutating refund, lifecycle, payment-intent, top-up, or quota state.
 - Quota SQL isolation now aggregates quota lifecycle proof across quota store, HTTP route, Admin, and Stripe lifecycle tests in one no-skip PostgreSQL profile, including user-scoped balance mode, request-cap fallback, top-up no-credit-before-webhook, direct top-up rejection, Admin refund quota reversal, and Stripe top-up/refund accounting.
+- Target/live release evidence now has a machine-readable manifest verifier in progress. The strict commercial verifier requires `COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true` for final readiness, and the manifest validator checks exact commit, strict no-skip verifier result, deployment/backup/migration evidence, Kubernetes validation/rollout/failover evidence, live provider checkout/refund/payout/reconciliation evidence, Agent/Workflow/Task generated-client gRPC smoke evidence, target secret audit, workflow telemetry `successRate >= 0.99`, no skip-like fields, and no embedded secret material.
 
 ## Repository Inventory
 
-- First-party tracked files:
+- First-party tracked files after this target-evidence verifier slice:
   - `src`: 994
   - `docs`: 93
-  - `scripts`: 37
+  - `scripts`: 38
   - `deploy`: 42
   - `.planning`: 210
   - other tracked files: 27
-  - total tracked files: 1403
+  - total tracked files: 1404
 - Server internal shape:
   - `src/server/internal`: 590 tracked files.
   - largest active domains: `relay` 110, `http` 104, `mcp` 43, `admin` 39, `agent` 34, `workflow` 31, `knowledge` 30, `observability` 28, `channel` 27, `migration` 24, `marketplace` 16.
@@ -86,6 +87,7 @@ No rows are currently marked `Gap` or `Unverified`.
 ## Evidence Boundary
 
 - `docs/release/fusion-spec-evidence-pack.md` still states that the pack is not a final completion claim; any `Partial` row remains open until row-specific proof is recorded and rerun on the target environment where required.
+- `scripts/verify-target-release-evidence.sh` now provides the external target/live evidence manifest gate for proof that cannot be collected from repository-local tests.
 - `scripts/verify-commercial-db-evidence.sh` currently exposes 24 focused profiles plus the `all` aggregator:
   - `backend-journey`
   - `marketplace-money-movement`
@@ -111,7 +113,7 @@ No rows are currently marked `Gap` or `Unverified`.
   - `observability-alert-recovery-persistence`
   - `quota-sql-isolation`
   - `core-sql-persistence`
-- `scripts/verify-commercial-completion.sh` is strict by default. It requires `TEST_DATABASE_URL`, deploy validation, Kubernetes validation, backup/restore smoke, docs/security gates, web TypeScript, full Go suites, DB-backed evidence profiles, and diff hygiene.
+- `scripts/verify-commercial-completion.sh` is strict by default. It requires `TEST_DATABASE_URL`, deploy validation, Kubernetes validation, backup/restore smoke, target live evidence manifest validation, docs/security gates, web TypeScript, full Go suites, DB-backed evidence profiles, and diff hygiene.
 - A run with `COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS=true` remains partial local evidence only and cannot count as final readiness.
 
 ## Current Blockers
@@ -124,7 +126,7 @@ These are still outside repository-local proof and keep the final status at `99/
 - Target Agent/Workflow/Task gRPC reachability using generated clients against running service endpoints.
 - Target secret audit for deployed provider/channel/workflow/runtime secrets.
 - Target or CI `TEST_DATABASE_URL` runs broad enough to count as final release evidence, not only disposable local profile proof.
-- A final `scripts/verify-commercial-completion.sh` run with no environment skips.
+- A final `scripts/verify-commercial-completion.sh` run with no environment skips and `COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true` pointing at an external, secret-free target evidence manifest for the exact release commit.
 
 ## TODO And Placeholder Scan
 
@@ -150,8 +152,10 @@ Closed after this rescan:
   - `src/server/internal/http/admin_billing_handler_test.go` now asserts persisted `billing_refunds` provider charge/payment-intent/top-up evidence, the exact operator lifecycle transition, idempotent duplicate submission behavior, and a real-router rejection path that preserves refund/lifecycle ledgers, payment intent, top-up order, and quota state. `scripts/verify-commercial-db-evidence.sh marketplace-money-movement` now includes the rejection-preservation test.
 - Quota lifecycle DB evidence aggregation.
   - `scripts/verify-commercial-db-evidence.sh quota-sql-isolation` now runs quota SQL store lifecycle/isolation tests, quota/Admin/Billing HTTP route tests, and Stripe top-up/refund lifecycle balance-accounting tests in one no-skip PostgreSQL profile.
+- Target/live release evidence manifest gate.
+  - `scripts/verify-target-release-evidence.sh` now validates the external JSON evidence package required for live provider rails, deployed gRPC reachability, target secret audit, Kubernetes failover, workflow telemetry, and strict no-skip verifier proof, while rejecting embedded secret material.
 
-The remaining local follow-up is target/live evidence collection; it does not have a repository-only substitute:
+The remaining follow-up is target/live evidence collection; it does not have a repository-only substitute:
 
 1. Target/live release evidence collection.
    - Risk: repository-local proof is broad but still cannot replace real Kubernetes, provider rails, deployed gRPC reachability, target secret audit, and a strict no-skip release run.
@@ -181,7 +185,12 @@ rg -n '\| Partial \|' docs/reports/2026-06-07-fusion-spec-completion-matrix.md
 rg -n '^#|^##|^###' docs/superpowers/specs/2026-06-04-*.md
 rg -n '^run_[a-z0-9_]+_profile\(\)|run_all_profiles|case "\$profile"' scripts/verify-commercial-db-evidence.sh
 rg -n 'target|Kubernetes|secret|payment|provider|failover|gRPC|grpc|no-skip|live|target-environment|cluster|COMMERCIAL_COMPLETION_RUN_K8S' docs/release/commercial-completion-audit.md docs/release/fusion-spec-evidence-pack.md docs/reports/2026-06-07-fusion-spec-completion-matrix.md scripts/verify-commercial-completion.sh scripts/k8s-validate.sh
+rg -n 'COMMERCIAL_COMPLETION_RUN_DEPLOY|COMMERCIAL_COMPLETION_RUN_K8S|COMMERCIAL_COMPLETION_RUN_BACKUP_RESTORE|COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE|verify-target-release-evidence|target live evidence' docs/release docs/reports scripts -S
 rg -n 'TODO|FIXME|XXX|stub|placeholder|Unimplemented|DisabledInProduction' src scripts deploy docs/release docs/reports -g '!src/web/test-results/**' -g '!src/web/playwright-report/**' -g '!**/*.pb.go' -g '!docs/reports/archive/**'
+sed -n '1,340p' scripts/verify-target-release-evidence.sh
+sed -n '1,180p' docs/release/commercial-completion-audit.md
+git diff --stat
+git diff -- scripts/verify-commercial-completion.sh scripts/verify-fusion-evidence-pack.sh scripts/verify-quality-gates.sh scripts/verify-target-release-evidence.sh docs/release/commercial-gates.md docs/release/fusion-spec-evidence-pack.md docs/release/rc-checklist.md docs/release/commercial-completion-audit.md docs/reports/2026-06-07-fusion-spec-completion-matrix.md docs/reports/2026-06-16-repo-rescan.md
 nl -ba src/server/internal/marketplace/store.go | sed -n '330,390p;740,790p'
 nl -ba src/server/migrations/0030_marketplace_settlement_governance.sql | sed -n '1,180p'
 rg -n 'marketplace_audit_retention|AuditRetention|DeleteWithPaidOrder|BuyerUninstallPreserves|scheduled_task_store_pattern' scripts/verify-commercial-db-evidence.sh src/server/internal/marketplace/settlement_test.go src/server/internal/marketplace/store.go src/server/migrations/0082_marketplace_audit_retention.sql src/server/internal/schedule/worker_test.go src/server/internal/schedule/store_test.go
@@ -198,6 +207,16 @@ GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scri
 GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh quota-sql-isolation
 COREPACK_HOME=/tmp/codex-corepack bash scripts/check.sh docs
 bash -n scripts/verify-commercial-db-evidence.sh
+bash -n scripts/verify-target-release-evidence.sh scripts/verify-commercial-completion.sh scripts/verify-fusion-evidence-pack.sh scripts/verify-quality-gates.sh
+bash scripts/verify-target-release-evidence.sh --help
+tmpdir=$(mktemp -d)
+# temp valid/invalid target evidence manifests outside git:
+#   valid manifest passed for current HEAD
+#   missing path failed
+#   commit mismatch failed
+#   non-live provider failed
+#   non-empty skippedChecks failed
+#   embedded secret material failed
 git diff --check
 sed -n '1,180p' scripts/verify-commercial-completion.sh
 sed -n '1,140p' docs/release/fusion-spec-evidence-pack.md
@@ -208,6 +227,9 @@ sed -n '1,140p' docs/release/fusion-spec-evidence-pack.md
 This report is documentation-only. It should be verified with:
 
 ```bash
+bash -n scripts/verify-target-release-evidence.sh scripts/verify-commercial-completion.sh scripts/verify-fusion-evidence-pack.sh scripts/verify-quality-gates.sh
+bash scripts/verify-target-release-evidence.sh --help
+target evidence manifest temp valid/invalid checks
 COREPACK_HOME=/tmp/codex-corepack bash scripts/check.sh docs
 git diff --check
 ```
