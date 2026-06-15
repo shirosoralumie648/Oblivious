@@ -15,11 +15,15 @@ type planningRuntimeFakeGateway struct {
 	errors       []error
 	calls        int
 	lastMessages []chat.Message
+	toolCounts   []int
+	callMessages [][]chat.Message
 }
 
 func (g *planningRuntimeFakeGateway) GenerateStructuredReply(ctx context.Context, messages []chat.Message, config chat.ConversationConfig, tools []map[string]any) (*chat.CompletionResponse, error) {
 	g.calls++
 	g.lastMessages = append([]chat.Message(nil), messages...)
+	g.callMessages = append(g.callMessages, append([]chat.Message(nil), messages...))
+	g.toolCounts = append(g.toolCounts, len(tools))
 	if g.calls <= len(g.errors) && g.errors[g.calls-1] != nil {
 		return nil, g.errors[g.calls-1]
 	}
@@ -27,6 +31,33 @@ func (g *planningRuntimeFakeGateway) GenerateStructuredReply(ctx context.Context
 		return g.responses[g.calls-1], nil
 	}
 	return &chat.CompletionResponse{Content: "done"}, nil
+}
+
+type planningRuntimeFakeToolRunner struct {
+	calls       int
+	lastTool    string
+	lastArgs    map[string]any
+	observation string
+}
+
+func (r *planningRuntimeFakeToolRunner) BuildOpenAITools(ctx context.Context, agentInstance *agent.Agent) ([]map[string]any, error) {
+	return []map[string]any{{
+		"type": "function",
+		"function": map[string]any{
+			"name":        "web_search",
+			"description": "Search the web",
+			"parameters": map[string]any{
+				"type": "object",
+			},
+		},
+	}}, nil
+}
+
+func (r *planningRuntimeFakeToolRunner) ExecuteTool(ctx context.Context, agentInstance *agent.Agent, toolCall *agent.ToolCall) (*agent.ExecuteResult, error) {
+	r.calls++
+	r.lastTool = toolCall.Name
+	r.lastArgs = toolCall.Arguments
+	return &agent.ExecuteResult{Content: r.observation}, nil
 }
 
 func TestNormalizePlanningConfigClampsTokenBudget(t *testing.T) {
@@ -121,6 +152,71 @@ func TestPlanningEngineExecutePlanHandlesOneBasedStepIndexes(t *testing.T) {
 	}
 	if gateway.calls != 1 {
 		t.Fatalf("expected one step gateway call, got %d", gateway.calls)
+	}
+}
+
+func TestPlanningEngineExecutePlanRunsToolStepThroughReAct(t *testing.T) {
+	gateway := &planningRuntimeFakeGateway{responses: []*chat.CompletionResponse{
+		{
+			Content: `{"thought":"search before answering"}`,
+			ToolCalls: []chat.ToolCall{{
+				ID:   "call_search",
+				Type: "function",
+				Function: chat.ToolFunction{
+					Name:      "web_search",
+					Arguments: `{"query":"fusion release evidence"}`,
+				},
+			}},
+			Usage: &chat.CompletionUsage{TotalTokens: 120},
+		},
+		{
+			Content: `{"thought":"observation is enough","finalAnswer":"Tool evidence confirms the release slice."}`,
+			Usage:   &chat.CompletionUsage{TotalTokens: 80},
+		},
+	}}
+	runner := &planningRuntimeFakeToolRunner{observation: "search observation: release evidence found"}
+	engine := NewPlanningEngine(gateway, runner)
+	plan := Plan{
+		Goal: "verify tool handoff",
+		Steps: []PlanStep{{
+			Index:       1,
+			Title:       "Search release evidence",
+			Description: "Use web_search to check release evidence.",
+			ToolName:    "web_search",
+			Input:       map[string]any{"query": "fusion release evidence"},
+		}},
+	}
+
+	result, err := engine.ExecutePlan(context.Background(), &agent.Agent{Model: "gpt-4o-mini"}, "conv_1", []chat.Message{{
+		Role:    "user",
+		Content: "verify the release evidence",
+	}}, plan, PlanningConfig{MaxIterations: 4})
+	if err != nil {
+		t.Fatalf("ExecutePlan returned error: %v", err)
+	}
+
+	if result.StopReason != "plan_completed" || result.FinalAnswer == "" {
+		t.Fatalf("expected completed plan with synthesized final answer, got %+v", result)
+	}
+	if len(result.StepResults) != 1 {
+		t.Fatalf("expected one tool step result, got %+v", result.StepResults)
+	}
+	stepResult := result.StepResults[0]
+	if stepResult.Status != "completed" || stepResult.Result != "Tool evidence confirms the release slice." || stepResult.TokensUsed != 200 {
+		t.Fatalf("expected completed ReAct-backed step result, got %+v", stepResult)
+	}
+	if runner.calls != 1 || runner.lastTool != "web_search" || runner.lastArgs["query"] != "fusion release evidence" {
+		t.Fatalf("expected one web_search tool execution with query args, calls=%d tool=%q args=%+v", runner.calls, runner.lastTool, runner.lastArgs)
+	}
+	if len(gateway.toolCounts) != 2 || gateway.toolCounts[0] != 1 || gateway.toolCounts[1] != 1 {
+		t.Fatalf("expected ReAct iterations to receive tool schema, got tool counts %+v", gateway.toolCounts)
+	}
+	if len(gateway.callMessages) < 2 {
+		t.Fatalf("expected two ReAct gateway calls, got %d", len(gateway.callMessages))
+	}
+	secondCall := gateway.callMessages[1]
+	if len(secondCall) < 1 || secondCall[len(secondCall)-1].Role != "tool" || !strings.Contains(secondCall[len(secondCall)-1].Content, "release evidence found") {
+		t.Fatalf("expected second ReAct call to include tool observation, got %+v", secondCall)
 	}
 }
 
