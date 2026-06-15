@@ -92,6 +92,67 @@ const workflow = {
   updatedAt: now,
 };
 
+const workflowVersionOne = {
+  ...workflow,
+  status: 'draft',
+  version: 1,
+  definition: {
+    ...workflow.definition,
+    nodes: workflow.definition.nodes.slice(0, 2),
+    edges: workflow.definition.edges.slice(0, 1),
+  },
+  updatedAt: '2026-06-12T08:00:00Z',
+};
+
+const workflowVersionTwo = {
+  ...workflow,
+  version: 2,
+  definition: {
+    ...workflow.definition,
+    nodes: workflow.definition.nodes.slice(0, 2),
+    edges: workflow.definition.edges.slice(0, 1),
+  },
+  updatedAt: '2026-06-12T18:00:00Z',
+};
+
+const rolledBackWorkflow = {
+  ...workflowVersionOne,
+  id: workflow.id,
+  status: 'draft',
+  version: 4,
+  updatedAt: '2026-06-13T09:05:00Z',
+};
+
+const workflowBranch = {
+  ...workflowVersionTwo,
+  id: 'workflow_release_branch',
+  name: 'Release automation branch',
+  status: 'draft',
+  version: 1,
+  definition: {
+    ...workflowVersionTwo.definition,
+    branch: {
+      sourceWorkflowId: workflow.id,
+      sourceVersion: 2,
+      experimentKey: 'release-routing-v2',
+      trafficPercent: 25,
+    },
+  },
+  updatedAt: '2026-06-13T09:10:00Z',
+};
+
+const publishedWorkflowBranch = {
+  ...workflowBranch,
+  status: 'published',
+  updatedAt: '2026-06-13T09:11:00Z',
+};
+
+const mergedWorkflow = {
+  ...workflow,
+  version: 5,
+  updatedAt: '2026-06-13T09:12:00Z',
+};
+
 const scheduledTask = {
   id: 'sched_release_daily',
   organizationId: 'org_workflows',
@@ -163,6 +224,57 @@ const priorExecution = {
   completedAt: '2026-06-12T09:00:04Z',
   createdAt: '2026-06-12T09:00:00Z',
   updatedAt: '2026-06-12T09:00:04Z',
+};
+
+const pausedExecution = {
+  ...executionRun,
+  id: 'exec_release_paused',
+  status: 'paused',
+  input: { release: '2026.06', severity: 'sev1' },
+  output: undefined,
+  nodeExecutions: [
+    {
+      nodeId: 'manual-start',
+      nodeType: 'manual',
+      status: 'succeeded',
+      durationMs: 12,
+      output: { accepted: true },
+    },
+    {
+      nodeId: 'classify',
+      nodeType: 'condition',
+      status: 'failed',
+      durationMs: 31,
+      input: { severity: 'sev1' },
+      error: { message: 'classification model unavailable' },
+    },
+  ],
+  startedAt: '2026-06-13T08:58:00Z',
+  completedAt: undefined,
+  createdAt: '2026-06-13T08:58:00Z',
+  updatedAt: '2026-06-13T08:58:03Z',
+};
+
+const resourceLimitedExecution = {
+  ...pausedExecution,
+  status: 'paused',
+  error: { reason: 'workflow_resource_guard', totalTokens: 2048, nodeExecutionCount: 1001 },
+  updatedAt: '2026-06-13T09:13:00Z',
+};
+
+const branchedPausedExecution = {
+  ...pausedExecution,
+  status: 'running',
+  nodeExecutions: [
+    ...pausedExecution.nodeExecutions,
+    {
+      nodeId: 'notify',
+      nodeType: 'notification',
+      status: 'pending',
+      input: { severity: 'sev1', reviewed: true },
+    },
+  ],
+  updatedAt: '2026-06-13T09:14:00Z',
 };
 
 const debugSnapshot = {
@@ -241,6 +353,18 @@ async function fulfillJSON(route: Route, data: unknown, status = 200) {
   });
 }
 
+async function fulfillError(route: Route, message: string, status = 422) {
+  await route.fulfill({
+    status,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      ok: false,
+      data: null,
+      error: { code: 'fixture_contract_mismatch', message },
+    }),
+  });
+}
+
 async function fulfillNotFound(route: Route) {
   await route.fulfill({
     status: 404,
@@ -253,8 +377,23 @@ async function fulfillNotFound(route: Route) {
   });
 }
 
+function objectMatches(actual: unknown, expected: Record<string, unknown>) {
+  if (actual === null || typeof actual !== 'object' || Array.isArray(actual)) {
+    return false;
+  }
+  const actualRecord = actual as Record<string, unknown>;
+  return Object.entries(expected).every(([key, expectedValue]) => actualRecord[key] === expectedValue);
+}
+
 export async function registerWorkflowRoutes(page: Page): Promise<void> {
-  let executions = [priorExecution];
+  let workflows = [workflow];
+  let executions = [pausedExecution, priorExecution];
+  let versions = [workflowVersionOne, workflowVersionTwo, workflow];
+  let branchCreated = false;
+  let branchPublished = false;
+  let branchMerged = false;
+  let rollbackCalled = false;
+  let resourceChecked = false;
 
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request();
@@ -268,7 +407,7 @@ export async function registerWorkflowRoutes(page: Page): Promise<void> {
     }
 
     if (method === 'GET' && pathname === '/api/v1/workflows') {
-      await fulfillJSON(route, [workflow]);
+      await fulfillJSON(route, workflows);
       return;
     }
 
@@ -324,6 +463,124 @@ export async function registerWorkflowRoutes(page: Page): Promise<void> {
 
     if (method === 'GET' && pathname === `/api/v1/workflows/${workflow.id}/executions`) {
       await fulfillJSON(route, executions);
+      return;
+    }
+
+    if (method === 'GET' && pathname === `/api/v1/workflows/${workflow.id}/versions`) {
+      await fulfillJSON(route, versions);
+      return;
+    }
+
+    if (method === 'POST' && pathname === `/api/v1/workflows/${workflow.id}/rollback`) {
+      const payload = request.postDataJSON();
+      if (!objectMatches(payload, { version: 1 })) {
+        await fulfillError(route, 'workflow rollback payload did not request version 1');
+        return;
+      }
+      rollbackCalled = true;
+      workflows = [rolledBackWorkflow, ...workflows.filter((currentWorkflow) => currentWorkflow.id !== workflow.id)];
+      versions = [...versions, rolledBackWorkflow];
+      await fulfillJSON(route, rolledBackWorkflow);
+      return;
+    }
+
+    if (method === 'POST' && pathname === `/api/v1/workflows/${workflow.id}/branches`) {
+      if (!rollbackCalled) {
+        await fulfillError(route, 'browser tried to create a branch before proving rollback');
+        return;
+      }
+      const payload = request.postDataJSON();
+      if (
+        !objectMatches(payload, {
+          name: 'Release automation branch',
+          description: 'Experiment branch',
+          version: 2,
+          experimentKey: 'release-routing-v2',
+          trafficPercent: 25,
+        })
+      ) {
+        await fulfillError(route, 'workflow branch payload did not match browser form selections');
+        return;
+      }
+      branchCreated = true;
+      branchPublished = false;
+      workflows = [workflowBranch, ...workflows.filter((currentWorkflow) => currentWorkflow.id !== workflowBranch.id)];
+      versions = [workflowVersionTwo, workflowBranch, workflow, rolledBackWorkflow];
+      await fulfillJSON(route, workflowBranch, 201);
+      return;
+    }
+
+    if (method === 'POST' && pathname === `/api/v1/workflows/${workflow.id}/branches/${workflowBranch.id}/publish`) {
+      if (!branchCreated) {
+        await fulfillError(route, 'browser tried to publish a branch before creating it');
+        return;
+      }
+      const payload = request.postDataJSON();
+      if (!objectMatches(payload, { name: workflowBranch.name })) {
+        await fulfillError(route, 'workflow branch publish payload did not preserve branch name');
+        return;
+      }
+      branchPublished = true;
+      workflows = [publishedWorkflowBranch, ...workflows.filter((currentWorkflow) => currentWorkflow.id !== workflowBranch.id)];
+      versions = [workflowVersionTwo, publishedWorkflowBranch, workflow, rolledBackWorkflow];
+      await fulfillJSON(route, publishedWorkflowBranch);
+      return;
+    }
+
+    if (method === 'POST' && pathname === `/api/v1/workflows/${workflow.id}/branches/${workflowBranch.id}/merge`) {
+      if (!branchPublished) {
+        await fulfillError(route, 'browser tried to merge a branch before publishing it');
+        return;
+      }
+      branchMerged = true;
+      workflows = [mergedWorkflow, ...workflows.filter((currentWorkflow) => currentWorkflow.id !== workflow.id)];
+      versions = [workflowVersionTwo, publishedWorkflowBranch, mergedWorkflow, rolledBackWorkflow];
+      await fulfillJSON(route, mergedWorkflow);
+      return;
+    }
+
+    if (
+      method === 'POST' &&
+      pathname === `/api/v1/workflows/${workflow.id}/executions/${pausedExecution.id}/resource-check`
+    ) {
+      if (!branchMerged) {
+        await fulfillError(route, 'browser checked resource limits before branch lifecycle proof');
+        return;
+      }
+      const payload = request.postDataJSON();
+      if (!objectMatches(payload, { totalTokens: 2048, nodeExecutionCount: 1001 })) {
+        await fulfillError(route, 'workflow resource-check payload did not match browser form selections');
+        return;
+      }
+      resourceChecked = true;
+      executions = [
+        resourceLimitedExecution,
+        ...executions.filter((execution) => execution.id !== resourceLimitedExecution.id),
+      ];
+      await fulfillJSON(route, resourceLimitedExecution);
+      return;
+    }
+
+    if (method === 'POST' && pathname === `/api/v1/workflows/${workflow.id}/executions/${pausedExecution.id}/decision`) {
+      if (!resourceChecked) {
+        await fulfillError(route, 'browser resolved paused failure before resource-check proof');
+        return;
+      }
+      const payload = request.postDataJSON();
+      const input = (payload as Record<string, unknown>).input as Record<string, unknown> | undefined;
+      if (
+        !objectMatches(payload, { action: 'retry', nodeId: 'classify' }) ||
+        input?.severity !== 'sev1' ||
+        input?.retryReason !== 'model-recovered'
+      ) {
+        await fulfillError(route, 'workflow paused-failure decision payload did not match edited input selections');
+        return;
+      }
+      executions = [
+        branchedPausedExecution,
+        ...executions.filter((execution) => execution.id !== branchedPausedExecution.id),
+      ];
+      await fulfillJSON(route, branchedPausedExecution);
       return;
     }
 
