@@ -5,7 +5,7 @@
 - Branch: `main`.
 - Scan base commit: `0694b44ba95e11f48aff568516b473da54683dc3` (`test(quota): aggregate lifecycle db evidence`).
 - Remote parity at scan start: `HEAD == origin/main`.
-- Working tree at scan start: dirty with the target live evidence manifest verifier slice in progress.
+- Working tree at scan start: clean at pushed target live evidence manifest verifier baseline, then dirty with the target evidence template hardening slice in progress.
 - The earlier same-day scans at `1c52194`, `53aaca0`, `d4fdc37`, `75ff216`, `98a1683`, `c6d9b34`, `5969e4b`, `1e7c6ef`, and `e222967` are now older baselines for this report; they did not include the latest quota lifecycle aggregation or target/live evidence manifest verifier gate.
 - The project is still not complete against the four `docs/superpowers/specs/2026-06-04-*` specs.
 - Current matrix remains `4 Proven / 10 Partial / 0 Gap / 0 Unverified`.
@@ -24,7 +24,7 @@
 - Scheduled Task HTTP routes now have active-organization isolation proof for run-history, status-update, and run-now paths. Cross-organization requests return 404, do not leak owner run evidence, do not mutate the owner task, and do not create extra owner runs.
 - Admin top-up refund operator evidence now has no-skip PostgreSQL route proof: duplicate Admin Stripe refund submissions persist one refund row and one lifecycle transition with provider charge/payment-intent evidence, while missing Stripe charge/payment-intent evidence returns 400 without mutating refund, lifecycle, payment-intent, top-up, or quota state.
 - Quota SQL isolation now aggregates quota lifecycle proof across quota store, HTTP route, Admin, and Stripe lifecycle tests in one no-skip PostgreSQL profile, including user-scoped balance mode, request-cap fallback, top-up no-credit-before-webhook, direct top-up rejection, Admin refund quota reversal, and Stripe top-up/refund accounting.
-- Target/live release evidence now has a machine-readable manifest verifier in progress. The strict commercial verifier requires `COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true` for final readiness, and the manifest validator checks exact commit, strict no-skip verifier result, deployment/backup/migration evidence, Kubernetes validation/rollout/failover evidence, live provider checkout/refund/payout/reconciliation evidence, Agent/Workflow/Task generated-client gRPC smoke evidence, target secret audit, workflow telemetry `successRate >= 0.99`, no skip-like fields, and no embedded secret material.
+- Target/live release evidence now has a machine-readable manifest verifier. The strict commercial verifier requires `COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true` for final readiness, and the manifest validator checks exact commit, strict no-skip verifier result, deployment/backup/migration evidence, Kubernetes validation/rollout/failover evidence, live provider checkout/refund/payout/reconciliation evidence, Agent/Workflow/Task generated-client gRPC smoke evidence, target secret audit, workflow telemetry `successRate >= 0.99`, no skip-like fields, no embedded secret material, and no placeholder artifact refs. `--print-template` now emits a current-commit external manifest skeleton that is intentionally rejected until every `TODO` artifact reference is replaced with concrete target-run evidence.
 
 ## Repository Inventory
 
@@ -153,7 +153,9 @@ Closed after this rescan:
 - Quota lifecycle DB evidence aggregation.
   - `scripts/verify-commercial-db-evidence.sh quota-sql-isolation` now runs quota SQL store lifecycle/isolation tests, quota/Admin/Billing HTTP route tests, and Stripe top-up/refund lifecycle balance-accounting tests in one no-skip PostgreSQL profile.
 - Target/live release evidence manifest gate.
-  - `scripts/verify-target-release-evidence.sh` now validates the external JSON evidence package required for live provider rails, deployed gRPC reachability, target secret audit, Kubernetes failover, workflow telemetry, and strict no-skip verifier proof, while rejecting embedded secret material.
+  - `scripts/verify-target-release-evidence.sh` now validates the external JSON evidence package required for live provider rails, deployed gRPC reachability, target secret audit, Kubernetes failover, workflow telemetry, and strict no-skip verifier proof, while rejecting embedded secret material and placeholder artifact refs.
+- Target/live release evidence template generation.
+  - `scripts/verify-target-release-evidence.sh --print-template` now emits a current-commit manifest skeleton for an external file outside git. The generated template contains `TODO` artifact refs and is intentionally rejected by the verifier until real target-run evidence replaces those values.
 
 The remaining follow-up is target/live evidence collection; it does not have a repository-only substitute:
 
@@ -209,8 +211,10 @@ COREPACK_HOME=/tmp/codex-corepack bash scripts/check.sh docs
 bash -n scripts/verify-commercial-db-evidence.sh
 bash -n scripts/verify-target-release-evidence.sh scripts/verify-commercial-completion.sh scripts/verify-fusion-evidence-pack.sh scripts/verify-quality-gates.sh
 bash scripts/verify-target-release-evidence.sh --help
+bash scripts/verify-target-release-evidence.sh --print-template
 tmpdir=$(mktemp -d)
 # temp valid/invalid target evidence manifests outside git:
+#   generated template failed until TODO artifact refs were replaced
 #   valid manifest passed for current HEAD
 #   missing path failed
 #   commit mismatch failed
@@ -229,7 +233,8 @@ This report is documentation-only. It should be verified with:
 ```bash
 bash -n scripts/verify-target-release-evidence.sh scripts/verify-commercial-completion.sh scripts/verify-fusion-evidence-pack.sh scripts/verify-quality-gates.sh
 bash scripts/verify-target-release-evidence.sh --help
-target evidence manifest temp valid/invalid checks
+bash scripts/verify-target-release-evidence.sh --print-template
+target evidence manifest generated-template/valid/invalid checks
 COREPACK_HOME=/tmp/codex-corepack bash scripts/check.sh docs
 git diff --check
 ```
