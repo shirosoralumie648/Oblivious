@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const cancelExecution = vi.fn();
@@ -95,9 +95,9 @@ describe('WorkflowsPage real React Flow canvas', () => {
     const visualEditor = screen.getByLabelText('Visual editor for Incident triage');
     const canvas = within(visualEditor).getByLabelText('React Flow canvas for Incident triage');
 
-    expect(canvas.querySelector('.react-flow')).toBeInTheDocument();
-    expect(canvas.querySelector('[data-id="manual-start"]')).toBeInTheDocument();
-    expect(canvas.querySelector('[data-id="classify-ticket"]')).toBeInTheDocument();
+    await waitFor(() => expect(canvas.querySelector('.react-flow')).toBeInTheDocument());
+    await waitFor(() => expect(canvas.querySelector('[data-id="manual-start"]')).toBeInTheDocument());
+    await waitFor(() => expect(canvas.querySelector('[data-id="classify-ticket"]')).toBeInTheDocument());
     expect(within(visualEditor).getByLabelText('Node palette for Incident triage')).toBeInTheDocument();
     expect(within(visualEditor).getAllByRole('button', { name: /Add .* node template to Incident triage/ })).toHaveLength(
       22
