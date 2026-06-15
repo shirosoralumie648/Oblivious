@@ -508,6 +508,179 @@ func TestAdminHandlerManagesUsageLimitSettings(t *testing.T) {
 	}
 }
 
+func TestAdminUsageLimitSettingsRoutePersistsWithPostgres(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+
+	adminCookie, adminCSRF, adminUserID := registerHTTPUser(t, router, "admin-usage-limits@example.com")
+	promoteHTTPUserToAdmin(t, database, adminUserID)
+
+	var adminOrganizationID string
+	if err := database.QueryRow(`
+		SELECT organization_id
+		FROM organization_memberships
+		WHERE user_id = $1 AND removed_at IS NULL
+		ORDER BY created_at ASC
+		LIMIT 1
+	`, adminUserID).Scan(&adminOrganizationID); err != nil {
+		t.Fatalf("query admin organization: %v", err)
+	}
+
+	orgBody := `{
+		"organizationId": "org_spoofed",
+		"quotaMode": "organization",
+		"maxConcurrentRequests": 11,
+		"windowSeconds": 60,
+		"maxTokensPerWindow": 12000,
+		"maxTokensPerRequest": 1000
+	}`
+	orgResponseBody := commercialDoJSON(t, router, stdhttp.MethodPut, "/api/v1/admin/settings/usage-limits", orgBody, adminCookie, adminCSRF, stdhttp.StatusOK)
+	var orgResponse struct {
+		Data quota.UsageLimitSettings `json:"data"`
+	}
+	if err := json.Unmarshal(orgResponseBody, &orgResponse); err != nil {
+		t.Fatalf("decode organization usage-limit response: %v", err)
+	}
+	if orgResponse.Data.OrganizationID != adminOrganizationID || orgResponse.Data.UserID != "" || orgResponse.Data.QuotaMode != "organization" {
+		t.Fatalf("expected organization usage limit scoped to session org, got %+v", orgResponse.Data)
+	}
+	if orgResponse.Data.MaxConcurrentRequests != 11 || orgResponse.Data.WindowSeconds != 60 ||
+		orgResponse.Data.MaxTokensPerWindow != 12000 || orgResponse.Data.MaxTokensPerRequest != 1000 {
+		t.Fatalf("unexpected organization usage-limit response caps: %+v", orgResponse.Data)
+	}
+
+	userBody := `{
+		"organizationId": "org_spoofed",
+		"userId": "` + adminUserID + `",
+		"quotaMode": "user",
+		"maxConcurrentRequests": 4,
+		"windowSeconds": 45,
+		"maxTokensPerWindow": 2500,
+		"maxTokensPerRequest": 250
+	}`
+	userResponseBody := commercialDoJSON(t, router, stdhttp.MethodPut, "/api/v1/admin/settings/usage-limits", userBody, adminCookie, adminCSRF, stdhttp.StatusOK)
+	var userResponse struct {
+		Data quota.UsageLimitSettings `json:"data"`
+	}
+	if err := json.Unmarshal(userResponseBody, &userResponse); err != nil {
+		t.Fatalf("decode user usage-limit response: %v", err)
+	}
+	if userResponse.Data.OrganizationID != adminOrganizationID || userResponse.Data.UserID != adminUserID || userResponse.Data.QuotaMode != "user" {
+		t.Fatalf("expected user usage limit scoped to session org and requested user, got %+v", userResponse.Data)
+	}
+	if userResponse.Data.MaxConcurrentRequests != 4 || userResponse.Data.WindowSeconds != 45 ||
+		userResponse.Data.MaxTokensPerWindow != 2500 || userResponse.Data.MaxTokensPerRequest != 250 {
+		t.Fatalf("unexpected user usage-limit response caps: %+v", userResponse.Data)
+	}
+
+	var orgConcurrentOrganizationID string
+	var orgConcurrentLimit int
+	if err := database.QueryRow(`
+		SELECT organization_id, max_concurrent_requests
+		FROM concurrency_limits
+		WHERE organization_id = $1 AND user_id IS NULL
+	`, adminOrganizationID).Scan(&orgConcurrentOrganizationID, &orgConcurrentLimit); err != nil {
+		t.Fatalf("query persisted organization concurrency limit: %v", err)
+	}
+	if orgConcurrentOrganizationID != adminOrganizationID || orgConcurrentLimit != 11 {
+		t.Fatalf("unexpected persisted organization concurrency row: org=%q max=%d", orgConcurrentOrganizationID, orgConcurrentLimit)
+	}
+
+	var orgWindowSeconds int
+	var orgTokensPerWindow int
+	var orgTokensPerRequest int
+	if err := database.QueryRow(`
+		SELECT window_seconds, max_tokens_per_window, max_tokens_per_request
+		FROM token_rate_limits
+		WHERE organization_id = $1 AND user_id IS NULL
+	`, adminOrganizationID).Scan(&orgWindowSeconds, &orgTokensPerWindow, &orgTokensPerRequest); err != nil {
+		t.Fatalf("query persisted organization token limit: %v", err)
+	}
+	if orgWindowSeconds != 60 || orgTokensPerWindow != 12000 || orgTokensPerRequest != 1000 {
+		t.Fatalf("unexpected persisted organization token row: window=%d maxWindow=%d maxRequest=%d", orgWindowSeconds, orgTokensPerWindow, orgTokensPerRequest)
+	}
+
+	var userConcurrentOrganizationID string
+	var userConcurrentUserID string
+	var userConcurrentLimit int
+	if err := database.QueryRow(`
+		SELECT organization_id, user_id, max_concurrent_requests
+		FROM concurrency_limits
+		WHERE organization_id = $1 AND user_id = $2
+	`, adminOrganizationID, adminUserID).Scan(&userConcurrentOrganizationID, &userConcurrentUserID, &userConcurrentLimit); err != nil {
+		t.Fatalf("query persisted user concurrency limit: %v", err)
+	}
+	if userConcurrentOrganizationID != adminOrganizationID || userConcurrentUserID != adminUserID || userConcurrentLimit != 4 {
+		t.Fatalf("unexpected persisted user concurrency row: org=%q user=%q max=%d", userConcurrentOrganizationID, userConcurrentUserID, userConcurrentLimit)
+	}
+
+	var userWindowSeconds int
+	var userTokensPerWindow int
+	var userTokensPerRequest int
+	if err := database.QueryRow(`
+		SELECT window_seconds, max_tokens_per_window, max_tokens_per_request
+		FROM token_rate_limits
+		WHERE organization_id = $1 AND user_id = $2
+	`, adminOrganizationID, adminUserID).Scan(&userWindowSeconds, &userTokensPerWindow, &userTokensPerRequest); err != nil {
+		t.Fatalf("query persisted user token limit: %v", err)
+	}
+	if userWindowSeconds != 45 || userTokensPerWindow != 2500 || userTokensPerRequest != 250 {
+		t.Fatalf("unexpected persisted user token row: window=%d maxWindow=%d maxRequest=%d", userWindowSeconds, userTokensPerWindow, userTokensPerRequest)
+	}
+
+	var spoofedRows int
+	if err := database.QueryRow(`
+		SELECT (
+			SELECT COUNT(*) FROM concurrency_limits WHERE organization_id = 'org_spoofed'
+		) + (
+			SELECT COUNT(*) FROM token_rate_limits WHERE organization_id = 'org_spoofed'
+		)
+	`).Scan(&spoofedRows); err != nil {
+		t.Fatalf("count spoofed usage-limit rows: %v", err)
+	}
+	if spoofedRows != 0 {
+		t.Fatalf("expected session organization override to prevent spoofed rows, got %d", spoofedRows)
+	}
+
+	listBody := commercialDoJSON(t, router, stdhttp.MethodGet, "/api/v1/admin/settings/usage-limits", "", adminCookie, "", stdhttp.StatusOK)
+	var listResponse struct {
+		Data struct {
+			UsageLimits []quota.UsageLimitSettings `json:"usageLimits"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(listBody, &listResponse); err != nil {
+		t.Fatalf("decode usage-limit list response: %v", err)
+	}
+	if len(listResponse.Data.UsageLimits) != 2 {
+		t.Fatalf("expected organization and user usage limits in list, got %+v", listResponse.Data.UsageLimits)
+	}
+	var sawOrganization bool
+	var sawUser bool
+	for _, item := range listResponse.Data.UsageLimits {
+		switch {
+		case item.UserID == "":
+			sawOrganization = item.OrganizationID == adminOrganizationID &&
+				item.QuotaMode == "organization" &&
+				item.MaxConcurrentRequests == 11 &&
+				item.WindowSeconds == 60 &&
+				item.MaxTokensPerWindow == 12000 &&
+				item.MaxTokensPerRequest == 1000
+		case item.UserID == adminUserID:
+			sawUser = item.OrganizationID == adminOrganizationID &&
+				item.QuotaMode == "user" &&
+				item.MaxConcurrentRequests == 4 &&
+				item.WindowSeconds == 45 &&
+				item.MaxTokensPerWindow == 2500 &&
+				item.MaxTokensPerRequest == 250
+		default:
+			t.Fatalf("unexpected usage-limit row in response: %+v", item)
+		}
+	}
+	if !sawOrganization || !sawUser {
+		t.Fatalf("expected persisted organization and user usage limits, got %+v", listResponse.Data.UsageLimits)
+	}
+}
+
 func TestAdminHandlerUpdateUserQuotaValidatesAndAudits(t *testing.T) {
 	store := &fakeAdminStore{}
 	handler := newAdminHandler(admin.NewService(store))
