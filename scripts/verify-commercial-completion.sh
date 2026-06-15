@@ -19,12 +19,15 @@ Required for strict final readiness:
     PostgreSQL test database URL. Must support pgvector for Knowledge RAG tests.
   COMMERCIAL_COMPLETION_RUN_DEPLOY=true
     Run bash scripts/deploy-validate.sh as part of the final verifier.
+  COMMERCIAL_COMPLETION_RUN_K8S=true
+    Run bash scripts/k8s-validate.sh as part of the final verifier.
+    Requires kubectl, a reachable Kubernetes context, and OBLIVIOUS_K8S_SECRET_FILE.
   COMMERCIAL_COMPLETION_RUN_BACKUP_RESTORE=true
     Run bash scripts/backup-restore-smoke.sh as part of the final verifier.
 
 Optional:
   COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS=true
-    Allow deploy and backup/restore checks to be skipped for local partial evidence.
+    Allow deploy, Kubernetes, and backup/restore checks to be skipped for local partial evidence.
     A run with this flag is not final commercial readiness evidence.
   PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
     Existing Chromium/Chrome executable for Playwright when browser cache is unavailable.
@@ -47,6 +50,7 @@ export GOMODCACHE="$go_mod_cache"
 
 allow_env_skips="${COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS:-false}"
 run_deploy="${COMMERCIAL_COMPLETION_RUN_DEPLOY:-false}"
+run_k8s="${COMMERCIAL_COMPLETION_RUN_K8S:-false}"
 run_backup_restore="${COMMERCIAL_COMPLETION_RUN_BACKUP_RESTORE:-false}"
 skipped_checks=()
 
@@ -83,6 +87,8 @@ fi
 
 run_step "docs gate" bash "$repo_root/scripts/check.sh" docs
 run_step "Relay security gate" bash "$repo_root/scripts/check.sh" relay-security
+run_step "dependency security gate" bash "$repo_root/scripts/check.sh" security
+run_step "web TypeScript gate" pnpm --dir "$web_dir" exec tsc --noEmit
 run_step "commercial frontend focused suites" \
   pnpm --dir "$web_dir" test -- ChatPage SoloPage KnowledgePage MarketplacePage AdminHomePage AdminBillingPage AdminReviewsPage --runInBand
 run_step "browser commercial journey" \
@@ -94,6 +100,12 @@ if [[ "$run_deploy" == "true" ]]; then
   run_step "deployment validation" bash "$repo_root/scripts/deploy-validate.sh"
 else
   skip_or_fail "deployment validation" "COMMERCIAL_COMPLETION_RUN_DEPLOY"
+fi
+
+if [[ "$run_k8s" == "true" ]]; then
+  run_step "Kubernetes validation" bash "$repo_root/scripts/k8s-validate.sh"
+else
+  skip_or_fail "Kubernetes validation" "COMMERCIAL_COMPLETION_RUN_K8S"
 fi
 
 if [[ "$run_backup_restore" == "true" ]]; then
