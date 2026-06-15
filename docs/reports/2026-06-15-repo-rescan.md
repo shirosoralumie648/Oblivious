@@ -2,8 +2,8 @@
 
 ## Current Truth
 
-- Branch: `main`; current checked scan head is `93c5086 test(admin): prove quota allocation persistence`, aligned with `origin/main`.
-- The earlier runtime route-surface scan baseline was `26fe3be test(api): guard runtime route surface parity`; this report now includes follow-up repository evidence through `93c5086`. Report-only refresh commits do not change the completion matrix or feature evidence.
+- Branch: `main`; this rescan covers implementation evidence through `93c5086 test(admin): prove quota allocation persistence`, which was aligned with `origin/main` when the rescan ran.
+- The earlier runtime route-surface scan baseline was `26fe3be test(api): guard runtime route surface parity`. This report may be committed after the scanned implementation head; report-only refresh commits do not change the completion matrix or feature evidence.
 - The project is still **not complete** against the four 2026-06-04 fusion specs.
 - The current completion matrix remains `4 Proven / 10 Partial / 0 Gap / 0 Unverified`.
 - Current progress estimate after this scan is **97/100**. Admin Relay channel API-key, Observability alert-provider config, Observability alert/recovery SQL persistence, Publishing channel config, Workflow definition/version/execution-snapshot/node-execution secret-like fields, Workflow-to-Agent planning-control resume integration, Agent Memories browser CRUD/import-export, Agent memory store PostgreSQL persistence, Agent gRPC registration and planning continue/adjust plus plan-step action and token-budget resume service-adapter proof, Billing provider lifecycle PostgreSQL transitions, Admin usage analytics daily aggregate PostgreSQL proof, Marketplace governance/review PostgreSQL proof, Admin Organization real-router PostgreSQL lifecycle proof, Admin Users quota allocation browser/API and real-router PostgreSQL/audit proof, Admin Billing operator payout/refund browser proof, Admin commercial configuration browser proof, Marketplace publisher/My Agents browser proof, Admin route manifest dispatch proof, runtime API route-surface reverse parity proof, durable Agent planning completion evidence, Agent plan adjustment browser proof, Admin Reviews browser moderation/governance proof, and Admin Alerts browser alert-management proof are now covered with repository-local proof, but target-environment workflow telemetry, target secret audits, deployment validation, payment/provider live rails, platform failover, live moderation/notification operations, deployed gRPC/client compatibility, and final no-skip release readiness remain open.
@@ -195,7 +195,7 @@ git diff --check
 Result:
 
 - `pwd` showed `/media/shirosora/4A183E5C183E46EB/codestorage/Oblivious`.
-- `git status --short --branch` in this rescan showed `main...origin/main` at `93c5086` with a clean worktree.
+- `git status --short --branch` in this rescan showed `main...origin/main` at `93c5086` with a clean worktree before this report-only refresh was committed.
 - `git rev-parse HEAD origin/main` returned `93c508643ccb50e98016a53a2730ec936b79a9f5` for both refs.
 - `git log --oneline --decorate -8` showed `93c5086 test(admin): prove quota allocation persistence`, `ad6ec6e test(tenant): prove admin organization persistence`, `503f075 docs: clarify rescan baseline`, `bef7615 docs: refresh rescan baseline`, `26fe3be test(api): guard runtime route surface parity`, `a06e226 docs: refresh repo rescan at current head`, `c2c8ac1 test(admin): prove user quota allocation`, and `5af7c88 test(workflow): resume agent planning controls`.
 - The top-level matrix count remains 4 `Proven` and 10 `Partial`; the `Gap` and `Unverified` counts remain 0.
