@@ -61,6 +61,7 @@ func NewServer(cfg config.Config, database *sql.DB) *stdhttp.Server {
 	if provider := buildAgentWebSearchProvider(cfg); provider != nil {
 		agentService.SetWebSearchProvider(provider)
 	}
+	registerWorkflowAgentExecutor(workflowService, agentService)
 	scheduleService := newScheduleService(schedule.NewSQLStore(database), workflowService, agentService)
 
 	// Create main router

@@ -727,6 +727,221 @@ func TestServiceResumeExecutionApprovesPendingAgentToolRun(t *testing.T) {
 	}
 }
 
+func TestServiceResumeExecutionExecutesPendingAgentPlanStep(t *testing.T) {
+	store := newMemoryWorkflowStore()
+	agentRunner := &recordingWorkflowAgentRunner{
+		response: &WorkflowAgentRunResult{
+			RunID:  "run_plan",
+			Status: "pending_approval",
+			PlanSteps: []WorkflowAgentPlanStep{{
+				ID:             "step_pending",
+				Title:          "Run verification",
+				Status:         "pending",
+				ApprovalStatus: "approved",
+				ToolName:       "shell",
+			}},
+		},
+		controlResponse: &WorkflowAgentRunResult{
+			RunID:          "run_plan",
+			Status:         "completed",
+			FinalMessageID: "msg_final",
+			FinalMessage:   "Plan step completed",
+			PlanSteps: []WorkflowAgentPlanStep{{
+				ID:             "step_pending",
+				Title:          "Run verification",
+				Status:         "completed",
+				ApprovalStatus: "approved",
+				ToolName:       "shell",
+				ResultContent:  "go test passed",
+			}},
+		},
+	}
+	service := NewService(store, WithNodeExecutors(NewNodeExecutorRegistry(
+		NewAgentNodeExecutor(agentRunner),
+		EchoNodeExecutor("end"),
+	)))
+	ctx := context.Background()
+	workflow, err := service.CreateWorkflow(ctx, CreateWorkflowRequest{
+		OrganizationID: "org_1",
+		Name:           "Agent Plan Step Resume Flow",
+		Status:         WorkflowStatusPublished,
+		Definition: workflowDefinitionDAG(
+			[]map[string]any{
+				{
+					"id":   "call_agent",
+					"type": "agent",
+					"input": map[string]any{
+						"agentId":        "agent_1",
+						"conversationId": "conv_1",
+						"input":          "verify change",
+						"mode":           "planning",
+					},
+				},
+				{"id": "done", "type": "end", "input": map[string]any{"agentText": "{{nodes.call_agent.output.text}}"}},
+			},
+			[]map[string]any{{"from": "call_agent", "to": "done"}},
+		),
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkflow returned error: %v", err)
+	}
+	execution, err := service.StartExecution(ctx, StartExecutionRequest{
+		OrganizationID: "org_1",
+		WorkflowID:     workflow.ID,
+		Context:        map[string]any{"userId": "user_1", "workspaceId": "workspace_1"},
+	})
+	if err != nil {
+		t.Fatalf("StartExecution returned error: %v", err)
+	}
+	if _, err := service.RunExecutionUntilBlocked(ctx, "org_1", execution.ID); !errors.Is(err, ErrWorkflowUserInputRequired) {
+		t.Fatalf("RunExecutionUntilBlocked err=%v, want ErrWorkflowUserInputRequired", err)
+	}
+
+	resumed, err := service.ResumeExecution(ctx, "org_1", execution.ID, ResumeExecutionRequest{
+		NodeID: "call_agent",
+		Input: map[string]any{
+			"action":     "execute_plan_step",
+			"planStepId": "step_pending",
+		},
+	})
+	if err != nil {
+		t.Fatalf("ResumeExecution returned error: %v", err)
+	}
+	if agentRunner.controlAction != "execute_plan_step" ||
+		agentRunner.controlRequest.RunID != "run_plan" ||
+		agentRunner.controlRequest.PlanStepID != "step_pending" ||
+		agentRunner.controlRequest.UserID != "user_1" ||
+		agentRunner.controlRequest.WorkspaceID != "workspace_1" {
+		t.Fatalf("unexpected agent plan-step control request: action=%q req=%+v", agentRunner.controlAction, agentRunner.controlRequest)
+	}
+	agentNodes := workflowNodeExecutionsByID(resumed.NodeExecutions, "call_agent")
+	if len(agentNodes) != 3 || agentNodes[len(agentNodes)-1].Status != NodeStatusSucceeded {
+		t.Fatalf("expected completed agent node after plan-step execution, got %+v", agentNodes)
+	}
+	if agentNodes[len(agentNodes)-1].Output["text"] != "Plan step completed" {
+		t.Fatalf("expected plan-step run output, got %#v", agentNodes[len(agentNodes)-1].Output)
+	}
+	steps, ok := agentNodes[len(agentNodes)-1].Output["planSteps"].([]map[string]any)
+	if !ok || len(steps) != 1 || steps[0]["resultContent"] != "go test passed" {
+		t.Fatalf("expected plan-step result evidence in workflow output, got %#v", agentNodes[len(agentNodes)-1].Output["planSteps"])
+	}
+
+	completed, err := service.RunExecutionUntilBlocked(ctx, "org_1", execution.ID)
+	if err != nil {
+		t.Fatalf("RunExecutionUntilBlocked after plan step returned error: %v", err)
+	}
+	doneNodes := workflowNodeExecutionsByID(completed.NodeExecutions, "done")
+	if len(doneNodes) != 2 || doneNodes[len(doneNodes)-1].Input["agentText"] != "Plan step completed" {
+		t.Fatalf("expected downstream node to receive plan-step result, got %+v", doneNodes)
+	}
+}
+
+func TestServiceResumeExecutionContinuesAgentRunWithTokenBudget(t *testing.T) {
+	store := newMemoryWorkflowStore()
+	agentRunner := &recordingWorkflowAgentRunner{
+		response: &WorkflowAgentRunResult{
+			RunID:  "run_budget",
+			Status: "token_budget_exceeded",
+			PlanSteps: []WorkflowAgentPlanStep{{
+				ID:     "step_budget",
+				Title:  "Retry with larger budget",
+				Status: "failed",
+				Error:  "token_budget_exceeded: plan step exceeded budget",
+			}},
+		},
+		controlResponse: &WorkflowAgentRunResult{
+			RunID:          "run_budget",
+			Status:         "completed",
+			FinalMessageID: "msg_final",
+			FinalMessage:   "Budget continuation completed",
+			PlanSteps: []WorkflowAgentPlanStep{{
+				ID:            "step_budget",
+				Title:         "Retry with larger budget",
+				Status:        "completed",
+				ResultContent: "retried with larger budget",
+			}},
+		},
+	}
+	service := NewService(store, WithNodeExecutors(NewNodeExecutorRegistry(
+		NewAgentNodeExecutor(agentRunner),
+		EchoNodeExecutor("end"),
+	)))
+	ctx := context.Background()
+	workflow, err := service.CreateWorkflow(ctx, CreateWorkflowRequest{
+		OrganizationID: "org_1",
+		Name:           "Agent Budget Resume Flow",
+		Status:         WorkflowStatusPublished,
+		Definition: workflowDefinitionDAG(
+			[]map[string]any{
+				{
+					"id":   "call_agent",
+					"type": "agent",
+					"input": map[string]any{
+						"agentId":        "agent_1",
+						"conversationId": "conv_1",
+						"input":          "large investigation",
+						"mode":           "planning",
+						"tokenBudget":    1000,
+					},
+				},
+				{"id": "done", "type": "end", "input": map[string]any{"agentText": "{{nodes.call_agent.output.text}}"}},
+			},
+			[]map[string]any{{"from": "call_agent", "to": "done"}},
+		),
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkflow returned error: %v", err)
+	}
+	execution, err := service.StartExecution(ctx, StartExecutionRequest{
+		OrganizationID: "org_1",
+		WorkflowID:     workflow.ID,
+		Context:        map[string]any{"userId": "user_1", "workspaceId": "workspace_1"},
+	})
+	if err != nil {
+		t.Fatalf("StartExecution returned error: %v", err)
+	}
+	blocked, err := service.RunExecutionUntilBlocked(ctx, "org_1", execution.ID)
+	if !errors.Is(err, ErrWorkflowUserInputRequired) {
+		t.Fatalf("RunExecutionUntilBlocked err=%v, want ErrWorkflowUserInputRequired", err)
+	}
+	agentNodes := workflowNodeExecutionsByID(blocked.NodeExecutions, "call_agent")
+	if len(agentNodes) != 2 || agentNodes[len(agentNodes)-1].Status != NodeStatusPending || agentNodes[len(agentNodes)-1].Output["status"] != "token_budget_exceeded" {
+		t.Fatalf("expected pending token-budget agent node, got %+v", agentNodes)
+	}
+
+	resumed, err := service.ResumeExecution(ctx, "org_1", execution.ID, ResumeExecutionRequest{
+		NodeID: "call_agent",
+		Input: map[string]any{
+			"tokenBudget": 5000,
+		},
+	})
+	if err != nil {
+		t.Fatalf("ResumeExecution returned error: %v", err)
+	}
+	if agentRunner.controlAction != "continue_budget" ||
+		agentRunner.controlRequest.RunID != "run_budget" ||
+		agentRunner.controlRequest.TokenBudget != 5000 ||
+		agentRunner.controlRequest.UserID != "user_1" {
+		t.Fatalf("unexpected agent budget control request: action=%q req=%+v", agentRunner.controlAction, agentRunner.controlRequest)
+	}
+	agentNodes = workflowNodeExecutionsByID(resumed.NodeExecutions, "call_agent")
+	if len(agentNodes) != 3 || agentNodes[len(agentNodes)-1].Status != NodeStatusSucceeded {
+		t.Fatalf("expected completed agent node after budget continuation, got %+v", agentNodes)
+	}
+	if agentNodes[len(agentNodes)-1].Output["text"] != "Budget continuation completed" {
+		t.Fatalf("expected budget continuation output, got %#v", agentNodes[len(agentNodes)-1].Output)
+	}
+
+	completed, err := service.RunExecutionUntilBlocked(ctx, "org_1", execution.ID)
+	if err != nil {
+		t.Fatalf("RunExecutionUntilBlocked after budget continuation returned error: %v", err)
+	}
+	doneNodes := workflowNodeExecutionsByID(completed.NodeExecutions, "done")
+	if len(doneNodes) != 2 || doneNodes[len(doneNodes)-1].Input["agentText"] != "Budget continuation completed" {
+		t.Fatalf("expected downstream node to receive budget continuation result, got %+v", doneNodes)
+	}
+}
+
 func TestServiceResumeExecutionRejectsUserInputMissingRequiredFields(t *testing.T) {
 	store := newMemoryWorkflowStore()
 	service := NewService(store, WithNodeExecutors(NewNodeExecutorRegistry(

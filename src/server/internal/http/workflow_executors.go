@@ -79,7 +79,14 @@ func (a workflowLLMGatewayAdapter) Chat(ctx context.Context, req workflow.LLMCha
 type workflowAgentStarter interface {
 	StartRun(ctx context.Context, session auth.Session, req agent.StartRunRequest) (*agent.RunWithMessages, error)
 	StartPlanningRun(ctx context.Context, session auth.Session, req agent.StartRunRequest) (*agent.RunWithMessages, error)
+	ContinuePlanningRun(ctx context.Context, session auth.Session, runID string) (*agent.RunWithMessages, error)
+	AdjustPlanSteps(ctx context.Context, session auth.Session, runID, reason string) (*agent.RunWithMessages, error)
+	ContinueRunWithTokenBudget(ctx context.Context, session auth.Session, runID string, tokenBudget int) (*agent.RunResult, error)
 	ApproveToolRun(ctx context.Context, session auth.Session, toolRunID, reason string) (*agent.ToolRun, error)
+	ApprovePlanStep(ctx context.Context, session auth.Session, planStepID, reason string) (*agent.PlanStep, error)
+	ExecutePlanStep(ctx context.Context, session auth.Session, planStepID string) (*agent.PlanStep, error)
+	SkipPlanStep(ctx context.Context, session auth.Session, planStepID, reason string) (*agent.PlanStep, error)
+	RetryPlanStep(ctx context.Context, session auth.Session, planStepID string) (*agent.PlanStep, error)
 	GetRunWithMessages(ctx context.Context, session auth.Session, runID string) (*agent.RunWithMessages, error)
 }
 
@@ -101,6 +108,13 @@ type workflowDatabaseSQLRunner struct {
 }
 
 var workflowDatabaseWriteKeywordPattern = regexp.MustCompile(`(?i)\b(insert|update|delete|merge|create|alter|drop|truncate|grant|revoke|copy|call|do|vacuum|analyze|reindex|refresh|lock|set|reset|listen|notify|unlisten|comment|cluster)\b`)
+
+func registerWorkflowAgentExecutor(service *workflow.Service, starter workflowAgentStarter) {
+	if service == nil || starter == nil {
+		return
+	}
+	service.RegisterNodeExecutors(workflow.NewAgentNodeExecutor(workflowAgentServiceAdapter{starter: starter}))
+}
 
 func (r workflowJavaScriptCodeRunner) RunWorkflowCode(ctx context.Context, req workflow.WorkflowCodeRequest) (*workflow.WorkflowCodeResult, error) {
 	language := strings.ToLower(strings.TrimSpace(req.Language))
@@ -377,6 +391,91 @@ func (a workflowAgentServiceAdapter) ApproveAgentToolRun(ctx context.Context, re
 	return workflowAgentRunResult(result), nil
 }
 
+func (a workflowAgentServiceAdapter) ContinueAgentPlan(ctx context.Context, req workflow.WorkflowAgentControlRequest) (*workflow.WorkflowAgentRunResult, error) {
+	session := workflowAgentSession(req.OrganizationID, req.WorkspaceID, req.UserID)
+	result, err := a.starter.ContinuePlanningRun(ctx, session, req.RunID)
+	if err != nil {
+		return nil, err
+	}
+	return workflowAgentRunResult(result), nil
+}
+
+func (a workflowAgentServiceAdapter) AdjustAgentPlan(ctx context.Context, req workflow.WorkflowAgentControlRequest) (*workflow.WorkflowAgentRunResult, error) {
+	session := workflowAgentSession(req.OrganizationID, req.WorkspaceID, req.UserID)
+	result, err := a.starter.AdjustPlanSteps(ctx, session, req.RunID, req.Reason)
+	if err != nil {
+		return nil, err
+	}
+	return workflowAgentRunResult(result), nil
+}
+
+func (a workflowAgentServiceAdapter) ContinueAgentRunWithTokenBudget(ctx context.Context, req workflow.WorkflowAgentControlRequest) (*workflow.WorkflowAgentRunResult, error) {
+	session := workflowAgentSession(req.OrganizationID, req.WorkspaceID, req.UserID)
+	if _, err := a.starter.ContinueRunWithTokenBudget(ctx, session, req.RunID, req.TokenBudget); err != nil {
+		return nil, err
+	}
+	return a.reloadAgentRun(ctx, session, req.RunID)
+}
+
+func (a workflowAgentServiceAdapter) ApproveAgentPlanStep(ctx context.Context, req workflow.WorkflowAgentControlRequest) (*workflow.WorkflowAgentRunResult, error) {
+	session := workflowAgentSession(req.OrganizationID, req.WorkspaceID, req.UserID)
+	if err := a.applyAgentPlanStepAction(req, func() (*agent.PlanStep, error) {
+		return a.starter.ApprovePlanStep(ctx, session, req.PlanStepID, req.Reason)
+	}); err != nil {
+		return nil, err
+	}
+	return a.reloadAgentRun(ctx, session, req.RunID)
+}
+
+func (a workflowAgentServiceAdapter) ExecuteAgentPlanStep(ctx context.Context, req workflow.WorkflowAgentControlRequest) (*workflow.WorkflowAgentRunResult, error) {
+	session := workflowAgentSession(req.OrganizationID, req.WorkspaceID, req.UserID)
+	if err := a.applyAgentPlanStepAction(req, func() (*agent.PlanStep, error) {
+		return a.starter.ExecutePlanStep(ctx, session, req.PlanStepID)
+	}); err != nil {
+		return nil, err
+	}
+	return a.reloadAgentRun(ctx, session, req.RunID)
+}
+
+func (a workflowAgentServiceAdapter) SkipAgentPlanStep(ctx context.Context, req workflow.WorkflowAgentControlRequest) (*workflow.WorkflowAgentRunResult, error) {
+	session := workflowAgentSession(req.OrganizationID, req.WorkspaceID, req.UserID)
+	if err := a.applyAgentPlanStepAction(req, func() (*agent.PlanStep, error) {
+		return a.starter.SkipPlanStep(ctx, session, req.PlanStepID, req.Reason)
+	}); err != nil {
+		return nil, err
+	}
+	return a.reloadAgentRun(ctx, session, req.RunID)
+}
+
+func (a workflowAgentServiceAdapter) RetryAgentPlanStep(ctx context.Context, req workflow.WorkflowAgentControlRequest) (*workflow.WorkflowAgentRunResult, error) {
+	session := workflowAgentSession(req.OrganizationID, req.WorkspaceID, req.UserID)
+	if err := a.applyAgentPlanStepAction(req, func() (*agent.PlanStep, error) {
+		return a.starter.RetryPlanStep(ctx, session, req.PlanStepID)
+	}); err != nil {
+		return nil, err
+	}
+	return a.reloadAgentRun(ctx, session, req.RunID)
+}
+
+func (a workflowAgentServiceAdapter) applyAgentPlanStepAction(req workflow.WorkflowAgentControlRequest, action func() (*agent.PlanStep, error)) error {
+	step, err := action()
+	if err != nil {
+		return err
+	}
+	if step != nil && step.RunID != "" && req.RunID != "" && step.RunID != req.RunID {
+		return fmt.Errorf("%w: agent plan step does not belong to run", workflow.ErrInvalidInput)
+	}
+	return nil
+}
+
+func (a workflowAgentServiceAdapter) reloadAgentRun(ctx context.Context, session auth.Session, runID string) (*workflow.WorkflowAgentRunResult, error) {
+	result, err := a.starter.GetRunWithMessages(ctx, session, runID)
+	if err != nil {
+		return nil, err
+	}
+	return workflowAgentRunResult(result), nil
+}
+
 func workflowAgentSession(organizationID, workspaceID, userID string) auth.Session {
 	return auth.Session{
 		OrganizationID: organizationID,
@@ -457,9 +556,13 @@ func workflowAgentPlanSteps(planSteps []*agent.PlanStep) []workflow.WorkflowAgen
 			continue
 		}
 		out = append(out, workflow.WorkflowAgentPlanStep{
-			ID:     step.ID,
-			Title:  step.Title,
-			Status: step.Status,
+			ID:             step.ID,
+			Title:          step.Title,
+			Status:         step.Status,
+			ApprovalStatus: step.ApprovalStatus,
+			ToolName:       step.ToolName,
+			ResultContent:  step.ResultContent,
+			Error:          step.Error,
 		})
 	}
 	return out

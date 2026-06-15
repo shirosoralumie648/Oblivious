@@ -1158,6 +1158,12 @@ func TestRouteSurfaceWiresConfiguredWorkflowSystemLimits(t *testing.T) {
 	if !strings.Contains(string(serverSource), "workflowService := newConfiguredWorkflowServiceWithStoreNotifierAndAlerts(cfg, workflow.NewSQLStore(database), notificationService, currentHTTPAlertSink())") {
 		t.Fatal("expected server workflow service to use configured workflow limits, failure notifications, and alert delivery sink")
 	}
+	if !strings.Contains(string(routerSource), "registerWorkflowAgentExecutor(workflowService, agentService)") {
+		t.Fatal("expected default router workflow service to register the Agent node executor after Agent service construction")
+	}
+	if !strings.Contains(string(serverSource), "registerWorkflowAgentExecutor(workflowService, agentService)") {
+		t.Fatal("expected server workflow service to register the Agent node executor after Agent service construction")
+	}
 	serviceText := string(serviceSource)
 	if !strings.Contains(serviceText, "workflow.WithSystemWorkflowLimits") ||
 		!strings.Contains(serviceText, "cfg.WorkflowSystemMaxConcurrent") ||

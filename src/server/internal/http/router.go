@@ -139,6 +139,7 @@ func NewRouterWithOptions(cfg config.Config, database *sql.DB, options RouterOpt
 	taskHandler := newTaskHandler(task.NewService(task.NewSQLStore(database)))
 
 	agentService := agent.NewService(agent.NewSQLStore(database), agentGateway)
+	registerWorkflowAgentExecutor(workflowService, agentService)
 	agentHandler := newAgentHandler(agentService)
 
 	// Memory service with Relay embedder

@@ -1452,7 +1452,7 @@ func validateAgentApprovalSubmission(submitted map[string]any) error {
 	if status == "" {
 		return fmt.Errorf("%w: agent run status is required", ErrInvalidInput)
 	}
-	if strings.EqualFold(status, "pending_approval") {
+	if strings.EqualFold(status, "pending_approval") || strings.EqualFold(status, "token_budget_exceeded") {
 		return fmt.Errorf("%w: agent run is still pending approval", ErrInvalidInput)
 	}
 	return nil

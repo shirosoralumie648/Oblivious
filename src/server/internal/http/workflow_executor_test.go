@@ -219,6 +219,157 @@ func TestWorkflowAgentServiceAdapterApprovesToolRuns(t *testing.T) {
 	}
 }
 
+func TestRegisterWorkflowAgentExecutorRunsAgentNode(t *testing.T) {
+	starter := &recordingWorkflowAgentStarter{
+		result: &agentRunWithMessagesFixture,
+	}
+	service := workflow.NewService(newWorkflowServiceMemoryStore())
+	registerWorkflowAgentExecutor(service, starter)
+
+	ctx := context.Background()
+	created, err := service.CreateWorkflow(ctx, workflow.CreateWorkflowRequest{
+		OrganizationID: "org_1",
+		Name:           "Agent workflow",
+		Status:         workflow.WorkflowStatusPublished,
+		Definition: map[string]any{
+			"nodes": []any{map[string]any{
+				"id":   "call_agent",
+				"type": "agent",
+				"input": map[string]any{
+					"agentId":        "agent_1",
+					"conversationId": "conv_1",
+					"input":          "summarize incident",
+					"mode":           "planning",
+				},
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkflow returned error: %v", err)
+	}
+	execution, err := service.StartExecution(ctx, workflow.StartExecutionRequest{
+		OrganizationID: "org_1",
+		WorkflowID:     created.ID,
+		Context:        map[string]any{"userId": "user_1", "workspaceId": "workspace_1"},
+	})
+	if err != nil {
+		t.Fatalf("StartExecution returned error: %v", err)
+	}
+	completed, err := service.RunExecutionUntilBlocked(ctx, "org_1", execution.ID)
+	if err != nil {
+		t.Fatalf("RunExecutionUntilBlocked returned error: %v", err)
+	}
+	if completed.Status != workflow.ExecutionStatusSucceeded {
+		t.Fatalf("expected workflow with registered agent executor to complete, got %+v", completed)
+	}
+	if starter.request.AgentID != "agent_1" || starter.request.ConversationID != "conv_1" || starter.request.Input != "summarize incident" {
+		t.Fatalf("agent starter was not called with workflow node input: %+v", starter.request)
+	}
+	if starter.session.OrganizationID != "org_1" || starter.session.User.ID != "user_1" || starter.session.WorkspaceID != "workspace_1" {
+		t.Fatalf("agent starter did not receive workflow scope: %+v", starter.session)
+	}
+}
+
+func TestWorkflowAgentServiceAdapterRunsPlanningControlsAndReloadsRunDetail(t *testing.T) {
+	tests := []struct {
+		name       string
+		call       func(workflowAgentServiceAdapter, context.Context, workflow.WorkflowAgentControlRequest) (*workflow.WorkflowAgentRunResult, error)
+		wantAction string
+	}{
+		{
+			name: "continue plan",
+			call: func(adapter workflowAgentServiceAdapter, ctx context.Context, req workflow.WorkflowAgentControlRequest) (*workflow.WorkflowAgentRunResult, error) {
+				return adapter.ContinueAgentPlan(ctx, req)
+			},
+			wantAction: "continue_plan",
+		},
+		{
+			name: "continue budget",
+			call: func(adapter workflowAgentServiceAdapter, ctx context.Context, req workflow.WorkflowAgentControlRequest) (*workflow.WorkflowAgentRunResult, error) {
+				return adapter.ContinueAgentRunWithTokenBudget(ctx, req)
+			},
+			wantAction: "continue_budget",
+		},
+		{
+			name: "adjust plan",
+			call: func(adapter workflowAgentServiceAdapter, ctx context.Context, req workflow.WorkflowAgentControlRequest) (*workflow.WorkflowAgentRunResult, error) {
+				return adapter.AdjustAgentPlan(ctx, req)
+			},
+			wantAction: "adjust_plan",
+		},
+		{
+			name: "approve step",
+			call: func(adapter workflowAgentServiceAdapter, ctx context.Context, req workflow.WorkflowAgentControlRequest) (*workflow.WorkflowAgentRunResult, error) {
+				return adapter.ApproveAgentPlanStep(ctx, req)
+			},
+			wantAction: "approve_plan_step",
+		},
+		{
+			name: "execute step",
+			call: func(adapter workflowAgentServiceAdapter, ctx context.Context, req workflow.WorkflowAgentControlRequest) (*workflow.WorkflowAgentRunResult, error) {
+				return adapter.ExecuteAgentPlanStep(ctx, req)
+			},
+			wantAction: "execute_plan_step",
+		},
+		{
+			name: "skip step",
+			call: func(adapter workflowAgentServiceAdapter, ctx context.Context, req workflow.WorkflowAgentControlRequest) (*workflow.WorkflowAgentRunResult, error) {
+				return adapter.SkipAgentPlanStep(ctx, req)
+			},
+			wantAction: "skip_plan_step",
+		},
+		{
+			name: "retry step",
+			call: func(adapter workflowAgentServiceAdapter, ctx context.Context, req workflow.WorkflowAgentControlRequest) (*workflow.WorkflowAgentRunResult, error) {
+				return adapter.RetryAgentPlanStep(ctx, req)
+			},
+			wantAction: "retry_plan_step",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			starter := &recordingWorkflowAgentStarter{
+				result: &agentRunWithMessagesFixture,
+			}
+			adapter := workflowAgentServiceAdapter{starter: starter}
+			result, err := tt.call(adapter, context.Background(), workflow.WorkflowAgentControlRequest{
+				OrganizationID: "org_1",
+				UserID:         "user_1",
+				WorkspaceID:    "workspace_1",
+				RunID:          "run_1",
+				PlanStepID:     "plan_step_1",
+				Reason:         "operator approved",
+				TokenBudget:    5000,
+			})
+			if err != nil {
+				t.Fatalf("%s returned error: %v", tt.name, err)
+			}
+			if starter.controlAction != tt.wantAction {
+				t.Fatalf("expected control action %q, got %q", tt.wantAction, starter.controlAction)
+			}
+			if starter.session.OrganizationID != "org_1" || starter.session.User.ID != "user_1" || starter.session.WorkspaceID != "workspace_1" {
+				t.Fatalf("unexpected control session: %+v", starter.session)
+			}
+			if tt.wantAction != "continue_plan" && tt.wantAction != "adjust_plan" && starter.fetchedRunID != "run_1" {
+				t.Fatalf("expected refreshed run detail after %s, got %q", tt.wantAction, starter.fetchedRunID)
+			}
+			if (tt.wantAction == "continue_plan" || tt.wantAction == "adjust_plan" || tt.wantAction == "continue_budget") && starter.controlRunID != "run_1" {
+				t.Fatalf("expected run ID forwarded, got %q", starter.controlRunID)
+			}
+			if strings.Contains(tt.wantAction, "plan_step") && starter.controlPlanStepID != "plan_step_1" {
+				t.Fatalf("expected plan-step ID forwarded, got %q", starter.controlPlanStepID)
+			}
+			if tt.wantAction == "continue_budget" && starter.controlTokenBudget != 5000 {
+				t.Fatalf("expected token budget forwarded, got %d", starter.controlTokenBudget)
+			}
+			if result.RunID != "run_1" || result.Status != agent.RunStatusCompleted || len(result.PlanSteps) != 1 || result.PlanSteps[0].ApprovalStatus != agent.ApprovalStatusApproved {
+				t.Fatalf("unexpected workflow agent control result: %+v", result)
+			}
+		})
+	}
+}
+
 func TestWorkflowToolExecutorAdapterRunsBuiltinTool(t *testing.T) {
 	adapter := workflowToolExecutorAdapter{executor: agent.NewToolExecutor(nil)}
 
@@ -606,20 +757,27 @@ var agentRunWithMessagesFixture = agent.RunWithMessages{
 		ApprovalStatus: agent.ApprovalStatusNotRequired,
 	}},
 	PlanSteps: []*agent.PlanStep{{
-		ID:     "plan_step_1",
-		RunID:  "run_1",
-		Title:  "Check status",
-		Status: agent.PlanStepStatusCompleted,
+		ID:             "plan_step_1",
+		RunID:          "run_1",
+		Title:          "Check status",
+		Status:         agent.PlanStepStatusCompleted,
+		ApprovalStatus: agent.ApprovalStatusApproved,
+		ToolName:       "shell",
+		ResultContent:  "ok",
 	}},
 }
 
 type recordingWorkflowAgentStarter struct {
-	session           auth.Session
-	request           agent.StartRunRequest
-	approvedToolRunID string
-	approvalReason    string
-	fetchedRunID      string
-	result            *agent.RunWithMessages
+	session            auth.Session
+	request            agent.StartRunRequest
+	approvedToolRunID  string
+	approvalReason     string
+	fetchedRunID       string
+	controlAction      string
+	controlRunID       string
+	controlPlanStepID  string
+	controlTokenBudget int
+	result             *agent.RunWithMessages
 }
 
 func (s *recordingWorkflowAgentStarter) StartRun(ctx context.Context, session auth.Session, req agent.StartRunRequest) (*agent.RunWithMessages, error) {
@@ -642,6 +800,66 @@ func (s *recordingWorkflowAgentStarter) ApproveToolRun(ctx context.Context, sess
 	s.approvedToolRunID = toolRunID
 	s.approvalReason = reason
 	return &agent.ToolRun{ID: toolRunID, Status: agent.ToolRunStatusCompleted}, nil
+}
+
+func (s *recordingWorkflowAgentStarter) ContinuePlanningRun(ctx context.Context, session auth.Session, runID string) (*agent.RunWithMessages, error) {
+	_ = ctx
+	s.session = session
+	s.controlAction = "continue_plan"
+	s.controlRunID = runID
+	return s.result, nil
+}
+
+func (s *recordingWorkflowAgentStarter) AdjustPlanSteps(ctx context.Context, session auth.Session, runID, reason string) (*agent.RunWithMessages, error) {
+	_ = ctx
+	s.session = session
+	s.controlAction = "adjust_plan"
+	s.controlRunID = runID
+	s.approvalReason = reason
+	return s.result, nil
+}
+
+func (s *recordingWorkflowAgentStarter) ContinueRunWithTokenBudget(ctx context.Context, session auth.Session, runID string, tokenBudget int) (*agent.RunResult, error) {
+	_ = ctx
+	s.session = session
+	s.controlAction = "continue_budget"
+	s.controlRunID = runID
+	s.controlTokenBudget = tokenBudget
+	return &agent.RunResult{}, nil
+}
+
+func (s *recordingWorkflowAgentStarter) ApprovePlanStep(ctx context.Context, session auth.Session, planStepID, reason string) (*agent.PlanStep, error) {
+	_ = ctx
+	s.session = session
+	s.controlAction = "approve_plan_step"
+	s.controlPlanStepID = planStepID
+	s.approvalReason = reason
+	return &agent.PlanStep{ID: planStepID, RunID: "run_1", Status: agent.PlanStepStatusApproved}, nil
+}
+
+func (s *recordingWorkflowAgentStarter) ExecutePlanStep(ctx context.Context, session auth.Session, planStepID string) (*agent.PlanStep, error) {
+	_ = ctx
+	s.session = session
+	s.controlAction = "execute_plan_step"
+	s.controlPlanStepID = planStepID
+	return &agent.PlanStep{ID: planStepID, RunID: "run_1", Status: agent.PlanStepStatusCompleted}, nil
+}
+
+func (s *recordingWorkflowAgentStarter) SkipPlanStep(ctx context.Context, session auth.Session, planStepID, reason string) (*agent.PlanStep, error) {
+	_ = ctx
+	s.session = session
+	s.controlAction = "skip_plan_step"
+	s.controlPlanStepID = planStepID
+	s.approvalReason = reason
+	return &agent.PlanStep{ID: planStepID, RunID: "run_1", Status: agent.PlanStepStatusSkipped}, nil
+}
+
+func (s *recordingWorkflowAgentStarter) RetryPlanStep(ctx context.Context, session auth.Session, planStepID string) (*agent.PlanStep, error) {
+	_ = ctx
+	s.session = session
+	s.controlAction = "retry_plan_step"
+	s.controlPlanStepID = planStepID
+	return &agent.PlanStep{ID: planStepID, RunID: "run_1", Status: agent.PlanStepStatusCompleted}, nil
 }
 
 func (s *recordingWorkflowAgentStarter) GetRunWithMessages(ctx context.Context, session auth.Session, runID string) (*agent.RunWithMessages, error) {
