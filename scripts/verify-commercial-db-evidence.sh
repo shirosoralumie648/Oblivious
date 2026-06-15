@@ -88,6 +88,9 @@ Profiles:
   quota-sql-isolation          Run focused Quota SQL store tenant isolation,
                                Admin user quota route persistence, and HTTP
                                active-organization isolation PostgreSQL tests.
+  core-sql-persistence         Run focused Chat SQL sharing/forking,
+                               Publishing channel SQL retry/archive, and Relay
+                               semantic-cache SQL persistence tests.
 
 Environment:
   TEST_DATABASE_URL        Optional PostgreSQL URL. If unset, a disposable pgvector
@@ -357,6 +360,19 @@ run_quota_sql_isolation_profile() {
   run_go_test_no_skips "quota HTTP active-organization isolation" "./internal/http" "$quota_http_pattern"
 }
 
+run_core_sql_persistence_profile() {
+  local chat_store_pattern
+  local channel_store_pattern
+  local relay_semantic_cache_pattern
+
+  chat_store_pattern="^TestSQLStore(MessageShareExpiresAndReadsPublicPayload|ConversationShareReturnsRequestedMessageRange|ForkConversationCopiesScopedConversationData|ConversationConfigPersistsPersonaID|CreateAndListMessagePreservesAttachments|CreateAndListMessagePreservesKnowledgeCitations|ListPersonasScopesOrganizationAndOrdersByName|ForkConversationCopiesMessagesThroughBoundary|ForkConversationCopiesMessageAttachments|ListConversationsMarksThreadsWithBookmarkedMessages)$"
+  channel_store_pattern="^TestChannelSQLStore(PersistsConfigsAndMessageLogs|CountsConsecutiveSuccessfulOutboundDeliveries|ListsAndClaimsDueRetryMessages|ListsAndClaimsDueRetryMessagesForSpecificChannel|ForceClaimsFutureRetryMessagesForManualFailover|ArchivesExpiredMessageLogsWithoutDeletingRetryQueue|ArchivesExpiredMessageLogsToObjectBeforeDeleting)$"
+  relay_semantic_cache_pattern="^TestSQLSemanticCacheStore(UsesPgvectorForSimilarityLookup|PersistsEntriesAndHitCounts)$"
+  run_go_test_no_skips "chat SQL sharing, config, attachment, citation, and fork persistence" "./internal/chat" "$chat_store_pattern"
+  run_go_test_no_skips "publishing channel SQL config, retry, failover, and archive persistence" "./internal/channel" "$channel_store_pattern"
+  run_go_test_no_skips "relay semantic cache SQL persistence" "./internal/relay/cache" "$relay_semantic_cache_pattern"
+}
+
 run_all_profiles() {
   run_backend_journey_profile
   run_marketplace_money_movement_profile
@@ -381,6 +397,7 @@ run_all_profiles() {
   run_admin_relay_read_isolation_profile
   run_observability_alert_recovery_persistence_profile
   run_quota_sql_isolation_profile
+  run_core_sql_persistence_profile
 }
 
 if [[ -z "$database_url" ]]; then
@@ -461,6 +478,9 @@ case "$profile" in
     ;;
   quota-sql-isolation)
     run_quota_sql_isolation_profile
+    ;;
+  core-sql-persistence)
+    run_core_sql_persistence_profile
     ;;
   *)
     usage >&2
