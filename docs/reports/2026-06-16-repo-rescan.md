@@ -3,8 +3,8 @@
 ## Current Truth
 
 - Branch: `main`.
-- Current commit: `53aaca006c7ad16379604629166cf67ad45cd898` (`fix(agent): preserve plan step dependencies on reorder`).
-- Remote parity: `HEAD == origin/main`.
+- Scan base commit: `53aaca006c7ad16379604629166cf67ad45cd898` (`fix(agent): preserve plan step dependencies on reorder`).
+- Remote parity at scan start: `HEAD == origin/main`.
 - Working tree at scan start: clean after the Agent dependency-preservation slice was committed and pushed.
 - The earlier `2026-06-16` scan at `1c52194` is now an older same-day baseline; it did not include the latest plan-step dependency-index preservation evidence.
 - The project is still not complete against the four `docs/superpowers/specs/2026-06-04-*` specs.
