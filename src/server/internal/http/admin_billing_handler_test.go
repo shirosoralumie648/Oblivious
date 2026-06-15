@@ -470,9 +470,29 @@ func TestAdminBillingRecordsTopupRefundAndAdjustsQuota(t *testing.T) {
 
 	var refundCount int
 	var intentStatus, topupStatus string
+	var refundChargeID, refundProviderPaymentIntentID, refundPaymentIntentID, refundTopupOrderID, refundStatus, refundReason string
+	var transitionCount int
+	var transitionProvider, transitionProviderEventID, transitionEventType, transitionEntityType, transitionEntityID, transitionFromState, transitionToState, transitionReason string
 	var intentRefunded, topupRefunded, quotaBalance float64
 	if err := database.QueryRow(`SELECT COUNT(*) FROM billing_refunds WHERE provider = 'stripe' AND provider_refund_id = 're_admin_operator_1'`).Scan(&refundCount); err != nil {
 		t.Fatalf("query topup refund count: %v", err)
+	}
+	if err := database.QueryRow(`
+		SELECT COALESCE(provider_charge_id, ''), COALESCE(provider_payment_intent_id, ''),
+		       COALESCE(payment_intent_id, ''), COALESCE(topup_order_id, ''), status, COALESCE(reason, '')
+		FROM billing_refunds
+		WHERE provider = 'stripe' AND provider_refund_id = 're_admin_operator_1'
+	`).Scan(&refundChargeID, &refundProviderPaymentIntentID, &refundPaymentIntentID, &refundTopupOrderID, &refundStatus, &refundReason); err != nil {
+		t.Fatalf("query topup refund operator evidence: %v", err)
+	}
+	if err := database.QueryRow(`
+		SELECT COUNT(*), COALESCE(MAX(provider), ''), COALESCE(MAX(provider_event_id), ''),
+		       COALESCE(MAX(event_type), ''), COALESCE(MAX(entity_type), ''), COALESCE(MAX(entity_id), ''),
+		       COALESCE(MAX(from_state), ''), COALESCE(MAX(to_state), ''), COALESCE(MAX(reason), '')
+		FROM billing_lifecycle_events
+		WHERE provider_event_id = 'admin_topup_refund:stripe:re_admin_operator_1'
+	`).Scan(&transitionCount, &transitionProvider, &transitionProviderEventID, &transitionEventType, &transitionEntityType, &transitionEntityID, &transitionFromState, &transitionToState, &transitionReason); err != nil {
+		t.Fatalf("query topup refund lifecycle transition: %v", err)
 	}
 	if err := database.QueryRow(`SELECT status, refunded_amount FROM payment_intents WHERE id = 'pi_topup_admin_refund'`).Scan(&intentStatus, &intentRefunded); err != nil {
 		t.Fatalf("query topup refund payment intent: %v", err)
@@ -486,6 +506,101 @@ func TestAdminBillingRecordsTopupRefundAndAdjustsQuota(t *testing.T) {
 	if refundCount != 1 || intentStatus != "partially_refunded" || topupStatus != "partially_refunded" || intentRefunded != 10 || topupRefunded != 10 || quotaBalance != 15 {
 		t.Fatalf("expected idempotent partial topup refund and quota reversal, got count=%d intent=%s topup=%s intentRefund=%.2f topupRefund=%.2f quota=%.2f",
 			refundCount, intentStatus, topupStatus, intentRefunded, topupRefunded, quotaBalance)
+	}
+	if refundChargeID != "ch_admin_operator_1" ||
+		refundProviderPaymentIntentID != "pi_provider_topup_admin_refund" ||
+		refundPaymentIntentID != "pi_topup_admin_refund" ||
+		refundTopupOrderID != "topup_admin_refund" ||
+		refundStatus != "succeeded" ||
+		refundReason != "duplicate charge" {
+		t.Fatalf("expected refund operator evidence to persist, got charge=%q providerPI=%q paymentIntent=%q topup=%q status=%q reason=%q",
+			refundChargeID, refundProviderPaymentIntentID, refundPaymentIntentID, refundTopupOrderID, refundStatus, refundReason)
+	}
+	if transitionCount != 1 ||
+		transitionProvider != "stripe" ||
+		transitionProviderEventID != "admin_topup_refund:stripe:re_admin_operator_1" ||
+		transitionEventType != "refund.created" ||
+		transitionEntityType != "refund" ||
+		transitionEntityID != "re_admin_operator_1" ||
+		transitionFromState != "completed" ||
+		transitionToState != "succeeded" ||
+		transitionReason != "duplicate charge" {
+		t.Fatalf("expected one operator lifecycle transition, got count=%d provider=%q eventID=%q eventType=%q entity=%q/%q from=%q to=%q reason=%q",
+			transitionCount, transitionProvider, transitionProviderEventID, transitionEventType, transitionEntityType, transitionEntityID, transitionFromState, transitionToState, transitionReason)
+	}
+}
+
+func TestAdminBillingRejectsTopupRefundWithoutOperatorEvidenceAndPreservesLedger(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+	cookie, csrfToken, userID := registerHTTPUser(t, router, "billing-topup-refund-reject@example.com")
+	promoteHTTPUserToAdmin(t, database, userID)
+	_, organizationID := queryHTTPUserScope(t, database, userID)
+
+	if _, err := database.Exec(`
+		INSERT INTO payment_intents (
+			id, provider, provider_checkout_session_id, organization_id, user_id, package_id, kind,
+			amount, currency, status, metadata, created_at, updated_at, provider_payment_intent_id, refunded_amount
+		)
+		VALUES ('pi_topup_admin_refund_reject', 'stripe', 'cs_topup_admin_refund_reject', $1, $2, NULL, 'topup',
+		        25, 'usd', 'completed', '{}', NOW(), NOW(), 'pi_provider_topup_admin_refund_reject', 0)
+	`, organizationID, userID); err != nil {
+		t.Fatalf("insert reject refund payment intent: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO topup_orders (
+			id, user_id, organization_id, amount, money, status, trade_no, paid_at, created_at,
+			payment_intent_id, provider_checkout_session_id, refunded_amount
+		)
+		VALUES ('topup_admin_refund_reject', $2, $1, 25, 25, 'paid', 'trade_topup_admin_refund_reject', NOW(), NOW(),
+		        'pi_topup_admin_refund_reject', 'cs_topup_admin_refund_reject', 0)
+	`, organizationID, userID); err != nil {
+		t.Fatalf("insert reject refund topup order: %v", err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO quotas (id, organization_id, user_id, scope, balance, used, created_at, updated_at)
+		VALUES ('quota_topup_admin_refund_reject', $1, $2, 'organization', 25, 0, NOW(), NOW())
+	`, organizationID, userID); err != nil {
+		t.Fatalf("insert reject refund quota: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(
+		stdhttp.MethodPost,
+		"/api/v1/admin/billing/topups/topup_admin_refund_reject/refund",
+		strings.NewReader(`{"provider":"stripe","providerRefundID":"re_admin_operator_reject","amount":10,"currency":"usd","reason":"duplicate charge"}`),
+	)
+	request.AddCookie(cookie)
+	addCSRF(request, csrfToken)
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != stdhttp.StatusBadRequest {
+		t.Fatalf("expected missing operator evidence to return 400, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "providerChargeID or providerPaymentIntentID is required for stripe refunds") {
+		t.Fatalf("expected missing stripe evidence validation message, got %s", recorder.Body.String())
+	}
+
+	var refundRows, transitionRows int
+	var intentStatus, topupStatus string
+	var intentRefunded, topupRefunded, quotaBalance float64
+	if err := database.QueryRow(`SELECT COUNT(*) FROM billing_refunds WHERE organization_id = $1`, organizationID).Scan(&refundRows); err != nil {
+		t.Fatalf("query rejected refund rows: %v", err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM billing_lifecycle_events WHERE organization_id = $1`, organizationID).Scan(&transitionRows); err != nil {
+		t.Fatalf("query rejected lifecycle rows: %v", err)
+	}
+	if err := database.QueryRow(`SELECT status, refunded_amount FROM payment_intents WHERE id = 'pi_topup_admin_refund_reject'`).Scan(&intentStatus, &intentRefunded); err != nil {
+		t.Fatalf("query rejected payment intent: %v", err)
+	}
+	if err := database.QueryRow(`SELECT status, refunded_amount FROM topup_orders WHERE id = 'topup_admin_refund_reject'`).Scan(&topupStatus, &topupRefunded); err != nil {
+		t.Fatalf("query rejected topup order: %v", err)
+	}
+	if err := database.QueryRow(`SELECT balance FROM quotas WHERE organization_id = $1 AND scope = 'organization'`, organizationID).Scan(&quotaBalance); err != nil {
+		t.Fatalf("query rejected quota balance: %v", err)
+	}
+	if refundRows != 0 || transitionRows != 0 || intentStatus != "completed" || topupStatus != "paid" || intentRefunded != 0 || topupRefunded != 0 || quotaBalance != 25 {
+		t.Fatalf("rejected refund should not mutate ledger or balances, got refunds=%d transitions=%d intent=%s/%.2f topup=%s/%.2f quota=%.2f",
+			refundRows, transitionRows, intentStatus, intentRefunded, topupStatus, topupRefunded, quotaBalance)
 	}
 }
 
