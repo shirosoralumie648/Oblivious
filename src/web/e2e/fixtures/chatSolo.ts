@@ -1,4 +1,4 @@
-import type { Page, Route } from '@playwright/test';
+import type { Page, Route, WebSocketRoute } from '@playwright/test';
 
 const now = '2026-06-14T12:00:00Z';
 const conversationId = 'conversation_browser_solo';
@@ -327,4 +327,76 @@ export async function registerChatSoloRoutes(page: Page): Promise<void> {
 
     await fulfillNotFound(route);
   });
+}
+
+type SentRealtimeMessage = {
+  conversationId?: string;
+  isTyping?: boolean;
+  type?: string;
+};
+
+type ChatSoloRealtime = {
+  emit: (event: unknown) => void;
+  sentMessages: SentRealtimeMessage[];
+  violations: string[];
+};
+
+export async function registerChatSoloRealtime(page: Page): Promise<ChatSoloRealtime> {
+  const sentMessages: SentRealtimeMessage[] = [];
+  const violations: string[] = [];
+  let activeSocket: WebSocketRoute | null = null;
+
+  await page.routeWebSocket(/.*/, async (socket) => {
+    const url = new URL(socket.url());
+    if (url.pathname !== '/api/v1/ws') {
+      violations.push(`unexpected websocket url: ${socket.url()}`);
+      await socket.close({ code: 1002, reason: 'Unexpected realtime path' });
+      return;
+    }
+
+    activeSocket = socket;
+    socket.onClose(() => {
+      if (activeSocket === socket) {
+        activeSocket = null;
+      }
+    });
+    socket.onMessage((message) => {
+      if (typeof message !== 'string') {
+        violations.push('non-string websocket payload');
+        return;
+      }
+
+      let payload: SentRealtimeMessage;
+      try {
+        payload = JSON.parse(message) as SentRealtimeMessage;
+      } catch {
+        violations.push(`non-json websocket payload: ${message}`);
+        return;
+      }
+
+      if (payload.conversationId !== conversationId) {
+        violations.push(`unexpected websocket conversation: ${String(payload.conversationId)}`);
+      }
+      if (!['chat_join', 'chat_leave', 'chat_typing'].includes(String(payload.type))) {
+        violations.push(`unexpected websocket client type: ${String(payload.type)}`);
+      }
+      if (payload.type === 'chat_typing' && typeof payload.isTyping !== 'boolean') {
+        violations.push('chat_typing payload missing boolean isTyping');
+      }
+
+      sentMessages.push(payload);
+    });
+  });
+
+  return {
+    emit: (event: unknown) => {
+      if (activeSocket === null) {
+        violations.push('server event emitted before websocket connection');
+        return;
+      }
+      activeSocket.send(JSON.stringify(event));
+    },
+    sentMessages,
+    violations,
+  };
 }

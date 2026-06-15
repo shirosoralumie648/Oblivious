@@ -1,8 +1,11 @@
 import { expect, test } from '@playwright/test';
 
-import { registerChatSoloRoutes } from './fixtures/chatSolo';
+import { registerChatSoloRealtime, registerChatSoloRoutes } from './fixtures/chatSolo';
+
+let realtime: Awaited<ReturnType<typeof registerChatSoloRealtime>>;
 
 test.beforeEach(async ({ page }) => {
+  realtime = await registerChatSoloRealtime(page);
   await registerChatSoloRoutes(page);
 });
 
@@ -54,4 +57,96 @@ test('chat browser journey saves settings streams reply and hands off to SOLO', 
   await expect(page).toHaveURL(/\/chat\/conversation_browser_solo$/);
   await expect(page.getByRole('heading', { name: 'Chat workspace' })).toBeVisible();
   await expect(page.getByText('Browser streamed launch handoff answer with saved settings.')).toBeVisible();
+});
+
+test('chat realtime websocket joins, sends typing, and applies live events in the browser', async ({ page }) => {
+  await page.goto('/chat/conversation_browser_solo');
+
+  await expect(page.getByRole('heading', { name: 'Chat workspace' })).toBeVisible();
+  await expect(page.getByText('Existing launch context from the browser journey.')).toBeVisible();
+
+  await expect
+    .poll(() => realtime.sentMessages)
+    .toEqual(
+      expect.arrayContaining([
+        {
+          conversationId: 'conversation_browser_solo',
+          type: 'chat_join',
+        },
+      ])
+    );
+
+  await page.getByLabel('Message draft').fill('Co-edit this answer.');
+  await expect
+    .poll(() => realtime.sentMessages)
+    .toEqual(
+      expect.arrayContaining([
+        {
+          conversationId: 'conversation_browser_solo',
+          isTyping: true,
+          type: 'chat_typing',
+        },
+      ])
+    );
+
+  realtime.emit({
+    category: 'chat',
+    payload: {
+      conversationId: 'conversation_browser_solo',
+      messages: [
+        {
+          content: 'Existing launch context from the browser journey.',
+          createdAt: '2026-06-14T12:00:00Z',
+          id: 'msg_existing_browser_solo',
+          role: 'assistant',
+        },
+        {
+          content: 'Browser realtime collaborative note.',
+          createdAt: '2026-06-14T12:01:00Z',
+          id: 'msg_realtime_browser',
+          role: 'user',
+        },
+      ],
+    },
+    type: 'chat_messages_synced',
+  });
+  await expect(page.getByText('Browser realtime collaborative note.')).toBeVisible();
+
+  realtime.emit({
+    category: 'chat',
+    payload: {
+      conversationId: 'conversation_browser_solo',
+      isTyping: true,
+      userId: 'user_collaborator',
+    },
+    type: 'chat_typing',
+  });
+  await expect(page.getByRole('status')).toHaveText('A collaborator is typing...');
+
+  realtime.emit({
+    category: 'chat',
+    payload: {
+      conversationId: 'conversation_browser_solo',
+      message: {
+        content: 'Browser realtime collaborative note updated.',
+        createdAt: '2026-06-14T12:01:00Z',
+        id: 'msg_realtime_browser',
+        role: 'user',
+      },
+      messageId: 'msg_realtime_browser',
+    },
+    type: 'chat_message_updated',
+  });
+  await expect(page.getByText('Browser realtime collaborative note updated.')).toBeVisible();
+
+  realtime.emit({
+    category: 'chat',
+    payload: {
+      conversationId: 'conversation_browser_solo',
+      messageId: 'msg_realtime_browser',
+    },
+    type: 'chat_message_deleted',
+  });
+  await expect(page.getByText('Browser realtime collaborative note updated.')).not.toBeVisible();
+  await expect.poll(() => realtime.violations).toEqual([]);
 });
