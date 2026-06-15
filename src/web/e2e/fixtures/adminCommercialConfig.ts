@@ -70,6 +70,7 @@ const browserUser = {
   role: 'user',
   planID: 'plan_browser_growth',
   planName: 'Browser Growth',
+  quotaBalance: 1250.5,
   status: 'active',
   lastLoginAt: now,
   createdAt: now,
@@ -241,6 +242,10 @@ function userUpdatePayloadMatches(payload: Record<string, unknown>) {
   return payload.role === 'admin' && payload.planID === 'plan_browser_enterprise' && payload.status === 'disabled';
 }
 
+function userQuotaPayloadMatches(payload: Record<string, unknown>) {
+  return payload.balance === 2500;
+}
+
 function pricingPayloadMatches(payload: Record<string, unknown>) {
   const modelMultipliers = payload.modelMultipliers as Record<string, unknown> | undefined;
   const groupMultipliers = payload.groupMultipliers as Record<string, unknown> | undefined;
@@ -341,6 +346,20 @@ export async function registerAdminCommercialConfigRoutes(page: Page): Promise<v
         planID: 'plan_browser_enterprise',
         planName: 'Browser Enterprise',
         status: 'disabled',
+      };
+      await fulfillJSON(route, userState);
+      return;
+    }
+
+    if (method === 'PATCH' && pathname === '/api/v1/admin/users/user_browser_entitlement') {
+      const payload = request.postDataJSON() as Record<string, unknown>;
+      if (!userQuotaPayloadMatches(payload)) {
+        await fulfillError(route, 'user quota allocation payload did not preserve balance');
+        return;
+      }
+      userState = {
+        ...userState,
+        quotaBalance: 2500,
       };
       await fulfillJSON(route, userState);
       return;

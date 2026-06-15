@@ -586,6 +586,26 @@ describe('createAdminApi', () => {
     });
   });
 
+  it('updates admin user quota allocation with backend PATCH payload', async () => {
+    const request = vi.fn().mockResolvedValue({
+      id: 'user_1',
+      email: 'buyer@example.com',
+      quotaBalance: 2500,
+    });
+    const api = createAdminApi(createClient({ request }));
+
+    await expect(api.updateUserQuota('user_1', { balance: 2500 })).resolves.toEqual({
+      id: 'user_1',
+      email: 'buyer@example.com',
+      quotaBalance: 2500,
+    });
+
+    expect(request).toHaveBeenCalledWith('/api/v1/admin/users/user_1', {
+      method: 'PATCH',
+      body: JSON.stringify({ balance: 2500 }),
+    });
+  });
+
   it('routes observability alert calls through admin endpoints', async () => {
     const get = vi
       .fn()

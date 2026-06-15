@@ -37,7 +37,7 @@ test('admin plans preserve request-token caps in the browser', async ({ page }) 
   await expect(page.getByText('$199.00')).toBeVisible();
 });
 
-test('admin users update commercial entitlements and account status in the browser', async ({ page }) => {
+test('admin users update commercial entitlements, quota allocation, and account status in the browser', async ({ page }) => {
   await page.goto('/admin/users');
 
   await expect(page.getByRole('heading', { name: 'Users' })).toBeVisible();
@@ -48,15 +48,18 @@ test('admin users update commercial entitlements and account status in the brows
   await page.getByLabel('Role filter').selectOption('user');
   await page.getByLabel('User status filter').selectOption('active');
   await expect(page.getByText('Browser Growth')).toBeVisible();
+  await expect(page.getByText('1,250.5 quota')).toBeVisible();
   await expect(page.getByText('18,000 tokens / 240 calls / $12.50')).toBeVisible();
 
   await page.getByRole('button', { name: 'Edit user buyer-browser@example.com' }).click();
   await page.getByLabel('Role', { exact: true }).selectOption('admin');
   await page.getByLabel('Plan ID').fill('plan_browser_enterprise');
+  await page.getByLabel('Quota Balance').fill('2500');
   await page.getByLabel('Status', { exact: true }).selectOption('disabled');
   await page.getByRole('button', { name: 'Save User' }).click();
 
   await expect(page.getByText('Browser Enterprise')).toBeVisible();
+  await expect(page.getByText('2,500 quota')).toBeVisible();
   await expect(page.getByLabel('Disabled', { exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'Enable user buyer-browser@example.com' }).click();

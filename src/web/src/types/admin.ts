@@ -304,6 +304,7 @@ export type UserDetail = {
   planID?: string | null;
   planId?: string | null;
   planName?: string | null;
+  quotaBalance?: number;
   status: 'active' | 'disabled';
   lastLoginAt: string | null;
   createdAt: string;
@@ -318,6 +319,10 @@ export type UserUpdateRequest = {
   planID?: string | null;
   planId?: string | null;
   status?: 'active' | 'disabled';
+};
+
+export type UserQuotaUpdateRequest = {
+  balance: number;
 };
 
 export type AuditEntry = {

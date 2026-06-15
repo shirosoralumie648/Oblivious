@@ -317,16 +317,17 @@ type PlanUpdateRequest struct {
 
 // UserDetail is the full user view for admin management (D-12, D-13).
 type UserDetail struct {
-	ID          string          `json:"id"`
-	Email       string          `json:"email"`
-	Name        string          `json:"name"`
-	Role        string          `json:"role"` // "admin"|"moderator"|"user"
-	PlanID      *string         `json:"planID,omitempty"`
-	PlanName    *string         `json:"planName,omitempty"`
-	Status      string          `json:"status"` // "active"|"disabled"
-	CreatedAt   time.Time       `json:"createdAt"`
-	LastLoginAt *time.Time      `json:"lastLoginAt,omitempty"`
-	UsageStats  *UserUsageStats `json:"usageStats,omitempty"`
+	ID           string          `json:"id"`
+	Email        string          `json:"email"`
+	Name         string          `json:"name"`
+	Role         string          `json:"role"` // "admin"|"moderator"|"user"
+	PlanID       *string         `json:"planID,omitempty"`
+	PlanName     *string         `json:"planName,omitempty"`
+	QuotaBalance float64         `json:"quotaBalance"`
+	Status       string          `json:"status"` // "active"|"disabled"
+	CreatedAt    time.Time       `json:"createdAt"`
+	LastLoginAt  *time.Time      `json:"lastLoginAt,omitempty"`
+	UsageStats   *UserUsageStats `json:"usageStats,omitempty"`
 }
 
 // UserUsageStats holds aggregated usage statistics for a user.

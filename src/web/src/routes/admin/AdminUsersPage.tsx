@@ -14,6 +14,7 @@ import type { UserDetail, UserUpdateRequest } from '../../types/admin';
 type UserForm = {
   role: string;
   planID: string;
+  quotaBalance: string;
   status: 'active' | 'disabled';
 };
 
@@ -48,6 +49,7 @@ type Action =
 const emptyForm: UserForm = {
   role: 'user',
   planID: '',
+  quotaBalance: '0',
   status: 'active',
 };
 
@@ -69,6 +71,7 @@ function userToForm(user: UserDetail): UserForm {
   return {
     role: user.role,
     planID: user.planID ?? user.planId ?? '',
+    quotaBalance: String(user.quotaBalance ?? 0),
     status: user.status,
   };
 }
@@ -112,6 +115,15 @@ function usageSummary(user: UserDetail) {
   return `${tokens.toLocaleString()} tokens / ${calls.toLocaleString()} calls / $${cost.toFixed(2)}`;
 }
 
+function quotaBalanceSummary(user: UserDetail) {
+  return `${(user.quotaBalance ?? 0).toLocaleString()} quota`;
+}
+
+function quotaBalanceValue(value: string) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
 function lastLogin(value: string | null) {
   if (!value) {
     return 'Never';
@@ -146,6 +158,11 @@ export function AdminUsersPage() {
     if (!state.editingUser) {
       return;
     }
+    const quotaBalance = quotaBalanceValue(state.form.quotaBalance);
+    if (quotaBalance === null) {
+      dispatch({ type: 'FORM_ERROR', error: 'Quota balance must be a non-negative number.' });
+      return;
+    }
     const payload: UserUpdateRequest = {
       role: state.form.role,
       planID: state.form.planID.trim() || null,
@@ -155,6 +172,7 @@ export function AdminUsersPage() {
     dispatch({ type: 'FORM_START' });
     try {
       await api.updateUser(state.editingUser.id, payload);
+      await api.updateUserQuota(state.editingUser.id, { balance: quotaBalance });
       dispatch({ type: 'FORM_DONE' });
       await loadUsers();
     } catch (error) {
@@ -176,6 +194,7 @@ export function AdminUsersPage() {
     { key: 'name', header: 'Name', render: (user) => user.name || '-' },
     { key: 'role', header: 'Role', render: (user) => <span className="capitalize">{user.role}</span> },
     { key: 'planName', header: 'Plan', render: (user) => user.planName ?? user.planID ?? user.planId ?? '-' },
+    { key: 'quotaBalance', header: 'Quota Balance', render: quotaBalanceSummary },
     { key: 'status', header: 'Status', render: (user) => <StatusBadge status={user.status === 'active' ? 'active' : 'disabled'} /> },
     { key: 'usageStats', header: 'Usage', render: usageSummary },
     { key: 'lastLoginAt', header: 'Last Login', render: (user) => lastLogin(user.lastLoginAt) },
@@ -267,6 +286,18 @@ export function AdminUsersPage() {
             id="user-plan"
             value={state.form.planID}
             onChange={(event) => dispatch({ type: 'FORM_FIELD', field: 'planID', value: event.target.value })}
+            className="min-h-[44px] w-full rounded-lg border border-input bg-input/30 px-3 text-sm text-foreground"
+          />
+        </div>
+        <div className="space-y-2">
+          <label htmlFor="user-quota-balance" className="text-sm font-medium">Quota Balance</label>
+          <input
+            id="user-quota-balance"
+            type="number"
+            min="0"
+            step="0.01"
+            value={state.form.quotaBalance}
+            onChange={(event) => dispatch({ type: 'FORM_FIELD', field: 'quotaBalance', value: event.target.value })}
             className="min-h-[44px] w-full rounded-lg border border-input bg-input/30 px-3 text-sm text-foreground"
           />
         </div>

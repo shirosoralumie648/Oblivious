@@ -98,13 +98,14 @@ func (s *SQLStore) ListUsers(ctx context.Context, filter UserListFilter) ([]*Use
 		       u.created_at, u.last_login_at,
 		       COALESCE(SUM(ur.input_tokens + ur.output_tokens), 0) AS total_tokens,
 		       COALESCE(SUM(ur.request_count), 0) AS total_api_calls,
+		       COALESCE(q.balance, 0) AS quota_balance,
 		       COALESCE(q.used, 0) AS total_cost
 		FROM users u
 		LEFT JOIN packages p ON u.plan_id = p.id
 		LEFT JOIN usage_records ur ON u.id = ur.user_id
 		LEFT JOIN quotas q ON u.id = q.user_id AND q.scope = 'user'
 		%s
-		GROUP BY u.id, p.name, q.used
+		GROUP BY u.id, p.name, q.balance, q.used
 		%s
 		LIMIT $%d OFFSET $%d
 	`, where, orderBy, argIdx, argIdx+1)
@@ -126,7 +127,7 @@ func (s *SQLStore) ListUsers(ctx context.Context, filter UserListFilter) ([]*Use
 		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.Role,
 			&planID, &planName,
 			&u.Status, &u.CreatedAt, &lastLogin,
-			&usage.TotalTokens, &usage.TotalAPICalls, &usage.TotalCost); err != nil {
+			&usage.TotalTokens, &usage.TotalAPICalls, &u.QuotaBalance, &usage.TotalCost); err != nil {
 			return nil, 0, fmt.Errorf("scan user: %w", err)
 		}
 		if planID.Valid {
@@ -159,17 +160,18 @@ func (s *SQLStore) GetUserByID(ctx context.Context, id string) (*UserDetail, err
 		       u.created_at, u.last_login_at,
 		       COALESCE(SUM(ur.input_tokens + ur.output_tokens), 0) AS total_tokens,
 		       COALESCE(SUM(ur.request_count), 0) AS total_api_calls,
+		       COALESCE(q.balance, 0) AS quota_balance,
 		       COALESCE(q.used, 0) AS total_cost
 		FROM users u
 		LEFT JOIN packages p ON u.plan_id = p.id
 		LEFT JOIN usage_records ur ON u.id = ur.user_id
 		LEFT JOIN quotas q ON u.id = q.user_id AND q.scope = 'user'
 		WHERE u.id = $1
-		GROUP BY u.id, p.name, q.used
+		GROUP BY u.id, p.name, q.balance, q.used
 	`, id).Scan(&u.ID, &u.Email, &u.Name, &u.Role,
 		&planID, &planName,
 		&u.Status, &u.CreatedAt, &lastLogin,
-		&usage.TotalTokens, &usage.TotalAPICalls, &usage.TotalCost)
+		&usage.TotalTokens, &usage.TotalAPICalls, &u.QuotaBalance, &usage.TotalCost)
 
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("user not found: %s", id)

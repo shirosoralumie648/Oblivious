@@ -534,7 +534,8 @@ func TestAdminHandlerUpdateUserQuotaValidatesAndAudits(t *testing.T) {
 		entry.IPAddress != "203.0.113.10" || !strings.Contains(entry.Changes, `"balance":42.5`) {
 		t.Fatalf("unexpected quota audit entry: %#v", entry)
 	}
-	if !strings.Contains(recorder.Body.String(), `"id":"user_1"`) {
+	if !strings.Contains(recorder.Body.String(), `"id":"user_1"`) ||
+		!strings.Contains(recorder.Body.String(), `"quotaBalance":42.5`) {
 		t.Fatalf("expected updated user detail response, got %s", recorder.Body.String())
 	}
 }
@@ -1803,7 +1804,7 @@ func (s *fakeAdminStore) GetUserByID(ctx context.Context, id string) (*admin.Use
 	if s.missingUserID != "" && id == s.missingUserID {
 		return nil, sql.ErrNoRows
 	}
-	return &admin.UserDetail{ID: id, Email: "user@example.com", Role: "user", Status: "active"}, nil
+	return &admin.UserDetail{ID: id, Email: "user@example.com", Role: "user", Status: "active", QuotaBalance: s.updatedQuotaBalance}, nil
 }
 
 func (s *fakeAdminStore) UpdateUser(ctx context.Context, id string, input admin.UserUpdateRequest) (*admin.UserDetail, error) {

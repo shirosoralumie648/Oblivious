@@ -40,6 +40,7 @@ import type {
   UsageLogEntry,
   UsageLogFilter,
   UserDetail,
+  UserQuotaUpdateRequest,
   UserUpdateRequest,
 } from '../../types/admin';
 
@@ -378,6 +379,7 @@ export type AdminApi = {
   }) => Promise<PaginatedResponse<UserDetail>>;
   getUser: (id: string) => Promise<UserDetail>;
   updateUser: (id: string, input: UserUpdateRequest) => Promise<UserDetail>;
+  updateUserQuota: (id: string, input: UserQuotaUpdateRequest) => Promise<UserDetail>;
   disableUser: (id: string) => Promise<void>;
   enableUser: (id: string) => Promise<void>;
   listAuditLogs: (params?: {
@@ -552,6 +554,11 @@ export function createAdminApi(client: HttpClient): AdminApi {
       delete body.planId;
       return client.put<UserDetail>(`${apiPrefix}/users/${id}`, body);
     },
+    updateUserQuota: (id, input) =>
+      client.request<UserDetail>(`${apiPrefix}/users/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ balance: input.balance }),
+      }),
     disableUser: async (id) => {
       await client.post<{ status: string }>(`${apiPrefix}/users/${id}/disable`);
     },

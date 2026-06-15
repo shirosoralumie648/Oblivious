@@ -2,11 +2,11 @@
 
 ## Current Truth
 
-- Branch: `main`; this implementation slice starts from pushed commit `f1aa0ab docs: refresh rescan at grpc budget head`.
-- Refresh base before this slice: `HEAD` and `origin/main` both resolved to `f1aa0abe1592f8d2844c188b51267d0ae02f876a`; the worktree was clean before the Workflow/Agent control-plane edits.
+- Branch: `main`; this implementation slice starts from pushed commit `5af7c88 test(workflow): resume agent planning controls`.
+- Refresh base before this slice: `HEAD` and `origin/main` both resolved to `5af7c88a5db4bad0925e8087bae8c6e0b213ccff`; the worktree was clean before the Admin Users quota allocation edits.
 - The project is still **not complete** against the four 2026-06-04 fusion specs.
 - The current completion matrix remains `4 Proven / 10 Partial / 0 Gap / 0 Unverified`.
-- Current progress estimate after this scan is **97/100**. Admin Relay channel API-key, Observability alert-provider config, Observability alert/recovery SQL persistence, Publishing channel config, Workflow definition/version/execution-snapshot/node-execution secret-like fields, Workflow-to-Agent planning-control resume integration, Agent Memories browser CRUD/import-export, Agent memory store PostgreSQL persistence, Agent gRPC registration and planning continue/adjust plus plan-step action and token-budget resume service-adapter proof, Billing provider lifecycle PostgreSQL transitions, Admin usage analytics daily aggregate PostgreSQL proof, Marketplace governance/review PostgreSQL proof, Admin Billing operator payout/refund browser proof, Admin commercial configuration browser proof, Marketplace publisher/My Agents browser proof, Admin route manifest dispatch proof, durable Agent planning completion evidence, Agent plan adjustment browser proof, Admin Reviews browser moderation/governance proof, and Admin Alerts browser alert-management proof are now covered with repository-local proof, but target-environment workflow telemetry, target secret audits, deployment validation, payment/provider live rails, platform failover, live moderation/notification operations, deployed gRPC/client compatibility, and final no-skip release readiness remain open.
+- Current progress estimate after this scan is **97/100**. Admin Relay channel API-key, Observability alert-provider config, Observability alert/recovery SQL persistence, Publishing channel config, Workflow definition/version/execution-snapshot/node-execution secret-like fields, Workflow-to-Agent planning-control resume integration, Agent Memories browser CRUD/import-export, Agent memory store PostgreSQL persistence, Agent gRPC registration and planning continue/adjust plus plan-step action and token-budget resume service-adapter proof, Billing provider lifecycle PostgreSQL transitions, Admin usage analytics daily aggregate PostgreSQL proof, Marketplace governance/review PostgreSQL proof, Admin Billing operator payout/refund browser proof, Admin commercial configuration browser proof including Admin Users quota allocation, Marketplace publisher/My Agents browser proof, Admin route manifest dispatch proof, durable Agent planning completion evidence, Agent plan adjustment browser proof, Admin Reviews browser moderation/governance proof, and Admin Alerts browser alert-management proof are now covered with repository-local proof, but target-environment workflow telemetry, target secret audits, deployment validation, payment/provider live rails, platform failover, live moderation/notification operations, deployed gRPC/client compatibility, and final no-skip release readiness remain open.
 
 ## What Changed In This Rescan
 
@@ -20,6 +20,7 @@
 - Agent gRPC now has package-level service-adapter proof for planning run continuation and adjustment plus plan-step approve/execute/skip/retry actions, including authenticated `auth.Session` forwarding, refreshed run detail, cross-run plan-step rejection, and approval-boundary `FailedPrecondition` mapping.
 - Agent gRPC now also has package-level service-adapter proof for token-budget resume through `ContinueBudget`: bounded `token_budget` validation, forwarding into `ContinueRunWithTokenBudget`, refreshed run detail reload, ReAct pending-tool evidence, planning plan-step evidence, and standalone generated-client bufconn dispatch.
 - Workflow now wires the real Agent node executor into the default router/server workflow service after Agent service construction. Pending Workflow `agent` nodes can resume Agent planning control actions for continue, adjust-plan, token-budget continuation, and plan-step approve/execute/skip/retry, with organization/user/workspace scope forwarded and refreshed Agent run detail carried into downstream node output.
+- Admin Users now has user-level quota allocation browser proof: `AdminUser` responses expose `quotaBalance`, SQL list/detail reads hydrate it from user-scope quota balance, the frontend API sends `PATCH /api/v1/admin/users/{userId}` with `{ balance }`, and `/admin/users` renders, edits, submits, and refreshes quota balance inside the Admin shell.
 - Admin Billing now has browser-level Admin-shell proof for `/admin/billing`: payout paid confirmation, payout failure with operator reason evidence, payout/top-up filter query propagation, Stripe top-up refund payload/state propagation, and domestic Alipay CNY top-up refund payload propagation without Stripe charge-ID evidence.
 - Admin Reviews now has browser-level Admin-shell proof for `/admin/reviews`: active Review Queue navigation, pending-review commercial/SLA context, SLA enforcement, approve/reject/needs-changes decisions, abuse-report resolve/dismiss triage, and takedown/reinstate governance payloads.
 - Admin Alerts now has browser-level Admin-shell proof for `/admin/alerts`: alert filter query propagation, recovery-action evidence, delivery-history inspection, acknowledge/resolve state mutation, severity routing updates, Slack webhook provider creation, and provider-test feedback.
@@ -80,11 +81,11 @@ Partial rows remain:
 - Security and tenant isolation
 - Migration strategy and release readiness
 
-This scan does not reclassify any Partial row to Proven. Admin Relay API-key, Observability alert-provider, Observability alert/recovery persistence, Publishing channel, Workflow at-rest encryption, Workflow-to-Agent planning-control resume integration, Agent Memories browser proof, Agent memory store DB proof, Agent gRPC planning and token-budget resume service-adapter proof, Billing provider lifecycle proof, Admin usage analytics DB proof, Marketplace governance/review DB proof, Admin Billing operator browser proof, Admin Reviews browser proof, and Admin Alerts browser proof improve Relay/Publishing/Workflow, Agent, Frontend, Billing, Marketplace, Observability, API, Security, operations/env, and release evidence, but broader target-environment telemetry, target secret audits, live provider proof, platform failover, live notification-provider proof, deployed gRPC/client compatibility, and final release proof remain open.
+This scan does not reclassify any Partial row to Proven. Admin Relay API-key, Observability alert-provider, Observability alert/recovery persistence, Publishing channel, Workflow at-rest encryption, Workflow-to-Agent planning-control resume integration, Agent Memories browser proof, Agent memory store DB proof, Agent gRPC planning and token-budget resume service-adapter proof, Billing provider lifecycle proof, Admin usage analytics DB proof, Admin Users quota allocation browser/API proof, Marketplace governance/review DB proof, Admin Billing operator browser proof, Admin Reviews browser proof, and Admin Alerts browser proof improve Relay/Publishing/Workflow, Agent, Frontend, Billing, Marketplace, Observability, API, Security, operations/env, and release evidence, but broader target-environment telemetry, target secret audits, live provider proof, platform failover, live notification-provider proof, deployed gRPC/client compatibility, and final release proof remain open.
 
 ## Verification Evidence And Current Scan
 
-Current `f1aa0ab` refresh commands plus this Workflow/Agent slice verification:
+Current `5af7c88` refresh commands plus this Admin Users quota allocation slice verification:
 
 ```bash
 pwd
@@ -98,11 +99,12 @@ find . \( -path './node_modules' -o -path './src/web/node_modules' -o -path './.
 awk '...top-level completion matrix rows...' docs/reports/2026-06-07-fusion-spec-completion-matrix.md
 rg -n "^## |^### |^# " docs/superpowers/specs/2026-06-04-*.md
 rg -n "TODO|FIXME|XXX|stub|placeholder|Unimplemented|DisabledInProduction" src scripts deploy docs/release docs/reports -g '!src/web/test-results/**' -g '!src/web/playwright-report/**' -g '!**/*.pb.go' -g '!docs/reports/archive/**'
-rg -n "topup_browser|providerPaymentIntent|alipay|wechatpay|refund" src/web/e2e/admin-billing-operator.spec.ts src/web/e2e/fixtures/adminBillingOperator.ts src/web/src/routes/admin/AdminBillingPage.tsx src/web/src/routes/admin/AdminBillingPage.test.tsx
-GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/workflow -run 'TestAgentNodeExecutor|TestServiceResumeExecution.*Agent' -count=1 -v
-GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/http -run 'TestWorkflowAgentServiceAdapter|TestRegisterWorkflowAgentExecutorRunsAgentNode|TestRouteSurfaceWiresConfiguredWorkflowSystemLimits' -count=1 -v
-GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/workflow -count=1
-GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/http -run 'TestWorkflow' -count=1
+rg -n "quotaBalance|updateUserQuota|Quota Balance|user quota allocation|AdminUserQuotaUpdateRequest" docs/api/openapi.yaml src/server/internal/admin src/server/internal/http src/web/src src/web/e2e -S
+GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/admin ./internal/http -run 'Test(UpdateUserQuota|AdminHandlerUpdateUserQuota)' -count=1 -v
+COREPACK_HOME=/tmp/codex-corepack pnpm --dir src/web exec vitest run src/features/admin/api.test.ts src/routes/admin/AdminUsersPage.test.tsx
+COREPACK_HOME=/tmp/codex-corepack pnpm --dir src/web exec tsc --noEmit
+PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/google-chrome COREPACK_HOME=/tmp/codex-corepack pnpm --dir src/web exec playwright test e2e/admin-commercial-config.spec.ts --project=chromium
+bash scripts/verify-openapi-contract.sh
 COREPACK_HOME=/tmp/codex-corepack bash scripts/check.sh docs
 git diff --check
 ```
@@ -180,8 +182,8 @@ git diff --check
 Result:
 
 - `pwd` showed `/media/shirosora/4A183E5C183E46EB/codestorage/Oblivious`.
-- `git status --short --branch` at this Workflow/Agent slice start showed `main...origin/main` at `f1aa0ab` with a clean worktree before the implementation edits.
-- `git rev-parse HEAD origin/main` returned `f1aa0abe1592f8d2844c188b51267d0ae02f876a` for both refs before the implementation edits.
+- `git status --short --branch` at this Admin Users quota allocation slice start showed `main...origin/main` at `5af7c88` with a clean worktree before the implementation edits.
+- `git rev-parse HEAD origin/main` returned `5af7c88a5db4bad0925e8087bae8c6e0b213ccff` for both refs before the implementation edits.
 - The top-level matrix count remains 4 `Proven` and 10 `Partial`; the `Gap` and `Unverified` counts remain 0.
 - The current first-party inventory counters after this slice are: `src=987`, `docs=92`, `scripts=37`, `deploy=42`, `.planning=210`, Go test files `230`, web component/API test files `67`, Playwright specs `13`, and Playwright fixtures `13`.
 - The current server-domain leaders are still `relay`, `http`, `mcp`, `admin`, `agent`, `workflow`, `knowledge`, `observability`, `channel`, `migration`, and `marketplace`.
@@ -198,6 +200,11 @@ Result:
 - `go test ./cmd/agent -count=1 -v` passed with generated-client bufconn dispatch for both `ContinuePlan` and `ContinueBudget` through the registered standalone Agent gRPC service.
 - `go test ./internal/workflow -run 'TestAgentNodeExecutor|TestServiceResumeExecution.*Agent' -count=1 -v` passed with Workflow Agent node coverage for pending approval, token-budget pause, continue/adjust/budget/plan-step resume action routing, and downstream node output after plan-step and budget continuations.
 - `go test ./internal/http -run 'TestWorkflowAgentServiceAdapter|TestRegisterWorkflowAgentExecutorRunsAgentNode|TestRouteSurfaceWiresConfiguredWorkflowSystemLimits' -count=1 -v` passed with HTTP adapter coverage for Agent planning control methods plus default Workflow Agent executor registration in router/server.
+- `go test ./internal/admin ./internal/http -run 'Test(UpdateUserQuota|AdminHandlerUpdateUserQuota)' -count=1 -v` passed with Admin quota service validation/audit coverage and HTTP handler response coverage for `quotaBalance`.
+- `pnpm --dir src/web exec vitest run src/features/admin/api.test.ts src/routes/admin/AdminUsersPage.test.tsx` passed with frontend API `PATCH /api/v1/admin/users/{userId}` payload coverage and Admin Users drawer quota allocation coverage.
+- `pnpm --dir src/web exec tsc --noEmit` passed after the Admin Users quota allocation API/type/page changes.
+- `pnpm --dir src/web exec playwright test e2e/admin-commercial-config.spec.ts --project=chromium` passed with browser proof that `/admin/users` renders existing quota balance, sends the quota allocation PATCH payload, and refreshes the updated balance inside the Admin shell.
+- `bash scripts/verify-openapi-contract.sh` passed after adding `quotaBalance` to the `AdminUser` response schema.
 - `go test ./internal/agent ./internal/http -run 'TestService(ContinuePlanningRun|RetryPlanStep|AdjustPlanSteps|StartPlanningRun|ExecutePlanStep)|TestAgentRunsHandler(ContinuePlan|PlanStepActions|RetryPlanStep)|TestRegisterAgentRunRoutesDispatches(ContinuePlan|AdjustPlan)' -count=1 -v` passed, confirming the existing planning service and HTTP semantics still match the gRPC adapter assumptions.
 - `go test ./internal/secretbox -count=1 -v` passed.
 - `go test ./internal/workflow -count=1` passed.
@@ -229,7 +236,7 @@ Result:
 
 ## Notable Scan Findings
 
-- This follow-up starts from `f1aa0ab`; previous scan text that referenced earlier slice starts such as `6db760c`, `099cc56`, `0e61dcc`, `2f53af9`, `1a83cff`, `9630167`, `8e4f9fd`, `d7a91f0`, `0655515`, `79d6000`, or `b2fc74b` is stale after the Agent memory DB evidence, Admin Reviews browser-proof, Admin Alerts browser-proof, Agent gRPC planning-boundary and token-budget resume, Workflow-to-Agent planning-control resume integration, runtime registration, Admin commercial config, Marketplace publisher, durable planning completion, Admin manifest dispatch, Agent plan-adjustment browser, and domestic Admin Billing top-up refund browser slices.
+- This follow-up starts from `5af7c88`; previous scan text that referenced earlier slice starts such as `f1aa0ab`, `6db760c`, `099cc56`, `0e61dcc`, `2f53af9`, `1a83cff`, `9630167`, `8e4f9fd`, `d7a91f0`, `0655515`, `79d6000`, or `b2fc74b` is stale after the Agent memory DB evidence, Admin Reviews browser-proof, Admin Alerts browser-proof, Agent gRPC planning-boundary and token-budget resume, Workflow-to-Agent planning-control resume integration, Admin Users quota allocation browser/API proof, runtime registration, Admin commercial config, Marketplace publisher, durable planning completion, Admin manifest dispatch, Agent plan-adjustment browser, and domestic Admin Billing top-up refund browser slices.
 - Existing DB-backed tenant-isolation evidence remains stronger than target-environment evidence; this slice adds DB-backed at-rest encryption proof for the Workflow definition/runtime secret path on top of the prior Admin Relay, Observability, and Publishing secret paths.
 - Observability alert/routing SQL persistence is now a first-class commercial DB evidence profile. The profile rejects skips and empty regex matches while proving routing rules, alert lifecycle/escalation, alert-state filters, notification throttling, recovery cooldown reuse, and repeated delivery-batch history against PostgreSQL.
 - Admin usage analytics daily aggregate SQL persistence is now a first-class commercial DB evidence profile. The profile rejects skips and empty regex matches while proving daily aggregate refresh/query and zero-total-token fallback for both raw analytics and usage-log listing against PostgreSQL.
@@ -242,6 +249,7 @@ Result:
 - Agent Memories now has a built-app Playwright proof for the manual memory-management workflow. The fixture fails closed if browser search/export filters or create/update/import/delete payloads drift from the Workspace UI controls.
 - Agent memory store persistence is now included in the no-skip DB profile. `TestAgentMemoryStorePersistsAndFiltersMemories` proves user-managed and long-term memory creation, metadata persistence, type/query filtering, and cross-tenant empty-list behavior against PostgreSQL.
 - Agent gRPC now exposes planning continuation/adjustment and plan-step approve/execute/skip/retry through generated proto bindings and `src/server/pkg/agent`. The adapter does not bypass the internal planning service; it forwards authenticated sessions, validates run/step ownership, returns refreshed run detail after single-step actions, and reuses existing approval-boundary error semantics.
+- Admin Users quota allocation now has browser/API proof in the Admin shell. The fixture fails closed if the browser omits `PATCH /api/v1/admin/users/user_browser_entitlement` with `{ "balance": 2500 }`, and the backend response schema now exposes `quotaBalance` for list/detail/readback. This narrows the Admin user-level quota allocation UI gap; live quota enforcement and target billing proof remain environment-bound.
 - Admin Billing now has a built-app Playwright proof for operator money-movement actions. The fixture fails closed if browser payout/top-up filters, payout paid/failed payloads, Stripe refund evidence, or domestic Alipay `currency=cny` refund payloads drift from the Admin Billing UI controls.
 - The domestic Admin Billing browser proof now records an Alipay top-up refund with provider payment-intent evidence while the fixture rejects any Stripe charge-ID payload, narrowing the local browser gap for domestic payment operator refunds.
 - Admin Reviews now has a built-app Playwright proof for moderation and governance actions. The fixture fails closed if browser review filters, SLA enforcement queries, approve/reject/needs-changes payloads, abuse-report resolve/dismiss payloads, or takedown/reinstate governance reasons drift from the Admin Reviews UI controls.

@@ -5381,6 +5381,10 @@ components:
         planName:
           type: string
           nullable: true
+        quotaBalance:
+          type: number
+          format: double
+          minimum: 0
         status:
           type: string
           enum: [active, disabled]
