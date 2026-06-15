@@ -3,7 +3,7 @@
 ## Current Truth
 
 - Branch: `main`.
-- Current rescan commit: `c0df1fa` (`test(task): prove approval state guard with postgres`).
+- Rescan evidence base before this documentation refresh: `c0df1fa` (`test(task): prove approval state guard with postgres`).
 - Remote parity at rescan start: `HEAD == origin/main` (`c0df1fab2dd2ad20af33db6b9575172972cce2a9`).
 - Working tree at rescan start: clean at the pushed Task approval PostgreSQL proof baseline.
 - The earlier same-day scans at `1c52194`, `53aaca0`, `d4fdc37`, `75ff216`, `98a1683`, `c6d9b34`, `5969e4b`, `1e7c6ef`, `e222967`, `0694b44`, `984b6a7`, `cb18df4`, and `bd92f91` are now older baselines for this report.
