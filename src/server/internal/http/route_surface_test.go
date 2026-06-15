@@ -2,10 +2,16 @@ package http
 
 import (
 	"encoding/json"
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	stdhttp "net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -2225,6 +2231,147 @@ func loadRouteSurfaceManifest(t *testing.T) routeSurfaceManifest {
 	return manifest
 }
 
+type routeSurfaceRuntimeRegistration struct {
+	Path   string
+	Source string
+}
+
+func loadRouteSurfaceRuntimeRegistrations(t *testing.T) []routeSurfaceRuntimeRegistration {
+	t.Helper()
+
+	sourceFiles := routeSurfaceRuntimeSourceFiles(t)
+	registrationsBySource := map[string]routeSurfaceRuntimeRegistration{}
+	for _, sourceFile := range sourceFiles {
+		fset := token.NewFileSet()
+		file, err := parser.ParseFile(fset, sourceFile, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", sourceFile, err)
+		}
+
+		ast.Inspect(file, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok || len(call.Args) == 0 {
+				return true
+			}
+			selector, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || (selector.Sel.Name != "Handle" && selector.Sel.Name != "HandleFunc") {
+				return true
+			}
+			lit, ok := call.Args[0].(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				return true
+			}
+			path, err := strconv.Unquote(lit.Value)
+			if err != nil || !strings.HasPrefix(path, "/api/") {
+				return true
+			}
+
+			position := fset.Position(lit.Pos())
+			source := fmt.Sprintf("%s:%d", filepath.Base(sourceFile), position.Line)
+			registrationsBySource[source] = routeSurfaceRuntimeRegistration{Path: path, Source: source}
+			return true
+		})
+	}
+
+	registrations := make([]routeSurfaceRuntimeRegistration, 0, len(registrationsBySource))
+	for _, registration := range registrationsBySource {
+		registrations = append(registrations, registration)
+	}
+	sort.Slice(registrations, func(i, j int) bool {
+		if registrations[i].Path == registrations[j].Path {
+			return registrations[i].Source < registrations[j].Source
+		}
+		return registrations[i].Path < registrations[j].Path
+	})
+	if len(registrations) == 0 {
+		t.Fatal("expected runtime route registrations")
+	}
+	return registrations
+}
+
+func routeSurfaceRuntimeSourceFiles(t *testing.T) []string {
+	t.Helper()
+
+	calledRegistrars := routeSurfaceCalledRegistrars(t, "router.go")
+	files := []string{"router.go"}
+	registrarFiles, err := filepath.Glob("routes_*.go")
+	if err != nil {
+		t.Fatalf("glob route files: %v", err)
+	}
+	for _, sourceFile := range registrarFiles {
+		if strings.HasSuffix(sourceFile, "_test.go") {
+			continue
+		}
+		for registrar := range routeSurfaceDeclaredRegistrars(t, sourceFile) {
+			if calledRegistrars[registrar] {
+				files = append(files, sourceFile)
+				break
+			}
+		}
+	}
+	sort.Strings(files)
+	return files
+}
+
+func routeSurfaceCalledRegistrars(t *testing.T, sourceFile string) map[string]bool {
+	t.Helper()
+
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, sourceFile, nil, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", sourceFile, err)
+	}
+	called := map[string]bool{}
+	ast.Inspect(file, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		ident, ok := call.Fun.(*ast.Ident)
+		if !ok {
+			return true
+		}
+		if strings.HasPrefix(ident.Name, "register") && strings.HasSuffix(ident.Name, "Routes") {
+			called[ident.Name] = true
+		}
+		return true
+	})
+	return called
+}
+
+func routeSurfaceDeclaredRegistrars(t *testing.T, sourceFile string) map[string]bool {
+	t.Helper()
+
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, sourceFile, nil, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", sourceFile, err)
+	}
+	declared := map[string]bool{}
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Name == nil {
+			continue
+		}
+		if strings.HasPrefix(fn.Name.Name, "register") && strings.HasSuffix(fn.Name.Name, "Routes") {
+			declared[fn.Name.Name] = true
+		}
+	}
+	return declared
+}
+
+func routeSurfaceManifestCoversRuntimePath(runtimePath string, manifestPaths []string) bool {
+	for _, manifestPath := range manifestPaths {
+		if runtimePath == manifestPath {
+			return true
+		}
+		if strings.HasSuffix(runtimePath, "/") && strings.HasPrefix(manifestPath, runtimePath) {
+			return true
+		}
+	}
+	return false
+}
+
 func routeSurfaceManifestHandler(session auth.Session) stdhttp.Handler {
 	return combineHandlers(
 		NewRouterWithOptions(testConfig(), nil, RouterOptions{AuthStore: stubAuthStore{session: session}}),
@@ -2242,6 +2389,25 @@ func routeSurfaceManifestRequest(route routeSurfaceManifestRoute) *stdhttp.Reque
 	request := httptest.NewRequest(route.Method, route.SamplePath, body)
 	request.Header.Set("Content-Type", "application/json")
 	return request
+}
+
+func TestRouteSurfaceRuntimeAPIRoutesAreDocumentedInManifestWithoutDatabase(t *testing.T) {
+	manifest := loadRouteSurfaceManifest(t)
+	manifestPaths := make([]string, 0, len(manifest.Routes))
+	for _, route := range manifest.Routes {
+		manifestPaths = append(manifestPaths, route.Path)
+	}
+	sort.Strings(manifestPaths)
+
+	var missing []string
+	for _, registration := range loadRouteSurfaceRuntimeRegistrations(t) {
+		if !routeSurfaceManifestCoversRuntimePath(registration.Path, manifestPaths) {
+			missing = append(missing, fmt.Sprintf("%s registered at %s", registration.Path, registration.Source))
+		}
+	}
+	if len(missing) > 0 {
+		t.Fatalf("runtime API routes are missing route-surface manifest coverage:\n- %s", strings.Join(missing, "\n- "))
+	}
 }
 
 func TestRouteSurfaceManifestRoutesAreRegisteredWithoutDatabase(t *testing.T) {
