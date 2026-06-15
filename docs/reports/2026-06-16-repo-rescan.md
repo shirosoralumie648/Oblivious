@@ -27,6 +27,7 @@
 - Target/live release evidence now has a machine-readable manifest verifier. The strict commercial verifier requires `COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true` for final readiness, and the manifest validator checks exact commit, strict no-skip verifier result, deployment/backup/migration evidence, Kubernetes validation/rollout/failover evidence, live provider checkout/refund/payout/reconciliation evidence, Agent/Workflow/Task generated-client gRPC smoke evidence, target secret audit, workflow telemetry `successRate >= 0.99`, no skip-like fields, no embedded secret material, and no placeholder artifact refs. `--print-template` now emits a current-commit external manifest skeleton that is intentionally rejected until every `TODO` artifact reference is replaced with concrete target-run evidence.
 - Chat realtime collaboration now has a repository-local implementation and proof slice. `/api/v1/ws` supports conversation-scoped Chat rooms, `chat_join`/`chat_leave`/`chat_typing` client frames, and server-side Chat sync/update/delete broadcasts; `ChatPage` opens the active-conversation socket, sends typing presence, renders collaborator typing state, and applies sync/update/delete events; OpenAPI documents and gates the Chat realtime WebSocket schemas.
 - The current parallel read-only scan did not find a new broad product-area gap, but it did separate target/live blockers from local proof-depth candidates. The highest-priority local release-readiness gap from the prior baseline is now closed: Agent/Workflow/Task generated-client gRPC smoke has a first-class target helper, and Workflow/Task now expose real runtime gRPC listeners and deployment port contracts.
+- Workflow-to-Agent direct client parity is now closed as a local proof-depth candidate. The standalone Workflow `AgentClient.StartAgentRun` now uses workspace-scoped sessions, normalizes execution mode, dispatches planning requests to `StartPlanningRun` and default/ReAct requests to `StartRun`, preserves workspace scope for tool approvals, and maps Agent run results with the same nil-safe/final-message fallback boundary as the HTTP adapter.
 
 ## Repository Inventory
 
@@ -138,16 +139,17 @@ Closed this slice:
 - Target gRPC release-readiness local blocker.
   - Evidence: Workflow and Task now have runtime gRPC listeners and deployment port contracts, `cmd/grpc-smoke` plus `scripts/target-grpc-smoke.sh` call checked-in generated clients for Agent/Workflow/Task with per-service dial/RPC timeouts, and deployment/target evidence verifiers assert ports `50063`, `50064`, and `50065`.
   - Boundary: this is repository-local generated-client reachability proof using validation-only RPCs; DB/Kafka/business-success readiness and target endpoint reachability remain external evidence.
+- Workflow-to-Agent direct client parity.
+  - Evidence: `AgentClient.StartAgentRun` now matches the HTTP Workflow adapter's planning/ReAct split and workspace-scoped session behavior, `ApproveAgentToolRun` preserves workspace scope for reloads, and `toWorkflowAgentRunResult` keeps messages/tool-runs/plan-steps when `Run` is nil while falling back to the latest assistant message. `TestAgentClientStartAgentRunUsesPlanningModeAndWorkspaceSession`, `TestAgentClientStartAgentRunDefaultsToReactPath`, `TestAgentClientApproveAgentToolRunUsesWorkspaceSession`, and `TestAgentClientRunResultMappingIsNilSafeAndFallsBackToAssistantMessage` cover the regression boundary.
+  - Boundary: this is repository-local Workflow/Agent adapter proof; deployed Agent/Workflow compatibility, target workflow telemetry, and final no-skip release evidence remain external.
 
 Remaining local proof-depth candidates:
 
-1. Workflow-to-Agent direct client parity.
-   - Gap: the HTTP Workflow adapter handles planning mode, but the standalone Workflow `AgentClient.StartAgentRun` path still needs planning/ReAct split and workspace-scoped session proof.
-2. Agent advanced runtime configuration product path.
+1. Agent advanced runtime configuration product path.
    - Gap: Agent configs have `modelRoutingRules`, `skills`, and `maxSkills` shapes and runner-level logic, but the service run path, OpenAPI/TS types, and product UI do not yet fully expose the same controls.
-3. DB-backed proof tightening for Billing, Marketplace, and Security.
+2. DB-backed proof tightening for Billing, Marketplace, and Security.
    - Candidates: Admin usage-limit SQL route persistence, Marketplace paid-install checkout-failure inclusion in the no-skip money-movement profile, and Admin Billing webhook-event raw-payload non-disclosure proof.
-4. Browser-level contract proof tightening.
+3. Browser-level contract proof tightening.
    - Candidates: built-app Chat realtime WebSocket proof, Workflow canvas context-menu test-node proof, and Admin model-route CRUD payload proof.
 
 ## TODO And Placeholder Scan
@@ -182,6 +184,9 @@ Closed after this rescan:
   - `src/server/cmd/workflow/main.go` now starts a real Workflow gRPC listener on `WORKFLOW_GRPC_PORT`/`GRPC_PORT` defaulting to `50064`, while `src/server/cmd/task/main.go` starts a real Task gRPC listener on `TASK_GRPC_PORT`/`GRPC_PORT` defaulting to `50065`.
   - `deploy/docker`, `docker-compose.yml`, `deploy/kubernetes`, `config/.env.example`, and `deploy/docker/.env.example` now publish/configure Workflow `8082/50064` and Task `8084/50065`, add Workflow/Task probes, expose client-side smoke address examples, and avoid `localhost:9092` Kafka fallbacks in Compose/Kubernetes deployments.
   - `src/server/cmd/grpc-smoke` and `scripts/target-grpc-smoke.sh` provide validation-only generated-client smoke calls for Agent `50063`, Workflow `50064`, and Task `50065` with per-service timeout coverage; the output is intended to be stored outside git and referenced from the target evidence manifest.
+- Workflow-to-Agent direct client parity.
+  - `src/server/internal/workflow/agent_client.go` now shares the HTTP adapter's planning/ReAct dispatch contract for direct Workflow Agent calls, including workspace-scoped start and tool-approval sessions.
+  - `src/server/internal/workflow/agent_client_test.go` locks planning-mode dispatch, default/ReAct fallback, workspace preservation for tool approval and reload, nil-safe result mapping, and latest-assistant final-message fallback.
 - Chat realtime collaboration repository slice.
   - `src/server/internal/ws/hub.go` now tracks conversation rooms and broadcasts Chat events only to room subscribers, excluding the sender for client-originated typing.
   - `src/server/internal/http/chat_handler.go` and `src/server/internal/http/chat_actions_handler.go` publish message sync/update/delete events after successful Chat mutations while keeping `listMessages` read-only for realtime to avoid sync loops.
@@ -199,6 +204,9 @@ The remaining pure external follow-up still does not have a repository-only subs
 ```bash
 git status --short --branch
 git rev-parse HEAD origin/main
+git diff -- src/server/internal/workflow/agent_client.go
+GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/workflow -run 'TestAgentClient' -count=1 -v
+GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/workflow -count=1
 rg -n 'real-time|realtime|collaboration|typing|WebSocket|chat' docs/superpowers/specs docs/reports docs/release -g '*.md'
 rg -n 'COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE|target live|live evidence|verify-target-release-evidence|ChatRealtime|chat_' docs scripts src -g '*.md' -g '*.sh' -g '*.go' -g '*.tsx' -g '*.ts'
 git log --oneline --decorate -12

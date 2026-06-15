@@ -9,11 +9,28 @@ import (
 )
 
 type AgentClient struct {
-	agentService *agent.Service
+	agentService workflowAgentService
 }
 
 func NewAgentClient(agentService *agent.Service) *AgentClient {
+	if agentService == nil {
+		return &AgentClient{}
+	}
 	return &AgentClient{agentService: agentService}
+}
+
+type workflowAgentService interface {
+	StartRun(ctx context.Context, session auth.Session, req agent.StartRunRequest) (*agent.RunWithMessages, error)
+	StartPlanningRun(ctx context.Context, session auth.Session, req agent.StartRunRequest) (*agent.RunWithMessages, error)
+	ApproveToolRun(ctx context.Context, session auth.Session, toolRunID, reason string) (*agent.ToolRun, error)
+	GetRunWithMessages(ctx context.Context, session auth.Session, runID string) (*agent.RunWithMessages, error)
+	ContinuePlanningRun(ctx context.Context, session auth.Session, runID string) (*agent.RunWithMessages, error)
+	AdjustPlanSteps(ctx context.Context, session auth.Session, runID, reason string) (*agent.RunWithMessages, error)
+	ContinueRunWithTokenBudget(ctx context.Context, session auth.Session, runID string, tokenBudget int) (*agent.RunResult, error)
+	ApprovePlanStep(ctx context.Context, session auth.Session, planStepID, reason string) (*agent.PlanStep, error)
+	ExecutePlanStep(ctx context.Context, session auth.Session, planStepID string) (*agent.PlanStep, error)
+	SkipPlanStep(ctx context.Context, session auth.Session, planStepID, reason string) (*agent.PlanStep, error)
+	RetryPlanStep(ctx context.Context, session auth.Session, planStepID string) (*agent.PlanStep, error)
 }
 
 func (c *AgentClient) StartAgentRun(ctx context.Context, req WorkflowAgentRunRequest) (*WorkflowAgentRunResult, error) {
@@ -21,10 +38,7 @@ func (c *AgentClient) StartAgentRun(ctx context.Context, req WorkflowAgentRunReq
 	if err != nil {
 		return nil, err
 	}
-	session := auth.Session{
-		OrganizationID: req.OrganizationID,
-		User:           auth.User{ID: req.UserID},
-	}
+	session := workflowAgentRunClientSession(req)
 	runReq := agent.StartRunRequest{
 		AgentID:        req.AgentID,
 		ConversationID: req.ConversationID,
@@ -32,7 +46,13 @@ func (c *AgentClient) StartAgentRun(ctx context.Context, req WorkflowAgentRunReq
 		MaxIterations:  req.MaxIterations,
 		TokenBudget:    req.TokenBudget,
 	}
-	result, err := agentService.StartRun(ctx, session, runReq)
+	var result *agent.RunWithMessages
+	mode := agent.NormalizeExecutionMode(req.Mode)
+	if mode == agent.ExecutionModePlanning {
+		result, err = agentService.StartPlanningRun(ctx, session, runReq)
+	} else {
+		result, err = agentService.StartRun(ctx, session, runReq)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -44,10 +64,7 @@ func (c *AgentClient) ApproveAgentToolRun(ctx context.Context, req WorkflowAgent
 	if err != nil {
 		return nil, err
 	}
-	session := auth.Session{
-		OrganizationID: req.OrganizationID,
-		User:           auth.User{ID: req.UserID},
-	}
+	session := workflowAgentApprovalClientSession(req)
 	_, err = agentService.ApproveToolRun(ctx, session, req.ToolRunID, req.Reason)
 	if err != nil {
 		return nil, err
@@ -153,7 +170,7 @@ func (c *AgentClient) RetryAgentPlanStep(ctx context.Context, req WorkflowAgentC
 	return c.reloadAgentRun(ctx, agentService, session, req.RunID)
 }
 
-func (c *AgentClient) requireAgentService() (*agent.Service, error) {
+func (c *AgentClient) requireAgentService() (workflowAgentService, error) {
 	if c == nil || c.agentService == nil {
 		return nil, fmt.Errorf("%w: agent service is not configured", ErrInvalidInput)
 	}
@@ -171,7 +188,7 @@ func (c *AgentClient) applyAgentPlanStepAction(req WorkflowAgentControlRequest, 
 	return nil
 }
 
-func (c *AgentClient) reloadAgentRun(ctx context.Context, agentService *agent.Service, session auth.Session, runID string) (*WorkflowAgentRunResult, error) {
+func (c *AgentClient) reloadAgentRun(ctx context.Context, agentService workflowAgentService, session auth.Session, runID string) (*WorkflowAgentRunResult, error) {
 	result, err := agentService.GetRunWithMessages(ctx, session, runID)
 	if err != nil {
 		return nil, err
@@ -187,57 +204,102 @@ func workflowAgentClientSession(req WorkflowAgentControlRequest) auth.Session {
 	}
 }
 
+func workflowAgentRunClientSession(req WorkflowAgentRunRequest) auth.Session {
+	return auth.Session{
+		OrganizationID: req.OrganizationID,
+		WorkspaceID:    req.WorkspaceID,
+		User:           auth.User{ID: req.UserID},
+	}
+}
+
+func workflowAgentApprovalClientSession(req WorkflowAgentApprovalRequest) auth.Session {
+	return auth.Session{
+		OrganizationID: req.OrganizationID,
+		WorkspaceID:    req.WorkspaceID,
+		User:           auth.User{ID: req.UserID},
+	}
+}
+
 func toWorkflowAgentRunResult(result *agent.RunWithMessages) *WorkflowAgentRunResult {
-	if result == nil || result.Run == nil {
+	if result == nil {
 		return &WorkflowAgentRunResult{}
 	}
-	messages := make([]WorkflowAgentMessage, 0, len(result.Messages))
-	for _, msg := range result.Messages {
-		messages = append(messages, WorkflowAgentMessage{
-			ID:      msg.ID,
-			Role:    msg.Role,
-			Content: msg.Content,
-		})
+	out := &WorkflowAgentRunResult{
+		Messages:  workflowAgentMessages(result.Messages),
+		ToolRuns:  workflowAgentToolRuns(result.ToolRuns),
+		PlanSteps: workflowAgentPlanSteps(result.PlanSteps),
 	}
-	toolRuns := make([]WorkflowAgentToolRun, 0, len(result.ToolRuns))
-	for _, tr := range result.ToolRuns {
-		toolRuns = append(toolRuns, WorkflowAgentToolRun{
-			ID:             tr.ID,
-			ToolName:       tr.ToolName,
-			Status:         tr.Status,
-			ApprovalStatus: tr.ApprovalStatus,
-		})
+	if result.Run != nil {
+		out.RunID = result.Run.ID
+		out.Status = result.Run.Status
+		out.FinalMessageID = result.Run.FinalMessageID
 	}
-	planSteps := make([]WorkflowAgentPlanStep, 0, len(result.PlanSteps))
-	for _, ps := range result.PlanSteps {
-		planSteps = append(planSteps, WorkflowAgentPlanStep{
-			ID:             ps.ID,
-			Title:          ps.Title,
-			Status:         ps.Status,
-			ApprovalStatus: ps.ApprovalStatus,
-			ToolName:       ps.ToolName,
-			ResultContent:  ps.ResultContent,
-			Error:          ps.Error,
-		})
-	}
-	finalMessage := ""
-	finalMessageID := ""
-	if result.Run.FinalMessageID != "" {
-		finalMessageID = result.Run.FinalMessageID
-		for _, msg := range result.Messages {
-			if msg.ID == result.Run.FinalMessageID {
-				finalMessage = msg.Content
-				break
+	out.FinalMessage = workflowAgentFinalMessage(result.Messages, out.FinalMessageID)
+	return out
+}
+
+func workflowAgentFinalMessage(messages []*agent.Message, finalMessageID string) string {
+	if finalMessageID != "" {
+		for _, message := range messages {
+			if message != nil && message.ID == finalMessageID {
+				return message.Content
 			}
 		}
 	}
-	return &WorkflowAgentRunResult{
-		RunID:          result.Run.ID,
-		Status:         result.Run.Status,
-		FinalMessageID: finalMessageID,
-		FinalMessage:   finalMessage,
-		Messages:       messages,
-		ToolRuns:       toolRuns,
-		PlanSteps:      planSteps,
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i] != nil && messages[i].Role == "assistant" {
+			return messages[i].Content
+		}
 	}
+	return ""
+}
+
+func workflowAgentMessages(messages []*agent.Message) []WorkflowAgentMessage {
+	out := make([]WorkflowAgentMessage, 0, len(messages))
+	for _, message := range messages {
+		if message == nil {
+			continue
+		}
+		out = append(out, WorkflowAgentMessage{
+			ID:      message.ID,
+			Role:    message.Role,
+			Content: message.Content,
+		})
+	}
+	return out
+}
+
+func workflowAgentToolRuns(toolRuns []*agent.ToolRun) []WorkflowAgentToolRun {
+	out := make([]WorkflowAgentToolRun, 0, len(toolRuns))
+	for _, toolRun := range toolRuns {
+		if toolRun == nil {
+			continue
+		}
+		out = append(out, WorkflowAgentToolRun{
+			ID:             toolRun.ID,
+			ToolName:       toolRun.ToolName,
+			Status:         toolRun.Status,
+			ApprovalStatus: toolRun.ApprovalStatus,
+		})
+	}
+	return out
+}
+
+func workflowAgentPlanSteps(planSteps []*agent.PlanStep) []WorkflowAgentPlanStep {
+	out := make([]WorkflowAgentPlanStep, 0, len(planSteps))
+	for _, step := range planSteps {
+		if step == nil {
+			continue
+		}
+		out = append(out, WorkflowAgentPlanStep{
+			ID:             step.ID,
+			Title:          step.Title,
+			Status:         step.Status,
+			ApprovalStatus: step.ApprovalStatus,
+			ToolName:       step.ToolName,
+			ResultContent:  step.ResultContent,
+			Error:          step.Error,
+		})
+	}
+	return out
 }
