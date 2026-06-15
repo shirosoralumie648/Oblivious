@@ -32,6 +32,7 @@
 - Marketplace paid-install checkout-failure settlement proof is now included in the no-skip money-movement profile. The profile now runs `TestSettlementMarkPaidInstallCheckoutFailedMarksOrderAndIntent` alongside the existing HTTP `TestMarketplacePaidInstallCheckoutCreatorFailureMarksOrderFailed`, so checkout-creator failure is covered at both settlement-state and route-state boundaries under disposable/configured PostgreSQL with skipped tests rejected.
 - Admin usage-limit settings now have no-skip PostgreSQL route proof. A real admin router test writes organization-scoped and user-scoped usage-limit settings through `/api/v1/admin/settings/usage-limits`, proves the session organization overrides a spoofed request body organization, verifies `concurrency_limits` and `token_rate_limits` rows, and reads both settings back through the GET route.
 - Admin Billing webhook-event inspection now has no-skip PostgreSQL non-disclosure proof. The route test stores a sensitive raw provider payload in `stripe_webhook_events.payload`, proves the DB contains it, then verifies `/api/v1/admin/billing/webhook-events` returns only sanitized ledger metadata without a `payload` field or raw secret/customer/payment-method values.
+- Workflow canvas context-menu test-node proof is now covered in the built Workspace browser journey. The Playwright fixture rejects `/api/v1/workflows/{workflowId}/test-node` payloads unless the selected canvas node ID and node input are preserved, and the browser test opens the real React Flow node context menu for `classify`, dispatches `Test this node`, and verifies the node-test result.
 
 ## Repository Inventory
 
@@ -156,7 +157,7 @@ Closed this slice:
 Remaining local proof-depth candidates:
 
 1. Browser-level contract proof tightening.
-   - Candidates: built-app Chat realtime WebSocket proof, Workflow canvas context-menu test-node proof, and Admin model-route CRUD payload proof.
+   - Candidates: built-app Chat realtime WebSocket proof and Admin model-route CRUD payload proof.
 
 ## TODO And Placeholder Scan
 
@@ -215,6 +216,10 @@ Closed after this rescan:
   - `src/server/internal/http/admin_billing_handler_test.go` now includes `TestAdminBillingWebhookEventsDoNotExposeRawPayload`, a real-router PostgreSQL test proving raw provider webhook payloads remain in DB but are not returned through Admin Billing inspection.
   - `scripts/verify-commercial-db-evidence.sh marketplace-money-movement` now includes that route test in the no-skip Admin Billing money-movement profile.
   - Verification: `GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh marketplace-money-movement` passed with disposable pgvector PostgreSQL and skipped tests: none.
+- Workflow canvas context-menu test-node browser proof.
+  - `src/web/e2e/workflows.spec.ts` now covers opening the real Workflow canvas context menu for the `classify` node in the built Workspace shell, preserving the selected node ID and node input in the debug form, dispatching `Test this node`, and rendering the returned node-test result.
+  - `src/web/e2e/fixtures/workflows.ts` now fails closed unless `/api/v1/workflows/workflow_release/test-node` receives `nodeId=classify` and either the debug form input or the selected canvas node input.
+  - Verification: `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/google-chrome COREPACK_HOME=/tmp/codex-corepack pnpm --dir src/web exec playwright test e2e/workflows.spec.ts --project=chromium` passed with 4 browser tests.
 
 The remaining pure external follow-up still does not have a repository-only substitute:
 
@@ -306,7 +311,7 @@ sed -n '1,140p' docs/release/fusion-spec-evidence-pack.md
 
 ## Verification For This Report
 
-This report includes the Agent runtime-configuration backend service slice, the Agent runtime-configuration product path, and the Chat realtime repository slice. It should be verified with:
+This report includes the Agent runtime-configuration backend service slice, the Agent runtime-configuration product path, the Chat realtime repository slice, and the Workflow canvas context-menu browser proof slice. It should be verified with:
 
 ```bash
 GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/agent -run 'TestServiceStartRunUsesAgentConfig(ModelRoutingRules|SkillsAndMaxSkills)' -count=1 -v
@@ -315,6 +320,7 @@ COREPACK_HOME=/tmp/codex-corepack pnpm --dir src/web exec vitest run src/routes/
 GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/ws -count=1 -v
 GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/http -run 'TestChatHandler(SendMessagePublishesRealtimeSync|ListMessagesDoesNotPublishRealtimeSync|MessageActionsPublishRealtimeEvents|StreamMessagePublishesRealtimeSyncAfterCompletion)' -count=1 -v
 COREPACK_HOME=/tmp/codex-corepack pnpm --dir src/web exec vitest run src/features/chat/api.test.ts src/routes/workspace/ChatPage.behavior.test.tsx
+PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/google-chrome COREPACK_HOME=/tmp/codex-corepack pnpm --dir src/web exec playwright test e2e/workflows.spec.ts --project=chromium
 bash scripts/verify-openapi-contract.sh
 COREPACK_HOME=/tmp/codex-corepack pnpm --dir src/web exec tsc --noEmit
 bash -n scripts/verify-target-release-evidence.sh scripts/verify-commercial-completion.sh scripts/verify-fusion-evidence-pack.sh scripts/verify-quality-gates.sh

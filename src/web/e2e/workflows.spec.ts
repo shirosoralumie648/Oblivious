@@ -87,6 +87,43 @@ test('workflows browser journey covers triggers execution webhook and debug evid
   await expect(page.getByLabel('Execution debug details for exec_release_run')).toContainText('Bottleneck: classify');
 });
 
+test('workflows canvas context menu tests the selected node in the browser', async ({ page }) => {
+  await page.goto('/workflows');
+
+  await expect(page.getByRole('heading', { name: 'Workflows' })).toBeVisible();
+  const visualEditor = page.getByLabel('Visual editor for Release automation');
+  const canvas = visualEditor.getByLabel('React Flow canvas for Release automation');
+  const classifyNode = canvas.getByRole('button', { name: /Canvas node 2 classify condition at/ });
+
+  await expect(classifyNode).toBeVisible();
+  const canvasBox = await canvas.boundingBox();
+  if (!canvasBox) {
+    throw new Error('Workflow canvas did not expose a browser bounding box.');
+  }
+  await classifyNode.dispatchEvent('contextmenu', {
+    bubbles: true,
+    button: 2,
+    cancelable: true,
+    clientX: canvasBox.x + 140,
+    clientY: canvasBox.y + 120,
+  });
+
+  const contextMenu = visualEditor.getByRole('menu', { name: 'Node context menu for classify' });
+  await expect(contextMenu).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Node ID', exact: true })).toHaveValue('classify');
+  await expect(page.getByRole('textbox', { name: 'Node input JSON', exact: true })).toHaveValue(
+    /"expression": "input\.severity == \\"sev1\\""/
+  );
+
+  await contextMenu.getByRole('menuitem', { name: 'Test this node' }).dispatchEvent('click', {
+    bubbles: true,
+    cancelable: true,
+  });
+
+  await expect(contextMenu).toHaveCount(0);
+  await expect(page.getByText('Node classify returned succeeded')).toBeVisible();
+});
+
 test('workflows browser journey covers version branch resource and paused-failure controls', async ({ page }) => {
   await page.goto('/workflows');
 

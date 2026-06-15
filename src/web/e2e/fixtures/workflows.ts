@@ -385,6 +385,22 @@ function objectMatches(actual: unknown, expected: Record<string, unknown>) {
   return Object.entries(expected).every(([key, expectedValue]) => actualRecord[key] === expectedValue);
 }
 
+function testNodePayloadMatches(payload: unknown) {
+  if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
+    return false;
+  }
+  const payloadRecord = payload as Record<string, unknown>;
+  const input = payloadRecord.input;
+  if (payloadRecord.nodeId !== 'classify' || input === null || typeof input !== 'object' || Array.isArray(input)) {
+    return false;
+  }
+  const inputRecord = input as Record<string, unknown>;
+  return (
+    inputRecord.severity === 'sev1' ||
+    inputRecord.expression === 'input.severity == "sev1"'
+  );
+}
+
 export async function registerWorkflowRoutes(page: Page): Promise<void> {
   let workflows = [workflow];
   let executions = [pausedExecution, priorExecution];
@@ -598,11 +614,17 @@ export async function registerWorkflowRoutes(page: Page): Promise<void> {
     }
 
     if (method === 'POST' && pathname === `/api/v1/workflows/${workflow.id}/test-node`) {
+      const payload = request.postDataJSON();
+      if (!testNodePayloadMatches(payload)) {
+        await fulfillError(route, 'workflow test-node payload did not preserve the selected node input');
+        return;
+      }
+      const input = (payload as Record<string, unknown>).input as Record<string, unknown>;
       await fulfillJSON(route, {
         workflowId: workflow.id,
         nodeId: 'classify',
         status: 'succeeded',
-        input: { severity: 'sev1' },
+        input,
         output: { branch: 'sev1' },
         durationMs: 31,
         trace: [{ nodeId: 'classify', status: 'succeeded' }],
