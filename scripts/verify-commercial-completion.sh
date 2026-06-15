@@ -16,7 +16,8 @@ Runs the strict Phase 30 commercial completion verifier.
 
 Required for strict final readiness:
   TEST_DATABASE_URL
-    PostgreSQL test database URL. Must support pgvector for Knowledge RAG tests.
+    PostgreSQL test database URL. Must support pgvector for Knowledge RAG tests
+    and the serial DB-backed full Go suite.
   COMMERCIAL_COMPLETION_RUN_DEPLOY=true
     Run bash scripts/deploy-validate.sh as part of the final verifier.
   COMMERCIAL_COMPLETION_RUN_K8S=true
@@ -89,12 +90,16 @@ run_step "docs gate" bash "$repo_root/scripts/check.sh" docs
 run_step "Relay security gate" bash "$repo_root/scripts/check.sh" relay-security
 run_step "dependency security gate" bash "$repo_root/scripts/check.sh" security
 run_step "web TypeScript gate" pnpm --dir "$web_dir" exec tsc --noEmit
+run_step "server Go suite" \
+  bash -c 'cd "$1" && go test ./... -count=1' bash "$server_dir"
 run_step "commercial frontend focused suites" \
   pnpm --dir "$web_dir" test -- ChatPage SoloPage KnowledgePage MarketplacePage AdminHomePage AdminBillingPage AdminReviewsPage --runInBand
 run_step "browser commercial journey" \
   pnpm --dir "$web_dir" test:e2e --grep "commercial journey"
 run_step "DB-backed commercial evidence profiles" \
   env TEST_DATABASE_URL="$TEST_DATABASE_URL" bash "$repo_root/scripts/verify-commercial-db-evidence.sh" all
+run_step "DB-backed server Go suite" \
+  env TEST_DATABASE_URL="$TEST_DATABASE_URL" bash -c 'cd "$1" && go test -p 1 ./... -count=1' bash "$server_dir"
 
 if [[ "$run_deploy" == "true" ]]; then
   run_step "deployment validation" bash "$repo_root/scripts/deploy-validate.sh"
@@ -113,6 +118,8 @@ if [[ "$run_backup_restore" == "true" ]]; then
 else
   skip_or_fail "backup and restore smoke" "COMMERCIAL_COMPLETION_RUN_BACKUP_RESTORE"
 fi
+
+run_step "diff hygiene" git -C "$repo_root" diff --check
 
 echo "[commercial-completion] SUMMARY"
 echo "[commercial-completion] TEST_DATABASE_URL class: configured"
