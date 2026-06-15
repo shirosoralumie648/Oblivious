@@ -25,7 +25,8 @@ func TestAdminHandlerExposesPhase31Operations(t *testing.T) {
 	store := &fakeAdminStore{}
 	handler := newAdminHandler(admin.NewService(store))
 
-	listRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/admin/channels?limit=200&offset=3", nil)
+	listRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/admin/channels?limit=200&offset=3", nil).
+		WithContext(context.WithValue(context.Background(), sessionContextKey, testAdminSession()))
 	listRecorder := httptest.NewRecorder()
 	handler.listChannels(listRecorder, listRequest)
 	if listRecorder.Code != stdhttp.StatusOK {
@@ -894,7 +895,8 @@ func TestAdminHandlerCoversReleaseListSurfaces(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			request := httptest.NewRequest(stdhttp.MethodGet, tt.path, nil)
+			request := httptest.NewRequest(stdhttp.MethodGet, tt.path, nil).
+				WithContext(context.WithValue(context.Background(), sessionContextKey, testAdminSession()))
 			recorder := httptest.NewRecorder()
 
 			tt.call(recorder, request)
