@@ -612,6 +612,96 @@ func TestAdminHandlerUpdateUserQuotaRejectsInvalidRequests(t *testing.T) {
 	}
 }
 
+func TestAdminUserQuotaRoutePersistsWithPostgres(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+
+	adminCookie, adminCSRF, adminUserID := registerHTTPUser(t, router, "admin-user-quota-admin@example.com")
+	promoteHTTPUserToAdmin(t, database, adminUserID)
+	_, _, targetUserID := registerHTTPUser(t, router, "admin-user-quota-target@example.com")
+
+	request := httptest.NewRequest(stdhttp.MethodPatch, "/api/v1/admin/users/"+targetUserID, strings.NewReader(`{"balance":2500.75}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Forwarded-For", "203.0.113.25, 198.51.100.2")
+	request.AddCookie(adminCookie)
+	addCSRF(request, adminCSRF)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("admin user quota update expected 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Data admin.UserDetail `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode admin user quota response: %v", err)
+	}
+	if response.Data.ID != targetUserID || response.Data.QuotaBalance != 2500.75 || response.Data.Status != "active" {
+		t.Fatalf("unexpected admin user quota response: %+v", response.Data)
+	}
+
+	var quotaOrganizationID string
+	var quotaUserID string
+	var quotaScope string
+	var quotaBalance float64
+	var quotaUsed float64
+	if err := database.QueryRow(`
+		SELECT organization_id, user_id, scope, balance, used
+		FROM quotas
+		WHERE user_id = $1 AND scope = 'user'
+	`, targetUserID).Scan(&quotaOrganizationID, &quotaUserID, &quotaScope, &quotaBalance, &quotaUsed); err != nil {
+		t.Fatalf("query persisted user quota: %v", err)
+	}
+	if quotaUserID != targetUserID || quotaScope != "user" || quotaBalance != 2500.75 || quotaUsed != 0 {
+		t.Fatalf("unexpected persisted quota row: org=%q user=%q scope=%q balance=%.2f used=%.2f", quotaOrganizationID, quotaUserID, quotaScope, quotaBalance, quotaUsed)
+	}
+
+	var quotaRows int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM quotas WHERE user_id = $1 AND scope = 'user'`, targetUserID).Scan(&quotaRows); err != nil {
+		t.Fatalf("count user quota rows: %v", err)
+	}
+	if quotaRows != 1 {
+		t.Fatalf("expected one user-scoped quota row, got %d", quotaRows)
+	}
+
+	var membershipRows int
+	if err := database.QueryRow(`
+		SELECT COUNT(*)
+		FROM organization_memberships
+		WHERE organization_id = $1 AND user_id = $2 AND removed_at IS NULL
+	`, quotaOrganizationID, targetUserID).Scan(&membershipRows); err != nil {
+		t.Fatalf("count quota organization membership rows: %v", err)
+	}
+	if membershipRows != 1 {
+		t.Fatalf("expected quota row to target an active membership organization, got %d memberships", membershipRows)
+	}
+
+	var auditActorID string
+	var auditActorEmail string
+	var auditAction string
+	var auditResourceType string
+	var auditResourceID string
+	var auditBalance string
+	var auditIP string
+	if err := database.QueryRow(`
+		SELECT actor_id, actor_email, action, resource_type, resource_id, changes->>'balance', ip_address
+		FROM audit_logs
+		WHERE action = 'user.quota.update' AND resource_id = $1
+	`, targetUserID).Scan(&auditActorID, &auditActorEmail, &auditAction, &auditResourceType, &auditResourceID, &auditBalance, &auditIP); err != nil {
+		t.Fatalf("query quota audit row: %v", err)
+	}
+	if auditActorID != adminUserID ||
+		auditActorEmail != "admin-user-quota-admin@example.com" ||
+		auditAction != "user.quota.update" ||
+		auditResourceType != "user" ||
+		auditResourceID != targetUserID ||
+		auditBalance != "2500.75" ||
+		auditIP != "203.0.113.25" {
+		t.Fatalf("unexpected quota audit row: actor=%q email=%q action=%q resource=%q/%q balance=%q ip=%q", auditActorID, auditActorEmail, auditAction, auditResourceType, auditResourceID, auditBalance, auditIP)
+	}
+}
+
 func TestAdminHandlerListsUsageLogsWithFilters(t *testing.T) {
 	store := &fakeAdminStore{}
 	handler := newAdminHandler(admin.NewService(store))

@@ -77,9 +77,9 @@ Profiles:
                                lifecycle, delivery history, notification
                                throttle, and recovery cooldown PostgreSQL
                                tests.
-  quota-sql-isolation          Run focused Quota SQL store tenant isolation and
-                               HTTP active-organization isolation PostgreSQL
-                               tests.
+  quota-sql-isolation          Run focused Quota SQL store tenant isolation,
+                               Admin user quota route persistence, and HTTP
+                               active-organization isolation PostgreSQL tests.
 
 Environment:
   TEST_DATABASE_URL        Optional PostgreSQL URL. If unset, a disposable pgvector
@@ -326,7 +326,7 @@ run_quota_sql_isolation_profile() {
   local quota_http_pattern
 
   quota_store_pattern="^TestSQLStore(BillingSessionsAreOrganizationScoped|TopupOrderMutationsRequireOrganizationScope)$"
-  quota_http_pattern="^TestCrossTenantQuotaScopeUsesActiveOrganization$"
+  quota_http_pattern="^Test(CrossTenantQuotaScopeUsesActiveOrganization|AdminUserQuotaRoutePersistsWithPostgres)$"
   run_go_test_no_skips "quota SQL tenant isolation" "./internal/quota" "$quota_store_pattern"
   run_go_test_no_skips "quota HTTP active-organization isolation" "./internal/http" "$quota_http_pattern"
 }
