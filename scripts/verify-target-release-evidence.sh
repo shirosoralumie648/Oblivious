@@ -129,9 +129,9 @@ puts JSON.pretty_generate(
       }
     ],
     "grpc" => [
-      {"service" => "agent", "address" => "TODO-agent-grpc-address", "generatedClient" => "pass", "evidenceRef" => "TODO-agent-grpc-smoke-log"},
-      {"service" => "workflow", "address" => "TODO-workflow-grpc-address", "generatedClient" => "pass", "evidenceRef" => "TODO-workflow-grpc-smoke-log"},
-      {"service" => "task", "address" => "TODO-task-grpc-address", "generatedClient" => "pass", "evidenceRef" => "TODO-task-grpc-smoke-log"}
+      {"service" => "agent", "address" => "agent:50063", "generatedClient" => "pass", "evidenceRef" => "TODO-agent-grpc-smoke-log"},
+      {"service" => "workflow", "address" => "workflow:50064", "generatedClient" => "pass", "evidenceRef" => "TODO-workflow-grpc-smoke-log"},
+      {"service" => "task", "address" => "task:50065", "generatedClient" => "pass", "evidenceRef" => "TODO-task-grpc-smoke-log"}
     ],
     "secretAudit" => {
       "result" => "pass",
@@ -327,6 +327,7 @@ end
 
 grpc = data["grpc"]
 required_services = %w[agent workflow task]
+expected_grpc_ports = {"agent" => "50063", "workflow" => "50064", "task" => "50065"}
 if !grpc.is_a?(Array)
   failures << "grpc must be an array"
 else
@@ -340,6 +341,11 @@ else
       next
     end
     failures << "grpc[#{index}].address is required" if blank?(entry["address"])
+    service = entry["service"].to_s
+    expected_port = expected_grpc_ports[service]
+    if expected_port && !entry["address"].to_s.end_with?(":#{expected_port}")
+      failures << "grpc[#{index}].address for #{service} must target port #{expected_port}"
+    end
     failures << "grpc[#{index}].generatedClient must be pass" unless entry["generatedClient"] == "pass"
     failures << "grpc[#{index}].evidenceRef is required" if blank?(entry["evidenceRef"])
     failures << "grpc[#{index}].evidenceRef must reference a concrete target artifact, not a placeholder" if placeholder?(entry["evidenceRef"])

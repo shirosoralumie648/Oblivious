@@ -17,7 +17,10 @@ spec:
       - name: task
         image: oblivious/task:latest
         ports:
-        - containerPort: 8084
+        - name: http
+          containerPort: 8084
+        - name: grpc
+          containerPort: 50065
         envFrom:
         - configMapRef:
             name: oblivious-config
@@ -26,8 +29,32 @@ spec:
         env:
         - name: TASK_PORT
           value: "8084"
+        - name: TASK_GRPC_PORT
+          value: "50065"
+        - name: GRPC_PORT
+          value: "50065"
         - name: OBLIVIOUS_DB_MODE
           value: "microservices"
+        - name: KAFKA_BROKERS
+          value: "oblivious-kafka.oblivious.svc.cluster.local:9092"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 10
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 5
+          failureThreshold: 12
         resources:
           requests:
             cpu: 500m
@@ -55,3 +82,22 @@ spec:
       target:
         type: Utilization
         averageUtilization: 70
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: task
+  namespace: oblivious
+spec:
+  selector:
+    app: task
+  ports:
+  - name: http
+    protocol: TCP
+    port: 8084
+    targetPort: http
+  - name: grpc
+    protocol: TCP
+    port: 50065
+    targetPort: grpc
+  type: ClusterIP

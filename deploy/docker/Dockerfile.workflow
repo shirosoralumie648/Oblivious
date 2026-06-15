@@ -8,5 +8,5 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /workflow ./cmd/workflow
 FROM alpine:3.19
 RUN apk --no-cache add ca-certificates
 COPY --from=builder /workflow /workflow
-EXPOSE 8082
+EXPOSE 8082 50064
 CMD ["/workflow"]

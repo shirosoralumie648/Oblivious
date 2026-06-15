@@ -69,6 +69,18 @@ ruby -ryaml -rjson -e '
     end
   end
 
+  def depends_on_service?(service, dependency)
+    depends_on = service["depends_on"]
+    case depends_on
+    when Hash
+      depends_on.key?(dependency)
+    when Array
+      depends_on.include?(dependency)
+    else
+      false
+    end
+  end
+
   def each_node(value, path = [], &block)
     yield value, path
     case value
@@ -209,6 +221,37 @@ ruby -ryaml -rjson -e '
   agent_dockerfile = File.read(File.join(repo, "deploy/docker/Dockerfile.agent"))
   missing << "Dockerfile.agent must expose HTTP and gRPC ports" unless agent_dockerfile.include?("EXPOSE 8083 50063")
 
+  workflow_docs = read_yaml_stream(File.join(repo, "deploy/kubernetes/workflow-deployment.yaml"))
+  workflow_deployment = workflow_docs.find { |doc| doc["kind"] == "Deployment" } || {}
+  workflow = container(workflow_deployment, "workflow")
+  missing << "workflow deployment must expose named http port 8082" unless has_named_container_port?(workflow, "http", 8082)
+  missing << "workflow deployment must expose named grpc port 50064" unless has_named_container_port?(workflow, "grpc", 50064)
+  missing << "workflow deployment must set WORKFLOW_GRPC_PORT=50064" unless env_value(workflow, "WORKFLOW_GRPC_PORT") == "50064"
+  missing << "workflow deployment must set GRPC_PORT=50064 for generated clients" unless env_value(workflow, "GRPC_PORT") == "50064"
+  missing << "workflow deployment must set KAFKA_BROKERS to the Kubernetes Kafka service" unless env_value(workflow, "KAFKA_BROKERS") == "oblivious-kafka.oblivious.svc.cluster.local:9092"
+  missing << "workflow deployment must define livenessProbe" unless has_probe?(workflow, "livenessProbe")
+  missing << "workflow deployment must define readinessProbe" unless has_probe?(workflow, "readinessProbe")
+  missing << "workflow deployment must define startupProbe" unless has_probe?(workflow, "startupProbe")
+  missing << "workflow service must expose grpc port 50064" unless service_with_port?(workflow_docs, "workflow", "grpc", 50064, "grpc")
+
+  task_docs = read_yaml_stream(File.join(repo, "deploy/kubernetes/task-deployment.yaml"))
+  task_deployment = task_docs.find { |doc| doc["kind"] == "Deployment" } || {}
+  task = container(task_deployment, "task")
+  missing << "task deployment must expose named http port 8084" unless has_named_container_port?(task, "http", 8084)
+  missing << "task deployment must expose named grpc port 50065" unless has_named_container_port?(task, "grpc", 50065)
+  missing << "task deployment must set TASK_GRPC_PORT=50065" unless env_value(task, "TASK_GRPC_PORT") == "50065"
+  missing << "task deployment must set GRPC_PORT=50065 for generated clients" unless env_value(task, "GRPC_PORT") == "50065"
+  missing << "task deployment must set KAFKA_BROKERS to the Kubernetes Kafka service" unless env_value(task, "KAFKA_BROKERS") == "oblivious-kafka.oblivious.svc.cluster.local:9092"
+  missing << "task deployment must define livenessProbe" unless has_probe?(task, "livenessProbe")
+  missing << "task deployment must define readinessProbe" unless has_probe?(task, "readinessProbe")
+  missing << "task deployment must define startupProbe" unless has_probe?(task, "startupProbe")
+  missing << "task service must expose grpc port 50065" unless service_with_port?(task_docs, "task", "grpc", 50065, "grpc")
+
+  workflow_dockerfile = File.read(File.join(repo, "deploy/docker/Dockerfile.workflow"))
+  task_dockerfile = File.read(File.join(repo, "deploy/docker/Dockerfile.task"))
+  missing << "Dockerfile.workflow must expose HTTP and gRPC ports" unless workflow_dockerfile.include?("EXPOSE 8082 50064")
+  missing << "Dockerfile.task must expose HTTP and gRPC ports" unless task_dockerfile.include?("EXPOSE 8084 50065")
+
   compose = read_yaml(File.join(repo, "docker-compose.yml"))
   compose_agent = compose.dig("services", "agent") || {}
   compose_env = compose_agent.fetch("environment", []).map(&:to_s)
@@ -217,6 +260,24 @@ ruby -ryaml -rjson -e '
   missing << "docker compose agent must publish gRPC port 50063" unless compose_agent.fetch("ports", []).map(&:to_s).any? { |value| value.include?(":50063") }
   missing << "docker compose agent must set AGENT_GRPC_PORT=50063" unless compose_env.include?("AGENT_GRPC_PORT=50063")
   missing << "docker compose agent must set AGENT_RELAY_BASE_URL" unless compose_env.any? { |value| value.start_with?("AGENT_RELAY_BASE_URL=") }
+  compose_workflow = compose.dig("services", "workflow") || {}
+  workflow_env = compose_workflow.fetch("environment", []).map(&:to_s)
+  missing << "docker compose workflow must build Dockerfile.workflow" unless compose_workflow.dig("build", "dockerfile") == "deploy/docker/Dockerfile.workflow"
+  missing << "docker compose workflow must depend on kafka" unless depends_on_service?(compose_workflow, "kafka")
+  missing << "docker compose workflow must publish gRPC port 50064" unless compose_workflow.fetch("ports", []).map(&:to_s).any? { |value| value.include?(":50064") }
+  missing << "docker compose workflow must set WORKFLOW_GRPC_PORT=50064" unless workflow_env.include?("WORKFLOW_GRPC_PORT=50064")
+  missing << "docker compose workflow must set KAFKA_BROKERS=kafka:9092" unless workflow_env.include?("KAFKA_BROKERS=kafka:9092")
+  compose_task = compose.dig("services", "task") || {}
+  task_env = compose_task.fetch("environment", []).map(&:to_s)
+  missing << "docker compose microservices profile must include task service" unless compose_task.fetch("profiles", []).include?("microservices")
+  missing << "docker compose task must build Dockerfile.task" unless compose_task.dig("build", "dockerfile") == "deploy/docker/Dockerfile.task"
+  missing << "docker compose task must depend on kafka" unless depends_on_service?(compose_task, "kafka")
+  missing << "docker compose task must publish gRPC port 50065" unless compose_task.fetch("ports", []).map(&:to_s).any? { |value| value.include?(":50065") }
+  missing << "docker compose task must set TASK_GRPC_PORT=50065" unless task_env.include?("TASK_GRPC_PORT=50065")
+  missing << "docker compose task must set KAFKA_BROKERS=kafka:9092" unless task_env.include?("KAFKA_BROKERS=kafka:9092")
+  compose_kafka = compose.dig("services", "kafka") || {}
+  kafka_profiles = compose_kafka.fetch("profiles", [])
+  missing << "docker compose kafka must be available in the microservices profile" unless kafka_profiles.empty? || kafka_profiles.include?("microservices")
 
   local_server_deployment = deployment_doc(File.join(repo, "deploy/kubernetes/server.yaml"))
   local_server = first_container(local_server_deployment)

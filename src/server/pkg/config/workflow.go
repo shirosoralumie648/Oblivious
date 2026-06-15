@@ -6,31 +6,34 @@ import (
 	"strings"
 )
 
-type TaskConfig struct {
+type WorkflowConfig struct {
 	CommonConfig
 	Port     string
 	GRPCPort string
 }
 
-func LoadTaskConfig() *TaskConfig {
+func LoadWorkflowConfig() *WorkflowConfig {
 	common, err := LoadCommon()
 	if err != nil {
 		panic(fmt.Sprintf("Failed to load common config: %v", err))
 	}
 
-	port := strings.TrimSpace(os.Getenv("TASK_PORT"))
+	port := strings.TrimSpace(os.Getenv("WORKFLOW_PORT"))
 	if port == "" {
-		port = "8084"
+		port = strings.TrimSpace(os.Getenv("PORT"))
 	}
-	grpcPort := strings.TrimSpace(os.Getenv("TASK_GRPC_PORT"))
+	if port == "" {
+		port = "8082"
+	}
+	grpcPort := strings.TrimSpace(os.Getenv("WORKFLOW_GRPC_PORT"))
 	if grpcPort == "" {
 		grpcPort = strings.TrimSpace(os.Getenv("GRPC_PORT"))
 	}
 	if grpcPort == "" {
-		grpcPort = "50065"
+		grpcPort = "50064"
 	}
 
-	return &TaskConfig{
+	return &WorkflowConfig{
 		CommonConfig: common,
 		Port:         port,
 		GRPCPort:     grpcPort,

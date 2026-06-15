@@ -9,7 +9,7 @@
 - The earlier same-day scans at `1c52194`, `53aaca0`, `d4fdc37`, `75ff216`, `98a1683`, `c6d9b34`, `5969e4b`, `1e7c6ef`, `e222967`, `0694b44`, `984b6a7`, and `cb18df4` are now older baselines for this report.
 - The project is still not complete against the four `docs/superpowers/specs/2026-06-04-*` specs.
 - Current matrix remains `4 Proven / 10 Partial / 0 Gap / 0 Unverified`.
-- Current progress estimate remains about `99/100`: repository-local evidence is broad, but final completion is still gated by target/live proof, one high-priority gRPC release-readiness slice, and a strict no-skip release run.
+- Current progress estimate remains about `99/100`: repository-local evidence is broad, the local gRPC release-readiness blocker is closed by this slice, and final completion is still gated by target/live proof plus a strict no-skip release run.
 
 ## What Changed Since The Last Rescan
 
@@ -26,23 +26,23 @@
 - Quota SQL isolation now aggregates quota lifecycle proof across quota store, HTTP route, Admin, and Stripe lifecycle tests in one no-skip PostgreSQL profile, including user-scoped balance mode, request-cap fallback, top-up no-credit-before-webhook, direct top-up rejection, Admin refund quota reversal, and Stripe top-up/refund accounting.
 - Target/live release evidence now has a machine-readable manifest verifier. The strict commercial verifier requires `COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true` for final readiness, and the manifest validator checks exact commit, strict no-skip verifier result, deployment/backup/migration evidence, Kubernetes validation/rollout/failover evidence, live provider checkout/refund/payout/reconciliation evidence, Agent/Workflow/Task generated-client gRPC smoke evidence, target secret audit, workflow telemetry `successRate >= 0.99`, no skip-like fields, no embedded secret material, and no placeholder artifact refs. `--print-template` now emits a current-commit external manifest skeleton that is intentionally rejected until every `TODO` artifact reference is replaced with concrete target-run evidence.
 - Chat realtime collaboration now has a repository-local implementation and proof slice. `/api/v1/ws` supports conversation-scoped Chat rooms, `chat_join`/`chat_leave`/`chat_typing` client frames, and server-side Chat sync/update/delete broadcasts; `ChatPage` opens the active-conversation socket, sends typing presence, renders collaborator typing state, and applies sync/update/delete events; OpenAPI documents and gates the Chat realtime WebSocket schemas.
-- The current parallel read-only scan did not find a new broad product-area gap, but it did separate target/live blockers from local proof-depth candidates. The highest-priority local release-readiness gap is that target evidence requires Agent/Workflow/Task generated-client gRPC smoke, while Workflow and Task do not yet expose real gRPC listeners or deployment ports and there is no first-class target gRPC smoke helper.
+- The current parallel read-only scan did not find a new broad product-area gap, but it did separate target/live blockers from local proof-depth candidates. The highest-priority local release-readiness gap from the prior baseline is now closed: Agent/Workflow/Task generated-client gRPC smoke has a first-class target helper, and Workflow/Task now expose real runtime gRPC listeners and deployment port contracts.
 
 ## Repository Inventory
 
 - First-party tracked files after this current rescan:
-  - `src`: 994
+  - `src`: 1001
   - `docs`: 93
-  - `scripts`: 38
+  - `scripts`: 39
   - `deploy`: 42
   - `.planning`: 210
   - other tracked files: 27
-  - total tracked files: 1404
+  - total tracked files: 1412
 - Server internal shape:
   - `src/server/internal`: 590 tracked files.
   - largest active domains: `relay` 110, `http` 104, `mcp` 43, `admin` 39, `agent` 34, `workflow` 31, `knowledge` 30, `observability` 28, `channel` 27, `migration` 24, `marketplace` 16.
 - Test inventory:
-  - Go test files: 230
+  - Go test files: 235
   - Web component/API test files: 67
   - Web Playwright specs: 16
   - Web E2E fixture files: 16
@@ -126,23 +126,28 @@ Pure target/live blockers that still keep final status below `100/100`:
 - Target Kubernetes validation with reachable cluster access and a filled untracked `OBLIVIOUS_K8S_SECRET_FILE`.
 - Target deployment failover/recovery evidence, including real platform restart, scale, and failover behavior.
 - Live billing and Marketplace provider rails for checkout, refund, payout, and reconciliation.
-- Target Agent/Workflow/Task gRPC reachability using generated clients against running service endpoints, after the repository exposes and documents the required runtime gRPC surfaces.
+- Target Agent/Workflow/Task gRPC reachability using generated clients against running service endpoints.
 - Target secret audit for deployed provider/channel/workflow/runtime secrets.
 - Target or CI `TEST_DATABASE_URL` runs broad enough to count as final release evidence, not only disposable local profile proof.
 - A final `scripts/verify-commercial-completion.sh` run with no environment skips and `COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true` pointing at an external, secret-free target evidence manifest for the exact release commit.
 
-Repository-local blockers or proof-depth candidates surfaced by this rescan:
+Repository-local proof-depth candidates surfaced by this rescan after closing the gRPC release-readiness local blocker:
 
-1. Target gRPC release-readiness slice.
-   - Gap: `scripts/verify-target-release-evidence.sh` requires `agent`, `workflow`, and `task` gRPC generated-client evidence, but only Agent has a real command listener and deployment port contract. Workflow and Task currently have package-level bufconn generated-client proof without a target-runner surface.
-   - Likely work: add Workflow/Task gRPC listeners, align `WORKFLOW_GRPC_PORT` and `TASK_GRPC_PORT` deployment contracts, add a `cmd/grpc-smoke` or `scripts/target-grpc-smoke.sh` helper that calls checked-in generated clients, and extend deployment contract checks.
-2. Workflow-to-Agent direct client parity.
+Closed this slice:
+
+- Target gRPC release-readiness local blocker.
+  - Evidence: Workflow and Task now have runtime gRPC listeners and deployment port contracts, `cmd/grpc-smoke` plus `scripts/target-grpc-smoke.sh` call checked-in generated clients for Agent/Workflow/Task with per-service dial/RPC timeouts, and deployment/target evidence verifiers assert ports `50063`, `50064`, and `50065`.
+  - Boundary: this is repository-local generated-client reachability proof using validation-only RPCs; DB/Kafka/business-success readiness and target endpoint reachability remain external evidence.
+
+Remaining local proof-depth candidates:
+
+1. Workflow-to-Agent direct client parity.
    - Gap: the HTTP Workflow adapter handles planning mode, but the standalone Workflow `AgentClient.StartAgentRun` path still needs planning/ReAct split and workspace-scoped session proof.
-3. Agent advanced runtime configuration product path.
+2. Agent advanced runtime configuration product path.
    - Gap: Agent configs have `modelRoutingRules`, `skills`, and `maxSkills` shapes and runner-level logic, but the service run path, OpenAPI/TS types, and product UI do not yet fully expose the same controls.
-4. DB-backed proof tightening for Billing, Marketplace, and Security.
+3. DB-backed proof tightening for Billing, Marketplace, and Security.
    - Candidates: Admin usage-limit SQL route persistence, Marketplace paid-install checkout-failure inclusion in the no-skip money-movement profile, and Admin Billing webhook-event raw-payload non-disclosure proof.
-5. Browser-level contract proof tightening.
+4. Browser-level contract proof tightening.
    - Candidates: built-app Chat realtime WebSocket proof, Workflow canvas context-menu test-node proof, and Admin model-route CRUD payload proof.
 
 ## TODO And Placeholder Scan
@@ -173,6 +178,10 @@ Closed after this rescan:
   - `scripts/verify-target-release-evidence.sh` now validates the external JSON evidence package required for live provider rails, deployed gRPC reachability, target secret audit, Kubernetes failover, workflow telemetry, and strict no-skip verifier proof, while rejecting embedded secret material and placeholder artifact refs.
 - Target/live release evidence template generation.
   - `scripts/verify-target-release-evidence.sh --print-template` now emits a current-commit manifest skeleton for an external file outside git. The generated template contains `TODO` artifact refs and is intentionally rejected by the verifier until real target-run evidence replaces those values.
+- Target gRPC release-readiness local blocker.
+  - `src/server/cmd/workflow/main.go` now starts a real Workflow gRPC listener on `WORKFLOW_GRPC_PORT`/`GRPC_PORT` defaulting to `50064`, while `src/server/cmd/task/main.go` starts a real Task gRPC listener on `TASK_GRPC_PORT`/`GRPC_PORT` defaulting to `50065`.
+  - `deploy/docker`, `docker-compose.yml`, `deploy/kubernetes`, `config/.env.example`, and `deploy/docker/.env.example` now publish/configure Workflow `8082/50064` and Task `8084/50065`, add Workflow/Task probes, expose client-side smoke address examples, and avoid `localhost:9092` Kafka fallbacks in Compose/Kubernetes deployments.
+  - `src/server/cmd/grpc-smoke` and `scripts/target-grpc-smoke.sh` provide validation-only generated-client smoke calls for Agent `50063`, Workflow `50064`, and Task `50065` with per-service timeout coverage; the output is intended to be stored outside git and referenced from the target evidence manifest.
 - Chat realtime collaboration repository slice.
   - `src/server/internal/ws/hub.go` now tracks conversation rooms and broadcasts Chat events only to room subscribers, excluding the sender for client-originated typing.
   - `src/server/internal/http/chat_handler.go` and `src/server/internal/http/chat_actions_handler.go` publish message sync/update/delete events after successful Chat mutations while keeping `listMessages` read-only for realtime to avoid sync loops.

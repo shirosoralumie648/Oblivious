@@ -8,5 +8,5 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /task ./cmd/task
 FROM alpine:3.19
 RUN apk --no-cache add ca-certificates
 COPY --from=builder /task /task
-EXPOSE 8084
+EXPOSE 8084 50065
 CMD ["/task"]
