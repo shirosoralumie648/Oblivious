@@ -56,7 +56,7 @@
 ## Repository Inventory
 
 - First-party tracked file distribution after this follow-up scan:
-  - `src`: 991 files
+  - `src`: 993 files
   - `.planning`: 210 files
   - `docs`: 92 files
   - `scripts`: 37 files
@@ -226,7 +226,7 @@ Result:
 - `git rev-parse HEAD origin/main` returned `6757a81` for both refs before this slice was committed.
 - `git log --oneline --decorate -8` showed `6757a81 test(db): add core sql persistence evidence profile`, `da004e6 test(k8s): guard manifest secret contract`, `3f4a53c test(release): gate commercial verifier k8s readiness`, `c87e167 test(billing): prove checkout topup HTTP persistence`, `3271af0 test(marketplace): prove template route persistence`, `ddb6c9d test(marketplace): prove recommendation search persistence`, `dec7f88 test(grpc): prove workflow task client dispatch`, and `bbe89d1 test(marketplace): prove recommendation metadata contract`.
 - The top-level matrix count remains 4 `Proven` and 10 `Partial`; the `Gap` and `Unverified` counts remain 0.
-- The current first-party inventory counters after this slice are: `src=991`, `docs=92`, `scripts=37`, `deploy=42`, `.planning=210`, Go test files `230`, web component/API test files `67`, Playwright specs `16`, and Playwright fixtures `16`.
+- The current first-party inventory counters after this slice are: `src=993`, `docs=92`, `scripts=37`, `deploy=42`, `.planning=210`, Go test files `230`, web component/API test files `67`, Playwright specs `16`, and Playwright fixtures `16`.
 - The current server-domain leaders are still `relay`, `http`, `mcp`, `admin`, `agent`, `workflow`, `knowledge`, `observability`, `channel`, `migration`, and `marketplace`.
 - The latest checked-in top-level migration remains `src/server/migrations/0081_admin_relay_channel_organization_scope.sql`.
 - The current first-party AGENTS scan found no `AGENTS.md` in the scanned first-party tree.
