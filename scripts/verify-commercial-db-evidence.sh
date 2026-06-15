@@ -15,7 +15,7 @@ output_files=()
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/verify-commercial-db-evidence.sh [all|backend-journey|marketplace-money-movement|marketplace-governance-review|marketplace-recommendation-search|billing-provider-lifecycle|admin-usage-analytics-db|app-stateful-routes|tenant-membership-lifecycle|tenant-cross-surface|secret-response-safety|agent-runtime-memory|scheduled-task-runtime|auth-security-persistence|relay-file-mapping-tenant-ownership|relay-runtime-channel-isolation|workflow-sql-isolation|publishing-channel-isolation|admin-relay-channel-isolation|admin-relay-read-isolation|observability-alert-recovery-persistence|quota-sql-isolation]
+Usage: bash scripts/verify-commercial-db-evidence.sh [all|backend-journey|marketplace-money-movement|marketplace-governance-review|marketplace-recommendation-search|marketplace-template-routes|billing-provider-lifecycle|admin-usage-analytics-db|app-stateful-routes|tenant-membership-lifecycle|tenant-cross-surface|secret-response-safety|agent-runtime-memory|scheduled-task-runtime|auth-security-persistence|relay-file-mapping-tenant-ownership|relay-runtime-channel-isolation|workflow-sql-isolation|publishing-channel-isolation|admin-relay-channel-isolation|admin-relay-read-isolation|observability-alert-recovery-persistence|quota-sql-isolation]
 
 Runs narrow DB-backed commercial evidence without silently accepting skipped tests.
 
@@ -33,6 +33,8 @@ Profiles:
                                Run focused Marketplace recommended search,
                                ranking-signal, collaborative-filtering, and
                                exploration PostgreSQL tests.
+  marketplace-template-routes  Run focused Marketplace template create, list,
+                               detail, and install PostgreSQL route tests.
   billing-provider-lifecycle   Run focused Stripe/shared checkout, invoice,
                                subscription, and refund lifecycle PostgreSQL
                                tests.
@@ -216,6 +218,10 @@ run_marketplace_recommendation_search_profile() {
   run_go_test_no_skips "marketplace recommendation search persistence" "./internal/marketplace" "$marketplace_recommendation_pattern"
 }
 
+run_marketplace_template_routes_profile() {
+  run_go_test_no_skips "marketplace template route persistence" "./internal/http" "^TestMarketplaceTemplateRoutesCreateListDetailAndInstall$"
+}
+
 run_billing_provider_lifecycle_profile() {
   local billing_provider_lifecycle_pattern
 
@@ -347,6 +353,7 @@ run_all_profiles() {
   run_marketplace_money_movement_profile
   run_marketplace_governance_review_profile
   run_marketplace_recommendation_search_profile
+  run_marketplace_template_routes_profile
   run_billing_provider_lifecycle_profile
   run_admin_usage_analytics_db_profile
   run_app_stateful_routes_profile
@@ -387,6 +394,9 @@ case "$profile" in
     ;;
   marketplace-recommendation-search)
     run_marketplace_recommendation_search_profile
+    ;;
+  marketplace-template-routes)
+    run_marketplace_template_routes_profile
     ;;
   billing-provider-lifecycle)
     run_billing_provider_lifecycle_profile
