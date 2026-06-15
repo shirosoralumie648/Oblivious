@@ -2,12 +2,20 @@ package task
 
 import (
 	"context"
+	"io"
 	"log"
+	"net"
 	"testing"
 
 	taskpb "oblivious/server/internal/grpc/taskv1"
 	"oblivious/server/internal/task/scheduler"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/test/bufconn"
 )
+
+const taskBufSize = 1024 * 1024
 
 func TestServer_Schedule(t *testing.T) {
 	s := NewServer(scheduler.NewCronScheduler(scheduler.CronSchedulerConfig{}), nil)
@@ -49,6 +57,21 @@ func TestServer_Schedule(t *testing.T) {
 				t.Errorf("Schedule() message = %v, want %v", resp.Message, tt.wantMsg)
 			}
 		})
+	}
+}
+
+func TestServer_ScheduleWithoutSchedulerFailsClosed(t *testing.T) {
+	s := NewServer(nil, nil)
+
+	resp, err := s.Schedule(context.Background(), &taskpb.ScheduleRequest{TaskId: "task1", CronExpr: "* * * * *"})
+	if err != nil {
+		t.Fatalf("Schedule returned error: %v", err)
+	}
+	if resp.Success {
+		t.Fatal("Schedule should fail when scheduler is not configured")
+	}
+	if resp.Message != "scheduler is not configured" {
+		t.Fatalf("Schedule message = %q, want scheduler is not configured", resp.Message)
 	}
 }
 
@@ -99,6 +122,21 @@ func TestServer_Cancel(t *testing.T) {
 	}
 }
 
+func TestServer_CancelWithoutSchedulerFailsClosed(t *testing.T) {
+	s := NewServer(nil, nil)
+
+	resp, err := s.Cancel(context.Background(), &taskpb.CancelRequest{TaskId: "task1"})
+	if err != nil {
+		t.Fatalf("Cancel returned error: %v", err)
+	}
+	if resp.Success {
+		t.Fatal("Cancel should fail when scheduler is not configured")
+	}
+	if resp.Message != "scheduler is not configured" {
+		t.Fatalf("Cancel message = %q, want scheduler is not configured", resp.Message)
+	}
+}
+
 func TestNewServer(t *testing.T) {
 	s := NewServer(nil, nil)
 	if s.logger == nil {
@@ -109,5 +147,49 @@ func TestNewServer(t *testing.T) {
 	s = NewServer(nil, customLogger)
 	if s.logger != customLogger {
 		t.Error("NewServer() should use provided logger")
+	}
+}
+
+func TestTaskGeneratedClientDispatchesThroughRegisteredServer(t *testing.T) {
+	listener := bufconn.Listen(taskBufSize)
+	grpcServer := grpc.NewServer()
+	taskpb.RegisterTaskServiceServer(grpcServer, NewServer(
+		scheduler.NewCronScheduler(scheduler.CronSchedulerConfig{}),
+		log.New(io.Discard, "", 0),
+	))
+
+	go func() {
+		_ = grpcServer.Serve(listener)
+	}()
+	defer grpcServer.Stop()
+
+	ctx := context.Background()
+	conn, err := grpc.DialContext(ctx, "bufnet", grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
+		return listener.Dial()
+	}), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatalf("dial bufconn task server: %v", err)
+	}
+	defer conn.Close()
+
+	client := taskpb.NewTaskServiceClient(conn)
+	scheduleResp, err := client.Schedule(ctx, &taskpb.ScheduleRequest{
+		TaskId:   "task-generated-client",
+		CronExpr: "* * * * *",
+		Payload:  []byte("payload"),
+	})
+	if err != nil {
+		t.Fatalf("Schedule via generated client returned error: %v", err)
+	}
+	if !scheduleResp.Success {
+		t.Fatalf("Schedule success = false, message = %q", scheduleResp.Message)
+	}
+
+	cancelResp, err := client.Cancel(ctx, &taskpb.CancelRequest{TaskId: "task-generated-client"})
+	if err != nil {
+		t.Fatalf("Cancel via generated client returned error: %v", err)
+	}
+	if !cancelResp.Success {
+		t.Fatalf("Cancel success = false, message = %q", cancelResp.Message)
 	}
 }

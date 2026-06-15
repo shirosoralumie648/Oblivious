@@ -3,14 +3,20 @@ package workflow
 import (
 	"context"
 	"errors"
+	"net"
 	"testing"
 
 	workflowv1 "oblivious/server/internal/grpc/workflowv1"
 	"oblivious/server/internal/workflow"
 
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
+	"google.golang.org/grpc/test/bufconn"
 )
+
+const workflowBufSize = 1024 * 1024
 
 type mockService interface {
 	StartExecution(ctx context.Context, req workflow.StartExecutionRequest) (*workflow.WorkflowExecution, error)
@@ -98,6 +104,15 @@ func TestServer_Execute(t *testing.T) {
 			wantErr:  true,
 			wantCode: codes.Internal,
 		},
+		{
+			name: "nil service fails closed",
+			req: &workflowv1.ExecuteRequest{
+				WorkflowId:     "wf-123",
+				OrganizationId: "org-456",
+			},
+			wantErr:  true,
+			wantCode: codes.FailedPrecondition,
+		},
 	}
 
 	for _, tt := range tests {
@@ -183,6 +198,15 @@ func TestServer_TestNode(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			name: "nil service fails closed",
+			req: &workflowv1.TestNodeRequest{
+				NodeId:         "node-123",
+				OrganizationId: "org-456",
+			},
+			wantErr:  true,
+			wantCode: codes.FailedPrecondition,
+		},
 	}
 
 	for _, tt := range tests {
@@ -213,5 +237,47 @@ func TestServer_TestNode(t *testing.T) {
 				t.Fatal("expected response, got nil")
 			}
 		})
+	}
+}
+
+func TestWorkflowGeneratedClientDispatchesThroughRegisteredServer(t *testing.T) {
+	listener := bufconn.Listen(workflowBufSize)
+	grpcServer := grpc.NewServer()
+	workflowv1.RegisterWorkflowServiceServer(grpcServer, &Server{service: &mockExec{
+		exec: &workflow.WorkflowExecution{
+			ID:     "exec-generated-client",
+			Status: workflow.ExecutionStatusRunning,
+			Output: map[string]any{"result": "ok"},
+		},
+	}})
+
+	go func() {
+		_ = grpcServer.Serve(listener)
+	}()
+	defer grpcServer.Stop()
+
+	ctx := context.Background()
+	conn, err := grpc.DialContext(ctx, "bufnet", grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
+		return listener.Dial()
+	}), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatalf("dial bufconn workflow server: %v", err)
+	}
+	defer conn.Close()
+
+	client := workflowv1.NewWorkflowServiceClient(conn)
+	resp, err := client.Execute(ctx, &workflowv1.ExecuteRequest{
+		WorkflowId:     "wf-generated-client",
+		OrganizationId: "org-generated-client",
+		Inputs:         map[string]string{"trigger": "manual"},
+	})
+	if err != nil {
+		t.Fatalf("Execute via generated client returned error: %v", err)
+	}
+	if resp.ExecutionId != "exec-generated-client" {
+		t.Fatalf("ExecutionId = %q, want exec-generated-client", resp.ExecutionId)
+	}
+	if resp.Outputs["result"] != "ok" {
+		t.Fatalf("Outputs[result] = %q, want ok", resp.Outputs["result"])
 	}
 }

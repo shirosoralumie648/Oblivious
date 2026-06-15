@@ -31,6 +31,9 @@ func (s *Server) Schedule(ctx context.Context, req *taskpb.ScheduleRequest) (*ta
 	if req.CronExpr == "" {
 		return &taskpb.ScheduleResponse{Success: false, Message: "cron_expr is required"}, nil
 	}
+	if s.scheduler == nil {
+		return &taskpb.ScheduleResponse{Success: false, Message: "scheduler is not configured"}, nil
+	}
 
 	handler := func(ctx context.Context, entry scheduler.ScheduledEntry) error {
 		s.logger.Printf("executing task: %s, payload: %d bytes", entry.TaskID, len(req.Payload))
@@ -48,6 +51,9 @@ func (s *Server) Schedule(ctx context.Context, req *taskpb.ScheduleRequest) (*ta
 func (s *Server) Cancel(ctx context.Context, req *taskpb.CancelRequest) (*taskpb.CancelResponse, error) {
 	if req.TaskId == "" {
 		return &taskpb.CancelResponse{Success: false, Message: "task_id is required"}, nil
+	}
+	if s.scheduler == nil {
+		return &taskpb.CancelResponse{Success: false, Message: "scheduler is not configured"}, nil
 	}
 
 	removed := s.scheduler.Remove(req.TaskId)

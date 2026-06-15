@@ -31,6 +31,9 @@ func (s *Server) Execute(ctx context.Context, req *workflowv1.ExecuteRequest) (*
 	if req.OrganizationId == "" {
 		return nil, status.Error(codes.InvalidArgument, "organization_id is required")
 	}
+	if s.service == nil {
+		return nil, status.Error(codes.FailedPrecondition, "workflow service is not configured")
+	}
 
 	inputs := make(map[string]any, len(req.Inputs))
 	for k, v := range req.Inputs {
@@ -66,6 +69,9 @@ func (s *Server) TestNode(ctx context.Context, req *workflowv1.TestNodeRequest) 
 	}
 	if req.OrganizationId == "" {
 		return nil, status.Error(codes.InvalidArgument, "organization_id is required")
+	}
+	if s.service == nil {
+		return nil, status.Error(codes.FailedPrecondition, "workflow service is not configured")
 	}
 
 	inputs := make(map[string]any, len(req.Inputs))
