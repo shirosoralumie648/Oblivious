@@ -23,13 +23,13 @@
 ## Repository Inventory
 
 - First-party tracked files:
-  - `src`: 993
+  - `src`: 994
   - `docs`: 93
   - `scripts`: 37
   - `deploy`: 42
   - `.planning`: 210
   - other tracked files: 27
-  - total tracked files: 1402
+  - total tracked files: 1403
 - Server internal shape:
   - `src/server/internal`: 590 tracked files.
   - largest active domains: `relay` 110, `http` 104, `mcp` 43, `admin` 39, `agent` 34, `workflow` 31, `knowledge` 30, `observability` 28, `channel` 27, `migration` 24, `marketplace` 16.
@@ -39,7 +39,9 @@
   - Web Playwright specs: 16
   - Web E2E fixture files: 16
 - Migration inventory:
-  - PostgreSQL SQL migration files: 106.
+  - Top-level PostgreSQL SQL migration files: 94.
+  - ClickHouse SQL migration files: 1.
+  - Microservice split SQL migration files: 12.
   - Microservice split migrations exist for `admin`, `agent`, `billing`, `channel`, `chat`, `gateway`, `marketplace`, `observability`, `rag`, `relay`, `task`, and `workflow`.
 - First-party `AGENTS.md`: none found after excluding `.git`, `node_modules`, `.tmp`, `src/web/node_modules`, and `reference`.
 
@@ -131,16 +133,17 @@ The active TODO/stub scan did not expose a new broad implementation gap. The rem
 
 ## Local Follow-Up Candidates
 
-These are useful local slices, but they do not replace target/live final proof:
+Closed after this rescan:
 
-1. Marketplace publisher delete/uninstall settlement audit.
-   - Risk: deleting published agents or uninstalling paid installs could damage order/settlement audit evidence if SQL cascade behavior is not guarded.
-   - Current scan: `src/server/internal/marketplace/store.go` still hard-deletes `published_agents`, and `src/server/migrations/0030_marketplace_settlement_governance.sql` still defines `marketplace_orders.agent_id` and `marketplace_settlements.agent_id` with `ON DELETE CASCADE`; buyer uninstall deletes `agent_installs` while `marketplace_orders.install_id` is `ON DELETE SET NULL`.
-   - Likely files: `src/server/internal/marketplace/store.go`, `src/server/internal/marketplace/service.go`, `src/server/internal/marketplace/settlement_test.go`, `scripts/verify-commercial-db-evidence.sh`.
-2. Scheduled task failure re-claim behavior.
+- Marketplace publisher delete/uninstall settlement audit.
+  - `src/server/internal/marketplace/store.go` now rejects publisher hard delete once order audit evidence exists, `src/server/migrations/0082_marketplace_audit_retention.sql` rebuilds paid audit foreign keys with non-cascading delete semantics, and `scripts/verify-commercial-db-evidence.sh marketplace-money-movement` now includes PostgreSQL proof that direct SQL delete attempts are blocked and buyer uninstall preserves paid order/settlement rows while clearing `marketplace_orders.install_id`.
+
+These remaining slices are useful, but they do not replace target/live final proof:
+
+1. Scheduled task failure re-claim behavior.
    - Risk: failed due runs may remain immediately claimable if failure handling does not advance `next_run_at`, causing repeated failure loops.
    - Likely files: `src/server/internal/schedule/service.go`, `src/server/internal/schedule/store.go`, `src/server/internal/schedule/worker_test.go`, `src/server/internal/schedule/store_test.go`.
-3. Target/live release evidence collection.
+2. Target/live release evidence collection.
    - Risk: repository-local proof is broad but still cannot replace real Kubernetes, provider rails, deployed gRPC reachability, target secret audit, and a strict no-skip release run.
    - Likely files: release evidence attachments under `docs/release/` after target environment runs complete.
 

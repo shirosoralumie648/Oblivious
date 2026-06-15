@@ -235,6 +235,169 @@ func TestSettlementApplyPaidInstallCheckoutCompletedRecordsSelectedProviderLifec
 	}
 }
 
+func TestSettlementBuyerUninstallPreservesPaidOrderAndSettlement(t *testing.T) {
+	database := settlementTestDB(t)
+	store := NewSQLStore(database)
+	service := NewSettlementService(store)
+
+	insertSettlementUserOrg(t, database, "buyer_user", "buyer_org")
+	insertSettlementUserOrg(t, database, "publisher_user", "publisher_org")
+	insertSettlementAgent(t, database, "agent_paid", "publisher_user", "publisher_org", "one_time", 50)
+
+	order, err := service.CreatePaidInstallCheckout(context.Background(), PaidInstallCheckoutRequest{
+		BuyerOrganizationID: "buyer_org",
+		BuyerUserID:         "buyer_user",
+		AgentID:             "agent_paid",
+		VersionID:           "version_agent_paid",
+	})
+	if err != nil {
+		t.Fatalf("CreatePaidInstallCheckout returned error: %v", err)
+	}
+	if _, err := service.ApplyPaidInstallCheckoutCompleted(context.Background(), PaidInstallCheckoutCompleted{
+		EventID:                   "evt_uninstall_paid",
+		OrderID:                   order.ID,
+		PaymentIntentID:           order.PaymentIntentID,
+		ProviderCheckoutSessionID: "cs_uninstall_paid",
+		ProviderPaymentIntentID:   "pi_uninstall_paid",
+	}); err != nil {
+		t.Fatalf("ApplyPaidInstallCheckoutCompleted returned error: %v", err)
+	}
+
+	if err := store.UninstallAgent(context.Background(), "agent_paid", "buyer_user", "buyer_org"); err != nil {
+		t.Fatalf("UninstallAgent returned error: %v", err)
+	}
+
+	var installCount, orderCount, settlementCount, nullInstallOrderCount int
+	var orderStatus string
+	if err := database.QueryRow(`SELECT COUNT(*) FROM agent_installs WHERE agent_id = 'agent_paid'`).Scan(&installCount); err != nil {
+		t.Fatalf("count installs after uninstall: %v", err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM marketplace_orders WHERE id = $1`, order.ID).Scan(&orderCount); err != nil {
+		t.Fatalf("count orders after uninstall: %v", err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM marketplace_settlements WHERE order_id = $1`, order.ID).Scan(&settlementCount); err != nil {
+		t.Fatalf("count settlements after uninstall: %v", err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*), MAX(status) FROM marketplace_orders WHERE id = $1 AND install_id IS NULL`, order.ID).Scan(&nullInstallOrderCount, &orderStatus); err != nil {
+		t.Fatalf("query order install reference after uninstall: %v", err)
+	}
+	if installCount != 0 || orderCount != 1 || settlementCount != 1 || nullInstallOrderCount != 1 || orderStatus != "paid" {
+		t.Fatalf("expected uninstall to keep paid audit evidence with null install reference, got installs=%d orders=%d settlements=%d nullInstallOrders=%d status=%q",
+			installCount, orderCount, settlementCount, nullInstallOrderCount, orderStatus)
+	}
+}
+
+func TestSettlementPublisherDeleteWithPaidOrderIsRejectedAndPreservesAudit(t *testing.T) {
+	database := settlementTestDB(t)
+	store := NewSQLStore(database)
+	service := NewSettlementService(store)
+
+	insertSettlementUserOrg(t, database, "buyer_user", "buyer_org")
+	insertSettlementUserOrg(t, database, "publisher_user", "publisher_org")
+	insertSettlementAgent(t, database, "agent_paid", "publisher_user", "publisher_org", "one_time", 50)
+
+	order, err := service.CreatePaidInstallCheckout(context.Background(), PaidInstallCheckoutRequest{
+		BuyerOrganizationID: "buyer_org",
+		BuyerUserID:         "buyer_user",
+		AgentID:             "agent_paid",
+		VersionID:           "version_agent_paid",
+	})
+	if err != nil {
+		t.Fatalf("CreatePaidInstallCheckout returned error: %v", err)
+	}
+	if _, err := service.ApplyPaidInstallCheckoutCompleted(context.Background(), PaidInstallCheckoutCompleted{
+		EventID:                   "evt_delete_paid",
+		OrderID:                   order.ID,
+		PaymentIntentID:           order.PaymentIntentID,
+		ProviderCheckoutSessionID: "cs_delete_paid",
+		ProviderPaymentIntentID:   "pi_delete_paid",
+	}); err != nil {
+		t.Fatalf("ApplyPaidInstallCheckoutCompleted returned error: %v", err)
+	}
+
+	err = store.DeleteAgent(context.Background(), "agent_paid", "publisher_org")
+	if err == nil {
+		t.Fatal("expected DeleteAgent to reject deleting an agent with marketplace order audit evidence")
+	}
+	if !strings.Contains(err.Error(), "marketplace order audit evidence exists") {
+		t.Fatalf("expected audit evidence error, got %v", err)
+	}
+
+	var agentCount, orderCount, settlementCount, installCount int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM published_agents WHERE id = 'agent_paid'`).Scan(&agentCount); err != nil {
+		t.Fatalf("count agents after rejected delete: %v", err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM marketplace_orders WHERE id = $1`, order.ID).Scan(&orderCount); err != nil {
+		t.Fatalf("count orders after rejected delete: %v", err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM marketplace_settlements WHERE order_id = $1`, order.ID).Scan(&settlementCount); err != nil {
+		t.Fatalf("count settlements after rejected delete: %v", err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM agent_installs WHERE agent_id = 'agent_paid'`).Scan(&installCount); err != nil {
+		t.Fatalf("count installs after rejected delete: %v", err)
+	}
+	if agentCount != 1 || orderCount != 1 || settlementCount != 1 || installCount != 1 {
+		t.Fatalf("expected rejected delete to preserve paid audit rows, got agents=%d orders=%d settlements=%d installs=%d",
+			agentCount, orderCount, settlementCount, installCount)
+	}
+}
+
+func TestSettlementAuditRetentionMigrationRejectsDirectAuditCascade(t *testing.T) {
+	database := settlementTestDB(t)
+	service := NewSettlementService(NewSQLStore(database))
+
+	insertSettlementUserOrg(t, database, "buyer_user", "buyer_org")
+	insertSettlementUserOrg(t, database, "publisher_user", "publisher_org")
+	insertSettlementAgent(t, database, "agent_paid", "publisher_user", "publisher_org", "one_time", 50)
+
+	order, err := service.CreatePaidInstallCheckout(context.Background(), PaidInstallCheckoutRequest{
+		BuyerOrganizationID: "buyer_org",
+		BuyerUserID:         "buyer_user",
+		AgentID:             "agent_paid",
+		VersionID:           "version_agent_paid",
+	})
+	if err != nil {
+		t.Fatalf("CreatePaidInstallCheckout returned error: %v", err)
+	}
+	if _, err := service.ApplyPaidInstallCheckoutCompleted(context.Background(), PaidInstallCheckoutCompleted{
+		EventID:                   "evt_direct_delete_paid",
+		OrderID:                   order.ID,
+		PaymentIntentID:           order.PaymentIntentID,
+		ProviderCheckoutSessionID: "cs_direct_delete_paid",
+		ProviderPaymentIntentID:   "pi_direct_delete_paid",
+	}); err != nil {
+		t.Fatalf("ApplyPaidInstallCheckoutCompleted returned error: %v", err)
+	}
+
+	if _, err := database.Exec(`DELETE FROM published_agents WHERE id = 'agent_paid'`); err == nil {
+		t.Fatal("expected direct published agent delete to fail while paid order and settlement audit evidence exists")
+	}
+	if _, err := database.Exec(`DELETE FROM marketplace_orders WHERE id = $1`, order.ID); err == nil {
+		t.Fatal("expected direct marketplace order delete to fail while settlement audit evidence exists")
+	}
+	if _, err := database.Exec(`DELETE FROM payment_intents WHERE id = $1`, order.PaymentIntentID); err == nil {
+		t.Fatal("expected direct payment intent delete to fail while marketplace order audit evidence exists")
+	}
+
+	var agentCount, orderCount, settlementCount, paymentIntentCount int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM published_agents WHERE id = 'agent_paid'`).Scan(&agentCount); err != nil {
+		t.Fatalf("count agents after direct delete attempts: %v", err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM marketplace_orders WHERE id = $1`, order.ID).Scan(&orderCount); err != nil {
+		t.Fatalf("count orders after direct delete attempts: %v", err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM marketplace_settlements WHERE order_id = $1`, order.ID).Scan(&settlementCount); err != nil {
+		t.Fatalf("count settlements after direct delete attempts: %v", err)
+	}
+	if err := database.QueryRow(`SELECT COUNT(*) FROM payment_intents WHERE id = $1`, order.PaymentIntentID).Scan(&paymentIntentCount); err != nil {
+		t.Fatalf("count payment intents after direct delete attempts: %v", err)
+	}
+	if agentCount != 1 || orderCount != 1 || settlementCount != 1 || paymentIntentCount != 1 {
+		t.Fatalf("expected DB-level retention to preserve paid audit rows, got agents=%d orders=%d settlements=%d paymentIntents=%d",
+			agentCount, orderCount, settlementCount, paymentIntentCount)
+	}
+}
+
 func TestPaymentIntentKindMigrationAllowsMarketplaceInstall(t *testing.T) {
 	raw, err := os.ReadFile("../../migrations/0060_payment_intents_marketplace_install_kind.sql")
 	if err != nil {
@@ -936,6 +1099,13 @@ func settlementTestDB(t *testing.T) *sql.DB {
 		if _, err := database.Exec(statement); err != nil {
 			t.Fatalf("prepare settlement database: %v", err)
 		}
+	}
+	auditRetentionMigration, err := os.ReadFile("../../migrations/0082_marketplace_audit_retention.sql")
+	if err != nil {
+		t.Fatalf("read marketplace audit retention migration: %v", err)
+	}
+	if _, err := database.Exec(string(auditRetentionMigration)); err != nil {
+		t.Fatalf("apply marketplace audit retention migration: %v", err)
 	}
 	return database
 }

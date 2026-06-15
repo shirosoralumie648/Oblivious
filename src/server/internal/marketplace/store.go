@@ -347,8 +347,22 @@ func (s *SQLStore) UpdateAgent(ctx context.Context, id, organizationID string, i
 	return s.GetAgent(ctx, id)
 }
 
-// DeleteAgent deletes a published agent (CASCADE deletes versions, reviews, installs).
+// DeleteAgent deletes a published agent only before marketplace order evidence exists.
 func (s *SQLStore) DeleteAgent(ctx context.Context, id, organizationID string) error {
+	var hasOrderEvidence bool
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM marketplace_orders
+			WHERE agent_id = $1 AND publisher_organization_id = $2
+		)
+	`, id, organizationID).Scan(&hasOrderEvidence); err != nil {
+		return fmt.Errorf("delete agent: check marketplace order audit evidence: %w", err)
+	}
+	if hasOrderEvidence {
+		return fmt.Errorf("delete agent: marketplace order audit evidence exists; archive or takedown instead")
+	}
+
 	_, err := s.db.ExecContext(ctx, `DELETE FROM published_agents WHERE id = $1 AND organization_id = $2`, id, organizationID)
 	if err != nil {
 		return fmt.Errorf("delete agent: %w", err)
