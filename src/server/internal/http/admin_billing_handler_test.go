@@ -244,6 +244,80 @@ func TestAdminBillingListsExposeAllRequiredSurfaces(t *testing.T) {
 	}
 }
 
+func TestAdminBillingWebhookEventsDoNotExposeRawPayload(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+	cookie, _, userID := registerHTTPUser(t, router, "billing-webhook-redaction@example.com")
+	promoteHTTPUserToAdmin(t, database, userID)
+	_, organizationID := queryHTTPUserScope(t, database, userID)
+	seedAdminBillingState(t, database, organizationID, userID)
+
+	rawPayload := `{"secret":"sk_live_should_not_leave_db","customer_email":"buyer@example.test","nested":{"payment_method":"card_4242_should_not_leave_db"}}`
+	if _, err := database.Exec(`
+		UPDATE stripe_webhook_events
+		SET payload = $1::jsonb
+		WHERE event_id = 'evt_admin_phase20_ok'
+	`, rawPayload); err != nil {
+		t.Fatalf("seed sensitive webhook payload: %v", err)
+	}
+
+	var storedPayload string
+	if err := database.QueryRow(`
+		SELECT payload::text
+		FROM stripe_webhook_events
+		WHERE event_id = 'evt_admin_phase20_ok'
+	`).Scan(&storedPayload); err != nil {
+		t.Fatalf("query sensitive webhook payload: %v", err)
+	}
+	if !strings.Contains(storedPayload, "sk_live_should_not_leave_db") ||
+		!strings.Contains(storedPayload, "card_4242_should_not_leave_db") {
+		t.Fatalf("expected raw webhook payload to be stored in DB for the redaction proof, got %s", storedPayload)
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/admin/billing/webhook-events?organizationID="+organizationID+"&limit=10", nil)
+	request.AddCookie(cookie)
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected webhook events 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+
+	body := recorder.Body.String()
+	for _, forbidden := range []string{"payload", "sk_live_should_not_leave_db", "buyer@example.test", "card_4242_should_not_leave_db"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("webhook events response leaked %q from raw payload: %s", forbidden, body)
+		}
+	}
+
+	var response struct {
+		Data struct {
+			WebhookEvents []map[string]any `json:"webhookEvents"`
+			Total         int              `json:"total"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode webhook events response: %v", err)
+	}
+	if response.Data.Total != 2 || len(response.Data.WebhookEvents) != 2 {
+		t.Fatalf("expected two webhook events without raw payloads, got total=%d events=%+v", response.Data.Total, response.Data.WebhookEvents)
+	}
+	var sawProcessedEvent bool
+	for _, event := range response.Data.WebhookEvents {
+		if _, ok := event["payload"]; ok {
+			t.Fatalf("webhook event response must not include raw payload field: %+v", event)
+		}
+		if event["eventId"] == "evt_admin_phase20_ok" {
+			sawProcessedEvent = true
+			if event["status"] != "processed" || event["paymentIntentId"] != "pi_admin_phase20" {
+				t.Fatalf("expected sanitized processed webhook metadata, got %+v", event)
+			}
+		}
+	}
+	if !sawProcessedEvent {
+		t.Fatalf("expected processed webhook event metadata in sanitized response, got %+v", response.Data.WebhookEvents)
+	}
+}
+
 func TestAdminBillingMarksMarketplacePayoutPaid(t *testing.T) {
 	database := testDatabase(t)
 	router := NewRouter(testConfig(), database)

@@ -31,6 +31,7 @@
 - Agent advanced runtime configuration is now closed locally for both the backend service run path and the formal product path. `RunWithTools`, approval resume, and the resumed tool loop apply persisted `Agent.Config.ModelRoutingRules`, `Skills`, and `MaxSkills` per iteration, while OpenAPI, web types, and Workspace Agents create/edit controls now expose the same config fields.
 - Marketplace paid-install checkout-failure settlement proof is now included in the no-skip money-movement profile. The profile now runs `TestSettlementMarkPaidInstallCheckoutFailedMarksOrderAndIntent` alongside the existing HTTP `TestMarketplacePaidInstallCheckoutCreatorFailureMarksOrderFailed`, so checkout-creator failure is covered at both settlement-state and route-state boundaries under disposable/configured PostgreSQL with skipped tests rejected.
 - Admin usage-limit settings now have no-skip PostgreSQL route proof. A real admin router test writes organization-scoped and user-scoped usage-limit settings through `/api/v1/admin/settings/usage-limits`, proves the session organization overrides a spoofed request body organization, verifies `concurrency_limits` and `token_rate_limits` rows, and reads both settings back through the GET route.
+- Admin Billing webhook-event inspection now has no-skip PostgreSQL non-disclosure proof. The route test stores a sensitive raw provider payload in `stripe_webhook_events.payload`, proves the DB contains it, then verifies `/api/v1/admin/billing/webhook-events` returns only sanitized ledger metadata without a `payload` field or raw secret/customer/payment-method values.
 
 ## Repository Inventory
 
@@ -154,9 +155,7 @@ Closed this slice:
 
 Remaining local proof-depth candidates:
 
-1. DB-backed proof tightening for Billing, Marketplace, and Security.
-   - Candidate: Admin Billing webhook-event raw-payload non-disclosure proof.
-2. Browser-level contract proof tightening.
+1. Browser-level contract proof tightening.
    - Candidates: built-app Chat realtime WebSocket proof, Workflow canvas context-menu test-node proof, and Admin model-route CRUD payload proof.
 
 ## TODO And Placeholder Scan
@@ -212,6 +211,10 @@ Closed after this rescan:
   - `src/server/internal/http/admin_marketplace_handler_test.go` now includes `TestAdminUsageLimitSettingsRoutePersistsWithPostgres`, a real-router PostgreSQL test for Admin usage-limit settings persistence and listing.
   - `scripts/verify-commercial-db-evidence.sh quota-sql-isolation` now includes that route test alongside quota store, Admin user quota, Billing top-up, and Stripe top-up/refund balance-accounting proof.
   - Verification: `GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh quota-sql-isolation` passed with disposable pgvector PostgreSQL and skipped tests: none.
+- Admin Billing webhook-event raw-payload non-disclosure proof.
+  - `src/server/internal/http/admin_billing_handler_test.go` now includes `TestAdminBillingWebhookEventsDoNotExposeRawPayload`, a real-router PostgreSQL test proving raw provider webhook payloads remain in DB but are not returned through Admin Billing inspection.
+  - `scripts/verify-commercial-db-evidence.sh marketplace-money-movement` now includes that route test in the no-skip Admin Billing money-movement profile.
+  - Verification: `GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh marketplace-money-movement` passed with disposable pgvector PostgreSQL and skipped tests: none.
 
 The remaining pure external follow-up still does not have a repository-only substitute:
 
