@@ -449,6 +449,9 @@ func (s *Service) ListRuns(ctx context.Context, session auth.Session, scheduledT
 	if taskID == "" {
 		return nil, ErrInvalidScheduledTaskID
 	}
+	if _, err := s.store.GetScheduledTask(ctx, organizationID, taskID); err != nil {
+		return nil, err
+	}
 
 	runs, err := s.store.ListScheduledTaskRuns(ctx, organizationID, taskID)
 	if err != nil {

@@ -941,6 +941,9 @@ func TestListScheduledTaskRunsUsesOrganizationScope(t *testing.T) {
 	if store.listedRunsOrgID != "org_1" {
 		t.Fatalf("expected organization scope org_1, got %q", store.listedRunsOrgID)
 	}
+	if store.gotTaskOrgID != "org_1" || store.gotTaskID != "sched_1" {
+		t.Fatalf("expected task ownership check before listing runs, org=%q task=%q", store.gotTaskOrgID, store.gotTaskID)
+	}
 	if store.listedRunsTaskID != "sched_1" {
 		t.Fatalf("expected trimmed scheduled task id, got %q", store.listedRunsTaskID)
 	}

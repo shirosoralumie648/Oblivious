@@ -140,6 +140,81 @@ func TestScheduledTasksRouteListsRunsForTaskWithinSessionOrganization(t *testing
 	}
 }
 
+func TestCrossTenantScheduledTaskScope(t *testing.T) {
+	database := testDatabase(t)
+	router := NewRouter(testConfig(), database)
+	ownerCookie, ownerCSRF, ownerUserID := registerHTTPUser(t, router, "schedule-owner@example.com")
+	_, ownerOrganizationID := queryHTTPUserScope(t, database, ownerUserID)
+	otherCookie, otherCSRF, _ := registerHTTPUser(t, router, "schedule-other@example.com")
+
+	createRecorder := httptest.NewRecorder()
+	createRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/scheduled-tasks", strings.NewReader(`{"name":"Tenant workflow","targetType":"workflow","targetId":"workflow_1","cronExpression":"0 * * * *","enabled":true}`))
+	createRequest.Header.Set("Content-Type", "application/json")
+	createRequest.AddCookie(ownerCookie)
+	addCSRF(createRequest, ownerCSRF)
+	router.ServeHTTP(createRecorder, createRequest)
+	if createRecorder.Code != stdhttp.StatusCreated {
+		t.Fatalf("create scheduled task expected 201, got %d with body %s", createRecorder.Code, createRecorder.Body.String())
+	}
+
+	var createResponse struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(createRecorder.Body.Bytes(), &createResponse); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	startedAt := time.Date(2026, time.June, 5, 9, 0, 0, 0, time.UTC)
+	insertScheduledTaskRun(t, database, "schedrun_tenant_owner", ownerOrganizationID, createResponse.Data.ID, "failed", &startedAt, &startedAt, "owner failure")
+
+	crossRunsRecorder := httptest.NewRecorder()
+	crossRunsRequest := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/scheduled-tasks/"+createResponse.Data.ID+"/runs", nil)
+	crossRunsRequest.AddCookie(otherCookie)
+	router.ServeHTTP(crossRunsRecorder, crossRunsRequest)
+	if crossRunsRecorder.Code != stdhttp.StatusNotFound {
+		t.Fatalf("cross-tenant list runs expected 404, got %d with body %s", crossRunsRecorder.Code, crossRunsRecorder.Body.String())
+	}
+	if strings.Contains(crossRunsRecorder.Body.String(), "schedrun_tenant_owner") || strings.Contains(crossRunsRecorder.Body.String(), "owner failure") {
+		t.Fatalf("cross-tenant list runs leaked owner run evidence: %s", crossRunsRecorder.Body.String())
+	}
+
+	crossStatusRecorder := httptest.NewRecorder()
+	crossStatusRequest := httptest.NewRequest(stdhttp.MethodPatch, "/api/v1/scheduled-tasks/"+createResponse.Data.ID+"/status", strings.NewReader(`{"enabled":false}`))
+	crossStatusRequest.Header.Set("Content-Type", "application/json")
+	crossStatusRequest.AddCookie(otherCookie)
+	addCSRF(crossStatusRequest, otherCSRF)
+	router.ServeHTTP(crossStatusRecorder, crossStatusRequest)
+	if crossStatusRecorder.Code != stdhttp.StatusNotFound {
+		t.Fatalf("cross-tenant status update expected 404, got %d with body %s", crossStatusRecorder.Code, crossStatusRecorder.Body.String())
+	}
+
+	crossRunNowRecorder := httptest.NewRecorder()
+	crossRunNowRequest := httptest.NewRequest(stdhttp.MethodPost, "/api/v1/scheduled-tasks/"+createResponse.Data.ID+"/run", strings.NewReader(`{}`))
+	crossRunNowRequest.Header.Set("Content-Type", "application/json")
+	crossRunNowRequest.AddCookie(otherCookie)
+	addCSRF(crossRunNowRequest, otherCSRF)
+	router.ServeHTTP(crossRunNowRecorder, crossRunNowRequest)
+	if crossRunNowRecorder.Code != stdhttp.StatusNotFound {
+		t.Fatalf("cross-tenant run-now expected 404, got %d with body %s", crossRunNowRecorder.Code, crossRunNowRecorder.Body.String())
+	}
+
+	var enabled bool
+	if err := database.QueryRow(`SELECT enabled FROM scheduled_tasks WHERE organization_id = $1 AND id = $2`, ownerOrganizationID, createResponse.Data.ID).Scan(&enabled); err != nil {
+		t.Fatalf("query owner scheduled task enabled state: %v", err)
+	}
+	if !enabled {
+		t.Fatalf("cross-tenant status update changed owner scheduled task")
+	}
+	var runCount int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM scheduled_task_runs WHERE organization_id = $1 AND scheduled_task_id = $2`, ownerOrganizationID, createResponse.Data.ID).Scan(&runCount); err != nil {
+		t.Fatalf("query owner scheduled task runs: %v", err)
+	}
+	if runCount != 1 {
+		t.Fatalf("cross-tenant run-now created or removed owner runs, count=%d", runCount)
+	}
+}
+
 func TestRegisterScheduleRoutesDispatchesRunsRoute(t *testing.T) {
 	store := &scheduleRouteFakeStore{
 		listedRuns: []schedule.ScheduledTaskRun{

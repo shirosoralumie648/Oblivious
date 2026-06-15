@@ -144,6 +144,10 @@ func (h scheduleHandler) listScheduledTaskRuns(w stdhttp.ResponseWriter, r *stdh
 			writeError(w, stdhttp.StatusBadRequest, "invalid_request", err.Error())
 			return
 		}
+		if isNotFoundError(err) {
+			writeError(w, stdhttp.StatusNotFound, "not_found", "scheduled task not found")
+			return
+		}
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", "list scheduled task runs failed")
 		return
 	}
