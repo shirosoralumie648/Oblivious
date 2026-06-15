@@ -2916,6 +2916,159 @@ func TestServiceStartRunWithoutToolsCreatesDurableFetchableRun(t *testing.T) {
 	}
 }
 
+func TestServiceStartRunUsesAgentConfigModelRoutingRules(t *testing.T) {
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_routing",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+			Config: Config{
+				ModelRoutingRules: []ModelRoutingRule{{
+					TargetModel:        "gpt-4o",
+					MinIteration:       2,
+					RequiresToolResult: true,
+				}},
+				MaxIterations: 3,
+			},
+			Tools: []Tool{{
+				Name:      "datetime",
+				Type:      "builtin",
+				Enabled:   true,
+				RiskLevel: ToolRiskSafe,
+			}},
+		},
+		conversation: &Conversation{
+			ID:             "conv_routing",
+			AgentID:        "agent_routing",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+		},
+	}
+	gateway := &mockStructuredGateway{
+		replies: []*chat.CompletionResponse{{
+			Content: "checking time",
+			ToolCalls: []chat.ToolCall{{
+				ID:   "call_datetime",
+				Type: "function",
+				Function: chat.ToolFunction{
+					Name:      "datetime",
+					Arguments: `{}`,
+				},
+			}},
+			Usage: &chat.CompletionUsage{TotalTokens: 25},
+		}, {
+			Content: "routed final answer",
+			Usage:   &chat.CompletionUsage{TotalTokens: 25},
+		}},
+	}
+	service := NewService(store, gateway)
+
+	result, err := service.StartRun(context.Background(), auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+		User:           auth.User{ID: "user_1"},
+	}, StartRunRequest{
+		AgentID:        "agent_routing",
+		ConversationID: "conv_routing",
+		Input:          "use the tool then answer",
+	})
+	if err != nil {
+		t.Fatalf("StartRun returned error: %v", err)
+	}
+	if result == nil || result.Run == nil || result.Run.Status != RunStatusCompleted {
+		t.Fatalf("expected completed routed run, got %+v", result)
+	}
+	if len(gateway.models) < 2 {
+		t.Fatalf("expected two structured calls, got models=%v", gateway.models)
+	}
+	if gateway.models[0] != "gpt-4o-mini" || gateway.models[1] != "gpt-4o" {
+		t.Fatalf("expected config routing to switch second iteration model, got %v", gateway.models)
+	}
+	if len(store.toolRuns) != 1 || store.toolRuns[0].Status != ToolRunStatusCompleted {
+		t.Fatalf("expected tool run before routed second iteration, got %+v", store.toolRuns)
+	}
+}
+
+func TestServiceStartRunUsesAgentConfigSkillsAndMaxSkills(t *testing.T) {
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_skills",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Model:          "gpt-4o-mini",
+			SystemPrompt:   "Base prompt",
+			Config: Config{
+				Skills: []Skill{{
+					Name:         "Weather",
+					Instructions: "Provide weather-specific checks",
+					Triggers:     []string{"weather"},
+					ToolNames:    []string{"datetime"},
+				}, {
+					Name:         "Calculator",
+					Instructions: "Perform math checks",
+					Triggers:     []string{"calculate"},
+					ToolNames:    []string{"calculator"},
+				}},
+				MaxSkills: 1,
+			},
+			Tools: []Tool{{
+				Name:      "datetime",
+				Type:      "builtin",
+				Enabled:   true,
+				RiskLevel: ToolRiskSafe,
+			}, {
+				Name:      "calculator",
+				Type:      "builtin",
+				Enabled:   true,
+				RiskLevel: ToolRiskSafe,
+			}},
+		},
+		conversation: &Conversation{
+			ID:             "conv_skills",
+			AgentID:        "agent_skills",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+		},
+	}
+	gateway := &skillMockStructuredGateway{
+		reply: &chat.CompletionResponse{
+			Content: "skill-aware answer",
+			Usage:   &chat.CompletionUsage{TotalTokens: 20},
+		},
+	}
+	service := NewService(store, gateway)
+
+	result, err := service.StartRun(context.Background(), auth.Session{
+		OrganizationID: "org_1",
+		WorkspaceID:    "workspace_1",
+		User:           auth.User{ID: "user_1"},
+	}, StartRunRequest{
+		AgentID:        "agent_skills",
+		ConversationID: "conv_skills",
+		Input:          "weather forecast please calculate later",
+	})
+	if err != nil {
+		t.Fatalf("StartRun returned error: %v", err)
+	}
+	if result == nil || result.Run == nil || result.Run.Status != RunStatusCompleted {
+		t.Fatalf("expected completed skill run, got %+v", result)
+	}
+	if !strings.Contains(gateway.lastConfig.SystemPromptOverride, "Weather: Provide weather-specific checks") {
+		t.Fatalf("expected selected skill instructions in prompt, got %q", gateway.lastConfig.SystemPromptOverride)
+	}
+	if strings.Contains(gateway.lastConfig.SystemPromptOverride, "Calculator: Perform math checks") {
+		t.Fatalf("expected maxSkills=1 to keep unselected skill out of prompt, got %q", gateway.lastConfig.SystemPromptOverride)
+	}
+	if len(gateway.lastTools) != 1 {
+		t.Fatalf("expected selected skill to filter tools to one entry, got %+v", gateway.lastTools)
+	}
+	fn, _ := gateway.lastTools[0]["function"].(map[string]any)
+	if fn["name"] != "datetime" {
+		t.Fatalf("expected weather skill to keep datetime tool, got %+v", gateway.lastTools)
+	}
+}
+
 func TestServiceStartPlanningRunCreatesDurablePlanWithoutExecutingTools(t *testing.T) {
 	store := &fakeStore{
 		agent: &Agent{

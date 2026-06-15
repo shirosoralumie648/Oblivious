@@ -906,8 +906,10 @@ func (r *Runner) RunWithTools(ctx context.Context, session auth.Session, agent *
 	maxIterations := r.maxIterationsFor(agent)
 	tokenBudget := normalizeTokenBudget(agent.Config.TokenBudget)
 	usedTokens := 0
+	hasToolResult := false
 	for iteration := 0; iteration < maxIterations; iteration++ {
-		reply, err := structuredGateway.GenerateStructuredReply(ctx, chatMessages, config, tools)
+		iterationConfig, iterationTools := r.runtimeIterationConfig(agent, config, tools, userContent, iteration+1, hasToolResult)
+		reply, err := structuredGateway.GenerateStructuredReply(ctx, chatMessages, iterationConfig, iterationTools)
 		if err != nil {
 			_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), iteration+1, result.ToolCalls)
 			return nil, fmt.Errorf("generate structured reply: %w", err)
@@ -925,6 +927,7 @@ func (r *Runner) RunWithTools(ctx context.Context, session auth.Session, agent *
 			if err != nil {
 				return nil, err
 			}
+			hasToolResult = true
 
 			// Refresh the message view so the next iteration includes
 			// the tool-call and tool-result messages.
@@ -980,6 +983,7 @@ func (r *Runner) ResumeAfterApprovedToolWithTokenBudget(ctx context.Context, ses
 	if err != nil {
 		return nil, fmt.Errorf("refresh messages: %w", err)
 	}
+	inputText := lastUserMessageContent(messages)
 	chatMessages := r.buildChatMessages(ctx, session, agent, messages, "")
 
 	config := chat.ConversationConfig{
@@ -1037,7 +1041,8 @@ func (r *Runner) ResumeAfterApprovedToolWithTokenBudget(ctx context.Context, ses
 		_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), run.IterationCount, run.ToolCallCount)
 		return nil, fmt.Errorf("build tools: %w", err)
 	}
-	reply, err := structuredGateway.GenerateStructuredReply(ctx, chatMessages, config, tools)
+	iterationConfig, iterationTools := r.runtimeIterationConfig(agent, config, tools, inputText, run.IterationCount+1, run.ToolCallCount > 0)
+	reply, err := structuredGateway.GenerateStructuredReply(ctx, chatMessages, iterationConfig, iterationTools)
 	if err != nil {
 		_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), run.IterationCount+1, run.ToolCallCount)
 		return nil, fmt.Errorf("generate structured reply: %w", err)
@@ -1062,7 +1067,7 @@ func (r *Runner) ResumeAfterApprovedToolWithTokenBudget(ctx context.Context, ses
 		chatMessages = r.buildChatMessages(ctx, session, agent, messages, "")
 		run.IterationCount++
 		run.ToolCallCount = result.ToolCalls
-		return r.resumeToolLoop(ctx, session, agent, run, chatMessages, config, tools, structuredGateway, tokenBudget, usedTokens)
+		return r.resumeToolLoop(ctx, session, agent, run, chatMessages, config, tools, structuredGateway, tokenBudget, usedTokens, inputText)
 	}
 	assistantMsg, err := r.store.CreateMessage(ctx, run.ConversationID, session.OrganizationID, "assistant", reply.Content, nil, "")
 	if err != nil {
@@ -1077,11 +1082,12 @@ func (r *Runner) ResumeAfterApprovedToolWithTokenBudget(ctx context.Context, ses
 	return result, nil
 }
 
-func (r *Runner) resumeToolLoop(ctx context.Context, session auth.Session, agent *Agent, run *Run, chatMessages []chat.Message, config chat.ConversationConfig, tools []map[string]any, structuredGateway chat.StructuredReplyGenerator, tokenBudget int, usedTokens int) (*RunResult, error) {
+func (r *Runner) resumeToolLoop(ctx context.Context, session auth.Session, agent *Agent, run *Run, chatMessages []chat.Message, config chat.ConversationConfig, tools []map[string]any, structuredGateway chat.StructuredReplyGenerator, tokenBudget int, usedTokens int, inputText string) (*RunResult, error) {
 	result := &RunResult{ToolCalls: run.ToolCallCount}
 	maxIterations := r.maxIterationsFor(agent)
 	for iteration := run.IterationCount; iteration < maxIterations; iteration++ {
-		reply, err := structuredGateway.GenerateStructuredReply(ctx, chatMessages, config, tools)
+		iterationConfig, iterationTools := r.runtimeIterationConfig(agent, config, tools, inputText, iteration+1, result.ToolCalls > 0)
+		reply, err := structuredGateway.GenerateStructuredReply(ctx, chatMessages, iterationConfig, iterationTools)
 		if err != nil {
 			_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), iteration+1, result.ToolCalls)
 			return nil, fmt.Errorf("generate structured reply: %w", err)
@@ -1221,6 +1227,61 @@ func (r *Runner) handleStructuredToolCalls(ctx context.Context, session auth.Ses
 		metrics.RecordAgentToolCall(toolCall.Name, string(ToolRunStatusCompleted))
 	}
 	return totalToolCallCount, nil
+}
+
+func (r *Runner) runtimeIterationConfig(agent *Agent, baseConfig chat.ConversationConfig, baseTools []map[string]any, inputText string, iteration int, hasToolResult bool) (chat.ConversationConfig, []map[string]any) {
+	config := baseConfig
+	tools := baseTools
+	activeSkills := r.selectRuntimeSkills(agent, inputText)
+	if len(activeSkills) > 0 {
+		tools = buildToolsFromSkills(agent, activeSkills, baseTools)
+		config = injectSkillInstructions(config, activeSkills)
+	}
+	if selectedModel := runtimeModelForIteration(agent, inputText, iteration, hasToolResult); selectedModel != "" {
+		config.ModelID = selectedModel
+	}
+	return config, tools
+}
+
+func (r *Runner) selectRuntimeSkills(agent *Agent, inputText string) []Skill {
+	if agent == nil || len(agent.Config.Skills) == 0 {
+		return nil
+	}
+	selector := r.SkillSelector
+	if selector == nil {
+		selector = &SkillSelector{}
+	}
+	scoredSkills := selector.SelectSkills(inputText, agent.Config.Skills, agent.Config.MaxSkills)
+	if len(scoredSkills) == 0 {
+		return nil
+	}
+	activeSkills := make([]Skill, 0, len(scoredSkills))
+	for _, scored := range scoredSkills {
+		if scored.Skill == nil {
+			continue
+		}
+		activeSkills = append(activeSkills, *scored.Skill)
+	}
+	return activeSkills
+}
+
+func runtimeModelForIteration(agent *Agent, inputText string, iteration int, hasToolResult bool) string {
+	if agent == nil {
+		return ""
+	}
+	if len(agent.Config.ModelRoutingRules) == 0 {
+		return agent.Model
+	}
+	router := &ModelRouter{
+		Rules:    agent.Config.ModelRoutingRules,
+		Fallback: agent.Model,
+	}
+	return router.SelectModel(IterationContext{
+		Iteration:       iteration,
+		InputText:       inputText,
+		InputCharLength: len(inputText),
+		HasToolResult:   hasToolResult,
+	})
 }
 
 func (r *Runner) maxIterationsFor(agent *Agent) int {
