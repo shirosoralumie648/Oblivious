@@ -26,6 +26,9 @@ type fakeStore struct {
 	completedRunInput     CompleteScheduledTaskRunInput
 	completedRunID        string
 	completedTaskID       string
+	failedRunInput        FailScheduledTaskRunInput
+	failedRunID           string
+	failedTaskID          string
 	completedManualOrgID  string
 	completedManualTaskID string
 	completedManualRunID  string
@@ -51,6 +54,7 @@ type fakeStore struct {
 	updateEnabledCalls    int
 	claimDueCalls         int
 	completeRunCalls      int
+	failRunCalls          int
 	completeManualCalls   int
 	updatedRunID          string
 	updatedRunInput       UpdateScheduledTaskRunInput
@@ -154,6 +158,21 @@ func (f *fakeStore) CompleteScheduledTaskRun(ctx context.Context, organizationID
 	}
 	run.Status = RunStatusCompleted
 	run.FinishedAt = &input.FinishedAt
+	return run, nil
+}
+
+func (f *fakeStore) FailScheduledTaskRun(ctx context.Context, organizationID string, scheduledTaskID string, scheduledTaskRunID string, input FailScheduledTaskRunInput) (ScheduledTaskRun, error) {
+	f.failRunCalls++
+	f.failedTaskID = scheduledTaskID
+	f.failedRunID = scheduledTaskRunID
+	f.failedRunInput = input
+	run := f.recordedRun
+	if run.ID == "" {
+		run = ScheduledTaskRun{ID: scheduledTaskRunID, OrganizationID: organizationID, ScheduledTaskID: scheduledTaskID}
+	}
+	run.Status = RunStatusFailed
+	run.FinishedAt = &input.FinishedAt
+	run.Error = input.Error
 	return run, nil
 }
 

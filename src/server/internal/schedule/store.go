@@ -431,6 +431,81 @@ func (s *SQLStore) CompleteScheduledTaskRun(ctx context.Context, organizationID 
 	return run, nil
 }
 
+func (s *SQLStore) FailScheduledTaskRun(ctx context.Context, organizationID string, scheduledTaskID string, scheduledTaskRunID string, input FailScheduledTaskRunInput) (ScheduledTaskRun, error) {
+	finishedAt := input.FinishedAt
+	if finishedAt.IsZero() {
+		finishedAt = time.Now().UTC()
+	} else {
+		finishedAt = finishedAt.UTC()
+	}
+	nextRunAt := input.NextRunAt
+	if nextRunAt.IsZero() {
+		nextRunAt = finishedAt
+	} else {
+		nextRunAt = nextRunAt.UTC()
+	}
+	updatedAt := time.Now().UTC()
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ScheduledTaskRun{}, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	var run ScheduledTaskRun
+	err = tx.QueryRowContext(ctx, `
+		UPDATE scheduled_task_runs
+		SET status = $4,
+		    finished_at = $5,
+		    error = $6,
+		    updated_at = $7
+		WHERE organization_id = $1 AND scheduled_task_id = $2 AND id = $3 AND status = $8
+		RETURNING id, organization_id, scheduled_task_id, status, started_at, finished_at, error, created_at, updated_at
+	`, organizationID, scheduledTaskID, scheduledTaskRunID, RunStatusFailed, finishedAt, input.Error, updatedAt, RunStatusRunning).Scan(
+		&run.ID,
+		&run.OrganizationID,
+		&run.ScheduledTaskID,
+		&run.Status,
+		&run.StartedAt,
+		&run.FinishedAt,
+		&run.Error,
+		&run.CreatedAt,
+		&run.UpdatedAt,
+	)
+	if err != nil {
+		return ScheduledTaskRun{}, err
+	}
+
+	result, err := tx.ExecContext(ctx, `
+		UPDATE scheduled_tasks
+		SET last_run_at = $3,
+		    next_run_at = $4,
+		    updated_at = $5
+		WHERE organization_id = $1 AND id = $2
+	`, organizationID, scheduledTaskID, finishedAt, nextRunAt, updatedAt)
+	if err != nil {
+		return ScheduledTaskRun{}, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return ScheduledTaskRun{}, err
+	}
+	if affected == 0 {
+		return ScheduledTaskRun{}, sql.ErrNoRows
+	}
+
+	if err := tx.Commit(); err != nil {
+		return ScheduledTaskRun{}, err
+	}
+	committed = true
+	return run, nil
+}
+
 func (s *SQLStore) CompleteManualScheduledTaskRun(ctx context.Context, organizationID string, scheduledTaskID string, scheduledTaskRunID string, finishedAt time.Time) (ScheduledTaskRun, error) {
 	if finishedAt.IsZero() {
 		finishedAt = time.Now().UTC()

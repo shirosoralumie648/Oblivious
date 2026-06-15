@@ -131,6 +131,12 @@ type CompleteScheduledTaskRunInput struct {
 	NextRunAt  time.Time
 }
 
+type FailScheduledTaskRunInput struct {
+	FinishedAt time.Time
+	Error      string
+	NextRunAt  time.Time
+}
+
 type Store interface {
 	CreateScheduledTask(ctx context.Context, input CreateScheduledTaskInput) (ScheduledTask, error)
 	SyncWorkflowScheduledTasks(ctx context.Context, input SyncWorkflowScheduledTasksInput) ([]ScheduledTask, error)
@@ -147,6 +153,7 @@ type Store interface {
 type DueTaskStore interface {
 	ClaimDueScheduledTaskRuns(ctx context.Context, input ClaimDueScheduledTaskRunsInput) ([]ClaimedScheduledTaskRun, error)
 	CompleteScheduledTaskRun(ctx context.Context, organizationID string, scheduledTaskID string, scheduledTaskRunID string, input CompleteScheduledTaskRunInput) (ScheduledTaskRun, error)
+	FailScheduledTaskRun(ctx context.Context, organizationID string, scheduledTaskID string, scheduledTaskRunID string, input FailScheduledTaskRunInput) (ScheduledTaskRun, error)
 }
 
 type WorkflowStarter interface {

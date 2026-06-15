@@ -20,6 +20,7 @@
 - The prior pushed memory slice proves LLM-assisted long-term memory extraction composes with `memory_key_consolidate`: generated keyed facts update the existing long-term memory in place instead of creating duplicates.
 - Manual Agent plan-step draft insert/move/delete now preserves `dependsOn` references by logical step. Deleting a draft step that another step depends on fails closed instead of silently loosening the plan.
 - Marketplace paid audit rows are now protected from publisher hard-delete, direct SQL cascade, and buyer uninstall regressions. `DeleteAgent` rejects hard deletion once marketplace order audit evidence exists for the agent in the publisher organization, and migration `0082_marketplace_audit_retention.sql` rebuilds paid audit foreign keys with non-cascading delete semantics.
+- Scheduled-task due-worker failures now advance `next_run_at` through a dedicated failure path, so a failed claimed run cannot be immediately reclaimed while its old due time remains in the past.
 
 ## Repository Inventory
 
@@ -138,13 +139,12 @@ Closed after this rescan:
 
 - Marketplace publisher delete/uninstall settlement audit.
   - `src/server/internal/marketplace/store.go` now rejects publisher hard delete once order audit evidence exists, `src/server/migrations/0082_marketplace_audit_retention.sql` rebuilds paid audit foreign keys with non-cascading delete semantics, and `scripts/verify-commercial-db-evidence.sh marketplace-money-movement` now includes PostgreSQL proof that direct SQL delete attempts are blocked and buyer uninstall preserves paid order/settlement rows while clearing `marketplace_orders.install_id`.
+- Scheduled task failure re-claim behavior.
+  - `src/server/internal/schedule/worker.go` now sends due-worker failures through `FailScheduledTaskRun`, `src/server/internal/schedule/store.go` atomically marks the claimed run `failed` and advances `scheduled_tasks.next_run_at`, and `scripts/verify-commercial-db-evidence.sh scheduled-task-runtime` now includes PostgreSQL proof that the failed due task is not immediately claimed again.
 
 These remaining slices are useful, but they do not replace target/live final proof:
 
-1. Scheduled task failure re-claim behavior.
-   - Confirmed current-head risk: `failClaimedRunAt` marks the claimed run `failed` through `UpdateRun`, while only `completeClaimedRun` advances `scheduled_tasks.next_run_at`; `ClaimDueScheduledTaskRuns` excludes only existing `running` runs, so a failed due task can be claimed again while `next_run_at` remains in the past.
-   - Likely files: `src/server/internal/schedule/service.go`, `src/server/internal/schedule/store.go`, `src/server/internal/schedule/worker_test.go`, `src/server/internal/schedule/store_test.go`, and `scripts/verify-commercial-db-evidence.sh`.
-2. Target/live release evidence collection.
+1. Target/live release evidence collection.
    - Risk: repository-local proof is broad but still cannot replace real Kubernetes, provider rails, deployed gRPC reachability, target secret audit, and a strict no-skip release run.
    - Likely files: release evidence attachments under `docs/release/` after target environment runs complete.
 
@@ -180,6 +180,8 @@ nl -ba src/server/internal/schedule/worker.go | sed -n '1,260p'
 nl -ba src/server/internal/schedule/store.go | sed -n '250,520p'
 nl -ba src/server/internal/schedule/worker_test.go | sed -n '229,420p;520,760p'
 nl -ba src/server/internal/schedule/store_test.go | sed -n '360,620p'
+GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./internal/schedule -count=1
+GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh scheduled-task-runtime
 sed -n '1,180p' scripts/verify-commercial-completion.sh
 sed -n '1,140p' docs/release/fusion-spec-evidence-pack.md
 ```

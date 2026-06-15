@@ -559,3 +559,63 @@ func TestSQLStoreCompletesScheduledTaskRunAndAdvancesTask(t *testing.T) {
 		t.Fatalf("expected next_run_at %v, got %v", nextRunAt, tasks[0].NextRunAt)
 	}
 }
+
+func TestSQLStoreFailsScheduledTaskRunAndAdvancesTaskToAvoidImmediateReclaim(t *testing.T) {
+	store, ctx := testScheduleSQLStore(t)
+	now := time.Date(2026, time.June, 5, 9, 0, 0, 0, time.UTC)
+	nextRunAt := time.Date(2026, time.June, 5, 10, 0, 0, 0, time.UTC)
+
+	task, err := store.CreateScheduledTask(ctx, CreateScheduledTaskInput{
+		OrganizationID: "org_1",
+		Name:           "Failed due workflow",
+		TargetType:     TargetTypeWorkflow,
+		TargetID:       "workflow_due",
+		CronExpression: "0 * * * *",
+		Enabled:        true,
+		NextRunAt:      &now,
+	})
+	if err != nil {
+		t.Fatalf("CreateScheduledTask returned error: %v", err)
+	}
+	claimed, err := store.ClaimDueScheduledTaskRuns(ctx, ClaimDueScheduledTaskRunsInput{Now: now, Limit: 1})
+	if err != nil {
+		t.Fatalf("ClaimDueScheduledTaskRuns returned error: %v", err)
+	}
+	if len(claimed) != 1 {
+		t.Fatalf("expected one claimed run, got %+v", claimed)
+	}
+
+	failed, err := store.FailScheduledTaskRun(ctx, "org_1", task.ID, claimed[0].Run.ID, FailScheduledTaskRunInput{
+		FinishedAt: now,
+		Error:      "workflow unavailable",
+		NextRunAt:  nextRunAt,
+	})
+	if err != nil {
+		t.Fatalf("FailScheduledTaskRun returned error: %v", err)
+	}
+	if failed.Status != RunStatusFailed || failed.Error != "workflow unavailable" || failed.FinishedAt == nil || !failed.FinishedAt.Equal(now) {
+		t.Fatalf("unexpected failed run: %+v", failed)
+	}
+
+	claimedAgain, err := store.ClaimDueScheduledTaskRuns(ctx, ClaimDueScheduledTaskRunsInput{Now: now, Limit: 1})
+	if err != nil {
+		t.Fatalf("ClaimDueScheduledTaskRuns second call returned error: %v", err)
+	}
+	if len(claimedAgain) != 0 {
+		t.Fatalf("expected failed due task not to be immediately reclaimed, got %+v", claimedAgain)
+	}
+
+	tasks, err := store.ListScheduledTasks(ctx, "org_1")
+	if err != nil {
+		t.Fatalf("ListScheduledTasks returned error: %v", err)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("expected one task, got %+v", tasks)
+	}
+	if tasks[0].LastRunAt == nil || !tasks[0].LastRunAt.Equal(now) {
+		t.Fatalf("expected last_run_at %v, got %v", now, tasks[0].LastRunAt)
+	}
+	if tasks[0].NextRunAt == nil || !tasks[0].NextRunAt.Equal(nextRunAt) {
+		t.Fatalf("expected next_run_at %v, got %v", nextRunAt, tasks[0].NextRunAt)
+	}
+}

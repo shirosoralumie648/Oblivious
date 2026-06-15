@@ -262,10 +262,17 @@ func TestRunDueTasksMarksClaimedRunFailedWhenWorkflowStartFails(t *testing.T) {
 		t.Fatalf("expected workflow starter once, got %d", starter.calls)
 	}
 	if store.completeRunCalls != 0 {
-		t.Fatalf("expected failed workflow not to advance schedule, got %d complete calls", store.completeRunCalls)
+		t.Fatalf("expected failed workflow not to use success completion, got %d complete calls", store.completeRunCalls)
 	}
-	if store.updateRunCalls != 1 || store.updatedRunID != "schedrun_1" || store.updatedRunInput.Status != RunStatusFailed || store.updatedRunInput.Error != "workflow unavailable" || store.updatedRunInput.FinishedAt == nil {
-		t.Fatalf("expected claimed run marked failed, calls=%d id=%q input=%+v", store.updateRunCalls, store.updatedRunID, store.updatedRunInput)
+	if store.failRunCalls != 1 || store.failedTaskID != "sched_1" || store.failedRunID != "schedrun_1" || store.failedRunInput.Error != "workflow unavailable" || store.failedRunInput.FinishedAt.IsZero() {
+		t.Fatalf("expected claimed run marked failed with task advancement, calls=%d task=%q run=%q input=%+v", store.failRunCalls, store.failedTaskID, store.failedRunID, store.failedRunInput)
+	}
+	expectedNextRun := time.Date(2026, time.June, 5, 10, 0, 0, 0, time.UTC)
+	if !store.failedRunInput.NextRunAt.Equal(expectedNextRun) {
+		t.Fatalf("expected failed run to advance next run %v, got %v", expectedNextRun, store.failedRunInput.NextRunAt)
+	}
+	if store.updateRunCalls != 0 {
+		t.Fatalf("expected failed claimed run to use atomic fail path, got update calls=%d input=%+v", store.updateRunCalls, store.updatedRunInput)
 	}
 	if len(results) != 1 || results[0].Run.ID != "schedrun_1" || results[0].Run.Status != RunStatusFailed || results[0].Err == nil {
 		t.Fatalf("unexpected due task failure result: %+v", results)

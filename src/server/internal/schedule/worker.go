@@ -130,20 +130,20 @@ func (s *Service) runClaimedWorkflowTask(ctx context.Context, dueStore DueTaskSt
 	session := auth.Session{OrganizationID: claimed.Task.OrganizationID}
 
 	if s.workflowStarter == nil {
-		return s.failClaimedRun(ctx, result, session, errors.New("workflow starter is not configured"))
+		return s.failClaimedRun(ctx, dueStore, result, session, errors.New("workflow starter is not configured"), now)
 	}
 
 	execution, err := s.startClaimedWorkflow(ctx, claimed.Task, claimed.Run, nil)
 	finishedAt := time.Now().UTC()
 	if err != nil {
-		return s.failClaimedRunAt(ctx, result, session, err, finishedAt)
+		return s.failClaimedRunAt(ctx, dueStore, result, session, err, now, finishedAt)
 	}
 
 	execution, err = s.workflowStarter.RunExecutionUntilBlocked(ctx, claimed.Task.OrganizationID, execution.ID)
 	finishedAt = time.Now().UTC()
 	if err != nil {
 		result.Execution = execution
-		return s.failClaimedRunAt(ctx, result, session, err, finishedAt)
+		return s.failClaimedRunAt(ctx, dueStore, result, session, err, now, finishedAt)
 	}
 	if execution == nil || !isTerminalWorkflowExecutionStatus(execution.Status) {
 		result.Execution = execution
@@ -157,7 +157,7 @@ func (s *Service) runClaimedWorkflowTask(ctx context.Context, dueStore DueTaskSt
 			}
 		}
 		result.Execution = execution
-		return s.failClaimedRunAt(ctx, result, session, errors.New(errorMessage), finishedAt)
+		return s.failClaimedRunAt(ctx, dueStore, result, session, errors.New(errorMessage), now, finishedAt)
 	}
 
 	result.Execution = execution
@@ -173,7 +173,7 @@ func (s *Service) runClaimedAgentTask(ctx context.Context, dueStore DueTaskStore
 		},
 	}
 	if s.agentStarter == nil {
-		return s.failClaimedRun(ctx, result, session, errors.New("agent starter is not configured"))
+		return s.failClaimedRun(ctx, dueStore, result, session, errors.New("agent starter is not configured"), now)
 	}
 
 	agentRun, err := s.agentStarter.StartRun(ctx, session, agent.StartRunRequest{
@@ -184,7 +184,7 @@ func (s *Service) runClaimedAgentTask(ctx context.Context, dueStore DueTaskStore
 	finishedAt := time.Now().UTC()
 	if err != nil {
 		result.AgentRun = agentRun
-		return s.failClaimedRunAt(ctx, result, session, err, finishedAt)
+		return s.failClaimedRunAt(ctx, dueStore, result, session, err, now, finishedAt)
 	}
 	result.AgentRun = agentRun
 	return s.completeClaimedRun(ctx, dueStore, result, now, finishedAt)
@@ -193,7 +193,7 @@ func (s *Service) runClaimedAgentTask(ctx context.Context, dueStore DueTaskStore
 func (s *Service) completeClaimedRun(ctx context.Context, dueStore DueTaskStore, result DueTaskRunResult, now, finishedAt time.Time) DueTaskRunResult {
 	nextRunAt, err := nextRunTime(result.Task.CronExpression, now)
 	if err != nil {
-		return s.failClaimedRunAt(ctx, result, auth.Session{OrganizationID: result.Task.OrganizationID}, err, finishedAt)
+		return s.failClaimedRunAt(ctx, dueStore, result, auth.Session{OrganizationID: result.Task.OrganizationID}, err, now, finishedAt)
 	}
 	completedRun, err := dueStore.CompleteScheduledTaskRun(ctx, result.Task.OrganizationID, result.Task.ID, result.Run.ID, CompleteScheduledTaskRunInput{
 		FinishedAt: finishedAt,
@@ -207,12 +207,25 @@ func (s *Service) completeClaimedRun(ctx context.Context, dueStore DueTaskStore,
 	return result
 }
 
-func (s *Service) failClaimedRun(ctx context.Context, result DueTaskRunResult, session auth.Session, err error) DueTaskRunResult {
-	return s.failClaimedRunAt(ctx, result, session, err, time.Now().UTC())
+func (s *Service) failClaimedRun(ctx context.Context, dueStore DueTaskStore, result DueTaskRunResult, session auth.Session, err error, scheduleBase time.Time) DueTaskRunResult {
+	return s.failClaimedRunAt(ctx, dueStore, result, session, err, scheduleBase, time.Now().UTC())
 }
 
-func (s *Service) failClaimedRunAt(ctx context.Context, result DueTaskRunResult, session auth.Session, err error, finishedAt time.Time) DueTaskRunResult {
+func (s *Service) failClaimedRunAt(ctx context.Context, dueStore DueTaskStore, result DueTaskRunResult, session auth.Session, err error, scheduleBase, finishedAt time.Time) DueTaskRunResult {
 	result.Err = err
+	if dueStore != nil {
+		nextRunAt, nextErr := nextRunTime(result.Task.CronExpression, scheduleBase)
+		if nextErr == nil {
+			if failedRun, failErr := dueStore.FailScheduledTaskRun(ctx, result.Task.OrganizationID, result.Task.ID, result.Run.ID, FailScheduledTaskRunInput{
+				FinishedAt: finishedAt,
+				Error:      err.Error(),
+				NextRunAt:  nextRunAt,
+			}); failErr == nil {
+				result.Run = failedRun
+				return result
+			}
+		}
+	}
 	if failedRun, updateErr := s.UpdateRun(ctx, session, result.Run.ID, UpdateScheduledTaskRunInput{
 		Status:     RunStatusFailed,
 		FinishedAt: &finishedAt,
