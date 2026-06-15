@@ -231,7 +231,7 @@ run_tenant_membership_lifecycle_profile() {
   local tenant_http_pattern
 
   tenant_store_pattern="^TestSQLStore(OrganizationLifecycle|MembershipInvitationOwnershipLifecycle)$"
-  tenant_http_pattern="^Test(RegisterCreatesDefaultOrganizationAndSessionScope|LoginResolvesDefaultOrganizationForLegacyUser|SelectOrganizationRequiresMembershipAndUpdatesSessionScope|OrganizationInvitationRevokeRejectsAcceptance|OrganizationSessionSecurityOnMembershipChanges|OrganizationMemberRoutesListTransferOwnershipAndRemove)$"
+  tenant_http_pattern="^Test(RegisterCreatesDefaultOrganizationAndSessionScope|LoginResolvesDefaultOrganizationForLegacyUser|SelectOrganizationRequiresMembershipAndUpdatesSessionScope|OrganizationInvitationRevokeRejectsAcceptance|OrganizationSessionSecurityOnMembershipChanges|OrganizationMemberRoutesListTransferOwnershipAndRemove|AdminOrganizationRoutesPersistWithPostgres)$"
   run_go_test_no_skips "tenant SQL organization and membership lifecycle" "./internal/tenant" "$tenant_store_pattern"
   run_go_test_no_skips "tenant HTTP membership ownership lifecycle" "./internal/http" "$tenant_http_pattern"
 }
