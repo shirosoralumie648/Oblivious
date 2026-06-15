@@ -15,7 +15,7 @@ output_files=()
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/verify-commercial-db-evidence.sh [all|backend-journey|marketplace-money-movement|marketplace-governance-review|marketplace-recommendation-search|marketplace-template-routes|billing-provider-lifecycle|admin-usage-analytics-db|app-stateful-routes|tenant-membership-lifecycle|tenant-cross-surface|secret-response-safety|agent-runtime-memory|scheduled-task-runtime|auth-security-persistence|relay-file-mapping-tenant-ownership|relay-runtime-channel-isolation|workflow-sql-isolation|publishing-channel-isolation|admin-relay-channel-isolation|admin-relay-read-isolation|observability-alert-recovery-persistence|quota-sql-isolation]
+Usage: bash scripts/verify-commercial-db-evidence.sh [all|backend-journey|marketplace-money-movement|marketplace-governance-review|marketplace-recommendation-search|marketplace-template-routes|billing-checkout-topup-http|billing-provider-lifecycle|admin-usage-analytics-db|app-stateful-routes|tenant-membership-lifecycle|tenant-cross-surface|secret-response-safety|agent-runtime-memory|scheduled-task-runtime|auth-security-persistence|relay-file-mapping-tenant-ownership|relay-runtime-channel-isolation|workflow-sql-isolation|publishing-channel-isolation|admin-relay-channel-isolation|admin-relay-read-isolation|observability-alert-recovery-persistence|quota-sql-isolation]
 
 Runs narrow DB-backed commercial evidence without silently accepting skipped tests.
 
@@ -35,6 +35,8 @@ Profiles:
                                exploration PostgreSQL tests.
   marketplace-template-routes  Run focused Marketplace template create, list,
                                detail, and install PostgreSQL route tests.
+  billing-checkout-topup-http  Run focused Billing checkout, top-up, and
+                               payment webhook PostgreSQL route tests.
   billing-provider-lifecycle   Run focused Stripe/shared checkout, invoice,
                                subscription, and refund lifecycle PostgreSQL
                                tests.
@@ -222,6 +224,13 @@ run_marketplace_template_routes_profile() {
   run_go_test_no_skips "marketplace template route persistence" "./internal/http" "^TestMarketplaceTemplateRoutesCreateListDetailAndInstall$"
 }
 
+run_billing_checkout_topup_http_profile() {
+  local billing_checkout_topup_pattern
+
+  billing_checkout_topup_pattern="^Test(BillingCheckout(RequiresSession|PersistsTenantPaymentIntent|ExplicitStripeUsesExistingCheckout|UnconfiguredProvidersDoNotCreateArtifacts|CreatorFailureMarksTopupFailed|UsesConfiguredProviderCheckoutCreator|UsesConfiguredDomesticProviderFromRouterConfig|TopupDoesNotCreditQuotaBeforeWebhook)|QuotaTopupEndpointNoLongerCreditsWithoutPayment|DomesticPaymentWebhookRoutesVerifySignatureAndRecordEvents|DomesticPaymentWebhookRouteAppliesTopup(LifecycleOnce|RefundOnce)|StripeWebhookRoute(RejectsInvalidSignature|RecordsSignedEventOnce|AppliesCheckoutCompletedSubscriptionOnce|RetriesLifecycleForRecordedDuplicateEvent))$"
+  run_go_test_no_skips "billing checkout and top-up HTTP persistence" "./internal/http" "$billing_checkout_topup_pattern"
+}
+
 run_billing_provider_lifecycle_profile() {
   local billing_provider_lifecycle_pattern
 
@@ -354,6 +363,7 @@ run_all_profiles() {
   run_marketplace_governance_review_profile
   run_marketplace_recommendation_search_profile
   run_marketplace_template_routes_profile
+  run_billing_checkout_topup_http_profile
   run_billing_provider_lifecycle_profile
   run_admin_usage_analytics_db_profile
   run_app_stateful_routes_profile
@@ -397,6 +407,9 @@ case "$profile" in
     ;;
   marketplace-template-routes)
     run_marketplace_template_routes_profile
+    ;;
+  billing-checkout-topup-http)
+    run_billing_checkout_topup_http_profile
     ;;
   billing-provider-lifecycle)
     run_billing_provider_lifecycle_profile
