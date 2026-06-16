@@ -42,6 +42,7 @@ require_contains "$pack_file" "unreferenced artifact"
 require_contains "$pack_file" "secret-like query"
 require_contains "$pack_file" "scripts/verify-commercial-completion.sh"
 require_contains "$pack_file" "scripts/verify-commercial-db-evidence.sh"
+require_contains "$pack_file" "scripts/verify-commercial-db-evidence-profiles.sh"
 require_contains "$pack_file" "A skipped command is not successful proof"
 require_contains "$pack_file" 'Keep rows marked `Partial`'
 require_contains "$matrix_file" "Migration strategy and release readiness"

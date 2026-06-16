@@ -15,7 +15,7 @@ output_files=()
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/verify-commercial-db-evidence.sh [all|backend-journey|marketplace-money-movement|marketplace-governance-review|marketplace-recommendation-search|marketplace-template-routes|billing-checkout-topup-http|billing-provider-lifecycle|admin-usage-analytics-db|app-stateful-routes|tenant-membership-lifecycle|tenant-cross-surface|secret-response-safety|agent-runtime-memory|scheduled-task-runtime|auth-security-persistence|relay-file-mapping-tenant-ownership|relay-runtime-channel-isolation|workflow-sql-isolation|publishing-channel-isolation|admin-relay-channel-isolation|admin-relay-read-isolation|observability-alert-recovery-persistence|quota-sql-isolation]
+Usage: bash scripts/verify-commercial-db-evidence.sh [all|backend-journey|marketplace-money-movement|marketplace-governance-review|marketplace-recommendation-search|marketplace-template-routes|billing-checkout-topup-http|billing-provider-lifecycle|admin-usage-analytics-db|app-stateful-routes|tenant-membership-lifecycle|tenant-cross-surface|secret-response-safety|agent-runtime-memory|scheduled-task-runtime|auth-security-persistence|relay-file-mapping-tenant-ownership|relay-runtime-channel-isolation|workflow-sql-isolation|publishing-channel-isolation|admin-relay-channel-isolation|admin-relay-read-isolation|observability-alert-recovery-persistence|quota-sql-isolation|core-sql-persistence]
 
 Runs narrow DB-backed commercial evidence without silently accepting skipped tests.
 

@@ -60,6 +60,9 @@ run_docs_checks() {
   echo "[check] Verifying workflow success-rate evidence."
   bash "$repo_root/scripts/verify-workflow-success-rate-evidence.sh"
 
+  echo "[check] Verifying commercial DB evidence profile list."
+  bash "$repo_root/scripts/verify-commercial-db-evidence-profiles.sh"
+
   echo "[check] Verifying fusion evidence pack."
   bash "$repo_root/scripts/verify-fusion-evidence-pack.sh"
 

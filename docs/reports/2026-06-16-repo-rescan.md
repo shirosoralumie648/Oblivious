@@ -148,6 +148,7 @@ No rows are currently marked `Gap` or `Unverified`.
   - `observability-alert-recovery-persistence`
   - `quota-sql-isolation`
   - `core-sql-persistence`
+- `scripts/verify-commercial-db-evidence-profiles.sh` now guards that commercial DB evidence profile inventory against drift by comparing the usage synopsis, help section, `case` dispatch, and `all` aggregator. This caught and closed the local mismatch where `core-sql-persistence` was executable and included in `all` but missing from the usage line.
 - `scripts/verify-commercial-completion.sh` is strict by default. It requires `TEST_DATABASE_URL`, deploy validation, Kubernetes validation, backup/restore smoke, target live evidence manifest validation, docs/security gates, web TypeScript, full Go suites, DB-backed evidence profiles, and diff hygiene.
 - A run with `COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS=true` remains partial local evidence only and cannot count as final readiness.
 
