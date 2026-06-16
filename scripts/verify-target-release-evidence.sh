@@ -783,6 +783,21 @@ artifact_ids.each_key do |id|
 end
 
 require_artifact_kind(failures, data, artifact_ids, ["strictVerifier", "evidenceRef"], "strict-verifier-log")
+strict_verifier_ref = dig_path(data, ["strictVerifier", "evidenceRef"])
+if strict_started_at && strict_completed_at && strict_verifier_ref.is_a?(String) && !placeholder?(strict_verifier_ref)
+  strict_verifier_artifact = artifact_ids[strict_verifier_ref]
+  if strict_verifier_artifact.is_a?(Hash)
+    strict_verifier_artifact_recorded_at = strict_verifier_artifact["recordedAt"]
+    begin
+      artifact_recorded_at = Time.iso8601(strict_verifier_artifact_recorded_at) if strict_verifier_artifact_recorded_at.is_a?(String)
+      if artifact_recorded_at && (artifact_recorded_at < strict_started_at || artifact_recorded_at > strict_completed_at)
+        failures << "strictVerifier.evidenceRef artifact recordedAt must be within strictVerifier.startedAt/completedAt"
+      end
+    rescue ArgumentError
+      # The artifact loop already reports the ISO-8601 violation.
+    end
+  end
+end
 require_artifact_kind(failures, data, artifact_ids, ["deployment", "evidenceRef"], "deployment-log")
 require_artifact_kind(failures, data, artifact_ids, ["kubernetes", "evidenceRef"], "kubernetes-validation")
 provider_entries = providers.is_a?(Array) ? providers : []

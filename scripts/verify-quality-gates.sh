@@ -675,6 +675,7 @@ assert_file_contains "$target_release_evidence_verifier_file" "environment.baseU
 assert_file_contains "$target_release_evidence_verifier_file" "environment.baseUrl must target a non-local target environment"
 assert_file_contains "$target_release_evidence_verifier_file" '"strictVerifier", "evidenceRef"'
 assert_file_contains "$target_release_evidence_verifier_file" "strictVerifier.completedAt must be at or after strictVerifier.startedAt"
+assert_file_contains "$target_release_evidence_verifier_file" "strictVerifier.evidenceRef artifact recordedAt must be within strictVerifier.startedAt/completedAt"
 assert_file_contains "$target_release_evidence_verifier_file" "grpcSmokeReport"
 assert_file_contains "$target_release_evidence_verifier_file" "grpcSmokeReport.results must include agent, workflow, and task smoke results"
 assert_file_contains "$target_release_evidence_verifier_file" "evidenceRef must match grpcSmokeReport.evidenceRef"

@@ -300,6 +300,11 @@ make_invalid_case \
   "strictVerifier.completedAt must be at or after strictVerifier.startedAt"
 
 make_invalid_case \
+  "strict-verifier-artifact-outside-window" \
+  'data["artifacts"].find { |artifact| artifact["id"] == data["strictVerifier"]["evidenceRef"] }["recordedAt"] = "2026-06-15T23:59:00Z"' \
+  "strictVerifier.evidenceRef artifact recordedAt must be within strictVerifier.startedAt/completedAt"
+
+make_invalid_case \
   "unfilled-kubernetes-secret-file-class" \
   'data["kubernetes"]["secretFileClass"] = "external-empty"' \
   "kubernetes.secretFileClass must be external-filled"
