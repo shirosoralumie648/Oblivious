@@ -528,7 +528,7 @@ services:
     depends_on:
       - oblivious-server
     ports:
-      - "${OBLIVIOUS_WEB_HOST_PORT:-4173}:80"
+      - "${OBLIVIOUS_WEB_HOST_PORT:-4173}:8080"
 
   # ---------------------------------------------------------------------------
   # Optional infra extras (enable with: docker compose --profile infra-extras up)

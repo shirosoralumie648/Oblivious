@@ -60,6 +60,9 @@ fi
 echo "[k8s-validate] applying namespace"
 kubectl apply -f deploy/kubernetes/namespace.yaml
 
+echo "[k8s-validate] applying network policy"
+kubectl apply -f deploy/kubernetes/network-policy.yaml
+
 echo "[k8s-validate] applying secret"
 kubectl apply -f "$secret_file"
 

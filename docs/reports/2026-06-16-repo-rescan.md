@@ -31,6 +31,9 @@
 - Rescan evidence base before this Relay file-list continuation: `001a6ab` (`test(release): require all live payment rails`).
 - Remote parity at continuation start: `HEAD == origin/main` (`001a6ab`).
 - Working tree at continuation start: clean at the pushed target/live payment-rails verifier baseline.
+- Current Kubernetes security hardening continuation base: `61bbda9` (`test(release): reject loopback grpc addresses`).
+- Remote parity at Kubernetes security hardening start: `HEAD == origin/main` (`61bbda9`).
+- Working tree at Kubernetes security hardening start: clean.
 - The earlier same-day scans at `1c52194`, `53aaca0`, `d4fdc37`, `75ff216`, `98a1683`, `c6d9b34`, `5969e4b`, `1e7c6ef`, `e222967`, `0694b44`, `984b6a7`, `cb18df4`, and `bd92f91` are now older baselines for this report.
 - The project is still not complete against the four `docs/superpowers/specs/2026-06-04-*` specs.
 - Current matrix remains `4 Proven / 10 Partial / 0 Gap / 0 Unverified`.
@@ -77,6 +80,7 @@
 - Target/live environment base URLs are now part of the same docs gate fixture: the verifier rejects non-HTTP(S) `environment.baseUrl` values such as `not-a-url` and loopback/local targets such as `http://localhost:3000`.
 - Target/live artifact URIs are now part of the same docs gate fixture: the verifier rejects local filesystem paths such as `/tmp/target-release/deploy.log`, `file:///tmp/target-release/deploy.log`, and loopback URLs such as `http://localhost:8080/target-release/deploy.log`, while preserving remote target artifact schemes such as CI, provider, and observability references.
 - Target/live gRPC addresses are now part of the same docs gate fixture: the verifier rejects loopback/local manifest and copied smoke-report addresses such as `localhost:50063`, while preserving service DNS-style target addresses such as `agent:50063`.
+- Kubernetes deployment security now has repository-local static proof: `deploy/kubernetes/network-policy.yaml` defines default deny plus ingress/egress allow policies, `scripts/k8s-validate.sh` applies that policy during target smoke, and `scripts/verify-deployment-operations-contract.sh` requires first-party Deployment manifests to run non-root with container privilege escalation disabled, read-only root filesystems, and dropped Linux capabilities. This tightens release-readiness evidence but still does not prove target CNI enforcement, ingress-controller namespace labels, or failover behavior without the external Kubernetes run.
 
 ## Repository Inventory
 

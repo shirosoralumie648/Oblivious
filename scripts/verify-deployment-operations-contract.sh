@@ -95,6 +95,86 @@ ruby -ryaml -rjson -e '
     path.map(&:to_s).join(".")
   end
 
+  def first_party_deployment_paths
+    %w[
+      deploy/kubernetes/admin-deployment.yaml
+      deploy/kubernetes/agent-deployment.yaml
+      deploy/kubernetes/app-deployment.yaml
+      deploy/kubernetes/billing-deployment.yaml
+      deploy/kubernetes/channel-deployment.yaml
+      deploy/kubernetes/chat-deployment.yaml
+      deploy/kubernetes/gateway-deployment.yaml
+      deploy/kubernetes/marketplace-deployment.yaml
+      deploy/kubernetes/observability-deployment.yaml
+      deploy/kubernetes/rag-deployment.yaml
+      deploy/kubernetes/relay-deployment.yaml
+      deploy/kubernetes/task-deployment.yaml
+      deploy/kubernetes/workflow-deployment.yaml
+      deploy/kubernetes/server.yaml
+      deploy/kubernetes/web.yaml
+    ]
+  end
+
+  def require_first_party_security_context!(repo, relative_path, missing)
+    deployment = deployment_doc(File.join(repo, relative_path))
+    pod_security = deployment.dig("spec", "template", "spec", "securityContext") || {}
+    missing << "#{relative_path} pod securityContext must run as non-root" unless pod_security["runAsNonRoot"] == true
+
+    containers = deployment.dig("spec", "template", "spec", "containers").to_a
+    missing << "#{relative_path} must define at least one container" if containers.empty?
+    containers.each do |ctr|
+      name = ctr["name"].to_s
+      security = ctr["securityContext"] || {}
+      missing << "#{relative_path} #{name} container must disable privilege escalation" unless security["allowPrivilegeEscalation"] == false
+      missing << "#{relative_path} #{name} container must use a read-only root filesystem" unless security["readOnlyRootFilesystem"] == true
+      dropped = security.dig("capabilities", "drop").to_a.map(&:to_s)
+      missing << "#{relative_path} #{name} container must drop all Linux capabilities" unless dropped.include?("ALL")
+    end
+  end
+
+  def require_network_policy_contract!(repo, missing)
+    policy_path = File.join(repo, "deploy/kubernetes/network-policy.yaml")
+    unless File.exist?(policy_path)
+      missing << "kubernetes network policy manifest must exist"
+      return
+    end
+
+    policies = read_yaml_stream(policy_path).select { |doc| doc["kind"] == "NetworkPolicy" }
+    default_deny = policies.find { |doc| doc.dig("metadata", "name") == "oblivious-default-deny" }
+    allow_ingress = policies.find { |doc| doc.dig("metadata", "name") == "oblivious-allow-platform-ingress" }
+    allow_egress = policies.find { |doc| doc.dig("metadata", "name") == "oblivious-allow-platform-egress" }
+
+    missing << "network policy must include oblivious-default-deny" if default_deny.nil?
+    if default_deny
+      policy_types = default_deny.dig("spec", "policyTypes").to_a
+      missing << "oblivious-default-deny must cover ingress and egress" unless policy_types.include?("Ingress") && policy_types.include?("Egress")
+      missing << "oblivious-default-deny must select all pods" unless default_deny.dig("spec", "podSelector") == {}
+      missing << "oblivious-default-deny must not allow ingress" unless default_deny.dig("spec", "ingress").to_a.empty?
+      missing << "oblivious-default-deny must not allow egress" unless default_deny.dig("spec", "egress").to_a.empty?
+    end
+
+    missing << "network policy must include oblivious-allow-platform-ingress" if allow_ingress.nil?
+    if allow_ingress
+      ingress_rules = allow_ingress.dig("spec", "ingress").to_a
+      missing << "oblivious-allow-platform-ingress must allow same-namespace traffic" unless ingress_rules.any? { |rule| rule.fetch("from", []).any? { |peer| peer.dig("namespaceSelector", "matchLabels", "kubernetes.io/metadata.name") == "oblivious" } }
+      missing << "oblivious-allow-platform-ingress must allow ingress-nginx traffic" unless ingress_rules.any? { |rule| rule.fetch("from", []).any? { |peer| peer.dig("namespaceSelector", "matchLabels", "kubernetes.io/metadata.name") == "ingress-nginx" } }
+    end
+
+    missing << "network policy must include oblivious-allow-platform-egress" if allow_egress.nil?
+    if allow_egress
+      egress_rules = allow_egress.dig("spec", "egress").to_a
+      all_ports = egress_rules.flat_map { |rule| rule.fetch("ports", []) }.map { |port| port["port"].to_i }
+      missing << "oblivious-allow-platform-egress must allow DNS egress" unless all_ports.include?(53)
+      missing << "oblivious-allow-platform-egress must allow HTTPS provider egress" unless all_ports.include?(443)
+      missing << "oblivious-allow-platform-egress must allow same-namespace service traffic" unless egress_rules.any? { |rule| rule.fetch("to", []).any? { |peer| peer.dig("namespaceSelector", "matchLabels", "kubernetes.io/metadata.name") == "oblivious" } }
+    end
+  end
+
+  require_network_policy_contract!(repo, missing)
+  first_party_deployment_paths.each do |relative_path|
+    require_first_party_security_context!(repo, relative_path, missing)
+  end
+
   app_deployment = read_yaml(File.join(repo, "deploy/kubernetes/app-deployment.yaml"))
   server = container(app_deployment, "server")
   missing << "app deployment must use RollingUpdate maxUnavailable=0" unless app_deployment.dig("spec", "strategy", "rollingUpdate", "maxUnavailable").to_s == "0"
@@ -203,6 +283,10 @@ ruby -ryaml -rjson -e '
   missing << "web deployment must define CPU/memory requests and limits" unless has_resources?(web)
   missing << "web deployment must define livenessProbe" unless has_probe?(web, "livenessProbe")
   missing << "web deployment must define readinessProbe" unless has_probe?(web, "readinessProbe")
+  missing << "web deployment must listen on non-root HTTP port 8080" unless has_named_container_port?(web, "http", 8080)
+  web_dockerfile = File.read(File.join(repo, "Dockerfile.web"))
+  missing << "Dockerfile.web must listen on non-root port 8080" unless web_dockerfile.include?("listen 8080")
+  missing << "Dockerfile.web must expose non-root port 8080" unless web_dockerfile.include?("EXPOSE 8080")
 
   agent_docs = read_yaml_stream(File.join(repo, "deploy/kubernetes/agent-deployment.yaml"))
   agent_deployment = agent_docs.find { |doc| doc["kind"] == "Deployment" } || {}
@@ -278,6 +362,8 @@ ruby -ryaml -rjson -e '
   compose_kafka = compose.dig("services", "kafka") || {}
   kafka_profiles = compose_kafka.fetch("profiles", [])
   missing << "docker compose kafka must be available in the microservices profile" unless kafka_profiles.empty? || kafka_profiles.include?("microservices")
+  compose_web = compose.dig("services", "oblivious-web") || {}
+  missing << "docker compose web must publish container port 8080" unless compose_web.fetch("ports", []).map(&:to_s).any? { |value| value.include?(":8080") }
 
   local_server_deployment = deployment_doc(File.join(repo, "deploy/kubernetes/server.yaml"))
   local_server = first_container(local_server_deployment)
