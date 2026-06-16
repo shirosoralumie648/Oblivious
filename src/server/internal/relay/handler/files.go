@@ -54,6 +54,10 @@ type fileMappingLookupStore interface {
 	GetFileMapping(ctx context.Context, localFileID, userID, organizationID string) (FileMappingRecord, error)
 }
 
+type fileMappingListStore interface {
+	ListFileMappings(ctx context.Context, userID, organizationID string) ([]FileMappingRecord, error)
+}
+
 var ErrFileMappingNotFound = errors.New("relay file mapping not found")
 
 func (h *FilesHandler) Handle(c *gin.Context) error {
@@ -168,9 +172,9 @@ func (h *FilesHandler) HandleUpload(c *gin.Context) error {
 	return nil
 }
 
-// GET /v1/files (透传)
+// GET /v1/files (tenant-scoped mapped passthrough)
 func (h *FilesHandler) HandleList(c *gin.Context) {
-	h.passthrough(c, "GET", "/v1/files", nil)
+	h.passthroughMappedFileList(c)
 }
 
 // GET /v1/files/:id (透传)
@@ -358,6 +362,118 @@ func (h *FilesHandler) passthroughMappedFile(c *gin.Context, method, localFileID
 	}
 
 	h.passthrough(c, method, "/"+mapping.OpenAIFileID+suffix, nil)
+}
+
+func (h *FilesHandler) passthroughMappedFileList(c *gin.Context) {
+	if h.mappingStore == nil {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": gin.H{"code": "relay_file_mapping_store_required", "message": "file list requires a configured mapping store"}})
+		return
+	}
+	applyTrustedInternalIdentity(c)
+
+	userID, hasUserID := types.TrustedUserIDFromContext(c.Request.Context())
+	organizationID, hasOrganizationID := types.TrustedOrganizationIDFromContext(c.Request.Context())
+	if !hasUserID || strings.TrimSpace(userID) == "" || !hasOrganizationID || strings.TrimSpace(organizationID) == "" {
+		c.JSON(http.StatusForbidden, gin.H{"error": gin.H{"code": "relay_file_mapping_identity_required", "message": "file list requires trusted tenant identity"}})
+		return
+	}
+
+	listStore, ok := h.mappingStore.(fileMappingListStore)
+	if !ok {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": gin.H{"code": "relay_file_mapping_list_required", "message": "file list requires a mapping list store"}})
+		return
+	}
+
+	mappings, err := listStore.ListFileMappings(c.Request.Context(), userID, organizationID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "relay_file_mapping_list_failed", "message": "failed to list file mappings"}})
+		return
+	}
+	if len(mappings) == 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"object":   "list",
+			"data":     []any{},
+			"has_more": false,
+			"first_id": nil,
+			"last_id":  nil,
+		})
+		return
+	}
+
+	resp, err := h.passthroughUpstream(c, http.MethodGet, "", nil)
+	if err != nil {
+		status := http.StatusBadGateway
+		if errors.Is(err, types.ErrNoAvailableChannel) {
+			status = http.StatusServiceUnavailable
+		}
+		c.JSON(status, gin.H{"error": gin.H{"code": "upstream_error", "message": err.Error()}})
+		return
+	}
+	contentType := resp.Headers.Get("Content-Type")
+	if strings.TrimSpace(contentType) == "" {
+		contentType = "application/json"
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		c.Data(resp.StatusCode, contentType, resp.Content)
+		return
+	}
+
+	rewritten, err := rewriteTenantFileList(resp.Content, mappings)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"code": "relay_file_list_response_failed", "message": "failed to prepare tenant file list response"}})
+		return
+	}
+	c.Data(http.StatusOK, "application/json", rewritten)
+}
+
+func rewriteTenantFileList(body []byte, mappings []FileMappingRecord) ([]byte, error) {
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, err
+	}
+	data, ok := payload["data"].([]any)
+	if !ok {
+		return nil, errors.New("upstream file list response missing data")
+	}
+
+	byProviderID := make(map[string]FileMappingRecord, len(mappings))
+	for _, mapping := range mappings {
+		openAIFileID := strings.TrimSpace(mapping.OpenAIFileID)
+		if openAIFileID == "" || strings.TrimSpace(mapping.LocalFileID) == "" {
+			continue
+		}
+		byProviderID[openAIFileID] = mapping
+	}
+
+	filtered := make([]any, 0, len(data))
+	localIDs := make([]string, 0, len(data))
+	for _, item := range data {
+		file, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		providerFileID, _ := file["id"].(string)
+		mapping, ok := byProviderID[providerFileID]
+		if !ok {
+			continue
+		}
+		file["provider_file_id"] = providerFileID
+		file["id"] = mapping.LocalFileID
+		filtered = append(filtered, file)
+		localIDs = append(localIDs, mapping.LocalFileID)
+	}
+
+	payload["data"] = filtered
+	payload["has_more"] = false
+	if len(localIDs) == 0 {
+		payload["first_id"] = nil
+		payload["last_id"] = nil
+	} else {
+		payload["first_id"] = localIDs[0]
+		payload["last_id"] = localIDs[len(localIDs)-1]
+	}
+
+	return json.Marshal(payload)
 }
 
 // saveFileMapping 将本地 fileID 和 OpenAI fileID 的映射存入 DB

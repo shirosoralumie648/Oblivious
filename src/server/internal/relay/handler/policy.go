@@ -486,7 +486,7 @@ var routePolicies = []RoutePolicy{
 	disabled("GET", "/v1/batches", types.APITypeBatch, types.StrategyPassthrough, "batch passthrough lacks commercial audit and settlement", "Phase 15"),
 	disabled("GET", "/v1/batches/:id", types.APITypeBatch, types.StrategyPassthrough, "batch passthrough lacks commercial audit and settlement", "Phase 15"),
 	supportedFileUpload("POST", "/v1/files", types.APITypeFiles, types.StrategyFileProxy),
-	disabled("GET", "/v1/files", types.APITypeFiles, types.StrategyPassthrough, "file passthrough lacks tenant file ownership and audit", "Phase 15"),
+	supportedEstimate("GET", "/v1/files", types.APITypeFiles, types.StrategyPassthrough),
 	supportedEstimate("GET", "/v1/files/:id", types.APITypeFiles, types.StrategyPassthrough),
 	supportedEstimate("DELETE", "/v1/files/:id", types.APITypeFiles, types.StrategyPassthrough),
 	supportedEstimate("GET", "/v1/files/:id/content", types.APITypeFiles, types.StrategyPassthrough),

@@ -166,6 +166,230 @@ func TestFilesUploadRoutesThroughBillingRouter(t *testing.T) {
 	}
 }
 
+func TestFilesListRequiresMappingStore(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("upstream should not be called without mapping store")
+	}))
+	defer upstream.Close()
+
+	handler := NewFilesHandler(nil, channel.NewOpenAIAdapter(upstream.URL, "sk-test"), t.TempDir())
+	ctx, rec := newFilesListContext()
+	ctx.Request = ctx.Request.WithContext(trustedFilesContext(ctx.Request.Context()))
+
+	handler.HandleList(ctx)
+
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusNotImplemented, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "relay_file_mapping_store_required") {
+		t.Fatalf("expected mapping store guard, got %s", rec.Body.String())
+	}
+}
+
+func TestFilesListRequiresTrustedIdentity(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("upstream should not be called without trusted tenant identity")
+	}))
+	defer upstream.Close()
+
+	handler := NewFilesHandler(nil, channel.NewOpenAIAdapter(upstream.URL, "sk-test"), t.TempDir()).WithMappingStore(&recordingFilesMappingStore{})
+	ctx, rec := newFilesListContext()
+
+	handler.HandleList(ctx)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusForbidden, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "relay_file_mapping_identity_required") {
+		t.Fatalf("expected trusted identity guard, got %s", rec.Body.String())
+	}
+}
+
+func TestFilesListRequiresListCapableMappingStore(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("upstream should not be called without list-capable mapping store")
+	}))
+	defer upstream.Close()
+
+	handler := NewFilesHandler(nil, channel.NewOpenAIAdapter(upstream.URL, "sk-test"), t.TempDir()).WithMappingStore(&saveOnlyFilesMappingStore{})
+	ctx, rec := newFilesListContext()
+	ctx.Request = ctx.Request.WithContext(trustedFilesContext(ctx.Request.Context()))
+
+	handler.HandleList(ctx)
+
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusNotImplemented, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "relay_file_mapping_list_required") {
+		t.Fatalf("expected mapping list guard, got %s", rec.Body.String())
+	}
+}
+
+func TestFilesListFiltersTenantMappingsAndRewritesIDs(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var upstreamPath string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamPath = r.URL.Path
+		if r.Method != http.MethodGet {
+			t.Fatalf("upstream method = %s, want GET", r.Method)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"object":"list",
+			"data":[
+				{"id":"file_openai_owned","object":"file","filename":"owned.jsonl","bytes":5},
+				{"id":"file_openai_other","object":"file","filename":"other.jsonl","bytes":9}
+			],
+			"first_id":"file_openai_owned",
+			"last_id":"file_openai_other",
+			"has_more":true
+		}`))
+	}))
+	defer upstream.Close()
+
+	store := &recordingFilesMappingStore{
+		list: []FileMappingRecord{{
+			LocalFileID:    "file_local_owned",
+			OpenAIFileID:   "file_openai_owned",
+			UserID:         "user_file",
+			OrganizationID: "org_file",
+		}},
+	}
+	handler := NewFilesHandler(nil, channel.NewOpenAIAdapter(upstream.URL, "sk-test"), t.TempDir()).WithMappingStore(store)
+	ctx, rec := newFilesListContext()
+	ctx.Request = ctx.Request.WithContext(trustedFilesContext(ctx.Request.Context()))
+
+	handler.HandleList(ctx)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if upstreamPath != "/v1/files" {
+		t.Fatalf("upstream path = %q, want /v1/files", upstreamPath)
+	}
+	if store.listUserID != "user_file" || store.listOrganizationID != "org_file" {
+		t.Fatalf("list evidence user=%q org=%q", store.listUserID, store.listOrganizationID)
+	}
+
+	var body struct {
+		Data []struct {
+			ID             string `json:"id"`
+			ProviderFileID string `json:"provider_file_id"`
+			Filename       string `json:"filename"`
+		} `json:"data"`
+		FirstID string `json:"first_id"`
+		LastID  string `json:"last_id"`
+		HasMore bool   `json:"has_more"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode list response: %v\n%s", err, rec.Body.String())
+	}
+	if len(body.Data) != 1 {
+		t.Fatalf("data len = %d, want 1; body=%s", len(body.Data), rec.Body.String())
+	}
+	if body.Data[0].ID != "file_local_owned" ||
+		body.Data[0].ProviderFileID != "file_openai_owned" ||
+		body.Data[0].Filename != "owned.jsonl" {
+		t.Fatalf("unexpected rewritten file entry: %+v", body.Data[0])
+	}
+	if body.FirstID != "file_local_owned" || body.LastID != "file_local_owned" || body.HasMore {
+		t.Fatalf("unexpected pagination metadata: first=%q last=%q has_more=%v", body.FirstID, body.LastID, body.HasMore)
+	}
+	if strings.Contains(rec.Body.String(), "file_openai_other") || strings.Contains(rec.Body.String(), "other.jsonl") {
+		t.Fatalf("response leaked unmapped upstream file: %s", rec.Body.String())
+	}
+}
+
+func TestFilesListWithNoTenantMappingsDoesNotCallUpstream(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("upstream should not be called when tenant has no file mappings")
+	}))
+	defer upstream.Close()
+
+	store := &recordingFilesMappingStore{}
+	handler := NewFilesHandler(nil, channel.NewOpenAIAdapter(upstream.URL, "sk-test"), t.TempDir()).WithMappingStore(store)
+	ctx, rec := newFilesListContext()
+	ctx.Request = ctx.Request.WithContext(trustedFilesContext(ctx.Request.Context()))
+
+	handler.HandleList(ctx)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var body struct {
+		Data    []any `json:"data"`
+		HasMore bool  `json:"has_more"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+	if len(body.Data) != 0 || body.HasMore {
+		t.Fatalf("empty tenant list response mismatch: %+v", body)
+	}
+}
+
+func TestFilesListRoutesMappedPassthroughThroughBillingRouter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var upstreamPath string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"file_openai_123","object":"file"}],"has_more":false}`))
+	}))
+	defer upstream.Close()
+
+	selectedChannel := &types.RouteChannel{
+		Channel: &types.Channel{
+			ID:       "ch-files-list",
+			Name:     "Files List",
+			Provider: "openai",
+			BaseURL:  upstream.URL,
+			APIKey:   "sk-files-list",
+			Enabled:  true,
+		},
+		ChannelID: "ch-files-list",
+		Enabled:   true,
+		Healthy:   true,
+	}
+	testRouter := &chatTestRouter{selected: selectedChannel}
+	restoreRouter := setRouterForChatTest(testRouter)
+	t.Cleanup(restoreRouter)
+
+	store := &recordingFilesMappingStore{
+		list: []FileMappingRecord{{
+			LocalFileID:    "file_local_123",
+			OpenAIFileID:   "file_openai_123",
+			UserID:         "user_file",
+			OrganizationID: "org_file",
+		}},
+	}
+	handler := NewFilesHandler(nil, channel.NewOpenAIAdapter("http://direct.example.invalid", "sk-direct"), t.TempDir()).WithMappingStore(store)
+	ctx, rec := newFilesListContext()
+	ctx.Request = ctx.Request.WithContext(trustedFilesContext(ctx.Request.Context()))
+
+	handler.HandleList(ctx)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if testRouter.routeWithBillingCalls != 1 {
+		t.Fatalf("RouteWithBilling calls = %d, want 1", testRouter.routeWithBillingCalls)
+	}
+	if upstreamPath != "/v1/files" {
+		t.Fatalf("upstream path = %q, want /v1/files", upstreamPath)
+	}
+}
+
 func TestFilesGetLooksUpTenantMappingBeforePassthrough(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -341,6 +565,13 @@ func newFilesIDContext(method, path, id string) (*gin.Context, *httptest.Respons
 	return ctx, rec
 }
 
+func newFilesListContext() (*gin.Context, *httptest.ResponseRecorder) {
+	rec := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(rec)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/files", nil)
+	return ctx, rec
+}
+
 func trustedFilesContext(ctx context.Context) context.Context {
 	ctx = types.WithTrustedUserID(ctx, "user_file")
 	ctx = types.WithTrustedOrganizationID(ctx, "org_file")
@@ -355,6 +586,10 @@ type recordingFilesMappingStore struct {
 	lookupLocalID        string
 	lookupUserID         string
 	lookupOrganizationID string
+	list                 []FileMappingRecord
+	listErr              error
+	listUserID           string
+	listOrganizationID   string
 }
 
 func (s *recordingFilesMappingStore) SaveFileMapping(ctx context.Context, record FileMappingRecord) error {
@@ -378,4 +613,25 @@ func (s *recordingFilesMappingStore) GetFileMapping(ctx context.Context, localFi
 		return FileMappingRecord{}, ErrFileMappingNotFound
 	}
 	return s.lookup, nil
+}
+
+func (s *recordingFilesMappingStore) ListFileMappings(ctx context.Context, userID, organizationID string) ([]FileMappingRecord, error) {
+	s.listUserID = userID
+	s.listOrganizationID = organizationID
+	if s.listErr != nil {
+		return nil, s.listErr
+	}
+	records := make([]FileMappingRecord, 0, len(s.list))
+	for _, record := range s.list {
+		if record.UserID == userID && record.OrganizationID == organizationID {
+			records = append(records, record)
+		}
+	}
+	return records, nil
+}
+
+type saveOnlyFilesMappingStore struct{}
+
+func (s *saveOnlyFilesMappingStore) SaveFileMapping(ctx context.Context, record FileMappingRecord) error {
+	return nil
 }

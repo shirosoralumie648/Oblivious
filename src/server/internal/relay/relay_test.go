@@ -266,6 +266,17 @@ func TestNewRelayFilesSQLRelayStoreUploadGetTenantFailClosed(t *testing.T) {
 				t.Errorf("upstream filename = %q, want tenant.jsonl", header.Filename)
 			}
 			_, _ = w.Write([]byte(`{"id":"file_openai_sql","object":"file","bytes":5}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/files":
+			_, _ = w.Write([]byte(`{
+					"object":"list",
+					"data":[
+						{"id":"file_openai_sql","object":"file","filename":"tenant.jsonl","purpose":"assistants"},
+						{"id":"file_openai_unmapped","object":"file","filename":"other.jsonl","purpose":"assistants"}
+					],
+					"has_more":true,
+					"first_id":"file_openai_sql",
+					"last_id":"file_openai_unmapped"
+				}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/files/file_openai_sql":
 			_, _ = w.Write([]byte(`{"id":"file_openai_sql","object":"file","purpose":"assistants"}`))
 		default:
@@ -369,16 +380,49 @@ func TestNewRelayFilesSQLRelayStoreUploadGetTenantFailClosed(t *testing.T) {
 		t.Fatalf("get response id = %q, want provider file id", getResponse.ID)
 	}
 
+	listRequest := httptest.NewRequest(http.MethodGet, "/v1/files", nil)
+	addTrustedTenantHeaders(listRequest, "user_files_sql", "org_files_sql", "req_files_list_sql")
+	listRecorder := httptest.NewRecorder()
+	relayInstance.Engine().ServeHTTP(listRecorder, listRequest)
+	if listRecorder.Code != http.StatusOK {
+		t.Fatalf("list status = %d, want %d; body=%s", listRecorder.Code, http.StatusOK, listRecorder.Body.String())
+	}
+	var listResponse struct {
+		Data []struct {
+			ID             string `json:"id"`
+			ProviderFileID string `json:"provider_file_id"`
+			Filename       string `json:"filename"`
+		} `json:"data"`
+		HasMore bool `json:"has_more"`
+	}
+	if err := json.Unmarshal(listRecorder.Body.Bytes(), &listResponse); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+	if len(listResponse.Data) != 1 {
+		t.Fatalf("list response data len = %d, want 1; body=%s", len(listResponse.Data), listRecorder.Body.String())
+	}
+	if listResponse.Data[0].ID != uploadResponse.ID ||
+		listResponse.Data[0].ProviderFileID != "file_openai_sql" ||
+		listResponse.Data[0].Filename != "tenant.jsonl" ||
+		listResponse.HasMore {
+		t.Fatalf("unexpected list response: %+v", listResponse)
+	}
+	if strings.Contains(listRecorder.Body.String(), "file_openai_unmapped") || strings.Contains(listRecorder.Body.String(), "other.jsonl") {
+		t.Fatalf("tenant list leaked unmapped upstream file: %s", listRecorder.Body.String())
+	}
+
 	mu.Lock()
-	callsAfterAuthorizedGet := len(upstreamPaths)
+	callsAfterAuthorizedList := len(upstreamPaths)
 	gotPaths := append([]string(nil), upstreamPaths...)
 	gotAuth := append([]string(nil), upstreamAuth...)
 	mu.Unlock()
-	if callsAfterAuthorizedGet != 2 ||
+	if callsAfterAuthorizedList != 3 ||
 		gotPaths[0] != "/v1/files" ||
 		gotPaths[1] != "/v1/files/file_openai_sql" ||
+		gotPaths[2] != "/v1/files" ||
 		gotAuth[0] != "Bearer sk-files-sql" ||
-		gotAuth[1] != "Bearer sk-files-sql" {
+		gotAuth[1] != "Bearer sk-files-sql" ||
+		gotAuth[2] != "Bearer sk-files-sql" {
 		t.Fatalf("unexpected upstream calls paths=%v auth=%v", gotPaths, gotAuth)
 	}
 
@@ -401,13 +445,30 @@ func TestNewRelayFilesSQLRelayStoreUploadGetTenantFailClosed(t *testing.T) {
 			if !strings.Contains(recorder.Body.String(), "relay_file_mapping_not_found") {
 				t.Fatalf("expected relay_file_mapping_not_found, got %s", recorder.Body.String())
 			}
+
+			listRequest := httptest.NewRequest(http.MethodGet, "/v1/files", nil)
+			addTrustedTenantHeaders(listRequest, tc.userID, tc.organizationID, "req_list_"+strings.ReplaceAll(tc.name, " ", "_"))
+			listRecorder := httptest.NewRecorder()
+			relayInstance.Engine().ServeHTTP(listRecorder, listRequest)
+			if listRecorder.Code != http.StatusOK {
+				t.Fatalf("list status = %d, want %d; body=%s", listRecorder.Code, http.StatusOK, listRecorder.Body.String())
+			}
+			var wrongTenantList struct {
+				Data []any `json:"data"`
+			}
+			if err := json.Unmarshal(listRecorder.Body.Bytes(), &wrongTenantList); err != nil {
+				t.Fatalf("decode wrong-tenant list response: %v", err)
+			}
+			if len(wrongTenantList.Data) != 0 {
+				t.Fatalf("wrong-tenant list leaked data: %s", listRecorder.Body.String())
+			}
 		})
 	}
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(upstreamPaths) != callsAfterAuthorizedGet {
-		t.Fatalf("tenant-mismatched lookup called upstream: before=%d after=%d paths=%v", callsAfterAuthorizedGet, len(upstreamPaths), upstreamPaths)
+	if len(upstreamPaths) != callsAfterAuthorizedList {
+		t.Fatalf("tenant-mismatched lookup called upstream: before=%d after=%d paths=%v", callsAfterAuthorizedList, len(upstreamPaths), upstreamPaths)
 	}
 }
 

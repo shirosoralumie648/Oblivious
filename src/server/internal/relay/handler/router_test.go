@@ -400,10 +400,12 @@ func TestRoutePolicyObservabilityRecordsAllowedAndRejectedDecisions(t *testing.T
 
 	chatHandler := &countingHandler{}
 	filesHandler := &countingHandler{}
+	batchHandler := &countingHandler{}
 	engine := gin.New()
 	RegisterRoutesWithOptions(engine, map[types.APIType]types.Handler{
 		types.APITypeChat:  chatHandler,
 		types.APITypeFiles: filesHandler,
+		types.APITypeBatch: batchHandler,
 	}, RouteRegistrationOptions{Production: true})
 
 	rejectedBefore := testutil.ToFloat64(metrics.RelayRouteDecisionsTotal.WithLabelValues(
@@ -447,16 +449,16 @@ func TestRoutePolicyObservabilityRecordsAllowedAndRejectedDecisions(t *testing.T
 
 	disabledBefore := testutil.ToFloat64(metrics.RelayRouteDecisionsTotal.WithLabelValues(
 		string(DisabledInProduction),
-		types.APITypeFiles.String(),
+		types.APITypeBatch.String(),
 		string(RouteAuditResultRejected),
 		"endpoint_disabled_in_production",
 	))
-	req = httptest.NewRequest(http.MethodGet, "/v1/files", nil)
+	req = httptest.NewRequest(http.MethodGet, "/v1/batches", nil)
 	rec = httptest.NewRecorder()
 	engine.ServeHTTP(rec, req)
 	disabledAfter := testutil.ToFloat64(metrics.RelayRouteDecisionsTotal.WithLabelValues(
 		string(DisabledInProduction),
-		types.APITypeFiles.String(),
+		types.APITypeBatch.String(),
 		string(RouteAuditResultRejected),
 		"endpoint_disabled_in_production",
 	))

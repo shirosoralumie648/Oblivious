@@ -339,6 +339,43 @@ func (s *RelayStore) GetFileMapping(ctx context.Context, localFileID, userID, or
 	return record, nil
 }
 
+func (s *RelayStore) ListFileMappings(ctx context.Context, userID, organizationID string) ([]handler.FileMappingRecord, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT local_file_id, openai_file_id, local_path, size_bytes,
+		       user_id, organization_id, request_id, created_at
+		FROM relay_file_mappings
+		WHERE user_id = $1
+		  AND organization_id = $2
+		ORDER BY created_at DESC, local_file_id DESC
+	`, userID, organizationID)
+	if err != nil {
+		return nil, fmt.Errorf("list relay file mappings: %w", err)
+	}
+	defer rows.Close()
+
+	records := make([]handler.FileMappingRecord, 0)
+	for rows.Next() {
+		var record handler.FileMappingRecord
+		if err := rows.Scan(
+			&record.LocalFileID,
+			&record.OpenAIFileID,
+			&record.LocalPath,
+			&record.SizeBytes,
+			&record.UserID,
+			&record.OrganizationID,
+			&record.RequestID,
+			&record.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan relay file mapping: %w", err)
+		}
+		records = append(records, record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate relay file mappings: %w", err)
+	}
+	return records, nil
+}
+
 func (s *RelayStore) SaveConversationAffinity(ctx context.Context, conversationID, channelID string) error {
 	conversationID = strings.TrimSpace(conversationID)
 	channelID = strings.TrimSpace(channelID)

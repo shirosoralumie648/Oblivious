@@ -3,9 +3,9 @@
 ## Current Truth
 
 - Branch: `main`.
-- Rescan evidence base before this documentation refresh: `c0df1fa` (`test(task): prove approval state guard with postgres`).
-- Remote parity at rescan start: `HEAD == origin/main` (`c0df1fab2dd2ad20af33db6b9575172972cce2a9`).
-- Working tree at rescan start: clean at the pushed Task approval PostgreSQL proof baseline.
+- Rescan evidence base before this Relay file-list continuation: `001a6ab` (`test(release): require all live payment rails`).
+- Remote parity at continuation start: `HEAD == origin/main` (`001a6ab`).
+- Working tree at continuation start: clean at the pushed target/live payment-rails verifier baseline.
 - The earlier same-day scans at `1c52194`, `53aaca0`, `d4fdc37`, `75ff216`, `98a1683`, `c6d9b34`, `5969e4b`, `1e7c6ef`, `e222967`, `0694b44`, `984b6a7`, `cb18df4`, and `bd92f91` are now older baselines for this report.
 - The project is still not complete against the four `docs/superpowers/specs/2026-06-04-*` specs.
 - Current matrix remains `4 Proven / 10 Partial / 0 Gap / 0 Unverified`.
@@ -40,6 +40,7 @@
 - Marketplace paid-install WeChat Pay provider parity is now covered locally. HTTP paid-install success coverage runs both Alipay and WeChat Pay provider subcases, domestic hosted checkout creator tests assert Marketplace metadata query parity for both providers, settlement PostgreSQL tests preserve selected provider/currency and lifecycle keys for both providers under the money-movement profile, and the built Marketplace browser journey selects WeChat Pay and verifies the continuation link.
 - Agent ReAct model-routing, skill runtime, `call_agent`, and websearch fallback proof are now part of the no-skip `agent-runtime-memory` commercial DB profile before the existing SQL persistence checks. The profile uses disposable/configured PostgreSQL, rejects skipped tests, and now covers second-iteration model switching after tool results, skill selection/tool filtering/instruction injection, recursive sub-agent depth guards, and websearch fallback/exhaustion.
 - Target/live evidence validation now requires separate live provider evidence entries for Stripe, Alipay, and WeChat Pay. The target evidence template prints all three entries, and the verifier rejects a final manifest if any of the three first-party payment rails is missing checkout/refund/payout/reconciliation proof or concrete artifact refs.
+- Relay file-list passthrough now has tenant-scoped ownership proof. `GET /v1/files` moved from production-disabled raw passthrough to a mapped, billed, trusted-identity route: it lists current-tenant SQL file mappings, skips upstream for tenants with no mappings, filters upstream file-list rows to mapped provider IDs, rewrites client-visible IDs back to local file IDs, and preserves `provider_file_id` evidence.
 
 ## Repository Inventory
 
@@ -107,6 +108,7 @@ No rows are currently marked `Gap` or `Unverified`.
 - Chat realtime repository proof is local and focused: `go test ./internal/ws`, Chat handler realtime publish tests, focused Chat Vitest, built-app Playwright WebSocket proof, OpenAPI contract verification, web TypeScript, and docs gate cover this slice.
 - Task approval state/workspace proof is local and focused: `scripts/verify-commercial-db-evidence.sh app-stateful-routes` covers the real app router, cookie/CSRF, SQL store, allowed transition, denied terminal/draft/current-state cases, and cross-workspace no-mutation boundary.
 - Agent runtime/tool proof is local and focused: `scripts/verify-commercial-db-evidence.sh agent-runtime-memory` now reruns ReAct model routing, skill selection/tool filtering/instruction injection, `call_agent` recursion guard, websearch fallback, and Agent SQL runtime/memory persistence with skipped tests rejected.
+- Relay file-list ownership proof is local and focused: `scripts/verify-commercial-db-evidence.sh relay-file-mapping-tenant-ownership` now covers upload, mapped get, tenant-scoped list, wrong-tenant empty list, and list store ownership filtering against disposable/configured PostgreSQL with skipped tests rejected.
 - `scripts/verify-commercial-db-evidence.sh` currently exposes 24 focused profiles plus the `all` aggregator:
   - `backend-journey`
   - `marketplace-money-movement`
@@ -189,6 +191,10 @@ Closed in this continuation:
   - Evidence: `scripts/verify-target-release-evidence.sh` now prints separate `stripe`, `alipay`, and `wechatpay` provider slots in `--print-template`, rejects duplicate provider names, and rejects manifests missing any of the three required first-party payment rails.
   - Verification: `bash scripts/verify-target-release-evidence.sh --print-template`, a temporary fully populated current-commit manifest, a temporary manifest missing `wechatpay`, `bash -n scripts/verify-target-release-evidence.sh scripts/verify-quality-gates.sh`, docs gate, and `git diff --check` passed.
   - Boundary: this proves verifier strictness only. It does not provide live checkout, refund, payout, reconciliation, or target environment artifacts.
+- Relay file-list tenant ownership.
+  - Evidence: `src/server/internal/relay/handler/files.go` now requires a list-capable file mapping store and trusted tenant identity before `GET /v1/files`, `src/server/internal/relay/store.go` exposes `ListFileMappings` scoped by user and organization, `src/server/internal/relay/handler/policy.go` marks the list route production-enabled, and the route table records the mapped-list boundary.
+  - Verification: focused handler policy/list tests, focused Relay SQL tests, `scripts/verify-commercial-db-evidence.sh relay-file-mapping-tenant-ownership`, docs gate, and `git diff --check` passed.
+  - Boundary: this is repository-local file-list ownership proof. It does not replace target-environment tenant-isolation or final no-skip release evidence.
 
 ## TODO And Placeholder Scan
 

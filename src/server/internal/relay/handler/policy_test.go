@@ -78,6 +78,7 @@ func TestInitialCommercialPolicyClassifiesCurrentSurface(t *testing.T) {
 		"POST /v1/responses",
 		"POST /v1/embeddings",
 		"POST /v1/files",
+		"GET /v1/files",
 		"GET /v1/files/:id",
 		"DELETE /v1/files/:id",
 		"GET /v1/files/:id/content",
@@ -106,7 +107,6 @@ func TestInitialCommercialPolicyClassifiesCurrentSurface(t *testing.T) {
 		"POST /v1/batch",
 		"GET /v1/batches",
 		"GET /v1/batches/:id",
-		"GET /v1/files",
 		"POST /v1/fine_tuning/jobs",
 		"GET /v1/fine_tuning/jobs",
 		"GET /v1/fine_tuning/jobs/:id",
@@ -155,6 +155,7 @@ func TestSupportedRoutePoliciesDeclareCostAbuseGuardrails(t *testing.T) {
 
 func TestMappedFilePassthroughRoutesAreProductionEnabled(t *testing.T) {
 	supportedMappedFiles := []string{
+		"GET /v1/files",
 		"GET /v1/files/:id",
 		"DELETE /v1/files/:id",
 		"GET /v1/files/:id/content",
@@ -170,11 +171,6 @@ func TestMappedFilePassthroughRoutesAreProductionEnabled(t *testing.T) {
 		if !policy.TenantIdentityRequired {
 			t.Fatalf("%s must require trusted tenant identity", key)
 		}
-	}
-
-	listPolicy := mustPolicy(t, "GET /v1/files")
-	if listPolicy.Class != DisabledInProduction {
-		t.Fatalf("GET /v1/files class = %s, want %s until tenant-scoped list support exists", listPolicy.Class, DisabledInProduction)
 	}
 }
 
@@ -219,6 +215,7 @@ func TestInitialBillingSettlementPolicyClassifiesCurrentSurface(t *testing.T) {
 		"POST /v1/images/generations",
 		"POST /v1/images/edits",
 		"POST /v1/images/variations",
+		"GET /v1/files",
 		"GET /v1/files/:id",
 		"DELETE /v1/files/:id",
 		"GET /v1/files/:id/content",

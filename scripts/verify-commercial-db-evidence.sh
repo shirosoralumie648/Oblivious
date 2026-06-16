@@ -63,9 +63,9 @@ Profiles:
                                replay/expiry, session revocation, hash, and
                                rate-limit persistence PostgreSQL tests.
   relay-file-mapping-tenant-ownership
-                               Run focused Relay file-mapping upload,
-                               passthrough, and tenant ownership PostgreSQL
-                               tests.
+                               Run focused Relay file-mapping upload, mapped
+                               get/list passthrough, and tenant ownership
+                               PostgreSQL tests.
   relay-runtime-channel-isolation
                                Run focused Relay runtime channel selection,
                                model discovery, conversation affinity, and
@@ -317,7 +317,7 @@ run_auth_security_persistence_profile() {
 run_relay_file_mapping_tenant_ownership_profile() {
   local relay_file_mapping_pattern
 
-  relay_file_mapping_pattern="^(TestRelayStore(SaveFileMappingPersistsTenantOwnership|GetFileMappingRequiresTenantOwnership)|TestNewRelayFilesSQLRelayStoreUploadGetTenantFailClosed)$"
+  relay_file_mapping_pattern="^(TestRelayStore(SaveFileMappingPersistsTenantOwnership|GetFileMappingRequiresTenantOwnership|ListFileMappingsRequiresTenantOwnership)|TestNewRelayFilesSQLRelayStoreUploadGetTenantFailClosed)$"
   run_go_test_no_skips "relay file mapping tenant ownership" "./internal/relay" "$relay_file_mapping_pattern"
 }
 

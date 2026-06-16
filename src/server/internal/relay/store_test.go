@@ -403,6 +403,78 @@ func TestRelayStoreGetFileMappingRequiresTenantOwnership(t *testing.T) {
 	}
 }
 
+func TestRelayStoreListFileMappingsRequiresTenantOwnership(t *testing.T) {
+	store, _, ctx := testRelaySQLStore(t)
+
+	records := []handler.FileMappingRecord{
+		{
+			LocalFileID:    "file_local_old",
+			OpenAIFileID:   "file_openai_old",
+			LocalPath:      "/tmp/oblivious-relay-files/files/file_local_old.jsonl",
+			SizeBytes:      42,
+			UserID:         "user_1",
+			OrganizationID: "org_1",
+			RequestID:      "req_file_old",
+			CreatedAt:      time.Date(2026, 6, 5, 8, 0, 0, 0, time.UTC),
+		},
+		{
+			LocalFileID:    "file_local_new",
+			OpenAIFileID:   "file_openai_new",
+			LocalPath:      "/tmp/oblivious-relay-files/files/file_local_new.jsonl",
+			SizeBytes:      84,
+			UserID:         "user_1",
+			OrganizationID: "org_1",
+			RequestID:      "req_file_new",
+			CreatedAt:      time.Date(2026, 6, 5, 9, 0, 0, 0, time.UTC),
+		},
+		{
+			LocalFileID:    "file_local_other_user",
+			OpenAIFileID:   "file_openai_other_user",
+			LocalPath:      "/tmp/oblivious-relay-files/files/file_local_other_user.jsonl",
+			SizeBytes:      21,
+			UserID:         "user_2",
+			OrganizationID: "org_1",
+			RequestID:      "req_file_other_user",
+			CreatedAt:      time.Date(2026, 6, 5, 10, 0, 0, 0, time.UTC),
+		},
+		{
+			LocalFileID:    "file_local_other_org",
+			OpenAIFileID:   "file_openai_other_org",
+			LocalPath:      "/tmp/oblivious-relay-files/files/file_local_other_org.jsonl",
+			SizeBytes:      21,
+			UserID:         "user_1",
+			OrganizationID: "org_2",
+			RequestID:      "req_file_other_org",
+			CreatedAt:      time.Date(2026, 6, 5, 11, 0, 0, 0, time.UTC),
+		},
+	}
+	for _, record := range records {
+		if err := store.SaveFileMapping(ctx, record); err != nil {
+			t.Fatalf("SaveFileMapping(%s) returned error: %v", record.LocalFileID, err)
+		}
+	}
+
+	got, err := store.ListFileMappings(ctx, "user_1", "org_1")
+	if err != nil {
+		t.Fatalf("ListFileMappings returned error: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("mapping count = %d, want 2: %+v", len(got), got)
+	}
+	if got[0].LocalFileID != "file_local_new" || got[0].OpenAIFileID != "file_openai_new" ||
+		got[1].LocalFileID != "file_local_old" || got[1].OpenAIFileID != "file_openai_old" {
+		t.Fatalf("unexpected tenant list order/content: %+v", got)
+	}
+
+	wrongUser, err := store.ListFileMappings(ctx, "user_2", "org_2")
+	if err != nil {
+		t.Fatalf("ListFileMappings wrong tenant returned error: %v", err)
+	}
+	if len(wrongUser) != 0 {
+		t.Fatalf("wrong tenant list leaked mappings: %+v", wrongUser)
+	}
+}
+
 func TestRelayStoreConversationAffinityPersistsAndUpdatesChannel(t *testing.T) {
 	store, database, ctx := testRelaySQLStore(t)
 
