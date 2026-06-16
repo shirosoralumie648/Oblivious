@@ -98,7 +98,15 @@ Required JSON shape:
     "successRate": 0.99,
     "window": "2026-06-16T00:00:00Z/2026-06-16T01:00:00Z",
     "evidenceRef": "telemetry-dashboard-or-export"
-  }
+  },
+  "artifacts": [
+    {"id": "strict-verifier-log-or-artifact-id", "kind": "strict-verifier-log", "uri": "ci://run/strict-verifier", "recordedAt": "2026-06-16T01:00:00Z"},
+    {"id": "release-log-or-artifact-id", "kind": "deployment-log", "uri": "ci://run/deployment", "recordedAt": "2026-06-16T01:00:00Z"},
+    {"id": "provider-run-id", "kind": "provider-live-rail", "uri": "ci://run/provider", "recordedAt": "2026-06-16T01:00:00Z"},
+    {"id": "grpc-smoke-log", "kind": "grpc-smoke-report", "uri": "ci://run/grpc-smoke", "recordedAt": "2026-06-16T01:00:00Z"},
+    {"id": "secret-audit-log", "kind": "secret-audit", "uri": "ci://run/secret-audit", "recordedAt": "2026-06-16T01:00:00Z"},
+    {"id": "telemetry-dashboard-or-export", "kind": "workflow-telemetry", "uri": "ci://run/workflow-telemetry", "recordedAt": "2026-06-16T01:00:00Z"}
+  ]
 }
 
 Optional:
@@ -207,7 +215,18 @@ puts JSON.pretty_generate(
       "successRate" => 0.99,
       "window" => "TODO-ISO8601-start/TODO-ISO8601-end",
       "evidenceRef" => "TODO-telemetry-dashboard-or-export"
-    }
+    },
+    "artifacts" => [
+      {"id" => "TODO-strict-commercial-verifier-log", "kind" => "strict-verifier-log", "uri" => "TODO-strict-commercial-verifier-log-uri", "recordedAt" => recorded_at.iso8601},
+      {"id" => "TODO-release-log-or-artifact-id", "kind" => "deployment-log", "uri" => "TODO-release-log-uri", "recordedAt" => recorded_at.iso8601},
+      {"id" => "TODO-kubernetes-release-log-or-artifact-id", "kind" => "kubernetes-validation", "uri" => "TODO-kubernetes-log-uri", "recordedAt" => recorded_at.iso8601},
+      {"id" => "TODO-stripe-provider-run-id", "kind" => "provider-live-rail", "uri" => "TODO-stripe-provider-log-uri", "recordedAt" => recorded_at.iso8601},
+      {"id" => "TODO-alipay-provider-run-id", "kind" => "provider-live-rail", "uri" => "TODO-alipay-provider-log-uri", "recordedAt" => recorded_at.iso8601},
+      {"id" => "TODO-wechatpay-provider-run-id", "kind" => "provider-live-rail", "uri" => "TODO-wechatpay-provider-log-uri", "recordedAt" => recorded_at.iso8601},
+      {"id" => "TODO-target-grpc-smoke-report", "kind" => "grpc-smoke-report", "uri" => "TODO-target-grpc-smoke-report-uri", "recordedAt" => recorded_at.iso8601},
+      {"id" => "TODO-secret-audit-log", "kind" => "secret-audit", "uri" => "TODO-secret-audit-log-uri", "recordedAt" => recorded_at.iso8601},
+      {"id" => "TODO-telemetry-dashboard-or-export", "kind" => "workflow-telemetry", "uri" => "TODO-telemetry-dashboard-or-export-uri", "recordedAt" => recorded_at.iso8601}
+    ]
   }
 )
 RUBY
@@ -263,7 +282,7 @@ def require_pass(failures, data, path)
 end
 
 def placeholder?(value)
-  value.is_a?(String) && value.match?(/TODO|TBD|placeholder|example|sample|release-log-or-artifact-id|strict-verifier-log-or-artifact-id|strict-commercial-verifier-log|provider-run-id|grpc-smoke-log|secret-audit-log|telemetry-dashboard-or-export/i)
+  value.is_a?(String) && value.match?(/TODO|TBD|placeholder|example|sample|\/path\/outside\/git|release-log-or-artifact-id|strict-verifier-log-or-artifact-id|strict-commercial-verifier-log|provider-run-id|grpc-smoke-log|secret-audit-log|telemetry-dashboard-or-export/i)
 end
 
 def require_evidence_ref(failures, data, path)
@@ -308,6 +327,20 @@ def collect_secret_material(value, path = [], findings = [])
     value.each_with_index { |child, index| collect_secret_material(child, path + [index], findings) }
   end
   findings
+end
+
+def collect_evidence_refs(value, path = [], refs = [])
+  case value
+  when Hash
+    value.each do |key, child|
+      child_path = path + [key]
+      refs << [child_path, child] if key == "evidenceRef" && path.first != "artifacts"
+      collect_evidence_refs(child, child_path, refs)
+    end
+  when Array
+    value.each_with_index { |child, index| collect_evidence_refs(child, path + [index], refs) }
+  end
+  refs
 end
 
 path = ENV.fetch("EVIDENCE_FILE")
@@ -539,6 +572,49 @@ end
 require_string(failures, data, ["workflowTelemetry", "window"])
 require_evidence_ref(failures, data, ["workflowTelemetry", "evidenceRef"])
 
+artifacts = data["artifacts"]
+artifact_ids = {}
+if !artifacts.is_a?(Array) || artifacts.empty?
+  failures << "artifacts must include at least one target artifact entry"
+else
+  artifacts.each_with_index do |artifact, index|
+    unless artifact.is_a?(Hash)
+      failures << "artifacts[#{index}] must be an object"
+      next
+    end
+    id = require_string(failures, data, ["artifacts", index, "id"])
+    if id.is_a?(String)
+      failures << "artifacts[#{index}].id must reference a concrete target artifact, not a placeholder" if placeholder?(id)
+      if artifact_ids.key?(id)
+        failures << "artifacts must not duplicate #{id}"
+      else
+        artifact_ids[id] = artifact
+      end
+    end
+    kind = require_string(failures, data, ["artifacts", index, "kind"])
+    failures << "artifacts[#{index}].kind must describe a concrete target artifact, not a placeholder" if placeholder?(kind)
+    uri = require_string(failures, data, ["artifacts", index, "uri"])
+    failures << "artifacts[#{index}].uri must reference a concrete target artifact, not a placeholder" if placeholder?(uri)
+    artifact_recorded_at = require_string(failures, data, ["artifacts", index, "recordedAt"])
+    begin
+      Time.iso8601(artifact_recorded_at) if artifact_recorded_at.is_a?(String)
+    rescue ArgumentError
+      failures << "artifacts[#{index}].recordedAt must be ISO-8601"
+    end
+    sha256 = artifact["sha256"]
+    if !sha256.nil? && (!sha256.is_a?(String) || !sha256.match?(/\A[0-9a-f]{64}\z/i))
+      failures << "artifacts[#{index}].sha256 must be a 64-character hex digest when present"
+    end
+  end
+end
+
+collect_evidence_refs(data).each do |ref_path, value|
+  next if !value.is_a?(String) || placeholder?(value)
+  unless artifact_ids.key?(value)
+    failures << "#{ref_path.join(".")} must reference an artifact id listed in artifacts"
+  end
+end
+
 collect_skips(data).each do |skip_path, value|
   failures << "#{skip_path.join(".")} must be empty/false for final target evidence; got #{value.inspect}"
 end
@@ -560,4 +636,5 @@ puts "[target-release-evidence] providers: #{providers.map { |provider| provider
 puts "[target-release-evidence] grpc services: #{grpc.map { |entry| entry["service"] }.join(", ")}"
 puts "[target-release-evidence] grpc smoke report: #{data.dig("grpcSmokeReport", "evidenceRef")}"
 puts "[target-release-evidence] workflow success rate: #{success_rate}"
+puts "[target-release-evidence] artifacts: #{artifact_ids.size}"
 RUBY

@@ -47,6 +47,63 @@ data["grpcSmokeReport"]["recordedAt"] = "2026-06-16T00:00:00Z"
 data["secretAudit"]["evidenceRef"] = "artifact-secret-audit-20260616"
 data["workflowTelemetry"]["window"] = "2026-06-16T00:00:00Z/2026-06-16T01:00:00Z"
 data["workflowTelemetry"]["evidenceRef"] = "artifact-workflow-telemetry-20260616"
+data["artifacts"] = [
+  {
+    "id" => "artifact-strict-verifier-20260616",
+    "kind" => "strict-verifier-log",
+    "uri" => "ci://target-release/20260616/strict-verifier.log",
+    "recordedAt" => "2026-06-16T01:00:00Z",
+    "sha256" => "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  },
+  {
+    "id" => "artifact-deploy-20260616",
+    "kind" => "deployment-log",
+    "uri" => "ci://target-release/20260616/deploy.log",
+    "recordedAt" => "2026-06-16T01:00:00Z"
+  },
+  {
+    "id" => "artifact-k8s-20260616",
+    "kind" => "kubernetes-validation",
+    "uri" => "ci://target-release/20260616/kubernetes.log",
+    "recordedAt" => "2026-06-16T01:00:00Z"
+  },
+  {
+    "id" => "artifact-provider-stripe-20260616",
+    "kind" => "provider-live-rail",
+    "uri" => "provider://stripe/live/20260616",
+    "recordedAt" => "2026-06-16T01:00:00Z"
+  },
+  {
+    "id" => "artifact-provider-alipay-20260616",
+    "kind" => "provider-live-rail",
+    "uri" => "provider://alipay/live/20260616",
+    "recordedAt" => "2026-06-16T01:00:00Z"
+  },
+  {
+    "id" => "artifact-provider-wechatpay-20260616",
+    "kind" => "provider-live-rail",
+    "uri" => "provider://wechatpay/live/20260616",
+    "recordedAt" => "2026-06-16T01:00:00Z"
+  },
+  {
+    "id" => "artifact-grpc-smoke-20260616",
+    "kind" => "grpc-smoke-report",
+    "uri" => "ci://target-release/20260616/grpc-smoke.json",
+    "recordedAt" => "2026-06-16T01:00:00Z"
+  },
+  {
+    "id" => "artifact-secret-audit-20260616",
+    "kind" => "secret-audit",
+    "uri" => "ci://target-release/20260616/secret-audit.log",
+    "recordedAt" => "2026-06-16T01:00:00Z"
+  },
+  {
+    "id" => "artifact-workflow-telemetry-20260616",
+    "kind" => "workflow-telemetry",
+    "uri" => "observability://target/workflows/success-rate/20260616",
+    "recordedAt" => "2026-06-16T01:00:00Z"
+  }
+]
 '
 }
 
@@ -88,6 +145,46 @@ cp "$template_manifest" "$valid_manifest"
 fill_manifest "$valid_manifest"
 bash "$verifier" "$valid_manifest" >/dev/null
 echo "[target-release-evidence-fixtures] accepted filled current-commit manifest"
+
+make_invalid_case \
+  "missing-artifacts-index" \
+  'data.delete("artifacts")' \
+  "artifacts must include at least one target artifact entry"
+
+make_invalid_case \
+  "dangling-strict-verifier-evidence-ref" \
+  'data["strictVerifier"]["evidenceRef"] = "artifact-missing-20260616"' \
+  "strictVerifier.evidenceRef must reference an artifact id listed in artifacts"
+
+make_invalid_case \
+  "duplicate-artifact-id" \
+  'data["artifacts"] << data["artifacts"].first.dup' \
+  "artifacts must not duplicate artifact-strict-verifier-20260616"
+
+make_invalid_case \
+  "placeholder-artifact-id" \
+  'data["artifacts"].first["id"] = "TODO-strict-verifier-log"' \
+  "artifacts[0].id must reference a concrete target artifact, not a placeholder"
+
+make_invalid_case \
+  "placeholder-artifact-kind" \
+  'data["artifacts"].first["kind"] = "TODO-log-kind"' \
+  "artifacts[0].kind must describe a concrete target artifact, not a placeholder"
+
+make_invalid_case \
+  "placeholder-artifact-uri" \
+  'data["artifacts"].find { |artifact| artifact["id"] == "artifact-deploy-20260616" }["uri"] = "/path/outside/git/deploy.log"' \
+  "artifacts[1].uri must reference a concrete target artifact, not a placeholder"
+
+make_invalid_case \
+  "invalid-artifact-recorded-at" \
+  'data["artifacts"].first["recordedAt"] = "2026/06/16 01:00"' \
+  "artifacts[0].recordedAt must be ISO-8601"
+
+make_invalid_case \
+  "invalid-artifact-sha256" \
+  'data["artifacts"].first["sha256"] = "not-a-digest"' \
+  "artifacts[0].sha256 must be a 64-character hex digest when present"
 
 make_invalid_case \
   "missing-wechatpay-provider" \

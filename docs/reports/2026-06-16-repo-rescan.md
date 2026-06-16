@@ -3,15 +3,17 @@
 ## Current Truth
 
 - Branch: `main`.
-- Rescan evidence base before this strict target-verifier continuation: `31d4662` (`test(relay): prove tenant scoped file list`).
-- Remote parity at this strict target-verifier continuation start: `HEAD == origin/main` (`31d4662`).
+- Rescan evidence base before this artifact-index continuation: `d745531` (`test(release): guard target evidence fixtures`).
+- Remote parity at this artifact-index continuation start: `HEAD == origin/main` (`d745531`).
+- Working tree at continuation start: one in-progress verifier edit in `scripts/verify-target-release-evidence.sh` for target evidence `artifacts[]` indexing; no unrelated dirty files.
+- Previous same-day target-verifier continuation base: `31d4662` (`test(relay): prove tenant scoped file list`).
 - Rescan evidence base before this Relay file-list continuation: `001a6ab` (`test(release): require all live payment rails`).
 - Remote parity at continuation start: `HEAD == origin/main` (`001a6ab`).
 - Working tree at continuation start: clean at the pushed target/live payment-rails verifier baseline.
 - The earlier same-day scans at `1c52194`, `53aaca0`, `d4fdc37`, `75ff216`, `98a1683`, `c6d9b34`, `5969e4b`, `1e7c6ef`, `e222967`, `0694b44`, `984b6a7`, `cb18df4`, and `bd92f91` are now older baselines for this report.
 - The project is still not complete against the four `docs/superpowers/specs/2026-06-04-*` specs.
 - Current matrix remains `4 Proven / 10 Partial / 0 Gap / 0 Unverified`.
-- Current progress estimate remains about `99/100`: repository-local evidence is broad, the Agent planning token-budget browser path and Task approval state/workspace guard are now closed locally, and final completion is still gated by target/live proof plus a strict no-skip release run.
+- Current progress estimate remains about `99/100`: repository-local evidence is broad, the target manifest verifier is now being tightened around artifact-index consistency, and final completion is still gated by target/live proof plus a strict no-skip release run.
 
 ## What Changed Since The Last Rescan
 
@@ -26,7 +28,7 @@
 - Scheduled Task HTTP routes now have active-organization isolation proof for run-history, status-update, and run-now paths. Cross-organization requests return 404, do not leak owner run evidence, do not mutate the owner task, and do not create extra owner runs.
 - Admin top-up refund operator evidence now has no-skip PostgreSQL route proof: duplicate Admin Stripe refund submissions persist one refund row and one lifecycle transition with provider charge/payment-intent evidence, while missing Stripe charge/payment-intent evidence returns 400 without mutating refund, lifecycle, payment-intent, top-up, or quota state.
 - Quota SQL isolation now aggregates quota lifecycle proof across quota store, HTTP route, Admin, and Stripe lifecycle tests in one no-skip PostgreSQL profile, including user-scoped balance mode, request-cap fallback, top-up no-credit-before-webhook, direct top-up rejection, Admin refund quota reversal, and Stripe top-up/refund accounting.
-- Target/live release evidence now has a machine-readable manifest verifier. The strict commercial verifier requires `COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true` for final readiness, and the manifest validator checks exact commit, strict no-skip verifier result, deployment/backup/migration evidence, Kubernetes validation/rollout/failover evidence, live provider checkout/refund/payout/reconciliation evidence, Agent/Workflow/Task generated-client gRPC smoke evidence, target secret audit, workflow telemetry `successRate >= 0.99`, no skip-like fields, no embedded secret material, and no placeholder artifact refs. `--print-template` now emits a current-commit external manifest skeleton that is intentionally rejected until every `TODO` artifact reference is replaced with concrete target-run evidence.
+- Target/live release evidence now has a machine-readable manifest verifier. The strict commercial verifier requires `COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true` for final readiness, and the manifest validator checks exact commit, strict no-skip verifier result, deployment/backup/migration evidence, Kubernetes validation/rollout/failover evidence, live provider checkout/refund/payout/reconciliation evidence, Agent/Workflow/Task generated-client gRPC smoke evidence, target secret audit, workflow telemetry `successRate >= 0.99`, no skip-like fields, no embedded secret material, no placeholder artifact refs, and an `artifacts[]` index that resolves every non-placeholder `evidenceRef` to a concrete artifact id. `--print-template` now emits a current-commit external manifest skeleton that is intentionally rejected until every `TODO` artifact reference is replaced with concrete target-run evidence.
 - Chat realtime collaboration now has a repository-local implementation and proof slice. `/api/v1/ws` supports conversation-scoped Chat rooms, `chat_join`/`chat_leave`/`chat_typing` client frames, and server-side Chat sync/update/delete broadcasts; `ChatPage` opens the active-conversation socket, sends typing presence, renders collaborator typing state, and applies sync/update/delete events; OpenAPI documents and gates the Chat realtime WebSocket schemas.
 - The current parallel read-only scan did not find a new broad product-area gap, but it did separate target/live blockers from local proof-depth candidates. The highest-priority local release-readiness gap from the prior baseline is now closed: Agent/Workflow/Task generated-client gRPC smoke has a first-class target helper, and Workflow/Task now expose real runtime gRPC listeners and deployment port contracts.
 - Workflow-to-Agent direct client parity is now closed as a local proof-depth candidate. The standalone Workflow `AgentClient.StartAgentRun` now uses workspace-scoped sessions, normalizes execution mode, dispatches planning requests to `StartPlanningRun` and default/ReAct requests to `StartRun`, preserves workspace scope for tool approvals, and maps Agent run results with the same nil-safe/final-message fallback boundary as the HTTP adapter.
@@ -47,6 +49,7 @@
 - Target/live gRPC evidence validation now requires a structured `grpcSmokeReport` copied from `scripts/target-grpc-smoke.sh`. The manifest verifier rejects missing smoke reports, missing/failed Agent/Workflow/Task smoke results, and smoke result addresses that do not match the manifest `grpc` entries.
 - Target/live strict verifier evidence validation now requires `strictVerifier.evidenceRef`, `startedAt`, and `completedAt`, rejecting placeholder log refs and impossible run windows.
 - Target/live manifest verifier behavior is now covered by `scripts/verify-target-release-evidence-fixtures.sh` in the docs gate, so the key target evidence rejection cases are no longer only manually checked with temporary shell snippets.
+- Target/live manifest artifact indexing is now part of the same docs gate fixture: the verifier rejects missing `artifacts[]`, duplicate artifact ids, placeholder artifact id/kind/uri values, invalid artifact timestamps, invalid optional `sha256`, and dangling `evidenceRef` values that are not listed in the artifact index.
 
 ## Repository Inventory
 
@@ -115,6 +118,7 @@ No rows are currently marked `Gap` or `Unverified`.
 - The target/live manifest gate also requires `strictVerifier.command` to carry the deploy, Kubernetes, backup/restore, and target-evidence flags. This keeps final manifests aligned with the strict `scripts/verify-commercial-completion.sh` path instead of accepting partial local verifier invocations.
 - The target/live manifest gate requires `strictVerifier.evidenceRef`, `startedAt`, and `completedAt` so a strict pass is attached to a concrete verifier log and valid run window.
 - The target/live manifest gate requires `grpcSmokeReport.results` to include generated-client pass rows for Agent, Workflow, and Task, and each smoke address must match the manifest `grpc` address for that service.
+- The target/live manifest gate requires an `artifacts[]` index with unique ids, concrete `kind`/`uri`, ISO-8601 `recordedAt`, optional 64-character hex `sha256`, and no dangling non-placeholder `evidenceRef` values. This proves manifest internal consistency only; it does not download or authenticate the external artifacts.
 - Chat realtime repository proof is local and focused: `go test ./internal/ws`, Chat handler realtime publish tests, focused Chat Vitest, built-app Playwright WebSocket proof, OpenAPI contract verification, web TypeScript, and docs gate cover this slice.
 - Task approval state/workspace proof is local and focused: `scripts/verify-commercial-db-evidence.sh app-stateful-routes` covers the real app router, cookie/CSRF, SQL store, allowed transition, denied terminal/draft/current-state cases, and cross-workspace no-mutation boundary.
 - Agent runtime/tool proof is local and focused: `scripts/verify-commercial-db-evidence.sh agent-runtime-memory` now reruns ReAct model routing, skill selection/tool filtering/instruction injection, `call_agent` recursion guard, websearch fallback, and Agent SQL runtime/memory persistence with skipped tests rejected.
@@ -162,6 +166,7 @@ Pure target/live blockers that still keep final status below `100/100`:
   - The external target manifest must also record the strict verifier command with `COMMERCIAL_COMPLETION_RUN_DEPLOY=true`, `COMMERCIAL_COMPLETION_RUN_K8S=true`, `COMMERCIAL_COMPLETION_RUN_BACKUP_RESTORE=true`, and `COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true`.
   - The external target manifest must reference the strict verifier log artifact through `strictVerifier.evidenceRef` and record the verifier run window.
   - The external target manifest must embed the `grpcSmokeReport` JSON copied from the target gRPC smoke artifact, not only free-form gRPC artifact references.
+  - The external target manifest must include `artifacts[]` entries for the referenced verifier, deploy, Kubernetes, provider, gRPC smoke, secret-audit, and workflow-telemetry evidence so every non-placeholder `evidenceRef` resolves to a concrete artifact id.
 
 Repository-local proof-depth candidates surfaced by this rescan after closing the gRPC release-readiness local blocker, the Task approval state guard, and Marketplace WeChat Pay paid-install parity:
 
@@ -186,6 +191,10 @@ Remaining local proof-depth candidates:
 
 Closed in this continuation:
 
+- Target evidence artifact-index consistency.
+  - Evidence: `scripts/verify-target-release-evidence.sh` now requires `artifacts[]`, validates artifact `id`, `kind`, `uri`, `recordedAt`, and optional `sha256`, rejects duplicate artifact ids, treats `/path/outside/git/...` and `TODO` values as placeholders, and verifies every non-placeholder `evidenceRef` outside `artifacts[]` resolves to an artifact id. The fixture fills a valid current-commit manifest with nine concrete artifacts and proves the generated template, missing artifact index, dangling strict-verifier ref, duplicate artifact id, placeholder artifact id/kind/uri, invalid timestamp, and invalid sha256 are rejected.
+  - Verification: `bash scripts/verify-target-release-evidence-fixtures.sh`, `bash scripts/verify-quality-gates.sh`, `COREPACK_HOME=/tmp/codex-corepack bash scripts/check.sh docs`, and `git diff --check` cover the verifier, fixture, docs, and release gate.
+  - Boundary: this is repository-local manifest consistency proof. It preserves valid shared evidence references such as one gRPC smoke artifact used by Agent, Workflow, and Task, and it does not replace collecting the actual target logs, provider records, secret-audit output, workflow telemetry, or strict no-skip verifier run.
 - Agent planning token-budget browser recovery.
   - Evidence: `src/web/e2e/agent-planning.spec.ts` now covers `/agent-runs/run_browser_agent_budget/plan-steps`, renders `token_budget_exceeded`, stop reason, counters, failed step, and dependency evidence, submits an increased token budget, and verifies completed refreshed step evidence.
   - Boundary: this is repository-local built-app browser proof with a fail-closed fixture for the `/continue-budget` payload. It does not replace deployed Agent runtime, target gRPC, target database, or final no-skip release evidence.
