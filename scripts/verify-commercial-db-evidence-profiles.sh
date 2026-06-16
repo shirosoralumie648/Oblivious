@@ -19,6 +19,9 @@ profile_name_from_function() {
 declare -A usage_profiles=()
 declare -A case_profiles=()
 declare -A all_profiles=()
+required_profiles=(
+  "migration-ledger-backfills"
+)
 
 usage_line=$(grep -E '^Usage: bash scripts/verify-commercial-db-evidence\.sh \[' "$target" | head -n 1 || true)
 if [[ -z "$usage_line" ]]; then
@@ -55,6 +58,13 @@ done < <(
 
 [[ "${usage_profiles[all]:-}" == "1" ]] || fail "usage profile list must include all"
 [[ "${case_profiles[all]:-}" == "1" ]] || fail "case statement must include all"
+
+for profile in "${required_profiles[@]}"; do
+  [[ "${usage_profiles[$profile]:-}" == "1" ]] || fail "required profile is missing from usage list: $profile"
+  [[ "${case_profiles[$profile]:-}" == "1" ]] || fail "required profile is missing from case statement: $profile"
+  [[ "${all_profiles[$profile]:-}" == "1" ]] || fail "required profile is missing from run_all_profiles: $profile"
+  grep -Eq "^  ${profile}([[:space:]]|$)" "$target" || fail "required profile is missing from help section: $profile"
+done
 
 for profile in "${!case_profiles[@]}"; do
   [[ "$profile" == "all" ]] && continue

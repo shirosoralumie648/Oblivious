@@ -15,7 +15,7 @@ output_files=()
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/verify-commercial-db-evidence.sh [all|backend-journey|marketplace-money-movement|marketplace-governance-review|marketplace-recommendation-search|marketplace-template-routes|billing-checkout-topup-http|billing-provider-lifecycle|admin-usage-analytics-db|app-stateful-routes|tenant-membership-lifecycle|tenant-cross-surface|secret-response-safety|agent-runtime-memory|scheduled-task-runtime|auth-security-persistence|relay-file-mapping-tenant-ownership|relay-runtime-channel-isolation|workflow-sql-isolation|publishing-channel-isolation|admin-relay-channel-isolation|admin-relay-read-isolation|observability-alert-recovery-persistence|quota-sql-isolation|core-sql-persistence]
+Usage: bash scripts/verify-commercial-db-evidence.sh [all|backend-journey|marketplace-money-movement|marketplace-governance-review|marketplace-recommendation-search|marketplace-template-routes|billing-checkout-topup-http|billing-provider-lifecycle|admin-usage-analytics-db|app-stateful-routes|tenant-membership-lifecycle|tenant-cross-surface|secret-response-safety|agent-runtime-memory|scheduled-task-runtime|auth-security-persistence|migration-ledger-backfills|relay-file-mapping-tenant-ownership|relay-runtime-channel-isolation|workflow-sql-isolation|publishing-channel-isolation|admin-relay-channel-isolation|admin-relay-read-isolation|observability-alert-recovery-persistence|quota-sql-isolation|core-sql-persistence]
 
 Runs narrow DB-backed commercial evidence without silently accepting skipped tests.
 
@@ -62,6 +62,9 @@ Profiles:
   auth-security-persistence    Run focused Auth password policy, reset,
                                replay/expiry, session revocation, hash, and
                                rate-limit persistence PostgreSQL tests.
+  migration-ledger-backfills   Run focused migration ledger, checksum, legacy
+                               tenant-scope backfill, and Marketplace
+                               category-ID backfill PostgreSQL tests.
   relay-file-mapping-tenant-ownership
                                Run focused Relay file-mapping upload, mapped
                                get/list passthrough, and tenant ownership
@@ -314,6 +317,13 @@ run_auth_security_persistence_profile() {
   run_go_test_no_skips "auth HTTP persistence and security routes" "./internal/http" "$auth_http_pattern"
 }
 
+run_migration_ledger_backfills_profile() {
+  local migration_ledger_backfills_pattern
+
+  migration_ledger_backfills_pattern="^TestApplyMigrations(RecordsLedgerAndSkipsAppliedFiles|RejectsChecksumMismatch|BackfillsLegacyTenantScopeData|BackfillsMarketplaceCategoryIDs)$"
+  run_go_test_no_skips "migration ledger replay and backfill persistence" "./cmd/migrate" "$migration_ledger_backfills_pattern"
+}
+
 run_relay_file_mapping_tenant_ownership_profile() {
   local relay_file_mapping_pattern
 
@@ -400,6 +410,7 @@ run_all_profiles() {
   run_agent_runtime_memory_profile
   run_scheduled_task_runtime_profile
   run_auth_security_persistence_profile
+  run_migration_ledger_backfills_profile
   run_relay_file_mapping_tenant_ownership_profile
   run_relay_runtime_channel_isolation_profile
   run_workflow_sql_isolation_profile
@@ -465,6 +476,9 @@ case "$profile" in
     ;;
   auth-security-persistence)
     run_auth_security_persistence_profile
+    ;;
+  migration-ledger-backfills)
+    run_migration_ledger_backfills_profile
     ;;
   relay-file-mapping-tenant-ownership)
     run_relay_file_mapping_tenant_ownership_profile
