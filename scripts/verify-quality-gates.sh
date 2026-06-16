@@ -659,6 +659,7 @@ assert_file_contains "$commercial_completion_verifier_file" "scripts/verify-comm
 assert_file_contains "$commercial_completion_verifier_file" "verify-commercial-db-evidence.sh\" all"
 assert_file_contains "$commercial_completion_verifier_file" "COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE"
 assert_file_contains "$commercial_completion_verifier_file" "scripts/verify-target-release-evidence.sh"
+assert_file_contains "$release_checklist_file" "COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS"
 assert_file_exists "$target_release_evidence_verifier_file"
 assert_file_contains "$target_release_evidence_verifier_file" "OBLIVIOUS_TARGET_EVIDENCE_FILE"
 assert_file_contains "$target_release_evidence_verifier_file" "--print-template"
