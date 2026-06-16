@@ -850,9 +850,13 @@ vi.mock('../app/providers', () => ({
   })
 }));
 
-vi.mock('../features/chat/api', () => ({
-  createChatApi: () => chatApiMocks
-}));
+vi.mock('../features/chat/api', async () => {
+  const actual = await vi.importActual<typeof import('../features/chat/api')>('../features/chat/api');
+  return {
+    ...actual,
+    createChatApi: () => chatApiMocks
+  };
+});
 
 vi.mock('../features/knowledge/api', () => ({
   createKnowledgeApi: () => knowledgeApiMocks

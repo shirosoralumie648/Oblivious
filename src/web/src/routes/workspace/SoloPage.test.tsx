@@ -45,14 +45,18 @@ vi.mock('react-router-dom', () => ({
   useNavigate: () => navigate
 }));
 
-vi.mock('../../features/chat/api', () => ({
-  createChatApi: () => ({
-    createConversation,
-    getConversationConfig,
-    sendMessage,
-    updateConversationConfig
-  })
-}));
+vi.mock('../../features/chat/api', async () => {
+  const actual = await vi.importActual<typeof import('../../features/chat/api')>('../../features/chat/api');
+  return {
+    ...actual,
+    createChatApi: () => ({
+      createConversation,
+      getConversationConfig,
+      sendMessage,
+      updateConversationConfig
+    })
+  };
+});
 
 vi.mock('../../features/tasks/api', () => ({
   createTasksApi: () => ({
