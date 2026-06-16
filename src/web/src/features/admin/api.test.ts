@@ -522,6 +522,69 @@ describe('createAdminApi', () => {
     );
   });
 
+  it('serializes API token filters with backend query keys', async () => {
+    const get = vi.fn().mockResolvedValue({
+      apiTokens: [
+        {
+          id: 'tok_1',
+          name: 'Browser admin key',
+          organizationId: 'org_browser_api_tokens',
+          userId: 'user_browser_api_tokens',
+        },
+      ],
+      total: 1,
+    });
+    const api = createAdminApi(createClient({ get }));
+
+    await expect(
+      api.listAPITokens({
+        organizationId: 'org_browser_api_tokens',
+        userId: 'user_browser_api_tokens',
+        status: 'active',
+        userGroup: 'enterprise',
+        search: 'browser admin',
+        model: 'gpt-4o',
+        limit: 50,
+        offset: 0,
+      })
+    ).resolves.toEqual({
+      data: [
+        {
+          id: 'tok_1',
+          name: 'Browser admin key',
+          organizationId: 'org_browser_api_tokens',
+          userId: 'user_browser_api_tokens',
+        },
+      ],
+      total: 1,
+    });
+
+    const [requestPath] = get.mock.calls[0];
+    const requestURL = new URL(requestPath, 'http://oblivious.local');
+    expect(requestURL.pathname).toBe('/api/v1/admin/api-tokens');
+    expect(Object.fromEntries(requestURL.searchParams.entries())).toEqual({
+      status: 'active',
+      userGroup: 'enterprise',
+      search: 'browser admin',
+      model: 'gpt-4o',
+      limit: '50',
+      offset: '0',
+      organizationID: 'org_browser_api_tokens',
+      userID: 'user_browser_api_tokens',
+    });
+    expect(requestURL.searchParams.has('organizationId')).toBe(false);
+    expect(requestURL.searchParams.has('userId')).toBe(false);
+  });
+
+  it('posts API token revocation through the admin endpoint', async () => {
+    const post = vi.fn().mockResolvedValue({ status: 'revoked' });
+    const api = createAdminApi(createClient({ post }));
+
+    await expect(api.revokeAPIToken('tok_1')).resolves.toBeUndefined();
+
+    expect(post).toHaveBeenCalledWith('/api/v1/admin/api-tokens/tok_1/revoke');
+  });
+
   it('loads and updates usage limit settings through admin settings endpoints', async () => {
     const get = vi.fn().mockResolvedValue({
       usageLimits: [
