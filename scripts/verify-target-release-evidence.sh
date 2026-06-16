@@ -574,6 +574,7 @@ require_evidence_ref(failures, data, ["workflowTelemetry", "evidenceRef"])
 
 artifacts = data["artifacts"]
 artifact_ids = {}
+artifact_indexes = {}
 if !artifacts.is_a?(Array) || artifacts.empty?
   failures << "artifacts must include at least one target artifact entry"
 else
@@ -589,6 +590,7 @@ else
         failures << "artifacts must not duplicate #{id}"
       else
         artifact_ids[id] = artifact
+        artifact_indexes[id] = index
       end
     end
     kind = require_string(failures, data, ["artifacts", index, "kind"])
@@ -608,11 +610,19 @@ else
   end
 end
 
+referenced_artifact_ids = {}
 collect_evidence_refs(data).each do |ref_path, value|
   next if !value.is_a?(String) || placeholder?(value)
+  referenced_artifact_ids[value] = true
   unless artifact_ids.key?(value)
     failures << "#{ref_path.join(".")} must reference an artifact id listed in artifacts"
   end
+end
+
+artifact_ids.each_key do |id|
+  next if placeholder?(id)
+  next if referenced_artifact_ids.key?(id)
+  failures << "artifacts[#{artifact_indexes.fetch(id)}].id #{id} must be referenced by at least one evidenceRef"
 end
 
 collect_skips(data).each do |skip_path, value|

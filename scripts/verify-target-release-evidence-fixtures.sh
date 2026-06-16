@@ -187,6 +187,11 @@ make_invalid_case \
   "artifacts[0].sha256 must be a 64-character hex digest when present"
 
 make_invalid_case \
+  "unused-artifact-id" \
+  'data["artifacts"] << {"id" => "artifact-unused-20260616", "kind" => "supplemental-log", "uri" => "ci://target-release/20260616/unused.log", "recordedAt" => "2026-06-16T01:00:00Z"}' \
+  "artifacts[9].id artifact-unused-20260616 must be referenced by at least one evidenceRef"
+
+make_invalid_case \
   "missing-wechatpay-provider" \
   'data["providers"].reject! { |provider| provider["name"] == "wechatpay" }' \
   "providers must include live evidence for stripe, alipay, and wechatpay (missing: wechatpay)"
