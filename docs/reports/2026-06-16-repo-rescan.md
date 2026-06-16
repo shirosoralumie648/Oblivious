@@ -3,6 +3,8 @@
 ## Current Truth
 
 - Branch: `main`.
+- Rescan evidence base before this strict target-verifier continuation: `31d4662` (`test(relay): prove tenant scoped file list`).
+- Remote parity at this strict target-verifier continuation start: `HEAD == origin/main` (`31d4662`).
 - Rescan evidence base before this Relay file-list continuation: `001a6ab` (`test(release): require all live payment rails`).
 - Remote parity at continuation start: `HEAD == origin/main` (`001a6ab`).
 - Working tree at continuation start: clean at the pushed target/live payment-rails verifier baseline.
@@ -41,6 +43,7 @@
 - Agent ReAct model-routing, skill runtime, `call_agent`, and websearch fallback proof are now part of the no-skip `agent-runtime-memory` commercial DB profile before the existing SQL persistence checks. The profile uses disposable/configured PostgreSQL, rejects skipped tests, and now covers second-iteration model switching after tool results, skill selection/tool filtering/instruction injection, recursive sub-agent depth guards, and websearch fallback/exhaustion.
 - Target/live evidence validation now requires separate live provider evidence entries for Stripe, Alipay, and WeChat Pay. The target evidence template prints all three entries, and the verifier rejects a final manifest if any of the three first-party payment rails is missing checkout/refund/payout/reconciliation proof or concrete artifact refs.
 - Relay file-list passthrough now has tenant-scoped ownership proof. `GET /v1/files` moved from production-disabled raw passthrough to a mapped, billed, trusted-identity route: it lists current-tenant SQL file mappings, skips upstream for tenants with no mappings, filters upstream file-list rows to mapped provider IDs, rewrites client-visible IDs back to local file IDs, and preserves `provider_file_id` evidence.
+- Target/live strict verifier command validation now requires `strictVerifier.command` to include all four final gate flags: `COMMERCIAL_COMPLETION_RUN_DEPLOY=true`, `COMMERCIAL_COMPLETION_RUN_K8S=true`, `COMMERCIAL_COMPLETION_RUN_BACKUP_RESTORE=true`, and `COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true`. A manifest that records `scripts/verify-commercial-completion.sh` without those flags is rejected.
 
 ## Repository Inventory
 
@@ -105,6 +108,7 @@ No rows are currently marked `Gap` or `Unverified`.
 - `docs/release/fusion-spec-evidence-pack.md` still states that the pack is not a final completion claim; any `Partial` row remains open until row-specific proof is recorded and rerun on the target environment where required.
 - `scripts/verify-target-release-evidence.sh` now provides the external target/live evidence manifest gate for proof that cannot be collected from repository-local tests.
 - The target/live manifest gate now requires Stripe, Alipay, and WeChat Pay live checkout/refund/payout/reconciliation entries individually; a single live provider entry is not sufficient for final readiness.
+- The target/live manifest gate also requires `strictVerifier.command` to carry the deploy, Kubernetes, backup/restore, and target-evidence flags. This keeps final manifests aligned with the strict `scripts/verify-commercial-completion.sh` path instead of accepting partial local verifier invocations.
 - Chat realtime repository proof is local and focused: `go test ./internal/ws`, Chat handler realtime publish tests, focused Chat Vitest, built-app Playwright WebSocket proof, OpenAPI contract verification, web TypeScript, and docs gate cover this slice.
 - Task approval state/workspace proof is local and focused: `scripts/verify-commercial-db-evidence.sh app-stateful-routes` covers the real app router, cookie/CSRF, SQL store, allowed transition, denied terminal/draft/current-state cases, and cross-workspace no-mutation boundary.
 - Agent runtime/tool proof is local and focused: `scripts/verify-commercial-db-evidence.sh agent-runtime-memory` now reruns ReAct model routing, skill selection/tool filtering/instruction injection, `call_agent` recursion guard, websearch fallback, and Agent SQL runtime/memory persistence with skipped tests rejected.
@@ -149,6 +153,7 @@ Pure target/live blockers that still keep final status below `100/100`:
 - Target secret audit for deployed provider/channel/workflow/runtime secrets.
 - Target or CI `TEST_DATABASE_URL` runs broad enough to count as final release evidence, not only disposable local profile proof.
 - A final `scripts/verify-commercial-completion.sh` run with no environment skips and `COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true` pointing at an external, secret-free target evidence manifest for the exact release commit.
+  - The external target manifest must also record the strict verifier command with `COMMERCIAL_COMPLETION_RUN_DEPLOY=true`, `COMMERCIAL_COMPLETION_RUN_K8S=true`, `COMMERCIAL_COMPLETION_RUN_BACKUP_RESTORE=true`, and `COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true`.
 
 Repository-local proof-depth candidates surfaced by this rescan after closing the gRPC release-readiness local blocker, the Task approval state guard, and Marketplace WeChat Pay paid-install parity:
 
@@ -195,6 +200,10 @@ Closed in this continuation:
   - Evidence: `src/server/internal/relay/handler/files.go` now requires a list-capable file mapping store and trusted tenant identity before `GET /v1/files`, `src/server/internal/relay/store.go` exposes `ListFileMappings` scoped by user and organization, `src/server/internal/relay/handler/policy.go` marks the list route production-enabled, and the route table records the mapped-list boundary.
   - Verification: focused handler policy/list tests, focused Relay SQL tests, `scripts/verify-commercial-db-evidence.sh relay-file-mapping-tenant-ownership`, docs gate, and `git diff --check` passed.
   - Boundary: this is repository-local file-list ownership proof. It does not replace target-environment tenant-isolation or final no-skip release evidence.
+- Target verifier final-gate flag strictness.
+  - Evidence: `scripts/verify-target-release-evidence.sh` now rejects `strictVerifier.command` unless it runs `scripts/verify-commercial-completion.sh`, avoids `COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS=true`, and includes `COMMERCIAL_COMPLETION_RUN_DEPLOY=true`, `COMMERCIAL_COMPLETION_RUN_K8S=true`, `COMMERCIAL_COMPLETION_RUN_BACKUP_RESTORE=true`, and `COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true`. `scripts/verify-quality-gates.sh` locks those required strings into the release quality gate.
+  - Verification: temporary valid/invalid target manifests, docs gate, and diff hygiene cover this strictness slice.
+  - Boundary: this proves manifest verifier strictness only. It does not provide target Kubernetes, live provider rails, deployed Agent/Workflow/Task gRPC reachability, target secret audit, workflow telemetry, or a final no-skip commercial completion run.
 
 ## TODO And Placeholder Scan
 

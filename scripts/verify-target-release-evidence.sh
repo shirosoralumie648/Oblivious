@@ -323,6 +323,16 @@ command = dig_path(data, ["strictVerifier", "command"])
 if command.is_a?(String)
   failures << "strictVerifier.command must run scripts/verify-commercial-completion.sh" unless command.include?("scripts/verify-commercial-completion.sh")
   failures << "strictVerifier.command must not enable COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS" if command.include?("COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS=true")
+  %w[
+    COMMERCIAL_COMPLETION_RUN_DEPLOY=true
+    COMMERCIAL_COMPLETION_RUN_K8S=true
+    COMMERCIAL_COMPLETION_RUN_BACKUP_RESTORE=true
+    COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true
+  ].each do |required_flag|
+    unless command.match?(/(?:^|\s)#{Regexp.escape(required_flag)}(?:\s|$)/)
+      failures << "strictVerifier.command must include #{required_flag}"
+    end
+  end
 end
 skipped_checks = dig_path(data, ["strictVerifier", "skippedChecks"])
 failures << "strictVerifier.skippedChecks must be an empty array" unless skipped_checks == []
