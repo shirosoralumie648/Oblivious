@@ -118,6 +118,8 @@ type scheduleWiringStore struct {
 	completedRunID      string
 }
 
+var _ schedule.DueTaskStore = (*scheduleWiringStore)(nil)
+
 func (s *scheduleWiringStore) CreateScheduledTask(ctx context.Context, input schedule.CreateScheduledTaskInput) (schedule.ScheduledTask, error) {
 	_ = ctx
 	_ = input
@@ -221,6 +223,19 @@ func (s *scheduleWiringStore) CompleteScheduledTaskRun(ctx context.Context, orga
 		ScheduledTaskID: scheduledTaskID,
 		Status:          schedule.RunStatusCompleted,
 		FinishedAt:      &input.FinishedAt,
+	}, nil
+}
+
+func (s *scheduleWiringStore) FailScheduledTaskRun(ctx context.Context, organizationID string, scheduledTaskID string, scheduledTaskRunID string, input schedule.FailScheduledTaskRunInput) (schedule.ScheduledTaskRun, error) {
+	_ = ctx
+	_ = input
+	return schedule.ScheduledTaskRun{
+		ID:              scheduledTaskRunID,
+		OrganizationID:  organizationID,
+		ScheduledTaskID: scheduledTaskID,
+		Status:          schedule.RunStatusFailed,
+		FinishedAt:      &input.FinishedAt,
+		Error:           input.Error,
 	}, nil
 }
 
