@@ -81,4 +81,9 @@ for profile in "${!all_profiles[@]}"; do
   [[ "${case_profiles[$profile]:-}" == "1" ]] || fail "run_all_profiles includes unknown profile $profile"
 done
 
+billing_checkout_topup_body=$(sed -n '/^run_billing_checkout_topup_http_profile() {/,/^}/p' "$target")
+if [[ "$billing_checkout_topup_body" != *"SubscriptionLifecycleOnce"* ]]; then
+  fail "billing-checkout-topup-http must include DomesticPaymentWebhookRouteAppliesSubscriptionLifecycleOnce"
+fi
+
 echo "[commercial-db-evidence-profiles] commercial DB evidence profile list is synchronized."
