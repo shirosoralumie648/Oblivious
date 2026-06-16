@@ -70,18 +70,21 @@ data["artifacts"] = [
   {
     "id" => "artifact-provider-stripe-20260616",
     "kind" => "provider-live-rail",
+    "provider" => "stripe",
     "uri" => "provider://stripe/live/20260616",
     "recordedAt" => "2026-06-16T01:00:00Z"
   },
   {
     "id" => "artifact-provider-alipay-20260616",
     "kind" => "provider-live-rail",
+    "provider" => "alipay",
     "uri" => "provider://alipay/live/20260616",
     "recordedAt" => "2026-06-16T01:00:00Z"
   },
   {
     "id" => "artifact-provider-wechatpay-20260616",
     "kind" => "provider-live-rail",
+    "provider" => "wechatpay",
     "uri" => "provider://wechatpay/live/20260616",
     "recordedAt" => "2026-06-16T01:00:00Z"
   },
@@ -250,6 +253,11 @@ make_invalid_case \
   "missing-wechatpay-provider" \
   'data["providers"].reject! { |provider| provider["name"] == "wechatpay" }' \
   "providers must include live evidence for stripe, alipay, and wechatpay (missing: wechatpay)"
+
+make_invalid_case \
+  "swapped-provider-evidence-ref" \
+  'stripe = data["providers"].find { |provider| provider["name"] == "stripe" }; alipay = data["providers"].find { |provider| provider["name"] == "alipay" }; stripe["evidenceRef"], alipay["evidenceRef"] = alipay["evidenceRef"], stripe["evidenceRef"]' \
+  "providers[0].evidenceRef must reference provider-specific live evidence for stripe"
 
 make_invalid_case \
   "missing-strict-k8s-flag" \

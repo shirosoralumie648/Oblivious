@@ -52,7 +52,7 @@ Required JSON shape:
       "refund": "pass",
       "payout": "pass",
       "reconciliation": "pass",
-      "evidenceRef": "provider-run-id"
+      "evidenceRef": "stripe-provider-run-id"
     },
     {
       "name": "alipay",
@@ -61,7 +61,7 @@ Required JSON shape:
       "refund": "pass",
       "payout": "pass",
       "reconciliation": "pass",
-      "evidenceRef": "provider-run-id"
+      "evidenceRef": "alipay-provider-run-id"
     },
     {
       "name": "wechatpay",
@@ -70,7 +70,7 @@ Required JSON shape:
       "refund": "pass",
       "payout": "pass",
       "reconciliation": "pass",
-      "evidenceRef": "provider-run-id"
+      "evidenceRef": "wechatpay-provider-run-id"
     }
   ],
   "grpc": [
@@ -102,7 +102,9 @@ Required JSON shape:
   "artifacts": [
     {"id": "strict-verifier-log-or-artifact-id", "kind": "strict-verifier-log", "uri": "ci://run/strict-verifier", "recordedAt": "2026-06-16T01:00:00Z"},
     {"id": "release-log-or-artifact-id", "kind": "deployment-log", "uri": "ci://run/deployment", "recordedAt": "2026-06-16T01:00:00Z"},
-    {"id": "provider-run-id", "kind": "provider-live-rail", "uri": "ci://run/provider", "recordedAt": "2026-06-16T01:00:00Z"},
+    {"id": "stripe-provider-run-id", "kind": "provider-live-rail", "provider": "stripe", "uri": "ci://run/provider/stripe", "recordedAt": "2026-06-16T01:00:00Z"},
+    {"id": "alipay-provider-run-id", "kind": "provider-live-rail", "provider": "alipay", "uri": "ci://run/provider/alipay", "recordedAt": "2026-06-16T01:00:00Z"},
+    {"id": "wechatpay-provider-run-id", "kind": "provider-live-rail", "provider": "wechatpay", "uri": "ci://run/provider/wechatpay", "recordedAt": "2026-06-16T01:00:00Z"},
     {"id": "grpc-smoke-log", "kind": "grpc-smoke-report", "uri": "ci://run/grpc-smoke", "recordedAt": "2026-06-16T01:00:00Z"},
     {"id": "secret-audit-log", "kind": "secret-audit", "uri": "ci://run/secret-audit", "recordedAt": "2026-06-16T01:00:00Z"},
     {"id": "telemetry-dashboard-or-export", "kind": "workflow-telemetry", "uri": "ci://run/workflow-telemetry", "recordedAt": "2026-06-16T01:00:00Z"}
@@ -221,9 +223,9 @@ puts JSON.pretty_generate(
       {"id" => "TODO-strict-commercial-verifier-log", "kind" => "strict-verifier-log", "uri" => "TODO-strict-commercial-verifier-log-uri", "recordedAt" => recorded_at.iso8601},
       {"id" => "TODO-release-log-or-artifact-id", "kind" => "deployment-log", "uri" => "TODO-release-log-uri", "recordedAt" => recorded_at.iso8601},
       {"id" => "TODO-kubernetes-release-log-or-artifact-id", "kind" => "kubernetes-validation", "uri" => "TODO-kubernetes-log-uri", "recordedAt" => recorded_at.iso8601},
-      {"id" => "TODO-stripe-provider-run-id", "kind" => "provider-live-rail", "uri" => "TODO-stripe-provider-log-uri", "recordedAt" => recorded_at.iso8601},
-      {"id" => "TODO-alipay-provider-run-id", "kind" => "provider-live-rail", "uri" => "TODO-alipay-provider-log-uri", "recordedAt" => recorded_at.iso8601},
-      {"id" => "TODO-wechatpay-provider-run-id", "kind" => "provider-live-rail", "uri" => "TODO-wechatpay-provider-log-uri", "recordedAt" => recorded_at.iso8601},
+      {"id" => "TODO-stripe-provider-run-id", "kind" => "provider-live-rail", "provider" => "stripe", "uri" => "TODO-stripe-provider-log-uri", "recordedAt" => recorded_at.iso8601},
+      {"id" => "TODO-alipay-provider-run-id", "kind" => "provider-live-rail", "provider" => "alipay", "uri" => "TODO-alipay-provider-log-uri", "recordedAt" => recorded_at.iso8601},
+      {"id" => "TODO-wechatpay-provider-run-id", "kind" => "provider-live-rail", "provider" => "wechatpay", "uri" => "TODO-wechatpay-provider-log-uri", "recordedAt" => recorded_at.iso8601},
       {"id" => "TODO-target-grpc-smoke-report", "kind" => "grpc-smoke-report", "uri" => "TODO-target-grpc-smoke-report-uri", "recordedAt" => recorded_at.iso8601},
       {"id" => "TODO-secret-audit-log", "kind" => "secret-audit", "uri" => "TODO-secret-audit-log-uri", "recordedAt" => recorded_at.iso8601},
       {"id" => "TODO-telemetry-dashboard-or-export", "kind" => "workflow-telemetry", "uri" => "TODO-telemetry-dashboard-or-export-uri", "recordedAt" => recorded_at.iso8601}
@@ -772,8 +774,22 @@ require_artifact_kind(failures, data, artifact_ids, ["strictVerifier", "evidence
 require_artifact_kind(failures, data, artifact_ids, ["deployment", "evidenceRef"], "deployment-log")
 require_artifact_kind(failures, data, artifact_ids, ["kubernetes", "evidenceRef"], "kubernetes-validation")
 provider_entries = providers.is_a?(Array) ? providers : []
-provider_entries.each_with_index do |_provider, index|
+provider_entries.each_with_index do |provider, index|
   require_artifact_kind(failures, data, artifact_ids, ["providers", index, "evidenceRef"], "provider-live-rail")
+  next unless provider.is_a?(Hash)
+
+  name = provider["name"]
+  ref = provider["evidenceRef"]
+  next unless name.is_a?(String) && ref.is_a?(String)
+  next if placeholder?(name) || placeholder?(ref)
+
+  artifact = artifact_ids[ref]
+  next unless artifact.is_a?(Hash) && artifact["kind"] == "provider-live-rail"
+
+  artifact_provider = artifact["provider"]
+  if !artifact_provider.is_a?(String) || placeholder?(artifact_provider) || artifact_provider.strip != name.strip
+    failures << "providers[#{index}].evidenceRef must reference provider-specific live evidence for #{name.strip}"
+  end
 end
 grpc_entries = grpc.is_a?(Array) ? grpc : []
 grpc_entries.each_with_index do |_entry, index|
