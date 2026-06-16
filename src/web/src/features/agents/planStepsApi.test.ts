@@ -59,9 +59,10 @@ describe('createAgentPlanStepsApi', () => {
             id: 'tool_run_1',
             riskLevel: 'dangerous',
             runId: 'run_1',
+            serverId: 'custom-api-billing',
             status: 'pending_approval',
             toolName: 'execute_code',
-            toolType: 'builtin'
+            toolType: 'custom'
           }
         ]
       }
@@ -82,9 +83,10 @@ describe('createAgentPlanStepsApi', () => {
           id: 'tool_run_1',
           riskLevel: 'dangerous',
           runId: 'run_1',
+          serverId: 'custom-api-billing',
           status: 'pending_approval',
           toolName: 'execute_code',
-          toolType: 'builtin'
+          toolType: 'custom'
         }
       ]
     });

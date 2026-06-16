@@ -39,6 +39,10 @@ test('agent planning browser journey covers tool approval plan-step execution an
   await expect(page.getByLabel('Agent run execution controls')).toContainText('Iterations 2');
   await expect(page.getByLabel('Agent run execution controls')).toContainText('Tool calls 1');
   await expect(page.getByRole('heading', { name: 'Tool Approval Queue' })).toBeVisible();
+  const searchToolRun = page.getByRole('article', { name: 'Tool run web_search' });
+  await expect(searchToolRun).toContainText('custom');
+  await expect(searchToolRun).toContainText('Server: custom-api-browser-search');
+  await expect(searchToolRun).toContainText('Risk: medium');
   const scopeStep = page.getByRole('article', { name: 'Plan step Inspect browser route scope' });
   const patchStep = page.getByRole('article', { name: 'Plan step Patch browser route proof' });
   await expect(scopeStep).toContainText('Inspect browser route scope');
@@ -49,7 +53,7 @@ test('agent planning browser journey covers tool approval plan-step execution an
 
   await page.getByLabel('Operator decision reason for web_search').fill('Browser route operator approval.');
   await page.getByRole('button', { name: 'Approve tool web_search' }).click();
-  await expect(page.getByRole('article', { name: 'Tool run web_search' })).toContainText('Search approved.');
+  await expect(searchToolRun).toContainText('Search approved.');
 
   await page.getByRole('button', { name: 'Approve Patch browser route proof' }).click();
   await expect(page.getByRole('button', { name: 'Execute Patch browser route proof' })).toBeEnabled();

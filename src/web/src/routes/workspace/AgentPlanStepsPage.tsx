@@ -664,6 +664,7 @@ export function AgentPlanStepsPage() {
                     {toolRun.approvalStatus ? <span>Approval: {toolRun.approvalStatus}</span> : null}
                     {toolRun.riskLevel ? <span>Risk: {toolRun.riskLevel}</span> : null}
                     {toolRun.toolType ? <span>{toolRun.toolType}</span> : null}
+                    {toolRun.serverId ? <span>Server: {toolRun.serverId}</span> : null}
                   </div>
                   <h3 className="text-base font-semibold text-[#181611]">{toolRun.toolName}</h3>
                   {toolArguments ? (

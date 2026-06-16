@@ -2210,6 +2210,13 @@ require_agent_run_mutation_csrf_contract() {
       missing << "Agent decision request schemas must document snake/camel identifiers and move direction enum"
     end
 
+    tool_run = schemas["AgentToolRun"] || {}
+    unless tool_run.dig("properties", "toolType", "type") == "string" &&
+        tool_run.dig("properties", "serverId", "type") == "string" &&
+        tool_run.dig("properties", "riskLevel", "type") == "string"
+      missing << "AgentToolRun must document toolType, serverId, and riskLevel metadata for custom/MCP tool evidence"
+    end
+
     plan_step = schemas["AgentPlanStep"] || {}
     plan_step_update = schemas["AgentPlanStepUpdateRequest"] || {}
     plan_step_create = schemas["AgentPlanStepCreateRequest"] || {}

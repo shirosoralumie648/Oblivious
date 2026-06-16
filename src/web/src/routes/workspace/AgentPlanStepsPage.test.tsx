@@ -1172,9 +1172,10 @@ describe('AgentPlanStepsPage', () => {
           id: 'tool_run_1',
           riskLevel: 'dangerous',
           runId: 'run_1',
+          serverId: 'custom-api-billing',
           status: 'pending_approval',
           toolName: 'write_file',
-          toolType: 'builtin'
+          toolType: 'custom'
         },
         {
           approvalStatus: 'not_required',
@@ -1221,9 +1222,10 @@ describe('AgentPlanStepsPage', () => {
           id: 'tool_run_1',
           riskLevel: 'dangerous',
           runId: 'run_1',
+          serverId: 'custom-api-billing',
           status: 'completed',
           toolName: 'write_file',
-          toolType: 'builtin'
+          toolType: 'custom'
         },
         {
           approvalStatus: 'not_required',
@@ -1270,9 +1272,10 @@ describe('AgentPlanStepsPage', () => {
           id: 'tool_run_1',
           riskLevel: 'dangerous',
           runId: 'run_1',
+          serverId: 'custom-api-billing',
           status: 'completed',
           toolName: 'write_file',
-          toolType: 'builtin'
+          toolType: 'custom'
         },
         {
           approvalStatus: 'not_required',
@@ -1318,9 +1321,10 @@ describe('AgentPlanStepsPage', () => {
           id: 'tool_run_1',
           riskLevel: 'dangerous',
           runId: 'run_1',
+          serverId: 'custom-api-billing',
           status: 'completed',
           toolName: 'write_file',
-          toolType: 'builtin'
+          toolType: 'custom'
         },
         {
           approvalStatus: 'not_required',
@@ -1338,6 +1342,8 @@ describe('AgentPlanStepsPage', () => {
 
     expect(await screen.findByRole('heading', { name: 'Tool Approval Queue' })).toBeInTheDocument();
     expect(screen.getByLabelText('Tool run write_file')).toHaveTextContent('dangerous');
+    expect(screen.getByLabelText('Tool run write_file')).toHaveTextContent('custom');
+    expect(screen.getByLabelText('Tool run write_file')).toHaveTextContent('Server: custom-api-billing');
     expect(screen.getByLabelText('Tool run write_file')).toHaveTextContent('"path": "src/server/main.go"');
     expect(screen.getByLabelText('Tool run web_search')).toHaveTextContent('search endpoint timed out');
     expect(screen.getByLabelText('Tool run delete_file')).toHaveTextContent('"command": "rm -rf /tmp/build"');
