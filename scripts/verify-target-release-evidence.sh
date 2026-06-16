@@ -253,7 +253,9 @@ CURRENT_COMMIT="$current_commit" \
 EVIDENCE_FILE="$evidence_file" \
 ALLOW_COMMIT_MISMATCH="$allow_commit_mismatch" \
 ruby <<'RUBY'
+require "ipaddr"
 require "json"
+require "shellwords"
 require "time"
 require "uri"
 
@@ -309,12 +311,63 @@ def require_iso8601_interval(failures, data, path, interval_error:, ordering_err
 end
 
 def local_target_host?(host)
-  normalized = host.to_s.downcase.sub(/\A\[(.*)\]\z/, '\1')
-  normalized == "localhost" ||
-    normalized.end_with?(".localhost") ||
-    normalized == "0.0.0.0" ||
-    normalized == "::1" ||
-    normalized.start_with?("127.")
+  normalized = host.to_s.strip.downcase.sub(/\A\[(.*)\]\z/, '\1')
+  normalized = normalized.sub(/\.+\z/, "")
+  return false if normalized.empty?
+  return true if normalized == "localhost" || normalized.end_with?(".localhost")
+
+  begin
+    ip = IPAddr.new(normalized)
+    ip = ip.native if ip.respond_to?(:ipv4_mapped?) && ip.ipv4_mapped?
+    ip.loopback? || normalized == "0.0.0.0"
+  rescue ArgumentError
+    false
+  end
+end
+
+STRICT_VERIFIER_REQUIRED_ENV = %w[
+  COMMERCIAL_COMPLETION_RUN_DEPLOY=true
+  COMMERCIAL_COMPLETION_RUN_K8S=true
+  COMMERCIAL_COMPLETION_RUN_BACKUP_RESTORE=true
+  COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true
+].freeze
+STRICT_VERIFIER_COMMAND_TAIL = ["bash", "scripts/verify-commercial-completion.sh"].freeze
+STRICT_VERIFIER_FORBIDDEN_ENV = {
+  "COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS" => "strictVerifier.command must not enable COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS",
+  "OBLIVIOUS_TARGET_EVIDENCE_ALLOW_COMMIT_MISMATCH" => "strictVerifier.command must not enable OBLIVIOUS_TARGET_EVIDENCE_ALLOW_COMMIT_MISMATCH"
+}.freeze
+
+def validate_strict_verifier_command(failures, command)
+  tokens = Shellwords.split(command)
+  required_env = STRICT_VERIFIER_REQUIRED_ENV.to_h { |assignment| assignment.split("=", 2) }
+  seen_env = {}
+  command_tail = tokens.last(2)
+
+  tokens.each do |token|
+    key, value = token.split("=", 2)
+    next unless value
+
+    failures << STRICT_VERIFIER_FORBIDDEN_ENV.fetch(key) if STRICT_VERIFIER_FORBIDDEN_ENV.key?(key)
+    seen_env[key] = value
+  end
+
+  failures << "strictVerifier.command must run scripts/verify-commercial-completion.sh" unless command_tail == STRICT_VERIFIER_COMMAND_TAIL
+
+  STRICT_VERIFIER_REQUIRED_ENV.each do |required_flag|
+    key, value = required_flag.split("=", 2)
+    unless seen_env[key] == value
+      failures << "strictVerifier.command must include #{required_flag}"
+    end
+  end
+
+  expected_tokens = STRICT_VERIFIER_REQUIRED_ENV + STRICT_VERIFIER_COMMAND_TAIL
+  if tokens.length != expected_tokens.length ||
+      command_tail != STRICT_VERIFIER_COMMAND_TAIL ||
+      (tokens[0...-2].sort != STRICT_VERIFIER_REQUIRED_ENV.sort)
+    failures << "strictVerifier.command must use the canonical strict verifier invocation"
+  end
+rescue ArgumentError
+  failures << "strictVerifier.command must use the canonical strict verifier invocation"
 end
 
 def require_http_url(failures, data, path, error, local_error: nil)
@@ -513,23 +566,7 @@ require_string(failures, data, ["strictVerifier", "command"])
 require_pass(failures, data, ["strictVerifier", "result"])
 command = dig_path(data, ["strictVerifier", "command"])
 if command.is_a?(String)
-  failures << "strictVerifier.command must run scripts/verify-commercial-completion.sh" unless command.include?("scripts/verify-commercial-completion.sh")
-  if command.match?(%r{(?:^|[[:space:];&|])COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS[[:space:]]*=})
-    failures << "strictVerifier.command must not enable COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS"
-  end
-  if command.match?(%r{(?:^|[[:space:];&|])OBLIVIOUS_TARGET_EVIDENCE_ALLOW_COMMIT_MISMATCH[[:space:]]*=})
-    failures << "strictVerifier.command must not enable OBLIVIOUS_TARGET_EVIDENCE_ALLOW_COMMIT_MISMATCH"
-  end
-  %w[
-    COMMERCIAL_COMPLETION_RUN_DEPLOY=true
-    COMMERCIAL_COMPLETION_RUN_K8S=true
-    COMMERCIAL_COMPLETION_RUN_BACKUP_RESTORE=true
-    COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true
-  ].each do |required_flag|
-    unless command.match?(/(?:^|\s)#{Regexp.escape(required_flag)}(?:\s|$)/)
-      failures << "strictVerifier.command must include #{required_flag}"
-    end
-  end
+  validate_strict_verifier_command(failures, command)
 end
 skipped_checks = dig_path(data, ["strictVerifier", "skippedChecks"])
 failures << "strictVerifier.skippedChecks must be an empty array" unless skipped_checks == []

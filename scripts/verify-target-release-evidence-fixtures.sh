@@ -180,6 +180,16 @@ make_invalid_case \
   "environment.baseUrl must target a non-local target environment"
 
 make_invalid_case \
+  "loopback-environment-trailing-dot" \
+  'data["environment"]["baseUrl"] = "http://localhost.:3000"' \
+  "environment.baseUrl must target a non-local target environment"
+
+make_invalid_case \
+  "ipv6-mapped-loopback-environment" \
+  'data["environment"]["baseUrl"] = "http://[::ffff:127.0.0.1]:3000"' \
+  "environment.baseUrl must target a non-local target environment"
+
+make_invalid_case \
   "duplicate-artifact-id" \
   'data["artifacts"] << data["artifacts"].first.dup' \
   "artifacts must not duplicate artifact-strict-verifier-20260616"
@@ -230,6 +240,11 @@ make_invalid_case \
   "artifacts[1].uri must reference a remote target artifact URI"
 
 make_invalid_case \
+  "ipv6-mapped-loopback-artifact-uri" \
+  'data["artifacts"].find { |artifact| artifact["id"] == "artifact-deploy-20260616" }["uri"] = "http://[::ffff:127.0.0.1]:8080/target-release/deploy.log"' \
+  "artifacts[1].uri must reference a remote target artifact URI"
+
+make_invalid_case \
   "inline-artifact-uri" \
   'data["artifacts"].find { |artifact| artifact["id"] == "artifact-deploy-20260616" }["uri"] = "data:text/plain,target-release-log"' \
   "artifacts[1].uri must reference a remote target artifact URI"
@@ -268,6 +283,16 @@ make_invalid_case \
   "missing-strict-k8s-flag" \
   'data["strictVerifier"]["command"] = data["strictVerifier"]["command"].split.reject { |token| token == "COMMERCIAL_COMPLETION_RUN_K8S=true" }.join(" ")' \
   "strictVerifier.command must include COMMERCIAL_COMPLETION_RUN_K8S=true"
+
+make_invalid_case \
+  "strict-command-mask-or-true" \
+  'data["strictVerifier"]["command"] = data["strictVerifier"]["command"] + " || true"' \
+  "strictVerifier.command must use the canonical strict verifier invocation"
+
+make_invalid_case \
+  "strict-command-env-quoted-skip-flags-as-args" \
+  'data["strictVerifier"]["command"] = "env '\''COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS=true'\'' " + data["strictVerifier"]["command"] + " COMMERCIAL_COMPLETION_RUN_DEPLOY=true"' \
+  "strictVerifier.command must use the canonical strict verifier invocation"
 
 make_invalid_case \
   "quoted-env-skip-command" \
@@ -337,6 +362,11 @@ make_invalid_case \
 make_invalid_case \
   "loopback-grpc-address" \
   'data["grpc"].find { |entry| entry["service"] == "agent" }["address"] = "localhost:50063"; data["grpcSmokeReport"]["results"].find { |result| result["service"] == "agent" }["address"] = "localhost:50063"' \
+  "grpc[0].address for agent must target a non-local service endpoint"
+
+make_invalid_case \
+  "ipv6-mapped-loopback-grpc-address" \
+  'data["grpc"].find { |entry| entry["service"] == "agent" }["address"] = "[::ffff:127.0.0.1]:50063"; data["grpcSmokeReport"]["results"].find { |result| result["service"] == "agent" }["address"] = "[::ffff:127.0.0.1]:50063"' \
   "grpc[0].address for agent must target a non-local service endpoint"
 
 make_invalid_case \
