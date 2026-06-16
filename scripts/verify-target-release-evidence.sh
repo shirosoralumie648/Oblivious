@@ -386,7 +386,8 @@ def remote_artifact_uri?(value)
   return false if blank?(uri.scheme) || uri.scheme.downcase == "file"
 
   host = uri.respond_to?(:host) ? uri.host : nil
-  return false if !blank?(host) && local_target_host?(host)
+  return false if blank?(host)
+  return false if local_target_host?(host)
 
   true
 end
