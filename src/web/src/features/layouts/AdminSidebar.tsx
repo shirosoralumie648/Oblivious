@@ -93,10 +93,16 @@ function matchesItem(item: SidebarItem, query: string) {
   return item.label.toLowerCase().includes(normalized) || item.keywords.some((keyword) => keyword.includes(normalized));
 }
 
+function defaultCollapsed() {
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    ? window.matchMedia('(max-width: 767px)').matches
+    : false;
+}
+
 export function AdminSidebar() {
   const location = useLocation();
   const [searchQuery, setSearchQuery] = useState('');
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(defaultCollapsed);
 
   const filteredGroups = useMemo(
     () =>

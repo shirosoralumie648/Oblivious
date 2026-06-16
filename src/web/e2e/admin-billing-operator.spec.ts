@@ -1,9 +1,64 @@
-import { expect, test } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 
 import { registerAdminBillingOperatorRoutes } from './fixtures/adminBillingOperator';
 
+async function expectAdminBillingLayoutContained(page: Page) {
+  const overflowState = await page.evaluate(() => {
+    const main = document.querySelector('main');
+    const table = document.querySelector('table');
+    const tableViewport = table?.parentElement;
+
+    return {
+      documentFits: document.documentElement.scrollWidth <= window.innerWidth + 1,
+      mainFits: main instanceof HTMLElement ? main.scrollWidth <= main.clientWidth + 1 : true,
+      tableViewportFits:
+        tableViewport instanceof HTMLElement ? tableViewport.getBoundingClientRect().width <= window.innerWidth + 1 : false,
+    };
+  });
+
+  expect(overflowState).toEqual({
+    documentFits: true,
+    mainFits: true,
+    tableViewportFits: true,
+  });
+}
+
 test.beforeEach(async ({ page }) => {
   await registerAdminBillingOperatorRoutes(page);
+});
+
+test('admin billing mobile layout keeps operator tables and forms contained', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/admin/billing');
+
+  await expect(page.getByRole('heading', { name: 'Billing' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Billing' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('main')).toHaveCount(1);
+  await expect(page.getByText('session_admin_billing_initial')).toBeVisible();
+  await expectAdminBillingLayoutContained(page);
+
+  await page.getByLabel('Organization ID filter').fill('org_billing_operator');
+  await page.getByLabel('Status filter').fill('payout_pending');
+  await page.getByLabel('Kind filter').fill('marketplace_install');
+  await page.getByLabel('Provider filter').fill('stripe_connect');
+  await page.getByRole('tab', { name: 'Payouts' }).click();
+
+  const failedPayoutRow = page.getByRole('row').filter({ hasText: 'payout_browser_failed' });
+  await expect(failedPayoutRow).toBeVisible();
+  await expect(failedPayoutRow.getByLabel('Payout Pending', { exact: true })).toBeVisible();
+  await expectAdminBillingLayoutContained(page);
+
+  await failedPayoutRow.getByRole('button', { name: 'Mark payout payout_browser_failed failed' }).click();
+  await expect(page.getByRole('heading', { name: 'Payout failure' })).toBeVisible();
+  await expect(page.getByLabel('Provider payout ID')).toBeVisible();
+  await expect(page.getByLabel('Failure reason')).toBeVisible();
+  await expectAdminBillingLayoutContained(page);
+
+  await page.getByLabel('Provider payout ID').fill('po_browser_failed_confirmed');
+  await page.getByLabel('Failure reason').fill('bank account closed by publisher');
+  await page.getByRole('button', { name: 'Confirm failed payout' }).click();
+  await expect(failedPayoutRow.getByLabel('Failed', { exact: true })).toBeVisible();
+  await expectAdminBillingLayoutContained(page);
 });
 
 test('admin billing marks marketplace payouts paid and failed with provider evidence', async ({ page }) => {
