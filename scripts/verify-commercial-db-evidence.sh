@@ -288,7 +288,7 @@ run_agent_runtime_memory_profile() {
 
   agent_runtime_memory_pattern="^(TestAgentRunStorePersistsRunLifecycle|TestAgentPlanStepStore(RoundTripsStepsInOrder|UpdatesStatusAndExecutionResult)|TestAgentSQLStorePersists(ApprovalConfigAndToolRiskLevels|DefaultExecutionModeConfig|LongTermMemoryWritePolicyConfig)|TestAgentMemoryStorePersistsAndFiltersMemories)$"
   agent_react_runtime_pattern="^(TestExecuteReActWithModelRouting|TestExecuteReActModelSwitching|TestExecuteReActWithSkillSelection|TestBuildToolsFromSkills|TestInjectSkillInstructions)$"
-  agent_tool_runtime_pattern="^(TestCallAgentTool(Registration|_RecursionDepthGuard)|TestWebsearchTool_(PrimarySuccess|FallbackChain|AllProvidersExhausted|MissingProviderInMap|EmptyFallback|NoProviders|IntegrationWithConfig|IntegrationWithMockProviders|DefaultProvider|MultipleProvidersChain))$"
+  agent_tool_runtime_pattern="^(TestCallAgentTool(Registration(_RecursionLimit)?|_RecursionDepthGuard)|TestWebsearchTool_(PrimarySuccess|FallbackChain|AllProvidersExhausted|MissingProviderInMap|EmptyFallback|NoProviders|IntegrationWithConfig|IntegrationWithMockProviders|DefaultProvider|MultipleProvidersChain))$"
   run_go_test_no_skips "agent ReAct model routing and skill runtime" "./internal/agent" "$agent_react_runtime_pattern"
   run_go_test_no_skips "agent tool delegation and websearch fallback runtime" "./internal/agent/tools" "$agent_tool_runtime_pattern"
   run_go_test_no_skips "agent runtime, memory store, and memory policy persistence" "./internal/agent" "$agent_runtime_memory_pattern"
