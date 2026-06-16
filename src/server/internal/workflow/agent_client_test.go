@@ -130,6 +130,173 @@ func TestAgentClientApproveAgentToolRunUsesWorkspaceSession(t *testing.T) {
 	}
 }
 
+func TestAgentClientPlanningControlsUseWorkspaceSessionAndReloadRun(t *testing.T) {
+	result := &agent.RunWithMessages{
+		Run: &agent.Run{
+			ID:             "run_1",
+			Status:         agent.RunStatusPendingApproval,
+			FinalMessageID: "msg_plan",
+		},
+		Messages: []*agent.Message{{
+			ID:      "msg_plan",
+			Role:    "assistant",
+			Content: "plan state refreshed",
+		}},
+		PlanSteps: []*agent.PlanStep{{
+			ID:             "step_1",
+			RunID:          "run_1",
+			Title:          "Verify boundary",
+			Status:         agent.PlanStepStatusCompleted,
+			ApprovalStatus: agent.ApprovalStatusApproved,
+		}},
+	}
+	req := WorkflowAgentControlRequest{
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		WorkspaceID:    "workspace_1",
+		RunID:          "run_1",
+		PlanStepID:     "step_1",
+		Reason:         "operator reason",
+		TokenBudget:    4096,
+	}
+
+	tests := []struct {
+		name                  string
+		call                  func(*AgentClient, context.Context, WorkflowAgentControlRequest) (*WorkflowAgentRunResult, error)
+		wantControlAction     string
+		wantPlanStepAction    string
+		wantReloadAfterCall   bool
+		wantReasonForwarded   bool
+		wantBudgetForwarded   bool
+		wantPlanStepForwarded bool
+	}{
+		{
+			name:              "continue plan",
+			call:              (*AgentClient).ContinueAgentPlan,
+			wantControlAction: "continue-plan",
+		},
+		{
+			name:                "adjust plan",
+			call:                (*AgentClient).AdjustAgentPlan,
+			wantControlAction:   "adjust-plan",
+			wantReasonForwarded: true,
+		},
+		{
+			name:                "continue token budget",
+			call:                (*AgentClient).ContinueAgentRunWithTokenBudget,
+			wantControlAction:   "continue-budget",
+			wantReloadAfterCall: true,
+			wantBudgetForwarded: true,
+		},
+		{
+			name:                  "approve plan step",
+			call:                  (*AgentClient).ApproveAgentPlanStep,
+			wantPlanStepAction:    "approve",
+			wantReloadAfterCall:   true,
+			wantReasonForwarded:   true,
+			wantPlanStepForwarded: true,
+		},
+		{
+			name:                  "execute plan step",
+			call:                  (*AgentClient).ExecuteAgentPlanStep,
+			wantPlanStepAction:    "execute",
+			wantReloadAfterCall:   true,
+			wantPlanStepForwarded: true,
+		},
+		{
+			name:                  "skip plan step",
+			call:                  (*AgentClient).SkipAgentPlanStep,
+			wantPlanStepAction:    "skip",
+			wantReloadAfterCall:   true,
+			wantReasonForwarded:   true,
+			wantPlanStepForwarded: true,
+		},
+		{
+			name:                  "retry plan step",
+			call:                  (*AgentClient).RetryAgentPlanStep,
+			wantPlanStepAction:    "retry",
+			wantReloadAfterCall:   true,
+			wantPlanStepForwarded: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := &recordingAgentClientService{
+				result:        result,
+				planStepRunID: "run_1",
+			}
+			client := &AgentClient{agentService: service}
+
+			got, err := tt.call(client, context.Background(), req)
+			if err != nil {
+				t.Fatalf("%s returned error: %v", tt.name, err)
+			}
+			if got.RunID != "run_1" || got.FinalMessage != "plan state refreshed" || len(got.PlanSteps) != 1 || got.PlanSteps[0].ID != "step_1" {
+				t.Fatalf("expected refreshed run detail with plan step evidence, got %+v", got)
+			}
+			if tt.wantControlAction != "" {
+				if service.controlAction != tt.wantControlAction {
+					t.Fatalf("control action = %q, want %q", service.controlAction, tt.wantControlAction)
+				}
+				if service.controlRunID != "run_1" {
+					t.Fatalf("control run ID = %q, want run_1", service.controlRunID)
+				}
+				if service.controlSession.OrganizationID != "org_1" || service.controlSession.WorkspaceID != "workspace_1" || service.controlSession.User.ID != "user_1" {
+					t.Fatalf("unexpected control session: %+v", service.controlSession)
+				}
+			}
+			if tt.wantPlanStepAction != "" {
+				if service.planStepAction != tt.wantPlanStepAction {
+					t.Fatalf("plan-step action = %q, want %q", service.planStepAction, tt.wantPlanStepAction)
+				}
+				if service.planStepSession.OrganizationID != "org_1" || service.planStepSession.WorkspaceID != "workspace_1" || service.planStepSession.User.ID != "user_1" {
+					t.Fatalf("unexpected plan-step session: %+v", service.planStepSession)
+				}
+			}
+			if tt.wantReasonForwarded && service.controlReason != "operator reason" && service.planStepReason != "operator reason" {
+				t.Fatalf("expected reason to be forwarded, got control=%q planStep=%q", service.controlReason, service.planStepReason)
+			}
+			if tt.wantBudgetForwarded && service.controlTokenBudget != 4096 {
+				t.Fatalf("token budget = %d, want 4096", service.controlTokenBudget)
+			}
+			if tt.wantPlanStepForwarded && service.planStepID != "step_1" {
+				t.Fatalf("plan step ID = %q, want step_1", service.planStepID)
+			}
+			if tt.wantReloadAfterCall {
+				if service.fetchedRunID != "run_1" {
+					t.Fatalf("expected run reload for run_1, got %q", service.fetchedRunID)
+				}
+				if service.fetchSession.OrganizationID != "org_1" || service.fetchSession.WorkspaceID != "workspace_1" || service.fetchSession.User.ID != "user_1" {
+					t.Fatalf("unexpected reload session: %+v", service.fetchSession)
+				}
+			}
+		})
+	}
+}
+
+func TestAgentClientPlanStepActionRejectsCrossRunResult(t *testing.T) {
+	service := &recordingAgentClientService{
+		result:        &agent.RunWithMessages{Run: &agent.Run{ID: "run_1", Status: agent.RunStatusPendingApproval}},
+		planStepRunID: "run_other",
+	}
+	client := &AgentClient{agentService: service}
+
+	_, err := client.ExecuteAgentPlanStep(context.Background(), WorkflowAgentControlRequest{
+		OrganizationID: "org_1",
+		UserID:         "user_1",
+		WorkspaceID:    "workspace_1",
+		RunID:          "run_1",
+		PlanStepID:     "step_1",
+	})
+	if !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput for cross-run plan-step action result, got %v", err)
+	}
+	if service.fetchedRunID != "" {
+		t.Fatalf("cross-run plan-step result should not reload run detail, got %q", service.fetchedRunID)
+	}
+}
+
 func TestAgentClientRunResultMappingIsNilSafeAndFallsBackToAssistantMessage(t *testing.T) {
 	result := toWorkflowAgentRunResult(&agent.RunWithMessages{
 		Messages: []*agent.Message{
@@ -177,15 +344,25 @@ func TestAgentClientNilServiceReturnsInvalidInput(t *testing.T) {
 }
 
 type recordingAgentClientService struct {
-	startAction       string
-	startSession      auth.Session
-	startRequest      agent.StartRunRequest
-	approveSession    auth.Session
-	approvedToolRunID string
-	approvalReason    string
-	fetchSession      auth.Session
-	fetchedRunID      string
-	result            *agent.RunWithMessages
+	startAction        string
+	startSession       auth.Session
+	startRequest       agent.StartRunRequest
+	approveSession     auth.Session
+	approvedToolRunID  string
+	approvalReason     string
+	controlAction      string
+	controlSession     auth.Session
+	controlRunID       string
+	controlReason      string
+	controlTokenBudget int
+	planStepAction     string
+	planStepSession    auth.Session
+	planStepID         string
+	planStepReason     string
+	planStepRunID      string
+	fetchSession       auth.Session
+	fetchedRunID       string
+	result             *agent.RunWithMessages
 }
 
 func (s *recordingAgentClientService) StartRun(ctx context.Context, session auth.Session, req agent.StartRunRequest) (*agent.RunWithMessages, error) {
@@ -221,48 +398,60 @@ func (s *recordingAgentClientService) GetRunWithMessages(ctx context.Context, se
 
 func (s *recordingAgentClientService) ContinuePlanningRun(ctx context.Context, session auth.Session, runID string) (*agent.RunWithMessages, error) {
 	_ = ctx
-	s.fetchSession = session
-	s.fetchedRunID = runID
+	s.controlAction = "continue-plan"
+	s.controlSession = session
+	s.controlRunID = runID
 	return s.result, nil
 }
 
 func (s *recordingAgentClientService) AdjustPlanSteps(ctx context.Context, session auth.Session, runID, reason string) (*agent.RunWithMessages, error) {
 	_ = ctx
-	s.fetchSession = session
-	s.fetchedRunID = runID
-	s.approvalReason = reason
+	s.controlAction = "adjust-plan"
+	s.controlSession = session
+	s.controlRunID = runID
+	s.controlReason = reason
 	return s.result, nil
 }
 
 func (s *recordingAgentClientService) ContinueRunWithTokenBudget(ctx context.Context, session auth.Session, runID string, tokenBudget int) (*agent.RunResult, error) {
 	_ = ctx
-	s.fetchSession = session
-	s.fetchedRunID = runID
+	s.controlAction = "continue-budget"
+	s.controlSession = session
+	s.controlRunID = runID
+	s.controlTokenBudget = tokenBudget
 	return &agent.RunResult{}, nil
 }
 
 func (s *recordingAgentClientService) ApprovePlanStep(ctx context.Context, session auth.Session, planStepID, reason string) (*agent.PlanStep, error) {
 	_ = ctx
-	s.fetchSession = session
-	s.approvalReason = reason
-	return &agent.PlanStep{ID: planStepID, RunID: s.fetchedRunID}, nil
+	s.planStepAction = "approve"
+	s.planStepSession = session
+	s.planStepID = planStepID
+	s.planStepReason = reason
+	return &agent.PlanStep{ID: planStepID, RunID: s.planStepRunID}, nil
 }
 
 func (s *recordingAgentClientService) ExecutePlanStep(ctx context.Context, session auth.Session, planStepID string) (*agent.PlanStep, error) {
 	_ = ctx
-	s.fetchSession = session
-	return &agent.PlanStep{ID: planStepID, RunID: s.fetchedRunID}, nil
+	s.planStepAction = "execute"
+	s.planStepSession = session
+	s.planStepID = planStepID
+	return &agent.PlanStep{ID: planStepID, RunID: s.planStepRunID}, nil
 }
 
 func (s *recordingAgentClientService) SkipPlanStep(ctx context.Context, session auth.Session, planStepID, reason string) (*agent.PlanStep, error) {
 	_ = ctx
-	s.fetchSession = session
-	s.approvalReason = reason
-	return &agent.PlanStep{ID: planStepID, RunID: s.fetchedRunID}, nil
+	s.planStepAction = "skip"
+	s.planStepSession = session
+	s.planStepID = planStepID
+	s.planStepReason = reason
+	return &agent.PlanStep{ID: planStepID, RunID: s.planStepRunID}, nil
 }
 
 func (s *recordingAgentClientService) RetryPlanStep(ctx context.Context, session auth.Session, planStepID string) (*agent.PlanStep, error) {
 	_ = ctx
-	s.fetchSession = session
-	return &agent.PlanStep{ID: planStepID, RunID: s.fetchedRunID}, nil
+	s.planStepAction = "retry"
+	s.planStepSession = session
+	s.planStepID = planStepID
+	return &agent.PlanStep{ID: planStepID, RunID: s.planStepRunID}, nil
 }

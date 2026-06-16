@@ -22,6 +22,22 @@ require_contains() {
   fi
 }
 
+require_row_contains() {
+  local path="$1"
+  local row_prefix="$2"
+  local pattern="$3"
+  local row
+  row=$(grep -F -- "$row_prefix" "$path" | head -n 1 || true)
+  if [[ -z "$row" ]]; then
+    echo "[fusion-evidence-pack] missing row '$row_prefix' in $path" >&2
+    exit 1
+  fi
+  if [[ "$row" != *"$pattern"* ]]; then
+    echo "[fusion-evidence-pack] expected row '$row_prefix' to include '$pattern' in $path" >&2
+    exit 1
+  fi
+}
+
 require_file "$pack_file"
 require_file "$matrix_file"
 
@@ -42,6 +58,7 @@ require_contains "$pack_file" "unreferenced artifact"
 require_contains "$pack_file" "secret-like query"
 require_contains "$pack_file" "evidence family"
 require_contains "$pack_file" "concrete environment"
+require_contains "$pack_file" "direct Workflow AgentClient planning-control adapter proof"
 require_contains "$pack_file" "scripts/verify-commercial-completion.sh"
 require_contains "$pack_file" "COMMERCIAL_COMPLETION_RUN_DEPLOY=true \\"
 require_contains "$pack_file" "COMMERCIAL_COMPLETION_RUN_K8S=true \\"
@@ -55,5 +72,6 @@ require_contains "$pack_file" "A skipped command is not successful proof"
 require_contains "$pack_file" 'Keep rows marked `Partial`'
 require_contains "$matrix_file" "Migration strategy and release readiness"
 require_contains "$matrix_file" "Partial"
+require_row_contains "$matrix_file" "| Agent system |" "target deployed Agent compatibility, target gRPC smoke, target secret audit, workflow telemetry, and final no-skip release proof"
 
 echo "[fusion-evidence-pack] fusion evidence pack is present and guarded."
