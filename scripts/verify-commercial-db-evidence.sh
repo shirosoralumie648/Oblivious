@@ -53,9 +53,10 @@ Profiles:
   secret-response-safety       Run focused DB-backed response redaction and
                                at-rest protection tests for persisted provider,
                                channel, workflow, and MCP auth-token secrets.
-  agent-runtime-memory         Run focused Agent runtime, approval, execution
-                               mode, structured plan-step, memory store, and
-                               memory policy PostgreSQL tests.
+  agent-runtime-memory         Run focused Agent runtime, ReAct model routing,
+                               skills, tool fallback, approval, execution mode,
+                               structured plan-step, memory store, and memory
+                               policy PostgreSQL tests.
   scheduled-task-runtime       Run focused Scheduled Task SQL store, route, and
                                Workflow trigger sync PostgreSQL tests.
   auth-security-persistence    Run focused Auth password policy, reset,
@@ -282,8 +283,14 @@ run_secret_response_safety_profile() {
 
 run_agent_runtime_memory_profile() {
   local agent_runtime_memory_pattern
+  local agent_react_runtime_pattern
+  local agent_tool_runtime_pattern
 
   agent_runtime_memory_pattern="^(TestAgentRunStorePersistsRunLifecycle|TestAgentPlanStepStore(RoundTripsStepsInOrder|UpdatesStatusAndExecutionResult)|TestAgentSQLStorePersists(ApprovalConfigAndToolRiskLevels|DefaultExecutionModeConfig|LongTermMemoryWritePolicyConfig)|TestAgentMemoryStorePersistsAndFiltersMemories)$"
+  agent_react_runtime_pattern="^(TestExecuteReActWithModelRouting|TestExecuteReActModelSwitching|TestExecuteReActWithSkillSelection|TestBuildToolsFromSkills|TestInjectSkillInstructions)$"
+  agent_tool_runtime_pattern="^(TestCallAgentTool(Registration|_RecursionDepthGuard)|TestWebsearchTool_(PrimarySuccess|FallbackChain|AllProvidersExhausted|MissingProviderInMap|EmptyFallback|NoProviders|IntegrationWithConfig|IntegrationWithMockProviders|DefaultProvider|MultipleProvidersChain))$"
+  run_go_test_no_skips "agent ReAct model routing and skill runtime" "./internal/agent" "$agent_react_runtime_pattern"
+  run_go_test_no_skips "agent tool delegation and websearch fallback runtime" "./internal/agent/tools" "$agent_tool_runtime_pattern"
   run_go_test_no_skips "agent runtime, memory store, and memory policy persistence" "./internal/agent" "$agent_runtime_memory_pattern"
 }
 
