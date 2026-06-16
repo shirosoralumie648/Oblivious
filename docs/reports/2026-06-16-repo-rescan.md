@@ -39,6 +39,7 @@
 - Task approval bypass proof is now covered in the no-skip PostgreSQL app-stateful route profile. The route test drives `POST /api/v1/app/tasks/{taskId}/approve` through the real router with cookie and CSRF, proves only current-workspace `awaiting_confirmation` tasks advance to `running`, and proves completed, cancelled, running, draft, and cross-workspace tasks preserve task and step state.
 - Marketplace paid-install WeChat Pay provider parity is now covered locally. HTTP paid-install success coverage runs both Alipay and WeChat Pay provider subcases, domestic hosted checkout creator tests assert Marketplace metadata query parity for both providers, settlement PostgreSQL tests preserve selected provider/currency and lifecycle keys for both providers under the money-movement profile, and the built Marketplace browser journey selects WeChat Pay and verifies the continuation link.
 - Agent ReAct model-routing, skill runtime, `call_agent`, and websearch fallback proof are now part of the no-skip `agent-runtime-memory` commercial DB profile before the existing SQL persistence checks. The profile uses disposable/configured PostgreSQL, rejects skipped tests, and now covers second-iteration model switching after tool results, skill selection/tool filtering/instruction injection, recursive sub-agent depth guards, and websearch fallback/exhaustion.
+- Target/live evidence validation now requires separate live provider evidence entries for Stripe, Alipay, and WeChat Pay. The target evidence template prints all three entries, and the verifier rejects a final manifest if any of the three first-party payment rails is missing checkout/refund/payout/reconciliation proof or concrete artifact refs.
 
 ## Repository Inventory
 
@@ -102,6 +103,7 @@ No rows are currently marked `Gap` or `Unverified`.
 
 - `docs/release/fusion-spec-evidence-pack.md` still states that the pack is not a final completion claim; any `Partial` row remains open until row-specific proof is recorded and rerun on the target environment where required.
 - `scripts/verify-target-release-evidence.sh` now provides the external target/live evidence manifest gate for proof that cannot be collected from repository-local tests.
+- The target/live manifest gate now requires Stripe, Alipay, and WeChat Pay live checkout/refund/payout/reconciliation entries individually; a single live provider entry is not sufficient for final readiness.
 - Chat realtime repository proof is local and focused: `go test ./internal/ws`, Chat handler realtime publish tests, focused Chat Vitest, built-app Playwright WebSocket proof, OpenAPI contract verification, web TypeScript, and docs gate cover this slice.
 - Task approval state/workspace proof is local and focused: `scripts/verify-commercial-db-evidence.sh app-stateful-routes` covers the real app router, cookie/CSRF, SQL store, allowed transition, denied terminal/draft/current-state cases, and cross-workspace no-mutation boundary.
 - Agent runtime/tool proof is local and focused: `scripts/verify-commercial-db-evidence.sh agent-runtime-memory` now reruns ReAct model routing, skill selection/tool filtering/instruction injection, `call_agent` recursion guard, websearch fallback, and Agent SQL runtime/memory persistence with skipped tests rejected.
@@ -140,6 +142,7 @@ Pure target/live blockers that still keep final status below `100/100`:
 - Target Kubernetes validation with reachable cluster access and a filled untracked `OBLIVIOUS_K8S_SECRET_FILE`.
 - Target deployment failover/recovery evidence, including real platform restart, scale, and failover behavior.
 - Live billing and Marketplace provider rails for checkout, refund, payout, and reconciliation.
+  - The manifest verifier now requires separate Stripe, Alipay, and WeChat Pay live evidence entries for these rails; local fake/provider tests still do not satisfy this blocker.
 - Target Agent/Workflow/Task gRPC reachability using generated clients against running service endpoints.
 - Target secret audit for deployed provider/channel/workflow/runtime secrets.
 - Target or CI `TEST_DATABASE_URL` runs broad enough to count as final release evidence, not only disposable local profile proof.
@@ -182,6 +185,10 @@ Closed in this continuation:
   - Evidence: `scripts/verify-commercial-db-evidence.sh agent-runtime-memory` now runs `TestExecuteReActWithModelRouting`, `TestExecuteReActModelSwitching`, skill selection/tool-filtering/instruction-injection tests, `call_agent` registration and recursion-depth tests, and websearch primary/fallback/exhaustion/config tests before the existing Agent SQL run/plan-step/config/memory persistence tests.
   - Verification: `GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh agent-runtime-memory` passed with disposable pgvector PostgreSQL and skipped tests: none.
   - Boundary: this is repository-local runtime/tool evidence. It does not replace deployed Agent runtime compatibility, target gRPC reachability, target database, or final no-skip release evidence.
+- Target provider evidence strictness.
+  - Evidence: `scripts/verify-target-release-evidence.sh` now prints separate `stripe`, `alipay`, and `wechatpay` provider slots in `--print-template`, rejects duplicate provider names, and rejects manifests missing any of the three required first-party payment rails.
+  - Verification: `bash scripts/verify-target-release-evidence.sh --print-template`, a temporary fully populated current-commit manifest, a temporary manifest missing `wechatpay`, `bash -n scripts/verify-target-release-evidence.sh scripts/verify-quality-gates.sh`, docs gate, and `git diff --check` passed.
+  - Boundary: this proves verifier strictness only. It does not provide live checkout, refund, payout, reconciliation, or target environment artifacts.
 
 ## TODO And Placeholder Scan
 

@@ -50,6 +50,24 @@ Required JSON shape:
       "payout": "pass",
       "reconciliation": "pass",
       "evidenceRef": "provider-run-id"
+    },
+    {
+      "name": "alipay",
+      "mode": "live",
+      "checkout": "pass",
+      "refund": "pass",
+      "payout": "pass",
+      "reconciliation": "pass",
+      "evidenceRef": "provider-run-id"
+    },
+    {
+      "name": "wechatpay",
+      "mode": "live",
+      "checkout": "pass",
+      "refund": "pass",
+      "payout": "pass",
+      "reconciliation": "pass",
+      "evidenceRef": "provider-run-id"
     }
   ],
   "grpc": [
@@ -119,13 +137,31 @@ puts JSON.pretty_generate(
     },
     "providers" => [
       {
-        "name" => "TODO-live-provider-name",
+        "name" => "stripe",
         "mode" => "live",
         "checkout" => "pass",
         "refund" => "pass",
         "payout" => "pass",
         "reconciliation" => "pass",
-        "evidenceRef" => "TODO-provider-run-id"
+        "evidenceRef" => "TODO-stripe-provider-run-id"
+      },
+      {
+        "name" => "alipay",
+        "mode" => "live",
+        "checkout" => "pass",
+        "refund" => "pass",
+        "payout" => "pass",
+        "reconciliation" => "pass",
+        "evidenceRef" => "TODO-alipay-provider-run-id"
+      },
+      {
+        "name" => "wechatpay",
+        "mode" => "live",
+        "checkout" => "pass",
+        "refund" => "pass",
+        "payout" => "pass",
+        "reconciliation" => "pass",
+        "evidenceRef" => "TODO-wechatpay-provider-run-id"
       }
     ],
     "grpc" => [
@@ -306,22 +342,35 @@ end
 require_evidence_ref(failures, data, ["kubernetes", "evidenceRef"])
 
 providers = data["providers"]
+required_providers = %w[stripe alipay wechatpay]
 if !providers.is_a?(Array) || providers.empty?
   failures << "providers must include at least one live provider evidence entry"
 else
+  providers_by_name = {}
   providers.each_with_index do |provider, index|
     unless provider.is_a?(Hash)
       failures << "providers[#{index}] must be an object"
       next
     end
     prefix = ["providers", index]
-    require_string(failures, data, prefix + ["name"])
+    name = require_string(failures, data, prefix + ["name"]).to_s.strip
+    if !name.empty?
+      if providers_by_name.key?(name)
+        failures << "providers must not duplicate #{name} evidence"
+      else
+        providers_by_name[name] = provider
+      end
+    end
     failures << "providers[#{index}].mode must be live" unless provider["mode"] == "live"
     %w[checkout refund payout reconciliation].each do |field|
       failures << "providers[#{index}].#{field} must be pass" unless provider[field] == "pass"
     end
     failures << "providers[#{index}].evidenceRef is required" if blank?(provider["evidenceRef"])
     failures << "providers[#{index}].evidenceRef must reference a concrete target artifact, not a placeholder" if placeholder?(provider["evidenceRef"])
+  end
+  missing_providers = required_providers - providers_by_name.keys
+  if missing_providers.any?
+    failures << "providers must include live evidence for stripe, alipay, and wechatpay (missing: #{missing_providers.join(", ")})"
   end
 end
 
