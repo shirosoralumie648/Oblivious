@@ -26,7 +26,10 @@ Required JSON shape:
   "strictVerifier": {
     "command": "COMMERCIAL_COMPLETION_RUN_DEPLOY=true COMMERCIAL_COMPLETION_RUN_K8S=true COMMERCIAL_COMPLETION_RUN_BACKUP_RESTORE=true COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true bash scripts/verify-commercial-completion.sh",
     "result": "pass",
-    "skippedChecks": []
+    "skippedChecks": [],
+    "startedAt": "2026-06-16T00:00:00Z",
+    "completedAt": "2026-06-16T01:00:00Z",
+    "evidenceRef": "strict-verifier-log-or-artifact-id"
   },
   "deployment": {
     "deployValidation": "pass",
@@ -116,6 +119,8 @@ if [[ "${1:-}" == "--print-template" ]]; then
 require "json"
 require "time"
 
+recorded_at = Time.now.utc
+
 puts JSON.pretty_generate(
   {
     "schemaVersion" => 1,
@@ -125,12 +130,15 @@ puts JSON.pretty_generate(
       "name" => "TODO-target-environment-name",
       "class" => "TODO-target-environment-class",
       "baseUrl" => "TODO-target-base-url",
-      "recordedAt" => Time.now.utc.iso8601
+      "recordedAt" => recorded_at.iso8601
     },
     "strictVerifier" => {
       "command" => "COMMERCIAL_COMPLETION_RUN_DEPLOY=true COMMERCIAL_COMPLETION_RUN_K8S=true COMMERCIAL_COMPLETION_RUN_BACKUP_RESTORE=true COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true bash scripts/verify-commercial-completion.sh",
       "result" => "pass",
-      "skippedChecks" => []
+      "skippedChecks" => [],
+      "startedAt" => recorded_at.iso8601,
+      "completedAt" => recorded_at.iso8601,
+      "evidenceRef" => "TODO-strict-commercial-verifier-log"
     },
     "deployment" => {
       "deployValidation" => "pass",
@@ -255,7 +263,7 @@ def require_pass(failures, data, path)
 end
 
 def placeholder?(value)
-  value.is_a?(String) && value.match?(/TODO|TBD|placeholder|example|sample|release-log-or-artifact-id|provider-run-id|grpc-smoke-log|secret-audit-log|telemetry-dashboard-or-export/i)
+  value.is_a?(String) && value.match?(/TODO|TBD|placeholder|example|sample|release-log-or-artifact-id|strict-verifier-log-or-artifact-id|strict-commercial-verifier-log|provider-run-id|grpc-smoke-log|secret-audit-log|telemetry-dashboard-or-export/i)
 end
 
 def require_evidence_ref(failures, data, path)
@@ -356,6 +364,24 @@ if command.is_a?(String)
 end
 skipped_checks = dig_path(data, ["strictVerifier", "skippedChecks"])
 failures << "strictVerifier.skippedChecks must be an empty array" unless skipped_checks == []
+strict_started_at_raw = require_string(failures, data, ["strictVerifier", "startedAt"])
+strict_completed_at_raw = require_string(failures, data, ["strictVerifier", "completedAt"])
+strict_started_at = nil
+strict_completed_at = nil
+begin
+  strict_started_at = Time.iso8601(strict_started_at_raw) if strict_started_at_raw.is_a?(String)
+rescue ArgumentError
+  failures << "strictVerifier.startedAt must be ISO-8601"
+end
+begin
+  strict_completed_at = Time.iso8601(strict_completed_at_raw) if strict_completed_at_raw.is_a?(String)
+rescue ArgumentError
+  failures << "strictVerifier.completedAt must be ISO-8601"
+end
+if strict_started_at && strict_completed_at && strict_completed_at < strict_started_at
+  failures << "strictVerifier.completedAt must be at or after strictVerifier.startedAt"
+end
+require_evidence_ref(failures, data, ["strictVerifier", "evidenceRef"])
 
 %w[deployValidation backupRestore migrationReplay].each do |field|
   require_pass(failures, data, ["deployment", field])
