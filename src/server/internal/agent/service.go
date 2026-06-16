@@ -1403,7 +1403,17 @@ func (s *Service) ContinuePlanningRun(ctx context.Context, session auth.Session,
 				continue
 			}
 			if !isPlanStepExecutable(step) {
+				if step.Status == PlanStepStatusPending && step.ApprovalStatus == ApprovalStatusPending {
+					continue
+				}
 				return detail, nil
+			}
+			ready, err := arePlanStepDependenciesSatisfied(step, steps)
+			if err != nil {
+				return nil, err
+			}
+			if !ready {
+				continue
 			}
 			if _, err := s.ExecutePlanStep(ctx, session, step.ID); err != nil {
 				refreshed, refreshErr := s.GetRunWithMessages(ctx, session, run.ID)
@@ -1998,6 +2008,43 @@ func isPlanStepExecutable(step *PlanStep) bool {
 		return false
 	}
 	return step.Status == PlanStepStatusApproved || (step.Status == PlanStepStatusPending && step.ApprovalStatus == ApprovalStatusNotRequired)
+}
+
+func arePlanStepDependenciesSatisfied(step *PlanStep, steps []*PlanStep) (bool, error) {
+	if step == nil {
+		return false, fmt.Errorf("plan step not found")
+	}
+	dependsOn := normalizePlanStepDependsOn(step.DependsOn)
+	if len(dependsOn) > 0 {
+		byIndex := make(map[int]*PlanStep, len(steps))
+		for _, candidate := range steps {
+			if candidate != nil {
+				byIndex[candidate.Index] = candidate
+			}
+		}
+		for _, dependencyIndex := range dependsOn {
+			if dependencyIndex == step.Index {
+				return false, fmt.Errorf("plan step %d cannot depend on itself", step.Index)
+			}
+			dependency := byIndex[dependencyIndex]
+			if dependency == nil {
+				return false, fmt.Errorf("dependency plan step %d was not found before executing step %d", dependencyIndex, step.Index)
+			}
+			if dependency.Status != PlanStepStatusCompleted && dependency.Status != PlanStepStatusSkipped {
+				return false, nil
+			}
+		}
+		return true, nil
+	}
+	for _, prior := range steps {
+		if prior == nil || prior.ID == step.ID || prior.Index >= step.Index {
+			continue
+		}
+		if prior.Status != PlanStepStatusCompleted && prior.Status != PlanStepStatusSkipped {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func isPlanningRunContinuable(run *Run) bool {

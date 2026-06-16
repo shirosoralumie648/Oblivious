@@ -4617,6 +4617,94 @@ func TestServiceContinuePlanningRunExecutesUntilNextApproval(t *testing.T) {
 	}
 }
 
+func TestServiceContinuePlanningRunExecutesExplicitDependencyPastPendingApprovalGate(t *testing.T) {
+	now := time.Now().UTC()
+	store := &fakeStore{
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
+			Status:         RunStatusPendingApproval,
+			StartedAt:      now,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+		messages: []*Message{{
+			ID:             "msg_1",
+			ConversationID: "conv_1",
+			OrganizationID: "org_1",
+			Role:           "user",
+			Content:        "continue ready branches",
+			CreatedAt:      now,
+		}},
+		planSteps: []*PlanStep{
+			{
+				ID:             "step_1",
+				RunID:          "run_1",
+				OrganizationID: "org_1",
+				Index:          1,
+				Title:          "Collect migration evidence",
+				Status:         PlanStepStatusCompleted,
+				ApprovalStatus: ApprovalStatusNotRequired,
+				ResultContent:  "schema evidence",
+				CompletedAt:    &now,
+				CreatedAt:      now,
+			},
+			{
+				ID:             "step_2",
+				RunID:          "run_1",
+				OrganizationID: "org_1",
+				Index:          2,
+				Title:          "Review destructive cleanup",
+				Status:         PlanStepStatusPending,
+				ApprovalStatus: ApprovalStatusPending,
+				ToolName:       "write_file",
+				CreatedAt:      now,
+			},
+			{
+				ID:             "step_3",
+				RunID:          "run_1",
+				OrganizationID: "org_1",
+				Index:          3,
+				Title:          "Run dependent verification",
+				Status:         PlanStepStatusPending,
+				ApprovalStatus: ApprovalStatusNotRequired,
+				DependsOn:      []int{1},
+				CreatedAt:      now,
+			},
+		},
+	}
+	executor := &fakePlanStepExecutor{resultContent: "verification passed"}
+	service := NewService(store, &fakeGateway{})
+	service.SetPlanStepExecutor(executor)
+
+	result, err := service.ContinuePlanningRun(
+		context.Background(),
+		auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}},
+		"run_1",
+	)
+	if err != nil {
+		t.Fatalf("ContinuePlanningRun returned error: %v", err)
+	}
+	if executor.calls != 1 || executor.seenStep == nil || executor.seenStep.ID != "step_3" {
+		t.Fatalf("expected continuation to execute only dependency-ready step 3, calls=%d step=%+v", executor.calls, executor.seenStep)
+	}
+	if result.Run == nil || result.Run.Status != RunStatusPendingApproval || result.Run.CompletedAt != nil {
+		t.Fatalf("expected run to remain pending approval, got %+v", result.Run)
+	}
+	steps := result.PlanSteps
+	sortPlanSteps(steps)
+	if steps[1].Status != PlanStepStatusPending || steps[1].ApprovalStatus != ApprovalStatusPending || steps[1].StartedAt != nil {
+		t.Fatalf("expected pending approval gate to remain untouched, got %+v", steps[1])
+	}
+	if steps[2].Status != PlanStepStatusCompleted || steps[2].ResultContent != "verification passed" || steps[2].StartedAt == nil {
+		t.Fatalf("expected explicit-dependency step to complete, got %+v", steps[2])
+	}
+}
+
 func TestServiceContinuePlanningRunCompletesRunWhenAllExecutableStepsDone(t *testing.T) {
 	now := time.Now().UTC()
 	store := &fakeStore{
