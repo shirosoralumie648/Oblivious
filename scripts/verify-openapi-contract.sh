@@ -4733,6 +4733,14 @@ require_admin_billing_contract() {
       end
     end
 
+    webhook_event_schema = schemas["AdminWebhookEventInspection"] || {}
+    webhook_event_properties = webhook_event_schema.fetch("properties", {})
+    ["payload", "rawPayload", "providerPayload"].each do |property|
+      if webhook_event_properties.key?(property)
+        missing << "AdminWebhookEventInspection must not document raw provider payload fields"
+      end
+    end
+
     topup_schema = schemas["AdminTopupInspection"] || {}
     ["provider", "providerPaymentIntentId", "currency"].each do |property|
       unless topup_schema.dig("properties", property, "type") == "string"
