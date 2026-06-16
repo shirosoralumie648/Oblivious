@@ -281,6 +281,29 @@ def require_pass(failures, data, path)
   failures << "#{path.join(".")} must be pass" unless value == "pass"
 end
 
+def require_iso8601_interval(failures, data, path, interval_error:, ordering_error:)
+  value = require_string(failures, data, path)
+  return unless value.is_a?(String) && !value.strip.empty?
+
+  parts = value.split("/", -1)
+  if parts.length != 2 || parts.any? { |part| part.strip.empty? }
+    failures << interval_error
+    return
+  end
+
+  begin
+    starts_at = Time.iso8601(parts.fetch(0).strip)
+    ends_at = Time.iso8601(parts.fetch(1).strip)
+  rescue ArgumentError
+    failures << interval_error
+    return
+  end
+
+  if ends_at < starts_at
+    failures << ordering_error
+  end
+end
+
 def placeholder?(value)
   value.is_a?(String) && value.match?(/TODO|TBD|placeholder|example|sample|\/path\/outside\/git|release-log-or-artifact-id|strict-verifier-log-or-artifact-id|strict-commercial-verifier-log|provider-run-id|grpc-smoke-log|secret-audit-log|telemetry-dashboard-or-export/i)
 end
@@ -588,7 +611,13 @@ success_rate = dig_path(data, ["workflowTelemetry", "successRate"])
 unless success_rate.is_a?(Numeric) && success_rate >= 0.99
   failures << "workflowTelemetry.successRate must be >= 0.99"
 end
-require_string(failures, data, ["workflowTelemetry", "window"])
+require_iso8601_interval(
+  failures,
+  data,
+  ["workflowTelemetry", "window"],
+  interval_error: "workflowTelemetry.window must be an ISO-8601 start/end interval",
+  ordering_error: "workflowTelemetry.window end must be at or after start"
+)
 require_evidence_ref(failures, data, ["workflowTelemetry", "evidenceRef"])
 
 artifacts = data["artifacts"]

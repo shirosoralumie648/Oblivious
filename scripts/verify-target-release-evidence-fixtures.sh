@@ -227,6 +227,16 @@ make_invalid_case \
   "strictVerifier.completedAt must be at or after strictVerifier.startedAt"
 
 make_invalid_case \
+  "invalid-workflow-telemetry-window" \
+  'data["workflowTelemetry"]["window"] = "not-a-window"' \
+  "workflowTelemetry.window must be an ISO-8601 start/end interval"
+
+make_invalid_case \
+  "inverted-workflow-telemetry-window" \
+  'data["workflowTelemetry"]["window"] = "2026-06-16T01:00:00Z/2026-06-16T00:00:00Z"' \
+  "workflowTelemetry.window end must be at or after start"
+
+make_invalid_case \
   "missing-grpc-smoke-report" \
   'data.delete("grpcSmokeReport")' \
   "grpcSmokeReport is required"
