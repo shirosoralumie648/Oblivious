@@ -126,6 +126,7 @@ if [[ "${1:-}" == "--print-template" ]]; then
   CURRENT_COMMIT="$current_commit" ruby <<'RUBY'
 require "json"
 require "time"
+require "uri"
 
 recorded_at = Time.now.utc
 
@@ -252,6 +253,7 @@ ALLOW_COMMIT_MISMATCH="$allow_commit_mismatch" \
 ruby <<'RUBY'
 require "json"
 require "time"
+require "uri"
 
 def blank?(value)
   value.nil? || (value.respond_to?(:empty?) && value.empty?)
@@ -301,6 +303,22 @@ def require_iso8601_interval(failures, data, path, interval_error:, ordering_err
 
   if ends_at < starts_at
     failures << ordering_error
+  end
+end
+
+def require_http_url(failures, data, path, error)
+  value = require_string(failures, data, path)
+  return unless value.is_a?(String) && !value.strip.empty?
+
+  begin
+    uri = URI.parse(value.strip)
+  rescue URI::InvalidURIError
+    failures << error
+    return
+  end
+
+  unless %w[http https].include?(uri.scheme) && !blank?(uri.host)
+    failures << error
   end
 end
 
@@ -412,6 +430,7 @@ end
   value = require_string(failures, data, ["environment", field])
   failures << "environment.#{field} must reference a concrete target environment value, not a placeholder" if placeholder?(value)
 end
+require_http_url(failures, data, ["environment", "baseUrl"], "environment.baseUrl must be an HTTP(S) URL")
 require_string(failures, data, ["environment", "recordedAt"])
 recorded_at = dig_path(data, ["environment", "recordedAt"])
 begin

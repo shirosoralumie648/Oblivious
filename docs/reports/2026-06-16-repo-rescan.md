@@ -3,6 +3,9 @@
 ## Current Truth
 
 - Branch: `main`.
+- Current base-url hardening continuation base: `f6a5f6a` (`test(release): validate workflow telemetry window`).
+- Remote parity at base-url hardening start: `HEAD == origin/main` (`f6a5f6a`).
+- Working tree at base-url hardening start: clean.
 - Current workflow-telemetry-window hardening continuation base: `55b13eb` (`test(release): reject placeholder target environment`).
 - Remote parity at workflow-telemetry-window hardening start: `HEAD == origin/main` (`55b13eb`).
 - Working tree at workflow-telemetry-window hardening start: clean.
@@ -54,17 +57,18 @@
 - Target/live manifest verifier behavior is now covered by `scripts/verify-target-release-evidence-fixtures.sh` in the docs gate, so the key target evidence rejection cases are no longer only manually checked with temporary shell snippets.
 - Target/live manifest artifact indexing is now part of the same docs gate fixture: the verifier rejects placeholder target environment values, missing `artifacts[]`, duplicate artifact ids, placeholder artifact id/kind/uri values, artifact URIs with secret-like query or fragment parameters, invalid artifact timestamps, invalid optional `sha256`, dangling `evidenceRef` values that are not listed in the artifact index, artifact entries that are not referenced by any concrete `evidenceRef`, and evidence refs whose artifact kind does not match the evidence family.
 - Target/live workflow telemetry windows are now part of the same docs gate fixture: the verifier rejects malformed `workflowTelemetry.window` values and intervals whose end timestamp is before start.
+- Target/live environment base URLs are now part of the same docs gate fixture: the verifier rejects non-HTTP(S) `environment.baseUrl` values such as `not-a-url`.
 
 ## Repository Inventory
 
 - First-party tracked files after this current rescan:
   - `src`: 1002
   - `docs`: 93
-  - `scripts`: 39
+  - `scripts`: 41
   - `deploy`: 42
   - `.planning`: 210
   - other tracked files: 27
-  - total tracked files: 1413
+  - total tracked files: 1415
 - Server internal shape:
   - `src/server/internal`: 591 tracked files.
   - largest active domains: `relay` 110, `http` 104, `mcp` 43, `admin` 39, `agent` 34, `workflow` 32, `knowledge` 30, `observability` 28, `channel` 27, `migration` 24, `marketplace` 16.
@@ -123,6 +127,7 @@ No rows are currently marked `Gap` or `Unverified`.
 - The target/live manifest gate requires `strictVerifier.evidenceRef`, `startedAt`, and `completedAt` so a strict pass is attached to a concrete verifier log and valid run window.
 - The target/live manifest gate requires `grpcSmokeReport.results` to include generated-client pass rows for Agent, Workflow, and Task, and each smoke address must match the manifest `grpc` address for that service.
 - The target/live manifest gate requires concrete target environment `name`, `class`, and `baseUrl` values plus an `artifacts[]` index with unique ids, evidence-family-matching `kind`, concrete `uri`, secret-free URI query parameters, ISO-8601 `recordedAt`, optional 64-character hex `sha256`, no dangling non-placeholder `evidenceRef` values, and no unreferenced artifact entries. This proves manifest internal consistency only; it does not download or authenticate the external artifacts.
+- The target/live manifest gate requires `environment.baseUrl` to be an HTTP(S) URL. This proves the target metadata contains a parseable endpoint-style URL, not that the endpoint is reachable.
 - The target/live manifest gate requires `workflowTelemetry.window` to be an ISO-8601 `start/end` interval whose end is at or after start. This proves the telemetry evidence covers a parseable target observation window, not that the target telemetry itself has been collected.
 - Chat realtime repository proof is local and focused: `go test ./internal/ws`, Chat handler realtime publish tests, focused Chat Vitest, built-app Playwright WebSocket proof, OpenAPI contract verification, web TypeScript, and docs gate cover this slice.
 - Task approval state/workspace proof is local and focused: `scripts/verify-commercial-db-evidence.sh app-stateful-routes` covers the real app router, cookie/CSRF, SQL store, allowed transition, denied terminal/draft/current-state cases, and cross-workspace no-mutation boundary.
@@ -198,6 +203,10 @@ Remaining local proof-depth candidates:
 
 Closed in this continuation:
 
+- Target environment base URL validation.
+  - Evidence: `scripts/verify-target-release-evidence.sh` now parses `environment.baseUrl` with Ruby `URI` and requires an HTTP(S) scheme plus host. `scripts/verify-target-release-evidence-fixtures.sh` proves `not-a-url` is rejected while the filled current-commit manifest still passes.
+  - Verification: `bash scripts/verify-target-release-evidence-fixtures.sh`, `bash scripts/verify-quality-gates.sh`, `COREPACK_HOME=/tmp/codex-corepack bash scripts/check.sh docs`, and `git diff --check` cover the verifier, fixture, docs, and release gate.
+  - Boundary: this is repository-local target metadata validation proof. It does not prove target URL reachability or replace Kubernetes/deploy smoke evidence.
 - Target workflow telemetry window validation.
   - Evidence: `scripts/verify-target-release-evidence.sh` now parses `workflowTelemetry.window` as an ISO-8601 `start/end` interval and rejects malformed windows or intervals whose end is before start. `scripts/verify-target-release-evidence-fixtures.sh` proves `not-a-window` and `2026-06-16T01:00:00Z/2026-06-16T00:00:00Z` are rejected while the filled current-commit manifest still passes.
   - Verification: `bash scripts/verify-target-release-evidence-fixtures.sh`, `bash scripts/verify-quality-gates.sh`, `COREPACK_HOME=/tmp/codex-corepack bash scripts/check.sh docs`, and `git diff --check` cover the verifier, fixture, docs, and release gate.

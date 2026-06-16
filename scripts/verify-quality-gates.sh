@@ -663,6 +663,7 @@ assert_file_contains "$target_release_evidence_verifier_file" "COMMERCIAL_COMPLE
 assert_file_contains "$target_release_evidence_verifier_file" "COMMERCIAL_COMPLETION_RUN_BACKUP_RESTORE=true"
 assert_file_contains "$target_release_evidence_verifier_file" "COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true"
 assert_file_contains "$target_release_evidence_verifier_file" "target environment value, not a placeholder"
+assert_file_contains "$target_release_evidence_verifier_file" "environment.baseUrl must be an HTTP(S) URL"
 assert_file_contains "$target_release_evidence_verifier_file" '"strictVerifier", "evidenceRef"'
 assert_file_contains "$target_release_evidence_verifier_file" "strictVerifier.completedAt must be at or after strictVerifier.startedAt"
 assert_file_contains "$target_release_evidence_verifier_file" "grpcSmokeReport"
@@ -693,6 +694,7 @@ assert_file_contains "$target_release_evidence_fixtures_file" "missing-artifacts
 assert_file_contains "$target_release_evidence_fixtures_file" "dangling-strict-verifier-evidence-ref"
 assert_file_contains "$target_release_evidence_fixtures_file" "mismatched-strict-verifier-artifact-kind"
 assert_file_contains "$target_release_evidence_fixtures_file" "placeholder-environment-base-url"
+assert_file_contains "$target_release_evidence_fixtures_file" "invalid-environment-base-url"
 assert_file_contains "$target_release_evidence_fixtures_file" "duplicate-artifact-id"
 assert_file_contains "$target_release_evidence_fixtures_file" "invalid-artifact-sha256"
 assert_file_contains "$target_release_evidence_fixtures_file" "unused-artifact-id"
