@@ -344,6 +344,21 @@ def secret_like_uri?(value)
   value.is_a?(String) && value.match?(/[?&#](?:[^=&#]*[_-])?(?:token|secret|signature|api[_-]?key|access[_-]?key|credential|kubeconfig|private[_-]?key)=/i)
 end
 
+def remote_artifact_uri?(value)
+  return false unless value.is_a?(String)
+
+  stripped = value.strip
+  return false if stripped.empty? || stripped.start_with?("/")
+
+  begin
+    uri = URI.parse(stripped)
+  rescue URI::InvalidURIError
+    return false
+  end
+
+  !blank?(uri.scheme) && uri.scheme.downcase != "file"
+end
+
 def require_evidence_ref(failures, data, path)
   value = require_string(failures, data, path)
   failures << "#{path.join(".")} must reference a concrete target artifact, not a placeholder" if placeholder?(value)
@@ -684,6 +699,7 @@ else
     failures << "artifacts[#{index}].kind must describe a concrete target artifact, not a placeholder" if placeholder?(kind)
     uri = require_string(failures, data, ["artifacts", index, "uri"])
     failures << "artifacts[#{index}].uri must reference a concrete target artifact, not a placeholder" if placeholder?(uri)
+    failures << "artifacts[#{index}].uri must reference a remote target artifact URI" unless remote_artifact_uri?(uri)
     failures << "artifacts[#{index}].uri must not embed secret-like query parameters" if secret_like_uri?(uri)
     artifact_recorded_at = require_string(failures, data, ["artifacts", index, "recordedAt"])
     begin
