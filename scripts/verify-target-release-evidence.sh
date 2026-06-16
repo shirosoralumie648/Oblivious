@@ -696,10 +696,12 @@ end
 require_artifact_kind(failures, data, artifact_ids, ["strictVerifier", "evidenceRef"], "strict-verifier-log")
 require_artifact_kind(failures, data, artifact_ids, ["deployment", "evidenceRef"], "deployment-log")
 require_artifact_kind(failures, data, artifact_ids, ["kubernetes", "evidenceRef"], "kubernetes-validation")
-providers.each_with_index do |_provider, index|
+provider_entries = providers.is_a?(Array) ? providers : []
+provider_entries.each_with_index do |_provider, index|
   require_artifact_kind(failures, data, artifact_ids, ["providers", index, "evidenceRef"], "provider-live-rail")
 end
-grpc.each_with_index do |_entry, index|
+grpc_entries = grpc.is_a?(Array) ? grpc : []
+grpc_entries.each_with_index do |_entry, index|
   require_artifact_kind(failures, data, artifact_ids, ["grpc", index, "evidenceRef"], "grpc-smoke-report")
 end
 require_artifact_kind(failures, data, artifact_ids, ["grpcSmokeReport", "evidenceRef"], "grpc-smoke-report")

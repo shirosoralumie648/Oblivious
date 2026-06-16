@@ -212,6 +212,11 @@ make_invalid_case \
   "artifacts[9].id artifact-unused-20260616 must be referenced by at least one evidenceRef"
 
 make_invalid_case \
+  "missing-providers-collection" \
+  'data.delete("providers")' \
+  "providers must include at least one live provider evidence entry"
+
+make_invalid_case \
   "missing-wechatpay-provider" \
   'data["providers"].reject! { |provider| provider["name"] == "wechatpay" }' \
   "providers must include live evidence for stripe, alipay, and wechatpay (missing: wechatpay)"
@@ -240,6 +245,11 @@ make_invalid_case \
   "inverted-workflow-telemetry-window" \
   'data["workflowTelemetry"]["window"] = "2026-06-16T01:00:00Z/2026-06-16T00:00:00Z"' \
   "workflowTelemetry.window end must be at or after start"
+
+make_invalid_case \
+  "missing-grpc-collection" \
+  'data.delete("grpc")' \
+  "grpc must be an array"
 
 make_invalid_case \
   "missing-grpc-smoke-report" \
