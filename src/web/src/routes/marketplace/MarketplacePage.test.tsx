@@ -352,22 +352,22 @@ describe('Marketplace pages', () => {
   it('passes the selected payment provider for paid installs', async () => {
     getAgent.mockResolvedValue({
       ...paidAgent,
-      paymentProviders: [{ name: 'stripe' }, { name: 'alipay' }],
+      paymentProviders: [{ name: 'stripe' }, { name: 'alipay' }, { name: 'wechatpay' }],
     });
     installAgent.mockResolvedValue({
-      checkoutSessionId: 'cs_marketplace_alipay',
-      url: 'https://checkout.alipay.test/session/cs_marketplace_alipay',
+      checkoutSessionId: 'cs_marketplace_wechatpay',
+      url: 'https://checkout.wechatpay.test/session/cs_marketplace_wechatpay',
     });
 
     renderRoute(<MarketplaceAgentDetailPage />, '/marketplace/agents/:agentId', '/marketplace/agents/agent_paid');
 
     expect(await screen.findByRole('heading', { name: 'Paid Research Agent' })).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Payment provider'), { target: { value: 'alipay' } });
+    fireEvent.change(screen.getByLabelText('Payment provider'), { target: { value: 'wechatpay' } });
     fireEvent.click(screen.getByRole('button', { name: 'Install Agent' }));
 
-    await waitFor(() => expect(installAgent).toHaveBeenCalledWith('agent_paid', 'ver_1', 'alipay'));
-    const checkoutLink = await screen.findByRole('link', { name: 'Continue Alipay checkout' });
-    expect(checkoutLink).toHaveAttribute('href', 'https://checkout.alipay.test/session/cs_marketplace_alipay');
+    await waitFor(() => expect(installAgent).toHaveBeenCalledWith('agent_paid', 'ver_1', 'wechatpay'));
+    const checkoutLink = await screen.findByRole('link', { name: 'Continue WeChat Pay checkout' });
+    expect(checkoutLink).toHaveAttribute('href', 'https://checkout.wechatpay.test/session/cs_marketplace_wechatpay');
   });
 
   it('only renders and submits configured payment providers for paid installs', async () => {

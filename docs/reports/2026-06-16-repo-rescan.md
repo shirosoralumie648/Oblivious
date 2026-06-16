@@ -37,6 +37,7 @@
 - Chat realtime WebSocket proof is now covered in the built Chat browser journey. The Playwright fixture uses native `page.routeWebSocket` to intercept `/api/v1/ws` without connecting to a real backend, fails closed on unexpected socket paths, conversation IDs, client frame types, or malformed typing frames, and the browser test proves `chat_join`, `chat_typing`, server-pushed sync/update/delete events, and collaborator typing UI.
 - Agent planning token-budget recovery proof is now covered in the built Workspace browser journey. The Agent planning Playwright fixture exposes a `token_budget_exceeded` plan-step route, fails closed unless `/continue-budget` receives `tokenBudget=45000`, and the browser test proves the page renders the stop reason and failed dependency-aware step, submits the increased budget, and refreshes to completed step evidence.
 - Task approval bypass proof is now covered in the no-skip PostgreSQL app-stateful route profile. The route test drives `POST /api/v1/app/tasks/{taskId}/approve` through the real router with cookie and CSRF, proves only current-workspace `awaiting_confirmation` tasks advance to `running`, and proves completed, cancelled, running, draft, and cross-workspace tasks preserve task and step state.
+- Marketplace paid-install WeChat Pay provider parity is now covered locally. HTTP paid-install success coverage runs both Alipay and WeChat Pay provider subcases, domestic hosted checkout creator tests assert Marketplace metadata query parity for both providers, settlement PostgreSQL tests preserve selected provider/currency and lifecycle keys for both providers under the money-movement profile, and the built Marketplace browser journey selects WeChat Pay and verifies the continuation link.
 
 ## Repository Inventory
 
@@ -142,7 +143,7 @@ Pure target/live blockers that still keep final status below `100/100`:
 - Target or CI `TEST_DATABASE_URL` runs broad enough to count as final release evidence, not only disposable local profile proof.
 - A final `scripts/verify-commercial-completion.sh` run with no environment skips and `COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true` pointing at an external, secret-free target evidence manifest for the exact release commit.
 
-Repository-local proof-depth candidates surfaced by this rescan after closing the gRPC release-readiness local blocker and the Task approval state guard:
+Repository-local proof-depth candidates surfaced by this rescan after closing the gRPC release-readiness local blocker, the Task approval state guard, and Marketplace WeChat Pay paid-install parity:
 
 Closed this slice:
 
@@ -161,7 +162,6 @@ Closed this slice:
 
 Remaining local proof-depth candidates:
 
-- Marketplace WeChat Pay paid-install provider parity: existing browser and HTTP proof primarily covers Alipay, while repository-local config and checkout creator wiring can prove `wechatpay` provider selection and checkout metadata without live provider rails.
 - No additional broad product-area gap was found in this refresh. The matrix stays partial because of the target/live gates, not because a new repository-owned domain is unimplemented.
 
 Closed in this continuation:
@@ -172,6 +172,10 @@ Closed in this continuation:
 - Task approval bypass PostgreSQL proof.
   - Evidence: `src/server/internal/http/task_handler_test.go` now drives `POST /api/v1/app/tasks/{taskId}/approve` through the real router with cookie and CSRF, proves only current-workspace `awaiting_confirmation` tasks advance to `running`, and proves completed, cancelled, running, draft, and cross-workspace tasks do not mutate task or step rows. `scripts/verify-commercial-db-evidence.sh app-stateful-routes` now includes that test and rejects skips.
   - Boundary: this is repository-local app-stateful route proof. It does not replace deployed Task runtime, target database, or final no-skip release evidence.
+- Marketplace WeChat Pay paid-install provider parity.
+  - Evidence: `src/server/internal/http/marketplace_payment_provider_test.go` now runs Alipay and WeChat Pay paid-install success subcases through the selected provider, settlement request, checkout creator metadata, recorded checkout session, and checkout-session response. `src/server/internal/http/payment_provider_config_test.go` asserts both domestic hosted checkout creators preserve Marketplace order/agent/version/publisher query metadata. `src/server/internal/marketplace/settlement_test.go` asserts selected provider/currency and marketplace lifecycle transition keys for Alipay and WeChat Pay. `src/web/src/features/marketplace/api.test.ts`, `src/web/src/routes/marketplace/MarketplacePage.test.tsx`, `src/web/e2e/fixtures/adminMarketplace.ts`, and `src/web/e2e/admin-marketplace.spec.ts` prove the Marketplace UI/API/browser path selects WeChat Pay and renders its checkout continuation link.
+  - Verification: `go test ./internal/http -run 'TestMarketplacePaidInstallCheckoutUsesSelectedProviderAndReturnsCheckoutSession|TestBuildPaymentCheckoutProvidersEnablesDomesticHostedProviders' -count=1 -v`, focused Marketplace Vitest, `scripts/verify-commercial-db-evidence.sh marketplace-money-movement` with disposable pgvector PostgreSQL and skipped tests: none, `playwright test e2e/admin-marketplace.spec.ts --project=chromium`, web TypeScript, docs gate, and `git diff --check` passed.
+  - Boundary: this is repository-local provider-selection and checkout-metadata proof. It does not replace live WeChat Pay checkout, refund, payout, reconciliation, target database, or final no-skip release evidence.
 
 ## TODO And Placeholder Scan
 

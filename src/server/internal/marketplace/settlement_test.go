@@ -57,35 +57,39 @@ func TestSettlementCreatePaidInstallCheckoutCreatesPendingOrderAndIntent(t *test
 }
 
 func TestSettlementCreatePaidInstallCheckoutRecordsSelectedProvider(t *testing.T) {
-	database := settlementTestDB(t)
-	service := NewSettlementService(NewSQLStore(database))
+	for _, providerName := range []string{"alipay", "wechatpay"} {
+		t.Run(providerName, func(t *testing.T) {
+			database := settlementTestDB(t)
+			service := NewSettlementService(NewSQLStore(database))
 
-	insertSettlementUserOrg(t, database, "buyer_user", "buyer_org")
-	insertSettlementUserOrg(t, database, "publisher_user", "publisher_org")
-	insertSettlementAgent(t, database, "agent_paid", "publisher_user", "publisher_org", "one_time", 50)
+			insertSettlementUserOrg(t, database, "buyer_user", "buyer_org")
+			insertSettlementUserOrg(t, database, "publisher_user", "publisher_org")
+			insertSettlementAgent(t, database, "agent_paid", "publisher_user", "publisher_org", "one_time", 50)
 
-	order, err := service.CreatePaidInstallCheckout(context.Background(), PaidInstallCheckoutRequest{
-		BuyerOrganizationID: "buyer_org",
-		BuyerUserID:         "buyer_user",
-		AgentID:             "agent_paid",
-		VersionID:           "version_agent_paid",
-		Provider:            " alipay ",
-		Currency:            " CNY ",
-	})
-	if err != nil {
-		t.Fatalf("CreatePaidInstallCheckout returned error: %v", err)
-	}
+			order, err := service.CreatePaidInstallCheckout(context.Background(), PaidInstallCheckoutRequest{
+				BuyerOrganizationID: "buyer_org",
+				BuyerUserID:         "buyer_user",
+				AgentID:             "agent_paid",
+				VersionID:           "version_agent_paid",
+				Provider:            " " + providerName + " ",
+				Currency:            " CNY ",
+			})
+			if err != nil {
+				t.Fatalf("CreatePaidInstallCheckout returned error: %v", err)
+			}
 
-	var provider, paymentIntentCurrency string
-	if err := database.QueryRow(`SELECT provider, currency FROM payment_intents WHERE id = $1`, order.PaymentIntentID).Scan(&provider, &paymentIntentCurrency); err != nil {
-		t.Fatalf("query payment intent provider/currency: %v", err)
-	}
-	var orderCurrency string
-	if err := database.QueryRow(`SELECT currency FROM marketplace_orders WHERE id = $1`, order.ID).Scan(&orderCurrency); err != nil {
-		t.Fatalf("query marketplace order currency: %v", err)
-	}
-	if provider != "alipay" || paymentIntentCurrency != "cny" || orderCurrency != "cny" || order.Currency != "cny" {
-		t.Fatalf("expected alipay/cny marketplace install records, got provider=%q intentCurrency=%q orderCurrency=%q loadedOrderCurrency=%q", provider, paymentIntentCurrency, orderCurrency, order.Currency)
+			var provider, paymentIntentCurrency string
+			if err := database.QueryRow(`SELECT provider, currency FROM payment_intents WHERE id = $1`, order.PaymentIntentID).Scan(&provider, &paymentIntentCurrency); err != nil {
+				t.Fatalf("query payment intent provider/currency: %v", err)
+			}
+			var orderCurrency string
+			if err := database.QueryRow(`SELECT currency FROM marketplace_orders WHERE id = $1`, order.ID).Scan(&orderCurrency); err != nil {
+				t.Fatalf("query marketplace order currency: %v", err)
+			}
+			if provider != providerName || paymentIntentCurrency != "cny" || orderCurrency != "cny" || order.Currency != "cny" {
+				t.Fatalf("expected %s/cny marketplace install records, got provider=%q intentCurrency=%q orderCurrency=%q loadedOrderCurrency=%q", providerName, provider, paymentIntentCurrency, orderCurrency, order.Currency)
+			}
+		})
 	}
 }
 
@@ -191,47 +195,51 @@ func TestMarketplaceLifecycleTransitionKeyUsesSelectedProvider(t *testing.T) {
 }
 
 func TestSettlementApplyPaidInstallCheckoutCompletedRecordsSelectedProviderLifecycle(t *testing.T) {
-	database := settlementTestDB(t)
-	service := NewSettlementService(NewSQLStore(database))
+	for _, providerName := range []string{"alipay", "wechatpay"} {
+		t.Run(providerName, func(t *testing.T) {
+			database := settlementTestDB(t)
+			service := NewSettlementService(NewSQLStore(database))
 
-	insertSettlementUserOrg(t, database, "buyer_user", "buyer_org")
-	insertSettlementUserOrg(t, database, "publisher_user", "publisher_org")
-	insertSettlementAgent(t, database, "agent_paid", "publisher_user", "publisher_org", "one_time", 50)
+			insertSettlementUserOrg(t, database, "buyer_user", "buyer_org")
+			insertSettlementUserOrg(t, database, "publisher_user", "publisher_org")
+			insertSettlementAgent(t, database, "agent_paid", "publisher_user", "publisher_org", "one_time", 50)
 
-	order, err := service.CreatePaidInstallCheckout(context.Background(), PaidInstallCheckoutRequest{
-		BuyerOrganizationID: "buyer_org",
-		BuyerUserID:         "buyer_user",
-		AgentID:             "agent_paid",
-		VersionID:           "version_agent_paid",
-		Provider:            "alipay",
-	})
-	if err != nil {
-		t.Fatalf("CreatePaidInstallCheckout returned error: %v", err)
-	}
+			order, err := service.CreatePaidInstallCheckout(context.Background(), PaidInstallCheckoutRequest{
+				BuyerOrganizationID: "buyer_org",
+				BuyerUserID:         "buyer_user",
+				AgentID:             "agent_paid",
+				VersionID:           "version_agent_paid",
+				Provider:            providerName,
+			})
+			if err != nil {
+				t.Fatalf("CreatePaidInstallCheckout returned error: %v", err)
+			}
 
-	if _, err := service.ApplyPaidInstallCheckoutCompleted(context.Background(), PaidInstallCheckoutCompleted{
-		EventID:                   "evt_alipay_completed",
-		OrderID:                   order.ID,
-		PaymentIntentID:           order.PaymentIntentID,
-		ProviderCheckoutSessionID: "alipay_checkout_1",
-		ProviderPaymentIntentID:   "alipay_payment_1",
-	}); err != nil {
-		t.Fatalf("ApplyPaidInstallCheckoutCompleted returned error: %v", err)
-	}
+			if _, err := service.ApplyPaidInstallCheckoutCompleted(context.Background(), PaidInstallCheckoutCompleted{
+				EventID:                   "evt_" + providerName + "_completed",
+				OrderID:                   order.ID,
+				PaymentIntentID:           order.PaymentIntentID,
+				ProviderCheckoutSessionID: providerName + "_checkout_1",
+				ProviderPaymentIntentID:   providerName + "_payment_1",
+			}); err != nil {
+				t.Fatalf("ApplyPaidInstallCheckoutCompleted returned error: %v", err)
+			}
 
-	var provider, transitionKey string
-	if err := database.QueryRow(`
-		SELECT provider, transition_key
-		FROM billing_lifecycle_events
-		WHERE payment_intent_id = $1 AND entity_type = 'marketplace_order'
-	`, order.PaymentIntentID).Scan(&provider, &transitionKey); err != nil {
-		t.Fatalf("query marketplace lifecycle event: %v", err)
-	}
-	if provider != "alipay" {
-		t.Fatalf("expected lifecycle provider alipay, got %q", provider)
-	}
-	if !strings.HasPrefix(transitionKey, "alipay:") {
-		t.Fatalf("expected lifecycle transition key to use alipay provider, got %q", transitionKey)
+			var provider, transitionKey string
+			if err := database.QueryRow(`
+				SELECT provider, transition_key
+				FROM billing_lifecycle_events
+				WHERE payment_intent_id = $1 AND entity_type = 'marketplace_order'
+			`, order.PaymentIntentID).Scan(&provider, &transitionKey); err != nil {
+				t.Fatalf("query marketplace lifecycle event: %v", err)
+			}
+			if provider != providerName {
+				t.Fatalf("expected lifecycle provider %s, got %q", providerName, provider)
+			}
+			if !strings.HasPrefix(transitionKey, providerName+":") {
+				t.Fatalf("expected lifecycle transition key to use %s provider, got %q", providerName, transitionKey)
+			}
+		})
 	}
 }
 

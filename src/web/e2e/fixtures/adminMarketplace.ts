@@ -134,7 +134,7 @@ const paidReleaseAgent = {
   ratingAvg: 4.9,
   rating: 4.9,
   ratingCount: 5,
-  paymentProviders: [{ name: 'stripe' }, { name: 'alipay' }],
+  paymentProviders: [{ name: 'stripe' }, { name: 'alipay' }, { name: 'wechatpay' }],
 };
 
 const installedAgent = {
@@ -487,14 +487,14 @@ export async function registerAdminMarketplaceRoutes(page: Page): Promise<void> 
     if (method === 'POST' && pathname === '/api/v1/marketplace/agents/agent_paid_release_helper/install') {
       const provider = url.searchParams.get('provider');
       const versionID = url.searchParams.get('versionID');
-      if (provider !== 'alipay' || versionID !== 'version_paid_release_1') {
-        await fulfillError(route, 'paid install did not carry the selected Alipay provider and version');
+      if (provider !== 'wechatpay' || versionID !== 'version_paid_release_1') {
+        await fulfillError(route, 'paid install did not carry the selected WeChat Pay provider and version');
         return;
       }
 
       await fulfillJSON(route, {
-        checkoutSessionId: 'cs_paid_release_browser',
-        url: 'https://checkout.alipay.test/session/cs_paid_release_browser',
+        checkoutSessionId: 'cs_paid_release_wechatpay_browser',
+        url: 'https://checkout.wechatpay.test/session/cs_paid_release_wechatpay_browser',
       }, 201);
       return;
     }

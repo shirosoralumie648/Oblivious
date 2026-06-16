@@ -59,14 +59,15 @@ test('marketplace paid install sends selected provider and exposes checkout cont
   await expect(page.getByLabel('Agent version')).toHaveValue('version_paid_release_1');
   await expect(page.getByLabel('Payment provider')).toHaveValue('stripe');
   await expect(page.getByLabel('Payment provider')).toContainText('Alipay');
+  await expect(page.getByLabel('Payment provider')).toContainText('WeChat Pay');
 
-  await page.getByLabel('Payment provider').selectOption('alipay');
+  await page.getByLabel('Payment provider').selectOption('wechatpay');
   await page.getByRole('button', { name: 'Install Agent' }).click();
 
   await expect(page.getByText('Checkout session ready.')).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Continue Alipay checkout' })).toHaveAttribute(
+  await expect(page.getByRole('link', { name: 'Continue WeChat Pay checkout' })).toHaveAttribute(
     'href',
-    'https://checkout.alipay.test/session/cs_paid_release_browser'
+    'https://checkout.wechatpay.test/session/cs_paid_release_wechatpay_browser'
   );
   await expect(page.getByText('Agent installed.')).toHaveCount(0);
 });

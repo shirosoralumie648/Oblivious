@@ -144,14 +144,14 @@ describe('createMarketplaceApi', () => {
 
   it('serializes an optional payment provider for paid installs', async () => {
     const post = vi.fn().mockResolvedValue({
-      checkoutSessionId: 'cs_marketplace_alipay',
-      url: 'https://checkout.example.test/session/cs_marketplace_alipay',
+      checkoutSessionId: 'cs_marketplace_wechatpay',
+      url: 'https://checkout.example.test/session/cs_marketplace_wechatpay',
     });
     const api = createMarketplaceApi(createClient({ post }));
 
-    await api.installAgent('agent_paid', 'ver_paid', 'alipay');
+    await api.installAgent('agent_paid', 'ver_paid', 'wechatpay');
 
-    expect(post).toHaveBeenCalledWith('/api/v1/marketplace/agents/agent_paid/install?versionID=ver_paid&provider=alipay');
+    expect(post).toHaveBeenCalledWith('/api/v1/marketplace/agents/agent_paid/install?versionID=ver_paid&provider=wechatpay');
   });
 
   it('serializes Marketplace publish requests with category IDs only', async () => {
