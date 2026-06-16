@@ -5613,7 +5613,7 @@ components:
           type: string
         changes:
           type: string
-          description: JSON string describing the audited change.
+          description: JSON string describing the audited change. Credential fields such as apiKey are redacted as ******** before audit log entries are returned.
         ipAddress:
           type: string
         createdAt:

@@ -4549,6 +4549,14 @@ require_admin_core_management_contract() {
         schemas.dig("AdminUserQuotaUpdateRequest", "properties", "balance", "minimum") == 0
       missing << "AdminUserQuotaUpdateRequest.balance must be required and non-negative"
     end
+    changes = schemas.dig("AdminAuditLogEntry", "properties", "changes") || {}
+    changes_description = changes.fetch("description", "")
+    normalized_changes_description = changes_description.downcase
+    unless changes["type"] == "string" &&
+        ["redacted", "credential"].all? { |word| normalized_changes_description.include?(word) } &&
+        changes_description.include?("apiKey")
+      missing << "AdminAuditLogEntry.changes must document redacted credential fields including apiKey"
+    end
 
     {
       "AdminRouteListResponse" => ["routes", "#/components/schemas/AdminRoute"],
