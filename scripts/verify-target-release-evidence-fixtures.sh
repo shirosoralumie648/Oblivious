@@ -275,8 +275,18 @@ make_invalid_case \
   "strictVerifier.command must not enable COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS"
 
 make_invalid_case \
+  "ansi-c-quoted-env-skip-command" \
+  'data["strictVerifier"]["command"] = "COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS=$'\''true'\'' " + data["strictVerifier"]["command"]' \
+  "strictVerifier.command must not enable COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS"
+
+make_invalid_case \
   "commit-mismatch-override-command" \
   'data["strictVerifier"]["command"] = "OBLIVIOUS_TARGET_EVIDENCE_ALLOW_COMMIT_MISMATCH=true " + data["strictVerifier"]["command"]' \
+  "strictVerifier.command must not enable OBLIVIOUS_TARGET_EVIDENCE_ALLOW_COMMIT_MISMATCH"
+
+make_invalid_case \
+  "ansi-c-quoted-commit-mismatch-command" \
+  'data["strictVerifier"]["command"] = "OBLIVIOUS_TARGET_EVIDENCE_ALLOW_COMMIT_MISMATCH=$'\''true'\'' " + data["strictVerifier"]["command"]' \
   "strictVerifier.command must not enable OBLIVIOUS_TARGET_EVIDENCE_ALLOW_COMMIT_MISMATCH"
 
 if OBLIVIOUS_TARGET_EVIDENCE_ALLOW_COMMIT_MISMATCH=true bash "$repo_root/scripts/verify-commercial-completion.sh" >"$tmpdir/commercial-commit-mismatch-override.out" 2>&1; then

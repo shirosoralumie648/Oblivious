@@ -514,10 +514,10 @@ require_pass(failures, data, ["strictVerifier", "result"])
 command = dig_path(data, ["strictVerifier", "command"])
 if command.is_a?(String)
   failures << "strictVerifier.command must run scripts/verify-commercial-completion.sh" unless command.include?("scripts/verify-commercial-completion.sh")
-  if command.match?(%r{(?:^|[[:space:];&|])COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS=(?:true|'true'|"true")(?=$|[[:space:];&|])})
+  if command.match?(%r{(?:^|[[:space:];&|])COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS[[:space:]]*=})
     failures << "strictVerifier.command must not enable COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS"
   end
-  if command.match?(%r{(?:^|[[:space:];&|])OBLIVIOUS_TARGET_EVIDENCE_ALLOW_COMMIT_MISMATCH=(?:true|'true'|"true")(?=$|[[:space:];&|])})
+  if command.match?(%r{(?:^|[[:space:];&|])OBLIVIOUS_TARGET_EVIDENCE_ALLOW_COMMIT_MISMATCH[[:space:]]*=})
     failures << "strictVerifier.command must not enable OBLIVIOUS_TARGET_EVIDENCE_ALLOW_COMMIT_MISMATCH"
   end
   %w[
