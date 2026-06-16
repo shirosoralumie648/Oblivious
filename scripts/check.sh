@@ -36,6 +36,9 @@ run_docs_checks() {
   echo "[check] Verifying release assets."
   bash "$repo_root/scripts/verify-quality-gates.sh"
 
+  echo "[check] Verifying target release evidence behavior."
+  bash "$repo_root/scripts/verify-target-release-evidence-fixtures.sh"
+
   echo "[check] Verifying observability dashboard."
   node "$repo_root/scripts/verify-observability-dashboard.mjs"
 

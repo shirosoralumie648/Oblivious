@@ -34,7 +34,7 @@ API contract route-surface note: `src/server/internal/http/route_surface_test.go
 
 Run the narrow tests for the changed slice first, then run the shared release checks below on the release candidate commit.
 
-Current orchestration note: `scripts/verify-commercial-completion.sh` now includes dependency security, web TypeScript, the full server Go suite, all DB-backed commercial evidence profiles, the serial `TEST_DATABASE_URL` full server Go suite, deployment validation, target-gated Kubernetes validation, backup/restore smoke, target live evidence manifest validation, and `git diff --check`. The standalone command list below remains the explicit release-candidate checklist and mirrors the direct command forms behind the strict verifier.
+Current orchestration note: `scripts/verify-commercial-completion.sh` now includes dependency security, web TypeScript, the full server Go suite, all DB-backed commercial evidence profiles, the serial `TEST_DATABASE_URL` full server Go suite, deployment validation, target-gated Kubernetes validation, backup/restore smoke, target live evidence manifest validation, and `git diff --check`. The docs gate also runs `scripts/verify-target-release-evidence-fixtures.sh`, which proves the target manifest verifier rejects generated templates, missing live rails, missing strict final flags, missing strict verifier logs, and malformed gRPC smoke attachments. The standalone command list below remains the explicit release-candidate checklist and mirrors the direct command forms behind the strict verifier.
 
 ```bash
 bash scripts/check.sh docs

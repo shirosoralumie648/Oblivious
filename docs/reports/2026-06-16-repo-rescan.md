@@ -46,6 +46,7 @@
 - Target/live strict verifier command validation now requires `strictVerifier.command` to include all four final gate flags: `COMMERCIAL_COMPLETION_RUN_DEPLOY=true`, `COMMERCIAL_COMPLETION_RUN_K8S=true`, `COMMERCIAL_COMPLETION_RUN_BACKUP_RESTORE=true`, and `COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true`. A manifest that records `scripts/verify-commercial-completion.sh` without those flags is rejected.
 - Target/live gRPC evidence validation now requires a structured `grpcSmokeReport` copied from `scripts/target-grpc-smoke.sh`. The manifest verifier rejects missing smoke reports, missing/failed Agent/Workflow/Task smoke results, and smoke result addresses that do not match the manifest `grpc` entries.
 - Target/live strict verifier evidence validation now requires `strictVerifier.evidenceRef`, `startedAt`, and `completedAt`, rejecting placeholder log refs and impossible run windows.
+- Target/live manifest verifier behavior is now covered by `scripts/verify-target-release-evidence-fixtures.sh` in the docs gate, so the key target evidence rejection cases are no longer only manually checked with temporary shell snippets.
 
 ## Repository Inventory
 
@@ -109,6 +110,7 @@ No rows are currently marked `Gap` or `Unverified`.
 
 - `docs/release/fusion-spec-evidence-pack.md` still states that the pack is not a final completion claim; any `Partial` row remains open until row-specific proof is recorded and rerun on the target environment where required.
 - `scripts/verify-target-release-evidence.sh` now provides the external target/live evidence manifest gate for proof that cannot be collected from repository-local tests.
+- `scripts/verify-target-release-evidence-fixtures.sh` now provides repository-local behavior regression proof for the manifest verifier and is run by `bash scripts/check.sh docs`.
 - The target/live manifest gate now requires Stripe, Alipay, and WeChat Pay live checkout/refund/payout/reconciliation entries individually; a single live provider entry is not sufficient for final readiness.
 - The target/live manifest gate also requires `strictVerifier.command` to carry the deploy, Kubernetes, backup/restore, and target-evidence flags. This keeps final manifests aligned with the strict `scripts/verify-commercial-completion.sh` path instead of accepting partial local verifier invocations.
 - The target/live manifest gate requires `strictVerifier.evidenceRef`, `startedAt`, and `completedAt` so a strict pass is attached to a concrete verifier log and valid run window.
@@ -218,6 +220,10 @@ Closed in this continuation:
   - Evidence: `scripts/verify-target-release-evidence.sh` now requires `strictVerifier.evidenceRef`, `strictVerifier.startedAt`, and `strictVerifier.completedAt`, rejects placeholder verifier-log refs, and fails when the completion timestamp is earlier than the start timestamp.
   - Verification: temporary missing, placeholder, and time-inverted strict-verifier manifests are rejected; a filled current-commit manifest with a concrete verifier artifact passes.
   - Boundary: this proves a target manifest cannot claim a no-skip strict verifier pass without a concrete verifier log pointer. It still does not replace running the strict verifier on target infrastructure.
+- Target evidence verifier behavior fixture.
+  - Evidence: `scripts/verify-target-release-evidence-fixtures.sh` generates target evidence manifests under `/tmp`, then proves the current verifier rejects generated templates, missing WeChat Pay live evidence, missing strict K8s flag, missing strict verifier log artifact, inverted strict verifier run windows, missing gRPC smoke report, failed gRPC smoke result, and mismatched gRPC smoke evidence refs.
+  - Verification: `bash scripts/verify-target-release-evidence-fixtures.sh` and `COREPACK_HOME=/tmp/codex-corepack bash scripts/check.sh docs` run this fixture in the checked-in docs gate.
+  - Boundary: this is verifier behavior regression proof only. It does not replace the external target evidence artifacts required for final readiness.
 
 ## TODO And Placeholder Scan
 
