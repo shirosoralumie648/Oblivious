@@ -1,8 +1,33 @@
-import { expect, test } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 
 import { registerChatSoloRealtime, registerChatSoloRoutes } from './fixtures/chatSolo';
 
 let realtime: Awaited<ReturnType<typeof registerChatSoloRealtime>>;
+
+async function expectNoHorizontalOverflow(page: Page) {
+  const overflowState = await page.evaluate(() => {
+    const workspaceCanvas = document.querySelector('.workspace-canvas');
+    const visibleMessageActionGroups = Array.from(document.querySelectorAll('[aria-label^="Actions for message "]')).filter(
+      (element) => {
+        const rect = element.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      }
+    );
+
+    return {
+      actionGroupsFit: visibleMessageActionGroups.every((element) => element.scrollWidth <= element.clientWidth + 1),
+      documentFits: document.documentElement.scrollWidth <= window.innerWidth + 1,
+      workspaceCanvasFits:
+        workspaceCanvas instanceof HTMLElement ? workspaceCanvas.scrollWidth <= workspaceCanvas.clientWidth + 1 : true,
+    };
+  });
+
+  expect(overflowState).toEqual({
+    actionGroupsFit: true,
+    documentFits: true,
+    workspaceCanvasFits: true,
+  });
+}
 
 test.beforeEach(async ({ page }) => {
   realtime = await registerChatSoloRealtime(page);
@@ -149,4 +174,67 @@ test('chat realtime websocket joins, sends typing, and applies live events in th
   });
   await expect(page.getByText('Browser realtime collaborative note updated.')).not.toBeVisible();
   await expect.poll(() => realtime.violations).toEqual([]);
+});
+
+test('chat message actions and mobile rail stay usable in the browser', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async (text: string) => {
+          (window as typeof window & { __chatSoloCopiedText?: string }).__chatSoloCopiedText = text;
+        },
+      },
+    });
+  });
+
+  await page.goto('/chat/conversation_browser_solo');
+
+  await expect(page.getByRole('heading', { name: 'Chat workspace' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Workspace navigation' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Conversations' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Copy message msg_existing_browser_solo' })).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+
+  await page.getByRole('button', { name: 'Conversations' }).click();
+  await expect(page.getByLabel('Conversation rail')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Open conversation Browser SOLO launch thread' })).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await page.getByRole('button', { name: 'Close conversations' }).click();
+  await expect(page.getByLabel('Conversation rail')).not.toBeVisible();
+  await expectNoHorizontalOverflow(page);
+
+  await page.getByRole('button', { name: 'Copy message msg_existing_browser_solo' }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(() => (window as typeof window & { __chatSoloCopiedText?: string }).__chatSoloCopiedText ?? '')
+    )
+    .toBe('Existing launch context from the browser journey.');
+
+  await page.getByRole('button', { name: 'Edit message msg_existing_browser_solo' }).click();
+  await page.getByLabel('Edit message msg_existing_browser_solo content').fill('Browser action edited launch context.');
+  await page.getByRole('button', { name: 'Save edit for message msg_existing_browser_solo' }).click();
+  await expect(page.getByText('Browser action edited launch context.')).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+
+  await page.getByRole('button', { name: 'Bookmark message msg_existing_browser_solo' }).click();
+  await expect(page.getByText('Bookmarked')).toBeVisible();
+
+  await page.getByLabel('Share expiration for msg_existing_browser_solo').fill('2026-06-18T12:00:00Z');
+  await page.getByRole('button', { name: 'Share message msg_existing_browser_solo' }).click();
+  await expect(page.getByText('https://share.example.test/message_action')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Fork conversation from message msg_existing_browser_solo' }).click();
+  await expect(page).toHaveURL(/\/chat\/conversation_browser_solo_fork$/);
+  await expect(page.getByRole('heading', { name: 'Chat workspace' })).toBeVisible();
+  await expect(page.getByText('Forked browser action context.')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Regenerate response for message msg_fork_assistant' }).click();
+  await expect(page.getByText('Browser action regenerated launch answer.')).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+
+  await page.getByRole('button', { name: 'Delete message msg_fork_assistant' }).click();
+  await expect(page.getByText('Browser action regenerated launch answer.')).not.toBeVisible();
+  await expectNoHorizontalOverflow(page);
 });

@@ -34,6 +34,13 @@ const conversation = {
   updatedAt: now,
 };
 
+const forkConversation = {
+  id: 'conversation_browser_solo_fork',
+  title: 'Branch from Browser action edited launch context.',
+  createdAt: now,
+  updatedAt: now,
+};
+
 const researchKnowledgeBase = {
   id: 'kb_browser_research',
   name: 'Browser Research Vault',
@@ -68,7 +75,15 @@ const initialConversationConfig = {
   toolsEnabled: false,
 };
 
-const initialMessages = [
+type ChatSoloMessage = {
+  bookmarked?: boolean;
+  content: string;
+  createdAt: string;
+  id: string;
+  role: 'assistant' | 'user';
+};
+
+const initialMessages: ChatSoloMessage[] = [
   {
     id: 'msg_existing_browser_solo',
     role: 'assistant',
@@ -77,7 +92,7 @@ const initialMessages = [
   },
 ];
 
-const streamedMessages = [
+const streamedMessages: ChatSoloMessage[] = [
   ...initialMessages,
   {
     id: 'msg_user_browser_solo',
@@ -89,6 +104,31 @@ const streamedMessages = [
     id: 'msg_assistant_browser_solo',
     role: 'assistant',
     content: 'Browser streamed launch handoff answer with saved settings.',
+    createdAt: now,
+  },
+];
+
+const forkInitialMessages: ChatSoloMessage[] = [
+  {
+    id: 'msg_fork_user',
+    role: 'user',
+    content: 'Forked browser action prompt.',
+    createdAt: now,
+  },
+  {
+    id: 'msg_fork_assistant',
+    role: 'assistant',
+    content: 'Forked browser action context.',
+    createdAt: now,
+  },
+];
+
+const forkRegeneratedMessages: ChatSoloMessage[] = [
+  forkInitialMessages[0],
+  {
+    id: 'msg_fork_assistant',
+    role: 'assistant',
+    content: 'Browser action regenerated launch answer.',
     createdAt: now,
   },
 ];
@@ -213,10 +253,62 @@ function createTaskPayloadMatchesHandoff(payload: Record<string, unknown>) {
   );
 }
 
+function updatedMessagePayloadMatchesAction(payload: Record<string, unknown>) {
+  return payload.content === 'Browser action edited launch context.';
+}
+
+function bookmarkPayloadMatchesAction(payload: Record<string, unknown>) {
+  return payload.bookmarked === true;
+}
+
+function sharePayloadMatchesAction(payload: Record<string, unknown>) {
+  return payload.expiresAt === '2026-06-18T12:00:00Z';
+}
+
+function forkPayloadMatchesAction(payload: Record<string, unknown>) {
+  return (
+    payload.branchFromMessageId === 'msg_existing_browser_solo' &&
+    payload.title === 'Branch from Browser action edited launch context.'
+  );
+}
+
+function regeneratePayloadMatchesFork(payload: Record<string, unknown>) {
+  const overrides = payload.overrides;
+  return (
+    payload.content === 'Forked browser action prompt.' &&
+    typeof overrides === 'object' &&
+    overrides !== null &&
+    (overrides as Record<string, unknown>).maxOutputTokens === initialConversationConfig.maxOutputTokens &&
+    (overrides as Record<string, unknown>).modelId === initialConversationConfig.modelId &&
+    (overrides as Record<string, unknown>).systemPromptOverride === initialConversationConfig.systemPromptOverride &&
+    (overrides as Record<string, unknown>).temperature === initialConversationConfig.temperature &&
+    (overrides as Record<string, unknown>).toolsEnabled === initialConversationConfig.toolsEnabled
+  );
+}
+
 export async function registerChatSoloRoutes(page: Page): Promise<void> {
   let currentConversationConfig = initialConversationConfig;
-  let currentMessages = initialMessages;
+  let currentConversations = [conversation];
+  const messagesByConversation: Record<string, ChatSoloMessage[]> = {
+    [conversationId]: initialMessages,
+  };
   let currentTask: typeof runningTask | null = null;
+
+  const getMessages = (id: string) => messagesByConversation[id] ?? null;
+  const setMessages = (id: string, messages: ChatSoloMessage[]) => {
+    messagesByConversation[id] = messages;
+  };
+  const replaceMessage = (id: string, messageId: string, replacement: ChatSoloMessage) => {
+    const messages = getMessages(id);
+    if (messages === null) {
+      return null;
+    }
+    setMessages(
+      id,
+      messages.map((message) => (message.id === messageId ? replacement : message))
+    );
+    return replacement;
+  };
 
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request();
@@ -245,17 +337,30 @@ export async function registerChatSoloRoutes(page: Page): Promise<void> {
     }
 
     if (method === 'GET' && pathname === '/api/v1/app/conversations') {
-      await fulfillJSON(route, [conversation]);
+      await fulfillJSON(route, currentConversations);
       return;
     }
 
-    if (method === 'GET' && pathname === `/api/v1/app/conversations/${conversationId}/messages`) {
-      await fulfillJSON(route, currentMessages);
+    const conversationMatch = pathname.match(/^\/api\/v1\/app\/conversations\/([^/]+)(?:\/(.*))?$/);
+    const requestedConversationId = conversationMatch?.[1];
+    const conversationSuffix = conversationMatch?.[2] ?? '';
+
+    if (method === 'GET' && requestedConversationId && conversationSuffix === 'messages') {
+      const messages = getMessages(requestedConversationId);
+      if (messages === null) {
+        await fulfillNotFound(route);
+        return;
+      }
+      await fulfillJSON(route, messages);
       return;
     }
 
-    if (method === 'GET' && pathname === `/api/v1/app/conversations/${conversationId}/config`) {
-      await fulfillJSON(route, currentConversationConfig);
+    if (method === 'GET' && requestedConversationId && conversationSuffix === 'config') {
+      if (requestedConversationId !== conversationId && requestedConversationId !== forkConversation.id) {
+        await fulfillNotFound(route);
+        return;
+      }
+      await fulfillJSON(route, { ...currentConversationConfig, conversationId: requestedConversationId });
       return;
     }
 
@@ -278,12 +383,97 @@ export async function registerChatSoloRoutes(page: Page): Promise<void> {
         return;
       }
 
-      currentMessages = streamedMessages;
+      setMessages(conversationId, streamedMessages);
       await route.fulfill({
         status: 200,
         contentType: 'text/event-stream',
         body: 'data: Browser streamed launch handoff answer with saved settings.\n\ndata: [DONE]\n\n',
       });
+      return;
+    }
+
+    if (method === 'POST' && requestedConversationId === forkConversation.id && conversationSuffix === 'messages') {
+      const body = (await request.postDataJSON()) as Record<string, unknown>;
+      if (!regeneratePayloadMatchesFork(body)) {
+        await fulfillError(route, 'fork regenerate payload did not retry the previous user message with saved overrides');
+        return;
+      }
+
+      setMessages(forkConversation.id, forkRegeneratedMessages);
+      await fulfillJSON(route, forkRegeneratedMessages);
+      return;
+    }
+
+    const messageMatch = pathname.match(/^\/api\/v1\/app\/conversations\/([^/]+)\/messages\/([^/]+)(?:\/(.*))?$/);
+    const messageConversationId = messageMatch?.[1];
+    const messageId = messageMatch?.[2];
+    const messageSuffix = messageMatch?.[3] ?? '';
+
+    if (method === 'PUT' && messageConversationId && messageId && messageSuffix === '') {
+      const body = (await request.postDataJSON()) as Record<string, unknown>;
+      if (messageConversationId !== conversationId || messageId !== 'msg_existing_browser_solo') {
+        await fulfillNotFound(route);
+        return;
+      }
+      if (!updatedMessagePayloadMatchesAction(body)) {
+        await fulfillError(route, 'message edit payload did not carry the expected browser action content');
+        return;
+      }
+
+      const updatedMessage = replaceMessage(messageConversationId, messageId, {
+        id: messageId,
+        role: 'assistant',
+        content: 'Browser action edited launch context.',
+        createdAt: now,
+      });
+      await fulfillJSON(route, updatedMessage);
+      return;
+    }
+
+    if (method === 'POST' && messageConversationId === conversationId && messageId === 'msg_existing_browser_solo' && messageSuffix === 'bookmark') {
+      const body = (await request.postDataJSON()) as Record<string, unknown>;
+      if (!bookmarkPayloadMatchesAction(body)) {
+        await fulfillError(route, 'bookmark payload did not mark the message as bookmarked');
+        return;
+      }
+
+      const updatedMessage = replaceMessage(messageConversationId, messageId, {
+        id: messageId,
+        role: 'assistant',
+        content: 'Browser action edited launch context.',
+        createdAt: now,
+        bookmarked: true,
+      });
+      await fulfillJSON(route, updatedMessage);
+      return;
+    }
+
+    if (method === 'POST' && messageConversationId === conversationId && messageId === 'msg_existing_browser_solo' && messageSuffix === 'share') {
+      const body = (await request.postDataJSON()) as Record<string, unknown>;
+      if (!sharePayloadMatchesAction(body)) {
+        await fulfillError(route, 'message share payload did not carry the expected expiration');
+        return;
+      }
+
+      await fulfillJSON(route, {
+        id: 'share_message_action',
+        url: 'https://share.example.test/message_action',
+      });
+      return;
+    }
+
+    if (method === 'DELETE' && messageConversationId && messageId && messageSuffix === '') {
+      const messages = getMessages(messageConversationId);
+      if (messages === null) {
+        await fulfillNotFound(route);
+        return;
+      }
+
+      setMessages(
+        messageConversationId,
+        messages.filter((message) => message.id !== messageId)
+      );
+      await fulfillJSON(route, { deleted: true });
       return;
     }
 
@@ -294,6 +484,19 @@ export async function registerChatSoloRoutes(page: Page): Promise<void> {
         suggestedBudget: 20,
         suggestedExecutionMode: 'standard',
       });
+      return;
+    }
+
+    if (method === 'POST' && pathname === `/api/v1/app/conversations/${conversationId}/fork`) {
+      const body = (await request.postDataJSON()) as Record<string, unknown>;
+      if (!forkPayloadMatchesAction(body)) {
+        await fulfillError(route, 'fork payload did not preserve the selected browser action message');
+        return;
+      }
+
+      currentConversations = [conversation, forkConversation];
+      setMessages(forkConversation.id, forkInitialMessages);
+      await fulfillJSON(route, forkConversation, 201);
       return;
     }
 

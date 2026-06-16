@@ -851,7 +851,11 @@ vi.mock('../app/providers', () => ({
 }));
 
 vi.mock('../features/chat/api', () => ({
-  createChatApi: () => chatApiMocks
+  createChatApi: () => chatApiMocks,
+  createConversationRealtimeSocket: () => ({
+    close: vi.fn(),
+    sendTyping: vi.fn()
+  })
 }));
 
 vi.mock('../features/knowledge/api', () => ({
