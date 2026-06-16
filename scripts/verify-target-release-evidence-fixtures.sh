@@ -275,6 +275,21 @@ make_invalid_case \
   "strictVerifier.command must not enable COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS"
 
 make_invalid_case \
+  "commit-mismatch-override-command" \
+  'data["strictVerifier"]["command"] = "OBLIVIOUS_TARGET_EVIDENCE_ALLOW_COMMIT_MISMATCH=true " + data["strictVerifier"]["command"]' \
+  "strictVerifier.command must not enable OBLIVIOUS_TARGET_EVIDENCE_ALLOW_COMMIT_MISMATCH"
+
+if OBLIVIOUS_TARGET_EVIDENCE_ALLOW_COMMIT_MISMATCH=true bash "$repo_root/scripts/verify-commercial-completion.sh" >"$tmpdir/commercial-commit-mismatch-override.out" 2>&1; then
+  cat "$tmpdir/commercial-commit-mismatch-override.out" >&2
+  fail "commercial-completion-commit-mismatch-override unexpectedly passed"
+fi
+if ! grep -Fq -- "OBLIVIOUS_TARGET_EVIDENCE_ALLOW_COMMIT_MISMATCH cannot be true for strict final readiness" "$tmpdir/commercial-commit-mismatch-override.out"; then
+  cat "$tmpdir/commercial-commit-mismatch-override.out" >&2
+  fail "commercial-completion-commit-mismatch-override failed without expected pattern"
+fi
+echo "[target-release-evidence-fixtures] rejected commercial-completion-commit-mismatch-override"
+
+make_invalid_case \
   "missing-strict-verifier-evidence-ref" \
   'data["strictVerifier"].delete("evidenceRef")' \
   "strictVerifier.evidenceRef is required"

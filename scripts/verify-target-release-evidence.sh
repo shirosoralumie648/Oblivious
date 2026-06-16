@@ -517,6 +517,9 @@ if command.is_a?(String)
   if command.match?(%r{(?:^|[[:space:];&|])COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS=(?:true|'true'|"true")(?=$|[[:space:];&|])})
     failures << "strictVerifier.command must not enable COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS"
   end
+  if command.match?(%r{(?:^|[[:space:];&|])OBLIVIOUS_TARGET_EVIDENCE_ALLOW_COMMIT_MISMATCH=(?:true|'true'|"true")(?=$|[[:space:];&|])})
+    failures << "strictVerifier.command must not enable OBLIVIOUS_TARGET_EVIDENCE_ALLOW_COMMIT_MISMATCH"
+  end
   %w[
     COMMERCIAL_COMPLETION_RUN_DEPLOY=true
     COMMERCIAL_COMPLETION_RUN_K8S=true

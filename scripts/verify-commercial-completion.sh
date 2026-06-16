@@ -88,6 +88,9 @@ skip_or_fail() {
   fail "$label requires $env_name=true, or COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS=true for non-final local evidence"
 }
 
+if [[ "${OBLIVIOUS_TARGET_EVIDENCE_ALLOW_COMMIT_MISMATCH:-false}" == "true" ]]; then
+  fail "OBLIVIOUS_TARGET_EVIDENCE_ALLOW_COMMIT_MISMATCH cannot be true for strict final readiness"
+fi
 if [[ -z "${TEST_DATABASE_URL:-}" ]]; then
   fail "TEST_DATABASE_URL is required for DB-backed Phase 30 commercial journey proof"
 fi
