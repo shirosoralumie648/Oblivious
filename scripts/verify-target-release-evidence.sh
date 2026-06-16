@@ -285,6 +285,10 @@ def placeholder?(value)
   value.is_a?(String) && value.match?(/TODO|TBD|placeholder|example|sample|\/path\/outside\/git|release-log-or-artifact-id|strict-verifier-log-or-artifact-id|strict-commercial-verifier-log|provider-run-id|grpc-smoke-log|secret-audit-log|telemetry-dashboard-or-export/i)
 end
 
+def secret_like_uri?(value)
+  value.is_a?(String) && value.match?(/[?&#](?:[^=&#]*[_-])?(?:token|secret|signature|api[_-]?key|access[_-]?key|credential|kubeconfig|private[_-]?key)=/i)
+end
+
 def require_evidence_ref(failures, data, path)
   value = require_string(failures, data, path)
   failures << "#{path.join(".")} must reference a concrete target artifact, not a placeholder" if placeholder?(value)
@@ -597,6 +601,7 @@ else
     failures << "artifacts[#{index}].kind must describe a concrete target artifact, not a placeholder" if placeholder?(kind)
     uri = require_string(failures, data, ["artifacts", index, "uri"])
     failures << "artifacts[#{index}].uri must reference a concrete target artifact, not a placeholder" if placeholder?(uri)
+    failures << "artifacts[#{index}].uri must not embed secret-like query parameters" if secret_like_uri?(uri)
     artifact_recorded_at = require_string(failures, data, ["artifacts", index, "recordedAt"])
     begin
       Time.iso8601(artifact_recorded_at) if artifact_recorded_at.is_a?(String)

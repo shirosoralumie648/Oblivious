@@ -177,6 +177,11 @@ make_invalid_case \
   "artifacts[1].uri must reference a concrete target artifact, not a placeholder"
 
 make_invalid_case \
+  "secret-artifact-uri-query" \
+  'data["artifacts"].find { |artifact| artifact["id"] == "artifact-deploy-20260616" }["uri"] = "https://ci.internal/runs/20260616/deploy.log?token=target-secret-token"' \
+  "artifacts[1].uri must not embed secret-like query parameters"
+
+make_invalid_case \
   "invalid-artifact-recorded-at" \
   'data["artifacts"].first["recordedAt"] = "2026/06/16 01:00"' \
   "artifacts[0].recordedAt must be ISO-8601"
