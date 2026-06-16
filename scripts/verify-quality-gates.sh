@@ -712,6 +712,7 @@ assert_file_contains "$target_release_evidence_fixtures_file" "missing-strict-ve
 assert_file_contains "$target_release_evidence_fixtures_file" "invalid-workflow-telemetry-window"
 assert_file_contains "$target_release_evidence_fixtures_file" "inverted-workflow-telemetry-window"
 assert_file_contains "$target_release_evidence_fixtures_file" "missing-grpc-collection"
+assert_file_contains "$target_release_evidence_fixtures_file" "loopback-grpc-address"
 assert_file_contains "$target_release_evidence_fixtures_file" "missing-grpc-smoke-report"
 assert_file_contains "$target_release_evidence_fixtures_file" "mismatched-grpc-smoke-evidence-ref"
 assert_file_contains "$commercial_db_evidence_verifier_file" "TestCommercialHTTPJourney"

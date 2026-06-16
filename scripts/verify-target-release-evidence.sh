@@ -336,6 +336,33 @@ def require_http_url(failures, data, path, error, local_error: nil)
   end
 end
 
+def endpoint_host(value)
+  raw = value.to_s.strip
+  return nil if raw.empty?
+
+  if raw.match?(/\A[a-z][a-z0-9+\-.]*:\/\//i)
+    begin
+      uri = URI.parse(raw)
+      return uri.host unless blank?(uri.host)
+    rescue URI::InvalidURIError
+      return nil
+    end
+    raw = raw.sub(/\A[a-z][a-z0-9+\-.]*:\/+/i, "")
+  end
+
+  raw = raw.sub(/\A\/+/, "")
+  if raw.start_with?("[")
+    raw[/\A\[([^\]]+)\]/, 1]
+  else
+    raw.split(/[\/:]/, 2).first
+  end
+end
+
+def local_endpoint?(value)
+  host = endpoint_host(value)
+  !blank?(host) && local_target_host?(host)
+end
+
 def placeholder?(value)
   value.is_a?(String) && value.match?(/TODO|TBD|placeholder|example|sample|\/path\/outside\/git|release-log-or-artifact-id|strict-verifier-log-or-artifact-id|strict-commercial-verifier-log|provider-run-id|grpc-smoke-log|secret-audit-log|telemetry-dashboard-or-export/i)
 end
@@ -593,6 +620,9 @@ else
     if expected_port && !entry["address"].to_s.end_with?(":#{expected_port}")
       failures << "grpc[#{index}].address for #{service} must target port #{expected_port}"
     end
+    if local_endpoint?(entry["address"])
+      failures << "grpc[#{index}].address for #{service} must target a non-local service endpoint"
+    end
     failures << "grpc[#{index}].generatedClient must be pass" unless entry["generatedClient"] == "pass"
     failures << "grpc[#{index}].evidenceRef is required" if blank?(entry["evidenceRef"])
     failures << "grpc[#{index}].evidenceRef must reference a concrete target artifact, not a placeholder" if placeholder?(entry["evidenceRef"])
@@ -644,6 +674,9 @@ else
       expected_port = expected_grpc_ports[service]
       if expected_port && !result["address"].to_s.end_with?(":#{expected_port}")
         failures << "grpcSmokeReport.results[#{index}].address for #{service} must target port #{expected_port}"
+      end
+      if local_endpoint?(result["address"])
+        failures << "grpcSmokeReport.results[#{index}].address for #{service} must target a non-local service endpoint"
       end
       failures << "grpcSmokeReport.results[#{index}].generatedClient must be pass" unless result["generatedClient"] == "pass"
       status = require_string(failures, data, ["grpcSmokeReport", "results", index, "status"])

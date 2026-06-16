@@ -3,6 +3,9 @@
 ## Current Truth
 
 - Branch: `main`.
+- Current loopback-grpc-address hardening continuation base: `17dd892` (`test(release): reject loopback artifact uris`).
+- Remote parity at loopback-grpc-address hardening start: `HEAD == origin/main` (`17dd892`).
+- Working tree at loopback-grpc-address hardening start: clean.
 - Current loopback-artifact-uri hardening continuation base: `d86d0a4` (`test(release): reject local artifact uris`).
 - Remote parity at loopback-artifact-uri hardening start: `HEAD == origin/main` (`d86d0a4`).
 - Working tree at loopback-artifact-uri hardening start: clean.
@@ -31,7 +34,7 @@
 - The earlier same-day scans at `1c52194`, `53aaca0`, `d4fdc37`, `75ff216`, `98a1683`, `c6d9b34`, `5969e4b`, `1e7c6ef`, `e222967`, `0694b44`, `984b6a7`, `cb18df4`, and `bd92f91` are now older baselines for this report.
 - The project is still not complete against the four `docs/superpowers/specs/2026-06-04-*` specs.
 - Current matrix remains `4 Proven / 10 Partial / 0 Gap / 0 Unverified`.
-- Current progress estimate remains about `99/100`: repository-local evidence is broad, the target manifest verifier is now being tightened around collection/artifact/URI locality consistency, and final completion is still gated by target/live proof plus a strict no-skip release run.
+- Current progress estimate remains about `99/100`: repository-local evidence is broad, the target manifest verifier is now being tightened around collection/artifact/URI/gRPC endpoint locality consistency, and final completion is still gated by target/live proof plus a strict no-skip release run.
 
 ## What Changed Since The Last Rescan
 
@@ -73,6 +76,7 @@
 - Target/live workflow telemetry windows are now part of the same docs gate fixture: the verifier rejects malformed `workflowTelemetry.window` values and intervals whose end timestamp is before start.
 - Target/live environment base URLs are now part of the same docs gate fixture: the verifier rejects non-HTTP(S) `environment.baseUrl` values such as `not-a-url` and loopback/local targets such as `http://localhost:3000`.
 - Target/live artifact URIs are now part of the same docs gate fixture: the verifier rejects local filesystem paths such as `/tmp/target-release/deploy.log`, `file:///tmp/target-release/deploy.log`, and loopback URLs such as `http://localhost:8080/target-release/deploy.log`, while preserving remote target artifact schemes such as CI, provider, and observability references.
+- Target/live gRPC addresses are now part of the same docs gate fixture: the verifier rejects loopback/local manifest and copied smoke-report addresses such as `localhost:50063`, while preserving service DNS-style target addresses such as `agent:50063`.
 
 ## Repository Inventory
 
@@ -140,7 +144,7 @@ No rows are currently marked `Gap` or `Unverified`.
 - The target/live manifest gate now requires Stripe, Alipay, and WeChat Pay live checkout/refund/payout/reconciliation entries individually; a single live provider entry is not sufficient for final readiness.
 - The target/live manifest gate also requires `strictVerifier.command` to carry the deploy, Kubernetes, backup/restore, and target-evidence flags. This keeps final manifests aligned with the strict `scripts/verify-commercial-completion.sh` path instead of accepting partial local verifier invocations.
 - The target/live manifest gate requires `strictVerifier.evidenceRef`, `startedAt`, and `completedAt` so a strict pass is attached to a concrete verifier log and valid run window.
-- The target/live manifest gate requires `grpcSmokeReport.results` to include generated-client pass rows for Agent, Workflow, and Task, and each smoke address must match the manifest `grpc` address for that service.
+- The target/live manifest gate requires `grpcSmokeReport.results` to include generated-client pass rows for Agent, Workflow, and Task, and each smoke address must match the manifest `grpc` address for that service, target the expected service port, and avoid local loopback hosts.
 - The target/live manifest gate requires concrete target environment `name`, `class`, and `baseUrl` values plus an `artifacts[]` index with unique ids, evidence-family-matching `kind`, non-loopback remote target artifact `uri` values, secret-free URI query parameters, ISO-8601 `recordedAt`, optional 64-character hex `sha256`, no dangling non-placeholder `evidenceRef` values, and no unreferenced artifact entries. This proves manifest internal consistency only; it does not download or authenticate the external artifacts.
 - The target/live manifest gate requires `environment.baseUrl` to be an HTTP(S), non-loopback URL. This proves the target metadata contains a parseable endpoint-style URL that is not a developer-local target, not that the endpoint is reachable.
 - The target/live manifest gate requires `workflowTelemetry.window` to be an ISO-8601 `start/end` interval whose end is at or after start. This proves the telemetry evidence covers a parseable target observation window, not that the target telemetry itself has been collected.
@@ -192,7 +196,7 @@ Pure target/live blockers that still keep final status below `100/100`:
 - A final `scripts/verify-commercial-completion.sh` run with no environment skips and `COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true` pointing at an external, secret-free target evidence manifest for the exact release commit.
   - The external target manifest must also record the strict verifier command with `COMMERCIAL_COMPLETION_RUN_DEPLOY=true`, `COMMERCIAL_COMPLETION_RUN_K8S=true`, `COMMERCIAL_COMPLETION_RUN_BACKUP_RESTORE=true`, and `COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true`.
   - The external target manifest must reference the strict verifier log artifact through `strictVerifier.evidenceRef` and record the verifier run window.
-  - The external target manifest must embed the `grpcSmokeReport` JSON copied from the target gRPC smoke artifact, not only free-form gRPC artifact references.
+  - The external target manifest must embed the `grpcSmokeReport` JSON copied from the target gRPC smoke artifact, not only free-form gRPC artifact references, and those copied addresses must be non-local target service endpoints.
   - The external target manifest must include `artifacts[]` entries for the referenced verifier, deploy, Kubernetes, provider, gRPC smoke, secret-audit, and workflow-telemetry evidence so every non-placeholder `evidenceRef` resolves to a concrete artifact id, and those artifact URIs must be remote target artifact URIs rather than local filesystem paths, loopback URLs, or `file:` URLs.
 
 Repository-local proof-depth candidates surfaced by this rescan after closing the gRPC release-readiness local blocker, the Task approval state guard, and Marketplace WeChat Pay paid-install parity:
@@ -218,6 +222,10 @@ Remaining local proof-depth candidates:
 
 Closed in this continuation:
 
+- Target gRPC evidence loopback endpoint rejection.
+  - Evidence: `scripts/verify-target-release-evidence.sh` now parses gRPC endpoint hosts from manifest `grpc[].address` and copied `grpcSmokeReport.results[].address` values, rejecting `localhost`, `*.localhost`, `0.0.0.0`, `::1`, and `127.*` while preserving service DNS-style target addresses. `scripts/verify-target-release-evidence-fixtures.sh` proves `localhost:50063` is rejected for the Agent gRPC evidence and that the filled current-commit manifest still accepts `agent:50063`.
+  - Verification: `bash scripts/verify-target-release-evidence-fixtures.sh`, `bash scripts/verify-quality-gates.sh`, `COREPACK_HOME=/tmp/codex-corepack bash scripts/check.sh docs`, and `git diff --check` cover the verifier, fixture, docs, and release gate.
+  - Boundary: this is repository-local manifest hygiene proof. It prevents local gRPC smoke substitution, but it does not prove deployed Agent/Workflow/Task endpoint reachability without the external target smoke run.
 - Target evidence artifact URI loopback rejection.
   - Evidence: `scripts/verify-target-release-evidence.sh` now applies the existing local-target host guard to artifact URI hosts when a URI has a host component, rejecting `localhost`, `*.localhost`, `0.0.0.0`, `::1`, and `127.*` artifact hosts while preserving remote CI, provider, and observability artifact URI schemes. `scripts/verify-target-release-evidence-fixtures.sh` proves `http://localhost:8080/target-release/deploy.log` is rejected and the filled current-commit manifest still passes.
   - Verification: `bash scripts/verify-target-release-evidence-fixtures.sh`, `bash scripts/verify-quality-gates.sh`, `COREPACK_HOME=/tmp/codex-corepack bash scripts/check.sh docs`, and `git diff --check` cover the verifier, fixture, docs, and release gate.

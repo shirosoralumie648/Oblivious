@@ -272,6 +272,11 @@ make_invalid_case \
   "grpc must be an array"
 
 make_invalid_case \
+  "loopback-grpc-address" \
+  'data["grpc"].find { |entry| entry["service"] == "agent" }["address"] = "localhost:50063"; data["grpcSmokeReport"]["results"].find { |result| result["service"] == "agent" }["address"] = "localhost:50063"' \
+  "grpc[0].address for agent must target a non-local service endpoint"
+
+make_invalid_case \
   "missing-grpc-smoke-report" \
   'data.delete("grpcSmokeReport")' \
   "grpcSmokeReport is required"
