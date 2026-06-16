@@ -553,8 +553,8 @@ require_evidence_ref(failures, data, ["deployment", "evidenceRef"])
   require_pass(failures, data, ["kubernetes", field])
 end
 secret_file_class = require_string(failures, data, ["kubernetes", "secretFileClass"])
-if secret_file_class.is_a?(String) && secret_file_class.match?(/example|placeholder|sample/i)
-  failures << "kubernetes.secretFileClass must describe a filled external secret, not an example or placeholder"
+if secret_file_class.is_a?(String) && secret_file_class.strip != "external-filled"
+  failures << "kubernetes.secretFileClass must be external-filled"
 end
 require_evidence_ref(failures, data, ["kubernetes", "evidenceRef"])
 

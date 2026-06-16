@@ -257,6 +257,11 @@ make_invalid_case \
   "strictVerifier.completedAt must be at or after strictVerifier.startedAt"
 
 make_invalid_case \
+  "unfilled-kubernetes-secret-file-class" \
+  'data["kubernetes"]["secretFileClass"] = "external-empty"' \
+  "kubernetes.secretFileClass must be external-filled"
+
+make_invalid_case \
   "invalid-workflow-telemetry-window" \
   'data["workflowTelemetry"]["window"] = "not-a-window"' \
   "workflowTelemetry.window must be an ISO-8601 start/end interval"
