@@ -418,6 +418,24 @@ def local_endpoint?(value)
   !blank?(host) && local_target_host?(host)
 end
 
+def parse_plain_grpc_address(value)
+  return nil unless value.is_a?(String)
+
+  raw = value.strip
+  return nil if raw.empty?
+  return nil if raw.match?(/\A[a-z][a-z0-9+\-.]*:\/\//i)
+  return nil if raw.match?(/[\/?#]/)
+
+  match = if raw.start_with?("[")
+    raw.match(/\A\[([^\]]+)\]:(\d+)\z/)
+  else
+    raw.match(/\A([^:\s\[\]]+):(\d+)\z/)
+  end
+  return nil unless match
+
+  {"host" => match[1], "port" => match[2]}
+end
+
 def placeholder?(value)
   value.is_a?(String) && value.match?(/TODO|TBD|placeholder|example|sample|\/path\/outside\/git|release-log-or-artifact-id|strict-verifier-log-or-artifact-id|strict-commercial-verifier-log|provider-run-id|grpc-smoke-log|secret-audit-log|telemetry-dashboard-or-export/i)
 end
@@ -652,8 +670,13 @@ else
       failures << "grpc[#{index}] must be an object"
       next
     end
-    failures << "grpc[#{index}].address is required" if blank?(entry["address"])
     service = entry["service"].to_s.strip
+    address = entry["address"]
+    failures << "grpc[#{index}].address is required" if blank?(address)
+    parsed_address = parse_plain_grpc_address(address)
+    if !blank?(address) && parsed_address.nil?
+      failures << "grpc[#{index}].address for #{service} must be a plain host:port endpoint"
+    end
     unless service.empty?
       if grpc_entries_by_service.key?(service)
         failures << "grpc must not duplicate #{service} service evidence"
@@ -662,10 +685,10 @@ else
       end
     end
     expected_port = expected_grpc_ports[service]
-    if expected_port && !entry["address"].to_s.end_with?(":#{expected_port}")
+    if parsed_address && expected_port && parsed_address["port"] != expected_port
       failures << "grpc[#{index}].address for #{service} must target port #{expected_port}"
     end
-    if local_endpoint?(entry["address"])
+    if parsed_address && local_target_host?(parsed_address["host"])
       failures << "grpc[#{index}].address for #{service} must target a non-local service endpoint"
     end
     failures << "grpc[#{index}].generatedClient must be pass" unless entry["generatedClient"] == "pass"
@@ -711,16 +734,21 @@ else
       else
         smoke_results_by_service[service] = result
       end
-      failures << "grpcSmokeReport.results[#{index}].address is required" if blank?(result["address"])
+      result_address = result["address"]
+      failures << "grpcSmokeReport.results[#{index}].address is required" if blank?(result_address)
+      parsed_result_address = parse_plain_grpc_address(result_address)
+      if !blank?(result_address) && parsed_result_address.nil?
+        failures << "grpcSmokeReport.results[#{index}].address for #{service} must be a plain host:port endpoint"
+      end
       manifest_entry = grpc_entries_by_service[service]
-      if manifest_entry && result["address"].to_s != manifest_entry["address"].to_s
+      if manifest_entry && result_address.to_s != manifest_entry["address"].to_s
         failures << "grpcSmokeReport.results[#{index}].address must match grpc #{service} address"
       end
       expected_port = expected_grpc_ports[service]
-      if expected_port && !result["address"].to_s.end_with?(":#{expected_port}")
+      if parsed_result_address && expected_port && parsed_result_address["port"] != expected_port
         failures << "grpcSmokeReport.results[#{index}].address for #{service} must target port #{expected_port}"
       end
-      if local_endpoint?(result["address"])
+      if parsed_result_address && local_target_host?(parsed_result_address["host"])
         failures << "grpcSmokeReport.results[#{index}].address for #{service} must target a non-local service endpoint"
       end
       failures << "grpcSmokeReport.results[#{index}].generatedClient must be pass" unless result["generatedClient"] == "pass"

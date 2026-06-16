@@ -679,6 +679,7 @@ assert_file_contains "$target_release_evidence_verifier_file" "strictVerifier.ev
 assert_file_contains "$target_release_evidence_verifier_file" "grpcSmokeReport"
 assert_file_contains "$target_release_evidence_verifier_file" "grpcSmokeReport.results must include agent, workflow, and task smoke results"
 assert_file_contains "$target_release_evidence_verifier_file" "evidenceRef must match grpcSmokeReport.evidenceRef"
+assert_file_contains "$target_release_evidence_verifier_file" "must be a plain host:port endpoint"
 assert_file_contains "$target_release_evidence_verifier_file" '"artifacts"'
 assert_file_contains "$target_release_evidence_verifier_file" "artifacts must include at least one target artifact entry"
 assert_file_contains "$target_release_evidence_verifier_file" "must reference an artifact id listed in artifacts"
@@ -736,6 +737,7 @@ assert_file_contains "$target_release_evidence_fixtures_file" "inverted-workflow
 assert_file_contains "$target_release_evidence_fixtures_file" "missing-grpc-collection"
 assert_file_contains "$target_release_evidence_fixtures_file" "loopback-grpc-address"
 assert_file_contains "$target_release_evidence_fixtures_file" "ipv6-mapped-loopback-grpc-address"
+assert_file_contains "$target_release_evidence_fixtures_file" "url-shaped-grpc-address"
 assert_file_contains "$target_release_evidence_fixtures_file" "missing-grpc-smoke-report"
 assert_file_contains "$target_release_evidence_fixtures_file" "mismatched-grpc-smoke-evidence-ref"
 assert_file_contains "$commercial_db_evidence_verifier_file" "TestCommercialHTTPJourney"
