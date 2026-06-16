@@ -86,4 +86,9 @@ if [[ "$billing_checkout_topup_body" != *"SubscriptionLifecycleOnce"* ]]; then
   fail "billing-checkout-topup-http must include DomesticPaymentWebhookRouteAppliesSubscriptionLifecycleOnce"
 fi
 
+relay_runtime_channel_isolation_body=$(sed -n '/^run_relay_runtime_channel_isolation_profile() {/,/^}/p' "$target")
+if [[ "$relay_runtime_channel_isolation_body" != *"ConversationAffinityPersistsAndUpdatesChannel"* ]]; then
+  fail "relay-runtime-channel-isolation must include TestRelayStoreConversationAffinityPersistsAndUpdatesChannel"
+fi
+
 echo "[commercial-db-evidence-profiles] commercial DB evidence profile list is synchronized."

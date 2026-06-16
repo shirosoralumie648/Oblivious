@@ -334,7 +334,7 @@ run_relay_file_mapping_tenant_ownership_profile() {
 run_relay_runtime_channel_isolation_profile() {
   local relay_runtime_pattern
 
-  relay_runtime_pattern="^Test(LoadBalancerSelectModelForOrganizationFiltersModelRouteAndFallback|RouterRouteWithBillingUsesTrustedOrganizationForChannelSelectionAndAffinity|RelayStore(LoadPoolPreservesChannelOrganizationScope|ProtectsChannelAPIKeyAtRestAndHydratesRuntimeKey))$"
+  relay_runtime_pattern="^Test(LoadBalancerSelectModelForOrganizationFiltersModelRouteAndFallback|RouterRouteWithBillingUsesTrustedOrganizationForChannelSelectionAndAffinity|RelayStore(ConversationAffinityPersistsAndUpdatesChannel|LoadPoolPreservesChannelOrganizationScope|ProtectsChannelAPIKeyAtRestAndHydratesRuntimeKey))$"
   run_go_test_no_skips "relay runtime channel active-organization isolation" "./internal/relay" "$relay_runtime_pattern"
   run_go_test_no_skips "relay models active-organization isolation" "./internal/relay/handler" "^TestModelsHandlerScopesModelsToTrustedOrganization$"
 }
