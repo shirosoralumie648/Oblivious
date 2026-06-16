@@ -34,7 +34,7 @@ fill_manifest() {
   mutate_json "$path" '
 data["environment"]["name"] = "staging-target"
 data["environment"]["class"] = "staging Kubernetes"
-data["environment"]["baseUrl"] = "https://staging.oblivious.example"
+data["environment"]["baseUrl"] = "https://staging.oblivious.internal"
 data["strictVerifier"]["evidenceRef"] = "artifact-strict-verifier-20260616"
 data["strictVerifier"]["startedAt"] = "2026-06-16T00:00:00Z"
 data["strictVerifier"]["completedAt"] = "2026-06-16T01:00:00Z"
@@ -139,7 +139,7 @@ template_manifest="$tmpdir/template.json"
 valid_manifest="$tmpdir/valid.json"
 
 bash "$verifier" --print-template > "$template_manifest"
-expect_failure "generated-template-placeholders" "$template_manifest" "must reference a concrete target artifact, not a placeholder"
+expect_failure "generated-template-placeholders" "$template_manifest" "environment.name must reference a concrete target environment value, not a placeholder"
 
 cp "$template_manifest" "$valid_manifest"
 fill_manifest "$valid_manifest"
@@ -160,6 +160,11 @@ make_invalid_case \
   "mismatched-strict-verifier-artifact-kind" \
   'data["strictVerifier"]["evidenceRef"] = "artifact-provider-stripe-20260616"; data["providers"].find { |provider| provider["name"] == "stripe" }["evidenceRef"] = "artifact-strict-verifier-20260616"' \
   "strictVerifier.evidenceRef must reference artifact kind strict-verifier-log"
+
+make_invalid_case \
+  "placeholder-environment-base-url" \
+  'data["environment"]["baseUrl"] = "TODO-target-base-url"' \
+  "environment.baseUrl must reference a concrete target environment value, not a placeholder"
 
 make_invalid_case \
   "duplicate-artifact-id" \

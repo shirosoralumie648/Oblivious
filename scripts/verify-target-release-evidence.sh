@@ -385,9 +385,11 @@ if commit && commit != current_commit && !allow_mismatch
   failures << "commit must match current HEAD #{current_commit}"
 end
 
-%w[name class baseUrl recordedAt].each do |field|
-  require_string(failures, data, ["environment", field])
+%w[name class baseUrl].each do |field|
+  value = require_string(failures, data, ["environment", field])
+  failures << "environment.#{field} must reference a concrete target environment value, not a placeholder" if placeholder?(value)
 end
+require_string(failures, data, ["environment", "recordedAt"])
 recorded_at = dig_path(data, ["environment", "recordedAt"])
 begin
   Time.iso8601(recorded_at) if recorded_at.is_a?(String)
