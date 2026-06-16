@@ -356,7 +356,12 @@ def remote_artifact_uri?(value)
     return false
   end
 
-  !blank?(uri.scheme) && uri.scheme.downcase != "file"
+  return false if blank?(uri.scheme) || uri.scheme.downcase == "file"
+
+  host = uri.respond_to?(:host) ? uri.host : nil
+  return false if !blank?(host) && local_target_host?(host)
+
+  true
 end
 
 def require_evidence_ref(failures, data, path)

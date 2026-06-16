@@ -704,6 +704,7 @@ assert_file_contains "$target_release_evidence_fixtures_file" "unused-artifact-i
 assert_file_contains "$target_release_evidence_fixtures_file" "secret-artifact-uri-query"
 assert_file_contains "$target_release_evidence_fixtures_file" "local-artifact-uri"
 assert_file_contains "$target_release_evidence_fixtures_file" "file-artifact-uri"
+assert_file_contains "$target_release_evidence_fixtures_file" "loopback-artifact-uri"
 assert_file_contains "$target_release_evidence_fixtures_file" "missing-providers-collection"
 assert_file_contains "$target_release_evidence_fixtures_file" "missing-wechatpay-provider"
 assert_file_contains "$target_release_evidence_fixtures_file" "missing-strict-k8s-flag"

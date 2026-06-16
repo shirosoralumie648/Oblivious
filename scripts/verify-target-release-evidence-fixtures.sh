@@ -212,6 +212,11 @@ make_invalid_case \
   "artifacts[1].uri must reference a remote target artifact URI"
 
 make_invalid_case \
+  "loopback-artifact-uri" \
+  'data["artifacts"].find { |artifact| artifact["id"] == "artifact-deploy-20260616" }["uri"] = "http://localhost:8080/target-release/deploy.log"' \
+  "artifacts[1].uri must reference a remote target artifact URI"
+
+make_invalid_case \
   "invalid-artifact-recorded-at" \
   'data["artifacts"].first["recordedAt"] = "2026/06/16 01:00"' \
   "artifacts[0].recordedAt must be ISO-8601"
