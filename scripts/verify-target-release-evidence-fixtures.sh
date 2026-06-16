@@ -210,6 +210,11 @@ make_invalid_case \
   "secretAudit.apiToken must not embed secret material"
 
 make_invalid_case \
+  "incomplete-secret-audit-scope" \
+  'data["secretAudit"]["scope"] = ["runtime"]' \
+  "secretAudit.scope must include kubernetes, providers, and runtime (missing: kubernetes, providers)"
+
+make_invalid_case \
   "local-artifact-uri" \
   'data["artifacts"].find { |artifact| artifact["id"] == "artifact-deploy-20260616" }["uri"] = "/tmp/target-release/deploy.log"' \
   "artifacts[1].uri must reference a remote target artifact URI"

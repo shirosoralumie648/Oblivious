@@ -701,6 +701,13 @@ require_evidence_ref(failures, data, ["secretAudit", "evidenceRef"])
 scope = dig_path(data, ["secretAudit", "scope"])
 if !scope.is_a?(Array) || scope.empty? || scope.any? { |item| !item.is_a?(String) || item.strip.empty? }
   failures << "secretAudit.scope must be a non-empty array of strings"
+else
+  required_secret_audit_scopes = %w[kubernetes providers runtime]
+  normalized_scope = scope.map { |item| item.strip.downcase }.uniq
+  missing_secret_audit_scopes = required_secret_audit_scopes - normalized_scope
+  if missing_secret_audit_scopes.any?
+    failures << "secretAudit.scope must include kubernetes, providers, and runtime (missing: #{missing_secret_audit_scopes.join(", ")})"
+  end
 end
 
 require_pass(failures, data, ["workflowTelemetry", "result"])
