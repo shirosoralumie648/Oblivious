@@ -157,6 +157,11 @@ make_invalid_case \
   "strictVerifier.evidenceRef must reference an artifact id listed in artifacts"
 
 make_invalid_case \
+  "mismatched-strict-verifier-artifact-kind" \
+  'data["strictVerifier"]["evidenceRef"] = "artifact-provider-stripe-20260616"; data["providers"].find { |provider| provider["name"] == "stripe" }["evidenceRef"] = "artifact-strict-verifier-20260616"' \
+  "strictVerifier.evidenceRef must reference artifact kind strict-verifier-log"
+
+make_invalid_case \
   "duplicate-artifact-id" \
   'data["artifacts"] << data["artifacts"].first.dup' \
   "artifacts must not duplicate artifact-strict-verifier-20260616"

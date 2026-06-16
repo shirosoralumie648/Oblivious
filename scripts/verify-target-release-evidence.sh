@@ -347,6 +347,19 @@ def collect_evidence_refs(value, path = [], refs = [])
   refs
 end
 
+def require_artifact_kind(failures, data, artifact_ids, ref_path, expected_kind)
+  ref = dig_path(data, ref_path)
+  return unless ref.is_a?(String)
+  return if placeholder?(ref)
+  artifact = artifact_ids[ref]
+  return unless artifact.is_a?(Hash)
+
+  actual_kind = artifact["kind"]
+  unless actual_kind == expected_kind
+    failures << "#{ref_path.join(".")} must reference artifact kind #{expected_kind}"
+  end
+end
+
 path = ENV.fetch("EVIDENCE_FILE")
 current_commit = ENV.fetch("CURRENT_COMMIT")
 allow_mismatch = ENV["ALLOW_COMMIT_MISMATCH"] == "true"
@@ -629,6 +642,19 @@ artifact_ids.each_key do |id|
   next if referenced_artifact_ids.key?(id)
   failures << "artifacts[#{artifact_indexes.fetch(id)}].id #{id} must be referenced by at least one evidenceRef"
 end
+
+require_artifact_kind(failures, data, artifact_ids, ["strictVerifier", "evidenceRef"], "strict-verifier-log")
+require_artifact_kind(failures, data, artifact_ids, ["deployment", "evidenceRef"], "deployment-log")
+require_artifact_kind(failures, data, artifact_ids, ["kubernetes", "evidenceRef"], "kubernetes-validation")
+providers.each_with_index do |_provider, index|
+  require_artifact_kind(failures, data, artifact_ids, ["providers", index, "evidenceRef"], "provider-live-rail")
+end
+grpc.each_with_index do |_entry, index|
+  require_artifact_kind(failures, data, artifact_ids, ["grpc", index, "evidenceRef"], "grpc-smoke-report")
+end
+require_artifact_kind(failures, data, artifact_ids, ["grpcSmokeReport", "evidenceRef"], "grpc-smoke-report")
+require_artifact_kind(failures, data, artifact_ids, ["secretAudit", "evidenceRef"], "secret-audit")
+require_artifact_kind(failures, data, artifact_ids, ["workflowTelemetry", "evidenceRef"], "workflow-telemetry")
 
 collect_skips(data).each do |skip_path, value|
   failures << "#{skip_path.join(".")} must be empty/false for final target evidence; got #{value.inspect}"
