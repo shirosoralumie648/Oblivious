@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useId } from 'react';
 import { RiCloseLine } from '@remixicon/react';
 
 import { Badge } from '@/components/ui/badge';
@@ -36,6 +36,7 @@ export function FilterPanel({
   className,
 }: FilterPanelProps) {
   const [tagInput, setTagInput] = useState('');
+  const tagsDatalistId = useId();
 
   const toggleCategory = (slug: string, checked: boolean) => {
     onCategoryChange(checked ? [...selectedCategories, slug] : selectedCategories.filter((item) => item !== slug));
@@ -79,14 +80,19 @@ export function FilterPanel({
             {selectedTags.map((tag) => (
               <Badge key={tag} variant="secondary" className="min-h-7">
                 {tag}
-                <button type="button" aria-label={`Remove ${tag}`} onClick={() => onTagsChange(selectedTags.filter((item) => item !== tag))}>
+                <button
+                  type="button"
+                  className="rounded-full outline-none hover:bg-foreground/10 focus-visible:ring-2 focus-visible:ring-ring p-0.5"
+                  aria-label={`Remove ${tag}`}
+                  onClick={() => onTagsChange(selectedTags.filter((item) => item !== tag))}
+                >
                   <RiCloseLine className="size-3" aria-hidden="true" />
                 </button>
               </Badge>
             ))}
           </div>
           <Input
-            list="available-marketplace-tags"
+            list={tagsDatalistId}
             value={tagInput}
             onChange={(event) => setTagInput(event.target.value)}
             onKeyDown={(event) => {
@@ -96,9 +102,10 @@ export function FilterPanel({
               }
             }}
             placeholder="Add tag..."
+            aria-label="Add tag"
             className="min-h-[44px] rounded-lg"
           />
-          <datalist id="available-marketplace-tags">
+          <datalist id={tagsDatalistId}>
             {availableTags.map((tag) => (
               <option key={tag} value={tag} />
             ))}
@@ -114,6 +121,8 @@ export function FilterPanel({
                 type="button"
                 variant={minRating === rating ? 'default' : 'outline'}
                 className="min-h-[44px]"
+                aria-pressed={minRating === rating}
+                aria-label={rating === 0 ? 'Any rating' : `${rating} stars and up`}
                 onClick={() => onRatingChange(rating)}
               >
                 {rating === 0 ? 'Any' : `${rating}+`}
@@ -131,6 +140,7 @@ export function FilterPanel({
                 type="button"
                 variant={priceFilter === filter ? 'default' : 'outline'}
                 className="min-h-[44px] capitalize"
+                aria-pressed={priceFilter === filter}
                 onClick={() => onPriceFilterChange(filter)}
               >
                 {filter}

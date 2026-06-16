@@ -1,0 +1,3 @@
+## 2024-06-16 - Accessible Filters and Datalists
+**Learning:** Using generic IDs for `datalist` elements causes collisions when multiple instances of a component are rendered on the same page, breaking the autosuggest functionality. Also, when using a group of `Button` components as a radio group or toggle selection, screen readers need `aria-pressed` or `aria-checked` to understand the selected state, as purely visual changes (like `variant="default"` vs `variant="outline"`) are ignored.
+**Action:** Use React's `useId()` hook to generate unique IDs for `datalist` and `input` associations. Always add `aria-pressed` or `role="radio"` with `aria-checked` to sets of buttons acting as exclusive filters.
