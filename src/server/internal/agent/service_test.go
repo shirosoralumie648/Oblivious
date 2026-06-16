@@ -2,7 +2,10 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
@@ -1519,6 +1522,85 @@ func TestServiceApproveAndExecutePlanStepCompletesWithExecutorResult(t *testing.
 	}
 	if completed.StartedAt == nil || completed.CompletedAt == nil {
 		t.Fatalf("expected execution timestamps, got %+v", completed)
+	}
+}
+
+func TestServiceExecutePlanStepRunsCustomToolFromAgentConfig(t *testing.T) {
+	now := time.Now().UTC()
+	var gotPayload map[string]any
+	customToolServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("custom tool method = %s, want POST", r.Method)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotPayload); err != nil {
+			t.Errorf("decode custom tool payload: %v", err)
+		}
+		_, _ = w.Write([]byte("customer:Kiana"))
+	}))
+	defer customToolServer.Close()
+
+	store := &fakeStore{
+		agent: &Agent{
+			ID:             "agent_1",
+			OrganizationID: "org_1",
+			UserID:         "user_1",
+			Config:         Config{ApprovalMode: ApprovalModeNone},
+			Tools: []Tool{{
+				Name:      "crm_lookup",
+				Type:      "custom",
+				ServerID:  customToolServer.URL,
+				Enabled:   true,
+				RiskLevel: ToolRiskDangerous,
+			}},
+		},
+		runs: []*Run{{
+			ID:             "run_1",
+			OrganizationID: "org_1",
+			ConversationID: "conv_1",
+			AgentID:        "agent_1",
+			UserID:         "user_1",
+			Mode:           ExecutionModePlanning,
+			Status:         RunStatusPendingApproval,
+			StartedAt:      now,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+		planSteps: []*PlanStep{{
+			ID:             "step_1",
+			RunID:          "run_1",
+			OrganizationID: "org_1",
+			Index:          1,
+			Title:          "Lookup CRM record",
+			Status:         PlanStepStatusPending,
+			ApprovalStatus: ApprovalStatusNotRequired,
+			ToolName:       "crm_lookup",
+			Input:          map[string]any{"customer_id": "cust_1"},
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}},
+	}
+	service := NewService(store, &fakeGateway{})
+	session := auth.Session{OrganizationID: "org_1", User: auth.User{ID: "user_1"}}
+
+	completed, err := service.ExecutePlanStep(context.Background(), session, "step_1")
+	if err != nil {
+		t.Fatalf("ExecutePlanStep returned error: %v", err)
+	}
+	if completed.Status != PlanStepStatusCompleted || completed.ResultContent != "customer:Kiana" {
+		t.Fatalf("expected custom tool step to complete with API result, got %+v", completed)
+	}
+	if gotPayload["customer_id"] != "cust_1" {
+		t.Fatalf("custom tool received payload %+v, want customer_id=cust_1", gotPayload)
+	}
+	if len(store.toolRuns) != 1 {
+		t.Fatalf("expected one persisted tool run, got %+v", store.toolRuns)
+	}
+	toolRun := store.toolRuns[0]
+	if toolRun.ToolType != "custom" || toolRun.ServerID != customToolServer.URL || toolRun.RiskLevel != ToolRiskDangerous {
+		t.Fatalf("plan-step tool run should preserve custom tool metadata, got %+v", toolRun)
+	}
+	if toolRun.Status != ToolRunStatusCompleted || toolRun.ResultContent != "customer:Kiana" || toolRun.Error != "" {
+		t.Fatalf("expected completed custom tool run evidence, got %+v", toolRun)
 	}
 }
 

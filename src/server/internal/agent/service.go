@@ -74,6 +74,20 @@ func (e defaultPlanStepExecutor) ExecutePlanStep(ctx context.Context, step *Plan
 	if step == nil {
 		return nil, fmt.Errorf("plan step not found")
 	}
+	if e.store == nil {
+		return nil, fmt.Errorf("plan step executor store is not configured")
+	}
+	run, err := e.store.GetRun(ctx, step.OrganizationID, step.RunID)
+	if err != nil {
+		return nil, fmt.Errorf("get plan step run: %w", err)
+	}
+	if run == nil {
+		return nil, fmt.Errorf("agent run not found")
+	}
+	agent, err := e.store.GetAgent(ctx, run.AgentID, step.OrganizationID)
+	if err != nil {
+		return nil, fmt.Errorf("get plan step agent: %w", err)
+	}
 	if strings.TrimSpace(step.ToolName) != "" {
 		executor := e.executor
 		if executor == nil {
@@ -83,14 +97,18 @@ func (e defaultPlanStepExecutor) ExecutePlanStep(ctx context.Context, step *Plan
 		if arguments == nil {
 			arguments = map[string]any{}
 		}
-		result, err := executor.Execute(ctx, &Agent{
-			OrganizationID: step.OrganizationID,
-			Tools: []Tool{{
-				Name:    step.ToolName,
-				Type:    "builtin",
-				Enabled: true,
-			}},
-		}, &ToolCall{
+		toolAgent := agent
+		if toolAgent == nil {
+			toolAgent = &Agent{
+				OrganizationID: step.OrganizationID,
+				Tools: []Tool{{
+					Name:    step.ToolName,
+					Type:    "builtin",
+					Enabled: true,
+				}},
+			}
+		}
+		result, err := executor.Execute(ctx, toolAgent, &ToolCall{
 			ID:        "plan_step_" + step.ID,
 			Name:      step.ToolName,
 			Arguments: arguments,
@@ -106,22 +124,8 @@ func (e defaultPlanStepExecutor) ExecutePlanStep(ctx context.Context, step *Plan
 		}
 		return &PlanStepExecutionResult{ResultContent: result.Content}, nil
 	}
-	if e.store == nil {
-		return nil, fmt.Errorf("plan step executor store is not configured")
-	}
 	if e.gateway == nil {
 		return nil, fmt.Errorf("plan step executor gateway is not configured")
-	}
-	run, err := e.store.GetRun(ctx, step.OrganizationID, step.RunID)
-	if err != nil {
-		return nil, fmt.Errorf("get plan step run: %w", err)
-	}
-	if run == nil {
-		return nil, fmt.Errorf("agent run not found")
-	}
-	agent, err := e.store.GetAgent(ctx, run.AgentID, step.OrganizationID)
-	if err != nil {
-		return nil, fmt.Errorf("get plan step agent: %w", err)
 	}
 	if agent == nil {
 		return nil, fmt.Errorf("agent not found")
@@ -1812,6 +1816,24 @@ func (s *Service) ExecutePlanStep(ctx context.Context, session auth.Session, pla
 		if err != nil {
 			return nil, err
 		}
+		var targetTool *Tool
+		if strings.TrimSpace(run.AgentID) != "" {
+			agent, err := s.store.GetAgent(ctx, run.AgentID, session.OrganizationID)
+			if err != nil {
+				failedAt := time.Now().UTC()
+				failed, updateErr := s.store.UpdatePlanStep(ctx, session.OrganizationID, planStepID, UpdatePlanStepRequest{
+					Status:      stringPointer(PlanStepStatusFailed),
+					Error:       stringPointer(fmt.Sprintf("get plan step agent: %s", err.Error())),
+					CompletedAt: &failedAt,
+				})
+				if updateErr != nil {
+					return nil, updateErr
+				}
+				return failed, err
+			}
+			targetTool = findEnabledTool(agent, running.ToolName)
+		}
+		toolType, serverID, riskLevel := planStepToolRunMetadata(targetTool, running.ToolName)
 		toolRun, err = s.store.CreateToolRun(ctx, &CreateToolRunRequest{
 			OrganizationID: running.OrganizationID,
 			RunID:          running.RunID,
@@ -1819,8 +1841,9 @@ func (s *Service) ExecutePlanStep(ctx context.Context, session auth.Session, pla
 			AgentID:        run.AgentID,
 			ToolCallID:     "plan_step_" + running.ID,
 			ToolName:       running.ToolName,
-			ToolType:       "builtin",
-			RiskLevel:      inferToolRiskLevel(running.ToolName),
+			ToolType:       toolType,
+			ServerID:       serverID,
+			RiskLevel:      riskLevel,
 			Arguments:      running.Input,
 			Status:         ToolRunStatusRunning,
 			ApprovalStatus: ApprovalStatusNotRequired,
@@ -1908,6 +1931,20 @@ func (s *Service) ExecutePlanStep(ctx context.Context, session auth.Session, pla
 		return nil, err
 	}
 	return completed, nil
+}
+
+func planStepToolRunMetadata(tool *Tool, toolName string) (toolType, serverID, riskLevel string) {
+	toolType = "builtin"
+	riskLevel = inferToolRiskLevel(toolName)
+	if tool == nil {
+		return toolType, "", riskLevel
+	}
+	toolType = normalizeToolType(tool.Type)
+	serverID = tool.ServerID
+	if normalized := normalizeToolRiskLevel(tool.RiskLevel); normalized != "" {
+		riskLevel = normalized
+	}
+	return toolType, serverID, riskLevel
 }
 
 func (s *Service) SkipPlanStep(ctx context.Context, session auth.Session, planStepID, reason string) (*PlanStep, error) {
