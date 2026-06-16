@@ -712,6 +712,7 @@ assert_file_contains "$target_release_evidence_fixtures_file" "loopback-artifact
 assert_file_contains "$target_release_evidence_fixtures_file" "missing-providers-collection"
 assert_file_contains "$target_release_evidence_fixtures_file" "missing-wechatpay-provider"
 assert_file_contains "$target_release_evidence_fixtures_file" "missing-strict-k8s-flag"
+assert_file_contains "$target_release_evidence_fixtures_file" "quoted-env-skip-command"
 assert_file_contains "$target_release_evidence_fixtures_file" "missing-strict-verifier-evidence-ref"
 assert_file_contains "$target_release_evidence_fixtures_file" "invalid-workflow-telemetry-window"
 assert_file_contains "$target_release_evidence_fixtures_file" "inverted-workflow-telemetry-window"

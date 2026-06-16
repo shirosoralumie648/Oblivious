@@ -265,6 +265,11 @@ make_invalid_case \
   "strictVerifier.command must include COMMERCIAL_COMPLETION_RUN_K8S=true"
 
 make_invalid_case \
+  "quoted-env-skip-command" \
+  'data["strictVerifier"]["command"] = "COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS='\''true'\'' " + data["strictVerifier"]["command"]' \
+  "strictVerifier.command must not enable COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS"
+
+make_invalid_case \
   "missing-strict-verifier-evidence-ref" \
   'data["strictVerifier"].delete("evidenceRef")' \
   "strictVerifier.evidenceRef is required"
