@@ -306,7 +306,16 @@ def require_iso8601_interval(failures, data, path, interval_error:, ordering_err
   end
 end
 
-def require_http_url(failures, data, path, error)
+def local_target_host?(host)
+  normalized = host.to_s.downcase.sub(/\A\[(.*)\]\z/, '\1')
+  normalized == "localhost" ||
+    normalized.end_with?(".localhost") ||
+    normalized == "0.0.0.0" ||
+    normalized == "::1" ||
+    normalized.start_with?("127.")
+end
+
+def require_http_url(failures, data, path, error, local_error: nil)
   value = require_string(failures, data, path)
   return unless value.is_a?(String) && !value.strip.empty?
 
@@ -319,6 +328,11 @@ def require_http_url(failures, data, path, error)
 
   unless %w[http https].include?(uri.scheme) && !blank?(uri.host)
     failures << error
+    return
+  end
+
+  if local_error && local_target_host?(uri.host)
+    failures << local_error
   end
 end
 
@@ -430,7 +444,13 @@ end
   value = require_string(failures, data, ["environment", field])
   failures << "environment.#{field} must reference a concrete target environment value, not a placeholder" if placeholder?(value)
 end
-require_http_url(failures, data, ["environment", "baseUrl"], "environment.baseUrl must be an HTTP(S) URL")
+require_http_url(
+  failures,
+  data,
+  ["environment", "baseUrl"],
+  "environment.baseUrl must be an HTTP(S) URL",
+  local_error: "environment.baseUrl must target a non-local target environment"
+)
 require_string(failures, data, ["environment", "recordedAt"])
 recorded_at = dig_path(data, ["environment", "recordedAt"])
 begin

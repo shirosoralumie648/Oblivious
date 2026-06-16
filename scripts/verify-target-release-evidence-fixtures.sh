@@ -172,6 +172,11 @@ make_invalid_case \
   "environment.baseUrl must be an HTTP(S) URL"
 
 make_invalid_case \
+  "loopback-environment-base-url" \
+  'data["environment"]["baseUrl"] = "http://localhost:3000"' \
+  "environment.baseUrl must target a non-local target environment"
+
+make_invalid_case \
   "duplicate-artifact-id" \
   'data["artifacts"] << data["artifacts"].first.dup' \
   "artifacts must not duplicate artifact-strict-verifier-20260616"

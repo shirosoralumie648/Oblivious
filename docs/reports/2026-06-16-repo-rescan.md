@@ -3,6 +3,9 @@
 ## Current Truth
 
 - Branch: `main`.
+- Current loopback-base-url hardening continuation base: `7771034` (`test(release): stabilize target evidence collections`).
+- Remote parity at loopback-base-url hardening start: `HEAD == origin/main` (`7771034`).
+- Working tree at loopback-base-url hardening start: clean.
 - Current collection-stability hardening continuation base: `12b7de5` (`test(release): validate target environment url`).
 - Remote parity at collection-stability hardening start: `HEAD == origin/main` (`12b7de5`).
 - Working tree at collection-stability hardening start: clean.
@@ -62,7 +65,7 @@
 - Target/live manifest verifier behavior is now covered by `scripts/verify-target-release-evidence-fixtures.sh` in the docs gate, so the key target evidence rejection cases are no longer only manually checked with temporary shell snippets.
 - Target/live manifest artifact indexing is now part of the same docs gate fixture: the verifier rejects placeholder target environment values, missing `artifacts[]`, duplicate artifact ids, placeholder artifact id/kind/uri values, artifact URIs with secret-like query or fragment parameters, invalid artifact timestamps, invalid optional `sha256`, dangling `evidenceRef` values that are not listed in the artifact index, artifact entries that are not referenced by any concrete `evidenceRef`, and evidence refs whose artifact kind does not match the evidence family.
 - Target/live workflow telemetry windows are now part of the same docs gate fixture: the verifier rejects malformed `workflowTelemetry.window` values and intervals whose end timestamp is before start.
-- Target/live environment base URLs are now part of the same docs gate fixture: the verifier rejects non-HTTP(S) `environment.baseUrl` values such as `not-a-url`.
+- Target/live environment base URLs are now part of the same docs gate fixture: the verifier rejects non-HTTP(S) `environment.baseUrl` values such as `not-a-url` and loopback/local targets such as `http://localhost:3000`.
 
 ## Repository Inventory
 
@@ -132,7 +135,7 @@ No rows are currently marked `Gap` or `Unverified`.
 - The target/live manifest gate requires `strictVerifier.evidenceRef`, `startedAt`, and `completedAt` so a strict pass is attached to a concrete verifier log and valid run window.
 - The target/live manifest gate requires `grpcSmokeReport.results` to include generated-client pass rows for Agent, Workflow, and Task, and each smoke address must match the manifest `grpc` address for that service.
 - The target/live manifest gate requires concrete target environment `name`, `class`, and `baseUrl` values plus an `artifacts[]` index with unique ids, evidence-family-matching `kind`, concrete `uri`, secret-free URI query parameters, ISO-8601 `recordedAt`, optional 64-character hex `sha256`, no dangling non-placeholder `evidenceRef` values, and no unreferenced artifact entries. This proves manifest internal consistency only; it does not download or authenticate the external artifacts.
-- The target/live manifest gate requires `environment.baseUrl` to be an HTTP(S) URL. This proves the target metadata contains a parseable endpoint-style URL, not that the endpoint is reachable.
+- The target/live manifest gate requires `environment.baseUrl` to be an HTTP(S), non-loopback URL. This proves the target metadata contains a parseable endpoint-style URL that is not a developer-local target, not that the endpoint is reachable.
 - The target/live manifest gate requires `workflowTelemetry.window` to be an ISO-8601 `start/end` interval whose end is at or after start. This proves the telemetry evidence covers a parseable target observation window, not that the target telemetry itself has been collected.
 - Chat realtime repository proof is local and focused: `go test ./internal/ws`, Chat handler realtime publish tests, focused Chat Vitest, built-app Playwright WebSocket proof, OpenAPI contract verification, web TypeScript, and docs gate cover this slice.
 - Task approval state/workspace proof is local and focused: `scripts/verify-commercial-db-evidence.sh app-stateful-routes` covers the real app router, cookie/CSRF, SQL store, allowed transition, denied terminal/draft/current-state cases, and cross-workspace no-mutation boundary.
@@ -209,9 +212,9 @@ Remaining local proof-depth candidates:
 Closed in this continuation:
 
 - Target environment base URL validation.
-  - Evidence: `scripts/verify-target-release-evidence.sh` now parses `environment.baseUrl` with Ruby `URI` and requires an HTTP(S) scheme plus host. `scripts/verify-target-release-evidence-fixtures.sh` proves `not-a-url` is rejected while the filled current-commit manifest still passes.
+  - Evidence: `scripts/verify-target-release-evidence.sh` now parses `environment.baseUrl` with Ruby `URI` and requires an HTTP(S) scheme plus host that is not localhost, `*.localhost`, `0.0.0.0`, `::1`, or `127.*`. `scripts/verify-target-release-evidence-fixtures.sh` proves `not-a-url` and `http://localhost:3000` are rejected while the filled current-commit manifest still passes.
   - Verification: `bash scripts/verify-target-release-evidence-fixtures.sh`, `bash scripts/verify-quality-gates.sh`, `COREPACK_HOME=/tmp/codex-corepack bash scripts/check.sh docs`, and `git diff --check` cover the verifier, fixture, docs, and release gate.
-  - Boundary: this is repository-local target metadata validation proof. It does not prove target URL reachability or replace Kubernetes/deploy smoke evidence.
+  - Boundary: this is repository-local target metadata validation proof. It prevents local-loopback evidence substitution, but it does not prove target URL reachability or replace Kubernetes/deploy smoke evidence.
 - Missing providers/grpc collection stability.
   - Evidence: `scripts/verify-target-release-evidence.sh` now guards artifact-kind binding so missing `providers[]` or `grpc[]` collections fail closed with the collection-level diagnostic instead of a Ruby `each_with_index` exception. `scripts/verify-target-release-evidence-fixtures.sh` proves `missing-providers-collection` and `missing-grpc-collection` are rejected while the filled current-commit manifest still passes.
   - Verification: `bash scripts/verify-target-release-evidence-fixtures.sh`, `bash scripts/verify-quality-gates.sh`, `COREPACK_HOME=/tmp/codex-corepack bash scripts/check.sh docs`, and `git diff --check` cover the verifier, fixture, docs, and release gate.
