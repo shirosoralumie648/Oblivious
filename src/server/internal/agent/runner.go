@@ -865,7 +865,8 @@ func (r *Runner) RunWithTools(ctx context.Context, session auth.Session, agent *
 		// Gateway does not support structured replies (tool calls).
 		// Fall back to a plain-text path but still honor the streaming
 		// callback so SendMessageStream consumers are not starved.
-		reply, err := r.gateway.GenerateReply(ctx, chatMessages, config)
+		iterationConfig, _ := r.runtimeIterationConfig(agent, config, nil, userContent, 1, false)
+		reply, err := r.gateway.GenerateReply(ctx, chatMessages, iterationConfig)
 		if err != nil {
 			_ = r.failRun(ctx, session.OrganizationID, run.ID, err.Error(), 1, result.ToolCalls)
 			return nil, fmt.Errorf("generate reply: %w", err)

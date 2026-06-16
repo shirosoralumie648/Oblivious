@@ -8072,9 +8072,22 @@ func TestRunWithToolsStreaming(t *testing.T) {
 func TestRunWithToolsFallbackStreaming(t *testing.T) {
 	store := &fakeStore{
 		agent: &Agent{
-			ID:     "agent_1",
-			UserID: "user_1",
-			Model:  "gpt-4o-mini",
+			ID:           "agent_1",
+			UserID:       "user_1",
+			Model:        "gpt-4o-mini",
+			SystemPrompt: "Base prompt",
+			Config: Config{
+				Skills: []Skill{{
+					Name:         "Weather",
+					Instructions: "Provide weather-specific checks",
+					Triggers:     []string{"weather"},
+				}, {
+					Name:         "Calculator",
+					Instructions: "Perform math checks",
+					Triggers:     []string{"calculate"},
+				}},
+				MaxSkills: 1,
+			},
 			Tools: []Tool{
 				{Name: "datetime", Type: "builtin", Enabled: true},
 			},
@@ -8095,7 +8108,7 @@ func TestRunWithToolsFallbackStreaming(t *testing.T) {
 	var chunks []string
 	err := service.SendMessageStream(context.Background(), auth.Session{
 		User: auth.User{ID: "user_1"},
-	}, "conv_1", "hi", func(chunk string) error {
+	}, "conv_1", "weather forecast please calculate later", func(chunk string) error {
 		chunks = append(chunks, chunk)
 		return nil
 	})
@@ -8108,6 +8121,12 @@ func TestRunWithToolsFallbackStreaming(t *testing.T) {
 	}
 	if chunks[0] != "fallback reply" {
 		t.Fatalf("expected 'fallback reply', got %q", chunks[0])
+	}
+	if !strings.Contains(gateway.lastConfig.SystemPromptOverride, "Weather: Provide weather-specific checks") {
+		t.Fatalf("expected fallback config to include selected skill instructions, got %q", gateway.lastConfig.SystemPromptOverride)
+	}
+	if strings.Contains(gateway.lastConfig.SystemPromptOverride, "Calculator: Perform math checks") {
+		t.Fatalf("expected fallback config to respect maxSkills=1, got %q", gateway.lastConfig.SystemPromptOverride)
 	}
 }
 
@@ -8825,13 +8844,16 @@ func TestSendMessageStreamPlainPath(t *testing.T) {
 
 // plainOnlyGateway implements ChatGateway but NOT StructuredReplyGenerator.
 type plainOnlyGateway struct {
-	reply string
+	reply      string
+	lastConfig chat.ConversationConfig
 }
 
 func (g *plainOnlyGateway) GenerateReply(ctx context.Context, messages []chat.Message, config chat.ConversationConfig) (string, error) {
+	g.lastConfig = config
 	return g.reply, nil
 }
 
 func (g *plainOnlyGateway) GenerateReplyStream(ctx context.Context, messages []chat.Message, config chat.ConversationConfig, onChunk func(string) error) error {
+	g.lastConfig = config
 	return onChunk(g.reply)
 }
