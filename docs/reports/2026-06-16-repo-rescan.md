@@ -44,6 +44,7 @@
 - Target/live evidence validation now requires separate live provider evidence entries for Stripe, Alipay, and WeChat Pay. The target evidence template prints all three entries, and the verifier rejects a final manifest if any of the three first-party payment rails is missing checkout/refund/payout/reconciliation proof or concrete artifact refs.
 - Relay file-list passthrough now has tenant-scoped ownership proof. `GET /v1/files` moved from production-disabled raw passthrough to a mapped, billed, trusted-identity route: it lists current-tenant SQL file mappings, skips upstream for tenants with no mappings, filters upstream file-list rows to mapped provider IDs, rewrites client-visible IDs back to local file IDs, and preserves `provider_file_id` evidence.
 - Target/live strict verifier command validation now requires `strictVerifier.command` to include all four final gate flags: `COMMERCIAL_COMPLETION_RUN_DEPLOY=true`, `COMMERCIAL_COMPLETION_RUN_K8S=true`, `COMMERCIAL_COMPLETION_RUN_BACKUP_RESTORE=true`, and `COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true`. A manifest that records `scripts/verify-commercial-completion.sh` without those flags is rejected.
+- Target/live gRPC evidence validation now requires a structured `grpcSmokeReport` copied from `scripts/target-grpc-smoke.sh`. The manifest verifier rejects missing smoke reports, missing/failed Agent/Workflow/Task smoke results, and smoke result addresses that do not match the manifest `grpc` entries.
 
 ## Repository Inventory
 
@@ -109,6 +110,7 @@ No rows are currently marked `Gap` or `Unverified`.
 - `scripts/verify-target-release-evidence.sh` now provides the external target/live evidence manifest gate for proof that cannot be collected from repository-local tests.
 - The target/live manifest gate now requires Stripe, Alipay, and WeChat Pay live checkout/refund/payout/reconciliation entries individually; a single live provider entry is not sufficient for final readiness.
 - The target/live manifest gate also requires `strictVerifier.command` to carry the deploy, Kubernetes, backup/restore, and target-evidence flags. This keeps final manifests aligned with the strict `scripts/verify-commercial-completion.sh` path instead of accepting partial local verifier invocations.
+- The target/live manifest gate requires `grpcSmokeReport.results` to include generated-client pass rows for Agent, Workflow, and Task, and each smoke address must match the manifest `grpc` address for that service.
 - Chat realtime repository proof is local and focused: `go test ./internal/ws`, Chat handler realtime publish tests, focused Chat Vitest, built-app Playwright WebSocket proof, OpenAPI contract verification, web TypeScript, and docs gate cover this slice.
 - Task approval state/workspace proof is local and focused: `scripts/verify-commercial-db-evidence.sh app-stateful-routes` covers the real app router, cookie/CSRF, SQL store, allowed transition, denied terminal/draft/current-state cases, and cross-workspace no-mutation boundary.
 - Agent runtime/tool proof is local and focused: `scripts/verify-commercial-db-evidence.sh agent-runtime-memory` now reruns ReAct model routing, skill selection/tool filtering/instruction injection, `call_agent` recursion guard, websearch fallback, and Agent SQL runtime/memory persistence with skipped tests rejected.
@@ -154,6 +156,7 @@ Pure target/live blockers that still keep final status below `100/100`:
 - Target or CI `TEST_DATABASE_URL` runs broad enough to count as final release evidence, not only disposable local profile proof.
 - A final `scripts/verify-commercial-completion.sh` run with no environment skips and `COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true` pointing at an external, secret-free target evidence manifest for the exact release commit.
   - The external target manifest must also record the strict verifier command with `COMMERCIAL_COMPLETION_RUN_DEPLOY=true`, `COMMERCIAL_COMPLETION_RUN_K8S=true`, `COMMERCIAL_COMPLETION_RUN_BACKUP_RESTORE=true`, and `COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true`.
+  - The external target manifest must embed the `grpcSmokeReport` JSON copied from the target gRPC smoke artifact, not only free-form gRPC artifact references.
 
 Repository-local proof-depth candidates surfaced by this rescan after closing the gRPC release-readiness local blocker, the Task approval state guard, and Marketplace WeChat Pay paid-install parity:
 
@@ -204,6 +207,10 @@ Closed in this continuation:
   - Evidence: `scripts/verify-target-release-evidence.sh` now rejects `strictVerifier.command` unless it runs `scripts/verify-commercial-completion.sh`, avoids `COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS=true`, and includes `COMMERCIAL_COMPLETION_RUN_DEPLOY=true`, `COMMERCIAL_COMPLETION_RUN_K8S=true`, `COMMERCIAL_COMPLETION_RUN_BACKUP_RESTORE=true`, and `COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true`. `scripts/verify-quality-gates.sh` locks those required strings into the release quality gate.
   - Verification: temporary valid/invalid target manifests, docs gate, and diff hygiene cover this strictness slice.
   - Boundary: this proves manifest verifier strictness only. It does not provide target Kubernetes, live provider rails, deployed Agent/Workflow/Task gRPC reachability, target secret audit, workflow telemetry, or a final no-skip commercial completion run.
+- Target gRPC smoke report attachment strictness.
+  - Evidence: `scripts/verify-target-release-evidence.sh` now requires `grpcSmokeReport.evidenceRef`, ISO-8601 `recordedAt`, `timeout`, and `results` rows for Agent, Workflow, and Task. Each result must have `generatedClient=pass`, a validation status, the required service port, and an address matching the manifest `grpc` service address.
+  - Verification: temporary missing-report, failed-result, and mismatched-address manifests are rejected; a filled current-commit manifest with matching smoke report passes.
+  - Boundary: this proves the manifest can no longer claim deployed gRPC compatibility from `grpc` rows alone. It still does not replace actually running `scripts/target-grpc-smoke.sh` against deployed endpoints.
 
 ## TODO And Placeholder Scan
 

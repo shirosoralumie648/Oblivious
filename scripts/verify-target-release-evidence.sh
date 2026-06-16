@@ -75,6 +75,16 @@ Required JSON shape:
     {"service": "workflow", "address": "workflow:50064", "generatedClient": "pass", "evidenceRef": "grpc-smoke-log"},
     {"service": "task", "address": "task:50065", "generatedClient": "pass", "evidenceRef": "grpc-smoke-log"}
   ],
+  "grpcSmokeReport": {
+    "evidenceRef": "grpc-smoke-log",
+    "recordedAt": "2026-06-16T00:00:00Z",
+    "timeout": "10s",
+    "results": [
+      {"service": "agent", "address": "agent:50063", "generatedClient": "pass", "status": "validation_error"},
+      {"service": "workflow", "address": "workflow:50064", "generatedClient": "pass", "status": "validation_response"},
+      {"service": "task", "address": "task:50065", "generatedClient": "pass", "status": "validation_response"}
+    ]
+  },
   "secretAudit": {
     "result": "pass",
     "scope": ["kubernetes", "providers", "runtime"],
@@ -169,6 +179,16 @@ puts JSON.pretty_generate(
       {"service" => "workflow", "address" => "workflow:50064", "generatedClient" => "pass", "evidenceRef" => "TODO-workflow-grpc-smoke-log"},
       {"service" => "task", "address" => "task:50065", "generatedClient" => "pass", "evidenceRef" => "TODO-task-grpc-smoke-log"}
     ],
+    "grpcSmokeReport" => {
+      "evidenceRef" => "TODO-target-grpc-smoke-report",
+      "recordedAt" => Time.now.utc.iso8601,
+      "timeout" => "10s",
+      "results" => [
+        {"service" => "agent", "address" => "agent:50063", "generatedClient" => "pass", "status" => "validation_error"},
+        {"service" => "workflow", "address" => "workflow:50064", "generatedClient" => "pass", "status" => "validation_response"},
+        {"service" => "task", "address" => "task:50065", "generatedClient" => "pass", "status" => "validation_response"}
+      ]
+    },
     "secretAudit" => {
       "result" => "pass",
       "scope" => ["kubernetes", "providers", "runtime"],
@@ -387,6 +407,7 @@ end
 grpc = data["grpc"]
 required_services = %w[agent workflow task]
 expected_grpc_ports = {"agent" => "50063", "workflow" => "50064", "task" => "50065"}
+grpc_entries_by_service = {}
 if !grpc.is_a?(Array)
   failures << "grpc must be an array"
 else
@@ -400,7 +421,14 @@ else
       next
     end
     failures << "grpc[#{index}].address is required" if blank?(entry["address"])
-    service = entry["service"].to_s
+    service = entry["service"].to_s.strip
+    unless service.empty?
+      if grpc_entries_by_service.key?(service)
+        failures << "grpc must not duplicate #{service} service evidence"
+      else
+        grpc_entries_by_service[service] = entry
+      end
+    end
     expected_port = expected_grpc_ports[service]
     if expected_port && !entry["address"].to_s.end_with?(":#{expected_port}")
       failures << "grpc[#{index}].address for #{service} must target port #{expected_port}"
@@ -408,6 +436,65 @@ else
     failures << "grpc[#{index}].generatedClient must be pass" unless entry["generatedClient"] == "pass"
     failures << "grpc[#{index}].evidenceRef is required" if blank?(entry["evidenceRef"])
     failures << "grpc[#{index}].evidenceRef must reference a concrete target artifact, not a placeholder" if placeholder?(entry["evidenceRef"])
+  end
+end
+
+grpc_smoke_report = data["grpcSmokeReport"]
+if !grpc_smoke_report.is_a?(Hash)
+  failures << "grpcSmokeReport is required"
+else
+  grpc_smoke_evidence_ref = require_evidence_ref(failures, data, ["grpcSmokeReport", "evidenceRef"])
+  if grpc_smoke_evidence_ref.is_a?(String)
+    grpc_entries_by_service.each do |service, entry|
+      if entry["evidenceRef"].is_a?(String) && entry["evidenceRef"] != grpc_smoke_evidence_ref
+        failures << "grpc #{service} evidenceRef must match grpcSmokeReport.evidenceRef"
+      end
+    end
+  end
+  smoke_recorded_at = require_string(failures, data, ["grpcSmokeReport", "recordedAt"])
+  begin
+    Time.iso8601(smoke_recorded_at) if smoke_recorded_at.is_a?(String)
+  rescue ArgumentError
+    failures << "grpcSmokeReport.recordedAt must be ISO-8601"
+  end
+  require_string(failures, data, ["grpcSmokeReport", "timeout"])
+  smoke_results = grpc_smoke_report["results"]
+  smoke_results_by_service = {}
+  if !smoke_results.is_a?(Array)
+    failures << "grpcSmokeReport.results must be an array"
+  else
+    smoke_results.each_with_index do |result, index|
+      unless result.is_a?(Hash)
+        failures << "grpcSmokeReport.results[#{index}] must be an object"
+        next
+      end
+      service = result["service"].to_s.strip
+      if service.empty?
+        failures << "grpcSmokeReport.results[#{index}].service is required"
+      elsif smoke_results_by_service.key?(service)
+        failures << "grpcSmokeReport.results must not duplicate #{service} service results"
+      else
+        smoke_results_by_service[service] = result
+      end
+      failures << "grpcSmokeReport.results[#{index}].address is required" if blank?(result["address"])
+      manifest_entry = grpc_entries_by_service[service]
+      if manifest_entry && result["address"].to_s != manifest_entry["address"].to_s
+        failures << "grpcSmokeReport.results[#{index}].address must match grpc #{service} address"
+      end
+      expected_port = expected_grpc_ports[service]
+      if expected_port && !result["address"].to_s.end_with?(":#{expected_port}")
+        failures << "grpcSmokeReport.results[#{index}].address for #{service} must target port #{expected_port}"
+      end
+      failures << "grpcSmokeReport.results[#{index}].generatedClient must be pass" unless result["generatedClient"] == "pass"
+      status = require_string(failures, data, ["grpcSmokeReport", "results", index, "status"])
+      if status.is_a?(String) && !%w[validation_error validation_response].include?(status)
+        failures << "grpcSmokeReport.results[#{index}].status must be validation_error or validation_response"
+      end
+    end
+    missing_smoke_services = required_services - smoke_results_by_service.keys
+    if missing_smoke_services.any?
+      failures << "grpcSmokeReport.results must include agent, workflow, and task smoke results (missing: #{missing_smoke_services.join(", ")})"
+    end
   end
 end
 
@@ -445,5 +532,6 @@ puts "[target-release-evidence] environment: #{data.dig("environment", "name")} 
 puts "[target-release-evidence] commit: #{data["commit"]}"
 puts "[target-release-evidence] providers: #{providers.map { |provider| provider["name"] }.join(", ")}"
 puts "[target-release-evidence] grpc services: #{grpc.map { |entry| entry["service"] }.join(", ")}"
+puts "[target-release-evidence] grpc smoke report: #{data.dig("grpcSmokeReport", "evidenceRef")}"
 puts "[target-release-evidence] workflow success rate: #{success_rate}"
 RUBY
