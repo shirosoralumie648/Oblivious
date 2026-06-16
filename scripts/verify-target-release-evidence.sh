@@ -414,7 +414,7 @@ def collect_skips(value, path = [], skips = [])
 end
 
 def allowed_secret_metadata_path?(path)
-  path.first == "secretAudit" || path == ["kubernetes", "secretFileClass"]
+  path == ["secretAudit"] || path == ["kubernetes", "secretFileClass"]
 end
 
 def collect_secret_material(value, path = [], findings = [])

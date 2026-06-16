@@ -202,6 +202,11 @@ make_invalid_case \
   "artifacts[1].uri must not embed secret-like query parameters"
 
 make_invalid_case \
+  "secret-audit-embedded-token" \
+  'data["secretAudit"]["apiToken"] = "target-secret-token"' \
+  "secretAudit.apiToken must not embed secret material"
+
+make_invalid_case \
   "local-artifact-uri" \
   'data["artifacts"].find { |artifact| artifact["id"] == "artifact-deploy-20260616" }["uri"] = "/tmp/target-release/deploy.log"' \
   "artifacts[1].uri must reference a remote target artifact URI"
