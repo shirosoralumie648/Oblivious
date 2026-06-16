@@ -86,6 +86,25 @@ describe('createConsoleApi', () => {
     expect(get).toHaveBeenCalledWith('/api/v1/app/packages');
   });
 
+  it('loads the console usage summary', async () => {
+    const get = vi.fn().mockResolvedValue({
+      period: '7d',
+      requests: 7,
+      byModel: [{ key: 'gpt-4o', requestCount: 4, totalTokens: 4200, totalCost: 0.84 }],
+      recent: [],
+    });
+    const api = createConsoleApi(createClient({ get }));
+
+    await expect(api.getUsage()).resolves.toEqual({
+      period: '7d',
+      requests: 7,
+      byModel: [{ key: 'gpt-4o', requestCount: 4, totalTokens: 4200, totalCost: 0.84 }],
+      recent: [],
+    });
+
+    expect(get).toHaveBeenCalledWith('/api/v1/console/usage');
+  });
+
   it('lists invoices with provider document links', async () => {
     const get = vi.fn().mockResolvedValue([
       {
