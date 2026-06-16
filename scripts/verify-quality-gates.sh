@@ -758,6 +758,8 @@ assert_file_contains "$commercial_completion_audit_file" "Post-Phase 30 Hardenin
 assert_file_contains "$commercial_completion_audit_file" "provider refund ID"
 assert_file_contains "$commercial_completion_audit_file" "explicit configured checkout provider"
 assert_file_contains "$commercial_completion_audit_file" "unavailable checkout providers"
+assert_file_contains "$commercial_completion_audit_file" "separate Stripe, Alipay, and WeChat Pay checkout/refund/payout/reconciliation proof"
+assert_file_not_contains "$commercial_completion_audit_file" "at least one live provider with checkout/refund/payout/reconciliation proof"
 assert_file_not_contains "$chat_web_page_file" "fake provider"
 assert_file_not_contains "$chat_web_page_file" "fake billing"
 assert_file_not_contains "$chat_web_page_file" "fake settlement"

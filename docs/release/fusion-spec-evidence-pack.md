@@ -41,6 +41,8 @@ bash scripts/check.sh docs
 bash scripts/check.sh relay-security
 bash scripts/check.sh security
 pnpm --dir src/web exec tsc --noEmit
+pnpm --dir src/web test -- ChatPage SoloPage KnowledgePage MarketplacePage AdminHomePage AdminBillingPage AdminReviewsPage --runInBand
+pnpm --dir src/web test:e2e --grep "commercial journey"
 GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./... -count=1
 GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh all
 TEST_DATABASE_URL="$TEST_DATABASE_URL" GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test -p 1 ./... -count=1
@@ -50,6 +52,13 @@ bash scripts/backup-restore-smoke.sh
 AGENT_GRPC_ADDR=agent:50063 WORKFLOW_GRPC_ADDR=workflow:50064 TASK_GRPC_ADDR=task:50065 bash scripts/target-grpc-smoke.sh > /path/outside/git/grpc-smoke.json
 bash scripts/verify-target-release-evidence.sh --print-template > /path/outside/git/target-release-evidence.json
 OBLIVIOUS_TARGET_EVIDENCE_FILE=/path/outside/git/target-release-evidence.json bash scripts/verify-target-release-evidence.sh
+TEST_DATABASE_URL="$TEST_DATABASE_URL" \
+OBLIVIOUS_K8S_SECRET_FILE=/path/outside/git/secret.yaml \
+OBLIVIOUS_TARGET_EVIDENCE_FILE=/path/outside/git/target-release-evidence.json \
+COMMERCIAL_COMPLETION_RUN_DEPLOY=true \
+COMMERCIAL_COMPLETION_RUN_K8S=true \
+COMMERCIAL_COMPLETION_RUN_BACKUP_RESTORE=true \
+COMMERCIAL_COMPLETION_RUN_TARGET_EVIDENCE=true \
 bash scripts/verify-commercial-completion.sh
 git diff --check
 ```
