@@ -121,6 +121,14 @@ if [[ "$marketplace_money_movement_body" != *"PaymentIntentKindMigrationAllowsMa
   fail "marketplace-money-movement must include TestPaymentIntentKindMigrationAllowsMarketplaceInstall"
 fi
 
+agent_runtime_memory_body=$(sed -n '/^run_agent_runtime_memory_profile() {/,/^}/p' "$target")
+if [[ "$agent_runtime_memory_body" != *"AgentToolRunStorePersistsToolLifecycle"* ]]; then
+  fail "agent-runtime-memory must include TestAgentToolRunStorePersistsToolLifecycle"
+fi
+if [[ "$agent_runtime_memory_body" != *"AgentToolRunStorePersistsRiskLevel"* ]]; then
+  fail "agent-runtime-memory must include TestAgentToolRunStorePersistsRiskLevel"
+fi
+
 relay_runtime_channel_isolation_body=$(sed -n '/^run_relay_runtime_channel_isolation_profile() {/,/^}/p' "$target")
 if [[ "$relay_runtime_channel_isolation_body" != *"ConversationAffinityPersistsAndUpdatesChannel"* ]]; then
   fail "relay-runtime-channel-isolation must include TestRelayStoreConversationAffinityPersistsAndUpdatesChannel"
