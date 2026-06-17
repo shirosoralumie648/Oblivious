@@ -24,7 +24,8 @@ Profiles:
                                disposable/configured PostgreSQL session.
   backend-journey              Run TestCommercialHTTPJourney against PostgreSQL.
   marketplace-money-movement   Run focused Billing/Marketplace money movement
-                               PostgreSQL lifecycle tests.
+                               PostgreSQL, provider filter, and refund evidence
+                               tests.
   marketplace-governance-review
                                Run focused Marketplace governance, automated
                                review, abuse-report, and review-SLA
@@ -201,11 +202,14 @@ run_backend_journey_profile() {
 }
 
 run_marketplace_money_movement_profile() {
+  local admin_billing_sql_shape_pattern
   local marketplace_settlement_pattern
   local admin_money_movement_pattern
 
+  admin_billing_sql_shape_pattern="^(TestTopupSummaryQueryUsesPaymentIntentProviderFilter|TestMarketplaceSettlementQueriesUsePaymentIntentProviderFilter|TestRecordTopupRefundUpdatesOrderStatusAndRefundedAmount)$"
   marketplace_settlement_pattern="^(TestMarketplace(LifecycleTransitionKeyUsesSelectedProvider|RevenueTierDisclosureUsesSegmentedFees)|TestPaymentIntentKindMigrationAllowsMarketplaceInstall|TestSettlement(CreatePaidInstallCheckoutCreatesPendingOrderAndIntent|CreatePaidInstallCheckoutRecordsSelectedProvider|CreatePaidInstallCheckoutSQLUsesRequestedCurrency|MarkPaidInstallCheckoutFailedMarksOrderAndIntent|AppliesSegmentedPlatformFees|AppliesSpecSegmentedRevenueTiers|MinimumSettlementBlocksSmallPayoutUntilCycleElapsed|ApplyPaidInstallCheckoutCompletedRecordsSelectedProviderLifecycle|ApplyPaidInstallCheckoutCompletedCreatesInstallAndSettlementOnce|ApplyRefundAdjustsOrderAndSettlementOnce|BuyerUninstallPreservesPaidOrderAndSettlement|PublisherDeleteWithPaidOrderIsRejectedAndPreservesAudit|AuditRetentionMigrationRejectsDirectAuditCascade|PayoutStateIsLocalOnly|MarkPayoutPendingDispatchesConfiguredProvider|MarkPayoutPaidUpdatesPayoutAndSettlementsOnce|ProviderPayoutPaidWebhookMatchesProviderPayoutIDOnce|ProviderPayoutFailedWebhookReleasesSettlementsOnce|MarkPayoutFailedReleasesSettlementsOnce|CreateDuePayoutsAggregatesAvailableSettlementsOnce|CreateDuePayoutsDispatchesConfiguredProvider|PublisherStatsIncludesSettlementAmounts))$"
-  admin_money_movement_pattern="^Test(AdminBilling(SummaryIncludesMoneyMovementState|ListsExposeAllRequiredSurfaces|ListsApplyRecoveryFilters|SummaryAppliesFailedStatusFilter|MarksMarketplacePayoutPaid|MarksMarketplacePayoutFailedAndReleasesSettlements|CreateDueMarketplacePayoutsDispatchesConfiguredProvider|RecordsTopupRefundAndAdjustsQuota|RejectsTopupRefundWithoutOperatorEvidenceAndPreservesLedger|WebhookEventsDoNotExposeRawPayload)|MarketplacePaidInstall(DoesNotInstallBeforeWebhook|CheckoutCreatorFailureMarksOrderFailed|UsesConfiguredProviderCheckoutCreator)|MarketplacePublisherStatsIncludesSettlementAmounts|StripeWebhookRouteAppliesMarketplaceInstallSettlementOnce|StripeRefundUpdatesMarketplaceSettlementOnce|DomesticPaymentWebhookRouteAppliesMarketplace(InstallSettlementOnce|RefundOnce|PayoutPaidOnce|PayoutFailedOnce))$"
+  admin_money_movement_pattern="^Test(AdminBilling(SummaryIncludesMoneyMovementState|ListsExposeAllRequiredSurfaces|ListsApplyRecoveryFilters|SummaryAppliesFailedStatusFilter|MarksMarketplacePayoutPaid|MarksMarketplacePayoutFailedAndReleasesSettlements|CreateDueMarketplacePayoutsDispatchesConfiguredProvider|RecordsTopupRefundAndAdjustsQuota|RecordTopupRefundHandlerPassesDomesticPaymentIntentEvidence|RejectsTopupRefundWithoutOperatorEvidenceAndPreservesLedger|WebhookEventsDoNotExposeRawPayload)|MarketplacePaidInstall(DoesNotInstallBeforeWebhook|CheckoutCreatorFailureMarksOrderFailed|UsesConfiguredProviderCheckoutCreator)|MarketplacePublisherStatsIncludesSettlementAmounts|StripeWebhookRouteAppliesMarketplaceInstallSettlementOnce|StripeRefundUpdatesMarketplaceSettlementOnce|DomesticPaymentWebhookRouteAppliesMarketplace(InstallSettlementOnce|RefundOnce|PayoutPaidOnce|PayoutFailedOnce))$"
+  run_go_test_no_skips "admin billing money movement SQL shape" "./internal/admin" "$admin_billing_sql_shape_pattern"
   run_go_test_no_skips "marketplace settlement money movement" "./internal/marketplace" "$marketplace_settlement_pattern"
   run_go_test_no_skips "admin billing and marketplace money movement routes" "./internal/http" "$admin_money_movement_pattern"
 }

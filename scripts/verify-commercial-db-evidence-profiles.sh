@@ -136,6 +136,18 @@ fi
 if [[ "$marketplace_money_movement_body" != *"PaymentIntentKindMigrationAllowsMarketplaceInstall"* ]]; then
   fail "marketplace-money-movement must include TestPaymentIntentKindMigrationAllowsMarketplaceInstall"
 fi
+if [[ "$marketplace_money_movement_body" != *"TopupSummaryQueryUsesPaymentIntentProviderFilter"* ]]; then
+  fail "marketplace-money-movement must include TestTopupSummaryQueryUsesPaymentIntentProviderFilter"
+fi
+if [[ "$marketplace_money_movement_body" != *"MarketplaceSettlementQueriesUsePaymentIntentProviderFilter"* ]]; then
+  fail "marketplace-money-movement must include TestMarketplaceSettlementQueriesUsePaymentIntentProviderFilter"
+fi
+if [[ "$marketplace_money_movement_body" != *"RecordTopupRefundUpdatesOrderStatusAndRefundedAmount"* ]]; then
+  fail "marketplace-money-movement must include TestRecordTopupRefundUpdatesOrderStatusAndRefundedAmount"
+fi
+if [[ "$marketplace_money_movement_body" != *"RecordTopupRefundHandlerPassesDomesticPaymentIntentEvidence"* ]]; then
+  fail "marketplace-money-movement must include TestAdminBillingRecordTopupRefundHandlerPassesDomesticPaymentIntentEvidence"
+fi
 
 agent_runtime_memory_body=$(sed -n '/^run_agent_runtime_memory_profile() {/,/^}/p' "$target")
 if [[ "$agent_runtime_memory_body" != *"AgentToolRunStorePersistsToolLifecycle"* ]]; then
