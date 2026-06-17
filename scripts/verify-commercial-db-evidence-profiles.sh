@@ -93,6 +93,21 @@ fi
 if [[ "$marketplace_money_movement_body" != *"StripeRefundUpdatesMarketplaceSettlementOnce"* ]]; then
   fail "marketplace-money-movement must include TestStripeRefundUpdatesMarketplaceSettlementOnce"
 fi
+if [[ "$marketplace_money_movement_body" != *"AppliesSegmentedPlatformFees"* ]]; then
+  fail "marketplace-money-movement must include TestSettlementAppliesSegmentedPlatformFees"
+fi
+if [[ "$marketplace_money_movement_body" != *"AppliesSpecSegmentedRevenueTiers"* ]]; then
+  fail "marketplace-money-movement must include TestSettlementAppliesSpecSegmentedRevenueTiers"
+fi
+if [[ "$marketplace_money_movement_body" != *"MinimumSettlementBlocksSmallPayoutUntilCycleElapsed"* ]]; then
+  fail "marketplace-money-movement must include TestSettlementMinimumSettlementBlocksSmallPayoutUntilCycleElapsed"
+fi
+if [[ "$marketplace_money_movement_body" != *"ApplyPaidInstallCheckoutCompletedCreatesInstallAndSettlementOnce"* ]]; then
+  fail "marketplace-money-movement must include TestSettlementApplyPaidInstallCheckoutCompletedCreatesInstallAndSettlementOnce"
+fi
+if [[ "$marketplace_money_movement_body" != *"ApplyRefundAdjustsOrderAndSettlementOnce"* ]]; then
+  fail "marketplace-money-movement must include TestSettlementApplyRefundAdjustsOrderAndSettlementOnce"
+fi
 
 relay_runtime_channel_isolation_body=$(sed -n '/^run_relay_runtime_channel_isolation_profile() {/,/^}/p' "$target")
 if [[ "$relay_runtime_channel_isolation_body" != *"ConversationAffinityPersistsAndUpdatesChannel"* ]]; then
