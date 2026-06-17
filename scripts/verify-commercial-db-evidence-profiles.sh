@@ -136,6 +136,20 @@ if [[ "$observability_alert_recovery_body" != *"RecordsRepeatedDeliveryBatchesFo
   fail "observability-alert-recovery-persistence must include TestSQLAlertStateStoreRecordsRepeatedDeliveryBatchesForSameAlert"
 fi
 
+scheduled_task_runtime_body=$(sed -n '/^run_scheduled_task_runtime_profile() {/,/^}/p' "$target")
+if [[ "$scheduled_task_runtime_body" != *"ClaimsDueScheduledTaskRunsOnceAndRecordsRunningRuns"* ]]; then
+  fail "scheduled-task-runtime must include TestSQLStoreClaimsDueScheduledTaskRunsOnceAndRecordsRunningRuns"
+fi
+if [[ "$scheduled_task_runtime_body" != *"FailsScheduledTaskRunAndAdvancesTaskToAvoidImmediateReclaim"* ]]; then
+  fail "scheduled-task-runtime must include TestSQLStoreFailsScheduledTaskRunAndAdvancesTaskToAvoidImmediateReclaim"
+fi
+if [[ "$scheduled_task_runtime_body" != *"ListsRunsForTaskWithinSessionOrganization"* ]]; then
+  fail "scheduled-task-runtime must include TestScheduledTasksRouteListsRunsForTaskWithinSessionOrganization"
+fi
+if [[ "$scheduled_task_runtime_body" != *"DefaultRouterSyncsWorkflowScheduleTriggersToScheduledTasks"* ]]; then
+  fail "scheduled-task-runtime must include TestDefaultRouterSyncsWorkflowScheduleTriggersToScheduledTasks"
+fi
+
 marketplace_money_movement_body=$(sed -n '/^run_marketplace_money_movement_profile() {/,/^}/p' "$target")
 if [[ "$marketplace_money_movement_body" != *"StripeWebhookRouteAppliesMarketplaceInstallSettlementOnce"* ]]; then
   fail "marketplace-money-movement must include TestStripeWebhookRouteAppliesMarketplaceInstallSettlementOnce"
