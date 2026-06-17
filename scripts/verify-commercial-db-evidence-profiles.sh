@@ -246,6 +246,20 @@ if [[ "$migration_ledger_backfills_body" != *"BackfillsMarketplaceCategoryIDs"* 
   fail "migration-ledger-backfills must include TestApplyMigrationsBackfillsMarketplaceCategoryIDs"
 fi
 
+relay_file_mapping_body=$(sed -n '/^run_relay_file_mapping_tenant_ownership_profile() {/,/^}/p' "$target")
+if [[ "$relay_file_mapping_body" != *"SaveFileMappingPersistsTenantOwnership"* ]]; then
+  fail "relay-file-mapping-tenant-ownership must include TestRelayStoreSaveFileMappingPersistsTenantOwnership"
+fi
+if [[ "$relay_file_mapping_body" != *"GetFileMappingRequiresTenantOwnership"* ]]; then
+  fail "relay-file-mapping-tenant-ownership must include TestRelayStoreGetFileMappingRequiresTenantOwnership"
+fi
+if [[ "$relay_file_mapping_body" != *"ListFileMappingsRequiresTenantOwnership"* ]]; then
+  fail "relay-file-mapping-tenant-ownership must include TestRelayStoreListFileMappingsRequiresTenantOwnership"
+fi
+if [[ "$relay_file_mapping_body" != *"NewRelayFilesSQLRelayStoreUploadGetTenantFailClosed"* ]]; then
+  fail "relay-file-mapping-tenant-ownership must include TestNewRelayFilesSQLRelayStoreUploadGetTenantFailClosed"
+fi
+
 marketplace_money_movement_body=$(sed -n '/^run_marketplace_money_movement_profile() {/,/^}/p' "$target")
 if [[ "$marketplace_money_movement_body" != *"StripeWebhookRouteAppliesMarketplaceInstallSettlementOnce"* ]]; then
   fail "marketplace-money-movement must include TestStripeWebhookRouteAppliesMarketplaceInstallSettlementOnce"
