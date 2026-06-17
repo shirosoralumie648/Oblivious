@@ -108,6 +108,12 @@ fi
 if [[ "$marketplace_money_movement_body" != *"ApplyRefundAdjustsOrderAndSettlementOnce"* ]]; then
   fail "marketplace-money-movement must include TestSettlementApplyRefundAdjustsOrderAndSettlementOnce"
 fi
+if [[ "$marketplace_money_movement_body" != *"RevenueTierDisclosureUsesSegmentedFees"* ]]; then
+  fail "marketplace-money-movement must include TestMarketplaceRevenueTierDisclosureUsesSegmentedFees"
+fi
+if [[ "$marketplace_money_movement_body" != *"PayoutStateIsLocalOnly"* ]]; then
+  fail "marketplace-money-movement must include TestSettlementPayoutStateIsLocalOnly"
+fi
 
 relay_runtime_channel_isolation_body=$(sed -n '/^run_relay_runtime_channel_isolation_profile() {/,/^}/p' "$target")
 if [[ "$relay_runtime_channel_isolation_body" != *"ConversationAffinityPersistsAndUpdatesChannel"* ]]; then
