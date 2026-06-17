@@ -37,9 +37,9 @@ Profiles:
                                detail, and install PostgreSQL route tests.
   billing-checkout-topup-http  Run focused Billing checkout, top-up, and
                                payment webhook PostgreSQL route tests.
-  billing-provider-lifecycle   Run focused Stripe/shared checkout, invoice,
-                               subscription, and refund lifecycle PostgreSQL
-                               tests.
+  billing-provider-lifecycle   Run focused Stripe/shared and domestic checkout,
+                               invoice, subscription, and refund lifecycle
+                               PostgreSQL/bridge tests.
   admin-usage-analytics-db     Run focused Admin usage daily aggregate refresh,
                                analytics, and zero-token fallback PostgreSQL
                                tests.
@@ -241,7 +241,7 @@ run_billing_checkout_topup_http_profile() {
 run_billing_provider_lifecycle_profile() {
   local billing_provider_lifecycle_pattern
 
-  billing_provider_lifecycle_pattern="^TestLifecycleApply(CheckoutSessionCompletedCreatesSubscriptionOnce|CheckoutSessionCompletedFulfillsTopupOnce|InvoicePaidAndPaymentFailedTransitions|SubscriptionUpdatedAndDeletedTransitions|RefundRecordsRefundAndAdjustsTopup)$"
+  billing_provider_lifecycle_pattern="^(TestApplyRefundUpdatesTopupOrderStatusAndRefundedAmount|TestLifecycleAppliesDomesticCheckoutPaidThroughCheckoutCompletion|TestLifecycleAppliesDomesticMarketplaceInstallThroughSettlementApplier|TestLifecycleAppliesDomesticRefundThroughRefundLifecycle|TestLifecycleAppliesDomesticMarketplaceRefundThroughSettlementApplier|TestLifecycleAppliesDomesticSubscriptionUpdatedThroughSubscriptionLifecycle|TestLifecycleAppliesDomesticSubscriptionDeletedThroughSubscriptionLifecycle|TestLifecycleApplyCheckoutSessionCompletedCreatesSubscriptionOnce|TestLifecycleApplyCheckoutSessionCompletedFulfillsTopupOnce|TestLifecycleApplyInvoicePaidAndPaymentFailedTransitions|TestLifecycleApplySubscriptionUpdatedAndDeletedTransitions|TestLifecycleApplyRefundRecordsRefundAndAdjustsTopup)$"
   run_go_test_no_skips "billing provider lifecycle" "./internal/stripe" "$billing_provider_lifecycle_pattern"
 }
 

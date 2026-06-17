@@ -86,6 +86,17 @@ if [[ "$billing_checkout_topup_body" != *"SubscriptionLifecycleOnce"* ]]; then
   fail "billing-checkout-topup-http must include DomesticPaymentWebhookRouteAppliesSubscriptionLifecycleOnce"
 fi
 
+billing_provider_lifecycle_body=$(sed -n '/^run_billing_provider_lifecycle_profile() {/,/^}/p' "$target")
+if [[ "$billing_provider_lifecycle_body" != *"ApplyRefundUpdatesTopupOrderStatusAndRefundedAmount"* ]]; then
+  fail "billing-provider-lifecycle must include TestApplyRefundUpdatesTopupOrderStatusAndRefundedAmount"
+fi
+if [[ "$billing_provider_lifecycle_body" != *"AppliesDomesticRefundThroughRefundLifecycle"* ]]; then
+  fail "billing-provider-lifecycle must include TestLifecycleAppliesDomesticRefundThroughRefundLifecycle"
+fi
+if [[ "$billing_provider_lifecycle_body" != *"AppliesDomesticSubscriptionDeletedThroughSubscriptionLifecycle"* ]]; then
+  fail "billing-provider-lifecycle must include TestLifecycleAppliesDomesticSubscriptionDeletedThroughSubscriptionLifecycle"
+fi
+
 app_stateful_routes_body=$(sed -n '/^run_app_stateful_routes_profile() {/,/^}/p' "$target")
 if [[ "$app_stateful_routes_body" != *"ConsoleUsageReflectsRecordedChatRequests"* ]]; then
   fail "app-stateful-routes must include TestConsoleUsageReflectsRecordedChatRequests"
