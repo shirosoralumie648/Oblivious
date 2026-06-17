@@ -86,6 +86,11 @@ if [[ "$billing_checkout_topup_body" != *"SubscriptionLifecycleOnce"* ]]; then
   fail "billing-checkout-topup-http must include DomesticPaymentWebhookRouteAppliesSubscriptionLifecycleOnce"
 fi
 
+app_stateful_routes_body=$(sed -n '/^run_app_stateful_routes_profile() {/,/^}/p' "$target")
+if [[ "$app_stateful_routes_body" != *"ConsoleUsageReflectsRecordedChatRequests"* ]]; then
+  fail "app-stateful-routes must include TestConsoleUsageReflectsRecordedChatRequests"
+fi
+
 marketplace_money_movement_body=$(sed -n '/^run_marketplace_money_movement_profile() {/,/^}/p' "$target")
 if [[ "$marketplace_money_movement_body" != *"StripeWebhookRouteAppliesMarketplaceInstallSettlementOnce"* ]]; then
   fail "marketplace-money-movement must include TestStripeWebhookRouteAppliesMarketplaceInstallSettlementOnce"
