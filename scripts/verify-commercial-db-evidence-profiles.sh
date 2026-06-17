@@ -194,6 +194,44 @@ if [[ "$quota_sql_isolation_body" != *"RefundRecordsRefundAndAdjustsTopup"* ]]; 
   fail "quota-sql-isolation must include TestLifecycleApplyRefundRecordsRefundAndAdjustsTopup"
 fi
 
+auth_security_persistence_body=$(sed -n '/^run_auth_security_persistence_profile() {/,/^}/p' "$target")
+if [[ "$auth_security_persistence_body" != *"PasswordPolicyResetAndSessionRevocation"* ]]; then
+  fail "auth-security-persistence must include TestPasswordPolicyResetAndSessionRevocation"
+fi
+if [[ "$auth_security_persistence_body" != *"PasswordResetTokenReplayExpiryAndUnknownEmailFailClosed"* ]]; then
+  fail "auth-security-persistence must include TestPasswordResetTokenReplayExpiryAndUnknownEmailFailClosed"
+fi
+if [[ "$auth_security_persistence_body" != *"SQLRateLimiterPersistsBlocks"* ]]; then
+  fail "auth-security-persistence must include TestSQLRateLimiterPersistsBlocks"
+fi
+if [[ "$auth_security_persistence_body" != *"RegisterLoginMeLogoutFlow"* ]]; then
+  fail "auth-security-persistence must include TestRegisterLoginMeLogoutFlow"
+fi
+if [[ "$auth_security_persistence_body" != *"AuthRateLimitRejectsRepeatedFailedLogin"* ]]; then
+  fail "auth-security-persistence must include TestAuthRateLimitRejectsRepeatedFailedLogin"
+fi
+if [[ "$auth_security_persistence_body" != *"PasswordResetRoutesConfirmAndRevokeSessions"* ]]; then
+  fail "auth-security-persistence must include TestPasswordResetRoutesConfirmAndRevokeSessions"
+fi
+if [[ "$auth_security_persistence_body" != *"PasswordResetRequestDoesNotEnumerateEmailsOutsideTestEnv"* ]]; then
+  fail "auth-security-persistence must include TestPasswordResetRequestDoesNotEnumerateEmailsOutsideTestEnv"
+fi
+if [[ "$auth_security_persistence_body" != *"RegisterStoresHashedPassword"* ]]; then
+  fail "auth-security-persistence must include TestRegisterStoresHashedPassword"
+fi
+if [[ "$auth_security_persistence_body" != *"LoginAcceptsRawPasswordAgainstStoredHash"* ]]; then
+  fail "auth-security-persistence must include TestLoginAcceptsRawPasswordAgainstStoredHash"
+fi
+if [[ "$auth_security_persistence_body" != *"MeRequiresSession"* ]]; then
+  fail "auth-security-persistence must include TestMeRequiresSession"
+fi
+if [[ "$auth_security_persistence_body" != *"AuthResponsesExposeStableUserAndPreferenceContracts"* ]]; then
+  fail "auth-security-persistence must include TestAuthResponsesExposeStableUserAndPreferenceContracts"
+fi
+if [[ "$auth_security_persistence_body" != *"SensitiveOrganizationActionsAreRateLimited"* ]]; then
+  fail "auth-security-persistence must include TestSensitiveOrganizationActionsAreRateLimited"
+fi
+
 marketplace_money_movement_body=$(sed -n '/^run_marketplace_money_movement_profile() {/,/^}/p' "$target")
 if [[ "$marketplace_money_movement_body" != *"StripeWebhookRouteAppliesMarketplaceInstallSettlementOnce"* ]]; then
   fail "marketplace-money-movement must include TestStripeWebhookRouteAppliesMarketplaceInstallSettlementOnce"
