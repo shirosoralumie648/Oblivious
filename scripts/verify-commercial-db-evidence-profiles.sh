@@ -232,6 +232,20 @@ if [[ "$auth_security_persistence_body" != *"SensitiveOrganizationActionsAreRate
   fail "auth-security-persistence must include TestSensitiveOrganizationActionsAreRateLimited"
 fi
 
+migration_ledger_backfills_body=$(sed -n '/^run_migration_ledger_backfills_profile() {/,/^}/p' "$target")
+if [[ "$migration_ledger_backfills_body" != *"RecordsLedgerAndSkipsAppliedFiles"* ]]; then
+  fail "migration-ledger-backfills must include TestApplyMigrationsRecordsLedgerAndSkipsAppliedFiles"
+fi
+if [[ "$migration_ledger_backfills_body" != *"RejectsChecksumMismatch"* ]]; then
+  fail "migration-ledger-backfills must include TestApplyMigrationsRejectsChecksumMismatch"
+fi
+if [[ "$migration_ledger_backfills_body" != *"BackfillsLegacyTenantScopeData"* ]]; then
+  fail "migration-ledger-backfills must include TestApplyMigrationsBackfillsLegacyTenantScopeData"
+fi
+if [[ "$migration_ledger_backfills_body" != *"BackfillsMarketplaceCategoryIDs"* ]]; then
+  fail "migration-ledger-backfills must include TestApplyMigrationsBackfillsMarketplaceCategoryIDs"
+fi
+
 marketplace_money_movement_body=$(sed -n '/^run_marketplace_money_movement_profile() {/,/^}/p' "$target")
 if [[ "$marketplace_money_movement_body" != *"StripeWebhookRouteAppliesMarketplaceInstallSettlementOnce"* ]]; then
   fail "marketplace-money-movement must include TestStripeWebhookRouteAppliesMarketplaceInstallSettlementOnce"
