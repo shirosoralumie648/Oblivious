@@ -150,6 +150,50 @@ if [[ "$scheduled_task_runtime_body" != *"DefaultRouterSyncsWorkflowScheduleTrig
   fail "scheduled-task-runtime must include TestDefaultRouterSyncsWorkflowScheduleTriggersToScheduledTasks"
 fi
 
+quota_sql_isolation_body=$(sed -n '/^run_quota_sql_isolation_profile() {/,/^}/p' "$target")
+if [[ "$quota_sql_isolation_body" != *"UsageLimitSettingsRoundTrip"* ]]; then
+  fail "quota-sql-isolation must include TestSQLStoreUsageLimitSettingsRoundTrip"
+fi
+if [[ "$quota_sql_isolation_body" != *"UserQuotaModeUsesUserScopedBalance"* ]]; then
+  fail "quota-sql-isolation must include TestSQLStoreUserQuotaModeUsesUserScopedBalance"
+fi
+if [[ "$quota_sql_isolation_body" != *"BillingSessionsAreOrganizationScoped"* ]]; then
+  fail "quota-sql-isolation must include TestSQLStoreBillingSessionsAreOrganizationScoped"
+fi
+if [[ "$quota_sql_isolation_body" != *"TopupOrderMutationsRequireOrganizationScope"* ]]; then
+  fail "quota-sql-isolation must include TestSQLStoreTopupOrderMutationsRequireOrganizationScope"
+fi
+if [[ "$quota_sql_isolation_body" != *"ResolveUsageLimitFallsBackToActiveSubscriptionRequestCap"* ]]; then
+  fail "quota-sql-isolation must include TestSQLStoreResolveUsageLimitFallsBackToActiveSubscriptionRequestCap"
+fi
+if [[ "$quota_sql_isolation_body" != *"ListPackagesReturnsOnlyActivePublicHybridPlans"* ]]; then
+  fail "quota-sql-isolation must include TestSQLStoreListPackagesReturnsOnlyActivePublicHybridPlans"
+fi
+if [[ "$quota_sql_isolation_body" != *"CrossTenantQuotaScopeUsesActiveOrganization"* ]]; then
+  fail "quota-sql-isolation must include TestCrossTenantQuotaScopeUsesActiveOrganization"
+fi
+if [[ "$quota_sql_isolation_body" != *"AdminUsageLimitSettingsRoutePersistsWithPostgres"* ]]; then
+  fail "quota-sql-isolation must include TestAdminUsageLimitSettingsRoutePersistsWithPostgres"
+fi
+if [[ "$quota_sql_isolation_body" != *"AdminUserQuotaRoutePersistsWithPostgres"* ]]; then
+  fail "quota-sql-isolation must include TestAdminUserQuotaRoutePersistsWithPostgres"
+fi
+if [[ "$quota_sql_isolation_body" != *"BillingCheckoutTopupDoesNotCreditQuotaBeforeWebhook"* ]]; then
+  fail "quota-sql-isolation must include TestBillingCheckoutTopupDoesNotCreditQuotaBeforeWebhook"
+fi
+if [[ "$quota_sql_isolation_body" != *"QuotaTopupEndpointNoLongerCreditsWithoutPayment"* ]]; then
+  fail "quota-sql-isolation must include TestQuotaTopupEndpointNoLongerCreditsWithoutPayment"
+fi
+if [[ "$quota_sql_isolation_body" != *"AdminBillingRecordsTopupRefundAndAdjustsQuota"* ]]; then
+  fail "quota-sql-isolation must include TestAdminBillingRecordsTopupRefundAndAdjustsQuota"
+fi
+if [[ "$quota_sql_isolation_body" != *"CheckoutSessionCompletedFulfillsTopupOnce"* ]]; then
+  fail "quota-sql-isolation must include TestLifecycleApplyCheckoutSessionCompletedFulfillsTopupOnce"
+fi
+if [[ "$quota_sql_isolation_body" != *"RefundRecordsRefundAndAdjustsTopup"* ]]; then
+  fail "quota-sql-isolation must include TestLifecycleApplyRefundRecordsRefundAndAdjustsTopup"
+fi
+
 marketplace_money_movement_body=$(sed -n '/^run_marketplace_money_movement_profile() {/,/^}/p' "$target")
 if [[ "$marketplace_money_movement_body" != *"StripeWebhookRouteAppliesMarketplaceInstallSettlementOnce"* ]]; then
   fail "marketplace-money-movement must include TestStripeWebhookRouteAppliesMarketplaceInstallSettlementOnce"
