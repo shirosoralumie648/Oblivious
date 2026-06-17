@@ -114,6 +114,12 @@ fi
 if [[ "$marketplace_money_movement_body" != *"PayoutStateIsLocalOnly"* ]]; then
   fail "marketplace-money-movement must include TestSettlementPayoutStateIsLocalOnly"
 fi
+if [[ "$marketplace_money_movement_body" != *"LifecycleTransitionKeyUsesSelectedProvider"* ]]; then
+  fail "marketplace-money-movement must include TestMarketplaceLifecycleTransitionKeyUsesSelectedProvider"
+fi
+if [[ "$marketplace_money_movement_body" != *"PaymentIntentKindMigrationAllowsMarketplaceInstall"* ]]; then
+  fail "marketplace-money-movement must include TestPaymentIntentKindMigrationAllowsMarketplaceInstall"
+fi
 
 relay_runtime_channel_isolation_body=$(sed -n '/^run_relay_runtime_channel_isolation_profile() {/,/^}/p' "$target")
 if [[ "$relay_runtime_channel_isolation_body" != *"ConversationAffinityPersistsAndUpdatesChannel"* ]]; then
