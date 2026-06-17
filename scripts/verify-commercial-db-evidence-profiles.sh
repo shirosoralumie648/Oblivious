@@ -102,6 +102,23 @@ if [[ "$app_stateful_routes_body" != *"ConsoleUsageReflectsRecordedChatRequests"
   fail "app-stateful-routes must include TestConsoleUsageReflectsRecordedChatRequests"
 fi
 
+secret_response_safety_body=$(sed -n '/^run_secret_response_safety_profile() {/,/^}/p' "$target")
+if [[ "$secret_response_safety_body" != *"ObservabilityAlertAdminRouteSQLProviderSecretsAreRedacted"* ]]; then
+  fail "secret-response-safety must include TestObservabilityAlertAdminRouteSQLProviderSecretsAreRedacted"
+fi
+if [[ "$secret_response_safety_body" != *"PublishingChannelHTTPRouteRedactsSQLStoreConfigSecretsAndPreservesMarkers"* ]]; then
+  fail "secret-response-safety must include TestPublishingChannelHTTPRouteRedactsSQLStoreConfigSecretsAndPreservesMarkers"
+fi
+if [[ "$secret_response_safety_body" != *"AdminRelayChannelHTTPRouteRedactsSQLStoreAPIKeysAndPreservesMarkers"* ]]; then
+  fail "secret-response-safety must include TestAdminRelayChannelHTTPRouteRedactsSQLStoreAPIKeysAndPreservesMarkers"
+fi
+if [[ "$secret_response_safety_body" != *"WorkflowHTTPRouteRedactsSQLStoreSecretsAndPreservesMarkers"* ]]; then
+  fail "secret-response-safety must include TestWorkflowHTTPRouteRedactsSQLStoreSecretsAndPreservesMarkers"
+fi
+if [[ "$secret_response_safety_body" != *"SQLStoreProtectsAuthTokenWithPostgres"* ]]; then
+  fail "secret-response-safety must include TestSQLStoreProtectsAuthTokenWithPostgres"
+fi
+
 marketplace_money_movement_body=$(sed -n '/^run_marketplace_money_movement_profile() {/,/^}/p' "$target")
 if [[ "$marketplace_money_movement_body" != *"StripeWebhookRouteAppliesMarketplaceInstallSettlementOnce"* ]]; then
   fail "marketplace-money-movement must include TestStripeWebhookRouteAppliesMarketplaceInstallSettlementOnce"
