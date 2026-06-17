@@ -119,6 +119,23 @@ if [[ "$secret_response_safety_body" != *"SQLStoreProtectsAuthTokenWithPostgres"
   fail "secret-response-safety must include TestSQLStoreProtectsAuthTokenWithPostgres"
 fi
 
+observability_alert_recovery_body=$(sed -n '/^run_observability_alert_recovery_persistence_profile() {/,/^}/p' "$target")
+if [[ "$observability_alert_recovery_body" != *"RoutingRuleStorePersistsRoutingRules"* ]]; then
+  fail "observability-alert-recovery-persistence must include TestSQLAlertRoutingRuleStorePersistsRoutingRules"
+fi
+if [[ "$observability_alert_recovery_body" != *"PersistsAlertLifecycleAndEscalation"* ]]; then
+  fail "observability-alert-recovery-persistence must include TestSQLAlertStateStorePersistsAlertLifecycleAndEscalation"
+fi
+if [[ "$observability_alert_recovery_body" != *"ListsAlertStatesWithFilters"* ]]; then
+  fail "observability-alert-recovery-persistence must include TestSQLAlertStateStoreListsAlertStatesWithFilters"
+fi
+if [[ "$observability_alert_recovery_body" != *"PersistsNotificationThrottleAndRecoveryCooldown"* ]]; then
+  fail "observability-alert-recovery-persistence must include TestSQLAlertStateStorePersistsNotificationThrottleAndRecoveryCooldown"
+fi
+if [[ "$observability_alert_recovery_body" != *"RecordsRepeatedDeliveryBatchesForSameAlert"* ]]; then
+  fail "observability-alert-recovery-persistence must include TestSQLAlertStateStoreRecordsRepeatedDeliveryBatchesForSameAlert"
+fi
+
 marketplace_money_movement_body=$(sed -n '/^run_marketplace_money_movement_profile() {/,/^}/p' "$target")
 if [[ "$marketplace_money_movement_body" != *"StripeWebhookRouteAppliesMarketplaceInstallSettlementOnce"* ]]; then
   fail "marketplace-money-movement must include TestStripeWebhookRouteAppliesMarketplaceInstallSettlementOnce"
