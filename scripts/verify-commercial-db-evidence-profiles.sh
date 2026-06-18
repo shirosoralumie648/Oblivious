@@ -150,8 +150,47 @@ if [[ "$billing_provider_lifecycle_body" != *"AppliesDomesticSubscriptionDeleted
 fi
 
 app_stateful_routes_body=$(sed -n '/^run_app_stateful_routes_profile() {/,/^}/p' "$target")
-if [[ "$app_stateful_routes_body" != *"ConsoleUsageReflectsRecordedChatRequests"* ]]; then
+if ! profile_body_has_token "$app_stateful_routes_body" "ConsoleAPITokenCreateListAndRevoke"; then
+  fail "app-stateful-routes must include TestConsoleAPITokenCreateListAndRevoke"
+fi
+if ! profile_body_has_token "$app_stateful_routes_body" "ConsoleUsageReflectsRecordedChatRequests"; then
   fail "app-stateful-routes must include TestConsoleUsageReflectsRecordedChatRequests"
+fi
+if ! profile_body_has_token "$app_stateful_routes_body" "ConsoleUsageListsCurrentUserRecentRelayRequests"; then
+  fail "app-stateful-routes must include TestConsoleUsageListsCurrentUserRecentRelayRequests"
+fi
+if ! profile_body_has_token "$app_stateful_routes_body" "SelectOrganizationRequiresMembershipAndUpdatesSessionScope"; then
+  fail "app-stateful-routes must include TestSelectOrganizationRequiresMembershipAndUpdatesSessionScope"
+fi
+if ! profile_body_has_token "$app_stateful_routes_body" "OrganizationInvitationRevokeRejectsAcceptance"; then
+  fail "app-stateful-routes must include TestOrganizationInvitationRevokeRejectsAcceptance"
+fi
+if ! profile_body_has_token "$app_stateful_routes_body" "OrganizationSessionSecurityOnMembershipChanges"; then
+  fail "app-stateful-routes must include TestOrganizationSessionSecurityOnMembershipChanges"
+fi
+if ! profile_body_has_token "$app_stateful_routes_body" "NotificationMutationRoutesEnforceOwnership"; then
+  fail "app-stateful-routes must include TestNotificationMutationRoutesEnforceOwnership"
+fi
+if ! profile_body_has_token "$app_stateful_routes_body" "GetPreferencesReturnsUserInitializationState"; then
+  fail "app-stateful-routes must include TestGetPreferencesReturnsUserInitializationState"
+fi
+if ! profile_body_has_token "$app_stateful_routes_body" "UpdatePreferencesPersistsOnboardingState"; then
+  fail "app-stateful-routes must include TestUpdatePreferencesPersistsOnboardingState"
+fi
+if ! profile_body_has_token "$app_stateful_routes_body" "ConversationAndMessageFlow"; then
+  fail "app-stateful-routes must include TestConversationAndMessageFlow"
+fi
+if ! profile_body_has_token "$app_stateful_routes_body" "ConversationConfigFlow"; then
+  fail "app-stateful-routes must include TestConversationConfigFlow"
+fi
+if ! profile_body_has_token "$app_stateful_routes_body" "TaskApproveRouteRequiresAwaitingConfirmationAndWorkspaceScope"; then
+  fail "app-stateful-routes must include TestTaskApproveRouteRequiresAwaitingConfirmationAndWorkspaceScope"
+fi
+if ! profile_body_has_token "$app_stateful_routes_body" "RequiresSessionForAppRoutes"; then
+  fail "app-stateful-routes must include TestRouteSurfaceRequiresSessionForAppRoutes"
+fi
+if ! profile_body_has_token "$app_stateful_routes_body" "RejectsCookieMutationWithoutCSRF"; then
+  fail "app-stateful-routes must include TestRouteSurfaceRejectsCookieMutationWithoutCSRF"
 fi
 
 secret_response_safety_body=$(sed -n '/^run_secret_response_safety_profile() {/,/^}/p' "$target")
