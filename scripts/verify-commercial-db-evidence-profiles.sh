@@ -390,6 +390,65 @@ if [[ "$quota_sql_isolation_body" != *"RefundRecordsRefundAndAdjustsTopup"* ]]; 
   fail "quota-sql-isolation must include TestLifecycleApplyRefundRecordsRefundAndAdjustsTopup"
 fi
 
+core_sql_persistence_body=$(sed -n '/^run_core_sql_persistence_profile() {/,/^}/p' "$target")
+if ! profile_body_has_token "$core_sql_persistence_body" "TestSQLStoreMessageShareExpiresAndReadsPublicPayload"; then
+  fail "core-sql-persistence must include TestSQLStoreMessageShareExpiresAndReadsPublicPayload"
+fi
+if ! profile_body_has_token "$core_sql_persistence_body" "TestSQLStoreConversationShareReturnsRequestedMessageRange"; then
+  fail "core-sql-persistence must include TestSQLStoreConversationShareReturnsRequestedMessageRange"
+fi
+if ! profile_body_has_token "$core_sql_persistence_body" "TestSQLStoreForkConversationCopiesScopedConversationData"; then
+  fail "core-sql-persistence must include TestSQLStoreForkConversationCopiesScopedConversationData"
+fi
+if ! profile_body_has_token "$core_sql_persistence_body" "TestSQLStoreConversationConfigPersistsPersonaID"; then
+  fail "core-sql-persistence must include TestSQLStoreConversationConfigPersistsPersonaID"
+fi
+if ! profile_body_has_token "$core_sql_persistence_body" "TestSQLStoreCreateAndListMessagePreservesAttachments"; then
+  fail "core-sql-persistence must include TestSQLStoreCreateAndListMessagePreservesAttachments"
+fi
+if ! profile_body_has_token "$core_sql_persistence_body" "TestSQLStoreCreateAndListMessagePreservesKnowledgeCitations"; then
+  fail "core-sql-persistence must include TestSQLStoreCreateAndListMessagePreservesKnowledgeCitations"
+fi
+if ! profile_body_has_token "$core_sql_persistence_body" "TestSQLStoreListPersonasScopesOrganizationAndOrdersByName"; then
+  fail "core-sql-persistence must include TestSQLStoreListPersonasScopesOrganizationAndOrdersByName"
+fi
+if ! profile_body_has_token "$core_sql_persistence_body" "TestSQLStoreForkConversationCopiesMessagesThroughBoundary"; then
+  fail "core-sql-persistence must include TestSQLStoreForkConversationCopiesMessagesThroughBoundary"
+fi
+if ! profile_body_has_token "$core_sql_persistence_body" "TestSQLStoreForkConversationCopiesMessageAttachments"; then
+  fail "core-sql-persistence must include TestSQLStoreForkConversationCopiesMessageAttachments"
+fi
+if ! profile_body_has_token "$core_sql_persistence_body" "TestSQLStoreListConversationsMarksThreadsWithBookmarkedMessages"; then
+  fail "core-sql-persistence must include TestSQLStoreListConversationsMarksThreadsWithBookmarkedMessages"
+fi
+if ! profile_body_has_token "$core_sql_persistence_body" "TestChannelSQLStorePersistsConfigsAndMessageLogs"; then
+  fail "core-sql-persistence must include TestChannelSQLStorePersistsConfigsAndMessageLogs"
+fi
+if ! profile_body_has_token "$core_sql_persistence_body" "TestChannelSQLStoreCountsConsecutiveSuccessfulOutboundDeliveries"; then
+  fail "core-sql-persistence must include TestChannelSQLStoreCountsConsecutiveSuccessfulOutboundDeliveries"
+fi
+if ! profile_body_has_token "$core_sql_persistence_body" "TestChannelSQLStoreListsAndClaimsDueRetryMessages"; then
+  fail "core-sql-persistence must include TestChannelSQLStoreListsAndClaimsDueRetryMessages"
+fi
+if ! profile_body_has_token "$core_sql_persistence_body" "TestChannelSQLStoreListsAndClaimsDueRetryMessagesForSpecificChannel"; then
+  fail "core-sql-persistence must include TestChannelSQLStoreListsAndClaimsDueRetryMessagesForSpecificChannel"
+fi
+if ! profile_body_has_token "$core_sql_persistence_body" "TestChannelSQLStoreForceClaimsFutureRetryMessagesForManualFailover"; then
+  fail "core-sql-persistence must include TestChannelSQLStoreForceClaimsFutureRetryMessagesForManualFailover"
+fi
+if ! profile_body_has_token "$core_sql_persistence_body" "TestChannelSQLStoreArchivesExpiredMessageLogsWithoutDeletingRetryQueue"; then
+  fail "core-sql-persistence must include TestChannelSQLStoreArchivesExpiredMessageLogsWithoutDeletingRetryQueue"
+fi
+if ! profile_body_has_token "$core_sql_persistence_body" "TestChannelSQLStoreArchivesExpiredMessageLogsToObjectBeforeDeleting"; then
+  fail "core-sql-persistence must include TestChannelSQLStoreArchivesExpiredMessageLogsToObjectBeforeDeleting"
+fi
+if ! profile_body_has_token "$core_sql_persistence_body" "TestSQLSemanticCacheStoreUsesPgvectorForSimilarityLookup"; then
+  fail "core-sql-persistence must include TestSQLSemanticCacheStoreUsesPgvectorForSimilarityLookup"
+fi
+if ! profile_body_has_token "$core_sql_persistence_body" "TestSQLSemanticCacheStorePersistsEntriesAndHitCounts"; then
+  fail "core-sql-persistence must include TestSQLSemanticCacheStorePersistsEntriesAndHitCounts"
+fi
+
 auth_security_persistence_body=$(sed -n '/^run_auth_security_persistence_profile() {/,/^}/p' "$target")
 if [[ "$auth_security_persistence_body" != *"PasswordPolicyResetAndSessionRevocation"* ]]; then
   fail "auth-security-persistence must include TestPasswordPolicyResetAndSessionRevocation"
