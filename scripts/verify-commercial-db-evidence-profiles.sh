@@ -260,6 +260,11 @@ if [[ "$relay_file_mapping_body" != *"NewRelayFilesSQLRelayStoreUploadGetTenantF
   fail "relay-file-mapping-tenant-ownership must include TestNewRelayFilesSQLRelayStoreUploadGetTenantFailClosed"
 fi
 
+publishing_channel_isolation_body=$(sed -n '/^run_publishing_channel_isolation_profile() {/,/^}/p' "$target")
+if [[ "$publishing_channel_isolation_body" != *"TestPublishingChannelHTTPRouteEnforcesActiveOrganizationIsolation"* ]]; then
+  fail "publishing-channel-isolation must include TestPublishingChannelHTTPRouteEnforcesActiveOrganizationIsolation"
+fi
+
 marketplace_template_routes_body=$(sed -n '/^run_marketplace_template_routes_profile() {/,/^}/p' "$target")
 if [[ "$marketplace_template_routes_body" != *"MarketplaceTemplateRoutesCreateListDetailAndInstall"* ]]; then
   fail "marketplace-template-routes must include TestMarketplaceTemplateRoutesCreateListDetailAndInstall"
