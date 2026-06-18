@@ -340,4 +340,12 @@ if [[ "$relay_runtime_channel_isolation_body" != *"ConversationAffinityPersistsA
   fail "relay-runtime-channel-isolation must include TestRelayStoreConversationAffinityPersistsAndUpdatesChannel"
 fi
 
+workflow_sql_isolation_body=$(sed -n '/^run_workflow_sql_isolation_profile() {/,/^}/p' "$target")
+if [[ "$workflow_sql_isolation_body" != *"TestWorkflowStorePersists(DefinitionsAndExecutions|VersionHistoryAndExecutionVersion)"* ]]; then
+  fail "workflow-sql-isolation must include TestWorkflowStorePersistsDefinitionsAndExecutions and TestWorkflowStorePersistsVersionHistoryAndExecutionVersion"
+fi
+if [[ "$workflow_sql_isolation_body" != *"TestCrossTenantWorkflowScopeDeniesReadWriteAndExecution"* ]]; then
+  fail "workflow-sql-isolation must include TestCrossTenantWorkflowScopeDeniesReadWriteAndExecution"
+fi
+
 echo "[commercial-db-evidence-profiles] commercial DB evidence profile list is synchronized."
