@@ -535,6 +535,50 @@ if [[ "$marketplace_template_routes_body" != *"MarketplaceTemplateRoutesCreateLi
   fail "marketplace-template-routes must include TestMarketplaceTemplateRoutesCreateListDetailAndInstall"
 fi
 
+marketplace_governance_review_body=$(sed -n '/^run_marketplace_governance_review_profile() {/,/^}/p' "$target")
+if ! profile_body_has_token "$marketplace_governance_review_body" "TestGovernanceTakedownPreventsNewInstallsAndPreservesHistory"; then
+  fail "marketplace-governance-review must include TestGovernanceTakedownPreventsNewInstallsAndPreservesHistory"
+fi
+if ! profile_body_has_token "$marketplace_governance_review_body" "TestGovernanceAppealAndReinstateRecordEvents"; then
+  fail "marketplace-governance-review must include TestGovernanceAppealAndReinstateRecordEvents"
+fi
+if ! profile_body_has_token "$marketplace_governance_review_body" "TestGovernanceAbuseReportLifecycle"; then
+  fail "marketplace-governance-review must include TestGovernanceAbuseReportLifecycle"
+fi
+if ! profile_body_has_token "$marketplace_governance_review_body" "TestGovernanceListsOpenAbuseReportsForReviewQueue"; then
+  fail "marketplace-governance-review must include TestGovernanceListsOpenAbuseReportsForReviewQueue"
+fi
+if ! profile_body_has_token "$marketplace_governance_review_body" "TestGovernanceAbuseReportNotifiesPublisher"; then
+  fail "marketplace-governance-review must include TestGovernanceAbuseReportNotifiesPublisher"
+fi
+if ! profile_body_has_token "$marketplace_governance_review_body" "TestGovernanceRequestsPublisherChangesForPendingReview"; then
+  fail "marketplace-governance-review must include TestGovernanceRequestsPublisherChangesForPendingReview"
+fi
+if ! profile_body_has_token "$marketplace_governance_review_body" "TestAutomatedReviewAllowsCleanAgentToWaitForManualReview"; then
+  fail "marketplace-governance-review must include TestAutomatedReviewAllowsCleanAgentToWaitForManualReview"
+fi
+if ! profile_body_has_token "$marketplace_governance_review_body" "TestAutomatedReviewRejectsPromptInjectionAndSensitiveAPIFindings"; then
+  fail "marketplace-governance-review must include TestAutomatedReviewRejectsPromptInjectionAndSensitiveAPIFindings"
+fi
+if ! profile_body_has_token "$marketplace_governance_review_body" "TestAdminReviewSLAEnforceRouteScansPendingReviewsAndAlerts"; then
+  fail "marketplace-governance-review must include TestAdminReviewSLAEnforceRouteScansPendingReviewsAndAlerts"
+fi
+if ! profile_body_has_token "$marketplace_governance_review_body" "TestMarketplaceGovernanceTakedownAppealAndReinstate"; then
+  fail "marketplace-governance-review must include TestMarketplaceGovernanceTakedownAppealAndReinstate"
+fi
+if ! profile_body_has_token "$marketplace_governance_review_body" "TestMarketplaceAbuseReportLifecycle"; then
+  fail "marketplace-governance-review must include TestMarketplaceAbuseReportLifecycle"
+fi
+if ! profile_body_has_token "$marketplace_governance_review_body" "TestMarketplaceAdminReviewNeedsChangesRoute"; then
+  fail "marketplace-governance-review must include TestMarketplaceAdminReviewNeedsChangesRoute"
+fi
+if ! profile_body_has_token "$marketplace_governance_review_body" "TestMarketplacePublishRunsAutomatedReviewGovernance"; then
+  fail "marketplace-governance-review must include TestMarketplacePublishRunsAutomatedReviewGovernance"
+fi
+if ! profile_body_has_token "$marketplace_governance_review_body" "TestAdminMarketplaceListsOpenAbuseReports"; then
+  fail "marketplace-governance-review must include TestAdminMarketplaceListsOpenAbuseReports"
+fi
+
 marketplace_recommendation_search_body=$(sed -n '/^run_marketplace_recommendation_search_profile() {/,/^}/p' "$target")
 if ! profile_body_has_token "$marketplace_recommendation_search_body" "RanksContentMatchesOverGenericHotAgents"; then
   fail "marketplace-recommendation-search must include TestSearchAgentsRecommendedRanksContentMatchesOverGenericHotAgents"
