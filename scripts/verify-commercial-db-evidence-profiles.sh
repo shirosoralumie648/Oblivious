@@ -265,6 +265,11 @@ if [[ "$publishing_channel_isolation_body" != *"TestPublishingChannelHTTPRouteEn
   fail "publishing-channel-isolation must include TestPublishingChannelHTTPRouteEnforcesActiveOrganizationIsolation"
 fi
 
+admin_relay_channel_isolation_body=$(sed -n '/^run_admin_relay_channel_isolation_profile() {/,/^}/p' "$target")
+if [[ "$admin_relay_channel_isolation_body" != *"TestAdminRelayChannelHTTPRouteEnforcesActiveOrganizationIsolation"* ]]; then
+  fail "admin-relay-channel-isolation must include TestAdminRelayChannelHTTPRouteEnforcesActiveOrganizationIsolation"
+fi
+
 marketplace_template_routes_body=$(sed -n '/^run_marketplace_template_routes_profile() {/,/^}/p' "$target")
 if [[ "$marketplace_template_routes_body" != *"MarketplaceTemplateRoutesCreateListDetailAndInstall"* ]]; then
   fail "marketplace-template-routes must include TestMarketplaceTemplateRoutesCreateListDetailAndInstall"
