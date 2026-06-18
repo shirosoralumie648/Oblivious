@@ -215,6 +215,11 @@ make_invalid_case \
   "artifacts[1].uri must not embed secret-like query parameters"
 
 make_invalid_case \
+  "credential-artifact-uri-userinfo" \
+  'data["artifacts"].find { |artifact| artifact["id"] == "artifact-deploy-20260616" }["uri"] = "https://target-user:target-password@ci.internal/runs/20260616/deploy.log"' \
+  "artifacts[1].uri must not embed credentials in URI userinfo"
+
+make_invalid_case \
   "secret-audit-embedded-token" \
   'data["secretAudit"]["apiToken"] = "target-secret-token"' \
   "secretAudit.apiToken must not embed secret material"

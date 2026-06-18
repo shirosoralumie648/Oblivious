@@ -444,6 +444,18 @@ def secret_like_uri?(value)
   value.is_a?(String) && value.match?(/[?&#](?:[^=&#]*[_-])?(?:token|secret|signature|api[_-]?key|access[_-]?key|credential|kubeconfig|private[_-]?key)=/i)
 end
 
+def userinfo_uri?(value)
+  return false unless value.is_a?(String)
+
+  begin
+    uri = URI.parse(value.strip)
+  rescue URI::InvalidURIError
+    return false
+  end
+
+  uri.respond_to?(:userinfo) && !blank?(uri.userinfo)
+end
+
 def remote_artifact_uri?(value)
   return false unless value.is_a?(String)
 
@@ -819,6 +831,7 @@ else
     failures << "artifacts[#{index}].uri must reference a concrete target artifact, not a placeholder" if placeholder?(uri)
     failures << "artifacts[#{index}].uri must reference a remote target artifact URI" unless remote_artifact_uri?(uri)
     failures << "artifacts[#{index}].uri must not embed secret-like query parameters" if secret_like_uri?(uri)
+    failures << "artifacts[#{index}].uri must not embed credentials in URI userinfo" if userinfo_uri?(uri)
     artifact_recorded_at = require_string(failures, data, ["artifacts", index, "recordedAt"])
     begin
       Time.iso8601(artifact_recorded_at) if artifact_recorded_at.is_a?(String)
