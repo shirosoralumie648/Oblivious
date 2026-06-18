@@ -139,14 +139,41 @@ if ! profile_body_has_token "$billing_checkout_topup_body" "RetriesLifecycleForR
 fi
 
 billing_provider_lifecycle_body=$(sed -n '/^run_billing_provider_lifecycle_profile() {/,/^}/p' "$target")
-if [[ "$billing_provider_lifecycle_body" != *"ApplyRefundUpdatesTopupOrderStatusAndRefundedAmount"* ]]; then
+if ! profile_body_has_token "$billing_provider_lifecycle_body" "TestApplyRefundUpdatesTopupOrderStatusAndRefundedAmount"; then
   fail "billing-provider-lifecycle must include TestApplyRefundUpdatesTopupOrderStatusAndRefundedAmount"
 fi
-if [[ "$billing_provider_lifecycle_body" != *"AppliesDomesticRefundThroughRefundLifecycle"* ]]; then
+if ! profile_body_has_token "$billing_provider_lifecycle_body" "TestLifecycleAppliesDomesticCheckoutPaidThroughCheckoutCompletion"; then
+  fail "billing-provider-lifecycle must include TestLifecycleAppliesDomesticCheckoutPaidThroughCheckoutCompletion"
+fi
+if ! profile_body_has_token "$billing_provider_lifecycle_body" "TestLifecycleAppliesDomesticMarketplaceInstallThroughSettlementApplier"; then
+  fail "billing-provider-lifecycle must include TestLifecycleAppliesDomesticMarketplaceInstallThroughSettlementApplier"
+fi
+if ! profile_body_has_token "$billing_provider_lifecycle_body" "TestLifecycleAppliesDomesticRefundThroughRefundLifecycle"; then
   fail "billing-provider-lifecycle must include TestLifecycleAppliesDomesticRefundThroughRefundLifecycle"
 fi
-if [[ "$billing_provider_lifecycle_body" != *"AppliesDomesticSubscriptionDeletedThroughSubscriptionLifecycle"* ]]; then
+if ! profile_body_has_token "$billing_provider_lifecycle_body" "TestLifecycleAppliesDomesticMarketplaceRefundThroughSettlementApplier"; then
+  fail "billing-provider-lifecycle must include TestLifecycleAppliesDomesticMarketplaceRefundThroughSettlementApplier"
+fi
+if ! profile_body_has_token "$billing_provider_lifecycle_body" "TestLifecycleAppliesDomesticSubscriptionUpdatedThroughSubscriptionLifecycle"; then
+  fail "billing-provider-lifecycle must include TestLifecycleAppliesDomesticSubscriptionUpdatedThroughSubscriptionLifecycle"
+fi
+if ! profile_body_has_token "$billing_provider_lifecycle_body" "TestLifecycleAppliesDomesticSubscriptionDeletedThroughSubscriptionLifecycle"; then
   fail "billing-provider-lifecycle must include TestLifecycleAppliesDomesticSubscriptionDeletedThroughSubscriptionLifecycle"
+fi
+if ! profile_body_has_token "$billing_provider_lifecycle_body" "TestLifecycleApplyCheckoutSessionCompletedCreatesSubscriptionOnce"; then
+  fail "billing-provider-lifecycle must include TestLifecycleApplyCheckoutSessionCompletedCreatesSubscriptionOnce"
+fi
+if ! profile_body_has_token "$billing_provider_lifecycle_body" "TestLifecycleApplyCheckoutSessionCompletedFulfillsTopupOnce"; then
+  fail "billing-provider-lifecycle must include TestLifecycleApplyCheckoutSessionCompletedFulfillsTopupOnce"
+fi
+if ! profile_body_has_token "$billing_provider_lifecycle_body" "TestLifecycleApplyInvoicePaidAndPaymentFailedTransitions"; then
+  fail "billing-provider-lifecycle must include TestLifecycleApplyInvoicePaidAndPaymentFailedTransitions"
+fi
+if ! profile_body_has_token "$billing_provider_lifecycle_body" "TestLifecycleApplySubscriptionUpdatedAndDeletedTransitions"; then
+  fail "billing-provider-lifecycle must include TestLifecycleApplySubscriptionUpdatedAndDeletedTransitions"
+fi
+if ! profile_body_has_token "$billing_provider_lifecycle_body" "TestLifecycleApplyRefundRecordsRefundAndAdjustsTopup"; then
+  fail "billing-provider-lifecycle must include TestLifecycleApplyRefundRecordsRefundAndAdjustsTopup"
 fi
 
 app_stateful_routes_body=$(sed -n '/^run_app_stateful_routes_profile() {/,/^}/p' "$target")
