@@ -9,6 +9,13 @@ fail() {
   exit 1
 }
 
+profile_body_has_token() {
+  local body="$1"
+  local token="$2"
+
+  [[ "$body" =~ (^|[^[:alnum:]_])${token}([^[:alnum:]_]|$) ]]
+}
+
 profile_name_from_function() {
   local function_name="$1"
   function_name="${function_name#run_}"
@@ -336,8 +343,23 @@ if [[ "$agent_runtime_memory_body" != *"AgentToolRunStorePersistsRiskLevel"* ]];
 fi
 
 relay_runtime_channel_isolation_body=$(sed -n '/^run_relay_runtime_channel_isolation_profile() {/,/^}/p' "$target")
-if [[ "$relay_runtime_channel_isolation_body" != *"ConversationAffinityPersistsAndUpdatesChannel"* ]]; then
+if ! profile_body_has_token "$relay_runtime_channel_isolation_body" "LoadBalancerSelectModelForOrganizationFiltersModelRouteAndFallback"; then
+  fail "relay-runtime-channel-isolation must include TestLoadBalancerSelectModelForOrganizationFiltersModelRouteAndFallback"
+fi
+if ! profile_body_has_token "$relay_runtime_channel_isolation_body" "RouterRouteWithBillingUsesTrustedOrganizationForChannelSelectionAndAffinity"; then
+  fail "relay-runtime-channel-isolation must include TestRouterRouteWithBillingUsesTrustedOrganizationForChannelSelectionAndAffinity"
+fi
+if ! profile_body_has_token "$relay_runtime_channel_isolation_body" "ConversationAffinityPersistsAndUpdatesChannel"; then
   fail "relay-runtime-channel-isolation must include TestRelayStoreConversationAffinityPersistsAndUpdatesChannel"
+fi
+if ! profile_body_has_token "$relay_runtime_channel_isolation_body" "LoadPoolPreservesChannelOrganizationScope"; then
+  fail "relay-runtime-channel-isolation must include TestRelayStoreLoadPoolPreservesChannelOrganizationScope"
+fi
+if ! profile_body_has_token "$relay_runtime_channel_isolation_body" "ProtectsChannelAPIKeyAtRestAndHydratesRuntimeKey"; then
+  fail "relay-runtime-channel-isolation must include TestRelayStoreProtectsChannelAPIKeyAtRestAndHydratesRuntimeKey"
+fi
+if ! profile_body_has_token "$relay_runtime_channel_isolation_body" "TestModelsHandlerScopesModelsToTrustedOrganization"; then
+  fail "relay-runtime-channel-isolation must include TestModelsHandlerScopesModelsToTrustedOrganization"
 fi
 
 workflow_sql_isolation_body=$(sed -n '/^run_workflow_sql_isolation_profile() {/,/^}/p' "$target")
