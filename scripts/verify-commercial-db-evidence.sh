@@ -252,7 +252,7 @@ run_billing_provider_lifecycle_profile() {
 run_admin_usage_analytics_db_profile() {
   local admin_usage_analytics_pattern
 
-  admin_usage_analytics_pattern="^TestSQLStore(UsageDailyAggregatesPostgresRefreshAndAnalytics|UsageAnalyticsRawRecordsFallsBackFromZeroTotalTokens|ListUsageLogsFallsBackFromZeroTotalTokens)$"
+  admin_usage_analytics_pattern="^(TestSQLStoreUsageDailyAggregatesPostgresRefreshAndAnalytics|TestSQLStoreUsageAnalyticsRawRecordsFallsBackFromZeroTotalTokens|TestSQLStoreListUsageLogsFallsBackFromZeroTotalTokens)$"
   run_go_test_no_skips "admin usage analytics daily aggregate persistence" "./internal/admin" "$admin_usage_analytics_pattern"
 }
 

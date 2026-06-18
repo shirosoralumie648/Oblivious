@@ -176,6 +176,17 @@ if ! profile_body_has_token "$billing_provider_lifecycle_body" "TestLifecycleApp
   fail "billing-provider-lifecycle must include TestLifecycleApplyRefundRecordsRefundAndAdjustsTopup"
 fi
 
+admin_usage_analytics_db_body=$(sed -n '/^run_admin_usage_analytics_db_profile() {/,/^}/p' "$target")
+if ! profile_body_has_token "$admin_usage_analytics_db_body" "TestSQLStoreUsageDailyAggregatesPostgresRefreshAndAnalytics"; then
+  fail "admin-usage-analytics-db must include TestSQLStoreUsageDailyAggregatesPostgresRefreshAndAnalytics"
+fi
+if ! profile_body_has_token "$admin_usage_analytics_db_body" "TestSQLStoreUsageAnalyticsRawRecordsFallsBackFromZeroTotalTokens"; then
+  fail "admin-usage-analytics-db must include TestSQLStoreUsageAnalyticsRawRecordsFallsBackFromZeroTotalTokens"
+fi
+if ! profile_body_has_token "$admin_usage_analytics_db_body" "TestSQLStoreListUsageLogsFallsBackFromZeroTotalTokens"; then
+  fail "admin-usage-analytics-db must include TestSQLStoreListUsageLogsFallsBackFromZeroTotalTokens"
+fi
+
 app_stateful_routes_body=$(sed -n '/^run_app_stateful_routes_profile() {/,/^}/p' "$target")
 if ! profile_body_has_token "$app_stateful_routes_body" "ConsoleAPITokenCreateListAndRevoke"; then
   fail "app-stateful-routes must include TestConsoleAPITokenCreateListAndRevoke"
