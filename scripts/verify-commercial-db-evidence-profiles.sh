@@ -474,11 +474,86 @@ if [[ "$marketplace_money_movement_body" != *"RecordTopupRefundHandlerPassesDome
 fi
 
 agent_runtime_memory_body=$(sed -n '/^run_agent_runtime_memory_profile() {/,/^}/p' "$target")
-if [[ "$agent_runtime_memory_body" != *"AgentToolRunStorePersistsToolLifecycle"* ]]; then
+if ! profile_body_has_token "$agent_runtime_memory_body" "TestExecuteReActWithModelRouting"; then
+  fail "agent-runtime-memory must include TestExecuteReActWithModelRouting"
+fi
+if ! profile_body_has_token "$agent_runtime_memory_body" "TestExecuteReActModelSwitching"; then
+  fail "agent-runtime-memory must include TestExecuteReActModelSwitching"
+fi
+if ! profile_body_has_token "$agent_runtime_memory_body" "TestExecuteReActWithSkillSelection"; then
+  fail "agent-runtime-memory must include TestExecuteReActWithSkillSelection"
+fi
+if ! profile_body_has_token "$agent_runtime_memory_body" "TestBuildToolsFromSkills"; then
+  fail "agent-runtime-memory must include TestBuildToolsFromSkills"
+fi
+if ! profile_body_has_token "$agent_runtime_memory_body" "TestInjectSkillInstructions"; then
+  fail "agent-runtime-memory must include TestInjectSkillInstructions"
+fi
+if ! profile_body_has_token "$agent_runtime_memory_body" "TestCallAgentToolRegistration"; then
+  fail "agent-runtime-memory must include TestCallAgentToolRegistration"
+fi
+if ! profile_body_has_token "$agent_runtime_memory_body" "TestCallAgentToolRegistration_RecursionLimit"; then
+  fail "agent-runtime-memory must include TestCallAgentToolRegistration_RecursionLimit"
+fi
+if ! profile_body_has_token "$agent_runtime_memory_body" "TestCallAgentTool_RecursionDepthGuard"; then
+  fail "agent-runtime-memory must include TestCallAgentTool_RecursionDepthGuard"
+fi
+if ! profile_body_has_token "$agent_runtime_memory_body" "TestWebsearchTool_PrimarySuccess"; then
+  fail "agent-runtime-memory must include TestWebsearchTool_PrimarySuccess"
+fi
+if ! profile_body_has_token "$agent_runtime_memory_body" "TestWebsearchTool_FallbackChain"; then
+  fail "agent-runtime-memory must include TestWebsearchTool_FallbackChain"
+fi
+if ! profile_body_has_token "$agent_runtime_memory_body" "TestWebsearchTool_AllProvidersExhausted"; then
+  fail "agent-runtime-memory must include TestWebsearchTool_AllProvidersExhausted"
+fi
+if ! profile_body_has_token "$agent_runtime_memory_body" "TestWebsearchTool_MissingProviderInMap"; then
+  fail "agent-runtime-memory must include TestWebsearchTool_MissingProviderInMap"
+fi
+if ! profile_body_has_token "$agent_runtime_memory_body" "TestWebsearchTool_EmptyFallback"; then
+  fail "agent-runtime-memory must include TestWebsearchTool_EmptyFallback"
+fi
+if ! profile_body_has_token "$agent_runtime_memory_body" "TestWebsearchTool_NoProviders"; then
+  fail "agent-runtime-memory must include TestWebsearchTool_NoProviders"
+fi
+if ! profile_body_has_token "$agent_runtime_memory_body" "TestWebsearchTool_IntegrationWithConfig"; then
+  fail "agent-runtime-memory must include TestWebsearchTool_IntegrationWithConfig"
+fi
+if ! profile_body_has_token "$agent_runtime_memory_body" "TestWebsearchTool_IntegrationWithMockProviders"; then
+  fail "agent-runtime-memory must include TestWebsearchTool_IntegrationWithMockProviders"
+fi
+if ! profile_body_has_token "$agent_runtime_memory_body" "TestWebsearchTool_DefaultProvider"; then
+  fail "agent-runtime-memory must include TestWebsearchTool_DefaultProvider"
+fi
+if ! profile_body_has_token "$agent_runtime_memory_body" "TestWebsearchTool_MultipleProvidersChain"; then
+  fail "agent-runtime-memory must include TestWebsearchTool_MultipleProvidersChain"
+fi
+if ! profile_body_has_token "$agent_runtime_memory_body" "TestAgentRunStorePersistsRunLifecycle"; then
+  fail "agent-runtime-memory must include TestAgentRunStorePersistsRunLifecycle"
+fi
+if ! profile_body_has_token "$agent_runtime_memory_body" "TestAgentToolRunStorePersistsToolLifecycle"; then
   fail "agent-runtime-memory must include TestAgentToolRunStorePersistsToolLifecycle"
 fi
-if [[ "$agent_runtime_memory_body" != *"AgentToolRunStorePersistsRiskLevel"* ]]; then
+if ! profile_body_has_token "$agent_runtime_memory_body" "TestAgentToolRunStorePersistsRiskLevel"; then
   fail "agent-runtime-memory must include TestAgentToolRunStorePersistsRiskLevel"
+fi
+if ! profile_body_has_token "$agent_runtime_memory_body" "TestAgentPlanStepStoreRoundTripsStepsInOrder"; then
+  fail "agent-runtime-memory must include TestAgentPlanStepStoreRoundTripsStepsInOrder"
+fi
+if ! profile_body_has_token "$agent_runtime_memory_body" "TestAgentPlanStepStoreUpdatesStatusAndExecutionResult"; then
+  fail "agent-runtime-memory must include TestAgentPlanStepStoreUpdatesStatusAndExecutionResult"
+fi
+if ! profile_body_has_token "$agent_runtime_memory_body" "TestAgentSQLStorePersistsApprovalConfigAndToolRiskLevels"; then
+  fail "agent-runtime-memory must include TestAgentSQLStorePersistsApprovalConfigAndToolRiskLevels"
+fi
+if ! profile_body_has_token "$agent_runtime_memory_body" "TestAgentSQLStorePersistsDefaultExecutionModeConfig"; then
+  fail "agent-runtime-memory must include TestAgentSQLStorePersistsDefaultExecutionModeConfig"
+fi
+if ! profile_body_has_token "$agent_runtime_memory_body" "TestAgentSQLStorePersistsLongTermMemoryWritePolicyConfig"; then
+  fail "agent-runtime-memory must include TestAgentSQLStorePersistsLongTermMemoryWritePolicyConfig"
+fi
+if ! profile_body_has_token "$agent_runtime_memory_body" "TestAgentMemoryStorePersistsAndFiltersMemories"; then
+  fail "agent-runtime-memory must include TestAgentMemoryStorePersistsAndFiltersMemories"
 fi
 
 relay_runtime_channel_isolation_body=$(sed -n '/^run_relay_runtime_channel_isolation_profile() {/,/^}/p' "$target")
