@@ -89,8 +89,53 @@ for profile in "${!all_profiles[@]}"; do
 done
 
 billing_checkout_topup_body=$(sed -n '/^run_billing_checkout_topup_http_profile() {/,/^}/p' "$target")
-if [[ "$billing_checkout_topup_body" != *"SubscriptionLifecycleOnce"* ]]; then
+if ! profile_body_has_token "$billing_checkout_topup_body" "PersistsTenantPaymentIntent"; then
+  fail "billing-checkout-topup-http must include TestBillingCheckoutPersistsTenantPaymentIntent"
+fi
+if ! profile_body_has_token "$billing_checkout_topup_body" "ExplicitStripeUsesExistingCheckout"; then
+  fail "billing-checkout-topup-http must include TestBillingCheckoutExplicitStripeUsesExistingCheckout"
+fi
+if ! profile_body_has_token "$billing_checkout_topup_body" "UnconfiguredProvidersDoNotCreateArtifacts"; then
+  fail "billing-checkout-topup-http must include TestBillingCheckoutUnconfiguredProvidersDoNotCreateArtifacts"
+fi
+if ! profile_body_has_token "$billing_checkout_topup_body" "CreatorFailureMarksTopupFailed"; then
+  fail "billing-checkout-topup-http must include TestBillingCheckoutCreatorFailureMarksTopupFailed"
+fi
+if ! profile_body_has_token "$billing_checkout_topup_body" "UsesConfiguredProviderCheckoutCreator"; then
+  fail "billing-checkout-topup-http must include TestBillingCheckoutUsesConfiguredProviderCheckoutCreator"
+fi
+if ! profile_body_has_token "$billing_checkout_topup_body" "UsesConfiguredDomesticProviderFromRouterConfig"; then
+  fail "billing-checkout-topup-http must include TestBillingCheckoutUsesConfiguredDomesticProviderFromRouterConfig"
+fi
+if ! profile_body_has_token "$billing_checkout_topup_body" "TopupDoesNotCreditQuotaBeforeWebhook"; then
+  fail "billing-checkout-topup-http must include TestBillingCheckoutTopupDoesNotCreditQuotaBeforeWebhook"
+fi
+if ! profile_body_has_token "$billing_checkout_topup_body" "QuotaTopupEndpointNoLongerCreditsWithoutPayment"; then
+  fail "billing-checkout-topup-http must include TestQuotaTopupEndpointNoLongerCreditsWithoutPayment"
+fi
+if ! profile_body_has_token "$billing_checkout_topup_body" "DomesticPaymentWebhookRoutesVerifySignatureAndRecordEvents"; then
+  fail "billing-checkout-topup-http must include TestDomesticPaymentWebhookRoutesVerifySignatureAndRecordEvents"
+fi
+if ! profile_body_has_token "$billing_checkout_topup_body" "LifecycleOnce"; then
+  fail "billing-checkout-topup-http must include TestDomesticPaymentWebhookRouteAppliesTopupLifecycleOnce"
+fi
+if ! profile_body_has_token "$billing_checkout_topup_body" "RefundOnce"; then
+  fail "billing-checkout-topup-http must include TestDomesticPaymentWebhookRouteAppliesTopupRefundOnce"
+fi
+if ! profile_body_has_token "$billing_checkout_topup_body" "SubscriptionLifecycleOnce"; then
   fail "billing-checkout-topup-http must include DomesticPaymentWebhookRouteAppliesSubscriptionLifecycleOnce"
+fi
+if ! profile_body_has_token "$billing_checkout_topup_body" "RejectsInvalidSignature"; then
+  fail "billing-checkout-topup-http must include TestStripeWebhookRouteRejectsInvalidSignature"
+fi
+if ! profile_body_has_token "$billing_checkout_topup_body" "RecordsSignedEventOnce"; then
+  fail "billing-checkout-topup-http must include TestStripeWebhookRouteRecordsSignedEventOnce"
+fi
+if ! profile_body_has_token "$billing_checkout_topup_body" "AppliesCheckoutCompletedSubscriptionOnce"; then
+  fail "billing-checkout-topup-http must include TestStripeWebhookRouteAppliesCheckoutCompletedSubscriptionOnce"
+fi
+if ! profile_body_has_token "$billing_checkout_topup_body" "RetriesLifecycleForRecordedDuplicateEvent"; then
+  fail "billing-checkout-topup-http must include TestStripeWebhookRouteRetriesLifecycleForRecordedDuplicateEvent"
 fi
 
 billing_provider_lifecycle_body=$(sed -n '/^run_billing_provider_lifecycle_profile() {/,/^}/p' "$target")
