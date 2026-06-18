@@ -270,6 +270,11 @@ if [[ "$admin_relay_channel_isolation_body" != *"TestAdminRelayChannelHTTPRouteE
   fail "admin-relay-channel-isolation must include TestAdminRelayChannelHTTPRouteEnforcesActiveOrganizationIsolation"
 fi
 
+admin_relay_read_isolation_body=$(sed -n '/^run_admin_relay_read_isolation_profile() {/,/^}/p' "$target")
+if [[ "$admin_relay_read_isolation_body" != *"TestAdminRelayReadSurfacesScopeRuntimeStatsAndModelInventoryToActiveOrganization"* ]]; then
+  fail "admin-relay-read-isolation must include TestAdminRelayReadSurfacesScopeRuntimeStatsAndModelInventoryToActiveOrganization"
+fi
+
 marketplace_template_routes_body=$(sed -n '/^run_marketplace_template_routes_profile() {/,/^}/p' "$target")
 if [[ "$marketplace_template_routes_body" != *"MarketplaceTemplateRoutesCreateListDetailAndInstall"* ]]; then
   fail "marketplace-template-routes must include TestMarketplaceTemplateRoutesCreateListDetailAndInstall"
