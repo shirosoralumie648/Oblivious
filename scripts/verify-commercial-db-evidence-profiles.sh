@@ -193,6 +193,44 @@ if ! profile_body_has_token "$app_stateful_routes_body" "RejectsCookieMutationWi
   fail "app-stateful-routes must include TestRouteSurfaceRejectsCookieMutationWithoutCSRF"
 fi
 
+tenant_cross_surface_body=$(sed -n '/^run_tenant_cross_surface_profile() {/,/^}/p' "$target")
+if ! profile_body_has_token "$tenant_cross_surface_body" "ChatScopeUsesActiveOrganization"; then
+  fail "tenant-cross-surface must include TestCrossTenantChatScopeUsesActiveOrganization"
+fi
+if ! profile_body_has_token "$tenant_cross_surface_body" "KnowledgeScopeDeniesReadWriteAndAttach"; then
+  fail "tenant-cross-surface must include TestCrossTenantKnowledgeScopeDeniesReadWriteAndAttach"
+fi
+if ! profile_body_has_token "$tenant_cross_surface_body" "ConsoleUsageUsesActiveOrganization"; then
+  fail "tenant-cross-surface must include TestCrossTenantConsoleUsageUsesActiveOrganization"
+fi
+if ! profile_body_has_token "$tenant_cross_surface_body" "AgentScopeDeniesReadWriteAndConversation"; then
+  fail "tenant-cross-surface must include TestCrossTenantAgentScopeDeniesReadWriteAndConversation"
+fi
+if ! profile_body_has_token "$tenant_cross_surface_body" "MemoryScopeDeniesReadWrite"; then
+  fail "tenant-cross-surface must include TestCrossTenantMemoryScopeDeniesReadWrite"
+fi
+if ! profile_body_has_token "$tenant_cross_surface_body" "MCPScopeDeniesReadWriteAndConnect"; then
+  fail "tenant-cross-surface must include TestCrossTenantMCPScopeDeniesReadWriteAndConnect"
+fi
+if ! profile_body_has_token "$tenant_cross_surface_body" "QuotaScopeUsesActiveOrganization"; then
+  fail "tenant-cross-surface must include TestCrossTenantQuotaScopeUsesActiveOrganization"
+fi
+if ! profile_body_has_token "$tenant_cross_surface_body" "ScheduledTaskScope"; then
+  fail "tenant-cross-surface must include TestCrossTenantScheduledTaskScope"
+fi
+if ! profile_body_has_token "$tenant_cross_surface_body" "MarketplacePublisherScopeUsesActiveOrganization"; then
+  fail "tenant-cross-surface must include TestCrossTenantMarketplacePublisherScopeUsesActiveOrganization"
+fi
+if ! profile_body_has_token "$tenant_cross_surface_body" "MarketplacePublisherSettlementPreferencesUseActiveOrganization"; then
+  fail "tenant-cross-surface must include TestMarketplacePublisherSettlementPreferencesUseActiveOrganization"
+fi
+if ! profile_body_has_token "$tenant_cross_surface_body" "AgentRunStatusEndpointsExposeTenantScopedRunDetail"; then
+  fail "tenant-cross-surface must include TestAgentRunStatusEndpointsExposeTenantScopedRunDetail"
+fi
+if ! profile_body_has_token "$tenant_cross_surface_body" "AgentToolRunApprovalRejectRetryEndpointsAreTenantScoped"; then
+  fail "tenant-cross-surface must include TestAgentToolRunApprovalRejectRetryEndpointsAreTenantScoped"
+fi
+
 secret_response_safety_body=$(sed -n '/^run_secret_response_safety_profile() {/,/^}/p' "$target")
 if [[ "$secret_response_safety_body" != *"ObservabilityAlertAdminRouteSQLProviderSecretsAreRedacted"* ]]; then
   fail "secret-response-safety must include TestObservabilityAlertAdminRouteSQLProviderSecretsAreRedacted"
