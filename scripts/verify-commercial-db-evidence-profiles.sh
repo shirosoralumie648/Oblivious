@@ -231,6 +231,35 @@ if ! profile_body_has_token "$app_stateful_routes_body" "RejectsCookieMutationWi
   fail "app-stateful-routes must include TestRouteSurfaceRejectsCookieMutationWithoutCSRF"
 fi
 
+tenant_membership_lifecycle_body=$(sed -n '/^run_tenant_membership_lifecycle_profile() {/,/^}/p' "$target")
+if ! profile_body_has_token "$tenant_membership_lifecycle_body" "TestSQLStoreOrganizationLifecycle"; then
+  fail "tenant-membership-lifecycle must include TestSQLStoreOrganizationLifecycle"
+fi
+if ! profile_body_has_token "$tenant_membership_lifecycle_body" "TestSQLStoreMembershipInvitationOwnershipLifecycle"; then
+  fail "tenant-membership-lifecycle must include TestSQLStoreMembershipInvitationOwnershipLifecycle"
+fi
+if ! profile_body_has_token "$tenant_membership_lifecycle_body" "TestRegisterCreatesDefaultOrganizationAndSessionScope"; then
+  fail "tenant-membership-lifecycle must include TestRegisterCreatesDefaultOrganizationAndSessionScope"
+fi
+if ! profile_body_has_token "$tenant_membership_lifecycle_body" "TestLoginResolvesDefaultOrganizationForLegacyUser"; then
+  fail "tenant-membership-lifecycle must include TestLoginResolvesDefaultOrganizationForLegacyUser"
+fi
+if ! profile_body_has_token "$tenant_membership_lifecycle_body" "TestSelectOrganizationRequiresMembershipAndUpdatesSessionScope"; then
+  fail "tenant-membership-lifecycle must include TestSelectOrganizationRequiresMembershipAndUpdatesSessionScope"
+fi
+if ! profile_body_has_token "$tenant_membership_lifecycle_body" "TestOrganizationInvitationRevokeRejectsAcceptance"; then
+  fail "tenant-membership-lifecycle must include TestOrganizationInvitationRevokeRejectsAcceptance"
+fi
+if ! profile_body_has_token "$tenant_membership_lifecycle_body" "TestOrganizationSessionSecurityOnMembershipChanges"; then
+  fail "tenant-membership-lifecycle must include TestOrganizationSessionSecurityOnMembershipChanges"
+fi
+if ! profile_body_has_token "$tenant_membership_lifecycle_body" "TestOrganizationMemberRoutesListTransferOwnershipAndRemove"; then
+  fail "tenant-membership-lifecycle must include TestOrganizationMemberRoutesListTransferOwnershipAndRemove"
+fi
+if ! profile_body_has_token "$tenant_membership_lifecycle_body" "TestAdminOrganizationRoutesPersistWithPostgres"; then
+  fail "tenant-membership-lifecycle must include TestAdminOrganizationRoutesPersistWithPostgres"
+fi
+
 tenant_cross_surface_body=$(sed -n '/^run_tenant_cross_surface_profile() {/,/^}/p' "$target")
 if ! profile_body_has_token "$tenant_cross_surface_body" "ChatScopeUsesActiveOrganization"; then
   fail "tenant-cross-surface must include TestCrossTenantChatScopeUsesActiveOrganization"
