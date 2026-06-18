@@ -409,6 +409,23 @@ if [[ "$marketplace_template_routes_body" != *"MarketplaceTemplateRoutesCreateLi
   fail "marketplace-template-routes must include TestMarketplaceTemplateRoutesCreateListDetailAndInstall"
 fi
 
+marketplace_recommendation_search_body=$(sed -n '/^run_marketplace_recommendation_search_profile() {/,/^}/p' "$target")
+if ! profile_body_has_token "$marketplace_recommendation_search_body" "RanksContentMatchesOverGenericHotAgents"; then
+  fail "marketplace-recommendation-search must include TestSearchAgentsRecommendedRanksContentMatchesOverGenericHotAgents"
+fi
+if ! profile_body_has_token "$marketplace_recommendation_search_body" "FallbackExplorationIsDeterministicAndNonEmpty"; then
+  fail "marketplace-recommendation-search must include TestSearchAgentsRecommendedFallbackExplorationIsDeterministicAndNonEmpty"
+fi
+if ! profile_body_has_token "$marketplace_recommendation_search_body" "UsesRankingSignals"; then
+  fail "marketplace-recommendation-search must include TestSearchAgentsRecommendedUsesRankingSignals"
+fi
+if ! profile_body_has_token "$marketplace_recommendation_search_body" "UsesCollaborativeFilteringForRequester"; then
+  fail "marketplace-recommendation-search must include TestSearchAgentsRecommendedUsesCollaborativeFilteringForRequester"
+fi
+if ! profile_body_has_token "$marketplace_recommendation_search_body" "DemotesGovernanceWeightedAgents"; then
+  fail "marketplace-recommendation-search must include TestSearchAgentsRecommendedDemotesGovernanceWeightedAgents"
+fi
+
 marketplace_money_movement_body=$(sed -n '/^run_marketplace_money_movement_profile() {/,/^}/p' "$target")
 if [[ "$marketplace_money_movement_body" != *"StripeWebhookRouteAppliesMarketplaceInstallSettlementOnce"* ]]; then
   fail "marketplace-money-movement must include TestStripeWebhookRouteAppliesMarketplaceInstallSettlementOnce"
