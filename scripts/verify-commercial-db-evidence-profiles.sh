@@ -355,18 +355,24 @@ if [[ "$observability_alert_recovery_body" != *"RecordsRepeatedDeliveryBatchesFo
 fi
 
 scheduled_task_runtime_body=$(sed -n '/^run_scheduled_task_runtime_profile() {/,/^}/p' "$target")
-if [[ "$scheduled_task_runtime_body" != *"ClaimsDueScheduledTaskRunsOnceAndRecordsRunningRuns"* ]]; then
-  fail "scheduled-task-runtime must include TestSQLStoreClaimsDueScheduledTaskRunsOnceAndRecordsRunningRuns"
-fi
-if [[ "$scheduled_task_runtime_body" != *"FailsScheduledTaskRunAndAdvancesTaskToAvoidImmediateReclaim"* ]]; then
-  fail "scheduled-task-runtime must include TestSQLStoreFailsScheduledTaskRunAndAdvancesTaskToAvoidImmediateReclaim"
-fi
-if [[ "$scheduled_task_runtime_body" != *"ListsRunsForTaskWithinSessionOrganization"* ]]; then
-  fail "scheduled-task-runtime must include TestScheduledTasksRouteListsRunsForTaskWithinSessionOrganization"
-fi
-if [[ "$scheduled_task_runtime_body" != *"DefaultRouterSyncsWorkflowScheduleTriggersToScheduledTasks"* ]]; then
-  fail "scheduled-task-runtime must include TestDefaultRouterSyncsWorkflowScheduleTriggersToScheduledTasks"
-fi
+scheduled_task_runtime_required=(
+  "CreatesAndListsScheduledTasksByOrganization|TestSQLStoreCreatesAndListsScheduledTasksByOrganization"
+  "SyncsWorkflowTriggerBackedScheduledTasksWithoutTouchingManualTasks|TestSQLStoreSyncsWorkflowTriggerBackedScheduledTasksWithoutTouchingManualTasks"
+  "GetsAndUpdatesScheduledTaskEnabledState|TestSQLStoreGetsAndUpdatesScheduledTaskEnabledState"
+  "RecordsAndListsScheduledTaskRunsByOrganizationAndTask|TestSQLStoreRecordsAndListsScheduledTaskRunsByOrganizationAndTask"
+  "ClaimsDueScheduledTaskRunsOnceAndRecordsRunningRuns|TestSQLStoreClaimsDueScheduledTaskRunsOnceAndRecordsRunningRuns"
+  "CompletesManualScheduledTaskRunWithoutAdvancingNextRun|TestSQLStoreCompletesManualScheduledTaskRunWithoutAdvancingNextRun"
+  "CompletesScheduledTaskRunAndAdvancesTask|TestSQLStoreCompletesScheduledTaskRunAndAdvancesTask"
+  "FailsScheduledTaskRunAndAdvancesTaskToAvoidImmediateReclaim|TestSQLStoreFailsScheduledTaskRunAndAdvancesTaskToAvoidImmediateReclaim"
+  "CreatesAndListsTasks|TestScheduledTasksRouteCreatesAndListsTasks"
+  "ListsRunsForTaskWithinSessionOrganization|TestScheduledTasksRouteListsRunsForTaskWithinSessionOrganization"
+  "TestDefaultRouterSyncsWorkflowScheduleTriggersToScheduledTasks|TestDefaultRouterSyncsWorkflowScheduleTriggersToScheduledTasks"
+)
+for requirement in "${scheduled_task_runtime_required[@]}"; do
+  token="${requirement%%|*}"
+  test_name="${requirement#*|}"
+  require_profile_token "$scheduled_task_runtime_body" "scheduled-task-runtime" "$token" "$test_name"
+done
 
 quota_sql_isolation_body=$(sed -n '/^run_quota_sql_isolation_profile() {/,/^}/p' "$target")
 if [[ "$quota_sql_isolation_body" != *"UsageLimitSettingsRoundTrip"* ]]; then
