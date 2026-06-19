@@ -697,6 +697,7 @@ assert_file_contains "$target_release_evidence_verifier_file" "providers must in
 assert_file_contains "$target_release_evidence_verifier_file" "workflowTelemetry.successRate must be between 0.99 and 1.0"
 assert_file_contains "$target_release_evidence_verifier_file" "workflowTelemetry.window must be an ISO-8601 start/end interval"
 assert_file_contains "$target_release_evidence_verifier_file" "workflowTelemetry.window end must be at or after start"
+assert_file_contains "$target_release_evidence_verifier_file" "grpcSmokeReport.timeout must be a positive Go duration string"
 assert_file_contains "$target_release_evidence_verifier_file" "secretAudit.scope must include kubernetes, providers, and runtime"
 assert_file_contains "$target_release_evidence_verifier_file" "must not embed secret material"
 assert_file_contains "$target_release_evidence_verifier_file" "must reference a concrete target artifact, not a placeholder"

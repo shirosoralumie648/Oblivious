@@ -310,6 +310,18 @@ def require_iso8601_interval(failures, data, path, interval_error:, ordering_err
   end
 end
 
+GO_DURATION_PATTERN = /\A(?:(?:\d+(?:\.\d+)?|\.\d+)(?:ns|us|ms|s|m|h))+\z/.freeze
+
+def positive_go_duration_string?(value)
+  return false unless value.is_a?(String)
+
+  duration = value.strip
+  return false if duration.empty?
+  return false unless duration.match?(GO_DURATION_PATTERN)
+
+  duration.scan(/(?:\d+(?:\.\d+)?|\.\d+)(?=ns|us|ms|s|m|h)/).any? { |number| number.to_f.positive? }
+end
+
 def local_target_host?(host)
   normalized = host.to_s.strip.downcase.sub(/\A\[(.*)\]\z/, '\1')
   normalized = normalized.sub(/\.+\z/, "")
@@ -731,7 +743,10 @@ else
   rescue ArgumentError
     failures << "grpcSmokeReport.recordedAt must be ISO-8601"
   end
-  require_string(failures, data, ["grpcSmokeReport", "timeout"])
+  smoke_timeout = require_string(failures, data, ["grpcSmokeReport", "timeout"])
+  if smoke_timeout.is_a?(String) && !smoke_timeout.strip.empty? && !positive_go_duration_string?(smoke_timeout)
+    failures << "grpcSmokeReport.timeout must be a positive Go duration string"
+  end
   smoke_results = grpc_smoke_report["results"]
   smoke_results_by_service = {}
   if !smoke_results.is_a?(Array)

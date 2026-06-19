@@ -395,6 +395,11 @@ make_invalid_case \
   "grpcSmokeReport is required"
 
 make_invalid_case \
+  "invalid-grpc-smoke-timeout" \
+  'data["grpcSmokeReport"]["timeout"] = "not-a-duration"' \
+  "grpcSmokeReport.timeout must be a positive Go duration string"
+
+make_invalid_case \
   "failed-grpc-smoke-result" \
   'data["grpcSmokeReport"]["results"].find { |result| result["service"] == "task" }["generatedClient"] = "fail"' \
   "grpcSmokeReport.results[2].generatedClient must be pass"
