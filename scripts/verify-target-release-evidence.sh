@@ -600,6 +600,9 @@ environment_base_url = dig_path(data, ["environment", "baseUrl"])
 if environment_base_url.is_a?(String) && userinfo_uri?(environment_base_url)
   failures << "environment.baseUrl must not embed credentials in URI userinfo"
 end
+if environment_base_url.is_a?(String) && secret_like_uri?(environment_base_url)
+  failures << "environment.baseUrl must not embed secret-like query or fragment parameters"
+end
 require_string(failures, data, ["environment", "recordedAt"])
 recorded_at = dig_path(data, ["environment", "recordedAt"])
 begin

@@ -195,6 +195,16 @@ make_invalid_case \
   "environment.baseUrl must not embed credentials in URI userinfo"
 
 make_invalid_case \
+  "secret-environment-base-url-query" \
+  'data["environment"]["baseUrl"] = "https://staging.oblivious.internal?token=target-secret-token"' \
+  "environment.baseUrl must not embed secret-like query or fragment parameters"
+
+make_invalid_case \
+  "secret-environment-base-url-fragment" \
+  'data["environment"]["baseUrl"] = "https://staging.oblivious.internal#token=target-secret-token"' \
+  "environment.baseUrl must not embed secret-like query or fragment parameters"
+
+make_invalid_case \
   "duplicate-artifact-id" \
   'data["artifacts"] << data["artifacts"].first.dup' \
   "artifacts must not duplicate artifact-strict-verifier-20260616"
