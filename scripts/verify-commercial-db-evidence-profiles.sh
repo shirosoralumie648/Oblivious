@@ -94,6 +94,9 @@ if ! profile_body_has_token "$backend_journey_body" "TestCommercialHTTPJourney";
 fi
 
 billing_checkout_topup_body=$(sed -n '/^run_billing_checkout_topup_http_profile() {/,/^}/p' "$target")
+if ! profile_body_has_token "$billing_checkout_topup_body" "RequiresSession"; then
+  fail "billing-checkout-topup-http must include TestBillingCheckoutRequiresSession"
+fi
 if ! profile_body_has_token "$billing_checkout_topup_body" "PersistsTenantPaymentIntent"; then
   fail "billing-checkout-topup-http must include TestBillingCheckoutPersistsTenantPaymentIntent"
 fi
