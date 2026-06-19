@@ -112,6 +112,9 @@ fi
 if ! profile_body_has_token "$billing_checkout_topup_body" "UsesConfiguredDomesticProviderFromRouterConfig"; then
   fail "billing-checkout-topup-http must include TestBillingCheckoutUsesConfiguredDomesticProviderFromRouterConfig"
 fi
+if ! profile_body_has_token "$billing_checkout_topup_body" "ConsoleBillingPaymentProvidersExposeConfiguredCheckoutProviders"; then
+  fail "billing-checkout-topup-http must include TestConsoleBillingPaymentProvidersExposeConfiguredCheckoutProviders"
+fi
 if ! profile_body_has_token "$billing_checkout_topup_body" "TopupDoesNotCreditQuotaBeforeWebhook"; then
   fail "billing-checkout-topup-http must include TestBillingCheckoutTopupDoesNotCreditQuotaBeforeWebhook"
 fi
