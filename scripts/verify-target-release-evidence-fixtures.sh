@@ -365,6 +365,11 @@ make_invalid_case \
   "workflowTelemetry.window end must be at or after start"
 
 make_invalid_case \
+  "workflow-telemetry-success-rate-above-one" \
+  'data["workflowTelemetry"]["successRate"] = 1.01' \
+  "workflowTelemetry.successRate must be between 0.99 and 1.0"
+
+make_invalid_case \
   "missing-grpc-collection" \
   'data.delete("grpc")' \
   "grpc must be an array"

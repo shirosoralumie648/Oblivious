@@ -694,7 +694,7 @@ assert_file_contains "$target_release_evidence_verifier_file" "artifacts must no
 assert_file_contains "$target_release_evidence_verifier_file" "sha256 must be a 64-character hex digest when present"
 assert_file_contains "$target_release_evidence_verifier_file" "providers must include at least one live provider evidence entry"
 assert_file_contains "$target_release_evidence_verifier_file" "providers must include live evidence for stripe, alipay, and wechatpay"
-assert_file_contains "$target_release_evidence_verifier_file" "workflowTelemetry.successRate must be >= 0.99"
+assert_file_contains "$target_release_evidence_verifier_file" "workflowTelemetry.successRate must be between 0.99 and 1.0"
 assert_file_contains "$target_release_evidence_verifier_file" "workflowTelemetry.window must be an ISO-8601 start/end interval"
 assert_file_contains "$target_release_evidence_verifier_file" "workflowTelemetry.window end must be at or after start"
 assert_file_contains "$target_release_evidence_verifier_file" "secretAudit.scope must include kubernetes, providers, and runtime"

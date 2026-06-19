@@ -796,8 +796,8 @@ end
 
 require_pass(failures, data, ["workflowTelemetry", "result"])
 success_rate = dig_path(data, ["workflowTelemetry", "successRate"])
-unless success_rate.is_a?(Numeric) && success_rate >= 0.99
-  failures << "workflowTelemetry.successRate must be >= 0.99"
+unless success_rate.is_a?(Numeric) && success_rate >= 0.99 && success_rate <= 1.0
+  failures << "workflowTelemetry.successRate must be between 0.99 and 1.0"
 end
 require_iso8601_interval(
   failures,
