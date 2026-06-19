@@ -190,6 +190,11 @@ make_invalid_case \
   "environment.baseUrl must target a non-local target environment"
 
 make_invalid_case \
+  "credential-environment-base-url-userinfo" \
+  'data["environment"]["baseUrl"] = "https://target-user:target-password@staging.oblivious.internal"' \
+  "environment.baseUrl must not embed credentials in URI userinfo"
+
+make_invalid_case \
   "duplicate-artifact-id" \
   'data["artifacts"] << data["artifacts"].first.dup' \
   "artifacts must not duplicate artifact-strict-verifier-20260616"
