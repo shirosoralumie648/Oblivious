@@ -217,7 +217,12 @@ make_invalid_case \
 make_invalid_case \
   "secret-artifact-uri-query" \
   'data["artifacts"].find { |artifact| artifact["id"] == "artifact-deploy-20260616" }["uri"] = "https://ci.internal/runs/20260616/deploy.log?token=target-secret-token"' \
-  "artifacts[1].uri must not embed secret-like query parameters"
+  "artifacts[1].uri must not embed secret-like query or fragment parameters"
+
+make_invalid_case \
+  "secret-artifact-uri-fragment" \
+  'data["artifacts"].find { |artifact| artifact["id"] == "artifact-deploy-20260616" }["uri"] = "https://ci.internal/runs/20260616/deploy.log#token=target-secret-token"' \
+  "artifacts[1].uri must not embed secret-like query or fragment parameters"
 
 make_invalid_case \
   "credential-artifact-uri-userinfo" \

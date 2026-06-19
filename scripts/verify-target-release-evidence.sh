@@ -849,7 +849,7 @@ else
     uri = require_string(failures, data, ["artifacts", index, "uri"])
     failures << "artifacts[#{index}].uri must reference a concrete target artifact, not a placeholder" if placeholder?(uri)
     failures << "artifacts[#{index}].uri must reference a remote target artifact URI" unless remote_artifact_uri?(uri)
-    failures << "artifacts[#{index}].uri must not embed secret-like query parameters" if secret_like_uri?(uri)
+    failures << "artifacts[#{index}].uri must not embed secret-like query or fragment parameters" if secret_like_uri?(uri)
     failures << "artifacts[#{index}].uri must not embed credentials in URI userinfo" if userinfo_uri?(uri)
     artifact_recorded_at = require_string(failures, data, ["artifacts", index, "recordedAt"])
     begin
