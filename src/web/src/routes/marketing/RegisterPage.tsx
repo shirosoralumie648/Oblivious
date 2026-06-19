@@ -1,6 +1,6 @@
 import { FormEvent, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { RiArrowRightLine, RiBuilding4Line } from '@remixicon/react';
+import { RiArrowRightLine, RiBuilding4Line, RiLoader4Line } from '@remixicon/react';
 
 import { useAppContext } from '../../app/providers';
 import { createHttpClient } from '../../services/http/client';
@@ -91,8 +91,9 @@ export function RegisterPage() {
             disabled={isSubmitting}
             type="submit"
           >
+            {isSubmitting ? <RiLoader4Line className="size-4 animate-spin" aria-hidden="true" /> : null}
             Create account
-            <RiArrowRightLine className="size-4" aria-hidden="true" />
+            {!isSubmitting ? <RiArrowRightLine className="size-4" aria-hidden="true" /> : null}
           </button>
           <p className="text-center text-sm text-[#625b4f]">
             Already have access?{' '}

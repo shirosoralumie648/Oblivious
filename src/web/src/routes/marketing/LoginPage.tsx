@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { RiArrowRightLine, RiShieldKeyholeLine } from '@remixicon/react';
+import { RiArrowRightLine, RiLoader4Line, RiShieldKeyholeLine } from '@remixicon/react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -93,8 +93,9 @@ export function LoginPage() {
             disabled={isSubmitting}
             type="submit"
           >
+            {isSubmitting ? <RiLoader4Line className="size-4 animate-spin" aria-hidden="true" /> : null}
             Sign in
-            <RiArrowRightLine className="size-4" aria-hidden="true" />
+            {!isSubmitting ? <RiArrowRightLine className="size-4" aria-hidden="true" /> : null}
           </button>
           <p className="text-center text-sm text-[#625b4f]">
             New workspace?{' '}

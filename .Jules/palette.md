@@ -1,0 +1,3 @@
+## 2024-05-16 - Add loading spinners to auth forms
+**Learning:** Found an opportunity to improve UX by providing visual feedback when forms are submitting. Replaced the generic arrow icon with a spinning loader on the primary action buttons for login and registration. Used standard Remix icons and existing Tailwind utility classes to ensure a seamless integration into the existing design. Verified that the layout looks neat with the new icon during submission.
+**Action:** Always verify what the `isSubmitting` prop of `react-hook-form` corresponds to visually on screen to make sure interactions are transparent.
