@@ -647,6 +647,24 @@ fi
 if [[ "$marketplace_money_movement_body" != *"RecordTopupRefundHandlerPassesDomesticPaymentIntentEvidence"* ]]; then
   fail "marketplace-money-movement must include TestAdminBillingRecordTopupRefundHandlerPassesDomesticPaymentIntentEvidence"
 fi
+if [[ "$marketplace_money_movement_body" != *"MarketplaceAgentDetailExposesConfiguredDomesticPaymentProviders"* ]]; then
+  fail "marketplace-money-movement must include TestMarketplaceAgentDetailExposesConfiguredDomesticPaymentProviders"
+fi
+if [[ "$marketplace_money_movement_body" != *"MarketplacePaidInstallCheckoutUsesSelectedProviderAndReturnsCheckoutSession"* ]]; then
+  fail "marketplace-money-movement must include TestMarketplacePaidInstallCheckoutUsesSelectedProviderAndReturnsCheckoutSession"
+fi
+if [[ "$marketplace_money_movement_body" != *"MarketplacePaidInstallCheckoutRejectsMissingProviderBeforeSettlement"* ]]; then
+  fail "marketplace-money-movement must include TestMarketplacePaidInstallCheckoutRejectsMissingProviderBeforeSettlement"
+fi
+if [[ "$marketplace_money_movement_body" != *"MarketplacePaidInstallCheckoutRejectsConfiguredProviderWithoutCheckoutCreatorBeforeSettlement"* ]]; then
+  fail "marketplace-money-movement must include TestMarketplacePaidInstallCheckoutRejectsConfiguredProviderWithoutCheckoutCreatorBeforeSettlement"
+fi
+if [[ "$marketplace_money_movement_body" != *"MarketplacePaidInstallCheckoutRejectsUnsupportedProviderBeforeSettlement"* ]]; then
+  fail "marketplace-money-movement must include TestMarketplacePaidInstallCheckoutRejectsUnsupportedProviderBeforeSettlement"
+fi
+if [[ "$marketplace_money_movement_body" != *"BuildPaymentCheckoutProvidersEnablesDomesticHostedProviders"* ]]; then
+  fail "marketplace-money-movement must include TestBuildPaymentCheckoutProvidersEnablesDomesticHostedProviders"
+fi
 
 agent_runtime_memory_body=$(sed -n '/^run_agent_runtime_memory_profile() {/,/^}/p' "$target")
 if ! profile_body_has_token "$agent_runtime_memory_body" "TestExecuteReActWithModelRouting"; then
