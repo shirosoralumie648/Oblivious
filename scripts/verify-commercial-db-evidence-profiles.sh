@@ -16,6 +16,17 @@ profile_body_has_token() {
   [[ "$body" =~ (^|[^[:alnum:]_])${token}([^[:alnum:]_]|$) ]]
 }
 
+require_profile_token() {
+  local body="$1"
+  local profile="$2"
+  local token="$3"
+  local test_name="$4"
+
+  if ! profile_body_has_token "$body" "$token"; then
+    fail "$profile must include $test_name"
+  fi
+}
+
 profile_name_from_function() {
   local function_name="$1"
   function_name="${function_name#run_}"
@@ -611,69 +622,88 @@ if ! profile_body_has_token "$marketplace_recommendation_search_body" "DemotesGo
 fi
 
 marketplace_money_movement_body=$(sed -n '/^run_marketplace_money_movement_profile() {/,/^}/p' "$target")
-if [[ "$marketplace_money_movement_body" != *"StripeWebhookRouteAppliesMarketplaceInstallSettlementOnce"* ]]; then
-  fail "marketplace-money-movement must include TestStripeWebhookRouteAppliesMarketplaceInstallSettlementOnce"
-fi
-if [[ "$marketplace_money_movement_body" != *"StripeRefundUpdatesMarketplaceSettlementOnce"* ]]; then
-  fail "marketplace-money-movement must include TestStripeRefundUpdatesMarketplaceSettlementOnce"
-fi
-if [[ "$marketplace_money_movement_body" != *"AppliesSegmentedPlatformFees"* ]]; then
-  fail "marketplace-money-movement must include TestSettlementAppliesSegmentedPlatformFees"
-fi
-if [[ "$marketplace_money_movement_body" != *"AppliesSpecSegmentedRevenueTiers"* ]]; then
-  fail "marketplace-money-movement must include TestSettlementAppliesSpecSegmentedRevenueTiers"
-fi
-if [[ "$marketplace_money_movement_body" != *"MinimumSettlementBlocksSmallPayoutUntilCycleElapsed"* ]]; then
-  fail "marketplace-money-movement must include TestSettlementMinimumSettlementBlocksSmallPayoutUntilCycleElapsed"
-fi
-if [[ "$marketplace_money_movement_body" != *"ApplyPaidInstallCheckoutCompletedCreatesInstallAndSettlementOnce"* ]]; then
-  fail "marketplace-money-movement must include TestSettlementApplyPaidInstallCheckoutCompletedCreatesInstallAndSettlementOnce"
-fi
-if [[ "$marketplace_money_movement_body" != *"ApplyRefundAdjustsOrderAndSettlementOnce"* ]]; then
-  fail "marketplace-money-movement must include TestSettlementApplyRefundAdjustsOrderAndSettlementOnce"
-fi
-if [[ "$marketplace_money_movement_body" != *"RevenueTierDisclosureUsesSegmentedFees"* ]]; then
-  fail "marketplace-money-movement must include TestMarketplaceRevenueTierDisclosureUsesSegmentedFees"
-fi
-if [[ "$marketplace_money_movement_body" != *"PayoutStateIsLocalOnly"* ]]; then
-  fail "marketplace-money-movement must include TestSettlementPayoutStateIsLocalOnly"
-fi
-if [[ "$marketplace_money_movement_body" != *"LifecycleTransitionKeyUsesSelectedProvider"* ]]; then
-  fail "marketplace-money-movement must include TestMarketplaceLifecycleTransitionKeyUsesSelectedProvider"
-fi
-if [[ "$marketplace_money_movement_body" != *"PaymentIntentKindMigrationAllowsMarketplaceInstall"* ]]; then
-  fail "marketplace-money-movement must include TestPaymentIntentKindMigrationAllowsMarketplaceInstall"
-fi
-if [[ "$marketplace_money_movement_body" != *"TopupSummaryQueryUsesPaymentIntentProviderFilter"* ]]; then
-  fail "marketplace-money-movement must include TestTopupSummaryQueryUsesPaymentIntentProviderFilter"
-fi
-if [[ "$marketplace_money_movement_body" != *"MarketplaceSettlementQueriesUsePaymentIntentProviderFilter"* ]]; then
-  fail "marketplace-money-movement must include TestMarketplaceSettlementQueriesUsePaymentIntentProviderFilter"
-fi
-if [[ "$marketplace_money_movement_body" != *"RecordTopupRefundUpdatesOrderStatusAndRefundedAmount"* ]]; then
-  fail "marketplace-money-movement must include TestRecordTopupRefundUpdatesOrderStatusAndRefundedAmount"
-fi
-if [[ "$marketplace_money_movement_body" != *"RecordTopupRefundHandlerPassesDomesticPaymentIntentEvidence"* ]]; then
-  fail "marketplace-money-movement must include TestAdminBillingRecordTopupRefundHandlerPassesDomesticPaymentIntentEvidence"
-fi
-if [[ "$marketplace_money_movement_body" != *"MarketplaceAgentDetailExposesConfiguredDomesticPaymentProviders"* ]]; then
-  fail "marketplace-money-movement must include TestMarketplaceAgentDetailExposesConfiguredDomesticPaymentProviders"
-fi
-if [[ "$marketplace_money_movement_body" != *"MarketplacePaidInstallCheckoutUsesSelectedProviderAndReturnsCheckoutSession"* ]]; then
-  fail "marketplace-money-movement must include TestMarketplacePaidInstallCheckoutUsesSelectedProviderAndReturnsCheckoutSession"
-fi
-if [[ "$marketplace_money_movement_body" != *"MarketplacePaidInstallCheckoutRejectsMissingProviderBeforeSettlement"* ]]; then
-  fail "marketplace-money-movement must include TestMarketplacePaidInstallCheckoutRejectsMissingProviderBeforeSettlement"
-fi
-if [[ "$marketplace_money_movement_body" != *"MarketplacePaidInstallCheckoutRejectsConfiguredProviderWithoutCheckoutCreatorBeforeSettlement"* ]]; then
-  fail "marketplace-money-movement must include TestMarketplacePaidInstallCheckoutRejectsConfiguredProviderWithoutCheckoutCreatorBeforeSettlement"
-fi
-if [[ "$marketplace_money_movement_body" != *"MarketplacePaidInstallCheckoutRejectsUnsupportedProviderBeforeSettlement"* ]]; then
-  fail "marketplace-money-movement must include TestMarketplacePaidInstallCheckoutRejectsUnsupportedProviderBeforeSettlement"
-fi
-if [[ "$marketplace_money_movement_body" != *"BuildPaymentCheckoutProvidersEnablesDomesticHostedProviders"* ]]; then
-  fail "marketplace-money-movement must include TestBuildPaymentCheckoutProvidersEnablesDomesticHostedProviders"
-fi
+marketplace_admin_billing_sql_shape_body=$(sed -n '/admin_billing_sql_shape_pattern=/p' "$target")
+marketplace_settlement_body=$(sed -n '/marketplace_settlement_pattern=/p' "$target")
+marketplace_admin_money_movement_body=$(sed -n '/admin_money_movement_pattern=/p' "$target")
+
+marketplace_admin_billing_sql_shape_required=(
+  "TestTopupSummaryQueryUsesPaymentIntentProviderFilter|TestTopupSummaryQueryUsesPaymentIntentProviderFilter"
+  "TestMarketplaceSettlementQueriesUsePaymentIntentProviderFilter|TestMarketplaceSettlementQueriesUsePaymentIntentProviderFilter"
+  "TestRecordTopupRefundUpdatesOrderStatusAndRefundedAmount|TestRecordTopupRefundUpdatesOrderStatusAndRefundedAmount"
+)
+for requirement in "${marketplace_admin_billing_sql_shape_required[@]}"; do
+  token="${requirement%%|*}"
+  test_name="${requirement#*|}"
+  require_profile_token "$marketplace_admin_billing_sql_shape_body" "marketplace-money-movement" "$token" "$test_name"
+done
+
+marketplace_settlement_required=(
+  "LifecycleTransitionKeyUsesSelectedProvider|TestMarketplaceLifecycleTransitionKeyUsesSelectedProvider"
+  "RevenueTierDisclosureUsesSegmentedFees|TestMarketplaceRevenueTierDisclosureUsesSegmentedFees"
+  "TestPaymentIntentKindMigrationAllowsMarketplaceInstall|TestPaymentIntentKindMigrationAllowsMarketplaceInstall"
+  "CreatePaidInstallCheckoutCreatesPendingOrderAndIntent|TestSettlementCreatePaidInstallCheckoutCreatesPendingOrderAndIntent"
+  "CreatePaidInstallCheckoutRecordsSelectedProvider|TestSettlementCreatePaidInstallCheckoutRecordsSelectedProvider"
+  "CreatePaidInstallCheckoutSQLUsesRequestedCurrency|TestSettlementCreatePaidInstallCheckoutSQLUsesRequestedCurrency"
+  "MarkPaidInstallCheckoutFailedMarksOrderAndIntent|TestSettlementMarkPaidInstallCheckoutFailedMarksOrderAndIntent"
+  "AppliesSegmentedPlatformFees|TestSettlementAppliesSegmentedPlatformFees"
+  "AppliesSpecSegmentedRevenueTiers|TestSettlementAppliesSpecSegmentedRevenueTiers"
+  "MinimumSettlementBlocksSmallPayoutUntilCycleElapsed|TestSettlementMinimumSettlementBlocksSmallPayoutUntilCycleElapsed"
+  "ApplyPaidInstallCheckoutCompletedRecordsSelectedProviderLifecycle|TestSettlementApplyPaidInstallCheckoutCompletedRecordsSelectedProviderLifecycle"
+  "ApplyPaidInstallCheckoutCompletedCreatesInstallAndSettlementOnce|TestSettlementApplyPaidInstallCheckoutCompletedCreatesInstallAndSettlementOnce"
+  "ApplyRefundAdjustsOrderAndSettlementOnce|TestSettlementApplyRefundAdjustsOrderAndSettlementOnce"
+  "BuyerUninstallPreservesPaidOrderAndSettlement|TestSettlementBuyerUninstallPreservesPaidOrderAndSettlement"
+  "PublisherDeleteWithPaidOrderIsRejectedAndPreservesAudit|TestSettlementPublisherDeleteWithPaidOrderIsRejectedAndPreservesAudit"
+  "AuditRetentionMigrationRejectsDirectAuditCascade|TestSettlementAuditRetentionMigrationRejectsDirectAuditCascade"
+  "PayoutStateIsLocalOnly|TestSettlementPayoutStateIsLocalOnly"
+  "MarkPayoutPendingDispatchesConfiguredProvider|TestSettlementMarkPayoutPendingDispatchesConfiguredProvider"
+  "MarkPayoutPaidUpdatesPayoutAndSettlementsOnce|TestSettlementMarkPayoutPaidUpdatesPayoutAndSettlementsOnce"
+  "ProviderPayoutPaidWebhookMatchesProviderPayoutIDOnce|TestSettlementProviderPayoutPaidWebhookMatchesProviderPayoutIDOnce"
+  "ProviderPayoutFailedWebhookReleasesSettlementsOnce|TestSettlementProviderPayoutFailedWebhookReleasesSettlementsOnce"
+  "MarkPayoutFailedReleasesSettlementsOnce|TestSettlementMarkPayoutFailedReleasesSettlementsOnce"
+  "CreateDuePayoutsAggregatesAvailableSettlementsOnce|TestSettlementCreateDuePayoutsAggregatesAvailableSettlementsOnce"
+  "CreateDuePayoutsDispatchesConfiguredProvider|TestSettlementCreateDuePayoutsDispatchesConfiguredProvider"
+  "PublisherStatsIncludesSettlementAmounts|TestSettlementPublisherStatsIncludesSettlementAmounts"
+)
+for requirement in "${marketplace_settlement_required[@]}"; do
+  token="${requirement%%|*}"
+  test_name="${requirement#*|}"
+  require_profile_token "$marketplace_settlement_body" "marketplace-money-movement" "$token" "$test_name"
+done
+
+marketplace_admin_money_movement_required=(
+  "SummaryIncludesMoneyMovementState|TestAdminBillingSummaryIncludesMoneyMovementState"
+  "ListsExposeAllRequiredSurfaces|TestAdminBillingListsExposeAllRequiredSurfaces"
+  "ListsApplyRecoveryFilters|TestAdminBillingListsApplyRecoveryFilters"
+  "SummaryAppliesFailedStatusFilter|TestAdminBillingSummaryAppliesFailedStatusFilter"
+  "MarksMarketplacePayoutPaid|TestAdminBillingMarksMarketplacePayoutPaid"
+  "MarksMarketplacePayoutFailedAndReleasesSettlements|TestAdminBillingMarksMarketplacePayoutFailedAndReleasesSettlements"
+  "CreateDueMarketplacePayoutsDispatchesConfiguredProvider|TestAdminBillingCreateDueMarketplacePayoutsDispatchesConfiguredProvider"
+  "RecordsTopupRefundAndAdjustsQuota|TestAdminBillingRecordsTopupRefundAndAdjustsQuota"
+  "RecordTopupRefundHandlerPassesDomesticPaymentIntentEvidence|TestAdminBillingRecordTopupRefundHandlerPassesDomesticPaymentIntentEvidence"
+  "RejectsTopupRefundWithoutOperatorEvidenceAndPreservesLedger|TestAdminBillingRejectsTopupRefundWithoutOperatorEvidenceAndPreservesLedger"
+  "WebhookEventsDoNotExposeRawPayload|TestAdminBillingWebhookEventsDoNotExposeRawPayload"
+  "TestMarketplaceAgentDetailExposesConfiguredDomesticPaymentProviders|TestMarketplaceAgentDetailExposesConfiguredDomesticPaymentProviders"
+  "TestMarketplacePaidInstallDoesNotInstallBeforeWebhook|TestMarketplacePaidInstallDoesNotInstallBeforeWebhook"
+  "TestMarketplacePaidInstallCheckoutCreatorFailureMarksOrderFailed|TestMarketplacePaidInstallCheckoutCreatorFailureMarksOrderFailed"
+  "TestMarketplacePaidInstallUsesConfiguredProviderCheckoutCreator|TestMarketplacePaidInstallUsesConfiguredProviderCheckoutCreator"
+  "TestMarketplacePaidInstallCheckoutUsesSelectedProviderAndReturnsCheckoutSession|TestMarketplacePaidInstallCheckoutUsesSelectedProviderAndReturnsCheckoutSession"
+  "TestMarketplacePaidInstallCheckoutRejectsMissingProviderBeforeSettlement|TestMarketplacePaidInstallCheckoutRejectsMissingProviderBeforeSettlement"
+  "TestMarketplacePaidInstallCheckoutRejectsConfiguredProviderWithoutCheckoutCreatorBeforeSettlement|TestMarketplacePaidInstallCheckoutRejectsConfiguredProviderWithoutCheckoutCreatorBeforeSettlement"
+  "TestMarketplacePaidInstallCheckoutRejectsUnsupportedProviderBeforeSettlement|TestMarketplacePaidInstallCheckoutRejectsUnsupportedProviderBeforeSettlement"
+  "TestMarketplacePublisherStatsIncludesSettlementAmounts|TestMarketplacePublisherStatsIncludesSettlementAmounts"
+  "TestBuildPaymentCheckoutProvidersEnablesDomesticHostedProviders|TestBuildPaymentCheckoutProvidersEnablesDomesticHostedProviders"
+  "TestStripeWebhookRouteAppliesMarketplaceInstallSettlementOnce|TestStripeWebhookRouteAppliesMarketplaceInstallSettlementOnce"
+  "TestStripeRefundUpdatesMarketplaceSettlementOnce|TestStripeRefundUpdatesMarketplaceSettlementOnce"
+  "InstallSettlementOnce|TestDomesticPaymentWebhookRouteAppliesMarketplaceInstallSettlementOnce"
+  "RefundOnce|TestDomesticPaymentWebhookRouteAppliesMarketplaceRefundOnce"
+  "PayoutPaidOnce|TestDomesticPaymentWebhookRouteAppliesMarketplacePayoutPaidOnce"
+  "PayoutFailedOnce|TestDomesticPaymentWebhookRouteAppliesMarketplacePayoutFailedOnce"
+)
+for requirement in "${marketplace_admin_money_movement_required[@]}"; do
+  token="${requirement%%|*}"
+  test_name="${requirement#*|}"
+  require_profile_token "$marketplace_admin_money_movement_body" "marketplace-money-movement" "$token" "$test_name"
+done
 
 agent_runtime_memory_body=$(sed -n '/^run_agent_runtime_memory_profile() {/,/^}/p' "$target")
 if ! profile_body_has_token "$agent_runtime_memory_body" "TestExecuteReActWithModelRouting"; then
