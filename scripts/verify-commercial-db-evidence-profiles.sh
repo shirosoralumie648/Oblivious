@@ -539,6 +539,9 @@ marketplace_template_routes_body=$(sed -n '/^run_marketplace_template_routes_pro
 if [[ "$marketplace_template_routes_body" != *"MarketplaceTemplateRoutesCreateListDetailAndInstall"* ]]; then
   fail "marketplace-template-routes must include TestMarketplaceTemplateRoutesCreateListDetailAndInstall"
 fi
+if [[ "$marketplace_template_routes_body" != *"MarketplaceRouterRegistersTemplateAndPublisherPreferenceRoutes"* ]]; then
+  fail "marketplace-template-routes must include TestMarketplaceRouterRegistersTemplateAndPublisherPreferenceRoutes"
+fi
 
 marketplace_governance_review_body=$(sed -n '/^run_marketplace_governance_review_profile() {/,/^}/p' "$target")
 if ! profile_body_has_token "$marketplace_governance_review_body" "TestGovernanceTakedownPreventsNewInstallsAndPreservesHistory"; then

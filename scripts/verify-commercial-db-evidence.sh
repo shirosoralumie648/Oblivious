@@ -232,7 +232,7 @@ run_marketplace_recommendation_search_profile() {
 }
 
 run_marketplace_template_routes_profile() {
-  run_go_test_no_skips "marketplace template route persistence" "./internal/http" "^TestMarketplaceTemplateRoutesCreateListDetailAndInstall$"
+  run_go_test_no_skips "marketplace template route persistence" "./internal/http" "^(TestMarketplaceTemplateRoutesCreateListDetailAndInstall|TestMarketplaceRouterRegistersTemplateAndPublisherPreferenceRoutes)$"
 }
 
 run_billing_checkout_topup_http_profile() {
