@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer } from 'react';
 import { RiAlarmWarningLine, RiCheckLine, RiCloseLine, RiEdit2Line, RiShieldCheckLine } from '@remixicon/react';
 
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 
@@ -486,6 +487,7 @@ export function AdminReviewsPage() {
   const abuseSubmitLabel = state.abuseAction?.action === 'resolve' ? 'Resolve Report' : 'Dismiss Report';
 
   return (
+    <TooltipProvider>
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4">
         <h1 className="font-heading text-2xl font-semibold text-foreground">Review Queue</h1>
@@ -526,15 +528,30 @@ export function AdminReviewsPage() {
         onRetry={loadReviews}
         renderActions={(agent) => (
           <div className="flex justify-end gap-1">
-            <Button type="button" variant="ghost" size="icon" aria-label={`Approve agent ${agent.name}`} onClick={() => dispatch({ type: 'CONFIRM_APPROVE', agent })}>
-              <RiCheckLine className="size-4" aria-hidden="true" />
-            </Button>
-            <Button type="button" variant="ghost" size="icon" aria-label={`Request changes for agent ${agent.name}`} onClick={() => dispatch({ type: 'OPEN_CHANGES', agent })}>
-              <RiEdit2Line className="size-4" aria-hidden="true" />
-            </Button>
-            <Button type="button" variant="ghost" size="icon" aria-label={`Reject agent ${agent.name}`} onClick={() => dispatch({ type: 'OPEN_REJECT', agent })}>
-              <RiCloseLine className="size-4" aria-hidden="true" />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button type="button" variant="ghost" size="icon" aria-label={`Approve agent ${agent.name}`} onClick={() => dispatch({ type: 'CONFIRM_APPROVE', agent })}>
+                  <RiCheckLine className="size-4" aria-hidden="true" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Approve agent</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button type="button" variant="ghost" size="icon" aria-label={`Request changes for agent ${agent.name}`} onClick={() => dispatch({ type: 'OPEN_CHANGES', agent })}>
+                  <RiEdit2Line className="size-4" aria-hidden="true" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Request changes</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button type="button" variant="ghost" size="icon" aria-label={`Reject agent ${agent.name}`} onClick={() => dispatch({ type: 'OPEN_REJECT', agent })}>
+                  <RiCloseLine className="size-4" aria-hidden="true" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Reject agent</TooltipContent>
+            </Tooltip>
           </div>
         )}
       />
@@ -569,24 +586,34 @@ export function AdminReviewsPage() {
           renderActions={(report) =>
             report.status === 'open' ? (
               <div className="flex justify-end gap-1">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  aria-label={`Resolve abuse report ${report.id}`}
-                  onClick={() => dispatch({ type: 'OPEN_ABUSE_ACTION', report, action: 'resolve' })}
-                >
-                  <RiCheckLine className="size-4" aria-hidden="true" />
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  aria-label={`Dismiss abuse report ${report.id}`}
-                  onClick={() => dispatch({ type: 'OPEN_ABUSE_ACTION', report, action: 'dismiss' })}
-                >
-                  <RiCloseLine className="size-4" aria-hidden="true" />
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label={`Resolve abuse report ${report.id}`}
+                      onClick={() => dispatch({ type: 'OPEN_ABUSE_ACTION', report, action: 'resolve' })}
+                    >
+                      <RiCheckLine className="size-4" aria-hidden="true" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Resolve report</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label={`Dismiss abuse report ${report.id}`}
+                      onClick={() => dispatch({ type: 'OPEN_ABUSE_ACTION', report, action: 'dismiss' })}
+                    >
+                      <RiCloseLine className="size-4" aria-hidden="true" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Dismiss report</TooltipContent>
+                </Tooltip>
               </div>
             ) : null
           }
@@ -729,5 +756,6 @@ export function AdminReviewsPage() {
         </div>
       </DrawerForm>
     </div>
+    </TooltipProvider>
   );
 }
