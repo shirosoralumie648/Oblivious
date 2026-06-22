@@ -18,7 +18,7 @@ require_public_security_empty() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
     path = ARGV.fetch(1)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     post = spec.fetch("paths", {}).fetch(path, {}).fetch("post", nil)
     unless post && post["security"] == []
       warn "[openapi-contract] public POST #{path} must declare security: []"
@@ -30,7 +30,7 @@ require_public_security_empty() {
 require_api_json_responses_use_envelope() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
 
     def resolve_ref(spec, ref)
       ref.sub(%r{\A#/}, "").split("/").reduce(spec) { |node, part| node.fetch(part) }
@@ -94,7 +94,7 @@ require_api_json_responses_use_envelope() {
 require_api_success_data_uses_named_schema() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
 
     def resolve_ref(spec, ref)
       ref.sub(%r{\A#/}, "").split("/").reduce(spec) { |node, part| node.fetch(part) }
@@ -148,7 +148,7 @@ require_api_success_data_uses_named_schema() {
 require_api_json_request_bodies_use_named_schemas() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     allowed_inline_bodies = {
       ["post", "/api/v1/workflows/webhooks/{organizationId}/{workflowId}"] => "public workflow webhook payload",
       ["post", "/api/v1/workflows/{workflowId}/webhook"] => "session workflow webhook payload",
@@ -192,7 +192,7 @@ require_api_json_request_bodies_use_named_schemas() {
 require_api_security_surface_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     public_mutations = {
       ["post", "/api/v1/auth/register"] => "public auth registration",
       ["post", "/api/v1/auth/login"] => "public auth login",
@@ -259,7 +259,7 @@ require_api_security_surface_contract() {
 require_api_path_parameter_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
 
     def resolve_ref(spec, ref)
       ref.sub(%r{\A#/}, "").split("/").reduce(spec) { |node, part| node.fetch(part) }
@@ -324,7 +324,7 @@ require_api_path_parameter_contract() {
 require_api_operation_metadata_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
 
     def resolve_ref(spec, ref)
       ref.sub(%r{\A#/}, "").split("/").reduce(spec) { |node, part| node.fetch(part) }
@@ -410,7 +410,7 @@ require_route_surface_manifest_contract() {
   ruby -rjson -ryaml -e '
     openapi_file = ARGV.fetch(0)
     manifest_file = ARGV.fetch(1)
-    spec = YAML.load_file(openapi_file)
+    spec = YAML.unsafe_load_file(openapi_file)
     manifest = JSON.parse(File.read(manifest_file))
 
     def resolve_ref(spec, ref)
@@ -519,7 +519,7 @@ require_route_surface_manifest_contract() {
 require_session_csrf_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     security_schemes = spec.fetch("components", {}).fetch("securitySchemes", {})
     csrf_header = security_schemes["csrfHeader"]
     missing = []
@@ -623,7 +623,7 @@ require_session_csrf_contract() {
 require_marketplace_paid_install_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     schemas = spec.fetch("components", {}).fetch("schemas", {})
     paths = spec.fetch("paths", {})
     missing = []
@@ -696,7 +696,7 @@ require_marketplace_paid_install_contract() {
 require_marketplace_template_type_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     schemas = spec.fetch("components", {}).fetch("schemas", {})
     paths = spec.fetch("paths", {})
     missing = []
@@ -731,7 +731,7 @@ require_marketplace_template_type_contract() {
 require_marketplace_surface_payload_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     paths = spec.fetch("paths", {})
     schemas = spec.fetch("components", {}).fetch("schemas", {})
     missing = []
@@ -928,7 +928,7 @@ require_marketplace_surface_payload_contract() {
 require_marketplace_browse_payload_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     paths = spec.fetch("paths", {})
     schemas = spec.fetch("components", {}).fetch("schemas", {})
     missing = []
@@ -1020,7 +1020,7 @@ require_marketplace_browse_payload_contract() {
 require_marketplace_private_read_auth_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     paths = spec.fetch("paths", {})
     missing = []
 
@@ -1065,7 +1065,7 @@ require_marketplace_private_read_auth_contract() {
 require_marketplace_public_read_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     paths = spec.fetch("paths", {})
     missing = []
 
@@ -1110,7 +1110,7 @@ require_marketplace_public_read_contract() {
 require_admin_channel_secret_response_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     paths = spec.fetch("paths", {})
     schemas = spec.fetch("components", {}).fetch("schemas", {})
     missing = []
@@ -1343,7 +1343,7 @@ require_admin_channel_secret_response_contract() {
 require_publishing_channel_secret_csrf_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     paths = spec.fetch("paths", {})
     schemas = spec.fetch("components", {}).fetch("schemas", {})
     missing = []
@@ -1505,7 +1505,7 @@ require_publishing_channel_secret_csrf_contract() {
 require_admin_observability_provider_secret_csrf_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     paths = spec.fetch("paths", {})
     schemas = spec.fetch("components", {}).fetch("schemas", {})
     missing = []
@@ -1653,7 +1653,7 @@ require_admin_observability_provider_secret_csrf_contract() {
 require_mcp_auth_token_response_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     paths = spec.fetch("paths", {})
     schemas = spec.fetch("components", {}).fetch("schemas", {})
     missing = []
@@ -1799,7 +1799,7 @@ require_mcp_auth_token_response_contract() {
 require_marketplace_user_mutation_csrf_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     paths = spec.fetch("paths", {})
     missing = []
 
@@ -1851,7 +1851,7 @@ require_marketplace_user_mutation_csrf_contract() {
 require_admin_marketplace_governance_csrf_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     paths = spec.fetch("paths", {})
     missing = []
 
@@ -1910,7 +1910,7 @@ require_admin_marketplace_governance_csrf_contract() {
 require_admin_marketplace_review_csrf_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     paths = spec.fetch("paths", {})
     missing = []
 
@@ -2025,7 +2025,7 @@ require_admin_marketplace_review_csrf_contract() {
 require_agent_run_mutation_csrf_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     paths = spec.fetch("paths", {})
     schemas = spec.fetch("components", {}).fetch("schemas", {})
     missing = []
@@ -2242,7 +2242,7 @@ require_agent_run_mutation_csrf_contract() {
 require_workspace_agent_mutation_csrf_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     paths = spec.fetch("paths", {})
     schemas = spec.fetch("components", {}).fetch("schemas", {})
     missing = []
@@ -2390,7 +2390,7 @@ require_workspace_agent_mutation_csrf_contract() {
 require_memory_mutation_csrf_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     paths = spec.fetch("paths", {})
     schemas = spec.fetch("components", {}).fetch("schemas", {})
     missing = []
@@ -2564,7 +2564,7 @@ require_memory_mutation_csrf_contract() {
 require_billing_checkout_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     paths = spec.fetch("paths", {})
     schemas = spec.fetch("components", {}).fetch("schemas", {})
     missing = []
@@ -2821,7 +2821,7 @@ require_billing_checkout_contract() {
 require_quota_topup_csrf_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     paths = spec.fetch("paths", {})
     schemas = spec.fetch("components", {}).fetch("schemas", {})
     missing = []
@@ -2897,7 +2897,7 @@ require_quota_topup_csrf_contract() {
 require_tenant_organization_mutation_csrf_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     paths = spec.fetch("paths", {})
     schemas = spec.fetch("components", {}).fetch("schemas", {})
     missing = []
@@ -3002,7 +3002,7 @@ require_tenant_organization_mutation_csrf_contract() {
 require_workflow_execution_control_csrf_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     paths = spec.fetch("paths", {})
     missing = []
 
@@ -3069,7 +3069,7 @@ require_workflow_execution_control_csrf_contract() {
 require_workflow_management_csrf_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     paths = spec.fetch("paths", {})
     schemas = spec.fetch("components", {}).fetch("schemas", {})
     missing = []
@@ -3214,7 +3214,7 @@ require_workflow_management_csrf_contract() {
 require_console_api_token_csrf_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     paths = spec.fetch("paths", {})
     schemas = spec.fetch("components", {}).fetch("schemas", {})
     missing = []
@@ -3342,7 +3342,7 @@ require_console_api_token_csrf_contract() {
 require_admin_api_token_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     paths = spec.fetch("paths", {})
     schemas = spec.fetch("components", {}).fetch("schemas", {})
     missing = []
@@ -3432,7 +3432,7 @@ require_admin_api_token_contract() {
 require_task_mutation_csrf_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     paths = spec.fetch("paths", {})
     schemas = spec.fetch("components", {}).fetch("schemas", {})
     missing = []
@@ -3575,7 +3575,7 @@ require_task_mutation_csrf_contract() {
 require_notification_mutation_csrf_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     paths = spec.fetch("paths", {})
     missing = []
 
@@ -3640,7 +3640,7 @@ require_notification_mutation_csrf_contract() {
 require_scheduled_task_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     paths = spec.fetch("paths", {})
     schemas = spec.fetch("components", {}).fetch("schemas", {})
     missing = []
@@ -3749,7 +3749,7 @@ require_scheduled_task_contract() {
 require_preferences_mutation_csrf_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     paths = spec.fetch("paths", {})
     schemas = spec.fetch("components", {}).fetch("schemas", {})
     missing = []
@@ -3828,7 +3828,7 @@ require_preferences_mutation_csrf_contract() {
 require_chat_mutation_csrf_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     paths = spec.fetch("paths", {})
     schemas = spec.fetch("components", {}).fetch("schemas", {})
     missing = []
@@ -4138,7 +4138,7 @@ require_chat_mutation_csrf_contract() {
 require_knowledge_mutation_csrf_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     paths = spec.fetch("paths", {})
     schemas = spec.fetch("components", {}).fetch("schemas", {})
     missing = []
@@ -4333,7 +4333,7 @@ require_knowledge_mutation_csrf_contract() {
 require_admin_organization_mutation_csrf_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     paths = spec.fetch("paths", {})
     schemas = spec.fetch("components", {}).fetch("schemas", {})
     missing = []
@@ -4429,7 +4429,7 @@ require_admin_organization_mutation_csrf_contract() {
 require_admin_core_management_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     paths = spec.fetch("paths", {})
     schemas = spec.fetch("components", {}).fetch("schemas", {})
     missing = []
@@ -4589,7 +4589,7 @@ require_admin_core_management_contract() {
 require_admin_billing_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     paths = spec.fetch("paths", {})
     schemas = spec.fetch("components", {}).fetch("schemas", {})
     missing = []
@@ -4770,7 +4770,7 @@ require_admin_billing_contract() {
 require_domestic_payment_webhook_payout_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     paths = spec.fetch("paths", {})
     schemas = spec.fetch("components", {}).fetch("schemas", {})
     missing = []
@@ -4858,7 +4858,7 @@ require_relay_alias_bearer_contract() {
   ruby -ryaml -e '
     file = ARGV.shift
     paths = ARGV
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     schemes = spec.fetch("components", {}).fetch("securitySchemes", {})
     bearer = schemes["bearerAuth"]
     missing = []
@@ -4894,7 +4894,7 @@ require_relay_alias_bearer_contract() {
 require_websocket_contract() {
   ruby -ryaml -e '
     file = ARGV.fetch(0)
-    spec = YAML.load_file(file)
+    spec = YAML.unsafe_load_file(file)
     op = spec.fetch("paths", {}).fetch("/api/v1/ws", {}).fetch("get", {})
     missing = []
 

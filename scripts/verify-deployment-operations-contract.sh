@@ -8,11 +8,11 @@ ruby -ryaml -rjson -e '
   missing = []
 
   def read_yaml(path)
-    YAML.load_file(path)
+    YAML.unsafe_load_file(path)
   end
 
   def read_yaml_stream(path)
-    YAML.load_stream(File.read(path)).compact
+    YAML.parse_stream(File.read(path)).to_ruby.compact
   end
 
   def deployment_doc(path)
