@@ -661,7 +661,7 @@ export function AdminChannelsPage() {
               </Button>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button type="button" variant="ghost" size="icon" aria-label={`Test connection for ${channel.name}`} onClick={() => void handleTest(channel)}>
+                  <Button type="button" variant="ghost" size="icon" aria-label={`Test connection for ${channel.name}`} disabled={state.testLoading[channel.id]} onClick={() => void handleTest(channel)}>
                     {state.testLoading[channel.id] ? <RiLoader4Line className="size-4 animate-spin" aria-hidden="true" /> : <RiFlashlightLine className="size-4" aria-hidden="true" />}
                   </Button>
                 </TooltipTrigger>
@@ -673,7 +673,7 @@ export function AdminChannelsPage() {
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button type="button" variant="ghost" size="icon" aria-label={`Sync models for ${channel.name}`} onClick={() => void handleSyncModels(channel)}>
+                  <Button type="button" variant="ghost" size="icon" aria-label={`Sync models for ${channel.name}`} disabled={state.testLoading[channel.id]} onClick={() => void handleSyncModels(channel)}>
                     {state.testLoading[channel.id] ? <RiLoader4Line className="size-4 animate-spin" aria-hidden="true" /> : <RiDownloadCloudLine className="size-4" aria-hidden="true" />}
                   </Button>
                 </TooltipTrigger>
@@ -683,7 +683,7 @@ export function AdminChannelsPage() {
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button type="button" variant="ghost" size="icon" aria-label={`Detect model updates for ${channel.name}`} onClick={() => void handleDetectModelUpdates(channel)}>
+                  <Button type="button" variant="ghost" size="icon" aria-label={`Detect model updates for ${channel.name}`} disabled={state.testLoading[channel.id]} onClick={() => void handleDetectModelUpdates(channel)}>
                     {state.testLoading[channel.id] ? <RiLoader4Line className="size-4 animate-spin" aria-hidden="true" /> : <RiDownloadCloudLine className="size-4" aria-hidden="true" />}
                   </Button>
                 </TooltipTrigger>
@@ -693,7 +693,7 @@ export function AdminChannelsPage() {
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button type="button" variant="ghost" size="icon" aria-label={`Refresh balance for ${channel.name}`} onClick={() => void handleRefreshBalance(channel)}>
+                  <Button type="button" variant="ghost" size="icon" aria-label={`Refresh balance for ${channel.name}`} disabled={state.testLoading[channel.id]} onClick={() => void handleRefreshBalance(channel)}>
                     {state.testLoading[channel.id] ? <RiLoader4Line className="size-4 animate-spin" aria-hidden="true" /> : <RiRefreshLine className="size-4" aria-hidden="true" />}
                   </Button>
                 </TooltipTrigger>
