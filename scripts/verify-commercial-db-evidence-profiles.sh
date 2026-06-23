@@ -569,12 +569,14 @@ if [[ "$admin_relay_read_isolation_body" != *"TestAdminRelayReadSurfacesScopeRun
 fi
 
 marketplace_template_routes_body=$(sed -n '/^run_marketplace_template_routes_profile() {/,/^}/p' "$target")
-if [[ "$marketplace_template_routes_body" != *"MarketplaceTemplateRoutesCreateListDetailAndInstall"* ]]; then
-  fail "marketplace-template-routes must include TestMarketplaceTemplateRoutesCreateListDetailAndInstall"
-fi
-if [[ "$marketplace_template_routes_body" != *"MarketplaceRouterRegistersTemplateAndPublisherPreferenceRoutes"* ]]; then
-  fail "marketplace-template-routes must include TestMarketplaceRouterRegistersTemplateAndPublisherPreferenceRoutes"
-fi
+marketplace_template_routes_required=(
+  "TestMarketplaceTemplateRoutesCreateListDetailAndInstall|TestMarketplaceTemplateRoutesCreateListDetailAndInstall"
+  "TestMarketplaceRouterRegistersTemplateAndPublisherPreferenceRoutes|TestMarketplaceRouterRegistersTemplateAndPublisherPreferenceRoutes"
+)
+for entry in "${marketplace_template_routes_required[@]}"; do
+  IFS='|' read -r token test_name <<< "$entry"
+  require_profile_token "$marketplace_template_routes_body" "marketplace-template-routes" "$token" "$test_name"
+done
 
 marketplace_governance_review_body=$(sed -n '/^run_marketplace_governance_review_profile() {/,/^}/p' "$target")
 if ! profile_body_has_token "$marketplace_governance_review_body" "TestGovernanceTakedownPreventsNewInstallsAndPreservesHistory"; then
