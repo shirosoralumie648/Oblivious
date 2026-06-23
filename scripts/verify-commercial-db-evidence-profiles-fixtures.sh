@@ -185,6 +185,38 @@ if [[ "$output" != *"auth-security-persistence must include TestMeRequiresSessio
   exit 1
 fi
 
+target_auth_security_prefix_fixture="$tmp_dir/verify-commercial-db-evidence-auth-security-prefix.sh"
+cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_auth_security_prefix_fixture"
+perl -0pi -e 's/auth_http_pattern="\^\(Test/auth_http_pattern="^(TestWrongPrefix/' "$target_auth_security_prefix_fixture"
+
+if output=$(COMMERCIAL_DB_EVIDENCE_TARGET="$target_auth_security_prefix_fixture" bash "$repo_root/scripts/verify-commercial-db-evidence-profiles.sh" 2>&1); then
+  echo "[commercial-db-evidence-profiles-fixtures] expected prefixed auth security HTTP token to be rejected" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
+if [[ "$output" != *"auth-security-persistence must include TestRegisterLoginMeLogoutFlow"* ]]; then
+  echo "[commercial-db-evidence-profiles-fixtures] expected auth security prefixed full-name rejection message" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
+target_auth_security_group_suffix_fixture="$tmp_dir/verify-commercial-db-evidence-auth-security-group-suffix.sh"
+cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_auth_security_group_suffix_fixture"
+perl -0pi -e 's{^  auth_http_pattern=.*$}{  auth_http_pattern="^(TestRegisterLoginMeLogoutFlow|TestAuthRateLimitRejectsRepeatedFailedLogin|TestPasswordResetRoutesConfirmAndRevokeSessions|TestPasswordResetRequestDoesNotEnumerateEmailsOutsideTestEnv|TestRegisterStoresHashedPassword|TestLoginAcceptsRawPasswordAgainstStoredHash|TestMeRequiresSession|TestAuthResponsesExposeStableUserAndPreferenceContracts|TestSensitiveOrganizationActionsAreRateLimited)WrongSuffix\\$"}m' "$target_auth_security_group_suffix_fixture"
+
+if output=$(COMMERCIAL_DB_EVIDENCE_TARGET="$target_auth_security_group_suffix_fixture" bash "$repo_root/scripts/verify-commercial-db-evidence-profiles.sh" 2>&1); then
+  echo "[commercial-db-evidence-profiles-fixtures] expected suffixed auth security HTTP group to be rejected" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
+if [[ "$output" != *"auth-security-persistence must use exact auth HTTP test pattern"* ]]; then
+  echo "[commercial-db-evidence-profiles-fixtures] expected auth security exact-pattern rejection message" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
 target_marketplace_money_fixture="$tmp_dir/verify-commercial-db-evidence-marketplace-money.sh"
 cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_marketplace_money_fixture"
 perl -0pi -e 's/TestDomesticPaymentWebhookRouteAppliesMarketplaceInstallSettlementOnce/TestDomesticPaymentWebhookRouteAppliesMarketplaceV2InstallSettlementOnce/g' "$target_marketplace_money_fixture"

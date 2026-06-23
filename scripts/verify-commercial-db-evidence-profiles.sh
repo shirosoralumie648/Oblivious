@@ -27,6 +27,17 @@ require_profile_token() {
   fi
 }
 
+require_profile_text() {
+  local body="$1"
+  local profile="$2"
+  local text="$3"
+  local description="$4"
+
+  if [[ "$body" != *"$text"* ]]; then
+    fail "$profile must use exact $description"
+  fi
+}
+
 profile_name_from_function() {
   local function_name="$1"
   function_name="${function_name#run_}"
@@ -403,21 +414,22 @@ auth_security_persistence_required=(
   "TestPasswordPolicyResetAndSessionRevocation|TestPasswordPolicyResetAndSessionRevocation"
   "TestPasswordResetTokenReplayExpiryAndUnknownEmailFailClosed|TestPasswordResetTokenReplayExpiryAndUnknownEmailFailClosed"
   "TestSQLRateLimiterPersistsBlocks|TestSQLRateLimiterPersistsBlocks"
-  "RegisterLoginMeLogoutFlow|TestRegisterLoginMeLogoutFlow"
-  "AuthRateLimitRejectsRepeatedFailedLogin|TestAuthRateLimitRejectsRepeatedFailedLogin"
-  "PasswordResetRoutesConfirmAndRevokeSessions|TestPasswordResetRoutesConfirmAndRevokeSessions"
-  "PasswordResetRequestDoesNotEnumerateEmailsOutsideTestEnv|TestPasswordResetRequestDoesNotEnumerateEmailsOutsideTestEnv"
-  "RegisterStoresHashedPassword|TestRegisterStoresHashedPassword"
-  "LoginAcceptsRawPasswordAgainstStoredHash|TestLoginAcceptsRawPasswordAgainstStoredHash"
-  "MeRequiresSession|TestMeRequiresSession"
-  "AuthResponsesExposeStableUserAndPreferenceContracts|TestAuthResponsesExposeStableUserAndPreferenceContracts"
-  "SensitiveOrganizationActionsAreRateLimited|TestSensitiveOrganizationActionsAreRateLimited"
+  "TestRegisterLoginMeLogoutFlow|TestRegisterLoginMeLogoutFlow"
+  "TestAuthRateLimitRejectsRepeatedFailedLogin|TestAuthRateLimitRejectsRepeatedFailedLogin"
+  "TestPasswordResetRoutesConfirmAndRevokeSessions|TestPasswordResetRoutesConfirmAndRevokeSessions"
+  "TestPasswordResetRequestDoesNotEnumerateEmailsOutsideTestEnv|TestPasswordResetRequestDoesNotEnumerateEmailsOutsideTestEnv"
+  "TestRegisterStoresHashedPassword|TestRegisterStoresHashedPassword"
+  "TestLoginAcceptsRawPasswordAgainstStoredHash|TestLoginAcceptsRawPasswordAgainstStoredHash"
+  "TestMeRequiresSession|TestMeRequiresSession"
+  "TestAuthResponsesExposeStableUserAndPreferenceContracts|TestAuthResponsesExposeStableUserAndPreferenceContracts"
+  "TestSensitiveOrganizationActionsAreRateLimited|TestSensitiveOrganizationActionsAreRateLimited"
 )
 for requirement in "${auth_security_persistence_required[@]}"; do
   token="${requirement%%|*}"
   test_name="${requirement#*|}"
   require_profile_token "$auth_security_persistence_body" "auth-security-persistence" "$token" "$test_name"
 done
+require_profile_text "$auth_security_persistence_body" "auth-security-persistence" 'auth_http_pattern="^(TestRegisterLoginMeLogoutFlow|TestAuthRateLimitRejectsRepeatedFailedLogin|TestPasswordResetRoutesConfirmAndRevokeSessions|TestPasswordResetRequestDoesNotEnumerateEmailsOutsideTestEnv|TestRegisterStoresHashedPassword|TestLoginAcceptsRawPasswordAgainstStoredHash|TestMeRequiresSession|TestAuthResponsesExposeStableUserAndPreferenceContracts|TestSensitiveOrganizationActionsAreRateLimited)$"' "auth HTTP test pattern"
 
 migration_ledger_backfills_body=$(sed -n '/^run_migration_ledger_backfills_profile() {/,/^}/p' "$target")
 migration_ledger_backfills_required=(
