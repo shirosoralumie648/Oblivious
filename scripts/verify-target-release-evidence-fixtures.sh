@@ -32,6 +32,7 @@ fill_manifest() {
   local path="$1"
 
   mutate_json "$path" '
+data["runId"] = "target-release-20260616"
 data["environment"]["name"] = "staging-target"
 data["environment"]["class"] = "staging Kubernetes"
 data["environment"]["baseUrl"] = "https://staging.oblivious.internal"
@@ -51,6 +52,8 @@ data["artifacts"] = [
   {
     "id" => "artifact-strict-verifier-20260616",
     "kind" => "strict-verifier-log",
+    "commit" => data["commit"],
+    "runId" => data["runId"],
     "uri" => "ci://target-release/20260616/strict-verifier.log",
     "recordedAt" => "2026-06-16T01:00:00Z",
     "sha256" => "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -58,12 +61,16 @@ data["artifacts"] = [
   {
     "id" => "artifact-deploy-20260616",
     "kind" => "deployment-log",
+    "commit" => data["commit"],
+    "runId" => data["runId"],
     "uri" => "ci://target-release/20260616/deploy.log",
     "recordedAt" => "2026-06-16T01:00:00Z"
   },
   {
     "id" => "artifact-k8s-20260616",
     "kind" => "kubernetes-validation",
+    "commit" => data["commit"],
+    "runId" => data["runId"],
     "uri" => "ci://target-release/20260616/kubernetes.log",
     "recordedAt" => "2026-06-16T01:00:00Z"
   },
@@ -71,6 +78,8 @@ data["artifacts"] = [
     "id" => "artifact-provider-stripe-20260616",
     "kind" => "provider-live-rail",
     "provider" => "stripe",
+    "commit" => data["commit"],
+    "runId" => data["runId"],
     "uri" => "provider://stripe/live/20260616",
     "recordedAt" => "2026-06-16T01:00:00Z"
   },
@@ -78,6 +87,8 @@ data["artifacts"] = [
     "id" => "artifact-provider-alipay-20260616",
     "kind" => "provider-live-rail",
     "provider" => "alipay",
+    "commit" => data["commit"],
+    "runId" => data["runId"],
     "uri" => "provider://alipay/live/20260616",
     "recordedAt" => "2026-06-16T01:00:00Z"
   },
@@ -85,24 +96,32 @@ data["artifacts"] = [
     "id" => "artifact-provider-wechatpay-20260616",
     "kind" => "provider-live-rail",
     "provider" => "wechatpay",
+    "commit" => data["commit"],
+    "runId" => data["runId"],
     "uri" => "provider://wechatpay/live/20260616",
     "recordedAt" => "2026-06-16T01:00:00Z"
   },
   {
     "id" => "artifact-grpc-smoke-20260616",
     "kind" => "grpc-smoke-report",
+    "commit" => data["commit"],
+    "runId" => data["runId"],
     "uri" => "ci://target-release/20260616/grpc-smoke.json",
     "recordedAt" => "2026-06-16T01:00:00Z"
   },
   {
     "id" => "artifact-secret-audit-20260616",
     "kind" => "secret-audit",
+    "commit" => data["commit"],
+    "runId" => data["runId"],
     "uri" => "ci://target-release/20260616/secret-audit.log",
     "recordedAt" => "2026-06-16T01:00:00Z"
   },
   {
     "id" => "artifact-workflow-telemetry-20260616",
     "kind" => "workflow-telemetry",
+    "commit" => data["commit"],
+    "runId" => data["runId"],
     "uri" => "observability://target/workflows/success-rate/20260616",
     "recordedAt" => "2026-06-16T01:00:00Z"
   }
@@ -155,6 +174,11 @@ make_invalid_case \
   "artifacts must include at least one target artifact entry"
 
 make_invalid_case \
+  "missing-run-lineage" \
+  'data.delete("runId")' \
+  "runId is required"
+
+make_invalid_case \
   "dangling-strict-verifier-evidence-ref" \
   'data["strictVerifier"]["evidenceRef"] = "artifact-missing-20260616"' \
   "strictVerifier.evidenceRef must reference an artifact id listed in artifacts"
@@ -163,6 +187,16 @@ make_invalid_case \
   "mismatched-strict-verifier-artifact-kind" \
   'data["strictVerifier"]["evidenceRef"] = "artifact-provider-stripe-20260616"; data["providers"].find { |provider| provider["name"] == "stripe" }["evidenceRef"] = "artifact-strict-verifier-20260616"' \
   "strictVerifier.evidenceRef must reference artifact kind strict-verifier-log"
+
+make_invalid_case \
+  "mismatched-artifact-commit" \
+  'data["artifacts"].find { |artifact| artifact["id"] == "artifact-deploy-20260616" }["commit"] = "0000000000000000000000000000000000000000"' \
+  "artifacts[1].commit must match manifest commit"
+
+make_invalid_case \
+  "mismatched-artifact-run-id" \
+  'data["artifacts"].find { |artifact| artifact["id"] == "artifact-deploy-20260616" }["runId"] = "target-release-20260615"' \
+  "artifacts[1].runId must match manifest runId"
 
 make_invalid_case \
   "placeholder-environment-base-url" \

@@ -17,6 +17,7 @@ Required JSON shape:
   "schemaVersion": 1,
   "repository": "Oblivious",
   "commit": "<full git sha>",
+  "runId": "target-release-20260616",
   "environment": {
     "name": "staging",
     "class": "staging Kubernetes",
@@ -100,14 +101,14 @@ Required JSON shape:
     "evidenceRef": "telemetry-dashboard-or-export"
   },
   "artifacts": [
-    {"id": "strict-verifier-log-or-artifact-id", "kind": "strict-verifier-log", "uri": "ci://run/strict-verifier", "recordedAt": "2026-06-16T01:00:00Z"},
-    {"id": "release-log-or-artifact-id", "kind": "deployment-log", "uri": "ci://run/deployment", "recordedAt": "2026-06-16T01:00:00Z"},
-    {"id": "stripe-provider-run-id", "kind": "provider-live-rail", "provider": "stripe", "uri": "ci://run/provider/stripe", "recordedAt": "2026-06-16T01:00:00Z"},
-    {"id": "alipay-provider-run-id", "kind": "provider-live-rail", "provider": "alipay", "uri": "ci://run/provider/alipay", "recordedAt": "2026-06-16T01:00:00Z"},
-    {"id": "wechatpay-provider-run-id", "kind": "provider-live-rail", "provider": "wechatpay", "uri": "ci://run/provider/wechatpay", "recordedAt": "2026-06-16T01:00:00Z"},
-    {"id": "grpc-smoke-log", "kind": "grpc-smoke-report", "uri": "ci://run/grpc-smoke", "recordedAt": "2026-06-16T01:00:00Z"},
-    {"id": "secret-audit-log", "kind": "secret-audit", "uri": "ci://run/secret-audit", "recordedAt": "2026-06-16T01:00:00Z"},
-    {"id": "telemetry-dashboard-or-export", "kind": "workflow-telemetry", "uri": "ci://run/workflow-telemetry", "recordedAt": "2026-06-16T01:00:00Z"}
+    {"id": "strict-verifier-log-or-artifact-id", "kind": "strict-verifier-log", "commit": "<full git sha>", "runId": "target-release-20260616", "uri": "ci://run/strict-verifier", "recordedAt": "2026-06-16T01:00:00Z"},
+    {"id": "release-log-or-artifact-id", "kind": "deployment-log", "commit": "<full git sha>", "runId": "target-release-20260616", "uri": "ci://run/deployment", "recordedAt": "2026-06-16T01:00:00Z"},
+    {"id": "stripe-provider-run-id", "kind": "provider-live-rail", "provider": "stripe", "commit": "<full git sha>", "runId": "target-release-20260616", "uri": "ci://run/provider/stripe", "recordedAt": "2026-06-16T01:00:00Z"},
+    {"id": "alipay-provider-run-id", "kind": "provider-live-rail", "provider": "alipay", "commit": "<full git sha>", "runId": "target-release-20260616", "uri": "ci://run/provider/alipay", "recordedAt": "2026-06-16T01:00:00Z"},
+    {"id": "wechatpay-provider-run-id", "kind": "provider-live-rail", "provider": "wechatpay", "commit": "<full git sha>", "runId": "target-release-20260616", "uri": "ci://run/provider/wechatpay", "recordedAt": "2026-06-16T01:00:00Z"},
+    {"id": "grpc-smoke-log", "kind": "grpc-smoke-report", "commit": "<full git sha>", "runId": "target-release-20260616", "uri": "ci://run/grpc-smoke", "recordedAt": "2026-06-16T01:00:00Z"},
+    {"id": "secret-audit-log", "kind": "secret-audit", "commit": "<full git sha>", "runId": "target-release-20260616", "uri": "ci://run/secret-audit", "recordedAt": "2026-06-16T01:00:00Z"},
+    {"id": "telemetry-dashboard-or-export", "kind": "workflow-telemetry", "commit": "<full git sha>", "runId": "target-release-20260616", "uri": "ci://run/workflow-telemetry", "recordedAt": "2026-06-16T01:00:00Z"}
   ]
 }
 
@@ -137,6 +138,7 @@ puts JSON.pretty_generate(
     "schemaVersion" => 1,
     "repository" => "Oblivious",
     "commit" => ENV.fetch("CURRENT_COMMIT"),
+    "runId" => "TODO-target-release-run-id",
     "environment" => {
       "name" => "TODO-target-environment-name",
       "class" => "TODO-target-environment-class",
@@ -220,15 +222,15 @@ puts JSON.pretty_generate(
       "evidenceRef" => "TODO-telemetry-dashboard-or-export"
     },
     "artifacts" => [
-      {"id" => "TODO-strict-commercial-verifier-log", "kind" => "strict-verifier-log", "uri" => "TODO-strict-commercial-verifier-log-uri", "recordedAt" => recorded_at.iso8601},
-      {"id" => "TODO-release-log-or-artifact-id", "kind" => "deployment-log", "uri" => "TODO-release-log-uri", "recordedAt" => recorded_at.iso8601},
-      {"id" => "TODO-kubernetes-release-log-or-artifact-id", "kind" => "kubernetes-validation", "uri" => "TODO-kubernetes-log-uri", "recordedAt" => recorded_at.iso8601},
-      {"id" => "TODO-stripe-provider-run-id", "kind" => "provider-live-rail", "provider" => "stripe", "uri" => "TODO-stripe-provider-log-uri", "recordedAt" => recorded_at.iso8601},
-      {"id" => "TODO-alipay-provider-run-id", "kind" => "provider-live-rail", "provider" => "alipay", "uri" => "TODO-alipay-provider-log-uri", "recordedAt" => recorded_at.iso8601},
-      {"id" => "TODO-wechatpay-provider-run-id", "kind" => "provider-live-rail", "provider" => "wechatpay", "uri" => "TODO-wechatpay-provider-log-uri", "recordedAt" => recorded_at.iso8601},
-      {"id" => "TODO-target-grpc-smoke-report", "kind" => "grpc-smoke-report", "uri" => "TODO-target-grpc-smoke-report-uri", "recordedAt" => recorded_at.iso8601},
-      {"id" => "TODO-secret-audit-log", "kind" => "secret-audit", "uri" => "TODO-secret-audit-log-uri", "recordedAt" => recorded_at.iso8601},
-      {"id" => "TODO-telemetry-dashboard-or-export", "kind" => "workflow-telemetry", "uri" => "TODO-telemetry-dashboard-or-export-uri", "recordedAt" => recorded_at.iso8601}
+      {"id" => "TODO-strict-commercial-verifier-log", "kind" => "strict-verifier-log", "commit" => ENV.fetch("CURRENT_COMMIT"), "runId" => "TODO-target-release-run-id", "uri" => "TODO-strict-commercial-verifier-log-uri", "recordedAt" => recorded_at.iso8601},
+      {"id" => "TODO-release-log-or-artifact-id", "kind" => "deployment-log", "commit" => ENV.fetch("CURRENT_COMMIT"), "runId" => "TODO-target-release-run-id", "uri" => "TODO-release-log-uri", "recordedAt" => recorded_at.iso8601},
+      {"id" => "TODO-kubernetes-release-log-or-artifact-id", "kind" => "kubernetes-validation", "commit" => ENV.fetch("CURRENT_COMMIT"), "runId" => "TODO-target-release-run-id", "uri" => "TODO-kubernetes-log-uri", "recordedAt" => recorded_at.iso8601},
+      {"id" => "TODO-stripe-provider-run-id", "kind" => "provider-live-rail", "provider" => "stripe", "commit" => ENV.fetch("CURRENT_COMMIT"), "runId" => "TODO-target-release-run-id", "uri" => "TODO-stripe-provider-log-uri", "recordedAt" => recorded_at.iso8601},
+      {"id" => "TODO-alipay-provider-run-id", "kind" => "provider-live-rail", "provider" => "alipay", "commit" => ENV.fetch("CURRENT_COMMIT"), "runId" => "TODO-target-release-run-id", "uri" => "TODO-alipay-provider-log-uri", "recordedAt" => recorded_at.iso8601},
+      {"id" => "TODO-wechatpay-provider-run-id", "kind" => "provider-live-rail", "provider" => "wechatpay", "commit" => ENV.fetch("CURRENT_COMMIT"), "runId" => "TODO-target-release-run-id", "uri" => "TODO-wechatpay-provider-log-uri", "recordedAt" => recorded_at.iso8601},
+      {"id" => "TODO-target-grpc-smoke-report", "kind" => "grpc-smoke-report", "commit" => ENV.fetch("CURRENT_COMMIT"), "runId" => "TODO-target-release-run-id", "uri" => "TODO-target-grpc-smoke-report-uri", "recordedAt" => recorded_at.iso8601},
+      {"id" => "TODO-secret-audit-log", "kind" => "secret-audit", "commit" => ENV.fetch("CURRENT_COMMIT"), "runId" => "TODO-target-release-run-id", "uri" => "TODO-secret-audit-log-uri", "recordedAt" => recorded_at.iso8601},
+      {"id" => "TODO-telemetry-dashboard-or-export", "kind" => "workflow-telemetry", "commit" => ENV.fetch("CURRENT_COMMIT"), "runId" => "TODO-target-release-run-id", "uri" => "TODO-telemetry-dashboard-or-export-uri", "recordedAt" => recorded_at.iso8601}
     ]
   }
 )
@@ -584,6 +586,10 @@ commit = require_string(failures, data, ["commit"])
 if commit && commit != current_commit && !allow_mismatch
   failures << "commit must match current HEAD #{current_commit}"
 end
+run_id = require_string(failures, data, ["runId"])
+if run_id.is_a?(String) && placeholder?(run_id)
+  failures << "runId must reference a concrete target evidence run, not a placeholder"
+end
 
 %w[name class baseUrl].each do |field|
   value = require_string(failures, data, ["environment", field])
@@ -849,6 +855,20 @@ else
     end
     kind = require_string(failures, data, ["artifacts", index, "kind"])
     failures << "artifacts[#{index}].kind must describe a concrete target artifact, not a placeholder" if placeholder?(kind)
+    artifact_commit = require_string(failures, data, ["artifacts", index, "commit"])
+    if artifact_commit.is_a?(String)
+      failures << "artifacts[#{index}].commit must reference a concrete release commit, not a placeholder" if placeholder?(artifact_commit)
+      if commit.is_a?(String) && !placeholder?(artifact_commit) && artifact_commit != commit
+        failures << "artifacts[#{index}].commit must match manifest commit"
+      end
+    end
+    artifact_run_id = require_string(failures, data, ["artifacts", index, "runId"])
+    if artifact_run_id.is_a?(String)
+      failures << "artifacts[#{index}].runId must reference a concrete target evidence run, not a placeholder" if placeholder?(artifact_run_id)
+      if run_id.is_a?(String) && !placeholder?(artifact_run_id) && artifact_run_id != run_id
+        failures << "artifacts[#{index}].runId must match manifest runId"
+      end
+    end
     uri = require_string(failures, data, ["artifacts", index, "uri"])
     failures << "artifacts[#{index}].uri must reference a concrete target artifact, not a placeholder" if placeholder?(uri)
     failures << "artifacts[#{index}].uri must reference a remote target artifact URI" unless remote_artifact_uri?(uri)
@@ -943,6 +963,7 @@ end
 puts "[target-release-evidence] PASS target evidence manifest"
 puts "[target-release-evidence] environment: #{data.dig("environment", "name")} (#{data.dig("environment", "class")})"
 puts "[target-release-evidence] commit: #{data["commit"]}"
+puts "[target-release-evidence] run: #{data["runId"]}"
 puts "[target-release-evidence] providers: #{providers.map { |provider| provider["name"] }.join(", ")}"
 puts "[target-release-evidence] grpc services: #{grpc.map { |entry| entry["service"] }.join(", ")}"
 puts "[target-release-evidence] grpc smoke report: #{data.dig("grpcSmokeReport", "evidenceRef")}"
