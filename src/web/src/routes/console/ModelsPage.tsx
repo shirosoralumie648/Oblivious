@@ -51,10 +51,10 @@ export function ModelsPage() {
       {isLoading ? (
         <p>Loading model summaries…</p>
       ) : models ? (
-        <ul>
+        <ul className="min-w-0">
           {models.map((model) => (
-            <li key={model.id}>
-              <p>{model.label}</p>
+            <li className="min-w-0" key={model.id}>
+              <p className="break-words">{model.label}</p>
               <p>{`Requests: ${model.requests}`}</p>
             </li>
           ))}

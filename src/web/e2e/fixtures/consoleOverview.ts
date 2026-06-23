@@ -51,6 +51,7 @@ const usageSummary = {
 const modelSummaries = [
   { id: 'model_balanced', label: 'balanced-chat', requests: 6 },
   { id: 'model_quality', label: 'quality-chat', requests: 3 },
+  { id: 'model_long_context', label: 'providerresearchclusterultralongcontextmodel20260624previewwithunbrokenidentifier', requests: 1 },
 ];
 
 function envelope(data: unknown) {

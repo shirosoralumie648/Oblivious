@@ -1,6 +1,25 @@
-import { expect, test } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 
 import { registerConsoleOverviewRoutes } from './fixtures/consoleOverview';
+
+async function expectConsoleModelsLayoutContained(page: Page) {
+  const overflowState = await page.evaluate(() => {
+    const main = document.querySelector('main');
+    const consoleCanvas = document.querySelector('.console-canvas');
+
+    return {
+      documentFits: document.documentElement.scrollWidth <= window.innerWidth + 1,
+      mainFits: main instanceof HTMLElement ? main.scrollWidth <= main.clientWidth + 1 : true,
+      consoleCanvasFits: consoleCanvas instanceof HTMLElement ? consoleCanvas.scrollWidth <= consoleCanvas.clientWidth + 1 : true,
+    };
+  });
+
+  expect(overflowState).toEqual({
+    documentFits: true,
+    mainFits: true,
+    consoleCanvasFits: true,
+  });
+}
 
 test.beforeEach(async ({ page }) => {
   await registerConsoleOverviewRoutes(page);
@@ -34,6 +53,19 @@ test('console overview renders drill-down summaries and models in the built app'
   await expect(page.getByText('quality-chat')).toBeVisible();
   await expect(page.getByText('Requests: 3')).toBeVisible();
   await expect(page.getByRole('link', { name: 'Open access' })).toHaveAttribute('href', '/console/access');
+});
+
+test('console models keeps mobile model identifiers contained', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/console/models');
+
+  await expect(page.getByRole('heading', { name: 'Models' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Models' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('main')).toHaveCount(1);
+  await expect(page.getByText('Workspace: workspace_console_overview')).toBeVisible();
+  await expect(page.getByText('providerresearchclusterultralongcontextmodel20260624previewwithunbrokenidentifier')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Open access' })).toHaveAttribute('href', '/console/access');
+  await expectConsoleModelsLayoutContained(page);
 });
 
 test('console models fixture rejects unexpected model query params', async ({ page }) => {
