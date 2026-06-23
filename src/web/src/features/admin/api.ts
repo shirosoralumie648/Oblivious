@@ -383,6 +383,8 @@ export type AdminApi = {
   disableUser: (id: string) => Promise<void>;
   enableUser: (id: string) => Promise<void>;
   listAuditLogs: (params?: {
+    organizationID?: string;
+    organizationId?: string;
     actorID?: string;
     actorId?: string;
     action?: string;
@@ -568,12 +570,16 @@ export function createAdminApi(client: HttpClient): AdminApi {
 
     listAuditLogs: async (params) => {
       const queryParams = {
-        ...params,
+        organizationID: params?.organizationID ?? params?.organizationId,
         actorID: params?.actorID ?? params?.actorId,
+        action: params?.action,
+        resourceType: params?.resourceType,
         resourceID: params?.resourceID ?? params?.resourceId,
+        startDate: params?.startDate,
+        endDate: params?.endDate,
+        limit: params?.limit,
+        offset: params?.offset,
       };
-      delete queryParams.actorId;
-      delete queryParams.resourceId;
       const payload = await client.get<AuditListPayload>(`${apiPrefix}/audit-logs${buildQuery(queryParams)}`);
       return collection(payload.entries ?? payload.auditLogs ?? payload.data, payload.total);
     },

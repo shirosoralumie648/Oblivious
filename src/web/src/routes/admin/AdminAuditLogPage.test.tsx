@@ -48,10 +48,13 @@ describe('AdminAuditLogPage', () => {
 
     render(<AdminAuditLogPage />);
 
+    fireEvent.change(await screen.findByLabelText('Organization ID filter'), { target: { value: 'org_audit' } });
     fireEvent.change(await screen.findByLabelText('Action filter'), { target: { value: 'agent.approve' } });
     fireEvent.change(screen.getByLabelText('Resource type filter'), { target: { value: 'agent' } });
 
-    await waitFor(() => expect(listAuditLogs).toHaveBeenCalledWith(expect.objectContaining({ action: 'agent.approve', resourceType: 'agent' })));
+    await waitFor(() =>
+      expect(listAuditLogs).toHaveBeenCalledWith(expect.objectContaining({ organizationID: 'org_audit', action: 'agent.approve', resourceType: 'agent' }))
+    );
   });
 
   it('renders empty state when there are no entries', async () => {

@@ -22,7 +22,8 @@ describe('createAdminApi', () => {
         .fn()
         .mockResolvedValueOnce({ channels: [{ id: 'ch_1', name: 'OpenAI' }], total: 1 })
         .mockResolvedValueOnce({ routes: [{ id: 'rt_1', model: 'gpt-4o' }], total: 1 })
-        .mockResolvedValueOnce({ entries: [{ id: 'aud_1', action: 'channel.create' }], total: 1 }),
+        .mockResolvedValueOnce({ entries: [{ id: 'aud_1', action: 'channel.create' }], total: 1 })
+        .mockResolvedValueOnce({ entries: [], total: 0 }),
     });
 
     const api = createAdminApi(client);
@@ -36,10 +37,15 @@ describe('createAdminApi', () => {
       data: [{ id: 'aud_1', action: 'channel.create' }],
       total: 1,
     });
+    await expect(api.listAuditLogs({ organizationId: 'org_audit', action: 'channel.create' })).resolves.toEqual({
+      data: [],
+      total: 0,
+    });
 
     expect(client.get).toHaveBeenNthCalledWith(1, '/api/v1/admin/channels?provider=openai&limit=10');
     expect(client.get).toHaveBeenNthCalledWith(2, '/api/v1/admin/routes');
     expect(client.get).toHaveBeenNthCalledWith(3, '/api/v1/admin/audit-logs?action=channel.create');
+    expect(client.get).toHaveBeenNthCalledWith(4, '/api/v1/admin/audit-logs?organizationID=org_audit&action=channel.create');
   });
 
   it('preserves marketplace review SLA metadata from the admin review list', async () => {

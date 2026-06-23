@@ -12,6 +12,7 @@ type AuditState = {
   entries: AuditEntry[];
   loading: boolean;
   error: string | null;
+  organizationID: string;
   actorSearch: string;
   action: string;
   resourceType: string;
@@ -24,12 +25,13 @@ type Action =
   | { type: 'LOAD_START' }
   | { type: 'LOAD_SUCCESS'; entries: AuditEntry[] }
   | { type: 'LOAD_ERROR'; error: string }
-  | { type: 'SET_FILTER'; field: 'actorSearch' | 'action' | 'resourceType' | 'startDate' | 'endDate'; value: string };
+  | { type: 'SET_FILTER'; field: 'organizationID' | 'actorSearch' | 'action' | 'resourceType' | 'startDate' | 'endDate'; value: string };
 
 const initialState: AuditState = {
   entries: [],
   loading: true,
   error: null,
+  organizationID: '',
   actorSearch: '',
   action: '',
   resourceType: '',
@@ -83,6 +85,7 @@ export function AdminAuditLogPage() {
     dispatch({ type: 'LOAD_START' });
     try {
       const result = await api.listAuditLogs({
+        organizationID: state.organizationID,
         actorID: state.actorSearch,
         action: state.action,
         resourceType: state.resourceType,
@@ -95,7 +98,7 @@ export function AdminAuditLogPage() {
     } catch (error) {
       dispatch({ type: 'LOAD_ERROR', error: error instanceof Error ? error.message : 'Something went wrong while loading this data.' });
     }
-  }, [api, state.action, state.actorSearch, state.endDate, state.offset, state.resourceType, state.startDate]);
+  }, [api, state.action, state.actorSearch, state.endDate, state.offset, state.organizationID, state.resourceType, state.startDate]);
 
   useEffect(() => {
     void loadEntries();
@@ -116,11 +119,18 @@ export function AdminAuditLogPage() {
         <h1 className="font-heading text-2xl font-semibold text-foreground">Audit Log</h1>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-[minmax(220px,1fr)_180px_180px_160px_160px]">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(220px,1fr)_180px_180px_180px_160px_160px]">
         <SearchBar
           value={state.actorSearch}
           onChange={(value) => dispatch({ type: 'SET_FILTER', field: 'actorSearch', value })}
           placeholder="Search actor..."
+        />
+        <Input
+          aria-label="Organization ID filter"
+          value={state.organizationID}
+          placeholder="Organization ID"
+          className="min-h-[44px]"
+          onChange={(event) => dispatch({ type: 'SET_FILTER', field: 'organizationID', value: event.target.value })}
         />
         <Input
           aria-label="Action filter"
