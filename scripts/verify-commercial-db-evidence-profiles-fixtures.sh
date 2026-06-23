@@ -9,6 +9,22 @@ cleanup() {
 }
 trap cleanup EXIT
 
+target_backend_journey_pattern_fixture="$tmp_dir/verify-commercial-db-evidence-backend-journey-pattern.sh"
+cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_backend_journey_pattern_fixture"
+perl -0pi -e 's/\^TestCommercialHTTPJourney\$/\^TestCommercialHTTPJourney.*\$/' "$target_backend_journey_pattern_fixture"
+
+if output=$(COMMERCIAL_DB_EVIDENCE_TARGET="$target_backend_journey_pattern_fixture" bash "$repo_root/scripts/verify-commercial-db-evidence-profiles.sh" 2>&1); then
+  echo "[commercial-db-evidence-profiles-fixtures] expected backend journey pattern drift to be rejected" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
+if [[ "$output" != *"backend-journey must use exact backend commercial HTTP journey test pattern"* ]]; then
+  echo "[commercial-db-evidence-profiles-fixtures] expected backend journey exact-pattern rejection message" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
 target_fixture="$tmp_dir/verify-commercial-db-evidence.sh"
 cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_fixture"
 perl -0pi -e 's/TestQuotaObservabilityRecordsSettlementFailure/TestQuotaObservabilityRecordsSettlementFailureV2/g' "$target_fixture"

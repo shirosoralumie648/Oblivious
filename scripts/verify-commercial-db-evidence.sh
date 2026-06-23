@@ -198,7 +198,10 @@ run_go_test_no_skips() {
 }
 
 run_backend_journey_profile() {
-  run_go_test_no_skips "backend commercial HTTP journey" "./internal/http" "^TestCommercialHTTPJourney$"
+  local backend_journey_pattern
+
+  backend_journey_pattern="^TestCommercialHTTPJourney$"
+  run_go_test_no_skips "backend commercial HTTP journey" "./internal/http" "$backend_journey_pattern"
 }
 
 run_marketplace_money_movement_profile() {

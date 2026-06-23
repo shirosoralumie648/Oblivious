@@ -131,6 +131,9 @@ for profile in "${!help_profiles[@]}"; do
   [[ "${case_profiles[$profile]:-}" == "1" ]] || fail "help section includes unknown profile $profile"
 done
 
+backend_journey_body=$(sed -n '/^run_backend_journey_profile() {/,/^}/p' "$target")
+require_profile_text "$backend_journey_body" "backend-journey" 'backend_journey_pattern="^TestCommercialHTTPJourney$"' "backend commercial HTTP journey test pattern"
+
 while IFS='=' read -r pattern_name pattern_value; do
   [[ -n "$pattern_name" ]] || continue
   if ! is_exact_go_test_pattern "$pattern_value"; then
@@ -139,11 +142,6 @@ while IFS='=' read -r pattern_name pattern_value; do
 done < <(
   sed -n 's/^[[:space:]]*\([a-z0-9_]*_pattern\)="\(\^.*\)"$/\1=\2/p' "$target"
 )
-
-backend_journey_body=$(sed -n '/^run_backend_journey_profile() {/,/^}/p' "$target")
-if ! profile_body_has_token "$backend_journey_body" "TestCommercialHTTPJourney"; then
-  fail "backend-journey must include TestCommercialHTTPJourney"
-fi
 
 billing_checkout_topup_body=$(sed -n '/^run_billing_checkout_topup_http_profile() {/,/^}/p' "$target")
 billing_checkout_topup_required=(
