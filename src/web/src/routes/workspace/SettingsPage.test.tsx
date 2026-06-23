@@ -106,6 +106,19 @@ describe('SettingsPage', () => {
   });
 
   it('saves updated preferences', async () => {
+    appContext.authState.preferences = {
+      defaultMode: 'chat',
+      modelStrategy: 'balanced',
+      networkEnabledHint: false,
+      onboardingCompleted: true,
+      defaultAgentModel: 'gpt-4.1',
+      sidebarCollapsed: true,
+      notifications: {
+        desktop: true,
+        email: false
+      }
+    } as UserPreferences;
+
     render(<SettingsPage />);
 
     fireEvent.change(screen.getByLabelText('Default mode'), { target: { value: 'solo' } });
@@ -118,7 +131,13 @@ describe('SettingsPage', () => {
         defaultMode: 'solo',
         modelStrategy: 'cost',
         networkEnabledHint: true,
-        onboardingCompleted: true
+        onboardingCompleted: true,
+        defaultAgentModel: 'gpt-4.1',
+        sidebarCollapsed: true,
+        notifications: {
+          desktop: true,
+          email: false
+        }
       });
     });
 

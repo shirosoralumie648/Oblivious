@@ -30,6 +30,7 @@ export function SettingsPage() {
 
   const onSubmit = handleSubmit(async (data) => {
     await updatePreferences({
+      ...preferences,
       ...data,
       onboardingCompleted: preferences.onboardingCompleted
     });
