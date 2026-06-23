@@ -1,6 +1,22 @@
-import { expect, test } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 
 import { registerPublishingChannelsRoutes } from './fixtures/publishingChannels';
+
+async function expectPublishingLayoutContained(page: Page) {
+  const overflowState = await page.evaluate(() => {
+    const main = document.querySelector('main');
+
+    return {
+      documentFits: document.documentElement.scrollWidth <= window.innerWidth + 1,
+      mainFits: main instanceof HTMLElement ? main.scrollWidth <= main.clientWidth + 1 : true,
+    };
+  });
+
+  expect(overflowState).toEqual({
+    documentFits: true,
+    mainFits: true,
+  });
+}
 
 test.beforeEach(async ({ page }) => {
   await registerPublishingChannelsRoutes(page);
@@ -60,4 +76,32 @@ test('publishing channels browser journey covers create edit fallback retry send
   await editedRow.getByRole('button', { name: 'Delete Ops Webhook Edited' }).click();
   await expect(editedRow).toContainText('Disabled');
   await expect(editedRow).toContainText('Channel disabled.');
+});
+
+test('publishing channels keeps mobile channel recovery controls and long delivery evidence contained', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/publishing');
+
+  const longChannelName = 'ProviderResearchClusterPublishingWebhookIncidentChannelWithoutSpaces20260624';
+  const longChannelRow = page.getByLabel('Publishing channel list').locator('li').filter({ hasText: longChannelName });
+
+  await expect(page.getByRole('heading', { name: 'Publishing Channels' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Publishing' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('main')).toHaveCount(1);
+  await expect(longChannelRow.getByRole('heading', { name: longChannelName })).toBeVisible();
+  await expect(longChannelRow.getByText('https://hooks.example/providerresearchclusterpublishingwebhookincidentchannelwithoutspaces20260624')).toBeVisible();
+  await expect(longChannelRow.getByRole('button', { name: `Edit ${longChannelName}` })).toBeVisible();
+  await expect(longChannelRow.getByRole('button', { name: `Test channel ${longChannelName}` })).toBeVisible();
+  await expect(longChannelRow.getByRole('button', { name: `Activate ${longChannelName}` })).toBeVisible();
+  await expect(longChannelRow.getByRole('button', { name: `Delete ${longChannelName}` })).toBeVisible();
+
+  await page
+    .getByRole('region', { name: 'Publishing channel send test' })
+    .getByRole('combobox', { name: 'Channel' })
+    .selectOption('channel_provider_research_incident_webhook_mobile_long');
+  const visibility = page.getByLabel('Publishing channel message visibility');
+  await expect(visibility).toContainText('channel_message_failed_mobile_provider_research_cluster_without_spaces_20260624');
+  await expect(visibility).toContainText('providerresearchclusterpublishingdeliveryincidentwithoutspaces20260624');
+
+  await expectPublishingLayoutContained(page);
 });

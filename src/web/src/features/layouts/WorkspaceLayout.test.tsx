@@ -55,7 +55,9 @@ describe('WorkspaceLayout', () => {
     expect(await screen.findByRole('link', { name: 'Publishing' })).toBeInTheDocument();
     expect(await screen.findByRole('link', { name: 'Console' })).toBeInTheDocument();
     expect(await screen.findByText('Knowledge detail child')).toBeInTheDocument();
-    expect(await screen.findByRole('main')).toContainElement(screen.getByRole('heading', { name: 'Knowledge detail child' }));
+    const main = await screen.findByRole('main');
+    expect(main).toContainElement(screen.getByRole('heading', { name: 'Knowledge detail child' }));
+    expect(main).toHaveClass('min-w-0');
     expect(await screen.findByRole('link', { name: 'Knowledge' })).toHaveAttribute('aria-current', 'page');
     expect(await screen.findByRole('link', { name: 'Chat' })).not.toHaveAttribute('aria-current');
     expect(document.querySelector('[data-gsap-scope="workspace"]')).toBeInTheDocument();

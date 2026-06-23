@@ -54,6 +54,20 @@ const fallbackSlack = {
   updated_at: now,
 };
 
+const longMobileWebhook = {
+  id: 'channel_provider_research_incident_webhook_mobile_long',
+  organization_id: 'org_publishing_browser',
+  name: 'ProviderResearchClusterPublishingWebhookIncidentChannelWithoutSpaces20260624',
+  type: 'webhook',
+  status: 'degraded',
+  config: {
+    secret: '********',
+    url: 'https://hooks.example/providerresearchclusterpublishingwebhookincidentchannelwithoutspaces20260624',
+  },
+  created_at: now,
+  updated_at: now,
+};
+
 const createdWebhook = {
   id: 'channel_browser_created',
   organization_id: 'org_publishing_browser',
@@ -112,6 +126,22 @@ const failedMessages = [
     transform_success: false,
     transform_error: 'delivery failed',
     failure_reason: 'upstream 503',
+    created_at: now,
+  },
+  {
+    id: 'channel_message_failed_mobile_provider_research_cluster_without_spaces_20260624',
+    direction: 'outbound',
+    status: 'retry_pending',
+    retry_count: 4,
+    next_retry_at: '2026-06-17T03:20:00Z',
+    raw_message: { text: 'providerresearchclusterpublishingdeliveryincidentwithoutspaces20260624' },
+    transformed_message: {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'providerresearchclusterpublishingdeliveryincidentwithoutspaces20260624' }],
+    },
+    transform_success: false,
+    transform_error: 'providerresearchclusterpublishingdeliveryincidentwithoutspaces20260624',
+    failure_reason: 'providerresearchclusterpublishingdeliveryincidentwithoutspaces20260624',
     created_at: now,
   },
 ];
@@ -229,6 +259,7 @@ export async function registerPublishingChannelsRoutes(page: Page): Promise<void
       await fulfillJSON(route, [
         ...(createdVisible ? [createdWebhook] : []),
         opsDeleted ? deletedOpsWebhook : opsUpdated ? updatedOpsWebhook : opsWebhook,
+        longMobileWebhook,
         fallbackSlack,
       ]);
       return;
@@ -328,6 +359,16 @@ export async function registerPublishingChannelsRoutes(page: Page): Promise<void
 
     if (method === 'GET' && pathname === `/api/v1/channels/${fallbackSlack.id}/failed-messages`) {
       await fulfillJSON(route, []);
+      return;
+    }
+
+    if (method === 'GET' && pathname === `/api/v1/channels/${longMobileWebhook.id}/messages`) {
+      await fulfillJSON(route, []);
+      return;
+    }
+
+    if (method === 'GET' && pathname === `/api/v1/channels/${longMobileWebhook.id}/failed-messages`) {
+      await fulfillJSON(route, failedMessages);
       return;
     }
 

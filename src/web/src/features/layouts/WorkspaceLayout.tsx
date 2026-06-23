@@ -76,7 +76,7 @@ export function WorkspaceLayout() {
           </NavLink>
         </nav>
       </aside>
-      <main className="workspace-canvas min-h-screen overflow-auto p-5 lg:p-8" data-gsap-item>
+      <main className="workspace-canvas min-h-screen min-w-0 overflow-auto p-5 lg:p-8" data-gsap-item>
         <Outlet />
       </main>
       <aside className="hidden border-l border-[#d7d2c4] bg-white/70 p-5 lg:block" data-gsap-item>

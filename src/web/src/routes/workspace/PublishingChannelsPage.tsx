@@ -201,7 +201,7 @@ function ChannelLogTable({
   }
 
   return (
-    <div className="mt-3 overflow-x-auto">
+    <div className="mt-3 max-w-full overflow-x-auto">
       <table className="min-w-full border-collapse text-left text-sm">
         <thead className="text-xs uppercase tracking-wide text-[#6d6658]">
           <tr className="border-b border-[#d7d2c4]">
@@ -217,8 +217,8 @@ function ChannelLogTable({
           {logs.map((log) => (
             <tr className="border-b border-[#eee8dc] last:border-0" key={log.id}>
               <td className="max-w-[220px] py-3 pr-3 align-top">
-                <p className="font-medium text-[#181611]">{log.id}</p>
-                <p className="mt-1 truncate text-xs text-[#625b4f]">{messagePreview(log)}</p>
+                <p className="break-words font-medium text-[#181611]">{log.id}</p>
+                <p className="mt-1 break-words text-xs text-[#625b4f]">{messagePreview(log)}</p>
               </td>
               <td className="py-3 pr-3 align-top text-[#181611]">{log.direction ?? 'unknown'}</td>
               <td className="py-3 pr-3 align-top">
@@ -228,7 +228,7 @@ function ChannelLogTable({
                 <p>Retries {log.retry_count ?? 0}</p>
                 {log.next_retry_at ? <p className="mt-1 text-xs text-[#625b4f]">Next retry: {formatLogTime(log.next_retry_at)}</p> : null}
               </td>
-              <td className="max-w-[260px] py-3 pr-3 align-top text-[#625b4f]">{log.failure_reason || log.transform_error || '-'}</td>
+              <td className="max-w-[260px] break-words py-3 pr-3 align-top text-[#625b4f]">{log.failure_reason || log.transform_error || '-'}</td>
               <td className="py-3 align-top text-xs text-[#625b4f]">{formatLogTime(log.created_at)}</td>
             </tr>
           ))}
@@ -533,7 +533,7 @@ export function PublishingChannelsPage() {
   };
 
   return (
-    <section className="mx-auto max-w-6xl space-y-6">
+    <section className="mx-auto max-w-6xl min-w-0 space-y-6">
       <header className="space-y-2">
         <p className="text-xs font-semibold uppercase tracking-wide text-[#6d6658]">External publishing</p>
         <h1 className="font-heading text-3xl font-semibold text-[#181611]">Publishing Channels</h1>
@@ -548,7 +548,7 @@ export function PublishingChannelsPage() {
         </p>
       ) : null}
 
-      <section className="rounded-lg border border-[#d7d2c4] bg-[#fbfaf7] p-5" aria-label="Create publishing channel">
+      <section className="min-w-0 rounded-lg border border-[#d7d2c4] bg-[#fbfaf7] p-5" aria-label="Create publishing channel">
         <h2 className="text-base font-semibold">Create channel</h2>
         <form
           className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_160px_minmax(0,1fr)_minmax(0,1fr)_auto]"
@@ -675,7 +675,7 @@ export function PublishingChannelsPage() {
         </form>
       </section>
 
-      <section className="rounded-lg border border-[#d7d2c4] bg-white p-5" aria-label="Publishing channel send test">
+      <section className="min-w-0 rounded-lg border border-[#d7d2c4] bg-white p-5" aria-label="Publishing channel send test">
         <h2 className="text-base font-semibold">Manual delivery test</h2>
         <form
           className="mt-4 grid gap-4 md:grid-cols-[220px_minmax(0,1fr)_minmax(0,1fr)_auto]"
@@ -725,27 +725,27 @@ export function PublishingChannelsPage() {
       </section>
 
       {selectedChannel ? (
-        <section className="rounded-lg border border-[#d7d2c4] bg-white p-5" aria-label="Publishing channel message visibility">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
+        <section className="min-w-0 rounded-lg border border-[#d7d2c4] bg-white p-5" aria-label="Publishing channel message visibility">
+          <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
               <h2 className="text-base font-semibold">Message visibility</h2>
-              <p className="mt-1 text-sm text-[#625b4f]">{selectedChannel.name}</p>
+              <p className="mt-1 break-words text-sm text-[#625b4f]">{selectedChannel.name}</p>
             </div>
             <span className="rounded-full bg-[#eee8dc] px-3 py-1 text-xs font-semibold text-[#625b4f]">
               {messageLogsLoading ? 'Loading logs' : `${selectedMessageLogs.length} recent / ${selectedFailedMessages.length} failed`}
             </span>
           </div>
-          <div className="mt-5 grid gap-5 xl:grid-cols-2">
-            <div>
+          <div className="mt-5 grid min-w-0 gap-5 xl:grid-cols-2">
+            <div className="min-w-0">
               <h3 className="text-sm font-semibold text-[#181611]">Recent messages</h3>
               <ChannelLogTable emptyText="No recent messages recorded for this channel." logs={selectedMessageLogs} />
             </div>
-            <div>
-              <div className="flex flex-wrap items-end justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex min-w-0 flex-wrap items-end justify-between gap-3">
                 <h3 className="text-sm font-semibold text-[#181611]">Failed retry queue</h3>
                 <form
                   aria-label="Failed retry queue controls"
-                  className="grid gap-3 text-sm sm:grid-cols-[minmax(0,180px)_110px_auto]"
+                  className="grid min-w-0 max-w-full gap-3 text-sm sm:grid-cols-[minmax(0,180px)_110px_auto]"
                   onSubmit={(event) => {
                     event.preventDefault();
                     void retryFailedMessages();
@@ -809,38 +809,38 @@ export function PublishingChannelsPage() {
         </section>
       ) : null}
 
-      <section className="rounded-lg border border-[#d7d2c4] bg-[#fbfaf7] p-5">
-        <div className="flex items-center justify-between gap-4">
+      <section className="min-w-0 rounded-lg border border-[#d7d2c4] bg-[#fbfaf7] p-5">
+        <div className="flex min-w-0 items-center justify-between gap-4">
           <h2 className="text-base font-semibold">Configured channels</h2>
           <span className="text-xs text-[#6d6658]">{channels.length} total</span>
         </div>
         {isLoading ? <p className="mt-4 text-sm text-[#625b4f]">Loading publishing channels...</p> : null}
         {!isLoading && channels.length === 0 ? <p className="mt-4 text-sm text-[#625b4f]">No publishing channels configured.</p> : null}
         {channels.length > 0 ? (
-          <ul aria-label="Publishing channel list" className="mt-4 grid gap-3">
+          <ul aria-label="Publishing channel list" className="mt-4 grid min-w-0 gap-3">
             {channels.map((channel) => (
-              <li key={channel.id} className="rounded-lg border border-[#d7d2c4] bg-white p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-base font-semibold text-[#181611]">{channel.name}</h3>
+              <li key={channel.id} className="min-w-0 rounded-lg border border-[#d7d2c4] bg-white p-4">
+                <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      <h3 className="min-w-0 break-words text-base font-semibold text-[#181611]">{channel.name}</h3>
                       <span className="rounded-full bg-[#eee8dc] px-2 py-1 text-xs font-medium text-[#625b4f]">{channel.type}</span>
                       <span className={`rounded-full px-2 py-1 text-xs font-semibold ${statusClass(channel.status)}`}>{statusLabel(channel.status)}</span>
                     </div>
-                    <p className="mt-2 text-sm text-[#625b4f]">{endpointLabel(channel)}</p>
+                    <p className="mt-2 break-words text-sm text-[#625b4f]">{endpointLabel(channel)}</p>
                     {testResults[channel.id] ? <p className="mt-2 text-sm text-emerald-700">{testResults[channel.id].message}</p> : null}
                     {actionResults[channel.id] ? <p className="mt-2 text-sm text-[#181611]">{actionResults[channel.id]}</p> : null}
                   </div>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex min-w-0 max-w-full flex-wrap gap-2">
                     <button
-                      className="rounded-lg border border-[#d7d2c4] px-3 py-2 text-sm font-medium"
+                      className="min-w-0 max-w-full break-words rounded-lg border border-[#d7d2c4] px-3 py-2 text-left text-sm font-medium [overflow-wrap:anywhere]"
                       onClick={() => startEditingChannel(channel)}
                       type="button"
                     >
                       Edit {channel.name}
                     </button>
                     <button
-                      className="rounded-lg border border-[#d7d2c4] px-3 py-2 text-sm font-medium"
+                      className="min-w-0 max-w-full break-words rounded-lg border border-[#d7d2c4] px-3 py-2 text-left text-sm font-medium [overflow-wrap:anywhere]"
                       onClick={() => void testChannel(channel)}
                       type="button"
                     >
@@ -848,7 +848,7 @@ export function PublishingChannelsPage() {
                     </button>
                     {channel.status !== 'active' ? (
                       <button
-                        className="rounded-lg bg-emerald-700 px-3 py-2 text-sm font-semibold text-white"
+                        className="min-w-0 max-w-full break-words rounded-lg bg-emerald-700 px-3 py-2 text-left text-sm font-semibold text-white [overflow-wrap:anywhere]"
                         onClick={() => void switchStatus(channel, 'active')}
                         type="button"
                       >
@@ -856,7 +856,7 @@ export function PublishingChannelsPage() {
                       </button>
                     ) : (
                       <button
-                        className="rounded-lg border border-[#d7d2c4] px-3 py-2 text-sm font-medium"
+                        className="min-w-0 max-w-full break-words rounded-lg border border-[#d7d2c4] px-3 py-2 text-left text-sm font-medium [overflow-wrap:anywhere]"
                         onClick={() => void switchStatus(channel, 'disabled')}
                         type="button"
                       >
@@ -864,7 +864,7 @@ export function PublishingChannelsPage() {
                       </button>
                     )}
                     <button
-                      className="rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-700 disabled:opacity-60"
+                      className="min-w-0 max-w-full break-words rounded-lg border border-red-200 px-3 py-2 text-left text-sm font-medium text-red-700 disabled:opacity-60 [overflow-wrap:anywhere]"
                       disabled={deletingChannelID === channel.id}
                       onClick={() => void deleteChannel(channel)}
                       type="button"
