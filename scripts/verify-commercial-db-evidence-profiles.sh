@@ -354,49 +354,28 @@ for requirement in "${scheduled_task_runtime_required[@]}"; do
 done
 
 quota_sql_isolation_body=$(sed -n '/^run_quota_sql_isolation_profile() {/,/^}/p' "$target")
-if [[ "$quota_sql_isolation_body" != *"UsageLimitSettingsRoundTrip"* ]]; then
-  fail "quota-sql-isolation must include TestSQLStoreUsageLimitSettingsRoundTrip"
-fi
-if [[ "$quota_sql_isolation_body" != *"UserQuotaModeUsesUserScopedBalance"* ]]; then
-  fail "quota-sql-isolation must include TestSQLStoreUserQuotaModeUsesUserScopedBalance"
-fi
-if [[ "$quota_sql_isolation_body" != *"BillingSessionsAreOrganizationScoped"* ]]; then
-  fail "quota-sql-isolation must include TestSQLStoreBillingSessionsAreOrganizationScoped"
-fi
-if [[ "$quota_sql_isolation_body" != *"TopupOrderMutationsRequireOrganizationScope"* ]]; then
-  fail "quota-sql-isolation must include TestSQLStoreTopupOrderMutationsRequireOrganizationScope"
-fi
-if [[ "$quota_sql_isolation_body" != *"ResolveUsageLimitFallsBackToActiveSubscriptionRequestCap"* ]]; then
-  fail "quota-sql-isolation must include TestSQLStoreResolveUsageLimitFallsBackToActiveSubscriptionRequestCap"
-fi
-if [[ "$quota_sql_isolation_body" != *"ListPackagesReturnsOnlyActivePublicHybridPlans"* ]]; then
-  fail "quota-sql-isolation must include TestSQLStoreListPackagesReturnsOnlyActivePublicHybridPlans"
-fi
-require_profile_token "$quota_sql_isolation_body" "quota-sql-isolation" "TestQuotaObservabilityRecordsSettlementFailure" "TestQuotaObservabilityRecordsSettlementFailure"
-if [[ "$quota_sql_isolation_body" != *"CrossTenantQuotaScopeUsesActiveOrganization"* ]]; then
-  fail "quota-sql-isolation must include TestCrossTenantQuotaScopeUsesActiveOrganization"
-fi
-if [[ "$quota_sql_isolation_body" != *"AdminUsageLimitSettingsRoutePersistsWithPostgres"* ]]; then
-  fail "quota-sql-isolation must include TestAdminUsageLimitSettingsRoutePersistsWithPostgres"
-fi
-if [[ "$quota_sql_isolation_body" != *"AdminUserQuotaRoutePersistsWithPostgres"* ]]; then
-  fail "quota-sql-isolation must include TestAdminUserQuotaRoutePersistsWithPostgres"
-fi
-if [[ "$quota_sql_isolation_body" != *"BillingCheckoutTopupDoesNotCreditQuotaBeforeWebhook"* ]]; then
-  fail "quota-sql-isolation must include TestBillingCheckoutTopupDoesNotCreditQuotaBeforeWebhook"
-fi
-if [[ "$quota_sql_isolation_body" != *"QuotaTopupEndpointNoLongerCreditsWithoutPayment"* ]]; then
-  fail "quota-sql-isolation must include TestQuotaTopupEndpointNoLongerCreditsWithoutPayment"
-fi
-if [[ "$quota_sql_isolation_body" != *"AdminBillingRecordsTopupRefundAndAdjustsQuota"* ]]; then
-  fail "quota-sql-isolation must include TestAdminBillingRecordsTopupRefundAndAdjustsQuota"
-fi
-if [[ "$quota_sql_isolation_body" != *"CheckoutSessionCompletedFulfillsTopupOnce"* ]]; then
-  fail "quota-sql-isolation must include TestLifecycleApplyCheckoutSessionCompletedFulfillsTopupOnce"
-fi
-if [[ "$quota_sql_isolation_body" != *"RefundRecordsRefundAndAdjustsTopup"* ]]; then
-  fail "quota-sql-isolation must include TestLifecycleApplyRefundRecordsRefundAndAdjustsTopup"
-fi
+quota_sql_isolation_required=(
+  "TestSQLStoreUsageLimitSettingsRoundTrip|TestSQLStoreUsageLimitSettingsRoundTrip"
+  "TestSQLStoreUserQuotaModeUsesUserScopedBalance|TestSQLStoreUserQuotaModeUsesUserScopedBalance"
+  "TestSQLStoreBillingSessionsAreOrganizationScoped|TestSQLStoreBillingSessionsAreOrganizationScoped"
+  "TestSQLStoreTopupOrderMutationsRequireOrganizationScope|TestSQLStoreTopupOrderMutationsRequireOrganizationScope"
+  "TestSQLStoreResolveUsageLimitFallsBackToActiveSubscriptionRequestCap|TestSQLStoreResolveUsageLimitFallsBackToActiveSubscriptionRequestCap"
+  "TestSQLStoreListPackagesReturnsOnlyActivePublicHybridPlans|TestSQLStoreListPackagesReturnsOnlyActivePublicHybridPlans"
+  "TestQuotaObservabilityRecordsSettlementFailure|TestQuotaObservabilityRecordsSettlementFailure"
+  "TestCrossTenantQuotaScopeUsesActiveOrganization|TestCrossTenantQuotaScopeUsesActiveOrganization"
+  "TestAdminUsageLimitSettingsRoutePersistsWithPostgres|TestAdminUsageLimitSettingsRoutePersistsWithPostgres"
+  "TestAdminUserQuotaRoutePersistsWithPostgres|TestAdminUserQuotaRoutePersistsWithPostgres"
+  "TestBillingCheckoutTopupDoesNotCreditQuotaBeforeWebhook|TestBillingCheckoutTopupDoesNotCreditQuotaBeforeWebhook"
+  "TestQuotaTopupEndpointNoLongerCreditsWithoutPayment|TestQuotaTopupEndpointNoLongerCreditsWithoutPayment"
+  "TestAdminBillingRecordsTopupRefundAndAdjustsQuota|TestAdminBillingRecordsTopupRefundAndAdjustsQuota"
+  "TestLifecycleApplyCheckoutSessionCompletedFulfillsTopupOnce|TestLifecycleApplyCheckoutSessionCompletedFulfillsTopupOnce"
+  "TestLifecycleApplyRefundRecordsRefundAndAdjustsTopup|TestLifecycleApplyRefundRecordsRefundAndAdjustsTopup"
+)
+for requirement in "${quota_sql_isolation_required[@]}"; do
+  token="${requirement%%|*}"
+  test_name="${requirement#*|}"
+  require_profile_token "$quota_sql_isolation_body" "quota-sql-isolation" "$token" "$test_name"
+done
 
 core_sql_persistence_body=$(sed -n '/^run_core_sql_persistence_profile() {/,/^}/p' "$target")
 if ! profile_body_has_token "$core_sql_persistence_body" "TestSQLStoreMessageShareExpiresAndReadsPublicPayload"; then
