@@ -393,6 +393,9 @@ fi
 if [[ "$quota_sql_isolation_body" != *"ListPackagesReturnsOnlyActivePublicHybridPlans"* ]]; then
   fail "quota-sql-isolation must include TestSQLStoreListPackagesReturnsOnlyActivePublicHybridPlans"
 fi
+if [[ "$quota_sql_isolation_body" != *"QuotaObservabilityRecordsSettlementFailure"* ]]; then
+  fail "quota-sql-isolation must include TestQuotaObservabilityRecordsSettlementFailure"
+fi
 if [[ "$quota_sql_isolation_body" != *"CrossTenantQuotaScopeUsesActiveOrganization"* ]]; then
   fail "quota-sql-isolation must include TestCrossTenantQuotaScopeUsesActiveOrganization"
 fi

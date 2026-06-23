@@ -374,13 +374,16 @@ run_observability_alert_recovery_persistence_profile() {
 
 run_quota_sql_isolation_profile() {
   local quota_store_pattern
+  local quota_service_pattern
   local quota_http_pattern
   local quota_stripe_lifecycle_pattern
 
   quota_store_pattern="^TestSQLStore(UsageLimitSettingsRoundTrip|UserQuotaModeUsesUserScopedBalance|BillingSessionsAreOrganizationScoped|TopupOrderMutationsRequireOrganizationScope|ResolveUsageLimitFallsBackToActiveSubscriptionRequestCap|ListPackagesReturnsOnlyActivePublicHybridPlans)$"
+  quota_service_pattern="^TestQuotaObservabilityRecordsSettlementFailure$"
   quota_http_pattern="^Test(CrossTenantQuotaScopeUsesActiveOrganization|AdminUsageLimitSettingsRoutePersistsWithPostgres|AdminUserQuotaRoutePersistsWithPostgres|BillingCheckoutTopupDoesNotCreditQuotaBeforeWebhook|QuotaTopupEndpointNoLongerCreditsWithoutPayment|AdminBillingRecordsTopupRefundAndAdjustsQuota)$"
   quota_stripe_lifecycle_pattern="^TestLifecycleApply(CheckoutSessionCompletedFulfillsTopupOnce|RefundRecordsRefundAndAdjustsTopup)$"
   run_go_test_no_skips "quota SQL tenant isolation" "./internal/quota" "$quota_store_pattern"
+  run_go_test_no_skips "quota observability settlement failure evidence" "./internal/quota" "$quota_service_pattern"
   run_go_test_no_skips "quota HTTP lifecycle and active-organization isolation" "./internal/http" "$quota_http_pattern"
   run_go_test_no_skips "quota provider lifecycle balance accounting" "./internal/stripe" "$quota_stripe_lifecycle_pattern"
 }
