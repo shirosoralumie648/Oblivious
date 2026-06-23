@@ -1066,6 +1066,8 @@ assert_file_contains "$check_script" "docs/architecture/current-system-contracts
 assert_file_contains "$check_script" "config/.env.example"
 assert_file_contains "$check_script" "go test ./... -run '^$' -count=1"
 assert_file_contains "$dependency_security_file" "pnpm audit --registry"
+assert_file_contains "$dependency_security_file" 'npm --prefix "$repo_root" audit --audit-level="$npm_audit_level" --registry="$npm_registry"'
+assert_file_contains "$dependency_security_file" 'npm --prefix "$web_dir" audit --audit-level="$npm_audit_level" --registry="$npm_registry"'
 assert_file_contains "$dependency_security_file" "https://registry.npmjs.org"
 assert_file_contains "$dependency_security_file" "govulncheck"
 assert_file_contains "$dependency_security_file" "go1.26.4"
