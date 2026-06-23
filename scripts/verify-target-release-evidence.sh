@@ -552,16 +552,29 @@ def collect_secret_material(value, path = [], findings = [])
   findings
 end
 
-def collect_evidence_refs(value, path = [], refs = [])
+def required_evidence_ref_path?(path)
+  return true if path == ["strictVerifier", "evidenceRef"]
+  return true if path == ["deployment", "evidenceRef"]
+  return true if path == ["kubernetes", "evidenceRef"]
+  return true if path == ["grpcSmokeReport", "evidenceRef"]
+  return true if path == ["secretAudit", "evidenceRef"]
+  return true if path == ["workflowTelemetry", "evidenceRef"]
+  return true if path.length == 3 && path[0] == "providers" && path[1].is_a?(Integer) && path[2] == "evidenceRef"
+  return true if path.length == 3 && path[0] == "grpc" && path[1].is_a?(Integer) && path[2] == "evidenceRef"
+
+  false
+end
+
+def collect_required_evidence_refs(value, path = [], refs = [])
   case value
   when Hash
     value.each do |key, child|
       child_path = path + [key]
-      refs << [child_path, child] if key == "evidenceRef" && path.first != "artifacts"
-      collect_evidence_refs(child, child_path, refs)
+      refs << [child_path, child] if key == "evidenceRef" && required_evidence_ref_path?(child_path)
+      collect_required_evidence_refs(child, child_path, refs)
     end
   when Array
-    value.each_with_index { |child, index| collect_evidence_refs(child, path + [index], refs) }
+    value.each_with_index { |child, index| collect_required_evidence_refs(child, path + [index], refs) }
   end
   refs
 end
@@ -912,7 +925,7 @@ else
 end
 
 referenced_artifact_ids = {}
-collect_evidence_refs(data).each do |ref_path, value|
+collect_required_evidence_refs(data).each do |ref_path, value|
   next if !value.is_a?(String) || placeholder?(value)
   referenced_artifact_ids[value] = true
   unless artifact_ids.key?(value)
@@ -923,7 +936,7 @@ end
 artifact_ids.each_key do |id|
   next if placeholder?(id)
   next if referenced_artifact_ids.key?(id)
-  failures << "artifacts[#{artifact_indexes.fetch(id)}].id #{id} must be referenced by at least one evidenceRef"
+  failures << "artifacts[#{artifact_indexes.fetch(id)}].id #{id} must be referenced by a required evidenceRef"
 end
 
 require_artifact_kind(failures, data, artifact_ids, ["strictVerifier", "evidenceRef"], "strict-verifier-log")

@@ -684,7 +684,7 @@ assert_file_contains "$target_release_evidence_verifier_file" "must be a plain h
 assert_file_contains "$target_release_evidence_verifier_file" '"artifacts"'
 assert_file_contains "$target_release_evidence_verifier_file" "artifacts must include at least one target artifact entry"
 assert_file_contains "$target_release_evidence_verifier_file" "must reference an artifact id listed in artifacts"
-assert_file_contains "$target_release_evidence_verifier_file" "must be referenced by at least one evidenceRef"
+assert_file_contains "$target_release_evidence_verifier_file" "must be referenced by a required evidenceRef"
 assert_file_contains "$target_release_evidence_verifier_file" "must reference a remote target artifact URI"
 assert_file_contains "$target_release_evidence_verifier_file" "must not embed secret-like query or fragment parameters"
 assert_file_contains "$target_release_evidence_verifier_file" "must reference artifact kind"
@@ -719,6 +719,7 @@ assert_file_contains "$target_release_evidence_fixtures_file" "secret-environmen
 assert_file_contains "$target_release_evidence_fixtures_file" "duplicate-artifact-id"
 assert_file_contains "$target_release_evidence_fixtures_file" "invalid-artifact-sha256"
 assert_file_contains "$target_release_evidence_fixtures_file" "unused-artifact-id"
+assert_file_contains "$target_release_evidence_fixtures_file" "unused-artifact-masked-by-freeform-evidence-ref"
 assert_file_contains "$target_release_evidence_fixtures_file" "secret-artifact-uri-query"
 assert_file_contains "$target_release_evidence_fixtures_file" "secret-artifact-uri-fragment"
 assert_file_contains "$target_release_evidence_fixtures_file" "incomplete-secret-audit-scope"

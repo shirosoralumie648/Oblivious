@@ -321,7 +321,12 @@ make_invalid_case \
 make_invalid_case \
   "unused-artifact-id" \
   'data["artifacts"] << {"id" => "artifact-unused-20260616", "kind" => "supplemental-log", "uri" => "ci://target-release/20260616/unused.log", "recordedAt" => "2026-06-16T01:00:00Z"}' \
-  "artifacts[9].id artifact-unused-20260616 must be referenced by at least one evidenceRef"
+  "artifacts[9].id artifact-unused-20260616 must be referenced by a required evidenceRef"
+
+make_invalid_case \
+  "unused-artifact-masked-by-freeform-evidence-ref" \
+  'data["artifacts"] << {"id" => "artifact-unused-20260616", "kind" => "supplemental-log", "commit" => data["commit"], "runId" => data["runId"], "uri" => "ci://target-release/20260616/unused.log", "recordedAt" => "2026-06-16T01:00:00Z"}; data["notes"] = {"evidenceRef" => "artifact-unused-20260616"}' \
+  "artifacts[9].id artifact-unused-20260616 must be referenced by a required evidenceRef"
 
 make_invalid_case \
   "missing-providers-collection" \
