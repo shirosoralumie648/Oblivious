@@ -121,6 +121,22 @@ if [[ "$output" != *"marketplace-recommendation-search must include TestSearchAg
   exit 1
 fi
 
+target_scheduled_task_fixture="$tmp_dir/verify-commercial-db-evidence-scheduled-task.sh"
+cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_scheduled_task_fixture"
+perl -0pi -e 's/TestSQLStoreCreatesAndListsScheduledTasksByOrganization/TestSQLStoreV2CreatesAndListsScheduledTasksByOrganization/g' "$target_scheduled_task_fixture"
+
+if output=$(COMMERCIAL_DB_EVIDENCE_TARGET="$target_scheduled_task_fixture" bash "$repo_root/scripts/verify-commercial-db-evidence-profiles.sh" 2>&1); then
+  echo "[commercial-db-evidence-profiles-fixtures] expected prefixed scheduled-task token to be rejected" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
+if [[ "$output" != *"scheduled-task-runtime must include TestSQLStoreCreatesAndListsScheduledTasksByOrganization"* ]]; then
+  echo "[commercial-db-evidence-profiles-fixtures] expected scheduled-task full-name rejection message" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
 target_auth_security_fixture="$tmp_dir/verify-commercial-db-evidence-auth-security.sh"
 cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_auth_security_fixture"
 perl -0pi -e 's/MeRequiresSession/MeRequiresSessionV2/g' "$target_auth_security_fixture"
