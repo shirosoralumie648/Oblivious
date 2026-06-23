@@ -19,6 +19,8 @@ This document explains the implemented pricing and billing model. It does not se
 
 All provider-facing AI usage is priced through Relay. Chat, Agent, Knowledge embeddings, and supported `/v1/*` Relay endpoints use the same authority boundary for identity, rate limiting, audit, quota preauthorization, settlement, and refund.
 
+Relay pricing settings include model and trusted user-group multipliers. Model multipliers adjust configured model prices, while user-group multipliers apply to the trusted Relay user group carried by internal identity headers or Relay API token identity. The group multiplier affects Relay quota preauthorization, API-token quota preauthorization and settlement, BillingHook pre/post billing, and usage cost records; channel cost multipliers are applied after the group adjustment.
+
 Routes that are not commercially supported fail closed in production instead of bypassing billing. Supported commercial routes are documented in `docs/release/relay-route-table.md`.
 
 ## Plan Configuration

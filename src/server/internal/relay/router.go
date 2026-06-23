@@ -253,6 +253,7 @@ func (r *Router) RouteWithBilling(
 	apiTokenID, _ := types.TrustedAPITokenIDFromContext(ctx)
 	conversationID, _ := types.TrustedConversationIDFromContext(ctx)
 	featureType, _ := types.TrustedFeatureTypeFromContext(ctx)
+	userGroup, _ := types.TrustedUserGroupFromContext(ctx)
 
 	if cacheReq, ok := types.SemanticCacheRequestFromContext(ctx); ok && r.semanticCache != nil {
 		hit, err := r.semanticCache.Lookup(ctx, cacheReq)
@@ -344,7 +345,7 @@ func (r *Router) RouteWithBilling(
 		attemptIdempotencyKey := attemptScopedIdempotencyKey(idempotencyKey, attempt)
 		var billingSessionID string
 		if r.quotaManager != nil {
-			preauthAmount := r.estimatedUsageCost(model, apiType, usage, ch)
+			preauthAmount := r.estimatedUsageCost(model, apiType, usage, ch, userGroup)
 			session, err := r.quotaManager.PreConsume(ctx, userID, organizationID, preauthAmount, attemptIdempotencyKey, billingChannelID, model, apiType.String())
 			if err != nil {
 				releaseRateLimit()
@@ -363,6 +364,7 @@ func (r *Router) RouteWithBilling(
 				ChannelID:      billingChannelID,
 				APIType:        apiType,
 				Model:          model,
+				UserGroup:      userGroup,
 				IdempotencyKey: attemptIdempotencyKey,
 			}, usage)
 			if err != nil {
@@ -374,7 +376,7 @@ func (r *Router) RouteWithBilling(
 			}
 		}
 
-		tokenPreauthorizedAmount := r.estimatedUsageCost(model, apiType, usage, ch)
+		tokenPreauthorizedAmount := r.estimatedUsageCost(model, apiType, usage, ch, userGroup)
 		if r.apiTokenQuotaManager != nil && apiTokenID != "" {
 			if err := r.apiTokenQuotaManager.PreAuthorizeRelayAPITokenQuota(ctx, apiTokenID, tokenPreauthorizedAmount); err != nil {
 				releaseRateLimit()
@@ -448,7 +450,7 @@ func (r *Router) RouteWithBilling(
 		if resp != nil && resp.Usage != nil {
 			actualUsage = resp.Usage
 		}
-		actualCost := r.estimatedUsageCost(model, apiType, actualUsage, ch)
+		actualCost := r.estimatedUsageCost(model, apiType, actualUsage, ch, userGroup)
 
 		if r.quotaManager != nil && billingSessionID != "" {
 			if err := r.quotaManager.Settle(ctx, organizationID, billingSessionID, actualCost); err != nil {
@@ -479,6 +481,7 @@ func (r *Router) RouteWithBilling(
 				ChannelID:      billingChannelID,
 				APIType:        apiType,
 				Model:          model,
+				UserGroup:      userGroup,
 				IdempotencyKey: attemptIdempotencyKey,
 			}
 			_, _ = r.billingHook.PostBill(session, resp.Usage)
@@ -761,15 +764,20 @@ func runtimeHealthScore(stats *types.ChannelStats) float64 {
 	return score
 }
 
-func (r *Router) estimatedUsageCost(model string, apiType types.APIType, usage *types.Usage, ch *types.RouteChannel) float64 {
+func (r *Router) estimatedUsageCost(model string, apiType types.APIType, usage *types.Usage, ch *types.RouteChannel, userGroup string) float64 {
 	cost := 0.0
+	var pricing *PricingStore
 	if r.billingHook != nil && r.billingHook.pricing != nil {
-		cost = r.billingHook.pricing.CalculateCost(model, apiType, usage)
+		pricing = r.billingHook.pricing
+		cost = pricing.CalculateCost(model, apiType, usage)
 	}
 	if cost <= 0 && usage != nil {
 		cost = float64(usage.TotalTokens) / 1000 * 0.001
 		cost += float64(usage.ImageCount) * 0.004
 		cost += usage.AudioSeconds * 0.0001
+	}
+	if pricing != nil {
+		cost = pricing.ApplyGroupMultiplier(cost, userGroup)
 	}
 	if ch != nil {
 		multiplier := ch.CostMultiplier

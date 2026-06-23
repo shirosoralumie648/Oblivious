@@ -8,13 +8,15 @@ import (
 )
 
 type PricingStore struct {
-	mu     sync.RWMutex
-	prices map[string]map[types.APIType]map[types.UsageDimension]float64
+	mu               sync.RWMutex
+	prices           map[string]map[types.APIType]map[types.UsageDimension]float64
+	groupMultipliers map[string]float64
 }
 
 func NewPricingStore() *PricingStore {
 	return &PricingStore{
-		prices: make(map[string]map[types.APIType]map[types.UsageDimension]float64),
+		prices:           make(map[string]map[types.APIType]map[types.UsageDimension]float64),
+		groupMultipliers: make(map[string]float64),
 	}
 }
 
@@ -69,7 +71,14 @@ func (s *PricingStore) ApplyMultipliers(modelMultipliers, groupMultipliers map[s
 			}
 		}
 	}
-	_ = groupMultipliers
+	appliedGroupMultipliers := make(map[string]float64)
+	for group, multiplier := range groupMultipliers {
+		if multiplier < 0 {
+			continue
+		}
+		appliedGroupMultipliers[group] = multiplier
+	}
+	s.groupMultipliers = appliedGroupMultipliers
 }
 
 func (s *PricingStore) SetPrice(model string, apiType types.APIType, dim types.UsageDimension, price float64) {
@@ -120,4 +129,21 @@ func (s *PricingStore) CalculateCost(model string, apiType types.APIType, usage 
 		}
 	}
 	return total
+}
+
+func (s *PricingStore) CalculateCostForGroup(model string, apiType types.APIType, usage *types.Usage, userGroup string) float64 {
+	return s.ApplyGroupMultiplier(s.CalculateCost(model, apiType, usage), userGroup)
+}
+
+func (s *PricingStore) ApplyGroupMultiplier(cost float64, userGroup string) float64 {
+	if s == nil || userGroup == "" {
+		return cost
+	}
+	s.mu.RLock()
+	multiplier, ok := s.groupMultipliers[userGroup]
+	s.mu.RUnlock()
+	if !ok || multiplier < 0 {
+		return cost
+	}
+	return cost * multiplier
 }

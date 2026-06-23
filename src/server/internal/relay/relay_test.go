@@ -1162,14 +1162,16 @@ func (m *recordingAPITokenQuotaManager) RefundRelayAPITokenQuota(_ context.Conte
 var _ APITokenQuotaManager = (*recordingAPITokenQuotaManager)(nil)
 
 type stubQuotaManager struct {
-	preconsumeCalls int
-	settleCalls     int
-	refundCalls     int
-	settleErr       error
+	preconsumeCalls  int
+	preconsumeAmount float64
+	settleCalls      int
+	refundCalls      int
+	settleErr        error
 }
 
 func (m *stubQuotaManager) PreConsume(_ context.Context, userID, organizationID string, amount float64, idempotencyKey string, channelID, model, apiType string) (*quota.BillingSession, error) {
 	m.preconsumeCalls++
+	m.preconsumeAmount = amount
 	return &quota.BillingSession{
 		ID:               "bill_test",
 		UserID:           userID,

@@ -12,23 +12,24 @@ type BillingStatus string
 
 const (
 	BillingStatusAuthorized BillingStatus = "authorized"
-	BillingStatusSettled   BillingStatus = "settled"
-	BillingStatusRefunded  BillingStatus = "refunded"
-	BillingStatusFailed    BillingStatus = "failed"
+	BillingStatusSettled    BillingStatus = "settled"
+	BillingStatusRefunded   BillingStatus = "refunded"
+	BillingStatusFailed     BillingStatus = "failed"
 )
 
 type BillingSession struct {
 	ID               string
 	ChannelID        string
-	APIType         types.APIType
-	Model           string
-	IdempotencyKey  string
-	RequestID       string
-	AttemptNo       int
+	APIType          types.APIType
+	Model            string
+	UserGroup        string
+	IdempotencyKey   string
+	RequestID        string
+	AttemptNo        int
 	PreAuthorizedAmt float64
-	SettledAmt      float64
-	Status          BillingStatus
-	CreatedAt       time.Time
+	SettledAmt       float64
+	Status           BillingStatus
+	CreatedAt        time.Time
 }
 
 type BillingHook struct {
@@ -57,7 +58,7 @@ func (h *BillingHook) PreBill(session *BillingSession, usage *types.Usage) (floa
 	}
 
 	// Estimate cost
-	cost := h.pricing.CalculateCost(session.Model, session.APIType, usage)
+	cost := h.pricing.CalculateCostForGroup(session.Model, session.APIType, usage, session.UserGroup)
 	// Add 20% buffer for safety
 	preAuth := cost * 1.2
 
@@ -81,7 +82,7 @@ func (h *BillingHook) PostBill(session *BillingSession, usage *types.Usage) (flo
 		h.mu.Unlock()
 	}
 
-	actualCost := h.pricing.CalculateCost(session.Model, session.APIType, usage)
+	actualCost := h.pricing.CalculateCostForGroup(session.Model, session.APIType, usage, session.UserGroup)
 
 	// Refund excess authorization
 	excess := session.PreAuthorizedAmt - actualCost
@@ -121,14 +122,14 @@ func (h *BillingHook) IncrementAttempt(session *BillingSession) {
 func (h *BillingHook) BuildBillingSession(channelID, model string, apiType types.APIType, idempotencyKey string) *BillingSession {
 	now := time.Now()
 	return &BillingSession{
-		ID:              fmt.Sprintf("sess_%d", now.UnixNano()),
-		ChannelID:       channelID,
-		APIType:         apiType,
-		Model:           model,
-		IdempotencyKey:  idempotencyKey,
+		ID:               fmt.Sprintf("sess_%d", now.UnixNano()),
+		ChannelID:        channelID,
+		APIType:          apiType,
+		Model:            model,
+		IdempotencyKey:   idempotencyKey,
 		PreAuthorizedAmt: 0,
-		SettledAmt:      0,
-		Status:          BillingStatusAuthorized,
-		CreatedAt:       now,
+		SettledAmt:       0,
+		Status:           BillingStatusAuthorized,
+		CreatedAt:        now,
 	}
 }

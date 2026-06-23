@@ -562,6 +562,75 @@ func TestRouterRouteWithBillingUsesTrustedOrganizationForChannelSelectionAndAffi
 	}
 }
 
+func TestRouterRouteWithBillingAppliesTrustedUserGroupPricingMultiplier(t *testing.T) {
+	pool := NewChannelPool()
+	pool.AddChannel(&types.Channel{
+		ID:             "vip_channel",
+		OrganizationID: "org_vip",
+		Name:           "VIP Channel",
+		Provider:       "openai",
+		BaseURL:        "https://vip.example",
+		APIKey:         "sk-vip",
+		Models:         []string{"gpt-4o"},
+		Enabled:        true,
+	}, 1)
+
+	pricing := NewPricingStore()
+	pricing.SetPrice("gpt-4o", types.APITypeChat, types.DimPromptTokens, 2.0)
+	pricing.SetPrice("gpt-4o", types.APITypeChat, types.DimCompletionTokens, 8.0)
+	pricing.ApplyMultipliers(nil, map[string]float64{"vip": 0.5})
+	router := NewRouterWithBilling(
+		pool,
+		NewLoadBalancer(pool, "weighted"),
+		nil,
+		nil,
+		NewHealthChecker(HealthCheckDisabled, time.Second),
+		NewBillingHook(pricing, nil),
+		"",
+	)
+	quotaManager := &stubQuotaManager{}
+	apiTokenQuotaManager := &recordingAPITokenQuotaManager{}
+	usageLogger := &recordingUsageLogger{}
+	router.SetQuotaManager(quotaManager)
+	router.SetAPITokenQuotaManager(apiTokenQuotaManager)
+	router.SetUsageLogger(usageLogger)
+
+	ctx := types.WithTrustedUserID(context.Background(), "user_vip")
+	ctx = types.WithTrustedOrganizationID(ctx, "org_vip")
+	ctx = types.WithTrustedAPITokenID(ctx, "tok_vip")
+	ctx = types.WithTrustedUserGroup(ctx, "vip")
+	usage := &types.Usage{PromptTokens: 1000, CompletionTokens: 500, TotalTokens: 1500}
+
+	resp, err := router.RouteWithBilling(ctx, types.APITypeChat, "gpt-4o", "", "idem_vip_group", usage, func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
+		if got := routeChannelID(ch); got != "vip_channel" {
+			t.Fatalf("expected vip channel, got %q", got)
+		}
+		return types.NewOKResponse([]byte(`{"ok":true}`), usage), nil
+	})
+
+	if err != nil {
+		t.Fatalf("RouteWithBilling returned error: %v", err)
+	}
+	if resp == nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected successful response, got %+v", resp)
+	}
+	if quotaManager.preconsumeAmount != 3000 {
+		t.Fatalf("expected quota preconsume to use vip group cost 3000, got %f", quotaManager.preconsumeAmount)
+	}
+	if apiTokenQuotaManager.preauthorizedAmount != 3000 {
+		t.Fatalf("expected API token preauthorization to use vip group cost 3000, got %f", apiTokenQuotaManager.preauthorizedAmount)
+	}
+	if apiTokenQuotaManager.settledAmount != 3000 {
+		t.Fatalf("expected API token settlement to use vip group cost 3000, got %f", apiTokenQuotaManager.settledAmount)
+	}
+	if len(usageLogger.records) != 1 {
+		t.Fatalf("expected one usage record, got %d", len(usageLogger.records))
+	}
+	if usageLogger.records[0].Cost != 3000 {
+		t.Fatalf("expected usage record to use vip group cost 3000, got %f", usageLogger.records[0].Cost)
+	}
+}
+
 func TestRouterRouteWithBillingRecordsRuntimeMetricsForSuccess(t *testing.T) {
 	router, _ := newRetryAffinityTestRouter()
 	apiType := types.APITypeChat.String()

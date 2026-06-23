@@ -15,6 +15,7 @@ func TestBillingHook_PreBill(t *testing.T) {
 		ChannelID:      "ch_1",
 		APIType:        types.APITypeChat,
 		Model:          "gpt-4o",
+		UserGroup:      "vip",
 		IdempotencyKey: "idem_123",
 	}
 
@@ -30,6 +31,34 @@ func TestBillingHook_PreBill(t *testing.T) {
 	}
 }
 
+func TestBillingHook_PreBillAppliesGroupMultiplier(t *testing.T) {
+	store := NewPricingStore()
+	store.SetPrice("gpt-4o", types.APITypeChat, types.DimPromptTokens, 2.0)
+	store.SetPrice("gpt-4o", types.APITypeChat, types.DimCompletionTokens, 8.0)
+	store.ApplyMultipliers(nil, map[string]float64{"vip": 0.5})
+	hook := NewBillingHook(store, nil)
+
+	session := &BillingSession{
+		ID:             "sess_123",
+		ChannelID:      "ch_1",
+		APIType:        types.APITypeChat,
+		Model:          "gpt-4o",
+		UserGroup:      "vip",
+		IdempotencyKey: "idem_123",
+	}
+
+	preAuth, err := hook.PreBill(session, &types.Usage{PromptTokens: 1000, CompletionTokens: 500})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if preAuth != 3600 {
+		t.Fatalf("expected vip pre-auth amount 3600, got %f", preAuth)
+	}
+	if session.PreAuthorizedAmt != 3600 {
+		t.Fatalf("expected session pre-auth amount 3600, got %f", session.PreAuthorizedAmt)
+	}
+}
+
 func TestBillingHook_PostBill_Settles(t *testing.T) {
 	store := NewPricingStoreWithDefaults()
 	hook := NewBillingHook(store, nil)
@@ -39,7 +68,8 @@ func TestBillingHook_PostBill_Settles(t *testing.T) {
 		ChannelID:        "ch_1",
 		APIType:          types.APITypeChat,
 		Model:            "gpt-4o",
-		IdempotencyKey:  "idem_123",
+		IdempotencyKey:   "idem_123",
+		UserGroup:        "vip",
 		PreAuthorizedAmt: 10.0,
 	}
 
@@ -52,6 +82,35 @@ func TestBillingHook_PostBill_Settles(t *testing.T) {
 	}
 }
 
+func TestBillingHook_PostBillAppliesGroupMultiplier(t *testing.T) {
+	store := NewPricingStore()
+	store.SetPrice("gpt-4o", types.APITypeChat, types.DimPromptTokens, 2.0)
+	store.SetPrice("gpt-4o", types.APITypeChat, types.DimCompletionTokens, 8.0)
+	store.ApplyMultipliers(nil, map[string]float64{"vip": 0.5})
+	hook := NewBillingHook(store, nil)
+
+	session := &BillingSession{
+		ID:               "sess_123",
+		ChannelID:        "ch_1",
+		APIType:          types.APITypeChat,
+		Model:            "gpt-4o",
+		UserGroup:        "vip",
+		IdempotencyKey:   "idem_123",
+		PreAuthorizedAmt: 4000.0,
+	}
+
+	settled, err := hook.PostBill(session, &types.Usage{PromptTokens: 1000, CompletionTokens: 500})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if settled != 3000 {
+		t.Fatalf("expected vip settled amount 3000, got %f", settled)
+	}
+	if session.SettledAmt != 3000 {
+		t.Fatalf("expected session settled amount 3000, got %f", session.SettledAmt)
+	}
+}
+
 func TestBillingHook_Refund(t *testing.T) {
 	store := NewPricingStoreWithDefaults()
 	hook := NewBillingHook(store, nil)
@@ -61,6 +120,7 @@ func TestBillingHook_Refund(t *testing.T) {
 		ChannelID:        "ch_1",
 		PreAuthorizedAmt: 10.0,
 		SettledAmt:       5.0,
+		UserGroup:        "vip",
 	}
 
 	refunded, err := hook.Refund(session)

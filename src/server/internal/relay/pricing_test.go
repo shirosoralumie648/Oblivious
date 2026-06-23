@@ -53,6 +53,32 @@ func TestPricingCalculateCostTreatsNilUsageAsZero(t *testing.T) {
 	}
 }
 
+func TestPricingCalculateCostForGroupAppliesGroupMultiplier(t *testing.T) {
+	store := NewPricingStore()
+	store.SetPrice("gpt-4o", types.APITypeChat, types.DimPromptTokens, 2.0)
+	store.SetPrice("gpt-4o", types.APITypeChat, types.DimCompletionTokens, 8.0)
+	store.ApplyMultipliers(nil, map[string]float64{"vip": 0.5})
+
+	usage := &types.Usage{
+		PromptTokens:     1000,
+		CompletionTokens: 500,
+	}
+
+	baseCost := store.CalculateCost("gpt-4o", types.APITypeChat, usage)
+	if baseCost != 6000 {
+		t.Fatalf("expected base cost 6000, got %f", baseCost)
+	}
+
+	groupCost := store.CalculateCostForGroup("gpt-4o", types.APITypeChat, usage, "vip")
+	if groupCost != 3000 {
+		t.Fatalf("expected vip group cost 3000, got %f", groupCost)
+	}
+
+	if cost := store.CalculateCostForGroup("gpt-4o", types.APITypeChat, usage, "standard"); cost != 6000 {
+		t.Fatalf("expected default group cost 6000, got %f", cost)
+	}
+}
+
 func TestPricing_DefaultPricing(t *testing.T) {
 	store := NewPricingStoreWithDefaults()
 	price, err := store.GetPrice("gpt-4o", types.APITypeChat, types.DimPromptTokens)
