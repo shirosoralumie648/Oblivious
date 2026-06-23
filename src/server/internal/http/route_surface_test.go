@@ -2410,6 +2410,30 @@ func TestRouteSurfaceRuntimeAPIRoutesAreDocumentedInManifestWithoutDatabase(t *t
 	}
 }
 
+func TestRouteSurfaceDeclaredRouteRegistrarsAreMountedWithoutDatabase(t *testing.T) {
+	calledRegistrars := routeSurfaceCalledRegistrars(t, "router.go")
+	registrarFiles, err := filepath.Glob("routes_*.go")
+	if err != nil {
+		t.Fatalf("glob route files: %v", err)
+	}
+
+	var missing []string
+	for _, sourceFile := range registrarFiles {
+		if strings.HasSuffix(sourceFile, "_test.go") {
+			continue
+		}
+		for registrar := range routeSurfaceDeclaredRegistrars(t, sourceFile) {
+			if !calledRegistrars[registrar] {
+				missing = append(missing, fmt.Sprintf("%s declared in %s", registrar, sourceFile))
+			}
+		}
+	}
+	sort.Strings(missing)
+	if len(missing) > 0 {
+		t.Fatalf("declared route registrars must be mounted by NewRouterWithOptions:\n- %s", strings.Join(missing, "\n- "))
+	}
+}
+
 func TestRouteSurfaceManifestRoutesAreRegisteredWithoutDatabase(t *testing.T) {
 	manifest := loadRouteSurfaceManifest(t)
 
