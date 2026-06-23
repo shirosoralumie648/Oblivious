@@ -312,6 +312,23 @@ def require_iso8601_interval(failures, data, path, interval_error:, ordering_err
   end
 end
 
+def parse_iso8601_safely(value)
+  return nil unless value.is_a?(String)
+
+  Time.iso8601(value)
+rescue ArgumentError
+  nil
+end
+
+def iso8601_interval_end(value)
+  return nil unless value.is_a?(String)
+
+  parts = value.split("/", -1)
+  return nil unless parts.length == 2 && parts.none? { |part| part.strip.empty? }
+
+  parse_iso8601_safely(parts.fetch(1).strip)
+end
+
 GO_DURATION_PATTERN = /\A(?:(?:\d+(?:\.\d+)?|\.\d+)(?:ns|us|ms|s|m|h))+\z/.freeze
 
 def positive_go_duration_string?(value)
@@ -735,6 +752,7 @@ else
 end
 
 grpc_smoke_report = data["grpcSmokeReport"]
+grpc_smoke_recorded_at = nil
 if !grpc_smoke_report.is_a?(Hash)
   failures << "grpcSmokeReport is required"
 else
@@ -748,7 +766,7 @@ else
   end
   smoke_recorded_at = require_string(failures, data, ["grpcSmokeReport", "recordedAt"])
   begin
-    Time.iso8601(smoke_recorded_at) if smoke_recorded_at.is_a?(String)
+    grpc_smoke_recorded_at = Time.iso8601(smoke_recorded_at) if smoke_recorded_at.is_a?(String)
   rescue ArgumentError
     failures << "grpcSmokeReport.recordedAt must be ISO-8601"
   end
@@ -830,11 +848,13 @@ require_iso8601_interval(
   interval_error: "workflowTelemetry.window must be an ISO-8601 start/end interval",
   ordering_error: "workflowTelemetry.window end must be at or after start"
 )
+workflow_telemetry_window_end = iso8601_interval_end(dig_path(data, ["workflowTelemetry", "window"]))
 require_evidence_ref(failures, data, ["workflowTelemetry", "evidenceRef"])
 
 artifacts = data["artifacts"]
 artifact_ids = {}
 artifact_indexes = {}
+artifact_recorded_times = {}
 if !artifacts.is_a?(Array) || artifacts.empty?
   failures << "artifacts must include at least one target artifact entry"
 else
@@ -875,10 +895,14 @@ else
     failures << "artifacts[#{index}].uri must not embed secret-like query or fragment parameters" if secret_like_uri?(uri)
     failures << "artifacts[#{index}].uri must not embed credentials in URI userinfo" if userinfo_uri?(uri)
     artifact_recorded_at = require_string(failures, data, ["artifacts", index, "recordedAt"])
+    parsed_artifact_recorded_at = nil
     begin
-      Time.iso8601(artifact_recorded_at) if artifact_recorded_at.is_a?(String)
+      parsed_artifact_recorded_at = Time.iso8601(artifact_recorded_at) if artifact_recorded_at.is_a?(String)
     rescue ArgumentError
       failures << "artifacts[#{index}].recordedAt must be ISO-8601"
+    end
+    if id.is_a?(String) && !placeholder?(id) && parsed_artifact_recorded_at
+      artifact_recorded_times[id] = parsed_artifact_recorded_at
     end
     sha256 = artifact["sha256"]
     if !sha256.nil? && (!sha256.is_a?(String) || !sha256.match?(/\A[0-9a-f]{64}\z/i))
@@ -943,8 +967,22 @@ grpc_entries.each_with_index do |_entry, index|
   require_artifact_kind(failures, data, artifact_ids, ["grpc", index, "evidenceRef"], "grpc-smoke-report")
 end
 require_artifact_kind(failures, data, artifact_ids, ["grpcSmokeReport", "evidenceRef"], "grpc-smoke-report")
+grpc_smoke_report_ref = dig_path(data, ["grpcSmokeReport", "evidenceRef"])
+if grpc_smoke_recorded_at && grpc_smoke_report_ref.is_a?(String) && !placeholder?(grpc_smoke_report_ref)
+  grpc_smoke_artifact_recorded_at = artifact_recorded_times[grpc_smoke_report_ref]
+  if grpc_smoke_artifact_recorded_at && grpc_smoke_artifact_recorded_at < grpc_smoke_recorded_at
+    failures << "grpcSmokeReport.evidenceRef artifact recordedAt must be at or after grpcSmokeReport.recordedAt"
+  end
+end
 require_artifact_kind(failures, data, artifact_ids, ["secretAudit", "evidenceRef"], "secret-audit")
 require_artifact_kind(failures, data, artifact_ids, ["workflowTelemetry", "evidenceRef"], "workflow-telemetry")
+workflow_telemetry_ref = dig_path(data, ["workflowTelemetry", "evidenceRef"])
+if workflow_telemetry_window_end && workflow_telemetry_ref.is_a?(String) && !placeholder?(workflow_telemetry_ref)
+  workflow_telemetry_artifact_recorded_at = artifact_recorded_times[workflow_telemetry_ref]
+  if workflow_telemetry_artifact_recorded_at && workflow_telemetry_artifact_recorded_at < workflow_telemetry_window_end
+    failures << "workflowTelemetry.evidenceRef artifact recordedAt must be at or after workflowTelemetry.window end"
+  end
+end
 
 collect_skips(data).each do |skip_path, value|
   failures << "#{skip_path.join(".")} must be empty/false for final target evidence; got #{value.inspect}"

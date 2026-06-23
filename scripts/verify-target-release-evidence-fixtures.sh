@@ -458,4 +458,14 @@ make_invalid_case \
   'data["grpc"].find { |entry| entry["service"] == "agent" }["evidenceRef"] = "artifact-agent-only"' \
   "grpc agent evidenceRef must match grpcSmokeReport.evidenceRef"
 
+make_invalid_case \
+  "grpc-smoke-artifact-before-report" \
+  'data["grpcSmokeReport"]["recordedAt"] = "2026-06-16T02:00:00Z"' \
+  "grpcSmokeReport.evidenceRef artifact recordedAt must be at or after grpcSmokeReport.recordedAt"
+
+make_invalid_case \
+  "workflow-telemetry-artifact-before-window-end" \
+  'data["workflowTelemetry"]["window"] = "2026-06-16T00:00:00Z/2026-06-16T02:00:00Z"' \
+  "workflowTelemetry.evidenceRef artifact recordedAt must be at or after workflowTelemetry.window end"
+
 echo "[target-release-evidence-fixtures] target release evidence verifier behavior is guarded."
