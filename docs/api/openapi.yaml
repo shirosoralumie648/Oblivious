@@ -3510,6 +3510,9 @@ components:
     AdminTopupRefundRequest:
       type: object
       required: [provider, providerRefundID, amount, currency]
+      anyOf:
+        - required: [providerChargeID]
+        - required: [providerPaymentIntentID]
       properties:
         provider:
           type: string
@@ -3520,8 +3523,10 @@ components:
           description: Provider refund identifier used for idempotency.
         providerChargeID:
           type: string
+          description: Stripe charge evidence for an operator-confirmed Stripe top-up refund.
         providerPaymentIntentID:
           type: string
+          description: Provider payment intent evidence; required for domestic provider top-up refunds and accepted for Stripe refund reconciliation.
         amount:
           type: number
           format: double

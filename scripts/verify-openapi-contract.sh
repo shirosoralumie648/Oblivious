@@ -4680,6 +4680,11 @@ require_admin_billing_contract() {
     ["provider", "providerRefundID", "amount", "currency"].each do |field|
       missing << "AdminTopupRefundRequest must require #{field}" unless refund_required.include?(field)
     end
+    refund_evidence_alternatives = (refund_schema["anyOf"] || []).filter_map { |alternative| alternative["required"] if alternative.is_a?(Hash) }
+    unless refund_evidence_alternatives.any? { |required| required.include?("providerChargeID") } &&
+        refund_evidence_alternatives.any? { |required| required.include?("providerPaymentIntentID") }
+      missing << "AdminTopupRefundRequest must document providerChargeID or providerPaymentIntentID evidence alternatives"
+    end
     unless refund_schema.dig("properties", "amount", "minimum").to_f > 0
       missing << "AdminTopupRefundRequest.amount must document a positive minimum"
     end
