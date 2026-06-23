@@ -49,6 +49,18 @@ const initialNotifications = [
     createdAt: '2026-06-15T23:45:00Z',
   },
   {
+    id: 'notif_mobile_long',
+    userId: session.user.id,
+    type: 'warning',
+    category: 'workspaceincidentresponsestreamwithoutspaces',
+    title: 'ProviderResearchClusterLongRunningIncident20260624RequiresOperatorAcknowledgementWithoutSpaces',
+    message:
+      'ProviderResearchClusterLongRunningIncident20260624RequiresOperatorAcknowledgementWithoutSpaces remained open during escalation review.',
+    isRead: false,
+    metadata: { incidentId: 'inc_mobile_long_notification' },
+    createdAt: '2026-06-15T23:15:00Z',
+  },
+  {
     id: 'notif_report',
     userId: session.user.id,
     type: 'success',

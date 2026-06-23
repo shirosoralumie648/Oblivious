@@ -116,13 +116,13 @@ export function NotificationsPage() {
   };
 
   return (
-    <section>
-      <header className="flex flex-col gap-3 border-b border-[#d7d2c4] pb-4 md:flex-row md:items-end md:justify-between">
-        <div>
+    <section className="min-w-0">
+      <header className="flex min-w-0 flex-col gap-3 border-b border-[#d7d2c4] pb-4 md:flex-row md:items-end md:justify-between">
+        <div className="min-w-0">
           <h1>Notifications</h1>
           <p className="mt-2 text-sm text-[#5c5548]">Review in-app alerts routed from workspace and system events.</p>
         </div>
-        <div className="flex flex-wrap gap-2 text-sm">
+        <div className="flex min-w-0 max-w-full flex-wrap gap-2 text-sm">
           <span className="rounded-lg border border-[#d7d2c4] bg-[#f8f6ef] px-3 py-2">{`${notifications.length} total`}</span>
           <span className="rounded-lg border border-[#d7d2c4] bg-[#f8f6ef] px-3 py-2">{`${unreadCount} unread`}</span>
           <button
@@ -142,12 +142,12 @@ export function NotificationsPage() {
       {isLoading ? (
         <p className="mt-4">Loading notifications...</p>
       ) : notifications.length > 0 ? (
-        <ul className="mt-5 divide-y divide-[#e5dfd2]">
+        <ul className="mt-5 min-w-0 divide-y divide-[#e5dfd2]">
           {notifications.map((notification) => (
-            <li key={notification.id} className="grid gap-3 py-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="text-base font-semibold text-[#181611]">{notification.title}</h2>
+            <li key={notification.id} className="grid min-w-0 gap-3 py-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
+              <div className="min-w-0">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <h2 className="min-w-0 break-words text-base font-semibold text-[#181611]">{notification.title}</h2>
                   <span className={`rounded-lg border px-2 py-1 text-xs font-semibold ${severityClassName(notification.type)}`}>
                     {severityLabels[notification.type] ?? notification.type}
                   </span>
@@ -157,28 +157,28 @@ export function NotificationsPage() {
                     </span>
                   ) : null}
                 </div>
-                <p className="mt-2 text-sm text-[#4b453b]">{notification.message}</p>
-                <p className="mt-2 text-xs uppercase tracking-wide text-[#7a7163]">{notification.category}</p>
+                <p className="mt-2 break-words text-sm text-[#4b453b]">{notification.message}</p>
+                <p className="mt-2 break-words text-xs uppercase tracking-wide text-[#7a7163]">{notification.category}</p>
               </div>
-              <div className="flex flex-wrap gap-2 md:justify-end">
+              <div className="flex min-w-0 max-w-full flex-wrap gap-2 md:justify-end">
                 {!notification.isRead ? (
                   <button
-                    className="inline-flex min-h-[40px] items-center justify-center rounded-lg border border-[#1a614f] px-3 text-sm font-semibold text-[#1a614f] transition hover:bg-[#e9f2ee] disabled:opacity-60"
+                    className="inline-flex min-h-[40px] max-w-full items-center justify-center rounded-lg border border-[#1a614f] px-3 text-left text-sm font-semibold text-[#1a614f] transition hover:bg-[#e9f2ee] disabled:opacity-60"
                     disabled={updatingId === notification.id || deletingId === notification.id}
                     onClick={() => void markNotificationRead(notification)}
                     type="button"
                   >
-                    {updatingId === notification.id ? 'Marking read...' : `Mark ${notification.title} as read`}
+                    <span className="min-w-0 break-words">{updatingId === notification.id ? 'Marking read...' : `Mark ${notification.title} as read`}</span>
                   </button>
                 ) : null}
                 <button
-                  className="inline-flex min-h-[40px] items-center justify-center gap-2 rounded-lg border border-[#8e1f1f] px-3 text-sm font-semibold text-[#8e1f1f] transition hover:bg-[#fff0ed] disabled:opacity-60"
+                  className="inline-flex min-h-[40px] max-w-full items-center justify-center gap-2 rounded-lg border border-[#8e1f1f] px-3 text-left text-sm font-semibold text-[#8e1f1f] transition hover:bg-[#fff0ed] disabled:opacity-60"
                   disabled={deletingId === notification.id || updatingId === notification.id}
                   onClick={() => void deleteNotification(notification)}
                   type="button"
                 >
-                  <RiDeleteBinLine className="size-4" aria-hidden="true" />
-                  {deletingId === notification.id ? 'Deleting...' : `Delete ${notification.title}`}
+                  <RiDeleteBinLine className="size-4 shrink-0" aria-hidden="true" />
+                  <span className="min-w-0 break-words">{deletingId === notification.id ? 'Deleting...' : `Delete ${notification.title}`}</span>
                 </button>
               </div>
             </li>
