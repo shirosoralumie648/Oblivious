@@ -62,6 +62,7 @@ run_docs_checks() {
 
   echo "[check] Verifying commercial DB evidence profile list."
   bash "$repo_root/scripts/verify-commercial-db-evidence-profiles.sh"
+  bash "$repo_root/scripts/verify-commercial-db-evidence-profiles-fixtures.sh"
 
   echo "[check] Verifying fusion evidence pack."
   bash "$repo_root/scripts/verify-fusion-evidence-pack.sh"

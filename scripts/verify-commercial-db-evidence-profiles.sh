@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-target="$repo_root/scripts/verify-commercial-db-evidence.sh"
+target="${COMMERCIAL_DB_EVIDENCE_TARGET:-$repo_root/scripts/verify-commercial-db-evidence.sh}"
 
 fail() {
   echo "[commercial-db-evidence-profiles] $*" >&2
@@ -393,9 +393,7 @@ fi
 if [[ "$quota_sql_isolation_body" != *"ListPackagesReturnsOnlyActivePublicHybridPlans"* ]]; then
   fail "quota-sql-isolation must include TestSQLStoreListPackagesReturnsOnlyActivePublicHybridPlans"
 fi
-if [[ "$quota_sql_isolation_body" != *"QuotaObservabilityRecordsSettlementFailure"* ]]; then
-  fail "quota-sql-isolation must include TestQuotaObservabilityRecordsSettlementFailure"
-fi
+require_profile_token "$quota_sql_isolation_body" "quota-sql-isolation" "TestQuotaObservabilityRecordsSettlementFailure" "TestQuotaObservabilityRecordsSettlementFailure"
 if [[ "$quota_sql_isolation_body" != *"CrossTenantQuotaScopeUsesActiveOrganization"* ]]; then
   fail "quota-sql-isolation must include TestCrossTenantQuotaScopeUsesActiveOrganization"
 fi

@@ -22,6 +22,15 @@ require_contains() {
   fi
 }
 
+require_line_not_equals() {
+  local path="$1"
+  local line="$2"
+  if grep -Fxq -- "$line" "$path"; then
+    echo "[fusion-evidence-pack] unexpected exact line '$line' in $path" >&2
+    exit 1
+  fi
+}
+
 require_row_contains() {
   local path="$1"
   local row_prefix="$2"
@@ -62,6 +71,10 @@ require_contains "$pack_file" "evidence family"
 require_contains "$pack_file" "concrete environment"
 require_contains "$pack_file" "direct Workflow AgentClient planning-control adapter proof"
 require_contains "$pack_file" "scripts/verify-commercial-completion.sh"
+require_contains "$pack_file" "(cd src/server && GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./... -count=1)"
+require_contains "$pack_file" "(cd src/server && TEST_DATABASE_URL=\"\$TEST_DATABASE_URL\" GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test -p 1 ./... -count=1)"
+require_line_not_equals "$pack_file" "GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./... -count=1"
+require_line_not_equals "$pack_file" "TEST_DATABASE_URL=\"\$TEST_DATABASE_URL\" GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test -p 1 ./... -count=1"
 require_contains "$pack_file" "COMMERCIAL_COMPLETION_RUN_DEPLOY=true \\"
 require_contains "$pack_file" "COMMERCIAL_COMPLETION_RUN_K8S=true \\"
 require_contains "$pack_file" "COMMERCIAL_COMPLETION_RUN_BACKUP_RESTORE=true \\"

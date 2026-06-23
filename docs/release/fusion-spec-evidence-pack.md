@@ -72,9 +72,9 @@ bash scripts/check.sh security
 pnpm --dir src/web exec tsc --noEmit
 pnpm --dir src/web test -- ChatPage SoloPage KnowledgePage MarketplacePage AdminHomePage AdminBillingPage AdminReviewsPage --runInBand
 pnpm --dir src/web test:e2e --grep "commercial journey"
-GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./... -count=1
+(cd src/server && GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test ./... -count=1)
 GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache bash scripts/verify-commercial-db-evidence.sh all
-TEST_DATABASE_URL="$TEST_DATABASE_URL" GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test -p 1 ./... -count=1
+(cd src/server && TEST_DATABASE_URL="$TEST_DATABASE_URL" GOCACHE=/tmp/oblivious-go-cache GOMODCACHE=/tmp/oblivious-go-mod-cache go test -p 1 ./... -count=1)
 bash scripts/deploy-validate.sh
 OBLIVIOUS_K8S_SECRET_FILE=/path/outside/git/secret.yaml bash scripts/k8s-validate.sh
 bash scripts/backup-restore-smoke.sh
