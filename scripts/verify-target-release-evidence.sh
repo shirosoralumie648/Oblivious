@@ -345,6 +345,7 @@ def local_target_host?(host)
   normalized = host.to_s.strip.downcase.sub(/\A\[(.*)\]\z/, '\1')
   normalized = normalized.sub(/\.+\z/, "")
   return false if normalized.empty?
+  return true if normalized == "0"
   return true if normalized == "localhost" || normalized.end_with?(".localhost")
 
   begin
