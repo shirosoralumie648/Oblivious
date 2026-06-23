@@ -89,6 +89,22 @@ if [[ "$output" != *"app-stateful-routes must include TestConsoleAPITokenCreateL
   exit 1
 fi
 
+target_tenant_cross_surface_fixture="$tmp_dir/verify-commercial-db-evidence-tenant-cross-surface.sh"
+cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_tenant_cross_surface_fixture"
+perl -0pi -e 's/TestCrossTenantChatScopeUsesActiveOrganization/TestLegacyCrossTenantChatScopeUsesActiveOrganization/g' "$target_tenant_cross_surface_fixture"
+
+if output=$(COMMERCIAL_DB_EVIDENCE_TARGET="$target_tenant_cross_surface_fixture" bash "$repo_root/scripts/verify-commercial-db-evidence-profiles.sh" 2>&1); then
+  echo "[commercial-db-evidence-profiles-fixtures] expected prefixed tenant cross-surface token to be rejected" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
+if [[ "$output" != *"tenant-cross-surface must include TestCrossTenantChatScopeUsesActiveOrganization"* ]]; then
+  echo "[commercial-db-evidence-profiles-fixtures] expected tenant cross-surface full-name rejection message" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
 target_auth_security_fixture="$tmp_dir/verify-commercial-db-evidence-auth-security.sh"
 cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_auth_security_fixture"
 perl -0pi -e 's/MeRequiresSession/MeRequiresSessionV2/g' "$target_auth_security_fixture"

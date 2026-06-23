@@ -248,42 +248,25 @@ if ! profile_body_has_token "$tenant_membership_lifecycle_body" "TestAdminOrgani
 fi
 
 tenant_cross_surface_body=$(sed -n '/^run_tenant_cross_surface_profile() {/,/^}/p' "$target")
-if ! profile_body_has_token "$tenant_cross_surface_body" "ChatScopeUsesActiveOrganization"; then
-  fail "tenant-cross-surface must include TestCrossTenantChatScopeUsesActiveOrganization"
-fi
-if ! profile_body_has_token "$tenant_cross_surface_body" "KnowledgeScopeDeniesReadWriteAndAttach"; then
-  fail "tenant-cross-surface must include TestCrossTenantKnowledgeScopeDeniesReadWriteAndAttach"
-fi
-if ! profile_body_has_token "$tenant_cross_surface_body" "ConsoleUsageUsesActiveOrganization"; then
-  fail "tenant-cross-surface must include TestCrossTenantConsoleUsageUsesActiveOrganization"
-fi
-if ! profile_body_has_token "$tenant_cross_surface_body" "AgentScopeDeniesReadWriteAndConversation"; then
-  fail "tenant-cross-surface must include TestCrossTenantAgentScopeDeniesReadWriteAndConversation"
-fi
-if ! profile_body_has_token "$tenant_cross_surface_body" "MemoryScopeDeniesReadWrite"; then
-  fail "tenant-cross-surface must include TestCrossTenantMemoryScopeDeniesReadWrite"
-fi
-if ! profile_body_has_token "$tenant_cross_surface_body" "MCPScopeDeniesReadWriteAndConnect"; then
-  fail "tenant-cross-surface must include TestCrossTenantMCPScopeDeniesReadWriteAndConnect"
-fi
-if ! profile_body_has_token "$tenant_cross_surface_body" "QuotaScopeUsesActiveOrganization"; then
-  fail "tenant-cross-surface must include TestCrossTenantQuotaScopeUsesActiveOrganization"
-fi
-if ! profile_body_has_token "$tenant_cross_surface_body" "ScheduledTaskScope"; then
-  fail "tenant-cross-surface must include TestCrossTenantScheduledTaskScope"
-fi
-if ! profile_body_has_token "$tenant_cross_surface_body" "MarketplacePublisherScopeUsesActiveOrganization"; then
-  fail "tenant-cross-surface must include TestCrossTenantMarketplacePublisherScopeUsesActiveOrganization"
-fi
-if ! profile_body_has_token "$tenant_cross_surface_body" "MarketplacePublisherSettlementPreferencesUseActiveOrganization"; then
-  fail "tenant-cross-surface must include TestMarketplacePublisherSettlementPreferencesUseActiveOrganization"
-fi
-if ! profile_body_has_token "$tenant_cross_surface_body" "AgentRunStatusEndpointsExposeTenantScopedRunDetail"; then
-  fail "tenant-cross-surface must include TestAgentRunStatusEndpointsExposeTenantScopedRunDetail"
-fi
-if ! profile_body_has_token "$tenant_cross_surface_body" "AgentToolRunApprovalRejectRetryEndpointsAreTenantScoped"; then
-  fail "tenant-cross-surface must include TestAgentToolRunApprovalRejectRetryEndpointsAreTenantScoped"
-fi
+tenant_cross_surface_required=(
+  "TestCrossTenantChatScopeUsesActiveOrganization|TestCrossTenantChatScopeUsesActiveOrganization"
+  "TestCrossTenantKnowledgeScopeDeniesReadWriteAndAttach|TestCrossTenantKnowledgeScopeDeniesReadWriteAndAttach"
+  "TestCrossTenantConsoleUsageUsesActiveOrganization|TestCrossTenantConsoleUsageUsesActiveOrganization"
+  "TestCrossTenantAgentScopeDeniesReadWriteAndConversation|TestCrossTenantAgentScopeDeniesReadWriteAndConversation"
+  "TestCrossTenantMemoryScopeDeniesReadWrite|TestCrossTenantMemoryScopeDeniesReadWrite"
+  "TestCrossTenantMCPScopeDeniesReadWriteAndConnect|TestCrossTenantMCPScopeDeniesReadWriteAndConnect"
+  "TestCrossTenantQuotaScopeUsesActiveOrganization|TestCrossTenantQuotaScopeUsesActiveOrganization"
+  "TestCrossTenantScheduledTaskScope|TestCrossTenantScheduledTaskScope"
+  "TestCrossTenantMarketplacePublisherScopeUsesActiveOrganization|TestCrossTenantMarketplacePublisherScopeUsesActiveOrganization"
+  "TestMarketplacePublisherSettlementPreferencesUseActiveOrganization|TestMarketplacePublisherSettlementPreferencesUseActiveOrganization"
+  "TestAgentRunStatusEndpointsExposeTenantScopedRunDetail|TestAgentRunStatusEndpointsExposeTenantScopedRunDetail"
+  "TestAgentToolRunApprovalRejectRetryEndpointsAreTenantScoped|TestAgentToolRunApprovalRejectRetryEndpointsAreTenantScoped"
+)
+for requirement in "${tenant_cross_surface_required[@]}"; do
+  token="${requirement%%|*}"
+  test_name="${requirement#*|}"
+  require_profile_token "$tenant_cross_surface_body" "tenant-cross-surface" "$token" "$test_name"
+done
 
 secret_response_safety_body=$(sed -n '/^run_secret_response_safety_profile() {/,/^}/p' "$target")
 secret_response_safety_required=(
