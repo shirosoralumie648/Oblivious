@@ -153,6 +153,70 @@ if [[ "$output" != *"migration-ledger-backfills must include TestApplyMigrations
   exit 1
 fi
 
+target_relay_file_mapping_fixture="$tmp_dir/verify-commercial-db-evidence-relay-file-mapping.sh"
+cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_relay_file_mapping_fixture"
+perl -0pi -e 's/TestRelayStoreSaveFileMappingPersistsTenantOwnership/TestRelayStoreSaveFileMappingPersistsTenantOwnershipV2/g' "$target_relay_file_mapping_fixture"
+
+if output=$(COMMERCIAL_DB_EVIDENCE_TARGET="$target_relay_file_mapping_fixture" bash "$repo_root/scripts/verify-commercial-db-evidence-profiles.sh" 2>&1); then
+  echo "[commercial-db-evidence-profiles-fixtures] expected suffixed relay file-mapping token to be rejected" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
+if [[ "$output" != *"relay-file-mapping-tenant-ownership must include TestRelayStoreSaveFileMappingPersistsTenantOwnership"* ]]; then
+  echo "[commercial-db-evidence-profiles-fixtures] expected relay file-mapping token-boundary rejection message" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
+target_publishing_channel_fixture="$tmp_dir/verify-commercial-db-evidence-publishing-channel.sh"
+cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_publishing_channel_fixture"
+perl -0pi -e 's/TestPublishingChannelHTTPRouteEnforcesActiveOrganizationIsolation/TestPublishingChannelHTTPRouteEnforcesActiveOrganizationIsolationV2/g' "$target_publishing_channel_fixture"
+
+if output=$(COMMERCIAL_DB_EVIDENCE_TARGET="$target_publishing_channel_fixture" bash "$repo_root/scripts/verify-commercial-db-evidence-profiles.sh" 2>&1); then
+  echo "[commercial-db-evidence-profiles-fixtures] expected suffixed publishing-channel token to be rejected" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
+if [[ "$output" != *"publishing-channel-isolation must include TestPublishingChannelHTTPRouteEnforcesActiveOrganizationIsolation"* ]]; then
+  echo "[commercial-db-evidence-profiles-fixtures] expected publishing-channel token-boundary rejection message" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
+target_admin_relay_channel_fixture="$tmp_dir/verify-commercial-db-evidence-admin-relay-channel.sh"
+cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_admin_relay_channel_fixture"
+perl -0pi -e 's/TestAdminRelayChannelHTTPRouteEnforcesActiveOrganizationIsolation/TestAdminRelayChannelHTTPRouteEnforcesActiveOrganizationIsolationV2/g' "$target_admin_relay_channel_fixture"
+
+if output=$(COMMERCIAL_DB_EVIDENCE_TARGET="$target_admin_relay_channel_fixture" bash "$repo_root/scripts/verify-commercial-db-evidence-profiles.sh" 2>&1); then
+  echo "[commercial-db-evidence-profiles-fixtures] expected suffixed admin-relay-channel token to be rejected" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
+if [[ "$output" != *"admin-relay-channel-isolation must include TestAdminRelayChannelHTTPRouteEnforcesActiveOrganizationIsolation"* ]]; then
+  echo "[commercial-db-evidence-profiles-fixtures] expected admin-relay-channel token-boundary rejection message" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
+target_admin_relay_read_fixture="$tmp_dir/verify-commercial-db-evidence-admin-relay-read.sh"
+cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_admin_relay_read_fixture"
+perl -0pi -e 's/TestAdminRelayReadSurfacesScopeRuntimeStatsAndModelInventoryToActiveOrganization/TestAdminRelayReadSurfacesScopeRuntimeStatsAndModelInventoryToActiveOrganizationV2/g' "$target_admin_relay_read_fixture"
+
+if output=$(COMMERCIAL_DB_EVIDENCE_TARGET="$target_admin_relay_read_fixture" bash "$repo_root/scripts/verify-commercial-db-evidence-profiles.sh" 2>&1); then
+  echo "[commercial-db-evidence-profiles-fixtures] expected suffixed admin-relay-read token to be rejected" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
+if [[ "$output" != *"admin-relay-read-isolation must include TestAdminRelayReadSurfacesScopeRuntimeStatsAndModelInventoryToActiveOrganization"* ]]; then
+  echo "[commercial-db-evidence-profiles-fixtures] expected admin-relay-read token-boundary rejection message" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
 target_help_fixture="$tmp_dir/verify-commercial-db-evidence-help-only.sh"
 cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_help_fixture"
 perl -0pi -e 's/(  core-sql-persistence         Run focused Chat SQL sharing\/forking,\n                               Publishing channel SQL retry\/archive, and Relay\n                               semantic-cache SQL persistence tests\.\n)/$1  stale-help-only-profile    Run stale help-only profile tests.\n/s' "$target_help_fixture"

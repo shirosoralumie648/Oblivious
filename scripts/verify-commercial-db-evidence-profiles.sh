@@ -471,33 +471,26 @@ for requirement in "${migration_ledger_backfills_required[@]}"; do
 done
 
 relay_file_mapping_body=$(sed -n '/^run_relay_file_mapping_tenant_ownership_profile() {/,/^}/p' "$target")
-if [[ "$relay_file_mapping_body" != *"SaveFileMappingPersistsTenantOwnership"* ]]; then
-  fail "relay-file-mapping-tenant-ownership must include TestRelayStoreSaveFileMappingPersistsTenantOwnership"
-fi
-if [[ "$relay_file_mapping_body" != *"GetFileMappingRequiresTenantOwnership"* ]]; then
-  fail "relay-file-mapping-tenant-ownership must include TestRelayStoreGetFileMappingRequiresTenantOwnership"
-fi
-if [[ "$relay_file_mapping_body" != *"ListFileMappingsRequiresTenantOwnership"* ]]; then
-  fail "relay-file-mapping-tenant-ownership must include TestRelayStoreListFileMappingsRequiresTenantOwnership"
-fi
-if [[ "$relay_file_mapping_body" != *"NewRelayFilesSQLRelayStoreUploadGetTenantFailClosed"* ]]; then
-  fail "relay-file-mapping-tenant-ownership must include TestNewRelayFilesSQLRelayStoreUploadGetTenantFailClosed"
-fi
+relay_file_mapping_required=(
+  "TestRelayStoreSaveFileMappingPersistsTenantOwnership|TestRelayStoreSaveFileMappingPersistsTenantOwnership"
+  "TestRelayStoreGetFileMappingRequiresTenantOwnership|TestRelayStoreGetFileMappingRequiresTenantOwnership"
+  "TestRelayStoreListFileMappingsRequiresTenantOwnership|TestRelayStoreListFileMappingsRequiresTenantOwnership"
+  "TestNewRelayFilesSQLRelayStoreUploadGetTenantFailClosed|TestNewRelayFilesSQLRelayStoreUploadGetTenantFailClosed"
+)
+for requirement in "${relay_file_mapping_required[@]}"; do
+  token="${requirement%%|*}"
+  test_name="${requirement#*|}"
+  require_profile_token "$relay_file_mapping_body" "relay-file-mapping-tenant-ownership" "$token" "$test_name"
+done
 
 publishing_channel_isolation_body=$(sed -n '/^run_publishing_channel_isolation_profile() {/,/^}/p' "$target")
-if [[ "$publishing_channel_isolation_body" != *"TestPublishingChannelHTTPRouteEnforcesActiveOrganizationIsolation"* ]]; then
-  fail "publishing-channel-isolation must include TestPublishingChannelHTTPRouteEnforcesActiveOrganizationIsolation"
-fi
+require_profile_token "$publishing_channel_isolation_body" "publishing-channel-isolation" "TestPublishingChannelHTTPRouteEnforcesActiveOrganizationIsolation" "TestPublishingChannelHTTPRouteEnforcesActiveOrganizationIsolation"
 
 admin_relay_channel_isolation_body=$(sed -n '/^run_admin_relay_channel_isolation_profile() {/,/^}/p' "$target")
-if [[ "$admin_relay_channel_isolation_body" != *"TestAdminRelayChannelHTTPRouteEnforcesActiveOrganizationIsolation"* ]]; then
-  fail "admin-relay-channel-isolation must include TestAdminRelayChannelHTTPRouteEnforcesActiveOrganizationIsolation"
-fi
+require_profile_token "$admin_relay_channel_isolation_body" "admin-relay-channel-isolation" "TestAdminRelayChannelHTTPRouteEnforcesActiveOrganizationIsolation" "TestAdminRelayChannelHTTPRouteEnforcesActiveOrganizationIsolation"
 
 admin_relay_read_isolation_body=$(sed -n '/^run_admin_relay_read_isolation_profile() {/,/^}/p' "$target")
-if [[ "$admin_relay_read_isolation_body" != *"TestAdminRelayReadSurfacesScopeRuntimeStatsAndModelInventoryToActiveOrganization"* ]]; then
-  fail "admin-relay-read-isolation must include TestAdminRelayReadSurfacesScopeRuntimeStatsAndModelInventoryToActiveOrganization"
-fi
+require_profile_token "$admin_relay_read_isolation_body" "admin-relay-read-isolation" "TestAdminRelayReadSurfacesScopeRuntimeStatsAndModelInventoryToActiveOrganization" "TestAdminRelayReadSurfacesScopeRuntimeStatsAndModelInventoryToActiveOrganization"
 
 marketplace_template_routes_body=$(sed -n '/^run_marketplace_template_routes_profile() {/,/^}/p' "$target")
 marketplace_template_routes_required=(

@@ -331,7 +331,7 @@ run_migration_ledger_backfills_profile() {
 run_relay_file_mapping_tenant_ownership_profile() {
   local relay_file_mapping_pattern
 
-  relay_file_mapping_pattern="^(TestRelayStore(SaveFileMappingPersistsTenantOwnership|GetFileMappingRequiresTenantOwnership|ListFileMappingsRequiresTenantOwnership)|TestNewRelayFilesSQLRelayStoreUploadGetTenantFailClosed)$"
+  relay_file_mapping_pattern="^(TestRelayStoreSaveFileMappingPersistsTenantOwnership|TestRelayStoreGetFileMappingRequiresTenantOwnership|TestRelayStoreListFileMappingsRequiresTenantOwnership|TestNewRelayFilesSQLRelayStoreUploadGetTenantFailClosed)$"
   run_go_test_no_skips "relay file mapping tenant ownership" "./internal/relay" "$relay_file_mapping_pattern"
 }
 
