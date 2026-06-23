@@ -6,6 +6,29 @@ test.beforeEach(async ({ page }) => {
   await registerConsoleUsageRoutes(page);
 });
 
+test('console usage fixture rejects unexpected usage query params', async ({ page }) => {
+  await page.goto('/console/usage');
+
+  const response = await page.evaluate(async () => {
+    const result = await fetch('/api/v1/console/usage?period=30d');
+
+    return {
+      status: result.status,
+      body: await result.json(),
+    };
+  });
+
+  expect(response.status).toBe(422);
+  expect(response.body).toMatchObject({
+    ok: false,
+    data: null,
+    error: {
+      code: 'fixture_contract_mismatch',
+      message: 'console usage query params must be empty',
+    },
+  });
+});
+
 test('console usage renders current workspace usage in the built app', async ({ page }) => {
   await page.goto('/console/usage');
 

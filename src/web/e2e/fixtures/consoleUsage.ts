@@ -79,6 +79,18 @@ async function fulfillJSON(route: Route, data: unknown, status = 200) {
   });
 }
 
+async function fulfillError(route: Route, message: string, status = 422) {
+  await route.fulfill({
+    status,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      ok: false,
+      data: null,
+      error: { code: 'fixture_contract_mismatch', message },
+    }),
+  });
+}
+
 async function fulfillNotFound(route: Route) {
   await route.fulfill({
     status: 404,
@@ -109,6 +121,11 @@ export async function registerConsoleUsageRoutes(page: Page): Promise<void> {
     }
 
     if (method === 'GET' && pathname === '/api/v1/console/usage') {
+      if (url.searchParams.size > 0) {
+        await fulfillError(route, 'console usage query params must be empty');
+        return;
+      }
+
       await fulfillJSON(route, usageSummary);
       return;
     }
