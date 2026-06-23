@@ -224,6 +224,11 @@ make_invalid_case \
   "environment.baseUrl must target a non-local target environment"
 
 make_invalid_case \
+  "ipv6-unspecified-environment-base-url" \
+  'data["environment"]["baseUrl"] = "http://[::]:3000"' \
+  "environment.baseUrl must target a non-local target environment"
+
+make_invalid_case \
   "credential-environment-base-url-userinfo" \
   'data["environment"]["baseUrl"] = "https://target-user:target-password@staging.oblivious.internal"' \
   "environment.baseUrl must not embed credentials in URI userinfo"

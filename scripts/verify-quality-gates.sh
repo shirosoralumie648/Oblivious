@@ -674,6 +674,7 @@ assert_file_contains "$target_release_evidence_verifier_file" "target environmen
 assert_file_contains "$target_release_evidence_verifier_file" "environment.baseUrl must be an HTTP(S) URL"
 assert_file_contains "$target_release_evidence_verifier_file" "environment.baseUrl must target a non-local target environment"
 assert_file_contains "$target_release_evidence_verifier_file" "environment.baseUrl must not embed secret-like query or fragment parameters"
+assert_file_contains "$target_release_evidence_verifier_file" "ip.to_i.zero?"
 assert_file_contains "$target_release_evidence_verifier_file" '"strictVerifier", "evidenceRef"'
 assert_file_contains "$target_release_evidence_verifier_file" "strictVerifier.completedAt must be at or after strictVerifier.startedAt"
 assert_file_contains "$target_release_evidence_verifier_file" "strictVerifier.evidenceRef artifact recordedAt must be within strictVerifier.startedAt/completedAt"
@@ -714,6 +715,7 @@ assert_file_contains "$target_release_evidence_fixtures_file" "invalid-environme
 assert_file_contains "$target_release_evidence_fixtures_file" "loopback-environment-base-url"
 assert_file_contains "$target_release_evidence_fixtures_file" "loopback-environment-trailing-dot"
 assert_file_contains "$target_release_evidence_fixtures_file" "ipv6-mapped-loopback-environment"
+assert_file_contains "$target_release_evidence_fixtures_file" "ipv6-unspecified-environment-base-url"
 assert_file_contains "$target_release_evidence_fixtures_file" "secret-environment-base-url-query"
 assert_file_contains "$target_release_evidence_fixtures_file" "secret-environment-base-url-fragment"
 assert_file_contains "$target_release_evidence_fixtures_file" "duplicate-artifact-id"

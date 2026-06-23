@@ -350,7 +350,7 @@ def local_target_host?(host)
   begin
     ip = IPAddr.new(normalized)
     ip = ip.native if ip.respond_to?(:ipv4_mapped?) && ip.ipv4_mapped?
-    ip.loopback? || normalized == "0.0.0.0"
+    ip.loopback? || ip.to_i.zero?
   rescue ArgumentError
     false
   end
