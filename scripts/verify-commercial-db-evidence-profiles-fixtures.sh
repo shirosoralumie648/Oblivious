@@ -73,6 +73,22 @@ if [[ "$output" != *"billing-checkout-topup-http must include TestBillingCheckou
   exit 1
 fi
 
+target_auth_security_fixture="$tmp_dir/verify-commercial-db-evidence-auth-security.sh"
+cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_auth_security_fixture"
+perl -0pi -e 's/MeRequiresSession/MeRequiresSessionV2/g' "$target_auth_security_fixture"
+
+if output=$(COMMERCIAL_DB_EVIDENCE_TARGET="$target_auth_security_fixture" bash "$repo_root/scripts/verify-commercial-db-evidence-profiles.sh" 2>&1); then
+  echo "[commercial-db-evidence-profiles-fixtures] expected suffixed auth security token to be rejected" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
+if [[ "$output" != *"auth-security-persistence must include TestMeRequiresSession"* ]]; then
+  echo "[commercial-db-evidence-profiles-fixtures] expected auth security token-boundary rejection message" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
 target_help_fixture="$tmp_dir/verify-commercial-db-evidence-help-only.sh"
 cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_help_fixture"
 perl -0pi -e 's/(  core-sql-persistence         Run focused Chat SQL sharing\/forking,\n                               Publishing channel SQL retry\/archive, and Relay\n                               semantic-cache SQL persistence tests\.\n)/$1  stale-help-only-profile    Run stale help-only profile tests.\n/s' "$target_help_fixture"

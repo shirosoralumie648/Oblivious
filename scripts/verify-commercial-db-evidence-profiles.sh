@@ -458,42 +458,25 @@ if ! profile_body_has_token "$core_sql_persistence_body" "TestSQLSemanticCacheSt
 fi
 
 auth_security_persistence_body=$(sed -n '/^run_auth_security_persistence_profile() {/,/^}/p' "$target")
-if [[ "$auth_security_persistence_body" != *"PasswordPolicyResetAndSessionRevocation"* ]]; then
-  fail "auth-security-persistence must include TestPasswordPolicyResetAndSessionRevocation"
-fi
-if [[ "$auth_security_persistence_body" != *"PasswordResetTokenReplayExpiryAndUnknownEmailFailClosed"* ]]; then
-  fail "auth-security-persistence must include TestPasswordResetTokenReplayExpiryAndUnknownEmailFailClosed"
-fi
-if [[ "$auth_security_persistence_body" != *"SQLRateLimiterPersistsBlocks"* ]]; then
-  fail "auth-security-persistence must include TestSQLRateLimiterPersistsBlocks"
-fi
-if [[ "$auth_security_persistence_body" != *"RegisterLoginMeLogoutFlow"* ]]; then
-  fail "auth-security-persistence must include TestRegisterLoginMeLogoutFlow"
-fi
-if [[ "$auth_security_persistence_body" != *"AuthRateLimitRejectsRepeatedFailedLogin"* ]]; then
-  fail "auth-security-persistence must include TestAuthRateLimitRejectsRepeatedFailedLogin"
-fi
-if [[ "$auth_security_persistence_body" != *"PasswordResetRoutesConfirmAndRevokeSessions"* ]]; then
-  fail "auth-security-persistence must include TestPasswordResetRoutesConfirmAndRevokeSessions"
-fi
-if [[ "$auth_security_persistence_body" != *"PasswordResetRequestDoesNotEnumerateEmailsOutsideTestEnv"* ]]; then
-  fail "auth-security-persistence must include TestPasswordResetRequestDoesNotEnumerateEmailsOutsideTestEnv"
-fi
-if [[ "$auth_security_persistence_body" != *"RegisterStoresHashedPassword"* ]]; then
-  fail "auth-security-persistence must include TestRegisterStoresHashedPassword"
-fi
-if [[ "$auth_security_persistence_body" != *"LoginAcceptsRawPasswordAgainstStoredHash"* ]]; then
-  fail "auth-security-persistence must include TestLoginAcceptsRawPasswordAgainstStoredHash"
-fi
-if [[ "$auth_security_persistence_body" != *"MeRequiresSession"* ]]; then
-  fail "auth-security-persistence must include TestMeRequiresSession"
-fi
-if [[ "$auth_security_persistence_body" != *"AuthResponsesExposeStableUserAndPreferenceContracts"* ]]; then
-  fail "auth-security-persistence must include TestAuthResponsesExposeStableUserAndPreferenceContracts"
-fi
-if [[ "$auth_security_persistence_body" != *"SensitiveOrganizationActionsAreRateLimited"* ]]; then
-  fail "auth-security-persistence must include TestSensitiveOrganizationActionsAreRateLimited"
-fi
+auth_security_persistence_required=(
+  "TestPasswordPolicyResetAndSessionRevocation|TestPasswordPolicyResetAndSessionRevocation"
+  "TestPasswordResetTokenReplayExpiryAndUnknownEmailFailClosed|TestPasswordResetTokenReplayExpiryAndUnknownEmailFailClosed"
+  "TestSQLRateLimiterPersistsBlocks|TestSQLRateLimiterPersistsBlocks"
+  "RegisterLoginMeLogoutFlow|TestRegisterLoginMeLogoutFlow"
+  "AuthRateLimitRejectsRepeatedFailedLogin|TestAuthRateLimitRejectsRepeatedFailedLogin"
+  "PasswordResetRoutesConfirmAndRevokeSessions|TestPasswordResetRoutesConfirmAndRevokeSessions"
+  "PasswordResetRequestDoesNotEnumerateEmailsOutsideTestEnv|TestPasswordResetRequestDoesNotEnumerateEmailsOutsideTestEnv"
+  "RegisterStoresHashedPassword|TestRegisterStoresHashedPassword"
+  "LoginAcceptsRawPasswordAgainstStoredHash|TestLoginAcceptsRawPasswordAgainstStoredHash"
+  "MeRequiresSession|TestMeRequiresSession"
+  "AuthResponsesExposeStableUserAndPreferenceContracts|TestAuthResponsesExposeStableUserAndPreferenceContracts"
+  "SensitiveOrganizationActionsAreRateLimited|TestSensitiveOrganizationActionsAreRateLimited"
+)
+for requirement in "${auth_security_persistence_required[@]}"; do
+  token="${requirement%%|*}"
+  test_name="${requirement#*|}"
+  require_profile_token "$auth_security_persistence_body" "auth-security-persistence" "$token" "$test_name"
+done
 
 migration_ledger_backfills_body=$(sed -n '/^run_migration_ledger_backfills_profile() {/,/^}/p' "$target")
 if [[ "$migration_ledger_backfills_body" != *"RecordsLedgerAndSkipsAppliedFiles"* ]]; then
