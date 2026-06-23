@@ -337,21 +337,17 @@ if ! profile_body_has_token "$tenant_cross_surface_body" "AgentToolRunApprovalRe
 fi
 
 secret_response_safety_body=$(sed -n '/^run_secret_response_safety_profile() {/,/^}/p' "$target")
-if [[ "$secret_response_safety_body" != *"ObservabilityAlertAdminRouteSQLProviderSecretsAreRedacted"* ]]; then
-  fail "secret-response-safety must include TestObservabilityAlertAdminRouteSQLProviderSecretsAreRedacted"
-fi
-if [[ "$secret_response_safety_body" != *"PublishingChannelHTTPRouteRedactsSQLStoreConfigSecretsAndPreservesMarkers"* ]]; then
-  fail "secret-response-safety must include TestPublishingChannelHTTPRouteRedactsSQLStoreConfigSecretsAndPreservesMarkers"
-fi
-if [[ "$secret_response_safety_body" != *"AdminRelayChannelHTTPRouteRedactsSQLStoreAPIKeysAndPreservesMarkers"* ]]; then
-  fail "secret-response-safety must include TestAdminRelayChannelHTTPRouteRedactsSQLStoreAPIKeysAndPreservesMarkers"
-fi
-if [[ "$secret_response_safety_body" != *"WorkflowHTTPRouteRedactsSQLStoreSecretsAndPreservesMarkers"* ]]; then
-  fail "secret-response-safety must include TestWorkflowHTTPRouteRedactsSQLStoreSecretsAndPreservesMarkers"
-fi
-if [[ "$secret_response_safety_body" != *"SQLStoreProtectsAuthTokenWithPostgres"* ]]; then
-  fail "secret-response-safety must include TestSQLStoreProtectsAuthTokenWithPostgres"
-fi
+secret_response_safety_required=(
+  "ObservabilityAlertAdminRouteSQLProviderSecretsAreRedacted|TestObservabilityAlertAdminRouteSQLProviderSecretsAreRedacted"
+  "PublishingChannelHTTPRouteRedactsSQLStoreConfigSecretsAndPreservesMarkers|TestPublishingChannelHTTPRouteRedactsSQLStoreConfigSecretsAndPreservesMarkers"
+  "AdminRelayChannelHTTPRouteRedactsSQLStoreAPIKeysAndPreservesMarkers|TestAdminRelayChannelHTTPRouteRedactsSQLStoreAPIKeysAndPreservesMarkers"
+  "WorkflowHTTPRouteRedactsSQLStoreSecretsAndPreservesMarkers|TestWorkflowHTTPRouteRedactsSQLStoreSecretsAndPreservesMarkers"
+  "TestSQLStoreProtectsAuthTokenWithPostgres|TestSQLStoreProtectsAuthTokenWithPostgres"
+)
+for entry in "${secret_response_safety_required[@]}"; do
+  IFS='|' read -r token test_name <<< "$entry"
+  require_profile_token "$secret_response_safety_body" "secret-response-safety" "$token" "$test_name"
+done
 
 observability_alert_recovery_body=$(sed -n '/^run_observability_alert_recovery_persistence_profile() {/,/^}/p' "$target")
 observability_alert_recovery_required=(
