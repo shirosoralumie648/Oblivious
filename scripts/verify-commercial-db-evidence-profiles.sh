@@ -614,6 +614,9 @@ fi
 if ! profile_body_has_token "$marketplace_governance_review_body" "TestMarketplaceAbuseReportLifecycle"; then
   fail "marketplace-governance-review must include TestMarketplaceAbuseReportLifecycle"
 fi
+if ! profile_body_has_token "$marketplace_governance_review_body" "TestMarketplaceAdminReviewAuditCarriesAgentOrganization"; then
+  fail "marketplace-governance-review must include TestMarketplaceAdminReviewAuditCarriesAgentOrganization"
+fi
 if ! profile_body_has_token "$marketplace_governance_review_body" "TestMarketplaceAdminReviewNeedsChangesRoute"; then
   fail "marketplace-governance-review must include TestMarketplaceAdminReviewNeedsChangesRoute"
 fi
