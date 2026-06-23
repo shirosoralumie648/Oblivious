@@ -338,21 +338,18 @@ if [[ "$secret_response_safety_body" != *"SQLStoreProtectsAuthTokenWithPostgres"
 fi
 
 observability_alert_recovery_body=$(sed -n '/^run_observability_alert_recovery_persistence_profile() {/,/^}/p' "$target")
-if [[ "$observability_alert_recovery_body" != *"RoutingRuleStorePersistsRoutingRules"* ]]; then
-  fail "observability-alert-recovery-persistence must include TestSQLAlertRoutingRuleStorePersistsRoutingRules"
-fi
-if [[ "$observability_alert_recovery_body" != *"PersistsAlertLifecycleAndEscalation"* ]]; then
-  fail "observability-alert-recovery-persistence must include TestSQLAlertStateStorePersistsAlertLifecycleAndEscalation"
-fi
-if [[ "$observability_alert_recovery_body" != *"ListsAlertStatesWithFilters"* ]]; then
-  fail "observability-alert-recovery-persistence must include TestSQLAlertStateStoreListsAlertStatesWithFilters"
-fi
-if [[ "$observability_alert_recovery_body" != *"PersistsNotificationThrottleAndRecoveryCooldown"* ]]; then
-  fail "observability-alert-recovery-persistence must include TestSQLAlertStateStorePersistsNotificationThrottleAndRecoveryCooldown"
-fi
-if [[ "$observability_alert_recovery_body" != *"RecordsRepeatedDeliveryBatchesForSameAlert"* ]]; then
-  fail "observability-alert-recovery-persistence must include TestSQLAlertStateStoreRecordsRepeatedDeliveryBatchesForSameAlert"
-fi
+observability_alert_recovery_required=(
+  "RoutingRuleStorePersistsRoutingRules|TestSQLAlertRoutingRuleStorePersistsRoutingRules"
+  "PersistsAlertLifecycleAndEscalation|TestSQLAlertStateStorePersistsAlertLifecycleAndEscalation"
+  "ListsAlertStatesWithFilters|TestSQLAlertStateStoreListsAlertStatesWithFilters"
+  "PersistsNotificationThrottleAndRecoveryCooldown|TestSQLAlertStateStorePersistsNotificationThrottleAndRecoveryCooldown"
+  "RecordsRepeatedDeliveryBatchesForSameAlert|TestSQLAlertStateStoreRecordsRepeatedDeliveryBatchesForSameAlert"
+)
+for requirement in "${observability_alert_recovery_required[@]}"; do
+  token="${requirement%%|*}"
+  test_name="${requirement#*|}"
+  require_profile_token "$observability_alert_recovery_body" "observability-alert-recovery-persistence" "$token" "$test_name"
+done
 
 scheduled_task_runtime_body=$(sed -n '/^run_scheduled_task_runtime_profile() {/,/^}/p' "$target")
 scheduled_task_runtime_required=(
