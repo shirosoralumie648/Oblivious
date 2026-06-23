@@ -164,6 +164,9 @@ billing_provider_lifecycle_body=$(sed -n '/^run_billing_provider_lifecycle_profi
 if ! profile_body_has_token "$billing_provider_lifecycle_body" "TestApplyRefundUpdatesTopupOrderStatusAndRefundedAmount"; then
   fail "billing-provider-lifecycle must include TestApplyRefundUpdatesTopupOrderStatusAndRefundedAmount"
 fi
+if ! profile_body_has_token "$billing_provider_lifecycle_body" "TestLifecycleObservabilityRecordsCheckoutCompleted"; then
+  fail "billing-provider-lifecycle must include TestLifecycleObservabilityRecordsCheckoutCompleted"
+fi
 if ! profile_body_has_token "$billing_provider_lifecycle_body" "TestLifecycleAppliesDomesticCheckoutPaidThroughCheckoutCompletion"; then
   fail "billing-provider-lifecycle must include TestLifecycleAppliesDomesticCheckoutPaidThroughCheckoutCompletion"
 fi
