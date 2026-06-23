@@ -767,11 +767,15 @@ if ! profile_body_has_token "$relay_runtime_channel_isolation_body" "TestModelsH
 fi
 
 workflow_sql_isolation_body=$(sed -n '/^run_workflow_sql_isolation_profile() {/,/^}/p' "$target")
-if [[ "$workflow_sql_isolation_body" != *"TestWorkflowStorePersists(DefinitionsAndExecutions|VersionHistoryAndExecutionVersion)"* ]]; then
-  fail "workflow-sql-isolation must include TestWorkflowStorePersistsDefinitionsAndExecutions and TestWorkflowStorePersistsVersionHistoryAndExecutionVersion"
-fi
-if [[ "$workflow_sql_isolation_body" != *"TestCrossTenantWorkflowScopeDeniesReadWriteAndExecution"* ]]; then
-  fail "workflow-sql-isolation must include TestCrossTenantWorkflowScopeDeniesReadWriteAndExecution"
-fi
+workflow_sql_isolation_required=(
+  "TestWorkflowStorePersistsDefinitionsAndExecutions|TestWorkflowStorePersistsDefinitionsAndExecutions"
+  "TestWorkflowStorePersistsVersionHistoryAndExecutionVersion|TestWorkflowStorePersistsVersionHistoryAndExecutionVersion"
+  "TestCrossTenantWorkflowScopeDeniesReadWriteAndExecution|TestCrossTenantWorkflowScopeDeniesReadWriteAndExecution"
+)
+for requirement in "${workflow_sql_isolation_required[@]}"; do
+  token="${requirement%%|*}"
+  test_name="${requirement#*|}"
+  require_profile_token "$workflow_sql_isolation_body" "workflow-sql-isolation" "$token" "$test_name"
+done
 
 echo "[commercial-db-evidence-profiles] commercial DB evidence profile list is synchronized."

@@ -121,6 +121,22 @@ if [[ "$output" != *"quota-sql-isolation must include TestSQLStoreUsageLimitSett
   exit 1
 fi
 
+target_workflow_fixture="$tmp_dir/verify-commercial-db-evidence-workflow.sh"
+cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_workflow_fixture"
+perl -0pi -e 's/TestCrossTenantWorkflowScopeDeniesReadWriteAndExecution/TestCrossTenantWorkflowScopeDeniesReadWriteAndExecutionSuffix/g' "$target_workflow_fixture"
+
+if output=$(COMMERCIAL_DB_EVIDENCE_TARGET="$target_workflow_fixture" bash "$repo_root/scripts/verify-commercial-db-evidence-profiles.sh" 2>&1); then
+  echo "[commercial-db-evidence-profiles-fixtures] expected suffixed workflow token to be rejected" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
+if [[ "$output" != *"workflow-sql-isolation must include TestCrossTenantWorkflowScopeDeniesReadWriteAndExecution"* ]]; then
+  echo "[commercial-db-evidence-profiles-fixtures] expected workflow token-boundary rejection message" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
 target_help_fixture="$tmp_dir/verify-commercial-db-evidence-help-only.sh"
 cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_help_fixture"
 perl -0pi -e 's/(  core-sql-persistence         Run focused Chat SQL sharing\/forking,\n                               Publishing channel SQL retry\/archive, and Relay\n                               semantic-cache SQL persistence tests\.\n)/$1  stale-help-only-profile    Run stale help-only profile tests.\n/s' "$target_help_fixture"

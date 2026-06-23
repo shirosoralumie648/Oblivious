@@ -347,7 +347,7 @@ run_workflow_sql_isolation_profile() {
   local workflow_store_pattern
   local workflow_http_pattern
 
-  workflow_store_pattern="^TestWorkflowStorePersists(DefinitionsAndExecutions|VersionHistoryAndExecutionVersion)$"
+  workflow_store_pattern="^(TestWorkflowStorePersistsDefinitionsAndExecutions|TestWorkflowStorePersistsVersionHistoryAndExecutionVersion)$"
   workflow_http_pattern="^TestCrossTenantWorkflowScopeDeniesReadWriteAndExecution$"
   run_go_test_no_skips "workflow SQL store tenant isolation" "./internal/workflow" "$workflow_store_pattern"
   run_go_test_no_skips "workflow HTTP active-organization isolation" "./internal/http" "$workflow_http_pattern"
