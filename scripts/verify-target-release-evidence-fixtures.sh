@@ -444,6 +444,16 @@ make_invalid_case \
   "grpc must be an array"
 
 make_invalid_case \
+  "unknown-grpc-service" \
+  'data["grpc"] << {"service" => "admin", "address" => "admin:50066", "generatedClient" => "pass", "evidenceRef" => "artifact-grpc-smoke-20260616"}; data["grpcSmokeReport"]["results"] << {"service" => "admin", "address" => "admin:50066", "generatedClient" => "pass", "status" => "validation_response"}' \
+  "grpc[3].service must be agent, workflow, or task"
+
+make_invalid_case \
+  "unknown-grpc-smoke-service" \
+  'data["grpcSmokeReport"]["results"] << {"service" => "admin", "address" => "admin:50066", "generatedClient" => "pass", "status" => "validation_response"}' \
+  "grpcSmokeReport.results[3].service must be agent, workflow, or task"
+
+make_invalid_case \
   "loopback-grpc-address" \
   'data["grpc"].find { |entry| entry["service"] == "agent" }["address"] = "localhost:50063"; data["grpcSmokeReport"]["results"].find { |result| result["service"] == "agent" }["address"] = "localhost:50063"' \
   "grpc[0].address for agent must target a non-local service endpoint"

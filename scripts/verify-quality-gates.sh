@@ -745,6 +745,8 @@ assert_file_contains "$target_release_evidence_fixtures_file" "missing-strict-ve
 assert_file_contains "$target_release_evidence_fixtures_file" "invalid-workflow-telemetry-window"
 assert_file_contains "$target_release_evidence_fixtures_file" "inverted-workflow-telemetry-window"
 assert_file_contains "$target_release_evidence_fixtures_file" "missing-grpc-collection"
+assert_file_contains "$target_release_evidence_fixtures_file" "unknown-grpc-service"
+assert_file_contains "$target_release_evidence_fixtures_file" "unknown-grpc-smoke-service"
 assert_file_contains "$target_release_evidence_fixtures_file" "loopback-grpc-address"
 assert_file_contains "$target_release_evidence_fixtures_file" "ipv6-mapped-loopback-grpc-address"
 assert_file_contains "$target_release_evidence_fixtures_file" "zero-host-grpc-address"

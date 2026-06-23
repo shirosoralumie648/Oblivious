@@ -10,6 +10,8 @@ Commercial-readiness renewal additionally requires target/live evidence. Use `AG
 
 IPv6 unspecified and short wildcard environment base URLs such as `http://[::]:3000` and `http://0:3000` are treated as local/non-target values and are rejected for the same reason as loopback and wildcard bind addresses.
 
+Target gRPC evidence is limited to validation-only Agent, Workflow, and Task generated-client smoke results. Extra manifest or copied smoke-result services such as `admin:50066` are rejected instead of being treated as harmless notes.
+
 Final target evidence must not set `COMMERCIAL_COMPLETION_ALLOW_ENV_SKIPS=true` or `OBLIVIOUS_TARGET_EVIDENCE_ALLOW_COMMIT_MISMATCH=true` in `strictVerifier.command`, including shell-valid single-quoted or double-quoted `true` values. Any environment-skip or commit-mismatch run is local partial evidence only, not commercial-readiness proof.
 
 ## Automated Gates

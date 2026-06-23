@@ -739,6 +739,9 @@ else
       next
     end
     service = entry["service"].to_s.strip
+    unless service.empty? || required_services.include?(service)
+      failures << "grpc[#{index}].service must be agent, workflow, or task"
+    end
     address = entry["address"]
     failures << "grpc[#{index}].address is required" if blank?(address)
     parsed_address = parse_plain_grpc_address(address)
@@ -801,6 +804,8 @@ else
       service = result["service"].to_s.strip
       if service.empty?
         failures << "grpcSmokeReport.results[#{index}].service is required"
+      elsif !required_services.include?(service)
+        failures << "grpcSmokeReport.results[#{index}].service must be agent, workflow, or task"
       elsif smoke_results_by_service.key?(service)
         failures << "grpcSmokeReport.results must not duplicate #{service} service results"
       else
