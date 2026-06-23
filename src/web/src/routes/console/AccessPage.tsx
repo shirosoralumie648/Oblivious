@@ -126,34 +126,39 @@ export function AccessPage() {
       ) : accessSummary ? (
         <>
           <p>This console reflects the active workspace and current session.</p>
-          <p>{`User: ${accessSummary.userEmail}`}</p>
-          <p>{`Workspace: ${accessSummary.workspaceId}`}</p>
-          <p>{`Session: ${accessSummary.sessionId}`}</p>
+          <p className="break-words">{`User: ${accessSummary.userEmail}`}</p>
+          <p className="break-words">{`Workspace: ${accessSummary.workspaceId}`}</p>
+          <p className="break-words">{`Session: ${accessSummary.sessionId}`}</p>
           <p>{`Default mode: ${accessSummary.defaultMode}`}</p>
-          <section>
+          <section className="min-w-0">
             <h2>API tokens</h2>
             {tokenError ? <p role="alert">{tokenError}</p> : null}
-            {createdRawToken ? <p>{createdRawToken}</p> : null}
-            <div>
+            {createdRawToken ? <p className="break-words">{createdRawToken}</p> : null}
+            <div className="grid min-w-0 gap-3">
               <label>
                 Token name
-                <input value={tokenName} onChange={(event) => setTokenName(event.target.value)} />
+                <input className="max-w-full" value={tokenName} onChange={(event) => setTokenName(event.target.value)} />
               </label>
               <label>
                 Allowed models
-                <input value={allowedModels} onChange={(event) => setAllowedModels(event.target.value)} />
+                <input className="max-w-full" value={allowedModels} onChange={(event) => setAllowedModels(event.target.value)} />
               </label>
               <label>
                 Routing group
-                <input value={tokenGroup} onChange={(event) => setTokenGroup(event.target.value)} />
+                <input className="max-w-full" value={tokenGroup} onChange={(event) => setTokenGroup(event.target.value)} />
               </label>
               <label>
                 Quota limit
-                <input inputMode="decimal" value={quotaLimit} onChange={(event) => setQuotaLimit(event.target.value)} />
+                <input className="max-w-full" inputMode="decimal" value={quotaLimit} onChange={(event) => setQuotaLimit(event.target.value)} />
               </label>
               <label>
                 Expires at
-                <input placeholder="2026-06-30T00:00:00Z" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} />
+                <input
+                  className="max-w-full"
+                  placeholder="2026-06-30T00:00:00Z"
+                  value={expiresAt}
+                  onChange={(event) => setExpiresAt(event.target.value)}
+                />
               </label>
               <button disabled={tokenName.trim() === ''} onClick={handleCreateToken} type="button">
                 Create API token
@@ -162,16 +167,16 @@ export function AccessPage() {
             {apiTokens.length === 0 ? (
               <p>No API tokens yet.</p>
             ) : (
-              <ul>
+              <ul className="min-w-0">
                 {apiTokens.map((token) => (
-                  <li key={token.id}>
-                    <span>{token.name}</span>
-                    <span>{token.tokenPrefix}</span>
+                  <li className="min-w-0" key={token.id}>
+                    <span className="break-words">{token.name}</span>
+                    <span className="break-words">{token.tokenPrefix}</span>
                     <span>{token.status}</span>
-                    <span>{token.userGroup || 'default group'}</span>
-                    <span>{token.modelLimitsEnabled ? token.modelLimits.join(', ') : 'all models'}</span>
-                    <span>{formatTokenQuota(token)}</span>
-                    <span>{formatTokenExpiry(token)}</span>
+                    <span className="break-words">{token.userGroup || 'default group'}</span>
+                    <span className="break-words">{token.modelLimitsEnabled ? token.modelLimits.join(', ') : 'all models'}</span>
+                    <span className="break-words">{formatTokenQuota(token)}</span>
+                    <span className="break-words">{formatTokenExpiry(token)}</span>
                     <button aria-label={`View usage for ${token.name}`} onClick={() => void handleViewTokenUsage(token.id)} type="button">
                       Usage
                     </button>
@@ -218,12 +223,12 @@ function TokenUsageList({ isLoading, usage }: { isLoading: boolean; usage: Conso
     return <p>No usage recorded for this token.</p>;
   }
   return (
-    <ul>
+    <ul className="min-w-0">
       {usage.map((item) => (
-        <li key={item.id}>
-          <span>{item.requestId || item.id}</span>
-          <span>{item.model}</span>
-          <span>{item.apiType || 'unknown api'}</span>
+        <li className="min-w-0" key={item.id}>
+          <span className="break-words">{item.requestId || item.id}</span>
+          <span className="break-words">{item.model}</span>
+          <span className="break-words">{item.apiType || 'unknown api'}</span>
           <span>{item.status}</span>
           <span>{`${item.totalTokens} tokens`}</span>
           <span>{formatCurrency(item.cost)}</span>

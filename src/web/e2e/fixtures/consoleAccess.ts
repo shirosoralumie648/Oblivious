@@ -44,7 +44,7 @@ const initialToken = {
   status: 'active',
   userGroup: 'ci',
   modelLimitsEnabled: true,
-  modelLimits: ['gpt-4o'],
+  modelLimits: ['providerresearchclusterultralongcontextmodel20260624previewwithunbrokenidentifier'],
   quotaLimit: 10,
   usedQuota: 2.5,
   createdAt: now,
