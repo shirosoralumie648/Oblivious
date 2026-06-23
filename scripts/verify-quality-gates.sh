@@ -680,6 +680,10 @@ assert_file_contains "$target_release_evidence_verifier_file" "strictVerifier.co
 assert_file_contains "$target_release_evidence_verifier_file" "strictVerifier.evidenceRef artifact recordedAt must be within strictVerifier.startedAt/completedAt"
 assert_file_contains "$target_release_evidence_verifier_file" "grpcSmokeReport"
 assert_file_contains "$target_release_evidence_verifier_file" "grpcSmokeReport.results must include agent, workflow, and task smoke results"
+assert_file_contains "$target_release_evidence_verifier_file" '"agent" => "validation_error"'
+assert_file_contains "$target_release_evidence_verifier_file" '"workflow" => "validation_response"'
+assert_file_contains "$target_release_evidence_verifier_file" '"task" => "validation_response"'
+assert_file_contains "$target_release_evidence_verifier_file" "status for #{service} must be #{expected_status}"
 assert_file_contains "$target_release_evidence_verifier_file" "evidenceRef must match grpcSmokeReport.evidenceRef"
 assert_file_contains "$target_release_evidence_verifier_file" "must be a plain host:port endpoint"
 assert_file_contains "$target_release_evidence_verifier_file" '"artifacts"'
@@ -708,6 +712,7 @@ assert_file_contains "$target_release_evidence_verifier_file" "strictVerifier.co
 assert_file_exists "$target_release_evidence_fixtures_file"
 assert_file_contains "$check_script" "verify-target-release-evidence-fixtures.sh"
 assert_file_contains "$target_release_evidence_fixtures_file" "generated-template-placeholders"
+assert_file_contains "$target_release_evidence_fixtures_file" "workflow-grpc-smoke-status-mismatch"
 assert_file_contains "$target_release_evidence_fixtures_file" "missing-artifacts-index"
 assert_file_contains "$target_release_evidence_fixtures_file" "dangling-strict-verifier-evidence-ref"
 assert_file_contains "$target_release_evidence_fixtures_file" "mismatched-strict-verifier-artifact-kind"

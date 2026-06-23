@@ -494,6 +494,11 @@ make_invalid_case \
   "grpcSmokeReport.results[2].generatedClient must be pass"
 
 make_invalid_case \
+  "workflow-grpc-smoke-status-mismatch" \
+  'data["grpcSmokeReport"]["results"].find { |result| result["service"] == "workflow" }["status"] = "validation_error"' \
+  "grpcSmokeReport.results[1].status for workflow must be validation_response"
+
+make_invalid_case \
   "mismatched-grpc-smoke-evidence-ref" \
   'data["grpc"].find { |entry| entry["service"] == "agent" }["evidenceRef"] = "artifact-agent-only"' \
   "grpc agent evidenceRef must match grpcSmokeReport.evidenceRef"

@@ -728,6 +728,7 @@ end
 grpc = data["grpc"]
 required_services = %w[agent workflow task]
 expected_grpc_ports = {"agent" => "50063", "workflow" => "50064", "task" => "50065"}
+expected_grpc_smoke_statuses = {"agent" => "validation_error", "workflow" => "validation_response", "task" => "validation_response"}
 grpc_entries_by_service = {}
 if !grpc.is_a?(Array)
   failures << "grpc must be an array"
@@ -833,8 +834,9 @@ else
       end
       failures << "grpcSmokeReport.results[#{index}].generatedClient must be pass" unless result["generatedClient"] == "pass"
       status = require_string(failures, data, ["grpcSmokeReport", "results", index, "status"])
-      if status.is_a?(String) && !%w[validation_error validation_response].include?(status)
-        failures << "grpcSmokeReport.results[#{index}].status must be validation_error or validation_response"
+      expected_status = expected_grpc_smoke_statuses[service]
+      if status.is_a?(String) && expected_status && status != expected_status
+        failures << "grpcSmokeReport.results[#{index}].status for #{service} must be #{expected_status}"
       end
     end
     missing_smoke_services = required_services - smoke_results_by_service.keys
