@@ -89,6 +89,22 @@ if [[ "$output" != *"auth-security-persistence must include TestMeRequiresSessio
   exit 1
 fi
 
+target_marketplace_money_fixture="$tmp_dir/verify-commercial-db-evidence-marketplace-money.sh"
+cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_marketplace_money_fixture"
+perl -0pi -e 's/TestDomesticPaymentWebhookRouteAppliesMarketplaceInstallSettlementOnce/TestDomesticPaymentWebhookRouteAppliesMarketplaceV2InstallSettlementOnce/g' "$target_marketplace_money_fixture"
+
+if output=$(COMMERCIAL_DB_EVIDENCE_TARGET="$target_marketplace_money_fixture" bash "$repo_root/scripts/verify-commercial-db-evidence-profiles.sh" 2>&1); then
+  echo "[commercial-db-evidence-profiles-fixtures] expected marketplace money-movement grouped prefix to be rejected" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
+if [[ "$output" != *"marketplace-money-movement must include TestDomesticPaymentWebhookRouteAppliesMarketplaceInstallSettlementOnce"* ]]; then
+  echo "[commercial-db-evidence-profiles-fixtures] expected marketplace money-movement full-name rejection message" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
 target_help_fixture="$tmp_dir/verify-commercial-db-evidence-help-only.sh"
 cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_help_fixture"
 perl -0pi -e 's/(  core-sql-persistence         Run focused Chat SQL sharing\/forking,\n                               Publishing channel SQL retry\/archive, and Relay\n                               semantic-cache SQL persistence tests\.\n)/$1  stale-help-only-profile    Run stale help-only profile tests.\n/s' "$target_help_fixture"
