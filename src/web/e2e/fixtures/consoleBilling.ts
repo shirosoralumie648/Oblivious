@@ -145,6 +145,10 @@ function checkoutPayloadMatchesSubscription(payload: Record<string, unknown>) {
   return payload.kind === 'subscription' && payload.packageId === 'pkg_pro' && payload.provider === 'wechatpay';
 }
 
+function checkoutPayloadMatchesTopUp(payload: Record<string, unknown>) {
+  return payload.kind === 'topup' && payload.amount === 37.5 && payload.provider === 'wechatpay';
+}
+
 export async function registerConsoleBillingRoutes(page: Page): Promise<void> {
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request();
@@ -179,15 +183,23 @@ export async function registerConsoleBillingRoutes(page: Page): Promise<void> {
 
     if (method === 'POST' && pathname === '/api/v1/billing/checkout') {
       const payload = request.postDataJSON() as Record<string, unknown>;
-      if (!checkoutPayloadMatchesSubscription(payload)) {
-        await fulfillError(route, 'subscription checkout payload did not match selected package and provider');
+      if (checkoutPayloadMatchesSubscription(payload)) {
+        await fulfillJSON(route, {
+          checkoutSessionId: 'cs_subscription_browser',
+          url: 'https://checkout.wechatpay.test/session/cs_subscription_browser',
+        }, 201);
         return;
       }
 
-      await fulfillJSON(route, {
-        checkoutSessionId: 'cs_subscription_browser',
-        url: 'https://checkout.wechatpay.test/session/cs_subscription_browser',
-      }, 201);
+      if (checkoutPayloadMatchesTopUp(payload)) {
+        await fulfillJSON(route, {
+          checkoutSessionId: 'cs_topup_browser',
+          url: 'https://checkout.wechatpay.test/session/cs_topup_browser',
+        }, 201);
+        return;
+      }
+
+      await fulfillError(route, 'checkout payload did not match selected subscription or top-up provider flow');
       return;
     }
 

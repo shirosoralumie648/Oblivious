@@ -42,3 +42,22 @@ test('console billing starts subscription checkout with selected package and pro
   );
   await expect(page.getByText('Unable to start subscription checkout.')).toHaveCount(0);
 });
+
+test('console billing starts top-up checkout with selected amount and provider', async ({ page }) => {
+  await page.goto('/console/billing');
+
+  const topUpRegion = page.getByRole('region', { name: 'Quota top-up checkout' });
+  await expect(topUpRegion.getByRole('heading', { name: 'Add balance' })).toBeVisible();
+  await expect(topUpRegion.getByLabel('Top-up amount USD')).toHaveValue('25');
+  await topUpRegion.getByLabel('Top-up amount USD').fill('37.50');
+  await expect(topUpRegion.getByLabel('Payment provider')).toHaveValue('stripe');
+  await expect(topUpRegion.getByLabel('Payment provider')).toContainText('WeChat Pay');
+  await topUpRegion.getByLabel('Payment provider').selectOption('wechatpay');
+  await topUpRegion.getByRole('button', { name: 'Start top-up checkout' }).click();
+
+  await expect(page.getByRole('link', { name: 'Continue WeChat Pay checkout' })).toHaveAttribute(
+    'href',
+    'https://checkout.wechatpay.test/session/cs_topup_browser'
+  );
+  await expect(page.getByText('Unable to start top-up checkout.')).toHaveCount(0);
+});
