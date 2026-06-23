@@ -1,6 +1,34 @@
-import { expect, test } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 
 import { registerConsoleUsageRoutes } from './fixtures/consoleUsage';
+
+async function expectConsoleUsageLayoutContained(page: Page) {
+  const overflowState = await page.evaluate(() => {
+    const main = document.querySelector('main');
+    const tableViewports = Array.from(document.querySelectorAll('table')).map((table) => {
+      const tableViewport = table.parentElement;
+      if (!(tableViewport instanceof HTMLElement)) {
+        return false;
+      }
+      const style = window.getComputedStyle(tableViewport);
+      return tableViewport.getBoundingClientRect().width <= window.innerWidth + 1 && style.overflowX === 'auto';
+    });
+
+    return {
+      documentFits: document.documentElement.scrollWidth <= window.innerWidth + 1,
+      mainFits: main instanceof HTMLElement ? main.scrollWidth <= main.clientWidth + 1 : true,
+      tableViewportCount: tableViewports.length,
+      tableViewportsFit: tableViewports.every(Boolean),
+    };
+  });
+
+  expect(overflowState).toEqual({
+    documentFits: true,
+    mainFits: true,
+    tableViewportCount: 4,
+    tableViewportsFit: true,
+  });
+}
 
 test.beforeEach(async ({ page }) => {
   await registerConsoleUsageRoutes(page);
@@ -70,4 +98,19 @@ test('console usage renders current workspace usage in the built app', async ({ 
   await expect(page.getByText('95 ms')).toBeVisible();
   await expect(page.getByText('openai')).toHaveCount(0);
   await expect(page.getByText('channel_openai_primary')).toHaveCount(0);
+});
+
+test('console usage keeps mobile analytics tables contained', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/console/usage');
+
+  await expect(page.getByRole('heading', { name: 'Usage' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Usage' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('main')).toHaveCount(1);
+  await expect(page.getByText('Workspace: workspace_console_usage')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'By model' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'By feature' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Top users' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Daily trend' })).toBeVisible();
+  await expectConsoleUsageLayoutContained(page);
 });

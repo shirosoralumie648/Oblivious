@@ -43,21 +43,23 @@ function UsageAggregationTable({
     <section aria-label={title}>
       <h2>{title}</h2>
       {rows.length > 0 ? (
-        <table>
-          <thead>
-            <tr>
-              <th scope="col">Segment</th>
-              <th scope="col">Requests</th>
-              <th scope="col">Tokens</th>
-              <th scope="col">Cost</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={'key' in row ? row.key : row.bucket}>{metricRow(row)}</tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="min-w-0 max-w-full overflow-x-auto">
+          <table className="min-w-[560px] border-collapse text-left text-sm">
+            <thead>
+              <tr>
+                <th scope="col">Segment</th>
+                <th scope="col">Requests</th>
+                <th scope="col">Tokens</th>
+                <th scope="col">Cost</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={'key' in row ? row.key : row.bucket}>{metricRow(row)}</tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : (
         <p>{emptyText}</p>
       )}
@@ -139,7 +141,7 @@ export function UsagePage() {
             {usageSummary.recent && usageSummary.recent.length > 0 ? (
               <ul>
                 {usageSummary.recent.map((item) => (
-                  <li key={item.id}>
+                  <li className="min-w-0 break-words" key={item.id}>
                     <span>{requestLabel(item)}</span>
                     <span>{item.apiTokenId || '-'}</span>
                     <span>{item.model || '-'}</span>
