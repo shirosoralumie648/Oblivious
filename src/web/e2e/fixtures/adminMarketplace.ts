@@ -225,6 +225,7 @@ export async function registerAdminMarketplaceRoutes(page: Page): Promise<void> 
   let myAgents = [submittedAgent];
   let installs = [installedAgent];
   let createdTemplate: typeof launchTemplate | null = null;
+  const marketplaceTemplates = [launchTemplate];
   let settlementPreferences = {
     cycle: 'monthly',
     label: 'Monthly',
@@ -404,7 +405,7 @@ export async function registerAdminMarketplaceRoutes(page: Page): Promise<void> 
     }
 
     if (method === 'GET' && pathname === '/api/v1/marketplace/templates') {
-      const templates = createdTemplate ? [createdTemplate] : [];
+      const templates = createdTemplate ? [createdTemplate] : marketplaceTemplates;
       await fulfillJSON(route, { templates, total: templates.length });
       return;
     }
@@ -418,6 +419,18 @@ export async function registerAdminMarketplaceRoutes(page: Page): Promise<void> 
 
       createdTemplate = launchTemplate;
       await fulfillJSON(route, createdTemplate, 201);
+      return;
+    }
+
+    if (method === 'POST' && pathname === '/api/v1/marketplace/templates/template_launch_browser/install') {
+      await fulfillJSON(route, {
+        id: 'template_install_launch_browser',
+        templateID: launchTemplate.id,
+        type: launchTemplate.type,
+        name: launchTemplate.name,
+        templateData: launchTemplate.templateData,
+        installedAt: now,
+      }, 201);
       return;
     }
 

@@ -49,6 +49,19 @@ test('marketplace browse detail and install workflow works', async ({ page }) =>
   await expect(page.getByText('Agent installed.')).toBeVisible();
 });
 
+test('marketplace installs templates from the canonical browse route', async ({ page }) => {
+  await page.goto('/marketplace');
+
+  await expect(page.getByRole('heading', { name: 'Agent Marketplace' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Templates' })).toBeVisible();
+  const templateInstallButton = page.getByRole('button', { name: 'Use Launch Browser Template' });
+  await expect(templateInstallButton).toBeVisible();
+
+  await templateInstallButton.click();
+
+  await expect(page.getByText('Template ready to use.')).toBeVisible();
+});
+
 test('marketplace paid install sends selected provider and exposes checkout continuation', async ({ page }) => {
   await page.goto('/marketplace/agents/agent_paid_release_helper');
 
