@@ -105,6 +105,22 @@ if [[ "$output" != *"tenant-cross-surface must include TestCrossTenantChatScopeU
   exit 1
 fi
 
+target_marketplace_recommendation_fixture="$tmp_dir/verify-commercial-db-evidence-marketplace-recommendation.sh"
+cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_marketplace_recommendation_fixture"
+perl -0pi -e 's/TestSearchAgentsRecommendedRanksContentMatchesOverGenericHotAgents/TestSearchAgentsRecommendedV2RanksContentMatchesOverGenericHotAgents/g' "$target_marketplace_recommendation_fixture"
+
+if output=$(COMMERCIAL_DB_EVIDENCE_TARGET="$target_marketplace_recommendation_fixture" bash "$repo_root/scripts/verify-commercial-db-evidence-profiles.sh" 2>&1); then
+  echo "[commercial-db-evidence-profiles-fixtures] expected prefixed marketplace recommendation token to be rejected" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
+if [[ "$output" != *"marketplace-recommendation-search must include TestSearchAgentsRecommendedRanksContentMatchesOverGenericHotAgents"* ]]; then
+  echo "[commercial-db-evidence-profiles-fixtures] expected marketplace recommendation full-name rejection message" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
 target_auth_security_fixture="$tmp_dir/verify-commercial-db-evidence-auth-security.sh"
 cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_auth_security_fixture"
 perl -0pi -e 's/MeRequiresSession/MeRequiresSessionV2/g' "$target_auth_security_fixture"

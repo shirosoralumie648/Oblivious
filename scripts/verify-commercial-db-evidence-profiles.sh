@@ -512,21 +512,18 @@ if ! profile_body_has_token "$marketplace_governance_review_body" "TestAdminMark
 fi
 
 marketplace_recommendation_search_body=$(sed -n '/^run_marketplace_recommendation_search_profile() {/,/^}/p' "$target")
-if ! profile_body_has_token "$marketplace_recommendation_search_body" "RanksContentMatchesOverGenericHotAgents"; then
-  fail "marketplace-recommendation-search must include TestSearchAgentsRecommendedRanksContentMatchesOverGenericHotAgents"
-fi
-if ! profile_body_has_token "$marketplace_recommendation_search_body" "FallbackExplorationIsDeterministicAndNonEmpty"; then
-  fail "marketplace-recommendation-search must include TestSearchAgentsRecommendedFallbackExplorationIsDeterministicAndNonEmpty"
-fi
-if ! profile_body_has_token "$marketplace_recommendation_search_body" "UsesRankingSignals"; then
-  fail "marketplace-recommendation-search must include TestSearchAgentsRecommendedUsesRankingSignals"
-fi
-if ! profile_body_has_token "$marketplace_recommendation_search_body" "UsesCollaborativeFilteringForRequester"; then
-  fail "marketplace-recommendation-search must include TestSearchAgentsRecommendedUsesCollaborativeFilteringForRequester"
-fi
-if ! profile_body_has_token "$marketplace_recommendation_search_body" "DemotesGovernanceWeightedAgents"; then
-  fail "marketplace-recommendation-search must include TestSearchAgentsRecommendedDemotesGovernanceWeightedAgents"
-fi
+marketplace_recommendation_search_required=(
+  "TestSearchAgentsRecommendedRanksContentMatchesOverGenericHotAgents|TestSearchAgentsRecommendedRanksContentMatchesOverGenericHotAgents"
+  "TestSearchAgentsRecommendedFallbackExplorationIsDeterministicAndNonEmpty|TestSearchAgentsRecommendedFallbackExplorationIsDeterministicAndNonEmpty"
+  "TestSearchAgentsRecommendedUsesRankingSignals|TestSearchAgentsRecommendedUsesRankingSignals"
+  "TestSearchAgentsRecommendedUsesCollaborativeFilteringForRequester|TestSearchAgentsRecommendedUsesCollaborativeFilteringForRequester"
+  "TestSearchAgentsRecommendedDemotesGovernanceWeightedAgents|TestSearchAgentsRecommendedDemotesGovernanceWeightedAgents"
+)
+for requirement in "${marketplace_recommendation_search_required[@]}"; do
+  token="${requirement%%|*}"
+  test_name="${requirement#*|}"
+  require_profile_token "$marketplace_recommendation_search_body" "marketplace-recommendation-search" "$token" "$test_name"
+done
 
 marketplace_money_movement_body=$(sed -n '/^run_marketplace_money_movement_profile() {/,/^}/p' "$target")
 marketplace_admin_billing_sql_shape_body=$(sed -n '/admin_billing_sql_shape_pattern=/p' "$target")
