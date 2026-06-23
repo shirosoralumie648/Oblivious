@@ -458,18 +458,17 @@ for requirement in "${auth_security_persistence_required[@]}"; do
 done
 
 migration_ledger_backfills_body=$(sed -n '/^run_migration_ledger_backfills_profile() {/,/^}/p' "$target")
-if [[ "$migration_ledger_backfills_body" != *"RecordsLedgerAndSkipsAppliedFiles"* ]]; then
-  fail "migration-ledger-backfills must include TestApplyMigrationsRecordsLedgerAndSkipsAppliedFiles"
-fi
-if [[ "$migration_ledger_backfills_body" != *"RejectsChecksumMismatch"* ]]; then
-  fail "migration-ledger-backfills must include TestApplyMigrationsRejectsChecksumMismatch"
-fi
-if [[ "$migration_ledger_backfills_body" != *"BackfillsLegacyTenantScopeData"* ]]; then
-  fail "migration-ledger-backfills must include TestApplyMigrationsBackfillsLegacyTenantScopeData"
-fi
-if [[ "$migration_ledger_backfills_body" != *"BackfillsMarketplaceCategoryIDs"* ]]; then
-  fail "migration-ledger-backfills must include TestApplyMigrationsBackfillsMarketplaceCategoryIDs"
-fi
+migration_ledger_backfills_required=(
+  "TestApplyMigrationsRecordsLedgerAndSkipsAppliedFiles|TestApplyMigrationsRecordsLedgerAndSkipsAppliedFiles"
+  "TestApplyMigrationsRejectsChecksumMismatch|TestApplyMigrationsRejectsChecksumMismatch"
+  "TestApplyMigrationsBackfillsLegacyTenantScopeData|TestApplyMigrationsBackfillsLegacyTenantScopeData"
+  "TestApplyMigrationsBackfillsMarketplaceCategoryIDs|TestApplyMigrationsBackfillsMarketplaceCategoryIDs"
+)
+for requirement in "${migration_ledger_backfills_required[@]}"; do
+  token="${requirement%%|*}"
+  test_name="${requirement#*|}"
+  require_profile_token "$migration_ledger_backfills_body" "migration-ledger-backfills" "$token" "$test_name"
+done
 
 relay_file_mapping_body=$(sed -n '/^run_relay_file_mapping_tenant_ownership_profile() {/,/^}/p' "$target")
 if [[ "$relay_file_mapping_body" != *"SaveFileMappingPersistsTenantOwnership"* ]]; then

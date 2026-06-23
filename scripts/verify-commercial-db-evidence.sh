@@ -324,7 +324,7 @@ run_auth_security_persistence_profile() {
 run_migration_ledger_backfills_profile() {
   local migration_ledger_backfills_pattern
 
-  migration_ledger_backfills_pattern="^TestApplyMigrations(RecordsLedgerAndSkipsAppliedFiles|RejectsChecksumMismatch|BackfillsLegacyTenantScopeData|BackfillsMarketplaceCategoryIDs)$"
+  migration_ledger_backfills_pattern="^(TestApplyMigrationsRecordsLedgerAndSkipsAppliedFiles|TestApplyMigrationsRejectsChecksumMismatch|TestApplyMigrationsBackfillsLegacyTenantScopeData|TestApplyMigrationsBackfillsMarketplaceCategoryIDs)$"
   run_go_test_no_skips "migration ledger replay and backfill persistence" "./cmd/migrate" "$migration_ledger_backfills_pattern"
 }
 
