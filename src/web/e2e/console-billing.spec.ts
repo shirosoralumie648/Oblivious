@@ -1,6 +1,27 @@
-import { expect, test } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 
 import { registerConsoleBillingRoutes } from './fixtures/consoleBilling';
+
+async function expectConsoleBillingLayoutContained(page: Page) {
+  const overflowState = await page.evaluate(() => {
+    const main = document.querySelector('main');
+    const table = document.querySelector('table');
+    const tableViewport = table?.parentElement;
+
+    return {
+      documentFits: document.documentElement.scrollWidth <= window.innerWidth + 1,
+      mainFits: main instanceof HTMLElement ? main.scrollWidth <= main.clientWidth + 1 : true,
+      tableViewportFits:
+        tableViewport instanceof HTMLElement ? tableViewport.getBoundingClientRect().width <= window.innerWidth + 1 : true,
+    };
+  });
+
+  expect(overflowState).toEqual({
+    documentFits: true,
+    mainFits: true,
+    tableViewportFits: true,
+  });
+}
 
 test.beforeEach(async ({ page }) => {
   await registerConsoleBillingRoutes(page);
@@ -60,4 +81,19 @@ test('console billing starts top-up checkout with selected amount and provider',
     'https://checkout.wechatpay.test/session/cs_topup_browser'
   );
   await expect(page.getByText('Unable to start top-up checkout.')).toHaveCount(0);
+});
+
+test('console billing keeps mobile layout and billing controls contained', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/console/billing');
+
+  await expect(page.getByRole('heading', { name: 'Billing' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Billing' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('main')).toHaveCount(1);
+  await expect(page.getByText('Workspace: workspace_console_billing')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Subscription packages' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Invoice history' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Start subscription checkout' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Start top-up checkout' })).toBeVisible();
+  await expectConsoleBillingLayoutContained(page);
 });

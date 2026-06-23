@@ -32,9 +32,9 @@ export function ConsoleWorkbenchLayout({
           </Link>
         ))}
       </nav>
-      <div>
+      <div className="min-w-0">
         <ConsoleContextRail accessSummary={accessSummary} />
-        <section>{errorMessage ? <p>{errorMessage}</p> : children}</section>
+        <section className="min-w-0">{errorMessage ? <p>{errorMessage}</p> : children}</section>
       </div>
     </section>
   );

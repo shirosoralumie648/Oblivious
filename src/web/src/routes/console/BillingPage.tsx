@@ -255,38 +255,40 @@ export function BillingPage() {
           <section aria-label="Invoice history">
             <h2>Invoice history</h2>
             {invoices.length > 0 ? (
-              <table>
-                <thead>
-                  <tr>
-                    <th scope="col">Invoice ID</th>
-                    <th scope="col">Status</th>
-                    <th scope="col">Amount</th>
-                    <th scope="col">Due date</th>
-                    <th scope="col">Documents</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {invoices.map((invoice) => (
-                    <tr key={invoice.id}>
-                      <td>{invoice.id}</td>
-                      <td>{invoice.status}</td>
-                      <td>{`$${invoice.amountUsd.toFixed(4)}`}</td>
-                      <td>{formatInvoiceDueDate(invoice.dueAt)}</td>
-                      <td>
-                        {invoice.hostedInvoiceUrl || invoice.invoicePdf ? (
-                          <>
-                            {invoice.hostedInvoiceUrl ? <a href={invoice.hostedInvoiceUrl}>View invoice</a> : null}
-                            {invoice.hostedInvoiceUrl && invoice.invoicePdf ? ' ' : null}
-                            {invoice.invoicePdf ? <a href={invoice.invoicePdf}>Download PDF</a> : null}
-                          </>
-                        ) : (
-                          '-'
-                        )}
-                      </td>
+              <div className="min-w-0 max-w-full overflow-x-auto">
+                <table className="min-w-[640px] border-collapse text-left text-sm">
+                  <thead>
+                    <tr>
+                      <th scope="col">Invoice ID</th>
+                      <th scope="col">Status</th>
+                      <th scope="col">Amount</th>
+                      <th scope="col">Due date</th>
+                      <th scope="col">Documents</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {invoices.map((invoice) => (
+                      <tr key={invoice.id}>
+                        <td>{invoice.id}</td>
+                        <td>{invoice.status}</td>
+                        <td>{`$${invoice.amountUsd.toFixed(4)}`}</td>
+                        <td>{formatInvoiceDueDate(invoice.dueAt)}</td>
+                        <td>
+                          {invoice.hostedInvoiceUrl || invoice.invoicePdf ? (
+                            <>
+                              {invoice.hostedInvoiceUrl ? <a href={invoice.hostedInvoiceUrl}>View invoice</a> : null}
+                              {invoice.hostedInvoiceUrl && invoice.invoicePdf ? ' ' : null}
+                              {invoice.invoicePdf ? <a href={invoice.invoicePdf}>Download PDF</a> : null}
+                            </>
+                          ) : (
+                            '-'
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             ) : (
               <p>No invoices available.</p>
             )}
