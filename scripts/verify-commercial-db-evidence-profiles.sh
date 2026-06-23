@@ -37,6 +37,7 @@ profile_name_from_function() {
 declare -A usage_profiles=()
 declare -A case_profiles=()
 declare -A all_profiles=()
+declare -A help_profiles=()
 required_profiles=(
   "migration-ledger-backfills"
 )
@@ -74,6 +75,14 @@ done < <(
   ' "$target" | sed -n 's/^[[:space:]]*\(run_[a-z0-9_]*_profile\)$/\1/p'
 )
 
+while IFS= read -r profile; do
+  [[ -n "$profile" ]] || continue
+  help_profiles["$profile"]=1
+done < <(
+  sed -n '/^Profiles:/,/^Environment:/p' "$target" |
+    sed -n 's/^  \([a-z0-9][a-z0-9-]*\)\([[:space:]].*\)\{0,1\}$/\1/p'
+)
+
 [[ "${usage_profiles[all]:-}" == "1" ]] || fail "usage profile list must include all"
 [[ "${case_profiles[all]:-}" == "1" ]] || fail "case statement must include all"
 
@@ -81,14 +90,14 @@ for profile in "${required_profiles[@]}"; do
   [[ "${usage_profiles[$profile]:-}" == "1" ]] || fail "required profile is missing from usage list: $profile"
   [[ "${case_profiles[$profile]:-}" == "1" ]] || fail "required profile is missing from case statement: $profile"
   [[ "${all_profiles[$profile]:-}" == "1" ]] || fail "required profile is missing from run_all_profiles: $profile"
-  grep -Eq "^  ${profile}([[:space:]]|$)" "$target" || fail "required profile is missing from help section: $profile"
+  [[ "${help_profiles[$profile]:-}" == "1" ]] || fail "required profile is missing from help section: $profile"
 done
 
 for profile in "${!case_profiles[@]}"; do
   [[ "$profile" == "all" ]] && continue
   [[ "${usage_profiles[$profile]:-}" == "1" ]] || fail "usage profile list is missing $profile"
   [[ "${all_profiles[$profile]:-}" == "1" ]] || fail "run_all_profiles is missing $profile"
-  grep -Eq "^  ${profile}([[:space:]]|$)" "$target" || fail "Profiles help section is missing $profile"
+  [[ "${help_profiles[$profile]:-}" == "1" ]] || fail "Profiles help section is missing $profile"
 done
 
 for profile in "${!usage_profiles[@]}"; do
@@ -97,6 +106,10 @@ done
 
 for profile in "${!all_profiles[@]}"; do
   [[ "${case_profiles[$profile]:-}" == "1" ]] || fail "run_all_profiles includes unknown profile $profile"
+done
+
+for profile in "${!help_profiles[@]}"; do
+  [[ "${case_profiles[$profile]:-}" == "1" ]] || fail "help section includes unknown profile $profile"
 done
 
 backend_journey_body=$(sed -n '/^run_backend_journey_profile() {/,/^}/p' "$target")
