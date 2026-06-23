@@ -41,6 +41,38 @@ if [[ "$output" != *"secret-response-safety must include TestObservabilityAlertA
   exit 1
 fi
 
+target_secret_prefix_fixture="$tmp_dir/verify-commercial-db-evidence-secret-response-prefix.sh"
+cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_secret_prefix_fixture"
+perl -0pi -e 's/secret_response_safety_pattern="\^\(Test/secret_response_safety_pattern="^(TestLegacy/' "$target_secret_prefix_fixture"
+
+if output=$(COMMERCIAL_DB_EVIDENCE_TARGET="$target_secret_prefix_fixture" bash "$repo_root/scripts/verify-commercial-db-evidence-profiles.sh" 2>&1); then
+  echo "[commercial-db-evidence-profiles-fixtures] expected prefixed secret-response token to be rejected" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
+if [[ "$output" != *"secret-response-safety must include TestObservabilityAlertAdminRouteSQLProviderSecretsAreRedacted"* ]]; then
+  echo "[commercial-db-evidence-profiles-fixtures] expected secret-response full-name rejection message" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
+target_observability_prefix_fixture="$tmp_dir/verify-commercial-db-evidence-observability-prefix.sh"
+cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_observability_prefix_fixture"
+perl -0pi -e 's/observability_alert_recovery_pattern="\^\(TestSQLAlert/observability_alert_recovery_pattern="^(TestSQLAlertV2/' "$target_observability_prefix_fixture"
+
+if output=$(COMMERCIAL_DB_EVIDENCE_TARGET="$target_observability_prefix_fixture" bash "$repo_root/scripts/verify-commercial-db-evidence-profiles.sh" 2>&1); then
+  echo "[commercial-db-evidence-profiles-fixtures] expected prefixed observability alert-recovery token to be rejected" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
+if [[ "$output" != *"observability-alert-recovery-persistence must include TestSQLAlertRoutingRuleStorePersistsRoutingRules"* ]]; then
+  echo "[commercial-db-evidence-profiles-fixtures] expected observability alert-recovery full-name rejection message" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
 target_marketplace_template_fixture="$tmp_dir/verify-commercial-db-evidence-marketplace-template.sh"
 cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_marketplace_template_fixture"
 perl -0pi -e 's/MarketplaceTemplateRoutesCreateListDetailAndInstall/MarketplaceTemplateRoutesCreateListDetailAndInstallV2/g' "$target_marketplace_template_fixture"

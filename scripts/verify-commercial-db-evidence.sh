@@ -283,7 +283,7 @@ run_tenant_cross_surface_profile() {
 run_secret_response_safety_profile() {
   local secret_response_safety_pattern
 
-  secret_response_safety_pattern="^Test(ObservabilityAlertAdminRouteSQLProviderSecretsAreRedacted|PublishingChannelHTTPRouteRedactsSQLStoreConfigSecretsAndPreservesMarkers|AdminRelayChannelHTTPRouteRedactsSQLStoreAPIKeysAndPreservesMarkers|WorkflowHTTPRouteRedactsSQLStoreSecretsAndPreservesMarkers)$"
+  secret_response_safety_pattern="^(TestObservabilityAlertAdminRouteSQLProviderSecretsAreRedacted|TestPublishingChannelHTTPRouteRedactsSQLStoreConfigSecretsAndPreservesMarkers|TestAdminRelayChannelHTTPRouteRedactsSQLStoreAPIKeysAndPreservesMarkers|TestWorkflowHTTPRouteRedactsSQLStoreSecretsAndPreservesMarkers)$"
   run_go_test_no_skips "secret response safety" "./internal/http" "$secret_response_safety_pattern"
   run_go_test_no_skips "MCP auth token at-rest and response-listing safety" "./internal/mcp" "^TestSQLStoreProtectsAuthTokenWithPostgres$"
 }
@@ -368,7 +368,7 @@ run_admin_relay_read_isolation_profile() {
 run_observability_alert_recovery_persistence_profile() {
   local observability_alert_recovery_pattern
 
-  observability_alert_recovery_pattern="^TestSQLAlert(RoutingRuleStorePersistsRoutingRules|StateStore(PersistsAlertLifecycleAndEscalation|ListsAlertStatesWithFilters|PersistsNotificationThrottleAndRecoveryCooldown|RecordsRepeatedDeliveryBatchesForSameAlert))$"
+  observability_alert_recovery_pattern="^(TestSQLAlertRoutingRuleStorePersistsRoutingRules|TestSQLAlertStateStorePersistsAlertLifecycleAndEscalation|TestSQLAlertStateStoreListsAlertStatesWithFilters|TestSQLAlertStateStorePersistsNotificationThrottleAndRecoveryCooldown|TestSQLAlertStateStoreRecordsRepeatedDeliveryBatchesForSameAlert)$"
   run_go_test_no_skips "observability alert routing and recovery persistence" "./internal/observability" "$observability_alert_recovery_pattern"
 }
 
