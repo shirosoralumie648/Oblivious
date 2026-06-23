@@ -57,6 +57,22 @@ if [[ "$output" != *"marketplace-template-routes must include TestMarketplaceTem
   exit 1
 fi
 
+target_billing_checkout_fixture="$tmp_dir/verify-commercial-db-evidence-billing-checkout.sh"
+cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_billing_checkout_fixture"
+perl -0pi -e 's/TestBillingCheckoutRequiresSession/TestBillingCheckoutRequiresSessionV2/g' "$target_billing_checkout_fixture"
+
+if output=$(COMMERCIAL_DB_EVIDENCE_TARGET="$target_billing_checkout_fixture" bash "$repo_root/scripts/verify-commercial-db-evidence-profiles.sh" 2>&1); then
+  echo "[commercial-db-evidence-profiles-fixtures] expected suffixed billing checkout token to be rejected" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
+if [[ "$output" != *"billing-checkout-topup-http must include TestBillingCheckoutRequiresSession"* ]]; then
+  echo "[commercial-db-evidence-profiles-fixtures] expected billing checkout token-boundary rejection message" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
 target_help_fixture="$tmp_dir/verify-commercial-db-evidence-help-only.sh"
 cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_help_fixture"
 perl -0pi -e 's/(  core-sql-persistence         Run focused Chat SQL sharing\/forking,\n                               Publishing channel SQL retry\/archive, and Relay\n                               semantic-cache SQL persistence tests\.\n)/$1  stale-help-only-profile    Run stale help-only profile tests.\n/s' "$target_help_fixture"
