@@ -702,6 +702,9 @@ else
     end
     prefix = ["providers", index]
     name = require_string(failures, data, prefix + ["name"]).to_s.strip
+    unless name.empty? || required_providers.include?(name)
+      failures << "providers[#{index}].name must be stripe, alipay, or wechatpay"
+    end
     if !name.empty?
       if providers_by_name.key?(name)
         failures << "providers must not duplicate #{name} evidence"

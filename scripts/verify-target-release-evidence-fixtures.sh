@@ -354,6 +354,11 @@ make_invalid_case \
   "providers must include live evidence for stripe, alipay, and wechatpay (missing: wechatpay)"
 
 make_invalid_case \
+  "unknown-provider-live-rail" \
+  'data["providers"] << {"name" => "paypal", "mode" => "live", "checkout" => "pass", "refund" => "pass", "payout" => "pass", "reconciliation" => "pass", "evidenceRef" => "artifact-provider-paypal-20260616"}; data["artifacts"] << {"id" => "artifact-provider-paypal-20260616", "kind" => "provider-live-rail", "provider" => "paypal", "commit" => data["commit"], "runId" => data["runId"], "uri" => "provider://paypal/live/20260616", "recordedAt" => "2026-06-16T01:00:00Z"}' \
+  "providers[3].name must be stripe, alipay, or wechatpay"
+
+make_invalid_case \
   "swapped-provider-evidence-ref" \
   'stripe = data["providers"].find { |provider| provider["name"] == "stripe" }; alipay = data["providers"].find { |provider| provider["name"] == "alipay" }; stripe["evidenceRef"], alipay["evidenceRef"] = alipay["evidenceRef"], stripe["evidenceRef"]' \
   "providers[0].evidenceRef must reference provider-specific live evidence for stripe"
