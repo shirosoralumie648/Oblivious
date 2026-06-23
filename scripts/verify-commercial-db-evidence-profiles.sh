@@ -306,6 +306,7 @@ for entry in "${secret_response_safety_required[@]}"; do
   IFS='|' read -r token test_name <<< "$entry"
   require_profile_token "$secret_response_safety_body" "secret-response-safety" "$token" "$test_name"
 done
+require_profile_text "$secret_response_safety_body" "secret-response-safety" 'mcp_auth_token_pattern="^TestSQLStoreProtectsAuthTokenWithPostgres$"' "MCP auth token test pattern"
 
 observability_alert_recovery_body=$(sed -n '/^run_observability_alert_recovery_persistence_profile() {/,/^}/p' "$target")
 observability_alert_recovery_required=(

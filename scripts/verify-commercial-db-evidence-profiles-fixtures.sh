@@ -89,6 +89,22 @@ if [[ "$output" != *"secret-response-safety must include TestObservabilityAlertA
   exit 1
 fi
 
+target_mcp_secret_pattern_fixture="$tmp_dir/verify-commercial-db-evidence-mcp-secret-pattern.sh"
+cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_mcp_secret_pattern_fixture"
+perl -0pi -e 's/\^TestSQLStoreProtectsAuthTokenWithPostgres\$/\^TestSQLStoreProtectsAuthTokenWithPostgres.*\$/' "$target_mcp_secret_pattern_fixture"
+
+if output=$(COMMERCIAL_DB_EVIDENCE_TARGET="$target_mcp_secret_pattern_fixture" bash "$repo_root/scripts/verify-commercial-db-evidence-profiles.sh" 2>&1); then
+  echo "[commercial-db-evidence-profiles-fixtures] expected MCP auth-token pattern drift to be rejected" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
+if [[ "$output" != *"mcp_auth_token_pattern must use exact anchored full Go test names"* ]]; then
+  echo "[commercial-db-evidence-profiles-fixtures] expected MCP auth-token exact-pattern rejection message" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
 target_observability_prefix_fixture="$tmp_dir/verify-commercial-db-evidence-observability-prefix.sh"
 cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_observability_prefix_fixture"
 perl -0pi -e 's/observability_alert_recovery_pattern="\^\(TestSQLAlert/observability_alert_recovery_pattern="^(TestSQLAlertV2/' "$target_observability_prefix_fixture"

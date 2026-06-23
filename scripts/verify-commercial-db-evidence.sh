@@ -284,11 +284,13 @@ run_tenant_cross_surface_profile() {
 }
 
 run_secret_response_safety_profile() {
+  local mcp_auth_token_pattern
   local secret_response_safety_pattern
 
   secret_response_safety_pattern="^(TestObservabilityAlertAdminRouteSQLProviderSecretsAreRedacted|TestPublishingChannelHTTPRouteRedactsSQLStoreConfigSecretsAndPreservesMarkers|TestAdminRelayChannelHTTPRouteRedactsSQLStoreAPIKeysAndPreservesMarkers|TestWorkflowHTTPRouteRedactsSQLStoreSecretsAndPreservesMarkers)$"
+  mcp_auth_token_pattern="^TestSQLStoreProtectsAuthTokenWithPostgres$"
   run_go_test_no_skips "secret response safety" "./internal/http" "$secret_response_safety_pattern"
-  run_go_test_no_skips "MCP auth token at-rest and response-listing safety" "./internal/mcp" "^TestSQLStoreProtectsAuthTokenWithPostgres$"
+  run_go_test_no_skips "MCP auth token at-rest and response-listing safety" "./internal/mcp" "$mcp_auth_token_pattern"
 }
 
 run_agent_runtime_memory_profile() {
