@@ -73,6 +73,22 @@ if [[ "$output" != *"billing-checkout-topup-http must include TestBillingCheckou
   exit 1
 fi
 
+target_app_stateful_fixture="$tmp_dir/verify-commercial-db-evidence-app-stateful.sh"
+cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_app_stateful_fixture"
+perl -0pi -e 's/TestConsoleAPITokenCreateListAndRevoke/TestLegacyConsoleAPITokenCreateListAndRevoke/g' "$target_app_stateful_fixture"
+
+if output=$(COMMERCIAL_DB_EVIDENCE_TARGET="$target_app_stateful_fixture" bash "$repo_root/scripts/verify-commercial-db-evidence-profiles.sh" 2>&1); then
+  echo "[commercial-db-evidence-profiles-fixtures] expected prefixed app-stateful token to be rejected" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
+if [[ "$output" != *"app-stateful-routes must include TestConsoleAPITokenCreateListAndRevoke"* ]]; then
+  echo "[commercial-db-evidence-profiles-fixtures] expected app-stateful full-name rejection message" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
 target_auth_security_fixture="$tmp_dir/verify-commercial-db-evidence-auth-security.sh"
 cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_auth_security_fixture"
 perl -0pi -e 's/MeRequiresSession/MeRequiresSessionV2/g' "$target_auth_security_fixture"
