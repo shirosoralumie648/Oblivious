@@ -233,6 +233,22 @@ if [[ "$output" != *"relay-file-mapping-tenant-ownership must include TestRelayS
   exit 1
 fi
 
+target_relay_runtime_fixture="$tmp_dir/verify-commercial-db-evidence-relay-runtime.sh"
+cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_relay_runtime_fixture"
+perl -0pi -e 's/TestLoadBalancerSelectModelForOrganizationFiltersModelRouteAndFallback/TestLegacyLoadBalancerSelectModelForOrganizationFiltersModelRouteAndFallback/g' "$target_relay_runtime_fixture"
+
+if output=$(COMMERCIAL_DB_EVIDENCE_TARGET="$target_relay_runtime_fixture" bash "$repo_root/scripts/verify-commercial-db-evidence-profiles.sh" 2>&1); then
+  echo "[commercial-db-evidence-profiles-fixtures] expected prefixed relay runtime token to be rejected" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
+if [[ "$output" != *"relay-runtime-channel-isolation must include TestLoadBalancerSelectModelForOrganizationFiltersModelRouteAndFallback"* ]]; then
+  echo "[commercial-db-evidence-profiles-fixtures] expected relay runtime full-name rejection message" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
 target_publishing_channel_fixture="$tmp_dir/verify-commercial-db-evidence-publishing-channel.sh"
 cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_publishing_channel_fixture"
 perl -0pi -e 's/TestPublishingChannelHTTPRouteEnforcesActiveOrganizationIsolation/TestPublishingChannelHTTPRouteEnforcesActiveOrganizationIsolationV2/g' "$target_publishing_channel_fixture"

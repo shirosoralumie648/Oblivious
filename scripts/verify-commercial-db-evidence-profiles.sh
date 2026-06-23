@@ -698,24 +698,19 @@ if ! profile_body_has_token "$agent_runtime_memory_body" "TestAgentMemoryStorePe
 fi
 
 relay_runtime_channel_isolation_body=$(sed -n '/^run_relay_runtime_channel_isolation_profile() {/,/^}/p' "$target")
-if ! profile_body_has_token "$relay_runtime_channel_isolation_body" "LoadBalancerSelectModelForOrganizationFiltersModelRouteAndFallback"; then
-  fail "relay-runtime-channel-isolation must include TestLoadBalancerSelectModelForOrganizationFiltersModelRouteAndFallback"
-fi
-if ! profile_body_has_token "$relay_runtime_channel_isolation_body" "RouterRouteWithBillingUsesTrustedOrganizationForChannelSelectionAndAffinity"; then
-  fail "relay-runtime-channel-isolation must include TestRouterRouteWithBillingUsesTrustedOrganizationForChannelSelectionAndAffinity"
-fi
-if ! profile_body_has_token "$relay_runtime_channel_isolation_body" "ConversationAffinityPersistsAndUpdatesChannel"; then
-  fail "relay-runtime-channel-isolation must include TestRelayStoreConversationAffinityPersistsAndUpdatesChannel"
-fi
-if ! profile_body_has_token "$relay_runtime_channel_isolation_body" "LoadPoolPreservesChannelOrganizationScope"; then
-  fail "relay-runtime-channel-isolation must include TestRelayStoreLoadPoolPreservesChannelOrganizationScope"
-fi
-if ! profile_body_has_token "$relay_runtime_channel_isolation_body" "ProtectsChannelAPIKeyAtRestAndHydratesRuntimeKey"; then
-  fail "relay-runtime-channel-isolation must include TestRelayStoreProtectsChannelAPIKeyAtRestAndHydratesRuntimeKey"
-fi
-if ! profile_body_has_token "$relay_runtime_channel_isolation_body" "TestModelsHandlerScopesModelsToTrustedOrganization"; then
-  fail "relay-runtime-channel-isolation must include TestModelsHandlerScopesModelsToTrustedOrganization"
-fi
+relay_runtime_channel_isolation_required=(
+  "TestLoadBalancerSelectModelForOrganizationFiltersModelRouteAndFallback|TestLoadBalancerSelectModelForOrganizationFiltersModelRouteAndFallback"
+  "TestRouterRouteWithBillingUsesTrustedOrganizationForChannelSelectionAndAffinity|TestRouterRouteWithBillingUsesTrustedOrganizationForChannelSelectionAndAffinity"
+  "TestRelayStoreConversationAffinityPersistsAndUpdatesChannel|TestRelayStoreConversationAffinityPersistsAndUpdatesChannel"
+  "TestRelayStoreLoadPoolPreservesChannelOrganizationScope|TestRelayStoreLoadPoolPreservesChannelOrganizationScope"
+  "TestRelayStoreProtectsChannelAPIKeyAtRestAndHydratesRuntimeKey|TestRelayStoreProtectsChannelAPIKeyAtRestAndHydratesRuntimeKey"
+  "TestModelsHandlerScopesModelsToTrustedOrganization|TestModelsHandlerScopesModelsToTrustedOrganization"
+)
+for requirement in "${relay_runtime_channel_isolation_required[@]}"; do
+  token="${requirement%%|*}"
+  test_name="${requirement#*|}"
+  require_profile_token "$relay_runtime_channel_isolation_body" "relay-runtime-channel-isolation" "$token" "$test_name"
+done
 
 workflow_sql_isolation_body=$(sed -n '/^run_workflow_sql_isolation_profile() {/,/^}/p' "$target")
 workflow_sql_isolation_required=(
