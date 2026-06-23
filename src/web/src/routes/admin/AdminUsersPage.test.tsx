@@ -55,6 +55,18 @@ describe('AdminUsersPage', () => {
     expect(screen.getByText('1,000 tokens / 20 calls / $1.50')).toBeInTheDocument();
   });
 
+  it('filters users by canonical plan ID', async () => {
+    listUsers.mockResolvedValue({ data: [activeUser], total: 1 });
+
+    render(<AdminUsersPage />);
+
+    fireEvent.change(await screen.findByLabelText('Plan ID filter'), { target: { value: 'plan_pro' } });
+
+    await waitFor(() =>
+      expect(listUsers).toHaveBeenLastCalledWith(expect.objectContaining({ planID: 'plan_pro', limit: 100 }))
+    );
+  });
+
   it('opens edit drawer and submits user updates', async () => {
     listUsers.mockResolvedValue({ data: [activeUser], total: 1 });
     updateUser.mockResolvedValue(activeUser);

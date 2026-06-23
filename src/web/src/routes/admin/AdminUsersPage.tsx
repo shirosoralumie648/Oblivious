@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer } from 'react';
 import { RiPencilLine, RiUserForbidLine, RiUserFollowLine } from '@remixicon/react';
 
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 
 import { DataTable, type DataTableColumn } from '../../components/shared/DataTable';
 import { DrawerForm } from '../../components/shared/DrawerForm';
@@ -24,6 +25,7 @@ type UserState = {
   error: string | null;
   search: string;
   roleFilter: string;
+  planFilter: string;
   statusFilter: string;
   drawerOpen: boolean;
   editingUser: UserDetail | null;
@@ -38,6 +40,7 @@ type Action =
   | { type: 'LOAD_ERROR'; error: string }
   | { type: 'SET_SEARCH'; value: string }
   | { type: 'SET_ROLE'; value: string }
+  | { type: 'SET_PLAN'; value: string }
   | { type: 'SET_STATUS'; value: string }
   | { type: 'OPEN_EDIT'; user: UserDetail }
   | { type: 'CLOSE_DRAWER' }
@@ -59,6 +62,7 @@ const initialState: UserState = {
   error: null,
   search: '',
   roleFilter: 'all',
+  planFilter: '',
   statusFilter: 'all',
   drawerOpen: false,
   editingUser: null,
@@ -88,6 +92,8 @@ function reducer(state: UserState, action: Action): UserState {
       return { ...state, search: action.value };
     case 'SET_ROLE':
       return { ...state, roleFilter: action.value };
+    case 'SET_PLAN':
+      return { ...state, planFilter: action.value };
     case 'SET_STATUS':
       return { ...state, statusFilter: action.value };
     case 'OPEN_EDIT':
@@ -141,6 +147,7 @@ export function AdminUsersPage() {
       const result = await api.listUsers({
         search: state.search,
         role: state.roleFilter === 'all' ? undefined : state.roleFilter,
+        planID: state.planFilter,
         status: state.statusFilter === 'all' ? undefined : state.statusFilter,
         limit: 100,
       });
@@ -148,7 +155,7 @@ export function AdminUsersPage() {
     } catch (error) {
       dispatch({ type: 'LOAD_ERROR', error: error instanceof Error ? error.message : 'Something went wrong while loading this data.' });
     }
-  }, [api, state.roleFilter, state.search, state.statusFilter]);
+  }, [api, state.planFilter, state.roleFilter, state.search, state.statusFilter]);
 
   useEffect(() => {
     void loadUsers();
@@ -208,6 +215,13 @@ export function AdminUsersPage() {
 
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
         <SearchBar value={state.search} onChange={(value) => dispatch({ type: 'SET_SEARCH', value })} placeholder="Search users..." />
+        <Input
+          aria-label="Plan ID filter"
+          value={state.planFilter}
+          placeholder="Plan ID"
+          className="min-h-[44px] min-w-[160px]"
+          onChange={(event) => dispatch({ type: 'SET_PLAN', value: event.target.value })}
+        />
         <select
           aria-label="Role filter"
           value={state.roleFilter}

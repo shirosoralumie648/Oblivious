@@ -675,6 +675,40 @@ describe('createAdminApi', () => {
     });
   });
 
+  it('serializes admin user plan filters with the documented planID query key', async () => {
+    const get = vi.fn().mockResolvedValue({
+      users: [
+        {
+          id: 'user_1',
+          email: 'plan-user@example.com',
+          planID: 'plan_pro',
+        },
+      ],
+      total: 1,
+    });
+    const api = createAdminApi(createClient({ get }));
+
+    await expect(api.listUsers({ planId: 'plan_pro', role: 'user', status: 'active', limit: 25 })).resolves.toEqual({
+      data: [
+        {
+          id: 'user_1',
+          email: 'plan-user@example.com',
+          planID: 'plan_pro',
+        },
+      ],
+      total: 1,
+    });
+
+    const [requestPath] = get.mock.calls[0];
+    const requestURL = new URL(requestPath, 'http://oblivious.local');
+    expect(requestURL.pathname).toBe('/api/v1/admin/users');
+    expect(requestURL.searchParams.get('planID')).toBe('plan_pro');
+    expect(requestURL.searchParams.has('planId')).toBe(false);
+    expect(requestURL.searchParams.get('role')).toBe('user');
+    expect(requestURL.searchParams.get('status')).toBe('active');
+    expect(requestURL.searchParams.get('limit')).toBe('25');
+  });
+
   it('routes observability alert calls through admin endpoints', async () => {
     const get = vi
       .fn()
