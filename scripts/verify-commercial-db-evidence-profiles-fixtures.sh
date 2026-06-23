@@ -25,6 +25,22 @@ if [[ "$output" != *"quota-sql-isolation must include TestQuotaObservabilityReco
   exit 1
 fi
 
+target_group_suffix_fixture="$tmp_dir/verify-commercial-db-evidence-group-suffix.sh"
+cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_group_suffix_fixture"
+perl -0pi -e 's/TestStripeWebhookRouteRetriesLifecycleForRecordedDuplicateEvent\)\$"/TestStripeWebhookRouteRetriesLifecycleForRecordedDuplicateEvent)WrongSuffix\$"/' "$target_group_suffix_fixture"
+
+if output=$(COMMERCIAL_DB_EVIDENCE_TARGET="$target_group_suffix_fixture" bash "$repo_root/scripts/verify-commercial-db-evidence-profiles.sh" 2>&1); then
+  echo "[commercial-db-evidence-profiles-fixtures] expected grouped suffix pattern drift to be rejected" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
+if [[ "$output" != *"billing_checkout_topup_pattern must use exact anchored full Go test names"* ]]; then
+  echo "[commercial-db-evidence-profiles-fixtures] expected grouped suffix pattern-shape rejection message" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
 target_secret_fixture="$tmp_dir/verify-commercial-db-evidence-secret-response.sh"
 cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_secret_fixture"
 perl -0pi -e 's/ObservabilityAlertAdminRouteSQLProviderSecretsAreRedacted/ObservabilityAlertAdminRouteSQLProviderSecretsAreRedactedV2/g' "$target_secret_fixture"

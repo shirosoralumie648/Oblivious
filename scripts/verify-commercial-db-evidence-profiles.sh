@@ -38,6 +38,14 @@ require_profile_text() {
   fi
 }
 
+is_exact_go_test_pattern() {
+  local pattern="$1"
+  local single_pattern='^\^Test[[:alnum:]_]+\$$'
+  local grouped_pattern='^\^\(Test[[:alnum:]_]+(\|Test[[:alnum:]_]+)*\)\$$'
+
+  [[ "$pattern" =~ $single_pattern || "$pattern" =~ $grouped_pattern ]]
+}
+
 profile_name_from_function() {
   local function_name="$1"
   function_name="${function_name#run_}"
@@ -122,6 +130,15 @@ done
 for profile in "${!help_profiles[@]}"; do
   [[ "${case_profiles[$profile]:-}" == "1" ]] || fail "help section includes unknown profile $profile"
 done
+
+while IFS='=' read -r pattern_name pattern_value; do
+  [[ -n "$pattern_name" ]] || continue
+  if ! is_exact_go_test_pattern "$pattern_value"; then
+    fail "$pattern_name must use exact anchored full Go test names"
+  fi
+done < <(
+  sed -n 's/^[[:space:]]*\([a-z0-9_]*_pattern\)="\(\^.*\)"$/\1=\2/p' "$target"
+)
 
 backend_journey_body=$(sed -n '/^run_backend_journey_profile() {/,/^}/p' "$target")
 if ! profile_body_has_token "$backend_journey_body" "TestCommercialHTTPJourney"; then
