@@ -377,6 +377,22 @@ if [[ "$output" != *"publishing-channel-isolation must include TestPublishingCha
   exit 1
 fi
 
+target_publishing_channel_pattern_fixture="$tmp_dir/verify-commercial-db-evidence-publishing-channel-pattern.sh"
+cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_publishing_channel_pattern_fixture"
+perl -0pi -e 's/\^TestPublishingChannelHTTPRouteEnforcesActiveOrganizationIsolation\$/\^TestPublishingChannelHTTPRouteEnforcesActiveOrganizationIsolation.*\$/' "$target_publishing_channel_pattern_fixture"
+
+if output=$(COMMERCIAL_DB_EVIDENCE_TARGET="$target_publishing_channel_pattern_fixture" bash "$repo_root/scripts/verify-commercial-db-evidence-profiles.sh" 2>&1); then
+  echo "[commercial-db-evidence-profiles-fixtures] expected publishing-channel pattern drift to be rejected" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
+if [[ "$output" != *"publishing_channel_isolation_pattern must use exact anchored full Go test names"* ]]; then
+  echo "[commercial-db-evidence-profiles-fixtures] expected publishing-channel exact-pattern rejection message" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
 target_admin_relay_channel_fixture="$tmp_dir/verify-commercial-db-evidence-admin-relay-channel.sh"
 cp "$repo_root/scripts/verify-commercial-db-evidence.sh" "$target_admin_relay_channel_fixture"
 perl -0pi -e 's/TestAdminRelayChannelHTTPRouteEnforcesActiveOrganizationIsolation/TestAdminRelayChannelHTTPRouteEnforcesActiveOrganizationIsolationV2/g' "$target_admin_relay_channel_fixture"

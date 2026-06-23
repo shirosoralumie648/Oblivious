@@ -359,7 +359,10 @@ run_workflow_sql_isolation_profile() {
 }
 
 run_publishing_channel_isolation_profile() {
-  run_go_test_no_skips "publishing channel HTTP active-organization isolation" "./internal/http" "^TestPublishingChannelHTTPRouteEnforcesActiveOrganizationIsolation$"
+  local publishing_channel_isolation_pattern
+
+  publishing_channel_isolation_pattern="^TestPublishingChannelHTTPRouteEnforcesActiveOrganizationIsolation$"
+  run_go_test_no_skips "publishing channel HTTP active-organization isolation" "./internal/http" "$publishing_channel_isolation_pattern"
 }
 
 run_admin_relay_channel_isolation_profile() {
