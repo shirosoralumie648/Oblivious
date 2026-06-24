@@ -3227,6 +3227,12 @@ require_workflow_management_csrf_contract() {
         schemas.dig("CreateWorkflowBranchRequest", "required")&.include?("version")
       missing << "Workflow create, rollback, and branch request schemas must preserve required fields"
     end
+    workflow_definition_required = schemas.dig("WorkflowDefinition", "required") || []
+    ["id", "organizationId", "name", "status", "version", "definition", "createdAt", "updatedAt"].each do |field|
+      unless workflow_definition_required.include?(field)
+        missing << "WorkflowDefinition must require #{field}"
+      end
+    end
 
     unless missing.empty?
       warn "[openapi-contract] Workflow management CSRF/schema contract is incomplete:"

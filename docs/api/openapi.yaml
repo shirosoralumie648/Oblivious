@@ -2169,6 +2169,7 @@ components:
 
     WorkflowDefinition:
       type: object
+      required: [id, organizationId, name, status, version, definition, createdAt, updatedAt]
       properties:
         id:
           type: string
