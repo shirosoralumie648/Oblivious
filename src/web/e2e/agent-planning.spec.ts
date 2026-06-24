@@ -100,6 +100,86 @@ test('agent planning browser journey adjusts remaining plan with operator reason
   await expect(page.getByRole('button', { name: 'Adjust remaining plan' })).toBeDisabled();
 });
 
+test('agent browser journey creates and updates advanced runtime config', async ({ page }) => {
+  await page.goto('/agents');
+
+  await expect(page.getByRole('heading', { name: 'Agents' })).toBeVisible();
+  await page.getByRole('button', { name: 'Create agent' }).click();
+
+  const createForm = page.getByRole('region', { name: 'Create agent form' });
+  await expect(createForm).toBeVisible();
+  await createForm.getByLabel('Agent name').fill('Browser Config Agent');
+  await createForm.getByLabel('Model', { exact: true }).fill('gpt-4o-mini');
+  await createForm.getByLabel('Description').fill('Exercises the browser create and update agent config flow.');
+  await createForm.getByLabel('System prompt').fill('Prefer explicit browser evidence.');
+  await createForm.getByLabel('Approval mode').selectOption('all');
+  await createForm.getByLabel('Default execution mode').selectOption('planning');
+  await createForm.getByLabel('Long-term memory writes').selectOption('explicit_only');
+  await createForm.getByLabel('Long-term memory extraction').selectOption('llm_assisted');
+  await createForm.getByLabel('Long-term memory update').selectOption('memory_key_consolidate');
+  await createForm.getByLabel('Max iterations').fill('30');
+  await createForm.getByLabel('Token budget').fill('60000');
+  await createForm.getByLabel('Max skills').fill('1');
+  await createForm
+    .getByLabel('Model routing rules JSON')
+    .fill(JSON.stringify([{ minIteration: 2, requiresToolResult: true, targetModel: 'gpt-4o' }], null, 2));
+  await createForm
+    .getByLabel('Skills JSON')
+    .fill(JSON.stringify([{ instructions: 'Check weather sources.', name: 'Weather', toolNames: ['web_search'], triggers: ['weather'] }], null, 2));
+  await createForm.getByRole('button', { name: 'Save agent' }).click();
+
+  await expect(page.getByRole('region', { name: 'Create agent form' })).toHaveCount(0);
+  await expect(page.getByText('Agent created.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Browser Config Agent' })).toHaveAttribute('aria-pressed', 'true');
+
+  const policySection = page.getByRole('region', { name: 'Agent policy Browser Config Agent' });
+  await expect(policySection).toBeVisible();
+  await expect(policySection.getByLabel('Approval mode')).toHaveValue('all');
+  await expect(policySection.getByLabel('Default execution mode')).toHaveValue('planning');
+  await expect(policySection.getByLabel('Long-term memory writes')).toHaveValue('explicit_only');
+  await expect(policySection.getByLabel('Long-term memory extraction')).toHaveValue('llm_assisted');
+  await expect(policySection.getByLabel('Long-term memory update')).toHaveValue('memory_key_consolidate');
+  await expect(policySection.getByLabel('Max iterations', { exact: true })).toHaveValue('30');
+  await expect(policySection.getByLabel('Token budget', { exact: true })).toHaveValue('60000');
+  await expect(policySection.getByLabel('Max skills')).toHaveValue('1');
+  await expect(policySection.getByLabel('Model routing rules JSON')).toHaveValue(
+    JSON.stringify([{ minIteration: 2, requiresToolResult: true, targetModel: 'gpt-4o' }], null, 2)
+  );
+  await expect(policySection.getByLabel('Skills JSON')).toHaveValue(
+    JSON.stringify([{ instructions: 'Check weather sources.', name: 'Weather', toolNames: ['web_search'], triggers: ['weather'] }], null, 2)
+  );
+
+  await policySection.getByLabel('Approval mode').selectOption('custom');
+  await policySection.getByLabel('Default execution mode').selectOption('react');
+  await policySection.getByLabel('Long-term memory writes').selectOption('manual_only');
+  await policySection.getByLabel('Long-term memory extraction').selectOption('deterministic');
+  await policySection.getByLabel('Long-term memory update').selectOption('exact_refresh');
+  await policySection.getByLabel('Max iterations', { exact: true }).fill('40');
+  await policySection.getByLabel('Token budget', { exact: true }).fill('75000');
+  await policySection.getByLabel('Max skills').fill('3');
+  await policySection.getByLabel('Model routing rules JSON').fill(JSON.stringify([{ minInputChars: 2000, targetModel: 'gpt-4.1' }], null, 2));
+  await policySection.getByLabel('Skills JSON').fill(
+    JSON.stringify([{ instructions: 'Summarize with citations.', name: 'Summarizer', toolNames: ['web_search'] }], null, 2)
+  );
+  await policySection.getByRole('button', { name: 'Save agent policy' }).click();
+
+  await expect(page.getByText('Agent policy saved.')).toBeVisible();
+  await expect(policySection.getByLabel('Approval mode')).toHaveValue('custom');
+  await expect(policySection.getByLabel('Default execution mode')).toHaveValue('react');
+  await expect(policySection.getByLabel('Long-term memory writes')).toHaveValue('manual_only');
+  await expect(policySection.getByLabel('Long-term memory extraction')).toHaveValue('deterministic');
+  await expect(policySection.getByLabel('Long-term memory update')).toHaveValue('exact_refresh');
+  await expect(policySection.getByLabel('Max iterations', { exact: true })).toHaveValue('40');
+  await expect(policySection.getByLabel('Token budget', { exact: true })).toHaveValue('75000');
+  await expect(policySection.getByLabel('Max skills')).toHaveValue('3');
+  await expect(policySection.getByLabel('Model routing rules JSON')).toHaveValue(
+    JSON.stringify([{ minInputChars: 2000, targetModel: 'gpt-4.1' }], null, 2)
+  );
+  await expect(policySection.getByLabel('Skills JSON')).toHaveValue(
+    JSON.stringify([{ instructions: 'Summarize with citations.', name: 'Summarizer', toolNames: ['web_search'] }], null, 2)
+  );
+});
+
 test('agent planning browser journey recovers from token budget stop', async ({ page }) => {
   await page.goto('/agent-runs/run_browser_agent_budget/plan-steps');
 

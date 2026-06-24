@@ -3,6 +3,7 @@ import type { Page, Route } from '@playwright/test';
 const now = '2026-06-14T10:00:00Z';
 const runId = 'run_browser_agent';
 const budgetRunId = 'run_browser_agent_budget';
+const configAgentId = 'agent_browser_config';
 const expectedAdjustReason = 'Browser scope changed after operator review.';
 const expectedContinueBudget = 45000;
 
@@ -59,6 +60,67 @@ const agent = {
   isPublic: false,
   createdAt: now,
   updatedAt: now,
+};
+
+const expectedCreateAgentPayload = {
+  config: {
+    approvalMode: 'all',
+    defaultExecutionMode: 'planning',
+    longTermMemoryExtractionPolicy: 'llm_assisted',
+    longTermMemoryUpdatePolicy: 'memory_key_consolidate',
+    longTermMemoryWritePolicy: 'explicit_only',
+    maxIterations: 30,
+    maxSkills: 1,
+    modelRoutingRules: [{ minIteration: 2, requiresToolResult: true, targetModel: 'gpt-4o' }],
+    skills: [{ instructions: 'Check weather sources.', name: 'Weather', toolNames: ['web_search'], triggers: ['weather'] }],
+    tokenBudget: 60000,
+  },
+  description: 'Exercises the browser create and update agent config flow.',
+  isPublic: false,
+  model: 'gpt-4o-mini',
+  name: 'Browser Config Agent',
+  systemPrompt: 'Prefer explicit browser evidence.',
+  tools: [],
+};
+
+const createdConfigAgent = {
+  config: expectedCreateAgentPayload.config,
+  createdAt: now,
+  description: expectedCreateAgentPayload.description,
+  id: configAgentId,
+  isPublic: false,
+  model: expectedCreateAgentPayload.model,
+  name: expectedCreateAgentPayload.name,
+  systemPrompt: expectedCreateAgentPayload.systemPrompt,
+  tools: [],
+  updatedAt: now,
+  userId: session.user.id,
+};
+
+const expectedUpdateAgentPayload = {
+  config: {
+    approvalMode: 'custom',
+    defaultExecutionMode: 'react',
+    longTermMemoryExtractionPolicy: 'deterministic',
+    longTermMemoryUpdatePolicy: 'exact_refresh',
+    longTermMemoryWritePolicy: 'manual_only',
+    maxIterations: 40,
+    maxSkills: 3,
+    modelRoutingRules: [{ minInputChars: 2000, targetModel: 'gpt-4.1' }],
+    skills: [{ instructions: 'Summarize with citations.', name: 'Summarizer', toolNames: ['web_search'] }],
+    tokenBudget: 75000,
+    toolApprovalOverrides: {},
+  },
+  description: expectedCreateAgentPayload.description,
+  model: expectedCreateAgentPayload.model,
+  name: expectedCreateAgentPayload.name,
+  systemPrompt: expectedCreateAgentPayload.systemPrompt,
+  tools: [],
+};
+
+const updatedConfigAgent = {
+  ...createdConfigAgent,
+  config: expectedUpdateAgentPayload.config,
 };
 
 const toolCatalog = [
@@ -274,7 +336,40 @@ async function fulfillNotFound(route: Route) {
   });
 }
 
+async function fulfillInvalidRequest(route: Route, message: string) {
+  await route.fulfill({
+    status: 400,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      ok: false,
+      data: null,
+      error: { code: 'invalid_request', message },
+    }),
+  });
+}
+
+function sortedJSON(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(sortedJSON);
+  }
+
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, nestedValue]) => [key, sortedJSON(nestedValue)])
+    );
+  }
+
+  return value;
+}
+
+function payloadMatches(payload: unknown, expected: unknown) {
+  return JSON.stringify(sortedJSON(payload)) === JSON.stringify(sortedJSON(expected));
+}
+
 export async function registerAgentPlanningRoutes(page: Page): Promise<void> {
+  let currentAgents = [agent];
   let currentRunDetail = runDetail();
   let currentPlanVariant: PlanVariant = 'initial';
   let currentBudgetRunDetail = budgetRunDetail();
@@ -291,7 +386,33 @@ export async function registerAgentPlanningRoutes(page: Page): Promise<void> {
     }
 
     if (method === 'GET' && pathname === '/api/v1/app/agents') {
-      await fulfillJSON(route, [agent]);
+      await fulfillJSON(route, currentAgents);
+      return;
+    }
+
+    if (method === 'POST' && pathname === '/api/v1/app/agents') {
+      const payload = request.postDataJSON();
+      if (!payloadMatches(payload, expectedCreateAgentPayload)) {
+        await fulfillInvalidRequest(route, 'unexpected create agent payload');
+        return;
+      }
+
+      currentAgents = [createdConfigAgent, ...currentAgents.filter((currentAgent) => currentAgent.id !== configAgentId)];
+      await fulfillJSON(route, createdConfigAgent, 201);
+      return;
+    }
+
+    if (method === 'PUT' && pathname === `/api/v1/app/agents/${configAgentId}`) {
+      const payload = request.postDataJSON();
+      if (!payloadMatches(payload, expectedUpdateAgentPayload)) {
+        await fulfillInvalidRequest(route, 'unexpected update agent payload');
+        return;
+      }
+
+      currentAgents = currentAgents.map((currentAgent) => (
+        currentAgent.id === configAgentId ? updatedConfigAgent : currentAgent
+      ));
+      await fulfillJSON(route, updatedConfigAgent);
       return;
     }
 
