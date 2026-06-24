@@ -2,6 +2,22 @@ import { expect, test } from '@playwright/test';
 
 import { registerScheduledTasksRoutes } from './fixtures/scheduledTasks';
 
+async function expectNoHorizontalOverflow(page: import('@playwright/test').Page) {
+  const overflowState = await page.evaluate(() => {
+    const main = document.querySelector('main');
+
+    return {
+      documentFits: document.documentElement.scrollWidth <= window.innerWidth + 1,
+      mainFits: main instanceof HTMLElement ? main.scrollWidth <= main.clientWidth + 1 : true,
+    };
+  });
+
+  expect(overflowState).toEqual({
+    documentFits: true,
+    mainFits: true,
+  });
+}
+
 test.beforeEach(async ({ page }) => {
   await registerScheduledTasksRoutes(page);
 });
@@ -66,11 +82,14 @@ test('scheduled tasks mobile layout keeps shell navigation and task controls wit
   await expect(page.getByRole('main')).toHaveCount(1);
   await expect(page.getByRole('button', { name: 'Run workflow_release_digest schedule now' })).toBeVisible();
 
-  const documentFitsViewport = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
-  expect(documentFitsViewport).toBe(true);
+  await expectNoHorizontalOverflow(page);
 
   await page.getByRole('button', { name: 'Show recent runs for workflow_release_digest' }).click();
   await expect(page.locator('section[aria-label="Recent runs for workflow_release_digest"]')).toContainText(
     'scheduled_run_digest_failed'
   );
+  await expect(page.locator('section[aria-label="Recent runs for workflow_release_digest"]')).toContainText(
+    'scheduled_run_provider_research_cluster_mobile_without_breaks_20260624'
+  );
+  await expectNoHorizontalOverflow(page);
 });

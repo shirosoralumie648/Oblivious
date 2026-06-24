@@ -88,6 +88,17 @@ const manualRun = {
 
 const workflowRuns = [
   {
+    id: 'scheduled_run_provider_research_cluster_mobile_without_breaks_20260624',
+    scheduledTaskId: workflowTask.id,
+    status: 'failed',
+    startedAt: '2026-06-15T09:00:00Z',
+    finishedAt: '2026-06-15T09:01:00Z',
+    error:
+      'providerresearchclusterscheduledtaskruntimeerrorwithoutbreaks20260624 rejected stale deployment evidence before workflow execution',
+    createdAt: '2026-06-15T09:00:00Z',
+    updatedAt: '2026-06-15T09:01:00Z',
+  },
+  {
     id: 'scheduled_run_digest_success',
     scheduledTaskId: workflowTask.id,
     status: 'completed',

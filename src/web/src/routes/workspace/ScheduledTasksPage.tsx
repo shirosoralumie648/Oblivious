@@ -457,18 +457,20 @@ export function ScheduledTasksPage() {
                       {!runPanel.isLoading && !runPanel.error && runPanel.runs && runPanel.runs.length > 0 ? (
                         <ol className="mt-3 divide-y divide-[#e4dfd2]">
                           {runPanel.runs.map((run) => (
-                            <li className="grid gap-2 py-3 md:grid-cols-[140px_minmax(0,1fr)_minmax(0,1fr)] md:items-start" key={run.id}>
-                              <div className="flex flex-wrap items-center gap-2">
+                            <li className="grid min-w-0 gap-2 py-3 md:grid-cols-[140px_minmax(0,1fr)_minmax(0,1fr)] md:items-start" key={run.id}>
+                              <div className="flex min-w-0 flex-wrap items-center gap-2">
                                 <span className={`inline-flex rounded-lg px-2.5 py-1 text-xs font-semibold ${runStatusClass(run.status)}`}>
                                   {run.status}
                                 </span>
-                                <span className="font-mono text-xs text-[#625b4f]">{run.id}</span>
+                                <span className="min-w-0 break-words font-mono text-xs text-[#625b4f] [overflow-wrap:anywhere]">{run.id}</span>
                               </div>
-                              <div className="space-y-1 text-sm text-[#181611]">
+                              <div className="min-w-0 space-y-1 text-sm text-[#181611]">
                                 <p>Started: {formatRunTimestamp(run.startedAt, 'Not started')}</p>
                                 <p>Finished: {formatRunTimestamp(run.finishedAt, 'Not finished')}</p>
                               </div>
-                              <p className="break-words text-sm text-[#625b4f]">Error: {run.error?.trim() ? run.error : 'None'}</p>
+                              <p className="min-w-0 break-words text-sm text-[#625b4f] [overflow-wrap:anywhere]">
+                                Error: {run.error?.trim() ? run.error : 'None'}
+                              </p>
                             </li>
                           ))}
                         </ol>
