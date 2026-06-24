@@ -1153,6 +1153,7 @@ components:
 
     ScheduledTask:
       type: object
+      required: [id, organizationId, name, targetType, targetId, cronExpression, enabled, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -1188,6 +1189,7 @@ components:
 
     ScheduledTaskRun:
       type: object
+      required: [id, organizationId, scheduledTaskId, status, createdAt, updatedAt]
       properties:
         id:
           type: string

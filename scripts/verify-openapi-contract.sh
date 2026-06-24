@@ -3712,8 +3712,20 @@ require_scheduled_task_contract() {
     unless schemas.dig("ScheduledTask", "properties", "targetType", "enum") == ["workflow", "agent"]
       missing << "ScheduledTask.targetType must enumerate workflow and agent"
     end
+    scheduled_task_required = schemas.dig("ScheduledTask", "required") || []
+    ["id", "organizationId", "name", "targetType", "targetId", "cronExpression", "enabled", "createdAt", "updatedAt"].each do |field|
+      unless scheduled_task_required.include?(field)
+        missing << "ScheduledTask must require #{field}"
+      end
+    end
     unless schemas.dig("ScheduledTaskRun", "properties", "status", "enum") == ["queued", "running", "completed", "failed", "cancelled"]
       missing << "ScheduledTaskRun.status must enumerate queued, running, completed, failed, and cancelled"
+    end
+    scheduled_task_run_required = schemas.dig("ScheduledTaskRun", "required") || []
+    ["id", "organizationId", "scheduledTaskId", "status", "createdAt", "updatedAt"].each do |field|
+      unless scheduled_task_run_required.include?(field)
+        missing << "ScheduledTaskRun must require #{field}"
+      end
     end
     unless schemas.dig("CreateScheduledTaskRequest", "required")&.include?("name") &&
         schemas.dig("CreateScheduledTaskRequest", "required")&.include?("targetType") &&
