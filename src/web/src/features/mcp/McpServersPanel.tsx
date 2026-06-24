@@ -246,7 +246,7 @@ export function McpServersPanel({ api }: McpServersPanelProps) {
   };
 
   return (
-    <section className="rounded-lg border border-border bg-card p-5">
+    <section className="min-w-0 max-w-full rounded-lg border border-border bg-card p-5">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Agent tools</p>
@@ -308,14 +308,20 @@ export function McpServersPanel({ api }: McpServersPanelProps) {
 
       <div className="mt-5 space-y-3">
         {localServers.length > 0 ? (
-          <section aria-label="Local MCP servers" className="grid gap-3 md:grid-cols-2">
+          <section aria-label="Local MCP servers" className="grid min-w-0 gap-3 md:grid-cols-2">
             {localServers.map((server) => (
-              <article className="rounded-lg border border-border bg-background/60 p-4" key={server.id}>
+              <article className="min-w-0 rounded-lg border border-border bg-background/60 p-4" key={server.id}>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0">
                     <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Local safe server</p>
-                    <h3 className="mt-1 text-base font-semibold text-foreground">{server.name}</h3>
-                    {server.description ? <p className="mt-1 text-sm text-muted-foreground">{server.description}</p> : null}
+                    <h3 className="mt-1 break-words text-base font-semibold text-foreground [overflow-wrap:anywhere]">
+                      {server.name}
+                    </h3>
+                    {server.description ? (
+                      <p className="mt-1 break-words text-sm text-muted-foreground [overflow-wrap:anywhere]">
+                        {server.description}
+                      </p>
+                    ) : null}
                   </div>
                   <span className="shrink-0 rounded-full border border-border bg-muted/40 px-2 py-1 text-xs font-semibold text-muted-foreground">
                     {server.toolCount} {server.toolCount === 1 ? 'tool' : 'tools'}
@@ -331,11 +337,13 @@ export function McpServersPanel({ api }: McpServersPanelProps) {
           const tools = toolState.tools ?? [];
 
           return (
-            <article className="rounded-lg border border-border bg-background/60 p-4" key={server.id}>
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                <div className="min-w-0">
+            <article className="min-w-0 max-w-full rounded-lg border border-border bg-background/60 p-4" key={server.id}>
+              <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0 max-w-full">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-base font-semibold text-foreground">{server.name}</h3>
+                    <h3 className="min-w-0 break-words text-base font-semibold text-foreground [overflow-wrap:anywhere]">
+                      {server.name}
+                    </h3>
                     <span className="rounded-full border border-border bg-muted/40 px-2 py-1 text-xs font-semibold uppercase text-muted-foreground">
                       {server.status}
                     </span>
@@ -351,7 +359,7 @@ export function McpServersPanel({ api }: McpServersPanelProps) {
                     <p className="mt-2 text-sm font-medium text-primary">Diagnostic: {toolState.diagnostic}</p>
                   ) : null}
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex min-w-0 max-w-full flex-wrap gap-2">
                   <button
                     className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-input bg-input/30 px-3 py-2 text-sm font-semibold text-foreground"
                     disabled={loadingAction === `connect:${server.id}`}
@@ -402,14 +410,18 @@ export function McpServersPanel({ api }: McpServersPanelProps) {
               </div>
 
               {tools.length > 0 ? (
-                <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.8fr)]">
-                  <section aria-label={`${server.name} tools`} className="space-y-2">
+                <div className="mt-4 grid min-w-0 max-w-full gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.8fr)]">
+                  <section aria-label={`${server.name} tools`} className="min-w-0 space-y-2">
                     {tools.map((tool) => (
-                      <div className="rounded-lg border border-border bg-card p-3" key={tool.name}>
-                        <p className="text-sm font-semibold text-foreground">{tool.name}</p>
-                        {tool.description ? <p className="mt-1 text-sm text-muted-foreground">{tool.description}</p> : null}
+                      <div className="min-w-0 rounded-lg border border-border bg-card p-3" key={tool.name}>
+                        <p className="break-words text-sm font-semibold text-foreground [overflow-wrap:anywhere]">{tool.name}</p>
+                        {tool.description ? (
+                          <p className="mt-1 break-words text-sm text-muted-foreground [overflow-wrap:anywhere]">
+                            {tool.description}
+                          </p>
+                        ) : null}
                         {tool.inputSchema ? (
-                          <code className="mt-2 block overflow-auto rounded bg-muted/40 p-2 text-xs text-foreground">
+                          <code className="mt-2 block max-w-full whitespace-pre-wrap break-words rounded bg-muted/40 p-2 text-xs text-foreground [overflow-wrap:anywhere]">
                             {prettySchema(tool.inputSchema)}
                           </code>
                         ) : null}
@@ -417,7 +429,7 @@ export function McpServersPanel({ api }: McpServersPanelProps) {
                     ))}
                   </section>
                   <form
-                    className="space-y-3 rounded-lg border border-border bg-card p-3"
+                    className="min-w-0 space-y-3 rounded-lg border border-border bg-card p-3"
                     onSubmit={(event) => {
                       event.preventDefault();
                       void executeTool(server.id);
@@ -449,7 +461,7 @@ export function McpServersPanel({ api }: McpServersPanelProps) {
                       Execute test call
                     </button>
                     {toolState.result ? (
-                      <output className="block whitespace-pre-wrap rounded-lg border border-border bg-muted/30 p-3 text-sm text-foreground">
+                      <output className="block max-w-full whitespace-pre-wrap break-words rounded-lg border border-border bg-muted/30 p-3 text-sm text-foreground [overflow-wrap:anywhere]">
                         {toolState.result.content}
                       </output>
                     ) : null}

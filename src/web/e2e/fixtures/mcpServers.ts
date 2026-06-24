@@ -52,6 +52,18 @@ const researchServer = {
   updatedAt: now,
 };
 
+const mobileLongServer = {
+  id: 'mcp_mobile_long',
+  organizationId: 'org_mcp_servers',
+  userId: session.user.id,
+  name: 'ProviderResearchClusterMobileServerWithoutBreaks20260624',
+  url: 'https://mcp.example/providerresearchclustermobileserverwithoutbreaks20260624/sse',
+  hasAuthToken: false,
+  status: 'disconnected',
+  createdAt: now,
+  updatedAt: now,
+};
+
 const connectedResearchServer = {
   ...researchServer,
   status: 'connected',
@@ -78,6 +90,23 @@ const searchTool = {
     type: 'object',
     properties: {
       query: { type: 'string' },
+    },
+    required: ['query'],
+  },
+};
+
+const mobileLongTool = {
+  name: 'provider_research_cluster_mobile_policy_tool_without_breaks_20260624',
+  description: 'Validates mobile containment for provider research cluster policy evidence without spaces.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      evidenceId: {
+        type: 'string',
+      },
+      query: {
+        type: 'string',
+      },
     },
     required: ['query'],
   },
@@ -136,6 +165,14 @@ function executePayloadMatches(payload: Record<string, unknown>) {
   return payload.toolName === searchTool.name && args?.query === 'fusion';
 }
 
+function mobileLongExecutePayloadMatches(payload: Record<string, unknown>) {
+  const args = payload.args as Record<string, unknown> | undefined;
+  return (
+    payload.toolName === mobileLongTool.name &&
+    args?.query === 'mobile containment evidence'
+  );
+}
+
 export async function registerMcpServersRoutes(page: Page): Promise<void> {
   let createdVisible = false;
   let createdDeleted = false;
@@ -163,6 +200,7 @@ export async function registerMcpServersRoutes(page: Page): Promise<void> {
       const currentResearchServer = researchConnected && !researchDisconnected ? connectedResearchServer : researchServer;
       await fulfillJSON(route, [
         currentResearchServer,
+        mobileLongServer,
         ...(createdVisible && !createdDeleted ? [createdServer] : []),
       ]);
       return;
@@ -212,6 +250,11 @@ export async function registerMcpServersRoutes(page: Page): Promise<void> {
       return;
     }
 
+    if (method === 'GET' && pathname === `/api/v1/app/mcp-servers/${mobileLongServer.id}/tools`) {
+      await fulfillJSON(route, [mobileLongTool]);
+      return;
+    }
+
     if (method === 'POST' && pathname === `/api/v1/app/mcp-servers/${researchServer.id}/execute`) {
       if (!toolsListed) {
         await fulfillError(route, 'browser tried to execute MCP tool before listing tools');
@@ -223,6 +266,20 @@ export async function registerMcpServersRoutes(page: Page): Promise<void> {
         return;
       }
       await fulfillJSON(route, { content: 'Found fusion design details.' });
+      return;
+    }
+
+    if (method === 'POST' && pathname === `/api/v1/app/mcp-servers/${mobileLongServer.id}/execute`) {
+      const payload = request.postDataJSON() as Record<string, unknown>;
+      if (!mobileLongExecutePayloadMatches(payload)) {
+        await fulfillError(route, 'MCP long tool execute payload did not match browser form selections');
+        return;
+      }
+      await fulfillJSON(route, {
+        content:
+          'provider_research_cluster_mobile_policy_tool_without_breaks_20260624_mobile_evidence_' +
+          'providerresearchclustermobilecontainmentwithoutbreaks20260624'
+      });
       return;
     }
 

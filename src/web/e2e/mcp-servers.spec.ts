@@ -1,6 +1,22 @@
-import { expect, test } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 
 import { registerMcpServersRoutes } from './fixtures/mcpServers';
+
+async function expectMcpServersLayoutContained(page: Page) {
+  const overflowState = await page.evaluate(() => {
+    const main = document.querySelector('main');
+
+    return {
+      documentFits: document.documentElement.scrollWidth <= window.innerWidth + 1,
+      mainFits: main instanceof HTMLElement ? main.scrollWidth <= main.clientWidth + 1 : true,
+    };
+  });
+
+  expect(overflowState).toEqual({
+    documentFits: true,
+    mainFits: true,
+  });
+}
 
 test.beforeEach(async ({ page }) => {
   await registerMcpServersRoutes(page);
@@ -62,4 +78,41 @@ test('MCP servers browser journey covers catalog lifecycle diagnostics tools and
   await createdCard.getByRole('button', { name: 'Delete' }).click();
   await expect(createdCard).toHaveCount(0);
   await expect(researchCard).toBeVisible();
+});
+
+test('mcp servers keeps mobile server tools and long evidence contained', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/mcp-servers');
+
+  const longServerName = 'ProviderResearchClusterMobileServerWithoutBreaks20260624';
+  const longServerCard = page.locator('article').filter({ hasText: longServerName });
+
+  await expect(page.getByRole('heading', { name: 'MCP Servers & Tools' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'MCP Servers' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('main')).toHaveCount(1);
+  await expect(longServerCard.getByRole('heading', { name: longServerName })).toBeVisible();
+  await expect(longServerCard.getByText('https://mcp.example/providerresearchclustermobileserverwithoutbreaks20260624/sse')).toBeVisible();
+  await expect(longServerCard.getByRole('button', { name: 'Connect', exact: true })).toBeVisible();
+  await expect(longServerCard.getByRole('button', { name: 'Disconnect', exact: true })).toBeVisible();
+  await expect(longServerCard.getByRole('button', { name: 'Diagnose' })).toBeVisible();
+  await expect(longServerCard.getByRole('button', { name: 'List tools' })).toBeVisible();
+  await expect(longServerCard.getByRole('button', { name: `Delete ${longServerName}` })).toBeVisible();
+
+  await longServerCard.getByRole('button', { name: 'List tools' }).click();
+  await expect(longServerCard.getByText('provider_research_cluster_mobile_policy_tool_without_breaks_20260624')).toBeVisible();
+  await expect(
+    longServerCard.getByText(
+      'Validates mobile containment for provider research cluster policy evidence without spaces.'
+    )
+  ).toBeVisible();
+
+  await longServerCard.getByLabel('Tool arguments JSON').fill('{"query":"mobile containment evidence"}');
+  await longServerCard.getByRole('button', { name: 'Execute test call' }).click();
+  await expect(
+    longServerCard.getByText(
+      'provider_research_cluster_mobile_policy_tool_without_breaks_20260624_mobile_evidence_providerresearchclustermobilecontainmentwithoutbreaks20260624'
+    )
+  ).toBeVisible();
+
+  await expectMcpServersLayoutContained(page);
 });
