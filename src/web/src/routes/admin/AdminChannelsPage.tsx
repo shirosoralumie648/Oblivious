@@ -709,7 +709,7 @@ export function AdminChannelsPage() {
         />
 
         {runtimeDiagnosticEntries.length > 0 || state.runtimeStatsError ? (
-          <section aria-label="Runtime diagnostics" className="rounded-lg border border-border bg-card p-4">
+          <section aria-label="Runtime diagnostics" className="min-w-0 rounded-lg border border-border bg-card p-4">
             <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <h2 className="text-sm font-semibold text-foreground">Runtime diagnostics</h2>
@@ -718,13 +718,13 @@ export function AdminChannelsPage() {
               {state.runtimeStatsError ? <p className="text-xs text-destructive">{state.runtimeStatsError}</p> : null}
             </div>
             {runtimeDiagnosticEntries.length > 0 ? (
-              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              <div className="mt-4 grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {runtimeDiagnosticEntries.map(({ channel, stats }) => (
-                  <div key={channel.id} className="rounded-md border border-border/80 p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-medium text-foreground">{channel.name}</p>
-                        <p className="text-xs text-muted-foreground">{formatRateLimitedUntil(stats.rateLimitedUntil)}</p>
+                  <div key={channel.id} className="min-w-0 rounded-md border border-border/80 p-3">
+                    <div className="flex min-w-0 items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="min-w-0 break-words text-sm font-medium text-foreground [overflow-wrap:anywhere]">{channel.name}</p>
+                        <p className="min-w-0 break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">{formatRateLimitedUntil(stats.rateLimitedUntil)}</p>
                       </div>
                       <Badge variant="outline">{formatRuntimeLatency(stats)}</Badge>
                     </div>
@@ -758,13 +758,13 @@ export function AdminChannelsPage() {
         ) : null}
 
         {diagnosticEntries.length > 0 ? (
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-3">
             {diagnosticEntries.map(({ channel, result }) => (
-              <section key={channel.id} aria-label={`${channel.name} diagnostics`} className="rounded-lg border border-border bg-card p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h2 className="text-sm font-semibold text-foreground">{channel.name} diagnostics</h2>
-                    <p className="text-xs text-muted-foreground">{result.provider ?? channel.provider}</p>
+              <section key={channel.id} aria-label={`${channel.name} diagnostics`} className="min-w-0 rounded-lg border border-border bg-card p-4">
+                <div className="flex min-w-0 items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h2 className="min-w-0 break-words text-sm font-semibold text-foreground [overflow-wrap:anywhere]">{channel.name} diagnostics</h2>
+                    <p className="min-w-0 break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">{result.provider ?? channel.provider}</p>
                   </div>
                   <StatusBadge status={result.success ? 'online' : 'offline'} />
                 </div>
@@ -788,15 +788,15 @@ export function AdminChannelsPage() {
                 </dl>
                 {result.models && result.models.length > 0 ? (
                   <div className="mt-3 flex flex-wrap gap-1">
-                    {result.models.slice(0, 6).map((model) => <Badge key={model} variant="outline">{model}</Badge>)}
+                    {result.models.slice(0, 6).map((model) => <Badge key={model} variant="outline" className="max-w-full whitespace-normal break-words [overflow-wrap:anywhere]">{model}</Badge>)}
                     {result.models.length > 6 ? <Badge variant="secondary">+{result.models.length - 6}</Badge> : null}
                   </div>
                 ) : null}
                 {result.balanceError ? (
-                  <p className="mt-3 text-xs text-muted-foreground">{result.balanceError}</p>
+                  <p className="mt-3 break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">{result.balanceError}</p>
                 ) : null}
                 {result.error ? (
-                  <p className="mt-3 text-xs text-destructive">{result.error}</p>
+                  <p className="mt-3 break-words text-xs text-destructive [overflow-wrap:anywhere]">{result.error}</p>
                 ) : null}
               </section>
             ))}
@@ -804,7 +804,7 @@ export function AdminChannelsPage() {
         ) : null}
 
         {Object.entries(state.modelUpdatePreviews).filter(([, preview]) => Boolean(preview)).length > 0 ? (
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-3">
             {Object.entries(state.modelUpdatePreviews).map(([channelId, preview]) => {
               if (!preview) {
                 return null;
@@ -812,11 +812,11 @@ export function AdminChannelsPage() {
               const channel = state.channels.find((item) => item.id === channelId);
               const channelName = channel?.name ?? channelId;
               return (
-                <section key={channelId} aria-label={`Model updates for ${channelName}`} className="rounded-lg border border-border bg-card p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <h2 className="text-sm font-semibold text-foreground">Model updates for {channelName}</h2>
-                      <p className="text-xs text-muted-foreground">{preview.upstreamModels.length} upstream models checked</p>
+                <section key={channelId} aria-label={`Model updates for ${channelName}`} className="min-w-0 rounded-lg border border-border bg-card p-4">
+                  <div className="flex min-w-0 items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h2 className="min-w-0 break-words text-sm font-semibold text-foreground [overflow-wrap:anywhere]">Model updates for {channelName}</h2>
+                      <p className="min-w-0 break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">{preview.upstreamModels.length} upstream models checked</p>
                     </div>
                     <Button type="button" variant="outline" className="min-h-[36px]" aria-label={`Apply model updates for ${channelName}`} onClick={() => channel ? void handleApplyModelUpdates(channel) : undefined}>
                       Apply
@@ -838,12 +838,12 @@ export function AdminChannelsPage() {
                   </dl>
                   {preview.added.length > 0 ? (
                     <div className="mt-3 flex flex-wrap gap-1">
-                      {preview.added.slice(0, 6).map((model) => <Badge key={model} variant="outline">{model}</Badge>)}
+                      {preview.added.slice(0, 6).map((model) => <Badge key={model} variant="outline" className="max-w-full whitespace-normal break-words [overflow-wrap:anywhere]">{model}</Badge>)}
                       {preview.added.length > 6 ? <Badge variant="secondary">+{preview.added.length - 6}</Badge> : null}
                     </div>
                   ) : null}
                   {preview.removed.length > 0 ? (
-                    <p className="mt-3 text-xs text-muted-foreground">{preview.removed.join(', ')}</p>
+                    <p className="mt-3 break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">{preview.removed.join(', ')}</p>
                   ) : null}
                 </section>
               );

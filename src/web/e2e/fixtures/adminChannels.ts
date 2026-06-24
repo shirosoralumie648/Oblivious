@@ -46,6 +46,29 @@ const openAIChannel = {
   updatedAt: now,
 };
 
+const mobileProvider = 'providerchannelsmobilewithoutbreaks20260624';
+const mobileSearch = 'channelchannelsmobilewithoutbreaks20260624';
+const mobileChannel = {
+  id: 'channel_channels_mobile_without_breaks',
+  organizationID: 'org_browser_channels',
+  name: 'channelchannelsmobilewithoutbreaks20260624primary',
+  provider: mobileProvider,
+  baseURL: 'https://relaychannelsmobilewithoutbreaks20260624.example.com/v1',
+  models: ['modelchannelsmobilewithoutbreaks20260624primary', 'modelchannelsmobilewithoutbreaks20260624backup'],
+  groups: ['groupchannelsmobilewithoutbreaks20260624'],
+  rpm: 1234,
+  tpm: 987654,
+  priority: 3,
+  estimatedCostPer1K: 0.0088,
+  costMultiplier: 1.23,
+  weight: 77,
+  enabled: true,
+  status: 'online',
+  latency: 678,
+  createdAt: now,
+  updatedAt: now,
+};
+
 const createChannelPayload = {
   name: 'Browser OpenRouter',
   provider: 'openrouter',
@@ -184,6 +207,35 @@ function modelUpdatePreview(channelId: string) {
   };
 }
 
+function mobileModelUpdatePreview() {
+  return {
+    id: mobileChannel.id,
+    currentModels: ['modelchannelsmobilewithoutbreaks20260624primary'],
+    upstreamModels: ['modelchannelsmobilewithoutbreaks20260624primary', 'modelchannelsmobilewithoutbreaks20260624newlyavailable'],
+    added: ['modelchannelsmobilewithoutbreaks20260624newlyavailable'],
+    removed: [],
+    unchanged: ['modelchannelsmobilewithoutbreaks20260624primary'],
+    testResult: {
+      success: true,
+      latency: 678,
+      latencyMs: 678,
+      provider: mobileProvider,
+      models: ['modelchannelsmobilewithoutbreaks20260624diagnostic', 'modelchannelsmobilewithoutbreaks20260624newlyavailable'],
+      balance: { amount: 321.09, currency: 'USD', source: 'fixture' },
+      health: { status: 'online', message: 'Mobile fixture online', checkedAt: now },
+    },
+  };
+}
+
+function hasMobileListQuery(url: URL) {
+  return (
+    url.searchParams.get('provider') === mobileProvider &&
+    url.searchParams.get('search') === mobileSearch &&
+    url.searchParams.get('sort') === 'name:asc' &&
+    url.searchParams.get('limit') === '50'
+  );
+}
+
 export async function registerAdminChannelsRoutes(page: Page): Promise<void> {
   let channels = [openAIChannel];
   let createdChannel: ReturnType<typeof channelFromPayload> | null = null;
@@ -216,6 +268,13 @@ export async function registerAdminChannelsRoutes(page: Page): Promise<void> {
             status: 'supported',
             defaultBaseURL: 'https://openrouter.ai/api/v1',
           },
+          {
+            id: mobileProvider,
+            displayName: mobileProvider,
+            kind: 'openai_compatible',
+            status: 'supported',
+            defaultBaseURL: mobileChannel.baseURL,
+          },
         ],
       });
       return;
@@ -224,6 +283,10 @@ export async function registerAdminChannelsRoutes(page: Page): Promise<void> {
     if (method === 'GET' && pathname === '/api/v1/admin/channels') {
       if (url.searchParams.get('sort') !== 'name:asc' || url.searchParams.get('limit') !== '50') {
         await fulfillError(route, 'admin channels list query did not preserve sort=name:asc and limit=50');
+        return;
+      }
+      if (hasMobileListQuery(url)) {
+        await fulfillJSON(route, { channels: [mobileChannel], total: 1 });
         return;
       }
       await fulfillJSON(route, { channels, total: channels.length });
@@ -242,6 +305,16 @@ export async function registerAdminChannelsRoutes(page: Page): Promise<void> {
             failureCount: 8,
             avgLatencyMs: 112,
             affinityConversationCount: 5,
+          },
+          {
+            channelID: mobileChannel.id,
+            rpmCurrent: 1234,
+            tpmCurrent: 987654,
+            totalRequests: 12345,
+            successCount: 12000,
+            failureCount: 345,
+            avgLatencyMs: 678,
+            affinityConversationCount: 987,
           },
         ],
       });
@@ -287,6 +360,24 @@ export async function registerAdminChannelsRoutes(page: Page): Promise<void> {
 
     if (method === 'POST' && pathname === '/api/v1/admin/channels/channel_browser_openrouter/model-updates/detect') {
       await fulfillJSON(route, modelUpdatePreview('channel_browser_openrouter'));
+      return;
+    }
+
+    if (method === 'POST' && pathname === '/api/v1/admin/channels/channel_channels_mobile_without_breaks/test') {
+      await fulfillJSON(route, {
+        success: true,
+        latency: 678,
+        latencyMs: 678,
+        provider: mobileProvider,
+        models: ['modelchannelsmobilewithoutbreaks20260624diagnostic', 'modelchannelsmobilewithoutbreaks20260624newlyavailable'],
+        balance: { amount: 321.09, currency: 'USD', source: 'fixture' },
+        health: { status: 'online', message: 'Mobile fixture online', checkedAt: now },
+      });
+      return;
+    }
+
+    if (method === 'POST' && pathname === '/api/v1/admin/channels/channel_channels_mobile_without_breaks/model-updates/detect') {
+      await fulfillJSON(route, mobileModelUpdatePreview());
       return;
     }
 

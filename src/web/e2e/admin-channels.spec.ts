@@ -1,6 +1,29 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 import { registerAdminChannelsRoutes } from './fixtures/adminChannels';
+
+async function expectNoHorizontalOverflow(page: Page) {
+  const overflowState = await page.evaluate(() => {
+    const main = document.querySelector('main');
+    const tableViewport = document.querySelector('[data-slot="table-container"]');
+
+    return {
+      documentFits: document.documentElement.scrollWidth <= window.innerWidth + 1,
+      mainFits: main instanceof HTMLElement ? main.scrollWidth <= main.clientWidth + 1 : true,
+      tableViewportFits:
+        tableViewport instanceof HTMLElement
+          ? tableViewport.getBoundingClientRect().width <= window.innerWidth + 1 &&
+            window.getComputedStyle(tableViewport).overflowX === 'auto'
+          : false,
+    };
+  });
+
+  expect(overflowState).toEqual({
+    documentFits: true,
+    mainFits: true,
+    tableViewportFits: true,
+  });
+}
 
 test.beforeEach(async ({ page }) => {
   await registerAdminChannelsRoutes(page);
@@ -95,4 +118,40 @@ test('admin channels create edit diagnose and batch in the built app', async ({ 
   await deleteResponse;
 
   await expect(page.getByRole('cell', { name: 'Browser OpenRouter Updated', exact: true })).toBeHidden();
+});
+
+test('admin channels mobile layout keeps long relay channel evidence contained', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/admin/channels');
+
+  await expect(page.getByRole('heading', { name: 'Channels' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Channels' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('main')).toHaveCount(1);
+
+  await page.getByPlaceholder('Search channels...').fill('channelchannelsmobilewithoutbreaks20260624');
+  await page.getByLabel('Provider filter').selectOption('providerchannelsmobilewithoutbreaks20260624');
+
+  await expect(page.getByRole('cell', { name: 'channelchannelsmobilewithoutbreaks20260624primary', exact: true })).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'providerchannelsmobilewithoutbreaks20260624', exact: true })).toBeVisible();
+  await expect(page.getByText('modelchannelsmobilewithoutbreaks20260624primary').first()).toBeVisible();
+  await expect(page.getByRole('cell', { name: '1,234 RPM 987,654 TPM' })).toBeVisible();
+  await expect(page.getByRole('cell', { name: '678ms avg' })).toBeVisible();
+  await expect(page.getByLabel('Runtime diagnostics')).toContainText('channelchannelsmobilewithoutbreaks20260624primary');
+  await expect(page.getByLabel('Runtime diagnostics')).toContainText('12,345 requests');
+  await expect(page.getByLabel('Runtime diagnostics')).toContainText('987 active');
+
+  await page.getByRole('button', { name: 'Test connection for channelchannelsmobilewithoutbreaks20260624primary' }).click();
+  const diagnostics = page.getByRole('region', { name: 'channelchannelsmobilewithoutbreaks20260624primary diagnostics' });
+  await expect(diagnostics).toBeVisible();
+  await expect(diagnostics).toContainText('providerchannelsmobilewithoutbreaks20260624');
+  await expect(diagnostics).toContainText('modelchannelsmobilewithoutbreaks20260624diagnostic');
+  await expect(diagnostics).toContainText('USD 321.09');
+
+  await page.getByRole('button', { name: 'Detect model updates for channelchannelsmobilewithoutbreaks20260624primary' }).click();
+  const modelUpdates = page.getByRole('region', { name: 'Model updates for channelchannelsmobilewithoutbreaks20260624primary' });
+  await expect(modelUpdates).toBeVisible();
+  await expect(modelUpdates).toContainText('modelchannelsmobilewithoutbreaks20260624newlyavailable');
+  await expect(modelUpdates).toContainText('Added 1');
+
+  await expectNoHorizontalOverflow(page);
 });
