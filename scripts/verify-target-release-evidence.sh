@@ -489,7 +489,7 @@ def placeholder?(value)
 end
 
 def secret_like_uri?(value)
-  value.is_a?(String) && value.match?(/[?&#](?:[^=&#]*[_-])?(?:token|secret|signature|api[_-]?key|access[_-]?key|credential|kubeconfig|private[_-]?key)=/i)
+  value.is_a?(String) && value.match?(/[?&#](?:[^=&#]*[_-])?(?:token|secret|password|signature|api[_-]?key|access[_-]?key|credential|kubeconfig|private[_-]?key)=/i)
 end
 
 def userinfo_uri?(value)
