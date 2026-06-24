@@ -341,12 +341,28 @@ def positive_go_duration_string?(value)
   duration.scan(/(?:\d+(?:\.\d+)?|\.\d+)(?=ns|us|ms|s|m|h)/).any? { |number| number.to_f.positive? }
 end
 
+def ipv4_shorthand_local_or_unspecified?(host)
+  return false unless host.match?(/\A\d+(?:\.\d+){0,3}\z/)
+
+  parts = host.split(".")
+  numbers = parts.map { |part| Integer(part, 10) }
+  return false if numbers.any?(&:negative?)
+  return true if numbers.first == 0 || numbers.first == 127
+  return false unless numbers.length == 1 && numbers.first <= 0xffffffff
+
+  first_octet = numbers.first >> 24
+  first_octet == 0 || first_octet == 127
+rescue ArgumentError
+  false
+end
+
 def local_target_host?(host)
   normalized = host.to_s.strip.downcase.sub(/\A\[(.*)\]\z/, '\1')
   normalized = normalized.sub(/\.+\z/, "")
   return false if normalized.empty?
   return true if normalized == "0"
   return true if normalized == "localhost" || normalized.end_with?(".localhost")
+  return true if ipv4_shorthand_local_or_unspecified?(normalized)
 
   begin
     ip = IPAddr.new(normalized)

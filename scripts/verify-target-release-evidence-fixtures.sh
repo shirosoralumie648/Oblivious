@@ -214,6 +214,11 @@ make_invalid_case \
   "environment.baseUrl must target a non-local target environment"
 
 make_invalid_case \
+  "abbreviated-loopback-environment-base-url" \
+  'data["environment"]["baseUrl"] = "http://127.1:3000"' \
+  "environment.baseUrl must target a non-local target environment"
+
+make_invalid_case \
   "loopback-environment-trailing-dot" \
   'data["environment"]["baseUrl"] = "http://localhost.:3000"' \
   "environment.baseUrl must target a non-local target environment"
@@ -306,6 +311,11 @@ make_invalid_case \
 make_invalid_case \
   "loopback-artifact-uri" \
   'data["artifacts"].find { |artifact| artifact["id"] == "artifact-deploy-20260616" }["uri"] = "http://localhost:8080/target-release/deploy.log"' \
+  "artifacts[1].uri must reference a remote target artifact URI"
+
+make_invalid_case \
+  "abbreviated-loopback-artifact-uri" \
+  'data["artifacts"].find { |artifact| artifact["id"] == "artifact-deploy-20260616" }["uri"] = "http://127.1:8080/target-release/deploy.log"' \
   "artifacts[1].uri must reference a remote target artifact URI"
 
 make_invalid_case \
@@ -461,6 +471,11 @@ make_invalid_case \
 make_invalid_case \
   "loopback-grpc-address" \
   'data["grpc"].find { |entry| entry["service"] == "agent" }["address"] = "localhost:50063"; data["grpcSmokeReport"]["results"].find { |result| result["service"] == "agent" }["address"] = "localhost:50063"' \
+  "grpc[0].address for agent must target a non-local service endpoint"
+
+make_invalid_case \
+  "abbreviated-loopback-grpc-address" \
+  'data["grpc"].find { |entry| entry["service"] == "agent" }["address"] = "127.1:50063"; data["grpcSmokeReport"]["results"].find { |result| result["service"] == "agent" }["address"] = "127.1:50063"' \
   "grpc[0].address for agent must target a non-local service endpoint"
 
 make_invalid_case \
