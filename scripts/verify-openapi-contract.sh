@@ -3586,9 +3586,34 @@ require_task_mutation_csrf_contract() {
       end
     end
 
+    task_step = schemas["TaskStep"] || {}
+    task_step_required = task_step["required"] || []
+    ["id", "title", "status", "stepIndex", "createdAt", "updatedAt"].each do |field|
+      unless task_step_required.include?(field)
+        missing << "TaskStep must require #{field}"
+      end
+    end
+
+    task_event = schemas["TaskEvent"] || {}
+    task_event_required = task_event["required"] || []
+    ["type", "message", "createdAt"].each do |field|
+      unless task_event_required.include?(field)
+        missing << "TaskEvent must require #{field}"
+      end
+    end
+
+    task_artifact = schemas["TaskResultArtifact"] || {}
+    task_artifact_required = task_artifact["required"] || []
+    ["label", "value"].each do |field|
+      unless task_artifact_required.include?(field)
+        missing << "TaskResultArtifact must require #{field}"
+      end
+    end
+
     task_detail = schemas["TaskDetail"] || {}
     detail_refs = task_detail.fetch("allOf", []).filter_map { |entry| entry["$ref"] }
-    detail_properties = task_detail.fetch("allOf", []).find { |entry| entry["properties"].is_a?(Hash) }&.fetch("properties", {}) || {}
+    detail_extension = task_detail.fetch("allOf", []).find { |entry| entry["properties"].is_a?(Hash) } || {}
+    detail_properties = detail_extension.fetch("properties", {}) || {}
     unless detail_refs.include?("#/components/schemas/Task") &&
         detail_properties.dig("steps", "items", "$ref") == "#/components/schemas/TaskStep" &&
         detail_properties.dig("events", "items", "$ref") == "#/components/schemas/TaskEvent" &&
@@ -3597,6 +3622,12 @@ require_task_mutation_csrf_contract() {
         detail_properties.dig("toolAllowList", "items", "type") == "string" &&
         detail_properties.dig("toolDenyList", "items", "type") == "string"
       missing << "TaskDetail must extend Task and expose steps, events, resultArtifacts, knowledgeBaseIds, and tool rule arrays"
+    end
+    detail_required = detail_extension["required"] || []
+    ["events", "knowledgeBaseIds", "resultArtifacts", "steps", "toolAllowList", "toolDenyList"].each do |field|
+      unless detail_required.include?(field)
+        missing << "TaskDetail must require #{field}"
+      end
     end
 
     unless missing.empty?

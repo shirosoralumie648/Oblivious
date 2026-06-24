@@ -1040,6 +1040,7 @@ components:
 
     TaskStep:
       type: object
+      required: [id, title, status, stepIndex, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -1065,6 +1066,7 @@ components:
 
     TaskEvent:
       type: object
+      required: [type, message, createdAt]
       properties:
         type:
           type: string
@@ -1077,6 +1079,7 @@ components:
 
     TaskResultArtifact:
       type: object
+      required: [label, value]
       properties:
         label:
           type: string
@@ -1087,6 +1090,7 @@ components:
       allOf:
         - $ref: "#/components/schemas/Task"
         - type: object
+          required: [events, knowledgeBaseIds, resultArtifacts, steps, toolAllowList, toolDenyList]
           properties:
             currentStep:
               type: string
