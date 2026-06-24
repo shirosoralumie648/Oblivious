@@ -976,6 +976,8 @@ components:
           type: string
         goal:
           type: string
+          minLength: 1
+          pattern: '\S'
           example: "分析最近一个月的销售数据"
         executionMode:
           type: string

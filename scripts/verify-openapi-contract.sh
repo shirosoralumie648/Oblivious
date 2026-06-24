@@ -3561,6 +3561,10 @@ require_task_mutation_csrf_contract() {
     unless ["knowledge_only", "workspace_tools", "full_access"].all? { |scope| create_scope_enum.include?(scope) }
       missing << "CreateTaskRequest.authorizationScope must enumerate runtime scopes"
     end
+    unless create_request.dig("properties", "goal", "minLength") == 1 &&
+        create_request.dig("properties", "goal", "pattern") == "\\S"
+      missing << "CreateTaskRequest.goal must document the runtime non-blank goal requirement"
+    end
 
     task = schemas["Task"] || {}
     task_mode_enum = task.dig("properties", "executionMode", "enum") || []
