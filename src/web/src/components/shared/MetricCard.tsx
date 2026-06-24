@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { memo, type ReactNode } from 'react';
 import { RiArrowDownLine, RiArrowUpLine } from '@remixicon/react';
 
 import { Card, CardContent } from '@/components/ui/card';
@@ -33,7 +33,7 @@ function formatValue(value: string | number, format: MetricCardProps['format'] =
   }
 }
 
-export function MetricCard({ label, value, format = 'number', trend, loading = false, icon, className }: MetricCardProps) {
+export const MetricCard = memo(function MetricCard({ label, value, format = 'number', trend, loading = false, icon, className }: MetricCardProps) {
   return (
     <Card className={cn('rounded-lg', className)}>
       <CardContent className="space-y-5">
@@ -61,4 +61,4 @@ export function MetricCard({ label, value, format = 'number', trend, loading = f
       </CardContent>
     </Card>
   );
-}
+});
