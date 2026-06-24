@@ -105,7 +105,7 @@ git diff --check
 
 The verifier treats IPv6 unspecified hosts such as `[::]`, abbreviated IPv4 loopback hosts such as `127.1`, and short wildcard hosts such as `0` as local/non-target addresses, the same release-evidence boundary as loopback and `0.0.0.0`.
 
-The verifier percent-decodes URI query and fragment parameter names before applying the secret-like name boundary, so target evidence rejects encoded forms such as `pass%77ord=` and `%74oken=` the same way it rejects plain `password=` and `token=`.
+The verifier repeatedly percent-decodes URI query and fragment parameter names before applying the secret-like name boundary, so target evidence rejects encoded and nested encoded forms such as `pass%77ord=`, `pass%2577ord=`, `%74oken=`, and `t%256fken=` the same way it rejects plain `password=` and `token=`.
 
 The verifier treats the target provider live-rail set as closed: `providers[]` may contain only Stripe, Alipay, and WeChat Pay evidence rows, each backed by matching `provider-live-rail` artifact metadata.
 

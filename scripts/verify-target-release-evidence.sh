@@ -490,16 +490,27 @@ end
 
 SECRET_LIKE_URI_PARAMETER_NAME_PATTERN = /\A(?:[^=&#]*[_-])?(?:token|secret|password|signature|api[_-]?key|access[_-]?key|credential|kubeconfig|private[_-]?key)\z/i.freeze
 
+def decoded_uri_parameter_name(parameter_name)
+  decoded = parameter_name
+
+  loop do
+    next_decoded = URI.decode_www_form_component(decoded)
+    return decoded if next_decoded == decoded
+
+    decoded = next_decoded
+  end
+rescue ArgumentError
+  nil
+end
+
 def secret_like_uri?(value)
   return false unless value.is_a?(String)
   return true if value.match?(/[?&#](?:[^=&#]*[_-])?(?:token|secret|password|signature|api[_-]?key|access[_-]?key|credential|kubeconfig|private[_-]?key)=/i)
 
   value.scan(/[?&#]([^=&#]+)=/).any? do |match|
     parameter_name = match.fetch(0)
-    decoded_parameter_name = URI.decode_www_form_component(parameter_name)
-    decoded_parameter_name.match?(SECRET_LIKE_URI_PARAMETER_NAME_PATTERN)
-  rescue ArgumentError
-    false
+    decoded_parameter_name = decoded_uri_parameter_name(parameter_name)
+    decoded_parameter_name && decoded_parameter_name.match?(SECRET_LIKE_URI_PARAMETER_NAME_PATTERN)
   end
 end
 
