@@ -37,6 +37,9 @@ const accessSummary = {
   workspaceId: session.workspace.id,
 };
 
+const browserOrgID = 'org_audit_browser';
+const mobileOrgID = 'org_audit_mobile_without_breaks_20260624_primary';
+
 function envelope(data: unknown) {
   return {
     ok: true,
@@ -95,13 +98,38 @@ export async function registerAdminAuditLogRoutes(page: Page): Promise<void> {
     }
 
     if (method === 'GET' && pathname === '/api/v1/admin/audit-logs') {
-      if (url.searchParams.get('organizationID') !== 'org_audit_browser') {
-        await fulfillError(route, 'admin audit log queries must include organizationID=org_audit_browser');
+      const organizationID = url.searchParams.get('organizationID');
+
+      if (organizationID !== browserOrgID && organizationID !== mobileOrgID) {
+        await fulfillError(route, 'admin audit log queries must include a recognized organizationID');
         return;
       }
 
       if (url.searchParams.has('organizationId')) {
         await fulfillError(route, 'admin audit log queries must use organizationID, not organizationId');
+        return;
+      }
+
+      if (organizationID === mobileOrgID) {
+        await fulfillJSON(route, {
+          entries: [
+            {
+              id: 'audit_mobile_without_breaks',
+              actorID: 'auditlogmobileoperatorwithoutbreaks20260624',
+              actorEmail: 'auditlogmobileoperatorwithoutbreaks20260624@example.com',
+              action: 'billing.refund.providerreconciliationmobilewithoutbreaks20260624',
+              resourceType: 'billingproviderrailwithoutbreaks',
+              resourceID: 'refundtopupmobileevidencewithoutbreaks20260624',
+              changes: JSON.stringify({
+                changeevidencemobilewithoutbreaks20260624: mobileOrgID,
+                providerrailreconciliationwithoutbreaks20260624: 'alipayrefundledgeridempotency',
+              }),
+              ipAddress: '198.51.100.240',
+              createdAt: now,
+            },
+          ],
+          total: 1,
+        });
         return;
       }
 
