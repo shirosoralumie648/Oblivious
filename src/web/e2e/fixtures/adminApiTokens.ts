@@ -63,6 +63,25 @@ const filteredToken = {
   lastUsedAt: now,
 };
 
+const mobileToken = {
+  id: 'tok_admin_mobile_without_breaks',
+  organizationId: 'orgapitokensmobilewithoutbreaks20260624',
+  userId: 'userapitokensmobilewithoutbreaks20260624',
+  userEmail: 'mobileapitokensuserwithoutbreaks20260624@example.com',
+  name: 'mobileapitokennamewithoutbreaks20260624',
+  tokenPrefix: 'obvadminmobileprefixwithoutbreaks20260624',
+  status: 'active',
+  userGroup: 'enterpriseapitokensmobilewithoutbreaks20260624',
+  modelLimitsEnabled: true,
+  modelLimits: ['modelapitokensmobilewithoutbreaks20260624', 'backupmodelapitokensmobilewithoutbreaks20260624'],
+  quotaLimit: 99.5,
+  usedQuota: 9.75,
+  requestCount: 9876,
+  totalCost: 4.5678,
+  createdAt: now,
+  lastUsedAt: now,
+};
+
 function envelope(data: unknown) {
   return {
     ok: true,
@@ -120,6 +139,19 @@ function finalAPITokensQuery(url: URL) {
   });
 }
 
+function mobileAPITokensQuery(url: URL) {
+  return queryHas(url, {
+    organizationID: 'orgapitokensmobilewithoutbreaks20260624',
+    userID: 'userapitokensmobilewithoutbreaks20260624',
+    status: 'active',
+    userGroup: 'enterpriseapitokensmobilewithoutbreaks20260624',
+    search: 'mobileadmintokenwithoutbreaks20260624',
+    model: 'modelapitokensmobilewithoutbreaks20260624',
+    limit: '50',
+    offset: '0',
+  });
+}
+
 export async function registerAdminAPITokensRoutes(page: Page): Promise<void> {
   let tokenRevoked = false;
   let finalFilterLoaded = false;
@@ -136,6 +168,10 @@ export async function registerAdminAPITokensRoutes(page: Page): Promise<void> {
     }
 
     if (method === 'GET' && pathname === '/api/v1/admin/api-tokens') {
+      if (mobileAPITokensQuery(url)) {
+        await fulfillJSON(route, { apiTokens: [mobileToken], total: 1 });
+        return;
+      }
       if (finalAPITokensQuery(url)) {
         finalFilterLoaded = true;
         const currentFilteredToken = tokenRevoked
