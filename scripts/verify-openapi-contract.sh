@@ -3013,6 +3013,7 @@ require_workflow_execution_control_csrf_contract() {
     file = ARGV.fetch(0)
     spec = YAML.load_file(file)
     paths = spec.fetch("paths", {})
+    schemas = spec.fetch("components", {}).fetch("schemas", {})
     missing = []
 
     def operation(paths, path, method, missing)
@@ -3064,6 +3065,21 @@ require_workflow_execution_control_csrf_contract() {
       op = operation(paths, path, method, missing)
       unless request_body_ref(op) == expected
         missing << "#{method.upcase} #{path} request body must reference #{expected}"
+      end
+    end
+
+    decision_schema = schemas["WorkflowFailureDecisionRequest"]
+    one_of = decision_schema.is_a?(Hash) ? decision_schema["oneOf"] : nil
+    unless one_of.is_a?(Array) && one_of.length == 2
+      missing << "WorkflowFailureDecisionRequest must model branch-specific nextNodeId requirements with oneOf"
+    else
+      branch_variant = one_of.find { |entry| entry.dig("properties", "action", "enum") == ["branch"] }
+      non_branch_variant = one_of.find { |entry| entry.dig("properties", "action", "enum") == ["retry", "retry_with_input", "edit_input_retry", "continue", "skip", "fail", "terminate"] }
+      unless branch_variant.is_a?(Hash) && branch_variant.fetch("required", []).include?("nextNodeId")
+        missing << "WorkflowFailureDecisionRequest.branch variant must require nextNodeId"
+      end
+      unless non_branch_variant.is_a?(Hash) && non_branch_variant.fetch("required", []).include?("action")
+        missing << "WorkflowFailureDecisionRequest non-branch variant must require action"
       end
     end
 

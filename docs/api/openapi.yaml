@@ -2448,6 +2448,19 @@ components:
           type: string
         nodeId:
           type: string
+      oneOf:
+        - required: [action, nextNodeId]
+          properties:
+            action:
+              type: string
+              enum: [branch]
+            nextNodeId:
+              type: string
+        - required: [action]
+          properties:
+            action:
+              type: string
+              enum: [retry, retry_with_input, edit_input_retry, continue, skip, fail, terminate]
 
     WorkflowResumeExecutionRequest:
       type: object
