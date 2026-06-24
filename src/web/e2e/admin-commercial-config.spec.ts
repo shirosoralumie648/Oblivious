@@ -53,7 +53,7 @@ test('admin users update commercial entitlements, quota allocation, and account 
 
   await page.getByRole('button', { name: 'Edit user buyer-browser@example.com' }).click();
   await page.getByLabel('Role', { exact: true }).selectOption('admin');
-  await page.getByLabel('Plan ID').fill('plan_browser_enterprise');
+  await page.getByLabel('Plan ID', { exact: true }).fill('plan_browser_enterprise');
   await page.getByLabel('Quota Balance').fill('2500');
   await page.getByLabel('Status', { exact: true }).selectOption('disabled');
   await page.getByRole('button', { name: 'Save User' }).click();
