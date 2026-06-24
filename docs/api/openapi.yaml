@@ -4363,7 +4363,7 @@ components:
           format: email
         role:
           type: string
-          enum: [owner, admin, member]
+          enum: [admin, member]
         token:
           type: string
           description: Returned only when an invitation is created.

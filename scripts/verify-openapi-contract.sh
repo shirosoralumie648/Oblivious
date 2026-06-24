@@ -2990,6 +2990,15 @@ require_tenant_organization_mutation_csrf_contract() {
     unless schemas.dig("OrganizationOwnershipTransferResponse", "properties", "transferred", "type") == "boolean"
       missing << "OrganizationOwnershipTransferResponse.transferred must be boolean"
     end
+    invitation_role_enum = schemas.dig("OrganizationInvitation", "properties", "role", "enum")
+    invite_request_role_enum = schemas.dig("InviteOrganizationMemberRequest", "properties", "role", "enum")
+    expected_invitation_roles = ["admin", "member"]
+    unless invitation_role_enum == expected_invitation_roles
+      missing << "OrganizationInvitation.role enum must match invitation runtime roles admin/member"
+    end
+    unless invite_request_role_enum == expected_invitation_roles
+      missing << "InviteOrganizationMemberRequest.role enum must match invitation runtime roles admin/member"
+    end
 
     unless missing.empty?
       warn "[openapi-contract] Tenant organization mutation CSRF contract is incomplete:"
