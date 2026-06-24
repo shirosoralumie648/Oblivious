@@ -133,16 +133,16 @@ export function MarketplacePublishPage() {
   };
 
   return (
-    <div className="max-w-4xl space-y-6">
-      <div>
+    <div className="min-w-0 max-w-4xl space-y-6">
+      <div className="min-w-0">
         <h1 className="font-heading text-2xl font-semibold text-foreground">Publish Agent</h1>
-        <p className="text-sm text-muted-foreground">Submit an agent for marketplace review.</p>
-        <p className="text-sm text-muted-foreground">
+        <p className="break-words text-sm text-muted-foreground [overflow-wrap:anywhere]">Submit an agent for marketplace review.</p>
+        <p className="break-words text-sm text-muted-foreground [overflow-wrap:anywhere]">
           Public and paid submissions enter review before paid operation; paid installs stay checkout-backed until approval and settlement evidence exist.
         </p>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid min-w-0 gap-4 lg:grid-cols-2">
         <div className="space-y-2">
           <label htmlFor="agent-name" className="text-sm font-medium">Name</label>
           <Input id="agent-name" value={state.form.name} onChange={(event) => dispatch({ type: 'FIELD', field: 'name', value: event.target.value })} />
@@ -173,7 +173,7 @@ export function MarketplacePublishPage() {
         <Input id="agent-tags" placeholder="research, writing" value={state.form.tags.join(', ')} onChange={(event) => dispatch({ type: 'FIELD', field: 'tags', value: event.target.value.split(',') })} />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid min-w-0 gap-4 lg:grid-cols-2">
         <div className="space-y-2">
           <label htmlFor="agent-tools" className="text-sm font-medium">Tools</label>
           <Textarea id="agent-tools" value={state.form.tools} onChange={(event) => dispatch({ type: 'FIELD', field: 'tools', value: event.target.value })} />
@@ -189,7 +189,7 @@ export function MarketplacePublishPage() {
         <Textarea id="agent-system-prompt" value={state.form.systemPrompt} onChange={(event) => dispatch({ type: 'FIELD', field: 'systemPrompt', value: event.target.value })} />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-4">
+      <div className="grid min-w-0 gap-4 lg:grid-cols-4">
         <div className="space-y-2">
           <label htmlFor="agent-visibility" className="text-sm font-medium">Visibility</label>
           <select id="agent-visibility" value={state.form.visibility} onChange={(event) => dispatch({ type: 'FIELD', field: 'visibility', value: event.target.value })} className="min-h-[44px] w-full rounded-lg border border-input bg-input/30 px-3 text-sm text-foreground">
@@ -222,26 +222,26 @@ export function MarketplacePublishPage() {
       </div>
 
       {state.error ? (
-        <div className="space-y-3 rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive" role="alert">
-          <p className="font-medium">{state.error}</p>
+        <div className="min-w-0 max-w-full space-y-3 break-words rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive [overflow-wrap:anywhere]" role="alert">
+          <p className="break-words font-medium [overflow-wrap:anywhere]">{state.error}</p>
           {state.automatedReview ? (
-            <ul className="space-y-2">
+            <ul className="min-w-0 space-y-2">
               {state.automatedReview.findings.map((finding, index) => (
-                <li key={`${finding.type}-${finding.field ?? 'field'}-${index}`} className="space-y-1">
-                  <div className="flex flex-wrap gap-2">
-                    <span className="rounded-md border border-destructive/30 px-2 py-0.5 text-xs font-medium">{finding.type}</span>
-                    <span className="rounded-md border border-destructive/30 px-2 py-0.5 text-xs font-medium">{finding.severity}</span>
-                    {finding.field ? <span className="rounded-md border border-destructive/30 px-2 py-0.5 text-xs font-medium">{finding.field}</span> : null}
+                <li key={`${finding.type}-${finding.field ?? 'field'}-${index}`} className="min-w-0 space-y-1">
+                  <div className="flex min-w-0 flex-wrap gap-2">
+                    <span className="max-w-full break-words rounded-md border border-destructive/30 px-2 py-0.5 text-xs font-medium [overflow-wrap:anywhere]">{finding.type}</span>
+                    <span className="max-w-full break-words rounded-md border border-destructive/30 px-2 py-0.5 text-xs font-medium [overflow-wrap:anywhere]">{finding.severity}</span>
+                    {finding.field ? <span className="max-w-full break-words rounded-md border border-destructive/30 px-2 py-0.5 text-xs font-medium [overflow-wrap:anywhere]">{finding.field}</span> : null}
                   </div>
-                  <p>{finding.message}</p>
-                  {finding.evidence ? <p className="text-xs opacity-80">{finding.evidence}</p> : null}
+                  <p className="break-words [overflow-wrap:anywhere]">{finding.message}</p>
+                  {finding.evidence ? <p className="break-words text-xs opacity-80 [overflow-wrap:anywhere]">{finding.evidence}</p> : null}
                 </li>
               ))}
             </ul>
           ) : null}
         </div>
       ) : null}
-      {state.success ? <p className="text-sm text-muted-foreground">{state.success}</p> : null}
+      {state.success ? <p className="break-words text-sm text-muted-foreground [overflow-wrap:anywhere]">{state.success}</p> : null}
       <Button type="button" className="min-h-[44px]" disabled={state.loading} onClick={() => void handleSubmit()}>
         Publish Agent
       </Button>

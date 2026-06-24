@@ -301,6 +301,37 @@ function templatePayloadMatches(payload: Record<string, unknown>) {
   );
 }
 
+async function fulfillAutomatedReviewRejection(route: Route) {
+  await route.fulfill({
+    status: 422,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      ok: false,
+      data: {
+        automatedReview: {
+          decision: 'rejected',
+          scanner: 'marketplacepublishmobilescannerwithoutbreaks20260624',
+          findings: [
+            {
+              type: 'promptinjectionpublishmobilewithoutbreaks20260624',
+              severity: 'criticalpublishmobilewithoutbreaks20260624',
+              field: 'systempromptpublishmobilewithoutbreaks20260624',
+              message:
+                'publishmobileautomatedreviewmessagewithoutbreaks20260624publishmobileautomatedreviewmessagewithoutbreaks20260624',
+              evidence:
+                'publishmobileautomatedreviewevidencewithoutbreaks20260624publishmobileautomatedreviewevidencewithoutbreaks20260624',
+            },
+          ],
+        },
+      },
+      error: {
+        code: 'automated_review_rejected',
+        message: 'Automated review rejected marketplace publication.',
+      },
+    }),
+  });
+}
+
 export async function registerAdminMarketplaceRoutes(page: Page): Promise<void> {
   let myAgents = [submittedAgent, mobilePublishedAgent];
   let installs = [installedAgent, mobileInstalledAgent];
@@ -623,6 +654,12 @@ export async function registerAdminMarketplaceRoutes(page: Page): Promise<void> 
     }
 
     if (method === 'POST' && pathname === '/api/v1/marketplace/agents') {
+      const payload = request.postDataJSON() as Record<string, unknown>;
+      if (payload.name === 'publishmobileagentwithoutbreaks20260624') {
+        await fulfillAutomatedReviewRejection(route);
+        return;
+      }
+
       myAgents = [submittedAgent];
       await fulfillJSON(route, submittedAgent, 201);
       return;

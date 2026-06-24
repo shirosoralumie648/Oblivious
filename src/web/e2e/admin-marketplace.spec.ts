@@ -69,6 +69,25 @@ async function expectMarketplaceDetailNoHorizontalOverflow(page: Page) {
   });
 }
 
+async function expectMarketplacePublishNoHorizontalOverflow(page: Page) {
+  const overflowState = await page.evaluate(() => {
+    const main = document.querySelector('main');
+    const alert = document.querySelector('[role="alert"]');
+
+    return {
+      documentFits: document.documentElement.scrollWidth <= window.innerWidth + 1,
+      mainFits: main instanceof HTMLElement ? main.scrollWidth <= main.clientWidth + 1 : true,
+      alertFits: alert instanceof HTMLElement ? alert.scrollWidth <= alert.clientWidth + 1 : false,
+    };
+  });
+
+  expect(overflowState).toEqual({
+    documentFits: true,
+    mainFits: true,
+    alertFits: true,
+  });
+}
+
 test('admin navigation exposes release management pages', async ({ page }) => {
   await page.goto('/admin');
   await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
@@ -187,6 +206,30 @@ test('marketplace publish and my agents workflow works', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Installed Agents' })).toBeVisible();
   await expect(page.getByText('Release Notes Drafter').first()).toBeVisible();
   await expect(page.getByText('Release Helper').first()).toBeVisible();
+});
+
+test('marketplace publish mobile layout keeps automated review evidence contained', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/marketplace/publish');
+
+  await expect(page.getByRole('link', { name: 'Marketplace' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('heading', { name: 'Publish Agent' })).toBeVisible();
+
+  await page.getByLabel('Name').fill('publishmobileagentwithoutbreaks20260624');
+  await page.getByLabel('Category').selectOption('cat_productivity');
+  await page.getByLabel('Description').fill('publishmobileagentdescriptionwithoutbreaks20260624');
+  await page.getByLabel('Tags').fill('publishmobiletagwithoutbreaks20260624, reviewmobiletagwithoutbreaks20260624');
+  await page.getByLabel('Tools').fill('{"tools":[{"name":"publishmobiletoolwithoutbreaks20260624"}]}');
+  await page.getByLabel('Example Conversations').fill('[{"userMessage":"publish mobile","assistantMessage":"review evidence"}]');
+  await page.getByLabel('System Prompt').fill('publishmobilepromptwithoutbreaks20260624');
+  await page.getByRole('button', { name: 'Publish Agent' }).click();
+
+  await expect(page.getByText('Automated review rejected this submission.')).toBeVisible();
+  await expect(page.getByText('promptinjectionpublishmobilewithoutbreaks20260624')).toBeVisible();
+  await expect(page.getByText('publishmobileautomatedreviewmessagewithoutbreaks20260624').first()).toBeVisible();
+  await expect(page.getByText('publishmobileautomatedreviewevidencewithoutbreaks20260624').first()).toBeVisible();
+
+  await expectMarketplacePublishNoHorizontalOverflow(page);
 });
 
 test('marketplace my agents preserves publisher mutation contracts in the browser', async ({ page }) => {
