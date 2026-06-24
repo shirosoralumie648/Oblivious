@@ -1121,6 +1121,9 @@ func (h adminHandler) listMarketplacePayouts(w stdhttp.ResponseWriter, r *stdhtt
 		writeError(w, stdhttp.StatusInternalServerError, "internal_error", err.Error())
 		return
 	}
+	if items == nil {
+		items = []*admin.MarketplacePayoutInspection{}
+	}
 	writeSuccess(w, stdhttp.StatusOK, map[string]any{"payouts": items, "total": total})
 }
 

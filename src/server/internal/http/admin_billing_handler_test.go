@@ -244,6 +244,33 @@ func TestAdminBillingListsExposeAllRequiredSurfaces(t *testing.T) {
 	}
 }
 
+func TestAdminBillingMarketplacePayoutsResponseContract(t *testing.T) {
+	store := &fakeAdminStore{marketplacePayoutsSet: true, marketplacePayoutsTotal: 0}
+	handler := newAdminHandler(admin.NewService(store))
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/v1/admin/billing/payouts?organizationID=org_empty_payouts", nil)
+	handler.listMarketplacePayouts(recorder, request)
+	if recorder.Code != stdhttp.StatusOK {
+		t.Fatalf("expected empty payouts list 200, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+
+	var response struct {
+		Data struct {
+			Payouts []admin.MarketplacePayoutInspection `json:"payouts"`
+			Total   int                                 `json:"total"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode payouts response: %v", err)
+	}
+	if response.Data.Payouts == nil || len(response.Data.Payouts) != 0 || response.Data.Total != 0 {
+		t.Fatalf("expected payouts response to expose an empty array and total=0, got %+v body=%s", response.Data, recorder.Body.String())
+	}
+	if strings.Contains(recorder.Body.String(), `"payouts":null`) {
+		t.Fatalf("expected payouts to serialize as [], got %s", recorder.Body.String())
+	}
+}
+
 func TestAdminBillingWebhookEventsDoNotExposeRawPayload(t *testing.T) {
 	database := testDatabase(t)
 	router := NewRouter(testConfig(), database)
@@ -1273,6 +1300,9 @@ func (s *fakeAdminStore) ListMarketplaceSettlements(ctx context.Context, filter 
 
 func (s *fakeAdminStore) ListMarketplacePayouts(ctx context.Context, filter admin.BillingInspectionFilter) ([]*admin.MarketplacePayoutInspection, int, error) {
 	s.billingFilter = filter
+	if s.marketplacePayoutsSet {
+		return s.marketplacePayouts, s.marketplacePayoutsTotal, nil
+	}
 	return []*admin.MarketplacePayoutInspection{{ID: "payout_1"}}, 1, nil
 }
 

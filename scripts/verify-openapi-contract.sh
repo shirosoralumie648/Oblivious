@@ -4866,6 +4866,18 @@ require_admin_billing_contract() {
         missing << "#{schema_name} must expose #{collection}[] as #{item_ref} plus integer total"
       end
     end
+    payout_response_required = schemas.dig("AdminMarketplacePayoutsResponse", "required") || []
+    ["payouts", "total"].each do |field|
+      unless payout_response_required.include?(field)
+        missing << "AdminMarketplacePayoutsResponse must require #{field}"
+      end
+    end
+    payout_item_required = schemas.dig("AdminMarketplacePayoutInspection", "required") || []
+    ["id", "publisherOrganizationId", "publisherUserId", "amount", "currency", "provider", "status", "createdAt", "updatedAt"].each do |field|
+      unless payout_item_required.include?(field)
+        missing << "AdminMarketplacePayoutInspection must require #{field}"
+      end
+    end
 
     webhook_event_schema = schemas["AdminWebhookEventInspection"] || {}
     webhook_event_properties = webhook_event_schema.fetch("properties", {})

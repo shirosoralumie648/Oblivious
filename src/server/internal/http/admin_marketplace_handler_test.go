@@ -1839,34 +1839,37 @@ func testAdminSession() auth.Session {
 }
 
 type fakeAdminStore struct {
-	channelFilter         admin.ChannelFilter
-	usageLogFilter        admin.UsageLogFilter
-	usageAnalyticsFilter  admin.UsageAnalyticsFilter
-	apiTokenFilter        admin.APITokenFilter
-	modelInventoryFilter  admin.ModelInventoryFilter
-	billingFilter         admin.BillingInspectionFilter
-	pendingReviews        []*marketplace.PublishedAgent
-	batchAction           string
-	routeUpdate           admin.RouteUpdateRequest
-	approvedAgentID       string
-	needsChangesAgentID   string
-	needsChangesReason    string
-	revokedAPITokenID     string
-	relayPricingSettings  admin.RelayPricingSettings
-	channelTestResult     *admin.ChannelTestResult
-	currentChannelModels  []string
-	updatedChannelModels  []string
-	channelDiagnostics    *admin.ChannelDiagnosticsUpdate
-	createdPlan           admin.PlanCreateRequest
-	recordedTopupRefundID string
-	recordedTopupRefund   admin.TopupRefundRequest
-	topupRefundErr        error
-	updatedQuotaUserID    string
-	updatedQuotaBalance   float64
-	missingUserID         string
-	createdChannelAPIKey  string
-	updatedChannelAPIKey  *string
-	auditEntries          []*admin.AuditEntry
+	channelFilter           admin.ChannelFilter
+	usageLogFilter          admin.UsageLogFilter
+	usageAnalyticsFilter    admin.UsageAnalyticsFilter
+	apiTokenFilter          admin.APITokenFilter
+	modelInventoryFilter    admin.ModelInventoryFilter
+	billingFilter           admin.BillingInspectionFilter
+	pendingReviews          []*marketplace.PublishedAgent
+	batchAction             string
+	routeUpdate             admin.RouteUpdateRequest
+	approvedAgentID         string
+	needsChangesAgentID     string
+	needsChangesReason      string
+	revokedAPITokenID       string
+	relayPricingSettings    admin.RelayPricingSettings
+	channelTestResult       *admin.ChannelTestResult
+	currentChannelModels    []string
+	updatedChannelModels    []string
+	channelDiagnostics      *admin.ChannelDiagnosticsUpdate
+	createdPlan             admin.PlanCreateRequest
+	recordedTopupRefundID   string
+	recordedTopupRefund     admin.TopupRefundRequest
+	topupRefundErr          error
+	marketplacePayouts      []*admin.MarketplacePayoutInspection
+	marketplacePayoutsSet   bool
+	marketplacePayoutsTotal int
+	updatedQuotaUserID      string
+	updatedQuotaBalance     float64
+	missingUserID           string
+	createdChannelAPIKey    string
+	updatedChannelAPIKey    *string
+	auditEntries            []*admin.AuditEntry
 }
 
 func (s *fakeAdminStore) GetSystemStats(ctx context.Context) (*admin.SystemStats, error) {

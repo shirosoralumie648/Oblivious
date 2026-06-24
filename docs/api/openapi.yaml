@@ -3974,6 +3974,7 @@ components:
 
     AdminMarketplacePayoutInspection:
       type: object
+      required: [id, publisherOrganizationId, publisherUserId, amount, currency, provider, status, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -4081,6 +4082,7 @@ components:
 
     AdminMarketplacePayoutsResponse:
       type: object
+      required: [payouts, total]
       properties:
         payouts:
           type: array
