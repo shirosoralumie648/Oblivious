@@ -78,4 +78,21 @@ test('admin channels create edit diagnose and batch in the built app', async ({ 
   await expect(page.getByText('1 selected')).toBeVisible();
   await page.getByRole('button', { name: 'Batch Disable' }).click();
   await expect(page.getByLabel('Offline')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Delete channel Browser OpenRouter Updated' }).click();
+  const deleteDialog = page.getByRole('dialog', { name: 'Delete Channel' });
+  await expect(deleteDialog).toBeVisible();
+  const deleteResponse = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return (
+      response.request().method() === 'DELETE' &&
+      url.pathname === '/api/v1/admin/channels/channel_browser_openrouter' &&
+      url.search === '' &&
+      response.status() === 200
+    );
+  });
+  await deleteDialog.getByRole('button', { name: 'Delete Channel' }).click();
+  await deleteResponse;
+
+  await expect(page.getByRole('cell', { name: 'Browser OpenRouter Updated', exact: true })).toBeHidden();
 });

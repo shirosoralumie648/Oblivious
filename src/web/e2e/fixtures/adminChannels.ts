@@ -324,6 +324,21 @@ export async function registerAdminChannelsRoutes(page: Page): Promise<void> {
       return;
     }
 
+    if (method === 'DELETE' && pathname === '/api/v1/admin/channels/channel_browser_openrouter') {
+      if (request.postData() !== null) {
+        await fulfillError(route, 'channel delete request should not send a JSON body');
+        return;
+      }
+      if (createdChannel?.name !== updateChannelPayload.name) {
+        await fulfillError(route, 'browser tried to delete the channel before saving edited config');
+        return;
+      }
+      createdChannel = null;
+      channels = channels.filter((channel) => channel.id !== 'channel_browser_openrouter');
+      await fulfillJSON(route, { status: 'deleted' });
+      return;
+    }
+
     await fulfillError(route, `fixture route not implemented for ${method} ${pathname}`, 404);
   });
 }
