@@ -2490,6 +2490,7 @@ components:
 
     WorkflowDebugVariableSnapshot:
       type: object
+      required: [input, context, nodeOutputs]
       properties:
         input:
           type: object
@@ -2505,6 +2506,7 @@ components:
 
     WorkflowDebugTraceEntry:
       type: object
+      required: [nodeId, nodeType, status, startedAt]
       properties:
         nodeId:
           type: string
@@ -2537,6 +2539,7 @@ components:
 
     WorkflowDebugPerformance:
       type: object
+      required: [totalDurationMs, nodeDurationsMs]
       properties:
         totalDurationMs:
           type: integer
@@ -2549,6 +2552,7 @@ components:
 
     WorkflowDebugLogEntry:
       type: object
+      required: [level, message, timestamp]
       properties:
         level:
           type: string
@@ -2562,6 +2566,7 @@ components:
 
     WorkflowExecutionDebugSnapshot:
       type: object
+      required: [executionId, workflowId, status, variableSnapshot, trace, outputs, performance, logs]
       properties:
         executionId:
           type: string

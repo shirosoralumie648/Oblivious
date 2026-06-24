@@ -3234,6 +3234,37 @@ require_workflow_management_csrf_contract() {
       end
     end
 
+    workflow_debug_snapshot_required = schemas.dig("WorkflowExecutionDebugSnapshot", "required") || []
+    ["executionId", "workflowId", "status", "variableSnapshot", "trace", "outputs", "performance", "logs"].each do |field|
+      unless workflow_debug_snapshot_required.include?(field)
+        missing << "WorkflowExecutionDebugSnapshot must require #{field}"
+      end
+    end
+    workflow_debug_variable_snapshot_required = schemas.dig("WorkflowDebugVariableSnapshot", "required") || []
+    ["input", "context", "nodeOutputs"].each do |field|
+      unless workflow_debug_variable_snapshot_required.include?(field)
+        missing << "WorkflowDebugVariableSnapshot must require #{field}"
+      end
+    end
+    workflow_debug_trace_entry_required = schemas.dig("WorkflowDebugTraceEntry", "required") || []
+    ["nodeId", "nodeType", "status", "startedAt"].each do |field|
+      unless workflow_debug_trace_entry_required.include?(field)
+        missing << "WorkflowDebugTraceEntry must require #{field}"
+      end
+    end
+    workflow_debug_performance_required = schemas.dig("WorkflowDebugPerformance", "required") || []
+    ["totalDurationMs", "nodeDurationsMs"].each do |field|
+      unless workflow_debug_performance_required.include?(field)
+        missing << "WorkflowDebugPerformance must require #{field}"
+      end
+    end
+    workflow_debug_log_entry_required = schemas.dig("WorkflowDebugLogEntry", "required") || []
+    ["level", "message", "timestamp"].each do |field|
+      unless workflow_debug_log_entry_required.include?(field)
+        missing << "WorkflowDebugLogEntry must require #{field}"
+      end
+    end
+
     unless missing.empty?
       warn "[openapi-contract] Workflow management CSRF/schema contract is incomplete:"
       missing.each { |entry| warn "  - #{entry}" }
