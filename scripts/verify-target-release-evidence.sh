@@ -489,9 +489,10 @@ def placeholder?(value)
 end
 
 SECRET_LIKE_URI_PARAMETER_NAME_PATTERN = /\A(?:[^=&#]*[_-])?(?:token|secret|password|signature|api[_-]?key|access[_-]?key|credential|kubeconfig|private[_-]?key)\z/i.freeze
+SECRET_LIKE_URI_PARAMETER_VALUE_PATTERN = /(?:\b|[_-])(?:token|secret|password|signature|api[_-]?key|access[_-]?key|credential|kubeconfig|private[_-]?key)(?:\b|[_-])/i.freeze
 
-def decoded_uri_parameter_name(parameter_name)
-  decoded = parameter_name
+def decoded_uri_component(component)
+  decoded = component.to_s
 
   loop do
     next_decoded = URI.decode_www_form_component(decoded)
@@ -503,14 +504,21 @@ rescue ArgumentError
   nil
 end
 
+def decoded_uri_parameter_name(parameter_name)
+  decoded_uri_component(parameter_name)
+end
+
 def secret_like_uri?(value)
   return false unless value.is_a?(String)
   return true if value.match?(/[?&#](?:[^=&#]*[_-])?(?:token|secret|password|signature|api[_-]?key|access[_-]?key|credential|kubeconfig|private[_-]?key)=/i)
 
-  value.scan(/[?&#]([^=&#]+)=/).any? do |match|
+  value.scan(/[?&#]([^=&#]+)=([^&#]*)/).any? do |match|
     parameter_name = match.fetch(0)
+    parameter_value = match.fetch(1)
     decoded_parameter_name = decoded_uri_parameter_name(parameter_name)
-    decoded_parameter_name && decoded_parameter_name.match?(SECRET_LIKE_URI_PARAMETER_NAME_PATTERN)
+    decoded_parameter_value = decoded_uri_component(parameter_value)
+    (decoded_parameter_name && decoded_parameter_name.match?(SECRET_LIKE_URI_PARAMETER_NAME_PATTERN)) ||
+      (decoded_parameter_value && decoded_parameter_value.match?(SECRET_LIKE_URI_PARAMETER_VALUE_PATTERN))
   end
 end
 

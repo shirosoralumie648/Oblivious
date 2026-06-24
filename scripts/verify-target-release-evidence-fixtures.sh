@@ -264,6 +264,11 @@ make_invalid_case \
   "environment.baseUrl must not embed secret-like query or fragment parameters"
 
 make_invalid_case \
+  "secret-value-environment-base-url-query" \
+  'data["environment"]["baseUrl"] = "https://staging.oblivious.internal?evidence=target-secret-token"' \
+  "environment.baseUrl must not embed secret-like query or fragment parameters"
+
+make_invalid_case \
   "secret-environment-base-url-fragment" \
   'data["environment"]["baseUrl"] = "https://staging.oblivious.internal#token=target-secret-token"' \
   "environment.baseUrl must not embed secret-like query or fragment parameters"
@@ -306,6 +311,11 @@ make_invalid_case \
 make_invalid_case \
   "double-encoded-token-artifact-uri-query" \
   'data["artifacts"].find { |artifact| artifact["id"] == "artifact-deploy-20260616" }["uri"] = "https://ci.internal/runs/20260616/deploy.log?t%256fken=target-secret-token"' \
+  "artifacts[1].uri must not embed secret-like query or fragment parameters"
+
+make_invalid_case \
+  "secret-value-artifact-uri-query" \
+  'data["artifacts"].find { |artifact| artifact["id"] == "artifact-deploy-20260616" }["uri"] = "https://ci.internal/runs/20260616/deploy.log?evidence=target-secret-token"' \
   "artifacts[1].uri must not embed secret-like query or fragment parameters"
 
 make_invalid_case \
