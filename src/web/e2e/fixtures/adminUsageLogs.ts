@@ -71,6 +71,29 @@ const filteredUsageLog = {
   createdAt: now,
 };
 
+const mobileUsageLog = {
+  id: 'usage_admin_mobile_without_breaks',
+  organizationId: 'orgusagelogsmobilewithoutbreaks20260624',
+  userId: 'userusagelogsmobilewithoutbreaks20260624',
+  apiTokenId: 'tokusagelogsmobilewithoutbreaks20260624',
+  requestId: 'requsagelogsmobilewithoutbreaks20260624',
+  apiType: 'chat',
+  featureType: 'workspacechatmobilewithoutbreaks20260624',
+  quotaMode: 'relaybillingmobilewithoutbreaks20260624',
+  model: 'modelusagelogsmobilewithoutbreaks20260624',
+  channelId: 'channelusagelogsmobilewithoutbreaks20260624',
+  provider: 'providerusagelogsmobilewithoutbreaks20260624',
+  status: 'success',
+  statusCode: 200,
+  latencyMs: 144,
+  cost: 0.2222,
+  channelCost: 0.1111,
+  promptTokens: 2000,
+  completionTokens: 440,
+  totalTokens: 2440,
+  createdAt: now,
+};
+
 const initialAnalytics = {
   byModel: [{ dimension: 'model', key: 'gpt-4.1-mini', requestCount: 4, totalTokens: 1520, totalCost: 0.06 }],
   byFeature: [{ dimension: 'feature', key: 'console_usage', requestCount: 4, totalTokens: 1520, totalCost: 0.06 }],
@@ -106,6 +129,75 @@ const filteredAnalytics = {
       requestCount: 9,
       totalTokens: 11160,
       totalCost: 1.1106,
+    },
+  ],
+};
+
+const mobileAnalytics = {
+  byModel: [
+    {
+      dimension: 'model',
+      key: 'modelusagelogsmobilewithoutbreaks20260624',
+      requestCount: 11,
+      totalTokens: 26840,
+      totalCost: 2.2222,
+    },
+  ],
+  byFeature: [
+    {
+      dimension: 'feature',
+      key: 'workspacechatmobilewithoutbreaks20260624',
+      requestCount: 11,
+      totalTokens: 26840,
+      totalCost: 2.2222,
+    },
+  ],
+  byUser: [
+    {
+      dimension: 'user',
+      key: 'userusagelogsmobilewithoutbreaks20260624',
+      requestCount: 11,
+      totalTokens: 26840,
+      totalCost: 2.2222,
+    },
+  ],
+  byTime: [{ dimension: 'time', key: '2026-W25', requestCount: 11, totalTokens: 26840, totalCost: 2.2222 }],
+  byChannel: [
+    {
+      dimension: 'channel',
+      key: 'channelusagelogsmobilewithoutbreaks20260624',
+      requestCount: 11,
+      totalTokens: 26840,
+      totalCost: 1.1111,
+    },
+  ],
+  byProvider: [
+    {
+      dimension: 'provider',
+      key: 'providerusagelogsmobilewithoutbreaks20260624',
+      requestCount: 11,
+      totalTokens: 26840,
+      totalCost: 2.2222,
+    },
+  ],
+  crossDimensions: [
+    {
+      dimension: 'model_time',
+      key: 'modelusagelogsmobilewithoutbreaks20260624 / 2026-W25',
+      primary: 'modelusagelogsmobilewithoutbreaks20260624',
+      secondary: '2026-W25',
+      requestCount: 11,
+      totalTokens: 26840,
+      totalCost: 2.2222,
+    },
+    {
+      dimension: 'user_feature',
+      key: 'userusagelogsmobilewithoutbreaks20260624 / workspacechatmobilewithoutbreaks20260624',
+      primary: 'userusagelogsmobilewithoutbreaks20260624',
+      secondary: 'workspacechatmobilewithoutbreaks20260624',
+      requestCount: 11,
+      totalTokens: 26840,
+      totalCost: 2.2222,
     },
   ],
 };
@@ -176,6 +268,40 @@ function usageAnalyticsQueryMatchesFinal(url: URL) {
   });
 }
 
+function usageLogQueryMatchesMobile(url: URL) {
+  return queryHas(url, {
+    organizationID: 'orgusagelogsmobilewithoutbreaks20260624',
+    userID: 'userusagelogsmobilewithoutbreaks20260624',
+    apiTokenID: 'tokusagelogsmobilewithoutbreaks20260624',
+    requestID: 'requsagelogsmobilewithoutbreaks20260624',
+    apiType: 'chat',
+    featureType: 'workspacechatmobilewithoutbreaks20260624',
+    quotaMode: 'relaybillingmobilewithoutbreaks20260624',
+    channelID: 'channelusagelogsmobilewithoutbreaks20260624',
+    provider: 'providerusagelogsmobilewithoutbreaks20260624',
+    status: 'success',
+    model: 'modelusagelogsmobilewithoutbreaks20260624',
+    limit: '50',
+    offset: '0',
+  });
+}
+
+function usageAnalyticsQueryMatchesMobile(url: URL) {
+  return queryHas(url, {
+    organizationID: 'orgusagelogsmobilewithoutbreaks20260624',
+    userID: 'userusagelogsmobilewithoutbreaks20260624',
+    apiType: 'chat',
+    featureType: 'workspacechatmobilewithoutbreaks20260624',
+    quotaMode: 'relaybillingmobilewithoutbreaks20260624',
+    channelID: 'channelusagelogsmobilewithoutbreaks20260624',
+    provider: 'providerusagelogsmobilewithoutbreaks20260624',
+    status: 'success',
+    model: 'modelusagelogsmobilewithoutbreaks20260624',
+    granularity: 'week',
+    limit: '8',
+  });
+}
+
 export async function registerAdminUsageLogsRoutes(page: Page): Promise<void> {
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request();
@@ -189,6 +315,10 @@ export async function registerAdminUsageLogsRoutes(page: Page): Promise<void> {
     }
 
     if (method === 'GET' && pathname === '/api/v1/admin/usage-logs') {
+      if (usageLogQueryMatchesMobile(url)) {
+        await fulfillJSON(route, { usageLogs: [mobileUsageLog], total: 1 });
+        return;
+      }
       if (usageLogQueryMatchesFinal(url)) {
         await fulfillJSON(route, { usageLogs: [filteredUsageLog], total: 1 });
         return;
@@ -198,6 +328,10 @@ export async function registerAdminUsageLogsRoutes(page: Page): Promise<void> {
     }
 
     if (method === 'GET' && pathname === '/api/v1/admin/usage-analytics') {
+      if (usageAnalyticsQueryMatchesMobile(url)) {
+        await fulfillJSON(route, mobileAnalytics);
+        return;
+      }
       if (usageAnalyticsQueryMatchesFinal(url)) {
         await fulfillJSON(route, filteredAnalytics);
         return;

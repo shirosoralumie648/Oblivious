@@ -145,27 +145,27 @@ function AnalyticsPanel({ title, rows }: { title: string; rows: UsageAnalyticsBu
   const visibleRows = rows.slice(0, 4);
 
   return (
-    <section className="rounded-lg border border-border bg-card p-4" aria-label={title}>
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+    <section className="min-w-0 rounded-lg border border-border bg-card p-4" aria-label={title}>
+      <div className="mb-3 flex min-w-0 items-center justify-between gap-3">
+        <h3 className="min-w-0 break-words text-sm font-semibold text-foreground [overflow-wrap:anywhere]">{title}</h3>
         <span className="text-xs text-muted-foreground">{visibleRows.length.toLocaleString()} rows</span>
       </div>
       {visibleRows.length === 0 ? (
         <p className="text-sm text-muted-foreground">No analytics data</p>
       ) : (
-        <div className="space-y-3">
+        <div className="min-w-0 space-y-3">
           {visibleRows.map((row) => (
-            <div key={row.key} className="space-y-1.5">
-              <div className="flex items-center justify-between gap-3 text-sm">
-                <span className="min-w-0 truncate font-medium text-foreground" title={row.key}>
+            <div key={row.key} className="min-w-0 space-y-1.5">
+              <div className="flex min-w-0 flex-wrap items-start justify-between gap-2 text-sm">
+                <span className="min-w-0 break-words font-medium text-foreground [overflow-wrap:anywhere]" title={row.key}>
                   {row.key}
                 </span>
                 <span className="shrink-0 font-mono text-xs text-muted-foreground">{money(row.totalCost)}</span>
               </div>
-              <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
-                <span>{row.requestCount.toLocaleString()} req</span>
-                <span>{row.totalTokens.toLocaleString()} tok</span>
-                <span>{row.dimension}</span>
+              <div className="grid min-w-0 grid-cols-3 gap-2 text-xs text-muted-foreground">
+                <span className="min-w-0 break-words [overflow-wrap:anywhere]">{row.requestCount.toLocaleString()} req</span>
+                <span className="min-w-0 break-words [overflow-wrap:anywhere]">{row.totalTokens.toLocaleString()} tok</span>
+                <span className="min-w-0 break-words [overflow-wrap:anywhere]">{row.dimension}</span>
               </div>
             </div>
           ))}
@@ -179,33 +179,33 @@ function CrossDimensionsPanel({ rows }: { rows: UsageAnalyticsCrossDimensionBuck
   const visibleRows = rows.slice(0, 6);
 
   return (
-    <section className="rounded-lg border border-border bg-card p-4" aria-label="Cross dimensions">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold text-foreground">Cross dimensions</h3>
+    <section className="min-w-0 rounded-lg border border-border bg-card p-4" aria-label="Cross dimensions">
+      <div className="mb-3 flex min-w-0 items-center justify-between gap-3">
+        <h3 className="min-w-0 break-words text-sm font-semibold text-foreground [overflow-wrap:anywhere]">Cross dimensions</h3>
         <span className="text-xs text-muted-foreground">{visibleRows.length.toLocaleString()} rows</span>
       </div>
       {visibleRows.length === 0 ? (
         <p className="text-sm text-muted-foreground">No cross dimension data</p>
       ) : (
-        <div className="space-y-3">
+        <div className="min-w-0 space-y-3">
           {visibleRows.map((row) => (
-            <div key={`${row.dimension}:${row.key}`} className="space-y-1.5">
-              <div className="flex items-center justify-between gap-3 text-sm">
-                <span className="shrink-0 rounded-md border border-border px-2 py-0.5 font-mono text-xs text-muted-foreground">
+            <div key={`${row.dimension}:${row.key}`} className="min-w-0 space-y-1.5">
+              <div className="flex min-w-0 flex-wrap items-start justify-between gap-2 text-sm">
+                <span className="max-w-full break-words rounded-md border border-border px-2 py-0.5 font-mono text-xs text-muted-foreground [overflow-wrap:anywhere]">
                   {row.dimension}
                 </span>
                 <span className="shrink-0 font-mono text-xs text-muted-foreground">{money(row.totalCost)}</span>
               </div>
-              <div className="min-w-0 truncate text-sm font-medium text-foreground" title={row.key}>
+              <div className="min-w-0 break-words text-sm font-medium text-foreground [overflow-wrap:anywhere]" title={row.key}>
                 {row.key}
               </div>
-              <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground sm:grid-cols-4">
-                <span>{row.requestCount.toLocaleString()} req</span>
-                <span>{row.totalTokens.toLocaleString()} tok</span>
-                <span className="truncate" title={row.primary}>
+              <div className="grid min-w-0 grid-cols-2 gap-2 text-xs text-muted-foreground sm:grid-cols-4">
+                <span className="min-w-0 break-words [overflow-wrap:anywhere]">{row.requestCount.toLocaleString()} req</span>
+                <span className="min-w-0 break-words [overflow-wrap:anywhere]">{row.totalTokens.toLocaleString()} tok</span>
+                <span className="min-w-0 break-words [overflow-wrap:anywhere]" title={row.primary}>
                   {row.primary || '-'}
                 </span>
-                <span className="truncate" title={row.secondary}>
+                <span className="min-w-0 break-words [overflow-wrap:anywhere]" title={row.secondary}>
                   {row.secondary || '-'}
                 </span>
               </div>
@@ -302,7 +302,7 @@ export function AdminUsageLogsPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-heading text-2xl font-semibold text-foreground">Usage Logs</h1>
@@ -310,7 +310,7 @@ export function AdminUsageLogsPage() {
         </div>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-[minmax(180px,1fr)_minmax(160px,1fr)_minmax(160px,1fr)_minmax(160px,1fr)] xl:grid-cols-12">
+      <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(180px,1fr)_minmax(160px,1fr)_minmax(160px,1fr)_minmax(160px,1fr)] xl:grid-cols-12">
         <Input aria-label="Organization ID filter" value={state.filters.organizationID} placeholder="Organization ID" className="min-h-[44px]" onChange={setFilter('organizationID')} />
         <Input aria-label="User ID filter" value={state.filters.userID} placeholder="User ID" className="min-h-[44px]" onChange={setFilter('userID')} />
         <Input aria-label="Request ID filter" value={state.filters.requestID} placeholder="Request ID" className="min-h-[44px]" onChange={setFilter('requestID')} />
@@ -337,13 +337,13 @@ export function AdminUsageLogsPage() {
         </select>
       </div>
 
-      <section className="space-y-3" aria-labelledby="usage-analytics-heading">
+      <section className="min-w-0 space-y-3" aria-labelledby="usage-analytics-heading">
         <div>
           <h2 id="usage-analytics-heading" className="font-heading text-lg font-semibold text-foreground">
             Usage Analytics
           </h2>
         </div>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-3">
           <AnalyticsPanel title="By model" rows={state.analytics.byModel} />
           <AnalyticsPanel title="By feature" rows={state.analytics.byFeature} />
           <AnalyticsPanel title="By user" rows={state.analytics.byUser} />
