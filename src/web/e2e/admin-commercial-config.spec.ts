@@ -1,10 +1,33 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 import { registerAdminCommercialConfigRoutes } from './fixtures/adminCommercialConfig';
 
 test.beforeEach(async ({ page }) => {
   await registerAdminCommercialConfigRoutes(page);
 });
+
+async function expectNoHorizontalOverflow(page: Page) {
+  const overflowState = await page.evaluate(() => {
+    const main = document.querySelector('main');
+    const tableViewport = document.querySelector('[data-slot="table-container"]');
+
+    return {
+      documentFits: document.documentElement.scrollWidth <= window.innerWidth + 1,
+      mainFits: main instanceof HTMLElement ? main.scrollWidth <= main.clientWidth + 1 : true,
+      tableViewportFits:
+        tableViewport instanceof HTMLElement
+          ? tableViewport.getBoundingClientRect().width <= window.innerWidth + 1 &&
+            window.getComputedStyle(tableViewport).overflowX === 'auto'
+          : false,
+    };
+  });
+
+  expect(overflowState).toEqual({
+    documentFits: true,
+    mainFits: true,
+    tableViewportFits: true,
+  });
+}
 
 test('admin plans preserve request-token caps in the browser', async ({ page }) => {
   await page.goto('/admin/plans');
@@ -53,7 +76,7 @@ test('admin users update commercial entitlements, quota allocation, and account 
 
   await page.getByRole('button', { name: 'Edit user buyer-browser@example.com' }).click();
   await page.getByLabel('Role', { exact: true }).selectOption('admin');
-  await page.getByLabel('Plan ID').fill('plan_browser_enterprise');
+  await page.getByRole('textbox', { name: 'Plan ID' }).fill('plan_browser_enterprise');
   await page.getByLabel('Quota Balance').fill('2500');
   await page.getByLabel('Status', { exact: true }).selectOption('disabled');
   await page.getByRole('button', { name: 'Save User' }).click();
@@ -130,4 +153,33 @@ test('admin routes create, edit, and delete weighted multi-channel routing in th
   await expect(page.getByRole('heading', { name: 'Delete Route' })).toBeVisible();
   await page.getByRole('button', { name: 'Delete Route' }).click();
   await expect(page.getByText('No model routes defined -- Create a route mapping to direct model requests to specific channels.')).toBeVisible();
+});
+
+test('admin routes mobile layout keeps long route target evidence contained', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/admin/routes');
+
+  await expect(page.getByRole('heading', { name: 'Model Routes', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Model Routes' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('main')).toHaveCount(1);
+
+  await page.getByRole('button', { name: 'Add Route' }).click();
+  await page.getByLabel('Model Pattern').fill('gptbrowserroutemobilewithoutbreaks20260624primary');
+  await page.getByLabel('Strategy').selectOption('weighted');
+  await page.getByLabel('Target Channel 1').selectOption('channel_browser_mobile_primary');
+  await page.getByLabel('Priority 1').fill('1');
+  await page.getByLabel('Weight 1').fill('880');
+  await page.getByRole('button', { name: 'Add channel target' }).click();
+  await page.getByLabel('Target Channel 2').selectOption('channel_browser_mobile_backup');
+  await page.getByLabel('Priority 2').fill('2');
+  await page.getByLabel('Weight 2').fill('120');
+  await page.getByRole('button', { name: 'Create Route' }).click();
+
+  await expect(page.getByText('gptbrowserroutemobilewithoutbreaks20260624primary')).toBeVisible();
+  await expect(page.getByText('channelbrowserroutemobilewithoutbreaks20260624primary')).toBeVisible();
+  await expect(page.getByText('p1 w880')).toBeVisible();
+  await expect(page.getByText('channelbrowserroutemobilewithoutbreaks20260624backup')).toBeVisible();
+  await expect(page.getByText('p2 w120')).toBeVisible();
+
+  await expectNoHorizontalOverflow(page);
 });

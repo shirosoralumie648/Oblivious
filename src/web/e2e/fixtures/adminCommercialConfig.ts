@@ -188,6 +188,50 @@ const browserRouteChannels = [
     createdAt: now,
     updatedAt: now,
   },
+  {
+    id: 'channel_browser_mobile_primary',
+    organizationID: 'org_browser_settings',
+    organizationId: 'org_browser_settings',
+    name: 'channelbrowserroutemobilewithoutbreaks20260624primary',
+    provider: 'openai',
+    baseURL: 'https://relay-routes-mobile-primary.example.com/v1',
+    baseUrl: 'https://relay-routes-mobile-primary.example.com/v1',
+    models: ['gptbrowserroutemobilewithoutbreaks20260624primary'],
+    groups: ['groupbrowserroutemobilewithoutbreaks20260624'],
+    rpm: 880,
+    tpm: 880000,
+    priority: 1,
+    estimatedCostPer1K: 0.004,
+    costMultiplier: 1.1,
+    weight: 880,
+    enabled: true,
+    status: 'online',
+    latency: 64,
+    createdAt: now,
+    updatedAt: now,
+  },
+  {
+    id: 'channel_browser_mobile_backup',
+    organizationID: 'org_browser_settings',
+    organizationId: 'org_browser_settings',
+    name: 'channelbrowserroutemobilewithoutbreaks20260624backup',
+    provider: 'anthropic',
+    baseURL: 'https://relay-routes-mobile-backup.example.com/v1',
+    baseUrl: 'https://relay-routes-mobile-backup.example.com/v1',
+    models: ['claudebrowserroutemobilewithoutbreaks20260624backup'],
+    groups: ['groupbrowserroutemobilewithoutbreaks20260624'],
+    rpm: 120,
+    tpm: 120000,
+    priority: 2,
+    estimatedCostPer1K: 0.008,
+    costMultiplier: 1.3,
+    weight: 120,
+    enabled: true,
+    status: 'online',
+    latency: 91,
+    createdAt: now,
+    updatedAt: now,
+  },
 ];
 
 const createRoutePayload = {
@@ -205,6 +249,15 @@ const updateRoutePayload = {
   channels: [
     { channelID: 'channel_browser_openai', priority: 1, weight: 60, enabled: true },
     { channelID: 'channel_browser_claude', priority: 2, weight: 40, enabled: false },
+  ],
+};
+
+const mobileRoutePayload = {
+  model: 'gptbrowserroutemobilewithoutbreaks20260624primary',
+  strategy: 'weighted',
+  channels: [
+    { channelID: 'channel_browser_mobile_primary', priority: 1, weight: 880, enabled: true },
+    { channelID: 'channel_browser_mobile_backup', priority: 2, weight: 120, enabled: true },
   ],
 };
 
@@ -424,12 +477,17 @@ export async function registerAdminCommercialConfigRoutes(page: Page): Promise<v
 
     if (method === 'POST' && pathname === '/api/v1/admin/routes') {
       const payload = request.postDataJSON() as Record<string, unknown>;
-      if (!routePayloadMatches(payload, createRoutePayload)) {
-        await fulfillError(route, 'route create payload did not preserve model, strategy, channels, weight, priority, and enabled');
+      if (routePayloadMatches(payload, createRoutePayload)) {
+        routeState = routeFromPayload('route_browser_weighted', createRoutePayload);
+        await fulfillJSON(route, routeState, 201);
         return;
       }
-      routeState = routeFromPayload('route_browser_weighted', createRoutePayload);
-      await fulfillJSON(route, routeState, 201);
+      if (routePayloadMatches(payload, mobileRoutePayload)) {
+        routeState = routeFromPayload('route_browser_mobile_without_breaks', mobileRoutePayload);
+        await fulfillJSON(route, routeState, 201);
+        return;
+      }
+      await fulfillError(route, 'route create payload did not preserve model, strategy, channels, weight, priority, and enabled');
       return;
     }
 
