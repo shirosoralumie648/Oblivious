@@ -713,6 +713,8 @@ assert_file_contains "$target_release_evidence_verifier_file" "strictVerifier.co
 assert_file_exists "$target_release_evidence_fixtures_file"
 assert_file_contains "$check_script" "verify-target-release-evidence-fixtures.sh"
 assert_file_contains "$target_release_evidence_fixtures_file" "generated-template-placeholders"
+assert_file_contains "$target_release_evidence_fixtures_file" "secret-name-only-environment-base-url-query"
+assert_file_contains "$target_release_evidence_fixtures_file" "secret-name-only-artifact-uri-fragment"
 assert_file_contains "$target_release_evidence_fixtures_file" "workflow-grpc-smoke-status-mismatch"
 assert_file_contains "$target_release_evidence_fixtures_file" "missing-artifacts-index"
 assert_file_contains "$target_release_evidence_fixtures_file" "dangling-strict-verifier-evidence-ref"
