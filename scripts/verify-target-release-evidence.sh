@@ -488,8 +488,19 @@ def placeholder?(value)
   value.is_a?(String) && value.match?(/TODO|TBD|placeholder|example|sample|\/path\/outside\/git|release-log-or-artifact-id|strict-verifier-log-or-artifact-id|strict-commercial-verifier-log|provider-run-id|grpc-smoke-log|secret-audit-log|telemetry-dashboard-or-export/i)
 end
 
+SECRET_LIKE_URI_PARAMETER_NAME_PATTERN = /\A(?:[^=&#]*[_-])?(?:token|secret|password|signature|api[_-]?key|access[_-]?key|credential|kubeconfig|private[_-]?key)\z/i.freeze
+
 def secret_like_uri?(value)
-  value.is_a?(String) && value.match?(/[?&#](?:[^=&#]*[_-])?(?:token|secret|password|signature|api[_-]?key|access[_-]?key|credential|kubeconfig|private[_-]?key)=/i)
+  return false unless value.is_a?(String)
+  return true if value.match?(/[?&#](?:[^=&#]*[_-])?(?:token|secret|password|signature|api[_-]?key|access[_-]?key|credential|kubeconfig|private[_-]?key)=/i)
+
+  value.scan(/[?&#]([^=&#]+)=/).any? do |match|
+    parameter_name = match.fetch(0)
+    decoded_parameter_name = URI.decode_www_form_component(parameter_name)
+    decoded_parameter_name.match?(SECRET_LIKE_URI_PARAMETER_NAME_PATTERN)
+  rescue ArgumentError
+    false
+  end
 end
 
 def userinfo_uri?(value)
