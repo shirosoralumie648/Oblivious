@@ -127,6 +127,33 @@ const filteredModel = {
   ],
 };
 
+const mobileModel = {
+  model: 'modelinventorymobilewithoutbreaks20260624',
+  providers: ['providermodelsmobilewithoutbreaks20260624'],
+  groups: ['groupmodelsmobilewithoutbreaks20260624'],
+  channelCount: 1,
+  enabledChannelCount: 1,
+  disabledChannelCount: 0,
+  minEstimatedCostPer1K: 0.0099,
+  maxEstimatedCostPer1K: 0.0099,
+  avgCostMultiplier: 1.42,
+  requestCount: 9876,
+  totalCost: 98.76,
+  totalChannelCost: 54.32,
+  channels: [
+    {
+      id: 'channel_models_mobile_without_breaks_primary',
+      name: 'channelmodelsmobilewithoutbreaks20260624primary',
+      provider: 'providermodelsmobilewithoutbreaks20260624',
+      groups: ['groupmodelsmobilewithoutbreaks20260624'],
+      enabled: true,
+      priority: 1,
+      estimatedCostPer1K: 0.0099,
+      costMultiplier: 1.42,
+    },
+  ],
+};
+
 function envelope(data: unknown) {
   return {
     ok: true,
@@ -170,6 +197,18 @@ function hasFilteredQuery(url: URL) {
   );
 }
 
+function hasMobileQuery(url: URL) {
+  return (
+    url.searchParams.get('provider') === 'providermodelsmobilewithoutbreaks20260624' &&
+    url.searchParams.get('group') === 'groupmodelsmobilewithoutbreaks20260624' &&
+    url.searchParams.get('status') === 'enabled' &&
+    url.searchParams.get('search') === 'modelinventorymobilewithoutbreaks20260624' &&
+    url.searchParams.get('sort') === 'model:asc' &&
+    url.searchParams.get('limit') === '50' &&
+    url.searchParams.get('offset') === '0'
+  );
+}
+
 function onlyKnownParams(url: URL) {
   const allowed = new Set(['provider', 'group', 'status', 'search', 'sort', 'limit', 'offset']);
   return [...url.searchParams.keys()].every((key) => allowed.has(key));
@@ -190,6 +229,11 @@ export async function registerAdminModelsRoutes(page: Page): Promise<void> {
     if (method === 'GET' && pathname === '/api/v1/admin/models') {
       if (!onlyKnownParams(url)) {
         await fulfillError(route, 'admin models list sent an unexpected query parameter');
+        return;
+      }
+
+      if (hasMobileQuery(url)) {
+        await fulfillJSON(route, { models: [mobileModel], total: 1 });
         return;
       }
 
