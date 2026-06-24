@@ -94,6 +94,40 @@ func TestBuildPaymentCheckoutProvidersEnablesDomesticHostedProviders(t *testing.
 	}
 }
 
+func TestHostedCheckoutCreatorRejectsSecretBearingBaseURLs(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		baseURL string
+	}{
+		{
+			name:    "userinfo credentials",
+			baseURL: "https://merchant:secret-password@checkout.alipay.test/session",
+		},
+		{
+			name:    "secret query parameter",
+			baseURL: "https://checkout.alipay.test/session?token=target-secret-token",
+		},
+		{
+			name:    "secret fragment parameter",
+			baseURL: "https://checkout.alipay.test/session#password=target-secret-password",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			session, err := hostedCheckoutCreator{provider: "alipay", baseURL: tc.baseURL}.CreateCheckoutSession(context.Background(), stripebilling.CheckoutConfig{}, stripebilling.CheckoutSessionRequest{
+				OrganizationID:  "org_domestic",
+				UserID:          "user_domestic",
+				PaymentIntentID: "pi_domestic_secret_guard",
+				PlanName:        "Quota top-up",
+				PlanPrice:       25,
+				Currency:        "cny",
+			})
+			if err == nil {
+				t.Fatalf("expected secret-bearing hosted checkout base URL %q to fail closed, got session URL %q", tc.baseURL, session.URL)
+			}
+		})
+	}
+}
+
 func TestConsoleBillingPaymentProvidersExposeConfiguredCheckoutProviders(t *testing.T) {
 	registry := payment.NewRegistry("stripe")
 	registry.Register(payment.Provider{Name: "stripe", Configured: true, Currency: "usd"})

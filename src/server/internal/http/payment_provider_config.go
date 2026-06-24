@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 
 	stripeapi "github.com/stripe/stripe-go/v83"
@@ -21,12 +22,20 @@ type hostedCheckoutCreator struct {
 	baseURL  string
 }
 
+var (
+	hostedCheckoutSecretParameterNamePattern  = regexp.MustCompile(`(?i)^(?:.*[_-])?(?:token|secret|password|signature|api[_-]?key|access[_-]?key|credential|kubeconfig|private[_-]?key)$`)
+	hostedCheckoutSecretParameterValuePattern = regexp.MustCompile(`(?i)(?:\b|[_-])(?:token|secret|password|signature|api[_-]?key|access[_-]?key|credential|kubeconfig|private[_-]?key)(?:\b|[_-])`)
+)
+
 func (c hostedCheckoutCreator) CreateCheckoutSession(_ context.Context, _ stripebilling.CheckoutConfig, req stripebilling.CheckoutSessionRequest) (*stripeapi.CheckoutSession, error) {
 	base, err := url.Parse(strings.TrimSpace(c.baseURL))
 	if err != nil || base.Scheme == "" || base.Host == "" {
 		return nil, fmt.Errorf("invalid %s checkout base url", c.provider)
 	}
 	provider := strings.ToLower(strings.TrimSpace(c.provider))
+	if err := validateHostedCheckoutBaseURL(provider, base); err != nil {
+		return nil, err
+	}
 	sessionID := hostedCheckoutSessionID(provider, req.PaymentIntentID)
 	currency := strings.ToLower(strings.TrimSpace(req.Currency))
 	if currency == "" {
@@ -49,6 +58,58 @@ func (c hostedCheckoutCreator) CreateCheckoutSession(_ context.Context, _ stripe
 		ID:  sessionID,
 		URL: base.String(),
 	}, nil
+}
+
+func validateHostedCheckoutBaseURL(provider string, base *url.URL) error {
+	if base.User != nil {
+		return fmt.Errorf("%s checkout base url must not embed credentials", provider)
+	}
+	if hostedCheckoutRawURIValuesCarrySecret(base.RawQuery) || hostedCheckoutRawURIValuesCarrySecret(base.Fragment) {
+		return fmt.Errorf("%s checkout base url must not embed secret-like query or fragment parameters", provider)
+	}
+	return nil
+}
+
+func hostedCheckoutRawURIValuesCarrySecret(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return false
+	}
+	values, err := url.ParseQuery(raw)
+	if err == nil {
+		for key, entries := range values {
+			if hostedCheckoutDecodedParameterNameLooksSecret(key) {
+				return true
+			}
+			for _, value := range entries {
+				if hostedCheckoutDecodedParameterValueLooksSecret(value) {
+					return true
+				}
+			}
+		}
+	}
+	decodedRaw := hostedCheckoutRepeatedlyDecode(raw)
+	return hostedCheckoutSecretParameterValuePattern.MatchString(decodedRaw)
+}
+
+func hostedCheckoutDecodedParameterNameLooksSecret(value string) bool {
+	return hostedCheckoutSecretParameterNamePattern.MatchString(hostedCheckoutRepeatedlyDecode(value))
+}
+
+func hostedCheckoutDecodedParameterValueLooksSecret(value string) bool {
+	return hostedCheckoutSecretParameterValuePattern.MatchString(hostedCheckoutRepeatedlyDecode(value))
+}
+
+func hostedCheckoutRepeatedlyDecode(value string) string {
+	decoded := strings.TrimSpace(value)
+	for range 3 {
+		next, err := url.QueryUnescape(decoded)
+		if err != nil || next == decoded {
+			return decoded
+		}
+		decoded = next
+	}
+	return decoded
 }
 
 func addHostedCheckoutMarketplaceMetadata(query url.Values, req stripebilling.CheckoutSessionRequest) {
