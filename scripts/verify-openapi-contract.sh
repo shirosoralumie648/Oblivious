@@ -3717,6 +3717,20 @@ require_scheduled_task_contract() {
         schemas.dig("CreateScheduledTaskRequest", "required")&.include?("cronExpression")
       missing << "CreateScheduledTaskRequest must require name, targetType, targetId, and cronExpression"
     end
+    create_properties = schemas.dig("CreateScheduledTaskRequest", "properties") || {}
+    unless create_properties.dig("name", "minLength") == 1 &&
+        create_properties.dig("name", "pattern") == "\\S"
+      missing << "CreateScheduledTaskRequest.name must document non-blank task names"
+    end
+    unless create_properties.dig("targetId", "minLength") == 1 &&
+        create_properties.dig("targetId", "pattern") == "\\S"
+      missing << "CreateScheduledTaskRequest.targetId must document non-blank target IDs"
+    end
+    unless create_properties.dig("cronExpression", "minLength") == 1 &&
+        create_properties.dig("cronExpression", "pattern") == "^\\s*(?:(?:\\S+\\s+){4}\\S+|@[A-Za-z]+(?:\\s+\\S+)?)\\s*$" &&
+        create_properties.dig("cronExpression", "description").to_s.include?("five-field cron expression or supported descriptor")
+      missing << "CreateScheduledTaskRequest.cronExpression must document non-blank five-field cron or descriptor shape"
+    end
     unless schemas.dig("UpdateScheduledTaskStatusRequest", "required")&.include?("enabled")
       missing << "UpdateScheduledTaskStatusRequest must require enabled"
     end

@@ -1124,13 +1124,20 @@ components:
       properties:
         name:
           type: string
+          minLength: 1
+          pattern: '\S'
         targetType:
           type: string
           enum: [workflow, agent]
         targetId:
           type: string
+          minLength: 1
+          pattern: '\S'
         cronExpression:
           type: string
+          description: Standard five-field cron expression or supported descriptor, matching server-side cron validation after trimming whitespace.
+          minLength: 1
+          pattern: '^\s*(?:(?:\S+\s+){4}\S+|@[A-Za-z]+(?:\s+\S+)?)\s*$'
           example: "0 9 * * *"
         enabled:
           type: boolean
