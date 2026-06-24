@@ -1,6 +1,34 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 import { registerAdminReviewsRoutes } from './fixtures/adminReviews';
+
+async function expectNoHorizontalOverflow(page: Page) {
+  const overflowState = await page.evaluate(() => {
+    const main = document.querySelector('main');
+    const tableViewports = Array.from(document.querySelectorAll('table')).map((table) => {
+      const viewport = table.parentElement;
+      if (!(viewport instanceof HTMLElement)) {
+        return false;
+      }
+      const style = window.getComputedStyle(viewport);
+      return viewport.getBoundingClientRect().width <= window.innerWidth + 1 && style.overflowX === 'auto';
+    });
+
+    return {
+      documentFits: document.documentElement.scrollWidth <= window.innerWidth + 1,
+      mainFits: main instanceof HTMLElement ? main.scrollWidth <= main.clientWidth + 1 : true,
+      tableViewportCount: tableViewports.length,
+      tableViewportsFit: tableViewports.every(Boolean),
+    };
+  });
+
+  expect(overflowState).toEqual({
+    documentFits: true,
+    mainFits: true,
+    tableViewportCount: 2,
+    tableViewportsFit: true,
+  });
+}
 
 test.beforeEach(async ({ page }) => {
   await registerAdminReviewsRoutes(page);
@@ -108,4 +136,19 @@ test('admin reviews applies takedown and reinstatement governance actions', asyn
   await page.getByLabel('Reason').fill('appeal accepted with remediation evidence');
   await page.getByRole('button', { name: 'Apply Governance' }).click();
   await expect(page.getByText('Marketplace agent reinstated.')).toBeVisible();
+});
+
+test('admin reviews mobile layout keeps moderation tables and governance controls contained', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/admin/reviews');
+
+  await expect(page.getByRole('heading', { name: 'Review Queue' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Review Queue' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('main')).toHaveCount(1);
+  await expect(page.getByText('publisherreviewmobileoperatorwithoutbreaks20260624')).toBeVisible();
+  await expect(page.getByText('providerresearchclustergovernancecategorywithoutbreaks20260624')).toBeVisible();
+  await expect(page.getByText('abusereportevidencemobilewithoutbreaks20260624')).toBeVisible();
+  await expect(page.getByLabel('Governance action')).toBeVisible();
+
+  await expectNoHorizontalOverflow(page);
 });
