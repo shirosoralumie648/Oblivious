@@ -1,6 +1,27 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 import { registerAdminAlertsRoutes } from './fixtures/adminAlerts';
+
+async function expectNoHorizontalOverflow(page: Page) {
+  const overflowState = await page.evaluate(() => {
+    const main = document.querySelector('main');
+    const labelledSections = Array.from(document.querySelectorAll('section[aria-label]'));
+
+    return {
+      documentFits: document.documentElement.scrollWidth <= window.innerWidth + 1,
+      mainFits: main instanceof HTMLElement ? main.scrollWidth <= main.clientWidth + 1 : true,
+      labelledSectionCount: labelledSections.length,
+      labelledSectionsFit: labelledSections.every((section) => section.getBoundingClientRect().width <= window.innerWidth + 1),
+    };
+  });
+
+  expect(overflowState).toEqual({
+    documentFits: true,
+    mainFits: true,
+    labelledSectionCount: 5,
+    labelledSectionsFit: true,
+  });
+}
 
 test.beforeEach(async ({ page }) => {
   await registerAdminAlertsRoutes(page);
@@ -73,4 +94,22 @@ test('admin alerts saves routing and tests notification providers', async ({ pag
 
   await page.getByRole('button', { name: 'Test provider Primary SMTP' }).click();
   await expect(page.getByText('Primary SMTP: provider configuration validated')).toBeVisible();
+});
+
+test('admin alerts mobile layout keeps provider recovery and delivery evidence contained', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/admin/alerts');
+
+  await expect(page.getByRole('heading', { name: 'Alerts' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Alerts' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('main')).toHaveCount(1);
+  await expect(page.getByLabel('Alert notification providers')).toContainText('mobilealertproviderresearchclusterwithoutbreaks20260624');
+  await expect(page.getByLabel('Recovery actions')).toContainText('policyrestartrelayproviderresearchclusterwithoutbreaks20260624');
+  await expect(page.getByLabel('Alert list')).toContainText('alertdeliveryfailureevidencemobilewithoutbreaks20260624');
+
+  await page.getByRole('button', { name: 'View deliveries Relay backlog' }).click();
+  await expect(page.getByLabel('Notification delivery history')).toContainText('providerdeliverytargetwithoutbreaks20260624');
+  await expect(page.getByLabel('Notification delivery history')).toContainText('deliveryerrorwithoutbreaks20260624');
+
+  await expectNoHorizontalOverflow(page);
 });

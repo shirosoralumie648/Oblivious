@@ -47,6 +47,29 @@ const relayAlert = {
   occurrenceCount: 7,
 };
 
+const mobileAlert = {
+  key: 'mobile-alert-provider-research-cluster',
+  title: 'mobilealertproviderresearchclusterwithoutbreaks20260624',
+  severity: 'critical',
+  status: 'acknowledged',
+  summary: 'alertdeliveryfailureevidencemobilewithoutbreaks20260624 requires operator inspection.',
+  component: 'observability',
+  lastOccurredAt: now,
+  occurrenceCount: 2,
+};
+
+const mobileRecoveryAction = {
+  id: 'policyrestartrelayproviderresearchclusterwithoutbreaks20260624:relay-backlog:1',
+  policyName: 'policyrestartrelayproviderresearchclusterwithoutbreaks20260624',
+  alertKey: relayAlert.key,
+  severity: 'critical',
+  component: 'relay',
+  type: 'restart',
+  status: 'recorded',
+  reason: 'Relay backlog recovery policy',
+  createdAt: now,
+};
+
 const initialRoutingRules = {
   debug: [],
   info: ['email'],
@@ -85,6 +108,17 @@ const slackProvider = {
   status: 'active',
   config: {
     webhook_url: '********',
+  },
+};
+
+const mobileProvider = {
+  id: 'providerdeliverytargetwithoutbreaks20260624',
+  kind: 'slack_webhook',
+  channel: 'im',
+  name: 'mobilealertproviderresearchclusterwithoutbreaks20260624',
+  status: 'active',
+  config: {
+    webhook_url: 'https://hooks.slack.example/mobile-alert-provider-research-cluster',
   },
 };
 
@@ -152,7 +186,7 @@ function alertQueryMatches(url: URL) {
 export async function registerAdminAlertsRoutes(page: Page): Promise<void> {
   let workflowStatus = workflowAlert.status;
   let routingRules = initialRoutingRules;
-  const providers = [smtpProvider];
+  const providers = [smtpProvider, mobileProvider];
 
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request();
@@ -179,8 +213,8 @@ export async function registerAdminAlertsRoutes(page: Page): Promise<void> {
       }
 
       await fulfillJSON(route, {
-        alerts: [{ ...workflowAlert, status: workflowStatus }, relayAlert],
-        total: 2,
+        alerts: [{ ...workflowAlert, status: workflowStatus }, relayAlert, mobileAlert],
+        total: 3,
       });
       return;
     }
@@ -220,8 +254,18 @@ export async function registerAdminAlertsRoutes(page: Page): Promise<void> {
             error: 'im webhook failed',
             attemptedAt: now,
           },
+          {
+            id: 'delivery_im_mobile_without_breaks',
+            alertKey: relayAlert.key,
+            channel: 'im',
+            providerId: mobileProvider.id,
+            providerKind: mobileProvider.kind,
+            delivered: false,
+            error: 'deliveryerrorwithoutbreaks20260624',
+            attemptedAt: now,
+          },
         ],
-        total: 2,
+        total: 3,
       });
       return;
     }
@@ -229,6 +273,7 @@ export async function registerAdminAlertsRoutes(page: Page): Promise<void> {
     if (method === 'GET' && pathname === '/api/v1/admin/observability/recovery-actions') {
       await fulfillJSON(route, {
         actions: [
+          mobileRecoveryAction,
           {
             id: 'restart-relay:relay-backlog:1',
             policyName: 'restart-relay',
