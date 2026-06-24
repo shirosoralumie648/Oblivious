@@ -151,6 +151,63 @@ const paidReleaseAgent = {
   paymentProviders: [{ name: 'stripe' }, { name: 'alipay' }, { name: 'wechatpay' }],
 };
 
+const mobileDetailVersion = {
+  id: 'version_mobile_detail_without_breaks_20260624',
+  agentID: 'agent_mobile_detail_without_breaks_20260624',
+  version: 'versionmobiledetailwithoutbreaks20260624',
+  status: 'approved',
+  createdAt: now,
+};
+
+const mobileDetailReview = {
+  id: 'review_mobile_detail_without_breaks_20260624',
+  agentID: 'agent_mobile_detail_without_breaks_20260624',
+  userID: 'reviewermarketplacemobiledetailwithoutbreaks20260624',
+  userName: 'reviewermarketplacemobiledetailwithoutbreaks20260624',
+  rating: 5,
+  body: 'reviewmarketplacemobiledetailwithoutbreaks20260624reviewmarketplacemobiledetailwithoutbreaks20260624reviewmarketplacemobiledetailwithoutbreaks20260624',
+  createdAt: now,
+};
+
+const mobileDetailAgent = {
+  ...paidReleaseAgent,
+  id: 'agent_mobile_detail_without_breaks_20260624',
+  ownerName: 'marketplacemobilepublisherwithoutbreaks20260624',
+  name: 'paidmarketplacemobileagentdetailwithoutbreaks20260624',
+  description:
+    'paidmarketplacemobileagentdetaildescriptionwithoutbreaks20260624paidmarketplacemobileagentdetaildescriptionwithoutbreaks20260624',
+  categoryName: 'marketplacedetailcategorywithoutbreaks20260624',
+  tags: [
+    'marketplacedetailtagwithoutbreaks20260624primary',
+    'marketplacedetailtagwithoutbreaks20260624secondary',
+    'marketplacedetailtagwithoutbreaks20260624governance',
+  ],
+  tools: JSON.stringify({
+    tools: [
+      {
+        name: 'marketplacedetailtoolwithoutbreaks20260624',
+        description:
+          'marketplacedetailtooldescriptionwithoutbreaks20260624marketplacedetailtooldescriptionwithoutbreaks20260624',
+      },
+    ],
+    notes: 'marketplacedetailtoolswithoutbreaks20260624marketplacedetailtoolswithoutbreaks20260624',
+  }),
+  exampleConversations: JSON.stringify([
+    {
+      userMessage:
+        'marketplacemobiledetailuserwithoutbreaks20260624marketplacemobiledetailuserwithoutbreaks20260624',
+      assistantMessage:
+        'marketplacemobiledetailassistantwithoutbreaks20260624marketplacemobiledetailassistantwithoutbreaks20260624',
+    },
+  ]),
+  currentVersion: mobileDetailVersion.version,
+  installCount: 1234567,
+  ratingAvg: 4.9,
+  rating: 4.9,
+  ratingCount: 321,
+  paymentProviders: [{ name: 'stripe' }, { name: 'alipay' }, { name: 'wechatpay' }],
+};
+
 const installedAgent = {
   id: 'install_release_helper',
   agentID: releaseAgent.id,
@@ -510,6 +567,31 @@ export async function registerAdminMarketplaceRoutes(page: Page): Promise<void> 
     if (method === 'GET' && pathname === '/api/v1/marketplace/agents/agent_paid_release_helper/reviews') {
       await fulfillJSON(route, {
         reviews: [{ id: 'review_paid_release', agentID: paidReleaseAgent.id, userID: 'user_admin', userName: 'Release Admin', rating: 5, body: 'Checkout provider evidence is visible.', createdAt: now }],
+        total: 1,
+      });
+      return;
+    }
+
+    if (method === 'GET' && pathname === '/api/v1/marketplace/agents/agent_mobile_detail_without_breaks_20260624') {
+      await fulfillJSON(route, {
+        agent: mobileDetailAgent,
+        versions: [mobileDetailVersion],
+        paymentProviders: mobileDetailAgent.paymentProviders,
+      });
+      return;
+    }
+
+    if (method === 'GET' && pathname === '/api/v1/marketplace/agents/agent_mobile_detail_without_breaks_20260624/versions') {
+      await fulfillJSON(route, {
+        versions: [mobileDetailVersion],
+        total: 1,
+      });
+      return;
+    }
+
+    if (method === 'GET' && pathname === '/api/v1/marketplace/agents/agent_mobile_detail_without_breaks_20260624/reviews') {
+      await fulfillJSON(route, {
+        reviews: [mobileDetailReview],
         total: 1,
       });
       return;

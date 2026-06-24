@@ -332,28 +332,36 @@ export function MarketplaceAgentDetailPage() {
     selectedPaymentProvider === 'stripe' ? 'Continue checkout' : `Continue ${paymentProviderLabel(selectedPaymentProvider)} checkout`;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div className="space-y-3">
-          <div>
-            <h1 className="font-heading text-2xl font-semibold text-foreground">{agent.name}</h1>
-            <p className="text-sm text-muted-foreground">by {agent.ownerName ?? agent.ownerID}</p>
+    <div className="min-w-0 space-y-6">
+      <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 space-y-3">
+          <div className="min-w-0">
+            <h1 className="break-words font-heading text-2xl font-semibold text-foreground [overflow-wrap:anywhere]">{agent.name}</h1>
+            <p className="min-w-0 break-words text-sm text-muted-foreground [overflow-wrap:anywhere]">by {agent.ownerName ?? agent.ownerID}</p>
           </div>
-          <p className="max-w-3xl text-base text-muted-foreground">{agent.description}</p>
-          <div className="flex flex-wrap gap-2">
-            {agent.categoryName ? <Badge variant="outline">{agent.categoryName}</Badge> : null}
-            {agent.tags.map((tag) => <Badge key={tag} variant="secondary">{tag}</Badge>)}
+          <p className="max-w-3xl break-words text-base text-muted-foreground [overflow-wrap:anywhere]">{agent.description}</p>
+          <div className="flex min-w-0 flex-wrap gap-2">
+            {agent.categoryName ? (
+              <Badge variant="outline" className="max-w-full whitespace-normal break-words [overflow-wrap:anywhere]">
+                {agent.categoryName}
+              </Badge>
+            ) : null}
+            {agent.tags.map((tag) => (
+              <Badge key={tag} variant="secondary" className="max-w-full whitespace-normal break-words [overflow-wrap:anywhere]">
+                {tag}
+              </Badge>
+            ))}
           </div>
         </div>
-        <Card className="w-full rounded-lg lg:max-w-xs">
-          <CardContent className="space-y-4 p-6">
-            <div className="flex items-center justify-between">
+        <Card className="w-full min-w-0 max-w-full rounded-lg lg:max-w-xs">
+          <CardContent className="min-w-0 space-y-4 p-6">
+            <div className="flex min-w-0 items-center justify-between gap-3">
               <span className="text-sm text-muted-foreground">Price</span>
               <span className="font-medium">{priceLabel(agent)}</span>
             </div>
             <RatingStars value={agent.ratingAvg ?? agent.rating ?? 0} count={agent.ratingCount} readonly showValue />
-            <p className="text-sm text-muted-foreground">{agent.installCount.toLocaleString()} installs</p>
-            <p className="text-sm text-muted-foreground">
+            <p className="break-words text-sm text-muted-foreground [overflow-wrap:anywhere]">{agent.installCount.toLocaleString()} installs</p>
+            <p className="break-words text-sm text-muted-foreground [overflow-wrap:anywhere]">
               {agent.pricingType === 'free'
                 ? 'Free agents install directly into the workspace after version selection.'
                 : 'Paid installs create a checkout-backed marketplace order before workspace installation.'}
@@ -363,7 +371,7 @@ export function MarketplaceAgentDetailPage() {
                 aria-label="Agent version"
                 value={state.selectedVersion}
                 onChange={(event) => dispatch({ type: 'SET_VERSION', value: event.target.value })}
-                className="min-h-[44px] w-full rounded-lg border border-input bg-input/30 px-3 text-sm text-foreground"
+                className="min-h-[44px] w-full min-w-0 rounded-lg border border-input bg-input/30 px-3 text-sm text-foreground"
               >
                 {state.versions.map((version) => (
                   <option key={version.id ?? version.version} value={version.id ?? version.version}>
@@ -377,7 +385,7 @@ export function MarketplaceAgentDetailPage() {
                 aria-label="Payment provider"
                 value={selectedPaymentProvider}
                 onChange={(event) => dispatch({ type: 'SET_PAYMENT_PROVIDER', value: event.target.value })}
-                className="min-h-[44px] w-full rounded-lg border border-input bg-input/30 px-3 text-sm text-foreground"
+                className="min-h-[44px] w-full min-w-0 rounded-lg border border-input bg-input/30 px-3 text-sm text-foreground"
               >
                 {paymentProviders.map((provider) => (
                   <option key={provider.name} value={provider.name}>{paymentProviderLabel(provider.name)}</option>
@@ -385,21 +393,21 @@ export function MarketplaceAgentDetailPage() {
               </select>
             ) : null}
             {paidAgent && paymentProviders.length === 0 ? (
-              <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              <p role="status" className="break-words rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 [overflow-wrap:anywhere]">
                 Payment provider checkout is not configured for this paid agent.
               </p>
             ) : null}
             <Button type="button" className="min-h-[44px] w-full" disabled={state.installing || (paidAgent && paymentProviders.length === 0)} onClick={() => void handleInstall()}>
               Install Agent
             </Button>
-            {state.actionMessage ? <p className="text-sm text-muted-foreground">{state.actionMessage}</p> : null}
+            {state.actionMessage ? <p className="break-words text-sm text-muted-foreground [overflow-wrap:anywhere]">{state.actionMessage}</p> : null}
             {state.checkoutUrl ? (
               <Button asChild className="min-h-[44px] w-full" variant="secondary">
                 <a href={state.checkoutUrl}>{checkoutLabel}</a>
               </Button>
             ) : null}
             {state.actionError ? (
-              <div role="alert" className="rounded-lg border border-destructive/30 p-3 text-sm text-destructive">
+              <div role="alert" className="break-words rounded-lg border border-destructive/30 p-3 text-sm text-destructive [overflow-wrap:anywhere]">
                 <p>{state.actionError.title}</p>
                 {state.actionError.message ? <p>{state.actionError.message}</p> : null}
               </div>
@@ -408,23 +416,23 @@ export function MarketplaceAgentDetailPage() {
         </Card>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card className="rounded-lg">
-          <CardHeader>
-            <CardTitle>Tools and Examples</CardTitle>
+      <div className="grid min-w-0 gap-6 lg:grid-cols-2">
+        <Card className="min-w-0 rounded-lg">
+          <CardHeader className="min-w-0">
+            <CardTitle className="break-words [overflow-wrap:anywhere]">Tools and Examples</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4 text-sm text-muted-foreground">
-            <pre className="max-h-48 overflow-auto rounded-lg bg-muted/40 p-3 text-xs">{agent.tools || 'No tools described.'}</pre>
-            <pre className="max-h-48 overflow-auto rounded-lg bg-muted/40 p-3 text-xs">{agent.exampleConversations || 'No examples described.'}</pre>
+          <CardContent className="min-w-0 space-y-4 text-sm text-muted-foreground">
+            <pre className="max-h-48 max-w-full overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted/40 p-3 text-xs [overflow-wrap:anywhere]">{agent.tools || 'No tools described.'}</pre>
+            <pre className="max-h-48 max-w-full overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted/40 p-3 text-xs [overflow-wrap:anywhere]">{agent.exampleConversations || 'No examples described.'}</pre>
           </CardContent>
         </Card>
 
-        <Card className="rounded-lg">
-          <CardHeader>
-            <CardTitle>Reviews</CardTitle>
+        <Card className="min-w-0 rounded-lg">
+          <CardHeader className="min-w-0">
+            <CardTitle className="break-words [overflow-wrap:anywhere]">Reviews</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-3">
+          <CardContent className="min-w-0 space-y-4">
+            <div className="min-w-0 space-y-3">
               <RatingStars value={state.reviewRating} onChange={(value) => dispatch({ type: 'SET_RATING', value })} />
               <Textarea
                 aria-label="Review text"
@@ -436,23 +444,23 @@ export function MarketplaceAgentDetailPage() {
                 Submit Review
               </Button>
             </div>
-            <div className="space-y-3">
+            <div className="min-w-0 space-y-3">
               {state.reviews.map((review) => (
-                <div key={review.id} className="rounded-lg border border-border p-3">
+                <div key={review.id} className="min-w-0 rounded-lg border border-border p-3">
                   <RatingStars value={review.rating} readonly size="sm" showValue />
-                  <p className="mt-2 text-sm text-muted-foreground">{review.body ?? review.text ?? 'No review text.'}</p>
+                  <p className="mt-2 min-w-0 break-words text-sm text-muted-foreground [overflow-wrap:anywhere]">{review.body ?? review.text ?? 'No review text.'}</p>
                 </div>
               ))}
             </div>
           </CardContent>
         </Card>
 
-        <Card className="rounded-lg">
-          <CardHeader>
-            <CardTitle>Marketplace Governance</CardTitle>
+        <Card className="min-w-0 rounded-lg">
+          <CardHeader className="min-w-0">
+            <CardTitle className="break-words [overflow-wrap:anywhere]">Marketplace Governance</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="space-y-3">
+          <CardContent className="min-w-0 space-y-6">
+            <div className="min-w-0 space-y-3">
               <Textarea
                 aria-label="Appeal reason"
                 value={state.appealReason}
@@ -468,7 +476,7 @@ export function MarketplaceAgentDetailPage() {
                 Submit Appeal
               </Button>
             </div>
-            <div className="space-y-3">
+            <div className="min-w-0 space-y-3">
               <Textarea
                 aria-label="Abuse reason"
                 value={state.abuseReason}

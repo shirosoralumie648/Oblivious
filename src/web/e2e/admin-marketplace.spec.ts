@@ -33,6 +33,42 @@ async function expectNoHorizontalOverflow(page: Page) {
   });
 }
 
+async function expectMarketplaceDetailNoHorizontalOverflow(page: Page) {
+  const overflowState = await page.evaluate(() => {
+    const main = document.querySelector('main');
+    const cards = Array.from(document.querySelectorAll('[data-slot="card"]')).map((card) => {
+      if (!(card instanceof HTMLElement)) {
+        return false;
+      }
+      return card.getBoundingClientRect().width <= window.innerWidth + 1 && card.scrollWidth <= card.clientWidth + 1;
+    });
+    const preBlocks = Array.from(document.querySelectorAll('pre')).map((pre) => {
+      if (!(pre instanceof HTMLElement)) {
+        return false;
+      }
+      return pre.getBoundingClientRect().width <= window.innerWidth + 1;
+    });
+
+    return {
+      documentFits: document.documentElement.scrollWidth <= window.innerWidth + 1,
+      mainFits: main instanceof HTMLElement ? main.scrollWidth <= main.clientWidth + 1 : true,
+      cardCount: cards.length,
+      cardsFit: cards.every(Boolean),
+      preBlockCount: preBlocks.length,
+      preBlocksFit: preBlocks.every(Boolean),
+    };
+  });
+
+  expect(overflowState).toEqual({
+    documentFits: true,
+    mainFits: true,
+    cardCount: 4,
+    cardsFit: true,
+    preBlockCount: 2,
+    preBlocksFit: true,
+  });
+}
+
 test('admin navigation exposes release management pages', async ({ page }) => {
   await page.goto('/admin');
   await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
@@ -110,6 +146,23 @@ test('marketplace paid install sends selected provider and exposes checkout cont
     'https://checkout.wechatpay.test/session/cs_paid_release_wechatpay_browser'
   );
   await expect(page.getByText('Agent installed.')).toHaveCount(0);
+});
+
+test('marketplace detail mobile layout keeps paid install and governance evidence contained', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/marketplace/agents/agent_mobile_detail_without_breaks_20260624');
+
+  await expect(page.getByRole('link', { name: 'Marketplace' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('heading', { name: 'paidmarketplacemobileagentdetailwithoutbreaks20260624' })).toBeVisible();
+  await expect(page.getByText('marketplacemobilepublisherwithoutbreaks20260624')).toBeVisible();
+  await expect(page.getByText('marketplacedetailcategorywithoutbreaks20260624')).toBeVisible();
+  await expect(page.getByText('marketplacedetailtagwithoutbreaks20260624primary')).toBeVisible();
+  await expect(page.getByText('marketplacedetailtoolwithoutbreaks20260624')).toBeVisible();
+  await expect(page.getByText('reviewmarketplacemobiledetailwithoutbreaks20260624').first()).toBeVisible();
+  await expect(page.getByLabel('Agent version')).toHaveValue('version_mobile_detail_without_breaks_20260624');
+  await expect(page.getByLabel('Payment provider')).toContainText('WeChat Pay');
+
+  await expectMarketplaceDetailNoHorizontalOverflow(page);
 });
 
 test('marketplace publish and my agents workflow works', async ({ page }) => {
