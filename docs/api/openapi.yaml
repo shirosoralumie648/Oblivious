@@ -1002,6 +1002,7 @@ components:
 
     Task:
       type: object
+      required: [id, title, goal, status, executionMode, authorizationScope, budgetLimit, budgetConsumed, createdAt, updatedAt]
       properties:
         id:
           type: string

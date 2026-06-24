@@ -3579,6 +3579,12 @@ require_task_mutation_csrf_contract() {
         task.dig("properties", "budgetConsumed", "type") == "integer"
       missing << "Task must expose authorizationScope and budgetConsumed runtime fields"
     end
+    task_required = task["required"] || []
+    ["id", "title", "goal", "status", "executionMode", "authorizationScope", "budgetLimit", "budgetConsumed", "createdAt", "updatedAt"].each do |field|
+      unless task_required.include?(field)
+        missing << "Task must require #{field}"
+      end
+    end
 
     task_detail = schemas["TaskDetail"] || {}
     detail_refs = task_detail.fetch("allOf", []).filter_map { |entry| entry["$ref"] }
