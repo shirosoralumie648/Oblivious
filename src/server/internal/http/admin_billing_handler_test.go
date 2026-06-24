@@ -836,6 +836,26 @@ func TestAdminBillingRecordTopupRefundHandlerCallsAdminService(t *testing.T) {
 	}
 }
 
+func TestAdminBillingRecordTopupRefundHandlerMapsIdempotencyConflict(t *testing.T) {
+	store := &fakeAdminStore{topupRefundErr: admin.ErrTopupRefundIdempotencyConflict}
+	handler := newAdminHandler(admin.NewService(store))
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(
+		stdhttp.MethodPost,
+		"/api/v1/admin/billing/topups/topup_1/refund",
+		strings.NewReader(`{"provider":"stripe","providerRefundID":"re_1","providerChargeID":"ch_1","amount":10,"currency":"usd","reason":"duplicate charge"}`),
+	)
+	handler.recordTopupRefund(recorder, request, "topup_1")
+
+	if recorder.Code != stdhttp.StatusConflict {
+		t.Fatalf("expected handler 409, got %d with body %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"code":"conflict"`) {
+		t.Fatalf("expected conflict error response, got %s", recorder.Body.String())
+	}
+}
+
 func TestAdminBillingRecordTopupRefundHandlerPassesDomesticPaymentIntentEvidence(t *testing.T) {
 	store := &fakeAdminStore{}
 	handler := newAdminHandler(admin.NewService(store))
@@ -1233,6 +1253,9 @@ func (s *fakeAdminStore) ListRefunds(ctx context.Context, filter admin.BillingIn
 func (s *fakeAdminStore) RecordTopupRefund(ctx context.Context, topupID string, request admin.TopupRefundRequest) (*admin.RefundInspection, error) {
 	s.recordedTopupRefundID = topupID
 	s.recordedTopupRefund = request
+	if s.topupRefundErr != nil {
+		return nil, s.topupRefundErr
+	}
 	return &admin.RefundInspection{
 		ID:               "refund_1",
 		Provider:         request.Provider,

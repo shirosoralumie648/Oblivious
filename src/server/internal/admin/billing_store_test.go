@@ -1,8 +1,14 @@
 package admin
 
 import (
+	"context"
+	"errors"
+	"regexp"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/DATA-DOG/go-sqlmock"
 )
 
 func TestTopupSummaryQueryUsesPaymentIntentProviderFilter(t *testing.T) {
@@ -101,5 +107,126 @@ func TestRecordTopupRefundUpdatesOrderStatusAndRefundedAmount(t *testing.T) {
 		if !strings.Contains(recordTopupRefundUpdateTopupOrderSQL, fragment) {
 			t.Fatalf("expected topup refund update SQL to contain %q, got %s", fragment, recordTopupRefundUpdateTopupOrderSQL)
 		}
+	}
+}
+
+func TestRecordTopupRefundRejectsConflictingProviderRefundEvidence(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	t.Cleanup(func() {
+		db.Close()
+	})
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(`
+		SELECT id, organization_id, user_id, COALESCE(payment_intent_id, ''), COALESCE(provider_checkout_session_id, ''),
+		       amount, money, status, COALESCE(trade_no, ''), refunded_amount, paid_at, created_at
+		FROM topup_orders
+		WHERE id = $1
+		FOR UPDATE
+	`)).WithArgs("topup_1").WillReturnRows(sqlmock.NewRows([]string{
+		"id", "organization_id", "user_id", "payment_intent_id", "provider_checkout_session_id",
+		"amount", "money", "status", "trade_no", "refunded_amount", "paid_at", "created_at",
+	}).AddRow("topup_1", "org_1", "user_1", "pi_1", "cs_1", 25.0, 25.0, "partially_refunded", "trade_1", 10.0, time.Now(), time.Now()))
+	mock.ExpectQuery(regexp.QuoteMeta(`
+		SELECT kind, status, amount, currency, refunded_amount, COALESCE(provider_payment_intent_id, '')
+		FROM payment_intents
+		WHERE id = $1 AND organization_id = $2 AND user_id = $3
+		FOR UPDATE
+	`)).WithArgs("pi_1", "org_1", "user_1").WillReturnRows(sqlmock.NewRows([]string{
+		"kind", "status", "amount", "currency", "refunded_amount", "provider_payment_intent_id",
+	}).AddRow("topup", "partially_refunded", 25.0, "usd", 10.0, "pi_provider_1"))
+	mock.ExpectExec("INSERT INTO billing_lifecycle_events").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(regexp.QuoteMeta(`
+		SELECT id, provider, provider_refund_id, COALESCE(provider_charge_id, ''), COALESCE(provider_payment_intent_id, ''),
+		       organization_id, user_id, payment_intent_id, topup_order_id, amount, currency, status, COALESCE(reason, ''),
+		       created_at, updated_at
+		FROM billing_refunds
+		WHERE provider = $1 AND provider_refund_id = $2
+	`)).WithArgs("stripe", "reused_refund_1").WillReturnRows(sqlmock.NewRows([]string{
+		"id", "provider", "provider_refund_id", "provider_charge_id", "provider_payment_intent_id",
+		"organization_id", "user_id", "payment_intent_id", "topup_order_id", "amount", "currency", "status", "reason",
+		"created_at", "updated_at",
+	}).AddRow("refund_1", "stripe", "reused_refund_1", "ch_1", "pi_provider_1", "org_1", "user_1", "pi_1", "topup_1", 10.0, "usd", "succeeded", "duplicate charge", time.Now(), time.Now()))
+	mock.ExpectRollback()
+
+	_, err = NewSQLStore(db).RecordTopupRefund(context.Background(), "topup_1", TopupRefundRequest{
+		Provider:                "stripe",
+		ProviderRefundID:        "reused_refund_1",
+		ProviderChargeID:        "ch_1",
+		ProviderPaymentIntentID: "pi_provider_1",
+		Amount:                  11,
+		Currency:                "usd",
+		Reason:                  "duplicate charge",
+	})
+	if !errors.Is(err, ErrTopupRefundIdempotencyConflict) {
+		t.Fatalf("expected refund idempotency conflict, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sql expectations: %v", err)
+	}
+}
+
+func TestRecordTopupRefundReusesExistingRefundWithSameEvidence(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	t.Cleanup(func() {
+		db.Close()
+	})
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(`
+		SELECT id, organization_id, user_id, COALESCE(payment_intent_id, ''), COALESCE(provider_checkout_session_id, ''),
+		       amount, money, status, COALESCE(trade_no, ''), refunded_amount, paid_at, created_at
+		FROM topup_orders
+		WHERE id = $1
+		FOR UPDATE
+	`)).WithArgs("topup_1").WillReturnRows(sqlmock.NewRows([]string{
+		"id", "organization_id", "user_id", "payment_intent_id", "provider_checkout_session_id",
+		"amount", "money", "status", "trade_no", "refunded_amount", "paid_at", "created_at",
+	}).AddRow("topup_1", "org_1", "user_1", "pi_1", "cs_1", 25.0, 25.0, "partially_refunded", "trade_1", 10.0, time.Now(), time.Now()))
+	mock.ExpectQuery(regexp.QuoteMeta(`
+		SELECT kind, status, amount, currency, refunded_amount, COALESCE(provider_payment_intent_id, '')
+		FROM payment_intents
+		WHERE id = $1 AND organization_id = $2 AND user_id = $3
+		FOR UPDATE
+	`)).WithArgs("pi_1", "org_1", "user_1").WillReturnRows(sqlmock.NewRows([]string{
+		"kind", "status", "amount", "currency", "refunded_amount", "provider_payment_intent_id",
+	}).AddRow("topup", "partially_refunded", 25.0, "usd", 10.0, "pi_provider_1"))
+	mock.ExpectExec("INSERT INTO billing_lifecycle_events").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(regexp.QuoteMeta(`
+		SELECT id, provider, provider_refund_id, COALESCE(provider_charge_id, ''), COALESCE(provider_payment_intent_id, ''),
+		       organization_id, user_id, payment_intent_id, topup_order_id, amount, currency, status, COALESCE(reason, ''),
+		       created_at, updated_at
+		FROM billing_refunds
+		WHERE provider = $1 AND provider_refund_id = $2
+	`)).WithArgs("stripe", "reused_refund_1").WillReturnRows(sqlmock.NewRows([]string{
+		"id", "provider", "provider_refund_id", "provider_charge_id", "provider_payment_intent_id",
+		"organization_id", "user_id", "payment_intent_id", "topup_order_id", "amount", "currency", "status", "reason",
+		"created_at", "updated_at",
+	}).AddRow("refund_1", "stripe", "reused_refund_1", "ch_1", "pi_provider_1", "org_1", "user_1", "pi_1", "topup_1", 11.0, "usd", "succeeded", "duplicate charge", time.Now(), time.Now()))
+	mock.ExpectCommit()
+
+	refund, err := NewSQLStore(db).RecordTopupRefund(context.Background(), "topup_1", TopupRefundRequest{
+		Provider:                "stripe",
+		ProviderRefundID:        "reused_refund_1",
+		ProviderChargeID:        "ch_1",
+		ProviderPaymentIntentID: "pi_provider_1",
+		Amount:                  11,
+		Currency:                "usd",
+		Reason:                  "duplicate charge",
+	})
+	if err != nil {
+		t.Fatalf("expected idempotent retry to reuse existing refund, got %v", err)
+	}
+	if refund == nil || refund.ID != "refund_1" || refund.Amount != 11 {
+		t.Fatalf("expected existing refund row, got %+v", refund)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("sql expectations: %v", err)
 	}
 }

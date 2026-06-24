@@ -1092,6 +1092,10 @@ func (h adminHandler) recordTopupRefund(w stdhttp.ResponseWriter, r *stdhttp.Req
 	}
 	refund, err := h.service.RecordTopupRefund(r.Context(), topupID, request)
 	if err != nil {
+		if errors.Is(err, admin.ErrTopupRefundIdempotencyConflict) {
+			writeError(w, stdhttp.StatusConflict, "conflict", err.Error())
+			return
+		}
 		if isNotFoundError(err) || strings.Contains(err.Error(), "not found") {
 			writeError(w, stdhttp.StatusNotFound, "not_found", "topup not found")
 			return

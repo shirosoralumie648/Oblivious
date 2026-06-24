@@ -1860,6 +1860,7 @@ type fakeAdminStore struct {
 	createdPlan           admin.PlanCreateRequest
 	recordedTopupRefundID string
 	recordedTopupRefund   admin.TopupRefundRequest
+	topupRefundErr        error
 	updatedQuotaUserID    string
 	updatedQuotaBalance   float64
 	missingUserID         string

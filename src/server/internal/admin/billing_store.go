@@ -3,12 +3,15 @@ package admin
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+var ErrTopupRefundIdempotencyConflict = errors.New("topup refund idempotency conflict")
 
 // BillingInspectionStore defines Admin billing inspection and operator recovery operations.
 type BillingInspectionStore interface {
@@ -38,6 +41,45 @@ const recordTopupRefundUpdateTopupOrderSQL = `
 	SET status = $2, refunded_amount = $3
 	WHERE id = $1
 `
+
+type topupRefundEvidence struct {
+	ProviderChargeID        string
+	ProviderPaymentIntentID string
+	PaymentIntentID         string
+	TopupOrderID            string
+	Amount                  float64
+	Currency                string
+}
+
+func normalizeTopupRefundEvidence(evidence topupRefundEvidence) topupRefundEvidence {
+	evidence.ProviderChargeID = strings.TrimSpace(evidence.ProviderChargeID)
+	evidence.ProviderPaymentIntentID = strings.TrimSpace(evidence.ProviderPaymentIntentID)
+	evidence.PaymentIntentID = strings.TrimSpace(evidence.PaymentIntentID)
+	evidence.TopupOrderID = strings.TrimSpace(evidence.TopupOrderID)
+	evidence.Currency = strings.ToLower(strings.TrimSpace(evidence.Currency))
+	return evidence
+}
+
+func topupRefundEvidenceMatches(existing *RefundInspection, requested topupRefundEvidence) bool {
+	if existing == nil {
+		return false
+	}
+	current := normalizeTopupRefundEvidence(topupRefundEvidence{
+		ProviderChargeID:        existing.ProviderChargeID,
+		ProviderPaymentIntentID: existing.ProviderPaymentIntentID,
+		PaymentIntentID:         existing.PaymentIntentID,
+		TopupOrderID:            existing.TopupOrderID,
+		Amount:                  existing.Amount,
+		Currency:                existing.Currency,
+	})
+	requested = normalizeTopupRefundEvidence(requested)
+	return current.ProviderChargeID == requested.ProviderChargeID &&
+		current.ProviderPaymentIntentID == requested.ProviderPaymentIntentID &&
+		current.PaymentIntentID == requested.PaymentIntentID &&
+		current.TopupOrderID == requested.TopupOrderID &&
+		current.Amount == requested.Amount &&
+		current.Currency == requested.Currency
+}
 
 func normalizeBillingFilter(filter BillingInspectionFilter) BillingInspectionFilter {
 	if filter.Limit <= 0 {
@@ -521,6 +563,7 @@ func (s *SQLStore) RecordTopupRefund(ctx context.Context, topupID string, reques
 	}
 	reason := strings.TrimSpace(request.Reason)
 	providerChargeID := strings.TrimSpace(request.ProviderChargeID)
+	requestedProviderPaymentIntentID := strings.TrimSpace(request.ProviderPaymentIntentID)
 	providerPaymentIntentID := strings.TrimSpace(request.ProviderPaymentIntentID)
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -551,6 +594,7 @@ func (s *SQLStore) RecordTopupRefund(ctx context.Context, topupID string, reques
 
 	var intentKind, intentStatus, intentCurrency string
 	var intentAmount, priorRefunded float64
+	var intentProviderPaymentIntentID string
 	if err := tx.QueryRowContext(ctx, `
 		SELECT kind, status, amount, currency, refunded_amount, COALESCE(provider_payment_intent_id, '')
 		FROM payment_intents
@@ -562,7 +606,7 @@ func (s *SQLStore) RecordTopupRefund(ctx context.Context, topupID string, reques
 		&intentAmount,
 		&intentCurrency,
 		&priorRefunded,
-		&providerPaymentIntentID,
+		&intentProviderPaymentIntentID,
 	); err != nil {
 		return nil, fmt.Errorf("load topup payment intent: %w", err)
 	}
@@ -574,6 +618,13 @@ func (s *SQLStore) RecordTopupRefund(ctx context.Context, topupID string, reques
 	}
 	if currency == "" {
 		currency = "usd"
+	}
+	if strings.TrimSpace(intentProviderPaymentIntentID) != "" {
+		providerPaymentIntentID = strings.TrimSpace(intentProviderPaymentIntentID)
+	}
+	idempotencyEvidenceProviderPaymentIntentID := providerPaymentIntentID
+	if requestedProviderPaymentIntentID != "" {
+		idempotencyEvidenceProviderPaymentIntentID = requestedProviderPaymentIntentID
 	}
 	available := intentAmount - priorRefunded
 	if available <= 0 {
@@ -606,6 +657,16 @@ func (s *SQLStore) RecordTopupRefund(ctx context.Context, topupID string, reques
 		refund, err := s.getRefundByProviderID(ctx, tx, provider, providerRefundID)
 		if err != nil {
 			return nil, err
+		}
+		if !topupRefundEvidenceMatches(refund, topupRefundEvidence{
+			ProviderChargeID:        providerChargeID,
+			ProviderPaymentIntentID: idempotencyEvidenceProviderPaymentIntentID,
+			PaymentIntentID:         topup.PaymentIntentID,
+			TopupOrderID:            topup.ID,
+			Amount:                  request.Amount,
+			Currency:                currency,
+		}) {
+			return nil, fmt.Errorf("providerRefundID reuse conflicts with existing refund evidence: %w", ErrTopupRefundIdempotencyConflict)
 		}
 		if err := tx.Commit(); err != nil {
 			return nil, fmt.Errorf("commit idempotent topup refund: %w", err)

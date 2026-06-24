@@ -563,6 +563,7 @@ marketplace_admin_billing_sql_shape_required=(
   "TestTopupSummaryQueryUsesPaymentIntentProviderFilter|TestTopupSummaryQueryUsesPaymentIntentProviderFilter"
   "TestMarketplaceSettlementQueriesUsePaymentIntentProviderFilter|TestMarketplaceSettlementQueriesUsePaymentIntentProviderFilter"
   "TestRecordTopupRefundUpdatesOrderStatusAndRefundedAmount|TestRecordTopupRefundUpdatesOrderStatusAndRefundedAmount"
+  "TestRecordTopupRefundRejectsConflictingProviderRefundEvidence|TestRecordTopupRefundRejectsConflictingProviderRefundEvidence"
 )
 for requirement in "${marketplace_admin_billing_sql_shape_required[@]}"; do
   token="${requirement%%|*}"
