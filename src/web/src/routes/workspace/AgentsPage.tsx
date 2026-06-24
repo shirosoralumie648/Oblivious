@@ -667,13 +667,13 @@ export function AgentsPage() {
   };
 
   return (
-    <section className="mx-auto max-w-6xl space-y-6">
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="space-y-2">
+    <section className="mx-auto max-w-6xl min-w-0 space-y-6">
+      <header className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0 space-y-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-[#6d6658]">Workspace runtime</p>
           <h1 className="font-heading text-3xl font-semibold text-[#181611]">Agents</h1>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <button
             className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-[#181611] px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
             onClick={() => {
@@ -896,33 +896,33 @@ export function AgentsPage() {
         </section>
       ) : null}
 
-      <div className="grid gap-5 lg:grid-cols-[280px_minmax(0,1fr)]">
-        <aside className="space-y-3">
+      <div className="grid min-w-0 gap-5 lg:grid-cols-[280px_minmax(0,1fr)]">
+        <aside className="min-w-0 space-y-3">
           {isLoading && agents.length === 0 ? <p className="text-sm text-[#625b4f]">Loading agents...</p> : null}
           {!isLoading && agents.length === 0 ? <p className="text-sm text-[#625b4f]">No agents configured.</p> : null}
           {agents.map((agent) => (
             <button
               aria-label={agent.name}
               aria-pressed={selectedAgent?.id === agent.id}
-              className="block min-h-[52px] w-full rounded-lg border border-[#d7d2c4] bg-white px-4 py-3 text-left text-sm transition hover:border-[#181611] aria-pressed:border-[#181611] aria-pressed:bg-[#f6f1e6]"
+              className="block min-h-[52px] w-full min-w-0 rounded-lg border border-[#d7d2c4] bg-white px-4 py-3 text-left text-sm transition hover:border-[#181611] aria-pressed:border-[#181611] aria-pressed:bg-[#f6f1e6]"
               key={agent.id}
               onClick={() => selectAgent(agent)}
               type="button"
             >
-              <span className="block font-semibold text-[#181611]">{agent.name}</span>
-              <span className="mt-1 block text-xs text-[#625b4f]">{agent.model}</span>
+              <span className="block break-words font-semibold text-[#181611] [overflow-wrap:anywhere]">{agent.name}</span>
+              <span className="mt-1 block break-words text-xs text-[#625b4f] [overflow-wrap:anywhere]">{agent.model}</span>
             </button>
           ))}
         </aside>
 
         {selectedAgent ? (
-          <section aria-label={`Agent policy ${selectedAgent.name}`} className="space-y-5">
-            <div className="rounded-lg border border-[#d7d2c4] bg-white p-5">
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-[#6d6658]">{selectedAgent.model}</p>
-                  <h2 className="mt-1 text-xl font-semibold text-[#181611]">{selectedAgent.name}</h2>
-                  {selectedAgent.description ? <p className="mt-2 text-sm leading-6 text-[#625b4f]">{selectedAgent.description}</p> : null}
+          <section aria-label={`Agent policy ${selectedAgent.name}`} className="min-w-0 space-y-5">
+            <div className="min-w-0 rounded-lg border border-[#d7d2c4] bg-white p-5">
+              <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
+                <div className="min-w-0">
+                  <p className="break-words text-xs font-semibold uppercase tracking-wide text-[#6d6658] [overflow-wrap:anywhere]">{selectedAgent.model}</p>
+                  <h2 className="mt-1 break-words text-xl font-semibold text-[#181611] [overflow-wrap:anywhere]">{selectedAgent.name}</h2>
+                  {selectedAgent.description ? <p className="mt-2 break-words text-sm leading-6 text-[#625b4f] [overflow-wrap:anywhere]">{selectedAgent.description}</p> : null}
                 </div>
                 <label className="text-sm font-medium text-[#181611]">
                   Approval mode
@@ -1370,11 +1370,11 @@ export function AgentsPage() {
                         key={key}
                       >
                         <div className="min-w-0">
-                          <p className="font-medium text-[#181611]">{tool.name}</p>
-                          <p className="mt-1 text-xs text-[#625b4f]">{toolDisplayType(tool)}</p>
-                          {tool.description ? <p className="mt-2 text-sm leading-6 text-[#625b4f]">{tool.description}</p> : null}
+                          <p className="break-words font-medium text-[#181611] [overflow-wrap:anywhere]">{tool.name}</p>
+                          <p className="mt-1 break-words text-xs text-[#625b4f] [overflow-wrap:anywhere]">{toolDisplayType(tool)}</p>
+                          {tool.description ? <p className="mt-2 break-words text-sm leading-6 text-[#625b4f] [overflow-wrap:anywhere]">{tool.description}</p> : null}
                         </div>
-                        <label className="text-sm font-medium text-[#181611]">
+                        <label className="min-w-0 break-words text-sm font-medium text-[#181611] [overflow-wrap:anywhere]">
                           {`Risk level for ${tool.name}`}
                           <select
                             aria-label={`Risk level for ${tool.name}`}

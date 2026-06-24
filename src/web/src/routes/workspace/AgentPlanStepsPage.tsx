@@ -537,42 +537,42 @@ export function AgentPlanStepsPage() {
   };
 
   return (
-    <section className="mx-auto max-w-5xl space-y-6">
-      <header className="space-y-2">
+    <section className="mx-auto max-w-5xl min-w-0 space-y-6">
+      <header className="min-w-0 space-y-2">
         <p className="text-xs font-semibold uppercase tracking-wide text-[#6d6658]">Agent run</p>
         <h1 className="font-heading text-3xl font-semibold text-[#181611]">Agent Plan Steps</h1>
-        {runId ? <p className="text-sm text-[#625b4f]">Run {runId}</p> : null}
-        {runStatus ? <p className="text-sm font-medium text-[#3f3a31]">Status: {runStatus}</p> : null}
+        {runId ? <p className="break-words text-sm text-[#625b4f] [overflow-wrap:anywhere]">Run {runId}</p> : null}
+        {runStatus ? <p className="break-words text-sm font-medium text-[#3f3a31] [overflow-wrap:anywhere]">Status: {runStatus}</p> : null}
         <dl
           aria-label="Agent run execution controls"
-          className="grid gap-2 text-sm text-[#3f3a31] sm:grid-cols-3"
+          className="grid min-w-0 gap-2 text-sm text-[#3f3a31] sm:grid-cols-3"
         >
           {runMode ? (
-            <div className="rounded-lg border border-[#d7d2c4] bg-white px-3 py-2">
+            <div className="min-w-0 rounded-lg border border-[#d7d2c4] bg-white px-3 py-2">
               <dt className="text-xs font-semibold uppercase text-[#6d6658]">Mode </dt>
-              <dd className="font-medium">{runMode}</dd>
+              <dd className="break-words font-medium [overflow-wrap:anywhere]">{runMode}</dd>
             </div>
           ) : null}
           {runIterationCount !== null ? (
-            <div className="rounded-lg border border-[#d7d2c4] bg-white px-3 py-2">
+            <div className="min-w-0 rounded-lg border border-[#d7d2c4] bg-white px-3 py-2">
               <dt className="text-xs font-semibold uppercase text-[#6d6658]">Iterations </dt>
               <dd className="font-medium">{runIterationCount}</dd>
             </div>
           ) : null}
           {runToolCallCount !== null ? (
-            <div className="rounded-lg border border-[#d7d2c4] bg-white px-3 py-2">
+            <div className="min-w-0 rounded-lg border border-[#d7d2c4] bg-white px-3 py-2">
               <dt className="text-xs font-semibold uppercase text-[#6d6658]">Tool calls </dt>
               <dd className="font-medium">{runToolCallCount}</dd>
             </div>
           ) : null}
           {runError ? (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 sm:col-span-3">
+            <div className="min-w-0 rounded-lg border border-red-200 bg-red-50 px-3 py-2 sm:col-span-3">
               <dt className="text-xs font-semibold uppercase text-red-700">Stop reason </dt>
-              <dd className="font-medium text-red-800">{runError}</dd>
+              <dd className="break-words font-medium text-red-800 [overflow-wrap:anywhere]">{runError}</dd>
             </div>
           ) : null}
         </dl>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex min-w-0 flex-wrap gap-2">
           <button
             className="min-h-10 rounded-lg border border-[#181611] px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
             disabled={isRefreshing}
@@ -591,7 +591,7 @@ export function AgentPlanStepsPage() {
           </button>
         </div>
         {runStatus === 'token_budget_exceeded' ? (
-          <div className="flex flex-col gap-2 rounded-lg border border-[#d7d2c4] bg-white p-3 sm:flex-row sm:items-end">
+          <div className="flex min-w-0 flex-col gap-2 rounded-lg border border-[#d7d2c4] bg-white p-3 sm:flex-row sm:items-end">
             <label className="grid gap-1 text-sm font-medium text-[#3f3a31]">
               Increased token budget
               <input
@@ -614,7 +614,7 @@ export function AgentPlanStepsPage() {
             </button>
           </div>
         ) : null}
-        <div className="flex flex-col gap-2 rounded-lg border border-[#d7d2c4] bg-white p-3 sm:flex-row sm:items-end">
+        <div className="flex min-w-0 flex-col gap-2 rounded-lg border border-[#d7d2c4] bg-white p-3 sm:flex-row sm:items-end">
           <label className="grid flex-1 gap-1 text-sm font-medium text-[#3f3a31]">
             Adjustment reason
             <textarea
@@ -641,7 +641,7 @@ export function AgentPlanStepsPage() {
         </p>
       ) : null}
 
-      <section aria-label="Tool approval queue" className="space-y-3">
+      <section aria-label="Tool approval queue" className="min-w-0 space-y-3">
         <div className="flex flex-col gap-1">
           <p className="text-xs font-semibold uppercase tracking-wide text-[#6d6658]">Runtime controls</p>
           <h2 className="font-heading text-2xl font-semibold text-[#181611]">Tool Approval Queue</h2>
@@ -654,28 +654,28 @@ export function AgentPlanStepsPage() {
           return (
             <article
               aria-label={`Tool run ${toolRun.toolName}`}
-              className="rounded-lg border border-[#d7d2c4] bg-white p-4"
+              className="min-w-0 rounded-lg border border-[#d7d2c4] bg-white p-4"
               key={toolRun.id}
             >
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0 space-y-2">
-                  <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase text-[#6d6658]">
-                    <span>{toolRun.status}</span>
-                    {toolRun.approvalStatus ? <span>Approval: {toolRun.approvalStatus}</span> : null}
-                    {toolRun.riskLevel ? <span>Risk: {toolRun.riskLevel}</span> : null}
-                    {toolRun.toolType ? <span>{toolRun.toolType}</span> : null}
-                    {toolRun.serverId ? <span>Server: {toolRun.serverId}</span> : null}
+                  <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs font-semibold uppercase text-[#6d6658]">
+                    <span className="break-words [overflow-wrap:anywhere]">{toolRun.status}</span>
+                    {toolRun.approvalStatus ? <span className="break-words [overflow-wrap:anywhere]">Approval: {toolRun.approvalStatus}</span> : null}
+                    {toolRun.riskLevel ? <span className="break-words [overflow-wrap:anywhere]">Risk: {toolRun.riskLevel}</span> : null}
+                    {toolRun.toolType ? <span className="break-words [overflow-wrap:anywhere]">{toolRun.toolType}</span> : null}
+                    {toolRun.serverId ? <span className="break-words [overflow-wrap:anywhere]">Server: {toolRun.serverId}</span> : null}
                   </div>
-                  <h3 className="text-base font-semibold text-[#181611]">{toolRun.toolName}</h3>
+                  <h3 className="break-words text-base font-semibold text-[#181611] [overflow-wrap:anywhere]">{toolRun.toolName}</h3>
                   {toolArguments ? (
-                    <pre className="max-h-48 overflow-auto rounded-lg bg-[#f6f1e6] p-3 text-xs leading-5 text-[#3f3a31]">
+                    <pre className="max-h-48 max-w-full overflow-auto rounded-lg bg-[#f6f1e6] p-3 text-xs leading-5 text-[#3f3a31]">
                       {toolArguments}
                     </pre>
                   ) : null}
-                  {toolRun.resultContent ? <p className="text-sm leading-6 text-[#2f5f3a]">{toolRun.resultContent}</p> : null}
-                  {toolRun.error ? <p className="text-sm leading-6 text-red-700">{toolRun.error}</p> : null}
+                  {toolRun.resultContent ? <p className="break-words text-sm leading-6 text-[#2f5f3a] [overflow-wrap:anywhere]">{toolRun.resultContent}</p> : null}
+                  {toolRun.error ? <p className="break-words text-sm leading-6 text-red-700 [overflow-wrap:anywhere]">{toolRun.error}</p> : null}
                   {toolRun.approvalDecisionReason ? (
-                    <p className="text-sm leading-6 text-[#625b4f]">Decision reason: {toolRun.approvalDecisionReason}</p>
+                    <p className="break-words text-sm leading-6 text-[#625b4f] [overflow-wrap:anywhere]">Decision reason: {toolRun.approvalDecisionReason}</p>
                   ) : null}
                   {canApproveToolRun(toolRun) || canRejectToolRun(toolRun) ? (
                     <label className="grid gap-1 text-sm font-medium text-[#3f3a31]">
@@ -690,7 +690,7 @@ export function AgentPlanStepsPage() {
                   ) : null}
                 </div>
 
-                <div className="flex shrink-0 flex-wrap gap-2">
+                <div className="flex min-w-0 max-w-full shrink-0 flex-wrap gap-2">
                   <button
                     aria-label={`Approve tool ${toolRun.toolName}`}
                     className="min-h-10 rounded-lg border border-[#181611] px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
@@ -728,8 +728,8 @@ export function AgentPlanStepsPage() {
         })}
       </section>
 
-      <section aria-label="Plan steps" className="space-y-3">
-        <div className="rounded-lg border border-[#d7d2c4] bg-white p-4">
+      <section aria-label="Plan steps" className="min-w-0 space-y-3">
+        <div className="min-w-0 rounded-lg border border-[#d7d2c4] bg-white p-4">
           {!isCreatingStep ? (
             <button
               className="min-h-10 rounded-lg border border-[#181611] px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
@@ -819,17 +819,17 @@ export function AgentPlanStepsPage() {
           return (
             <article
               aria-label={`Plan step ${step.title}`}
-              className="rounded-lg border border-[#d7d2c4] bg-white p-4"
+              className="min-w-0 rounded-lg border border-[#d7d2c4] bg-white p-4"
               key={step.id}
             >
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase text-[#6d6658]">
-                    {typeof step.index === 'number' ? <span>Step {step.index}</span> : null}
-                    <span>{step.status}</span>
-                    {step.approvalStatus ? <span>Approval: {step.approvalStatus}</span> : null}
-                    {step.toolName ? <span>Tool: {step.toolName}</span> : null}
-                    {readableDependencies(step) ? <span>Depends on: {readableDependencies(step)}</span> : null}
+                  <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs font-semibold uppercase text-[#6d6658]">
+                    {typeof step.index === 'number' ? <span className="break-words [overflow-wrap:anywhere]">Step {step.index}</span> : null}
+                    <span className="break-words [overflow-wrap:anywhere]">{step.status}</span>
+                    {step.approvalStatus ? <span className="break-words [overflow-wrap:anywhere]">Approval: {step.approvalStatus}</span> : null}
+                    {step.toolName ? <span className="break-words [overflow-wrap:anywhere]">Tool: {step.toolName}</span> : null}
+                    {readableDependencies(step) ? <span className="break-words [overflow-wrap:anywhere]">Depends on: {readableDependencies(step)}</span> : null}
                   </div>
                   {isEditing ? (
                     <div className="mt-3 grid gap-3">
@@ -878,20 +878,20 @@ export function AgentPlanStepsPage() {
                     </div>
                   ) : (
                     <>
-                      <h2 className="mt-2 text-base font-semibold text-[#181611]">{step.title}</h2>
-                      {step.description ? <p className="mt-2 text-sm leading-6 text-[#625b4f]">{step.description}</p> : null}
+                      <h2 className="mt-2 break-words text-base font-semibold text-[#181611] [overflow-wrap:anywhere]">{step.title}</h2>
+                      {step.description ? <p className="mt-2 break-words text-sm leading-6 text-[#625b4f] [overflow-wrap:anywhere]">{step.description}</p> : null}
                       {stepInput ? (
-                        <pre className="mt-2 max-h-40 overflow-auto rounded-lg bg-[#f6f1e6] p-3 text-xs leading-5 text-[#3f3a31]">
+                        <pre className="mt-2 max-h-40 max-w-full overflow-auto rounded-lg bg-[#f6f1e6] p-3 text-xs leading-5 text-[#3f3a31]">
                           {stepInput}
                         </pre>
                       ) : null}
-                      {step.resultContent ? <p className="mt-2 text-sm leading-6 text-[#2f5f3a]">{step.resultContent}</p> : null}
-                      {step.error ? <p className="mt-2 text-sm leading-6 text-red-700">{step.error}</p> : null}
+                      {step.resultContent ? <p className="mt-2 break-words text-sm leading-6 text-[#2f5f3a] [overflow-wrap:anywhere]">{step.resultContent}</p> : null}
+                      {step.error ? <p className="mt-2 break-words text-sm leading-6 text-red-700 [overflow-wrap:anywhere]">{step.error}</p> : null}
                     </>
                   )}
                 </div>
 
-                <div className="flex shrink-0 flex-wrap gap-2">
+                <div className="flex min-w-0 max-w-full shrink-0 flex-wrap gap-2">
                   {isEditing ? (
                     <>
                       <button

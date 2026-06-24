@@ -3,6 +3,7 @@ import type { Page, Route } from '@playwright/test';
 const now = '2026-06-14T10:00:00Z';
 const runId = 'run_browser_agent';
 const budgetRunId = 'run_browser_agent_budget';
+const mobileLongRunId = 'run_browser_agent_mobile_long';
 const configAgentId = 'agent_browser_config';
 const expectedAdjustReason = 'Browser scope changed after operator review.';
 const expectedContinueBudget = 45000;
@@ -56,6 +57,52 @@ const agent = {
     longTermMemoryWritePolicy: 'interaction_and_explicit',
     maxIterations: 8,
     tokenBudget: 30000,
+  },
+  isPublic: false,
+  createdAt: now,
+  updatedAt: now,
+};
+
+const longMobileAgent = {
+  id: 'agent_browser_mobile_long',
+  userId: session.user.id,
+  name: 'AgentRuntimePolicyIncidentResponderWithExtremelyLongUnbrokenIdentifier20260624',
+  description: 'Exercises mobile containment for policy labels and provider research runtime identifiers without spaces.',
+  model: 'providerresearchclusterultralongagentmodelidentifier20260624preview',
+  systemPrompt: 'Keep operator policy evidence readable on mobile.',
+  tools: [
+    {
+      description: 'Server: providerresearchclustertoolserverwithoutbreaks20260624',
+      enabled: true,
+      name: 'provider_research_cluster_browser_policy_tool_with_unbroken_runtime_identifier_20260624',
+      requiresApproval: true,
+      riskLevel: 'dangerous',
+      serverId: 'providerresearchclustertoolserverwithoutbreaks20260624',
+      type: 'custom',
+    },
+  ],
+  config: {
+    approvalMode: 'custom',
+    defaultExecutionMode: 'planning',
+    longTermMemoryExtractionPolicy: 'deterministic',
+    longTermMemoryUpdatePolicy: 'exact_refresh',
+    longTermMemoryWritePolicy: 'manual_only',
+    maxIterations: 12,
+    maxSkills: 2,
+    modelRoutingRules: [
+      {
+        minInputChars: 4096,
+        targetModel: 'providerresearchclusterultralongagentmodelidentifier20260624fallback',
+      },
+    ],
+    skills: [
+      {
+        instructions: 'Inspect mobile route containment before approving provider tools.',
+        name: 'MobilePolicyContainment',
+        toolNames: ['provider_research_cluster_browser_policy_tool_with_unbroken_runtime_identifier_20260624'],
+      },
+    ],
+    tokenBudget: 42000,
   },
   isPublic: false,
   createdAt: now,
@@ -308,6 +355,40 @@ function budgetRunDetail(status: 'token_budget_exceeded' | 'completed' = 'token_
   };
 }
 
+function mobileLongRunDetail() {
+  const stopReason =
+    'token_budget_exceeded_providerresearchclustermobileruntimewithoutbreaks20260624: used 999999 tokens exceeds budget 42000';
+
+  return {
+    id: mobileLongRunId,
+    error: stopReason,
+    iterationCount: 4,
+    mode: 'planning',
+    status: 'token_budget_exceeded',
+    toolCallCount: 2,
+    planSteps: [
+      {
+        id: 'step_mobile_policy',
+        runId: mobileLongRunId,
+        index: 1,
+        title: 'Review provider research cluster browser policy containment',
+        description:
+          'Validate providerresearchclusterbrowserpolicycontainmentwithoutbreaks20260624 before any mobile operator approves the tool run.',
+        status: 'failed',
+        approvalStatus: 'not_required',
+        toolName: 'provider_research_cluster_mobile_policy_tool_without_breaks_20260624',
+        input: {
+          policyEvidence: 'providerresearchclusterbrowserpolicycontainmentwithoutbreaks20260624',
+        },
+        error: stopReason,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ],
+    toolRuns: [],
+  };
+}
+
 function envelope(data: unknown) {
   return {
     ok: true,
@@ -369,10 +450,11 @@ function payloadMatches(payload: unknown, expected: unknown) {
 }
 
 export async function registerAgentPlanningRoutes(page: Page): Promise<void> {
-  let currentAgents = [agent];
+  let currentAgents = [agent, longMobileAgent];
   let currentRunDetail = runDetail();
   let currentPlanVariant: PlanVariant = 'initial';
   let currentBudgetRunDetail = budgetRunDetail();
+  const currentMobileLongRunDetail = mobileLongRunDetail();
 
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request();
@@ -465,6 +547,11 @@ export async function registerAgentPlanningRoutes(page: Page): Promise<void> {
 
     if (method === 'GET' && pathname === `/api/v1/agent/runs/${budgetRunId}`) {
       await fulfillJSON(route, currentBudgetRunDetail);
+      return;
+    }
+
+    if (method === 'GET' && pathname === `/api/v1/agent/runs/${mobileLongRunId}`) {
+      await fulfillJSON(route, currentMobileLongRunDetail);
       return;
     }
 

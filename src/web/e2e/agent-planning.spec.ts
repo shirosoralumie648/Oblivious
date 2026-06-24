@@ -1,6 +1,22 @@
-import { expect, test } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 
 import { registerAgentPlanningRoutes } from './fixtures/agentPlanning';
+
+async function expectAgentLayoutContained(page: Page) {
+  const overflowState = await page.evaluate(() => {
+    const main = document.querySelector('main');
+
+    return {
+      documentFits: document.documentElement.scrollWidth <= window.innerWidth + 1,
+      mainFits: main instanceof HTMLElement ? main.scrollWidth <= main.clientWidth + 1 : true,
+    };
+  });
+
+  expect(overflowState).toEqual({
+    documentFits: true,
+    mainFits: true,
+  });
+}
 
 test.beforeEach(async ({ page }) => {
   await registerAgentPlanningRoutes(page);
@@ -178,6 +194,42 @@ test('agent browser journey creates and updates advanced runtime config', async 
   await expect(policySection.getByLabel('Skills JSON')).toHaveValue(
     JSON.stringify([{ instructions: 'Summarize with citations.', name: 'Summarizer', toolNames: ['web_search'] }], null, 2)
   );
+});
+
+test('agent planning keeps mobile policy and run evidence contained', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/agents');
+
+  const longAgentName = 'AgentRuntimePolicyIncidentResponderWithExtremelyLongUnbrokenIdentifier20260624';
+  const longToolName = 'provider_research_cluster_browser_policy_tool_with_unbroken_runtime_identifier_20260624';
+
+  await expect(page.getByRole('heading', { name: 'Agents' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Agents' })).toHaveAttribute('aria-current', 'page');
+  await page.getByRole('button', { name: longAgentName }).click();
+
+  const policySection = page.getByRole('region', { name: `Agent policy ${longAgentName}` });
+  await expect(policySection).toBeVisible();
+  await expect(policySection.getByRole('heading', { name: longAgentName })).toBeVisible();
+  await expect(policySection.getByText('providerresearchclusterultralongagentmodelidentifier20260624preview')).toBeVisible();
+  const toolPolicy = policySection.getByLabel(`Tool policy ${longToolName}`);
+  await expect(toolPolicy).toContainText(longToolName);
+  await expect(toolPolicy).toContainText('Server: providerresearchclustertoolserverwithoutbreaks20260624');
+  await expect(toolPolicy.getByLabel(`Require approval for ${longToolName}`)).toBeChecked();
+  await expectAgentLayoutContained(page);
+
+  await page.goto('/agent-runs/run_browser_agent_mobile_long/plan-steps');
+
+  await expect(page.getByRole('heading', { name: 'Agent Plan Steps' })).toBeVisible();
+  await expect(page.getByText('Run run_browser_agent_mobile_long')).toBeVisible();
+  await expect(page.getByLabel('Agent run execution controls')).toContainText(
+    'token_budget_exceeded_providerresearchclustermobileruntimewithoutbreaks20260624'
+  );
+  const longPlanStep = page.getByRole('article', {
+    name: 'Plan step Review provider research cluster browser policy containment',
+  });
+  await expect(longPlanStep).toContainText('providerresearchclusterbrowserpolicycontainmentwithoutbreaks20260624');
+  await expect(longPlanStep).toContainText('provider_research_cluster_mobile_policy_tool_without_breaks_20260624');
+  await expectAgentLayoutContained(page);
 });
 
 test('agent planning browser journey recovers from token budget stop', async ({ page }) => {
