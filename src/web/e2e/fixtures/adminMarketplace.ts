@@ -122,6 +122,20 @@ const submittedAgent = {
   ratingCount: 0,
 };
 
+const mobilePublishedAgent = {
+  ...submittedAgent,
+  id: 'agent_publishermobilewithoutbreaks20260624',
+  name: 'publishermobileagentwithoutbreaks20260624',
+  description: 'Publisher mobile evidence for long marketplace inventory and settlement tables.',
+  categoryName: 'marketplacepublishercategorywithoutbreaks20260624',
+  tags: ['publishermobilewithoutbreaks20260624', 'settlementwithoutbreaks20260624'],
+  currentVersion: 'versionmobilewithoutbreaks20260624',
+  installCount: 1234567,
+  ratingAvg: 4.7,
+  rating: 4.7,
+  ratingCount: 987,
+};
+
 const paidReleaseAgent = {
   ...releaseAgent,
   id: 'agent_paid_release_helper',
@@ -143,6 +157,15 @@ const installedAgent = {
   agentName: releaseAgent.name,
   userID: 'user_admin',
   version: '1.0.0',
+  installedAt: now,
+};
+
+const mobileInstalledAgent = {
+  id: 'installmobileagentwithoutbreaks20260624',
+  agentID: 'agent_installmobilewithoutbreaks20260624',
+  agentName: 'installmobileagentwithoutbreaks20260624',
+  userID: 'usermarketplacemobilewithoutbreaks20260624',
+  version: 'versioninstalledmobilewithoutbreaks20260624',
   installedAt: now,
 };
 
@@ -222,8 +245,8 @@ function templatePayloadMatches(payload: Record<string, unknown>) {
 }
 
 export async function registerAdminMarketplaceRoutes(page: Page): Promise<void> {
-  let myAgents = [submittedAgent];
-  let installs = [installedAgent];
+  let myAgents = [submittedAgent, mobilePublishedAgent];
+  let installs = [installedAgent, mobileInstalledAgent];
   let createdTemplate: typeof launchTemplate | null = null;
   const marketplaceTemplates = [launchTemplate];
   let settlementPreferences = {
@@ -556,7 +579,28 @@ export async function registerAdminMarketplaceRoutes(page: Page): Promise<void> 
             activeUsers: 1,
             apiCallCount: 0,
           },
+          {
+            agentID: 'agent_publisherstatsmobilewithoutbreaks20260624',
+            agentName: 'publisherstatsmobileagentwithoutbreaks20260624',
+            installCount: 7654321,
+            activeUsers: 456789,
+            apiCallCount: 9876543,
+          },
         ],
+        revenueTier: {
+          currentTier: 'revenue-tier-mobile-without-breaks-20260624',
+          label: 'revenue-tier-mobile-without-breaks-20260624',
+          monthlySalesAmount: 125000,
+          platformFeeAmount: 6250,
+          publisherNetAmount: 118750,
+          platformFeePercent: 5,
+          publisherSharePercent: 95,
+          effectivePlatformFeePercent: 5,
+          nextTierAt: 250000,
+          salesToNextTier: 125000,
+          estimatedPublisherNetAtNextTier: 240000,
+          estimatedPublisherNetIncreaseAtNextTier: 12500,
+        },
       });
       return;
     }

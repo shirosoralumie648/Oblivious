@@ -1,10 +1,37 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 import { registerAdminMarketplaceRoutes } from './fixtures/adminMarketplace';
 
 test.beforeEach(async ({ page }) => {
   await registerAdminMarketplaceRoutes(page);
 });
+
+async function expectNoHorizontalOverflow(page: Page) {
+  const overflowState = await page.evaluate(() => {
+    const main = document.querySelector('main');
+    const tableViewports = Array.from(document.querySelectorAll('[data-slot="table-container"]')).map((viewport) => {
+      if (!(viewport instanceof HTMLElement)) {
+        return false;
+      }
+      const style = window.getComputedStyle(viewport);
+      return viewport.getBoundingClientRect().width <= window.innerWidth + 1 && style.overflowX === 'auto';
+    });
+
+    return {
+      documentFits: document.documentElement.scrollWidth <= window.innerWidth + 1,
+      mainFits: main instanceof HTMLElement ? main.scrollWidth <= main.clientWidth + 1 : true,
+      tableViewportCount: tableViewports.length,
+      tableViewportsFit: tableViewports.every(Boolean),
+    };
+  });
+
+  expect(overflowState).toEqual({
+    documentFits: true,
+    mainFits: true,
+    tableViewportCount: 3,
+    tableViewportsFit: true,
+  });
+}
 
 test('admin navigation exposes release management pages', async ({ page }) => {
   await page.goto('/admin');
@@ -143,4 +170,22 @@ test('marketplace my agents preserves publisher mutation contracts in the browse
 
   await page.getByRole('button', { name: 'Uninstall Release Helper' }).click();
   await expect(page.getByText('No installed agents -- Install agents from the marketplace to use them in your workspace.')).toBeVisible();
+});
+
+test('marketplace my agents mobile layout keeps publisher and settlement evidence contained', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/marketplace/my-agents');
+
+  await expect(page.getByRole('link', { name: 'Marketplace' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('heading', { name: 'My Agents' })).toBeVisible();
+  await expect(page.getByRole('main')).toHaveCount(1);
+  await expect(page.getByRole('heading', { name: 'Template Factory' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Settlement Cycle' })).toBeVisible();
+
+  await expect(page.getByText('publishermobileagentwithoutbreaks20260624')).toBeVisible();
+  await expect(page.getByText('revenue-tier-mobile-without-breaks-20260624')).toBeVisible();
+  await expect(page.getByText('installmobileagentwithoutbreaks20260624')).toBeVisible();
+  await expect(page.getByText('publisherstatsmobileagentwithoutbreaks20260624')).toBeVisible();
+
+  await expectNoHorizontalOverflow(page);
 });
