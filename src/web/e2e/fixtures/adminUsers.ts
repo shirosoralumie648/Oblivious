@@ -113,6 +113,25 @@ const filteredUser = {
   },
 };
 
+const mobilePlanID = 'plan_browser_users_mobile_without_breaks_20260624_primary';
+const mobileUser = {
+  id: 'user_browser_users_mobile_without_breaks',
+  email: 'browserusersmobilewithoutbreaks20260624primary@example.com',
+  name: 'browserusersmobilewithoutbreaks20260624primarytenant',
+  role: 'user',
+  planID: mobilePlanID,
+  planName: 'browserusersmobilewithoutbreaks20260624primaryplan',
+  quotaBalance: 987654.32,
+  status: 'active',
+  lastLoginAt: now,
+  createdAt: now,
+  usageStats: {
+    totalTokens: 1234567,
+    totalAPICalls: 98765,
+    totalCost: 4321.09,
+  },
+};
+
 export async function registerAdminUsersRoutes(page: Page): Promise<void> {
   await page.route('**/api/v1/**', async (route) => {
     const request = route.request();
@@ -133,6 +152,11 @@ export async function registerAdminUsersRoutes(page: Page): Promise<void> {
     if (method === 'GET' && pathname === '/api/v1/admin/users') {
       if (url.searchParams.has('planId')) {
         await fulfillError(route, 'admin user queries must use planID, not planId');
+        return;
+      }
+
+      if (url.searchParams.get('planID') === mobilePlanID) {
+        await fulfillJSON(route, { users: [mobileUser], total: 1 });
         return;
       }
 
