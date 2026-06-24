@@ -273,8 +273,8 @@ export function AgentMemoriesPage() {
   };
 
   return (
-    <section className="mx-auto max-w-6xl space-y-6">
-      <header className="space-y-2">
+    <section className="mx-auto min-w-0 max-w-6xl space-y-6">
+      <header className="min-w-0 space-y-2">
         <p className="text-xs font-semibold uppercase tracking-wide text-[#6d6658]">Agent context</p>
         <h1 className="font-heading text-3xl font-semibold text-[#181611]">Agent Memories</h1>
         <p className="max-w-3xl text-sm leading-6 text-[#625b4f]">
@@ -288,11 +288,11 @@ export function AgentMemoriesPage() {
         </p>
       ) : null}
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-        <section className="rounded-lg border border-[#d7d2c4] bg-[#fbfaf7] p-5">
+      <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+        <section className="min-w-0 rounded-lg border border-[#d7d2c4] bg-[#fbfaf7] p-5">
           <h2 className="text-base font-semibold">Create memory</h2>
           <form
-            className="mt-4 space-y-4"
+            className="mt-4 min-w-0 space-y-4"
             onSubmit={(event) => {
               event.preventDefault();
               void createMemory();
@@ -340,10 +340,10 @@ export function AgentMemoriesPage() {
           </form>
         </section>
 
-        <section className="rounded-lg border border-[#d7d2c4] bg-white p-5">
+        <section className="min-w-0 rounded-lg border border-[#d7d2c4] bg-white p-5">
           <h2 className="text-base font-semibold">Search memories</h2>
           <form
-            className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_9rem_8rem_auto] sm:items-end"
+            className="mt-4 grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_9rem_8rem_auto] sm:items-end"
             onSubmit={(event) => {
               event.preventDefault();
               void searchMemories();
@@ -390,12 +390,12 @@ export function AgentMemoriesPage() {
             </button>
           </form>
 
-          <section aria-label="Memory results" className="mt-5 space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
+          <section aria-label="Memory results" className="mt-5 min-w-0 space-y-3">
+            <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
               <p className="text-sm text-[#625b4f]">{total === 1 ? '1 memory' : `${total} memories`}</p>
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <button
-                  className="rounded-lg border border-[#d7d2c4] px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                  className="min-w-0 max-w-full break-words rounded-lg border border-[#d7d2c4] px-3 py-2 text-left text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50 [overflow-wrap:anywhere]"
                   disabled={isExporting || memories.length === 0}
                   onClick={() => void exportMemories()}
                   type="button"
@@ -404,14 +404,14 @@ export function AgentMemoriesPage() {
                 </button>
                 {exportUrl ? (
                   <a
-                    className="rounded-lg bg-[#181611] px-3 py-2 text-sm font-semibold text-white"
+                    className="min-w-0 max-w-full break-words rounded-lg bg-[#181611] px-3 py-2 text-sm font-semibold text-white [overflow-wrap:anywhere]"
                     download="agent-memories.json"
                     href={exportUrl}
                   >
                     Download memory export
                   </a>
                 ) : null}
-                <label className="rounded-lg border border-[#d7d2c4] px-3 py-2 text-sm font-semibold">
+                <label className="min-w-0 max-w-full break-words rounded-lg border border-[#d7d2c4] px-3 py-2 text-sm font-semibold [overflow-wrap:anywhere]">
                   {isImporting ? 'Importing...' : 'Import memories JSON'}
                   <input
                     accept="application/json,.json"
@@ -425,9 +425,9 @@ export function AgentMemoriesPage() {
             </div>
             {memories.length === 0 ? <p className="text-sm text-[#625b4f]">No memories to show yet.</p> : null}
             {memories.map((memory) => (
-              <article className="rounded-lg border border-[#e4dfd2] bg-[#fbfaf7] p-4" key={memory.id}>
+              <article className="min-w-0 max-w-full rounded-lg border border-[#e4dfd2] bg-[#fbfaf7] p-4" key={memory.id}>
                 {editingMemoryId === memory.id ? (
-                  <div className="space-y-3">
+                  <div className="min-w-0 space-y-3">
                     <label className="block text-sm font-medium">
                       Edit memory content
                       <textarea
@@ -450,7 +450,7 @@ export function AgentMemoriesPage() {
                         <option value="5">5 stars</option>
                       </select>
                     </label>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex min-w-0 flex-wrap gap-2">
                       <button
                         className="rounded-lg bg-[#181611] px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
                         disabled={savingMemoryId === memory.id || editingContent.trim() === ''}
@@ -470,18 +470,18 @@ export function AgentMemoriesPage() {
                   </div>
                 ) : (
                   <>
-                    <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase text-[#6d6658]">
-                      <span>{memoryTypeLabel(memory.type)}</span>
+                    <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs font-semibold uppercase text-[#6d6658]">
+                      <span className="min-w-0 break-words [overflow-wrap:anywhere]">{memoryTypeLabel(memory.type)}</span>
                       <ImportanceBadge importance={memory.importance} />
-                      {memory.agentId ? <span>Agent: {memory.agentId}</span> : null}
+                      {memory.agentId ? <span className="min-w-0 break-words [overflow-wrap:anywhere]">Agent: {memory.agentId}</span> : null}
                     </div>
-                    <p className="mt-2 text-sm leading-6 text-[#181611]">{memory.content}</p>
+                    <p className="mt-2 min-w-0 break-words text-sm leading-6 text-[#181611] [overflow-wrap:anywhere]">{memory.content}</p>
                     {memory.metadata && Object.keys(memory.metadata).length > 0 ? (
-                      <p className="mt-2 text-xs text-[#625b4f]">Metadata: {formatMetadata(memory.metadata)}</p>
+                      <p className="mt-2 min-w-0 break-words text-xs text-[#625b4f] [overflow-wrap:anywhere]">Metadata: {formatMetadata(memory.metadata)}</p>
                     ) : memory.createdAt ? (
-                      <p className="mt-2 text-xs text-[#625b4f]">Created: {memory.createdAt}</p>
+                      <p className="mt-2 min-w-0 break-words text-xs text-[#625b4f] [overflow-wrap:anywhere]">Created: {memory.createdAt}</p>
                     ) : null}
-                    <div className="mt-3 flex flex-wrap gap-2">
+                    <div className="mt-3 flex min-w-0 flex-wrap gap-2">
                       <button
                         className="rounded-lg border border-[#d7d2c4] px-3 py-2 text-sm font-semibold"
                         onClick={() => beginEditMemory(memory)}

@@ -1,10 +1,36 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 import { registerAgentMemoriesRoutes } from './fixtures/agentMemories';
 
 test.beforeEach(async ({ page }) => {
   await registerAgentMemoriesRoutes(page);
 });
+
+async function expectNoHorizontalOverflow(page: Page) {
+  const overflowState = await page.evaluate(() => {
+    const main = document.querySelector('main');
+    const memoryCards = Array.from(document.querySelectorAll('article')).map((card) => {
+      if (!(card instanceof HTMLElement)) {
+        return false;
+      }
+      return card.scrollWidth <= card.clientWidth + 1;
+    });
+
+    return {
+      documentFits: document.documentElement.scrollWidth <= window.innerWidth + 1,
+      mainFits: main instanceof HTMLElement ? main.scrollWidth <= main.clientWidth + 1 : true,
+      memoryCardCount: memoryCards.length,
+      memoryCardsFit: memoryCards.every(Boolean),
+    };
+  });
+
+  expect(overflowState).toEqual({
+    documentFits: true,
+    mainFits: true,
+    memoryCardCount: 1,
+    memoryCardsFit: true,
+  });
+}
 
 test('agent memories browser journey covers search create edit export import and delete', async ({ page }) => {
   await page.goto('/memories');
@@ -78,4 +104,32 @@ test('agent memories browser journey covers search create edit export import and
   await expect(importedMemory).toBeVisible();
   await expect(searchedMemory).toBeVisible();
   await expect(page.getByText('2 memories')).toBeVisible();
+});
+
+test('agent memories mobile layout keeps long memory evidence contained', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/memories');
+
+  await expect(page.getByRole('heading', { name: 'Agent Memories' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Agent Memories' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('main')).toHaveCount(1);
+
+  await page.getByLabel('Optional agent ID').fill('agentmemoriesmobilewithoutbreaks20260624');
+  await page.getByLabel('Memory type').selectOption('user_managed');
+  await page.getByLabel('Result limit').fill('3');
+  await page.getByLabel('Search query').fill('memorymobilewithoutbreaks20260624');
+  await page.getByRole('button', { name: 'Search memories' }).click();
+
+  const mobileMemory = page.locator('article').filter({
+    hasText: 'memorycontentmobilewithoutbreaks20260624memorycontentmobilewithoutbreaks20260624',
+  });
+  await expect(mobileMemory).toBeVisible();
+  await expect(mobileMemory.getByText('User managed')).toBeVisible();
+  await expect(mobileMemory.getByText('Agent: agentmemoriesmobilewithoutbreaks20260624')).toBeVisible();
+  await expect(mobileMemory.getByLabel('Importance 5 of 5')).toBeVisible();
+  await expect(mobileMemory.getByText('Metadata: evidence=metadatamobilewithoutbreaks20260624')).toBeVisible();
+  await expect(mobileMemory.getByRole('button', { name: 'Edit memory' })).toBeVisible();
+  await expect(mobileMemory.getByRole('button', { name: 'Delete memory' })).toBeVisible();
+
+  await expectNoHorizontalOverflow(page);
 });

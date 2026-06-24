@@ -38,6 +38,18 @@ const searchedMemory = {
   updatedAt: now,
 };
 
+const mobileMemory = {
+  id: 'memory_mobile_without_breaks_20260624',
+  userId: session.user.id,
+  agentId: 'agentmemoriesmobilewithoutbreaks20260624',
+  type: 'user_managed',
+  content: 'memorycontentmobilewithoutbreaks20260624memorycontentmobilewithoutbreaks20260624',
+  importance: 5,
+  metadata: { evidence: 'metadatamobilewithoutbreaks20260624' },
+  createdAt: now,
+  updatedAt: now,
+};
+
 const createdMemory = {
   id: 'memory_created_browser',
   userId: session.user.id,
@@ -119,6 +131,16 @@ function searchQueryMatches(url: URL) {
   );
 }
 
+function mobileSearchQueryMatches(url: URL) {
+  return (
+    url.searchParams.get('agentId') === mobileMemory.agentId &&
+    url.searchParams.get('limit') === '3' &&
+    url.searchParams.get('query') === 'memorymobilewithoutbreaks20260624' &&
+    url.searchParams.get('topK') === '3' &&
+    url.searchParams.get('type') === mobileMemory.type
+  );
+}
+
 function exportQueryMatches(url: URL) {
   return (
     url.searchParams.get('agentId') === agentId &&
@@ -176,6 +198,10 @@ export async function registerAgentMemoriesRoutes(page: Page): Promise<void> {
     }
 
     if (method === 'GET' && pathname === '/api/v1/agent/memories') {
+      if (mobileSearchQueryMatches(url)) {
+        await fulfillJSON(route, { memories: [mobileMemory], total: 1 });
+        return;
+      }
       if (!searchQueryMatches(url)) {
         await fulfillError(route, 'memory search query did not match browser filter selections');
         return;
