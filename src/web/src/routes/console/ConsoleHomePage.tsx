@@ -47,7 +47,7 @@ export function ConsoleHomePage() {
   if (loadError) {
     return (
       <section>
-        <h1>Console Home</h1>
+        <h2 className="text-xl font-semibold">Console Home</h2>
         <p>Unable to load dashboard.</p>
       </section>
     );
@@ -56,7 +56,7 @@ export function ConsoleHomePage() {
   if (accessSummary === null && billingSummary === null && modelSummaries === null && usageSummary === null) {
     return (
       <section>
-        <h1>Console Home</h1>
+        <h2 className="text-xl font-semibold">Console Home</h2>
         <p>Loading dashboard…</p>
       </section>
     );
@@ -67,7 +67,7 @@ export function ConsoleHomePage() {
 
   return (
     <section className="space-y-5" data-gsap-scope="console-home">
-      <h1 data-gsap-item>Console Home</h1>
+      <h2 className="text-xl font-semibold" data-gsap-item>Console Home</h2>
       <p data-gsap-item>{`Current workspace scope: ${accessSummary?.workspaceId ?? 'unavailable'}`}</p>
       <section aria-label="Key performance indicators" className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" data-gsap-item>
         <ConsoleOverviewCard
