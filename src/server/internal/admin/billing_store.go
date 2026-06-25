@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
 var ErrTopupRefundIdempotencyConflict = errors.New("topup refund idempotency conflict")
@@ -123,7 +124,7 @@ func billingWhere(filter BillingInspectionFilter, columns billingColumnMap) (str
 func countRows(ctx context.Context, db *sql.DB, table string, filter BillingInspectionFilter, columns billingColumnMap) (int, error) {
 	where, args := billingWhere(filter, columns)
 	var total int
-	if err := db.QueryRowContext(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s %s`, table, where), args...).Scan(&total); err != nil {
+	if err := db.QueryRowContext(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s %s`, pq.QuoteIdentifier(table), where), args...).Scan(&total); err != nil {
 		return 0, err
 	}
 	return total, nil
