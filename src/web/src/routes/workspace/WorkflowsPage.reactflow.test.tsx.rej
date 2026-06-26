@@ -1,0 +1,12 @@
+--- src/web/src/routes/workspace/WorkflowsPage.reactflow.test.tsx
++++ src/web/src/routes/workspace/WorkflowsPage.reactflow.test.tsx
+@@ -95,6 +95,9 @@
+     const visualEditor = screen.getByLabelText('Visual editor for Incident triage');
+     const canvas = within(visualEditor).getByLabelText('React Flow canvas for Incident triage');
+
++    // Let the real react-flow render async content if needed.
++    await screen.findByText('manual-start', { exact: false });
++    await screen.findByText('classify-ticket', { exact: false });
+     expect(canvas.querySelector('.react-flow')).toBeInTheDocument();
+     expect(canvas.querySelector('[data-id="manual-start"]')).toBeInTheDocument();
+     expect(canvas.querySelector('[data-id="classify-ticket"]')).toBeInTheDocument();

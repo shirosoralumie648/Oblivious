@@ -25,7 +25,7 @@ export function ConsoleLayout() {
       <header className="border-b border-[#d7d2c4] bg-[#15130f] px-5 py-5 text-[#f7f4ea] lg:px-8" data-gsap-item>
         <div className="mx-auto flex max-w-7xl flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div data-gsap-item>
-            <h1 className="font-heading text-3xl font-semibold">Console</h1>
+            <h2 className="font-heading text-3xl font-semibold">Console</h2>
             <p className="mt-2 text-sm text-[#bdb5a6]">Current workspace scope</p>
             <div className="mt-3 flex flex-wrap gap-2 text-sm">
               <span className="rounded-lg border border-white/10 bg-white/10 px-3 py-2" data-gsap-item>{authState.user?.email ?? 'anonymous'}</span>
