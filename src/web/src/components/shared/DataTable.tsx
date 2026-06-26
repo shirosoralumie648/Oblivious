@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useMemo, useCallback, type ReactNode } from 'react';
 import { RiArrowDownLine, RiArrowUpLine, RiErrorWarningLine, RiRefreshLine } from '@remixicon/react';
 
 import { Button } from '@/components/ui/button';
@@ -72,14 +72,25 @@ export function DataTable<T>({
   idKey = 'id',
   className,
 }: DataTableProps<T>) {
-  const selectableRows = data.map((item) => rowId(item, idKey)).filter(Boolean);
-  const selectedCount = selectableRows.filter((id) => selectedIds.has(id)).length;
-  const allSelected = selectableRows.length > 0 && selectedCount === selectableRows.length;
-  const partiallySelected = selectedCount > 0 && !allSelected;
+  // Memoize selectable rows calculation to prevent re-computation on every render
+  const selectableRows = useMemo(() => data.map((item) => rowId(item, idKey)).filter(Boolean), [data, idKey]);
 
-  const handleSelectAll = (checked: boolean | 'indeterminate') => {
-    selectableRows.forEach((id) => onSelectChange?.(id, checked === true));
-  };
+  // Memoize selection state to avoid recalculating on non-selection related re-renders
+  const { selectedCount, allSelected, partiallySelected } = useMemo(() => {
+    const count = selectableRows.filter((id) => selectedIds.has(id)).length;
+    return {
+      selectedCount: count,
+      allSelected: selectableRows.length > 0 && count === selectableRows.length,
+      partiallySelected: count > 0 && count < selectableRows.length,
+    };
+  }, [selectableRows, selectedIds]);
+
+  const handleSelectAll = useCallback(
+    (checked: boolean | 'indeterminate') => {
+      selectableRows.forEach((id) => onSelectChange?.(id, checked === true));
+    },
+    [selectableRows, onSelectChange]
+  );
 
   if (error) {
     return (
