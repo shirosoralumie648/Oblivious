@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"sort"
+
+	"github.com/lib/pq"
 )
 
 // Validator 验证旧库和新库数据一致性
@@ -33,7 +35,8 @@ type Rows interface {
 func ValidateTableRowCount(ctx context.Context, legacyDB, newDB DB, tableName string) error {
 	var legacyCount, newCount int64
 
-	query := fmt.Sprintf("SELECT COUNT(*) FROM %s", tableName)
+	// Use pq.QuoteIdentifier to prevent SQL injection with dynamic table names
+	query := fmt.Sprintf("SELECT COUNT(*) FROM %s", pq.QuoteIdentifier(tableName))
 
 	if err := legacyDB.QueryRow(ctx, query).Scan(&legacyCount); err != nil {
 		return fmt.Errorf("query legacy row count: %w", err)
@@ -70,7 +73,8 @@ func ValidateTableChecksum(ctx context.Context, legacyDB, newDB DB, tableName st
 }
 
 func computeTableChecksum(ctx context.Context, db DB, tableName string, pkColumn string) (string, error) {
-	query := fmt.Sprintf("SELECT * FROM %s ORDER BY %s", tableName, pkColumn)
+	// Use pq.QuoteIdentifier to prevent SQL injection with dynamic identifiers
+	query := fmt.Sprintf("SELECT * FROM %s ORDER BY %s", pq.QuoteIdentifier(tableName), pq.QuoteIdentifier(pkColumn))
 	rows, err := db.Query(ctx, query)
 	if err != nil {
 		return "", err

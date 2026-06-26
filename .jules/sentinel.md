@@ -1,0 +1,4 @@
+## 2026-06-26 - [CRITICAL] Prevent SQL Injection in Dynamic Queries with Identifiers
+**Vulnerability:** Unescaped string formatting with `fmt.Sprintf` when executing dynamic SQL queries with parameters such as `tableName` and `pkColumn` directly in Go's `database/sql` driver (identified in `src/server/internal/migration/validator.go`).
+**Learning:** `database/sql` driver standard parameter placeholders (like `$1`, `$2`) do not support dynamic identifiers (e.g. table names, column names). Constructing SQL by interpolating identifiers directly with string functions leads directly to SQL injection vulnerabilities.
+**Prevention:** Always use a driver-specific function like `pq.QuoteIdentifier()` from `github.com/lib/pq` to safely format dynamic table or column identifiers in queries before interpolating them using `fmt.Sprintf()`.
