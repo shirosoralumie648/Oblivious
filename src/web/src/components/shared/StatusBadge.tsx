@@ -1,3 +1,5 @@
+import { memo } from 'react';
+
 import { cn } from '@/lib/utils';
 
 export type StatusBadgeStatus =
@@ -51,7 +53,10 @@ function statusLabel(status: StatusBadgeStatus) {
     .join(' ');
 }
 
-export function StatusBadge({ status, label, showDot = true, className }: StatusBadgeProps) {
+// ⚡ Bolt: Wrapped in React.memo() to prevent unnecessary re-renders.
+// 🎯 Impact: Reduces re-renders by skipping reconciliation when primitive props are unchanged.
+// Highly effective when rendered in large DataTables or lists (e.g., AdminChannelsPage).
+export const StatusBadge = memo(function StatusBadge({ status, label, showDot = true, className }: StatusBadgeProps) {
   const display = label ?? statusLabel(status);
 
   return (
@@ -68,4 +73,4 @@ export function StatusBadge({ status, label, showDot = true, className }: Status
       <span>{display}</span>
     </span>
   );
-}
+});
