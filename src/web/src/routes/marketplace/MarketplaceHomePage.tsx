@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer } from 'react';
+import { memo, useCallback, useEffect, useMemo, useReducer } from 'react';
 import { Link } from 'react-router-dom';
 
 import { Badge } from '@/components/ui/badge';
@@ -113,7 +113,7 @@ function hasCuratedAgents(sections: CuratedMarketplaceSections) {
   return curatedSectionConfig.some((section) => sections[section.key].length > 0);
 }
 
-function AgentCard({ agent, compact = false }: { agent: MarketplaceAgent; compact?: boolean }) {
+const AgentCard = memo(function AgentCard({ agent, compact = false }: { agent: MarketplaceAgent; compact?: boolean }) {
   const recommendationScore = agent.recommendation ? Math.round(agent.recommendation.score * 100) : null;
 
   return (
@@ -158,7 +158,7 @@ function AgentCard({ agent, compact = false }: { agent: MarketplaceAgent; compac
       </CardContent>
     </Card>
   );
-}
+});
 
 function CuratedLoadingSections() {
   return (
