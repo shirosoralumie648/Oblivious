@@ -8,7 +8,7 @@ ruby -ryaml -rjson -e '
   missing = []
 
   def read_yaml(path)
-    YAML.load_file(path)
+    YAML.load_file(path, aliases: true)
   end
 
   def read_yaml_stream(path)
