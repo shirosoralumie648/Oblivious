@@ -1,0 +1,3 @@
+## 2024-07-26 - [Avoid data transformations for disabled UI capabilities]
+**Learning:** React components sometimes process complex state (e.g., iterating over rows to calculate selection state) even when the feature is disabled via props (`selectable = false`). This wastes CPU cycles and creates GC overhead (via array allocations like `.map().filter()`) on every re-render.
+**Action:** When a feature defaults to disabled, wrap the related derived state calculations in a `useMemo` that early-exits if the feature is disabled. Additionally, prefer a single `for` loop iteration over chained `.map().filter()` calls for heavy derived state in frequently used components like tables.
