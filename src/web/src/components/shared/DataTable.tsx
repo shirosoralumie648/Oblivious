@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { type ReactNode, useMemo } from 'react';
 import { RiArrowDownLine, RiArrowUpLine, RiErrorWarningLine, RiRefreshLine } from '@remixicon/react';
 
 import { Button } from '@/components/ui/button';
@@ -72,7 +72,8 @@ export function DataTable<T>({
   idKey = 'id',
   className,
 }: DataTableProps<T>) {
-  const selectableRows = data.map((item) => rowId(item, idKey)).filter(Boolean);
+  // ⚡ Bolt Optimization: Memoize selectable rows to prevent O(N) recalculation on every render
+  const selectableRows = useMemo(() => data.map((item) => rowId(item, idKey)).filter(Boolean), [data, idKey]);
   const selectedCount = selectableRows.filter((id) => selectedIds.has(id)).length;
   const allSelected = selectableRows.length > 0 && selectedCount === selectableRows.length;
   const partiallySelected = selectedCount > 0 && !allSelected;
