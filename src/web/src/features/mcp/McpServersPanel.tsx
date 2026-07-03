@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { RiAddLine, RiDeleteBinLine, RiLink, RiLinkUnlink, RiListCheck, RiPlayLine, RiSearchLine } from '@remixicon/react';
+import { RiAddLine, RiDeleteBinLine, RiLink, RiLinkUnlink, RiListCheck, RiPlayLine, RiSearchLine, RiLoader4Line } from '@remixicon/react';
 
 import { createHttpClient } from '../../services/http/client';
 import {
@@ -301,7 +301,7 @@ export function McpServersPanel({ api }: McpServersPanelProps) {
           disabled={isAdding || name.trim() === '' || url.trim() === ''}
           type="submit"
         >
-          <RiAddLine className="size-4" aria-hidden="true" />
+          {isAdding ? <RiLoader4Line className="size-4 animate-spin" aria-hidden="true" /> : <RiAddLine className="size-4" aria-hidden="true" />}
           {isAdding ? 'Adding...' : 'Add MCP server'}
         </button>
       </form>
@@ -366,7 +366,7 @@ export function McpServersPanel({ api }: McpServersPanelProps) {
                     onClick={() => void connectServer(server.id)}
                     type="button"
                   >
-                    <RiLink className="size-4" aria-hidden="true" />
+                    {loadingAction === `connect:${server.id}` ? <RiLoader4Line className="size-4 animate-spin" aria-hidden="true" /> : <RiLink className="size-4" aria-hidden="true" />}
                     Connect
                   </button>
                   <button
@@ -375,7 +375,7 @@ export function McpServersPanel({ api }: McpServersPanelProps) {
                     onClick={() => void disconnectServer(server.id)}
                     type="button"
                   >
-                    <RiLinkUnlink className="size-4" aria-hidden="true" />
+                    {loadingAction === `disconnect:${server.id}` ? <RiLoader4Line className="size-4 animate-spin" aria-hidden="true" /> : <RiLinkUnlink className="size-4" aria-hidden="true" />}
                     Disconnect
                   </button>
                   <button
@@ -384,7 +384,7 @@ export function McpServersPanel({ api }: McpServersPanelProps) {
                     onClick={() => void diagnoseServer(server.id)}
                     type="button"
                   >
-                    <RiSearchLine className="size-4" aria-hidden="true" />
+                    {loadingAction === `diagnose:${server.id}` ? <RiLoader4Line className="size-4 animate-spin" aria-hidden="true" /> : <RiSearchLine className="size-4" aria-hidden="true" />}
                     Diagnose
                   </button>
                   <button
@@ -393,7 +393,7 @@ export function McpServersPanel({ api }: McpServersPanelProps) {
                     onClick={() => void listTools(server.id)}
                     type="button"
                   >
-                    <RiListCheck className="size-4" aria-hidden="true" />
+                    {loadingAction === `tools:${server.id}` ? <RiLoader4Line className="size-4 animate-spin" aria-hidden="true" /> : <RiListCheck className="size-4" aria-hidden="true" />}
                     List tools
                   </button>
                   <button
@@ -403,7 +403,7 @@ export function McpServersPanel({ api }: McpServersPanelProps) {
                     onClick={() => void deleteServer(server.id)}
                     type="button"
                   >
-                    <RiDeleteBinLine className="size-4" aria-hidden="true" />
+                    {loadingAction === `delete:${server.id}` ? <RiLoader4Line className="size-4 animate-spin" aria-hidden="true" /> : <RiDeleteBinLine className="size-4" aria-hidden="true" />}
                     Delete
                   </button>
                 </div>
@@ -457,7 +457,7 @@ export function McpServersPanel({ api }: McpServersPanelProps) {
                       disabled={loadingAction === `execute:${server.id}` || (toolName || toolState.selectedToolName || '').trim() === ''}
                       type="submit"
                     >
-                      <RiPlayLine className="size-4" aria-hidden="true" />
+                      {loadingAction === `execute:${server.id}` ? <RiLoader4Line className="size-4 animate-spin" aria-hidden="true" /> : <RiPlayLine className="size-4" aria-hidden="true" />}
                       Execute test call
                     </button>
                     {toolState.result ? (
