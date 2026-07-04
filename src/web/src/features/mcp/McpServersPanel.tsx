@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { RiAddLine, RiDeleteBinLine, RiLink, RiLinkUnlink, RiListCheck, RiPlayLine, RiSearchLine } from '@remixicon/react';
 
+import { ConfirmDialog } from '../../components/shared/ConfirmDialog';
+
 import { createHttpClient } from '../../services/http/client';
 import {
   createMcpServersApi,
@@ -63,6 +65,7 @@ export function McpServersPanel({ api }: McpServersPanelProps) {
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [servers, setServers] = useState<McpServer[]>([]);
+  const [serverToDelete, setServerToDelete] = useState<McpServer | null>(null);
   const [toolName, setToolName] = useState('');
   const [toolStateByServerId, setToolStateByServerId] = useState<Record<string, ToolState>>({});
   const [url, setUrl] = useState('');
@@ -400,7 +403,7 @@ export function McpServersPanel({ api }: McpServersPanelProps) {
                     aria-label={`Delete ${server.name}`}
                     className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm font-semibold text-destructive disabled:cursor-not-allowed disabled:opacity-50"
                     disabled={loadingAction === `delete:${server.id}`}
-                    onClick={() => void deleteServer(server.id)}
+                    onClick={() => setServerToDelete(server)}
                     type="button"
                   >
                     <RiDeleteBinLine className="size-4" aria-hidden="true" />
@@ -472,6 +475,26 @@ export function McpServersPanel({ api }: McpServersPanelProps) {
           );
         })}
       </div>
+
+      <ConfirmDialog
+        open={serverToDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setServerToDelete(null);
+          }
+        }}
+        title="Delete MCP Server"
+        description="Are you sure you want to delete this MCP server? This action cannot be undone."
+        confirmLabel="Delete Server"
+        onConfirm={async () => {
+          if (serverToDelete) {
+            await deleteServer(serverToDelete.id);
+            setServerToDelete(null);
+          }
+        }}
+        variant="destructive"
+        loading={serverToDelete ? loadingAction === `delete:${serverToDelete.id}` : false}
+      />
     </section>
   );
 }

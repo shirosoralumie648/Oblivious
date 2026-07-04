@@ -260,6 +260,8 @@ describe('SettingsPage', () => {
     expect(await screen.findByText('Research MCP')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete Research MCP' }));
+    expect(screen.getByText('Are you sure you want to delete this MCP server? This action cannot be undone.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Server' }));
 
     await waitFor(() => expect(deleteServer).toHaveBeenCalledWith('mcp_1'));
     expect(screen.queryByText('Research MCP')).not.toBeInTheDocument();
