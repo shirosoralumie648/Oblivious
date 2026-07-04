@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -18,7 +19,10 @@ function visiblePages(currentPage: number, totalPages: number) {
   return Array.from(pages).sort((a, b) => a - b);
 }
 
-export function Pagination({ currentPage, totalPages, onPageChange, totalItems, itemsPerPage }: PaginationProps) {
+// Optimization: Wrap Pagination in React.memo to prevent unnecessary re-renders.
+// Since it's a generic component used in many views, this prevents it from
+// re-rendering when parent state changes but its props remain the same.
+export const Pagination = memo(function Pagination({ currentPage, totalPages, onPageChange, totalItems, itemsPerPage }: PaginationProps) {
   if (totalPages <= 1 && totalItems === undefined) {
     return null;
   }
@@ -57,4 +61,4 @@ export function Pagination({ currentPage, totalPages, onPageChange, totalItems, 
       </div>
     </div>
   );
-}
+});

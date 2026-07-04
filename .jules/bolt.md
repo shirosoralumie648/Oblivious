@@ -1,0 +1,3 @@
+## 2024-07-04 - Unnecessary Re-renders in Shared Components
+**Learning:** Found that generic UI components like `Pagination` and `SearchBar` that accept simple primitive props were missing `React.memo`. Since they are used across the application in layouts like `MarketplaceHomePage` and `AdminUsageLogsPage`, their parent components re-rendering (e.g. from local state updates) causes these shared components to re-render needlessly.
+**Action:** Always consider `React.memo` for pure, heavily reused presentational components (like inputs or paginators) that accept flat primitives as props to prevent widespread re-render cascades.

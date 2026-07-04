@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { RiCloseLine, RiSearchLine } from '@remixicon/react';
 
 import { Button } from '@/components/ui/button';
@@ -13,7 +13,10 @@ export type SearchBarProps = {
   className?: string;
 };
 
-export function SearchBar({ value, onChange, placeholder = 'Search...', debounceMs = 300, className }: SearchBarProps) {
+// Optimization: Wrap SearchBar in React.memo to prevent unnecessary re-renders.
+// Since it's a generic component used in many views, this prevents it from
+// re-rendering when parent state changes but its props remain the same.
+export const SearchBar = memo(function SearchBar({ value, onChange, placeholder = 'Search...', debounceMs = 300, className }: SearchBarProps) {
   const [inputValue, setInputValue] = useState(value);
   const firstRender = useRef(true);
 
@@ -62,4 +65,4 @@ export function SearchBar({ value, onChange, placeholder = 'Search...', debounce
       ) : null}
     </div>
   );
-}
+});
