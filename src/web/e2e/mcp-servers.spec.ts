@@ -76,6 +76,7 @@ test('MCP servers browser journey covers catalog lifecycle diagnostics tools and
   await expect(page.getByText('secret-token')).toHaveCount(0);
 
   await createdCard.getByRole('button', { name: 'Delete' }).click();
+  await page.getByRole('button', { name: 'Delete Server' }).click();
   await expect(createdCard).toHaveCount(0);
   await expect(researchCard).toBeVisible();
 });
