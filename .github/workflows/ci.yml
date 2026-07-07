@@ -15,6 +15,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: src/server/go.mod
+          cache-dependency-path: src/server/go.sum
       - uses: pnpm/action-setup@v4
         with:
           version: 10.6.0
@@ -40,6 +41,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: src/server/go.mod
+          cache-dependency-path: src/server/go.sum
       - uses: pnpm/action-setup@v4
         with:
           version: 10.6.0
@@ -120,6 +122,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: src/server/go.mod
+          cache-dependency-path: src/server/go.sum
       - name: Run server checks
         run: bash scripts/check.sh server
       - name: Run server tests
