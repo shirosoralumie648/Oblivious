@@ -15,6 +15,10 @@ export type MetricCardProps = {
   className?: string;
 };
 
+// Memoize formatters outside component to avoid recreation on every render/call
+const currencyFormatter = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
+const numberFormatter = new Intl.NumberFormat();
+
 function formatValue(value: string | number, format: MetricCardProps['format'] = 'number') {
   if (typeof value === 'string') {
     return value;
@@ -22,14 +26,14 @@ function formatValue(value: string | number, format: MetricCardProps['format'] =
 
   switch (format) {
     case 'currency':
-      return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
+      return currencyFormatter.format(value);
     case 'percentage':
       return `${value}%`;
     case 'duration':
       return `${value}ms`;
     case 'number':
     default:
-      return value.toLocaleString();
+      return numberFormatter.format(value);
   }
 }
 

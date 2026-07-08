@@ -1,0 +1,3 @@
+## 2024-07-08 - [Memoize Intl.NumberFormat instantiation for faster renders]
+**Learning:** `Intl.NumberFormat` object instantiation is surprisingly expensive in JavaScript. Doing it inside frequently called functions or render functions of widely used components (like `MetricCard.tsx`) creates unnecessary overhead. Calling `Intl.NumberFormat.format()` on a cached instance is orders of magnitude faster than `toLocaleString()` or creating a `new Intl.NumberFormat()` each time.
+**Action:** Always declare `Intl.NumberFormat` (and `Intl.DateTimeFormat`) instances as module-level constants and reuse them across calls instead of re-instantiating them inline.
