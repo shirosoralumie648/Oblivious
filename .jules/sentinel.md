@@ -1,0 +1,4 @@
+## 2025-02-14 - Fix SQL injection in dynamic table identifiers
+**Vulnerability:** SQL injection vulnerability found in `src/server/internal/migration/validator.go` where `tableName` and `pkColumn` arguments were directly injected into query strings using `fmt.Sprintf` without escaping.
+**Learning:** Dynamic identifiers (tables, columns) cannot be passed via parameterized queries and must be safely escaped. Using `github.com/lib/pq`'s `pq.QuoteIdentifier` registers the Postgres driver globally as a side effect and breaks database agnosticism, which is critical for migration validation logic that compares across potentially different databases.
+**Prevention:** Always escape dynamic identifiers (e.g. `"` + `strings.ReplaceAll(identifier, `"`, `""`)` + `"`) according to ANSI SQL standards rather than direct string interpolation. Do not rely on parameterized queries for identifiers, and avoid `pq.QuoteIdentifier` to maintain database agnosticism.
