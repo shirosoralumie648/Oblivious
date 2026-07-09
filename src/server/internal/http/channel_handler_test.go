@@ -504,15 +504,21 @@ func TestPublishingChannelHTTPRouteEnforcesActiveOrganizationIsolation(t *testin
 	_, activeOrganizationID := queryHTTPUserScope(t, database, userID)
 	promoteHTTPUserToAdmin(t, database, userID)
 	otherOrganizationID := createHTTPOrganization(t, router, cookie, csrfToken, "Other Publishing Org", "other-publishing-org")
+	fixtureSuffix := strings.TrimPrefix(userID, "user_")
+	activePrimaryChannelID := "channel_active_primary_" + fixtureSuffix
+	activeFallbackChannelID := "channel_active_fallback_" + fixtureSuffix
+	otherChannelID := "channel_other_org_" + fixtureSuffix
+	activeRetryMessageID := "message_active_retry_" + fixtureSuffix
+	otherMessageID := "message_other_org_" + fixtureSuffix
 
 	nextRetryAt := time.Now().UTC().Add(-time.Minute)
 	if _, err := database.Exec(`
 		INSERT INTO channel_configs (id, organization_id, type, name, config, status, created_at, updated_at)
 		VALUES
-			('channel_active_primary', $1, 'webhook', 'Active primary channel', '{"webhook_url":"https://primary.example.test"}'::jsonb, 'degraded', NOW(), NOW()),
-			('channel_active_fallback', $1, 'webhook', 'Active fallback channel', '{"webhook_url":"https://fallback.example.test"}'::jsonb, 'active', NOW(), NOW()),
-			('channel_other_org', $2, 'webhook', 'Other org channel', '{"webhook_url":"https://other.example.test","secret":"other-secret"}'::jsonb, 'active', NOW(), NOW())
-	`, activeOrganizationID, otherOrganizationID); err != nil {
+			($1, $2, 'webhook', 'Active primary channel', '{"webhook_url":"https://primary.example.test"}'::jsonb, 'degraded', NOW(), NOW()),
+			($3, $2, 'webhook', 'Active fallback channel', '{"webhook_url":"https://fallback.example.test"}'::jsonb, 'active', NOW(), NOW()),
+			($4, $5, 'webhook', 'Other org channel', '{"webhook_url":"https://other.example.test","secret":"other-secret"}'::jsonb, 'active', NOW(), NOW())
+	`, activePrimaryChannelID, activeOrganizationID, activeFallbackChannelID, otherChannelID, otherOrganizationID); err != nil {
 		t.Fatalf("insert publishing channel fixtures: %v", err)
 	}
 	if _, err := database.Exec(`
@@ -521,9 +527,9 @@ func TestPublishingChannelHTTPRouteEnforcesActiveOrganizationIsolation(t *testin
 			transform_success, transform_error, status, retry_count, failure_reason, next_retry_at, created_at
 		)
 		VALUES
-			('message_active_retry', 'channel_active_primary', 'conversation_active', 'outbound', '{"text":"retry active"}'::jsonb, '{"id":"msg_active","role":"assistant","content":[{"type":"text","text":"retry active"}]}'::jsonb, false, 'primary degraded', 'retry_pending', 2, 'primary degraded', $1, NOW()),
-			('message_other_org', 'channel_other_org', 'conversation_other', 'outbound', '{"text":"other org"}'::jsonb, '{"id":"msg_other","role":"assistant","content":[{"type":"text","text":"other org"}]}'::jsonb, false, 'hidden', 'retry_pending', 1, 'hidden', $1, NOW())
-	`, nextRetryAt); err != nil {
+			($1, $2, 'conversation_active', 'outbound', '{"text":"retry active"}'::jsonb, '{"id":"msg_active","role":"assistant","content":[{"type":"text","text":"retry active"}]}'::jsonb, false, 'primary degraded', 'retry_pending', 2, 'primary degraded', $3, NOW()),
+			($4, $5, 'conversation_other', 'outbound', '{"text":"other org"}'::jsonb, '{"id":"msg_other","role":"assistant","content":[{"type":"text","text":"other org"}]}'::jsonb, false, 'hidden', 'retry_pending', 1, 'hidden', $3, NOW())
+	`, activeRetryMessageID, activePrimaryChannelID, nextRetryAt, otherMessageID, otherChannelID); err != nil {
 		t.Fatalf("insert publishing channel message fixtures: %v", err)
 	}
 
@@ -538,7 +544,7 @@ func TestPublishingChannelHTTPRouteEnforcesActiveOrganizationIsolation(t *testin
 		t.Fatalf("expected only active organization channels in list, got %+v", listResponse.Data)
 	}
 	for _, config := range listResponse.Data {
-		if config.ID == "channel_other_org" || config.OrganizationID == otherOrganizationID {
+		if config.ID == otherChannelID || config.OrganizationID == otherOrganizationID {
 			t.Fatalf("active organization %s must not list other organization channel %+v", activeOrganizationID, config)
 		}
 	}
@@ -554,13 +560,13 @@ func TestPublishingChannelHTTPRouteEnforcesActiveOrganizationIsolation(t *testin
 		{
 			name:       "get channel",
 			method:     stdhttp.MethodGet,
-			path:       "/api/v1/channels/channel_other_org",
+			path:       "/api/v1/channels/" + otherChannelID,
 			wantStatus: stdhttp.StatusNotFound,
 		},
 		{
 			name:       "update channel",
 			method:     stdhttp.MethodPut,
-			path:       "/api/v1/channels/channel_other_org",
+			path:       "/api/v1/channels/" + otherChannelID,
 			payload:    map[string]any{"type": "webhook", "name": "Mutated other org channel", "status": "disabled", "config": map[string]any{"webhook_url": "https://mutated.example.test"}},
 			csrf:       true,
 			wantStatus: stdhttp.StatusNotFound,
@@ -568,14 +574,14 @@ func TestPublishingChannelHTTPRouteEnforcesActiveOrganizationIsolation(t *testin
 		{
 			name:       "delete channel",
 			method:     stdhttp.MethodDelete,
-			path:       "/api/v1/channels/channel_other_org",
+			path:       "/api/v1/channels/" + otherChannelID,
 			csrf:       true,
 			wantStatus: stdhttp.StatusNotFound,
 		},
 		{
 			name:       "update status",
 			method:     stdhttp.MethodPatch,
-			path:       "/api/v1/channels/channel_other_org/status",
+			path:       "/api/v1/channels/" + otherChannelID + "/status",
 			payload:    map[string]any{"status": "disabled"},
 			csrf:       true,
 			wantStatus: stdhttp.StatusNotFound,
@@ -583,14 +589,14 @@ func TestPublishingChannelHTTPRouteEnforcesActiveOrganizationIsolation(t *testin
 		{
 			name:       "test channel",
 			method:     stdhttp.MethodPost,
-			path:       "/api/v1/channels/channel_other_org/test",
+			path:       "/api/v1/channels/" + otherChannelID + "/test",
 			csrf:       true,
 			wantStatus: stdhttp.StatusNotFound,
 		},
 		{
 			name:       "send message",
 			method:     stdhttp.MethodPost,
-			path:       "/api/v1/channels/channel_other_org/send",
+			path:       "/api/v1/channels/" + otherChannelID + "/send",
 			payload:    map[string]any{"message": map[string]any{"conversation_id": "conversation_other", "role": "assistant", "text": "must not send"}},
 			csrf:       true,
 			wantStatus: stdhttp.StatusNotFound,
@@ -598,19 +604,19 @@ func TestPublishingChannelHTTPRouteEnforcesActiveOrganizationIsolation(t *testin
 		{
 			name:       "list messages",
 			method:     stdhttp.MethodGet,
-			path:       "/api/v1/channels/channel_other_org/messages",
+			path:       "/api/v1/channels/" + otherChannelID + "/messages",
 			wantStatus: stdhttp.StatusNotFound,
 		},
 		{
 			name:       "list failed messages",
 			method:     stdhttp.MethodGet,
-			path:       "/api/v1/channels/channel_other_org/failed-messages",
+			path:       "/api/v1/channels/" + otherChannelID + "/failed-messages",
 			wantStatus: stdhttp.StatusNotFound,
 		},
 		{
 			name:       "retry failed messages",
 			method:     stdhttp.MethodPost,
-			path:       "/api/v1/channels/channel_other_org/retry-failed-messages",
+			path:       "/api/v1/channels/" + otherChannelID + "/retry-failed-messages",
 			payload:    map[string]any{"limit": 10},
 			csrf:       true,
 			wantStatus: stdhttp.StatusNotFound,
@@ -618,8 +624,8 @@ func TestPublishingChannelHTTPRouteEnforcesActiveOrganizationIsolation(t *testin
 		{
 			name:       "retry with other organization fallback",
 			method:     stdhttp.MethodPost,
-			path:       "/api/v1/channels/channel_active_primary/retry-failed-messages",
-			payload:    map[string]any{"fallback_channel_id": "channel_other_org", "limit": 10, "force": true},
+			path:       "/api/v1/channels/" + activePrimaryChannelID + "/retry-failed-messages",
+			payload:    map[string]any{"fallback_channel_id": otherChannelID, "limit": 10, "force": true},
 			csrf:       true,
 			wantStatus: stdhttp.StatusNotFound,
 		},
@@ -636,7 +642,7 @@ func TestPublishingChannelHTTPRouteEnforcesActiveOrganizationIsolation(t *testin
 	}
 
 	var otherName, otherStatus string
-	if err := database.QueryRow(`SELECT name, status FROM channel_configs WHERE id = 'channel_other_org'`).Scan(&otherName, &otherStatus); err != nil {
+	if err := database.QueryRow(`SELECT name, status FROM channel_configs WHERE id = $1`, otherChannelID).Scan(&otherName, &otherStatus); err != nil {
 		t.Fatalf("query other organization channel after denied mutations: %v", err)
 	}
 	if otherName != "Other org channel" || otherStatus != string(channel.ChannelStatusActive) {
@@ -644,7 +650,7 @@ func TestPublishingChannelHTTPRouteEnforcesActiveOrganizationIsolation(t *testin
 	}
 
 	var otherMessageCount int
-	if err := database.QueryRow(`SELECT COUNT(*) FROM channel_messages WHERE channel_id = 'channel_other_org'`).Scan(&otherMessageCount); err != nil {
+	if err := database.QueryRow(`SELECT COUNT(*) FROM channel_messages WHERE channel_id = $1`, otherChannelID).Scan(&otherMessageCount); err != nil {
 		t.Fatalf("count other organization channel messages: %v", err)
 	}
 	if otherMessageCount != 1 {
@@ -652,7 +658,7 @@ func TestPublishingChannelHTTPRouteEnforcesActiveOrganizationIsolation(t *testin
 	}
 
 	var activeRetryStatus string
-	if err := database.QueryRow(`SELECT status FROM channel_messages WHERE id = 'message_active_retry'`).Scan(&activeRetryStatus); err != nil {
+	if err := database.QueryRow(`SELECT status FROM channel_messages WHERE id = $1`, activeRetryMessageID).Scan(&activeRetryStatus); err != nil {
 		t.Fatalf("query active retry status: %v", err)
 	}
 	if activeRetryStatus != string(channel.MessageStatusRetryPending) {

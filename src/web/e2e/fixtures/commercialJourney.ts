@@ -451,6 +451,11 @@ export async function registerCommercialJourneyRoutes(page: Page): Promise<void>
       return;
     }
 
+    if (method === 'GET' && pathname === `/api/v1/app/knowledge-bases/${knowledgeBase.id}/documents/ingestion-jobs`) {
+      await fulfillJSON(route, []);
+      return;
+    }
+
     if (method === 'GET' && pathname === `/api/v1/app/knowledge-bases/${knowledgeBase.id}/retrieval-test-cases`) {
       await fulfillJSON(route, []);
       return;
