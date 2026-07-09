@@ -79,3 +79,60 @@ func TestAudioSpeechHandlerUsesSelectedOpenAICompatibleAdapter(t *testing.T) {
 		t.Fatalf("expected upstream audio bytes, got %q", rec.Body.String())
 	}
 }
+
+func TestAudioTranscriptionAndTranslationPassEstimatedUsageToBilling(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	for _, tt := range []struct {
+		name string
+		path string
+	}{
+		{name: "transcription", path: "/v1/audio/transcriptions"},
+		{name: "translation", path: "/v1/audio/translations"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != tt.path {
+					t.Fatalf("upstream path = %q, want %s", r.URL.Path, tt.path)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"text":"transcribed"}`))
+			}))
+			t.Cleanup(upstream.Close)
+
+			selectedChannel := &types.RouteChannel{
+				Channel: &types.Channel{
+					ID:       "ch-audio",
+					Name:     "Audio channel",
+					Provider: "openai",
+					BaseURL:  upstream.URL,
+					APIKey:   "sk-audio",
+					Enabled:  true,
+				},
+				ChannelID: "ch-audio",
+				Enabled:   true,
+				Healthy:   true,
+			}
+			testRouter := &chatTestRouter{selected: selectedChannel}
+			restoreRouter := setRouterForChatTest(testRouter)
+			t.Cleanup(restoreRouter)
+
+			handler := NewAudioHandler(nil, &channel.OpenAIAdapter{})
+			rec := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(rec)
+			ctx.Request = httptest.NewRequest(http.MethodPost, tt.path, strings.NewReader("fake-audio-bytes"))
+			ctx.Request.Header.Set("Content-Type", "audio/mp3")
+
+			if err := handler.Handle(ctx); err != nil {
+				t.Fatalf("Handle returned error: %v", err)
+			}
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+			}
+			if testRouter.lastPrebillUsage == nil || testRouter.lastPrebillUsage.AudioSeconds <= 0 {
+				t.Fatalf("expected positive audio usage to reach billing, got %+v", testRouter.lastPrebillUsage)
+			}
+		})
+	}
+}

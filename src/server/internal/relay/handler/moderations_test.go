@@ -49,7 +49,8 @@ func TestModerationsHandlerUsesSelectedOpenAICompatibleAdapter(t *testing.T) {
 		Enabled:   true,
 		Healthy:   true,
 	}
-	restoreRouter := setRouterForChatTest(&chatTestRouter{selected: selectedChannel})
+	testRouter := &chatTestRouter{selected: selectedChannel}
+	restoreRouter := setRouterForChatTest(testRouter)
 	t.Cleanup(restoreRouter)
 
 	handler := NewModerationsHandler(nil, &channel.OpenAIAdapter{})
@@ -79,5 +80,8 @@ func TestModerationsHandlerUsesSelectedOpenAICompatibleAdapter(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "modr_openrouter") {
 		t.Fatalf("expected provider response body, got %s", rec.Body.String())
+	}
+	if testRouter.lastPrebillUsage == nil || testRouter.lastPrebillUsage.PromptTokens <= 0 || testRouter.lastPrebillUsage.TotalTokens <= 0 {
+		t.Fatalf("expected moderation token usage to reach billing, got %+v", testRouter.lastPrebillUsage)
 	}
 }

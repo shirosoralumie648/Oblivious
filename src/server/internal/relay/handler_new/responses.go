@@ -59,11 +59,22 @@ func (h *ResponsesHandler) Handle(c *gin.Context) error {
 }
 
 func (h *ResponsesHandler) handleStream(c *gin.Context, req *channel.ProviderRequest) error {
+	usage := h.adapter.EstimateUsage(req)
+	resp, err := h.executeRequest(c, req, usage)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"code": "relay_error", "message": err.Error()}})
+		return nil
+	}
+
+	statusCode := resp.StatusCode
+	if statusCode < http.StatusContinue {
+		statusCode = http.StatusOK
+	}
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
 	c.Header("Transfer-Encoding", "chunked")
-	// TODO: 实现 Responses SSE 流式处理（与 ChatHandler 类似）
+	c.Data(statusCode, "text/event-stream", resp.Content)
 	return nil
 }
 

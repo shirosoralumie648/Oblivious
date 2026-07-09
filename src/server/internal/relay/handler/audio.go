@@ -90,7 +90,7 @@ func (h *AudioHandler) HandleTranscriptions(c *gin.Context) error {
 	body, _ := io.ReadAll(c.Request.Body)
 	req.Body = body
 
-	resp, err := h.executeRequestRaw(c, req, "audio/mp3")
+	resp, err := h.executeRequestRaw(c, req, "audio/mp3", h.adapter.EstimateUsage(req))
 	if err != nil {
 		writeRelayHandlerError(c, resp, err)
 		return nil
@@ -113,7 +113,7 @@ func (h *AudioHandler) HandleTranslations(c *gin.Context) error {
 	body, _ := io.ReadAll(c.Request.Body)
 	req.Body = body
 
-	resp, err := h.executeRequestRaw(c, req, "audio/mp3")
+	resp, err := h.executeRequestRaw(c, req, "audio/mp3", h.adapter.EstimateUsage(req))
 	if err != nil {
 		writeRelayHandlerError(c, resp, err)
 		return nil
@@ -171,7 +171,7 @@ func (h *AudioHandler) executeRequest(c *gin.Context, req *channel.ProviderReque
 	)
 }
 
-func (h *AudioHandler) executeRequestRaw(c *gin.Context, req *channel.ProviderRequest, contentType string) (*types.ProviderResponse, error) {
+func (h *AudioHandler) executeRequestRaw(c *gin.Context, req *channel.ProviderRequest, contentType string, usage *types.Usage) (*types.ProviderResponse, error) {
 	router := GetRouter()
 	if router == nil {
 		return nil, types.ErrNoAvailableChannel
@@ -188,7 +188,7 @@ func (h *AudioHandler) executeRequestRaw(c *gin.Context, req *channel.ProviderRe
 		req.Model,
 		"",
 		idempotencyKey,
-		nil,
+		usage,
 		func(ch *types.RouteChannel) (*types.ProviderResponse, error) {
 			if ch == nil || ch.Channel == nil {
 				return nil, types.ErrNoAvailableChannel

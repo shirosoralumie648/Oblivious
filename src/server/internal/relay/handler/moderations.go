@@ -39,7 +39,7 @@ func (h *ModerationsHandler) Handle(c *gin.Context) error {
 		Input:   getString(rawReq, "input"),
 	}
 
-	resp, err := h.executeRequest(c, req, nil)
+	resp, err := h.executeRequest(c, req, h.adapter.EstimateUsage(req))
 	if err != nil {
 		writeRelayHandlerError(c, resp, err)
 		return nil
