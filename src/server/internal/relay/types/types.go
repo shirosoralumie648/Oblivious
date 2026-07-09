@@ -44,6 +44,7 @@ const (
 	trustedUserGroupKey      trustedContextKey = "relay_trusted_user_group"
 	trustedConversationIDKey trustedContextKey = "relay_trusted_conversation_id"
 	trustedFeatureTypeKey    trustedContextKey = "relay_trusted_feature_type"
+	trustedStreamingKey      trustedContextKey = "relay_trusted_streaming"
 	semanticCacheRequestKey  trustedContextKey = "relay_semantic_cache_request"
 	requestLogScopeKey       trustedContextKey = "relay_request_log_scope"
 )
@@ -146,6 +147,15 @@ func TrustedFeatureTypeFromContext(ctx context.Context) (string, bool) {
 	return trustedStringFromContext(ctx, trustedFeatureTypeKey)
 }
 
+func WithTrustedStreaming(ctx context.Context, streaming bool) context.Context {
+	return context.WithValue(ctx, trustedStreamingKey, streaming)
+}
+
+func TrustedStreamingFromContext(ctx context.Context) (bool, bool) {
+	value, ok := ctx.Value(trustedStreamingKey).(bool)
+	return value, ok
+}
+
 type SemanticCacheRequest = relaycache.SemanticCacheRequest
 
 func WithSemanticCacheRequest(ctx context.Context, req SemanticCacheRequest) context.Context {
@@ -189,7 +199,9 @@ type RequestLogScope struct {
 	recorded bool
 }
 
-func NewRequestLogScope() *RequestLogScope { return &RequestLogScope{} }
+func NewRequestLogScope() *RequestLogScope {
+	return &RequestLogScope{}
+}
 
 func WithRequestLogScope(ctx context.Context, scope *RequestLogScope) context.Context {
 	return context.WithValue(ctx, requestLogScopeKey, scope)
@@ -284,13 +296,16 @@ func (e *ProviderError) Error() string {
 
 // ProviderResponse Provider 原生响应
 type ProviderResponse struct {
-	StatusCode int
-	Headers    http.Header
-	Content    []byte
-	Done       bool
-	Usage      *Usage
-	Error      *ProviderError
-	StreamCB   func(chunk []byte) error
+	StatusCode               int
+	Headers                  http.Header
+	Content                  []byte
+	Done                     bool
+	Usage                    *Usage
+	Error                    *ProviderError
+	StreamCB                 func(chunk []byte) error
+	BillingSessionID         string
+	PreauthorizedAmount      float64
+	TokenPreauthorizedAmount float64
 }
 
 // NewOKResponse 创建成功响应
@@ -440,23 +455,24 @@ type ToolFunction struct {
 
 // ProviderRequest 内部标准请求格式
 type ProviderRequest struct {
-	APIType     APIType          `json:"api_type"`
-	Model       string           `json:"model"`
-	Headers     http.Header      `json:"headers"`
-	URL         string           `json:"url"`
-	Stream      bool             `json:"stream"`
-	Messages    []Message        `json:"messages,omitempty"`
-	Tools       []map[string]any `json:"tools,omitempty"`
-	ToolChoice  any              `json:"tool_choice,omitempty"`
-	MaxTokens   int              `json:"max_tokens,omitempty"`
-	Input       string           `json:"input,omitempty"`
-	AudioFormat string           `json:"audio_format,omitempty"`
-	AudioVoice  string           `json:"audio_voice,omitempty"`
-	ImageURL    string           `json:"image_url,omitempty"`
-	Prompt      string           `json:"prompt,omitempty"`
-	FileURL     string           `json:"file_url,omitempty"`
-	Body        []byte           `json:"body,omitempty"`
-	RequestID   string           `json:"request_id,omitempty"`
+	APIType             APIType                  `json:"api_type"`
+	Model               string                   `json:"model"`
+	Headers             http.Header              `json:"headers"`
+	URL                 string                   `json:"url"`
+	Stream              bool                     `json:"stream"`
+	Messages            []Message                `json:"messages,omitempty"`
+	Tools               []map[string]any         `json:"tools,omitempty"`
+	ToolChoice          any                      `json:"tool_choice,omitempty"`
+	MaxTokens           int                      `json:"max_tokens,omitempty"`
+	Input               string                   `json:"input,omitempty"`
+	AudioFormat         string                   `json:"audio_format,omitempty"`
+	AudioVoice          string                   `json:"audio_voice,omitempty"`
+	ImageURL            string                   `json:"image_url,omitempty"`
+	Prompt              string                   `json:"prompt,omitempty"`
+	FileURL             string                   `json:"file_url,omitempty"`
+	Body                []byte                   `json:"body,omitempty"`
+	RequestID           string                   `json:"request_id,omitempty"`
+	StreamChunkCallback func(chunk []byte) error `json:"-"`
 }
 
 // Capabilities 能力声明

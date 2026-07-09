@@ -57,8 +57,10 @@ func (h *BillingHook) PreBill(session *BillingSession, usage *types.Usage) (floa
 		h.mu.Unlock()
 	}
 
-	// Estimate cost
-	cost := h.pricing.CalculateCostForGroup(session.Model, session.APIType, usage, session.UserGroup)
+	cost, err := h.pricing.CalculateCostForGroupStrict(session.Model, session.APIType, usage, session.UserGroup)
+	if err != nil {
+		return 0, err
+	}
 	// Add 20% buffer for safety
 	preAuth := cost * 1.2
 
@@ -82,7 +84,10 @@ func (h *BillingHook) PostBill(session *BillingSession, usage *types.Usage) (flo
 		h.mu.Unlock()
 	}
 
-	actualCost := h.pricing.CalculateCostForGroup(session.Model, session.APIType, usage, session.UserGroup)
+	actualCost, err := h.pricing.CalculateCostForGroupStrict(session.Model, session.APIType, usage, session.UserGroup)
+	if err != nil {
+		return 0, err
+	}
 
 	// Refund excess authorization
 	excess := session.PreAuthorizedAmt - actualCost

@@ -20,6 +20,40 @@ type RelayStore struct {
 	db *sql.DB
 }
 
+const (
+	RelayBatchPollingJobStatusPending    = "pending"
+	RelayBatchPollingJobStatusProcessing = "processing"
+	RelayBatchPollingJobStatusSucceeded  = "succeeded"
+	RelayBatchPollingJobStatusFailed     = "failed"
+	RelayBatchPollingJobStatusDeadLetter = "dead_letter"
+
+	defaultRelayBatchPollingJobClaimLease = 5 * time.Minute
+)
+
+type RelayBatchPollingJob struct {
+	BatchID                  string
+	RequestID                string
+	UserID                   string
+	OrganizationID           string
+	APITokenID               string
+	FeatureType              string
+	Model                    string
+	APIType                  string
+	BillingSessionID         string
+	PreauthorizedAmount      float64
+	TokenPreauthorizedAmount float64
+	Status                   string
+	Error                    string
+	Attempts                 int
+	MaxAttempts              int
+	LockedAt                 *time.Time
+	LockedBy                 string
+	AvailableAt              time.Time
+	CompletedAt              *time.Time
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
+}
+
 // NewRelayStore 创建 RelayStore
 func NewRelayStore(db *sql.DB) *RelayStore {
 	return &RelayStore{db: db}
@@ -320,6 +354,7 @@ func (s *RelayStore) GetFileMapping(ctx context.Context, localFileID, userID, or
 		WHERE local_file_id = $1
 		  AND user_id = $2
 		  AND organization_id = $3
+		  AND deleted_at IS NULL
 	`, localFileID, userID, organizationID).Scan(
 		&record.LocalFileID,
 		&record.OpenAIFileID,
@@ -346,6 +381,7 @@ func (s *RelayStore) ListFileMappings(ctx context.Context, userID, organizationI
 		FROM relay_file_mappings
 		WHERE user_id = $1
 		  AND organization_id = $2
+		  AND deleted_at IS NULL
 		ORDER BY created_at DESC, local_file_id DESC
 	`, userID, organizationID)
 	if err != nil {
@@ -374,6 +410,279 @@ func (s *RelayStore) ListFileMappings(ctx context.Context, userID, organizationI
 		return nil, fmt.Errorf("iterate relay file mappings: %w", err)
 	}
 	return records, nil
+}
+
+func (s *RelayStore) TombstoneFileMapping(ctx context.Context, localFileID, userID, organizationID string, deletedAt time.Time) error {
+	if deletedAt.IsZero() {
+		deletedAt = time.Now().UTC()
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE relay_file_mappings
+		SET deleted_at = $4
+		WHERE local_file_id = $1
+		  AND user_id = $2
+		  AND organization_id = $3
+		  AND deleted_at IS NULL
+	`, localFileID, userID, organizationID, deletedAt)
+	if err != nil {
+		return fmt.Errorf("tombstone relay file mapping: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("tombstone relay file mapping rows affected: %w", err)
+	}
+	if rows == 0 {
+		return handler.ErrFileMappingNotFound
+	}
+	return nil
+}
+
+func (s *RelayStore) RegisterBatchPolling(ctx context.Context, task handler.BatchPollingRegistration) error {
+	batchID := strings.TrimSpace(task.BatchID)
+	model := strings.TrimSpace(task.Model)
+	apiType := strings.TrimSpace(task.APIType.String())
+	if batchID == "" || model == "" || apiType == "" {
+		return sql.ErrNoRows
+	}
+	now := time.Now().UTC()
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO relay_batch_polling_jobs (
+			batch_id,
+			request_id,
+			user_id,
+			organization_id,
+			api_token_id,
+			feature_type,
+			model,
+			api_type,
+			billing_session_id,
+			preauthorized_amount,
+			token_preauthorized_amount,
+			status,
+			error,
+			attempts,
+			max_attempts,
+			locked_at,
+			locked_by,
+			available_at,
+			completed_at,
+			created_at,
+			updated_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending', '', 0, 5, NULL, '', $12, NULL, $12, $12)
+		ON CONFLICT (batch_id) DO UPDATE
+		SET request_id = EXCLUDED.request_id,
+		    user_id = EXCLUDED.user_id,
+		    organization_id = EXCLUDED.organization_id,
+		    api_token_id = EXCLUDED.api_token_id,
+		    feature_type = EXCLUDED.feature_type,
+		    model = EXCLUDED.model,
+		    api_type = EXCLUDED.api_type,
+		    billing_session_id = EXCLUDED.billing_session_id,
+		    preauthorized_amount = EXCLUDED.preauthorized_amount,
+		    token_preauthorized_amount = EXCLUDED.token_preauthorized_amount,
+		    updated_at = EXCLUDED.updated_at
+		WHERE relay_batch_polling_jobs.status IN ('pending', 'failed')
+	`, batchID, strings.TrimSpace(task.RequestID), strings.TrimSpace(task.UserID), strings.TrimSpace(task.OrganizationID), strings.TrimSpace(task.APITokenID), strings.TrimSpace(task.FeatureType), model, apiType, strings.TrimSpace(task.BillingSessionID), task.PreauthorizedAmount, task.TokenPreauthorizedAmount, now)
+	if err != nil {
+		return fmt.Errorf("register relay batch polling job: %w", err)
+	}
+	return nil
+}
+
+func (s *RelayStore) ClaimBatchPollingJobs(ctx context.Context, now time.Time, limit int, workerID string) ([]RelayBatchPollingJob, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	workerID = strings.TrimSpace(workerID)
+	if workerID == "" {
+		workerID = "relay-batch-polling-worker"
+	}
+	leaseUntil := now.Add(defaultRelayBatchPollingJobClaimLease)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	rows, err := tx.QueryContext(ctx, `
+		WITH due AS (
+			SELECT batch_id
+			FROM relay_batch_polling_jobs
+			WHERE (
+			    (status IN ($2, $3) AND available_at <= $1)
+			 OR (status = $4 AND available_at <= $1)
+			)
+			  AND attempts <= max_attempts
+			ORDER BY available_at ASC, created_at ASC, batch_id ASC
+			LIMIT $5
+			FOR UPDATE SKIP LOCKED
+		),
+		updated AS (
+			UPDATE relay_batch_polling_jobs job
+			SET status = $4,
+			    attempts = attempts + 1,
+			    locked_at = $1,
+			    locked_by = $6,
+			    available_at = $7,
+			    completed_at = NULL,
+			    updated_at = $1
+			FROM due
+			WHERE job.batch_id = due.batch_id
+			RETURNING job.batch_id, job.request_id, COALESCE(job.user_id, ''), COALESCE(job.organization_id, ''), COALESCE(job.api_token_id, ''), COALESCE(job.feature_type, ''), job.model, job.api_type, job.status, COALESCE(job.error, ''), job.attempts, job.max_attempts, COALESCE(job.billing_session_id, ''), COALESCE(job.preauthorized_amount, 0), COALESCE(job.token_preauthorized_amount, 0), job.locked_at, COALESCE(job.locked_by, ''), job.available_at, job.completed_at, job.created_at, job.updated_at
+		)
+		SELECT batch_id, request_id, user_id, organization_id, api_token_id, feature_type, model, api_type, status, error, attempts, max_attempts, billing_session_id, preauthorized_amount, token_preauthorized_amount, locked_at, locked_by, available_at, completed_at, created_at, updated_at
+		FROM updated
+		ORDER BY available_at ASC, created_at ASC, batch_id ASC
+	`, now, RelayBatchPollingJobStatusPending, RelayBatchPollingJobStatusFailed, RelayBatchPollingJobStatusProcessing, limit, workerID, leaseUntil)
+	if err != nil {
+		return nil, err
+	}
+	jobs, err := scanRelayBatchPollingJobs(rows)
+	if closeErr := rows.Close(); closeErr != nil && err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	committed = true
+	return jobs, nil
+}
+
+func (s *RelayStore) MarkBatchPollingJobSucceeded(ctx context.Context, batchID, lockedBy string, completedAt time.Time) error {
+	if completedAt.IsZero() {
+		completedAt = time.Now().UTC()
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE relay_batch_polling_jobs
+		SET status = $3,
+		    error = '',
+		    locked_at = NULL,
+		    locked_by = '',
+		    available_at = $4,
+		    completed_at = $4,
+		    updated_at = $4
+		WHERE batch_id = $1
+		  AND ($2 = '' OR locked_by = $2)
+	`, strings.TrimSpace(batchID), strings.TrimSpace(lockedBy), RelayBatchPollingJobStatusSucceeded, completedAt)
+	if err != nil {
+		return err
+	}
+	return ensureRelayRowsAffected(result)
+}
+
+func (s *RelayStore) MarkBatchPollingJobFailed(ctx context.Context, batchID, lockedBy, reason string, availableAt time.Time) error {
+	if availableAt.IsZero() {
+		availableAt = time.Now().UTC().Add(time.Minute)
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE relay_batch_polling_jobs
+		SET status = $3,
+		    error = $4,
+		    locked_at = NULL,
+		    locked_by = '',
+		    available_at = $5,
+		    completed_at = NULL,
+		    updated_at = $6
+		WHERE batch_id = $1
+		  AND ($2 = '' OR locked_by = $2)
+	`, strings.TrimSpace(batchID), strings.TrimSpace(lockedBy), RelayBatchPollingJobStatusFailed, strings.TrimSpace(reason), availableAt, time.Now().UTC())
+	if err != nil {
+		return err
+	}
+	return ensureRelayRowsAffected(result)
+}
+
+func (s *RelayStore) MarkBatchPollingJobDeadLetter(ctx context.Context, batchID, lockedBy, reason string, completedAt time.Time) error {
+	if completedAt.IsZero() {
+		completedAt = time.Now().UTC()
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE relay_batch_polling_jobs
+		SET status = $3,
+		    error = $4,
+		    locked_at = NULL,
+		    locked_by = '',
+		    available_at = $5,
+		    completed_at = $5,
+		    updated_at = $5
+		WHERE batch_id = $1
+		  AND ($2 = '' OR locked_by = $2)
+	`, strings.TrimSpace(batchID), strings.TrimSpace(lockedBy), RelayBatchPollingJobStatusDeadLetter, strings.TrimSpace(reason), completedAt)
+	if err != nil {
+		return err
+	}
+	return ensureRelayRowsAffected(result)
+}
+
+func scanRelayBatchPollingJobs(rows interface {
+	Next() bool
+	Scan(dest ...any) error
+	Err() error
+}) ([]RelayBatchPollingJob, error) {
+	jobs := []RelayBatchPollingJob{}
+	for rows.Next() {
+		job, err := scanRelayBatchPollingJob(rows)
+		if err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, job)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return jobs, nil
+}
+
+func scanRelayBatchPollingJob(scanner interface{ Scan(dest ...any) error }) (RelayBatchPollingJob, error) {
+	var job RelayBatchPollingJob
+	err := scanner.Scan(
+		&job.BatchID,
+		&job.RequestID,
+		&job.UserID,
+		&job.OrganizationID,
+		&job.APITokenID,
+		&job.FeatureType,
+		&job.Model,
+		&job.APIType,
+		&job.Status,
+		&job.Error,
+		&job.Attempts,
+		&job.MaxAttempts,
+		&job.BillingSessionID,
+		&job.PreauthorizedAmount,
+		&job.TokenPreauthorizedAmount,
+		&job.LockedAt,
+		&job.LockedBy,
+		&job.AvailableAt,
+		&job.CompletedAt,
+		&job.CreatedAt,
+		&job.UpdatedAt,
+	)
+	return job, err
+}
+
+func ensureRelayRowsAffected(result sql.Result) error {
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (s *RelayStore) SaveConversationAffinity(ctx context.Context, conversationID, channelID string) error {

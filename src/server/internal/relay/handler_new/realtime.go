@@ -2,37 +2,53 @@ package handler
 
 import (
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
-	"oblivious/server/internal/relay/types"
 	"oblivious/server/internal/relay/channel"
+	"oblivious/server/internal/relay/types"
+	appws "oblivious/server/internal/ws"
 )
 
+var defaultWebSocketOriginPolicy = appws.NewOriginPolicy(nil)
+
 var wsUpgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
+	CheckOrigin:     defaultWebSocketOriginPolicy.Allow,
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 }
 
 // RealtimeHandler Realtime WebSocket 处理
 type RealtimeHandler struct {
-	pool    *types.ChannelPoolInterface
-	adapter *channel.OpenAIAdapter
-	mu      sync.Map // connectionID -> session
+	pool                       *types.ChannelPoolInterface
+	adapter                    *channel.OpenAIAdapter
+	commercialLifecycleEnabled bool
+	mu                         sync.Map // connectionID -> session
 }
 
 func NewRealtimeHandler(p *types.ChannelPoolInterface, a *channel.OpenAIAdapter) *RealtimeHandler {
 	return &RealtimeHandler{pool: p, adapter: a}
 }
 
+func (h *RealtimeHandler) WithCommercialLifecycleEnabled(enabled bool) *RealtimeHandler {
+	h.commercialLifecycleEnabled = enabled
+	return h
+}
+
 // HandleStream WebSocket 连接入口
 func (h *RealtimeHandler) HandleStream(c *gin.Context) error {
 	// 1. 解析 model
-	model := c.Query("model")
+	if !h.lifecycleEnabled() {
+		h.writeDisabled(c)
+		return nil
+	}
+	model := strings.TrimSpace(c.Query("model"))
 	if model == "" {
-		model = "gpt-4o-realtime-preview"
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "realtime_model_required", "message": "realtime model is required"}})
+		return nil
 	}
 
 	// 2. 获取 connectionID（用于幂等）
@@ -48,14 +64,10 @@ func (h *RealtimeHandler) HandleStream(c *gin.Context) error {
 
 	// 5. Upgrade 至 WebSocket
 	upstreamURL, _ := h.adapter.BuildURL(model, types.APITypeRealtime)
-	upstreamURL = upstreamURL + "/v1/realtime"
-	upstreamReq, _ := http.NewRequest("GET", upstreamURL, nil)
+	upstreamURL = realtimeWebSocketURL(upstreamURL)
 	headers, _ := h.adapter.BuildHeaders(c.Request.Context(), model, types.APITypeRealtime)
-	upstreamReq.Header = headers
-	upstreamReq.Header.Set("Upgrade", "websocket")
-	upstreamReq.Header.Set("Connection", "upgrade")
 
-	upstreamConn, _, err := websocket.DefaultDialer.Dial(upstreamURL, upstreamReq.Header)
+	upstreamConn, _, err := websocket.DefaultDialer.Dial(upstreamURL, headers)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "upstream connection failed"})
 		return nil
@@ -104,4 +116,29 @@ func (h *RealtimeHandler) HandleStream(c *gin.Context) error {
 	// 8. TODO: 连接关闭后结算
 
 	return nil
+}
+
+func (h *RealtimeHandler) lifecycleEnabled() bool {
+	return h != nil && h.commercialLifecycleEnabled
+}
+
+func (h *RealtimeHandler) writeDisabled(c *gin.Context) {
+	c.JSON(http.StatusNotImplemented, gin.H{"error": gin.H{
+		"code":    "unsupported_api",
+		"message": "realtime API is disabled until the commercial streaming billing and settlement lifecycle is enabled",
+	}})
+}
+
+func realtimeWebSocketURL(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	switch parsed.Scheme {
+	case "http":
+		parsed.Scheme = "ws"
+	case "https":
+		parsed.Scheme = "wss"
+	}
+	return parsed.String()
 }

@@ -24,7 +24,7 @@ import (
 )
 
 func TestNewRelayRegistersCommercialChatRoute(t *testing.T) {
-	relayInstance, err := NewRelay(&Config{Production: true})
+	relayInstance, err := NewRelay(&Config{Production: true, PricingStore: NewPricingStoreWithDefaults()})
 	if err != nil {
 		t.Fatalf("new relay: %v", err)
 	}
@@ -54,6 +54,7 @@ func TestNewRelayAcceptsConfiguredAPITokenAuthenticator(t *testing.T) {
 	relayInstance, err := NewRelay(&Config{
 		Production:            true,
 		APITokenAuthenticator: authenticator,
+		PricingStore:          NewPricingStoreWithDefaults(),
 	})
 	if err != nil {
 		t.Fatalf("new relay: %v", err)
@@ -70,6 +71,64 @@ func TestNewRelayAcceptsConfiguredAPITokenAuthenticator(t *testing.T) {
 	}
 	if recorder.Code == http.StatusUnauthorized {
 		t.Fatalf("configured API token authenticator should bypass trusted-header 401, got body %s", recorder.Body.String())
+	}
+}
+
+func TestNewRelayRejectsProductionWithoutPricingStore(t *testing.T) {
+	_, err := NewRelay(&Config{Production: true})
+	if err == nil || !strings.Contains(err.Error(), "production relay requires configured pricing store") {
+		t.Fatalf("expected production pricing store requirement, got %v", err)
+	}
+}
+
+func TestNewRelayProductionRealtimeCommercialLifecycleRequiresRealtimePricing(t *testing.T) {
+	pool := NewChannelPool()
+	pool.AddChannel(&types.Channel{
+		ID:       "ch_realtime_pricing",
+		Provider: "openai",
+		BaseURL:  "https://realtime.example.test",
+		APIKey:   "sk-realtime",
+		Models:   []string{"gpt-4o-mini"},
+		Enabled:  true,
+	}, 1)
+
+	_, err := NewRelay(&Config{
+		Pool:                               pool,
+		Production:                         true,
+		PricingStore:                       NewPricingStoreWithDefaults(),
+		RealtimeCommercialLifecycleEnabled: true,
+	})
+
+	if err == nil || !strings.Contains(err.Error(), "production realtime commercial lifecycle requires active realtime pricing") {
+		t.Fatalf("expected realtime pricing requirement, got %v", err)
+	}
+}
+
+func TestNewRelayProductionRealtimeCommercialLifecycleAcceptsActiveRealtimePricing(t *testing.T) {
+	pool := NewChannelPool()
+	pool.AddChannel(&types.Channel{
+		ID:       "ch_realtime_priced",
+		Provider: "openai",
+		BaseURL:  "https://realtime.example.test",
+		APIKey:   "sk-realtime",
+		Models:   []string{"gpt-4o-mini"},
+		Enabled:  true,
+	}, 1)
+	pricing := NewPricingStoreWithDefaults()
+	pricing.SetPrice("gpt-4o-mini", types.APITypeRealtime, types.DimTotalTokens, 0.0001)
+
+	relayInstance, err := NewRelay(&Config{
+		Pool:                               pool,
+		Production:                         true,
+		PricingStore:                       pricing,
+		RealtimeCommercialLifecycleEnabled: true,
+	})
+
+	if err != nil {
+		t.Fatalf("expected active realtime pricing to allow production lifecycle startup: %v", err)
+	}
+	if relayInstance == nil || !relayInstance.realtimeCommercialLifecycleEnabled {
+		t.Fatalf("expected realtime commercial lifecycle flag to remain enabled")
 	}
 }
 
@@ -220,6 +279,122 @@ func TestNewRelayFilesUploadUsesConfiguredChannelAndMappingStore(t *testing.T) {
 		mappingStore.records[0].OrganizationID != "org_files" ||
 		mappingStore.records[0].RequestID != "req_files" {
 		t.Fatalf("unexpected file mapping record: %+v", mappingStore.records[0])
+	}
+}
+
+func TestNewRelayBatchSubmitUsesConfiguredPollingRegistrar(t *testing.T) {
+	var upstreamPath string
+	var upstreamAuth string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamPath = r.URL.Path
+		upstreamAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"batch_relay_123","object":"batch","status":"validating"}`))
+	}))
+	t.Cleanup(upstream.Close)
+
+	pool := NewChannelPool()
+	pool.AddChannel(&types.Channel{
+		ID:          "ch_batch",
+		Name:        "Batch channel",
+		Provider:    "openai",
+		BaseURL:     upstream.URL,
+		APIKey:      "sk-batch",
+		Models:      []string{"gpt-4o"},
+		Enabled:     true,
+		CBThreshold: 5,
+	}, 100)
+	registrar := &recordingRelayBatchPollingRegistrar{}
+	relayInstance, err := NewRelay(&Config{
+		Pool:                            pool,
+		BatchPollingRegistrar:           registrar,
+		BatchCommercialLifecycleEnabled: true,
+	})
+	if err != nil {
+		t.Fatalf("new relay: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/batch", strings.NewReader(`{"model":"gpt-4o","input_file_id":"file_123","endpoint":"/v1/chat/completions"}`))
+	request.Header.Set(types.HeaderRequestID, "req_batch_relay")
+	recorder := httptest.NewRecorder()
+
+	relayInstance.Engine().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusCreated, recorder.Body.String())
+	}
+	if upstreamPath != "/v1/batch" || upstreamAuth != "Bearer sk-batch" {
+		t.Fatalf("upstream path/auth = %q/%q, want /v1/batch/Bearer sk-batch", upstreamPath, upstreamAuth)
+	}
+	if registrar.task.BatchID != "batch_relay_123" ||
+		registrar.task.RequestID != "req_batch_relay" ||
+		registrar.task.Model != "gpt-4o" ||
+		registrar.task.APIType != types.APITypeBatch {
+		t.Fatalf("unexpected batch polling task: %+v", registrar.task)
+	}
+}
+
+func TestNewRelayProductionBatchUsesCommercialLifecycleFlag(t *testing.T) {
+	t.Setenv("OBLIVIOUS_INTERNAL_AUTH_TOKEN", types.SharedInternalToken)
+
+	pool := NewChannelPool()
+	pool.AddChannel(&types.Channel{
+		ID:          "ch_batch",
+		Name:        "Batch channel",
+		Provider:    "openai",
+		BaseURL:     "https://batch.example.test",
+		APIKey:      "sk-batch",
+		Models:      []string{"gpt-4o"},
+		Enabled:     true,
+		CBThreshold: 5,
+	}, 100)
+
+	relayInstance, err := NewRelay(&Config{
+		Pool:                            pool,
+		Production:                      true,
+		PricingStore:                    NewPricingStoreWithDefaults(),
+		BatchPollingRegistrar:           &recordingRelayBatchPollingRegistrar{},
+		BatchCommercialLifecycleEnabled: true,
+	})
+	if err != nil {
+		t.Fatalf("new relay: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/batches", nil)
+	request.Header.Set(types.HeaderInternalAuth, types.SharedInternalToken)
+	request.Header.Set(types.HeaderInternalUserID, "user_batch")
+	request.Header.Set(types.HeaderInternalOrganization, "org_batch")
+	recorder := httptest.NewRecorder()
+
+	relayInstance.Engine().ServeHTTP(recorder, request)
+
+	if recorder.Code == http.StatusNotImplemented {
+		t.Fatalf("commercial batch lifecycle flag should pass route policy, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestNewRelayProductionBatchCommercialLifecycleRequiresPollingRegistrar(t *testing.T) {
+	pool := NewChannelPool()
+	pool.AddChannel(&types.Channel{
+		ID:          "ch_batch",
+		Name:        "Batch channel",
+		Provider:    "openai",
+		BaseURL:     "https://batch.example.test",
+		APIKey:      "sk-batch",
+		Models:      []string{"gpt-4o"},
+		Enabled:     true,
+		CBThreshold: 5,
+	}, 100)
+
+	_, err := NewRelay(&Config{
+		Pool:                            pool,
+		Production:                      true,
+		PricingStore:                    NewPricingStoreWithDefaults(),
+		BatchCommercialLifecycleEnabled: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "production batch commercial lifecycle requires configured polling registrar") {
+		t.Fatalf("expected polling registrar requirement, got %v", err)
 	}
 }
 
@@ -645,7 +820,7 @@ func TestRouterRouteWithBillingRejectsRateLimitedRequestBeforeUpstream(t *testin
 		map[string]*CircuitBreaker{"ch_rate_limited": NewCircuitBreaker("ch_rate_limited", 5, time.Second, time.Minute)},
 		nil,
 		NewHealthChecker(HealthCheckDisabled, time.Second),
-		nil,
+		testBillingHook(),
 		"",
 	)
 	limiter := &recordingRelayRateLimiter{
@@ -737,7 +912,7 @@ func TestRouterRouteWithBillingReducesChannelWeightNearLocalRPMLimit(t *testing.
 		},
 		nil,
 		NewHealthChecker(HealthCheckDisabled, time.Second),
-		nil,
+		testBillingHook(),
 		"",
 	)
 	limiter := &recordingRelayRateLimiter{
@@ -787,7 +962,7 @@ func TestRouterRouteWithBillingReleasesConcurrencyAfterUpstream(t *testing.T) {
 		map[string]*CircuitBreaker{"ch_concurrent": NewCircuitBreaker("ch_concurrent", 5, time.Second, time.Minute)},
 		nil,
 		NewHealthChecker(HealthCheckDisabled, time.Second),
-		nil,
+		testBillingHook(),
 		"",
 	)
 	limiter := &recordingRelayRateLimiter{}
@@ -830,7 +1005,7 @@ func TestRouterRouteWithBillingRejectsConcurrentBeginLimitBeforeUpstream(t *test
 		map[string]*CircuitBreaker{"ch_begin_limited": NewCircuitBreaker("ch_begin_limited", 5, time.Second, time.Minute)},
 		nil,
 		NewHealthChecker(HealthCheckDisabled, time.Second),
-		nil,
+		testBillingHook(),
 		"",
 	)
 	limiter := &recordingRelayRateLimiter{
@@ -912,7 +1087,7 @@ func TestRouterRouteWithBillingReleasesConcurrencyOnQuotaPreConsumeFailure(t *te
 		map[string]*CircuitBreaker{"ch_quota_release": NewCircuitBreaker("ch_quota_release", 5, time.Second, time.Minute)},
 		nil,
 		NewHealthChecker(HealthCheckDisabled, time.Second),
-		nil,
+		testBillingHook(),
 		"",
 	)
 	limiter := &recordingRelayRateLimiter{}
@@ -965,7 +1140,7 @@ func TestRouterRouteWithBillingReleasesConcurrencyOnAPITokenPreAuthorizeFailure(
 		map[string]*CircuitBreaker{"ch_token_release": NewCircuitBreaker("ch_token_release", 5, time.Second, time.Minute)},
 		nil,
 		NewHealthChecker(HealthCheckDisabled, time.Second),
-		nil,
+		testBillingHook(),
 		"",
 	)
 	limiter := &recordingRelayRateLimiter{}
@@ -1033,7 +1208,7 @@ func TestRouterRouteWithBillingReleasesConcurrencyOnUpstreamErrorRetry(t *testin
 		},
 		nil,
 		NewHealthChecker(HealthCheckDisabled, time.Second),
-		nil,
+		testBillingHook(),
 		"",
 	)
 	router.retrySleep = func(time.Duration) {}
@@ -1101,6 +1276,15 @@ func (s *recordingRelayFilesMappingStore) SaveFileMapping(ctx context.Context, r
 	return nil
 }
 
+type recordingRelayBatchPollingRegistrar struct {
+	task handler.BatchPollingRegistration
+}
+
+func (r *recordingRelayBatchPollingRegistrar) RegisterBatchPolling(_ context.Context, task handler.BatchPollingRegistration) error {
+	r.task = task
+	return nil
+}
+
 type recordingConversationAffinityStore struct {
 	channelID string
 }
@@ -1118,14 +1302,27 @@ var _ ConversationAffinityStore = (*recordingConversationAffinityStore)(nil)
 
 type recordingUsageLogger struct {
 	records []RelayUsageLogRecord
+	err     error
 }
 
 func (l *recordingUsageLogger) RecordRelayUsage(_ context.Context, record RelayUsageLogRecord) error {
 	l.records = append(l.records, record)
-	return nil
+	return l.err
+}
+
+func (l *recordingUsageLogger) ReplaceRelayUsage(_ context.Context, record RelayUsageLogRecord) error {
+	for index := range l.records {
+		if l.records[index].RequestID == record.RequestID {
+			l.records[index] = record
+			return l.err
+		}
+	}
+	l.records = append(l.records, record)
+	return l.err
 }
 
 var _ UsageLogger = (*recordingUsageLogger)(nil)
+var _ RelayUsageReplacer = (*recordingUsageLogger)(nil)
 
 type recordingAPITokenQuotaManager struct {
 	preauthorizedTokenID string
@@ -1231,6 +1428,7 @@ func TestNewRelayProductionChatReturnsQuotaCodeWhenAPITokenPreAuthorizationFails
 		Pool:                  pool,
 		Production:            true,
 		APITokenAuthenticator: authenticator,
+		PricingStore:          NewPricingStoreWithDefaults(),
 	})
 	if err != nil {
 		t.Fatalf("new relay: %v", err)
@@ -1321,6 +1519,7 @@ func TestNewRelayProductionChatSettlesAPITokenQuotaAndRecordsUsageOnSuccess(t *t
 		Pool:                  pool,
 		Production:            true,
 		APITokenAuthenticator: authenticator,
+		PricingStore:          NewPricingStoreWithDefaults(),
 	})
 	if err != nil {
 		t.Fatalf("new relay: %v", err)
@@ -1407,8 +1606,9 @@ func TestNewRelayProductionChatRecordsTrustedFeatureTypeOnUsage(t *testing.T) {
 		Enabled:        true,
 	}, 100)
 	relayInstance, err := NewRelay(&Config{
-		Pool:       pool,
-		Production: true,
+		Pool:         pool,
+		Production:   true,
+		PricingStore: NewPricingStoreWithDefaults(),
 	})
 	if err != nil {
 		t.Fatalf("new relay: %v", err)
@@ -1489,6 +1689,7 @@ func TestNewRelayProductionChatStreamsProviderSSEEndToEnd(t *testing.T) {
 		Pool:                  pool,
 		Production:            true,
 		APITokenAuthenticator: authenticator,
+		PricingStore:          NewPricingStoreWithDefaults(),
 	})
 	if err != nil {
 		t.Fatalf("new relay: %v", err)
@@ -1572,6 +1773,7 @@ func TestNewRelayProductionChatUsesSharedSemanticCacheOnSecondRequest(t *testing
 		Pool:                  pool,
 		Production:            true,
 		APITokenAuthenticator: authenticator,
+		PricingStore:          NewPricingStoreWithDefaults(),
 	})
 	if err != nil {
 		t.Fatalf("new relay: %v", err)
@@ -1656,6 +1858,7 @@ func TestNewRelayProductionChatReturnsCodeWhenAPITokenSettlementFails(t *testing
 		Pool:                  pool,
 		Production:            true,
 		APITokenAuthenticator: authenticator,
+		PricingStore:          NewPricingStoreWithDefaults(),
 	})
 	if err != nil {
 		t.Fatalf("new relay: %v", err)
@@ -1735,6 +1938,7 @@ func TestNewRelayProductionChatReturnsCodeWhenBillingSettlementFails(t *testing.
 		Pool:                  pool,
 		Production:            true,
 		APITokenAuthenticator: authenticator,
+		PricingStore:          NewPricingStoreWithDefaults(),
 	})
 	if err != nil {
 		t.Fatalf("new relay: %v", err)
@@ -1815,6 +2019,7 @@ func TestNewRelayProductionChatReturnsCodeWhenBillingPreAuthorizationFails(t *te
 		Pool:                  pool,
 		Production:            true,
 		APITokenAuthenticator: authenticator,
+		PricingStore:          NewPricingStoreWithDefaults(),
 	})
 	if err != nil {
 		t.Fatalf("new relay: %v", err)

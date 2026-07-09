@@ -2,6 +2,7 @@ package relay
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -12,43 +13,51 @@ import (
 	"oblivious/server/internal/relay/handler"
 	"oblivious/server/internal/relay/ratelimit"
 	"oblivious/server/internal/relay/types"
+	appws "oblivious/server/internal/ws"
 )
 
 type Relay struct {
-	engine                      *gin.Engine
-	pool                        *ChannelPool
-	handlers                    map[types.APIType]types.Handler
-	router                      *Router
-	cache                       *relaycache.SemanticCache
-	production                  bool
-	auditSink                   handler.RouteAuditSink
-	apiTokenAuthenticator       types.RelayAPITokenAuthenticator
-	healthCheckInterval         time.Duration
-	healthCheckTimeout          time.Duration
-	healthCheckFailureThreshold int
-	healthAlertSink             observability.AlertSink
-	healthRecoveryController    *observability.RecoveryController
-	healthAlertStateStore       observability.AlertStateStore
+	engine                             *gin.Engine
+	pool                               *ChannelPool
+	handlers                           map[types.APIType]types.Handler
+	router                             *Router
+	cache                              *relaycache.SemanticCache
+	production                         bool
+	auditSink                          handler.RouteAuditSink
+	apiTokenAuthenticator              types.RelayAPITokenAuthenticator
+	batchCommercialLifecycleEnabled    bool
+	realtimeCommercialLifecycleEnabled bool
+	webSocketOriginPolicy              appws.OriginPolicy
+	healthCheckInterval                time.Duration
+	healthCheckTimeout                 time.Duration
+	healthCheckFailureThreshold        int
+	healthAlertSink                    observability.AlertSink
+	healthRecoveryController           *observability.RecoveryController
+	healthAlertStateStore              observability.AlertStateStore
 }
 
 type Config struct {
-	Pool                        *ChannelPool
-	Production                  bool
-	APITokenAuthenticator       types.RelayAPITokenAuthenticator
-	PricingStore                *PricingStore
-	RateLimiter                 ratelimit.RateLimiter
-	ConversationAffinityStore   ConversationAffinityStore
-	SemanticCacheStore          relaycache.SemanticCacheStore
-	SemanticCacheEmbedder       handler.SemanticCacheEmbedder
-	SemanticCacheDisabled       bool
-	FilesMappingStore           handler.FilesMappingStore
-	RouteAuditSink              handler.RouteAuditSink
-	HealthCheckInterval         time.Duration
-	HealthCheckTimeout          time.Duration
-	HealthCheckFailureThreshold int
-	HealthAlertSink             observability.AlertSink
-	HealthRecoveryController    *observability.RecoveryController
-	HealthAlertStateStore       observability.AlertStateStore
+	Pool                               *ChannelPool
+	Production                         bool
+	APITokenAuthenticator              types.RelayAPITokenAuthenticator
+	PricingStore                       *PricingStore
+	RateLimiter                        ratelimit.RateLimiter
+	ConversationAffinityStore          ConversationAffinityStore
+	SemanticCacheStore                 relaycache.SemanticCacheStore
+	SemanticCacheEmbedder              handler.SemanticCacheEmbedder
+	SemanticCacheDisabled              bool
+	FilesMappingStore                  handler.FilesMappingStore
+	BatchPollingRegistrar              handler.BatchPollingRegistrar
+	BatchCommercialLifecycleEnabled    bool
+	RealtimeCommercialLifecycleEnabled bool
+	CORSAllowedOrigins                 []string
+	RouteAuditSink                     handler.RouteAuditSink
+	HealthCheckInterval                time.Duration
+	HealthCheckTimeout                 time.Duration
+	HealthCheckFailureThreshold        int
+	HealthAlertSink                    observability.AlertSink
+	HealthRecoveryController           *observability.RecoveryController
+	HealthAlertStateStore              observability.AlertStateStore
 }
 
 func NewRelay(cfg *Config) (*Relay, error) {
@@ -56,16 +65,19 @@ func NewRelay(cfg *Config) (*Relay, error) {
 		cfg = &Config{}
 	}
 	r := &Relay{
-		handlers:                    make(map[types.APIType]types.Handler),
-		production:                  cfg.Production,
-		auditSink:                   cfg.RouteAuditSink,
-		apiTokenAuthenticator:       cfg.APITokenAuthenticator,
-		healthCheckInterval:         cfg.HealthCheckInterval,
-		healthCheckTimeout:          cfg.HealthCheckTimeout,
-		healthCheckFailureThreshold: cfg.HealthCheckFailureThreshold,
-		healthAlertSink:             cfg.HealthAlertSink,
-		healthRecoveryController:    cfg.HealthRecoveryController,
-		healthAlertStateStore:       cfg.HealthAlertStateStore,
+		handlers:                           make(map[types.APIType]types.Handler),
+		production:                         cfg.Production,
+		auditSink:                          cfg.RouteAuditSink,
+		apiTokenAuthenticator:              cfg.APITokenAuthenticator,
+		batchCommercialLifecycleEnabled:    cfg.BatchCommercialLifecycleEnabled,
+		realtimeCommercialLifecycleEnabled: cfg.RealtimeCommercialLifecycleEnabled,
+		webSocketOriginPolicy:              appws.NewOriginPolicy(cfg.CORSAllowedOrigins),
+		healthCheckInterval:                cfg.HealthCheckInterval,
+		healthCheckTimeout:                 cfg.HealthCheckTimeout,
+		healthCheckFailureThreshold:        cfg.HealthCheckFailureThreshold,
+		healthAlertSink:                    cfg.HealthAlertSink,
+		healthRecoveryController:           cfg.HealthRecoveryController,
+		healthAlertStateStore:              cfg.HealthAlertStateStore,
 	}
 	if r.healthCheckInterval <= 0 {
 		r.healthCheckInterval = 30 * time.Second
@@ -94,7 +106,19 @@ func NewRelay(cfg *Config) (*Relay, error) {
 
 	pricing := cfg.PricingStore
 	if pricing == nil {
+		if cfg.Production {
+			return nil, errors.New("production relay requires configured pricing store")
+		}
 		pricing = NewPricingStoreWithDefaults()
+	}
+	if cfg.Production && pricing.IsEmpty() {
+		return nil, errors.New("production relay requires active pricing entries")
+	}
+	if cfg.Production && cfg.BatchCommercialLifecycleEnabled && cfg.BatchPollingRegistrar == nil {
+		return nil, errors.New("production batch commercial lifecycle requires configured polling registrar")
+	}
+	if cfg.Production && cfg.RealtimeCommercialLifecycleEnabled && !hasActiveRealtimePricingForPool(pricing, r.pool) {
+		return nil, errors.New("production realtime commercial lifecycle requires active realtime pricing")
 	}
 	seenIdem := make(map[string]bool)
 	billingHook := NewBillingHook(pricing, &seenIdem)
@@ -123,7 +147,8 @@ func (r *Relay) registerHandlers(cfg *Config) {
 	}
 	r.handlers[types.APITypeResponses] = handler.NewResponsesHandler(&poolInterface, defaultAdapter)
 	r.handlers[types.APITypeModels] = handler.NewModelsHandler(&poolInterface)
-	r.handlers[types.APITypeRealtime] = handler.NewRealtimeHandler(&poolInterface, defaultAdapter)
+	r.handlers[types.APITypeRealtime] = handler.NewRealtimeHandlerWithOriginPolicy(&poolInterface, defaultAdapter, r.webSocketOriginPolicy).
+		WithCommercialLifecycleEnabled(r.realtimeCommercialLifecycleEnabled)
 	r.handlers[types.APITypeEmbeddings] = handler.NewEmbeddingsHandler(&poolInterface, defaultAdapter)
 	imagesHandler := handler.NewImagesHandler(&poolInterface, defaultAdapter)
 	r.handlers[types.APITypeImageGen] = imagesHandler
@@ -139,7 +164,9 @@ func (r *Relay) registerHandlers(cfg *Config) {
 	} else {
 		r.handlers[types.APITypeCompletions] = handler.NewLegacyCompletionsHandler(&poolInterface, defaultAdapter)
 	}
-	r.handlers[types.APITypeBatch] = handler.NewBatchHandler(&poolInterface, defaultAdapter)
+	r.handlers[types.APITypeBatch] = handler.NewBatchHandler(&poolInterface, defaultAdapter).
+		WithCommercialLifecycleEnabled(r.batchCommercialLifecycleEnabled).
+		WithPollingRegistrar(cfg.BatchPollingRegistrar)
 	r.handlers[types.APITypeFiles] = handler.NewFilesHandler(&poolInterface, defaultAdapter, ".tmp/relay").WithMappingStore(cfg.FilesMappingStore)
 	fineTuningHandler := handler.NewFineTuningHandler(defaultAdapter)
 	r.handlers[types.APITypeFineTuning] = fineTuningHandler
@@ -159,12 +186,35 @@ func (r *Relay) defaultAdapter() *channel.OpenAIAdapter {
 	return channel.NewOpenAIAdapter("", "")
 }
 
+func hasActiveRealtimePricingForPool(pricing *PricingStore, pool *ChannelPool) bool {
+	if pricing == nil || pool == nil {
+		return false
+	}
+	for _, ch := range pool.ListChannels() {
+		if ch == nil || !ch.Enabled {
+			continue
+		}
+		for _, model := range ch.Models {
+			model = strings.TrimSpace(model)
+			if model == "" {
+				continue
+			}
+			if _, err := pricing.GetPrice(model, types.APITypeRealtime, types.DimTotalTokens); err == nil {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (r *Relay) initRouter() {
 	r.engine = gin.New()
 	handler.RegisterRoutesWithOptions(r.engine, r.handlers, handler.RouteRegistrationOptions{
-		Production:            r.production,
-		AuditSink:             r.auditSink,
-		APITokenAuthenticator: r.apiTokenAuthenticator,
+		Production:                         r.production,
+		AuditSink:                          r.auditSink,
+		APITokenAuthenticator:              r.apiTokenAuthenticator,
+		BatchCommercialLifecycleEnabled:    r.batchCommercialLifecycleEnabled,
+		RealtimeCommercialLifecycleEnabled: r.realtimeCommercialLifecycleEnabled,
 	})
 }
 

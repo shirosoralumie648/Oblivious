@@ -5,11 +5,14 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"io"
+	"os"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"oblivious/server/internal/relay"
+	"oblivious/server/internal/relay/types"
 )
 
 func TestSQLRecorder_RecordRelayUsageWritesGatewayFields(t *testing.T) {
@@ -22,26 +25,57 @@ func TestSQLRecorder_RecordRelayUsageWritesGatewayFields(t *testing.T) {
 		t.Fatalf("open capture db: %v", err)
 	}
 	defer db.Close()
+	effectiveFrom := time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC)
 
 	err = NewSQLRecorder(db).RecordRelayUsage(context.Background(), relay.RelayUsageLogRecord{
-		UserID:           "user_1",
-		OrganizationID:   "org_1",
-		APITokenID:       "tok_1",
-		RequestID:        "req_1",
-		APIType:          "chat",
-		FeatureType:      "workspace_chat",
-		QuotaMode:        "relay_billing",
-		Model:            "gpt-4o",
-		ChannelID:        "ch_1",
-		Provider:         "openai",
-		Status:           relay.RelayUsageStatusSuccess,
-		StatusCode:       200,
-		LatencyMS:        42,
-		Cost:             2.8,
-		ChannelCost:      1.4,
-		PromptTokens:     1000,
-		CompletionTokens: 100,
-		TotalTokens:      1100,
+		UserID:         "user_1",
+		OrganizationID: "org_1",
+		APITokenID:     "tok_1",
+		RequestID:      "req_1",
+		APIType:        "chat",
+		FeatureType:    "workspace_chat",
+		QuotaMode:      "relay_billing",
+		Model:          "gpt-4o",
+		ChannelID:      "ch_1",
+		Provider:       "openai",
+		Status:         relay.RelayUsageStatusSuccess,
+		StatusCode:     200,
+		LatencyMS:      42,
+		Cost:           2.8,
+		ChannelCost:    1.4,
+		PriceSnapshot: &relay.PricingQuote{
+			Model:             "gpt-4o",
+			APIType:           "chat",
+			Currency:          "quota",
+			Source:            "initial_catalog",
+			EffectiveFrom:     &effectiveFrom,
+			Subtotal:          2.8,
+			GroupMultiplier:   1,
+			ChannelMultiplier: 1,
+			TotalCost:         2.8,
+			Dimensions: []relay.PricingQuoteDimension{
+				{
+					PricingEntryID: "rpe_chat_gpt4o_prompt_v1",
+					Model:          "gpt-4o",
+					APIType:        "chat",
+					Dimension:      types.DimPromptTokens,
+					UnitCost:       0.002,
+					Markup:         1,
+					UnitPrice:      0.002,
+					Quantity:       1000,
+					Amount:         2.0,
+					Currency:       "quota",
+					Source:         "initial_catalog",
+					EffectiveFrom:  &effectiveFrom,
+				},
+			},
+		},
+		PriceCurrency:      "quota",
+		PriceSource:        "initial_catalog",
+		PriceEffectiveFrom: &effectiveFrom,
+		PromptTokens:       1000,
+		CompletionTokens:   100,
+		TotalTokens:        1100,
 	})
 	if err != nil {
 		t.Fatalf("record relay usage: %v", err)
@@ -66,6 +100,10 @@ func TestSQLRecorder_RecordRelayUsageWritesGatewayFields(t *testing.T) {
 		"channel_cost",
 		"request_id",
 		"total_tokens",
+		"price_snapshot",
+		"price_currency",
+		"price_source",
+		"price_effective_from",
 	} {
 		if !strings.Contains(query, column) {
 			t.Fatalf("expected insert query to include %s, got %s", column, query)
@@ -89,6 +127,33 @@ func TestSQLRecorder_RecordRelayUsageWritesGatewayFields(t *testing.T) {
 	}
 	if got := argString(args, 13); got != string(relay.RelayUsageStatusSuccess) {
 		t.Fatalf("status arg = %q, want success", got)
+	}
+	if got := argString(args, 22); !strings.Contains(got, `"pricingEntryId":"rpe_chat_gpt4o_prompt_v1"`) || !strings.Contains(got, `"totalCost":2.8`) {
+		t.Fatalf("price snapshot arg missing catalog entry and total cost: %s", got)
+	}
+	if got := argString(args, 23); got != "quota" {
+		t.Fatalf("price currency arg = %q, want quota", got)
+	}
+	if got := argString(args, 24); got != "initial_catalog" {
+		t.Fatalf("price source arg = %q, want initial_catalog", got)
+	}
+}
+
+func TestRelayUsagePriceSnapshotsMigrationDeclaresImmutableFields(t *testing.T) {
+	source, err := os.ReadFile("../../migrations/0088_relay_usage_price_snapshots.sql")
+	if err != nil {
+		t.Fatalf("read relay usage price snapshot migration: %v", err)
+	}
+	text := string(source)
+	for _, needle := range []string{
+		"price_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb",
+		"price_currency TEXT NOT NULL DEFAULT ''",
+		"price_source TEXT NOT NULL DEFAULT ''",
+		"price_effective_from TIMESTAMPTZ",
+	} {
+		if !strings.Contains(text, needle) {
+			t.Fatalf("expected migration to contain %q, got %s", needle, text)
+		}
 	}
 }
 

@@ -138,6 +138,7 @@ func EnforceRoutePolicy(c *gin.Context, route Route, opts RouteRegistrationOptio
 		ensureRelayRequestID(c)
 	}
 
+	policy = routePolicyForOptions(policy, opts)
 	if rejectIfProductionDisabled(c, route, policy, opts) {
 		return true
 	}
@@ -306,6 +307,28 @@ func rejectIfProductionDisabled(c *gin.Context, route Route, policy RoutePolicy,
 	return true
 }
 
+func routePolicyForOptions(policy RoutePolicy, opts RouteRegistrationOptions) RoutePolicy {
+	if !opts.Production {
+		return policy
+	}
+	switch {
+	case opts.BatchCommercialLifecycleEnabled && policy.APIType == types.APITypeBatch:
+	case opts.RealtimeCommercialLifecycleEnabled && policy.APIType == types.APITypeRealtime:
+	default:
+		return policy
+	}
+	policy.Class = CommercialSupportedBilled
+	policy.ProductionEnabled = true
+	policy.DisabledReason = ""
+	policy.FutureOwner = ""
+	policy.AuthPolicy = AuthPolicyTrustedInternalIdentity
+	policy.TenantIdentityRequired = true
+	policy.RateLimitPolicy = RateLimitPolicyGlobalTokenBucket
+	policy.AuditPolicy = AuditPolicyRouteDecision
+	policy.BillingPolicy = BillingPolicyUsageSettlement
+	return policy
+}
+
 func trustedIdentityFromHeaders(c *gin.Context, requireConfiguredSecret bool) (string, string, string, string, bool) {
 	expectedToken := os.Getenv("OBLIVIOUS_INTERNAL_AUTH_TOKEN")
 	if expectedToken == "" {
@@ -365,7 +388,7 @@ func bearerTokenFromRequest(r *http.Request) string {
 
 func modelFromRequestBody(r *http.Request) (string, error) {
 	if r.Body == nil || r.Method == http.MethodGet || r.Method == http.MethodDelete {
-		return "", nil
+		return strings.TrimSpace(r.URL.Query().Get("model")), nil
 	}
 	contentType := strings.ToLower(r.Header.Get("Content-Type"))
 	if contentType != "" && !strings.Contains(contentType, "json") {
@@ -471,7 +494,7 @@ var routePolicies = []RoutePolicy{
 	supportedUsage("POST", "/v1/chat/completions", types.APITypeChat, types.StrategyNative),
 	supportedUsage("POST", "/v1/responses", types.APITypeResponses, types.StrategyNative),
 	internalAdmin("GET", "/v1/models", types.APITypeModels, types.StrategyNative),
-	disabled("GET", "/v1/realtime", types.APITypeRealtime, types.StrategyNative, "realtime settlement and client-abort billing are not defined", "Phase 15"),
+	disabled("GET", "/v1/realtime", types.APITypeRealtime, types.StrategyNative, "realtime production prebill, abort settlement, request-log linkage, and target proof are not defined", "Phase 15"),
 	supportedUsage("POST", "/v1/embeddings", types.APITypeEmbeddings, types.StrategyNative),
 	supportedEstimate("POST", "/v1/images/generations", types.APITypeImageGen, types.StrategyNative),
 	supportedEstimate("POST", "/v1/images/edits", types.APITypeImageEdit, types.StrategyNative),
@@ -482,9 +505,9 @@ var routePolicies = []RoutePolicy{
 	supportedEstimate("POST", "/v1/audio/translations", types.APITypeAudioTranslate, types.StrategyNative),
 	supportedEstimate("POST", "/v1/moderations", types.APITypeModeration, types.StrategyNative),
 	supportedUsage("POST", "/v1/completions", types.APITypeCompletions, types.StrategyNative),
-	disabled("POST", "/v1/batch", types.APITypeBatch, types.StrategyNative, "async batch settlement and audit are not defined", "Phase 15"),
-	disabled("GET", "/v1/batches", types.APITypeBatch, types.StrategyPassthrough, "batch passthrough lacks commercial audit and settlement", "Phase 15"),
-	disabled("GET", "/v1/batches/:id", types.APITypeBatch, types.StrategyPassthrough, "batch passthrough lacks commercial audit and settlement", "Phase 15"),
+	disabled("POST", "/v1/batch", types.APITypeBatch, types.StrategyNative, "batch prebill, polling, settlement, refund, audit, and usage capture are not defined", "Phase 15"),
+	disabled("GET", "/v1/batches", types.APITypeBatch, types.StrategyPassthrough, "batch prebill, polling, settlement, refund, audit, and usage capture are not defined", "Phase 15"),
+	disabled("GET", "/v1/batches/:id", types.APITypeBatch, types.StrategyPassthrough, "batch prebill, polling, settlement, refund, audit, and usage capture are not defined", "Phase 15"),
 	supportedFileUpload("POST", "/v1/files", types.APITypeFiles, types.StrategyFileProxy),
 	supportedEstimate("GET", "/v1/files", types.APITypeFiles, types.StrategyPassthrough),
 	supportedEstimate("GET", "/v1/files/:id", types.APITypeFiles, types.StrategyPassthrough),

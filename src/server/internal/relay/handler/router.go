@@ -18,9 +18,11 @@ func GetRouter() types.RouterInterface {
 }
 
 type RouteRegistrationOptions struct {
-	Production            bool
-	AuditSink             RouteAuditSink
-	APITokenAuthenticator types.RelayAPITokenAuthenticator
+	Production                         bool
+	AuditSink                          RouteAuditSink
+	APITokenAuthenticator              types.RelayAPITokenAuthenticator
+	BatchCommercialLifecycleEnabled    bool
+	RealtimeCommercialLifecycleEnabled bool
 }
 
 // Route 定义

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -16,9 +18,10 @@ import (
 
 // BatchHandler Batch 处理（submit 原生 + status 透传）
 type BatchHandler struct {
-	pool             *types.ChannelPoolInterface
-	adapter          *channel.OpenAIAdapter
-	pollingRegistrar BatchPollingRegistrar
+	pool                       *types.ChannelPoolInterface
+	adapter                    *channel.OpenAIAdapter
+	pollingRegistrar           BatchPollingRegistrar
+	commercialLifecycleEnabled bool
 }
 
 func NewBatchHandler(p *types.ChannelPoolInterface, a *channel.OpenAIAdapter) *BatchHandler {
@@ -26,10 +29,17 @@ func NewBatchHandler(p *types.ChannelPoolInterface, a *channel.OpenAIAdapter) *B
 }
 
 type BatchPollingRegistration struct {
-	BatchID   string
-	RequestID string
-	Model     string
-	APIType   types.APIType
+	BatchID                  string
+	RequestID                string
+	UserID                   string
+	OrganizationID           string
+	APITokenID               string
+	FeatureType              string
+	Model                    string
+	APIType                  types.APIType
+	BillingSessionID         string
+	PreauthorizedAmount      float64
+	TokenPreauthorizedAmount float64
 }
 
 type BatchPollingRegistrar interface {
@@ -41,7 +51,16 @@ func (h *BatchHandler) WithPollingRegistrar(registrar BatchPollingRegistrar) *Ba
 	return h
 }
 
+func (h *BatchHandler) WithCommercialLifecycleEnabled(enabled bool) *BatchHandler {
+	h.commercialLifecycleEnabled = enabled
+	return h
+}
+
 func (h *BatchHandler) Handle(c *gin.Context) error {
+	if !h.lifecycleEnabled() {
+		h.writeDisabled(c)
+		return nil
+	}
 	path := c.Request.URL.Path
 	if path == "/v1/batch" {
 		return h.HandleSubmit(c)
@@ -61,8 +80,16 @@ func (h *BatchHandler) HandleStream(c *gin.Context) error {
 
 // POST /v1/batch (原生处理 - 走异步计费)
 func (h *BatchHandler) HandleSubmit(c *gin.Context) error {
-	model := "gpt-4o"
+	if !h.lifecycleEnabled() {
+		h.writeDisabled(c)
+		return nil
+	}
 	body, _ := io.ReadAll(c.Request.Body)
+	model := extractBatchModel(body)
+	if model == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "batch_model_required", "message": "batch model is required"}})
+		return nil
+	}
 
 	url, _ := h.adapter.BuildURL(model, types.APITypeBatch)
 	headers, _ := h.adapter.BuildHeaders(c.Request.Context(), model, types.APITypeBatch)
@@ -82,7 +109,7 @@ func (h *BatchHandler) HandleSubmit(c *gin.Context) error {
 			writeRelayHandlerError(c, resp, err)
 			return nil
 		}
-		if err := h.registerBatchPolling(c, resp.Content, model); err != nil {
+		if err := h.registerBatchPolling(c, resp, model); err != nil {
 			c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"code": "batch_polling_registration_failed", "message": err.Error()}})
 			return nil
 		}
@@ -122,7 +149,7 @@ func (h *BatchHandler) HandleSubmit(c *gin.Context) error {
 		return nil
 	}
 
-	if err := h.registerBatchPolling(c, bodyOut, model); err != nil {
+	if err := h.registerBatchPolling(c, &types.ProviderResponse{Content: bodyOut}, model); err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"code": "batch_polling_registration_failed", "message": err.Error()}})
 		return nil
 	}
@@ -140,21 +167,36 @@ func estimateBatchUsage(adapter *channel.OpenAIAdapter, req *channel.ProviderReq
 	return &types.Usage{}
 }
 
-func (h *BatchHandler) registerBatchPolling(c *gin.Context, body []byte, model string) error {
+func (h *BatchHandler) registerBatchPolling(c *gin.Context, resp *types.ProviderResponse, model string) error {
 	// Registering an injected polling hook keeps production route policy closed
 	// until the async billing worker is wired to this hook.
 	if h.pollingRegistrar == nil {
 		return nil
 	}
-	batchID := extractBatchID(body)
-	if batchID == "" {
-		return nil
+	if resp == nil {
+		return fmt.Errorf("upstream batch response is empty")
 	}
+	batchID := extractBatchID(resp.Content)
+	if batchID == "" {
+		return fmt.Errorf("upstream batch response did not include id")
+	}
+	ctx := c.Request.Context()
+	userID, _ := types.TrustedUserIDFromContext(ctx)
+	organizationID, _ := types.TrustedOrganizationIDFromContext(ctx)
+	apiTokenID, _ := types.TrustedAPITokenIDFromContext(ctx)
+	featureType, _ := types.TrustedFeatureTypeFromContext(ctx)
 	return h.pollingRegistrar.RegisterBatchPolling(c.Request.Context(), BatchPollingRegistration{
-		BatchID:   batchID,
-		RequestID: c.GetHeader(types.HeaderRequestID),
-		Model:     model,
-		APIType:   types.APITypeBatch,
+		BatchID:                  batchID,
+		RequestID:                c.GetHeader(types.HeaderRequestID),
+		UserID:                   userID,
+		OrganizationID:           organizationID,
+		APITokenID:               apiTokenID,
+		FeatureType:              featureType,
+		Model:                    model,
+		APIType:                  types.APITypeBatch,
+		BillingSessionID:         resp.BillingSessionID,
+		PreauthorizedAmount:      resp.PreauthorizedAmount,
+		TokenPreauthorizedAmount: resp.TokenPreauthorizedAmount,
 	})
 }
 
@@ -168,20 +210,52 @@ func extractBatchID(body []byte) string {
 	return payload.ID
 }
 
+func extractBatchModel(body []byte) string {
+	var payload struct {
+		Model string `json:"model"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(payload.Model)
+}
+
 // GET /v1/batches (透传)
 func (h *BatchHandler) HandleList(c *gin.Context) {
+	if !h.lifecycleEnabled() {
+		h.writeDisabled(c)
+		return
+	}
 	h.passthrough(c, "GET", "/v1/batches", nil)
 }
 
 // GET /v1/batches/:id (透传)
 func (h *BatchHandler) HandleGet(c *gin.Context) {
+	if !h.lifecycleEnabled() {
+		h.writeDisabled(c)
+		return
+	}
 	id := c.Param("id")
 	h.passthrough(c, "GET", "/v1/batches/"+id, nil)
 }
 
+func (h *BatchHandler) lifecycleEnabled() bool {
+	return h != nil && h.commercialLifecycleEnabled
+}
+
+func (h *BatchHandler) writeDisabled(c *gin.Context) {
+	c.JSON(http.StatusNotImplemented, gin.H{"error": gin.H{
+		"code":    "unsupported_api",
+		"message": "batch API is disabled until the commercial polling, settlement, refund, and audit lifecycle is enabled",
+	}})
+}
+
 func (h *BatchHandler) passthrough(c *gin.Context, method, path string, body []byte) {
-	upstreamURL, _ := h.adapter.BuildURL("gpt-4o", types.APITypeBatch)
-	upstreamURL = upstreamURL + path
+	upstreamURL, err := batchPassthroughURL(h.adapter, path)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"code": "upstream_error", "message": err.Error()}})
+		return
+	}
 	req, err := http.NewRequest(method, upstreamURL, bytes.NewReader(body))
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"code": "upstream_error", "message": err.Error()}})
@@ -201,6 +275,27 @@ func (h *BatchHandler) passthrough(c *gin.Context, method, path string, body []b
 
 	bodyOut, _ := io.ReadAll(resp.Body)
 	c.Data(resp.StatusCode, "application/json", bodyOut)
+}
+
+func batchPassthroughURL(adapter *channel.OpenAIAdapter, path string) (string, error) {
+	batchURL, err := adapter.BuildURL("gpt-4o", types.APITypeBatch)
+	if err != nil {
+		return "", err
+	}
+	parsed, err := url.Parse(batchURL)
+	if err != nil {
+		return "", err
+	}
+	basePath := strings.TrimRight(strings.TrimSuffix(parsed.Path, "/batch"), "/")
+	targetPath := strings.TrimPrefix(path, "/v1")
+	if targetPath == "" {
+		targetPath = "/"
+	}
+	if !strings.HasPrefix(targetPath, "/") {
+		targetPath = "/" + targetPath
+	}
+	parsed.Path = basePath + targetPath
+	return parsed.String(), nil
 }
 
 func (h *BatchHandler) executeRequest(c *gin.Context, req *channel.ProviderRequest, usage *types.Usage) (*types.ProviderResponse, error) {

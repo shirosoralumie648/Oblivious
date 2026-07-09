@@ -3,11 +3,14 @@ package relay
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	_ "github.com/lib/pq"
 
 	"oblivious/server/internal/relay/handler"
@@ -53,6 +56,9 @@ func testRelaySQLStore(t *testing.T) (*RelayStore, *sql.DB, context.Context) {
 	if _, err := database.Exec(`DROP TABLE IF EXISTS relay_file_mappings CASCADE`); err != nil {
 		t.Fatalf("drop relay file mappings table: %v", err)
 	}
+	if _, err := database.Exec(`DROP TABLE IF EXISTS relay_batch_polling_jobs CASCADE`); err != nil {
+		t.Fatalf("drop relay batch polling jobs table: %v", err)
+	}
 	if _, err := database.Exec(`DROP TABLE IF EXISTS relay_conversation_affinity CASCADE`); err != nil {
 		t.Fatalf("drop relay conversation affinity table: %v", err)
 	}
@@ -62,6 +68,20 @@ func testRelaySQLStore(t *testing.T) (*RelayStore, *sql.DB, context.Context) {
 	}
 	if _, err := database.Exec(string(migration)); err != nil {
 		t.Fatalf("apply relay file mappings migration: %v", err)
+	}
+	tombstoneMigration, err := os.ReadFile("../../migrations/0095_relay_file_mapping_tombstones.sql")
+	if err != nil {
+		t.Fatalf("read relay file mappings tombstone migration: %v", err)
+	}
+	if _, err := database.Exec(string(tombstoneMigration)); err != nil {
+		t.Fatalf("apply relay file mappings tombstone migration: %v", err)
+	}
+	batchPollingMigration, err := os.ReadFile("../../migrations/0097_relay_batch_polling_jobs.sql")
+	if err != nil {
+		t.Fatalf("read relay batch polling jobs migration: %v", err)
+	}
+	if _, err := database.Exec(string(batchPollingMigration)); err != nil {
+		t.Fatalf("apply relay batch polling jobs migration: %v", err)
 	}
 	affinityMigration, err := os.ReadFile("../../migrations/0062_relay_conversation_affinity.sql")
 	if err != nil {
@@ -472,6 +492,244 @@ func TestRelayStoreListFileMappingsRequiresTenantOwnership(t *testing.T) {
 	}
 	if len(wrongUser) != 0 {
 		t.Fatalf("wrong tenant list leaked mappings: %+v", wrongUser)
+	}
+}
+
+func TestRelayStoreTombstoneFileMappingHidesTenantMapping(t *testing.T) {
+	store, database, ctx := testRelaySQLStore(t)
+
+	record := handler.FileMappingRecord{
+		LocalFileID:    "file_local_delete",
+		OpenAIFileID:   "file_openai_delete",
+		LocalPath:      "/tmp/oblivious-relay-files/files/file_local_delete.jsonl",
+		SizeBytes:      42,
+		UserID:         "user_1",
+		OrganizationID: "org_1",
+		RequestID:      "req_file_delete",
+		CreatedAt:      time.Date(2026, 6, 5, 8, 30, 0, 0, time.UTC),
+	}
+	if err := store.SaveFileMapping(ctx, record); err != nil {
+		t.Fatalf("SaveFileMapping returned error: %v", err)
+	}
+
+	if err := store.TombstoneFileMapping(ctx, record.LocalFileID, "user_2", record.OrganizationID, time.Now().UTC()); err == nil {
+		t.Fatal("wrong tenant tombstone should fail closed")
+	}
+
+	deletedAt := time.Date(2026, 7, 4, 13, 55, 0, 0, time.UTC)
+	if err := store.TombstoneFileMapping(ctx, record.LocalFileID, record.UserID, record.OrganizationID, deletedAt); err != nil {
+		t.Fatalf("TombstoneFileMapping returned error: %v", err)
+	}
+
+	var storedDeletedAt time.Time
+	if err := database.QueryRowContext(ctx, `
+		SELECT deleted_at
+		FROM relay_file_mappings
+		WHERE local_file_id = $1
+	`, record.LocalFileID).Scan(&storedDeletedAt); err != nil {
+		t.Fatalf("query deleted_at: %v", err)
+	}
+	if !storedDeletedAt.Equal(deletedAt) {
+		t.Fatalf("deleted_at = %s, want %s", storedDeletedAt, deletedAt)
+	}
+
+	if _, err := store.GetFileMapping(ctx, record.LocalFileID, record.UserID, record.OrganizationID); !errors.Is(err, handler.ErrFileMappingNotFound) {
+		t.Fatalf("GetFileMapping after tombstone error = %v, want ErrFileMappingNotFound", err)
+	}
+
+	got, err := store.ListFileMappings(ctx, record.UserID, record.OrganizationID)
+	if err != nil {
+		t.Fatalf("ListFileMappings after tombstone returned error: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("tombstoned mapping should be hidden from list: %+v", got)
+	}
+}
+
+func TestRelayStoreRegisterBatchPollingPersistsDurableTask(t *testing.T) {
+	store, database, ctx := testRelaySQLStore(t)
+
+	task := handler.BatchPollingRegistration{
+		BatchID:                  "batch_123",
+		RequestID:                "req_batch_123",
+		Model:                    "gpt-4o",
+		APIType:                  types.APITypeBatch,
+		UserID:                   "user_batch",
+		OrganizationID:           "org_batch",
+		APITokenID:               "tok_batch",
+		FeatureType:              "workflow",
+		BillingSessionID:         "bill_batch_123",
+		PreauthorizedAmount:      1.25,
+		TokenPreauthorizedAmount: 1.5,
+	}
+	if err := store.RegisterBatchPolling(ctx, task); err != nil {
+		t.Fatalf("RegisterBatchPolling returned error: %v", err)
+	}
+
+	var got struct {
+		BatchID                  string
+		RequestID                string
+		UserID                   string
+		OrgID                    string
+		APITokenID               string
+		FeatureType              string
+		Model                    string
+		APIType                  string
+		Status                   string
+		Attempts                 int
+		MaxAttempts              int
+		BillingSessionID         string
+		PreauthorizedAmount      float64
+		TokenPreauthorizedAmount float64
+		AvailableAt              time.Time
+		CreatedAt                time.Time
+	}
+	if err := database.QueryRowContext(ctx, `
+		SELECT batch_id, request_id, user_id, organization_id, api_token_id, feature_type, model, api_type, status, attempts, max_attempts, billing_session_id, preauthorized_amount, token_preauthorized_amount, available_at, created_at
+		FROM relay_batch_polling_jobs
+		WHERE batch_id = $1
+	`, task.BatchID).Scan(
+		&got.BatchID,
+		&got.RequestID,
+		&got.UserID,
+		&got.OrgID,
+		&got.APITokenID,
+		&got.FeatureType,
+		&got.Model,
+		&got.APIType,
+		&got.Status,
+		&got.Attempts,
+		&got.MaxAttempts,
+		&got.BillingSessionID,
+		&got.PreauthorizedAmount,
+		&got.TokenPreauthorizedAmount,
+		&got.AvailableAt,
+		&got.CreatedAt,
+	); err != nil {
+		t.Fatalf("query batch polling job: %v", err)
+	}
+
+	if got.BatchID != task.BatchID ||
+		got.RequestID != task.RequestID ||
+		got.UserID != task.UserID ||
+		got.OrgID != task.OrganizationID ||
+		got.APITokenID != task.APITokenID ||
+		got.FeatureType != task.FeatureType ||
+		got.Model != task.Model ||
+		got.APIType != task.APIType.String() ||
+		got.Status != "pending" ||
+		got.Attempts != 0 ||
+		got.MaxAttempts != 5 ||
+		got.BillingSessionID != task.BillingSessionID ||
+		got.PreauthorizedAmount != task.PreauthorizedAmount ||
+		got.TokenPreauthorizedAmount != task.TokenPreauthorizedAmount ||
+		got.AvailableAt.IsZero() ||
+		got.CreatedAt.IsZero() {
+		t.Fatalf("unexpected batch polling job: %+v", got)
+	}
+}
+
+func TestRelayStoreRegisterBatchPollingRejectsMissingBatchID(t *testing.T) {
+	store, _, ctx := testRelaySQLStore(t)
+
+	if err := store.RegisterBatchPolling(ctx, handler.BatchPollingRegistration{
+		RequestID: "req_missing_batch",
+		Model:     "gpt-4o",
+		APIType:   types.APITypeBatch,
+	}); err == nil {
+		t.Fatal("RegisterBatchPolling should reject missing batch id")
+	}
+}
+
+func TestRelayStoreClaimBatchPollingJobsLeasesDueJobs(t *testing.T) {
+	database, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock new: %v", err)
+	}
+	defer database.Close()
+
+	store := NewRelayStore(database)
+	now := time.Date(2026, 7, 5, 4, 30, 0, 0, time.UTC)
+	leaseUntil := now.Add(defaultRelayBatchPollingJobClaimLease)
+	lockedAt := now
+	rows := sqlmock.NewRows([]string{
+		"batch_id", "request_id", "user_id", "organization_id", "api_token_id", "feature_type", "model", "api_type", "status", "error", "attempts", "max_attempts",
+		"billing_session_id", "preauthorized_amount", "token_preauthorized_amount", "locked_at", "locked_by", "available_at", "completed_at", "created_at", "updated_at",
+	}).AddRow(
+		"batch_123", "req_batch_123", "user_batch", "org_batch", "tok_batch", "workflow", "gpt-4o", types.APITypeBatch.String(), RelayBatchPollingJobStatusProcessing,
+		"", 1, 5, "bill_batch_123", 1.25, 1.5, lockedAt, "worker_batch_1", leaseUntil, nil, now.Add(-time.Minute), now,
+	)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("UPDATE relay_batch_polling_jobs job")).
+		WithArgs(now, RelayBatchPollingJobStatusPending, RelayBatchPollingJobStatusFailed, RelayBatchPollingJobStatusProcessing, 2, "worker_batch_1", leaseUntil).
+		WillReturnRows(rows)
+	mock.ExpectCommit()
+
+	jobs, err := store.ClaimBatchPollingJobs(context.Background(), now, 2, "worker_batch_1")
+	if err != nil {
+		t.Fatalf("ClaimBatchPollingJobs returned error: %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("claimed jobs = %d, want 1", len(jobs))
+	}
+	job := jobs[0]
+	if job.BatchID != "batch_123" ||
+		job.RequestID != "req_batch_123" ||
+		job.UserID != "user_batch" ||
+		job.OrganizationID != "org_batch" ||
+		job.APITokenID != "tok_batch" ||
+		job.FeatureType != "workflow" ||
+		job.Model != "gpt-4o" ||
+		job.APIType != types.APITypeBatch.String() ||
+		job.Status != RelayBatchPollingJobStatusProcessing ||
+		job.Attempts != 1 ||
+		job.MaxAttempts != 5 ||
+		job.BillingSessionID != "bill_batch_123" ||
+		job.PreauthorizedAmount != 1.25 ||
+		job.TokenPreauthorizedAmount != 1.5 ||
+		job.LockedBy != "worker_batch_1" ||
+		job.LockedAt == nil ||
+		!job.AvailableAt.Equal(leaseUntil) {
+		t.Fatalf("unexpected claimed job: %+v", job)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestRelayStoreMarkBatchPollingJobTerminalStatesUseOwnerGuard(t *testing.T) {
+	database, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock new: %v", err)
+	}
+	defer database.Close()
+
+	store := NewRelayStore(database)
+	completedAt := time.Date(2026, 7, 5, 4, 35, 0, 0, time.UTC)
+	availableAt := time.Date(2026, 7, 5, 4, 40, 0, 0, time.UTC)
+
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE relay_batch_polling_jobs")).
+		WithArgs("batch_123", "worker_batch_1", RelayBatchPollingJobStatusSucceeded, completedAt).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE relay_batch_polling_jobs")).
+		WithArgs("batch_123", "worker_batch_1", RelayBatchPollingJobStatusFailed, "upstream status pending", availableAt, sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE relay_batch_polling_jobs")).
+		WithArgs("batch_123", "worker_batch_1", RelayBatchPollingJobStatusDeadLetter, "dead_letter: polling attempts exhausted", completedAt).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	if err := store.MarkBatchPollingJobSucceeded(context.Background(), "batch_123", "worker_batch_1", completedAt); err != nil {
+		t.Fatalf("MarkBatchPollingJobSucceeded returned error: %v", err)
+	}
+	if err := store.MarkBatchPollingJobFailed(context.Background(), "batch_123", "worker_batch_1", "upstream status pending", availableAt); err != nil {
+		t.Fatalf("MarkBatchPollingJobFailed returned error: %v", err)
+	}
+	if err := store.MarkBatchPollingJobDeadLetter(context.Background(), "batch_123", "worker_batch_1", "dead_letter: polling attempts exhausted", completedAt); err != nil {
+		t.Fatalf("MarkBatchPollingJobDeadLetter returned error: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
 	}
 }
 

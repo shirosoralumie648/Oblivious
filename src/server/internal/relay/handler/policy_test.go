@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -128,6 +129,48 @@ func TestInitialCommercialPolicyClassifiesCurrentSurface(t *testing.T) {
 		}
 		if policy.ProductionEnabled {
 			t.Fatalf("%s should be disabled in production", key)
+		}
+	}
+}
+
+func TestRealtimePolicyDeclaresCommercialReleaseBlockers(t *testing.T) {
+	policy := mustPolicy(t, "GET /v1/realtime")
+	if policy.Class != DisabledInProduction || policy.ProductionEnabled {
+		t.Fatalf("realtime must stay disabled until commercial blockers close, got class=%s production=%v", policy.Class, policy.ProductionEnabled)
+	}
+	for _, required := range []string{
+		"prebill",
+		"abort settlement",
+		"request-log",
+		"target proof",
+	} {
+		if !strings.Contains(strings.ToLower(policy.DisabledReason), required) {
+			t.Fatalf("realtime disabled reason must mention %q, got %q", required, policy.DisabledReason)
+		}
+	}
+}
+
+func TestBatchPoliciesDeclareCommercialReleaseBlockers(t *testing.T) {
+	for _, key := range []string{
+		"POST /v1/batch",
+		"GET /v1/batches",
+		"GET /v1/batches/:id",
+	} {
+		policy := mustPolicy(t, key)
+		if policy.Class != DisabledInProduction || policy.ProductionEnabled {
+			t.Fatalf("%s must stay disabled until commercial blockers close, got class=%s production=%v", key, policy.Class, policy.ProductionEnabled)
+		}
+		for _, required := range []string{
+			"prebill",
+			"polling",
+			"settlement",
+			"refund",
+			"audit",
+			"usage capture",
+		} {
+			if !strings.Contains(strings.ToLower(policy.DisabledReason), required) {
+				t.Fatalf("%s disabled reason must mention %q, got %q", key, required, policy.DisabledReason)
+			}
 		}
 	}
 }

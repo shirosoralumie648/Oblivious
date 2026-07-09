@@ -12,33 +12,42 @@ type RelayUsageStatus string
 const (
 	RelayUsageStatusSuccess RelayUsageStatus = "success"
 	RelayUsageStatusError   RelayUsageStatus = "error"
+	RelayUsageStatusPending RelayUsageStatus = "pending"
 )
 
 type RelayUsageLogRecord struct {
-	UserID           string
-	OrganizationID   string
-	APITokenID       string
-	RequestID        string
-	APIType          string
-	FeatureType      string
-	QuotaMode        string
-	Model            string
-	ChannelID        string
-	Provider         string
-	Status           RelayUsageStatus
-	StatusCode       int
-	ErrorCode        string
-	LatencyMS        int64
-	Cost             float64
-	ChannelCost      float64
-	PromptTokens     int
-	CompletionTokens int
-	TotalTokens      int
-	CreatedAt        time.Time
+	UserID             string
+	OrganizationID     string
+	APITokenID         string
+	RequestID          string
+	APIType            string
+	FeatureType        string
+	QuotaMode          string
+	Model              string
+	ChannelID          string
+	Provider           string
+	Status             RelayUsageStatus
+	StatusCode         int
+	ErrorCode          string
+	LatencyMS          int64
+	Cost               float64
+	ChannelCost        float64
+	PriceSnapshot      *PricingQuote
+	PriceCurrency      string
+	PriceSource        string
+	PriceEffectiveFrom *time.Time
+	PromptTokens       int
+	CompletionTokens   int
+	TotalTokens        int
+	CreatedAt          time.Time
 }
 
 type UsageLogger interface {
 	RecordRelayUsage(ctx context.Context, record RelayUsageLogRecord) error
+}
+
+type RelayUsageReplacer interface {
+	ReplaceRelayUsage(ctx context.Context, record RelayUsageLogRecord) error
 }
 
 type APITokenQuotaManager interface {

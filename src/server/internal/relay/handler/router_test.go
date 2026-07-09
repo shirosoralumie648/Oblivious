@@ -96,6 +96,70 @@ func TestProductionBatchAndRealtimeRoutesFailClosedBeforeHandler(t *testing.T) {
 	}
 }
 
+func TestProductionBatchRoutesReachHandlerWhenCommercialLifecycleEnabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	batchHandler := &countingHandler{}
+	engine := gin.New()
+	RegisterRoutesWithOptions(engine, map[types.APIType]types.Handler{
+		types.APITypeBatch: batchHandler,
+	}, RouteRegistrationOptions{
+		Production:                      true,
+		BatchCommercialLifecycleEnabled: true,
+	})
+
+	for _, tc := range []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{name: "batch create", method: http.MethodPost, path: "/v1/batch"},
+		{name: "batch list", method: http.MethodGet, path: "/v1/batches"},
+		{name: "batch retrieve", method: http.MethodGet, path: "/v1/batches/batch_123"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(`{"model":"gpt-4o"}`))
+			addConfiguredTrustedRelayHeaders(t, req)
+			rec := httptest.NewRecorder()
+
+			engine.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusAccepted {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusAccepted, rec.Body.String())
+			}
+		})
+	}
+	if batchHandler.calls != 3 {
+		t.Fatalf("batch handler calls = %d, want 3", batchHandler.calls)
+	}
+}
+
+func TestProductionRealtimeRouteReachesHandlerWhenCommercialLifecycleEnabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	realtimeHandler := &countingHandler{}
+	engine := gin.New()
+	RegisterRoutesWithOptions(engine, map[types.APIType]types.Handler{
+		types.APITypeRealtime: realtimeHandler,
+	}, RouteRegistrationOptions{
+		Production:                         true,
+		RealtimeCommercialLifecycleEnabled: true,
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/realtime", nil)
+	addConfiguredTrustedRelayHeaders(t, req)
+	rec := httptest.NewRecorder()
+
+	engine.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusAccepted, rec.Body.String())
+	}
+	if realtimeHandler.streamCalls != 1 {
+		t.Fatalf("realtime stream handler calls = %d, want 1", realtimeHandler.streamCalls)
+	}
+}
+
 func TestProductionFilesUploadRequiresAuditSinkBeforeHandler(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -333,6 +397,43 @@ func TestProductionSupportedRoutesAcceptRelayAPIToken(t *testing.T) {
 	}
 }
 
+func TestProductionRealtimeAPITokenUsesQueryModelBeforeStreamHandler(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	realtimeHandler := &countingHandler{}
+	authenticator := &fakeRelayAPITokenAuthenticator{
+		identity: types.RelayAPITokenIdentity{
+			TokenID:        "tok_realtime",
+			UserID:         "user_realtime",
+			OrganizationID: "org_realtime",
+		},
+	}
+	engine := gin.New()
+	RegisterRoutesWithOptions(engine, map[types.APIType]types.Handler{
+		types.APITypeRealtime: realtimeHandler,
+	}, RouteRegistrationOptions{
+		Production:                         true,
+		RealtimeCommercialLifecycleEnabled: true,
+		APITokenAuthenticator:              authenticator,
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/realtime?model=gpt-4o-realtime-preview", nil)
+	req.Header.Set("Authorization", "Bearer obv_realtime")
+	rec := httptest.NewRecorder()
+
+	engine.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusAccepted, rec.Body.String())
+	}
+	if authenticator.rawToken != "obv_realtime" || authenticator.model != "gpt-4o-realtime-preview" || authenticator.apiType != types.APITypeRealtime {
+		t.Fatalf("authenticator saw token=%q model=%q apiType=%s", authenticator.rawToken, authenticator.model, authenticator.apiType.String())
+	}
+	if realtimeHandler.streamCalls != 1 {
+		t.Fatalf("realtime stream handler calls = %d, want 1", realtimeHandler.streamCalls)
+	}
+}
+
 func TestProductionAPITokenRequestGetsGeneratedRequestID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -518,7 +619,8 @@ func TestRoutePolicyObservabilityWritesStructuredDecisionEvent(t *testing.T) {
 }
 
 type countingHandler struct {
-	calls int
+	calls       int
+	streamCalls int
 }
 
 func (h *countingHandler) Handle(c *gin.Context) error {
@@ -528,7 +630,9 @@ func (h *countingHandler) Handle(c *gin.Context) error {
 }
 
 func (h *countingHandler) HandleStream(c *gin.Context) error {
-	return errors.New("stream should not be called in these tests")
+	h.streamCalls++
+	c.JSON(http.StatusAccepted, gin.H{"ok": true})
+	return nil
 }
 
 type identityRecordingHandler struct {
