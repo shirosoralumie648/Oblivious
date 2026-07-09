@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -18,6 +19,137 @@ type ClickHouseUsageAnalyticsStore struct {
 
 func NewClickHouseUsageAnalyticsStore(db usageAnalyticsQueryer) *ClickHouseUsageAnalyticsStore {
 	return &ClickHouseUsageAnalyticsStore{db: db}
+}
+
+func (s *ClickHouseUsageAnalyticsStore) ListRequestLogEvidence(ctx context.Context, requestIDs []string) (map[string]RequestLogEvidence, error) {
+	if s == nil || s.db == nil {
+		return nil, fmt.Errorf("clickhouse request log evidence store is unavailable")
+	}
+	requestIDs = uniqueRequestLogEvidenceIDs(requestIDs)
+	if len(requestIDs) == 0 {
+		return map[string]RequestLogEvidence{}, nil
+	}
+	placeholders := make([]string, 0, len(requestIDs))
+	args := make([]any, 0, len(requestIDs))
+	for _, requestID := range requestIDs {
+		placeholders = append(placeholders, "?")
+		args = append(args, requestID)
+	}
+	query := fmt.Sprintf(`
+		%s
+		FROM request_logs
+		WHERE request_id IN (%s)
+		ORDER BY timestamp DESC
+	`, clickHouseRequestLogEvidenceSelectColumns(), strings.Join(placeholders, ", "))
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query clickhouse request log evidence: %w", err)
+	}
+	defer rows.Close()
+	return scanRequestLogEvidenceRows(rows)
+}
+
+func (s *ClickHouseUsageAnalyticsStore) ListRelayRouteDecisionEvidence(ctx context.Context, requestIDs []string, apiType string, result string) (map[string]RequestLogEvidence, error) {
+	if s == nil || s.db == nil {
+		return nil, fmt.Errorf("clickhouse request log evidence store is unavailable")
+	}
+	requestIDs = uniqueRequestLogEvidenceIDs(requestIDs)
+	if len(requestIDs) == 0 {
+		return map[string]RequestLogEvidence{}, nil
+	}
+	placeholders := make([]string, 0, len(requestIDs))
+	args := make([]any, 0, len(requestIDs)+2)
+	for _, requestID := range requestIDs {
+		placeholders = append(placeholders, "?")
+		args = append(args, requestID)
+	}
+	args = append(args, strings.TrimSpace(apiType), strings.TrimSpace(result))
+	query := fmt.Sprintf(`
+		%s
+		FROM request_logs
+		WHERE request_id IN (%s)
+		  AND service = 'relay'
+		  AND JSONExtractString(metadata, 'event') = 'relay.route_decision'
+		  AND JSONExtractString(metadata, 'relay_api_type') = ?
+		  AND JSONExtractString(metadata, 'relay_route_result') = ?
+		ORDER BY timestamp DESC
+	`, clickHouseRequestLogEvidenceSelectColumns(), strings.Join(placeholders, ", "))
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query clickhouse relay route decision evidence: %w", err)
+	}
+	defer rows.Close()
+	return scanRequestLogEvidenceRows(rows)
+}
+
+func clickHouseRequestLogEvidenceSelectColumns() string {
+	return `SELECT
+			request_id,
+			toString(id),
+			timestamp,
+			service,
+			endpoint,
+			method,
+			status_code,
+			duration_ms,
+			request_tokens,
+			response_tokens,
+			model,
+			cost_usd,
+			error,
+			toString(trace_id),
+			metadata`
+}
+
+func scanRequestLogEvidenceRows(rows *sql.Rows) (map[string]RequestLogEvidence, error) {
+	evidence := map[string]RequestLogEvidence{}
+	for rows.Next() {
+		var item RequestLogEvidence
+		var metadata string
+		if err := rows.Scan(
+			&item.RequestID,
+			&item.RequestLogID,
+			&item.Timestamp,
+			&item.Service,
+			&item.Endpoint,
+			&item.Method,
+			&item.StatusCode,
+			&item.DurationMS,
+			&item.RequestTokens,
+			&item.ResponseTokens,
+			&item.Model,
+			&item.CostUSD,
+			&item.Error,
+			&item.TraceID,
+			&metadata,
+		); err != nil {
+			return nil, fmt.Errorf("scan clickhouse request log evidence: %w", err)
+		}
+		if json.Valid([]byte(metadata)) {
+			item.Metadata = json.RawMessage(metadata)
+		}
+		if _, exists := evidence[item.RequestID]; !exists {
+			evidence[item.RequestID] = item
+		}
+	}
+	return evidence, rows.Err()
+}
+
+func uniqueRequestLogEvidenceIDs(requestIDs []string) []string {
+	seen := map[string]struct{}{}
+	unique := []string{}
+	for _, requestID := range requestIDs {
+		requestID = strings.TrimSpace(requestID)
+		if requestID == "" {
+			continue
+		}
+		if _, ok := seen[requestID]; ok {
+			continue
+		}
+		seen[requestID] = struct{}{}
+		unique = append(unique, requestID)
+	}
+	return unique
 }
 
 func (s *ClickHouseUsageAnalyticsStore) GetUsageAnalytics(ctx context.Context, filter UsageAnalyticsFilter) (UsageAnalytics, error) {

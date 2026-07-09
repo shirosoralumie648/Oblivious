@@ -148,6 +148,60 @@ func TestClickHouseUsageAnalyticsStoreUsesMetadataUserIdentity(t *testing.T) {
 	}
 }
 
+func TestClickHouseUsageAnalyticsStoreQueriesRelayRouteDecisionEvidence(t *testing.T) {
+	driverName := "admin_clickhouse_route_decision_evidence"
+	queryer := &clickHouseUsageAnalyticsQueryer{}
+	registerClickHouseUsageAnalyticsDriver(driverName, queryer)
+
+	db, err := sql.Open(driverName, "")
+	if err != nil {
+		t.Fatalf("open capture db: %v", err)
+	}
+	defer db.Close()
+
+	evidence, err := NewClickHouseUsageAnalyticsStore(db).ListRelayRouteDecisionEvidence(
+		context.Background(),
+		[]string{" req_batch_1 ", "req_batch_2", "req_batch_1"},
+		"batch",
+		"allowed",
+	)
+	if err != nil {
+		t.Fatalf("list route decision evidence: %v", err)
+	}
+
+	queryer.mu.Lock()
+	queries := strings.Join(queryer.queries, "\n")
+	args := append([]driver.NamedValue(nil), queryer.args...)
+	queryer.mu.Unlock()
+
+	for _, want := range []string{
+		"FROM request_logs",
+		"service = 'relay'",
+		"JSONExtractString(metadata, 'event') = 'relay.route_decision'",
+		"JSONExtractString(metadata, 'relay_api_type') = ?",
+		"JSONExtractString(metadata, 'relay_route_result') = ?",
+		"ORDER BY timestamp DESC",
+	} {
+		if !strings.Contains(queries, want) {
+			t.Fatalf("expected route-decision evidence query to include %q, got %s", want, queries)
+		}
+	}
+	if len(args) != 4 ||
+		args[0].Value != "req_batch_1" ||
+		args[1].Value != "req_batch_2" ||
+		args[2].Value != "batch" ||
+		args[3].Value != "allowed" {
+		t.Fatalf("unexpected route-decision evidence query args: %#v", args)
+	}
+	item, ok := evidence["req_batch_1"]
+	if !ok {
+		t.Fatalf("expected evidence for req_batch_1, got %+v", evidence)
+	}
+	if item.Service != "relay" || item.Endpoint != "/v1/batch" || item.StatusCode != 200 || !strings.Contains(string(item.Metadata), `"relay_route_result":"allowed"`) {
+		t.Fatalf("unexpected route-decision evidence row: %+v", item)
+	}
+}
+
 func TestClickHouseUsageAnalyticsStoreMapsGranularityFunctions(t *testing.T) {
 	for granularity, want := range map[string]string{
 		"second": "toStartOfSecond(timestamp)",
@@ -230,6 +284,42 @@ func (c clickHouseUsageAnalyticsConn) QueryContext(_ context.Context, query stri
 	c.queryer.mu.Unlock()
 
 	switch {
+	case strings.Contains(query, "relay.route_decision"):
+		return clickHouseUsageAnalyticsRows([]string{
+			"request_id",
+			"toString(id)",
+			"timestamp",
+			"service",
+			"endpoint",
+			"method",
+			"status_code",
+			"duration_ms",
+			"request_tokens",
+			"response_tokens",
+			"model",
+			"cost_usd",
+			"error",
+			"toString(trace_id)",
+			"metadata",
+		}, [][]driver.Value{
+			{
+				"req_batch_1",
+				"550e8400-e29b-41d4-a716-446655440000",
+				time.Date(2026, 6, 16, 0, 1, 0, 0, time.UTC),
+				"relay",
+				"/v1/batch",
+				"POST",
+				int64(200),
+				int64(42),
+				int64(0),
+				int64(0),
+				"",
+				float64(0),
+				"",
+				"00000000-0000-0000-0000-000000000000",
+				`{"event":"relay.route_decision","relay_api_type":"batch","relay_route_result":"allowed"}`,
+			},
+		}), nil
 	case strings.Contains(query, "AS primary_key") && strings.Contains(query, "model AS primary_key"):
 		startedAt := time.Date(2026, 6, 1, 0, 1, 0, 0, time.UTC)
 		return clickHouseUsageAnalyticsRows([]string{"primary_key", "secondary_key", "request_count", "total_tokens", "total_cost", "started_at"}, [][]driver.Value{

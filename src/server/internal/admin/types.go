@@ -1,6 +1,9 @@
 package admin
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // ChannelInfo represents a relay channel in the admin list (D-02, D-03).
 type ChannelInfo struct {
@@ -439,6 +442,26 @@ type UsageLogEntry struct {
 	CompletionTokens int       `json:"completionTokens"`
 	TotalTokens      int       `json:"totalTokens"`
 	CreatedAt        time.Time `json:"createdAt"`
+}
+
+// RequestLogEvidence links a Postgres usage row to the ClickHouse request log
+// row with the same request_id for billing/observability reconciliation.
+type RequestLogEvidence struct {
+	RequestID      string          `json:"requestId"`
+	RequestLogID   string          `json:"requestLogId"`
+	Timestamp      time.Time       `json:"timestamp"`
+	Service        string          `json:"service"`
+	Endpoint       string          `json:"endpoint"`
+	Method         string          `json:"method"`
+	StatusCode     int             `json:"statusCode"`
+	DurationMS     int             `json:"durationMs"`
+	RequestTokens  int             `json:"requestTokens"`
+	ResponseTokens int             `json:"responseTokens"`
+	Model          string          `json:"model"`
+	CostUSD        float64         `json:"costUsd"`
+	Error          string          `json:"error,omitempty"`
+	TraceID        string          `json:"traceId,omitempty"`
+	Metadata       json.RawMessage `json:"metadata,omitempty"`
 }
 
 // UsageLogFilter contains filter parameters for admin Relay usage inspection.
